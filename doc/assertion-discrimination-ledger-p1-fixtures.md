@@ -336,7 +336,7 @@ discriminates the accessor family from each other — this is the same
 "one row = one call site" shape as round 8's matrix.rs table, not a
 finding.
 
-## moveit-constraints (9 sites)
+## moveit-constraints (10 sites)
 
 | file:line | anchor | test fn | verdict | evidence | in-family |
 |---|---|---|---|---|---|
@@ -349,6 +349,7 @@ finding.
 | utils_parity.rs:973 | bare `.is_none()` | `an_unrecognised_frame_is_none` | single-branch | structural — `resolve_position_constraint_frame` (`utils.rs:727-747`) has one `None`-producing path, `resolve_frame_to_link`'s own single `None` cause (`utils.rs:641`, the closure result — the two other tiers only ever return `Some` or fall through, never `None`) — line renumbered from a stale `utils_parity.rs:885` | yes |
 | utils_parity.rs:984 | bare `.is_none()` | same fn, second assertion | single-branch | structural — `resolve_orientation_constraint_frame` (`utils.rs:777-805`) shares the identical single `resolve_frame_to_link` None cause — line renumbered from a stale `utils_parity.rs:896` | yes |
 | utils_parity.rs:1030 | matches! | `xyz_euler_tolerance_across_a_real_frame_change_is_an_error` | single-branch | structural — `resolve_orientation_constraint_frame`'s only `Error::Other`-producing site is the `XyzEuler`-tolerance-across-a-frame-change guard (`utils.rs:796-802`), a single `if` — line renumbered from a stale `utils_parity.rs:942` | yes |
+| sampler_self_validation.rs:637 | bare `.is_empty()` | `every_sampled_state_satisfies_its_own_constraints` | discriminating | bite (2026-08-05, the round that added the file) — two independent mutations, each reverted after, and neither silent: (a) nudging every sampled state by `+0.5` on `panda_joint1` before it is decided fired this assertion for all seven sampler configurations (2178/10000 states still satisfied, so the message named which sampler and how many); (b) `MAX_IK_ATTEMPTS = 0` fired it for the five IK-backed configurations with `produced 0 of its N states ... -- a vacuous 100%`, the zero-production branch that exists precisely so a sampler that converges on nothing cannot report a perfect rate. `failures` is a `Vec<String>` this test builds from per-sampler counters, so the `is_empty()` shape is a collected-diagnostics assertion, not a single-branch guard: the two `assert_eq!`s below it restate the same totals as numbers | yes |
 
 **`constraint_sampler_manager.rs:172` moved to `not-this-family` (clause
 2, decision).** Re-read `select_default_sampler_inner`
@@ -867,8 +868,8 @@ No fix needed for moveit-kinematics.
 
 | Site | Kind | Verdict | Evidence |
 |---|---|---|---|
-| `main.rs:2446` | is_empty | **not-this-family** (corrected below) | its own message says "for this diagnostic to mean anything" — a precondition on `parry_representable_link_names`, not on the collision decision this test pins; see the clause-3 re-audit table |
-| `main.rs:2534` | is_empty | in-family | the pinned regression itself; paired one line above with an explicit `touched > 0` per-link guard against exactly the vacuous-pass failure mode the doc comment names |
+| `main.rs:2599` | is_empty | **not-this-family** (corrected below) | its own message says "for this diagnostic to mean anything" — a precondition on `parry_representable_link_names`, not on the collision decision this test pins; see the clause-3 re-audit table |
+| `main.rs:2687` | is_empty | in-family | the pinned regression itself; paired one line above with an explicit `touched > 0` per-link guard against exactly the vacuous-pass failure mode the doc comment names |
 | `harness.rs:60` | contains | in-family | unique stdout line |
 | `harness.rs:64` | contains | in-family | unique stdout line |
 | `harness.rs:83` | contains | in-family | secondary corroboration; primary discriminator is the paired `assert_eq!(status.code(), Some(1))` in the same test |
@@ -941,8 +942,8 @@ anchor this pass:
 | `ik_fk_roundtrip.rs:267` | `NewtonRaphsonSolver::new` (which itself calls `ChainInfo::build`) | `err` is its direct return, one layer up | in-family |
 | `multivariate_gaussian.rs:213` | `MultivariateGaussian::new` | checked inline on the constructor's own return, no intermediate object | in-family |
 | `moveit-test-support/src/lib.rs:76` | *(the calling crate's actual subject — this function is a shared fixture-precondition helper, not itself a decision under test)* | `assert_group_has_updated_links` is called by *other* crates' fixture builders, before those crates' own subject call. Deleting the call to whatever the calling test's real subject is (e.g. `generate_distance_field_cache_entry`) leaves this assertion's outcome completely unaffected — it depends only on the URDF/SRDF fixture's static joint configuration. Same shape as `ruckig_smoothing.rs:199`'s `trajectory.group().is_none()`, just packaged as a shared helper instead of an inline check | **not-this-family** (moved) |
-| `main.rs:2446` | the collision/near-placement decision this test pins (`decide_cone`'s tie-break, checked at line 2534) | `eligible.is_empty()`'s own message says it outright: "for this diagnostic to mean anything." `eligible` comes from `parry_representable_link_names(&model)`, not from the collision-checking loop below. Deleting the call to the actual subject (`env.check_robot_collision`, the loop that produces `ambiguous`) leaves this assertion completely unaffected | **not-this-family** (moved) |
-| `main.rs:2534` | `env.check_robot_collision` / `decide_cone`'s tie-break | `ambiguous` is built from `touched_link_counts`, populated once per link by calling `env.check_robot_collision(...)` inside the loop — a genuine per-call subject decision, not a value the test constructed itself. Deleting that call empties `touched_link_counts` and changes this assertion | in-family |
+| `main.rs:2599` | the collision/near-placement decision this test pins (`decide_cone`'s tie-break, checked at line 2687) | `eligible.is_empty()`'s own message says it outright: "for this diagnostic to mean anything." `eligible` comes from `parry_representable_link_names(&model)`, not from the collision-checking loop below. Deleting the call to the actual subject (`env.check_robot_collision`, the loop that produces `ambiguous`) leaves this assertion completely unaffected | **not-this-family** (moved) |
+| `main.rs:2687` | `env.check_robot_collision` / `decide_cone`'s tie-break | `ambiguous` is built from `touched_link_counts`, populated once per link by calling `env.check_robot_collision(...)` inside the loop — a genuine per-call subject decision, not a value the test constructed itself. Deleting that call empties `touched_link_counts` and changes this assertion | in-family |
 | `harness.rs:60` | the `moveit-diff` runner binary itself (this whole test file's subject) | `stdout` is the captured output of actually executing `CARGO_BIN_EXE_moveit-diff`; deleting that `Command::output()` call removes `stdout` entirely | in-family |
 | `harness.rs:64` | same | same | in-family |
 | `harness.rs:83` | same | `stdout`/exit code both come from running the binary; this line is a secondary corroboration of the paired `assert_eq!(status.code(), Some(1))` in the same test, not a precondition for it | in-family |
@@ -967,7 +968,7 @@ moved:
 
 - `moveit-test-support/src/lib.rs:76` — fixture-precondition helper,
   same shape as the census's own `ruckig_smoothing.rs:199` precedent.
-- `tools/moveit-diff/src/main.rs:2446` — its own message names it a
+- `tools/moveit-diff/src/main.rs:2599` — its own message names it a
   precondition ("for this diagnostic to mean anything").
 - `tools/moveit-diff/tests/harness.rs:138,144` — assert on
   `fake-oracle.py`'s file text, read by the test itself; no crate code
@@ -1067,7 +1068,7 @@ listed above with its reason.
 
 ## UNFIXED
 
-- ~~`tools/moveit-diff/src/main.rs:2534`'s `near_placement_never_touches_more_than_one_link_at_once` is `#[ignore]`d and needs `third_party/moveit_resources`; that directory does not exist in this worktree...~~ **Closed by the merger.** The premise was wrong: `third_party/moveit_resources` exists and is populated in the primary checkout. It is untracked, so `git worktree` never materialises it — the absence is a property of every `caucus` worktree, not of this machine, and the `find /` that reported nothing was run from inside one. Run from `/home/stevek/work/moveit-rs`, `cargo nextest run -p moveit-diff --run-ignored all -E 'test(near_placement_never_touches_more_than_one_link_at_once)'` **passes**: 17 links checked, 17 with a near-placement touching ≥1 other link, 0 ambiguous. The diagnostic's conclusion therefore stands — `decide_cone`'s `max_contacts: 1` tie-break is ruled out as the source of the 115-case distance mismatch.
+- ~~`tools/moveit-diff/src/main.rs:2687`'s `near_placement_never_touches_more_than_one_link_at_once` is `#[ignore]`d and needs `third_party/moveit_resources`; that directory does not exist in this worktree...~~ **Closed by the merger.** The premise was wrong: `third_party/moveit_resources` exists and is populated in the primary checkout. It is untracked, so `git worktree` never materialises it — the absence is a property of every `caucus` worktree, not of this machine, and the `find /` that reported nothing was run from inside one. Run from `/home/stevek/work/moveit-rs`, `cargo nextest run -p moveit-diff --run-ignored all -E 'test(near_placement_never_touches_more_than_one_link_at_once)'` **passes**: 17 links checked, 17 with a near-placement touching ≥1 other link, 0 ambiguous. The diagnostic's conclusion therefore stands — `decide_cone`'s `max_contacts: 1` tie-break is ruled out as the source of the 115-case distance mismatch.
 - ~~`ruckig_filter.rs::joint_vel_accel_jerk_bounds` and `ChainInfo::build`'s untested unsupported-joint-type guard (`chain.rs:196`, no assertion exists) are not independently re-verified/covered — see the Exclusions and Bites sections above for why each was left as-is rather than bit or newly tested.~~ **Closed — see Round 5 below.** `chain.rs:193-200` is proven unreachable by enumeration, not merely untested; `ruckig_filter.rs::joint_vel_accel_jerk_bounds` had two of its four guards (`velocity_bounded`, `jerk_bounded`) with zero test coverage, not merely "corroborated by pattern" as this line previously assumed — both are now tested and isolating-mutation-confirmed.
 
 ## Round 5: `ChainInfo::build`'s type guard and `joint_vel_accel_jerk_bounds`, re-examined under §3a
