@@ -48,13 +48,52 @@
 #      line, is exactly the "content-blind window match" failure mode
 #      above, made mechanical. See `find_anchors` for which of those two
 #      shapes a name has to have before it counts as a claim at all.
+#   4. Failing that, if the citing text QUOTES the code -- a backtick span
+#      that is a code fragment rather than prose -- that fragment must
+#      occur literally at one of the lines the citation names. See
+#      `quotations_near` and MIN_QUOTATION.
 #
-# A citation with no such anchor is bounds-checked only and reported as
-# such, not silently counted as verified -- this script does not manufacture
-# confidence it cannot back up with a name to check against. That count is
-# on the OK line for the same reason count/orphan totals are elsewhere in
-# this repo's `check-*`/`verify-*` scripts: a run that verified nothing must
-# not read the same as a run that verified everything.
+# Rule 4 exists because rule 3 was structurally unable to check 88% of this
+# corpus, and that is not a coverage gap, it is where drift lived. Rule 3
+# can only check a claim of the shape "the cited line is inside function
+# NAME"; what these documents actually cite is overwhelmingly not that -- a
+# `const`, a struct field's doc comment, an `#[ignore]` attribute, one
+# argument of one call, a `rng.random_range(0.005..0.015)` bound. None of
+# those can be expressed as "inside fn NAME", so 1924 citations sat in a
+# bucket the run counted and nothing checked, and fourteen citations into
+# `tools/moveit-diff/src/main.rs` rotted there across the rounds that grew
+# that file from ~2100 lines to 4298 -- every one still naming the line its
+# subject occupied several rounds earlier.
+#
+# The general form of rule 3's claim is a QUOTATION, not a name: the citing
+# text says what the line says, and the check is whether the line still says
+# it. That covers every shape above, it is what a reader does by hand when
+# they follow a citation, and it is what would have caught all fourteen --
+# each already quoted its subject in its own sentence.
+#
+# The converse does NOT hold and is deliberately not checked: a citation
+# whose quoted fragment is absent from the cited line is NOT reported as
+# drift, because in this corpus a nearby backtick span is at least as often
+# the function a test is ABOUT (`` `butterworth.rs:153` `` next to
+# `ButterworthFilter::new`, citing an assertion inside the test that calls
+# it) as it is a quotation OF the cited line. Measured here: of 641
+# citations carrying a qualifying backtick span within 8 characters, 476 do
+# not have that span at the line they cite, and raising the bar does not
+# separate them -- restricting to spans of 40+ characters that do occur
+# somewhere in the cited file still leaves 303. So a hit is evidence and a
+# miss is not, and this script reports the miss as unverified rather than
+# asserting drift it cannot back up.
+#
+# A citation with neither anchor is UNANCHORED: bounds-checked only, and
+# reported as such rather than silently counted as verified -- this script
+# does not manufacture confidence it cannot back up. That count is on the OK
+# line for the same reason count/orphan totals are elsewhere in this repo's
+# `check-*`/`verify-*` scripts: a run that verified nothing must not read
+# the same as a run that verified everything. It is broken down per citing
+# document rather than aggregated, because one corpus-wide number is not
+# something the panel that owns one document can act on, and closing that
+# residual is what would let the anchor become a requirement instead of a
+# report -- see the note above the per-document listing in `main`.
 #
 # Named `check-*` so `ci.yml`'s glob runs it: this needs nothing but
 # python3 and the tracked files -- no docker, no cargo, no upstream
@@ -518,6 +557,100 @@ def find_anchors(
     return [], False
 
 
+# Rule 4's floor for a backtick span to count as a quotation of code rather
+# than a word of prose. Both halves matter, and both were set by reading
+# what they let through: without the delimiter test, `` `revolute` ``/
+# `` `contains` ``/`` `Default` `` land somewhere in almost any Rust file by
+# accident and would verify a citation against nothing; without the length
+# floor, `` `..` ``/`` `&mut` `` do the same. Sweeping the floor over this
+# corpus moves the rule-4 count 646 (6) / 621 (8) / 580 (10) -- no cliff, so
+# 8 is chosen as the point where every single-word token in a spot-read of
+# the newly-verified set was still a real identifier.
+MIN_QUOTATION = 8
+QUOTATION_DELIMS = ("(", ")", "::", "!", "=", "..", "->", "[", "]", '"', "&", ".", "/", "_")
+BACKTICK_SPAN_RE = re.compile(r"`([^`\n]+)`")
+# `path.ext:NNN` for ANY extension, not just `.rs`: an upstream citation
+# (`planning_scene.cpp:1496`) sits next to a port citation constantly in
+# these documents, and a pointer is never a quotation of the port's line.
+ANY_CITATION_RE = re.compile(r"^[\w./-]+\.\w+:\d+(?:[-,]\d+)*$")
+BARE_PATH_RE = re.compile(r"^[\w./-]+\.\w+$")
+# Markdown escapes a cell-splitting `|` inside a table; the source being
+# quoted has the bare operator. Without this, every folded-operand guard
+# quoted in `doc/folded-operand-guards.md` (`a.is_empty() \|\| b.is_empty()`)
+# fails to match the code it is quoting verbatim.
+MD_ESCAPES = (("\\|", "|"), ("\\*", "*"), ("\\_", "_"), ("\\<", "<"), ("\\`", "`"))
+
+
+def citing_context(lines, index):
+    """The text a citation's claim is made in, 0-based `index` being its own
+    line. A table row is its own context -- a neighbouring row is a different
+    claim about a different site. Prose is the whole blank-line-delimited
+    paragraph, because these documents wrap Korean prose at ~72 columns and a
+    citation's subject lands on the line above or below as readily as on its
+    own: `PORTING-PLAN.md:9384` names its test on the preceding line, and
+    `:9916` names `satisfied` on the preceding line."""
+    if lines[index].lstrip().startswith("|"):
+        return lines[index]
+    start = index
+    while start > 0 and lines[start - 1].strip() and not lines[start - 1].lstrip().startswith("|"):
+        start -= 1
+    end = index
+    while (
+        end + 1 < len(lines)
+        and lines[end + 1].strip()
+        and not lines[end + 1].lstrip().startswith("|")
+    ):
+        end += 1
+    return "\n".join(lines[start : end + 1])
+
+
+def quotations_near(context):
+    """Every backtick span in `context` that is a quotation of code rather
+    than a word of prose or a pointer: at least MIN_QUOTATION characters,
+    carrying at least one QUOTATION_DELIMS delimiter, and not itself a
+    citation, a bare path, or a commit SHA."""
+    out = []
+    for m in BACKTICK_SPAN_RE.finditer(context):
+        token = m.group(1).strip()
+        for escaped, raw in MD_ESCAPES:
+            token = token.replace(escaped, raw)
+        if len(token) < MIN_QUOTATION or HEX_SHA_RE.match(token):
+            continue
+        if ANY_CITATION_RE.match(token) or BARE_PATH_RE.match(token):
+            continue
+        if not any(d in token for d in QUOTATION_DELIMS):
+            continue
+        out.append(token)
+    return out
+
+
+def cited_regions(match):
+    """The (start, end) spans a citation names -- spans, not the flat
+    endpoint list `parse_cited_lines` returns. Rule 4 asks whether the quoted
+    text is anywhere INSIDE a cited range, which the endpoints alone cannot
+    answer: `main.rs:2731-2741` quotes `oracle_only`, which is at 2739."""
+    regions = [(int(match.group(2)), int(match.group(3) or match.group(2)))]
+    if match.group(4):
+        for part in match.group(4).split(","):
+            if "-" in part:
+                a, b = part.split("-", 1)
+                regions.append((int(a), int(b)))
+            else:
+                regions.append((int(part), int(part)))
+    return regions
+
+
+def content_anchor(quotations, body, regions):
+    """The first quotation occurring literally somewhere in a cited region,
+    or None. `body` is the resolved file's lines."""
+    for start, end in regions:
+        region = "\n".join(body[start - 1 : min(end, len(body))])
+        for token in quotations:
+            if token in region:
+                return token
+    return None
+
+
 def resolve_path(fname_part, rs_files_by_basename, rs_files_set):
     if "/" in fname_part:
         if fname_part in rs_files_set:
@@ -548,7 +681,8 @@ def main():
     out_of_bounds = []  # (md, line_no, fname_part, cited_line, resolved_path, file_len)
     anchor_mismatch = []  # (md, line_no, fname_part, cited_line, anchor, resolved_path, spans_for_anchor)
     anchor_verified = 0
-    bounds_only = 0
+    content_verified = 0
+    unanchored_by_file = {}
 
     for md in md_files:
         text = (REPO_ROOT / md).read_text(encoding="utf-8", errors="replace")
@@ -593,6 +727,18 @@ def main():
                     continue
 
                 spans = spans_for(resolved_path)
+                body = (
+                    (REPO_ROOT / resolved_path)
+                    .read_text(encoding="utf-8", errors="replace")
+                    .split("\n")
+                )
+                # Rule 4's verdict, computed once here so that every path
+                # which used to fall through to bounds-only reaches it: a
+                # citation is never filed as unverified while it is in fact
+                # quoting the line it names.
+                quoted = content_anchor(
+                    quotations_near(citing_context(lines, line_no - 1)), body, cited_regions(m)
+                )
 
                 # A citation landing entirely above the file's first function
                 # is to file-level content -- the header comment, the module
@@ -611,7 +757,10 @@ def main():
                     default=None,
                 )
                 if first_fn is not None and all(ln < first_fn for ln in cited_lines):
-                    bounds_only += 1
+                    if quoted:
+                        content_verified += 1
+                    else:
+                        unanchored_by_file[md] = unanchored_by_file.get(md, 0) + 1
                     continue
 
                 anchors, tight = find_anchors(
@@ -624,7 +773,10 @@ def main():
                     ledger_row=line_no in ledger_rows,
                 )
                 if not anchors:
-                    bounds_only += 1
+                    if quoted:
+                        content_verified += 1
+                    else:
+                        unanchored_by_file[md] = unanchored_by_file.get(md, 0) + 1
                     continue
 
                 # A cited line lands if it is in SOME candidate's span -- not
@@ -667,11 +819,14 @@ def main():
                     # demanding all 11 sit inside the 2 named tests failed
                     # citations that were right. Partial containment is the
                     # census shape and carries no drift signal either way, so
-                    # it drops to bounds-only rather than passing or failing.
-                    # ZERO containment stays a failure -- that is what caught
-                    # `p1-robotmodel.md:825`, whose 2 cited lines were in
-                    # neither named test.
-                    bounds_only += 1
+                    # it drops through to rule 4 rather than passing or
+                    # failing. ZERO containment stays a failure -- that is
+                    # what caught `p1-robotmodel.md:825`, whose 2 cited lines
+                    # were in neither named test.
+                    if quoted:
+                        content_verified += 1
+                    else:
+                        unanchored_by_file[md] = unanchored_by_file.get(md, 0) + 1
                 else:
                     anchor_mismatch.append(
                         (md, line_no, fname_part, cited_lines, anchors, resolved_path, spans)
@@ -680,7 +835,10 @@ def main():
     hard_fail = bool(out_of_bounds) or bool(anchor_mismatch) or bool(unresolved)
     counts = (
         f"{anchor_verified} anchor-verified (cited line inside the named function's body), "
-        f"{bounds_only} bounds-checked only (no nameable anchor in the citing text), "
+        f"{content_verified} content-verified (the citing text's own quotation of the code is "
+        f"at the cited line), "
+        f"{sum(unanchored_by_file.values())} unanchored (bounds-checked only -- the citing text "
+        f"neither names a containing function nor quotes the line), "
         f"{len(external)} exempt (names a dependency or a build artifact, see above), "
         f"{len(out_of_bounds)} out-of-bounds, {len(anchor_mismatch)} anchor-mismatch, "
         f"{len(unresolved)} unresolvable"
@@ -725,6 +883,25 @@ def main():
                 else f"dependency source, pinned at {fname_part.split('/', 1)[0]}"
             )
             print(f"  {md}:{line_no}: `{fname_part}` -- {why}", file=sys.stderr)
+
+    if unanchored_by_file:
+        # Per citing document, never one corpus-wide total. The residual is a
+        # work list and the panel that can act on it owns one document, so
+        # `PORTING-PLAN.md: 195` is actionable in a way "1419 unanchored" is
+        # not. It is also the gate's own precondition: an unanchored citation
+        # cannot be made a hard failure while 1419 of them exist across 46
+        # documents, so the number here is what has to reach zero before this
+        # bucket can stop being a report and start being a requirement.
+        print(
+            f"--- {sum(unanchored_by_file.values())} unanchored citation(s), by citing "
+            f"document: bounds-checked only, so an insertion in the file they name rots "
+            f"them silently and nothing here can tell. Give one a claim to check by "
+            f"quoting, in its own sentence or table row, a fragment of the line it cites "
+            f"(>= {MIN_QUOTATION} characters, carrying a code delimiter) ---",
+            file=sys.stderr,
+        )
+        for md, count in sorted(unanchored_by_file.items(), key=lambda kv: (-kv[1], kv[0])):
+            print(f"  {count:5d}  {md}", file=sys.stderr)
 
     if unresolved:
         print(f"--- {len(unresolved)} citation(s) to an unresolvable path ---", file=sys.stderr)
