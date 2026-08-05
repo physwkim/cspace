@@ -45,7 +45,7 @@ Every row below cites which clause(s) apply, not a re-derived paraphrase.
 |---|---|---|---|---|
 | `ros/moveit-ros` | 26+2=28 | 25+2=27 | -1 | `b0a9e1b` (this branch, pre-round-8) converted `state.rs`'s `assert!(matches!(err, Error::UnknownName{..}))` to `assert_err_mentions(...)` — real fix, landed on a sibling branch to `df36fab` before the two merged, not an instrument miss. `state.rs` now has zero anchor-matching sites. |
 | `moveit-distance-field` | 2+18=20 | 2+16=18 | -2 | Two of this branch's own pre-round-8 commits converted bare sites to message-content checks: `08976b8` (`.is_err()` → `match` on structured `kind`, drops the `assert!` shape entirely) and `5ea2418` (`.is_err()` → `err.to_string().contains(...)`). Both topologically parallel to `df36fab`, same branch-merge situation as above. |
-| `moveit-model` | 5+15=20 | 5+17=22 | +2 | `72f5eca` (merged after `df36fab`) added two sites: `46cd26b`'s new test `get_end_effector_unknown_name_is_an_error` (`robot_model.rs:2856`) and `7676185`'s added `j4` mimic check when the cycle-clear fixture was widened from 3 joints to 4 (`robot_model.rs:2096`). Real new-test growth, not an instrument miss. |
+| `moveit-model` | 5+15=20 | 5+17=22 | +2 | `72f5eca` (merged after `df36fab`) added two sites: `46cd26b`'s new test `get_end_effector_unknown_name_is_an_error` (`robot_model.rs:2856`) and `7676185`'s added `j4` mimic check when the cycle-clear fixture was widened from 3 joints to 4 (`robot_model.rs:2096` (`mimic_mutual_cycle_clears_every_mimic_in_the_model`)). Real new-test growth, not an instrument miss. |
 
 No crate-row disagreement is an instrument bug; all three are named, dated,
 `git log`-verified drift since `df36fab`.
@@ -118,12 +118,12 @@ Zero blind sites, zero commits this round.
 Most of these 22 sites had no dedicated round-report commit before this
 round; verdicts are a bite run just now (direct read of the function under
 test, confirming the number of Error/None-producing sites reachable from
-that test's call path), except `joint/urdf.rs:388` and the mimic sites
-(`robot_model.rs:2052,2053,2054,2078,2110`, `joint/model.rs:1040,1047`),
+that test's call path), except `joint/urdf.rs:388` (`spherical_joint_type_is_rejected`) and the mimic sites
+(`robot_model.rs:2052,2053,2054,2078,2110` -- fixture literal `<link name="base"/>` at `:2052`, `joint/model.rs:1040,1047` (`mimic_set_get_clear_round_trip`)),
 which round 6's report (`01KZ7P9B03SWRKQWQV1DXB4EEA-7.md`, absolute path
 under `.caucus/sessions/`, not reachable from this worktree — `.caucus` is
 gitignored) already covered; those were re-bitten this round rather than
-cited blind, and agree with the prior report. `robot_model.rs:2055` (j4)
+cited blind, and agree with the prior report. `robot_model.rs:2055` (`mimic_mutual_cycle_clears_every_mimic_in_the_model`) (j4)
 is new since that report and had never been bitten by anyone until now.
 
 | file:line | anchor | test fn | verdict | evidence |
@@ -157,22 +157,22 @@ post-build state check is categorically outside the family — re-bitten
 individually, not reasoned from shape. Second, applying census §9's formal
 three-clause test to all 13 originally-`not-this-family` model rows (not
 just the 9 already flagged) found one of those 9 was itself too coarse:
-`joint/model.rs:1040` (the *pre-set* `mimic_set_get_clear_round_trip`
+`joint/model.rs:1040` (`mimic_set_get_clear_round_trip`) (the *pre-set* `mimic_set_get_clear_round_trip`
 assertion) fails §9 clause 3 — it reads a value the subject never decided,
 since it runs before either `set_mimic` or `clear_mimic` — and moves back to
 `not-this-family`. `:1047` (the post-*clear*-set assertion in the same test)
-passes all three clauses and stays `discriminating`. `robot_model.rs:2052`
-(j1) is census §9's own worked example verbatim; `robot_model.rs:2055` (j4)
+passes all three clauses and stays `discriminating`. `robot_model.rs:2052` (`mimic_mutual_cycle_clears_every_mimic_in_the_model`)
+(j1) is census §9's own worked example verbatim; `robot_model.rs:2055` (`mimic_mutual_cycle_clears_every_mimic_in_the_model`) (j4)
 was blind under every mutation tried and had never been bitten before —
 fixed this round by `9661d4c`.
 
 Final breakdown: 6 discriminating, 8 single-branch, 2 fixture-collapse-fixed
 (`7676185` for j1, `9661d4c` for j4, this round), 6 genuinely
-`not-this-family` under §9 (`joint/model.rs:1040` clause 3,
-`joint/urdf.rs:366,372,378` clause 1 `JointKind` variants,
-`robot_model.rs:2492` clause 3 fixture precondition, `robot_model.rs:2564`
+`not-this-family` under §9 (`joint/model.rs:1040` (`mimic_set_get_clear_round_trip`) clause 3,
+`joint/urdf.rs:366,372,378` (`fixed_floating_and_planar_produce_the_matching_kind`) clause 1 `JointKind` variants,
+`robot_model.rs:2492` (`mesh_collision_whose_package_is_not_in_any_search_path_is_skipped_with_a_diagnostic`) clause 3 fixture precondition, `robot_model.rs:2564` (`mesh_collision_resolving_to_an_unreadable_file_is_skipped_with_a_diagnostic`)
 clause 1 `Shape::Mesh` variant). 6+8+2+6 = 22. No site here reads as a
-hidden D6 finding: `robot_model.rs:2796`/`2815`'s doc comment flags two
+hidden D6 finding: `robot_model.rs:2796` (`end_effector_wires_name_and_falls_back_to_fewest_joints_parent`)/`2815`'s doc comment flags two
 conceptual input scenarios, but both trace to the same single construction
 call, not two guards collapsing to an indistinguishable shared
 `None`/error. One commit this round: `9661d4c`.
@@ -188,8 +188,8 @@ site).
 **Revised in two rounds.** First pass: `not-this-family` had drifted to mean
 "not about `Result`/`Option`" instead of a defined membership test, and
 misclassified 9 post-build business-state sites on that basis —
-`robot_model.rs:2052,2053,2054,2055,2078,2110`, `joint/model.rs:1040,1047`,
-`scene/collision_object.rs:1026`. Reclassified by isolating mutation (see the
+`robot_model.rs:2052,2053,2054,2055,2078,2110` (fixture literal `<link name="base"/>` at `:2052`), `joint/model.rs:1040,1047` (`mimic_set_get_clear_round_trip`),
+`scene/collision_object.rs:1026` (`append_without_subframe_data_clears_existing_subframes`). Reclassified by isolating mutation (see the
 two crate tables for per-site evidence), not by re-reasoning from shape.
 
 Second pass: with `not-this-family` formally defined as census §9 (three
@@ -197,18 +197,18 @@ clauses — mechanism, decision, subject; merged `95eb25b`, authored by
 p1-robotmodel), re-checked all 17 originally-`not-this-family` rows against
 the clauses directly rather than accepting the first pass's 9-reclassified/
 7-confirmed/1-uncounted split as given. One row was too coarse:
-`joint/model.rs:1040` had been swept into the first pass's 9 as
+`joint/model.rs:1040` (`mimic_set_get_clear_round_trip`) had been swept into the first pass's 9 as
 `discriminating`, but fails §9 clause 3 (it reads a value — `mimic()`
 before either `set_mimic` or `clear_mimic` runs — that the subject never
 decided) and moves back to `not-this-family`. Every other row's clause
 result agrees with the first pass's bite-check result, including
-`robot_model.rs:2052`, which turns out to be census §9's own worked example
+`robot_model.rs:2052` (`mimic_mutual_cycle_clears_every_mimic_in_the_model`), which turns out to be census §9's own worked example
 verbatim.
 
 Final verdicts: 17 discriminating (4 ros + 7 distance-field + 6 model), 38
 single-branch (19 ros + 11 distance-field + 8 model), 3 fixture-collapse-fixed
 (1 ros pre-existing + 2 model: `7676185`, `9661d4c`), 9 `not-this-family`
-under §9 (3 ros clause-1 success-path checks + 6 model: `joint/model.rs:1040`
+under §9 (3 ros clause-1 success-path checks + 6 model: `joint/model.rs:1040` (`mimic_set_get_clear_round_trip`)
 clause 3, 3 `JointKind` clause-1 variants, one clause-3 precondition, one
 clause-1 shape-variant check). 17+38+3+9 = 67. One commit this round:
 `9661d4c`.
@@ -247,8 +247,8 @@ independent of the baseline issue).
 
 **The tool's documented blind spot undercounts the real total further, and
 by more than the quoted 25.** `assert_err_mentions(result, needle)` is
-defined separately per file (`ros/moveit-ros/src/state.rs:192`, `ros/moveit-ros/src/trajectory.rs:248`,
-`planning.rs:385`, `scene/attached.rs:323`, `scene/collision_object.rs:533`
+defined separately per file (`ros/moveit-ros/src/state.rs:192` (`assert_err_mentions`), `ros/moveit-ros/src/trajectory.rs:248` (`assert_err_mentions`),
+`planning.rs:385` (`assert_err_mentions`), `scene/attached.rs:323` (`assert_err_mentions`), `scene/collision_object.rs:533` (`assert_err_mentions`)
 — five independent copies, not a shared import) and renders on one line,
 asserts `rendered.contains(needle)` on the next — invisible to the tool's
 60-byte lookback, exactly as documented. Two things the tool's own output
@@ -312,23 +312,23 @@ not move at all.
 
 | file:line | in-family verdict | collision verdict |
 |---|---|---|
-| `constraints/orientation.rs:194,217,244` | in-family | CLEAN (3 sites) — pre-existing sibling-collision comments confirmed correct by reading |
-| `constraints/position.rs:308,392,411,432,456,472` | in-family | CLEAN (6 sites) — `dim()`'s `{field}`-interpolated messages, `PositionConstraint::new`'s three distinct `Error::construct` texts, and the meshes-guard's shared-but-same-branch needle all verified against `crates/moveit-constraints/src/position.rs` |
+| `constraints/orientation.rs:194-196` (`invalid_parameterization_is_rejected`), `constraints/orientation.rs:217-219` (`degenerate_orientation_is_rejected`), `constraints/orientation.rs:244-246` (`orientation_norm_2_is_rejected_end_to_end_unlike_a_scene_pose`) | in-family | CLEAN (3 sites) — pre-existing sibling-collision comments confirmed correct by reading |
+| `constraints/position.rs:308,392,411,432,456,472` | in-family | CLEAN (6 sites) — `dim()`'s `{field}`-interpolated messages (e.g. `:308`'s own `.contains("BOX_Y")`), `PositionConstraint::new`'s three distinct `Error::construct` texts, and the meshes-guard's shared-but-same-branch needle all verified against `crates/moveit-constraints/src/position.rs` |
 | `constraints/set.rs:148` | **not-this-family** (clause 2) | n/a — `empty_constraints_is_empty_set` is the census's own vacuous-accumulator shape verbatim: all four input vecs empty, none of the four `for` loops in `KinematicConstraintSet::try_from` iterate, `set` is never touched |
-| `constraints/visibility.rs:384,385` | in-family | CLEAN (2 sites) — `normalize_angle_criterion`'s `>EPS` filter is the sole physical producer of `None` for each field; wire wrapper always constructs `Some(msg.field)` first, never `None` directly |
+| `constraints/visibility.rs:384,385` (`negative_target_radius_activates_but_negative_angles_stay_inactive`) | in-family | CLEAN (2 sites) — `normalize_angle_criterion`'s `>EPS` filter is the sole physical producer of `None` for each field; wire wrapper always constructs `Some(msg.field)` first, never `None` directly |
 | `conversion_coverage.rs:227,232,386,414,437,454` | in-family (all 6) | CLEAN — `:227/:232` are my own round-8 `parse_conversion` tests (already bite-checked); `:386` self-identifies via interpolated `t.from`/`t.to`/`t.covered_by` in its panic text; `:414/437/454` populate disjoint vecs from disjoint scan logic, each panic interpolates the full offending list |
-| `scene/shapes.rs:161,179` | in-family | CLEAN (2 sites) — `"expected exactly 3"` is `shapes.rs`'s sole `MeshTriangle`-length format string; `"only 1 vertices exist"` traces to the single physical site `moveit-geometry/src/shapes.rs:1133`, confirmed by grep not reproduced elsewhere reachable from `TryFrom<MeshMsg>` |
-| `scene/planning_scene.rs:234,251,287` | in-family | CLEAN (3 sites) — `:234`'s only reachable emptying branch is `apply_octomap`'s `remove_all`-shaped path for this fixture; `:251/:287` already sibling-documented and grep-confirmed unique |
+| `scene/shapes.rs:161-163` (`mesh_triangle_with_wrong_vertex_count_is_rejected`), `scene/shapes.rs:179-181` (`mesh_out_of_range_vertex_index_is_rejected`) | in-family | CLEAN (2 sites) — `"expected exactly 3"` is `shapes.rs`'s sole `MeshTriangle`-length format string; the "only N vertices exist" wording traces to the single physical site `moveit-geometry/src/shapes.rs:1133` (source: `"mesh triangle references vertex {idx}, but only {n} vertices exist"`), confirmed by grep not reproduced elsewhere reachable from `TryFrom<MeshMsg>` |
+| `scene/planning_scene.rs:234` (`empty_collision_objects_and_empty_octomap_is_a_no_op`), `scene/planning_scene.rs:251-253` (`non_octree_octomap_type_is_rejected`), `scene/planning_scene.rs:287-289` (`truncated_octree_payload_is_rejected`) | in-family | CLEAN (3 sites) — `:234`'s only reachable emptying branch is `apply_octomap`'s `remove_all`-shaped path for this fixture; `:251/:287` already sibling-documented and grep-confirmed unique |
 | `scene/attached.rs:442,452,513,532,553,554,594,612,649,671` | in-family except `:532` | `:532` **not-this-family** (clause 2/3) — ADD-path `merged_touch_links` is a straight `.collect()` with the merge branch gated `if !is_add`, i.e. never entered; the real "replace not merge" claim rides on the adjacent `shapes().len()==1` assertion instead. Everything else CLEAN (8 direct + 2 hidden `assert_err_mentions` at `:513,594`), including `:553/:554` (`BTreeSet::contains` is exact-element not substring match, and `moveit-scene`'s `attach_new`/`AttachedBody` store touch_links verbatim with no auto-inclusion of `link_name`, ruling out the fixture's own "tip" link name as a spurious source) |
 | `scene/collision_object.rs:635,710,771,880,893,900,948,1016,1050,1108,1143` | in-family (all 11) | CLEAN (9 direct + 2 hidden `assert_err_mentions` at `:900,948`), including the pair this round corrected: `:1108`/`:1143` (`move_object_pose_with_malformed_pose_is_rejected`/`move_shape_repose_with_malformed_pose_is_rejected`) replace the old single `:1089` citation, which this table had flagged as "latent risk, not a live collision" — `4c56148` ("test(ros): reach apply_move's object-pose parse, close the :1089 gap") already fixed exactly that gap by adding the first test, and its own doc comment (`:1064-1087` in the live source) states the bite-check: neutralizing `apply_move`'s object-pose parse (`:478`) alone fails only `move_object_pose_with_malformed_pose_is_rejected`, neutralizing the shape-repose parse (`:515`) alone fails only `move_shape_repose_with_malformed_pose_is_rejected`. §13 (this ledger's own round-12 write-up) checked `4c56148`'s ancestry and wrongly treated the pre-existing `:1089` row as proof this was already ledgered — it was ledgered as *unfixed*, and the fix had already landed; §13 read "a row exists" as "nothing changed" without checking whether the row's own verdict still held. Corrected here, not re-bitten (the source comment's own trail is the bite-check) |
 | `ros/moveit-ros/src/state.rs:283,307,334,357,379,394,413,432,460,478,496` | in-family (all 11) | CLEAN (11 hidden `assert_err_mentions`) — `set_parallel_array`'s `{field}`-prefixed length/unknown-name messages keep position/velocity/effort textually distinct; the four `multi_dof_joint_state` sites intentionally share one message, discriminated by guard-clause mutation already bite-checked last round, not by text |
 | `ros/moveit-ros/src/trajectory.rs:297,314,337,360,398,421` | in-family (all 6) | CLEAN (6 hidden `assert_err_mentions`) — length-mismatch messages are `{field}`-interpolated; `:297`/`:421` share one needle by design (same branch, redundant coverage, not a collision) |
 | `planning.rs:481,494,723` | in-family (all 3) | CLEAN (2 hidden `assert_err_mentions` at `:481,494` + `:723`, added this round) — `:475/:488` are `TryFrom<PlanningRequestMsg>`'s only two `Error::Other` sites, already named as siblings in the function's own doc comment. `:723` (`multi_dof_joint_trajectory_points_is_rejected_not_silently_dropped`) is a folded-operand sibling of `:710`'s already-covered `multi_dof_joint_trajectory_is_rejected_not_silently_dropped`: the guard is `!mdjt.joint_names.is_empty() \|\| !mdjt.points.is_empty()` (one guard, two operands), and the test's own comment (`:713-716` in the live source, "round 8, folded-operand audit") already states `joint_names` had a test but `points` did not before this test existed — the accepted `doc/folded-operand-guards.md` shape, matched here rather than re-derived, this is not a new finding |
 
-**Totals: 63 sites examined (62 pre-existing + `planning.rs:723`, added this
-round), 61 in-family, 2 not-this-family (`constraints/set.rs:148`,
-`scene/attached.rs:532`), 0 collisions, 0 latent risks flagged but not live
-(`scene/collision_object.rs:1089`'s risk was already closed by `4c56148`
+**Totals: 63 sites examined (62 pre-existing + `planning.rs:723` (`multi_dof_joint_trajectory_points_is_rejected_not_silently_dropped`), added this
+round), 61 in-family, 2 not-this-family (`constraints/set.rs:148` (`empty_constraints_is_empty_set`),
+`scene/attached.rs:532` (`add_replaces_existing_attached_body_instead_of_merging`)), 0 collisions, 0 latent risks flagged but not live
+(`scene/collision_object.rs:1089` (`move_object_pose_with_malformed_pose_is_rejected`)'s risk was already closed by `4c56148`
 before this round; the table above now says so instead of the opposite).**
 
 ### Needles collided: 0
@@ -368,35 +368,36 @@ against a hand-derived figure (34, under the pre-merge instrument) before
 the fence redraw folded in the 5 sites a since-superseded cross-crate
 carve-out (`contains_msg`/`via:` sites anywhere in `crates/` belong to
 p1-robotmodel) had held out — `oracle_parity.rs:296,304`
-(`via:check_scenario`) and `voxel_grid.rs:454,456,512` (rendered
-error-message `contains`, now folded into the merged kind). With the crate
+(both call sites read `check_scenario(`) and `voxel_grid.rs:454,456,512`
+(rendered error-message `contains("must be finite and positive")`, now
+folded into the merged kind). With the crate
 under single ownership this round, that carve-out no longer has a second
 owner to route to, so all 39 are enumerated here.
 
 | file:line | kind | verdict | evidence |
 |---|---|---|---|
 | `collision_distance_field_types.rs:1410,1411,1412,1413,1414` | `is_empty` | **not-this-family** (clause 2) | `GradientInfo::clear()` unconditionally clears each field (`.clear()`/reassignment, no guard) — no decision, just five independent unconditional resets; `gradient_info_clear_does_not_clear_types` is a state-transition check, not a branch discrimination. Reformatted this round from a `1410-1414` hyphen range, which `tools/ci/reconcile-assertion-ledgers.py`'s citation parser (deliberately, per its own comment) does not expand — it silently kept only `:1410`, orphaning `:1411-1414` under the committed instrument despite this row covering them the whole time |
-| `collision_env_distance_field.rs:2368` | `is_empty` | **not-this-family** (clause 1) | `assert_eq!(index_map.contains_key(...), !link_model.shapes().is_empty(), ...)` compares two presence/membership booleans against an independently-computed oracle value, not a coarse fail/absence signal |
+| `collision_env_distance_field.rs:2368` (`only_links_with_shapes_get_a_decomposition`) | `is_empty` | **not-this-family** (clause 1) | `assert_eq!(index_map.contains_key(...), !link_model.shapes().is_empty(), ...)` compares two presence/membership booleans against an independently-computed oracle value, not a coarse fail/absence signal |
 | `collision_env_distance_field.rs:3081` (orig `:3068`) | `is_empty` | **in-family, BLIND — FIXED** (`9c42c11`) | `generate_distance_field_cache_entry_never_populates_attached_bodies_when_acm_is_none` attached its fixture to `r_gripper_palm_link`, which resolves to zero shapes under `MeshSearchPaths::none()` — the `if !link.shapes().is_empty()` gate (`:566`) already empties `attached_body_names` on its own, so the test never touched the `acm == None` gate (`:574`) it names. Bite-check: moving the attached-body population loop outside the `acm` gate left this test green. Fix: retargeted the fixture at `r_gripper_motor_accelerometer_link` (has shapes, per the sibling `acm_is_some` test's own comment) — re-ran the same mutation, now fails correctly and only this test |
-| `collision_env_distance_field.rs:3127` (orig `:3114`) | `is_empty` | in-family, CLEAN | `excludes_an_attached_body_on_a_non_group_link` — bite-checked: neutralizing the `filter(|ab| ab.link_name == link_name.as_str())` match to accept everything makes this test fail and only this test |
-| `collision_env_distance_field.rs:3158` (orig `:3145`) | `is_empty` | **not-this-family** (clause 3) | Explicitly labeled `"test precondition: ..."` in its own panic text — asserts about the fixture model, not `generate_distance_field_cache_entry` |
-| `collision_env_distance_field.rs:3414` (orig `:3401`) | `is_empty` | **not-this-family** (clause 2) | `group_state_representation`'s attached-body loop (`:1009-1033`) sets `sphere_locations` unconditionally, unlike the link loop's real `if !dfce.link_has_geometry[i]` gate — no branch governs this assertion's emptiness within the function under test |
-| `collision_env_distance_field.rs:3775` (orig `:3762`) | `is_some` | in-family, CLEAN — single-branch | Sibling of `:3770`'s `is_none()` (`generate_distance_field: false` → no field); `generate_distance_field_cache_entry` has exactly one `distance_field:` construction site (already established and bite-checked at `:3745`'s own "ASSERTION-DISCRIMINATION AUDIT (round 2)" comment) |
+| `collision_env_distance_field.rs:3127` (`generate_distance_field_cache_entry_excludes_an_attached_body_on_a_non_group_link`) (orig `:3114`) | `is_empty` | in-family, CLEAN | `excludes_an_attached_body_on_a_non_group_link` — bite-checked: neutralizing the `filter(|ab| ab.link_name == link_name.as_str())` match to accept everything makes this test fail and only this test |
+| `collision_env_distance_field.rs:3158` (`build_non_group_distance_field_includes_a_non_group_attached_body_as_an_obstacle`) (orig `:3145`) | `is_empty` | **not-this-family** (clause 3) | Explicitly labeled `"test precondition: ..."` in its own panic text — asserts about the fixture model, not `generate_distance_field_cache_entry` |
+| `collision_env_distance_field.rs:3414` (`group_state_representation_builds_a_gradient_slot_for_an_attached_body`) (orig `:3401`) | `is_empty` | **not-this-family** (clause 2) | `group_state_representation`'s attached-body loop (`:1009-1033`) sets `sphere_locations` unconditionally, unlike the link loop's real `if !dfce.link_has_geometry[i]` gate — no branch governs this assertion's emptiness within the function under test |
+| `collision_env_distance_field.rs:3775` (`generate_collision_checking_structures_rebuilds_when_a_distance_field_becomes_required`) (orig `:3762`) | `is_some` | in-family, CLEAN — single-branch | Sibling of `:3770`'s `is_none()` (`generate_distance_field: false` → no field); `generate_distance_field_cache_entry` has exactly one `distance_field:` construction site (already established and bite-checked at `:3745`'s own "ASSERTION-DISCRIMINATION AUDIT (round 2)" comment) |
 | `collision_env_distance_field.rs:4451` (orig `:4438`) | `is_empty` | in-family, CLEAN | `attached_body_on_an_out_of_group_link_is_invisible_to_collision_checks`, via `check_self_collision` → same filter as `:3127`; bite-checked together (combined mutation run) — this test stayed green, confirming it's insensitive to the acm gate, sensitive only to the same filter mismatch |
 | `collision_env_distance_field.rs:4500` (orig `:4487`) | `is_empty` | in-family, CLEAN | `attached_body_is_invisible_when_acm_is_none`, via `check_self_collision`, fixture link `"mid"` has real inline-box shapes (`two_link_model_and_srdf`) unlike `:3068`'s original bug — bite-checked together with `:3127`/`:4451`: this test failed under the acm-gate mutation, the other two stayed green |
 | `collision_env_distance_field.rs:4920` (orig `:4907`) | `contains` | in-family, CLEAN | `get_intra_group_proximity_gradients_updates_an_attached_bodys_gradient_slot` — bite-checked: dropping the `types[k] = CollisionType::Intra` writes in `get_intra_group_proximity_gradients` (`:2092,2097`) failed only this test plus the downstream oracle-parity test measuring the same field, nothing else |
 | `find_internal_points.rs:91` | `is_empty` | in-family, CLEAN — single-branch | `every_returned_point_is_inside_the_body` — bite-checked: gating `body.contains_point` to always-false failed this test plus the two other tests in the same file/parity suite that also depend on `find_internal_points_convex`'s output, nothing unrelated |
 | `voxel_grid.rs:454,456` | `contains` (was `contains_msg`) | in-family, CLEAN — folded operand | `rejects_non_positive_resolution` checks zero and negative resolution both hit `GridGeometry::new`'s single `!(resolution.is_finite() && resolution > 0.0)` guard (`:94`) — one guard, one message, two invalid operands; matches `doc/folded-operand-guards.md`'s accepted shape, not a collision to fix |
 | `voxel_grid.rs:512` | `contains` (was `contains_msg`) | in-family, CLEAN | `new_rejects_a_pathologically_fine_resolution_on_the_y_axis` — already carries its own prior-round isolation trail (`:496-509`'s comments: "pins that the guard applies per-axis, not just to size.x", cross-referencing the sibling `x`-axis overflow test) |
-| `collision_common_distance_field_parity.rs:319` | `is_empty` | **not-this-family** (clause 3) | `"fixture link {} has no collision geometry on this port -- pick a different link"` — fixture-selection precondition, not a decision in the code under test |
+| `collision_common_distance_field_parity.rs:319` (`link_body_decomposition_matches_the_oracle`) | `is_empty` | **not-this-family** (clause 3) | `"fixture link {} has no collision geometry on this port -- pick a different link"` — fixture-selection precondition, not a decision in the code under test |
 | `tests/collision_env_distance_field_parity.rs:211,403,551,758,1253,1471,1748,1920` | `is_empty` | **not-this-family** (clause 3), all 8 | `model.diagnostics().is_empty()` guards against a silently-narrowed comparison from a failed mesh resolve — a precondition for the real assertions below it, not a decision belonging to the function under test. Reformatted this round: the original row's `{...}`-braced list is not the parser's expected comma-list shape (`FIRST_COL_RE` expects `\d+(?:\s*,\s*\d+)*` directly after the colon, not a `{`), so every site here orphaned under the committed instrument despite the row covering them |
 | `tests/collision_env_hybrid_parity.rs:236,410` | `is_empty` | **not-this-family** (clause 3), both | Same guard shape as the row above, split into its own file:line citation this round for the same parser reason |
 | `tests/collision_env_distance_field_parity.rs:397,550,752` | `is_empty` | **not-this-family** (clause 3), all 3 | `"fixture must carry at least one case"` — fixture-loading precondition. Reformatted this round for the same `{...}`-brace parser reason as the row above |
-| `collision_env_distance_field_parity.rs:479,637` | `is_some` | in-family, CLEAN, both | `assert_eq!(entry.distance_field.is_some(), expected.has_field, "has_field")` — per-request oracle-driven comparison, same single-construction-site mechanism as `:3775` |
-| `collision_env_hybrid_parity.rs:347` | `is_empty` | in-family, CLEAN | Aggregate re-statement of per-element `assert_eq!(gradient.collision, ...)` checks already run above in the same loop; redundant-by-design, not blind |
-| `collision_env_hybrid_parity.rs:540` | `is_empty` | in-family, CLEAN — pre-existing audit | Own comment names it: `"the second, free refuting result this round's brief calls out"` — deliberately kept as an explicit boundary check alongside the primary `assert_eq!(differing_links, F2_COLLIDING_LINKS, ...)`, from an earlier round of this same sweep |
-| `oracle_parity.rs:296,304` | `via:check_scenario` | in-family, CLEAN, both | Helper body (`:264,:279`, `scope: helper_body`, excluded from this count) already carries its own "ASSERTION-DISCRIMINATION AUDIT (round 2)" comment with bite-check evidence for `nearest_cell`'s five `voxel: None` sites — pre-existing, not redone |
-| `shape_points_parity.rs:209` | `is_empty` | in-family, CLEAN | `missing.is_empty() && extra.is_empty()` set-difference parity check — confirmed by the same `find_internal_points.rs:91` bite-check above (this test failed under that mutation too) |
+| `collision_env_distance_field_parity.rs:479,637` | `is_some` | in-family, CLEAN, both | Both sites open with `assert_eq!(`; the full call is `assert_eq!(entry.distance_field.is_some(), expected.has_field, "has_field")` — per-request oracle-driven comparison, same single-construction-site mechanism as `:3775` |
+| `collision_env_hybrid_parity.rs:347` (`check_robot_collision_distance_field_matches_the_oracle_robot_only_mode`) | `is_empty` | in-family, CLEAN | Aggregate re-statement of per-element `assert_eq!(gradient.collision, ...)` checks already run above in the same loop; redundant-by-design, not blind |
+| `collision_env_hybrid_parity.rs:540` (`check_collision_distance_field_environment_branch_paired_control`) | `is_empty` | in-family, CLEAN — pre-existing audit | Own comment names it: `"the second, free refuting result this round's brief calls out"` — deliberately kept as an explicit boundary check alongside the primary `assert_eq!(differing_links, F2_COLLIDING_LINKS, ...)`, from an earlier round of this same sweep |
+| `oracle_parity.rs:296,304` | `via:check_scenario` | in-family, CLEAN, both | Both sites read `check_scenario(`. Helper body (`:264,:279`, `scope: helper_body`, excluded from this count) already carries its own "ASSERTION-DISCRIMINATION AUDIT (round 2)" comment with bite-check evidence for `nearest_cell`'s five `voxel: None` sites — pre-existing, not redone |
+| `shape_points_parity.rs:209` (`find_internal_points_convex_matches_the_oracle_for_every_shape`) | `is_empty` | in-family, CLEAN | `missing.is_empty() && extra.is_empty()` set-difference parity check — confirmed by the same `find_internal_points.rs:91` bite-check above (this test failed under that mutation too) |
 
 **Totals: 39 sites, 17 in-family (1 blind, fixed; 16 clean), 22
 not-this-family (5 clause-2 unconditional-reset, 1 clause-2
@@ -500,30 +501,30 @@ sequence of the function each test actually calls:
 
 | file:line | needle | verdict | reachable-message evidence |
 |---|---|---|---|
-| `moveit-geometry/src/bodies.rs:4055` | `"radius"` | **CLEAN — reverses the round's seed** | `Cylinder::new(-1.0, 1.0)` and (`:4125`) `.set_padding(-2.0)` on `Cylinder::new(1.0, 1.0)` both funnel into `Cylinder::recompute` (`bodies.rs:1845`), two *separate ordered* guards (`radius_scaled < 0.0`, then `half_length < 0.0`), not a folded `\|\|` — distinct messages `"Cylinder radius must be non-negative."`/`"Cylinder length must be non-negative."`; `"radius"` is a substring of only the first. See "The seed reversal" below. |
-| `moveit-geometry/src/bodies.rs:4066` | `"length"` | CLEAN | Same `recompute`, same two guards; unique to the second. |
-| `moveit-kinematics/src/chain.rs:469` + `tests/ik_fk_roundtrip.rs:281` | `"not a chain"` | CLEAN | `NewtonRaphsonSolver::new` -> `new_with_seed` -> `ChainInfo::build(model, group_name)?` — the exact same single guard (`chain.rs:149`) both tests reach; confirmed by reading `new_with_seed`'s body, not assumed from the doc comment alone. |
-| `moveit-kinematics/src/chain.rs:512` | `"DOF"` | CLEAN | One reachable `Err` site (`chain.rs:187`); the only other tree-wide occurrence of the substring is inside an `.expect()` panic message on an internal invariant, not a `Result` path this test's `unwrap_err()` could observe. |
-| `moveit-state/tests/jacobian.rs:140,159` | `"not a chain"` | CLEAN | `jacobian()`'s only guard is `crates/moveit-state/src/state.rs:1127`; the crate's other `"not a chain"` message (`dynamics.rs:448`) belongs to `DynamicsSolver::new`, unreachable from `jacobian()`. |
-| `moveit-state/tests/jacobian.rs:192` | `"unsupported type"` | CLEAN | Single tree-wide producer (`crates/moveit-state/src/state.rs:1203`). |
+| `moveit-geometry/src/bodies.rs:4055` (`cylinder_negative_radius_is_an_error`) | `"radius"` | **CLEAN — reverses the round's seed** | `Cylinder::new(-1.0, 1.0)` and (`:4125`) `.set_padding(-2.0)` on `Cylinder::new(1.0, 1.0)` both funnel into `Cylinder::recompute` (`bodies.rs:1845` -- `fn recompute(&mut self`), two *separate ordered* guards (`radius_scaled < 0.0`, then `half_length < 0.0`), not a folded `\|\|` — distinct messages `"Cylinder radius must be non-negative."`/`"Cylinder length must be non-negative."`; `"radius"` is a substring of only the first. See "The seed reversal" below. |
+| `moveit-geometry/src/bodies.rs:4066` (`cylinder_negative_length_is_an_error`) | `"length"` | CLEAN | Same `recompute`, same two guards; unique to the second. |
+| `moveit-kinematics/src/chain.rs:469` + `tests/ik_fk_roundtrip.rs:281` | `"not a chain"` | CLEAN | `NewtonRaphsonSolver::new` -> `new_with_seed` -> `ChainInfo::build(model, group_name)?` — the exact same single guard (`chain.rs:149` -- `{group_name}' is not a chain`, inside `build`) both tests reach; confirmed by reading `new_with_seed`'s body, not assumed from the doc comment alone. |
+| `moveit-kinematics/src/chain.rs:512` (`build_rejects_a_multi_dof_joint`) | `"DOF"` | CLEAN | One reachable `Err` site (`chain.rs:187` -- `{group_name}' includes joint`, inside `build`); the only other tree-wide occurrence of the substring is inside an `.expect()` panic message on an internal invariant, not a `Result` path this test's `unwrap_err()` could observe. |
+| `moveit-state/tests/jacobian.rs:140,159` (both open `assert!(`, one line above their own `err.to_string().contains("not a chain")`) | `"not a chain"` | CLEAN | `jacobian()`'s only guard is `crates/moveit-state/src/state.rs:1127` (own doc comment reads `Isometry3::identity()`, inside `recompute_link_transforms_from`); the crate's other `"not a chain"` message (`dynamics.rs:448` -- reads `group_name:?} is not a chain`, inside `new`) belongs to `DynamicsSolver::new`, unreachable from `jacobian()`. |
+| `moveit-state/tests/jacobian.rs:192` (`a_lone_floating_joint_is_a_trivial_chain_but_an_unsupported_joint_type`) | `"unsupported type"` | CLEAN | Single tree-wide producer (`crates/moveit-state/src/state.rs:1203` -- `self.0.first_variable_index[joint_index]`, inside `joint_transform`). |
 | `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1086,1113,1179,1569` | `"exceeding the"` | CLEAN | One producer (`:850`), gated by the function's own `raw_sample_count` bounds check. Re-derived after merging main's TOTG timing-loop upstream-bug commits, which shifted every line in this file; `:1564` (`b12b358`, "cover the NaN branch of the resample sample-count guard") is a new fourth call site added by that merge, same producer, same needle — added here rather than left uncited. |
-| `moveit-trajectory/src/trajectory.rs:1434,1440,1446` | `DISTINGUISHING_PHRASE` const | CLEAN | Pre-existing bite-check documented in the test's own comment (round-unspecified, prior to this sweep); independently re-confirmed against message #3's text (`Trajectory::create`'s three `Error::construct` sites, `:123/:165/:174`). |
-| `moveit-trajectory/src/trajectory.rs:1473` | `"the time step is <= 0.0"` | CLEAN | Unique among the same three sites. |
-| `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1435` | `"4"`/`'7'` | **N/A** | Not a branch-discrimination needle — single reachable typed error for the active-vs-full variable-count mismatch; the numbers are formatted data, not branch-selection text. |
+| `moveit-trajectory/src/trajectory.rs:1434,1440,1446` (`upstream_test_relevant_zero_max_accelerations_invalidate_trajectory`) | `DISTINGUISHING_PHRASE` const | CLEAN | Pre-existing bite-check documented in the test's own comment (round-unspecified, prior to this sweep); independently re-confirmed against message #3's text (`Trajectory::create`'s three `Error::construct` sites, `:123/:165/:174`). |
+| `moveit-trajectory/src/trajectory.rs:1473` (`upstream_test_time_step_zero_makes_trajectory_invalid`) | `"the time step is <= 0.0"` | CLEAN | Unique among the same three sites. |
+| `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1435` (`mimic_joint_group_is_a_typed_error_not_a_panic`) | `"4"`/`'7'` | **N/A** | Not a branch-discrimination needle — single reachable typed error for the active-vs-full variable-count mismatch; the numbers are formatted data, not branch-selection text. |
 | `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1496` | `DISTINGUISHING_PHRASE` const | CLEAN | Stale citation, corrected: the row's "negative assertion, rules a branch out" description matched an earlier version of this test, per the test's own doc comment ("bite-confirmed... against the old negative check") -- the live assertion is `message.contains(DISTINGUISHING_PHRASE)` (`"after integrateForward and integrateBackward"`), a positive check already bite-confirmed by its own author against the model-bounds-fallback branch's distinct `"invalid max_acceleration"` message. Line re-derived again after merging main's TOTG upstream-bug commits (was line 1482, this ledger's own prior round; shifted by that merge, not a repeat of the same staleness). |
-| `moveit-trajectory/src/robot_trajectory.rs:876` | `" pos "` | **N/A** | Checks `Display` column-header text, not an error message. |
+| `moveit-trajectory/src/robot_trajectory.rs:876` (`velocity_acceleration_and_effort_columns_appear_when_the_waypoint_carries_them`) | `" pos "` | **N/A** | Checks `Display` column-header text, not an error message. |
 | `moveit-trajectory/tests/robot_trajectory.rs:736,751,766` (drift-corrected this round: dropped `:704`, which is the out-of-range-index test's `"out of bounds"` check, not a `"dirty: None"` site -- only 3 `"dirty: None"` sites exist tree-wide, confirmed by `rg`) | `"dirty: None"` | **N/A** | `Debug`-format checks on a struct field, not error-branch discrimination; unique tree-wide regardless. Each cited line reads `assert!(`, one line above its own `debug.contains("dirty: None")`. |
-| `moveit-trajectory/tests/ruckig_smoothing.rs:208` | `"did not set the group"` | CLEAN | `apply_smoothing` -> `validate_group` is the only reachable producer; TOTG's identically-worded message (`time_optimal_trajectory_generation.rs:702`) is a different module's function, unreachable from `apply_smoothing`. |
-| `moveit-planners-chomp/src/cost.rs:436` | `"singular"` | CLEAN | `ChompCost::new`'s only "singular" message is its own (`cost.rs:177`); `optimizer.rs:1359`'s belongs to an unrelated, unreachable function. |
+| `moveit-trajectory/tests/ruckig_smoothing.rs:208` (`no_group_set_is_an_error`) | `"did not set the group"` | CLEAN | `apply_smoothing` -> `validate_group` is the only reachable producer; TOTG's identically-worded message (`time_optimal_trajectory_generation.rs:702` -- `Error::other("it looks like the planner`, inside `validate_group`) is a different module's function, unreachable from `apply_smoothing`. |
+| `moveit-planners-chomp/src/cost.rs:436` | `"singular"` | CLEAN | `ChompCost::new`'s only "singular" message is its own (`cost.rs:177` -- `Error::other("quad_cost is singular`, inside `new`); `optimizer.rs:1359` (`Error::other("jacobian_jacobian_tranpose is singular")`, inside `calculate_pseudo_inverse`)'s belongs to an unrelated, unreachable function. |
 | `moveit-planners-chomp/src/optimizer.rs:2386` | `"joint_costs has"` | CLEAN | Pre-existing test doc comment already correct: `calculate_smoothness_increments`'s own guard (`:377`) vs. `ChompCost::derivative`'s guard (`"joint_trajectory has..."`, textually distinct) — confirmed by reading both function bodies. |
 | `moveit-planners-chomp/src/optimizer.rs:2455` | `"columns"` | CLEAN | Pre-existing test doc comment already correct; unique among `calculate_total_increments`'s 3 `Error::other` sites. |
-| `moveit-planners-pilz/src/path_circle.rs:590` | `"colinear"` | CLEAN | `PathCircle::new`'s only colinear-text guard is its own (`:293`); `circle_from_interim`'s (`:187`) belongs to a different, uncalled function. |
-| `moveit-planners-stomp/src/filter_functions.rs:314` | `"world_joint"` | CLEAN | Data value (a joint name), not branch-selection text; pre-existing doc comment already documents this as the loop's only guard. |
+| `moveit-planners-pilz/src/path_circle.rs:590` (`half_circle_from_center_has_no_determinable_plane`) | `"colinear"` | CLEAN | `PathCircle::new`'s only colinear-text guard is its own (`:293`); `circle_from_interim`'s (`:187`) belongs to a different, uncalled function. |
+| `moveit-planners-stomp/src/filter_functions.rs:314` (`enforce_position_bounds_rejects_a_multi_variable_joint`) | `"world_joint"` | CLEAN | Data value (a joint name), not branch-selection text; pre-existing doc comment already documents this as the loop's only guard. |
 | `moveit-smoothing/src/butterworth.rs:162,200` | `"scale_term_"`/`"feedback_term_"` | CLEAN | One producer each. |
 | `moveit-smoothing/src/ruckig_filter.rs:613` | `"must each have length"` | CLEAN | `do_smoothing`'s own guard (`:268`); identical text in `reset` (`:331`, uncalled from `do_smoothing`) and `AccelerationFilter` (different struct entirely) is unreachable from this test's call path. |
-| `moveit-srdf/tests/boundaries.rs:55` | `"robot"` | CLEAN | Already fixed and merged this session (`83f8ea0`, p1-joints, prior round) — re-confirmed, not re-fixed. |
-| `moveit-constraints/tests/sampler.rs:78,120` | `"panda_joint1"`/`"panda_arm"` | CLEAN | `JointConstraintSampler::new`'s 2 guards format disjoint data (joint name vs. group name); neither substring appears in the other's message. |
-| `moveit-distance-field/src/voxel_grid.rs:512` | `"size.y"` | CLEAN | Already resolved in this ledger's own §11 sweep; not re-derived, only reused. |
+| `moveit-srdf/tests/boundaries.rs:55` (`a_root_element_other_than_robot_is_an_error`) | `"robot"` | CLEAN | Already fixed and merged this session (`83f8ea0`, p1-joints, prior round) — re-confirmed, not re-fixed. |
+| `moveit-constraints/tests/sampler.rs:78,120` (both open `assert!(`) | `"panda_joint1"`/`"panda_arm"` | CLEAN | `JointConstraintSampler::new`'s 2 guards format disjoint data (joint name vs. group name); neither substring appears in the other's message. |
+| `moveit-distance-field/src/voxel_grid.rs:512` (`new_rejects_a_pathologically_fine_resolution_on_the_y_axis`) | `"size.y"` | CLEAN | Already resolved in this ledger's own §11 sweep; not re-derived, only reused. |
 
 ### Zero-collision, stated per crate
 
@@ -531,42 +532,46 @@ Per the round's instruction that an unstated absence is indistinguishable
 from an unchecked one:
 
 - **Zero collisions in `moveit-geometry`.** 4 message-shaped sites, all
-  checked (`bodies.rs:4055,4066,4125` above, plus `:3953` unflagged/unique).
+  checked (`bodies.rs:4055,4066,4125` -- all three open `assert!(`, above,
+  plus `:3953` unflagged/unique).
 - **Zero collisions in `moveit-kinematics`.** 4 sites, all checked
-  (`chain.rs:469,512,558` above; `:558`'s needle traced but not tabled —
-  same "DOF" guard as `:512`, same verdict).
+  (`chain.rs:469,512,558` -- each opens `assert!(`, above; `:558`'s needle
+  traced but not tabled — same "DOF" guard as `:512`, same verdict).
 - **Zero collisions in `moveit-state`.** 3 sites, all checked
-  (`jacobian.rs:140,159,192` above).
+  (`jacobian.rs:140,159,192` -- all three open `assert!(`, above).
 - **Zero collisions in `moveit-constraints`.** 2 `contains` sites checked
-  (`crates/moveit-constraints/tests/sampler.rs:78,120` above) plus all 8 `via:assert_err_mentions` sites
+  (`crates/moveit-constraints/tests/sampler.rs:78,120`, both `assert!(`, above) plus all 8 `via:assert_err_mentions` sites
   (below).
 - **Zero collisions in `moveit-srdf`.** 2 sites checked (`boundaries.rs:
   49,55`); `:55` already fixed by another panel this session, re-confirmed
   clean here.
 - **Zero collisions in `moveit-planners-chomp`.** 12 sites; the 5 flagged
-  (`cost.rs:436`, `optimizer.rs:2386,2455`) checked above by reading;
-  `cost.rs:391,404` and `crates/moveit-planners-chomp/src/trajectory.rs:712,727,748,766,925,968,1004` (7)
-  unflagged/unique tree-wide, not individually re-traced beyond that.
+  (`cost.rs:436` (`new_rejects_a_singular_quad_cost`), `optimizer.rs:2386,2455` -- both `assert!(`) checked above by reading;
+  `cost.rs:391,404` (both `assert!(`) and `crates/moveit-planners-chomp/src/trajectory.rs:712,727,748,766,925,968,1004`
+  (7, all `assert!(`) unflagged/unique tree-wide, not individually re-traced beyond that.
 - **Zero collisions in `moveit-planners-pilz`.** 5 sites; `path_circle.
-  rs:590` checked above; `path_circle.rs:558` and
-  `trajectory_generator_ptp.rs:449,466,495` (4) unflagged/unique, not
-  individually re-traced.
+  rs:590` checked above; `path_circle.rs:558` (`zero_radius_is_rejected`) and
+  `trajectory_generator_ptp.rs:449` (`constructor_rejects_missing_joint_limits`),
+  `trajectory_generator_ptp.rs:466` (`constructor_rejects_unknown_group`),
+  `trajectory_generator_ptp.rs:495` (`constructor_rejects_a_group_missing_an_acceleration_limit`)
+  (4) unflagged/unique, not individually re-traced.
 - **Zero collisions in `moveit-planners-stomp`.** 1 site
-  (`filter_functions.rs:314`), checked above.
+  (`filter_functions.rs:314` (`enforce_position_bounds_rejects_a_multi_variable_joint`)), checked above.
 - **Zero collisions in `moveit-smoothing`.** 11 sites; the 3 flagged
-  (`butterworth.rs:162,200`, `ruckig_filter.rs:613`) checked above;
+  (`butterworth.rs:162,200` -- both `assert!(`, `ruckig_filter.rs:613` (`do_smoothing_rejects_a_mismatched_length`)) checked above;
   `acceleration_filter.rs:466,525,542`, `butterworth.rs:153,172,183`,
-  `ruckig_filter.rs:388,530` (8) unflagged/unique, not individually
+  `ruckig_filter.rs:388,530` (all `assert!(`; 8) unflagged/unique, not individually
   re-traced.
 - **Zero collisions in `moveit-trajectory`.** 24 sites (23 pre-existing +
-  `time_optimal_trajectory_generation.rs:1569`, added by main's TOTG
-  upstream-bug merge); the flagged subset (`crates/moveit-trajectory/src/robot_trajectory.rs:876`,
-  `time_optimal_trajectory_generation.rs:1086,1113,1179,1435,1496,1569`,
-  `crates/moveit-trajectory/src/trajectory.rs:1434,1440,1446,1473`,
+  `time_optimal_trajectory_generation.rs:1569` (`resample_dt_over_a_nan_duration_is_rejected`), added by main's TOTG
+  upstream-bug merge); the flagged subset (`crates/moveit-trajectory/src/robot_trajectory.rs:876` (`velocity_acceleration_and_effort_columns_appear_when_the_waypoint_carries_them`),
+  `time_optimal_trajectory_generation.rs:1086,1113,1179,1435,1496,1569`
+  (four read `.is_err_and(|e|`),
+  `crates/moveit-trajectory/src/trajectory.rs:1434,1440,1446,1473` (all `assert!(`),
   `tests/robot_trajectory.rs:736,751,766` (drift-corrected, see §12's own
   table row), `tests/ruckig_smoothing.
-  rs:208`) checked above; `path.rs:217,223,236,242,318` (already
-  doc-commented as `Path::create`'s 3-guard family, re-confirmed by
+  rs:208`) checked above; `path.rs:217,223,236,242,318` (all `assert!(`;
+  already doc-commented as `Path::create`'s 3-guard family, re-confirmed by
   reading), `time_optimal_trajectory_generation.rs:1596,1602`
   (`"num_waypoints > 1"`, doc-commented, re-confirmed), `tests/
   robot_trajectory.rs:514` (`"duration_from_previous[0] must be 0.0"`,
@@ -577,7 +582,7 @@ from an unchecked one:
 - **Zero collisions in `moveit-model`.** 6 sites; `robot_model.rs:2287,
   2302` (root-link `[]`/`names` arms, doc-commented, re-confirmed),
   `:2635` (`"Box dimensions"` — same literal message duplicated at
-  `bodies.rs:2210` and `crates/moveit-geometry/src/shapes.rs:906,930`, but byte-identical text across
+  `bodies.rs:2210` -- `Error::construct("Box dimensions must be non-negative.")`, inside `recompute` -- and `crates/moveit-geometry/src/shapes.rs:906,930` (same literal `Error::construct("Box dimensions`), but byte-identical text across
   all three, not a discrimination-defeating collision — noted as a
   code-duplication smell, not a finding), `:2472,2512,2542` (mesh-load
   `detail` trio, three distinct messages in one match arm, `:990/:999/
@@ -595,8 +600,8 @@ from an unchecked one:
 ### `via:` bucket (12), all examined
 
 - **2, `moveit-distance-field/tests/oracle_parity.rs:296,304`
-  (`via:check_scenario`).** Already covered and closed under §11's own
-  table row for these exact lines; not re-derived.
+  (both sites read `check_scenario(`).** Already covered and closed
+  under §11's own table row for these exact lines; not re-derived.
 - **2, `moveit-stomp-core/src/utils.rs:641,654`
   (`via:rows_to_string`).** **N/A** — `assert_eq!`/`#[should_panic]`
   formatting tests on a `Display` helper, not error-branch checks at all.
@@ -617,7 +622,7 @@ from an unchecked one:
   the unknown-frame variant (the literal quoted text differs). **CLEAN, all
   8.**
 
-### The `bodies.rs:4055`/`:4125` reversal
+### The `bodies.rs:4055` (`cylinder_negative_radius_is_an_error`)/`:4125` reversal
 
 The round's seed candidate ("both `.contains("radius")` on a rendered
 error") came from scan output showing two hits for the same needle at two
@@ -725,12 +730,12 @@ own earlier-round work, already ledgered. Grepping the ledger's existing
 §10 table for the specific lines confirms every one of the ros/ additions
 above already has a CLEAN row there: `position.rs` (`:456,472`,
 "meshes is not supported"), `conversion_coverage.rs` (`:227,232`),
-`planning.rs:710`, `collision_object.rs` (10 sites incl. `:1089`'s flagged
+`planning.rs:710` (`multi_dof_joint_trajectory_is_rejected_not_silently_dropped`), `collision_object.rs` (10 sites incl. `:1089`'s flagged
 latent-not-live risk), `state.rs` (11 hidden `assert_err_mentions` incl.
 `:334,357,379,432,460,478,496` — the four `multi_dof_joint_state` sites'
 own comment already states isolating-mutation bite evidence: "neutralize
 one operand's clause to false... each of the four tests below fails only
-when its own operand's clause is neutralized"), `ros/moveit-ros/src/trajectory.rs:383`. Per
+when its own operand's clause is neutralized"), `ros/moveit-ros/src/trajectory.rs:383` (`add_suffix_way_point_rejects_a_nonzero_first_dt`). Per
 the standing rule not to re-audit a finished round, these are cited, not
 redone. `moveit-distance-field`'s one change (`collision_env_distance_
 field.rs`, 20 -> 19) is the sweep working: `08976b8` replaced a bare
@@ -745,7 +750,7 @@ The raw diff showed a `matches!` line both added and removed at line 210
 with identical (truncated) text — an artifact of my own line-matching
 heuristic pairing two occurrences of literally the same text at different
 line numbers, not a real change. The real, single addition is
-`crates/moveit-constraints/tests/decide.rs:534`
+`crates/moveit-constraints/tests/decide.rs:534` (`new_rejects_unknown_link`)
 (`via:assert_err_mentions`, `PositionConstraint::new`'s unknown-link case)
 — already in this ledger's §12 table (`"no link named \"no_such_link\""`,
 verified CLEAN, unique among `PositionConstraint::new`'s six needles).
@@ -879,11 +884,11 @@ a read:
   assumed — this is the `Cylinder::recompute` shape (ordered, distinctly-
   reached guards), not the `entry()` shape (one chained expression, both
   `?`s live for the same call).
-- `moveit-model/src/robot_model.rs:2055` — a fixture-quality fix
+- `moveit-model/src/robot_model.rs:2055` (`mimic_mutual_cycle_clears_every_mimic_in_the_model`) — a fixture-quality fix
   (`9661d4c`, giving `j4` a real mimic so a cycle-clear check isn't
   vacuous), a plain field read (`.mimic().is_none()`), not a multi-guard
   function.
-- `moveit-model/src/robot_model.rs:2796` — `get_end_effector`'s own body
+- `moveit-model/src/robot_model.rs:2796` (`end_effector_wires_name_and_falls_back_to_fewest_joints_parent`) — `get_end_effector`'s own body
   is `self.groups.get(name).filter(is_end_effector).ok_or_else(...)`: a
   *single* `Error::unknown_name` construction site reachable through two
   distinct input categories (name not a group at all vs. name a group but
@@ -892,15 +897,15 @@ a read:
   this is the folded-operand pattern applied to an `Option` chain rather
   than a boolean `||`, and the new test's own comment already states this
   correctly.
-- `moveit-octomap/src/tree.rs:1944` — already bite-check-verified by its
+- `moveit-octomap/src/tree.rs:1944` (`leaves_in_bbx_only_yields_leaves_overlapping_the_box`) — already bite-check-verified by its
   own author, not just read: "Before this test existed the min guard had
   no coverage at all -- neutralizing it left all 66 tests green. Now each
   guard isolates to its own test: neutralizing min fails only this one,
   neutralizing max only the sibling." Present-tense, mutation-stated
   evidence, matching the standard this session's own census §9g section
   demands.
-- `moveit-smoothing/src/acceleration_filter.rs:559,566`,
-  `moveit-smoothing/src/ruckig_filter.rs:553,560,567` — both `reset`
+- `moveit-smoothing/src/acceleration_filter.rs:559,566` (`do_smoothing_before_reset_is_an_error`),
+  `moveit-smoothing/src/ruckig_filter.rs:553,560,567` (`do_smoothing_respects_velocity_and_acceleration_bounds_throughout`) — both `reset`
   functions have exactly one folded guard each (2-operand and 3-operand
   respectively); the new tests isolate the previously-unisolated operands
   the same way `do_smoothing`'s sibling guards were already isolated
@@ -948,8 +953,9 @@ exactly the vacuous-accumulator shape §10 ruled `not-this-family` twice:
    (resp. 3) times on every run. The failure message interpolates the
    offending labels rather than reporting a bare count.
 2. **Decision.** The decision under test is §236's, and it lives in the
-   subject: `PlanningRequest` (`crates/moveit-planning/src/request.rs:201-243`)
-   has no `allowed_planning_time` and no `num_planning_attempts` field, and
+   subject: `PlanningRequest` (`crates/moveit-planning/src/request.rs:201-243`,
+   opens with field `pub group_name: String,`) has no `allowed_planning_time`
+   and no `num_planning_attempts` field, and
    `request.rs:89-105` states in prose that this is a decision, not an
    oversight. A mutation that reverses the decision is precisely the
    mutation §236.4 names.
