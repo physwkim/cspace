@@ -68,6 +68,15 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCANNER = REPO_ROOT / "tools" / "ci" / "count-coarse-assertions.py"
+# The corpus, named once. Both the scanner invocation and the citation
+# classifier must search exactly these roots: if the classifier can reach a
+# file the scanner never scanned, it will describe source the sweep never
+# saw. `.caucus/worktrees/` holds a full checkout per caucus panel, so an
+# unrestricted `REPO_ROOT.glob("**/name.rs")` matches a dozen copies of
+# every crate file and reports whichever it hits first. That happened: a
+# citation to `robot_model.rs:2051` was reported as "cites an assertion"
+# from a worktree copy while the real file had a `fn` on that line.
+SCAN_ROOTS = ("crates", "ros", "tools")
 EQUIVALENCES_FILE = REPO_ROOT / "tools" / "ci" / "assertion-ledger-equivalences.json"
 ORPHANS_FILE = REPO_ROOT / "doc" / "assertion-discrimination-orphans.txt"
 NEARBY_WINDOW = 5
@@ -107,7 +116,7 @@ def run_scanner():
     """Live scanner sites, excluding helper_body. Never reads a cached file --
     this is the whole point of "reproducible from a clean checkout"."""
     out = subprocess.run(
-        [sys.executable, str(SCANNER), "crates/", "ros/", "tools/"],
+        [sys.executable, str(SCANNER), *(f"{r}/" for r in SCAN_ROOTS)],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -210,7 +219,7 @@ def classify_citation(fname_part, lineno):
     auto-match; only to help a human triage `unresolved_citations` faster."""
     basename = fname_part.rsplit("/", 1)[-1]
     candidates = [
-        c for c in REPO_ROOT.glob(f"**/{basename}")
+        c for root in SCAN_ROOTS for c in (REPO_ROOT / root).glob(f"**/{basename}")
         if "target" not in c.parts
         and path_matches(str(c.relative_to(REPO_ROOT)), fname_part)
     ]
