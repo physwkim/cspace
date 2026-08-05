@@ -548,11 +548,20 @@ rejecting a multi-variable active joint at construction time is a local
 API-shape choice already named in the port's own doc comment, not an
 instance of a project-wide policy — this ledger entry is the whole
 record.
-**Cost of not reproducing:** none. Already the shipped behaviour, and this
-port has no fixture with a multi-variable active joint feeding
-`AccelerationLimitedFilter` (its own doc comment: "there is no fixture
-robot in this workspace with a multi-DOF active joint whose correct
-per-variable bound behaviour could be derived independently").
+**Cost of not reproducing:** none. Already the shipped behaviour. The
+absence claim this rests on is narrower than "no multi-variable fixture",
+which this tree would refute: `crates/moveit-trajectory/tests/fixtures/totg_synthetic.urdf:31` declares a 3-variable `planar_joint`, and
+`multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins`
+(`acceleration_filter.rs:499-529`) loads exactly that fixture and feeds its
+`planar_group` to `joint_acceleration_bounds` — the same extractor
+`AccelerationLimitedFilter` uses — to prove the rejection fires. What is
+absent is the *reference value*, not the input: the doc comment's claim is
+"there is no fixture robot in this workspace with a multi-DOF active joint
+whose correct per-variable bound behaviour could be derived independently",
+and `totg_synthetic.urdf` is a synthetic chain with no published
+per-variable acceleration limit to check a real per-variable
+implementation against. So the rejection is testable here and is tested;
+the behaviour it declines to implement is what has no ground truth.
 
 ### `do-smoothing-length-check-operand` — `doSmoothing`'s length-check variable is misnamed and reads the wrong argument — reproduced-grandfathered
 
