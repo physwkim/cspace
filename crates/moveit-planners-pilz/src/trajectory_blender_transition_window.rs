@@ -811,6 +811,41 @@ mod tests {
     }
 
     #[test]
+    fn validate_request_rejects_non_stationary_boundary_waypoints() {
+        let (model, _) = load_panda();
+        let mut first = panda_joint1_sweep(&model, 0.0, 0.2, 4, 0.1);
+        let mut second = panda_joint1_sweep(&model, 0.2, 0.4, 4, 0.1);
+        // Give both boundary waypoints the SAME nonzero velocity, not just
+        // one: is_robot_state_equal (:352) compares velocity too, so a
+        // one-sided perturbation would trip the boundary-mismatch guard
+        // instead of the stationarity guard this test targets. Matching
+        // velocities keep :352 satisfied while still failing
+        // is_robot_state_stationary on each end individually.
+        let last = first.way_point_count() - 1;
+        first
+            .way_point_mut(last)
+            .unwrap()
+            .set_variable_velocity("panda_joint1", 0.05)
+            .unwrap();
+        second
+            .way_point_mut(0)
+            .unwrap()
+            .set_variable_velocity("panda_joint1", 0.05)
+            .unwrap();
+        let req = TrajectoryBlendRequest {
+            group_name: "panda_arm".to_string(),
+            link_name: "panda_link8".to_string(),
+            first_trajectory: first,
+            second_trajectory: second,
+            blend_radius: 0.05,
+        };
+        assert!(matches!(
+            validate_request(&req),
+            Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
+        ));
+    }
+
+    #[test]
     fn validate_request_accepts_a_well_formed_request() {
         let (model, _) = load_panda();
         let req = TrajectoryBlendRequest {
