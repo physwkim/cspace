@@ -21976,15 +21976,15 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
   0을 낼 때까지 확인한다. 게이트 자체가 적어둔 대로 고아 스냅샷을
   재생성해 흡수시키면 안 된다.
 
-## §NEW 미포팅 87건 전수 분류 — (b)는 코퍼스 안에 0건이고, Phase를 막는 부재는 코퍼스 밖에 있다
+## §249 미포팅 87건 전수 분류 — (b)는 코퍼스 안에 0건이고, Phase를 막는 부재는 코퍼스 밖에 있다
 
 이 절은 셋을 한다. (1) 포팅 분할을 오늘 main에서 다시 재고, (2) 미포팅
 전량을 요약표가 아니라 **전수 열거**로 (a)/(b)/(c)에 넣고, (3) 그 분류를
 만든 계기가 무엇을 보고 무엇을 못 보는지를 적는다. 이 절의 수는 전부
 여기 적힌 명령으로 측정한 것이고, 앞 라운드의 진행 노트에서 옮겨온 것이
-하나도 없다 — 옮겨오지 않은 이유는 §NEW.1이 보인다.
+하나도 없다 — 옮겨오지 않은 이유는 §249.1이 보인다.
 
-### §NEW.1 오늘 다시 잰 분할 — 245 / 158 / 87 (브리프의 107은 어느 계기도 낸 적이 없다)
+### §249.1 오늘 다시 잰 분할 — 245 / 158 / 87 (브리프의 107은 어느 계기도 낸 적이 없다)
 
 ```
 $ git rev-parse --short HEAD
@@ -22043,7 +22043,7 @@ $ python3 tools/ci/measure-port-coverage.py --upstream /home/stevek/work/moveit2
 OK doc/port-coverage.md: 87 rows == 87 unported, all 4-cell
 ```
 
-### §NEW.2 (b)를 (a)·(c)와 가르는 두 번째 계기 — 상류 인클루드 그래프
+### §249.2 (b)를 (a)·(c)와 가르는 두 번째 계기 — 상류 인클루드 그래프
 
 doc 행의 분류만으로 (b)를 판정하면 문서가 문서를 증명한다. 독립
 판별자로 상류 인클루드 그래프를 썼다: 미포팅 87건 각각에 대해 **포팅된
@@ -22073,7 +22073,7 @@ $ # include 키(`/include/` 뒤 경로)가 거기 몇 번 나오는지 센다
 이 판별자는 아래 세 표의 마지막 열(`포팅된 인클루더`)로 각 행에 붙어
 있다. 열거를 읽는 쪽이 doc의 분류를 믿지 않고도 각 행을 다시 잴 수 있게
 하려는 것이 목적이다.
-### §NEW.3 (a) 의도적 비포팅 중, 결정이 이 파일의 절 번호나 D 결정을 인용하는 36건
+### §249.3 (a) 의도적 비포팅 중, 결정이 이 파일의 절 번호나 D 결정을 인용하는 36건
 
 브리프의 (a)는 "deliberately out of scope, **with the decision that
 says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 아래
@@ -22121,7 +22121,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 35 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_ptp.hpp` | §227.2 | `PORTING-PLAN.md` §227.2; `crates/moveit-planners-pilz/src/lib.rs:130-139` | 0 |
 | 36 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_exceptions.hpp` | D4 | `crates/moveit-planners-pilz/src/lib.rs:142-157` | 0 |
 
-### §NEW.4 (a) 의도적 비포팅 중, 결정이 크레이트 doc 문장만 인용하는 35건
+### §249.4 (a) 의도적 비포팅 중, 결정이 크레이트 doc 문장만 인용하는 35건
 
 아래 35건은 결정이 존재하고 그 결정이 가리키는 소스 사이트도 있지만,
 `PORTING-PLAN.md`의 절 번호가 뒤에 없다. 브리프의 (a) 정의를 문자
@@ -22168,7 +22168,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 34 | `moveit_planners/stomp/include/stomp_moveit/trajectory_visualization.hpp` | `crates/moveit-planners-stomp/src/lib.rs:119-124` | 1 |
 | 35 | `moveit_planners/stomp/src/stomp_moveit_planner_plugin.cpp` | `crates/moveit-planners-stomp/src/lib.rs:111-118` | —(.cpp) |
 
-### §NEW.5 (b)도 (c)도 아닌 16건 — 다른 이름으로 트리 안에 있다
+### §249.5 (b)도 (c)도 아닌 16건 — 다른 이름으로 트리 안에 있다
 
 `doc/port-coverage.md` §1이 정의하는 `ported-elsewhere`는 "상류 파일
 이름으로는 인용되지 않지만 그 동작이 다른 이름으로 트리 안에 있다"는
@@ -22197,13 +22197,13 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 15 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/trajectory_generation_exceptions.hpp` | `PORTING-PLAN.md` §227.5-§227.6; `crates/moveit-error/src/lib.rs:100-102`, `crates/moveit-planners-pilz/src/trajectory_generator.rs:511-517` | 5 |
 | 16 | `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp` | `crates/moveit-planners-stomp/src/planner.rs` | 1 |
 
-### §NEW.6 (b) 0건 · (c) 0건 — 판정 없이 빠진 파일도, Phase 행을 막는 파일도 코퍼스 안에는 없다
+### §249.6 (b) 0건 · (c) 0건 — 판정 없이 빠진 파일도, Phase 행을 막는 파일도 코퍼스 안에는 없다
 
 **(c) "빠졌으나 무해" = 0건.** (c)는 "결정도 없고 영향도 없이 그냥 빠진
 파일"을 담는 칸이다. 코퍼스 안에는 그런 파일이 없다 — 87건 전부가
 `doc/port-coverage.md` §4에 자기 행을 갖고, 그 87행이 계기가 낸 미포팅
 87건과 집합으로 같다는 것을 `--check`가 양방향 차집합으로 확인한다
-(§NEW.1). 결정의 **질**은 균일하지 않지만(§NEW.4의 35건은 절 번호가
+(§249.1). 결정의 **질**은 균일하지 않지만(§249.4의 35건은 절 번호가
 없다) 결정의 **존재**는 87/87이다. 그래서 (a) 71 + 다른 이름으로 존재
 16 = 87이고 (c)에 남는 것이 없다.
 
@@ -22251,7 +22251,7 @@ $ python3 ... # moveit_ros의 코퍼스 소속
 막는 행을 못 대면 (b)가 아니다. 이 둘은 §227.6이 이미 잔여분으로 적고
 있고, 이 절은 그것을 (b)로 승격하지 않은 채 여기에 다시 적는다.
 
-### §NEW.7 부재를 무엇이 보는가 — 계기의 시야와 사각
+### §249.7 부재를 무엇이 보는가 — 계기의 시야와 사각
 
 브리프의 질문: 아무도 포팅하지 않아 감사 행조차 없는 상류 파일은 어느
 계기에 잡히는가, 그리고 그 계기는 **포트에도 없고 감사 문서에도 없는**
@@ -22326,9 +22326,194 @@ never-mentioned, by package:
 와 `moveit_ros/visualization/robot_state_rviz_plugin/src/plugin_init.cpp`
 — 둘 다 상류에 존재하고, 추적 중인 트리 전체에서 basename 히트 0이다.
 
-**이것이 §NEW.6의 (b) 0건을 읽는 방법을 정한다.** (b)가 0인 것은 코퍼스
+**이것이 §249.6의 (b) 0건을 읽는 방법을 정한다.** (b)가 0인 것은 코퍼스
 **안**에서의 사실이다. Phase 9를 막는 코드는 226건이 이름조차 안 나오는
 `moveit_ros` 안에 있고, 그것은 이 저장소의 어떤 계기도 세지 않는다 —
 `--check`가 통과한다는 사실은 그 부재에 대해 아무것도 말하지 않는다.
 Phase 9를 코퍼스 계기로 추적하려면 `CORPUS_ROOTS`에 `moveit_ros/move_group`
 (37건)을 넣는 결정이 먼저 있어야 하고, 이 라운드는 그 결정을 하지 않았다.
+
+---
+
+## §250 Phase 9 조건을 처음으로 **실행**했다 — `/move_action`을 짓고, 무변경 C++ `MoveGroupInterface`를 이 노드에 붙였다 (2026-08-06)
+
+§226.4는 Phase 9 조건을 UNMET으로 적으면서 "막히는 지점은 서버 쪽"이라고
+결론했다. 그 문장은 세 가지를 구분하지 않는다 — 안 지은 포팅인지, 이
+기계의 환경 제약인지, 다른 절에 이미 기록된 결정인지. 셋은 판정에 대해
+서로 다른 뜻을 갖는다. 이 절은 셋을 갈라 재고, 그중 이 펜스 안의 것을
+짓고, 조건을 실제로 **실행**한다.
+
+### §250.1 §226.3의 네 조각을 지금 트리에서 다시 센다
+
+§226.3의 표는 측정 당시의 트리다. 같은 앵커를 지금 돌린 결과:
+
+| 조각 | §226.3 | 지금 | 지은 절 |
+|---|---|---|---|
+| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/plan_kinematic_path_server.rs:114,171` | §241 |
+| `/plan_kinematic_path` 서비스 | 부재 | **존재** — 같은 파일 `create_service::<GetMotionPlan::Service>` | §241 |
+| `/move_action` 액션 서버 | 부재 | **존재** — 같은 파일 `create_action_server::<MoveGroup::Action>` | 이 절 |
+| planning scene 토픽 구독 | 부재 | **부재** — `rg -n 'create_subscription' ros/moveit-ros/src/ -t rust` 0건 | — |
+
+`moveit_msgs` `TryFrom` 변환은 §226.3 당시대로 존재한다. 즉 §226.3의
+"넷 중 하나만 있다"는 이제 "넷 중 셋이 있다"이고, 그 표를 인용해 판정을
+읽으면 두 라운드 전의 트리를 읽게 된다.
+
+### §250.2 막힌 지점을 셋으로 가른다 — 안 지은 포팅 둘, 다른 곳의 결정 하나, 환경 제약 영
+
+§226.4가 한 덩어리로 적은 "서버 쪽"을 실측해서 가르면 이렇게 된다.
+
+1. **`/move_action` 액션 서버 — 안 지은 포팅.** 무변경
+   `MoveGroupInterface::plan()`이 부르는 유일한 경로다
+   (§241.4가 상류 소스로 확정, `move_group_interface.cpp:188`의
+   `create_client<moveit_msgs::action::MoveGroup>`). 이 절이 지었다
+   (§250.3).
+2. **`moveit_planning::PlanningRequest`에 start-state 필드가 없다 — 안 지은
+   포팅, 단 `crates/moveit-planning`의 것.** 이것이 실행해 보고 나서야
+   드러난, 지금 **가장 먼저** 걸리는 거부다(§250.4). `ros/moveit-ros`
+   바깥이므로 이 라운드가 짓지 않았다.
+3. **부를 플래너가 없다 — 다른 곳에 기록된 결정.** §241.2가 이미 쟀고,
+   D8(§140.3)이 `moveit-planning`과 `moveit-planners-sbp::registry`의
+   동명이형 타입을 합치기로 이미 정해 둔, 아직 시작하지 않은 작업이다.
+   이 라운드가 다시 열 사안이 아니다.
+4. **환경 제약: 없다.** §226.4 항목 4는 "게이트가 쓰는 이미지에서
+   그대로 성립한다는 보장은 없다(미확인)"로 남아 있었다. 이 절이
+   확인했다 — 두 이미지는 같은 `BASE_IMAGE`에서 갈라져 나왔고, RMW가
+   양쪽 다 `rmw_fastrtps_cpp`이며, `moveit_msgs`가 양쪽 다 2.7.1에
+   `MoveGroup.action`의 sha가 `third_party/moveit_msgs`의 것과 바이트
+   동일하다(md5 `875ce447d8fae99251003a48acca5b4c`, 세 곳 모두). 즉
+   한 이미지에 둘을 합칠 필요조차 없다: 도커 브리지 네트워크 하나에
+   두 컨테이너를 올리면 그대로 붙는다. 붙었다(§250.4).
+
+### §250.3 지은 것 — `/move_action` (`moveit_msgs/action/MoveGroup`)
+
+`plan_kinematic_path_server.rs` 한 바이너리에 얹었다. 별도 프로세스로
+가르지 않은 것은 상류를 따른 것이다 — `move_group`은 `MoveGroupPlanService`와
+`MoveGroupMoveAction`을 **한 노드의 두 capability**로 싣는다.
+
+포팅 대상은 `move_action_capability.cpp`이고, 이 워크스페이스에서 도달
+가능한 부분만 그대로 옮겼다.
+
+- 목표 콜백은 상수 `ACCEPT_AND_EXECUTE`다(`:70-74`). UUID도 goal도 보지
+  않으므로 거부 분기 자체가 없다.
+- `setMoveState(PLANNING, goal_)`(`:89`)의 피드백을 그대로 낸다. 짝인
+  `setMoveState(IDLE, goal_)`(`:126`)은 옮기지 않았다 — `succeed`/`abort`가
+  이미 goal을 종료시킨 뒤에 부르는 자리라, rclcpp_action에서는 에러 로그만
+  남고 아무것도 발행되지 않는다. 그 호출을 옮기면 상류에서 에러인 것을
+  이 노드의 로그에 옮겨 심는 셈이 된다.
+- `plan_only || !allow_trajectory_execution_`(`:96`) 분기는 한쪽만 도달
+  가능하다. 이 워크스페이스에 `TrajectoryExecutionManager`가 없어
+  `allow_trajectory_execution_`이 거짓이므로 언제나 plan-only 팔이고,
+  `plan_only == false`인 goal에는 상류가 내는 경고(`:98-102`)를 그대로
+  낸다.
+- plan-only 팔은 파이프라인을 고르고, 못 고르면
+  `MoveItErrorCodes::FAILURE`를 낸다(`:207-211`). 이 포트에는 고를
+  파이프라인이 없으므로 그 분기가 이 포트가 서는 자리이고, `FAILURE`가
+  이 포트가 내는 코드다.
+
+액션 이름은 상류의 `move_group::MOVE_ACTION`(`capability_names.hpp:52`)
+그대로 무접두 `"move_action"`이다. 클라이언트가
+`rclcpp::names::append(namespace, MOVE_ACTION)`로 푸는 이름이라, 여기에
+슬래시를 붙이면 네임스페이스를 쓰는 클라이언트에서 안 보이게 된다.
+
+이 대목에서 §241의 결함 하나가 드러난다. `/plan_kinematic_path`는 같은
+상태를 `PLANNING_FAILED`로 보고하는데, 상류의 서비스 capability도 같은
+"파이프라인이 없다"를 `FAILURE`로 보고한다
+(`plan_service_capability.cpp:82-85`). `PLANNING_FAILED`는 파이프라인이
+돌고 못 푼 경우의 코드다. 고치려면 `ros/verify-ros-interop.sh`의
+`grep -q "val=-1"`도 같이 고쳐야 하는데 그 파일이 이 라운드의 펜스
+밖이라, 새 액션 쪽만 `FAILURE`로 짓고 이 불일치를 바이너리의 모듈
+문서에 이름 붙여 남겼다.
+
+### §250.4 실측 — 무변경 클라이언트가 DDS를 건너와, 이 포트가 만든 오류를 받는다
+
+계측 구성: 도커 브리지 네트워크 하나, `ROS_DOMAIN_ID=42`, 컨테이너 둘.
+한쪽은 `moveit-rs/ros-dev:latest`에서 이 노드를, 다른 쪽은 오라클 이미지
+계열에서 상류 `MoveGroupInterface`를 돌린다. 후자는 §226.2가 잰 그대로
+`colcon build --packages-up-to moveit_ros_planning_interface`가
+`Summary: 16 packages finished [1min 13s]`로 끝난다. 클라이언트 프로그램은
+URDF/SRDF를 노드 파라미터로 얹고 `MoveGroupInterface(node, "arm")`를 지어
+`plan()`을 부르는 것이 전부이며, 시험 대상인 `MoveGroupInterface` 자체는
+상류 소스를 그대로 컴파일한 것이다 — 패치도, 서브클래스도, 우회도 없다.
+
+**액션 서버가 없을 때**(이 라운드 직전의 트리):
+
+```
+---actions---            (비어 있음)
+---services---  /plan_kinematic_path
+[INFO] ... move_group_interface]: MoveGroup action client/server not ready
+PHASE9 plan() returned val=99999 message='' source=''
+PHASE9 verdict=NO_VALID_TRAJECTORY
+```
+
+`message`와 `source`가 빈 문자열인 것이 이 측정의 핵심이다 — 오류를
+만든 것은 클라이언트 자신이고(`move_group_interface.cpp:659-663`),
+와이어로 나간 것은 아무것도 없다. `/plan_kinematic_path`가 완벽하게
+살아 있는데도 그렇다.
+
+**액션 서버가 있을 때**(이 절 이후):
+
+```
+[INFO] ... move_group_interface]: MoveGroup action client/server ready
+[INFO] ... move_group_interface]: Planning request accepted
+[INFO] ... move_group_interface]: Planning request aborted
+[ERROR] ... move_group_interface]: MoveGroupInterface::plan() failed or timeout reached
+PHASE9 plan() returned val=-16
+  message='MotionPlanRequest -> PlanningRequest: MotionPlanRequest.start_state
+           is not representable: PlanningRequest has no start-state field, ...'
+  source='moveit-ros/move_action'
+PHASE9 joint_trajectory.points=0 multi_dof.points=0
+PHASE9 verdict=NO_VALID_TRAJECTORY
+```
+
+`source='moveit-ros/move_action'`가 판별자다. 오류 문자열이 이 포트의
+것이므로, 요청은 실제로 DDS를 건너 이 노드에 도착했고 응답도 건너왔다.
+
+그리고 도착해서 걸린 곳이 §241.2가 예상한 "부를 플래너가 없다"가
+**아니다**. 그보다 앞선 변환에서 걸린다:
+`ros/moveit-ros/src/planning.rs:94-99`의 `robot_state_msg_is_default`는
+`!is_diff && joint_state.name.is_empty() && ...`을 요구하는데,
+`MoveGroupInterface::plan()`은 생성자가 깔아 둔
+`setStartStateToCurrentState()`의 빈 diff(`is_diff = true`,
+`move_group_interface.cpp:434-439`)를 언제나 실어 보낸다. 공개 API로
+그것을 우회해도 마찬가지다 — `setStartState(const RobotState&)`로 완전한
+상태를 넣으면 `is_diff`는 거짓이 되지만 `joint_state.name`이 채워져서
+같은 자리에서 같은 이유로 거부된다(두 모드 모두 실측, 둘 다 `val=-16`).
+
+즉 `MotionPlanRequest.start_state`는 `MoveGroupInterface`에서 **언제나**
+비기본값이고, 이 포트의 변환은 비기본값을 전부 거부한다. 무변경
+클라이언트의 `plan()` 호출은 100% 이 자리에서 끝난다. 이것은 어떤 정적
+검사로도 보이지 않던 사실이다 — 실제 클라이언트를 붙여 본 적이 없었기
+때문이다.
+
+### §250.5 판정어 — UNMET이 맞다, 다만 이 라운드 전까지는 아니었다
+
+§226.4의 세 STEP 중 조건을 실행한 것은 없다. 읽고, 빌드되는지 보고,
+부재를 `rg`로 확인했다. "보낼 상대가 없으니 못 받는다"는 타당한
+추론이지만 시험이 아니고, UNMET은 시험해서 실패했다는 뜻이다. 그
+시점의 정직한 낱말은 UNMEASURED였다.
+
+이 절 이후로는 UNMET이 맞다 — 조건 문구 그대로의 종단 시도가 실제로
+수행됐고, 실패했으며, 실패 지점이 기록됐다. 그러므로 §5 표의 낱말은
+바뀌지 않고 **인용만 §226.4에서 이 절로 옮긴다**. 낱말을 고치는 대신
+측정을 만들어 낱말을 참으로 만든 것이고, 조건 문구를 느슨하게 하거나
+허용오차를 넓힌 곳은 없다.
+
+### §250.6 이 라운드가 닫지 못한 것
+
+- **`moveit_planning::PlanningRequest`의 start-state 필드.** §250.4가 찾은
+  첫 거부이고, 무변경 클라이언트의 모든 `plan()`을 막는다.
+  `crates/moveit-planning`이 주인이라 이 펜스 밖이다. 만료 조건:
+  `PlanningRequest`가 그 필드를 갖고 `planning.rs`의 첫 거부가 사라지면
+  닫힌다.
+- **planning scene 토픽 구독.** §226.4 항목 3 그대로 부재.
+- **`/plan_kinematic_path`의 `PLANNING_FAILED`.** §250.3이 적은 파리티
+  결함. 소스 한 줄과 `ros/verify-ros-interop.sh`의 `grep -q "val=-1"`
+  한 줄을 같이 고쳐야 하고, 후자가 펜스 밖이다.
+- **`/move_action`에는 회귀 게이트가 없다.** §241이 `/plan_kinematic_path`에
+  붙인 `run "live"` 단계와 같은 모양의 `ros2 action send_goal` 한 단계를
+  `ros/verify-ros-interop.sh`에 더하면 되지만, 그 파일이 펜스 밖이다.
+  지금은 이 절의 실측이 유일한 근거이고, 게이트로 고정돼 있지 않다.
+- **종단 시도를 게이트로 옮기지 못했다.** §250.4의 두 컨테이너 구성은
+  오라클 이미지 위에 3개 패키지를 더 빌드해서 만든 임시 이미지에
+  기댄다. 이미지를 커밋하거나 게이트에 싣는 것은 `ros/Dockerfile`과
+  `tools/moveit-oracle`을 건드리는 일이고 둘 다 펜스 밖이다.
