@@ -2583,6 +2583,53 @@ fn compare_collision(
     }
 
     clause_stats.distance_total += 1;
+    // Keyed on the *oracle's* value, never on this port's: the question is
+    // which branch of `moveit_core/collision_detection_fcl/src/collision_common.cpp:636`
+    // produced the number being
+    // compared against, and only the oracle's sign answers that. Keying on
+    // the port's own sign, or on either-is-negative, would let a state whose
+    // reference came out of the penetration branch be scored as a separated
+    // one whenever the port happened to disagree about contact.
+    for (side, oracle, rust, deviation, oracle_pair, rust_pair) in [
+        (
+            "self",
+            expected.self_distance,
+            actual.self_distance,
+            self_dev,
+            &expected.self_distance_pair,
+            &actual.self_distance_pair,
+        ),
+        (
+            "robot",
+            expected.robot_distance,
+            actual.robot_distance,
+            robot_dev,
+            &expected.robot_distance_pair,
+            &actual.robot_distance_pair,
+        ),
+    ] {
+        let outlier = || DistanceBranchOutlier {
+            case,
+            side,
+            deviation,
+            oracle,
+            rust,
+            oracle_pair: format_distance_pair(oracle_pair),
+            rust_pair: format_distance_pair(rust_pair),
+        };
+        // `> 0` and not `>= 0` because `:636` tests `distance <= 0`: a
+        // published exact zero comes out of the penetration branch upstream,
+        // so it is scored there.
+        if oracle > 0.0 {
+            clause_stats
+                .separated
+                .record(deviation, cfg.tol_distance, outlier);
+        } else {
+            clause_stats
+                .penetrating
+                .record(deviation, cfg.tol_distance, outlier);
+        }
+    }
     let distance_failure = if max_dev.is_nan() || max_dev > cfg.tol_distance {
         clause_stats.distance_disagrees += 1;
         if self_dev.is_nan() || self_dev > cfg.tol_distance {
@@ -2633,6 +2680,144 @@ fn compare_collision(
 /// `errored` counts cases where the Rust side could not produce a result at
 /// all; those reach neither clause, so they are excluded from both
 /// denominators rather than being scored as agreement.
+/// The `distance: f64` clause on one side of upstream's own branch.
+///
+/// `distanceCallback` does not compute one quantity. At
+/// `moveit_core/collision_detection_fcl/src/collision_common.cpp:603` it takes
+/// `fcl::distance`'s return; `:636` (`if (distance <= 0 &&
+/// cdata->req->enable_signed_distance)`) then throws that value away for the
+/// non-positive case and re-derives the field from an `fcl::collide` contact
+/// set instead (`:663`, `dist_result.distance = -contact.penetration_depth`).
+/// Above the branch the field is a separation distance, which is a property of
+/// the two surfaces; below it the field is a penetration depth *selected* out
+/// of a contact set, which is a property of the narrowphase that produced the
+/// set and of the rule that picks from it.
+///
+/// All three of this port's filed divergences from that function
+/// (`doc/upstream-bugs.md`: `distance-callback-max-contact-depth`,
+/// `distance-callback-threshold-suppresses-deeper-pairs`,
+/// `fcl-distance-sentinel-survives-zero-contacts`) are defects of the second
+/// case and cannot fire in the first. That makes "the sides agree wherever
+/// the published value is a separation distance" a *prediction*, not a
+/// summary -- and one a single combined `distance_disagrees` total can never
+/// test, because it merges the branch the prediction is about with the branch
+/// the known defects live in.
+///
+/// Counted per (case, side): `total` is 2x the sweep's case count across the
+/// two instances, not once per state.
+#[derive(Debug, Default, Clone, serde::Serialize)]
+struct DistanceBranchStats {
+    total: usize,
+    disagrees: usize,
+    /// Worst `|oracle - port|` seen in this branch, `0.0` when it is empty.
+    /// Reported even when nothing disagreed: a branch that passes at `1e-4`
+    /// with a worst deviation of `9e-5` and one that passes at `2e-16` are
+    /// not the same fact about the port.
+    worst_deviation: f64,
+    /// `|oracle - port|` partitioned by first matching bound, so the columns
+    /// sum to `total` and a tight branch is visibly tight rather than merely
+    /// under tolerance. NaN lands in `over_tol` with the disagreements.
+    le_1e12: usize,
+    le_1e9: usize,
+    le_1e6: usize,
+    le_tol: usize,
+    over_tol: usize,
+    /// The `TAIL` largest deviations in this branch, worst first, each with
+    /// the state and pair that produced it.
+    ///
+    /// A branch summarised by counts alone can only be re-entered by another
+    /// full sweep: "0 disagreements, worst `8.9e-5`" says the branch passes
+    /// and gives no way to ask *why* the worst is four orders above the
+    /// median without paying the sweep again. On the branch this measurement
+    /// is about, "passes at `1e-4`" and "agrees to `1e-16`" are different
+    /// claims about the port, and the second is only checkable from a case
+    /// index.
+    tail: Vec<DistanceBranchOutlier>,
+}
+
+/// One state's deviation on one side, kept for [`DistanceBranchStats::tail`].
+#[derive(Debug, Default, Clone, serde::Serialize)]
+struct DistanceBranchOutlier {
+    case: usize,
+    side: &'static str,
+    deviation: f64,
+    oracle: f64,
+    rust: f64,
+    oracle_pair: String,
+    rust_pair: String,
+}
+
+impl DistanceBranchStats {
+    /// How many outliers [`DistanceBranchStats::tail`] keeps.
+    const TAIL: usize = 8;
+
+    fn record(
+        &mut self,
+        deviation: f64,
+        tol: f64,
+        outlier: impl FnOnce() -> DistanceBranchOutlier,
+    ) {
+        self.total += 1;
+        if deviation.is_nan() || deviation > tol {
+            self.disagrees += 1;
+            self.over_tol += 1;
+        } else if deviation <= 1e-12 {
+            self.le_1e12 += 1;
+        } else if deviation <= 1e-9 {
+            self.le_1e9 += 1;
+        } else if deviation <= 1e-6 {
+            self.le_1e6 += 1;
+        } else {
+            self.le_tol += 1;
+        }
+        if deviation.is_nan() || deviation > self.worst_deviation {
+            self.worst_deviation = deviation;
+        }
+        // Sorted-insert into a bounded tail rather than collecting every
+        // deviation and sorting at the end: the sweep is 10,000 states x 2
+        // sides x 5 robots and the interesting part is the top of the tail.
+        if self.tail.len() < Self::TAIL
+            || deviation.is_nan()
+            || deviation > self.tail.last().map_or(f64::NEG_INFINITY, |o| o.deviation)
+        {
+            self.tail.push(outlier());
+            // NaN sorts to the front: an unorderable deviation is the most
+            // interesting one, not one to drop off the end silently.
+            self.tail.sort_by(|a, b| {
+                b.deviation
+                    .partial_cmp(&a.deviation)
+                    .unwrap_or(if b.deviation.is_nan() {
+                        std::cmp::Ordering::Greater
+                    } else {
+                        std::cmp::Ordering::Less
+                    })
+            });
+            self.tail.truncate(Self::TAIL);
+        }
+    }
+
+    fn report(&self, label: &str) {
+        println!(
+            "  {label:<26} {:>6}/{:<6} sides disagree  worst |d| {:.6e}  \
+             [<=1e-12 {}, <=1e-9 {}, <=1e-6 {}, <=tol {}, >tol {}]",
+            self.disagrees,
+            self.total,
+            self.worst_deviation,
+            self.le_1e12,
+            self.le_1e9,
+            self.le_1e6,
+            self.le_tol,
+            self.over_tol,
+        );
+        for o in &self.tail {
+            println!(
+                "      collision[{}] {:<5} |d| {:.6e}  oracle {:.17e} [{}] vs rust {:.17e} [{}]",
+                o.case, o.side, o.deviation, o.oracle, o.oracle_pair, o.rust, o.rust_pair,
+            );
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, serde::Serialize)]
 struct CollisionClauseStats {
     bool_total: usize,
@@ -2648,6 +2833,13 @@ struct CollisionClauseStats {
     distance_disagrees: usize,
     self_distance_disagrees: usize,
     robot_distance_disagrees: usize,
+    /// The same sides again, split by the sign of the *oracle's* published
+    /// value -- i.e. by which side of
+    /// `moveit_core/collision_detection_fcl/src/collision_common.cpp:636` produced it.
+    /// See [`DistanceBranchStats`] for why this split is the measurement and
+    /// not a presentation choice.
+    separated: DistanceBranchStats,
+    penetrating: DistanceBranchStats,
     errored: usize,
 }
 
@@ -2671,6 +2863,11 @@ impl CollisionClauseStats {
             self.self_distance_disagrees,
             self.robot_distance_disagrees,
         );
+        println!(
+            "  split by upstream's own branch at collision_detection_fcl/src/collision_common.cpp:636 --"
+        );
+        self.separated.report("oracle value > 0");
+        self.penetrating.report("oracle value <= 0");
         if self.errored > 0 {
             println!(
                 "rust errored (in neither denominator): {} states",
