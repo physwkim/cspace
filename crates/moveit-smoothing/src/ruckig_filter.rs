@@ -540,6 +540,45 @@ mod tests {
     }
 
     #[test]
+    fn do_smoothing_rejects_a_positions_only_mismatch() {
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        filter.reset(&[0.0, 0.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap();
+        let mut positions = [0.5];
+        let mut velocities = [0.0, 0.0];
+        let mut accelerations = [0.0, 0.0];
+        let err = filter
+            .do_smoothing(&mut positions, &mut velocities, &mut accelerations)
+            .unwrap_err();
+        assert!(err.to_string().contains("must each have length"), "{err}");
+    }
+
+    #[test]
+    fn do_smoothing_rejects_a_velocities_only_mismatch() {
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        filter.reset(&[0.0, 0.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap();
+        let mut positions = [0.5, 0.5];
+        let mut velocities = [0.0];
+        let mut accelerations = [0.0, 0.0];
+        let err = filter
+            .do_smoothing(&mut positions, &mut velocities, &mut accelerations)
+            .unwrap_err();
+        assert!(err.to_string().contains("must each have length"), "{err}");
+    }
+
+    #[test]
+    fn do_smoothing_rejects_an_accelerations_only_mismatch() {
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        filter.reset(&[0.0, 0.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap();
+        let mut positions = [0.5, 0.5];
+        let mut velocities = [0.0, 0.0];
+        let mut accelerations = [0.0];
+        let err = filter
+            .do_smoothing(&mut positions, &mut velocities, &mut accelerations)
+            .unwrap_err();
+        assert!(err.to_string().contains("must each have length"), "{err}");
+    }
+
+    #[test]
     fn reset_rejects_a_mismatched_length() {
         let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
         let err = filter.reset(&[0.0], &[0.0], &[0.0]).unwrap_err();
