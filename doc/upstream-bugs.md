@@ -1665,7 +1665,7 @@ Both items previously open here are resolved:
 `  RCLCPP_ERROR(getLogger(), "Missing variable %s", ...);` /
 `state.getVariablePositions()[i] = std::stod(cell);`). The `if` has one
 statement and no `return`, and the enclosing function returns `void`.
-**Port:** `crates/moveit-state/src/conversions.rs:190` (`csv_to_robot_state`'s
+**Port:** `crates/moveit-state/src/conversions.rs:192` (`csv_to_robot_state`'s
 `cells.next().ok_or_else(...)`)
 **Symptom:** A line with fewer fields than the model has variables reaches
 the log at 573 and then falls straight into `std::stod(cell)` at 574.
@@ -1699,7 +1699,7 @@ and this port's CSV is checked against itself
 (`const JointModelGroup* jmg = state.getRobotModel()->getJointModelGroup(joint_group_id);`),
 then `:540`/`:542`/`:548`/`:551`/`:553`, all of which dereference `jmg`
 with no intervening test.
-**Port:** `crates/moveit-state/src/conversions.rs:141`
+**Port:** `crates/moveit-state/src/conversions.rs:143`
 (`robot_state_to_csv_by_groups`'s `.joint_model_group(group_name)?`)
 **Symptom:** `RobotModel::getJointModelGroup(const std::string&)` returns
 `nullptr` for an unknown name (`robot_model.cpp:512-521`: an `RCLCPP_ERROR`
@@ -1735,7 +1735,7 @@ absent-caller measurement.
 whose doc comment on that very accessor reads "Use carefully. If you change
 these values externally you need to make sure you trigger a forced update
 for the state by calling `update(true)`."
-**Port:** `crates/moveit-state/src/conversions.rs:204`
+**Port:** `crates/moveit-state/src/conversions.rs:206`
 (`csv_to_robot_state`'s `state.set_variable_positions(&positions)`)
 **Symptom:** `streamToRobotState` replaces every variable of the state and
 sets no dirty flag, because the non-const `getVariablePositions()` is a bare
@@ -1778,7 +1778,7 @@ absent-caller measurement.
 'setprecision|hexfloat|precision\('` over `conversions.cpp` returns nothing —
 and the functions take the `std::ostream` from the caller, so the format is
 whatever the caller last left configured.
-**Port:** `crates/moveit-state/src/conversions.rs:105`
+**Port:** `crates/moveit-state/src/conversions.rs:107`
 (`robot_state_to_csv`'s `.map(f64::to_string)`)
 **Symptom:** `std::basic_ios::init` sets `precision` to `6`, so an
 unconfigured stream writes six *significant* digits and `operator<<(double)`
