@@ -176,6 +176,10 @@ def mask_non_code(text):
 
 TEST_ATTR_RE = re.compile(r"^\s*#\[[^\]]*\btest\b[^\]]*\]\s*$")
 ATTR_LINE_RE = re.compile(r"^\s*#\[[^\]]*\]\s*$")
+# `///` only, never `//!`: an outer doc comment belongs to the item directly
+# below it, an inner one to the enclosing module, and it is the outer kind a
+# citation to "this function's doc" means.
+DOC_LINE_RE = re.compile(r"^\s*///")
 
 
 def function_spans(path):
@@ -242,8 +246,25 @@ def function_spans(path):
         # include any run of single-line attributes directly above `fn`, so
         # `` `path.rs:334-345` `` for a test whose `#[test]` sits at 334 and
         # `fn` at 335 is judged against 334, not 335.
+        #
+        # The `///` run above those attributes is absorbed by the same walk,
+        # for the same reason and by the same rule rather than a second,
+        # special-cased one. `doc/claim-audit/*` cites a *claim*, and a claim
+        # about upstream behaviour lives in the doc comment of the test that
+        # pins it, never in its body: `moveit-trajectory.md:172` cites
+        # `time_optimal_trajectory_generation.rs:962-974` naming
+        # `upstream_test_custom_limits` (whose `#[test]` is at 975), and
+        # `moveit-smoothing.md:32` cites `acceleration_filter.rs:446-457`
+        # naming `joint_acceleration_bounds_fails_without_acceleration_limits`
+        # (`#[test]` at 458). Attributes and doc comment are both leading
+        # declaration material of the one function; splitting the span
+        # between them would mean the citation convention this corpus
+        # actually uses is checkable for one and not the other.
         start_line = line_no
-        while start_line > 1 and ATTR_LINE_RE.match(lines[start_line - 2]):
+        while start_line > 1 and (
+            ATTR_LINE_RE.match(lines[start_line - 2])
+            or DOC_LINE_RE.match(lines[start_line - 2])
+        ):
             start_line -= 1
         spans.setdefault(m.group(1), []).append((start_line, end_line, is_test))
     return spans
