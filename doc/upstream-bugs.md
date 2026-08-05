@@ -108,6 +108,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `set-from-ik-zero-timeout-is-not-single-attempt` | not-reproduced |
 | `validate-and-improve-interval-percentage-discarded` | not-reproduced |
 | `count-samples-per-second-returns-a-ratio` | not-reproduced |
+| `all-valid-distance-robot-hides-base-overload` | not-reproduced |
 
 ---
 
@@ -1343,3 +1344,96 @@ deterministically here by
 `crates/moveit-constraints/tests/sampler_self_validation.rs`'s
 per-configuration `attempted`/`produced` accounting, which fails the sweep
 when a sampler's yield falls short of its quota.
+
+### `all-valid-distance-robot-hides-base-overload` — `CollisionEnvAllValid::distanceRobot(state)` returns `0.0` through the concrete type and `max()` through the base pointer callers actually hold — not-reproduced
+
+**Upstream:** `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_env_allvalid.hpp:63-64`
+and `src/allvalid/collision_env_allvalid.cpp:114-123` (the two
+`virtual double distanceRobot(...)` definitions), against
+`include/moveit/collision_detection/collision_env.hpp:202` and `:220` (the
+base's `inline double distanceRobot(state, bool verbose = false)` and its
+`acm` sibling)
+**Port:** `crates/moveit-collision/src/all_valid.rs` — `AllValidCollisionEnv`
+implements only the `(request, state, ..) -> DistanceResult` form, so the
+split cannot be expressed; `PORTING-PLAN.md` §225.3 records the choice.
+**Symptom:** `CollisionEnvAllValid` declares
+`virtual double distanceRobot(const moveit::core::RobotState& state) const`
+returning `0.0`. It reads like an override of the base's same-named
+convenience accessor, and is not one: the base's is
+`inline double distanceRobot(const RobotState& state, bool verbose = false) const`
+— a **different signature** and, decisively, **non-virtual**. So the derived
+declaration overrides nothing; it introduces a new function and, by C++
+name hiding, suppresses the base's overloads for unqualified lookup on a
+`CollisionEnvAllValid` object. One query then has two answers, selected by
+the static type of the expression:
+
+- through the concrete type — `CollisionEnvAllValid v; v.distanceRobot(s)`
+  — the derived function runs and returns `0.0`;
+- through a base reference or the `CollisionEnvPtr` that
+  `CollisionDetectorAllocatorAllValid::allocateEnv` hands back — which is
+  how every `PlanningScene` caller reaches this class — the base's inline
+  runs, calls the pure-virtual `distanceRobot(req, res, state)` (whose
+  all-valid override sets only `res.collision = false`,
+  `collision_env_allvalid.cpp:108-112`), and returns
+  `res.minimum_distance.distance`, still at `DistanceResultsData::clear()`'s
+  `std::numeric_limits<double>::max()` (`collision_common.hpp:356`, reset at
+  `:286`).
+
+`0.0` and `max()` are not two spellings of one answer — for a backend whose
+entire contract is "nothing is ever in collision", `0.0` is the collision
+boundary (`DistanceResultsData::distance`'s own doc: `<= 0` means in
+collision) and `max()` is unbounded clearance. The declaration that is dead
+through the allocator path is the one carrying the author's intent.
+
+The same shape hits `distanceSelf` harder: `CollisionEnvAllValid` declares
+only the three-argument `distanceSelf(req, res, state) override`
+(`collision_env_allvalid.hpp:73`), which hides *both* base convenience
+overloads (`collision_env.hpp:167,179`), so `v.distanceSelf(s)` on the
+concrete type is a compile error rather than a wrong number.
+
+**Evidence:** a read of the four declarations at the pinned `e017c91ee`
+checkout, plus a reproduction of the C++ mechanism — not of MoveIt — in a
+standalone 50-line model that copies only the declaration shapes
+(`CollisionEnv` with a pure-virtual `distanceRobot(req,res,state)`, a
+non-virtual `inline double distanceRobot(state, bool = false)` returning
+`res.minimum_distance_distance`, a `DistanceResult` whose distance member
+starts at `numeric_limits<double>::max()`, and a derived class declaring
+`virtual double distanceRobot(const State&) const { return 0.0; }` plus the
+three-argument `override`). Built with `g++ -std=c++17`, it prints
+
+```
+concrete  v.distanceRobot(s) = 0
+base ref  e.distanceRobot(s) = 1.79769e+308
+base ref  e.distanceSelf(s)  = 1.79769e+308
+```
+
+and, with the concrete-type `distanceSelf` call enabled, fails to compile
+with `no matching function for call to 'CollisionEnvAllValid::distanceSelf(State&)'`
+/ `candidate expects 3 arguments, 1 provided`. MoveIt itself was **not**
+built: this workspace has no ROS 2 toolchain, so the numbers above come
+from the model, and what they establish is that the language rule behaves
+as claimed on these exact declaration shapes.
+
+Upstream's own test does not see it. `test/test_all_valid.cpp` is one
+`TEST(AllValid, Instantiate)` that constructs a `CollisionEnvAllValid` from
+an empty `urdf::ModelInterface` and calls no method on it.
+
+**Status:** `not-reproduced`.
+**Deviation:** none maps. The port has no `distance_robot(state)`
+convenience overload at all — `CollisionEnv`'s Rust form takes the
+`DistanceRequest` explicitly because both upstream conveniences must call
+`req.enableGroup(getRobotModel())` first — so there is no second answer to
+choose between. `AllValidCollisionEnv::distance_robot` returns
+`DistanceResult::default()`, whose `minimum_distance.distance` is
+`f64::MAX`: the value the base overload produces, and the one consistent
+with the class's contract.
+**Cost of not reproducing:** none measurable here. No parity test or oracle
+comparison covers `CollisionEnvAllValid` — the port's null backend has no
+oracle, because upstream's own coverage of it is the instantiate-only test
+above. Within this tree the choice is pinned by
+`crates/moveit-collision/src/all_valid.rs`'s
+`distance_queries_report_maximum_clearance` and by
+`crates/moveit-scene/tests/all_valid_selection.rs`'s
+`distance_to_collision_through_the_null_backend_is_maximum_clearance`,
+whose isolating mutation is exactly this bug's `0.0`
+(`doc/assertion-discrimination-ledger-p10-samplers.md`, M5 and M6).
