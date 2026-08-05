@@ -71,12 +71,14 @@ pub type SolutionCallback<'a> = dyn FnMut(&[f64]) -> bool + 'a;
 ///    any cost function outright. This trait keeps only the shape
 ///    `kdl_kinematics_plugin` exercises; [`SolveOptions`] carries
 ///    `consistency_limits` and `solution_callback`, the two extras it
-///    *does* exercise. For the same reason, [`KinematicsSolver::tip_frame`]
-///    is singular where upstream's `getTipFrames` returns a
-///    `Vec<String>`: that plural exists solely to name each pose in the
-///    multi-tip overload's `ik_poses` argument, an overload this trait does
-///    not have. A `Vec` of one name would document a capability this crate
-///    does not offer rather than the one it does.
+///    *does* exercise. [`KinematicsSolver::solve_with_options`] therefore
+///    stays single-pose where upstream's `searchPositionIK` takes an
+///    `ik_poses` vector. [`KinematicsSolver::tip_frames`] is nonetheless
+///    plural, because `setFromIK`'s tip matching and its fill of the tips
+///    a caller left out are written against the plural and stay N-ary in
+///    [`crate::resolve_ik_queries`]; it defaults to the single
+///    [`KinematicsSolver::tip_frame`], so a chain solver states one tip
+///    without having to say so.
 /// 2. **No timeout, no `KinematicsQueryOptions`.** See
 ///    [`SolverParams::max_restarts`]'s doc comment for the timeout
 ///    replacement; `return_approximate_solution` and
@@ -97,9 +99,24 @@ pub trait KinematicsSolver {
     /// is given in (`chain::ChainInfo::root_pose_world`'s output frame).
     fn base_frame(&self) -> &str;
 
-    /// `getTipFrame`: this chain's tip link. See this trait's `# Deviations`,
-    /// item 1, for why there is no plural `getTipFrames`.
+    /// `getTipFrame`: this chain's tip link.
     fn tip_frame(&self) -> &str;
+
+    /// `getTipFrames`: every frame this solver expects a target pose for,
+    /// in the order [`crate::resolve_ik_queries`] fills them.
+    ///
+    /// The default is the one-element list `[tip_frame()]`, which is what a
+    /// chain solver has and what every solver this crate ships reports —
+    /// see this trait's `# Deviations`, item 1. A solver that genuinely
+    /// takes several tips overrides this, and so must any wrapper that
+    /// delegates to one: inheriting the default there would silently
+    /// present a multi-tip solver as single-tip.
+    ///
+    /// Owned rather than `&[String]` so the default body can exist at all;
+    /// [`fn@crate::set_from_ik`] calls it once per request, not per attempt.
+    fn tip_frames(&self) -> Vec<String> {
+        vec![self.tip_frame().to_owned()]
+    }
 
     /// `searchPositionIK`'s single-pose case in its fullest form (`timeout`
     /// replaced by [`SolverParams::max_restarts`] — see that field's doc

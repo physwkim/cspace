@@ -144,6 +144,13 @@ impl<S: KinematicsSolver> KinematicsSolver for CachedIkSolver<S> {
         self.inner.tip_frame()
     }
 
+    /// Forwarded rather than inherited. The provided default would answer
+    /// `[self.tip_frame()]`, which reports one tip for a wrapped solver
+    /// that has several — a wrapper must not narrow what it wraps.
+    fn tip_frames(&self) -> Vec<String> {
+        self.inner.tip_frames()
+    }
+
     /// The cache hit/miss branch: try `target`'s nearest cached seed
     /// first (`IkCache::nearest`), and only fall back to the caller's
     /// own `seed` if that attempt returns [`None`]. Either attempt

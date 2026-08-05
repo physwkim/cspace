@@ -11,6 +11,8 @@
 //   moveit_kinematics/kdl_kinematics_plugin/include/moveit/kdl_kinematics_plugin/joint_mimic.hpp
 //   moveit_core/robot_state/include/moveit/robot_state/cartesian_interpolator.hpp
 //   moveit_core/robot_state/src/cartesian_interpolator.cpp
+//   moveit_core/robot_state/include/moveit/robot_state/robot_state.hpp
+//   moveit_core/robot_state/src/robot_state.cpp
 // See the module doc's "Why this file stays BSD-3-Clause" section for
 // chainiksolver_vel_mimic_svd.{hpp,cpp}, the LGPL-2.1-or-later source this
 // crate's velocity solve (`velocity.rs`) plays the role of instead of
@@ -200,15 +202,29 @@
 //! - `getGroupName`/`getBaseFrame`/`getTipFrame` — the surviving,
 //!   single-tip shape of these is [`KinematicsSolver::group_name`],
 //!   [`KinematicsSolver::base_frame`], [`KinematicsSolver::tip_frame`].
-//! - `getTipFrames` (plural, multi-tip) — excluded per
-//!   [`KinematicsSolver`]'s documented single-tip-only deviation.
+//! - `getTipFrames` (plural, multi-tip) — ported as
+//!   [`KinematicsSolver::tip_frames`], a *provided* method defaulting to
+//!   `[tip_frame()]`. It was excluded until [`fn@set_from_ik`] existed, on the
+//!   grounds that `KDLKinematicsPlugin` has one tip; what changed is that
+//!   `setFromIK`'s tip matching and its fill of unnamed tips are written
+//!   against the plural and are ported N-ary
+//!   ([`resolve_ik_queries`]), so the plural now has a consumer even though
+//!   every solver this crate ships still answers with one entry.
 //! - multi-pose `getPositionIK`/`searchPositionIK`, and the
 //!   cost-function `searchPositionIK` overload — `KDLKinematicsPlugin`
 //!   never overrides these defaults (it is always called with exactly one
 //!   pose); excluded per the same single-tip/no-cost-function deviation.
-//! - `setRedundantJoints`/`getRedundantJoints`/`supportsGroup` — unused by
+//!   The multi-tip *request* still has a home: it goes to
+//!   [`set_from_ik_subgroups`], which is where upstream sends it too.
+//! - `setRedundantJoints`/`getRedundantJoints` — unused by
 //!   `KDLKinematicsPlugin`, which never calls into redundant-joint
 //!   handling; no consumer in this port.
+//! - `supportsGroup` — upstream's own base implementation is "this group is
+//!   a chain and its tip is my tip"; `setFromIK` calls it only to decide
+//!   whether to divert a multi-tip request to `setFromIKSubgroups`
+//!   (`robot_state.cpp:1836-1863`). [`fn@set_from_ik`] makes that decision from
+//!   [`KinematicsSolver::tip_frames`]`().len()` directly, so the predicate
+//!   has no separate call site left.
 //! - `setSearchDiscretization`/`getSearchDiscretization`/
 //!   `getSupportedDiscretizationMethods` — these back a discretized
 //!   redundant-joint search `KDLKinematicsPlugin` does not implement; no
@@ -482,6 +498,7 @@ mod lma;
 mod newton_raphson;
 mod params;
 mod registry;
+mod set_from_ik;
 mod velocity;
 
 pub use cached_solver::CachedIkSolver;
@@ -496,4 +513,8 @@ pub use params::SolverParams;
 pub use registry::{
     DEFAULT_SOLVER_NAME, KINEMATICS_SOLVERS, KinematicsSolver, SolutionCallback, SolveOptions,
     SolverRegistration, resolve_solver,
+};
+pub use set_from_ik::{
+    AttachedFrame, AttachedFrames, GroupStateValidity, IkContext, IkTarget, NoAttachedFrames,
+    resolve_ik_queries, set_from_ik, set_from_ik_subgroups,
 };
