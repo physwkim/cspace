@@ -191,16 +191,18 @@ fn rotation_error(a: &Isometry3, b: &Isometry3) -> f64 {
 /// A [`NewtonRaphsonSolver`] with some of its *labels* replaced.
 ///
 /// Every solve still goes to the real solver underneath; only what the
-/// solver calls its group, its base frame and its tips changes. That is the
-/// only way to put the port on the far side of three boundaries the panda
-/// fixture's own solver always lands on the near side of: a solver with more
-/// than one tip, a solver based on the model frame, and a solver whose joints
-/// are not variables of the group it names.
+/// solver calls its group, its base frame, its tips and its joints changes.
+/// That is the only way to put the port on the far side of four boundaries
+/// the panda fixture's own solver always lands on the near side of: a solver
+/// with more than one tip, a solver based on the model frame, a solver whose
+/// joints are not variables of the group it names, and a solver that reports
+/// a joint holding no variable at all.
 struct Relabelled {
     inner: NewtonRaphsonSolver,
     group_name: String,
     base_frame: String,
     tip_frames: Vec<String>,
+    joint_names: Vec<String>,
 }
 
 impl Relabelled {
@@ -209,6 +211,7 @@ impl Relabelled {
             group_name: inner.group_name().to_owned(),
             base_frame: inner.base_frame().to_owned(),
             tip_frames: inner.tip_frames(),
+            joint_names: inner.joint_names().to_vec(),
             inner,
         }
     }
@@ -227,6 +230,14 @@ impl Relabelled {
         self.tip_frames = tips.iter().map(|t| (*t).to_owned()).collect();
         self
     }
+
+    /// The reported name list only. The seed and the solution the inner
+    /// solver actually takes and returns keep their own length, which is
+    /// what makes "reports a joint it does not solve" expressible here.
+    fn with_joints(mut self, joints: &[&str]) -> Self {
+        self.joint_names = joints.iter().map(|j| (*j).to_owned()).collect();
+        self
+    }
 }
 
 impl KinematicsSolver for Relabelled {
@@ -235,7 +246,7 @@ impl KinematicsSolver for Relabelled {
     }
 
     fn joint_names(&self) -> &[String] {
-        self.inner.joint_names()
+        &self.joint_names
     }
 
     fn base_frame(&self) -> &str {
@@ -754,6 +765,136 @@ fn a_solver_whose_joints_are_not_the_groups_variables_is_unknown_name() {
         matches!(
             error,
             Error::UnknownName { kind: "group variable", ref name } if name == "panda_joint1"
+        ),
+        "got {error:?}"
+    );
+}
+
+/// `panda_arm` is the chain `panda_link0` -> `panda_link8`, so `panda_joint8`
+/// — fixed, `panda_link7` -> `panda_link8` — is a joint of the group holding
+/// none of its variables. Reported *between* two solved joints rather than
+/// appended, so that keeping it would not merely lengthen the correspondence
+/// but shift every later slot onto the wrong variable.
+#[test]
+fn a_fixed_joint_of_the_group_takes_no_seed_or_solution_slot() {
+    let model = panda_model();
+    let solved = solver_for(&model, "panda_arm", &one_attempt())
+        .joint_names()
+        .to_vec();
+    let mut reported: Vec<&str> = solved.iter().map(String::as_str).collect();
+    reported.insert(1, "panda_joint8");
+
+    let mut plain_state = panda_state(&model);
+    let target = shifted(&world_pose(&mut plain_state, "panda_link8"), REACHABLE_STEP);
+    let ik_target = IkTarget {
+        pose: target,
+        frame: "panda_link8",
+    };
+
+    let mut plain = solver_for(&model, "panda_arm", &one_attempt());
+    assert!(
+        set_from_ik(
+            &mut plain_state,
+            &mut plain,
+            &[ik_target],
+            &mut IkContext::default()
+        )
+        .expect("the plain solver's joints are all panda_arm variables"),
+        "the reference solve must succeed for the comparison below to mean anything"
+    );
+
+    let mut with_fixed =
+        Relabelled::new(solver_for(&model, "panda_arm", &one_attempt())).with_joints(&reported);
+    let mut fixed_state = panda_state(&model);
+    assert!(
+        set_from_ik(
+            &mut fixed_state,
+            &mut with_fixed,
+            &[ik_target],
+            &mut IkContext::default()
+        )
+        .expect("panda_joint8 is a fixed joint of panda_arm, not an unknown name"),
+        "reporting a fixed joint of the group must not stop the solve"
+    );
+
+    // One deterministic attempt from the same seed against the same target:
+    // dropping `panda_joint8` from the correspondence and nothing else makes
+    // the two solves the same computation, bit for bit.
+    assert_eq!(
+        fixed_state.positions(),
+        plain_state.positions(),
+        "the fixed joint must take no slot: same seed, same target, same answer"
+    );
+}
+
+/// The other side of `hasJointModel` in upstream's skip: `panda_hand_joint`
+/// is fixed, but it is `panda_link8` -> `panda_hand`, past the end of
+/// `panda_arm`'s chain. A solver naming it is naming a joint of the *model*,
+/// which is not what the skip forgives.
+#[test]
+fn a_fixed_joint_outside_the_group_is_still_unknown_name() {
+    let model = panda_model();
+    let solved = solver_for(&model, "panda_arm", &one_attempt())
+        .joint_names()
+        .to_vec();
+    let mut reported: Vec<&str> = solved.iter().map(String::as_str).collect();
+    reported.push("panda_hand_joint");
+
+    let mut solver =
+        Relabelled::new(solver_for(&model, "panda_arm", &one_attempt())).with_joints(&reported);
+    let mut state = panda_state(&model);
+    let target = shifted(&world_pose(&mut state, "panda_link8"), REACHABLE_STEP);
+
+    let error = set_from_ik(
+        &mut state,
+        &mut solver,
+        &[IkTarget {
+            pose: target,
+            frame: "panda_link8",
+        }],
+        &mut IkContext::default(),
+    )
+    .expect_err("panda_hand_joint is not a joint of panda_arm");
+
+    assert!(
+        matches!(
+            error,
+            Error::UnknownName { kind: "group variable", ref name } if name == "panda_hand_joint"
+        ),
+        "got {error:?}"
+    );
+}
+
+/// The other side of `getType() == FIXED`: PR2's `base` group is the single
+/// planar joint `world_joint`, whose variables are `world_joint/x`,
+/// `world_joint/y` and `world_joint/theta`. The bare joint name is therefore
+/// in the group and not among its variables — the same shape a fixed joint
+/// presents — but it stands for three values, and one solution slot cannot
+/// carry three. It must be refused, not skipped.
+#[test]
+fn a_multi_variable_joint_named_by_the_joint_is_unknown_name() {
+    let model = pr2_model();
+    let mut solver = Relabelled::new(solver_for(&model, "left_arm", &one_attempt()))
+        .with_group("base")
+        .with_joints(&["world_joint"]);
+    let mut state = pr2_arms_state(&model);
+    let target = shifted(&world_pose(&mut state, "l_wrist_roll_link"), REACHABLE_STEP);
+
+    let error = set_from_ik(
+        &mut state,
+        &mut solver,
+        &[IkTarget {
+            pose: target,
+            frame: "l_wrist_roll_link",
+        }],
+        &mut IkContext::default(),
+    )
+    .expect_err("world_joint holds three variables, not one solution slot");
+
+    assert!(
+        matches!(
+            error,
+            Error::UnknownName { kind: "group variable", ref name } if name == "world_joint"
         ),
         "got {error:?}"
     );

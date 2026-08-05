@@ -98,6 +98,7 @@
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Transforms};
+use moveit_model::joint::JointType;
 use moveit_model::{JointModelGroup, RobotModel};
 use moveit_state::{Posed, RobotState};
 
@@ -384,9 +385,9 @@ pub fn resolve_ik_queries(
     Ok(queries)
 }
 
-/// What upstream's `getKinematicsSolverJointBijection` is needed for here:
-/// that every [`KinematicsSolver::joint_names`] entry really is a variable of
-/// `group`.
+/// The group variables a solver's seed and solution vectors correspond to,
+/// slot for slot: upstream's `getKinematicsSolverJointBijection`, carried by
+/// name instead of by index.
 ///
 /// Upstream builds an index permutation, because `ikCallbackFnAdapter` scatters
 /// the solver's solution into group-variable order arithmetically. This module
@@ -394,29 +395,48 @@ pub fn resolve_ik_queries(
 /// so a mimic joint's group-variable slot has no solver entry to scatter from
 /// — and instead writes the solution into the state by name and reads the
 /// group's variables back out, which is what gives mimics their values (see
-/// this module's `# Deviations`, item 2). The permutation itself therefore has
-/// no consumer; the name check that building it performed
-/// (`joint_model_group.cpp:626-636`) still does, and it is what makes
+/// this module's `# Deviations`, item 2). These names are what that
+/// permutation's indices were: the single list [`set_from_ik`]'s seed,
+/// [`apply_and_read_group`]'s write and the final write of an accepted
+/// solution are all indexed by, so no two of them can disagree about which
+/// slot means which variable. Building it is also what makes
 /// [`apply_and_read_group`]'s writes infallible.
+///
+/// A solver joint that is a *fixed* joint of `group` contributes no slot,
+/// exactly as `computeJointVariableIndices` contributes none for it
+/// (`joint_model_group.cpp:627-637`, whose `// skip reported fixed joints`
+/// branch is 630-632): a fixed joint holds no variable, so a solver reporting
+/// one is naming a joint it does not solve, and both the seed it is handed and
+/// the solution it returns are one slot shorter than its name list.
 ///
 /// # Errors
 ///
-/// [`Error::UnknownName`] if a solver joint is not a variable of `group`.
-/// Upstream logs "group '%s' does not contain such a joint" and returns
-/// `false`.
-fn check_solver_joints_are_group_variables(
+/// [`Error::UnknownName`] if a solver joint is neither a variable of `group`
+/// nor a fixed joint of it — which includes a *multi-variable* joint of
+/// `group` named by the joint rather than by its variables, since one slot
+/// cannot carry its several values. Upstream logs "group '%s' does not contain
+/// such a joint" and returns `false`.
+fn solver_solution_variables<'j>(
+    model: &RobotModel,
     group: &JointModelGroup,
-    solver_joints: &[String],
-) -> Result<()> {
+    solver_joints: &'j [String],
+) -> Result<Vec<&'j str>> {
+    let mut variables = Vec::with_capacity(solver_joints.len());
     for name in solver_joints {
-        if !group.variable_names().iter().any(|v| v == name) {
-            return Err(Error::unknown_name("group variable", name));
+        if group.variable_names().iter().any(|v| v == name) {
+            variables.push(name.as_str());
+            continue;
         }
+        if group.has_joint_model(name) && model.joint_model(name)?.joint_type() == JointType::Fixed
+        {
+            continue;
+        }
+        return Err(Error::unknown_name("group variable", name));
     }
-    Ok(())
+    Ok(variables)
 }
 
-/// Write `solution` (in [`KinematicsSolver::joint_names`] order) into `state`,
+/// Write `solution` (slot for slot with `solution_variables`) into `state`,
 /// then read the whole group's variables back out.
 ///
 /// The read-back is not a convenience: mimic joints are group variables no
@@ -427,15 +447,15 @@ fn check_solver_joints_are_group_variables(
 /// # Panics
 ///
 /// If any name involved is not a model variable, which
-/// [`check_solver_joints_are_group_variables`] has already ruled out for
-/// `joint_names` and which cannot hold for a group's own variable list.
+/// [`solver_solution_variables`] has already ruled out for
+/// `solution_variables` and which cannot hold for a group's own variable list.
 fn apply_and_read_group(
     state: &mut RobotState<'_>,
     group: &JointModelGroup,
-    joint_names: &[String],
+    solution_variables: &[&str],
     solution: &[f64],
 ) -> Vec<f64> {
-    for (name, value) in joint_names.iter().zip(solution) {
+    for (name, value) in solution_variables.iter().zip(solution) {
         state
             .set_variable_position(name, *value)
             .expect("checked against the group's variable list before the solve");
@@ -480,7 +500,11 @@ fn apply_and_read_group(
 ///
 /// - Whatever [`resolve_ik_queries`] reports.
 /// - [`Error::UnknownName`] if the solver's group is not in the model, or a
-///   solver joint is not one of its variables.
+///   solver joint is neither one of its variables nor a fixed joint of it. A
+///   fixed joint of the group takes no seed or solution slot, the way
+///   upstream's `computeJointVariableIndices` gives it no bijection entry
+///   (`joint_model_group.cpp:630-632`); anything else the group does not hold
+///   is rejected.
 /// - [`Error::Other`] if the solver reports more than one tip frame: see this
 ///   module's `# Deviations`, item 4.
 pub fn set_from_ik<'m>(
@@ -491,7 +515,7 @@ pub fn set_from_ik<'m>(
 ) -> Result<bool> {
     let group = state.model().joint_model_group(solver.group_name())?;
     let joint_names = solver.joint_names().to_vec();
-    check_solver_joints_are_group_variables(group, &joint_names)?;
+    let solution_variables = solver_solution_variables(state.model(), group, &joint_names)?;
 
     let queries = resolve_ik_queries(state, solver, targets, ik.attached)?;
     let [target] = queries.as_slice() else {
@@ -504,7 +528,7 @@ pub fn set_from_ik<'m>(
     };
 
     let entry_positions = state.positions().to_vec();
-    let seed = joint_names
+    let seed = solution_variables
         .iter()
         .map(|name| state.variable_position(name))
         .collect::<Result<Vec<f64>>>()?;
@@ -525,7 +549,7 @@ pub fn set_from_ik<'m>(
         ),
         Some(ref mut validity) => {
             let hooked_state = &mut *state;
-            let hooked_names = &joint_names;
+            let hooked_names = &solution_variables;
             let mut hook = move |candidate: &[f64]| {
                 let group_values =
                     apply_and_read_group(hooked_state, group, hooked_names, candidate);
@@ -546,7 +570,7 @@ pub fn set_from_ik<'m>(
     let Some(solution) = solution else {
         return Ok(false);
     };
-    for (name, value) in joint_names.iter().zip(&solution) {
+    for (name, value) in solution_variables.iter().zip(&solution) {
         state.set_variable_position(name, *value)?;
     }
     Ok(true)
