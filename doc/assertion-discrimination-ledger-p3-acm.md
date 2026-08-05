@@ -41,6 +41,20 @@ the `bare` anchor's two known false-positive/false-negative sites
 scope) were already resolved in the census and reproduce identically here.
 **Ledger denominator for this scope: 86, not the quoted 84.**
 
+**Post-round-8 correction (§1b): 89, not 86.** `tools.rs:68`'s
+`aabb_intersection` guard (3 operands: one per axis) sat outside
+`ledger_scan.py`'s own `kind` grammar (`matches!`/`.is_err()`/
+`.is_none()` only — `.is_empty()` is a fourth shape the scanner never
+recognized), so it was never enumerated as a site at all, in either the
+census or this ledger's own re-run. Found by a separate instrument (the
+workspace-wide structural-anchor sweep, `doc/folded-operand-guards.md`),
+not by re-running `ledger_scan.py` — the scanner's total is unchanged
+at 47/45/2 because its grammar still does not match `.is_empty()`
+assertions. Three rows added in §2 below (one per axis); two of the
+three needed a new test (§1b). This is the brief's own fifth
+correction in miniature: the scanner's count is not a census, and this
+round's measured 89 supersedes 86 for the same reason 86 superseded 84.
+
 ## 1. Method
 
 Each of the 86 sites was independently re-derived (not copied from the
@@ -121,11 +135,73 @@ there is no sibling to isolate against in that specific test; it is left
 `single-branch` **as tested**, not re-classified — whether a second case
 should exist there is a coverage question, not a verdict correction.
 
-## 2. `crates/moveit-collision` — 47 sites
+### 1b. Anchor-generalization follow-up: `tools.rs:68` and the collision re-verification pass
 
-### `src/tools.rs` (1)
+The workspace-wide structural-anchor sweep (`doc/folded-operand-guards.md`,
+commit `9702148`) found one site inside this panel's fence that neither
+this ledger's original per-site scan nor `ledger_scan.py` had enumerated
+at all: `tools.rs:68`, `aabb_intersection`'s
+`min[0]>=max[0] || min[1]>=max[1] || min[2]>=max[2]`, three named
+operands (one per axis) folded into one `None` construction site.
+
+**Why neither instrument had a row for it**: `ledger_scan.py`'s `kind`
+grammar only recognizes `matches!`-led bodies or `.is_err()`/`.is_none()`
+bodies (see the script, `scan_file`). The only assertion that exercises
+this guard, `assert!(intersect_cost_sources(&a, &b).is_empty())`, is
+`.is_empty()`-shaped — a fourth shape outside both recognized kinds, the
+same grammar gap already noted for `assert_eq!`-based guards in
+`doc/folded-operand-guards.md`. This family was invisible to the
+denominator, not merely misverdicted; it never had a row to misverdict.
+
+**Per-axis isolating-mutation bite, run live** (neutralize one axis's
+clause in the guard, run `cargo nextest run -p moveit-collision
+--no-fail-fast`, confirm which test fails, then revert):
+
+| axis clause dropped | result | pre-existing coverage |
+|---|---|---|
+| `min[0] >= max[0]` | `boxes_that_only_touch_do_not_intersect` FAILS (196/197 pass), all siblings GREEN | covered |
+| `min[1] >= max[1]` | 197/197 pass — **no test failed** | blind |
+| `min[2] >= max[2]` | 197/197 pass — **no test failed** | blind |
+
+Axes 1 and 2 were blind operands: per the task instruction, a blind
+operand gets a test, not a comment. Added
+`boxes_that_only_touch_on_y_do_not_intersect` (tools.rs:263,
+assert at 271) and `boxes_that_only_touch_on_z_do_not_intersect`
+(tools.rs:275, assert at 283) — each overlapping on the other two axes
+and touching on exactly one, mirroring the pre-existing x-axis test.
+Re-ran the same two mutations with the new tests present: each new test
+FAILS under its own axis's neutralization and stays GREEN under the
+other two (199/199 pass at baseline, 198/199 under each single-axis
+mutation, exactly one named failure each time). Commit `d24494d`.
+
+**Re-verification pass, all 17 `single-branch` rows in §2 below**,
+against the corrected "count causes not tokens" understanding (the same
+treatment already applied to `moveit-geometry`'s 12 misverdicts, §1a):
+read the actual guard behind every `single-branch` citation, not just
+the row's existing comment. Result: **0 misverdicts** — every guard is
+either a bare `?`/single map lookup (`tools.rs:219`, `matrix.rs:515,517,
+737`, `world.rs:1141,1216`), a single boolean flag (`octomap_filter.rs:
+300,355`, `parry.rs:4065`), an unconditional single path
+(`parry.rs:2616,2623,3472`), a sequential-fallthrough function with only
+one terminal `None` path and no folded clause (`world.rs:1252`), or a
+match arm that is genuinely inseparable by construction — `Never |
+Always => None` at `matrix.rs:548,549,559` shares the exact same code
+for both variants, so no isolating mutation can even be constructed
+(unlike `tools.rs:68`'s three independently-computed comparisons) — or a
+3-arm match where only one arm can produce `None`, traced by reachability
+(`env.rs:674`, re-confirmed by reading `common.rs:583-597`'s current
+`merge` body live). Unlike `moveit-geometry`, `moveit-collision` had no
+pre-existing misverdict; its one fold defect (`tools.rs:68`) was an
+uncounted site, not a mislabeled one.
+
+## 2. `crates/moveit-collision` — 50 sites
+
+### `src/tools.rs` (4)
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
+| tools.rs:68 (x) | bare (`.is_empty()`, outside `ledger_scan.py`'s grammar) | boxes_that_only_touch_do_not_intersect | discriminating | bite run now: neutralize `min[0]>=max[0]` → this test FAILS (196/197), both `_on_y`/`_on_z` siblings stay GREEN |
+| tools.rs:68 (y) | bare (`.is_empty()`, outside `ledger_scan.py`'s grammar) | boxes_that_only_touch_on_y_do_not_intersect | discriminating (blind operand, test added) | pre-fix: neutralize `min[1]>=max[1]` → 197/197 pass, no failure (blind); post-fix (test added, commit `d24494d`): same mutation → this test FAILS, x/z siblings GREEN |
+| tools.rs:68 (z) | bare (`.is_empty()`, outside `ledger_scan.py`'s grammar) | boxes_that_only_touch_on_z_do_not_intersect | discriminating (blind operand, test added) | pre-fix: neutralize `min[2]>=max[2]` → 197/197 pass, no failure (blind); post-fix (test added, commit `d24494d`): same mutation → this test FAILS, x/y siblings GREEN |
 | tools.rs:219 | bare | sensor_positioning_of_empty_set_is_none | single-branch | read full 4-line `sensor_positioning` body: exactly one `?` on `iter().nth(index)`, no other `None`-producing path |
 
 ### `src/env.rs` (1)
@@ -294,23 +370,34 @@ combined-guard side of it.
 
 ## 4. Summary
 
-86 sites, 0 UNCOVERED-and-blind (no site lacked a test entirely), but
-**12 sites had a wrong verdict** — `single-branch` misapplied to combined
-`||` guards hiding 2-3 independently discriminating causes, in
-`shapes.rs` (`cylinder_negative_dimension_is_an_error` ×2,
-`cone_negative_dimension_is_an_error` ×2,
-`cuboid_negative_dimension_is_an_error` ×3,
-`cylinder_padding_past_negative_is_an_error_per_axis` ×2) and `bodies.rs`
-(`cuboid_negative_dimension_is_an_error_per_axis` ×3). All 12 reclassified
-to `discriminating (multi-branch, corrected)` on live bite evidence (§1a).
-No test itself was broken or blind — every one of these 12 already passes
-and already discriminates its own operand; only the *comment* asserting
-otherwise was wrong, and it is what this pass fixes. No
-`fixture-collapse-fixed` verdicts — none of the 86 sites needed one.
+89 sites (86 + 3 new `tools.rs:68` rows, §1b), 0 UNCOVERED-and-blind as
+of this revision, but two distinct defects fixed across the two rounds:
+
+- **Round 8**: **12 sites had a wrong verdict** — `single-branch`
+  misapplied to combined `||` guards hiding 2-3 independently
+  discriminating causes, in `shapes.rs`
+  (`cylinder_negative_dimension_is_an_error` ×2,
+  `cone_negative_dimension_is_an_error` ×2,
+  `cuboid_negative_dimension_is_an_error` ×3,
+  `cylinder_padding_past_negative_is_an_error_per_axis` ×2) and
+  `bodies.rs` (`cuboid_negative_dimension_is_an_error_per_axis` ×3). All
+  12 reclassified to `discriminating (multi-branch, corrected)` on live
+  bite evidence (§1a). No test itself was broken or blind in these 12;
+  only the *comment* asserting otherwise was wrong.
+- **Round 9 (this pass, §1b)**: **1 site (`tools.rs:68`, 3 operands)**
+  was never enumerated at all — outside `ledger_scan.py`'s grammar, not
+  merely misverdicted — and 2 of its 3 operands (y, z axes) were
+  genuinely blind (no test could distinguish them from a stubbed-out
+  guard). Both got new tests (commit `d24494d`); the third
+  (x axis) was already covered. The re-verification pass over
+  `moveit-collision`'s remaining 17 `single-branch` rows found **0
+  misverdicts** — every one read back to a genuinely single cause.
+
+No `fixture-collapse-fixed` verdicts — none of the 89 sites needed one.
 
 ## 5. Gate
 
-One commit this round: correcting the 3 source doc-comments (§1a) that
+**Round 8**: one commit correcting the 3 source doc-comments (§1a) that
 had recorded the wrong verdict. Comment-only — no assertion, guard, or
 test body changed; behavior is identical before and after.
 
@@ -320,12 +407,26 @@ cargo clippy -p moveit-geometry --all-targets -- -D warnings   # clean
 cargo nextest run -p moveit-geometry                            # 141/141 pass
 ```
 
-`moveit-collision` had no source changes this round (no misclassification
-found in that crate's 47 sites), so no gate is owed there beyond the
-evidence-gathering passes' own reverts, each confirmed via `git diff`/
-`git status --short` empty on exit.
+`moveit-collision` had no source changes in round 8 (no misclassification
+found in that crate's 47 sites at the time).
 
-**UNFIXED:** none. **Fixed:** 12 sites' verdicts, corrected via 3
-doc-comment edits (one commit, comment-only, `moveit-geometry`).
-**Tested:** all 86 sites, one row each, above; `cargo nextest run -p
-moveit-geometry` 141/141 after the fix.
+**Round 9** (this pass): one commit (`d24494d`) adding the two blind-axis
+tests to `tools.rs`. Gated `-p moveit-collision`:
+
+```
+cargo fmt --all
+cargo clippy -p moveit-collision --all-targets -- -D warnings   # clean
+cargo nextest run -p moveit-collision                            # 199/199 pass
+```
+
+Per-mutation bite runs (both directions, all three axes, before and
+after the fix) used `cargo nextest run -p moveit-collision
+--no-fail-fast`, each reverted via `git diff`/`git status --short`
+confirmed empty before the next mutation.
+
+**UNFIXED:** none. **Fixed:** round 8's 12 sites' verdicts (3
+doc-comment edits, comment-only, `moveit-geometry`); round 9's 2 blind
+operands at `tools.rs:68` (2 new tests, `moveit-collision`, commit
+`d24494d`). **Tested:** all 89 sites, one row each, above; `cargo
+nextest run -p moveit-geometry` 141/141 and `cargo nextest run -p
+moveit-collision` 199/199, both post-fix.
