@@ -108,6 +108,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `set-from-ik-zero-timeout-is-not-single-attempt` | not-reproduced |
 | `validate-and-improve-interval-percentage-discarded` | not-reproduced |
 | `fcl-distance-sentinel-survives-zero-contacts` | not-reproduced |
+| `stream-to-robot-state-missing-variable-falls-through` | not-reproduced |
 
 ---
 
@@ -1286,6 +1287,41 @@ has zero contacts, and `query::contact` returns a contact at
 `dist = -2.775558e-17` for it. The number obtained would still be a sentinel
 rather than a distance, so §218.3 records this as a Phase 3 finding instead
 of moving the fixture or the floor to make it disappear.
+
+---
+
+### `stream-to-robot-state-missing-variable-falls-through` — `streamToRobotState`'s missing-variable guard logs and then parses the cell it just called missing, throwing out of a `void` function — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/conversions.cpp:572-574`
+(`if (!std::getline(line_stream, cell, separator[0]))` /
+`  RCLCPP_ERROR(getLogger(), "Missing variable %s", ...);` /
+`state.getVariablePositions()[i] = std::stod(cell);`). The `if` has one
+statement and no `return`, and the enclosing function returns `void`.
+**Port:** `crates/moveit-state/src/conversions.rs:190` (`csv_to_robot_state`'s
+`cells.next().ok_or_else(...)`)
+**Symptom:** A line with fewer fields than the model has variables reaches
+the log at 573 and then falls straight into `std::stod(cell)` at 574.
+`std::getline` erases its output string before extracting, so on the failing
+call `cell` is empty and `std::stod("")` throws `std::invalid_argument` —
+past a diagnostic that reads as if the function recovered. The throw escapes
+`streamToRobotState`, which is `void` and has no other failure channel, so
+every caller either catches an exception the signature never advertises or
+terminates. The variables written before the short field are already in the
+state when it unwinds.
+**Evidence:** a read of the control flow above, plus the `std::getline`
+contract that clears `str` before extraction, which is what makes `cell`
+empty rather than stale. Not an oracle run: `rg` over the whole reference
+checkout finds **no caller** of `streamToRobotState` outside its own
+declaration and definition, so nothing upstream exercises the path.
+**Status:** `not-reproduced`
+**Deviation:** none of `D1`..`D14` applies. `csv_to_robot_state` returns
+`Result` and reports `Error::Parse` naming the variable that ran out, and
+collects every value before writing any, so a rejected line also leaves the
+state untouched rather than half-written.
+**Cost of not reproducing:** none. No parity test or oracle comparison
+covers these functions — they have no upstream caller to compare against,
+and this port's CSV is checked against itself
+(`crates/moveit-state/tests/csv_conversions.rs`).
 
 ---
 
