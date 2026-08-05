@@ -463,6 +463,18 @@ mod tests {
 
     /// Boundary: joint limits are set, but `group_name` names no group.
     /// Same six-site function as above; see that test's doc comment.
+    ///
+    /// This guard is not locally bite-able: it is the sole gate on
+    /// `moveit_model::RobotModel::joint_model_group`'s own `Result`, an
+    /// external, borrowed-return lookup in `moveit-model` (out of this
+    /// crate's fence) -- there is no `&JointModelGroup` this crate can
+    /// fabricate locally to fall through with, so a `if false && ...`
+    /// neutralization here would not compile without editing another
+    /// crate. Discrimination instead rests on message uniqueness: none of
+    /// the other five `Error::construct` sites in this function can ever
+    /// render "invalid group" (checked against all six literal message
+    /// templates), so a message-based `.contains` cannot mistake a sibling
+    /// guard for this one.
     #[test]
     fn constructor_rejects_unknown_group() {
         let (model, _) = load_panda();
