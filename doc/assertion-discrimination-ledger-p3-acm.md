@@ -548,20 +548,40 @@ moveit-collision --no-fail-fast` / `-p moveit-geometry --no-fail-fast`,
 each confirmed via `git status --short` empty and `cargo fmt --all --
 --check` clean before the next mutation.
 
+**Round 12** (§6, `moveit-geometry` correction): report only, no source
+changes. 4 sites (`bodies.rs:3953,4055,4066,4125`) were wrongly excluded
+in round 11 under a since-deleted, never-sound ownership rule; added
+back, classified in-family, and settled with 3 fresh live bites (the
+`build_mesh_data` guard-neutralize bite for 3953, and the
+`Cylinder::set_padding` skip-recompute bite for 4125, confirming 4055/4066
+stay green while 4125 alone fails — proving 4055/4125's shared `"radius"`
+needle is not a blind pair). All run via `cargo nextest run -p
+moveit-geometry --no-fail-fast`, each confirmed via `git status --short`
+empty and `cargo fmt --all -- --check` clean before the next mutation.
+
 **UNFIXED:** none. **Fixed:** round 8's 12 sites' verdicts (3
 doc-comment edits, comment-only, `moveit-geometry`); round 9's 2 blind
 operands at `tools.rs:68` (2 new tests, `moveit-collision`, commit
 `d24494d`); round 10 fixed no source, only classified family membership
 (§1c); round 11 (§6) fixed no source — 0 blind operands found among the
-39 new sites, only classified family membership (20 in-family / 19 not,
-one doc-only evidence correction to `world.rs:1252`). **Tested:** all 89
-sites, one row each, above, plus 39 new sites in §6; `cargo nextest run
--p moveit-geometry` 141/141 and `cargo nextest run -p moveit-collision`
-199/199, both post-fix; the two round-10 settling bites (`tools.rs:219`,
-`matrix.rs:737`) and the eight round-11 settling bites (`matrix.rs:727`
-read-only via len(), `matrix.rs:736`, `octomap_filter.rs:364`,
-`shapes.rs:1964`, `world.rs:1153`, `world.rs:1179`, `world.rs:1251`,
-`tools.rs:369/370`) each confirmed FAIL-then-clean-revert live.
+39-then-counted new sites, only classified family membership; round 12
+fixed no source either — the 4 sites round 11 wrongly excluded are all
+in-family and all already covered (0 blind operands among them), only
+classified family membership and corrected the geometry count from 9 to
+13. **Corrected round-11/12 total: 43 new sites (30 moveit-collision +
+13 moveit-geometry), 24 in-family, 19 not-this-family, 0 blind operands**
+(one doc-only evidence correction to `world.rs:1252` from round 11).
+**Tested:** all 89 sites, one row each, above, plus 43 new sites across
+§6/round-12; `cargo nextest run -p moveit-geometry` 141/141 and `cargo
+nextest run -p moveit-collision` 199/199, both post-fix; the two round-10
+settling bites (`tools.rs:219`, `matrix.rs:737`), the eight round-11
+settling bites (`matrix.rs:727` read-only via len(), `matrix.rs:736`,
+`octomap_filter.rs:364`, `shapes.rs:1964`, `world.rs:1153`,
+`world.rs:1179`, `world.rs:1251`, `tools.rs:369/370`), and the three
+round-12 settling bites (`bodies.rs:3953`, `bodies.rs:4125`'s
+`set_padding` skip-recompute, plus the negative confirmation that
+`bodies.rs:4055/4066` stay green under that same mutation) each confirmed
+FAIL-then-clean-revert live.
 
 ## 6. Round 11: broadened grammar (`tools/ci/count-coarse-assertions.py`)
 
@@ -651,61 +671,72 @@ catches the mutation; none needed a new test.
 
 ### Round 11 summary
 
-- 132 sites total in the two fenced crates; 4 `contains_msg` excluded
-  (p1-robotmodel's); 89 already in this ledger's grammar
-  (`is_none`/`is_err`/`matches`).
-- Remaining candidate count from the scanner's kind filter: 42. **Actual
-  new-site count: 39** — `tools.rs:259,271,283` are the same physical
-  lines as existing rows `tools.rs:68 (x)/(y)/(z)`, not new sites.
-- Of the 39: **20 in-family, 19 not-this-family.** Per crate:
-  moveit-collision 30 candidates (14 in-family / 16 not);
-  moveit-geometry 9 candidates (6 in-family / 3 not).
-- **0 blind operands.** Every in-family site already has a sibling
-  assertion or a live bite proving current coverage catches the relevant
-  mutation; none required a new test.
+- 132 sites total in the two fenced crates; **round 12 (below) found the
+  4-site `contains_msg` exclusion below was wrong** — superseded, do not
+  use the 42/39/9 figures in this bullet list without reading §Round 12.
+- Remaining candidate count from the scanner's kind filter: 42.
+  `tools.rs:259,271,283` are the same physical lines as existing rows
+  `tools.rs:68 (x)/(y)/(z)`, not new sites — that correction (33→30 for
+  `moveit-collision`) stands.
+- Of the (then-uncorrected) 39: 20 in-family, 19 not-this-family, per
+  crate moveit-collision 30 candidates (14 in-family / 16 not);
+  moveit-geometry 9 candidates (6 in-family / 3 not) — **the geometry
+  figures here are superseded by round 12: geometry is 13, not 9.**
+- **0 blind operands, still true after round 12.** Every in-family site
+  (39 originally, 43 after round 12) already has a sibling assertion or a
+  live bite proving current coverage catches the relevant mutation; none
+  required a new test.
 - One doc-only correction to an existing row: `world.rs:1252`'s recorded
   evidence attributed its sensitivity to a `knows_transform` bite that
   actually proves a different assertion (`world.rs:1250`) sensitive; its
   own fallthrough (shared with the new row 1251) had not been directly
   bitten until this round. Verdict unchanged.
 
-### Round 12 correction: `moveit-geometry`'s 9 was asserted, not re-derived
+### Round 12 correction: `moveit-geometry` is 13, not 9 — the ownership exclusion was wrong
 
 Round 11 re-derived `moveit-collision`'s 33→30 correction from the raw
 scanner output, but carried `moveit-geometry`'s count of 9 forward from
-the brief without independently re-running the scanner against it. That
-was a gap, not a coincidence that happened to land on the right number.
+the brief without independently re-running the scanner against it, then
+compounded that gap by excluding 4 of the 13 real sites
+(`bodies.rs:3953,4055,4066,4125`) under a rule — "`contains_msg`-shaped
+sites in `crates/` are p1-robotmodel's this round" — that `f10e1bd`
+deleted for good reason: the split it named was a receiver/argument
+shape, and no regex grounds a type-based ownership claim. Fences are
+paths. p1-robotmodel's path fence this round is `moveit-model/`,
+`moveit-constraints/tests/decide.rs` and `moveit-planning/`;
+`moveit-geometry/src/bodies.rs` is in nobody's — confirmed by grepping
+`doc/` for `3953`, `4055`, `4066`, `4125`: no verdict for any of the four,
+anywhere, before this round. Under the (correct) reading that path fences
+are what deconflict panels, and `moveit-geometry` is this panel's entire
+fence, all 13 are mine. Two compounding errors, not one: not re-running
+the scanner, and inventing a still-narrower exclusion inside the crate
+that was already correctly re-derived.
 
-After merging main (`ccac7ea`, `f10e1bd`, `6792ef1` — the instrument
-changes: helper-body call sites now score as scope `helper_body`/kind
-`via:<fn>`; `contains_msg`/`contains_member` collapsed into one kind
-`contains`; `None`/`Err(..)` score only as a top-level `assert_eq!`/
-`assert_ne!` operand), `python3 tools/ci/count-coarse-assertions.py
-crates/moveit-geometry` gives **13** sites outside the 39-site old-grammar
-count (`is_empty` 7 + `contains` 4 + `is_some` 2), exactly the 13 named:
+`python3 tools/ci/count-coarse-assertions.py crates/moveit-geometry`
+(post-merge of `ccac7ea`/`f10e1bd`/`6792ef1`) gives **13** sites outside
+the 39-site old-grammar count (`is_empty` 7 + `contains` 4 + `is_some` 2):
 `bodies.rs:3572,3953,3967,4055,4066,4125,4476`, `shapes.rs:1848,1964`,
 `tests/body_query_parity.rs:256`, `tests/mesh_parity.rs:154`,
 `tests/octree_in_world_parity.rs:220`, `tests/probe_parity.rs:329`.
-
 Checked all 13 against every existing `bodies.rs`/`shapes.rs` row in this
-ledger (§3) by line number: **zero are duplicates** — none of the 13
-lines match an existing row, unlike the `tools.rs:259,271,283` case in
-`moveit-collision`. The 13→9 reduction is not a duplicate-elimination;
-it is an **ownership exclusion**. `bodies.rs:3953,4055,4066,4125` are the
-same four `err.to_string().contains(("requires at least one vertex"
-| "radius" | "length" | "radius"))` message-content checks already
-identified and excluded in round 11 under the retired `contains_msg`
-label — reading their content (not their now-merged `contains` kind
-label, which no longer distinguishes message checks from collection
-membership per `f10e1bd`) confirms they are unchanged and still fall
-under the standing deconfliction instruction: `contains_msg`-shaped sites
-in `crates/` are p1-robotmodel's this round, not touched. Excluding those
-4 leaves **9**, matching round 11's table exactly:
-`bodies.rs:3572,3967,4476`, `shapes.rs:1848,1964`,
-`tests/body_query_parity.rs:256`, `tests/mesh_parity.rs:154`,
-`tests/octree_in_world_parity.rs:220`, `tests/probe_parity.rs:329` — the
-same 9 rows already carried in the in-family/not-this-family tables
-above (6 in-family, 3 not). No verdict or table content changes; this
-section only supplies the re-derivation that was owed. **Total
-new-site count is unchanged at 39** (30 `moveit-collision` + 9
-`moveit-geometry`).
+ledger (§3) by line number: zero are duplicates. **All 13 are new-work,
+mine to classify.**
+
+The 9 already tabled in round 11 (`bodies.rs:3572,3967,4476`,
+`shapes.rs:1848,1964`, and the four parity-test files) keep their
+verdicts unchanged. The 4 added this round:
+
+| Site | Kind | Test fn | In-family | Evidence |
+|---|---|---|---|---|
+| bodies.rs:3953 | contains | `convex_mesh_zero_vertex_is_an_error` | yes | doc comment on record: `build_mesh_data` has a second, distinct `Error::Construct` site (`try_convex_hull` itself failing on zero points), so a bare `.is_err()` passes even with the dedicated vertex-count guard deleted — message-matching is what proves *that* guard fired. Bite re-run now: `if mesh.vertices.is_empty() && !true` (guard neutralized, condition kept live per `-D warnings`) → this test FAILS alone (140/141); reverted, clean. |
+| bodies.rs:4055 | contains | `cylinder_negative_radius_is_an_error` | yes | doc comment on record: `Cylinder::recompute` has two sequential guards ("radius"/"length"), a bare `.is_err()` can't tell them apart, message-swap bite already reddened this assertion. Sibling: `bodies.rs:4066` (length side, same guard pair, same function). |
+| bodies.rs:4066 | contains | `cylinder_negative_length_is_an_error` | yes | sibling of 4055, same `recompute` guard pair, opposite clause. |
+| bodies.rs:4125 | contains | `cylinder_padding_inversion_is_rejected_and_state_preserved` | yes | **Checked the needle-collision question directly, since 4055 and 4125 both assert `"radius"` and both route through the same `Cylinder::recompute` (`Cylinder::new`→`set_dimensions`→`recompute` for 4055; `Cylinder::set_padding`→`recompute` for 4125 — same message literal, same clause).** That shared clause does not make them a blind pair: they test different subjects (`Cylinder::new`'s wiring to `recompute` vs. `Cylinder::set_padding`'s). Bite run now: made `set_padding` skip `recompute` entirely (`self.padding = padding; Ok(())`) → `cylinder_padding_inversion_is_rejected_and_state_preserved` FAILS alone among the radius/length message tests (4055, 4066 both stay GREEN — they never call `set_padding`); three unrelated padding-behavior tests and one parity test fail too, as an expected consequence of breaking `set_padding` generally, not evidence against this row. Reverted, clean. No third "radius"-messaged clause exists for `Cylinder` (only `recompute`'s two `Error::construct` calls produce a Cylinder error at all), so the needle is unambiguous within any one test's own call graph. |
+
+**Corrected round-11 summary for `moveit-geometry`: 13 candidates, 10
+in-family, 3 not-this-family** (the 3 unchanged: `bodies.rs:3967`,
+`shapes.rs:1848`, `mesh_parity.rs:154` — all clause-3 failures, fixture
+setup read back before the subject runs). **Corrected total new-site
+count: 43** (30 `moveit-collision` + 13 `moveit-geometry`), **24
+in-family, 19 not-this-family, 0 blind operands** (all three round-12
+bites confirmed existing coverage; none needed a new test).
