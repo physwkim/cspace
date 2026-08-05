@@ -418,3 +418,50 @@ happens to phrase its precondition/round-trip checks, not on crate size —
 so the workspace-wide in-family denominator is not computed here; it
 requires each panel to apply this section's three clauses to its own rows,
 the same way p9-ros and p1-fixtures were asked to.
+
+### 9a. The verdict vocabulary, including `joint-collapse`
+
+§9 defines *membership*. Once a site is a member, exactly one of these is
+its verdict, and no other term may be used without being added here first
+— an undefined verdict is what §9 was written to stop, and introducing a
+new one in a ledger reopens the same gap one level down.
+
+- **`discriminating`** — the assertion can name what produced its result.
+  Evidence: an isolating mutation, in both directions where siblings exist.
+- **`single-branch`** — exactly one cause can reach the assertion, so there
+  is nothing to name. Evidence: the guard's *condition*, not the
+  constructor count (see `doc/folded-operand-guards.md` — a condition that
+  folds N named operands into one construction site is N branches).
+- **`fixture-collapse-fixed`** — the assertion could not name its cause,
+  the fixture was the reason, and it was fixed this sweep.
+- **`joint-collapse`** — the assertion cannot name its cause because the
+  fixture makes two or more real branches fire together, *and* that is
+  correct rather than a defect. This is a narrow verdict with a burden of
+  proof, not a place to put hard cases. All three must hold:
+  1. every branch that fires jointly here is *independently covered by
+     some other test* — so no guard is left with zero coverage;
+  2. the subject deliberately collapses the branches into one signal, and
+     that collapse is recorded in the code, not inferred;
+  3. no caller distinguishes the branches either.
+
+  `moveit-planners-pilz`'s `trajectory_blender_transition_window.rs:1199`
+  is the only instance. It qualifies: neutralizing
+  `search_intersection_points`'s first `ok_or` alone fails
+  `search_intersection_points_rejects_when_first_trajectory_never_reaches_the_blend_radius`
+  and neutralizing the second alone fails its `..._second_...` sibling, so
+  clause 1 holds and neither guard is uncovered (verified by the
+  orchestrator, not inferred from the doc comment); the function's own doc
+  comment records the shared error code as matching upstream's bool-only
+  `searchIntersectionPoints`, giving clause 2; and `blend`, the only
+  caller, never distinguishes the two causes, giving clause 3.
+
+  Without clause 1 this verdict would be indistinguishable from an
+  uncovered guard wearing a justification, which is the failure mode the
+  whole sweep exists to catch.
+
+**Correction of record:** `doc/assertion-discrimination-ledger-pilz.md`
+cited "census §9's D6 exemption" for this site. No such clause exists —
+the census has no D6 in any section, and the brief's single use of "D6" is
+a passing adjective, not an exemption. The substance of that row was right
+and its evidence was real; only the pointer was to something that was
+never written. This subsection is what it should have cited.
