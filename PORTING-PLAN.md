@@ -15644,7 +15644,7 @@ p6-totg가 §196 가드를 자기 두 fixture에 넣었다(`d49461e`). 넣은 �
 (§202), 그 둘은 같지 않다. `link_names()`가 비어 있지 않은데
 `updated_link_names()`가 빈 그룹은 이 가드를 통과하면서 여전히 공허하다.
 
-chomp에도 해당한다. `optimizer.rs:1009`가 `group_name`을 `CollisionRequest`에
+chomp에도 해당한다. `optimizer.rs:1015`가 `group_name`을 `CollisionRequest`에
 실어 보내고, 그것을 받는 `ParryCollisionEnv`의 `active_group_links`
 (`parry.rs:1330`)가 `updated_link_names()`를 읽는다. 즉 chomp의 충돌 단언이
 공허해지는지를 결정하는 집합도 `updated_link_names()`이지 `link_names()`가

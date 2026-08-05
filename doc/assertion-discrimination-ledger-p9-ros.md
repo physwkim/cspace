@@ -512,11 +512,11 @@ sequence of the function each test actually calls:
 | `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1435` | `"4"`/`'7'` | **N/A** | Not a branch-discrimination needle — single reachable typed error for the active-vs-full variable-count mismatch; the numbers are formatted data, not branch-selection text. |
 | `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1496` | `DISTINGUISHING_PHRASE` const | CLEAN | Stale citation, corrected: the row's "negative assertion, rules a branch out" description matched an earlier version of this test, per the test's own doc comment ("bite-confirmed... against the old negative check") -- the live assertion is `message.contains(DISTINGUISHING_PHRASE)` (`"after integrateForward and integrateBackward"`), a positive check already bite-confirmed by its own author against the model-bounds-fallback branch's distinct `"invalid max_acceleration"` message. Line re-derived again after merging main's TOTG upstream-bug commits (was `:1482`, this ledger's own prior round; shifted by that merge, not a repeat of the same staleness). |
 | `moveit-trajectory/src/robot_trajectory.rs:876` | `" pos "` | **N/A** | Checks `Display` column-header text, not an error message. |
-| `moveit-trajectory/tests/robot_trajectory.rs:676,708,723,738` | `"dirty: None"` | **N/A** | `Debug`-format checks on a struct field, not error-branch discrimination; unique tree-wide regardless. |
+| `moveit-trajectory/tests/robot_trajectory.rs:704,736,751,766` | `"dirty: None"` | **N/A** | `Debug`-format checks on a struct field, not error-branch discrimination; unique tree-wide regardless. |
 | `moveit-trajectory/tests/ruckig_smoothing.rs:208` | `"did not set the group"` | CLEAN | `apply_smoothing` -> `validate_group` is the only reachable producer; TOTG's identically-worded message (`time_optimal_trajectory_generation.rs:702`) is a different module's function, unreachable from `apply_smoothing`. |
-| `moveit-planners-chomp/src/cost.rs:436` | `"singular"` | CLEAN | `ChompCost::new`'s only "singular" message is its own (`cost.rs:177`); `optimizer.rs:1353`'s belongs to an unrelated, unreachable function. |
-| `moveit-planners-chomp/src/optimizer.rs:2380` | `"joint_costs has"` | CLEAN | Pre-existing test doc comment already correct: `calculate_smoothness_increments`'s own guard (`:377`) vs. `ChompCost::derivative`'s guard (`"joint_trajectory has..."`, textually distinct) — confirmed by reading both function bodies. |
-| `moveit-planners-chomp/src/optimizer.rs:2449` | `"columns"` | CLEAN | Pre-existing test doc comment already correct; unique among `calculate_total_increments`'s 3 `Error::other` sites. |
+| `moveit-planners-chomp/src/cost.rs:436` | `"singular"` | CLEAN | `ChompCost::new`'s only "singular" message is its own (`cost.rs:177`); `optimizer.rs:1359`'s belongs to an unrelated, unreachable function. |
+| `moveit-planners-chomp/src/optimizer.rs:2386` | `"joint_costs has"` | CLEAN | Pre-existing test doc comment already correct: `calculate_smoothness_increments`'s own guard (`:377`) vs. `ChompCost::derivative`'s guard (`"joint_trajectory has..."`, textually distinct) — confirmed by reading both function bodies. |
+| `moveit-planners-chomp/src/optimizer.rs:2455` | `"columns"` | CLEAN | Pre-existing test doc comment already correct; unique among `calculate_total_increments`'s 3 `Error::other` sites. |
 | `moveit-planners-pilz/src/path_circle.rs:590` | `"colinear"` | CLEAN | `PathCircle::new`'s only colinear-text guard is its own (`:293`); `circle_from_interim`'s (`:187`) belongs to a different, uncalled function. |
 | `moveit-planners-stomp/src/filter_functions.rs:314` | `"world_joint"` | CLEAN | Data value (a joint name), not branch-selection text; pre-existing doc comment already documents this as the loop's only guard. |
 | `moveit-smoothing/src/butterworth.rs:162,200` | `"scale_term_"`/`"feedback_term_"` | CLEAN | One producer each. |
@@ -544,7 +544,7 @@ from an unchecked one:
   49,55`); `:55` already fixed by another panel this session, re-confirmed
   clean here.
 - **Zero collisions in `moveit-planners-chomp`.** 12 sites; the 5 flagged
-  (`cost.rs:436`, `optimizer.rs:2380,2449`) checked above by reading;
+  (`cost.rs:436`, `optimizer.rs:2386,2455`) checked above by reading;
   `cost.rs:391,404` and `crates/moveit-planners-chomp/src/trajectory.rs:712,727,748,766,925,968,1004` (7)
   unflagged/unique tree-wide, not individually re-traced beyond that.
 - **Zero collisions in `moveit-planners-pilz`.** 5 sites; `path_circle.
@@ -563,7 +563,7 @@ from an unchecked one:
   upstream-bug merge); the flagged subset (`crates/moveit-trajectory/src/robot_trajectory.rs:876`,
   `time_optimal_trajectory_generation.rs:1086,1113,1179,1435,1496,1569`,
   `crates/moveit-trajectory/src/trajectory.rs:1434,1440,1446,1473`,
-  `tests/robot_trajectory.rs:676,708,723,738`, `tests/ruckig_smoothing.
+  `tests/robot_trajectory.rs:704,736,751,766`, `tests/ruckig_smoothing.
   rs:208`) checked above; `path.rs:217,223,236,242,318` (already
   doc-commented as `Path::create`'s 3-guard family, re-confirmed by
   reading), `time_optimal_trajectory_generation.rs:1596,1602`

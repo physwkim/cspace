@@ -820,8 +820,8 @@ fail under the same mutation and pass against real source.
 | cost.rs:391 | contains | `new_rejects_more_derivative_costs_than_diff_rules_rows` | yes | `ChompCost::new` has 3 `Error::other` sites; doc-commented, message-uniqueness verified by grep (`"DIFF_RULES rows"` appears in exactly one of the three messages). |
 | cost.rs:404 | contains | `new_rejects_too_few_points_for_the_diff_rule_boundary` | yes | sibling of 391, `"DIFF_RULE_LENGTH-1"` unique to this guard's message. |
 | cost.rs:436 | contains | `new_rejects_a_singular_quad_cost` | yes | sibling of 391/404, `"singular"` unique to this guard's message. |
-| optimizer.rs:2380 | contains | `calculate_smoothness_increments_rejects_joint_costs_length_mismatch` | yes | 2 reachable `Error::other` sites (own guard + `ChompCost::derivative`'s, propagated); verified `"joint_costs has"` (this guard) vs. `"joint_trajectory has"` (derivative's) do not collide. |
-| optimizer.rs:2449 | contains | `calculate_total_increments_rejects_column_count_mismatch` | yes | 3 reachable `Error::other` sites in `calculate_total_increments`; verified `"columns"` appears only in the first guard's message (the other two say "rows" and "NxM", respectively). |
+| optimizer.rs:2386 | contains | `calculate_smoothness_increments_rejects_joint_costs_length_mismatch` | yes | 2 reachable `Error::other` sites (own guard + `ChompCost::derivative`'s, propagated); verified `"joint_costs has"` (this guard) vs. `"joint_trajectory has"` (derivative's) do not collide. |
+| optimizer.rs:2455 | contains | `calculate_total_increments_rejects_column_count_mismatch` | yes | 3 reachable `Error::other` sites in `calculate_total_increments`; verified `"columns"` appears only in the first guard's message (the other two say "rows" and "NxM", respectively). |
 | trajectory.rs:712 | contains | `from_duration_rejects_zero_discretization` | yes | `from_duration` reaches 3 `Error::other` sites; doc-commented, message verified via source read to name this guard specifically. |
 | trajectory.rs:727 | contains | `from_duration_rejects_negative_discretization` | yes | sibling of 712, same guard, negative-side boundary. |
 | trajectory.rs:748 | contains | `from_duration_rejects_negative_discretization_that_divides_positive` | yes | sibling of 712/727 — doc-commented as the case that actually needs the explicit guard (negative/negative divides positive, defeating the downstream `num_points < 2` fallback). |
@@ -973,7 +973,7 @@ re-verifying a site whose fix-ownership ledger is someone else's:
 | `crates/moveit-distance-field/src/voxel_grid.rs:454,456,512` | p1-robotmodel, p9-ros |
 | `crates/moveit-geometry/src/bodies.rs:3953,4055,4066,4125` | p1-robotmodel, **p3-acm** |
 | `crates/moveit-planners-chomp/src/cost.rs:391,404,436` | p1-robotmodel, **p3-acm** |
-| `crates/moveit-planners-chomp/src/optimizer.rs:2380,2449` | p1-robotmodel, **p3-acm** |
+| `crates/moveit-planners-chomp/src/optimizer.rs:2386,2455` | p1-robotmodel, **p3-acm** |
 | `crates/moveit-planners-chomp/src/trajectory.rs:712,727,748,766,925,968,1004` | p1-robotmodel, **p3-acm** |
 | `crates/moveit-planners-stomp/src/filter_functions.rs:314` | p1-robotmodel, **p3-acm** |
 

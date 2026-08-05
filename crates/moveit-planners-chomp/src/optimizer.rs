@@ -290,10 +290,13 @@
 //! 1. Every 10th iteration (`iteration_ % 10 == 0`), a full mesh-to-mesh
 //!    collision check (upstream `isCurrentTrajectoryMeshToMeshCollisionFree`,
 //!    here [`crate::optimizer::ChompOptimizer::optimize`]'s injected
-//!    `mesh_to_mesh_collision_free` closure parameter)
-//!    against the *current* trajectory (not `best_group_trajectory_`); a
-//!    pass sets `num_collision_free_iterations_ = 0` (break on the very
-//!    next check below).
+//!    `mesh_to_mesh_collision_free` closure parameter) against
+//!    `best_group_trajectory_`'s *values* (at `group_trajectory_`'s *shape*),
+//!    not the just-`updateFullTrajectory`'d current iterate -- despite its
+//!    name, `isCurrentTrajectoryMeshToMeshCollisionFree` never reads
+//!    `group_trajectory_`'s values (`chomp_optimizer.cpp:520-536`); a pass
+//!    sets `num_collision_free_iterations_ = 0` (break on the very next
+//!    check below).
 //! 2. Unless [`crate::parameters::ChompParameters::filter_mode`] is set, the
 //!    scalar comparison `collision_cost <
 //!    `[`crate::parameters::ChompParameters::collision_threshold`]` — an
@@ -877,7 +880,7 @@ fn resolve_collision_point_joint_index(
 ///   this collapse must still reproduce (a resolved-to-non-active joint
 ///   has no ancestors at all, not "walk further to find one").
 /// - **The `Eigen::Isometry3d * Eigen::Vector3d` in `computeJointProperties`'s
-///   `axis = joint_transform * axis;` (`chomp_optimizer.cpp:733`) is ported
+///   `axis = joint_transform * axis;` (`chomp_optimizer.cpp:749`) is ported
 ///   as a point transform, not a vector transform.** Eigen does not
 ///   distinguish "point" from "free vector" for a bare `Vector3d`, so that
 ///   multiplication applies the joint transform's translation *and*
@@ -913,12 +916,15 @@ fn resolve_collision_point_joint_index(
 ///   `chomp_optimizer.cpp`: `group_trajectory_backup_` (read only inside
 ///   fully-commented-out HMC-perturbation code), `state_is_in_collision_`
 ///   (written every `performForwardKinematics` call, never read anywhere),
-///   the *stored* `point_is_in_collision_` 2D field (its one read is
-///   inside a `/* */`-commented block -- the *value* computed at
-///   assignment time is still live, since it drives `is_collision_free_`,
-///   so that computation survives as an inline local `bool` in
+///   the *stored* `point_is_in_collision_` 2D field (it has two reads: a
+///   live one immediately after assignment, in the same statement block
+///   that also sets `state_is_in_collision_`/`is_collision_free_`
+///   (`chomp_optimizer.cpp:914`) -- this is the computation that survives
+///   as an inline local `bool` in
 ///   [`ChompOptimizer::perform_forward_kinematics`], just not as a
-///   persisted field), and the entire dead-HMC-path field set already
+///   persisted field -- and a separate, genuinely dead read inside a
+///   `/* */`-commented block (`:615`)), and the entire dead-HMC-path field
+///   set already
 ///   established in round 18's [`crate::optimizer`] work
 ///   (`random_state_`, `joint_state_velocities_`, `momentum_`,
 ///   `random_momentum_`, `random_joint_momentum_`, `multivariate_gaussian_`,
