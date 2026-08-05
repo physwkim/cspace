@@ -163,6 +163,114 @@ deliberate choice.
 returning an error is the obvious candidate, and no pilz parity test is
 known to depend on the NaN — that needs checking, not assuming.
 
+### 6. `inv_twice_resolution_` mistyped as `int`, silently truncating — reproduced-deliberately
+
+**Upstream:** `moveit_core/distance_field/include/moveit/distance_field/distance_field.hpp:614`
+(`int inv_twice_resolution_;` among otherwise-`double` fields) and
+`moveit_core/distance_field/src/distance_field.cpp:67`
+(`inv_twice_resolution_(1.0 / (2.0 * resolution_))`, a `double` expression
+narrowed into that `int` field at construction), used unconditionally at
+`:91-93` (`gradient_x/y/z = (...) * inv_twice_resolution_`) — verified at
+the pinned `e017c91e`.
+**Port:** `crates/moveit-distance-field/src/distance_field.rs:427`
+(`let inv_twice_resolution = (1.0 / (2.0 * self.resolution())) as i32 as
+f64;`), documented in-line at `:368-426` and again in
+`crates/moveit-distance-field/src/lib.rs:991-998`.
+**Symptom:** `1.0 / (2.0 * resolution)` is truncated toward zero into an
+`int` on every construction. For most resolutions this changes the
+gradient multiplier from the mathematically exact value to upstream's
+truncated one — e.g. `resolution = 0.03` gives `16.666...` untruncated
+but upstream's stored multiplier is `16`. Past `resolution >= 0.51` the
+truncated multiplier is `0`, so every returned gradient is identically
+zero on both sides of the port.
+**Evidence:** oracle, boundary-pinned. Round 26 found the two originally-
+ported upstream tests both happen to use resolutions (`0.1`, `0.02`)
+where the ratio is already an exact integer, so the truncation was a
+no-op there and the divergence went unmeasured until then; the port now
+casts through `i32` to reproduce the truncation bit-for-bit rather than
+matching it by coincidence, and
+`distance_gradient_truncates_inv_twice_resolution_like_upstreams_int_
+field`/`distance_gradient_multiplier_is_one_at_the_zero_boundary`/
+`distance_gradient_multiplier_is_zero_just_past_the_boundary`
+(`distance_field.rs:1190-1260`) pin it, including the `0.5`/`0.51` zero
+boundary. Cross-referenced in `PORTING-PLAN.md` §172.1 case 1.
+**Status:** reproduced deliberately — this is genuine parity (upstream's
+own gradient is equally truncated), not a residual bug, and this crate's
+mandate is matching upstream's actual behaviour rather than its intent
+(see `crate::get_body_decomposition_cache_entry`'s doc for the same
+principle applied elsewhere in this crate).
+**Cost of not reproducing:** the three tests named above fail; any
+resolution not equal to an exact-integer-ratio value would silently
+diverge from upstream by a measurable, non-error gradient-magnitude
+difference.
+
+One further boundary inside the same guard does **not** match upstream
+and is left that way deliberately (`PORTING-PLAN.md` §153.1 — expires if
+upstream ever changes `inv_twice_resolution_`'s declared type away from
+`int`): below `resolution ≈ 2.328e-10`, `1.0/(2.0*resolution)` exceeds
+`i32::MAX`, where Rust's `as i32` saturates (well-defined since Rust
+1.45) but C++'s narrowing conversion of an out-of-range `double` is UB —
+there is no upstream value to match even in principle. This sub-case is
+undocumented-and-unreachable in this crate's current tests/oracle
+fixtures (the smallest resolution used anywhere is two orders of
+magnitude larger), not silently wrong in a reachable case today, but is
+recorded here per `distance_field.rs:404-426` rather than left for the
+next audit to rediscover.
+
+### 7. `max_distance_sq_`'s narrowing would OOM if unguarded — not-reproduced
+
+**Upstream:** `moveit_core/distance_field/src/propagation_distance_field.cpp:88`
+(`max_distance_sq_ = ceil(max_distance_ / resolution_) *
+ceil(max_distance_ / resolution_);`, a `double` product narrowed into an
+`int` field with no range check before it) used at `:95-96,99-100` to
+size `bucket_queue_`/`negative_bucket_queue_`/`sqrt_table_` — verified at
+the pinned `e017c91e`.
+**Port:** `crates/moveit-distance-field/src/propagation.rs:218`
+(`checked_max_distance_sq`), documented in-line at `:199-217`.
+**Symptom:** past `n > 46340` (`n*n > i32::MAX`, where `n =
+ceil(max_distance/resolution)`), C++'s narrowing is UB with no upstream
+value to match; an unguarded Rust `as i32` would instead saturate to
+`i32::MAX`, and `PropagationDistanceField::new` sizes three collections
+from that value — an attempted allocation of three `2^31`-length
+collections (OOM), not merely a wrong number.
+**Evidence:** read of upstream control flow, cross-referenced in
+`PORTING-PLAN.md` §172.1 case 2.
+**Status:** already not reproduced — `checked_max_distance_sq` rejects
+`max_distance_sq_f > f64::from(i32::MAX)` before ever casting, returning
+`Error::Construct` instead of saturating into the allocation.
+**Cost of not reproducing:** none. Already the shipped behaviour; a
+valid-per-this-guard value like `46340 * 46340` (~2.1 billion) is itself
+far too large to build a field around, so the boundary is tested via the
+standalone `checked_max_distance_sq` helper rather than by actually
+constructing a field at that size.
+
+### 8. `getShortestSolution` dereferences `min_element` on a possibly-empty vector — not-reproduced
+
+**Upstream:** `moveit_ros/planning/planning_pipeline_interfaces/src/
+solution_selection_functions.cpp:47-64` (`getShortestSolution`: `const
+auto shortest_trajectory = std::min_element(solutions.begin(),
+solutions.end(), ...); ... return *shortest_trajectory;` at `:64`,
+unconditional, with no check that `solutions` is non-empty) — verified at
+the pinned `e017c91e`.
+**Port:** `crates/moveit-planning/src/plan_responses.rs:111`
+(`shortest_solution`), documented in-line at `:42-49`.
+**Symptom:** on an empty `solutions` vector, `std::min_element` returns
+`solutions.end()`, and dereferencing that iterator is undefined
+behaviour.
+**Evidence:** read of upstream control flow. `min_element`'s empty-input
+return contract (`first` when `[first,last)` is empty, i.e. `end()`
+in this call) is documented cppreference behaviour, not something that
+needs a runtime probe.
+**Status:** already not reproduced — the port's `shortest_solution`
+returns `Option<&PlanOutcome<'_>>`, `None` for the empty case, a typed
+empty case rather than a panic or a fabricated element. For non-empty
+input the tie-break matches upstream's comparator exactly (see the
+function's own doc for the strict-improvement-fold reasoning against
+`Iterator::min_by`'s different tie-break contract).
+**Cost of not reproducing:** none. Already the shipped behaviour, and
+"reproducing" this one is not meaningfully possible in safe Rust without
+introducing a panic where upstream has UB — not a like-for-like trade.
+
 ---
 
 ## Decision on the pre-policy entries
