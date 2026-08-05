@@ -100,6 +100,9 @@
 //!   trajectories the generators above produce into the list a controller
 //!   executes, blending each pair whose blend radius is positive
 //!   ([`plan_components_builder::PlanComponentsBuilder`]).
+//! - `command_list_manager.{hpp,cpp}`: validates a list of motion commands,
+//!   chains each command's start state onto the previous command's end state,
+//!   and drives the builder above ([`command_list_manager::CommandListManager`]).
 //!
 //! # Deliberately not ported: the ROS layer (D1/D2)
 //!
@@ -117,10 +120,6 @@
 //!   its entire job is ROS plugin registration, not planning math.
 //! - `pilz_industrial_motion_planner.cpp` — the `planning_interface::PlannerManager`
 //!   plugin itself, i.e. the `move_group` entry point.
-//! - `command_list_manager.{hpp,cpp}` — sequences multiple motion commands
-//!   (`MotionSequenceRequest`) and manages blending between them at the
-//!   `moveit_msgs` request level; this is orchestration over the trajectory
-//!   generators, not trajectory generation.
 //!
 //! `plan_components_builder.{hpp,cpp}` was on this list until §153.1
 //! (measured 2026-08-04) refuted its stated reason: the file has **zero**
@@ -132,7 +131,18 @@
 //! nor D2 ever applied to it. It is now ported as
 //! [`plan_components_builder`].
 //!
-//! None of these four compute a LIN/PTP/CIRC trajectory; they route
+//! `command_list_manager.{hpp,cpp}` followed it off the list. Its own claim
+//! ("orchestration at the `moveit_msgs` request level") holds for exactly one
+//! of its members: `solveSequenceItems` calls
+//! `planning_pipeline->generatePlan`, the `pluginlib` dispatch `D2` excludes.
+//! Every other member — the four validity rules, the blend-radius extraction,
+//! the overlap check, the start-state chaining — is arithmetic over the list,
+//! and the message types it reads are `blend_radius`, `group_name` and
+//! `start_state`, all of which this crate already carries in its own request
+//! type. [`command_list_manager`] therefore takes the per-item planner as a
+//! closure and ports the rest verbatim.
+//!
+//! None of these three compute a LIN/PTP/CIRC trajectory; they route
 //! `moveit_msgs` requests to the analytical types this crate ports. A future
 //! `moveit-ros` (or equivalent) crate is the right home for a Rust
 //! equivalent, if one is ever built.
@@ -196,6 +206,7 @@
 //! `tools/ci/verify-upstream-license-provenance.sh` needs no new exemption.
 
 pub mod cartesian_trajectory;
+pub mod command_list_manager;
 pub mod limits;
 pub mod path_circle;
 pub mod path_line;

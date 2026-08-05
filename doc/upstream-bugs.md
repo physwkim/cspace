@@ -98,6 +98,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `polyline-filter-waypoints-stale-index` | reproduced-deliberately |
 | `polyline-header-redeclares-lin-exceptions` | not-reproduced |
 | `plan-components-builder-const-build-mutates` | not-reproduced |
+| `extract-blend-radii-empty-list-underflow` | not-reproduced |
 
 ---
 
@@ -835,6 +836,40 @@ to compare against. The visible cost is on the port's API instead:
 `reset()` is not ported, because a consuming `build` means a new sequence
 is a new builder — which is what `reset()` was emulating for a builder
 held as a long-lived member.
+
+---
+
+### `extract-blend-radii-empty-list-underflow` — `CommandListManager::extractBlendRadii` loops to `size() - 1` on an unsigned zero — not-reproduced
+
+**Upstream:** `moveit_planners/pilz_industrial_motion_planner/src/command_list_manager.cpp:219-232`
+(verified at the pinned `e017c91e`).
+**Port:** `crates/moveit-planners-pilz/src/command_list_manager.rs`,
+`CommandListManager::extract_blend_radii`.
+**Symptom:** `RadiiCont radii(req_list.items.size(), 0.);` followed by
+`for (RadiiCont::size_type i = 0; i < (radii.size() - 1); ++i)`. On an empty
+list `radii.size()` is `0` and `radii.size() - 1` is `SIZE_MAX`, so the loop
+condition holds and the body runs `req_list.items.at(0)` on an empty vector.
+`std::vector::at` is the bounds-checked accessor, so this throws
+`std::out_of_range` rather than reading out of bounds — but out of a function
+whose declared failure mode is the `MoveItErrorCodeException` family, so the
+`move_group` sequence service catches nothing and the exception escapes as an
+unhandled one.
+**Evidence:** a read of the control flow, plus a read of the single caller.
+`CommandListManager::solve` returns `RobotTrajCont()` on
+`req_list.items.empty()` before anything else (`:91-94`), so the only path
+that reaches `extractBlendRadii` has at least one item and the loop is never
+entered with an empty list. Not oracle-confirmed: the oracle has no sequence
+op.
+**Status:** `not-reproduced`. The port iterates `items.windows(2)` instead of
+an index range, so the empty case is a zero-iteration loop by construction —
+there is no subtraction to underflow and no accessor to go out of range. This
+is stronger than upstream's guard, which lives in a different function.
+**Deviation:** none of `D1`..`D14` applies. Pair iteration is the ordinary
+Rust way to write "for each consecutive pair"; it was not selected to route
+around this defect.
+**Cost of not reproducing:** none. There is no oracle op and no parity test on
+the sequence path, and the reproducing behaviour has no caller upstream to
+compare against.
 
 ---
 

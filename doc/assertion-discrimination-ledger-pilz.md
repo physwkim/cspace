@@ -208,8 +208,38 @@ in this round's instructions).
 | `pilz_trajectory_polyline_parity.rs:388` | is_none | `response.waypoints` — `response` is the oracle's own recorded JSON fixture, deserialized, not a value the port produced | `polyline_panda_arm_rejects_the_same_request_the_oracle_rejects` | not-this-family | census §9 clause 3 (subject): identical shape and identical argument to `pilz_trajectory_lin_parity.rs:371` and `pilz_trajectory_circ_parity.rs:378` — deleting the port call from this test would not change this assertion's outcome |
 | `pilz_trajectory_polyline_parity.rs:413` | is_none | `response.trajectory`, from `TrajectoryGeneratorPolyline::cmd_specific_request_validation`'s waypoint-count guard — one of 3 `InvalidMotionPlan` sites reachable on this call path (that guard, and `polyline_path_constraint`'s absent- and wrong-variant returns) | `polyline_panda_arm_rejects_the_same_request_the_oracle_rejects` | discriminating | bite this round: relaxed the guard to `waypoints.len() < 1` — this assertion FAILED (the one-waypoint fixture then planned) together with its property-test sibling `polyline_rejects_a_request_with_fewer_than_two_waypoints`, and no other test in the crate moved (176/178). Reverted. The other two sites are additionally excluded within the test itself: it restores the dropped waypoint as its only edit and asserts `Success`, so neither the absent- nor the wrong-variant return can be this fixture's cause |
 | `plan_components_builder.rs:467` | is_empty | `PlanComponentsBuilder::build`'s `traj_tail == None` path — the only path a builder that has never been appended to can take | `build_of_an_untouched_builder_is_empty` | not-this-family | census §9 clause 1 (mechanism): `build` returns `Ok` unconditionally when there is no tail, so there is no fail/absent signal and no sibling guard for the emptiness to be blind to. Same shape as `trajectory_blender_transition_window.rs:1345` — a size check on a success-path collection. The branch it does pin (`build` must not fabricate a container element) is bitten by the sibling `the_first_append_starts_one_container_element_that_build_flushes_the_tail_into`, whose `assert_eq!` is not a coarse-fail site |
+| `command_list_manager.rs:812` | is_err | `solver_tip_frame` on the `hand` group — a fixture precondition, not the call under test (`extract_blend_radii`) | `a_radius_in_a_group_without_a_solver_is_zeroed` | not-this-family | census §9 clause 3 (subject): deleting `extract_blend_radii` from this test would not change this assertion's outcome. It exists so the test fails loudly, rather than passing vacuously, if `hand` ever gains a solver and the no-solver rule stops being the one that fires |
+| `command_list_manager.rs:981` | is_empty | `solve`'s `items.is_empty()` early return | `an_empty_list_yields_an_empty_result_without_planning` | not-this-family | census §9 clause 1 (mechanism): the branch is named by the sibling `assert_eq!(*calls.borrow(), 0)` one line below, which is what distinguishes "returned before planning" from "planned nothing and produced nothing" — an empty result alone cannot tell those apart, since `PlanComponentsBuilder::build` on an untouched builder is also empty |
 
-## Summary (12, then 13, then 26, now 27)
+## Summary (12, then 13, then 26, then 27, now 29)
+
+### The `CommandListManager` round's 2 additions
+
+`command_list_manager.rs` arrived with the `CommandListManager` port;
+`verify-orphan-enumeration.sh` reported its `is_err` fixture precondition and
+its `is_empty` early-return check as orphans. Both are not-this-family, under
+different clauses — one is not about the call under test at all, the other has
+a sibling assertion that names the branch.
+
+The port's own guards are not in this table because none of them is a coarse
+fail/absent site: every one is checked by matching the returned
+`SequenceError` variant *and* its fields. All eleven were bitten this round
+(negative-radius, last-radius-zero, the per-group start-state rule, the
+group-change and no-solver radius rules, the overlap group and zero-sum
+guards, the start-state chaining, and the `Success`-without-trajectory
+rejection), each flipping exactly its own test. Two more mutations bit
+nothing and were treated as findings against the *code*, not the tests:
+`is_invalid_blend_radii`'s zero-radius short-circuit decides nothing this port
+can observe once upstream's warning is dropped (documented in place), and
+`checkForOverlappingRadii`'s `size() < 3` guard existed only to keep
+`size() - 2` from underflowing, so it was replaced by a saturating
+subtraction — which the surviving test now bites at the pair-count boundary.
+
+Table total re-derived after the additions, by parsing the table rather than
+adding two to the previous figure: **29 rows — 14 `contains_msg`,
+5 `eq_none`, 4 `is_none`, 4 `is_empty`, 1 `contains_member`, 1 `is_err`**; by
+verdict, **16 discriminating, 2 discriminating but blind and since fixed, 9
+not-this-family, 2 single-branch**.
 
 ### The `PlanComponentsBuilder` round's 1 addition
 
