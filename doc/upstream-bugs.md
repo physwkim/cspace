@@ -464,7 +464,6 @@ changing the check to read `positions.len()` directly would not currently
 break any test in this workspace. Confirming that for certain would need a
 new test for the distinguishing case first, not an assumption.
 
-||||||| 1a26595
 ### `get-max-payload-index-space` — `getMaxPayload` indexes `max_torques_` in the wrong joint-index space — reproduced-grandfathered
 
 **Upstream:** `moveit_core/dynamics_solver/src/dynamics_solver.cpp:126` (`num_joints_ =
