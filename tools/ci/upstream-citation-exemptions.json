@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "Upstream citations that tools/ci/measure-upstream-citations.py must not",
+    "report, because the citing text is QUOTING a wrong citation in order to",
+    "refute it. Correcting the quoted number would delete the finding the",
+    "sentence exists to record.",
+    "",
+    "Same mechanism and same burden of proof as section-reference-external.json:",
+    "every entry pins an exact document line, an exact resolved upstream path,",
+    "and the exact spec, so it stops applying the moment any of the three moves,",
+    "and each carries the reason in `why`. This is not a place to park a",
+    "citation that is merely inconvenient to fix -- a citation the document",
+    "asserts is CORRECT does not belong here."
+  ],
+  "exemptions": [
+    {
+      "doc": "PORTING-PLAN.md",
+      "line": 3197,
+      "upstream": "moveit_core/kinematics_base/src/kinematics_base.cpp",
+      "spec": "320",
+      "why": "The line quotes a round brief's claim in order to correct it, and the two lines below it state the refutation in this script's own terms: kinematics_base.cpp is 210 lines and never mentions dimension_. Making the quoted citation resolvable would erase what the paragraph reports."
+    }
+  ]
+}
