@@ -960,6 +960,8 @@ public:
       return frameTransform(request);
     if (op == "is_state_valid")
       return isStateValid(request);
+    if (op == "scene_diff_collision")
+      return sceneDiffCollision(request);
     if (op == "cost_sources")
       return costSources(request);
     if (op == "path_cost_sources")
@@ -1412,17 +1414,32 @@ private:
   /// per call, so that state has no cross-request lifetime to leak through.
   void applyJointValues(const json& request)
   {
-    state_->setToDefaultValues();
-    state_->clearAttachedBodies();
+    applyJointValuesTo(*state_, request);
+  }
+
+  /// The body of `applyJointValues`, against an arbitrary state.
+  ///
+  /// Split out for the same reason `applyAttachedBodies` takes its state by
+  /// reference: `sceneDiffCollision` poses a `PlanningScene`'s own
+  /// `getCurrentStateNonConst()`, not the shared `*state_`, and a second
+  /// hand-written copy of this loop is exactly the drift that doc comment
+  /// records having already happened once. Every word of `applyJointValues`'
+  /// doc above still describes what this does to `*state_` -- the reset, the
+  /// `clearAttachedBodies()` and the unknown-variable throw are unchanged and
+  /// unconditional, just reachable from a second caller now.
+  void applyJointValuesTo(moveit::core::RobotState& state, const json& request)
+  {
+    state.setToDefaultValues();
+    state.clearAttachedBodies();
     const json& values = request.at("joint_values");
     for (auto it = values.begin(); it != values.end(); ++it)
     {
       const std::string& variable = it.key();
       if (!hasVariable(variable))
         throw std::runtime_error("unknown joint variable: " + variable);
-      state_->setVariablePosition(variable, it.value().get<double>());
+      state.setVariablePosition(variable, it.value().get<double>());
     }
-    state_->update();
+    state.update();
   }
 
   /// Attach `request["attached_bodies"]` (optional, defaults to none) to
@@ -2700,6 +2717,234 @@ private:
       invalid_out.push_back(idx);
 
     return json{ { "valid", valid }, { "invalid_waypoints", invalid_out } };
+  }
+
+  /// Ground truth for `moveit-scene`'s diff layer -- PORTING-PLAN.md §5's
+  /// third Phase 5 completion condition, "씬 diff 적용 후 충돌 결과가 오라클과
+  /// 100% 일치".
+  ///
+  /// Builds a base `planning_scene::PlanningScene` from the request the same
+  /// way `isStateValid` does (`applyJointValuesTo`/`applyAttachedBodies`/
+  /// `addRequestObjects` -- the shared parsers, not a fourth copy), collision-
+  /// checks it, calls upstream `PlanningScene::diff()` for a *real* child
+  /// scene, applies `request["diff"]`'s actions to that child, and collision-
+  /// checks both the child and the parent again.
+  ///
+  /// Three summaries, not one, because the property under test is not just
+  /// "the child answers X": upstream's diff is copy-on-write over four
+  /// separately-inherited layers (`world_` snapshot + `WorldDiff`,
+  /// `robot_state_`, `acm_`, transforms -- `planning_scene.cpp:203-227` and
+  /// the `getCurrentStateNonConst`/`getAllowedCollisionMatrixNonConst`
+  /// copy-on-write pair at `:625`/`:659`), and this port mirrors it with
+  /// `Layered::Inherited` (`crates/moveit-scene/src/scene.rs`'s `diff()`). A
+  /// child-only response could not tell a correct diff from one that mutated
+  /// its parent, which is the failure mode copy-on-write exists to prevent;
+  /// `parent_before` and `parent_after` make that observable, and the two
+  /// being equal is itself part of what the Rust side asserts.
+  ///
+  /// The child's checks go through the child's *own* `getCollisionEnv()`,
+  /// which `allocateCollisionDetector(parent->alloc_, parent->detector_)`
+  /// built on the child's own `world_` (`planning_scene.cpp:255-282`), so a
+  /// world edit made on the child is seen by the child's env and by nothing
+  /// else. Hand-rolling a `CollisionEnvFCL` per summary the way `collision()`
+  /// does would bypass exactly the wiring under test.
+  ///
+  /// `self_*` is reported alongside `robot_*` but see
+  /// `crates/moveit-scene/tests/scene_diff_collision_parity.rs` for why only
+  /// the latter is compared against this port on pr2.
+  json sceneDiffCollision(const json& request)
+  {
+    auto parent = std::make_shared<planning_scene::PlanningScene>(model_);
+    applyJointValuesTo(parent->getCurrentStateNonConst(), request);
+    applyAttachedBodies(parent->getCurrentStateNonConst(), request);
+    for (const auto& object_json : request.value("objects", json::array()))
+      addSceneObject(*parent->getWorldNonConst(), object_json);
+
+    json parent_before = sceneCollisionSummary(*parent);
+
+    planning_scene::PlanningScenePtr child = parent->diff();
+    applySceneDiff(*child, request.at("diff"));
+
+    json child_summary = sceneCollisionSummary(*child);
+    json parent_after = sceneCollisionSummary(*parent);
+
+    return json{
+      { "parent_before", parent_before }, { "child", child_summary }, { "parent_after", parent_after }
+    };
+  }
+
+  /// Apply one `request["diff"]` array to `scene`: the five diff kinds Phase
+  /// 5's completion condition names -- a world object added, a world object
+  /// removed, a body attached to a link, a body detached, and an ACM entry
+  /// changed.
+  ///
+  /// `attach` is routed through `applyAttachedBodies` with a one-element
+  /// array rather than calling `attachBody` again here: an attachment made by
+  /// a diff must be built exactly the way the base scene's are (identity
+  /// `pose`, `touch_links`, `subframes`), and that helper's own doc records
+  /// three hand-written copies of that code having already drifted apart.
+  /// It is `attachBody` alone, touching neither the world nor the ACM, which
+  /// is upstream's ADD branch for message-carried shapes and this port's
+  /// `PlanningScene::attach_new`.
+  ///
+  /// `remove_object` and `detach` are *not* the bare `World`/`RobotState`
+  /// calls their names suggest, because the methods this op exists to check
+  /// are not bare either. `remove_object` prunes the id's ACM entry
+  /// (`processCollisionObjectRemove`, `planning_scene.cpp:1473`; this port's
+  /// `PlanningScene::remove_object`), and `detach` puts the body's geometry
+  /// back into the world at its global pose, subframes and all, *before*
+  /// clearing it off the state (the REMOVE branch at
+  /// `planning_scene.cpp:1728-1755`; this port's `PlanningScene::detach`).
+  /// A `clearAttachedBody`-only detach here would have made this op agree
+  /// with a Rust side that did the same thing and with nothing else -- the
+  /// two would have matched each other while both diverged from upstream.
+  ///
+  /// `remove_object`/`detach` throw on an absent id rather than returning the
+  /// upstream `false` silently. Both are the point of their case: a fixture
+  /// naming an id the base scene never had would otherwise capture "removed
+  /// nothing" as ground truth, and a Rust side that also removed nothing
+  /// would agree with it. `detach` throws on a world id collision too, where
+  /// upstream warns and drops the geometry -- this port's `detach` returns an
+  /// error there for the same reason (see its doc), so a fixture cannot
+  /// capture the silent-loss path as if it were the normal one.
+  void applySceneDiff(planning_scene::PlanningScene& scene, const json& diff)
+  {
+    for (const auto& action_json : diff)
+    {
+      const std::string action = action_json.at("action").get<std::string>();
+      if (action == "add_object")
+      {
+        addSceneObject(*scene.getWorldNonConst(), action_json);
+      }
+      else if (action == "remove_object")
+      {
+        const std::string id = action_json.at("id").get<std::string>();
+        if (!scene.getWorldNonConst()->removeObject(id))
+          throw std::runtime_error("remove_object: no such world object: " + id);
+        scene.getAllowedCollisionMatrixNonConst().removeEntry(id);
+      }
+      else if (action == "attach")
+      {
+        const json as_request = json{ { "attached_bodies", json::array({ action_json }) } };
+        applyAttachedBodies(scene.getCurrentStateNonConst(), as_request);
+      }
+      else if (action == "detach")
+      {
+        const std::string id = action_json.at("id").get<std::string>();
+        const moveit::core::AttachedBody* body = scene.getCurrentStateNonConst().getAttachedBody(id);
+        if (!body)
+          throw std::runtime_error("detach: no such attached body: " + id);
+        if (scene.getWorldNonConst()->hasObject(id))
+          throw std::runtime_error("detach: the world already has an object named " + id);
+        scene.getWorldNonConst()->addToObject(id, body->getGlobalPose(), body->getShapes(), body->getShapePoses());
+        scene.getWorldNonConst()->setSubframesOfObject(id, body->getSubframes());
+        scene.getCurrentStateNonConst().clearAttachedBody(id);
+        scene.getCurrentStateNonConst().update();
+      }
+      else if (action == "set_acm_entry")
+      {
+        scene.getAllowedCollisionMatrixNonConst().setEntry(action_json.at("first").get<std::string>(),
+                                                           action_json.at("second").get<std::string>(),
+                                                           action_json.at("allowed").get<bool>());
+      }
+      else
+      {
+        throw std::runtime_error("unsupported scene diff action: " + action);
+      }
+    }
+  }
+
+  /// One `{id, pose, shape}` object into `world`, at `addToObject(id, shape,
+  /// shape_pose)` -- the *three*-argument overload, object pose identity and
+  /// `pose` carried on the shape.
+  ///
+  /// `addRequestObjects` uses the four-argument one instead (object pose
+  /// `pose`, shape pose identity), and for an id the world does not yet have
+  /// the two are the same geometry, which is why four ops share it happily.
+  /// They stop being the same the moment an id is added *twice*: upstream
+  /// discards the `pose` argument entirely when the object already exists
+  /// (`world.cpp`'s `addToObject`, `obj->pose_ = pose` sits inside the
+  /// `if (!obj)` branch), so the second call's shape lands at the object's
+  /// original pose in one spelling and at `pose` relative to it in the other.
+  /// This op's `add_object` diff action does exactly that, and this port's
+  /// `PlanningScene::add_shape` is the three-argument overload -- so both the
+  /// base world and the diff are built that way here rather than reusing the
+  /// shared helper and comparing two different placements.
+  void addSceneObject(collision_detection::World& world, const json& object_json)
+  {
+    const std::string id = object_json.at("id").get<std::string>();
+    const Eigen::Isometry3d pose = fromRowMajor4x4(object_json.at("pose"));
+    const json& shape_json = object_json.at("shape");
+    std::shared_ptr<shapes::Shape> shape = parseShape(shape_json.at("type").get<std::string>(), shape_json);
+    world.addToObject(id, Eigen::Isometry3d::Identity(), { shape }, { pose });
+  }
+
+  /// One `PlanningScene`'s collision answer plus the two id lists that say
+  /// which layer a diff actually landed on.
+  ///
+  /// The ids are not decoration: "world object added" placed clear of the
+  /// robot changes no boolean and no distance, so a response carrying only
+  /// the four collision numbers could not distinguish that diff from one that
+  /// did nothing at all. `world_object_ids` and `attached_body_ids` come from
+  /// `std::map`-backed containers on both sides (`World::objects_`,
+  /// `RobotState::attached_body_map_`), so their order is sorted and stable
+  /// rather than insertion-dependent.
+  ///
+  /// Same `CollisionRequest`/`DistanceRequest` settings as `collision()`:
+  /// `contacts`/`max_contacts` raised so a result is diagnosable, and
+  /// `enable_signed_distance = true` so a penetration reports its depth
+  /// instead of clamping to zero (see `collision()`'s doc for the full
+  /// reasoning). `contacts` themselves are not reported here -- the diff
+  /// layer is what is under test, and `collision()` already carries the
+  /// contact-level comparison.
+  json sceneCollisionSummary(planning_scene::PlanningScene& scene) const
+  {
+    const moveit::core::RobotState& state = scene.getCurrentState();
+    const collision_detection::AllowedCollisionMatrix& acm = scene.getAllowedCollisionMatrix();
+    const collision_detection::CollisionEnvConstPtr& env = scene.getCollisionEnv();
+
+    collision_detection::CollisionRequest self_req;
+    self_req.contacts = true;
+    self_req.max_contacts = 100;
+    collision_detection::CollisionResult self_res;
+    env->checkSelfCollision(self_req, self_res, state, acm);
+
+    collision_detection::CollisionRequest robot_req;
+    robot_req.contacts = true;
+    robot_req.max_contacts = 100;
+    collision_detection::CollisionResult robot_res;
+    env->checkRobotCollision(robot_req, robot_res, state, acm);
+
+    collision_detection::DistanceRequest self_dreq;
+    self_dreq.enable_signed_distance = true;
+    self_dreq.acm = &acm;
+    collision_detection::DistanceResult self_dres;
+    env->distanceSelf(self_dreq, self_dres, state);
+
+    collision_detection::DistanceRequest robot_dreq;
+    robot_dreq.enable_signed_distance = true;
+    robot_dreq.acm = &acm;
+    collision_detection::DistanceResult robot_dres;
+    env->distanceRobot(robot_dreq, robot_dres, state);
+
+    json object_ids = json::array();
+    for (const std::string& id : scene.getWorld()->getObjectIds())
+      object_ids.push_back(id);
+
+    std::vector<const moveit::core::AttachedBody*> bodies;
+    state.getAttachedBodies(bodies);
+    json attached_ids = json::array();
+    for (const moveit::core::AttachedBody* body : bodies)
+      attached_ids.push_back(body->getName());
+
+    return json{
+      { "self_collision", self_res.collision },
+      { "self_distance", self_dres.minimum_distance.distance },
+      { "robot_collision", robot_res.collision },
+      { "robot_distance", robot_dres.minimum_distance.distance },
+      { "world_object_ids", object_ids },
+      { "attached_body_ids", attached_ids },
+    };
   }
 
   /// Ground truth for the `moveit-collision` World port. Builds a

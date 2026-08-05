@@ -804,12 +804,24 @@ fn run(cfg: &Config) -> Result<usize, String> {
 
 /// Kind label to `(satisfied, violated)` oracle-reported counts -- the
 /// factual split this task's completion report names per constraint kind,
-/// even if lopsided.
+/// even if lopsided. Counted per *constraint*, not per case: a combination
+/// case contributes one entry to each kind it contains, so the totals here
+/// sum to the number of individual `decide()` answers compared rather than
+/// to the number of cases.
 type KindSplit = BTreeMap<&'static str, (usize, usize)>;
 
+/// Case-label to case-count -- how many of `cfg.constraints` combinations
+/// took each of [`SHAPE_CYCLE`]'s slots. Reported alongside [`KindSplit`]
+/// because the two answer different questions: this one says how many
+/// *combinations* of each composition ran (which is what `PORTING-PLAN.md`
+/// §5's Phase 5 first clause counts), the other how many individual
+/// constraints of each kind were decided inside them.
+type CaseSplit = BTreeMap<String, usize>;
+
 /// Drives [`Op::Constraints`] over `cfg.constraints` generated combinations,
-/// cycling through the six constraint shapes [`build_constraint_case`] knows
-/// how to build, one per case, reusing the states and fk answers the
+/// cycling through the [`SHAPE_CYCLE`] compositions [`build_constraint_case`]
+/// knows how to build -- seven single-kind shapes and five multi-kind
+/// combinations -- one per case, reusing the states and fk answers the
 /// `fk`/`jacobian` loop already collected instead of drawing new ones.
 fn run_constraint_cases(
     cfg: &Config,
@@ -821,12 +833,15 @@ fn run_constraint_cases(
 ) -> Result<(), String> {
     let mut rng = ChaCha8Rng::seed_from_u64((cfg.seed as i64 as u64) ^ 0x5EED_C0DE_u64);
     let mut split: KindSplit = KindSplit::new();
+    let mut cases: CaseSplit = CaseSplit::new();
 
     for case in 0..cfg.constraints {
         let state_idx = case % states.len();
         let joint_values = &states[state_idx];
         let fk = &fks[state_idx];
-        let (kind, spec) = build_constraint_case(case, &mut rng, rust_model, joint_values, fk);
+        let spec = build_constraint_case(case, &mut rng, rust_model, joint_values, fk);
+        let kinds = constraint_kinds(&spec);
+        let label = kinds.join("+");
 
         let expected = match oracle.ask(Op::Constraints {
             joint_values: joint_values.clone(),
@@ -837,17 +852,24 @@ fn run_constraint_cases(
         };
 
         let (verdict, satisfied) =
-            compare_constraints(cfg, rust_model, joint_values, kind, &spec, &expected);
-        let entry = split.entry(kind).or_insert((0, 0));
-        match satisfied {
-            Some(true) => entry.0 += 1,
-            Some(false) => entry.1 += 1,
-            None => {}
+            compare_constraints(cfg, rust_model, joint_values, &kinds, &spec, &expected);
+        for (kind, satisfied) in kinds.iter().zip(&satisfied) {
+            let entry = split.entry(kind).or_insert((0, 0));
+            if *satisfied {
+                entry.0 += 1;
+            } else {
+                entry.1 += 1;
+            }
         }
-        verdicts.push((format!("constraints[{case}]:{kind}"), verdict));
+        *cases.entry(label.clone()).or_insert(0) += 1;
+        verdicts.push((format!("constraints[{case}]:{label}"), verdict));
     }
 
-    println!("constraint satisfied/violated split (oracle-reported):");
+    println!("constraint combinations by composition:");
+    for (label, count) in &cases {
+        println!("  {label}: {count} cases");
+    }
+    println!("constraint satisfied/violated split (oracle-reported), per constraint:");
     for (kind, (satisfied, violated)) in &split {
         println!("  {kind}: {satisfied} satisfied, {violated} violated");
     }
@@ -955,14 +977,21 @@ fn compare_jacobian(
 }
 
 /// Compares one [`Op::Constraints`] case. Returns the verdict, plus the
-/// oracle's own `satisfied` verdict for the case's one constraint (`None` on
-/// any mismatch/error, since there is then no agreed-on answer to bucket) --
-/// the caller uses this for the per-kind satisfied/violated split, which must
-/// reflect ground truth (the oracle), not whichever side the comparison
-/// happened to fail on.
+/// oracle's own `satisfied` verdict for each of the case's constraints, in
+/// `kinds` order -- the caller buckets these into the per-kind
+/// satisfied/violated split, which must reflect ground truth (the oracle),
+/// not whichever side the comparison happened to fail on. Empty when there
+/// is no per-constraint oracle answer to bucket at all (the port errored, or
+/// the two sides disagree on how many constraints the case even has); a
+/// failing *comparison* still yields the full oracle split, because the
+/// oracle answered every constraint whether or not the port matched it.
 ///
-/// `kind == "visibility_cone"` skips the `distance` comparison below (still
-/// comparing `satisfied`). Round-16 measurement (`PORTING-PLAN.md`'s
+/// `kinds[i] == "visibility_cone"` skips constraint `i`'s `distance`
+/// comparison below (still comparing its `satisfied`, and still comparing
+/// both fields for every *other* constraint in the same case -- which is why
+/// this is indexed per constraint rather than applied to the whole case:
+/// a combination case pairs a cone with kinds whose `distance` is compared
+/// exactly). Round-16 measurement (`PORTING-PLAN.md`'s
 /// round-16 report; live sweep, seed 4, `--group right_arm --cases 100
 /// --constraints 2000` against oracle stamp `cd8ee2c1bdcf7148`) captured all
 /// 115/2201 distance mismatches this comparison has ever produced for this
@@ -995,35 +1024,37 @@ fn compare_constraints(
     cfg: &Config,
     rust_model: &RobotModel,
     joint_values: &BTreeMap<String, f64>,
-    kind: &str,
+    kinds: &[&'static str],
     spec: &ConstraintsSpec,
     expected: &ConstraintsResult,
-) -> (Verdict, Option<bool>) {
+) -> (Verdict, Vec<bool>) {
     let actual = match rust_impl::constraints(rust_model, joint_values, spec) {
         Ok(a) => a,
-        Err(e) => return (Verdict::Fail(e), None),
+        Err(e) => return (Verdict::Fail(e), Vec::new()),
     };
-    if actual.results.len() != expected.results.len() {
+    if actual.results.len() != expected.results.len() || actual.results.len() != kinds.len() {
         return (
             Verdict::Fail(format!(
-                "result count mismatch: rust {} vs oracle {}",
+                "result count mismatch: rust {} vs oracle {} vs generated kinds {}",
                 actual.results.len(),
-                expected.results.len()
+                expected.results.len(),
+                kinds.len()
             )),
-            None,
+            Vec::new(),
         );
     }
+    let split: Vec<bool> = expected.results.iter().map(|r| r.satisfied).collect();
     for (i, (a, e)) in actual.results.iter().zip(&expected.results).enumerate() {
         if a.satisfied != e.satisfied {
             return (
                 Verdict::Fail(format!(
-                    "constraint {i}: satisfied mismatch rust={} oracle={}",
-                    a.satisfied, e.satisfied
+                    "constraint {i} ({}): satisfied mismatch rust={} oracle={}",
+                    kinds[i], a.satisfied, e.satisfied
                 )),
-                Some(e.satisfied),
+                split,
             );
         }
-        if kind == "visibility_cone" {
+        if kinds[i] == "visibility_cone" {
             continue;
         }
         let d = (a.distance - e.distance).abs();
@@ -1031,14 +1062,14 @@ fn compare_constraints(
         if d.is_nan() || d > cfg.tol_constraints {
             return (
                 Verdict::Fail(format!(
-                    "constraint {i}: distance oracle {:.17e} vs rust {:.17e} (|d|={d:.3e} > {:.3e})",
-                    e.distance, a.distance, cfg.tol_constraints
+                    "constraint {i} ({}): distance oracle {:.17e} vs rust {:.17e} (|d|={d:.3e} > {:.3e})",
+                    kinds[i], e.distance, a.distance, cfg.tol_constraints
                 )),
-                Some(e.satisfied),
+                split,
             );
         }
     }
-    (Verdict::Pass, expected.results.first().map(|r| r.satisfied))
+    (Verdict::Pass, split)
 }
 
 /// Row-major 4x4 for `pose` with `translation`, matching `rust_impl`'s
@@ -1074,16 +1105,32 @@ fn parry_representable_link_names(model: &RobotModel) -> Vec<&str> {
         .collect()
 }
 
-/// Builds one `moveit_msgs`-shaped constraint at `joint_values`/`fk` (the
-/// state the case is drawn from), perturbed to straddle its own tolerance
-/// boundary so the differential run's satisfied/violated split is
-/// meaningful rather than a coin flip landing far from the boundary.
-/// Cycles through seven shapes by `case % 7`: a joint-position constraint, a
-/// fixed-frame position constraint, a fixed-frame orientation constraint in
-/// each of the two [`OrientationToleranceSpec`] parameterizations, a
-/// visibility constraint under each of the two angle criteria
-/// (view-angle, range-angle), and a visibility constraint with
-/// `target_radius` set -- the cone-vs-robot collision check.
+/// Builds one `moveit_msgs`-shaped constraint *combination* at
+/// `joint_values`/`fk` (the state the case is drawn from), each constituent
+/// constraint perturbed to straddle its own tolerance boundary so the
+/// differential run's satisfied/violated split is meaningful rather than a
+/// coin flip landing far from the boundary.
+///
+/// Cycles through [`SHAPE_CYCLE`] compositions by `case % SHAPE_CYCLE`: the
+/// seven single-kind shapes of [`ConstraintShape`] (a joint-position
+/// constraint, a fixed-frame position constraint, a fixed-frame orientation
+/// constraint in each of the two [`OrientationToleranceSpec`]
+/// parameterizations, a visibility constraint under each of the two angle
+/// criteria, and a visibility constraint with `target_radius` set -- the
+/// cone-vs-robot collision check), then the five multi-kind
+/// [`COMBINATIONS`].
+///
+/// # Why combinations, not only singles
+///
+/// `PORTING-PLAN.md` §5's Phase 5 first clause is about "제약 조합" --
+/// constraint *combinations*. Seven single-constraint shapes sweep each
+/// kind's own `decide()` but never reach `KinematicConstraintSet::decide`'s
+/// job of running several constraints over one state and reporting one
+/// result per constraint in a fixed order. That order is the part a
+/// single-constraint case cannot check: both sides push joint, then
+/// position, then orientation, then visibility (`rust_impl::constraints`
+/// and `oracle.cpp`'s `constraints()`), and with one constraint per case any
+/// permutation of those four loops produces an identical result vector.
 ///
 /// # The `target_radius` case is fixture-aware about where it can place the cone
 ///
@@ -1105,7 +1152,7 @@ fn parry_representable_link_names(model: &RobotModel) -> Vec<&str> {
 /// whose collision geometry is a primitive (5 box, 8 cylinder, 4 sphere) --
 /// `moveit-model`'s loader retains those, so both the port and the oracle's
 /// FCL backend see the same geometry there. Whenever the model has such a
-/// link, half of this case's occurrences (`(case / 7) % 2 == 0`) place the
+/// link, half of this shape's occurrences (`(case / SHAPE_CYCLE) % 2 == 0`) place the
 /// target exactly at one such link's global collision-shape center (cycling
 /// through the eligible links by case) with a small radius and sensor
 /// offset -- see the `Some(link_name)` arm below for why both are kept
@@ -1147,12 +1194,131 @@ fn build_constraint_case(
     model: &RobotModel,
     joint_values: &BTreeMap<String, f64>,
     fk: &FkResult,
-) -> (&'static str, ConstraintsSpec) {
+) -> ConstraintsSpec {
     let mut spec = ConstraintsSpec::default();
+    let slot = case % SHAPE_CYCLE;
+    let shapes: &[ConstraintShape] = match SINGLE_SHAPES.get(slot) {
+        Some(single) => std::slice::from_ref(single),
+        None => COMBINATIONS[slot - SINGLE_SHAPES.len()],
+    };
+    for shape in shapes {
+        push_shape(*shape, &mut spec, case, rng, model, joint_values, fk);
+    }
+    spec
+}
+
+/// One of the seven single-kind constraint shapes [`push_shape`] builds.
+/// [`SINGLE_SHAPES`] runs each on its own; [`COMBINATIONS`] pairs them up.
+#[derive(Clone, Copy)]
+enum ConstraintShape {
+    Joint,
+    Position,
+    OrientationXyzEuler,
+    OrientationRotationVector,
+    VisibilityViewAngle,
+    VisibilityRangeAngle,
+    VisibilityCone,
+}
+
+/// The single-kind shapes, one per `case % SHAPE_CYCLE` slot, in the order
+/// this generator has always produced them.
+const SINGLE_SHAPES: [ConstraintShape; 7] = [
+    ConstraintShape::Joint,
+    ConstraintShape::Position,
+    ConstraintShape::OrientationXyzEuler,
+    ConstraintShape::OrientationRotationVector,
+    ConstraintShape::VisibilityViewAngle,
+    ConstraintShape::VisibilityRangeAngle,
+    ConstraintShape::VisibilityCone,
+];
+
+/// The multi-kind combinations, taking the `case % SHAPE_CYCLE` slots after
+/// [`SINGLE_SHAPES`]. Chosen so that every one of the four `moveit_msgs`
+/// constraint kinds appears in a combination, every pair of adjacent kinds
+/// in the result-vector order (joint→position→orientation→visibility) is
+/// spanned by at least one, and the last one carries all four kinds *and*
+/// two visibility constraints -- the only composition where a single case's
+/// result vector can be permuted within one kind as well as across kinds.
+const COMBINATIONS: [&[ConstraintShape]; 5] = [
+    &[ConstraintShape::Joint, ConstraintShape::Position],
+    &[ConstraintShape::Joint, ConstraintShape::OrientationXyzEuler],
+    &[
+        ConstraintShape::Position,
+        ConstraintShape::OrientationRotationVector,
+    ],
+    &[
+        ConstraintShape::Joint,
+        ConstraintShape::Position,
+        ConstraintShape::OrientationXyzEuler,
+        ConstraintShape::VisibilityViewAngle,
+    ],
+    &[
+        ConstraintShape::Joint,
+        ConstraintShape::Position,
+        ConstraintShape::OrientationRotationVector,
+        ConstraintShape::VisibilityRangeAngle,
+        ConstraintShape::VisibilityCone,
+    ],
+];
+
+/// How many `case % SHAPE_CYCLE` slots there are: one per single-kind shape,
+/// then one per combination.
+const SHAPE_CYCLE: usize = SINGLE_SHAPES.len() + COMBINATIONS.len();
+
+/// The kind label of every constraint in `spec`, in the order both
+/// `rust_impl::constraints` and `oracle.cpp`'s `constraints()` push them
+/// into their `KinematicConstraintSet` -- so `constraint_kinds(spec)[i]`
+/// names the constraint that produced `results[i]` on either side.
+///
+/// Derived from the spec rather than reported alongside it by
+/// [`build_constraint_case`]: a returned list is a second description of the
+/// same thing and can disagree with what was actually built, and the
+/// disagreement would show up as a `visibility_cone` distance skip landing
+/// on the wrong constraint -- silently, since skipping a comparison cannot
+/// fail. Every label here is a function of the one field that decides the
+/// port's own branch: an orientation constraint's parameterization is its
+/// `tolerance` variant, and a visibility constraint's criterion is which of
+/// `target_radius`/`max_view_angle`/`max_range_angle` it carries.
+fn constraint_kinds(spec: &ConstraintsSpec) -> Vec<&'static str> {
+    let mut kinds: Vec<&'static str> = Vec::new();
+    kinds.extend(spec.joint_constraints.iter().map(|_| "joint"));
+    kinds.extend(spec.position_constraints.iter().map(|_| "position"));
+    kinds.extend(
+        spec.orientation_constraints
+            .iter()
+            .map(|oc| match oc.tolerance {
+                OrientationToleranceSpec::XyzEuler { .. } => "orientation_xyz_euler",
+                OrientationToleranceSpec::RotationVector { .. } => "orientation_rotation_vector",
+            }),
+    );
+    kinds.extend(spec.visibility_constraints.iter().map(|vc| {
+        if vc.target_radius.is_some() {
+            "visibility_cone"
+        } else if vc.max_view_angle.is_some() {
+            "visibility_view_angle"
+        } else {
+            "visibility_range_angle"
+        }
+    }));
+    kinds
+}
+
+/// Pushes one [`ConstraintShape`] into `spec`. See
+/// [`build_constraint_case`]'s doc comment for what each shape is and why it
+/// is built the way it is.
+fn push_shape(
+    shape: ConstraintShape,
+    spec: &mut ConstraintsSpec,
+    case: usize,
+    rng: &mut ChaCha8Rng,
+    model: &RobotModel,
+    joint_values: &BTreeMap<String, f64>,
+    fk: &FkResult,
+) {
     let model_frame = model.model_frame().to_owned();
 
-    let kind = match case % 7 {
-        0 => {
+    match shape {
+        ConstraintShape::Joint => {
             let eligible: Vec<&str> = model
                 .joint_models()
                 .filter(|j| j.variable_count() == 1)
@@ -1173,9 +1339,8 @@ fn build_constraint_case(
                 tolerance_below: tolerance,
                 weight: 1.0,
             });
-            "joint"
         }
-        1 => {
+        ConstraintShape::Position => {
             let links = model.link_names();
             let link_name = &links[case % links.len()];
             let point = fk
@@ -1201,9 +1366,8 @@ fn build_constraint_case(
                 }],
                 weight: 1.0,
             });
-            "position"
         }
-        parameterization @ (2 | 3) => {
+        ConstraintShape::OrientationXyzEuler | ConstraintShape::OrientationRotationVector => {
             let links = model.link_names();
             let link_name = &links[case % links.len()];
             let point = fk
@@ -1221,7 +1385,7 @@ fn build_constraint_case(
             // approximate.
             let target = actual * UnitQuaternion::from_axis_angle(&Vector3::z_axis(), -theta);
             let c = target.coords;
-            let tolerance_spec = if parameterization == 2 {
+            let tolerance_spec = if matches!(shape, ConstraintShape::OrientationXyzEuler) {
                 OrientationToleranceSpec::XyzEuler {
                     x: tolerance,
                     y: tolerance,
@@ -1242,13 +1406,8 @@ fn build_constraint_case(
                     tolerance: tolerance_spec,
                     weight: 1.0,
                 });
-            if parameterization == 2 {
-                "orientation_xyz_euler"
-            } else {
-                "orientation_rotation_vector"
-            }
         }
-        4 => {
+        ConstraintShape::VisibilityViewAngle => {
             let tolerance = rng.random_range(0.02..0.3);
             let angle = rng.random_range(0.0..2.0 * tolerance);
             // `target_z` (the target pose's local z axis) must equal
@@ -1270,9 +1429,8 @@ fn build_constraint_case(
                 max_range_angle: None,
                 weight: 1.0,
             });
-            "visibility_view_angle"
         }
-        5 => {
+        ConstraintShape::VisibilityRangeAngle => {
             let tolerance: f64 = rng.random_range(0.02..0.3);
             let angle = rng.random_range(0.0..2.0 * tolerance);
             // The sensor-to-target direction is exactly
@@ -1291,15 +1449,14 @@ fn build_constraint_case(
                 max_range_angle: Some(tolerance),
                 weight: 1.0,
             });
-            "visibility_range_angle"
         }
-        6 => {
+        ConstraintShape::VisibilityCone => {
             let eligible = parry_representable_link_names(model);
             // See this function's doc comment: fixtures with no
             // parry-representable link always take the far branch, and
             // fixtures that have one (pr2) alternate so the split covers
             // both branches of `decide_cone` against the oracle.
-            let hit_link = (!eligible.is_empty() && (case / 7) % 2 == 0)
+            let hit_link = (!eligible.is_empty() && (case / SHAPE_CYCLE) % 2 == 0)
                 .then(|| eligible[case % eligible.len()]);
 
             let (anchor, radius, sensor_offset) = match hit_link {
@@ -1367,12 +1524,8 @@ fn build_constraint_case(
                 max_range_angle: None,
                 weight: 1.0,
             });
-            "visibility_cone"
         }
-        _ => unreachable!("case % 7 is in 0..7"),
-    };
-
-    (kind, spec)
+    }
 }
 
 /// Rotation part of a row-major 4x4, matching the oracle's

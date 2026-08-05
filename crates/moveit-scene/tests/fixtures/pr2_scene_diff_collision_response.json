@@ -1,0 +1,343 @@
+[
+  {
+    "id": 1,
+    "ok": true,
+    "result": {
+      "child": {
+        "attached_body_ids": [],
+        "robot_collision": true,
+        "robot_distance": -0.005591999996415383,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor",
+          "riser"
+        ]
+      },
+      "parent_after": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      },
+      "parent_before": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      }
+    }
+  },
+  {
+    "id": 2,
+    "ok": true,
+    "result": {
+      "child": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      },
+      "parent_after": {
+        "attached_body_ids": [],
+        "robot_collision": true,
+        "robot_distance": -0.005591999996415383,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor",
+          "riser"
+        ]
+      },
+      "parent_before": {
+        "attached_body_ids": [],
+        "robot_collision": true,
+        "robot_distance": -0.005591999996415383,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor",
+          "riser"
+        ]
+      }
+    }
+  },
+  {
+    "id": 3,
+    "ok": true,
+    "result": {
+      "child": {
+        "attached_body_ids": [
+          "probe_sphere"
+        ],
+        "robot_collision": true,
+        "robot_distance": -0.1,
+        "self_collision": true,
+        "self_distance": -0.15870000369548798,
+        "world_object_ids": [
+          "floor"
+        ]
+      },
+      "parent_after": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      },
+      "parent_before": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      }
+    }
+  },
+  {
+    "id": 4,
+    "ok": true,
+    "result": {
+      "child": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor",
+          "probe_sphere"
+        ]
+      },
+      "parent_after": {
+        "attached_body_ids": [
+          "probe_sphere"
+        ],
+        "robot_collision": true,
+        "robot_distance": -0.1,
+        "self_collision": true,
+        "self_distance": -0.15870000369548798,
+        "world_object_ids": [
+          "floor"
+        ]
+      },
+      "parent_before": {
+        "attached_body_ids": [
+          "probe_sphere"
+        ],
+        "robot_collision": true,
+        "robot_distance": -0.1,
+        "self_collision": true,
+        "self_distance": -0.15870000369548798,
+        "world_object_ids": [
+          "floor"
+        ]
+      }
+    }
+  },
+  {
+    "id": 5,
+    "ok": true,
+    "result": {
+      "child": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "corner_box",
+          "floor"
+        ]
+      },
+      "parent_after": {
+        "attached_body_ids": [],
+        "robot_collision": true,
+        "robot_distance": -0.005591829919321102,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "corner_box",
+          "floor"
+        ]
+      },
+      "parent_before": {
+        "attached_body_ids": [],
+        "robot_collision": true,
+        "robot_distance": -0.005591829919321102,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "corner_box",
+          "floor"
+        ]
+      }
+    }
+  },
+  {
+    "id": 6,
+    "ok": true,
+    "result": {
+      "child": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "corner_box",
+          "floor"
+        ]
+      },
+      "parent_after": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      },
+      "parent_before": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      }
+    }
+  },
+  {
+    "id": 7,
+    "ok": true,
+    "result": {
+      "child": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      },
+      "parent_after": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      },
+      "parent_before": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      }
+    }
+  },
+  {
+    "id": 8,
+    "ok": true,
+    "result": {
+      "child": {
+        "attached_body_ids": [],
+        "robot_collision": true,
+        "robot_distance": -0.005591829919321102,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "corner_box",
+          "floor"
+        ]
+      },
+      "parent_after": {
+        "attached_body_ids": [],
+        "robot_collision": true,
+        "robot_distance": -0.005591829919321102,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "corner_box",
+          "floor"
+        ]
+      },
+      "parent_before": {
+        "attached_body_ids": [],
+        "robot_collision": true,
+        "robot_distance": -0.005591829919321102,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "corner_box",
+          "floor"
+        ]
+      }
+    }
+  },
+  {
+    "id": 9,
+    "ok": true,
+    "result": {
+      "child": {
+        "attached_body_ids": [],
+        "robot_collision": true,
+        "robot_distance": -0.005591829919321102,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      },
+      "parent_after": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      },
+      "parent_before": {
+        "attached_body_ids": [],
+        "robot_collision": false,
+        "robot_distance": 0.004407999999937988,
+        "self_collision": true,
+        "self_distance": -0.08852489542847497,
+        "world_object_ids": [
+          "floor"
+        ]
+      }
+    }
+  }
+]

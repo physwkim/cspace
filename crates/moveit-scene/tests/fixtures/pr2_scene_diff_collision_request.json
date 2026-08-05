@@ -1,0 +1,653 @@
+[
+  {
+    "attached_bodies": [],
+    "diff": [
+      {
+        "action": "add_object",
+        "id": "riser",
+        "pose": [
+          1,
+          0,
+          0,
+          0.0,
+          0,
+          1,
+          0,
+          0.0,
+          0,
+          0,
+          1,
+          -0.04,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "id": 1,
+    "joint_values": {},
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0.0,
+          0,
+          1,
+          0,
+          0.0,
+          0,
+          0,
+          1,
+          -0.05,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "scene_diff_collision"
+  },
+  {
+    "attached_bodies": [],
+    "diff": [
+      {
+        "action": "remove_object",
+        "id": "riser"
+      }
+    ],
+    "id": 2,
+    "joint_values": {},
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0.0,
+          0,
+          1,
+          0,
+          0.0,
+          0,
+          0,
+          1,
+          -0.05,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      },
+      {
+        "id": "riser",
+        "pose": [
+          1,
+          0,
+          0,
+          0.0,
+          0,
+          1,
+          0,
+          0.0,
+          0,
+          0,
+          1,
+          -0.04,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "scene_diff_collision"
+  },
+  {
+    "attached_bodies": [],
+    "diff": [
+      {
+        "action": "attach",
+        "id": "probe_sphere",
+        "link_name": "base_footprint",
+        "shape_poses": [
+          [
+            1,
+            0,
+            0,
+            0.0,
+            0,
+            1,
+            0,
+            0.0,
+            0,
+            0,
+            1,
+            -0.1,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "shapes": [
+          {
+            "radius": 0.1,
+            "type": "sphere"
+          }
+        ],
+        "touch_links": []
+      }
+    ],
+    "id": 3,
+    "joint_values": {},
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0.0,
+          0,
+          1,
+          0,
+          0.0,
+          0,
+          0,
+          1,
+          -0.05,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "scene_diff_collision"
+  },
+  {
+    "attached_bodies": [
+      {
+        "id": "probe_sphere",
+        "link_name": "base_footprint",
+        "shape_poses": [
+          [
+            1,
+            0,
+            0,
+            0.0,
+            0,
+            1,
+            0,
+            0.0,
+            0,
+            0,
+            1,
+            -0.1,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "shapes": [
+          {
+            "radius": 0.1,
+            "type": "sphere"
+          }
+        ],
+        "touch_links": []
+      }
+    ],
+    "diff": [
+      {
+        "action": "detach",
+        "id": "probe_sphere"
+      }
+    ],
+    "id": 4,
+    "joint_values": {},
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0.0,
+          0,
+          1,
+          0,
+          0.0,
+          0,
+          0,
+          1,
+          -0.05,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "scene_diff_collision"
+  },
+  {
+    "attached_bodies": [],
+    "diff": [
+      {
+        "action": "set_acm_entry",
+        "allowed": true,
+        "first": "fl_caster_l_wheel_link",
+        "second": "corner_box"
+      }
+    ],
+    "id": 5,
+    "joint_values": {},
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0.0,
+          0,
+          1,
+          0,
+          0.0,
+          0,
+          0,
+          1,
+          -0.05,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      },
+      {
+        "id": "corner_box",
+        "pose": [
+          1,
+          0,
+          0,
+          0.2246,
+          0,
+          1,
+          0,
+          0.2736,
+          0,
+          0,
+          1,
+          -0.04,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "scene_diff_collision"
+  },
+  {
+    "attached_bodies": [],
+    "diff": [
+      {
+        "action": "add_object",
+        "id": "corner_box",
+        "pose": [
+          1,
+          0,
+          0,
+          0.2246,
+          0,
+          1,
+          0,
+          0.2736,
+          0,
+          0,
+          1,
+          -0.04,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "type": "box"
+        }
+      },
+      {
+        "action": "set_acm_entry",
+        "allowed": true,
+        "first": "fl_caster_l_wheel_link",
+        "second": "corner_box"
+      }
+    ],
+    "id": 6,
+    "joint_values": {},
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0.0,
+          0,
+          1,
+          0,
+          0.0,
+          0,
+          0,
+          1,
+          -0.05,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "scene_diff_collision"
+  },
+  {
+    "attached_bodies": [],
+    "diff": [],
+    "id": 7,
+    "joint_values": {},
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0.0,
+          0,
+          1,
+          0,
+          0.0,
+          0,
+          0,
+          1,
+          -0.05,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "scene_diff_collision"
+  },
+  {
+    "attached_bodies": [],
+    "diff": [
+      {
+        "action": "set_acm_entry",
+        "allowed": true,
+        "first": "fl_caster_l_wheel_link",
+        "second": "corner_box"
+      },
+      {
+        "action": "remove_object",
+        "id": "corner_box"
+      },
+      {
+        "action": "add_object",
+        "id": "corner_box",
+        "pose": [
+          1,
+          0,
+          0,
+          0.2246,
+          0,
+          1,
+          0,
+          0.2736,
+          0,
+          0,
+          1,
+          -0.04,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "id": 8,
+    "joint_values": {},
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0.0,
+          0,
+          1,
+          0,
+          0.0,
+          0,
+          0,
+          1,
+          -0.05,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      },
+      {
+        "id": "corner_box",
+        "pose": [
+          1,
+          0,
+          0,
+          0.2246,
+          0,
+          1,
+          0,
+          0.2736,
+          0,
+          0,
+          1,
+          -0.04,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "scene_diff_collision"
+  },
+  {
+    "attached_bodies": [],
+    "diff": [
+      {
+        "action": "add_object",
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0.2246,
+          0,
+          1,
+          0,
+          0.2736,
+          0,
+          0,
+          1,
+          -0.04,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "id": 9,
+    "joint_values": {},
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0.0,
+          0,
+          1,
+          0,
+          0.0,
+          0,
+          0,
+          1,
+          -0.05,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "scene_diff_collision"
+  }
+]
