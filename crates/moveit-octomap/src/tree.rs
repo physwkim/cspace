@@ -841,7 +841,14 @@ impl OcTree {
         let scaled_f = (self.resolution_factor * coord).floor();
         let min = -f64::from(Self::TREE_MAX_VAL);
         let max = f64::from(Self::TREE_MAX_VAL);
-        if !(scaled_f.is_finite() && scaled_f >= min && scaled_f < max) {
+        // `scaled_f.is_finite()` is not checked separately: IEEE 754
+        // comparisons with NaN are always false and +-infinity always fall
+        // outside a finite [min, max) range, so `scaled_f >= min && scaled_f
+        // < max` already rejects NaN and both infinities on its own -- an
+        // explicit finite check would be a third guard clause with no input
+        // that could ever make it, not either of the other two, the reason
+        // this returns `None`.
+        if !(scaled_f >= min && scaled_f < max) {
             return None;
         }
         let scaled = scaled_f as i64 + i64::from(Self::TREE_MAX_VAL);
