@@ -538,11 +538,16 @@ mod tests {
     }
 
     /// Always fails with an opaque boxed error — the "planner fails"
-    /// boundary.
-    struct FailingPlanner;
+    /// boundary. Carries its own `description` so a chain can hold two
+    /// distinctly-named failing planners: [`PipelineError::Planner`] is
+    /// constructed at two call sites in [`generate_plan`] (the first
+    /// planner and the `later_planners` loop), and telling them apart
+    /// requires each occupying a different chain position under a
+    /// different name.
+    struct FailingPlanner(&'static str);
     impl<'m> Planner<'m> for FailingPlanner {
         fn description(&self) -> &'static str {
-            "FailingPlanner"
+            self.0
         }
         fn plan(
             &self,
@@ -550,7 +555,10 @@ mod tests {
             _env: &ParryCollisionEnv,
             _request: &PlanningRequest,
         ) -> Result<PlanningResponse<'m>, PlanError> {
-            Err(Box::new(MoveitError::other("FailingPlanner always fails")))
+            Err(Box::new(MoveitError::other(format!(
+                "{} always fails",
+                self.0
+            ))))
         }
     }
 
@@ -657,7 +665,7 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf);
         let env = ParryCollisionEnv::default();
 
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FailingPlanner)];
+        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FailingPlanner("FirstPlanner"))];
         // If the response chain ran despite the planner failing, this
         // adapter's `Err` would surface as `PipelineError::Response`
         // instead of `PipelineError::Planner` below — the test would still
@@ -667,7 +675,43 @@ mod tests {
             vec![Box::new(RejectingResponseAdapter)];
         let err = generate_plan(&mut scene, &env, &[], &planners, &response_chain, request())
             .expect_err("a failing planner must abort before response adapters run");
-        assert!(matches!(err, PipelineError::Planner { .. }));
+        // `planner` pins this to `generate_plan`'s *first*-planner
+        // construction site (the call before the `later_planners` loop) —
+        // see `a_later_planner_failure_is_attributed_to_that_planner` for
+        // the loop's own site.
+        match err {
+            PipelineError::Planner { planner, .. } => assert_eq!(planner, "FirstPlanner"),
+            other => panic!("expected PipelineError::Planner, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_later_planner_failure_is_attributed_to_that_planner() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+
+        // First planner succeeds, so the failure below is only reachable
+        // through the `later_planners` loop's `PipelineError::Planner`
+        // construction site -- distinct from the first-planner site
+        // `planner_failure_short_circuits_before_response_adapters_run`
+        // exercises. If the loop's `map_err` misattributed the failure to
+        // the first planner (or any other name), this assertion -- not a
+        // bare `matches!(err, PipelineError::Planner { .. })` -- is what
+        // would catch it.
+        let planners: Vec<Box<dyn Planner>> = vec![
+            Box::new(FixedGoalPlanner {
+                description: "FirstPlanner",
+                planner_id: "fixed",
+            }),
+            Box::new(FailingPlanner("SecondPlanner")),
+        ];
+        let err = generate_plan(&mut scene, &env, &[], &planners, &[], request())
+            .expect_err("a later planner failing must abort generate_plan");
+        match err {
+            PipelineError::Planner { planner, .. } => assert_eq!(planner, "SecondPlanner"),
+            other => panic!("expected PipelineError::Planner, got {other:?}"),
+        }
     }
 
     #[test]
