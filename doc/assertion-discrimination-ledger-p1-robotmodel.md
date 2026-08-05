@@ -920,3 +920,97 @@ mutations reverted after use), so `-p moveit-model -p moveit-constraints
 -p moveit-planning` clippy/nextest were exercised only incidentally by
 the mutation-verification runs above, not as a post-fix gate. Doc-only
 commit; `cargo fmt --all -- --check` is what's owed and was run.
+
+## Round 14: `mesh_search_paths.rs`'s two "tested" guards were blind — round 13's verdicts for `:109,130,139,140` corrected
+
+The user overruled round 13's "outside the scope of 'fix the blind
+ones'" framing of the coverage gap flagged above, on evidence: reading
+plus cross-test input-disjointness is an argument about the fixture,
+not about the assertion, and is not the isolating-mutation evidence bar
+this sweep otherwise holds itself to. Ran the isolating mutation on the
+two guards round 13 had marked `discriminating` from reading alone.
+
+**Both were blind.** `resolve()`'s four `?`/bool guards
+(`strip_prefix`, `split_once`, `packages.get`, `is_file`) all produce
+the same payload-less `None`, and the two negative tests that existed
+(`unknown_package_does_not_resolve`, `non_package_uri_does_not_resolve`)
+built fixtures with no real file at the joined path. Neutralizing
+either `strip_prefix` or `packages.get` alone left every original test
+green: the chain simply fell through to `candidate.is_file()` failing
+for an unrelated reason (no file on disk), and that later guard's
+`None` masked the neutralized guard's own `None`. Round 13's `:130`
+(`packages.get`) and `:139,140` (`strip_prefix`) verdicts are corrected
+from `discriminating` to **blind** — self-diagnosed by this round's
+own standard, not merely reclassified by re-reading.
+
+`:109` (`none_resolves_nothing`, empty map) is corrected from
+`discriminating` to **single-branch**: with `packages` genuinely
+empty, `packages.get` returns `None` regardless of key, and there is no
+possible fallback candidate to substitute — the guard's neutralized
+form (`.or_else(|| packages.values().next())`) still returns `None` on
+an empty map, so this input cannot separate "guard fired" from "guard
+absent." It is a legitimate single-cause site (config precondition
+`is_empty()`, distinct from `:130`'s "map non-empty, key absent"),
+not a discriminated one.
+
+### Fix: shared real-file fixture, four isolating mutations, all clean
+
+`Option<PathBuf>`'s four causes ARE separable by input alone — the
+existing positive test (`resolves_against_the_mapped_package_directory`)
+already proves the chain resolves to `Some` when a real file exists at
+the joined path, so a fixture built around that same real file, with
+exactly one guard's neutralized-fallback landing on it, isolates each
+guard cleanly. The user's step-3 escape valve ("if all four cannot be
+separated by input alone... `Option<PathBuf>` may simply be too coarse
+a return type") does **not** apply; no signature change is proposed.
+
+Rewrote `unknown_package_does_not_resolve` and
+`non_package_uri_does_not_resolve` so both share a fixture with a real
+file at `<dir>/meshes/link0.stl` under the one registered package
+`moveit_resources_panda_description`, and added two new tests
+(`malformed_package_uri_with_no_relative_path_does_not_resolve` for
+`:87`, `missing_file_does_not_resolve` for `:89`) built the same way.
+Each mutation neutralizes exactly one guard with a fallback that lands
+on that real file, so a truly-isolated guard flips `None` → `Some`:
+
+| guard | mutation | result |
+|---|---|---|
+| `:86` `strip_prefix("package://")?` | bypassed to use `resource` unstripped | exactly `non_package_uri_does_not_resolve` failed (`Some(.../meshes/link0.stl)` vs expected `None`); 5 siblings green |
+| `:87` `split_once('/')?` | bypassed with a fallback relative path `"meshes/link0.stl"` | exactly `malformed_package_uri_with_no_relative_path_does_not_resolve` failed; 5 siblings green |
+| `:88` `packages.get(package)?` | `.or_else(\|\| packages.values().next())` | exactly `unknown_package_does_not_resolve` failed; 5 siblings green (`none_resolves_nothing` correctly stayed green — empty map, no fallback exists) |
+| `:89` `candidate.is_file()` | `(candidate.is_file() \|\| true)` | exactly `missing_file_does_not_resolve` failed; 5 siblings green |
+
+All four run with `cargo nextest run -p moveit-model mesh_search_paths
+--no-fail-fast`, one at a time, each reverted before the next. Final
+`resolve()` body is byte-identical to the pre-round original; `git
+diff --stat` shows only the `#[cfg(test)] mod tests` block changed.
+
+### Corrected verdict table — `mesh_search_paths.rs` (supersedes round 13's four rows)
+
+| file:line | member? | verdict (round 13) | verdict (round 14, corrected) | evidence |
+|---|---|---|---|---|
+| `mesh_search_paths.rs:108` (`paths.is_empty()`, on `none()`) | **no** | not-this-family | not-this-family (unchanged) | trivial getter, no decision |
+| `mesh_search_paths.rs:109` (`none_resolves_nothing`) | yes | discriminating | **single-branch** | empty map has no fallback candidate; guard cannot be further isolated by input |
+| `mesh_search_paths.rs:130` (`unknown_package_does_not_resolve`) | yes | discriminating | **corrected: was blind, now discriminating** | isolating mutation on `:88` (see table above) — round 13's verdict rested on reading, not mutation, and was wrong until the fixture was rebuilt |
+| `mesh_search_paths.rs:139,140` (`non_package_uri_does_not_resolve`) | yes | discriminating | **corrected: was blind, now discriminating** | isolating mutation on `:86` (see table above) — same correction |
+| `mesh_search_paths.rs` (`malformed_package_uri_with_no_relative_path_does_not_resolve`, new) | yes | — (did not exist) | discriminating | isolating mutation on `:87` |
+| `mesh_search_paths.rs` (`missing_file_does_not_resolve`, new) | yes | — (did not exist) | discriminating | isolating mutation on `:89` |
+
+### Result
+
+All four guards in `resolve()` are now covered by a test that has been
+proven, by actual mutation, to fail if and only if that guard is the
+one that fired. `:109` remains the sole `single-branch` site in this
+file — a real, defensible distinction from `:130`, not a downgrade
+applied uniformly. 0 blind sites remain in `mesh_search_paths.rs`.
+
+### Commands run (round 14)
+
+- `cargo nextest run -p moveit-model mesh_search_paths --no-fail-fast` — 4 isolating-mutation runs (`:86`, `:87`, `:88`, `:89`), each showing exactly one failure, each reverted immediately after
+- `git diff --stat` after final revert — only the test module changed, `resolve()` body identical to pre-round
+- `cargo fmt --all`
+- `cargo clippy -p moveit-model --all-targets -- -D warnings` — clean
+- `cargo nextest run -p moveit-model` (full crate) — 136 tests run, 136 passed, 0 skipped
+
+Gate scope: `-p moveit-model`, source-touching round, all three steps
+(`fmt`, `clippy -D warnings`, `nextest`) run and clean as owed.
