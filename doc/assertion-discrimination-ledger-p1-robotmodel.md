@@ -658,7 +658,8 @@ two `Error::other` sites, in-code bite noted at `:502-504`.
 | `crates/moveit-trajectory/tests/robot_trajectory.rs:704` | `out of bounds` | discriminating | exact substring of `index_error`'s message only; not in `first_duration_error`'s or `empty_error`'s |
 
 **`moveit-trajectory/tests/ruckig_smoothing.rs`** — `apply_smoothing`'s
-three `Error::other` sites, in-code noted at `:198-201`.
+three `Error::other` sites, in-code noted at `:204-207` (cited `:198-201`
+before drift).
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
