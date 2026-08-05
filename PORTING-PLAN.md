@@ -18090,3 +18090,43 @@ why the mapping is explicit"). 즉 상류가 런타임 패키지 조회로 하�
 `crates/moveit-test-support/src/lib.rs`의 모듈 doc이 이 판정과 짝을 이룬다 —
 이번 라운드 전까지 그 doc은 "상류에는 이에 상응하는 테스트 측 기계장치가
 없다"고 적고 있었는데, 그 문장이 부정하던 파일이 정확히 이 두 개였다.
+
+### §226.4 `eigen_test_utils.hpp` — `decided-non-port`, 이 포트는 같은 단언을 `approx`로 한다
+
+파일은 gtest 술어 하나와 그것을 감싸는 매크로 둘이다:
+`Eigen::Transform`용 `operator<<`, `val1.isApprox(val2, prec_)`를 도는
+`IsApprox` 술어, 그리고 `EXPECT_EIGEN_EQ`/`EXPECT_EIGEN_NEAR`
+(`eigen_test_utils.hpp:72-79`). `::testing::AssertionResult`과
+`EXPECT_PRED_FORMAT2`에 기대어 있으므로 옮기려면 gtest를 옮겨야 하는데, 이
+포트는 `#[test]`와 `assert*!`를 쓴다.
+
+**이 포트의 대응물은 이름이 있다.** `approx` 크레이트(`Cargo.toml:72`,
+워크스페이스 dep, 15개 크레이트가 상속)의 `assert_relative_eq!`이고,
+`crates/ ros/ tools/`에 **호출 268건, 41개 파일**이다. 이름 전체를 세면
+329건이지만 그중 61건은 주석/모듈 doc 안에서 이 매크로를 *언급하는*
+줄이므로 호출이 아니다
+(`rg -n -F 'assert_relative_eq!' crates/ ros/ tools/ --glob '*.rs' |
+rg -v '^[^:]+:[0-9]+:\s*//' | wc -l`). 처음 이 절에 적었던 328/61-파일은
+그 구분을 하지 않은 수였고, 게다가 이번 라운드가
+`crates/moveit-test-support/src/lib.rs`의 doc에 이 이름을 한 번 더 쓰면서
+스스로 328을 329로 만들었다 — 언급을 세는 계기는 자기 문서에도 반응한다.
+호출 줄에 이 매크로가 두 번 나오는 줄은 없다(0건 확인).
+`Eigen::Transform` 통째 비교에 해당하는 자리는 이름 붙은 헬퍼로 한 번 더
+감싸 두었다 — `assert_isometry_eq`가
+`actual.to_homogeneous()`와 `expected.to_homogeneous()`를
+`assert_relative_eq!(.., epsilon = 1e-9, max_relative = 1e-9)`로 비교한다
+(`crates/moveit-collision/tests/world_parity.rs:121-129`,
+`crates/moveit-scene/tests/frame_transform_parity.rs:146`).
+
+**옮기지 않는 편이 나은 이유가 하나 더 있다.** `EXPECT_EIGEN_EQ`는 허용오차를
+비교 대상이 아니라 **스칼라 타입**에서 끌어온다 —
+`Eigen::NumTraits<Scalar>::dummy_precision()`, 즉 라이브러리가 주는 기본값이고
+매크로 본문에 그렇게 적혀 있다. 이 저장소의 규칙은 허용오차를 이웃에서
+베끼지 않고 실측해서 정하는 것이므로, 이 매크로를 옮기면 측정된 적 없는
+기본값을 328개 자리의 기본형으로 들이게 된다. (그 기본값의 실제 수치는 이
+기계에 MoveIt이 빌드하는 Eigen 체크아웃이 없어 확인하지 않았고, 확인하지
+않은 것을 근거로 쓰지 않는다 — 근거는 "비교 대상이 아니라 타입에서
+나온다"는 매크로 본문 자체다.)
+
+`rg -n -F eigen_test_utils crates/ ros/ tools/ doc/ PORTING-PLAN.md`와
+`rg -n -F EXPECT_EIGEN crates/ ros/ tools/`는 각각 자기 행 하나와 0건이다.

@@ -97,7 +97,7 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 
 ## 4. 미포팅 89건 (2026-08-06 실측)
 
-`decided-non-port` 57 / `gap` 21 / `ported-elsewhere` 11.
+`decided-non-port` 58 / `gap` 20 / `ported-elsewhere` 11.
 
 | 상류 파일 | 분류 | 증거 | 비고 |
 |---|---|---|---|
@@ -134,7 +134,7 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 | `moveit_core/robot_state/src/attached_body.cpp` | gap | `crates/moveit-scene/src/attached_body.rs` | partially covered by the row above; residual measured absent from `crates/ ros/ tools/ doc/ PORTING-PLAN.md`: `setScale`, `setPadding`, `computeTransform`, `getGlobalSubframeTransform` |
 | `moveit_core/robot_state/src/conversions.cpp` | gap | none | same |
 | `moveit_core/trajectory_processing/include/moveit/trajectory_processing/time_parameterization.hpp` | decided-non-port | `crates/moveit-trajectory/src/time_optimal_trajectory_generation.rs:9-10`, `:121-160` | listed under `// Considered and deliberately not ported:` with a full `# Not ported: `TimeParameterization`` section |
-| `moveit_core/utils/include/moveit/utils/eigen_test_utils.hpp` | gap | none | `rg -n -F eigen_test_utils crates/ ros/` -> 0 hits |
+| `moveit_core/utils/include/moveit/utils/eigen_test_utils.hpp` | decided-non-port | `PORTING-PLAN.md` §226.4; `crates/moveit-test-support/src/lib.rs:8-22` | gtest machinery (`::testing::AssertionResult`, `EXPECT_PRED_FORMAT2`), which this port does not use. Its equivalent is named: `approx::assert_relative_eq!` (workspace dep `Cargo.toml:72`, inherited by 15 crates), 268 invocations over 41 files (329 name matches less 61 comment-line mentions), with whole-transform comparison wrapped as `assert_isometry_eq` (`crates/moveit-collision/tests/world_parity.rs:121-129`, `crates/moveit-scene/tests/frame_transform_parity.rs:146`). `EXPECT_EIGEN_EQ` also draws its tolerance from the scalar *type* (`NumTraits<Scalar>::dummy_precision()`) rather than from the quantity under test, which this repo's measured-tolerance rule declines |
 | `moveit_core/utils/include/moveit/utils/lexical_casts.hpp` | decided-non-port | `PORTING-PLAN.md` §226.1 | the file exists to imbue `std::locale::classic()` on an iostream (`lexical_casts.cpp:49-52,69-72`) because C++ stream `<<`/`>>` consult the imbued locale; Rust's `f64: Display`/`FromStr` take no locale, so the one meaningful line is this port's default and no algorithm is left to move. All three upstream includers (`ompl_interface.cpp`, `model_based_planning_context.cpp`, `BenchmarkExecutor.cpp`) are outside `CORPUS_ROOTS`, and ompl is D3-replaced. The previous evidence `crates/moveit-error/src/lib.rs:312` *touches* the file without covering it: it says this `toString` is an unrelated float formatter and NOT what `MoveItErrorCode: Display` ports |
 | `moveit_core/utils/include/moveit/utils/logger.hpp` | decided-non-port | `crates/moveit-planners-pilz/src/lib.rs:162` | "`<moveit/utils/logger.hpp>`'s `rclcpp::Logger` plus every `RCLCPP_*` call" is excluded as D1 across the workspace |
 | `moveit_core/utils/include/moveit/utils/message_checks.hpp` | ported-elsewhere | `ros/moveit-ros/src/scene/collision_object.rs:11` | its `.cpp` is cited as ported (`isEmpty(Pose):77`) in `moveit-ros` |
