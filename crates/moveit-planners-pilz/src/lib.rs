@@ -115,6 +115,15 @@
 //!   and service servers wrapping the planner for `move_group`; nothing here
 //!   computes a trajectory, they only marshal ROS requests into calls on the
 //!   types below.
+//! - `capability_names.hpp` — the whole file is one line,
+//!   `static const std::string SEQUENCE_SERVICE_NAME = "plan_sequence_path"`,
+//!   the ROS service name under which `move_group_sequence_service.cpp:71`
+//!   advertises the sequence service. Its only production reader is that
+//!   `create_service<moveit_msgs::srv::GetMotionSequence>` call, i.e. the
+//!   bullet above; the sole other reader in the upstream tree is
+//!   `test/integration_tests/src/integrationtest_sequence_service_capability.cpp:94,97`,
+//!   which waits on and connects to the same service. A service name with no
+//!   service is nothing, so this file has zero non-ROS residue.
 //! - `planning_context_loader*.{hpp,cpp}` — a `pluginlib`-loaded factory that
 //!   builds a `planning_interface::PlanningContext` per motion command type;
 //!   its entire job is ROS plugin registration, not planning math.
