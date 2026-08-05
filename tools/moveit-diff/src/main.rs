@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use moveit_collision::{AllowedCollisionMatrix, LinkPaddingScale, ParryCollisionEnv, World};
 use moveit_geometry::{Cuboid, Isometry3, Rotation3, Shape, UnitQuaternion, Vector3};
-use moveit_model::{MeshSearchPaths, RobotModel};
+use moveit_model::{Diagnostic, MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use protocol::{
     CollisionCheckResult, CollisionObjectSpec, ConstraintRegionSpec, ConstraintsResult,
@@ -416,11 +416,15 @@ fn main() {
 /// fixture-provenance check, and is never run in CI (see that script's own
 /// module doc), so pointing directly at the full vendored tree costs nothing
 /// extra here and additionally covers pr2, which `fixtures/meshes/` does not.
+/// The directory [`mesh_search_paths`] resolves `package://` mesh URIs
+/// against. Named separately so a refusal can say where it looked.
+const MESH_RESOURCES_ROOT: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../third_party/moveit_resources"
+);
+
 fn mesh_search_paths() -> MeshSearchPaths {
-    let resources_root = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../third_party/moveit_resources"
-    );
+    let resources_root = MESH_RESOURCES_ROOT;
     MeshSearchPaths::new([
         (
             "moveit_resources_panda_description",
@@ -437,6 +441,57 @@ fn mesh_search_paths() -> MeshSearchPaths {
     ])
 }
 
+/// Refuse a model that silently lost `<collision>` mesh geometry.
+///
+/// `RobotModel::from_urdf_and_srdf` reports a dropped `<mesh>` as a
+/// [`Diagnostic::UnsupportedLinkGeometry`] and still returns a model, which is
+/// the right call for a library -- a caller that only wants kinematics does
+/// not need collision shapes. It is the wrong call for *this* tool, and the
+/// asymmetry is the reason:
+///
+/// `tools/moveit-oracle/run-oracle.sh` mounts `third_party/` by the **primary
+/// checkout's** absolute path, unconditionally, so the C++ side keeps every
+/// mesh no matter which worktree the run started from. Only the Rust side can
+/// lose them (`third_party/` is gitignored, so it reaches a worktree only via
+/// a hand-made symlink; at the time this was written 4 of 20 worktrees had
+/// one). A symmetric loss would be obvious -- both sides would report nothing.
+/// The asymmetric one produces a fully-populated, plausible comparison, and
+/// PORTING-PLAN.md already records both halves of its fingerprint from the
+/// historical mesh-loading bug: §13.4 measured panda at `bool` 10,000/10,000
+/// disagreements (self 1,266 + robot 8,734), and §15.2 measured the Rust
+/// distance printing as `f64::MAX` (`1.797...e308`) once a robot has no
+/// collision shape at all. The pair prints as `[none]` there, from
+/// [`format_distance_pair`]'s `None` arm. That is a measured-looking artifact
+/// nothing downstream can tell from a real disagreement, so the refusal has to
+/// happen here, before any case runs.
+///
+/// Only `kind == "mesh"` is fatal. A dropped `capsule` is symmetric -- it is a
+/// URDF extension upstream's own parser does not recognise either (see
+/// [`Diagnostic::UnsupportedLinkGeometry`]'s own doc), so both sides lose it
+/// and the comparison stays honest. A robot with no `<mesh>` collision element
+/// at all (`fixtures/prbt.urdf`) produces no such diagnostic and is unaffected.
+fn reject_dropped_collision_meshes(model: &RobotModel, resources_root: &str) -> Result<(), String> {
+    let dropped: Vec<&Diagnostic> = model
+        .diagnostics()
+        .iter()
+        .filter(|d| matches!(d, Diagnostic::UnsupportedLinkGeometry { kind: "mesh", .. }))
+        .collect();
+    if dropped.is_empty() {
+        return Ok(());
+    }
+    let mut msg = format!(
+        "{} <collision> mesh element(s) did not load, so the Rust side would be \
+         compared with collision geometry the oracle still has.\n\
+         Mesh URIs were resolved against: {resources_root}\n\
+         (that path is gitignored; a git worktree reaches it only through a symlink)\n",
+        dropped.len()
+    );
+    for d in &dropped {
+        msg.push_str(&format!("  {d}\n"));
+    }
+    Err(msg)
+}
+
 /// Parse the same URDF/SRDF pair the oracle was launched with, so both sides
 /// answer questions about the same robot.
 fn build_rust_model(cfg: &Config) -> Result<RobotModel, String> {
@@ -446,8 +501,18 @@ fn build_rust_model(cfg: &Config) -> Result<RobotModel, String> {
         urdf_rs::read_file(&cfg.urdf).map_err(|e| format!("parsing URDF {}: {e}", cfg.urdf))?;
     let srdf =
         SrdfModel::parse_file(&cfg.srdf).map_err(|e| format!("parsing SRDF {}: {e}", cfg.srdf))?;
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &mesh_search_paths())
-        .map_err(|e| format!("building RobotModel: {e}"))
+    let model = RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &mesh_search_paths())
+        .map_err(|e| format!("building RobotModel: {e}"))?;
+    reject_dropped_collision_meshes(&model, MESH_RESOURCES_ROOT)?;
+    // Everything else the build dropped or repaired is printed rather than
+    // discarded. These are not fatal -- a bad mimic or an empty group shows up
+    // as a §5 Phase 1 clause disagreement, which is a comparison result and
+    // not a silent loss -- but they were previously invisible, which is how
+    // the mesh case above went unnoticed for as long as it did.
+    for d in model.diagnostics() {
+        println!("model diagnostic: {d}");
+    }
+    Ok(model)
 }
 
 /// The fixed collision scene both sides check the robot against: a single
@@ -544,6 +609,9 @@ struct RunStats {
     worst_distance_deviation: Option<f64>,
     /// `Some` only when `--collision` ran.
     distance_pairs: Option<DistancePairStats>,
+    /// `Some` only when `--collision` ran. §5 Phase 3's two clauses,
+    /// counted apart -- see [`CollisionClauseStats`].
+    collision_clauses: Option<CollisionClauseStats>,
     /// `Some` only when `--ik` ran.
     ik: Option<IkStats>,
 }
@@ -582,6 +650,25 @@ fn run(cfg: &Config) -> Result<usize, String> {
         compare_model_info(&rust_model, &model),
     ));
 
+    // §5 Phase 1's five clauses, each reported with the size of the set it
+    // compared. Printed here rather than only folded into `verdicts` so the
+    // per-robot, per-category result is on stdout for every run, not only
+    // for the runs that fail.
+    println!("--- Phase 1 clauses ({}) ---", model.name);
+    for (label, verdict, scope) in compare_model_info_clauses(&rust_model, &model) {
+        println!(
+            "{:<18} {:<52} {}",
+            label,
+            scope,
+            match &verdict {
+                Verdict::Pass => "agrees".to_owned(),
+                Verdict::Underpowered(m) => format!("UNDERPOWERED: {m}"),
+                Verdict::Fail(m) => format!("DISAGREES: {}", m.lines().next().unwrap_or(m)),
+            }
+        );
+        verdicts.push((format!("phase1:{label}"), verdict));
+    }
+
     let states = match oracle.ask(Op::RandomStates {
         count: cfg.cases,
         seed: cfg.seed,
@@ -599,6 +686,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
 
     let mut max_jacobian_dev = 0.0f64;
     let mut pair_stats = DistancePairStats::default();
+    let mut clause_stats = CollisionClauseStats::default();
     // Kept for the constraint-case generator below, which needs each state's
     // link poses to build "meaningful" (boundary-straddling) constraints
     // rather than re-asking the oracle for the same fk it already answered.
@@ -684,6 +772,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
                 joint_values,
                 &expected,
                 &mut pair_stats,
+                &mut clause_stats,
             );
             if dev.is_finite() {
                 max_distance_dev = max_distance_dev.max(dev);
@@ -723,6 +812,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
     }
     if cfg.collision {
         println!("worst distance deviation: {max_distance_dev:.3e}");
+        clause_stats.report();
         pair_stats.report();
     }
 
@@ -801,6 +891,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
             worst_jacobian_deviation: cfg.group.is_some().then_some(max_jacobian_dev),
             worst_distance_deviation: cfg.collision.then_some(max_distance_dev),
             distance_pairs: cfg.collision.then_some(pair_stats),
+            collision_clauses: cfg.collision.then_some(clause_stats),
             ik: cfg.ik.then_some(ik_stats),
         };
         let json = serde_json::to_string_pretty(&stats)
@@ -886,6 +977,156 @@ fn run_constraint_cases(
     Ok(())
 }
 
+/// The five facts §5 Phase 1's completion condition names, in its own order:
+/// "링크 수, 조인트 수, 그룹 구성, 조인트 한계값, mimic 관계".
+///
+/// Each is its own verdict rather than one `model_info` pass/fail, because
+/// the condition is five separate claims per robot and a single aggregate
+/// verdict cannot say which of them holds. It also cannot say that a robot
+/// with no mimic joint at all was *checked* for mimic relations -- and
+/// three of the five fixture robots have none, so "mimic agrees" would
+/// otherwise be a claim about an empty set that reads identically to a
+/// claim about a checked one. Each label below reports the size of the set
+/// it compared, so an empty one is visible as empty.
+const PHASE1_CLAUSES: [&str; 5] = [
+    "link_count",
+    "joint_count",
+    "group_composition",
+    "joint_limits",
+    "mimic",
+];
+
+/// One variable's limit facts, as the `joint_limits` clause compares them.
+/// `min`/`max` are `None` for an unbounded variable (JSON has no infinity --
+/// see [`protocol::JointDetail::bounds`]), which is why `position_bounded` is carried
+/// alongside rather than being inferred from the two being present.
+#[derive(Debug, PartialEq)]
+struct VariableLimit {
+    variable: String,
+    min: Option<f64>,
+    max: Option<f64>,
+    position_bounded: bool,
+}
+
+/// Joint name to its variables' limits, the shape the `joint_limits` clause
+/// compares. A map rather than a flat vector so a disagreement names the
+/// joint it is on.
+type JointLimitView = BTreeMap<String, Vec<VariableLimit>>;
+
+/// Mimicking joint name to `(mimicked joint, multiplier, offset)` -- the
+/// shape the `mimic` clause compares. Joints with no mimic are absent, so
+/// the map's length is the number of relations actually verified.
+type MimicView = BTreeMap<String, (String, f64, f64)>;
+
+/// One [`PHASE1_CLAUSES`] entry's verdict plus the count it compared.
+fn compare_model_info_clauses(
+    rust_model: &RobotModel,
+    expected: &ModelInfo,
+) -> Vec<(&'static str, Verdict, String)> {
+    let actual = rust_impl::model_info(rust_model);
+    let mut out = Vec::with_capacity(PHASE1_CLAUSES.len());
+
+    // Link/joint *count* is what the condition names, but comparing only the
+    // counts would pass a model whose links are all named wrongly, so each
+    // count clause compares the full name list and reports the count.
+    out.push((
+        "link_count",
+        eq_verdict(&actual.links, &expected.links, "link names"),
+        format!("{} links", expected.links.len()),
+    ));
+    out.push((
+        "joint_count",
+        eq_verdict(&actual.joints, &expected.joints, "joint names"),
+        format!("{} joints", expected.joints.len()),
+    ));
+    out.push((
+        "group_composition",
+        eq_verdict(&actual.groups, &expected.groups, "group composition"),
+        format!(
+            "{} groups, {} member joints",
+            expected.groups.len(),
+            expected.groups.values().map(Vec::len).sum::<usize>()
+        ),
+    ));
+
+    // Joint limits: per-variable `(min, max)` plus `position_bounded`, keyed
+    // by joint and variable name so a reordering is reported as a limit
+    // disagreement on the named joint rather than as a whole-vector diff.
+    let limit_view = |m: &ModelInfo| -> JointLimitView {
+        m.joint_details
+            .iter()
+            .map(|j| {
+                let rows = j
+                    .variable_names
+                    .iter()
+                    .zip(&j.bounds)
+                    .zip(&j.position_bounded)
+                    .map(|((name, (lo, hi)), bounded)| VariableLimit {
+                        variable: name.clone(),
+                        min: *lo,
+                        max: *hi,
+                        position_bounded: *bounded,
+                    })
+                    .collect();
+                (j.name.clone(), rows)
+            })
+            .collect()
+    };
+    let actual_limits = limit_view(&actual);
+    let expected_limits = limit_view(expected);
+    let variable_count: usize = expected_limits.values().map(Vec::len).sum();
+    out.push((
+        "joint_limits",
+        eq_verdict(&actual_limits, &expected_limits, "joint limits"),
+        format!(
+            "{variable_count} variable bounds over {} joints",
+            expected_limits.len()
+        ),
+    ));
+
+    // Mimic: multiplier and offset, keyed by the mimicking joint. Only
+    // joints that actually mimic something are in the map, so the reported
+    // count is the size of the set this clause verified -- `0 mimic
+    // relations` is a true statement about a robot with none, and visibly
+    // different from a robot where the relations were checked.
+    let mimic_view = |m: &ModelInfo| -> MimicView {
+        m.joint_details
+            .iter()
+            .filter_map(|j| {
+                j.mimic
+                    .as_ref()
+                    .map(|k| (j.name.clone(), (k.joint.clone(), k.multiplier, k.offset)))
+            })
+            .collect()
+    };
+    let actual_mimic = mimic_view(&actual);
+    let expected_mimic = mimic_view(expected);
+    out.push((
+        "mimic",
+        eq_verdict(&actual_mimic, &expected_mimic, "mimic relations"),
+        format!("{} mimic relations", expected_mimic.len()),
+    ));
+
+    out
+}
+
+/// `Verdict::Pass` on equality, otherwise a message carrying both sides'
+/// debug form -- the disagreeing field is what a Phase 1 status line needs,
+/// and a count-only message ("rust 11 links, oracle 12") names neither.
+fn eq_verdict<T: PartialEq + std::fmt::Debug>(actual: &T, expected: &T, what: &str) -> Verdict {
+    if actual == expected {
+        Verdict::Pass
+    } else {
+        Verdict::Fail(format!(
+            "{what} differ:\n  rust:   {actual:?}\n  oracle: {expected:?}"
+        ))
+    }
+}
+
+/// Whole-`ModelInfo` equality, kept alongside [`compare_model_info_clauses`]
+/// so a field the five clauses do not cover (`name`, `model_frame`,
+/// `root_link`, per-joint `type_name`) still fails the run rather than
+/// being silently outside every clause.
 fn compare_model_info(rust_model: &RobotModel, expected: &ModelInfo) -> Verdict {
     let actual = rust_impl::model_info(rust_model);
     if actual == *expected {
@@ -1682,15 +1923,25 @@ fn distance_pair_matches(a: &Option<DistancePair>, b: &Option<DistancePair>) -> 
 /// `crates/moveit-collision/src/parry.rs`, deviations 4 and 6) in ways that
 /// would never converge under any tolerance.
 ///
-/// Also tallies `pair_stats` (see [`DistancePairStats`]): a pair
-/// disagreement never affects the returned [`Verdict`] by itself, only the
-/// scalar does, exactly as before this parameter existed.
+/// Also tallies `pair_stats` (see [`DistancePairStats`]) and `clause_stats`
+/// (see [`CollisionClauseStats`]): a pair disagreement never affects the
+/// returned [`Verdict`] by itself, only the scalar does.
 ///
-/// Returns both the verdict and the worst of the two distance deviations
-/// (even on a pass), mirroring [`compare_jacobian`]'s reporting: the number
-/// this task's parity run reports is the worst deviation across every case,
-/// not just the failures. `f64::NAN` when a boolean disagrees or Rust
-/// errored, since no distance deviation is meaningful to report then.
+/// **Both clauses are always evaluated.** §5 Phase 3's completion condition
+/// is two independent clauses -- `collision: bool` 100% and `distance: f64`
+/// within `1e-4` -- and this used to `return` on the first boolean
+/// disagreement, so on any such case the distance clause was never reached
+/// and never counted. "How many of the 10,000 states agree on `distance`"
+/// was then unanswerable for exactly the states most likely to diverge,
+/// and the two clauses shared one `failed:` total that could not be
+/// attributed to either. Every disagreement is now recorded against its own
+/// clause and the verdict names both when both broke.
+///
+/// Returns the verdict and the worst of the two distance deviations (even
+/// on a pass), mirroring [`compare_jacobian`]'s reporting: the number this
+/// task's parity run reports is the worst deviation across every case, not
+/// just the failures. `f64::NAN` only when Rust errored and there is no
+/// distance to compare at all.
 fn compare_collision(
     cfg: &Config,
     rust_model: &RobotModel,
@@ -1698,35 +1949,44 @@ fn compare_collision(
     joint_values: &BTreeMap<String, f64>,
     expected: &CollisionCheckResult,
     pair_stats: &mut DistancePairStats,
+    clause_stats: &mut CollisionClauseStats,
 ) -> (Verdict, f64) {
     let actual = match rust_impl::collision(rust_model, &fixture.env, &fixture.acm, joint_values) {
         Ok(a) => a,
-        Err(e) => return (Verdict::Fail(e), f64::NAN),
+        Err(e) => {
+            clause_stats.errored += 1;
+            return (Verdict::Fail(e), f64::NAN);
+        }
     };
 
+    let mut bool_failure = None;
+    clause_stats.bool_total += 1;
     if actual.self_collision != expected.self_collision {
-        return (
-            Verdict::Fail(format!(
-                "self_collision differs: oracle {} (distance {:.17e}) vs rust {} (distance {:.17e})",
-                expected.self_collision,
-                expected.self_distance,
-                actual.self_collision,
-                actual.self_distance
-            )),
-            f64::NAN,
-        );
+        clause_stats.self_bool_disagrees += 1;
+        bool_failure = Some(format!(
+            "self_collision differs: oracle {} (distance {:.17e}) vs rust {} (distance {:.17e})",
+            expected.self_collision,
+            expected.self_distance,
+            actual.self_collision,
+            actual.self_distance
+        ));
     }
     if actual.robot_collision != expected.robot_collision {
-        return (
-            Verdict::Fail(format!(
-                "robot_collision differs: oracle {} (distance {:.17e}) vs rust {} (distance {:.17e})",
-                expected.robot_collision,
-                expected.robot_distance,
-                actual.robot_collision,
-                actual.robot_distance
-            )),
-            f64::NAN,
+        clause_stats.robot_bool_disagrees += 1;
+        let msg = format!(
+            "robot_collision differs: oracle {} (distance {:.17e}) vs rust {} (distance {:.17e})",
+            expected.robot_collision,
+            expected.robot_distance,
+            actual.robot_collision,
+            actual.robot_distance
         );
+        bool_failure = Some(match bool_failure {
+            Some(prev) => format!("{prev}; {msg}"),
+            None => msg,
+        });
+    }
+    if bool_failure.is_some() {
+        clause_stats.bool_disagrees += 1;
     }
 
     let self_dev = (expected.self_distance - actual.self_distance).abs();
@@ -1777,25 +2037,102 @@ fn compare_collision(
         }
     }
 
-    if max_dev.is_nan() || max_dev > cfg.tol_distance {
-        return (
-            Verdict::Fail(format!(
-                "distance differs: self oracle {:.17e} [{}] vs rust {:.17e} [{}] (|d|={self_dev:.3e}), \
-                 robot oracle {:.17e} [{}] vs rust {:.17e} [{}] (|d|={robot_dev:.3e}), tol {:.3e}",
-                expected.self_distance,
-                format_distance_pair(&expected.self_distance_pair),
-                actual.self_distance,
-                format_distance_pair(&actual.self_distance_pair),
-                expected.robot_distance,
-                format_distance_pair(&expected.robot_distance_pair),
-                actual.robot_distance,
-                format_distance_pair(&actual.robot_distance_pair),
-                cfg.tol_distance
-            )),
-            max_dev,
-        );
+    clause_stats.distance_total += 1;
+    let distance_failure = if max_dev.is_nan() || max_dev > cfg.tol_distance {
+        clause_stats.distance_disagrees += 1;
+        if self_dev.is_nan() || self_dev > cfg.tol_distance {
+            clause_stats.self_distance_disagrees += 1;
+        }
+        if robot_dev.is_nan() || robot_dev > cfg.tol_distance {
+            clause_stats.robot_distance_disagrees += 1;
+        }
+        Some(format!(
+            "distance differs: self oracle {:.17e} [{}] vs rust {:.17e} [{}] (|d|={self_dev:.3e}), \
+             robot oracle {:.17e} [{}] vs rust {:.17e} [{}] (|d|={robot_dev:.3e}), tol {:.3e}",
+            expected.self_distance,
+            format_distance_pair(&expected.self_distance_pair),
+            actual.self_distance,
+            format_distance_pair(&actual.self_distance_pair),
+            expected.robot_distance,
+            format_distance_pair(&expected.robot_distance_pair),
+            actual.robot_distance,
+            format_distance_pair(&actual.robot_distance_pair),
+            cfg.tol_distance
+        ))
+    } else {
+        None
+    };
+
+    // Both clauses in one message when both broke, rather than the first one
+    // found: `report`'s "distinct failure messages" histogram groups by
+    // message text, so dropping the second clause here would file a
+    // both-clauses-failed case under the same key as a one-clause failure.
+    match (bool_failure, distance_failure) {
+        (None, None) => (Verdict::Pass, max_dev),
+        (Some(b), None) => (Verdict::Fail(b), max_dev),
+        (None, Some(d)) => (Verdict::Fail(d), max_dev),
+        (Some(b), Some(d)) => (Verdict::Fail(format!("{b}; {d}")), max_dev),
     }
-    (Verdict::Pass, max_dev)
+}
+
+/// §5 Phase 3's completion condition split into the two clauses it actually
+/// states, counted independently.
+///
+/// The condition is `collision: bool` agreeing 100% *and* `distance: f64`
+/// agreeing within `1e-4`. Those are separate facts about the port, and a
+/// single `failed:` total cannot say which one is unmet or by how much --
+/// which is the whole content of a Phase 3 status line. `*_total` is the
+/// number of cases where the clause was *evaluated*, so `disagrees/total` is
+/// a rate whose denominator is not silently smaller than the sweep's.
+///
+/// `errored` counts cases where the Rust side could not produce a result at
+/// all; those reach neither clause, so they are excluded from both
+/// denominators rather than being scored as agreement.
+#[derive(Debug, Default, Clone, serde::Serialize)]
+struct CollisionClauseStats {
+    bool_total: usize,
+    /// Cases where `self_collision` and/or `robot_collision` disagreed --
+    /// the `collision: bool` clause's own failure count. Not the sum of the
+    /// two per-side counts below: one case can break both sides.
+    bool_disagrees: usize,
+    self_bool_disagrees: usize,
+    robot_bool_disagrees: usize,
+    distance_total: usize,
+    /// Cases where `self_distance` and/or `robot_distance` moved past
+    /// `--tol-distance`. Again not the sum of the two per-side counts.
+    distance_disagrees: usize,
+    self_distance_disagrees: usize,
+    robot_distance_disagrees: usize,
+    errored: usize,
+}
+
+impl CollisionClauseStats {
+    /// One line per clause, each with its own denominator, in the order §5
+    /// Phase 3 states them.
+    fn report(&self) {
+        println!(
+            "clause `collision: bool`  : {}/{} states disagree ({:.3}%) [self {}, robot {}]",
+            self.bool_disagrees,
+            self.bool_total,
+            100.0 * self.bool_disagrees as f64 / self.bool_total.max(1) as f64,
+            self.self_bool_disagrees,
+            self.robot_bool_disagrees,
+        );
+        println!(
+            "clause `distance: f64`    : {}/{} states disagree ({:.3}%) [self {}, robot {}]",
+            self.distance_disagrees,
+            self.distance_total,
+            100.0 * self.distance_disagrees as f64 / self.distance_total.max(1) as f64,
+            self.self_distance_disagrees,
+            self.robot_distance_disagrees,
+        );
+        if self.errored > 0 {
+            println!(
+                "rust errored (in neither denominator): {} states",
+                self.errored
+            );
+        }
+    }
 }
 
 /// Formats a [`DistancePair`] for `compare_collision`'s `distance differs`
@@ -2812,6 +3149,261 @@ mod visibility_cone_ambiguity_diagnostic {
             "expected case 104's own real scene to touch exactly one link, ruling out an \
              ambiguous multi-candidate scene as the source of its distance mismatch (see this \
              module's doc comment) -- got {pairs:?}"
+        );
+    }
+}
+
+/// One-clause-at-a-time discrimination for [`compare_model_info_clauses`].
+///
+/// A per-clause "agrees" line is only worth reading if a change to that
+/// clause's own field is what turns it red -- and if a change to some
+/// *other* field does not. Both halves matter: a clause that reddens on
+/// everything cannot attribute a Phase 1 failure, and one that reddens on
+/// nothing is a label, not a check.
+///
+/// Perturbing the *expected* side is the only way to test this. Both sides
+/// of a live run read the same URDF/SRDF pair, so editing the fixture moves
+/// the oracle and the port together and every clause keeps agreeing --
+/// which is a measurement of nothing. Here the port-side model is built
+/// from the committed fixture and the oracle-side [`ModelInfo`] is that same
+/// model's own `model_info`, perturbed one field per case.
+///
+/// `prbt` is the fixture because its collision geometry is entirely
+/// primitives (cylinder/sphere/box, no `<mesh>`), so this needs no
+/// `third_party/moveit_resources` checkout and runs under a plain
+/// `cargo nextest run` -- unlike the pr2-based tests above.
+#[cfg(test)]
+mod phase1_clause_discrimination_tests {
+    use super::*;
+    use crate::protocol::Mimic;
+
+    fn prbt_model() -> RobotModel {
+        let urdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/prbt.urdf");
+        let srdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/prbt.srdf");
+        let urdf_xml = std::fs::read_to_string(urdf_path).expect("read prbt.urdf");
+        let urdf = urdf_rs::read_file(urdf_path).expect("parse prbt.urdf");
+        let srdf = SrdfModel::parse_file(srdf_path).expect("parse prbt.srdf");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &mesh_search_paths())
+            .expect("build prbt RobotModel")
+    }
+
+    /// Clause labels that disagree when `expected` is `perturb`ed.
+    fn failing_clauses(perturb: impl FnOnce(&mut ModelInfo)) -> Vec<&'static str> {
+        let model = prbt_model();
+        let mut expected = rust_impl::model_info(&model);
+        perturb(&mut expected);
+        compare_model_info_clauses(&model, &expected)
+            .into_iter()
+            .filter(|(_, verdict, _)| !matches!(verdict, Verdict::Pass))
+            .map(|(label, _, _)| label)
+            .collect()
+    }
+
+    /// The unperturbed baseline. Without this, every case below could be
+    /// passing because the clause is always red.
+    #[test]
+    fn unperturbed_model_agrees_on_every_clause() {
+        assert_eq!(failing_clauses(|_| {}), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_dropped_link_reddens_only_link_count() {
+        assert_eq!(
+            failing_clauses(|m| {
+                m.links.pop().expect("prbt has links");
+            }),
+            vec!["link_count"]
+        );
+    }
+
+    /// A renamed link is the case a count-only comparison cannot see: the
+    /// count is unchanged, so `link_count` must be comparing names.
+    #[test]
+    fn a_renamed_link_reddens_only_link_count() {
+        assert_eq!(
+            failing_clauses(|m| {
+                m.links[0] = "not_a_prbt_link".to_owned();
+            }),
+            vec!["link_count"]
+        );
+    }
+
+    #[test]
+    fn a_dropped_joint_reddens_only_joint_count() {
+        assert_eq!(
+            failing_clauses(|m| {
+                m.joints.pop().expect("prbt has joints");
+            }),
+            vec!["joint_count"]
+        );
+    }
+
+    #[test]
+    fn a_dropped_group_member_reddens_only_group_composition() {
+        assert_eq!(
+            failing_clauses(|m| {
+                let (_, members) = m
+                    .groups
+                    .iter_mut()
+                    .next()
+                    .expect("prbt has one group, `manipulator`");
+                members.pop().expect("`manipulator` has member joints");
+            }),
+            vec!["group_composition"]
+        );
+    }
+
+    /// The smallest limit change that is still a change: one ULP on one
+    /// bound of one variable. A clause comparing limits at some epsilon
+    /// rather than exactly would let this through.
+    #[test]
+    fn a_one_ulp_limit_change_reddens_only_joint_limits() {
+        assert_eq!(
+            failing_clauses(|m| {
+                let joint = m
+                    .joint_details
+                    .iter_mut()
+                    .find(|j| j.bounds.iter().any(|(lo, _)| lo.is_some()))
+                    .expect("prbt has bounded revolute joints");
+                let bound = joint
+                    .bounds
+                    .iter_mut()
+                    .find(|(lo, _)| lo.is_some())
+                    .expect("selected for having a lower bound");
+                let lo = bound.0.expect("selected for having a lower bound");
+                bound.0 = Some(f64::from_bits(lo.to_bits() + 1));
+            }),
+            vec!["joint_limits"]
+        );
+    }
+
+    /// `position_bounded` is carried alongside the two bounds because JSON
+    /// has no infinity; flipping it alone must still redden the clause.
+    #[test]
+    fn a_flipped_position_bounded_reddens_only_joint_limits() {
+        assert_eq!(
+            failing_clauses(|m| {
+                let joint = m
+                    .joint_details
+                    .iter_mut()
+                    .find(|j| !j.position_bounded.is_empty())
+                    .expect("prbt has joints with variables");
+                joint.position_bounded[0] = !joint.position_bounded[0];
+            }),
+            vec!["joint_limits"]
+        );
+    }
+
+    /// prbt has no mimic joint, so this clause compares an empty set on the
+    /// live run. Adding one relation must still redden it -- otherwise
+    /// "mimic agrees" on prbt would be indistinguishable from "mimic is
+    /// never looked at".
+    #[test]
+    fn an_added_mimic_relation_reddens_only_mimic() {
+        assert_eq!(
+            failing_clauses(|m| {
+                assert!(
+                    m.joint_details.iter().all(|j| j.mimic.is_none()),
+                    "prbt is expected to have no mimic joint; this case asserts the clause \
+                     still discriminates on a robot whose live comparison is over an empty set"
+                );
+                m.joint_details[0].mimic = Some(Mimic {
+                    joint: "prbt_joint_1".to_owned(),
+                    multiplier: 0.5,
+                    offset: 0.25,
+                });
+            }),
+            vec!["mimic"]
+        );
+    }
+}
+
+/// The boundary between "this tool may compare collision" and "it must
+/// refuse", exercised per boundary rather than per story.
+///
+/// The failure this guards is silent: `third_party/moveit_resources` is
+/// gitignored, so a worktree without the hand-made symlink resolves no
+/// `package://` mesh URI, while `run-oracle.sh` mounts that directory by the
+/// primary checkout's absolute path and the C++ side keeps every mesh. These
+/// tests reproduce that asymmetry with `MeshSearchPaths::none()`, which is
+/// what an absent `third_party/` amounts to -- so they need no vendored
+/// checkout and run under a plain `cargo nextest run`.
+#[cfg(test)]
+mod dropped_mesh_refusal_tests {
+    use super::*;
+
+    fn build(fixture: &str, paths: &MeshSearchPaths) -> RobotModel {
+        let urdf_path = format!(
+            "{}/../../fixtures/{fixture}.urdf",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let srdf_path = format!(
+            "{}/../../fixtures/{fixture}.srdf",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let urdf_xml = std::fs::read_to_string(&urdf_path).expect("read urdf");
+        let urdf = urdf_rs::read_file(&urdf_path).expect("parse urdf");
+        let srdf = SrdfModel::parse_file(&srdf_path).expect("parse srdf");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, paths).expect("build RobotModel")
+    }
+
+    /// Boundary (a): a `<mesh>` URI that does not resolve. This is the state
+    /// that produced a full 10,000-row panda comparison with the Rust
+    /// distance at `f64::MAX`.
+    #[test]
+    fn an_unresolved_collision_mesh_is_refused() {
+        let model = build("fanuc", &MeshSearchPaths::none());
+        let err = reject_dropped_collision_meshes(&model, "/nonexistent/moveit_resources")
+            .expect_err("fanuc's 7 collision meshes cannot resolve against no search path");
+        // Naming the link and the directory searched is the whole point: the
+        // previous behaviour was a plausible number with no cause attached.
+        assert!(err.contains("base_link"), "must name a link:\n{err}");
+        assert!(
+            err.contains("/nonexistent/moveit_resources"),
+            "must say where it looked:\n{err}"
+        );
+        assert!(err.contains('7'), "must count the dropped elements:\n{err}");
+    }
+
+    /// Boundary (b): the same robot with its meshes resolvable is unchanged.
+    /// Uses the committed `fixtures/meshes/` subset, not `third_party/`, so
+    /// this boundary is checked even where the vendored tree is absent --
+    /// otherwise the only always-runnable case would be the failing one.
+    #[test]
+    fn a_resolved_collision_mesh_is_accepted() {
+        let paths = MeshSearchPaths::new([(
+            "moveit_resources_fanuc_description",
+            format!(
+                "{}/../../fixtures/meshes/fanuc_description",
+                env!("CARGO_MANIFEST_DIR")
+            ),
+        )]);
+        let model = build("fanuc", &paths);
+        assert_eq!(
+            reject_dropped_collision_meshes(&model, MESH_RESOURCES_ROOT),
+            Ok(())
+        );
+    }
+
+    /// Boundary (c): a robot with no `<mesh>` collision element at all must
+    /// still run. prbt is primitives-only, and a naive "third_party missing
+    /// -> die" guard would wrongly kill it -- it is also the only sweep entry
+    /// cheap enough (18s) to iterate on.
+    #[test]
+    fn a_robot_with_no_collision_mesh_still_runs_without_any_search_path() {
+        let model = build("prbt", &MeshSearchPaths::none());
+        assert!(
+            !model
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d, Diagnostic::UnsupportedLinkGeometry { kind: "mesh", .. })),
+            "prbt is expected to have no <mesh> collision element; \
+             this case is what stops the refusal from being a blanket \
+             third_party requirement"
+        );
+        assert_eq!(
+            reject_dropped_collision_meshes(&model, MESH_RESOURCES_ROOT),
+            Ok(())
         );
     }
 }

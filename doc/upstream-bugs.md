@@ -107,6 +107,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `ik-cache-map-first-update-dropped` | not-reproduced |
 | `set-from-ik-zero-timeout-is-not-single-attempt` | not-reproduced |
 | `validate-and-improve-interval-percentage-discarded` | not-reproduced |
+| `fcl-distance-sentinel-survives-zero-contacts` | not-reproduced |
 
 ---
 
@@ -1230,6 +1231,61 @@ port returns the strictly larger parameter of the waypoint it actually
 returned. A caller that trusted upstream's fraction to be a *lower* bound on
 the trajectory keeps that guarantee; one that trusted it to be exact was
 already wrong upstream.
+
+---
+
+### `fcl-distance-sentinel-survives-zero-contacts` — The signed-distance path zeroes the contact geometry but leaves FCL's `-1` sentinel in `distance` when `fcl::collide` finds no contact — not-reproduced
+
+**Upstream:** `moveit_core/collision_detection_fcl/src/collision_common.cpp:613`
+(`dist_result.distance = fcl_result.min_distance;`), `:636`
+(`if (distance <= 0 && cdata->req->enable_signed_distance)`), `:647-648`
+(`std::size_t contacts = fcl::collide(o1, o2, coll_req, coll_res); if (contacts > 0)`),
+`:663` (`dist_result.distance = -contact.penetration_depth;`). The `if` at
+648 has no `else`.
+**Port:** `crates/moveit-collision/src/parry.rs:2217`
+**Symptom:** For a pair FCL reports as touching or penetrating
+(`distance <= 0`) with `enable_signed_distance` set, line 613 has already
+stored `fcl_result.min_distance` — which for an in-collision pair is FCL's
+`-1` *sentinel*, not a length. Lines 638-640 then unconditionally zero
+`nearest_points[0]`, `nearest_points[1]` and `normal`, and only the
+`contacts > 0` branch replaces the sentinel with `-penetration_depth`. At
+exact tangency `fcl::collide` returns zero contacts, so that branch is
+skipped and the callback returns `distance == -1.0` with both nearest
+points at the origin and a zero normal: a record asserting a metre of
+penetration while carrying no geometry that could support it. The value
+then reaches `DistanceResult::minimum_distance` through a plain `<`, where
+it beats every genuine penetration depth in the same scene, so the scene's
+reported minimum becomes the sentinel. `enable_signed_distance` is the flag
+whose whole purpose is to replace the sentinel with a signed depth; on this
+path it performs the zeroing half and not the replacing half.
+**Evidence:** both a read of the control flow above and an oracle run — the
+strongest pairing in this file. 10,000 seeded prbt states
+(`tools/ci/verify-phase3-collision-sweep.sh`, seed 1): the oracle's reported
+minimum robot distance is `-1.0` on `floor/prbt_base_link` in **10,000 /
+10,000** states. It is prbt-specific, not general: across the other four
+fixtures' 29,152 disagreeing states (panda 9,543, fanuc 6,113,
+dual_arm_panda 3,508, pr2 9,988) the sentinel appears **0** times. That is
+geometry, not luck — `fixtures/prbt.urdf`'s `prbt_base_link` collision
+cylinder (`length 0.13`, `origin z 0.065`) puts its bottom face at exactly
+`z = 0`, which is exactly the top face of the floor box in
+`tools/moveit-diff/src/main.rs`'s scene, so every sampled state hits the
+tangency case regardless of joint values.
+**Status:** `not-reproduced`, and structurally so rather than by choice.
+`parry.rs:2217` takes `contact.dist` from `parry3d_f64::query::contact` and
+substitutes no sentinel on any path, so `-1.0` is not constructible here.
+**Deviation:** none of `D1`..`D14` applies. This is not a policy the port
+adopted to route around the defect — parry simply has no in-collision
+sentinel to leak.
+**Cost of not reproducing:** measured, and it is the entirety of prbt's
+`distance` column in `PORTING-PLAN.md` §218.4 — 10,000/10,000 states
+disagree with the oracle, at max\|Δ\| `1.000000e0`, which is exactly
+`|-1.0 - (-2.775558e-17)|` and so is the sentinel gap rather than a metre of
+geometric error. Reproducing it is not reachable even if parity were
+preferred: the port would first have to agree with FCL that the tangent pair
+has zero contacts, and `query::contact` returns a contact at
+`dist = -2.775558e-17` for it. The number obtained would still be a sentinel
+rather than a distance, so §218.3 records this as a Phase 3 finding instead
+of moving the fixture or the floor to make it disappear.
 
 ---
 
