@@ -38,6 +38,59 @@ use protocol::{
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
+/// What [`Config::oracle_ik_rng_seed`] is when nobody says otherwise: the
+/// same `42` the oracle's own `--ik-rng-seed` defaults to, so forwarding it
+/// unconditionally changes no result that was ever recorded without it.
+///
+/// Kept here rather than read back from the oracle because this side has to
+/// compare it against [`Config::seed`] before either process starts.
+const DEFAULT_ORACLE_IK_RNG_SEED: u32 = 42;
+
+/// Refuses a `--seed` / `--oracle-ik-rng-seed` pair that would hand the
+/// oracle its own answers.
+///
+/// The oracle draws the target pool and its own IK restarts from the same
+/// generator class (`random_numbers::RandomNumberGenerator`, boost
+/// `mt19937`) in the same integer seed space: `random_states` seeds one with
+/// `--seed`, and `ik()`'s reseed loop draws from another seeded with
+/// `--ik-rng-seed`. Equal seeds make those the *same stream*, so the restart
+/// loop re-draws the very configurations whose FK produced the targets, and
+/// the oracle returns them as its own solutions. Measured on
+/// `fanuc/manipulator`: 716 of 952 solved cases came back identical (1e-9)
+/// to the target's own generating configuration, against 0 of 389 on a
+/// disjoint stream. The success rate then reports how often the oracle
+/// recognised its own homework -- 4733/5000 against this port's 1970, which
+/// this tool's own McNemar verdict announces as "a real algorithmic gap"
+/// at `|z| = 51.28`. One integer flips it: `--seed 41` gives 1955 against
+/// 2012 and passes.
+///
+/// Only fanuc lines up today, because the replay also needs the model's
+/// variable set to be exactly the IK group's active joints -- true for
+/// `joint_1..joint_6` (6 == 6), false for panda (16 vs 7), dual-arm panda
+/// (18 vs 7) and pr2 (48 vs 7). That is a property of today's fixtures
+/// rather than a guarantee, so every group is refused, not the one that
+/// currently demonstrates it.
+///
+/// Rejecting rather than silently substituting a different seed: the two
+/// numbers are both the caller's, and a run that quietly used neither would
+/// be a third unstated parameter of exactly the kind this check exists to
+/// remove.
+fn reject_colliding_oracle_streams(seed: i32, oracle_ik_rng_seed: u32) -> Result<(), String> {
+    // Compared after the same `int` -> `boost::uint32_t` conversion the
+    // oracle's `random_states` performs on its way to the generator, so a
+    // negative `--seed` is judged as the stream it actually selects rather
+    // than as the integer that was typed.
+    if seed as u32 != oracle_ik_rng_seed {
+        return Ok(());
+    }
+    Err(format!(
+        "--seed {seed} and --oracle-ik-rng-seed {oracle_ik_rng_seed} select the same oracle \
+         random stream, which lets the oracle's IK restarts replay the configurations its \
+         targets were built from; pass a different --oracle-ik-rng-seed (default \
+         {DEFAULT_ORACLE_IK_RNG_SEED})"
+    ))
+}
+
 /// How the runner was configured.
 struct Config {
     urdf: String,
@@ -142,6 +195,29 @@ struct Config {
     /// diverges under one stream and solves under the next is a property of
     /// the draw.
     ik_rng_seed: u64,
+    /// Seed for the *oracle*'s reseed stream, forwarded as the oracle
+    /// binary's own `--ik-rng-seed`. Defaults to
+    /// [`DEFAULT_ORACLE_IK_RNG_SEED`], the same `42` the oracle would have
+    /// used on its own, so an unqualified run reproduces every earlier
+    /// number.
+    ///
+    /// [`Config::ik_rng_seed`] explains why one side needs this knob; this
+    /// field exists because the argument it supports is symmetric and the
+    /// one-sided version cannot finish it. Varying only this side's stream
+    /// samples this side's lottery while the oracle contributes a single
+    /// fixed draw, so "the port scored below the oracle" stays ambiguous
+    /// between a real deficit and an unlucky comparison against one
+    /// arbitrary opponent sample. Sampling *both* marginals turns the
+    /// completion condition's "at least the C++ plugin's success rate" into
+    /// a statement two distributions can settle.
+    ///
+    /// It is forwarded on *every* run rather than only when set, so the
+    /// value in force has one owner. The oracle's own C++ default would
+    /// otherwise be a second definition of the same fact, and this side
+    /// could not check [`Config::seed`] against a number it does not hold.
+    /// That check is not optional -- see
+    /// [`reject_colliding_oracle_streams`].
+    oracle_ik_rng_seed: u32,
     /// Where to write the per-case list behind `b`/`c` as JSON. `None` (the
     /// default) writes nothing. See [`IkDivergenceReport`].
     ik_divergence_json: Option<String>,
@@ -208,6 +284,7 @@ impl Config {
         // default it applies cannot drift apart silently.
         let mut ik_epsilon = 1e-5;
         let mut ik_rng_seed = 0u64;
+        let mut oracle_ik_rng_seed = DEFAULT_ORACLE_IK_RNG_SEED;
         let mut ik_divergence_json: Option<String> = None;
         let mut stats_json: Option<String> = None;
         let mut state_ops = false;
@@ -289,6 +366,11 @@ impl Config {
                         .parse()
                         .map_err(|e| format!("--ik-rng-seed: {e}"))?
                 }
+                "--oracle-ik-rng-seed" => {
+                    oracle_ik_rng_seed = want("--oracle-ik-rng-seed")?
+                        .parse()
+                        .map_err(|e| format!("--oracle-ik-rng-seed: {e}"))?
+                }
                 "--ik-divergence-json" => ik_divergence_json = Some(want("--ik-divergence-json")?),
                 "--stats-json" => stats_json = Some(want("--stats-json")?),
                 "--state-ops" => state_ops = true,
@@ -339,6 +421,8 @@ impl Config {
             }
         }
 
+        reject_colliding_oracle_streams(seed, oracle_ik_rng_seed)?;
+
         Ok(Self {
             urdf: urdf.ok_or("--urdf is required")?,
             srdf: srdf.ok_or("--srdf is required")?,
@@ -358,6 +442,7 @@ impl Config {
             ik_consistency_fraction,
             ik_epsilon,
             ik_rng_seed,
+            oracle_ik_rng_seed,
             ik_divergence_json,
             stats_json,
             state_ops,
@@ -382,12 +467,21 @@ struct Oracle {
 impl Oracle {
     fn spawn(cfg: &Config) -> Result<Self, String> {
         let (program, rest) = cfg.oracle.split_first().ok_or("empty oracle command")?;
-        let mut child = Command::new(program)
+        let mut command = Command::new(program);
+        command
             .args(rest)
             .arg("--urdf")
             .arg(&cfg.urdf)
             .arg("--srdf")
             .arg(&cfg.srdf)
+            // Always, never conditionally -- see
+            // [`Config::oracle_ik_rng_seed`]. At the default this is the
+            // value the oracle would have picked anyway, so no recorded
+            // number moves; what it buys is that the seed actually in force
+            // is the one this side checked against `--seed`.
+            .arg("--ik-rng-seed")
+            .arg(cfg.oracle_ik_rng_seed.to_string());
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -477,6 +571,7 @@ fn main() {
                 "                   [--ik] [--tol-ik EPS] [--ik-position-only] [--ik-max-restarts N]"
             );
             eprintln!("                   [--ik-consistency-limit FRACTION] [--ik-rng-seed N]");
+            eprintln!("                   [--oracle-ik-rng-seed N]");
             eprintln!("                   [--ik-epsilon EPS]");
             eprintln!("                   [--ik-divergence-json <path>]");
             eprintln!("                   [--stats-json <path>]");
@@ -2716,6 +2811,71 @@ fn report(verdicts: &[(String, Verdict)]) -> Result<(usize, usize), String> {
 }
 
 #[cfg(test)]
+mod colliding_oracle_stream_tests {
+    use super::{DEFAULT_ORACLE_IK_RNG_SEED, reject_colliding_oracle_streams};
+
+    /// The pair a caller reaches without asking for anything unusual: the
+    /// oracle seed is left at its default and `--seed` happens to be the
+    /// same integer. This is the case that shipped a 4733-vs-1970 "real
+    /// algorithmic gap" on `fanuc/manipulator`, so it is the one boundary
+    /// that must fail closed.
+    #[test]
+    fn the_default_oracle_seed_collides_with_the_matching_case_seed() {
+        let err = reject_colliding_oracle_streams(42, DEFAULT_ORACLE_IK_RNG_SEED)
+            .expect_err("--seed 42 against the default oracle seed must be refused");
+        assert!(
+            err.contains("same oracle random stream"),
+            "the refusal must say why, got {err:?}"
+        );
+    }
+
+    /// Neighbours of the colliding pair are accepted, so the check is
+    /// equality of the two streams and not a band around the default. `41`
+    /// and `43` are the measured controls: `--seed 41` gives oracle 1955
+    /// against this port's 2012.
+    #[test]
+    fn seeds_adjacent_to_the_collision_are_accepted() {
+        for seed in [41, 43] {
+            assert!(
+                reject_colliding_oracle_streams(seed, DEFAULT_ORACLE_IK_RNG_SEED).is_ok(),
+                "--seed {seed} selects a different stream and must be allowed"
+            );
+        }
+    }
+
+    /// Both sides are compared as the `boost::uint32_t` the oracle actually
+    /// seeds its generator with, so `--seed -1` and
+    /// `--oracle-ik-rng-seed 4294967295` are caught as the one stream they
+    /// select. The reinterpretation is a bijection, so spelling it `seed as
+    /// u32 == oracle` or `seed == oracle as i32` comes to the same thing --
+    /// what this pins is that the negative half of `--seed`'s range is
+    /// checked at all, which a guard that waved negatives through as
+    /// "cannot be a u32 seed" would drop.
+    #[test]
+    fn a_negative_case_seed_is_judged_as_the_stream_it_selects() {
+        assert!(
+            reject_colliding_oracle_streams(-1, u32::MAX).is_err(),
+            "--seed -1 reaches the oracle's generator as {}, the same stream as \
+             --oracle-ik-rng-seed {}",
+            u32::MAX,
+            u32::MAX
+        );
+        assert!(
+            reject_colliding_oracle_streams(-1, 1).is_ok(),
+            "-1 and 1 are different streams; only the u32 reinterpretation may collide"
+        );
+    }
+
+    /// Zero is both the default `--seed` and a legal oracle seed, so the
+    /// check has to treat it like any other value rather than as "unset".
+    #[test]
+    fn zero_is_an_ordinary_seed_on_both_sides() {
+        assert!(reject_colliding_oracle_streams(0, 0).is_err());
+        assert!(reject_colliding_oracle_streams(0, DEFAULT_ORACLE_IK_RNG_SEED).is_ok());
+    }
+}
+
+#[cfg(test)]
 mod paired_divergence_tests {
     use super::*;
 
@@ -2970,6 +3130,7 @@ mod ik_divergence_recording_tests {
             ik_consistency_fraction: None,
             ik_epsilon: 1e-5,
             ik_rng_seed: 0,
+            oracle_ik_rng_seed: DEFAULT_ORACLE_IK_RNG_SEED,
             ik_divergence_json: None,
             stats_json: None,
             state_ops: false,

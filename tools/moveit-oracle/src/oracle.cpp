@@ -855,7 +855,8 @@ private:
 class Oracle
 {
 public:
-  Oracle(const std::string& urdf_path, const std::string& srdf_path)
+  Oracle(const std::string& urdf_path, const std::string& srdf_path, std::uint32_t ik_rng_seed = 42)
+    : ik_rng_(ik_rng_seed)
   {
     const std::string urdf_xml = readFile(urdf_path);
     const std::string srdf_xml = readFile(srdf_path);
@@ -6532,7 +6533,18 @@ private:
   // whether one was found and whether FK(solution) lands on target, so
   // this need not (and structurally cannot, since it is a wholly separate
   // RNG stream) match moveit-kinematics's own reseed draws.
-  random_numbers::RandomNumberGenerator ik_rng_{ 42 };
+  //
+  // The seed is a startup argument (`--ik-rng-seed`, default 42) rather than
+  // a hard-coded constant, because "this port's IK success rate is at least
+  // the C++ plugin's" is a comparison of two random variables once
+  // `max_restarts > 0`: each side's count is one draw from its own reseed
+  // lottery. With 42 hard-coded, the oracle contributes exactly one sample
+  // and the comparison cannot distinguish a real deficit from a draw. It is
+  // a startup argument and not a per-request field on purpose -- the stream
+  // must stay continuous across the cases of one run, exactly as it was when
+  // it was a member initializer, so `--ik-rng-seed 42` reproduces every
+  // number taken before this knob existed.
+  random_numbers::RandomNumberGenerator ik_rng_;
 
   // For the `plan` op only. `ompl::RNG::setSeed` errors out once any RNG
   // instance exists, so the seed can be applied at most once per process;
@@ -6554,6 +6566,9 @@ int main(int argc, char** argv)
 {
   std::string urdf_path;
   std::string srdf_path;
+  // Default 42 -- the value this was hard-coded to before it became an
+  // argument, so omitting the flag reproduces every earlier measurement.
+  std::uint32_t ik_rng_seed = 42;
   for (int i = 1; i < argc; ++i)
   {
     const std::string arg = argv[i];
@@ -6561,6 +6576,19 @@ int main(int argc, char** argv)
       urdf_path = argv[++i];
     else if (arg == "--srdf" && i + 1 < argc)
       srdf_path = argv[++i];
+    else if (arg == "--ik-rng-seed" && i + 1 < argc)
+    {
+      const std::string value = argv[++i];
+      try
+      {
+        ik_rng_seed = static_cast<std::uint32_t>(std::stoul(value));
+      }
+      catch (const std::exception&)
+      {
+        std::cerr << "oracle: --ik-rng-seed expects an unsigned integer, got " << value << '\n';
+        return 2;
+      }
+    }
     else
     {
       std::cerr << "oracle: unrecognized argument " << arg << '\n';
@@ -6569,14 +6597,14 @@ int main(int argc, char** argv)
   }
   if (urdf_path.empty() || srdf_path.empty())
   {
-    std::cerr << "usage: moveit_oracle --urdf <path> --srdf <path>\n";
+    std::cerr << "usage: moveit_oracle --urdf <path> --srdf <path> [--ik-rng-seed <n>]\n";
     return 2;
   }
 
   std::unique_ptr<Oracle> oracle;
   try
   {
-    oracle = std::make_unique<Oracle>(urdf_path, srdf_path);
+    oracle = std::make_unique<Oracle>(urdf_path, srdf_path, ik_rng_seed);
   }
   catch (const std::exception& e)
   {
