@@ -718,7 +718,7 @@ for either scenario.
 
 **Upstream:** `moveit_planners/pilz_industrial_motion_planner/src/path_polyline_generator.cpp:60-85`
 (`PathPolylineGenerator::filterWaypoints`). `last_added_point_indx` starts
-at `-1` and is incremented once per *kept* waypoint (`:80`), while the
+at `-1` and is incremented once per *kept* waypoint (`:82`), while the
 `last_point` lambda (`:71`) reads `waypoints[last_added_point_indx]` — an
 index into the *input* vector.
 **Port:** `crates/moveit-planners-pilz/src/path_polyline_generator.rs`,
