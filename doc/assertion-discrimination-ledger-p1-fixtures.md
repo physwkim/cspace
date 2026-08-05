@@ -709,6 +709,147 @@ first fix, 68/68 after the second). Every other crate in this sweep
 found was already discriminating by direct source read, so no gate was
 owed for them.
 
+## Round 3: five-crate fence + 7 stranded sites (37 sites)
+
+Fence for this round, path-based per the standing correction above
+(the `contains_msg`-belongs-to-p1-robotmodel kind rule is dead — the
+scanner no longer emits that kind at all): `crates/moveit-smoothing`,
+`crates/moveit-kinematics`, `tools/moveit-diff`, `crates/moveit-sampling`,
+`crates/moveit-test-support`, plus a mid-round addition,
+`crates/moveit-constraints/tests/sampler.rs` and
+`crates/moveit-constraints/tests/utils_parity.rs` (`decide.rs` stays
+p1-robotmodel's).
+
+Re-derived independently rather than trusted, per instruction ("mine
+have been wrong four times this sweep"): `python3
+tools/ci/count-coarse-assertions.py <path>`, filtered to exclude
+`matches`/`is_err`/`is_none` (the old grammar), one run per path. Both
+given counts checked out exactly on independent re-derivation —
+no correction owed this round.
+
+| Path | Given | Re-derived |
+|---|---|---|
+| `crates/moveit-smoothing` | 11 | 11 |
+| `crates/moveit-kinematics` | 9 | 9 |
+| `tools/moveit-diff` | 8 | 8 |
+| `crates/moveit-sampling` | 1 | 1 |
+| `crates/moveit-test-support` | 1 | 1 |
+| `crates/moveit-constraints/tests/sampler.rs` | 4 | 4 |
+| `crates/moveit-constraints/tests/utils_parity.rs` | 3 | 3 |
+| **Total** | **37** | **37** |
+
+### moveit-smoothing (11 sites)
+
+| Site | Kind | Verdict | Evidence |
+|---|---|---|---|
+| `acceleration_filter.rs:466` | contains | in-family | unique substring vs. sibling single-DOF guard; test's own comment records a prior message-swap bite |
+| `acceleration_filter.rs:525` | contains | in-family | `contains("planar_joint") && contains('3')` — only the single-DOF guard emits a bare digit; structurally unique |
+| `acceleration_filter.rs:542` | contains | in-family | unique substring vs. `do_smoothing`'s other (non-folded) guard |
+| `butterworth.rs:153` | contains | in-family | unique substring ("unstable") vs. 3 sibling `Error::construct` sites; comment records a prior message-swap bite against each |
+| `butterworth.rs:162` | contains | in-family | "scale_term_" unique vs. "infinite feedback_term_"/"...unstable"/"...feedback term of 0" |
+| `butterworth.rs:172` | contains | in-family | boundary case `coeff == 1.0` exactly on the EPSILON guard |
+| `butterworth.rs:183` | contains | in-family | distinct boundary (`coeff == 1 + 1e-10`) of the *same* branch as 172 — two boundary tests of one discriminating branch, not a duplicate |
+| `butterworth.rs:200` | contains | in-family | "feedback_term_" (underscored) is textually disjoint from site 4's "feedback term" (spaced) |
+| `ruckig_filter.rs:388` | contains | in-family | unique substring vs. 3 sibling guards; comment records a prior message-swap bite |
+| `ruckig_filter.rs:465` | contains | in-family | same name+digit pattern as `acceleration_filter.rs:525`, same reasoning |
+| `ruckig_filter.rs:539` (`do_smoothing`'s length guard) | contains | **BLIND — fixed** | folded 3-clause OR guard, structurally identical to `reset`'s (fixed in Task 1, `2829ca2`) but never itself isolated — see below |
+
+**Fix**: `do_smoothing`'s guard (`positions.len() != num_joints ||
+velocities.len() != num_joints || accelerations.len() != num_joints`)
+had exactly one test, which broke all three lengths at once. Bite
+(remove the `positions` clause) left that test green — confirmed live,
+reverted. Added `do_smoothing_rejects_a_{positions,velocities,an_
+accelerations}_only_mismatch`, mirroring `reset`'s existing three.
+Bit each clause individually (`--no-fail-fast`): each bite failed only
+its own new test, left the other two and `reset`'s siblings green.
+Commit `b2b5e86`. Gated `-p moveit-smoothing`: `cargo fmt --all`
+(clean), `cargo clippy -p moveit-smoothing --all-targets -- -D
+warnings` (clean), `cargo nextest run -p moveit-smoothing` (39/39
+passed).
+
+### moveit-kinematics (9 sites)
+
+| Site | Kind | Verdict | Evidence |
+|---|---|---|---|
+| `cart_to_jnt.rs:550` | is_some | in-family | sole zero-distance convergence check; default-options regression, doc-scoped |
+| `cart_to_jnt.rs:644` | is_some | in-family | paired in the same test with an `is_none()` tight-limit case (line 667) — both branches of the consistency gate exercised |
+| `cart_to_jnt.rs:707` | is_some | in-family | paired in the same test with an `is_none()` always-rejecting-callback case (line 738), plus call-count assertions on both |
+| `chain.rs:469` | contains | in-family | "not a chain" unique vs. 3 sibling `Error::other` sites in `build` |
+| `chain.rs:512` | contains | in-family | "DOF" unique vs. siblings |
+| `chain.rs:558` | contains | in-family | "not itself in the group" unique vs. siblings |
+| `chain.rs:676` (`root_link_index == None`) | eq_none | in-family — confirmed by live bite | see below |
+| `registry.rs:254` | contains | in-family | set-membership loop, one descriptive message per expected name |
+| `ik_fk_roundtrip.rs:267` | contains | in-family | same "not a chain" text as `chain.rs:469`, one layer up through `NewtonRaphsonSolver::new` |
+
+**`chain.rs:676` bite**: this is the only direct assertion on
+`root_link_index`, and the one same-crate test that reaches the
+`Some(...)` branch textually (`base_frame_and_tip_frame_resolve_to_
+the_chain_endpoint_link_names`) uses a fixture where the chain's
+computed root link happens to *equal* the model's own root link name —
+so `Some(idx-of-"root")` and the `None`-fallback both print `"root"`,
+and that test cannot by itself tell the branches apart. Bit
+`root_link_index` to unconditionally `None` and ran the full crate:
+`cargo nextest run -p moveit-kinematics --no-fail-fast chain::` stayed
+7/7 green (confirming the local-file blind spot), but the *full-crate*
+run failed 2 tests — `pr2_right_arm_continuous_joints_round_trip` and
+`pr2_gripper_mimic_chain_round_trips` in `tests/ik_fk_roundtrip.rs`,
+both of which use pr2 fixtures where the chain's root joint sits
+mid-tree. Reverted (`diff` confirmed clean). Verdict: in-family — the
+`Some` branch is discriminated by IK/FK roundtrip integration tests
+outside this file, not by any single assertion in-file, but the
+census's three-clause test is about whether *something* in the suite
+discriminates the decision, not whether the cited assertion does alone.
+No fix — nothing here is actually blind.
+
+No fix needed for moveit-kinematics.
+
+### moveit-sampling (1 site) / moveit-test-support (1 site)
+
+| Site | Kind | Verdict | Evidence |
+|---|---|---|---|
+| `multivariate_gaussian.rs:213` (`positive_definite_covariance_constructs`) | is_some | in-family | the sole `is_some` case in a suite of 5 boundary tests, each a distinct negative (`is_none`) case: mismatched dims, non-square, indefinite, zero/PSD-not-PD |
+| `moveit-test-support/src/lib.rs:76` (`assert_group_has_updated_links`) | is_empty | in-family | single-decision fixture guard, one message, called from other crates' `#[cfg(test)]` fixture builders; no ambiguity to resolve |
+
+### tools/moveit-diff (8 sites)
+
+| Site | Kind | Verdict | Evidence |
+|---|---|---|---|
+| `main.rs:2446` | is_empty | in-family | precondition guard ("this diagnostic must have something to check"), `#[ignore]`d pr2-mesh integration test |
+| `main.rs:2534` | is_empty | in-family | the pinned regression itself; paired one line above with an explicit `touched > 0` per-link guard against exactly the vacuous-pass failure mode the doc comment names |
+| `harness.rs:60` | contains | in-family | unique stdout line |
+| `harness.rs:64` | contains | in-family | unique stdout line |
+| `harness.rs:83` | contains | in-family | secondary corroboration; primary discriminator is the paired `assert_eq!(status.code(), Some(1))` in the same test |
+| `harness.rs:101` | contains | in-family | same text as 83, different invocation (`--stats-json`) — the test's real check is the JSON body that follows; this is a stdout-not-corrupted sanity check |
+| `harness.rs:138` | contains | in-family | loop over 5 forbidden legacy spellings, static-content guard on `fake-oracle.py` itself |
+| `harness.rs:144` | contains | in-family | positive control paired with 138, preventing a vacuous pass if the type section were deleted |
+
+No fix needed for tools/moveit-diff.
+
+### 7 stranded sites (constraints test files)
+
+| Site | Kind | Verdict | Evidence |
+|---|---|---|---|
+| `sampler.rs:78` | contains | in-family | "panda_joint1" unique vs. sibling `Error::other` site (which embeds `group_name`, not the joint variable name) |
+| `sampler.rs:120` | contains | in-family | "panda_arm" unique vs. sibling (which embeds joint variable name, not group name); input validity also rules out the `UnknownName` path |
+| `sampler.rs:194` | contains (range) | in-family | per-iteration bound check, single documented production path |
+| `sampler.rs:200` | contains (range) | in-family | same, tightened window |
+| `utils_parity.rs:580` | is_empty | in-family | paired with `assert!(!updated)` in the same test — two views of the same not-found branch |
+| `utils_parity.rs:602` | is_empty | in-family | same pattern, position-constraint sibling |
+| `utils_parity.rs:698` | is_empty | in-family | one of three distinctly-asserted branches (`merge`→intersect/drop/keep), each with its own test and its own specific check |
+
+No fix needed for the 7 stranded sites.
+
+### Round 3 summary
+
+37 sites reviewed (30 fenced + 7 stranded), all independently
+re-derived and confirmed against the given counts. One genuine blind
+site found and fixed: `ruckig_filter.rs`'s `do_smoothing` folded
+OR-guard (commit `b2b5e86`). One site required a live cross-crate bite
+to resolve rather than in-file structural reading
+(`chain.rs:676`) — confirmed in-family, no fix. All others resolved by
+direct source read (unique substrings, paired positive/negative
+branches, or explicit anti-vacuous-pass guards already in place).
+
 ## UNFIXED
 
 None.
