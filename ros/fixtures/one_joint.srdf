@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<!-- Group `arm` over one_joint.urdf's single chain. `MoveGroupInterface`'s
+     constructor takes the group name and fails to construct without a
+     matching group, so this name is part of both live legs' interface, not
+     an incidental detail. -->
+<robot name="one_joint">
+  <group name="arm">
+    <chain base_link="base_link" tip_link="tip"/>
+  </group>
+</robot>

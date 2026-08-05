@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!-- The smallest robot both live legs of ros/verify-ros-interop.sh can load:
+     one revolute joint, so `RobotModel` has a group with exactly one variable
+     and every code path either leg exercises is reached without a mesh, a
+     package:// URI, or a kinematics plugin.
+
+     A file rather than a heredoc inside each leg: the `/plan_kinematic_path`
+     leg and the `/move_action` leg run in different containers (the second
+     needs upstream's C++ `MoveGroupInterface`, which the ros-dev image does
+     not carry), and the C++ leg has to read the same robot the node loaded or
+     the two disagree about group names for reasons unrelated to what is being
+     measured. Two heredocs is how they drift. -->
+<robot name="one_joint">
+  <link name="base_link"/>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="base_link"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="10" velocity="1"/>
+  </joint>
+</robot>

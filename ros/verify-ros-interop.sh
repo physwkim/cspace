@@ -27,14 +27,25 @@
 #     an unresolved intra-doc link or a link to a private item compiles and
 #     tests clean but fails `cargo doc`, which is exactly how main went red
 #     under the round-32 merge gate before this line existed)
+#   - A live `/plan_kinematic_path` round trip over DDS (`run "live"` below,
+#     PORTING-PLAN.md §241)
+#   - Two live `/move_action` legs over DDS, one of them driven by upstream's
+#     own unmodified C++ `MoveGroupInterface` (ros/verify-move-action-interop.sh,
+#     called at the end of this script). PORTING-PLAN.md §250 measured that
+#     round trip once, by hand; those legs are what re-run it.
 #
 # What this does NOT check (read this list before wiring `ros/` into CI):
-#   - No live ROS 2 graph: no node is ever spun up, no topic/service/action
-#     is published or called against a real moveit2 or rclrs process. Every
-#     test in ros/moveit-ros/src/**/*.rs constructs `r2r`-generated message
-#     structs in-process and converts them -- it never round-trips a message
-#     through the DDS middleware. Wire-format compatibility with a real
-#     moveit2 node is unverified by this script.
+#   - Nothing plans. Both live endpoints are asserted to return a *typed
+#     error*, because this workspace has no `moveit_planning::pipeline::
+#     Planner` to call (D8/§140.3). No trajectory is produced, so no trajectory
+#     is compared against anything; §5 Phase 9's completion condition stays
+#     UNMET and these gates are what keep it honestly measured rather than
+#     inferred.
+#   - No in-process message round trip: every test in
+#     ros/moveit-ros/src/**/*.rs constructs `r2r`-generated message structs
+#     and converts them without ever crossing the middleware. The live legs
+#     cover wire-format compatibility for the two endpoints they call and for
+#     nothing else -- no topic, and no other service or action, is exercised.
 #   - No cross-workspace check against `crates/`: ros/moveit-ros is its own
 #     `[workspace]` (D5) built with its own `cargo` invocations here; this
 #     script never builds or tests the root workspace, and the root
@@ -153,31 +164,17 @@ run "doc" bash -c "cargo doc --no-deps"
 # `bash -c` string means any of the three checks failing propagates as this
 # `docker run`'s own exit status, which this script's own `set -e` then
 # aborts on -- no pipe sits between here and that exit code.
+#
+# The fixture moved out of a heredoc here and into ros/fixtures/ when the
+# `/move_action` legs arrived: those run the robot through a second container
+# built from a different image, and a client that loads a different robot than
+# the node disagrees about group names for reasons that have nothing to do
+# with what is being measured.
 run "live" bash -c '
   set -e
-  cat > /tmp/one_joint.urdf <<"URDF"
-<?xml version="1.0"?>
-<robot name="one_joint">
-  <link name="base_link"/>
-  <link name="tip"/>
-  <joint name="j1" type="revolute">
-    <parent link="base_link"/>
-    <child link="tip"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="-1" upper="1" effort="10" velocity="1"/>
-  </joint>
-</robot>
-URDF
-  cat > /tmp/one_joint.srdf <<"SRDF"
-<?xml version="1.0"?>
-<robot name="one_joint">
-  <group name="arm">
-    <chain base_link="base_link" tip_link="tip"/>
-  </group>
-</robot>
-SRDF
   cargo build --bin plan_kinematic_path_server
-  ./target/debug/plan_kinematic_path_server /tmp/one_joint.urdf /tmp/one_joint.srdf &
+  ./target/debug/plan_kinematic_path_server \
+    /repo/ros/fixtures/one_joint.urdf /repo/ros/fixtures/one_joint.srdf &
   server_pid=$!
   trap "kill $server_pid 2>/dev/null || true" EXIT
   sleep 3
@@ -193,5 +190,11 @@ SRDF
   }
 '
 echo "OK live round-trip: /plan_kinematic_path received a real MotionPlanRequest over DDS and returned the expected typed response"
+
+# `/move_action`, in its own file: it orchestrates three containers and a
+# docker network, and it is the only check here that runs upstream's own C++
+# client. Last, because it is the most expensive and the least likely to be
+# the thing a `cargo fmt` failure was about.
+"$REPO_ROOT/ros/verify-move-action-interop.sh"
 
 echo "all gates passed"

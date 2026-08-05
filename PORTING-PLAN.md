@@ -18275,6 +18275,26 @@ pub trait AttachedFrames {
 않는다. 상류도 둘 다 첨부된 링크로 답하고 둘 다 강체이므로,
 구분할 것이 없다.
 
+트레이트를 도입한 라운드는 구현체를 `NoAttachedFrames`와 테스트
+더블 하나로만 두고 끝냈다. 즉 그때까지는 첨부 프레임을 IK 타깃으로
+줄 수 있는 프로덕션 경로가 없었다 — 공개 API는 열려 있는데 그
+쪽으로 답할 수 있는 타입이 워크스페이스에 없는 상태였다. 이번
+라운드에 `impl moveit_kinematics::AttachedFrames for PlanningScene`
+(`crates/moveit-scene/src/scene.rs`)로 그 반쪽을 채웠고, 그 대가로
+**`moveit-scene -> moveit-kinematics` 크레이트 엣지가 하나 늘었다**
+— §220.1이 "새 크레이트 엣지는 추가하지 않았다"고 적은 것은
+`set_from_ik`의 배치에 대한 말이고, 여기서 늘어난 엣지는 그 반대
+방향이다. 사이클이 되는 것은 `moveit-kinematics -> moveit-scene`
+쪽뿐이며, 이 방향은 `moveit-scene -> moveit-constraints ->
+moveit-kinematics`로 이미 이행적으로 있던 것이라 새로 닫히는 것이
+없다.
+
+impl은 `PlanningScene::frame_transform`이 쓰는 것과 **같은** 사설
+헬퍼에 위임한다. 편의가 아니라 그게 요점이다: 같은 문자열을
+IK 타깃으로 준 것과 프레임 변환으로 물은 것이 서로 다른 곳으로
+풀리면 안 되는데, 조회 지점이 하나면 그 성질이 주장이 아니라 구조가
+된다.
+
 ### §220.3 다중 팁 — `tip_frames`를 provided 메서드로 넣고, 위임 래퍼 두 곳은 forward 했다
 
 `setFromIK`의 팁 매칭과 "호출자가 이름 대지 않은 팁 채우기"는
@@ -23081,6 +23101,572 @@ MoveIt은 이 분기를 고르지 않는다: 고정된 `e017c91ee` 체크아웃 
 
 ---
 
+## §252 코퍼스 밖 인구를 조건 쪽에서 정의하고 쟀다 — 요구는 8개 엔드포인트·64개 인터페이스이고 그중 하나가 닫혔다
+
+§249.7은 "판정을 막는 부재는 코퍼스 밖에 있다"로 끝났다. 그 문장은
+코퍼스 안에서만 잰 것이라 열려 있었다 — 코퍼스에 앵커된 계기는 코퍼스
+밖을 셀 수 없고, 그래서 §249는 자기 결론을 자기가 확인할 수 없었다.
+이 절은 열거의 **기준점을 바꿔** 그 인구를 정의하고 잰다. 상류 트리에서
+출발하지 않는다. §5 완료 조건 현황표의 19개 행에서 출발한다.
+
+### §252.1 기준점: 각 조건 행은 무엇에 대고 재는가
+
+행마다 "이 판정의 **기준(reference)**이 무엇인가"를 묻는다. 답은 셋뿐이고,
+셋의 요구 집합이 서로 다르다.
+
+| 기준 | 뜻 | 요구 집합 | 행 수 |
+|---|---|---|---|
+| `R-ORACLE` | 포트를 `tools/moveit-oracle`과 비교한다 | 그 바이너리가 링크해야 하는 전부 | 15 |
+| `R-PORT` | 포트 쪽 작업만 필요하다(하네스, 자기 검증) | 외부 요구 없음 | 3 |
+| `R-CLIENT` | 기존 C++ 클라이언트가 **무변경으로** 붙어야 한다 | 그 클라이언트가 묶는 엔드포인트와 그 메시지 폐포 | 1 |
+
+계기는 `tools/ci/measure-requirement-closure.py`다. 코퍼스 정의는 손대지
+않는다 — `measure-port-coverage.py`의 `corpus_files()`를 그대로 import해서
+쓰므로 §249의 87은 다음 라운드와 계속 비교 가능하다.
+
+`--check`는 표의 행을 다시 읽어 분류가 빠진 행을 실패로 만든다. 검사가
+실패할 수 있음을 먼저 증명한다 — 돌연변이 둘 다 잡힌다:
+
+```
+$ python3 tools/ci/measure-requirement-closure.py --check
+OK: all 19 status rows classified (Counter({'R-ORACLE': 15, 'R-PORT': 3, 'R-CLIENT': 1}))
+
+# 돌연변이 A: 분류 한 줄 삭제
+UNCLASSIFIED ROW  Phase 8 | CHOMP/STOMP가 Phase 7과 같은 속성 기반 검증을 통과
+FAIL: 1 of 19 status rows have no reference classification in ROW_REFERENCE   (exit 1)
+
+# 돌연변이 B: 표에 분류 없는 행 추가
+UNCLASSIFIED ROW  Phase 6 | 스무딩 필터가 상류 단위 테스트 벡터와 일치
+FAIL: 1 of 20 status rows have no reference classification in ROW_REFERENCE   (exit 1)
+```
+
+### §252.2 `R-ORACLE` 요구 폐포 — 69건 중 코퍼스 밖은 3건뿐이다
+
+15개 행이 오라클에 대고 잰다. 그 요구는 "오라클이 링크해야 하는 것"이고,
+그것은 오라클 자기 소스의 `#include` 전이 폐포로 열거된다(상류 체크아웃에
+include 키로 해석, 상대 include는 같은 디렉터리로 폴백):
+
+```
+$ python3 tools/ci/measure-requirement-closure.py
+corpus (measure-port-coverage.py, unchanged)  245
+
+R-ORACLE requirement closure                  69
+  inside the corpus                           66
+  outside the corpus                          3
+      moveit_core/collision_detection_fcl/include/moveit/collision_detection_fcl/collision_common.hpp
+      moveit_core/collision_detection_fcl/include/moveit/collision_detection_fcl/collision_env_fcl.hpp
+      moveit_core/collision_detection_fcl/include/moveit/collision_detection_fcl/fcl_compat.hpp
+```
+
+**이 결과는 코퍼스 정의가 이 15개 행에 대해서는 옳다는 뜻이다.** 69건 중
+66건이 코퍼스 안이고, 밖으로 나간 3건은 `collision_detection_fcl` —
+§1이 "[parry로 대체]"로 **의도적으로** 뺀 디렉터리다. 즉 R-ORACLE 행에
+관한 한 코퍼스에 앵커된 계기가 맞는 도구이고, §249.6이 이 15개 행에 대해
+(b)=0을 낸 것은 우연이 아니다.
+
+그러나 같은 폐포에서 상류로 해석되지 않는 이름이 127개 나오고, 그중
+외부 패키지가 28개다. 이들은 `moveit2` 체크아웃에도, 이 호스트에도 없다:
+
+```
+names not resolvable in the reference checkout 127
+  external packages                            28
+        18  moveit_msgs      12  ompl        8  rclcpp       8  kdl
+         8  geometry_msgs     7  fcl         5  geometric_shapes
+         3  Eigen             2  octomap     2  tf2          2  rcl
+         2  trajectory_msgs   2  eigen3      2  visualization_msgs
+         2  eigen_stl_containers
+         1  ruckig  1  random_numbers  1  srdfdom  1  urdf_parser  1  pluginlib
+         1  nlohmann  1  kdl_parser  1  shape_msgs  1  std_msgs  1  sensor_msgs
+         1  octomap_msgs  1  pilz_industrial_motion_planner  1  third_party
+```
+
+28개 전부에 대해 `/usr/include`, `/usr/local/include`, `/opt/ros`,
+그리고 `/home/stevek/work/moveit2`를 확인했고 **하나도 없다**. 이 호스트에는
+`/opt/ros` 자체가 없다. 이들이 존재하는 곳은 오라클 컨테이너 이미지
+안뿐이다. 끝의 셋은 외부 패키지가 아니라 이 폐포 계산의 한계 표시다 —
+`pilz_industrial_motion_planner/cartesian_limits_parameters.hpp`는
+`generate_parameter_library`가 빌드 트리에 만드는 헤더, `third_party/`는
+오라클이 상류 `kdl_kinematics_plugin` 내부를 벤더링한 자기 디렉터리,
+그리고 `moveit_*_export.h` 셋은 CMake 생성 헤더다.
+
+### §252.3 `R-CLIENT` 요구 — 클라이언트가 묶는 것은 여덟이고, 그중 하나가 닫혔다
+
+**먼저 이 절이 발견하지 않은 것을 적는다.** 무변경
+`MoveGroupInterface::plan()`이 `/plan_kinematic_path`를 아예 부르지 않는다는
+사실은 §241이 이미 찾았고(§241.4가 결정적 실측), 그에 따라 main이
+`/move_action`을 지어 무변경 C++ 클라이언트를 이 노드에 실제로 붙였다
+(`ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`의
+`create_action_server::<MoveGroup::Action>("move_action")`). 줄 번호를 달지
+않은 것은 이 절의 포트 쪽 측정이 전부 main(`c3c7a90`)의 트리에 대한 것이고
+이 브랜치의 같은 파일은 그보다 짧아서, 줄 고정 인용이 이 파일 안에서
+거짓이 되기 때문이다.
+이 절은 그것을 다시 주장하지 않는다. 이 절이 더하는 것은 **요구 집합의
+크기**다 — 그 클라이언트가 묶는 것이 하나가 아니라 여덟이라는 것, 그리고
+그 여덟이 끌고 오는 인터페이스 폐포가 64종이라는 것.
+
+Phase 9 행은 "기존 C++ `MoveGroupInterface` 클라이언트가 무변경으로"라고
+쓴다. 그러므로 요구는 **그 클라이언트가 묶는 것**이고, §5 Phase 9 본문
+산문이 나열한 셋(서비스·액션·씬 토픽)이 아니다. 상류 체크아웃의 그
+번역 단위를 직접 읽으면:
+
+```
+R-CLIENT: endpoints move_group_interface.cpp binds (lower bound) 8
+      action client        moveit_msgs::action::ExecuteTrajectory
+      action client        moveit_msgs::action::MoveGroup
+      client               moveit_msgs::srv::GetCartesianPath
+      client               moveit_msgs::srv::GetPlannerParams
+      client               moveit_msgs::srv::QueryPlannerInterfaces
+      client               moveit_msgs::srv::SetPlannerParams
+      publisher            moveit_msgs::msg::AttachedCollisionObject
+      publisher            std_msgs::msg::String
+```
+
+생성자가 묶는 것만 센 하한이다. 이 여덟에 대해 포트 쪽을 **main
+(`c3c7a90`)의 트리에서** 쟀다 — 이 브랜치는 그 작업보다 뒤에 있어서 자기
+worktree에서 재면 하나만 보이기 때문이다:
+
+```
+$ git archive main | tar -x -C $T          # T=/tmp/claude-1000/maintree, 읽기 전용 추출
+$ rg -n -o 'create_(?:service|action_server)::<[^>]+>\("[^"]+"' $T/ros --glob '*.rs'
+.../ros/moveit-ros/src/bin/plan_kinematic_path_server.rs:266:create_service::<GetMotionPlan::Service>("plan_kinematic_path"
+.../ros/moveit-ros/src/bin/plan_kinematic_path_server.rs:281:create_action_server::<MoveGroup::Action>("move_action"
+```
+
+여덟 중 **하나**(`move_action`)가 열려 있다. `plan_kinematic_path`는 이
+여덟에 속하지 않는다 — §241이 잰 그대로다. 남은 일곱은
+`execute_trajectory` 액션, 서비스 넷(`compute_cartesian_path`,
+`query_planner_interface`, `get_planner_params`, `set_planner_params`),
+그리고 퍼블리셔 둘이다. 조건이 "무변경으로 붙는다"를 요구하는 한 이
+일곱도 요구 집합 안이고, 어느 계기도 이들을 세지 않는다.
+
+메시지 쪽도 같은 방식으로 열거했다. 위 여덟 엔드포인트의 인터페이스
+정의를 필드 타입으로 전이 전개하면:
+
+```
+requirement closure from the 8 endpoints MoveGroupInterface binds: 64 interface types
+    34  moveit_msgs    12  geometry_msgs   4  trajectory_msgs   4  shape_msgs
+     3  std_msgs        2  builtin_interfaces  2  sensor_msgs   2  octomap_msgs
+     1  object_recognition_msgs
+```
+
+이 34종은 `tools/ci/requirement-closure-moveit-msgs.txt`에 체크인했다.
+정의가 이 기계의 파일시스템에 없어서(아래) 컨테이너 밖에서는 재유도할 수
+없기 때문이고, 그래야 포트 쪽 절반이 컨테이너 없이 재현된다.
+
+그 포트 쪽 절반을 재는 계기는 **`moveit_msgs` 바인딩 경로에 앵커해야
+한다.** 맨 이름으로 재면 안 된다는 것을 두 계기가 어긋나면서 드러났다:
+
+```
+$ for t in $TYPES; do rg -qw "$t" $T/ros/moveit-ros --glob '*.rs' && ...; done
+total 34  named-in-main-ros/moveit-ros 17  absent 17
+$ tools/ci/measure-requirement-closure.py --client-messages --port-tree $T
+R-CLIENT message closure (moveit_msgs half)  34
+  bound on a code line                       16
+  absent                                     18
+  of the absent, quoted in comments only     3 types / 10 lines
+```
+
+어긋난 한 종은 `PlanningScene`이다. 맨 이름 검색이 세는 60여 자리는 전부
+포트 자신의 네이티브 타입 `moveit_scene::PlanningScene`이고
+(`ros/moveit-ros/src/scene/planning_scene.rs:36` `use moveit_scene::PlanningScene;`),
+메시지 쪽 `moveit_msgs::msg::PlanningScene`은 main의 어느 `.rs` **코드
+줄**에도 없다. `AllowedCollisionMatrix`도 같은 동명이인이다 —
+맨 이름으로는 257자리지만 그 대부분은 `moveit-collision`의 네이티브
+타입이다. 애초에 main 전체에서 `Cargo.toml`이 `r2r`를 적은 멤버는
+`ros/moveit-ros` 하나뿐이므로, 다른 크레이트에 나오는 이 이름들은
+메시지일 수가 없다. 아래 표는 바인딩에 앵커한 쪽(16/18)을 쓴다.
+
+`moveit_msgs` 34종 중 main이 **바인딩으로** 부르는 것은 16종,
+**18종은 없다**:
+
+| | |
+|---|---|
+| 바인딩 (16) | `AttachedCollisionObject`, `BoundingVolume`, `CollisionObject`, `Constraints`, `JointConstraint`, `MotionPlanRequest`, `MoveGroup`, `MoveItErrorCodes`, `OrientationConstraint`, `PlanningSceneWorld`, `PositionConstraint`, `RobotState`, `RobotTrajectory`, `TrajectoryConstraints`, `VisibilityConstraint`, `WorkspaceParameters` |
+| 없음 (18) | `AllowedCollisionEntry`, `AllowedCollisionMatrix`, `CartesianPoint`, `CartesianTrajectory`, `CartesianTrajectoryPoint`, `ExecuteTrajectory`, `GenericTrajectory`, `GetCartesianPath`, `GetPlannerParams`, `LinkPadding`, `LinkScale`, `ObjectColor`, `PlannerInterfaceDescription`, `PlannerParams`, `PlanningOptions`, `PlanningScene`, `QueryPlannerInterfaces`, `SetPlannerParams` |
+
+`MoveGroup`이 16 쪽에 있는 것이 그 `/move_action` 라운드의 결과다.
+그리고 계기가 `--port-tree`를 트리 전체로 잡고 있으므로 이 "없다"는
+`ros/moveit-ros` 안이 아니라 **main의 추적 `.rs` 전부**(`third_party/`·
+`target/` 제외)를 뒤진 결과다. 18종 중 셋만 그 안에 나타나고, 나타나는
+자리는 10개 줄 전부 주석이다:
+
+```
+      AllowedCollisionMatrix  [comment-only: crates/moveit-collision/src/matrix.rs:46,85,309]
+      ObjectColor             [comment-only: crates/moveit-scene/src/scene.rs:425]
+      PlanningScene           [comment-only: crates/moveit-scene/src/scene.rs:228,405,419,428,
+                               ros/moveit-ros/src/scene/mod.rs:4,
+                               ros/moveit-ros/src/scene/planning_scene.rs:10]
+```
+
+열 줄 전부 `///`·`//!`가 상류 C++ 시그니처를 인용한 것이고, 나머지 15종은
+한정 이름으로 main 어디에도 없다.
+
+**이 34종의 정의는 이 기계의 파일시스템에 없다.** `moveit_msgs`는 상류
+체크아웃의 디렉터리가 아니고 호스트 ROS 설치에도 없다(이 호스트에는
+`/opt/ros` 자체가 없다). 오라클 이미지 안에만 있다:
+
+```
+$ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:bf084112fdd5730b -lc '
+    find / -xdev -type d -name moveit_msgs -path \"*/share/*\"
+    for k in msg srv action; do
+      echo \"  \$k \$(ls /ws/install/moveit_msgs/share/moveit_msgs/\$k/*.\$k | wc -l)\"
+    done'"
+/ws/install/moveit_msgs/share/moveit_msgs
+  msg 48   srv 26   action 8
+```
+
+세는 단위는 **인터페이스**이지 파일이 아니다. 같은 디렉터리를 `ls | wc -l`로
+세면 144/78/24가 나오는데, 인터페이스 하나가 `.msg`·`.idl`·`.json` 셋으로
+설치되기 때문이다(`AllowedCollisionEntry.{idl,json,msg}`). 그래서 위 명령은
+확장자를 고정해서 센다. `moveit_msgs` 전체 82종 중 이 조건이 요구하는 것이
+34종이다.
+
+그러므로 이 절반의 열거는 컨테이너 안에서만 돌 수 있고, 그 스크립트가
+`tools/ci/requirement-message-closure.py`다(위 이미지에 마운트해 실행;
+파일 상단이 정확한 명령을 적는다). 그 출력의 `moveit_msgs` 절반을
+`tools/ci/requirement-closure-moveit-msgs.txt`로 체크인해 두었기 때문에
+포트 쪽 16/18은 컨테이너 없이 재현된다.
+
+그래서 위 64종 폐포는 호스트 계기가 아니라 컨테이너 안에서 돌려 얻었다.
+`measure-requirement-closure.py`가 이 절반을 계산하지 **않는** 이유가
+이것이고, 그 사실은 그 파일의 모듈 doc에 적혀 있다.
+
+### §252.4 조건에 행이 아예 없는 경우 — Phase 6의 스무딩 절
+
+돌연변이 B가 우연히 드러낸 것을 그대로 확인했다. Phase 6의 완료 조건은
+두 절이다:
+
+```
+$ sed -n '734,735p' PORTING-PLAN.md
+**완료 조건:** 동일 waypoint 입력에 대해 TOTG 산출 시간 파라미터화가
+오라클과 `1e-6` 이내 일치. 스무딩 필터는 상류 단위 테스트 벡터로 검증.
+$ rg -n '^\| Phase 6 \|' PORTING-PLAN.md
+813:| Phase 6 | TOTG 산출 시간 파라미터화가 오라클과 `1e-6` 이내 일치 | MET | §217.3 | 2026-08-05 |
+```
+
+두 절, 한 행. 둘째 절에는 행이 없고, 따라서 판정도 없고, 이것을 세는
+계기도 없다 — `check-phase-status.sh`는 **Phase 제목마다 행이 있는지**를
+보지 조건 절마다 행이 있는지를 보지 않는다("no phase or row is
+missing/duplicated"의 의미가 그것이다).
+
+그 절이 요구하는 산출물의 위치가 이 절의 논점이다. "상류 단위 테스트
+벡터"는 `moveit_core/online_signal_smoothing/test/test_butterworth_filter.cpp`와
+`test_acceleration_filter.cpp`에 있고, 코퍼스는 `test`/`tests` 경로 성분을
+가진 파일을 **규칙으로** 배제한다. CORPUS_ROOTS 안에서만 그렇게 배제되는
+파일이 68개다. 즉 이 조건이 이름 부른 산출물은 코퍼스에 들어올 수 없고,
+`measure-port-coverage.py`는 구조적으로 이것을 보고할 수 없다.
+
+포트 쪽 현황도 같이 적는다: `crates/moveit-smoothing/tests/`에는
+`acceleration_filter_parity.rs`와 `ruckig_filter_parity.rs`가 있고
+**butterworth parity 테스트는 없다**(`rg -li butterworth`가 트리 전체에서
+찾는 `.rs`는 `src/butterworth.rs`, `src/ruckig_filter.rs`, `src/lib.rs`
+셋뿐이고 `tests/` 아래에는 하나도 없다). 이 절은 그 행에 판정을 붙이지
+않는다 — 붙이려면 상류 벡터로 실측해야 하고 그것은 이 라운드가 하지
+않은 일이다.
+
+### §252.5 계기별 앵커와 사각 — 무엇을 읽어야 눈이 뜨이는가
+
+| 계기 | 무엇에 앵커되어 있나 | 그래서 못 보는 것 |
+|---|---|---|
+| `measure-port-coverage.py` | 상류 `CORPUS_ROOTS` 트리 | 코퍼스 밖 555건, `test` 성분 68건(규칙상 영구히) |
+| `--check doc/port-coverage.md` | 위 계기의 출력 | 같음 — 출력에 없는 것은 행도 없다 |
+| `ros/moveit-ros/src/conversion_coverage.rs` | **포트 자신의** `impl TryFrom` 블록 | 포트가 아예 만들지 않은 메시지 타입 18종 |
+| `check-phase-status.sh` | 표의 **행** | 행이 없는 조건 절(Phase 6 스무딩) |
+| `verify-phase7-benchmark.sh` 등 실측 게이트 | 구현이 이미 있는 조건 | 아무도 만들지 않은 것 |
+| `measure-requirement-closure.py` (이 절) | **조건 행** + 오라클 소스 + 클라이언트 TU | 메시지 폐포(컨테이너 필요), 매크로/생성 경로로만 도달하는 헤더 |
+
+앞의 다섯 계기가 공유하는 성질 하나가 사각의 원인이다 — **전부 이미
+존재하는 무언가에 앵커되어 있다.** 포트에 있는 것, 코퍼스에 있는 것,
+표에 있는 행. 존재하지 않는 요구는 그 어느 것에도 흔적을 남기지 않는다.
+
+눈이 뜨인 계기가 읽어야 하는 것은 넷이고, 셋은 이미 이 기계에 있다:
+
+1. **조건 문장 자체** — 표의 행 텍스트. `measure-requirement-closure.py --check`가
+   읽고, 분류 없는 행을 실패로 만든다. (있음)
+2. **조건이 이름 부른 기준** — 오라클 소스와 상류 클라이언트 TU. 둘 다
+   이 기계에 있고 이 절이 읽었다. (있음)
+3. **인터페이스 정의** — `moveit_msgs`의 48 msg / 26 srv / 8 action.
+   호스트에 없다. 계기가 이것을 읽으려면 정의를 이 저장소로 벤더링하거나
+   (픽스처가 이미 그렇게 다뤄진다, `tools/ci/verify-fixture-provenance.sh`)
+   오라클 이미지 안에서 돌아야 한다. **이것이 지금 남은 유일한 구조적
+   사각이다.**
+4. **상류 단위 테스트 벡터** — Phase 6 둘째 절이 요구하는 68건. 코퍼스
+   규칙이 배제하므로 코퍼스를 넓히는 것이 아니라 별도 열거가 필요하다
+   (코퍼스를 넓히면 §249의 87이 비교 불가능해진다).
+
+
+## §253 `oracle.cpp` 인용 47건 — 아무 게이트도 본 적이 없고, 재도출하니 47건 전부 옮겨져 있다 (2026-08-06)
+
+`tools/ci/verify-upstream-citations.sh`는 인용된 경로를 `$MOVEIT2_SRC`와
+`--source`로 넘긴 vendored 트리에서만 찾는다. `tools/moveit-oracle/src/oracle.cpp`
+는 **이 저장소 안의 파일**이라 어느 쪽에도 없고, 따라서 그 인용은 전부
+unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지는 않는, 건너뛴
+검사와 구별되지 않는 자리다.
+
+저장소 자신을 접두사 없는 `--source` 루트로 넣는 것은 한 줄이다. 넣어서
+돌려봤고, 되돌렸다. 이유는 아래 측정이다.
+
+### §253.1 재도출 방법과 그 한계
+
+인용을 "지금 그 줄에 뭐가 있나"로 판정할 수는 없다. 인용이 *쓰일 당시* 무엇을
+가리켰는지가 기준이므로:
+
+1. 인용이 적힌 줄을 `git blame -l -L n,n -- <doc>`으로 커밋을 얻고,
+2. `git show <sha>:tools/moveit-oracle/src/oracle.cpp`에서 인용된 줄의 내용을
+   읽고,
+3. 그 내용(주변 ±2~±12줄 창)을 오늘 파일에서 유일하게 찾는다.
+
+한계는 blame이 **그 줄을 마지막으로 건드린** 커밋이지 인용을 쓴 커밋이 아니라는
+것이다. 문서가 나중에 리플로우되면 blame은 엉뚱한 리비전을 가리킨다. 이 표에서
+실제로 그렇게 어긋난 다섯 건(`PORTING-PLAN.md:11391` 둘,
+`oracle-request-collision-max-contacts-per-pair.md:73`/`:85`, 그리고
+`PORTING-PLAN.md:11777`)은 blame 사상이 인용 문장의 주장과 모순되는 것으로
+드러났고, 내용으로 손수 다시 잡았다. 표의 `손:` 행이 그것이다.
+
+72개 끝점 중 61개가 기계적으로 유일하게 사상되고, 나머지는 주변 텍스트까지
+바뀐 것이라 손으로 잡았다.
+
+### §253.2 측정
+
+- 경로 형태 인용 `oracle.cpp:NNN` **47건**, 12개 파일에 걸쳐 있다.
+- 같은 줄에서 이어지는 맨 `:NNN` 연속 인용 **7건**. 이쪽은 게이트가 세지도
+  못한다 — 경로가 unresolvable이면 `base`가 `None`으로 리셋되므로 뒤따르는
+  맨 needle은 통째로 버려진다.
+- **47건 전부** 옮겨져 있다. 41건은 최소 한 끝점이 기계적으로 다른 줄에
+  사상되고, 나머지 6건은 기계 사상이 실패해 손으로 확인했으며 그 6건도 전부
+  옮겨져 있다. 같은 줄에 그대로 있는 인용은 **0건**이다.
+- 게이트가 볼 수 있는 것은 이 중 10건뿐이다. 나머지 37건은 심볼 앵커가 짝지어지지
+  않아 bounds-only로 통과한다 — 파일이 6600줄이 넘으므로 아무 숫자나 범위 안에
+  든다. 이것이 브리핑이 말한 "1560 bounds-checked only는 썩는 것을 못 본다"의
+  실물이다.
+
+### §253.3 왜 지금 고치지 않았나
+
+47건을 기계적으로 새 번호로 갈아끼우는 것은 세 부류에서 틀린 답이 된다.
+
+- **역사 기록.** §138.3의 `:4752`(`plan` → `planning_time_s`)와
+  `:5135`(`pilzTrajectory` → `planning_time`)는 `c0838b4`가 그 필드들을 지우면서
+  없어진 줄이다. 두 인용 모두 `c0838b4^`에서 정확히 일치하는 것을 확인했다
+  (`{ "planning_time_s", elapsed },` / `res.planning_time`). 오늘 줄로 옮기면
+  기록이 가리키던 결함 자체가 지워진다. `applyJointValues` 호출자 10곳을 적은
+  `PORTING-PLAN.md:11777-11779`도 같다 — `367c07a^`에서 `:2016`/`:2214`가
+  `state_->clearAttachedBodies();`이고 열 개 번호
+  `:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`가 전부 그대로 맞는다.
+  고친 커밋이 그 호출들을 옮겼으므로 오늘 대응하는 줄이 없다.
+- **이미 반영된 요청.** `oracle-request-collision-max-contacts-per-pair.md`는
+  `collision()`의 반환문에서 `contactsToJson`을 `allContactsToJson`으로 바꿔
+  달라는 요청 문서다. 그 교체는 이미 되어 있다(오늘 `:2484`/`:2488`). 번호만
+  갈아끼우면 끝난 변경을 미결로 서술하게 된다.
+- **인용된 코드 자체가 사라진 것.** `PORTING-PLAN.md:17643`이 인용하는
+  `ik_rng_{ 42 }`는 더는 없다. 오늘은 `ik_rng_(ik_rng_seed)`(`:858-859`)에
+  기본값 42이고 CLI 오버라이드(`:6571`, `:6584`)가 붙었다.
+
+그래서 이번 라운드는 **측정과 선언까지** 한다. `--source` 한 줄을 지금 넣으면
+10건이 빨개지고, 그 10건만 고치면 나머지 37건 위에 초록 OK 줄이 서게 된다 —
+커버리지로 읽히는 무검사다. `tools/ci/upstream-citation-exemptions.json`의
+`unresolvable` 키에 `oracle` 그룹으로 선언해 두었고, 그 `why`가 이 절을
+가리킨다. `--source` 줄을 넣는 것이 이 작업의 **마지막** 단계다.
+
+### §253.4 표 (인용 54건)
+
+`인용 위치`는 인용이 적힌 문서:줄, `적힌 곳`은 그 인용이 명시한 spec,
+`재도출`은 위 방법으로 오늘 파일에서 찾은 줄이다. `바로 :NNN`은 같은 줄의
+앞선 경로에 묶이는 맨 needle이다.
+
+| 인용 위치 | 적힌 곳 | 재도출 |
+| --- | --- | --- |
+| `PORTING-PLAN.md:3933` | `:1044` | `2025` |
+| `PORTING-PLAN.md:3960` | `:1144-1146` | `2125-2127` |
+| `PORTING-PLAN.md:4582` | `:1524` | `2457` |
+| `PORTING-PLAN.md:11391` | `:4752` | 손: `c0838b4^`에서 `{ "planning_time_s", elapsed },`. `c0838b4`가 그 필드를 지웠으므로 오늘 대응하는 줄이 없다 |
+| `PORTING-PLAN.md:11391` | `:5135` | 손: `c0838b4^`에서 `res.planning_time`. 같은 커밋이 지웠고 오늘 남은 것은 주석 `:6166`뿐 |
+| `PORTING-PLAN.md:11777` | `:2016` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 (수정으로 삭제) |
+| `PORTING-PLAN.md:17643` | `:6065` | 손: `ik_rng_{ 42 }` 자체가 사라졌다 — 오늘은 `ik_rng_(ik_rng_seed)` 858-859, 멤버 선언 6547 |
+| `PORTING-PLAN.md:17732` | `:1772` | `2015` |
+| `PORTING-PLAN.md:19498` | `:2191` | `2417` |
+| `PORTING-PLAN.md:20264` | `:1537` | `1546` |
+| `PORTING-PLAN.md:21397` | `:1547` | `1549` |
+| `PORTING-PLAN.md:21398` | `:2235` | `2306` |
+| `PORTING-PLAN.md:21523` | `:2188` | `2259` |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:51` | `:2326` | `2579` |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:65` | `:2364-2374` | `2617-2627` |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:73` | `:3391-3392` | 손: `3902` — blame 사상은 depth 주석으로 가는데 인용 문장은 `max_contacts_per_pair` 대입을 가리킨다 |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:78` | `:2162-2208` | `2415-2461` |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:85` | `:3361-3368` | 손: `3871-3876` — blame 사상(3842-3849)은 ACM 주석이고 인용 문장은 depth 주석을 가리킨다 |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:112` | `:2162` | `2415` |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:125` | `:2202` | `2455` |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:135` | `:2140-2142` | `2393-2395` |
+| `crates/moveit-collision/src/parry.rs:486` | `:2097` | `2363` |
+| `crates/moveit-collision/src/parry.rs:492` | `:2097` | `2363` |
+| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:58` | `:3686-3689` | `4167-4170` |
+| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:59` | `:2372-2383` | `2625-2636` |
+| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:61` | `:3774` | `4255` |
+| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:72` | `:2287-2289` | `2540-2542` |
+| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:77` | `:2275-2280` | `2528-2533` |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:80` | `:2302` | `2584` |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:133` | `:2184` | 손: 2454 |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:190` | `:3700` | `4267` |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:202` | `:3438-3583` | 손: 3948-4111 |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:226` | `:3608-3611` | 손: 4136-4139 |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:268` | `:3339-3348` | 손: 4063-4072 |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:354` | `:3673-3690` | `4240-4257` |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:385` | `:3583` | 손: 4111 |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:390` | `:3583-3691` | 손: 4111-4258 |
+| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:988` | `:1343-1400` | `1454-1511` |
+| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1082` | `:2230-2261` | `2625-2656` |
+| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1398` | `:3183-3393` | `3948-4258` |
+| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1432` | `:3336` | `4200` |
+| `crates/moveit-distance-field/tests/collision_env_hybrid_parity.rs:20` | `:3660-3712` | `4141-4193` |
+| `crates/moveit-planners-pilz/doc/oracle-request-pilz-blend-geometry.md:651` | `:5764-5786` | `6285-6307` |
+| `doc/claim-audit/moveit-planners-chomp.md:76` | `:129-130` | `137-138` |
+| `doc/claim-audit/moveit-smoothing.md:25` | `:4365-4368,4496-4499` | `4944-4947,5075-5078` |
+| `doc/folded-operand-guards.md:89` | `:2421` | `2674` |
+| `doc/upstream-bugs.md:633` | `:1302-1314` | `1311-1323` |
+| `PORTING-PLAN.md:11777` | 바로 `:2214` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 |
+| `.../oracle-request-collision-max-contacts-per-pair.md:73` | 바로 `:3605-3606` | 손: `4134` (위 `:3391-3392`와 같은 이유) |
+| `.../oracle-request-collision-max-contacts-per-pair.md:85` | 바로 `:3575-3582` | 손: `4085-4090` (위 `:3361-3368`과 같은 이유) |
+| `.../oracle-request-collision-max-contacts-per-pair.md:125` | 바로 `:2206` | `2459` |
+| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:77` | 바로 `:268-286` | `278-296` |
+| `.../oracle-request-hybrid-collision-env-distance-field.md:133` | 바로 `:4884` | `5451` |
+| `doc/claim-audit/moveit-planners-chomp.md:76` | 바로 `:5290-5301` | `5869-5880` |
+
+재도출 도구는 커밋하지 않았다. 한 번 쓰고 버리는 것이 아니라 게이트가 되어야
+할 물건인데, 게이트로 만들면 오늘 47건이 전부 빨개진다. 그 순서 — 표를 따라
+인용을 고치고, 그 다음 `--source` 한 줄과 함께 게이트로 올리는 것 — 이
+다음 라운드의 작업이다.
+
+---
+
+## §254 `/move_action`을 게이트에 올린다 — 상류 C++ `MoveGroupInterface`를 매 실행마다 다시 돌린다 (2026-08-06)
+
+§250은 무변경 `MoveGroupInterface::plan()`이 이 노드에 닿는 것을 손으로
+재고 그 결과를 산문으로 적었다. 산문은 게이트가 아니다. 이 절은 그
+왕복을 기계가 다시 돌리게 만들고, 그 게이트가 **무엇을 잡는지** 이름을
+댈 수 있음을 물어서 보인다.
+
+### §254.1 발견 — 액션 서버를 들여온 그 트리에서 게이트는 초록이었다
+
+`tools/ci/verify-ros-interop.sh`에도 `ros/verify-ros-interop.sh`에도
+`move_action`이라는 문자열이 하나도 없었다. 게이트는 도커에서 노드를
+빌드하고 `/plan_kinematic_path`를 실제 DDS로 부르고 타입 있는 응답을
+확인하고 통과했다 — §250이 액션 서버를 더한 바로 그 트리에서, 액션
+서버를 한 번도 건드리지 않고. 다음 변경도 같은 이유로 통과했을 것이다.
+
+이것은 §250이 지적한 실패 모양 그 자체다: 측정은 있었으나 재실행되지
+않는다.
+
+### §254.2 다리 둘 — 서로가 못 보는 것이 다르다
+
+`ros/verify-move-action-interop.sh` 하나에 둘을 담고,
+`ros/verify-ros-interop.sh`가 마지막 단계로 부른다.
+
+**leg A — `ros2 action send_goal`, 컨테이너 하나(ros-dev 이미지).**
+액션 이름, goal 수락, `PLANNING` 피드백, plan-only 경고, 그리고 두
+경계 각각의 정확한 `MoveItErrorCodes`를 본다. 핵심은 이 다리가
+핸들러의 유일한 분기 **양쪽**을 다 몰 수 있다는 것이다:
+
+| 경계 | goal | 도달하는 팔 | 응답 |
+|---|---|---|---|
+| `start_state` 기본값 | `{}` | 변환 성공 → 플래너 없음 | `val: 99999` + `NO_PLANNER` |
+| `start_state` 비기본값 | `{request: {start_state: {is_diff: true}}, ...}` | 변환 실패 | `val: -16` + start-state 문구 |
+
+C++ 클라이언트는 두 번째만 만들 수 있다(§250.4). 그러니 첫 번째 경계는
+leg A가 없으면 어떤 게이트도 보지 못한다.
+
+**leg B — 상류의 `moveit::planning_interface::MoveGroupInterface`,
+컨테이너 둘.** Phase 9 조건이 이름을 댄 바로 그 클라이언트가, 고정된
+moveit2 sha에서 무변경으로 컴파일돼, 정말 이 노드에 닿아 이 노드의 답을
+받아 오는지를 본다. leg A로는 답할 수 없는 질문이다 — leg A는 액션
+인터페이스를 직접 몰기 때문에, 엔드포인트가 옳지만 진짜 클라이언트가
+닿지 못하는 상태에서도 계속 초록이다. §254.3의 물린 자국 4가 그것을
+실증한다.
+
+leg B는 `start_state`의 두 철자(생성자의 빈 diff, `setStartState`의
+완전 상태) 모두를 돌린다. 서사 두 개가 아니라 같은 불변식의 두 경계값이다.
+
+### §254.3 물린 자국 — 게이트가 잡는 것에 이름을 붙인다
+
+액션 서버를 네 가지로 부러뜨리고, 매번 게이트를 돌리고, 되돌렸다
+(되돌림은 매번 `git diff --stat`이 비는 것으로 확인).
+
+| # | 부러뜨린 것 | 게이트 | 처음 붉어진 단언 |
+|---|---|---|---|
+| 1 | 액션 이름 `move_action` → `move_action_2` | exit 1 | `leg A action name: expected this exact line ... /move_action` |
+| 2 | goal을 수락만 하고 종료시키지 않음(`goal.abort` 제거) | exit 1 | `leg A default-start_state code: ... val: 99999` |
+| 3 | 거부 코드 `INVALID_GOAL_CONSTRAINTS` → `PLANNING_FAILED` | exit 1 | `leg A non-default-start_state code: ... val: -16` |
+| 4 | `group_name`이 비어 있지 않으면 다른 코드를 냄 | exit 1 | `leg B/default-start round trip: ... PROBE plan val=-16 source='moveit-ros/move_action'` |
+
+자국 2는 이름·수락·피드백 단언이 모두 통과한 뒤에 붉어졌고(출력에
+`Goal accepted with ID:` 2회, `state: PLANNING` 1회가 남아 있다),
+자국 3은 두 경계 중 비기본값 쪽만 붉어졌다. 단언들이 서로 갈라져
+있다는 뜻이다.
+
+자국 4가 두 다리를 나눈 근거다. `group_name`은 leg A의 두 goal이 모두
+비워 보내고 C++ 클라이언트만 채워 보내는 필드이므로, 이 변형에서
+**leg A는 전부 초록인 채 leg B만 붉어진다**. 진짜 클라이언트만 채우는
+필드를 특별 취급하는 핸들러는 leg A가 원리적으로 볼 수 없다.
+
+자국 1은 덤으로 단언 하나를 고치게 했다. 처음에는 부분 문자열로
+확인했는데, `ros2 action list`의 출력에 `/move_action_2`가 들어 있으면
+그것이 `/move_action`을 포함하므로 통과한다. 지금은 행 전체를 맞춘다
+(`assert_line`).
+
+### §254.4 오라클 이미지가 없을 때 — 조용히 통과하지 않는다
+
+leg B는 `moveit_ros_planning_interface`가 필요하고, 그것은 오라클
+이미지를 뜻한다(`ros/move_group_interface_probe/Dockerfile`이 왜 베이스
+이미지가 아니라 오라클인지 적는다: 베이스에는 moveit 패키지가 0개다).
+그 이미지가 없으면 `tools/ci/verify-mpr-vs-epa.sh`가 세운 모양 그대로
+크게 SKIP한다 — 무엇이 안 돌았는지, 왜 leg A만으로는 부족한지, 무엇을
+치면 돌아오는지를 적고 나간다. 실측: `ORACLE_IMAGE`를 없는 태그로
+가리키면 leg A는 통과하고 leg B는 다섯 줄의 SKIP을 낸다.
+
+이미지는 매번 `docker build`한다. `--packages-up-to` 레이어는
+`ORACLE_IMAGE`에만, 프로브 레이어는 복사된 소스에만 의존하므로 도커의
+레이어 캐시가 이미 정확히 필요한 것만 다시 짓는다. 손으로 만든 stamp는
+그것의 두 번째, 더 약한 사본이 될 뿐이다.
+
+비용 실측: 캐시가 더운 상태에서 `tools/ci/verify-ros-interop.sh` 전체가
+79초(그중 두 `/move_action` 다리가 72초), 프로브 이미지를 처음 지을 때
+`--packages-up-to moveit_ros_planning_interface`가 한 번 더 붙는다.
+
+### §254.5 곁다리 둘 — 낡은 서술과 픽스처
+
+게이트가 **자기 적용 범위를 스스로 적은 문장이 틀려 있었다.** 두 파일의
+"What this does NOT check" 목록이 "No live ROS 2 graph: no node is ever
+spun up"으로 시작했는데, §241이 `/plan_kinematic_path` 왕복을 더한
+시점에 거짓이 됐고 §250을 지나서도 그대로였다. 독자가 다시 유도하는
+대신 믿는 문장이므로, 낡은 것은 없는 것보다 나쁘다. 두 사본 모두
+고쳤고, 대신 정말로 안 보는 것을 적었다 — 아무것도 계획하지 않는다,
+두 엔드포인트 외의 어떤 토픽/서비스/액션도 지나가지 않는다.
+
+URDF/SRDF는 `ros/fixtures/`로 옮겼다. 두 다리가 서로 다른 이미지의 서로
+다른 컨테이너에서 도는데, 클라이언트가 노드와 다른 로봇을 읽으면 측정
+대상과 무관한 이유로 그룹 이름이 어긋난다. heredoc 두 벌은 그 어긋남이
+생기는 방식이다.
+
+### §254.6 이 라운드가 닫지 못한 것
+
+- **`/plan_kinematic_path`의 `PLANNING_FAILED`.** §250.3이 적은 파리티
+  결함이 그대로다. 이제는 `ros/verify-ros-interop.sh`가 펜스 안이므로
+  소스 한 줄과 게이트 한 줄을 같이 고칠 수 있지만, 그것은 이 라운드가
+  받은 과제(`/move_action`을 게이트에 올리기)가 아니라 별도의 수정이다.
+- **바이너리 이름.** `plan_kinematic_path_server`가 여전히 두 엔드포인트를
+  서비스한다. 이름을 바꾸려면 `ros/verify-ros-interop.sh`와
+  `ros/verify-move-action-interop.sh`의 `cargo build --bin` 줄이 같이
+  움직여야 한다.
+- **`crates/moveit-planning`의 start-state 필드.** 여전히 첫 거부다.
+  게이트는 지금 그 거부를 **고정**한다 — 필드가 생기면 leg A/leg B의
+  `-16` 단언이 붉어지고, 그때 이 파일의 기대 문자열을 같이 옮겨야 한다.
+  그것이 의도다.
+- **planning scene 토픽 구독.** 여전히 부재이고, 어느 다리도 보지 않는다.
+- **게이트는 CI에서 돌지 않는다.** `tools/ci/verify-all.sh`의 glob이
+  닿지만, 그 glob을 도는 러너에 도커가 없다(§129.4). 사람이
+  `sg docker -c ./tools/ci/verify-all.sh`를 쳐야 돈다는 점은 §241 이후로
+  변하지 않았다.
+
+---
+
 ## §NEW Phase 3 두 조건의 판정을 확정한다 — `bool`은 조건을 고치고, `distance`는 조건 그대로 미충족이다 (2026-08-06)
 
 §229.1/§229.3이 두 절의 원인을 확정했고, §251이 `bool`의 원인을 fcl의
@@ -23227,389 +23813,3 @@ CHOMP/STOMP 행에서 이미 쓰이고 있다), `PARTIAL`만 아직 한 번도 �
   유지한 채 근거 열만 옮긴다.
 
 ---
-
-## §252 코퍼스 밖 인구를 조건 쪽에서 정의하고 쟀다 — Phase 9를 막는 것은 §235가 센 네 조각이 아니다
-
-§249.7은 "판정을 막는 부재는 코퍼스 밖에 있다"로 끝났다. 그 문장은
-코퍼스 안에서만 잰 것이라 열려 있었다 — 코퍼스에 앵커된 계기는 코퍼스
-밖을 셀 수 없고, 그래서 §249는 자기 결론을 자기가 확인할 수 없었다.
-이 절은 열거의 **기준점을 바꿔** 그 인구를 정의하고 잰다. 상류 트리에서
-출발하지 않는다. §5 완료 조건 현황표의 19개 행에서 출발한다.
-
-### §252.1 기준점: 각 조건 행은 무엇에 대고 재는가
-
-행마다 "이 판정의 **기준(reference)**이 무엇인가"를 묻는다. 답은 셋뿐이고,
-셋의 요구 집합이 서로 다르다.
-
-| 기준 | 뜻 | 요구 집합 | 행 수 |
-|---|---|---|---|
-| `R-ORACLE` | 포트를 `tools/moveit-oracle`과 비교한다 | 그 바이너리가 링크해야 하는 전부 | 15 |
-| `R-PORT` | 포트 쪽 작업만 필요하다(하네스, 자기 검증) | 외부 요구 없음 | 3 |
-| `R-CLIENT` | 기존 C++ 클라이언트가 **무변경으로** 붙어야 한다 | 그 클라이언트가 묶는 엔드포인트와 그 메시지 폐포 | 1 |
-
-계기는 `tools/ci/measure-requirement-closure.py`다. 코퍼스 정의는 손대지
-않는다 — `measure-port-coverage.py`의 `corpus_files()`를 그대로 import해서
-쓰므로 §249의 87은 다음 라운드와 계속 비교 가능하다.
-
-`--check`는 표의 행을 다시 읽어 분류가 빠진 행을 실패로 만든다. 검사가
-실패할 수 있음을 먼저 증명한다 — 돌연변이 둘 다 잡힌다:
-
-```
-$ python3 tools/ci/measure-requirement-closure.py --check
-OK: all 19 status rows classified (Counter({'R-ORACLE': 15, 'R-PORT': 3, 'R-CLIENT': 1}))
-
-# 돌연변이 A: 분류 한 줄 삭제
-UNCLASSIFIED ROW  Phase 8 | CHOMP/STOMP가 Phase 7과 같은 속성 기반 검증을 통과
-FAIL: 1 of 19 status rows have no reference classification in ROW_REFERENCE   (exit 1)
-
-# 돌연변이 B: 표에 분류 없는 행 추가
-UNCLASSIFIED ROW  Phase 6 | 스무딩 필터가 상류 단위 테스트 벡터와 일치
-FAIL: 1 of 20 status rows have no reference classification in ROW_REFERENCE   (exit 1)
-```
-
-### §252.2 `R-ORACLE` 요구 폐포 — 69건 중 코퍼스 밖은 3건뿐이다
-
-15개 행이 오라클에 대고 잰다. 그 요구는 "오라클이 링크해야 하는 것"이고,
-그것은 오라클 자기 소스의 `#include` 전이 폐포로 열거된다(상류 체크아웃에
-include 키로 해석, 상대 include는 같은 디렉터리로 폴백):
-
-```
-$ python3 tools/ci/measure-requirement-closure.py
-corpus (measure-port-coverage.py, unchanged)  245
-
-R-ORACLE requirement closure                  69
-  inside the corpus                           66
-  outside the corpus                          3
-      moveit_core/collision_detection_fcl/include/moveit/collision_detection_fcl/collision_common.hpp
-      moveit_core/collision_detection_fcl/include/moveit/collision_detection_fcl/collision_env_fcl.hpp
-      moveit_core/collision_detection_fcl/include/moveit/collision_detection_fcl/fcl_compat.hpp
-```
-
-**이 결과는 코퍼스 정의가 이 15개 행에 대해서는 옳다는 뜻이다.** 69건 중
-66건이 코퍼스 안이고, 밖으로 나간 3건은 `collision_detection_fcl` —
-§1이 "[parry로 대체]"로 **의도적으로** 뺀 디렉터리다. 즉 R-ORACLE 행에
-관한 한 코퍼스에 앵커된 계기가 맞는 도구이고, §249.6이 이 15개 행에 대해
-(b)=0을 낸 것은 우연이 아니다.
-
-그러나 같은 폐포에서 상류로 해석되지 않는 이름이 127개 나오고, 그중
-외부 패키지가 28개다. 이들은 `moveit2` 체크아웃에도, 이 호스트에도 없다:
-
-```
-names not resolvable in the reference checkout 127
-  external packages                            28
-        18  moveit_msgs      12  ompl        8  rclcpp       8  kdl
-         8  geometry_msgs     7  fcl         5  geometric_shapes
-         3  Eigen             2  octomap     2  tf2          2  rcl
-         2  trajectory_msgs   2  eigen3      2  visualization_msgs
-         2  eigen_stl_containers
-         1  ruckig  1  random_numbers  1  srdfdom  1  urdf_parser  1  pluginlib
-         1  nlohmann  1  kdl_parser  1  shape_msgs  1  std_msgs  1  sensor_msgs
-         1  octomap_msgs  1  pilz_industrial_motion_planner  1  third_party
-```
-
-28개 전부에 대해 `/usr/include`, `/usr/local/include`, `/opt/ros`,
-그리고 `/home/stevek/work/moveit2`를 확인했고 **하나도 없다**. 이 호스트에는
-`/opt/ros` 자체가 없다. 이들이 존재하는 곳은 오라클 컨테이너 이미지
-안뿐이다. 끝의 셋은 외부 패키지가 아니라 이 폐포 계산의 한계 표시다 —
-`pilz_industrial_motion_planner/cartesian_limits_parameters.hpp`는
-`generate_parameter_library`가 빌드 트리에 만드는 헤더, `third_party/`는
-오라클이 상류 `kdl_kinematics_plugin` 내부를 벤더링한 자기 디렉터리,
-그리고 `moveit_*_export.h` 셋은 CMake 생성 헤더다.
-
-### §252.3 `R-CLIENT` 요구 — 조건이 이름 부른 클라이언트가 실제로 무엇을 묶는가
-
-Phase 9 행은 "기존 C++ `MoveGroupInterface` 클라이언트가 무변경으로"라고
-쓴다. 그러므로 요구는 **그 클라이언트가 묶는 것**이지, §5 Phase 9 본문
-산문이 나열한 것이 아니다. 상류 체크아웃의 그 번역 단위를 직접 읽는다:
-
-```
-R-CLIENT: endpoints move_group_interface.cpp binds (lower bound) 8
-      action client        moveit_msgs::action::ExecuteTrajectory
-      action client        moveit_msgs::action::MoveGroup
-      client               moveit_msgs::srv::GetCartesianPath
-      client               moveit_msgs::srv::GetPlannerParams
-      client               moveit_msgs::srv::QueryPlannerInterfaces
-      client               moveit_msgs::srv::SetPlannerParams
-      publisher            moveit_msgs::msg::AttachedCollisionObject
-      publisher            std_msgs::msg::String
-  endpoint names the port opens               1
-      plan_kinematic_path
-```
-
-**교집합은 0이다.** 그리고 그 사실이 앞 라운드의 계획을 정정한다:
-
-§235.1은 Phase 9를 네 조각으로 나누면서 첫 조각을 `/plan_kinematic_path`
-서비스로 잡았다. 그 조각은 §5 Phase 9 **본문 산문**("`/plan_kinematic_path`
-서비스, `/move_action` 액션 서버, planning scene 토픽 구독")에서 뽑은
-것이다. 그런데 조건 **행**이 이름 부른 클라이언트는 그 서비스를 쓰지
-않는다:
-
-```
-$ rg -c 'PLANNER_SERVICE_NAME|plan_kinematic_path' \
-    moveit_ros/planning_interface/move_group_interface/src/move_group_interface.cpp
-0
-$ rg -l 'PLANNER_SERVICE_NAME' moveit_ros --glob '*.cpp'
-moveit_ros/move_group/src/default_capabilities/plan_service_capability.cpp   # 서버 쪽뿐
-```
-
-`MoveGroupInterface::plan()`은 서비스가 아니라 액션으로 간다 —
-`move_group_interface.cpp:666-668`이 `moveit_msgs::action::MoveGroup::Goal`을
-만들고 `planning_options.plan_only = true`를 세워 `move_action`으로 보낸다.
-그래서 포트가 이미 만든 `ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`
-(`f183801`)는 **다른 클라이언트를 위한 것**이고, 그것만으로는 Phase 9 행이
-닫히지 않는다. 행을 닫는 최소 조각은 `/plan_kinematic_path`가 아니라
-`move_action` 액션 서버다.
-
-**병합 시점 정정(§250).** 이 절이 쓰인 브랜치에는 §250이 없었다. 같은
-병합 창에서 §250이 바로 그 `move_action` 액션 서버를 지었고
-(`ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`가 서비스와 액션
-서버를 함께 연다), 무변경 `MoveGroupInterface::plan()`이 DDS로 그 노드에
-닿는 것까지 실측했다. 그러므로 위 문단의 "최소 조각"은 지어졌고, 지금
-남은 첫 거부는 §250.4가 `MotionPlanRequest.start_state`에서 측정한
-`crates/moveit-planning` 쪽 부재다. 아래 열거는 그 사실과 무관하게
-성립한다 — 엔드포인트와 메시지 요구를 조건 행에서 뽑은 것이지 무엇이
-지어졌는지에서 뽑은 것이 아니다.
-
-메시지 쪽 요구도 같은 방식으로 열거했다. 위 8개 엔드포인트의 인터페이스
-정의를 필드 타입으로 전이 전개하면:
-
-```
-requirement closure from the 8 endpoints MoveGroupInterface binds: 64 interface types
-    34  moveit_msgs    12  geometry_msgs   4  trajectory_msgs   4  shape_msgs
-     3  std_msgs        2  builtin_interfaces  2  sensor_msgs   2  octomap_msgs
-     1  object_recognition_msgs
-```
-
-`moveit_msgs` 34종 중 포트가 `ros/moveit-ros/src` 어디에서든 이름을 부르는
-것은 15종, **19종은 아예 없다**:
-
-| | |
-|---|---|
-| 포트가 이름 부름 (15) | `AttachedCollisionObject`, `BoundingVolume`, `CollisionObject`, `Constraints`, `JointConstraint`, `MotionPlanRequest`, `MoveItErrorCodes`, `OrientationConstraint`, `PlanningSceneWorld`, `PositionConstraint`, `RobotState`, `RobotTrajectory`, `TrajectoryConstraints`, `VisibilityConstraint`, `WorkspaceParameters` |
-| 전혀 없음 (19) | `AllowedCollisionEntry`, `AllowedCollisionMatrix`, `CartesianPoint`, `CartesianTrajectory`, `CartesianTrajectoryPoint`, `ExecuteTrajectory`, `GenericTrajectory`, `GetCartesianPath`, `GetPlannerParams`, `LinkPadding`, `LinkScale`, `MoveGroup`, `ObjectColor`, `PlannerInterfaceDescription`, `PlannerParams`, `PlanningOptions`, `PlanningScene`, `QueryPlannerInterfaces`, `SetPlannerParams` |
-
-19종을 `ros/`가 아니라 추적 트리 전체(`git ls-files`, `third_party/` 제외)로
-다시 확인해도 결론은 같다. `.rs`에서 이름이 나오는 것은 셋뿐이고
-(`AllowedCollisionMatrix` — `crates/moveit-collision/src/matrix.rs:46,85,309`,
-`PlanningScene`·`ObjectColor` — `crates/moveit-scene/src/scene.rs:228,405,419,425,428`),
-**여덟 자리 전부 doc 주석 안에서 상류 C++ 시그니처를 인용한 것**이지
-포트가 다루는 타입이 아니다. `MoveGroup`은 `PORTING-PLAN.md` 산문에만
-나오고 나머지 15종은 트리 어디에도 없다.
-
-**이 34종의 정의는 이 기계의 파일시스템에 없다.** `moveit_msgs`는 상류
-체크아웃의 디렉터리가 아니고 호스트 ROS 설치에도 없다. 오라클 이미지
-안에만 있다:
-
-```
-$ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:bf084112fdd5730b \
-    -lc 'find / -xdev -type d -name moveit_msgs -path \"*/share/*\"'"
-/ws/install/moveit_msgs/share/moveit_msgs
-  msg 48   srv 26   action 8
-```
-
-그래서 위 64종 폐포는 호스트 계기가 아니라 컨테이너 안에서 돌려 얻었다.
-`measure-requirement-closure.py`가 이 절반을 계산하지 **않는** 이유가
-이것이고, 그 사실은 그 파일의 모듈 doc에 적혀 있다.
-
-### §252.4 조건에 행이 아예 없는 경우 — Phase 6의 스무딩 절
-
-돌연변이 B가 우연히 드러낸 것을 그대로 확인했다. Phase 6의 완료 조건은
-두 절이다:
-
-```
-$ sed -n '734,735p' PORTING-PLAN.md
-**완료 조건:** 동일 waypoint 입력에 대해 TOTG 산출 시간 파라미터화가
-오라클과 `1e-6` 이내 일치. 스무딩 필터는 상류 단위 테스트 벡터로 검증.
-$ rg -n '^\| Phase 6 \|' PORTING-PLAN.md
-813:| Phase 6 | TOTG 산출 시간 파라미터화가 오라클과 `1e-6` 이내 일치 | MET | §217.3 | 2026-08-05 |
-```
-
-두 절, 한 행. 둘째 절에는 행이 없고, 따라서 판정도 없고, 이것을 세는
-계기도 없다 — `check-phase-status.sh`는 **Phase 제목마다 행이 있는지**를
-보지 조건 절마다 행이 있는지를 보지 않는다("no phase or row is
-missing/duplicated"의 의미가 그것이다).
-
-그 절이 요구하는 산출물의 위치가 이 절의 논점이다. "상류 단위 테스트
-벡터"는 `moveit_core/online_signal_smoothing/test/test_butterworth_filter.cpp`와
-`test_acceleration_filter.cpp`에 있고, 코퍼스는 `test`/`tests` 경로 성분을
-가진 파일을 **규칙으로** 배제한다. CORPUS_ROOTS 안에서만 그렇게 배제되는
-파일이 68개다. 즉 이 조건이 이름 부른 산출물은 코퍼스에 들어올 수 없고,
-`measure-port-coverage.py`는 구조적으로 이것을 보고할 수 없다.
-
-포트 쪽 현황도 같이 적는다: `crates/moveit-smoothing/tests/`에는
-`acceleration_filter_parity.rs`와 `ruckig_filter_parity.rs`가 있고
-**butterworth parity 테스트는 없다**(`rg -li butterworth`가 트리 전체에서
-찾는 `.rs`는 `src/butterworth.rs`, `src/ruckig_filter.rs`, `src/lib.rs`
-셋뿐이고 `tests/` 아래에는 하나도 없다). 이 절은 그 행에 판정을 붙이지
-않는다 — 붙이려면 상류 벡터로 실측해야 하고 그것은 이 라운드가 하지
-않은 일이다.
-
-### §252.5 계기별 앵커와 사각 — 무엇을 읽어야 눈이 뜨이는가
-
-| 계기 | 무엇에 앵커되어 있나 | 그래서 못 보는 것 |
-|---|---|---|
-| `measure-port-coverage.py` | 상류 `CORPUS_ROOTS` 트리 | 코퍼스 밖 555건, `test` 성분 68건(규칙상 영구히) |
-| `--check doc/port-coverage.md` | 위 계기의 출력 | 같음 — 출력에 없는 것은 행도 없다 |
-| `ros/moveit-ros/src/conversion_coverage.rs` | **포트 자신의** `impl TryFrom` 블록 | 포트가 아예 만들지 않은 메시지 타입 19종 |
-| `check-phase-status.sh` | 표의 **행** | 행이 없는 조건 절(Phase 6 스무딩) |
-| `verify-phase7-benchmark.sh` 등 실측 게이트 | 구현이 이미 있는 조건 | 아무도 만들지 않은 것 |
-| `measure-requirement-closure.py` (이 절) | **조건 행** + 오라클 소스 + 클라이언트 TU | 메시지 폐포(컨테이너 필요), 매크로/생성 경로로만 도달하는 헤더 |
-
-앞의 다섯 계기가 공유하는 성질 하나가 사각의 원인이다 — **전부 이미
-존재하는 무언가에 앵커되어 있다.** 포트에 있는 것, 코퍼스에 있는 것,
-표에 있는 행. 존재하지 않는 요구는 그 어느 것에도 흔적을 남기지 않는다.
-
-눈이 뜨인 계기가 읽어야 하는 것은 넷이고, 셋은 이미 이 기계에 있다:
-
-1. **조건 문장 자체** — 표의 행 텍스트. `measure-requirement-closure.py --check`가
-   읽고, 분류 없는 행을 실패로 만든다. (있음)
-2. **조건이 이름 부른 기준** — 오라클 소스와 상류 클라이언트 TU. 둘 다
-   이 기계에 있고 이 절이 읽었다. (있음)
-3. **인터페이스 정의** — `moveit_msgs`의 48 msg / 26 srv / 8 action.
-   호스트에 없다. 계기가 이것을 읽으려면 정의를 이 저장소로 벤더링하거나
-   (픽스처가 이미 그렇게 다뤄진다, `tools/ci/verify-fixture-provenance.sh`)
-   오라클 이미지 안에서 돌아야 한다. **이것이 지금 남은 유일한 구조적
-   사각이다.**
-4. **상류 단위 테스트 벡터** — Phase 6 둘째 절이 요구하는 68건. 코퍼스
-   규칙이 배제하므로 코퍼스를 넓히는 것이 아니라 별도 열거가 필요하다
-   (코퍼스를 넓히면 §249의 87이 비교 불가능해진다).
-
-## §253 `oracle.cpp` 인용 47건 — 아무 게이트도 본 적이 없고, 재도출하니 47건 전부 옮겨져 있다 (2026-08-06)
-
-`tools/ci/verify-upstream-citations.sh`는 인용된 경로를 `$MOVEIT2_SRC`와
-`--source`로 넘긴 vendored 트리에서만 찾는다. `tools/moveit-oracle/src/oracle.cpp`
-는 **이 저장소 안의 파일**이라 어느 쪽에도 없고, 따라서 그 인용은 전부
-unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지는 않는, 건너뛴
-검사와 구별되지 않는 자리다.
-
-저장소 자신을 접두사 없는 `--source` 루트로 넣는 것은 한 줄이다. 넣어서
-돌려봤고, 되돌렸다. 이유는 아래 측정이다.
-
-### §253.1 재도출 방법과 그 한계
-
-인용을 "지금 그 줄에 뭐가 있나"로 판정할 수는 없다. 인용이 *쓰일 당시* 무엇을
-가리켰는지가 기준이므로:
-
-1. 인용이 적힌 줄을 `git blame -l -L n,n -- <doc>`으로 커밋을 얻고,
-2. `git show <sha>:tools/moveit-oracle/src/oracle.cpp`에서 인용된 줄의 내용을
-   읽고,
-3. 그 내용(주변 ±2~±12줄 창)을 오늘 파일에서 유일하게 찾는다.
-
-한계는 blame이 **그 줄을 마지막으로 건드린** 커밋이지 인용을 쓴 커밋이 아니라는
-것이다. 문서가 나중에 리플로우되면 blame은 엉뚱한 리비전을 가리킨다. 이 표에서
-실제로 그렇게 어긋난 다섯 건(`PORTING-PLAN.md:11391` 둘,
-`oracle-request-collision-max-contacts-per-pair.md:73`/`:85`, 그리고
-`PORTING-PLAN.md:11777`)은 blame 사상이 인용 문장의 주장과 모순되는 것으로
-드러났고, 내용으로 손수 다시 잡았다. 표의 `손:` 행이 그것이다.
-
-72개 끝점 중 61개가 기계적으로 유일하게 사상되고, 나머지는 주변 텍스트까지
-바뀐 것이라 손으로 잡았다.
-
-### §253.2 측정
-
-- 경로 형태 인용 `oracle.cpp:NNN` **47건**, 12개 파일에 걸쳐 있다.
-- 같은 줄에서 이어지는 맨 `:NNN` 연속 인용 **7건**. 이쪽은 게이트가 세지도
-  못한다 — 경로가 unresolvable이면 `base`가 `None`으로 리셋되므로 뒤따르는
-  맨 needle은 통째로 버려진다.
-- **47건 전부** 옮겨져 있다. 41건은 최소 한 끝점이 기계적으로 다른 줄에
-  사상되고, 나머지 6건은 기계 사상이 실패해 손으로 확인했으며 그 6건도 전부
-  옮겨져 있다. 같은 줄에 그대로 있는 인용은 **0건**이다.
-- 게이트가 볼 수 있는 것은 이 중 10건뿐이다. 나머지 37건은 심볼 앵커가 짝지어지지
-  않아 bounds-only로 통과한다 — 파일이 6600줄이 넘으므로 아무 숫자나 범위 안에
-  든다. 이것이 브리핑이 말한 "1560 bounds-checked only는 썩는 것을 못 본다"의
-  실물이다.
-
-### §253.3 왜 지금 고치지 않았나
-
-47건을 기계적으로 새 번호로 갈아끼우는 것은 세 부류에서 틀린 답이 된다.
-
-- **역사 기록.** §138.3의 `:4752`(`plan` → `planning_time_s`)와
-  `:5135`(`pilzTrajectory` → `planning_time`)는 `c0838b4`가 그 필드들을 지우면서
-  없어진 줄이다. 두 인용 모두 `c0838b4^`에서 정확히 일치하는 것을 확인했다
-  (`{ "planning_time_s", elapsed },` / `res.planning_time`). 오늘 줄로 옮기면
-  기록이 가리키던 결함 자체가 지워진다. `applyJointValues` 호출자 10곳을 적은
-  `PORTING-PLAN.md:11777-11779`도 같다 — `367c07a^`에서 `:2016`/`:2214`가
-  `state_->clearAttachedBodies();`이고 열 개 번호
-  `:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`가 전부 그대로 맞는다.
-  고친 커밋이 그 호출들을 옮겼으므로 오늘 대응하는 줄이 없다.
-- **이미 반영된 요청.** `oracle-request-collision-max-contacts-per-pair.md`는
-  `collision()`의 반환문에서 `contactsToJson`을 `allContactsToJson`으로 바꿔
-  달라는 요청 문서다. 그 교체는 이미 되어 있다(오늘 `:2484`/`:2488`). 번호만
-  갈아끼우면 끝난 변경을 미결로 서술하게 된다.
-- **인용된 코드 자체가 사라진 것.** `PORTING-PLAN.md:17643`이 인용하는
-  `ik_rng_{ 42 }`는 더는 없다. 오늘은 `ik_rng_(ik_rng_seed)`(`:858-859`)에
-  기본값 42이고 CLI 오버라이드(`:6571`, `:6584`)가 붙었다.
-
-그래서 이번 라운드는 **측정과 선언까지** 한다. `--source` 한 줄을 지금 넣으면
-10건이 빨개지고, 그 10건만 고치면 나머지 37건 위에 초록 OK 줄이 서게 된다 —
-커버리지로 읽히는 무검사다. `tools/ci/upstream-citation-exemptions.json`의
-`unresolvable` 키에 `oracle` 그룹으로 선언해 두었고, 그 `why`가 이 절을
-가리킨다. `--source` 줄을 넣는 것이 이 작업의 **마지막** 단계다.
-
-### §253.4 표 (인용 54건)
-
-`인용 위치`는 인용이 적힌 문서:줄, `적힌 곳`은 그 인용이 명시한 spec,
-`재도출`은 위 방법으로 오늘 파일에서 찾은 줄이다. `바로 :NNN`은 같은 줄의
-앞선 경로에 묶이는 맨 needle이다.
-
-| 인용 위치 | 적힌 곳 | 재도출 |
-| --- | --- | --- |
-| `PORTING-PLAN.md:3933` | `:1044` | `2025` |
-| `PORTING-PLAN.md:3960` | `:1144-1146` | `2125-2127` |
-| `PORTING-PLAN.md:4582` | `:1524` | `2457` |
-| `PORTING-PLAN.md:11391` | `:4752` | 손: `c0838b4^`에서 `{ "planning_time_s", elapsed },`. `c0838b4`가 그 필드를 지웠으므로 오늘 대응하는 줄이 없다 |
-| `PORTING-PLAN.md:11391` | `:5135` | 손: `c0838b4^`에서 `res.planning_time`. 같은 커밋이 지웠고 오늘 남은 것은 주석 `:6166`뿐 |
-| `PORTING-PLAN.md:11777` | `:2016` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 (수정으로 삭제) |
-| `PORTING-PLAN.md:17643` | `:6065` | 손: `ik_rng_{ 42 }` 자체가 사라졌다 — 오늘은 `ik_rng_(ik_rng_seed)` 858-859, 멤버 선언 6547 |
-| `PORTING-PLAN.md:17732` | `:1772` | `2015` |
-| `PORTING-PLAN.md:19498` | `:2191` | `2417` |
-| `PORTING-PLAN.md:20264` | `:1537` | `1546` |
-| `PORTING-PLAN.md:21397` | `:1547` | `1549` |
-| `PORTING-PLAN.md:21398` | `:2235` | `2306` |
-| `PORTING-PLAN.md:21523` | `:2188` | `2259` |
-| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:51` | `:2326` | `2579` |
-| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:65` | `:2364-2374` | `2617-2627` |
-| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:73` | `:3391-3392` | 손: `3902` — blame 사상은 depth 주석으로 가는데 인용 문장은 `max_contacts_per_pair` 대입을 가리킨다 |
-| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:78` | `:2162-2208` | `2415-2461` |
-| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:85` | `:3361-3368` | 손: `3871-3876` — blame 사상(3842-3849)은 ACM 주석이고 인용 문장은 depth 주석을 가리킨다 |
-| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:112` | `:2162` | `2415` |
-| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:125` | `:2202` | `2455` |
-| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:135` | `:2140-2142` | `2393-2395` |
-| `crates/moveit-collision/src/parry.rs:486` | `:2097` | `2363` |
-| `crates/moveit-collision/src/parry.rs:492` | `:2097` | `2363` |
-| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:58` | `:3686-3689` | `4167-4170` |
-| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:59` | `:2372-2383` | `2625-2636` |
-| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:61` | `:3774` | `4255` |
-| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:72` | `:2287-2289` | `2540-2542` |
-| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:77` | `:2275-2280` | `2528-2533` |
-| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:80` | `:2302` | `2584` |
-| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:133` | `:2184` | 손: 2454 |
-| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:190` | `:3700` | `4267` |
-| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:202` | `:3438-3583` | 손: 3948-4111 |
-| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:226` | `:3608-3611` | 손: 4136-4139 |
-| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:268` | `:3339-3348` | 손: 4063-4072 |
-| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:354` | `:3673-3690` | `4240-4257` |
-| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:385` | `:3583` | 손: 4111 |
-| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:390` | `:3583-3691` | 손: 4111-4258 |
-| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:988` | `:1343-1400` | `1454-1511` |
-| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1082` | `:2230-2261` | `2625-2656` |
-| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1398` | `:3183-3393` | `3948-4258` |
-| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1432` | `:3336` | `4200` |
-| `crates/moveit-distance-field/tests/collision_env_hybrid_parity.rs:20` | `:3660-3712` | `4141-4193` |
-| `crates/moveit-planners-pilz/doc/oracle-request-pilz-blend-geometry.md:651` | `:5764-5786` | `6285-6307` |
-| `doc/claim-audit/moveit-planners-chomp.md:76` | `:129-130` | `137-138` |
-| `doc/claim-audit/moveit-smoothing.md:25` | `:4365-4368,4496-4499` | `4944-4947,5075-5078` |
-| `doc/folded-operand-guards.md:89` | `:2421` | `2674` |
-| `doc/upstream-bugs.md:633` | `:1302-1314` | `1311-1323` |
-| `PORTING-PLAN.md:11777` | 바로 `:2214` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 |
-| `.../oracle-request-collision-max-contacts-per-pair.md:73` | 바로 `:3605-3606` | 손: `4134` (위 `:3391-3392`와 같은 이유) |
-| `.../oracle-request-collision-max-contacts-per-pair.md:85` | 바로 `:3575-3582` | 손: `4085-4090` (위 `:3361-3368`과 같은 이유) |
-| `.../oracle-request-collision-max-contacts-per-pair.md:125` | 바로 `:2206` | `2459` |
-| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:77` | 바로 `:268-286` | `278-296` |
-| `.../oracle-request-hybrid-collision-env-distance-field.md:133` | 바로 `:4884` | `5451` |
-| `doc/claim-audit/moveit-planners-chomp.md:76` | 바로 `:5290-5301` | `5869-5880` |
-
-재도출 도구는 커밋하지 않았다. 한 번 쓰고 버리는 것이 아니라 게이트가 되어야
-할 물건인데, 게이트로 만들면 오늘 47건이 전부 빨개진다. 그 순서 — 표를 따라
-인용을 고치고, 그 다음 `--source` 한 줄과 함께 게이트로 올리는 것 — 이
-다음 라운드의 작업이다.

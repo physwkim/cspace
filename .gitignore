@@ -6,6 +6,16 @@
 *.log
 /.oracle-ctx.*
 /.ros-ctx.*
+/.probe-ctx.*
+
+# Python bytecode. `tools/ci/__pycache__` reached `main` in 10a9c13 the same
+# way the swap file below did -- a `git add -A tools/ci` after running one of
+# the `tools/ci/*.py` measurements. Committed bytecode is worse than noise:
+# importing a sibling module rewrites it, so a pure measurement leaves the
+# tree dirty and a `git status` precondition ahead of a long job blames the
+# measurement.
+__pycache__/
+*.pyc
 
 # Editor artefacts. `doc/.upstream-bugs.md.swp` -- a 16 KB binary Vim swap
 # file -- reached `main` in d721ec1, so this is not hypothetical: staging a
