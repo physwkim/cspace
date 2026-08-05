@@ -126,6 +126,9 @@ fire in one pass: the first increments `iteration_` and zeroes
 a *second* time in the same loop pass and overwrites
 `num_collision_free_iterations_` with `max_iterations_after_collision_free_`.
 **Evidence:** read of upstream control flow. Not oracle-confirmed.
+**Status:** `reproduced-grandfathered`. Named as grandfathered by the
+2026-08-05 decision below, which is where the reasoning is; this line only
+puts the status where the entry format asks for it.
 **Cost of not reproducing:** unmeasured — CHOMP iteration counts would
 change, so any test pinning an iteration count or a converged trajectory
 is at risk.
@@ -160,6 +163,9 @@ be incorrect`, guarding
 wrong and it was shipped unchanged.
 **Evidence:** upstream's own TODO. What the check *should* compare has not
 been established here.
+**Status:** `reproduced-grandfathered`. Named as grandfathered by the
+2026-08-05 decision below, which is where the reasoning is; this line only
+puts the status where the entry format asks for it.
 **Cost of not reproducing:** unknown until the correct comparison is
 established. Do not deviate before that.
 
@@ -556,7 +562,8 @@ checked-out `moveit2` source this round (`:312-313`). Not oracle-confirmed
 comparison only ever calls `do_smoothing` with correctly-matched-length
 arrays, so it does not exercise either length-check branch, let alone
 distinguish which of the two fires.
-**Status:** reproduced, unexamined since being ported under the old brief.
+**Status:** `reproduced-grandfathered`, unexamined since being ported under
+the old brief.
 No numeric output is affected either way (a length mismatch always
 produces *an* error; this only picks which of two `Error::Other` messages
 comes back, and only when exactly one of `positions`/`velocities` is
