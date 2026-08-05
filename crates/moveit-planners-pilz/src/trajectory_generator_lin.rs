@@ -62,14 +62,13 @@ use moveit_collision::CollisionEnv;
 use moveit_error::{Error, MoveItErrorCode, Result};
 use moveit_geometry::Isometry3;
 use moveit_kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
-use moveit_model::RobotModel;
 use moveit_state::Posed;
 use moveit_trajectory::RobotTrajectory;
 
 use crate::path_line::PathLine;
 use crate::trajectory_functions::{
     CartesianPath, IkContext, compute_link_fk, compute_pose_ik, constraint_pose,
-    generate_joint_trajectory,
+    generate_joint_trajectory, solver_tip_frame,
 };
 use crate::trajectory_generator::{
     Goal, MotionPlanInfo, MotionPlanRequest, PilzGenerator, TrajectoryGenerator,
@@ -246,20 +245,4 @@ impl CartesianPath for LinSegment {
     fn pos(&self, t: f64) -> Isometry3 {
         self.path.pos(self.velocity_profile.pos(t))
     }
-}
-
-/// Resolve `group_name`'s solver tip frame. Upstream `getSolverTipFrame`,
-/// minus the "more than one tip frame" case -- see this module's `#
-/// Deviations` for why that case is unrepresentable here.
-///
-/// # Errors
-///
-/// [`MoveItErrorCode::Failure`] if no [`static@moveit_kinematics::KINEMATICS_SOLVERS`]
-/// entry can be built for `group_name` (upstream's `NoSolverException`).
-fn solver_tip_frame(robot_model: &RobotModel, group_name: &str) -> Result<String> {
-    let params = SolverParams::default();
-    resolve_solver(robot_model, group_name, DEFAULT_SOLVER_NAME, &params)
-        .ok()
-        .map(|solver| solver.tip_frame().to_string())
-        .ok_or(Error::Code(MoveItErrorCode::Failure))
 }

@@ -96,6 +96,10 @@
 //!   `trajectory_blend_request.hpp`, `trajectory_blend_response.hpp`: blends
 //!   two consecutive trajectories across their shared boundary, completing
 //!   §5 Phase 8's "LIN/PTP/CIRC + sequence blending" scope line.
+//! - `plan_components_builder.{hpp,cpp}`: assembles the per-command
+//!   trajectories the generators above produce into the list a controller
+//!   executes, blending each pair whose blend radius is positive
+//!   ([`plan_components_builder::PlanComponentsBuilder`]).
 //!
 //! # Deliberately not ported: the ROS layer (D1/D2)
 //!
@@ -117,33 +121,18 @@
 //!   (`MotionSequenceRequest`) and manages blending between them at the
 //!   `moveit_msgs` request level; this is orchestration over the trajectory
 //!   generators, not trajectory generation.
-//! - `plan_components_builder.{hpp,cpp}` — assembles per-command
-//!   `RobotTrajectory` segments (produced by the generators this crate does
-//!   port) into one blended `RobotTrajectory` for a command list.
-//!   §153.1 (measured 2026-08-04, re-check before trusting this exclusion
-//!   again): this file has **zero** symbols from `command_list_manager` —
-//!   the dependency this note previously claimed runs the other way
-//!   (`command_list_manager.hpp:222` holds a `PlanComponentsBuilder
-//!   plan_comp_builder_` member, not the reverse). Its own includes are
-//!   `trajectory_blend_request.hpp`/`trajectory_blender.hpp` (ported this
-//!   round as [`trajectory_blender_transition_window::TrajectoryBlendRequest`]/
-//!   [`trajectory_blender_transition_window::blend`]), `trajectory_functions.hpp`
-//!   (`isRobotStateEqual`, already ported), `moveit_core`'s
-//!   `robot_model`/`robot_trajectory`/`planning_interface` (already used
-//!   throughout this crate), `tip_frame_getter.hpp` (`getSolverTipFrame`,
-//!   already have an equivalent lookup via `resolve_solver`), and
-//!   `trajectory_generation_exceptions.hpp`'s
-//!   `CREATE_MOVEIT_ERROR_CODE_EXCEPTION` macro — whose only `moveit_msgs`
-//!   usage anywhere in the file is 4 occurrences of
-//!   `moveit_msgs::msg::MoveItErrorCodes::FAILURE` as that macro's
-//!   error-code argument. There is no request marshalling in this file for
-//!   the blending assembly to be inseparable from: `PlanComponentsBuilder::
-//!   append`/`blend`/`appendWithStrictTimeIncrease`/`build` is fully
-//!   separable, and every dependency it needs is already ported somewhere
-//!   in this crate. It stays excluded only because no round has ported it
-//!   yet, not because of an actual `command_list_manager` coupling.
 //!
-//! None of these five compute a LIN/PTP/CIRC trajectory; they route
+//! `plan_components_builder.{hpp,cpp}` was on this list until §153.1
+//! (measured 2026-08-04) refuted its stated reason: the file has **zero**
+//! symbols from `command_list_manager`, and the dependency runs the other
+//! way (`command_list_manager.hpp:222` holds a `PlanComponentsBuilder
+//! plan_comp_builder_` member, not the reverse). Its only `moveit_msgs`
+//! usage was 4 occurrences of `MoveItErrorCodes::FAILURE` as the
+//! `CREATE_MOVEIT_ERROR_CODE_EXCEPTION` macro's argument, so neither D1
+//! nor D2 ever applied to it. It is now ported as
+//! [`plan_components_builder`].
+//!
+//! None of these four compute a LIN/PTP/CIRC trajectory; they route
 //! `moveit_msgs` requests to the analytical types this crate ports. A future
 //! `moveit-ros` (or equivalent) crate is the right home for a Rust
 //! equivalent, if one is ever built.
@@ -212,6 +201,7 @@ pub mod path_circle;
 pub mod path_line;
 pub mod path_polyline_generator;
 pub mod path_rounded_composite;
+pub mod plan_components_builder;
 pub mod trajectory_blender_transition_window;
 pub mod trajectory_functions;
 pub mod trajectory_generator;

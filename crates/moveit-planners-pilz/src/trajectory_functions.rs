@@ -100,7 +100,10 @@ use std::sync::Arc;
 use moveit_collision::{CollisionEnv, CollisionRequest};
 use moveit_error::{Error, MoveItErrorCode, Result};
 use moveit_geometry::{Isometry3, UnitQuaternion, Vector3};
-use moveit_kinematics::{KinematicsSolver, SolveOptions};
+use moveit_kinematics::{
+    DEFAULT_SOLVER_NAME, KinematicsSolver, SolveOptions, SolverParams, resolve_solver,
+};
+use moveit_model::RobotModel;
 use moveit_scene::PlanningScene;
 use moveit_state::{Posed, RobotState};
 use moveit_trajectory::RobotTrajectory;
@@ -786,6 +789,23 @@ pub fn constraint_pose(
     let mut pose = Isometry3::from_parts((*position).into(), *orientation);
     pose.translation.vector -= orientation * offset;
     pose
+}
+
+/// Resolve `group_name`'s solver tip frame. Upstream `getSolverTipFrame`
+/// (`tip_frame_getter.hpp`), minus the "more than one tip frame" case — see
+/// [`crate::trajectory_generator_lin`]'s `# Deviations` for why that case is
+/// unrepresentable here.
+///
+/// # Errors
+///
+/// [`MoveItErrorCode::Failure`] if no [`static@moveit_kinematics::KINEMATICS_SOLVERS`]
+/// entry can be built for `group_name` (upstream's `NoSolverException`).
+pub fn solver_tip_frame(robot_model: &RobotModel, group_name: &str) -> Result<String> {
+    let params = SolverParams::default();
+    resolve_solver(robot_model, group_name, DEFAULT_SOLVER_NAME, &params)
+        .ok()
+        .map(|solver| solver.tip_frame().to_string())
+        .ok_or(Error::Code(MoveItErrorCode::Failure))
 }
 
 #[cfg(test)]

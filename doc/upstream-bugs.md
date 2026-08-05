@@ -97,6 +97,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `totg-timing-zero-velocity-division` | reproduced-grandfathered |
 | `polyline-filter-waypoints-stale-index` | reproduced-deliberately |
 | `polyline-header-redeclares-lin-exceptions` | not-reproduced |
+| `plan-components-builder-const-build-mutates` | not-reproduced |
 
 ---
 
@@ -793,6 +794,47 @@ unit of its own and hand `oracle.cpp` back a base-class
 `std::unique_ptr<TrajectoryGenerator>`. Delete that indirection and the
 oracle stops building. If upstream ever removes the duplicate declarations,
 the factory can be inlined back into `oracle.cpp`.
+
+---
+
+### `plan-components-builder-const-build-mutates` — `PlanComponentsBuilder::build() const` appends the tail into the builder's own last trajectory, so a second call appends it twice — not-reproduced
+
+**Upstream:** `moveit_planners/pilz_industrial_motion_planner/src/plan_components_builder.cpp:43-52`
+(verified at the pinned `e017c91e`), declared `build() const` at
+`include/pilz_industrial_motion_planner/plan_components_builder.hpp:110`.
+**Port:** `crates/moveit-planners-pilz/src/plan_components_builder.rs`,
+`PlanComponentsBuilder::build`.
+**Symptom:** `std::vector<RobotTrajectoryPtr> res_vec{ traj_cont_ }` copies
+the *vector of pointers*, not the trajectories, so `res_vec.back()` and
+`traj_cont_.back()` are the same `RobotTrajectory`. Line 49 then calls
+`appendWithStrictTimeIncrease(*(res_vec.back()), *traj_tail_)`, which
+mutates it. `build()` is `const` and takes no `traj_tail_` copy, so calling
+it twice on one builder appends the tail twice — the second result carries
+the tail's waypoints duplicated, at times that
+`appendWithStrictTimeIncrease` keeps strictly increasing, so nothing
+downstream rejects it. Every earlier `build()` result aliases the same
+trajectory and changes underneath its holder as well.
+**Evidence:** a read of the control flow, plus a read of the single caller.
+`CommandListManager::solve` calls `plan_comp_builder_.reset()`
+(`src/command_list_manager.cpp:106`), then `append` in a loop, then exactly
+one `build()` (`:116`), and `reset()` clears both members — so the second
+call never happens upstream and the defect is unreached. Not
+oracle-confirmed: the oracle exposes single motion commands, not sequences,
+so it has no operation that would call `build` at all.
+**Status:** `not-reproduced`. This port's `build(mut self)` consumes the
+builder, which makes the second call not merely unreached but
+unrepresentable — the type system rejects it, so no test or future caller
+can reach the duplicated-tail state. That is strictly stronger than
+upstream's "the one caller happens not to do it".
+**Deviation:** none of `D1`..`D14` applies. Consuming `self` is the
+ownership shape Rust gives a builder whose output moves out of it; it was
+not selected to route around this defect, it removes it as a side effect.
+**Cost of not reproducing:** none. There is no oracle op and no parity test
+on the sequence path, and the reproducing behaviour has no caller upstream
+to compare against. The visible cost is on the port's API instead:
+`reset()` is not ported, because a consuming `build` means a new sequence
+is a new builder — which is what `reset()` was emulating for a builder
+held as a long-lived member.
 
 ---
 

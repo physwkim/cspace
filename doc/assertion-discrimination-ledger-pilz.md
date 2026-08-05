@@ -165,10 +165,10 @@ matched exactly.
 **This round's orphan reconciliation** (p3-acm's closing audit, re-derived
 independently per instruction rather than taken on the audit's word):
 current scan is **45**, one more than the 44 above — this crate's own
-`compute_link_fk` fix (commit `470362b`, already recorded in the `:1109`
+`compute_link_fk` fix (commit `470362b`, already recorded in the `:1129`
 row's evidence) added a new sibling test,
 `compute_link_fk_rejects_the_bare_model_frame_when_it_is_not_a_link_name`,
-whose own `eq_none` assertion (`:1148`) was never given its own row. Of
+whose own `eq_none` assertion (`:1168`) was never given its own row. Of
 the 44 pre-existing rows, 10 had drifted (unrelated intervening edits
 across several rounds shifted their citations, same test/same assert,
 confirmed by test-function-name matching, not by line number) —
@@ -186,11 +186,11 @@ in this round's instructions).
 | `trajectory_generator_ptp.rs:458` | contains_msg | `TrajectoryGeneratorPtp::new`'s joint-limit-not-set guard, one of 6 collapsed `Error::construct` sites | `constructor_rejects_missing_joint_limits` | discriminating | bite this round: `if false && !has_joint_limits` falls through to `common_limit_for` failing on an empty container — assertion correctly FAILS on "failed to compute common limit". Reverted. Cited `:449`, drifted to `:458` |
 | `trajectory_generator_ptp.rs:487` | contains_msg | same function, `joint_model_group`'s `map_err`-wrapped invalid-group site | `constructor_rejects_unknown_group` | discriminating | not locally bite-able (sole gate on an external, borrowed-return `Result` in `moveit-model`, out of this crate's fence — no fallthrough value this crate can fabricate); discrimination instead checked by message uniqueness: "invalid group" appears in none of the other five literal message templates in this function. Cited `:466`, drifted to `:487` |
 | `trajectory_generator_ptp.rs:524` | contains_msg | same function, acceleration-limit-not-set guard | `constructor_rejects_a_group_missing_an_acceleration_limit` | discriminating | bite this round: `if false && !has_acceleration_limits` falls through to the deceleration guard — assertion correctly FAILS on "deceleration limit not set for group panda_arm". Reverted. Cited `:495`, drifted to `:524` |
-| `trajectory_functions.rs:954` | eq_none | `determine_and_check_sampling_time`'s folded `n1 < 2 && n2 < 2` guard (`doc/folded-operand-guards.md` names this site) | `determine_and_check_sampling_time_needs_at_least_two_intervals_on_one_side` | discriminating, but **blind operand pair — fixed** | bite both directions (`if n1 < 2 && true`, `if true && n2 < 2`) on this fixture (n1=n2=1): both left this test green, since either operand alone already makes the guard fire on this fixture. Fixed with two new isolating tests (n1=2/n2=1 and n1=1/n2=2); re-bit both mutations against all 6 tests — each now flips exactly the matching new test to a `None`-unwrap panic, sibling stays green. Commit `a53982f`. Cited `:948`, drifted to `:954` |
-| `trajectory_functions.rs:1007` | eq_none | same function, first-trajectory interior-interval mismatch check | `determine_and_check_sampling_time_rejects_a_mismatched_interior_interval` | discriminating | bite this round: `if false && i < n1 && (...).abs() > epsilon` on the first-trajectory clause — assertion correctly FAILS, flipping from `None` to `Some(0.1)`; other 3 tests stay green. Reverted. Cited `:968`, drifted to `:1007` |
-| `trajectory_functions.rs:1109` | eq_none | `compute_link_fk`'s `knows_frame_transform` guard, collapsing with the function's own fallthrough failure | `compute_link_fk_resolves_a_known_link_and_rejects_an_unknown_one` | discriminating, but **blind — fixed** | bite this round: `if false && !knows_frame_transform(..)` left this test green — the stock panda fixture's model frame is itself a real link, so `knows_frame_transform` and `frame_transform` never disagree on it (`moveit-state/src/state.rs:825`'s documented asymmetry needs a model frame that is *not* a link name). Fixed with a new test building a synthetic floating-virtual-joint SRDF (`model_frame() == "world"`, not a link) that forces the asymmetry; bite against it confirms discrimination. Commit `470362b`. Cited `:1070`, drifted to `:1109` |
-| `trajectory_functions.rs:1148` | eq_none | `compute_link_fk`'s success-path return on the synthetic non-link-model-frame fixture — the new isolating test the `:1109` fix added | `compute_link_fk_rejects_the_bare_model_frame_when_it_is_not_a_link_name` | discriminating | this round's orphan reconciliation: this row never had its own citation — `:1109`'s row already carries its bite evidence (commit `470362b`) but only for the pre-fix test; this is that fix's own new sibling test, previously uncited |
-| `trajectory_functions.rs:1224` | eq_none | `compute_pose_ik`'s tip-frame-mismatch guard, one of 5 collapsed `None`-producing paths | `compute_pose_ik_rejects_tip_frame_mismatch` | discriminating | bite this round: `if false && solver.tip_frame() != link_name` flips this test to an actual IK solution (`Some({"panda_joint7": ..})`) while `compute_pose_ik_round_trips_a_reachable_pose` stays green. Reverted. Commit `ab8439e` (doc only). Cited `:1137`, drifted to `:1224` |
+| `trajectory_functions.rs:974` | eq_none | `determine_and_check_sampling_time`'s folded `n1 < 2 && n2 < 2` guard (`doc/folded-operand-guards.md` names this site) | `determine_and_check_sampling_time_needs_at_least_two_intervals_on_one_side` | discriminating, but **blind operand pair — fixed** | bite both directions (`if n1 < 2 && true`, `if true && n2 < 2`) on this fixture (n1=n2=1): both left this test green, since either operand alone already makes the guard fire on this fixture. Fixed with two new isolating tests (n1=2/n2=1 and n1=1/n2=2); re-bit both mutations against all 6 tests — each now flips exactly the matching new test to a `None`-unwrap panic, sibling stays green. Commit `a53982f`. Cited `:948`, drifted to `:974` |
+| `trajectory_functions.rs:1027` | eq_none | same function, first-trajectory interior-interval mismatch check | `determine_and_check_sampling_time_rejects_a_mismatched_interior_interval` | discriminating | bite this round: `if false && i < n1 && (...).abs() > epsilon` on the first-trajectory clause — assertion correctly FAILS, flipping from `None` to `Some(0.1)`; other 3 tests stay green. Reverted. Cited `:968`, drifted to `:1007` |
+| `trajectory_functions.rs:1129` | eq_none | `compute_link_fk`'s `knows_frame_transform` guard, collapsing with the function's own fallthrough failure | `compute_link_fk_resolves_a_known_link_and_rejects_an_unknown_one` | discriminating, but **blind — fixed** | bite this round: `if false && !knows_frame_transform(..)` left this test green — the stock panda fixture's model frame is itself a real link, so `knows_frame_transform` and `frame_transform` never disagree on it (`moveit-state/src/state.rs:825`'s documented asymmetry needs a model frame that is *not* a link name). Fixed with a new test building a synthetic floating-virtual-joint SRDF (`model_frame() == "world"`, not a link) that forces the asymmetry; bite against it confirms discrimination. Commit `470362b`. Cited `:1070`, drifted to `:1129` |
+| `trajectory_functions.rs:1168` | eq_none | `compute_link_fk`'s success-path return on the synthetic non-link-model-frame fixture — the new isolating test the `:1129` fix added | `compute_link_fk_rejects_the_bare_model_frame_when_it_is_not_a_link_name` | discriminating | this round's orphan reconciliation: this row never had its own citation — `:1129`'s row already carries its bite evidence (commit `470362b`) but only for the pre-fix test; this is that fix's own new sibling test, previously uncited |
+| `trajectory_functions.rs:1244` | eq_none | `compute_pose_ik`'s tip-frame-mismatch guard, one of 5 collapsed `None`-producing paths | `compute_pose_ik_rejects_tip_frame_mismatch` | discriminating | bite this round: `if false && solver.tip_frame() != link_name` flips this test to an actual IK solution (`Some({"panda_joint7": ..})`) while `compute_pose_ik_round_trips_a_reachable_pose` stays green. Reverted. Commit `ab8439e` (doc only). Cited `:1137`, drifted to `:1224` |
 | `path_line.rs:430` | contains_member | `assert!((0.0..=PI).contains(&angle))` on `get_rot_angle`'s return — a plain function, not `Result`/`Option` | `assert_get_rot_angle_round_trips` | not-this-family | census §9 clause 1 (mechanism): `angle` is a computed numeric value on the success path, not a coarse-fail signal; there is no guard to discriminate |
 | `trajectory_blender_transition_window.rs:1259` | is_empty | `blend_sample_num`'s loop bound, arithmetic from indices with no branch producing "empty" as a signal | (blend-trajectory-cartesian test) | not-this-family | census §9 clause 1 (mechanism): success-path sanity check on a normally-computed range, not an inability signal |
 | `path_rounded_composite.rs:412` | contains_msg | `PathRoundedComposite::new`'s sole rejection, non-positive `eqradius` | `new_rejects_a_non_positive_eqradius` | discriminating | bite this round: `if false && eqradius <= 0.0` lets construction succeed and `unwrap_err()` panics on an `Ok`; the other five `path_rounded_composite` rejection tests stay green. Reverted |
@@ -207,8 +207,28 @@ in this round's instructions).
 | `trajectory_blender_transition_window.rs:1345` | is_empty | `response.blend_trajectory`, already known `Ok` via `.expect(..)` one line above | (blend test) | not-this-family | census §9 clause 1 (mechanism): same shape as `:1259` — a size check on a success-path collection, not a fail/absent signal |
 | `pilz_trajectory_polyline_parity.rs:388` | is_none | `response.waypoints` — `response` is the oracle's own recorded JSON fixture, deserialized, not a value the port produced | `polyline_panda_arm_rejects_the_same_request_the_oracle_rejects` | not-this-family | census §9 clause 3 (subject): identical shape and identical argument to `pilz_trajectory_lin_parity.rs:371` and `pilz_trajectory_circ_parity.rs:378` — deleting the port call from this test would not change this assertion's outcome |
 | `pilz_trajectory_polyline_parity.rs:413` | is_none | `response.trajectory`, from `TrajectoryGeneratorPolyline::cmd_specific_request_validation`'s waypoint-count guard — one of 3 `InvalidMotionPlan` sites reachable on this call path (that guard, and `polyline_path_constraint`'s absent- and wrong-variant returns) | `polyline_panda_arm_rejects_the_same_request_the_oracle_rejects` | discriminating | bite this round: relaxed the guard to `waypoints.len() < 1` — this assertion FAILED (the one-waypoint fixture then planned) together with its property-test sibling `polyline_rejects_a_request_with_fewer_than_two_waypoints`, and no other test in the crate moved (176/178). Reverted. The other two sites are additionally excluded within the test itself: it restores the dropped waypoint as its only edit and asserts `Success`, so neither the absent- nor the wrong-variant return can be this fixture's cause |
+| `plan_components_builder.rs:467` | is_empty | `PlanComponentsBuilder::build`'s `traj_tail == None` path — the only path a builder that has never been appended to can take | `build_of_an_untouched_builder_is_empty` | not-this-family | census §9 clause 1 (mechanism): `build` returns `Ok` unconditionally when there is no tail, so there is no fail/absent signal and no sibling guard for the emptiness to be blind to. Same shape as `trajectory_blender_transition_window.rs:1345` — a size check on a success-path collection. The branch it does pin (`build` must not fabricate a container element) is bitten by the sibling `the_first_append_starts_one_container_element_that_build_flushes_the_tail_into`, whose `assert_eq!` is not a coarse-fail site |
 
-## Summary (12, then 13, now 26)
+## Summary (12, then 13, then 26, now 27)
+
+### The `PlanComponentsBuilder` round's 1 addition
+
+`plan_components_builder.rs` arrived with the `PlanComponentsBuilder` port
+and had no ledger row; `verify-orphan-enumeration.sh` reported its single
+`is_empty` site as an orphan. It is the success-path-collection shape
+already resolved once in this file (`trajectory_blender_transition_window.rs:1345`).
+
+The same run flagged 5 unresolved `trajectory_functions.rs` citations: this
+round moved `solver_tip_frame` out of `trajectory_generator_lin.rs` and into
+`trajectory_functions.rs` just above its test module, shifting all 5 by
+exactly +20. Each was re-located inside the test function its row already
+names, the same way the `trajectory_generator.rs` drift below was.
+
+Table total re-derived after the addition, by parsing the table rather than
+adding one to the previous figure: **27 rows — 14 `contains_msg`,
+5 `eq_none`, 4 `is_none`, 3 `is_empty`, 1 `contains_member`**; by verdict,
+**16 discriminating, 2 discriminating but blind and since fixed, 7
+not-this-family, 2 single-branch**.
 
 ### The `smoothness_level` doc block's 16-line drift
 
@@ -282,9 +302,9 @@ function and assertion text, not only the 10 flagged.
 mechanism — `path_line.rs:430`, `trajectory_blender_transition_window.rs:1259`
 and `:1345`; none is a coarse-fail signal). Of the 10 in-family: **8
 discriminating with no fix needed** (7 from the original round plus this
-round's new `:1148` row, itself already covered by `:1109`'s bite
+round's new `:1168` row, itself already covered by `:1129`'s bite
 evidence), and **2 were blind and are now fixed**
-(`trajectory_functions.rs:954`'s folded `n1`/`n2` guard, `:1109`'s
+(`trajectory_functions.rs:974`'s folded `n1`/`n2` guard, `:1129`'s
 model-frame/link-model asymmetry). One site
 (`trajectory_generator_ptp.rs:487`) is discriminating by message
 uniqueness rather than by live bite, for a structural reason (external,
@@ -323,8 +343,8 @@ round.
 
 ## UNFIXED (12, now 13)
 
-None. Both blind sites found that round (`trajectory_functions.rs:954`,
-`:1109`, current-tree line numbers) are fixed with new isolating tests,
-not comments. This round added one row (`:1148`) for a previously-uncited
+None. Both blind sites found that round (`trajectory_functions.rs:974`,
+`:1129`, current-tree line numbers) are fixed with new isolating tests,
+not comments. This round added one row (`:1168`) for a previously-uncited
 site and corrected 10 drifted citations; no new blind site and nothing
 UNFIXED from this round's orphan reconciliation.
