@@ -366,3 +366,123 @@ so that `git archive` exports remain checkable.
 | `tools/ci/check-test-doc-links.sh:78`, `git ls-files -- 'crates/*/tests/*.rs'` | same defect — a conflicted test file's links are checked and counted per stage | fixed, this round |
 | `tools/ci/check-test-doc-links.sh:81`, `git ls-files -- 'crates/*/*.rs' 'crates/*/**/*.rs'` | same defect — inflates the link-target namespace, which can only mask a dangling link, never create one | fixed, this round |
 | `tools/ci/check-fixture-format.sh` | distinct — filesystem glob by design, so `git archive` exports stay checkable | no action |
+
+## Silent removal at merge — the family `check-porting-plan-sections.sh` could not see
+
+A gate that checks a set for *collisions* says nothing about *absence*. That
+was the whole of `check-porting-plan-sections.sh` until this round: two
+sections claiming one number failed, a section that had stopped existing did
+not. The two are the same parallel-append shape seen from opposite sides, and
+the second one is quieter: a number that is gone leaves no artefact to trip
+over, and `git diff --stat` reports `1 file changed`.
+
+### The incident, replayed from git
+
+`8f9db1f` removed §250 from its own branch, correctly. `c1debc6` had taken the
+number the merge assigned by splicing `main[j:]`, and that slice runs to
+end-of-file, so it had carried main's §250 onto a branch that never wrote it.
+Meanwhile main kept extending §250. Merging that branch gave git a one-sided
+deletion of a block the other side had edited, and it took the deletion.
+
+Reproduced without re-running the merge:
+
+```
+git merge-tree --write-tree 10a9c13 8f9db1f     # -> tree fdb8ba6, base c1debc6
+git show fdb8ba6:PORTING-PLAN.md | rg -c '^## §250'   # -> 0
+```
+
+§250 spans lines 22685-22867 of `10a9c13:PORTING-PLAN.md`, 183 lines. In that
+raw auto-merge, **165 of them are gone with no conflict marker at all**; the
+18-line tail (22850-22867), which abuts §251, is the only part that reached
+the conflict block. A reviewer who read the conflict and resolved it would
+have shipped the other 165 without ever seeing them. The merge as committed
+(`20652c6`) does carry §250 -- it was caught by hand, which is the point:
+nothing mechanical would have.
+
+### Two designs, measured over the 2391 commits reachable at 53cce21
+
+Continuity of the number sequence is the obvious rule and it does not survive
+measurement. 222 and 223 are unassigned on main today (written without the
+section sigil throughout this subsection: `check-section-references.sh` reads
+`§N` as a citation, and a citation to an unassigned number dangles by
+definition). Declaring exactly those two and failing on any other gap:
+
+| design | fires on | what it is blind to |
+|---|---|---|
+| absence since the parent | 2 of 2391 commits — `8f9db1f` (250) and `3a8727c` (216, renumbered to §218), both genuine and both declared | nothing at `##` granularity |
+| continuity + declared gaps | 99 of 2391 commits, in 14 distinct gap shapes, 12 of them on the first-parent line of main itself | removal of the highest number, which creates no gap |
+
+The false-failure rate alone would have settled it -- a gap is the *normal*
+transient state while parallel branches take numbers out of order, so the
+declared-gap list is an exception list that has to be edited mid-round, in a
+file every branch touches. But the blindness is the disqualifying half.
+Deleting §253 from today's tree leaves the gap set at exactly the two declared
+numbers, so continuity passes. History has 234 distinct maxima, meaning every
+section is the highest one during the round that writes it: each one spends
+its most exposed period in the state continuity cannot see. §250 was catchable
+by continuity only through the accident that §251 had already landed.
+
+### The rule, and how a legitimate removal declares itself
+
+Every commit reachable from HEAD must still carry every top-level number each
+of its parents carried. Not HEAD against its parents: CI runs once per push,
+at the tip, so a removal in any earlier commit of that push is invisible to a
+one-step rule -- and `8f9db1f` was exactly such a commit.
+
+A deliberate removal says so in a commit message:
+
+```
+Plan-section-removed: <number> from <parent-sha> -- <why>
+```
+
+It names the *parent's* sha because a commit cannot know its own before it
+exists, and because on a merge the removal is relative to one specific parent
+(§250 was present in one and absent in the other). It may live in any
+reachable commit, not only the one doing the removal -- which is what lets
+`8f9db1f` and `3a8727c`, both older than this check, be declared by the commit
+that adds it, and what a merger needs, since by then the offending commit is
+already in the graph. Two-sided like the unresolvable list in
+`upstream-citation-exemptions.json`: a declaration matching no actual removal
+fails too, so this cannot accumulate permissions that outlive what they
+permitted.
+
+Environment: the check needs real history, so `ci.yml` now checks out with
+`fetch-depth: 0`. A shallow checkout is a hard failure, not a skip, because
+`git rev-list --parents -1 HEAD` in a depth-1 clone prints the commit with no
+parents at all -- the comparison would find nothing and report OK. Measured
+cost 2.5 s: 2392 commits over 2833 parent edges, 418 distinct revisions of the
+plan, each parsed once from a single `git grep '^[#`]'` (2.1 s against 8.9 s
+for decoding and splitting the blobs, verified identical on all 418).
+
+### Mutations
+
+| mutation | result |
+|---|---|
+| §250 deleted wholesale in a commit | FAIL, naming §250 and the parent, one line |
+| the same tree, with only the deletion guard neutralised | OK — nothing else in the script catches it |
+| the same tree, removal declared against that parent | OK |
+| a declaration for a removal that never happened | FAIL, "the declaration outlived what it permitted" |
+| a declaration naming a sha no reachable commit has | FAIL |
+| a past revision whose plan has no heading line at all | FAIL — a family: the parse-to-nothing message plus the 253 removals it causes, listed to 20 with the remainder counted |
+| a past revision with a fence left open after the last heading | FAIL, exclusive |
+| the whole gate run in a `--depth=1` clone | FAIL, naming `fetch-depth: 0` |
+| duplicate number / the unassigned-number placeholder unfenced in the plan / the same placeholder in another tracked file / unclosed fence / zero `##` sections, each in the working tree | FAIL, one line each — the four pre-existing guards, re-proved after the parse was factored into `scan()` |
+| the placeholder inside a fence | OK — still not a placeholder |
+
+(The placeholder token is spelled out in `check-porting-plan-sections.sh`'s
+own header and nowhere here, because the scan that finds it covers every
+tracked `.md`, and this file is one -- writing it as prose would fail the
+gate this subsection documents.)
+
+### Where this stops: sub-section numbers
+
+The rule covers `##` numbers only. Eight parent-pairs in this history lose a
+`###`/`####` number while the top-level heading survives, six of them at
+merges. All eight are renumbering, not loss, and each was checked by content
+rather than by number: `24.5` is today's `§36.5` ("남는 것"), `31.4` is
+`§35.4` ("게이트"), `174.1` is `§176.1` ("경계"), and the three separate
+branches that each numbered a subsection `226.5` have theirs at `§227.5`,
+`§228.5` and `§238.5`. So extending the rule one level down would fire on
+renumbering -- a routine merge operation, eight times in this history -- and
+would need a second declaration for it. Not built here; a silent removal at
+sub-section granularity is currently detected by nothing.

@@ -19,7 +19,17 @@ jobs:
   rust:
     runs-on: ubuntu-latest
     steps:
+      # Full history, not the default `fetch-depth: 1`.
+      # `check-porting-plan-sections.sh` compares each commit's set of
+      # top-level plan sections against its parents', which needs the parents
+      # to exist as objects. In a depth-1 checkout they do not, and
+      # `git rev-list --parents -1 HEAD` prints the commit with no parents at
+      # all -- so that check would compare nothing and report OK. It fails
+      # loudly on a shallow checkout rather than skipping, and this is what
+      # keeps it from having to.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
