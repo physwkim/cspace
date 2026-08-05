@@ -428,3 +428,31 @@ one an unmeasured sweep will over-use, so it carries the burden of proof.
 
 One commit per site-family fixed, per the repo's one-commit-per-finding
 rule. Gate with `-p <crate>` scope; name the scope in your report.
+
+## 6. Outstanding: the anchors cannot see CHOMP's convergence tests
+
+Not actionable inside this brief, recorded so it is not lost with the
+round report that found it.
+
+`moveit-planners-chomp`'s 14 anchor sites are all `single-branch`, and
+the crate is clean under this family. But its convergence and
+iteration-limit machinery — `handle_joint_limits`'s 10-pass repair loop,
+`optimize_breaks_out_immediately_when_max_iterations_after_collision_free_is_zero`,
+and the recovery-time-limit retry inside `solve` — is asserted with field
+and count checks, never with `.is_err()`, `.is_none()` or `matches!`.
+Neither anchor matches a single one of them.
+
+That machinery is exactly where the fixture-collapse defect this sweep
+keeps finding would live: an optimizer whose fixture is a single-waypoint
+or zero-cost trajectory makes "optimized correctly to a no-op" and "did
+nothing at all" the same observation, and a count check cannot tell them
+apart any better than a bare `.is_none()` can.
+
+Two fixture-collapse defects were confirmed elsewhere this round
+(`PlanningScene::clear_diffs`, and `ros/moveit-ros`'s
+`constraints_msg_is_empty`, which could be replaced by the literal `true`
+with the full 157-test docker gate still passing). Both were invisible to
+mutation of the guard and visible only by changing the fixture. Reviewing
+CHOMP's convergence tests needs a third anchor keyed on the assertion's
+*fixture*, not its shape — that is a different sweep, and this brief
+does not define it.
