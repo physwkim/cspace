@@ -646,7 +646,7 @@ made here — that script is not this fence's to edit).
 - `git merge --ff-only main` — picked up `tools/ci/count-coarse-assertions.py` (`6a14a89`) and `crates/moveit-model/src/robot_model.rs`'s p1-fixtures update
 - `python3 tools/ci/count-coarse-assertions.py crates` — 70 `contains_msg` hits, cross-checked against this round's own scanner
 - `rg -n 'assert_err_mentions' crates/` — 1 definition (`decide.rs:79`), 8 call sites, all in `decide.rs`; no per-file duplication within this fence
-- `rg -n 'exceeding' crates/moveit-trajectory/src/time_optimal_trajectory_generation.rs` — 1 occurrence, confirms `:1070/1097/1163`'s needle is globally unique in-file, not just locally
+- `rg -n 'exceeding' crates/moveit-trajectory/src/time_optimal_trajectory_generation.rs` — 1 occurrence, confirms `:1070/1097/1163`'s needle is globally unique in-file, not just locally. **Round-11 tree, past tense**: those three line numbers are long dead and the file now holds one producer (`:850`) plus four `.contains` call sites. The uniqueness this line records is the *producer's*, and that still holds — see the corrected row above, which also names what the needle cannot do (say which operand of the folded `is_finite`/bound guard fired)
 - `cargo fmt --all -- --check` — clean
 - No source changes this round (0 blind sites), so no `-p <crate>` clippy/nextest gate was owed beyond the doc-only fmt check above.
 
