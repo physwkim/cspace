@@ -331,7 +331,7 @@ matching it by coincidence, and
 `distance_gradient_truncates_inv_twice_resolution_like_upstreams_int_
 field`/`distance_gradient_multiplier_is_one_at_the_zero_boundary`/
 `distance_gradient_multiplier_is_zero_just_past_the_boundary`
-(`distance_field.rs:1190-1260`) pin it, including the `0.5`/`0.51` zero
+(`distance_field.rs:1190-1278`) pin it, including the `0.5`/`0.51` zero
 boundary. Cross-referenced in `PORTING-PLAN.md` §172.1 case 1.
 **Status:** reproduced deliberately — this is genuine parity (upstream's
 own gradient is equally truncated), not a residual bug, and this crate's
@@ -551,7 +551,7 @@ per-variable bound behaviour could be derived independently").
 
 ### `do-smoothing-length-check-operand` — `doSmoothing`'s length-check variable is misnamed and reads the wrong argument — reproduced-grandfathered
 
-**Upstream:** `moveit_core/online_signal_smoothing/src/acceleration_filter.cpp:311-312`
+**Upstream:** `moveit_core/online_signal_smoothing/src/acceleration_filter.cpp:312-313`
 (`const size_t num_positions = velocities.size(); if (num_positions != num_joints_)`),
 with the mismatch surfaced in an error message that names "the positions
 parameter" (`:314-319`) while the value actually checked is
@@ -568,7 +568,7 @@ A caller passing a wrong-length `velocities` with a correctly-sized
 misattribution verbatim (`acceleration_filter.rs:84-94`'s doc comment
 already flags it as "transcribed... rather than 'fixed'").
 **Evidence:** read of upstream source, cross-checked against the
-checked-out `moveit2` source this round (`:312-313`). Not oracle-confirmed
+checked-out `moveit2` source this round. Not oracle-confirmed
 — `tests/fixtures/acceleration_filter_{request,response}.json`'s oracle
 comparison only ever calls `do_smoothing` with correctly-matched-length
 arrays, so it does not exercise either length-check branch, let alone
@@ -613,7 +613,7 @@ joint-model order), a real joint's torque is compared against a
 *different* joint's limit — one that is fixed and therefore always
 `0.0` — which saturates the check immediately and forces `payload =
 0.0` for every input.
-**Evidence:** oracle. `tools/moveit-oracle/src/oracle.cpp:1290-1302`
+**Evidence:** oracle. `tools/moveit-oracle/src/oracle.cpp:1302-1314`
 (the `dynamics()` endpoint's doc comment) states the same mechanism
 independently, naming the same two upstream sites and the same
 `right_arm`/`r_upper_arm_joint`/`r_elbow_flex_joint` example. The
@@ -667,7 +667,7 @@ no test here constructs a `NaN` cost or AABB bound.
 [`f64::total_cmp`] instead of a bare `<`/`>` chain, specifically to give a
 total order for every bit pattern including `NaN`. This was written as a
 "Deviation from upstream" in-code but has no `D`-number in `PORTING-PLAN.md`
-(searched for `CostSource`/`NaN`/`total_cmp`/`operator<` near the `D1`..`D25`
+(searched for `CostSource`/`NaN`/`total_cmp`/`operator<` near the `D1`..`D14`
 list; none matched) — flagging that gap here rather than assigning one
 myself.
 **Cost of not reproducing:** none measured to date — well-formed geometry
@@ -724,7 +724,7 @@ for either scenario.
 
 **Upstream:** `moveit_planners/pilz_industrial_motion_planner/src/path_polyline_generator.cpp:60-85`
 (`PathPolylineGenerator::filterWaypoints`). `last_added_point_indx` starts
-at `-1` and is incremented once per *kept* waypoint (`:80`), while the
+at `-1` and is incremented once per *kept* waypoint (`:82`), while the
 `last_point` lambda (`:71`) reads `waypoints[last_added_point_indx]` — an
 index into the *input* vector.
 **Port:** `crates/moveit-planners-pilz/src/path_polyline_generator.rs`,
@@ -1021,7 +1021,7 @@ reader.
 
 ### `save-cache-empty-path-guard-falls-through` — `saveCache`'s uninitialized-path guard logs and then runs the write anyway, subscripting a cache the guard implies is empty — not-reproduced
 
-**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:224-257`,
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:224-258`,
 the guard at `:226-227`, verified at the pinned `e017c91e`.
 **Port:** `crates/moveit-kinematics/src/ik_cache.rs`, `IkCache::save`.
 **Symptom:** `if (cache_file_name_.empty()) RCLCPP_ERROR(getLogger(), "can't
@@ -1488,7 +1488,7 @@ the static type of the expression:
   all-valid override sets only `res.collision = false`,
   `collision_env_allvalid.cpp:108-112`), and returns
   `res.minimum_distance.distance`, still at `DistanceResultsData::clear()`'s
-  `std::numeric_limits<double>::max()` (`collision_common.hpp:356`, reset at
+  `std::numeric_limits<double>::max()` (`collision_common.hpp:263`, reset at
   `:286`).
 
 `0.0` and `max()` are not two spellings of one answer — for a backend whose
