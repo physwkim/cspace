@@ -361,14 +361,18 @@ fn validate_recovery_time_limit(planning_time_limit: f64) -> Result<i32> {
 /// (see [`ChompGoal`]'s doc comment for the position/orientation-rejection
 /// half of upstream's check, which this port makes structural instead).
 /// [`MoveItErrorCode::PlanningFailed`] if the optimizer fails to
-/// initialize, or if `trajectory_initialization_method` is not one of
-/// [`crate::parameters::VALID_INITIALIZATION_METHODS`] -- upstream itself
-/// leaves `res.error_code` **unset** on these two specific paths
+/// initialize -- upstream sets `PLANNING_FAILED` explicitly on this path
+/// (`chomp_planner.cpp:211`).
+/// [`MoveItErrorCode::Failure`] if `trajectory_initialization_method` is
+/// not one of [`crate::parameters::VALID_INITIALIZATION_METHODS`], the
+/// `"fillTrajectory"` method's required seed trajectory is missing, or
+/// `fill_in_from_trajectory` reports fewer than two points -- upstream
+/// leaves `res.error_code` **unset** on all three of these paths
 /// (`chomp_planner.cpp:151-169`; no `res.error_code.val = ...` assignment
-/// on either branch, unlike every other failure branch in this function),
-/// an upstream gap this port does not reproduce as "leave the error
-/// unspecified": [`MoveItErrorCode::Failure`] is used instead, matching the
-/// same "no code was actually set upstream" fallback
+/// on any of the three branches, unlike every other failure branch in
+/// this function), an upstream gap this port does not reproduce as "leave
+/// the error unspecified": [`MoveItErrorCode::Failure`] is used instead,
+/// matching the same "no code was actually set upstream" fallback
 /// `moveit-planners-pilz::trajectory_generator`'s `failure` helper already
 /// uses for the same situation.
 /// [`MoveItErrorCode::InvalidMotionPlan`] if the optimizer does not report
