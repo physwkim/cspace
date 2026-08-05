@@ -498,12 +498,33 @@ def main():
                 # exactly that shape, discovered by spot-reading this
                 # script's own output against a citation this round's fixes
                 # had just corrected.
-                in_span = all(
-                    any(start <= ln <= end for name in anchors for (start, end, _is_test) in spans[name])
+                owned = [
+                    ln
                     for ln in cited_lines
-                )
-                if in_span:
+                    if any(
+                        start <= ln <= end
+                        for name in anchors
+                        for (start, end, _is_test) in spans[name]
+                    )
+                ]
+                if len(owned) == len(cited_lines):
                     anchor_verified += 1
+                elif owned and m.group(4) is not None:
+                    # A comma list is an ENUMERATION, and a row that
+                    # enumerates names the tests it discusses, not one per
+                    # cited line: `p9-ros.md:323` cites all 11 of
+                    # `scene/collision_object.rs`'s assertion sites and names
+                    # the two whose citation that round corrected, `:326`
+                    # cites 3 and names 1. Every one of those 14 lines is an
+                    # exact current `count-coarse-assertions.py` site, so
+                    # demanding all 11 sit inside the 2 named tests failed
+                    # citations that were right. Partial containment is the
+                    # census shape and carries no drift signal either way, so
+                    # it drops to bounds-only rather than passing or failing.
+                    # ZERO containment stays a failure -- that is what caught
+                    # `p1-robotmodel.md:825`, whose 2 cited lines were in
+                    # neither named test.
+                    bounds_only += 1
                 else:
                     anchor_mismatch.append(
                         (md, line_no, fname_part, cited_lines, anchors, resolved_path, spans)
