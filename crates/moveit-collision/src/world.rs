@@ -986,6 +986,15 @@ mod tests {
         assert_eq!(world.get_object("box").unwrap().shapes()[0].pose(), before);
     }
 
+    #[test]
+    fn move_shapes_in_object_unknown_object_is_none() {
+        // Zero poses: an auto-vivified empty object would also have zero
+        // shapes, so this can only return `None` via the object-missing
+        // guard, not incidentally via the count-mismatch guard too.
+        let mut world = World::new();
+        assert!(world.move_shapes_in_object("box", &[]).is_none());
+    }
+
     // --- move_object ---
 
     #[test]
@@ -1114,6 +1123,8 @@ mod tests {
                 &[Isometry3::identity()],
             )
             .unwrap();
+        // Value-equal but a distinct `Arc`: `remove_shape_from_object` matches
+        // by `Arc` identity, so this must miss even though it looks the same.
         let other_shape = sphere(1.0);
         assert!(
             world
