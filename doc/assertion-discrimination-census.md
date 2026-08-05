@@ -617,7 +617,7 @@ and classifies nothing. Its grammar is deliberately wider — `matches`,
 `eq_err` — and it masks comments, strings and raw strings before matching,
 so it sees multi-line assertions that a line-based `rg` cannot.
 
-**687 candidate sites** over `crates/`, `ros/` and `tools/`: 679 in test
+**686 candidate sites** over `crates/`, `ros/` and `tools/`: 678 in test
 scope, 8 in `src` scope. Nine further hits are assertion-helper *bodies*
 (scope `helper_body`) and are excluded from that total; their 35 call
 sites are counted instead, as kind `via:<fn>`. See §9e for why that
@@ -625,14 +625,14 @@ distinction is worth the machinery.
 
 | kind | sites | | kind | sites |
 |---|---:|---|---|---:|
-| `contains` | 170 | | `eq_err` | 37 |
-| `is_none` | 120 | | `eq_none` | 36 |
-| `is_empty` | 105 | | `via:<fn>` | 35 |
-| `matches` | 88 | | `is_some` | 27 |
-| `is_err` | 86 | | (two kinds on one site) | 17 |
+| `contains` | 170 | | `via:<fn>` | 35 |
+| `is_none` | 120 | | `eq_none` | 32 |
+| `is_empty` | 105 | | `is_some` | 27 |
+| `matches` | 88 | | `eq_err` | 23 |
+| `is_err` | 86 | | (two kinds on one site) | 0 |
 
-This figure superseded an earlier 655 twice, and both revisions were the
-instrument getting *less* clever rather than more:
+This figure superseded an earlier 655 three times, and every revision was
+the instrument getting *less* clever rather than more:
 
 - Helper bodies and their call sites (`ccac7ea`). 655 counted five copies
   of `assert_err_mentions`'s own `assert!` as five sites and none of the
@@ -647,8 +647,19 @@ instrument getting *less* clever rather than more:
   depends on the receiver's *type*, and the instrument has no types. It
   now emits one kind and leaves the call to §9 clause 1, where every
   other kind's membership is already decided by reading.
+- `None` and `Err(..)` count only as an *operand* of an equality macro.
+  The rule used to scan the whole assertion body for a comma-`None`, so
+  it fired on `assert!(tree.insert_ray(origin, end, None, false))`
+  (`moveit-octomap/src/tree.rs:1781`) — `None` is `max_range`, an argument
+  handed to the code under test, not a value asserted about. `p1-fixtures`
+  found that one by reading a hit rather than deducting from a total.
 
-**687 is not a corrected 289 and the two must never be subtracted.** They
+That last correction is why the "two kinds on one site" row is now zero
+where it was 17. Every one of those 17 was `assert!(matches!(x, Err(..)))`
+picking up a spurious second tag; the sites themselves were never at risk,
+and only `tree.rs:1781` left the census entirely.
+
+**686 is not a corrected 289 and the two must never be subtracted.** They
 are different grammars over scopes that were never stated to be the same.
 The number's use is as a *ceiling* the sweep can audit against, and as the
 first figure in this document anyone else can reproduce. It is a generous
@@ -701,7 +712,7 @@ Read 267/292 for exactly what it is. It is the count of assertion sites,
 inside one instrument's grammar, that this sweep judged to be about a
 coarse-fail signal produced by a written decision in the code under test.
 It is **not** a claim that 267 assertions discriminate — that is the
-per-row verdict column, not this ratio — and §9c's 655 shows the grammar
+per-row verdict column, not this ratio — and §9c's 686 shows the grammar
 itself is a floor. The 25 exclusions concentrate in two shapes worth
 naming, since between them they account for 20 of the 25:
 

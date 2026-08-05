@@ -203,7 +203,25 @@ def arg_span(masked, open_paren):
     return len(masked)
 
 
-def classify(body):
+def top_level_args(body):
+    """`body` is `(a, b, c)` -- return the arguments at depth 1 only, so a
+    comma inside a nested call is not mistaken for an operand separator."""
+    args, depth, start = [], 0, 1
+    for i, c in enumerate(body):
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                args.append(body[start:i])
+                break
+        elif c == "," and depth == 1:
+            args.append(body[start:i])
+            start = i + 1
+    return args
+
+
+def classify(macro, body):
     kinds = []
     if re.search(r"\bmatches!\s*\(", body):
         kinds.append("matches")
@@ -215,10 +233,15 @@ def classify(body):
         # tests collection membership is a fact about the receiver's TYPE,
         # which no regex can see. See this file's header.
         kinds.append("contains")
-    if re.search(r",\s*None\s*[,)]?\s*$", body) or re.search(r",\s*None\s*,", body):
-        kinds.append("eq_none")
-    if re.search(r",\s*Err\s*\(", body):
-        kinds.append("eq_err")
+    # `None` / `Err(..)` count only as an OPERAND of an equality macro. A
+    # bare `assert!(tree.insert_ray(a, b, None, false))` passes None as an
+    # argument to the code under test and asserts nothing about it.
+    if macro in ("assert_eq", "assert_ne", "debug_assert_eq"):
+        for arg in top_level_args(body):
+            if re.fullmatch(r"\s*None\s*", arg):
+                kinds.append("eq_none")
+            elif re.match(r"\s*Err\s*\(", arg.strip()):
+                kinds.append("eq_err")
     return kinds
 
 
@@ -264,7 +287,7 @@ def scan(path):
         open_paren = masked.index("(", m.end() - 1)
         end = arg_span(masked, open_paren)
         body = masked[open_paren : end + 1]
-        kinds = classify(body)
+        kinds = classify(m.group(1), body)
         if not kinds:
             continue
         line = masked.count("\n", 0, m.start()) + 1
