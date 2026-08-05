@@ -389,7 +389,7 @@ per-variable bound behaviour could be derived independently").
 
 ### 13. `doSmoothing`'s length-check variable is misnamed and reads the wrong argument — reproduced-grandfathered
 
-**Upstream:** `moveit_core/online_signal_smoothing/src/acceleration_filter.cpp:312-313`
+**Upstream:** `moveit_core/online_signal_smoothing/src/acceleration_filter.cpp:311-312`
 (`const size_t num_positions = velocities.size(); if (num_positions != num_joints_)`),
 with the mismatch surfaced in an error message that names "the positions
 parameter" (`:314-319`) while the value actually checked is
