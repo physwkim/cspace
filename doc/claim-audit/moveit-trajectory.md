@@ -163,7 +163,7 @@ report time.
 | `src/time_optimal_trajectory_generation.rs:308-319` | TYPE_A: `MAX_RESAMPLE_SAMPLE_COUNT` bound is not redundant with the ctor check (duration only known at consumption time); "upstream has none" | CONFIRMED | `cpp:1245-1268` — `sample_count` computed and used directly in the resample loop with no cap anywhere in the function | (uncommitted) |
 | `src/time_optimal_trajectory_generation.rs:332-338` | TYPE_A: `DEFAULT_TIMESTEP` (`cpp:53`) is distinct from `crate::trajectory::VELOCITY_SWITCHING_SCAN_STEP`; "**they share a value only because both upstream authors independently picked `1e-3`**" | **EXPIRED** | Verified myself directly: upstream defines `DEFAULT_TIMESTEP` exactly **once** (`cpp:53`, anonymous namespace) and reuses that single symbol both as the switching-point scan step (`cpp:522,525,541`, the function `VELOCITY_SWITCHING_SCAN_STEP` ports) **and** as the argument passed to `Trajectory::create` (`cpp:1237`, the value this file's own `DEFAULT_TIMESTEP` ports). One constant reused at two call sites, not two independently-chosen values — this directly contradicts (and is contradicted by) `crates/moveit-trajectory/src/trajectory.rs:33-45`'s own doc comment, which correctly attributes `VELOCITY_SWITCHING_SCAN_STEP` to the same upstream `DEFAULT_TIMESTEP` symbol. **This is the one EXPIRED claim in this file most likely to need a doc fix**, since it makes an affirmatively false statement about upstream's authorship rather than just an imprecise citation | `9134ddd` |
 | `src/time_optimal_trajectory_generation.rs:341-342` | TYPE_A: `DEFAULT_SCALING_FACTOR`, `cpp:55` | CONFIRMED | `cpp:55` — `constexpr double DEFAULT_SCALING_FACTOR = 1.0;` | (uncommitted) |
-| `src/time_optimal_trajectory_generation.rs:423-424,505-506` | TYPE_A: function-boundary citations — scaling-only overload = `cpp:924-1004`; explicit-limits overload = `cpp:1029-1135` | CONFIRMED | Both ranges verified exact (signature line to closing brace) | (uncommitted) |
+| `src/time_optimal_trajectory_generation.rs:473-530,548-621` | TYPE_A: function-boundary citations — scaling-only overload (`compute_time_stamps`) = `cpp:924-1004`; explicit-limits overload (`compute_time_stamps_with_limits`) = `cpp:1029-1135` | CONFIRMED (citation re-derived this round; port-side range was `:423-424,505-506`, which drifted onto the unrelated `resample_dt` getter and an inner block of `compute_time_stamps` after intervening lines were inserted) | Both ranges verified exact (signature line to closing brace) | (uncommitted) |
 | `src/time_optimal_trajectory_generation.rs:596-615` | TYPE_A: `totgComputeTimeStamps` = `cpp:1137-1160`; `num_waypoints < 2` check at `cpp:1147-1151`; upstream's first `computeTimeStamps` call inside it (`cpp:1154`) discards its `bool` return value entirely, while the port propagates that first call's `Err` instead | CONFIRMED | All ranges verified exact; `cpp:1154` — `default_totg.computeTimeStamps(trajectory, ...)`, return value discarded as a statement-expression | (uncommitted) |
 | `src/time_optimal_trajectory_generation.rs:671-686` | TYPE_A: `validateGroup` inlined at `cpp:931-936` per overload; `computeJointVariableIndices(...)` call at `cpp:945-946/1053` | CONFIRMED | Both citations verified exact | (uncommitted) |
 | `src/time_optimal_trajectory_generation.rs:704-706,715-717` | TYPE_A: `verifyScalingFactor` = `cpp:1290-1312`; `hasMixedJointTypes` = `cpp:1273-1288` | CONFIRMED | Both spans verified exact (signature to closing brace) | (uncommitted) |
@@ -196,9 +196,13 @@ report time.
 
 ## Cross-crate finding — not fixed, `moveit-planning` is `p1-fixtures`' crate
 
-`crates/moveit-planning/src/response_adapters/add_time_optimal_parameterization.rs:91`
+`crates/moveit-planning/src/response_adapters/add_time_optimal_parameterization.rs:113`
+(citation re-derived this round; was `:91`, which had drifted onto a blank
+doc-comment line inside `new`'s header after intervening lines were
+inserted above the real store site)
 (`AddTimeOptimalParameterization::new`) stores its `resample_dt: f64` argument
-with no validation, and `:117` passes that unvalidated value straight into
+with no validation, and `:136` (was `:117`, the `impl` block's closing brace,
+not the pass-through site) passes that unvalidated value straight into
 [`apply_totg_time_parameterization`](../../crates/moveit-trajectory/src/trajectory_tools.rs)
 at `adapt()`'s call site. This is the same §172-family dual-meaning problem
 `TotgOptions::resample_dt` had before this round's structural fix
