@@ -42,11 +42,11 @@ and/or isolating mutation run this round, reverted after confirming).
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `time_optimal_trajectory_generation.rs:1038` | `TotgOptions::with_resample_dt` combined guard | `resample_dt_zero_is_rejected_not_hung` | single-branch | commit `52e38a3` (structural: `resample_dt` made `pub(crate)`, settable only through this one validating builder — no other construction path exists) — line corrected round 17, was `:1030` |
-| `time_optimal_trajectory_generation.rs:1043` | same | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | commit `52e38a3` |
-| `time_optimal_trajectory_generation.rs:1120` | same | `resample_dt_nan_is_rejected` | single-branch | commit `52e38a3` — line corrected round 17, was `:1112` |
-| `time_optimal_trajectory_generation.rs:1125` | same | `resample_dt_positive_infinity_is_rejected` | single-branch | commit `52e38a3` |
-| `time_optimal_trajectory_generation.rs:1136` | same | `resample_dt_negative_infinity_is_rejected` | single-branch | commit `52e38a3` |
+| `time_optimal_trajectory_generation.rs:1043` | `TotgOptions::with_resample_dt` combined guard | `resample_dt_zero_is_rejected_not_hung` | single-branch | commit `52e38a3` (structural: `resample_dt` made `pub(crate)`, settable only through this one validating builder — no other construction path exists) — re-derived this round to the `assert!` line; was `:1038` (a `///` line of the test's own doc comment), and `:1030` before round 17 |
+| `time_optimal_trajectory_generation.rs:1056` | same | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | commit `52e38a3` — re-derived this round; was `:1043`, which round 17 left behind when it corrected only rows 1 and 3 of this block |
+| `time_optimal_trajectory_generation.rs:1125` | same | `resample_dt_nan_is_rejected` | single-branch | commit `52e38a3` — re-derived this round to the `assert!` line; was `:1120` (a `///` line), and `:1112` before round 17 |
+| `time_optimal_trajectory_generation.rs:1138` | same | `resample_dt_positive_infinity_is_rejected` | single-branch | commit `52e38a3` — re-derived this round; was `:1125`, left behind by round 17 as row 2 was |
+| `time_optimal_trajectory_generation.rs:1149` | same | `resample_dt_negative_infinity_is_rejected` | single-branch | commit `52e38a3` — re-derived this round; was `:1136` (the `fn` line), left behind by round 17 as rows 2 and 4 were |
 | `crates/moveit-trajectory/tests/robot_trajectory.rs:484` | `add_suffix_way_point`'s empty+nonzero-dt guard | `add_suffix_way_point_on_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard (`if false && ...`) → test failed; reverted |
 | `crates/moveit-trajectory/tests/robot_trajectory.rs:532` | `set_way_point_duration_from_previous`'s index-0 guard | `set_way_point_duration_from_previous_at_zero_rejects_a_nonzero_value` | single-branch | bite: neutralized guard → test failed; reverted |
 | `crates/moveit-trajectory/tests/robot_trajectory.rs:550` | `append`'s empty+nonzero-dt guard | `append_onto_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard → test failed; reverted |
