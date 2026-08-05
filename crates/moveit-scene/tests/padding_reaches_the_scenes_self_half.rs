@@ -42,7 +42,7 @@
 //! environment and (b) goes through [`PlanningScene::check_collision`] rather
 //! than the backend directly. This workspace has none today; upstream's one
 //! `move_group`-reachable unpadded caller,
-//! `PlanExecution::isRemainingPathValid` (`plan_execution.cpp:268-300`), is
+//! `PlanExecution::isRemainingPathValid` (`plan_execution.cpp:268-353`), is
 //! not ported. If that caller arrives, the fix is for *it* to pass its own
 //! unpadded environment -- `let mut u = env.clone(); *u.padding_scale_mut() =
 //! LinkPaddingScale::default();`, which shares the world's `Arc<Object>`
