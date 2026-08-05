@@ -231,8 +231,9 @@
 //! - `setRedundantJoints`/`getRedundantJoints` — unused by
 //!   `KDLKinematicsPlugin`, which never calls into redundant-joint
 //!   handling; no consumer in this port.
-//! - `supportsGroup` — upstream's own base implementation is "this group is
-//!   a chain and its tip is my tip"; `setFromIK` calls it only to decide
+//! - `supportsGroup` — upstream's base implementation tests `jmg->isChain()`
+//!   and nothing else (`kinematics_base.cpp:142-155`), and no plugin under
+//!   `moveit_kinematics/` overrides it; `setFromIK` calls it only to decide
 //!   whether to divert a multi-tip request to `setFromIKSubgroups`
 //!   (`robot_state.cpp:1836-1866`). [`fn@set_from_ik`] makes that decision from
 //!   [`KinematicsSolver::tip_frames`]`().len()` directly, so the predicate

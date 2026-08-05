@@ -83,11 +83,14 @@
 //!    [`KinematicsSolver`]'s own `# Deviations`, item 1), so [`set_from_ik`]
 //!    rejects a solver reporting more than one
 //!    [`KinematicsSolver::tip_frames`] entry rather than silently using only
-//!    the first. That is upstream's own arrangement too: `KDLKinematicsPlugin`
-//!    — the solver this crate ports — fails `supportsGroup` for a multi-tip
-//!    group, which is exactly the branch that sends upstream into
-//!    `setFromIKSubgroups` (`robot_state.cpp:1836-1866`).
-//!    [`set_from_ik_subgroups`] is that branch, ported.
+//!    the first. That is upstream's own arrangement too, though by a
+//!    shorter route than the plugin: `KDLKinematicsPlugin` — the solver
+//!    this crate ports — does not override `supportsGroup`, so a multi-tip
+//!    group reaches `KinematicsBase`' inherited one and fails it on
+//!    `jmg->isChain()` alone (`kinematics_base.cpp:142-155`). That failure
+//!    is exactly the branch that sends upstream into `setFromIKSubgroups`
+//!    (`robot_state.cpp:1836-1866`), and [`set_from_ik_subgroups`] is that
+//!    branch, ported.
 //!
 //! 5. **Consistency limits are one flat slice, not a vector of sets.**
 //!    Upstream takes `vector<vector<double>>` and then rejects any size
