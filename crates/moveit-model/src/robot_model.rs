@@ -1978,11 +1978,46 @@ mod tests {
         assert_eq!(mimic.offset, 1.6);
     }
 
+    /// `mimic_chain_urdf` always leaves j1 without a `<mimic>` tag, so
+    /// `j1.mimic().is_none()` would hold whether the cycle-clear scoped to
+    /// the whole model or only to j2/j3: it never had anything to clear.
+    /// This fixture instead gives j1 a real mimic on j4, a joint entirely
+    /// outside the j2<->j3 cycle, so the "whole model, not just the cycle"
+    /// claim on `Diagnostic::MimicCycle` has a joint whose clearing is
+    /// actual evidence rather than vacuously true.
     #[test]
     fn mimic_mutual_cycle_clears_every_mimic_in_the_model() {
-        let urdf = mimic_chain_urdf(
-            r#"<mimic joint="j3" multiplier="1.0" offset="0.0"/>"#,
-            r#"<mimic joint="j2" multiplier="1.0" offset="0.0"/>"#,
+        let urdf = format!(
+            r#"<robot name="test">
+                <link name="base"/>
+                <link name="mid"/>
+                <link name="mid2"/>
+                <link name="tip"/>
+                <link name="tip2"/>
+                {j1}
+                {j2}
+                {j3}
+                {j4}
+            </robot>"#,
+            j1 = revolute_joint(
+                "j1",
+                "base",
+                "mid",
+                r#"<mimic joint="j4" multiplier="1.0" offset="0.0"/>"#
+            ),
+            j2 = revolute_joint(
+                "j2",
+                "mid",
+                "mid2",
+                r#"<mimic joint="j3" multiplier="1.0" offset="0.0"/>"#
+            ),
+            j3 = revolute_joint(
+                "j3",
+                "mid2",
+                "tip",
+                r#"<mimic joint="j2" multiplier="1.0" offset="0.0"/>"#
+            ),
+            j4 = revolute_joint("j4", "tip", "tip2", ""),
         );
         let model = build(&urdf, FIXED_BASE_SRDF).expect("builds");
 
@@ -1990,6 +2025,7 @@ mod tests {
         assert!(model.joint_model("j1").unwrap().mimic().is_none());
         assert!(model.joint_model("j2").unwrap().mimic().is_none());
         assert!(model.joint_model("j3").unwrap().mimic().is_none());
+        assert!(model.joint_model("j4").unwrap().mimic().is_none());
     }
 
     #[test]
