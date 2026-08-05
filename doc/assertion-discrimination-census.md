@@ -653,3 +653,110 @@ from the scan output alone. It is not. The test's own doc comment records
 the mutation — the sibling overflow guard's message never contains that
 text, so the shared needle still names one branch. The scan output is the
 question, never the verdict.
+
+### 9d. The denominator closes: 267 in-family of 292
+
+`p3-acm` landed its §9 pass over all 89 rows (`311169b`, merged
+`fd3bada`): **81 in-family**, `moveit-collision` 47/50 and
+`moveit-geometry` 34/39. That was the last unclassified set, so §9b's
+bound collapses to a figure:
+
+| ledger | rows | in-family | not-this-family |
+|---|---:|---:|---:|
+| `p1-robotmodel` | 55 | 51 | 4 |
+| `p9-ros` | 67 | 58 | 9 |
+| `pilz` | 32 | 30 | 2 |
+| `p1-fixtures` | 49 | 47 | 2 |
+| `p3-acm` | 89 | 81 | 8 |
+| **total** | **292** | **267** | **25** |
+
+**267 of 292.** Not 139/289, not 186/203, and not a bound — every row in
+every ledger has now had all three clauses applied by the panel that owns
+it. No verdict (`discriminating` / `single-branch` / `fixture-collapse-
+fixed` / `joint-collapse`) changed in any of the three §9 passes: family
+membership is a prior and separate question, and a row can be correctly
+`discriminating` and still not be this family.
+
+Read 267/292 for exactly what it is. It is the count of assertion sites,
+inside one instrument's grammar, that this sweep judged to be about a
+coarse-fail signal produced by a written decision in the code under test.
+It is **not** a claim that 267 assertions discriminate — that is the
+per-row verdict column, not this ratio — and §9c's 655 shows the grammar
+itself is a floor. The 25 exclusions concentrate in two shapes worth
+naming, since between them they account for 20 of the 25:
+
+- **clause 1, success-path values** (`bodies.rs:4328/4332/4340/4347`,
+  `scene.rs:2150`): the assertion checks *which* thing was built on a path
+  that always succeeds. Computed dispatch, not a failure signal.
+- **clause 2, no decision to be wrong about** (`matrix.rs:517`,
+  `octomap_filter.rs:381`, `shapes.rs:1962`,
+  `constraint_sampler_manager.rs:172`): a fresh map, a field with zero
+  assignment sites, a literal-initialized value, an accumulator no step
+  touched. Nothing in the subject decided anything, so no mutation there
+  could exercise a wrong implementation.
+
+The clause-2 line is finer than it looks, and `matrix.rs` carries both
+sides of it in one file: `:517` reads `default_entry("a")` on a
+freshly-`new()`ed matrix (out — no antecedent setter, nothing decided),
+while `:737` reads the same getter after `clear()` (in — commenting out
+`self.defaults.clear()` fails `:737`'s test alone, 198/199, confirmed at
+the merge). Same method, same assertion shape, opposite membership,
+settled by running a mutation rather than by arguing from the signature.
+
+### 9e. The instrument undercounts wherever a helper renders the error
+
+`p9-ros` ran the first wide-grammar pass (`207a297`, merged `2dd3169`) and
+its deliverable is the count, not the findings: **62 sites in `ros/`, where
+this document's brief had quoted 41. Zero colliding needles.**
+
+The arithmetic, reproduced at the merge:
+
+| | |
+|---|---:|
+| `count-coarse-assertions.py ros` | 72 |
+| of those, outside the `matches!`/`.is_err()`/`.is_none()` grammar | 44 |
+| minus `assert_err_mentions` helper *bodies* (5 copies, one per file) | 39 |
+| plus `assert_err_mentions` *call sites*, invisible to the tool | 23 |
+| **real total** | **62** |
+
+Both corrections are structural, not clerical, and they cut in opposite
+directions. The tool counts the helper's own `assert!(rendered.contains(
+needle), ...)` line once per file — five hits that are one assertion
+*mechanism*, not five assertion sites. And the 23 call sites it cannot see
+at all: `assert_err_mentions` renders on one line and asserts on the next,
+so the 60-byte lookback that separates `contains_msg` from
+`contains_member` finds no rendering call and files the site as neither.
+The instrument's own header states this limit; the brief quoting 41 did
+not apply it.
+
+The quoted 41 was also measured before `f0855c5` merged, which added five
+sites of `p9-ros`'s own already-bite-checked tests. **Two independent
+errors in one number, and the panel found both by re-measuring rather than
+reconciling** — the same lesson §8 recorded when 288 turned out never to
+have been `main`'s figure.
+
+Counting call sites of a helper by hand is its own trap: `rg -c` merges
+same-line hits, and of the 24 non-definition occurrences of
+`assert_err_mentions` in `ros/`, one (`scene/attached.rs:441`) is inside a
+comment. 23 is right; the naive occurrences-minus-definitions arithmetic
+gives 24.
+
+**Zero collisions** means no needle in `ros/` is also a substring of a
+sibling branch's message. Spot-verified at the merge on `state.rs`, which
+holds 11 of the 23 call sites: `"JointState.position has length"` comes
+only from `set_parallel_array`'s length guard (`:74`), and the wrapper at
+`:85` renders `"JointState.{field}: {e}"` — a colon where the other has
+` has`, so neither is a prefix of the other; the three
+`"JointState.{field}: no variable named"` needles separate by field name.
+The four sites sharing `"multi_dof_joint_state has no core
+representation"` are one guard with four operands, not four branches —
+they are separated by the four isolating mutations in `0148392`, not by
+the needle, which is the correct division of labour between a needle and a
+mutation.
+
+One latent risk is recorded unfixed and should stay that way:
+`scene/collision_object.rs:1089` has two physical call sites inside
+`apply_move` sharing one message, and only one is reachable by the current
+fixture — so there is nothing live to bite-check today, and a fix would be
+a guess. A future edit touching `mv.pose` in that test would misattribute
+the failure.
