@@ -550,7 +550,7 @@ four `Error::Construct` sites, in-code bite-checked at each site
 |---|---|---|---|
 | `ruckig_filter.rs:388` | `acceleration limit defined` | discriminating | message-swap bite-checked against the sibling single-DOF/velocity/jerk guards |
 | `ruckig_filter.rs:530` | `planar_joint` AND `3` | discriminating | same shape as `acceleration_filter.rs:525` |
-| `ruckig_filter.rs:604` | `must each have length` | discriminating | message-swap bite-checked against the sibling ruckig-update-failure site |
+| `ruckig_filter.rs:613` | `must each have length` | discriminating | Renumbered twice (`:539` → `:604` → `:613`; the last shift is Round 6's `:289` comment fix, +9). The "message-swap bite-checked against the sibling ruckig-update-failure site" this row used to claim was never possible: that sibling (`:289`) is unreachable under `Ruckig<0, IgnoreErrorHandler>`, whose handlers return `Ok(())` unconditionally, so `update()` cannot return `Err` — see p1-fixtures' Round 6 section. The verdict survives on the needle instead: `do_smoothing`'s own guard (`:268`) is the only reachable producer on this call path. |
 
 **`moveit-srdf/tests/boundaries.rs`** — `SrdfModel::parse_str`'s two
 `Error::Parse` sites, already discriminated by p1-joints this session

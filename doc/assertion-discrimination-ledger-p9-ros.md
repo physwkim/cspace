@@ -496,7 +496,7 @@ sequence of the function each test actually calls:
 | `moveit-planners-pilz/src/path_circle.rs:590` | `"colinear"` | CLEAN | `PathCircle::new`'s only colinear-text guard is its own (`:293`); `circle_from_interim`'s (`:187`) belongs to a different, uncalled function. |
 | `moveit-planners-stomp/src/filter_functions.rs:314` | `"world_joint"` | CLEAN | Data value (a joint name), not branch-selection text; pre-existing doc comment already documents this as the loop's only guard. |
 | `moveit-smoothing/src/butterworth.rs:162,200` | `"scale_term_"`/`"feedback_term_"` | CLEAN | One producer each. |
-| `moveit-smoothing/src/ruckig_filter.rs:604` | `"must each have length"` | CLEAN | `do_smoothing`'s own guard (`:268`); identical text in `reset` (`:331`, uncalled from `do_smoothing`) and `AccelerationFilter` (different struct entirely) is unreachable from this test's call path. |
+| `moveit-smoothing/src/ruckig_filter.rs:613` | `"must each have length"` | CLEAN | `do_smoothing`'s own guard (`:268`); identical text in `reset` (`:331`, uncalled from `do_smoothing`) and `AccelerationFilter` (different struct entirely) is unreachable from this test's call path. |
 | `moveit-srdf/tests/boundaries.rs:55` | `"robot"` | CLEAN | Already fixed and merged this session (`83f8ea0`, p1-joints, prior round) — re-confirmed, not re-fixed. |
 | `moveit-constraints/tests/sampler.rs:78,120` | `"panda_joint1"`/`"panda_arm"` | CLEAN | `JointConstraintSampler::new`'s 2 guards format disjoint data (joint name vs. group name); neither substring appears in the other's message. |
 | `moveit-distance-field/src/voxel_grid.rs:512` | `"size.y"` | CLEAN | Already resolved in this ledger's own §11 sweep; not re-derived, only reused. |
@@ -530,7 +530,7 @@ from an unchecked one:
 - **Zero collisions in `moveit-planners-stomp`.** 1 site
   (`filter_functions.rs:314`), checked above.
 - **Zero collisions in `moveit-smoothing`.** 11 sites; the 3 flagged
-  (`butterworth.rs:162,200`, `ruckig_filter.rs:604`) checked above;
+  (`butterworth.rs:162,200`, `ruckig_filter.rs:613`) checked above;
   `acceleration_filter.rs:466,525,542`, `butterworth.rs:153,172,183`,
   `ruckig_filter.rs:388,530` (8) unflagged/unique, not individually
   re-traced.
