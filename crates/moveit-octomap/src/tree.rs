@@ -1934,10 +1934,10 @@ mod tests {
     }
 
     /// Distinct from `leaves_in_bbx_returns_none_for_an_out_of_range_max`
-    /// above: see that test's doc comment. Isolating mutation confirms
-    /// both bites: neutralizing the `min` guard leaves the whole suite
-    /// green (this test was the only site that could have caught it),
-    /// and neutralizing the `max` guard breaks only the sibling above.
+    /// above: see that test's doc comment. Before this test existed the
+    /// `min` guard had no coverage at all -- neutralizing it left all 66
+    /// tests green. Now each guard isolates to its own test: neutralizing
+    /// `min` fails only this one, neutralizing `max` only the sibling.
     #[test]
     fn leaves_in_bbx_returns_none_for_an_out_of_range_min() {
         let tree = OcTree::new(0.1);
