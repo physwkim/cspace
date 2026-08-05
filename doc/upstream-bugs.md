@@ -95,6 +95,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `get-max-payload-index-space` | reproduced-grandfathered |
 | `cost-source-nan-blind-compare` | not-reproduced |
 | `totg-timing-zero-velocity-division` | reproduced-grandfathered |
+| `polyline-header-redeclares-lin-exceptions` | not-reproduced |
 
 ---
 
@@ -727,6 +728,52 @@ more waypoints can reach `Add` with a segment shorter than
 instead of being silently cleaned. That is an error return, not a wrong
 trajectory. Revisit if a `POLYLINE` oracle op lands and its fixtures show
 the divergence mattering.
+
+---
+
+### `polyline-header-redeclares-lin-exceptions` — `trajectory_generator_polyline.hpp` redefines three exception classes `trajectory_generator_lin.hpp` already defines, so no translation unit can include both — not-reproduced
+
+**Upstream:** `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/trajectory_generator_polyline.hpp:49,51,52`
+against `.../trajectory_generator_lin.hpp:48,50,51` (verified at the pinned
+`e017c91e`): `LinTrajectoryConversionFailure`, `JointNumberMismatch` and
+`LinInverseForGoalIncalculable`, each declared in both headers, in the same
+`pilz_industrial_motion_planner` namespace, through the same
+`CREATE_MOVEIT_ERROR_CODE_EXCEPTION` macro — which expands to a full class
+definition, not a forward declaration or a `using`.
+**Port:** none — see Status.
+**Symptom:** `#include`ing both headers in one translation unit fails to
+compile with `redefinition of class 'LinTrajectoryConversionFailure'` (and
+the other two). The `#pragma once` in each header does not help: these are
+two distinct headers each defining the same three names. The POLYLINE
+generator was added by copying the LIN header, and the three `Lin`-prefixed
+names came along with it although POLYLINE raises only
+`LinTrajectoryConversionFailure` and `LinInverseForGoalIncalculable` under
+those names by coincidence of the copy. Upstream never hits the error
+because every `trajectory_generator_*.cpp` includes only its own header,
+and no upstream consumer instantiates more than one generator directly —
+they go through `planning_context_loader_*` plugins, each its own library.
+**Evidence:** an actual build failure, not a read. `tools/moveit-oracle`
+wants all four PTP/LIN/CIRC/POLYLINE generators constructible from one
+file; adding the POLYLINE include to `src/oracle.cpp` produced exactly the
+three `redefinition of class` errors above, against upstream sources at the
+pinned sha inside the oracle image.
+**Status:** `not-reproduced`. There is nothing to reproduce: the port has
+no macro that emits a class per error code and no per-generator exception
+type at all — `moveit-planners-pilz` returns
+`Err(Error::Code(MoveItErrorCode::…))` from every generator, so the same
+code raised by two generators is the same enum variant by construction, not
+two colliding definitions. The defect is a property of the C++ header
+layout, and the port has no header layout.
+**Deviation:** none of `D1`..`D14` applies. This is not a behavioural
+choice — the port's error representation predates POLYLINE and was not
+selected to avoid this.
+**Cost of not reproducing:** none for the port. The cost lands on the
+oracle instead: `tools/moveit-oracle/src/pilz_polyline_factory.{hpp,cpp}`
+exists solely to keep `trajectory_generator_polyline.hpp` in a translation
+unit of its own and hand `oracle.cpp` back a base-class
+`std::unique_ptr<TrajectoryGenerator>`. Delete that indirection and the
+oracle stops building. If upstream ever removes the duplicate declarations,
+the factory can be inlined back into `oracle.cpp`.
 
 ---
 
