@@ -800,3 +800,51 @@ One latent risk is recorded unfixed and should stay that way:
 fixture — so there is nothing live to bite-check today, and a fix would be
 a guess. A future edit touching `mv.pose` in that test would misattribute
 the failure.
+
+### 9f. The fences are paths, and the partition is checked
+
+Every round of this sweep until now fenced panels by *kind*: `contains_msg`
+sites in `crates/` were p1-robotmodel's, `is_empty`/`eq_none` sites were
+p1-fixtures', and so on. §9c records why that vocabulary no longer exists.
+The failure it caused is worth stating separately from the instrument fix,
+because it is not a counting error and no count would have shown it.
+
+A kind fence and a path fence disagree about who owns a site, and when the
+kind fence is the one a panel applies while a path fence is the one another
+panel was briefed with, sites fall through the gap. Four did:
+`moveit-geometry/src/bodies.rs:3953,4055,4066,4125`. `p3-acm` excluded them
+from its geometry table as "`contains_msg`-shaped, therefore
+p1-robotmodel's" — correct under the rule it was given — and
+p1-robotmodel's fence names `moveit-model/`, `moveit-constraints/tests/
+decide.rs` and `moveit-planning/`, which does not contain `moveit-geometry`.
+Neither panel was wrong. `rg` over `doc/` found no verdict for any of the
+four in any ledger.
+
+Two of those four are the reason this matters rather than being
+bookkeeping: `bodies.rs:4055` and `:4125` both assert `.contains("radius")`
+against a rendered error. If the two constructor guards behind them can
+each produce a message containing that substring, neither site names which
+one fired — a colliding-needle pair of exactly the shape §4 exists to find,
+sitting in the one gap where no panel was looking.
+
+The fences are now paths, and the partition is machine-checkable rather
+than argued. Over the 392 sites outside the `matches!`/`.is_err()`/
+`.is_none()` grammar:
+
+| panel | fence | sites |
+|---|---|---:|
+| `p9-ros` | `ros/moveit-ros/`, `crates/moveit-distance-field/` | 102 |
+| `p1-fixtures` | `moveit-octomap/`, `moveit-scene/`, `moveit-srdf/`, `moveit-state/`, `moveit-smoothing/`, `moveit-kinematics/`, `moveit-sampling/`, `moveit-test-support/`, `tools/moveit-diff/`, `moveit-constraints/tests/{sampler,utils_parity}.rs` | 105 |
+| `p3-acm` | `moveit-collision/`, `moveit-geometry/`, `moveit-planners-{sbp,chomp,stomp}/`, `moveit-stomp-core/` | 81 |
+| `p1-joints` | `moveit-trajectory/`, `moveit-planners-pilz/` | 52 |
+| `p1-robotmodel` | `moveit-model/`, `moveit-constraints/tests/decide.rs`, `moveit-planning/` | 52 |
+| **total** | | **392** |
+
+The check that matters is not the total — it is that every site falls in
+**exactly one** fence. Run the instrument, prefix-match each path against
+the table, and count sites matching zero fences and sites matching more
+than one. Both must be zero. When first run it reported four orphans in
+`bodies.rs` and three plus four in `moveit-constraints/tests/`, all seven of
+the latter stranded the same way; the table above is the state after those
+were assigned. A kind fence cannot be audited this way at all, which is the
+substantive argument for paths over any repair to the kind vocabulary.
