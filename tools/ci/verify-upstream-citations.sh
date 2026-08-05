@@ -53,4 +53,50 @@ if [[ "$head_sha" != "$ORACLE_MOVEIT2_SHA" ]]; then
   exit 1
 fi
 
-./tools/ci/measure-upstream-citations.py --upstream "$MOVEIT2_SRC"
+# The vendored packages this corpus cites by their `third_party/` path, each
+# with the revision a tracked document already records for it. Same
+# gitignored-external-checkout arrangement `verify-upstream-license-provenance.sh`
+# and `verify-fixture-provenance.sh` depend on, and the same asymmetry as
+# `$MOVEIT2_SRC` above: an absent checkout SKIPs loudly and leaves its
+# citations in the unresolvable list the script already prints, a checkout at
+# the WRONG revision is a hard failure. `third_party/moveit_msgs` and
+# `third_party/moveit_resources` are deliberately not here: no tracked
+# document records a revision for either, so there is nothing to check a
+# checkout against, and neither is cited with a line number.
+THIRD_PARTY_SRC="${THIRD_PARTY_SRC:-$REPO_ROOT/third_party}"
+declare -A THIRD_PARTY_PINS=(
+  # geometric_shapes 2.3.3      -- PORTING-PLAN.md:12828, crates/moveit-geometry/src/shapes.rs:15
+  [geometric_shapes]=192801cebacc07d0e9f719576cdd1c9b36d0bc28
+  # srdfdom 2.0.8               -- PORTING-PLAN.md:12829
+  [srdfdom]=58ee1eccd1c34498f67022eb2080daec5e8bc162
+  # octomap v1.9.7              -- PORTING-PLAN.md:12830, doc/claim-audit/moveit-octomap.md:8
+  [octomap]=aa6372b87eaf7e89bb1c9421f61d58bd634477cb
+  # orocos_kinematics_dynamics v1.5.1 -- doc/upstream-bugs.md:216, which records
+  # the tag and the short `db25b7e` rather than a full SHA; this is the commit
+  # `git rev-parse v1.5.1^{}` resolves to, and it satisfies both.
+  [orocos_kinematics_dynamics]=db25b7e480e068df068232064f2443b8d52a83c7
+)
+
+sources=()
+for pkg in "${!THIRD_PARTY_PINS[@]}"; do
+  dir="$THIRD_PARTY_SRC/$pkg"
+  pin="${THIRD_PARTY_PINS[$pkg]}"
+  if [[ ! -d "$dir" ]]; then
+    echo "SKIP $dir not present -- its citations stay in the unresolvable list below."
+    echo "SKIP this is not a pass; clone it there at $pin to cover them."
+    continue
+  fi
+  if ! pkg_sha="$(git -C "$dir" rev-parse HEAD 2>/dev/null)"; then
+    echo "FAIL $dir is not a git checkout -- the pinned revision cannot be confirmed." >&2
+    exit 1
+  fi
+  if [[ "$pkg_sha" != "$pin" ]]; then
+    echo "FAIL $dir is at $pkg_sha, not the pinned $pin." >&2
+    echo "FAIL the line numbers citing it are relative to that revision; checking them" >&2
+    echo "FAIL against another one is worse than not checking them." >&2
+    exit 1
+  fi
+  sources+=(--source "third_party/$pkg=$dir")
+done
+
+./tools/ci/measure-upstream-citations.py --upstream "$MOVEIT2_SRC" "${sources[@]}"
