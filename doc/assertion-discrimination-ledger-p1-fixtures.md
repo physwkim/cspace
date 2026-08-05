@@ -863,20 +863,26 @@ No fix needed for moveit-kinematics.
 | `multivariate_gaussian.rs:213` (`positive_definite_covariance_constructs`) | is_some | in-family | the sole `is_some` case in a suite of 5 boundary tests, each a distinct negative (`is_none`) case: mismatched dims, non-square, indefinite, zero/PSD-not-PD |
 | `moveit-test-support/src/lib.rs:76` (`assert_group_has_updated_links`) | is_empty | **not-this-family** (corrected below) | fixture-precondition helper called before the calling crate's real subject; see the clause-3 re-audit table |
 
-### tools/moveit-diff (8 sites)
+### tools/moveit-diff (12 sites)
 
 | Site | Kind | Verdict | Evidence |
 |---|---|---|---|
-| `main.rs:2446` | is_empty | **not-this-family** (corrected below) | its own message says "for this diagnostic to mean anything" — a precondition on `parry_representable_link_names`, not on the collision decision this test pins; see the clause-3 re-audit table |
-| `main.rs:2534` | is_empty | in-family | the pinned regression itself; paired one line above with an explicit `touched > 0` per-link guard against exactly the vacuous-pass failure mode the doc comment names |
-| `harness.rs:60` | contains | in-family | unique stdout line |
-| `harness.rs:64` | contains | in-family | unique stdout line |
-| `harness.rs:83` | contains | in-family | secondary corroboration; primary discriminator is the paired `assert_eq!(status.code(), Some(1))` in the same test |
-| `harness.rs:101` | contains | in-family | same text as 83, different invocation (`--stats-json`) — the test's real check is the JSON body that follows; this is a stdout-not-corrupted sanity check |
-| `harness.rs:138` | contains | **not-this-family** (corrected below) | asserts on `fake-oracle.py`'s own file text, read by the test via `std::fs::read_to_string`; no crate code runs before it — see the clause-3 re-audit table |
-| `harness.rs:144` | contains | **not-this-family** (corrected below) | same file read, positive-control sibling of 138 |
+| `main.rs:2718` | is_empty | **not-this-family** (corrected below) | its own message says "for this diagnostic to mean anything" — a precondition on `parry_representable_link_names`, not on the collision decision this test pins; see the clause-3 re-audit table |
+| `main.rs:2806` | is_empty | in-family | the pinned regression itself; paired one line above with an explicit `touched > 0` per-link guard against exactly the vacuous-pass failure mode the doc comment names |
+| `harness.rs:70` | contains | in-family | unique stdout line |
+| `harness.rs:74` | contains | in-family | unique stdout line |
+| `harness.rs:95` | contains | in-family | secondary corroboration; primary discriminator is the paired `assert_eq!(status.code(), Some(1))` in the same test |
+| `harness.rs:113` | contains | in-family | same text as 95, different invocation (`--stats-json`) — the test's real check is the JSON body that follows; this is a stdout-not-corrupted sanity check |
+| `harness.rs:154` | contains | **not-this-family** (corrected below) | asserts on `fake-oracle.py`'s own file text, read by the test via `std::fs::read_to_string`; no crate code runs before it — see the clause-3 re-audit table |
+| `harness.rs:160` | contains | **not-this-family** (corrected below) | same file read, positive-control sibling of 154 |
+| `main.rs:3034` (`a_one_ulp_limit_change_reddens_only_joint_limits`) | any / is_some | **not-this-family** | the scanner token sits in the *mutation closure* — `find(...any(\|(lo, _)\| lo.is_some()))` picks which bound to perturb — not in the assertion's predicate. The assertion is `assert_eq!(failing_clauses(...), vec!["joint_limits"])`, an exact vector equality naming the one clause that must redden and, by exclusion, the four that must not |
+| `main.rs:3057` (`a_flipped_position_bounded_reddens_only_joint_limits`) | is_empty | **not-this-family** | same shape: `!j.position_bounded.is_empty()` selects the joint to perturb; the assertion itself is the exact `assert_eq!(..., vec!["joint_limits"])` |
+| `main.rs:3076` (`an_added_mimic_relation_reddens_only_mimic`) | all / is_none | **not-this-family** | same shape; the assertion is the exact `assert_eq!(..., vec!["mimic"])` |
+| `main.rs:3078` (inside the same test) | all / is_none | **not-this-family** (fixture precondition) | `m.joint_details.iter().all(\|j\| j.mimic.is_none())` pins that prbt genuinely has no mimic joint. Same category as `main.rs:2718` — a precondition, not the subject decision — but here for the inverse reason: prbt's live `mimic` clause compares an empty set against an empty set, so "mimic agrees" carries no information by itself. This line establishes that the emptiness is real, and the enclosing `assert_eq!` then shows the clause still reddens when a relation is added |
 
-No fix needed for tools/moveit-diff.
+No fix needed for tools/moveit-diff. The four sites added this round are three
+exact `assert_eq!`s whose scanner token lives in the perturbation closure rather
+than the predicate, plus one precondition that is labelled as such.
 
 ### 7 stranded sites (constraints test files)
 
@@ -941,14 +947,14 @@ anchor this pass:
 | `ik_fk_roundtrip.rs:267` | `NewtonRaphsonSolver::new` (which itself calls `ChainInfo::build`) | `err` is its direct return, one layer up | in-family |
 | `multivariate_gaussian.rs:213` | `MultivariateGaussian::new` | checked inline on the constructor's own return, no intermediate object | in-family |
 | `moveit-test-support/src/lib.rs:76` | *(the calling crate's actual subject — this function is a shared fixture-precondition helper, not itself a decision under test)* | `assert_group_has_updated_links` is called by *other* crates' fixture builders, before those crates' own subject call. Deleting the call to whatever the calling test's real subject is (e.g. `generate_distance_field_cache_entry`) leaves this assertion's outcome completely unaffected — it depends only on the URDF/SRDF fixture's static joint configuration. Same shape as `ruckig_smoothing.rs:199`'s `trajectory.group().is_none()`, just packaged as a shared helper instead of an inline check | **not-this-family** (moved) |
-| `main.rs:2446` | the collision/near-placement decision this test pins (`decide_cone`'s tie-break, checked at line 2534) | `eligible.is_empty()`'s own message says it outright: "for this diagnostic to mean anything." `eligible` comes from `parry_representable_link_names(&model)`, not from the collision-checking loop below. Deleting the call to the actual subject (`env.check_robot_collision`, the loop that produces `ambiguous`) leaves this assertion completely unaffected | **not-this-family** (moved) |
-| `main.rs:2534` | `env.check_robot_collision` / `decide_cone`'s tie-break | `ambiguous` is built from `touched_link_counts`, populated once per link by calling `env.check_robot_collision(...)` inside the loop — a genuine per-call subject decision, not a value the test constructed itself. Deleting that call empties `touched_link_counts` and changes this assertion | in-family |
-| `harness.rs:60` | the `moveit-diff` runner binary itself (this whole test file's subject) | `stdout` is the captured output of actually executing `CARGO_BIN_EXE_moveit-diff`; deleting that `Command::output()` call removes `stdout` entirely | in-family |
-| `harness.rs:64` | same | same | in-family |
-| `harness.rs:83` | same | `stdout`/exit code both come from running the binary; this line is a secondary corroboration of the paired `assert_eq!(status.code(), Some(1))` in the same test, not a precondition for it | in-family |
-| `harness.rs:101` | same | same output, different invocation (`--stats-json`); confirms the flag doesn't corrupt the human-readable summary the JSON assertions that follow depend on being unaffected | in-family |
-| `harness.rs:138` | *(no crate subject runs in this test at all)* | `fake` is `std::fs::read_to_string("fake-oracle.py")`, called by the test itself. No `moveit-diff` code runs before this assertion — the exact `fs::read` shape census §9 names verbatim | **not-this-family** (moved) |
-| `harness.rs:144` | same | same — positive-control sibling of 138, same file read | **not-this-family** (moved) |
+| `main.rs:2718` | the collision/near-placement decision this test pins (`decide_cone`'s tie-break, checked at line 2534) | `eligible.is_empty()`'s own message says it outright: "for this diagnostic to mean anything." `eligible` comes from `parry_representable_link_names(&model)`, not from the collision-checking loop below. Deleting the call to the actual subject (`env.check_robot_collision`, the loop that produces `ambiguous`) leaves this assertion completely unaffected | **not-this-family** (moved) |
+| `main.rs:2806` | `env.check_robot_collision` / `decide_cone`'s tie-break | `ambiguous` is built from `touched_link_counts`, populated once per link by calling `env.check_robot_collision(...)` inside the loop — a genuine per-call subject decision, not a value the test constructed itself. Deleting that call empties `touched_link_counts` and changes this assertion | in-family |
+| `harness.rs:70` | the `moveit-diff` runner binary itself (this whole test file's subject) | `stdout` is the captured output of actually executing `CARGO_BIN_EXE_moveit-diff`; deleting that `Command::output()` call removes `stdout` entirely | in-family |
+| `harness.rs:74` | same | same | in-family |
+| `harness.rs:95` | same | `stdout`/exit code both come from running the binary; this line is a secondary corroboration of the paired `assert_eq!(status.code(), Some(1))` in the same test, not a precondition for it | in-family |
+| `harness.rs:113` | same | same output, different invocation (`--stats-json`); confirms the flag doesn't corrupt the human-readable summary the JSON assertions that follow depend on being unaffected | in-family |
+| `harness.rs:154` | *(no crate subject runs in this test at all)* | `fake` is `std::fs::read_to_string("fake-oracle.py")`, called by the test itself. No `moveit-diff` code runs before this assertion — the exact `fs::read` shape census §9 names verbatim | **not-this-family** (moved) |
+| `harness.rs:160` | same | same — positive-control sibling of 154, same file read | **not-this-family** (moved) |
 | `sampler.rs:78` | `JointConstraintSampler::new` | `err` is its direct return | in-family |
 | `sampler.rs:120` | `JointConstraintSampler::new` | `err` is its direct return | in-family |
 | `sampler.rs:194` | `JointConstraintSampler::sample` | `v` is `state.variable_position(name)`, read back after `sampler.sample(&mut state, &mut rng)` wrote it this same iteration — the `mimic().is_none()` shape exactly: a getter on state the subject just mutated | in-family |
@@ -967,9 +973,9 @@ moved:
 
 - `moveit-test-support/src/lib.rs:76` — fixture-precondition helper,
   same shape as the census's own `ruckig_smoothing.rs:199` precedent.
-- `tools/moveit-diff/src/main.rs:2446` — its own message names it a
+- `tools/moveit-diff/src/main.rs:2718` — its own message names it a
   precondition ("for this diagnostic to mean anything").
-- `tools/moveit-diff/tests/harness.rs:138,144` — assert on
+- `tools/moveit-diff/tests/harness.rs:154,160` — assert on
   `fake-oracle.py`'s file text, read by the test itself; no crate code
   runs before either assertion, the census's `fs::read` shape verbatim.
 
@@ -1029,7 +1035,7 @@ ambiguity the way multiple guards can share one negative signal.
 | `JointConstraintSampler::sample` (`sampler.rs:194,200`) | not a `None`/`Err` funnel — numeric range check on subject-mutated state (`mimic().is_none()` shape) | excluded |
 | `cart_to_jnt.rs:550,644,707`, `multivariate_gaussian.rs:213` | `is_some` positive checks | excluded (structural exemption above) |
 | `registry.rs:254` | static `#[distributed_slice]` aggregate, no `?`-chain | excluded |
-| `harness.rs:60,64,83,101` | integration tests already execute the real `moveit-diff` binary end-to-end — no separate read-vs-run gap | excluded |
+| `harness.rs:70,74,95,113` | integration tests already execute the real `moveit-diff` binary end-to-end — no separate read-vs-run gap | excluded |
 | `ruckig_filter.rs::joint_vel_accel_jerk_bounds` | 2 (`Err::other` × 2) | not independently re-bit this round — same file, same annotated-and-confirmed pattern as the sibling `joint_acceleration_bounds` bites, itself spot-checked |
 
 ### Bites performed and results
@@ -1053,7 +1059,7 @@ pre-bite backup + `diff` before moving to the next site.
 - **`sampler.rs:194,200`**: `JointConstraintSampler::sample`'s two assertions read `state.variable_position(name)` back after `sampler.sample` wrote it in the same iteration — a getter on subject-mutated state (the `mimic().is_none()` shape from Round 3), not a guard-funnel. `sample` itself has no `None`/`Err` branch (its doc comment: "always succeeds"). Excluded, not bit.
 - **`cart_to_jnt.rs:550,644,707`, `multivariate_gaussian.rs:213`**: all `is_some()`/positive-result checks. Structurally exempt — see this section's opening paragraph. Excluded, not bit.
 - **`registry.rs:254`**: static `#[distributed_slice]` aggregate with no `?`-chain or sequential-guard structure to fold into a single signal. Excluded, not bit (also already argued-and-kept in-family for clause 3 in Round 3, a separate question).
-- **`harness.rs:60,64,83,101`**: these integration tests spawn and run the real `moveit-diff` binary end-to-end and assert on its actual stdout — there is no separate "read the source vs. run the code" gap the way a static-source-read test has, so a funnel inside the binary's own internals would show up as a wrong assertion outcome, not a silently-passing one. Not independently bit this round (out of fence to modify `tools/moveit-diff/src/main.rs`'s internals beyond the two `main.rs` sites already in the ledger); reasoning recorded rather than assumed.
+- **`harness.rs:70,74,95,113`**: these integration tests spawn and run the real `moveit-diff` binary end-to-end and assert on its actual stdout — there is no separate "read the source vs. run the code" gap the way a static-source-read test has, so a funnel inside the binary's own internals would show up as a wrong assertion outcome, not a silently-passing one. Not independently bit this round (out of fence to modify `tools/moveit-diff/src/main.rs`'s internals beyond the two `main.rs` sites already in the ledger); reasoning recorded rather than assumed.
 - **`ruckig_filter.rs::joint_vel_accel_jerk_bounds`**: same `Err::other` × 2 shape as `joint_acceleration_bounds`, in the same crate, carrying the same "message-swap bite-checked" comment convention. Given `joint_acceleration_bounds`'s identical-shaped bites (above) and `ButterworthFilter::new`'s bite both independently confirmed their own "message-swap bite-checked" claims this round, this site's claim is corroborated by pattern rather than independently re-bit — flagged here rather than silently trusted.
 
 ### Result
@@ -1067,7 +1073,7 @@ listed above with its reason.
 
 ## UNFIXED
 
-- ~~`tools/moveit-diff/src/main.rs:2534`'s `near_placement_never_touches_more_than_one_link_at_once` is `#[ignore]`d and needs `third_party/moveit_resources`; that directory does not exist in this worktree...~~ **Closed by the merger.** The premise was wrong: `third_party/moveit_resources` exists and is populated in the primary checkout. It is untracked, so `git worktree` never materialises it — the absence is a property of every `caucus` worktree, not of this machine, and the `find /` that reported nothing was run from inside one. Run from `/home/stevek/work/moveit-rs`, `cargo nextest run -p moveit-diff --run-ignored all -E 'test(near_placement_never_touches_more_than_one_link_at_once)'` **passes**: 17 links checked, 17 with a near-placement touching ≥1 other link, 0 ambiguous. The diagnostic's conclusion therefore stands — `decide_cone`'s `max_contacts: 1` tie-break is ruled out as the source of the 115-case distance mismatch.
+- ~~`tools/moveit-diff/src/main.rs:2806`'s `near_placement_never_touches_more_than_one_link_at_once` is `#[ignore]`d and needs `third_party/moveit_resources`; that directory does not exist in this worktree...~~ **Closed by the merger.** The premise was wrong: `third_party/moveit_resources` exists and is populated in the primary checkout. It is untracked, so `git worktree` never materialises it — the absence is a property of every `caucus` worktree, not of this machine, and the `find /` that reported nothing was run from inside one. Run from `/home/stevek/work/moveit-rs`, `cargo nextest run -p moveit-diff --run-ignored all -E 'test(near_placement_never_touches_more_than_one_link_at_once)'` **passes**: 17 links checked, 17 with a near-placement touching ≥1 other link, 0 ambiguous. The diagnostic's conclusion therefore stands — `decide_cone`'s `max_contacts: 1` tie-break is ruled out as the source of the 115-case distance mismatch.
 - ~~`ruckig_filter.rs::joint_vel_accel_jerk_bounds` and `ChainInfo::build`'s untested unsupported-joint-type guard (`chain.rs:196`, no assertion exists) are not independently re-verified/covered — see the Exclusions and Bites sections above for why each was left as-is rather than bit or newly tested.~~ **Closed — see Round 5 below.** `chain.rs:193-200` is proven unreachable by enumeration, not merely untested; `ruckig_filter.rs::joint_vel_accel_jerk_bounds` had two of its four guards (`velocity_bounded`, `jerk_bounded`) with zero test coverage, not merely "corroborated by pattern" as this line previously assumed — both are now tested and isolating-mutation-confirmed.
 
 ## Round 5: `ChainInfo::build`'s type guard and `joint_vel_accel_jerk_bounds`, re-examined under §3a
