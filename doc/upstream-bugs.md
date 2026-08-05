@@ -664,7 +664,7 @@ structural check above.
 
 ### `cost-source-nan-blind-compare` — `CostSource::operator<` compares `double`s with bare `<`/`>`, silently blind to `NaN` — not-reproduced
 
-**Upstream:** `collision_common.hpp:128-140`
+**Upstream:** `collision_common.hpp:128-141`
 **Port:** `crates/moveit-collision/src/common.rs:118` (doc comment on the
 `Ord`/`Eq` impl for `CostSource`, found while sweeping the crate for
 assertion-discrimination coverage, not newly introduced this round)
@@ -675,7 +675,7 @@ a `NaN` cost or AABB bound sorts as neither greater nor less than anything
 `std::set` compares it against — `std::set` (strict-weak-order lookup)
 would treat it as equivalent to whatever it's compared against first,
 silently coalescing a `NaN`-carrying entry with an unrelated one.
-**Evidence:** read of upstream control flow (`collision_common.hpp:128-140`,
+**Evidence:** read of upstream control flow (`collision_common.hpp:128-141`,
 checked against the pinned `e017c91ee` checkout). Not oracle-confirmed —
 no test here constructs a `NaN` cost or AABB bound.
 **Status:** already not reproduced. The port's own doc comment (`common.rs
@@ -1544,8 +1544,9 @@ the static type of the expression:
   all-valid override sets only `res.collision = false`,
   `collision_env_allvalid.cpp:108-112`), and returns
   `res.minimum_distance.distance`, still at `DistanceResultsData::clear()`'s
-  `std::numeric_limits<double>::max()` (`collision_common.hpp:263`, reset at
-  `:286`).
+  `std::numeric_limits<double>::max()` (`collision_common.hpp:286`; the
+  `distance` field itself, with its own "`<= 0` means in collision" doc
+  comment, is declared two lines above at `:263`).
 
 `0.0` and `max()` are not two spellings of one answer — for a backend whose
 entire contract is "nothing is ever in collision", `0.0` is the collision
@@ -2154,17 +2155,18 @@ layer, so the selection rule that produces the artifact does not exist here.
 the 10,715 rows behind the `distance: f64` clause `PORTING-PLAN.md` §5
 records `UNMET` (`PORTING-PLAN.md:807`, which carries the verdict and
 delegates the diagnosis to §229.3) — a majority of that miss, not the whole
-of it. §218.4's per-robot table (`PORTING-PLAN.md:17003`) splits panda into
-`self 1,225 / robot 9,490`, and the robot column again into 6,364 same-pair
-value divergence — all of it the single pair `floor/panda_link0` — against
-3,126 pair-flips. Only the 6,364 are this entry. The 3,126 flips are the
-near-tie mechanism §218.4 uses to rule fanuc out three paragraphs below, so
-counting them here would re-make inside panda the over-generalization §229.3
-already corrected across robots; the 1,225 self-side rows are a column this
-world-object defect cannot reach at all. The `27,384x` figure §218.4
-(`PORTING-PLAN.md:16973`) and §229.3 record is panda's worst `|Δ|` against
-the `1e-4` threshold — a magnitude, not a count — so it neither states nor
-bounds this entry's share.
+of it. §218.4's per-robot table (`PORTING-PLAN.md:17008-17012`) splits panda
+into `self 1,225 / robot 9,490`, and the robot column again into 6,364
+same-pair value divergence — all of it the single pair `floor/panda_link0`
+— against 3,126 pair-flips (row at `:17010`). Only the 6,364 are this
+entry. The 3,126 flips are the near-tie mechanism §218.4's own "다른 쌍
+(pair-flip)" bullet (`PORTING-PLAN.md:17003-17004`) uses to rule fanuc out
+three paragraphs below, so counting them here would re-make inside panda
+the over-generalization §229.3 already corrected across robots; the 1,225
+self-side rows are a column this world-object defect cannot reach at all.
+The `27,384x` figure §218.4 (`PORTING-PLAN.md:16979-16980`) and §229.3
+record is panda's worst `|Δ|` against the `1e-4` threshold — a magnitude,
+not a count — so it neither states nor bounds this entry's share.
 
 Reproducing it would mean adopting a quantity that is unbounded
 in the size of an unrelated object, and would take
@@ -2382,7 +2384,7 @@ those two tests are what force it.
 
 **Upstream:** `moveit_core/collision_detection_fcl/src/collision_common.cpp:261-268`
 (the `else if (cdata->req_->verbose)` arm of the `want_contact_count > 0`
-test at `:254`)
+test at `:250`)
 **Port:** none — no crate in this workspace reads
 `CollisionRequest::verbose`, and none can: `rg 'tracing::|log::(debug|info|warn|error)' crates`
 returns nothing, so the workspace has no logging facade for the field to
@@ -2414,9 +2416,9 @@ parity test or oracle comparison observes log output.
 ### `check-collision-unpadded-discards-its-own-request-copy` — two of the six `checkCollisionUnpadded` overloads build the unpadded request and then forward the padded original — not-reproduced
 
 **Upstream:** `moveit_core/planning_scene/src/planning_scene.cpp:456-463`
-(non-const, two-argument) and `:501-508` (const, four-argument, taking an
+(non-const, two-argument) and `:501-510` (const, four-argument, taking an
 `AllowedCollisionMatrix`); the four correct siblings are `:465-471`,
-`:473-480`, `:482-489`, `:491-499`
+`:473-480`, `:482-489`, `:491-500`
 **Port:** none — `crates/moveit-scene/src/scene.rs:348-352` decides all six
 overloads distinct under D4, which replaces the dual-`CollisionEnv`-per-plugin
 machinery with one caller-owned `E`, so the port has no
