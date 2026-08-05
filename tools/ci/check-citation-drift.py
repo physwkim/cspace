@@ -176,6 +176,10 @@ def mask_non_code(text):
 
 TEST_ATTR_RE = re.compile(r"^\s*#\[[^\]]*\btest\b[^\]]*\]\s*$")
 ATTR_LINE_RE = re.compile(r"^\s*#\[[^\]]*\]\s*$")
+# `///` only, never `//!`: an outer doc comment belongs to the item directly
+# below it, an inner one to the enclosing module, and it is the outer kind a
+# citation to "this function's doc" means.
+DOC_LINE_RE = re.compile(r"^\s*///")
 
 
 def function_spans(path):
@@ -242,8 +246,25 @@ def function_spans(path):
         # include any run of single-line attributes directly above `fn`, so
         # `` `path.rs:334-345` `` for a test whose `#[test]` sits at 334 and
         # `fn` at 335 is judged against 334, not 335.
+        #
+        # The `///` run above those attributes is absorbed by the same walk,
+        # for the same reason and by the same rule rather than a second,
+        # special-cased one. `doc/claim-audit/*` cites a *claim*, and a claim
+        # about upstream behaviour lives in the doc comment of the test that
+        # pins it, never in its body: `moveit-trajectory.md:172` cites
+        # `time_optimal_trajectory_generation.rs:962-974` naming
+        # `upstream_test_custom_limits` (whose `#[test]` is at 975), and
+        # `moveit-smoothing.md:32` cites `acceleration_filter.rs:446-457`
+        # naming `joint_acceleration_bounds_fails_without_acceleration_limits`
+        # (`#[test]` at 458). Attributes and doc comment are both leading
+        # declaration material of the one function; splitting the span
+        # between them would mean the citation convention this corpus
+        # actually uses is checkable for one and not the other.
         start_line = line_no
-        while start_line > 1 and ATTR_LINE_RE.match(lines[start_line - 2]):
+        while start_line > 1 and (
+            ATTR_LINE_RE.match(lines[start_line - 2])
+            or DOC_LINE_RE.match(lines[start_line - 2])
+        ):
             start_line -= 1
         spans.setdefault(m.group(1), []).append((start_line, end_line, is_test))
     return spans
@@ -348,11 +369,25 @@ def find_anchors(line, match_start, match_end, spans, prev_citation_end=0, is_ra
        test's own single assertion, or a bare fn declaration line);
        a range pairing is trusted regardless, since the range shape
        itself is strong enough evidence of a containment claim.
-    2. Table row, first column, with no tight pairing found: every valid
-       identifier anywhere else in the row THAT IS `#[test]`-attested.
-       Production-function names loosely mentioned in the same row are
-       excluded here precisely because they are not reliably containment
-       claims (`do_smoothing` above).
+    2. Table row, first column, with no tight pairing found: if the row
+       loosely names at least one `#[test]`-attested function in the cited
+       file, every valid identifier anywhere else in the row -- otherwise
+       nothing.
+
+       `#[test]`-attestation gates the ROW, not each candidate. What it
+       establishes is that this row is using the ledger's loose
+       test-naming idiom at all; the `do_smoothing` row above names NO
+       test in `acceleration_filter.rs`, which is exactly why its lone
+       production-function mention must not be trusted. Once a row is in
+       the idiom, the function containing the cited line is sometimes a
+       plain helper rather than a test -- a row citing a `mod tests`
+       fixture builder and naming the tests that cover it is the shape --
+       and rejecting it for want of a `#[test]` attribute rejects a
+       correct citation over a fact about the containing function that
+       the check never claimed to be about. Attesting each candidate
+       separately instead was measured over this corpus at 75 new
+       failures, `do_smoothing`'s own citation
+       (`p1-fixtures.md:938`, `acceleration_filter.rs:565`) among them.
 
     Accept the citation if it falls inside ANY candidate's span -- not
     exactly one -- for the same reason a row can mention several correctly-
@@ -387,7 +422,9 @@ def find_anchors(line, match_start, match_end, spans, prev_citation_end=0, is_ra
         pipes = [i for i, ch in enumerate(line) if ch == "|"]
         if len(pipes) >= 2 and pipes[0] < match_start < pipes[1]:
             rest_of_row = line[:match_start] + line[match_end:]
-            return _valid_idents(rest_of_row, spans, require_test=True)
+            if not _valid_idents(rest_of_row, spans, require_test=True):
+                return []
+            return _valid_idents(rest_of_row, spans, require_test=False)
 
     return []
 
@@ -461,6 +498,27 @@ def main():
                     continue
 
                 spans = spans_for(resolved_path)
+
+                # A citation landing entirely above the file's first function
+                # is to file-level content -- the header comment, the module
+                # doc, the `use` block -- and no function span can contain it,
+                # so asking whether one does is a category error rather than a
+                # drift check. `doc/claim-audit/moveit-trajectory.md:186`
+                # cites `tests/ruckig_smoothing.rs:16-19`, the paragraph of
+                # that file's header stating the `single_waypoint` deviation,
+                # in a row whose evidence prose happens to name the test that
+                # deviation belongs to; its sibling rows citing the same kind
+                # of header (`:13`, `:30`) pass only because no name in them
+                # resolves. Left unverified rather than guessed at, the same
+                # disposition an absent anchor gets.
+                first_fn = min(
+                    (start for occ in spans.values() for (start, _e, _t) in occ),
+                    default=None,
+                )
+                if first_fn is not None and all(ln < first_fn for ln in cited_lines):
+                    bounds_only += 1
+                    continue
+
                 anchors = find_anchors(
                     line, m.start(), m.end(), spans, window_floor, is_range=m.group(3) is not None
                 )
@@ -477,12 +535,33 @@ def main():
                 # exactly that shape, discovered by spot-reading this
                 # script's own output against a citation this round's fixes
                 # had just corrected.
-                in_span = all(
-                    any(start <= ln <= end for name in anchors for (start, end, _is_test) in spans[name])
+                owned = [
+                    ln
                     for ln in cited_lines
-                )
-                if in_span:
+                    if any(
+                        start <= ln <= end
+                        for name in anchors
+                        for (start, end, _is_test) in spans[name]
+                    )
+                ]
+                if len(owned) == len(cited_lines):
                     anchor_verified += 1
+                elif owned and m.group(4) is not None:
+                    # A comma list is an ENUMERATION, and a row that
+                    # enumerates names the tests it discusses, not one per
+                    # cited line: `p9-ros.md:323` cites all 11 of
+                    # `scene/collision_object.rs`'s assertion sites and names
+                    # the two whose citation that round corrected, `:326`
+                    # cites 3 and names 1. Every one of those 14 lines is an
+                    # exact current `count-coarse-assertions.py` site, so
+                    # demanding all 11 sit inside the 2 named tests failed
+                    # citations that were right. Partial containment is the
+                    # census shape and carries no drift signal either way, so
+                    # it drops to bounds-only rather than passing or failing.
+                    # ZERO containment stays a failure -- that is what caught
+                    # `p1-robotmodel.md:825`, whose 2 cited lines were in
+                    # neither named test.
+                    bounds_only += 1
                 else:
                     anchor_mismatch.append(
                         (md, line_no, fname_part, cited_lines, anchors, resolved_path, spans)

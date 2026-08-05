@@ -43,10 +43,10 @@ and/or isolating mutation run this round, reverted after confirming).
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
 | `time_optimal_trajectory_generation.rs:1043` | `TotgOptions::with_resample_dt` combined guard | `resample_dt_zero_is_rejected_not_hung` | single-branch | commit `52e38a3` (structural: `resample_dt` made `pub(crate)`, settable only through this one validating builder — no other construction path exists) — line corrected round 17, was `:1030` |
-| `time_optimal_trajectory_generation.rs:1048` | same | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | commit `52e38a3` |
+| `time_optimal_trajectory_generation.rs:1056` | same | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | commit `52e38a3` |
 | `time_optimal_trajectory_generation.rs:1125` | same | `resample_dt_nan_is_rejected` | single-branch | commit `52e38a3` — line corrected round 17, was `:1112` |
-| `time_optimal_trajectory_generation.rs:1130` | same | `resample_dt_positive_infinity_is_rejected` | single-branch | commit `52e38a3` |
-| `time_optimal_trajectory_generation.rs:1141` | same | `resample_dt_negative_infinity_is_rejected` | single-branch | commit `52e38a3` |
+| `time_optimal_trajectory_generation.rs:1138` | same | `resample_dt_positive_infinity_is_rejected` | single-branch | commit `52e38a3` |
+| `time_optimal_trajectory_generation.rs:1149` | same | `resample_dt_negative_infinity_is_rejected` | single-branch | commit `52e38a3` |
 | `robot_trajectory.rs:484` | `add_suffix_way_point`'s empty+nonzero-dt guard | `add_suffix_way_point_on_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard (`if false && ...`) → test failed; reverted |
 | `robot_trajectory.rs:532` | `set_way_point_duration_from_previous`'s index-0 guard | `set_way_point_duration_from_previous_at_zero_rejects_a_nonzero_value` | single-branch | bite: neutralized guard → test failed; reverted |
 | `robot_trajectory.rs:550` | `append`'s empty+nonzero-dt guard | `append_onto_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard → test failed; reverted |
@@ -822,7 +822,7 @@ enumeration. One `helper_body` line excluded (`decide.rs:83`,
 | file:line | member? | verdict | evidence |
 |---|---|---|---|
 | `decide.rs:362,380,438,508,534,553,742,781` (`via:assert_err_mentions`) | yes | discriminating | round 11's sibling-message table, unchanged (same 8 call sites) |
-| `decide.rs:1161,1166` (`assert_eq!(..., None)` on `max_view_angle()`/`max_range_angle()`) | yes | discriminating | isolating mutation run this round: `normalize_angle_criterion`'s `.filter(\|v\| *v > EPS)` gate removed → `negative_target_radius_activates_...` and `zero_valued_criteria_normalize_to_unconstrained` both fail (2/100), no other test moves; `target_radius`'s own gate (`normalize_target_radius`, a different fn) is untouched and its sibling assertion in the same test stays green |
+| `decide.rs:1161,1166` (`assert_eq!(..., None)` on `max_view_angle()`/`max_range_angle()`) | yes | discriminating | isolating mutation run this round: `normalize_angle_criterion`'s `.filter(\|v\| *v > EPS)` gate removed → `negative_target_radius_activates_at_its_magnitude_but_negative_angles_stay_inactive` and `zero_valued_criteria_normalize_to_unconstrained` both fail (2/100), no other test moves; `target_radius`'s own gate (`normalize_target_radius`, a different fn) is untouched and its sibling assertion in the same test stays green |
 | `decide.rs:1257` (`set.is_empty()`) | **no** | not-this-family | `KinematicConstraintSet::new()` is `Self::default()` (`set.rs:54-56`) — trivially empty by construction, clause 2 fails (nothing was decided) |
 
 **`crates/moveit-model/src/joint/model.rs` (3)**

@@ -93,7 +93,7 @@ value, not a failure/absence signal. Fails census §9 clause 1.
 | `time_optimal_trajectory_generation.rs:1056` | same guard, `resample_dt = -0.01` | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | same |
 | `time_optimal_trajectory_generation.rs:1083` | `do_time_parameterization_calculations`'s sample-count guard, `!is_finite() \|\| > MAX` fold, tiny-`resample_dt` fixture (cited `:1070` before merge-driven line drift) | `resample_dt_producing_an_unreasonable_sample_count_is_rejected` | discriminating; both operands live | superseded — see "Correction" below |
 | `time_optimal_trajectory_generation.rs:1110` | same guard, subnormal fixture (cited `:1097` before drift) | `resample_dt_subnormal_is_rejected` | same | same |
-| `time_optimal_trajectory_generation.rs:1125` | `with_resample_dt`'s single guard, `resample_dt = NaN` | `resample_dt_nan_is_rejected` | single-branch | structural, same as `:1038` |
+| `time_optimal_trajectory_generation.rs:1125` | `with_resample_dt`'s single guard, `resample_dt = NaN` | `resample_dt_nan_is_rejected` | single-branch | structural, same as `:1043` |
 | `time_optimal_trajectory_generation.rs:1138` | same guard, `resample_dt = +inf` | `resample_dt_positive_infinity_is_rejected` | single-branch | same |
 | `time_optimal_trajectory_generation.rs:1149` | same guard, `resample_dt = -inf` | `resample_dt_negative_infinity_is_rejected` | single-branch | same |
 | `time_optimal_trajectory_generation.rs:1176` | same fold as `:1078`, usize-max-boundary fixture (cited `:1163` before drift) | `resample_dt_targeting_the_usize_max_boundary_is_rejected` | discriminating; both operands live | superseded — see "Correction" below |
