@@ -1203,7 +1203,7 @@ impl<'m> ChompOptimizer<'m> {
         Ok(())
     }
 
-    /// Ported from `performForwardKinematics` (`chomp_optimizer.cpp:862-940`).
+    /// Ported from `performForwardKinematics` (`chomp_optimizer.cpp:862-944`).
     ///
     /// # `sphere_locations` gap closed (round 26)
     ///
@@ -1485,7 +1485,7 @@ impl<'m> ChompOptimizer<'m> {
         )? + self.get_collision_cost())
     }
 
-    /// Ported from `ChompOptimizer::optimize` (`chomp_optimizer.cpp:289-518`).
+    /// Ported from `ChompOptimizer::optimize` (`chomp_optimizer.cpp:290-518`).
     /// See this type's doc comment for the closure `mesh_to_mesh_collision_free`
     /// replaces, and for why its two `should_break_out` conditions are kept
     /// as two independent `if` blocks rather than collapsed.
