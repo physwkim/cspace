@@ -94,6 +94,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `do-smoothing-length-check-operand` | reproduced-grandfathered |
 | `get-max-payload-index-space` | reproduced-grandfathered |
 | `cost-source-nan-blind-compare` | not-reproduced |
+| `totg-timing-zero-velocity-division` | reproduced-grandfathered |
 
 ---
 
@@ -648,6 +649,47 @@ just panic or misbehave under `#[derive(Ord)]`/manual impl using
 `partial_cmp().unwrap()`), so this one was an active choice, not a language
 constraint.
 
+### `totg-timing-zero-velocity-division` — Timing-loop division has no zero-relative-velocity guard, so `time_`/`getDuration` can be NaN or +inf — reproduced-grandfathered
+
+**Upstream:** `trajectory_processing/src/time_optimal_trajectory_generation.cpp:405`:
+`it->time_ = previous->time_ + (it->path_pos_ - previous->path_pos_) / ((it->path_vel_ + previous->path_vel_) / 2.0);`
+— no guard against the denominator being `0.0`.
+**Port:** `crates/moveit-trajectory/src/trajectory.rs:182`, the direct
+transcription of the same division in `Trajectory::create`'s timing pass.
+**Symptom:** when `path_vel + previous.path_vel == 0.0` (a `max_velocity`
+component of `0.0` on an axis the path still moves along, or a
+zero-length segment), the division is `0.0/0.0` (NaN) or `x/0.0` (`+inf`)
+depending on whether the position-delta numerator itself rounds to
+exactly `0.0` at the path's absolute scale — both are reachable and the
+NaN escapes into `Trajectory::create`'s `Ok` return via `getDuration`.
+**Evidence:** read of upstream control flow (no guard at `:405`) plus two
+already-passing tests in this port that deliberately construct and
+document both outcomes:
+`trajectory.rs::a_zero_length_path_produces_a_nan_duration_trajectory`
+(NaN, zero-length path) and
+`trajectory.rs::a_max_velocity_component_of_zero_crawls_rather_than_invalidating`
+(NaN or `+inf` depending on path scale, nonzero-length path). Reachable
+through the public `compute_time_stamps_with_limits` API too, not just
+direct `Trajectory::create`/`Path::create` calls — confirmed by
+`time_optimal_trajectory_generation.rs::resample_dt_over_a_nan_duration_is_rejected`
+(a custom `0.0` velocity limit on a moving joint, panda_arm, 1e-5-scale
+path). Not oracle-confirmed; no `totg_parity` case is known to exercise
+either branch.
+**Status:** reproduced-grandfathered. Ported verbatim under the old
+faithful-transcription brief; found and documented this round, after the
+2026-08-05 decision was announced but before it reached this worktree —
+same class as `do-smoothing-length-check-operand`/`get-max-payload-index-space`
+(already in the tree, not a new post-decision finding), grandfathered on
+the same reasoning.
+**Cost of not reproducing:** unmeasured, and that is now accurate rather
+than an outstanding task — no measurement is owed, because nothing is
+being changed. This port's own `do_time_parameterization_calculations`
+already added a downstream safety net (`!raw_sample_count.is_finite() ||
+raw_sample_count > MAX_RESAMPLE_SAMPLE_COUNT`, itself not present
+upstream) that catches the NaN/`+inf` one call later and returns `Err`
+either way, so no currently-passing test asserts success past this point
+for either scenario.
+
 ---
 
 ## Decision on the pre-policy entries
@@ -656,8 +698,9 @@ Asked on 2026-08-05 whether to measure-then-deviate, deviate immediately,
 or document only: **document only, code unchanged.**
 `chomp-iteration-double-increment`, `attached-body-count-check` and
 `kdl-path-circle-nan-scale-rot` are `reproduced-grandfathered` and stay as
-they are. `do-smoothing-length-check-operand` and
-`get-max-payload-index-space` were found after the decision but are the
+they are. `do-smoothing-length-check-operand`,
+`get-max-payload-index-space` and `totg-timing-zero-velocity-division`
+were found after the decision but are the
 same class — already in the tree, ported verbatim under the old brief — so
 they are grandfathered on the same reasoning rather than treated as new
 findings. Their
