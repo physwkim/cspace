@@ -16292,3 +16292,29 @@ doc/port-coverage.md`가 그 표의 행 집합을 계기가 계산한 미포팅 
 언급하지 않으므로 §1을 따르면 코퍼스는 246이 된다. §1이 파일 종류에 넣은
 `*.cc`는 다섯 루트에서 실측 **0**개라 무영향이고, §1의 파일 수(292 등)는
 테스트와 `.h` shim을 포함한 전수라는 점도 함께 적어 둔다.
+
+### §216.1 ikfast — §60.4가 이미 결정해 뒀다, 그러니 갭이 아니다
+
+`ikfast_kinematics_plugin`을 갭으로 세던 목록이 있었다. §60.4를 열어 확인한
+결과 이미 처분이 붙어 있다:
+
+> 형제 플러그인 셋에 처분이 붙었다: `srv_kinematics_plugin` 배제(ROS 서비스
+> 클라이언트), `ikfast_kinematics_plugin` **미포팅(이식할 알고리즘 없음,
+> codegen 템플릿)**, `cached_ik_kinematics_plugin` 미포팅이되 진짜 범위 내
+> 갭 — §4.4가 D4 trait 주석에서 이것을 명시적으로 이름 부른다.
+
+크레이트 쪽 문장도 같은 방향이고 더 구체적이다
+(`crates/moveit-kinematics/src/lib.rs:241-250`): "a 1421-line C++ template
+with placeholder tokens that OpenRave's separate, external IKFast code
+generator fills in with a *robot-specific* closed-form analytic solution ...
+porting this would mean porting OpenRave's symbolic-algebra codegen tool".
+
+따라서 `doc/port-coverage.md`의 해당 두 행은 `decided-non-port`다.
+코퍼스에 드는 ikfast 파일은 두 개뿐이며, 그중 `templates/ikfast.h`는 이
+코퍼스에서 shim이 아닌 **유일한** `.h`다(나머지 141개는 전부 상류 PR #3113의
+자동 생성 포워딩 shim).
+
+| 상류 파일 | 분류 |
+|---|---|
+| `moveit_kinematics/ikfast_kinematics_plugin/templates/ikfast.h` | `decided-non-port` |
+| `moveit_kinematics/ikfast_kinematics_plugin/templates/ikfast61_moveit_plugin_template.cpp` | `decided-non-port` |
