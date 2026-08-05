@@ -122,6 +122,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `to-string-truncates-to-six-significant-digits` | not-reproduced |
 | `distance-callback-max-contact-depth` | not-reproduced |
 | `collision-callback-logs-contact-stored-when-dropped` | not-reproduced |
+| `check-collision-unpadded-discards-its-own-request-copy` | not-reproduced |
 
 ---
 
@@ -2151,3 +2152,35 @@ upstream — measured, not assumed: all 17 of its read sites in
 `:544`, `:557`) open an `RCLCPP_DEBUG`/`RCLCPP_INFO` block holding exactly
 one statement, and `collision_env_fcl.cpp` never mentions the field. No
 parity test or oracle comparison observes log output.
+
+---
+
+### `check-collision-unpadded-discards-its-own-request-copy` — two of the six `checkCollisionUnpadded` overloads build the unpadded request and then forward the padded original — not-reproduced
+
+**Upstream:** `moveit_core/planning_scene/src/planning_scene.cpp:456-463`
+(non-const, two-argument) and `:501-508` (const, four-argument, taking an
+`AllowedCollisionMatrix`); the four correct siblings are `:465-471`,
+`:473-480`, `:482-489`, `:491-499`
+**Port:** none — `crates/moveit-scene/src/scene.rs:348-352` decides all six
+overloads distinct under D4, which replaces the dual-`CollisionEnv`-per-plugin
+machinery with one caller-owned `E`, so the port has no
+`check_collision_unpadded` to carry the defect into.
+**Symptom:** each overload copies the caller's request into `new_req`, clears
+`new_req.pad_environment_collisions`, and then calls `checkCollision`. These
+two pass `req` — the untouched original — so `new_req` is written and
+discarded, and both run with `pad_environment_collisions` at its `true`
+default. The two are the padded check under an unpadded name, which is the
+one thing a caller reaching for this function is trying to avoid. Nothing
+warns: `new_req` is used, just not where it matters, so no
+`-Wunused-variable` fires, and the deprecation notice on all six
+("Use new CollisionRequest flags to enable/ disable padding instead.",
+`planning_scene.hpp:379`) points at the very flag these two drop.
+**Evidence:** a read of the six bodies side by side. The four that work name
+`new_req` in the `checkCollision` call; these two name `req`. There is no
+oracle here — the port has no equivalent entry point to compare against.
+**Status:** `not-reproduced`
+**Cost of not reproducing:** none. No parity test or oracle comparison
+reaches `PlanningScene::checkCollisionUnpadded`, and D4 already removed the
+padded/unpadded selection this defect lives in: with one caller-owned `E`,
+padding is a property of the environment the caller built, never of the
+request (`PORTING-PLAN.md` §NEW.3, `crates/moveit-scene/src/scene.rs:566-576`).
