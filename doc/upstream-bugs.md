@@ -121,6 +121,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `pilz-detailed-response-pushes-null-trajectory` | not-reproduced |
 | `to-string-truncates-to-six-significant-digits` | not-reproduced |
 | `distance-callback-max-contact-depth` | not-reproduced |
+| `pr2-collision-test-asserts-unwritten-result` | not-reproduced |
 
 ---
 
@@ -2152,3 +2153,44 @@ has no diagnosed cause in this index yet. pr2's mesh-vs-box worst value
 (`3.218e-1`, `PORTING-PLAN.md` §21.4) has never had the same same-pair-vs-
 pair-flip check run against it, so it is unverified, not confirmed, as an
 instance of this entry.
+
+### `pr2-collision-test-asserts-unwritten-result` — Two `ASSERT_FALSE`s read a `CollisionResult` no call ever wrote — not-reproduced
+
+**Upstream:** `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp:280-282`
+and `:526-528`.
+**Port:**     `crates/moveit-collision/tests/upstream_pr2_harness.rs:186-193`
+(the `TestChangingShapeSize` half) — the `ContactPositions` half is not
+restated at all, being blocked on `updateStateWithLinkAt`
+(`PORTING-PLAN.md` §232.3).
+**Symptom:**  Both sites assert on a default-constructed result instead of
+the one the call under test filled in. `ContactPositions` declares
+`CollisionResult res3;`, calls `checkSelfCollision(req, res2, ...)` — into
+`res2`, the result of the *previous* stanza — and then asserts
+`ASSERT_FALSE(res3.collision)`. `TestChangingShapeSize` declares
+`CollisionRequest req1; CollisionResult res1;` and asserts
+`ASSERT_FALSE(res1.collision)` with no call between the declaration and the
+assertion. `CollisionResult::collision` has the in-class initialiser
+`= false` (`collision_common.hpp:353`), so both assertions hold
+unconditionally: they would still pass if the collision checker returned
+`true` for every query, or were deleted.
+
+The consequence is not that a test is untidy — it is that upstream's suite
+does not check the two things these lines look like they check. The final
+non-collision of `ContactPositions`' third pose (two gripper palms 3 m
+apart, one rotated) is unverified upstream, and `TestChangingShapeSize`'s
+pre-loop baseline is unverified upstream.
+**Evidence:** a read of the two stanzas plus the member's initialiser,
+quoted above; no oracle run is needed, because the defect is that the value
+read is never written rather than that a computed value is wrong. This is
+the weakest evidence class, and it is sufficient here only because the
+control flow is four lines long in each case.
+**Status:**   `not-reproduced`. `upstream_pr2_harness.rs` restates
+`TestChangingShapeSize`'s loop assertion (`:543`) and drops the vacuous
+`:528`; a Rust test that asserted on an unwritten `CollisionResult` would
+not compile against this port's API anyway, `check_robot_collision`
+returning its result by value rather than filling an out-parameter, so the
+shape that produced the bug does not exist here.
+**Cost of not reproducing:** none. Nothing in this port compares against
+these two assertions — they are inside a header
+`doc/port-coverage.md` classifies `decided-non-port`, and the parity suites
+compare against the oracle binary, not against upstream's GoogleTest cases.
