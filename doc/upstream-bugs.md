@@ -486,6 +486,39 @@ and no corrected-oracle fixture exists to re-capture against.
 `fanuc_dynamics_matches_the_oracle` (line 205) is unaffected per the
 structural check above.
 
+### 15. `CostSource::operator<` compares `double`s with bare `<`/`>`, silently blind to `NaN` — not-reproduced
+
+**Upstream:** `collision_common.hpp:128-140`
+**Port:** `crates/moveit-collision/src/common.rs:118` (doc comment on the
+`Ord`/`Eq` impl for `CostSource`, found while sweeping the crate for
+assertion-discrimination coverage, not newly introduced this round)
+**Symptom:** `operator<` chains bare `double` `<`/`>` comparisons
+(`c1 > c2` / `c1 < c2` / `cost < other.cost` / `cost > other.cost` /
+`aabb_min < other.aabb_min`). Every comparison against `NaN` is `false`, so
+a `NaN` cost or AABB bound sorts as neither greater nor less than anything
+`std::set` compares it against — `std::set` (strict-weak-order lookup)
+would treat it as equivalent to whatever it's compared against first,
+silently coalescing a `NaN`-carrying entry with an unrelated one.
+**Evidence:** read of upstream control flow (`collision_common.hpp:128-140`,
+checked against the pinned `e017c91ee` checkout). Not oracle-confirmed —
+no test here constructs a `NaN` cost or AABB bound.
+**Status:** already not reproduced. The port's own doc comment (`common.rs
+:105-121`) states the reason: `Ord`/`Eq` are implemented with
+[`f64::total_cmp`] instead of a bare `<`/`>` chain, specifically to give a
+total order for every bit pattern including `NaN`. This was written as a
+"Deviation from upstream" in-code but has no `D`-number in `PORTING-PLAN.md`
+(searched for `CostSource`/`NaN`/`total_cmp`/`operator<` near the `D1`..`D25`
+list; none matched) — flagging that gap here rather than assigning one
+myself.
+**Cost of not reproducing:** none measured to date — well-formed geometry
+never produces `NaN` here per the same comment, and no test in this crate
+constructs a `NaN` cost or AABB bound to check what upstream's `std::set`
+would actually do with one. Unlike entry 2, "safe Rust cannot express it"
+does not apply: a bare `<`/`>` `Ord` impl is expressible in Rust (it would
+just panic or misbehave under `#[derive(Ord)]`/manual impl using
+`partial_cmp().unwrap()`), so this one was an active choice, not a language
+constraint.
+
 ---
 
 ## Decision on the pre-policy entries

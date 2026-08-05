@@ -794,8 +794,12 @@ matching the brief's figures exactly on independent re-derivation.
 | space.rs:210 | eq_err | `empty_bounds_is_no_dimensions` | yes | single-branch: distinct `NoDimensions` variant, only one construction site. |
 | space.rs:215 | eq_err | `inverted_bound_is_rejected` | yes | **found a blind operand while auditing this site — see below.** Bite-confirmed: disabling `min > max` alone fails this test and leaves 227 green. |
 | space.rs:227 | eq_err | `non_finite_bound_is_rejected` | yes | bite-confirmed: disabling `!max.is_finite()` alone fails this test and leaves 215 green. |
+| space.rs:247 | eq_err | `non_finite_min_bound_is_rejected` | yes | new site, added by this round's own fix (`bbbe0f8`) — missing from this table until the closing audit found it unclaimed. Same bite as the "Blind operand found and fixed" note below: disabling `!min.is_finite()` alone fails this test, 215/227 stay green. |
 
-**In-family: 9. Not-this-family: 10.**
+**In-family: 10. Not-this-family: 10.** (space.rs's own total grew from 19
+to 20 sites when `bbbe0f8` added the fix; the crate total below already
+counted it in "23 in-family... 2 blind operands... fixed", just not as its
+own table row until now.)
 
 **Blind operand found and fixed:** `RealVectorSpace::new`'s guard
 (`space.rs:105`) is `!min.is_finite() || !max.is_finite() || min > max`
@@ -850,7 +854,7 @@ undefined behavior on empty input.
 | Site | Kind | Test fn | In-family | Evidence |
 |---|---|---|---|---|
 | utils.rs:641 | via:rows_to_string | `to_vector_then_rows_to_string_round_trips_through_matrix_to_string` | no | calls with a non-empty (2-row) input — never reaches the guard; tests round-trip correctness against `matrix_to_string`, not an error signal. |
-| utils.rs:654 | via:rows_to_string | `rows_to_string_panics_instead_of_replicating_ub_on_empty_input` | yes | **found a blind operand — see below.** |
+| utils.rs:660 | via:rows_to_string | `rows_to_string_panics_instead_of_replicating_ub_on_empty_input` | yes | **found a blind operand — see below.** (line corrected from `:654` during the closing audit: the fix itself — the `#[should_panic(expected = ...)]` attribute and its explanatory comment, `8fa0e48` — added 6 lines above the call, shifting it to `:660`.) |
 
 **In-family: 1. Not-this-family: 1.**
 
@@ -885,3 +889,233 @@ pass against real source.
   greps rather than a live bite), `moveit-planners-stomp` 62/62
   (census-only, no source change), `moveit-stomp-core` 22/22 (was 21,
   +1).
+
+## Round 14 — closing audit: reconciling `count-coarse-assertions.py`'s 694 against the five ledgers
+
+Not a re-audit of any crate's verdicts. This round answers one question
+only: does every one of today's `main` coarse-assertion sites have either
+a ledger row or a recorded reason for having none, across all five
+assertion-discrimination ledgers (`p1-fixtures`, `p1-robotmodel`, `p3-acm`,
+`p9-ros`, `pilz`)? Scope for *fixing* anything found stays exactly
+`moveit-collision`/`moveit-geometry`/the four planner crates; everything
+else here is reported, not fixed.
+
+**Pinned commit:** `461a5f10655030b6c16c51afe588cfd6d844ad4d` (`main`). The
+tree moves under any unpinned run — `python3
+tools/ci/count-coarse-assertions.py` gave 398 new-grammar sites an hour
+before this pin and 398 again at the pin, but panels were actively adding
+tests throughout, so pinning first and exporting a clean snapshot
+(`git archive 461a5f1... | tar -x`) rather than reading the live worktree
+is what makes every number below reproducible.
+
+### The instrument's total, and why census §9d's 292 is not the baseline
+
+`count-coarse-assertions.py crates/ ros/ tools/` at the pin gives **694**
+sites excluding `helper_body`: **296** inside `matches!`/`.is_err()`/
+`.is_none()`, **398** outside it — both match the figures this round was
+handed exactly.
+
+Census §9d's **292** (`55+67+32+49+89` across `p1-robotmodel`/`p9-ros`/
+`pilz`/`p1-fixtures`/`p3-acm`) is not comparable to today's tree: it was
+measured at `311169b`/`fd3bada`, before several rounds each ledger has
+since added (`p1-robotmodel` alone grew from 55 rows to 14 numbered
+"Round"s reaching a `.contains()`-family workspace census; `p3-acm` grew
+39→43→(this round) after the geometry recount and the four-planner-crate
+sweep). Re-measuring today's raw table-row count (first `|`-column entries
+matching `` `?file:line` `` in each ledger, not exploded past a
+comma-list) gives **539**, not 292:
+
+| ledger | table rows (today) |
+|---|---:|
+| `p1-fixtures` | 136 |
+| `p1-robotmodel` | 130 |
+| `p3-acm` | 164 |
+| `p9-ros` | 77 |
+| `pilz` | 32 |
+| **total** | **539** |
+
+**539 rows is not 539 distinct sites.** `p1-robotmodel`'s "Round 11–14"
+(`.contains()`-shaped message-substring family, `crates/` minus `pilz` and
+`ros/`) is an independent workspace-wide *verification* pass, not a claim
+of fix-ownership — it re-lists 36 sites whose own fence's ledger already
+carries them. Deduplicating each ledger's own rows by `(file, line)` and
+then taking the union across all five gives the real distinct-site
+population claimed by *some* ledger: **424** by automated exact/±5-line
+matching against the scanner, before the manual corrections below.
+
+### Cross-ledger double claims — the mirror of §9f's orphans
+
+36 sites, every one `p1-robotmodel`'s workspace-wide `.contains()` sweep
+re-verifying a site whose fix-ownership ledger is someone else's:
+
+| site | claimed by |
+|---|---|
+| `crates/moveit-constraints/tests/sampler.rs:78` | p1-fixtures, p1-robotmodel |
+| `crates/moveit-constraints/tests/sampler.rs:120` | p1-fixtures, p1-robotmodel |
+| `crates/moveit-kinematics/src/chain.rs:469,512,558` | p1-fixtures, p1-robotmodel |
+| `crates/moveit-kinematics/tests/ik_fk_roundtrip.rs:267` | p1-fixtures, p1-robotmodel |
+| `crates/moveit-smoothing/src/acceleration_filter.rs:466,525,542` | p1-fixtures, p1-robotmodel |
+| `crates/moveit-smoothing/src/butterworth.rs:153,162,172,183,200` | p1-fixtures, p1-robotmodel |
+| `crates/moveit-smoothing/src/ruckig_filter.rs:388,465` | p1-fixtures, p1-robotmodel |
+| `crates/moveit-distance-field/src/voxel_grid.rs:454,456,512` | p1-robotmodel, p9-ros |
+| `crates/moveit-geometry/src/bodies.rs:3953,4055,4066,4125` | p1-robotmodel, **p3-acm** |
+| `crates/moveit-planners-chomp/src/cost.rs:391,404,436` | p1-robotmodel, **p3-acm** |
+| `crates/moveit-planners-chomp/src/optimizer.rs:2380,2449` | p1-robotmodel, **p3-acm** |
+| `crates/moveit-planners-chomp/src/trajectory.rs:712,727,748,766,925,968,1004` | p1-robotmodel, **p3-acm** |
+| `crates/moveit-planners-stomp/src/filter_functions.rs:314` | p1-robotmodel, **p3-acm** |
+
+The four bolded groups are inside this panel's own fence: `p1-robotmodel`'s
+Round 11–13 independently re-verified 15 of my geometry/chomp/stomp sites
+and reached the same in-family verdicts I did (matching the user's own
+direct re-check of `bodies.rs:4125`, reported earlier this round). Not a
+defect — a second independent verification of the same sites, correctly
+attributable to two ledgers at once. It only becomes a problem if a future
+count sums "rows per ledger" without deduplicating; flagging it here so
+that arithmetic is never attempted blind.
+
+### Stale citations found: failure mode 2, confirmed by test-name re-derivation
+
+15 ledger citations no longer point at the line they were written for,
+because an edit above them shifted the file. Confirmed by finding the
+actual current line via the row's own named test function and checking
+the source, not assumed from proximity — automated nearest-line search
+picked the wrong candidate at least once (`ros/moveit-ros/src/
+trajectory.rs`'s cluster: raw nearest-distance search matched `:462` to
+`:494`, but the test name `seconds_to_duration_rejects_infinity` is
+actually at `:500`).
+
+| ledger | stale citation | actual site (today) | cause |
+|---|---|---|---|
+| p3-acm (own fence) | `utils.rs:654` | `crates/moveit-stomp-core/src/utils.rs:660` | this round's own fix (`8fa0e48`) added 6 lines above the call; **corrected in this ledger's Round 13 table above** |
+| p1-fixtures | `tree.rs:1930` | `crates/moveit-octomap/src/tree.rs:1958` | insertion above, +28 |
+| p1-fixtures | `tree.rs:1944` | `crates/moveit-octomap/src/tree.rs:1972` | same insertion, +28 |
+| p1-fixtures | `tree.rs:1805` | `crates/moveit-octomap/src/tree.rs:1833` | same insertion, +28 |
+| p1-fixtures | `tree.rs:1806` | `crates/moveit-octomap/src/tree.rs:1834` | same insertion, +28 |
+| p1-fixtures | `tree.rs:1807` | `crates/moveit-octomap/src/tree.rs:1835` | same insertion, +28 |
+| p9-ros | `robot_model.rs:2024` | `crates/moveit-model/src/robot_model.rs:2051` | fixture widened 3→4 joints (`7676185`, adds a joint block above), +27 |
+| p9-ros | `robot_model.rs:2025` | `crates/moveit-model/src/robot_model.rs:2052` | same cause, +27 |
+| p9-ros | `robot_model.rs:2026` | `crates/moveit-model/src/robot_model.rs:2053` | same cause, +27 |
+| p9-ros | `trajectory.rs:444` (ros) | `ros/moveit-ros/src/trajectory.rs:482` | insertion above, +38 |
+| p9-ros | `trajectory.rs:450` (ros) | `ros/moveit-ros/src/trajectory.rs:488` | same, +38 |
+| p9-ros | `trajectory.rs:456` (ros) | `ros/moveit-ros/src/trajectory.rs:494` | same, +38 |
+| p9-ros | `trajectory.rs:462` (ros) | `ros/moveit-ros/src/trajectory.rs:500` | same, +38 — nearest-line search alone would have matched this to `:494`, wrongly |
+| p9-ros | `collision_env_distance_field.rs:3271` | `.../collision_env_distance_field.rs:3284` | citation points at the audit comment's opening line, not the `assert!`; +13 |
+| p9-ros | `collision_env_distance_field.rs:3276` | `.../collision_env_distance_field.rs:3289` | same convention, +13 |
+
+The p3-acm row is fixed in this commit (own fence). The other 14 are
+`p1-fixtures`'s and `p9-ros`'s own documents — reported, not edited, per
+this round's scope.
+
+### Non-matches that are not gaps
+
+Two more unresolved citations turned out to be citations to code the
+scanner was never going to see, by design — not gaps:
+
+- `p1-fixtures`, `tree.rs:1781` — the row's own evidence column says
+  **"scanner false positive"**: `assert!(insert_ray(..., None, ...))`
+  passes `None` as an *argument*, not a comparison; today's scanner
+  correctly does not flag it, matching the row's own conclusion.
+- `p1-robotmodel`, `moveit-constraints/src/position.rs:165` — its own
+  "Round 10" header says **"Not a census row"**: it cites a bare
+  `model.link_model(link_name)?` production guard, outside all nine of
+  the scanner's recognized shapes entirely (a bite-tested coverage gap,
+  not an assertion-discrimination site).
+
+### 26 ledger citations still unresolved (not this panel's fence — reported for the owning panel)
+
+After removing the confirmed-drift and non-scanner-scope rows above, 26
+citations across three other ledgers remain unmatched to any scanner site
+within this audit's effort budget. Several show the same offset pattern as
+the confirmed cases above (`p1-robotmodel`'s `decide.rs` cluster is
+consistently ~8–14 lines before its matching `via:` call site — confirmed
+for `:372`→`assert_err_mentions` call at `:380`, pattern not individually
+re-derived for the other seven) — plausible under the same two failure
+modes, not verified line-by-line:
+
+`p1-fixtures`: `tree.rs:1729,1762,1763,1794`, `ruckig_filter.rs:546`
+`p1-robotmodel`: `decide.rs:372,390,448,518,544,563,756,795`
+`p9-ros`: `scene/collision_object.rs:983`, `trajectory.rs:490` (ros),
+`collision_env_distance_field.rs:3734,3757`, `tests/oracle_parity.rs:264`,
+`robot_model.rs:2027,2028,2485,2700,2719,2943,2953`
+
+**Caveat that applies to every orphan count below:** at least one ledger
+(this one) cites a shared guard's *production* line (`tools.rs:68`) rather
+than each test's assert line for a fanned-out guard — `tools.rs:259,271,
+283` looked like three orphans in `moveit-collision` until checked against
+this ledger's own §1b, which already covers them as `tools.rs:68 (x)/(y)/
+(z)`. Any owning panel checking an "orphan" below should check for this
+citation convention before treating it as a gap.
+
+### This panel's own two accounting gaps, found and fixed (in-fence)
+
+The two failure modes the closing audit was warned to expect, both inside
+this fence, both from this round's own fixes landing after the count was
+taken:
+
+1. **`crates/moveit-planners-sbp/src/space.rs:247`** — `bbbe0f8`'s new
+   test (`non_finite_min_bound_is_rejected`) created a new scanner site
+   with no table row at all. Added above, in this ledger's Round 13
+   `moveit-planners-sbp` table.
+2. **`crates/moveit-stomp-core/src/utils.rs:654`→`:660`** — `8fa0e48`'s
+   fix added 6 lines above its own cited call site, going stale in the
+   same commit that created the row. Corrected above.
+
+Both are doc-only edits to this file; no source changed, so gate is
+`cargo fmt --all -- --check` only (doc-only, matching this ledger's
+established convention for census/reconciliation-only rounds).
+
+### Reconciliation table
+
+| | count |
+|---|---:|
+| scanner sites (pinned `461a5f1`, excl. `helper_body`) | **694** |
+| — old-grammar (`matches!`/`.is_err()`/`.is_none()`) | 296 |
+| — new-grammar (everything else) | 398 |
+| distinct sites matched to a ledger row (auto exact/±5-line) | 424 |
+| + confirmed stale-citation corrections (14 new + `utils.rs` already inside p3-acm's own fence) | +14 |
+| + guard-line-vs-assert-line convention match (`tools.rs:259,271,283`, already covered by `tools.rs:68 (x)/(y)/(z)`) | +3 |
+| + this panel's 1 brand-new in-fence row added this round (`space.rs:247`) | +1 |
+| **matched, total** | **442** |
+| cross-ledger double claims (subset of matched, not additional) | 36 |
+| unresolved-in-ledger, explained as non-scanner-scope (not gaps) | 2 |
+| unresolved-in-ledger, unconfirmed (other panels' fences) | 26 |
+| **orphans — no ledger row anywhere, confirmed** | **252** |
+
+**694 = 442 + 252, checked directly against the scanner set (not derived
+by subtraction alone).** The arithmetic closes because every site is
+counted exactly once: matched (442) or orphan (252) — the 36 double
+claims and 2 non-scope explanations are notes on the matched side, not a
+third bucket. This is not the same claim as "everything is accounted
+for" — 252 real orphans remain, concentrated by crate:
+
+| crate | orphans |
+|---|---:|
+| `ros/moveit-ros` | 66 |
+| `moveit-model` | 39 |
+| `moveit-trajectory` | 30 |
+| `moveit-octomap` | 29 |
+| `moveit-distance-field` | 28 |
+| `moveit-scene` | 25 |
+| `moveit-planners-pilz` | 12 |
+| `moveit-smoothing` | 9 |
+| `moveit-constraints` | 8 |
+| `moveit-planning` | 3 |
+| `moveit-state` | 3 |
+| **total** | **252** |
+
+Zero orphans remain in `moveit-collision`/`moveit-geometry`/the four
+planner crates — this panel's own fence is fully accounted for as of this
+round. None of the 252 fall inside it. The full 252-line `file:line`
+enumeration (scanner `kind` included) is preserved for the orchestrator at
+this session's scratchpad path,
+`scratchpad/orphans_truly_final.json` (not committed — reproducible from
+the pinned commit and `tools/ci/count-coarse-assertions.py` plus the
+matched-site list above).
+
+### Commands run (round 14)
+
+```
+git archive 461a5f10655030b6c16c51afe588cfd6d844ad4d | tar -x -C <snapshot-dir>
+python3 tools/ci/count-coarse-assertions.py crates/ ros/ tools/   # 694 excl. helper_body, in <snapshot-dir>
+cargo fmt --all -- --check     # doc-only round, no source changed
+```
