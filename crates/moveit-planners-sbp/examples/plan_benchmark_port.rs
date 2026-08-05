@@ -22,9 +22,10 @@
 //! # Usage
 //!
 //! `cargo run --release --example plan_benchmark_port -p moveit-planners-sbp
-//! -- <seed_base> [timeout_seconds] [inject] [dense]`, with a `plan`-op request JSON
-//! on stdin (see `examples/plan_benchmark_problem_set.rs`'s own doc comment
-//! for the exact shape -- the same file `benches/sweep_baseline.sh` writes to
+//! -- <seed_base> [timeout_seconds] [inject] [dense]`, with a `plan`-op
+//! request JSON on stdin (see `examples/plan_benchmark_problem_set.rs`'s own
+//! doc comment for the exact shape -- the same file
+//! `benches/sweep_baseline.sh` writes to
 //! `$WORKDIR/$config.json` before piping it to the oracle is valid input
 //! here too). `seed_base` is this run's own RNG seed -- independent of the
 //! request's own `seed` field, which is the *oracle's* OMPL seed and has no
