@@ -84,11 +84,18 @@ for i, line in enumerate(lines, 1):
     if in_fence:
         continue
 
-    if line.startswith("## "):
+    # A heading of ANY level ends the Index section, so `in_index` is simply
+    # "the last heading seen was `## Index`". Ending it at `## ` alone left
+    # the flag set through every entry below the table -- entries open with
+    # `### `, which `startswith("## ")` does not match, and the next `## ` is
+    # a thousand lines further down -- so an ordinary markdown table inside an
+    # entry body was read as eight malformed Index rows while the Index itself
+    # was correct. Entries are allowed tables; the region, not the row
+    # pattern, was wrong.
+    if line.startswith("#"):
         in_index = line.strip() == "## Index"
         if in_index:
             index_heading_lines.append(i)
-        continue
 
     if line.startswith("### "):
         match = ENTRY_RE.match(line)
