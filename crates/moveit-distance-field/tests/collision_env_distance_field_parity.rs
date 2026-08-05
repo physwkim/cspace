@@ -810,6 +810,12 @@ fn group_state_representation_matches_the_oracle() {
                 expected_link.link_name, request.group
             );
             if !actual_has_geometry {
+                // ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch`
+                // -- same one cause as `collision_env_distance_field.rs`'s
+                // `update_group_state_representation_state_skips_links_without_geometry`:
+                // `group_state_representation` has exactly one
+                // `link_body_decompositions.push(None)` site, gated by this
+                // same `!link_has_geometry[i]` condition.
                 assert!(gsr.link_body_decompositions[i].is_none());
                 continue;
             }
