@@ -48,11 +48,10 @@
 #     clause 3 (subject) separates them, by reading.
 #   * `contains_msg` vs `contains_member` is decided by looking 60 bytes
 #     back from `.contains(` for a rendering call (`to_string()`,
-#     `unwrap_err()`, `format!`, a `rendered`/`message`/`msg` binding). A
-#     helper that renders the error on an earlier line and asserts on a
-#     later one reads as `contains_member` here and has to be
-#     reclassified by reading -- `assert_err_mentions` is exactly that
-#     shape, so its 35 call sites do NOT appear as `contains_msg`.
+#     `unwrap_err()`, `format!`, a `rendered`/`message`/`msg` binding).
+#     Within a single expression that is reliable; across statements it
+#     is not, which is why assertion helpers are handled structurally
+#     instead (below) rather than by widening the window.
 #   * It counts assertion SITES, not branches. A guard folding N operands
 #     into one construction site is one site here and N covered branches
 #     in fact -- see doc/folded-operand-guards.md.
@@ -60,6 +59,15 @@
 #     nested macro is taken by paren depth, which is correct for
 #     well-formed Rust but yields the whole outer call for a hit inside a
 #     closure passed to the assertion.
+#
+# Assertion helpers. An assertion inside a fn that asserts on its own
+# parameter is an assertion *mechanism*, not an assertion site: its sites
+# are that fn's call sites. `assert_err_mentions(result, needle)` is the
+# shape this exists for -- five copies of it in `ros/moveit-ros` were
+# being counted as five sites while its 23 call sites were counted as
+# none. Such a body is emitted with scope `helper_body` (exclude it from
+# any site count) and each call site is emitted with kind `via:<fn>`.
+# Resolution is per-file, so a helper called from another file is missed.
 #
 # Output: one line per hit, `file:line:kind:scope:text`, where scope is
 # `test` for a hit inside a `#[cfg(test)]` module or under a `tests/`
@@ -207,13 +215,41 @@ def classify(body):
     return kinds
 
 
+def fn_spans(masked):
+    """(name, start, end) for every `fn NAME`, by brace depth."""
+    out = []
+    for m in re.finditer(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)", masked):
+        j = masked.find("{", m.end())
+        if j == -1:
+            continue
+        depth, k = 0, j
+        while k < len(masked):
+            if masked[k] == "{":
+                depth += 1
+            elif masked[k] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        out.append((m.group(1), m.start(), k))
+    return out
+
+
 def scan(path):
     text = path.read_text(encoding="utf-8", errors="replace")
     masked = blank_comments_and_strings(text)
     spans = test_spans(masked)
+    fns = fn_spans(masked)
     is_tests_dir = "/tests/" in str(path).replace("\\", "/")
+
+    def scope_at(pos):
+        return (
+            "test" if is_tests_dir or any(a <= pos <= b for a, b in spans) else "src"
+        )
+
     hits = []
     seen = set()
+    helpers = {}  # name -> (kinds, def_start, def_end)
     for m in re.finditer(r"\b(" + "|".join(MACROS) + r")\s*!\s*\(", masked):
         if m.start() in seen:
             continue
@@ -225,16 +261,43 @@ def scan(path):
         if not kinds:
             continue
         line = masked.count("\n", 0, m.start()) + 1
-        scope = (
-            "test"
-            if is_tests_dir or any(a <= m.start() <= b for a, b in spans)
-            else "src"
-        )
         shown = " ".join(text[m.start() : end + 1].split())
         if len(shown) > 120:
             shown = shown[:117] + "..."
-        hits.append((line, ",".join(kinds), scope, shown))
-    return hits
+        # An assertion inside a fn that takes the asserted value as a
+        # parameter is an assertion *mechanism*, not an assertion site --
+        # its sites are that fn's call sites. `assert_err_mentions` is the
+        # shape this exists for; see this file's header.
+        owner = min(
+            (f for f in fns if f[1] <= m.start() <= f[2]),
+            key=lambda f: f[2] - f[1],
+            default=None,
+        )
+        if owner and re.search(
+            r"\bfn\s+" + owner[0] + r"\s*(<[^{]*?>)?\s*\([^)]*\w+\s*:", masked[owner[1] :]
+        ):
+            sig_end = masked.find("{", owner[1])
+            params = masked[owner[1] : sig_end]
+            asserted = re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*:", params)
+            if any(re.search(r"\b" + p + r"\b", body) for p in asserted) or re.search(
+                r"\brendered\b|\bactual\b|\bresult\b", body
+            ):
+                helpers[owner[0]] = (kinds, owner[1], owner[2])
+                hits.append((line, ",".join(kinds), "helper_body", shown))
+                continue
+        hits.append((line, ",".join(kinds), scope_at(m.start()), shown))
+
+    for name, (kinds, ds, de) in helpers.items():
+        for c in re.finditer(r"\b" + name + r"\s*\(", masked):
+            if ds <= c.start() <= de:
+                continue
+            line = masked.count("\n", 0, c.start()) + 1
+            end = arg_span(masked, masked.index("(", c.end() - 1))
+            shown = " ".join(text[c.start() : end + 1].split())
+            if len(shown) > 120:
+                shown = shown[:117] + "..."
+            hits.append((line, "via:" + name, scope_at(c.start()), shown))
+    return sorted(hits)
 
 
 def main(argv):
