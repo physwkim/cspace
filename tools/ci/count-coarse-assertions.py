@@ -23,8 +23,7 @@
 #   is_none    .is_none()                        -- Option absent
 #   is_some    .is_some()                        -- Option present
 #   is_empty   .is_empty()                       -- collection empty
-#   contains_msg     .contains(..) on a rendered error -- which message
-#   contains_member  .contains(..) on a collection     -- membership
+#   contains   .contains(..)                      -- substring OR membership
 #   eq_none    assert_eq!(x, None)               -- Option absent
 #   eq_err     assert_eq!(x, Err(...))           -- Result failed
 #
@@ -46,13 +45,20 @@
 #     `.is_empty()` on a test's own fixture vector and one on the return
 #     value of the code under test are the same text to it. Census §9
 #     clause 3 (subject) separates them, by reading.
-#   * `contains_msg` vs `contains_member` is decided by looking 60 bytes
-#     back from `.contains(` for a rendering call (`to_string()`,
-#     `unwrap_err()`, `format!`, a `rendered`/`message`/`msg` binding). A
-#     helper that renders the error on an earlier line and asserts on a
-#     later one reads as `contains_member` here and has to be
-#     reclassified by reading -- `assert_err_mentions` is exactly that
-#     shape, so its 35 call sites do NOT appear as `contains_msg`.
+#   * It does not split `.contains(..)` into "searched a rendered error"
+#     and "tested collection membership", and must not be made to. That
+#     distinction is a property of the receiver's TYPE, and no regex over
+#     text has types. Two rules were tried and both misfile real sites in
+#     this tree. Looking backwards from `.contains(` for a rendering call
+#     misses every check reached through a closure parameter --
+#     `detail.as_deref().is_some_and(|d| d.contains("only STL"))`, where
+#     the receiver is one character long and carries no evidence at all.
+#     Reading the argument instead ("a string literal means text search")
+#     misfiles `body.touch_links().contains("should_not_survive")` at
+#     scene/attached.rs:532, which is a set lookup with a literal key.
+#     Emitting one kind keeps the miscall out of the output entirely;
+#     census §9 clause 1 decides it by reading, as it does for every
+#     other kind here.
 #   * It counts assertion SITES, not branches. A guard folding N operands
 #     into one construction site is one site here and N covered branches
 #     in fact -- see doc/folded-operand-guards.md.
@@ -60,6 +66,15 @@
 #     nested macro is taken by paren depth, which is correct for
 #     well-formed Rust but yields the whole outer call for a hit inside a
 #     closure passed to the assertion.
+#
+# Assertion helpers. An assertion inside a fn that asserts on its own
+# parameter is an assertion *mechanism*, not an assertion site: its sites
+# are that fn's call sites. `assert_err_mentions(result, needle)` is the
+# shape this exists for -- five copies of it in `ros/moveit-ros` were
+# being counted as five sites while its 23 call sites were counted as
+# none. Such a body is emitted with scope `helper_body` (exclude it from
+# any site count) and each call site is emitted with kind `via:<fn>`.
+# Resolution is per-file, so a helper called from another file is missed.
 #
 # Output: one line per hit, `file:line:kind:scope:text`, where scope is
 # `test` for a hit inside a `#[cfg(test)]` module or under a `tests/`
@@ -188,32 +203,83 @@ def arg_span(masked, open_paren):
     return len(masked)
 
 
-def classify(body):
+def top_level_args(body):
+    """`body` is `(a, b, c)` -- return the arguments at depth 1 only, so a
+    comma inside a nested call is not mistaken for an operand separator."""
+    args, depth, start = [], 0, 1
+    for i, c in enumerate(body):
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                args.append(body[start:i])
+                break
+        elif c == "," and depth == 1:
+            args.append(body[start:i])
+            start = i + 1
+    return args
+
+
+def classify(macro, body):
     kinds = []
     if re.search(r"\bmatches!\s*\(", body):
         kinds.append("matches")
     for meth in ("is_err", "is_none", "is_some", "is_empty"):
         if re.search(r"\.\s*" + meth + r"\s*\(\s*\)", body):
             kinds.append(meth)
-    for m in re.finditer(r"\.\s*contains\s*\(", body):
-        recv = body[max(0, m.start() - 60) : m.start()]
-        msg = r"(to_string\s*\(\)|unwrap_err\s*\(\)|expect_err\s*\(|\.err\s*\(\)|format!|\brendered\b|\bmessage\b|\bmsg\b)"
-        kinds.append("contains_msg" if re.search(msg, recv) else "contains_member")
-        break
-    if re.search(r",\s*None\s*[,)]?\s*$", body) or re.search(r",\s*None\s*,", body):
-        kinds.append("eq_none")
-    if re.search(r",\s*Err\s*\(", body):
-        kinds.append("eq_err")
+    if re.search(r"\.\s*contains\s*\(", body):
+        # Deliberately ONE kind: whether this searches a rendered error or
+        # tests collection membership is a fact about the receiver's TYPE,
+        # which no regex can see. See this file's header.
+        kinds.append("contains")
+    # `None` / `Err(..)` count only as an OPERAND of an equality macro. A
+    # bare `assert!(tree.insert_ray(a, b, None, false))` passes None as an
+    # argument to the code under test and asserts nothing about it.
+    if macro in ("assert_eq", "assert_ne", "debug_assert_eq"):
+        for arg in top_level_args(body):
+            if re.fullmatch(r"\s*None\s*", arg):
+                kinds.append("eq_none")
+            elif re.match(r"\s*Err\s*\(", arg.strip()):
+                kinds.append("eq_err")
     return kinds
+
+
+def fn_spans(masked):
+    """(name, start, end) for every `fn NAME`, by brace depth."""
+    out = []
+    for m in re.finditer(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)", masked):
+        j = masked.find("{", m.end())
+        if j == -1:
+            continue
+        depth, k = 0, j
+        while k < len(masked):
+            if masked[k] == "{":
+                depth += 1
+            elif masked[k] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        out.append((m.group(1), m.start(), k))
+    return out
 
 
 def scan(path):
     text = path.read_text(encoding="utf-8", errors="replace")
     masked = blank_comments_and_strings(text)
     spans = test_spans(masked)
+    fns = fn_spans(masked)
     is_tests_dir = "/tests/" in str(path).replace("\\", "/")
+
+    def scope_at(pos):
+        return (
+            "test" if is_tests_dir or any(a <= pos <= b for a, b in spans) else "src"
+        )
+
     hits = []
     seen = set()
+    helpers = {}  # name -> (kinds, def_start, def_end)
     for m in re.finditer(r"\b(" + "|".join(MACROS) + r")\s*!\s*\(", masked):
         if m.start() in seen:
             continue
@@ -221,20 +287,47 @@ def scan(path):
         open_paren = masked.index("(", m.end() - 1)
         end = arg_span(masked, open_paren)
         body = masked[open_paren : end + 1]
-        kinds = classify(body)
+        kinds = classify(m.group(1), body)
         if not kinds:
             continue
         line = masked.count("\n", 0, m.start()) + 1
-        scope = (
-            "test"
-            if is_tests_dir or any(a <= m.start() <= b for a, b in spans)
-            else "src"
-        )
         shown = " ".join(text[m.start() : end + 1].split())
         if len(shown) > 120:
             shown = shown[:117] + "..."
-        hits.append((line, ",".join(kinds), scope, shown))
-    return hits
+        # An assertion inside a fn that takes the asserted value as a
+        # parameter is an assertion *mechanism*, not an assertion site --
+        # its sites are that fn's call sites. `assert_err_mentions` is the
+        # shape this exists for; see this file's header.
+        owner = min(
+            (f for f in fns if f[1] <= m.start() <= f[2]),
+            key=lambda f: f[2] - f[1],
+            default=None,
+        )
+        if owner and re.search(
+            r"\bfn\s+" + owner[0] + r"\s*(<[^{]*?>)?\s*\([^)]*\w+\s*:", masked[owner[1] :]
+        ):
+            sig_end = masked.find("{", owner[1])
+            params = masked[owner[1] : sig_end]
+            asserted = re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*:", params)
+            if any(re.search(r"\b" + p + r"\b", body) for p in asserted) or re.search(
+                r"\brendered\b|\bactual\b|\bresult\b", body
+            ):
+                helpers[owner[0]] = (kinds, owner[1], owner[2])
+                hits.append((line, ",".join(kinds), "helper_body", shown))
+                continue
+        hits.append((line, ",".join(kinds), scope_at(m.start()), shown))
+
+    for name, (kinds, ds, de) in helpers.items():
+        for c in re.finditer(r"\b" + name + r"\s*\(", masked):
+            if ds <= c.start() <= de:
+                continue
+            line = masked.count("\n", 0, c.start()) + 1
+            end = arg_span(masked, masked.index("(", c.end() - 1))
+            shown = " ".join(text[c.start() : end + 1].split())
+            if len(shown) > 120:
+                shown = shown[:117] + "..."
+            hits.append((line, "via:" + name, scope_at(c.start()), shown))
+    return sorted(hits)
 
 
 def main(argv):
