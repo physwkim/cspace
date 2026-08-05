@@ -151,7 +151,7 @@ column plus a prose note under the two crates with an exclusion.
 
 **Checked: 49. Moved to `not-this-family`: 2. In-family: 47/49.**
 
-- **`scene.rs:2183`** (moveit-scene) — clause 1 (mechanism) fails.
+- **`scene.rs:2210`** (moveit-scene) — clause 1 (mechanism) fails.
   `matches!(outcome, MoveObjectOutcome::Moved(_))` targets the
   success-with-effect arm of a 3-variant enum, not a "could not/did not
   produce X" tag — `NotFound`/`NoChange` would have held clause 1,
@@ -250,21 +250,21 @@ blind site (a bite exposed unexercised operands, since fixed).
 
 | file:line | anchor | test fn | verdict | evidence | in-family |
 |---|---|---|---|---|---|
-| scene.rs:2183 | matches! | `diff_scene_records_a_move_only_change_for_an_existing_object` | discriminating | round-report — this same session, earlier round: ran 3 bites on `PlanningScene::move_object` (`scene.rs:1009`), reverted after each. (1) reachability: forced outcome to `NotFound` → test fails at the `matches!`. (2) discrimination: forced outcome to sibling `NoChange` → test fails at the same `matches!`. (3) payload: kept `Moved` but swapped the notification's `Action` to `CREATE` → the wildcarded `Moved(_)` still passes, but the test's own second assertion (`diff.get("box").unwrap() == Action::MOVE_SHAPE`) catches it. You re-read and confirmed this in-session ("Verified `scene.rs:2183` and agreed — `MoveObjectOutcome`'s three variants map 1:1 to the three guards, bites 1 and 2 both fail... `discriminating`, no fix"). No commit — no fix was needed, gate was `-p moveit-scene` clean at the time. | **not-this-family** — see below |
-| scene.rs:2359 | bare `.is_none()` | (unnamed, `WorldDiff::get`-adjacent) | discriminating | bite (this round) — `WorldDiff::get`'s single guard (`world_diff.rs:104-106`) is the sole producer; see `world_diff.rs:315` bite below, same guard shape | yes |
-| scene.rs:2557 | bare `.is_none()` | `decouple_parent_then_mutating_the_former_parent_is_not_observed` | single-branch | structural — `decouple_parent` (`scene.rs:2036-2054`) has exactly one `self.parent = None;` site (verified by `rg 'self\.parent = ' crates/moveit-scene/src/scene.rs`). Corrected from `discriminating`: "exactly one producing site" proves there is nothing to discriminate from, not that there is | yes |
-| scene.rs:2589 | bare `.is_none()` | `decouple_parent_materializes_the_inherited_transforms_map` | single-branch | structural — same single `self.parent = None;` site as 2557. Corrected from `discriminating`, same reason | yes |
-| scene.rs:2624 | bare `.is_none()` | `decouple_parent_then_the_childs_inherited_attached_body_frame_still_resolves` | single-branch | structural — same single `self.parent = None;` site. Corrected from `discriminating`, same reason | yes |
-| scene.rs:2649 | bare `.is_none()` | `decouple_parent_then_the_childs_inherited_world_object_still_resolves` | single-branch | structural — same single `self.parent = None;` site. Corrected from `discriminating`, same reason | yes |
-| scene.rs:2731 | bare `.is_none()` | `clear_diffs_resets_a_diverged_child_to_a_fresh_diff_against_the_parent` | discriminating | bite (this round) — removed `self.acm = Layered::Inherited;` from `clear_diffs`, assertion flipped, reverted | yes |
-| scene.rs:2762 | bare `.is_err()` | `frame_transform_resolves_the_model_frame_and_a_link_name` | single-branch | structural — re-read `frame_transform` (`scene.rs:1345-1365`) line by line: it has two possible `Err`-producing statements, `posed.global_link_transform(link_name)?` (reached only when `frame_id` resolves to an attached body, `scene.rs:1356`) and the final fallthrough `self.transforms().transform(frame_id).copied()` (`scene.rs:1364`, reached when no tier matched at all). `"world"` resolves in no tier and is not an attached-body name, so only the fallthrough fires. No test in this file's `.is_err()`/`matches!` family exercises the attached-body error path (`rg 'frame_transform\(' crates/moveit-scene/` across `scene.rs` and `frame_transform_parity.rs`), so within the population of sites actually asserted, there is only one reachable producer. Corrected from `discriminating`: the earlier evidence ("isolates... from... tested moments earlier") named tiers that succeed, not a second `Err`-producing sibling — a real second producer exists in the function but nothing in this family tests it | yes |
-| scene.rs:2847 | bare `.is_err()` | `frame_transform_reports_a_name_resolving_in_no_tier` | single-branch | structural — same fallthrough-only reasoning as 2762; `"nothing"` is not an attached-body name either. Corrected from `discriminating`, same reason | yes |
-| scene.rs:2906 | bare `.is_err()` | `frame_transform_tier_six_absent_name_is_still_unknown` | single-branch | structural — same fallthrough-only reasoning; `"no_such_frame"` is not an attached-body name. Corrected from `discriminating`, same reason | yes |
-| scene.rs:2915 | bare `.is_err()` | `frame_transform_tier_six_empty_name_is_unknown` | single-branch | structural — same fallthrough-only reasoning; `""` is not an attached-body name. Corrected from `discriminating`, same reason | yes |
+| scene.rs:2210 | matches! | `diff_scene_records_a_move_only_change_for_an_existing_object` | discriminating | round-report — this same session, earlier round: ran 3 bites on `PlanningScene::move_object` (`scene.rs:1009`), reverted after each. (1) reachability: forced outcome to `NotFound` → test fails at the `matches!`. (2) discrimination: forced outcome to sibling `NoChange` → test fails at the same `matches!`. (3) payload: kept `Moved` but swapped the notification's `Action` to `CREATE` → the wildcarded `Moved(_)` still passes, but the test's own second assertion (`diff.get("box").unwrap() == Action::MOVE_SHAPE`) catches it. You re-read and confirmed this in-session ("Verified `scene.rs:2210` and agreed — `MoveObjectOutcome`'s three variants map 1:1 to the three guards, bites 1 and 2 both fail... `discriminating`, no fix"). No commit — no fix was needed, gate was `-p moveit-scene` clean at the time. | **not-this-family** — see below |
+| scene.rs:2386 | bare `.is_none()` | (unnamed, `WorldDiff::get`-adjacent) | discriminating | bite (this round) — `WorldDiff::get`'s single guard (`world_diff.rs:104-106`) is the sole producer; see `world_diff.rs:315` bite below, same guard shape | yes |
+| scene.rs:2584 | bare `.is_none()` | `decouple_parent_then_mutating_the_former_parent_is_not_observed` | single-branch | structural — `decouple_parent` (`scene.rs:2036-2054`) has exactly one `self.parent = None;` site (verified by `rg 'self\.parent = ' crates/moveit-scene/src/scene.rs`). Corrected from `discriminating`: "exactly one producing site" proves there is nothing to discriminate from, not that there is | yes |
+| scene.rs:2616 | bare `.is_none()` | `decouple_parent_materializes_the_inherited_transforms_map` | single-branch | structural — same single `self.parent = None;` site as 2557. Corrected from `discriminating`, same reason | yes |
+| scene.rs:2651 | bare `.is_none()` | `decouple_parent_then_the_childs_inherited_attached_body_frame_still_resolves` | single-branch | structural — same single `self.parent = None;` site. Corrected from `discriminating`, same reason | yes |
+| scene.rs:2676 | bare `.is_none()` | `decouple_parent_then_the_childs_inherited_world_object_still_resolves` | single-branch | structural — same single `self.parent = None;` site. Corrected from `discriminating`, same reason | yes |
+| scene.rs:2758 | bare `.is_none()` | `clear_diffs_resets_a_diverged_child_to_a_fresh_diff_against_the_parent` | discriminating | bite (this round) — removed `self.acm = Layered::Inherited;` from `clear_diffs`, assertion flipped, reverted | yes |
+| scene.rs:2789 | bare `.is_err()` | `frame_transform_resolves_the_model_frame_and_a_link_name` | single-branch | structural — re-read `frame_transform` (`scene.rs:1345-1365`) line by line: it has two possible `Err`-producing statements, `posed.global_link_transform(link_name)?` (reached only when `frame_id` resolves to an attached body, `scene.rs:1356`) and the final fallthrough `self.transforms().transform(frame_id).copied()` (`scene.rs:1364`, reached when no tier matched at all). `"world"` resolves in no tier and is not an attached-body name, so only the fallthrough fires. No test in this file's `.is_err()`/`matches!` family exercises the attached-body error path (`rg 'frame_transform\(' crates/moveit-scene/` across `scene.rs` and `frame_transform_parity.rs`), so within the population of sites actually asserted, there is only one reachable producer. Corrected from `discriminating`: the earlier evidence ("isolates... from... tested moments earlier") named tiers that succeed, not a second `Err`-producing sibling — a real second producer exists in the function but nothing in this family tests it | yes |
+| scene.rs:2874 | bare `.is_err()` | `frame_transform_reports_a_name_resolving_in_no_tier` | single-branch | structural — same fallthrough-only reasoning as 2762; `"nothing"` is not an attached-body name either. Corrected from `discriminating`, same reason | yes |
+| scene.rs:2933 | bare `.is_err()` | `frame_transform_tier_six_absent_name_is_still_unknown` | single-branch | structural — same fallthrough-only reasoning; `"no_such_frame"` is not an attached-body name. Corrected from `discriminating`, same reason | yes |
+| scene.rs:2942 | bare `.is_err()` | `frame_transform_tier_six_empty_name_is_unknown` | single-branch | structural — same fallthrough-only reasoning; `""` is not an attached-body name. Corrected from `discriminating`, same reason | yes |
 | world_diff.rs:315 | bare `.is_none()` | `set_with_uninitialized_action_erases_the_entry` | discriminating | bite (this round) — neutralized `WorldDiff::set`'s UNINITIALIZED branch (`if false && ...`), assertion flipped, reverted | yes |
 | frame_transform_parity.rs:254 | bare `.is_err()` | `panda_frame_transform_matches_the_oracle` | single-branch | structural — same `frame_transform` fallthrough-only reasoning as 2759/2844/2903/2912; `query.name == "nothing"` is not an attached-body name in this fixture (`build_scene`'s attach loop only populates from `request.attached_bodies`). Corrected from `discriminating`, same reason | yes |
 
-**`scene.rs:2183` moved to `not-this-family` (clause 1, mechanism).**
+**`scene.rs:2210` moved to `not-this-family` (clause 1, mechanism).**
 Re-read `World::move_object` (`crates/moveit-collision/src/world.rs:733-742`):
 `self.objects.get(id)` miss → `NotFound`; `eigen_is_approx(transform,
 identity)` → `NoChange`; otherwise → `Moved(notification)`.
@@ -529,7 +529,7 @@ none required a new bite — each cites evidence that already existed.
 
 **Row-count correction (orphan reconciliation, this round):** this
 section previously stated its verdicts as prose paragraphs naming
-line-slash-lists (`scene.rs:2152/2150`, `world_diff.rs:158/159/...`)
+line-slash-lists (`scene.rs:2179/2150`, `world_diff.rs:158/159/...`)
 instead of per-site table rows. `tools/ci/reconcile-assertion-ledgers.
 py`'s citation parser only reads markdown table rows starting with
 `|` — a prose paragraph, however precisely it names its lines, is
@@ -540,8 +540,8 @@ site, same reasoning as before.
 
 | file:line | kind | verdict | in-family | note |
 |---|---|---|---|---|
-| scene.rs:2152 | contains_member | not-this-family | no | clause 1 — `Action` bitflag membership check is the diff algorithm's own informative computed classification ("which actions occurred"), not a stand-in for an operation's inability to do something |
-| scene.rs:2153 | contains_member | not-this-family | no | same reasoning |
+| scene.rs:2179 | contains_member | not-this-family | no | clause 1 — `Action` bitflag membership check is the diff algorithm's own informative computed classification ("which actions occurred"), not a stand-in for an operation's inability to do something |
+| scene.rs:2180 | contains_member | not-this-family | no | same reasoning |
 | world_diff.rs:158 | contains_member | not-this-family | no | same `Action` bitflag reasoning |
 | world_diff.rs:159 | contains_member | not-this-family | no | same reasoning |
 | world_diff.rs:198 | contains_member | not-this-family | no | same reasoning |
@@ -554,15 +554,15 @@ site, same reasoning as before.
 | world_diff.rs:289 | contains_member | not-this-family | no | same reasoning |
 | world_diff.rs:330 | is_empty | not-this-family | no | clause 2 — `a_fresh_diff_is_empty`: `WorldDiff::new()` is `Self::default()`, no decision to get wrong |
 | world_diff.rs:331 | is_empty | not-this-family | no | same fresh-constructor reasoning |
-| scene.rs:2155 | is_empty | in-family, discriminating | yes | pairs its coarse assertion with a same-test non-vacuous setup (a mutation immediately before the check proves the collection *was* populated), ruling out the "never touched" sibling |
-| scene.rs:2170 | is_empty | in-family, discriminating | yes | same pattern |
-| scene.rs:2351 | eq_none | in-family, discriminating | yes | same pattern |
-| scene.rs:2370 | is_some | in-family, discriminating | yes | same pattern |
-| scene.rs:2719 | is_some | in-family, discriminating | yes | same pattern |
-| scene.rs:2725 | is_some | in-family, discriminating | yes | doc comment explicitly names the bug class it exists to catch ("`clear_diffs` resetting `attached_bodies`/`acm` to empty ... would be indistinguishable from correctly re-inheriting the parent's ... state") |
-| scene.rs:2736 | is_empty | in-family, discriminating | yes | same pattern |
-| scene.rs:3387 | is_empty | in-family, discriminating | yes | sits next to a sibling test proving the same collection is non-empty under different input |
-| scene.rs:3411 | is_empty | in-family, discriminating | yes | same sibling-test pattern |
+| scene.rs:2182 | is_empty | in-family, discriminating | yes | pairs its coarse assertion with a same-test non-vacuous setup (a mutation immediately before the check proves the collection *was* populated), ruling out the "never touched" sibling |
+| scene.rs:2197 | is_empty | in-family, discriminating | yes | same pattern |
+| scene.rs:2378 | eq_none | in-family, discriminating | yes | same pattern |
+| scene.rs:2397 | is_some | in-family, discriminating | yes | same pattern |
+| scene.rs:2746 | is_some | in-family, discriminating | yes | same pattern |
+| scene.rs:2752 | is_some | in-family, discriminating | yes | doc comment explicitly names the bug class it exists to catch ("`clear_diffs` resetting `attached_bodies`/`acm` to empty ... would be indistinguishable from correctly re-inheriting the parent's ... state") |
+| scene.rs:2763 | is_empty | in-family, discriminating | yes | same pattern |
+| scene.rs:3414 | is_empty | in-family, discriminating | yes | sits next to a sibling test proving the same collection is non-empty under different input |
+| scene.rs:3438 | is_empty | in-family, discriminating | yes | same sibling-test pattern |
 | world_diff.rs:297 | is_some | in-family, discriminating | yes | pairs its coarse assertion with a same-test non-vacuous setup |
 | world_diff.rs:323 | is_empty | in-family, discriminating | yes | same pattern |
 
