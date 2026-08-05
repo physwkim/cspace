@@ -401,6 +401,44 @@ mod tests {
         );
     }
 
+    // Assertion-discrimination sweep (round 8, folded-operand audit): the
+    // wire-boundary guard is `i == 0 && t != 0.0` -- a different check from
+    // `add_suffix_way_point`'s own internal invariant of the same shape
+    // (`add_suffix_way_point_rejects_a_nonzero_first_dt` above never goes
+    // through `TryFrom<JointTrajectoryMsg>` at all, so it is not evidence
+    // for this guard). Before this round neither operand of *this* guard
+    // had any test through the wire path. These isolate each: bite-checked
+    // by dropping one clause from the `&&` and confirming only the test
+    // for the *other* operand's claim changes outcome.
+    #[test]
+    fn first_point_nonzero_time_from_start_is_rejected_at_the_wire_boundary() {
+        let model = one_joint_model();
+        let msg = trajectory_msgs::JointTrajectory {
+            header: Default::default(),
+            joint_names: vec!["j1".to_string()],
+            points: vec![point(0.0, 1, 0)],
+        };
+        assert_err_mentions(
+            RobotTrajectory::try_from(JointTrajectoryMsg { model: &model, msg }),
+            "time_from_start is 1s, not 0s",
+        );
+    }
+
+    #[test]
+    fn later_point_with_nonzero_absolute_time_from_start_is_accepted() {
+        // Isolates the `i == 0` clause: without it, this point's nonzero
+        // *absolute* time_from_start (1s) would be wrongly rejected by the
+        // guard above even though its `dt` from point[0] is a valid 1.0s.
+        let model = one_joint_model();
+        let msg = trajectory_msgs::JointTrajectory {
+            header: Default::default(),
+            joint_names: vec!["j1".to_string()],
+            points: vec![point(0.0, 0, 0), point(0.1, 1, 0)],
+        };
+        RobotTrajectory::try_from(JointTrajectoryMsg { model: &model, msg })
+            .expect("point[1]'s nonzero absolute time_from_start is a valid positive dt");
+    }
+
     #[test]
     fn round_trip_through_msg() {
         let model = one_joint_model();
