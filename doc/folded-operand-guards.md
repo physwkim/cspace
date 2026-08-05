@@ -61,11 +61,38 @@ grammar. **The union is the population; either alone is a sample.**
 | `ros/moveit-ros/src/scene/collision_object.rs:345` | 3 | `primitives/meshes/planes.is_empty()` | p9-ros |
 | `ros/moveit-ros/src/state.rs:112` | 4 | `!joint_names/transforms/twist/wrench.is_empty()` | p9-ros |
 | `ros/moveit-ros/src/trajectory.rs:165` | 2 | `i == 0 && t != 0.0` | p9-ros |
-| `tools/moveit-diff/src/rust_impl.rs:393` | 2 | `link_names[0].is_empty() \|\| link_names[1].is_empty()` | unowned |
+| `tools/moveit-diff/src/rust_impl.rs:393` | 2 | `link_names[0].is_empty() \|\| link_names[1].is_empty()` | closed, see below |
 
 **Excluded, different shape:** `ros/moveit-ros/src/trajectory.rs:45` and
 `moveit-distance-field`'s `checked_max_distance_sq` fold one variable
 checked three ways (finite / `>= 0` / `<= MAX`), not N named operands.
+
+**A folded guard is not automatically a sweep row.** This sweep is about
+*assertions* that cannot name what produced their result. A folded-operand
+guard with no assertion targeting it at all is a coverage gap, which is a
+different (and usually smaller) problem: there is no wrong verdict to
+correct, because nobody recorded a verdict. Sites in the table above split
+into three kinds and only the first is a sweep finding:
+
+1. a guard whose assertions exist and were verdicted `single-branch` on a
+   constructor count — the misverdict this table exists for;
+2. a guard whose assertions exist but exercise the operands only jointly —
+   a blind site (`acceleration_filter.rs:302` and `ruckig_filter.rs`'s
+   `reset`, both fixed in `3c2d72f`/`2829ca2`);
+3. a guard with no assertion at all — note it, do not manufacture a
+   verdict for it.
+
+`tools/moveit-diff/src/rust_impl.rs:393` is kind 3, and it is **closed with
+no action**. `distance_pair` is private, has no direct unit test, and is
+exercised only through the parity harness. Its guard is character-for-
+character upstream's: `oracle.cpp:2421` reads `if (d.link_names[0].empty()
+|| d.link_names[1].empty()) return nullptr;`, and even the port's comment
+saying the names are "empty together" is inherited from upstream's own
+comment four lines above it. The `||`/"together" mismatch is upstream's
+wording, not a porting error, so neither the guard nor the comment should
+be changed here — doing so would deviate from the text the port mirrors.
+`moveit-diff` is also tool code, not a ported crate, so it carries no
+parity obligation of its own.
 
 ## The check each site owes
 
