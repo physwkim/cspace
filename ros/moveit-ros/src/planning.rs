@@ -398,6 +398,24 @@ mod tests {
     }
 
     #[test]
+    fn nonempty_path_constraints_is_mapped_not_treated_as_absent() {
+        // Sibling of `converts_minimal_request`'s `path_constraints.is_none()`
+        // check: that fixture's `path_constraints` is empty by construction,
+        // so a bare `is_none()` there cannot tell "correctly detected an
+        // empty message" apart from a `constraints_msg_is_empty` that
+        // returns `true` unconditionally, ignoring its argument.
+        let model = one_joint_model();
+        let mut msg = valid_request(&model);
+        msg.path_constraints = joint_goal("j1", 0.1);
+        let req = PlanningRequest::try_from(PlanningRequestMsg { model: &model, msg }).unwrap();
+        assert_eq!(req.path_constraints.as_ref().unwrap().len(), 1);
+
+        let back = PlanningRequestMsgOut::try_from(req).unwrap().0;
+        assert_eq!(back.path_constraints.joint_constraints.len(), 1);
+        assert_eq!(back.path_constraints.joint_constraints[0].joint_name, "j1");
+    }
+
+    #[test]
     fn nondefault_start_state_is_rejected_not_silently_dropped() {
         let model = one_joint_model();
         let mut msg = valid_request(&model);
