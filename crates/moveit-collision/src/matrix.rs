@@ -172,10 +172,17 @@ impl AllowedCollision {
 /// The message-based constructor (`AllowedCollisionMatrix(const
 /// moveit_msgs::msg::AllowedCollisionMatrix&)`) and `getMessage()` are not
 /// ported: both round-trip a ROS message type, which PORTING-PLAN.md §4.3
-/// confines to `moveit-ros`'s `TryFrom` layer, not the core crate. `print()`
-/// is also not ported: it formats through `rclcpp`'s logger
-/// (`RCLCPP_WARN_STREAM_THROTTLE`), which is unavailable here for the same
-/// reason and has no behavior to preserve once the logging call is gone.
+/// confines to `moveit-ros`'s `TryFrom` layer, not the core crate.
+///
+/// `print()` is not ported either, but for its own reason and not that one.
+/// It does no logging at all: `collision_matrix.cpp:428-491` writes an ASCII
+/// table — index header rows, then one row per name with a `01?`/`-`
+/// indicator per pair — to the `std::ostream&` its caller supplies, and
+/// touches nothing else. It has zero callers in the pinned upstream checkout
+/// (`rg '\.print\(|->print\('` finds six call sites, none of them on an
+/// `AllowedCollisionMatrix`). A Rust equivalent would be a `Display` impl on
+/// this type; nothing in this port has asked for one. This re-opens the day
+/// a caller here wants to dump a matrix for a human to read.
 #[derive(Debug, Clone, Default)]
 pub struct AllowedCollisionMatrix {
     entries: BTreeMap<String, BTreeMap<String, AllowedCollision>>,

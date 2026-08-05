@@ -627,7 +627,7 @@ Prior to this round's folded-condition audit, every site in this
 round's 7 crates was already discriminating, provably single-branch by
 direct source read, or previously fixed — no blind/never-covered site
 was found by the earlier verdict/evidence review (in contrast to round
-8's `matrix.rs:678`/`set_entry_for_known` fixture collapse). That
+8's `matrix.rs:685`/`set_entry_for_known` fixture collapse). That
 review found evidence-shape defects (a single-producer argument
 mislabeled `discriminating`, two citations I could not locate) but no
 site whose *behavior* was wrong. This round's folded-condition

@@ -767,8 +767,8 @@ shape (`self.entries.get(name1)?` = no row for `name1` at all;
 bare `Option`, exactly like `MeshSearchPaths::resolve`. Two tests now call
 `entry("a", "a").is_none()`: the pre-existing
 `set_entry_for_known_pairs_name_with_every_other_existing_row_but_not_
-itself` (`:678`) and the new `set_entry_for_known_excludes_the_name_even_
-when_it_is_already_a_known_row` (`:692`, `035d4b1`). The new test's own
+itself` (`:685`) and the new `set_entry_for_known_excludes_the_name_even_
+when_it_is_already_a_known_row` (`:699`, `035d4b1`). The new test's own
 name, and the old test's own comment ("'a' itself was not a known row
 before the call, so it cannot be paired with itself"), both read as if
 these two tests exercise the *outer* guard (no row at all) and the
@@ -793,11 +793,11 @@ This unconditionally creates (or extends) `entries[name]` by pairing
 `known` before the loop, so `entries[name]` never gets a `name` key,
 **but the loop's own side effect guarantees `entries.get(name)` is `Some`
 by the time the assertion runs**, regardless of whether `name` had a row
-before the call. Working the two tests' fixtures through this: `:678`
+before the call. Working the two tests' fixtures through this: `:685`
 starts with `entries = {"b":{"c"},"c":{"b"}}`, no row for `"a"` — but
 `set_entry_for_known("a", true)` itself creates `entries["a"] =
 {"b":...,"c":...}` as a side effect of the very call being tested, before
-`entry("a","a")` is ever evaluated. `:692` starts with an existing
+`entry("a","a")` is ever evaluated. `:699` starts with an existing
 `entries["a"] = {"z":...}` and the same call extends it to `{"z":...,
 "b":...,"c":...}`. In **both** cases `entries.get("a")` is `Some` at
 assertion time, and only the inner `.get("a")` (self-key absent from an
@@ -913,7 +913,7 @@ verdicts from; no new test run was needed to check counts (nothing here
 was edited). Independently-derived delta: 663 -> 687 (+24) across 17
 files, not the quoted 662 -> 694 (+32) across 19 — reported as measured,
 not reconciled to the quote. **2 findings, both report-only** (`moveit-
-collision/src/matrix.rs:692`, `moveit-planners-pilz/src/trajectory_
+collision/src/matrix.rs:699`, `moveit-planners-pilz/src/trajectory_
 blender_transition_window.rs:842`) for the orchestrator to route. **0
 fixes owed in either of this ledger's two fenced crates** — both
 already closed under §10-§12, confirmed by ancestry check and ledger
