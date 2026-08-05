@@ -61,7 +61,7 @@
 //! before calling would make it fire on the first planner too.
 //! [`generate_plan`] below reproduces the same state-based trigger with a
 //! private `trajectory_constraints_for` helper (porting
-//! `getTrajectoryConstraints`, `planning_pipeline.cpp:57-73`) called between
+//! `getTrajectoryConstraints`, `planning_pipeline.cpp:57-79`) called between
 //! successive [`Planner::plan`] calls, never before the first — this port's
 //! `response` starts empty on every call, so the two conditions coincide
 //! here even though upstream's gate is not itself positional. See
@@ -291,7 +291,7 @@ pub enum PipelineError {
     /// feedforward step) failed to look up the previous planner's
     /// group/joints/waypoint positions. Upstream's `getTrajectoryConstraints`
     /// has no failure path
-    /// at all (`cpp:57-73`) because the C++ object graph it reads
+    /// at all (`cpp:57-79`) because the C++ object graph it reads
     /// guarantees those lookups always succeed; this port's equivalent
     /// lookups are typed `Result`s (`moveit_error::Result`), and surfacing
     /// that as an error here — rather than `.expect()`-ing an upstream
@@ -303,7 +303,7 @@ pub enum PipelineError {
     Feedforward(#[from] moveit_error::Error),
 }
 
-/// Ports `getTrajectoryConstraints` (`planning_pipeline.cpp:57-73`): one
+/// Ports `getTrajectoryConstraints` (`planning_pipeline.cpp:57-79`): one
 /// [`KinematicConstraintSet`] per waypoint of `trajectory`, each holding one
 /// [`Constraint::Joint`] per active joint of `trajectory`'s planning group —
 /// see this module's doc, "Semantic 1: planner-chain feedforward".
