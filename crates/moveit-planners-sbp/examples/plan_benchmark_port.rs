@@ -22,9 +22,10 @@
 //! # Usage
 //!
 //! `cargo run --release --example plan_benchmark_port -p moveit-planners-sbp
-//! -- <seed_base> [timeout_seconds] [inject]`, with a `plan`-op request JSON
-//! on stdin (see `examples/plan_benchmark_problem_set.rs`'s own doc comment
-//! for the exact shape -- the same file `benches/sweep_baseline.sh` writes to
+//! -- <seed_base> [timeout_seconds] [inject] [dense]`, with a `plan`-op
+//! request JSON on stdin (see `examples/plan_benchmark_problem_set.rs`'s own
+//! doc comment for the exact shape -- the same file
+//! `benches/sweep_baseline.sh` writes to
 //! `$WORKDIR/$config.json` before piping it to the oracle is valid input
 //! here too). `seed_base` is this run's own RNG seed -- independent of the
 //! request's own `seed` field, which is the *oracle's* OMPL seed and has no
@@ -117,12 +118,56 @@
 //!   joint outside its tolerance band, then splices that in the same way.
 //!   Requires the request to carry a `joint_constraint`.
 //!
-//! Under either mode the summary's `condition2_pass` must come back **0**;
-//! this binary exits non-zero if it does not, so "the checker rejects an
-//! injected bad waypoint" is a build failure when untrue rather than a
-//! sentence in a report. The injected state is verified to be genuinely bad
-//! by direct query before it is spliced, so the mode cannot silently degrade
-//! into injecting a *valid* state and concluding the checker is broken.
+//! Under either mode the summary's `condition2_pass` must come back **0**
+//! *out of a non-zero `condition2_checked`*; this binary exits non-zero if
+//! either half fails, so "the checker rejects an injected bad waypoint" is a
+//! build failure when untrue rather than a sentence in a report. Both halves
+//! are load-bearing: `condition2_pass == 0` on its own is what a run that
+//! solved nothing also reports, since it never called the checker at all.
+//! The injected state is verified to be genuinely bad by direct query before
+//! it is spliced, so the mode cannot silently degrade into injecting a
+//! *valid* state and concluding the checker is broken.
+//!
+//! What that argument does **not** establish is that the collision model is
+//! right: `build_injected_state` finds its bad state by asking
+//! [`PlanningScene::is_state_valid`], and the rejection it then requires
+//! comes from [`PlanningScene::is_path_valid`]. Those are two entry points
+//! to the same [`ParryCollisionEnv`], so a backend permissive in one place
+//! is permissive in both, and a path that really does collide is produced
+//! *and* approved with both gates green. Only an independent implementation
+//! can see that, which is what `dense` below exists to feed.
+//!
+//! # `dense` -- handing the checked waypoints to an independent checker
+//!
+//! With `dense` as the fourth argument, every solved problem's NDJSON line
+//! carries the full densified waypoint list under `"dense"`, as
+//! joint-name -> value maps -- the shape the oracle's `is_state_valid` op
+//! takes. `tools/ci/verify-phase7-benchmark.sh` turns those into one
+//! `is_state_valid` request per path and requires upstream MoveIt's own
+//! `PlanningScene::isPathValid` to agree that every waypoint is valid.
+//!
+//! Handing over *the same waypoint list this binary checked* is the point:
+//! a re-derivation on the C++ side would be a different path and could only
+//! ever be compared statistically. Upstream's `isPathValid` is a per-
+//! waypoint loop with no interpolation of its own
+//! (`moveit_core/planning_scene/src/planning_scene.cpp:2365-2424`), the same
+//! shape as [`PlanningScene::is_path_valid`] here, so the two are asked
+//! exactly the same question about exactly the same states.
+//!
+//! # Endpoint fidelity -- `start_gap` and `goal_gap`
+//!
+//! `outcome: "solved"` means `solve()` returned `Ok`; on its own it says
+//! nothing about *which* problem was solved. A path that stops short of the
+//! goal, or starts somewhere other than the requested start, would be
+//! counted as a success by condition 1, pass condition 2 (each of its
+//! waypoints is collision-free), and *lower* the median length condition 3
+//! compares -- one defect reading as a pass in all three conditions at once.
+//! So every solved problem reports `start_gap`/`goal_gap`: this crate's own
+//! [`StateSpace::distance`] from the returned path's first waypoint to the
+//! requested start, and from its last to the requested goal. Both are
+//! expected to be exactly `0.0` (`rrt_connect` returns the endpoint states
+//! it was handed, not a resampling of them), and the verify script gates on
+//! that rather than on their being "small".
 
 use std::collections::BTreeMap;
 use std::env;
@@ -151,17 +196,26 @@ use rand_chacha::ChaCha8Rng;
 /// `floor_wall`/`cage` pilots of 10-20 problems per robot, mean `solve()`
 /// time was 2.4 s on panda and 8.7-9.1 s on fanuc, with the slowest single
 /// call 9.6 s on panda and 40.4 s on fanuc -- the 6-DoF robot's larger
-/// scaled workspace, not a pathology. 120 s is ~3x that observed worst case.
+/// scaled workspace, not a pathology.
 ///
-/// The direction of the error matters, which is why the multiple is 3x and
-/// not 1.5x: a deadline that fires on a problem the planner *would* have
-/// solved converts a success into a recorded failure and understates the
-/// port against its own completion condition. The bound exists to stop an
-/// unbounded call from hanging the benchmark, not to shape the result, so it
-/// is set well clear of the legitimate hard tail. `timeouts` is reported
-/// separately from `failures` in the summary precisely so a run where this
-/// choice started to bite is visible rather than folded into the failure
-/// count.
+/// That pilot is no longer the largest observation, so the multiple it was
+/// chosen for has shrunk and the number is restated here rather than left to
+/// read as a stale 3x. Over the 500-problem sets the slowest single call is
+/// 52.31 s (fanuc `floor_wall`, `doc/phase7-benchmark-results.json`), and
+/// across three port RNG streams (`seed_base` 424242 / 20260806 / 999983) the
+/// slowest fanuc call was 58.12 / 56.06 / 54.33 s. So 120 s is 2.1x the
+/// largest call measured to date, not 3x, and every one of those runs
+/// reported `timeouts: 0`.
+///
+/// The direction of the error matters, which is why the bound is a multiple
+/// of the worst case and not a hair above it: a deadline that fires on a
+/// problem the planner *would* have solved converts a success into a recorded
+/// failure and understates the port against its own completion condition.
+/// The bound exists to stop an unbounded call from hanging the benchmark, not
+/// to shape the result, so it is set well clear of the legitimate hard tail.
+/// `timeouts` is reported separately from `failures` in the summary precisely
+/// so a run where this choice started to bite is visible rather than folded
+/// into the failure count.
 const DEFAULT_TIMEOUT_SECONDS: f64 = 120.0;
 
 /// Attempts allowed when searching for a genuinely colliding state for
@@ -416,7 +470,7 @@ fn outcome_name(result: &Result<(), &PlanError>) -> &'static str {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let usage = "usage: <seed_base> [timeout_seconds] [inject]";
+    let usage = "usage: <seed_base> [timeout_seconds] [inject] [dense]";
     let seed_base: u64 = args
         .get(1)
         .unwrap_or_else(|| panic!("{usage}; got {args:?}"))
@@ -432,6 +486,14 @@ fn main() {
         .get(3)
         .filter(|s| !s.is_empty())
         .map(|s| InjectMode::parse(s));
+    // Spelled out rather than "any non-empty fourth argument": a typo would
+    // otherwise silently turn the cross-check's input off, and the verify
+    // script would then compare an empty waypoint set and pass.
+    let emit_dense = match args.get(4).map(String::as_str) {
+        None | Some("") => false,
+        Some("dense") => true,
+        Some(other) => panic!("fourth argument must be 'dense' or absent, got {other:?}"),
+    };
     let timeout = Duration::from_secs_f64(timeout_seconds);
 
     let mut input = String::new();
@@ -459,6 +521,15 @@ fn main() {
     let (model, srdf) = load_robot(&robot);
     let space = JointModelGroupSpace::new(&model, &group_name)
         .unwrap_or_else(|e| panic!("JointModelGroupSpace::new({group_name}): {e}"));
+    // The same list `plan_benchmark_problem_set`'s `state_to_joint_map` writes
+    // `start`/`goal` with, and the same one the oracle's `plan` op emits its
+    // own paths with (`group->getVariableNames()`), so a `dense` waypoint map
+    // names its joints exactly the way both other sides of this benchmark do.
+    let variable_names = model
+        .joint_model_group(&group_name)
+        .unwrap_or_else(|e| panic!("joint_model_group({group_name}): {e}"))
+        .variable_names()
+        .to_vec();
 
     let constraint_spec = request["joint_constraint"].as_str().map(str::to_string);
     let parsed_constraint = constraint_spec
@@ -524,6 +595,8 @@ fn main() {
     let mut condition2_checked = 0usize;
     let mut condition2_pass = 0usize;
     let mut waypoints_checked = 0usize;
+    let mut raw_waypoints_total = 0usize;
+    let mut max_endpoint_gap = 0f64;
     let mut lengths: Vec<f64> = Vec::new();
     let mut slowest = (0f64, u64::MAX);
     let run_start = Instant::now();
@@ -548,7 +621,10 @@ fn main() {
 
         let planning_request = PlanningRequest {
             group_name: group_name.clone(),
-            goal: Goal::State(goal_state),
+            // Cloned rather than moved: `goal_gap` compares the returned
+            // path's last waypoint against this same requested goal after
+            // the solve.
+            goal: Goal::State(goal_state.clone()),
             path_constraints: constraints.clone(),
             resolution,
             seed: seed_base.wrapping_add(id),
@@ -590,6 +666,13 @@ fn main() {
                     .sum();
                 lengths.push(length);
 
+                // Measured before the injection splice, and against the two
+                // states this problem actually asked for. See
+                // `# Endpoint fidelity`.
+                let start_gap = space.distance(&path[0], &start_state);
+                let goal_gap = space.distance(&path[path.len() - 1], &goal_state);
+                let raw_waypoints = path.len();
+
                 // Splice the known-bad state into the middle of the path, if
                 // this is an injection run. Done *after* `length` so the
                 // reported length still describes the planner's real output.
@@ -608,23 +691,52 @@ fn main() {
                 );
                 condition2_checked += 1;
                 waypoints_checked += dense.len();
+                raw_waypoints_total += raw_waypoints;
+                max_endpoint_gap = max_endpoint_gap.max(start_gap).max(goal_gap);
                 if validity.valid {
                     condition2_pass += 1;
                 }
 
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "id": id,
-                        "solved": true,
-                        "outcome": "solved",
-                        "length": length,
-                        "plan_seconds": elapsed,
-                        "condition2_valid": validity.valid,
-                        "waypoints_checked": dense.len(),
-                        "invalid_waypoint_count": validity.invalid_waypoints.len(),
-                    })
-                );
+                let mut line = serde_json::json!({
+                    "id": id,
+                    "solved": true,
+                    "outcome": "solved",
+                    "length": length,
+                    "plan_seconds": elapsed,
+                    "condition2_valid": validity.valid,
+                    "waypoints_checked": dense.len(),
+                    "raw_waypoints": raw_waypoints,
+                    "start_gap": start_gap,
+                    "goal_gap": goal_gap,
+                    "invalid_waypoint_count": validity.invalid_waypoints.len(),
+                    // The indices themselves, not just how many: with `dense`
+                    // the verify script compares this set against the
+                    // oracle's own `invalid_waypoints`, and two checkers that
+                    // reject the same *count* of different waypoints are not
+                    // the same answer.
+                    "invalid_waypoints": validity.invalid_waypoints,
+                });
+                if emit_dense {
+                    // The waypoints as checked, in order, named the way the
+                    // oracle's `is_state_valid` op reads them.
+                    let waypoints: Vec<serde_json::Value> = dense
+                        .iter()
+                        .map(|rs| {
+                            let map: BTreeMap<&str, f64> = variable_names
+                                .iter()
+                                .map(|name| {
+                                    let value = rs.variable_position(name).unwrap_or_else(|e| {
+                                        panic!("variable_position({name}): {e}")
+                                    });
+                                    (name.as_str(), value)
+                                })
+                                .collect();
+                            serde_json::to_value(map).expect("waypoint map must serialize")
+                        })
+                        .collect();
+                    line["dense"] = serde_json::Value::Array(waypoints);
+                }
+                println!("{line}");
             }
             Err(e) => {
                 let outcome = outcome_name(&Err(&e));
@@ -678,6 +790,8 @@ fn main() {
                 "condition2_checked": condition2_checked,
                 "condition2_pass": condition2_pass,
                 "waypoints_checked": waypoints_checked,
+                "raw_waypoints": raw_waypoints_total,
+                "max_endpoint_gap": max_endpoint_gap,
                 "wall_clock_seconds": wall_clock,
                 "slowest_seconds": slowest.0,
                 "slowest_problem_id": if slowest.1 == u64::MAX { None } else { Some(slowest.1) },
@@ -688,6 +802,7 @@ fn main() {
     eprintln!(
         "robot={robot} problems={total} solved={solved_count} timeouts={timeout_count} \
          failures={failure_count} cond2={condition2_pass}/{condition2_checked} \
+         max_endpoint_gap={max_endpoint_gap} \
          wall_clock={wall_clock:.1}s slowest={:.1}s",
         slowest.0
     );
@@ -698,6 +813,19 @@ fn main() {
     // non-zero so the verify script gates on it.
     if let Some(mode) = inject {
         let mode = mode.as_str();
+        // Two assertions because `condition2_pass == 0` alone is satisfied
+        // vacuously: a run that solves nothing never calls `is_path_valid`,
+        // so the count it is compared against is zero too. Before this first
+        // assertion existed, an injection run whose planner deadline was cut
+        // to 1ns printed "inject=collision rejected all 0 paths, as required"
+        // and exited 0 -- the gate that exists to prove the condition-2
+        // checker can fail, vouching for a checker it never called.
+        assert!(
+            condition2_checked > 0,
+            "inject={mode} solved no problem, so `is_path_valid` was never \
+             called -- an injection run that checks nothing cannot show that \
+             the condition-2 checker rejects a bad waypoint"
+        );
         assert_eq!(
             condition2_pass, 0,
             "inject={mode} spliced a state verified invalid by direct query into every \

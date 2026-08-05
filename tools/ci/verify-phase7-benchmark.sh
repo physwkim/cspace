@@ -63,7 +63,12 @@ TIMEOUT_SECONDS=120
 # small enough to stay inside a per-round budget and large enough that a
 # harness that silently produces nothing is still caught.
 FULL_COUNT=250
-PILOT_COUNT=8
+# Overridable only because it cannot be used to fake coverage: the pinned
+# `problems` count is checked (`pin-population` in the decision list below),
+# so a run at a reduced count fails rather than reporting a smaller set as a
+# pass. It exists so a mutation proof -- break a check, show it fails, restore
+# -- costs seconds instead of the 5m12s a full pilot takes.
+PILOT_COUNT="${PILOT_COUNT:-8}"
 
 if [[ "$MODE" == "full" ]]; then
   COUNT="$FULL_COUNT"
@@ -126,6 +131,66 @@ CONSTRAINED_SET="panda floor_wall $COUNT 900011 panda_joint1:0.0:0.5"
 # committed here for that reason.
 SEED_BASE=424242
 
+# Regression pins -- separate from §5's three thresholds, and needed because
+# those thresholds have room for a large real regression to pass:
+#
+#   condition 1 for panda demands port >= 0.9 x 498/500, i.e. 449 of 500
+#   problems. The port solves 497. A port that lost 48 problems still passes.
+#   condition 3 allows 1.3x the C++ median; the measured ratio is 1.023, so a
+#   port whose paths got 27% longer still passes.
+#
+# So the pins are floors under the measured values, and they are sized from
+# the measured stream-to-stream spread rather than picked: a pin tighter than
+# the noise fails on an innocent change, a pin looser than a regression sees
+# nothing. `problems` is part of the pin so a value measured at n=500 can
+# never be compared against a run of a different size.
+#
+# panda, port side, 500 problems (`floor_wall` 250 + `cage` 250), seed_base
+# 424242 / 1 / 20260806 / 999983 -- only the port RNG stream changes:
+#   solved 497 / 498 / 497 / 497,  pooled median 2.6576 .. 2.7154
+# panda, C++ side, same 500 problems, request seed 900001+900002 (the pinned
+# pair) / 1 / 20260806 / 999983 -- only the OMPL stream changes:
+#   exact 498 / 497 / 498 / 496,  pooled median 2.6544 .. 2.6684
+# fanuc, port side, 500 problems, seed_base 424242 / 20260806 / 999983:
+#   solved 405 / 405 / 405,       pooled median 1.8310 .. 1.8929
+# fanuc, C++ side, seed 900021+900022 (pinned) / 1 / 20260806 / 999983:
+#   exact 406 / 405 / 405 / 405,  pooled median 1.8369 .. 1.8734
+#
+# Worst ratio over those streams: panda 0.99596 .. 1.02296, fanuc 0.97739 ..
+# 1.03044. The ceilings are 1.10 -- above the whole spread, and 3x tighter
+# than §5's 1.30. The floors are 0.90: condition 3 is one-sided, so a port
+# whose median collapsed (paths that no longer go around what they should)
+# passes it by getting better-looking, and 0.90 is ~4x the observed shortfall.
+# The solved floors sit 5 problems (1% of the set) under the lowest stream,
+# i.e. 5x the largest observed stream difference of 1 problem.
+#
+# `cpp_solved_floor` is here because condition 1's bar IS the C++ rate: a
+# degraded baseline (a scene that failed to load its objects, an OMPL that
+# stopped searching) lowers the bar instead of failing the run.
+#
+# pilot pins are separate values measured from a pilot run, not the full-mode
+# ones scaled: at 8 problems per config a floor derived from 500 says nothing.
+# Measured pilot run (`PILOT_COUNT=8`, 16 problems per stratum, wall clock
+# 5m12s): panda port 16/16 and C++ 16/16 at pooled ratio 0.997x, fanuc port
+# 12/12 and C++ 12/12 at 1.004x. The floors are one problem under each, which
+# is as tight as a 16-problem set allows -- at this size one problem is 6% of
+# the set, so a pilot pin is a plumbing tripwire and not a rate measurement.
+PINS_ALL='{
+  "full": {
+    "panda": {"problems": 500, "port_solved_floor": 492, "cpp_solved_floor": 491,
+              "ratio_ceiling": 1.10, "ratio_floor": 0.90},
+    "fanuc": {"problems": 500, "port_solved_floor": 400, "cpp_solved_floor": 400,
+              "ratio_ceiling": 1.10, "ratio_floor": 0.90}
+  },
+  "pilot": {
+    "panda": {"problems": 16, "port_solved_floor": 15, "cpp_solved_floor": 15,
+              "ratio_ceiling": 1.10, "ratio_floor": 0.90},
+    "fanuc": {"problems": 16, "port_solved_floor": 11, "cpp_solved_floor": 11,
+              "ratio_ceiling": 1.10, "ratio_floor": 0.90}
+  }
+}'
+PINS_JSON="$(jq -c --arg m "$MODE" '.[$m] // {}' <<<"$PINS_ALL")"
+
 # How many port processes one set is split across. Sharding is exact, not an
 # approximation: each problem gets its own `PlanningScene` and its own RNG
 # seeded `SEED_BASE + problem.id`, so which process runs a given problem
@@ -148,7 +213,7 @@ trap 'rm -rf "$WORKDIR"' EXIT
 # makes sharding transparent and an independent check on the binary's own
 # summary arithmetic.
 run_port_sharded() {
-  local request="$1" out="$2" timeout="$3"
+  local request="$1" out="$2" timeout="$3" dense="${4:-}"
   local pids=() i rc=0
   # A fresh directory per call, named after the output file. Fixed shard
   # filenames in one shared $WORKDIR were a real defect the pilot caught: a
@@ -170,7 +235,7 @@ run_port_sharded() {
     if [[ "$(jq '.problems|length' "$dir/shard.$i.json")" == "0" ]]; then
       continue
     fi
-    "$PORT" "$SEED_BASE" "$timeout" \
+    "$PORT" "$SEED_BASE" "$timeout" "" "$dense" \
       <"$dir/shard.$i.json" >"$dir/shard.$i.ndjson" 2>"$dir/shard.$i.err" &
     pids+=("$!")
   done
@@ -217,6 +282,17 @@ port_aggregate() {
       condition2_checked: ([.[]|select(.condition2_valid!=null)]|length),
       condition2_pass: ([.[]|select(.condition2_valid==true)]|length),
       waypoints_checked: ([.[]|select(.waypoints_checked!=null)|.waypoints_checked]|add // 0),
+      # What `densify` was handed, against what it produced. A densification
+      # that collapsed back to the vertices the planner itself produced would
+      # re-check only states `PlanningSceneValidityChecker` already accepted
+      # during the search -- exactly the independent-path cross-check that
+      # condition 2 is supposed to be -- while reporting 100%.
+      raw_waypoints: ([.[]|select(.raw_waypoints!=null)|.raw_waypoints]|add // 0),
+      # Largest distance from the first waypoint of a returned path to the
+      # requested start, or from its last to the requested goal, over every
+      # solved problem. `outcome: "solved"` alone does not say WHICH problem
+      # was solved; see `# Endpoint fidelity` in `plan_benchmark_port.rs`.
+      max_endpoint_gap: ([.[]|select(.outcome=="solved")|(.start_gap//0),(.goal_gap//0)]|max // 0),
       cpu_seconds: ([.[]|.plan_seconds]|add // 0),
       slowest_seconds: ([.[]|.plan_seconds]|max),
       slowest_problem_id: (max_by(.plan_seconds)|.id)
@@ -229,48 +305,179 @@ cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
 
 failed=()
 
+# --- condition 2's independent cross-check ---------------------------------
+#
+# `is_path_valid` (what condition 2 reports) and `DiscreteMotionValidator`
+# (what the planner used while searching) are two entry points to one
+# `ParryCollisionEnv`, and `build_injected_state` finds its bad state by
+# asking that same env through a third. So the injection gate below proves
+# the entry points agree with each other -- not that the collision model is
+# right. A backend that misses a contact produces a colliding path AND
+# approves it, and every check that only ever asks this port stays green.
+# Only a different implementation can see that.
+#
+# The oracle's `is_state_valid` op is one: upstream MoveIt's
+# `PlanningScene::isPathValid` over FCL. Its loop is per-waypoint with no
+# interpolation of its own (`moveit_core/planning_scene/src/planning_scene.cpp
+# :2365-2424`, read at the pinned sha), the same shape as this port's
+# `is_path_valid`, so handing it the *same* densified waypoint list the port
+# just checked asks two implementations exactly the same question about
+# exactly the same states -- where a re-plan on the C++ side would be a
+# different path and could only ever be compared statistically. That per-
+# waypoint shape is also why several paths can share one oracle invocation:
+# no waypoint's verdict depends on its neighbours, and `goal_constraints` is
+# left empty so `isPathValid`'s own last-waypoint goal check never fires.
+#
+# $1 label, $2 robot, $3 the request JSON the paths came from (for `objects`),
+# $4 port NDJSON carrying `dense`, $5 expected verdict (`valid`|`invalid`),
+# $6 joint-constraint spec or "".
+oracle_path_check() {
+  local label="$1" robot="$2" request="$3" ndjson="$4" expect="$5" spec="$6"
+  local isv="$WORKDIR/isv.$label.ndjson" out="$WORKDIR/isv.$label.out"
+  local pc='{}'
+  if [[ -n "$spec" ]]; then
+    # `<joint>:<position>:<tolerance>` -- the same string
+    # `parse_joint_constraint` rebuilds the port-side set from, in
+    # `moveit_msgs::Constraints` shape. Symmetric tolerance and weight 1.0
+    # because that is what `JointConstraint::new` was handed there.
+    pc="$(jq -c -n --arg spec "$spec" '($spec|split(":")) as $p |
+      {joint_constraints:[{joint_name:$p[0], position:($p[1]|tonumber),
+        tolerance_above:($p[2]|tonumber), tolerance_below:($p[2]|tonumber),
+        weight:1.0}]}')"
+  fi
+  jq -c --slurpfile req "$request" --argjson pc "$pc" \
+    'select(.dense != null)
+     | {id, op:"is_state_valid", objects: $req[0].objects,
+        path_constraints: $pc, waypoints: .dense}' "$ndjson" >"$isv"
+
+  # An empty comparison is the failure this whole cross-check exists to
+  # prevent, so it is named rather than reported as agreement.
+  local n_paths
+  n_paths="$(wc -l <"$isv")"
+  if [[ "$n_paths" -eq 0 ]]; then
+    echo "  FAIL cross-check $label: no port path carried \`dense\`, nothing was compared" >&2
+    failed+=("cross-check $label (nothing compared)")
+    return 1
+  fi
+  if ! sg docker -c "$ORACLE --urdf $REPO_ROOT/fixtures/$robot.urdf --srdf $REPO_ROOT/fixtures/$robot.srdf" \
+       <"$isv" >"$out" 2>"$WORKDIR/isv.$label.err"; then
+    echo "  FAIL cross-check $label: oracle run failed" >&2
+    tail -5 "$WORKDIR/isv.$label.err" >&2
+    failed+=("cross-check $label (oracle run)")
+    return 1
+  fi
+
+  local report
+  report="$(jq -n --slurpfile o <(jq -s '.' "$out") \
+                  --slurpfile p <(jq -s 'map(select(.dense!=null))' "$ndjson") \
+                  --arg expect "$expect" '
+    ($p[0] | map({key:(.id|tostring), value:.}) | from_entries) as $by |
+    [ $o[0][] | ($by[.id|tostring]) as $pp |
+      { id,
+        ok: (.ok == true),
+        oracle_valid: .result.valid,
+        port_valid: $pp.condition2_valid,
+        # Index sets, not counts: two checkers that reject the same *number*
+        # of different waypoints have not given the same answer.
+        same_indices: ((.result.invalid_waypoints // []) == ($pp.invalid_waypoints // [])),
+        n_oracle: ((.result.invalid_waypoints // [])|length),
+        n_port: (($pp.invalid_waypoints // [])|length) } ] as $rows |
+    { paths: ($rows|length),
+      not_ok: [$rows[]|select(.ok|not)|.id],
+      wrong_verdict: [$rows[]|select(.oracle_valid != ($expect == "valid"))|.id],
+      disagree: [$rows[]|select(.oracle_valid != .port_valid)|.id],
+      index_mismatch: [$rows[]|select(.same_indices|not)|{id, n_oracle, n_port}],
+      waypoints: ([$o[0][]|.result.invalid_waypoints]|length) }')"
+  local paths not_ok wrong disagree mismatch
+  paths="$(jq -r '.paths' <<<"$report")"
+  not_ok="$(jq -r '.not_ok|length' <<<"$report")"
+  wrong="$(jq -r '.wrong_verdict|length' <<<"$report")"
+  disagree="$(jq -r '.disagree|length' <<<"$report")"
+  mismatch="$(jq -r '.index_mismatch|length' <<<"$report")"
+  if [[ "$not_ok" == "0" && "$wrong" == "0" && "$disagree" == "0" && "$mismatch" == "0" ]]; then
+    echo "  PASS cross-check $label: upstream isPathValid agrees on all $paths path(s), expected=$expect, invalid-index sets identical"
+    return 0
+  fi
+  echo "  FAIL cross-check $label: paths=$paths not_ok=$not_ok wrong_verdict=$wrong port/oracle_disagree=$disagree index_mismatch=$mismatch" >&2
+  jq -c '{not_ok, wrong_verdict, disagree, index_mismatch}' <<<"$report" >&2
+  failed+=("cross-check $label")
+  return 1
+}
+
 # --- condition 2's discrimination gate -------------------------------------
 #
 # Runs FIRST, and a failure here invalidates every condition-2 number below.
 # A validator that silently checks nothing reports 100% exactly as a working
-# one does; these two runs splice a state verified bad by direct query into
-# every solved path and require the checker to reject all of them. See
+# one does; these runs splice a state verified bad by direct query into every
+# solved path and require the checker to reject all of them. See
 # `plan_benchmark_port.rs`'s `# Proving the condition-2 check can fail`.
+#
+# Run on EVERY robot/config in SETS, not only panda's `floor_wall`: the state
+# `build_injected_state` splices is found by sampling *this* scene, the
+# geometry differs per config, and fanuc's links and reach-scaled obstacles
+# are a different collision problem entirely. A checker permissive for one
+# scene's geometry passed the single-scene version of this gate.
+#
+# `INJECT_COUNT` is small because the property is per-path ("every solved path
+# is rejected"), not statistical: 4 paths per scene across 4 scenes says
+# strictly more than 6 paths in one scene, and costs less on fanuc, where a
+# single call averages ~9 s.
+INJECT_COUNT=4
 echo
 echo "=== condition 2 discrimination gate (injected bad waypoints must be rejected) ==="
-"$GEN" floor_wall 6 900001 panda >"$WORKDIR/inject_plain.json" 2>/dev/null
-"$GEN" floor_wall 6 900011 panda panda_joint1:0.0:0.5 >"$WORKDIR/inject_con.json" 2>/dev/null
-
-for mode in collision constraint; do
-  src="$WORKDIR/inject_plain.json"
-  [[ "$mode" == "constraint" ]] && src="$WORKDIR/inject_con.json"
-  if "$PORT" "$SEED_BASE" "$TIMEOUT_SECONDS" "$mode" \
-       <"$src" >"$WORKDIR/inject_$mode.ndjson" 2>"$WORKDIR/inject_$mode.err"; then
-    echo "  PASS inject=$mode -- $(tail -1 "$WORKDIR/inject_$mode.err")"
+for entry in "${SETS[@]}"; do
+  read -r robot config count seed <<<"$entry"
+  tag="${robot}_${config}"
+  "$GEN" "$config" "$INJECT_COUNT" "$seed" "$robot" >"$WORKDIR/inject_$tag.json" 2>/dev/null
+  if "$PORT" "$SEED_BASE" "$TIMEOUT_SECONDS" collision dense \
+       <"$WORKDIR/inject_$tag.json" >"$WORKDIR/inject_$tag.ndjson" 2>"$WORKDIR/inject_$tag.err"; then
+    echo "  PASS inject=collision $tag -- $(tail -1 "$WORKDIR/inject_$tag.err")"
   else
-    echo "  FAIL inject=$mode did not reject every injected path:" >&2
-    cat "$WORKDIR/inject_$mode.err" >&2
-    failed+=("inject=$mode")
+    echo "  FAIL inject=collision $tag did not reject every injected path:" >&2
+    cat "$WORKDIR/inject_$tag.err" >&2
+    failed+=("inject=collision $tag")
+  fi
+  # The same injected paths through upstream's checker. This is what turns
+  # the injection gate from "two of this port's entry points agree" into
+  # "the state parry calls a collision, FCL calls a collision too" -- and it
+  # is also the proof that the cross-check on the real paths below can fail,
+  # since a checker that answered `valid` unconditionally would fail here.
+  oracle_path_check "inject_$tag" "$robot" "$WORKDIR/inject_$tag.json" \
+    "$WORKDIR/inject_$tag.ndjson" invalid ""
+
+  # Positive control: same scene, same problems, no injection. Without it the
+  # rejection above proves nothing -- a checker that rejects everything would
+  # also "pass" it.
+  if "$PORT" "$SEED_BASE" "$TIMEOUT_SECONDS" "" dense \
+       <"$WORKDIR/inject_$tag.json" >"$WORKDIR/control_$tag.ndjson" 2>"$WORKDIR/control_$tag.err"; then
+    cp=$(port_aggregate "$WORKDIR/control_$tag.ndjson" \
+          | jq -r '"\(.condition2_pass)/\(.condition2_checked)"')
+    if [[ "$cp" == */* && "${cp%/*}" == "${cp#*/}" && "${cp%/*}" != "0" ]]; then
+      echo "  PASS no-injection control $tag -- condition2 $cp"
+    else
+      echo "  FAIL no-injection control $tag -- condition2 $cp (expected all-pass)" >&2
+      failed+=("control $tag")
+    fi
+  else
+    echo "  FAIL no-injection control $tag did not run" >&2
+    failed+=("control $tag")
   fi
 done
 
-# Positive control: the same harness, same set, no injection. If this does
-# not pass every path, the injection gate above proves nothing (a checker
-# that rejects everything would also "pass" it).
-if "$PORT" "$SEED_BASE" "$TIMEOUT_SECONDS" \
-     <"$WORKDIR/inject_plain.json" >"$WORKDIR/inject_none.ndjson" 2>"$WORKDIR/inject_none.err"; then
-  cp=$(port_aggregate "$WORKDIR/inject_none.ndjson" \
-        | jq -r '"\(.condition2_pass)/\(.condition2_checked)"')
-  if [[ "$cp" == */* && "${cp%/*}" == "${cp#*/}" && "${cp%/*}" != "0" ]]; then
-    echo "  PASS no-injection control -- condition2 $cp"
-  else
-    echo "  FAIL no-injection control -- condition2 $cp (expected all-pass)" >&2
-    failed+=("inject=none control")
-  fi
+# The constraint half of the injection gate needs a request that carries a
+# `joint_constraint`, which only the constrained set does.
+"$GEN" floor_wall "$INJECT_COUNT" 900011 panda panda_joint1:0.0:0.5 \
+  >"$WORKDIR/inject_con.json" 2>/dev/null
+if "$PORT" "$SEED_BASE" "$TIMEOUT_SECONDS" constraint dense \
+     <"$WORKDIR/inject_con.json" >"$WORKDIR/inject_con.ndjson" 2>"$WORKDIR/inject_con.err"; then
+  echo "  PASS inject=constraint -- $(tail -1 "$WORKDIR/inject_con.err")"
 else
-  echo "  FAIL no-injection control did not run" >&2
-  failed+=("inject=none control")
+  echo "  FAIL inject=constraint did not reject every injected path:" >&2
+  cat "$WORKDIR/inject_con.err" >&2
+  failed+=("inject=constraint")
 fi
+oracle_path_check inject_constraint panda "$WORKDIR/inject_con.json" \
+  "$WORKDIR/inject_con.ndjson" invalid panda_joint1:0.0:0.5
 
 # --- the benchmark sets ----------------------------------------------------
 #
@@ -311,6 +518,16 @@ for entry in "${SETS[@]}"; do
     failed+=("oracle $tag")
     continue
   fi
+  # `ok` before anything is read off `result`: the oracle answers a request it
+  # could not serve with `{ok:false, error}` and exit 0 (one process serves a
+  # stream of requests, so one bad request is not fatal to it). Left unchecked,
+  # that lands as a *lower* C++ success rate -- and condition 1's bar is
+  # `0.9 * cpp_rate`, so a broken baseline makes the port easier to pass.
+  if [[ "$(jq -r '.ok' "$WORKDIR/$tag.oracle.json")" != "true" ]]; then
+    echo "FAIL oracle answered not-ok for $tag: $(jq -r '.error' "$WORKDIR/$tag.oracle.json")" >&2
+    failed+=("oracle not-ok $tag")
+    continue
+  fi
   n=$(jq '.result.problems | length' "$WORKDIR/$tag.oracle.json")
   ex=$(jq '[.result.problems[]|select(.exact==true)]|length' "$WORKDIR/$tag.oracle.json")
   echo "  $tag: $ex/$n exact"
@@ -324,16 +541,49 @@ for entry in "${SETS[@]}" "constrained x x x"; do
   tag="${robot}_${config}"
   [[ "$robot" == "constrained" ]] && tag="constrained"
   [[ -s "$WORKDIR/$tag.request.json" ]] || continue
-  if ! run_port_sharded "$WORKDIR/$tag.request.json" "$WORKDIR/$tag.port.ndjson" "$TIMEOUT_SECONDS"; then
+  # `dense`: every solved path carries the waypoint list condition 2 checked,
+  # so `oracle_path_check` can put the same states in front of upstream's own
+  # checker below. Not sampled -- condition 2's wording is "100% of produced
+  # paths", and a sample would answer a narrower question than that.
+  if ! run_port_sharded "$WORKDIR/$tag.request.json" "$WORKDIR/$tag.port.ndjson" \
+       "$TIMEOUT_SECONDS" dense; then
     echo "FAIL port run for $tag" >&2
     failed+=("port $tag")
   fi
-  port_aggregate "$WORKDIR/$tag.port.ndjson" | jq -r --arg tag "$tag" \
-    '"  \($tag): problems=\(.problems) solved=\(.solved) timeouts=\(.timeouts) failures=\(.failures) cond2=\(.condition2_pass)/\(.condition2_checked) cpu=\(.cpu_seconds|floor)s slowest=\((.slowest_seconds*10|round)/10)s (id \(.slowest_problem_id))"'
+  # Every aggregate below reads this projection instead of the run's own file:
+  # with `dense` on, one full set is tens of MB of waypoints, and each of the
+  # six later jq passes would re-parse all of them to reach the same handful
+  # of scalars. Only `oracle_path_check` needs the waypoints themselves.
+  jq -c 'select(.id != null) | del(.dense)' \
+    "$WORKDIR/$tag.port.ndjson" >"$WORKDIR/$tag.slim.ndjson"
+  port_aggregate "$WORKDIR/$tag.slim.ndjson" | jq -r --arg tag "$tag" \
+    '"  \($tag): problems=\(.problems) solved=\(.solved) timeouts=\(.timeouts) failures=\(.failures) cond2=\(.condition2_pass)/\(.condition2_checked) waypoints=\(.waypoints_checked) (raw \(.raw_waypoints)) max_endpoint_gap=\(.max_endpoint_gap) cpu=\(.cpu_seconds|floor)s slowest=\((.slowest_seconds*10|round)/10)s (id \(.slowest_problem_id))"'
 done
 port_end=$(date +%s.%N)
 port_wall=$(echo "$port_end - $port_start" | bc)
 printf "  wall clock for all port runs: %.1fs\n" "$port_wall"
+
+# --- condition 2 against upstream's checker, on every produced path ---------
+#
+# The injection gate above proved this comparison can fail; this is the
+# comparison itself. Nothing here is sampled: every path condition 2 counted
+# is handed to upstream `PlanningScene::isPathValid` and must come back valid,
+# with the same (empty) invalid-index set.
+echo
+echo "=== condition 2 cross-check: every produced path through upstream isPathValid ==="
+for entry in "${SETS[@]}" "constrained x x x"; do
+  read -r robot config count seed <<<"$entry"
+  tag="${robot}_${config}"
+  spec=""
+  if [[ "$robot" == "constrained" ]]; then
+    tag="constrained"
+    robot="$c_robot"
+    spec="$c_spec"
+  fi
+  [[ -s "$WORKDIR/$tag.port.ndjson" ]] || continue
+  oracle_path_check "$tag" "$robot" "$WORKDIR/$tag.request.json" \
+    "$WORKDIR/$tag.port.ndjson" valid "$spec"
+done
 
 # --- feasibility accounting ------------------------------------------------
 #
@@ -386,13 +636,13 @@ declare -A UNSOLVED_N
 for entry in "${SETS[@]}"; do
   read -r robot config count seed <<<"$entry"
   tag="${robot}_${config}"
-  [[ -s "$WORKDIR/$tag.oracle.json" && -s "$WORKDIR/$tag.port.ndjson" ]] || continue
+  [[ -s "$WORKDIR/$tag.oracle.json" && -s "$WORKDIR/$tag.slim.ndjson" ]] || continue
   jq -s -r '
     (.[0].result.problems | map(select(.exact==true) | .id)) as $c |
     (.[1] | map(select(.outcome=="solved") | .id)) as $p |
     (.[0].result.problems | map(.id)) as $all |
     ($all - ($c + $p)) | .[]
-  ' "$WORKDIR/$tag.oracle.json" <(jq -s '.' "$WORKDIR/$tag.port.ndjson") \
+  ' "$WORKDIR/$tag.oracle.json" <(jq -s '.' "$WORKDIR/$tag.slim.ndjson") \
     >"$WORKDIR/$tag.unsolved.txt" 2>/dev/null
   UNSOLVED_N[$tag]=$(wc -l <"$WORKDIR/$tag.unsolved.txt")
 done
@@ -419,7 +669,7 @@ done
 for entry in "${SETS[@]}"; do
   read -r robot config count seed <<<"$entry"
   tag="${robot}_${config}"
-  [[ -s "$WORKDIR/$tag.oracle.json" && -s "$WORKDIR/$tag.port.ndjson" ]] || continue
+  [[ -s "$WORKDIR/$tag.oracle.json" && -s "$WORKDIR/$tag.slim.ndjson" ]] || continue
   n_unsolved="${UNSOLVED_N[$tag]:-0}"
   n_total=$(jq '.result.problems|length' "$WORKDIR/$tag.oracle.json")
   witnessed=$((n_total - n_unsolved))
@@ -478,7 +728,8 @@ summarize() {
     --argjson seed "$seed" --argjson seed_base "$SEED_BASE" \
     --argjson timeout "$TIMEOUT_SECONDS" \
     --slurpfile oracle "$WORKDIR/$tag.oracle.json" \
-    --slurpfile port <(port_aggregate "$WORKDIR/$tag.port.ndjson") '
+    --slurpfile port <(port_aggregate "$WORKDIR/$tag.slim.ndjson") \
+    --slurpfile rows <(jq -s 'map(select(.id != null))' "$WORKDIR/$tag.slim.ndjson") '
     def median: sort | if length==0 then null
       elif (length%2)==1 then .[length/2|floor]
       else (.[length/2-1]+.[length/2])/2 end;
@@ -486,6 +737,17 @@ summarize() {
     ($port[0]) as $s |
     ([$c[]|select(.exact==true)]|length) as $c_solved |
     ($c|length) as $c_n |
+    # Condition 3 as written compares two medians taken over each side`s OWN
+    # solved set, and those are different populations: a port that fails the
+    # hard problems drops their long paths out of its own median and passes a
+    # 1.3x limit more easily the worse it gets. The paired median is over the
+    # problems BOTH sides solved -- the same population on both sides, so a
+    # ratio computed from it cannot be improved by failing anything. At
+    # panda`s ~99% rates the two are nearly the same statistic; at fanuc`s
+    # ~81% they need not be.
+    ([$c[]|select(.exact==true)|.id]) as $c_ids |
+    ([$rows[0][]|select(.outcome=="solved")|.id]) as $p_ids |
+    (($c_ids - ($c_ids - $p_ids))|sort) as $both |
     {
       tag: $tag, robot: $robot, config: $config,
       seed: $seed, seed_base: $seed_base, timeout_seconds: $timeout,
@@ -499,9 +761,14 @@ summarize() {
       port_failures: $s.failures,
       port_rate: (if $s.problems>0 then $s.solved/$s.problems else null end),
       port_median_length: $s.median_length,
+      paired_problems: ($both|length),
+      cpp_paired_median: ([$c[]|select(.exact==true and (.id as $i|$both|index($i)))|.length]|median),
+      port_paired_median: ([$rows[0][]|select(.outcome=="solved" and (.id as $i|$both|index($i)))|.length]|median),
       condition2_checked: $s.condition2_checked,
       condition2_pass: $s.condition2_pass,
       waypoints_checked: $s.waypoints_checked,
+      raw_waypoints: $s.raw_waypoints,
+      max_endpoint_gap: $s.max_endpoint_gap,
       cpu_seconds: $s.cpu_seconds,
       slowest_seconds: $s.slowest_seconds,
       slowest_problem_id: $s.slowest_problem_id
@@ -519,7 +786,7 @@ per_set="$WORKDIR/per_set.json"
 for entry in "${SETS[@]}"; do
   read -r robot config count seed <<<"$entry"
   tag="${robot}_${config}"
-  [[ -s "$WORKDIR/$tag.oracle.json" && -s "$WORKDIR/$tag.port.ndjson" ]] || continue
+  [[ -s "$WORKDIR/$tag.oracle.json" && -s "$WORKDIR/$tag.slim.ndjson" ]] || continue
   if ! summarize "$tag" "$robot" "$config" "$seed" >>"$per_set"; then
     echo "FAIL summarizing $tag" >&2
     failed+=("summarize $tag")
@@ -551,6 +818,8 @@ jq --arg mode "$MODE" '
       condition2_checked: ($rows|map(.condition2_checked)|add // 0),
       condition2_pass: ($rows|map(.condition2_pass)|add // 0),
       waypoints_checked: ($rows|map(.waypoints_checked)|add // 0),
+      raw_waypoints: ($rows|map(.raw_waypoints)|add // 0),
+      max_endpoint_gap: ($rows|map(.max_endpoint_gap // 0)|max // 0),
       slowest_seconds: ($rows|map(.slowest_seconds)|max)
     };
   {
@@ -566,25 +835,64 @@ jq --arg mode "$MODE" '
 ' "$WORKDIR/per_set_array.json" >"$verdict_json"
 
 # Per-set medians averaged into a set-of-sets median is not the same statistic
-# as the median over the pooled 500 problems, and §5 names the latter. Recompute
-# both medians from the pooled per-problem values so the reported number is the
-# one the condition actually asks for.
-pooled_cpp=$(jq -s 'def median: sort | if length==0 then null
-    elif (length%2)==1 then .[length/2|floor]
-    else (.[length/2-1]+.[length/2])/2 end;
-  [.[].result.problems[]|select(.exact==true)|.length]|median' \
-  "$WORKDIR/panda_floor_wall.oracle.json" "$WORKDIR/panda_cage.oracle.json" 2>/dev/null)
-pooled_port=$(cat "$WORKDIR/panda_floor_wall.port.ndjson" "$WORKDIR/panda_cage.port.ndjson" 2>/dev/null \
-  | jq -s 'def median: sort | if length==0 then null
-    elif (length%2)==1 then .[length/2|floor]
-    else (.[length/2-1]+.[length/2])/2 end;
-  [.[]|select(.solved==true)|.length]|median')
+# as the median over the pooled problems, and §5 names the latter. Recompute
+# from the pooled per-problem values so the reported number is the one the
+# condition actually asks for -- and compute the paired pooled median beside
+# it, over the problems both sides solved (see `summarize`'s own note on why a
+# median over each side's own solved set can be improved by failing more).
+#
+# Keyed `tag#id`, never by id alone: every set numbers its problems from 0, so
+# pooling two sets by bare id would pair `floor_wall` problem 7 with `cage`
+# problem 7.
+#
+# $1 stratum name, then its tags. Emits one JSON object.
+pooled_medians() {
+  local stratum="$1"
+  shift
+  local oc="$WORKDIR/pooled.$stratum.cpp.ndjson" pc="$WORKDIR/pooled.$stratum.port.ndjson"
+  : >"$oc"
+  : >"$pc"
+  local tag any=0
+  for tag in "$@"; do
+    [[ -s "$WORKDIR/$tag.oracle.json" && -s "$WORKDIR/$tag.slim.ndjson" ]] || continue
+    any=1
+    jq -c --arg tag "$tag" \
+      '.result.problems[] | {key: ($tag + "#" + (.id|tostring)), exact, length}' \
+      "$WORKDIR/$tag.oracle.json" >>"$oc"
+    jq -c --arg tag "$tag" \
+      '{key: ($tag + "#" + (.id|tostring)), outcome, length}' \
+      "$WORKDIR/$tag.slim.ndjson" >>"$pc"
+  done
+  if [[ "$any" == "0" ]]; then
+    echo 'null'
+    return 0
+  fi
+  jq -n --slurpfile c <(jq -s '.' "$oc") --slurpfile p <(jq -s '.' "$pc") '
+    def median: sort | if length==0 then null
+      elif (length%2)==1 then .[length/2|floor]
+      else (.[length/2-1]+.[length/2])/2 end;
+    ($c[0]) as $cp | ($p[0]) as $pt |
+    ([$cp[]|select(.exact==true)|.key]) as $ck |
+    ([$pt[]|select(.outcome=="solved")|.key]) as $pk |
+    (($ck - ($ck - $pk))|unique) as $both |
+    {
+      cpp_median_length_pooled: ([$cp[]|select(.exact==true)|.length]|median),
+      port_median_length_pooled: ([$pt[]|select(.outcome=="solved")|.length]|median),
+      paired_problems_pooled: ($both|length),
+      cpp_paired_median_pooled: ([$cp[]|select(.exact==true and (.key as $k|$both|index($k)))|.length]|median),
+      port_paired_median_pooled: ([$pt[]|select(.outcome=="solved" and (.key as $k|$both|index($k)))|.length]|median)
+    }'
+}
 
-jq --argjson cpp "${pooled_cpp:-null}" --argjson port "${pooled_port:-null}" \
+pooled_gate="$(pooled_medians gate panda_floor_wall panda_cage)"
+pooled_fanuc="$(pooled_medians fanuc fanuc_floor_wall fanuc_cage)"
+
+jq --argjson pooled_gate "${pooled_gate:-null}" \
+   --argjson pooled_fanuc "${pooled_fanuc:-null}" \
    --argjson wall "$port_wall" \
    --slurpfile feas "$WORKDIR/feasibility_array.json" \
-   '.gate.cpp_median_length_pooled=$cpp
-    | .gate.port_median_length_pooled=$port
+   '.gate += ($pooled_gate // {})
+    | .fanuc += ($pooled_fanuc // {})
     | .parallel_wall_clock_seconds=$wall
     | .feasibility = $feas[0]
     | .feasibility_escalated_iterations = '"$ESCALATED_ITERATIONS"'
@@ -597,52 +905,165 @@ jq --argjson cpp "${pooled_cpp:-null}" --argjson port "${pooled_port:-null}" \
     | .fanuc.feasibility_unknown = ([$feas[0][]|select(.tag|startswith("fanuc"))|.feasibility_unknown]|add // 0)' \
    "$verdict_json" >"$verdict_json.tmp" && mv "$verdict_json.tmp" "$verdict_json"
 
+# The constrained set carries condition 2's constraint half; it has no C++
+# counterpart, so it is folded in as its own stratum rather than through
+# `summarize`.
+con=$(port_aggregate "$WORKDIR/constrained.slim.ndjson" 2>/dev/null \
+      | jq --arg spec "$c_spec" '. + {joint_constraint: $spec}')
+
 jq -r '
   .gate as $g |
   "  problems (gate set, panda): \($g.problems)",
   "  feasibility: \($g.feasible_witnessed) witnessed solvable (a validated path exists), \($g.feasibility_unknown) unknown after escalation (never called infeasible -- no finite budget proves that)",
   "  C++ OMPL RRTConnect: \($g.cpp_solved)/\($g.problems) = \((($g.cpp_rate//0)*10000|round)/100)%",
   "  port:                \($g.port_solved)/\($g.problems) = \((($g.port_rate//0)*10000|round)/100)%  (timeouts \($g.port_timeouts), other failures \($g.port_failures))",
-  "",
-  "  condition 1  port rate >= 0.90 * C++ rate:",
-  # The `problems > 0` guard is not decoration: without it an empty set
-  # reads 0 >= 0 and prints PASS, which is how a harness that measured
-  # nothing reports success. Must match the verdict computed below exactly.
-  "    \((($g.port_rate//0)*10000|round)/100)% vs required \(((($g.cpp_rate//0)*0.9)*10000|round)/100)%  -> \(if $g.problems > 0 and ($g.port_rate//0) >= (($g.cpp_rate//0)*0.9) then "PASS" else "FAIL" end)",
-  "  condition 2  every produced path passes collision + constraints:",
-  "    \($g.condition2_pass)/\($g.condition2_checked) paths, \($g.waypoints_checked) waypoints checked -> \(if $g.condition2_checked > 0 and $g.condition2_pass == $g.condition2_checked then "PASS" else "FAIL" end)",
-  "  condition 3  port median length <= 1.3 * C++ median (pooled over the gate set):",
-  "    \($g.port_median_length_pooled) vs limit \((($g.cpp_median_length_pooled//0)*1.3)) (ratio \(if ($g.cpp_median_length_pooled//0) > 0 then (((($g.port_median_length_pooled//0)/($g.cpp_median_length_pooled))*1000|round)/1000) else null end)x) -> \(if ($g.cpp_median_length_pooled//0) > 0 and ($g.port_median_length_pooled//0) <= ($g.cpp_median_length_pooled*1.3) then "PASS" else "FAIL" end)",
-  "",
-  "  second robot (fanuc, reported, not folded into the gate -- a pass averaged",
-  "  across robots could hide a robot that fails, so these are stated separately):",
+  "  second robot (fanuc), its own stratum, never averaged into the gate set:",
   "    C++ \(.fanuc.cpp_solved)/\(.fanuc.problems) = \(((.fanuc.cpp_rate//0)*10000|round)/100)%, port \(.fanuc.port_solved)/\(.fanuc.problems) = \(((.fanuc.port_rate//0)*10000|round)/100)% (timeouts \(.fanuc.port_timeouts), other failures \(.fanuc.port_failures))",
-  "    condition 1: \(if .fanuc.problems > 0 and (.fanuc.port_rate//0) >= ((.fanuc.cpp_rate//0)*0.9) then "PASS" else "FAIL" end)   condition 2: \(.fanuc.condition2_pass)/\(.fanuc.condition2_checked) \(if .fanuc.condition2_checked > 0 and .fanuc.condition2_pass == .fanuc.condition2_checked then "PASS" else "FAIL" end)   condition 3: \(.fanuc.port_median_length) vs limit \((.fanuc.cpp_median_length//0)*1.3) \(if (.fanuc.cpp_median_length//0) > 0 and (.fanuc.port_median_length//0) <= (.fanuc.cpp_median_length*1.3) then "PASS" else "FAIL" end)",
   "    feasibility: \(.fanuc.feasible_witnessed) witnessed solvable, \(.fanuc.feasibility_unknown) unknown after escalation",
-  "  slowest single planner call: \($g.slowest_seconds)s (gate), \(.fanuc.slowest_seconds)s (fanuc)",
-  "  parallel wall clock, all port runs: \(.parallel_wall_clock_seconds)s"
+  "  slowest single planner call: \($g.slowest_seconds)s (panda), \(.fanuc.slowest_seconds)s (fanuc)",
+  "  parallel wall clock, all port runs: \(.parallel_wall_clock_seconds)s",
+  ""
 ' "$verdict_json"
 
-# The constrained set carries condition 2's constraint half; it has no C++
-# counterpart, so it is reported on its own rather than through `summarize`.
-con=$(port_aggregate "$WORKDIR/constrained.port.ndjson" 2>/dev/null \
-      | jq --arg spec "$c_spec" '. + {joint_constraint: $spec}')
-if [[ -n "$con" && "$con" != "null" ]]; then
-  echo
-  echo "  condition 2, constrained set (port-only; oracle plan op has no constraint input):"
-  echo "$con" | jq -r '"    constraint=\(.joint_constraint)  solved \(.solved)/\(.problems)  condition2 \(.condition2_pass)/\(.condition2_checked)  waypoints \(.waypoints_checked)"'
+# --- one decision list, printed and gated from the same place ---------------
+#
+# Each entry below is BOTH what gets printed and what decides the exit code.
+# The previous shape computed every verdict twice -- once inside the reporting
+# `jq -r`, once again beneath it as `c1=$(jq ...)` -- and carried a comment
+# telling the next editor the two copies must match. They did not have to:
+# fanuc's three conditions were printed with PASS/FAIL and never reached
+# `failed`, so a second-robot regression printed FAIL and the script exited 0.
+# One list makes that unrepresentable instead of something to keep in sync.
+#
+# `stratum` is a function rather than a written-out list because §5's wording
+# names one population -- panda's 500 -- and that one supplies the completion
+# verdict, but every other set measured here is a population too, and pooling
+# or averaging populations is what lets a failure hide inside a pass. The rule
+# is therefore: never average two strata, and gate each one under its own
+# name. fanuc stays out of the panda numbers AND fails in its own name.
+checks_json="$WORKDIR/checks.json"
+jq -c --argjson con "${con:-null}" --argjson pins "$PINS_JSON" \
+      --argjson tmo "$TIMEOUT_SECONDS" '
+  def pct($x): (($x//0)*10000|round)/100;
+  def r3($x): if $x == null then null else (($x)*1000|round)/1000 end;
+  def ratio($num; $den): (if ($den//0) > 0 then ($num//0)/$den else null end);
+  def stratum($s; $label; $pin):
+    [
+      { name: "\($label)/condition1",
+        detail: "port \($s.port_solved)/\($s.problems) = \(pct($s.port_rate))% >= 0.9 x C++ \($s.cpp_solved)/\($s.problems), i.e. \(pct(($s.cpp_rate//0)*0.9))%",
+        # `problems > 0` is not decoration: without it an empty set reads
+        # 0 >= 0 and passes, which is how a harness that measured nothing
+        # reports success.
+        ok: (($s.problems//0) > 0 and ($s.port_rate//0) >= (($s.cpp_rate//0)*0.9)) },
+      { name: "\($label)/condition2",
+        detail: "\($s.condition2_pass)/\($s.condition2_checked) paths valid, \($s.waypoints_checked) waypoints checked",
+        ok: (($s.condition2_checked//0) > 0 and $s.condition2_pass == $s.condition2_checked) },
+      # A solved path whose validity was never checked is invisible to
+      # condition 2 as it was written: `condition2_checked > 0` is satisfied
+      # by one checked path out of five hundred.
+      { name: "\($label)/condition2-covers-every-solved-path",
+        detail: "checked \($s.condition2_checked) of \($s.port_solved) solved",
+        ok: (($s.port_solved//0) > 0 and $s.condition2_checked == $s.port_solved) },
+      # Densification is what makes condition 2 an independent check rather
+      # than a re-reading of states the search already accepted, so a collapse
+      # back to the returned vertices has to fail here, not report 100%.
+      { name: "\($label)/condition2-densified",
+        detail: "\($s.waypoints_checked) checked from \($s.raw_waypoints) returned",
+        ok: (($s.raw_waypoints//0) > 0 and ($s.waypoints_checked//0) > ($s.raw_waypoints//0)) },
+      # `solved` says a path came back, not that it is a path between the two
+      # states that were asked for. Exact zero rather than a tolerance:
+      # `rrt_connect` returns the endpoint states it was handed.
+      { name: "\($label)/endpoints",
+        detail: "max gap from requested start/goal over solved paths: \($s.max_endpoint_gap)",
+        ok: (($s.max_endpoint_gap//1) == 0) },
+      # A run containing a timeout is not reproducible -- the same tree on a
+      # slower machine gives a different answer -- and condition 1 has enough
+      # slack to absorb several without changing its verdict.
+      { name: "\($label)/no-timeouts",
+        detail: "\($s.port_timeouts) timeouts, slowest call \(r3($s.slowest_seconds))s of the \($tmo)s budget",
+        ok: (($s.port_timeouts//1) == 0) },
+      { name: "\($label)/condition3-pooled",
+        detail: "\($s.port_median_length_pooled) vs limit \(($s.cpp_median_length_pooled//0)*1.3) (ratio \(r3(ratio($s.port_median_length_pooled; $s.cpp_median_length_pooled)))x)",
+        ok: (($s.cpp_median_length_pooled//0) > 0 and ($s.port_median_length_pooled//0) <= ($s.cpp_median_length_pooled*1.3)) },
+      # The same 1.3x over the problems BOTH sides solved. Condition 3 as
+      # written takes each side median over its own solved set, and a port
+      # that fails the hard problems drops their long paths out of its own
+      # median -- passing more easily the worse it gets.
+      { name: "\($label)/condition3-paired",
+        detail: "over \($s.paired_problems_pooled) problems both sides solved: \($s.port_paired_median_pooled) vs limit \(($s.cpp_paired_median_pooled//0)*1.3) (ratio \(r3(ratio($s.port_paired_median_pooled; $s.cpp_paired_median_pooled)))x)",
+        ok: (($s.paired_problems_pooled//0) > 0 and ($s.cpp_paired_median_pooled//0) > 0 and ($s.port_paired_median_pooled//0) <= ($s.cpp_paired_median_pooled*1.3)) }
+    ]
+    + (if $pin == null then [] else
+      # See PINS_ALL for how each constant was sized and from which streams.
+      [
+      { name: "\($label)/pin-population",
+        detail: "\($s.problems) problems, pinned at \($pin.problems)",
+        ok: (($s.problems//0) == $pin.problems) },
+      { name: "\($label)/no-regression-port-solved",
+        detail: "port solved \($s.port_solved) >= floor \($pin.port_solved_floor)",
+        ok: (($s.port_solved//0) >= $pin.port_solved_floor) },
+      { name: "\($label)/no-regression-cpp-solved",
+        detail: "C++ solved \($s.cpp_solved) >= floor \($pin.cpp_solved_floor)",
+        ok: (($s.cpp_solved//0) >= $pin.cpp_solved_floor) },
+      { name: "\($label)/no-regression-median-ratio",
+        detail: "pooled ratio \(r3(ratio($s.port_median_length_pooled; $s.cpp_median_length_pooled)))x within [\($pin.ratio_floor), \($pin.ratio_ceiling)]",
+        ok: ((ratio($s.port_median_length_pooled; $s.cpp_median_length_pooled) // 0) >= $pin.ratio_floor
+             and (ratio($s.port_median_length_pooled; $s.cpp_median_length_pooled) // 99) <= $pin.ratio_ceiling) }
+      ] end);
+  # One set -> the two conditions that are ratios, at set granularity. Pooling
+  # `floor_wall` with `cage` averages two populations just as much as
+  # averaging panda with fanuc does, so each set is gated in its own name too.
+  def per_set($row):
+    [
+      { name: "\($row.tag)/condition1",
+        detail: "port \($row.port_solved)/\($row.problems) = \(pct($row.port_rate))% >= 0.9 x C++ \($row.cpp_solved)/\($row.problems), i.e. \(pct(($row.cpp_rate//0)*0.9))%",
+        ok: (($row.problems//0) > 0 and ($row.port_rate//0) >= (($row.cpp_rate//0)*0.9)) },
+      { name: "\($row.tag)/condition3",
+        detail: "\($row.port_median_length) vs limit \(($row.cpp_median_length//0)*1.3) (ratio \(r3(ratio($row.port_median_length; $row.cpp_median_length)))x)",
+        ok: (($row.cpp_median_length//0) > 0 and ($row.port_median_length//0) <= ($row.cpp_median_length*1.3)) }
+    ];
+  (
+    stratum(.gate;  "panda(gate)"; $pins.panda)
+    + stratum(.fanuc; "fanuc";     $pins.fanuc)
+    + ([.per_set[] | per_set(.)] | add // [])
+    + (if $con == null then [] else [
+        { name: "constrained/condition2",
+          detail: "constraint=\($con.joint_constraint), solved \($con.solved)/\($con.problems), \($con.condition2_pass)/\($con.condition2_checked) valid, \($con.waypoints_checked) waypoints",
+          ok: (($con.condition2_checked//0) > 0 and $con.condition2_pass == $con.condition2_checked) },
+        { name: "constrained/condition2-covers-every-solved-path",
+          detail: "checked \($con.condition2_checked) of \($con.solved) solved",
+          ok: (($con.solved//0) > 0 and $con.condition2_checked == $con.solved) },
+        { name: "constrained/condition2-densified",
+          detail: "\($con.waypoints_checked) checked from \($con.raw_waypoints) returned",
+          ok: (($con.raw_waypoints//0) > 0 and ($con.waypoints_checked//0) > ($con.raw_waypoints//0)) },
+        { name: "constrained/endpoints",
+          detail: "max gap \($con.max_endpoint_gap)",
+          ok: (($con.max_endpoint_gap//1) == 0) },
+        { name: "constrained/no-timeouts",
+          detail: "\($con.timeouts) timeouts",
+          ok: (($con.timeouts//1) == 0) }
+      ] end)
+  )' "$verdict_json" >"$checks_json"
+
+# Printed and gated in one pass over that same list. Process substitution, not
+# a pipe: `failed+=` inside a piped `while` would land in a subshell and the
+# exit code would lose every failure the loop printed.
+while IFS=$'\t' read -r name ok detail; do
+  if [[ "$ok" == "true" ]]; then
+    printf '  PASS %-56s %s\n' "$name" "$detail"
+  else
+    printf '  FAIL %-56s %s\n' "$name" "$detail" >&2
+    failed+=("$name")
+  fi
+done < <(jq -r '.[] | [.name, (.ok|tostring), .detail] | @tsv' "$checks_json")
+
+# An empty list is not a pass. Every earlier stage appends to `failed` on its
+# own faults, but a `jq` program that emitted nothing would otherwise print no
+# lines and reach the exit as clean.
+check_count="$(jq 'length' "$checks_json")"
+if [[ "${check_count:-0}" -lt 1 ]]; then
+  failed+=("no checks were evaluated")
 fi
-
-# --- verdict ---------------------------------------------------------------
-c1=$(jq -r '.gate | if (.port_rate//0) >= ((.cpp_rate//0)*0.9) and .problems > 0 then "PASS" else "FAIL" end' "$verdict_json")
-c2=$(jq -r '.gate | if .condition2_checked > 0 and .condition2_pass == .condition2_checked then "PASS" else "FAIL" end' "$verdict_json")
-c3=$(jq -r '.gate | if (.cpp_median_length_pooled//0) > 0 and (.port_median_length_pooled//0) <= (.cpp_median_length_pooled*1.3) then "PASS" else "FAIL" end' "$verdict_json")
-c2con=$(echo "$con" | jq -r 'if .condition2_checked > 0 and .condition2_pass == .condition2_checked then "PASS" else "FAIL" end' 2>/dev/null)
-
-[[ "$c1" == "PASS" ]] || failed+=("condition 1")
-[[ "$c2" == "PASS" ]] || failed+=("condition 2")
-[[ "$c3" == "PASS" ]] || failed+=("condition 3")
-[[ "$c2con" == "PASS" ]] || failed+=("condition 2 (constrained set)")
 
 if [[ "$MODE" == "full" ]]; then
   # `dirty` is not decoration: a benchmark run from a working tree with
@@ -684,12 +1105,19 @@ if [[ "$MODE" == "full" ]]; then
      --argjson dirty_paths "$(printf '%s' "$dirty_list" | jq -R -s 'split("\n")|map(select(length>0))')" \
      --argjson sources "$sources_json" \
      --argjson con "${con:-null}" \
-     --arg c1 "$c1" --arg c2 "$c2" --arg c3 "$c3" --arg c2con "$c2con" \
+     --argjson pins "$PINS_JSON" \
+     --slurpfile checks "$checks_json" \
      '{measured_at:$ts, commit:$stamp, working_tree_dirty:$dirty,
        dirty_paths:$dirty_paths, measured_sources:$sources} + .
-      + {constrained_set:$con,
-         verdict:{condition1:$c1, condition2:$c2, condition3:$c3,
-                  condition2_constrained:$c2con}}' \
+      + {constrained_set:$con, regression_pins:$pins,
+         # Recorded from the same list the exit code came from, so the file
+         # cannot disagree with the run that wrote it. `checks` keeps each
+         # detail string; `verdict` is the name -> PASS/FAIL map.
+         checks:$checks[0],
+         verdict:($checks[0]|map({key:.name,
+                                  value:(if .ok then "PASS" else "FAIL" end)})
+                           |from_entries),
+         verdict_all_pass:($checks[0]|all(.ok))}' \
      "$verdict_json" >"$RESULTS"
   echo
   echo "  wrote $RESULTS"
@@ -706,4 +1134,7 @@ if [[ ${#failed[@]} -gt 0 ]]; then
   printf '  %s\n' "${failed[@]}" >&2
   exit 1
 fi
-echo "OK conditions 1/2/3 pass (mode=$MODE)"
+# The count, not "conditions 1/2/3": the list gates each stratum and each set
+# under its own name, so a message naming three conditions would understate
+# what passed and, worse, would not move if a stratum stopped being checked.
+echo "OK $check_count Phase 7 checks pass (mode=$MODE)"
