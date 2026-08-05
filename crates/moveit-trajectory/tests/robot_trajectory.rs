@@ -338,10 +338,27 @@ fn find_way_point_indices_between_waypoints() {
     assert_eq!(trajectory.way_point_count(), 5);
     assert_eq!(trajectory.duration(), 0.4);
 
-    let (before, after, blend) = trajectory.find_way_point_indices_for_duration_after_start(0.15);
+    // Upstream's `RobotTrajectoryFindWayPointIndicesBetweenWaypoints` runs two
+    // queries against a fixture whose cumulative waypoint times are one `DT`
+    // ahead of this port's (upstream's `duration_from_previous[0]` is `0.1`,
+    // not this port's structurally-forced `0.0` -- see `init_test_trajectory`'s
+    // own comment above). Both queries are ported here shifted by `-DT` to
+    // land on the same waypoint boundaries upstream's did: upstream's `0.15`
+    // (`before=0, after=1, blend=0.5`) becomes `0.05`; the previous version of
+    // this test used the unshifted `0.15`, which lands one waypoint later
+    // (`before=1, after=2`) than upstream's actual first query -- a
+    // plausible-looking but different boundary, not a port of upstream's case.
+    let (before, after, blend) = trajectory.find_way_point_indices_for_duration_after_start(0.05);
+    assert_eq!(before, 0);
+    assert_eq!(after, 1);
+    assert!((blend - 0.5).abs() < 1e-6);
+
+    // Upstream's second query (`0.3`) lands exactly on a waypoint boundary
+    // (`blend == 1.0`); shifted by `-DT`, that boundary is `0.2` here.
+    let (before, after, blend) = trajectory.find_way_point_indices_for_duration_after_start(0.2);
     assert_eq!(before, 1);
     assert_eq!(after, 2);
-    assert!((blend - 0.5).abs() < 1e-6);
+    assert!((blend - 1.0).abs() < 1e-6);
 }
 
 #[test]
