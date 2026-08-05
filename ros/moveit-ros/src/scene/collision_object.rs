@@ -713,6 +713,49 @@ mod tests {
         );
     }
 
+    // Assertion-discrimination sweep (round 8, folded-operand audit):
+    // `apply_add`'s no-shapes guard is `primitives.is_empty() &&
+    // meshes.is_empty() && planes.is_empty()`. Before this round no test
+    // ever populated `meshes` or `planes` -- `add_with_no_geometry_is_rejected`
+    // above only ever sees them empty, so a guard weakened to check
+    // `primitives` alone would still pass every existing test. Isolating
+    // mutation (drop one operand's `is_empty()` conjunct from the `&&`
+    // chain, keep the fixture unchanged): the two tests below fail only
+    // when their own operand's conjunct is the one dropped, because
+    // dropping a conjunct makes the guard fire (reject) in *more* cases,
+    // not fewer -- an object with only that shape kind starts being
+    // rejected.
+    #[test]
+    fn add_with_only_a_mesh_is_accepted() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.primitives = vec![];
+        msg.primitive_poses = vec![];
+        msg.meshes = vec![shape_msgs::Mesh {
+            triangles: vec![],
+            vertices: vec![],
+        }];
+        msg.mesh_poses = vec![identity_pose()];
+        apply_collision_object(&mut sc, msg).unwrap();
+        assert!(sc.world().has_object("box"));
+    }
+
+    #[test]
+    fn add_with_only_a_plane_is_accepted() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.primitives = vec![];
+        msg.primitive_poses = vec![];
+        msg.planes = vec![shape_msgs::Plane {
+            coef: vec![0.0, 0.0, 1.0, 0.0],
+        }];
+        msg.plane_poses = vec![identity_pose()];
+        apply_collision_object(&mut sc, msg).unwrap();
+        assert!(sc.world().has_object("box"));
+    }
+
     #[test]
     fn more_poses_than_primitives_is_rejected() {
         let model = one_joint_model();
