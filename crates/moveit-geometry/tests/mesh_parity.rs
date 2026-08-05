@@ -51,7 +51,7 @@
 //! This mesh-construction path is one of the remaining candidates for
 //! `moveit-collision`'s deviation 6(b) audit: upstream builds
 //! `fcl::BVHModel<OBBRSSd>` from *both* arrays together
-//! (`collision_common.cpp:902-920` -- `points` in [`Mesh::vertices`] order,
+//! (`collision_detection_fcl/collision_common.cpp:902-920` -- `points` in [`Mesh::vertices`] order,
 //! `tri_indices` indexing that same order), so a port whose vertex set
 //! matches but whose order or triangle indices do not would build a
 //! different BVH, traverse it differently, and report a different

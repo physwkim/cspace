@@ -267,7 +267,7 @@ impl JointConstraint {
     }
 
     /// Upstream `mergeConstraints`'s per-joint merge arithmetic
-    /// (`utils.cpp:80-100`), factored out here because it needs this type's
+    /// (`kinematic_constraints/utils.cpp:80-100`), factored out here because it needs this type's
     /// private fields: intersect `self`'s and `other`'s tolerance windows,
     /// weighted-average the two positions clamped into the intersection, and
     /// split the remaining slack back into above/below tolerances. `self`

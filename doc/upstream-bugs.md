@@ -665,7 +665,7 @@ structural check above.
 
 ### `cost-source-nan-blind-compare` — `CostSource::operator<` compares `double`s with bare `<`/`>`, silently blind to `NaN` — not-reproduced
 
-**Upstream:** `collision_common.hpp:128-141`
+**Upstream:** `collision_detection/collision_common.hpp:128-141`
 **Port:** `crates/moveit-collision/src/common.rs:118` (doc comment on the
 `Ord`/`Eq` impl for `CostSource`, found while sweeping the crate for
 assertion-discrimination coverage, not newly introduced this round)
@@ -676,7 +676,7 @@ a `NaN` cost or AABB bound sorts as neither greater nor less than anything
 `std::set` compares it against — `std::set` (strict-weak-order lookup)
 would treat it as equivalent to whatever it's compared against first,
 silently coalescing a `NaN`-carrying entry with an unrelated one.
-**Evidence:** read of upstream control flow (`collision_common.hpp:128-141`,
+**Evidence:** read of upstream control flow (`collision_detection/collision_common.hpp:128-141`,
 checked against the pinned `e017c91ee` checkout). Not oracle-confirmed —
 no test here constructs a `NaN` cost or AABB bound.
 **Status:** already not reproduced. The port's own doc comment (`common.rs
@@ -1545,7 +1545,7 @@ the static type of the expression:
   all-valid override sets only `res.collision = false`,
   `collision_env_allvalid.cpp:108-112`), and returns
   `res.minimum_distance.distance`, still at `DistanceResultsData::clear()`'s
-  `std::numeric_limits<double>::max()` (`collision_common.hpp:286`; the
+  `std::numeric_limits<double>::max()` (`collision_detection/collision_common.hpp:286`; the
   `distance` field itself, with its own "`<= 0` means in collision" doc
   comment, is declared two lines above at `:263`).
 
@@ -2208,7 +2208,7 @@ the one the call under test filled in. `ContactPositions` declares
 `CollisionRequest req1; CollisionResult res1;` and asserts
 `ASSERT_FALSE(res1.collision)` with no call between the declaration and the
 assertion. `CollisionResult::collision` has the in-class initialiser
-`= false` (`collision_common.hpp:353`), so both assertions hold
+`= false` (`collision_detection/collision_common.hpp:353`), so both assertions hold
 unconditionally: they would still pass if the collision checker returned
 `true` for every query, or were deleted.
 

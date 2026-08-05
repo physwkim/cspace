@@ -50,12 +50,12 @@
 //!    `JointModelGroup::getUpdatedLinkModelsSet()` (every link a joint in
 //!    that group moves, including fixed-joint descendants —
 //!    [`moveit_model::JointModelGroup::updated_link_names`] is the same set, already
-//!    ported) and `collisionCallback` (`collision_common.cpp:79-94`) then
+//!    ported) and `collisionCallback` (`collision_detection_fcl/collision_common.cpp:79-94`) then
 //!    skips a pair only when *neither* side resolves to an active link — a
 //!    world object never resolves to one on its own, so a robot-vs-world
 //!    pair is kept exactly when the robot link is active, and a self-pair is
 //!    kept when *either* link is. `distanceCallback` reads the same
-//!    `DistanceRequest::active_components_only` (`collision_common.cpp:483-500`);
+//!    `DistanceRequest::active_components_only` (`collision_detection_fcl/collision_common.cpp:483-500`);
 //!    `distanceSelf`/`distanceRobot` themselves never call `enableGroup` (an
 //!    earlier draft of this doc took that as proof group filtering was
 //!    unwired everywhere — it is not: the caller of `distanceSelf`/
@@ -389,7 +389,7 @@
 //!
 //!    The request built there is the exact one `distanceCallback` itself
 //!    builds for a penetrating pair with `enable_signed_distance` set
-//!    (`collision_common.cpp:636-663` at the pinned commit — the fallback
+//!    (`collision_detection_fcl/collision_common.cpp:636-663` at the pinned commit — the fallback
 //!    that runs for every one of this deviation's self-collision cases,
 //!    read in full this round to confirm it's the right target before
 //!    reproducing it): `enable_contact = true`, `num_max_contacts = 200`,
@@ -400,7 +400,7 @@
 //!    geometry is FCL's real
 //!    `BVHModel<fcl::OBBRSSd>`, moveit's own BV choice
 //!    (`createCollisionGeometry<fcl::OBBRSSd, ...>`,
-//!    `collision_common.cpp:900-922,949`; `fcl::OBBRSSd` at
+//!    `collision_detection_fcl/collision_common.cpp:900-922,949`; `fcl::OBBRSSd` at
 //!    `include/fcl/math/bv/OBBRSS.h:107`), built via the same
 //!    `beginModel`/`addSubModel`/`endModel` sequence
 //!    (`include/fcl/geometry/bvh/BVH_model.h:97,106,112`) from `base_link`'s
@@ -889,7 +889,7 @@
 //!    originally-reported value are present, simultaneously, in FCL's own
 //!    per-pair contact list for the identical robot state — confirming,
 //!    not just making plausible, that `max_contacts_per_pair = 1`
-//!    (`collision_common.hpp:176`) was reporting whichever one of at least
+//!    (`collision_detection/collision_common.hpp:176`) was reporting whichever one of at least
 //!    two genuinely-touching triangles FCL's own narrow-phase traversal
 //!    happened to place first, and that triangle was not the one this
 //!    backend's own exhaustive deepest-first search names as deepest. Case
@@ -1194,7 +1194,7 @@
 //! - two [`BodyType::RobotAttached`] bodies on the *same* attached link, or
 //!   where either's `touch_links` names the other's id — `collisionCallback`
 //!   only; verified absent from `distanceCallback` by reading it in full
-//!   (`collision_common.cpp:471-560`), so [`accumulate_distance`] does not
+//!   (`collision_detection_fcl/collision_common.cpp:471-560`), so [`accumulate_distance`] does not
 //!   apply this rule.
 //!
 //! "Same object" pairs (upstream's `cd1->sameObject(*cd2)`, the first check
@@ -1652,7 +1652,7 @@ fn world_bodies(world: &World, octree_cache: &OctreeCache) -> Vec<PosedBody> {
 }
 
 /// `CollisionData::enableGroup`/`DistanceRequest::enableGroup`
-/// (`collision_common.cpp:1012-1022`, `collision_common.hpp:206-216`): the
+/// (`collision_detection_fcl/collision_common.cpp:1012-1022`, `collision_detection/collision_common.hpp:206-216`): the
 /// set of link names a `group_name` resolves to, or `None` for "no active
 /// group" (module doc, deviation 1) — either `group_name` is `None`, or it
 /// names a group the model does not have, matching upstream's
@@ -1675,7 +1675,7 @@ fn active_group_links<'m>(
 /// a robot link, its attached link for an attached body, and no link at all
 /// for a world object — the same three-way split `collisionCallback`'s
 /// `cd1->type ==`/`cd2->type ==` ternary makes to get `l1`/`l2`
-/// (`collision_common.cpp:80-87`).
+/// (`collision_detection_fcl/collision_common.cpp:80-87`).
 fn robot_link_name(body: &PosedBody) -> Option<&str> {
     match body.body_type {
         BodyType::RobotLink => Some(&body.name),
@@ -1685,7 +1685,7 @@ fn robot_link_name(body: &PosedBody) -> Option<&str> {
 }
 
 /// `collisionCallback`/`distanceCallback`'s active-group predicate
-/// (`collision_common.cpp:79-94`/`482-500`), inverted from "skip when
+/// (`collision_detection_fcl/collision_common.cpp:79-94`/`482-500`), inverted from "skip when
 /// neither side is active" to "keep when either side is": a world object
 /// never resolves to a link of its own, so a robot-vs-world pair is kept
 /// exactly when the robot link is active, and a self-pair is kept when
@@ -1965,7 +1965,7 @@ fn mesh_mesh_cost_sources(
 /// pair matched the oracle to `1e-13`, but ids 2/3/4/6's nine mesh-vs-floor
 /// pairs landed 0.003-0.07m off, real and not noise. That framing was
 /// itself wrong, not just imprecise: `moveit_core` always instantiates
-/// `fcl::BVHModel<fcl::OBBRSSd>` (`collision_common.cpp:949-1006`, every
+/// `fcl::BVHModel<fcl::OBBRSSd>` (`collision_detection_fcl/collision_common.cpp:949-1006`, every
 /// `createCollisionGeometry` call), so `getBV(0).bv` is never an AABB at
 /// all — [`mesh_world_obb_aabb`] fits the *oriented* box FCL actually
 /// builds, and id 8's coincidental ULP-level match was a mesh whose
@@ -2069,7 +2069,7 @@ fn attached_pair_allowed(a: &PosedBody, b: &PosedBody) -> bool {
 ///
 /// Upstream sorts at both sites and does it inline:
 /// `cd1->getID() < cd2->getID() ? make_pair(cd1->getID(), cd2->getID()) :
-/// make_pair(cd2->getID(), cd1->getID())` -- `collision_common.cpp:240-242` in
+/// make_pair(cd2->getID(), cd1->getID())` -- `collision_detection_fcl/collision_common.cpp:240-242` in
 /// `collisionCallback` and `:564-567` in `distanceCallback`, at `e017c91ee`.
 /// The ordering is not cosmetic: these are `BTreeMap`s (upstream `std::map`s),
 /// so it decides both what a caller must look a pair up by and what
@@ -2136,7 +2136,7 @@ fn accumulate_collision<'a>(
     let mut done = false;
     for (a, b) in pairs {
         // Upstream's `if (cdata->done_) return true;`
-        // (`collision_common.cpp:70-71`). One collision-object pair there is
+        // (`collision_detection_fcl/collision_common.cpp:70-71`). One collision-object pair there is
         // one *part* pair here, so the inner loop carries the same guard; this
         // one only stops the outer sweep once the inner one has broken out.
         if done {
@@ -2208,7 +2208,7 @@ fn accumulate_collision<'a>(
             }
             // Reached whether or not the query found anything, exactly as
             // upstream's termination block is: `fcl::collide` returning zero
-            // contacts still falls through to `collision_common.cpp:395`. Only
+            // contacts still falls through to `collision_detection_fcl/collision_common.cpp:395`. Only
             // the skip rules above bypass it, and upstream's counterparts
             // `return false` at `:184-185` before ever reaching it.
             done = sweep_is_done(request, collision, stored_total, &by_pair, &cost_sources);
@@ -2245,7 +2245,7 @@ fn sweep_result(
 }
 
 /// Upstream's two termination sources, evaluated once per part pair at
-/// `collision_common.cpp:395-424` and answering its `done_`:
+/// `collision_detection_fcl/collision_common.cpp:395-424` and answering its `done_`:
 ///
 /// - implicit (`:395-407`) — a collision is on record, the contact budget is
 ///   either unwanted or already full, and no cost is being accumulated. Every
@@ -3252,7 +3252,7 @@ mod tests {
     #[test]
     fn a_pair_the_acm_always_allows_never_consults_is_done() {
         // Upstream's `if (always_allow_collision) return false;`
-        // (`collision_common.cpp:184-185`) returns before the termination
+        // (`collision_detection_fcl/collision_common.cpp:184-185`) returns before the termination
         // block, so an allowed pair is invisible to the callback however
         // deeply it overlaps. Both objects here overlap `p`, so the one
         // recorded call can only be `b_checked`; `cost` is what keeps the
@@ -3285,7 +3285,7 @@ mod tests {
 
     #[test]
     fn the_implicit_stop_pre_empts_is_done() {
-        // `collision_common.cpp:411` guards the callback with `!cdata->done_`.
+        // `collision_detection_fcl/collision_common.cpp:411` guards the callback with `!cdata->done_`.
         // With contacts and cost both off, the first collision satisfies the
         // implicit rule outright, so the callback is never asked — and the
         // second overlapping object is never looked at either.
@@ -4728,7 +4728,7 @@ mod tests {
     }
 
     // `pair_key` -- both per-pair maps file under the lexicographically
-    // smaller name (`collision_common.cpp:240-242`, `:564-567`). Both cases
+    // smaller name (`collision_detection_fcl/collision_common.cpp:240-242`, `:564-567`). Both cases
     // below are built so iteration order is the *reverse* of sorted order,
     // since a pair that is already sorted cannot tell the two apart.
 

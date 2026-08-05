@@ -123,7 +123,7 @@ pub struct Contact {
 ///
 /// The tie-break chain intentionally ends at `aabb_min` and never reaches
 /// `aabb_max`, matching upstream's own `operator<`
-/// (`collision_common.hpp:128-141`) — confirmed against the fixture,
+/// (`collision_detection/collision_common.hpp:128-141`) — confirmed against the fixture,
 /// `PORTING-PLAN.md` §171.6. So two sources with equal `cost * volume`,
 /// equal `cost`, and equal `aabb_min` but different `aabb_max` compare
 /// `Equal`, and inserting both into a [`std::collections::BTreeSet`] keeps
@@ -617,7 +617,7 @@ mod tests {
     /// `CostSource::cmp`'s tie-break chain ends at `aabb_min`
     /// (`total_cmp_aabb`) and never looks at `aabb_max` — matching
     /// upstream's own `operator<`, whose last comparison is `aabb_min <
-    /// other.aabb_min` (`collision_common.hpp:128-141`). Two sources with
+    /// other.aabb_min` (`collision_detection/collision_common.hpp:128-141`). Two sources with
     /// equal `cost * volume`, equal `cost`, and equal `aabb_min` but
     /// different `aabb_max` therefore compare `Equal`, and `BTreeSet`
     /// treats an `Equal` insert as a duplicate: the second value is

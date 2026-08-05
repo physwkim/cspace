@@ -1098,7 +1098,7 @@ struct ContactJson {
 /// every contact in a given pair carries the same two body types and
 /// `depth: 0.0` (see [`ContactJson`]'s own doc and this round's report --
 /// `depth` is a default member initializer, not a real penetration
-/// measurement, per `collision_common.hpp:84`), so distinguishing
+/// measurement, per `collision_detection/collision_common.hpp:84`), so distinguishing
 /// individual same-pair entries beyond their count would compare noise.
 fn contacts_by_pair_from_json(
     contacts: &[ContactJson],
