@@ -46,12 +46,20 @@
 # attribute or `fn` signature line the citation drifted onto, or no clue
 # at all), strictly to help a human router, never to auto-resolve.
 #
-# `--verify` re-derives the orphan set and diffs it against the committed
-# `doc/assertion-discrimination-orphans.txt`, so a merge that changes the
-# corpus and forgets to regenerate that file fails a gate instead of
-# leaving a file that reads authoritative and is wrong. `--write-orphans`
-# prints that file's exact intended contents (self-dating header plus
-# body) so regenerating it is one redirect, not a hand-typed header.
+# `--verify` enforces the sweep's closing invariant -- EVERY scanner site
+# has an accounting ledger row, and EVERY ledger citation resolves to a
+# site -- and only then diffs the orphan set against the committed
+# `doc/assertion-discrimination-orphans.txt`. The invariant is checked
+# first on purpose. A snapshot diff alone gates drift, not gaps: a new
+# orphan is laundered green by `--write-orphans`-ing it into the expected
+# set, which is a one-line change no reviewer would flag. The unresolved
+# side is worse -- it is invisible to the orphan set entirely whenever
+# another ledger still matches the same site, which is exactly what
+# happened when a +9 line shift stranded two panels' `ruckig_filter.rs`
+# citations while the orphan gate stayed green at 0/0 throughout.
+# `--write-orphans` prints that file's exact intended contents (self-dating
+# header plus body) so regenerating it is one redirect, not a hand-typed
+# header.
 import json
 import re
 import subprocess
@@ -360,6 +368,26 @@ def main(argv):
         return 0
 
     if verify:
+        # The invariant, before the snapshot diff. Regenerating the
+        # snapshot can make a fresh orphan look expected, and an
+        # unresolved citation never reaches the snapshot at all when some
+        # other ledger still matches the site -- neither is catchable by
+        # comparing two orphan lists.
+        if orphan_count or unresolved:
+            print(f"FAIL the sweep's invariant is broken: {orphan_count} orphan site(s), "
+                  f"{len(unresolved)} unresolved ledger citation(s) "
+                  f"(both must be 0; scanner sites, excl. helper_body: {total})")
+            for site, line in result["orphans"]:
+                print(f"  orphan   {site}:{line}")
+            for ledger, fname_part, lineno, _raw, _status, category, detail in unresolved:
+                print(f"  citation {Path(ledger).name} -> {fname_part}:{lineno} :: {category}; {detail}")
+            print()
+            print("An orphan is an assertion no ledger accounts for; an unresolved citation is a "
+                  "ledger row pointing at no assertion. Fix the ledger (or add a vetted entry to "
+                  "tools/ci/assertion-ledger-equivalences.json naming the evidence) -- do NOT "
+                  "regenerate the orphan snapshot to absorb it.")
+            return 1
+
         header, committed_body = read_committed_orphans()
         if header is None:
             print(f"FAIL {ORPHANS_FILE.relative_to(REPO_ROOT)} does not exist -- run --write-orphans first")
