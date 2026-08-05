@@ -694,6 +694,14 @@ mod tests {
         };
         let response = generator.generate(&ctx, &request, 0.1);
         assert_eq!(response.error_code, MoveItErrorCode::InvalidGroupName);
+        // ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+        // `MotionPlanResponse::failure` is the only place in this crate that
+        // writes `trajectory: None` (`rg -n 'trajectory: None'`
+        // crate-wide: 1 hit), a single unconditional field literal reached
+        // by every one of `generate`'s five failure short-circuits. Which
+        // of those five fired is what `error_code` above already names;
+        // this line only re-checks the type's own None-on-any-failure
+        // invariant, which has one cause regardless.
         assert!(response.trajectory.is_none());
     }
 }

@@ -362,6 +362,12 @@ fn lin_panda_arm_rejects_the_same_request_the_oracle_rejects() {
         response.error_code, -1,
         "fixture's own oracle run must have failed with PLANNING_FAILED"
     );
+    // ASSERTION-DISCRIMINATION AUDIT (round 2): not applicable -- `response`
+    // here is the oracle's own `ResponseFixture` deserialized from the
+    // recorded JSON, not a value this port produced. There is no guard or
+    // branch under test to discriminate; this only checks that the fixture
+    // itself is internally consistent (an error-code response with no
+    // waypoints) before it is used as the expected result below.
     assert!(
         response.waypoints.is_none(),
         "a PLANNING_FAILED response fixture must carry no waypoints"
@@ -416,6 +422,18 @@ fn lin_panda_arm_rejects_the_same_request_the_oracle_rejects() {
     };
 
     let response = generator.generate(&ctx, &plan_request, request.sampling_time);
+    // ASSERTION-DISCRIMINATION AUDIT (round 2): `discriminating` (§3a bite
+    // done) -- `MotionPlanResponse::failure` is the only place in this crate
+    // that writes `trajectory: None` (`rg -n 'trajectory: None'`
+    // crate-wide: 1 hit), so this line's own cause is what `error_code`
+    // below already names. But `error_code == PlanningFailed` is itself a
+    // collapsed shape: `generate_joint_trajectory` has two `PlanningFailed`
+    // sites sharing this exact call path (`verify_sample_joint_limits`
+    // rejection at trajectory_functions.rs:400, and `push_way_point`
+    // failure at :438). Isolating mutation: neutralizing the :400 guard
+    // (`if false && i != 0 && !verify_sample_joint_limits(..)`) flipped
+    // this test from reject to accept, proving :400 -- not :438 -- is this
+    // fixture's actual cause, matching the doc comment above.
     assert!(
         response.trajectory.is_none(),
         "this port must also reject the fixture's own rejected request"

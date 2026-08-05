@@ -366,6 +366,11 @@ mod tests {
 
     /// Boundary: start and goal at different distances from the given center
     /// is rejected.
+    ///
+    /// ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+    /// `circle_from_center` has exactly one `Error::` site (`rg -c
+    /// 'Error::'` scoped to the function body: 1), so a bare `.is_err()`
+    /// has exactly one cause.
     #[test]
     fn circle_from_center_radius_mismatch_is_rejected() {
         let result = circle_from_center(
@@ -429,6 +434,11 @@ mod tests {
     }
 
     /// Boundary: colinear start/interim/goal is rejected.
+    ///
+    /// ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+    /// `circle_from_interim` has exactly one `Error::` site (`rg -c
+    /// 'Error::'` scoped to the function body: 1), so a bare `.is_err()`
+    /// has exactly one cause.
     #[test]
     fn circle_from_interim_colinear_points_is_rejected() {
         let result = circle_from_interim(

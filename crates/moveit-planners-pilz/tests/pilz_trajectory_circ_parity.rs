@@ -369,6 +369,12 @@ fn circ_panda_arm_rejects_the_same_request_the_oracle_rejects() {
         response.error_code, -2,
         "fixture's own oracle run must have failed with INVALID_MOTION_PLAN"
     );
+    // ASSERTION-DISCRIMINATION AUDIT (round 2): not applicable -- `response`
+    // here is the oracle's own `ResponseFixture` deserialized from the
+    // recorded JSON, not a value this port produced. There is no guard or
+    // branch under test to discriminate; this only checks that the fixture
+    // itself is internally consistent (an error-code response with no
+    // waypoints) before it is used as the expected result below.
     assert!(
         response.waypoints.is_none(),
         "an INVALID_MOTION_PLAN response fixture must carry no waypoints"
@@ -411,6 +417,19 @@ fn circ_panda_arm_rejects_the_same_request_the_oracle_rejects() {
     };
 
     let response = generator.generate(&ctx, &plan_request, request.sampling_time);
+    // ASSERTION-DISCRIMINATION AUDIT (round 2): `discriminating` (§3a bite
+    // done) -- `MotionPlanResponse::failure` is the only place in this crate
+    // that writes `trajectory: None` (`rg -n 'trajectory: None'`
+    // crate-wide: 1 hit), so this line's own cause is what `error_code`
+    // below already names. But `error_code == InvalidMotionPlan` is itself
+    // a collapsed shape: `TrajectoryGeneratorCirc::plan`/`build_path` have
+    // four `InvalidMotionPlan` sites sharing this exact call path (no
+    // `circ_aux_point`, `circle_from_center` failure, `circle_from_interim`
+    // failure, `PathCircle::new` failure). Traced with eprintln! at each of
+    // the four sites (reverted after): only `PathCircle::new`'s site fired
+    // for this fixture, matching this module's own doc comment's claim
+    // that `circle_from_center` succeeds and `PathCircle::new`'s
+    // no-determinable-plane check is what actually rejects it.
     assert!(
         response.trajectory.is_none(),
         "this port must also reject the fixture's own rejected request"

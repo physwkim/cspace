@@ -561,12 +561,20 @@ mod tests {
         assert_eq!(limits.min_position, -1.0);
     }
 
+    /// ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+    /// `limit` has exactly one `Error::` site (`rg -c 'Error::'` scoped to
+    /// its body: 1), reached whenever `joint_name` is absent from
+    /// `self.container`.
     #[test]
     fn limit_of_unknown_joint_is_an_error() {
         let container = JointLimitsContainer::default();
         assert!(container.limit("nonexistent").is_err());
     }
 
+    /// ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+    /// `common_limit_for`'s only fallible call is `self.limit(joint_name)?`
+    /// in its loop, which is the same single `Error::` site `limit` has;
+    /// the loop introduces no second cause, only a second call to it.
     #[test]
     fn common_limit_for_unknown_joint_is_an_error() {
         let container = fixture();
