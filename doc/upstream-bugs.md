@@ -664,7 +664,7 @@ structural check above.
 
 ### `cost-source-nan-blind-compare` — `CostSource::operator<` compares `double`s with bare `<`/`>`, silently blind to `NaN` — not-reproduced
 
-**Upstream:** `collision_common.hpp:128-140`
+**Upstream:** `collision_common.hpp:128-141`
 **Port:** `crates/moveit-collision/src/common.rs:118` (doc comment on the
 `Ord`/`Eq` impl for `CostSource`, found while sweeping the crate for
 assertion-discrimination coverage, not newly introduced this round)
@@ -675,7 +675,7 @@ a `NaN` cost or AABB bound sorts as neither greater nor less than anything
 `std::set` compares it against — `std::set` (strict-weak-order lookup)
 would treat it as equivalent to whatever it's compared against first,
 silently coalescing a `NaN`-carrying entry with an unrelated one.
-**Evidence:** read of upstream control flow (`collision_common.hpp:128-140`,
+**Evidence:** read of upstream control flow (`collision_common.hpp:128-141`,
 checked against the pinned `e017c91ee` checkout). Not oracle-confirmed —
 no test here constructs a `NaN` cost or AABB bound.
 **Status:** already not reproduced. The port's own doc comment (`common.rs
