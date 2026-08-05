@@ -293,14 +293,14 @@ is a different, prior question, and `Moved(_)` fails it. No fix owed:
 |---|---|---|---|---|---|
 | node.rs:143 | bare `.is_none()` | `fresh_node_has_no_children_and_zero_log_odds` | single-branch | bite (this round) — made `Node::new()` eagerly allocate the children array (eliminating the "no array" cause); assertion still passed, proving this test cannot distinguish "no array" from "array present, slot empty" — matches the function's own doc comment (`node.rs:66-67`, "`None` covers both...", a deliberate 2-cause union mirroring upstream's `nodeChildExists`+`getNodeChild`) | yes — `child()`'s `self.children.as_ref()?[idx]` genuinely executes on a fresh node (§9's own `nn.rs:227`/`self.root.as_ref()?` precedent: a written guard that runs even on an "empty" fixture is still a decision) |
 | node.rs:153 | bare `.is_none()` | `create_child_populates_exactly_one_of_eight_slots` | single-branch | structural — fixture calls `create_child(3)` first, which allocates the array (`get_or_insert_with`, `node.rs:78-80`); only the "array present, slot `i` empty" cause is reachable, the "no array" cause is structurally excluded by this fixture | yes |
-| tree.rs:1729 | bare `.is_none()` | `ray_with_end_outside_tree_bounds_returns_none` | discriminating | bite (this round, §3a mirror) — neutralized the `end`-guard in `compute_ray_keys` (`.unwrap_or_else(Self::root_key)`), this assertion flipped, reverted | yes |
-| tree.rs:1733 | bare `.is_none()` | `ray_with_end_outside_tree_bounds_returns_none` | discriminating | bite (this round) — same test, second assertion (`origin` far-negative case), covered by the same end-guard mutation above | yes |
-| tree.rs:1744 | bare `.is_none()` | `ray_with_origin_outside_tree_bounds_returns_none` | discriminating | bite (this round, §3a mirror) — neutralized the `origin`-guard independently, this assertion flipped while the end-guard mutation left it green; reverted | yes |
-| tree.rs:1762 | bare `.is_none()` | `unmapped_coordinate_has_no_occupancy` | discriminating | bite (this round) — `search` (`tree.rs:876-890`) has two `None` producers, `self.root.as_deref()?` (empty tree) and the loop's `has_children()`-gated arm (ambiguous partial structure); these are real siblings, so ran both directions. Bite 1: gave the root-absent guard a fallback empty node (temp `Node::EMPTY` const + `.unwrap_or(&Node::EMPTY)` in `search`) — this test FAILED (log_odds_at/is_occupied became `Some` instead of `None`), tree.rs:1794 stayed green. Bite 2: neutralized the inner `has_children()`-gated arm to always `Some(cur)` — this test stayed green (unaffected, root already absent so the loop is never entered), tree.rs:1794 FAILED. Both mutations reverted; `git status --short`/`git diff --stat` empty after | yes |
-| tree.rs:1763 | bare `.is_none()` | `unmapped_coordinate_has_no_occupancy` | discriminating | bite (this round) — same test, same bite pair as tree.rs:1762 above (`is_occupied` composes `log_odds_at`, same root-absent cause) | yes |
-| tree.rs:1794 | bare `.is_none()` | `insert_ray_cut_short_by_max_range_records_only_a_miss` | discriminating | bite (this round) — see tree.rs:1762's bite pair; this test flips under bite 2 (inner `has_children()` guard neutralized) and stays green under bite 1 (root-absent guard neutralized), the mirror image of 1762/1763, confirming it exercises the second, distinct `None` producer | yes |
-| tree.rs:1930 | bare `.is_none()` | `leaves_in_bbx_returns_none_for_an_out_of_range_max` | discriminating | commit — doc comment (`tree.rs:1924-1926`) and prior isolating mutation recorded at `0d10a11`; `git show 0d10a11 --stat` confirms it touches this test/guard pair | yes |
-| tree.rs:1944 | bare `.is_none()` | `leaves_in_bbx_returns_none_for_an_out_of_range_min` | discriminating | commit — doc comment (`tree.rs:1936-1940`, explicitly states "before this test existed the `min` guard had no coverage at all") and prior isolating mutation recorded at `567342f`; `git show 567342f --stat` confirms | yes |
+| tree.rs:1736 | bare `.is_none()` | `ray_with_end_outside_tree_bounds_returns_none` | discriminating | bite (this round, §3a mirror) — neutralized the `end`-guard in `compute_ray_keys` (`.unwrap_or_else(Self::root_key)`), this assertion flipped, reverted. Renumbered from a stale `tree.rs:1729` | yes |
+| tree.rs:1740 | bare `.is_none()` | `ray_with_end_outside_tree_bounds_returns_none` | discriminating | bite (this round) — same test, second assertion, covered by the same end-guard mutation above. Renumbered from a stale `tree.rs:1733` | yes |
+| tree.rs:1751 | bare `.is_none()` | `ray_with_origin_outside_tree_bounds_returns_none` | discriminating | bite (this round, §3a mirror) — neutralized the `origin`-guard independently, this assertion flipped while the end-guard mutation left it green; reverted. Renumbered from a stale `tree.rs:1744` | yes |
+| tree.rs:1769 | bare `.is_none()` | `unmapped_coordinate_has_no_occupancy` | discriminating | bite (this round) — `search` (`tree.rs:876-890`) has two `None` producers, `self.root.as_deref()?` (empty tree) and the loop's `has_children()`-gated arm (ambiguous partial structure); these are real siblings, so ran both directions. Bite 1: gave the root-absent guard a fallback empty node (temp `Node::EMPTY` const + `.unwrap_or(&Node::EMPTY)` in `search`) — this test FAILED (log_odds_at/is_occupied became `Some` instead of `None`), tree.rs:1822 stayed green. Bite 2: neutralized the inner `has_children()`-gated arm to always `Some(cur)` — this test stayed green (unaffected, root already absent so the loop is never entered), tree.rs:1822 FAILED. Both mutations reverted; `git status --short`/`git diff --stat` empty after. Renumbered from a stale `tree.rs:1762` | yes |
+| tree.rs:1770 | bare `.is_none()` | `unmapped_coordinate_has_no_occupancy` | discriminating | bite (this round) — same test, same bite pair as tree.rs:1769 above (`is_occupied` composes `log_odds_at`, same root-absent cause). Renumbered from a stale `tree.rs:1763` | yes |
+| tree.rs:1822 | bare `.is_none()` | `insert_ray_cut_short_by_max_range_records_only_a_miss` | discriminating | bite (this round) — see tree.rs:1769's bite pair; this test flips under bite 2 (inner `has_children()` guard neutralized) and stays green under bite 1 (root-absent guard neutralized), the mirror image of 1769/1770, confirming it exercises the second, distinct `None` producer. Renumbered from a stale `tree.rs:1794`, which under nearest-line matching in the current file is ambiguous between two unrelated real sites (`tree.rs:1790`/`1791`) | yes |
+| tree.rs:1958 | bare `.is_none()` | `leaves_in_bbx_returns_none_for_an_out_of_range_max` | discriminating | commit — doc comment (`tree.rs:1952-1954`) and prior isolating mutation recorded at `0d10a11`; `git show 0d10a11 --stat` confirms it touches this test/guard pair. Renumbered from a stale `tree.rs:1930` | yes |
+| tree.rs:1972 | bare `.is_none()` | `leaves_in_bbx_returns_none_for_an_out_of_range_min` | discriminating | commit — doc comment (`tree.rs:1964-1968`, explicitly states "before this test existed the `min` guard had no coverage at all") and prior isolating mutation recorded at `567342f`; `git show 567342f --stat` confirms. Renumbered from a stale `tree.rs:1944` | yes |
 
 All 10 octomap rows hold every clause: mechanism is `Option::None` on a
 lookup/traversal (clause 1), each guard is a written comparison run
@@ -344,11 +344,11 @@ finding.
 | decide.rs:183 | bare `.is_err()` | `new_rejects_negative_tolerance` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: `JointConstraint::new`'s guard (`joint.rs:120`, `tolerance_above < 0.0 \|\| tolerance_below < 0.0`) is one `Err::construct` site but folds two named operands, which a construction-site count cannot see through. Neutralizing `tolerance_above`'s clause alone (`if false && tolerance_above < 0.0 \|\| tolerance_below < 0.0`) failed this assertion exactly. The test's own fixture (`tolerance_above=-0.1, tolerance_below=0.1`) already isolates this operand. `joint.rs` reverted clean after | yes |
 | decide.rs:184 | bare `.is_err()` | `new_rejects_negative_tolerance` | discriminating | bite (this round) — mirror of 183: neutralizing `tolerance_below`'s clause alone (`if tolerance_above < 0.0 \|\| false && tolerance_below < 0.0`) failed this assertion exactly. The test's own fixture (`tolerance_above=0.1, tolerance_below=-0.1`) already isolates this operand. `joint.rs` reverted clean after | yes |
 | decide.rs:210 | matches! | `new_rejects_unknown_joint` | fixed | commit `83e3c1c` — this session's own prior fix, asserts the specific `Error::UnknownName{kind:"joint",..}` variant/field rather than bare `.is_err()` | yes |
-| utils_parity.rs:221 | matches! | `unknown_group_is_error` | single-branch | structural — `construct_goal_joint_constraints`'s only reachable guard for an unknown group name is `model.joint_model_group(group_name)?` (`utils.rs:234`); the loop body's two further `?` sites are unreached when this one fails first | yes |
-| utils_parity.rs:641 | matches! | `multi_region_constraint_is_error` | single-branch | structural — `update_position_constraint` has exactly one `Error::Other`-producing site (`utils.rs:605-609`, converting `with_updated_position`'s `None` for a >1-region constraint) | yes |
-| utils_parity.rs:885 | bare `.is_none()` | `an_unrecognised_frame_is_none` | single-branch | structural — `resolve_position_constraint_frame` (`utils.rs:727-747`) has one `None`-producing path, `resolve_frame_to_link`'s own single `None` cause (`utils.rs:641`, the closure result — the two other tiers only ever return `Some` or fall through, never `None`) | yes |
-| utils_parity.rs:896 | bare `.is_none()` | same fn, second assertion | single-branch | structural — `resolve_orientation_constraint_frame` (`utils.rs:777-805`) shares the identical single `resolve_frame_to_link` None cause | yes |
-| utils_parity.rs:942 | matches! | `xyz_euler_tolerance_across_a_real_frame_change_is_an_error` | single-branch | structural — `resolve_orientation_constraint_frame`'s only `Error::Other`-producing site is the `XyzEuler`-tolerance-across-a-frame-change guard (`utils.rs:796-802`), a single `if` | yes |
+| utils_parity.rs:222 | matches! | `unknown_group_is_error` | single-branch | structural — `construct_goal_joint_constraints`'s only reachable guard for an unknown group name is `model.joint_model_group(group_name)?` (`utils.rs:234`); the loop body's two further `?` sites are unreached when this one fails first | yes |
+| utils_parity.rs:729 | matches! | `multi_region_constraint_is_error` | single-branch | structural — `update_position_constraint` has exactly one `Error::Other`-producing site (`utils.rs:605-609`, converting `with_updated_position`'s `None` for a >1-region constraint); `with_updated_position`'s own `?`-propagated errors are `Error::UnknownName`, never `Error::Other`, so there is no second producer to conflate — re-verified `2026-08-05`, line renumbered from a stale `utils_parity.rs:641` | yes |
+| utils_parity.rs:973 | bare `.is_none()` | `an_unrecognised_frame_is_none` | single-branch | structural — `resolve_position_constraint_frame` (`utils.rs:727-747`) has one `None`-producing path, `resolve_frame_to_link`'s own single `None` cause (`utils.rs:641`, the closure result — the two other tiers only ever return `Some` or fall through, never `None`) — line renumbered from a stale `utils_parity.rs:885` | yes |
+| utils_parity.rs:984 | bare `.is_none()` | same fn, second assertion | single-branch | structural — `resolve_orientation_constraint_frame` (`utils.rs:777-805`) shares the identical single `resolve_frame_to_link` None cause — line renumbered from a stale `utils_parity.rs:896` | yes |
+| utils_parity.rs:1030 | matches! | `xyz_euler_tolerance_across_a_real_frame_change_is_an_error` | single-branch | structural — `resolve_orientation_constraint_frame`'s only `Error::Other`-producing site is the `XyzEuler`-tolerance-across-a-frame-change guard (`utils.rs:796-802`), a single `if` — line renumbered from a stale `utils_parity.rs:942` | yes |
 
 **`constraint_sampler_manager.rs:172` moved to `not-this-family` (clause
 2, decision).** Re-read `select_default_sampler_inner`
@@ -390,7 +390,12 @@ argument), so clause 2 holds on real data, not a skipped comparison.
 | file:line | anchor | test fn | verdict | evidence | in-family |
 |---|---|---|---|---|---|
 | acceleration_filter.rs:552 | matches! | `reset_rejects_a_mismatched_length` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: `reset`'s guard (`acceleration_filter.rs:302`, `positions.len() != num_joints \|\| velocities.len() != num_joints`) is one `Error::Other` site folding two named operands. This test's fixture mismatches both `positions` and `velocities` at once, so neither existing test isolated either clause — bit both directions (`false && positions...`, then `positions... \|\| false && velocities...`), both left this test PASSING: a genuine blind site, not just an undercounted branch. Fixed by adding `reset_rejects_a_positions_only_mismatch`/`reset_rejects_a_velocities_only_mismatch` (each mismatching exactly one array), bite-verified to fail when their own clause is disabled. Commit `3c2d72f`, gated `-p moveit-smoothing` | yes |
-| ruckig_filter.rs:546 | matches! | `reset_rejects_a_mismatched_length` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: same shape as acceleration_filter.rs:552, 3-clause OR (`ruckig_filter.rs:326-329`) folding `positions`/`velocities`/`accelerations`. This test's fixture mismatches all three at once. Bit all three directions individually — each left this test PASSING, the same blind site three ways. Fixed by adding `reset_rejects_a_positions_only_mismatch`/`reset_rejects_a_velocities_only_mismatch`/`reset_rejects_an_accelerations_only_mismatch`, bite-verified each fails when its own clause is disabled. Commit `2829ca2`, gated `-p moveit-smoothing` | yes |
+| acceleration_filter.rs:559 | matches! | `reset_rejects_a_positions_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round — this exact site had only ever been referenced by name, never cited | yes |
+| acceleration_filter.rs:566 | matches! | `reset_rejects_a_velocities_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round | yes |
+| ruckig_filter.rs:650 | matches! | `reset_rejects_a_mismatched_length` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: same shape as acceleration_filter.rs:552, 3-clause OR (`ruckig_filter.rs:326-329`) folding `positions`/`velocities`/`accelerations`. This test's fixture mismatches all three at once. Bit all three directions individually — each left this test PASSING, the same blind site three ways. Fixed by adding `reset_rejects_a_positions_only_mismatch`/`reset_rejects_a_velocities_only_mismatch`/`reset_rejects_an_accelerations_only_mismatch`, bite-verified each fails when its own clause is disabled. Commit `2829ca2`, gated `-p moveit-smoothing`. Line renumbered from a stale `ruckig_filter.rs:546`, which in the current file lands on an unrelated test (`do_smoothing_respects_velocity_and_acceleration_bounds_throughout`) | yes |
+| ruckig_filter.rs:657 | matches! | `reset_rejects_a_positions_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round | yes |
+| ruckig_filter.rs:664 | matches! | `reset_rejects_a_velocities_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round | yes |
+| ruckig_filter.rs:671 | matches! | `reset_rejects_an_accelerations_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round | yes |
 
 Both bite-confirmed against real mismatched-length data (never an
 empty-input skip), so clause 2 holds on real operands.
@@ -482,46 +487,83 @@ non-vacuous state check, a same-test contrasting sibling case, or a
 more specific diagnostic/variant assertion two lines away) that rules
 out the sibling cause.
 
-#### moveit-octomap (29 real sites, 23 in-family, 2 blind — both fixed)
+#### moveit-octomap (30 real sites, 34 in-family, 2 blind — both fixed)
+
+**Row-count correction (orphan reconciliation, this round):** the
+original 23-in-family figure only counted sites that already had a
+table row. Ten more of the 29 real sites were in-family and
+already-audited (bitten or doc-recorded) but referenced only by test
+name in this section's own prose, `octomap_parity.rs:277`'s note, or
+the "Commands run" log below — never given their own row, which made
+`tools/ci/reconcile-assertion-ledgers.py` (a table-row scanner) report
+them as orphans despite being covered. One more (`tree.rs:1822`, folded
+into the `tree.rs:1769, 1770` row below) was found only because fixing
+the stale `tree.rs:1824` citation removed an accidental window-match
+that had been covering it — `29 real sites` becomes `30` with that
+addition. The rows below marked
+"Previously uncovered by any table row" / "had never itself been given
+a table row" / "never given its own table row" are those ten sites;
+none required a new bite — each cites evidence that already existed.
 
 | file:line | kind | verdict | in-family | note |
 |---|---|---|---|---|
 | tree.rs:1781 | eq_none | **scanner false positive** | n/a | `assert!(insert_ray(..., None, ...))` — `None` is an argument, not a comparison |
 | node.rs:151 | is_some | not-this-family | no | clause 2 — `create_child(3)` unconditionally populates slot 3 two lines above; no decision between cause and observation |
-| tree.rs:1805 | contains_member | not-this-family | no | clause 1 — `occupied.contains(&hit_key)` is membership in `compute_update`'s actual computed classification, not an absence signal |
-| tree.rs:1806 | contains_member | not-this-family | no | clause 1, same reasoning |
-| tree.rs:1807 | is_empty | not-this-family | no | clause 2 — general "ray tracing produced *some* free cells" sanity check, no crafted decision boundary |
-| tree.rs:1824/1837/1852/1862/1868/1878/1879 | eq_none ×7 | **in-family, was partly blind** | yes | `coord_to_key_checked_axis`'s folded 3-operand guard (`is_finite() && >= min && < max`, one `return None` site). Bite-confirmed (3 live mutations, each reverted): `>= min` and `< max` are each independently caught by a dedicated boundary test (−32768.5/1e300 for min, 32768.0/1e300 for max) — genuinely discriminating. `is_finite()` is **dead**: neutralizing it alone left all 9 tests green, because IEEE 754 comparisons with NaN are always false and ±infinity always falls outside the finite `[min, max)` range, so the other two clauses already reject every non-finite input on their own. **Fixed** (`3e0430d`): removed the dead conjunct — no test could ever have closed this since no input makes it decisive, so the fix is deletion, not a new test |
-| tree.rs:1980/1990/1996/2002/2010/2020/2030/2049/2062/2223/2256 | eq_err ×11 | in-family, discriminating | yes | `DecodeError::UnexpectedEof`/`TreeAlreadyPopulated`/`MaxDepthExceeded` are each reached from 2 production call sites (one per of `read_binary_data`/`read_data`, or one per `read_binary_node`/`read_data_node`'s shared `Cursor::read_u8`/`read_f32_le`). Checked the `DecodeError` catch-all risk you flagged directly: every one of the 11 tests' own in-source comments (`tree.rs:2040-2047`, `2057-2060`) trace the exact single reachable call site for that test's crafted byte length, ruling out every sibling explicitly (e.g. "`TreeAlreadyPopulated` is excluded (fresh tree) and `MaxDepthExceeded` is unreachable (3 bytes cannot recurse to depth 16)"). None is a bare catch-all — each traces to one call site |
-| decode_parity.rs:200/237 | eq_err ×2 | in-family, discriminating | yes | same `UnexpectedEof`-on-empty-input reasoning as `tree.rs:1996/2002`, run across the oracle fixture corpus |
-| decode_parity.rs:195/232 | is_empty ×2 | not-this-family | no | clause 3 — subject is the *oracle's* fixture data (`expected_nodes.is_empty()`), a fixture self-consistency check, not the code under test |
+| tree.rs:1833 | contains_member | not-this-family | no | clause 1 — `occupied.contains(&hit_key)` is membership in `compute_update`'s actual computed classification, not an absence signal — renumbered from a stale `tree.rs:1805` |
+| tree.rs:1834 | contains_member | not-this-family | no | clause 1, same reasoning — renumbered from a stale `tree.rs:1806` |
+| tree.rs:1835 | is_empty | not-this-family | no | clause 2 — general "ray tracing produced *some* free cells" sanity check, no crafted decision boundary — renumbered from a stale `tree.rs:1807` |
+| tree.rs:1852, 1865, 1880, 1890, 1896, 1906, 1907 | eq_none ×7 | **in-family, was partly blind** | yes | `coord_to_key_checked_axis`'s folded 3-operand guard (`is_finite() && >= min && < max`, one `return None` site). Bite-confirmed (3 live mutations, each reverted): `>= min` and `< max` are each independently caught by a dedicated boundary test (−32768.5/1e300 for min, 32768.0/1e300 for max) — genuinely discriminating. `is_finite()` is **dead**: neutralizing it alone left all 9 tests green, because IEEE 754 comparisons with NaN are always false and ±infinity always falls outside the finite `[min, max)` range, so the other two clauses already reject every non-finite input on their own. **Fixed** (`3e0430d`): removed the dead conjunct — no test could ever have closed this since no input makes it decisive, so the fix is deletion, not a new test. Line list renumbered from a stale `tree.rs:1824/1837/1852/1862/1868/1878/1879`; also switched to comma separation — the reconcile instrument's citation grammar only multi-extracts a comma-separated first column, so the original `/`-separated list was silently read as a single citation (`1824`) and the other six read as orphans regardless of line accuracy |
+| tree.rs:1958, 1972 | is_none ×2 | in-family, discriminating | yes | `leaves_in_bbx_returns_none_for_an_out_of_range_{max,min}` — `LeavesInBbx::new` checks `min` then `max`, each behind its own `?`; doc-recorded bite (the source's own comment on the `min` test, `tree.rs:1964-1968`): before that test existed, neutralizing the `min` guard left all 66 tests green, and each guard now isolates to its own test. Previously uncovered by any table row (only referenced implicitly, never cited) |
+| tree.rs:1736, 1740, 1751 | is_none ×3 | in-family, discriminating | yes | `ray_with_end_outside_tree_bounds_returns_none` (1736/1740, both ends of the ray) and `ray_with_origin_outside_tree_bounds_returns_none` (1751) — the crate's own dedicated unit-level coverage of `compute_ray_keys`'s two `None` causes that `octomap_parity.rs:277`'s note below already names but never cited directly |
+| tree.rs:1769, 1770, 1822 | is_none ×3 | in-family, discriminating | yes | `unmapped_coordinate_has_no_occupancy` (1769/1770) and `insert_ray_cut_short_by_max_range_records_only_a_miss` (1822) both exercise `log_odds_at`'s in-range-but-unmapped `None` cause; paired with the out-of-bounds cause's own dedicated test (`tree.rs:1787, 1790, 1791` below) they jointly discriminate `log_odds_at`'s two causes, same reasoning as `octomap_parity.rs:216`. Bite already recorded under "Commands run" below (`tree.rs:1762/1763/1794` old numbers) but never given its own table row. `tree.rs:1822` was previously mis-covered by an accidental window-match onto the pre-fix `tree.rs:1824` citation, not a genuine row — caught when fixing that citation exposed it as a real orphan |
+| tree.rs:1787, 1790, 1791 | is_some, is_none, is_none | in-family, discriminating | yes | `out_of_bounds_coordinate_has_no_occupancy_even_when_the_tree_center_is_mapped` — this *is* the `08181da` fix's own new test (see `octomap_parity.rs:216` below); it is the direct source-level evidence for that fix and had never itself been given a table row |
+| tree.rs:2008, 2018, 2024, 2030, 2038, 2048, 2058, 2077, 2090, 2251, 2284 | eq_err ×11 | in-family, discriminating | yes | `DecodeError::UnexpectedEof`/`TreeAlreadyPopulated`/`MaxDepthExceeded` are each reached from 2 production call sites (one per of `read_binary_data`/`read_data`, or one per `read_binary_node`/`read_data_node`'s shared `Cursor::read_u8`/`read_f32_le`). Checked the `DecodeError` catch-all risk you flagged directly: every one of the 11 tests' own in-source comments trace the exact single reachable call site for that test's crafted byte length, ruling out every sibling explicitly (e.g. "`TreeAlreadyPopulated` is excluded (fresh tree) and `MaxDepthExceeded` is unreachable (3 bytes cannot recurse to depth 16)"). None is a bare catch-all — each traces to one call site. Line list renumbered from a stale `tree.rs:1980/1990/1996/2002/2010/2020/2030/2049/2062/2223/2256`; also switched to comma separation, same reason as the `coord_to_key_checked_axis` row above |
+| decode_parity.rs:200, 237 | eq_err ×2 | in-family, discriminating | yes | same `UnexpectedEof`-on-empty-input reasoning as `tree.rs:2024/2030`, run across the oracle fixture corpus. Switched to comma separation (numbers themselves unchanged — no drift here, only the `/`-separator parsing gap) |
+| decode_parity.rs:195, 232 | is_empty ×2 | not-this-family | no | clause 3 — subject is the *oracle's* fixture data (`expected_nodes.is_empty()`), a fixture self-consistency check, not the code under test. Switched to comma separation (numbers themselves unchanged) |
 | octomap_parity.rs:216 | is_some | **in-family, was blind** | yes | `log_odds_at`'s `None` has 2 causes (`coord_to_key_checked` out-of-range vs. `search` finds nothing); every fixture query point and every existing unit test only ever reached the second. Bite: replacing the out-of-bounds guard with a silent clamp to the tree center left all 67 tests green. **Fixed** (`08181da`): new test populates the tree center then queries a genuinely out-of-bounds point, so the same bite now fails |
 | octomap_parity.rs:246 | is_some | in-family, not blind | yes | shares `log_odds_at`, now covered by the same fix; the out-of-bounds cause is structurally unreachable via `OccupancyByKey` (`key_to_coord` on a `u16` key is always in-range by construction), so only the `search`-null cause applies here, and that's discriminated per fixture row (mapped vs. unmapped rows both present) |
-| octomap_parity.rs:277 | is_some | in-family, discriminating | yes | `compute_ray_keys`'s two `None` causes (origin vs. end out-of-bounds) are each separately exercised by dedicated fixture rows (`[0,0,0]→[1e9,0,0]` and `[1e9,0,0]→[0,0,0]`), matching the crate's own dedicated unit tests `ray_with_{origin,end}_outside_tree_bounds_returns_none` |
+| octomap_parity.rs:277 | is_some | in-family, discriminating | yes | `compute_ray_keys`'s two `None` causes (origin vs. end out-of-bounds) are each separately exercised by dedicated fixture rows (`[0,0,0]→[1e9,0,0]` and `[1e9,0,0]→[0,0,0]`), matching the crate's own dedicated unit tests `ray_with_{origin,end}_outside_tree_bounds_returns_none` (now given their own row, `tree.rs:1736, 1740, 1751` above) |
 
 #### moveit-scene (25 real sites, 11 in-family, 0 blind)
 
-All 10 `contains_member` hits (`scene.rs:2119/2120`, `world_diff.rs:
-158/159/198/225/226/247/248/287/288/289`) are `Action` bitflag checks —
-not-this-family, clause 1: the bitflag set is the diff algorithm's own
-informative computed classification ("which actions occurred"), not a
-stand-in for an operation's inability to do something.
+**Row-count correction (orphan reconciliation, this round):** this
+section previously stated its verdicts as prose paragraphs naming
+line-slash-lists (`scene.rs:2119/2120`, `world_diff.rs:158/159/...`)
+instead of per-site table rows. `tools/ci/reconcile-assertion-ledgers.
+py`'s citation parser only reads markdown table rows starting with
+`|` — a prose paragraph, however precisely it names its lines, is
+invisible to it. All 25 sites reported as orphans despite every one
+already having a verdict and reasoning below; none needed new
+investigation, only a table row. Converted to a table, one row per
+site, same reasoning as before.
 
-`world_diff.rs:330/331` (`a_fresh_diff_is_empty`) and `decide.rs`-style
-fresh-constructor checks — not-this-family, clause 2: `WorldDiff::new()`
-is `Self::default()`, no decision to get wrong.
-
-The remaining 11 (`scene.rs:2122/2137/2318/2337/2686/2692/2703/3354/
-3378`, `world_diff.rs:297/323`) are in-family and every one is already
-discriminating — each pairs its coarse assertion with a same-test
-non-vacuous setup (a mutation immediately before the check that proves
-the collection/link *was* populated, ruling out the "never touched"
-sibling), e.g. `scene.rs:2692`'s doc comment explicitly names the bug
-class it exists to catch ("`clear_diffs` resetting `attached_bodies`/
-`acm` to empty ... would be indistinguishable from correctly
-re-inheriting the parent's ... state"), and `scene.rs:3354`/`3378`
-each sit next to a sibling test proving the same collection is
-non-empty under different input.
+| file:line | kind | verdict | in-family | note |
+|---|---|---|---|---|
+| scene.rs:2119 | contains_member | not-this-family | no | clause 1 — `Action` bitflag membership check is the diff algorithm's own informative computed classification ("which actions occurred"), not a stand-in for an operation's inability to do something |
+| scene.rs:2120 | contains_member | not-this-family | no | same reasoning |
+| world_diff.rs:158 | contains_member | not-this-family | no | same `Action` bitflag reasoning |
+| world_diff.rs:159 | contains_member | not-this-family | no | same reasoning |
+| world_diff.rs:198 | contains_member | not-this-family | no | same reasoning |
+| world_diff.rs:225 | contains_member | not-this-family | no | same reasoning |
+| world_diff.rs:226 | contains_member | not-this-family | no | same reasoning |
+| world_diff.rs:247 | contains_member | not-this-family | no | same reasoning |
+| world_diff.rs:248 | contains_member | not-this-family | no | same reasoning |
+| world_diff.rs:287 | contains_member | not-this-family | no | same reasoning |
+| world_diff.rs:288 | contains_member | not-this-family | no | same reasoning |
+| world_diff.rs:289 | contains_member | not-this-family | no | same reasoning |
+| world_diff.rs:330 | is_empty | not-this-family | no | clause 2 — `a_fresh_diff_is_empty`: `WorldDiff::new()` is `Self::default()`, no decision to get wrong |
+| world_diff.rs:331 | is_empty | not-this-family | no | same fresh-constructor reasoning |
+| scene.rs:2122 | is_empty | in-family, discriminating | yes | pairs its coarse assertion with a same-test non-vacuous setup (a mutation immediately before the check proves the collection *was* populated), ruling out the "never touched" sibling |
+| scene.rs:2137 | is_empty | in-family, discriminating | yes | same pattern |
+| scene.rs:2318 | eq_none | in-family, discriminating | yes | same pattern |
+| scene.rs:2337 | is_some | in-family, discriminating | yes | same pattern |
+| scene.rs:2686 | is_some | in-family, discriminating | yes | same pattern |
+| scene.rs:2692 | is_some | in-family, discriminating | yes | doc comment explicitly names the bug class it exists to catch ("`clear_diffs` resetting `attached_bodies`/`acm` to empty ... would be indistinguishable from correctly re-inheriting the parent's ... state") |
+| scene.rs:2703 | is_empty | in-family, discriminating | yes | same pattern |
+| scene.rs:3354 | is_empty | in-family, discriminating | yes | sits next to a sibling test proving the same collection is non-empty under different input |
+| scene.rs:3378 | is_empty | in-family, discriminating | yes | same sibling-test pattern |
+| world_diff.rs:297 | is_some | in-family, discriminating | yes | pairs its coarse assertion with a same-test non-vacuous setup |
+| world_diff.rs:323 | is_empty | in-family, discriminating | yes | same pattern |
 
 #### moveit-constraints (8 real sites, 3 in-family, 0 blind)
 
@@ -531,8 +573,8 @@ non-empty under different input.
 | decide.rs:1166 | eq_none | in-family, discriminating | yes | same shape, own call site |
 | decide.rs:1257 | is_empty | not-this-family | no | clause 2 — `KinematicConstraintSet::new()` is `Self::default()` |
 | sampler.rs:194/200 | contains_member ×2 | not-this-family | no | clause 1 — `(min..=max).contains(&v)` validates numeric correctness of a sampled value, not an absence signal |
-| utils_parity.rs:580/602 | is_empty ×2 | not-this-family | no | clause 2 — `update_{orientation,position}_constraint`'s search loop runs over an empty `KinematicConstraintSet::new()`; the loop body's comparison never executes, matching census §9's `shortest_solution_is_none_on_empty_input` exclusion exactly |
-| utils_parity.rs:698 | is_empty | in-family, discriminating | yes | `merge_constraints` drops a genuinely non-overlapping pair (`low > high`); sibling test `overlapping_windows_merge_to_the_intersection` proves the merge logic isn't vacuously always-empty |
+| utils_parity.rs:581, 647 | is_empty ×2 | not-this-family | no | clause 2 — `update_{orientation,position}_constraint`'s search loop runs over an empty `KinematicConstraintSet::new()`; the loop body's comparison never executes, matching census §9's `shortest_solution_is_none_on_empty_input` exclusion exactly — lines renumbered from a stale `utils_parity.rs:580/602` (this session's own `9b2bff6` inserted the sibling `mismatched_link_name_leaves_constraint_untouched` tests directly after each, at different offsets: `+1` and `+45`) |
+| utils_parity.rs:786 | is_empty | in-family, discriminating | yes | `merge_constraints` drops a genuinely non-overlapping pair (`low > high`); sibling test `overlapping_windows_merge_to_the_intersection` proves the merge logic isn't vacuously always-empty — line renumbered from a stale `utils_parity.rs:698`, which under nearest-line matching in the current file lands on an unrelated test (`multi_region_constraint_is_error`, not `non_overlapping_windows_are_dropped`) |
 
 #### moveit-srdf (6 real sites, 4 in-family, 0 blind)
 
@@ -547,9 +589,16 @@ non-empty under different input.
 
 #### moveit-state (3 real sites, 0 in-family)
 
-All 3 (`invariants.rs:100/140/368`) are `(-PI..=PI).contains(&wrapped)`
-— not-this-family, clause 1: validating that an angle-wrapping
-computation's numeric output landed in range, not an absence signal.
+**Row-count correction (orphan reconciliation, this round):** stated
+as prose, not a table row, which `tools/ci/reconcile-assertion-ledgers.
+py` cannot see — see the identical mechanism documented under
+moveit-scene above. Converted to a table; verdict unchanged.
+
+| file:line | kind | verdict | in-family | note |
+|---|---|---|---|---|
+| invariants.rs:100 | contains_member | not-this-family | no | `(-PI..=PI).contains(&wrapped)` in `enforce_bounds_wraps_an_unbounded_continuous_joint_into_pi_range` — validating that an angle-wrapping computation's numeric output landed in range, not an absence signal |
+| invariants.rs:140 | contains_member | not-this-family | no | same range check in `harmonize_positions_rewraps_without_changing_the_transform` |
+| invariants.rs:368 | contains_member | not-this-family | no | same range check, `theta`-bounds-enforcement test |
 
 #### moveit-metrics / moveit-smoothing
 
@@ -751,8 +800,11 @@ no correction owed this round.
 | `butterworth.rs:183` | contains | in-family | distinct boundary (`coeff == 1 + 1e-10`) of the *same* branch as 172 — two boundary tests of one discriminating branch, not a duplicate |
 | `butterworth.rs:200` | contains | in-family | "feedback_term_" (underscored) is textually disjoint from site 4's "feedback term" (spaced) |
 | `ruckig_filter.rs:388` | contains | in-family | unique substring vs. 3 sibling guards; comment records a prior message-swap bite |
-| `ruckig_filter.rs:465` | contains | in-family | same name+digit pattern as `acceleration_filter.rs:525`, same reasoning |
-| `ruckig_filter.rs:539` (`do_smoothing`'s length guard) | contains | **BLIND — fixed** | folded 3-clause OR guard, structurally identical to `reset`'s (fixed in Task 1, `2829ca2`) but never itself isolated — see below |
+| `ruckig_filter.rs:530` | contains | in-family | same name+digit pattern as `acceleration_filter.rs:525`, same reasoning — renumbered from a stale `ruckig_filter.rs:465`; this is `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins`, given a full discriminating-verdict row under Round 5 below |
+| `ruckig_filter.rs:604` (`do_smoothing`'s length guard) | contains | **BLIND — fixed** | folded 3-clause OR guard, structurally identical to `reset`'s (fixed in Task 1, `2829ca2`) but never itself isolated — see below. Line renumbered from a stale `ruckig_filter.rs:539`, which in the current file is a doc-comment line, not an assertion |
+| `ruckig_filter.rs:617` | contains | in-family, discriminating | bite-verified fix for the row above (`do_smoothing_rejects_a_positions_only_mismatch`); own row added this round |
+| `ruckig_filter.rs:630` | contains | in-family, discriminating | bite-verified fix (`do_smoothing_rejects_a_velocities_only_mismatch`); own row added this round |
+| `ruckig_filter.rs:643` | contains | in-family, discriminating | bite-verified fix (`do_smoothing_rejects_an_accelerations_only_mismatch`); own row added this round |
 
 **Fix**: `do_smoothing`'s guard (`positions.len() != num_joints ||
 velocities.len() != num_joints || accelerations.len() != num_joints`)
@@ -833,9 +885,9 @@ No fix needed for tools/moveit-diff.
 | `sampler.rs:120` | contains | in-family | "panda_arm" unique vs. sibling (which embeds joint variable name, not group name); input validity also rules out the `UnknownName` path |
 | `sampler.rs:194` | contains (range) | in-family | per-iteration bound check, single documented production path |
 | `sampler.rs:200` | contains (range) | in-family | same, tightened window |
-| `utils_parity.rs:580` | is_empty | in-family | paired with `assert!(!updated)` in the same test — two views of the same not-found branch |
-| `utils_parity.rs:602` | is_empty | in-family | same pattern, position-constraint sibling |
-| `utils_parity.rs:698` | is_empty | in-family | one of three distinctly-asserted branches (`merge`→intersect/drop/keep), each with its own test and its own specific check |
+| `utils_parity.rs:581` | is_empty | in-family | paired with `assert!(!updated)` in the same test — two views of the same not-found branch. Renumbered from a stale `utils_parity.rs:580`; superseded by the census §9 pass below, which reclassifies this `not-this-family` (clause 2 — empty-fixture exclusion) |
+| `utils_parity.rs:647` | is_empty | in-family | same pattern, position-constraint sibling. Renumbered from a stale `utils_parity.rs:602`; same census §9 supersession as the row above |
+| `utils_parity.rs:786` | is_empty | in-family | one of three distinctly-asserted branches (`merge`→intersect/drop/keep), each with its own test and its own specific check. Renumbered from a stale `utils_parity.rs:698` |
 
 No fix needed for the 7 stranded sites.
 
@@ -874,8 +926,8 @@ anchor this pass:
 | `butterworth.rs:183` | `ButterworthFilter::new` | same (distinct boundary of the same branch as 172) | in-family |
 | `butterworth.rs:200` | `ButterworthFilter::new` | same | in-family |
 | `ruckig_filter.rs:388` | `joint_vel_accel_jerk_bounds` | `err` is its direct return | in-family |
-| `ruckig_filter.rs:465` | `joint_vel_accel_jerk_bounds` | same | in-family |
-| `ruckig_filter.rs:539,552,565,578` (`do_smoothing`'s guard, incl. this round's 3 new tests) | `do_smoothing` | `err` is its direct return | in-family |
+| `ruckig_filter.rs:530` | `joint_vel_accel_jerk_bounds` | same | in-family (renumbered from a stale `ruckig_filter.rs:465`) |
+| `ruckig_filter.rs:604,617,630,643` (`do_smoothing`'s guard, incl. this round's 3 new tests) | `do_smoothing` | `err` is its direct return | in-family (renumbered from a stale `ruckig_filter.rs:539,552,565,578`) |
 | `cart_to_jnt.rs:550` | `search_position_ik` | `solution` is its direct return; the trivial seed==target fixture still exercises `search_position_ik`'s own written tolerance comparison (unlike the census's `shortest_solution`-on-empty-input clause-2 failure, where the comparison never runs at all) | in-family |
 | `cart_to_jnt.rs:644` | `search_position_ik` | `solution` is its direct return, paired in the same test with an `is_none()` tight-limit case exercising the same guard's other branch | in-family |
 | `cart_to_jnt.rs:707` | `search_position_ik` | `solution` is its direct return, paired with an `is_none()` always-rejecting-callback case and call-count assertions on both | in-family |
@@ -899,9 +951,9 @@ anchor this pass:
 | `sampler.rs:120` | `JointConstraintSampler::new` | `err` is its direct return | in-family |
 | `sampler.rs:194` | `JointConstraintSampler::sample` | `v` is `state.variable_position(name)`, read back after `sampler.sample(&mut state, &mut rng)` wrote it this same iteration — the `mimic().is_none()` shape exactly: a getter on state the subject just mutated | in-family |
 | `sampler.rs:200` | `JointConstraintSampler::sample` | same shape, same iteration | in-family |
-| `utils_parity.rs:580` | `update_orientation_constraint` | `set` is passed `&mut` into `update_orientation_constraint`; `set.is_empty()` reads back whether that call pushed into it — the subject's own side effect, not a value the test constructed independently | in-family |
-| `utils_parity.rs:602` | `update_position_constraint` | same shape | in-family |
-| `utils_parity.rs:698` | `merge_constraints` | `merged` is its direct return | in-family |
+| `utils_parity.rs:581` | `update_orientation_constraint` | `set` is passed `&mut` into `update_orientation_constraint`; `set.is_empty()` reads back whether that call pushed into it — the subject's own side effect, not a value the test constructed independently | in-family (renumbered from a stale `utils_parity.rs:580`) |
+| `utils_parity.rs:647` | `update_position_constraint` | same shape | in-family (renumbered from a stale `utils_parity.rs:602`) |
+| `utils_parity.rs:786` | `merge_constraints` | `merged` is its direct return | in-family (renumbered from a stale `utils_parity.rs:698`) |
 
 ### Round 3 summary (corrected)
 
@@ -1134,3 +1186,19 @@ Gate: `cargo fmt --all`; `cargo clippy -p moveit-kinematics --all-targets
 -- -D warnings` and `cargo clippy -p moveit-smoothing --all-targets --
 -D warnings`, both clean; `cargo nextest run -p moveit-kinematics`
 (35/35) and `cargo nextest run -p moveit-smoothing` (41/41), both green.
+
+**Row-count correction (orphan reconciliation, this round):** the bite
+matrix above cites the four guards' own source lines (`:138-144`
+through `:161-165`), not each test's assert line in the test file —
+exactly the false-orphan shape this round's task warned about. Table
+rows, citing the assert lines directly:
+
+| file:line | kind | verdict | in-family | note |
+|---|---|---|---|---|
+| ruckig_filter.rs:423 | contains | in-family, discriminating | yes | `joint_vel_accel_jerk_bounds_fails_without_velocity_limits` — bite-confirmed above (`:147-151` neutralized, only this test fails) |
+| ruckig_filter.rs:456 | contains | in-family, discriminating | yes | `joint_vel_accel_jerk_bounds_fails_without_jerk_limits` — bite-confirmed above (`:161-165` neutralized, this test plus an independent oracle-parity case fail) |
+| ruckig_filter.rs:530 | contains | in-family, discriminating | yes | `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins` — bite-confirmed above (`:138-144` DOF≠1 guard neutralized, only this test fails); `contains("planar_joint") && contains('3')` is one assertion site folding two conjuncts, but no sibling guard in this function can produce that joint-name+variable-count message, so there is no second producer to conflate |
+
+(`ruckig_filter.rs:388` and `:465`, the acceleration guard and the
+pre-existing message-swap-bite-checked assertion, already have rows in
+the `moveit-smoothing (11 sites)` table above.)
