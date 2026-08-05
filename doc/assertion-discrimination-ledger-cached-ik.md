@@ -36,7 +36,7 @@ stated so it can be checked).
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `crates/moveit-kinematics/src/cached_solver.rs:412` | `CachedIkSolver::solve_with_options`'s returned `Option<Vec<f64>>` when neither attempt solved | `a_solve_that_fails_leaves_the_cache_empty` | single-branch | read + bite, below |
+| `crates/moveit-kinematics/src/cached_solver.rs:419` | `CachedIkSolver::solve_with_options`'s returned `Option<Vec<f64>>` when neither attempt solved | `a_solve_that_fails_leaves_the_cache_empty` | single-branch | read + bite, below |
 
 **read.** `solve_with_options` has exactly one `None`-producing expression
 reachable at its `return`: the value of the local `solution`, which is

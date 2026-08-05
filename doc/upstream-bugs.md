@@ -116,6 +116,8 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `robot-state-to-stream-group-lookup-unchecked` | not-reproduced |
 | `stream-to-robot-state-bypasses-dirty-flags` | not-reproduced |
 | `robot-state-to-stream-default-ostream-precision` | not-reproduced |
+| `set-from-ik-leaves-a-rejected-candidate-in-the-state` | not-reproduced |
+| `set-from-ik-subgroups-timeout-truncated-to-whole-seconds` | not-reproduced |
 
 ---
 
@@ -1413,74 +1415,6 @@ this port returns `Err`.
 
 ---
 
-## Decision on the pre-policy entries
-
-Asked on 2026-08-05 whether to measure-then-deviate, deviate immediately,
-or document only: **document only, code unchanged.**
-`chomp-iteration-double-increment`, `attached-body-count-check` and
-`kdl-path-circle-nan-scale-rot` are `reproduced-grandfathered` and stay as
-they are. `do-smoothing-length-check-operand`,
-`get-max-payload-index-space` and `totg-timing-zero-velocity-division`
-were found after the decision but are the
-same class — already in the tree, ported verbatim under the old brief — so
-they are grandfathered on the same reasoning rather than treated as new
-findings. Their
-cost-of-not-reproducing lines keep the "unmeasured"/"unknown" placeholders,
-which is now accurate rather than an outstanding task — no measurement is
-owed, because nothing is being changed.
-
-The inverted policy is **forward-looking**. It binds bugs found from here
-on; it does not reopen behaviour already ported and gated. Anyone who wants
-to move an entry off `reproduced-grandfathered` needs a fresh decision, not
-this document.
-
-`totg-velocity-step-function` is separately `reproduced-deliberately` — it is the one entry with
-a positive argument for reproducing (the totg oracle), so it does not
-depend on the grandfathering above.
-
-The reason for grandfathering rather than fixing is that each is a
-behaviour change against a port whose parity is oracle-verified, and none
-has a demonstrated failure in this workspace: `chomp-iteration-double-increment` is a read of upstream
-control flow with no oracle run behind it, `attached-body-count-check` has no established
-correct comparison to change *to*, `kdl-path-circle-nan-scale-rot`'s NaN has
-no reaching caller in this workspace (confirmed by reading `build_path`'s
-two branches — see that entry's own reachability finding), and
-`do-smoothing-length-check-operand`'s misattributed message text is
-pinned by no test that distinguishes the two operands. Deviating on any of
-them would trade a verified behaviour for an unverified one.
-
-## Closed (round p9-ros, 2026-08-05)
-
-Both items previously open here are resolved:
-
-- **`kdl-path-circle-nan-scale-rot`'s justification.** **D9** (`§141`)
-  rules that `orocos_kdl`'s `Path_Circle` is *not* transcribed line by
-  line but derived independently from circular geometry, and **D11**
-  (`§152`) extends that to `path_line.rs`, `velocity_profile_trap.rs` and
-  `dynamics.rs`. That entry's "faithfully reproduces"/"unfixed instance"
-  framing has been rewritten in place to say what it actually is: a
-  deliberate parity choice made inside an independent derivation. Its
-  reachability was also checked by reading `build_path`'s two branches —
-  no live caller in this workspace can reach the NaN. The
-  `reproduced-grandfathered` status is unchanged; only the reasoning on
-  the record was wrong, not the decision.
-- **Whether the `not-reproduced` entries need a `D` class.** Checked each
-  of `distance-field-contact-index-oob`, `max-distance-sq-narrowing`,
-  `get-shortest-solution-empty-deref`,
-  `multivariate-gaussian-cholesky-unchecked`,
-  `mimic-master-outside-group-dropped`,
-  `check-consistency-index-space-mismatch` and
-  `acceleration-bounds-per-joint-advance` against `PORTING-PLAN.md`'s full
-  `D1`..`D14` registry. None maps to an existing policy — each is a local
-  API-shape or construction-time-validation choice scoped to its own
-  function, not an instance of a project-wide decision the user signed
-  off on. Each now carries a `**Deviation:**` line saying so explicitly,
-  so the gap is recorded rather than silently left for the next reader to
-  wonder about. No new `D` number was invented for any of them, per this
-  round's instruction.
-
----
-
 ### `count-samples-per-second-returns-a-ratio` — `countSamplesPerSecond` returns a unitless success ratio, not a rate — not-reproduced
 
 **Upstream:** `moveit_core/constraint_samplers/src/constraint_sampler_tools.cpp:72-94`
@@ -1615,6 +1549,74 @@ above. Within this tree the choice is pinned by
 `distance_to_collision_through_the_null_backend_is_maximum_clearance`,
 whose isolating mutation is exactly this bug's `0.0`
 (`doc/assertion-discrimination-ledger-p10-samplers.md`, M5 and M6).
+
+---
+
+## Decision on the pre-policy entries
+
+Asked on 2026-08-05 whether to measure-then-deviate, deviate immediately,
+or document only: **document only, code unchanged.**
+`chomp-iteration-double-increment`, `attached-body-count-check` and
+`kdl-path-circle-nan-scale-rot` are `reproduced-grandfathered` and stay as
+they are. `do-smoothing-length-check-operand`,
+`get-max-payload-index-space` and `totg-timing-zero-velocity-division`
+were found after the decision but are the
+same class — already in the tree, ported verbatim under the old brief — so
+they are grandfathered on the same reasoning rather than treated as new
+findings. Their
+cost-of-not-reproducing lines keep the "unmeasured"/"unknown" placeholders,
+which is now accurate rather than an outstanding task — no measurement is
+owed, because nothing is being changed.
+
+The inverted policy is **forward-looking**. It binds bugs found from here
+on; it does not reopen behaviour already ported and gated. Anyone who wants
+to move an entry off `reproduced-grandfathered` needs a fresh decision, not
+this document.
+
+`totg-velocity-step-function` is separately `reproduced-deliberately` — it is the one entry with
+a positive argument for reproducing (the totg oracle), so it does not
+depend on the grandfathering above.
+
+The reason for grandfathering rather than fixing is that each is a
+behaviour change against a port whose parity is oracle-verified, and none
+has a demonstrated failure in this workspace: `chomp-iteration-double-increment` is a read of upstream
+control flow with no oracle run behind it, `attached-body-count-check` has no established
+correct comparison to change *to*, `kdl-path-circle-nan-scale-rot`'s NaN has
+no reaching caller in this workspace (confirmed by reading `build_path`'s
+two branches — see that entry's own reachability finding), and
+`do-smoothing-length-check-operand`'s misattributed message text is
+pinned by no test that distinguishes the two operands. Deviating on any of
+them would trade a verified behaviour for an unverified one.
+
+## Closed (round p9-ros, 2026-08-05)
+
+Both items previously open here are resolved:
+
+- **`kdl-path-circle-nan-scale-rot`'s justification.** **D9** (`§141`)
+  rules that `orocos_kdl`'s `Path_Circle` is *not* transcribed line by
+  line but derived independently from circular geometry, and **D11**
+  (`§152`) extends that to `path_line.rs`, `velocity_profile_trap.rs` and
+  `dynamics.rs`. That entry's "faithfully reproduces"/"unfixed instance"
+  framing has been rewritten in place to say what it actually is: a
+  deliberate parity choice made inside an independent derivation. Its
+  reachability was also checked by reading `build_path`'s two branches —
+  no live caller in this workspace can reach the NaN. The
+  `reproduced-grandfathered` status is unchanged; only the reasoning on
+  the record was wrong, not the decision.
+- **Whether the `not-reproduced` entries need a `D` class.** Checked each
+  of `distance-field-contact-index-oob`, `max-distance-sq-narrowing`,
+  `get-shortest-solution-empty-deref`,
+  `multivariate-gaussian-cholesky-unchecked`,
+  `mimic-master-outside-group-dropped`,
+  `check-consistency-index-space-mismatch` and
+  `acceleration-bounds-per-joint-advance` against `PORTING-PLAN.md`'s full
+  `D1`..`D14` registry. None maps to an existing policy — each is a local
+  API-shape or construction-time-validation choice scoped to its own
+  function, not an instance of a project-wide decision the user signed
+  off on. Each now carries a `**Deviation:**` line saying so explicitly,
+  so the gap is recorded rather than silently left for the next reader to
+  wonder about. No new `D` number was invented for any of them, per this
+  round's instruction.
 
 ---
 
@@ -1774,3 +1776,97 @@ these functions' output. Worth stating in the other direction: reproducing
 it would put `3.2e-07` of error into any pipeline that used the CSV, which
 is 320x this crate's own FK parity tolerance
 (`crates/moveit-state/tests/fk_parity.rs:88`, `1e-9`).
+
+### `set-from-ik-leaves-a-rejected-candidate-in-the-state` — a failed `setFromIK`/`setFromIKSubgroups` leaves the last rejected IK candidate written into the `RobotState` it was called on — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/robot_state.cpp:1746-1762`
+(`ikCallbackFnAdapter`), `:2036-2047` (`setFromIK`'s solve-and-apply tail),
+and `:2226-2254` (`setFromIKSubgroups`' sweep, `break` and final `return
+false`), all verified at the pinned `e017c91e`. The two callbacks that
+demonstrate it are
+`moveit_ros/move_group/src/default_capabilities/kinematics_service_capability.cpp:70-79`
+and
+`moveit_planners/pilz_industrial_motion_planner/src/trajectory_functions.cpp:576-590`.
+**Port:** `crates/moveit-kinematics/src/set_from_ik.rs`, `set_from_ik` and
+`set_from_ik_subgroups`.
+**Symptom:** `GroupStateValidityCallbackFn` takes a `RobotState*` and is
+documented to be allowed to modify it; both callbacks in the tree begin
+`state->setJointGroupPositions(jmg, ik_solution); state->update();`. That
+write happens once per candidate the solver offers, and nothing undoes it.
+When the solver never produces an accepted candidate, `setFromIK` returns
+`false` at `:2046` with the state still holding whichever candidate the
+callback saw last — a configuration the function has just declared it could
+not find. `setFromIKSubgroups` does it without a callback at all: it calls
+`setJointGroupPositions(sub_groups[sg], solution)` at `:2233` as each
+subgroup solves, and on the next subgroup's failure takes `found_solution =
+false; break` at `:2237-2238` and eventually `return false` at `:2254`,
+leaving every earlier subgroup moved. A caller that follows the documented
+`if (!state.setFromIK(...)) { /* keep the old state */ }` shape does not
+keep the old state.
+**Evidence:** a read of the control flow, plus a read of both in-tree
+callbacks to establish that the mutation is real and not merely permitted.
+No oracle op exists for `setFromIK`, so this is a read; it is a strong one
+in that the absence being claimed — any restore of the entry configuration
+— is absent from three separate exit paths, each read at the pinned sha.
+**Status:** `not-reproduced`.
+**Deviation:** none of `D1`..`D14`. This is a local ownership rule scoped to
+these two functions: `set_from_ik` snapshots `state.positions()` on entry
+and restores it unconditionally before deciding what to write, so the only
+configuration that can survive the call is the accepted solution; and
+`set_from_ik_subgroups` snapshots the successful sweep before running the
+group hook, re-applies that snapshot when the hook accepts, and rewinds to
+the entry snapshot on every other path. The invariant is "a call that
+returns `Ok(false)` or `Err` leaves the state byte-identical to entry", and
+it is what makes the validity hook safe to hand a mutable state at all.
+**Cost of not reproducing:** none measurable. There is no oracle op for
+either function, so no comparison moves. The behavioural cost is that a
+caller relying on the upstream leftover — reading the rejected candidate
+back out of the state after a `false` return, which no in-tree upstream
+caller does — would read the entry configuration here instead.
+
+---
+
+### `set-from-ik-subgroups-timeout-truncated-to-whole-seconds` — the retry loop measures elapsed time in whole seconds, so every timeout under 1 s runs for about a second and the per-subgroup slice is computed from a stale zero — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/robot_state.cpp:2191-2192`
+(`start`, `double elapsed = 0`), `:2229-2230` (the per-subgroup budget
+`(timeout - elapsed) / sub_groups.size()`) and `:2251` (the update
+`elapsed = duration_cast<std::chrono::seconds>(now - start).count()`),
+verified at the pinned `e017c91e`.
+**Port:** `crates/moveit-kinematics/src/set_from_ik.rs`,
+`set_from_ik_subgroups`.
+**Symptom:** `elapsed` is a `double`, but the value assigned to it is a
+`std::chrono::seconds` count — an integer number of whole seconds, floored.
+For the whole first second of the loop it is therefore exactly `0`, and the
+`do { } while (elapsed < timeout)` condition cannot become false. Any
+`timeout` in `(0, 1)` — including the sub-second values MoveIt's own
+callers pass — runs the full sweep at least twice and keeps going for about
+a second rather than for the requested fraction of one. Compounding it, the
+per-subgroup budget handed to `searchPositionIK` is
+`(timeout - elapsed) / sub_groups.size()` with `elapsed` still `0` on every
+iteration inside that first second, so the second and later attempts ask
+for the *full* per-subgroup slice again instead of for what is left.
+`steady_clock` would also have been the right clock here rather than
+`system_clock`, which is subject to wall-clock adjustment, but that is a
+second-order fault next to the truncation.
+**Evidence:** a read of the three lines cited above. The truncation is a
+property of `duration_cast<seconds>`'s return type, not of any runtime
+condition, so it does not need a run to establish; what a run would add is
+only the magnitude of the overshoot.
+**Status:** `not-reproduced`.
+**Deviation:** `D4` / `PORTING-PLAN.md` §4.9, applied structurally rather
+than as a fix to this site. This port has no wall-clock timeout anywhere in
+`moveit-kinematics`; `set_from_ik_subgroups` takes a `max_attempts: usize`
+and its loop is `for _ in 0..max_attempts`, so there is no elapsed-time
+arithmetic to truncate and no residual budget to divide. The per-subgroup
+retry budget upstream computes disappears with it: each subgroup solve gets
+its own solver's `SolverParams::max_restarts`, which is a count, is not
+shared between subgroups, and does not shrink as the sweep proceeds.
+**Cost of not reproducing:** none measurable — no oracle op covers
+`setFromIKSubgroups`. The behavioural cost is that the two functions do not
+agree on what "try harder" means: a caller porting an upstream
+`timeout = 2.0` has to choose a `max_attempts`, and no fixed conversion
+exists between the two, because the upstream number bounds wall-clock time
+across all subgroups and the port's bounds sweeps.
+
+---

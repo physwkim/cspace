@@ -370,6 +370,47 @@ impl RobotModel {
         self.link_index_by_name.contains_key(name)
     }
 
+    /// `getRigidlyConnectedParentLinkModel(link, jmg)`: walk up from
+    /// `link_index` for as long as the parent joint cannot move it, and
+    /// return the last link reached.
+    ///
+    /// A joint cannot move `link` when it is fixed, or — once `group` is
+    /// given — when it does not belong to `group`, because a joint outside
+    /// the group is held still for the duration of whatever the group is
+    /// doing. The walk therefore returns the link whose pose a group-space
+    /// solution actually controls, which is what makes two differently-named
+    /// frames interchangeable as an IK target: if they share this parent,
+    /// the transform between them is constant.
+    ///
+    /// Passing [`None`] for `group` asks the model-only question ("rigidly
+    /// connected through fixed joints alone"), which is what upstream's
+    /// `nullptr` does.
+    ///
+    /// Upstream's third case, an empty `jmg` — its `begin != end` guard, at
+    /// `robot_model.cpp:1385`, makes an empty group contribute no membership
+    /// test rather than excluding every joint — has no counterpart here and
+    /// needs none: [`RobotModel::from_urdf_and_srdf`] refuses to construct
+    /// a group with no joints, recording [`Diagnostic::EmptyGroup`]
+    /// instead, so a `&JointModelGroup` naming zero joints does not exist
+    /// to be passed.
+    pub fn rigidly_connected_parent_link(
+        &self,
+        link_index: usize,
+        group: Option<&JointModelGroup>,
+    ) -> usize {
+        let mut current = link_index;
+        while let Some(parent) = self.link_model_at(current).parent_link_index() {
+            let joint = self.joint_model_at(self.link_model_at(current).parent_joint_index());
+            let held_still = joint.joint_type() == JointType::Fixed
+                || group.is_some_and(|g| !g.has_joint_model(joint.name()));
+            if !held_still {
+                break;
+            }
+            current = parent;
+        }
+        current
+    }
+
     /// `getJointModels`
     pub fn joint_models(&self) -> impl Iterator<Item = &JointModel> {
         self.joints.iter().map(|node| &node.model)
@@ -3433,5 +3474,95 @@ mod tests {
         let j3 = arm.joint_indices()[0];
         assert_eq!(arm.joint_roots(), [j3]);
         assert_eq!(arm.updated_link_names(), ["arm_tip"]);
+    }
+
+    /// `base -[fixed]- a -[fixed]- b -[revolute]- c -[fixed]- d`, so the
+    /// walk has a one-joint run (`d`), a multi-joint run (`b`), a stopper
+    /// (`c`), and a root (`base`) to land on.
+    const RIGID_CHAIN_URDF: &str = r#"<robot name="test">
+        <link name="base"/><link name="a"/><link name="b"/>
+        <link name="c"/><link name="d"/>
+        <joint name="j_fix1" type="fixed">
+            <parent link="base"/><child link="a"/>
+        </joint>
+        <joint name="j_fix2" type="fixed">
+            <parent link="a"/><child link="b"/>
+        </joint>
+        <joint name="j_rev" type="revolute">
+            <parent link="b"/><child link="c"/>
+            <axis xyz="0 0 1"/>
+            <limit lower="-1" upper="1" effort="1" velocity="1"/>
+        </joint>
+        <joint name="j_fix3" type="fixed">
+            <parent link="c"/><child link="d"/>
+        </joint>
+    </robot>"#;
+
+    /// Two groups over [`RIGID_CHAIN_URDF`] differing in exactly one thing:
+    /// whether `j_rev`, the chain's only movable joint, belongs to them.
+    const RIGID_CHAIN_SRDF: &str = r#"<robot name="test">
+        <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+        <group name="with_rev">
+            <joint name="j_rev"/>
+            <joint name="j_fix3"/>
+        </group>
+        <group name="without_rev">
+            <joint name="j_fix3"/>
+        </group>
+    </robot>"#;
+
+    fn rigid_chain() -> RobotModel {
+        build(RIGID_CHAIN_URDF, RIGID_CHAIN_SRDF).expect("builds")
+    }
+
+    fn rigid_parent_name<'a>(model: &'a RobotModel, link: &str, group: Option<&str>) -> &'a str {
+        let group = group.map(|g| model.joint_model_group(g).expect("test group"));
+        let index = model.link_model(link).expect("test link").link_index();
+        model
+            .link_model_at(model.rigidly_connected_parent_link(index, group))
+            .name()
+    }
+
+    #[test]
+    fn rigidly_connected_parent_walks_up_a_fixed_joint() {
+        let model = rigid_chain();
+        assert_eq!(rigid_parent_name(&model, "d", None), "c");
+    }
+
+    #[test]
+    fn rigidly_connected_parent_stops_at_the_joint_that_can_move_the_link() {
+        let model = rigid_chain();
+        assert_eq!(rigid_parent_name(&model, "c", None), "c");
+    }
+
+    /// The walk is a loop, not a single step: `b` is two fixed joints below
+    /// the root, and both have to be crossed.
+    #[test]
+    fn rigidly_connected_parent_crosses_a_whole_run_of_fixed_joints() {
+        let model = rigid_chain();
+        assert_eq!(rigid_parent_name(&model, "b", None), "base");
+    }
+
+    /// The root has no parent link, which is the loop's other exit: it must
+    /// answer with the root itself rather than run off the end.
+    #[test]
+    fn rigidly_connected_parent_of_the_root_link_is_the_root() {
+        let model = rigid_chain();
+        assert_eq!(rigid_parent_name(&model, "base", None), "base");
+    }
+
+    #[test]
+    fn a_movable_joint_inside_the_group_stops_the_walk() {
+        let model = rigid_chain();
+        assert_eq!(rigid_parent_name(&model, "d", Some("with_rev")), "c");
+    }
+
+    /// The group's whole contribution: `j_rev` can move `c`, but a group
+    /// that does not contain it cannot ask it to, so for that group `d` is
+    /// rigidly connected all the way to the root.
+    #[test]
+    fn a_movable_joint_outside_the_group_is_held_still_and_walked_past() {
+        let model = rigid_chain();
+        assert_eq!(rigid_parent_name(&model, "d", Some("without_rev")), "base");
     }
 }

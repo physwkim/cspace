@@ -36,11 +36,16 @@
 //! The `conversions` module's doc comment names which Rust symbol carries
 //! each of those functions.
 //!
-//! Deferred, out of scope for this task: `setFromIK`/`setFromDiffIK`,
-//! attached bodies, `interpolate`, distance metrics, `computeAABB`, and
-//! anything touching `moveit_msgs`. See the `state` module's doc comments
-//! for the per-method deviations, and this crate's test report for what
-//! remains `UNFIXED`.
+//! Elsewhere, not here: `setFromIK` and `setFromIKSubgroups` need a
+//! kinematics solver, and `moveit-state -> moveit-kinematics` is a cycle, so
+//! they live in `moveit_kinematics`'s `set_from_ik` module as free functions
+//! over `&mut RobotState`; attached bodies live on `moveit_scene`, for the
+//! reason that crate's `attached_body` module doc gives.
+//!
+//! Deferred, out of scope for this task: `setFromDiffIK`, `interpolate`,
+//! distance metrics, `computeAABB`, and anything touching `moveit_msgs`. See
+//! the `state` module's doc comments for the per-method deviations, and this
+//! crate's test report for what remains `UNFIXED`.
 
 mod conversions;
 mod dynamics;

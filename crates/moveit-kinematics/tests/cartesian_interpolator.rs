@@ -38,8 +38,8 @@ use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 
 use moveit_kinematics::{
-    CartesianInterpolator, JumpThreshold, KinematicsSolver, MaxEefStep, NewtonRaphsonSolver,
-    SolveOptions, SolverParams, check_joint_space_jump,
+    CartesianInterpolator, IkContext, JumpThreshold, KinematicsSolver, MaxEefStep,
+    NewtonRaphsonSolver, SolverParams, check_joint_space_jump,
 };
 
 /// Distance from the last waypoint's tip to the requested target on the
@@ -193,7 +193,7 @@ impl Fixture {
                 &start,
                 &mut solver(&self.model),
                 &target,
-                &mut SolveOptions::default(),
+                &mut IkContext::default(),
             )
             .expect("reachable path");
         assert_eq!(fraction.value(), 1.0, "fixture path must be fully solved");
@@ -276,7 +276,7 @@ fn reachable_path_reports_a_full_fraction_and_lands_on_the_target() {
             &start,
             &mut solver(&fixture.model),
             &target,
-            &mut SolveOptions::default(),
+            &mut IkContext::default(),
         )
         .expect("reachable path");
 
@@ -331,7 +331,7 @@ fn waypoint_count_steps_by_one_across_the_max_step_floor() {
                 &start,
                 &mut solver(&fixture.model),
                 &target,
-                &mut SolveOptions::default(),
+                &mut IkContext::default(),
             )
             .expect("reachable path");
         // Both sides are fully solved, so the count difference is the step
@@ -361,7 +361,7 @@ fn unreachable_path_stops_at_its_last_reachable_waypoint() {
             &start,
             &mut solver(&fixture.model),
             &target,
-            &mut SolveOptions::default(),
+            &mut IkContext::default(),
         )
         .expect("partial path");
 
@@ -655,7 +655,7 @@ fn along_translation_reports_the_distance_actually_travelled() {
             &start,
             &mut solver(&fixture.model),
             &translation,
-            &mut SolveOptions::default(),
+            &mut IkContext::default(),
         )
         .expect("partial path");
     let (_, fraction) = config
@@ -663,7 +663,7 @@ fn along_translation_reports_the_distance_actually_travelled() {
             &start,
             &mut solver(&fixture.model),
             &translated(&start_pose, 2.0),
-            &mut SolveOptions::default(),
+            &mut IkContext::default(),
         )
         .expect("partial path");
 
@@ -698,7 +698,7 @@ fn a_local_frame_translation_is_rotated_into_the_start_pose() {
             &start,
             &mut solver(&fixture.model),
             &translation,
-            &mut SolveOptions::default(),
+            &mut IkContext::default(),
         )
         .expect("reachable path");
 
@@ -740,7 +740,7 @@ fn through_waypoints_accumulates_per_segment_and_drops_the_seam() {
             &start,
             &mut solver(&fixture.model),
             &[near, far],
-            &mut SolveOptions::default(),
+            &mut IkContext::default(),
         )
         .expect("partial path");
 
@@ -751,7 +751,7 @@ fn through_waypoints_accumulates_per_segment_and_drops_the_seam() {
             &start,
             &mut solver(&fixture.model),
             &near,
-            &mut SolveOptions::default(),
+            &mut IkContext::default(),
         )
         .expect("reachable segment");
     let (second, second_fraction) = config
@@ -759,7 +759,7 @@ fn through_waypoints_accumulates_per_segment_and_drops_the_seam() {
             first.last().expect("waypoints"),
             &mut solver(&fixture.model),
             &far,
-            &mut SolveOptions::default(),
+            &mut IkContext::default(),
         )
         .expect("partial segment");
 
@@ -826,7 +826,7 @@ fn an_interval_at_max_resolution_is_rejected_rather_than_bisected() {
                 &start,
                 &mut solver(&fixture.model),
                 &target,
-                &mut SolveOptions::default(),
+                &mut IkContext::default(),
             )
             .expect("the walk itself must succeed; only the interval is rejected");
         (path.len(), fraction.value())
@@ -900,7 +900,7 @@ fn a_rejected_path_keeps_the_fraction_its_deepest_accepted_leaf_reached() {
             &start,
             &mut solver(&fixture.model),
             &target,
-            &mut SolveOptions::default(),
+            &mut IkContext::default(),
         )
         .expect("the walk itself must succeed; only the interval is rejected");
 

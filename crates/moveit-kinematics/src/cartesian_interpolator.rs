@@ -34,10 +34,9 @@
 //! # Why this lives in `moveit-kinematics` and not `moveit-state`
 //!
 //! Upstream puts this file in `moveit_core/robot_state/` next to
-//! `RobotState`, whose `setFromIK` it is written on. This port cannot: the
-//! whole body is a loop around a [`KinematicsSolver`] call, `moveit-state`
-//! does not port `setFromIK` at all (see that crate's doc comment: it is
-//! listed as deferred), and `moveit-kinematics` already depends on
+//! `RobotState`, whose `setFromIK` it is written on. This port cannot, and
+//! neither can `setFromIK`: both need a [`KinematicsSolver`], and
+//! `moveit-kinematics` already depends on
 //! `moveit-state` — so a `moveit-state -> moveit-kinematics` edge would be a
 //! dependency cycle cargo rejects outright, not a layering question anyone
 //! gets to sign off on. Placing it here adds **no** new dependency edge:
@@ -71,64 +70,31 @@
 //! `moveit_planners_pilz::trajectory_functions::compute_pose_ik` already
 //! documents as its item 1.
 //!
-//! *Frame conversion into the solver's base.* Upstream's
-//! `setToIKSolverFrame` (`robot_state.cpp:1765-1786`) left-multiplies the
-//! requested pose by `getGlobalLinkTransform(solver->getBaseFrame())
-//! .inverse()`, skipping the multiply when the solver's base frame is the
-//! model frame. This *is* ported, and must be: [`KinematicsSolver::solve`]
-//! documents its `target` as the tip's pose in the chain's own base-link
-//! frame, not the model frame. `PathRun::solve_link_pose` does exactly the
-//! same multiply, from [`KinematicsSolver::base_frame`], with no special
-//! case for the model frame — `global_link_transform` of the model's root
-//! link is the identity, so the general form already covers it.
+//! *Frame conversion into the solver's base, tip-frame resolution, attached
+//! bodies, the multi-tip fill, and the group-state validity callback.* All
+//! five were this module's own problem until round 10, and none of them is
+//! any more: [`fn@crate::set_from_ik`] is the port of `setFromIK` itself, and
+//! `PathRun::solve_link_pose` now calls it with a single
+//! [`IkTarget`] naming [`CartesianInterpolator::link_name`]. What that buys
+//! this module, concretely: the requested link no longer has to *be* the
+//! solver's tip, only rigidly connected to it
+//! (`robot_state.cpp:1919-1926`, ported via
+//! `moveit_model::RobotModel::rigidly_connected_parent_link`); an attached
+//! body or one of its subframes can be the requested frame, through
+//! [`IkContext::attached`]; and [`IkContext::validity`] is upstream's real
+//! `GroupStateValidityCallbackFn`, taking `(RobotState, JointModelGroup,
+//! group-ordered values)` rather than the bare `&[f64]` that
+//! [`crate::SolveOptions::solution_callback`] takes. That last one is why
+//! the three entry points here take an [`IkContext`] instead of a
+//! `&mut SolveOptions`: a caller collision-checking a candidate needs the
+//! posed state, and threading a scratch state through the solver-level
+//! callback was the shape that could not give it one.
 //!
-//! *Tip-frame resolution, and attached bodies.* Upstream searches the
-//! solver's tip frames for one matching the requested link, and accepts a
-//! *different* frame that is rigidly connected to the same parent link,
-//! re-expressing the goal as `pose * pose_parent_to_frame.inverse() *
-//! tip_parent_to_tip` (`robot_state.cpp:1919-1926`). That walk is how a pose
-//! requested for an attached body, or for any fixed-offset frame, reaches a
-//! solver that only knows its own tip link. This port has neither half of
-//! it: `getRigidlyConnectedParentLinkModel` is not ported anywhere in this
-//! workspace, and `moveit-state` does not port attached bodies at all. So
-//! [`CartesianInterpolator::to_pose`] requires
-//! `solver.tip_frame() == link_name` and returns an error otherwise, rather
-//! than silently solving for the wrong frame. A caller that wants a virtual
-//! frame offset from the tip has [`CartesianInterpolator::link_offset`],
-//! which is upstream's own mechanism for exactly that and needs no rigid-
-//! connection search. What is genuinely lost is the case where the caller
-//! names a link that is *not* the solver's tip but is welded to it; that
-//! case needs `getRigidlyConnectedParentLinkModel` ported first.
-//!
-//! *The group-state validity callback.* Upstream's
-//! `GroupStateValidityCallbackFn` is wrapped by `ikCallbackFnAdapter`
-//! (`robot_state.cpp:1745-1762`) into the solver's own `IKCallbackFn`, so
-//! the solver consults it on every numerically converged candidate and
-//! retries when it rejects. That contract is exactly
-//! [`SolveOptions::solution_callback`]'s, so the callback is not
-//! re-implemented here: [`CartesianInterpolator::to_pose`] takes a
-//! `&mut SolveOptions` and threads the caller's own one, unchanged, into
-//! every IK call including the bisection's. Two differences remain, both
-//! forced by shape rather than chosen. Upstream's callback receives
-//! `(RobotState*, const JointModelGroup*, const double* joint_values)` and
-//! can therefore run forward kinematics or a collision query against the
-//! candidate state itself; [`SolveOptions::solution_callback`] receives only
-//! the joint values, so a caller needing state-level checks closes over its
-//! own scratch state — again the shape
-//! `moveit_planners_pilz::trajectory_functions::compute_pose_ik` already
-//! uses, with `moveit_scene::PlanningScene::diff` as the scratch. And
-//! upstream's adapter reorders the solution through
-//! `getKinematicsSolverJointBijection` before handing it over; there is no
-//! bijection here, because [`KinematicsSolver::joint_names`] *is* the
-//! solver's order and the one the callback sees.
-//!
-//! *Multi-tip and `setFromIKSubgroups`.* Upstream falls back to
-//! `setFromIKSubgroups` when the group's solver cannot handle the requested
-//! tip count, and fills a pose for every tip the solver expects but the
-//! caller did not name (`robot_state.cpp:1972-1997`). Excluded by
-//! [`KinematicsSolver`]'s own documented deviation 1: this crate ports the
-//! single-tip shape `kdl_kinematics_plugin` exercises, so there is no
-//! second tip to fill and no subgroup solver to fall back to.
+//! *`setFromIKSubgroups`.* Ported as [`crate::set_from_ik_subgroups`], but
+//! not reachable from here, and upstream is the same: `computeCartesianPath`
+//! walks *one* link along *one* path, so its `setFromIK` call always carries
+//! exactly one pose and can never take the multi-tip branch that diverts to
+//! subgroup solvers (`robot_state.cpp:1836-1863`).
 //!
 //! *`timeout = 0.0`.* Both upstream IK sites pass `0.0` and the deprecated
 //! overload's comment (`cartesian_interpolator.cpp:453-454`) says this means
@@ -186,7 +152,7 @@
 //!   relative threshold is set (`cartesian_interpolator.cpp:415-416`), and
 //!   the `consistency_limits` vector built from the absolute thresholds and
 //!   passed into the IK call (`cartesian_interpolator.cpp:418-440`). A
-//!   caller wanting the latter has [`SolveOptions::consistency_limits`]
+//!   caller wanting the latter has [`IkContext::consistency_limits`]
 //!   directly. The jump detection those overloads exist to drive is ported
 //!   in full and standalone, below — upstream's own
 //!   `CartesianInterpolator::checkJointSpaceJump` and free
@@ -226,13 +192,14 @@
 //!   deprecated overload, which has no bisection, the same input produced a
 //!   single unchecked leap, which is what there was to reject.
 
-use moveit_error::{Error, Result};
+use moveit_error::Result;
 use moveit_geometry::{Isometry3, Vector3};
 use moveit_model::joint::{JointModel, JointType};
 use moveit_model::{JointModelGroup, RobotModel};
 use moveit_state::RobotState;
 
-use crate::registry::{KinematicsSolver, SolveOptions};
+use crate::registry::KinematicsSolver;
+use crate::set_from_ik::{IkContext, IkTarget, set_from_ik};
 
 /// Minimum number of waypoints for a relative jump threshold's average
 /// joint-space increment to be a meaningful baseline.
@@ -506,11 +473,16 @@ impl<'a> CartesianInterpolator<'a> {
     ///
     /// # Errors
     ///
-    /// [`Error::UnknownName`] if [`CartesianInterpolator::group_name`] is
-    /// not a group of `start_state`'s model, or if
-    /// [`CartesianInterpolator::link_name`] or the solver's base frame is
-    /// not a link of it. [`Error::Other`] if the solver's tip frame is not
-    /// [`CartesianInterpolator::link_name`].
+    /// [`moveit_error::Error::UnknownName`] if
+    /// [`CartesianInterpolator::group_name`] is not a group of
+    /// `start_state`'s model, or if [`CartesianInterpolator::link_name`] is
+    /// neither a link of it nor a frame `ik`'s
+    /// [`AttachedFrames`](crate::AttachedFrames) knows, or if the solver's
+    /// base frame is not a link of it.
+    /// [`moveit_error::Error::Other`] if
+    /// [`CartesianInterpolator::link_name`] is not rigidly connected to any
+    /// tip frame the solver reports — which, since round 10, is the only
+    /// way that pairing can fail: the link no longer has to *be* the tip.
     ///
     /// # Panics
     ///
@@ -521,17 +493,10 @@ impl<'a> CartesianInterpolator<'a> {
         start_state: &RobotState<'m>,
         solver: &mut dyn KinematicsSolver,
         target: &Isometry3,
-        options: &mut SolveOptions<'_>,
+        ik: &mut IkContext<'_, 'm>,
     ) -> Result<(Vec<RobotState<'m>>, Percentage)> {
         let model = start_state.model();
         let group = model.joint_model_group(self.group_name)?;
-        if solver.tip_frame() != self.link_name {
-            return Err(Error::other(format!(
-                "cartesian path for link '{}' needs a solver whose tip frame is that link, got '{}'",
-                self.link_name,
-                solver.tip_frame()
-            )));
-        }
 
         // Upstream `RobotState state(*start_state)` plus the
         // `getContinuousJointModels()` / `enforceBounds` wrap.
@@ -558,9 +523,8 @@ impl<'a> CartesianInterpolator<'a> {
         let mut run = PathRun {
             config: self,
             inv_offset: self.link_offset.inverse(),
-            joint_names: solver.joint_names().to_vec(),
             solver,
-            options,
+            ik,
             traj: vec![start_state.clone()],
             achieved: 0.0,
         };
@@ -612,7 +576,7 @@ impl<'a> CartesianInterpolator<'a> {
         start_state: &RobotState<'m>,
         solver: &mut dyn KinematicsSolver,
         translation: &Vector3,
-        options: &mut SolveOptions<'_>,
+        ik: &mut IkContext<'_, 'm>,
     ) -> Result<(Vec<RobotState<'m>>, f64)> {
         let distance = translation.norm();
 
@@ -629,7 +593,7 @@ impl<'a> CartesianInterpolator<'a> {
             global_reference_frame: true,
             ..*self
         };
-        let (traj, fraction) = global.to_pose(start_state, solver, &pose, options)?;
+        let (traj, fraction) = global.to_pose(start_state, solver, &pose, ik)?;
         Ok((traj, distance * fraction.value()))
     }
 
@@ -655,7 +619,7 @@ impl<'a> CartesianInterpolator<'a> {
         start_state: &RobotState<'m>,
         solver: &mut dyn KinematicsSolver,
         waypoints: &[Isometry3],
-        options: &mut SolveOptions<'_>,
+        ik: &mut IkContext<'_, 'm>,
     ) -> Result<(Vec<RobotState<'m>>, Percentage)> {
         let count = waypoints.len() as f64;
         let mut traj: Vec<RobotState<'m>> = Vec::new();
@@ -663,8 +627,7 @@ impl<'a> CartesianInterpolator<'a> {
         let mut segment_start = start_state.clone();
 
         for (i, waypoint) in waypoints.iter().enumerate() {
-            let (mut segment, fraction) =
-                self.to_pose(&segment_start, solver, waypoint, options)?;
+            let (mut segment, fraction) = self.to_pose(&segment_start, solver, waypoint, ik)?;
 
             // Every segment repeats its predecessor's final state as its own
             // first waypoint; keep only the first segment's.
@@ -727,12 +690,8 @@ struct PathRun<'a, 'o, 'm> {
     /// `link_offset.inverse()`: the virtual frame's pose times this is the
     /// link pose IK is actually asked for.
     inv_offset: Isometry3,
-    /// [`KinematicsSolver::joint_names`], hoisted so the borrow of `solver`
-    /// it would otherwise need does not collide with the `&mut` the solve
-    /// itself takes.
-    joint_names: Vec<String>,
     solver: &'a mut dyn KinematicsSolver,
-    options: &'a mut SolveOptions<'o>,
+    ik: &'a mut IkContext<'o, 'm>,
     traj: Vec<RobotState<'m>>,
     /// The path parameter of `traj`'s last element. See the module docs'
     /// second deviation for why this is a field rather than upstream's
@@ -745,39 +704,22 @@ impl<'m> PathRun<'_, '_, 'm> {
     /// already removed) seeded from `state`'s current values, writing the
     /// solution back into `state` on success.
     ///
-    /// Plays the role of upstream's `state.setFromIK(group, pose *
-    /// inv_offset, link->getName(), 0.0, validCallback, options,
-    /// cost_function)`; see the module docs for what that call does that
-    /// this one does not.
+    /// Upstream's `state.setFromIK(group, pose * inv_offset,
+    /// link->getName(), 0.0, validCallback, options, cost_function)`, and
+    /// since round 10 that is literally what it is: [`set_from_ik`] is the
+    /// port of that method, so the frame resolution, the tip fill and the
+    /// validity hook are no longer this module's business. See the module
+    /// docs for the two arguments that still have no counterpart.
     fn solve_link_pose(
         &mut self,
         state: &mut RobotState<'m>,
         link_pose_world: &Isometry3,
     ) -> Result<bool> {
-        let (seed, target_in_base) = {
-            let posed = state.update();
-            // Upstream `setToIKSolverFrame`. No model-frame special case is
-            // needed: the model root link's global transform is the
-            // identity, so the general multiply already covers it.
-            let base_pose_world = posed.global_link_transform(self.solver.base_frame())?;
-            let mut seed = Vec::with_capacity(self.joint_names.len());
-            for name in &self.joint_names {
-                seed.push(posed.variable_position(name)?);
-            }
-            (seed, base_pose_world.inverse() * link_pose_world)
+        let target = IkTarget {
+            pose: *link_pose_world,
+            frame: self.config.link_name,
         };
-
-        let Some(solution) =
-            self.solver
-                .solve_with_options(&seed, &target_in_base, &mut *self.options)
-        else {
-            return Ok(false);
-        };
-
-        for (name, value) in self.joint_names.iter().zip(&solution) {
-            state.set_variable_position(name, *value)?;
-        }
-        Ok(true)
+        set_from_ik(state, self.solver, std::slice::from_ref(&target), self.ik)
     }
 
     /// Accept the interval `start..end` if the joint path across it really

@@ -410,9 +410,12 @@ pub struct PlanningRequest {
 /// forwarded live through `RefCell::borrow()`: a borrow guard is a temporary
 /// that cannot outlive the method call producing it, so `&str` borrowed
 /// through one cannot satisfy `fn group_name(&self) -> &str`'s `&self`
-/// lifetime (`E0515`). Only [`KinematicsSolver::solve_with_options`] forwards
-/// live, through `RefCell::borrow_mut()`, because it returns an owned
-/// `Option<Vec<f64>>` with no such lifetime problem.
+/// lifetime (`E0515`). [`KinematicsSolver::solve_with_options`] and
+/// [`KinematicsSolver::tip_frames`] forward live instead, because both return
+/// owned values with no such lifetime problem — and `tip_frames` *must*
+/// forward rather than inherit its provided default, which would answer
+/// `[self.tip_frame()]` and so report one tip for a wrapped solver that has
+/// several.
 struct SharedKinematicsSolver {
     inner: Rc<RefCell<Box<dyn KinematicsSolver>>>,
     group_name: String,
@@ -457,6 +460,10 @@ impl KinematicsSolver for SharedKinematicsSolver {
 
     fn tip_frame(&self) -> &str {
         &self.tip_frame
+    }
+
+    fn tip_frames(&self) -> Vec<String> {
+        self.inner.borrow().tip_frames()
     }
 
     fn solve_with_options(
