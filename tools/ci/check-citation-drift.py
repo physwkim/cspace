@@ -26,9 +26,15 @@
 #   1. The citation's path resolves to exactly one tracked `.rs` file --
 #      an exact repo-relative path, or a bare/partial filename matching
 #      exactly one tracked `.rs` file by the same subsequence-of-path-
-#      components rule `reconcile-assertion-ledgers.py` uses (a citation
-#      matching zero or more than one tracked file is reported, never
-#      guessed at).
+#      components rule `reconcile-assertion-ledgers.py` uses. A citation
+#      matching zero or more than one tracked file is a hard failure: it is
+#      never guessed at, and never parked in a report-only bucket either --
+#      that bucket held 367 citations, 17% of this corpus, checked by
+#      nothing while the run still printed a total. The one exemption is by
+#      path SHAPE, not by an allowlist: a citation that names a dependency
+#      (`<crate>-<version>/src/...`) or a build artifact (`target/...`) is
+#      counted and named separately, since no tracked file can ever satisfy
+#      it. See EXTERNAL_PATH_RE.
 #   2. The cited line (both ends of a `NNN-MMM` range) is in-bounds for
 #      that file's current line count. Out-of-bounds is unambiguous drift
 #      and always a hard failure.
@@ -173,6 +179,25 @@ def mask_non_code(text):
             i += 1
     return "".join(out)
 
+
+# A citation that names a source this repository does not contain. Both forms
+# are recognised from the citation text alone, so the property holds by
+# construction and there is no side table to keep in sync as versions move:
+#
+#   `parry3d-f64-0.30.0/src/shape/trimesh.rs:1808` -- a crates.io dependency,
+#       leading component `<name>-<semver>` exactly as it appears under
+#       `~/.cargo/registry/src/<index>/`. The version is what makes the line
+#       number mean anything, so requiring it in the path is a stricter
+#       citation than the bare `trimesh.rs:1808` this replaced, not a laxer one.
+#   `target/.../moveit_msgs.rs:8031` -- a build artifact (r2r generates this
+#       from the `.msg` files); it exists only inside a build tree, and its
+#       line numbers are that build's, not the repo's.
+#
+# Anything else that fails to resolve is a hard failure: a bare `lib.rs`
+# matching 23 tracked files, or a path matching none, is an unverified
+# citation, and letting those accumulate in a report-only bucket is how 17%
+# of this corpus went unchecked while the run still printed a total.
+EXTERNAL_PATH_RE = re.compile(r"^(?:target/|[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*-\d+\.\d+\.\d+/)")
 
 TEST_ATTR_RE = re.compile(r"^\s*#\[[^\]]*\btest\b[^\]]*\]\s*$")
 # A function's own header: outer attributes and outer doc comments. Both are
@@ -425,6 +450,7 @@ def main():
 
     total = 0
     unresolved = []  # (md, line_no, fname_part, reason)
+    external = []  # (md, line_no, fname_part) -- EXTERNAL_PATH_RE, exempt by shape
     out_of_bounds = []  # (md, line_no, fname_part, cited_line, resolved_path, file_len)
     anchor_mismatch = []  # (md, line_no, fname_part, cited_line, anchor, resolved_path, spans_for_anchor)
     anchor_verified = 0
@@ -444,6 +470,10 @@ def main():
                 # sees where the PREVIOUS citation ended, regardless of
                 # which `continue` below this one takes.
                 window_floor, prev_citation_end = prev_citation_end, m.end()
+
+                if EXTERNAL_PATH_RE.match(fname_part):
+                    external.append((md, line_no, fname_part))
+                    continue
 
                 candidates = resolve_path(fname_part, rs_files_by_basename, rs_files_set)
                 if len(candidates) != 1:
@@ -495,8 +525,14 @@ def main():
                         (md, line_no, fname_part, cited_lines, anchors, resolved_path, spans)
                     )
 
-    failures = list(out_of_bounds) or list(anchor_mismatch)
-    hard_fail = bool(out_of_bounds) or bool(anchor_mismatch)
+    hard_fail = bool(out_of_bounds) or bool(anchor_mismatch) or bool(unresolved)
+    counts = (
+        f"{anchor_verified} anchor-verified (cited line inside the named function's body), "
+        f"{bounds_only} bounds-checked only (no nameable anchor in the citing text), "
+        f"{len(external)} exempt (names a dependency or a build artifact, see above), "
+        f"{len(out_of_bounds)} out-of-bounds, {len(anchor_mismatch)} anchor-mismatch, "
+        f"{len(unresolved)} unresolvable"
+    )
 
     if total == 0:
         print("FAIL parsed zero `path.rs:NNN` citations across tracked .md files -- the citation grammar changed and this checked nothing", file=sys.stderr)
@@ -524,27 +560,41 @@ def main():
                 file=sys.stderr,
             )
 
+    if external:
+        print(
+            f"--- {len(external)} citation(s) exempt: the path names a source this "
+            f"repository does not contain ---",
+            file=sys.stderr,
+        )
+        for md, line_no, fname_part in external:
+            why = (
+                "build artifact, regenerated per build tree"
+                if fname_part.startswith("target/")
+                else f"dependency source, pinned at {fname_part.split('/', 1)[0]}"
+            )
+            print(f"  {md}:{line_no}: `{fname_part}` -- {why}", file=sys.stderr)
+
     if unresolved:
-        print(f"--- {len(unresolved)} citation(s) to an unresolvable path (not counted as failures; report only) ---", file=sys.stderr)
+        print(f"--- {len(unresolved)} citation(s) to an unresolvable path ---", file=sys.stderr)
         for md, line_no, fname_part, reason in unresolved:
-            print(f"  {md}:{line_no}: `{fname_part}` -- {reason}", file=sys.stderr)
+            print(
+                f"FAIL {md}:{line_no}: `{fname_part}` -- {reason}. Qualify it to the "
+                f"repo-relative path it means, or -- if it names a dependency or a "
+                f"build artifact -- write it in the form that says so "
+                f"(`<crate>-<version>/src/...`, `target/...`).",
+                file=sys.stderr,
+            )
 
     if hard_fail:
         print(
-            f"FAIL {len(out_of_bounds)} out-of-bounds + {len(anchor_mismatch)} anchor-mismatch "
-            f"(of {total} `.rs` citations checked; corpus: every `` `path.rs:NNN[-MMM]` `` "
-            f"span in every tracked .md file)",
+            f"FAIL of {total} `.rs` citations across {len(md_files)} tracked .md files "
+            f"(corpus: every `` `path.rs:NNN[-MMM]` `` span in every tracked .md file): "
+            f"{counts}",
             file=sys.stderr,
         )
         return 1
 
-    print(
-        f"OK {total} `.rs` citations across {len(md_files)} tracked .md files: "
-        f"{anchor_verified} anchor-verified (cited line inside the named function's body), "
-        f"{bounds_only} bounds-checked only (no nameable anchor in the citing text), "
-        f"{len(unresolved)} unresolved-path (reported above, not a hard failure), "
-        f"0 out-of-bounds, 0 anchor-mismatch"
-    )
+    print(f"OK {total} `.rs` citations across {len(md_files)} tracked .md files: {counts}")
     return 0
 
 
