@@ -41,20 +41,20 @@ confirming).
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `trajectory_generator.rs:783` | `check_velocity_scaling`'s one `Error::Code(InvalidMotionPlan)` site (`is_scaling_factor_valid` false) | `scaling_factor_boundary_is_exclusive_below_and_inclusive_above` | single-branch | round-report (p1-joints, structural read this round: `check_velocity_scaling`'s body has exactly one `Error::` construction) |
-| `trajectory_generator.rs:786` | same single site, upper-boundary value | same test fn | single-branch | same |
-| `trajectory_generator.rs:788` | `check_acceleration_scaling`'s one `Error::Code(InvalidMotionPlan)` site | same test fn | single-branch | same structural read, `check_acceleration_scaling` |
-| `trajectory_generator.rs:790` | same single site, upper-boundary value | same test fn | single-branch | same |
-| `trajectory_generator.rs:795` | `check_velocity_scaling`'s single site (same as `:783`), zero input | `scaling_factor_rejects_zero_and_negative` | single-branch | same |
-| `trajectory_generator.rs:796` | same single site, negative input | same test fn | single-branch | same |
-| `trajectory_generator.rs:805` | `check_for_valid_group_name`'s one `Error::Code(InvalidGroupName)` site | `valid_group_name_accepted_unknown_group_name_rejected` | single-branch | round-report (p1-joints, structural read: 1 `Error::` construction in the function body) |
-| `trajectory_generator.rs:834` | `check_start_state`'s position-limit-violation site (of 3 sites/2 codes: group-lookup→`InvalidGroupName`, position/velocity violation→`InvalidRobotState`) | `start_state_position_within_limit_accepted_beyond_limit_rejected` | discriminating | round-report (in-source doc comment on the test, verified: distinguishes the `InvalidGroupName` sibling; the position-vs-velocity collapse within `InvalidRobotState` is not a defect in its own right — it is still `discriminating` against the sibling that matters, since no caller-visible fact distinguishes position from velocity to begin with) |
-| `trajectory_generator.rs:859` | same function, velocity-tolerance-violation site (mirror of `:834`) | `start_state_velocity_at_tolerance_accepted_beyond_it_rejected` | discriminating | same reasoning, mirror case |
-| `trajectory_generator.rs:874` | same function, unknown-group site | `start_state_rejects_an_unknown_group` | discriminating | same doc comment: distinguishes both `InvalidRobotState` siblings by code |
-| `trajectory_generator.rs:896` | `check_joint_goal`'s joint-outside-group site (of 3 sites/2 codes: group-lookup→`InvalidGroupName`, joint-outside-group and joint-beyond-limit→`InvalidGoalConstraints`) | `joint_goal_rejects_a_joint_outside_the_group` | discriminating | round-report (in-source doc comment, verified): distinguishes `InvalidGroupName`; the outside-group-vs-beyond-limit collapse within `InvalidGoalConstraints` is not a defect in its own right — no caller-visible fact distinguishes the two, so there is nothing this test could be blind to beyond the `InvalidGroupName` sibling it already discriminates |
-| `trajectory_generator.rs:914` | same function, beyond-limit site (mirror of `:896`) | `joint_goal_within_limit_accepted_beyond_limit_rejected` | discriminating | same reasoning, mirror case |
-| `trajectory_generator.rs:931` | `check_cartesian_goal`'s empty-link-name site (of 2 sites, 2 distinct codes: empty link→`InvalidGoalConstraints`, no solver→`NoIkSolution`) | `cartesian_goal_rejects_an_empty_link_name` | discriminating | round-report (in-source doc comment, verified): the two codes are genuinely distinct outcomes, both individually tested |
-| `trajectory_generator.rs:953` | same function, no-solver-for-link site (mirror of `:931`) | `cartesian_goal_rejects_a_non_tip_link` | discriminating | same reasoning, mirror case |
+| `trajectory_generator.rs:837` | `check_velocity_scaling`'s one `Error::Code(InvalidMotionPlan)` site (`is_scaling_factor_valid` false) | `scaling_factor_boundary_is_exclusive_below_and_inclusive_above` | single-branch | round-report (p1-joints, structural read this round: `check_velocity_scaling`'s body has exactly one `Error::` construction) |
+| `trajectory_generator.rs:840` | same single site, upper-boundary value | same test fn | single-branch | same |
+| `trajectory_generator.rs:842` | `check_acceleration_scaling`'s one `Error::Code(InvalidMotionPlan)` site | same test fn | single-branch | same structural read, `check_acceleration_scaling` |
+| `trajectory_generator.rs:844` | same single site, upper-boundary value | same test fn | single-branch | same |
+| `trajectory_generator.rs:849` | `check_velocity_scaling`'s single site (same as `:837`), zero input | `scaling_factor_rejects_zero_and_negative` | single-branch | same |
+| `trajectory_generator.rs:850` | same single site, negative input | same test fn | single-branch | same |
+| `trajectory_generator.rs:859` | `check_for_valid_group_name`'s one `Error::Code(InvalidGroupName)` site | `valid_group_name_accepted_unknown_group_name_rejected` | single-branch | round-report (p1-joints, structural read: 1 `Error::` construction in the function body) |
+| `trajectory_generator.rs:888` | `check_start_state`'s position-limit-violation site (of 3 sites/2 codes: group-lookup→`InvalidGroupName`, position/velocity violation→`InvalidRobotState`) | `start_state_position_within_limit_accepted_beyond_limit_rejected` | discriminating | round-report (in-source doc comment on the test, verified: distinguishes the `InvalidGroupName` sibling; the position-vs-velocity collapse within `InvalidRobotState` is not a defect in its own right — it is still `discriminating` against the sibling that matters, since no caller-visible fact distinguishes position from velocity to begin with) |
+| `trajectory_generator.rs:913` | same function, velocity-tolerance-violation site (mirror of `:888`) | `start_state_velocity_at_tolerance_accepted_beyond_it_rejected` | discriminating | same reasoning, mirror case |
+| `trajectory_generator.rs:928` | same function, unknown-group site | `start_state_rejects_an_unknown_group` | discriminating | same doc comment: distinguishes both `InvalidRobotState` siblings by code |
+| `trajectory_generator.rs:950` | `check_joint_goal`'s joint-outside-group site (of 3 sites/2 codes: group-lookup→`InvalidGroupName`, joint-outside-group and joint-beyond-limit→`InvalidGoalConstraints`) | `joint_goal_rejects_a_joint_outside_the_group` | discriminating | round-report (in-source doc comment, verified): distinguishes `InvalidGroupName`; the outside-group-vs-beyond-limit collapse within `InvalidGoalConstraints` is not a defect in its own right — no caller-visible fact distinguishes the two, so there is nothing this test could be blind to beyond the `InvalidGroupName` sibling it already discriminates |
+| `trajectory_generator.rs:968` | same function, beyond-limit site (mirror of `:950`) | `joint_goal_within_limit_accepted_beyond_limit_rejected` | discriminating | same reasoning, mirror case |
+| `trajectory_generator.rs:985` | `check_cartesian_goal`'s empty-link-name site (of 2 sites, 2 distinct codes: empty link→`InvalidGoalConstraints`, no solver→`NoIkSolution`) | `cartesian_goal_rejects_an_empty_link_name` | discriminating | round-report (in-source doc comment, verified): the two codes are genuinely distinct outcomes, both individually tested |
+| `trajectory_generator.rs:1007` | same function, no-solver-for-link site (mirror of `:985`) | `cartesian_goal_rejects_a_non_tip_link` | discriminating | same reasoning, mirror case |
 
 ## `trajectory_generator_ptp.rs` (2)
 
@@ -148,7 +148,7 @@ before `git push` per the standing rule; not run this round.
 None. `:1199`'s joint-collapse is confirmed not a defect (see its row);
 nothing else in this crate's 32 sites is a genuinely blind assertion.
 
-# Beyond the `matches!`/`.is_err()`/`.is_none()` grammar (12, now 13)
+# Beyond the `matches!`/`.is_err()`/`.is_none()` grammar (12, then 13, now 24)
 
 p1-joints, round following the one above. `tools/ci/count-coarse-assertions.py`
 (the orchestrator's, committed `6a14a89` after `ledger_scan.py` — cited
@@ -191,14 +191,57 @@ in this round's instructions).
 | `trajectory_functions.rs:1109` | eq_none | `compute_link_fk`'s `knows_frame_transform` guard, collapsing with the function's own fallthrough failure | `compute_link_fk_resolves_a_known_link_and_rejects_an_unknown_one` | discriminating, but **blind — fixed** | bite this round: `if false && !knows_frame_transform(..)` left this test green — the stock panda fixture's model frame is itself a real link, so `knows_frame_transform` and `frame_transform` never disagree on it (`moveit-state/src/state.rs:825`'s documented asymmetry needs a model frame that is *not* a link name). Fixed with a new test building a synthetic floating-virtual-joint SRDF (`model_frame() == "world"`, not a link) that forces the asymmetry; bite against it confirms discrimination. Commit `470362b`. Cited `:1070`, drifted to `:1109` |
 | `trajectory_functions.rs:1148` | eq_none | `compute_link_fk`'s success-path return on the synthetic non-link-model-frame fixture — the new isolating test the `:1109` fix added | `compute_link_fk_rejects_the_bare_model_frame_when_it_is_not_a_link_name` | discriminating | this round's orphan reconciliation: this row never had its own citation — `:1109`'s row already carries its bite evidence (commit `470362b`) but only for the pre-fix test; this is that fix's own new sibling test, previously uncited |
 | `trajectory_functions.rs:1224` | eq_none | `compute_pose_ik`'s tip-frame-mismatch guard, one of 5 collapsed `None`-producing paths | `compute_pose_ik_rejects_tip_frame_mismatch` | discriminating | bite this round: `if false && solver.tip_frame() != link_name` flips this test to an actual IK solution (`Some({"panda_joint7": ..})`) while `compute_pose_ik_round_trips_a_reachable_pose` stays green. Reverted. Commit `ab8439e` (doc only). Cited `:1137`, drifted to `:1224` |
-| `path_line.rs:417` | contains_member | `assert!((0.0..=PI).contains(&angle))` on `get_rot_angle`'s return — a plain function, not `Result`/`Option` | `assert_get_rot_angle_round_trips` | not-this-family | census §9 clause 1 (mechanism): `angle` is a computed numeric value on the success path, not a coarse-fail signal; there is no guard to discriminate |
+| `path_line.rs:430` | contains_member | `assert!((0.0..=PI).contains(&angle))` on `get_rot_angle`'s return — a plain function, not `Result`/`Option` | `assert_get_rot_angle_round_trips` | not-this-family | census §9 clause 1 (mechanism): `angle` is a computed numeric value on the success path, not a coarse-fail signal; there is no guard to discriminate |
 | `trajectory_blender_transition_window.rs:1259` | is_empty | `blend_sample_num`'s loop bound, arithmetic from indices with no branch producing "empty" as a signal | (blend-trajectory-cartesian test) | not-this-family | census §9 clause 1 (mechanism): success-path sanity check on a normally-computed range, not an inability signal |
+| `path_rounded_composite.rs:412` | contains_msg | `PathRoundedComposite::new`'s sole rejection, non-positive `eqradius` | `new_rejects_a_non_positive_eqradius` | discriminating | bite this round: `if false && eqradius <= 0.0` lets construction succeed and `unwrap_err()` panics on an `Ok`; the other five `path_rounded_composite` rejection tests stay green. Reverted |
+| `path_rounded_composite.rs:434` | contains_msg | `add_corner`'s zero-length-incoming-leg rejection, one of 5 collapsed `Error::construct` sites in that function | `add_rejects_a_zero_length_incoming_segment` | discriminating | bite this round: `if false && incoming_len < ADD_EPSILON` flips exactly this test and no sibling — the needle `"arriving at this vertex coincides"` is emitted by no other guard. Reverted |
+| `path_rounded_composite.rs:452` | contains_msg | same function, zero-length-outgoing-leg rejection | `add_rejects_a_zero_length_outgoing_segment` | discriminating | bite this round (mirror of `:434`): flips exactly this test; needle `"leaving this vertex coincides"` is unique. Reverted |
+| `path_rounded_composite.rs:469` | contains_msg | same function, doubling-back rejection (interior angle within `ADD_EPSILON` of zero) | `add_rejects_a_reversing_corner` | discriminating | bite this round: `if false && theta < ADD_EPSILON` flips exactly this test — the fixture's reversed corner then reaches the tangent-length branch rather than a sibling guard. Reverted |
+| `path_rounded_composite.rs:485` | contains_msg | same function, radius-overruns-incoming-leg rejection | `add_rejects_a_radius_too_large_for_the_incoming_segment` | discriminating | bite this round: `if false && tangent_len >= incoming_len` flips exactly this test; the fixture's 10-long outgoing leg keeps the `:499` sibling from firing on it. Reverted |
+| `path_rounded_composite.rs:499` | contains_msg | same function, radius-overruns-outgoing-leg rejection | `add_rejects_a_radius_too_large_for_the_outgoing_segment` | discriminating | bite this round (mirror of `:485`, legs swapped): flips exactly this test. Reverted. All six bites run as one sweep; each produced a one-to-one guard→test failure with no sibling collateral |
+| `path_polyline_generator.rs:348` | contains_msg | `check_consecutive_colinear_waypoints`'s one `Error::construct` site, reached through `compute_blend_radius` | `compute_blend_radius_rejects_colinear_waypoints` | single-branch | structural read: the function has exactly one `Error::` construction (`rg -c 'Error::construct' ` over `check_consecutive_colinear_waypoints` = 1), so the message needle cannot be confused with a sibling's |
+| `path_polyline_generator.rs:366` | contains_msg | same single site, reached on a corner whose legs are below `MIN_SEGMENT_LENGTH` — pins that the colinearity check runs *before* the short-leg `continue` | `compute_blend_radius_rejects_a_colinear_corner_whose_legs_are_too_short` | discriminating | bite this round: moving `check_consecutive_colinear_waypoints` after the `dist1/dist2 < MIN_SEGMENT_LENGTH` `continue` flips exactly this test (the corner is then skipped and `compute_blend_radius` returns `Ok`), 11 sibling tests stay green. Reverted |
+| `path_polyline_generator.rs:418` | contains_msg | same single site, reached through `polyline_from_waypoints` rather than `compute_blend_radius` directly | `polyline_from_waypoints_rejects_a_colinear_run` | single-branch | same structural read as `:348`; this row's value is that the outer entry point propagates the rejection rather than swallowing it |
+| `pilz_trajectory_polyline.rs:467` | is_none | `response.trajectory`, paired with the `assert_eq!(error_code, InvalidMotionPlan)` on the line above | `polyline_rejects_a_request_with_fewer_than_two_waypoints` | not-this-family | census §9 clause 1 (mechanism): the branch is already named by the `error_code` equality one line up; this is the companion check that a rejected response carries no trajectory, not the fail signal itself |
+| `pilz_trajectory_polyline.rs:522` | is_none | same shape, on the variant-swap rejection | `polyline_plans_a_polyline_constraint_and_rejects_the_same_request_carrying_a_circ_one` | not-this-family | census §9 clause 1 (mechanism): same as `:467`. That test's own discrimination limit — `InvalidMotionPlan` cannot distinguish "constraint is CIRC" from "no POLYLINE waypoints" — is stated in its doc comment, and it pins the variant swap by asserting the un-swapped request reaches `Success` first |
 | `trajectory_blender_transition_window.rs:1345` | is_empty | `response.blend_trajectory`, already known `Ok` via `.expect(..)` one line above | (blend test) | not-this-family | census §9 clause 1 (mechanism): same shape as `:1259` — a size check on a success-path collection, not a fail/absent signal |
 
-## Summary (12, now 13)
+## Summary (12, then 13, now 24)
+
+### The POLYLINE round's 11 additions
+
+`path_rounded_composite`, `path_polyline_generator` and
+`pilz_trajectory_polyline` arrived with the `POLYLINE` port and had no
+ledger row; `verify-orphan-enumeration.sh` reported them as 11 orphans
+against a baseline (`f5992d6`) that was clean, so all 11 are this round's.
+Counts re-derived from the table above rather than carried forward:
+**24 rows — 14 `contains_msg`, 5 `eq_none`, 2 `is_none`, 2 `is_empty`,
+1 `contains_member`**; by verdict, **15 discriminating, 2 discriminating
+but blind and since fixed, 5 not-this-family, 2 single-branch**.
+
+Of the 11 new rows: 7 discriminating by live bite (the six
+`path_rounded_composite` guards, each neutralized in turn in one sweep and
+each flipping exactly its own test with no sibling collateral; plus
+`path_polyline_generator.rs:366`'s check-order claim, bitten by moving the
+colinearity check after the short-leg `continue`), 2 single-branch by
+structural read (`:348`/`:418` reach the one `Error::construct` in
+`check_consecutive_colinear_waypoints` through two different entry
+points), and 2 not-this-family (`pilz_trajectory_polyline.rs`'s
+`trajectory.is_none()` companions to an `error_code` equality that already
+names the branch).
+
+The same run found 10 ledger citations unresolved: the `PathConstraints`
+enum shifted `trajectory_generator.rs` by 54–111 lines and `length_to_s`
+shifted `path_line.rs`, and the reconciler's window then bound several
+rows onto *each other's* assertions — `:805`'s target moved to `:859`,
+which was itself another row's old citation. All 14
+`trajectory_generator.rs` citations were therefore re-derived by test
+function and assertion text, not only the 10 flagged.
+
+### The preceding round's 13
 
 **10 in-family, 3 not-this-family** (all three excluded by clause 1,
-mechanism — `path_line.rs:417`, `trajectory_blender_transition_window.rs:1259`
+mechanism — `path_line.rs:430`, `trajectory_blender_transition_window.rs:1259`
 and `:1345`; none is a coarse-fail signal). Of the 10 in-family: **8
 discriminating with no fix needed** (7 from the original round plus this
 round's new `:1148` row, itself already covered by `:1109`'s bite
