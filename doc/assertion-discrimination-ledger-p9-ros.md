@@ -45,7 +45,7 @@ Every row below cites which clause(s) apply, not a re-derived paraphrase.
 |---|---|---|---|---|
 | `ros/moveit-ros` | 26+2=28 | 25+2=27 | -1 | `b0a9e1b` (this branch, pre-round-8) converted `state.rs`'s `assert!(matches!(err, Error::UnknownName{..}))` to `assert_err_mentions(...)` — real fix, landed on a sibling branch to `df36fab` before the two merged, not an instrument miss. `state.rs` now has zero anchor-matching sites. |
 | `moveit-distance-field` | 2+18=20 | 2+16=18 | -2 | Two of this branch's own pre-round-8 commits converted bare sites to message-content checks: `08976b8` (`.is_err()` → `match` on structured `kind`, drops the `assert!` shape entirely) and `5ea2418` (`.is_err()` → `err.to_string().contains(...)`). Both topologically parallel to `df36fab`, same branch-merge situation as above. |
-| `moveit-model` | 5+15=20 | 5+17=22 | +2 | `72f5eca` (merged after `df36fab`) added two sites: `46cd26b`'s new test `get_end_effector_unknown_name_is_an_error` (`robot_model.rs:2719`) and `7676185`'s added `j4` mimic check when the cycle-clear fixture was widened from 3 joints to 4 (`robot_model.rs:2028`). Real new-test growth, not an instrument miss. |
+| `moveit-model` | 5+15=20 | 5+17=22 | +2 | `72f5eca` (merged after `df36fab`) added two sites: `46cd26b`'s new test `get_end_effector_unknown_name_is_an_error` (`robot_model.rs:2815`) and `7676185`'s added `j4` mimic check when the cycle-clear fixture was widened from 3 joints to 4 (`robot_model.rs:2055`). Real new-test growth, not an instrument miss. |
 
 No crate-row disagreement is an instrument bug; all three are named, dated,
 `git log`-verified drift since `df36fab`.
@@ -71,16 +71,16 @@ No crate-row disagreement is an instrument bug; all three are named, dated,
 | geometry.rs:522 | matches! | pose_with_degenerate_orientation_fails | single-branch | bite run just now — position leg (`TryFrom<Point>`) is unconditionally `Ok` ("Total in practice" doc comment), so only the orientation guard can fire |
 | planning.rs:397 | bare | converts_minimal_request | fixture-collapse-fixed | `9d829a8` (own earlier commit) |
 | planning.rs:508 | matches! | multi_dof_joint_trajectory_is_rejected_not_silently_dropped | single-branch | bite run just now — only `Error::Other` site in this impl; delegate produces `Error::Construct` |
-| scene/collision_object.rs:983 | bare | append_without_subframe_data_clears_existing_subframes | discriminating | §9 all three clauses hold — clause 1: `subframe_pose("tip").is_none()` is a genuine absence signal (retained vs. cleared); clause 2: `apply_add`'s unconditional subframe-replace is a written decision an engineer could gate on non-empty (bite: wrapping it in `if !subframes.is_empty()` flips the assertion); clause 3: deleting the second `apply_collision_object` call leaves the first object's subframe in place, changing the outcome. Bite run once, before I knew the ros gate was paid (docker, targeted single test — see cost note in the round report) |
+| scene/collision_object.rs:1026 | bare | append_without_subframe_data_clears_existing_subframes | discriminating | §9 all three clauses hold — clause 1: `subframe_pose("tip").is_none()` is a genuine absence signal (retained vs. cleared); clause 2: `apply_add`'s unconditional subframe-replace is a written decision an engineer could gate on non-empty (bite: wrapping it in `if !subframes.is_empty()` flips the assertion); clause 3: deleting the second `apply_collision_object` call leaves the first object's subframe in place, changing the outcome. Bite run once, before I knew the ros gate was paid (docker, targeted single test — see cost note in the round report) |
 | scene/mod.rs:94 | matches! | unresolvable_non_empty_frame_id_is_still_rejected | single-branch | bite run just now — `header_frame_transform`'s only Err path is the single `scene.frame_transform` call |
 | scene/planning_scene.rs:519 | matches! | unresolvable_non_empty_header_frame_id_is_still_rejected | single-branch | bite run just now — `Error::UnknownName` reachable only via `header_frame_transform` (see scene/mod.rs:94); the file's other two error sites are `Error::Other`/`Error::Construct`, different variants |
 | scene/shapes.rs:203 | matches! | plane_wrong_coef_length_is_rejected | single-branch | bite run just now — single `Error::construct` site in `TryFrom<PlaneMsg> for Plane`; `Plane::new` is infallible |
 | trajectory.rs:383 | matches! | add_suffix_way_point_rejects_a_nonzero_first_dt | single-branch | bite run just now — `moveit_trajectory::RobotTrajectory::add_suffix_way_point`'s single `first_duration_error()` site |
-| trajectory.rs:444 | matches! | seconds_to_duration_rejects_just_above_i32_max_seconds | single-branch | bite run just now — `seconds_to_duration`'s one combined guard |
-| trajectory.rs:450 | matches! | seconds_to_duration_rejects_negative | single-branch | bite run just now — same guard |
-| trajectory.rs:456 | matches! | seconds_to_duration_rejects_nan | single-branch | bite run just now — same guard |
-| trajectory.rs:462 | matches! | seconds_to_duration_rejects_infinity | single-branch | bite run just now — same guard |
-| trajectory.rs:490 | matches! | negative_cumulative_duration_from_an_unvalidated_trajectory_is_rejected | single-branch | bite run just now — `TryFrom<RobotTrajectory> for JointTrajectoryMsgOut`'s sole `?` site is `seconds_to_duration` |
+| trajectory.rs:482 | matches! | seconds_to_duration_rejects_just_above_i32_max_seconds | single-branch | bite run just now — `seconds_to_duration`'s one combined guard |
+| trajectory.rs:488 | matches! | seconds_to_duration_rejects_negative | single-branch | bite run just now — same guard |
+| trajectory.rs:494 | matches! | seconds_to_duration_rejects_nan | single-branch | bite run just now — same guard |
+| trajectory.rs:500 | matches! | seconds_to_duration_rejects_infinity | single-branch | bite run just now — same guard |
+| trajectory.rs:528 | matches! | negative_cumulative_duration_from_an_unvalidated_trajectory_is_rejected | single-branch | bite run just now — `TryFrom<RobotTrajectory> for JointTrajectoryMsgOut`'s sole `?` site is `seconds_to_duration` |
 
 No blind/never-covered site survived inspection in `ros/moveit-ros`; the
 27th matches this crate's own scan count exactly. Zero commits this round.
@@ -101,10 +101,10 @@ branch's earlier rounds; all re-read and agreed with, none re-argued.
 | collision_env_distance_field.rs:2793 | bare | (acm-mismatch guard) | discriminating | `0116b87` |
 | collision_env_distance_field.rs:2809 | matches! | (acm:None skips acm check, returns same entry) | discriminating | `0116b87` — `ptr::eq` identity check, not a bare presence check |
 | collision_env_distance_field.rs:2826 | matches! | (agreeing state+acm returns same entry) | discriminating | `0116b87` — same |
-| collision_env_distance_field.rs:3271 | bare | (post-update link_body_decompositions None) | single-branch | `7e69a8c` |
-| collision_env_distance_field.rs:3276 | bare | (post-update link_distance_fields None) | single-branch | `7e69a8c` |
-| collision_env_distance_field.rs:3734 | bare | (generate_collision_checking_structures: generate_distance_field=false) | single-branch | `202c88f` |
-| collision_env_distance_field.rs:3757 | bare | (generate_collision_checking_structures: no-geometry case) | single-branch | `202c88f` |
+| collision_env_distance_field.rs:3284 | bare | (post-update link_body_decompositions None) | single-branch | `7e69a8c` |
+| collision_env_distance_field.rs:3289 | bare | (post-update link_distance_fields None) | single-branch | `7e69a8c` |
+| collision_env_distance_field.rs:3747 | bare | (generate_collision_checking_structures: generate_distance_field=false) | single-branch | `202c88f` |
+| collision_env_distance_field.rs:3770 | bare | (generate_collision_checking_structures: second test's first call, same generate_distance_field=false reasoning as `:3747`) | single-branch | `202c88f` |
 | distance_field.rs:788 | bare | (octree-missing-payload error) | single-branch | `233cc77` |
 | propagation.rs:823 | bare | checked_max_distance_sq boundary rejection | single-branch | `246c1a8` |
 | voxel_grid.rs:491 | bare | new_rejects_size_over_resolution_one_past_the_i32_boundary | single-branch | `5ea2418` |
@@ -119,11 +119,11 @@ Most of these 22 sites had no dedicated round-report commit before this
 round; verdicts are a bite run just now (direct read of the function under
 test, confirming the number of Error/None-producing sites reachable from
 that test's call path), except `joint/urdf.rs:388` and the mimic sites
-(`robot_model.rs:2025,2026,2027,2046,2078`, `joint/model.rs:1040,1047`),
+(`robot_model.rs:2052,2053,2054,2078,2110`, `joint/model.rs:1040,1047`),
 which round 6's report (`01KZ7P9B03SWRKQWQV1DXB4EEA-7.md`, absolute path
 under `.caucus/sessions/`, not reachable from this worktree — `.caucus` is
 gitignored) already covered; those were re-bitten this round rather than
-cited blind, and agree with the prior report. `robot_model.rs:2028` (j4)
+cited blind, and agree with the prior report. `robot_model.rs:2055` (j4)
 is new since that report and had never been bitten by anyone until now.
 
 | file:line | anchor | test fn | verdict | evidence |
@@ -137,19 +137,19 @@ is new since that report and had never been bitten by anyone until now.
 | joint/urdf.rs:378 | matches! | (same test, Planar) | not-this-family | §9 clause 1 — same shape, `JointKind::Planar(_)` |
 | joint/urdf.rs:388 | bare | spherical_joint_type_is_rejected | single-branch | `9834193` — `joint_model_from_urdf` has exactly one `Error::construct` site (Spherical arm) |
 | robot_model.rs:1962 | bare | (joint_model_mut unknown name) | single-branch | bite run just now — `joint_model_mut` has one Err site |
-| robot_model.rs:2024 | matches! | mimic_mutual_cycle_clears_every_mimic_in_the_model | discriminating | bite run just now — `[Diagnostic::MimicCycle]` slice pattern requires both exact length 1 and the named variant |
-| robot_model.rs:2025 | bare | mimic_mutual_cycle_clears_every_mimic_in_the_model (j1) | fixture-collapse-fixed | §9's own worked example (census §9, "Worked resolution of the disputed post-build state check") is this exact site: all three clauses hold — clause 1 (`.mimic().is_none()` collapses "never had one" and "had one, cleared" into one signal), clause 2 (the build/clear routine's per-joint null decision), clause 3 (belongs to the routine this test names). `7676185` — fixture gave j1 a mimic outside the cycle; two isolating mutations (narrow-to-cycle-members, skip-clear-entirely) both now fail here |
-| robot_model.rs:2026 | bare | (j2) | discriminating | §9 same three clauses as :2025 (identical mechanism/decision/subject — same routine, same getter). `01KZ7P9B03SWRKQWQV1DXB4EEA-7.md` + re-bitten — skip-clear-entirely fails here (clause 2's decision is real for j2); narrow-to-cycle-members does NOT fail here (j2 is itself a cycle member, cleared under any correct scoping) — in-family and non-vacuous for "clearing happens", just not independent evidence for the whole-model-vs-cycle-only scope claim, which only j1/j4 carry |
-| robot_model.rs:2027 | bare | (j3) | discriminating | same as :2026 — §9 clauses hold identically; `01KZ7P9B03SWRKQWQV1DXB4EEA-7.md` + re-bitten, same caveat |
-| robot_model.rs:2028 | bare | (j4, new in `7676185`) | fixture-collapse-fixed | §9 same three clauses as :2025. `9661d4c` (this round) — was blind under every mutation tested (no `<mimic>` tag of its own, same defect as pre-fix j1); fixed by giving j4 a real out-of-cycle mimic on new leaf joint j5, re-verified failing under the narrow-scope mutation post-fix. Never bitten before this round |
-| robot_model.rs:2046 | bare | mimic_of_unknown_joint_is_dropped_with_a_diagnostic | discriminating | §9 same three clauses — different routine (single-joint clear on `MimicUnknownJoint`), same mechanism/decision/subject shape. `01KZ7P9B03SWRKQWQV1DXB4EEA-7.md` (as old line 2010) + re-bitten — mutated the single-joint clear to a no-op; assertion fails |
-| robot_model.rs:2078 | bare | mimic_with_mismatched_dof_is_dropped_with_a_diagnostic | discriminating | §9 same three clauses (`MimicDofMismatch` sibling of :2046). `01KZ7P9B03SWRKQWQV1DXB4EEA-7.md` (as old line 2042) + re-bitten — same mutation, same result |
-| robot_model.rs:2413 | bare | mesh_collision_resolving_to_an_unreadable_file_is_skipped_with_a_diagnostic | not-this-family | §9 clause 3 — the census's own worked example, verbatim: `assert!(std::fs::read(&path).is_err(), "precondition: ...")`; the test calls `std::fs::read` itself, no subject code runs before this assertion |
-| robot_model.rs:2485 | matches! | mesh_collision_resolving_to_a_valid_stl_file_builds_a_mesh_shape | not-this-family | §9 clause 1 — `shapes[0].shape` read after `.expect("builds")`; `Shape::Mesh(_)` is a computed success-path enum tag, same shape as `JointKind::Fixed` |
-| robot_model.rs:2700 | bare | (get_end_effector("arm"), real group but not an end effector) | single-branch | bite run just now — despite the doc comment naming two conceptual causes, `get_end_effector` is one `.filter(...).ok_or_else(...)` chain: exactly one `Error::unknown_name` construction site |
-| robot_model.rs:2719 | bare | get_end_effector_unknown_name_is_an_error (new in `46cd26b`) | single-branch | bite run just now — same single call site as 2700 |
-| robot_model.rs:2943 | bare | group_state_where_every_joint_value_is_unusable_stores_no_state_at_all | single-branch | bite run just now — `variable_default_positions` is a one-line `self.default_states.get(name)` delegation (`joint_model_group.rs:257`) |
-| robot_model.rs:2953 | bare | variable_default_positions_returns_none_for_unknown_state_name | single-branch | bite run just now — same delegation |
+| robot_model.rs:2051 | matches! | mimic_mutual_cycle_clears_every_mimic_in_the_model | discriminating | bite run just now — `[Diagnostic::MimicCycle]` slice pattern requires both exact length 1 and the named variant |
+| robot_model.rs:2052 | bare | mimic_mutual_cycle_clears_every_mimic_in_the_model (j1) | fixture-collapse-fixed | §9's own worked example (census §9, "Worked resolution of the disputed post-build state check") is this exact site: all three clauses hold — clause 1 (`.mimic().is_none()` collapses "never had one" and "had one, cleared" into one signal), clause 2 (the build/clear routine's per-joint null decision), clause 3 (belongs to the routine this test names). `7676185` — fixture gave j1 a mimic outside the cycle; two isolating mutations (narrow-to-cycle-members, skip-clear-entirely) both now fail here |
+| robot_model.rs:2053 | bare | (j2) | discriminating | §9 same three clauses as :2052 (identical mechanism/decision/subject — same routine, same getter). `01KZ7P9B03SWRKQWQV1DXB4EEA-7.md` + re-bitten — skip-clear-entirely fails here (clause 2's decision is real for j2); narrow-to-cycle-members does NOT fail here (j2 is itself a cycle member, cleared under any correct scoping) — in-family and non-vacuous for "clearing happens", just not independent evidence for the whole-model-vs-cycle-only scope claim, which only j1/j4 carry |
+| robot_model.rs:2054 | bare | (j3) | discriminating | same as :2053 — §9 clauses hold identically; `01KZ7P9B03SWRKQWQV1DXB4EEA-7.md` + re-bitten, same caveat |
+| robot_model.rs:2055 | bare | (j4, new in `7676185`) | fixture-collapse-fixed | §9 same three clauses as :2052. `9661d4c` (this round) — was blind under every mutation tested (no `<mimic>` tag of its own, same defect as pre-fix j1); fixed by giving j4 a real out-of-cycle mimic on new leaf joint j5, re-verified failing under the narrow-scope mutation post-fix. Never bitten before this round |
+| robot_model.rs:2078 | bare | mimic_of_unknown_joint_is_dropped_with_a_diagnostic | discriminating | §9 same three clauses — different routine (single-joint clear on `MimicUnknownJoint`), same mechanism/decision/subject shape. `01KZ7P9B03SWRKQWQV1DXB4EEA-7.md` (as old line 2010) + re-bitten — mutated the single-joint clear to a no-op; assertion fails |
+| robot_model.rs:2110 | bare | mimic_with_mismatched_dof_is_dropped_with_a_diagnostic | discriminating | §9 same three clauses (`MimicDofMismatch` sibling of :2078). `01KZ7P9B03SWRKQWQV1DXB4EEA-7.md` (as old line 2042) + re-bitten — same mutation, same result |
+| robot_model.rs:2492 | bare | mesh_collision_resolving_to_an_unreadable_file_is_skipped_with_a_diagnostic | not-this-family | §9 clause 3 — the census's own worked example, verbatim: `assert!(std::fs::read(&path).is_err(), "precondition: ...")`; the test calls `std::fs::read` itself, no subject code runs before this assertion |
+| robot_model.rs:2564 | matches! | mesh_collision_resolving_to_a_valid_stl_file_builds_a_mesh_shape | not-this-family | §9 clause 1 — `shapes[0].shape` read after `.expect("builds")`; `Shape::Mesh(_)` is a computed success-path enum tag, same shape as `JointKind::Fixed` |
+| robot_model.rs:2796 | bare | (get_end_effector("arm"), real group but not an end effector) | single-branch | bite run just now — despite the doc comment naming two conceptual causes, `get_end_effector` is one `.filter(...).ok_or_else(...)` chain: exactly one `Error::unknown_name` construction site |
+| robot_model.rs:2815 | bare | get_end_effector_unknown_name_is_an_error (new in `46cd26b`) | single-branch | bite run just now — same single call site as 2796 |
+| robot_model.rs:3039 | bare | group_state_where_every_joint_value_is_unusable_stores_no_state_at_all | single-branch | bite run just now — `variable_default_positions` is a one-line `self.default_states.get(name)` delegation (`joint_model_group.rs:257`) |
+| robot_model.rs:3049 | bare | variable_default_positions_returns_none_for_unknown_state_name | single-branch | bite run just now — same delegation |
 
 Corrected this round in two passes (see verdict-taxonomy note above): first,
 9 sites were reclassified out of `not-this-family` on the theory that a
@@ -161,8 +161,8 @@ just the 9 already flagged) found one of those 9 was itself too coarse:
 assertion) fails §9 clause 3 — it reads a value the subject never decided,
 since it runs before either `set_mimic` or `clear_mimic` — and moves back to
 `not-this-family`. `:1047` (the post-*clear*-set assertion in the same test)
-passes all three clauses and stays `discriminating`. `robot_model.rs:2025`
-(j1) is census §9's own worked example verbatim; `robot_model.rs:2028` (j4)
+passes all three clauses and stays `discriminating`. `robot_model.rs:2052`
+(j1) is census §9's own worked example verbatim; `robot_model.rs:2055` (j4)
 was blind under every mutation tried and had never been bitten before —
 fixed this round by `9661d4c`.
 
@@ -170,9 +170,9 @@ Final breakdown: 6 discriminating, 8 single-branch, 2 fixture-collapse-fixed
 (`7676185` for j1, `9661d4c` for j4, this round), 6 genuinely
 `not-this-family` under §9 (`joint/model.rs:1040` clause 3,
 `joint/urdf.rs:366,372,378` clause 1 `JointKind` variants,
-`robot_model.rs:2413` clause 3 fixture precondition, `robot_model.rs:2485`
+`robot_model.rs:2492` clause 3 fixture precondition, `robot_model.rs:2564`
 clause 1 `Shape::Mesh` variant). 6+8+2+6 = 22. No site here reads as a
-hidden D6 finding: `robot_model.rs:2700`/`2719`'s doc comment flags two
+hidden D6 finding: `robot_model.rs:2796`/`2815`'s doc comment flags two
 conceptual input scenarios, but both trace to the same single construction
 call, not two guards collapsing to an indistinguishable shared
 `None`/error. One commit this round: `9661d4c`.
@@ -188,8 +188,8 @@ site).
 **Revised in two rounds.** First pass: `not-this-family` had drifted to mean
 "not about `Result`/`Option`" instead of a defined membership test, and
 misclassified 9 post-build business-state sites on that basis —
-`robot_model.rs:2025,2026,2027,2028,2046,2078`, `joint/model.rs:1040,1047`,
-`scene/collision_object.rs:983`. Reclassified by isolating mutation (see the
+`robot_model.rs:2052,2053,2054,2055,2078,2110`, `joint/model.rs:1040,1047`,
+`scene/collision_object.rs:1026`. Reclassified by isolating mutation (see the
 two crate tables for per-site evidence), not by re-reasoning from shape.
 
 Second pass: with `not-this-family` formally defined as census §9 (three
@@ -202,7 +202,7 @@ the clauses directly rather than accepting the first pass's 9-reclassified/
 before either `set_mimic` or `clear_mimic` runs — that the subject never
 decided) and moves back to `not-this-family`. Every other row's clause
 result agrees with the first pass's bite-check result, including
-`robot_model.rs:2025`, which turns out to be census §9's own worked example
+`robot_model.rs:2052`, which turns out to be census §9's own worked example
 verbatim.
 
 Final verdicts: 17 discriminating (4 ros + 7 distance-field + 6 model), 38
@@ -841,7 +841,7 @@ a read:
   (`9661d4c`, giving `j4` a real mimic so a cycle-clear check isn't
   vacuous), a plain field read (`.mimic().is_none()`), not a multi-guard
   function.
-- `moveit-model/src/robot_model.rs:2798` — `get_end_effector`'s own body
+- `moveit-model/src/robot_model.rs:2796` — `get_end_effector`'s own body
   is `self.groups.get(name).filter(is_end_effector).ok_or_else(...)`: a
   *single* `Error::unknown_name` construction site reachable through two
   distinct input categories (name not a group at all vs. name a group but
