@@ -3505,14 +3505,27 @@ mod tests {
             &[],
         );
 
-        assert!(
-            result.is_err(),
-            "dfce.attached_body_names names a body the caller-supplied slice \
-             no longer carries -- upstream's own equivalent lookup has no \
-             null check at all here (collision_env_distance_field.cpp:1239) \
-             and would dereference null; this port's closest safe equivalent \
-             is a hard error, not a silent skip"
-        );
+        // A bare .is_err() can't tell this guard's Error::UnknownName{kind:
+        // "attached body", ..} apart from the "link" lookups the same
+        // function's link loop and attached-body-transform lookups can also
+        // raise (:990/:995/:1017/:1022) -- bite-checked by swapping this
+        // guard's kind to "link", which left a bare is_err() green. Matching
+        // the structured kind field is what actually names this guard.
+        match &result {
+            Err(Error::UnknownName { kind, .. }) if *kind == "attached body" => {}
+            Err(other) => panic!(
+                "dfce.attached_body_names names a body the caller-supplied slice \
+                 no longer carries -- upstream's own equivalent lookup has no \
+                 null check at all here (collision_env_distance_field.cpp:1239) \
+                 and would dereference null; this port's closest safe equivalent \
+                 is a hard error, not a silent skip -- expected \
+                 UnknownName{{kind: \"attached body\", ..}}, got {other:?}"
+            ),
+            Ok(_) => panic!(
+                "dfce.attached_body_names names a body the caller-supplied slice \
+                 no longer carries, but group_state_representation succeeded"
+            ),
+        }
     }
 
     #[test]
