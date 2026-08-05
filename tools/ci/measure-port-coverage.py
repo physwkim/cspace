@@ -72,6 +72,15 @@ CITE_HEADER = re.compile(r"^\s*//\s*Ported from moveit2 @ [0-9a-f]{40}:\s*$")
 # A block runs from the marker to the first empty `//` line, non-comment
 # line, or `not ported` label -- so a "Considered and deliberately not
 # ported:" list below the block is never read as a citation.
+# `--check`'s row grammar: `| `<path>` | <class> | <evidence> | <note> |`.
+# The reconciliation below reads the first cell only, so a row can be
+# malformed to the right of it and still reconcile -- which is how six rows
+# lost their closing `|` and three grew a fifth column at an unescaped `|`
+# inside a `rg ... | wc -l` code span, where GFM truncates the rendered cell.
+DOC_ROW_CELLS = 4
+DOC_ROW_START = re.compile(r"^\| `moveit_[^`]+` \|")
+DOC_CELL_SPLIT = re.compile(r"(?<!\\)\|")
+
 COMMENT = re.compile(r"^\s*//(.*)$")
 DIR_LINE = re.compile(r"^(moveit_[A-Za-z0-9_./-]*/)$")
 PATH_LINE = re.compile(r"^(moveit_[A-Za-z0-9_./-]+\.(?:cpp|hpp|h|cc))(\s.*)?$")
@@ -241,6 +250,18 @@ def main() -> int:
         # file's own, which is what makes that line an assertion about the
         # document rather than a restatement of the set it was derived from.
         listed = re.findall(r"^\| `(moveit_[^`]+)` \|", doc, re.M)
+        malformed = []
+        for lineno, line in enumerate(doc.splitlines(), 1):
+            if not DOC_ROW_START.match(line):
+                continue
+            if not line.endswith("|"):
+                malformed.append((lineno, "no closing `|`"))
+                continue
+            cells = DOC_CELL_SPLIT.split(line)[1:-1]
+            if len(cells) != DOC_ROW_CELLS:
+                malformed.append(
+                    (lineno, f"{len(cells)} cells, want {DOC_ROW_CELLS} -- unescaped `|`?")
+                )
         rows = set(listed)
         duplicated = sorted({f for f in rows if listed.count(f) > 1})
         missing = sorted(set(unported) - rows)
@@ -251,14 +272,19 @@ def main() -> int:
             print(f"STALE ROW    {f}", file=sys.stderr)
         for f in duplicated:
             print(f"DUPLICATE ROW  {f} ({listed.count(f)} rows)", file=sys.stderr)
-        if missing or extra or duplicated:
+        for lineno, why in malformed:
+            print(f"MALFORMED ROW  {args.check}:{lineno}: {why}", file=sys.stderr)
+        if missing or extra or duplicated or malformed:
             print(
                 f"FAIL {args.check}: {len(missing)} missing, {len(extra)} stale, "
-                f"{len(duplicated)} duplicated",
+                f"{len(duplicated)} duplicated, {len(malformed)} malformed",
                 file=sys.stderr,
             )
             return 1
-        print(f"OK {args.check}: {len(listed)} rows == {len(unported)} unported")
+        print(
+            f"OK {args.check}: {len(listed)} rows == {len(unported)} unported, "
+            f"all {DOC_ROW_CELLS}-cell"
+        )
 
     return 0
 
