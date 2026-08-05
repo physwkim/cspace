@@ -43,8 +43,11 @@
 #       declared below; fires on zero merges.
 #
 #   (B) rejected: continuity of the integer sequence, with the unassigned
-#       numbers listed. §222 and §223 are unassigned today, and against a
-#       declaration of exactly those two, 99 of 2391 commits fail -- 14
+#       numbers listed. Two numbers are unassigned today -- 222 and 223, and
+#       written without the section sigil on purpose, because the sentence is
+#       about numbers that resolve to no heading and `check-section-references`
+#       scans this file like any other. Against a declaration of exactly those
+#       two, 99 of 2391 commits fail -- 14
 #       distinct gap shapes, 12 of them on this branch's own first-parent
 #       line, because a gap is the *normal* transient state while parallel
 #       branches take numbers out of order. Worse, (B) is structurally blind to
