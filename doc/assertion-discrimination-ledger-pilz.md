@@ -81,14 +81,14 @@ confirming).
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `trajectory_blender_transition_window.rs:762` | `validate_request`'s `blend_radius <= 0.0` guard (of 4 `InvalidMotionPlan` sites in this function) | `validate_request_rejects_blend_radius_at_or_below_zero` | discriminating | round-report (in-source comment on this test, verified): this round's fixture is deliberately chained so only this guard's precondition is violated; the comment records mutation testing that caught an earlier, non-chained fixture falsely passing via the boundary-mismatch guard instead |
-| `trajectory_blender_transition_window.rs:767` | same guard, second boundary value (`-0.01`) | same test fn | discriminating | same |
-| `trajectory_blender_transition_window.rs:791` | same function, `is_robot_state_equal` boundary-mismatch guard | `validate_request_rejects_a_boundary_state_mismatch` | discriminating | bite (this round): neutralized this guard (`if false && !is_robot_state_equal(..)`) — `validate_request_rejects_a_boundary_state_mismatch` FAILED (no other guard fired for this fixture: `validate_request` returned `Ok`); reverted |
-| `trajectory_blender_transition_window.rs:807` | same function, `determine_and_check_sampling_time` mismatch guard | `validate_request_rejects_a_mismatched_sampling_time` | discriminating | bite (this round): neutralized this guard (`.or(Some(0.1))` before the `.ok_or(..)`) — dedicated test FAILED, no other guard fired; reverted |
-| `trajectory_blender_transition_window.rs:842` | same function, `is_robot_state_stationary` non-stationary-boundary guard (folds both trajectories' checks via `||` into one `Error::` site) | `validate_request_rejects_non_stationary_boundary_waypoints` | discriminating | bite (this round): neutralized this guard (`if false && (...)`) — dedicated test FAILED, no other guard fired; reverted. In-source comment on this test additionally records the fixture was built to hold the boundary-mismatch guard (`:791`'s subject) satisfied while only stationarity fails |
-| `trajectory_blender_transition_window.rs:944` | `search_intersection_points`'s first-trajectory-search `ok_or` (of 2 sites sharing one code) | `search_intersection_points_rejects_when_first_trajectory_never_reaches_the_blend_radius` | discriminating | round-report (in-source comment above both tests, verified): each test keeps the OTHER trajectory a known crosser (case-A geometry) so only the trajectory under test can be the Err's cause — an isolating fixture split, commit `52d597b` per p1-joints |
-| `trajectory_blender_transition_window.rs:960` | same function, second-trajectory-search `ok_or` (mirror of `:944`) | `search_intersection_points_rejects_when_second_trajectory_never_reaches_the_blend_radius` | discriminating | same isolating split, mirror case |
-| `trajectory_blender_transition_window.rs:1199` | same function, both `ok_or` sites firing together at this pinned corner/radius fixture | `search_intersection_points_rejects_a_radius_that_exceeds_this_corners_reach` | joint-collapse | round-report (in-source comment directly above this test, verified, and p1-joints' own fresh bite this round: `.or(Some(0))` on the first search, reverted — confirmed the test stays green with either single guard disabled, only failing when both are neutralized). Confirmed NOT a defect: `search_intersection_points`'s own doc comment (`:381-385`) records both searches deliberately sharing one code, matching upstream's bool-only `searchIntersectionPoints`; `blend`, the only caller (`:234`), never distinguishes the two causes either — census §9a's `joint-collapse` verdict applies (all three clauses verified there), no fix needed |
+| `trajectory_blender_transition_window.rs:774` | `validate_request`'s `blend_radius <= 0.0` guard (of 4 `InvalidMotionPlan` sites in this function) | `validate_request_rejects_blend_radius_at_or_below_zero` | discriminating | round-report (in-source comment on this test, verified): this round's fixture is deliberately chained so only this guard's precondition is violated; the comment records mutation testing that caught an earlier, non-chained fixture falsely passing via the boundary-mismatch guard instead |
+| `trajectory_blender_transition_window.rs:779` | same guard, second boundary value (`-0.01`) | same test fn | discriminating | same |
+| `trajectory_blender_transition_window.rs:803` | same function, `is_robot_state_equal` boundary-mismatch guard | `validate_request_rejects_a_boundary_state_mismatch` | discriminating | bite (this round): neutralized this guard (`if false && !is_robot_state_equal(..)`) — `validate_request_rejects_a_boundary_state_mismatch` FAILED (no other guard fired for this fixture: `validate_request` returned `Ok`); reverted |
+| `trajectory_blender_transition_window.rs:819` | same function, `determine_and_check_sampling_time` mismatch guard | `validate_request_rejects_a_mismatched_sampling_time` | discriminating | bite (this round): neutralized this guard (`.or(Some(0.1))` before the `.ok_or(..)`) — dedicated test FAILED, no other guard fired; reverted |
+| `trajectory_blender_transition_window.rs:854` | same function, `is_robot_state_stationary` non-stationary-boundary guard (folds both trajectories' checks via `||` into one `Error::` site) | `validate_request_rejects_non_stationary_boundary_waypoints` | discriminating | bite (this round): neutralized this guard (`if false && (...)`) — dedicated test FAILED, no other guard fired; reverted. In-source comment on this test additionally records the fixture was built to hold the boundary-mismatch guard (`:803`'s subject) satisfied while only stationarity fails |
+| `trajectory_blender_transition_window.rs:956` | `search_intersection_points`'s first-trajectory-search `ok_or` (of 2 sites sharing one code) | `search_intersection_points_rejects_when_first_trajectory_never_reaches_the_blend_radius` | discriminating | round-report (in-source comment above both tests, verified): each test keeps the OTHER trajectory a known crosser (case-A geometry) so only the trajectory under test can be the Err's cause — an isolating fixture split, commit `52d597b` per p1-joints |
+| `trajectory_blender_transition_window.rs:972` | same function, second-trajectory-search `ok_or` (mirror of `:956`) | `search_intersection_points_rejects_when_second_trajectory_never_reaches_the_blend_radius` | discriminating | same isolating split, mirror case |
+| `trajectory_blender_transition_window.rs:1211` | same function, both `ok_or` sites firing together at this pinned corner/radius fixture | `search_intersection_points_rejects_a_radius_that_exceeds_this_corners_reach` | joint-collapse | round-report (in-source comment directly above this test, verified, and p1-joints' own fresh bite this round: `.or(Some(0))` on the first search, reverted — confirmed the test stays green with either single guard disabled, only failing when both are neutralized). Confirmed NOT a defect: `search_intersection_points`'s own doc comment (`:381-385`) records both searches deliberately sharing one code, matching upstream's bool-only `searchIntersectionPoints`; `blend`, the only caller (`:234`), never distinguishes the two causes either — census §9a's `joint-collapse` verdict applies (all three clauses verified there), no fix needed |
 
 ## `pilz_trajectory_lin_parity.rs` (2)
 
@@ -110,7 +110,7 @@ confirming).
 census §9 clause 3 — the oracle-fixture-precondition shape, identical to
 the `std::fs::read` example §9 itself resolves). Of the 30 in-family: 17
 discriminating, 12 single-branch, 0 fixture-collapse-fixed, 1
-joint-collapse (`:1199` — a genuine, confirmed-not-a-defect member, kept
+joint-collapse (`:1211` — a genuine, confirmed-not-a-defect member, kept
 out of the discriminating/single-branch split since it is neither).
 
 Verdict tally check: 14 (`trajectory_generator.rs`) + 2 (`_ptp.rs`) + 2
@@ -128,11 +128,11 @@ confirming.
 - Bites (each: mutate, targeted `-E 'test(<fn>)'` run, revert,
   `git diff --stat` confirmed empty before continuing):
   - `validate_request_rejects_a_boundary_state_mismatch` — FAILED under
-    mutation, confirming `:791`/`:352`
+    mutation, confirming `:803`/`:352`
   - `validate_request_rejects_a_mismatched_sampling_time` — FAILED under
-    mutation, confirming `:807`/`:357`
+    mutation, confirming `:819`/`:357`
   - `validate_request_rejects_non_stationary_boundary_waypoints` — FAILED
-    under mutation, confirming `:842`/`:368`
+    under mutation, confirming `:854`/`:368`
 - `cargo fmt --all -- --check` — clean, before and after all bites
 
 ## Gate scope
@@ -145,7 +145,7 @@ before `git push` per the standing rule; not run this round.
 
 ## UNFIXED
 
-None. `:1199`'s joint-collapse is confirmed not a defect (see its row);
+None. `:1211`'s joint-collapse is confirmed not a defect (see its row);
 nothing else in this crate's 32 sites is a genuinely blind assertion.
 
 # Beyond the `matches!`/`.is_err()`/`.is_none()` grammar (12, then 13, now 24)
@@ -192,7 +192,7 @@ in this round's instructions).
 | `trajectory_functions.rs:1168` | eq_none | `compute_link_fk`'s success-path return on the synthetic non-link-model-frame fixture — the new isolating test the `:1129` fix added | `compute_link_fk_rejects_the_bare_model_frame_when_it_is_not_a_link_name` | discriminating | this round's orphan reconciliation: this row never had its own citation — `:1129`'s row already carries its bite evidence (commit `470362b`) but only for the pre-fix test; this is that fix's own new sibling test, previously uncited |
 | `trajectory_functions.rs:1244` | eq_none | `compute_pose_ik`'s tip-frame-mismatch guard, one of 5 collapsed `None`-producing paths | `compute_pose_ik_rejects_tip_frame_mismatch` | discriminating | bite this round: `if false && solver.tip_frame() != link_name` flips this test to an actual IK solution (`Some({"panda_joint7": ..})`) while `compute_pose_ik_round_trips_a_reachable_pose` stays green. Reverted. Commit `ab8439e` (doc only). Cited `:1137`, drifted to `:1224` |
 | `path_line.rs:430` | contains_member | `assert!((0.0..=PI).contains(&angle))` on `get_rot_angle`'s return — a plain function, not `Result`/`Option` | `assert_get_rot_angle_round_trips` | not-this-family | census §9 clause 1 (mechanism): `angle` is a computed numeric value on the success path, not a coarse-fail signal; there is no guard to discriminate |
-| `trajectory_blender_transition_window.rs:1259` | is_empty | `blend_sample_num`'s loop bound, arithmetic from indices with no branch producing "empty" as a signal | (blend-trajectory-cartesian test) | not-this-family | census §9 clause 1 (mechanism): success-path sanity check on a normally-computed range, not an inability signal |
+| `trajectory_blender_transition_window.rs:1271` | is_empty | `blend_sample_num`'s loop bound, arithmetic from indices with no branch producing "empty" as a signal | (blend-trajectory-cartesian test) | not-this-family | census §9 clause 1 (mechanism): success-path sanity check on a normally-computed range, not an inability signal |
 | `path_rounded_composite.rs:412` | contains_msg | `PathRoundedComposite::new`'s sole rejection, non-positive `eqradius` | `new_rejects_a_non_positive_eqradius` | discriminating | bite this round: `if false && eqradius <= 0.0` lets construction succeed and `unwrap_err()` panics on an `Ok`; the other five `path_rounded_composite` rejection tests stay green. Reverted |
 | `path_rounded_composite.rs:434` | contains_msg | `add_corner`'s zero-length-incoming-leg rejection, one of 5 collapsed `Error::construct` sites in that function | `add_rejects_a_zero_length_incoming_segment` | discriminating | bite this round: `if false && incoming_len < ADD_EPSILON` flips exactly this test and no sibling — the needle `"arriving at this vertex coincides"` is emitted by no other guard. Reverted |
 | `path_rounded_composite.rs:452` | contains_msg | same function, zero-length-outgoing-leg rejection | `add_rejects_a_zero_length_outgoing_segment` | discriminating | bite this round (mirror of `:434`): flips exactly this test; needle `"leaving this vertex coincides"` is unique. Reverted |
@@ -204,10 +204,10 @@ in this round's instructions).
 | `path_polyline_generator.rs:418` | contains_msg | same single site, reached through `polyline_from_waypoints` rather than `compute_blend_radius` directly | `polyline_from_waypoints_rejects_a_colinear_run` | single-branch | same structural read as `:348`; this row's value is that the outer entry point propagates the rejection rather than swallowing it |
 | `pilz_trajectory_polyline.rs:467` | is_none | `response.trajectory`, paired with the `assert_eq!(error_code, InvalidMotionPlan)` on the line above | `polyline_rejects_a_request_with_fewer_than_two_waypoints` | not-this-family | census §9 clause 1 (mechanism): the branch is already named by the `error_code` equality one line up; this is the companion check that a rejected response carries no trajectory, not the fail signal itself |
 | `pilz_trajectory_polyline.rs:522` | is_none | same shape, on the variant-swap rejection | `polyline_plans_a_polyline_constraint_and_rejects_the_same_request_carrying_a_circ_one` | not-this-family | census §9 clause 1 (mechanism): same as `:467`. That test's own discrimination limit — `InvalidMotionPlan` cannot distinguish "constraint is CIRC" from "no POLYLINE waypoints" — is stated in its doc comment, and it pins the variant swap by asserting the un-swapped request reaches `Success` first |
-| `trajectory_blender_transition_window.rs:1345` | is_empty | `response.blend_trajectory`, already known `Ok` via `.expect(..)` one line above | (blend test) | not-this-family | census §9 clause 1 (mechanism): same shape as `:1259` — a size check on a success-path collection, not a fail/absent signal |
+| `trajectory_blender_transition_window.rs:1357` | is_empty | `response.blend_trajectory`, already known `Ok` via `.expect(..)` one line above | (blend test) | not-this-family | census §9 clause 1 (mechanism): same shape as `:1271` — a size check on a success-path collection, not a fail/absent signal |
 | `pilz_trajectory_polyline_parity.rs:388` | is_none | `response.waypoints` — `response` is the oracle's own recorded JSON fixture, deserialized, not a value the port produced | `polyline_panda_arm_rejects_the_same_request_the_oracle_rejects` | not-this-family | census §9 clause 3 (subject): identical shape and identical argument to `pilz_trajectory_lin_parity.rs:381` and `pilz_trajectory_circ_parity.rs:389` — deleting the port call from this test would not change this assertion's outcome |
 | `pilz_trajectory_polyline_parity.rs:413` | is_none | `response.trajectory`, from `TrajectoryGeneratorPolyline::cmd_specific_request_validation`'s waypoint-count guard — one of 3 `InvalidMotionPlan` sites reachable on this call path (that guard, and `polyline_path_constraint`'s absent- and wrong-variant returns) | `polyline_panda_arm_rejects_the_same_request_the_oracle_rejects` | discriminating | bite this round: relaxed the guard to `waypoints.len() < 1` — this assertion FAILED (the one-waypoint fixture then planned) together with its property-test sibling `polyline_rejects_a_request_with_fewer_than_two_waypoints`, and no other test in the crate moved (176/178). Reverted. The other two sites are additionally excluded within the test itself: it restores the dropped waypoint as its only edit and asserts `Success`, so neither the absent- nor the wrong-variant return can be this fixture's cause |
-| `plan_components_builder.rs:467` | is_empty | `PlanComponentsBuilder::build`'s `traj_tail == None` path — the only path a builder that has never been appended to can take | `build_of_an_untouched_builder_is_empty` | not-this-family | census §9 clause 1 (mechanism): `build` returns `Ok` unconditionally when there is no tail, so there is no fail/absent signal and no sibling guard for the emptiness to be blind to. Same shape as `trajectory_blender_transition_window.rs:1345` — a size check on a success-path collection. The branch it does pin (`build` must not fabricate a container element) is bitten by the sibling `the_first_append_starts_one_container_element_that_build_flushes_the_tail_into`, whose `assert_eq!` is not a coarse-fail site |
+| `plan_components_builder.rs:467` | is_empty | `PlanComponentsBuilder::build`'s `traj_tail == None` path — the only path a builder that has never been appended to can take | `build_of_an_untouched_builder_is_empty` | not-this-family | census §9 clause 1 (mechanism): `build` returns `Ok` unconditionally when there is no tail, so there is no fail/absent signal and no sibling guard for the emptiness to be blind to. Same shape as `trajectory_blender_transition_window.rs:1357` — a size check on a success-path collection. The branch it does pin (`build` must not fabricate a container element) is bitten by the sibling `the_first_append_starts_one_container_element_that_build_flushes_the_tail_into`, whose `assert_eq!` is not a coarse-fail site |
 | `command_list_manager.rs:812` | is_err | `solver_tip_frame` on the `hand` group — a fixture precondition, not the call under test (`extract_blend_radii`) | `a_radius_in_a_group_without_a_solver_is_zeroed` | not-this-family | census §9 clause 3 (subject): deleting `extract_blend_radii` from this test would not change this assertion's outcome. It exists so the test fails loudly, rather than passing vacuously, if `hand` ever gains a solver and the no-solver rule stops being the one that fires |
 | `command_list_manager.rs:981` | is_empty | `solve`'s `items.is_empty()` early return | `an_empty_list_yields_an_empty_result_without_planning` | not-this-family | census §9 clause 1 (mechanism): the branch is named by the sibling `assert_eq!(*calls.borrow(), 0)` one line below, which is what distinguishes "returned before planning" from "planned nothing and produced nothing" — an empty result alone cannot tell those apart, since `PlanComponentsBuilder::build` on an untouched builder is also empty |
 
@@ -246,7 +246,7 @@ not-this-family, 2 single-branch**.
 `plan_components_builder.rs` arrived with the `PlanComponentsBuilder` port
 and had no ledger row; `verify-orphan-enumeration.sh` reported its single
 `is_empty` site as an orphan. It is the success-path-collection shape
-already resolved once in this file (`trajectory_blender_transition_window.rs:1345`).
+already resolved once in this file (`trajectory_blender_transition_window.rs:1357`).
 
 The same run flagged 5 unresolved `trajectory_functions.rs` citations: this
 round moved `solver_tip_frame` out of `trajectory_generator_lin.rs` and into
@@ -329,8 +329,8 @@ function and assertion text, not only the 10 flagged.
 ### The preceding round's 13
 
 **10 in-family, 3 not-this-family** (all three excluded by clause 1,
-mechanism — `path_line.rs:430`, `trajectory_blender_transition_window.rs:1259`
-and `:1345`; none is a coarse-fail signal). Of the 10 in-family: **8
+mechanism — `path_line.rs:430`, `trajectory_blender_transition_window.rs:1271`
+and `:1357`; none is a coarse-fail signal). Of the 10 in-family: **8
 discriminating with no fix needed** (7 from the original round plus this
 round's new `:1168` row, itself already covered by `:1129`'s bite
 evidence), and **2 were blind and are now fixed**
