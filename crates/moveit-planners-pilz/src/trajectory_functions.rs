@@ -939,6 +939,12 @@ mod tests {
         traj
     }
 
+    /// `n1 < 2 && n2 < 2` folds two named operands into one guard
+    /// (`doc/folded-operand-guards.md`). This test alone cannot tell them
+    /// apart: both `n1` and `n2` are `1` here, so forcing either operand's
+    /// clause to `true` (keeping the other real) leaves this assertion
+    /// green -- checked in both directions. The two sibling tests below
+    /// isolate each operand instead, one fixture per operand.
     #[test]
     fn determine_and_check_sampling_time_needs_at_least_two_intervals_on_one_side() {
         let (model, _) = load_panda();
@@ -946,6 +952,39 @@ mod tests {
         let a = robot_trajectory_with_durations(&model, &[0.0, 0.1]);
         let b = robot_trajectory_with_durations(&model, &[0.0, 0.1]);
         assert_eq!(determine_and_check_sampling_time(&a, &b, 1e-6), None);
+    }
+
+    /// Isolates `n2 < 2`'s operand: `n1 = 1 < 2` here, so this can only
+    /// return `Some` because `n2 = 2` genuinely fails its own `< 2` clause.
+    /// Isolating mutation: forcing `n2 < 2`'s clause to `true` (`if n1 < 2
+    /// && true`) flips this test from `Some(0.1)` to a `None` unwrap panic;
+    /// the other five sampling-time tests, including this function's own
+    /// `n1`-isolating mirror below, stay green under the same mutation.
+    #[test]
+    fn determine_and_check_sampling_time_accepts_when_only_the_second_side_has_enough_intervals() {
+        let (model, _) = load_panda();
+        let a = robot_trajectory_with_durations(&model, &[0.0, 0.1]);
+        let b = robot_trajectory_with_durations(&model, &[0.0, 0.1, 0.1]);
+        assert_relative_eq!(
+            determine_and_check_sampling_time(&a, &b, 1e-6).unwrap(),
+            0.1
+        );
+    }
+
+    /// Mirror of
+    /// `determine_and_check_sampling_time_accepts_when_only_the_second_side_has_enough_intervals`,
+    /// isolating `n1 < 2`'s operand instead: forcing `n1 < 2`'s clause to
+    /// `true` (`if true && n2 < 2`) flips this test from `Some(0.1)` to a
+    /// `None` unwrap panic, while the other five stay green.
+    #[test]
+    fn determine_and_check_sampling_time_accepts_when_only_the_first_side_has_enough_intervals() {
+        let (model, _) = load_panda();
+        let a = robot_trajectory_with_durations(&model, &[0.0, 0.1, 0.1]);
+        let b = robot_trajectory_with_durations(&model, &[0.0, 0.1]);
+        assert_relative_eq!(
+            determine_and_check_sampling_time(&a, &b, 1e-6).unwrap(),
+            0.1
+        );
     }
 
     #[test]
