@@ -387,10 +387,10 @@ impl RobotModel {
     /// `nullptr` does.
     ///
     /// Upstream's third case, an empty `jmg` — its `begin != end` guard, at
-    /// `robot_model.cpp:1385`, makes an empty group contribute no membership
-    /// test rather than excluding every joint — has no counterpart here and
-    /// needs none: [`RobotModel::from_urdf_and_srdf`] refuses to construct
-    /// a group with no joints, recording [`Diagnostic::EmptyGroup`]
+    /// `robot_model.cpp:1386-1388`, makes an empty group contribute no
+    /// membership test rather than excluding every joint — has no counterpart
+    /// here and needs none: [`RobotModel::from_urdf_and_srdf`] refuses to
+    /// construct a group with no joints, recording [`Diagnostic::EmptyGroup`]
     /// instead, so a `&JointModelGroup` naming zero joints does not exist
     /// to be passed.
     pub fn rigidly_connected_parent_link(
