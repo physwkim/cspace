@@ -20,9 +20,9 @@
 //!
 //! The names are `move_group::QUERY_PLANNERS_SERVICE_NAME`,
 //! `GET_PLANNER_PARAMS_SERVICE_NAME` and `SET_PLANNER_PARAMS_SERVICE_NAME`
-//! (`capability_names.hpp:46`, `:48`, `:50`), unqualified for the same reason
-//! `move_action` is: `MoveGroupInterface` resolves them against the node's
-//! namespace.
+//! (`move_group/capability_names.hpp:46`, `:48`, `:50`). They are advertised
+//! unqualified, for the same reason `move_action` is: `MoveGroupInterface`
+//! resolves them against the node's namespace.
 //!
 //! # None of the three has an error channel
 //!

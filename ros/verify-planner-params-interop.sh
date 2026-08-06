@@ -13,7 +13,8 @@
 # What only a live graph can show, and what these legs are therefore for:
 #
 #   1. The three services exist under the names an unmodified
-#      `MoveGroupInterface` resolves (`capability_names.hpp:46`, `:48`, `:50`).
+#      `MoveGroupInterface` resolves
+#      (`move_group/capability_names.hpp:46`, `:48`, `:50`).
 #      The unit tests drive the handlers directly and would keep passing if the
 #      node advertised nothing at all.
 #   2. `query_planner_interface`'s answer is derived from the linked

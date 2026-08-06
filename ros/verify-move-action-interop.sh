@@ -216,7 +216,7 @@ docker run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
 '
 
 # The wire name, unqualified in upstream (`move_group::MOVE_ACTION`,
-# capability_names.hpp:52) and resolved by the client through
+# move_group/capability_names.hpp:52) and resolved by the client through
 # `rclcpp::names::append`. A rename reddens here first, with its own message,
 # before the reply assertions fail for a reason that would read as "wrong
 # error code".
