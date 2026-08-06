@@ -2944,28 +2944,31 @@ p3-acm이 pr2 메시를 실제로 넣은 뒤(§32.1) 재측정으로 **부분적
 
 ### 23.1 `resolveConstraintFrames`는 그대로 둔다
 
-§12.7 표(원본 라인 1699 부근)의 기존 메모가 여전히 유효함을
-`crates/moveit-state/src/state.rs:1150-1156`을 다시 읽어 확인했다:
-`Posed::frame_transform`의 문서 주석이 지금도 "attached bodies are
-not ported"라고 명시한다. §18(`p1-fixtures` 3라운드)이 부착체를
+§12.7 표(원본 라인 1699 부근)의 기존 메모는 이 절을 쓰던 시점까지
+유효했다: 그때 `Posed::frame_transform`의 문서 주석이 "attached bodies
+are not ported"라고 명시하고 있었다. §18(`p1-fixtures` 3라운드)이 부착체를
 연결한 것은 맞지만 그건 `CollisionEnv`의 `AttachedBodyGeometry`
-경로뿐이다 — `RobotState`/`Posed` 위에 `getAttachedBodies()`나
-서브프레임을 이름으로 찾는 API는 아직 없다. `resolveConstraintFrames`가
-필요로 하는 것은 정확히 그 API(`link_name`이 부착체/서브프레임을
-가리킬 때 로봇 링크 이름으로 되돌리는 조회)이므로, 이번 라운드에서
-이식해도 `frame_transform`이 항상 링크 이름만 성공시키는 한
-"`c.link_name`이 이미 로봇 링크다"가 항상 참인 퇴화 함수가 된다.
-**`p1-fixtures`(`AttachedBody`/서브프레임 소유자)가 `RobotState`
-레벨에 이름 기반 서브프레임 조회를 추가한 뒤에 재검토할 것.**
+경로뿐이었고 — `RobotState`/`Posed` 위에 `getAttachedBodies()`나
+서브프레임을 이름으로 찾는 API는 그 시점에 없었다(그 레벨에는 지금도
+없다). `resolveConstraintFrames`가 필요로 하는 것은 정확히 그
+API(`link_name`이 부착체/서브프레임을 가리킬 때 로봇 링크 이름으로
+되돌리는 조회)이므로, 이식해도 `frame_transform`이 항상 링크 이름만
+성공시키는 한 "`c.link_name`이 이미 로봇 링크다"가 항상 참인 퇴화 함수가
+된다고 판단하고, `p1-fixtures`(`AttachedBody`/서브프레임 소유자)가
+`RobotState` 레벨에 이름 기반 서브프레임 조회를 추가한 뒤에 재검토할
+것으로 남겼다.
 
 **병합 시점 정정 (같은 라운드에서 해소됨).** `p1-fixtures`가 같은 라운드에
 그 조회를 내놨다 — 다만 `RobotState` 레벨이 아니라 **`PlanningScene` 레벨**로,
 이 포트가 부착체를 상태가 아니라 씬에 두기로 한 결정에 맞춰서다
-(`crates/moveit-scene/src/scene.rs:613` `frame_transform`,
-`:671` `knows_frame_transform` — 모델 프레임/링크 → 부착체 id/서브프레임 →
-월드 객체 id/서브프레임의 3단 사다리). `Posed::frame_transform`의 주석도
-`22bb2a2`에서 "attached bodies are not ported"를 버리고 "씬 한 층 위에서
-해결된다"로 고쳤다. 따라서 §23.1의 차단 사유는 더 이상 성립하지 않는다.
+(`crates/moveit-scene/src/scene.rs:1345` `frame_transform`,
+`:1446` `knows_frame_transform` — 모델 프레임/링크 → 부착체 id → 부착체
+서브프레임 → 월드 객체 id/서브프레임의 사다리이고, §59.2가 뒤에
+extra-fixed-frame 맵을 여섯째 단으로 더해 지금은 6단이다). 위 본문이
+인용하던 `Posed::frame_transform`의 주석도 `22bb2a2`에서 "attached bodies
+are not ported"를 버리고 "씬 한 층 위에서 해결된다"로 고쳤다(지금 자리는
+`crates/moveit-state/src/state.rs:1208-1218`). 따라서 §23.1의 차단 사유는
+더 이상 성립하지 않는다.
 남은 것은 상류가 `const RobotState&`를 받는 시그니처를 이 포트에서 무엇으로
 바꿀지 결정하는 일이고, 그건 `moveit-constraints` 소유자의 몫이다.
 
