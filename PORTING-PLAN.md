@@ -22647,8 +22647,14 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 없다) 결정의 **존재**는 87/87이다. 그래서 (a) 71 + 다른 이름으로 존재
 16 = 87이고 (c)에 남는 것이 없다.
 
-**(b) "빠졌고 Phase 판정을 막는다" = 0건.** 오늘 MET가 아닌 Phase 행은
-넷이다:
+**(b) "빠졌고 Phase 판정을 막는다" = 0건.** 이 절이 쓰인 시점에 MET가 아닌
+Phase 행은 넷이었다 — **넷 다 그 뒤에 MET로 닫혔고, 이 절의 (b) 논증은 그
+사실에 달려 있지 않다**(막는 파일이 0건이라는 것이 결론이므로 행이 닫히면
+같은 결론이 더 강해진다). 넷이 닫힌 자리는 §5가 인용으로 들고 있다:
+`collision: bool`은 §288, 분리 분기의 `distance: f64`는 §260, Phase 8의
+CHOMP/STOMP는 §286, Phase 9의 `MoveGroupInterface`는 §273. 오늘 §5의 Phase
+행 20개는 전부 MET이고 `tools/ci/check-unmet-blockers.sh`가 "0 not-yet-MET
+row(s)"로 독립 확인한다. 아래는 그 시점의 출력이다:
 
 ```
 $ rg -n '^\| Phase ' PORTING-PLAN.md | rg -v '\| MET \|'
