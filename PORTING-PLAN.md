@@ -25197,7 +25197,8 @@ FAIL doc/unported-classification.md: ... rows differ from a fresh derivation
 >   병합자가 기본 체크아웃에서 5로봇 스윕을 돌려 판정을 정한다.
 > - **`distance`의 UNMET 유지**는 §262.3이 "조건 문구는 그대로"라는
 >   전제 위에 서 있는데, 그 전제를 §260이 이미 무너뜨렸다: §260은 상류
->   자신의 부호 분기(`collision_common.cpp:636`)에서 조건을 쪼개고,
+>   자신의 부호 분기(`moveit_core/collision_detection_fcl/src/collision_common.cpp:636`)
+>   에서 조건을 쪼개고,
 >   분리 분기에서 5로봇 × 10,000상태 발산 0건을 실측했으며, 쪼갠 조건이
 >   여전히 무엇을 잡는지 양쪽 분기 변이로 보였다(§260.7). 문구가 바뀐
 >   뒤에는 §262.3의 반론("바뀌지 않은 문구가 만족되지 않는다")이 그대로
