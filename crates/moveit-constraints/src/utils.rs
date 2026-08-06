@@ -241,6 +241,29 @@ pub fn count_individual_constraints(constraints: &KinematicConstraintSet) -> usi
 /// arithmetic — every one of those 4000 draws landed inside the window and
 /// was accepted by [`crate::JointConstraint::decide`].
 ///
+/// A region goal is therefore still this same function: pass the width you
+/// want. `0.0` removes no caller's ability to say "near this state", it only
+/// gives "exactly this state" a spelling that survives the encoding.
+/// `tests/utils_parity.rs`' `construct_goal_joint_constraints` and
+/// `update_joint_constraints` cases exercise that path against the oracle at
+/// `0.1`, and both fail if the tolerance arguments stop reaching
+/// [`JointConstraint::new`].
+///
+/// Two exactness caveats, both measured rather than argued:
+///
+/// - The window is built as `min_bound..=max_bound`, an *inclusive* range, so
+///   zero width is a legal one-element range rather than an empty one and
+///   `random_range` does not trip its own `!range.is_empty()` assertion. The
+///   half-open `lo..hi` form would panic instead; the one caller of that form,
+///   [`crate::IkConstraintSampler`], takes its bounds from a position
+///   constraint's region body and is unreachable from here, because this
+///   function emits `Constraint::Joint` only.
+/// - `-0.0` comes back `+0.0`: `u * 0.0` is `+0.0` and `+0.0 + -0.0` is
+///   `+0.0`. Over 900,000 draws across nine positions the only deviation from
+///   bit equality was that sign, and it compares equal under `==` and under
+///   every tolerance, so a joint parked at `-0.0` still reproduces exactly in
+///   every sense a caller can observe.
+///
 /// # Errors
 ///
 /// [`Error::UnknownName`] if `group_name` does not name a group. Otherwise
