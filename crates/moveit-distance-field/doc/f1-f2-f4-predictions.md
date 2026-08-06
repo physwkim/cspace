@@ -55,10 +55,10 @@ if (maximum_value > dist && (sphere_list[i].radius_ - dist > tolerance))
   `gradients_[i].collision` anywhere in its body (confirmed by reading
   `:1645-1681` in full), which is exactly why F1/F2/F4 use `mode:
   "robot_only"` + `contacts: true` rather than `"gradients": true` (the
-  two are mutually exclusive on this op besides — `oracle.cpp:3686-3689`).
-- `Contact` JSON shape, from `contactToJson` (`oracle.cpp:2372-2383`,
+  two are mutually exclusive on this op besides — `oracle.cpp:4204-4207`).
+- `Contact` JSON shape, from `contactToJson` (`oracle.cpp:2662-2673`,
   reused by `allContactsToJson` for this op's `contacts` field,
-  `oracle.cpp:3774`): `body_name_1`, `body_type_1`, `shape_kinds_1`,
+  `oracle.cpp:4292`): `body_name_1`, `body_type_1`, `shape_kinds_1`,
   `body_name_2`, `body_type_2`, `shape_kinds_2`, `depth`. **No `pos`
   field** — an earlier draft of this document assumed one from the
   contact's `pos` member; `contactToJson` does not serialize it, so no
@@ -69,12 +69,12 @@ if (maximum_value > dist && (sphere_list[i].radius_ - dist > tolerance))
   merged into the shared distance field. `shapeKindsFor(WORLD_OBJECT,
   "environment", world)` returns `null` because `world.hasObject("environment")`
   is false for every case here (none of the requested object ids below is
-  literally `"environment"`) — `oracle.cpp:2287-2289`.
+  literally `"environment"`) — `oracle.cpp:2577-2579`.
 - `depth` is always `0.0`: `getEnvironmentCollisions` never sets
   `Contact::depth`, so it carries only its default member initializer,
   not a real penetration measurement.
 - `shape_kinds_1` for a robot link is `model_->getLinkModel(name)->getShapes()`
-  mapped through `shapeTypeName` (`oracle.cpp:2275-2280`, `:268-286`).
+  mapped (`oracle.cpp:2565-2570`) through `shapeTypeName`(`:294-316`).
 
 All three cases below reuse `group: "right_arm"`, `joint_values: {}`
 (the default pose), `use_acm: true` — ACM has no bearing on this path

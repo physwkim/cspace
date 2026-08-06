@@ -483,13 +483,13 @@
 //!    (`collision_env.cpp:83-96`) — not per-link, one constant for the whole
 //!    robot. The oracle's `collision` op constructs
 //!    `collision_detection::CollisionEnvFCL env(model_, world);`
-//!    (`tools/moveit-oracle/src/oracle.cpp:2097`), the 2-argument
+//!    (`tools/moveit-oracle/src/oracle.cpp:2464`), the 2-argument
 //!    constructor, and never calls `setPadding`/`setLinkPadding` anywhere on
 //!    that op's path — so every pr2 link's padding stays at the ctor
 //!    default. That default genuinely reaches FCL's geometry construction,
 //!    not a dead field: `CollisionEnvFCL`'s own `model, world, padding,
 //!    scale` constructor (the one `CollisionEnvFCL env(model_, world)` at
-//!    `oracle.cpp:2097` resolves to) calls
+//!    `oracle.cpp:2464` resolves to) calls
 //!    `createCollisionGeometry(shape, getLinkScale(name), getLinkPadding(name),
 //!    link, j)` per link per shape, the padding/scale-taking overload
 //!    (`collision_detection_fcl/src/collision_env_fcl.cpp:135`, mirrored at

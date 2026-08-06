@@ -985,7 +985,7 @@ fn group_state_representation_matches_the_oracle() {
 // Both ops gained `attached_bodies`/`contacts`/`max_contacts`/
 // `max_contacts_per_pair` request fields in `tools/moveit-oracle/src/
 // oracle.cpp` commit `5be5f72` (`applyAttachedBodies`, shared with
-// `collision`/`frame_transform`; see `oracle.cpp:1343-1400`). Round 23's
+// `collision`/`frame_transform`; see `oracle.cpp:1491-1548`). Round 23's
 // `ebd7ebc` closed a real gap in `get_self_collisions`/
 // `get_intra_group_collisions`/`get_intra_group_proximity_gradients`/
 // `get_environment_collisions`: each had stopped its loop bound at
@@ -1079,7 +1079,7 @@ fn parse_body_type(s: &str) -> BodyType {
 }
 
 /// One `contacts` array entry, `allContactsToJson`'s 7-field shape
-/// (`oracle.cpp:2230-2261`). `shape_kinds_1`/`shape_kinds_2` are not
+/// (`oracle.cpp:2662-2693`). `shape_kinds_1`/`shape_kinds_2` are not
 /// deserialized: [`moveit_collision::Contact`] carries no shape-kind field
 /// at all (this port's `Contact` is a synthesized "collision found" record
 /// derived from a sphere-vs-field query, not a real per-shape FCL contact),
@@ -1395,7 +1395,7 @@ struct GsrContactsResponseEntry {
     result: GsrContactsResult,
 }
 
-/// `group_state_representation`'s op (`oracle.cpp:3183-3393`) drives
+/// `group_state_representation`'s op (`oracle.cpp:3985-4295`) drives
 /// `CollisionEnvDistanceField::checkCollision`, not `checkSelfCollision` --
 /// unlike [`check_self_collision_matches_the_oracle_with_contacts_and_attached_bodies`]
 /// above, it also runs the environment phase ([`moveit_distance_field::get_environment_collisions`],
@@ -1429,7 +1429,7 @@ struct GsrContactsResponseEntry {
 /// - id 2: `payload` sphere attached to `r_wrist_roll_link`, `contacts:
 ///   true` -- same 13/22 link split, plus the attached body itself
 ///   participates in `result.contacts`. It never appears in `links[]`:
-///   that array is link-indexed only (`oracle.cpp:3336`, `for (i = 0; i <
+///   that array is link-indexed only (`oracle.cpp:4237`, `for (i = 0; i <
 ///   gsr->dfce_->link_names_.size(); ++i)`), so an attached body's own
 ///   gradient slot is unreachable from this op's per-link dump regardless
 ///   of `contacts` -- a distinct, narrower gap from the one this round's

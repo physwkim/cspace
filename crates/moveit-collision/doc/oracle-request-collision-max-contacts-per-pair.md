@@ -13,8 +13,20 @@ fr_caster_r_wheel_link)` pair holds 16 contacts at `max_contacts_per_pair
 oracle's originally-reported `~7.479e-2` are members of the same list.
 Case 623 is closed by that measurement; see `parry.rs`'s deviation-6(b)
 doc and `doc/claim-audit/moveit-collision.md`'s round 29 for the full
-result. The request below is left as written, unedited, as the record of
-what was asked for and why — it is what round 29 measured against.
+result.
+
+Where it landed, in today's file: `collision`(`oracle.cpp:2454-2527`) reads
+the field once at `oracle.cpp:2474-2477` (with a `>= 1` guard the request
+below did not ask for), applies it to both `CollisionRequest`s at
+`oracle.cpp:2482` and `oracle.cpp:2489`, and emits through
+`allContactsToJson` at `oracle.cpp:2521` and `oracle.cpp:2525`.
+
+The request below is left as written as the record of what was asked for and
+why — it is what round 29 measured against. Its `oracle.cpp` line numbers are
+therefore pinned at `47a271c^`, the revision they were read from: the request
+describes the file it asked to change, so re-pointing them at today's file
+would make it describe the state it argued against. One of them was wrong even
+there and is corrected below.
 
 Not an implementation — request document for the human orchestrator, same
 convention as `crates/moveit-distance-field/doc/oracle-request-hybrid-
@@ -48,8 +60,9 @@ than the one this backend's own exhaustive search names as deepest.
 `CollisionRequest::max_contacts_per_pair` (`collision_detection/collision_common.hpp:176`)
 defaults to `1`, and `oracle.cpp`'s `collision()` op
 (`crates/moveit-collision/examples/visibility_cone_mpr_sweep.rs`'s own
-ground truth) never overrides it — `contactsToJson` (`oracle.cpp:2326-
-2338`) reports `contact_list.front()` alone, so the oracle's own response
+ground truth) never overrides it — `contactsToJson`
+(`oracle.cpp@47a271c^:2326-2338`) reports `contact_list.front()` alone, so the
+oracle's own response
 can never show more than one candidate triangle's depth for a mesh-vs-
 cylinder pair, whatever FCL's narrow-phase actually tested. This request
 asks for exactly the field that would let a future round see every
@@ -62,7 +75,7 @@ possibility.
 Two pieces of the infrastructure this request needs are **already in
 `oracle.cpp`**, just not wired to the `collision` op:
 
-- `allContactsToJson` (`oracle.cpp:2364-2374`) already exists and is
+- `allContactsToJson` (`oracle.cpp@47a271c^:2364-2374`) already exists and is
   already used by two other ops (`distanceFieldCacheEntry`,
   `groupStateRepresentation`). It emits every entry of every pair's own
   `contact_list`, using the identical 7-field shape `contactToJson`
@@ -70,19 +83,22 @@ Two pieces of the infrastructure this request needs are **already in
   `body_name_2`, `body_type_2`, `shape_kinds_2`, `depth`) — no new JSON
   shape is needed, only calling the function that already exists.
 - A settable `max_contacts_per_pair` request field already exists on
-  those same two ops (`oracle.cpp:3391-3392`, `:3605-3606`):
+  those same two ops (`oracle.cpp@47a271c^:3391-3392`,
+  `oracle.cpp@47a271c^:3623-3624`; the second was written :3605-3606, which
+  landed in the doc comment eighteen lines above the assignment it names):
   `req.max_contacts_per_pair = request.value("max_contacts_per_pair",
   static_cast<std::size_t>(1));` — the exact pattern this request asks be
   mirrored onto `collision()`.
 
-What does **not** exist: the `collision` op (`oracle.cpp:2162-2208`, the
+What does **not** exist: the `collision` op (`oracle.cpp@47a271c^:2162-2208`, the
 op `visibility_cone_mpr_sweep.rs` actually calls) hardcodes
 `self_req.max_contacts_per_pair`/`robot_req.max_contacts_per_pair` at
 their default (never set, so `1`), and its return statement calls
 `contactsToJson`, not `allContactsToJson`. Those two ops that already
 have the field use `CollisionEnvDistanceField`, not `CollisionEnvFCL` —
 and their own `Contact::depth` is always `0.0` (documented in their own
-comment at `oracle.cpp:3361-3368`/`:3575-3582`: upstream only sets `pos`
+comment at `oracle.cpp@47a271c^:3361-3368`/`oracle.cpp@47a271c^:3575-3582`:
+upstream only sets `pos`
 and body identities on that path), so they cannot answer this question at
 all even with the field already exposed. This request is specifically for
 `collision()`, the one op whose `Contact::depth` carries a real
@@ -109,7 +125,8 @@ existing `joint_values`/`objects`/`attached_bodies`:
   byte-identical to every existing `collision`-op fixture when the field
   is absent).
 - **Where it sits**: `collision()`'s own request object
-  (`oracle.cpp:2162`), read the same way the two existing ops read it:
+  (`oracle.cpp@47a271c^:2162`), read the same way the two existing ops read
+  it:
 
 ```cpp
 self_req.max_contacts_per_pair =
@@ -122,7 +139,8 @@ robot_req.max_contacts_per_pair =
 
 Swap `contactsToJson(self_res.contacts, *world)` /
 `contactsToJson(robot_res.contacts, *world)` in `collision()`'s return
-statement (`oracle.cpp:2202`, `:2206`) for `allContactsToJson(...)` — the
+statement (`oracle.cpp@47a271c^:2202`, `oracle.cpp@47a271c^:2206`) for
+`allContactsToJson(...)` — the
 function already used by the two other ops, already producing the
 identical per-contact object shape. At the default `max_contacts_per_pair
 = 1`, FCL's own `contact_list` never holds more than one entry per pair,
@@ -132,7 +150,7 @@ this is a pure superset when the new field is set past `1`. No new field
 is added to the per-contact object itself (still `body_name_1`,
 `body_type_1`, `shape_kinds_1`, `body_name_2`, `body_type_2`,
 `shape_kinds_2`, `depth` — no `pos`/`normal`, unchanged from `collision`'s
-own existing documented exclusion at `oracle.cpp:2140-2142`): `depth`
+own existing documented exclusion at `oracle.cpp@47a271c^:2140-2142`): `depth`
 alone is sufficient to answer this specific question, since the two
 candidate values (`~0.017`, the plateau; `~0.0748`, the deep value) are
 already known from this panel's own independent analysis and do not need
