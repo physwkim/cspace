@@ -22671,7 +22671,7 @@ $ rg -n '^\| Phase ' PORTING-PLAN.md | rg -v '\| MET \|'
 |---|---|---|---|
 | Phase 3 `collision: bool` | §229.1 | ~~상류에 정합할 규약이 자체가 없다 — `z = 0` 정확 접선에서 상류의 답이 한 값으로 정해지지 않는다. 빠진 코드가 아니라 정의되지 않은 의미론이다~~ → **§251이 대체.** 규약이 없는 것이 아니라 fcl의 협면 특수화 등록표가 규약 자리에 있고, prbt의 `cylinder × box`가 그 표의 빈칸이다(§251.1이 49셀 중 49셀을 그 기준으로 가른다). 정의되지 않은 의미론이 아니라 쌍마다 정해진 디스패치다 | **0**. 이 행이 재는 코드는 `moveit_core/collision_detection_fcl/src/collision_common.cpp`이고, 그 디렉터리는 `CORE_EXCLUDED_SUBDIRS`라 코퍼스 245에 애초에 들어오지 않는다 |
 | Phase 3 `distance: f64` | §229.3 | 상류 `distanceCallback`(`collision_detection_fcl/src/collision_common.cpp:471`)이 다른 양을 잰다 — 최대 침투깊이 접촉의 부호를 뒤집은 값. 배율이 아니라 정의 차이다 | **0**. 위와 같은 파일·같은 이유 |
-| Phase 8 CHOMP/STOMP | §217.3 | 포트 쪽에 속성 기반 하네스가 없다. Phase 7의 대응물은 `crates/moveit-planners-sbp/examples/plan_benchmark_{port,problem_set}.rs`이고 chomp/stomp 크레이트에는 `examples/`·`benches/` 자체가 없다 | **0**. 87건 중 chomp/stomp는 8건이지만 전부 ROS 플러그인 배선(`chomp_interface/*`, `stomp_moveit_planner_plugin.cpp`, `trajectory_visualization.hpp`)이고, Phase 7 하네스는 플러그인을 거치지 않는다 — `plan_benchmark_port.rs:182`는 `moveit_planners_sbp::PlannerManager`를 직접 쓰고, 대응 진입점은 이미 있다(`moveit-planners-chomp/src/planner.rs:407 solve`, `moveit-planners-stomp/src/planner.rs:430 plan`) |
+| Phase 8 CHOMP/STOMP | §217.3 | **이 표가 쓰인 시점에는** 포트 쪽에 속성 기반 하네스가 없었다. Phase 7의 대응물은 `crates/moveit-planners-sbp/examples/plan_benchmark_{port,problem_set}.rs`이고 chomp/stomp 크레이트에는 `examples/`·`benches/` 넷 다 없었다 — §263이 그 전제를 main `98541e8`에 대해 네 디렉터리 0건으로 확인했다. **`examples/`는 오늘 있다**: 네 파일이 네 커밋으로 들어왔다 — `chomp_benchmark_port.rs`(`aa96be03`), `optimize_benchmark_chomp.rs`(`44843b2a`), `stomp_benchmark_port.rs`(`abd98b1c`), `optimize_benchmark_stomp.rs`(`047bd793`). `benches/`는 두 크레이트 모두 여전히 없다. 이 행의 판정은 그대로인데, 오른쪽 열이 세는 것이 하네스의 유무가 아니라 이 행을 막는 상류 파일 수이기 때문이다 | **0**. 87건 중 chomp/stomp는 8건이지만 전부 ROS 플러그인 배선(`chomp_interface/*`, `stomp_moveit_planner_plugin.cpp`, `trajectory_visualization.hpp`)이고, Phase 7 하네스는 플러그인을 거치지 않는다 — `plan_benchmark_port.rs:182`는 `moveit_planners_sbp::PlannerManager`를 직접 쓰고, 대응 진입점은 이미 있다(`moveit-planners-chomp/src/planner.rs:407 solve`, `moveit-planners-stomp/src/planner.rs:430 plan`) |
 | Phase 9 `MoveGroupInterface` | §226.4, §250 | **이 표가 쓰인 시점에는** 서버 쪽이 없었다 — `fn main`을 갖는 노드 바이너리도, `/plan_kinematic_path` 서비스도, `/move_action` 액션 서버도 없었다. 셋 다 §250이 같은 병합 창에서 지었으므로(`ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`) 지금 남은 것은 호출할 플래너가 없다는 것이고, 그것은 D8이 소유한 결정이다 | **0**. 이 행을 막는 상류 코드는 `moveit_ros/move_group/**`이고(예: `src/default_capabilities/plan_service_capability.cpp`가 `/plan_kinematic_path`를 연다), 코퍼스에 `moveit_ros/` 파일은 0건이다 |
 
 **`인용 §` 열은 이 표가 쓰인 시점의 값이다.** 그 뒤로 §5 표에서 두 칸이
@@ -31462,6 +31462,16 @@ HEAD의 조상인가. 이 회차가 다시 쓴 일곱 항목은 전부 그 형�
 `aa96be03`과 `abd98b1c`가 `chomp_benchmark_port.rs`와 `stomp_benchmark_port.rs`를
 넣었다. 그 표 행이 무엇을 세는 행인지(오늘의 트리인지, 그 회차의 트리인지)에
 따라 고치는 방식이 달라서 손대지 않았다.
+
+**닫혔다 — 그리고 이 항목 자신이 절반을 놓치고 있었다.** 판단은 §263의
+선례가 이미 정했다: §263은 같은 §217.3 전제를 "라운드 시작 시점(main
+`98541e8`)에 그대로 맞았다"로 과거형화한 뒤 오늘의 사실과 그것을 바꾼 커밋을
+따로 적는다. §249.6 행도 그 형태로 고쳤다. 다만 위 문단이 든 커밋은 넷 중
+**둘**이다 — `optimize_benchmark_chomp.rs`(`44843b2a`)와
+`optimize_benchmark_stomp.rs`(`047bd793`)가 빠졌고, 넷 다 적어야 `examples/`가
+비어 있지 않다는 말이 성립한다. `benches/`는 두 크레이트 모두 여전히 0건이라
+그 절반은 지금도 맞다. 행의 판정 **0**은 움직이지 않는다: 오른쪽 열이 세는
+것은 하네스의 유무가 아니라 그 행을 막는 상류 파일 수다.
 
 ## §292 bare `:NNN`의 파일은 추론 대상이 아니다 — 469건을 전부 열었고, 갈라놓는 규칙이 없음을 실측했다 (2026-08-07)
 
