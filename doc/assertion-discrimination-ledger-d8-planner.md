@@ -48,13 +48,13 @@ argument from the source, stated so it can be checked).
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `crates/moveit-planners-sbp/src/registry.rs:952` | `RrtConnectContext::solve_inner`'s single `PlanError::NoGoalConstraints` site (`crates/moveit-planners-sbp/src/registry.rs:680`), the empty-goal-set branch of `ModelBasedPlanningContext::setGoalConstraints` (`model_based_planning_context.cpp:690-694`) | `an_all_empty_goal_constraint_list_is_rejected_before_sampling` | discriminating | bite B5 below: changing that `return Err` to its nearest sibling `PlanError::NoGoalSample` — the other way a goal can produce nothing — failed this test **alone**, 111 of 112 green. The test's own doc comment names that confusion as the thing it exists to prevent, and the bite is what makes that a checked claim |
+| `crates/moveit-planners-sbp/src/registry.rs:948` | `RrtConnectContext::solve_inner`'s single `PlanError::NoGoalConstraints` site (`crates/moveit-planners-sbp/src/registry.rs:680`), the empty-goal-set branch of `ModelBasedPlanningContext::setGoalConstraints` (`model_based_planning_context.cpp:690-694`) | `an_all_empty_goal_constraint_list_is_rejected_before_sampling` | discriminating | bite B5 below: changing that `return Err` to its nearest sibling `PlanError::NoGoalSample` — the other way a goal can produce nothing — failed this test **alone**, 111 of 112 green. The test's own doc comment names that confusion as the thing it exists to prevent, and the bite is what makes that a checked claim |
 
 ## `ros/moveit-ros` (1)
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `ros/moveit-ros/src/move_group.rs:291` | `resolve_planning_pipeline`'s non-empty-`pipeline_id` branch (`move_group_capability.cpp:230-245`: look the name up, return null on a miss) | `a_named_pipeline_id_is_looked_up_verbatim` | discriminating | bite B7 below: making the lookup fall back to `DEFAULT_PIPELINE_ID` on a miss — upstream's null return replaced by a silent substitution — failed this line and `an_unregistered_pipeline_id_fails_before_any_planning_runs`, while `an_empty_pipeline_id_resolves_to_the_named_default` and both `plan_only` tests stayed green. Two tests, not one: the fallback is a single guard both observe, from opposite sides |
+| `ros/moveit-ros/src/move_group.rs:293` | `resolve_planning_pipeline`'s non-empty-`pipeline_id` branch (`move_group_capability.cpp:230-245`: look the name up, return null on a miss) | `a_named_pipeline_id_is_looked_up_verbatim` | discriminating | bite B7 below: making the lookup fall back to `DEFAULT_PIPELINE_ID` on a miss — upstream's null return replaced by a silent substitution — failed this line and `an_unregistered_pipeline_id_fails_before_any_planning_runs`, while `an_empty_pipeline_id_resolves_to_the_named_default` and both `plan_only` tests stayed green. Two tests, not one: the fallback is a single guard both observe, from opposite sides |
 
 ## Bites
 
@@ -91,7 +91,7 @@ with both mutations live. B2's row above is the re-run, with B1 removed.
   and `joint_model_group_space::tests::unknown_group_is_rejected` FAIL; 101 PASS.
   Not a new site — this re-runs the bite
   `doc/assertion-discrimination-ledger-p1-robotmodel.md`'s
-  `crates/moveit-planners-sbp/src/registry.rs:916` row cites, because D8
+  `crates/moveit-planners-sbp/src/registry.rs:912` row cites, because D8
   rewrote that assertion: `moveit_planning::PlanError` is
   `Box<dyn Error + Send + Sync>`, so the concrete variant is now reached by
   `downcast_ref` rather than matched directly, and a bite recorded against

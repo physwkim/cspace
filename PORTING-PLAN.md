@@ -7798,7 +7798,7 @@ moveit-planners-sbp/src/planning_scene_validity.rs:398, :411
 ```
 
 **프로덕션 호출자는 0건이다.** 그리고 그건 담당의 잘못이 아니다 —
-`construct_goal_pose_constraints`(`crates/moveit-constraints/src/utils.rs:245`)를 비롯한 생성 경로가
+`construct_goal_pose_constraints`(`crates/moveit-constraints/src/utils.rs:268`)를 비롯한 생성 경로가
 전부 `tf: &Transforms`를 **호출자에게서 받는** 형태이고, 워크스페이스에
 `PlanningScene`에서 목표 제약을 만드는 프로덕션 경로가 아직 없다.
 배선할 대상 자체가 없다.
@@ -13539,7 +13539,7 @@ p1-robotmodel의 `9796b2c`가 `moveit_planners_sbp::PlanningRequest`에 public
 `Default`를 파생하지 않으므로 이 struct의 **모든** 구성 자리가 필드를 명시해야
 한다. 크레이트 안(`registry.rs` 테스트 6곳, `examples/plan_benchmark_port.rs`)은
 같은 커밋이 전부 갱신했다. 크레이트 **밖**의 유일한 구성 자리는
-`crates/moveit-planning/src/lib.rs:351`의 doc example이었고, 그것은 p1-fixtures
+`crates/moveit-planning/src/lib.rs:353`의 doc example이었고, 그것은 p1-fixtures
 소유 크레이트라 p1-robotmodel의 `-p moveit-planners-sbp` 범위에 없었다.
 
 ### §170.1 구멍은 실수가 아니라 게이트 범위다
@@ -16771,7 +16771,7 @@ cases: 2201  passed: 2201  failed: 0
 
 제약 조합 2,000건 `decide()` 100% 일치 — MET. 둘째("제약 샘플러가 생성한
 상태 10,000개가 전부 자기 제약을 만족")는 트리에서 가장 큰 샘플러 자기검증
-루프가 **200**이다(`crates/moveit-constraints/tests/sampler.rs:190` (`sample_keeps_unconstrained_variables_within_their_own_joint_bounds`);
+루프가 **200**이다(`crates/moveit-constraints/tests/sampler.rs:290` (`sample_keeps_unconstrained_variables_within_their_own_joint_bounds`);
 `rg -no 'for [_a-z]+ in 0\.\.[0-9_]+' crates/moveit-constraints/`의 최대값).
 셋째("씬 diff 적용 후 충돌 결과가 오라클과 100% 일치")는 계기가 없다 —
 오라클 op 41개 중 씬 diff를 적용해 충돌을 되돌려 주는 op이 없다.
@@ -22591,9 +22591,9 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 3 | `moveit_core/exceptions/src/exceptions.cpp` | `crates/moveit-error/src/lib.rs:21-28,64-73` | —(.cpp) |
 | 4 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `crates/moveit-planners-sbp/src/lib.rs:284-326` (`# Round 6 symbol audit`), `crates/moveit-planners-stomp/src/lib.rs:68-106` (completion statement) | 7 |
 | 5 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request.hpp` | `crates/moveit-planning/src/request.rs:4-10` | 1 |
-| 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:404` (`PlanningRequestAdapter`) | 0 |
+| 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:406` (`PlanningRequestAdapter`) | 0 |
 | 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:193` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
-| 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:420` (`PlanningResponseAdapter`) | 0 |
+| 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:422` (`PlanningResponseAdapter`) | 0 |
 | 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:326` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:44-66` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
 | 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-7`, `:56` | 2 |
 | 11 | `moveit_core/robot_state/src/attached_body.cpp` | `crates/moveit-scene/src/attached_body.rs:191` (`set_scale`), `:205` (`set_padding`), `:122` (`subframe_pose`), `:67` (`new`); `crates/moveit-scene/src/scene.rs:1129` (`attach`), `:1200` (`attach_new`), `:1352-1355` (`frame_transform`'s on-demand recompute); `crates/moveit-kinematics/src/set_from_ik.rs:150` | —(.cpp) |
