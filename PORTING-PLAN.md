@@ -23664,3 +23664,239 @@ URDF/SRDF는 `ros/fixtures/`로 옮겼다. 두 다리가 서로 다른 이미지
   닿지만, 그 glob을 도는 러너에 도커가 없다(§129.4). 사람이
   `sg docker -c ./tools/ci/verify-all.sh`를 쳐야 돈다는 점은 §241 이후로
   변하지 않았다.
+
+## §NEW 미포팅 87건 전건 분류 — 브리프의 107은 재현되지 않고, 87건 중 UNMET 세 행을 막는 것은 0건, 결정이 없는 것은 2건 (2026-08-06)
+
+과제는 "107개 미포팅 항목 분류"였다. 107은 재현되지 않는다. 이 절은
+먼저 세 숫자를 이 트리에서 **행 단위로** 다시 내고, 그 다음 실제 집합인
+87건 전부를 세 질문(무엇인가 / 왜 안 됐나 / 무엇을 막는가)에 답한 표로
+분류한다. 표 전문은 `doc/unported-classification.md`이고,
+`tools/ci/classify-unported.py --check doc/unported-classification.md`가
+행 집합이 측정된 미포팅 집합과 어긋나면 실패한다.
+
+### §NEW.1 245 / 158 / 87 — 두 계기가 총계가 아니라 **행 집합**에서 일치한다
+
+브리프가 다시 내라고 한 세 숫자는 245 / 138 / 107이었다. 총계는 맞다:
+`138 + 107 = 245`이고 `158 + 87 = 245`다. **총계는 두 분할을 구별하지
+못한다** — 그래서 행 단위로 비교했다.
+
+```
+$ tools/ci/measure-port-coverage.py --upstream /home/stevek/work/moveit2 --repo .
+corpus   245
+ported   158
+unported 87
+cited-outside-corpus 20
+
+$ python3 /tmp/claude-1000/indep.py .          # 계기 1과 코드를 공유하지 않음
+corpus   245
+ported   158
+unported 87
+```
+
+두 계기의 집합 차:
+
+```
+$ diff <(계기1 --list-unported) <(계기2 --list-unported)   # 87 vs 87
+$ diff <(계기1 --list-ported)   <(계기2 --list-ported)     # 158 vs 158
+```
+
+둘 다 빈 출력 — 대칭차 0, 즉 행마다 같다. 138/107은 이 트리의 어느
+계기도 내지 않는다. 그 숫자의 출처는 커밋되지 않은 진행 노트이고,
+§249.1이 이미 87을 명령과 함께 적었다. 이 절은 그 87을 계기를 바꿔서
+재확인한 것이다.
+
+`doc/unported-classification.md`의 행 수도 같은 집합이다:
+
+```
+$ tools/ci/classify-unported.py --check doc/unported-classification.md
+OK doc/unported-classification.md: 87 rows == 87 unported files
+```
+
+### §NEW.2 질문 1 "무엇인가" — 87건 전부가 상류 파일:심볼을 갖는다
+
+심볼은 상류 파일을 열어서 뽑는다(추측하지 않는다). 사다리는
+`class/struct` → `#define` → 아웃오브라인 멤버 정의 → 자유 함수 정의 →
+자유 함수 선언·파일 스코프 상수 → `typedef`/`using`·`PLUGINLIB_EXPORT_CLASS`
+순이고, 마지막 두 칸은 이 라운드에 추가했다. 추가 전 5건이 심볼 없이
+남았고, 그 5건은 각각 다음이었다:
+
+- `exceptions.cpp`, `smoothing_base_class.cpp` — 생성자 정의가 0열에서
+  시작해 앞에 반환형이 없다(`ConstructException::ConstructException(`).
+- `planning_request.hpp` — 선언이 `typedef` 하나뿐이다
+  (`typedef moveit_msgs::msg::MotionPlanRequest MotionPlanRequest;`).
+- `cached_ik_kinematics_plugin.cpp`, `cached_ur_kinematics_plugin.cpp` —
+  본문이 `PLUGINLIB_EXPORT_CLASS(...)` 매크로 호출뿐이다.
+
+지금은 0건이다. `(no class/struct/#define/function declaration found)`로
+남는 행이 없다.
+
+### §NEW.3 질문 2 "왜 안 됐나" — 결정 47건은 절/D, 40건은 크레이트 doc 문장, 2건은 결정이 없다
+
+결정 위치의 분포(87건):
+
+| 위치 | 건수 |
+|---|---|
+| `§`(PORTING-PLAN.md 절 번호) | 31 |
+| `D`(§0 표의 D1..D14) | 16 |
+| 크레이트 doc 문장만 (절 번호 없음) | 40 |
+
+D 토큰은 두 자리에서 나온다 — 위 16건의 **위치 열**, 그리고 MISCITED
+행의 "lead-in ... -> D1, D2" 주석. 87행 전체에서 세면 D1 25, D2 15, D4 6,
+D6 1, D8 1이고, 위치 열만 세면 `D1` 7, `D4` 4, `D1, D4` 2, `D1, D2` 2,
+`D1, D6, D8` 1(합 16)이다. 처음 이 줄에 적은 "D1 26, D14 1"은 표의 행이
+아니라 **문서 전체**를 센 값이었고, 범례 문장 `D(D1..D14)`가 D1과 D14를
+하나씩 더했다. 행으로 다시 셌다.
+
+**D3, D5, D7은 이 87건 중 어느 것도 근거로 쓰지 않는다** — 코퍼스는
+`doc/unported-classification.md`의 87행 전부이고 명령은
+`rg '^\| \`moveit_' doc/unported-classification.md | rg -cw D3`(D5, D7도
+같게) 이며 셋 다 0이다.
+
+인용이 실제로 그 파일을 부르는지까지 검증한 결과:
+
+| 검증 | 건수 |
+|---|---|
+| `resolves`(절/D가 실제 제목으로 열림) | 47 |
+| `named`(크레이트 doc 구간이 파일명·심볼·glob·디렉터리로 부름) | 22 |
+| `MISCITED`(결정은 같은 파일에 있으나 인용한 줄이 아니다) | 15 |
+| `content-elsewhere`(`ported-elsewhere`라 증거가 옮겨간 곳을 가리킴) | 1 |
+| **`UNVERIFIED`(인용은 열리는데 그 파일을 부르지 않는다)** | **2** |
+
+**MISCITED 15건은 고칠 수 있는 결함이다.** 결정은 존재하고 파일도
+맞는데 `doc/port-coverage.md`의 증거 열이 가리키는 **줄이 다르다**.
+예: `doc/port-coverage.md:206`은 `planning_context_loader_ptp.cpp`의 근거로
+`crates/moveit-planners-pilz/src/lib.rs:116-117`을 든다. 그 줄은
+`move_group_sequence_*` 항목의 꼬리이고, 이 파일을 실제로 결정하는 glob
+`planning_context_loader*.{hpp,cpp}`는 같은 파일 `:127`에 있다(D1/D2
+리드인은 `:110`). 15건의 실제 결정 줄:
+
+| 실제 결정 줄 | 건수 | 인용된 줄 |
+|---|---|---|
+| `crates/moveit-planners-pilz/src/lib.rs:127` | 10 | `:116` |
+| `crates/moveit-planners-pilz/src/lib.rs:140` | 2 | `:118` |
+| `crates/moveit-planners-stomp/src/lib.rs:105` | 1 | `:93` |
+| `crates/moveit-kinematics/src/lib.rs:263` | 1 | `:232` |
+| `crates/moveit-kinematics/src/lib.rs:333` | 1 | `:294` |
+
+합은 `10 + 2 + 1 + 1 + 1 = 15`로 위 검증 표의 MISCITED 15와 같다. 건수는
+행을 세어서 냈고, 세기 전에 처음 적은 값은 pilz `:127`이 12여서 합이 17이
+됐다 — 표가 자기 합으로 자기를 반증한 것이라 열거로 다시 냈다:
+
+```
+$ rg '^\| `moveit_' doc/unported-classification.md | rg 'MISCITED' \
+    | awk -F' | ' '{split($4,a," "); split($5,b,"decides at "); split(b[2],c,","); print a[2]" DECIDES "c[1]}' \
+    | sed 's/:[0-9]*  *DECIDES/ DECIDES/' | sort | uniq -c
+      1 crates/moveit-kinematics/src/lib.rs DECIDES :263
+      1 crates/moveit-kinematics/src/lib.rs DECIDES :333
+     10 crates/moveit-planners-pilz/src/lib.rs DECIDES :127
+      2 crates/moveit-planners-pilz/src/lib.rs DECIDES :140
+      1 crates/moveit-planners-stomp/src/lib.rs DECIDES :105
+```
+
+pilz `:127`의 10건은 `planning_context_loader{,_circ,_lin,_polyline,_ptp}`의
+`.hpp` 5건과 `.cpp` 5건이다.
+
+**UNVERIFIED 2건은 브리프의 규칙으로 결정이 아니라 구멍이다.** 둘 다
+`moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/detail/`
+아래다:
+
+- `GreedyKCenters.hpp` (`GreedyKCenters`)
+- `NearestNeighbors.hpp` (`NearestNeighbors`)
+
+`doc/port-coverage.md:164-165`이 근거로 드는 `crates/moveit-kinematics/src/lib.rs:279-287`은
+`:279-281`이 **ikfast** 항목이고 `:282`부터가
+`cached_ik_kinematics_plugin — **ported**` 항목이다. 그 항목이 이름을
+부르는 것은 `:290`의 `detail/NearestNeighborsGNAT.hpp` 하나이며, 위 두
+파일도 그 파일이 선언하는 클래스도 부르지 않는다. 부재의 코퍼스는
+**추적 파일 734개 전부**이고 명령은
+
+```
+$ git ls-files -z | xargs -0 rg -n -w 'NearestNeighbors|GreedyKCenters'
+```
+
+이며, 히트는 `doc/port-coverage.md`의 그 두 감사 행과 §249.4 표의 9·10행
+뿐이다. 감사 행이 감사 대상을 정당화할 수는 없으므로 두 파일의 결정은
+어디에도 없다.
+
+이는 **§249.4의 판단을 정정한다.** §249.4는 그 35건에 대해 "결정이
+존재하고 그 결정이 가리키는 소스 사이트도 있"다고 적었다. 그 표의 9행과
+10행에 대해서는 소스 사이트는 열리지만 결정 문장이 없다. §249.4의
+본문은 이 절이 고치지 않는다(PORTING-PLAN.md는 덧붙이기만 한다) —
+정정은 여기에 기록한다.
+
+### §NEW.4 질문 3 "무엇을 막는가" — 87건 중 0건. 이 열은 발화할 수 있는 열이다
+
+UNMET은 셋이다(§5 표 `806`, `807`, `819`행). 각 행을 막는 것은 그 행이
+인용한 절에서 읽었고, 파일의 디렉터리로 추측하지 않았다.
+
+`none`이 87번 찍히는 열은 그 자체로는 아무 것도 증명하지 못한다 — 이
+계기의 이전 판이 실제로 그랬다(`UNMET_BLOCKERS`의 경로 집합이 비어
+있어 `none` 말고 다른 값이 나올 수 없었다). 그래서 각 UNMET 행에 대해
+그 행의 **기전이 사는 상류 경로 접두사**를 두고, 그 아래 있는 파일을
+후보로 발화시킨 뒤 개별로 기각한다.
+
+```
+$ tools/ci/classify-unported.py
+  per-UNMET-row candidate count (files under the row's own mechanism):
+      Phase 3 (collision: bool) via §229.1: 9 of 87 candidates
+      Phase 3 (distance: f64) via §229.3: 9 of 87 candidates
+      Phase 9 (MoveGroupInterface) via §250.6: 0 of 87 candidates
+```
+
+- **Phase 3 두 행** — 접두사는 `moveit_core/collision_detection{,_fcl,_bullet}/`.
+  87건 중 9건이 후보로 걸린다(전건은 `doc/unported-classification.md`의
+  해당 문단에 열거). 기각 근거: §229.1은 10,000 표본 스윕에서 포트와
+  오라클을 **비교해 6,854건의 불일치를 보고**한다 — 양쪽이 값을 냈다는
+  뜻이므로 이 행은 파일 부재가 아니라 의미 불일치로 실패한다. §229.3은
+  기전을 `moveit_core/collision_detection_fcl/src/collision_common.cpp`의
+  지정된 줄 범위에 못박는데, 그 파일은 `doc/port-coverage.md` §1이
+  코퍼스에서 **제외**하는 디렉터리에 있다(`CORE_EXCLUDED_SUBDIRS`).
+  따라서 87건 중 어느 것도 그 파일일 수 없고, 실제로 87건 중
+  `collision_detection_fcl`/`_bullet` 소속은 0건이다. 걸린 9건은 플러그인
+  할당자·플러그인 캐시·`collision_tools`·`occupancy_map`·테스트 공통
+  헤더로, 협면 검사 경로가 아니다.
+- **Phase 9** — 접두사는 `moveit_ros/`. `MoveGroupInterface`는 `moveit_ros`가
+  선언하고, `moveit_ros`는 CORPUS_ROOTS가 아니다. 그래서 245건 코퍼스
+  전체에 `moveit_ros` 소속이 0건이고 후보도 0건이다. §250.6이 열어둔 네
+  항목은 모두 포트 쪽이다(`crates/moveit-planning`의 start-state 필드,
+  planning scene 토픽 구독, `PLANNING_FAILED` 파리티,
+  `ros/verify-ros-interop.sh`의 게이트).
+
+즉 **87건 중 어느 것도 UNMET 세 행을 막지 않는다.** Phase 8은 UNMET이
+아니라 UNMEASURED라 브리프의 셋에 들어가지 않는다.
+
+### §NEW.5 이 라운드가 자기 계기에서 잡은 오답 셋
+
+세 건 다 표를 다시 내고 **전체 행을 diff**해서 잡았다. 목표 행만 봤으면
+셋 다 놓쳤다.
+
+1. **`MEMBER_DEF`의 접두사를 optional로만 바꿨더니 두 행이 조용히
+   무명이 됐다.** 생성자(`ConstructException::ConstructException(`)를
+   잡으려고 반환형 접두사를 optional로 만들었는데, 네임스페이스 정규형
+   (`void planning_interface::MotionPlanResponse::getMessage(`)은 클래스명
+   앞이 공백이 아니라 `::`다. 접두사가 `\s`로만 끝나도록 두면
+   `planning_response.cpp`와 `planning_context_loader.cpp`가 심볼을 잃는다.
+   접두사가 `\s` **또는** `::`로 끝나게 고쳤다. 부수 효과로 pilz의 네
+   `planning_context_loader_*.cpp`가 익명 네임스페이스 헬퍼 `getLogger()`
+   대신 실제 클래스 멤버를 보고한다.
+2. **부분 문자열 일치가 짧은 이름에게 긴 이름의 언급을 빌려줬다.**
+   `crates/moveit-kinematics/src/lib.rs:290`이 부르는 것은
+   `detail/NearestNeighborsGNAT.hpp`인데
+   `NearestNeighbors`가 그 부분 문자열이라, 별개의 상류 파일인
+   `NearestNeighbors.hpp`가 `named`로 찍혔다. 토큰 경계를 요구하도록
+   고쳤고(`_token_in`), 그 결과 UNVERIFIED가 1에서 2로 **늘었다**.
+3. **`BLOCKS` 열이 구조적으로 `none`만 낼 수 있었다.** §NEW.4가 그
+   교체를 적었다.
+
+### §NEW.6 이 절이 닫지 못한 것
+
+- **MISCITED 15건을 고치지 않았다.** `doc/port-coverage.md`의 증거 열이
+  가리키는 줄을 §NEW.3의 실제 결정 줄로 옮기는 작업이다. 이 절은 어느
+  줄이 맞는지까지만 측정했다.
+- **UNVERIFIED 2건에 결정을 만들지 않았다.** `GreedyKCenters.hpp`와
+  `NearestNeighbors.hpp`는 결정을 새로 쓰거나(어느 절에), `ported`로
+  재분류하거나(근거를 대서) 둘 중 하나가 필요하다. 어느 쪽도 측정으로는
+  못 정한다.
+- **크레이트 doc 문장만 있는 40건에 절 번호를 붙이지 않았다.** §249.4가
+  35건으로 남긴 같은 작업이고, 이 라운드의 계기로는 40건이다(두 숫자가
+  다른 이유까지는 재도출하지 않았다).
