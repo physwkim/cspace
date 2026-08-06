@@ -853,10 +853,25 @@ enumeration. One `helper_body` line excluded (`decide.rs:83`,
 **Not fixed, flagged rather than fabricated**: the `split_once('/')?`
 guard (malformed `package://name` with no `/`) and the
 `candidate.is_file()` guard (known package, well-formed path, file
-missing) have **no test at all** — not a blind existing assertion, an
-absent one. Writing new tests is outside "fix the blind ones"; this is
-a coverage gap, not a fix owed this round. Reporting it rather than
+missing) had **no test at all** — not a blind existing assertion, an
+absent one. Writing new tests was outside "fix the blind ones"; this
+was a coverage gap, not a fix owed that round. Reporting it rather than
 silently dropping it.
+
+**Both are tested now, and round 14 below is where that happened.**
+`b64806d6` (`test(moveit-model): prove mesh_search_paths::resolve's four
+None guards actually isolate`) added
+`malformed_package_uri_with_no_relative_path_does_not_resolve`
+(`crates/moveit-model/src/mesh_search_paths.rs:174`) for
+`rest.split_once('/')?`
+(`crates/moveit-model/src/mesh_search_paths.rs:87`) and
+`missing_file_does_not_resolve`
+(`crates/moveit-model/src/mesh_search_paths.rs:189`) for
+`candidate.is_file().then_some(candidate)`
+(`crates/moveit-model/src/mesh_search_paths.rs:89`), each carrying its
+own isolating-mutation record. The gap this paragraph opened was closed
+one round later; the paragraph is the round-13 record of it, not a live
+item.
 
 **`crates/moveit-model/src/robot_model.rs` (24)**
 
@@ -919,7 +934,7 @@ too fails only its own test, `:302`/`:328` staying green. All three
 mutations were applied, run with `--no-fail-fast`, confirmed, and
 reverted; `git status --short` is clean, no residual diff.
 
-### Result: 0 blind sites; 8 of 52 ruled `not-this-family`; one coverage gap flagged, not fixed
+### Result: 0 blind sites; 8 of 52 ruled `not-this-family`; one coverage gap flagged, closed by round 14 (`b64806d6`)
 
 44 of 52 sites are family members: **40 `discriminating`** (8 of those
 are `via:assert_err_mentions`'s call sites) and **4 `single-branch`**
