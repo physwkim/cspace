@@ -1,0 +1,41 @@
+========================================================================
+A. SOLVE RATE (the mutation's own signature)
+========================================================================
+  floor_wall  base 239/250   mut 250/250
+  cage        base 202/250   mut 250/250
+
+========================================================================
+B. PAIRED ON BASE-SOLVED IDS -- the only non-confounded comparison
+========================================================================
+  floor_wall (n=239 base-solved)
+    native motion_resolution 0.01    base    1 -> mut   90
+    0.05 grid bar                    base    0 -> mut   90
+    returned waypoints               base    0 -> mut   90
+  cage (n=202 base-solved)
+    native motion_resolution 0.01    base    2 -> mut  101
+    0.05 grid bar                    base    0 -> mut  101
+    returned waypoints               base    0 -> mut  101
+
+========================================================================
+C. DOMINANCE: base-arm ids the native bar catches and 0.05 calls clean
+========================================================================
+  floor_wall  id  77  native invalid_wp=3  ->  0.05 densifies to 94 wp, invalid_count=0, valid=True
+  cage        id 133  native invalid_wp=1  ->  0.05 densifies to 79 wp, invalid_count=0, valid=True
+  cage        id 159  native invalid_wp=1  ->  0.05 densifies to 79 wp, invalid_count=0, valid=True
+  total native-only violations: 3
+  reverse direction (0.05 catches, native clean): 0  []
+
+========================================================================
+D. WHAT THE MUTATION ARM ACTUALLY FLAGS vs the seed's own invalidity
+========================================================================
+  floor_wall  seed-invalid 102   mut 0.05-invalid 101   overlap 101   mut-only   0   seed-only   1
+    seed-only id 95: seed_invalid_count=21 seed_length=3.305256730200891 | mut length=3.305194699165239 bar_ok=True native_ok=True
+  cage        seed-invalid 149   mut 0.05-invalid 149   overlap 149   mut-only   0   seed-only   0
+
+========================================================================
+E. NO-OP RATE: path length bit-identical to the seed's length
+========================================================================
+  base floor_wall  length == seed_length on  30/239 solved (12.6%)
+  base cage        length == seed_length on  25/202 solved (12.4%)
+  mut  floor_wall  length == seed_length on  48/250 solved (19.2%)
+  mut  cage        length == seed_length on  52/250 solved (20.8%)
