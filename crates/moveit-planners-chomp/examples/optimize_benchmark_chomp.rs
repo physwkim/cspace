@@ -874,6 +874,21 @@ fn main() {
              injection run that checks nothing cannot show that the validity check rejects a \
              bad waypoint"
         );
+
+        // The rejection assertion below runs over the paths the checker saw,
+        // and that set is not the injected population -- a problem that times
+        // out or fails never reaches `is_path_valid`. Closing the accounting
+        // keeps the narrowing visible: every injected problem is checked,
+        // timed out, or failed, so a later edit that lets a solved path skip
+        // the checker fails here instead of quietly shrinking the set the
+        // "rejected all" line reports on.
+        assert_eq!(
+            condition2_checked + timeout_count + failure_count,
+            total,
+            "inject={mode} accounts for {condition2_checked} checked + {timeout_count} timeout \
+             + {failure_count} failure, which is not the {total} injected -- a problem in no \
+             bucket left the population the rejection assertion reports on"
+        );
         assert_eq!(
             condition2_pass, 0,
             "inject={mode} spliced a state verified invalid by direct query into every solved \

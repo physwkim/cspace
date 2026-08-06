@@ -81,7 +81,7 @@
 //! planning starts, into the middle of every solved path. The run then asserts
 //! that *no* path passed -- and, first, that at least one path was actually
 //! checked, since "rejected all 0 paths" is a vacuous pass. Same shape, and
-//! the same two assertions, as `plan_benchmark_port`'s own injection mode.
+//! the same three assertions, as `plan_benchmark_port`'s own injection mode.
 //!
 //! The report carries the denominator with the count, because only solved
 //! paths can be checked and this planner times out on a real fraction of
@@ -920,15 +920,32 @@ fn main() {
 
     if let Some(mode) = inject {
         let mode = mode.as_str();
-        // Two assertions, for the reason `plan_benchmark_port`'s own injection
-        // mode carries: `condition2_pass == 0` is satisfied vacuously by a run
-        // that solved nothing, so a run whose planner never produced a path
-        // would otherwise vouch for a checker it never called.
+        // Three assertions, for the reason `plan_benchmark_port`'s own
+        // injection mode carries: `condition2_pass == 0` is satisfied
+        // vacuously by a run that solved nothing, so a run whose planner never
+        // produced a path would otherwise vouch for a checker it never called,
+        // and the third one keeps the checked set from drifting away from the
+        // injected population without saying so.
         assert!(
             condition2_checked > 0,
             "inject={mode} solved no problem, so `is_path_valid` was never called -- an \
              injection run that checks nothing cannot show that the validity check rejects \
              a bad waypoint"
+        );
+
+        // The rejection assertion below runs over the paths the checker saw,
+        // and that set is not the injected population -- a problem that times
+        // out or fails never reaches `is_path_valid`. Closing the accounting
+        // keeps the narrowing visible: every injected problem is checked,
+        // timed out, or failed, so a later edit that lets a solved path skip
+        // the checker fails here instead of quietly shrinking the set the
+        // "rejected all" line reports on.
+        assert_eq!(
+            condition2_checked + timeout_count + failure_count,
+            total,
+            "inject={mode} accounts for {condition2_checked} checked + {timeout_count} timeout \
+             + {failure_count} failure, which is not the {total} injected -- a problem in no \
+             bucket left the population the rejection assertion reports on"
         );
         assert_eq!(
             condition2_pass, 0,
