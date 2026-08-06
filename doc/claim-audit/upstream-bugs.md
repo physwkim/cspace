@@ -65,10 +65,11 @@ Read `path_circle.cpp:91-96` and `path_line.cpp:67-83` directly from
 (the absolute path — `third_party/` is gitignored and untracked, so it
 never reaches a `caucus` worktree, but is present and populated in the
 primary checkout this path names). Both citations verify exactly:
-`path_circle.cpp:91-96` is the `else` arm computing `scalerot =
-oalpha/pathlength` with `pathlength = dist`, and `path_line.cpp:67-83` is
-the three-way guard whose third arm is commented "// both were zero" —
-the asymmetry the entry describes. No `UNVERIFIED` marker exists in the
+`path_circle.cpp:91-96` is the `else` arm computing
+`scalerot = oalpha/pathlength` with `pathlength = dist`, and
+`path_line.cpp:67-83` is the three-way guard whose third arm is commented
+"// both were zero" — the asymmetry the entry describes. No `UNVERIFIED`
+marker exists in the
 committed entry; it already reads "Evidence: verified verbatim in the
 checkout above" and its Upstream field already states the untracked/
 present-at-primary-checkout framing correctly. A repo-wide grep for the

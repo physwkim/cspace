@@ -181,9 +181,9 @@ signed off on — this ledger entry is the whole record.
 ### `attached-body-count-check` — Attached-body count check upstream's own comment doubts — reproduced-grandfathered
 
 **Upstream:** `moveit_core/collision_distance_field/src/collision_env_distance_field.cpp:1132`
-(verified verbatim: `// TODO: This logic for checking attached body count might
-be incorrect`, guarding
-`gsr->attached_body_decompositions_.size() != att->getShapes().size()`)
+(verified verbatim:
+`// TODO: This logic for checking attached body count might be incorrect`,
+guarding `gsr->attached_body_decompositions_.size() != att->getShapes().size()`)
 **Port:** `crates/moveit-distance-field/src/collision_env_distance_field.rs:1055`
 **Symptom:** upstream's own author flagged the comparison as possibly
 wrong and it was shipped unchanged.
@@ -374,8 +374,8 @@ next audit to rediscover.
 ### `max-distance-sq-narrowing` — `max_distance_sq_`'s narrowing would OOM if unguarded — not-reproduced
 
 **Upstream:** `moveit_core/distance_field/src/propagation_distance_field.cpp:88`
-(`max_distance_sq_ = ceil(max_distance_ / resolution_) *
-ceil(max_distance_ / resolution_);`, a `double` product narrowed into an
+(`max_distance_sq_ = ceil(max_distance_ / resolution_) * ceil(max_distance_ / resolution_);`,
+a `double` product narrowed into an
 `int` field with no range check before it) used at `:95-96,99-100` to
 size `bucket_queue_`/`negative_bucket_queue_`/`sqrt_table_` — verified at
 the pinned `e017c91e`.
@@ -1020,8 +1020,9 @@ the two `reserve` calls that set the bound, verified at the pinned
 `e017c91e`.
 **Port:** `crates/moveit-kinematics/src/ik_cache.rs`, `IkCache::update`;
 `crates/moveit-kinematics/src/ik_cache/format.rs`, `from_json`.
-**Symptom:** the insert gate is `ik_cache_.size() <
-ik_cache_.capacity()` — the limit enforced is the allocator's, not the
+**Symptom:** the insert gate is
+`ik_cache_.size() < ik_cache_.capacity()` — the limit enforced is the
+allocator's, not the
 `max_cache_size` the user configured. `initializeCache` establishes it with
 `ik_cache_.reserve(max_cache_size_)` (`:75`), and `reserve` guarantees only
 `capacity() >= n`, so the two coincide by implementation habit rather than
@@ -1174,8 +1175,9 @@ comment — "Explicitly use a single IK attempt only (by setting a timeout of
 0.0), using the current state as the seed. Random seeding (of additional
 attempts) would create large joint-space jumps" — and then passes `0.0`.
 `setFromIK` reads that argument as a sentinel, not as a value:
-`if (timeout < std::numeric_limits<double>::epsilon()) timeout =
-jmg->getDefaultIKTimeout()`, and `KinematicsSolver::KinematicsSolver()`
+`if (timeout < std::numeric_limits<double>::epsilon())` then
+`timeout = jmg->getDefaultIKTimeout();`, and
+`KinematicsSolver::KinematicsSolver()`
 initialises `default_ik_timeout_(0.5)`. So the request reaching
 `searchPositionIK` is a 0.5-second budget, and that function's body is
 `do { ++attempt; if (attempt > 1) getRandomConfiguration(...); CartToJnt(...);
@@ -2687,9 +2689,8 @@ case 4 is a leaf face on a box face, a *specialised* pair, where upstream says
               (`preemptExecuteTrajectoryCallback`)
 **Port:**     `ros/moveit-ros/src/execute_trajectory.rs`
 **Symptom:**  `create_server`'s cancel callback is
-              `[](const std::shared_ptr<ExecTrajectoryGoal>& /* unused */)
-              { return rclcpp_action::CancelResponse::ACCEPT; }` — it accepts
-              unconditionally and ignores the goal. Accepting moves the goal
+              `[](const std::shared_ptr<ExecTrajectoryGoal>& /* unused */) { return rclcpp_action::CancelResponse::ACCEPT; }`
+              — it accepts unconditionally and ignores the goal. Accepting moves the goal
               to CANCELING and tells the client the cancellation was taken,
               but nothing in this capability then stops the motion:
               `preemptExecuteTrajectoryCallback`, whose whole body is
@@ -2719,8 +2720,8 @@ case 4 is a leaf face on a box face, a *specialised* pair, where upstream says
 **Upstream:** `moveit_ros/move_group/src/default_capabilities/execute_trajectory_action_capability.cpp:92`
 **Port:**     `ros/moveit-ros/src/execute_trajectory.rs`
 **Symptom:**  the `!trajectory_execution_manager_` branch reads
-              `const std::string response = "Cannot execute trajectory since
-              ~allow_trajectory_execution was set to false";` and then sets
+              `const std::string response = "Cannot execute trajectory since ~allow_trajectory_execution was set to false";`
+              and then sets
               only `action_res->error_code.val` before aborting. `response`
               is never read, never logged, and never assigned to
               `action_res->error_code.message`, which stays empty. The client

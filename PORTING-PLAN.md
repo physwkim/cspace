@@ -11814,12 +11814,14 @@ doc에 불변식을 이미 적어놨다:
 `oracle.cpp@367c07a^:2337`(`isStateValid`); `applyJointValues` 호출자 10곳
 (`oracle.cpp@367c07a^:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`)
 — 아래 `367c07a`가 가드를 소유자 안으로 옮기면서 지운 줄들이라, 번호는 그
-커밋 직전 리비전에서만 참이다. 이 절의 `:NNN`은 전부 그 리비전 기준이고,
-인용에 박힌 `@367c07a^`가 오늘의 파일에 대한 주장이 아님을 말한다(§287).
-**Same defect at:** `:2016`, `:2214` — 둘 다 `applyJointValues` 직후에 스스로
+커밋 직전 리비전에서만 참이다. 그래서 이 절에는 맨 `` `:NNN` ``을 한 건도 두지
+않는다 — 인용마다 박힌 `@367c07a^`가 오늘의 파일에 대한 주장이 아님을 스스로
+말하고, 게이트가 그 리비전에서 확인한다(§287).
+**Same defect at:** `oracle.cpp@367c07a^:2016`, `oracle.cpp@367c07a^:2214` —
+둘 다 `applyJointValues` 직후에 스스로
 `clearAttachedBodies()`를 부르고 있었다. 나머지 8개 호출자는 부르지 않는다. 두
 집단을 가르는 것은 **누가 그 생각을 했느냐**뿐이었다.
-**Distinct, skip:** `:2337` — 매 호출마다 새로 만드는 `PlanningScene`의
+**Distinct, skip:** `oracle.cpp@367c07a^:2337` — 매 호출마다 새로 만드는 `PlanningScene`의
 `getCurrentStateNonConst()`를 비운다. 요청 간 수명이 없으므로 샐 곳이 없다.
 
 호출자 두 곳에 있던 런타임 가드를 지우고 소유자 안으로 옮겼다:
@@ -12639,7 +12641,7 @@ also relies on." 즉 방어책이 **관례**였고, 한 프로세스에 두 파�
 - **Owner/Gate:** `Oracle::handle`의 `ScopedJointBounds` (복원은
   `restoreJointBounds`).
 - **Bypass audit:** anchor `rg -n 'setVariableBounds' tools/moveit-oracle/src/
-  oracle.cpp` → 호출 3곳(`:3985` 계열 totg, acceleration filter, ruckig filter)
+  oracle.cpp` → 호출 3곳(`oracle.cpp@7b677164:3985` 계열 totg, acceleration filter, ruckig filter)
   전부 owner 경유로 전환. 나머지 hit는 `applyJointBounds`/`restoreJointBounds`
   자신과 doc 문장.
 - **범위 선택:** case가 아니라 **요청** 단위로 묶었다. 한 요청 안의 case들이
@@ -20328,7 +20330,7 @@ $ rg -n -i 'enforceBounds|satisfiesBounds' tools/moveit-oracle/src/oracle.cpp
 ```
 
 `fk`/`jacobian`이 공유하는 유일한 관절값 적용 경로
-(`applyJointValuesTo`, `:1430-1443`)는 `state.setVariablePosition`을
+(`applyJointValuesTo`, `oracle.cpp@338c7c67:1430-1443`)는 `state.setVariablePosition`을
 그대로 호출하고 `state.update()`로 끝난다 — `enforceBounds()` 호출이
 없다. 즉 범위를 벗어난 관절값을 오라클에 넣어도 오라클은 클램프하지
 않은 값으로 FK를 계산해 돌려준다. 이 항목을 오라클과 비교하려면
@@ -21514,7 +21516,7 @@ tests`). 두 철자는 실수 위에서 같고 f64 위에서 다르다: 미터 �
 오라클은 **표적 풀**과 **자기 IK 재시작**을 같은 생성기 클래스
 (`random_numbers::RandomNumberGenerator`, boost `mt19937`)의 **같은 정수 시드
 공간**에서 뽑는다. `randomStates`(`oracle.cpp:1583-1600`)는
-`request["seed"]`로 하나를 심고(`:1586`), `ik()`의 재시작 루프는
+`request["seed"]`로 하나를 심고(`oracle.cpp:1586`), `ik()`의 재시작 루프는
 `ik_rng_`에서 뽑는다(`oracle.cpp:2343`). 두 시드가 같으면 그 둘은 **같은 스트림**이다. 그러면
 재시작이 표적을 만들어 낸 바로 그 관절 구성을 다시 뽑아내고, 오라클은
 그것을 자기 해로 돌려준다.
@@ -23568,22 +23570,26 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 
 47건을 기계적으로 새 번호로 갈아끼우는 것은 세 부류에서 틀린 답이 된다.
 
-- **역사 기록.** §138.3의 `:4752`(`plan` → `planning_time_s`)와
-  `:5135`(`pilzTrajectory` → `planning_time`)는 `c0838b4`가 그 필드들을 지우면서
+- **역사 기록.** §138.3의 `oracle.cpp@c0838b4^:4752`(`plan` →
+  `planning_time_s`)와 `oracle.cpp@c0838b4^:5135`(`pilzTrajectory` →
+  `planning_time`)는 `c0838b4`가 그 필드들을 지우면서
   없어진 줄이다. 두 인용 모두 `c0838b4^`에서 정확히 일치하는 것을 확인했다
   (`{ "planning_time_s", elapsed },` / `res.planning_time`). 오늘 줄로 옮기면
   기록이 가리키던 결함 자체가 지워진다. `applyJointValues` 호출자 10곳을 적은
-  `PORTING-PLAN.md:11777-11779`도 같다 — `367c07a^`에서 `:2016`/`:2214`가
-  `state_->clearAttachedBodies();`이고 열 개 번호
-  `:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`가 전부 그대로 맞는다.
+  `PORTING-PLAN.md:11777-11779`도 같다 — `oracle.cpp@367c07a^:2016`과
+  `oracle.cpp@367c07a^:2214`가 `state_->clearAttachedBodies();`이고 열 개 번호
+  `oracle.cpp@367c07a^:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`가
+  전부 그대로 맞는다.
   고친 커밋이 그 호출들을 옮겼으므로 오늘 대응하는 줄이 없다.
 - **이미 반영된 요청.** `oracle-request-collision-max-contacts-per-pair.md`는
   `collision()`의 반환문에서 `contactsToJson`을 `allContactsToJson`으로 바꿔
-  달라는 요청 문서다. 그 교체는 이미 되어 있다(오늘 `:2484`/`:2488`). 번호만
+  달라는 요청 문서다. 그 교체는 이미 되어 있다(이 절을 쓴
+  `oracle.cpp@3241bbab:2484`와 `oracle.cpp@3241bbab:2488`). 번호만
   갈아끼우면 끝난 변경을 미결로 서술하게 된다.
 - **인용된 코드 자체가 사라진 것.** `PORTING-PLAN.md:17643`이 인용하는
-  `ik_rng_{ 42 }`는 더는 없다. 오늘은 `ik_rng_(ik_rng_seed)`(`:858-859`)에
-  기본값 42이고 CLI 오버라이드(`:6571`, `:6584`)가 붙었다.
+  `ik_rng_{ 42 }`는 더는 없다. 이 절을 쓴 리비전에서는
+  `ik_rng_(ik_rng_seed)`(`oracle.cpp@3241bbab:858-859`)에 기본값 42이고 CLI
+  오버라이드(`oracle.cpp@3241bbab:6571`, `oracle.cpp@3241bbab:6584`)가 붙었다.
 
 그래서 이번 라운드는 **측정과 선언까지** 한다. `--source` 한 줄을 지금 넣으면
 10건이 빨개지고, 그 10건만 고치면 나머지 37건 위에 초록 OK 줄이 서게 된다 —
@@ -23594,14 +23600,20 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 그 마지막 단계는 §287가 했다. 세 부류에는 새 번호를 주는 대신 리비전을 박은
 철자 `` `oracle.cpp@c0838b4^:4752` ``를 주었고, 그 다음 루트를 넣었다. `oracle`
 그룹은 `unresolvable`에서 사라졌다. 위 세 항목이 적은 2484/2488, 858-859,
-6571/6584는 이 절이 쓰일 당시의 숫자이고 그 뒤로 밀렸다 — 오늘 값은 §287.5에
-있다. 이 절은 측정이므로 그대로 둔다.
+6571/6584도 이 절이 쓰일 당시의 숫자이고 그 뒤로 밀렸다 — 오늘 값은 §287.5에
+있다. 이 절은 측정이므로 숫자는 그대로 두되, 맨 `` `:NNN` ``으로는 오늘 파일에
+대한 주장으로 읽히므로 §289가 전부 `` `oracle.cpp@3241bbab:NNN` ``으로 다시
+철자했다 — 같은 측정이 이제 그 리비전에서 게이트에 걸린다.
 
 ### §253.4 표 (인용 54건)
 
 `인용 위치`는 인용이 적힌 문서:줄, `적힌 곳`은 그 인용이 명시한 spec,
-`재도출`은 위 방법으로 오늘 파일에서 찾은 줄이다. `바로 :NNN`은 같은 줄의
+`재도출`은 위 방법으로 찾은 줄이다. `바로 :NNN`은 같은 줄의
 앞선 경로에 묶이는 맨 needle이다.
+
+`재도출` 열의 숫자는 전부 **`3241bbab`의 `oracle.cpp`** 기준이다 — 이 절을 쓴
+리비전이다. `적힌 곳` 열은 그 문서가 실제로 적어 둔 spec을 옮긴 것이므로 각
+행이 자기 문서의 리비전에 속하고, 여기서 다시 철자하지 않는다.
 
 | 인용 위치 | 적힌 곳 | 재도출 |
 | --- | --- | --- |
@@ -23609,9 +23621,9 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 | `PORTING-PLAN.md:3960` | `:1144-1146` | `2125-2127` |
 | `PORTING-PLAN.md:4582` | `:1524` | `2457` |
 | `PORTING-PLAN.md:11391` | `:4752` | 손: `c0838b4^`에서 `{ "planning_time_s", elapsed },`. `c0838b4`가 그 필드를 지웠으므로 오늘 대응하는 줄이 없다 |
-| `PORTING-PLAN.md:11391` | `:5135` | 손: `c0838b4^`에서 `res.planning_time`. 같은 커밋이 지웠고 오늘 남은 것은 주석 `:6166`뿐 |
+| `PORTING-PLAN.md:11391` | `:5135` | 손: `c0838b4^`에서 `res.planning_time`. 같은 커밋이 지웠고 남은 것은 주석 `oracle.cpp@3241bbab:6166`뿐 |
 | `PORTING-PLAN.md:11777` | `:2016` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 (수정으로 삭제) |
-| `PORTING-PLAN.md:17643` | `:6065` | 손: `ik_rng_{ 42 }` 자체가 사라졌다 — 오늘은 `ik_rng_(ik_rng_seed)` 858-859, 멤버 선언 6547 |
+| `PORTING-PLAN.md:17643` | `:6065` | 손: `ik_rng_{ 42 }` 자체가 사라졌다 — `oracle.cpp@3241bbab:858-859`가 `ik_rng_(ik_rng_seed)`, 멤버 선언은 `oracle.cpp@3241bbab:6547` |
 | `PORTING-PLAN.md:17732` | `:1772` | `2015` |
 | `PORTING-PLAN.md:19498` | `:2191` | `2417` |
 | `PORTING-PLAN.md:20264` | `:1537` | `1546` |
@@ -24839,9 +24851,9 @@ count-public-declarations.sh, same header     130
 쪽이 흘러도 어긋나서 게이트가 실패한다.
 
 그 스크립트는 이 헤더에 대해 처음에 `0`을 냈다. 클래스 머리가
-`class MOVEIT_MOVE_GROUP_INTERFACE_EXPORT
-MoveGroupInterface`(`move_group_interface.hpp:82`)인데 그 정규식이 `class`
-바로 뒤에 클래스 이름을 요구했기 때문이다. export 매크로 토큰 하나를
+`class MOVEIT_MOVE_GROUP_INTERFACE_EXPORT MoveGroupInterface`
+(`move_group_interface.hpp:82`)인데 그 정규식이 `class` 바로 뒤에
+클래스 이름을 요구했기 때문이다. export 매크로 토큰 하나를
 선택적으로 허용하도록 고쳤다. 그 전까지 이 클래스에 대해 그 계기를 돌린
 사람이 없었다는 뜻이고, 지금은 위 130이 그것을 매 실행마다 돌린다.
 
@@ -26009,8 +26021,9 @@ STOMP에서 둘 다 죽는다. 실측 — 세 개의 서로 다른 제약 집합
 죽였을 때까지 출력 없음). 즉 시간의 문제가 아니고 제약의 세기 문제도 아니다.
 
 **원인은 제약 비용이 "위반량"이 아니라 "목표까지의 거리"라는 것이다.**
-`getConstraintsCostFunction`은 상태의 비용을 `constraints.decide(state).distance
-* cost_scale`로 준다(`cost_functions.hpp:246`). 그리고
+`getConstraintsCostFunction`은 상태의 비용을
+`constraints.decide(state).distance * cost_scale`로
+준다(`cost_functions.hpp:246`). 그리고
 `JointConstraint::decide`는 만족/위반과 **무관하게**
 `ConstraintEvaluationResult(result, constraint_weight_ * fabs(dif))`를
 반환한다 — `dif`는 목표값과의 차이다
@@ -30428,8 +30441,24 @@ doc comment 한복판이다 — 즉 고치지 않았다면 문장이 존재하�
 **게이트는 다섯 중 하나만 잡았다.** 앵커가 붙은 pilz `6734-6756` 하나가
 span-mismatch로 빨개졌고, 나머지 네 건은 bounds-only라 7040도 6748도 7202줄
 안이므로 그대로 통과했다. 이것이 이 절이 닫으려는 실패 모양 그 자체다: 인용이
-해소되고, 검사되고, 틀렸다. 앵커할 수 없다고 적은 다섯 건(위 표)은 그래서
-"검사되지 않는다"가 아니라 "검사할 방법이 없다"로 읽어야 한다.
+해소되고, 검사되고, 틀렸다.
+
+**위 다섯 건은 그 뒤 닫혔다.** "검사할 방법이 없다"는 판정은 *앵커*에
+대해서만 맞았다. §289가 세 번째 클래스를 넣자 다섯 건 전부 content-verified가
+된다 — 어느 것도 문장을 고치지 않았고, 인용문이 이미 자기가 가리키는 줄의
+조각을 적고 있었다:
+
+| 인용 | 범위 | 인용문이 이미 적고 있던 조각 | 착지 |
+| --- | --- | --- | --- |
+| `...hybrid-collision-env-distance-field.md:202` | `3985-4148` | `group_state_representation` | 3985(6곳) |
+| `collision_env_distance_field_parity.rs:988` | `1491-1548` | `attached_bodies` | 1491, 1515 |
+| `collision_env_distance_field_parity.rs:1082` | `2662-2693` | `shape_kinds_1` | 2667 |
+| `collision_env_distance_field_parity.rs:1398` | `3985-4295` | `group_state_representation` | 3985(6곳) |
+| `doc/upstream-bugs.md:640` | `1348-1360` | `right_arm` | 1354 |
+
+다섯 다 상수 하한(8자, 코드 구분자 하나)을 겨우 넘는 식별자다. 문장 단위
+전사보다 약하지만 같은 것을 판정한다 — 파일이 밀리면 그 식별자가 범위를 벗어나고
+클래스가 떨어진다. §289의 M4가 그것을 실측했다.
 
 나머지는 문장이 심볼을 가리키는 것이 아니라 그 심볼**에 대해** 말하고
 있거나(예: "`rg`가 여기서 히트한다"), 아예 이름을 부르지 않는다. 이들에게
@@ -30443,7 +30472,8 @@ span-mismatch로 빨개졌고, 나머지 네 건은 bounds-only라 7040도 6748�
 색인한다. 통과 줄: 인용 2578건, span-verified 193, bounds-only 2385,
 맨 `:NNN` 연속으로 닿은 것 469, 역사 19, unresolvable 60건(전부 선언됨,
 `oracle`/`probe`는 이제 그 목록에 없다), out-of-bounds 0, obsolete-header 0,
-span-mismatch 0, stale-declaration 0, unreadable-historical 0.
+span-mismatch 0, stale-declaration 0, unreadable-historical 0. 저 2385는
+세 번째 클래스가 들어오기 전의 숫자다 — 오늘 통과 줄은 §289에 있다.
 
 `tools/ci/check-citation-drift.py`의 클래스 기준선(`doc/citation-classes.txt`)은
 **일부러 다시 얼리지 않았다**. 그쪽 코퍼스는 `.rs` 경로 인용이라 인용을 고친
@@ -30722,3 +30752,210 @@ prbt·one_robot에서 `--states 60`:
 - **`self_collision` 열** — 이 절은 `robot_collision`만 본다. 프로브가 세계
   물체이므로 자기충돌 쌍은 마스크의 대상이 아니고, 같은 유도를 자기충돌에
   적용하려면 첨부물 경로로 코퍼스를 다시 지어야 한다.
+
+---
+
+## §289 bounds-only는 침묵이었다 — 세 번째 클래스가 2385건 중 1250건을 이미 검사되고 있던 것으로 되찾는다 (2026-08-06)
+
+§287.9의 통과 줄은 인용 2578건 중 **2385건을 bounds-only**로 통과시켰다.
+그 형태는 §253.2가 이름 지었고 §287.8이 실물로 보였다 — 파일이 밀리면
+bounds-only 인용은 실패하지 않고 엉뚱한 줄을 가리킨 채 초록으로 통과한다.
+자매 게이트 `tools/ci/check-citation-drift.py`는 그 사이에 클래스를 하나 더
+갖고 있었고(anchor / content / unanchored) 이쪽에는 없었다. 이 절이 그것을
+옮기고, 옮긴 뒤 무엇이 되찾아지는지 잰다.
+
+### §289.1 옮긴 규칙과, C++이라고 바꾸지 않은 것
+
+상수와 판정 모양은 자매에서 그대로 가져왔다: 인용구는 8자 이상이고
+`(`·`)`·`::`·`!`·`=`·`..`·`->`·`[`·`]`·`"`·`&`·`.`·`/`·`_` 중 하나를 지녀야
+하며, 스팬 안에 줄바꿈이 있으면 안 되고, 그 자체가 인용·맨 경로·커밋 sha면
+제외된다. 인용 문맥은 표 행이면 그 행 하나, 산문이면 빈 줄로 끊기는 문단
+전체다.
+
+**C++이라서 구분자를 더할 필요는 없다.** 위 목록의 Rust 구분자는 전부 C++
+구분자이기도 하고(`::`는 양쪽 다, `->`는 C++에서 더 흔하다), `..`은 C++에서
+안 나올 뿐 해롭지 않다. 하한이 놓치는 C++ 고유 형태는 구분자 없는 타입
+이름(`CollisionRequest` 같은) 하나인데, 그것은 Rust 쪽에서 구분자 없는
+식별자가 받는 대우와 정확히 같다. 그래서 방언을 만들지 않았다.
+
+**판정은 오직 긍정이다.** "이 인용구가 인용된 줄에 있다"만 참으로 만들 수
+있고, 없다고 해서 거짓으로 만들 수는 없다. 그 역규칙("인용구가 파일 어딘가에
+있는데 인용 범위 밖이면 실패")을 실제로 구현해서 재봤다 — **489건이
+실패했고 전부 오탐이었다**. 문단은 여러 가지를 인용하고, 인용된 줄의 것이
+아닌 인용구는 아무 데나 있는다. 7000줄 파일에 텍스트가 다른 데 있다는 사실은
+아무것도 반증하지 않는다. 규칙째로 지웠다.
+
+### §289.2 그러면 이 클래스는 무엇으로 실패하는가
+
+자매와 같은 기구다: 인용마다 클래스를 `doc/upstream-citation-classes.txt`에
+적어 얼린다. 키는 (문서, 인용 철자), 값은 클래스 다중집합. 사다리를 내려간
+인용(demoted), 같은 문서에서 횟수가 바뀐 인용(recounted), 기준선에 없는
+인용(undeclared), 문서에서 사라진 인용(retired) 넷이 하드 실패이고 promoted만
+통과한다. 줄 번호가 바뀌면 옛 키가 은퇴하고 새 철자가 미신고로 도착한다 —
+그것이 밀림이 이 게이트에 보이는 방식이다.
+
+### §289.3 측정 — 문서를 한 글자도 고치지 않은 상태에서
+
+| | span-verified | content-verified | bounds-only |
+| --- | --- | --- | --- |
+| 전체 2578 (§287.9 시점) | 193 | — | 2385 |
+| 전체 2578 (클래스만 넣고) | 193 | **1250** | 1135 |
+| `oracle.cpp` 라이브 68 | 14 | **24** | 30 |
+
+세 줄 다 문서를 고치기 전의 트리에서 잰 것이다. `oracle.cpp` 87건은 그
+시점에 span 14 / content 24 / bounds-only 30 / 역사 19였다 — §287.8이
+bounds-only 54로 적은 것 중 **24건은 이미 검사되고 있었고**, 게이트가 그렇게
+부르지 못했을 뿐이다. 이 절 자신이 인용을 다섯 개 더 쓰므로 커밋된 트리에서는
+92건(span 14 / content 26 / bounds-only 33 / 역사 19)이다.
+
+### §289.4 판별의 증명 — 실패시켜 보였다
+
+클래스가 실패할 수 없으면 그것은 `is_err()`가 브랜치를 못 짚는 것과 같은
+잘못이다. 네 가지로 실패시켰고, 각각 되돌린 뒤 초록을 다시 확인했다.
+
+| | 무엇을 바꿨나 | 결과 |
+| --- | --- | --- |
+| M0 | 아무것도 (대조군) | EXIT=0, demoted 0 / recounted 0 / undeclared 0 / retired 0 / promoted 0 |
+| M1 | 인용의 줄 번호. 이 문서의 `oracle.cpp:7092-7097` 두 곳을 합류 **전** 철자로 되돌림 | EXIT=1, retired 1(옛 키, content-verified 2회) + undeclared 1(새 철자, bounds-only 2회) |
+| M2 | 문서의 인용구. `CollisionEnvFCL env(model_, world);`의 `world`를 `scene`으로 | EXIT=1, **demoted 1** — `oracle.cpp:2464`가 content-verified → bounds-only |
+| M3 | 같은 것을 하한 근처 식별자로. `collision_env_distance_field_parity.rs`의 `shape_kinds_1`/`shape_kinds_2`를 `_A`/`_B`로 | EXIT=1, **demoted 1** — `oracle.cpp:2662-2693`이 content-verified → bounds-only |
+| M4 | 인용이 아니라 **인용된 파일**. `oracle.cpp` 6000행 뒤에 빈 줄 57개 삽입(§286의 밀림 재현) | EXIT=1, span-mismatch 1 + demoted 1 + retired 1 |
+
+M1의 철자는 지어낸 것이 아니다. 합류 전 `7035-7040`은 §287.8이 적은 그
+값이고, 이 라운드 전의 게이트에서 그것이 **초록으로 통과했다**. 지금은
+빨개진다.
+
+M3은 §287.8이 "앵커할 방법이 없다"고 적은 다섯 건 중 하나이고, 그 인용구는
+밑줄 하나로 하한을 겨우 넘는 맨 식별자다. 문장 단위 전사(M2)와 맨 식별자(M3)
+양쪽에서 같은 실패가 난다 — 하한 위쪽만 판별하는 규칙이 아니다.
+
+M4가 이 절의 중심 주장이다. 57줄 삽입이 움직인 살아 있는 `oracle.cpp` 인용은
+넷이고, **둘이 빨개졌다**: 앵커가 붙은 pilz 하나(span-mismatch, 옛 채널)와
+`oracle.cpp:7092-7097`(demoted, 새 채널). 하드 실패한 인용은 클래스 맵에
+들어가지 못하므로 pilz 키는 retired로도 한 번 더 나온다. 나머지 **둘은 그대로
+통과했다** — 두 문서의 `oracle.cpp:6804-6805`이고 둘 다 bounds-only다. 되찾은
+것은 절반이지 전부가 아니다.
+
+### §289.5 §287.8의 다섯 건은 닫혔다
+
+앵커를 붙일 수 없다고 적은 다섯 건 전부가 content-verified가 된다. 어느
+문장도 고치지 않았다. 표는 §287.8에 붙였다.
+
+### §289.6 문서 쪽 — 줄바꿈이 삼킨 인용구 열한 건
+
+인용문이 이미 그 줄을 옮겨 적었는데 문단이 그 조각 한가운데서 줄바꿈을 해서
+스팬 정규식에 안 잡히던 것이 열한 건 있었다. 문장을 바꾸지 않고 줄바꿈만
+옮겨서 열한 건 전부 content-verified가 된다. 하나(`setFromIK`의 sentinel
+치환)는 인용된 두 줄을 한 스팬에 이어 붙여 적고 있었으므로 두 스팬으로
+쪼갰다 — 상류가 실제로 두 줄이다.
+
+**인용구가 없는 문장에는 인용구를 넣지 않았다.** 그것은 인용을 검사 가능하게
+만드는 것이 아니라 문장을 게이트에 맞추는 것이고, §287.8이 거부한 그 일이다.
+
+### §289.7 남은 것
+
+커밋된 트리의 bounds-only 1125건을 "문장이 이미 착지하는 조각을 적고 있는가"로
+나누면: **511건은 착지하는 backtick 조각이 아예 없다**. 나머지 614건은 있는데
+하한에 걸린다 — 구분자가 없는 맨 식별자 450, 8자 미만 290(한 인용이 둘 다
+가질 수 있어 겹친다). 하한을 낮추면 저 614가 content-verified로 올라오지만
+그것은 커버리지가 아니다: 하한은 산문 단어를 인용구로 오인하지 않으려고
+있는 것이고, 7000줄 파일에서 `getJointModel`이 인용 범위 안에 우연히 있는
+것은 검사가 아니다. 자매와 방언이 갈라지는 대가까지 치른다. 낮추지 않았다.
+
+§253.3과 §253.4가 적은 `oracle.cpp` 숫자들(858-859, 6547, 6571, 6584, 6166)은
+어느 게이트의 코퍼스에도 없었다. 이 절이 처음에 적은 이유 — "앞선 경로 토큰이
+in-repo 문서라 base가 리셋된다" — 는 부정확하다. `base`는 **줄마다** `None`으로
+시작하고(`measure-upstream-citations.py`의 해소 루프), `PORTING-PLAN.md:NNN`
+같은 in-repo 문서 경로는 `TOKEN_RE`의 어느 갈래에도 맞지 않아 base를 세우지도
+리셋하지도 않는다. 정확한 기술은 이렇다: 맨 `` `:NNN` ``은 **자기 줄 앞쪽에
+상류 경로 토큰이 있을 때만** 묶이고, 없으면 버려진다. 코퍼스 전체에서 그렇게
+버려지는 맨 needle이 2184건이다. §253.2가 예측한 구멍은 실재하지만 그 구멍의
+입구는 리셋이 아니라 줄 경계다.
+
+다섯 개를 그대로 두었던 것도 틀렸다. 맨 `` `:NNN` ``은 오늘 파일에 대한 주장으로
+읽히고, "이 절이 쓰일 당시의 숫자"라는 단서 문장은 인용과 함께 움직이지 않는다.
+측정을 지우지 않으면서 주장을 참으로 만드는 철자는 §287이 이미 만들어 두었다.
+§289.9가 그것을 적용한 기록이다.
+
+### §289.8 게이트 상태
+
+`tools/ci/verify-upstream-citations.sh`의 통과 줄: 인용 2583건,
+span-verified 193, content-verified 1265, bounds-only 1125, 맨 needle 연속으로
+닿은 것 469, 역사 19, unresolvable 60(전부 선언됨), out-of-bounds 0,
+obsolete-header 0, span-mismatch 0, stale-declaration 0,
+unreadable-historical 0, demoted 0 / recounted 0 / undeclared 0 / retired 0.
+`--write-classes`가 기준선을 다시 쓴다.
+
+저 여섯 숫자는 §289.9 이전의 트리에서 잰 것이다. §289.9가 역사 인용을 총계와
+사다리에 넣었고 §289.9 자신의 인용까지 더해져, 이 절이 커밋되는 트리의 통과
+줄은 인용 2623건, span-verified 202, content-verified 1280, bounds-only 1141,
+그중 역사 39건이다. 맨 needle 연속 469, unresolvable 60은 그대로이고 나머지
+실패 범주도 전부 0으로 같다.
+
+`tools/ci/check-citation-drift.py`의 기준선(`doc/citation-classes.txt`)은
+이 절이 다시 얼리지 않았다. 델타는 이 절의 보고에 적었다.
+
+### §289.9 맨 `` `:NNN` ``이 오늘 파일에 대한 주장으로 읽히는 자리 — 17건을 리비전으로 못박았다
+
+§289.7이 "고치지 않는다"고 적은 다섯 건은 잘못된 멈춤이었다. 맨 `` `:NNN` ``은
+문법적으로 지금 그 파일의 그 줄을 가리키는 주장이고, 절 어딘가의 "이 절이 쓰일
+당시의 숫자" 한 문장은 인용과 함께 움직이지 않는다. 그 숫자에 도착한 독자는
+틀린 숫자를 읽고, 어느 게이트도 그것을 말해 줄 수 없다. §287이 만든 철자
+`` `oracle.cpp@3241bbab:6584` ``가 세 번째 선택지다 — 측정을 지우지 않으면서
+주장을 참으로 만들고, 그 리비전에서 검사된다.
+
+**가족은 다섯이 아니다.** 앵커는 "게이트가 버리는 맨 `` `:NNN` ``"이고,
+코퍼스 전체에서 **2184건**이다. 버려지는 정확한 기계는 §289.7이 적었다.
+그중 지시 대상이 `oracle.cpp`로 결정 가능한 것만이 이 절의 대상이고, 그것은
+§253.3의 10건, §253.4의 1건, 그리고 §143의 3건, 157.3·§237.2·§245.1의 각 1건
+— 백틱이 붙은 17건이다(`check-shorthand-citations.py`가 `PORTING-PLAN.md`
+550 → 533으로 독립 확인했다). §253.4 표의 `손:` 칸에 백틱 없이 적혀 있던
+858-859와 6547도 같은 주장이라 같이 못박았다.
+
+리비전은 인용마다 다르다 — 각 줄을 `git blame`으로 잡고 그 리비전의 blob에서
+내용을 확인했다: `3241bbab`(§253이 쓰인 커밋) 7건, `367c07a^` 4건,
+`c0838b4^` 2건, `338c7c67` 1건, `7b677164` 1건. 남은 1건
+(§245.1의 `randomStates` 시드 줄)은 오늘도 그대로 맞아서 역사 철자가 아니라
+살아 있는 경로를 줬다 — 같은 문단의 형제 인용 둘이 이미 HEAD 좌표계이고, 그
+셋을 같은 좌표계에 두는 것이 맞다. 게이트가 content-verified로 분류한다.
+
+**버리기로 한 것들.** §253.4 `적힌 곳` 열의 54건은 그 문서가 실제로 적어 둔
+spec을 옮긴 것이지 `oracle.cpp`에 대한 주장이 아니고, 행마다 자기 문서의
+리비전에 속한다 — 공통 리비전을 박으면 그게 거짓이 된다. 표의 `재도출` 열은
+머리말에서 `3241bbab` 기준임을 밝히는 쪽으로 고쳤다. 같은 표에서 3391-3392와
+3361-3368을 되짚는 2건은 이 표 자신의 앞선 행을 가리키는 말이지 파일의 줄이
+아니다. §253.1에 하나 남은 85는
+in-repo `.md` 문서 자신의 줄이다. 남는 2110건은 지시 대상이
+`oracle.cpp`가 아니다 — 문단을 열어 확인한 표본으로: `parry.rs`의 8건은
+`collision_env_fcl.cpp`/`BV_splitter-inl.h`/`mpr.c`/`support.c`,
+§244.2의 3건은 `robot_state.cpp`, §271.3의 12건은 OMPL `NearestNeighbors.hpp`,
+§232.2의 5건은 이 저장소의 parity 테스트 파일이다.
+
+**그리고 못박은 다음이 진짜 문제였다.** 역사 인용은 그 리비전에서 *범위만*
+검사됐다. `oracle.cpp@3241bbab:6584`를 `@f1d4ea22`로 바꿔 달아 봤다 — 7145줄
+파일이라 6584는 범위 안이고, 그 줄은
+`position_constraint.constraint_region.primitive_poses.push_back(...)`으로 인용
+문장과 아무 관계가 없다. 게이트는 **통과했다**. bounds-only가 침묵이라는 이
+절의 논지가 역사 클래스 안에서 그대로 재현된 것이다.
+
+그래서 사다리를 하나로 만들었다. `measure-upstream-citations.py`의 분류 블록을
+`classify_citation`으로 뽑아 살아 있는 인용은 HEAD의 파일에, 역사 인용은
+자기 리비전의 blob에 대해 **같은 함수**가 돌게 했다(복사했으면 두 방언이
+갈라졌을 것이고, 그 갈라짐이 이 스크립트 가족이 보고하는 결함이다). 역사 인용도
+클래스 기준선에 들어간다. 기존 19건 중 span-mismatch는 0이다.
+
+세 변이로 확인했다:
+
+| 변이 | 결과 |
+|---|---|
+| `@3241bbab:6584` → `@f1d4ea22:6584` (범위 안, 무관한 줄) | 이전: 통과. 지금: **recounted 1 + undeclared 1** |
+| `@3241bbab:6584` → `@7b677164:6584` (5692줄 파일, 범위 밖) | `unreadable-historical` 1 — "cites ... `@7b677164:6584`, but that file had only 5692 lines at 7b677164" |
+| 인용 문장의 `` `ik_rng_(ik_rng_seed)` ``만 지움, 못은 그대로 | **demoted 1** — `@3241bbab:858-859` content-verified → bounds-only |
+
+세 변이 전부 편집으로 되돌렸고, 되돌린 뒤 트리는 깨끗하다. 가운데 것은 새 규칙
+이전에도 잡혔다 — 범위 검사는 원래 있었다. 첫째와 셋째가 새로 생긴 것이다.
+
+첫째 줄은 처음에 `retired 1`로 쟀다. 이 절이 같은 인용을 본문에서 두 번 더
+언급하는 바람에 키가 은퇴하지 않고 3x → 2x로 다시 세어져 `recounted`가 됐다 —
+실패 범주만 바뀌고 하드 실패인 것은 같다. 이 절 자신이 코퍼스의 일부라는
+사실이 이 절의 숫자를 바꾼 두 번째 사례다(첫째는 §289.8).
