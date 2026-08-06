@@ -267,6 +267,26 @@ PY
 commit "$r" -m "delete 2..1 only"
 expect subsection_only "$r" 1 1 "removes ### '2.1 beta one'"
 
+# --- one of three sections that share a key ---------------------------------
+# isolates: counting instances instead of testing membership. Five documents
+# here carry a duplicated (depth, key), so this is the live shape, not a
+# constructed one.
+r="$(new_repo duplicate_key)"
+printf '# T\n\n## Totals\n\nfirst totals line\nsecond totals line\n\n## Middle\n\nm1\n\n## Totals\n\nthird totals line\nfourth totals line\n\n## Totals\n\nfifth totals line\nsixth totals line\n' \
+  > "$r/doc/thing.md"
+commit "$r" -m base
+python3 - "$r/doc/thing.md" <<'PY2'
+import sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    text = handle.read()
+text = text.replace("\n## Totals\n\nthird totals line\nfourth totals line\n", "")
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(text)
+PY2
+commit "$r" -m "delete the second of three Totals sections"
+expect duplicate_key "$r" 1 1 "removes ## 'Totals'"
+
 # --- a section and both its children, together ------------------------------
 # isolates: the subtree collapse. Without it this reports three removals to
 # declare instead of the one event that happened.

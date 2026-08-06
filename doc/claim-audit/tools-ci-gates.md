@@ -753,6 +753,19 @@ that commit becomes reachable there. A resolution that drops a section neither
 parent dropped is the case where the merge itself is charged, by the same
 clause, with nothing special-cased.
 
+One more clause came out of testing it rather than out of the history.
+Deleting the last section from all 70 documents at once caught 59 of the 60
+that had one; the miss was `doc/assertion-discrimination-ledger-p9-ros.md`,
+which carries `### Totals` three times, so removing one left the key present.
+Four other documents share a key the same way (`## 172` twice in both
+`doc/claim-audit/moveit-planners-stomp.md` and
+`doc/claim-audit/moveit-stomp-core.md`, `### Result` twice in the
+p1-robotmodel ledger, `## §119` twice here). The key must therefore survive as
+many *times* as the parent had it, not merely at all -- instances pair
+parent-to-child by body overlap and the surplus goes to the rename test. That
+sweep is 60 of 60 now, the other 10 documents carry no `##` heading at all, and
+the history walk still finds the same 18.
+
 All 18 are real removals and all 18 are declared in that script's commit
 message, read against their own commits first. There is no baseline commit:
 a baseline is a one-line edit that silences every removal before it, where a

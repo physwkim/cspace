@@ -64,8 +64,16 @@
 #
 # A section is removed at commit C when all three hold:
 #
-#   - its key is present in EVERY parent of C that has the document, and in no
-#     heading of C. Requiring every parent, rather than any, is what fixes (5):
+#   - its key is present in EVERY parent of C that has the document, and C has
+#     it FEWER times than that parent did. Times, not merely at all: five
+#     documents here carry a duplicated (depth, key) -- three `### Totals` in
+#     one ledger, `## 172` twice in two claim audits -- and a membership test
+#     makes removing one of those invisible. Found by deleting the last section
+#     from all 70 documents at once: 59 of the 60 that had one reddened the
+#     gate, and the one that did not was the ledger with three `### Totals`.
+#     With the count rule that sweep is 60 of 60; the other 10 documents carry
+#     no `##` heading at all, only a `#` title. Requiring every parent, rather
+#     than any, is what fixes (5):
 #     a merge is charged only for what it dropped on its own, and the commit
 #     that did the deleting is charged instead -- which is the honest
 #     attribution, and still reddens the gate at the merge, because that commit
@@ -160,6 +168,7 @@ require_caller_tree "$REPO_ROOT"
 cd "$REPO_ROOT"
 
 python3 - <<'PY'
+import collections
 import hashlib
 import re
 import subprocess
@@ -266,24 +275,51 @@ def removed(parents, child):
     """Indices into parents[0] removed by a child with all of these parents.
 
     -> {index: best surviving fraction, or None when the body is empty}
+
+    A key must survive as many TIMES as the parent had it, not merely once.
+    Five documents here carry a duplicated (depth, key) -- three `### Totals`
+    in one ledger, `## 172` twice in two claim audits -- and asking only
+    whether the key is still present makes removing one of those invisible,
+    which is the same one-instance-stands-for-all mistake at a smaller scale.
+    Instances are paired parent-to-child by body overlap, best first, so the
+    surplus that has nothing left to pair with is what goes on to the rename
+    test.
     """
-    child_keys = {(s[0], s[4]) for s in child}
+    child_pool = collections.defaultdict(list)
+    for section in child:
+        child_pool[(section[0], section[4])].append(section[3])
     common = None
     for parent in parents:
         parent_keys = {(s[0], s[4]) for s in parent}
         added = [s for s in child if (s[0], s[4]) not in parent_keys]
+        instances = collections.defaultdict(list)
+        for n, section in enumerate(parent):
+            instances[(section[0], section[4])].append(n)
         here = {}
-        for n, (depth, _h, _l, body, key, _e) in enumerate(parent):
-            if (depth, key) in child_keys:
-                continue
-            if not body:
-                here[(depth, key)] = (n, None)
-                continue
-            best = 0.0
-            for _d, _h2, _l2, other, _k, _e2 in added:
-                best = max(best, len(body & other) / len(body))
-            if best < SURVIVES:
-                here[(depth, key)] = (n, best)
+        for key, members in instances.items():
+            pool = list(child_pool.get(key, []))
+            unpaired = []
+            for n in members:
+                body = parent[n][3]
+                if not pool:
+                    unpaired.append(n)
+                    continue
+                take, best = 0, -1.0
+                for at, other in enumerate(pool):
+                    overlap = len(body & other) / len(body) if body else 1.0
+                    if overlap > best:
+                        take, best = at, overlap
+                pool.pop(take)
+            for ordinal, n in enumerate(unpaired):
+                body = parent[n][3]
+                if not body:
+                    here[(key, ordinal)] = (n, None)
+                    continue
+                best = 0.0
+                for _d, _h, _l, other, _k, _e in added:
+                    best = max(best, len(body & other) / len(body))
+                if best < SURVIVES:
+                    here[(key, ordinal)] = (n, best)
         common = here if common is None else {
             k: v for k, v in common.items() if k in here
         }
