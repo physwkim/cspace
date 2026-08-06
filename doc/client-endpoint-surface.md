@@ -6,9 +6,10 @@ Generated. Regenerate with
         --upstream ~/work/moveit2 --emit-doc > doc/client-endpoint-surface.md
 
 and check it with `tools/ci/verify-client-endpoint-surface.sh`, which owns
-the pinned-revision precondition. Every line number is relative to that
-revision. `-- ` in the last column means the declaration puts nothing on the
-wire.
+the pinned-revision precondition. Every `hpp:` line number is relative to
+that revision; every port path is relative to this repository and is read
+from the working tree, so a rename moves it. `-- ` in the last column of
+the declaration table means the declaration puts nothing on the wire.
 
 Endpoint names are **relative** -- the client resolves each one through
 `rclcpp::names::append(opt_.move_group_namespace, ...)`, so a leading slash
@@ -23,6 +24,40 @@ endpoint, but the client's constructor cannot complete without it.
     count-public-declarations.sh   130
     reach the wire                 38
     client-local                   88
+
+    port side, absent             9
+    port side, bound              1
+    port side, surplus            3
+
+## What the port binds
+
+`bound` means this workspace opens that endpoint in the direction the
+client needs. `absent` means nothing here opens it. `role-mismatch` means
+something here opens the name in the wrong direction. `surplus` means the
+port opens an endpoint no `MoveGroupInterface` declaration asks for.
+
+`bound` is a static fact about the socket and nothing more. Whether the
+handler behind it then answers or rejects is a separate question this
+table cannot reach -- it is Phase 9's (a)-versus-(b) split, and it needs
+a read of the handler or a run of the node. `absent` is the whole of (c).
+
+| endpoint | the client | the port must provide | opened at | verdict |
+|---|---|---|---|---|
+| `attached_collision_object` | publishes | subscriber | -- | absent |
+| `check_state_validity` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:604` | surplus |
+| `compute_cartesian_path` | calls | service server | -- | absent |
+| `execute_trajectory` | calls | action server | -- | absent |
+| `get_planner_params` | calls | service server | -- | absent |
+| `joint_states` | subscribes | publisher | -- | absent |
+| `move_action` | calls | action server | `ros/moveit-ros/src/bin/move_group.rs:569` | bound |
+| `plan_kinematic_path` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:553` | surplus |
+| `planning_scene` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:592` | surplus |
+| `query_planner_interface` | calls | service server | -- | absent |
+| `robot_description` | reads | parameter or latched publisher | -- | absent |
+| `set_planner_params` | calls | service server | -- | absent |
+| `trajectory_execution_event` | publishes | subscriber | -- | absent |
+
+## Every public declaration
 
 | declaration | name | endpoints |
 |---|---|---|

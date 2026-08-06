@@ -555,6 +555,185 @@ def endpoints_of(kind, hpp_line, cpp_line, reach):
 MOVE_CTOR = None  # set once the declarations are read; see `main`
 
 
+# ------------------------------------------------------------------ port side
+#
+# The other half of the requirement: of the endpoints the client binds, which
+# ones does THIS workspace open, and where.
+#
+# Hand-keeping that column is what rotted.  The round that produced this
+# script wrote the port paths into a prose table in `PORTING-PLAN.md`; the
+# same round renamed `plan_kinematic_path_server.rs` to `move_group.rs`, and
+# all four citations to it were wrong on arrival.  Nothing could see it --
+# `verify-upstream-citations.sh` resolves upstream paths, not port ones, and
+# `check-citation-drift.py` puts an unanchored port citation in a
+# bounds-checked-only bucket where a file that no longer exists still passes
+# if some other file supplies the line.  A derived column moves with the
+# rename instead, and a removed endpoint flips its verdict rather than
+# leaving a sentence that reads true.
+#
+# Direction matters and is derived, not assumed: the client CALLS a service
+# or action, so the port must SERVE it; the client PUBLISHES
+# `trajectory_execution_event` and `attached_collision_object`, so the port
+# must SUBSCRIBE; the client SUBSCRIBES to `joint_states`, so something must
+# PUBLISH it.  A port site with the right name and the wrong direction is
+# reported as `role-mismatch`, not as `bound`.
+
+CLIENT_USE = {
+    "action": "calls", "service": "calls", "topic-pub": "publishes",
+    "topic-sub": "subscribes", "parameter": "reads",
+}
+
+PORT_ROLE = {
+    "action": "action server", "service": "service server",
+    "topic-pub": "subscriber", "topic-sub": "publisher",
+    "parameter": "parameter or latched publisher",
+}
+
+# The model load is not one of the ten handles -- it is a free function the
+# constructor calls before any handle exists -- but the client cannot be
+# constructed without it, so it is a row here.
+PARAM_ENDPOINTS = {
+    "robot_description": ("parameter", "common_objects.cpp:115-130"),
+}
+
+# r2r's factories, and the role each one fills.  Client-side factories are
+# listed too: a port that opened `create_client("move_action")` would satisfy
+# nothing, and this table makes that visible instead of silently absent.
+PORT_FACTORY = {
+    "create_service": "service server",
+    "create_action_server": "action server",
+    "create_publisher": "publisher",
+    "create_subscription": "subscriber",
+    "subscribe": "subscriber",
+    "create_client": "service client",
+    "create_action_client": "action client",
+}
+
+PORT_OPENER = re.compile(
+    r"\b(" + "|".join(sorted(PORT_FACTORY, key=len, reverse=True)) +
+    r")\s*::\s*<[^;{}]*?\(\s*\"([^\"]+)\"", re.S)
+
+RAW_STR = re.compile(r'r(#*)"')
+CHAR_LIT = re.compile(r"'(?:[^'\\\n]|\\.)'")
+
+
+def strip_rust(text: str) -> str:
+    """Blank Rust comments, keeping every newline and every string literal.
+
+    String literals survive because the endpoint name IS a string literal.
+    Comments must go: `crates/moveit-planners-pilz/src/lib.rs:122` and
+    `crates/moveit-kinematics/src/lib.rs:266` both name a factory in prose.
+    Block comments nest in Rust, raw strings suspend escaping, and `'a'` is a
+    literal where `'a` is a lifetime -- all three are handled, and the caller
+    asserts the line count is unchanged so a mis-parse cannot quietly delete
+    a site.
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        two = text[i:i + 2]
+        if two == "//":
+            end = text.find("\n", i)
+            end = n if end < 0 else end
+            out.append(" " * (end - i))
+            i = end
+        elif two == "/*":
+            depth, j = 1, i + 2
+            out.append("  ")
+            while j < n and depth:
+                if text[j:j + 2] == "/*":
+                    depth += 1
+                    out.append("  ")
+                    j += 2
+                elif text[j:j + 2] == "*/":
+                    depth -= 1
+                    out.append("  ")
+                    j += 2
+                else:
+                    out.append("\n" if text[j] == "\n" else " ")
+                    j += 1
+            i = j
+        elif text[i] == "r" and RAW_STR.match(text, i):
+            match = RAW_STR.match(text, i)
+            close = '"' + match.group(1)
+            end = text.find(close, match.end())
+            end = n if end < 0 else end + len(close)
+            out.append(text[i:end])
+            i = end
+        elif text[i] == '"':
+            j = i + 1
+            while j < n:
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == '"':
+                    j += 1
+                    break
+                j += 1
+            out.append(text[i:j])
+            i = j
+        elif text[i] == "'" and CHAR_LIT.match(text, i):
+            match = CHAR_LIT.match(text, i)
+            out.append(match.group(0))
+            i = match.end()
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
+def port_sites():
+    """Every endpoint this workspace opens, as (name, role, file, line)."""
+    listed = subprocess.run(
+        ["git", "-C", REPO_ROOT, "ls-files", "--", "*.rs"],
+        capture_output=True, text=True, check=True).stdout.split()
+    if not listed:
+        sys.exit(f"FAIL `git ls-files -- '*.rs'` found nothing under "
+                 f"{REPO_ROOT} -- the port side cannot be measured, and "
+                 f"reporting every endpoint absent would look like a result.")
+    sites = []
+    for rel in listed:
+        with open(os.path.join(REPO_ROOT, rel), encoding="utf-8") as handle:
+            raw = handle.read()
+        text = strip_rust(raw)
+        if len(text.splitlines()) != len(raw.splitlines()):
+            sys.exit(f"FAIL stripping comments changed {rel}'s line count; "
+                     f"every port line number below would be shifted.")
+        for match in PORT_OPENER.finditer(text):
+            sites.append((match.group(2).lstrip("/"),
+                          PORT_FACTORY[match.group(1)],
+                          rel, text.count("\n", 0, match.start()) + 1))
+    if not sites:
+        sys.exit(f"FAIL no endpoint-opening call found in any of "
+                 f"{len(listed)} tracked `.rs` files.  The port opens some; "
+                 f"an empty scan is a broken scanner, not an empty port.")
+    return sorted(sites)
+
+
+def port_table(sites):
+    """One row per endpoint either side names: what is needed, what is open."""
+    need = {endpoint: kind for endpoint, kind, _ in ENDPOINTS.values()
+            if kind != "non-ros"}
+    need.update({name: kind for name, (kind, _) in PARAM_ENDPOINTS.items()})
+    rows = []
+    for endpoint in sorted(set(need) | {s[0] for s in sites}):
+        same_name = [s for s in sites if s[0] == endpoint]
+        if endpoint not in need:
+            role, use = "--", "--"
+            verdict = "surplus"
+            chosen = same_name[0]
+        else:
+            kind = need[endpoint]
+            role, use = PORT_ROLE[kind], CLIENT_USE[kind]
+            exact = [s for s in same_name if s[1] == role]
+            chosen = exact[0] if exact else (same_name[0] if same_name else None)
+            verdict = "bound" if exact else (
+                "role-mismatch" if same_name else "absent")
+        site = f"{chosen[2]}:{chosen[3]}" if chosen else None
+        rows.append((endpoint, use, role, site, verdict))
+    return rows
+
+
 def main() -> int:
     global MOVE_CTOR
     ap = argparse.ArgumentParser()
@@ -611,10 +790,12 @@ def main() -> int:
     special = sum(1 for _, kind, _, _ in rows
                   if kind.startswith(("ctor", "dtor", "assign")))
 
+    ports = port_table(port_sites())
+
     if args.check:
-        return check_doc(args.check, rows)
+        return check_doc(args.check, rows, ports)
     if args.emit_doc:
-        emit_doc(rows, others, total, special)
+        emit_doc(rows, others, total, special, ports)
         return 0
 
     print(f"public function declarations                  {len(decls)}")
@@ -630,6 +811,14 @@ def main() -> int:
     per = collections.Counter(e for _, _, _, eps in rows for e in eps)
     for endpoint, count in sorted(per.items()):
         print(f"      {endpoint:<30} {count}")
+    print()
+    verdicts = collections.Counter(v for _, _, _, _, v in ports)
+    print(f"endpoints the client binds                    "
+          f"{sum(1 for _, _, _, _, v in ports if v != 'surplus')}")
+    for verdict, count in sorted(verdicts.items()):
+        print(f"      {verdict:<30} {count}")
+    for endpoint, use, role, site, verdict in ports:
+        print(f"      {endpoint:<30} {verdict:<14} {site or '--'}")
     if args.rows:
         print()
         for n, kind, name, eps in rows:
@@ -637,7 +826,7 @@ def main() -> int:
     return 0
 
 
-def emit_doc(rows, others, total, special) -> None:
+def emit_doc(rows, others, total, special, ports) -> None:
     wired = sum(1 for _, _, _, eps in rows if eps)
     print("# `MoveGroupInterface`'s public surface and the endpoint each "
           "declaration reaches")
@@ -650,11 +839,14 @@ def emit_doc(rows, others, total, special) -> None:
     print()
     print("and check it with `tools/ci/verify-client-endpoint-surface.sh`, "
           "which owns")
-    print("the pinned-revision precondition. Every line number is relative to "
-          "that")
-    print("revision. `-- ` in the last column means the declaration puts "
-          "nothing on the")
-    print("wire.")
+    print("the pinned-revision precondition. Every `hpp:` line number is "
+          "relative to")
+    print("that revision; every port path is relative to this repository and "
+          "is read")
+    print("from the working tree, so a rename moves it. `-- ` in the last "
+          "column of")
+    print("the declaration table means the declaration puts nothing on the "
+          "wire.")
     print()
     print("Endpoint names are **relative** -- the client resolves each one "
           "through")
@@ -674,6 +866,39 @@ def emit_doc(rows, others, total, special) -> None:
     print(f"    reach the wire                 {wired}")
     print(f"    client-local                   {len(rows) - wired}")
     print()
+    verdicts = collections.Counter(v for _, _, _, _, v in ports)
+    for verdict, count in sorted(verdicts.items()):
+        print(f"    port side, {verdict:<18} {count}")
+    print()
+    print("## What the port binds")
+    print()
+    print("`bound` means this workspace opens that endpoint in the direction "
+          "the")
+    print("client needs. `absent` means nothing here opens it. "
+          "`role-mismatch` means")
+    print("something here opens the name in the wrong direction. `surplus` "
+          "means the")
+    print("port opens an endpoint no `MoveGroupInterface` declaration asks "
+          "for.")
+    print()
+    print("`bound` is a static fact about the socket and nothing more. Whether "
+          "the")
+    print("handler behind it then answers or rejects is a separate question "
+          "this")
+    print("table cannot reach -- it is Phase 9's (a)-versus-(b) split, and it "
+          "needs")
+    print("a read of the handler or a run of the node. `absent` is the whole "
+          "of (c).")
+    print()
+    print("| endpoint | the client | the port must provide | opened at | "
+          "verdict |")
+    print("|---|---|---|---|---|")
+    for endpoint, use, role, site, verdict in ports:
+        cell = f"`{site}`" if site else "--"
+        print(f"| `{endpoint}` | {use} | {role} | {cell} | {verdict} |")
+    print()
+    print("## Every public declaration")
+    print()
     print("| declaration | name | endpoints |")
     print("|---|---|---|")
     for n, kind, name, eps in rows:
@@ -682,12 +907,17 @@ def emit_doc(rows, others, total, special) -> None:
 
 
 ROW = re.compile(r"^\|\s*`hpp:(\d+)`\s*\|\s*`([^`]+)`\s*\|\s*([^|]*?)\s*\|")
+# Five cells, so it cannot match the three-cell declaration rows above.
+PORT_ROW = re.compile(
+    r"^\|\s*`([^`]+)`\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*"
+    r"(?:`([^`]*)`|--)\s*\|\s*([a-z-]+)\s*\|\s*$")
 
 
-def check_doc(path: str, rows) -> int:
+def check_doc(path: str, rows, ports) -> int:
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
     have = {}
+    have_ports = {}
     for line in text.splitlines():
         match = ROW.match(line)
         if match:
@@ -695,8 +925,15 @@ def check_doc(path: str, rows) -> int:
                 match.group(2),
                 tuple(sorted(e for e in match.group(3).replace("`", "").split()
                              if e not in ("--", "-"))))
+            continue
+        match = PORT_ROW.match(line)
+        if match:
+            have_ports[match.group(1)] = (
+                match.group(2), match.group(3), match.group(4), match.group(5))
     want = {n: (name, tuple(sorted(eps)) if eps else ())
             for n, kind, name, eps in rows}
+    want_ports = {endpoint: (use, role, site, verdict)
+                  for endpoint, use, role, site, verdict in ports}
     bad = 0
     for n in sorted(set(have) | set(want)):
         if n not in have:
@@ -708,12 +945,25 @@ def check_doc(path: str, rows) -> int:
         elif have[n] != want[n]:
             print(f"ROW DISAGREES      hpp:{n} doc {have[n]} measured {want[n]}")
             bad += 1
+    for endpoint in sorted(set(have_ports) | set(want_ports)):
+        if endpoint not in have_ports:
+            print(f"MISSING PORT ROW   {endpoint} {want_ports[endpoint][3]}")
+            bad += 1
+        elif endpoint not in want_ports:
+            print(f"STALE PORT ROW     {endpoint} {have_ports[endpoint][3]}")
+            bad += 1
+        elif have_ports[endpoint] != want_ports[endpoint]:
+            print(f"PORT ROW DISAGREES {endpoint} doc {have_ports[endpoint]} "
+                  f"measured {want_ports[endpoint]}")
+            bad += 1
     if bad:
         print(f"FAIL {bad} row(s) in {path} disagree with the measurement.")
         return 1
+    bound = sum(1 for _, _, _, _, v in ports if v == "bound")
+    required = sum(1 for _, _, _, _, v in ports if v != "surplus")
     print(f"OK: {len(want)} declarations, "
           f"{sum(1 for _, _, _, e in rows if e)} on the wire, "
-          f"{path} agrees")
+          f"{bound}/{required} endpoints bound, {path} agrees")
     return 0
 
 
