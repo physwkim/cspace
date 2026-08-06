@@ -49,9 +49,9 @@ PROBE="$REPO_ROOT/tools/fcl-distance-tolerance-probe/probe.cpp"
 # `MAX_SOLVER_GAP` is a ceiling on agreement, so they fail in opposite
 # directions and one cannot be relaxed to rescue the other.
 #
-# Re-pinned in PORTING-PLAN.md:298 to `prbt_link_4`'s SECOND box
-# (`fixtures/prbt.urdf:319`, `0.09 x 0.06 x 0.12`) after PORTING-PLAN.md:284's
-# §284.4 found the probe had been built against the first box
+# Re-pinned in PORTING-PLAN.md's §298 to `prbt_link_4`'s SECOND box
+# (`fixtures/prbt.urdf:319`, `0.09 x 0.06 x 0.12`) after §284.4 found the
+# probe had been built against the first box
 # (`fixtures/prbt.urdf:313`, `0.121 x 0.08 x 0.17`) instead. Re-run inside
 # `moveit-rs/oracle:d8512bbee12499c3` (`libfcl-dev 0.7.0-3build2`), 2000
 # poses, on the corrected box: `|default - tight|` max `2.051960e-04`,
