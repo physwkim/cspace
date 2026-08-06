@@ -5,7 +5,7 @@
 // No upstream file ported line-for-line. This is the D4 compile-time
 // replacement for the `pluginlib` half of
 //   moveit_ros/planning/planning_pipeline/src/planning_pipeline.cpp
-// (`planner_plugin_loader_`/`planner_map_`, `planning_pipeline.hpp:261-264`)
+// (`planner_plugin_loader_`/`planner_map_`, `planning_pipeline.hpp:262-263`)
 // and for the `CLASS_LOADER_REGISTER_CLASS(_, planning_interface::PlannerManager)`
 // macro every upstream planner plugin ends with.
 

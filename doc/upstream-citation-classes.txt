@@ -929,7 +929,7 @@ crates/moveit-octomap/src/tree.rs	planning_scene.cpp:1510	content-verified
 crates/moveit-octomap/src/tree.rs	third_party/octomap/octomap/src/AbstractOccupancyOcTree.cpp:172-176	content-verified
 crates/moveit-planner-registry/src/lib.rs	planning_interface.hpp:193	span-verified
 crates/moveit-planner-registry/src/lib.rs	planning_interface.hpp:54	bounds-only
-crates/moveit-planner-registry/src/lib.rs	planning_pipeline.hpp:261-264	content-verified
+crates/moveit-planner-registry/src/lib.rs	planning_pipeline.hpp:262-263	content-verified
 crates/moveit-planner-registry/src/lib.rs	planning_pipeline.hpp:263	bounds-only
 crates/moveit-planner-registry/src/lib.rs	query_planners_service_capability.cpp:205	content-verified
 crates/moveit-planners-chomp/doc/oracle-request-quad-cost-inv.md	chomp_cost.hpp:52	bounds-only
