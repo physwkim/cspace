@@ -288,10 +288,6 @@ fn translation_from_row_major_4x4(flat: &[f64]) -> Isometry3 {
     Isometry3::translation(flat[3], flat[7], flat[11])
 }
 
-/// Inverse of `plan_benchmark_problem_set.rs`'s own `state_to_joint_map`:
-/// reads a joint-name -> value map (the request JSON's
-/// `problems[].start`/`.goal` shape) back into this group's
-/// `StateSpace::State`.
 /// The tolerance the concrete-state goal is expressed with.
 ///
 /// Zero, because the question this benchmark asks the port is the question
@@ -322,6 +318,10 @@ fn goal_constraints_for(
         .unwrap_or_else(|e| panic!("construct_goal_joint_constraints({group_name}): {e}"))
 }
 
+/// Inverse of `plan_benchmark_problem_set.rs`'s own `state_to_joint_map`:
+/// reads a joint-name -> value map (the request JSON's
+/// `problems[].start`/`.goal` shape) back into this group's
+/// `StateSpace::State`.
 fn joint_map_to_state(
     space: &JointModelGroupSpace,
     model: &RobotModel,
