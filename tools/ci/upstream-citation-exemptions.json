@@ -80,6 +80,8 @@
         "include/fcl/narrowphase/collision_request.h",
         "include/fcl/narrowphase/contact.h",
         "include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h",
+        "include/fcl/narrowphase/distance-inl.h",
+        "include/fcl/narrowphase/distance_request.h",
         "mesh_collision_traversal_node-inl.h",
         "mesh_shape_collision_traversal_node-inl.h",
         "shape_collision_traversal_node-inl.h"

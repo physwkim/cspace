@@ -343,13 +343,27 @@ fn build_acm(srdf_file: &str) -> AllowedCollisionMatrix {
 /// `tools/moveit-diff`'s own `collision_scene` is, so both crates' tests bear
 /// out the identical geometry that comparison relies on.
 fn floor_env() -> ParryCollisionEnv {
+    floor_env_with_top(0.0)
+}
+
+/// [`floor_env`] with the box's *top face* placed at `top_z`, the same
+/// parameter `tools/moveit-diff --floor-top-z` names and with the same meaning
+/// -- the face the robot base stands on, not the box centre.
+///
+/// A parameter rather than a second hard-coded constructor: the two scenes
+/// differ only in that one number, and a copy would let the box size or
+/// thickness drift apart between them, which is exactly the input every
+/// closed-form claim in this file is derived from.
+fn floor_env_with_top(top_z: f64) -> ParryCollisionEnv {
+    const FLOOR_THICKNESS: f64 = 0.1;
     let mut world = World::new();
     world.add_shape(
         "floor",
         Arc::new(Shape::Cuboid(
-            Cuboid::new(4.0, 4.0, 0.1).expect("4x4x0.1 are valid, positive cuboid dimensions"),
+            Cuboid::new(4.0, 4.0, FLOOR_THICKNESS)
+                .expect("4x4x0.1 are valid, positive cuboid dimensions"),
         )),
-        Isometry3::translation(0.0, 0.0, -0.05),
+        Isometry3::translation(0.0, 0.0, top_z - FLOOR_THICKNESS / 2.0),
     );
     ParryCollisionEnv::new(world, LinkPaddingScale::default())
 }
@@ -2236,4 +2250,201 @@ fn pr2_caster_wheel_floor_clearance_matches_the_closed_form() {
     }
 
     assert_eq!(poses, 24, "sanity: every pose above ran");
+}
+
+/// The second pair in this fixture set whose correct separation distance is
+/// known in closed form -- and the first where the closed form contradicts the
+/// oracle by more than PORTING-PLAN.md §5 Phase 3's own `1e-4`.
+///
+/// [`pr2_caster_wheel_floor_clearance_matches_the_closed_form`] settled a
+/// `6.1e-7` residual the same way; this settles a `1.7e-3` one. The sweep that
+/// raised it is `tools/moveit-diff` on prbt with the floor lowered off the
+/// mounting tangency (`--cases 10000 --seed 1 --floor-top-z -0.5`), whose one
+/// separated-branch failure in 19,611 comparisons is case 8148:
+///
+/// ```text
+/// collision[8148] robot |d| 1.683122e-3
+///   oracle 3.11769210552093334e-1 [floor(world_object)/prbt_flange(robot_link)]
+///   vs rust 3.10086089038992263e-1 [prbt_flange(robot_link)/floor(world_object)]
+/// ```
+///
+/// Both sides name the same pair, so this is a two-shape distance disagreement
+/// with nothing else in it. The geometry is fixed by `fixtures/prbt.urdf` and
+/// [`floor_env_with_top`] alone:
+///
+/// - the floor is `Cuboid::new(4.0, 4.0, 0.1)` -- full extents, not half --
+///   centred at `z = -0.55`, so its top face is the plane `z = -0.5`;
+/// - `prbt_flange`'s collision geometry is a cylinder of `length 0.02` and
+///   `radius 0.0331` at `<origin xyz="0 0 -0.0035">` in the link frame
+///   (`fixtures/prbt.urdf`'s `prbt_flange` link).
+///
+/// While the cylinder is above that face and its whole silhouette projects
+/// inside the 4x4 footprint -- both asserted per state below, because the
+/// closed form is only the answer while the nearest box feature is the face --
+/// the exact distance for a cylinder of half-length `h`, radius `r`, centre `c`
+/// and unit axis `a` is `c_z - z0 - h * |a_z| - r * sqrt(1 - a_z^2)`.
+///
+/// `c` and `a` come from *this port's* forward kinematics, which needs saying:
+/// §5 Phase 2's fk condition is MET at `1e-9` against the oracle, so the pose
+/// is not the thing under test here. It is also checkable directly for the
+/// pinned case -- evaluating the same closed form on the oracle's own `fk`
+/// answer for case 8148 gives `3.10086088255497272e-1` against this port's
+/// `3.10086088255497827e-1`, a difference of `5.551115e-16`. The `1.683122e-3`
+/// therefore cannot be kinematics.
+///
+/// Measured before the tolerance was chosen: over the 40 poses below this
+/// backend's worst deviation from the closed form is `1.427251e-8`, so
+/// `CLOSED_FORM_TOL` is pinned at `1e-7` -- a 7.0x margin over the
+/// measurement. Case 8148 itself is `7.834950e-10`, pinned separately at
+/// `1e-8` (12.8x), because that is the number the sweep row is about.
+///
+/// The reference's own error is `1.683122e-3`, about 2.1 million times this
+/// backend's on the same state, and `tools/ci/verify-fcl-cylinder-box-distance.sh`
+/// re-derives where it comes from inside the pinned oracle image: bare
+/// `fcl::distance` on these two shapes answers `3.11769210552093334e-1` with
+/// the box passed first and `3.10086138896653651e-1` with the cylinder passed
+/// first, and tightening only the GJK stopping threshold collapses both onto
+/// the closed form. See `doc/upstream-bugs.md`'s
+/// `distance-callback-default-tolerance-makes-distance-order-dependent`.
+#[test]
+fn prbt_flange_floor_clearance_matches_the_closed_form() {
+    /// Pinned from the measurement in this test's doc comment
+    /// (`1.427251e-8` worst over the same 40 poses), with a 7.0x margin.
+    const CLOSED_FORM_TOL: f64 = 1e-7;
+    /// The same, for the one pinned state (`7.834950e-10`), with 12.8x.
+    const CASE_8148_TOL: f64 = 1e-8;
+    /// What the oracle published for `floor`/`prbt_flange` at case 8148. The
+    /// sweep printed `3.11769210552093334e-1`; that is one digit past what an
+    /// `f64` can carry, and this is the same value written so the literal is
+    /// exactly the number the compiler stores.
+    const CASE_8148_ORACLE: f64 = 0.311_769_210_552_093_33;
+    /// PORTING-PLAN.md §5 Phase 3's distance tolerance, the bar the oracle's
+    /// value has to miss for the sweep row to be a real disagreement.
+    const CLAUSE_TOL: f64 = 1e-4;
+    /// `fixtures/prbt.urdf`'s `prbt_flange` <collision>, and the scene.
+    const CYL_RADIUS: f64 = 0.0331;
+    const CYL_HALF_LENGTH: f64 = 0.01;
+    const CYL_ORIGIN_Z: f64 = -0.0035;
+    const FLOOR_TOP_Z: f64 = -0.5;
+    const FLOOR_HALF_EXTENT: f64 = 2.0;
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let env = floor_env_with_top(FLOOR_TOP_Z);
+
+    // Everything allowed except the one pair the closed form is derived for,
+    // so `minimum_distance` is that pair's distance rather than whichever
+    // link happens to be lowest. Without it a state where `prbt_link_5` wins
+    // would be scored against a constant derived for the flange.
+    let mut names: Vec<String> = model
+        .link_models()
+        .iter()
+        .map(|link| link.name().to_owned())
+        .collect();
+    names.push("floor".to_owned());
+    let mut acm = AllowedCollisionMatrix::from_names(&names, true);
+    acm.set_entry("floor", "prbt_flange", false);
+
+    // Case 8148's own joint values, as `tools/moveit-diff --stats-json`
+    // recorded them for that state.
+    let case_8148 = [
+        -0.681765976663856,
+        -1.9643143747676026,
+        1.9502553948473182,
+        -0.2497111438317039,
+        -0.47123744163653836,
+        -1.186060955153117,
+    ];
+
+    let mut poses = 0;
+    let mut saw_case_8148 = false;
+    for step in 0..40 {
+        // A scan through case 8148's own joint vector rather than around it:
+        // `scale == 1.0` at step 20 *is* case 8148, and every other step moves
+        // all six joints at once, so a state cannot pass by one joint being
+        // ignored.
+        let scale = 0.4 + f64::from(step) * 0.03;
+        let joint_values: BTreeMap<String, f64> = case_8148
+            .iter()
+            .enumerate()
+            .map(|(i, value)| (format!("prbt_joint_{}", i + 1), value * scale))
+            .collect();
+        let mut state = build_state(&model, &joint_values);
+        let posed = state.update();
+
+        let flange = posed
+            .global_link_transform("prbt_flange")
+            .expect("prbt has a prbt_flange link");
+        let centre = (flange * Isometry3::translation(0.0, 0.0, CYL_ORIGIN_Z))
+            .translation
+            .vector;
+        let axis = flange.rotation * moveit_geometry::Vector3::new(0.0, 0.0, 1.0);
+
+        // The closed form is the distance to the *plane* the top face lies in,
+        // so it is the distance to the box only while no cylinder point is
+        // nearer a box edge. `reach` is the largest horizontal offset of any
+        // cylinder point from the centre, `CYL_HALF_LENGTH + CYL_RADIUS` the
+        // largest vertical one.
+        let reach = CYL_HALF_LENGTH * axis[0].hypot(axis[1]) + CYL_RADIUS;
+        assert!(
+            centre[0].abs() + reach < FLOOR_HALF_EXTENT
+                && centre[1].abs() + reach < FLOOR_HALF_EXTENT
+                && centre[2] - (CYL_HALF_LENGTH + CYL_RADIUS) > FLOOR_TOP_Z,
+            "step {step}: the flange cylinder at {centre:?} (axis {axis:?}) is not strictly \
+             above the floor's top face and inside its footprint, so the plane closed form \
+             below is not the distance to the box"
+        );
+
+        let expected = centre[2]
+            - FLOOR_TOP_Z
+            - CYL_HALF_LENGTH * axis[2].abs()
+            - CYL_RADIUS * (1.0 - axis[2] * axis[2]).max(0.0).sqrt();
+
+        let request = DistanceRequest {
+            enable_signed_distance: true,
+            acm: Some(&acm),
+            ..DistanceRequest::default()
+        };
+        let result = env.distance_robot(&request, &posed, &[]);
+        let names = &result.minimum_distance.link_names;
+        assert!(
+            names.contains(&"floor".to_owned()) && names.contains(&"prbt_flange".to_owned()),
+            "step {step}: the nearest robot/world pair is {names:?}, not floor/prbt_flange -- \
+             the closed form below was derived for that pair and would be measuring something \
+             else"
+        );
+
+        let deviation = (result.minimum_distance.distance - expected).abs();
+        assert!(
+            deviation <= CLOSED_FORM_TOL,
+            "step {step}: flange clearance is {} but the geometry fixes it at {expected} \
+             (deviation {deviation:.6e} over the pinned {CLOSED_FORM_TOL:.0e}); this is a \
+             closed-form answer, so a miss here is this backend's",
+            result.minimum_distance.distance
+        );
+
+        if scale == 1.0 {
+            saw_case_8148 = true;
+            assert!(
+                deviation <= CASE_8148_TOL,
+                "case 8148: this port is {deviation:.6e} from the closed form, over the pinned \
+                 {CASE_8148_TOL:.0e}"
+            );
+            // The other half of the sweep row, and the reason this test is not
+            // just another parity check: the reference's published value for
+            // this very pair misses the same closed form by more than the
+            // clause tolerates, so the `1.683122e-3` is the reference's error
+            // and there is nothing here for a wider tolerance to absorb.
+            let oracle_deviation = (CASE_8148_ORACLE - expected).abs();
+            assert!(
+                oracle_deviation > CLAUSE_TOL,
+                "case 8148: the oracle's published {CASE_8148_ORACLE} is only \
+                 {oracle_deviation:.6e} from the closed form, inside the clause's \
+                 {CLAUSE_TOL:.0e} -- the divergence this test exists to attribute is gone"
+            );
+        }
+        poses += 1;
+    }
+
+    assert_eq!(poses, 40, "sanity: every pose above ran");
+    assert!(saw_case_8148, "sanity: step 20 is case 8148 itself");
 }

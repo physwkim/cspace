@@ -19575,8 +19575,8 @@ Bullet 두 백엔드에 같은 스위트를 물리는 것이다. 인스턴스화
 
 | 상류 단언 | 이 포트의 짝 |
 |---|---|
-| panda `InitOK`/`DefaultNotInCollision`/`LinksInCollision`/`RobotWorldCollision_{1,2}`/`DistanceSelf`/`DistanceWorld` | `collision_parity.rs:542` — 오라클이 직접 답한 4개 상태에 대해 `check_self_collision`/`check_robot_collision`/`distance_self`/`distance_robot` 전부 |
-| pr2 `InitOK`/`DefaultNotInCollision`/`LinksInCollision` | `collision_parity.rs:554` — 같은 4항목, pr2 4개 상태 |
+| panda `InitOK`/`DefaultNotInCollision`/`LinksInCollision`/`RobotWorldCollision_{1,2}`/`DistanceSelf`/`DistanceWorld` | `collision_parity.rs:556` — 오라클이 직접 답한 4개 상태에 대해 `check_self_collision`/`check_robot_collision`/`distance_self`/`distance_robot` 전부 |
+| pr2 `InitOK`/`DefaultNotInCollision`/`LinksInCollision` | `collision_parity.rs:568` — 같은 4항목, pr2 4개 상태 |
 | pr2 `AttachedBodyTester`/`ConvertObjectToAttached` | `crates/moveit-scene/tests/attached_collision_parity.rs` (5건) |
 | pr2 `DiffSceneTester` | `crates/moveit-scene/tests/scene_diff_collision_parity.rs` (12건) |
 | pr2 `TestChangingShapeSize` | 같은 파일의 `remove_object` 케이스 + `world_parity.rs:145`의 `set_object_pose` |
@@ -22477,7 +22477,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 1 | `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp` | §225.4 | `PORTING-PLAN.md` §225.4; `crates/moveit-collision/src/env.rs:40-83` | 1 |
 | 2 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp` | §177, §225.4, §4.5 | `PORTING-PLAN.md` §225.4, §4.5; `crates/moveit-collision/src/env.rs:40-83` | 1 |
 | 3 | `moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp` | §217.3, §231.2 | `PORTING-PLAN.md` §231.2; `crates/moveit-collision/src/lib.rs:54-87` | 1 |
-| 4 | `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_panda.hpp` | §1, §231.1, §232.2, §4.5 | `PORTING-PLAN.md` §231.1 and §232.2; `crates/moveit-collision/tests/upstream_panda_harness.rs`, `crates/moveit-collision/tests/collision_parity.rs:542` (`panda_collision_matches_the_oracle`), `crates/moveit-collision/tests/link_padding_changes_collision_verdict.rs` | 0 |
+| 4 | `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_panda.hpp` | §1, §231.1, §232.2, §4.5 | `PORTING-PLAN.md` §231.1 and §232.2; `crates/moveit-collision/tests/upstream_panda_harness.rs`, `crates/moveit-collision/tests/collision_parity.rs:556` (`panda_collision_matches_the_oracle`), `crates/moveit-collision/tests/link_padding_changes_collision_verdict.rs` | 0 |
 | 5 | `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp` | §232.3 | `PORTING-PLAN.md` §232.3; `crates/moveit-collision/tests/upstream_pr2_harness.rs:4-99` | 0 |
 | 6 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_distance_field.hpp` | D4 | `crates/moveit-distance-field/src/lib.rs:541-553` | 1 |
 | 7 | `moveit_core/constraint_samplers/include/moveit/constraint_samplers/constraint_sampler_allocator.hpp` | D4 | `crates/moveit-constraints/src/lib.rs:553-562` | 1 |
@@ -25064,7 +25064,7 @@ pr2의 분리 쪽 상위 8건은 **전부** `*_caster_*_wheel_link` 대 `floor`�
 방향이 반대다 — 흡수할 포트 오차가 없다.
 
 이 계산은 문단이 아니라 시험이다:
-`crates/moveit-collision/tests/collision_parity.rs:2138-2239`의
+`crates/moveit-collision/tests/collision_parity.rs:2152-2253`의
 `pr2_caster_wheel_floor_clearance_matches_the_closed_form`이 캐스터 조인트를 한
 바퀴 돌린 24자세에서 이 상수를 확인한다. 허용오차 `1e-12`는 **먼저 재고 나중에
 박았다** — 같은 24자세에서 실측 최악이 `7.766010e-14`, 여기에 12.9배 여유.
@@ -27884,3 +27884,158 @@ flange 세계 좌표가 필요하고, 현재 `--pair-probe-json`은 관절값을
 - **접선 자체를 고치지 않았다.** `sphere × sphere`의 비균일성(#16)과
   같은 부류이고, §251.4가 적은 두 대안(양의 엡실론 / 쌍별 분기) 중
   어느 쪽도 여기서 택하지 않았다.
+
+## §NEW case 8148은 이 포트의 오차가 아니다 — 닫힌 형태가 두 답 중 하나를 고르고, 진 쪽은 상류다 (2026-08-06)
+
+§275.3은 바닥을 접선에서 떼자 드러난 분리 분기 1건(19,611 비교 중)을
+**분류하지 않은 채** 열어 두었다. 편차 `1.683122e-3`은 허용오차의 16.8배지만,
+양쪽이 같은 쌍을 지목했으므로 비교로는 어느 쪽이 틀렸는지 알 수 없다. 이 절은
+§260.3이 pr2에서 쓴 방법 — 정답을 닫힌 형태로 아는 배치를 골라 제3의 답을
+만드는 것 — 을 그대로 이 쌍에 적용한 결과이며, 답은 **상류가 틀렸다**이다.
+
+### §NEW.1 세 번째 답 — 실린더 대 평면은 닫힌 형태로 풀린다
+
+바닥은 `Cuboid::new(4.0, 4.0, FLOOR_THICKNESS)`(반크기가 아니라 전체 크기)를
+`Isometry3::translation(0.0, 0.0, floor_top_z - FLOOR_THICKNESS / 2.0)`에 둔
+것이므로 `--floor-top-z -0.5`에서 윗면이 평면
+`z = -0.5`다(`tools/moveit-diff/src/main.rs:776-779`). `prbt_flange`의 충돌
+형상은 링크 좌표 `xyz="0 0 -0.0035"`에 놓인 `length 0.02`, `radius 0.0331`
+실린더다(`fixtures/prbt.urdf:397-402`). 실린더의 실루엣이 4×4 발자국 **안쪽**에
+전부 들어오고 윗면 위에 떠 있는 동안, 상자에서 가장 가까운 특징은 그 윗면
+— 즉 평면 — 이고, 반길이 `h`·반지름 `r`·중심 `c`·단위축 `a`의 실린더에 대해
+거리는 정확히
+
+    c_z - z0 - h·|a_z| - r·√(1 - a_z²)
+
+이다. 이 전제(발자국 안쪽·윗면 위)는 문장이 아니라 case마다 단언되며, 깨지면
+실패한다.
+
+case 8148의 flange 세계 자세에서 세 답은 이렇게 갈린다.
+
+| | 값 | 닫힌 형태와의 오차 |
+|---|---|---|
+| 닫힌 형태 (오라클 자신의 fk에서) | `3.10086088255497272e-1` | — |
+| 이 포트 | `3.10086089038992263e-1` | `7.834950e-10` |
+| 오라클 | `3.11769210552093334e-1` | `1.683122e-3` |
+
+**오라클이 포트보다 약 215만 배 멀다.** `1.683122e-3`은 §275.3이 이 포트의
+편차로 적어 두었던 바로 그 수이고, 실제로는 기준의 편차 전부다.
+
+운동학이 아니다. 위 닫힌 형태는 **오라클 자신의 `fk` 답**(`Op::Fk`의
+row-major 4×4)에서 계산했고, 같은 식을 이 포트의 fk에 먹이면
+`3.10086088255497827e-1` — 차이 `5.551115e-16`이다. 자세가 두 답을 가르지
+않는다.
+
+### §NEW.2 `1.683122e-3`의 주인은 GJK 정지 문턱이고, 증거는 인자 순서다
+
+MoveIt 래퍼는 아니다. `CollisionEnvFCL::distanceRobot`에 도형 둘만 넣은 장면
+— 월드 객체로 바닥 상자, `prbt_base_link`(기본 자세 세계 변환이 정확히 항등)에
+붙인 같은 실린더를 case 8148 자세로 — 을 오라클에 물으면
+`3.11769210552093334e-1`이 나온다. 10,000상태 스윕이 적은 값과 **비트 단위로
+같다.** 즉 래퍼는 fcl의 답을 그대로 옮길 뿐이다.
+
+fcl 자신이다. 같은 두 도형·같은 자세를 이미지 안에서 맨
+`fcl::distance`에 직접 물으면, **상자를 먼저 넘기면**
+`3.11769210552093334e-1`이고 **실린더를 먼저 넘기면**
+`3.10086138896653651e-1`이다. 정확한 거리는 인자 순서에 의존할 수 없으므로,
+이 차이 자체가 결함의 증거다. 그리고 `distance_tolerance`만 `1e-12`로 조이면
+두 순서가 모두 닫힌 형태로 모인다.
+
+`cylinder × box`는 fcl의 "Shape distance algorithms not using libccd" 표
+(`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:653-675`)에서 양쪽
+순서 모두 빈칸이므로 일반 `ShapeDistanceLibccdImpl`
+(`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:605`)의
+`detail::GJKDistance`
+(`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:620`)로 간다. 그
+반복을 세우는 문턱은 `distanceCallback`이 요청을
+`fcl::DistanceRequestd(cdata->req->enable_nearest_points)`로 만들며
+(`moveit_core/collision_detection_fcl/src/collision_common.cpp:603`) 인자가
+하나뿐이라 생성자 기본값 `1e-6`으로 남는 그 값이고, fcl 자신이 그 필드를
+"threshold used in GJK algorithm to stop distance iteration"이라고 적었다
+— **오차 한계가 아니라 진행 문턱이다.** §251.1이 `collision: bool` 절에서
+같은 표의 같은 빈칸을 짚었고, 이 절은 그 빈칸이 `distance: f64` 절에도
+발화한다는 것을 잰 것이다.
+
+측정은 2,000자세다. `tools/fcl-cylinder-box-distance-probe/probe.cpp`가
+이미지 안에서 컴파일되어 같은 배치의 2,000자세를 닫힌 형태와 대조하고,
+`tools/ci/verify-fcl-cylinder-box-distance.sh`가 매번 다시 잰다(약 3초,
+digest-gated, 도커 없으면 큰 소리로 SKIP).
+
+| 열 | 닫힌 형태와의 최대 오차 | `1e-4` 초과 |
+|---|---|---|
+| 기본 `1e-6`, 실린더 먼저 | `2.513565e-3` | 5 / 2000 |
+| 기본 `1e-6`, 상자 먼저 | `1.683122e-3` | 5 / 2000 |
+| 조인 `1e-12` | `1.335130e-9` | 0 |
+| 조인 `1e-12` + `GST_INDEP` | `6.287026e-12` | 0 |
+| 두 순서의 차 | `2.513557e-3` | 10 / 2000 |
+
+셋째·넷째 행이 있어야 첫째·둘째를 "기준의 오차"로 읽을 수 있다. 문턱만
+조이면 libccd가 닫힌 형태로 모이고, 다른 알고리즘도 같은 자리에 온다. 핀은
+모두 실측 후에 박았다 — 바닥 둘은 `1e-4`(주장이 걸린 수 자체, 실측
+`2.513565e-3`/`2.513557e-3`), 천장 둘은 `1e-8`(실측 `1.335130e-9`, 7.5배)과
+`5e-11`(실측 `6.287026e-12`, 8.0배). 다섯 검사 각각을 격리 변이로 물렸다:
+기본 열을 `1e-12`로 바꾸면 바닥 검사가, 조인 열을 `1e-6`으로 바꾸면 천장
+검사가, `GST_INDEP`을 `GST_LIBCCD`으로 바꾸면 독립성 검사가, 상자-먼저 열을
+실린더-먼저로 바꾸면 순서 검사가, pose 0의 자세를 `1e-9` 흔들면 case 8148
+고정핀이 각각 실패한다.
+
+상류 항목은 `doc/upstream-bugs.md`의
+`distance-callback-default-tolerance-makes-distance-order-dependent`이며,
+상태는 `not-reproduced`다. 재현할 대상 자체가 없다 — `distance_tolerance`는
+답에 대한 규약이 아니고, 그 효과는 인자 순서에조차 의존한다.
+
+### §NEW.3 도커 없이 다시 물을 수 있게 시험으로 박았다
+
+`crates/moveit-collision/tests/collision_parity.rs`의
+`prbt_flange_floor_clearance_matches_the_closed_form`이 case 8148의 관절값을
+포함한 40자세에서 위 닫힌 형태를 확인한다. §260.3의 pr2 시험과 같은 형태이고,
+오라클도 도커도 쓰지 않는다.
+
+허용오차는 **먼저 재고 나중에 박았다** — 40자세 실측 최악 `1.427251e-8`에
+`1e-7`(7.0배), case 8148 자신은 `7.834950e-10`에 `1e-8`(12.8배). 시험은
+오라클이 발표한 값이 같은 닫힌 형태에서 `1e-4`보다 멀다는 것도 함께 단언한다
+— 그것이 스윕 행의 나머지 절반이고, 넓힐 허용오차가 없다는 근거다.
+
+여섯 변이로 물리는지 확인했다: 닫힌 형태에서 테두리 항 `r·√(1-a_z²)`를 빼면
+FAIL, 포트 값에 `+2e-7`을 더하면 40자세 핀이 FAIL·`+2e-8`이면 case 8148 핀만
+FAIL·`+2e-9`면 둘 다 PASS(즉 두 핀의 유효 감도가 각자의 값을 감싼다),
+ACM에서 `prbt_flange` 대신 `prbt_link_5`를 열면 쌍 단언이 FAIL, 오라클 상수를
+닫힌 형태로 바꾸면 발산 단언이 FAIL, 발자국 반크기를 `0.02`로 줄이거나 바닥
+윗면을 `0.9`로 올리면 전제 단언이 FAIL.
+
+### §NEW.4 이 분류를 막고 있던 것은 계측기였다
+
+§275.3이 "case 8148의 flange 세계 좌표가 필요하고, 현재 `--pair-probe-json`은
+관절값을 적지 않는다"로 닫힌 것은 우연이 아니다. `case` 색인을 적는 직렬화
+행이 셋인데(`--stats-json`의 `DistanceBranchOutlier`, `--pair-probe-json`의
+`PairProbeRow`, `--ik-divergence-json`의 `IkDivergentCase`), 관절값을 실은
+것은 마지막 하나뿐이었다. 나머지 둘이 지목하는 `case`는 오라클만이 다시 뽑을
+수 있는 풀 안의 위치이므로, 그 행 하나를 다시 보려면 도커 아래에서 스윕
+전체를 다시 돌리고도 자세를 꺼낼 방법이 없었다. 게다가 case 8148은 **쌍이
+일치한** 발산이라 `PairProbe`는 애초에 기록조차 하지 않는다 — 기록 조건이
+쌍 뒤집힘이기 때문이다.
+
+셋 다 같은 결함이므로 셋 다 관절값을 싣도록 고쳤다(`IkDivergentCase`는 이미
+싣고 있었다). 이 절의 첫 수는 그렇게 나온 `--stats-json`의 tail 행 하나다.
+
+### §NEW.5 §5의 분리 분기 행은 다시 열리지 않는다
+
+행의 판정은 **MET 그대로**다. 그리고 이번에는 §275.3처럼 "아직 모른다"로
+유보한 것이 아니라, 유일한 초과 1건의 주인이 밝혀졌기 때문이다 — 그 1건은
+기준의 오차이고, 이 포트의 값은 정답에서 `7.834950e-10`이다. 흡수할 포트
+오차가 없으므로 허용오차를 넓히는 것은 여전히 방향이 반대다(§260.3과 같은
+결론, 다른 쌍).
+
+코퍼스에 대해서는 정직하게 적는다: 커밋된 장면의 41,059 비교에서 0건이고
+(§260.2), 바닥을 내린 장면의 19,611 비교에서 1건이며 그 1건이 위의 것이다.
+두 장면 어느 쪽에도 이 포트가 책임질 초과는 없다.
+
+### §NEW.6 이 절이 하지 않은 것
+
+- **다른 4로봇은 여전히 재지 않았다.** §275.4가 적은 그대로다. 바닥을 내린
+  장면에서 panda/fanuc/dual_arm_panda/pr2가 무엇을 내는지는 모른다.
+- **`cylinder × box`의 다른 발현을 훑지 않았다.** 이 절이 잰 것은 바닥 상자
+  대 flange 실린더 하나이고, prbt의 `box × cylinder` self 쌍(§260.4가
+  `4.418002e-4`로 잰 그것)이 같은 원인인지는 여기서 다시 재지 않았다 —
+  같은 표의 같은 빈칸이라는 것 외에는.
+- **관통 분기는 건드리지 않았다.** 닫힌 형태는 분리 쪽에서만 성립한다.
