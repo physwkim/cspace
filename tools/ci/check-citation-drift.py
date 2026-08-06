@@ -1137,10 +1137,34 @@ IN_REPO_BASELINE = "doc/citation-classes-in-repo.txt"
 # Every tracked text extension that is not `.rs`. `.rs` targets belong to the
 # population above; listing them here would double-count them.
 IN_REPO_TARGET_EXT = ("md", "sh", "py", "yml", "yaml", "toml", "urdf", "srdf", "txt", "json", "xacro")
-IN_REPO_CITATION_RE = re.compile(
-    r"`((?:[\w./-]+/)?[\w.-]+\.(?:" + "|".join(IN_REPO_TARGET_EXT) + r")):"
-    r"(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)`"
+_IN_REPO_BODY = (
+    r"((?:[\w./-]+/)?[\w.-]+\.(?:" + "|".join(IN_REPO_TARGET_EXT) + r")):"
+    r"(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)"
 )
+# TWO grammars, because the two kinds of citer spell a citation differently and
+# one rule gets each of them wrong.
+#
+# In a `.md` citer, backticks ARE the convention and bare `foo.md:12` in prose
+# is usually not a citation, so requiring them is what keeps the corpus clean.
+# In a `.rs`, `.py`, `.sh` or `.json` citer there are no backticks to require --
+# a source comment writes `// PORTING-PLAN.md:1152 records that ...` bare, and
+# a JSON provenance string writes `(PORTING-PLAN.md:11242)`. Requiring
+# backticks there misses exactly the population hole 2 exists to close: five
+# real citations, three of them in moveit-planners-sbp comments citing a line
+# that is blank today.
+#
+# A trailing colon is NOT excluded, though it would drop this gate's one known
+# false positive -- check-porting-plan-sections.sh:309 builds the string
+# "PORTING-PLAN.md:1: parsed zero ## sections" as its own error format. It is
+# kept because moveit-planners-sbp/src/compound.rs:495 writes a real citation
+# the same way, `// PORTING-PLAN.md:1152: whether the StateSpace trait ...`,
+# where the colon is punctuation. Excluding it would drop one of the five real
+# code-citer sites to remove one benign row: the format string resolves, is in
+# bounds and non-blank, so it lands in `resolved` and is declared rather than
+# reported as a finding. A fenced block quoting a gate's FAIL output has the
+# same shape and is dropped by fence-skipping instead.
+IN_REPO_CITATION_RE = re.compile("`" + _IN_REPO_BODY + "`")
+IN_REPO_CODE_CITATION_RE = re.compile(_IN_REPO_BODY)
 # Copied verbatim from tools/ci/check-section-references.sh's HEADING_RE so the
 # two gates cannot disagree about what a section heading is.
 IN_REPO_SECTION_RE = re.compile(r"^#{2,6}\s+§?(\d+(?:\.\d+)*)\b")
@@ -1242,6 +1266,11 @@ def scan_in_repo(tracked):
 
     out = []
     for citer in tracked:
+        # The two baselines ARE enumerations of citations, so scanning them
+        # ingests every row as a citation of its own and the population
+        # doubles itself on each re-freeze.
+        if citer in (CLASS_BASELINE, IN_REPO_BASELINE):
+            continue
         if citer.rsplit(".", 1)[-1] not in IN_REPO_TARGET_EXT + ("rs",):
             continue
         try:
@@ -1260,7 +1289,10 @@ def scan_in_repo(tracked):
                     continue
                 if in_fence:
                     continue
-            for m in IN_REPO_CITATION_RE.finditer(line):
+            grammar = (
+                IN_REPO_CITATION_RE if citer.endswith(".md") else IN_REPO_CODE_CITATION_RE
+            )
+            for m in grammar.finditer(line):
                 name, spec = m.group(1), m.group(2)
                 cited = []
                 for tok in spec.split(","):
