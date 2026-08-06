@@ -8,6 +8,10 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+. "$REPO_ROOT/tools/ci/gate-lib.sh"
+
+require_caller_tree "$REPO_ROOT"
 MOVEIT2_SRC="${MOVEIT2_SRC:-$HOME/work/moveit2}"
 
 # The pinned SHA, the package list and the base image all come from

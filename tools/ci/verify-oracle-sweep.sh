@@ -35,7 +35,9 @@ CASES="${1:-10000}"
 SEED="${2:-1}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 . "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
+require_caller_tree "$REPO_ROOT"
 DIFF="$REPO_ROOT/target/release/moveit-diff"
 
 # `--group` is what turns the jacobian comparison on; without it moveit-diff

@@ -12,7 +12,10 @@
 # here only pins that guarantee rather than reordering anything.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$REPO_ROOT/tools/ci/gate-lib.sh"
+require_caller_tree "$REPO_ROOT"
+cd "$REPO_ROOT"
 
 # Globbed off the filesystem rather than out of `git ls-files`: the check is
 # about what is on disk, and asking git makes it fail outright in an export

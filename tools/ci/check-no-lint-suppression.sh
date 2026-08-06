@@ -18,7 +18,10 @@
 # comment saying why, rather than scattering per-site suppressions.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$REPO_ROOT/tools/ci/gate-lib.sh"
+require_caller_tree "$REPO_ROOT"
+cd "$REPO_ROOT"
 
 if ! command -v rg >/dev/null 2>&1; then
   echo "ripgrep (rg) not found" >&2

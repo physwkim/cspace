@@ -14,6 +14,8 @@ set -euo pipefail
 
 LIBCCD_SRC="${LIBCCD_SRC:-/home/stevek/work/libccd}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/../ci/gate-lib.sh"
+require_caller_tree "$(cd "$HERE/../.." && pwd)"
 BUILD_DIR="$HERE/build"
 
 if [ ! -d "$LIBCCD_SRC" ]; then

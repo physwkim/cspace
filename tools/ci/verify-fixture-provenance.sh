@@ -23,7 +23,9 @@
 set -euo pipefail
 
 . "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
-cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+require_caller_tree "$REPO_ROOT"
+cd "$REPO_ROOT"
 
 VENDOR="third_party/moveit_resources"
 if [[ ! -d "$VENDOR" ]]; then

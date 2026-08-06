@@ -12,6 +12,10 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+. "$repo_root/tools/ci/gate-lib.sh"
+
+require_caller_tree "$repo_root"
 cd "$repo_root"
 
 # Anything under a crate's or tool's `audit/` directory whose name starts with

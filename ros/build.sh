@@ -10,6 +10,10 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+. "$REPO_ROOT/tools/ci/gate-lib.sh"
+
+require_caller_tree "$REPO_ROOT"
 MOVEIT_MSGS_SRC="${MOVEIT_MSGS_SRC:-$REPO_ROOT/third_party/moveit_msgs}"
 
 # shellcheck source=tools/moveit-oracle/src-digest.sh

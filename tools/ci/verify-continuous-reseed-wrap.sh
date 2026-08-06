@@ -40,6 +40,10 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+. "$REPO_ROOT/tools/ci/gate-lib.sh"
+
+require_caller_tree "$REPO_ROOT"
 cd "$REPO_ROOT"
 
 JOINT="r_wrist_roll_joint"   # pr2's right_arm: a real continuous revolute joint.

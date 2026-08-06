@@ -20,7 +20,9 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 . "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
+require_caller_tree "$repo_root"
 cd "$repo_root"
 
 # Every local member's package name, taken from its directory name -- which

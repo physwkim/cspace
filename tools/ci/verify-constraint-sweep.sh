@@ -43,7 +43,9 @@ SEED="${2:-7}"
 POOL="${3:-50}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 . "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
+require_caller_tree "$REPO_ROOT"
 
 # `--constraints 0` is not an error to `moveit-diff` -- it is how every other
 # caller (`verify-oracle-sweep.sh`) says "no constraint sweep", so the tool
