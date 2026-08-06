@@ -137,7 +137,14 @@ def totals_paragraphs(body):
 
 
 def split_parens(text):
-    """(text with parens blanked, [(index_of_open_paren, inner_text)]) or (None, None)."""
+    """(text with parens blanked, [(open_index, inner_start, inner_end)]) or (None, None).
+
+    Offsets rather than the substring, because the caller passes in a blanked
+    copy and has to decide on that copy while quoting the original: handing it
+    the masked spelling is handing it the only string it must not print. Every
+    transform reaching here (`blank_code_spans`, the paren blanking below)
+    preserves length, so one pair of offsets indexes both.
+    """
     flat, groups, depth, start = [], [], 0, None
     for i, ch in enumerate(text):
         if ch == "(":
@@ -148,7 +155,7 @@ def split_parens(text):
         elif ch == ")":
             depth -= 1
             if depth == 0 and start is not None:
-                groups.append((start - 1, text[start:i]))
+                groups.append((start - 1, start, i))
                 start = None
             if depth < 0:
                 return None, None
@@ -188,8 +195,8 @@ def check_paragraph(path, lineno, raw):
         checks += 1
         if sum(terms) != declared:
             fails.append(
-                f"{where}: `Sum: {m.group(1)} = {declared}` is wrong -- "
-                f"the terms add to {sum(terms)}."
+                f"{where}: `Sum: {raw[m.start(1):m.end(1)]} = {declared}` is "
+                f"wrong -- the terms add to {sum(terms)}."
             )
 
     flat, groups = split_parens(text)
@@ -200,8 +207,8 @@ def check_paragraph(path, lineno, raw):
         )
         return fails, checks, prose
 
-    for idx, inner in groups:
-        blanked = blank_code_spans(inner)
+    for idx, lo, hi in groups:
+        inner, blanked = raw[lo:hi], text[lo:hi]
         before = [int(m.group(1)) for m in INT.finditer(flat[:idx])]
         values = None
         if PLUS_LIST.match(blanked):  # R2
