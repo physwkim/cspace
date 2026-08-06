@@ -987,7 +987,7 @@ moved:
 
 - `moveit-test-support/src/lib.rs:88` (`assert!(`) — fixture-precondition helper,
   same shape as the census's own `crates/moveit-trajectory/tests/ruckig_smoothing.rs:203` precedent.
-- `tools/moveit-diff/src/main.rs:3834` (`assert!(`) — its own message names it a
+- `tools/moveit-diff/src/main.rs:4031` (`assert!(`) — its own message names it a
   precondition ("for this diagnostic to mean anything").
 - `tools/moveit-diff/tests/harness.rs:154,160` (`assert!(`) — assert on
   `fake-oracle.py`'s file text, read by the test itself; no crate code
@@ -1087,7 +1087,7 @@ listed above with its reason.
 
 ## UNFIXED
 
-- ~~`tools/moveit-diff/src/main.rs:3922` (`assert!(`)'s `near_placement_never_touches_more_than_one_link_at_once` is `#[ignore]`d and needs `third_party/moveit_resources`; that directory does not exist in this worktree...~~ **Closed by the merger.** The premise was wrong: `third_party/moveit_resources` exists and is populated in the primary checkout. It is untracked, so `git worktree` never materialises it — the absence is a property of every `caucus` worktree, not of this machine, and the `find /` that reported nothing was run from inside one. Run from `/home/stevek/work/moveit-rs`, `cargo nextest run -p moveit-diff --run-ignored all -E 'test(near_placement_never_touches_more_than_one_link_at_once)'` **passes**: 17 links checked, 17 with a near-placement touching ≥1 other link, 0 ambiguous. The diagnostic's conclusion therefore stands — `decide_cone`'s `max_contacts: 1` tie-break is ruled out as the source of the 115-case distance mismatch.
+- ~~`tools/moveit-diff/src/main.rs:4119` (`assert!(`)'s `near_placement_never_touches_more_than_one_link_at_once` is `#[ignore]`d and needs `third_party/moveit_resources`; that directory does not exist in this worktree...~~ **Closed by the merger.** The premise was wrong: `third_party/moveit_resources` exists and is populated in the primary checkout. It is untracked, so `git worktree` never materialises it — the absence is a property of every `caucus` worktree, not of this machine, and the `find /` that reported nothing was run from inside one. Run from `/home/stevek/work/moveit-rs`, `cargo nextest run -p moveit-diff --run-ignored all -E 'test(near_placement_never_touches_more_than_one_link_at_once)'` **passes**: 17 links checked, 17 with a near-placement touching ≥1 other link, 0 ambiguous. The diagnostic's conclusion therefore stands — `decide_cone`'s `max_contacts: 1` tie-break is ruled out as the source of the 115-case distance mismatch.
 - ~~`ruckig_filter.rs::joint_vel_accel_jerk_bounds` and `ChainInfo::build`'s untested unsupported-joint-type guard (`chain.rs:196` (`return Err(Error::other(format!(`), no assertion exists) are not independently re-verified/covered — see the Exclusions and Bites sections above for why each was left as-is rather than bit or newly tested.~~ **Closed — see Round 5 below.** `chain.rs:193-200` (`joint.joint_type(),`) is proven unreachable by enumeration, not merely untested; `ruckig_filter.rs::joint_vel_accel_jerk_bounds` had two of its four guards (`velocity_bounded`, `jerk_bounded`) with zero test coverage, not merely "corroborated by pattern" as this line previously assumed — both are now tested and isolating-mutation-confirmed.
 
 ## Round 5: `ChainInfo::build`'s type guard and `joint_vel_accel_jerk_bounds`, re-examined under §3a

@@ -529,10 +529,59 @@ one action.
 | duplicate number / the unassigned-number placeholder unfenced in the plan / the same placeholder in another tracked file / unclosed fence / zero `##` sections, each in the working tree | FAIL, one line each — the four pre-existing guards, re-proved after the parse was factored into `scan()` |
 | the placeholder inside a fence | OK — still not a placeholder |
 
-(The placeholder token is spelled out in `check-porting-plan-sections.sh`'s
-own header and nowhere here, because the scan that finds it covers every
-tracked `.md`, and this file is one -- writing it as prose would fail the
-gate this subsection documents.)
+(The placeholder token is not spelled out anywhere in this file, because the
+scan that finds it now reads every tracked file and this is one -- writing it
+as prose would fail the gate this subsection documents. It is no longer
+spelled out in `check-porting-plan-sections.sh` either; the subsection below
+is why.)
+
+### The placeholder scan's scope, and why the token left the gate
+
+The scan used to read `.md` and `.rs` only. The justifying sentence in the
+header was mine and it is false: "sections are cited in documentation and in
+doc comments, never in build or CI scripts", against 113 section citations in
+30 tracked files that are neither -- 90 in 20 `.sh`, 11 in
+`tools/moveit-oracle/src/oracle.cpp`, 4 in 2 `.py`, 3 in 3 `.toml`, 3 in 2
+`.json`, 1 in `tools/mpr-vs-epa/mpr_case104.c`, 1 in `ros/Dockerfile`. A
+placeholder duly went through the gap: `p11-planningfailed` wrote one into a
+comment at `ros/verify-ros-interop.sh:203` and it reached the trunk in
+`a746945`. The other gate did not see it either -- `check-section-references.sh`
+does read `.sh`, but its reference pattern requires a digit after the sigil,
+so an unassigned placeholder matches nothing there by construction.
+
+The suffix list existed for exactly one real reason: the script spelled the
+token out eleven times and would have failed on itself. The file-kind rule was
+that self-exclusion in disguise, and the justification was written afterwards.
+So the token is now assembled from an escape (`PLACEHOLDER` is `"\u00a7NEW"`, the sigil
+written as its code point) and
+named in two pieces in the prose; the file's bytes no longer contain it; and
+the scan has no exception left. Every path `git ls-files` prints is read,
+`PORTING-PLAN.md` excepted only because it is scanned separately, with the
+fence rule it needs. Deliberately not a longer suffix list: widening to
+`check-section-references.sh`'s own `SCANNED_SUFFIXES` would still have missed
+`ros/Dockerfile`, which has no suffix, and the `.c`/`.cpp` citations.
+
+Matching on bytes rather than decoded text closes the other silent skip. 35
+tracked files are not valid UTF-8 -- the binary meshes under `fixtures/` -- and
+the old loop's `except UnicodeDecodeError: continue` meant a file it could not
+read was a file it did not check. Now the only way a path goes unread is an
+`OSError`, which is a failure naming the file. The number of files actually
+read is on the OK line (733 of 734 today, the plan being the 734th), and a
+scan that read none is a failure of its own.
+
+PRE is the gate at `f0aa8fe`'s parent, POST the gate as it stands. Each
+mutation is one placeholder inserted into one file, everything else clean:
+
+| mutation | PRE | POST |
+|---|---|---|
+| `a746945`'s `ros/verify-ros-interop.sh` with its assigned number (255, written here without the sigil: this branch has no such heading yet) put back to a placeholder — the bytes that reached the trunk | OK | FAIL, `ros/verify-ros-interop.sh:203` |
+| a placeholder in `.config/nextest.toml`, `.github/workflows/ci.yml`, `tools/ci/section-reference-external.json`, `tools/ci/check-citation-drift.py` | OK | FAIL, one line each |
+| a placeholder in `ros/Dockerfile` (no suffix), `tools/moveit-oracle/src/oracle.cpp`, `tools/mpr-vs-epa/mpr_case104.c` | OK | FAIL, one line each |
+| a placeholder in `doc/upstream-bugs.md` and in `crates/moveit-collision/src/lib.rs` — the kinds the old scope already covered | FAIL | FAIL, same line |
+| a placeholder inside a fence in `PORTING-PLAN.md`, then the same token outside it | — | OK, then FAIL |
+| the scan handed nothing but `PORTING-PLAN.md`, so `scanned == 0` | — | FAIL, "covered one file out of the tree" — the OK line's file count is what makes this visible |
+| `ros/Dockerfile` at mode 000 | — | FAIL naming it and the `errno`, where the old loop's `continue` said nothing |
+| today's tree, unmutated | OK | OK, 733 files read |
 
 ### Where this stops: sub-section numbers
 
@@ -546,3 +595,100 @@ branches that each numbered a subsection `226.5` have theirs at `§227.5`,
 renumbering -- a routine merge operation, eight times in this history -- and
 would need a second declaration for it. Not built here; a silent removal at
 sub-section granularity is currently detected by nothing.
+
+### Does the same family reach the other append-only documents?
+
+`check-porting-plan-sections.sh` closes one document. The shape it closes --
+a document several branches append to, where a one-sided deletion merges
+without a conflict and nothing downstream misses the deleted block -- is not
+specific to `PORTING-PLAN.md`, so the question is which of the other tracked
+documents are in it. Answered by deletion, not by reading: for each of the 66
+tracked documents (`git ls-files '*.md' 'doc/*.txt'`), delete the last `##`
+block a branch would have appended -- or one body line where the file has no
+`##` heading -- run every `tools/ci/check-*` plus
+`verify-orphan-enumeration.sh`, `verify-port-coverage.sh`,
+`verify-declaration-audits.sh` and `verify-upstream-citations.sh`, and record
+which of them says the block is gone. Then restore from a byte copy and check
+the tree is clean.
+
+Seven of the 66 are seen by something; one has nothing to delete; the other
+58 are not seen by anything.
+
+| document | what notices the deletion |
+|---|---|
+| `PORTING-PLAN.md` | `check-porting-plan-sections.sh` (this round's rule) and `check-section-references.sh`, which resolves the inbound `§N` references |
+| `doc/port-coverage.md` | two separate things: `verify-port-coverage.sh` compares its 87 rows against the set `measure-port-coverage.py` computes from the upstream tree, so a dropped row is `MISSING ROW` (measured by dropping one row); and `verify-declaration-audits.sh` resolves `doc/declaration-audit-coverage.md`'s two `doc/port-coverage.md:211` citations, so dropping the block at 211 fails with `past its 209 lines` |
+| `doc/declaration-audit-coverage.md` | `verify-declaration-audits.sh`, the same shape against the 158 ported files |
+| `doc/assertion-discrimination-ledger-cached-ik.md`, `-p10-interpolation.md`, `-p9-ros.md` | `verify-orphan-enumeration.sh`: the deleted block carried accounting rows, so its scanner sites became orphans |
+| `doc/upstream-bugs.md` | `check-upstream-bugs-index.sh` and `verify-upstream-citations.sh` -- but only for this deletion's shape; see below |
+| `doc/assertion-discrimination-orphans.txt` | nothing to delete: the live orphan set is empty today, so the file is header-only. It is still protected -- adding one fabricated entry gives `FAIL ... is stale: 0 site(s)`, which is `--verify` comparing the file against a set it recomputes |
+| the other 58 | nothing |
+
+The protection is always one of two things, and neither is a property of the
+document: the row set is recomputed from outside the document (`port-coverage`,
+`declaration-audit-coverage`, the orphan snapshot, the ledger rows that
+account for scanner sites), or something else in the tree cites the block by
+name (`PORTING-PLAN.md`'s `§N`). A document whose blocks are prose nobody
+recomputes and nobody cites -- every `doc/claim-audit/*.md`, every
+`doc/assertion-discrimination-ledger-*.md` block that is not an accounting
+row, `doc/assertion-discrimination-census.md`, the per-crate `doc/*.md` under
+`crates/` -- has neither.
+
+`doc/upstream-bugs.md` deserves its own line, because the gate it has is the
+one that looks most like it should cover this and does not.
+`check-upstream-bugs-index.sh` pairs the `## Index` table against the `###`
+entries. Deleting the last `##` block -- `## Closed (round p9-ros,
+2026-08-05)`, 992 lines -- takes the 15 `###` entries inside it and leaves
+their Index rows, so the pairing fails; that is the row above. But a branch
+appends an entry as an Index row *and* a body block, so that is what a
+one-sided deletion takes: delete both halves of
+`distance-field-contact-index-oob` and every gate above passes. The pairing is a consistency check between two halves of the
+document; it cannot see an entry that left as a whole.
+
+#### Which of them the same two layers would fit
+
+The layers themselves are document-independent -- child-vs-parent over the
+reachable history, working-tree-vs-HEAD, and a commit trailer to declare a
+deliberate removal. What is not document-independent is the key: the rule is
+only usable if a block's identity survives ordinary editing. Measured the same
+way the `##`-number rule was, by replaying the key sets over every commit that
+touched each document:
+
+| document | commits touching it | merges where both parents differ | commits that remove a key |
+|---|---|---|---|
+| `doc/upstream-bugs.md`, keyed on the `### \`slug\`` | 118 | 15 | **0** |
+| `doc/upstream-bugs.md`, keyed on `##` heading text | 118 | 15 | 0 |
+| `doc/assertion-discrimination-census.md`, `##` text | 24 | 0 | 0 |
+| `doc/claim-audit/moveit-sampling.md`, `##` text | 5 | 0 | 0 |
+| `doc/claim-audit/moveit-model.md`, `##` text | 5 | 0 | 0 |
+| `doc/claim-audit/tools-ci-gates.md`, `##` text | 7 | 1 | 1 |
+| `doc/assertion-discrimination-ledger-p10-samplers.md`, `##` text | 5 | 0 | 0 |
+| `doc/assertion-discrimination-ledger-pilz.md`, `##` text | 14 | 0 | **5** |
+| `PORTING-PLAN.md`, `##` text | 424 | 42 | 48 |
+
+`doc/upstream-bugs.md` is the one that fits, and it fits because it already
+carries the rule that makes a key stable: "Append anywhere; never rename a
+slug once it is cited." Zero slug removals in 118 commits, across 15 merges
+where both parents had touched the file -- the same measurement that picked
+design (A) for `PORTING-PLAN.md`, with the same answer. The 15 two-sided
+merges are the exposure: that is 15 chances for git to have taken a one-sided
+deletion, and nothing would have said so.
+
+Heading text is not a usable key anywhere else, and the two failing rows say
+why in two different ways. `ledger-pilz.md` removes five keys because its
+headings carry a running count -- `## Summary (12, then 13, now 26)` becomes
+`## Summary (12, then 13, then 26, now 27)` -- so the heading is edited in
+place by design and a heading-keyed rule fires on every update.
+`tools-ci-gates.md`'s one removal is the merge that assigned a number to a
+section heading that had been written with the unassigned-number placeholder,
+which is the merge doing its job. `PORTING-PLAN.md` shows both at 48 commits,
+which is exactly why the rule live in `check-porting-plan-sections.sh` keys on
+the *number* and treats the placeholder separately, and fires on 2 commits in
+2412 rather than 48.
+
+So: the family reaches 58 of the 66 documents, one of them (`doc/upstream-bugs.md`)
+has a key stable enough for the two layers today and a measured zero
+false-positive rate over its whole history, and the rest need a stable
+per-block identity before any such rule can be written -- a slug, or a number,
+or anything but the prose of the heading. Neither the rule for
+`doc/upstream-bugs.md` nor a key for the other 57 is built here.
