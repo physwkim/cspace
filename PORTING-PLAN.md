@@ -27750,10 +27750,25 @@ PROBE cartesian verdict=FULL_CARTESIAN_PATH_RECEIVED
 ```
 
 `reached`의 비교 대상은 클라이언트가 방금 보낸 그 목표 포즈이고, 허용오차는
-`1e-6`이다. leg가 공허하지 않다는 것은 세 음성 대조로 보였다 — 엔드포인트
-이름을 바꾸면 `val=99999`, `fraction`을 반으로 나누면 `fraction=0.5`,
-`SOURCE`를 `moveit-ros/move_action`으로 바꾸면 source 단언이, 각각 서로 다른
-줄에서 걸린다.
+`1e-6`이다. leg가 공허하지 않다는 것은 세 음성 대조로 보였고, 셋 다 게이트를
+붉혔다.
+
+| 변이 | 걸린 단언 | 탐침이 찍은 것 |
+|---|---|---|
+| L1 노드가 엔드포인트를 다른 이름으로 광고 | `leg C round trip` | **아무것도 없다.** `PROBE cartesian` 줄이 한 줄도 나오지 않고 120초 상한이 만기한다 |
+| L2 노드가 `fraction`을 반으로 나눔 | `leg C fraction` | `fraction=0.5`, `verdict=NO_FULL_CARTESIAN_PATH` |
+| L3 노드가 서비스 응답에 action의 `SOURCE`를 찍음 | `leg C round trip` | `source='moveit-ros/move_action'`, 그리고 `fraction=1`·`reached=true`·`verdict=FULL_CARTESIAN_PATH_RECEIVED`는 그대로 초록 |
+
+**세 변이가 세 단언에 일대일로 대응하지는 않는다.** L1과 L3은 같은 줄
+(`leg C round trip`)에서 걸린다. 그 줄이 `val`과 `source`를 한 문자열로
+단언하기 때문이고, 이 게이트에서 그 둘을 가르는 대조는 없다. L2만이 별도
+단언을 물며, 그것도 `fraction` 단언과 `verdict` 단언 둘을 함께 움직인다.
+
+L1이 아무것도 찍지 못하는 것은 상한이 지나치게 짧아서가 아니라 상류
+클라이언트의 성질이다. `future_response.get()`
+(`move_group_interface.cpp:893-896`)에 시한이 없어서, 서버가 없는 이름으로
+보낸 요청은 영영 반환하지 않는다. §NEW.6이 고치는 매달림과 같은 뿌리이며,
+`run_probe()`의 `timeout -k 5`가 그것을 끊는 유일한 것이다.
 
 ### §NEW.6 leg C가 31분 매달렸다 — `timeout`이 `docker run`을 묶지 못한다
 
