@@ -703,7 +703,7 @@ def main() -> int:
                 fh.write(
                     "- **후보 경로 접두사:** "
                     + ", ".join(f"`{pre}`" for pre in spec["candidates"])
-                    + f" → 87건 중 **{len(hits)}건**이 후보\n"
+                    + f" → {len(items)}건 중 **{len(hits)}건**이 후보\n"
                 )
                 fh.write(f"- **판정:** {spec['adjudication']}\n")
                 if hits:
