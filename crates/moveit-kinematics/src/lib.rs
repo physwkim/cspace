@@ -313,6 +313,25 @@
 //!      distance metric (`ik_cache`'s `pose_distance`) is microseconds,
 //!      not a bottleneck worth porting `detail/NearestNeighborsGNAT.hpp`
 //!      (755 lines implementing a general-purpose metric tree) to avoid.
+//!      That one decision settles all three headers under `detail/`,
+//!      because the other two exist only to serve that tree.
+//!      `detail/NearestNeighbors.hpp` (120 lines) is the abstract base it
+//!      derives from — `class NearestNeighborsGNAT : public
+//!      NearestNeighbors<_T>` at `NearestNeighborsGNAT.hpp:70` — and
+//!      `detail/GreedyKCenters.hpp` (130 lines) is the pivot selector it
+//!      holds by value (`GreedyKCenters<_T> pivotSelector_` at
+//!      `NearestNeighborsGNAT.hpp:751`). Both are vendored OMPL sources
+//!      rather than MoveIt-authored ones — each says so in its own header
+//!      ("a slightly modified version of
+//!      `<ompl/datastructures/…>`") — and `rg -l -w` over the whole
+//!      upstream checkout finds exactly one consumer of each outside its
+//!      own `.h` forwarding shim: that GNAT header, whose only includer in
+//!      turn is `cached_ik_kinematics_plugin.hpp:39`. With the tree not
+//!      built, neither has a caller left to serve. What fills the role
+//!      here is `ik_cache`'s `IkCache::nearest`, a `min_by` scan over
+//!      `pose_distance`. A GNAT-family index does exist in this
+//!      workspace — `moveit_planners_sbp::nn::Gnat` — and is *not* a port
+//!      of either header; §NEW records why.
 //!   2. *The on-disk cache format is a local choice, not a port target.*
 //!      `ik_cache.cpp`'s `saveCache`/`initializeCache` read and write a
 //!      raw, unversioned `memcpy` of `double` fields with no endianness

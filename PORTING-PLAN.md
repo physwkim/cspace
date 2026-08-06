@@ -26633,3 +26633,135 @@ leg A의 여섯 goal이 답한 것(같은 실행):
 그 파일은 p9-ros가 쓰고 있어 여기서 손대지 않는다. **Phase 9의 완료 조건 중 "상류 클라이언트가 궤적을
 받는다"는 이 시점에 충족된다.** 남은 것은 §266.7의 목록이며, 그중 어느 것도
 이 답을 되돌리지 않는다.
+
+## §NEW `detail/GreedyKCenters.hpp`와 `detail/NearestNeighbors.hpp`를 판정한다 — GNAT 거절이 두 파일을 함께 데려가고, 포트에 있는 GNAT는 이 둘의 포트가 아니다 (2026-08-06)
+
+`doc/unported-classification.md`의 86행 중 둘만 `UNVERIFIED`였다. 그것은
+계측기가 이 두 파일을 판정한 문장을 찾지 못했다는 뜻이고, 실제로도
+없었다 — 두 행이 인용하던 `crates/moveit-kinematics/src/lib.rs:279-287`은
+`detail/NearestNeighborsGNAT.hpp` 하나만 이름으로 부른다. 이 절은 그
+판정을 만들어 기록하고, 그것을 계측기가 볼 수 있는 자리에 놓는다.
+
+### §NEW.1 상류 소비자 전수 — 각각 세 파일, 그리고 그 셋째는 같은 한 파일이다
+
+`/home/stevek/work/moveit2` (`e017c91`) 전체 체크아웃에서:
+
+```
+$ rg -l -w 'GreedyKCenters' .
+.../detail/NearestNeighborsGNAT.hpp
+.../detail/GreedyKCenters.hpp
+.../detail/GreedyKCenters.h
+
+$ rg -l -w 'NearestNeighbors' .
+.../detail/NearestNeighborsGNAT.hpp
+.../detail/NearestNeighbors.hpp
+.../detail/NearestNeighbors.h
+
+$ rg -n 'NearestNeighborsGNAT\.hpp' .
+.../detail/NearestNeighborsGNAT.h:53:#include <...>
+.../cached_ik_kinematics_plugin.hpp:39:#include <...>
+```
+
+세 파일 중 하나는 자기 자신, 하나는 `.h` 전달 셸이다. 남는 소비자는
+양쪽 모두 `NearestNeighborsGNAT.hpp` 하나이고, 그 안에서의 사용 모양은
+상속(`class NearestNeighborsGNAT : public NearestNeighbors<_T>`, `:70`)과
+값 멤버(`GreedyKCenters<_T> pivotSelector_`, `:751`)다. 그리고
+`NearestNeighborsGNAT.hpp`를 include하는 상류 파일은 자기 셸을 뺀
+`cached_ik_kinematics_plugin.hpp:39` 하나뿐이다.
+
+즉 세 헤더는 독립된 세 결정이 아니라 한 결정이다. GNAT 트리를 지지
+않기로 한 순간 나머지 둘은 부를 호출자가 사라진다. 둘 다 MoveIt가 쓴
+파일도 아니다 — 각 헤더가 스스로 "a slightly modified version of
+`<ompl/datastructures/...>`"라고 적고 있고, 저작권줄은 각각 2011 Rice
+University (Mark Moll)와 2008 Willow Garage (Ioan Sucan)다. 크기는 130행과
+120행, GNAT 본체는 755행이다.
+
+### §NEW.2 판정: 세 파일 모두 `decided-non-port`, 근거는 이미 쓰여 있던 한 문장이다
+
+근거는 새로 만들 것이 없다. `crates/moveit-kinematics/src/lib.rs`의
+`cached_ik_kinematics_plugin` 불릿 안 "What did not port, and why" 목록
+1번이 이미 "not a bottleneck worth porting
+`detail/NearestNeighborsGNAT.hpp` (755 lines implementing a general-purpose
+metric tree) to avoid"라고 적고 있었다. 이 라운드가 한 일은 그 문항에
+나머지 두 헤더를 **이름으로** 넣고, 위 전수 측정을 그 자리에 적은 것이다
+(현재 `:308-334`).
+
+그 전에는 세 행이 모두 `:279-287`을 인용하고 있었는데, 그 구간은
+`ikfast_kinematics_plugin` 불릿의 끝과 `cached_ik_kinematics_plugin`
+불릿의 첫 몇 줄이다 — 판정 문장은 그 안에 없다. 그런데도 GNAT 행이
+`named (basename)`으로 통과하고 있었던 이유는 `verify_crate_doc`가 인용
+구간을 둘러싼 불릿 전체로 넓히기 때문이다. 넓히기가 없었으면 세 행 모두
+`UNVERIFIED`였을 것이므로, 세 인용을 모두 판정 문항으로 옮긴다.
+
+### §NEW.3 포트에 GNAT가 있다 — 그리고 그것은 이 헤더의 포트가 아니다
+
+`NearestNeighbors.hpp` 행은 직전까지 "Same \"no equivalent structure\" `rg`
+anchor ... as the `GreedyKCenters.hpp` row above"라고 적고 있었다. 그 문장은
+거짓이다. 이웃 행의 앵커는 `greedy.?k.?center`를 찾는 것이고, 그것은
+`NearestNeighbors`에 대해 아무것도 측정하지 않는다. 실제로 측정하면 이
+워크스페이스에는 GNAT 계열 인덱스가 존재한다:
+`crates/moveit-planners-sbp/src/nn.rs:42-46`의 `Gnat`이고, 그 필드는
+`root: Option<Node<S::State, T>>` 하나에 `degree`와 `len`이다.
+
+그럼에도 이것은 이 헤더의 포트가 아니며, 근거는 네 가지다.
+
+1. `nn.rs`에 `// Ported from moveit2 @ <sha>:` 블록이 없다
+   (`rg -n 'Ported from moveit2' crates/moveit-planners-sbp/src/nn.rs` → 0건).
+   즉 이 파일은 `doc/port-coverage.md` §1의 "ported" 정의상 어떤 상류
+   경로도 주장하지 않는다.
+2. `crates/moveit-planners-sbp/src/lib.rs:9-10`가 명시한다 — "the
+   nearest-neighbour index is GNAT-family `(Brin, 1995)` for the reason
+   recorded in `nn`'s doc comment, not a port of OMPL's C++ GNAT". 이
+   크레이트는 D3(상류 C++ 파일이 아예 없는 자리)에 대한 원설계다.
+3. 인터페이스 폭이 다르다. `rg -n '^\s*virtual' NearestNeighbors.hpp`는
+   12줄을 세고, 그중 `:59`가 소멸자다. 남는 가상 멤버 함수는 11개다 —
+   `setDistanceFunction`(`:62`), `reportsSortedResults`(`:75`),
+   `clear`(`:78`), `add`(`:81`), `add`(`:84`), `remove`(`:91`),
+   `nearest`(`:94`), `nearestK`(`:101`), `nearestR`(`:108`),
+   `size`(`:111`), `list`(`:114`). `Gnat`의 공개 메서드는 5개다 —
+   `new`, `len`, `is_empty`, `insert`, `nearest`
+   (`nn.rs:66,76,81,86,103`). k-최근접, 반경 질의, 삭제, 열거가 없다.
+4. 피벗 선택 알고리즘이 다르다. 상류는 `GreedyKCenters::kcenters`로 첫
+   센터를 난수로 고르고 이후 "지금까지의 센터들로부터 가장 먼" 점을
+   반복해 고른다(`GreedyKCenters.hpp:97-118`). `Gnat`은 그런 것이 없다 —
+   먼저 도착한 점이 그대로 피벗이 되고, 노드가 차면 새 점은 피벗이 가장
+   가까운 자식으로 라우팅된다 — `nn.rs:112-140` (`insert`). 그 단순화는
+   `nn.rs:20-35`가 이미 "Deviation from the GNAT paper"로 기록하고 있고,
+   같은 문단이 `Node::search`의 커버링 반경 경계는 정확하다고 적는다.
+
+그리고 소비자도 다르다. `Gnat`은 샘플링 기반 플래닝(RRT-Connect)의
+인덱스이고, IK 캐시가 쓰는 것은 `crates/moveit-kinematics/src/ik_cache.rs:193-197`
+(`nearest`) — `pose_distance` 위의 선형 스캔이다. 즉 이
+워크스페이스에서 가장 가까운 구조물이 존재한다는 사실은 이 헤더의 판정을
+바꾸지 않고, 오히려 왜 바꾸지 않는지를 적어두어야 하는 사실이다.
+
+`GreedyKCenters` 쪽은 사정이 다르다 — 그 알고리즘은 이 포트에 아예 없다:
+
+```
+$ rg -n -i -w 'greedy|kcenters|k_centers' crates/ ros/ tools/
+crates/moveit-planners-sbp/src/rrt_connect.rs:89:    /// own greedy walk to close the gap.
+crates/moveit-planners-sbp/src/rrt_connect.rs:304:/// `Trapped` — the "greedy connect loop".
+tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's `connect` step is greedy and unbounded --
+crates/moveit-planners-sbp/benches/sweep_baseline.sh:51:# `connect`'s greedy growth is ever actually blocked rather than closing the
+```
+
+4건이고 네 줄 모두 영어 단어 "greedy"다. 어느 것도 k-센터 선택이 아니다.
+
+### §NEW.4 계측기에 남는 수
+
+`python3 tools/ci/classify-unported.py --emit doc/unported-classification.md`:
+
+| | 이전 | 이후 |
+|---|---|---|
+| unported files classified | 86 | 86 |
+| `resolves` | 46 | 46 |
+| `named (basename)` | 24 | 26 |
+| `named (glob)` | 8 | 8 |
+| `named (dir)` | 3 | 3 |
+| `named (symbol)` | 2 | 2 |
+| `content-elsewhere (cite resolves)` | 1 | 1 |
+| **`UNVERIFIED`** | **2** | **0** |
+
+86행 전부가 판정을 가진다. "측정이 결정할 수 없다"는 이제 이 셀에
+없다 — 결정은 계측이 아니라 기록이 필요했던 것이고, 위의 전수 측정은
+그 기록을 받침할 수는 있어도 대신해 줄 수는 없었다.
