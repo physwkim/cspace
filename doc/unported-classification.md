@@ -17,10 +17,9 @@
 - **막는 §5 행** — 아직 MET가 아닌 행 각각을 막는 것은 그 행이 인용한
   절에서 읽었다(`UNMET_BLOCKERS`). 디렉터리로 추측하지 않는다. 어느 행이
   아직 MET가 아닌지는 `PORTING-PLAN.md`의 §5 표에서 읽으며, 이 문서가 그
-  목록의 사본을 들고 있지 않다. 값이 `none`인 것은 그 파일이 어느 행의
-  기전 경로에도 없다는 **측정 결과**다: Phase 3 `collision: bool`의
-  접두사가 9건을, Phase 8의 접두사가 8건을 실제로 고르므로 이 열은 발화할
-  수 있고, 발화한 건은 아래 판정 문단에서 개별로 기각된다.
+  목록의 사본을 들고 있지 않다.
+  §5 표에 아직 MET가 아닌 행이 없으므로 이 열은 **비어 있다** — 전건 `none`은 어느
+  행의 기전 경로에도 없다는 측정이 아니라 고를 행이 없다는 뜻이다.
 
 ## 아직 MET가 아닌 §5 행 — 무엇이 막고 있고, 86건 중 몇이 후보인가
 
@@ -28,34 +27,24 @@
 사본을 들고 있으면 §260이 `distance: f64`를 PARTIAL로 바꿨을 때처럼
 조용히 낡는다 — `check_phase_coverage()`가 어긋나면 실패한다.
 
-### Phase 3 — `collision: bool` — **UNMET** (§275.2)
-
-- **막는 것:** fcl's narrowphase specialization registry stands where a convention would, rather than there being no convention: §251.1 finds all 49 of 49 cells decided by whether fcl registered a libccd-bypassing specialization for that shape pair, and prbt's `cylinder x box` is a blank cell in it.  §275.1 moves the harness floor off that tangency and the 6,854 go to 0 of 10,000, so no port defect is left in the count -- but the two implementations still split at exact tangency, and the committed fixture scene is where the row is measured, so it stays UNMET
-- **후보 경로 접두사:** `moveit_core/collision_detection/`, `moveit_core/collision_detection_fcl/`, `moveit_core/collision_detection_bullet/` → 86건 중 **9건**이 후보
-- **판정:** the sweep measures the port AGAINST the oracle over 10,000 samples and reports 6,854 mismatches, so both sides produced values -- the row fails on a semantic disagreement, not on an absent file.  §265 pins all 6,854 to the single pair floor/prbt_base_link, whose world pose no joint moves, so every sampled state hits the same tie; §270 reproduces the whole 5-robot table on merged main.  The mechanism lives in collision_detection_fcl, which doc/port-coverage.md §1 excludes from the corpus, so no unported file can be it.
-- **후보 전건:**
-  - `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp`
-  - `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp`
-  - `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin.hpp`
-  - `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin_cache.hpp`
-  - `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp`
-  - `moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp`
-  - `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_panda.hpp`
-  - `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp`
-  - `moveit_core/collision_detection/src/collision_plugin_cache.cpp`
+**아직 MET가 아닌 행이 없다.** §5 표의 모든 행이 `MET`이므로
+`UNMET_BLOCKERS`가 비어 있고, 따라서 아래 표의 `막는 §5 행`
+열은 발화할 대상 자체가 없다 — 전건 `none`은 측정 결과가
+아니라 열이 빈 것이다. 어느 행이 다시 열리면 그 행의 항목이
+여기 돌아오고 열도 함께 되살아난다.
 
 
 | 상류 파일 | 심볼 | 분류 | 결정 위치 | 검증 | 막는 §5 행 |
 |---|---|---|---|---|---|
-| `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp` | `CollisionDetectorAllocatorAllValid` | decided-non-port | § §225.4 | resolves | candidate, adjudicated no: Phase 3 (collision: bool) |
-| `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp` | `CollisionDetectorAllocator`, `CollisionDetectorAllocatorTemplate` | decided-non-port | § §4.5, §177, §225.4 | resolves | candidate, adjudicated no: Phase 3 (collision: bool) |
-| `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin.hpp` | `CollisionPlugin` | decided-non-port | crate-doc crates/moveit-collision/src/lib.rs:37 | named (basename) | candidate, adjudicated no: Phase 3 (collision: bool) |
-| `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin_cache.hpp` | `CollisionPluginCache` | decided-non-port | crate-doc crates/moveit-collision/src/lib.rs:37 | named (basename) | candidate, adjudicated no: Phase 3 (collision: bool) |
-| `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp` | `getCollisionMarkersFromContacts()`, `getCostMarkers()`, `getTotalCost()`, `removeCostSources()` +5 | ported-elsewhere | D D1 | resolves | candidate, adjudicated no: Phase 3 (collision: bool) |
-| `moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp` | `OccMapTree` | decided-non-port | § §217.3, §231.2 | resolves | candidate, adjudicated no: Phase 3 (collision: bool) |
-| `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_panda.hpp` | `CollisionDetectorPandaTest`, `DistanceCheckPandaTest`, `DistanceFullPandaTest` | decided-non-port | § §1, §4.5, §231.1, §232.2 | resolves | candidate, adjudicated no: Phase 3 (collision: bool) |
-| `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp` | `CollisionDetectorTest` | decided-non-port | § §232.3 | resolves | candidate, adjudicated no: Phase 3 (collision: bool) |
-| `moveit_core/collision_detection/src/collision_plugin_cache.cpp` | `CollisionPluginCache` | decided-non-port | crate-doc crates/moveit-collision/src/lib.rs:37 | named (basename) | candidate, adjudicated no: Phase 3 (collision: bool) |
+| `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp` | `CollisionDetectorAllocatorAllValid` | decided-non-port | § §225.4 | resolves | none |
+| `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp` | `CollisionDetectorAllocator`, `CollisionDetectorAllocatorTemplate` | decided-non-port | § §4.5, §177, §225.4 | resolves | none |
+| `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin.hpp` | `CollisionPlugin` | decided-non-port | crate-doc crates/moveit-collision/src/lib.rs:37 | named (basename) | none |
+| `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin_cache.hpp` | `CollisionPluginCache` | decided-non-port | crate-doc crates/moveit-collision/src/lib.rs:37 | named (basename) | none |
+| `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp` | `getCollisionMarkersFromContacts()`, `getCostMarkers()`, `getTotalCost()`, `removeCostSources()` +5 | ported-elsewhere | D D1 | resolves | none |
+| `moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp` | `OccMapTree` | decided-non-port | § §217.3, §231.2 | resolves | none |
+| `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_panda.hpp` | `CollisionDetectorPandaTest`, `DistanceCheckPandaTest`, `DistanceFullPandaTest` | decided-non-port | § §1, §4.5, §231.1, §232.2 | resolves | none |
+| `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp` | `CollisionDetectorTest` | decided-non-port | § §232.3 | resolves | none |
+| `moveit_core/collision_detection/src/collision_plugin_cache.cpp` | `CollisionPluginCache` | decided-non-port | crate-doc crates/moveit-collision/src/lib.rs:37 | named (basename) | none |
 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_distance_field.hpp` | `CollisionDetectorAllocatorDistanceField` | decided-non-port | D D4 | resolves | none |
 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_hybrid.hpp` | `CollisionDetectorAllocatorHybrid` | decided-non-port | crate-doc crates/moveit-distance-field/src/lib.rs:541 | named (basename) | none |
 | `moveit_core/constraint_samplers/include/moveit/constraint_samplers/constraint_sampler_allocator.hpp` | `ConstraintSamplerAllocator` | decided-non-port | D D4 | resolves | none |

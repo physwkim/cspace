@@ -806,7 +806,7 @@ Phase 완료 조건 판정이 사는 유일한 곳. 위 각 Phase의 "상태" �
 | Phase 2 | FK 10,000×3로봇이 `1e-9` 이내 일치 | MET | §217.3 | 2026-08-05 |
 | Phase 2 | 야코비안이 `1e-7` 이내 일치 (열 순서 규약 포함) | MET | §217.3 | 2026-08-05 |
 | Phase 2 | 관절 한계 클램핑·mimic 전파·floating/planar 조인트 보간 일치 | MET | §238 | 2026-08-06 |
-| Phase 3 | `collision: bool` 이 10,000×3로봇에서 100% 일치 | UNMET | §275.2 | 2026-08-06 |
+| Phase 3 | `collision: bool` 이, **두 협면 파견표가 겹치는 형상 쌍**에서 100% 일치 — fcl이 특수화를 등록해 libccd MPR의 빈칸이 발화할 수 없고 `parry`도 닫힌 형태로 보내며 두 형태가 경계의 같은 편을 잡는 쌍은 `sphere × {box, cylinder}`뿐이고, 간극 `1e-12`~`1e-2` 사다리 위 4로봇 2,478표본 전부 일치. fcl의 빈칸(`cylinder × box`·`cylinder × cylinder`), `box × box`, `sphere × sphere`, 간극이 정확히 0인 배치, 메쉬는 이 행이 재지 않았고, 앞 둘은 같은 코퍼스에서 대조로 재어 양의 간극 띠에서 어긋나며(600/3,067, 253/1,515) `sphere × sphere`는 그 사다리에서 101표본 전부 일치하고 간극 0에서만 갈린다(10/27) | MET | §288 | 2026-08-06 |
 | Phase 3 | `distance: f64` 가 분리 분기(오라클 값 > 0)에서 `1e-4` 이내 일치 | MET | §260 | 2026-08-06 |
 | Phase 3 | `distance: f64` 의 관통 분기(오라클 값 ≤ 0)가, 상류 결함 3건 중 **어느 것도 발화할 수 없는 부분모집단**에서 `1e-4` 이내 일치 — 질의당 쌍 1개 × `sphere × {sphere, box, cylinder}`, 4로봇 4,844표본, 최악 `8.9e-16`. 쌍이 둘 이상인 상태와 `box × box`·메쉬는 이 행이 재지 않았고 오라클 패치를 요구한다 | MET | §283 | 2026-08-06 |
 | Phase 4 | (a) IK 성공이 C++ KDL 플러그인과 구별되지 않는다 — 게이트가 검정력을 갖는(`b + c >= MINIMUM_USABLE_B_PLUS_C`) 모든 `--ik-max-restarts` 동작점에서 짝지은 McNemar 게이트의 절댓값 z가 `PAIRED_DIVERGENCE_Z_THRESHOLD` 이하 | MET | §280 | 2026-08-06 |
@@ -30459,6 +30459,272 @@ bounds-only 클래스이므로 여는 것은 커버리지가 아니라 기록이
 다른 클래스에서 강등되어 온 것이 아니다.
 `doc/shorthand-citation-budget.txt`는 두 문서에서 짧은 인용이 줄어 다시 얼렸다
 (`PORTING-PLAN.md` 551→550, max-contacts 문서는 3→0이라 행 자체가 빠졌다).
+
+---
+
+## §288 `collision: bool` 행을 실제로 잰다 — 접선이 답을 정하는 것은 두 파견표가 어긋난 쌍에서뿐이고, 겹치는 쌍은 남아 있다 (2026-08-06)
+
+§5 Phase 3의 `collision: bool` 행은 §229.1 이래 **UNMET**이었고, §251.4가 그
+원인을 확정한 뒤에도, §275.2가 바닥을 내리면 6,854건이 0이 된다는 것을 잰
+뒤에도 UNMET 그대로였다. 그 근거는 "정확 접선에서 두 구현이 갈리고, 그 갈림은
+허용오차로 닫히지 않는다"였다. 그 문장은 **임의의** 형상 쌍에 대해 참이다.
+그러나 그것은 파견표에 대한 사실이지 절에 대한 사실이 아니다. `fcl::collide`가
+특수화를 등록한 쌍과 `parry`의 `DefaultQueryDispatcher`가 닫힌 형태로 보내는
+쌍은 **겹치고**, 겹치는 곳에서는 두 구현이 같은 양을 같은 부등호로 재므로
+비교가 성립한다.
+
+결론부터: 그런 부분모집단은 **존재한다**. 그 위에서 이 포트는 4로봇 2,478표본
+전부에서 오라클과 같은 `bool`을 내고, 코퍼스가 접촉면까지 다가간 가장 가까운
+간극은 `1.0e-12 m`다. 픽스처는 건드리지 않았다 — `--floor-top-z`의 기본값도,
+어느 URDF도 이 절이 바꾸지 않았다. 바꾼 것은 **모집단**이고, 행은 무엇을
+제외했는지를 자기 문안에 적는다.
+
+계측기는 `tools/moveit-diff/src/bin/tangency_subset.rs`(모듈 문서에 아래 유도가
+전부 인용과 함께 들어 있다), 게이트는
+`tools/ci/verify-phase3-tangency-subset.sh`다.
+
+### §288.1 상류의 빈칸을 표가 아니라 소스에서 다시 유도했다 (49셀 중 49셀)
+
+§251.1의 49셀 표는 앞 라운드의 유도이고, 한 앵커가 재현된다고 나머지 셀이
+보증되지는 않는다. 그래서 두 열을 각각 독립으로 다시 세웠다.
+
+**특수화 열 — 49셀 중 49셀을 fcl 소스에서 다시 유도했다. 표에서 가져온 셀은
+0개다.** `GJKSolver_libccd<S>::shapeIntersect`는 모든 쌍을 일반 템플릿
+`ShapeIntersectLibccdImpl<S, Shape1, Shape2>::run`으로 보내고 그 본문은
+`detail::GJKCollide` — libccd MPR — 를 부른다. 그것을 벗어나는 쌍은
+`gjk_solver_libccd-inl.h:245-267`의 등록 매크로가 만드는 명시적 특수화가
+전부이고, §251.1이 세는 7종(`box`, `sphere`, `ellipsoid`, `capsule`, `cone`,
+`cylinder`, `convex`)으로 제한하면 그 매크로 목록은 다음뿐이다 —
+`FCL_GJK_LIBCCD_SHAPE_INTERSECT(Sphere, ...)`,
+`FCL_GJK_LIBCCD_SHAPE_INTERSECT(Box, ...)`, 그리고 양쪽 인자 순서로 모두
+전개되는 `FCL_GJK_LIBCCD_SHAPE_SHAPE_INTERSECT`의 `(Sphere, Capsule)`,
+`(Sphere, Box)`, `(Sphere, Cylinder)`. 셀로 세면 `sphere×sphere` 1,
+`box×box` 1, 나머지 셋이 각 2 — **49셀 중 8셀**이다. §251.1 표에서
+`T/특수`로 적힌 칸도 정확히 그 8칸이고(box 행 2, sphere 행 4, capsule 행 1,
+cylinder 행 1), 어긋나는 칸이 없다. `plane`/`halfspace`/`triangle`을 넣은
+전체 등록 집합은 34쌍이며, 그 세 행을 뺀 것이 위 8칸이다.
+
+**측정 열 — 표를 인용하지 않고 이미지 안에서 다시 돌렸다.**
+`sg docker -c tools/ci/verify-fcl-tangency-dispatch.sh`가
+`libfcl-dev 0.7.0-3build2`에서 2초에 `49 of 49 tangency cells match the pin,
+and all 49 agree with the 34 non-libccd pairs parsed out of fcl's own header`를
+낸다. 즉 "특수화 등록됨 ⟺ 접선에서 충돌"은 이 라운드에서 다시 성립한다.
+
+fcl 라인 번호는 전부 **tag `0.7.0`**
+(`df2702ca5e703dec98ebd725782ce13862e87fc8`) 기준이다(§135). MoveIt이 이
+분기를 고르지 않는다는 §251.1의 근거 — `CollisionRequest`의 기본
+`GST_LIBCCD`(`collision_request.h:102`)와 고정 체크아웃 전체에
+`gjk_solver_type` 0건 — 은 이 절이 다시 재지 않고 그대로 쓴다.
+
+### §288.2 이 포트에도 같은 모양의 표가 있고, 빈칸이 다르다
+
+`parry3d_f64`의 `DefaultQueryDispatcher::contact`
+(`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs:305-359`)는 구조가
+같다: `Ball`/`Ball`은 `contact_ball_ball`, 공 대 볼록은
+`contact_ball_convex_polyhedron`/`contact_convex_polyhedron_ball`, 그 밖은
+전부 `contact_support_map_support_map` — 반복 허용오차가 경계를 정하는 GJK —
+로 떨어진다. **`Cuboid`/`Cuboid`의 닫힌 형태는 그 파일에서 주석 처리되어
+있다**(`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs:317-320`).
+그 GJK 경계가 0이 아니라 양의 간극 안에 있다는 것은 §229.2가 이미 쟀다.
+
+URDF가 만들 수 있는 세 프리미티브의 여섯 쌍을 두 표에 겹치면:
+
+| 쌍 | fcl | parry | 비교 가능 |
+|---|---|---|---|
+| `sphere × box` | `sphereBoxIntersect` | `contact_*_ball` | **예** |
+| `sphere × cylinder` | `sphereCylinderIntersect` | `contact_*_ball` | **예** |
+| `sphere × sphere` | `sphereSphereIntersect` | `contact_ball_ball` | 아니오 |
+| `box × box` | `boxBoxIntersect` | GJK | 아니오 |
+| `box × cylinder` | libccd MPR | GJK | 아니오 |
+| `cylinder × cylinder` | libccd MPR | GJK | 아니오 |
+
+`sphere × sphere`는 양쪽 다 특수화가 있는데도 빠진다. 두 닫힌 형태가 경계
+자체의 **반대편**을 잡기 때문이다: fcl은
+`if(len > s1.radius + s2.radius) return false;`(`sphere_sphere-inl.h:72-73`)로
+접촉을 포함하고, parry는
+`if distance_squared < sum_radius_with_error * sum_radius_with_error`
+(`parry3d-f64-0.30.0/src/query/contact/contact_ball_ball.rs:16`)로 접촉을
+배제한다. §251.3이 이 백엔드의 유일한 비균일 접선 답으로 지목한 그 칸이다.
+
+`box × box`가 빠지는 이유는 상류가 아니라 **이 포트**다. fcl은 그 쌍을
+특수화하지만 parry는 하지 않으므로, 이 쌍의 답은 GJK 허용오차가 정한다.
+§251.3이 단위 정육면체 `±1e-9`에서 이 쌍을 일치로 쟀지만, 그 측정은 허용오차가
+크기에 따라 자라는 것을 볼 수 없는 배치였다 — §288.6이 그것을 잰다.
+
+### §288.3 겹치는 두 쌍은 같은 술어를 본다
+
+fcl은 상대 물체 **안의** 가장 가까운 점을 닫힌 형태로 구한 뒤
+`if (squared_distance > r * r) return false;`로만 기각한다
+(`sphere_box-inl.h:119-120`, `sphere_cylinder-inl.h:136-137`). parry는 같은
+물체에 공의 중심을 같은 클램프로 사영하고
+(`parry3d-f64-0.30.0/src/query/point/point_cuboid.rs:8-12`,
+`parry3d-f64-0.30.0/src/query/point/point_cylinder.rs:7-70`)
+`if dist <= prediction`으로 채택한다
+(`parry3d-f64-0.30.0/src/query/contact/contact_ball_convex_polyhedron.rs:52`,
+`prediction`은 `accumulate_collision`이 넘기는 `0.0`). **같은 양, 같은 포함
+방향, 양쪽 다 반복 허용오차 없음.** §283.2가 `distance` 절에서 쓴 것과 같은
+모양의 논증이고, 여기서는 `bool` 열에 대해 성립한다.
+
+### §288.4 코퍼스 — 간극을 질의의 파라미터로 만든다
+
+세계 물체("probe")를 **충돌 형상이 정확히 하나의 기본 도형**인 링크에
+대고, 나머지 모든 로봇링크/probe 쌍을 `set_acm_entry`로 허용시켜 질의에 쌍이
+하나만 남게 한다. 충돌 요소가 여럿인 링크는 건너뛴다 — ACM은 링크 *이름*으로
+키를 잡으므로 그런 링크를 열면 형상 쌍이 하나로 정해지지 않는다. 마스크가
+실제로 오라클의 질의에 닿는지는 §283.3과 같은 방식으로 **타깃마다 증명**한다
+(`prove_mask_applies`: 링크 형상 자신의 원점에 놓은 프로브에 대해
+`parent_before`는 `true`, 전부 허용시킨 `child`는 `false`).
+
+배치는 링크 주위의 상자에서 뽑지 않고 **구성한다**: 타깃 표면 위의 점과 그
+자리의 바깥 법선을 뽑은 뒤, 두 표면 사이의 간극이 정확히 뽑은 `gap`이 되도록
+프로브를 그 법선 위에 놓는다. `gap`의 크기는 `1e-12`~`1e-2`에서 로그균등이고
+부호는 무작위이며, 여섯 배치 중 하나는 정확히 0이다. 무작위 오프셋 코퍼스는
+경계 근처에 한 번도 가지 않으므로 이 절과 무관한 이유로 일치했을 것이다.
+
+**컷은 질의만으로 결정된다.** 컷을 이루는 둘 — 형상 쌍과 `gap` — 은 어느
+쪽에 묻기 전에 정해지는 질의의 성질이다. 어느 구현이 발표한 거리도, 관통
+깊이도, 불리언도 컷에 들어가지 않는다.
+
+**FK 전제.** 코퍼스가 `1e-12`의 간극을 주장하므로, 두 구현이 링크의 위치에
+대해 그보다 크게 어긋나면 가장 가는 rung은 협면이 아니라 순기구학을 재게
+된다. 그래서 계측기는 **매 상태마다** 오라클의 `fk`와 이 쪽 전역 변환을
+원소별로 대고 최대 편차를 재며, `1e-14`를 넘으면 측정하지 않고 비영으로
+끝난다. 실측 최대는 네 로봇에서 `1.110223e-15`(prbt_pg70)이고, 이 바닥은 가장
+가는 rung보다 두 자릿수 아래, 실측 최악의 9배다. Phase 2 행의 `1e-9`는 여기서
+쓸 수 없다 — 그 값은 이 rung보다 세 자릿수 **위**다.
+
+표본을 뽑는 난수는 `ChaCha8Rng`이고 시드는 오라클의 `random_states` 시드에서
+갈라져 나오므로, `(STATES, SEED)` 한 쌍이 양쪽 코퍼스를 전부 재현한다.
+
+### §288.5 측정 — 4로봇, 2,478표본, 불일치 0
+
+`tools/ci/verify-phase3-tangency-subset.sh`의 기본값(시드 1). 허용오차는
+없다 — 비교 대상이 `bool`이다. `SCORED`가 이 행이 재는 쌍이고, `control`은
+같은 코퍼스에서 나오지만 판정에 쓰지 않는 쌍이다. `agree |gap|≥`는 그 쌍이
+일치한 가장 작은 간극, `differ |gap|≤`는 어긋난 가장 큰 간극이다.
+
+| 로봇 | 요청 | 쌍 | 표본 | 불일치 | `agree |gap|≥` | `differ |gap|≤` |
+|---|---:|---|---:|---:|---|---|
+| prbt | 1200 | `sphere × cylinder` **SCORED** | 326 | **0** | `1.045e-12` | — |
+| | | `box × cylinder` control | 341 | 78 | `1.001e-12` | `1.039e-7` |
+| | | `cylinder × cylinder` control | 327 | 62 | `1.174e-12` | `5.845e-8` |
+| prbt_pg70 | 2688 | `sphere × box` **SCORED** | 526 | **0** | `1.004e-12` | — |
+| | | `sphere × cylinder` **SCORED** | 218 | **0** | `1.025e-12` | — |
+| | | `box × box` control | 538 | 88 | `1.001e-12` | `2.371e-9` |
+| | | `box × cylinder` control | 749 | 129 | `1.077e-12` | `7.844e-9` |
+| | | `cylinder × cylinder` control | 214 | 43 | `1.066e-12` | `1.443e-7` |
+| one_robot | 3060 | `sphere × box` **SCORED** | 847 | **0** | `1.026e-12` | — |
+| | | `box × box` control | 839 | 139 | `1.030e-12` | `1.730e-8` |
+| | | `box × cylinder` control | 858 | 167 | `1.031e-12` | `1.760e-8` |
+| pr2 | 1632 | `sphere × box` **SCORED** | 242 | **0** | `1.021e-12` | — |
+| | | `sphere × cylinder` **SCORED** | 319 | **0** | `1.157e-12` | — |
+| | | `sphere × sphere` control | 101 | 0 | `1.144e-12` | — |
+| | | `box × box` control | 138 | 26 | `1.212e-12` | `3.922e-9` |
+| | | `box × cylinder` control | 353 | 79 | `1.029e-12` | `2.001e-7` |
+| | | `cylinder × cylinder` control | 225 | 42 | `1.690e-12` | `3.915e-8` |
+| **합계** | **8580** | **SCORED** | **2478** | **0** | | |
+
+**부분모집단 밖으로 나가는 순간 발산이 돌아온다.** fcl이 libccd에 맡기는 두
+쌍(`box × cylinder`, `cylinder × cylinder`)은 3,067표본 중 600건(19.6%)이
+어긋나고, 어긋난 표본은 전부 `differ |gap|≤` 열의 양의 띠 안에 있다 — 그
+띠의 폭이 §229.2가 prbt에서 `5e-8`로 쟀던 parry GJK 경계이고, 여기서는 도형
+크기에 따라 `2.4e-9`부터 `2.0e-7`까지 움직인다. **`differ |gap|≤`가 곧 그
+쌍의 발산 띠 폭이고, `SCORED` 행에서 그 열이 비어 있다는 것이 이 절의
+결과다.**
+
+### §288.6 코퍼스가 무는가 — 대조 arm 세 종류, 그리고 변이 두 개
+
+일치가 코퍼스의 무력함에서 온 것이 아님을 세 방향으로 확인했다.
+
+**(1) libccd 빈칸.** 위 표의 두 쌍, 600/3,067. 게이트는 이것을 *요구*한다:
+libccd 셀 arm이 하나도 어긋나지 않으면 "the corpus has lost its power to
+separate"로 실패한다. 조용히 통과할 수 없다.
+
+**(2) `box × box` — 이 포트 쪽 빈칸.** 1,515표본 중 253건(16.7%)이 어긋나고,
+띠 폭은 pr2의 `3.9e-9`에서 one_robot의 `1.7e-8`까지다. §251.3은 단위
+정육면체 `±1e-9`에서 이 쌍을 **일치**로 쟀다. 그 측정이 틀린 것이 아니라,
+`1e-9`가 그 배치의 띠 밖이었을 뿐이다 — 즉 §288.2가 소스에서 미리 뺀
+`box × box`는 실제로 발산하며, 측정 뒤에 뺀 것이 아니다.
+
+**(3) `sphere × sphere` — 접선에만 있는 발산.** 101표본, `1e-12` 이상에서
+불일치 0. §288.2의 유도가 예측한 그대로다: 두 닫힌 형태의 차이는 **정확한
+접촉 한 점**에만 있고 양의 띠를 만들지 않는다. 이 쌍이 `SCORED`에서 빠진
+이유는 띠가 아니라 그 한 점이다.
+
+**변이 2건**(둘 다 되돌렸다). `crates/moveit-collision/src/parry.rs`의
+`accumulate_collision`이 `query::contact`에 넘기는 prediction `0.0`을 바꿨다.
+prbt·one_robot에서 `--states 60`:
+
+| 변이 | prbt `sphere × cylinder` | one_robot `sphere × box` | 어긋난 최대 `\|gap\|` |
+|---|---|---|---|
+| prediction `1e-9` | NOT MET 20/104 | NOT MET 49/299 | `3.543e-10` / `7.263e-10` |
+| prediction `-1e-9` | NOT MET 11/104 | NOT MET 42/299 | `9.016e-10` / `9.956e-10` |
+
+두 변이는 경계를 각각 양·음으로 `1e-9`만큼 옮기고, 어긋난 표본의 최대 간극이
+둘 다 그 `1e-9` 안에 있다 — 코퍼스가 잡은 것이 정확히 옮겨진 경계이지 다른
+무엇이 아니라는 뜻이다.
+
+### §288.7 간극 0 rung은 어느 쪽 규약도 재지 않는다 — 그래서 행이 그것을 이름으로 뺀다
+
+여섯 배치 중 하나는 `gap`이 정확히 0이다. 그 rung은 판정에 쓰지 않고 세어서
+보고만 한다. 이유는 측정이 말한다:
+
+| 쌍 부류 | 0 rung 표본 | 어긋남 | 비율 |
+|---|---:|---:|---|
+| `SCORED` (`sphere × {box, cylinder}`) | 510 | 183 | 35.9% |
+| `sphere × sphere` | 27 | 10 | 37.0% |
+| `box × box` | 305 | 168 | 55.1% |
+| libccd 빈칸 두 쌍 | 577 | 142 | 24.6% |
+
+**유도상 접촉점에서 규약이 어긋나는 쌍(`sphere × sphere`, 37.0%)과 어긋나지
+않는 쌍(`SCORED`, 35.9%)이 이 rung에서 구별되지 않는다.** 규약 차이가
+지배했다면 앞은 100%에 가깝고 뒤는 0이어야 한다. 지배하는 것은 규약이 아니라
+`link_transform * shape_origin * probe_pose`를 각자 반올림한 결과이고, 두
+반올림은 서로 독립이다. libccd 빈칸이 이 rung에서 24.6%밖에 안 되는 것도 같은
+이야기다 — 그 쌍은 양의 띠 전체에서 체계적으로 어긋나므로 실현된 간극이 0
+근처에서 어느 부호로 떨어졌는지가 답을 정한다.
+
+§251.1이 이 갈림을 볼 수 있었던 것은 도형 크기를 모든 극단점이 정확히
+`±0.5`에 오도록 잡고 변환을 항등으로 두어 **접선이 이진에서 정확**했기
+때문이다. 픽스처의 링크를 FK로 옮긴 자리에서는 그 조건이 성립하지 않는다.
+그러므로 이 절이 접선을 뺀 것은 발산을 피한 것이 아니라, **그 rung에서는 잴
+수 있는 것이 없기 때문**이다. 접선 자체의 갈림은 §251.1·§251.3이 그것을 잴 수
+있는 배치에서 이미 재고 고정해 두었다
+(`crates/moveit-collision/tests/exact_tangency_is_decided_per_shape_pair.rs`,
+`tools/ci/verify-fcl-tangency-dispatch.sh`).
+
+### §288.8 비용
+
+전체 실행은 **세 번** 실측해서 세 번 다 90초다(릴리스 빌드 약 15초 별도).
+로봇별로는 prbt 4–5초(1,200요청), prbt_pg70 11–14초(2,688), one_robot
+5–6초(3,060), pr2 67–68초(1,632). **pr2가 전체의 74%인데 요청은 19%다** —
+비용은 표본 수가 아니라 오라클이 95링크 모델에 대해 요청마다 도는
+`PlanningScene` diff를 따른다. 표본 수로 로봇별 비용을 추정하면 안 된다.
+
+`verify-all.sh`가 조건 없이 돌리는 `verify-oracle-sweep.sh`(113초)와 같은
+부류이므로 opt-in으로 감싸지 않았다. 도커가 없거나 이미지 다이제스트가
+어긋나면 크게 SKIP한다.
+
+### §288.9 §5 행이 뭐라고 말해야 하는가, 그리고 이 절이 재지 않은 것
+
+행은 이제 **판정어가 자기 모집단을 이름으로 든다**: 이 측정은 임의의 형상
+쌍이 아니라 두 파견표가 겹치는 쌍에 대한 것이고, 무엇을 제외했는지를 행 자신이
+말한다. 남는 것(=이 절이 재지 않은 것)은 명시적으로:
+
+- **fcl이 libccd에 맡기는 빈칸** — `cylinder × box`가 그중 하나이고 §275.1의
+  6,854건이 사는 곳이다. §288.5가 그 발산을 600/3,067로 다시 잰다. 이 절은
+  그것을 없애지 않았고 없앨 수 있다고 주장하지도 않는다.
+- **`box × box`와 `sphere × sphere`** — 각각 이 포트의 GJK 허용오차와
+  `contact_ball_ball`의 엄격 `<` 때문에 빠진다. §251.4가 적은 대안 넷은 여전히
+  전부 죽어 있다.
+- **간극이 정확히 0인 배치** — §288.7.
+- **메쉬, 그리고 충돌 요소가 여럿인 링크** — 상류가 `shapes::MESH`를
+  `fcl::BVHModel`로 사상하는 세 번째 순회이고, 이 절은 그것에 대해 아무것도
+  유도하지 않았다. panda·fanuc·dual_arm_panda가 이 코퍼스에 없는 이유가
+  그것이다(전 링크가 단일 메쉬).
+- **`self_collision` 열** — 이 절은 `robot_collision`만 본다. 프로브가 세계
+  물체이므로 자기충돌 쌍은 마스크의 대상이 아니고, 같은 유도를 자기충돌에
+  적용하려면 첨부물 경로로 코퍼스를 다시 지어야 한다.
 
 ---
 
