@@ -44,21 +44,6 @@
   - `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp`
   - `moveit_core/collision_detection/src/collision_plugin_cache.cpp`
 
-### Phase 8 — `CHOMP/STOMP` — **PARTIAL** (§269)
-
-- **막는 것:** conditions 1 and 3 are MET against the same planner's C++ implementation, which is the baseline Phase 7 actually used; the row is PARTIAL for condition 2 alone, and no implementation satisfies it -- after 0.01 densification §269 counts 1 invalid path of upstream C++ CHOMP's 370, 2 of C++ STOMP's 446, 1 of the port CHOMP's 380 and 3 of the port STOMP's 441.  ChompPlanner::solve gates SUCCESS on isCollisionFree over its own 101 points (chomp_planner.cpp:284), so nothing in CHOMP inspects between waypoints and 100% after densification is not this planner class's contract.  The harness exists -- what is unsatisfied is a condition, not an absent file
-- **후보 경로 접두사:** `moveit_planners/chomp/`, `moveit_planners/stomp/` → 86건 중 **8건**이 후보
-- **판정:** the 8 candidates are all ROS plugin wiring (chomp_interface/*, stomp_moveit_planner_plugin.cpp, trajectory_visualization.hpp) and §263's harness does not go through a plugin -- it drives the crates directly from crates/moveit-planners-{chomp,stomp}/examples/*_benchmark_port.rs. The row fails on measured success rate, so porting any candidate below could not move it.
-- **후보 전건:**
-  - `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_interface.hpp`
-  - `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_planning_context.hpp`
-  - `moveit_planners/chomp/chomp_interface/src/chomp_interface.cpp`
-  - `moveit_planners/chomp/chomp_interface/src/chomp_planning_context.cpp`
-  - `moveit_planners/chomp/chomp_interface/src/chomp_plugin.cpp`
-  - `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp`
-  - `moveit_planners/stomp/include/stomp_moveit/trajectory_visualization.hpp`
-  - `moveit_planners/stomp/src/stomp_moveit_planner_plugin.cpp`
-
 
 | 상류 파일 | 심볼 | 분류 | 결정 위치 | 검증 | 막는 §5 행 |
 |---|---|---|---|---|---|
@@ -113,11 +98,11 @@
 | `moveit_kinematics/kdl_kinematics_plugin/src/chainiksolver_vel_mimic_svd.cpp` | `ChainIkSolverVelMimicSVD::ChainIkSolverVelMimicSVD()`, `ChainIkSolverVelMimicSVD::updateInternalDataStructures()`, `ChainIkSolverVelMimicSVD::~ChainIkSolverVelMimicSVD()`, `ChainIkSolverVelMimicSVD::jacToJacReduced()` +1 | decided-non-port | § §159.1, §162 | resolves | none |
 | `moveit_kinematics/srv_kinematics_plugin/include/moveit/srv_kinematics_plugin/srv_kinematics_plugin.hpp` | `SrvKinematicsPlugin` | decided-non-port | D D1, D2 | resolves | none |
 | `moveit_kinematics/srv_kinematics_plugin/src/srv_kinematics_plugin.cpp` | `SrvKinematicsPlugin::SrvKinematicsPlugin()`, `SrvKinematicsPlugin::initialize()`, `SrvKinematicsPlugin::setRedundantJoints()`, `SrvKinematicsPlugin::isRedundantJoint()` +8 | decided-non-port | crate-doc crates/moveit-kinematics/src/lib.rs:263 | named (basename) | none |
-| `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_interface.hpp` | `CHOMPInterface` | decided-non-port | D D1, D2 | resolves | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
-| `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_planning_context.hpp` | `CHOMPPlanningContext` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (dir) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
-| `moveit_planners/chomp/chomp_interface/src/chomp_interface.cpp` | `CHOMPInterface::CHOMPInterface()`, `CHOMPInterface::loadParams()` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (basename) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
-| `moveit_planners/chomp/chomp_interface/src/chomp_planning_context.cpp` | `CHOMPPlanningContext::CHOMPPlanningContext()`, `CHOMPPlanningContext::solve()`, `CHOMPPlanningContext::terminate()`, `CHOMPPlanningContext::clear()` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (dir) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
-| `moveit_planners/chomp/chomp_interface/src/chomp_plugin.cpp` | `CHOMPPlannerManager` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (dir) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
+| `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_interface.hpp` | `CHOMPInterface` | decided-non-port | D D1, D2 | resolves | none |
+| `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_planning_context.hpp` | `CHOMPPlanningContext` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (dir) | none |
+| `moveit_planners/chomp/chomp_interface/src/chomp_interface.cpp` | `CHOMPInterface::CHOMPInterface()`, `CHOMPInterface::loadParams()` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (basename) | none |
+| `moveit_planners/chomp/chomp_interface/src/chomp_planning_context.cpp` | `CHOMPPlanningContext::CHOMPPlanningContext()`, `CHOMPPlanningContext::solve()`, `CHOMPPlanningContext::terminate()`, `CHOMPPlanningContext::clear()` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (dir) | none |
+| `moveit_planners/chomp/chomp_interface/src/chomp_plugin.cpp` | `CHOMPPlannerManager` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (dir) | none |
 | `moveit_planners/pilz_industrial_motion_planner/include/joint_limits_copy/joint_limits_rosparam.hpp` | `declareParameterTemplate()`, `declareParameters()`, `getJointLimits()` | decided-non-port | § §224.4 | resolves | none |
 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/capability_names.hpp` | `SEQUENCE_SERVICE_NAME` | decided-non-port | D D1 | resolves | none |
 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/joint_limits_interface_extension.hpp` | `declareParameters()`, `getJointLimits()` | decided-non-port | § §224.4 | resolves | none |
@@ -145,6 +130,6 @@
 | `moveit_planners/pilz_industrial_motion_planner/src/planning_context_loader_lin.cpp` | `PlanningContextLoaderLIN::PlanningContextLoaderLIN()`, `PlanningContextLoaderLIN::~PlanningContextLoaderLIN()`, `PlanningContextLoaderLIN::loadContext()` | decided-non-port | crate-doc crates/moveit-planners-pilz/src/lib.rs:127 | named (glob) | none |
 | `moveit_planners/pilz_industrial_motion_planner/src/planning_context_loader_polyline.cpp` | `PlanningContextLoaderPolyline::PlanningContextLoaderPolyline()`, `PlanningContextLoaderPolyline::~PlanningContextLoaderPolyline()`, `PlanningContextLoaderPolyline::loadContext()` | decided-non-port | crate-doc crates/moveit-planners-pilz/src/lib.rs:127 | named (glob) | none |
 | `moveit_planners/pilz_industrial_motion_planner/src/planning_context_loader_ptp.cpp` | `PlanningContextLoaderPTP::PlanningContextLoaderPTP()`, `PlanningContextLoaderPTP::~PlanningContextLoaderPTP()`, `PlanningContextLoaderPTP::loadContext()` | decided-non-port | crate-doc crates/moveit-planners-pilz/src/lib.rs:127 | named (glob) | none |
-| `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp` | `Stomp`, `StompPlanningContext` | ported-elsewhere | crate-doc crates/moveit-planners-stomp/src/planner.rs:5 | named (basename) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
-| `moveit_planners/stomp/include/stomp_moveit/trajectory_visualization.hpp` | `createTrajectoryMarkerArray()`, `getIterationPathPublisher()`, `getSuccessTrajectoryPublisher()` | decided-non-port | crate-doc crates/moveit-planners-stomp/src/lib.rs:116 | named (basename) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
-| `moveit_planners/stomp/src/stomp_moveit_planner_plugin.cpp` | `StompPlannerManager` | decided-non-port | crate-doc crates/moveit-planners-stomp/src/lib.rs:111 | named (basename) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
+| `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp` | `Stomp`, `StompPlanningContext` | ported-elsewhere | crate-doc crates/moveit-planners-stomp/src/planner.rs:5 | named (basename) | none |
+| `moveit_planners/stomp/include/stomp_moveit/trajectory_visualization.hpp` | `createTrajectoryMarkerArray()`, `getIterationPathPublisher()`, `getSuccessTrajectoryPublisher()` | decided-non-port | crate-doc crates/moveit-planners-stomp/src/lib.rs:116 | named (basename) | none |
+| `moveit_planners/stomp/src/stomp_moveit_planner_plugin.cpp` | `StompPlannerManager` | decided-non-port | crate-doc crates/moveit-planners-stomp/src/lib.rs:111 | named (basename) | none |
