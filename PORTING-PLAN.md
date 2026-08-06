@@ -20892,11 +20892,15 @@ $
 `removeObserver` — deviation 4, 만료 조건 명시 —,
 `MOVEIT_CLASS_FORWARD(AllowedCollisionMatrix)`, `print`)과 unported-in-scope
 2건이다. 후자는 `AllowedCollisionMatrix`의 메시지 생성자와 `getMessage()`로,
-D6/§4.3이 `moveit-ros`의 `TryFrom` 층에 배정했으나 아직 없다. 새로 발견한
-미처리가 아니라 이미 이름이 적힌 구멍이다 —
-`ros/moveit-ros/src/scene/planning_scene.rs:19-24`가
-`allowed_collision_matrix`를 미변환 `PlanningScene` 필드로 열거해 두었고 그
-파일을 열어 확인했다.
+D6/§4.3이 `moveit-ros`의 `TryFrom` 층에 배정했다. 이 절을 쓸 때는 둘 다
+없었고, 그 근거로 `ros/moveit-ros/src/scene/planning_scene.rs`가
+`allowed_collision_matrix`를 미변환 필드로 열거해 둔 것을 들었다. 그중
+메시지 생성자는 `4f2c9df7`이 `impl TryFrom<AllowedCollisionMatrixMsg> for
+AllowedCollisionMatrix`(`ros/moveit-ros/src/scene/planning_scene.rs:273`)로
+채웠으므로 남은 구멍은 반대 방향 하나다 —
+`ros/moveit-ros/src/conversion_coverage.rs:125-134`가 그 한 방향을 선언된
+단방향 변환으로 적고, 만료를 `getPlanningSceneMsg`/`getPlanningSceneDiffMsg`
+중 하나가 포팅되는 날로 못박아 둔다.
 
 `doc/port-coverage.md`에 새 `gap` 행은 생기지 않았고 생길 수 없다: 그 표는
 미포팅 **파일**을 분류하는데 이 4건은 전부 포팅된 파일이고, 위 2건은 파일이
