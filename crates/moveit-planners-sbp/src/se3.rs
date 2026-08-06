@@ -466,7 +466,7 @@ mod tests {
         assert_sample_near_stays_within_radius(&s, &mut rng, &center, 1.0, 500, 1e-9);
     }
 
-    // PORTING-PLAN.md:1152 records that whether the StateSpace trait can
+    // PORTING-PLAN.md:1269 records that whether the StateSpace trait can
     // carry SO(3) has "so far been a comment's assertion, never verified".
     // `distance_ignores_quaternion_sign` above already checks `distance`;
     // the boundary `distance` alone cannot exercise is `interpolate`'s own

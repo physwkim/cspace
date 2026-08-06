@@ -100,7 +100,7 @@ THIRD_PARTY_SRC="${THIRD_PARTY_SRC:-$REPO_ROOT/third_party}"
 declare -A THIRD_PARTY_PINS=(
   # geometric_shapes 2.3.3      -- PORTING-PLAN.md:12828, crates/moveit-geometry/src/shapes.rs:15
   [geometric_shapes]=192801cebacc07d0e9f719576cdd1c9b36d0bc28
-  # srdfdom 2.0.8               -- PORTING-PLAN.md:12829
+  # srdfdom 2.0.8               -- PORTING-PLAN.md:12825
   [srdfdom]=58ee1eccd1c34498f67022eb2080daec5e8bc162
   # octomap v1.9.7              -- PORTING-PLAN.md:12830, doc/claim-audit/moveit-octomap.md:8
   [octomap]=aa6372b87eaf7e89bb1c9421f61d58bd634477cb

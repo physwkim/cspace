@@ -5360,7 +5360,7 @@ python3 - ... | run-oracle.sh ... 2>/dev/null | tail -1 > "$RESPONSE_FILE"
 | `verify-continuous-reseed-wrap.sh:61` | **같은 결함** |
 | `check-no-lint-suppression.sh:33` | **같은 결함** — `if hits=$(rg ...)`가 rg의 "매치 없음"(1)과 "rg 자체 실패"(2)를 같은 분기로 접는다. 검색이 깨져도 `OK`를 찍는다 |
 | `check-dep-direction.sh:33` | **같은 결함** — `cargo tree`가 파이프 머리에 있고 꼬리가 `\|\| true`라, cargo가 해석하지 못한 패키지가 "ROS 의존 없음"이 된다. 검사받지 않은 크레이트가 통과로 보고된다 |
-| `run-oracle.sh:28,42` | 별개 — 부재가 곧 기대되는 신호인 탐침(`\|\| true`가 의도) |
+| `run-oracle.sh:32,46` | 별개 — 부재가 곧 기대되는 신호인 탐침(`\|\| true`가 의도) |
 | `run-oracle-sweep.sh:76`, `verify-fixture-provenance.sh:79,162` | 별개 — 이미 실패가 확정된 분기 안에서 표시용으로 자르는 것 |
 
 셋 다 `8791569` 하나로 고쳤다(한 발견, 여러 자리). 각각 주입해 확인했다:
@@ -11742,7 +11742,7 @@ $ cargo +nightly doc --workspace --no-deps          → Finished, exit 0
 뜻하는지"에 대해 서로 다른 것을 뜻하고 있었다.
 
 **Anchor:** `cargo (build|check|clippy|test|doc|nextest|run)` in `.github/`, `tools/ci/`
-**Sites:** `ci.yml:32,38,40,48`; `check-dep-direction.sh:25,44`;
+**Sites:** `ci.yml:32,39,40,48`; `check-dep-direction.sh:25,44`;
 `check-serde-float-roundtrip.sh:33`; `run-oracle-sweep.sh:50`
 **Same defect at:** `ci.yml`의 빌드 단계 4개 — 넷 다 커밋된 lockfile을 주장하지 않고
 resolve한다.
@@ -16026,7 +16026,7 @@ p1-fixtures 라운드가 두 가지를 보고했다. 하나는 재현된 결함,
 
 ### §210.1 게이트 15개 중 1개만 "실증 가능"이었는데, 나머지도 고쳤다
 
-`verify-clean-checkout.sh:51`이 `mapfile -t steps < <(python3 ...)` 꼴이다.
+`verify-clean-checkout.sh:56`이 `mapfile -t steps < <(python3 ...)` 꼴이다.
 `mapfile`은 producer의 종료 상태를 전파하지 않고 `set -e`도 그것을 보지
 못하므로, 파서 자신의 `sys.exit("no run: steps found in the workflow")`가
 stderr에 찍힌 채로 스크립트는 0으로 끝나며 "every ci.yml step passes"를
@@ -18920,7 +18920,7 @@ INVALID_GROUP_NAME, INVALID_LINK_NAME, NO_IK_SOLUTION, 그리고 명시 인자�
 한 가지 공통점은 적어 둘 값어치가 있다. `robot_model_test_utils.*`와
 `eigen_test_utils.hpp`는 **테스트 지원 코드인데 `test/` 디렉터리 밖에
 산다**(`utils/src/`, `utils/include/`). 코퍼스 계기가 걸러내는 것은 경로에
-`test`/`tests` 성분이 있는 파일이므로(`measure-port-coverage.py:90`) 이
+`test`/`tests` 성분이 있는 파일이므로(`measure-port-coverage.py:99`) 이
 둘은 코퍼스 안으로 쓸려 들어왔다. 상류의 `test/` 아래 테스트들은 애초에
 코퍼스 밖이라 이런 행이 없다.
 
@@ -19539,7 +19539,7 @@ API를 부르는 호출자가 생기면** 다시 연다. `moveit-octomap`으로 
 
 물음은 "이 두 파일이 코퍼스에 있는 것이 경로 성분 사고인가"였다. 사고인
 것은 맞다. `corpus_files()`가 거르는 것은 경로에 `test`/`tests` 성분이
-있는 파일이고(`tools/ci/measure-port-coverage.py:90`), 상류가 이 테스트
+있는 파일이고(`tools/ci/measure-port-coverage.py:99`), 상류가 이 테스트
 본문들을 `collision_detection/include/` 밑에 두었기 때문에 그물을 빠져나온다.
 
 **바꾸기 전에 "다른 코퍼스 멤버 중 상류 테스트 본문이 몇 개인가"를 셋다.**
@@ -20002,7 +20002,7 @@ D6은 "모든 `moveit_msgs` 변환은 `moveit-ros`의 `TryFrom`"이다. 이 함�
 `rg -n 'moveit_msgs::msg::MotionPlanDetailedResponse'`는 상류 전체에서 정확히
 두 줄 — 위의 선언(`:77`)과 정의(`:52`) — 이다. 메시지 정의 쪽도 같다:
 `rg -n 'MotionPlanDetailedResponse' third_party/moveit_msgs/`는
-`CMakeLists.txt:53`(빌드 목록) 한 줄뿐이고, 어떤 `.srv`/`.action`/`.msg`도
+`tools/moveit-oracle/CMakeLists.txt:53`(빌드 목록) 한 줄뿐이고, 어떤 `.srv`/`.action`/`.msg`도
 이 타입을 담지 않는다. 대조군이 그 차이를 보여준다 — `MotionPlanResponse`는
 `srv/GetMotionPlan.srv:8`, `msg/PipelineState.msg:5`,
 `action/GlobalPlanner.action:6` 셋에 실린다. 즉 이 함수가 채우는 메시지는
@@ -23629,7 +23629,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 | 인용 위치 | 적힌 곳 | 재도출 |
 | --- | --- | --- |
 | `PORTING-PLAN.md:3933` | `:1044` | `2025` |
-| `PORTING-PLAN.md:3960` | `:1144-1146` | `2125-2127` |
+| `!PORTING-PLAN.md:3960` | `:1144-1146` | `2125-2127` |
 | `PORTING-PLAN.md:4582` | `:1524` | `2457` |
 | `PORTING-PLAN.md:11391` | `:4752` | 손: `c0838b4^`에서 `{ "planning_time_s", elapsed },`. `c0838b4`가 그 필드를 지웠으므로 오늘 대응하는 줄이 없다 |
 | `PORTING-PLAN.md:11391` | `:5135` | 손: `c0838b4^`에서 `res.planning_time`. 같은 커밋이 지웠고 남은 것은 주석 `oracle.cpp@3241bbab:6166`뿐 |
@@ -23640,7 +23640,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 | `PORTING-PLAN.md:20264` | `:1537` | `1546` |
 | `PORTING-PLAN.md:21397` | `:1547` | `1549` |
 | `PORTING-PLAN.md:21398` | `:2235` | `2306` |
-| `PORTING-PLAN.md:21523` | `:2188` | `2259` |
+| `!PORTING-PLAN.md:21523` | `:2188` | `2259` |
 | `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:51` | `:2326` | `2579` |
 | `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:65` | `:2364-2374` | `2617-2627` |
 | `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:73` | `:3391-3392` | 손: `3902` — blame 사상은 depth 주석으로 가는데 인용 문장은 `max_contacts_per_pair` 대입을 가리킨다 |
@@ -30574,7 +30574,7 @@ undeclared-unresolvable **0건**으로 통과한다.
 
 인용처럼 읽히지만 게이트 코퍼스 밖에 있던 것들이다. 전부 검사되는 형태로 고쳤다:
 
-- `PORTING-PLAN.md:4598`의 `` `1530` `` — 콜론이 없어 토큰이 아니었다 → `` `oracle.cpp:2500` ``
+- `!PORTING-PLAN.md:4598`의 `` `1530` `` — 콜론이 없어 토큰이 아니었다 → `` `oracle.cpp:2500` ``
 - `PORTING-PLAN.md:20367-20368`의 백틱 밖 oracle.cpp:1537 → `` `oracle.cpp:1579-1580` ``
 - `oracle-request-collision-max-contacts-per-pair.md`(오늘 64행)의 줄바꿈으로 쪼개진
   `oracle.cpp:2326-\n2338` → 한 줄로 붙여 `@47a271c^`로
@@ -30583,9 +30583,11 @@ undeclared-unresolvable **0건**으로 통과한다.
 - `oracle-request-pilz-blend-geometry.md:654`의 `` `5777`-`5778` `` →
   `` `oracle.cpp:6804-6805` ``
 
-일부러 되짚지 **않은** 것도 하나 있다. `PORTING-PLAN.md:27486`은 `$ rg ...`
-실행 결과를 코드 펜스 안에 그대로 옮긴 것이고, 그 실행은 실제로 5688을
-찍었다. 전사를 고치면 기록이 아니라 위조가 된다.
+일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27602`는
+`$ rg ...` 실행 결과를 코드 펜스 안에 그대로 옮긴 것이고, 그 실행은 실제로
+5688을 찍었다. 전사를 고치면 기록이 아니라 위조가 된다. (이 인용은 쓰인
+커밋 `580f1995` 당시 `!PORTING-PLAN.md:27486`이었고, 그 뒤 두 번 밀렸다.
+§306.6이 내용으로 되짚어 옮기면서 절 번호를 붙였다.)
 
 ### §287.8 남은 bounds-only 54건과, 그중 구조적으로 앵커할 수 없는 다섯 건
 
@@ -33030,7 +33032,7 @@ A가 핵심이다 — 술어가 사다리 위에 있음을 이 한 건이 증명
 `crates/moveit-planners-sbp/src/compound.rs:495`,
 `crates/moveit-planners-sbp/src/se3.rs:469`,
 `crates/moveit-planners-sbp/src/so2.rs:210`가 모두
-`PORTING-PLAN.md:1152`를 가리키는데 그 줄은 **비어 있다**(제목
+`!PORTING-PLAN.md:1152`를 가리키는데 그 줄은 **비어 있다**(제목
 `## 10. 1차 병렬 라운드 병합`은 1153이다). StateSpace 트레이트를 논한다며
 병합 회차 제목 언저리를 가리키는 주석이 세 개, 그것이 문서화 대상인 바로 그
 크레이트의 소스에 실려 있다. 나머지 둘은
@@ -33056,25 +33058,33 @@ gapaudit이 §270.2에 13줄을 끼워 넣은 것이 바로 그 종류이고, �
 gapaudit은 이미 main에 병합돼 있다(`a4d5db85`). 그 트리에서 예측을
 그대로 시험했다.
 
-밀린 1건은 `PORTING-PLAN.md:30547`이 `PORTING-PLAN.md:27486`을 가리키는
-자기 인용이다. 인용된 내용(`$ rg -l -w 'NearestNeighbors' .`, 코드 펜스
-안의 실행 결과)은 **27499로 정확히 +13** 옮겨 갔고, 인용은 27486에 그대로
-남아 지금은 무관한 산문을 가리킨다. 이동 산술은 맞았다.
+밀린 1건은 `!PORTING-PLAN.md:30547`이 `!PORTING-PLAN.md:27486`을 가리키는
+자기 인용이다. 인용은 27486에 그대로 남아 지금은 무관한 산문을 가리킨다.
+
+**이 절은 인용된 내용을 잘못 짚었다.** 여기서는 그것을 `$ rg -l -w
+'NearestNeighbors' .`의 출력으로 읽고 **27499로 +13** 옮겨 갔다고 적었는데,
+§306.6이 인용이 쓰인 커밋(`580f1995`)의 트리를 직접 열어 보니 그 트리의
+27486은 `oracle.cpp:5688` 전사 줄이었다. 두 펜스는 약 85줄 떨어져 있다.
+실제 이동은 +13이 아니라 27602(+116)이고, 아래 결론의 "절 포함 검사가
+이것을 잡는다"도 함께 반증된다 — §287.7의 그 문장은 절 번호를 이름 대고
+있지 않았기 때문이다.
 
 그런데 **빈 줄 술어는 이것을 잡지 못한다.** 27486은 비어 있지 않기
 때문이다. 같은 코퍼스에서 빈 줄 술어가 보고하는 것은 이것이 아닌 **8건**
 이고, 그중 3건은 §253.3의 재매핑 표가 데이터로 적어 둔 옛 번호다(구성상
 과거의 것이므로 살아 있는 인용으로 취급하면 안 된다). 나머지 중
-`tools/ci/check-citation-drift.py:1024`가 `PORTING-PLAN.md:9384`를 가리키는
+`tools/ci/check-citation-drift.py:1024`가 `!PORTING-PLAN.md:9384`를 가리키는
 건은 인용자 확장자 구멍(§299.9의 2번) 안에 있고, `doc/handoff-2026-08-06.md:112`가
-`PORTING-PLAN.md:801-819`를 가리키는 건은 §5의 표가 19행이던 시절에 쓰인
+`!PORTING-PLAN.md:801-819`를 가리키는 건은 §5의 표가 19행이던 시절에 쓰인
 것이다.
 
 그러므로 "`.md` 대상 코퍼스를 열면 그 1건이 잡힌다"는 예측은 **반증됐다**.
 빈 줄은 *틀렸음을 증명하는* 검사이고, 27486 같은 이동은 *다른 내용을 실은
-멀쩡한 줄*로 착지한다. 그것을 잡는 규칙은 빈 줄이 아니라 절(`§NNN`) 포함
-검사다 — 인용문이 절 번호를 이름 대고 있고 인용된 줄이 그 절의 범위 밖으로
-나갔는지를 본다. 두 규칙은 서로를 대신하지 못한다.
+멀쩡한 줄*로 착지한다. 그것을 잡을 수 있는 규칙은 빈 줄이 아니라 절(`§NNN`)
+포함 검사다 — 인용문이 절 번호를 이름 대고 있고 인용된 줄이 그 절의 범위
+밖으로 나갔는지를 본다. 다만 이 1건에는 그 규칙도 닿지 않았다(§306.6):
+§287.7의 문장이 절 번호를 대고 있지 않아 검사할 주장 자체가 없었다. 두
+규칙은 서로를 대신하지 못하고, 둘 다 닿지 않는 자리가 남는다.
 
 ### §299.8 인용 대상별 빈 줄 비율 — 재도출했고, 설명 변수는 재현되지 않았다
 
@@ -33120,7 +33130,7 @@ gapaudit은 이미 main에 병합돼 있다(`a4d5db85`). 그 트리에서 예측
    않는다.
 2. **인용자 확장자.** 코퍼스를 `.md` 인용자만으로 만들기 때문에,
    `.rs`·`.py`·`.json` 안에 사는 인용은 무엇을 가리키든 밖이다. 이 게이트
-   자신의 소스가 `PORTING-PLAN.md:9384`를 인용하면서 그것을 보지 못했다.
+   자신의 소스가 `!PORTING-PLAN.md:9384`를 인용하면서 그것을 보지 못했다.
 
 둘 다 닫았다. 새 모집단은 **283건**(인용 파일 31개)이고,
 `doc/citation-classes.txt`가 아니라 `doc/citation-classes-in-repo.txt`에
@@ -33142,7 +33152,7 @@ gapaudit은 이미 main에 병합돼 있다(`a4d5db85`). 그 트리에서 예측
 소스 주석은 `// PORTING-PLAN.md:1152 records that ...`처럼 맨몸으로 적는다.
 백틱을 요구하면 구멍 2가 존재하는 이유인 바로 그 다섯 건을 놓친다. `external`은 이 저장소에 없는 파일을 가리키는 인용이고
 `measure-upstream-citations.py`의 영역이므로 실패가 아니라 선언 대상이다.
-`unresolvable`은 이 게이트의 것이다 — `CMakeLists.txt:53`처럼 추적 파일
+`unresolvable`은 이 게이트의 것이다 — `!CMakeLists.txt:53`처럼 추적 파일
 여러 개에 걸리는 basename은 그중 아무것도 이름 대지 못한다.
 
 **절 포함 검사가 §299.7의 그 형태를 잡는다.** Rust fn 앵커링은 이 대상들에
@@ -33781,3 +33791,142 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 - **커밋된 전수 계측기.** §302.3과 §302.4의 표는 이 라운드의 일회용 프로브가
   낸 것이고, 게이트가 쥔 것은 31행 축소판이다. 389이라는 수 자체를 게이트가
   다시 세지는 않는다.
+
+## §306 두 번째 코퍼스의 findings를 닫았다 — 세 등급을 hard로 올리고, 판단이 필요한 셋은 남겼다 (2026-08-07)
+
+§299.9가 선언만 하고 남겨 둔 findings를 이번 회차에 닫았다. 브리프가 준
+전제는 낡아 있었다 — 코퍼스 확장은 이미 `3d0bc852`·`653d0ab7`로 main에
+들어가 있고, 스크래치패드의 1,995줄은 **폐기된 설계**(baseline 하나에
+두 모집단을 섞는 것)다. 그것을 land했다면 지금 설계를 되돌리는 일이 됐다.
+
+### §306.1 인용을 데이터로 적는 형태에 sigil을 줬다
+
+같은 모양이 네 번째로 나왔다: §253.3의 재매핑 표, §299.3의 다섯 건,
+§299 자신의 예시, 그리고 게이트 자신의 주석. 전부 줄을 **이름 대되 아무것도
+주장하지 않는다**. 그때마다 처방은 "인용처럼 보이지 않을 때까지 손으로 고쳐
+적기"였고, 그것은 site마다 한 번씩 붙이는 패치이며 무엇보다 **세는 주체가
+없어진다**.
+
+`` `!path:NNN` ``이 구조적 형태다. grep 가능하고, 균일하고, 게이트가 자기
+등급(`quoted`)으로 **개수를 선언**한다. 백틱 문법은 `!`가 경로 문자 자리에
+있으므로 저절로 거른다. 맨몸 문법은 lookbehind가 필요하다 — 없으면 sigil
+한 칸 뒤부터 매치해서 인용한 것을 살아 있는 인용으로 보고한다. 현재 10건.
+
+### §306.2 닫은 것
+
+아래는 main(`1cada05d`)을 병합하고 다시 생성한 뒤의 숫자다. 병합 전에는
+인용자가 31개였는데, main이 p3-acm의 재생성된 `doc/residual-claims-census.md`
+(§302.6이 붙인 행들)를 싣고 있고 **그 파일 자체가 이 코퍼스의 인용자**이기
+때문이다. 인용자 하나가 통째로 빠진 코퍼스에 대고 동결할 뻔했다.
+
+| 등급 | 시작 | 끝 | 처리 |
+|---|---|---|---|
+| blank-line | 25 | **0** | 10건은 sigil(데이터였다), 15건은 재도출 |
+| unresolvable | 8 | **0** | 경로를 끝까지 적었다 |
+| section-mismatch | 6 → 8 | **3** | 5건 재도출, 3건은 판단 필요(§306.4) |
+| section-verified | 1 | **8** | 규칙이 통과도 한다는 증거 |
+| quoted | (없던 등급) | **16** | §306.1의 sigil |
+| 코퍼스 전체 | 291 / 인용자 32 | **308 / 32** | 줄지 않았다 |
+
+마지막 행이 delta를 읽는 전제다. 등급이 줄어든 것이 코퍼스가 줄어서가
+아님을 그것만이 보인다. 남은 section-mismatch 3건은 시작의 6건의 **진부분
+집합**이고(§306.4), 어떤 인용도 여전히 통과하는 더 약한 등급으로 내려가
+살아남지 않았다.
+
+blank-line 15건 중 셋이 가장 날카롭다:
+`crates/moveit-planners-sbp/src/compound.rs:495`,
+`crates/moveit-planners-sbp/src/se3.rs:469`,
+`crates/moveit-planners-sbp/src/so2.rs:210`이 모두 `!PORTING-PLAN.md:1152`를
+가리켰고 그 줄은 비어 있다. 그 아래 제목은 StateSpace와 무관한 병합 회차
+제목이다. 살아 있는 기록은 `PORTING-PLAN.md:1269`이고, 셋 다 그리로 옮겼다.
+
+section-mismatch가 6에서 8로 **늘었다가** 3으로 줄었다. 늘어난 두 건은
+blank-line 커밋이 인용을 비어 있지 않은 줄로 옮겼는데 그 줄이 여전히 절
+바깥이었기 때문이다. **빈 줄 술어가 구조적으로 볼 수 없는 것을 절 포함
+검사가 잡는다**는 §299.7의 주장이 이 회차에 실제로 일어났다.
+
+### §306.3 hard-fail을 등급별로 올렸다
+
+`IN_REPO_HARD_FAIL`을 boolean에서 **등급 집합**으로 바꿨다. 한 등급의 잔고가
+비면 그 등급은 즉시 hard가 된다 — 가장 느린 등급을 기다리며 이미 닫힌
+등급을 무방비로 두지 않는다. 지금 hard인 것은 blank-line, out-of-bounds,
+unresolvable이다.
+
+뮤테이션으로 양쪽을 확인했다: 빈 줄을 가리키는 인용을 새로 넣으면
+**선언되지 않은 상태에서도**(델타 경로) **선언된 뒤에도**(등급 경로) exit 1이다.
+후자가 핵심이다 — 재동결이 findings를 흡수할 수 없다는 뜻이다.
+
+### §306.4 판단이 필요해 남긴 셋
+
+세 건 모두 인용된 줄이 **문장이 이름 댄 절의 바로 앞 절**에 있다. 나머지
+다섯 건은 주장의 내용을 그 절 안에서 찾아 해결했지만, 이 셋은 내용이
+**양쪽 어디에도 없다**. 줄이 틀린 것인지 절 번호가 틀린 것인지는 그 문장이
+무엇을 뜻했는지를 정해야 갈리고, 그것은 재도출이 아니라 판단이다.
+
+| 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
+|---|---|---|---|
+| `PORTING-PLAN.md:30563` | `PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
+| `PORTING-PLAN.md:31513` | `PORTING-PLAN.md:26866` | §267.1 (26904-26926) | §266.8 |
+| `doc/claim-audit/upstream-bugs.md:37` | `PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
+
+세 건 다 baseline에 findings로 선언돼 있고 passing 등급으로 얼려지지
+않았다. section-mismatch가 hard가 아닌 이유가 이 셋이다.
+
+### §306.5 아직 못 보는 것
+
+- 축약형 `` `:NNN` ``은 여전히 어떤 코퍼스에도 없다. 이 회차에 그것이
+  실제로 비용을 냈다 — 게이트 자신의 docstring이 예시 두 개를 핀으로 박아
+  뒀는데 **둘 다** 빈 줄로 썩어 있었고, 둘째는 축약형이라 빈 줄 술어조차
+  보지 못했다. 두 핀은 재도출하지 않고 없앴다. 조용히 썩는 예시는 자기가
+  설명하는 규칙에 대해 틀린 것을 가르친다.
+- `PORTING-PLAN.md:807`은 §5 범위 안이라 포함 검사로 구별되지 않는다.
+- sbp 주석 셋은 인용은 고쳐졌지만 **문장이 낡았다**: `PORTING-PLAN.md:1269`는
+  trait 모양이 §61에서 경계값으로 검증됐다고 적는데, 주석들은 "지금까지
+  주석의 주장일 뿐 검증된 적 없다"고 말한다. 인용 수정이 아니라 sbp
+  소유자의 판단이므로 고치지 않고 적어 둔다.
+
+### §306.6 브리프의 1번을 내용으로 되짚었다 — 그리고 §299.7이 내용을 잘못 짚었다
+
+이 회차의 브리프가 이름 댄 첫 항목은 "`PORTING-PLAN.md:30547 → :27486`을
+오늘 트리에서 **내용으로** 다시 찾아라, 옛 산술을 다시 적용하지 말고"였다.
+그대로 했더니 산술이 아니라 **내용 식별 자체가 틀렸던 것**이 나왔다.
+
+인용을 쓴 커밋을 먼저 찾고(`git log -S`로 §287.7의 그 문장 → `580f1995`),
+그 커밋의 트리에서 27486을 직접 열었다:
+
+```
+$ git show 580f1995:PORTING-PLAN.md | sed -n '27486p'
+tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
+```
+
+`oracle.cpp:5688` 전사 줄이다. §287.7의 문장이 "그 실행은 실제로 5688을
+찍었다"고 말하는 것과 정확히 맞고, 그 문장이 이 인용을 고치면 위조가 된다고
+한 이유이기도 하다 — 5688은 살아 있는 `oracle.cpp` 인용이 아니라 실행
+출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27602`에 있다(§271.3
+안, 펜스 27597–27604).
+
+§299.7은 이것을 `$ rg -l -w 'NearestNeighbors' .` 출력으로 읽고 27499(+13)로
+옮겼다고 적었다. 그 펜스는 오늘 27507–27522에 있고, 5688을 찍은 펜스와 약
+85줄 떨어져 있다. **+13은 다른 펜스에 대한 산술이었다.** §299.7을 그 자리에서
+고쳤다.
+
+여기서 두 가지가 따라 나온다.
+
+- **두 번째 코퍼스는 이 인용을 잡지 못했다.** 게이트가 준 판정은
+  `resolved`다 — 경계 안이고, 빈 줄이 아니고, 절 주장이 없다. 브리프가
+  경계한 "wrong-but-in-bounds resolution reads as verified"가 바로 이
+  자리다. 잡은 것은 게이트가 아니라 커밋 이력이었다.
+- **§299.7의 결론 절반이 반증됐다.** 그 절은 "빈 줄로는 못 잡고 절 포함
+  검사가 잡는다"로 끝나는데, §287.7의 문장은 절 번호를 이름 대고 있지
+  않았으므로 검사할 주장이 애초에 없었다. 빈 줄도 절 포함도 닿지 않는
+  자리가 남는다.
+
+그래서 번호만 고치지 않고 **검사 가능한 형태로 바꿨다**: §287.7의 문장이
+이제 `§271.3의 PORTING-PLAN.md:27602`로 절을 이름 댄다. 다음에 §271.3의
+내용이 밀리면 인용이 절 범위 밖으로 나가고, 그때는 게이트가 말한다. 손으로
+고친 번호는 다시 밀린다 — 이 인용은 이미 두 번 밀렸다. 남길 것은 번호가
+아니라 그것을 붙잡는 규칙이다.
+
+옛 번호 둘(`!PORTING-PLAN.md:30547`, `!PORTING-PLAN.md:27486`)은 §306.1의
+sigil로 데이터임을 밝혀 두었다. 지난 트리에 대한 기록이지 이 트리에 대한
+주장이 아니다.

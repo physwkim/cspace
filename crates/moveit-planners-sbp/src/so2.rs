@@ -207,7 +207,7 @@ mod tests {
         }
     }
 
-    // PORTING-PLAN.md:1152 records that the StateSpace trait's ability to
+    // PORTING-PLAN.md:1269 records that the StateSpace trait's ability to
     // carry wraparound has "so far been a comment's assertion, never
     // verified" — the following are boundary-value tests, not the random
     // draws `assert_metric_and_interpolation_axioms` already runs below,
