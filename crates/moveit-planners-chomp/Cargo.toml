@@ -24,6 +24,16 @@ rand_distr.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
+# examples/chomp_benchmark_port.rs only (Phase 8's property-based
+# measurement, PORTING-PLAN.md §263): `moveit-planners-sbp` supplies the
+# `JointModelGroupSpace` metric the C++ OMPL baseline's `length` is measured
+# in, and `moveit-scene` supplies the `PlanningScene::is_path_valid` that
+# `solve`'s injected `mesh_to_mesh_collision_free` closure and Phase 7
+# condition 2 both need. Deliberately dev-only: the library's own "no
+# moveit-scene" dependency decision (`optimizer.rs`, PORTING-PLAN.md §154)
+# is unchanged.
+moveit-planners-sbp.workspace = true
+moveit-scene.workspace = true
 moveit-srdf.workspace = true
 moveit-test-support.workspace = true
 rand_chacha.workspace = true

@@ -426,7 +426,9 @@ dependencies = [
  "moveit-error",
  "moveit-geometry",
  "moveit-model",
+ "moveit-planners-sbp",
  "moveit-sampling",
+ "moveit-scene",
  "moveit-srdf",
  "moveit-state",
  "moveit-test-support",
@@ -493,6 +495,7 @@ dependencies = [
  "moveit-geometry",
  "moveit-kinematics",
  "moveit-model",
+ "moveit-planners-sbp",
  "moveit-sampling",
  "moveit-scene",
  "moveit-srdf",
@@ -502,6 +505,7 @@ dependencies = [
  "nalgebra",
  "rand",
  "rand_chacha",
+ "serde_json",
  "urdf-rs",
 ]
 
