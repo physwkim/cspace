@@ -6,10 +6,11 @@
 // unmodified source -- no patch, no shim, no subclass, no reimplementation of
 // its request-building. Everything in this file is harness around it: read two
 // files, put them on the node as the parameters upstream's own
-// `RobotModelLoader` reads, construct the interface, call `plan()`, grade what
-// came back, print. That is the point: PORTING-PLAN.md Phase 9's completion
-// condition is about the *unmodified* client, so anything this file did to help
-// the request along would be measuring something else.
+// `RobotModelLoader` reads, construct the interface, call `plan()` or
+// `computeCartesianPath()`, grade what came back, print. That is the point:
+// PORTING-PLAN.md Phase 9's completion condition is about the *unmodified*
+// client, so anything this file did to help the request along would be
+// measuring something else.
 //
 // The grading is upstream's too, and that is not incidental: Phase 9's
 // condition says *valid* trajectory, and the only graders that can settle it
@@ -20,10 +21,13 @@
 // This prints and does not assert. The assertions live in the shell gate, in
 // one place, next to the `/plan_kinematic_path` leg's, so that what the gate
 // would catch is readable without also reading C++.
+#include <cmath>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include <moveit/move_group_interface/move_group_interface.hpp>
 #include <moveit/planning_scene/planning_scene.hpp>
@@ -49,7 +53,8 @@ int main(int argc, char** argv)
 {
   if (argc < 4)
   {
-    std::cerr << "usage: move_group_interface_probe <urdf> <srdf> <group> [explicit-start]\n";
+    std::cerr << "usage: move_group_interface_probe <urdf> <srdf> <group> "
+                 "[default-start|explicit-start|cartesian]\n";
     return 2;
   }
   rclcpp::init(argc, argv);
@@ -90,14 +95,119 @@ int main(int argc, char** argv)
   // cannot cover both. This comment used to say the port's
   // `robot_state_msg_is_default` accepted neither; that predicate is what
   // answered -16 to both, and it no longer exists anywhere in the tree.
-  const bool explicit_start = argc > 4 && std::string(argv[4]) == "explicit-start";
+  const std::string mode = argc > 4 ? argv[4] : "default-start";
+  const bool explicit_start = mode == "explicit-start";
   if (explicit_start)
   {
     moveit::core::RobotState start(group.getRobotModel());
     start.setToDefaultValues();
     group.setStartState(start);
   }
-  std::cout << "PROBE mode=" << (explicit_start ? "explicit-start" : "default-start") << std::endl;
+  std::cout << "PROBE mode=" << mode << std::endl;
+
+  // `/compute_cartesian_path`, through the same unmodified client. It is a
+  // service and not the action, so it shares nothing with `plan()` below but
+  // the interface object: a node that serves `/move_action` correctly can
+  // still be missing this endpoint entirely, and until this branch existed
+  // that is what the gate could not see.
+  //
+  // The call is the four-argument, non-deprecated overload
+  // (`move_group_interface.hpp:778-780`). The three jump thresholds are not
+  // arguments of it -- `dae612696` removed the parameter -- so this probe
+  // cannot set them and neither can any other unmodified client, which is
+  // what makes the node's refusal of them unreachable from here and checked
+  // in-process instead.
+  if (mode == "cartesian")
+  {
+    // `tip`'s pose at `j1 = 0.5`, in `getPoseReferenceFrame()` (the model
+    // frame, `move_group_interface.cpp:175`). `one_joint.urdf`'s `j1` has no
+    // `<origin>`, so `tip`'s translation is identically zero and its
+    // orientation is a rotation of `j1` about z: the waypoint is exactly
+    // reachable, and every pose on the straight line to it is too, so a
+    // correct answer is `fraction = 1` rather than some fixture-dependent
+    // fragment.
+    const double angle = 0.5;
+    geometry_msgs::msg::Pose target;
+    target.orientation.z = std::sin(angle / 2.0);
+    target.orientation.w = std::cos(angle / 2.0);
+    const std::vector<geometry_msgs::msg::Pose> waypoints{ target };
+
+    moveit_msgs::msg::RobotTrajectory result;
+    moveit_msgs::msg::MoveItErrorCodes cartesian_code;
+    const double fraction = group.computeCartesianPath(waypoints, 0.1, result, true, &cartesian_code);
+
+    // `-1.0` is what the client returns for *any* non-SUCCESS reply and also
+    // for a call that never reached a server
+    // (`move_group_interface.cpp:899-911`), so it is printed beside `source`
+    // rather than on its own, for the reason the `plan()` leg gives below.
+    std::cout << "PROBE cartesian val=" << cartesian_code.val << " source='" << cartesian_code.source << "'"
+              << std::endl;
+    std::cout << "PROBE cartesian message='" << cartesian_code.message << "'" << std::endl;
+    std::cout << "PROBE cartesian fraction=" << fraction << std::endl;
+    std::cout << "PROBE cartesian points=" << result.joint_trajectory.points.size() << std::endl;
+
+    const moveit::core::RobotModelConstPtr cartesian_model = group.getRobotModel();
+    const moveit::core::JointModelGroup* cartesian_jmg = cartesian_model->getJointModelGroup(argv[3]);
+    const auto& cartesian_traj = result.joint_trajectory;
+
+    const auto cartesian_state = [&](const trajectory_msgs::msg::JointTrajectoryPoint& pt) {
+      moveit::core::RobotState state(cartesian_model);
+      state.setToDefaultValues();
+      for (size_t j = 0; j < cartesian_traj.joint_names.size() && j < pt.positions.size(); ++j)
+      {
+        state.setVariablePosition(cartesian_traj.joint_names[j], pt.positions[j]);
+      }
+      state.update();
+      return state;
+    };
+
+    size_t cartesian_in_bounds = 0;
+    for (const auto& pt : cartesian_traj.points)
+    {
+      if (cartesian_state(pt).satisfiesBounds(cartesian_jmg))
+      {
+        ++cartesian_in_bounds;
+      }
+    }
+    const bool cartesian_all_in_bounds = !cartesian_traj.points.empty() &&
+                                         cartesian_in_bounds == cartesian_traj.points.size();
+    std::cout << "PROBE cartesian all_in_bounds=" << (cartesian_all_in_bounds ? "true" : "false") << " ("
+              << cartesian_in_bounds << '/' << cartesian_traj.points.size()
+              << " waypoints, upstream RobotState::satisfiesBounds)" << std::endl;
+
+    // The clause that separates "a path came back" from "the path went where
+    // it was asked to". Graded through upstream's own forward kinematics on
+    // the link the client itself named, against the pose the client itself
+    // sent -- the node's `fraction` is not consulted, so a node that reported
+    // `1.0` for a path ending anywhere else fails here.
+    const std::string eef = group.getEndEffectorLink().empty() ? cartesian_jmg->getLinkModelNames().back() :
+                                                                 group.getEndEffectorLink();
+    double reached_error = std::numeric_limits<double>::infinity();
+    if (!cartesian_traj.points.empty())
+    {
+      const moveit::core::RobotState end = cartesian_state(cartesian_traj.points.back());
+      const Eigen::Isometry3d& achieved = end.getGlobalLinkTransform(eef);
+      const Eigen::Quaterniond target_q(target.orientation.w, target.orientation.x, target.orientation.y,
+                                        target.orientation.z);
+      const Eigen::Vector3d target_p(target.position.x, target.position.y, target.position.z);
+      reached_error = Eigen::Quaterniond(achieved.linear()).angularDistance(target_q) +
+                      (achieved.translation() - target_p).norm();
+    }
+    const bool cartesian_reached = reached_error < 1e-6;
+    std::cout << "PROBE cartesian reached=" << (cartesian_reached ? "true" : "false") << " (link=" << eef
+              << ", pose error=" << reached_error << " rad+m, upstream RobotState::getGlobalLinkTransform)"
+              << std::endl;
+
+    std::cout << "PROBE cartesian verdict="
+              << (cartesian_code.val == moveit_msgs::msg::MoveItErrorCodes::SUCCESS && fraction == 1.0 &&
+                          cartesian_all_in_bounds && cartesian_reached ?
+                      "FULL_CARTESIAN_PATH_RECEIVED" :
+                      "NO_FULL_CARTESIAN_PATH")
+              << std::endl;
+
+    rclcpp::shutdown();
+    return 0;
+  }
 
   moveit::planning_interface::MoveGroupInterface::Plan plan;
   const moveit::core::MoveItErrorCode code = group.plan(plan);
