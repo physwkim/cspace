@@ -162,7 +162,7 @@
 //! and [`pr2_collision_matches_the_oracle`] asserts the same full
 //! `self_collision`/`robot_collision` parity panda and fanuc do.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::sync::Arc;
 
@@ -2452,14 +2452,22 @@ fn prbt_flange_floor_clearance_matches_the_closed_form() {
 /// One convex collision shape, already placed in world coordinates, reduced
 /// to the two closed-form primitives [`convex_distance_bracket`] needs.
 ///
-/// Deliberately not a general shape type, and deliberately only the two
+/// Deliberately not a general shape type, and deliberately only the three
 /// variants its callers reach: the bracket below is a *proof* only for convex
 /// bodies whose support function and point projection are exact. A mesh has
 /// both, but only up to its own triangulation, and calling that a third
-/// answer would be circular. Every other `Shape` -- sphere included, though
-/// it would be exact -- panics in [`WorldConvex::from_link_shape`] rather
-/// than being added unused, so a new caller has to state which shapes it
-/// means.
+/// answer would be circular. Every other `Shape` panics in
+/// [`WorldConvex::from_link_shape`] rather than being added unused, so a new
+/// caller has to state which shapes it means.
+///
+/// `Sphere` is here because prbt's separated tail needs it: `prbt_link_3` and
+/// `prbt_link_5` each carry one, and which of a link's shapes realises the
+/// minimum is exactly what
+/// [`prbt_separated_tail_splits_on_the_curved_generic_gjk_cell`] has to
+/// measure rather than assume. Without the variant that test cannot tell a
+/// `cylinder x sphere` minimum from the `cylinder x cylinder` beside it, and
+/// those two cells fall on opposite sides of its partition.
+#[derive(Clone)]
 enum WorldConvex {
     Box {
         centre: moveit_geometry::Vector3,
@@ -2473,6 +2481,10 @@ enum WorldConvex {
         /// World direction of the cylinder's local `+z`, unit length.
         axis: moveit_geometry::Vector3,
         half_length: f64,
+        radius: f64,
+    },
+    Sphere {
+        centre: moveit_geometry::Vector3,
         radius: f64,
     },
 }
@@ -2500,6 +2512,10 @@ impl WorldConvex {
                 half_length: c.length * 0.5,
                 radius: c.radius,
             },
+            Shape::Sphere(s) => Self::Sphere {
+                centre,
+                radius: s.radius,
+            },
             other => panic!(
                 "convex_distance_bracket has no exact support function for {other:?}; the \
                  bracket it produces would not be a proof"
@@ -2524,6 +2540,7 @@ impl WorldConvex {
                     + half_length * along.abs()
                     + radius * (1.0 - along * along).max(0.0).sqrt()
             }
+            Self::Sphere { centre, radius } => centre.dot(n) + radius,
         }
     }
 
@@ -2561,12 +2578,123 @@ impl WorldConvex {
                 };
                 centre + axis * along + radial
             }
+            Self::Sphere { centre, radius } => {
+                let d = p - centre;
+                let norm = d.norm();
+                if norm > *radius {
+                    centre + d * (*radius / norm)
+                } else {
+                    *p
+                }
+            }
         }
     }
 
     fn centre(&self) -> moveit_geometry::Vector3 {
         match self {
-            Self::Box { centre, .. } | Self::Cylinder { centre, .. } => *centre,
+            Self::Box { centre, .. }
+            | Self::Cylinder { centre, .. }
+            | Self::Sphere { centre, .. } => *centre,
+        }
+    }
+
+    /// A point of `S` attaining `max_{x in S} x . n`, exact for all three
+    /// variants.
+    ///
+    /// This is the *witness* behind [`WorldConvex::support_max`] and it is what
+    /// makes [`minkowski_depth_bracket`]'s lower bound second-order rather than
+    /// first-order: `x . m <= h_S(m)` holds for every `m`, not just for `n`, so
+    /// one evaluation certifies a whole spherical cap instead of only its
+    /// centre. `support_point(n) . n == support_max(n)` by construction, which
+    /// [`world_convex_support_point_attains_the_support_value`] checks.
+    ///
+    /// Where the maximiser is not unique the choice is free -- every maximiser
+    /// gives the same `x . n`, and a non-extreme choice (a cylinder's axis
+    /// point when `n` is along its axis) is still a point of the body, so the
+    /// bound it certifies stays valid.
+    fn support_point(&self, n: &moveit_geometry::Vector3) -> moveit_geometry::Vector3 {
+        match self {
+            Self::Box { centre, axes, half } => {
+                let mut out = *centre;
+                for k in 0..3 {
+                    let s = if axes[k].dot(n) >= 0.0 { 1.0 } else { -1.0 };
+                    out += axes[k] * (half[k] * s);
+                }
+                out
+            }
+            Self::Cylinder {
+                centre,
+                axis,
+                half_length,
+                radius,
+            } => {
+                let along = axis.dot(n);
+                let s = if along >= 0.0 { 1.0 } else { -1.0 };
+                // The radial direction is built inside an orthonormal frame of
+                // `axis` rather than by normalising `n - axis (axis . n)`.
+                // That subtraction cancels to rounding scale when `n` is along
+                // the axis, and normalising the remainder returns a direction
+                // whose *own* axis component is O(1) -- which puts the point
+                // outside the cylinder and makes the bound it certifies false.
+                // Here `e1` and `e2` are perpendicular to `axis` by
+                // construction, so every point produced is on the rim whatever
+                // the rounding does, and a degenerate `n` costs accuracy
+                // (bounded by `radius * m`, itself at rounding scale) instead
+                // of soundness.
+                let seed = if axis[0].abs() < 0.9 {
+                    moveit_geometry::Vector3::new(1.0, 0.0, 0.0)
+                } else {
+                    moveit_geometry::Vector3::new(0.0, 1.0, 0.0)
+                };
+                let e1 = (seed - axis * axis.dot(&seed)).normalize();
+                let e2 = axis.cross(&e1);
+                let (c1, c2) = (n.dot(&e1), n.dot(&e2));
+                let m = (c1 * c1 + c2 * c2).sqrt();
+                let radial = if m > 0.0 {
+                    (e1 * c1 + e2 * c2) * (*radius / m)
+                } else {
+                    moveit_geometry::Vector3::zeros()
+                };
+                centre + axis * (half_length * s) + radial
+            }
+            Self::Sphere { centre, radius } => {
+                let norm = n.norm();
+                if norm > 0.0 {
+                    centre + n * (*radius / norm)
+                } else {
+                    *centre
+                }
+            }
+        }
+    }
+
+    /// An upper bound on `|x - centre|` over `x in S`, exact for all three.
+    ///
+    /// Used only by [`signed_distance_floor`], which needs a *bound* rather
+    /// than the true circumradius: overstating it makes that floor weaker, so
+    /// it prunes fewer pairs and costs time, and cannot make it prune one it
+    /// should have kept.
+    fn circumradius(&self) -> f64 {
+        match self {
+            Self::Box { half, .. } => {
+                (half[0] * half[0] + half[1] * half[1] + half[2] * half[2]).sqrt()
+            }
+            Self::Cylinder {
+                half_length,
+                radius,
+                ..
+            } => (half_length * half_length + radius * radius).sqrt(),
+            Self::Sphere { radius, .. } => *radius,
+        }
+    }
+
+    /// The `shapes::ShapeType` name fcl's specialisation table is indexed by,
+    /// for reporting which cell a measured minimum lands in.
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Box { .. } => "box",
+            Self::Cylinder { .. } => "cylinder",
+            Self::Sphere { .. } => "sphere",
         }
     }
 }
@@ -2644,6 +2772,665 @@ struct DistanceBracket {
     on_a: moveit_geometry::Vector3,
     /// The witness point on the second body, in world coordinates.
     on_b: moveit_geometry::Vector3,
+}
+
+/// A certified `[lower, upper]` bracket on the **signed** distance between two
+/// convex bodies, negative when they overlap, and the direction that produced
+/// the upper bound.
+///
+/// [`convex_distance_bracket`] cannot cross zero: it brackets `|p - q|`, which
+/// is `0` for every overlapping pair however deep. This is the other half, and
+/// it is the instrument PORTING-PLAN.md §297.5 said the tree did not have --
+/// the one thing §297.4's `249/389` depth disagreement needs before it can be
+/// charged to a side.
+///
+/// The quantity is the one both implementations claim to report: the minimum
+/// translation distance. For convex `A`, `B` write `D = A - B` (the Minkowski
+/// difference, `{a - b}`), whose support function is exactly
+/// `h_D(n) = h_A(n) + h_B(-n)` -- two closed forms this file already has. `D`
+/// is convex, and `D = {x : x.n <= h_D(n) for all unit n}`, so the largest ball
+/// about the origin contained in `D` has radius `min_{|n|=1} h_D(n)`. That
+/// radius is the depth by which `A` and `B` must be pulled apart, and the same
+/// expression is `-dist(A, B)` when they are disjoint, so one function covers
+/// both branches with one sign convention.
+///
+/// What makes the result a proof rather than a search:
+///
+///   * **upper on the depth** -- `h_D(n)` for *any* unit `n` is an upper bound
+///     on the minimum, so every direction ever evaluated tightens it and none
+///     can corrupt it.
+///   * **lower on the depth** -- for any point `x` of `D`, `h_D(m) >= x.m` for
+///     *every* `m`. Taking `x = supp_D(n)` and a spherical cap of angular
+///     radius `rho` about `n`, `x.m >= |x| cos(theta + rho)` where `theta` is
+///     the angle between `x` and `n`. That bounds the whole cap from one
+///     evaluation, and it is second-order accurate at the minimiser (where `x`
+///     and `n` are parallel, so `cos` is flat), which is why the branch and
+///     bound below closes in a few thousand evaluations instead of the `1e9`
+///     patches a plain Lipschitz net would need at these tolerances.
+///
+/// The branch and bound refines the most promising patch first and stops on
+/// `TOL` or on `MAX_EVALS`. Either way it returns the bracket it actually
+/// achieved -- a run that ran out of budget reports a wide interval, and the
+/// caller's own rule about what width it will judge on is what turns that into
+/// a verdict or a `too wide to judge`. It cannot report a wrong answer
+/// narrowly.
+struct DepthBracket {
+    /// Certified lower bound on `min_{|n|=1} h_D(n)`.
+    lower: f64,
+    /// Certified upper bound on the same, i.e. the best `h_D(n)` seen.
+    upper: f64,
+    /// The unit direction attaining `upper`. For an overlapping pair this is
+    /// the minimum-translation axis.
+    axis: moveit_geometry::Vector3,
+    /// Support evaluations spent. Carried so a caller can tell a bracket that
+    /// converged from one that hit the budget.
+    evals: usize,
+}
+
+impl DepthBracket {
+    /// The bracket restated in MoveIt's sign convention: negative when the
+    /// bodies overlap.
+    ///
+    /// `distanceCallback` and `parry3d_f64::query::contact` both report a
+    /// penetrating pair as a negative distance, so a comparison against either
+    /// has to negate -- and negating swaps the two ends.
+    fn signed(&self) -> (f64, f64) {
+        (-self.upper, -self.lower)
+    }
+
+    fn width(&self) -> f64 {
+        self.upper - self.lower
+    }
+}
+
+/// A cheap certified lower bound on the signed distance between two bodies,
+/// for skipping pairs that cannot hold a *minimum* over many pairs.
+///
+/// `dist(a, b) >= |ca - cb| - Ra - Rb` for the circumradii, and the signed
+/// distance is never below `-(Ra + Rb)`, so this floor holds on both branches.
+/// A caller looking for the smallest signed distance across a robot's link
+/// pairs can drop any pair whose floor already exceeds the best value it has,
+/// without running [`minkowski_depth_bracket`] on it at all -- which is what
+/// makes a whole-population sweep affordable. It prunes on a *bound*, so a
+/// pair it drops provably could not have been the minimum.
+fn signed_distance_floor(a: &WorldConvex, b: &WorldConvex) -> f64 {
+    (a.centre() - b.centre()).norm() - a.circumradius() - b.circumradius()
+}
+
+/// Support evaluations a single [`minkowski_depth_bracket`] call may spend when
+/// the caller wants its converged answer.
+///
+/// Not reached on any pair of prbt's population once the caller runs a coarse
+/// pass first: see [`SCOUT_BUDGET`].
+const FULL_BUDGET: usize = 200_000;
+
+/// Support evaluations for the *scouting* pass over a link pair's shapes.
+///
+/// The point of a coarse pass is only to find one pair whose certified `lower`
+/// is large, so every other pair can be dropped against it. `512` is four
+/// levels of subdivision past the icosahedron on the active branch, which was
+/// enough on prbt's population to pick the winning pair in every case.
+const SCOUT_BUDGET: usize = 512;
+
+/// The smallest signed distance over `pairs`, as a certified bracket, with the
+/// pair that realises it.
+///
+/// This is the aggregation MoveIt's `distance_robot` performs and it is where
+/// the branch and bound of [`minkowski_depth_bracket`] gets its cutoff. Two
+/// passes: scout every candidate cheaply, take the largest depth any of them
+/// *certifies*, then refine only those that can still beat it. Dropping a pair
+/// against a certified bound is sound -- the dropped pair's depth is provably
+/// below one already achieved -- so the result is the same bracket the
+/// exhaustive refinement gives, which
+/// [`prbt_penetration_branch_is_bracketed_by_the_minkowski_instrument`] pins
+/// on the cases where the two answers disagree.
+///
+/// Both ends aggregate by `min`: `min` of the true values is at least the `min`
+/// of the lower bounds and at most the `min` of the upper bounds, so the
+/// interval is still a proof after aggregation, even though it can be wider
+/// than any single pair's.
+fn min_signed_distance_over(pairs: &[(WorldConvex, WorldConvex)]) -> (f64, f64, usize) {
+    // Deepest-looking first, by the free floor, so the scout certifies a large
+    // depth early and the rest drop against it.
+    let mut order: Vec<usize> = (0..pairs.len()).collect();
+    order.sort_by(|&i, &j| {
+        signed_distance_floor(&pairs[i].0, &pairs[i].1)
+            .total_cmp(&signed_distance_floor(&pairs[j].0, &pairs[j].1))
+    });
+
+    let mut certified_depth = f64::NEG_INFINITY;
+    let mut scouted: Vec<(usize, f64)> = Vec::new();
+    for &i in &order {
+        // `depth <= -floor` always, so a pair whose floor already rules out the
+        // depth some other pair has certified needs no evaluation at all.
+        if -signed_distance_floor(&pairs[i].0, &pairs[i].1) < certified_depth {
+            continue;
+        }
+        let d = minkowski_depth_bracket(&pairs[i].0, &pairs[i].1, f64::NEG_INFINITY, SCOUT_BUDGET);
+        certified_depth = certified_depth.max(d.lower);
+        scouted.push((i, d.upper));
+    }
+
+    let (mut lo, mut hi) = (f64::INFINITY, f64::INFINITY);
+    let mut winner = usize::MAX;
+    for (i, upper) in scouted {
+        // `upper` bounds this pair's depth from above; a pair that cannot reach
+        // a depth another pair already certifies cannot hold the minimum signed
+        // distance either.
+        if upper < certified_depth {
+            continue;
+        }
+        let d = minkowski_depth_bracket(&pairs[i].0, &pairs[i].1, -hi, FULL_BUDGET);
+        let (slo, shi) = d.signed();
+        if shi < hi {
+            hi = shi;
+            winner = i;
+        }
+        lo = lo.min(slo);
+    }
+    (lo, hi, winner)
+}
+
+/// The bracket of [`DepthBracket`], by branch and bound over the unit sphere.
+///
+/// `TOL` and `MAX_EVALS` are the stopping rule, not the accuracy claim: the
+/// accuracy claim is the returned `lower`/`upper` pair, which is valid at every
+/// point of the search.
+///
+/// `cutoff` is the caller's branch and bound, one level up. A caller looking
+/// for the *deepest* of many pairs passes the depth it has already achieved;
+/// this search abandons as soon as its own upper bound falls below that, since
+/// the pair can no longer win. The bracket it returns then is wide but still
+/// certified, and both of its ends provably sit above the running minimum, so
+/// aggregating it changes nothing. Pass `f64::NEG_INFINITY` to disable.
+///
+/// `max_evals` bounds the search. A pair that does not converge inside it
+/// returns its achieved width rather than a tighter claim, so the budget
+/// trades width for time and never correctness. It exists so a caller can
+/// bracket every candidate cheaply, take the largest certified depth, and
+/// spend the real budget only on pairs that can still beat it.
+///
+/// MEASURED, on the 389-case population: with neither the cutoff nor a cheap
+/// first pass, 315 of 389 cases had a shape pair spend the entire budget --
+/// nearly all of them *separated* pairs stalling at a width of `1.5e-9` to
+/// `4.6e-9` against a `TOL` of `1e-9`, pairs whose signed distance is positive
+/// and which could not have held a penetration minimum at all.
+fn minkowski_depth_bracket(
+    a: &WorldConvex,
+    b: &WorldConvex,
+    cutoff: f64,
+    max_evals: usize,
+) -> DepthBracket {
+    /// Absolute bracket width to stop at. Five orders below the `1e-4` the
+    /// §5 Phase 3 clause is written at, so a bracket that reaches it can
+    /// arbitrate any disagreement that clause would call a failure.
+    const TOL: f64 = 1e-9;
+
+    type V3 = moveit_geometry::Vector3;
+
+    // `h_D` and its witness, the only two places the geometry enters.
+    let h = |n: &V3| a.support_max(n) + b.support_max(&(-n));
+    let witness = |n: &V3| a.support_point(n) - b.support_point(&(-n));
+
+    /// One spherical triangle of the working subdivision.
+    /// The triangle's own cap -- centre `(v0+v1+v2)/|.|` and cosine
+    /// `min_i v[i] . centre` -- provably covers it: for `n = w/|w|` with `w` in
+    /// the planar triangle, `n . centre = (w . centre)/|w| >= w . centre >=
+    /// min_i v[i] . centre` whenever that minimum is non-negative and
+    /// `|w| <= 1`, both of which hold for an icosahedral face and every
+    /// subdivision of one. Only `lower` survives the construction, because
+    /// splitting needs the vertices and nothing else.
+    struct Patch {
+        v: [V3; 3],
+        lower: f64,
+    }
+
+    // Ordered by `lower` *reversed*, so `BinaryHeap`'s max is the frontier's
+    // minimum certified bound. `total_cmp` rather than `partial_cmp`: a NaN
+    // bound would otherwise make the ordering inconsistent and `BinaryHeap`
+    // silently return the wrong patch instead of panicking.
+    impl Ord for Patch {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            other.lower.total_cmp(&self.lower)
+        }
+    }
+    impl PartialOrd for Patch {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl PartialEq for Patch {
+        fn eq(&self, other: &Self) -> bool {
+            self.cmp(other) == std::cmp::Ordering::Equal
+        }
+    }
+    impl Eq for Patch {}
+
+    let mut evals = 0usize;
+    let mut best_upper = f64::INFINITY;
+    let mut best_axis = V3::new(0.0, 0.0, 1.0);
+
+    let mut eval = |n: &V3, evals: &mut usize, best_upper: &mut f64, best_axis: &mut V3| -> V3 {
+        *evals += 1;
+        let value = h(n);
+        if value < *best_upper {
+            *best_upper = value;
+            *best_axis = *n;
+        }
+        witness(n)
+    };
+
+    // The cap bound of the doc comment, for one witness against one cap.
+    let cap_bound = |x: &V3, centre: &V3, cos_rho: f64| -> f64 {
+        let norm = x.norm();
+        if norm == 0.0 {
+            // The origin is a point of `D`, so `h_D >= 0` everywhere and the
+            // bodies touch at worst. Nothing sharper is available from it.
+            return 0.0;
+        }
+        let cos_theta = (x.dot(centre) / norm).clamp(-1.0, 1.0);
+        let angle = cos_theta.acos() + cos_rho.clamp(-1.0, 1.0).acos();
+        if angle >= std::f64::consts::PI {
+            -norm
+        } else {
+            norm * angle.cos()
+        }
+    };
+
+    let make_patch = |v: [V3; 3],
+                      evals: &mut usize,
+                      best_upper: &mut f64,
+                      best_axis: &mut V3,
+                      eval: &mut dyn FnMut(&V3, &mut usize, &mut f64, &mut V3) -> V3|
+     -> Patch {
+        let centre = (v[0] + v[1] + v[2]).normalize();
+        let cos_rho = v
+            .iter()
+            .map(|x| x.dot(&centre))
+            .fold(f64::INFINITY, f64::min);
+        // A patch wider than a hemisphere would break the containment argument
+        // above; `-1` makes the cap the whole sphere, which is still sound and
+        // simply prunes nothing.
+        let cos_rho = if cos_rho >= 0.0 { cos_rho } else { -1.0 };
+        let mut lower = f64::NEG_INFINITY;
+        for n in std::iter::once(&centre).chain(v.iter()) {
+            let x = eval(n, evals, best_upper, best_axis);
+            lower = lower.max(cap_bound(&x, &centre, cos_rho));
+        }
+        Patch { v, lower }
+    };
+
+    // A regular icosahedron's 20 faces, built from its 12 vertices so the seed
+    // subdivision is uniform and no direction starts with a privileged patch.
+    let phi = (1.0 + 5.0_f64.sqrt()) * 0.5;
+    let raw = [
+        [-1.0, phi, 0.0],
+        [1.0, phi, 0.0],
+        [-1.0, -phi, 0.0],
+        [1.0, -phi, 0.0],
+        [0.0, -1.0, phi],
+        [0.0, 1.0, phi],
+        [0.0, -1.0, -phi],
+        [0.0, 1.0, -phi],
+        [phi, 0.0, -1.0],
+        [phi, 0.0, 1.0],
+        [-phi, 0.0, -1.0],
+        [-phi, 0.0, 1.0],
+    ];
+    let vertices: Vec<V3> = raw
+        .iter()
+        .map(|c| V3::new(c[0], c[1], c[2]).normalize())
+        .collect();
+    const FACES: [[usize; 3]; 20] = [
+        [0, 11, 5],
+        [0, 5, 1],
+        [0, 1, 7],
+        [0, 7, 10],
+        [0, 10, 11],
+        [1, 5, 9],
+        [5, 11, 4],
+        [11, 10, 2],
+        [10, 7, 6],
+        [7, 1, 8],
+        [3, 9, 4],
+        [3, 4, 2],
+        [3, 2, 6],
+        [3, 6, 8],
+        [3, 8, 9],
+        [4, 9, 5],
+        [2, 4, 11],
+        [6, 2, 10],
+        [8, 6, 7],
+        [9, 8, 1],
+    ];
+
+    let mut active: Vec<Patch> = FACES
+        .iter()
+        .map(|f| {
+            make_patch(
+                [vertices[f[0]], vertices[f[1]], vertices[f[2]]],
+                &mut evals,
+                &mut best_upper,
+                &mut best_axis,
+                &mut eval,
+            )
+        })
+        .collect();
+
+    // A min-heap on `lower`, so the frontier's smallest certified bound is both
+    // the patch worth splitting next and the run's global lower bound. A linear
+    // scan for it is quadratic in the frontier and was the whole cost of the
+    // search when this was first run over prbt's population.
+    let mut heap: std::collections::BinaryHeap<Patch> = active.drain(..).collect();
+
+    while evals < max_evals {
+        // The caller already has a deeper pair; nothing this one can still
+        // certify would change its answer.
+        if best_upper < cutoff {
+            break;
+        }
+        let Some(front) = heap.peek() else { break };
+        if best_upper - front.lower <= TOL {
+            break;
+        }
+        // Best-first: split only the patch that currently certifies the least,
+        // so the budget goes where the bracket is actually held open.
+        let p = heap.pop().expect("peeked");
+        // `best_upper` may have improved since this patch was pushed; a patch
+        // that can no longer hold the minimum is dropped rather than split.
+        if p.lower > best_upper {
+            continue;
+        }
+        let mid = |x: &V3, y: &V3| (x + y).normalize();
+        let m = [
+            mid(&p.v[0], &p.v[1]),
+            mid(&p.v[1], &p.v[2]),
+            mid(&p.v[2], &p.v[0]),
+        ];
+        for child in [
+            [p.v[0], m[0], m[2]],
+            [p.v[1], m[1], m[0]],
+            [p.v[2], m[2], m[1]],
+            [m[0], m[1], m[2]],
+        ] {
+            let patch = make_patch(
+                child,
+                &mut evals,
+                &mut best_upper,
+                &mut best_axis,
+                &mut eval,
+            );
+            // Dropping a child above `best_upper` keeps the heap's minimum a
+            // valid global bound: everything dropped certifies more than a
+            // value already achieved.
+            if patch.lower <= best_upper {
+                heap.push(patch);
+            }
+        }
+    }
+
+    let lower = heap
+        .peek()
+        .map(|p| p.lower)
+        .unwrap_or(best_upper)
+        .min(best_upper);
+    DepthBracket {
+        lower,
+        upper: best_upper,
+        axis: best_axis,
+        evals,
+    }
+}
+
+/// [`WorldConvex::support_point`] returns a maximiser, not merely a point of
+/// the body.
+///
+/// [`minkowski_depth_bracket`]'s lower bound is only valid if the witness it
+/// takes really attains the support value: a point that is *inside* the body
+/// still gives a sound-but-loose bound, whereas a point *outside* it would
+/// certify a lower bound that is false. So the identity is checked directly
+/// rather than argued from the closed forms, on every variant and on the
+/// degenerate directions (along a box axis, along and across a cylinder's
+/// axis) where the maximiser stops being unique.
+#[test]
+fn world_convex_support_point_attains_the_support_value() {
+    let v = moveit_geometry::Vector3::new;
+    let axis = |x: f64, y: f64, z: f64| v(x, y, z).normalize();
+    let bodies = [
+        WorldConvex::Box {
+            centre: v(0.3, -0.2, 1.1),
+            axes: [
+                axis(1.0, 1.0, 0.0),
+                axis(-1.0, 1.0, 0.0),
+                axis(0.0, 0.0, 1.0),
+            ],
+            half: [0.121 / 2.0, 0.08 / 2.0, 0.17 / 2.0],
+        },
+        WorldConvex::Cylinder {
+            centre: v(-0.4, 0.25, 0.6),
+            axis: axis(0.2, -0.3, 1.0),
+            half_length: 0.13,
+            radius: 0.075,
+        },
+        WorldConvex::Sphere {
+            centre: v(0.9, 0.1, -0.35),
+            radius: 0.06,
+        },
+    ];
+    // Deliberately includes the exact axis directions of each body above, so
+    // the tie cases are covered rather than avoided by generic directions.
+    let mut directions = vec![
+        v(1.0, 0.0, 0.0),
+        v(0.0, 1.0, 0.0),
+        v(0.0, 0.0, 1.0),
+        v(-1.0, 0.0, 0.0),
+        axis(1.0, 1.0, 0.0),
+        axis(0.2, -0.3, 1.0),
+        axis(-0.2, 0.3, -1.0),
+        axis(0.3, 0.94, -0.16),
+    ];
+    // A deterministic spread, so the check is not only on hand-picked
+    // directions. Golden-angle spiral: no seed, no rand dependency.
+    let golden = std::f64::consts::PI * (3.0 - 5.0_f64.sqrt());
+    for i in 0..64 {
+        let z = 1.0 - 2.0 * (i as f64 + 0.5) / 64.0;
+        let r = (1.0 - z * z).max(0.0).sqrt();
+        let t = golden * i as f64;
+        directions.push(v(r * t.cos(), r * t.sin(), z));
+    }
+
+    let mut checked = 0usize;
+    for body in &bodies {
+        for n in &directions {
+            let x = body.support_point(n);
+            let want = body.support_max(n);
+            let got = x.dot(n);
+            assert!(
+                (got - want).abs() <= 1e-12 * want.abs().max(1.0),
+                "{} support point at {n:?} gives {got:.17e}, support value is {want:.17e} -- \
+                 minkowski_depth_bracket's lower bound would be certified by a point that does \
+                 not attain the maximum",
+                body.kind()
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(
+        checked,
+        bodies.len() * directions.len(),
+        "every body x direction pair has to be checked; a skipped variant is a witness nobody \
+         verified"
+    );
+}
+
+/// [`minkowski_depth_bracket`] against the three configurations whose minimum
+/// translation distance has a closed form, plus the disjoint case where it has
+/// to reproduce [`convex_distance_bracket`].
+///
+/// Written because the branch and bound is the one part of this file that
+/// searches: its bounds are proofs, but a bug in the subdivision could return
+/// a *valid* bracket around the wrong quantity -- a bracket on the minimum over
+/// only part of the sphere is still a bracket. Each case below fixes the
+/// quantity independently of the search.
+///
+/// The disjoint case is the load-bearing one for §297.4's use: it shows the
+/// two instruments in this file agree where their domains overlap, so the
+/// depth verdicts and the separated verdicts are on one scale.
+#[test]
+fn minkowski_depth_bracket_matches_the_closed_forms_it_has() {
+    let v = moveit_geometry::Vector3::new;
+
+    /// How far outside the bracket a closed form may fall before the search is
+    /// held responsible for it.
+    ///
+    /// Not a tolerance on the answer -- a rounding allowance between two float
+    /// expressions for the same real. `h_D(n)` at an axis direction and
+    /// `half_a + half_b - |ca - cb|` sum the same terms in different orders.
+    /// MEASURED, by the `overshoot` line each of the three closed-form cases
+    /// below prints: `0`, `0`, and `1.388e-17` (box x box, the only one whose
+    /// closed form is a three-term subtraction). `16 * f64::EPSILON * |want|`
+    /// is `1.954e-16` at that case's magnitude, 14x the observed worst, and
+    /// still seven orders below the `1e-9` width the same case is required to
+    /// reach. The fourth case, the disjoint pair, is checked against
+    /// [`convex_distance_bracket`] rather than a closed form and does not use
+    /// this constant.
+    const CLOSED_FORM_SLACK: f64 = 16.0 * f64::EPSILON;
+
+    let check = |name: &str, a: &WorldConvex, b: &WorldConvex, want: f64| {
+        let bracket = minkowski_depth_bracket(a, b, f64::NEG_INFINITY, FULL_BUDGET);
+        let slack = CLOSED_FORM_SLACK * want.abs();
+        let overshoot = (bracket.lower - want).max(want - bracket.upper).max(0.0);
+        println!(
+            "{name}: want {want:.17e} bracket [{:.17e}, {:.17e}] width {:.3e} overshoot \
+             {overshoot:.3e} slack {slack:.3e} evals {}",
+            bracket.lower,
+            bracket.upper,
+            bracket.width(),
+            bracket.evals
+        );
+        assert!(
+            overshoot <= slack,
+            "{name}: closed form {want:.17e} is outside the returned bracket \
+             [{:.17e}, {:.17e}] by {overshoot:.3e}, over the {slack:.3e} rounding allowance \
+             (width {:.3e}, {} evals) -- the branch and bound is not bracketing the minimum \
+             over the whole sphere",
+            bracket.lower,
+            bracket.upper,
+            bracket.width(),
+            bracket.evals
+        );
+        assert!(
+            bracket.width() <= 1e-9,
+            "{name}: bracket width {:.3e} after {} evaluations, over the 1e-9 the search \
+             stops at -- it ran out of budget on a case with a closed form",
+            bracket.width(),
+            bracket.evals
+        );
+    };
+
+    // Two spheres, overlapping: depth is r1 + r2 - |c1 - c2| exactly, and the
+    // minimising direction is the centre difference -- the one configuration
+    // where the axis is known in closed form too, so it is where `axis` is
+    // checked rather than taken on trust.
+    let (c1, c2) = (v(0.0, 0.0, 0.0), v(0.05, 0.02, -0.01));
+    let (r1, r2) = (0.07, 0.04);
+    let (sa, sb) = (
+        WorldConvex::Sphere {
+            centre: c1,
+            radius: r1,
+        },
+        WorldConvex::Sphere {
+            centre: c2,
+            radius: r2,
+        },
+    );
+    check(
+        "sphere x sphere, overlapping",
+        &sa,
+        &sb,
+        r1 + r2 - (c2 - c1).norm(),
+    );
+    // `h_D(n) = (c1 - c2).n + r1 + r2` for two spheres, so the minimum is at
+    // `n = (c2 - c1)/|c2 - c1|` -- pointing from the first body toward the
+    // second, which is the direction the first has to be pushed back along.
+    let want_axis = (c2 - c1).normalize();
+    let got_axis = minkowski_depth_bracket(&sa, &sb, f64::NEG_INFINITY, FULL_BUDGET).axis;
+    assert!(
+        (got_axis - want_axis).norm() <= 1e-4,
+        "sphere x sphere: minimum-translation axis {got_axis:?}, closed form {want_axis:?} -- \
+         the reported axis is not the direction the reported depth was attained in"
+    );
+
+    // Sphere centre strictly inside a box: depth is r plus the centre's
+    // distance to the nearest face.
+    let bx = WorldConvex::Box {
+        centre: v(0.1, 0.2, 0.3),
+        axes: [v(1.0, 0.0, 0.0), v(0.0, 1.0, 0.0), v(0.0, 0.0, 1.0)],
+        half: [0.06, 0.04, 0.085],
+    };
+    let sp_centre = v(0.11, 0.21, 0.34);
+    let sp = WorldConvex::Sphere {
+        centre: sp_centre,
+        radius: 0.02,
+    };
+    let d = sp_centre - v(0.1, 0.2, 0.3);
+    let face = [0.06 - d[0].abs(), 0.04 - d[1].abs(), 0.085 - d[2].abs()]
+        .into_iter()
+        .fold(f64::INFINITY, f64::min);
+    check("sphere inside box", &bx, &sp, 0.02 + face);
+
+    // Two axis-aligned boxes: the Minkowski difference is a box, so the
+    // minimum is the smallest per-axis overlap.
+    let half_a = [0.121 / 2.0, 0.08 / 2.0, 0.17 / 2.0];
+    let half_b = [0.09 / 2.0, 0.06 / 2.0, 0.12 / 2.0];
+    let (ca, cb) = (v(0.0, 0.0, 0.0), v(0.04, 0.01, 0.09));
+    let aligned = |centre, half: [f64; 3]| WorldConvex::Box {
+        centre,
+        axes: [v(1.0, 0.0, 0.0), v(0.0, 1.0, 0.0), v(0.0, 0.0, 1.0)],
+        half,
+    };
+    let overlap = (0..3)
+        .map(|k| half_a[k] + half_b[k] - (cb[k] - ca[k]).abs())
+        .fold(f64::INFINITY, f64::min);
+    assert!(
+        overlap > 0.0,
+        "the two boxes have to actually overlap for this case to be about depth; they clear by \
+         {overlap:.3e}"
+    );
+    check(
+        "box x box, axis aligned, overlapping",
+        &aligned(ca, half_a),
+        &aligned(cb, half_b),
+        overlap,
+    );
+
+    // Disjoint: the same expression is -dist, so the two instruments in this
+    // file have to agree. `convex_distance_bracket` is the reference here.
+    let far = WorldConvex::Cylinder {
+        centre: v(0.5, 0.0, 0.0),
+        axis: v(0.0, 0.0, 1.0),
+        half_length: 0.1,
+        radius: 0.05,
+    };
+    let near = aligned(v(0.0, 0.0, 0.0), half_a);
+    let separated = convex_distance_bracket(&near, &far);
+    let depth = minkowski_depth_bracket(&near, &far, f64::NEG_INFINITY, FULL_BUDGET);
+    let (signed_low, signed_high) = depth.signed();
+    assert!(
+        signed_low <= separated.upper && separated.lower <= signed_high,
+        "disjoint box x cylinder: the depth instrument says the signed distance is in \
+         [{signed_low:.17e}, {signed_high:.17e}] and the distance instrument says \
+         [{:.17e}, {:.17e}] -- two proofs about the same pair that do not intersect means one \
+         of them is not a proof",
+        separated.lower,
+        separated.upper
+    );
+    assert!(
+        depth.upper < 0.0,
+        "disjoint box x cylinder: the depth instrument reports {:.17e} >= 0, i.e. it calls a \
+         separated pair overlapping",
+        depth.upper
+    );
 }
 
 /// §260.8's open item: prbt's separated-branch residual `8.892585e-5`,
@@ -2872,6 +3659,553 @@ fn prbt_link_4_base_link_clearance_brackets_the_separated_residual() {
     );
 }
 
+/// §297: case 4697 is one member of a 244-case family, and the feature that
+/// defines the family is neither the link pair nor the blank specialisation
+/// cell that [`prbt_link_4_base_link_clearance_brackets_the_separated_residual`]
+/// named.
+///
+/// That test settled one case on `cylinder x box` being blank in fcl's
+/// `ShapeDistanceLibccdImpl` table. Read as a family anchor that is wrong in
+/// both directions, and this test is what measures the correction.
+///
+/// Too narrow, by link pair: prbt's separated tail also holds cases on
+/// `prbt_base_link`/`prbt_link_3`, whose minimum is `cylinder x cylinder`, so
+/// a `prbt_link_4` anchor reports them as unexplained singletons.
+///
+/// Too wide, by blank cell: `box x box` is blank in the same table, and it is
+/// 8,489 of the 9,611 separated self comparisons -- 88% of the population --
+/// with a worst deviation of `4.440892e-16`. A blank cell alone predicts
+/// nothing.
+///
+/// The anchor that does hold is *blank cell AND at least one curved support
+/// set*. GJK on two polytopes terminates on an exact vertex/face pair, so
+/// `distanceCallback`'s `distance_tolerance` of `1e-6` never binds; give it a
+/// cylinder and the support point moves continuously with the search
+/// direction, and the stop threshold is what sets the answer. The three cells
+/// partition cleanly, measured over the whole separated self population of the
+/// `--cases 10000 --seed 1` prbt sweep:
+///
+/// | winning cell        | fcl        | cases | deviating | worst `|d|`    |
+/// |---------------------|------------|-------|-----------|----------------|
+/// | `box x box`         | blank      |  8489 |         0 | `4.440892e-16` |
+/// | `box x sphere`      | closed     |    73 |         0 | `3.608225e-16` |
+/// | `cylinder x sphere` | closed     |   791 |         0 | `5.412337e-16` |
+/// | `box x cylinder`    | blank      |   153 |       139 | `8.892585e-5`  |
+/// | `cylinder x cylinder` | blank    |   105 |       105 | `2.414557e-5`  |
+///
+/// "Deviating" is `|oracle - port| > 1e-11`, and that threshold is the data's
+/// own: the decades `1e-15` through `1e-11` are empty. 9,367 comparisons sit
+/// at `1e-16` or below and 244 sit at `1e-10` or above, with nothing between.
+///
+/// The closed-form cells are `gjk_solver_libccd-inl.h:679`/`:697` (box/sphere)
+/// and `:751`/`:769` (cylinder/sphere); the file's own table above the primary
+/// template, captioned "Shape distance algorithms not using libccd", marks the
+/// same cells.
+///
+/// Which side is wrong is then a second question, and the bracket answers it
+/// per case rather than by assumption. Over the 244: 191 have the port inside
+/// and the oracle outside, 6 have the port outside and the oracle inside, 44
+/// have neither offset dominating the other by 100x, and on 3 the bracket is
+/// wider than the deviation and cannot speak. So the tail is mostly but not
+/// only the reference's -- `crates/moveit-collision/src/parry.rs`'s
+/// `parry3d_f64::query::contact` runs its own iterative support-mapping solver
+/// on the same blank cells, and case 5649 is where it, not fcl, is the one
+/// outside the bracket by `1.379590e-5`.
+///
+/// The rows below are that measurement in miniature: the eight worst cases by
+/// `|d|`, all six port-side cases, and the worst case of each of the three
+/// cells that contribute nothing, so a regression that moved a control cell
+/// into the family would fail here too.
+#[test]
+fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
+    /// Which side of the bracket a case's two answers fall on, as measured by
+    /// this test rather than asserted from the section.
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    enum Side {
+        /// The port is inside the bracket and the oracle is at least 100x
+        /// further from it: the deviation is the reference's.
+        Oracle,
+        /// The reverse. Six of the 244, and the reason this test does not say
+        /// the tail belongs to fcl.
+        Port,
+        /// Both are at the bracket's own rounding scale.
+        Control,
+    }
+    use Side::{Control, Oracle, Port};
+
+    /// One measured sweep case.
+    ///
+    /// `oracle` and `port` are the values `moveit-diff --cases 10000 --seed 1
+    /// --collision` printed for that case, so this test reproduces sweep rows
+    /// rather than measuring nearby states. `joints` is the same run's state,
+    /// read back from the oracle's own `random_states` at that seed. `cell`
+    /// and `side` are what the assertions below re-derive and compare against.
+    struct Row {
+        case: u32,
+        link_a: &'static str,
+        link_b: &'static str,
+        oracle: f64,
+        port: f64,
+        joints: [f64; 6],
+        cell: &'static str,
+        side: Side,
+    }
+
+    const CASES: &[Row] = &[
+        // --- the eight worst by |d|, all on a curved blank cell ---
+        Row {
+            case: 4697,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.032_876_309_670_400_866,
+            port: 0.032_787_383_820_056_18,
+            joints: [
+                2.046_935_426_606_275,
+                1.951_210_528_619_135_7,
+                -1.503_936_973_875_760_9,
+                -1.046_554_922_150_457_3,
+                1.268_189_592_042_518_6,
+                -2.565_574_970_740_266,
+            ],
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 1613,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.031_014_985_469_437_758,
+            port: 0.030_951_919_742_005_285,
+            joints: [
+                0.851_553_251_224_458_1,
+                1.235_381_836_361_619_8,
+                -2.127_395_165_149_960_3,
+                -1.097_632_846_233_565_4,
+                2.177_800_636_064_429,
+                0.576_180_550_042_335_1,
+            ],
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 6083,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.017_935_858_303_653_622,
+            port: 0.017_893_930_326_642_243,
+            joints: [
+                2.250_826_242_100_233,
+                -2.322_526_618_663_194,
+                1.658_086_572_192_516,
+                -0.895_167_816_512_519_6,
+                1.590_488_045_436_591,
+                -0.994_408_066_262_584_3,
+            ],
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 1339,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_3",
+            oracle: 0.027_654_653_306_817_84,
+            port: 0.027_630_507_734_631_677,
+            joints: [
+                2.025_941_445_825_091,
+                -2.228_009_275_569_324_4,
+                1.786_804_303_907_509_4,
+                -1.143_882_164_284_168,
+                -2.386_470_412_323_503,
+                0.252_311_130_742_784_8,
+            ],
+            cell: "cylinder x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 1198,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_3",
+            oracle: 0.057_744_433_820_988_14,
+            port: 0.057_726_503_283_601_96,
+            joints: [
+                1.559_323_360_088_970_2,
+                -2.219_118_531_242_744_4,
+                1.544_796_492_067_538,
+                -0.011_022_903_189_556_565,
+                0.351_357_564_296_023_8,
+                0.450_216_211_135_843_65,
+            ],
+            cell: "cylinder x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 7824,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.031_426_263_004_283_76,
+            port: 0.031_410_024_507_491_016,
+            joints: [
+                2.020_553_328_841_840_5,
+                2.122_681_268_064_673_6,
+                -1.926_729_269_134_998_2,
+                0.491_489_375_440_562_26,
+                2.000_023_394_251_568,
+                0.528_365_709_883_226,
+            ],
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 327,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.006_123_920_034_705_172_5,
+            port: 0.006_108_567_198_513_176,
+            joints: [
+                -2.408_657_643_882_679,
+                -2.290_219_786_449_587_2,
+                1.744_491_585_694_625_7,
+                -2.373_420_032_170_722_4,
+                -1.561_452_682_248_540_2,
+                -1.713_741_576_287_923_6,
+            ],
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        // --- every port-side case in the family; 5649 is also 8th by |d| ---
+        Row {
+            case: 5649,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.029_661_234_823_746_39,
+            port: 0.029_675_030_345_831_764,
+            joints: [
+                -0.691_202_661_610_459_8,
+                2.227_705_529_090_673_8,
+                -1.715_794_009_803_794_3,
+                1.063_135_623_524_794_4,
+                1.069_593_839_742_467,
+                -1.496_425_563_645_093,
+            ],
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 7146,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.066_862_766_710_035_48,
+            port: 0.066_865_061_208_439_53,
+            joints: [
+                1.620_229_256_503_349_4,
+                1.825_248_539_225_668_8,
+                -1.757_139_708_743_803_2,
+                -2.678_158_383_040_688_8,
+                -1.664_042_447_073_608_6,
+                1.197_706_954_699_382_4,
+            ],
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 5665,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.036_106_753_270_615_306,
+            port: 0.036_113_410_344_527_835,
+            joints: [
+                0.256_691_958_972_858_46,
+                -2.231_338_063_477_646,
+                1.583_508_287_158_794_7,
+                -0.585_860_919_736_242_1,
+                -1.744_635_748_206_703,
+                0.534_896_605_891_529_7,
+            ],
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 4397,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.032_042_312_033_412_62,
+            port: 0.032_043_493_016_835_05,
+            joints: [
+                1.286_908_191_446_810_8,
+                -2.233_159_342_674_226_4,
+                1.692_021_854_342_333_8,
+                -1.115_623_662_763_461_5,
+                -1.724_614_119_422_603_5,
+                2.949_868_448_356_921_3,
+            ],
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 5075,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.043_321_675_148_122_64,
+            port: 0.043_328_909_571_109_145,
+            joints: [
+                0.928_507_368_564_801_1,
+                2.089_610_862_541_566_6,
+                -1.427_336_995_697_300_8,
+                -0.761_782_608_197_210_6,
+                1.459_447_137_713_022_3,
+                -2.771_633_367_949_762,
+            ],
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 4871,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.018_617_510_485_645_288,
+            port: 0.018_624_360_733_051_952,
+            joints: [
+                -1.413_117_475_625_239_4,
+                2.065_879_318_967_624_6,
+                -1.469_348_923_351_988,
+                -1.990_864_856_545_580_4,
+                2.674_944_262_325_763_8,
+                1.565_216_264_974_437_9,
+            ],
+            cell: "box x cylinder",
+            side: Port,
+        },
+        // --- the worst case of each cell that contributes no family member ---
+        Row {
+            case: 7079,
+            link_a: "prbt_link_2",
+            link_b: "prbt_link_4",
+            oracle: 0.107_133_171_705_236_04,
+            port: 0.107_133_171_705_235_59,
+            joints: [
+                -0.513_620_517_740_165_8,
+                0.806_634_823_239_837,
+                -0.904_574_936_407_897_7,
+                2.534_362_967_528_393,
+                -0.166_489_225_821_420_56,
+                2.893_071_462_002_853_3,
+            ],
+            cell: "box x box",
+            side: Control,
+        },
+        Row {
+            case: 1426,
+            link_a: "prbt_link_1",
+            link_b: "prbt_link_4",
+            oracle: 0.018_469_723_001_560_55,
+            port: 0.018_469_723_001_560_19,
+            joints: [
+                1.909_071_336_998_865_2,
+                -1.099_279_022_099_138_2,
+                -2.323_425_632_738_694_6,
+                -1.598_805_632_491_232_8,
+                -1.929_633_104_689_456_6,
+                -1.030_606_487_141_931_4,
+            ],
+            cell: "box x sphere",
+            side: Control,
+        },
+        Row {
+            case: 8148,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_5",
+            oracle: 0.024_945_378_424_847_01,
+            port: 0.024_945_378_424_846_468,
+            joints: [
+                -0.681_765_976_663_856,
+                -1.964_314_374_767_602_6,
+                1.950_255_394_847_318_2,
+                -0.249_711_143_831_703_9,
+                -0.471_237_441_636_538_36,
+                -1.186_060_955_153_117,
+            ],
+            cell: "cylinder x sphere",
+            side: Control,
+        },
+    ];
+
+    /// A side verdict needs one offset to dominate the other this far. The
+    /// ratios these rows actually reach span `2.545658e2` (case 4871, the
+    /// narrowest) to `8.613543e11` (case 1198, the widest), so this threshold
+    /// sits below every verdict it admits rather than being fitted to one.
+    /// Raising it to `1e4` fails case 5665 at `4.384700e3`, which is what
+    /// says the comparison is load-bearing rather than decorative.
+    const DOMINANCE: f64 = 100.0;
+    /// A `Control` row's two answers must agree this closely -- the three
+    /// cells they come from have worst deviations of `4.440892e-16`,
+    /// `3.608225e-16` and `5.412337e-16`, so `1e-13` is ~200x above the
+    /// largest and still five orders below the family's smallest member.
+    const CONTROL_TOL: f64 = 1e-13;
+    /// The gap the family threshold sits in. Measured: no separated
+    /// comparison of the 9,611 falls between `1e-15` and `1e-11`.
+    const FAMILY_FLOOR: f64 = 1e-11;
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let mut seen_cells: BTreeSet<&str> = BTreeSet::new();
+    let mut sides: BTreeMap<&str, usize> = BTreeMap::new();
+
+    for row in CASES {
+        let (case, link_a, link_b) = (&row.case, row.link_a, row.link_b);
+        let (oracle, port, joints) = (&row.oracle, &row.port, &row.joints);
+        let (want_cell, want_side) = (&row.cell, &row.side);
+        let values: BTreeMap<String, f64> = (1..=6)
+            .map(|i| (format!("prbt_joint_{i}"), joints[i - 1]))
+            .collect();
+        let mut state = build_state(&model, &values);
+        let posed = state.update();
+
+        // Read the geometry out of the loaded model, never from constants
+        // transcribed from the URDF: a fixture edit would then move the
+        // bracket and the port's answer together and this test would keep
+        // passing about a different robot.
+        let shapes = |link: &str| -> Vec<WorldConvex> {
+            let pose = posed
+                .global_link_transform(link)
+                .unwrap_or_else(|e| panic!("case {case}: prbt has a {link} link: {e}"));
+            model
+                .link_model(link)
+                .unwrap_or_else(|e| panic!("case {case}: prbt has a {link} link model: {e}"))
+                .shapes()
+                .iter()
+                .map(|s| WorldConvex::from_link_shape(&pose, s))
+                .collect()
+        };
+        let (a_shapes, b_shapes) = (shapes(link_a), shapes(link_b));
+
+        // Which shape realises the link pair's minimum is measured over every
+        // combination, not read off the first `<collision>`: `prbt_link_4`
+        // carries two boxes and `prbt_link_5` five shapes of three types.
+        let mut best: Option<(DistanceBracket, &str, &str)> = None;
+        for a in &a_shapes {
+            for b in &b_shapes {
+                let bracket = convex_distance_bracket(a, b);
+                if best
+                    .as_ref()
+                    .is_none_or(|(w, _, _)| bracket.upper < w.upper)
+                {
+                    best = Some((bracket, a.kind(), b.kind()));
+                }
+            }
+        }
+        let (bracket, kind_a, kind_b) = best.unwrap_or_else(|| {
+            panic!("case {case}: {link_a} and {link_b} both carry at least one shape")
+        });
+
+        // The cell is named unordered because fcl's table is symmetric: it
+        // specialises `Sphere x Box` and `Box x Sphere` alike, so a verdict
+        // that depended on which link the sweep printed first would be about
+        // print order, not about geometry.
+        let mut kinds = [kind_a, kind_b];
+        kinds.sort_unstable();
+        let cell = format!("{} x {}", kinds[0], kinds[1]);
+        assert_eq!(
+            &cell.as_str(),
+            want_cell,
+            "case {case}: the {link_a}/{link_b} minimum is realised by a {cell} pair, not the \
+             recorded {want_cell} -- the cell this case is classified under moved"
+        );
+        seen_cells.insert(want_cell);
+
+        // Signed both ways: two closed forms that are equal at the optimum
+        // round past each other, so an unsigned width would accept a lower
+        // bound arbitrarily far above the upper one.
+        let (low, high) = (
+            bracket.lower.min(bracket.upper),
+            bracket.lower.max(bracket.upper),
+        );
+        let offset = |v: f64| {
+            if v < low {
+                low - v
+            } else if v > high {
+                v - high
+            } else {
+                0.0
+            }
+        };
+        let (port_off, oracle_off) = (offset(*port), offset(*oracle));
+        let deviation = (oracle - port).abs();
+
+        match want_side {
+            Control => {
+                assert!(
+                    deviation <= CONTROL_TOL,
+                    "case {case} is recorded as a {cell} control and the two sides now differ by \
+                     {deviation:.6e}, over the pinned {CONTROL_TOL:.0e} -- a cell that \
+                     contributed no family member has started contributing one"
+                );
+            }
+            Oracle | Port => {
+                assert!(
+                    deviation > FAMILY_FLOOR,
+                    "case {case} now differs by only {deviation:.6e}, at or under the \
+                     {FAMILY_FLOOR:.0e} floor the family is defined by -- it has left the family \
+                     this test classifies"
+                );
+                // `>` on the widened bracket, so a zero-width bracket cannot
+                // decide a side on its own rounding.
+                let slack = (high - low).max(f64::MIN_POSITIVE);
+                let (near, far) = match want_side {
+                    Oracle => (port_off, oracle_off),
+                    _ => (oracle_off, port_off),
+                };
+                assert!(
+                    far > DOMINANCE * near.max(slack),
+                    "case {case} ({cell}) is recorded as {want_side:?}-side, but the two offsets \
+                     from the bracket [{low:.17e}, {high:.17e}] are port {port_off:.6e} and \
+                     oracle {oracle_off:.6e} -- {far:.6e} no longer dominates {near:.6e} by \
+                     {DOMINANCE:.0}x, so the attribution is not supported"
+                );
+            }
+        }
+        *sides
+            .entry(match want_side {
+                Oracle => "oracle",
+                Port => "port",
+                Control => "control",
+            })
+            .or_default() += 1;
+    }
+
+    // Floor each population separately. A single total would stay green if
+    // the port-side rows vanished into the oracle-side ones, and the six
+    // port-side cases are the whole reason this section does not read as
+    // "the tail is fcl's".
+    assert_eq!(
+        sides.get("oracle").copied().unwrap_or_default(),
+        7,
+        "the seven oracle-side rows are what carry the family's dominant verdict"
+    );
+    assert_eq!(
+        sides.get("port").copied().unwrap_or_default(),
+        6,
+        "all six port-side cases of the 244 are listed here; losing one silently would turn this \
+         test back into the single-sided claim §284 made"
+    );
+    assert_eq!(
+        sides.get("control").copied().unwrap_or_default(),
+        3,
+        "one control per non-contributing cell, which is what makes the blank-cell anchor \
+         falsifiable rather than merely consistent"
+    );
+    assert_eq!(
+        seen_cells,
+        BTreeSet::from([
+            "box x box",
+            "box x cylinder",
+            "box x sphere",
+            "cylinder x cylinder",
+            "cylinder x sphere",
+        ]),
+        "every cell prbt's separated self population reaches must appear, or the partition this \
+         test asserts is only measured on part of its own domain"
+    );
+}
+
 /// The other half of §260.8's open pair: pr2's separated-branch residual
 /// `6.056201e-7`, asked with the *same* instrument as prbt's so the two
 /// answers come off one measuring device rather than two.
@@ -3005,4 +4339,681 @@ fn pr2_caster_wheel_clearance_bracket_agrees_with_260_3s_closed_form() {
         }
     }
     assert_eq!(wheels, 8, "sanity: all eight caster wheels were bracketed");
+}
+
+/// §297.5's open item: the penetration branch's `249/389` charged to a side.
+///
+/// §297.4 could say only that no case of the 389 is *classified* wrongly --
+/// 254 overlap-certified, 0 separation-certified -- and that the disagreement
+/// is therefore about depth values, which the separated branch's instrument
+/// cannot reach. [`minkowski_depth_bracket`] is the instrument that can, and
+/// this test is the reduced form of the run over the whole population.
+///
+/// MEASURED over all 389 (probe, not sampled; the run is 3.3s and the reduced
+/// table below is what a gate can afford to keep):
+///
+/// | | |
+/// |---|---|
+/// | fcl outside the bracket, this port inside (**fcl's**) | 277 |
+/// | this port outside, fcl inside (**the port's**) | **0** |
+/// | neither dominates | 19 |
+/// | bracket not narrow enough to judge | 93 |
+///
+/// The port lands *inside* the bracket in 332 of 389 and within `1e-9` of it in
+/// 388 of 389, worst offset `3.051e-9`; and it names the link pair that
+/// actually realises the minimum in 389 of 389. fcl names that pair in 274 of
+/// 389, which splits its 277 into 115 where it answered about a pair that is
+/// not the deepest and 162 where it answered about the right pair and got the
+/// depth wrong.
+///
+/// A zero in the port column is the result this round was told to distrust, so
+/// the table below carries §297.3's six port-side cases as a **control**: they
+/// are separated, the same function brackets them, and it must still return
+/// `Port` on all six. Six real cases rather than a synthetic perturbation,
+/// because §297.3 reached them by an unrelated route -- alternating projection
+/// and weak duality -- so agreeing with it is evidence about this instrument
+/// and not about a shared construction.
+///
+/// The other shared construction is forward kinematics: this instrument places
+/// its bodies with the port's own `global_link_transform`, so a port-side FK
+/// error would move the bracket and the port's answer together and be reported
+/// as fcl's. MEASURED against the oracle's `fk` op on 28 of the 389 states,
+/// the 8 worst included: 308 link transforms, worst element difference
+/// `7.771561e-16`. The deviations judged here are up to `9.554699e-2`, thirteen
+/// orders above that, so they are not FK's.
+#[test]
+fn prbt_penetration_branch_is_bracketed_by_the_minkowski_instrument() {
+    /// Which side of the bracket a case's two answers fall on.
+    #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+    enum Side {
+        /// The port is inside the bracket and fcl is at least `DOMINANCE`x
+        /// further from it.
+        Oracle,
+        /// The reverse. Zero of the 389 penetration cases; the rows carrying
+        /// it are §297.3's separated six, kept so this verdict stays reachable.
+        Port,
+        /// Both sit off the bracket by comparable amounts. Neither is charged.
+        Undominated,
+        /// The bracket is not narrow relative to the deviation, so the
+        /// instrument declines. Counted apart from `Undominated` because the
+        /// two mean opposite things: `Undominated` is a measurement that came
+        /// out even, this is a measurement that was not made.
+        TooWide,
+    }
+    use Side::{Oracle, Port, TooWide, Undominated};
+
+    /// One measured case, its two answers, and what this test re-derives.
+    struct Row {
+        case: u32,
+        oracle: f64,
+        port: f64,
+        joints: [f64; 6],
+        /// The link pair realising the minimum signed distance, as measured
+        /// here -- not the pair either implementation reported.
+        pair: &'static str,
+        cell: &'static str,
+        side: Side,
+    }
+
+    /// How much further from the bracket one side must be before the deviation
+    /// is charged to it. §297.3's constant, unchanged, so the two branches'
+    /// verdicts are on one scale.
+    const DOMINANCE: f64 = 100.0;
+    /// The bracket may be at most this fraction of the deviation for a case to
+    /// be judged at all. MEASURED: at `0.1` the rule declines 93 of the 389,
+    /// every one of them with a deviation under `1e-4` (worst `6.214e-8`), so
+    /// it never declines a case the §5 Phase 3 clause would call a failure --
+    /// all 249 of those are judged, and all 249 come out fcl's.
+    const WIDTH_FRACTION: f64 = 0.1;
+
+    const CASES: &[Row] = &[
+        // --- the eight worst of the 389 by |d|; every one of them fcl's ---
+        Row {
+            case: 3830,
+            oracle: -0.0038456786266410636,
+            port: -0.09939266469565833,
+            joints: [
+                1.7222781722564067,
+                2.505419442115496,
+                -2.3097115610816514,
+                -2.3294244395936095,
+                0.8788463131179101,
+                -2.987396283487771,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 725,
+            oracle: -0.009234497554552884,
+            port: -0.102189116794398,
+            joints: [
+                -1.9454267492381483,
+                2.3933641974899595,
+                -2.268167616163194,
+                -1.8894957570981794,
+                -0.07743879978066293,
+                1.4000124216073755,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 4757,
+            oracle: -0.020826775650501995,
+            port: -0.10272632473679352,
+            joints: [
+                -2.654803416922996,
+                2.214752444890933,
+                -2.3531221254427916,
+                -1.0431453608450107,
+                1.8113741110644206,
+                -0.5110484649104534,
+            ],
+            pair: "prbt_base_link/prbt_link_5",
+            cell: "cylinder x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 6686,
+            oracle: -0.005421222403789236,
+            port: -0.08716574933235925,
+            joints: [
+                -0.27172803652633926,
+                -2.298402804827746,
+                2.283175140105095,
+                1.5475644629089071,
+                -1.347651617464805,
+                2.735106592000751,
+            ],
+            pair: "prbt_base_link/prbt_link_5",
+            cell: "cylinder x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 6336,
+            oracle: -0.030650864684746003,
+            port: -0.11189008097810714,
+            joints: [
+                -1.0636449835260864,
+                -2.467611703758808,
+                2.132537724091764,
+                1.966310132102044,
+                0.67965030239339,
+                -0.7187009086833616,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 3129,
+            oracle: -0.012982668237207493,
+            port: -0.09402662265115407,
+            joints: [
+                0.07734171296962522,
+                -2.3430022245539073,
+                2.260625567159336,
+                1.9615857587484085,
+                0.5713188534899802,
+                -3.0656157518656926,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 4623,
+            oracle: -0.010723432356997001,
+            port: -0.08489731327008056,
+            joints: [
+                1.2003097403543066,
+                -2.4164137657102662,
+                2.3495206262958237,
+                2.4746036623594163,
+                -0.47930489706580515,
+                1.442286809329698,
+            ],
+            pair: "prbt_base_link/prbt_link_5",
+            cell: "cylinder x sphere",
+            side: Oracle,
+        },
+        Row {
+            case: 4554,
+            oracle: -0.014250405011507948,
+            port: -0.08789679971779304,
+            joints: [
+                -1.9936694991380444,
+                -1.6707517761312238,
+                2.3502801645325495,
+                1.3932353363365868,
+                0.20519160660889924,
+                1.7337335389915949,
+            ],
+            pair: "prbt_base_link/prbt_link_5",
+            cell: "cylinder x cylinder",
+            side: Oracle,
+        },
+        // --- the `box x box` cell, all four of the population's members ---
+        Row {
+            case: 2638,
+            oracle: -0.0004052563905101939,
+            port: -0.00040525639050958994,
+            joints: [
+                -0.2987824151047134,
+                -1.6637074181552185,
+                -2.346929239700362,
+                -1.0473004356748703,
+                2.6511747667915655,
+                0.16181172452364123,
+            ],
+            pair: "prbt_link_2/prbt_link_4",
+            cell: "box x box",
+            side: TooWide,
+        },
+        Row {
+            case: 7026,
+            oracle: -0.0001514953996990401,
+            port: -0.00015149539969852197,
+            joints: [
+                0.3201407619181462,
+                0.22572565762769425,
+                2.3466837673243135,
+                0.5433167327748891,
+                1.8983913801994454,
+                1.5207196228157076,
+            ],
+            pair: "prbt_link_2/prbt_link_4",
+            cell: "box x box",
+            side: TooWide,
+        },
+        Row {
+            case: 8077,
+            oracle: -0.0003168427677867834,
+            port: -0.0003168427677862811,
+            joints: [
+                -2.3960358486207762,
+                -0.46672232302328087,
+                2.3550565896986986,
+                0.9883090018093585,
+                1.7313827000785151,
+                0.8876005541620215,
+            ],
+            pair: "prbt_link_2/prbt_link_4",
+            cell: "box x box",
+            side: TooWide,
+        },
+        Row {
+            case: 9911,
+            oracle: -0.0008327939775865795,
+            port: -0.0008327939775866211,
+            joints: [
+                2.8426567855585363,
+                -1.0733771091295128,
+                2.343919508392364,
+                0.508139833306605,
+                1.7838413144240626,
+                1.4885955115844216,
+            ],
+            pair: "prbt_link_2/prbt_link_4",
+            cell: "box x box",
+            side: TooWide,
+        },
+        // --- undominated: the bracket is narrow and both sides sit off it by similar amounts ---
+        Row {
+            case: 1852,
+            oracle: -0.012080800012405805,
+            port: -0.01207601867868618,
+            joints: [
+                0.060958001009831175,
+                2.269546928245206,
+                -1.9653517287304623,
+                0.27951419041950265,
+                -0.3375191933255923,
+                -2.7908600581864826,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: Undominated,
+        },
+        Row {
+            case: 5376,
+            oracle: -0.10460516671311507,
+            port: -0.10460412104053335,
+            joints: [
+                -2.5055790360936427,
+                2.1410883202266184,
+                -2.2393857683136127,
+                -2.018759622064149,
+                1.6042309765168001,
+                -0.6300273408862855,
+            ],
+            pair: "prbt_base_link/prbt_link_5",
+            cell: "cylinder x cylinder",
+            side: Undominated,
+        },
+        Row {
+            case: 5971,
+            oracle: -0.11476285219405304,
+            port: -0.1147631513038187,
+            joints: [
+                -0.36914035344963914,
+                2.1450310307863125,
+                -2.2668569270057604,
+                -1.803494964174293,
+                -1.7775675809705815,
+                -0.7545910273329355,
+            ],
+            pair: "prbt_base_link/prbt_link_5",
+            cell: "cylinder x cylinder",
+            side: Undominated,
+        },
+        // --- too wide to judge: the bracket is not narrow relative to the deviation ---
+        Row {
+            case: 7479,
+            oracle: -0.00024775154773430485,
+            port: -0.0002478136839996629,
+            joints: [
+                2.470122748667551,
+                -1.9484797128656228,
+                1.795422740195598,
+                0.8409419815235304,
+                -0.8828339187598506,
+                -2.8712737442676164,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: TooWide,
+        },
+        Row {
+            case: 6135,
+            oracle: -0.07872105521761923,
+            port: -0.0787210604817311,
+            joints: [
+                1.2108386336182893,
+                2.004208353225607,
+                -2.099006134764198,
+                -2.1508750212715286,
+                0.7033091115850212,
+                1.1904812781246563,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: TooWide,
+        },
+        Row {
+            case: 5870,
+            oracle: -0.08261967372213165,
+            port: -0.08261967458872792,
+            joints: [
+                2.292788147219941,
+                -2.1719838074869013,
+                2.0748893395012247,
+                2.17875304954282,
+                -1.4396458826847374,
+                0.8832739459206072,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: TooWide,
+        },
+        Row {
+            case: 1507,
+            oracle: -0.012011210568296835,
+            port: -0.012011210568296835,
+            joints: [
+                -1.6200171132066752,
+                2.193150756333554,
+                -2.1375407466550356,
+                2.641711294512106,
+                -2.2205001295929496,
+                3.024812355750678,
+            ],
+            pair: "prbt_base_link/prbt_link_5",
+            cell: "cylinder x sphere",
+            side: TooWide,
+        },
+        // --- the discrimination control: §297.3's six port-side cases, separated branch.
+        // A run that stopped being able to report `Port` at all would still pass
+        // every row above. ---
+        Row {
+            case: 5649,
+            oracle: 0.02966123482374639,
+            port: 0.029675030345831764,
+            joints: [
+                -0.6912026616104598,
+                2.2277055290906738,
+                -1.7157940098037943,
+                1.0631356235247944,
+                1.069593839742467,
+                -1.496425563645093,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 7146,
+            oracle: 0.06686276671003548,
+            port: 0.06686506120843953,
+            joints: [
+                1.6202292565033494,
+                1.8252485392256688,
+                -1.7571397087438032,
+                -2.6781583830406888,
+                -1.6640424470736086,
+                1.1977069546993824,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 5665,
+            oracle: 0.036106753270615306,
+            port: 0.036113410344527835,
+            joints: [
+                0.25669195897285846,
+                -2.231338063477646,
+                1.5835082871587947,
+                -0.5858609197362421,
+                -1.744635748206703,
+                0.5348966058915297,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 4397,
+            oracle: 0.03204231203341262,
+            port: 0.03204349301683505,
+            joints: [
+                1.2869081914468108,
+                -2.2331593426742264,
+                1.6920218543423338,
+                -1.1156236627634615,
+                -1.7246141194226035,
+                2.9498684483569213,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 5075,
+            oracle: 0.04332167514812264,
+            port: 0.043328909571109145,
+            joints: [
+                0.9285073685648011,
+                2.0896108625415666,
+                -1.4273369956973008,
+                -0.7617826081972106,
+                1.4594471377130223,
+                -2.771633367949762,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 4871,
+            oracle: 0.018617510485645288,
+            port: 0.018624360733051952,
+            joints: [
+                -1.4131174756252394,
+                2.0658793189676246,
+                -1.469348923351988,
+                -1.9908648565455804,
+                2.6749442623257638,
+                1.5652162649744379,
+            ],
+            pair: "prbt_base_link/prbt_link_4",
+            cell: "box x cylinder",
+            side: Port,
+        },
+    ];
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let acm = build_acm("prbt.srdf");
+
+    // The pairs MoveIt would check, read from the SRDF rather than listed:
+    // a fixture that stopped disabling a pair has to reach this instrument the
+    // same way it reaches the port.
+    let with_shapes: Vec<&str> = model
+        .link_names()
+        .iter()
+        .filter(|n| model.link_model(n).is_ok_and(|l| !l.shapes().is_empty()))
+        .map(String::as_str)
+        .collect();
+    let mut checked: Vec<(&str, &str)> = Vec::new();
+    for (i, a) in with_shapes.iter().enumerate() {
+        for b in &with_shapes[i + 1..] {
+            let allowed = acm
+                .allowed_collision(a, b)
+                .is_some_and(|e| e.kind() == moveit_collision::AllowedCollisionType::Always);
+            if !allowed {
+                checked.push((a, b));
+            }
+        }
+    }
+    // The whole set, not a non-empty check: a bracket taken over a subset of
+    // the pairs MoveIt checks is a minimum over the wrong population, and it
+    // reports as a *narrow* answer rather than as a missing one. MEASURED from
+    // `fixtures/prbt.srdf` -- seven pairs survive its `disable_collisions`.
+    let named: BTreeSet<String> = checked.iter().map(|(a, b)| format!("{a}/{b}")).collect();
+    assert_eq!(
+        named,
+        BTreeSet::from(
+            [
+                "prbt_base_link/prbt_link_3",
+                "prbt_base_link/prbt_link_4",
+                "prbt_base_link/prbt_link_5",
+                "prbt_base_link/prbt_flange",
+                "prbt_link_1/prbt_link_4",
+                "prbt_link_1/prbt_link_5",
+                "prbt_link_2/prbt_link_4",
+            ]
+            .map(String::from)
+        ),
+        "the self pairs prbt's SRDF leaves to check moved; every bracket below is a minimum \
+         over this set and would silently be a minimum over a different one"
+    );
+
+    let mut sides: BTreeMap<Side, usize> = BTreeMap::new();
+    let mut seen_cells: BTreeSet<&str> = BTreeSet::new();
+
+    for row in CASES {
+        let case = row.case;
+        let values: BTreeMap<String, f64> = (1..=6)
+            .map(|i| (format!("prbt_joint_{i}"), row.joints[i - 1]))
+            .collect();
+        let mut state = build_state(&model, &values);
+        let posed = state.update();
+
+        let mut bodies: Vec<(WorldConvex, WorldConvex)> = Vec::new();
+        let mut owner: Vec<String> = Vec::new();
+        for (a, b) in &checked {
+            let shapes = |link: &str| -> Vec<WorldConvex> {
+                let pose = posed
+                    .global_link_transform(link)
+                    .unwrap_or_else(|e| panic!("case {case}: prbt has a {link} link: {e}"));
+                model
+                    .link_model(link)
+                    .unwrap_or_else(|e| panic!("case {case}: prbt has a {link} model: {e}"))
+                    .shapes()
+                    .iter()
+                    .map(|s| WorldConvex::from_link_shape(&pose, s))
+                    .collect()
+            };
+            let (sa, sb) = (shapes(a), shapes(b));
+            let mut names = [*a, *b];
+            names.sort_unstable();
+            for x in &sa {
+                for y in &sb {
+                    owner.push(format!("{}/{}", names[0], names[1]));
+                    bodies.push((x.clone(), y.clone()));
+                }
+            }
+        }
+
+        let (lo, hi, win) = min_signed_distance_over(&bodies);
+        assert_eq!(
+            owner[win], row.pair,
+            "case {case}: the minimum signed distance is realised by {}, not the recorded {} -- \
+             the pair this case is classified under moved",
+            owner[win], row.pair
+        );
+        let mut kinds = [bodies[win].0.kind(), bodies[win].1.kind()];
+        kinds.sort_unstable();
+        let cell = format!("{} x {}", kinds[0], kinds[1]);
+        assert_eq!(
+            cell, row.cell,
+            "case {case}: the minimum is realised by a {cell} pair, not the recorded {}",
+            row.cell
+        );
+        seen_cells.insert(row.cell);
+
+        // Signed both ways, as in the separated branch: two bounds that meet at
+        // the optimum can round past each other.
+        let (low, high) = (lo.min(hi), lo.max(hi));
+        let offset = |v: f64| {
+            if v < low {
+                low - v
+            } else if v > high {
+                v - high
+            } else {
+                0.0
+            }
+        };
+        let (port_off, oracle_off) = (offset(row.port), offset(row.oracle));
+        let deviation = (row.oracle - row.port).abs();
+        let width = high - low;
+
+        match row.side {
+            TooWide => assert!(
+                width > WIDTH_FRACTION * deviation,
+                "case {case} is recorded as too wide to judge, but the bracket is now \
+                 {width:.6e} against a deviation of {deviation:.6e} -- the instrument has \
+                 become able to judge it and the recorded verdict is stale, not wrong"
+            ),
+            Oracle | Port | Undominated => {
+                assert!(
+                    width <= WIDTH_FRACTION * deviation,
+                    "case {case} is recorded as judged, but the bracket is {width:.6e} against \
+                     a deviation of {deviation:.6e}, over the {WIDTH_FRACTION} the rule allows \
+                     -- the verdict below would rest on a measurement that was not made"
+                );
+                // `>` on the widened bracket, so a zero-width bracket cannot
+                // decide a side on its own rounding.
+                let slack = width.max(f64::MIN_POSITIVE);
+                let oracle_dominates = oracle_off > DOMINANCE * port_off.max(slack);
+                let port_dominates = port_off > DOMINANCE * oracle_off.max(slack);
+                let dominance = match row.side {
+                    Oracle => oracle_dominates,
+                    Port => port_dominates,
+                    // Written as a conjunction of the two positives rather than
+                    // negated comparisons: a NaN offset then fails here instead
+                    // of passing as "neither dominates".
+                    _ => !oracle_dominates && !port_dominates,
+                };
+                assert!(
+                    dominance,
+                    "case {case} is recorded as {:?} and no longer measures that way: fcl is \
+                     {oracle_off:.6e} off the bracket and the port {port_off:.6e}, bracket width \
+                     {width:.6e}, {DOMINANCE}x rule",
+                    row.side
+                );
+            }
+        }
+        *sides.entry(row.side).or_default() += 1;
+    }
+
+    // MEASURED counts of this table, one floor per verdict rather than a total:
+    // 8 / 6 / 3 / 8. A collapse that emptied one bucket while the others
+    // absorbed its rows would leave any total unchanged.
+    for (side, least) in [(Oracle, 8usize), (Port, 6), (Undominated, 3), (TooWide, 8)] {
+        assert!(
+            sides.get(&side).copied().unwrap_or(0) >= least,
+            "{side:?} is down to {} rows from {least} -- the instrument has lost a verdict it \
+             used to be able to reach, which no total over the other buckets would show",
+            sides.get(&side).copied().unwrap_or(0)
+        );
+    }
+    assert_eq!(
+        seen_cells,
+        BTreeSet::from([
+            "box x box",
+            "box x cylinder",
+            "cylinder x cylinder",
+            "cylinder x sphere",
+        ]),
+        "the cells this table covers moved. All four of the population's cells are here, and \
+         `box x box` is here as a control: it is the cell §297.2 used to falsify the \
+         blank-specialisation anchor, all four of its members in this population are too \
+         narrow a deviation to judge, and if one of them ever became judgeable the cell has \
+         started contributing"
+    );
 }

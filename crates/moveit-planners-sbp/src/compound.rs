@@ -492,7 +492,7 @@ mod tests {
         );
     }
 
-    // PORTING-PLAN.md:1152: whether the StateSpace trait carries a
+    // PORTING-PLAN.md:1269: whether the StateSpace trait carries a
     // heterogeneous product's distance correctly — specifically, whether
     // summing per-subspace distances of genuinely different units (metres,
     // radians) through one weight each still produces a metric — has "so

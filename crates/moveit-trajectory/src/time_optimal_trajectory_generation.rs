@@ -113,7 +113,7 @@
 //! against `max_torques()` themselves (e.g. by bisection). Upstream does
 //! not do this anywhere either: `rg -n 'dynamics_solver|DynamicsSolver'`
 //! across `moveit_core` outside `dynamics_solver/` returns 6 hits, all
-//! build-system/changelog noise (`CMakeLists.txt:55,83,108`,
+//! build-system/changelog noise (`tools/moveit-oracle/CMakeLists.txt:55,83,108`,
 //! `CHANGELOG.rst:1165,1612,2018`) — none is a code call site into
 //! `trajectory_processing` or `robot_trajectory`. The "natural producer of
 //! `acceleration_bounds`" framing is an analogy between two "per-joint

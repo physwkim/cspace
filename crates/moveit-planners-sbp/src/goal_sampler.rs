@@ -232,7 +232,7 @@ mod tests {
 
     /// Proves [`sample_goal`]'s constrained branch is load-bearing, not
     /// merely invoked: `panda_joint1` pinned to `+/-0.01` (against its own
-    /// `+/-2.9671` bound, `panda.urdf:37`), empty world, no path
+    /// `+/-2.9671` bound, `crates/moveit-planners-sbp/tests/fixtures/panda.urdf:37`), empty world, no path
     /// constraints, budget 5 attempts.
     ///
     /// Window and budget were picked by a sweep, not derivation — same

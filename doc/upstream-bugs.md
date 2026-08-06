@@ -143,9 +143,9 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 `num_collision_free_iterations_ = 0` and `iteration_++`; the separate
 `if (!parameters_->filter_mode_)` at `:406` sets it to
 `max_iterations_after_collision_free_` and increments `iteration_` again)
-**Port:** `crates/moveit-planners-chomp/src/optimizer.rs:1764-1779` (the two
+**Port:** `crates/moveit-planners-chomp/src/optimizer.rs:1926-1943` (the two
 `if` blocks in `ChompOptimizer::optimize`; the deviation is written up at
-`crates/moveit-planners-chomp/src/optimizer.rs:1023-1034`)
+`crates/moveit-planners-chomp/src/optimizer.rs:1127-1138`)
 **Symptom:** the `iteration_ % 10 == 0` mesh-to-mesh check and the
 `!filter_mode_` collision-threshold check are two separate,
 unconditionally-evaluated `if` blocks rather than `if`/`else if`. Both can
@@ -2005,7 +2005,7 @@ that argument does not compile against the detailed signature. So
 `MotionPlanDetailedResponse::getMessage` has **zero callers upstream, tests
 included**, and the wire type it fills is embedded in no `.srv`/`.action`/
 `.msg` (`rg -n 'MotionPlanDetailedResponse' third_party/moveit_msgs/` is one
-hit, `CMakeLists.txt:53`, the build list).
+hit, `tools/moveit-oracle/CMakeLists.txt:53`, the build list).
 
 An earlier version of this paragraph said "every `MotionPlanDetailedResponse`
 site in the tree was read" and then cited `planning_pipeline.cpp:319` and
@@ -2167,16 +2167,16 @@ layer, so the selection rule that produces the artifact does not exist here.
 the 10,715 rows behind the `distance: f64` clause `PORTING-PLAN.md` §5
 records `UNMET` (`PORTING-PLAN.md:807`, which carries the verdict and
 delegates the diagnosis to §229.3) — a majority of that miss, not the whole
-of it. §218.4's per-robot table (`PORTING-PLAN.md:17008-17012`) splits panda
+of it. §218.4's per-robot table (`PORTING-PLAN.md:17061-17065`) splits panda
 into `self 1,225 / robot 9,490`, and the robot column again into 6,364
 same-pair value divergence — all of it the single pair `floor/panda_link0`
 — against 3,126 pair-flips (row at `:17010`). Only the 6,364 are this
 entry. The 3,126 flips are the near-tie mechanism §218.4's own "다른 쌍
-(pair-flip)" bullet (`PORTING-PLAN.md:17003-17004`) uses to rule fanuc out
+(pair-flip)" bullet (`PORTING-PLAN.md:17002-17004`) uses to rule fanuc out
 three paragraphs below, so counting them here would re-make inside panda
 the over-generalization §229.3 already corrected across robots; the 1,225
 self-side rows are a column this world-object defect cannot reach at all.
-The `27,384x` figure §218.4 (`PORTING-PLAN.md:16979-16980`) and §229.3
+The `27,384x` figure §218.4 (`PORTING-PLAN.md:17029`) and §229.3
 record is panda's worst `|Δ|` against the `1e-4` threshold — a magnitude,
 not a count — so it neither states nor bounds this entry's share.
 
@@ -2875,10 +2875,10 @@ answer to an interval `4.163336e-17` wide and puts this port `2.558970e-11` from
 it against the reference's `8.892588e-5`. Recompiling
 `tools/fcl-distance-tolerance-probe/probe.cpp` with that box's dimensions inside
 the same image drifts `2.051960e-4` between the default `1e-6` and a tightened
-`1e-12`, over the clause's own tolerance — the committed probe builds the
-`0.121, 0.08, 0.17` box (`tools/fcl-distance-tolerance-probe/probe.cpp:77`),
-which is `prbt_link_4`'s *other* `<collision>` and not the one this pair's
-minimum sits on.
+`1e-12`, over the clause's own tolerance. PORTING-PLAN.md §298 re-pinned the
+committed probe to this box (`tools/fcl-distance-tolerance-probe/probe.cpp:86`);
+before that it built `prbt_link_4`'s *other* `<collision>`
+(`0.121, 0.08, 0.17`), which is not the one this pair's minimum sits on.
 
 ### `cartesian-path-capability-accepts-jump-thresholds-it-never-applies` — the service converts `jump_threshold` into a filter, logs it as being in force, and then passes `CartesianPrecision{}` in its place — not-reproduced
 

@@ -138,6 +138,14 @@ for i in "${!CONFIGS[@]}"; do
     echo "FAIL $missing solved chomp/$config records carry no objective" >&2
     exit 1
   fi
+  # Same rule for `loop`: the split below is a statement about the loop, so a
+  # binary that predates the field must not be summarised as "0 problems left
+  # before evaluating an update".
+  missing=$(jq -s '[.[] | select(.solved) | select(has("loop") | not)] | length' "$out")
+  if [ "$missing" -ne 0 ]; then
+    echo "FAIL $missing solved chomp/$config records carry no loop trace" >&2
+    exit 1
+  fi
   # Tag each record with its config before merging, so the summary can split
   # by config without a second read of the per-config files.
   jq -c --arg config "$config" '. + {config: $config}' "$out" >>"$ALL"
@@ -155,6 +163,30 @@ jq -s '
                     else ($s[$n / 2 - 1] + $s[$n / 2]) / 2 end),
            mean: ((xs | add) / $n)}
       end;
+  # The loop trace, read over an arbitrary subset of solved records. The point
+  # of every field here is to distinguish "the loop ran and never lowered the
+  # cost" from "the loop never costed a second iterate at all": `evaluations`
+  # is 1 exactly when the run left before any updated trajectory was evaluated,
+  # and in that case no explanation that needs a second evaluation can hold.
+  def loopstats(rows): (rows | map(.loop)) as $l
+    | {n: (rows | length),
+       evaluations: stats($l | map(.evaluations)),
+       evaluations_is_1: ($l | map(select(.evaluations == 1)) | length),
+       exit: ($l | group_by(.exit)
+                 | map({key: .[0].exit, value: length}) | from_entries),
+       accepted: stats($l | map(.accepted)),
+       accepted_is_1: ($l | map(select(.accepted == 1)) | length),
+       mesh_free_passes: stats($l | map(.mesh_free_passes)),
+       below_threshold_passes: stats($l | map(.below_threshold_passes)),
+       below_threshold_ever: ($l | map(select(.below_threshold_passes > 0)) | length),
+       seed_points_within_clearance: stats($l | map(.seed_points_within_clearance)),
+       seed_points_in_collision: stats($l | map(.seed_points_in_collision)),
+       seed_points_in_collision_is_0:
+         ($l | map(select(.seed_points_in_collision == 0)) | length),
+       first_pass_max_update: stats($l | map(.first_pass_max_update)),
+       seed_total: stats(rows | map(.objective.seed.total)),
+       seed_collision: stats(rows | map(.objective.seed.collision)),
+       seed_smoothness: stats(rows | map(.objective.seed.smoothness))};
   def summarise(rows):
     (rows | map(select(.solved))) as $solved
     | ($solved | map(.objective)) as $o
@@ -180,7 +212,15 @@ jq -s '
        # Which of the two terms the improvement came out of.
        smoothness_improvement: stats($o | map(.seed.smoothness - .best.smoothness)),
        collision_improvement: stats($o | map(.seed.collision - .best.collision)),
-       seed_collision_is_zero: ($o | map(select(.seed.collision == 0)) | length)};
+       seed_collision_is_zero: ($o | map(select(.seed.collision == 0)) | length),
+       # The same solved rows, split by the stratum the round is about: the
+       # problems the optimizer returned the seed on, and the ones it beat it
+       # on. Pooling the two hides whichever fact separates them.
+       loop: {all: loopstats($solved),
+              improvement_zero:
+                loopstats($solved | map(select(.objective.improvement == 0))),
+              improvement_positive:
+                loopstats($solved | map(select(.objective.improvement > 0)))}};
   {all: summarise(.),
    by_config: (group_by(.config) | map({key: .[0].config, value: summarise(.)})
                | from_entries)}
@@ -188,7 +228,45 @@ jq -s '
 
 echo >&2
 echo "=== chomp objective over the Phase 8 500 (seed base $PORT_SEED_BASE, clock $NO_CLOCK_BOUND) ===" >&2
-jq . "$SUMMARY" >&2
+jq 'del(.all.loop, .by_config[].loop)' "$SUMMARY" >&2
+echo >&2
+# The discrimination table: one row per (config, improvement stratum). Printed
+# separately from the JSON above because the question this round asks is a
+# comparison between two strata within a config, and that comparison is
+# unreadable as nested objects.
+echo "=== loop trace, by config and improvement stratum ===" >&2
+jq -r '
+  def f(x): if x == null then "-" else (x | tostring | .[0:9]) end;
+  def row($cfg; $stratum; $l):
+    [$cfg, $stratum, ($l.n | tostring),
+     (f($l.evaluations.min) + "/" + f($l.evaluations.median) + "/" + f($l.evaluations.max)),
+     ($l.evaluations_is_1 | tostring),
+     ($l.exit | to_entries | map(.key + "=" + (.value | tostring)) | join(",")),
+     (f($l.accepted.min) + "/" + f($l.accepted.median) + "/" + f($l.accepted.max)),
+     ($l.below_threshold_ever | tostring),
+     (f($l.seed_points_within_clearance.min) + "/" + f($l.seed_points_within_clearance.median) + "/" + f($l.seed_points_within_clearance.max)),
+     (f($l.seed_points_in_collision.min) + "/" + f($l.seed_points_in_collision.median) + "/" + f($l.seed_points_in_collision.max)),
+     (f($l.first_pass_max_update.min) + "/" + f($l.first_pass_max_update.median) + "/" + f($l.first_pass_max_update.max)),
+     (f($l.seed_total.median)), (f($l.seed_collision.median))]
+    | @tsv;
+  # `. as $root` must be bound before the header, because `|` binds looser than
+  # `,`: without it the rows are generated with `.` already rewritten to the
+  # header array.
+  . as $root
+  | ["config", "stratum", "n", "evals min/med/max", "evals==1", "exit",
+     "accepted min/med/max", "belowthr>0", "clearpts min/med/max",
+     "collpts min/med/max", "firstupd min/med/max", "seedtot med", "seedcoll med"]
+  | @tsv,
+  ( ($root.by_config | to_entries | map({cfg: .key, s: .value.loop}))
+      + [{cfg: "ALL", s: $root.all.loop}]
+    | .[] as $c
+    | ("improvement==0", "improvement>0", "all") as $k
+    | row($c.cfg;
+          $k;
+          (if $k == "improvement==0" then $c.s.improvement_zero
+           elif $k == "improvement>0" then $c.s.improvement_positive
+           else $c.s.all end)) )
+' "$SUMMARY" | column -t -s$'\t' >&2
 echo >&2
 printf 'wall clock: %ss (a machine-and-load reading; every number above is not)\n' \
   "$run_seconds" >&2

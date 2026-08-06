@@ -13,7 +13,7 @@ Upstream root for this crate: `/home/stevek/work/stomp` (pinned
 |---|---|---|---|---|
 | `/home/stevek/work/stomp/src/utils.cpp:39` (`(int)order`) | `order` is `DerivativeOrder`-equivalent (an enum), cast to `int` for `pow(dt, (int)order)` -- integer/enum-derived, not real-valued | CONFIRMED distinct | `/home/stevek/work/stomp/src/utils.cpp:39` -- `double multiplier = 1.0 / pow(dt, (int)order);` | (none) |
 | `/home/stevek/work/stomp/{include/stomp/*.h,src/*.cpp}` full sweep | No float-derived `int`/`unsigned`/`size_t`/`long` declaration or `static_cast` anywhere else in this crate's upstream | CONFIRMED, 0 additional hits | Full-file grep of `stomp.h`, `task.h`, `utils.h`, `stomp.cpp`, `utils.cpp`; all `int`/`size_t`/`unsigned` declarations found (`stomp.cpp:117-119,158,231,303,435-480`; `stomp/src/utils.cpp:44,66-67,113-115`) are `.rows()`/`.cols()`/`.size()`/config-count-derived | (none) |
-| `crates/moveit-stomp-core/src/{stomp,utils}.rs` (port-side anchor: `as i8..u128/usize` receiving `f64`) | All 12 hits narrow an enum (`DerivativeOrder`), a loop/index variable, or an integer count -- none are real-valued | CONFIRMED distinct, 12 sites: `stomp.rs:550,792,817,878`; `crates/moveit-stomp-core/src/utils.rs:330-332,339-340,421-422,424,543,555` | Read in this tree only | (none) |
+| `crates/moveit-stomp-core/src/{stomp,utils}.rs` (port-side anchor: `as i8..u128/usize` receiving `f64`) | All 12 hits narrow an enum (`DerivativeOrder`), a loop/index variable, or an integer count -- none are real-valued | CONFIRMED distinct, 12 sites: `stomp.rs:577,842,867,928`; `crates/moveit-stomp-core/src/utils.rs:330-332,339-340,421-422,424,543,555` | Read in this tree only | (none) |
 
 ## §172 row 3 (round 33) re-verified with the full anchor enumeration, per review
 
@@ -42,8 +42,8 @@ was not actually a 12-site claim):
 | `crates/moveit-stomp-core/src/utils.rs:543` | `DerivativeOrder::Velocity as usize` | enum literal (test) | enum, not float |
 | `crates/moveit-stomp-core/src/utils.rs:555` | `DerivativeOrder::Acceleration as usize` | enum literal (test) | enum, not float |
 | `stomp.rs:550` | `self.current_iteration as usize` | `current_iteration: i32` field | integer field, not float |
-| `stomp.rs:792` | `r as i32` | `r: usize` loop var (`0..num_rollouts`) | integer loop index, not float |
-| `stomp.rs:817` | `r as i32` | `r: usize` loop var | integer loop index, not float |
+| `stomp.rs:842` | `r as i32` | `r: usize` loop var (`0..num_rollouts`) | integer loop index, not float |
+| `stomp.rs:867` | `r as i32` | `r: usize` loop var | integer loop index, not float |
 | `stomp.rs:878` | `r as i32` | `r: usize` loop var | integer loop index, not float |
 
 **Same defect at:** none -- zero of the 16 casts narrow a value derived

@@ -108,7 +108,9 @@
 //! answer" to match here. This deviation is scoped to exactly that rejected
 //! range and expires if upstream adds its own validation to
 //! `setRecoveryParams`/`ChompParameters::planning_time_limit_`.
-use crate::optimizer::{ChompCollisionContext, ChompObjectiveProgress, ChompOptimizer};
+use crate::optimizer::{
+    ChompCollisionContext, ChompLoopTrace, ChompObjectiveProgress, ChompOptimizer,
+};
 use crate::parameters::ChompParameters;
 use crate::trajectory::ChompTrajectory;
 use crate::utils::shortest_angular_distance;
@@ -243,6 +245,17 @@ pub struct ChompSolution<'m> {
     /// reported separately here. See [`crate::optimizer::ChompObjective`] for
     /// that reading in full.
     pub objective: Option<ChompObjectiveProgress>,
+    /// What the optimizer's loop did to produce `trajectory`, or `None` when
+    /// `optimize` was never called.
+    ///
+    /// # Deviation: the same boundary, for the same reason
+    ///
+    /// Also no upstream counterpart. `improvement == 0` on this response has
+    /// several possible causes and they are not distinguishable from the
+    /// objective alone -- see [`crate::optimizer::ChompLoopTrace`], which
+    /// names each and the field that separates it. `PORTING-PLAN.md` §296
+    /// is the measurement that needed them separated.
+    pub loop_trace: Option<ChompLoopTrace>,
 }
 
 /// [`solve`]'s inputs, bundled to keep the function's own argument count
@@ -540,6 +553,7 @@ pub fn solve<'m>(
         // only one whose `best_group_trajectory_` is what `trajectory`
         // was filled from.
         objective: optimizer.objective(),
+        loop_trace: optimizer.loop_trace(),
     })
 }
 
