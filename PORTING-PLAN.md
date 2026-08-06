@@ -23082,11 +23082,57 @@ MoveIt은 이 분기를 고르지 않는다: 고정된 `e017c91ee` 체크아웃 
 한다: 바로 옆 `sphere × box` 동점은 동시에 `true`로 남아야 하기 때문이다.
 허용오차로 닫히지도 않는다(`bool`에는 없다).
 
-이 포트를 균일하게 만드는 것도 시도하지 않았고, 그 이유는 대안이 둘뿐이기
-때문이다 — 양의 예측값(상류에 크기를 잴 근거가 없는 엡실론이고, §229.2가
-이미 잰 양의 여유 위에 더 얹는 꼴이다), 아니면 쌍별 분기(두 라이브러리에서
-이 결함을 만들어낸 바로 그 구조다). `contact.dist <= 0.0` 게이트는
-§229.2가 이미 시도하고 되돌렸다(octree case 4가 깨진다).
+이 포트를 균일하게 만드는 것도 시도하지 않았고, 그 시점의 이유는 대안이
+둘뿐이라는 것이었다 — 양의 예측값(상류에 크기를 잴 근거가 없는 엡실론이고,
+§229.2가 이미 잰 양의 여유 위에 더 얹는 꼴이다), 아니면 쌍별 분기(두
+라이브러리에서 이 결함을 만들어낸 바로 그 구조다). `contact.dist <= 0.0`
+게이트는 §229.2가 이미 시도하고 되돌렸다(octree case 4가 깨진다).
+
+**그 "둘뿐"은 틀렸다. 셋째와 넷째가 있고, 둘 다 이번에 재서 죽었다.**
+근본 이유는 `parry`의 두 불리언 질의가 **양방향으로** 어긋난다는 것이다:
+
+| 쌍 | 간극 | `query::contact(_, 0.0)` | `query::intersection_test` |
+|---|---|---|---|
+| `sphere × sphere` 정확 접선 | 정확히 `0` | `None` | `true` |
+| octree 리프 면이 로봇 상자 면에 | `+4.129349354679189e-17` | `Some` | `false` |
+
+셋째는 `accumulate_collision`의 질의를 `query::intersection_test`로 바꾸는
+것이다. 엡실론도 쌍별 분기도 `dist <= 0.0` 게이트도 아니고, 25쌍 전부가
+접선에서 `true`가 되어 이 절이 지적한 비균일성을 실제로 닫는다. 그러나
+`intersection_test`는 정확히 "간극 `<= 0`"이라, 비균일성과 함께 §229.2의
+양의 여유까지 같이 없앤다. 바꿔서 돌린 결과는 `moveit-collision` 252건 중
+5건 실패이고 그중 하나가 `octree_world_object_collision_matches_the_oracle`의
+`id 4: robot_collision mismatch` — `dist <= 0.0` 게이트가 깼던 바로 그
+케이스다. 나머지 넷은
+`check_robot_collision_touching_exactly_on_an_octree_leaf_face_is_detected`,
+`the_collision_boundary_sits_in_a_positive_gap`, 그리고 이 절이 고정한 25셀
+표 두 개다. 위 표의 둘째 행이 그 이유를 한 줄로 말한다 — 그 octree 쌍의
+간극은 0이 아니라 리프 양자화 한 ulp만큼 **양수**이고, 상류는 그것을 충돌로
+부른다.
+
+넷째는 합집합
+(`query::contact(_, 0.0).is_some() || query::intersection_test`)이다. 여유를
+남긴 채 접선 셀만 뒤집으므로 돌려 보면 252건 중 251건이 통과하고 유일한
+실패가 고정 표의 `sphere x sphere: expected false, got true` — 이번 라운드가
+겨눈 그 한 셀이다. 그런데 그 셀에서 이 포트는 **설명할 `Contact`이 없는
+충돌**을 보고하게 되고, 상류는 그 상태를 만들 수 없다: `collisionCallback`의
+세 갈래 전부에서 `res_->collision = true`가 `if (num_contacts > 0)` 안에 있고
+(`moveit_core/collision_detection_fcl/src/collision_common.cpp:269`,
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:332`,
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:367`), 그중 첫
+갈래는 접촉마다 한 번씩 도는 `DecideContactFn` 호출
+(`moveit_core/collision_detection_fcl/src/collision_common.cpp:243-247`)을
+지나서만 거기에 닿는다. 접촉 없이 `collision`만 세우는 가지는
+`AllowedCollision::Conditional`을 통째로 건너뛰므로, 오늘의 `false`를 잘못된
+`true`로 바꾸는 경우를 새로 만든다.
+
+그래서 이번 라운드는 셀을 바꾸지 않았다. 겹치는 48셀의 어긋남도 6건
+그대로다 — 포트 쪽 16셀 × 3오프셋은
+`exact_tangency_is_decided_per_shape_pair.rs`가 그대로 초록이고, 오라클 쪽
+§251.2의 측정값은 다시 재지 않았다(이번 변경이 프로덕션 코드를 건드리지
+않으므로 움직일 수 있는 쪽이 아니다). 두 방향의 측정은 `parry.rs`의
+`parry_boolean_queries_disagree_in_both_directions_at_the_tie`가 고정하며,
+네 단언이 각각 자기 메시지로 실패하는 것을 격리 변이 4건으로 확인했다.
 
 `doc/upstream-bugs.md`에는 `shape-intersect-tangency-follows-libccd-dispatch`로
 넣었고 상태는 `not-reproduced`다. **결함이 맞다**고 판정한 근거는
@@ -23125,8 +23171,9 @@ MoveIt은 이 분기를 고르지 않는다: 고정된 `e017c91ee` 체크아웃 
 
 ### §251.6 이 절이 하지 않은 것
 
-- `sphere × sphere` 셀을 상류에 맞추지 않았다. 위에 적은 두 대안 모두
-  받아들일 수 없어서이고, 고정 테스트가 오늘의 답을 잡고 있다.
+- `sphere × sphere` 셀을 상류에 맞추지 않았다. §251.4에 적은 대안 넷이
+  모두 받아들일 수 없어서이고(셋째·넷째는 재서 죽었다), 고정 테스트가
+  오늘의 답을 잡고 있다.
 - `Plane`/`Halfspace`(무한)와 `OcTree`(이미 `box`가 덮는 직육면체 합성)는
   25쌍에서 뺐다. 상류 49셀 쪽에서는 `plane`/`halfspace`/`triangle` 행을
   빼고 7종만 쟀다 — fcl 표의 나머지 세 행은 전부 특수화가 채워져 있어
