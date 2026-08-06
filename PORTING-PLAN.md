@@ -30959,3 +30959,266 @@ in-repo `.md` 문서 자신의 줄이다. 남는 2110건은 지시 대상이
 언급하는 바람에 키가 은퇴하지 않고 3x → 2x로 다시 세어져 `recounted`가 됐다 —
 실패 범주만 바뀌고 하드 실패인 것은 같다. 이 절 자신이 코퍼스의 일부라는
 사실이 이 절의 숫자를 바꾼 두 번째 사례다(첫째는 §289.8).
+
+## §NEW span 클래스의 C++ 문법 — 데이터 멤버가 정의 스팬을 갖고, 옮기지 않기로 한 세 규칙은 실측으로 뺐다 (2026-08-07)
+
+§289가 세 번째 클래스를 넣은 뒤에도 통과 줄의 절반 가까이는 여전히
+bounds-only다 — 2622건 중 **1141건**. bounds-only는 "이 숫자가 파일 줄 수보다
+작다"만 주장한다. 400줄 밀려 무관한 코드를 가리키는 인용도 bounds-only이고
+초록이다. 클래스 기준선이 잡는 것은 *강등*이지, 처음부터 틀린 채 평생
+bounds-only였던 인용이 아니다.
+
+자매 게이트가 그 사이에 rule 0을 갖췄다: 인용 문장이 이름 대는 항목의 **진짜
+스팬**에 대해 이진으로 판정하고, "판단할 수 없었다" 통은 두지 않는다 — 그
+통이 이미 bounds-only이기 때문이다. 이 절은 그 C++ 쪽이다. 옮긴 것은 하나이고,
+옮기지 않기로 한 것이 셋인데 셋 다 **재보고 뺐다**.
+
+### §NEW.1 없던 것은 항목 문법이었다
+
+`symbol_spans`가 알아보던 것은 함수(중괄호 정합), 헤더의 몸통 없는 선언,
+그리고 `TAG_RE`의 `class`/`struct`/`union`/`enum`뿐이다. 데이터 멤버와 상수는
+없었다. 그래서 `OCTOMAP_NS`·`config_settings_`·`planner_map_`·`node_`·
+`max_contacts_per_pair`·`DEFAULT_MAX_SAMPLING_ATTEMPTS`처럼 코퍼스가 실제로
+인용을 붙이는 이름들이 "안에 있을 스팬"을 갖지 못했다. `why_bounds_only`가
+"tightly paired name has no definition span in the file (field, macro, alias,
+namespace)"로 세던 **14건**이 그것이다.
+
+문법은 코퍼스의 실제 줄에서 읽었다. `PlanningScene::OCTOMAP_NS`
+(`planning_scene.hpp:113`)는 `static const std::string OCTOMAP_NS;`,
+`PlannerManager::config_settings_` (`planning_interface.hpp:210`)는
+`PlannerConfigurationMap config_settings_;`,
+`CollisionRequest::max_contacts_per_pair`
+(`collision_detection/collision_common.hpp:176`)는
+초기화자가 붙은 `std::size_t max_contacts_per_pair = 1;`,
+`ConstraintSampler::DEFAULT_MAX_SAMPLING_ATTEMPTS` (`constraint_sampler.hpp:64`)는
+`static const unsigned int ... = 2;`, `COL_CHECK_DISTANCE`
+(`cost_functions.hpp:59`)와 `DEFAULT_MAX_PROPOGATION_DISTANCE`
+(`collision_env_distance_field.hpp:55`)는 파일 스코프 `constexpr`/`static const`다.
+
+**헤더에 한해서다.** 몸통 없는 `Type name(args);`가 헤더에서만 선언으로
+기록되는 것과 같은 이유로 — `.cpp`에서 이 모양은 지역 변수다. `benchmarks`
+(`BenchmarkExecutor.cpp:1012`)가 그 증거다: 그 줄은 `for` 몸통이고, `double
+benchmarks;`는 40줄 위에 있다. 지역에 스팬을 주면 인용 문장이 뜻하지 않은
+이름에 대한 확신 있는 판정이 나온다.
+
+### §NEW.2 헤더 안의 지역도 걸러야 했다 — 이름에 기대면 새는 자리
+
+헤더에도 인라인 몸통이 있고 그 안의 선언은 `.cpp`와 같은 지역이다. 처음에는
+이미 기록된 `fn` 스팬으로 걸렀는데, 그 목록은 **이름이 `CXX_KEYWORDS`를
+통과한 것만** 담는다. `eigen_test_utils.hpp:65`의 `std::stringstream msg;`가
+정확히 그 구멍이다 — 감싸는 몸통의 머리가 `operator()`이고 `operator`는
+키워드라 `fn` 스팬이 없다. 그래서 `msg`가 헤더에서 "member" 스팬을 얻었다.
+
+구조로 닫았다: `NAME(...) { ... }` 블록은 이름이 키워드든 아니든 전부
+`blocks`에 모으고, 멤버 규칙은 그 블록 목록으로 거른다. 클래스 몸통은
+`NAME(...)` 블록이 아니므로 멤버를 가리지 않는다. 코퍼스 전체에서 member
+스팬은 헤더 430개에 걸쳐 2361 → **2334**로 줄었고(지역 27건), 이 변경으로
+클래스가 바뀐 인용은 0건이다 — 오늘 새는 인용이 없었다는 뜻이지, 규칙이
+필요 없었다는 뜻이 아니다.
+
+### §NEW.3 옮기지 않은 것 1 — doc 블록 확장. 승격 0, 오탐 1
+
+자매의 실측은 "선언 줄만 68 mismatch, 항목 스팬 34, 항목 스팬+doc/attrs 4"였고
+차이의 대부분이 doc 주석을 옳게 가리키는 인용이었다. C++에서는 doc 블록이
+스팬에서 빠져 있을 뿐 아니라 **보이지도 않는다** — `mask_non_code`가 주석을
+공백으로 지우므로 `_stmt_start_line`은 `/** ... */`를 빈 줄로 읽고 거기서
+멈춘다. 그래서 Doxygen(`///`·`//!`·`/** */`·`/*! */`)만 위로 흡수하도록
+구현하고 재봤다.
+
+| | 승격 | span-mismatch |
+|---|---|---|
+| doc 확장 켬 | 12 | 2 |
+| doc 확장 끔 | 12 | 1 |
+
+승격은 한 건도 늘지 않았고, 늘어난 실패 1건은 **옳은 인용**이었다:
+`distanceToCollisionUnpadded`의 첫 오버로드 `planning_scene.hpp:553-557`은
+그 함수의 첫 줄부터 닫는 중괄호까지 정확히 일치하는데, 위의 `/** \brief */`가
+스팬에 붙는 순간 "정확히 하나의 정의"이기를 그만둔다.
+
+이유는 구조적이고, 자매와 이쪽이 다른 지점이다. rule 0의 판정은 **포함**이다
+(인용된 줄들이 zone 안에 있는가). 이쪽 `part_verdict`의 판정은 **정확성**이다
+(`starts_a_span`·`ends_a_span`·`(lo,hi) in all_file_spans`). 포함 판정에서는
+스팬을 위로 넓히면 통과가 늘고, 정확성 판정에서는 정확했던 인용이 부정확해진다.
+같은 규칙이 반대 방향으로 작동한다. 규칙째로 뺐다.
+
+### §NEW.4 옮기지 않은 것 2 — 콤마 목록의 부분별 판정. 실패 5건 중 4건이 옳은 인용
+
+rule 0은 콤마 목록도 판정한다. 이쪽은 "콤마 목록은 자리를 열거할 뿐 포함을
+주장하지 않는다"며 bounds-only로 둔다(64건). 옮겨서 `part_verdict`를 원소마다
+돌려 봤다 — **5건 실패, 그중 4건이 옳은 인용**이었다.
+
+| 인용 | 실제 내용 | 판정 |
+|---|---|---|
+| `collision_env_hybrid.cpp:49,61,69,169` | 생성자 base-init 3개 + `CollisionEnvFCL::setWorld` 호출 1개 | 옳다 |
+| `time_optimal_trajectory_generation.cpp:321,327,333` | `getConfig`/`getTangent`/`getCurvature` **세 함수**의 `getPathSegment` 호출 자리 | 옳다 |
+| `move_group_interface.hpp:732,741,750,759` | `asyncExecute` 선언 2개 + `execute` 선언 2개 | 옳다 |
+| `planning_interface.hpp:56-72,193` | 설정 구조체 + 그것을 받는 메서드 선언 | 옳다 |
+| `planning_pipeline.hpp:261-264` | §NEW.7 — 진짜 드리프트 |
+
+콤마 목록에서 인접한 이름은 **주어**이지 각 원소를 담는 것이 아니다. 네 건 다
+문장이 두 개 이상의 이름을 대고, 인접성 규칙이 닿는 것은 그중 하나뿐이다.
+포함 주장을 하는 것은 단일 범위 인용뿐이라는 원래 판단이 맞았고, 이제는
+예시 하나가 아니라 실측이 그것을 받친다.
+
+### §NEW.5 옮기지 않은 것 3 — namespace. 스팬이 파일 전체라 주장이 공허해진다
+
+bounds-only 통의 이름이 "field, macro, alias, namespace"이므로 넷을 다 봤다.
+`namespace`는 재보기 전에 뺐고, 이유는 측정이 아니라 구조다: namespace 스팬은
+파일 전체를 덮으므로 "인용된 줄이 그 안에 있다"가 파일 안의 어느 줄에서나
+참이 된다. 남은 bounds-only 중 `moveit_servo` (`collision_monitor.cpp:124`)가
+정확히 그 모양이고, 그 줄은 `checkCollision` 몸통 안이다. 승격시킬 수는
+있으나 그것은 침묵을 없애는 것이 아니라 옮기는 것이다.
+
+`macro`와 `alias`는 구현하지 않았다. 멤버 규칙을 넣은 뒤 이 통에 남은 7건 중
+매크로도 별칭도 없기 때문이다 — 남은 것은 열거 상수 2건(`shapes::MESH`,
+`AllowedCollision::NEVER`, 둘 다 인용된 `.cpp`가 아니라 헤더에서 정의된다),
+namespace 1건, `.cpp` 지역 1건, 헤더에 정의된 클래스를 `.cpp`에서 인용한 1건,
+Rust 이름 1건, 그리고 §NEW.9의 잘못 귀속된 맨 needle 1건이다. 코퍼스가 쓰지
+않는 항목 종류를 알아보게 만드는 것은 규칙이 아니라 장식이다.
+
+### §NEW.6 측정 — 클래스별로 움직인 행 전부
+
+| | span-verified | content-verified | bounds-only | 합 | 키 |
+|---|---|---|---|---|---|
+| 전 (`fadb9718`) | 202 | 1279 | 1141 | 2622 | 2367 |
+| 후 | **215** | 1273 | **1134** | 2622 | 2367 |
+
+promoted 13 / demoted 0 / recounted 0 / retired 1 / undeclared 1.
+
+은퇴 1건과 미신고 1건은 같은 파일에서 1:1로 짝을 이룬다 —
+`crates/moveit-planner-registry`의 모듈 머리 주석에서
+`planning_pipeline.hpp:261-264`가 은퇴하고 `planning_pipeline.hpp:262-263`이
+도착한 것, 즉 §NEW.7의 인용 수정이다. 그 커밋에서 기준선의 해당 행 하나를
+손으로 옮기고 **바뀌지 않은 게이트로** 초록을 확인했으므로, 중간 커밋이 붉게
+남지는 않는다.
+
+승격 13건의 출처: bounds-only → span-verified **7건**, content-verified →
+span-verified **6건**.
+
+| 문서 | 인용 | 전 → 후 |
+|---|---|---|
+| PORTING-PLAN.md | `constraint_sampler.hpp:64` | bounds-only → span |
+| crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md | `collision_detection/collision_common.hpp:176` | bounds-only → span |
+| crates/moveit-collision/examples/visibility_cone_mpr_sweep.rs | `collision_detection/collision_common.hpp:176` | bounds-only → span |
+| crates/moveit-planner-registry/src/lib.rs | `planning_pipeline.hpp:263` | bounds-only → span |
+| crates/moveit-planners-sbp/src/registry.rs | `planning_interface.hpp:210` | bounds-only → span |
+| crates/moveit-planning/src/pipeline.rs | `planning_pipeline.hpp:257` | bounds-only → span |
+| ros/moveit-ros/src/scene/collision_object.rs | `planning_scene.hpp:113` | bounds-only → span |
+| crates/moveit-planner-registry/src/lib.rs | `planning_pipeline.hpp:262-263` | content → span |
+| crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs | `collision_env_distance_field.hpp:55` | content → span |
+| crates/moveit-planners-stomp/src/cost_functions.rs | `cost_functions.hpp:59` | content → span |
+| crates/moveit-planners-stomp/src/cost_functions.rs | `cost_functions.hpp:60` | content → span |
+| crates/moveit-planning/src/pipeline.rs | `planning_pipeline.hpp:259` | content → span |
+| ros/moveit-ros/doc/message-mapping.md | `planning_scene.hpp:113` | content → span |
+
+열세 건 전부 인용된 줄을 열어 확인했다. content → span 여섯 건은 "문장이
+인용한 텍스트가 그 줄에 있다"에서 "그 줄이 이름 댄 상수/멤버의 정의다"로
+올라간 것이므로 등급이 아니라 검사 내용이 바뀐 것이다.
+
+bounds-only의 구성은 한 통만 움직였다:
+
+| 무엇이 있어야 검증되는가 | 전 | 후 |
+|---|---|---|
+| 인용 60자 앞에 backtick 이름이 없다 | 987 | 987 |
+| 이름은 있으나 사이에 낱말이 있다 (가리킴이 아니라 그것에 대한 산문) | 74 | 74 |
+| 다부분 spec — 자리를 열거할 뿐 포함 주장이 없다 | 64 | 64 |
+| 짝지어진 이름에 파일 안 정의 스팬이 없다 | **14** | **7** |
+| 짝지어진 이름이 `NOT_A_SYMBOL` 불용어다 | 2 | 2 |
+
+### §NEW.7 게이트가 찾아낸 진짜 드리프트 — 1건
+
+`crates/moveit-planner-registry`의 모듈 머리 주석이 적고 있던 범위는
+`planning_pipeline.hpp:261-264`였다. 그 주석은 `planner_plugin_loader_`와
+`planner_map_` 두 멤버를 이름 댄다. 261은 `// Planner plugin` 구획 주석이고
+264는 빈 줄이다. 두 멤버는 262와 263에 있다.
+`planner_map_`이 멤버 스팬을 갖게 되자마자 실패로 나왔고, 그 인용만이 이번
+회차에서 실패한 유일한 인용이다.
+
+같은 헤더로 가는 인용 13건을 전수로 훑었다: 단일 멤버를 정확히 짚는
+`planning_pipeline.hpp:257`·`planning_pipeline.hpp:259`·`planning_pipeline.hpp:263`
+셋은 이번에 span-verified로 올라갔고,
+나머지는 함수 범위이거나, `doc/claim-audit/moveit-planning.md`가 **반박하기
+위해** 인용해 둔 옛 오인용이다. 고칠 자리는 하나뿐이었다.
+
+고친 뒤에도 한 번 더 실패했는데, 그 실패가 규칙의 빈 곳을 짚었다:
+`262-263`은 인접한 두 정의를 정확히 덮지만 인접성 규칙이 닿는 이름은
+`planner_map_`(263) 하나이므로 범위가 그 스팬보다 한 줄 위에서 시작한다.
+`contiguous_run_end`는 이미 "인접한 쌍이 이름을 공유할 필요는 없다"는
+이유로 파일의 모든 정의를 걷지만, **닻의 스팬에서 시작할 때만** 진입한다.
+반대편에서 들어오는 같은 주장을 더했다 — 양끝이 각각 어떤 정의의 경계에
+정확히 닿고, 사이의 간극이 원본 파일에서 빈 줄뿐이며, 이름 댄 심볼의 정의가
+그 run의 구성원일 것. 관용이 아니라 대칭이다: `getCostSources`의
+`planning_scene.cpp:2451-2490`은 여전히 실패한다(2490은 어느 정의의 마지막
+줄도 아니다).
+
+### §NEW.8 residual 1 — 역사 인용은 같은 사다리에 있다. 거짓이었던 것은 머리말이다
+
+`classify_citation`은 몸통이 하나이고 호출자가 둘이며(살아 있는 인용은 HEAD의
+파일, 역사 인용은 자기 리비전의 blob), 두 경로 모두 `classify`로 클래스를
+기록한다. `anchor_verified + content_verified + bounds_only`와 기록된 행 수가
+다르면 그 자체로 하드 실패다. 그러므로 사다리에 더한 클래스는 양쪽에 닿는다 —
+읽어서 확인했고, 기준선에 역사 행이 **26건**(그중 span-verified 7건) 있는
+것으로 다시 확인했다.
+
+거짓이었던 것은 `--write-classes`가 쓰는 머리말이다. "Historical `path@rev:NNN`
+citations are not here"라고 적혀 있었는데 26건이 거기 있었다. §289.9가 역사
+인용을 사다리에 넣으면서 `SPAN_VERIFIED` 위의 주석은 고쳤고 머리말은 남긴
+것이다. 고쳤다.
+
+멤버 스팬이 역사 인용의 클래스를 바꾸지는 않았다. 역사 인용 39건이 가리키는
+`oracle.cpp`는 `.cpp`이고 멤버 규칙은 헤더에만 적용되기 때문이다.
+
+### §NEW.9 residual 2 — span 작업은 버려진 맨 needle에 손잡이를 주지 않는다. 대신 반대쪽을 쟀다
+
+**주지 않는다.** span 판정은 *해결된 파일*이 있어야 스팬을 계산한다. 버려진
+맨 `` `:NNN` ``은 해결된 파일이 없어서 버려진 것이므로, span 규칙은 해결
+문제의 하류에 있고 거기에 기여할 수 없다. §289.7이 적은 구조적 필터가 여전히
+그 문제의 유일한 기계다.
+
+대신 이번 측정이 **반대쪽**을 드러냈다. 게이트가 *버리는* needle이 아니라
+*주장하는* needle 쪽이다. 통과 줄의 2622건 중 **469건**이 맨 `` `:NNN` ``
+이어받기로 파일을 얻는다. 그 469건 중 **287건**은 같은 줄이 `.rs` 파일도
+인용하는 줄에 있다. 여섯 건을 열어 봤고 그중 **여섯 건 전부**가 상류 파일로
+귀속돼 있는데 뜻은 이 저장소의 `.rs` 파일이었다:
+
+- `doc/claim-audit/moveit-scene.md`의 `path_cost_sources` 행에서, "이전에는
+  scene.rs 1852-1867을 인용했고 다섯 항목 중 첫째만 닿는다"는 문장이 뒤에
+  다는 다섯 개의 맨 needle. 그 줄들은 `crates/moveit-scene/src/scene.rs`의
+  doc 항목이다. 같은 줄 앞쪽에서 `planning_scene.cpp`를 **언급**한 것이
+  base를 잡아 두었고, 문장이 포트 쪽으로 돌아설 때 그것을 놓아주는 토큰이
+  없다.
+- 같은 파일의 `knowsFrameTransform` 행에서 "…의 자기 텍스트는
+  `PlanningScene::knows_frame_transform`이라고 읽는다"가 다는 맨 needle 하나.
+  역시 `scene.rs`다.
+
+여섯 건 다 문서 쪽은 옳다 — 틀린 것은 게이트의 귀속이다. 그리고 이것은
+`tools/ci/check-shorthand-citations.py`가 자기 머리말에서 **반증된 규칙으로
+기록해 둔** 바로 그 추측이다("nearest preceding full citation of any
+extension, in reading order" — 그 게이트의 반증 사례 3번이 `message-mapping.md`
+의 한 문장 안에서 좌표계가 교대하는 것이다). 한 저장소의 두 게이트가 같은
+질문에 정반대 입장을 갖고 있고, 추측하는 쪽이 469건을 보증한다.
+
+고치지 않았다. 문서 여섯 건을 전체 철자로 바꾸는 것은 이 회차가 여는 결함
+가족의 **6/287**이고, 부분 수정은 가족이 닫힌 것처럼 읽힌다. 건전한 해결
+규칙은 없다 — 더 엄격한 "맨 needle은 완전한 *인용*에서만 이어받는다"를 그
+줄에 대 보면, 잘못된 다섯 건을 살리는 대신 같은 줄에서 옳은 다섯 건
+(`planning_scene.cpp:2472`로 시작해 `planning_scene.cpp:2490`으로 끝나는
+다섯 개)을 잃는다. 자매 게이트의 결론과 같다: 지배하는 경로는 어휘가 아니라 담화의
+사실이다. 남은 281건은 열어 보지 않았다.
+
+### §NEW.10 게이트 상태
+
+`tools/ci/verify-upstream-citations.sh`: 2622건 / 378개 문서, span-verified
+215 / content-verified 1273 / bounds-only 1134, out-of-bounds 0,
+obsolete-header 0, span-mismatch 0, unreadable-historical 0, demoted 0,
+recounted 0, undeclared 0, retired 0. 기준선은 다시 얼렸다.
+
+이 절 자신의 인용 37건이 코퍼스에 더해지므로 커밋된 트리의 통과 줄은
+2659건 / 2385키, span-verified 218 / content-verified 1280 / bounds-only
+1161이다 — §289.8이 적은 것과 같은 자기지시이고, §NEW.6의 표는 그 이전
+트리에서 잰 것이다.
+
+`third_party/`는 gitignore 대상이라 caucus worktree에 오지 않는다. 이 절의
+측정은 `THIRD_PARTY_SRC`를 벤더된 다섯 루트가 실제로 있는 경로로 넘겨서 냈다.
+그 다섯은 이 저장소의 내용이 아니라 리비전이 박힌 외부 체크아웃이고, 게이트
+자신이 SHA를 대조하므로 잘못된 리비전이면 하드 실패한다.
