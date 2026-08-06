@@ -117,4 +117,4 @@ done
 # silently prefer one.
 sources+=(--source "=$REPO_ROOT")
 
-./tools/ci/measure-upstream-citations.py --upstream "$MOVEIT2_SRC" "${sources[@]}"
+./tools/ci/measure-upstream-citations.py --upstream "$MOVEIT2_SRC" "${sources[@]}" "$@"
