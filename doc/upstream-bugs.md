@@ -2452,7 +2452,7 @@ request (`PORTING-PLAN.md` §239.3, `crates/moveit-scene/src/scene.rs:566-576`).
 
 **Upstream:** `moveit_core/collision_detection_fcl/src/collision_common.cpp:574`
 (`dist_threshold = cdata->res->minimum_distance.distance;` — the `GLOBAL`
-branch), `:594` (`fcl_result.min_distance = dist_threshold;`), `:602`
+branch), `:594` (`fcl_result.min_distance = dist_threshold;`), `:603`
 (`double distance = fcl::distance(o1, o2, ...)`), `:608` (`if (distance <
 dist_threshold)`), `:663` (`dist_result.distance =
 -contact.penetration_depth;`) and `:694` (`if (dist_result.distance <
