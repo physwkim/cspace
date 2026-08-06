@@ -1576,12 +1576,25 @@ read this round, not assumed.
 Orphan count over this round, from `python3
 tools/ci/reconcile-assertion-ledgers.py`: 47 orphans + 8 unresolved at the
 merge base, 47 + 7 after `9515aa4`'s citation fix, 39 + 7 after this
-section. The remaining 39 orphans (`ros/moveit-ros/src/scene/planning_scene.rs`
-19, `ros/moveit-ros/src/planning.rs` 10, `ros/moveit-ros/src/state.rs` 7,
-`ros/moveit-ros/src/constraints/orientation.rs` 2,
-`ros/moveit-ros/src/scene/shapes.rs` 1) and all 7 remaining unresolved
-citations are p9-ros's, live in another worktree this round and
-deliberately untouched here.
+section. The 39 remaining then, and the 7 remaining unresolved, were all
+p9-ros's — live in another worktree this round and deliberately untouched
+here.
+
+Re-measured after this section merged (`f728b15`, which also carries
+p9-ros's own half): **32 orphans, 0 unresolved**, none in
+`crates/moveit-planning`. The 32 are `ros/moveit-ros/src/scene/planning_scene.rs`
+19, `ros/moveit-ros/src/planning.rs` 10,
+`ros/moveit-ros/src/constraints/orientation.rs` 2 and
+`ros/moveit-ros/src/scene/shapes.rs` 1 — still p9-ros's, still not this
+ledger's to close. Neither of the two gates that report them
+(`tools/ci/verify-orphan-enumeration.sh`,
+`tools/ci/check-citation-drift.py`) runs in CI: `.github/workflows/ci.yml`'s
+"ci checks" step globs `tools/ci/check-*.sh`, which matches neither a
+`verify-`-prefixed script nor a `.py`. `tools/ci/verify-clean-checkout.sh`
+therefore exits `0` — truthfully, it runs the ci.yml steps — while both of
+these are red. Reported here rather than fixed: wiring them in turns `main`
+red for every panel at once, which is the merger's call, not a side effect
+of an orphan round.
 
 `doc/assertion-discrimination-orphans.txt` is **not** regenerated. Its
 header still reads 770 sites / 0 orphans against source commit
