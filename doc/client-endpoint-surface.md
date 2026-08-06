@@ -47,14 +47,14 @@ a read of the handler or a run of the node. `absent` is the whole of (c).
 | `check_state_validity` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:604` | surplus |
 | `compute_cartesian_path` | calls | service server | -- | absent |
 | `execute_trajectory` | calls | action server | -- | absent |
-| `get_planner_params` | calls | service server | `ros/moveit-ros/src/planner_params.rs:337` | bound |
+| `get_planner_params` | calls | service server | `ros/moveit-ros/src/planner_params.rs:357` | bound |
 | `joint_states` | subscribes | publisher | -- | absent |
 | `move_action` | calls | action server | `ros/moveit-ros/src/bin/move_group.rs:569` | bound |
 | `plan_kinematic_path` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:553` | surplus |
 | `planning_scene` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:592` | surplus |
-| `query_planner_interface` | calls | service server | `ros/moveit-ros/src/planner_params.rs:331` | bound |
+| `query_planner_interface` | calls | service server | `ros/moveit-ros/src/planner_params.rs:351` | bound |
 | `robot_description` | reads | parameter or latched publisher | -- | absent |
-| `set_planner_params` | calls | service server | `ros/moveit-ros/src/planner_params.rs:340` | bound |
+| `set_planner_params` | calls | service server | `ros/moveit-ros/src/planner_params.rs:360` | bound |
 | `trajectory_execution_event` | publishes | subscriber | -- | absent |
 
 ## Every public declaration
