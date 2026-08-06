@@ -30425,7 +30425,7 @@ span-mismatch로 빨개졌고, 나머지 네 건은 bounds-only라 7040도 6748�
 ### §NEW.9 게이트 상태
 
 `tools/ci/verify-upstream-citations.sh`는 이제 다섯 번째 루트로 이 저장소를
-색인한다. 통과 줄: 인용 2577건, span-verified 193, bounds-only 2384,
+색인한다. 통과 줄: 인용 2578건, span-verified 193, bounds-only 2385,
 맨 `:NNN` 연속으로 닿은 것 469, 역사 19, unresolvable 60건(전부 선언됨,
 `oracle`/`probe`는 이제 그 목록에 없다), out-of-bounds 0, obsolete-header 0,
 span-mismatch 0, stale-declaration 0, unreadable-historical 0.
