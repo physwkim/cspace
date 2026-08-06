@@ -59,6 +59,14 @@ moveit-scene = { path = "../../crates/moveit-scene" }
 moveit-collision = { path = "../../crates/moveit-collision" }
 moveit-octomap = { path = "../../crates/moveit-octomap" }
 
+# For `registry::PLANNER_MANAGERS`, which `src/planner_params.rs` derives
+# `query_planner_interface`'s answer from -- upstream builds the same answer
+# by walking its `pluginlib`-loaded planner managers, and a hand-written list
+# here would go stale the moment a manager is registered. This binary's own
+# module doc already recorded that adding this dependency is defensible while
+# writing the D8 planner adapter here is not; this is the former.
+moveit-planners-sbp = { path = "../../crates/moveit-planners-sbp" }
+
 # For nalgebra's own constructors (Isometry3::from_parts, Translation3::new,
 # UnitQuaternion::new_normalize): moveit-geometry re-exports nalgebra's types
 # as plain aliases (`pub type Isometry3 = nalgebra::Isometry3<f64>`), not

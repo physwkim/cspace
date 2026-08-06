@@ -68,6 +68,7 @@ mod conversion_coverage;
 pub mod constraints;
 pub mod geometry;
 pub mod model;
+pub mod planner_params;
 pub mod planning;
 pub mod scene;
 pub mod state;
