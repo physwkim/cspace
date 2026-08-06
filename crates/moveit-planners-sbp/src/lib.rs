@@ -41,9 +41,10 @@
 //!   real `moveit_scene::PlanningScene` collision/constraint check.
 //! - [`nn`] — [`Gnat`], the nearest-neighbour index.
 //! - `rrt_connect` — bidirectional RRT-Connect.
-//! - [`registry`] — [`registry::PlannerManager`]/[`registry::PlanningContext`]
-//!   and the [`registry::PLANNER_MANAGERS`] compile-time registry (D4),
-//!   plus [`registry::RrtConnectManager`], the one registered planner.
+//! - [`registry`] — [`registry::RrtConnectManager`], this crate's
+//!   [`moveit_planning::PlannerManager`] implementation, and its
+//!   registration into `moveit_planner_registry::PLANNER_MANAGERS`, the
+//!   compile-time registry D4 puts in place of pluginlib.
 //!
 //! # Why properties, not an oracle
 //!
@@ -65,55 +66,38 @@
 //!
 //! Every number below is a command someone can re-run.
 //!
-//! **`planning_interface.hpp`** (this crate's only upstream C++ header —
-//! see "Round 6 symbol audit" immediately below for why the other six
-//! modules have none to audit against):
+//! **`planning_interface.hpp`** (this crate's only upstream C++ header):
+//! its 25 public declarations are no longer audited here. D8 moved
+//! `PlannerManager`/`PlanningContext` — and with them
+//! `PlanningRequest`/`PlanningResponse` — into `moveit-planning`, so the
+//! symbol-by-symbol accounting for that header lives in
+//! `moveit_planning::planner`'s module doc, next to the traits it is about.
+//! Duplicating it here would leave two copies to drift.
+//!
+//! What this crate still owes against that header is what an *implementor*
+//! owes, and it is the "Round 6 symbol audit" section below:
 //!
 //! ```text
-//! awk '/^\/\/! ## `PlannerConfigurationSettings`/,0' \
+//! awk '/^\/\/! What remains this crate.s own, from that header:/,0' \
 //!   crates/moveit-planners-sbp/src/lib.rs | rg -c '^//! - '
 //! ```
 //!
-//! is **18**: **17** declaration bullets — one per upstream declaration, or
-//! per matched sibling overload/accessor pair audited together (e.g.
-//! `getGroupName()`/`getName()` on one line) — plus the audit's closing
-//! `Not upstream:` bullet for [`registry::PlannerManager::name`], which no
-//! upstream declaration corresponds to. Anchored on the audit's first `##`
-//! subheading, not on a line range: the range this used to cite
-//! (`sed -n '126,203p'`) counted 18 correctly when written at `e5f0bf7` and
-//! counted **0** by the time later doc sections had pushed the audit down to
-//! `:289`, so the number it vouched for was unreproducible by its own
-//! command. Those 17 bullets account for all **25** public
-//! declarations in
-//! `/home/stevek/work/moveit2/moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp`:
-//! `PlannerConfigurationSettings`/`PlannerConfigurationMap` (2, audited as
-//! one struct-level unit — this port's D4 exclusion is of the whole
-//! stringly-typed config bag, not field-by-field), `PlanningContext`'s 12
-//! public members (ctor, dtor, `getGroupName`, `getName`,
-//! `getPlanningScene`, `getMotionPlanRequest`, `setPlanningScene`,
-//! `setMotionPlanRequest`, `solve` x2, `terminate`, `clear`), and
-//! `PlannerManager`'s 11 (ctor, dtor, `initialize`, `getDescription`,
-//! `getPlanningAlgorithms`, `getPlanningContext` x2, `canServiceRequest`,
-//! `setPlannerConfigurations`, `getPlannerConfigurations`, `terminate`).
-//! **22** of the 25 are `unported` (D1/D2/D4/structural, one reason per
-//! bullet); the remaining **3** are ported — `solve`'s two overloads
-//! collapsed into one [`registry::PlanningContext::solve`], and
-//! `getPlanningContext(scene, req, error_code)` ported as
-//! [`registry::PlannerManager::get_planning_context`] (its
-//! error-code-ignoring sibling overload stays unported, Rust's `Result`
-//! already spelling "ignore the error" at the call site). Re-derive the 25
-//! by reading the header at that path directly; nothing here parses it
-//! automatically.
+//! is **4** — `PlannerConfigurationSettings`/`PlannerConfigurationMap`,
+//! `getDescription`, `getPlanningAlgorithms`, `canServiceRequest`: the four
+//! declarations whose disposition depends on the concrete manager rather
+//! than on the trait. Anchored on the section's own opening sentence, not on
+//! a line range: the range this used to cite (`sed -n '126,203p'`) counted
+//! correctly when written and counted **0** once later doc sections pushed
+//! the audit down the file, so the number it vouched for was unreproducible
+//! by its own command.
 //!
 //! **Tests.** `cargo nextest run -p moveit-planners-sbp --no-fail-fast`:
-//! **110** tests, 110 passed, `0.93s`. Re-measured here rather than carried
-//! forward: this read **94** from round 18 (`e95b1e5`, itself a correction
-//! of a stale 93), and 16 tests landed in the rounds after it —
-//! `git grep -c '#[test]' <rev> -- crates/moveit-planners-sbp/src
-//! crates/moveit-planners-sbp/tests` sums to `94` at `e95b1e5` and `110` at
-//! `7572123`, matching what `nextest` runs today. A count no later round
-//! re-runs ages in place, so the command above is the authority and the
-//! number beside it is only its last reading.
+//! **112** tests, 112 passed, `0.89s`. Re-measured here rather than carried
+//! forward: this read **110** before D8, which added two — the
+//! all-empty-goal-list rejection and the any-of ordering rule, both
+//! boundaries that did not exist while a goal was one concrete state. A
+//! count no later round re-runs ages in place, so the command above is the
+//! authority and the number beside it is only its last reading.
 //! There is no oracle comparison for this crate at
 //! all (see "Why properties, not an oracle" above) — every test is a
 //! property or boundary check instead. The one property common to every
@@ -307,88 +291,39 @@
 //!   all** (D3, see the top-of-file comment) — there is no OMPL header in
 //!   this workspace to audit them against, so they are out of scope for a
 //!   symbol-closure audit by construction, not by omission.
-//! - [`registry`]'s [`registry::PlannerManager`]/[`registry::PlanningContext`]
-//!   *do* have an upstream counterpart —
-//!   `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp`
-//!   — read directly for this audit. Every symbol below:
+//! - [`registry`]'s `RrtConnectManager` implements
+//!   [`moveit_planning::PlannerManager`], whose upstream counterpart is
+//!   `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp`.
+//!   That header's symbol-by-symbol audit lives with the trait, in
+//!   `moveit_planning::planner`'s own module doc, not duplicated here:
+//!   until D8 this crate declared its own `PlannerManager`/
+//!   `PlanningContext`/`PlanningRequest`/`PlanningResponse` set and so
+//!   owed the audit; it no longer declares any of them.
 //!
-//! ## `PlannerConfigurationSettings` / `PlannerConfigurationMap`
+//! What remains this crate's own, from that header:
 //!
-//! - Both -> unported: a stringly-typed `HashMap<String, String>` plugin
-//!   config bag for a runtime plugin-loading boundary this crate doesn't
-//!   have (D4: [`registry::PLANNER_MANAGERS`] is a compile-time registry).
-//!   [`registry::PlanningRequest::params`]/[`registry::PlanningRequest::resolution`]
-//!   are concretely-typed fields instead — see `registry`'s own doc comment,
-//!   "Planner-specific tuning" paragraph.
-//!
-//! ## `PlanningContext`
-//!
-//! - `ctor(name, group)` -> unported: no persistent named/grouped identity
-//!   object; `registry`'s private `RrtConnectContext` borrows exactly what
-//!   `solve()` needs and nothing more.
-//! - `getGroupName()`/`getName()` -> unported: the group name already lives
-//!   on the [`registry::PlanningRequest`] the caller holds; no second
-//!   accessor is needed since this port keeps no separate identity struct.
-//! - `getPlanningScene()`/`getMotionPlanRequest()` -> unported: the caller
-//!   already owns the `&mut PlanningScene` and [`registry::PlanningRequest`]
-//!   it passed to [`registry::PlannerManager::get_planning_context`]; nothing
-//!   needs them handed back.
-//! - `setPlanningScene()`/`setMotionPlanRequest()` -> unported: every
-//!   [`registry::PlanningContext`] here is single-use, built fresh per
-//!   `solve()` — see [`registry::PlanningContext`]'s own "Deviation from
-//!   upstream: no `terminate`/`clear`" doc section, which this shares the
-//!   same reasoning with.
-//! - `solve(MotionPlanResponse&)` and `solve(MotionPlanDetailedResponse&)` ->
-//!   collapsed and ported as one [`registry::PlanningContext::solve`]
-//!   returning `Result<`[`registry::PlanningResponse`]`, `[`registry::PlanError`]`>`;
-//!   no detailed-response variant exists because nothing in this workspace
-//!   consumes upstream's extra per-stage timing/trajectory detail.
-//! - `terminate()`/`clear()` -> unported — see [`registry::PlanningContext`]'s
-//!   own "Deviation from upstream" doc: no concurrency model here for
-//!   cross-thread cancellation, and no context reuse to clear.
-//! - `~PlanningContext()` (dtor) -> unported: no Rust equivalent to audit —
-//!   every `registry::PlanningContext` implementor is dropped by ordinary
-//!   Rust ownership, not an explicit virtual destructor.
-//!
-//! ## `PlannerManager`
-//!
-//! - `PlannerManager()` (ctor) / `~PlannerManager()` (dtor) -> unported: both
-//!   are trivial no-ops upstream (`{}`); [`registry::RrtConnectManager`] and
-//!   every other [`registry::PlannerManager`] implementor is an ordinary
-//!   Rust value built by a struct literal or `#[derive(Default)]` and
-//!   dropped automatically, with no constructor/destructor body to port.
-//! - `initialize(model, node, parameter_namespace)` -> unported: no
-//!   `rclcpp::Node`/ROS parameter namespace exists anywhere in this
-//!   workspace (D1/D2); [`registry::RrtConnectManager`] needs no
-//!   initialization step (`#[derive(Default)]`, a unit struct).
-//! - `getDescription()` -> unported: no caller needs a human-readable
-//!   description string; [`registry::PlannerManager::name`] (below) already
-//!   identifies the manager uniquely for the registry lookup.
+//! - `PlannerConfigurationSettings`/`PlannerConfigurationMap` -> unported as
+//!   a stringly-typed `map<string, map<string, string>>` (D4: there is no
+//!   runtime plugin-loading boundary here for one to cross). Its typed
+//!   equivalent is [`registry::RrtConnectManager`]'s own
+//!   `resolution`/`seed`/`params`/`solver` fields, set at construction --
+//!   which is also where upstream sets a `PlannerConfigurationSettings`,
+//!   on the manager rather than on each request.
+//! - `getDescription()` -> [`moveit_planning::PlannerManager::name`], which
+//!   this crate answers with `"rrt_connect"` -- the same string
+//!   `moveit_planner_registry::PLANNER_MANAGERS`'s registration is keyed by,
+//!   so an error
+//!   naming a planner and a lookup finding one cannot disagree.
 //! - `getPlanningAlgorithms(algs)` -> unported: this crate registers one
-//!   algorithm per [`registry::PlannerManager`] impl (1:1, not 1:many like
-//!   upstream's plugin-hosts-multiple-algorithms model), so there is no
-//!   "algorithm names within one manager" list to enumerate;
-//!   [`registry::PLANNER_MANAGERS`] itself is the cross-manager list.
-//! - `getPlanningContext(scene, req, error_code)` -> ported as
-//!   [`registry::PlannerManager::get_planning_context`], collapsed: the
-//!   `moveit_msgs::msg::MoveItErrorCodes` out-parameter becomes the ordinary
-//!   `Result<_, `[`registry::PlanError`]`>` return.
-//! - `getPlanningContext(scene, req)` (the error-code-ignoring overload) ->
-//!   unported: Rust already makes ignoring a `Result` an explicit
-//!   `.unwrap()`/`let _ =` at the call site; no second overload is needed to
-//!   spell that.
-//! - `canServiceRequest(req)` -> unported: `get_planning_context` itself is
-//!   the only admission check (it fails with e.g. `SbpError::UnknownGroup`);
-//!   no separate dry-run query exists to ask "would you accept this" without
-//!   also building the context.
-//! - `setPlannerConfigurations(pcs)`/`getPlannerConfigurations()` -> unported:
-//!   no `PlannerConfigurationMap` exists here (see above).
-//! - `terminate()` (non-virtual, base-class async-cancel) -> unported, same
-//!   reasoning as `PlanningContext::terminate()` above.
-//! - Not upstream: [`registry::PlannerManager::name`] — new API this port's
-//!   registry lookup needs (matches `moveit_kinematics::registry`'s
-//!   `SolverRegistration` D4 precedent, per `registry.rs`'s own top-of-file
-//!   comment).
+//!   algorithm per manager (1:1, not upstream's
+//!   one-plugin-hosts-many-algorithms model), so there is no
+//!   within-manager list to enumerate;
+//!   `moveit_planner_registry::PLANNER_MANAGERS` is the cross-manager one.
+//! - `canServiceRequest(req)` -> unported:
+//!   [`moveit_planning::PlannerManager::get_planning_context`] is the only
+//!   admission check (it fails with e.g. `SbpError::UnknownGroup`); there
+//!   is no dry-run query that asks "would you accept this" without also
+//!   building the context.
 
 pub mod compound;
 mod constrained_sampler;
@@ -412,10 +347,12 @@ pub use error::SbpError;
 pub use joint_model_group_space::JointModelGroupSpace;
 pub use nn::Gnat;
 pub use planning_scene_validity::PlanningSceneValidityChecker;
-pub use registry::{
-    Goal, PLANNER_MANAGERS, PlanError, PlannerManager, PlannerRegistration, PlanningContext,
-    PlanningRequest, PlanningResponse, RrtConnectManager,
-};
+// `PlannerManager`/`PlanningContext`/`PlanningRequest`/`PlanningResponse`
+// are `moveit-planning`'s and `PlannerRegistration`/`PLANNER_MANAGERS` are
+// `moveit-planner-registry`'s; this crate implements and registers, it does
+// not re-export them (D8/§140 -- the duplicate set that used to live here is
+// exactly the defect that split removed).
+pub use registry::{PlanError, RrtConnectManager};
 pub use rrt_connect::{
     ConstrainedStateSampler, PlanningFailure, RrtConnectParams, Sampler, Termination, rrt_connect,
 };

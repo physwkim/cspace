@@ -54,22 +54,21 @@ use moveit_trajectory::RobotTrajectory;
 ///   this member. This is the same structural class as
 ///   [`crate::request::PlanningRequest`]'s own doc comment's
 ///   `allowed_planning_time` bullet: a value a concrete planner owns, not
-///   this crate's pipeline. Unlike [`PlanningResponse::start_state`] (round
-///   22), there is no in-workspace consumer today to force the question,
-///   and no crate
-///   implements [`crate::pipeline::Planner`] at all yet — `rg -n
-///   "impl.*Planner<'m>.*for" crates/` finds zero hits outside this crate's
-///   own test fixtures, and none of `moveit-planners-sbp`/`-chomp`/`-pilz`/
-///   `-stomp`'s `Cargo.toml`s depend on `moveit-planning`. Per
-///   PORTING-PLAN.md §153.1, this exclusion expires the moment any crate
-///   implements [`crate::pipeline::Planner`] for a concrete planner — that
-///   impl is where `planning_time` belongs and gets filled, mirroring the
-///   upstream sites above, not [`crate::pipeline::generate_plan`], which
-///   (like `PlanningPipeline::generatePlan`) never touches it. Also
-///   parity-incomparable regardless of ownership: PORTING-PLAN.md §138.3
-///   removed wall-clock timing from every oracle response (`oracle.cpp`'s
-///   `plan`/`pilzTrajectory`, commit `c0838b4`), so no test could compare
-///   this port's stopwatch to the oracle's even once a fill site exists.
+///   this crate's pipeline. PORTING-PLAN.md §153.1 made this exclusion
+///   expire "the moment any crate implements a concrete planner against
+///   these types", and D8 fired that trigger: `moveit-planners-sbp`'s
+///   `RrtConnectManager` now implements [`crate::planner::PlannerManager`]
+///   and its context implements [`crate::planner::PlanningContext`], so
+///   there is a fill site — `RrtConnectContext::solve`, the exact analogue
+///   of the four upstream sites above. The field is still absent, and that
+///   is now a *gap*, not an exclusion: it is unfilled, not unowned. What
+///   has not changed is that nothing could check it — PORTING-PLAN.md
+///   §138.3 removed wall-clock timing from every oracle response
+///   (`oracle.cpp`'s `plan`/`pilzTrajectory`, commit `c0838b4`), so a
+///   stopwatch added here would be compared against nothing. Wherever it
+///   lands, it lands in a context's `solve`, not in
+///   [`crate::pipeline::generate_plan`], which (like
+///   `PlanningPipeline::generatePlan`) never touches it.
 /// - `error_code` (`moveit::core::MoveItErrorCode`) — distinct: replaced by
 ///   `Result<PlanningResponse, PipelineError>`'s own `Err`, matching
 ///   `crate::error`'s existing convention of using `Result` instead of a
@@ -141,7 +140,7 @@ pub struct PlanningResponse<'m> {
     /// The full state planning actually started from. Filled once by
     /// [`crate::pipeline::generate_plan`] (see that module's doc, "Semantic
     /// 6: `start_state` is captured once, before the planner ever runs") —
-    /// never by an individual [`crate::pipeline::Planner`] impl, since only
+    /// never by an individual [`crate::planner::PlannerManager`] impl, since only
     /// [`generate_plan`](crate::pipeline::generate_plan) sits at the point
     /// where the request-adapter chain has already run but no planner has
     /// yet touched `scene`'s current state.

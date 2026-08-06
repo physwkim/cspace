@@ -62,12 +62,22 @@
 //! implemented for arbitrary types`) were both run inside `ros/`'s
 //! container -- see this round's report for the exact command and output.
 
+// Linked for its side effect, not for any symbol: `RrtConnectManager`
+// registers itself into `moveit_planner_registry::PLANNER_MANAGERS` through
+// a `linkme::distributed_slice` static, and nothing in this crate names a
+// `moveit_planners_sbp` item. Without this the registration sits in an rlib
+// object file no symbol references, which the linker is free to drop --
+// `move_group::resolve_planning_pipeline("")` would then find an empty
+// slice and every plan would fail as an unknown pipeline.
+use moveit_planners_sbp as _;
+
 #[cfg(test)]
 mod conversion_coverage;
 
 pub mod constraints;
 pub mod geometry;
 pub mod model;
+pub mod move_group;
 pub mod planning;
 pub mod scene;
 pub mod state;

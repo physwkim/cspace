@@ -59,6 +59,16 @@ moveit-scene = { path = "../../crates/moveit-scene" }
 moveit-collision = { path = "../../crates/moveit-collision" }
 moveit-octomap = { path = "../../crates/moveit-octomap" }
 
+# The planner side of `/move_action`'s plan-only arm (PORTING-PLAN.md D8).
+# `moveit-planner-registry` is what `src/move_group.rs` calls; the
+# `moveit-planners-sbp` dependency exists only so its `RrtConnectManager`
+# registration is linked into this crate's binaries and test binaries at all
+# -- a `linkme::distributed_slice` entry lives in an rlib no symbol
+# references, and `src/lib.rs`'s `use moveit_planners_sbp as _;` is what
+# keeps the linker from dropping the object file it sits in.
+moveit-planner-registry = { path = "../../crates/moveit-planner-registry" }
+moveit-planners-sbp = { path = "../../crates/moveit-planners-sbp" }
+
 # For nalgebra's own constructors (Isometry3::from_parts, Translation3::new,
 # UnitQuaternion::new_normalize): moveit-geometry re-exports nalgebra's types
 # as plain aliases (`pub type Isometry3 = nalgebra::Isometry3<f64>`), not

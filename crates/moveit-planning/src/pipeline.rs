@@ -18,30 +18,26 @@
 //! Upstream resolves `pipeline_parameters_.planning_plugins` (a list of
 //! names) against `planner_map_`, a `pluginlib`-populated
 //! `unordered_map<string, PlannerManagerPtr>` (`planning_pipeline.hpp:263`).
-//! This workspace's D4 compile-time equivalent — the `PLANNER_MANAGERS`
-//! `distributed_slice` and the `PlannerManager`/`PlanningContext` traits —
-//! currently lives in `moveit-planners-sbp::registry`. Depending on it from
-//! here would invert the intended layering (a planner crate should depend on
-//! the planning-request vocabulary this crate defines, not the other way
-//! around — see the crate doc's "Deviation from `moveit-planners-sbp::registry`"),
-//! and `moveit-planners-sbp` is off-limits this round regardless (its
-//! `registry.rs` is under concurrent edit elsewhere). So [`generate_plan`]
-//! takes planners as `&[Box<dyn Planner<'m>>]`: **name-to-implementation
-//! resolution is a concern orthogonal to the pipeline**, not part of what
-//! this function does. The pipeline's actual substance — the adapter chains
-//! and their failure/exit rules — does not need a registry at all; only a
-//! *caller* who wants to go from a planner-id string to a boxed [`Planner`]
-//! does, and that caller can be layered on top of this function once the
-//! registry relocates (a decision for a later round, not this one).
+//! This workspace's D4 compile-time equivalent is `moveit-planner-registry`'s
+//! `PLANNER_MANAGERS` `distributed_slice`. [`generate_plan`] does not depend
+//! on it and takes planners as `&[Box<dyn PlannerManager>]` instead:
+//! **name-to-implementation resolution is a concern orthogonal to the
+//! pipeline**, not part of what this function does. The pipeline's actual
+//! substance — the adapter chains and their failure/exit rules — needs no
+//! registry at all; only a *caller* who wants to go from a planner-id string
+//! to a boxed [`PlannerManager`] does, and that caller layers
+//! `moveit-planner-registry` on top of this function (as
+//! `ros/moveit-ros`'s `/move_action` server does).
 //!
-//! [`Planner`] mirrors [`crate::PlanningRequestAdapter`]/
-//! [`crate::PlanningResponseAdapter`]'s existing shape
-//! (`description()` + one action method, run through a `Box<dyn _>` chain)
-//! for the same reason those two share it: consistency with an established
-//! pattern already in this crate, and — unlike a bare `Fn` closure bound —
-//! room for a caller to mix planners of different concrete types in one
-//! chain, the same way upstream's `planner_map_` can hold different
-//! `PlannerManager` implementations side by side.
+//! What [`generate_plan`] *does* depend on is [`crate::planner`], this
+//! crate's own port of upstream's `planning_interface::PlannerManager`/
+//! `PlanningContext` — the same package upstream defines
+//! `MotionPlanRequest`/`MotionPlanResponse` in, so a planner speaks this
+//! crate's [`PlanningRequest`]/[`PlanningResponse`] by construction rather
+//! than needing a conversion at the crate boundary. Before D8/§140 that was
+//! not true: `moveit-planners-sbp::registry` declared its own set of all
+//! four names, and this function could not call the workspace's only
+//! concrete planner at all.
 //!
 //! # Seven semantics invisible to a bare diff read
 //!
@@ -62,7 +58,7 @@
 //! [`generate_plan`] below reproduces the same state-based trigger with a
 //! private `trajectory_constraints_for` helper (porting
 //! `getTrajectoryConstraints`, `planning_pipeline.cpp:57-79`) called between
-//! successive [`Planner::plan`] calls, never before the first — this port's
+//! successive [`crate::planner::PlanningContext::solve`] calls, never before the first — this port's
 //! `response` starts empty on every call, so the two conditions coincide
 //! here even though upstream's gate is not itself positional. See
 //! "Semantic-1 tests" below for the two-planner regression that proves the
@@ -96,7 +92,7 @@
 //! parameter and returning an owned [`PlanningResponse`]; nothing outlives
 //! one call, nothing else holds a reference to observe mid-call, and this
 //! crate defines no `terminate`-equivalent for the same reason
-//! `moveit-planners-sbp::registry::PlanningContext` gives for omitting one:
+//! [`crate::planner`]'s own module doc gives for omitting one:
 //! synchronous, single-caller, no concurrent observer to serve. Modeling an
 //! `active_`/`is_active()` pair here would be state with no reader —
 //! speculative API surface this project's own rules reject. What upstream's
@@ -135,8 +131,8 @@
 //! ## 6. `start_state` is captured once, before the planner ever runs
 //!
 //! `moveit-planners-sbp::planning_scene_validity::PlanningSceneValidityChecker`
-//! (read-only from this crate, and not a dependency — see this module's doc,
-//! "Planners are supplied by the caller, not looked up by name") documents
+//! (a downstream crate's type — the dependency runs sbp → here, never the
+//! reverse) documents
 //! that it does not restore `scene`'s
 //! current state after a validity check, by design — restoring it would add
 //! a full-state clone to each of the hundreds of thousands of calls one
@@ -148,8 +144,9 @@
 //! [`run_request_adapters`] returns (a request adapter can mutate
 //! `scene.current_state()`, e.g. a bounds-clamping one, so the value
 //! captured is the state the planner(s) below actually start from, not the
-//! caller's original pre-adapter one) and before [`Planner::plan`] is
-//! called for the first time — and stores it as
+//! caller's original pre-adapter one) and before the first
+//! [`PlannerManager::get_planning_context`] is
+//! called — and stores it as
 //! [`PlanningResponse::start_state`] once the response is otherwise
 //! complete. One clone for the whole query, not one per validity check, is
 //! exactly the cost `PlanningSceneValidityChecker`'s own doc says this
@@ -166,7 +163,7 @@
 //! `chomp_planner.cpp:77-78`). Five re-derivations of one value is a shape
 //! this project's own conduct rules name — an invariant with no owner — and
 //! the port does not need it: [`crate::PlanningRequestAdapter`] and
-//! [`Planner`] both already receive `&mut PlanningScene`/`&PlanningScene` and
+//! [`crate::PlannerManager`] both already receive `&mut PlanningScene` and
 //! already read the start state off `scene.current_state()`
 //! ([`crate::request_adapters::CheckStartStateBounds`] and
 //! [`crate::request_adapters::CheckStartStateCollision`] do exactly that).
@@ -180,8 +177,8 @@
 //! writes the corrected state back into `req.start_state`; here the correction
 //! lands in the scene, which is where every later reader looks). No other site
 //! in this crate applies [`crate::PlanningRequest::start_state`], and no
-//! adapter or [`Planner`] needs to: reading `scene.current_state()` is already
-//! reading it.
+//! adapter or [`crate::PlannerManager`] needs to: reading
+//! `scene.current_state()` is already reading it.
 //!
 //! The cost of the ownership move is that `scene` is left holding the
 //! requested start state rather than the caller's — the same already-documented
@@ -215,11 +212,11 @@
 //!   facade anywhere in this port (see every adapter's own module doc).
 //! - `pipeline_parameters_` (`planning_pipeline.hpp:259`) — the
 //!   ROS-parameter-sourced config bag holding, among other things, the
-//!   plugin-name lists a registry would resolve; see "Decided after registry
-//!   relocation" below for the parts of its surface that are deferred rather
-//!   than dropped.
+//!   plugin-name lists a registry resolves; see "Owned by a named planner
+//!   chain, not by this function" below for the parts of its surface that
+//!   are deferred rather than dropped.
 //! - `terminate()` (`planning_pipeline.hpp:190`, `cpp:376-385`) — same
-//!   reasoning `moveit-planners-sbp::registry::PlanningContext`'s own doc
+//!   reasoning [`crate::planner`]'s own module doc
 //!   already gives for omitting a `terminate`/`clear` pair: nothing in this
 //!   port is asynchronous or persistent enough for another caller to ever
 //!   need to interrupt it.
@@ -233,7 +230,7 @@
 //!   current-block member, or an alias for a function named below under
 //!   "Decided after registry relocation".
 //!
-//! # Decided after registry relocation, not dropped
+//! # Owned by a named planner chain, not by this function
 //!
 //! `getPlannerPluginNames`/`getRequestAdapterPluginNames`/
 //! `getResponseAdapterPluginNames` (`hpp:193-208`) read `pipeline_parameters_`,
@@ -243,11 +240,11 @@
 //! is a separate case: it returns `parameter_namespace_`, a third field
 //! this port also has no long-lived home for, so it belongs with this group
 //! for the same "not part of `generate_plan`'s scope today" reason even
-//! though it does not read either container. Once
-//! the registry relocates out of `moveit-planners-sbp::registry` (see this
-//! round's separate item-2 report), whichever type ends up owning a named
-//! planner chain is where these belong; they are not part of
-//! [`generate_plan`]'s own scope today.
+//! though it does not read either container. `moveit-planner-registry` now
+//! holds the slice these would read from, but nothing in this workspace
+//! owns a *named, configured* planner chain — the object those four
+//! accessors describe — so they stay unported; they are not part of
+//! [`generate_plan`]'s own scope.
 
 use moveit_collision::ParryCollisionEnv;
 use moveit_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
@@ -255,44 +252,12 @@ use moveit_scene::PlanningScene;
 use moveit_trajectory::RobotTrajectory;
 
 use crate::error::{RequestAdapterError, ResponseAdapterError};
+use crate::planner::{PlanError, PlannerManager};
 use crate::request::PlanningRequest;
 use crate::response::PlanningResponse;
 use crate::{
     PlanningRequestAdapter, PlanningResponseAdapter, run_request_adapters, run_response_adapters,
 };
-
-/// Opaque planner failure: a caller's [`Planner`] implementation boxes
-/// whatever error its own concrete planner produced (e.g.
-/// `moveit_planners_sbp::registry::PlanError`) into this. This crate cannot
-/// name a concrete planner error type — it does not, and must not, depend on
-/// any concrete planner crate (see this module's doc, "Planners are
-/// supplied by the caller, not looked up by name").
-pub type PlanError = Box<dyn std::error::Error + Send + Sync + 'static>;
-
-/// Replaces `planner->getPlanningContext(...)` + `context->solve(res)`
-/// (`planning_pipeline.cpp:304-320`): the caller-supplied bridge from this
-/// crate's [`PlanningRequest`] to a concrete planner. See this module's doc
-/// for why a trait (mirroring [`PlanningRequestAdapter`]/
-/// [`PlanningResponseAdapter`]) rather than a bare `Fn` bound.
-pub trait Planner<'m> {
-    /// `planner->getDescription()`.
-    fn description(&self) -> &'static str;
-
-    /// Solve `request` against `scene`. Replaces
-    /// `getPlanningContext(...)` failing (a `nullptr` context,
-    /// `cpp:308-315`) and `context->solve(res)` failing (`res.error_code`
-    /// unset after `solve`, `cpp:323-328`) alike — this port has one
-    /// fallible step where upstream has two, since a caller's own
-    /// [`Planner`] impl is exactly where "can I even build a context for
-    /// this request" and "did solving it succeed" already have to be
-    /// reconciled into one `Result`.
-    fn plan(
-        &self,
-        scene: &mut PlanningScene<'m>,
-        env: &ParryCollisionEnv,
-        request: &PlanningRequest,
-    ) -> Result<PlanningResponse<'m>, PlanError>;
-}
 
 /// Why [`generate_plan`] failed. Replaces the untyped `bool`/`res.error_code`
 /// upstream's `generatePlan` returns.
@@ -302,12 +267,17 @@ pub enum PipelineError {
     /// A [`PlanningRequestAdapter`] in `request_chain` rejected `request`.
     #[error(transparent)]
     Request(#[from] RequestAdapterError),
-    /// A [`Planner`] failed. `planner` is that planner's own
-    /// [`Planner::description`], matching how upstream's `RCLCPP_ERROR` at
+    /// A [`PlannerManager`] failed — either building its
+    /// [`crate::planner::PlanningContext`] (upstream's `nullptr` context,
+    /// `cpp:308-315`) or
+    /// solving it (`res.error_code` unset after `solve`, `cpp:323-328`);
+    /// both upstream branches log the same way and abort the pipeline, so
+    /// they share one variant here. `planner` is that planner's own
+    /// [`PlannerManager::name`], matching how upstream's `RCLCPP_ERROR` at
     /// `cpp:325-326` names the failing planner.
     #[error("planner '{planner}' failed: {source}")]
     Planner {
-        /// The failing planner's [`Planner::description`].
+        /// The failing planner's [`PlannerManager::name`].
         planner: &'static str,
         /// The boxed underlying planner error.
         #[source]
@@ -406,13 +376,42 @@ fn trajectory_constraints_for(
     Ok(trajectory_constraints)
 }
 
+/// One planner's `getPlanningContext(...)` + `context->solve(res)`
+/// (`planning_pipeline.cpp:306-329`), with upstream's two abort branches —
+/// a `nullptr` context (`:308-315`) and an unset `res.error_code` after
+/// `solve` (`:323-328`) — folded into the single [`PipelineError::Planner`]
+/// they both log and abort identically for.
+///
+/// A separate function rather than inlined at [`generate_plan`]'s two call
+/// sites because the context borrows `scene` mutably for as long as it
+/// lives: returning the response by value ends that borrow at this
+/// function's own return, which is what lets `generate_plan`'s loop hand
+/// `scene` to `trajectory_constraints_for` and then to the next planner.
+fn run_planner<'m>(
+    planner: &dyn PlannerManager,
+    scene: &mut PlanningScene<'m>,
+    env: &ParryCollisionEnv,
+    request: &PlanningRequest,
+) -> Result<PlanningResponse<'m>, PipelineError> {
+    let mut context = planner
+        .get_planning_context(scene, env, request)
+        .map_err(|source| PipelineError::Planner {
+            planner: planner.name(),
+            source,
+        })?;
+    context.solve().map_err(|source| PipelineError::Planner {
+        planner: planner.name(),
+        source,
+    })
+}
+
 /// Replaces `PlanningPipeline::generatePlan` (`planning_pipeline.cpp:251-374`):
 /// runs `request_chain`, then every planner in `planners` in sequence (with
 /// the "Semantic 1" feedforward between successive planners), then
 /// `response_chain`, then the "Semantic 4" `planner_id` fallback. See this
 /// module's doc for the seven semantics ported here that a bare diff read
-/// would miss, and for what D1 excludes and what is deferred to a
-/// not-yet-relocated registry rather than dropped.
+/// would miss, for what D1 excludes, and for what a named planner chain —
+/// not this function — would own.
 ///
 /// # Errors
 ///
@@ -425,7 +424,7 @@ pub fn generate_plan<'m>(
     scene: &mut PlanningScene<'m>,
     env: &ParryCollisionEnv,
     request_chain: &[Box<dyn PlanningRequestAdapter>],
-    planners: &[Box<dyn Planner<'m>>],
+    planners: &[Box<dyn PlannerManager>],
     response_chain: &[Box<dyn PlanningResponseAdapter>],
     mut request: PlanningRequest,
 ) -> Result<PlanningResponse<'m>, PipelineError> {
@@ -444,22 +443,11 @@ pub fn generate_plan<'m>(
     run_request_adapters(request_chain, scene, env, &mut request)?;
     let start_state = scene.current_state().clone();
 
-    let mut response =
-        first_planner
-            .plan(scene, env, &request)
-            .map_err(|source| PipelineError::Planner {
-                planner: first_planner.description(),
-                source,
-            })?;
+    let mut response = run_planner(&**first_planner, scene, env, &request)?;
 
     for planner in later_planners {
         request.trajectory_constraints = trajectory_constraints_for(scene, &response.trajectory)?;
-        response = planner
-            .plan(scene, env, &request)
-            .map_err(|source| PipelineError::Planner {
-                planner: planner.description(),
-                source,
-            })?;
+        response = run_planner(&**planner, scene, env, &request)?;
     }
 
     run_response_adapters(response_chain, scene, env, &request, &mut response)?;
@@ -483,6 +471,7 @@ mod tests {
 
     use super::*;
     use crate::PlanningRequestAdapter;
+    use crate::planner::PlanningContext;
     use crate::request::WorkspaceBounds;
     use crate::start_state::StartState;
 
@@ -599,57 +588,104 @@ mod tests {
         }
     }
 
+    /// The [`PlanningContext`] half of every double below. A real
+    /// [`PlannerManager`] does work in `get_planning_context` that its
+    /// `solve` then reuses (`moveit_planners_sbp::RrtConnectManager`
+    /// resolves the group's state space there); none of these four doubles
+    /// has any, so all four capture what they need into one closure and
+    /// hand it over as this. One shared context type, rather than four
+    /// near-identical ones, keeps each double to the single function it
+    /// actually differs in.
+    type SolveFn<'a, 'm> = Box<dyn FnMut() -> Result<PlanningResponse<'m>, PlanError> + 'a>;
+    struct ClosureContext<'a, 'm>(SolveFn<'a, 'm>);
+    impl<'m> PlanningContext<'m> for ClosureContext<'_, 'm> {
+        fn solve(&mut self) -> Result<PlanningResponse<'m>, PlanError> {
+            (self.0)()
+        }
+    }
+
     /// Plans by handing back a fixed two-waypoint trajectory to `panda_joint1
-    /// = 0.4`, regardless of `request`. Records every `request` it was
-    /// called with (cloned goal-constraint/planner-id/trajectory-constraint
-    /// summary) so a test can assert on what a later planner in a chain
-    /// actually received — this is how the feedforward test proves the
-    /// second request was rewritten, not merely eligible to be.
+    /// = 0.4`, regardless of `request`.
     struct FixedGoalPlanner {
-        description: &'static str,
+        name: &'static str,
         planner_id: &'static str,
     }
-    impl<'m> Planner<'m> for FixedGoalPlanner {
-        fn description(&self) -> &'static str {
-            self.description
+    impl PlannerManager for FixedGoalPlanner {
+        fn name(&self) -> &'static str {
+            self.name
         }
-        fn plan(
+        fn get_planning_context<'a, 'm>(
             &self,
-            scene: &mut PlanningScene<'m>,
-            _env: &ParryCollisionEnv,
+            scene: &'a mut PlanningScene<'m>,
+            _env: &'a ParryCollisionEnv,
             _request: &PlanningRequest,
-        ) -> Result<PlanningResponse<'m>, PlanError> {
-            let model = scene.robot_model();
-            let mut start = RobotState::new(model);
-            start.set_to_default_values();
-            Ok(PlanningResponse {
-                start_state: start.clone(),
-                trajectory: two_waypoint_trajectory(model, start),
-                planner_id: self.planner_id.to_string(),
-            })
+        ) -> Result<Box<dyn PlanningContext<'m> + 'a>, PlanError> {
+            let planner_id = self.planner_id.to_string();
+            Ok(Box::new(ClosureContext(Box::new(move || {
+                let model = scene.robot_model();
+                let mut start = RobotState::new(model);
+                start.set_to_default_values();
+                Ok(PlanningResponse {
+                    start_state: start.clone(),
+                    trajectory: two_waypoint_trajectory(model, start),
+                    planner_id: planner_id.clone(),
+                })
+            }))))
         }
     }
 
     /// Always fails with an opaque boxed error — the "planner fails"
-    /// boundary. Carries its own `description` so a chain can hold two
+    /// boundary. Carries its own `name` so a chain can hold two
     /// distinctly-named failing planners: [`PipelineError::Planner`] is
     /// constructed at two call sites in [`generate_plan`] (the first
     /// planner and the `later_planners` loop), and telling them apart
     /// requires each occupying a different chain position under a
     /// different name.
+    ///
+    /// It fails in `solve`, not in `get_planning_context`: those are
+    /// upstream's two distinct abort branches (`cpp:308-315` vs.
+    /// `:323-328`) and [`run_planner`] maps both to the same
+    /// [`PipelineError::Planner`], so which one a double takes does not
+    /// change what these tests observe — see
+    /// `context_construction_failure_is_reported_as_a_planner_failure` for
+    /// the other branch's own coverage.
     struct FailingPlanner(&'static str);
-    impl<'m> Planner<'m> for FailingPlanner {
-        fn description(&self) -> &'static str {
+    impl PlannerManager for FailingPlanner {
+        fn name(&self) -> &'static str {
             self.0
         }
-        fn plan(
+        fn get_planning_context<'a, 'm>(
             &self,
-            _scene: &mut PlanningScene<'m>,
-            _env: &ParryCollisionEnv,
+            _scene: &'a mut PlanningScene<'m>,
+            _env: &'a ParryCollisionEnv,
             _request: &PlanningRequest,
-        ) -> Result<PlanningResponse<'m>, PlanError> {
+        ) -> Result<Box<dyn PlanningContext<'m> + 'a>, PlanError> {
+            let name = self.0;
+            Ok(Box::new(ClosureContext(Box::new(move || {
+                Err(Box::new(MoveitError::other(format!("{name} always fails"))) as PlanError)
+            }))))
+        }
+    }
+
+    /// Fails at context construction instead of at `solve`, covering
+    /// upstream's *other* abort branch (a `nullptr` context,
+    /// `cpp:308-315`). Both branches collapse into
+    /// [`PipelineError::Planner`] here, which is exactly what
+    /// `context_construction_failure_is_reported_as_a_planner_failure`
+    /// pins down.
+    struct UnbuildablePlanner(&'static str);
+    impl PlannerManager for UnbuildablePlanner {
+        fn name(&self) -> &'static str {
+            self.0
+        }
+        fn get_planning_context<'a, 'm>(
+            &self,
+            _scene: &'a mut PlanningScene<'m>,
+            _env: &'a ParryCollisionEnv,
+            _request: &PlanningRequest,
+        ) -> Result<Box<dyn PlanningContext<'m> + 'a>, PlanError> {
             Err(Box::new(MoveitError::other(format!(
-                "{} always fails",
+                "{} cannot build a context",
                 self.0
             ))))
         }
@@ -660,32 +696,38 @@ mod tests {
     /// by the feedforward test, where the assertion is "the second call's
     /// request.trajectory_constraints is non-empty", not merely "a second
     /// call happened". `Rc`, not a borrow, so two boxed instances can share
-    /// one recording sink without fighting `Box<dyn Planner<'m>>`'s implicit
-    /// `'static` object-lifetime bound.
+    /// one recording sink without fighting `Box<dyn PlannerManager>`'s
+    /// implicit `'static` object-lifetime bound.
     struct RecordingPlanner {
         seen_trajectory_constraints_len: std::rc::Rc<std::cell::RefCell<Vec<usize>>>,
     }
-    impl<'m> Planner<'m> for RecordingPlanner {
-        fn description(&self) -> &'static str {
+    impl PlannerManager for RecordingPlanner {
+        fn name(&self) -> &'static str {
             "RecordingPlanner"
         }
-        fn plan(
+        fn get_planning_context<'a, 'm>(
             &self,
-            scene: &mut PlanningScene<'m>,
-            _env: &ParryCollisionEnv,
+            scene: &'a mut PlanningScene<'m>,
+            _env: &'a ParryCollisionEnv,
             request: &PlanningRequest,
-        ) -> Result<PlanningResponse<'m>, PlanError> {
+        ) -> Result<Box<dyn PlanningContext<'m> + 'a>, PlanError> {
+            // Recorded here, not in `solve`: `get_planning_context` is
+            // where the request reaches a planner, and it is the borrow
+            // `request_` upstream copies into the context at the same
+            // point (`planning_interface.hpp:142`).
             self.seen_trajectory_constraints_len
                 .borrow_mut()
                 .push(request.trajectory_constraints.len());
-            let model = scene.robot_model();
-            let mut start = RobotState::new(model);
-            start.set_to_default_values();
-            Ok(PlanningResponse {
-                start_state: start.clone(),
-                trajectory: two_waypoint_trajectory(model, start),
-                planner_id: String::new(),
-            })
+            Ok(Box::new(ClosureContext(Box::new(move || {
+                let model = scene.robot_model();
+                let mut start = RobotState::new(model);
+                start.set_to_default_values();
+                Ok(PlanningResponse {
+                    start_state: start.clone(),
+                    trajectory: two_waypoint_trajectory(model, start),
+                    planner_id: String::new(),
+                })
+            }))))
         }
     }
 
@@ -697,29 +739,31 @@ mod tests {
     /// mutation, not read back from a scene a planner may have since
     /// moved.
     struct SideEffectPlanner;
-    impl<'m> Planner<'m> for SideEffectPlanner {
-        fn description(&self) -> &'static str {
+    impl PlannerManager for SideEffectPlanner {
+        fn name(&self) -> &'static str {
             "SideEffectPlanner"
         }
-        fn plan(
+        fn get_planning_context<'a, 'm>(
             &self,
-            scene: &mut PlanningScene<'m>,
-            _env: &ParryCollisionEnv,
+            scene: &'a mut PlanningScene<'m>,
+            _env: &'a ParryCollisionEnv,
             _request: &PlanningRequest,
-        ) -> Result<PlanningResponse<'m>, PlanError> {
-            let model = scene.robot_model();
-            let mut start = RobotState::new(model);
-            start.set_to_default_values();
-            let response = Ok(PlanningResponse {
-                start_state: start.clone(),
-                trajectory: two_waypoint_trajectory(model, start),
-                planner_id: String::new(),
-            });
-            scene
-                .current_state_mut()
-                .set_joint_positions("panda_joint1", &[1.0])
-                .unwrap();
-            response
+        ) -> Result<Box<dyn PlanningContext<'m> + 'a>, PlanError> {
+            Ok(Box::new(ClosureContext(Box::new(move || {
+                let model = scene.robot_model();
+                let mut start = RobotState::new(model);
+                start.set_to_default_values();
+                let response = Ok(PlanningResponse {
+                    start_state: start.clone(),
+                    trajectory: two_waypoint_trajectory(model, start),
+                    planner_id: String::new(),
+                });
+                scene
+                    .current_state_mut()
+                    .set_joint_positions("panda_joint1", &[1.0])
+                    .unwrap();
+                response
+            }))))
         }
     }
 
@@ -729,7 +773,7 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf);
         let env = ParryCollisionEnv::default();
 
-        let planners: Vec<Box<dyn Planner>> = vec![];
+        let planners: Vec<Box<dyn PlannerManager>> = vec![];
         let err = generate_plan(&mut scene, &env, &[], &planners, &[], request())
             .expect_err("an empty planner slice must be rejected");
         assert!(matches!(err, PipelineError::NoPlanners));
@@ -743,8 +787,8 @@ mod tests {
 
         let request_chain: Vec<Box<dyn PlanningRequestAdapter>> =
             vec![Box::new(RejectingRequestAdapter)];
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FixedGoalPlanner {
-            description: "FixedGoalPlanner",
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(FixedGoalPlanner {
+            name: "FixedGoalPlanner",
             planner_id: "fixed",
         })];
         let err = generate_plan(&mut scene, &env, &request_chain, &planners, &[], request())
@@ -775,8 +819,8 @@ mod tests {
             Box::new(PassingRequestAdapter),
             Box::new(RejectingRequestAdapter),
         ];
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FixedGoalPlanner {
-            description: "FixedGoalPlanner",
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(FixedGoalPlanner {
+            name: "FixedGoalPlanner",
             planner_id: "fixed",
         })];
         let err = generate_plan(&mut scene, &env, &request_chain, &planners, &[], request())
@@ -798,7 +842,7 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf);
         let env = ParryCollisionEnv::default();
 
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FailingPlanner("FirstPlanner"))];
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(FailingPlanner("FirstPlanner"))];
         // If the response chain ran despite the planner failing, this
         // adapter's `Err` would surface as `PipelineError::Response`
         // instead of `PipelineError::Planner` below — the test would still
@@ -832,9 +876,9 @@ mod tests {
         // the first planner (or any other name), this assertion -- not a
         // bare `matches!(err, PipelineError::Planner { .. })` -- is what
         // would catch it.
-        let planners: Vec<Box<dyn Planner>> = vec![
+        let planners: Vec<Box<dyn PlannerManager>> = vec![
             Box::new(FixedGoalPlanner {
-                description: "FirstPlanner",
+                name: "FirstPlanner",
                 planner_id: "fixed",
             }),
             Box::new(FailingPlanner("SecondPlanner")),
@@ -847,14 +891,50 @@ mod tests {
         }
     }
 
+    /// The `get_planning_context` half of [`run_planner`], which
+    /// `planner_failure_short_circuits_before_response_adapters_run` and
+    /// `a_later_planner_failure_is_attributed_to_that_planner` cannot
+    /// reach: both of those fail inside `solve`, so `run_planner`'s first
+    /// `map_err` never runs in them. Upstream aborts on a `nullptr` context
+    /// (`planning_pipeline.cpp:308-315`) separately from an unset error
+    /// code after `solve` (`:323-328`); this port collapses the two into
+    /// one [`PipelineError::Planner`], and that collapse is only honest if
+    /// the construction branch is attributed to the same planner and
+    /// carries the same source.
+    #[test]
+    fn context_construction_failure_is_reported_as_a_planner_failure() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+
+        let planners: Vec<Box<dyn PlannerManager>> =
+            vec![Box::new(UnbuildablePlanner("UnbuildablePlanner"))];
+        let err = generate_plan(&mut scene, &env, &[], &planners, &[], request())
+            .expect_err("a planner that cannot build a context must abort generate_plan");
+        match err {
+            PipelineError::Planner { planner, source } => {
+                assert_eq!(planner, "UnbuildablePlanner");
+                // The source is the planner's own error, not a message
+                // this function invented: if `run_planner` dropped it and
+                // synthesised one, the text below would not survive.
+                assert_eq!(
+                    source.to_string(),
+                    "UnbuildablePlanner cannot build a context",
+                    "the construction failure's own error must reach the caller intact"
+                );
+            }
+            other => panic!("expected PipelineError::Planner, got {other:?}"),
+        }
+    }
+
     #[test]
     fn response_adapter_failure_is_reported_after_a_successful_plan() {
         let (model, srdf) = panda();
         let mut scene = PlanningScene::new(&model, &srdf);
         let env = ParryCollisionEnv::default();
 
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FixedGoalPlanner {
-            description: "FixedGoalPlanner",
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(FixedGoalPlanner {
+            name: "FixedGoalPlanner",
             planner_id: "fixed",
         })];
         let response_chain: Vec<Box<dyn PlanningResponseAdapter>> =
@@ -879,8 +959,8 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf);
         let env = ParryCollisionEnv::default();
 
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FixedGoalPlanner {
-            description: "FixedGoalPlanner",
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(FixedGoalPlanner {
+            name: "FixedGoalPlanner",
             planner_id: "fixed",
         })];
         // First adapter passes, second rejects — the only element this test
@@ -911,8 +991,8 @@ mod tests {
         let env = ParryCollisionEnv::default();
 
         let request_chain: Vec<Box<dyn PlanningRequestAdapter>> = vec![];
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FixedGoalPlanner {
-            description: "FixedGoalPlanner",
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(FixedGoalPlanner {
+            name: "FixedGoalPlanner",
             planner_id: "fixed-goal",
         })];
         let response_chain: Vec<Box<dyn PlanningResponseAdapter>> = vec![];
@@ -936,7 +1016,7 @@ mod tests {
         let env = ParryCollisionEnv::default();
 
         let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-        let planners: Vec<Box<dyn Planner>> = vec![
+        let planners: Vec<Box<dyn PlannerManager>> = vec![
             Box::new(RecordingPlanner {
                 seen_trajectory_constraints_len: seen.clone(),
             }),
@@ -963,8 +1043,8 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf);
         let env = ParryCollisionEnv::default();
 
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FixedGoalPlanner {
-            description: "FixedGoalPlanner",
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(FixedGoalPlanner {
+            name: "FixedGoalPlanner",
             planner_id: "planner-set-id",
         })];
         let mut req = request();
@@ -983,8 +1063,8 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf);
         let env = ParryCollisionEnv::default();
 
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FixedGoalPlanner {
-            description: "FixedGoalPlanner",
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(FixedGoalPlanner {
+            name: "FixedGoalPlanner",
             planner_id: "",
         })];
         let mut req = request();
@@ -1004,7 +1084,7 @@ mod tests {
         let env = ParryCollisionEnv::default();
         let pre_planning_state = scene.current_state().clone();
 
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(SideEffectPlanner)];
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(SideEffectPlanner)];
         let response = generate_plan(&mut scene, &env, &[], &planners, &[], request())
             .expect("an unobstructed plan must succeed even though the planner moves the scene");
 
@@ -1051,8 +1131,8 @@ mod tests {
         let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let request_chain: Vec<Box<dyn PlanningRequestAdapter>> =
             vec![Box::new(StartStateRecordingAdapter { seen: seen.clone() })];
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FixedGoalPlanner {
-            description: "FixedGoalPlanner",
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(FixedGoalPlanner {
+            name: "FixedGoalPlanner",
             planner_id: "fixed",
         })];
 
@@ -1092,7 +1172,7 @@ mod tests {
             vec![Box::new(StartStateRecordingAdapter { seen: seen.clone() })];
         // A failing planner, so that reaching the planner at all would be
         // reported as `PipelineError::Planner` rather than as this variant.
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FailingPlanner("FirstPlanner"))];
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(FailingPlanner("FirstPlanner"))];
 
         let mut req = request();
         req.start_state = StartState::new(vec!["no_such_joint".to_string()], vec![0.1], vec![])
@@ -1129,7 +1209,7 @@ mod tests {
         let env = ParryCollisionEnv::default();
         let pre_planning_state = scene.current_state().clone();
 
-        let planners: Vec<Box<dyn Planner>> = vec![Box::new(SideEffectPlanner)];
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(SideEffectPlanner)];
         generate_plan(&mut scene, &env, &[], &planners, &[], request())
             .expect("an unobstructed plan must succeed even though the planner moves the scene");
 

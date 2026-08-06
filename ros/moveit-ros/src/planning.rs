@@ -19,7 +19,14 @@
 //!   are planner-orchestration metadata with no `PlanningRequest` field to
 //!   land in, by the same documented design choice as the tuning fields
 //!   above -- dropped, not rejected (there is no invariant a dropped tuning
-//!   knob could violate). For `num_planning_attempts`/`allowed_planning_time`
+//!   knob could violate). `pipeline_id` is dropped *by this conversion* and
+//!   not by the servers: upstream reads it in `MoveGroupCapability::`
+//!   `resolvePlanningPipeline` (`move_group_capability.cpp:223-246`), one
+//!   layer above the request struct, and so does this crate --
+//!   [`crate::move_group::resolve_planning_pipeline`] takes it straight off
+//!   the message before conversion. Putting it on `PlanningRequest` would
+//!   give the planner the name of the thing calling it.
+//!   For `num_planning_attempts`/`allowed_planning_time`
 //!   the *normalization* upstream applies to them
 //!   (`planning_interface.cpp:92-103`'s `setMotionPlanRequest`) is decided
 //!   separately and declined in `PORTING-PLAN.md` §236; the two
@@ -391,14 +398,16 @@ impl<'m> TryFrom<PlanningResponseMsg<'m>> for PlanningResponse<'m> {
     /// only in this direction: msg->core has nowhere to put it, while core->msg
     /// derives it from the trajectory the way `planning_response.cpp:48` does
     /// (see the opposite impl below), so a `group_name` set on the wire is lost
-    /// on the way in and re-derived on the way out rather than preserved. `planning_time` stays unported by
-    /// p1-fixtures' own conclusion (`crates/moveit-planning/src/response.rs:39-68`):
-    /// every upstream fill site sits inside a `PlanningContext`-equivalent's
-    /// `solve()`, never the pipeline this crate ports, and no crate in this
-    /// workspace implements [`moveit_planning::pipeline::Planner`] yet --
-    /// there is no reachable site to fill it from. Expires the moment any
-    /// crate implements `Planner` for a concrete planner; `moveit-planning`'s
-    /// call, not this crate's.
+    /// on the way in and re-derived on the way out rather than preserved.
+    /// `planning_time` has no [`PlanningResponse`] field to read: every
+    /// upstream fill site sits inside a `PlanningContext`-equivalent's
+    /// `solve()`, never the pipeline this crate talks to. That used to be an
+    /// exclusion for want of any concrete planner; D8 ended that half --
+    /// `moveit_planners_sbp::registry::RrtConnectManager` implements
+    /// [`moveit_planning::PlannerManager`] and its context implements
+    /// [`moveit_planning::PlanningContext`], so the fill site now exists and
+    /// is simply unfilled. Whichever crate fills it, it is that `solve`, not
+    /// this conversion; here the field stays zero either way.
     ///
     /// `planner_id` has **no** wire counterpart on this message:
     /// `moveit-planning`'s own doc comment on

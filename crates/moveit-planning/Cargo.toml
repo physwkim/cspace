@@ -22,6 +22,13 @@ moveit-trajectory.workspace = true
 [dev-dependencies]
 moveit-srdf.workspace = true
 urdf-rs.workspace = true
+# Dev-only, and a dependency *cycle* by design: `moveit-planners-sbp`
+# depends on this crate for `PlanningRequest`/`PlannerManager`, and this
+# crate depends back on it only so the crate-level doctest can plan for
+# real. Cargo permits a cycle through `[dev-dependencies]` (it is a
+# separate build of this crate's test targets, not of the library other
+# crates link). Neither the library nor its public types know sbp exists.
+moveit-planner-registry.workspace = true
 moveit-planners-sbp.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true

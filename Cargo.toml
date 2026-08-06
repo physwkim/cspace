@@ -41,7 +41,9 @@ moveit-geometry = { path = "crates/moveit-geometry", version = "0.1.0" }
 moveit-kinematics = { path = "crates/moveit-kinematics", version = "0.1.0" }
 moveit-model = { path = "crates/moveit-model", version = "0.1.0" }
 moveit-octomap = { path = "crates/moveit-octomap", version = "0.1.0" }
+moveit-planner-registry = { path = "crates/moveit-planner-registry", version = "0.1.0" }
 moveit-planners-sbp = { path = "crates/moveit-planners-sbp", version = "0.1.0" }
+moveit-planning = { path = "crates/moveit-planning", version = "0.1.0" }
 moveit-sampling = { path = "crates/moveit-sampling", version = "0.1.0" }
 moveit-scene = { path = "crates/moveit-scene", version = "0.1.0" }
 moveit-smoothing = { path = "crates/moveit-smoothing", version = "0.1.0" }

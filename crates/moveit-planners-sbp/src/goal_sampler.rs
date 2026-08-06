@@ -7,7 +7,7 @@
 //   moveit_planners/ompl/ompl_interface/src/detail/constrained_goal_sampler.cpp
 //   (ConstrainedGoalSampler::sampleUsingConstraintSampler)
 
-//! Resolves a [`crate::registry::Goal::Constraints`] goal region to one
+//! Resolves one [`moveit_planning::PlanningRequest::goal_constraints`] set to one
 //! concrete [`JointModelGroupSpace`] state, mirroring
 //! `ConstrainedGoalSampler::sampleUsingConstraintSampler`
 //! (`constrained_goal_sampler.cpp:96-170`).
@@ -31,7 +31,7 @@
 //! port's single-rooted goal tree imposes, not an oversight — see the
 //! round 21 report for the "does a concrete goal state losslessly become a
 //! `JointConstraint` set" determination this interacts with (if it does,
-//! most callers never need [`crate::registry::Goal::Constraints`]'s multi-solution
+//! most callers never need a constraint region's multi-solution
 //! generality in the first place).
 //!
 //! # What else is not ported
@@ -73,7 +73,7 @@ use crate::validity::StateValidityChecker;
 /// [`crate::rrt_connect::Sampler::sample_uniform`]'s path-constraint
 /// sampling), or from [`crate::space::StateSpace::sample_uniform`] if `None`
 /// (`:158-167`'s uniform branch) — and returns the first one that satisfies
-/// both `checker` (collision plus [`crate::registry::PlanningRequest::path_constraints`],
+/// both `checker` (collision plus [`moveit_planning::PlanningRequest::path_constraints`],
 /// mirroring upstream's `si_->getStateValidityChecker()`) and
 /// `goal_constraints` (mirroring `kinematic_constraint_set_`). `None` if no
 /// attempt succeeds within the budget, mirroring `:102-103`'s

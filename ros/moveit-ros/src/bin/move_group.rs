@@ -70,45 +70,45 @@
 //! rate would want the in-place update instead, and would then need
 //! upstream's real reader/writer lock to keep the queries safe.
 //!
-//! # What this does not do, and why
+//! # Both endpoints plan
 //!
-//! Both endpoints convert their incoming `moveit_msgs/MotionPlanRequest` into
-//! a [`moveit_planning::PlanningRequest`] (the existing
-//! `TryFrom<PlanningRequestMsg>` impl), then stop -- neither calls a planner,
-//! so every reply carries an empty trajectory and a non-`SUCCESS`
-//! `error_code`.
+//! Each converts its incoming `moveit_msgs/MotionPlanRequest` into a
+//! [`moveit_planning::PlanningRequest`] (the existing
+//! `TryFrom<PlanningRequestMsg>` impl), hands it to
+//! [`moveit_ros::move_group::plan_only`], and encodes whatever comes back.
+//! That function is upstream's own two steps --
+//! `MoveGroupCapability::resolvePlanningPipeline` followed by
+//! `PlanningPipeline::generatePlan` -- and both capabilities call them in
+//! that order (`plan_service_capability.cpp:69-106`,
+//! `move_action_capability.cpp:206-227`), which is why one function serves
+//! both here too.
 //!
-//! That stop is measured, not a shortcut: `rg -n "impl.*Planner<'m>.*for"
-//! crates/` (repeated this round, same as `moveit_planning::response`'s own
-//! doc comment already recorded) finds zero hits outside
-//! `moveit-planning`'s own test fixtures, and `rg -n moveit-planning
-//! crates/moveit-planners-{sbp,chomp,stomp,pilz}/Cargo.toml` finds zero
-//! hits -- no planner crate in this workspace depends on `moveit-planning`
-//! at all, so no concrete [`moveit_planning::pipeline::Planner`] exists to
-//! hand `generate_plan` here or anywhere else.
+//! Until PORTING-PLAN.md D8 landed there was nothing to call: no planner
+//! crate depended on `moveit-planning`, and
+//! `moveit_planners_sbp::registry`'s `PlanningRequest` shared only a *name*
+//! with `moveit_planning`'s. D8 merged the two, so `RrtConnectManager` now
+//! implements [`moveit_planning::PlannerManager`] and reaches these
+//! endpoints through `moveit_planner_registry::PLANNER_MANAGERS` -- which
+//! this binary sees only because `moveit_ros`'s own `lib.rs` names the
+//! planner crate, `linkme` registrations being link-time, not
+//! dependency-time (`moveit_planner_registry::PLANNER_MANAGERS`' doc).
 //!
-//! The nearest candidate, `moveit_planners_sbp::registry::RrtConnectManager`,
-//! cannot be bridged by a local adapter in this crate without re-deciding
-//! `PORTING-PLAN.md` D8 out from under it: `crates/moveit-planning`'s
-//! `PlanningRequest`/`PlanningResponse` and `moveit-planners-sbp::registry`'s
-//! own same-named types are two distinct types today (confirmed this round
-//! by re-reading `registry.rs:270-340` and `PORTING-PLAN.md` §140.2, not
-//! assumed stale), and D8 (§140.3) is the standing, already-decided,
-//! already-preconditioned plan to unify them -- explicitly *not* started
-//! yet ("이건 구조적 해결을 미루는 게 아니라 순서다: 지금 하면 같은
-//! 파일을 두 라운드가 동시에 고친다"). Writing a one-off translation here
-//! instead would be exactly the "clever patch" CLAUDE.md's
-//! structural-fix-over-patch rule warns against: it would leave `goal`
-//! meaning two different things across the crate boundary for the next
-//! round to untangle, for the sake of this round alone. Also out of this
-//! binary's fence regardless (`ros/moveit-ros` only) -- adding a
-//! `moveit-planners-sbp` dependency here is defensible; writing the
-//! adapter D8 already owns is not.
+//! Both plan against the monitored scene rather than a fresh one: `plan`
+//! below takes the same `Arc` snapshot `handle_state_validity` takes and
+//! runs on `snapshot.diff()`, so a collision object that arrived on
+//! `planning_scene` is in the world the planner checks against, and a
+//! planner that leaves the current state where it finished mutates only the
+//! child. That is upstream's shape for both capabilities:
+//! `LockedPlanningSceneRO ps(context_->planning_scene_monitor_)`
+//! (`plan_service_capability.cpp:88`) and
+//! `copyPlanningScene(goal->get_goal()->planning_options.planning_scene_diff)`
+//! (`move_action_capability.cpp:216-217`).
 //!
-//! A caller therefore gets a genuine round trip -- a real
-//! `moveit_msgs/GetMotionPlan` request, over live DDS, converted through
-//! the same `TryFrom` impls the wire tests exercise in-process -- and a
-//! genuine, typed failure, never a fabricated trajectory.
+//! The second of those takes an argument this port drops: a goal's
+//! `planning_options.planning_scene_diff` is ignored, so a client that ships
+//! its world inside the goal instead of publishing it on `planning_scene`
+//! plans against an emptier scene than it asked for, with nothing on the
+//! wire saying so.
 //!
 //! # One error code for every conversion failure, and what that costs
 //!
@@ -125,17 +125,25 @@
 //! conversion a typed error enum with one variant per rejected field, which
 //! is `moveit-ros`'s own call and a change to every one of its callers.
 //!
-//! # Both endpoints report that state as `MoveItErrorCodes::FAILURE`
+//! # Both endpoints report a failure to plan as `MoveItErrorCodes::FAILURE`
 //!
 //! Upstream reaches "there is no planning pipeline" through
-//! `resolvePlanningPipeline` returning null, and *both* capabilities encode
-//! that as `FAILURE` (`move_action_capability.cpp:207-211`,
-//! `plan_service_capability.cpp:82-85`), reserving `PLANNING_FAILED` for a
-//! pipeline that ran and did not solve. `/plan_kinematic_path` here answered
-//! `PLANNING_FAILED` from §241 until §255 corrected it -- a code this port
-//! cannot legitimately reach, since nothing here ever runs a pipeline. The
-//! live leg of `ros/verify-ros-interop.sh` is pinned to `val=99999`, so the
-//! two now move together.
+//! `resolvePlanningPipeline` returning null and "the pipeline ran and did not
+//! solve" through `generatePlan` returning false, and encodes *both* as
+//! `FAILURE` in both capabilities
+//! (`move_action_capability.cpp:207-211,218-227`,
+//! `plan_service_capability.cpp:82-85,92-97`), reserving `PLANNING_FAILED`
+//! for elsewhere. `/plan_kinematic_path` here answered `PLANNING_FAILED` from
+//! §241 until §255 corrected it; that correction stands, and the live leg of
+//! `ros/verify-ros-interop.sh` stays pinned to `val=99999`.
+//!
+//! What §255 could say and this round cannot is that `FAILURE` is the *only*
+//! reachable answer. The null-pipeline branch it stood in is still reachable
+//! -- [`moveit_ros::move_group::PlanOnlyError::UnknownPipeline`] is what a
+//! `pipeline_id` naming no registered planner produces, and what *every*
+//! request would produce if `PLANNER_MANAGERS` were empty, which is the state
+//! §255 was written in. It is no longer the only outcome: a request naming a
+//! registered planner now reaches it and can come back `SUCCESS`.
 
 use std::cell::RefCell;
 use std::env;
@@ -153,7 +161,8 @@ use moveit_constraints::KinematicConstraintSet;
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planning::PlanningRequest;
 use moveit_ros::constraints::set::ConstraintsMsg;
-use moveit_ros::planning::PlanningRequestMsg;
+use moveit_ros::move_group::plan_only;
+use moveit_ros::planning::{PlanningRequestMsg, PlanningResponseMsgOut};
 use moveit_ros::scene::planning_scene::use_planning_scene_msg;
 use moveit_ros::state::RobotStateMsg;
 use moveit_scene::PlanningScene;
@@ -164,78 +173,115 @@ use r2r::moveit_msgs::action::MoveGroup;
 use r2r::moveit_msgs::msg::MoveItErrorCodes;
 use r2r::moveit_msgs::srv::{GetMotionPlan, GetStateValidity};
 
-/// The one sentence both endpoints send back in place of a trajectory.
-const NO_PLANNER: &str = "moveit-ros has no moveit_planning::pipeline::Planner to call yet \
-     (PORTING-PLAN.md §241): the request converted, but there is no \
-     planner in this workspace to hand it to.";
+/// `MoveItErrorCodes::source` for each endpoint -- see [`plan`], the one
+/// place either is written, for what the field is used for here.
+///
+/// The endpoint, not the binary: a `source` built from the binary name goes
+/// stale on the wire every time the binary is renamed -- which is what §255
+/// did to this one.
+const PLAN_SERVICE_SOURCE: &str = "moveit-ros/plan_kinematic_path";
+const MOVE_ACTION_SOURCE: &str = "moveit-ros/move_action";
 
-/// Builds a `MotionPlanResponse` carrying no trajectory and the given
-/// `val`/`message` -- the shape every non-success reply in this binary
-/// uses, since `moveit_ros::planning`'s `TryFrom<PlanningResponse> for
-/// PlanningResponseMsgOut` only ever encodes `SUCCESS` (it has no `Err`
-/// input to encode from: a `PlanningResponse` value only exists once a
-/// planner already succeeded).
-fn failure_response(val: i32, message: &str) -> GetMotionPlan::Response {
-    GetMotionPlan::Response {
-        motion_plan_response: r2r::moveit_msgs::msg::MotionPlanResponse {
+/// A non-`SUCCESS` answer, minus its `source`: the `val` and `message` are
+/// the same whichever endpoint asked, and the `source` names the endpoint,
+/// which only [`plan`] knows.
+struct PlanFailure {
+    val: i32,
+    message: String,
+}
+
+/// Both capabilities' shared body, and the one place a reply is built: plan,
+/// then stamp `source` on whichever arm answered.
+///
+/// The stamp is here and not at the two call sites because it has to hold on
+/// *both* arms. Upstream leaves `MoveItErrorCodes::source` empty; this port
+/// uses it as "which endpoint built this reply", and that is the only thing
+/// separating an answer that crossed DDS from one `MoveGroupInterface`
+/// synthesised locally when no server answered
+/// (`move_group_interface.cpp:659-663`, which returns `FAILURE` with both
+/// strings empty -- the same `val` this node answers a failed plan with).
+/// Stamping only the failing arm would have left the success reply, the one
+/// Phase 9's completion condition is about, indistinguishable from a client
+/// that never reached this node.
+fn plan(
+    snapshot: &Arc<PlanningScene<'static>>,
+    msg: r2r::moveit_msgs::msg::MotionPlanRequest,
+    source: &str,
+) -> r2r::moveit_msgs::msg::MotionPlanResponse {
+    let mut response = plan_inner(snapshot, msg).unwrap_or_else(|failure| {
+        r2r::moveit_msgs::msg::MotionPlanResponse {
             error_code: MoveItErrorCodes {
-                val,
-                message: message.to_string(),
-                // The endpoint, not the binary: `move_group_failure` below
-                // already names its own endpoint (`moveit-ros/move_action`),
-                // and a `source` built from the binary name goes stale on the
-                // wire every time the binary is renamed -- which is what §255
-                // just did to this one.
-                source: "moveit-ros/plan_kinematic_path".to_string(),
+                val: failure.val,
+                message: failure.message,
+                ..Default::default()
             },
             ..Default::default()
-        },
-    }
-}
-
-/// Converts the request, then reports why this round stops there. See this
-/// binary's own module doc for the full explanation.
-fn handle_request(model: &RobotModel, msg: GetMotionPlan::Request) -> GetMotionPlan::Response {
-    let planning_request = match PlanningRequest::try_from(PlanningRequestMsg {
-        model,
-        msg: msg.motion_plan_request,
-    }) {
-        Ok(request) => request,
-        Err(e) => {
-            return failure_response(
-                MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS as i32,
-                &format!("MotionPlanRequest -> PlanningRequest: {e}"),
-            );
         }
-    };
-
-    // The conversion above is the whole of what this round wires up -- see
-    // the module doc for why calling a planner is not this round's decision
-    // to make. `planning_request` is otherwise unused past proving the
-    // conversion above actually ran.
-    let _ = &planning_request;
-    // `FAILURE`, not `PLANNING_FAILED`: upstream's own service capability
-    // answers a null `resolvePlanningPipeline` with `FAILURE`
-    // (`plan_service_capability.cpp:82-85`), which is the branch this port
-    // stands in. See this binary's module doc.
-    failure_response(MoveItErrorCodes::FAILURE as i32, NO_PLANNER)
+    });
+    response.error_code.source = source.to_string();
+    response
 }
 
-/// A `MoveGroup` result carrying no trajectory and the given `val`/`message`.
+/// Convert the wire request, plan against the monitored scene, encode.
 ///
-/// `planning_time` stays `0.0` rather than being timed: upstream sets it from
-/// `MotionPlanResponse::planning_time`, which only a pipeline that ran can
-/// produce (`move_action_capability.cpp:228`). Reporting the wall time this
-/// handler spent converting under that field would put a number where
-/// upstream has planning time.
-fn move_group_failure(val: i32, message: &str) -> MoveGroup::Result {
-    MoveGroup::Result {
-        error_code: MoveItErrorCodes {
-            val,
-            message: message.to_string(),
-            source: "moveit-ros/move_action".to_string(),
-        },
-        ..Default::default()
+/// The three failures are upstream's, in upstream's order -- a request that
+/// does not convert (no upstream analogue: `MotionPlanRequest` *is*
+/// upstream's planning request, so there is nothing there to reject), an
+/// unresolved pipeline or an unsolved plan (both `FAILURE`,
+/// `move_action_capability.cpp:207-211,218-227`), and encoding the answer
+/// back onto the wire (no upstream analogue either: `getMessage` cannot
+/// fail).
+///
+/// `snapshot` stands in for `LockedPlanningSceneRO ps(...)` exactly as it
+/// does in [`handle_state_validity`]: planning runs on `snapshot.diff()`, so
+/// a planner that leaves the current state where it finished writes to the
+/// child and the monitored scene the next request reads is untouched.
+fn plan_inner(
+    snapshot: &Arc<PlanningScene<'static>>,
+    msg: r2r::moveit_msgs::msg::MotionPlanRequest,
+) -> Result<r2r::moveit_msgs::msg::MotionPlanResponse, PlanFailure> {
+    // Read before the move below: `PlanningRequest` has no `pipeline_id`
+    // field (`doc/message-mapping.md` records it as dropped), so the
+    // selection upstream makes from this field has to be made off the
+    // message.
+    let pipeline_id = msg.pipeline_id.clone();
+
+    let request = PlanningRequest::try_from(PlanningRequestMsg {
+        model: snapshot.robot_model(),
+        msg,
+    })
+    .map_err(|e| PlanFailure {
+        val: MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS as i32,
+        message: format!("MotionPlanRequest -> PlanningRequest: {e}"),
+    })?;
+
+    let mut scene = snapshot.diff();
+    // Built from the scene's own world, the same way `handle_state_validity`
+    // builds one: an env constructed once at startup would be checking every
+    // plan against the world as it stood before the first `planning_scene`
+    // message arrived.
+    let env = ParryCollisionEnv::new(scene.world().clone(), Default::default());
+    let response = plan_only(&mut scene, &env, &pipeline_id, request).map_err(|e| PlanFailure {
+        val: MoveItErrorCodes::FAILURE as i32,
+        message: e.to_string(),
+    })?;
+
+    PlanningResponseMsgOut::try_from(response)
+        .map(|out| out.0)
+        .map_err(|e| PlanFailure {
+            val: MoveItErrorCodes::FAILURE as i32,
+            message: format!("PlanningResponse -> MotionPlanResponse: {e}"),
+        })
+}
+
+/// `MoveGroupPlanService::computePlanService`
+/// (`plan_service_capability.cpp:69-106`).
+fn handle_request(
+    snapshot: &Arc<PlanningScene<'static>>,
+    msg: GetMotionPlan::Request,
+) -> GetMotionPlan::Response {
+    GetMotionPlan::Response {
+        motion_plan_response: plan(snapshot, msg.motion_plan_request, PLAN_SERVICE_SOURCE),
     }
 }
 
@@ -251,11 +297,16 @@ fn move_group_failure(val: i32, message: &str) -> MoveGroup::Result {
 /// `plan_only == false` goal therefore gets a plan-only answer, and says so,
 /// exactly as upstream does at `:98-102`.
 ///
-/// Inside that arm, upstream selects a pipeline and returns
-/// `MoveItErrorCodes::FAILURE` when none resolves (`:207-211`). No pipeline
-/// can resolve here for the reason this binary's module doc measures, so that
-/// is the branch this port lands in and `FAILURE` is the code it reports.
-fn handle_move_group_goal(model: &RobotModel, goal: MoveGroup::Goal) -> MoveGroup::Result {
+/// `executed_trajectory` stays empty for that same reason, and
+/// `planning_time` stays `0.0`: upstream fills it from
+/// `MotionPlanResponse::planning_time` (`:232`), which
+/// [`moveit_planning::PlanningResponse`] has no field for -- see that type's
+/// own doc comment. Reporting this handler's wall clock there would put a
+/// different number under upstream's name for one.
+fn handle_move_group_goal(
+    snapshot: &Arc<PlanningScene<'static>>,
+    goal: MoveGroup::Goal,
+) -> MoveGroup::Result {
     if !goal.planning_options.plan_only {
         eprintln!(
             "This instance of MoveGroup is not allowed to execute trajectories \
@@ -264,17 +315,20 @@ fn handle_move_group_goal(model: &RobotModel, goal: MoveGroup::Goal) -> MoveGrou
         );
     }
 
-    if let Err(e) = PlanningRequest::try_from(PlanningRequestMsg {
-        model,
-        msg: goal.request,
-    }) {
-        return move_group_failure(
-            MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS as i32,
-            &format!("MotionPlanRequest -> PlanningRequest: {e}"),
-        );
+    // `convertToMsg(res.trajectory, action_res->trajectory_start,
+    // action_res->planned_trajectory)` (`:230`) followed by `action_res->
+    // error_code = res.error_code` (`:231`) -- the same three fields
+    // `MotionPlanResponse` carries them in, moved across. Unconditional, as
+    // upstream's is: on the failing arm they are the empty values
+    // `MotionPlanResponse::default` supplies, which is what upstream's own
+    // untouched `res.trajectory` holds there too.
+    let response = plan(snapshot, goal.request, MOVE_ACTION_SOURCE);
+    MoveGroup::Result {
+        error_code: response.error_code,
+        trajectory_start: response.trajectory_start,
+        planned_trajectory: response.trajectory,
+        ..Default::default()
     }
-
-    move_group_failure(MoveItErrorCodes::FAILURE as i32, NO_PLANNER)
 }
 
 /// The monitored scene: one immutable snapshot, replaced wholesale by the
@@ -617,10 +671,18 @@ fn main() -> ExitCode {
 
     let mut pool = LocalPool::new();
     let spawner = pool.spawner();
+    let scene_for_plan_service = Rc::clone(&scene);
     let spawned = spawner.spawn_local(async move {
         let mut service = service;
         while let Some(req) = service.next().await {
-            let response = handle_request(model, req.message.clone());
+            // Scoped exactly as `check_state_validity`'s is: the `RefCell`
+            // borrow ends before the reply, so the subscription task can
+            // install a new snapshot while this one is still being planned
+            // against.
+            let response = {
+                let snapshot = Arc::clone(&scene_for_plan_service.borrow());
+                handle_request(&snapshot, req.message.clone())
+            };
             if let Err(e) = req.respond(response) {
                 eprintln!("responding to plan_kinematic_path request: {e}");
             }
@@ -631,6 +693,7 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    let scene_for_move_action = Rc::clone(&scene);
     let spawned = spawner.spawn_local(async move {
         let mut requests = move_action;
         while let Some(request) = requests.next().await {
@@ -657,13 +720,22 @@ fn main() -> ExitCode {
             }) {
                 eprintln!("publishing move_action PLANNING feedback: {e}");
             }
-            let result = handle_move_group_goal(model, goal.goal.clone());
-            // `error_code.val != SUCCESS && != PREEMPTED` is upstream's
-            // `abort` arm (`:113-124`); neither of the other two is
-            // reachable while no planner exists to return SUCCESS and no
-            // cancel path sets PREEMPTED.
-            if let Err(e) = goal.abort(result) {
-                eprintln!("aborting move_action goal: {e}");
+            let result = {
+                let snapshot = Arc::clone(&scene_for_move_action.borrow());
+                handle_move_group_goal(&snapshot, goal.goal.clone())
+            };
+            // Upstream's three-way terminal branch (`:113-124`). Its
+            // `PREEMPTED` arm has no counterpart: nothing here sets that
+            // code, because this node ports neither `preempt_requested_` nor
+            // a cancel callback, so a `canceled` arm would be unreachable by
+            // construction rather than merely unexercised.
+            let outcome = if result.error_code.val == MoveItErrorCodes::SUCCESS as i32 {
+                goal.succeed(result)
+            } else {
+                goal.abort(result)
+            };
+            if let Err(e) = outcome {
+                eprintln!("terminating move_action goal: {e}");
             }
         }
     });

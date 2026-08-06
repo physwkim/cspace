@@ -617,6 +617,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-planner-registry"
+version = "0.1.0"
+dependencies = [
+ "linkme",
+ "moveit-error",
+ "moveit-planning",
+]
+
+[[package]]
+name = "moveit-planners-sbp"
+version = "0.1.0"
+dependencies = [
+ "linkme",
+ "moveit-collision",
+ "moveit-constraints",
+ "moveit-error",
+ "moveit-geometry",
+ "moveit-kinematics",
+ "moveit-model",
+ "moveit-planner-registry",
+ "moveit-planning",
+ "moveit-scene",
+ "moveit-state",
+ "moveit-trajectory",
+ "rand 0.10.2",
+ "rand_chacha",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "moveit-planning"
 version = "0.1.0"
 dependencies = [
@@ -643,6 +673,8 @@ dependencies = [
  "moveit-geometry",
  "moveit-model",
  "moveit-octomap",
+ "moveit-planner-registry",
+ "moveit-planners-sbp",
  "moveit-planning",
  "moveit-scene",
  "moveit-srdf",

@@ -29,37 +29,36 @@
 //! `moveit-planners-sbp`, one concrete planner with its own
 //! planner-specific request type, did).
 //!
-//! # Deviation from `moveit-planners-sbp::registry`'s existing types
+//! # These types are the only ones a planner speaks (D8)
 //!
-//! `moveit-planners-sbp::registry` currently defines its own
-//! `PlanningRequest`/`PlanningResponse`/`PlanningContext`/`PlannerManager`.
-//! Architecturally that is backwards — a *planner* crate should depend on
-//! the planning-request vocabulary, not define it — and sbp's own module doc
-//! says so directly. This crate fixes the layering going forward without
-//! touching sbp itself: relocating sbp onto these types is
-//! `moveit-planners-sbp`'s own crate's job (assigned there alongside its
-//! constraint-sampler wiring, round 19), not this one's — this crate's part
-//! of that relocation is proving these canonical types can actually receive
-//! it, which the full request/response adapter chain doctest below (see
-//! "# The adapter chain") now exercises end to end.
+//! `moveit-planners-sbp::registry` used to define a second, unrelated
+//! `PlanningRequest`/`PlanningResponse`/`PlanningContext`/`PlannerManager`
+//! set that shared only *names* with these. Architecturally that was
+//! backwards — a *planner* crate should depend on the planning-request
+//! vocabulary, not define it — and it had a concrete cost: no caller could
+//! hand a request across the boundary, so `ros/moveit-ros`'s endpoints had
+//! no planner to call at all. PORTING-PLAN.md D8 removed the duplicate set;
+//! [`crate::planner::PlannerManager`]/[`crate::planner::PlanningContext`]
+//! here are the ones `RrtConnectManager` implements, and
+//! `moveit-planner-registry` is where a manager is looked up by name.
 //!
-//! Two shape differences from sbp's existing types are not cosmetic; each is
-//! forced by what this round's adapters actually need to read or write:
+//! Two shape differences from sbp's deleted types survived the merge, in
+//! this crate's favour, because each is what the adapters actually need to
+//! read or write:
 //!
 //! - [`PlanningRequest::goal_constraints`] is `Vec<KinematicConstraintSet>`
 //!   (already-typed constraint sets — a state satisfying *any one* set is an
-//!   acceptable goal), not sbp's `goal: Vec<CompoundValue>` (one concrete
-//!   state). [`crate::request_adapters::CheckForStackedConstraints`] counts
+//!   acceptable goal), not sbp's old `goal: Goal` (one concrete state, or
+//!   one set). [`crate::request_adapters::CheckForStackedConstraints`] counts
 //!   `position_constraints`/`orientation_constraints` per set and
 //!   [`crate::request_adapters::ResolveConstraintFrames`] inspects
 //!   constraint frames — neither operation is expressible against a
 //!   concrete state, which by definition has already thrown that structure
-//!   away. sbp's concrete-state shape remains correct for what actually
-//!   consumes it today (`moveit-planners-sbp::rrt_connect::rrt_connect`
-//!   takes one fixed goal, not a region) — see "What this does *not* yet
-//!   close" below for why the two shapes still cannot be unified this round.
+//!   away. A caller that means one concrete state writes it the way upstream
+//!   does, `constructGoalConstraints(state, jmg, tolerance)`
+//!   ([`moveit_constraints::utils::construct_goal_joint_constraints`]).
 //! - [`PlanningResponse::trajectory`] is a [`moveit_trajectory::RobotTrajectory`]
-//!   (one `duration_from_previous` per waypoint), not sbp's
+//!   (one `duration_from_previous` per waypoint), not sbp's old
 //!   `Vec<RobotState<'m>>` (bare waypoints, no timing).
 //!   [`crate::response_adapters::AddRuckigTrajectorySmoothing`]/
 //!   [`crate::response_adapters::AddTimeOptimalParameterization`] both exist
@@ -85,11 +84,13 @@
 //! shape has to serve more than one planner algorithm (RRT-Connect today,
 //! eventually STOMP). The fix is not a bigger bag on [`PlanningRequest`]; it
 //! is keeping planner tuning where sbp's registry work next round will put
-//! it: on each concrete `PlannerManager`-analogous type's own construction,
-//! the same place upstream's `PlannerConfigurationSettings` already lives.
+//! it: on each concrete [`crate::planner::PlannerManager`] implementation's
+//! own construction, the same place upstream's
+//! `PlannerConfigurationSettings` already lives. D8 is where that happened:
+//! `RrtConnectManager` is a struct carrying `resolution`/`seed`/`params`/
+//! `solver`, and [`PlanningRequest`] carries none of them.
 //!
-//! # What this does *not* yet close: `moveit-constraints`'s sampler has
-//! nowhere to hand its output
+//! # `moveit-constraints`'s sampler now has somewhere to hand its output
 //!
 //! `moveit-planners-sbp::registry`'s own module doc (as of round 14) already
 //! corrected an older claim that `constraint_samplers` was never ported —
@@ -106,29 +107,24 @@
 //! still being accurate): `crates/moveit-constraints/src/` does contain all
 //! three files, confirming the port itself is real.
 //!
-//! What is verified still missing, by inspection of every call site of
-//! [`moveit_constraints::select_default_sampler`] and
-//! [`moveit_constraints::ConstraintSampler`] workspace-wide (`rg
-//! 'select_default_sampler|ConstraintSampler' --type rust`): **no caller
-//! anywhere in this workspace invokes them outside `moveit-constraints`'s
-//! own tests.** In particular, this crate's own
-//! [`PlanningRequest::goal_constraints`] is exactly the
-//! `Vec<KinematicConstraintSet>` a sampler would consume to produce
-//! candidate goal states — but nothing in this round's six adapters, and
-//! nothing in sbp's `rrt_connect` (whose signature still takes one fixed
-//! `goal: S::State`, not a region or a resampleable source — unchanged from
-//! round 14's finding), calls the sampler to turn one into the other. So the
-//! answer to "can a caller of this crate express a pose (position/
-//! orientation) goal now?" is: **the sampler exists and can build one, but
-//! nothing wires its output to a planner** — not "still unported" (false,
-//! per the file listing above) and not "yes, end to end" (also false, per
-//! the zero-call-sites check above). This crate's [`PlanningRequest`] is
-//! shaped so that connection has somewhere to plug in
-//! ([`PlanningRequest::goal_constraints`] instead of a concrete state) —
-//! wiring it through to a concrete planner's `solve()` is planner-specific
-//! work for whichever crate owns that planner (sbp's `rrt_connect`, or a
-//! future STOMP integration), not something a planner-agnostic adapter
-//! chain can do on its own.
+//! Rounds 20-25 wired it, inside `moveit-planners-sbp::registry`:
+//! `RrtConnectContext::solve` calls
+//! [`moveit_constraints::select_default_sampler`] once per goal set and once
+//! for `path_constraints`, and D8 pointed those calls at
+//! [`PlanningRequest::goal_constraints`] — this crate's own field — rather
+//! than at sbp's deleted `Goal` enum. So the answer to "can a caller of this
+//! crate express a pose (position/orientation) goal?" is now yes, through
+//! `moveit-planner-registry` to `RrtConnectManager`, with the constraint
+//! sampler turning the region into candidate states.
+//!
+//! What that answer is still bounded by is `rrt_connect` itself: the goal
+//! region is collapsed to *one* concrete state before the search starts
+//! (sampled with a bounded attempt count, then fixed), where upstream's
+//! `ConstrainedGoalSampler` keeps producing new goal states for the whole
+//! duration of the search. A goal whose sampled state is unreachable
+//! therefore fails even when another state in the same region would have
+//! been reachable. See `moveit-planners-sbp::registry`'s own module doc for
+//! that gap.
 //!
 //! # Upstream inventory: every adapter file at the pinned commit, accounted for
 //!
@@ -248,10 +244,8 @@
 //! );
 //!
 //! // The response half. A hand-built trajectory stands in for a planner's
-//! // output here — wiring a concrete planner (`moveit-planners-sbp`) onto
-//! // this crate's own canonical `PlanningRequest`/`PlanningResponse` is that
-//! // crate's job, not this one's (see "Deviation from
-//! // `moveit-planners-sbp::registry`'s existing types" above).
+//! // output here so this example stays about the adapter chain; the
+//! // "Plan once" example below runs a real planner instead.
 //! let mut start = RobotState::new(&model);
 //! start.set_to_default_values();
 //! let mut goal = start.clone();
@@ -276,7 +270,7 @@
 //!
 //! Both traits specialize directly to [`moveit_collision::ParryCollisionEnv`]
 //! rather than being generic over `E: CollisionEnv<..>`, for the same reason
-//! `moveit-planners-sbp::registry::PlannerManager` does (see that trait's own
+//! [`crate::planner::PlannerManager`] does (see that trait's own
 //! "Deviation from upstream" doc): a generic *type* parameter on a trait
 //! method breaks `dyn` object-safety, and `ParryCollisionEnv` is the only
 //! [`moveit_collision::CollisionEnv`] implementation anywhere in this
@@ -301,36 +295,36 @@
 //! (§126: a `text` block asserting this would be exactly the unverified
 //! claim that rule exists to catch).
 //!
-//! **Type boundary, deliberately visible below, not smoothed over:** this
-//! example plans using `moveit-planners-sbp`'s own concrete
-//! `PlanningRequest`/`PlanningResponse`/`RrtConnectManager`
-//! (`moveit-planners-sbp` is a dev-dependency of this crate — for this
-//! doctest only, not [`PlanningRequest`]/[`PlanningResponse`] above, which
-//! remain sbp-independent production types), not this crate's own canonical
-//! [`PlanningRequest`]/[`PlanningResponse`]. Relocating sbp's registry onto
-//! this crate's types is `moveit-planners-sbp`'s own job (see "Deviation
-//! from `moveit-planners-sbp::registry`'s existing types" above) — until
-//! that lands, actually running a plan means speaking sbp's vocabulary end
-//! to end, not this crate's. That seam (sbp's
-//! `registry::PlanningRequest`/`PlanningResponse` on one side, this crate's
-//! [`PlanningRequest`]/[`PlanningResponse`] on the other) is exactly what a
-//! `TryFrom` conversion will need to bridge once the relocation lands, so
-//! it is named here rather than blurred.
+//! **No type boundary any more (D8):** the example below plans through this
+//! crate's own [`PlanningRequest`]/[`PlanningResponse`], selects the planner
+//! by name out of `moveit_planner_registry::PLANNER_MANAGERS`, and runs it
+//! through [`crate::pipeline::generate_plan`] — the same three steps
+//! `ros/moveit-ros`'s `/move_action` takes. `moveit-planners-sbp` and
+//! `moveit-planner-registry` are dev-dependencies of this crate, for this
+//! doctest only; nothing in the library above knows either exists, and the
+//! planner is reached entirely through [`crate::planner::PlannerManager`].
 //!
 //! ```
 //! use std::fs;
 //!
 //! use moveit_collision::ParryCollisionEnv;
+//! use moveit_constraints::utils::construct_goal_joint_constraints;
 //! use moveit_model::{MeshSearchPaths, RobotModel};
-//! use moveit_planners_sbp::{
-//!     Goal, JointModelGroupSpace, PlannerManager, PlanningContext,
-//!     PlanningRequest as SbpPlanningRequest, RrtConnectManager, RrtConnectParams, StateSpace,
-//!     Termination,
-//! };
+//! use moveit_planner_registry::resolve_planner;
+//! use moveit_planning::{PlanningRequest, generate_plan};
 //! use moveit_scene::PlanningScene;
 //! use moveit_srdf::SrdfModel;
-//! use rand::SeedableRng;
-//! use rand_chacha::ChaCha8Rng;
+//! use moveit_state::RobotState;
+//!
+//! // Linked for its side effect, not for any symbol: `RrtConnectManager`
+//! // registers itself into `PLANNER_MANAGERS` through a
+//! // `linkme::distributed_slice` static, and nothing below names a
+//! // `moveit_planners_sbp` item. Without this line the registration sits in
+//! // an rlib object file no symbol references, the linker drops it, and
+//! // `resolve_planner("rrt_connect")` below fails with `UnknownName`
+//! // (measured — this example failed exactly that way before the line
+//! // existed).
+//! use moveit_planners_sbp as _;
 //!
 //! // Fixture URDF/SRDF loaded from disk, not a ROS parameter server or
 //! // `robot_description` topic — the whole point of this example.
@@ -344,47 +338,41 @@
 //! let mut scene = PlanningScene::new(&model, &srdf);
 //! let env = ParryCollisionEnv::default();
 //!
-//! let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
-//! let mut rng = ChaCha8Rng::seed_from_u64(7);
-//! let goal = space.sample_uniform(&mut rng);
+//! // A concrete-state goal, written the way upstream writes one:
+//! // `constructGoalConstraints(state, jmg, tolerance)`, one joint
+//! // constraint per group variable.
+//! let mut goal_state = RobotState::new(&model);
+//! goal_state.set_to_default_values();
+//! goal_state.set_joint_positions("panda_joint1", &[0.4]).unwrap();
+//! let goal = construct_goal_joint_constraints(&model, &goal_state.update(), "panda_arm", 1e-9, 1e-9)
+//!     .unwrap();
 //!
-//! let request = SbpPlanningRequest {
+//! let request = PlanningRequest {
 //!     group_name: "panda_arm".to_string(),
-//!     goal: Goal::State(goal.clone()),
-//!     path_constraints: None,
-//!     resolution: 0.05,
-//!     seed: 7,
-//!     params: RrtConnectParams {
-//!         step_size: 0.5,
-//!         goal_bias: 0.05,
-//!         termination: Termination::Iterations(20_000),
-//!         nn_degree: 8,
-//!     },
-//!     // A `Goal::State` never reaches `select_default_sampler`, so this
-//!     // field is inert here; it is spelled out because `PlanningRequest`
-//!     // holds a `Box<dyn KinematicsSolver>` and so derives no `Default`.
-//!     solver: None,
+//!     goal_constraints: vec![goal],
+//!     ..PlanningRequest::default()
 //! };
 //!
-//! let manager = RrtConnectManager;
-//! let mut context = manager
-//!     .get_planning_context(&mut scene, &env, request)
-//!     .expect("panda_arm is a real group");
-//! let response = context
-//!     .solve()
+//! // Selected by name, never by slice position: `PLANNER_MANAGERS` is a
+//! // `linkme::distributed_slice` and its order is the linker's
+//! // (PORTING-PLAN.md §177).
+//! let planner = resolve_planner("rrt_connect").expect("rrt_connect is registered");
+//!
+//! // Empty adapter chains: this example is about reaching the planner, and
+//! // the chains have their own example above.
+//! let response = generate_plan(&mut scene, &env, &[], &[planner], &[], request)
 //!     .expect("an empty-world panda_arm query must be solvable");
 //!
-//! assert!(response.trajectory.len() >= 2);
-//! assert_eq!(
-//!     space.read_robot_state(response.trajectory.last().unwrap()),
-//!     goal,
-//!     "the last waypoint must equal the requested goal exactly"
-//! );
+//! assert_eq!(response.planner_id, "rrt_connect");
+//! assert!(response.trajectory.way_point_count() >= 2);
+//! let last = response.trajectory.way_point(response.trajectory.way_point_count() - 1).unwrap();
+//! assert!((last.variable_position("panda_joint1").unwrap() - 0.4).abs() < 1e-6);
 //! ```
 
 pub mod error;
 pub mod pipeline;
 pub mod plan_responses;
+pub mod planner;
 pub mod request;
 pub mod request_adapters;
 pub mod response;
@@ -392,10 +380,11 @@ pub mod response_adapters;
 pub mod start_state;
 
 pub use error::{RequestAdapterError, ResponseAdapterError};
-pub use pipeline::{PipelineError, PlanError, Planner, generate_plan};
+pub use pipeline::{PipelineError, generate_plan};
 pub use plan_responses::{
     PlanOutcome, PlanResponsesContainer, shortest_solution, stop_at_first_solution,
 };
+pub use planner::{PlanError, PlannerManager, PlanningContext};
 pub use request::{PlanningRequest, WorkspaceBounds};
 pub use response::PlanningResponse;
 pub use start_state::{StartState, StartStateOverride};
