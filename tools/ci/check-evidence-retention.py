@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Keeps PORTING-PLAN.md's evidence-retention tables in step with the tree.
 
-`tools/ci/measure-*` does not split in two. One shape writes a TRACKED artifact
-(`measure-port-coverage.py` -> `doc/port-coverage.md`) and carries a `--check`
-mode, so a reader can re-derive what the plan quotes. Another takes a
-caller-named output directory and writes nothing tracked, so its numbers reach
-PORTING-PLAN.md and its output reaches a scratch directory that is deleted. A
-third writes nothing at all and reads only the tracked tree, so re-running it
-IS the evidence.
+The producing scripts under `tools/ci/` do not split in two. One shape writes a
+TRACKED artifact (`measure-port-coverage.py` -> `doc/port-coverage.md`) and
+carries a `--check` mode, so a reader can re-derive what the plan quotes.
+Another takes a caller-named output directory and writes nothing tracked, so
+its numbers reach PORTING-PLAN.md and its output reaches a scratch directory
+that is deleted. A third writes nothing at all and reads only the tracked tree,
+so re-running it IS the evidence. A fourth only reads another instrument's
+output, so it retains nothing of its own.
 
 The first casualty is §269.3: port vs upstream C++ CHOMP/STOMP over 500
 problems, four arms, medians to sixteen digits. Every instrument behind it is
@@ -29,13 +30,19 @@ Two tables in PORTING-PLAN.md, each found by its exact header row and each
 required to be unique:
 
   CENSUS  | 계측기 | 산출물 | 부류 |
-    The 계측기 column must be EXACTLY the `tools/ci/measure-*` set on disk --
-    no missing entry, no extra one. 산출물 is a comma-separated list of repo
+    The 계측기 column must be EXACTLY the producer set on disk -- no missing
+    entry, no extra one. That set comes from PREFIX_ROLES: every tracked script
+    under tools/ci/ is assigned a role by its prefix, and an undeclared prefix
+    is a FAILURE, not a quiet exclusion. The first cut of this gate used the
+    `measure-` prefix as the family, and that dropped
+    `compare-phase8-port-vs-cpp.py` -- the script that computed §269.4's
+    four-way split, one of the three instruments behind the very table this
+    gate exists for. 산출물 is a comma-separated list of repo
     paths, or `없음`; each path must be tracked, must exist, and must appear
     literally inside the instrument's own text. The column is a list rather
     than one path because `measure-upstream-citations.py` regenerates two
     (`doc/citation-classes.txt` and `doc/upstream-citation-classes.txt`), and a
-    one-path column would have made the second invisible. 부류 is one of three
+    one-path column would have made the second invisible. 부류 is one of four
     and must agree with whether 산출물 is a path:
 
       추적 산출물      has tracked counterpart file(s) and a `--check` /
@@ -45,6 +52,9 @@ required to be unique:
                        the pinned upstream checkout), so a re-run re-derives
       미보존 산출물    produces per-problem output from a planner sweep that
                        costs hours, and that output lands nowhere in the tree
+      입력이 증거      takes another instrument's output as an argument and
+                       prints a derived view of it; its retention obligation
+                       is the producer's, so it carries NO rows
 
     Both the middle and the last class are findings rather than conveniences.
     `measure-port-coverage-independent.py` and `measure-requirement-closure.py`
@@ -80,9 +90,10 @@ required to be unique:
 
 # Which direction absence is checkable, and which it is not
 
-CHECKABLE, and not silenceable from the plan: a new `tools/ci/measure-*` on
-disk has no census row, and this gate fails until someone rules on it. Nothing
-written in PORTING-PLAN.md can turn that off -- the trigger is the file.
+CHECKABLE, and not silenceable from the plan: a new script under tools/ci/ has
+no census row, and this gate fails until someone rules on it -- and if its
+prefix is one nobody has classified, it fails on that first. Nothing written in
+PORTING-PLAN.md can turn either off; the trigger is the file.
 
 CHECKABLE, and this is what makes the rule survive a deletion: deleting the
 sentence that names an instrument does not silence its row, it BREAKS it. The
@@ -111,10 +122,17 @@ Two further bounds, both measured rather than assumed:
     `doc/` naming one are `doc/phase8-condition2-stomp/README.md`, which
     documents the committed evidence itself, its own `run-subset.sh`, and the
     generated `doc/citation-classes-in-repo.txt`).
-  * The instrument family is `tools/ci/measure-*`. Nine `tools/ci/verify-*`
-    scripts open a `mktemp -d` too, `verify-phase8-benchmark.sh` among them,
-    and this gate does not look at them. That is a named hole, not a claim
-    they are clean.
+  * `verify-*` and `check-*` are classified as gates and left out of the
+    census, on the ground that CI re-runs them so their verdict is live. That
+    is a judgement, not a measurement: nine `tools/ci/verify-*` open a
+    `mktemp -d`, `verify-phase8-benchmark.sh` among them, and it holds
+    constants §293 and §300 quote. A named hole, not a claim they are clean.
+  * The `수동` rows for the seven `트리에서 재실행` producers are not a
+    complete hand-enumeration. The 자동 pairs are derived by command; for
+    `count-*` and `requirement-message-closure.py` nobody has read the plan
+    end to end looking for sections that publish their counts without naming
+    them. Retention is unaffected -- a re-run IS the evidence for that class --
+    but the row list is not proven exhaustive there either.
 
 Named `check-*` so `ci.yml`'s prefix glob runs it: python3, the tracked files
 and `git ls-files`. No docker, no cargo, no upstream checkout.
@@ -129,7 +147,30 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 INSTRUMENT_DIR = "tools/ci"
-INSTRUMENT_PREFIX = "measure-"
+
+# Every tracked script under tools/ci/ gets a role, and an undeclared prefix is
+# a failure. The first cut of this gate used the `measure-` prefix as the family
+# and that was wrong: `compare-phase8-port-vs-cpp.py` computed §269.4's four-way
+# split -- the very table this gate exists for -- and fell outside the census
+# because of its name. A prefix guess is not a family; a declared partition is.
+ROLE_PRODUCER = "producer"      # measures something; belongs in the census
+ROLE_GATE = "gate"              # CI runs it every time, so its verdict is live
+ROLE_LIBRARY = "library"        # sourced by other scripts, measures nothing
+PREFIX_ROLES = {
+    "analyse-": ROLE_PRODUCER,
+    "classify-": ROLE_PRODUCER,
+    "compare-": ROLE_PRODUCER,
+    "count-": ROLE_PRODUCER,
+    "measure-": ROLE_PRODUCER,
+    "reconcile-": ROLE_PRODUCER,
+    "requirement-": ROLE_PRODUCER,
+    "check-": ROLE_GATE,
+    "verify-": ROLE_GATE,
+    "gate-": ROLE_LIBRARY,
+}
+# Inputs the scripts read, not scripts. Checked by extension first so a data
+# file never has to claim a prefix role.
+DATA_SUFFIXES = (".json", ".txt")
 
 CENSUS_HEADER = ["계측기", "산출물", "부류"]
 ROWS_HEADER = ["계측기", "절", "증거", "행 출처", "비고"]
@@ -137,8 +178,13 @@ ROWS_HEADER = ["계측기", "절", "증거", "행 출처", "비고"]
 CLASS_TRACKED = "추적 산출물"
 CLASS_RERUN = "트리에서 재실행"
 CLASS_UNRETAINED = "미보존 산출물"
+# A reader takes another instrument's output as an argument and prints a
+# derived view of it. Its retention obligation is not its own -- it is the
+# producer's, and the producer already carries rows for those sections. So a
+# reader is censused (so it cannot go unnamed) and carries no rows.
+CLASS_READER = "입력이 증거"
 UNTRACKED_CLASSES = (CLASS_RERUN, CLASS_UNRETAINED)
-ALL_CLASSES = (CLASS_TRACKED, CLASS_RERUN, CLASS_UNRETAINED)
+ALL_CLASSES = (CLASS_TRACKED, CLASS_RERUN, CLASS_UNRETAINED, CLASS_READER)
 NONE_TOKEN = "없음"
 ORIGIN_DERIVED = "자동"
 ORIGIN_MANUAL = "수동"
@@ -305,18 +351,47 @@ def check_evidence_path(root, path, tracked, label, where):
         )
 
 
-def instruments_on_disk(root):
+def instruments_on_disk(root, tracked):
+    """The producer family, by partitioning every tracked script under tools/ci/.
+
+    An undeclared prefix fails rather than falling through to "not a producer".
+    That is the whole point: the family has to be a decision someone made, not
+    whatever a prefix happens to match today.
+    """
     d = root / INSTRUMENT_DIR
     if not d.is_dir():
         raise Fail(
             f"{INSTRUMENT_DIR}/ is not a directory under {root} -- the instrument "
             f"family cannot be enumerated"
         )
-    found = sorted(p.name for p in d.iterdir() if p.is_file() and p.name.startswith(INSTRUMENT_PREFIX))
+    here = sorted(
+        p.rsplit("/", 1)[1]
+        for p in tracked
+        if p.startswith(INSTRUMENT_DIR + "/") and "/" not in p[len(INSTRUMENT_DIR) + 1:]
+    )
+    if not here:
+        raise Fail(
+            f"no tracked file under {INSTRUMENT_DIR}/ -- either the tree moved or "
+            f"this gate would report OK having examined nothing"
+        )
+    found = []
+    for name in here:
+        if name.endswith(DATA_SUFFIXES):
+            continue
+        role = next((r for p, r in PREFIX_ROLES.items() if name.startswith(p)), None)
+        if role is None:
+            raise Fail(
+                f"{INSTRUMENT_DIR}/{name}: no declared role for its prefix -- add it "
+                f"to PREFIX_ROLES as {ROLE_PRODUCER}, {ROLE_GATE} or {ROLE_LIBRARY}. "
+                f"An unrecognised name must not silently fall outside the census; "
+                f"that is how compare-phase8-port-vs-cpp.py stayed out of it"
+            )
+        if role == ROLE_PRODUCER:
+            found.append(name)
     if not found:
         raise Fail(
-            f"no {INSTRUMENT_DIR}/{INSTRUMENT_PREFIX}* found under {root} -- either "
-            f"the naming convention moved or this gate would report OK having "
+            f"no {ROLE_PRODUCER} under {INSTRUMENT_DIR}/ -- either every producing "
+            f"prefix left PREFIX_ROLES or this gate would report OK having "
             f"examined nothing"
         )
     return found
@@ -351,7 +426,7 @@ def run(doc, root, want_derived):
 
     marks = headings(lines)
     tracked = tracked_paths(root)
-    on_disk = instruments_on_disk(root)
+    on_disk = instruments_on_disk(root, tracked)
 
     c_start, _c_end, census = find_table(lines, CENSUS_HEADER, "census")
     r_start, r_end, rows = find_table(lines, ROWS_HEADER, "rows")
@@ -371,7 +446,7 @@ def run(doc, root, want_derived):
                 + f", got {class_c!r}"
             )
         if art_c == NONE_TOKEN:
-            if class_c not in UNTRACKED_CLASSES:
+            if class_c == CLASS_TRACKED:
                 raise Fail(f"{where}: 산출물 {NONE_TOKEN} but 부류 {class_c}")
         else:
             arts = code_list(art_c, "산출물", where)
@@ -396,14 +471,27 @@ def run(doc, root, want_derived):
     extra = sorted(set(seen) - set(on_disk))
     if missing:
         raise Fail(
-            f"{len(missing)} {INSTRUMENT_DIR}/{INSTRUMENT_PREFIX}* on disk have no "
-            f"census row: {', '.join(missing)}"
+            f"{len(missing)} {ROLE_PRODUCER}(s) on disk under {INSTRUMENT_DIR}/ "
+            f"have no census row: {', '.join(missing)}"
         )
     if extra:
-        raise Fail(
-            f"{len(extra)} census row(s) name no file in {INSTRUMENT_DIR}/: "
-            f"{', '.join(extra)}"
-        )
+        # Two different mistakes wear the same shape here, and saying "no such
+        # file" about a file that is right there sends the reader looking for a
+        # typo instead of at the role table.
+        absent = [i for i in extra if not (root / INSTRUMENT_DIR / i).is_file()]
+        present = [i for i in extra if i not in absent]
+        parts = []
+        if absent:
+            parts.append(
+                f"{len(absent)} census row(s) name no file in {INSTRUMENT_DIR}/: "
+                + ", ".join(absent)
+            )
+        if present:
+            parts.append(
+                f"{len(present)} census row(s) name a {INSTRUMENT_DIR}/ file that is "
+                f"not a {ROLE_PRODUCER}: " + ", ".join(present)
+            )
+        raise Fail("; ".join(parts))
 
     untracked = sorted(i for i in seen if klass[i] in UNTRACKED_CLASSES)
     if not untracked:
@@ -445,6 +533,12 @@ def run(doc, root, want_derived):
         inst = only_code(inst_c, "계측기", where)
         if inst not in klass:
             raise Fail(f"{where}: {inst} has no census row")
+        if klass[inst] == CLASS_READER:
+            raise Fail(
+                f"{where}: {inst} is `{CLASS_READER}`-class; its numbers come out "
+                f"of another instrument's file, so the retention obligation for "
+                f"§{sec_c} belongs to that producer's row, not to this one"
+            )
         if klass[inst] not in UNTRACKED_CLASSES:
             raise Fail(
                 f"{where}: {inst} is `{CLASS_TRACKED}`-class; the rows table is "
@@ -504,7 +598,7 @@ def run(doc, root, want_derived):
 
     by_class = {c: sum(1 for i in seen if klass[i] == c) for c in ALL_CLASSES}
     return (
-        f"OK {doc.name}: {len(seen)} {INSTRUMENT_DIR}/{INSTRUMENT_PREFIX}* instruments -- "
+        f"OK {doc.name}: {len(seen)} {INSTRUMENT_DIR}/ {ROLE_PRODUCER}(s) -- "
         + ", ".join(f"{by_class[c]} `{c}`" for c in ALL_CLASSES)
         + f"; {len(rows)} publishing row(s) over the {len(untracked)} whose output is "
         f"untracked ({len(declared_auto)} {ORIGIN_DERIVED}, exactly the sections naming "

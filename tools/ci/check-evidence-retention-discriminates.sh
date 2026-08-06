@@ -12,15 +12,20 @@
 #
 # # What each rule is worth, measured
 #
-# Every line below was produced by breaking exactly one of the gate's 26 rules,
-# running this script's 31 scenarios, and reading which scenario names appeared.
-# It is a measurement, not a reading of the code. Six results are not what
+# Every line below was produced by breaking exactly one of the gate's 30 rules,
+# running this script's 35 scenarios, and reading which scenario names appeared.
+# It is a measurement, not a reading of the code. Nine results are not what
 # reading it predicts, and they are marked.
 #
 #   rule neutralized                          scenario that actually reddens
 #   ----------------------------------------  ------------------------------
 #   census missing-row check                  new_instrument
-#   census extra-row check                    ghost_instrument
+#   census extra-row check                    ghost_instrument AND
+#                                             gate_in_census  (*)
+#   extra-row present/absent split            gate_in_census  (*)
+#   tools/ci prefix partition                 undeclared_prefix
+#   data-file extension test                  data_file_needs_no_role
+#   reader-carries-no-rows rule               reader_row  (*)
 #   duplicate census row check                duplicate_instrument_row
 #   stale 자동 row check                      deleted_citation
 #   undeclared derived-pair check             unrecorded_mention AND
@@ -52,8 +57,16 @@
 #   empty instrument family floor             empty_family
 #   empty git ls-files floor                  empty_index  (*)
 #
-# (*) the seven that reading the code gets wrong:
+# (*) the nine that reading the code gets wrong:
 #
+#   - Dropping the extra-row check reddens `gate_in_census` too: a census row for
+#     a `check-*` script is an extra row, not a separate rule. What the
+#     present/absent split buys is only the MESSAGE -- without it the gate says
+#     "names no file in tools/ci/" about a file that is sitting right there,
+#     which sends the reader hunting a typo instead of reading the role table.
+#   - Without the reader rule `reader_row` still exits 1, via the
+#     추적 산출물 branch -- and that message is FALSE, the instrument is a
+#     reader. The guard buys a true reason, not a failure.
 #   - Reverting 증거 to a single token reddens `second_evidence_path_bad` too,
 #     and on the WRONG message: the row never reaches `check_evidence_path`,
 #     it dies on "must be exactly one token". So the two list scenarios do not
@@ -490,6 +503,45 @@ d="$(new empty_family)"
 rm "$d/tools/ci"/measure-*
 git -C "$d" add -A
 expect_fail empty_family "$d" "would report OK having examined nothing"
+
+# --- a tools/ci script whose prefix has no declared role ---------------------
+# isolates: the prefix partition. This is the rule the first cut of the gate did
+# not have, and its absence is exactly how `compare-phase8-port-vs-cpp.py` --
+# the script that computed §269.4's four-way split -- stayed outside the census.
+d="$(new undeclared_prefix)"
+printf '#!/bin/bash\n# a new producing shape nobody classified\n' > "$d/tools/ci/frobnicate-things.sh"
+git -C "$d" add -A
+expect_fail undeclared_prefix "$d" "no declared role for its prefix"
+
+# --- a data file with no declared prefix is not a script ---------------------
+# isolates: the extension test that runs BEFORE the prefix test. Without it the
+# real tree's four tracked `.json`/`.txt` inputs would each demand a role.
+d="$(new data_file_needs_no_role)"
+printf '{}\n' > "$d/tools/ci/frobnicate-inputs.json"
+git -C "$d" add -A
+expect_ok data_file_needs_no_role "$d"
+
+# --- a gate given a census row -----------------------------------------------
+# isolates: that role, not existence, decides census membership -- and that the
+# message says so. `check-*` runs in CI every time, so its verdict is live and
+# it has nothing to retain.
+d="$(new gate_in_census)"
+printf '#!/bin/bash\n# a gate\n' > "$d/tools/ci/check-something.sh"
+git -C "$d" add -A
+sed -i 's#^| `measure-gamma.py` | 없음 | 트리에서 재실행 |#| `measure-gamma.py` | 없음 | 트리에서 재실행 |\n| `check-something.sh` | 없음 | 트리에서 재실행 |#' "$d/PLAN.md"
+expect_fail gate_in_census "$d" "not a producer: check-something.sh"
+
+# --- a reader given a publishing row -----------------------------------------
+# isolates: the reader rule. A reader's numbers come out of a file some producer
+# wrote, so its retention obligation is already carried by that producer's row;
+# a second row for the reader would double-count the same obligation and make an
+# unretained sweep look covered twice.
+d="$(new reader_row)"
+printf '#!/usr/bin/env python3\n"""reads two NDJSON handed to it and prints."""\n' > "$d/tools/ci/compare-two-arms.py"
+git -C "$d" add -A
+sed -i 's#^| `measure-gamma.py` | 없음 | 트리에서 재실행 |#| `measure-gamma.py` | 없음 | 트리에서 재실행 |\n| `compare-two-arms.py` | 없음 | 입력이 증거 |#' "$d/PLAN.md"
+sed -i 's#^| `measure-gamma.py` | 901.3 | 없음 | 자동 | 다시 돌리면 나온다 |#| `measure-gamma.py` | 901.3 | 없음 | 자동 | 다시 돌리면 나온다 |\n| `compare-two-arms.py` | 901.2 | 없음 | 수동 | 이 행이 있으면 안 된다 |#' "$d/PLAN.md"
+expect_fail reader_row "$d" "입력이 증거"
 
 require_nonempty "$checked" "scenarios to run against check-evidence-retention.py"
 

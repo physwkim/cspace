@@ -33783,7 +33783,7 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
   다시 세지는 않는다.
 
 
-## §305 발표한 수의 증거가 트리에 있는가 — 계측기 10개를 세 부류로 갈랐고, 출판 60행 중 35행은 증거가 없다 (2026-08-07)
+## §305 발표한 수의 증거가 트리에 있는가 — 계측기 20개를 네 부류로 갈랐고, 출판 71행 중 35행은 증거가 없다 (2026-08-07)
 
 §269.3은 500문제 네 팔의 성공 수와 소수 16자리 중앙값을 싣는다. 그 수를 낸
 계측기는 전부 커밋돼 있다 — `tools/ci/measure-phase8-cpp-baseline.sh`,
@@ -33803,10 +33803,11 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 커밋된 파일이 그 수를 다시 낼 수 있는지를 표로 못박고, 표가 트리와 어긋나면
 `tools/ci/check-evidence-retention.py`가 실패한다.
 
-### §305.1 계측기 전수 — 두 부류가 아니라 세 부류다
+### §305.1 계측기 전수 — 두 부류가 아니라 네 부류이고, 가족은 접두사가 아니다
 
 브리프는 `tools/ci/measure-*`를 둘로 갈랐다: 추적 산출물을 쓰는 것과 `out_dir`
-인자를 받는 것. 트리를 세어 보면 셋이다.
+인자를 받는 것. 트리를 세어 보면 부류가 넷이고, 가족 자체가 `measure-*`보다
+넓다.
 
 `measure-port-coverage-independent.py`와 `measure-requirement-closure.py`는
 어느 쪽도 아니다 — 커밋하는 산출물이 없고 출력 디렉터리도 받지 않는다. 둘 다
@@ -33826,8 +33827,38 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 전수에서 빠진다. 그래서 부류는 **`미보존 산출물`** 이다 — 몇 시간짜리 플래너
 스윕의 문제별 출력을 내고, 그 출력이 트리 어디에도 앉지 않는다.
 
+**그리고 가족이 `measure-*`가 아니다.** 이 절의 첫 판은 접두사를 가족으로
+썼고, 그것이 브리프가 §269.3의 세 계기 중 하나로 이름을 든
+`tools/ci/compare-phase8-port-vs-cpp.py`를 전수 밖에 두었다 — §269.4의 네
+갈래를 계산한 그 스크립트다. 접두사는 가족이 아니다. `tools/ci/`의 추적
+파일을 전부 세면 79개이고 접두사는 13종이다
+(`git ls-files tools/ci/ | sed 's#.*/##' | sed 's/-.*//' | sort | uniq -c`).
+그래서 게이트는 **모든** 접두사에 역할을 붙이게 하고, 역할이 선언되지 않은
+접두사를 만나면 실패한다: 생산자 7종(`analyse-`·`classify-`·`compare-`·
+`count-`·`measure-`·`reconcile-`·`requirement-`), 게이트 2종(`check-`·
+`verify-`), 라이브러리 1종(`gate-`), 그리고 확장자가 `.json`/`.txt`인 입력
+파일. 전수가 10에서 **20**으로 늘었다.
+
+늘면서 네 번째 부류가 생겼다. `analyse-phase8-condition2-grid.py`,
+`compare-chomp-cpp-seed-return.sh`, `compare-phase8-port-vs-cpp.py` 셋은 남의
+출력을 인자로 받아 파생 뷰를 찍는다. 이들의 보존 의무는 자기 것이 아니라
+**입력을 낸 생산자의 것**이고, 그 생산자는 이미 그 절들에 대해 행을 갖고
+있다. 그래서 부류는 `입력이 증거`이고, 규약은 "이 부류는 출판 행을 갖지
+않는다"이다 — 행을 하나 더 달면 같은 의무가 두 번 세어져 사라진 스윕이 두
+군데서 덮인 것처럼 보인다.
+
 | 계측기 | 산출물 | 부류 |
 |---|---|---|
+| `analyse-phase8-condition2-grid.py` | 없음 | 입력이 증거 |
+| `compare-chomp-cpp-seed-return.sh` | 없음 | 입력이 증거 |
+| `compare-phase8-port-vs-cpp.py` | 없음 | 입력이 증거 |
+| `classify-unported.py` | `doc/unported-classification.md` | 추적 산출물 |
+| `count-coarse-assertions.py` | 없음 | 트리에서 재실행 |
+| `count-narrowing-sweep.sh` | 없음 | 트리에서 재실행 |
+| `count-public-declarations.sh` | 없음 | 트리에서 재실행 |
+| `count-relative-eq.pl` | 없음 | 트리에서 재실행 |
+| `reconcile-assertion-ledgers.py` | `doc/assertion-discrimination-orphans.txt` | 추적 산출물 |
+| `requirement-message-closure.py` | 없음 | 트리에서 재실행 |
 | `measure-chomp-objective.sh` | 없음 | 미보존 산출물 |
 | `measure-client-endpoint-surface.py` | `doc/client-endpoint-surface.md` | 추적 산출물 |
 | `measure-declaration-audits.py` | `doc/declaration-audit-coverage.md` | 추적 산출물 |
@@ -33850,8 +33881,9 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 
 ### §305.2 출판 행 — 어느 절이 어느 계측기의 수를 싣는가
 
-행의 단위는 (계측기, 절)이고, 대상은 산출물이 트리에 남지 않는 여섯이다
-(`미보존 산출물` 넷 + `트리에서 재실행` 둘).
+행의 단위는 (계측기, 절)이고, 대상은 산출물이 트리에 남지 않는 열하나다
+(`미보존 산출물` 넷 + `트리에서 재실행` 일곱). `입력이 증거` 셋은 규약상
+행을 갖지 않고, `추적 산출물` 여섯은 자기 파일이 곧 증거다.
 
 행 출처가 `자동`인 것은 그 절의 본문이 계측기를 **이름으로** 부르는 경우로,
 게이트가 문서에서 직접 유도한다. `수동`은 사람이 적은 것 — 그 절이 그 실행의
@@ -33921,6 +33953,17 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 | `measure-phase8-optimizer-properties.sh` | 264.8 | 없음 | 수동 | 메시 검사 호출 33회·17~18회, 9→10, 가장 느린 호출 6.78초 |
 | `measure-phase8-optimizer-properties.sh` | 264.10 | 없음 | 수동 | 계측기 자신의 결함 둘 |
 | `measure-phase8-optimizer-properties.sh` | 264.11 | 없음 | 수동 | 변별 변이 결과 |
+| `count-narrowing-sweep.sh` | 189 | `tools/ci/count-narrowing-sweep.sh` | 자동 | 상류 8파일 **140**과 파일별 내역(`planning_scene.cpp` 24 · `planning_scene.hpp` 4 · `robot_state.cpp` 76 · `attached_body.hpp` 0 · `attached_body.cpp` 1 · `world.cpp` 10 · `world.hpp` 4 · `kinematic_constraint.cpp` 21). 코퍼스가 고정 상류 체크아웃이므로 다시 돌리는 것이 증거다 |
+| `count-narrowing-sweep.sh` | 189.1 | `tools/ci/count-narrowing-sweep.sh` | 자동 | 스크립트가 자기 오탐 두 형태를 헤더에 적는다는 사실과 그에 해당하는 두 줄. 수가 아니라 스크립트 본문에 대한 진술이다 |
+| `count-public-declarations.sh` | 119.4 | `tools/ci/count-public-declarations.sh` | 자동 | 수를 싣지 않는다 — 계수 관례를 문장에서 명령으로 옮겼다는 진술뿐이다 |
+| `count-public-declarations.sh` | 189 | `tools/ci/count-public-declarations.sh` | 자동 | 수를 싣지 않는다 — 이 계기가 이미 명령 형태였다는 대조로만 나온다 |
+| `count-public-declarations.sh` | 240.3 | `tools/ci/count-public-declarations.sh` | 자동 | `RobotState` 공개 선언 **228**개(파일 1,764줄) |
+| `count-public-declarations.sh` | 259.2 | `tools/ci/count-public-declarations.sh` | 자동 | 같은 헤더에 대한 교차검증 **130** = 함수 126 + 넷. 이 절의 자기 파서와 독립인 awk 패스다 |
+| `count-relative-eq.pl` | 119.4 | `tools/ci/count-relative-eq.pl` | 자동 | 수를 싣지 않는다 — §119.4의 진술은 두 계기가 명령이 됐다는 것이다 |
+| `count-relative-eq.pl` | 127.4 | `tools/ci/count-relative-eq.pl` | 자동 | 실제 6건인 `epsilon =` 호출을 **0건**으로 보고한 사건. 계기 자신의 결함이고 원인 파일 쪽에서 고쳤다 |
+| `count-relative-eq.pl` | 128.2 | `tools/ci/count-relative-eq.pl` | 자동 | 수를 싣지 않는다 — 통합이 결함을 드러냈다는 진술이다 |
+| `count-relative-eq.pl` | 189 | `tools/ci/count-relative-eq.pl` | 자동 | 수를 싣지 않는다 — 이 계기가 이미 명령 형태였다는 대조로만 나온다 |
+| `requirement-message-closure.py` | 252.3 | `tools/ci/requirement-message-closure.py`, `tools/ci/requirement-closure-moveit-msgs.txt` | 자동 | 컨테이너 안에서만 도는 절반. 그 출력의 `moveit_msgs` 쪽은 체크인돼 있어 포트 쪽 16/18은 컨테이너 없이 재현된다 — 나머지 절반은 오라클 이미지를 요구한다 |
 | `measure-port-coverage-independent.py` | 258.1 | `tools/ci/measure-port-coverage-independent.py` | 자동 | 245/158/87 행 집합 일치. 계기가 트리만 읽으므로 다시 돌리는 것이 증거다 |
 | `measure-port-coverage-independent.py` | 261.1 | `tools/ci/measure-port-coverage-independent.py` | 자동 | 병합 뒤 재측정 |
 | `measure-requirement-closure.py` | 252.1 | `tools/ci/measure-requirement-closure.py` | 자동 | `--check`가 §5 표를 다시 읽는다 |
@@ -33928,10 +33971,10 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 | `measure-requirement-closure.py` | 252.3 | `tools/ci/measure-requirement-closure.py` | 자동 | `R-CLIENT` 여덟 |
 | `measure-requirement-closure.py` | 252.5 | `tools/ci/measure-requirement-closure.py` | 자동 | 계기별 앵커와 사각 표 |
 
-60행 중 `자동` 18 · `수동` 42이고, 커밋된 증거를 가리키는 것은 **25행**,
-`없음`이 **35행**이다. 증거를 가진 25행 중 12행은
+71행 중 `자동` 29 · `수동` 42이고, 커밋된 증거를 가리키는 것은 **36행**,
+`없음`이 **35행**이다. 증거를 가진 36행 중 12행은
 `doc/phase8-condition2-stomp/`, 4행은 `doc/phase8-seedbase-stomp/`, 3행은 둘
-다이고, 6행은 계측기 자신이다(`트리에서 재실행` 부류).
+다이고, 17행은 계측기 자신이다(`트리에서 재실행` 부류).
 
 이 표는 두 번 틀렸다가 고쳐졌다. 하나는 **병합** 때문이다 — `없음`이던 7행이
 이 절을 쓴 날 들어온 증거를 가리키게 됐고, 그 7행은 아래 §305.3이 적는다.
@@ -34047,7 +34090,7 @@ committed beside this script"라고 적지만, 그것이 읽는 다섯 팔 중 �
 숫자와 다른 숫자를 가르는 규칙이 없다. 게이트는 각 `수동` 행이 실재하는 절과
 실재하는 계측기를 가리키는지만 보지, 그 목록이 전부인지는 보지 않는다.
 
-네 가지가 더 검사되지 않는다. 아래 넷 중 둘은 이 절이 나온 날 **실제로
+여섯 가지가 더 검사되지 않는다. 아래 여섯 중 셋은 이 절이 나온 날 **실제로
 일어났고**, 그래서 추정이 아니라 관측이다.
 
 - **`없음` 행의 증거가 그 뒤 커밋되는 것.** 게이트는 증거 열이 가리키는 경로가
@@ -34071,20 +34114,29 @@ committed beside this script"라고 적지만, 그것이 읽는 다섯 팔 중 �
   미보존 계측기를 이름으로 부르는 파일은 셋뿐이고 전부 이 문제 밖이다
   (`doc/phase8-condition2-stomp/README.md`와 그 안의 `run-subset.sh`는 커밋된
   증거 자신을 설명하고, `doc/citation-classes-in-repo.txt`는 생성물이다).
-  그리고 계측기 가족은 `tools/ci/measure-*`다 —
-  `tools/ci/verify-*` 중 `mktemp -d`를 여는 것이 9개 있고
-  (`verify-phase8-benchmark.sh` 포함) 이 게이트는 그것들을 보지 않는다.
-  이것은 그것들이 깨끗하다는 주장이 아니라, 보지 않았다는 기록이다.
+- **`verify-*`·`check-*`를 게이트로 분류해 전수에서 뺀 것.** 근거는 CI가
+  매번 다시 돌리므로 그 판정이 살아 있다는 것인데, 그것은 측정이 아니라
+  판단이다. `tools/ci/verify-*` 중 `mktemp -d`를 여는 것이 9개 있고
+  `verify-phase8-benchmark.sh`가 그중 하나이며 그 파일은 §293·§300이
+  인용하는 상수를 쥐고 있다. 이것은 그것들이 깨끗하다는 주장이 아니라,
+  보지 않았다는 기록이다.
+- **`트리에서 재실행` 일곱의 `수동` 행이 전부인지.** `자동` 쌍은 명령이
+  유도하지만, `count-*` 넷과 `requirement-message-closure.py`에 대해서는
+  이름 없이 그 수를 싣는 절을 찾아 문서를 끝까지 읽은 사람이 없다. 이
+  라운드는 그 넷의 유도 쌍 11개를 명령으로 얻고, `narrowing sweep`·
+  `assertion-discrimination-census`·`public 선언`·`epsilon =` 네 갈래를
+  grep으로 훑는 데서 멈췄다. 보존에는 영향이 없다 — 그 부류는 다시 도는
+  것이 증거다 — 그러나 행 목록이 전수라는 증명은 그쪽에도 없다.
 
-### §305.5 변별 — 규칙 24개를 하나씩 깨서 실제로 붉어지는 것을 쟀다
+### §305.5 변별 — 규칙 30개를 하나씩 깨서 실제로 붉어지는 것을 쟀다
 
-`tools/ci/check-evidence-retention-discriminates.sh`가 합성 저장소 31개를 짓고
+`tools/ci/check-evidence-retention-discriminates.sh`가 합성 저장소 35개를 짓고
 기대값을 손으로 적는다. 각 시나리오는 `git init`한 별개의 트리이므로
 `PORTING-PLAN.md`가 자라도 기대값이 바뀌지 않는다.
 
 그 다음 게이트의 규칙을 하나씩 무력화하고 **어느 시나리오가 실제로
-붉어지는지** 를 기록했다. 26개 전부의 결과가 그 스크립트 머리에 표로 있다.
-코드를 읽어 예측한 것과 다른 것이 일곱이고, 그중 셋이 이 절의 첫 판을 바꿨다.
+붉어지는지** 를 기록했다. 30개 전부의 결과가 그 스크립트 머리에 표로 있다.
+코드를 읽어 예측한 것과 다른 것이 아홉이고, 그중 셋이 이 절의 첫 판을 바꿨다.
 
 - **`git ls-files`가 빈 경우의 바닥이 아무것도 붉히지 않았다.** 첫 스윕에서
   나머지 규칙은 전부 시나리오가 있었고 그 하나만 없었다. 검증되지 않은 가드는
