@@ -207,10 +207,12 @@ mod tests {
     /// (`moveit_core/kinematic_constraints/include/moveit/kinematic_constraints/utils.hpp:99`):
     /// one `JointConstraint` per group variable at `j1 == position`.
     ///
-    /// `1e-9` rather than upstream's `numeric_limits<double>::epsilon()`
-    /// default: `RrtConnectManager` *samples* its goal region, and an
-    /// epsilon-wide window is narrower than the rounding of the draw that
-    /// has to land in it.
+    /// Zero rather than upstream's `numeric_limits<double>::epsilon()`
+    /// default: `RrtConnectManager` *samples* its goal region, and only a
+    /// zero-width window makes that draw reproduce `position` itself rather
+    /// than a neighbour of it (see `construct_goal_joint_constraints`' own
+    /// doc). A goal a client names by joint value is a request to go there,
+    /// not near there.
     fn goal_at(model: &RobotModel, position: f64) -> moveit_constraints::KinematicConstraintSet {
         let mut state = RobotState::new(model);
         state.set_to_default_values();
@@ -218,7 +220,7 @@ mod tests {
             .set_variable_position("j1", position)
             .expect("j1 is one_joint.urdf's only joint");
         let posed = state.update();
-        construct_goal_joint_constraints(model, &posed, "arm", 1e-9, 1e-9)
+        construct_goal_joint_constraints(model, &posed, "arm", 0.0, 0.0)
             .expect("arm is one_joint.srdf's only group")
     }
 

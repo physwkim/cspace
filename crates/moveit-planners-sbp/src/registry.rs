@@ -805,23 +805,19 @@ mod tests {
     use crate::compound::CompoundValue;
     use crate::space::StateSpace;
 
-    /// The tolerance every state goal below is built with, and the bound
-    /// every "did we arrive" assertion checks against.
+    /// The tolerance every state goal below is built with.
     ///
-    /// Upstream's `constructGoalConstraints(state, jmg, tolerance)` defaults
-    /// to `std::numeric_limits<double>::epsilon()`
-    /// (`kinematic_constraints/utils.hpp:101`). This port cannot use that
-    /// value here: `crate::goal_sampler::sample_goal` resolves the region by
-    /// *drawing* from it (`moveit_constraints::JointConstraintSampler`
-    /// samples uniformly in the intersection of the tolerance window and the
-    /// joint's own bounds), so an `f64::EPSILON`-wide window is narrower
-    /// than the rounding of the draw itself — the arithmetic that produces
-    /// the sample cannot land inside a window one ULP wide at every
-    /// magnitude. `1e-9` is wide enough to be sampled reliably and far
-    /// tighter than any tolerance these tests' own assertions care about;
-    /// `state_goal_is_reached_within_its_own_tolerance` is what holds the
-    /// two ends together.
-    const STATE_GOAL_TOLERANCE: f64 = 1e-9;
+    /// Zero, so these tests can go on asserting what they asserted while
+    /// the goal was a `Goal::State`: the state that comes back *is* the
+    /// state that was asked for. `crate::goal_sampler::sample_goal`
+    /// resolves the set by drawing from it, and
+    /// `moveit_constraints::JointConstraintSampler`'s draw over a
+    /// zero-width window is the window's one point — see
+    /// `construct_goal_joint_constraints`' own doc for the arithmetic and
+    /// the measurement, and `moveit-constraints`'
+    /// `tests/sampler.rs::a_zero_tolerance_goal_set_resolves_to_its_own_state`
+    /// for the gate that holds it.
+    const STATE_GOAL_TOLERANCE: f64 = 0.0;
 
     fn load_panda() -> (RobotModel, SrdfModel) {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
@@ -1023,17 +1019,18 @@ mod tests {
             .way_point(response.trajectory.way_point_count() - 1)
             .unwrap();
         let reached = space.read_robot_state(last);
-        assert_state_within(&reached, &reachable, STATE_GOAL_TOLERANCE);
+        assert_state_reaches(&reached, &reachable);
     }
 
-    /// Every waypoint value of `reached` is within `tolerance` of `expected`.
-    /// The old `assert_eq!` against a `Goal::State` cannot survive the move
-    /// to constraint goals: a goal region is *sampled*, so the state
-    /// `rrt_connect` is handed is a draw from the tolerance window, not the
-    /// window's centre. `tolerance` is the same value the goal was built
-    /// with, so this asserts exactly the contract
-    /// `constructGoalConstraints` states and nothing looser.
-    fn assert_state_within(reached: &[CompoundValue], expected: &[CompoundValue], tolerance: f64) {
+    /// Every waypoint value of `reached` equals `expected`. No tolerance
+    /// parameter, deliberately: a bound that is also the width the goal was
+    /// built with can only ever confirm that the sampler stayed inside its
+    /// own window, which is true however wide that window is. The contract
+    /// a [`STATE_GOAL_TOLERANCE`]-built goal states is equality, so that is
+    /// what this checks — the same assertion these tests made against a
+    /// `Goal::State`, which the constraint encoding is supposed to carry
+    /// unchanged.
+    fn assert_state_reaches(reached: &[CompoundValue], expected: &[CompoundValue]) {
         assert_eq!(
             reached.len(),
             expected.len(),
@@ -1046,9 +1043,11 @@ mod tests {
             };
             assert_eq!(got.len(), want.len());
             for (got, want) in got.iter().zip(want) {
-                assert!(
-                    (got - want).abs() <= tolerance,
-                    "subspace {index}: reached {got} is further than {tolerance} from goal {want}"
+                assert_eq!(
+                    got,
+                    want,
+                    "subspace {index}: reached {got}, goal {want} (gap {})",
+                    got - want
                 );
             }
         }
@@ -1111,7 +1110,7 @@ mod tests {
                 .way_point(response.trajectory.way_point_count() - 1)
                 .unwrap(),
         );
-        assert_state_within(&end_positions, &goal, STATE_GOAL_TOLERANCE);
+        assert_state_reaches(&end_positions, &goal);
         assert_eq!(
             start_positions, expected_start,
             "the first waypoint must equal the scene's start state"

@@ -294,13 +294,16 @@ fn translation_from_row_major_4x4(flat: &[f64]) -> Isometry3 {
 /// `StateSpace::State`.
 /// The tolerance the concrete-state goal is expressed with.
 ///
-/// Upstream's `constructGoalConstraints` defaults to
-/// `numeric_limits<double>::epsilon()` (`kinematic_constraints/utils.hpp:101`).
-/// That default is for a goal that is *checked*; this planner *samples* its
-/// goal region, so an epsilon-wide window is narrower than the rounding of
-/// the draw that has to land in it. 1e-9 rad is still far below the
-/// `goal_gap` this benchmark reports and asserts on.
-const GOAL_TOLERANCE: f64 = 1e-9;
+/// Zero, because the question this benchmark asks the port is the question
+/// it asks the oracle, and the oracle's is
+/// `pdef->setStartAndGoalStates(start, goal)` (`oracle.cpp:5824`) — the goal
+/// state itself, not a region around it. A zero-width window is what
+/// survives the trip through `goal_constraints` unchanged: see
+/// `construct_goal_joint_constraints`' own "`0.0` is how a caller says
+/// exactly this state". Any positive tolerance makes `goal_gap` report the
+/// width of the window instead of the port's error, and conditions 1 and 3
+/// then compare two answers to two different questions.
+const GOAL_TOLERANCE: f64 = 0.0;
 
 /// `constructGoalConstraints(state, jmg, tolerance)` over a state-space
 /// value: one [`JointConstraint`] per variable of `group_name` at the
