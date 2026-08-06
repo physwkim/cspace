@@ -13135,7 +13135,7 @@ SolidPrimitive::CONE
 
 ### 165.2 이 포트
 
-`Body::from_shape`(`bodies.rs:3065`)가
+`Body::from_shape`(`bodies.rs:3114`)가
 `Shape::Cone(_) | Shape::Plane(_) | Shape::OcTree(_) => None`으로 처리하고,
 `PositionConstraint::new`가 그 `None`을 거부로 바꾼다. 크래시가 아니라 타입
 있는 거부다.
