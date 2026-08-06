@@ -17679,8 +17679,12 @@ $ moveit-diff --urdf fixtures/panda.urdf --srdf fixtures/panda.srdf \
 이 해석이 성립하려면 오라클의 성공 집합이 세 실행에서 같아야 한다. 같다:
 `Op::Ik`가 실어 보내는 필드는 `group`/`joint_values`/`position_only`/
 `max_restarts`/`consistency_limits` 다섯 개뿐이라(`protocol.rs:186-230`)
-`--ik-rng-seed`는 wire에 실리지 않고, 오라클의 IK 난수는 고정 시드 멤버
-(`tools/moveit-oracle/src/oracle.cpp:6065`, `ik_rng_{ 42 }`)이며, 오라클
+`--ik-rng-seed`는 wire에 실리지 않고, 오라클의 IK 난수는
+`Oracle`(`tools/moveit-oracle/src/oracle.cpp:891-892`)의 시작 인자
+`ik_rng_seed`(기본값 `42`)에서 나온다 — 이 라운드 당시엔 `ik_rng_{ 42 }`
+멤버 초기화였고, `c0736d5`가 인자로 바꾸면서 기본값 42는 유지했다.
+`run-oracle.sh`는 그 인자를 오라클에 넘기지 않으므로(읽는 곳은
+`oracle.cpp:7035-7040` 한 곳뿐이다) 세 실행 모두 42이고, 오라클
 `ik` op에는 벽시계가 없다. 세 실행의 오라클 성공 수가 모두 `4921`로 같고,
 `--ik-rng-seed 0` 실행을 다시 돌리면 `--ik-divergence-json` 파일이 `cmp`로
 바이트 동일하다.
