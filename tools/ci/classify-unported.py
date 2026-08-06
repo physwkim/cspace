@@ -95,12 +95,17 @@ UNMET_BLOCKERS = {
     # has found, and the first where the section number and the prose were wrong
     # for different reasons.
     ("Phase 3", "collision: bool"): {
-        "section": "251.4",
+        "section": "275.2",
         "blocker": "fcl's narrowphase specialization registry stands where a "
                    "convention would, rather than there being no convention: "
                    "§251.1 finds all 49 of 49 cells decided by whether fcl "
                    "registered a libccd-bypassing specialization for that shape "
-                   "pair, and prbt's `cylinder x box` is a blank cell in it",
+                   "pair, and prbt's `cylinder x box` is a blank cell in it.  "
+                   "§275.1 moves the harness floor off that tangency and the "
+                   "6,854 go to 0 of 10,000, so no port defect is left in the "
+                   "count -- but the two implementations still split at exact "
+                   "tangency, and the committed fixture scene is where the row "
+                   "is measured, so it stays UNMET",
         "candidates": (
             "moveit_core/collision_detection/",
             "moveit_core/collision_detection_fcl/",
