@@ -271,7 +271,7 @@ what rustdoc itself resolves (documented in the script's own header) so
 that what it cannot check reads as a skip, not a pass.
 
 **Discrimination, run this round:** the checker's first real run against the
-unmutated tree failed on `crates/moveit-planners-pilz/tests/pilz_trajectory_lin_parity.rs:361`,
+unmutated tree failed on `crates/moveit-planners-pilz/tests/pilz_trajectory_lin_parity.rs:361` (`lin_panda_arm_rejects_the_same_request_the_oracle_rejects`),
 `` [`moveit_error::Error::Code`] ``. Investigated rather than dismissed as
 noise: `Error::Code(MoveItErrorCode)` is a real variant
 (`crates/moveit-error/src/lib.rs:102`), occurring exactly once in

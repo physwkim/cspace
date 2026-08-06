@@ -2745,7 +2745,7 @@ Dockerfile이 갖고 있던 `find` 식 복사본도 없애고 `src-digest.sh`를
 픽스처에서 그 5개를 상류 기본값으로 명시 고정해 우회했다. 측정으로
 반증했다.
 
-`moveit-model/src/joint/urdf.rs:121-135`는 `robot_model.cpp:894-908`의
+`moveit-model/src/joint/urdf.rs:121-135` (`joint_bounds_from_urdf`)는 `robot_model.cpp:894-908`의
 `jointBoundsFromURDF`와 같이 `<safety_controller>` 소프트 리밋을 우선
 쓰고 `<limit>`이 더 좁은 쪽만 좁힌다. 스크래치 프로브로
 `RobotState::set_to_default_values()`를 PR2에 돌리면 정확히
@@ -7771,7 +7771,7 @@ p1-robotmodel 라운드 11 머지(`8146ecc`, `95041dd`, `0ba77c4`).
 이분이 그대로 의미를 갖는다 — §79 함정의 사촌이 아니라 순수한
 상수-과대 문제였고, 이 크레이트에는 없었다.
 
-`space.rs:366`의 `0.02`가 부동소수 허용오차가 아니라 몬테카를로 통계
+`space.rs:366` (`sample_near_is_uniform_over_the_ball_volume`)의 `0.02`가 부동소수 허용오차가 아니라 몬테카를로 통계
 경계(~8.5σ)라는 구분도 타당하다.
 
 ### 90.4 보고서 한 줄이 트리와 다르다 — `isFixedFrame` 배선은 설치가 아니다
@@ -8094,7 +8094,7 @@ M9는 구멍이 **아니다**. 문서가 강조하는 "`update`에 넘기는 `ne
 담당은 `IK_DEGENERATE_EPS`가 "정보용 카운터로 출력될 뿐 `Verdict`로
 들어가지 않는다"고 적었다 — 그때 오라클/러스트 각각에 있던 두 비교
 자리는 지금 공유 헬퍼 하나로 접혀 `is_degenerate_from_seed`를 두 번
-부른다(`main.rs:3370`, `main.rs:3381`). `Verdict` 부분은 맞고,
+부른다(`main.rs:3370`, `main.rs:3381` (`minimum_usable_b_plus_c_matches_its_own_derivation`)). `Verdict` 부분은 맞고,
 어떤 테스트도 이 상수나 두 필드를 참조하지 않는 것도 `rg`로 확인했다.
 
 다만 `IkStats`는 `#[derive(serde::Serialize)]`이고
@@ -9931,7 +9931,7 @@ CI가 자동으로 집는다(도커 불필요).
 메트리가 착지한 뒤로 숫자가 변하지 않았다.
 
 `compare_constraints`가 `satisfied`를 먼저 보고 틀리면 그 자리에서
-반환하므로(`main.rs:1634-1642`), "판정 불일치 0 + 거리 불일치 115"는 코드
+반환하므로(`main.rs:1634-1642` (`compare_constraints`)), "판정 불일치 0 + 거리 불일치 115"는 코드
 경로상 정확히 이 뜻이다 — 내가 확인했다.
 
 원인은 이것이다. `cone_mesh`·`decide_cone`·
@@ -15327,7 +15327,7 @@ ambient import가 사라지면 조용히 깨지는 것이 아니라 `cargo doc`�
 
 워커가 "3개 자리는 어느 쪽으로도 진단이 안 나온다(private/test 항목이라
 rustdoc이 `--no-deps`에서 린트하지 않는다)"고 적었다. 그 문장이 이 절의
-본문이다. 확인해봤다 — `ruckig_filter.rs:423`의 test 항목 doc에 **어디에도
+본문이다. 확인해봤다 — `ruckig_filter.rs:423` (`joint_vel_accel_jerk_bounds_fails_without_velocity_limits`)의 test 항목 doc에 **어디에도
 없는 타입** 링크를 넣고 세 게이트를 전부 돌렸다:
 
 ```
@@ -16764,7 +16764,7 @@ cases: 2201  passed: 2201  failed: 0
 
 제약 조합 2,000건 `decide()` 100% 일치 — MET. 둘째("제약 샘플러가 생성한
 상태 10,000개가 전부 자기 제약을 만족")는 트리에서 가장 큰 샘플러 자기검증
-루프가 **200**이다(`crates/moveit-constraints/tests/sampler.rs:190`;
+루프가 **200**이다(`crates/moveit-constraints/tests/sampler.rs:190` (`sample_keeps_unconstrained_variables_within_their_own_joint_bounds`);
 `rg -no 'for [_a-z]+ in 0\.\.[0-9_]+' crates/moveit-constraints/`의 최대값).
 셋째("씬 diff 적용 후 충돌 결과가 오라클과 100% 일치")는 계기가 없다 —
 오라클 op 41개 중 씬 diff를 적용해 충돌을 되돌려 주는 op이 없다.
@@ -18796,7 +18796,7 @@ found" 절)이 그대로 적용된다. 비-로깅 잔여분은 0이다.
 | 6 | `NoBlenderSetException` | FAILURE | `plan_components_builder.cpp:80` | 표현 불가 — `PlanComponentsBuilder::new`가 블렌더가 필요한 한계를 받는다 (`plan_components_builder.rs:28-33`) | — |
 | 7 | `NoTipFrameFunctionSetException` | FAILURE | 없음 | 죽은 선언 — 패키지 어디서도 throw되지 않는다 (`plan_components_builder.rs:34-36`) | — |
 | 8 | `NoRobotModelSetException` | FAILURE | `plan_components_builder.cpp:112` | 표현 불가 — 같은 생성자가 로봇 모델을 받는다 | — |
-| 9 | `BlendingFailedException` | FAILURE | `plan_components_builder.cpp:96` | `PlanComponentsBuilder::append`가 블렌더의 오류를 그대로 전파 (`plan_components_builder.rs:110-116`) | 블렌더 자신의 코드 — 상류가 `FAILURE`로 뭉개는 것을 좁힌다 |
+| 9 | `BlendingFailedException` | FAILURE | `plan_components_builder.cpp:96` | `PlanComponentsBuilder::append`가 블렌더의 오류를 그대로 전파 (`plan_components_builder.rs:110-116` (`append`)) | 블렌더 자신의 코드 — 상류가 `FAILURE`로 뭉개는 것을 좁힌다 |
 | 10 | `NoSolverException` | FAILURE | `tip_frame_getter.hpp:79` | `solver_tip_frame` (`trajectory_functions.rs:808`) | Failure |
 | 11 | `MoreThanOneTipFrameException` | FAILURE | `tip_frame_getter.hpp:85` | 대응 없음 — `doc/port-coverage.md`의 `tip_frame_getter.hpp` 행이 이미 "multi-tip 분기"를 잔여분으로 기록한다 | — |
 | 12 | `CircleNoPlane` | INVALID_MOTION_PLAN | `trajectory_generator_circ.cpp:264` | `build_path`의 세 `map_err` (`trajectory_generator_circ.rs:324`,`:329`,`:334`) | InvalidMotionPlan |
@@ -18807,7 +18807,7 @@ found" 절)이 그대로 적용된다. 비-로깅 잔여분은 0이다.
 | 17 | `NoPositionConstraints` | INVALID_MOTION_PLAN | `trajectory_generator_circ.cpp:84` | 표현 불가 — 같은 문단 | — |
 | 18 | `NoPrimitivePose` | INVALID_MOTION_PLAN | `trajectory_generator_circ.cpp:89` | 표현 불가 — 같은 문단 | — |
 | 19 | `UnknownLinkNameOfAuxiliaryPoint` | INVALID_LINK_NAME | `trajectory_generator_circ.cpp:109` | `extract_motion_plan_info` (`trajectory_generator_circ.rs:157`) | InvalidLinkName |
-| 20 | `NumberOfConstraintsMismatch` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator_circ.cpp:119` | 같은 함수의 관절 수 비교 (`trajectory_generator_circ.rs:163-164`) | InvalidGoalConstraints |
+| 20 | `NumberOfConstraintsMismatch` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator_circ.cpp:119` | 같은 함수의 관절 수 비교 (`trajectory_generator_circ.rs:163-164` (`extract_motion_plan_info`)) | InvalidGoalConstraints |
 | 21 | `CircInverseForGoalIncalculable` | NO_IK_SOLUTION | `trajectory_generator_circ.cpp:158` | `trajectory_generator_circ.rs:190`,`:200` | NoIkSolution |
 | 22 | `TrajectoryGeneratorInvalidLimitsException` | FAILURE | `trajectory_generator_ptp.cpp:63,71,82,86,90` | `TrajectoryGeneratorPtp::new`의 여섯 `Error::construct` (`trajectory_generator_ptp.rs:80,87,95,97,102,107`) | `MotionPlanResponse::failure`의 `_` 팔을 지나 Failure (`trajectory_generator.rs:518`이 이 대응을 명시한다) |
 | 23 | `VelocityScalingIncorrect` | INVALID_MOTION_PLAN | `trajectory_generator.cpp:96` | `check_velocity_scaling` (`trajectory_generator.rs:647`) | InvalidMotionPlan |

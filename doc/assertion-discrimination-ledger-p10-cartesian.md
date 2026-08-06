@@ -23,7 +23,7 @@ The scanner propagates a helper body to call sites by matching the helper's
 *name*, so `new(` also matches a `fn new(...)` definition line and any
 other type's `new()`. These three rows are that false positive. The
 precedent for recording rather than laundering one is p1-fixtures'
-`tree.rs:1781` row.
+`tree.rs:1781` (`out_of_bounds_coordinate_has_no_occupancy_even_when_the_tree_center_is_mapped`) row.
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|

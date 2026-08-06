@@ -2,7 +2,7 @@
 
 The two modules this panel adds carry 39 new tests. The coarse-assertion
 scanner emits exactly **one** site for them —
-`crates/moveit-planners-pilz/src/joint_limits_aggregator.rs:405` — because
+`crates/moveit-planners-pilz/src/joint_limits_aggregator.rs:405` (`an_empty_joint_list_aggregates_to_an_empty_container`) — because
 every other assertion in both modules is an `assert_eq!` against a named
 value or an `assert!` on a named `bool` field. §1 accounts for that one
 site.

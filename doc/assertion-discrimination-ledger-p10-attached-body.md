@@ -90,7 +90,7 @@ moves to the *first* shape, so nothing is applied before it).
 | # | mutation | fails | stays green | verdict |
 |---|---|---|---|---|
 | M3 | `update(Arc::make_mut(shape))?` → `let _ = update(Arc::make_mut(shape));`, swallowing the rejection | 1 — `negative_padding_larger_than_a_shape_is_rejected_after_updating_its_predecessors`, at its `expect_err` (`attached_body.rs:393`) | the other 99 | discriminating |
-| M5 | make application transactional: snapshot the `Shape` values first (by value, so no strong count is bumped and M1's family stays green), and on error restore them | 1 — the same test, at its `radius(&body.shapes()[0]) == 0.125` assertion (`attached_body.rs:407`), `left: 0.5, right: 0.125` | the other 99 | discriminating |
+| M5 | make application transactional: snapshot the `Shape` values first (by value, so no strong count is bumped and M1's family stays green), and on error restore them | 1 — the same test, at its `radius(&body.shapes()[0]) == 0.125` assertion (`attached_body.rs:407` (`negative_padding_larger_than_a_shape_is_rejected_after_updating_its_predecessors`)), `left: 0.5, right: 0.125` | the other 99 | discriminating |
 | M6 | `.map_err(\|_\| moveit_error::Error::other("M6"))` on the per-shape result | 1 — the same test, at its whole-message assertion (`attached_body.rs:394`), `left: "M6"` | the other 99 | discriminating |
 
 M3, M5 and M6 all fail one test and are still three separate rows because

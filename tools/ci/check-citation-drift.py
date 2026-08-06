@@ -389,6 +389,40 @@ ATTR_LINE_RE = re.compile(r"^\s*#\[[^\]]*\]\s*$")
 DOC_LINE_RE = re.compile(r"^\s*///")
 
 
+def body_brace(masked, offset):
+    """Offset of the `{` that opens this `fn`'s body, or None when it has no
+    body at all.
+
+    A `fn` can end at a `;` instead of a body -- 64 of this tree's 5441 do:
+    trait method declarations (`fn extract_motion_plan_info(&self, ...) ->
+    Result<()>;`) and `extern` block declarations. Searching forward for the
+    next `{` regardless does not stop there; it finds the NEXT item's brace
+    and hands that item's whole extent to the bodiless name.
+    `crates/moveit-planners-pilz/src/trajectory_generator.rs`'s declaration
+    at 562 was given 562-636 -- swallowing `generate`, whose own span is
+    598-636 -- so `:606-636` would anchor-verify against
+    `extract_motion_plan_info`, a function it is not in and that has no
+    lines at all. All 64 invented a span this way; every one of them names
+    a real function whose body is somewhere else entirely.
+
+    The `;` terminates only at bracket depth 0: `-> [u8; 4]` is a return
+    type, not a declaration end.
+    """
+    depth = 0
+    for j in range(offset, len(masked)):
+        c = masked[j]
+        if c in "([":
+            depth += 1
+        elif c in ")]":
+            depth -= 1
+        elif depth == 0:
+            if c == "{":
+                return j
+            if c == ";":
+                return None
+    return None
+
+
 def function_spans(path):
     """{name: [(start_line, end_line, is_test), ...]} for every `fn NAME` in
     path, brace-matched on the masked source. Multiple functions can share a
@@ -429,10 +463,11 @@ def function_spans(path):
         if m is None:
             continue
         # Find this fn's opening `{` starting from its own line (signatures
-        # can wrap onto later lines before the brace appears).
+        # can wrap onto later lines before the brace appears), or nothing at
+        # all when the fn is a declaration -- see `body_brace`.
         offset = sum(len(l) + 1 for l in lines[: line_no - 1])
-        brace_at = masked.find("{", offset)
-        if brace_at == -1:
+        brace_at = body_brace(masked, offset)
+        if brace_at is None:
             continue
         depth = 0
         j = brace_at
