@@ -39,6 +39,34 @@ liability instead: the count per document is frozen, and a document that
 grows a new shorthand fails. New citations get written in the full
 `path.rs:NNN` form, which `check-citation-drift.py` already checks.
 
+WHAT THE SIBLING GATE RESOLVES ANYWAY, AND WHY THAT IS NOT A CONTRADICTION.
+`measure-upstream-citations.py` does resolve some shorthands -- 125 of the
+ones counted here, plus 57 more in `.rs` files this gate never scans. That
+looked like the two gates holding opposite positions on one question. It is
+not; the domains differ, and §292 measured the boundary rather than arguing
+it. That gate inherits only within a SINGLE DOCUMENT LINE, only from an
+upstream file, and (since §292) never across a switch to another file's line
+numbering. Refutation 3 above is out of its reach entirely: the `:1933` and
+the `collision_object.rs:420` that mislead reading order sit on two
+different source lines of `message-mapping.md`, and that gate drops its base
+at every newline, so it never claims that citation at all.
+
+Where the domains DO touch, the same verdict came back. §292 opened all 469
+of that gate's inherited citations: 287 stood on a line that had already
+named another coordinate system, and 17 of those meant a file the
+inheritance did not give them -- 16 the port `.rs` file, one a `.srdf`
+fixture in neither candidate. Every one passed, because the file it was
+wrongly handed was long enough to hold the line number. All 287 were
+rewritten with their path spelled out and that gate now hard-fails a bare
+`:NNN` after a switch, so the residue it still resolves is exactly the
+lines where one file is named and one file is meant.
+
+The two budgets interlock rather than compete: converting a shorthand
+removes it from this count and, if it names an upstream file, adds it to
+that gate's corpus under a key its own baseline freezes. §292's conversion
+moved 270 across that line in one step, which is what this budget's
+shrink-is-also-a-failure rule exists to make visible.
+
 The budget is exact in BOTH directions. Converting a shorthand to a full
 path is the point of this gate, and it fails too -- because a budget that
 only tracks the ceiling lets a document drop to 150 and silently grow back

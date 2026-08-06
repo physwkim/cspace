@@ -492,6 +492,52 @@ TOKEN_RE = re.compile(
     rf"|`(?P<file>(?:[\w./-]+/)?[\w.+-]+\.(?:{CXX_EXT}|rs))`"
     rf"|`\.(?P<ext>{CXX_EXT})`"
 )
+# A bare `:NNN` inherits the last file named to its left, and that inheritance
+# is only sound while the line has named exactly ONE coordinate system. It does
+# not survive a switch. §292 measured the whole population: of 469 inherited
+# citations, 287 sat on a line that had already named a port `.rs` file, and 17
+# of those meant a file the inheritance did not give them -- 16 the port file,
+# one a `.srdf` fixture. All 17 passed, because the file they were wrongly
+# given was long enough to hold the line number.
+#
+# No rule recovers the referent from the text. Two rows of the same table, same
+# schema, same shape, settle it: `doc/claim-audit/moveit-scene.md`'s
+# `getTransforms` row cites `:260` meaning the port, and its
+# `getCollisionDetectorName` row cites `:304` meaning upstream -- and BOTH sit
+# inside the `.rs` range named earlier on their own line, so the one numeric
+# signal available answers them identically and is wrong once either way. The
+# `.srdf` case closes the other escape: its referent is in neither candidate,
+# so even a perfect two-way chooser could not reach it. `check-shorthand-
+# citations.py`'s header reaches the same verdict from its own three refuted
+# rules -- the governing path is a discourse fact, not a lexical one.
+#
+# So the file is not inferred across a switch; it is required. The 287 were
+# rewritten with their path spelled out (which is also what the sibling gate
+# wants -- converting a shorthand is the thing its budget counts down), and
+# this is the rule that keeps them that way. Inheritance still serves the 182
+# citations on single-coordinate lines, where the only file named IS the one
+# meant.
+ANY_EXT_CITATION_RE = re.compile(
+    rf"`(?:[\w./-]+/)?[\w.+-]+\.([A-Za-z][\w+]{{0,7}}):{SPEC}`"
+)
+KNOWN_CITED_EXTS = frozenset(CXX_EXT.split("|")) | {"rs"}
+
+
+def foreign_switch(line):
+    """The column of the first citation to a file in a coordinate system
+    TOKEN_RE cannot track, or None.
+
+    TOKEN_RE sees C++ and `.rs`. A `` `fixtures/panda.srdf:80` `` is neither,
+    so it can neither arm a base nor clear one -- it passes through invisibly
+    and the `:73-81` after it kept the `model.cpp` named two clauses earlier.
+    Being unable to FOLLOW that file is fine; silently continuing the previous
+    one across it is not."""
+    for m in ANY_EXT_CITATION_RE.finditer(line):
+        if m.group(1) not in KNOWN_CITED_EXTS:
+            return m.start()
+    return None
+
+
 IDENT_IN_BACKTICKS_RE = re.compile(r"`([A-Za-z_][\w:]{2,})(?:\(\))?`")
 HEX_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 # `` `file:NNN` (`name`) `` -- the anchor immediately follows the citation.
@@ -1281,6 +1327,7 @@ def main():
     bounds_only = 0
     bounds_only_why = collections.Counter()
     inherited_checked = 0
+    ambiguous_base = []
     out_of_bounds = []
     obsolete_header = []
     span_mismatch = []
@@ -1398,6 +1445,9 @@ def main():
         doc_lines = (REPO_ROOT / doc).read_text(encoding="utf-8", errors="replace").split("\n")
         for line_no, line in enumerate(doc_lines, 1):
             base = None  # the file a bare `:NNN` on this line would inherit
+            # The column past which this line no longer has one coordinate
+            # system, so inheritance stops meaning anything. See `foreign_switch`.
+            switch_at = foreign_switch(line)
             prev_end = 0
             for m in TOKEN_RE.finditer(line):
                 start, end = m.start(), m.end()
@@ -1457,10 +1507,12 @@ def main():
                     continue
                 if g["rs"] is not None:
                     base = None
+                    switch_at = start if switch_at is None else min(switch_at, start)
                     continue
                 if g["file"] is not None:
                     if g["file"].endswith(".rs"):
                         base = None
+                        switch_at = start if switch_at is None else min(switch_at, start)
                     else:
                         cands = resolve_path(g["file"], upstream_set, by_basename)
                         base = cands[0] if len(cands) == 1 else None
@@ -1492,6 +1544,9 @@ def main():
                 else:
                     spec = g["bare"]
                     if base is None:
+                        continue
+                    if switch_at is not None and switch_at < start:
+                        ambiguous_base.append((doc, line_no, m.group(0), base))
                         continue
                     resolved = base
                     inherited_checked += 1
@@ -1581,6 +1636,24 @@ def main():
             f"{sum(len(v) for v in live.values())} citations, {len(live)} keys"
         )
         return 0
+
+    if ambiguous_base:
+        print(
+            f"--- {len(ambiguous_base)} bare citation(s) after a coordinate "
+            f"switch ---",
+            file=sys.stderr,
+        )
+        for doc, line_no, token, would_be in ambiguous_base:
+            print(
+                f"FAIL {doc}:{line_no}: {token} follows a citation to a different "
+                f"file's line numbering on this line, so which file it means is a "
+                f"discourse fact this gate cannot read. It would have inherited "
+                f"{would_be}; §292 measured 17 such citations that meant something "
+                f"else and passed anyway. Write the path: `{would_be.rsplit('/', 1)[-1]}"
+                f":{token.strip('`').lstrip(':')}`, or the port file if that is what "
+                f"is meant",
+                file=sys.stderr,
+            )
 
     if out_of_bounds:
         print(f"--- {len(out_of_bounds)} out-of-bounds citation(s) ---", file=sys.stderr)
@@ -1783,6 +1856,7 @@ def main():
         or stale
         or historical_bad
         or class_drift
+        or ambiguous_base
     ):
         print(
             f"FAIL {len(out_of_bounds)} out-of-bounds + {len(obsolete_header)} "
@@ -1791,6 +1865,7 @@ def main():
             f"stale-declaration + {len(historical_bad)} unreadable-historical + "
             f"{len(demoted)} demoted + {len(recounted)} recounted + "
             f"{len(undeclared_cls)} undeclared-class + {len(retired_cls)} retired-class "
+            f"+ {len(ambiguous_base)} ambiguous-base "
             f"(of {total} upstream citations resolved across "
             f"{len(corpus)} tracked .md/.rs files)",
             file=sys.stderr,
@@ -1815,7 +1890,9 @@ def main():
         f"tightly-paired symbol with a definition span, and no quotation "
         f"either), {exempted} exempted "
         f"(tools/ci/upstream-citation-exemptions.json), {inherited_checked} of the "
-        f"total reached through a bare `:NNN` continuation, {len(unresolved)} "
+        f"total reached through a bare `:NNN` continuation on a line that named "
+        f"one coordinate system (a continuation across a switch is a hard failure, "
+        f"not an inference -- see `foreign_switch`), {len(unresolved)} "
         f"distinct unresolvable paths all declared in "
         f"{EXEMPTIONS_PATH.name} (reported above, and unverified -- a "
         f"declaration says no tree covers them, not that they are right), "
