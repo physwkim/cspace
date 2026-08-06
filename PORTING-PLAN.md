@@ -27906,13 +27906,17 @@ crates/moveit-planners-sbp/src/registry.rs:903:#[linkme::distributed_slice(PLANN
 
 ### §274.6 닫지 않은 것
 
-- **저장된 설정은 어떤 플래너에도 닿지 않는다. 닫혔다(§285).** 상류의 `setParams`는
-  `setPlannerConfigurations`로 끝나면서 파이프라인이 계획에 쓰는 인스턴스에
-  맵을 넘긴다. 여기에는 대응하는 호출이 없고, 애초에 이 워크스페이스의 어떤
-  구성 경로도 `PlannerConfigurationMap`을 입력으로 받지 않는다. 즉 `set`은
-  받아들여지고 `get`으로 읽히지만 뒤따르는 계획을 바꾸지 않는다. 닫으려면
-  `PlannerRegistration::construct`가 저장소를 받아야 하고, 그것은 플래너
-  레지스트리 트레이트의 변경이라 이 파일의 일이 아니다.
+- **저장된 설정은 어떤 플래너에도 닿지 않았다. 닫혔다(§285).** 상류의
+  `setParams`는 `setPlannerConfigurations`로 끝나면서 파이프라인이 계획에 쓰는
+  인스턴스에 맵을 넘기는데, 이 절 시점에는 대응하는 호출이 없었고 이
+  워크스페이스의 어떤 구성 경로도 `PlannerConfigurationMap`을 입력으로 받지
+  않았다 — `set`은 받아들여지고 `get`으로 읽히지만 뒤따르는 계획을 바꾸지
+  않았다. 이 항목이 닫는 조건으로 적은 것("`PlannerRegistration::construct`가
+  저장소를 받아야 한다")이 그대로 §285의 형태다: `684ef261`이 그 필드를
+  `fn(&PlannerConfigurationMap) -> Box<dyn PlannerManager>`로 바꿔
+  (`crates/moveit-planner-registry/src/lib.rs:80`) setter가 아니라 **생성자
+  인자**로 만들었고, `resolve_planner`가 유일한 통로이므로 레지스트리로 만든
+  매니저는 자기가 계획할 설정을 반드시 갖는다.
 - **머지 시점의 import. 이미 해소되었다(§285.1).** 이 브랜치의 base에서 `PLANNER_MANAGERS`는
   `moveit-planners-sbp`에 있고, `main`에서는 `moveit-planner-registry`
   크레이트로 옮겨져 있다(그 크레이트는 이 base에 존재하지 않는다). sbp는
