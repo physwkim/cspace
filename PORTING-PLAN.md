@@ -6134,10 +6134,10 @@ body와 world object가 같은 이름일 때 어느 쪽이 이기는지,
 
 ### 66.4 남은 것
 
-`SceneTransforms::isFixedFrame`의 선행 `/` 처리와 object frame 위임은
-재현되지 않았다. 유예 근거는 falsifier가 붙어 있다: 상류 전체에서 유일한
-호출자가 `kinematic_constraints/kinematic_constraint.cpp`(4곳)이고 그것이
-아직 미포팅에 메시지 타입이다. 소비자가 생기면 닫힌다.
+- **`SceneTransforms::isFixedFrame`의 선행 `/` 처리와 object frame 위임은
+  재현되지 않았다.** 유예 근거는 falsifier가 붙어 있다: 상류 전체에서 유일한
+  호출자가 `kinematic_constraints/kinematic_constraint.cpp`(4곳)이고 그것이
+  아직 미포팅에 메시지 타입이다. 소비자가 생기면 닫힌다.
 
 ### 66.5 머지 후 실측
 
