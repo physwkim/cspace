@@ -641,8 +641,9 @@ fn pose_to_isometry(pose: &r2r::geometry_msgs::msg::Pose) -> Isometry3 {
 }
 
 /// Upstream `moveit::core::isEmpty(const moveit_msgs::msg::Constraints&)`
-/// (`utils/src/message_checks.cpp:70-75`), the `:160` half of the test that
-/// decides whether the validity callback is built at all.
+/// (`moveit_core/utils/src/message_checks.cpp:66-70`). It is the second half
+/// of the capability's `:160` test, which decides whether the validity
+/// callback is built at all.
 fn constraints_are_empty(constraints: &r2r::moveit_msgs::msg::Constraints) -> bool {
     constraints.position_constraints.is_empty()
         && constraints.orientation_constraints.is_empty()

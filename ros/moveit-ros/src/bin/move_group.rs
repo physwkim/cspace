@@ -673,8 +673,9 @@ fn main() -> ExitCode {
     };
 
     // Upstream `move_group::CARTESIAN_PATH_SERVICE_NAME`
-    // (`capability_names.hpp:59-60`), unqualified for the reason `move_action`
-    // above is. Spelled as a literal rather than as
+    // (`moveit_ros/move_group/include/moveit/move_group/capability_names.hpp:59-60`
+    // -- the basename alone is ambiguous, pilz ships one too).
+    // Spelled as a literal rather than as
     // `moveit_ros::cartesian_path::SERVICE_NAME`, which holds the same string:
     // `tools/ci/measure-client-endpoint-surface.py`'s `PORT_OPENER` matches a
     // string literal in the factory call, so a constant here would leave the
