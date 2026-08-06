@@ -20562,13 +20562,18 @@ doc 주석이고 나머지 6줄은 §236.4가 세운 만료 tripwire 테스트 �
 
 **둘째, 받는 자리는 이미 있고 그 자리에는 setter가 없다.** 이 포트의
 `PlanningContext` 계층은 포팅되어 있다:
-`moveit_planners_sbp::registry`의 `PlannerManager::get_planning_context`
-(`crates/moveit-planners-sbp/src/registry.rs:703`)가 `request:
-PlanningRequest`를 **값으로** 받고 `RrtConnectManager`의 구현
-(`:621`)이 그것을 `RrtConnectContext.request`로 옮긴다. 상류가
+`moveit_planning::planner`의 `PlannerManager::get_planning_context`
+(`crates/moveit-planning/src/planner.rs:353`)가 `request:
+&PlanningRequest`를 **차용으로** 받고 `RrtConnectManager`의 구현이 그것을
+복제해 `RrtConnectContext.request`에 넣는다
+(`crates/moveit-planners-sbp/src/registry.rs:618`). 상류가
 `setMotionPlanRequest`에 정규화를 매단 이유는 그것이 요청이 컨텍스트에
 들어오는 유일한 문이라는 점인데, 이 포트에서 그 문은 생성자 인자다 —
-정규화를 매달 setter가 없고, 필요하지도 않다.
+정규화를 매달 setter가 없고, 필요하지도 않다. (이 절을 쓸 때 그 트레이트는
+`moveit-planners-sbp`의 `registry`에 있었고 요청을 값으로 받았다. `fe6fd060`이
+트레이트를 `moveit-planning`으로 옮기면서 인자를 차용으로 바꿨고, 컨텍스트가
+간직할 사본은 자기가 뜬다. 문은 여전히 하나이고 setter는 여전히 없으므로
+논거 자체는 달라지지 않는다.)
 
 **셋째, 이 포트의 타입에서는 세 입력이 만들어질 수 없다.** 이 포트에서
 탐색 예산에 해당하는 것은 `moveit_planners_sbp::Termination`
