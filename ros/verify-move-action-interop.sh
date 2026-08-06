@@ -324,13 +324,21 @@ ORACLE_STAMP="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")"
 ORACLE_IMAGE="${ORACLE_IMAGE:-$(oracle_image_tag "$ORACLE_STAMP")}"
 PROBE_IMAGE="${PROBE_IMAGE:-moveit-rs/move-group-interface-probe:${ORACLE_STAMP:0:16}}"
 
+# Exit 3, not 0, and not 1: three outcomes have to stay apart here. 1 is an
+# assertion that ran and failed; 0 is both legs measured; 3 is leg A measured
+# and leg B not run at all. Returning 0 for the third made
+# `ros/verify-ros-interop.sh` print `all gates passed` over a run in which
+# nothing had driven the real client -- the exact reading this block's own
+# "this is not a pass" text was written to prevent, and could not, because the
+# status the caller branches on said otherwise. The caller maps 3 to a summary
+# line that names the skip; see the end of that file.
 if ! docker image inspect "$ORACLE_IMAGE" >/dev/null 2>&1; then
   echo "SKIP $ORACLE_IMAGE not built -- upstream's C++ MoveGroupInterface was not run"
   echo "SKIP against /move_action, so Phase 9's completion condition is unmeasured by"
   echo "SKIP this run and leg A above stands alone: it drives the action interface"
   echo "SKIP directly and cannot see whether the real client reaches it."
   echo "SKIP this is not a pass; build it with: sg docker -c tools/moveit-oracle/build.sh"
-  exit 0
+  exit 3
 fi
 
 # Unconditional: the `--packages-up-to` layer keys only on ORACLE_IMAGE and the

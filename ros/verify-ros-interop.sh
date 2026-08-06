@@ -400,6 +400,21 @@ echo "OK scene-topic: answered True/False/False/True across an empty world, a fu
 # docker network, and it is the only check here that runs upstream's own C++
 # client. Last, because it is the most expensive and the least likely to be
 # the thing a `cargo fmt` failure was about.
-"$REPO_ROOT/ros/verify-move-action-interop.sh"
+# Captured rather than called bare: under `set -e` a bare call aborts this
+# script on the sub-gate's exit 3 and the summary line below never runs, which
+# is the one place the skip has to be reported.
+move_action_status=0
+"$REPO_ROOT/ros/verify-move-action-interop.sh" || move_action_status=$?
 
-echo "all gates passed"
+# One summary line per outcome, because `all gates passed` meant two different
+# things: with the oracle image built it includes upstream's own C++ client
+# reaching /move_action, and without it that leg never ran. A reader settling
+# PORTING-PLAN.md's Phase 9 row off a green run cannot tell those apart from
+# the status alone, so the line says which.
+case "$move_action_status" in
+  0) echo "all gates passed" ;;
+  3) echo "all gates passed EXCEPT /move_action leg B, which was SKIPPED: upstream's"
+     echo "C++ MoveGroupInterface never ran, so Phase 9's completion condition is"
+     echo "unmeasured by this run. Build the oracle image and re-run before citing it." ;;
+  *) exit "$move_action_status" ;;
+esac
