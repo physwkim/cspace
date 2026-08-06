@@ -248,7 +248,7 @@ independent of the baseline issue).
 **The tool's documented blind spot undercounts the real total further, and
 by more than the quoted 25.** `assert_err_mentions(result, needle)` is
 defined separately per file (`ros/moveit-ros/src/state.rs:192` (`assert_err_mentions`), `ros/moveit-ros/src/trajectory.rs:248` (`assert_err_mentions`),
-`planning.rs:385` (`assert_err_mentions`), `scene/attached.rs:323` (`assert_err_mentions`), `scene/collision_object.rs:533` (`assert_err_mentions`)
+`planning.rs:495` (`assert_err_mentions`), `scene/attached.rs:323` (`assert_err_mentions`), `scene/collision_object.rs:533` (`assert_err_mentions`)
 — five independent copies, not a shared import) and renders on one line,
 asserts `rendered.contains(needle)` on the next — invisible to the tool's
 60-byte lookback, exactly as documented. Two things the tool's own output
@@ -316,7 +316,7 @@ not move at all.
 | `constraints/position.rs:308,392,411,432,456,472` | in-family | CLEAN (6 sites) — `dim()`'s `{field}`-interpolated messages (e.g. `:308`'s own `.contains("BOX_Y")`), `PositionConstraint::new`'s three distinct `Error::construct` texts, and the meshes-guard's shared-but-same-branch needle all verified against `crates/moveit-constraints/src/position.rs` |
 | `constraints/set.rs:148` | **not-this-family** (clause 2) | n/a — `empty_constraints_is_empty_set` is the census's own vacuous-accumulator shape verbatim: all four input vecs empty, none of the four `for` loops in `KinematicConstraintSet::try_from` iterate, `set` is never touched |
 | `constraints/visibility.rs:384,385` (`negative_target_radius_activates_but_negative_angles_stay_inactive`) | in-family | CLEAN (2 sites) — `normalize_angle_criterion`'s `>EPS` filter is the sole physical producer of `None` for each field; wire wrapper always constructs `Some(msg.field)` first, never `None` directly |
-| `conversion_coverage.rs:227,232,386,414,437,454` | in-family (all 6) | CLEAN — `:227/:232` are my own round-8 `parse_conversion` tests (already bite-checked); `:386` self-identifies via interpolated `t.from`/`t.to`/`t.covered_by` in its panic text; `:414/437/454` populate disjoint vecs from disjoint scan logic, each panic interpolates the full offending list |
+| `conversion_coverage.rs:261,266,420,448,471,488` | in-family (all 6) | CLEAN — re-derived after `4f2c9df` added 34 lines to `ONE_DIRECTIONAL` ahead of every one of this row's old `:227,232,386,414,437,454` citations, a pure uniform shift confirmed line-by-line against the current body (no semantic change). `:261/:266` are my own round-8 `parse_conversion` tests (already bite-checked); `:420` self-identifies via interpolated `t.from`/`t.to`/`t.covered_by`/`t.reason` in its assert text; `:448/471/488` populate disjoint vecs from disjoint scan logic, each assert interpolates the full offending list |
 | `scene/shapes.rs:161-163` (`mesh_triangle_with_wrong_vertex_count_is_rejected`), `scene/shapes.rs:179-181` (`mesh_out_of_range_vertex_index_is_rejected`) | in-family | CLEAN (2 sites) — `"expected exactly 3"` is `shapes.rs`'s sole `MeshTriangle`-length format string; the "only N vertices exist" wording traces to the single physical site `moveit-geometry/src/shapes.rs:1133` (source: `"mesh triangle references vertex {idx}, but only {n} vertices exist"`), confirmed by grep not reproduced elsewhere reachable from `TryFrom<MeshMsg>` |
 | `scene/planning_scene.rs:1079` (`empty_collision_objects_and_empty_octomap_is_a_no_op`), `scene/planning_scene.rs:1096-1099` (`non_octree_octomap_type_is_rejected`), `scene/planning_scene.rs:1132-1135` (`truncated_octree_payload_is_rejected`) | in-family | CLEAN (3 sites) — `:1079`'s only reachable emptying branch is `apply_octomap`'s `remove_all`-shaped path for this fixture; `:1096/:1132` already sibling-documented and grep-confirmed unique |
 | `scene/attached.rs:442,452,513,532,553,554,594,612,649,671` | in-family except `:532` | `:532` **not-this-family** (clause 2/3) — ADD-path `merged_touch_links` is a straight `.collect()` with the merge branch gated `if !is_add`, i.e. never entered; the real "replace not merge" claim rides on the adjacent `shapes().len()==1` assertion instead. Everything else CLEAN (8 direct + 2 hidden `assert_err_mentions` at `:513,594`), including `:553/:554` (`BTreeSet::contains` is exact-element not substring match, and `moveit-scene`'s `attach_new`/`AttachedBody` store touch_links verbatim with no auto-inclusion of `link_name`, ruling out the fixture's own "tip" link name as a spurious source) |
@@ -949,7 +949,7 @@ exactly the vacuous-accumulator shape §10 ruled `not-this-family` twice:
 1. **Mechanism.** `observable.is_empty()` is a found-nothing tag, but it is
    not vacuous — `rows` is a 5-element (resp. 4-element) array literal in
    the test itself, and `labels_differing_from_the_first`
-   (`planning.rs:526-538`) iterates `rows[1..]`, so the comparison runs 4
+   (`planning.rs:849-861`) iterates `rows[1..]`, so the comparison runs 4
    (resp. 3) times on every run. The failure message interpolates the
    offending labels rather than reporting a bare count.
 2. **Decision.** The decision under test is §236's, and it lives in the
