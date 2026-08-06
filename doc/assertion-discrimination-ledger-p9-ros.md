@@ -983,3 +983,114 @@ enumerates 73 and its own totals line has said so since `9e6873a`).
 Gated with the round's own list, including
 `sg docker -c './tools/ci/verify-ros-interop.sh'` (the only gate that
 compiles `ros/moveit-ros`) and `./tools/ci/verify-orphan-enumeration.sh`.
+
+## §15. `scene/planning_scene.rs`'s `usePlanningSceneMsg` sites, and a second citation shape the reconciler cannot see
+
+Fence: `ros/moveit-ros` only, sole ownership of this file for the round.
+`verify-orphan-enumeration.sh` was main's last red gate at 23 orphan sites,
+0 unresolved citations. The 23 split into two unrelated causes, and only
+the first is new code:
+
+1. **18 assertions nobody had written a row for.** `git blame` on each of
+   the 18: 17 are `4f2c9df` (p11-scenetopic's `usePlanningSceneMsg`/`setDiff`
+   port, which created the full/diff split and every test below), and one
+   (`:1041`) is `36b3fc9`, this round's own new test — see the second
+   finding at the end of this section.
+2. **5 assertions three existing §10 rows already covered**, invisible to
+   the instrument. §10's opening note records one first-column shape
+   `tools/ci/reconcile-assertion-ledgers.py` cannot parse (file name in
+   column 1, line numbers in column 2) and reformats every row carrying it.
+   A second shape survived that pass: a first cell holding *several*
+   separately backticked citations, or a hyphen range, of which
+   `FIRST_COL_RE` reads only the first. Swept every
+   `doc/assertion-discrimination-ledger-*.md` — the only files the
+   reconciler reads — by applying `FIRST_COL_RE` to each table row and
+   diffing what it captures against every `file.rs:NNN` in the same cell.
+   Five rows carry the shape. Three are here (`constraints/orientation.rs`,
+   `scene/shapes.rs`, `scene/planning_scene.rs`'s octomap trio) and were
+   orphaning the assertions of `degenerate_orientation_is_rejected`,
+   `orientation_norm_2_is_rejected_end_to_end_unlike_a_scene_pose`,
+   `mesh_out_of_range_vertex_index_is_rejected`,
+   `non_octree_octomap_type_is_rejected` and
+   `truncated_octree_payload_is_rejected`; all three rows are reformatted
+   above, and their evidence upgraded from reading/grep to measurement
+   while they were open. The other two are cross-references, not accounting
+   rows — this file's own `chain.rs` + `ik_fk_roundtrip.rs` needle row in
+   §12, and p1-fixtures' `cart_to_jnt.rs` + `multivariate_gaussian.rs`
+   excluded-shape row. Both of their truncated sites are already accounted
+   for by a resolving first-column row elsewhere (p1-fixtures' own
+   `constructing_a_solver_on_a_non_chain_group_is_an_error` and
+   `positive_definite_covariance_constructs` rows), so neither is orphaning
+   anything; p1-fixtures' file is not mine to edit and is reported, not
+   touched.
+
+### Method, and its cost
+
+`ros/moveit-ros` is outside the root workspace (D5, PORTING-PLAN.md §129.4),
+so `cargo nextest run -p moveit-ros` does not resolve it; every run below is
+`cargo test --lib` inside `moveit-rs/ros-dev:latest`. Baseline **209 passed;
+0 failed**. One mutation costs about 7 s once the image's target dir is
+warm; the 31 runs behind this section took **177 s** wall clock end to end.
+Every mutation was applied alone, line-count-preserving where a shifted
+panic line would have mis-mapped the result, and reverted before the next;
+`git status --short` is empty after the last one.
+
+### Guard mutation vs. message mutation — they answer different questions
+
+Nine of these sites assert on message text
+(`err.to_string().contains(..)`). For those, neutralizing the guard is
+**not** evidence about the assertion: with the guard gone the call stops
+returning `Err` at all, so the test dies on the preceding `.unwrap_err()`
+and the needle is never evaluated. Measured, not reasoned: forcing
+`if !msg.link_padding.is_empty()` false fails
+`non_empty_link_padding_is_rejected` at `:806` — the `.unwrap_err()` line —
+while `:807`'s needle stays untested. Each such row therefore carries a
+second, message-only mutation that keeps the guard firing and changes only
+the text, so the panic lands on the assertion itself. Where the two differ,
+both lines are given below.
+
+One of those message mutations failed to fail the first time, and the
+reason is worth keeping: rewriting only the first line of the
+`object_colors` message left all tests green, because the message's second
+line still reads `(object_colors_ is not ported)` and
+`contains("object_colors")` is satisfied by a substring of `object_colors_`.
+The needle is weaker than it looks — it matches a different word.
+
+| file:line | in-family verdict | evidence: mutation -> failing test @ panic line |
+|---|---|---|
+| `ros/moveit-ros/src/scene/planning_scene.rs:663,671` | **not-this-family** (clause 1) | `is_diff_flag_selects_the_variant_and_nothing_else_reads_it`. `matches!(full, PlanningSceneUpdate::Full(_))` / `Diff(_)` reads a computed success-path enum tag off a total, infallible `From` whose own doc says both branches are reachable and neither can fail — a dispatch question, the same class as this file's `converts_with_xyz_euler_parameterization` row. Measured anyway, both directions, because a dispatch test can still be blind: forcing the branch always-`Full` fails only `:671` (of this test; six other diff-behaviour tests fail on their own assertions), and inverting it fails only `:663`. So the pair does discriminate, in both directions, on a question this family does not ask |
+| `ros/moveit-ros/src/scene/planning_scene.rs:688,691,696,699,705` | in-family (5 sites), discriminating | `a_diff_adds_to_the_world_and_a_full_scene_replaces_it`, the one behavioural difference the full/diff split exists for. Each assertion isolated by its own mutation: `.take(0)` on `apply_planning_scene_world`'s object loop -> `:688` alone; giving the diff arm the full arm's `scene.remove_all_objects()` -> `:691` (and `:778`); `.take(0)` on the diff arm's own object loop -> `:696` alone; neutralizing the full arm's `scene.remove_all_objects()` -> `:699` alone; moving that same clear to *after* `apply_planning_scene_world` -> `:688` and `:771`. `:705` needed the four preceding assertions blinded first, since `assert!` short-circuits the test at `:688` — with them blinded, the same `.take(0)` fails at `:705` and nowhere else |
+| `ros/moveit-ros/src/scene/planning_scene.rs:771,778,789` | in-family (3 sites), discriminating | `a_diff_applies_its_octomap_only_when_the_id_is_stated`. Dropping `scene.add_shape(OCTOMAP_NS, ..)` fails `:771` plus six octomap tests; forcing `if !msg.world.octomap.octomap.id.is_empty()` always true fails `:778` alone, which is the assertion pinning "an unnamed octomap in a diff must not clear the octree"; neutralizing `let _ = scene.remove_object(OCTOMAP_NS);` fails `:789` plus `octomap_replaces_any_previous_octree_at_the_reserved_id`, and `:789` is the assertion pinning the opposite leg — a *stated but empty* octomap must clear it |
+| `ros/moveit-ros/src/scene/planning_scene.rs:787` | **not-this-family** (clause 3) | `a_diff_applies_its_octomap_only_when_the_id_is_stated` again. `assert!(named.world.octomap.octomap.data.is_empty())` runs one line *before* the `use_planning_scene_msg` call it precedes, on the message the test itself just built; deleting the call to the subject cannot change its outcome, which is clause 3's own operational test. It is half of the two-part fixture precondition the test's doc comment names ("Both legs carry identical, empty `data`, so the only thing that differs between them is the `id`"), the other half being an `assert_eq!` outside this sweep's grammar |
+| `ros/moveit-ros/src/scene/planning_scene.rs:807,821,835` | in-family (3 sites), discriminating **by message** | `non_empty_link_padding_is_rejected`, `non_empty_link_scale_is_rejected`, `non_empty_object_colors_is_rejected` — `reject_unrepresentable_fields`' three sequential guards. Guard mutations (`if false` on each in turn) fail exactly one test each, but at `:806`/`:820`/`:834`, the `.unwrap_err()` lines, so they prove only that each guard is separately live. What proves the needles is the message swap: making the `link_padding` guard emit the `link_scale` text fails `:807` alone; the mirror fails `:821` alone; giving the `object_colors` guard the `link_padding` text — *both* of its occurrences, per the note above — fails `:835` alone |
+| `ros/moveit-ros/src/scene/planning_scene.rs:871` | in-family, discriminating **by message** | `a_fixed_frame_transform_to_another_frame_is_rejected`. Neutralizing `if !Transforms::same_frame(&stamped.child_frame_id, &target_frame)` fails at `:870`, the `.unwrap_err()`. Interpolating `target_frame` where the message interpolates `stamped.child_frame_id` fails at `:871`: the needle is `"'some_other_frame'"`, so what it pins is that the message names the *offending* frame, not merely that some error came back — the guard has two sibling `?` sites in the same loop (`Isometry3::try_from`, `set_transform`) that a variant check could not tell it from |
+| `ros/moveit-ros/src/scene/planning_scene.rs:999,1018,1041` | in-family (3 sites), discriminating **by message** | `an_acm_with_mismatched_default_lengths_is_rejected`, `a_non_square_acm_row_is_rejected`, `an_acm_with_mismatched_entry_lengths_is_rejected` — `TryFrom<AllowedCollisionMatrixMsg>`'s two guards, the first folding two independently named pairs. Guard side: dropping the `default_entry_*` operand fails the first test at its `.unwrap_err()` (`:998`); forcing `if enabled.len() != msg.entry_names.len()` false fails the second at `:324`, an index panic inside the subject, since that guard is what prevents it; dropping the `entry_*` operand fails the third at `:312`, the same shape one level up. Message side: "equal length" -> "matching lengths" fails `:999` alone; "must be square" -> "must be rectangular" fails `:1018` alone; rewording the folded guard's opening fails `:1041` alone, and not `:999`, because `:1041`'s needle carries the offending pair's own two lengths while `:999`'s carries only the shared tail |
+
+### Totals
+
+**18 sites added, 15 in-family, 3 not-this-family (`:663`, `:671` — clause
+1; `:787` — clause 3), 0 needle collisions, 1 fix owed and made (below).**
+Enumerating the table's seven rows gives 2+5+3+1+3+1+3 = 18, and 15+3 = 18.
+Running total for `ros/moveit-ros` under the wide grammar: 73 sites in §10
+(§14's "63 sites in §10" was written before §10's table grew and is
+corrected in place) + 2 in §14 + these 18 = 93.
+
+### The fix this section owed: a blind folded operand (`36b3fc9`)
+
+Mutating `:999`'s guard one operand at a time is what surfaced it.
+`TryFrom<AllowedCollisionMatrixMsg>` opens with one `if` over two pairs, and
+only the `default_entry_*` pair had a test: replacing
+`msg.entry_names.len() != msg.entry_values.len()` with `false` left the
+whole suite at 203 passed, while `msg.entry_values[i]` would then index past
+the end of a shorter `entry_values`. That is
+`doc/folded-operand-guards.md`'s kind 2 — a guard whose assertions exist but
+exercise the operands only jointly — and its stated remedy is a test, not a
+comment. `an_acm_with_mismatched_entry_lengths_is_rejected` is that test;
+its row is `:1041` above, and the guard is now listed in that document's
+population table, which had been measured at an older main and so could not
+contain a guard `4f2c9df` had not yet written.
+
+Inserting it moved every assertion below `:1020` by 27 lines, which the
+gate saw as two unresolved citations plus two new orphans at the same
+sites; `c2712c1` re-derived those four citations by content rather than by
+adding the offset.
