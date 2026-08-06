@@ -766,3 +766,64 @@ down a family rather than one scenario (turning off the rename test reddens
 both `prose_rename` and `renumber`; keying on prose reddens `number_key` and
 also the two scenarios whose declarations stop matching), which that script's
 header records.
+
+## The anchor form `check-citation-drift.py` cannot read
+
+Reported by p9-ros and verified here against the script as it stands. One
+regex decides whether a citation gets checked for anything beyond its line
+number:
+
+```python
+IDENT_IN_BACKTICKS_RE = re.compile(r"`([a-z][a-z0-9_]{3,})`")
+```
+
+Both backticks are in the pattern, so the *whole* backtick-quoted span has to
+be one lowercase-starting `[a-z0-9_]` identifier and nothing else. p9-ros
+named the shape as a qualified or trait-impl anchor -- `` `Type::method` ``,
+`` `<Type as Trait>::method` `` -- which is right, but the rule underneath is
+wider than the uppercase and the angle brackets. Any character inside the
+backticks outside `[a-z0-9_]` defeats it. Run against the current script:
+
+| written as | anchors? |
+|---|---|
+| `` `try_from` `` | yes |
+| `` `TryFrom<PlanningRequestMsg>::try_from` `` | no |
+| `` `PlanningRequest::try_from` `` | no |
+| `` `<PlanningRequestMsg as TryFrom>::try_from` `` | no |
+| `` `Self::try_from` `` | no |
+| `` `msg::try_from` `` -- all lowercase, still a path | no |
+| `` `try_from()` `` -- the call form | no |
+
+`FOLLOWING_ANCHOR_RE`, the other way in (`` `path:NNN` (`fn_name`) ``), carries
+the same `[a-z][a-z0-9_]{3,}` body inside its parentheses, so it rejects every
+row of that table too. A citation with no readable anchor is not failed; it
+falls to `unanchored`, which is bounds-checked only -- the line number has to
+stay inside the file and nothing else is asked. That is the bucket the
+orchestrator measured at 45% of all citations, where a +7-line shift is caught
+in 2 cases out of 8.
+
+What it costs today, over the 2125 lines in tracked `.md` that carry an
+`x.rs:NNN` citation: 60 of them name their function only in `Type::method`
+form with no bare identifier anywhere on the line, spread over 16 documents.
+Resolving each qualified tail against the file the line cites: 24 have a bare
+tail that really is a `fn` there and would anchor-verify if written bare, 35
+name a C++ symbol or a type (`std::ostream`, `boost::trim`, `Path::create`
+where the `.rs` has no such `fn`) which the script's `name not in spans` test
+would drop anyway, and 1 cites a file no tracked `.rs` basename matches. So
+24 is the floor on citations demoted purely by how the anchor is spelled --
+a floor and not a count, because the tight rule reads only a backward window
+`line[window_start:match_start]`, so a line whose bare identifier sits after
+its citation was excluded from the 60 without being anchored in practice.
+
+The 24 span `PORTING-PLAN.md`, four discrimination ledgers, five claim audits,
+`doc/port-coverage.md`, `doc/upstream-bugs.md` and
+`ros/moveit-ros/doc/message-mapping.md`; `Path::create` and `Trajectory::create`
+in `doc/claim-audit/moveit-trajectory.md` and `ChainInfo::build` in the
+p1-fixtures ledger are each written that way four or more times, so this is a
+house style rather than a slip.
+
+Until the gate reads the qualified form, a citation that wants to be checked
+writes the bare identifier somewhere before it on the line, or uses the
+following-anchor form `` `path:NNN` (`fn_name`) ``. Writing the receiver as
+prose and the method in backticks -- `RobotState`'s `` `update` `` -- also
+anchors, and keeps the type visible to the reader.
