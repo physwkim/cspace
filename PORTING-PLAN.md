@@ -27650,3 +27650,227 @@ pass"라고 적어 두었지만, 호출자가 분기하는 값은 그 문장이 
   `all gates passed EXCEPT /move_action leg B, which was SKIPPED: ...`를
   찍는다. 두 실행 모두 exit 0이므로, 이 결함은 상태값이 아니라 요약 줄에서만
   보인다 — 그것이 이 수정이 요약 줄을 고치는 이유다.
+
+## §NEW `/execute_trajectory`를 연다 — 실행 백엔드가 없는 서버를 골랐고, 그것이 상류가 실제로 출하하는 분기다 (2026-08-06)
+
+`doc/client-endpoint-surface.md`의 absent 9개 중 하나를 닫는다. 이 절은
+무엇을 열었는지가 아니라 **두 가지 가능한 서버 중 어느 쪽을 지었는지**를
+기록한다. 그 선택이 이 엔드포인트의 전부이기 때문이다.
+
+### §NEW.1 두 가지 서버 중 어느 쪽인가 — 실행 백엔드 없는 쪽
+
+`ExecuteTrajectory` 액션 서버를 짓는 방법은 두 가지다.
+
+1. 아무것도 실행하지 않고 `SUCCESS`를 답한다. 클라이언트의 `execute()`가
+   성공을 반환하고 로봇은 움직이지 않았다. **클라이언트가 검출할 수 없는
+   거짓말이다** — 다음 `getCurrentState()`가 첫 단서다.
+2. 상류가 실제로 갖고 있는 "실행기가 없다" 분기의 코드를 답한다.
+
+이 라운드는 (2)를 지었다. 근거는 이 워크스페이스에 궤적 실행 백엔드가
+없다는 것이고, 그것은 읽기가 아니라 열거다:
+
+```
+$ rg -l -i 'trajectory_execution|TrajectoryExecutionManager|controller_manager|FollowJointTrajectory' crates/ ros/
+ros/verify-move-action-interop.sh
+ros/moveit-ros/src/bin/move_group.rs
+crates/moveit-collision/tests/fixtures/pr2.urdf
+crates/moveit-kinematics/tests/fixtures/pr2.urdf
+crates/moveit-state/tests/fixtures/pr2.urdf
+crates/moveit-scene/tests/fixtures/pr2.urdf
+crates/moveit-constraints/tests/fixtures/pr2.urdf
+crates/moveit-distance-field/tests/fixtures/pr2.urdf
+```
+
+여섯은 `pr2.urdf` 픽스처(`<gazebo>` 태그가 컨트롤러를 이름으로 부른다),
+둘은 이 포트 자신의 게이트와 "실행기가 없다"고 적은 산문이다. 타입도,
+크레이트도, 의존성도 없다.
+
+그래서 이 포트는 상류의 **첫 행**에 앉는다 —
+`execute_trajectory_action_capability.cpp:90-96`, 즉
+`~allow_trajectory_execution`이 false일 때 상류가 스스로 도달하는 구성이다.
+스텁이 아니라 상류가 출하하는 분기이고, 답은 상류 자신의
+`CONTROL_FAILED`(-4)에 `abort`다.
+
+구조로 잠갔다: `moveit_ros::execute_trajectory`가 만드는
+`ExecuteTrajectory::Result`는 `no_execution_backend()` 하나뿐이고 항상
+`CONTROL_FAILED`를 싣는다. 이 모듈을 부르는 쪽이 `SUCCESS`를 답하는 것은
+구성상 불가능하며, 그래서 `serve`의 무조건 `abort`는 분기의 도달 가능한
+절반이 아니라 전칭 규칙이다.
+
+### §NEW.2 상류가 각 조건에 무엇을 답하는가 — 여섯 행, 종료 전이는 한 규칙
+
+`executePathCallback`(`execute_trajectory_action_capability.cpp:87-115`)과
+`executePath`(`execute_trajectory_action_capability.cpp:117-149`)에서 읽었다.
+
+| 조건 | `error_code.val` | 종료 |
+|---|---|---|
+| `trajectory_execution_manager_`가 없음 | `CONTROL_FAILED` (-4) | `abort` |
+| `push`가 false를 반환 | `CONTROL_FAILED` (-4) | `abort` |
+| 실행이 `SUCCEEDED` | `SUCCESS` (1) | `succeed` |
+| 실행이 `PREEMPTED` | `PREEMPTED` (-7) | `abort` |
+| 실행이 `TIMED_OUT` | `TIMED_OUT` (-6) | `abort` |
+| 실행이 그 밖 | `CONTROL_FAILED` (-4) | `abort` |
+
+종료 열은 여섯 규칙이 아니라 하나다:
+`execute_trajectory_action_capability.cpp:103-112`가 `val == SUCCESS`면
+`succeed`, 아니면 `abort`다. **`PREEMPTED`가 `canceled`가 아니라 `abort`로
+간다**는 것이 독자가 가장 틀리기 쉬운 행이라 여기 이름을 붙인다.
+
+세 행이 같은 -4를 답한다는 것이 §NEW.3의 두 번째 상류 결함이 실재하는
+이유다 — `message`가 비어 있으면 클라이언트는 셋을 가를 수 없다.
+
+### §NEW.3 취소 경로 — 상류는 취소를 받아들이고 아무것도 멈추지 않는다
+
+상류는 두 개의 상수 콜백을 등록한다
+(`execute_trajectory_action_capability.cpp:79-83`): 목표 콜백은
+`ACCEPT_AND_EXECUTE`, 취소 콜백은 `CancelResponse::ACCEPT`이고 둘 다 인자를
+읽지 않는다. 그리고 동작을 실제로 멈추는 함수
+`preemptExecuteTrajectoryCallback`(`execute_trajectory_action_capability.cpp:151-154`)은
+**아무도 부르지 않는다**. `rg -n preemptExecuteTrajectoryCallback`를 상류
+체크아웃 전체에 돌리면 히트는 정확히 둘 — 선언
+(`execute_trajectory_action_capability.hpp:66`)과 그 정의뿐이다.
+
+즉 상류의 취소는 수락되고, 클라이언트는 취소 중이라고 통보받고, 궤적은 끝까지
+실행된다. 이 포트는 `reject`한다. 실행 중인 것이 없으니 멈출 것도 없고,
+거절이 클라이언트가 행동할 수 있는 유일한 답이기 때문이다.
+
+r2r 쪽 형상 때문에 거절은 안전한 답이기도 하다. 셋 중 하나라도 틀리면
+클라이언트가 서로 다른 비용을 치른다(`r2r/src/action_servers.rs`, 고정 rev에서
+읽음): 수신자를 버리면 클라이언트는 "취소 수락"을 듣고 아무것도 취소되지
+않으며(상류의 결함을 누락으로 재현하는 것이다), 요청을 받아 답 없이 버리면
+`CancelGoal` 응답이 아예 나가지 않아 클라이언트가 매달리고, 수락한 뒤 종료
+전이에 도달하지 않으면 `get_result`가 영원히 풀리지 않는다.
+
+`reject_pending_cancels`는 자기가 꺼낸 요청을 전부 답한다. 그 성질을 **문장이
+아니라 테스트로** 만들기 위해 `CancelRequest` 트레이트를 두었다 —
+`ActionServerCancelRequest`의 필드는 r2r 사설이고 `reject`는 테스트가 관측할
+수 없는 `oneshot::Sender`를 소비하므로, 트레이트 없이는 아무것도 내놓지 않는
+스트림으로만 테스트할 수 있고 그런 테스트는 "전부 답한다"와 "전부 버린다"를
+가르지 못한다.
+
+오늘은 그 배수로에 취소 요청이 도달할 수 없고, 이유는 운이 아니라 구조다:
+`serve`는 목표를 수락한 바로 그 폴에서, 사이에 `await` 없이 종료시키므로,
+`spin_once`가 취소 요청을 처리할 수 있는 순간에 그 목표는 rcl의 취소 가능
+집합에 들어 있지 않다. 배수로는 그래도 돈다 — "도달 불가"는 이 핸들러의
+성질이지 와이어의 성질이 아니고, 수락과 종료 사이에 무엇이든 `await`하는 미래의
+핸들러가 그것을 다시 연다.
+
+두 상류 결함은 `doc/upstream-bugs.md`에
+`execute-trajectory-accepts-cancels-it-never-acts-on`와
+`execute-trajectory-drops-its-own-failure-explanation`로 적었다.
+
+### §NEW.4 이것이 사는 것과 사지 않는 것 — `plan()`은 막혀 있지 않았다
+
+**이 절을 "plan()의 차단 해제"로 읽지 말 것.** §273.5가 이미 잰 대로
+생성자는 `execute_action_client_`를 만들고
+`wait_for_action_server`를 부른 뒤 **반환값을 버린다**
+(`move_group_interface.cpp:191-193`). `plan()`은
+`move_action_client_`만 본다(`move_group_interface.cpp:659`). 이 라운드가
+상류를 다시 읽어 확인한 것도 같다 — 191행에 `create_client`, 193행에
+반환값을 쓰지 않는 `wait_for_action_server` 호출문 하나다.
+
+그러므로 부재의 비용은 생성자에서의 `wait_for_servers` 타임아웃 한 번뿐이고,
+§273.5가 노드 없음 41.6초 대 `move_action`만 21.8초로 잰 19.9초 차이가 그것이다.
+바인딩이 사는 것은 그 대기의 제거와, `execute`/`asyncExecute`
+(`move_group_interface.hpp:732,741,750,759`)가 답을 받는 것이다.
+
+### §NEW.5 게이트와, 그것이 실패하는 것을 보인 네 개의 변이
+
+`ros/verify-execute-trajectory-interop.sh`가
+`ros/verify-ros-interop.sh`에서 불린다. 단일 컨테이너에서 노드를 띄우고
+`ros2 action send_goal --feedback`로 두 개의 목표를 보낸다 — 빈 목표 하나와,
+실제 궤적 두 점 + 컨트롤러 이름을 실은 목표 하나.
+
+leg B가 없는 것은 누락이 아니라 측정이다: 상류 클라이언트가 이 엔드포인트의
+**답**에 닿는 경로는 `execute`/`asyncExecute`뿐이고, 생성만 하고 계획하는
+탐침은 이 서버의 답을 관측할 수 없다. 관측할 수 있는 것은 생성자가 걸린
+시간뿐이며 그것은 §NEW.4의 수다.
+
+단언은 한 줄에 하나다. 목표가 ACCEPTED일 것, 종료가 **ABORTED이고
+SUCCEEDED가 아닐 것**, `val: -4`일 것, 실제 백엔드가 답할 세 코드(`1`,
+`-7`, `-6`)가 나타나지 않을 것, `source`가 이 엔드포인트를 이름으로 부를 것,
+`message`가 상류 분기를 이름으로 부를 것, 피드백이 없을 것. 그리고 두 답이
+**서로 같을 것** — 모듈이 주장하는 "목표의 두 필드를 읽지 않는다"는 균일성을
+기계로 만든 것이다.
+
+네 개의 고립 변이를 적용 → 실행 → 되돌림했다. 각각 정확히 자기가 잡는다고
+주장한 줄에서 붉어졌다.
+
+* **BITE-1** `goal.abort` → `goal.succeed`. →
+  `FAIL empty terminal state: expected this string and did not find it: Goal
+  finished with status: ABORTED`. 코드 단언(`val: -4`)은 초록이다 — 그것이
+  종료 전이 단언이 코드 단언에 흡수되지 않는다는 증거다.
+* **BITE-2** `no_execution_backend()`의 `CONTROL_FAILED` → `SUCCESS`. →
+  `FAIL empty code: expected this string and did not find it: val: -4`.
+  같은 변이가 in-process 쪽에서는 두 테스트를 함께 무너뜨린다
+  (`the_only_result_this_port_builds_is_upstreams_control_failed`가
+  `left: 99999 right: -4`, `the_result_is_none_of_the_codes_a_real_backend_
+  would_report`가 `left: 99999 right: 99999`).
+* **BITE-3** `abort` 직전에 `MONITOR` 피드백을 발행. →
+  `FAIL empty feedback: this string must not appear and did: Feedback:`.
+  이 변이가 `Feedback:`이라는 바늘이 실재한다는 것도 함께 보인다 — 이 게이트가
+  없었다면 그 문자열이 CLI 출력에 애초에 나타나지 않아 단언이 공허했을
+  가능성이 남는다.
+* **BITE-4** `controller_names`가 비지 않으면 `message` 끝에
+  ` (named controllers ignored)`를 덧붙인다. 골 단위 단언은 **전부 초록**이다
+  (`message`는 여전히 바늘을 포함하고, `val`도 `source`도 그대로다). 붉어진
+  것은 균일성 diff 하나뿐이다. 균일성 검사가 이웃 단언에 흡수되지 않는다는
+  것을 이 변이가 보인다 — 앞서 `message`를 통째로 갈아치우는 변이를 넣었을
+  때는 `FAIL loaded message`가 먼저 나서 균일성 검사는 아무것도 보이지
+  않았다.
+
+배수로 쪽 변이는 in-process다: `request.reject()` → `drop(request)`로
+바꾸면 `the_drain_answers_every_request_it_takes`가 `left: [] right: [0, 1, 2]`로
+혼자 실패하고, 형제인 finished/pending 두 테스트는 초록으로 남는다. 반환값은
+변이 전후로 같으므로, 그 테스트가 재는 것은 개수가 아니라 답했다는 사실이다.
+
+### §NEW.6 병합 담당자에게 — 이 라운드가 붉힌 두 게이트, 그리고 그 중 하나는 이 브랜치의 것이 아니다
+
+**`tools/ci/check-citation-drift.py`는 재동결이 필요하다.** 브리핑이
+`doc/citation-classes.txt`를 재동결하지 말라고 지시했으므로 수를 대신
+적는다. 전부 `ros/moveit-ros/src/bin/move_group.rs`의 행 이동이다 —
+등록 블록이 그 위에 들어가면서 기존 네 행이 +10줄 밀렸다.
+
+옛 행 번호는 백틱 인용 문법 **밖에** 산문으로 적는다. 백틱 안에 넣으면
+citation 체커들이 그것을 살아 있는 주장으로 읽는데, 옛 행 번호는 정의상
+그 트리에서 거짓이다 — 이 표를 처음 쓸 때 그렇게 적었고,
+`tools/ci/check-citation-drift.py`가 이 문서 자체를 undeclared 9건으로
+붉혔다. 아래 두 번째 항목이 같은 결함의 다른 사례다.
+
+| 새 키 (이 트리에서 재유도) | 옛 행 | `doc/client-endpoint-surface.md`에서의 클래스 |
+|---|---|---|
+| `ros/moveit-ros/src/bin/move_group.rs:617` | 607 | content-verified → content-verified |
+| `ros/moveit-ros/src/bin/move_group.rs:633` | 623 | content-verified → content-verified |
+| `ros/moveit-ros/src/bin/move_group.rs:656` | 646 | unanchored → unanchored |
+| `ros/moveit-ros/src/bin/move_group.rs:668` | 658 | content-verified → content-verified |
+| `ros/moveit-ros/src/bin/move_group.rs:687` | 없음 — 이 라운드가 연 행 | content-verified (새 행) |
+
+**강등 0건**, undeclared 10건, retired 4건. 넷은 짝이 그대로 유지되고
+다섯째는 이 라운드가 연 엔드포인트의 새 행이다. undeclared가 5가 아니라
+10인 것은 위 표 자체가 같은 다섯 키를 두 번째로 등장시키기 때문이다 —
+`doc/client-endpoint-surface.md`에서 5건, 이 문서에서 5건. 이 문서 쪽
+5건은 unanchored로 들어간다: 표의 행이 그 행의 코드를 인용하지 않기
+때문이며, 재동결할 때 그 클래스가 맞다.
+
+여기에 구조적 결합이 하나 보인다: 생성물인
+`doc/client-endpoint-surface.md`의 행이 citation-drift 코퍼스 안에 있으므로,
+`bin/move_group.rs`에 엔드포인트를 하나 더할 때마다 그 아래 모든 행이 밀려
+`doc/citation-classes.txt` 재동결을 강제한다. 다섯 패널이 동시에
+엔드포인트를 넣는 라운드에서는 그 재동결이 매번 append/append 충돌 지점이
+된다. 이 라운드는 지시대로 손대지 않았다.
+
+**`tools/ci/verify-upstream-citations.sh`는 이 브랜치 이전부터 붉다.**
+
+```
+FAIL PORTING-PLAN.md:3201: cites moveit_core/kinematics_base/src/kinematics_base.cpp:320, but that file has only 209 lines
+FAIL 1 out-of-bounds + 0 obsolete-header + 0 span-mismatch + 0 undeclared-unresolvable + 0 stale-declaration (of 2281 upstream citations resolved across 364 tracked .md/.rs files)
+```
+
+그 행은 이 브랜치의 것이 아니다 — `git show HEAD:PORTING-PLAN.md`의 같은
+행이 글자 그대로 같고, 이 라운드의 `PORTING-PLAN.md` diff는 훅 하나짜리
+순수 append다. 그리고 그 행이 하는 말 자체가 인용이 아니라 **인용의 정정**이다
+— kinematics_base.cpp의 320행을 가리키던 옛 인용이 틀렸다고 적은 문장인데,
+그 옛 행 번호가 백틱 인용 문법 안에 들어 있다 (여기서는 일부러 백틱 밖에
+적는다). 체커는 그것을 살아 있는 주장으로 읽고, 그 파일은 209행뿐이므로
+out-of-bounds가 된다. 고치는 것은 백틱을 벗겨 산문으로 옮기는 한 줄이지만,
+다른 라운드의 절이라 이 브랜치는 손대지 않았다.

@@ -29,6 +29,8 @@
 #     under the round-32 merge gate before this line existed)
 #   - A live `/plan_kinematic_path` round trip over DDS (`run "live"` below,
 #     PORTING-PLAN.md §241)
+#   - A live `/execute_trajectory` leg over DDS
+#     (ros/verify-execute-trajectory-interop.sh, called below)
 #   - Two live `/move_action` legs over DDS, one of them driven by upstream's
 #     own unmodified C++ `MoveGroupInterface` (ros/verify-move-action-interop.sh,
 #     called at the end of this script). PORTING-PLAN.md §250 measured that
@@ -395,6 +397,13 @@ SRDF
 '
 echo "OK scene-topic: /planning_scene reached the node over DDS, and /check_state_validity"
 echo "OK scene-topic: answered True/False/False/True across an empty world, a full scene, a diff, and a full scene"
+
+# `/execute_trajectory`, in its own file for the same reason the scene-topic
+# leg above takes its own domain id: it starts its own node and asserts on
+# replies matched by content. Called bare rather than captured, unlike the
+# `/move_action` legs below -- it has no skip outcome to report, so `set -e`
+# aborting on its exit status is the whole handling it needs.
+"$REPO_ROOT/ros/verify-execute-trajectory-interop.sh"
 
 # `/move_action`, in its own file: it orchestrates three containers and a
 # docker network, and it is the only check here that runs upstream's own C++

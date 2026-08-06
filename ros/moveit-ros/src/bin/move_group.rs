@@ -4,11 +4,12 @@
 //! The `moveit-ros` node: upstream's `move_group` capabilities that Phase 9's
 //! completion condition names, on one `r2r::Node`.
 //!
-//! Four endpoints are hosted here, matching upstream's own arrangement --
-//! `move_group` loads `MoveGroupPlanService`, `MoveGroupMoveAction` and
-//! `MoveGroupStateValidationService` as capabilities of a single node, not as
-//! separate processes, and that node's `PlanningSceneMonitor` opens the scene
-//! subscription those capabilities read through:
+//! Five endpoints are hosted here, matching upstream's own arrangement --
+//! `move_group` loads `MoveGroupPlanService`, `MoveGroupMoveAction`,
+//! `MoveGroupExecuteTrajectoryAction` and `MoveGroupStateValidationService`
+//! as capabilities of a single node, not as separate processes, and that
+//! node's `PlanningSceneMonitor` opens the scene subscription those
+//! capabilities read through:
 //!
 //! * `/plan_kinematic_path` (`moveit_msgs/srv/GetMotionPlan`), PORTING-PLAN.md
 //!   §241 -- upstream `move_group/src/default_capabilities/
@@ -20,6 +21,14 @@
 //!   anything at all unless this action server is up, and `:712` then sends
 //!   the goal here. That file mentions `GetMotionPlan`/`plan_kinematic_path`
 //!   nowhere, so the service above is unreachable from that client (§241.4).
+//! * `/execute_trajectory` (`moveit_msgs/action/ExecuteTrajectory`) --
+//!   upstream `execute_trajectory_action_capability.cpp`. Bound because
+//!   `MoveGroupInterface`'s constructor opens it
+//!   (`move_group_interface.cpp:191-193`) whether or not the client ever
+//!   executes anything, and its absence costs that constructor one silent
+//!   `wait_for_servers` timeout. Everything the server answers, and which of
+//!   the two possible servers it is, lives in
+//!   [`moveit_ros::execute_trajectory`].
 //! * `planning_scene` (`moveit_msgs/msg/PlanningScene`, subscription) --
 //!   upstream `PlanningSceneMonitor::startSceneMonitor`
 //!   (`planning_scene_monitor.cpp:1197`). See "The monitored scene" below.
@@ -161,6 +170,7 @@ use moveit_constraints::KinematicConstraintSet;
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planning::PlanningRequest;
 use moveit_ros::constraints::set::ConstraintsMsg;
+use moveit_ros::execute_trajectory;
 use moveit_ros::move_group::plan_only;
 use moveit_ros::planning::{PlanningRequestMsg, PlanningResponseMsgOut};
 use moveit_ros::scene::planning_scene::use_planning_scene_msg;
@@ -169,7 +179,7 @@ use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 use r2r::QosProfile;
-use r2r::moveit_msgs::action::MoveGroup;
+use r2r::moveit_msgs::action::{ExecuteTrajectory, MoveGroup};
 use r2r::moveit_msgs::msg::MoveItErrorCodes;
 use r2r::moveit_msgs::srv::{GetMotionPlan, GetStateValidity};
 
@@ -664,6 +674,24 @@ fn main() -> ExitCode {
         }
     };
 
+    // Upstream `move_group::EXECUTE_ACTION_NAME`
+    // (`moveit_ros/move_group/include/moveit/move_group/capability_names.hpp:45`),
+    // verbatim and unqualified for the reason `move_action` above is. The
+    // literal is written here rather than referenced from a constant in
+    // [`moveit_ros::execute_trajectory`] on purpose:
+    // `tools/ci/measure-client-endpoint-surface.py`'s `PORT_OPENER` matches a
+    // string literal inside the factory call, so a named constant would leave
+    // this endpoint reading `absent` in `doc/client-endpoint-surface.md` with
+    // the server running -- a wrong measurement, not a missing one.
+    let execute_trajectory =
+        match node.create_action_server::<ExecuteTrajectory::Action>("execute_trajectory") {
+            Ok(server) => server,
+            Err(e) => {
+                eprintln!("create_action_server(execute_trajectory): {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+
     // Leaked for the same reason `model` is: `spawn_local` requires
     // `'static`, and this outlives every future spawned on it.
     let srdf: &'static SrdfModel = Box::leak(Box::new(srdf));
@@ -777,6 +805,18 @@ fn main() -> ExitCode {
     });
     if let Err(e) = spawned {
         eprintln!("spawning planning_scene subscription task: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    // The whole registration: this capability owns its goals end to end in
+    // [`moveit_ros::execute_trajectory::serve`], so no goal handle, no result
+    // and no terminal transition is visible here. See that module for which of
+    // the two possible servers this is -- it is the no-execution-backend one,
+    // answering upstream's own `CONTROL_FAILED`, not a server reporting
+    // `SUCCESS` having executed nothing.
+    let spawned = spawner.spawn_local(execute_trajectory::serve(execute_trajectory));
+    if let Err(e) = spawned {
+        eprintln!("spawning execute_trajectory task: {e}");
         return ExitCode::FAILURE;
     }
 
