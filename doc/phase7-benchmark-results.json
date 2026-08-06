@@ -1,12 +1,19 @@
 {
-  "measured_at": "2026-08-05T21:44:39Z",
-  "commit": "c296c65638619b0ac3f46e8a43fb71a9d5623509",
-  "working_tree_dirty": false,
-  "dirty_paths": [],
+  "measured_at": "2026-08-05T23:16:24Z",
+  "commit": "a7d1b9a0fd2f35231188625ad9a482fb69577a21",
+  "working_tree_dirty": true,
+  "dirty_paths": [
+    " M Cargo.lock",
+    " M crates/moveit-planners-chomp/Cargo.toml",
+    " M crates/moveit-planners-stomp/Cargo.toml",
+    "?? crates/moveit-planners-chomp/examples/",
+    "?? crates/moveit-planners-stomp/examples/",
+    "?? tools/ci/measure-phase8-optimizer-properties.sh"
+  ],
   "measured_sources": {
-    "tools/ci/verify-phase7-benchmark.sh": "afece106462a512638c4585436f7a0a268f5df9e",
+    "tools/ci/verify-phase7-benchmark.sh": "caeec6d0419b628c2a5a146f4667182d16435329",
     "crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs": "75598af6307c86cc0b65329d6480c290726ea555",
-    "crates/moveit-planners-sbp/examples/plan_benchmark_port.rs": "4cf71ce3f1a442e1379c3ae18146598048846361"
+    "crates/moveit-planners-sbp/examples/plan_benchmark_port.rs": "d908a299fcafbe980c8af224d489c60f82087c7f"
   },
   "mode": "full",
   "gate": {
@@ -22,7 +29,8 @@
     "waypoints_checked": 168340,
     "raw_waypoints": 31497,
     "max_endpoint_gap": 0.0,
-    "slowest_seconds": 16.76332936,
+    "cpp_max_endpoint_gap": 0,
+    "slowest_seconds": 20.190780559,
     "cpp_median_length": 2.6642661353453647,
     "port_median_length": 2.6698401424773417,
     "cpp_median_length_pooled": 2.6597767032746464,
@@ -46,7 +54,8 @@
     "waypoints_checked": 52983,
     "raw_waypoints": 10285,
     "max_endpoint_gap": 0.0,
-    "slowest_seconds": 57.460035207,
+    "cpp_max_endpoint_gap": 0,
+    "slowest_seconds": 60.964824006,
     "cpp_median_length": 1.8682404083563018,
     "port_median_length": 1.8556940608849652,
     "cpp_median_length_pooled": 1.873377471827347,
@@ -69,6 +78,7 @@
       "cpp_solved": 250,
       "cpp_rate": 1,
       "cpp_median_length": 2.5748297180057014,
+      "cpp_max_endpoint_gap": 0,
       "port_problems": 250,
       "port_solved": 249,
       "port_timeouts": 0,
@@ -83,8 +93,8 @@
       "waypoints_checked": 85824,
       "raw_waypoints": 16036,
       "max_endpoint_gap": 0.0,
-      "cpu_seconds": 536.6100013989998,
-      "slowest_seconds": 14.788724937,
+      "cpu_seconds": 609.9081533769998,
+      "slowest_seconds": 17.476659137,
       "slowest_problem_id": 189
     },
     {
@@ -98,6 +108,7 @@
       "cpp_solved": 248,
       "cpp_rate": 0.992,
       "cpp_median_length": 2.7537025526850285,
+      "cpp_max_endpoint_gap": 0,
       "port_problems": 250,
       "port_solved": 248,
       "port_timeouts": 0,
@@ -112,8 +123,8 @@
       "waypoints_checked": 82516,
       "raw_waypoints": 15461,
       "max_endpoint_gap": 0.0,
-      "cpu_seconds": 492.41712762200024,
-      "slowest_seconds": 16.76332936,
+      "cpu_seconds": 557.7242635889997,
+      "slowest_seconds": 20.190780559,
       "slowest_problem_id": 129
     },
     {
@@ -127,6 +138,7 @@
       "cpp_solved": 206,
       "cpp_rate": 0.824,
       "cpp_median_length": 1.9142280419572528,
+      "cpp_max_endpoint_gap": 0,
       "port_problems": 250,
       "port_solved": 205,
       "port_timeouts": 0,
@@ -141,9 +153,9 @@
       "waypoints_checked": 27847,
       "raw_waypoints": 5387,
       "max_endpoint_gap": 0.0,
-      "cpu_seconds": 2292.6418422189986,
-      "slowest_seconds": 54.701512695,
-      "slowest_problem_id": 140
+      "cpu_seconds": 2499.2300334199977,
+      "slowest_seconds": 60.723639164,
+      "slowest_problem_id": 130
     },
     {
       "tag": "fanuc_cage",
@@ -156,6 +168,7 @@
       "cpp_solved": 200,
       "cpp_rate": 0.8,
       "cpp_median_length": 1.8222527747553507,
+      "cpp_max_endpoint_gap": 0,
       "port_problems": 250,
       "port_solved": 200,
       "port_timeouts": 0,
@@ -170,12 +183,12 @@
       "waypoints_checked": 25136,
       "raw_waypoints": 4898,
       "max_endpoint_gap": 0.0,
-      "cpu_seconds": 2608.624359366002,
-      "slowest_seconds": 57.460035207,
-      "slowest_problem_id": 117
+      "cpu_seconds": 2732.7373913239994,
+      "slowest_seconds": 60.964824006,
+      "slowest_problem_id": 99
     }
   ],
-  "parallel_wall_clock_seconds": 845.052215558,
+  "parallel_wall_clock_seconds": 865.528578632,
   "feasibility": [
     {
       "tag": "panda_floor_wall",
@@ -217,9 +230,9 @@
     "waypoints_checked": 67820,
     "raw_waypoints": 12733,
     "max_endpoint_gap": 0.0,
-    "cpu_seconds": 288.23775216499996,
-    "slowest_seconds": 10.1858349,
-    "slowest_problem_id": 101,
+    "cpu_seconds": 269.43031112399996,
+    "slowest_seconds": 9.010676154,
+    "slowest_problem_id": 190,
     "joint_constraint": "panda_joint1:0.0:0.5"
   },
   "regression_pins": {
@@ -265,8 +278,13 @@
       "ok": true
     },
     {
+      "name": "panda(gate)/cpp-endpoints",
+      "detail": "max gap of the C++ path from the requested start/goal: 0",
+      "ok": true
+    },
+    {
       "name": "panda(gate)/no-timeouts",
-      "detail": "0 timeouts, slowest call 16.763s of the 120s budget",
+      "detail": "0 timeouts, slowest call 20.191s of the 120s budget",
       "ok": true
     },
     {
@@ -325,8 +343,13 @@
       "ok": true
     },
     {
+      "name": "fanuc/cpp-endpoints",
+      "detail": "max gap of the C++ path from the requested start/goal: 0",
+      "ok": true
+    },
+    {
       "name": "fanuc/no-timeouts",
-      "detail": "0 timeouts, slowest call 57.46s of the 120s budget",
+      "detail": "0 timeouts, slowest call 60.965s of the 120s budget",
       "ok": true
     },
     {
@@ -431,6 +454,7 @@
     "panda(gate)/condition2-covers-every-solved-path": "PASS",
     "panda(gate)/condition2-densified": "PASS",
     "panda(gate)/endpoints": "PASS",
+    "panda(gate)/cpp-endpoints": "PASS",
     "panda(gate)/no-timeouts": "PASS",
     "panda(gate)/condition3-pooled": "PASS",
     "panda(gate)/condition3-paired": "PASS",
@@ -443,6 +467,7 @@
     "fanuc/condition2-covers-every-solved-path": "PASS",
     "fanuc/condition2-densified": "PASS",
     "fanuc/endpoints": "PASS",
+    "fanuc/cpp-endpoints": "PASS",
     "fanuc/no-timeouts": "PASS",
     "fanuc/condition3-pooled": "PASS",
     "fanuc/condition3-paired": "PASS",
