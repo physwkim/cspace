@@ -2246,6 +2246,10 @@ struct PairProbeRow {
     /// when both are present — the port picked its own pair *because* it was
     /// the smaller — so the question is only its magnitude.
     candidate_gap: Option<f64>,
+    /// The full-space joint values this state is, for the same reason
+    /// [`DistanceBranchOutlier::joint_values`] carries them: a `case` index
+    /// alone cannot be re-entered without regenerating the oracle's pool.
+    joint_values: BTreeMap<String, f64>,
 }
 
 /// Accumulates [`PairProbeRow`]s, owning the scratch ACM the probe flips.
@@ -2350,6 +2354,7 @@ impl PairProbe {
             rust_distance: outcome.rust_distance,
             rust_distance_at_oracle_pair: at_oracle_pair,
             candidate_gap: at_oracle_pair.map(|value| value - outcome.rust_distance),
+            joint_values: joint_values.clone(),
         });
     }
 }
@@ -2660,6 +2665,7 @@ fn compare_collision(
             rust,
             oracle_pair: format_distance_pair(oracle_pair),
             rust_pair: format_distance_pair(rust_pair),
+            joint_values: joint_values.clone(),
         };
         // `> 0` and not `>= 0` because `:636` tests `distance <= 0`: a
         // published exact zero comes out of the penetration branch upstream,
@@ -2789,6 +2795,15 @@ struct DistanceBranchOutlier {
     rust: f64,
     oracle_pair: String,
     rust_pair: String,
+    /// The full-space joint values this state is, so the row can be
+    /// re-entered on its own -- exactly like [`IkDivergentCase::joint_values`].
+    ///
+    /// A `case` index alone names a position in a pool that only the oracle
+    /// can regenerate, so "go look at case 8148" meant re-running the whole
+    /// sweep under docker and then having no way to get the pose out of it.
+    /// Carrying the state makes every claim the tail supports checkable
+    /// without the sweep.
+    joint_values: BTreeMap<String, f64>,
 }
 
 impl DistanceBranchStats {
