@@ -33781,3 +33781,205 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 - **커밋된 전수 계측기.** §302.3과 §302.4의 표는 이 라운드의 일회용 프로브가
   낸 것이고, 게이트가 쥔 것은 31행 축소판이다. 389이라는 수 자체를 게이트가
   다시 세지는 않는다.
+
+## §307 비교 연산자 509건이 `scan()`의 `if not kinds: continue`에 조용히 사라졌다 — task #43의 절반은 이미 처리돼 있었고, 남은 절반을 재고 손으로 쪼갰다 (2026-08-07)
+
+### §307.1 task #43 전제 정정 — `assert_ne!`는 이미 `MACROS`에 있다
+
+task #43은 "`>` 비교와 `assert_ne!`로 코퍼스를 넓히라"고 적혀 있었다.
+`assert_ne!` 쪽은 이미 거짓이다: `tools/ci/count-coarse-assertions.py:111`의
+`MACROS`는 `("assert", "assert_eq", "assert_ne", "debug_assert",
+"debug_assert_eq")`이고, `assert_ne!(x, None)` / `assert_ne!(x, Err(..))`는
+`classify()`가 이미 `eq_none`/`eq_err`로 잡는다. 다시 하지 않는다. 비교 연산자
+쪽만 실제 공백이었다.
+
+### §307.2 공백 — `scan()`의 드롭 분기가 세지 않은 것
+
+`tools/ci/count-coarse-assertions.py:391`(당시 292)의
+
+    kinds = classify(m.group(1), body)
+    if not kinds:
+        continue
+
+는 `classify()`가 어떤 kind도 못 주는 호출을 코퍼스에서 통째로 지운다 —
+세지도, 보고하지도, 남기지도 않는다. `classify()`에는 비교 연산자 kind가
+전혀 없었다.
+
+**Totals:** Sum: 1098 + 3610 = 4708 (이번 라운드 이후, 직접 매크로 호출 기준).
+
+이 절이 커밋된 `tools/ci/count-coarse-assertions.py` 자체로 재현한 수치다
+(`git merge main --ff-only`로 main 최신 `1cada05d`까지 두 번 따라잡은 뒤,
+`CCA_LEGACY_KINDS_ONLY=1`로 이번 라운드 이전 동작을 재현):
+
+| 계기 | 직접 매크로 호출 | classify() 유지(kept) | 드롭됨 |
+|---|---|---|---|
+| 이번 라운드 이전 (`CCA_LEGACY_KINDS_ONLY=1`) | 4708 | 800 | 3908 |
+| 이번 라운드 이후 (기본) | 4708 | 1098 | 3610 |
+
+브리프가 `48ab9f8b`에서 잰 4708 / 800 / 3908은 이 트리에서 정확히 재현된다
+— 이 라운드가 main을 두 번 더 따라잡는 동안 낀 22개 커밋(STOMP 시드베이스
+증거 등)은 이 매크로 집합 자체를 건드리지 않았다는 뜻이다.
+
+드롭된 3908 중 비교 연산자를 argument 1에 가진 것은 이전에도 지금도 509건이
+아니라, 이번 라운드가 `half_plane`/`cmp_compound`로 흡수한 298건(262+36)과
+아래 §307.5의 잔여로 나뉜다 — 브리프의 509(195/267/47)는 그쪽이 그은 3분할의
+합이고, 이 절은 그 분할을 그대로 들고 오지 않았다(§307.3).
+
+### §307.3 kind을 넓힌 방식 — `abs_tol`은 왜 kind가 아닌가, `cmp_compound`는 왜 쪼개지 않는가
+
+`classify()`에 `top_level_comparisons(args[0])`을 추가했다(`count-coarse-
+assertions.py:335-344`). argument 1의 최상위(괄호 깊이 0) 비교 연산자를
+턴트리시/`<<`/`>>`/`->`를 제외하고 세어, 정확히 하나면 `half_plane`, 둘
+이상이면 `cmp_compound`다.
+
+`.abs() <`/`.abs() <=` 하나짜리는 **어느 kind에도 넣지 않는다.** 그 모양은
+근사 **동등성**이다 — `(actual[i] - expected[i]).abs() < 1e-12`는 부동소수점의
+가장 정밀한 형태이고, 이걸 coarse로 채점하면 계기의 의미가 뒤집힌다. 브리프의
+논거를 그대로 받는다: `.abs() <`는 **토큰 패턴**이지, `.contains()`가 갈라놓지
+않은 이유인 **타입 사실**이 아니다 — 그래서 여기서는 가르고 거기서는 안 가른다.
+
+`cmp_compound`는 하나의 kind로 남긴다. 이유는 §307.4에서 손으로 읽은 36건
+자체가 증거다: `parry.rs:4537`의 `.abs() > 0.1`은 `.abs()`가 있어도
+half_plane이고(초과 판정), `parry.rs:5085`의 `gap > 0.0 && gap < 1e-15`는
+`.abs()` 없이도 정밀 톨러런스다. 가르는 기준은 바깥 피연산자가 이미
+`.norm()`/`.angle_to()`로 음이 아닌 값인지, 상수의 폭이 부동소수점 잡음인지
+실제 정의역인지 — 둘 다 정규식이 볼 수 없는 데이터플로/의미 사실이다.
+`.contains()`가 이미 진 싸움과 같은 모양이라 같은 결론을 낸다.
+
+### §307.4 `cmp_compound` 36건 손 분류 — 브리프의 47건도, 3분할도 들고 오지 않았다
+
+브리프는 "47건을 손으로 한 줄씩 읽고, 찾은 것이 규칙을 정하게 하라. 내가
+발표했다고 3분할을 그대로 들고 오지 마라"고 지시했다. 이 트리에서 실측한
+`cmp_compound`는 36건이다(브리프의 47이 아니다 — 코퍼스가 자랐고 분할 규칙이
+다르므로 다른 수가 나오는 것이 맞다). 소스를 읽고 하나씩 판정했다:
+
+| 파일:줄 | 모양(요약) | 판정 | 근거 |
+|---|---|---|---|
+| `parry.rs:4462` | 4개 OR, AABB 포함 위반 | coarse | 무경계 반평면 4개 OR |
+| `parry.rs:4537` | `.abs() >` OR (브리프 예시) | coarse | "초과 판정", `.abs()`가 있어도 half_plane |
+| `parry.rs:5085` | `gap>0.0 && gap<1e-15` (브리프 예시) | precise | `.abs()` 없는 양측 밴드, 폭이 수치 잡음 |
+| `collision_parity.rs:958` | `.abs()<` AND `.abs()<` | precise | 두 abs 톨러런스 AND |
+| `collision_parity.rs:1414` | `.abs()<` AND `.abs()<` | precise | 위와 동일 모양 |
+| `collision_parity.rs:2388` | `.abs()+reach<BOUND` ×2 AND `축>TOP_Z` | coarse | FLOOR_HALF_EXTENT/TOP_Z는 씬의 실제 공간 경계, 잡음 아님 |
+| `collision_parity.rs:3419` | `signed_low<=upper && lower<=signed_high` | coarse | 서로 독립된 두 증명 구간의 겹침 검사, 톨러런스 아님 |
+| `collision_parity.rs:3609` | `.abs()<=1e-12` AND `.abs()<=1e-12` | precise | 두 abs 톨러런스 AND, 폭 1e-12 |
+| `collision_parity.rs:3649` | `oracle>upper OR oracle<lower` | coarse | 오라클이 구간 밖임을 확인하는 OR 반평면 |
+| `penetration_depth_scale_invariance.rs:299` | `translation<1e-12 && rotation<1e-12` | precise | `.norm()`/`.angle()`로 이미 음이 아닌 두 피연산자, AND |
+| `voxel_grid.rs:536` | `x>0 && y>0 && z>0` | coarse | 서로 다른 세 변수의 독립 양수 검사 |
+| `octree_collision.rs:179` | `mins.x<=0.0 && maxs.x>=5.1` | coarse | 고정 씬 경계에 대한 AABB 포함 |
+| `mesh_parity.rs:143` (§307.4.1) | `.abs()<` ×3 AND | precise | 세 축 각각 정점 오차 톨러런스 |
+| `probe_parity.rs:509,520,572` | `hit[0].c < origin.c && origin.c < hit[1].c` | coarse | 서로 다른 히트점 사이의 순서 구조 검사 |
+| `cart_to_jnt.rs:784` | `value>-PI && value<=PI` | coarse | 각도의 전체 정의역 |
+| `crates/moveit-kinematics/tests/cartesian_interpolator.rs:223,711` | `errors()`가 준 `translation<TOL && rotation<TOL` | precise | `errors()`가 `.norm()`/`.angle_to()`로 이미 음이 아님 |
+| `ik_fk_roundtrip.rs:118` | `value>=min-1e-9 && value<=max+1e-9` | coarse | 관절의 실제 최소/최대 범위, ±패딩만 작음 |
+| `crates/moveit-kinematics/tests/set_from_ik.rs` 11건(316,349,452,518,524,557,592,649,682,1157,1259) | `translation_error(...)<=TOL && rotation_error(...)<=TOL` | precise | `translation_error`/`rotation_error`가 `.norm()`/`.angle_to()`로 이미 음이 아님(정의: `crates/moveit-kinematics/tests/set_from_ik.rs:183-185`(`translation_error`), `crates/moveit-kinematics/tests/set_from_ik.rs:187-189`(`rotation_error`)) |
+| `pilz_trajectory_polyline_parity.rs:492` | `near<MIN_SEG && would_be<MIN_SEG` | precise | 둘 다 벡터 차의 `.norm()`, abs_tol과 같은 모양을 벡터로 확장한 것 |
+| `attached_frames_reach_ik.rs:197` | `translation_error(...)<=TOL && rotation_error(...)<=TOL` | precise | 같은 헬퍼 모양(정의: `attached_frames_reach_ik.rs:174-176`(`translation_error`), `attached_frames_reach_ik.rs:178-180`(`rotation_error`)) |
+| `path.rs:349` | `pos>0.0 && pos<path.length()` | coarse | path의 실제 길이 정의역 |
+| `time_optimal_trajectory_generation.rs:1105` | `subnormal>0.0 && subnormal<f64::MIN_POSITIVE` | precise | 최소 서브노멀 경계의 타이트 밴드 |
+| `cartesian_path.rs:857` | `fraction>0.0 && fraction<1.0` | coarse | 개구간 전체를 허용하는 정의역 검사(부분 성공 여부) |
+
+**Totals:** Sum: 14 + 22 = 36 (14 coarse, 22 precise).
+
+#### §307.4.1 `mesh_parity.rs:143`은 스윕이 사이트로 세는 위치가 아니다
+
+`assert_vertex_close` 헬퍼 자신의 본문(`scope=helper_body`)이고, 판정은 그
+헬퍼의 호출부(`via:assert_vertex_close`, 예: `mesh_parity.rs:179` 등)로
+넘어간다. `classify()` 수준에서는 여전히 하나의 `cmp_compound` 발생이므로
+표에 남기되, §307.5의 "제외 대상(excl. helper_body)" 집계에서는 이 줄이
+빠지고 그 호출부들이 `via` 집계로 들어간다.
+
+규칙: 어느 사이트도 `.abs() <`/`.abs() <=` 정확히 하나의 토큰 패턴을 벗어나는
+추가 규칙을 요구하지 않았다 — coarse/precise를 가른 것은 전부 (a) 바깥
+피연산자가 `.norm()`/`.angle_to()`/`.angle()`로 이미 음이 아닌지, (b) 밴드
+폭이 수치 잡음(`1e-9`~`1e-15`)인지 실제 정의역(관절 범위, 씬 경계, path
+길이, 단위 구간)인지, (c) OR 절이 반평면 위반 검사인지, (d) 두 절이 서로
+독립된 값의 구간-겹침 검사인지 — 이 넷은 전부 데이터플로/의미 사실이지
+토큰이 아니다. `cmp_compound`를 하나의 kind로 남긴 §307.3의 판단이 이
+36건에서 뒤집히지 않는다.
+
+### §307.5 newly-visible / newly-broken 분리 — `check-citation-drift.py`의 둘째 모집단과 같은 장치
+
+`tools/ci/reconcile-assertion-ledgers.py --verify`는 원래 라이브 불변식을
+먼저 본다: 고아(orphan) 0건, 미해결 인용 0건. 이 트리에 이번 라운드 코드를
+그대로 얹고 돌리면 즉시 깨진다 — `half_plane`/`cmp_compound`가 새로 만든
+사이트 어느 것도 어떤 로저(ledger)도 인용한 적이 없으므로 전부 고아다.
+
+이 게이트 자신의 독스트링이 명시적으로 경고한다: "스냅샷 diff만으로는 드리프트만
+잡지 공백은 못 잡는다 — 새 고아는 `--write-orphans`로 기대 집합에 흡수시키는
+한 줄 변경으로 세탁된다"(`reconcile-assertion-ledgers.py:52-59`). 이건 이
+라운드가 피하라고 한 바로 그 실패다 — "509건을 그대로 흡수해 하나의 통과
+카운트로 만드는 재동결"과 동형이고, 규모만 320건으로 크다. 그래서 orphans.txt
+스냅샷을 그대로 다시 굽는 건 처방이 아니다.
+
+대신 `check-citation-drift.py`가 자신의 둘째 모집단(`.md`가 아닌 in-repo
+인용)에 쓴 것과 같은 장치를 이식했다 — `IN_REPO_BASELINE` +
+`IN_REPO_HARD_FAIL=False`(`check-citation-drift.py:1136,1203`). 첫 모집단
+(`CLASS_BASELINE`)의 불변식은 손대지 않고, 둘째 모집단은 별도 파일에 선언하고
+드리프트만 검사하되 백로그 크기 자체로는 실패시키지 않는다.
+
+`reconcile-assertion-ledgers.py`에 이식한 것:
+
+- **분리 방법은 kind 문자열 필터가 아니라 diff.** `count-coarse-
+  assertions.py`에 `CCA_LEGACY_KINDS_ONLY` 환경변수를 추가해 이번 라운드
+  이전 동작(half_plane/cmp_compound 미분류)을 재현하게 했다. 처음에는
+  `kind`에 `"half_plane"`/`"cmp_compound"`가 들어있는지로 나누려 했으나,
+  헬퍼 함수 자신의 내부 assert가 이번 라운드에서 처음 classify()될 때
+  그 헬퍼가 `helpers` 딕셔너리에 처음 등록되고, 그 호출부 37건이
+  `via:<fn>`로 — kind 문자열에 `half_plane`/`cmp_compound`가 전혀 없는
+  채로 — 함께 새로 드러났다(예: `octomap/src/tree.rs`의 `node_size`,
+  `velocity_profile.rs`의 `set_profile_all_durations`). kind 문자열
+  필터는 이 연쇄를 볼 수 없다 — `run_scanner(legacy=True)`로 실제
+  이전 동작을 다시 돌려 diff하는 쪽이 구조적으로 맞다
+  (`reconcile-assertion-ledgers.py:reconcile()`).
+- **`COMPARISON_BASELINE`** = `doc/assertion-discrimination-orphans-
+  comparison.txt`, `--write-comparison-baseline`로 생성.
+- **`COMPARISON_HARD_FAIL = False`** — 백로그가 트리아지되면 뒤집는다.
+
+**Totals:** Sum: 248 + 37 + 35 = 320 (248 half_plane, 37 via, 35 cmp_compound).
+
+| 모집단 | 제외 대상 사이트 수 | 매치됨 | 고아 | `--verify` 처분 |
+|---|---|---|---|---|
+| 첫째 (이번 라운드 이전부터 있던 kind 전체) | 841 | 841 | 0 | 그대로 하드 불변식 — 그대로 0이어야 실패하지 않는다 |
+| 둘째 (half_plane/cmp_compound + 연쇄 via) | 320 | 0 | 320 | `COMPARISON_BASELINE`에 선언, 드리프트만 검사, 크기 자체는 비실패 |
+
+320건 전부가 newly-visible이다 — 이번 라운드 전에는 어떤 kind로도 나온 적이
+없으므로 어떤 로저도 인용할 기회가 없었다. newly-broken은 0건이다 — 첫째
+모집단의 841/841/0은 이번 변경으로 손상되지 않았다(같은 수치로 재현됨).
+
+`python3 tools/ci/reconcile-assertion-ledgers.py --verify` — exit 0. 첫째
+모집단 0/0, 둘째 모집단 320/320(백로그, 논-페일).
+
+### §307.6 이 절이 재지 않은 것 — 폭이 넓어져도 남는 수
+
+`count-coarse-assertions.py`의 `scan()`이 드롭 사유를 리포트하는 두 갈래
+(§307.2의 `residue`)로 최종 수치를 낸다:
+
+    dropped = 3610 = 195 (abs_tol) + 3415 (other)
+
+**3415건은 이번 라운드가 넓힌 뒤에도 여전히 어떤 kind도 못 받는다** —
+argument 1에 `matches!`/`.is_err()`/`.is_none()`/`.is_some()`/
+`.is_empty()`/`.contains()`도, `assert_eq!(x, None)`/`assert_eq!(x, Err(..))`
+꼴의 피연산자도, 최상위 비교 연산자도 전혀 없는 모든 `assert!`류 호출이다.
+"일부"가 아니라 3415라는 수로 보고된다 — `count-coarse-assertions.py:461-467`의
+stderr 요약이 매 실행마다 이 수를 출력하므로, 다음에 코퍼스가 또 넓혀지지
+않는 한 조용히 사라질 수 없다.
+
+닫는 것:
+
+- **task #43의 `assert_ne!` 절반.** 이미 처리돼 있었다(§307.1).
+- **task #43의 비교 연산자 절반.** `half_plane`/`cmp_compound` 298건(+연쇄
+  via 37건)을 분류에 편입했다.
+- **§43의 "509건이 사라진다"는 관찰.** 사라지지 않는다 — 293건(정확히는
+  335건, helper_body 제외 시 320건)이 매 실행마다 보고되는 kind를 얻었고,
+  나머지는 `residue`로 리포트된다.
+
+재지 않은 것:
+
+- **3415건의 "other" 잔여.** 이 절은 이들을 세었을 뿐 하나도 읽지 않았다.
+  그 안에 또 다른 coarse 모양이 있는지는 다음 라운드의 물음이다.
+- **둘째 모집단 320건을 로저로 흡수하는 일.** `COMPARISON_BASELINE`은
+  드리프트만 잠근다 — 320건 각각을 census §9의 in-family/subject 판정으로
+  로저 행에 적어 넣는 일은 이 절이 하지 않았다.
+- **연쇄 via 37건의 완전한 목록화.** §307.5에서 존재와 개수(37)만 확인했고,
+  그 37건이 이미 로저에 있는 다른 사이트와 어떤 관계인지는 손대지 않았다.
