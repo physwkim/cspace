@@ -1493,7 +1493,7 @@ All 8 pass the three clauses. Clause 1: the inspected value is a
 absence signal for "no adapter ever observed the scene"
 (`pipeline.rs:1191`) — none is an informative success-path value. Clause
 2: each is produced by a written guard or `?`-propagation —
-`start_state.rs:140`, `:225`, `:231`, `:240`, `:184`, `:192` and
+`start_state.rs:143`, `:228`, `:234`, `:243`, `:187`, `:195` and
 `pipeline.rs:441` — every one of which an engineer could have written
 backwards. Clause 3: each decision belongs to the function the test's own
 name calls its subject (`StartState::new`, `StartStateOverride::new`,
@@ -1501,48 +1501,48 @@ name calls its subject (`StartState::new`, `StartStateOverride::new`,
 
 ### The subject's guards, enumerated before mutating them
 
-`StartState::new` (`crates/moveit-planning/src/start_state.rs:134-154`)
-has one guard reachable only under `names.is_empty()` (`:135`):
-`!positions.is_empty() || !velocities.is_empty()` (`:140`) — one
+`StartState::new` (`crates/moveit-planning/src/start_state.rs:137-157`)
+has one guard reachable only under `names.is_empty()` (`:138`):
+`!positions.is_empty() || !velocities.is_empty()` (`:143`) — one
 construction site folding **two** named operands, so two branches per
 `doc/folded-operand-guards.md`, mutated per operand below.
-`StartStateOverride::new` (`:224-255`) has three: `names.is_empty()`
-(`:225`), `positions.len() != names.len()` (`:231`), and
-`!velocities.is_empty() && velocities.len() != names.len()` (`:240`,
+`StartStateOverride::new` (`:227-258`) has three: `names.is_empty()`
+(`:228`), `positions.len() != names.len()` (`:234`), and
+`!velocities.is_empty() && velocities.len() != names.len()` (`:243`,
 again two operands, again mutated separately).
-`StartState::apply_to` (`:170-195`) has two `?` sites: the position write
-wrapped with index, value and name (`:180-184`) and the velocity write
-propagated bare (`:192`).
+`StartState::apply_to` (`:173-198`) has two `?` sites: the position write
+wrapped with index, value and name (`:183-187`) and the velocity write
+propagated bare (`:195`).
 
 Both writes fail for exactly one cause each — `RobotState::set_variable_position`
 (`crates/moveit-state/src/state.rs:557-564`) and `set_variable_velocity`
 (`crates/moveit-state/src/state.rs:401-406`) each resolve the name through
 `variable_index(name)?` and have no other fallible step. Since the position
-write resolves the same name first and returns on failure, `:192` is
+write resolves the same name first and returns on failure, `:195` is
 unreachable for the unknown-name cause — which is what the in-source
-comment at `:188-191` claims, confirmed here by reading both callees
+comment at `:191-194` claims, confirmed here by reading both callees
 rather than taking the comment's word.
 
 ### Per-site verdicts — `crates/moveit-planning/src/start_state.rs`
 
 | file:line | enclosing test (verified by content) | verdict | evidence |
 |---|---|---|---|
-| `crates/moveit-planning/src/start_state.rs:319` | `an_empty_override_is_unconstructible_through_the_override_constructor_too` | discriminating | **bite**: `names.is_empty()` (`:225`) → `false`. Exactly this test failed (`57 tests run: 56 passed, 1 failed`); the other five sites below stayed green, including `:327`/`:338`, whose guard shares the phrase this test needles. Neutralizing `:225` cannot be masked by the other two override guards — for `(vec![], vec![], vec![])`, `positions.len() == names.len() == 0` and `velocities` is empty, so both `:231` and `:240` are false and the call returns `Ok`. |
-| `crates/moveit-planning/src/start_state.rs:327` | `positions_without_names_is_rejected_not_read_as_current_state` | discriminating | **bite, per operand**: `!positions.is_empty()` (left operand of `:140`) → `false`. Exactly this test failed; `:338`'s stayed green. The needle also names the counts (`"…but carries 1 position(s) and 0 velocity(ies)"`), so the message itself says which operand fired. |
-| `crates/moveit-planning/src/start_state.rs:338` | `velocities_without_names_is_rejected_not_read_as_current_state` | discriminating | **bite, the mirror**: `!velocities.is_empty()` (right operand of `:140`) → `false`. Exactly this test failed; `:327`'s stayed green. Both operands of the one construction site are therefore covered, which a single whole-condition mutation would not have shown. |
-| `crates/moveit-planning/src/start_state.rs:349` | `a_name_without_a_position_is_rejected_not_read_as_a_velocity_only_overlay` | discriminating | **bite**: `positions.len() != names.len()` (`:231`) → `false`. Exactly this test failed. Note what the mutation exposes downstream — with `:231` neutralized, `apply_to`'s `over.positions()[index]` (`:179`) indexes past the end, so this guard is the only thing standing between a short `position` array and a panic. |
-| `crates/moveit-planning/src/start_state.rs:357` | `a_short_velocity_array_is_rejected_rather_than_read_past_its_end` | discriminating | **bite, per operand**: `velocities.len() != names.len()` (right operand of `:240`) → `false`. Exactly this test failed. The left operand (`!velocities.is_empty()`, the "no velocities at all is legal" escape) is covered too, by its own mutation → `true`: 5 tests failed (`a_start_state_naming_an_unknown_variable_fails_before_any_adapter_or_planner_runs`, `the_requested_start_state_reaches_the_scene_before_the_request_adapters_run`, `an_overlay_pairs_each_value_with_its_own_name`, `an_overlay_writes_the_named_variables_and_leaves_the_rest_at_the_current_state`, `an_overlay_naming_a_variable_the_model_lacks_is_rejected_at_apply_time`), so neither operand is blind. |
-| `crates/moveit-planning/src/start_state.rs:466` | `an_overlay_naming_a_variable_the_model_lacks_is_rejected_at_apply_time` | discriminating | **two bites, both isolating.** (a) Drop the wrap at `:180-184` (`state.set_variable_position(name, position)?`): exactly this test failed — and `crates/moveit-planning/src/pipeline.rs:1184`, which needles only `"no_such_joint"`, stayed green, so the two sites are provably not testing the same thing. (b) Pair every name with `over.positions()[0]` (`:179`): this test failed on the value component (`position 0.2` no longer appears), alongside `an_overlay_pairs_each_value_with_its_own_name`. The needle's index and value are therefore both live, which is what the test's own comment claims they are for. |
+| `crates/moveit-planning/src/start_state.rs:322` | `an_empty_override_is_unconstructible_through_the_override_constructor_too` | discriminating | **bite**: `names.is_empty()` (`:228`) → `false`. Exactly this test failed (`57 tests run: 56 passed, 1 failed`); the other five sites below stayed green, including `:330`/`:341`, whose guard shares the phrase this test needles. Neutralizing `:228` cannot be masked by the other two override guards — for `(vec![], vec![], vec![])`, `positions.len() == names.len() == 0` and `velocities` is empty, so both `:234` and `:243` are false and the call returns `Ok`. |
+| `crates/moveit-planning/src/start_state.rs:330` | `positions_without_names_is_rejected_not_read_as_current_state` | discriminating | **bite, per operand**: `!positions.is_empty()` (left operand of `:143`) → `false`. Exactly this test failed; `:341`'s stayed green. The needle also names the counts (`"…but carries 1 position(s) and 0 velocity(ies)"`), so the message itself says which operand fired. |
+| `crates/moveit-planning/src/start_state.rs:341` | `velocities_without_names_is_rejected_not_read_as_current_state` | discriminating | **bite, the mirror**: `!velocities.is_empty()` (right operand of `:143`) → `false`. Exactly this test failed; `:330`'s stayed green. Both operands of the one construction site are therefore covered, which a single whole-condition mutation would not have shown. |
+| `crates/moveit-planning/src/start_state.rs:352` | `a_name_without_a_position_is_rejected_not_read_as_a_velocity_only_overlay` | discriminating | **bite**: `positions.len() != names.len()` (`:234`) → `false`. Exactly this test failed. Note what the mutation exposes downstream — with `:234` neutralized, `apply_to`'s `over.positions()[index]` (`:182`) indexes past the end, so this guard is the only thing standing between a short `position` array and a panic. |
+| `crates/moveit-planning/src/start_state.rs:360` | `a_short_velocity_array_is_rejected_rather_than_read_past_its_end` | discriminating | **bite, per operand**: `velocities.len() != names.len()` (right operand of `:243`) → `false`. Exactly this test failed. The left operand (`!velocities.is_empty()`, the "no velocities at all is legal" escape) is covered too, by its own mutation → `true`: 5 tests failed (`a_start_state_naming_an_unknown_variable_fails_before_any_adapter_or_planner_runs`, `the_requested_start_state_reaches_the_scene_before_the_request_adapters_run`, `an_overlay_pairs_each_value_with_its_own_name`, `an_overlay_writes_the_named_variables_and_leaves_the_rest_at_the_current_state`, `an_overlay_naming_a_variable_the_model_lacks_is_rejected_at_apply_time`), so neither operand is blind. |
+| `crates/moveit-planning/src/start_state.rs:469` | `an_overlay_naming_a_variable_the_model_lacks_is_rejected_at_apply_time` | discriminating | **two bites, both isolating.** (a) Drop the wrap at `:183-187` (`state.set_variable_position(name, position)?`): exactly this test failed — and `crates/moveit-planning/src/pipeline.rs:1184`, which needles only `"no_such_joint"`, stayed green, so the two sites are provably not testing the same thing. (b) Pair every name with `over.positions()[0]` (`:182`): this test failed on the value component (`position 0.2` no longer appears), alongside `an_overlay_pairs_each_value_with_its_own_name`. The needle's index and value are therefore both live, which is what the test's own comment claims they are for. |
 
 **Fragility flagged, not fixed** (same treatment as round 11's three
-fragile-but-currently-unique needles): `:319`'s needle `"names no
-variable"` is a substring of *two* messages — `:225`'s
-(`"start_state.joint_state override names no variable; …"`) and `:140`'s
+fragile-but-currently-unique needles): `:322`'s needle `"names no
+variable"` is a substring of *two* messages — `:228`'s
+(`"start_state.joint_state override names no variable; …"`) and `:143`'s
 (`"start_state.joint_state names no variable but carries …"`). It
-discriminates today only because `:140` lives in `StartState::new` and
-this test calls `StartStateOverride::new` directly, so `:140` is
+discriminates today only because `:143` lives in `StartState::new` and
+this test calls `StartStateOverride::new` directly, so `:143` is
 unreachable from it — confirmed by the bites above (mutating either
-operand of `:140` left this test green). A future refactor that routed
+operand of `:143` left this test green). A future refactor that routed
 the empty case through `StartStateOverride::new` would silently make the
 needle ambiguous with no test failing. Widening the needle to
 `"override names no variable"` would close it; not done here, since it is
@@ -1630,7 +1630,7 @@ commit, not declared.
 - `python3 tools/ci/reconcile-assertion-ledgers.py --emit-orphans` — 8 of the 47 orphans in this ledger's fence, enumerated by path
 - Content-verification of all 8 citations before writing them: a brace-depth walk printing each cited line's innermost enclosing `fn` — all 8 resolve to the test each row names
 - Read `set_variable_position` (`crates/moveit-state/src/state.rs:557-564`), `set_variable_velocity` (`crates/moveit-state/src/state.rs:401-406`) and `run_request_adapters` (`crates/moveit-planning/src/lib.rs:437-447`) rather than trusting the comments that describe them
-- 11 isolating mutations, each alone, each followed by `cargo nextest run -p moveit-planning --no-fail-fast` and an immediate revert from a pre-round copy: `start_state.rs:140` left operand, `:140` right operand, `:225`, `:231`, `:240` whole condition, `:240` left operand, `:240` right operand, `:180-184` wrap, `:179` index, plus `pipeline.rs:441` map_err and the `pipeline.rs:438-443` reorder
+- 11 isolating mutations, each alone, each followed by `cargo nextest run -p moveit-planning --no-fail-fast` and an immediate revert from a pre-round copy: `start_state.rs:143` left operand, `:143` right operand, `:228`, `:234`, `:243` whole condition, `:243` left operand, `:243` right operand, `:183-187` wrap, `:182` index, plus `pipeline.rs:441` map_err and the `pipeline.rs:438-443` reorder
 - `cargo nextest run -p moveit-planning --no-fail-fast` — baseline and post-revert both `57 tests run: 57 passed, 0 skipped`; `git status --short` and `git diff --stat` empty after the last revert
 
 Gate scope: `-p moveit-planning`. Doc-only round — every mutation was
