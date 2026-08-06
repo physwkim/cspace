@@ -99,9 +99,16 @@ for robot in "${ROBOTS[@]}"; do
   grep -E '^cases:|^passed:|^failed:' "$OUT" || true
 
   if [[ $status -ne 0 ]]; then
-    echo "--- first 20 disagreements ---" >&2
-    grep '^FAIL' "$OUT" | head -20 >&2 || true
-    echo "$robot disagreed with the oracle (exit $status)" >&2
+    verdict="$(run_verdict "$status" "$OUT" '^failed:')"
+    if [[ $verdict == disagreed ]]; then
+      echo "--- first 20 disagreements ---" >&2
+      grep '^FAIL' "$OUT" | head -20 >&2 || true
+      echo "$robot disagreed with the oracle (exit $status)" >&2
+    else
+      echo "--- last 20 lines of the run ---" >&2
+      tail -20 "$OUT" >&2 || true
+      echo "$robot did not finish: $verdict -- this is not a disagreement" >&2
+    fi
     exit "$status"
   fi
 

@@ -211,11 +211,50 @@ pub(crate) mod tests {
   </joint>
 </robot>"#;
 
+    /// [`ONE_JOINT_URDF`] plus a second revolute joint, for the conversions
+    /// whose defect is a *pairing* between two parallel wire arrays: with one
+    /// joint, a name/value zip that reverses either array is the identity and
+    /// no assertion can see it.
+    const TWO_JOINT_URDF: &str = r#"<?xml version="1.0"?>
+<robot name="two_joint">
+  <link name="base_link"/>
+  <link name="mid"/>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="base_link"/>
+    <child link="mid"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="10" velocity="1"/>
+  </joint>
+  <joint name="j2" type="revolute">
+    <parent link="mid"/>
+    <child link="tip"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1" upper="1" effort="10" velocity="1"/>
+  </joint>
+</robot>"#;
+
     fn one_joint_model_from(srdf_xml: &str) -> RobotModel {
         let urdf = urdf_rs::read_from_string(ONE_JOINT_URDF).expect("inline URDF must parse");
         let srdf = SrdfModel::parse_str(srdf_xml).expect("inline SRDF must parse");
         RobotModel::from_urdf_and_srdf(&urdf, ONE_JOINT_URDF, &srdf, &MeshSearchPaths::none())
             .expect("valid single-joint urdf")
+    }
+
+    pub(crate) fn two_joint_model() -> RobotModel {
+        let urdf = urdf_rs::read_from_string(TWO_JOINT_URDF).expect("inline URDF must parse");
+        let srdf = SrdfModel::parse_str(
+            r#"<?xml version="1.0"?>
+<robot name="two_joint">
+  <group name="arm">
+    <chain base_link="base_link" tip_link="tip"/>
+  </group>
+</robot>
+"#,
+        )
+        .expect("inline SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, TWO_JOINT_URDF, &srdf, &MeshSearchPaths::none())
+            .expect("valid two-joint urdf")
     }
 
     pub(crate) fn one_joint_model() -> RobotModel {
