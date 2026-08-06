@@ -16110,7 +16110,7 @@ p9-ros가 `4ff563d`에서 `ros/moveit-ros/src/geometry.rs`의
 | `constraints/position.rs:161` | `PositionConstraint::configure` :405-406, :433-434 | `tf2::fromMsg` + `ASSERT_ISOMETRY` |
 | `constraints/visibility.rs:114,115` | `VisibilityConstraint::configure` :845-846, :858-859 | `tf2::fromMsg` + `ASSERT_ISOMETRY` |
 | `scene/collision_object.rs:142,207,239,478,515` | `planning_scene.cpp` `utilities::poseMsgToEigen` | 무조건 `quaternion.normalize()` |
-| `scene/planning_scene.rs:147` | `planning_scene.cpp:1496` 같은 헬퍼 | 무조건 `quaternion.normalize()` |
+| `scene/planning_scene.rs:148` | `planning_scene.cpp:1496` 같은 헬퍼 | 무조건 `quaternion.normalize()` |
 
 두 가지가 이 표를 만들었다.
 
@@ -19493,13 +19493,13 @@ $ rg -l --no-heading 'lockRead|unlockRead|lockWrite|unlockWrite|->reading\(\)|->
 `createOctomap` 본문은 `OccMapTree(map.resolution)` 생성 뒤
 `octomap_msgs::readTree` 또는 `om->readData(datastream)`만 부른다 —
 잠금도 콜백도 건드리지 않는, 순수한 `octomap::OcTree`다. 이 포트는 그것을
-이미 한다: `ros/moveit-ros/src/scene/planning_scene.rs:137-143`의
+이미 한다: `ros/moveit-ros/src/scene/planning_scene.rs:138-144`의
 `apply_octomap`이 `moveit_octomap::OcTree::new(resolution)` 뒤
 `read_binary_data`/`read_data`를 부른다.
 
 더하는 두 기구는 이 포트가 **구조적으로 다르게 표현하는** 바로 그 둘이다.
 공유 가변성은 타입 안이 아니라 사용처에 둔다 — 이 트리의 옥트리는 전부
-`Arc<OcTree>`로 불변 공유된다(`ros/moveit-ros/src/scene/planning_scene.rs:148`,
+`Arc<OcTree>`로 불변 공유된다(`ros/moveit-ros/src/scene/planning_scene.rs:149`,
 `crates/moveit-distance-field/src/distance_field.rs:752`, `:807`,
 `crates/moveit-collision/src/parry.rs` 등). 갱신 콜백은 트리의 것이 아니라
 모니터의 것이고, 모니터(`moveit_ros/occupancy_map_monitor`)는 코퍼스 밖이다.
@@ -22762,7 +22762,7 @@ Phase 9를 코퍼스 계기로 추적하려면 `CORPUS_ROOTS`에 `moveit_ros/mov
 
 | 조각 | §226.3 | 지금 | 지은 절 |
 |---|---|---|---|
-| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/move_group.rs:212,269,359` (§255.2 이전 이름은 `plan_kinematic_path_server.rs`, 줄 번호는 지금 트리에서 다시 유도했다) | §241 |
+| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/move_group.rs:215,272,356` (§255.2 이전 이름은 `plan_kinematic_path_server.rs`, 줄 번호는 지금 트리에서 다시 유도했다) | §241 |
 | `/plan_kinematic_path` 서비스 | 부재 | **존재** — 같은 파일 `create_service::<GetMotionPlan::Service>` | §241 |
 | `/move_action` 액션 서버 | 부재 | **존재** — 같은 파일 `create_action_server::<MoveGroup::Action>` | 이 절 |
 | planning scene 토픽 구독 | 부재 | **부재** — `rg -n 'create_subscription' ros/moveit-ros/src/ -t rust` 0건 | — |
@@ -24136,7 +24136,7 @@ pub enum PlanningSceneUpdate { Full(FullPlanningSceneMsg), Diff(PlanningSceneDif
 
 두 래퍼의 필드는 비공개이고, 유일한 생성처는
 `impl From<moveit_msgs::PlanningScene> for PlanningSceneUpdate`
-(`ros/moveit-ros/src/scene/planning_scene.rs:118`) 하나다. 그래서
+(`ros/moveit-ros/src/scene/planning_scene.rs:119`) 하나다. 그래서
 "`FullPlanningSceneMsg`이면 `!is_diff`"가 **구성상** 참이고,
 `set_planning_scene_msg`(`:353`)와 `set_planning_scene_diff_msg`(`:392`)는
 `is_diff`를 다시 볼 이유도, 볼 방법도 없다. 불린은 경계에서 정확히 한 번
@@ -27884,3 +27884,218 @@ flange 세계 좌표가 필요하고, 현재 `--pair-probe-json`은 관절값을
 - **접선 자체를 고치지 않았다.** `sphere × sphere`의 비균일성(#16)과
   같은 부류이고, §251.4가 적은 두 대안(양의 엡실론 / 쌍별 분기) 중
   어느 쪽도 여기서 택하지 않았다.
+
+---
+
+## §276 `attached_collision_object`와 `trajectory_execution_event` 두 구독을 지었다 — 그리고 게이트의 첫 실행이 `ros2 topic pub`의 `byte` 무성 실패를 잡았다 (2026-08-06)
+
+§257이 `/planning_scene` 구독을 지었고, §259가 전수로 센 무변경 C++
+`MoveGroupInterface`의 **absent 9건** 중 이 라운드가 맡은 것은 클라이언트가
+*publish*하는 두 토픽이다. 서비스가 아니라 **구독**이므로 "bound"의 뜻이
+다르다 — 이름이 열려 있는 것으로는 부족하고, 받은 메시지가 노드의 답을
+바꿔야 한다. 그래서 이 절의 게이트는 발행 성공이 아니라 **뒤집히는 충돌 답**을
+관측량으로 쓴다.
+
+### §276.1 두 변경자를 하나로 — 소유자는 상류가 이미 정해 두었다
+
+부착 객체는 두 경로로 들어온다: `attached_collision_object` 토픽과
+`PlanningScene` diff 안의 `robot_state.attached_collision_objects`. 두 경로가
+각각 씬을 직접 만지면 도착 순서가 답을 정하고, 매 라운드 새 모서리가 나온다.
+
+**소유자를 새로 고를 필요는 없었다. 상류에 이미 있다.**
+`PlanningScene::setCurrentState(const RobotState&)`
+(`planning_scene.cpp:1217`)는 joint-state 경로에서
+`attached_collision_objects`를 떼어 내고(`planning_scene.cpp:1221-1222`) 각각을
+`processAttachedCollisionObjectMsg`로 넘긴다(`planning_scene.cpp:1246`). 모니터의 토픽 콜백
+(`planning_scene_monitor.cpp:841`)도 같은 함수로 위임한다
+(`planning_scene_monitor.cpp:853`). 즉 상류에서
+두 경로는 이미 한 함수로 합류한다.
+
+이 포트도 그대로다:
+`scene/planning_scene.rs`의 `set_current_state_msg`가
+`RobotState`에서 부착 객체를 `std::mem::take`로 떼어 낸 뒤
+`apply_attached_collision_object`로 넘긴다 — 토픽 콜백이 부르는 바로 그
+함수다. **소유자 하나, 우회 경로 없음.**
+
+**우회 감사** (`rg`): `apply_attached_collision_object` 호출부, `.attach(` /
+`.attach_new(` / `.detach(` 호출부, `attached_collision_objects` 참조부를
+전수로 훑었다. 씬을 바꾸는 호출은 전부 소유자 내부(`scene/attached.rs`)에
+있고, `state.rs`와 `planning.rs`의 두 곳은 **거부**이지 변경이 아니다(그
+자리에 씬이 없다) — 별개로 분류한다.
+
+**이 라운드가 고친 자기 결함.** `set_planning_scene_diff_msg`는
+`attached_collision_objects.is_empty()`가 아닌 것을 robot_state를 적용할
+이유로 삼고 있었는데, 정작 `RobotStateMsg`는 비어 있지 않은 부착 객체를
+거부한다. 즉 부착 객체를 실은 diff는 통째로 거절됐다. 위 라우팅이 이것을
+닫는다.
+
+### §276.2 상류 `planning_scene.cpp:1238` 가드가 이제 도달 가능해졌다 — ADD 한정이라는 좁힘
+
+라우팅을 넣자 상류의 `planning_scene.cpp:1238-1245` 가드가 처음으로 도달
+가능해졌다. `RobotStateMsg`가 `is_diff=true`를 먼저 거부하므로, 이 포트에서
+그 가드는 **"`PlanningScene` 안에 적힌 부착 객체는 전부 ADD여야 한다"**로
+줄어든다. 숨기지 않고 적는다: REMOVE/APPEND는 `attached_collision_object`
+토픽이 경로다. 오류 문구가 그 경로를 지목한다.
+
+### §276.3 `execution_complete_`는 플래그였고, 여기서는 타입이다
+
+상류는 `bool execution_complete_`와 `last_execution_status_`를 나란히 두고
+`stopExecution`(`trajectory_execution_manager.cpp:1209`)에서 플래그를 두 번
+읽는다. "complete"는 *아무것도 실행한 적 없음*과 *선점당함* 양쪽에서 참이고,
+둘을 가르는 것은 다른 필드다. 전형적인 값+플래그다.
+
+`ros/moveit-ros/src/execution.rs`의 `ExecutionState`는 이것을 한 값으로
+합친다: `Idle { last: Option<ExecutionStatus> }` / `Executing`. 불법 조합이
+표현 불가능해진다. `TrajectoryExecution::stop`은 `Executing`을 떠나는 **유일한**
+전이이고, 표시와 마무리가 한 문장이라 둘 사이에 낄 수 있는 종료 경로가 없다.
+
+**그 이유는 설계 자랑이 아니라 없는 것의 성질이다.** 취소할 컨트롤러 핸들이
+없다 — `moveit_controller_manager`가 포팅되어 있지 않다. 상류가 핸들마다
+try/catch를 두는 이유(`trajectory_execution_manager.cpp:1197-1205`)가 여기서는
+발생하지 않는다. 컨트롤러
+매니저가 들어오는 순간 취소는 실패 가능해지고 전이는 한 문장이 아니게 된다 —
+그때 마무리를 모든 종료 경로가 지나는 가드 뒤로 옮겨야 한다. `execution.rs`의
+모듈 문서가 그 표식이다.
+
+`Executing`의 생산자는 `begin` 하나뿐이고 노드는 그것을 부르지 않는다. 실제
+클라이언트의 `stop()`은 항상 `NothingToStop` 팔을 탄다 — 이는 자리채움이
+아니라 상류의 `if (!execution_complete_)`가 그냥 들어가지 않는 것
+(`trajectory_execution_manager.cpp:1211`)과
+같은 동작이다.
+
+### §276.4 계측기는 문자열 리터럴만 본다 — 그래서 토픽 이름 상수를 두지 않았다
+
+상류는 토픽 이름을 `TrajectoryExecutionManager::EXECUTION_EVENT_TOPIC`
+(`trajectory_execution_manager.cpp:50`)로 한 번만 적는다. 이 포트는 그것을 Rust
+`const`로 옮기지 **않았다**. `tools/ci/measure-client-endpoint-surface.py`의
+`PORT_OPENER`는 r2r 팩토리 호출 **안의 문자열 리터럴**을 찾는다. 상수로 이름을
+주면 그 엔드포인트는 실제로 bound인데도 계측에는 *absent*로 잡힌다. 그래서
+이름은 `bin/move_group.rs`의 `subscribe` 호출에 리터럴로 정확히 한 번만
+나타난다 — 나머지 세 엔드포인트와 같은 방식이다. 이유를 `execution.rs`의 모듈
+문서에 적었다.
+
+**방향 오인은 통과가 아니라 실패로 읽힌다(확인함).** `attached_collision_object`를
+`subscribe` 대신 `create_publisher`로 열어 계측기를 돌리면 그 행은 `bound`가
+아니라 `role-mismatch`가 되고, `verify-client-endpoint-surface.sh`는 그 행을
+이름으로 지목하며 실패한다. 되돌렸다.
+
+계측 결과: `port side, bound 1 → 3`, `port side, absent 9 → 7`.
+
+### §276.5 게이트의 첫 실행이 잡은 것 — `ros2 topic pub`는 `byte` 필드를 소리 없이 0으로 보낸다
+
+**이것이 이 라운드의 본론이다.** leg D를 처음 돌리자 3단계에서 실패했다:
+REMOVE를 발행했는데 물체가 그대로 붙어 있고, 노드는 아무 오류도 찍지 않았다.
+
+같은 순서를 in-process 단위 테스트로 재현하면 **통과한다.** 즉 결함은
+`apply_detach`가 아니라 그 앞이었다. `ros2 topic echo`로 실제 전선을 보니:
+
+    operation: "\0"
+
+`operation: 1`을 발행했는데 DDS에는 0이 갔다. 원인은
+`moveit_msgs/msg/CollisionObject.msg:51`의 `byte operation`이다 — ROS `byte`는
+rclpy에서 **1바이트 `bytes`**이지 `int`가 아니다. YAML에 정수를 적으면 필드는
+기본값 0에 머무르고, `ros2 topic pub`는 그래도 `publishing #1`을 찍는다. 즉
+**REMOVE가 ADD로 도착하고 발행자는 성공을 보고한다.**
+
+세 표기를 측정했다:
+
+| YAML | 전선에 실린 값 | 발행자 |
+| --- | --- | --- |
+| `operation: 1` | `"\0"` | `publishing #1` (성공으로 보고) |
+| `operation: "\x01"` | (없음) | `Failed to populate field` |
+| `operation: !!binary AQ==` | `"\x01"` | `publishing #1` |
+
+**계열 수정.** 이 결함은 인용된 한 줄이 아니라 "셸 게이트가 ROS `byte` 필드에
+맨 정수를 적는" 계열이다. `rg 'operation:' --glob '*.sh'`로 전수 확인한 자리는
+셋이다. `verify-ros-interop.sh`의 leg C 세계 발행과 leg D 세계 발행은
+`operation: 0`이라 **결과는 우연히 맞았지만**(ADD가 전선 기본값과 같다) 기구는
+같은 결함이다. 셋을 모두 파일 최상단의 단 하나의 정의
+(`OP_ADD`/`OP_REMOVE`)를 통과하게 바꿨다 — 이제 어떤 발행 자리도 숫자를 직접
+쓰지 않는다. `ros/moveit-ros/src/scene/planning_scene.rs`의 `operation: 0`은
+Rust `u8` 구조체 필드라 이 기구와 무관하다 — 별개로 분류한다.
+
+한 가지 더: `docker run -e NAME`(값 없음)은 **docker 클라이언트의 환경**에서
+값을 읽으므로 평범한 셸 변수 대입은 컨테이너에 빈 값으로 도착한다. 이것은
+소리 없이 실패하지 않고 `Failed to populate field`로 크게 실패했다. `export`로
+고쳤다.
+
+### §276.6 leg D — 다섯 단계, 그리고 그것이 무엇을 가르는가
+
+`ros/verify-ros-interop.sh`의 새 leg `inbound-topics`. 세계에는 x=10의
+`bystander`가 계속 있고 로봇은 원점에 있다. x=10에 로봇 쪽 기하를 놓을 수 있는
+것은 부착뿐이다.
+
+1. 멀리 있는 세계 물체, 부착 없음 → `valid=True`
+2. `base_link`에 `held` 부착 → `valid=False`, 접촉이 `held`를 이름으로 대고
+   **`body_type` 2(RobotAttached)** — 세계 물체로 잘못 들어간 경우와 갈린다
+3. 같은 물체 REMOVE → `valid=True`
+4. `"stop"` → stderr에 무-동작 팔이 찍히고, 선점을 주장하지 **않는다**
+5. `"wobble"` → 이름을 대고 거부
+
+4·5는 뒤집히는 답이 아니라 노드 stderr다. 더 약한 관측량이고 그렇게 적는다 —
+이 워크스페이스에는 궤적을 실행하는 것이 없어 선점할 실행 자체가 없다. 다만 두
+단정이 함께 가르는 것은 **페이로드가 실제로 해독된다**는 것이다: 페이로드를
+무시하는 콜백은 무-동작 문장과 `wobble`을 이름으로 댄 문장을 동시에 낼 수 없다.
+
+### §276.7 변이 7개 — 각각 FAIL을 보이고 되돌렸다
+
+단정마다 그것만 깨는 변이를 돌렸다. 되돌린 뒤 다섯 파일의 sha256이 변이 전과
+바이트 단위로 같음을 확인했다.
+
+| 변이 | 무엇을 깨는가 | 결과 |
+| --- | --- | --- |
+| M0 | 토픽을 `trajectory_execution_event_x`로 연다 | 토픽 전체-줄 단정 FAIL (부분 문자열 매칭이면 통과했을 자리) |
+| M1 | 부착 콜백이 아무것도 적용하지 않는다 | 2단계 FAIL |
+| M2 | `apply_detach`가 떼지 않고 성공을 보고한다 | 3단계 FAIL |
+| M3 | 부착체를 세계 물체 `body_type`으로 보고한다 | 2단계의 `body_type` 줄만 FAIL (앞 두 단정은 통과) |
+| M4 | 유휴 상태의 stop이 선점 팔을 탄다 | 4단계 FAIL |
+| M4b | 판정 전에 선점을 먼저 찍는다 | 4단계의 *둘째* 단정만 FAIL (첫째는 만족) |
+| M5 | 거부가 페이로드 이름을 대지 않는다 | 5단계 FAIL |
+
+M4b가 따로 있는 이유: M4는 4단계의 첫 단정에서 멈추므로 둘째 단정("선점을
+주장하지 말 것")은 한 번도 평가되지 않는다. 변이 하나로는 두 단정을 가를 수
+없다.
+
+M1의 첫 형태는 `unused_import`로 컴파일 실패했다. 컴파일 오류는 가르는 신호가
+아니므로 임포트가 살아 있는 형태로 다시 만들어 재측정했다.
+
+### §276.8 이 절이 만든 인용 이동 — 고친 8건과 못 고친 5건
+
+`scene/planning_scene.rs`에 `set_current_state_msg`를 넣으면서 파일 안쪽이
+밀렸다(상단 임포트 +1, 그 아래 +56). `tools/ci/check-citation-drift.py`는
+HEAD에서 exit 0이므로 **아래 전부가 이 절의 이동이다** — 되돌려 측정해서
+확인했다.
+
+고쳤다(트리에 대해 재유도, 전부 anchor/content 재검증됨): `doc/claim-audit/
+moveit-ros.md` 9건, `ros/moveit-ros/doc/message-mapping.md` 3건.
+
+**고치지 못했다 — `doc/assertion-discrimination-ledger-p9-ros.md`는 이 라운드의
+울타리 밖이다**(p10-phase13이 그 파일에서 28개 orphan을 닫는 중). 값은 아래에
+전부 유도해 둔다. 병합자가 그대로 적용하면 된다:
+
+(줄 번호를 backtick 인용 문법으로 적지 않는다 — 왼쪽 값들은 지금 트리에
+대해 **거짓**이고, 인용 문법으로 적으면 검사기가 살아 있는 주장으로 읽는다.)
+
+- conversion\_coverage.rs — 261,266,420,448,471,488 을 271,276,430,458,481,498 로 (+10)
+- scene/planning\_scene.rs — 1079 을 1135 로
+- scene/planning\_scene.rs — 1096-1099 을 1152-1155 로
+- scene/planning\_scene.rs — 1132-1135 을 1188-1191 로
+- scene/planning\_scene.rs — 1364 을 1420 로
+
+`+56`은 세 자리에서 독립으로 확인했다(`msg.binary` 문장 484→540,
+`OcTreeShape::from_tree` 537→593, `Isometry3::try_from(Pose(map.origin))`
+536→592). 새 줄마다 인용문이 말하는 내용이 실제로 있는지 열어서 확인했다.
+
+남는 18건은 `doc/citation-classes.txt`의 **키 이동**이다 — 줄 번호가 바뀌면
+옛 키가 은퇴하고 새 키가 도착한다. 재동결로만 닫히는데 이 라운드는 재동결을
+금지받았으므로 병합자 몫이다.
+
+### §276.9 판정을 바꾸지 않는다, 그리고 내 트리가 못 보는 것
+
+이 절은 §5의 어떤 판정 단어도 바꾸지 않는다. 이 브랜치의 베이스(`766c52e`)는
+main보다 **105 커밋 뒤**다. 브리프는 main의 273번 절이 Phase 9 줄을 MET로
+옮겼다고 하는데, 그 절은 이 체크아웃에 **존재하지 않으므로** 나는 그 전제를
+확인할 수 없었다 (그래서 여기서도 `§` 기호를 붙이지 않는다 — 이 트리에서
+해석되지 않는 번호다). 확인한 것은 이것뿐이다: 내 트리의 §257.8은 Phase 9를
+UNMET이라 적고 있고, 브리프가 말하는 main의 §5 행은 MET다. 둘 중 어느 쪽이 맞는지는
+두 문서를 동시에 볼 수 있는 병합자만 판정할 수 있다.

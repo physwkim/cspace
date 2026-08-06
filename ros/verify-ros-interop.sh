@@ -83,6 +83,22 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 require_caller_tree "$REPO_ROOT"
 IMAGE="${IMAGE:-moveit-rs/ros-dev:latest}"
 
+# `CollisionObject.operation` is declared `byte`
+# (`moveit_msgs/msg/CollisionObject.msg:51`, with `byte ADD=0` at `:38` and
+# `byte REMOVE=1` at `:41`), and rclpy models a ROS `byte` as a one-element
+# `bytes` -- not an `int`. Writing `operation: 1` in a `ros2 topic pub` YAML
+# therefore leaves the field at its default 0 and *still prints
+# `publishing #1`*: a REMOVE published that way arrives as an ADD, and the
+# publisher reports success. `!!binary` is the only spelling measured to
+# reach the wire (`ros2 topic echo` shows `operation: "\x01"` for
+# `!!binary AQ==`, and `operation: "\0"` for a bare `1`; the quoted-escape
+# form `"\x01"` is rejected outright). See PORTING-PLAN.md §276.
+#
+# These two are the file's only definition of an operation number, exported
+# into every container below, so no publish site writes one itself.
+export OP_ADD="!!binary AA=="
+export OP_REMOVE="!!binary AQ=="
+
 run() {  # <label> <command...>
   local label="$1"
   shift
@@ -303,6 +319,7 @@ echo "OK live round-trip: reported the unplannable one as FAILURE naming rrt_con
 SCENE_DOMAIN_ID="${ROS_DOMAIN_ID:-$((($$ % 100) + 1))}"
 echo "=== scene-topic (ROS_DOMAIN_ID=$SCENE_DOMAIN_ID) ==="
 docker run --rm -e "ROS_DOMAIN_ID=$SCENE_DOMAIN_ID" \
+  -e OP_ADD -e OP_REMOVE \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
   set -e
   cat >/tmp/boxed.urdf <<\URDF
@@ -366,7 +383,7 @@ SRDF
 
   publish() {  # <step label> <is_diff> <object id> <x>
     timeout 25 ros2 topic pub -1 -w 1 /planning_scene moveit_msgs/msg/PlanningScene \
-      "{is_diff: $2, world: {collision_objects: [{header: {frame_id: base_link}, id: $3, operation: 0, pose: {position: {x: $4}, orientation: {w: 1.0}}, primitives: [{type: 1, dimensions: [0.2, 0.2, 0.2]}], primitive_poses: [{orientation: {w: 1.0}}]}]}}" \
+      "{is_diff: $2, world: {collision_objects: [{header: {frame_id: base_link}, id: $3, operation: $OP_ADD, pose: {position: {x: $4}, orientation: {w: 1.0}}, primitives: [{type: 1, dimensions: [0.2, 0.2, 0.2]}], primitive_poses: [{orientation: {w: 1.0}}]}]}}" \
       >/dev/null || fail "$1: publishing on /planning_scene failed"
     sleep 2
   }
@@ -405,6 +422,155 @@ echo "OK scene-topic: answered True/False/False/True across an empty world, a fu
 # `initialize()`), and a per-capability gate file is what keeps the panels
 # landing endpoints in parallel off each other.
 "$REPO_ROOT/ros/verify-planner-params-interop.sh"
+
+# Leg D -- the two inbound topics a MoveGroupInterface client publishes to
+# (PORTING-PLAN.md §276): `attached_collision_object` (attachObject/
+# detachObject) and `trajectory_execution_event` (stop). Both are
+# SUBSCRIBERS on this node, so "bound" means a subscription that actually
+# receives -- doc/client-endpoint-surface.md's instrument reads the role from
+# the r2r factory and calls a name opened the other way `role-mismatch`, not
+# bound. This leg checks the half that instrument cannot: that the received
+# message changes what the node answers.
+#
+# For the attach that means a collision query flipping on an *attached body*
+# rather than on a world object, which is a different code path
+# (PlanningScene::check_collision folds attached bodies into the robot
+# object; a world object goes in through the world). The world holds
+# `bystander` at x=10 throughout and the robot sits at the origin, so the
+# only thing that can put geometry at x=10 on the robot side is the attach.
+#
+# For the stop event the observable is the node's own stderr, and that is a
+# weaker observable than a flipped answer -- said plainly rather than dressed
+# up. Nothing in this workspace executes a trajectory (no
+# moveit_controller_manager is ported), so a `stop` has no execution to
+# preempt and upstream's own no-op arm is the reachable one. What the two
+# assertions below do discriminate is that the payload is *decoded*: a
+# callback that ignored its payload could not produce both the no-op line and
+# the unknown-event line naming `wobble`.
+SCENE_DOMAIN_ID="${ROS_DOMAIN_ID:-$((($$ % 100) + 2))}"
+echo "=== inbound-topics (ROS_DOMAIN_ID=$SCENE_DOMAIN_ID) ==="
+docker run --rm -e "ROS_DOMAIN_ID=$SCENE_DOMAIN_ID" \
+  -e OP_ADD -e OP_REMOVE \
+  -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
+  set -e
+  cat >/tmp/boxed.urdf <<\URDF
+<?xml version="1.0"?>
+<robot name="one_joint">
+  <link name="base_link">
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.2 0.2 0.2"/></geometry>
+    </collision>
+  </link>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="base_link"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="10" velocity="1"/>
+  </joint>
+</robot>
+URDF
+  cat >/tmp/boxed.srdf <<\SRDF
+<?xml version="1.0"?>
+<robot name="one_joint">
+  <group name="arm"><chain base_link="base_link" tip_link="tip"/></group>
+</robot>
+SRDF
+
+  cargo build --bin move_group
+  ./target/debug/move_group /tmp/boxed.urdf /tmp/boxed.srdf 2>/tmp/node.stderr &
+  server_pid=$!
+  trap "kill $server_pid 2>/dev/null || true" EXIT
+  sleep 3
+
+  fail() {
+    echo "FAIL inbound-topics: $*" >&2
+    echo "--- last /check_state_validity reply ---" >&2
+    cat /tmp/validity >&2 2>/dev/null || true
+    echo "--- node stderr ---" >&2
+    cat /tmp/node.stderr >&2
+    exit 1
+  }
+
+  ros2 topic list >/tmp/topics
+  for t in /attached_collision_object /trajectory_execution_event; do
+    grep -qxF "$t" /tmp/topics || {
+      cat /tmp/topics >&2
+      fail "the node is not subscribed to $t"
+    }
+  done
+
+  validity() {  # <step label>
+    out="$(timeout 20 ros2 service call /check_state_validity \
+      moveit_msgs/srv/GetStateValidity "{}")" ||
+      fail "$1: /check_state_validity did not answer"
+    printf %s "$out" | sed -n "/^response:/,\$p" >/tmp/validity
+    echo "PROBE $1: $(grep -o "valid=[A-Za-z]*" /tmp/validity) $(grep -o "contact_body_[12]=.[a-z]*." /tmp/validity | tr "\n" " ")"
+  }
+
+  # A world object far from the robot. Everything below turns on whether the
+  # robot side reaches out to it.
+  timeout 25 ros2 topic pub -1 -w 1 /planning_scene moveit_msgs/msg/PlanningScene \
+    "{is_diff: false, world: {collision_objects: [{header: {frame_id: base_link}, id: bystander, operation: $OP_ADD, pose: {position: {x: 10.0}, orientation: {w: 1.0}}, primitives: [{type: 1, dimensions: [0.2, 0.2, 0.2]}], primitive_poses: [{orientation: {w: 1.0}}]}]}}" \
+    >/dev/null || fail "seeding the world with bystander failed"
+  sleep 2
+  validity "step 1 (world object far away, nothing attached)"
+  grep -q "valid=True" /tmp/validity ||
+    fail "step 1: a world object 10m away must not collide, or nothing below means anything"
+
+  # <operation> is `$OP_ADD`/`$OP_REMOVE` -- never a number. See the top of
+  # this file for why a bare int here publishes ADD no matter what it says.
+  attach() {  # <step label> <operation> <x>
+    timeout 25 ros2 topic pub -1 -w 1 /attached_collision_object \
+      moveit_msgs/msg/AttachedCollisionObject \
+      "{link_name: base_link, object: {header: {frame_id: base_link}, id: held, operation: $2, pose: {position: {x: $3}, orientation: {w: 1.0}}, primitives: [{type: 1, dimensions: [0.2, 0.2, 0.2]}], primitive_poses: [{orientation: {w: 1.0}}]}}" \
+      >/dev/null || fail "$1: publishing on /attached_collision_object failed"
+    sleep 2
+  }
+
+  attach "step 2" "$OP_ADD" 10.0
+  validity "step 2 (a body attached to base_link, reaching bystander)"
+  grep -q "valid=False" /tmp/validity ||
+    fail "step 2: the attached body never reached the scene -- attaching geometry onto bystander is a collision"
+  grep -q "held" /tmp/validity ||
+    fail "step 2: a collision was reported, but not against the attached body"
+  # body_type 2 is RobotAttached. A world object would report 1, so this is
+  # what separates "the attach was applied as an attached body" from "the
+  # attach was applied as a world object", which would collide too.
+  grep -qE "body_type_[12]=2" /tmp/validity ||
+    fail "step 2: the contact names held but not as an attached body (body_type 2) -- the attach landed in the world instead"
+
+  attach "step 3" "$OP_REMOVE" 10.0
+  validity "step 3 (the same body detached)"
+  grep -q "valid=True" /tmp/validity ||
+    fail "step 3: REMOVE on attached_collision_object did not detach -- the body is still on the robot"
+
+  event() {  # <step label> <payload>
+    timeout 25 ros2 topic pub -1 -w 1 /trajectory_execution_event \
+      std_msgs/msg/String "{data: $2}" \
+      >/dev/null || fail "$1: publishing on /trajectory_execution_event failed"
+    sleep 2
+  }
+
+  event "step 4" stop
+  grep -q "trajectory_execution_event stop: nothing to stop" /tmp/node.stderr ||
+    fail "step 4: a stop with nothing executing must take the defined no-op arm"
+  if grep -q "preempted execution" /tmp/node.stderr; then
+    fail "step 4: the node claims it preempted an execution, but nothing in this workspace executes"
+  fi
+  echo "PROBE step 4 (stop while idle): no-op arm taken, nothing claimed preempted"
+
+  event "step 5" wobble
+  grep -q "unknown trajectory_execution_event type: .wobble." /tmp/node.stderr ||
+    fail "step 5: an unrecognised event must be reported by name, not silently dropped"
+  echo "PROBE step 5 (unknown event): reported by name"
+
+  echo "--- node stderr ---"
+  cat /tmp/node.stderr
+'
+echo "OK inbound-topics: /attached_collision_object flipped a collision answer via an attached"
+echo "OK inbound-topics: body (body_type 2) and back, and /trajectory_execution_event decoded both payloads"
 
 # `/move_action`, in its own file: it orchestrates three containers and a
 # docker network, and it is the only check here that runs upstream's own C++

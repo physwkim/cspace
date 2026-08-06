@@ -25,8 +25,8 @@ endpoint, but the client's constructor cannot complete without it.
     reach the wire                 38
     client-local                   88
 
-    port side, absent             6
-    port side, bound              4
+    port side, absent             4
+    port side, bound              6
     port side, surplus            3
 
 ## What the port binds
@@ -43,19 +43,19 @@ a read of the handler or a run of the node. `absent` is the whole of (c).
 
 | endpoint | the client | the port must provide | opened at | verdict |
 |---|---|---|---|---|
-| `attached_collision_object` | publishes | subscriber | -- | absent |
-| `check_state_validity` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:658` | surplus |
+| `attached_collision_object` | publishes | subscriber | `ros/moveit-ros/src/bin/move_group.rs:660` | bound |
+| `check_state_validity` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:690` | surplus |
 | `compute_cartesian_path` | calls | service server | -- | absent |
 | `execute_trajectory` | calls | action server | -- | absent |
 | `get_planner_params` | calls | service server | `ros/moveit-ros/src/planner_params.rs:355` | bound |
 | `joint_states` | subscribes | publisher | -- | absent |
-| `move_action` | calls | action server | `ros/moveit-ros/src/bin/move_group.rs:623` | bound |
-| `plan_kinematic_path` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:607` | surplus |
-| `planning_scene` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:646` | surplus |
+| `move_action` | calls | action server | `ros/moveit-ros/src/bin/move_group.rs:620` | bound |
+| `plan_kinematic_path` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:604` | surplus |
+| `planning_scene` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:643` | surplus |
 | `query_planner_interface` | calls | service server | `ros/moveit-ros/src/planner_params.rs:349` | bound |
 | `robot_description` | reads | parameter or latched publisher | -- | absent |
 | `set_planner_params` | calls | service server | `ros/moveit-ros/src/planner_params.rs:358` | bound |
-| `trajectory_execution_event` | publishes | subscriber | -- | absent |
+| `trajectory_execution_event` | publishes | subscriber | `ros/moveit-ros/src/bin/move_group.rs:678` | bound |
 
 ## Every public declaration
 
