@@ -3198,8 +3198,11 @@ intra-doc 링크로 가리키고 있었다.
 
 브리핑의 인용 중 두 가지는 **정정**한다:
 
-1. "`kinematics_base.cpp:320`의 에러 메시지" — 틀렸다.
-   `kinematics_base.cpp`는 210줄뿐이고 `dimension_`이라는 이름이 단 한 번도
+1. "kinematics_base.cpp의 320행 에러 메시지" — 틀렸다. (반박 대상이므로
+   인용 문법으로 적지 않는다: `path:NNN` 형태로 적으면 모든 체커가 이것을
+   살아 있는 주장으로 읽고, 실제로 `verify-upstream-citations.sh`가
+   out-of-bounds로 잡았다.)
+   `kinematics_base.cpp`는 209줄뿐이고 `dimension_`이라는 이름이 단 한 번도
    나오지 않는다(`rg dimension_ kinematics_base.cpp` 매치 0건). `dimension_`은
    `KDLKinematicsPlugin`(하위 클래스, `kdl_kinematics_plugin.hpp`) 전용
    멤버다. 인용된 에러 메시지("Seed state must have size %d instead of
