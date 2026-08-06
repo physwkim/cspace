@@ -26095,7 +26095,7 @@ upstream에 있고 이 실행에는 없는 경로를 보증하는 셈이 된다.
 
 이 수가 **하한이지 등식이 아닌** 이유도 실측이다. 최적화기는 클로저를
 `iteration % 10 == 0`에서 부르고 루프는 `start_time.elapsed() >
-planning_time_limit`에서 나간다(`optimizer.rs:1758`, `optimizer.rs:1774`). 같은 시드로 연속
+planning_time_limit`에서 나간다(`optimizer.rs:1764`, `optimizer.rs:1781`). 같은 시드로 연속
 두 번 돌린 pilot에서 나머지 per-set 수치는 전부 같고 fanuc_floor_wall의 호출
 수만 9 → 10으로 달랐다. 벽시계에 달린 수를 등식으로 핀하면 그 핀은 기계 부하를
 잰다.
@@ -31086,12 +31086,73 @@ goal 1.0에서 내려가고(`last == best`, `descent > 0`) goal 1.8에서
 `ChompObjective`/`ChompObjectiveProgress`를 `optimizer.rs`에 넣고
 `ChompSolution`에 필드를 하나 더하면서 두 파일의 줄이 밀렸다
 (`optimizer.rs` 2559 → 3001, `planner.rs` 1104 → 1135). 밀린 줄을 가리키던
-인용 53건을 `git diff`의 줄 대응에서 기계적으로 재매핑했고, 재매핑 전후로
-가리키는 소스 줄의 내용이 53건 모두 동일함을 확인했다. 대상 문서 6개:
+인용 53건을 `git diff`의 줄 대응에서 기계적으로 재매핑했다. 대상 문서 6개:
 `PORTING-PLAN.md`, `doc/assertion-discrimination-ledger-{p1-robotmodel,p3-acm,p9-ros}.md`,
 `doc/claim-audit/moveit-planners-chomp.md`, `doc/upstream-bugs.md`.
+
+**검사 A — 재매핑 전후 텍스트 동일성. 53/53 통과. 이것이 증명하는 것은
+"diff의 줄 대응을 일관되게 적용했다"뿐이다.** 옛 줄이 이미 틀린 곳을
+가리키고 있었다면 새 줄도 똑같이 틀린 채로 이 검사를 통과한다 — 비교의 두
+항이 모두 인용문이 아니라 서로이기 때문이다. 이 검사만 근거로 "53건
+확인"이라고 쓰면 안 된다.
+
+**검사 B — 문장 기준. 별도로 돌렸고, 8건이 실패한다.** 현재 트리에서 이 두
+파일을 가리키는 전체 경로 인용을 전부 열거하면 55건이고(재매핑 대상 53건에
+새 원장의 `optimizer.rs:2206`과 축약→전체 변환 1건이 더해진 수), 55건 각각에 대해
+"이 문장이 이름하는 코드가 지금 가리키는 줄에 실제로 있는가"를 소스를 열어
+판정했다. 통과 47, 실패 8. 실패 8건은 전부 이 라운드 이전부터 main에서
+틀려 있었고(옛 값과 그때의 실제 위치를 아래 표에 같이 적었다), 검사 A를
+그대로 통과했다. 이 라운드가 그 숫자를 다시 썼으므로 이 라운드에서 고쳤다.
+
+옛 값(main 열, 이 라운드가 쓴 값 열)은 지금 트리에 대한 주장이 아니므로
+§287.7의 규칙대로 백틱 없는 맨 숫자로 적는다. 고친 값만 살아 있는 인용이다.
+
+| 문서 | 문장이 이름하는 것 | main (실제 위치) | 이 라운드가 쓴 값 | 고친 값 |
+|---|---|---|---|---|
+| `PORTING-PLAN.md` §264.8 | `iteration % 10 == 0` | 1582 (실제 1588) | 1758 | `optimizer.rs:1764` |
+| `PORTING-PLAN.md` §264.8 | `start_time.elapsed() > planning_time_limit` | 1598 (실제 1605) | 1774 | `optimizer.rs:1781` |
+| `doc/claim-audit/moveit-planners-chomp.md` | `ChompOptimizer::optimize`의 span | 1458-1554 (실제 1537-1633) | 1589-1704 | `optimizer.rs:1681-1809` |
+| `doc/claim-audit/moveit-planners-chomp.md` | 클로저에 `self.best_group_trajectory`를 넘기는 코드 | 1509-1510 (실제 1589) | 1653-1654 | `optimizer.rs:1765` |
+| `doc/claim-audit/moveit-planners-chomp.md` | `optimizer.rs`가 든 `chomp_optimizer.cpp` 인용 | 886 (실제 883) | 1007 | `optimizer.rs:1004` |
+| `doc/upstream-bugs.md` | 이중 증가를 재현하는 포트 쪽 코드 | 912 (문서 산문 한가운데) | 1033 | `optimizer.rs:1764-1779` (+ 산문 `optimizer.rs:1023-1034`) |
+
+표는 6행이고 실패는 8건이다 — 범위 인용 두 건(1589-1704, 1653-1654)이
+각각 숫자 두 개를 실은 인용이라 열거에서 2로 세어진다.
+
+**검사 B가 드러낸 재매핑 자체의 구멍.** 재매핑 스크립트는 전체 경로
+형식(`path.rs:NNN`)만 훑었다. 그래서 `doc/claim-audit/moveit-planners-chomp.md`
+행 73의 축약 인용 444(2회)와 363-373은 이 라운드가 `planner.rs`를
++25줄 민 뒤에도 그대로 남았다 — 그 행의 전체 경로 인용은 이 라운드가 고쳤고
+같은 문장 안의 축약형만 안 고친 것이다. 손으로 읽어
+`crates/moveit-planners-chomp/src/planner.rs:473`
+(`.map_err(|_| Error::Code(MoveItErrorCode::PlanningFailed))?`)과
+`crates/moveit-planners-chomp/src/planner.rs:388-398`(`solve`의 `# Errors`
+문단)로 고쳤다. 444는 main에서도 이미 네 줄 어긋나 있었다(그때의 실제 위치
+448). 축약형은 `check-shorthand-citations.py`가 개수만 얼리고 해석은
+일부러 하지 않는 형식이라(그 스크립트 헤더가 세 가지 해석 규칙이 각각 이
+트리의 실제 자리에서 반증된 기록을 들고 있다) 어떤 게이트도 이 세 건이
+밀렸다고 말해 주지 않았다.
+
+같은 방식으로 읽어서 하나 더 나왔는데 고치지 **않았다**.
+`doc/assertion-discrimination-ledger-p9-ros.md`가
+`calculate_smoothness_increments`의 guard를 축약 377로 가리키는데, 그 함수의
+`if joint_costs.len() != num_joints`는 `optimizer.rs:378`이고 377은 그 바로
+앞 줄(`let num_joints = ...`)이다. 이 라운드는 이 줄을 밀지도(첫 hunk가
+612부터다) 다시 쓰지도 않았으므로 이 라운드의 것이 아니고, 재저작하지 않은
+인용을 이 커밋이 건드릴 이유가 없다. 기록만 남긴다.
+
 `check-citation-drift.py`의 클래스 기준선(`doc/citation-classes.txt`)도 다시
-생성했다 — 53건 중 클래스가 내려간 것은 0이다.
+생성했다.
+
+**어느 게이트도 이 8건을 잡지 못한다 — 되돌려서 확인했다.** 고친 뒤
+`optimizer.rs:1764`와 `optimizer.rs:1781`을 틀린 값 1758/1774로 되돌리고 기준선을 다시
+생성한 뒤 세 게이트를 돌렸다: `check-citation-drift.py` **OK**,
+`check-shorthand-citations.py` **OK**, `verify-orphan-enumeration.sh`
+**OK**. 틀린 줄도 파일 범위 안이고, 드리프트 게이트에서는 등급이
+content-verified 1107 → 1106, unanchored 891 → 892으로 한 칸 **내려가면서**
+통과한다 — 통과하는 등급들 사이의 강등이라 실패가 아니라 재분류로 보고된다.
+되돌린 것은 되돌렸고(`git checkout --`, 이후 트리 clean, 등급도 1107/891로
+복귀) 이 절의 8건은 게이트가 아니라 문장을 읽어서만 나온다.
 
 새로 생긴 조잡-단언 자리 하나
 (`optimizer.rs`의 `assert_eq!(optimizer.objective(), None, ..)`)는
