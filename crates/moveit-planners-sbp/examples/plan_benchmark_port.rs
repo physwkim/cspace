@@ -184,7 +184,7 @@ use moveit_planners_sbp::{
     CompoundValue, JointModelGroupSpace, PlanError, PlanningFailure, RrtConnectManager,
     RrtConnectParams, StateSpace, Termination,
 };
-use moveit_planning::{PlannerManager, PlanningRequest};
+use moveit_planning::{PlannerConfigurationMap, PlannerManager, PlanningRequest};
 use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
@@ -680,6 +680,9 @@ fn main() {
                 nn_degree: 8,
             },
             solver: None,
+            // This benchmark's tuning is the typed fields above; there is
+            // no `/set_planner_params` in the picture to overlay them.
+            configurations: PlannerConfigurationMap::new(),
         };
 
         let mut context = manager

@@ -6044,7 +6044,8 @@ private:
   /// true`), and the empty group name is what makes it a whole-robot check
   /// on both sides rather than a group-restricted one.
   json condition2(planning_scene::PlanningScene& scene, const PlanSpace& plan_space,
-                  const std::vector<moveit::core::RobotState>& waypoints, double resolution) const
+                  const std::vector<moveit::core::RobotState>& waypoints, double resolution,
+                  const std::vector<double>& extra_resolutions) const
   {
     const auto invalid_count = [&scene](const std::vector<moveit::core::RobotState>& states) {
       std::size_t invalid = 0;
@@ -6060,13 +6061,65 @@ private:
     const std::size_t densified_invalid = invalid_count(densified);
     const std::size_t returned_invalid = invalid_count(waypoints);
 
-    return json{
+    json out{
       { "condition2_valid", densified_invalid == 0 },
       { "invalid_waypoint_count", densified_invalid },
       { "condition2_valid_at_returned_waypoints", returned_invalid == 0 },
       { "densified_waypoint_count", densified.size() },
       { "returned_waypoint_count", waypoints.size() },
     };
+
+    // One condition-2 verdict per requested resolution over the *same* path.
+    // The plan does not depend on the densification resolution -- it is read
+    // only here, after the planner returned -- so this is several verdicts
+    // about one path rather than several runs, which is what makes an
+    // operating-point sweep affordable on both sides. Absent the request
+    // field the loop runs zero times and the object above is unchanged.
+    if (!extra_resolutions.empty())
+    {
+      json by_resolution = json::array();
+      for (const double extra : extra_resolutions)
+      {
+        const std::vector<moveit::core::RobotState> at = densifyPath(plan_space, waypoints, extra);
+        const std::size_t at_invalid = invalid_count(at);
+        by_resolution.push_back(json{
+          { "resolution", extra },
+          { "invalid_count", at_invalid },
+          { "densified_waypoint_count", at.size() },
+          { "valid", at_invalid == 0 },
+        });
+      }
+      out["condition2_by_resolution"] = by_resolution;
+    }
+
+    return out;
+  }
+
+  /// A request's optional `condition2_resolutions`, the operating-point grid
+  /// `condition2` walks in addition to `motion_resolution`.
+  ///
+  /// Rejected rather than defaulted when malformed, mirroring the port
+  /// harnesses' `parse_condition2_resolutions`: a silently dropped grid would
+  /// make a sweep report one resolution's verdict under every resolution's
+  /// name.
+  static std::vector<double> condition2Resolutions(const json& request)
+  {
+    std::vector<double> out;
+    const auto it = request.find("condition2_resolutions");
+    if (it == request.end() || it->is_null())
+      return out;
+    if (!it->is_array())
+      throw std::runtime_error("condition2_resolutions must be an array");
+    for (const json& entry : *it)
+    {
+      if (!entry.is_number())
+        throw std::runtime_error("condition2_resolutions entries must be numbers");
+      const double resolution = entry.get<double>();
+      if (!(resolution > 0.0))
+        throw std::runtime_error("condition2_resolutions entries must be positive");
+      out.push_back(resolution);
+    }
+    return out;
   }
 
   /// Reads a request's joint-name -> value map into a full `RobotState`,
@@ -6139,6 +6192,7 @@ private:
     PlanSpace plan_space = buildPlanSpace(group);
     plan_space.space->setup();
     const double motion_resolution = request.at("motion_resolution").get<double>();
+    const std::vector<double> condition2_resolutions = condition2Resolutions(request);
 
     const json cfg = request.value("chomp", json::object());
     chomp::ChompParameters params;
@@ -6203,7 +6257,8 @@ private:
           waypoints.push_back(res.trajectory[0]->getWayPoint(i));
 
         problem_out["length"] = planSpacePathLength(plan_space, waypoints);
-        problem_out.update(condition2(*scene, plan_space, waypoints, motion_resolution));
+        problem_out.update(
+            condition2(*scene, plan_space, waypoints, motion_resolution, condition2_resolutions));
       }
       problems_out.push_back(problem_out);
     }
@@ -6275,6 +6330,7 @@ private:
     PlanSpace plan_space = buildPlanSpace(group);
     plan_space.space->setup();
     const double motion_resolution = request.at("motion_resolution").get<double>();
+    const std::vector<double> condition2_resolutions = condition2Resolutions(request);
 
     if (!rclcpp::ok())
       rclcpp::init(0, nullptr);
@@ -6322,7 +6378,8 @@ private:
           waypoints.push_back(res.trajectory->getWayPoint(i));
 
         problem_out["length"] = planSpacePathLength(plan_space, waypoints);
-        problem_out.update(condition2(*scene, plan_space, waypoints, motion_resolution));
+        problem_out.update(
+            condition2(*scene, plan_space, waypoints, motion_resolution, condition2_resolutions));
       }
       problems_out.push_back(problem_out);
     }

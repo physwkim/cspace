@@ -787,9 +787,9 @@ matching the brief's figures exactly on independent re-derivation.
 | goal_sampler.rs:334 | contains | `constrained_branch_is_load_bearing_not_merely_invoked` | no | same reasoning as constrained_sampler.rs:305. |
 | nn.rs:244 | is_empty | `len_and_is_empty_track_insertions` | no | clause 3: reads `Gnat::new(4)`'s trivial post-construction state before any subject call — same shape as `bodies.rs:3967`. |
 | nn.rs:248 | is_empty | (same test) | yes | redundant confirmation of `insert()`'s effect, already proven by the adjacent `len()==2` assertion — same "lives one level up" shape as round-11's `matrix.rs:870` (`len_counts_rows_not_pairs`). |
-| registry.rs:1331 | eq_err | `path_constraints_four_scenario_wired_vs_unwired_sweep` | yes | `assert_eq!` pins the exact `PlanningFailure::IterationsExhausted` variant on a real `rrt_connect` call — already discriminating by construction (exact-variant match, not a bare `.is_err()`). |
-| registry.rs:1368 | contains | (same test) | no | range-plausibility check on a real trajectory waypoint value, not an error signal. |
-| registry.rs:1418 | contains | `goal_constraint_is_resolved_and_the_trajectory_ends_inside_the_goal_region` | no | same reasoning as registry.rs:1361. |
+| registry.rs:1667 | eq_err | `path_constraints_four_scenario_wired_vs_unwired_sweep` | yes | `assert_eq!` pins the exact `PlanningFailure::IterationsExhausted` variant on a real `rrt_connect` call — already discriminating by construction (exact-variant match, not a bare `.is_err()`). |
+| registry.rs:1705 | contains | (same test) | no | range-plausibility check on a real trajectory waypoint value, not an error signal. |
+| registry.rs:1755 | contains | `goal_constraint_is_resolved_and_the_trajectory_ends_inside_the_goal_region` | no | same reasoning as registry.rs:1698. |
 | rrt_connect.rs:105 | contains | `RrtConnectParams::assert_valid` | no | production-code precondition assert (scope `src`, not `test`) — not a test discriminating error-guard selection at all. |
 | rrt_connect.rs:579 | contains | `narrow_gap_is_crossed` | no | range-plausibility check on a real computed path point, not an error signal. |
 | rrt_connect.rs:584 | contains | (same test) | no | same reasoning as rrt_connect.rs:579. |
@@ -1291,10 +1291,10 @@ Gate: doc + tooling only (`reconcile-assertion-ledgers.py`,
 test module (the private `PlanningRequest`/`PlanningResponse` it used are now
 `moveit-planning`'s). Four citations in this file moved:
 
-* `crates/moveit-planners-sbp/src/registry.rs:1330`
-* `crates/moveit-planners-sbp/src/registry.rs:1360`
-* `crates/moveit-planners-sbp/src/registry.rs:1367`
-* `crates/moveit-planners-sbp/src/registry.rs:1417`
+* `crates/moveit-planners-sbp/src/registry.rs:1666`
+* `crates/moveit-planners-sbp/src/registry.rs:1697`
+* `crates/moveit-planners-sbp/src/registry.rs:1704`
+* `crates/moveit-planners-sbp/src/registry.rs:1754`
 
 Only the current location is spelled, and it is spelled by full path. A pre-D8
 line number written as `file.rs:NNN` reads as a claim about the tree in front
@@ -1313,7 +1313,7 @@ rather than here: `path_constraints_four_scenario_wired_vs_unwired_sweep`'s
 scenario 1 now measures unwired **3**/5 where it measured 1/5, because D8's
 goal sampling draws from the same `ChaCha8Rng` the search does. See the D8 row
 in `doc/claim-audit/moveit-planners-sbp.md` for the isolating experiment that
-identified the cause. `crates/moveit-planners-sbp/src/registry.rs:1330`'s verdict — an exact-variant
+identified the cause. `crates/moveit-planners-sbp/src/registry.rs:1666`'s verdict — an exact-variant
 `assert_eq!` on `PlanningFailure::IterationsExhausted` — is unaffected by which
 seeds succeed.
 

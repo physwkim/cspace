@@ -57,11 +57,13 @@
 //!
 //! ## Namespace level (4)
 //!
-//! - `struct PlannerConfigurationSettings` (`:56-69`) — **D1 excludes it.**
-//!   Three `std::string`/`map<string,string>` fields filled from ROS
-//!   parameters; the typed equivalent is the concrete manager's own fields
-//!   (e.g. `moveit_planners_sbp::RrtConnectManager`'s tuning).
-//! - `typedef PlannerConfigurationMap` (`:72`) — **D1 excludes it**, same.
+//! - `struct PlannerConfigurationSettings` (`:56-69`) — **ported as**
+//!   [`PlannerConfigurationSettings`]. Was "D1 excludes it" until
+//!   PORTING-PLAN.md §285: D1 drops the ROS *parameter server* that fills
+//!   this struct upstream, not the struct, and `/set_planner_params` fills
+//!   it over a service D1 says nothing about.
+//! - `typedef PlannerConfigurationMap` (`:72`) — **ported as**
+//!   [`PlannerConfigurationMap`], same.
 //! - `MOVEIT_CLASS_FORWARD(PlanningContext)` (`:74`) — **no Rust
 //!   counterpart exists.** It defines `PlanningContextPtr`/`ConstPtr`/
 //!   `WeakPtr` `std::shared_ptr` aliases; this port returns
@@ -142,10 +144,22 @@
 //!   `getPlanningAlgorithms`; its other upstream callers are the concrete
 //!   plugins' own early-outs.
 //! - `virtual void setPlannerConfigurations(const PlannerConfigurationMap&)`
-//!   (`:193`) — **D1 excludes it**, per the `PlannerConfigurationMap`
-//!   bullet.
+//!   (`:193`) — **unported, replaced by construction.** Upstream needs a
+//!   setter because pluginlib hands it an already-built plugin;
+//!   `moveit_planner_registry::PlannerRegistration::construct` takes the
+//!   [`PlannerConfigurationMap`] as its argument instead, so a manager
+//!   cannot exist without the configuration it plans under and no caller
+//!   can forget to install one (PORTING-PLAN.md §285).
 //! - `const PlannerConfigurationMap& getPlannerConfigurations() const`
-//!   (`:196-199`) — **D1 excludes it**, same.
+//!   (`:196-199`) — **unported (no reader).** Its upstream caller is
+//!   `getParams` (`query_planners_service_capability.cpp:132`), reading
+//!   back through the manager because the manager owns the store; here the
+//!   store is the node's and `get_planner_params` reads it directly
+//!   (`ros/moveit-ros/src/planner_params.rs:237`), so nothing asks a
+//!   manager what it was configured with. Upstream's round trip is not
+//!   lossless either — OMPL's override rewrites what it is handed before
+//!   storing it (`ompl_interface.cpp:85-100`) — so the two are not the
+//!   same observation and one is not a stand-in for the other.
 //! - `void terminate() const` (`:202`) — **unported**, for
 //!   `PlanningContext::terminate`'s reason: it forwards to the contexts this
 //!   manager built, and nothing here outlives its `solve`.
@@ -157,11 +171,107 @@
 //! audited here rather than there, because they are properties of the
 //! interface and not of any one planner.
 
+use std::collections::BTreeMap;
+
 use moveit_collision::ParryCollisionEnv;
 use moveit_scene::PlanningScene;
 
 use crate::request::PlanningRequest;
 use crate::response::PlanningResponse;
+
+/// Upstream's `planning_interface::PlannerConfigurationSettings`
+/// (`planning_interface.hpp:56-69`): one planning algorithm's settings, for
+/// one group.
+///
+/// `config` is a [`BTreeMap`] and not a `HashMap` because upstream's is a
+/// `std::map<std::string, std::string>` whose ordering is observable on the
+/// wire: `get_planner_params` fills its key/value arrays by iterating it
+/// (`query_planners_service_capability.cpp:150-154`), so they come back
+/// sorted by key.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PlannerConfigurationSettings {
+    /// The group (as defined in the SRDF) this configuration is meant for,
+    /// empty for a global one.
+    pub group: String,
+    /// This configuration's own key in a [`PlannerConfigurationMap`] —
+    /// [`configuration_name`]'s output. Upstream states the same two forms
+    /// on the field itself (`planning_interface.hpp:60-64`).
+    pub name: String,
+    /// "Key-value pairs of settings that get passed to the planning
+    /// algorithm" (`planning_interface.hpp:66`). Upstream's own note on the
+    /// struct is that "settings with unknown keys are ignored"
+    /// (`planning_interface.hpp:54`), which is why a manager reading one key
+    /// out of this map is not obliged to reject the others.
+    pub config: BTreeMap<String, String>,
+}
+
+/// Upstream's `planning_interface::PlannerConfigurationMap`
+/// (`planning_interface.hpp:72`): map from
+/// [`PlannerConfigurationSettings::name`] to the settings.
+///
+/// This is the type `moveit_planner_registry::PlannerRegistration::construct`
+/// takes, so every [`PlannerManager`] the registry builds is built from one.
+pub type PlannerConfigurationMap = BTreeMap<String, PlannerConfigurationSettings>;
+
+/// The key a configuration is stored under: a bare `planner_config` when no
+/// group is named, `group[planner_config]` otherwise.
+///
+/// Upstream spells this twice in the writer alone — `getParams` builds the
+/// group form inline (`query_planners_service_capability.cpp:142`) and
+/// `setParams` builds it again in a ternary (`:190-191`) — and a third time
+/// in the reader (`planning_context_manager.cpp:508-510`). One function here
+/// instead, so the service that writes a configuration and the planner that
+/// reads it cannot disagree about the spelling across the crate boundary.
+pub fn configuration_name(group: &str, planner_config: &str) -> String {
+    if group.is_empty() {
+        planner_config.to_string()
+    } else {
+        format!("{group}[{planner_config}]")
+    }
+}
+
+/// The configuration a query runs under, or `None` if the map holds neither
+/// a configuration for this `(group_name, planner_id)` pair nor a default
+/// for the group.
+///
+/// Ports `PlanningContextManager::getPlanningContext`'s configuration
+/// selection (`planning_context_manager.cpp:504-526`): a non-empty
+/// `planner_id` is looked up first — verbatim when it already contains the
+/// group name, as `group[planner_id]` otherwise — and a miss falls back to
+/// the entry keyed by the bare group name, which is upstream's "group's
+/// default configuration" form (`planning_interface.hpp:60-64`).
+///
+/// # Deviation from upstream: a total miss is not fatal here
+///
+/// Upstream returns *no context* when neither key is present
+/// (`planning_context_manager.cpp:519-526`), because every OMPL tuning
+/// parameter comes from `ompl_planning.yaml` and a manager with no
+/// configuration has nothing to plan with. Every [`PlannerManager`] in this
+/// workspace instead carries compiled-in defaults (see
+/// `moveit_planners_sbp::RrtConnectManager::default`), so a configuration is
+/// an *overlay* on those and `None` means "plan with your own defaults"
+/// rather than "refuse". Making the miss fatal would mean a node that plans
+/// nothing at all until some client has called `/set_planner_params`.
+pub fn configuration_for<'c>(
+    configs: &'c PlannerConfigurationMap,
+    group_name: &str,
+    planner_id: &str,
+) -> Option<&'c PlannerConfigurationSettings> {
+    if !planner_id.is_empty() {
+        // `req.planner_id.find(req.group_name) == std::string::npos ?
+        //  group + "[" + planner_id + "]" : planner_id` (`:508-510`): a
+        // planner_id that already names the group is a whole key already.
+        let key = if planner_id.contains(group_name) {
+            planner_id.to_string()
+        } else {
+            configuration_name(group_name, planner_id)
+        };
+        if let Some(settings) = configs.get(&key) {
+            return Some(settings);
+        }
+    }
+    configs.get(group_name)
+}
 
 /// Opaque planner failure: a [`PlannerManager`] implementation boxes
 /// whatever error its own concrete planner produced (e.g.
@@ -246,4 +356,101 @@ pub trait PlannerManager {
         env: &'a ParryCollisionEnv,
         request: &PlanningRequest,
     ) -> Result<Box<dyn PlanningContext<'m> + 'a>, PlanError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(group: &str, planner_config: &str) -> PlannerConfigurationSettings {
+        let name = configuration_name(group, planner_config);
+        PlannerConfigurationSettings {
+            group: group.to_string(),
+            name,
+            config: BTreeMap::new(),
+        }
+    }
+
+    fn map(entries: &[PlannerConfigurationSettings]) -> PlannerConfigurationMap {
+        entries
+            .iter()
+            .map(|s| (s.name.clone(), s.clone()))
+            .collect()
+    }
+
+    /// The writer's two forms, which the reader's key has to match:
+    /// `planner_config` alone for a global configuration,
+    /// `group[planner_config]` for a group's
+    /// (`query_planners_service_capability.cpp:190-191`).
+    #[test]
+    fn a_configuration_name_is_bracketed_only_when_a_group_is_named() {
+        assert_eq!(configuration_name("", "RRTConnect"), "RRTConnect");
+        assert_eq!(configuration_name("arm", "RRTConnect"), "arm[RRTConnect]");
+    }
+
+    /// `planner_id` non-empty and not containing the group: upstream looks
+    /// up `group[planner_id]` and nothing else first (`:508-510`).
+    #[test]
+    fn a_named_planner_selects_the_group_bracketed_entry() {
+        let configs = map(&[settings("arm", "RRTConnect"), settings("", "arm")]);
+        assert_eq!(
+            configuration_for(&configs, "arm", "RRTConnect").map(|s| s.name.as_str()),
+            Some("arm[RRTConnect]")
+        );
+    }
+
+    /// The `planner_id.find(group_name) != npos` arm (`:506-508`): an id
+    /// that already names the group is used verbatim, *not* wrapped a
+    /// second time into `arm[arm[RRTConnect]]`.
+    #[test]
+    fn a_planner_id_that_already_names_the_group_is_a_whole_key() {
+        let configs = map(&[settings("arm", "RRTConnect")]);
+        assert_eq!(
+            configuration_for(&configs, "arm", "arm[RRTConnect]").map(|s| s.name.as_str()),
+            Some("arm[RRTConnect]")
+        );
+    }
+
+    /// The fallback arm (`:518-526`): a `planner_id` the map does not hold
+    /// falls through to the group's own default entry rather than to
+    /// nothing, so a configuration set with an empty `planner_config`-as-
+    /// group-name still governs the query.
+    #[test]
+    fn an_unknown_planner_id_falls_back_to_the_group_default_entry() {
+        let configs = map(&[settings("", "arm")]);
+        assert_eq!(
+            configuration_for(&configs, "arm", "PRM").map(|s| s.name.as_str()),
+            Some("arm")
+        );
+        // And with no `planner_id` at all, which is what an unmodified
+        // client sends: the first lookup is skipped entirely.
+        assert_eq!(
+            configuration_for(&configs, "arm", "").map(|s| s.name.as_str()),
+            Some("arm")
+        );
+    }
+
+    /// A global configuration -- what `/set_planner_params` writes when the
+    /// request names no group -- is keyed by the planner config alone, and
+    /// upstream's reader never looks there. Asserted rather than left
+    /// implicit because it is the case a client is most likely to send and
+    /// be surprised by, and because a lookup rule that fell back to a bare
+    /// `planner_id` key would pass every other test in this module.
+    #[test]
+    fn a_global_configuration_does_not_govern_a_grouped_query() {
+        let configs = map(&[settings("", "RRTConnect")]);
+        assert!(configuration_for(&configs, "arm", "RRTConnect").is_none());
+        // The same entry does govern when the query names no group, which
+        // is what makes the miss above a property of the key rule rather
+        // than of the entry being unreachable.
+        assert_eq!(
+            configuration_for(&configs, "", "RRTConnect").map(|s| s.name.as_str()),
+            Some("RRTConnect")
+        );
+    }
+
+    #[test]
+    fn an_empty_map_selects_nothing() {
+        assert!(configuration_for(&PlannerConfigurationMap::new(), "arm", "RRTConnect").is_none());
+    }
 }

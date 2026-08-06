@@ -819,7 +819,7 @@ Phase 완료 조건 판정이 사는 유일한 곳. 위 각 Phase의 "상태" �
 | Phase 7 | 산출 경로 100%가 충돌 검사와 제약을 통과 | MET | §219 | 2026-08-06 |
 | Phase 7 | 경로 길이 중앙값이 C++ OMPL 대비 1.3배 이내 | MET | §219 | 2026-08-06 |
 | Phase 8 | pilz LIN/PTP/CIRC 궤적이 오라클과 `1e-6` 이내 일치 | MET | §217.3 | 2026-08-05 |
-| Phase 8 | CHOMP/STOMP가 Phase 7과 같은 세 속성을, 같은 플래너의 C++ 구현을 기준선으로 통과 (조건 1·3 충족; 조건 2는 상류 C++도 100%가 아니므로 이 부류에 대해 미지정) | PARTIAL | §269 | 2026-08-06 |
+| Phase 8 | CHOMP/STOMP가 Phase 7과 같은 세 속성을, 같은 플래너의 C++ 구현을 기준선으로 통과 — 조건 2는 "각 플래너 자신의 상류 구현이 충돌을 검사하는 이산화 단위(CHOMP 반환 waypoint, STOMP `COL_CHECK_DISTANCE` = 0.05)에서 산출 경로 100%가 충돌 검사와 제약을 통과"로 지정, 그보다 촘촘한 고정 바는 상류 C++도 플래너 시드에 따라 넘거나 못 넘으므로 기준이 아니다 | MET | §286 | 2026-08-06 |
 | Phase 9 | 기존 C++ `MoveGroupInterface` 클라이언트가 무변경으로 유효 궤적 수신 | MET | §273 | 2026-08-06 |
 
 ---
@@ -9148,7 +9148,7 @@ rg -c '^//! - CS:' crates/moveit-constraints/src/lib.rs   →  66
 ### 105.4 `registry.rs`의 처분 절이 낡았다 — 담당의 UNFIXED가 맞다
 
 담당이 범위 밖이라 두고 보고만 한 것을 내가 확인했다.
-`moveit-planners-sbp/src/registry.rs:58`의
+`moveit-planners-sbp/src/registry.rs:62`의
 
 ```
 **Disposition** (proposed, not started — ...)
@@ -11527,8 +11527,8 @@ p1-fixtures 라운드 20이 레지스트리 위치를 조사하고 **새 별도 
 ```
 crates/moveit-planning/src/request.rs:60      pub struct PlanningRequest
 crates/moveit-planning/src/response.rs:44     pub struct PlanningResponse<'m>
-crates/moveit-planners-sbp/src/registry.rs:136  pub struct PlanningRequest
-crates/moveit-planners-sbp/src/registry.rs:163  pub struct PlanningResponse<'m>
+crates/moveit-planners-sbp/src/registry.rs:140  pub struct PlanningRequest
+crates/moveit-planners-sbp/src/registry.rs:167  pub struct PlanningResponse<'m>
 ```
 
 같은 이름이 어느 크레이트에서 보느냐에 따라 다른 타입을 뜻한다. 이게
@@ -14109,7 +14109,7 @@ arm 그룹에는 네 등록이 전부 구성에 성공하므로, 실제로 쓰�
 
 지금
 워크스페이스의 `distributed_slice`는 둘이다.
-`PLANNER_MANAGERS`(`moveit-planners-sbp/src/registry.rs:441`)의 유일한
+`PLANNER_MANAGERS`(`moveit-planners-sbp/src/registry.rs:476`)의 유일한
 순회는 `:655`의 `find(|r| r.name == "rrt_connect")`로 이름 키이고
 테스트 전용이라 이 결함이 아니다. 새 레지스트리를 만들거나 새 순회를
 추가할 때 이 절이 요구하는 것은 하나다: **첫 항목을 집지 말 것.**
@@ -18726,7 +18726,7 @@ public:
    future solves."* 즉 취소가 아니라 컨텍스트를 재사용 불가로 표시하는
    플래그이고(`clear()`도 이것을 되돌리지 않는다), 이것을 세우는 유일한
    호출자는 `move_group`의 액션 취소 경로다. 이 포트의 `PlanningContext`
-   대응물인 `crates/moveit-planners-sbp/src/registry.rs:542-582`가 이미 같은
+   대응물인 `crates/moveit-planners-sbp/src/registry.rs:661-701`가 이미 같은
    이유로 `terminate`를 두지 않는다 — "this crate's planners are
    synchronous"; 동기 `solve`는 상류에서도 실행 중 `terminated_`를 관측할 수
    없다.
@@ -20548,7 +20548,7 @@ doc 주석이고 나머지 6줄은 §236.4가 세운 만료 tripwire 테스트 �
 **둘째, 받는 자리는 이미 있고 그 자리에는 setter가 없다.** 이 포트의
 `PlanningContext` 계층은 포팅되어 있다:
 `moveit_planners_sbp::registry`의 `PlannerManager::get_planning_context`
-(`crates/moveit-planners-sbp/src/registry.rs:584`)가 `request:
+(`crates/moveit-planners-sbp/src/registry.rs:703`)가 `request:
 PlanningRequest`를 **값으로** 받고 `RrtConnectManager`의 구현
 (`:621`)이 그것을 `RrtConnectContext.request`로 옮긴다. 상류가
 `setMotionPlanRequest`에 정규화를 매단 이유는 그것이 요청이 컨텍스트에
@@ -20559,7 +20559,7 @@ PlanningRequest`를 **값으로** 받고 `RrtConnectManager`의 구현
 탐색 예산에 해당하는 것은 `moveit_planners_sbp::Termination`
 (`crates/moveit-planners-sbp/src/rrt_connect.rs:40-58`,
 `RrtConnectParams::termination`을 통해 요청에 실리고
-`crates/moveit-planners-sbp/src/registry.rs:768`에서 소비된다)이다:
+`crates/moveit-planners-sbp/src/registry.rs:887`에서 소비된다)이다:
 
 | 상류 가드가 고치는 입력 | 이 포트에서 |
 |---|---|
@@ -20946,11 +20946,11 @@ crates/`는 `crates/moveit-planning/src/pipeline.rs`의
 crates/moveit-planners-{sbp,chomp,stomp,pilz}/Cargo.toml`도 0건 — 이
 워크스페이스의 플래너 크레이트 넷 중 어느 것도 `moveit-planning`에
 의존하지 않는다. 이 워크스페이스에 존재하는 유일한 구체 플래너,
-`moveit_planners_sbp::registry::RrtConnectManager`(`crates/moveit-planners-sbp/src/registry.rs:616`,
+`moveit_planners_sbp::registry::RrtConnectManager`(`crates/moveit-planners-sbp/src/registry.rs:735`,
 `impl PlannerManager for RrtConnectManager`)는 `moveit-planning`의
 `PlanningRequest`/`PlanningResponse`와 이름만 같고 타입이 다른, 자기
 자신의 `PlanningRequest`/`PlanningResponse`를 쓴다
-(`crates/moveit-planners-sbp/src/registry.rs:270-340`, 이번 라운드가 다시 읽어 확인).
+(`crates/moveit-planners-sbp/src/registry.rs:276-346`, 이번 라운드가 다시 읽어 확인).
 
 이 둘을 잇는 어댑터를 `ros/moveit-ros` 안에 지금 짜지 않았다 — D8
 (§140)이 이미 이 둘을 하나의 크레이트(`moveit-planner-registry`)로
@@ -22485,7 +22485,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 9 | `moveit_core/constraint_samplers/src/constraint_sampler_tools.cpp` | §225.1 | `PORTING-PLAN.md` §225.1, `crates/moveit-constraints/src/lib.rs:574-611` | —(.cpp) |
 | 10 | `moveit_core/macros/include/moveit/macros/console_colors.hpp` | §228.5 | `PORTING-PLAN.md` §228.5 | 1 |
 | 11 | `moveit_core/online_signal_smoothing/include/moveit/online_signal_smoothing/smoothing_base_class.hpp` | D1, D4 | `crates/moveit-smoothing/src/lib.rs:28-37` | 3 |
-| 12 | `moveit_core/planning_interface/src/planning_interface.cpp` | §236 | `crates/moveit-planners-sbp/src/lib.rs:284-326` (`# Round 6 symbol audit`) -- 8 of the 9 definitions; `PORTING-PLAN.md` §236 + `crates/moveit-planning/src/request.rs:89-105` -- the 9th | —(.cpp) |
+| 12 | `moveit_core/planning_interface/src/planning_interface.cpp` | §236 | `crates/moveit-planners-sbp/src/lib.rs:284-332` (`# Round 6 symbol audit`) -- 8 of the 9 definitions; `PORTING-PLAN.md` §236 + `crates/moveit-planning/src/request.rs:89-105` -- the 9th | —(.cpp) |
 | 13 | `moveit_core/utils/include/moveit/utils/eigen_test_utils.hpp` | §228.4 | `PORTING-PLAN.md` §228.4; `crates/moveit-test-support/src/lib.rs:8-22` | 0 |
 | 14 | `moveit_core/utils/include/moveit/utils/lexical_casts.hpp` | §228.1, D3 | `PORTING-PLAN.md` §228.1 | 0 |
 | 15 | `moveit_core/utils/include/moveit/utils/logger.hpp` | D1 | `crates/moveit-planners-pilz/src/lib.rs:162` | 50 |
@@ -22589,11 +22589,11 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 1 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp` | `crates/moveit-collision/src/lib.rs:17` | 2 |
 | 2 | `moveit_core/constraint_samplers/src/constraint_sampler.cpp` | `crates/moveit-constraints/src/sampler.rs:184,377`, module doc "`constraint_sampler.cpp`: where its two function bodies went" | —(.cpp) |
 | 3 | `moveit_core/exceptions/src/exceptions.cpp` | `crates/moveit-error/src/lib.rs:21-28,64-73` | —(.cpp) |
-| 4 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `crates/moveit-planners-sbp/src/lib.rs:284-326` (`# Round 6 symbol audit`), `crates/moveit-planners-stomp/src/lib.rs:68-106` (completion statement) | 7 |
+| 4 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `crates/moveit-planners-sbp/src/lib.rs:284-332` (`# Round 6 symbol audit`), `crates/moveit-planners-stomp/src/lib.rs:68-106` (completion statement) | 7 |
 | 5 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request.hpp` | `crates/moveit-planning/src/request.rs:4-10` | 1 |
-| 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:406` (`PlanningRequestAdapter`) | 0 |
+| 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:414` (`PlanningRequestAdapter`) | 0 |
 | 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:193` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
-| 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:422` (`PlanningResponseAdapter`) | 0 |
+| 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:430` (`PlanningResponseAdapter`) | 0 |
 | 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:326` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:44-66` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
 | 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-7`, `:56` | 2 |
 | 11 | `moveit_core/robot_state/src/attached_body.cpp` | `crates/moveit-scene/src/attached_body.rs:191` (`set_scale`), `:205` (`set_padding`), `:122` (`subframe_pose`), `:67` (`new`); `crates/moveit-scene/src/scene.rs:1129` (`attach`), `:1200` (`attach_new`), `:1352-1355` (`frame_transform`'s on-demand recompute); `crates/moveit-kinematics/src/set_from_ik.rs:150` | —(.cpp) |
@@ -22762,7 +22762,7 @@ Phase 9를 코퍼스 계기로 추적하려면 `CORPUS_ROOTS`에 `moveit_ros/mov
 
 | 조각 | §226.3 | 지금 | 지은 절 |
 |---|---|---|---|
-| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/move_group.rs:215,272,356` (§255.2 이전 이름은 `plan_kinematic_path_server.rs`, 줄 번호는 지금 트리에서 다시 유도했다) | §241 |
+| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/move_group.rs:216,274,377` (§255.2 이전 이름은 `plan_kinematic_path_server.rs`, 줄 번호는 지금 트리에서 다시 유도했다) | §241 |
 | `/plan_kinematic_path` 서비스 | 부재 | **존재** — 같은 파일 `create_service::<GetMotionPlan::Service>` | §241 |
 | `/move_action` 액션 서버 | 부재 | **존재** — 같은 파일 `create_action_server::<MoveGroup::Action>` | 이 절 |
 | planning scene 토픽 구독 | 부재 | **부재** — `rg -n 'create_subscription' ros/moveit-ros/src/ -t rust` 0건 | — |
@@ -26523,7 +26523,7 @@ box`가 아니라서 §251의 깨진 셀을 건드리지 않는다.
 **플래너 쪽**에 산다 — `PlannerManager::initialize` +
 `setPlannerConfigurations`(`planning_interface.hpp`)가 그 자리다. 그래서 sbp
 전용 네 필드는 요청에서 지운 것이 아니라 `RrtConnectManager`의 필드로
-옮겼다(`crates/moveit-planners-sbp/src/registry.rs:358-429`). 요청 타입은 `moveit-planning`의 것이 그대로
+옮겼다(`crates/moveit-planners-sbp/src/registry.rs:378-463`). 요청 타입은 `moveit-planning`의 것이 그대로
 남고, sbp가 그것을 쓴다.
 
 `goal` 충돌은 §241.2가 어댑터를 거절한 바로 그 지점이다. `Goal::State`는
@@ -27748,7 +27748,7 @@ Phase 9의 클라이언트 표면에서 비어 있던 세 엔드포인트
 
 ```
 $ rg -n "distributed_slice\(PLANNER_MANAGERS\)" crates/ ros/
-crates/moveit-planners-sbp/src/registry.rs:784:#[linkme::distributed_slice(PLANNER_MANAGERS)]
+crates/moveit-planners-sbp/src/registry.rs:903:#[linkme::distributed_slice(PLANNER_MANAGERS)]
 ```
 
 등록은 하나(`"rrt_connect"`)다. `PLANNER_MANAGERS`는 상류의 **플러그인**
@@ -27827,14 +27827,14 @@ crates/moveit-planners-sbp/src/registry.rs:784:#[linkme::distributed_slice(PLANN
 
 ### §274.6 닫지 않은 것
 
-- **저장된 설정은 어떤 플래너에도 닿지 않는다.** 상류의 `setParams`는
+- **저장된 설정은 어떤 플래너에도 닿지 않는다. 닫혔다(§285).** 상류의 `setParams`는
   `setPlannerConfigurations`로 끝나면서 파이프라인이 계획에 쓰는 인스턴스에
   맵을 넘긴다. 여기에는 대응하는 호출이 없고, 애초에 이 워크스페이스의 어떤
   구성 경로도 `PlannerConfigurationMap`을 입력으로 받지 않는다. 즉 `set`은
   받아들여지고 `get`으로 읽히지만 뒤따르는 계획을 바꾸지 않는다. 닫으려면
   `PlannerRegistration::construct`가 저장소를 받아야 하고, 그것은 플래너
   레지스트리 트레이트의 변경이라 이 파일의 일이 아니다.
-- **머지 시점의 import.** 이 브랜치의 base에서 `PLANNER_MANAGERS`는
+- **머지 시점의 import. 이미 해소되었다(§285.1).** 이 브랜치의 base에서 `PLANNER_MANAGERS`는
   `moveit-planners-sbp`에 있고, `main`에서는 `moveit-planner-registry`
   크레이트로 옮겨져 있다(그 크레이트는 이 base에 존재하지 않는다). sbp는
   거기에 비공개 `use`로 닿고 워크스페이스 어디에도 재수출이 없으므로, 새
@@ -28929,7 +28929,7 @@ ACM에서 `prbt_flange` 대신 `prbt_link_5`를 열면 쌍 단언이 FAIL, 오�
 
 | | 이 브랜치 분기 시점 | 병합된 main |
 |---|---|---|
-| `compute_cartesian_path` | absent | **bound** (`ros/moveit-ros/src/bin/move_group.rs:819`) |
+| `compute_cartesian_path` | absent | **bound** (`ros/moveit-ros/src/bin/move_group.rs:840`) |
 | port side, absent | 9 | **0** |
 | port side, bound | 1 | **11** |
 | port side, surplus | 3 | 3 |
@@ -29586,3 +29586,600 @@ GJK 경로에 떨어져 `distanceCallback`이 남겨 둔 `distance_tolerance` �
 - **다른 `box x cylinder` self 쌍은 훑지 않았다.** 이 절이 판정한 것은 case
   4697 하나이고, prbt의 분리 tail 나머지(case 1613 `6.306573e-5`, case 6083
   `4.192798e-5`, case 1339 `2.414557e-5`)가 같은 원인인지는 재지 않았다.
+
+---
+
+## §285 저장된 planner 설정이 계획에 닿는다 — `construct`가 맵을 받는 형태로 (2026-08-06)
+
+§274.6의 첫 항목: `/set_planner_params`는 설정을 받아 저장하고
+`/get_planner_params`는 그것을 되읽지만, **뒤따르는 어떤 계획도 달라지지
+않았다.** 상류의 `MoveGroupQueryPlannersService::setParams`는
+`planner_interface->setPlannerConfigurations(configs)`로 끝나면서 파이프라인이
+실제로 계획에 쓰는 `PlannerManager` 인스턴스에 그 맵을 넘긴다
+(`query_planners_service_capability.cpp:205`). 이 포트에는 대응하는 호출이
+없었고, 애초에 워크스페이스의 어떤 구성 경로도 `PlannerConfigurationMap`을
+입력으로 받지 않았다.
+
+이 절이 한 것은 그 입력을 만드는 것이다. `PlannerRegistration::construct`가
+맵을 인자로 받고 —
+`pub construct: fn(&PlannerConfigurationMap) -> Box<dyn PlannerManager>,`
+(`crates/moveit-planner-registry/src/lib.rs:80`) — `resolve_planner`가 그것을
+통과시키며(`crates/moveit-planner-registry/src/lib.rs:134`), 노드는
+`/set_planner_params`가 쓰는 바로 그 저장소를 매 계획마다 건네준다:
+`plan_only(&mut scene, &env, &pipeline_id, &configs.borrow(), request)`
+(`ros/moveit-ros/src/bin/move_group.rs:316`).
+
+### §285.1 브리프의 전제를 먼저 검증했다 — 세 줄 인용은 정확하고, §274.6의 둘째 항목은 이미 낡았다
+
+과제가 인용한 세 위치를 base에서 그대로 확인했다. 아래는 재현 명령과 그
+출력이다 — 세 줄 번호는 **base(`ae0564da`)의 것**이고 이 절의 변경으로 전부
+이동했으므로, 작업본을 가리키는 인용으로 읽어서는 안 된다. 그래서 표가 아니라
+`git show`로 적는다:
+
+```
+$ git show ae0564da:ros/moveit-ros/src/planner_params.rs | sed -n 179p
+pub type PlannerConfigurations = Rc<RefCell<PlannerConfigurationMap>>;
+$ git show ae0564da:crates/moveit-planning/src/planner.rs | sed -n 212p
+pub trait PlannerManager {
+$ git show ae0564da:crates/moveit-planner-registry/src/lib.rs | sed -n 115p
+pub fn resolve_planner(name: &str) -> Result<Box<dyn PlannerManager>> {
+```
+
+셋 다 브리프가 적은 그대로다 — 저장소, 매니저 트레이트, 단일 선택 지점.
+
+낡은 것은 브리프가 아니라 §274.6의 **둘째** 항목이다. 그것은 "머지 시점에
+`planner_params.rs`가 충돌 없이 머지되고 그 다음 컴파일에서 깨진다, 고칠 곳은
+import 한 줄과 `Cargo.toml`의 의존 한 줄"이라고 적었는데, 그 머지는 이미
+일어났고 고침도 이미 들어가 있다 — base의 `planner_params.rs`는
+`use moveit_planner_registry::PLANNER_MANAGERS;`로 읽고
+`ros/moveit-ros/Cargo.toml`은 그 크레이트를 이미 의존한다. §274.6에 그
+사실을 표시했다.
+
+### §285.2 두 산출물 중 강한 쪽이 가능했다 — `range`는 상류의 키이고 `step_size`는 이미 그 양이다
+
+과제는 두 가지를 허용했다. (a) 설정 값이 계획을 실제로 바꾸는 것을 보이는
+테스트, (b) 그런 파라미터가 오늘 없다면 맵이 매니저에 **도달**한다는 것만
+보이는 테스트. 어느 쪽인지는 base의 사실로 결정된다:
+
+```
+$ git grep -nE '\.config\b|config\.get\(|"range"' HEAD -- crates/moveit-planners-sbp/src
+(출력 없음)
+```
+
+sbp는 문자열 키 설정을 **하나도** 읽지 않았다. `RrtConnectManager`의 조정
+수단은 `resolution`/`seed`/`params`/`solver` 네 개의 타입 있는 필드뿐이고,
+`construct`는 인자를 받지 않았다. 문자만 보면 (b)다.
+
+그러나 (a)를 위해 **새 이름을 지어낼 필요가 없다**. `range`는 상류가
+RRTConnect에 대해 쓰는 자기 키이고 — 고정된 체크아웃의
+`moveit_configs_utils/default_configs/ompl_defaults.yaml:38-40`이 `RRTConnect`
+블록에 `type`과 `range` 둘만 싣는다, 주석은 "Max motion added to tree" — 그
+키가 플래너에 닿는 경로도 상류에 있다
+(`planning_context_manager.cpp:213`, `planner->params().setParams(spec.config_, true)`).
+그리고 그 양은 이 포트에 **이미 있다**: `RrtConnectParams::step_size`가 한
+번의 `extend`가 트리를 목표 쪽으로 전진시키는 최대 거리다. 그래서 이 절이
+새로 만든 것은 이름이 아니라 **상류의 키와 이 포트의 기존 필드 사이의
+연결**이고, 산출물은 (a)다 — 계획이 실제로 달라진다.
+
+`goal_bias`는 묶지 않았다. 이 포트의 RRT-Connect는 그 필드를 갖지만, 상류에서
+`goal_bias`는 `RRT`/`EST`의 키이지 `RRTConnect`의 키가 아니다
+(`moveit_configs_utils/default_configs/ompl_defaults.yaml:34-37`이 `RRT`
+블록이고, 세 줄 아래 `RRTConnect`
+블록에는 그 키가 없다). 묶었다면 상류가 이 플래너에 쓰지 않는 이름을
+지어내는 것이 된다. `intermediate_states`는 반대로 상류에는 있으나 이쪽에
+대응 필드가 없다.
+
+### §285.3 setter가 아니라 생성자 인자 — 매니저는 자기가 계획할 설정 없이는 만들어질 수 없다
+
+상류의 모양은 setter다(`planning_interface.hpp:193`). 그대로 옮기면 "부르는
+쪽이 잊을 수 있는 호출"이 하나 생기고, 잊었을 때의 증상이 정확히 이 절이
+닫는 결함이다. 그래서 registry 트레이트 표면을 바꿨다:
+
+```rust
+pub construct: fn(&PlannerConfigurationMap) -> Box<dyn PlannerManager>,
+```
+
+`resolve_planner(name, configs)`가 유일한 통로이므로, 레지스트리를 통해 만든
+매니저는 자기가 계획할 설정을 **반드시** 갖는다. 이는 `SolverRegistration`이
+이미 쓰는 형태이기도 하다. 선택은 그대로 이름으로 하고
+(`PLANNER_MANAGERS`에서 `registration.name == name`), 슬라이스 위치에
+의존하는 것은 새로 들어가지 않았다 — §177이 실측한 대로 `linkme` 슬라이스의
+순서는 계약이 아니다.
+
+매니저 쪽은 맵을 생성 시점에 한 번 소비하지 않고 **질의마다** 참조한다
+(`crates/moveit-planners-sbp/src/registry.rs:528`의 `params_for`). 어느 항목이
+지배하는지가 요청의 group과 `planner_id`의 함수이기 때문이고, 그것은 상류의
+조회도 마찬가지다(`planning_context_manager.cpp:504-526`).
+
+### §285.4 설정 타입이 `moveit-planning`으로 내려왔다 — D1이 배제한 것은 파라미터 서버이지 구조체가 아니다
+
+`PlannerConfigurationSettings`/`PlannerConfigurationMap`은 §274에서
+`ros/moveit-ros` 안의 지역 타입이었고, `crates/moveit-planning`의 선언 감사는
+그 둘을 "D1 excludes it"으로 처분하고 있었다. 그 처분이 틀렸다는 것이 이
+라운드의 의미 변경이다: **D1이 없애는 것은 상류에서 이 구조체를 채우는 ROS
+파라미터 서버이지 구조체 자체가 아니고**, `/set_planner_params`는 D1이 아무
+말도 하지 않는 서비스로 같은 구조체를 채운다. 두 타입은 상류의 제자리
+(`planning_interface.hpp:56-72`)에 해당하는 `crates/moveit-planning`으로
+옮겼고, 감사 항목 두 개를 "ported as"로 뒤집었다.
+
+같은 이유로 sbp의 감사 항목도 고쳤다. 그것은 "런타임 플러그인 경계가 없으니
+문자열 가방도 필요 없다"고 적고 있었는데, 이 가방이 건너는 경계는 플러그인
+경계가 아니라 `/set_planner_params`라는 **서비스**다. 클라이언트가 런타임에
+보내는 값은 컴파일타임 필드가 될 수 없다.
+
+키 규칙은 한 함수로 모았다(`crates/moveit-planning/src/planner.rs:225`의
+`configuration_name`). 상류는 같은 규칙을 쓰는 쪽에서 두 번
+(`query_planners_service_capability.cpp:142`,
+`query_planners_service_capability.cpp:190-191`), 읽는 쪽에서 한 번
+(`planning_context_manager.cpp:508-510`) 각각 인라인으로 적는다. 여기서는
+설정을 쓰는 서비스와 읽는 플래너가 크레이트 경계를 사이에 두고 있으므로,
+철자가 갈라지면 아무도 알아채지 못한다.
+
+### §285.5 상류와 다른 점: 완전 미스는 치명적이지 않다
+
+상류는 `planner_id` 키도 group 키도 없으면 **컨텍스트를 만들지 않고 돌아간다**
+(`planning_context_manager.cpp:519-526`). 그럴 수 있는 이유는 상류에서 모든
+OMPL 조정값이 `ompl_planning.yaml`에서 오기 때문이다 — 설정이 없는 매니저는
+계획할 것이 없다. 이 워크스페이스의 매니저는 컴파일된 기본값을 갖고 있으므로
+설정은 그 위의 **덮어쓰기**이고, 미스는 "자기 기본값으로 계획하라"는 뜻이다
+(`crates/moveit-planning/src/planner.rs:255`의 `configuration_for`).
+반대로 했다면 클라이언트가 `/set_planner_params`를 부르기 전까지 아무것도
+계획하지 못하는 노드가 된다.
+
+값 자체도 거른다. 파싱되지 않는 값, 그리고 `RrtConnectParams`가 거부할 값은
+알 수 없는 키와 똑같이 무시한다 — 상류가 이 맵의 계약을 그렇게 적었고
+(`planning_interface.hpp:54`, "Settings with unknown keys are ignored"),
+`range: 0.0`은 상류 자신의 "플래너가 알아서 고르게 하라" 철자이며, 무엇보다
+`RrtConnectParams::assert_valid`는 비양수 step size에서 **패닉**한다. 서비스로
+들어온 값이 노드를 내릴 수 있어서는 안 된다.
+
+### §285.6 무엇이 이 변경을 반증하는가 — 두 개의 mutation
+
+새 테스트가 오늘의 트리에서 실패하고 변경 후 통과한다는 것은, 변경을 되돌리는
+두 mutation을 실제로 적용해서 확인했다.
+
+| mutation | 무엇을 되돌리는가 | 결과 |
+|---|---|---|
+| M1 | `params_for`가 `configurations`를 읽지 않는다 (`let _ = settings;`) | `cargo nextest run -p moveit-planners-sbp` 3 중 2 실패 — `a_range_configuration_reaches_the_registry_planner_and_changes_the_plan`이 `assert_ne!`에서 죽고, `a_range_that_rrt_connect_cannot_use_is_ignored_rather_than_applied`의 수용 케이스도 죽는다. `a_configuration_for_another_group_leaves_the_plan_alone`은 같음을 주장하므로 옳게 통과. DDS에서도 leg C가 "3 before / 3 after"로 실패 |
+| M2 | 바이너리가 저장소 대신 빈 맵을 넘긴다 (`plan_only(..., &PlannerConfigurationMap::new(), ...)`) | 컨테이너 단위 테스트 `a_stored_configuration_changes_the_plan_plan_only_produces`는 **통과한다** — `plan_only`를 직접 부르기 때문이다. leg A/B도 통과. 오직 leg C만 실패 |
+
+M2가 이 라운드의 실제 교훈이다. 노드 바이너리의 배선은 어떤 단위 테스트도
+보지 못하고, `ros/verify-planner-params-interop.sh`의 leg C만 본다. 그래서
+그 leg를 이 절에서 추가했다: 설정 전 계획, `set`, 설정 후 계획을 한 노드
+프로세스에서 순서대로 부르고 waypoint 수를 센다.
+
+### §285.7 잰 것
+
+`range: 0.05`(기본값 `0.5`의 1/10) 하나만 바꾼 같은 질의:
+
+| 어디서 | 설정 전 waypoint | 설정 후 waypoint |
+|---|---:|---:|
+| `moveit-planners-sbp`, `PLANNER_MANAGERS`를 통해 panda_arm, 목표 `panda_joint1 = 0.4` | 3 | 5 |
+| `ros/moveit-ros`, `plan_only`를 통해 one_joint, 목표 `j1 = 0.5` | 3 | 7 |
+| `ros/verify-planner-params-interop.sh` leg C, DDS를 건너 `/plan_kinematic_path` | 3 | 7 |
+
+아래 두 줄이 같은 7인 것은 우연이 아니다 — 같은 `one_joint` 모델, 같은 목표,
+같은 seed이고 다른 것은 하나가 프로세스 안이고 다른 하나가 DDS를 건넌다는
+점뿐이다. 두 수가 갈라졌다면 그것이 배선의 결함을 가리킨다.
+
+방향까지 주장한다는 점이 요점이다. `assert_ne!`만이면 "설정이 닿긴 했으나
+엉뚱한 필드(가령 seed)에 앉았다"도 통과한다. `range`는 한 번의 `extend`가
+전진하는 거리의 상한이므로 1/10이면 같은 거리를 더 많은 걸음으로 건너야
+하고, 그래서 세 줄 모두 부등호로 적었다. 세 경우 모두 목표에는 여전히
+도달한다는 것도 함께 주장한다 — 그렇지 않으면 "달라졌다"가 "계획을 망가뜨렸다"로
+만족될 수 있다.
+
+### §285.8 인용 표류를 같이 고쳤다
+
+이 변경은 `crates/moveit-planners-sbp/src/registry.rs`를 341줄,
+`crates/moveit-planning/src/planner.rs`를 207줄 늘리고
+`ros/moveit-ros/src/planner_params.rs`를 15줄 줄인다. 그 결과 다른 문서 8개가
+이 파일들을 가리키던 줄 번호 94개가 한꺼번에 표류했고,
+`tools/ci/verify-orphan-enumeration.sh`가 base에서 0/0이던 것이
+"23 orphan / 21 unresolved"로 무너졌다.
+
+고치는 방법을 손으로 세지 않고 계측으로 잡았다: base의 파일과 작업본을
+`difflib.SequenceMatcher`로 맞춰 **내용이 같은 줄**의 옛 번호 → 새 번호
+사상을 만들고, 추적되는 모든 `.md`의 `path.rs:NNN` 인용을 그 사상으로 다시
+썼다. 근접 창(window)으로 맞추지 않은 이유는 §285의 문제가 아니라 이미
+알려진 것이다 — `tools/ci/check-citation-drift.py`의 헤더가 적듯 근접 매칭은
+이웃 테스트의 단언에 조용히 붙는다. 내용 동일성으로 사상하면 다시 쓴 인용이
+가리키는 바이트가 이전과 같다.
+
+새로 생긴 scanner 사이트 2개는 새 대장에 적었다
+(`doc/assertion-discrimination-ledger-p12-planner-configurations.md`).
+`crates/moveit-planning/src/planner.rs:442`는 discriminating —
+`configuration_for`의 폴백을 `or_else(|| configs.get(planner_id))`로 넓히는
+bite에서 이 사이트만 죽고, 첫 조회를 지우는 bite에서는 이 사이트가 살고 두
+줄 아래 `assert_eq!`가 죽는다(양방향). `crates/moveit-planning/src/planner.rs:454`는
+single-branch — 빈 맵에서는 두 조회의 조건이 모두 불만족이므로 이름 붙일
+분기가 없고, 이 사이트를 죽이는 유일한 bite(미스에서 조작된 `Some`을
+돌려주기)는 같은 실행에서 위 사이트도 죽인다.
+
+### §285.9 이 절이 하지 않은 것
+
+- **`range` 말고 다른 키는 묶지 않았다.** 오늘 이 포트가 `RRTConnect`에 대해
+  상류와 이름을 공유하는 키는 그것 하나다(§285.2). `resolution`/`seed`는
+  상류 `ompl_planning.yaml`에 대응 항목이 없으므로, 그것들을 문자열 키로
+  노출하는 것은 상류가 쓰지 않는 이름을 만드는 일이다.
+- **`getPlannerConfigurations`는 포팅하지 않았다.** 상류에서 `getParams`가
+  매니저에게 되묻는 이유는 저장소가 매니저의 것이기 때문이다
+  (`query_planners_service_capability.cpp:132`). 여기서는 저장소가 노드의
+  것이고 `get_planner_params`가 직접 읽는다. 두 왕복이 같은 관측도 아니다 —
+  상류의 OMPL 오버라이드는 넘겨받은 맵을 저장 전에 고쳐 쓴다
+  (`ompl_interface.cpp:85-100`).
+- **group 없는 `set`의 도달 불가능성은 그대로 두었다.** group을 비운 `set`은
+  `planner_config` 이름 그대로 저장되는데, group을 명시한 질의는 그 키를
+  보지 않는다. 상류의 동작도 같고, 이 절은 그것을 테스트로 고정만 했다
+  (`a_global_configuration_does_not_govern_a_grouped_query`).
+- **§274.6의 나머지 인용 표류는 이 절의 것이 아니다.** `planner_params.rs`의
+  주석이 상류 `query_planners_service_capability.cpp`의 "fetch default params
+  first"를 `query_planners_service_capability.cpp:139`, "merge in
+  group-specific params"를 `query_planners_service_capability.cpp:146`으로
+  인용하는데,
+  고정된 체크아웃에서 그 두 줄은 각각 135와 141이다. §274에서 들어온 것이고
+  이 라운드가 건드린 코드가 아니라서 그대로 두었다.
+
+---
+
+## §286 Phase 8의 조건 2를 지정한다 — "상류가 100%인 가장 촘촘한 해상도"는 기준이 아니라 시드 추첨이었다 (2026-08-06)
+
+§269가 §5의 Phase 8 줄을 PARTIAL로 닫으면서 조건 2를 이 플래너 부류에 대해
+**미지정**으로 남겼다. 미지정인 조건에 PARTIAL은 정직한 판정이지만, 빠진
+것은 측정이 아니라 조건이다. 이 절은 조건 2의 문안을 하나 정하고, 그것을
+정한 근거를 취향이 아니라 숫자로 적고, 포트를 그 문안에 대고 잰다.
+
+가장 먼저 적어야 할 것은 **모집단**이다. 아래 모든 수는 두 모집단 중 하나에서
+왔고, 어느 쪽인지 매 표에 적는다.
+
+- **전체 500문제** — `plan_benchmark_problem_set` panda_arm, `floor_wall` 250
+  (집합 씨앗 900001) + `cage` 250 (집합 씨앗 900002). §263·§269가 쓴 그
+  집합이며, 끝점 쌍이 **균일 무작위**다.
+- **씨앗 무효 stratum 251문제** — 그중 시작→목표 직선이 이미 충돌하는 문제.
+  §286.1이 이것을 왜 갈라야 하는지와 크기를 잰다.
+
+플래너 RNG 씨앗 베이스는 따로 적지 않으면 **700001**이고, 그리드는 따로 적지
+않으면 `0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001`이다.
+
+### §286.1 모집단 — 500문제의 절반은 최적화기가 필요 없던 문제다
+
+§264.7이 이것을 8문제 stratum에서 쟀다. 그 관찰을 이 줄이 실제로 판정받는
+500문제로 옮긴다.
+
+두 플래너의 씨앗은 **같은 직선**이다. STOMP은
+`fill_in_linear_interpolation`이니 자명하고, CHOMP의 기본
+`trajectory_initialization_method = quintic-spline`도 그렇다 —
+`ChompTrajectory::fill_in_min_jerk`
+(`crates/moveit-planners-chomp/src/trajectory.rs:373-410`)는
+`coeff[joint][0] = x0;`를 두고 1·2차 계수를 0으로 두며, 나머지 셋을
+`coeff[joint][3] = (-20.0 * x0 + 20.0 * x1) / (2.0 * td[3]);` 꼴로 —
+즉 전부 `x1 - x0`에 **관절 무관한 같은 배율**로 — 얹는다. 그래서 모든 관절이
+하나의 스칼라 프로파일 `s(t)`를 함께 달리고, 궤적은 `x0 + s(t)·(x1 - x0)`,
+즉 관절 공간의 직선을 시간만 달리해 따라간다. 시간 파라미터화는 다르지만
+**경로는 같다.**
+
+그러므로 "이 문제의 씨앗이 이미 충돌 없는가"는 플래너와 무관한 **문제의
+성질**이고, 한 번 재면 네 팔 모두에 쓸 수 있다.
+`crates/moveit-planners-sbp/examples/seed_validity_problem_set.rs`가 그것만
+한다 — 요청의 문제마다 시작→목표 직선을 각 해상도로 조밀화해
+`PlanningScene::is_path_valid`에 건다. 플래너는 돌지 않는다.
+
+전체 500문제, `motion_resolution` = 0.01 기준:
+
+| config | 씨앗 유효 | 씨앗 무효 |
+| --- | --- | --- |
+| floor_wall | 148/250 | 102/250 |
+| cage | 101/250 | 149/250 |
+| **합계** | **249/500 (49.8%)** | **251/500** |
+
+이 갈림이 조건 2에 무엇을 하는지는 세 수가 말한다. 전부 전체 500문제 기준.
+
+1. **씨앗 유효 문제는 네 팔 전부가 100% 푼다.** port CHOMP 249/249, cpp CHOMP
+   249/249, cpp STOMP 249/249, port STOMP 249/249 — 이 stratum에서
+   미해결이 한 건도 없다. 미해결은 전부 씨앗 무효 쪽이다(CHOMP port 120/251 ·
+   cpp 130/251, STOMP port 59/251 · cpp 54/251).
+2. **CHOMP은 씨앗을 그대로 돌려준다.** 씨앗 유효 문제에서 반환 경로의 관절
+   공간 길이가 씨앗 길이와 상대오차 `1e-9` 안에서 같은 것이 port CHOMP
+   249/249, cpp CHOMP 249/249다. 최적화기가 경로를 건드리지 않았다.
+   **STOMP은 조금 다르다** — 249건 중 `1e-9` 안에 드는 것이 cpp 162건,
+   port 161건이고 나머지는 움직인다. 다만 그 움직임은 작다: cpp 길이비의
+   범위가 `0.999873`-`1.018523`, 중앙값 `1.000000`이다(§264.4의 끝점 밀림과
+   같은 자리).
+3. **그래도 이 stratum은 두 구현을 가를 수 없다.** 두 플래너 각각에 대해
+   양쪽이 다 푼 249문제 × 9개 판정 지점 = 2,241개 판정에서 port와 cpp의
+   불일치가 **0건**이다(CHOMP 0/2,241, STOMP 0/2,241). 조건 2가 이 stratum
+   에서 깨진 사례도 네 팔 어디에도 없다.
+
+즉 이 모집단의 절반에서 "산출 경로가 충돌 검사를 통과한다"는 **문제
+생성기**에 대한 진술이지 두 구현 중 어느 쪽에 대한 진술도 아니다. 아래 표들이
+전체와 씨앗 무효 stratum을 항상 나란히 적는 이유이고,
+`analyse-phase8-condition2-grid.py`가 `--seed`를 **필수** 인자로 받는
+이유다 — 갈림을 적지 않고도 비율을 찍을 수 있는 계기라면 그 계기는 포트의
+이름으로 생성기를 보고하게 된다.
+
+### §286.2 계기 — 스윕 한 번이 그리드 전체를 낳는다
+
+조건 2를 여러 해상도에서 보려면 해상도마다 다시 계획해야 할 것 같지만
+그렇지 않다. `chomp_plan`/`stomp_plan` 양쪽에서 `motion_resolution`은 플래너가
+**반환한 뒤** 그 경로를 조밀화하는 데만 쓰인다(OMPL의 `plan` op은 다르다 —
+거기서는 `si->setStateValidityCheckingResolution`으로 들어가므로
+`oracle.cpp:5784` 계획 자체가 달라진다). 그래서 요청에
+`condition2_resolutions: [r, ...]`를 실으면 한 번의 스윕이 같은 경로에 대한
+해상도별 판정을 전부 낳는다. 이것은 편의가 아니다: 포트 STOMP 쪽을 해상도마다
+다시 돌리면 한 벌이 약 3시간이므로 그리드는 존재하지 않았을 것이다.
+
+양쪽에 같은 필드를 넣었다.
+
+- 오라클 `condition2(...)`가 다섯 번째 인자로 추가 해상도를 받고
+  `condition2_by_resolution` 배열을 붙인다. `chompPlan`/`stompPlan` 둘 다
+  `condition2Resolutions(request)`로 읽는다(배열 아님·숫자 아님·양수 아님이면
+  throw).
+- 포트 쪽 `chomp_benchmark_port` / `stomp_benchmark_port`가 같은 요청 필드를
+  읽어 같은 배열을 낸다.
+- `measure-phase8-cpp-baseline.sh`와 새 `measure-phase8-condition2-grid.sh`가
+  같은 `CONDITION2_RESOLUTIONS`를 같은 요청에 주입하므로, 두 쪽이 같은
+  그리드를 걷는 것이 문서가 아니라 파일로 보장된다.
+
+**계기가 기존 값을 재현하는지 확인했다.** 그리드의 `0.01` 항목은 이 집합의
+`motion_resolution`과 같은 값이므로, 이미 있던 `condition2_valid` /
+`invalid_waypoint_count` 필드와 문제마다 일치해야 한다. 네 팔의 여섯 파일
+1,196개 해결 레코드 전부에서 불일치 **0건**이다(유효성 0건, 무효 점 개수
+0건).
+
+**비용**(이 기계, 96코어). 그리드는 조밀화된 점 수의 합이고 그 합은 가장
+촘촘한 항목이 지배한다. 파일럿에서 `0.01..0.0001` 7점 그리드가 CHOMP 10문제
+한 프로세스에 **8분 22초**였고(문제당 약 47초, 그중 4분의 3이 0.001 미만
+두 항목), 0.0001은 `cage` 경로를 22,000-30,000점으로 부풀린다. 그래서
+발표 그리드를 0.001에서 끊었다. 그 그리드의 실측:
+
+| 스윕 | 대상 | 병렬 | 벽시계 |
+| --- | --- | --- | --- |
+| 씨앗 유효성 | floor_wall 250 | 25 프로세스 | **1m27s** |
+| 포트 CHOMP | floor_wall 250 | 25 프로세스 | **1m50s** |
+| C++ CHOMP | floor_wall 250 | 오라클 24잡 | **0m55s** |
+| 포트 STOMP | floor_wall 250 | 문제당 1프로세스 | **78m32s** |
+| 포트 STOMP | cage 250 | 문제당 1프로세스 | **74m42s** |
+
+포트 STOMP만 자릿수가 다른 이유는 §263.5가 이미 적은 것이다 — 유효 궤적에
+닿지 못하는 문제가 1000반복을 다 쓰고, 그런 문제 하나가 수십 CPU-분이라
+샤딩으로 줄지 않는다.
+
+**재현성.** 포트 CHOMP `floor_wall` 250문제를 같은 씨앗 베이스로 다시 돌린
+결과가 기록된 스윕과 **바이트 동일**하고, C++ 쪽도 `wall_secs`를 뺀 나머지가
+바이트 동일하다.
+
+### §286.3 네 팔의 조건 2 위반율 — 해상도별
+
+전체 500문제, 씨앗 베이스 700001. 칸은 **조건 2 실패 문제 수**이고 분모는 그
+팔이 푼 문제 수다. `returned`는 조밀화 없이 플래너가 돌려준 waypoint 그대로다.
+
+| 해상도 | port CHOMP (380) | cpp CHOMP (370) | port STOMP (441) | cpp STOMP (446) |
+| --- | --- | --- | --- | --- |
+| returned | 0 | 0 | 0 | 0 |
+| 0.2 | 0 | 0 | 0 | 0 |
+| 0.1 | 0 | 0 | 0 | 0 |
+| 0.05 | 0 | 0 | 0 | 0 |
+| 0.02 | 1 | 0 | 3 | 2 |
+| 0.01 | 1 | 1 | 3 | 2 |
+| 0.005 | 1 | 1 | 4 | 3 |
+| 0.002 | 1 | 1 | 4 | 3 |
+| 0.001 | 1 | 1 | 4 | 3 |
+
+실패한 문제를 전부 적는다(전체 500문제, 씨앗 베이스 700001): port CHOMP
+`cage/221`, cpp CHOMP `cage/27`, cpp STOMP `floor_wall/84 120 230`,
+port STOMP `floor_wall/77`, `cage/98 133 159`. 이 실패는 **전부 씨앗 무효 stratum**에서
+나온다 — 씨앗 유효 문제에서 조건 2가 깨진 사례는 네 팔 어디에도 없다.
+
+두 CHOMP 실패의 모양이 같다는 것을 적어 둔다. `cage/221`(port)은 0.02에서
+179점 중 1점이 처음 무효가 되고 0.001에서 2,421점 중 24점이 되며,
+`cage/27`(cpp)은 0.01에서 263점 중 1점, 0.001에서 2,201점 중 5점이 된다. 둘 다
+`condition2_valid_at_returned_waypoints = true`다 — §269.5의 7건과 같다.
+서로 다른 결함이 아니라, waypoint **사이**를 얕게 스치는 같은 현상이 서로 다른
+깊이로 나타난 것이다.
+
+### §286.4 짝지은 게이트는 이 모집단에 동작점이 없다
+
+브리프가 가리킨 후보는 §245.4가 Phase 4 (a)에 대해 고친 모양이다: 총계 둘을
+비교하지 말고, **검정력이 있는 동작점**에서 **짝지은 게이트**를 걸어라.
+그 모양을 그대로 적용했다. `b` = 포트가 실패하고 C++이 통과한 문제 수,
+`c` = 그 반대, 검정 통계량은 `moveit-diff`의
+`paired_divergence_z(b, c) = |b - c| / sqrt(b + c)`이고, 같은 파일의
+`MINIMUM_USABLE_B_PLUS_C = 61` 아래는 `Verdict::Underpowered`다.
+
+CHOMP, 전체 500문제(양쪽 다 푼 363문제):
+
+| 해상도 | b | c | b + c | \|z\| | 검정력 |
+| --- | --- | --- | --- | --- | --- |
+| returned … 0.05 | 0 | 0 | 0 | 0.00 | 없음 |
+| 0.02 | 1 | 0 | 1 | 1.00 | 없음 |
+| 0.01 … 0.001 | 1 | 1 | 2 | 0.00 | 없음 |
+
+씨앗 무효 stratum만(양쪽 다 푼 114문제)으로 좁혀도 같은 표가 나온다 —
+최댓값이 `b + c` = 2다.
+
+**그리드의 아홉 동작점 어디에도 검정력이 없다.** 가장 큰 `b + c`가 2이고
+문턱은 61이다. 이 모집단의 불일치율(363문제 중 2건)에서 `b + c` = 61에
+닿으려면 **양쪽이 다 푸는 문제가 약 11,072개** 필요하다. 씨앗 무효 stratum의
+불일치율(114문제 중 2건)로 계산해도 약 3,477개다.
+
+그래서 짝지은 게이트는 이 부류의 조건 2 문안이 될 수 없다. 그것을 문안으로
+쓰면 판정 칸에는 늘 `Underpowered`가 앉고, 그것은 MET이 아니라
+UNMEASURED를 MET처럼 적는 일이다. 이것은 짝지은 모양이 틀렸다는 뜻이
+아니라 — Phase 4 (a)에서는 맞았다 — **조건 2의 사건이 너무 드물어서** 이
+크기의 모집단으로는 해결되지 않는다는 뜻이다.
+
+### §286.5 `r*`를 반증했다 — 씨앗 베이스 하나 바꾸면 네 칸 움직인다
+
+검정력이 필요 없는 후보가 하나 있다. 100% 바를 유지하되 그 **위치**를
+C++ 쪽이 정하게 하는 것이다: `r*` = 같은 플래너의 C++ 구현이 자기 해결 문제
+100%를 통과하는 가장 촘촘한 해상도. 포트의 숫자를 한 번도 보지 않으므로
+포트가 통과하도록 옮길 수 없고, 상류 자신이 만족함을 보인 가장 강한 바다.
+전체 500문제·씨앗 베이스 700001에서 CHOMP의 `r*`는 **0.02**이고(cpp 370/370,
+한 칸 아래 0.01에서 369/370), 그 바에서 포트는 379/380 — **UNMET**이다.
+
+이 문안을 채택하기 전에 물어야 할 것이 하나 있다. **`r*`는 기준인가,
+한 번의 뽑기인가?** 정의상 `r*`는 "C++ 쪽 실패 수가 1에서 0으로 바뀌는
+지점"이므로, C++ 쪽 실패가 한 건뿐이면 그 한 문제의 관통 깊이가 바를 정한다.
+같은 500문제를 **플래너 씨앗 베이스만** 700001에서 424242로 바꿔 네 팔 중
+CHOMP 두 팔을 다시 돌렸다.
+
+| 씨앗 베이스 | port 해결 | port 조건2 실패 | cpp 해결 | cpp 조건2 실패 | `r*` |
+| --- | --- | --- | --- | --- | --- |
+| 700001 | 380/500 | 1 (`cage/221`) | 370/500 | 1 (`cage/27`) | **0.02** |
+| 424242 | 371/500 | 1 (`cage/33`) | 378/500 | **0** | 그리드 최하단 0.001에서도 100% |
+
+씨앗 베이스 하나를 바꾸자 C++ CHOMP의 조건 2 실패가 0건이 되고, `r*`는 0.02
+에서 그리드 밖(0.001 이하)으로 **네 칸** 내려간다. 두 씨앗 베이스 × 두 구현의
+조건 2 실패 문제는 `cage/221`, `cage/27`, `cage/33`, 없음 — 겹치는 문제가
+하나도 없다.
+
+그러므로 `r*`는 기준이 아니다. **자기 자신의 이산화 단위보다 촘촘한 어떤
+고정 해상도에서든 100% 바는 두 구현 모두에게 동전 던지기다.** 500문제당 약
+1건이 나오고, 그것이 어느 문제인지도 어느 깊이인지도 뽑기다. 이 측정이
+없었다면 이 절은 위 표의 UNMET을 그대로 실었을 것이고, 그 판정은 포팅이 아니라
+`cage/221`의 mt19937 대 ChaCha8 뽑기를 보고하는 것이 되었을 것이다.
+
+### §286.6 데이터가 가리키는 자리는 각 플래너 자신의 검사 단위다
+
+`r*`가 기준은 아니지만, 그것이 어디에 내려앉는지는 정보다.
+
+| | `r*`(700001) | 자기 waypoint 간격 중앙값 | 상류가 검사한다고 말하는 단위 |
+| --- | --- | --- | --- |
+| cpp CHOMP | 0.02 | **0.0215** (p90 0.0296, max 0.0407, n=370) | 자기 waypoint 101점 (`chomp_planner.cpp:284`) |
+| cpp STOMP | 0.05 | **0.0569** (p90 0.0809, max 0.1045, n=446) | `COL_CHECK_DISTANCE` = **0.05** (`cost_functions.hpp:59`) |
+
+두 팔 모두 `r*`가 자기 이산화 간격 바로 아래 칸에 앉는다. STOMP은 소수점까지
+일치한다 — 상류가 100%인 가장 촘촘한 해상도가 상류가 실제로 검사하는 거리
+그 자체다. cpp STOMP은 446건 전부 waypoint를 40점으로 돌려준다.
+
+Phase 7이 조건 2를 0.01에서 재는 것도 같은 규칙의 사례다. 오라클의 `plan`
+op은 요청의 `motion_resolution`을
+`si->setStateValidityCheckingResolution(motion_resolution / maximum_extent)`
+으로 넣으므로(`oracle.cpp:5784`), RRTConnect에 대한 0.01은 임의의 촘촘함이
+아니라 **그 플래너가 유효성을 보증한 단위**다. 즉 아래 문안은 Phase 7의 조건
+2를 약화시키는 것이 아니라 그것을 일반화한 것이고, RRTConnect에 적용하면
+지금과 똑같이 0.01이 된다. 이 절은 Phase 7의 줄을 건드리지 않는다.
+
+### §286.7 조건 2 문안 — 그리고 판정
+
+**문안.** 이 부류의 조건 2는 다음 한 문장이다.
+
+> 산출 경로가 **그 플래너 자신의 상류 구현이 충돌을 검사하는 이산화 단위**
+> 에서 100% 충돌 검사와 제약을 통과한다 — CHOMP은 자신이 돌려준 waypoint,
+> STOMP은 `COL_CHECK_DISTANCE` = 0.05. 판정은 전체 모집단과 씨앗 무효
+> stratum 양쪽에서 100%여야 하며, 후자가 변별하는 쪽이다.
+
+고른 근거를 셋으로 적는다. 전부 위의 측정이다.
+
+1. **더 촘촘한 고정 바는 기준이 아니다** — §286.5. 상류 자신의 조건 2 실패
+   수가 씨앗 베이스에 따라 1과 0을 오가고, "상류가 100%인 가장 촘촘한
+   해상도"가 네 칸 움직인다.
+2. **짝지은 모양은 이 모집단에 동작점이 없다** — §286.4. 아홉 동작점 전부
+   `b + c` ≤ 2, 문턱 61, 필요한 크기 약 11,072문제.
+3. **남은 자리를 데이터가 지목한다** — §286.6. `r*`가 두 팔 모두 자기 검사
+   단위에 내려앉고, Phase 7의 0.01도 같은 규칙의 값이다.
+
+**판정.** 전체 500문제 / 씨앗 무효 stratum 251문제, 씨앗 베이스 700001.
+
+| 팔 | 검사 단위 | 전체 | 씨앗 무효 stratum | 판정 |
+| --- | --- | --- | --- | --- |
+| port CHOMP | 자기 waypoint | 380/380 | 131/131 | **MET** |
+| cpp CHOMP | 자기 waypoint | 370/370 | 121/121 | (기준선) |
+| port STOMP | 0.05 | 441/441 | 192/192 | **MET** |
+| cpp STOMP | 0.05 | 446/446 | 197/197 | (기준선) |
+
+씨앗 베이스 424242에서도 port CHOMP은 371/371 · 씨앗 무효 122/122로 같다.
+
+### §286.8 이 바가 무는지 확인했다
+
+늘 100%인 바는 아무것도 재지 않을 수 있다. 특히 CHOMP에서는 의심할 이유가
+분명하다 — `ChompPlanner::solve`가 SUCCESS를 `optimizer->isCollisionFree()`로
+판정하므로(`chomp_planner.cpp:284`, 포트에서 같은 자리는
+`crates/moveit-planners-chomp/src/planner.rs:478`의
+`if !optimizer.is_collision_free() {`), "해결했다"가 "자기 waypoint에서 충돌
+없다"를 이미 함의하는 것처럼 보인다.
+
+함의하지 않는다. 두 판정은 **서로 다른 충돌 엔진**이 낸다. CHOMP은 자신의
+distance field를 보고, 조건 2는 `PlanningScene::is_path_valid`(포트 쪽 parry,
+C++ 쪽 FCL)를 본다. 그래서 포트의 그 한 줄을 `if false && !…`로 막고 —
+즉 CHOMP이 자기 계약을 지키지 않게 하고 — 같은 500문제를 같은 씨앗 베이스로
+다시 돌렸다.
+
+| | 해결 | 자기 waypoint에서 조건 2 실패 | 0.01에서 조건 2 실패 |
+| --- | --- | --- | --- |
+| 원본 | 380/500 | **0** | 1 |
+| `crates/moveit-planners-chomp/src/planner.rs:478`의 `if !optimizer.is_collision_free() {`를 막음 | 500/500 | **111** | 112 |
+
+바가 문다. 되돌린 뒤 `cage` id 0-19를 같은 씨앗으로 재실행한 결과가 기록된
+스윕의 해당 20행과 **바이트 동일**하다.
+
+### §286.9 씨앗이 주어진 모집단 — 무엇이 이 절로 닫히고 무엇이 남는가
+
+§264.12의 첫 항목은 "Phase 8의 줄을 정직하게 닫으려면 균일 무작위 끝점 쌍이
+아니라 씨앗 궤적이 딸린 문제가 필요하다"이다. 이 절의 측정으로 그 항목이
+둘로 갈린다.
+
+**닫히는 쪽.** 조건 2에 대해서는 변별 부분모집단이 **이미 존재하고 이미
+측정된다.** 씨앗 무효 stratum 251문제가 그것이다 — 최적화기가 실제로 일을 한
+문제만 모아 놓은 것이고, 이 절의 모든 표가 그 stratum을 따로 적는다. 새
+생성기 없이도 조건 2의 판정은 생성기가 아니라 구현을 보고 있다.
+
+**남는 쪽, 그리고 그 값.** 씨앗을 *고를* 수 없다는 것은 남는다. 지금
+stratum의 씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지정한 것이 아니다.
+깊게 충돌하는 씨앗을 일부러 주면 두 구현 모두 장애물을 스치는 경로를 더 자주
+내고 조건 2의 사건율이 올라갈 수 있다 — 그러면 §286.4의 검정력 부족이
+해소될 수 있다. **이것은 이 절이 재지 않았다.** 오늘 잴 수 있는 가장 어려운
+부분모집단(씨앗 무효)에서의 실측 사건율은 port 1/131 · cpp 1/121이고, 그
+율이 유지된다면 `b + c` = 61에는 약 3,477문제가 필요하다. 일부러 어려운
+씨앗이 그 율을 올리는지는 **미측정**이며, 생성기가 정산할 것은 정확히 그
+질문이다.
+
+**생성기의 범위.** 진입점은 양쪽에 이미 있다 —
+`crates/moveit-planners-chomp/src/planner.rs:251`의
+`pub seed_trajectory: Option<&'a RobotTrajectory<'m>>,`, 포트 STOMP의
+`planner::extract_seed_trajectory`, 상류 STOMP의 `extractSeedTrajectory`
+(`stomp_moveit_planning_context.cpp:94`, `req.trajectory_constraints`를
+읽는다). 없는 것은 넷이다: (1) `plan_benchmark_problem_set`이 문제마다 씨앗을
+싣는 것과 그 씨앗을 **어떤 정책으로** 만들 것인가 — 이것이 유일한 설계
+문제다, (2) 두 포트 하네스가 그 필드를 읽어 넣는 것, (3) 오라클의
+`chompPlan`/`stompPlan`이 그것을 `trajectory_constraints`로 옮기는 것과
+이미지 재빌드(측정치: 40.7초, 2단계만 재컴파일), (4) 재스윕 — CHOMP 쪽은
+위 표대로 config당 2분 안쪽이지만 STOMP 쪽은 한 벌 약 3시간이다.
+
+### §286.10 §5 Phase 8 행 — 적용한 문안
+
+이 라운드 시작 시점의 행(`PORTING-PLAN.md:822`)은 이랬다.
+
+```
+| Phase 8 | CHOMP/STOMP가 Phase 7과 같은 세 속성을, 같은 플래너의 C++ 구현을 기준선으로 통과 (조건 1·3 충족; 조건 2는 상류 C++도 100%가 아니므로 이 부류에 대해 미지정) | PARTIAL | §269 | 2026-08-06 |
+```
+
+조건 2가 이제 지정되므로 "미지정" 괄호가 사라지고, 그 자리에 조건이 **무엇을
+요구하는지**가 들어간다 — 읽는 사람이 이 부류의 조건 2가 무슨 뜻인지 알기
+위해 §269를 열지 않아도 되어야 한다는 것이 이 교체의 목적이다.
+
+```
+| Phase 8 | CHOMP/STOMP가 Phase 7과 같은 세 속성을, 같은 플래너의 C++ 구현을 기준선으로 통과 — 조건 2는 "각 플래너 자신의 상류 구현이 충돌을 검사하는 이산화 단위(CHOMP 반환 waypoint, STOMP `COL_CHECK_DISTANCE` = 0.05)에서 산출 경로 100%가 충돌 검사와 제약을 통과"로 지정, 그보다 촘촘한 고정 바는 상류 C++도 플래너 시드에 따라 넘거나 못 넘으므로 기준이 아니다 | MET | §286 | 2026-08-06 |
+```
+
+`check-phase-status.sh`는 인용 §가 실재 헤딩으로 풀릴 것을 요구하므로, 이
+행이 `§286`를 인용하는 동안 그 게이트는 그 한 줄로 실패한다. 번호를 넣으면
+풀린다 — 병합자가 `§286`를 배정 번호로 치환하는 것이 그 고침이고, 치환한
+사본에서 게이트가 통과하는 것을 확인했다.
+
+### §286.11 이 절이 재지 않은 것
+
+- **일부러 어려운 씨앗에서의 조건 2 사건율.** §286.9. 검정력 부족이 모집단
+  크기의 문제인지 난이도의 문제인지는 이 절이 가르지 못한다.
+- **포트 STOMP의 두 번째 씨앗 베이스.** CHOMP 두 팔만 424242로 다시 돌렸다
+  (§286.5). 포트 STOMP 한 벌이 약 3시간이라 두 벌을 이 라운드에 넣지 않았다.
+  §286.5의 반증은 CHOMP 쪽 측정으로 성립하고, STOMP 쪽 `r*`가 같은 방식으로
+  움직이는지는 미측정이다.
+- **fanuc과 나머지 세 로봇.** 이 절의 모든 수는 panda_arm이다. §264.7의
+  fanuc stratum은 씨앗 유효 비율이 이보다 훨씬 높았다(해결 문제 전부).
+- **조건 2를 자기 검사 단위에서 STOMP에 대해 무력화하는 변이.** §286.8은
+  CHOMP 쪽 `crates/moveit-planners-chomp/src/planner.rs:478`의
+  `if !optimizer.is_collision_free() {`만 껐다. STOMP 쪽의 대응 변이는
+  §263.6이 `COLLISION_PENALTY` = 0으로 이미 한 번 걸었지만,
+  그것은 0.01 바에 대한 것이고 0.05 바에 대해 다시 걸지는 않았다.
+- **`max_iterations = 200`.** §269.8이 연 자리 그대로다.

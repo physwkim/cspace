@@ -302,13 +302,19 @@
 //!
 //! What remains this crate's own, from that header:
 //!
-//! - `PlannerConfigurationSettings`/`PlannerConfigurationMap` -> unported as
-//!   a stringly-typed `map<string, map<string, string>>` (D4: there is no
-//!   runtime plugin-loading boundary here for one to cross). Its typed
-//!   equivalent is [`registry::RrtConnectManager`]'s own
-//!   `resolution`/`seed`/`params`/`solver` fields, set at construction --
-//!   which is also where upstream sets a `PlannerConfigurationSettings`,
-//!   on the manager rather than on each request.
+//! - `PlannerConfigurationSettings`/`PlannerConfigurationMap` -> ported as
+//!   [`moveit_planning::PlannerConfigurationSettings`]/
+//!   [`moveit_planning::PlannerConfigurationMap`], which this crate takes as
+//!   [`registry::RrtConnectManager::configurations`]. This bullet used to
+//!   say "unported ... D4: there is no runtime plugin-loading boundary here
+//!   for one to cross", with the crate's own typed
+//!   `resolution`/`seed`/`params`/`solver` fields named as the equivalent.
+//!   That was wrong about which boundary the map crosses: it crosses
+//!   `/set_planner_params`, a *service*, and a value that arrives at
+//!   runtime from a client cannot be a compile-time field. The typed fields
+//!   are still what a query runs on -- the map is an overlay on them, read
+//!   per query through [`moveit_planning::configuration_for`], and today it
+//!   binds exactly one key ([`registry::RANGE_KEY`]). PORTING-PLAN.md §285.
 //! - `getDescription()` -> [`moveit_planning::PlannerManager::name`], which
 //!   this crate answers with `"rrt_connect"` -- the same string
 //!   `moveit_planner_registry::PLANNER_MANAGERS`'s registration is keyed by,

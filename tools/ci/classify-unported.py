@@ -132,39 +132,20 @@ UNMET_BLOCKERS = {
     # rest of the branch (queries with two or more pairs, `box x box`, meshes)
     # is measurable only against a patched oracle -- is in the row's own clause
     # and in the round section that row cites.
-    # Was UNMEASURED against §217.3 until §263 measured it; the row then read
-    # UNMET against §263 and the harness this entry used to call absent exists
-    # (crates/moveit-planners-{chomp,stomp}/examples/).  check_phase_coverage()
-    # caught the stale section on the merge that brought §263 in -- the third
-    # drift it has found, and the reason this entry no longer describes the
-    # blocker as a missing harness.  §269 then measured upstream's OWN C++
-    # implementations on the same 500 problems and the §5 table moved the
-    # citation there, so the blocker below is no longer only about the port's
-    # rate: the bar itself is inherited from a different planner.
-    ("Phase 8", "CHOMP/STOMP"): {
-        "section": "269",
-        "blocker": "conditions 1 and 3 are MET against the same planner's C++ "
-                   "implementation, which is the baseline Phase 7 actually "
-                   "used; the row is PARTIAL for condition 2 alone, and no "
-                   "implementation satisfies it -- after 0.01 densification "
-                   "§269 counts 1 invalid path of upstream C++ CHOMP's 370, 2 "
-                   "of C++ STOMP's 446, 1 of the port CHOMP's 380 and 3 of the "
-                   "port STOMP's 441.  ChompPlanner::solve gates SUCCESS on "
-                   "isCollisionFree over its own 101 points "
-                   "(chomp_planner.cpp:284), so nothing in CHOMP inspects "
-                   "between waypoints and 100% after densification is not this "
-                   "planner class's contract.  The harness exists -- what is "
-                   "unsatisfied is a condition, not an absent file",
-        "candidates": ("moveit_planners/chomp/", "moveit_planners/stomp/"),
-        "adjudication":
-            "the 8 candidates are all ROS plugin wiring (chomp_interface/*, "
-            "stomp_moveit_planner_plugin.cpp, trajectory_visualization.hpp) "
-            "and §263's harness does not go through a plugin -- it drives "
-            "the crates directly from "
-            "crates/moveit-planners-{chomp,stomp}/examples/*_benchmark_port.rs. "
-            "The row fails on measured success rate, so porting any candidate "
-            "below could not move it.",
-    },
+    # ("Phase 8", "CHOMP/STOMP") was here until the §5 table took MET.  Its
+    # blocker was condition 2 alone, left unspecified because no implementation
+    # reached 100% after 0.01 densification -- §269 counted 1 invalid path of
+    # upstream C++ CHOMP's 370, 2 of C++ STOMP's 446, 1 of the port CHOMP's 380
+    # and 3 of the port STOMP's 441.  §286 specified the condition instead of
+    # widening it: each planner is held to the discretisation its own upstream
+    # implementation checks at, which is the same rule Phase 7 applies to
+    # RRTConnect at setStateValidityCheckingResolution.  What refuted the finer
+    # bar is a measurement, not a preference -- changing only the planner RNG
+    # seed base moves upstream C++ CHOMP's own condition-2 failure count between
+    # 1 and 0 over the same 500 problems.  The row's candidates were 8 ROS
+    # plugin-wiring files that §263's crate-level harness never goes through, so
+    # this closing did not port any of them; they now fall to the same `none`
+    # blocker as every other unported file no non-MET row names.
     # ("Phase 9", "MoveGroupInterface") was here until §273 measured the row MET
     # and the §5 table took the verdict.  Its blocker was "there is no planner to
     # call, a decision D8 owns"; D8 wired one, and ros/verify-move-action-interop.sh

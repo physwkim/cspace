@@ -75,6 +75,11 @@
 //! "failure"?}`. See [`returned_waypoints`] for what the extra field is
 //! for and why it is not the condition-2 number.
 //!
+//! A request carrying `condition2_resolutions: [r, ...]` additionally gets
+//! `condition2_by_resolution`, one condition-2 verdict per `r` over the same
+//! path -- see [`condition2_by_resolution`]. Without that field nothing about
+//! this binary's output or cost changes.
+//!
 //! # Where every non-obvious constant comes from
 //!
 //! - CHOMP's own tuning knobs are [`ChompParameters::default`] unmodified --
@@ -293,6 +298,70 @@ fn densify<'m>(
     out
 }
 
+/// Condition 2 re-evaluated at each of `resolutions`, as
+/// `[{"resolution", "invalid_count", "densified_waypoint_count", "valid"}]`.
+///
+/// The plan itself does not depend on the densification resolution -- it is
+/// read only by [`densify`], after `solve` has returned -- so this list is
+/// several verdicts about one path, not several runs. That is what makes an
+/// operating-point sweep affordable on the STOMP side, where one 500-problem
+/// sweep costs about three hours and re-running it per resolution would not
+/// be measurable at all.
+///
+/// Emitted only when the request carries `condition2_resolutions`; without
+/// that field this function is never called and the record shape is
+/// unchanged.
+fn condition2_by_resolution<'m>(
+    space: &JointModelGroupSpace,
+    model: &'m RobotModel,
+    scene: &mut PlanningScene<'m>,
+    env: &ParryCollisionEnv,
+    path: &[Vec<CompoundValue>],
+    resolutions: &[f64],
+) -> Vec<serde_json::Value> {
+    resolutions
+        .iter()
+        .map(|resolution| {
+            let dense = densify(space, model, path, *resolution);
+            let validity =
+                scene.is_path_valid(env, &CollisionRequest::default(), &dense, None, &[]);
+            serde_json::json!({
+                "resolution": resolution,
+                "invalid_count": validity.invalid_waypoints.len(),
+                "densified_waypoint_count": dense.len(),
+                "valid": validity.valid,
+            })
+        })
+        .collect()
+}
+
+/// The request's optional `condition2_resolutions`, the operating-point grid
+/// [`condition2_by_resolution`] walks.
+///
+/// Rejected rather than defaulted when malformed: a silently dropped grid
+/// would make a sweep report one resolution's verdict under every
+/// resolution's name.
+fn parse_condition2_resolutions(request: &serde_json::Value) -> Vec<f64> {
+    match request.get("condition2_resolutions") {
+        None | Some(serde_json::Value::Null) => Vec::new(),
+        Some(value) => value
+            .as_array()
+            .expect("request.condition2_resolutions must be an array")
+            .iter()
+            .map(|entry| {
+                let resolution = entry
+                    .as_f64()
+                    .expect("request.condition2_resolutions entries must be numbers");
+                assert!(
+                    resolution > 0.0,
+                    "request.condition2_resolutions entries must be positive, got {resolution}"
+                );
+                resolution
+            })
+            .collect(),
+    }
+}
+
 /// `path` as [`RobotState`]s with no interpolation at all -- exactly the
 /// waypoints the planner returned.
 ///
@@ -360,6 +429,8 @@ struct Bench<'m> {
     active_joint_names: Vec<String>,
     group_name: String,
     resolution: f64,
+    /// The request's `condition2_resolutions`, empty when it has none.
+    condition2_resolutions: Vec<f64>,
 }
 
 impl<'m> Bench<'m> {
@@ -462,17 +533,26 @@ impl<'m> Bench<'m> {
                     &[],
                 );
 
-                (
-                    true,
-                    serde_json::json!({
-                        "id": id,
-                        "solved": true,
-                        "length": length,
-                        "condition2_valid": validity.valid,
-                        "invalid_waypoint_count": validity.invalid_waypoints.len(),
-                        "condition2_valid_at_returned_waypoints": raw_validity.valid,
-                    }),
-                )
+                let mut record = serde_json::json!({
+                    "id": id,
+                    "solved": true,
+                    "length": length,
+                    "condition2_valid": validity.valid,
+                    "invalid_waypoint_count": validity.invalid_waypoints.len(),
+                    "condition2_valid_at_returned_waypoints": raw_validity.valid,
+                });
+                if !self.condition2_resolutions.is_empty() {
+                    record["condition2_by_resolution"] =
+                        serde_json::Value::Array(condition2_by_resolution(
+                            &self.space,
+                            self.model,
+                            &mut self.check_scene,
+                            &self.env,
+                            &path,
+                            &self.condition2_resolutions,
+                        ));
+                }
+                (true, record)
             }
             Err(e) => (
                 false,
@@ -515,6 +595,7 @@ fn main() {
     let resolution = request["motion_resolution"]
         .as_f64()
         .expect("request.motion_resolution must be a number");
+    let condition2_resolutions = parse_condition2_resolutions(&request);
 
     let (model, srdf) = load_panda();
     let space = JointModelGroupSpace::new(&model, &group_name)
@@ -582,6 +663,7 @@ fn main() {
         active_joint_names,
         group_name,
         resolution,
+        condition2_resolutions,
     };
 
     let mut solved_count = 0usize;
