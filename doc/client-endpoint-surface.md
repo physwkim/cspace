@@ -8,8 +8,13 @@ Generated. Regenerate with
 and check it with `tools/ci/verify-client-endpoint-surface.sh`, which owns
 the pinned-revision precondition. Every line number is relative to that
 revision. `-- ` in the last column means the declaration puts nothing on the
-wire; `robot_description` is the model load, a parameter read that falls back
-to a latched topic, not a `move_group` endpoint.
+wire.
+
+Endpoint names are **relative** -- the client resolves each one through
+`rclcpp::names::append(opt_.move_group_namespace, ...)`, so a leading slash
+would name a different endpoint. `robot_description` is the model load: a
+parameter read that falls back to a latched topic, not a `move_group`
+endpoint, but the client's constructor cannot complete without it.
 
     public function declarations   126
       special members              7
@@ -21,8 +26,8 @@ to a latched topic, not a `move_group` endpoint.
 
 | declaration | name | endpoints |
 |---|---|---|
-| `hpp:136` | `MoveGroupInterface` | `/move_action` `/execute_trajectory` `robot_description` |
-| `hpp:147` | `MoveGroupInterface` | `/move_action` `/execute_trajectory` `robot_description` |
+| `hpp:136` | `MoveGroupInterface` | `move_action` `execute_trajectory` `robot_description` |
+| `hpp:147` | `MoveGroupInterface` | `move_action` `execute_trajectory` `robot_description` |
 | `hpp:151` | `~MoveGroupInterface` | -- |
 | `hpp:158` | `MoveGroupInterface` | -- |
 | `hpp:159` | `operator=` | -- |
@@ -41,10 +46,10 @@ to a latched topic, not a `move_group` endpoint.
 | `hpp:195` | `getActiveJoints` | -- |
 | `hpp:198` | `getJoints` | -- |
 | `hpp:202` | `getVariableCount` | -- |
-| `hpp:205` | `getInterfaceDescriptions` | `/query_planner_interface` |
-| `hpp:208` | `getInterfaceDescription` | `/query_planner_interface` |
-| `hpp:211` | `getPlannerParams` | `/get_planner_params` |
-| `hpp:215` | `setPlannerParams` | `/set_planner_params` |
+| `hpp:205` | `getInterfaceDescriptions` | `query_planner_interface` |
+| `hpp:208` | `getInterfaceDescription` | `query_planner_interface` |
+| `hpp:211` | `getPlannerParams` | `get_planner_params` |
+| `hpp:215` | `setPlannerParams` | `set_planner_params` |
 | `hpp:218` | `getDefaultPlanningPipelineId` | -- |
 | `hpp:221` | `setPlanningPipelineId` | -- |
 | `hpp:224` | `getPlanningPipelineId` | -- |
@@ -76,12 +81,12 @@ to a latched topic, not a `move_group` endpoint.
 | `hpp:399` | `setJointValueTarget` | -- |
 | `hpp:412` | `setJointValueTarget` | -- |
 | `hpp:424` | `setJointValueTarget` | -- |
-| `hpp:437` | `setJointValueTarget` | `/joint_states` |
-| `hpp:450` | `setJointValueTarget` | `/joint_states` |
-| `hpp:463` | `setJointValueTarget` | `/joint_states` |
-| `hpp:475` | `setApproximateJointValueTarget` | `/joint_states` |
-| `hpp:488` | `setApproximateJointValueTarget` | `/joint_states` |
-| `hpp:501` | `setApproximateJointValueTarget` | `/joint_states` |
+| `hpp:437` | `setJointValueTarget` | `joint_states` |
+| `hpp:450` | `setJointValueTarget` | `joint_states` |
+| `hpp:463` | `setJointValueTarget` | `joint_states` |
+| `hpp:475` | `setApproximateJointValueTarget` | `joint_states` |
+| `hpp:488` | `setApproximateJointValueTarget` | `joint_states` |
+| `hpp:501` | `setApproximateJointValueTarget` | `joint_states` |
 | `hpp:507` | `setRandomTarget` | -- |
 | `hpp:511` | `setNamedTarget` | -- |
 | `hpp:514` | `getJointValueTarget` | -- |
@@ -104,19 +109,19 @@ to a latched topic, not a `move_group` endpoint.
 | `hpp:684` | `getEndEffectorLink` | -- |
 | `hpp:691` | `getEndEffector` | -- |
 | `hpp:695` | `getPoseReferenceFrame` | -- |
-| `hpp:707` | `asyncMove` | `/move_action` |
-| `hpp:713` | `getMoveGroupClient` | `/move_action` |
-| `hpp:719` | `move` | `/move_action` |
-| `hpp:724` | `plan` | `/move_action` |
-| `hpp:732` | `asyncExecute` | `/execute_trajectory` |
-| `hpp:741` | `asyncExecute` | `/execute_trajectory` |
-| `hpp:750` | `execute` | `/execute_trajectory` |
-| `hpp:759` | `execute` | `/execute_trajectory` |
-| `hpp:771` | `computeCartesianPath` | `/compute_cartesian_path` |
-| `hpp:778` | `computeCartesianPath` | `/compute_cartesian_path` |
-| `hpp:794` | `computeCartesianPath` | `/compute_cartesian_path` |
-| `hpp:802` | `computeCartesianPath` | `/compute_cartesian_path` |
-| `hpp:808` | `stop` | `/trajectory_execution_event` |
+| `hpp:707` | `asyncMove` | `move_action` |
+| `hpp:713` | `getMoveGroupClient` | `move_action` |
+| `hpp:719` | `move` | `move_action` |
+| `hpp:724` | `plan` | `move_action` |
+| `hpp:732` | `asyncExecute` | `execute_trajectory` |
+| `hpp:741` | `asyncExecute` | `execute_trajectory` |
+| `hpp:750` | `execute` | `execute_trajectory` |
+| `hpp:759` | `execute` | `execute_trajectory` |
+| `hpp:771` | `computeCartesianPath` | `compute_cartesian_path` |
+| `hpp:778` | `computeCartesianPath` | `compute_cartesian_path` |
+| `hpp:794` | `computeCartesianPath` | `compute_cartesian_path` |
+| `hpp:802` | `computeCartesianPath` | `compute_cartesian_path` |
+| `hpp:808` | `stop` | `trajectory_execution_event` |
 | `hpp:811` | `allowReplanning` | -- |
 | `hpp:814` | `setReplanAttempts` | -- |
 | `hpp:817` | `setReplanDelay` | -- |
@@ -124,17 +129,17 @@ to a latched topic, not a `move_group` endpoint.
 | `hpp:824` | `setLookAroundAttempts` | -- |
 | `hpp:832` | `constructRobotState` | -- |
 | `hpp:836` | `constructMotionPlanRequest` | -- |
-| `hpp:851` | `attachObject` | `/attached_collision_object` |
-| `hpp:861` | `attachObject` | `/attached_collision_object` |
-| `hpp:868` | `detachObject` | `/attached_collision_object` |
-| `hpp:882` | `startStateMonitor` | `/joint_states` |
-| `hpp:885` | `getCurrentJointValues` | `/joint_states` |
-| `hpp:888` | `getCurrentState` | `/joint_states` |
-| `hpp:893` | `getCurrentPose` | `/joint_states` |
-| `hpp:898` | `getCurrentRPY` | `/joint_states` |
+| `hpp:851` | `attachObject` | `attached_collision_object` |
+| `hpp:861` | `attachObject` | `attached_collision_object` |
+| `hpp:868` | `detachObject` | `attached_collision_object` |
+| `hpp:882` | `startStateMonitor` | `joint_states` |
+| `hpp:885` | `getCurrentJointValues` | `joint_states` |
+| `hpp:888` | `getCurrentState` | `joint_states` |
+| `hpp:893` | `getCurrentPose` | `joint_states` |
+| `hpp:898` | `getCurrentRPY` | `joint_states` |
 | `hpp:901` | `getRandomJointValues` | -- |
-| `hpp:906` | `getRandomPose` | `/joint_states` |
-| `hpp:919` | `rememberJointValues` | `/joint_states` |
+| `hpp:906` | `getRandomPose` | `joint_states` |
+| `hpp:919` | `rememberJointValues` | `joint_states` |
 | `hpp:925` | `rememberJointValues` | -- |
 | `hpp:928` | `getRememberedJointValues` | -- |
 | `hpp:934` | `forgetJointValues` | -- |

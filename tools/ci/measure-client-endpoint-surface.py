@@ -65,34 +65,47 @@ CLASS = "MoveGroupInterface"
 # it CAN do is refuse to let the table go stale, which `check_handles` below
 # does -- every handle here must be assigned in the client, and every handle
 # assigned from a `create_*`/`getShared*` call in the client must be here.
+#
+# Every name is RELATIVE -- no leading slash.  The client resolves each one
+# through `rclcpp::names::append(opt_.move_group_namespace, ...)` at each
+# creation site, so an absolute `/move_action` would be a different endpoint:
+# it would ignore the `move_group_namespace` option the client exists to
+# honour.  The two `PlanningSceneMonitor` names are cited to their `.cpp`
+# definitions rather than their header declarations on purpose.  The header
+# declares them without values and annotates them with a trailing comment
+# that is wrong -- `static const std::string DEFAULT_JOINT_STATES_TOPIC;  //
+# "/joint_states"` at `planning_scene_monitor.hpp:105` against
+# `= "joint_states"` at `planning_scene_monitor.cpp:70`.  That comment is
+# where this table's leading slashes came from before this correction; see
+# `psm-topic-header-comments-claim-absolute-names` in `doc/upstream-bugs.md`.
 ENDPOINTS = {
     "move_action_client_": (
-        "/move_action", "action",
+        "move_action", "action",
         "move_group/capability_names.hpp:52"),
     "execute_action_client_": (
-        "/execute_trajectory", "action",
+        "execute_trajectory", "action",
         "move_group/capability_names.hpp:45"),
     "query_service_": (
-        "/query_planner_interface", "service",
+        "query_planner_interface", "service",
         "move_group/capability_names.hpp:46-47"),
     "get_params_service_": (
-        "/get_planner_params", "service",
+        "get_planner_params", "service",
         "move_group/capability_names.hpp:48-49"),
     "set_params_service_": (
-        "/set_planner_params", "service",
+        "set_planner_params", "service",
         "move_group/capability_names.hpp:50-51"),
     "cartesian_path_service_": (
-        "/compute_cartesian_path", "service",
+        "compute_cartesian_path", "service",
         "move_group/capability_names.hpp:59-60"),
     "trajectory_event_publisher_": (
-        "/trajectory_execution_event", "topic-pub",
+        "trajectory_execution_event", "topic-pub",
         "trajectory_execution_manager.cpp:50"),
     "attached_object_publisher_": (
-        "/attached_collision_object", "topic-pub",
-        "planning_scene_monitor.hpp:108"),
+        "attached_collision_object", "topic-pub",
+        "planning_scene_monitor.cpp:71"),
     "current_state_monitor_": (
-        "/joint_states", "topic-sub",
-        "planning_scene_monitor.hpp:105"),
+        "joint_states", "topic-sub",
+        "planning_scene_monitor.cpp:70"),
     "constraints_storage_": (
         "warehouse", "non-ros",
         "move_group_interface.cpp:1197"),
@@ -111,7 +124,7 @@ NOT_A_CALL = {"MoveGroupInterfaceImpl", "~MoveGroupInterfaceImpl"}
 # (`synchronized_string_parameter.cpp:101`, `:125`).  Not derived: each of
 # these is a call through a handle-typed local or a free function, not a use
 # of a member the classifier can see.
-CTOR_ENDPOINTS = ("/move_action", "/execute_trajectory", "robot_description")
+CTOR_ENDPOINTS = ("move_action", "execute_trajectory", "robot_description")
 
 # Call edges a name-based resolver cannot decide, because the overloads that
 # share the name do NOT share an endpoint set.  Each entry pins one call site
@@ -641,9 +654,17 @@ def emit_doc(rows, others, total, special) -> None:
           "that")
     print("revision. `-- ` in the last column means the declaration puts "
           "nothing on the")
-    print("wire; `robot_description` is the model load, a parameter read that "
-          "falls back")
-    print("to a latched topic, not a `move_group` endpoint.")
+    print("wire.")
+    print()
+    print("Endpoint names are **relative** -- the client resolves each one "
+          "through")
+    print("`rclcpp::names::append(opt_.move_group_namespace, ...)`, so a "
+          "leading slash")
+    print("would name a different endpoint. `robot_description` is the model "
+          "load: a")
+    print("parameter read that falls back to a latched topic, not a "
+          "`move_group`")
+    print("endpoint, but the client's constructor cannot complete without it.")
     print()
     print(f"    public function declarations   {len(rows)}")
     print(f"      special members              {special}")
