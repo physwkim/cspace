@@ -24011,3 +24011,317 @@ M1·M2와 G1·G2의 분업이 이 라운드에서 확인된 사실 하나를 그
   `doc/message-mapping.md` §9가 같은 공백을 이미 기록한다.
 - **`/plan_kinematic_path`의 `PLANNING_FAILED`.** §250.3, §254.6이 적은
   파리티 결함 그대로다.
+
+## §257 planning scene 토픽 구독을 지었다 — 그리고 그 구독이 먹일 변환 셋도 없었다 (2026-08-06)
+
+### §257.1 먼저 "왜 안 지었는가" — D1 표시가 근거로 든 것과, 그것이 지금도 유효한가
+
+이 라운드의 과제는 구독이지만, 구독이 받은 메시지를 씬에 적용할
+변환(`usePlanningSceneMsg`/`setPlanningSceneMsg`/`setPlanningSceneDiffMsg`)이
+트리에 없었다. "지어야 한다"보다 "왜 안 지었는가"가 먼저이므로, 미포팅을
+적은 표시를 먼저 읽었다.
+
+표시는 두 곳에 있다.
+
+- `crates/moveit-scene/src/scene.rs:427` — `setPlanningSceneDiffMsg`/
+  `setPlanningSceneMsg`/`usePlanningSceneMsg`를 **D1**로 적는다. 근거로
+  든 것은 단 하나, 시그니처가 `moveit_msgs::msg::PlanningScene`를
+  가진다는 것이다.
+- `ros/moveit-ros/src/scene/planning_scene.rs`의 모듈 문서 — 이 셋을
+  "포팅하지 않는다"고 명시하고, 빠진 필드를 이름으로 열거한다
+  (`robot_state`, `fixed_frame_transforms`, `allowed_collision_matrix`,
+  `link_padding`/`link_scale`, `object_colors`, diff-vs-full dispatch).
+
+**D1은 "포팅하지 않는다"가 아니라 "여기에 두지 않는다"이다.** 같은 목록
+`crates/moveit-scene/src/scene.rs:439`가 `processPlanningSceneWorldMsg`를
+똑같이 D1로 적어 두는데, 그 함수는 이미 포팅돼 있다 —
+`ros/moveit-ros/src/scene/planning_scene.rs`의 `apply_planning_scene_world`가
+그것이다. 즉 D1 표시가 붙은 심볼이 `ros/moveit-ros`에 지어진 선례가 이미
+같은 파일 안에 있다. 결정은 지금도 유효하고, 이 라운드는 그것을 존중한다:
+**`crates/moveit-scene/`는 한 줄도 바꾸지 않았다.** 셋은 전부
+`ros/moveit-ros/src/scene/planning_scene.rs`에 지었다.
+
+두 번째 표시(모듈 문서)는 결정이 아니라 **범위 기록**이다 — 라운드 3의
+브리프가 `world.collision_objects`와 `world.octomap` 둘만 이름 불렀고,
+나머지는 "각각이 별도로 크기가 나오는 진짜 변환"이라 적으면서 그 공백을
+발견 가능하게 남겨 두었다. 그 공백을 이 라운드가 닫는다. 상류에 대고
+다시 판단해도 결론은 같다: `usePlanningSceneMsg`
+(`moveit_core/planning_scene/src/planning_scene.cpp:1405`)는 씬을 바꾸는
+동작이지 순수 변환이 아니고, `moveit-scene`이 `moveit_msgs`를 보게 만들지
+않고서는 `crates/` 안에 둘 수 없다.
+
+### §257.2 브리프와 §226.3의 전제를 트리에 대고 확인했다 — 둘이 틀렸다
+
+이 라운드의 브리프는 전제 셋을 실었다. 전부 직접 확인했다.
+
+| 전제 | 확인 | 결과 |
+|---|---|---|
+| 세 변환은 이미 `crates/moveit-scene/src/scene.rs`에 순수 `TryFrom`으로 포팅돼 있다 | 위 §257.1의 두 표시를 읽음 | **틀림.** 트리에 없었다. 같은 트리의 모듈 문서가 "포팅하지 않는다"고 반대로 적어 두고 있었다 |
+| `rg -n 'create_subscription' ros/moveit-ros/src/ -t rust`가 0건 | 실행 | 0건 맞음 — 다만 이 앵커는 **아무것도 재지 못한다**(§257.7) |
+| §226.4의 네 조각 중 셋은 존재한다 | 앵커 재실행(§257.7) | 맞음 |
+
+첫 전제의 출처는 브리프가 아니라 이 문서다. **§226.3의 표에서 "planning
+scene 토픽 구독" 행의 근거 칸**이 "`scene/planning_scene.rs`는
+`usePlanningSceneMsg`/`setPlanningSceneMsg`/`setPlanningSceneDiffMsg`를
+이미 ... 순수 `TryFrom` 변환으로 포팅한 것"이라 적는다. 그 문장이 쓰인
+시점의 트리에서도 거짓이었다 — 같은 커밋의
+`ros/moveit-ros/src/scene/planning_scene.rs` 모듈 문서가 "does **not**
+port the rest of `usePlanningSceneMsg`/`setPlanningSceneMsg`/
+`setPlanningSceneDiffMsg`"라고 정확히 반대를 적고 있었고, §226.3은 그
+파일을 근거로 인용하면서 그 문서를 읽지 않았다. 그 셀은 부재를 적는
+행에 붙어 있어서 결론(부재)은 맞았고, 그래서 틀린 근거가 두 라운드를
+살아남았다.
+
+### §257.3 지은 것 (1) — `is_diff`를 불린이 아니라 타입으로
+
+상류 `setPlanningSceneMsg`
+(`moveit_core/planning_scene/src/planning_scene.cpp:1367`)는 첫 줄에
+`assert(scene_msg.is_diff == false)`를 두고, `setPlanningSceneDiffMsg`
+(`:1314`)는 그 반대를 가정한다. 즉 상류에서 full/diff 구분은 **런타임
+단언**이다. 이 포트는 그것을 타입으로 옮겼다:
+
+```rust
+pub struct FullPlanningSceneMsg(moveit_msgs::PlanningScene);  // 필드 비공개
+pub struct PlanningSceneDiffMsg(moveit_msgs::PlanningScene);  // 필드 비공개
+pub enum PlanningSceneUpdate { Full(FullPlanningSceneMsg), Diff(PlanningSceneDiffMsg) }
+```
+
+두 래퍼의 필드는 비공개이고, 유일한 생성처는
+`impl From<moveit_msgs::PlanningScene> for PlanningSceneUpdate`
+(`ros/moveit-ros/src/scene/planning_scene.rs:118`) 하나다. 그래서
+"`FullPlanningSceneMsg`이면 `!is_diff`"가 **구성상** 참이고,
+`set_planning_scene_msg`(`:353`)와 `set_planning_scene_diff_msg`(`:392`)는
+`is_diff`를 다시 볼 이유도, 볼 방법도 없다. 불린은 경계에서 정확히 한 번
+소비되고 그 뒤로는 존재하지 않는다.
+
+`use_planning_scene_msg`(`:139`)가 상류의 dispatch를 그대로 옮긴 진입점이다.
+같이 지은 것:
+
+- `reject_unrepresentable_fields`(`:166`) — `link_padding`, `link_scale`,
+  `object_colors`가 비어 있지 않으면 `Err`. D6대로, 표현할 수 없는 필드를
+  조용히 버리지 않는다. `if` 셋이 각각 따로 있고, 시험도 셋이 따로다.
+- `apply_fixed_frame_transforms`(`:208`) — 상류대로 **병합**이고 교체가
+  아니다. `child_frame_id`가 씬의 planning frame이 아니면 `Err`.
+- `AllowedCollisionMatrixMsg`(`:232`) + `TryFrom` — 길이 불일치와 비정사각
+  행을 `Err`로 만든다(상류는 로그만 찍고 절반 지어진 행렬을 돌려준다).
+  `combined_default`(`:246`)는 상류의 비공개 쌍-병합 규칙(NEVER >
+  CONDITIONAL > ALWAYS)을 재진술한 것이고, 재진술임을 주석이 명시한다 —
+  `moveit-collision`의 `default_for_pair`가 비공개이고 이 펜스 밖이다.
+- `impl TryFrom<Transform> for Isometry3`
+  (`ros/moveit-ros/src/geometry.rs:272`) — `geometry_msgs/Transform`에는
+  변환이 아예 없었다.
+
+`ros/moveit-ros/src/conversion_coverage.rs`에 단방향 면제 셋을 이유와
+만료와 함께 등록했다. 시험은 174 → 193개(`#[test]` 실측, +19).
+
+### §257.4 지은 것 (2) — 구독은 기존 노드에 올린다, 그리고 관측 가능하게 만든다
+
+**어느 노드가 여느냐:** 기존 노드 바이너리 안이다. 상류에서
+`PlanningSceneMonitor`는 `move_group` capability들이 올라가는 **같은
+노드**에 산다 — 씬이 다른 노드에 있으면 그 씬에 대한 질의에 답할 수 없다.
+별도 바이너리로 갈랐다면 이 워크스페이스에는 씬을 건네줄 프로세스 간
+경로가 없다.
+
+노드 소스의 `main`이 `node.subscribe::<r2r::moveit_msgs::msg::PlanningScene>`로
+구독을 열고, r2r의 `Node::subscribe`를 쓴다.
+
+상류 `newPlanningSceneCallback`
+(`moveit_ros/planning/planning_scene_monitor/src/planning_scene_monitor.cpp:711`)는
+`newPlanningSceneMessage`(`:739`)로 바로 넘긴다. 그 함수의 두 갈래 중
+`parent_scene_`이 있는 쪽은 이 노드에 닿지 않는다 — `parent_scene_`은
+`startPublishingPlanningScene`(`:388`) 한 곳에서만 설정되고, 이 노드는
+씬을 재발행하지 않는다. 그래서 `usePlanningSceneMsg` 갈래만 포팅했고,
+그 사실을 소스 주석이 근거와 함께 적는다.
+
+**잠금 규약:** 상류는 `scene_update_mutex_`(`std::shared_mutex`)를 콜백에서
+`unique_lock`으로 잡고, 읽는 쪽은 `LockedPlanningSceneRO`를 쓴다. 이 노드는
+단일 스레드(`futures::executor::LocalPool` + `spin_once`)이므로 뮤텍스가
+아니라 소유권으로 같은 것을 얻는다:
+
+```rust
+type MonitoredScene = Rc<RefCell<Arc<PlanningScene<'static>>>>;
+```
+
+갱신은 clone-apply-swap이고(적용에 실패하면 이전 스냅샷이 그대로 남는다),
+질의는 `Arc`를 복제해 스냅샷으로 답한다. 질의가 반쯤 적용된 씬을 볼 수
+없고, 질의가 감시 중인 씬을 변형할 수도 없다 — `LockedPlanningSceneRO`가
+주는 두 성질 그대로다.
+
+**구독을 밖에서 관측 가능하게:** 아무도 읽지 않는 구독은 프로세스 밖에서
+검사할 수 없다. 그래서 상류
+`MoveGroupStateValidationService`(`moveit_ros/move_group/src/default_capabilities/state_validation_service_capability.cpp:50`)를
+같이 포팅했다 — 감시 중인 씬에 답이 의존하면서 이 워크스페이스가 끝까지
+계산할 수 있는 유일한 상류 capability다(충돌 환경이 필요한데 그것은
+있고, 플래너가 필요하지 않은데 그것은 없다).
+`handle_state_validity`가 그것이고,
+`create_service::<GetStateValidity::Service>`가 `/check_state_validity`로
+등록한다. 상류가 `ls->checkCollision(creq, cres, rs)`
+(`state_validation_service_capability.cpp:80`)로 하는 일을
+`ParryCollisionEnv`로 한다.
+
+의도적 이탈 하나: 요청의 `robot_state`가 변환에 실패하면 상류에는 실을
+오류 필드가 `GetStateValidity::Response`에 없다. 이 포트는 `valid: false`로
+답하고 stderr에 이유를 크게 찍는다. D6를 어기는 쪽이지만 응답 타입이
+그것을 실을 자리를 주지 않는다 — 소스 주석이 이탈로 표시한다.
+
+### §257.5 게이트 다리 C — 발행이 아니라 **답이 갈리는 것**을 단언한다
+
+`ros/verify-ros-interop.sh`의 `run "scene-topic"` 블록이 그 다리다. 발행만 하고
+결과를 단언하지 않는 다리는 메시지를 전부 바닥에 버리는 구독에 대해서도
+통과한다. 그래서 단언 대상은 발행이 아니라 발행 전후로
+`/check_state_validity`의 답이 갈리는 것이다:
+
+| 단계 | 발행한 것 | 단언 |
+|---|---|---|
+| 1 | (없음) | `valid=True` — 빈 세계 |
+| 2 | **full**, `blocker`를 로봇 위(x=0)에 | `valid=False`, 그리고 `contact_body_2='blocker'` |
+| 3 | **diff**, `bystander`를 멀리(x=10)에 | 여전히 `valid=False`, 여전히 `blocker`와 접촉 |
+| 4 | **full**, `bystander`만 | `valid=True` |
+
+3과 4가 full/diff 구분 그 자체이고, **양방향**이다. diff를 full로 다루면
+`blocker`가 지워져 3이 True가 되고, full을 diff로 다루면 `blocker`가 남아
+4가 False가 된다. 한쪽 뮤테이션이 다른 쪽 단언을 통과할 수 없다.
+
+토픽 이름은 `grep -qxF`로 **줄 전체**를 본다 — `ros2 topic list`는 한 줄에
+하나를 찍고 `/planning_scene_2`는 `/planning_scene`를 포함한다.
+
+이 다리는 자기 `ROS_DOMAIN_ID`를 쓴다(`SCENE_DOMAIN_ID`).
+이 도커 데몬을 워크트리 일곱이 공유하고, 이 다리의 단언은 동시에 도는
+사본이 발행해 넣을 수 있는 씬을 읽는다. `$$`에서 파생시켜 실패한 실행을
+그 실행 자신이 찍은 id로 재현할 수 있게 했다. 위쪽 `run` 헬퍼는 일부러
+도메인 없이 남겨 두었으므로 이 다리는 `docker`를 직접 부른다.
+
+로봇을 인라인으로 쓴 이유: `ros/fixtures/one_joint.urdf`에는 `<collision>`
+요소가 아예 없다. 로봇 기하가 없으면 `/check_state_validity`는 어떤 세계에
+대해서도 True로 답하고, 이 다리는 아무것도 판별하지 못한다. 공유 픽스처에
+기하를 주는 것이 더 나은 자리이지만(다리 셋이 로봇 하나를 쓰는 것이 그
+파일 자신의 주석이 지키는 것이다) `ros/fixtures/`는 이 라운드의 펜스
+밖이다. 이 다리는 `/move_action` 다리들과 달리 컨테이너 하나에서 돌고
+로봇을 아무와도 공유하지 않는다.
+
+### §257.6 물린 자국 넷 — 각 단언이 무엇을 잡는지 이름으로 확인
+
+뮤테이션마다 그것 하나만 깨뜨리고, 다리를 돌리고, 되돌렸다.
+
+| # | 뮤테이션 | 다리의 반응 |
+|---|---|---|
+| A | `From for PlanningSceneUpdate`의 `if msg.is_diff` → `if false` (전부 full로) | **step 3에서 FAIL**: "a diff must not clear the world, but blocker is gone -- the diff was applied as a full scene". `PROBE step 3: valid=True` |
+| B | 같은 줄 → `if true` (전부 diff로) | **step 4에서 FAIL**: "a full scene must clear the world, but blocker survived -- the full scene was applied as a diff". `PROBE step 4: valid=False contact_body_2='blocker'` |
+| C | 콜백이 적용 결과를 버리고 이전 씬을 다시 설치 | **step 2에서 FAIL**: "the published scene never reached the node -- a box on top of the robot is a collision". `PROBE step 2: valid=True` |
+| D | 구독 토픽 이름 `planning_scene` → `planning_scene_2` | **토픽 단언에서 FAIL**: "the node is not subscribed to /planning_scene", 그리고 `ros2 topic list` 출력을 찍는다 |
+
+네 뮤테이션이 서로 다른 네 단계에서 물렸다. A와 B는 같은 한 줄을 반대
+방향으로 깨뜨린 것이고 서로 다른 단계가 잡았다 — 단언 하나가 둘 다
+가리는 것이 아님을 그것이 보인다. 넷 다 되돌린 뒤 다리는 다시 초록이고,
+`if msg.is_diff`/`*cell = Arc::new(next)`/`"planning_scene"` 세 줄이 트리에
+그대로 있음을 `rg`로 확인했다.
+
+C의 첫 시도(`Ok(()) => drop(next)`)는 컴파일에 실패했다(`unused_mut`,
+`-D warnings`). 컴파일 실패는 판별 신호가 아니므로 — 그 게이트는 이미
+따로 있다 — 컴파일되면서 갱신만 버리는 형태로 바꿔서 다시 쟀다.
+
+### §257.7 §226.3의 네 조각을 지금 트리에서 다시 센다 — 그리고 앵커 하나가 눈이 멀어 있었다
+
+| 조각 | §226.3 | §250.1 | 지금 | 앵커(지금 트리에서 재실행) |
+|---|---|---|---|---|
+| 노드 바이너리 | 부재 | 존재 | **존재** | `rg -n 'fn main\|r2r::Node::create' ros/moveit-ros/src/ -t rust` |
+| `/plan_kinematic_path` 서비스 | 부재 | 존재 | **존재** | `rg -n 'create_service::<GetMotionPlan' ros/moveit-ros/src/ -t rust` |
+| `/move_action` 액션 서버 | 부재 | 존재 | **존재** | `rg -n 'create_action_server::<MoveGroup' ros/moveit-ros/src/ -t rust` |
+| planning scene 토픽 구독 | 부재 | 부재 | **존재** | `rg -n '\.subscribe::<' ros/moveit-ros/src/ -t rust` |
+| `moveit_msgs` `TryFrom` 변환 | 24 | (재계수 안 함) | **26** | `rg -c '^impl TryFrom' -g '*.rs' ros/moveit-ros/src/` 합 |
+
+**네 조각이 전부 존재한다.** 넷 다 노드 바이너리 소스 한 파일 안에 있다.
+위 앵커는 파일 이름을 부르지 않는다 — 이 바이너리는 상류의
+`add_executable(move_group ...)`을 따라 이름이 옮겨 가는 중이고, 파일 이름을
+고정한 근거 칸은 그 이름과 함께 낡는다.
+
+`TryFrom` 26은 §226.3의 24에 이 라운드가 더한 둘이다:
+`geometry.rs` 9 → 10(`Transform` → `Isometry3`),
+`scene/planning_scene.rs` 0 → 1(`AllowedCollisionMatrixMsg` →
+`AllowedCollisionMatrix`). 나머지 아홉 파일은 §226.3이 적은 값 그대로다.
+`PlanningSceneUpdate`는 `impl From`이라 이 앵커에 잡히지 않는다.
+
+**앵커 하나가 처음부터 아무것도 재지 못했다.** §226.3과 §250.1이 구독
+행의 근거로 쓴 `rg -n 'create_subscription' ros/moveit-ros/src/ -t rust`는
+지금 트리에서도 **0건**이다 — 구독이 존재하는데도. `create_subscription`은
+`rclcpp`의 이름이고, 이 크레이트가 쓰는 r2r의 이름은 `Node::subscribe`다.
+그 앵커로는 이 크레이트에 구독이 있어도 없어도 언제나 0건이 나온다:
+실패할 수 없는 검사다. 위 표는 `\.subscribe::<`로 다시 쟀다. 같은 종류의
+착오가 아닌지 나머지 셋도 각각 재실행해서 히트를 확인했다(위 표의 앵커
+칸) — 셋은 r2r와 rclcpp가 이름을 공유해서 우연히 맞았다.
+
+### §257.8 Phase 9 판정 — 바꿀 근거가 없다, 그 이유
+
+**§5 Phase 9의 완료 조건은 여전히 UNMET이고, 이 라운드는 그것을 바꾸지
+않는다.** 추정이 아니라 이 라운드가 돌린 게이트의 출력이 근거다.
+
+조건은 "무변경 C++ `MoveGroupInterface`가 이 노드에 붙어 궤적을 받는
+것"이다. 네 조각이 전부 존재하게 된 것과 조건이 충족되는 것은 다른
+사건이고, 그 차이는 §250.2가 이미 셋으로 갈라 두었다. 그중 이 라운드가
+건드린 것은 없다:
+
+1. **`crates/moveit-planning`의 `PlanningRequest`에 start-state 필드가
+   없다.** 지금도 첫 거부다. 이 라운드의 게이트 실행에서 leg B가
+   `val=-16`, `message='MotionPlanRequest -> PlanningRequest:
+   MotionPlanRequest.start_state is not representable: ...'`를 두 가지
+   start-state 표기 모두에 대해 돌려받았다. `ros/moveit-ros` 밖이고, 이
+   라운드의 펜스 밖이다.
+2. **부를 플래너가 없다.** D8(§140.3)이 정해 두고 아직 시작하지 않은
+   작업이다. leg A가 `99999/no moveit_planning::pipeline::Planner to call
+   yet`를 돌려받는 것이 그 상태다.
+3. **환경 제약: 없다.** §250.2가 이미 확인했고 이 라운드가 바꾼 것이 없다.
+
+구독과 `/check_state_validity`는 씬을 받고 씬에 근거해 답하지만, **궤적을
+만들지 않는다.** 조건이 요구하는 것은 궤적이므로 판정어를 옮길 근거가
+없다. 네 조각을 세는 표(§226.3)와 조건(§5)이 같은 것을 재지 않는다는
+것을 이 라운드가 처음으로 분리해서 보인다 — 표는 이제 4/4이고 조건은
+여전히 UNMET이다.
+
+### §257.9 이 라운드가 닫지 못한 것
+
+- **`ros/fixtures/one_joint.urdf`에 `<collision>`이 없다.** 다리 C가
+  로봇을 인라인으로 들고 있는 이유이고, 픽스처가 이 라운드의 펜스
+  밖이라서 고치지 못했다. 고치면 인라인 heredoc 두 벌이 사라진다.
+- **§226.3 표의 근거 칸 둘이 틀린 채로 남아 있다** — 구독 행의 "이미
+  순수 `TryFrom`으로 포팅" 서술(§257.2)과 `create_subscription` 앵커
+  (§257.7). 역사 기록이라 본문을 고쳐 쓰지 않고 여기에 정정을 적는다.
+  §250.1의 같은 앵커도 같다.
+- **`/check_state_validity`의 `robot_state` 변환 실패가 `valid: false`로
+  뭉개진다.** 응답 타입에 오류 필드가 없다. D6에 대한 의도적 이탈이고
+  소스가 그렇게 표시한다.
+- **다리 C가 바이너리 이름을 두 곳에 박아 두고 있다** — `cargo build
+  --bin ...`과 `./target/debug/...`. §254.6이 적은 "바이너리 이름" 항목이
+  움직이는 중이므로(상류 `add_executable(move_group ...)`), 그 이름이
+  바뀌면 기존 `run "live"` 다리의 같은 두 줄과 **함께** 움직여야 한다.
+  다리 C는 `/plan_kinematic_path`의 응답 코드를 읽지 않으므로
+  `PLANNING_FAILED` → `FAILURE` 변경에는 걸리지 않는다 —
+  `/check_state_validity`의 `valid=`와 `contact_body_2=`만 본다.
+- **`contact_to_msg`와 `cost_source_to_msg`는 자유 함수라
+  `conversion_coverage.rs`의 간선 스캔에 잡히지 않는다.** 그 스캔은
+  `impl (TryFrom|From)` 블록만 본다(`src/bin`도 걷으므로 위치 문제가
+  아니라 형태 문제다). 둘 다 진짜 core→msg 변환이므로 `impl`로 바꾸면
+  스캔이 보게 되고 단방향 면제를 요구하게 된다. 이 라운드가 하지 않았다.
+- **`/plan_kinematic_path`의 `PLANNING_FAILED` 파리티 결함**(§254.6)은
+  그대로다. 이 라운드가 받은 과제가 아니다.
+- **게이트는 CI에서 돌지 않는다.** §129.4/§254.6 그대로 — 사람이
+  `sg docker -c ...`를 쳐야 돈다.
+
+**이 라운드가 자기 자신에게서 잡은 측정 오류 둘**(둘 다 초록을 보고할
+뻔했다):
+
+1. **워크트리에서 게이트를 부를 때 경로가 트리를 고른다.**
+   `tools/ci/verify-ros-interop.sh`는 `REPO_ROOT`를 자기 `BASH_SOURCE`에서
+   뽑는다 — 옳은 동작이지만, 그래서 세션 루트의 사본을 부르면 **세션
+   루트의 트리**를 잰다. 워커의 변경이 하나도 들어 있지 않은 채로
+   `all gates passed`가 찍히고, 종료 코드도 0이다. 워커의 워크트리와
+   세션 루트가 같은 저장소의 서로 다른 체크아웃이므로 이 실수는 조용하다.
+   구별하는 법은 게이트 자신의 출력에 있다: `OK N/N source-declared unit
+   tests actually ran`의 N이 워커 트리의 `#[test]` 수와 다르면 다른 트리를
+   잰 것이다(여기서는 174 대 193).
+2. **`tools/ci/verify-private-doc-links.sh`는 `ros/moveit-ros`를 보지
+   않는다.** 루트 워크스페이스만 문서화하므로 D5로 갈라져 나온 이
+   크레이트는 그 게이트의 코퍼스 밖이다. 이 라운드가 공개 모듈 문서에서
+   비공개 항목으로 건 intra-doc 링크 하나를 그 게이트는 초록으로
+   통과시켰고, `ros/verify-ros-interop.sh`의 `=== doc ===` 단계만
+   잡았다(`rustdoc::private_intra_doc_links`). `-p` 스코프 clippy/nextest도
+   물론 못 잡는다.
