@@ -25,14 +25,16 @@
 #      empty -- no field, no error code -- so a client cannot tell a stored
 #      write from a discarded one. The only observation that separates them is
 #      a `get` afterwards, over the same wire, and that is what leg B does.
-#
-# What these legs do NOT check: that a plan honours a stored configuration.
-# Nothing here hands the store to a planner -- upstream's `setParams` ends at
-# `setPlannerConfigurations` on the instance the pipeline plans with, and this
-# port has no equivalent -- so there is no such behaviour to assert yet. These
-# legs prove the store round trips over DDS and nothing beyond that. Stated
-# about the wiring rather than about whether the node plans, so it does not
-# quietly become false on the round that makes planning reachable.
+#   4. **A stored configuration reaches the planner.** Leg B proves the store
+#      round trips; it says nothing about whether anything plans under it, and
+#      the two are independent (PORTING-PLAN.md §285). Leg C plans the same
+#      query twice across one `set` and compares the trajectories: upstream's
+#      `setParams` ends at `setPlannerConfigurations` on the instance the
+#      pipeline plans with (`query_planners_service_capability.cpp:205`), and
+#      the equivalent here is that the node builds its planner *from* this
+#      store on every request. Only a live node can show that -- the unit
+#      tests drive `plan_only` with a map they construct themselves, so they
+#      would keep passing if the node never handed its own store over.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -174,6 +176,24 @@ docker run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   timeout 20 ros2 service call /get_planner_params \
     moveit_msgs/srv/GetPlannerParams "{planner_config: RRTConnect}"
 
+  echo "@@@ plan before the arm configuration"
+  timeout 30 ros2 service call /plan_kinematic_path moveit_msgs/srv/GetMotionPlan \
+    "{motion_plan_request: {group_name: arm, goal_constraints: [{joint_constraints: [{joint_name: j1, position: 0.5, tolerance_above: 0.001, tolerance_below: 0.001, weight: 1.0}]}]}}"
+
+  # Keyed for the `arm` group, not globally: the planner looks a configuration
+  # up by the request going through it (group `arm`, empty `planner_id`), which
+  # is `configuration_for`s fallback to the bare group name. A `set` with no
+  # group stores under the bare `planner_config` -- what legs A and B write --
+  # and that key is one no plan ever looks for, upstream included.
+  echo "@@@ set arm range"
+  timeout 20 ros2 service call /set_planner_params \
+    moveit_msgs/srv/SetPlannerParams \
+    "{planner_config: arm, params: {keys: [range], values: [\"0.05\"]}}"
+
+  echo "@@@ plan after the arm configuration"
+  timeout 30 ros2 service call /plan_kinematic_path moveit_msgs/srv/GetMotionPlan \
+    "{motion_plan_request: {group_name: arm, goal_constraints: [{joint_constraints: [{joint_name: j1, position: 0.5, tolerance_above: 0.001, tolerance_below: 0.001, weight: 1.0}]}]}}"
+
   echo "@@@ node stderr"
   cat /tmp/node.stderr
 ' >"$out" 2>&1
@@ -227,4 +247,56 @@ assert_has "leg B rejection logged" "set_planner_params rejected: pipeline_id=\"
 
 echo "OK leg B: a set crossed DDS, was stored, and a later get read it back;"
 echo "OK leg B: a set for an unserved pipeline_id was rejected and logged"
-echo "OK planner_params: both legs passed"
+
+###############################################################################
+# Leg C -- a stored configuration reaches the planner and changes the plan
+###############################################################################
+# Counted off the reply, not the whole transcript: `ros2 service call` echoes
+# the request, and a `GetMotionPlan` request carries `JointTrajectoryPoint`s of
+# its own in `start_state`/`trajectory_constraints`, so an unscoped count could
+# not tell a planned point from one this call sent.
+#
+# `grep -c` would count matching *lines* and these replies are one line each;
+# `grep -o | wc -l` counts occurrences, which is what a waypoint count is.
+waypoints_of() { # <marker>
+  local reply
+  reply="$(reply_of "$1")"
+  if [[ -z $reply ]]; then
+    echo "--- captured output ---" >&2
+    cat "$out" >&2
+    fail "leg C: no reply captured for the '$1' call -- nothing was counted"
+  fi
+  grep -oF "JointTrajectoryPoint(" <<<"$reply" | wc -l
+}
+
+# Both plans have to have succeeded, or "the trajectories differ" is satisfied
+# by one of them being empty -- which is what a configuration that broke
+# planning outright would produce.
+assert_reply "leg C plan before succeeded" "plan before the arm configuration" "val=1,"
+assert_reply "leg C plan after succeeded" "plan after the arm configuration" "val=1,"
+assert_reply "leg C plan before carried a trajectory" "plan before the arm configuration" \
+  "group_name='arm'"
+assert_reply "leg C plan after carried a trajectory" "plan after the arm configuration" \
+  "group_name='arm'"
+
+before="$(waypoints_of "plan before the arm configuration")"
+after="$(waypoints_of "plan after the arm configuration")"
+if [[ $before -lt 2 ]]; then
+  fail "leg C: the unconfigured plan came back with $before waypoint(s); a plan from a start that is not already the goal has at least two, so there is nothing to compare against"
+fi
+# Directional, not merely different. `range` caps how far one RRT-Connect
+# `extend` advances (upstream's own key for it:
+# `moveit_configs_utils/default_configs/ompl_defaults.yaml:38-40`), so a tenth
+# of the compiled-in default has to cross the same 0.5 rad in more of them. A
+# store that reached the planner but landed on some other field would still
+# change the trajectory; it would not systematically lengthen it.
+if [[ $after -le $before ]]; then
+  echo "--- reply for 'plan before the arm configuration' ---" >&2
+  reply_of "plan before the arm configuration" >&2
+  echo "--- reply for 'plan after the arm configuration' ---" >&2
+  reply_of "plan after the arm configuration" >&2
+  fail "leg C stored range did not reach the planner: $before waypoint(s) before the set and $after after it; a smaller \`range\` must produce a finer path"
+fi
+
+echo "OK leg C: a set reached the planner -- $before waypoint(s) before it, $after after"
+echo "OK planner_params: all three legs passed"

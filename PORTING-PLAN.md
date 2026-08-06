@@ -9148,7 +9148,7 @@ rg -c '^//! - CS:' crates/moveit-constraints/src/lib.rs   →  66
 ### 105.4 `registry.rs`의 처분 절이 낡았다 — 담당의 UNFIXED가 맞다
 
 담당이 범위 밖이라 두고 보고만 한 것을 내가 확인했다.
-`moveit-planners-sbp/src/registry.rs:58`의
+`moveit-planners-sbp/src/registry.rs:62`의
 
 ```
 **Disposition** (proposed, not started — ...)
@@ -11527,8 +11527,8 @@ p1-fixtures 라운드 20이 레지스트리 위치를 조사하고 **새 별도 
 ```
 crates/moveit-planning/src/request.rs:60      pub struct PlanningRequest
 crates/moveit-planning/src/response.rs:44     pub struct PlanningResponse<'m>
-crates/moveit-planners-sbp/src/registry.rs:136  pub struct PlanningRequest
-crates/moveit-planners-sbp/src/registry.rs:163  pub struct PlanningResponse<'m>
+crates/moveit-planners-sbp/src/registry.rs:140  pub struct PlanningRequest
+crates/moveit-planners-sbp/src/registry.rs:167  pub struct PlanningResponse<'m>
 ```
 
 같은 이름이 어느 크레이트에서 보느냐에 따라 다른 타입을 뜻한다. 이게
@@ -14109,7 +14109,7 @@ arm 그룹에는 네 등록이 전부 구성에 성공하므로, 실제로 쓰�
 
 지금
 워크스페이스의 `distributed_slice`는 둘이다.
-`PLANNER_MANAGERS`(`moveit-planners-sbp/src/registry.rs:441`)의 유일한
+`PLANNER_MANAGERS`(`moveit-planners-sbp/src/registry.rs:476`)의 유일한
 순회는 `:655`의 `find(|r| r.name == "rrt_connect")`로 이름 키이고
 테스트 전용이라 이 결함이 아니다. 새 레지스트리를 만들거나 새 순회를
 추가할 때 이 절이 요구하는 것은 하나다: **첫 항목을 집지 말 것.**
@@ -18726,7 +18726,7 @@ public:
    future solves."* 즉 취소가 아니라 컨텍스트를 재사용 불가로 표시하는
    플래그이고(`clear()`도 이것을 되돌리지 않는다), 이것을 세우는 유일한
    호출자는 `move_group`의 액션 취소 경로다. 이 포트의 `PlanningContext`
-   대응물인 `crates/moveit-planners-sbp/src/registry.rs:542-582`가 이미 같은
+   대응물인 `crates/moveit-planners-sbp/src/registry.rs:661-701`가 이미 같은
    이유로 `terminate`를 두지 않는다 — "this crate's planners are
    synchronous"; 동기 `solve`는 상류에서도 실행 중 `terminated_`를 관측할 수
    없다.
@@ -20548,7 +20548,7 @@ doc 주석이고 나머지 6줄은 §236.4가 세운 만료 tripwire 테스트 �
 **둘째, 받는 자리는 이미 있고 그 자리에는 setter가 없다.** 이 포트의
 `PlanningContext` 계층은 포팅되어 있다:
 `moveit_planners_sbp::registry`의 `PlannerManager::get_planning_context`
-(`crates/moveit-planners-sbp/src/registry.rs:584`)가 `request:
+(`crates/moveit-planners-sbp/src/registry.rs:703`)가 `request:
 PlanningRequest`를 **값으로** 받고 `RrtConnectManager`의 구현
 (`:621`)이 그것을 `RrtConnectContext.request`로 옮긴다. 상류가
 `setMotionPlanRequest`에 정규화를 매단 이유는 그것이 요청이 컨텍스트에
@@ -20559,7 +20559,7 @@ PlanningRequest`를 **값으로** 받고 `RrtConnectManager`의 구현
 탐색 예산에 해당하는 것은 `moveit_planners_sbp::Termination`
 (`crates/moveit-planners-sbp/src/rrt_connect.rs:40-58`,
 `RrtConnectParams::termination`을 통해 요청에 실리고
-`crates/moveit-planners-sbp/src/registry.rs:768`에서 소비된다)이다:
+`crates/moveit-planners-sbp/src/registry.rs:887`에서 소비된다)이다:
 
 | 상류 가드가 고치는 입력 | 이 포트에서 |
 |---|---|
@@ -20946,11 +20946,11 @@ crates/`는 `crates/moveit-planning/src/pipeline.rs`의
 crates/moveit-planners-{sbp,chomp,stomp,pilz}/Cargo.toml`도 0건 — 이
 워크스페이스의 플래너 크레이트 넷 중 어느 것도 `moveit-planning`에
 의존하지 않는다. 이 워크스페이스에 존재하는 유일한 구체 플래너,
-`moveit_planners_sbp::registry::RrtConnectManager`(`crates/moveit-planners-sbp/src/registry.rs:616`,
+`moveit_planners_sbp::registry::RrtConnectManager`(`crates/moveit-planners-sbp/src/registry.rs:735`,
 `impl PlannerManager for RrtConnectManager`)는 `moveit-planning`의
 `PlanningRequest`/`PlanningResponse`와 이름만 같고 타입이 다른, 자기
 자신의 `PlanningRequest`/`PlanningResponse`를 쓴다
-(`crates/moveit-planners-sbp/src/registry.rs:270-340`, 이번 라운드가 다시 읽어 확인).
+(`crates/moveit-planners-sbp/src/registry.rs:276-346`, 이번 라운드가 다시 읽어 확인).
 
 이 둘을 잇는 어댑터를 `ros/moveit-ros` 안에 지금 짜지 않았다 — D8
 (§140)이 이미 이 둘을 하나의 크레이트(`moveit-planner-registry`)로
@@ -22485,7 +22485,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 9 | `moveit_core/constraint_samplers/src/constraint_sampler_tools.cpp` | §225.1 | `PORTING-PLAN.md` §225.1, `crates/moveit-constraints/src/lib.rs:574-611` | —(.cpp) |
 | 10 | `moveit_core/macros/include/moveit/macros/console_colors.hpp` | §228.5 | `PORTING-PLAN.md` §228.5 | 1 |
 | 11 | `moveit_core/online_signal_smoothing/include/moveit/online_signal_smoothing/smoothing_base_class.hpp` | D1, D4 | `crates/moveit-smoothing/src/lib.rs:28-37` | 3 |
-| 12 | `moveit_core/planning_interface/src/planning_interface.cpp` | §236 | `crates/moveit-planners-sbp/src/lib.rs:284-326` (`# Round 6 symbol audit`) -- 8 of the 9 definitions; `PORTING-PLAN.md` §236 + `crates/moveit-planning/src/request.rs:89-105` -- the 9th | —(.cpp) |
+| 12 | `moveit_core/planning_interface/src/planning_interface.cpp` | §236 | `crates/moveit-planners-sbp/src/lib.rs:284-332` (`# Round 6 symbol audit`) -- 8 of the 9 definitions; `PORTING-PLAN.md` §236 + `crates/moveit-planning/src/request.rs:89-105` -- the 9th | —(.cpp) |
 | 13 | `moveit_core/utils/include/moveit/utils/eigen_test_utils.hpp` | §228.4 | `PORTING-PLAN.md` §228.4; `crates/moveit-test-support/src/lib.rs:8-22` | 0 |
 | 14 | `moveit_core/utils/include/moveit/utils/lexical_casts.hpp` | §228.1, D3 | `PORTING-PLAN.md` §228.1 | 0 |
 | 15 | `moveit_core/utils/include/moveit/utils/logger.hpp` | D1 | `crates/moveit-planners-pilz/src/lib.rs:162` | 50 |
@@ -22589,11 +22589,11 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 1 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp` | `crates/moveit-collision/src/lib.rs:17` | 2 |
 | 2 | `moveit_core/constraint_samplers/src/constraint_sampler.cpp` | `crates/moveit-constraints/src/sampler.rs:184,377`, module doc "`constraint_sampler.cpp`: where its two function bodies went" | —(.cpp) |
 | 3 | `moveit_core/exceptions/src/exceptions.cpp` | `crates/moveit-error/src/lib.rs:21-28,64-73` | —(.cpp) |
-| 4 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `crates/moveit-planners-sbp/src/lib.rs:284-326` (`# Round 6 symbol audit`), `crates/moveit-planners-stomp/src/lib.rs:68-106` (completion statement) | 7 |
+| 4 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `crates/moveit-planners-sbp/src/lib.rs:284-332` (`# Round 6 symbol audit`), `crates/moveit-planners-stomp/src/lib.rs:68-106` (completion statement) | 7 |
 | 5 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request.hpp` | `crates/moveit-planning/src/request.rs:4-10` | 1 |
-| 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:404` (`PlanningRequestAdapter`) | 0 |
+| 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:412` (`PlanningRequestAdapter`) | 0 |
 | 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:193` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
-| 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:420` (`PlanningResponseAdapter`) | 0 |
+| 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:428` (`PlanningResponseAdapter`) | 0 |
 | 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:326` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:44-66` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
 | 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-7`, `:56` | 2 |
 | 11 | `moveit_core/robot_state/src/attached_body.cpp` | `crates/moveit-scene/src/attached_body.rs:191` (`set_scale`), `:205` (`set_padding`), `:122` (`subframe_pose`), `:67` (`new`); `crates/moveit-scene/src/scene.rs:1129` (`attach`), `:1200` (`attach_new`), `:1352-1355` (`frame_transform`'s on-demand recompute); `crates/moveit-kinematics/src/set_from_ik.rs:150` | —(.cpp) |
@@ -22762,7 +22762,7 @@ Phase 9를 코퍼스 계기로 추적하려면 `CORPUS_ROOTS`에 `moveit_ros/mov
 
 | 조각 | §226.3 | 지금 | 지은 절 |
 |---|---|---|---|
-| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/move_group.rs:215,272,356` (§255.2 이전 이름은 `plan_kinematic_path_server.rs`, 줄 번호는 지금 트리에서 다시 유도했다) | §241 |
+| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/move_group.rs:216,274,377` (§255.2 이전 이름은 `plan_kinematic_path_server.rs`, 줄 번호는 지금 트리에서 다시 유도했다) | §241 |
 | `/plan_kinematic_path` 서비스 | 부재 | **존재** — 같은 파일 `create_service::<GetMotionPlan::Service>` | §241 |
 | `/move_action` 액션 서버 | 부재 | **존재** — 같은 파일 `create_action_server::<MoveGroup::Action>` | 이 절 |
 | planning scene 토픽 구독 | 부재 | **부재** — `rg -n 'create_subscription' ros/moveit-ros/src/ -t rust` 0건 | — |
@@ -26523,7 +26523,7 @@ box`가 아니라서 §251의 깨진 셀을 건드리지 않는다.
 **플래너 쪽**에 산다 — `PlannerManager::initialize` +
 `setPlannerConfigurations`(`planning_interface.hpp`)가 그 자리다. 그래서 sbp
 전용 네 필드는 요청에서 지운 것이 아니라 `RrtConnectManager`의 필드로
-옮겼다(`crates/moveit-planners-sbp/src/registry.rs:358-429`). 요청 타입은 `moveit-planning`의 것이 그대로
+옮겼다(`crates/moveit-planners-sbp/src/registry.rs:378-463`). 요청 타입은 `moveit-planning`의 것이 그대로
 남고, sbp가 그것을 쓴다.
 
 `goal` 충돌은 §241.2가 어댑터를 거절한 바로 그 지점이다. `Goal::State`는
@@ -27748,7 +27748,7 @@ Phase 9의 클라이언트 표면에서 비어 있던 세 엔드포인트
 
 ```
 $ rg -n "distributed_slice\(PLANNER_MANAGERS\)" crates/ ros/
-crates/moveit-planners-sbp/src/registry.rs:784:#[linkme::distributed_slice(PLANNER_MANAGERS)]
+crates/moveit-planners-sbp/src/registry.rs:903:#[linkme::distributed_slice(PLANNER_MANAGERS)]
 ```
 
 등록은 하나(`"rrt_connect"`)다. `PLANNER_MANAGERS`는 상류의 **플러그인**
@@ -27827,14 +27827,14 @@ crates/moveit-planners-sbp/src/registry.rs:784:#[linkme::distributed_slice(PLANN
 
 ### §274.6 닫지 않은 것
 
-- **저장된 설정은 어떤 플래너에도 닿지 않는다.** 상류의 `setParams`는
+- **저장된 설정은 어떤 플래너에도 닿지 않는다. 닫혔다(§285).** 상류의 `setParams`는
   `setPlannerConfigurations`로 끝나면서 파이프라인이 계획에 쓰는 인스턴스에
   맵을 넘긴다. 여기에는 대응하는 호출이 없고, 애초에 이 워크스페이스의 어떤
   구성 경로도 `PlannerConfigurationMap`을 입력으로 받지 않는다. 즉 `set`은
   받아들여지고 `get`으로 읽히지만 뒤따르는 계획을 바꾸지 않는다. 닫으려면
   `PlannerRegistration::construct`가 저장소를 받아야 하고, 그것은 플래너
   레지스트리 트레이트의 변경이라 이 파일의 일이 아니다.
-- **머지 시점의 import.** 이 브랜치의 base에서 `PLANNER_MANAGERS`는
+- **머지 시점의 import. 이미 해소되었다(§285.1).** 이 브랜치의 base에서 `PLANNER_MANAGERS`는
   `moveit-planners-sbp`에 있고, `main`에서는 `moveit-planner-registry`
   크레이트로 옮겨져 있다(그 크레이트는 이 base에 존재하지 않는다). sbp는
   거기에 비공개 `use`로 닿고 워크스페이스 어디에도 재수출이 없으므로, 새
@@ -28929,7 +28929,7 @@ ACM에서 `prbt_flange` 대신 `prbt_link_5`를 열면 쌍 단언이 FAIL, 오�
 
 | | 이 브랜치 분기 시점 | 병합된 main |
 |---|---|---|
-| `compute_cartesian_path` | absent | **bound** (`ros/moveit-ros/src/bin/move_group.rs:819`) |
+| `compute_cartesian_path` | absent | **bound** (`ros/moveit-ros/src/bin/move_group.rs:840`) |
 | port side, absent | 9 | **0** |
 | port side, bound | 1 | **11** |
 | port side, surplus | 3 | 3 |
@@ -29586,3 +29586,236 @@ GJK 경로에 떨어져 `distanceCallback`이 남겨 둔 `distance_tolerance` �
 - **다른 `box x cylinder` self 쌍은 훑지 않았다.** 이 절이 판정한 것은 case
   4697 하나이고, prbt의 분리 tail 나머지(case 1613 `6.306573e-5`, case 6083
   `4.192798e-5`, case 1339 `2.414557e-5`)가 같은 원인인지는 재지 않았다.
+
+---
+
+## §285 저장된 planner 설정이 계획에 닿는다 — `construct`가 맵을 받는 형태로 (2026-08-06)
+
+§274.6의 첫 항목: `/set_planner_params`는 설정을 받아 저장하고
+`/get_planner_params`는 그것을 되읽지만, **뒤따르는 어떤 계획도 달라지지
+않았다.** 상류의 `MoveGroupQueryPlannersService::setParams`는
+`planner_interface->setPlannerConfigurations(configs)`로 끝나면서 파이프라인이
+실제로 계획에 쓰는 `PlannerManager` 인스턴스에 그 맵을 넘긴다
+(`query_planners_service_capability.cpp:205`). 이 포트에는 대응하는 호출이
+없었고, 애초에 워크스페이스의 어떤 구성 경로도 `PlannerConfigurationMap`을
+입력으로 받지 않았다.
+
+이 절이 한 것은 그 입력을 만드는 것이다. `PlannerRegistration::construct`가
+맵을 인자로 받고 —
+`pub construct: fn(&PlannerConfigurationMap) -> Box<dyn PlannerManager>,`
+(`crates/moveit-planner-registry/src/lib.rs:80`) — `resolve_planner`가 그것을
+통과시키며(`crates/moveit-planner-registry/src/lib.rs:134`), 노드는
+`/set_planner_params`가 쓰는 바로 그 저장소를 매 계획마다 건네준다:
+`plan_only(&mut scene, &env, &pipeline_id, &configs.borrow(), request)`
+(`ros/moveit-ros/src/bin/move_group.rs:316`).
+
+### §285.1 브리프의 전제를 먼저 검증했다 — 세 줄 인용은 정확하고, §274.6의 둘째 항목은 이미 낡았다
+
+과제가 인용한 세 위치를 base에서 그대로 확인했다. 아래는 재현 명령과 그
+출력이다 — 세 줄 번호는 **base(`ae0564da`)의 것**이고 이 절의 변경으로 전부
+이동했으므로, 작업본을 가리키는 인용으로 읽어서는 안 된다. 그래서 표가 아니라
+`git show`로 적는다:
+
+```
+$ git show ae0564da:ros/moveit-ros/src/planner_params.rs | sed -n 179p
+pub type PlannerConfigurations = Rc<RefCell<PlannerConfigurationMap>>;
+$ git show ae0564da:crates/moveit-planning/src/planner.rs | sed -n 212p
+pub trait PlannerManager {
+$ git show ae0564da:crates/moveit-planner-registry/src/lib.rs | sed -n 115p
+pub fn resolve_planner(name: &str) -> Result<Box<dyn PlannerManager>> {
+```
+
+셋 다 브리프가 적은 그대로다 — 저장소, 매니저 트레이트, 단일 선택 지점.
+
+낡은 것은 브리프가 아니라 §274.6의 **둘째** 항목이다. 그것은 "머지 시점에
+`planner_params.rs`가 충돌 없이 머지되고 그 다음 컴파일에서 깨진다, 고칠 곳은
+import 한 줄과 `Cargo.toml`의 의존 한 줄"이라고 적었는데, 그 머지는 이미
+일어났고 고침도 이미 들어가 있다 — base의 `planner_params.rs`는
+`use moveit_planner_registry::PLANNER_MANAGERS;`로 읽고
+`ros/moveit-ros/Cargo.toml`은 그 크레이트를 이미 의존한다. §274.6에 그
+사실을 표시했다.
+
+### §285.2 두 산출물 중 강한 쪽이 가능했다 — `range`는 상류의 키이고 `step_size`는 이미 그 양이다
+
+과제는 두 가지를 허용했다. (a) 설정 값이 계획을 실제로 바꾸는 것을 보이는
+테스트, (b) 그런 파라미터가 오늘 없다면 맵이 매니저에 **도달**한다는 것만
+보이는 테스트. 어느 쪽인지는 base의 사실로 결정된다:
+
+```
+$ git grep -nE '\.config\b|config\.get\(|"range"' HEAD -- crates/moveit-planners-sbp/src
+(출력 없음)
+```
+
+sbp는 문자열 키 설정을 **하나도** 읽지 않았다. `RrtConnectManager`의 조정
+수단은 `resolution`/`seed`/`params`/`solver` 네 개의 타입 있는 필드뿐이고,
+`construct`는 인자를 받지 않았다. 문자만 보면 (b)다.
+
+그러나 (a)를 위해 **새 이름을 지어낼 필요가 없다**. `range`는 상류가
+RRTConnect에 대해 쓰는 자기 키이고 — 고정된 체크아웃의
+`moveit_configs_utils/default_configs/ompl_defaults.yaml:38-40`이 `RRTConnect`
+블록에 `type`과 `range` 둘만 싣는다, 주석은 "Max motion added to tree" — 그
+키가 플래너에 닿는 경로도 상류에 있다
+(`planning_context_manager.cpp:213`, `planner->params().setParams(spec.config_, true)`).
+그리고 그 양은 이 포트에 **이미 있다**: `RrtConnectParams::step_size`가 한
+번의 `extend`가 트리를 목표 쪽으로 전진시키는 최대 거리다. 그래서 이 절이
+새로 만든 것은 이름이 아니라 **상류의 키와 이 포트의 기존 필드 사이의
+연결**이고, 산출물은 (a)다 — 계획이 실제로 달라진다.
+
+`goal_bias`는 묶지 않았다. 이 포트의 RRT-Connect는 그 필드를 갖지만, 상류에서
+`goal_bias`는 `RRT`/`EST`의 키이지 `RRTConnect`의 키가 아니다
+(`moveit_configs_utils/default_configs/ompl_defaults.yaml:34-37`이 `RRT`
+블록이고, 세 줄 아래 `RRTConnect`
+블록에는 그 키가 없다). 묶었다면 상류가 이 플래너에 쓰지 않는 이름을
+지어내는 것이 된다. `intermediate_states`는 반대로 상류에는 있으나 이쪽에
+대응 필드가 없다.
+
+### §285.3 setter가 아니라 생성자 인자 — 매니저는 자기가 계획할 설정 없이는 만들어질 수 없다
+
+상류의 모양은 setter다(`planning_interface.hpp:193`). 그대로 옮기면 "부르는
+쪽이 잊을 수 있는 호출"이 하나 생기고, 잊었을 때의 증상이 정확히 이 절이
+닫는 결함이다. 그래서 registry 트레이트 표면을 바꿨다:
+
+```rust
+pub construct: fn(&PlannerConfigurationMap) -> Box<dyn PlannerManager>,
+```
+
+`resolve_planner(name, configs)`가 유일한 통로이므로, 레지스트리를 통해 만든
+매니저는 자기가 계획할 설정을 **반드시** 갖는다. 이는 `SolverRegistration`이
+이미 쓰는 형태이기도 하다. 선택은 그대로 이름으로 하고
+(`PLANNER_MANAGERS`에서 `registration.name == name`), 슬라이스 위치에
+의존하는 것은 새로 들어가지 않았다 — §177이 실측한 대로 `linkme` 슬라이스의
+순서는 계약이 아니다.
+
+매니저 쪽은 맵을 생성 시점에 한 번 소비하지 않고 **질의마다** 참조한다
+(`crates/moveit-planners-sbp/src/registry.rs:528`의 `params_for`). 어느 항목이
+지배하는지가 요청의 group과 `planner_id`의 함수이기 때문이고, 그것은 상류의
+조회도 마찬가지다(`planning_context_manager.cpp:504-526`).
+
+### §285.4 설정 타입이 `moveit-planning`으로 내려왔다 — D1이 배제한 것은 파라미터 서버이지 구조체가 아니다
+
+`PlannerConfigurationSettings`/`PlannerConfigurationMap`은 §274에서
+`ros/moveit-ros` 안의 지역 타입이었고, `crates/moveit-planning`의 선언 감사는
+그 둘을 "D1 excludes it"으로 처분하고 있었다. 그 처분이 틀렸다는 것이 이
+라운드의 의미 변경이다: **D1이 없애는 것은 상류에서 이 구조체를 채우는 ROS
+파라미터 서버이지 구조체 자체가 아니고**, `/set_planner_params`는 D1이 아무
+말도 하지 않는 서비스로 같은 구조체를 채운다. 두 타입은 상류의 제자리
+(`planning_interface.hpp:56-72`)에 해당하는 `crates/moveit-planning`으로
+옮겼고, 감사 항목 두 개를 "ported as"로 뒤집었다.
+
+같은 이유로 sbp의 감사 항목도 고쳤다. 그것은 "런타임 플러그인 경계가 없으니
+문자열 가방도 필요 없다"고 적고 있었는데, 이 가방이 건너는 경계는 플러그인
+경계가 아니라 `/set_planner_params`라는 **서비스**다. 클라이언트가 런타임에
+보내는 값은 컴파일타임 필드가 될 수 없다.
+
+키 규칙은 한 함수로 모았다(`crates/moveit-planning/src/planner.rs:225`의
+`configuration_name`). 상류는 같은 규칙을 쓰는 쪽에서 두 번
+(`query_planners_service_capability.cpp:142`,
+`query_planners_service_capability.cpp:190-191`), 읽는 쪽에서 한 번
+(`planning_context_manager.cpp:508-510`) 각각 인라인으로 적는다. 여기서는
+설정을 쓰는 서비스와 읽는 플래너가 크레이트 경계를 사이에 두고 있으므로,
+철자가 갈라지면 아무도 알아채지 못한다.
+
+### §285.5 상류와 다른 점: 완전 미스는 치명적이지 않다
+
+상류는 `planner_id` 키도 group 키도 없으면 **컨텍스트를 만들지 않고 돌아간다**
+(`planning_context_manager.cpp:519-526`). 그럴 수 있는 이유는 상류에서 모든
+OMPL 조정값이 `ompl_planning.yaml`에서 오기 때문이다 — 설정이 없는 매니저는
+계획할 것이 없다. 이 워크스페이스의 매니저는 컴파일된 기본값을 갖고 있으므로
+설정은 그 위의 **덮어쓰기**이고, 미스는 "자기 기본값으로 계획하라"는 뜻이다
+(`crates/moveit-planning/src/planner.rs:255`의 `configuration_for`).
+반대로 했다면 클라이언트가 `/set_planner_params`를 부르기 전까지 아무것도
+계획하지 못하는 노드가 된다.
+
+값 자체도 거른다. 파싱되지 않는 값, 그리고 `RrtConnectParams`가 거부할 값은
+알 수 없는 키와 똑같이 무시한다 — 상류가 이 맵의 계약을 그렇게 적었고
+(`planning_interface.hpp:54`, "Settings with unknown keys are ignored"),
+`range: 0.0`은 상류 자신의 "플래너가 알아서 고르게 하라" 철자이며, 무엇보다
+`RrtConnectParams::assert_valid`는 비양수 step size에서 **패닉**한다. 서비스로
+들어온 값이 노드를 내릴 수 있어서는 안 된다.
+
+### §285.6 무엇이 이 변경을 반증하는가 — 두 개의 mutation
+
+새 테스트가 오늘의 트리에서 실패하고 변경 후 통과한다는 것은, 변경을 되돌리는
+두 mutation을 실제로 적용해서 확인했다.
+
+| mutation | 무엇을 되돌리는가 | 결과 |
+|---|---|---|
+| M1 | `params_for`가 `configurations`를 읽지 않는다 (`let _ = settings;`) | `cargo nextest run -p moveit-planners-sbp` 3 중 2 실패 — `a_range_configuration_reaches_the_registry_planner_and_changes_the_plan`이 `assert_ne!`에서 죽고, `a_range_that_rrt_connect_cannot_use_is_ignored_rather_than_applied`의 수용 케이스도 죽는다. `a_configuration_for_another_group_leaves_the_plan_alone`은 같음을 주장하므로 옳게 통과. DDS에서도 leg C가 "3 before / 3 after"로 실패 |
+| M2 | 바이너리가 저장소 대신 빈 맵을 넘긴다 (`plan_only(..., &PlannerConfigurationMap::new(), ...)`) | 컨테이너 단위 테스트 `a_stored_configuration_changes_the_plan_plan_only_produces`는 **통과한다** — `plan_only`를 직접 부르기 때문이다. leg A/B도 통과. 오직 leg C만 실패 |
+
+M2가 이 라운드의 실제 교훈이다. 노드 바이너리의 배선은 어떤 단위 테스트도
+보지 못하고, `ros/verify-planner-params-interop.sh`의 leg C만 본다. 그래서
+그 leg를 이 절에서 추가했다: 설정 전 계획, `set`, 설정 후 계획을 한 노드
+프로세스에서 순서대로 부르고 waypoint 수를 센다.
+
+### §285.7 잰 것
+
+`range: 0.05`(기본값 `0.5`의 1/10) 하나만 바꾼 같은 질의:
+
+| 어디서 | 설정 전 waypoint | 설정 후 waypoint |
+|---|---:|---:|
+| `moveit-planners-sbp`, `PLANNER_MANAGERS`를 통해 panda_arm, 목표 `panda_joint1 = 0.4` | 3 | 5 |
+| `ros/moveit-ros`, `plan_only`를 통해 one_joint, 목표 `j1 = 0.5` | 3 | 7 |
+| `ros/verify-planner-params-interop.sh` leg C, DDS를 건너 `/plan_kinematic_path` | 3 | 7 |
+
+아래 두 줄이 같은 7인 것은 우연이 아니다 — 같은 `one_joint` 모델, 같은 목표,
+같은 seed이고 다른 것은 하나가 프로세스 안이고 다른 하나가 DDS를 건넌다는
+점뿐이다. 두 수가 갈라졌다면 그것이 배선의 결함을 가리킨다.
+
+방향까지 주장한다는 점이 요점이다. `assert_ne!`만이면 "설정이 닿긴 했으나
+엉뚱한 필드(가령 seed)에 앉았다"도 통과한다. `range`는 한 번의 `extend`가
+전진하는 거리의 상한이므로 1/10이면 같은 거리를 더 많은 걸음으로 건너야
+하고, 그래서 세 줄 모두 부등호로 적었다. 세 경우 모두 목표에는 여전히
+도달한다는 것도 함께 주장한다 — 그렇지 않으면 "달라졌다"가 "계획을 망가뜨렸다"로
+만족될 수 있다.
+
+### §285.8 인용 표류를 같이 고쳤다
+
+이 변경은 `crates/moveit-planners-sbp/src/registry.rs`를 341줄,
+`crates/moveit-planning/src/planner.rs`를 207줄 늘리고
+`ros/moveit-ros/src/planner_params.rs`를 15줄 줄인다. 그 결과 다른 문서 8개가
+이 파일들을 가리키던 줄 번호 94개가 한꺼번에 표류했고,
+`tools/ci/verify-orphan-enumeration.sh`가 base에서 0/0이던 것이
+"23 orphan / 21 unresolved"로 무너졌다.
+
+고치는 방법을 손으로 세지 않고 계측으로 잡았다: base의 파일과 작업본을
+`difflib.SequenceMatcher`로 맞춰 **내용이 같은 줄**의 옛 번호 → 새 번호
+사상을 만들고, 추적되는 모든 `.md`의 `path.rs:NNN` 인용을 그 사상으로 다시
+썼다. 근접 창(window)으로 맞추지 않은 이유는 §285의 문제가 아니라 이미
+알려진 것이다 — `tools/ci/check-citation-drift.py`의 헤더가 적듯 근접 매칭은
+이웃 테스트의 단언에 조용히 붙는다. 내용 동일성으로 사상하면 다시 쓴 인용이
+가리키는 바이트가 이전과 같다.
+
+새로 생긴 scanner 사이트 2개는 새 대장에 적었다
+(`doc/assertion-discrimination-ledger-p12-planner-configurations.md`).
+`crates/moveit-planning/src/planner.rs:442`는 discriminating —
+`configuration_for`의 폴백을 `or_else(|| configs.get(planner_id))`로 넓히는
+bite에서 이 사이트만 죽고, 첫 조회를 지우는 bite에서는 이 사이트가 살고 두
+줄 아래 `assert_eq!`가 죽는다(양방향). `crates/moveit-planning/src/planner.rs:454`는
+single-branch — 빈 맵에서는 두 조회의 조건이 모두 불만족이므로 이름 붙일
+분기가 없고, 이 사이트를 죽이는 유일한 bite(미스에서 조작된 `Some`을
+돌려주기)는 같은 실행에서 위 사이트도 죽인다.
+
+### §285.9 이 절이 하지 않은 것
+
+- **`range` 말고 다른 키는 묶지 않았다.** 오늘 이 포트가 `RRTConnect`에 대해
+  상류와 이름을 공유하는 키는 그것 하나다(§285.2). `resolution`/`seed`는
+  상류 `ompl_planning.yaml`에 대응 항목이 없으므로, 그것들을 문자열 키로
+  노출하는 것은 상류가 쓰지 않는 이름을 만드는 일이다.
+- **`getPlannerConfigurations`는 포팅하지 않았다.** 상류에서 `getParams`가
+  매니저에게 되묻는 이유는 저장소가 매니저의 것이기 때문이다
+  (`query_planners_service_capability.cpp:132`). 여기서는 저장소가 노드의
+  것이고 `get_planner_params`가 직접 읽는다. 두 왕복이 같은 관측도 아니다 —
+  상류의 OMPL 오버라이드는 넘겨받은 맵을 저장 전에 고쳐 쓴다
+  (`ompl_interface.cpp:85-100`).
+- **group 없는 `set`의 도달 불가능성은 그대로 두었다.** group을 비운 `set`은
+  `planner_config` 이름 그대로 저장되는데, group을 명시한 질의는 그 키를
+  보지 않는다. 상류의 동작도 같고, 이 절은 그것을 테스트로 고정만 했다
+  (`a_global_configuration_does_not_govern_a_grouped_query`).
+- **§274.6의 나머지 인용 표류는 이 절의 것이 아니다.** `planner_params.rs`의
+  주석이 상류 `query_planners_service_capability.cpp`의 "fetch default params
+  first"를 `query_planners_service_capability.cpp:139`, "merge in
+  group-specific params"를 `query_planners_service_capability.cpp:146`으로
+  인용하는데,
+  고정된 체크아웃에서 그 두 줄은 각각 135와 141이다. §274에서 들어온 것이고
+  이 라운드가 건드린 코드가 아니라서 그대로 두었다.

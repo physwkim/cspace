@@ -311,7 +311,7 @@
 //! use moveit_constraints::utils::construct_goal_joint_constraints;
 //! use moveit_model::{MeshSearchPaths, RobotModel};
 //! use moveit_planner_registry::resolve_planner;
-//! use moveit_planning::{PlanningRequest, generate_plan};
+//! use moveit_planning::{PlannerConfigurationMap, PlanningRequest, generate_plan};
 //! use moveit_scene::PlanningScene;
 //! use moveit_srdf::SrdfModel;
 //! use moveit_state::RobotState;
@@ -355,8 +355,13 @@
 //!
 //! // Selected by name, never by slice position: `PLANNER_MANAGERS` is a
 //! // `linkme::distributed_slice` and its order is the linker's
-//! // (PORTING-PLAN.md §177).
-//! let planner = resolve_planner("rrt_connect").expect("rrt_connect is registered");
+//! // (PORTING-PLAN.md §177). The map is the configuration the manager
+//! // plans under -- upstream's `setPlannerConfigurations` argument, taken
+//! // at construction here so a manager cannot exist without one. Empty
+//! // means "this planner's own documented defaults", which is what a
+//! // caller with no `/set_planner_params` in the picture wants.
+//! let planner = resolve_planner("rrt_connect", &PlannerConfigurationMap::new())
+//!     .expect("rrt_connect is registered");
 //!
 //! // Empty adapter chains: this example is about reaching the planner, and
 //! // the chains have their own example above.
@@ -384,7 +389,10 @@ pub use pipeline::{PipelineError, generate_plan};
 pub use plan_responses::{
     PlanOutcome, PlanResponsesContainer, shortest_solution, stop_at_first_solution,
 };
-pub use planner::{PlanError, PlannerManager, PlanningContext};
+pub use planner::{
+    PlanError, PlannerConfigurationMap, PlannerConfigurationSettings, PlannerManager,
+    PlanningContext, configuration_for, configuration_name,
+};
 pub use request::{PlanningRequest, WorkspaceBounds};
 pub use response::PlanningResponse;
 pub use start_state::{StartState, StartStateOverride};
