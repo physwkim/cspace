@@ -970,8 +970,8 @@ re-verifying a site whose fix-ownership ledger is someone else's:
 
 | site | claimed by |
 |---|---|
-| `crates/moveit-constraints/tests/sampler.rs:78` (`configure_fails_on_empty_intersection_between_two_constraints`) | p1-fixtures, p1-robotmodel |
-| `crates/moveit-constraints/tests/sampler.rs:120` | p1-fixtures, p1-robotmodel |
+| `crates/moveit-constraints/tests/sampler.rs:83` (`configure_fails_on_empty_intersection_between_two_constraints`) | p1-fixtures, p1-robotmodel |
+| `crates/moveit-constraints/tests/sampler.rs:220` | p1-fixtures, p1-robotmodel |
 | `crates/moveit-kinematics/src/chain.rs:469,512,558` | p1-fixtures, p1-robotmodel |
 | `crates/moveit-kinematics/tests/ik_fk_roundtrip.rs:281` (`constructing_a_solver_on_a_non_chain_group_is_an_error`) | p1-fixtures, p1-robotmodel |
 | `crates/moveit-smoothing/src/acceleration_filter.rs:466,525,542` | p1-fixtures, p1-robotmodel |
@@ -1291,10 +1291,10 @@ Gate: doc + tooling only (`reconcile-assertion-ledgers.py`,
 test module (the private `PlanningRequest`/`PlanningResponse` it used are now
 `moveit-planning`'s). Four citations in this file moved:
 
-* `crates/moveit-planners-sbp/src/registry.rs:1667`
-* `crates/moveit-planners-sbp/src/registry.rs:1698`
-* `crates/moveit-planners-sbp/src/registry.rs:1705`
-* `crates/moveit-planners-sbp/src/registry.rs:1755`
+* `crates/moveit-planners-sbp/src/registry.rs:1666`
+* `crates/moveit-planners-sbp/src/registry.rs:1697`
+* `crates/moveit-planners-sbp/src/registry.rs:1704`
+* `crates/moveit-planners-sbp/src/registry.rs:1754`
 
 Only the current location is spelled, and it is spelled by full path. A pre-D8
 line number written as `file.rs:NNN` reads as a claim about the tree in front
@@ -1313,7 +1313,7 @@ rather than here: `path_constraints_four_scenario_wired_vs_unwired_sweep`'s
 scenario 1 now measures unwired **3**/5 where it measured 1/5, because D8's
 goal sampling draws from the same `ChaCha8Rng` the search does. See the D8 row
 in `doc/claim-audit/moveit-planners-sbp.md` for the isolating experiment that
-identified the cause. `crates/moveit-planners-sbp/src/registry.rs:1667`'s verdict — an exact-variant
+identified the cause. `crates/moveit-planners-sbp/src/registry.rs:1666`'s verdict — an exact-variant
 `assert_eq!` on `PlanningFailure::IterationsExhausted` — is unaffected by which
 seeds succeed.
 

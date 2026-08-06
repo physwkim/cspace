@@ -90,9 +90,9 @@ expression, never the full crate; no bite touched a convergence test.
 | `goal_sampler.rs:298` | same anchor | `path_constraints_end_to_end_wired_vs_unwired` (unwired-half assertion) | single-branch | same bite/anchor as :220 |
 | `nn.rs:227` | `Gnat::nearest`'s `self.root.as_ref()?` empty-index guard | `empty_index_has_no_nearest` | single-branch | bite: forced panic on the `None` arm → test failed; reverted |
 | `planning_scene_validity.rs:419` | `PositionConstraint::new`'s two `UnknownName` sites (link_name vs. frame_id) | (world-object-transform test) | discriminating | commit `1397dea` (checks `kind: "frame"`/`name == "table"`; commit message records that swapping the expected kind to the link_name sibling had kept the test passing before the fix) |
-| `crates/moveit-planners-sbp/src/registry.rs:1251` | `JointModelGroupSpace::new`'s single `UnknownGroup` construction site, reached through `get_planning_context` | `unknown_group_is_rejected_before_any_search_runs` | single-branch | bite: forced panic on the guard's `Err` arm → test failed; reverted. `get_planning_context`'s own doc comment states this is its only failure mode |
-| `crates/moveit-planners-sbp/src/registry.rs:1868` | `PlanningContext::solve`'s single `NoGoalSample` construction site (`sample_goal(...).ok_or(...)`) | `solver_wiring_changes_whether_a_cartesian_pose_goal_is_reachable` | single-branch | bite: forced panic on the `None` arm → test failed; reverted |
-| `crates/moveit-planners-sbp/src/registry.rs:2025` | `resolve_constraint_sampler`'s `None` passthrough from `moveit_constraints::select_default_sampler` | `path_constraints_solver_wiring_matches_the_call_site` | single-branch | bite: forced panic on the wrapper's `None` arm → test failed; reverted. Caveat: `select_default_sampler`'s own internal branching lives in `moveit-constraints`, outside this round's fence — not independently audited beyond confirming this test's fixture always supplies a valid `group_name`, so the sibling "unknown group" `None` inside that function is not reachable from this fixture |
+| `crates/moveit-planners-sbp/src/registry.rs:1247` | `JointModelGroupSpace::new`'s single `UnknownGroup` construction site, reached through `get_planning_context` | `unknown_group_is_rejected_before_any_search_runs` | single-branch | bite: forced panic on the guard's `Err` arm → test failed; reverted. `get_planning_context`'s own doc comment states this is its only failure mode |
+| `crates/moveit-planners-sbp/src/registry.rs:1867` | `PlanningContext::solve`'s single `NoGoalSample` construction site (`sample_goal(...).ok_or(...)`) | `solver_wiring_changes_whether_a_cartesian_pose_goal_is_reachable` | single-branch | bite: forced panic on the `None` arm → test failed; reverted |
+| `crates/moveit-planners-sbp/src/registry.rs:2024` | `resolve_constraint_sampler`'s `None` passthrough from `moveit_constraints::select_default_sampler` | `path_constraints_solver_wiring_matches_the_call_site` | single-branch | bite: forced panic on the wrapper's `None` arm → test failed; reverted. Caveat: `select_default_sampler`'s own internal branching lives in `moveit-constraints`, outside this round's fence — not independently audited beyond confirming this test's fixture always supplies a valid `group_name`, so the sibling "unknown group" `None` inside that function is not reachable from this fixture |
 
 ## moveit-planners-stomp (7 — override, was p3-shapes')
 
@@ -454,8 +454,8 @@ group '{group_name}'"`.
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
-| `crates/moveit-constraints/tests/sampler.rs:79` | `panda_joint1` | discriminating | not in the group-name message for this call (`group_name = "panda_arm"`) |
-| `crates/moveit-constraints/tests/sampler.rs:121` | `panda_arm` | discriminating, **fragile** | for this call's inputs, unique; flagged because `panda_arm` is a prefix of `panda_arm_hand`, so if this needle were ever reused against an unknown-group failure for `"panda_arm_hand"` it would spuriously match — not fixed, no such reuse exists today |
+| `crates/moveit-constraints/tests/sampler.rs:84` | `panda_joint1` | discriminating | not in the group-name message for this call (`group_name = "panda_arm"`) |
+| `crates/moveit-constraints/tests/sampler.rs:221` | `panda_arm` | discriminating, **fragile** | for this call's inputs, unique; flagged because `panda_arm` is a prefix of `panda_arm_hand`, so if this needle were ever reused against an unknown-group failure for `"panda_arm_hand"` it would spuriously match — not fixed, no such reuse exists today |
 
 **`moveit-distance-field/src/voxel_grid.rs`** — already bite-checked
 in-code (`:439-449`, `:479-487`, `:494-507`); this round transcribes,
@@ -669,7 +669,7 @@ before drift).
 
 All 77 in-scope sites verdict `discriminating`. No needle collided with a
 sibling message under this round's reading. Three fragility notes are
-recorded above (`crates/moveit-constraints/tests/sampler.rs:121`, `crates/moveit-srdf/tests/boundaries.rs:55`,
+recorded above (`crates/moveit-constraints/tests/sampler.rs:221`, `crates/moveit-srdf/tests/boundaries.rs:55`,
 `time_optimal_trajectory_generation.rs:1435`) per the brief's instruction
 to flag rather than speculatively fix a needle that is unique today but
 could collide if a sibling message is reworded. No fixes, no commits for
@@ -1567,7 +1567,7 @@ preceding `match err { PipelineError::StartState(e) => … , other =>
 panic!(…) }` (`crates/moveit-planning/src/pipeline.rs:1182-1189`), a
 same-test sibling that names the variant. The `?` at
 `crates/moveit-planning/src/pipeline.rs:441` is the claimed cause. There is
-no third: `run_request_adapters` (`crates/moveit-planning/src/lib.rs:445-455`)
+no third: `run_request_adapters` (`crates/moveit-planning/src/lib.rs:447-457`)
 is an unconditional `for adapter in chain` loop with no skip guard —
 read this round, not assumed.
 
@@ -1629,7 +1629,7 @@ commit, not declared.
 - `git merge main` — fast-forward, 68 commits, tip `eae7de8`; run before deriving any line number in this section
 - `python3 tools/ci/reconcile-assertion-ledgers.py --emit-orphans` — 8 of the 47 orphans in this ledger's fence, enumerated by path
 - Content-verification of all 8 citations before writing them: a brace-depth walk printing each cited line's innermost enclosing `fn` — all 8 resolve to the test each row names
-- Read `set_variable_position` (`crates/moveit-state/src/state.rs:557-564`), `set_variable_velocity` (`crates/moveit-state/src/state.rs:401-406`) and `run_request_adapters` (`crates/moveit-planning/src/lib.rs:445-455`) rather than trusting the comments that describe them
+- Read `set_variable_position` (`crates/moveit-state/src/state.rs:557-564`), `set_variable_velocity` (`crates/moveit-state/src/state.rs:401-406`) and `run_request_adapters` (`crates/moveit-planning/src/lib.rs:447-457`) rather than trusting the comments that describe them
 - 11 isolating mutations, each alone, each followed by `cargo nextest run -p moveit-planning --no-fail-fast` and an immediate revert from a pre-round copy: `start_state.rs:143` left operand, `:143` right operand, `:228`, `:234`, `:243` whole condition, `:243` left operand, `:243` right operand, `:183-187` wrap, `:182` index, plus `pipeline.rs:441` map_err and the `pipeline.rs:438-443` reorder
 - `cargo nextest run -p moveit-planning --no-fail-fast` — baseline and post-revert both `57 tests run: 57 passed, 0 skipped`; `git status --short` and `git diff --stat` empty after the last revert
 
@@ -1646,11 +1646,11 @@ again anyway to confirm the reverts left no residue.
 `registry.rs`'s test module and shifted `pipeline.rs`. Four citations in this
 file moved:
 
-* `crates/moveit-planners-sbp/src/registry.rs:1251`
+* `crates/moveit-planners-sbp/src/registry.rs:1247`
   (`unknown_group_is_rejected_before_any_search_runs`)
-* `crates/moveit-planners-sbp/src/registry.rs:1868`
+* `crates/moveit-planners-sbp/src/registry.rs:1867`
   (`solver_wiring_changes_whether_a_cartesian_pose_goal_is_reachable`)
-* `crates/moveit-planners-sbp/src/registry.rs:2025`
+* `crates/moveit-planners-sbp/src/registry.rs:2024`
   (`path_constraints_solver_wiring_matches_the_call_site`)
 * `crates/moveit-planning/src/pipeline.rs:779` (`zero_planners_is_an_error`,
   both rows; the `PipelineError::NoPlanners` construction site cited in their
@@ -1666,7 +1666,7 @@ Each new line was obtained by aligning `git show a35bc2e:<file>` against the
 working tree with `difflib` and then reading the row's own named test
 function at the result, not by nearest-line proximity.
 
-`crates/moveit-planners-sbp/src/registry.rs:1251` is the one that is more than a
+`crates/moveit-planners-sbp/src/registry.rs:1247` is the one that is more than a
 move. D8 made
 `moveit_planning::PlanError` a `Box<dyn Error + Send + Sync>`, so
 `unknown_group_is_rejected_before_any_search_runs` no longer matches the

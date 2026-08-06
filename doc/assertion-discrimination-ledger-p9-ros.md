@@ -524,7 +524,7 @@ sequence of the function each test actually calls:
 | `moveit-smoothing/src/butterworth.rs:162,200` | `"scale_term_"`/`"feedback_term_"` | CLEAN | One producer each. |
 | `moveit-smoothing/src/ruckig_filter.rs:613` | `"must each have length"` | CLEAN | `do_smoothing`'s own guard (`:268`); identical text in `reset` (`:331`, uncalled from `do_smoothing`) and `AccelerationFilter` (different struct entirely) is unreachable from this test's call path. |
 | `moveit-srdf/tests/boundaries.rs:55` (`a_root_element_other_than_robot_is_an_error`) | `"robot"` | CLEAN | Already fixed and merged this session (`83f8ea0`, p1-joints, prior round) — re-confirmed, not re-fixed. |
-| `moveit-constraints/tests/sampler.rs:78,120` (both open `assert!(`) | `"panda_joint1"`/`"panda_arm"` | CLEAN | `JointConstraintSampler::new`'s 2 guards format disjoint data (joint name vs. group name); neither substring appears in the other's message. |
+| `moveit-constraints/tests/sampler.rs:83,220` (both open `assert!(`) | `"panda_joint1"`/`"panda_arm"` | CLEAN | `JointConstraintSampler::new`'s 2 guards format disjoint data (joint name vs. group name); neither substring appears in the other's message. |
 | `moveit-distance-field/src/voxel_grid.rs:512` (`new_rejects_a_pathologically_fine_resolution_on_the_y_axis`) | `"size.y"` | CLEAN | Already resolved in this ledger's own §11 sweep; not re-derived, only reused. |
 
 ### Zero-collision, stated per crate
@@ -541,7 +541,7 @@ from an unchecked one:
 - **Zero collisions in `moveit-state`.** 3 sites, all checked
   (`jacobian.rs:140,159,192` -- all three open `assert!(`, above).
 - **Zero collisions in `moveit-constraints`.** 2 `contains` sites checked
-  (`crates/moveit-constraints/tests/sampler.rs:78,120`, both `assert!(`, above) plus all 8 `via:assert_err_mentions` sites
+  (`crates/moveit-constraints/tests/sampler.rs:83,220`, both `assert!(`, above) plus all 8 `via:assert_err_mentions` sites
   (below).
 - **Zero collisions in `moveit-srdf`.** 2 sites checked (`boundaries.rs:
   49,55`); `:55` already fixed by another panel this session, re-confirmed

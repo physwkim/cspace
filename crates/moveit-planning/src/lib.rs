@@ -340,11 +340,13 @@
 //!
 //! // A concrete-state goal, written the way upstream writes one:
 //! // `constructGoalConstraints(state, jmg, tolerance)`, one joint
-//! // constraint per group variable.
+//! // constraint per group variable. Tolerance zero because this is a
+//! // concrete state and not a region around one -- a planner that resolves
+//! // the set by sampling reproduces it exactly only at that width.
 //! let mut goal_state = RobotState::new(&model);
 //! goal_state.set_to_default_values();
 //! goal_state.set_joint_positions("panda_joint1", &[0.4]).unwrap();
-//! let goal = construct_goal_joint_constraints(&model, &goal_state.update(), "panda_arm", 1e-9, 1e-9)
+//! let goal = construct_goal_joint_constraints(&model, &goal_state.update(), "panda_arm", 0.0, 0.0)
 //!     .unwrap();
 //!
 //! let request = PlanningRequest {

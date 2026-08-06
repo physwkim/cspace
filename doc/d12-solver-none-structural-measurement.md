@@ -160,7 +160,7 @@ current tree into a gate's corpus that are false by construction. The crate
 has since grown past all four, and a later content-equality remap moved them
 onto lines that hold the same text without holding the same meaning. Today the
 calls are `crates/moveit-planners-sbp/src/registry.rs:747` and
-`crates/moveit-planners-sbp/src/registry.rs:3238` (two, not three) and
+`crates/moveit-planners-sbp/src/registry.rs:3237` (two, not three) and
 `crates/moveit-planners-sbp/src/goal_sampler.rs:304` and
 `crates/moveit-planners-sbp/src/goal_sampler.rs:400` (two, not one), so no
 substitution preserves the sentence's count either.
