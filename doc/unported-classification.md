@@ -44,11 +44,11 @@
   - `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp`
   - `moveit_core/collision_detection/src/collision_plugin_cache.cpp`
 
-### Phase 3 — `distance: f64` — **PARTIAL** (§229.3)
+### Phase 3 — `distance: f64` — **PARTIAL** (§260)
 
-- **막는 것:** distanceCallback (collision_detection_fcl/collision_common.cpp) reports a different QUANTITY -- max penetration_depth over 200 contacts, negated -- not a scaled one
+- **막는 것:** the divergence is confined to one branch of the upstream function: §260 measures 0 divergences on the separated branch across 5 robots x 10,000 states, and the penetration branch is incomparable because of 3 upstream defects -- which is why the row reads PARTIAL, not UNMET
 - **후보 경로 접두사:** `moveit_core/collision_detection/`, `moveit_core/collision_detection_fcl/`, `moveit_core/collision_detection_bullet/` → 87건 중 **9건**이 후보
-- **판정:** §229.3 pins the mechanism at a named line range of moveit_core/collision_detection_fcl/src/collision_common.cpp, a file the corpus excludes; porting any candidate below would not change the quantity that callback computes.
+- **판정:** the mechanism is upstream distanceCallback in moveit_core/collision_detection_fcl/src/collision_common.cpp, a file the corpus excludes, and §260 attributes what remains to 3 defects in that upstream function; porting any candidate below would not change what that callback computes.
 - **후보 전건:**
   - `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp`
   - `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp`

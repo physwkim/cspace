@@ -102,20 +102,26 @@ UNMET_BLOCKERS = {
             "member of the 87 can be it.",
     },
     ("Phase 3", "distance: f64"): {
-        "section": "229.3",
-        "blocker": "distanceCallback (collision_detection_fcl/collision_common.cpp) "
-                   "reports a different QUANTITY -- max penetration_depth over "
-                   "200 contacts, negated -- not a scaled one",
+        # The row cited §229.3 until §260 re-measured it and the §5 table moved
+        # the citation; check_phase_coverage() caught this entry still pointing
+        # at §229.3 on the very merge that brought §260 in.
+        "section": "260",
+        "blocker": "the divergence is confined to one branch of the upstream "
+                   "function: §260 measures 0 divergences on the separated "
+                   "branch across 5 robots x 10,000 states, and the "
+                   "penetration branch is incomparable because of 3 upstream "
+                   "defects -- which is why the row reads PARTIAL, not UNMET",
         "candidates": (
             "moveit_core/collision_detection/",
             "moveit_core/collision_detection_fcl/",
             "moveit_core/collision_detection_bullet/",
         ),
         "adjudication":
-            "§229.3 pins the mechanism at a named line range of "
+            "the mechanism is upstream distanceCallback in "
             "moveit_core/collision_detection_fcl/src/collision_common.cpp, a "
-            "file the corpus excludes; porting any candidate below would not "
-            "change the quantity that callback computes.",
+            "file the corpus excludes, and §260 attributes what remains to 3 "
+            "defects in that upstream function; porting any candidate below "
+            "would not change what that callback computes.",
     },
     # UNMEASURED, not UNMET -- but it is a not-yet-MET row, so it needs an
     # entry here or check_phase_coverage() errors.  Its candidates fire on 8
