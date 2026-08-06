@@ -32297,14 +32297,21 @@ sphere x {sphere, box, cylinder}에 ACM 허용 쌍 하나로 모집단을 **제�
 `include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:620`은 그 안의
 `detail::GJKDistance` 호출로, 넷 다 인용한 문장이 말하는 것과 같다.
 
-**면제 항목 자신의 인용 두 개는 드리프트했다.** 항목의 `checkout` 필드는
-`PORTING-PLAN.md:11242`를, `why` 필드는 `PORTING-PLAN.md:11254`를 든다. 이
-문단이 커밋된 트리(§297을 단 커밋)에서 그 두 줄을 열면 각각 §134.1 CHOMP
-`num_vars_free` 표의 `| 15 | 3 | 3×3 | |` 행과 §134.2 오라클 스탬프 이력의
-`` `230e92be6fa5cc3a`(pilz+IK) → `6797447ac4dc46e9`(+chomp) `` 줄이 나온다 —
-둘 다 fcl과 무관하다. 실제로 그 두 주장을 드는 자리는 **§135**의 sha 표
-행(`| fcl | e5efcc4, 0.7.0-17-ge5efcc4 | libfcl-dev 0.7.0-3build2 |`)과
-**§283.7**이다.
+**면제 파일 자신의 인용 세 개가 전부 드리프트했다.** 한 건이 아니라
+`tools/ci/upstream-citation-exemptions.json`의 `unresolvable` 항목 두 개가 든
+좌표 전부다:
+
+| 면제 파일의 자리 | 인용 | 그 좌표가 오늘 가리키는 것 | 실제로 그 주장을 드는 자리 |
+|---|---|---|---|
+| `tools/ci/upstream-citation-exemptions.json:56` (fcl `checkout`) | `PORTING-PLAN.md:11242` | §134.1 CHOMP `num_vars_free` 표의 `\| 15 \| 3 \| 3×3 \| \|` 행 | **§135**의 sha 표 `fcl` 행 |
+| `tools/ci/upstream-citation-exemptions.json:57` (fcl `why`) | `PORTING-PLAN.md:11254` | §134.2 스탬프 이력의 `` `230e92be6fa5cc3a`(pilz+IK) → `6797447ac4dc46e9`(+chomp) `` 줄 | **§135**의 "그래서 fcl은 `0.7.0` 태그에서 읽어야 한다" 문단, 그리고 **§283.7** |
+| `tools/ci/upstream-citation-exemptions.json:99` (libccd `checkout`) | `PORTING-PLAN.md:11243` | §134.1 같은 표의 `\| 16 \| 4 \| 4×4 \| \|` 행 | **§135**의 sha 표 `libccd` 행 |
+
+세 좌표가 `11242`·`11243`·`11254`로 나란한 것이 원인을 말해 준다 — 원래는
+§135의 sha 표 두 행과 그 아래 태그 문단을 가리키던 연속 좌표였고, §135 위쪽에
+절이 쌓이면서 셋이 함께 밀렸다. 지금 그 자리는 §134이며, `11242`/`11243`은
+공교롭게도 **여전히 표의 행**이라 "표 행을 가리킨다"는 모양만 보면 멀쩡해
+보인다. 세 인용 모두 fcl/libccd와 무관하다.
 
 이 문단이 두 좌표를 절 번호로 적고 줄 번호로 적지 않는 것은 의도다. 드리프트한
 두 인용은 면제 항목이 쓴 형태 그대로 인용해야 보고가 성립하므로 남기지만, 그
@@ -32313,11 +32320,17 @@ sphere x {sphere, box, cylinder}에 ACM 허용 쌍 하나로 모집단을 **제�
 번호는 자라지 않으며, 절 번호는 `tools/ci/check-section-references.sh`가
 검사한다.
 
-면제 항목의 두 인용은 `.md` 문서 안이 아니라 `.json` 게이트 설정 안에 있어서
-`tools/ci/check-citation-drift.py`의 코퍼스(tracked `.md`)에도 들지 않는다 —
+세 인용이 어떤 게이트에도 걸리지 않는 이유는 **두 겹**이고, 둘은 서로 독립이다.
+`tools/ci/check-citation-drift.py`의 `CITATION_RE`는 대상 확장자를 `\.rs`로
+박아 두므로 `PORTING-PLAN.md:NNN` 형태는 애초에 인용으로 인식되지 않는다. 그
+위에, 같은 파일의 `main()`이 코퍼스를 tracked `.md` 파일에서만 만들므로
+**인용하는 쪽**이 `.json`이면 정규식이 무엇을 잡든 그 파일은 읽히지 않는다.
+앞의 것만 고쳐도(대상에 `.md`를 넣어도) 이 세 건은 여전히 보이지 않는다. 즉
 면제를 정당화하는 근거가, 면제를 검사하는 게이트와 그 게이트의 인용 검사 양쪽
 바깥에 있다.
 
-이 절은 세 가지를 **하지 않았다**: 면제 항목의 두 인용을 고치지 않았고(게이트
-설정 파일이라 이 라운드가 요청받은 측정의 대상이 아니다), 23건을 면제에서
+이 절은 세 가지를 **하지 않았다**: 세 인용을 고치지 않았고, 23건을 면제에서
 빼지 않았으며, 상류 인용 도구에 fcl을 두 번째 고정 저장소로 붙이지 않았다.
+셋 다 게이트/설정 편집이고, 그 작업은 이 계열을 잡는 게이트를 짓는 쪽이
+가져간다 — 이 절은 세 인용이 오늘 어디를 가리키고 어디를 가리켜야 하는지를
+**실측해서 넘기는** 데까지다.
