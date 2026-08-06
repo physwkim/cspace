@@ -7798,7 +7798,7 @@ moveit-planners-sbp/src/planning_scene_validity.rs:398, :411
 ```
 
 **프로덕션 호출자는 0건이다.** 그리고 그건 담당의 잘못이 아니다 —
-`construct_goal_pose_constraints`(`crates/moveit-constraints/src/utils.rs:291`)를 비롯한 생성 경로가
+`construct_goal_pose_constraints`(`crates/moveit-constraints/src/utils.rs:362`)를 비롯한 생성 경로가
 전부 `tf: &Transforms`를 **호출자에게서 받는** 형태이고, 워크스페이스에
 `PlanningScene`에서 목표 제약을 만드는 프로덕션 경로가 아직 없다.
 배선할 대상 자체가 없다.
