@@ -1566,7 +1566,7 @@ mod tests {
 
     /// Proves [`RrtConnectContext::solve`]'s constraint-sampler wiring is
     /// load-bearing, not merely invoked: `panda_joint1` is pinned to
-    /// `+/-0.005` (against its own `+/-2.9671` bound, `panda.urdf:37`), start
+    /// `+/-0.005` (against its own `+/-2.9671` bound, `crates/moveit-planners-sbp/tests/fixtures/panda.urdf:37`), start
     /// and goal both already satisfy it, and `goal_bias: 0.0` forces every
     /// sample through the uniform-sampling branch — [`RrtConnectParams`]'s
     /// own doc comment covers what `goal_bias` biases toward; the point here
