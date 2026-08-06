@@ -57,6 +57,7 @@ moveit-constraints = { path = "../../crates/moveit-constraints" }
 moveit-planning = { path = "../../crates/moveit-planning" }
 moveit-scene = { path = "../../crates/moveit-scene" }
 moveit-collision = { path = "../../crates/moveit-collision" }
+moveit-kinematics = { path = "../../crates/moveit-kinematics" }
 moveit-octomap = { path = "../../crates/moveit-octomap" }
 
 # The planner side of `/move_action`'s plan-only arm (PORTING-PLAN.md D8).

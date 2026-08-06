@@ -4,11 +4,12 @@
 //! The `moveit-ros` node: upstream's `move_group` capabilities that Phase 9's
 //! completion condition names, on one `r2r::Node`.
 //!
-//! Four endpoints are hosted here, matching upstream's own arrangement --
-//! `move_group` loads `MoveGroupPlanService`, `MoveGroupMoveAction` and
-//! `MoveGroupStateValidationService` as capabilities of a single node, not as
-//! separate processes, and that node's `PlanningSceneMonitor` opens the scene
-//! subscription those capabilities read through:
+//! Five endpoints are hosted here, matching upstream's own arrangement --
+//! `move_group` loads `MoveGroupPlanService`, `MoveGroupMoveAction`,
+//! `MoveGroupStateValidationService` and `MoveGroupCartesianPathService` as
+//! capabilities of a single node, not as separate processes, and that node's
+//! `PlanningSceneMonitor` opens the scene subscription those capabilities
+//! read through:
 //!
 //! * `/plan_kinematic_path` (`moveit_msgs/srv/GetMotionPlan`), PORTING-PLAN.md
 //!   §241 -- upstream `move_group/src/default_capabilities/
@@ -31,6 +32,13 @@
 //!   consults the scene *and* can be answered end to end by this workspace
 //!   (it needs a collision environment, which exists, not a planning
 //!   pipeline, which does not).
+//! * `compute_cartesian_path` (`moveit_msgs/srv/GetCartesianPath`) --
+//!   upstream `cartesian_path_service_capability.cpp`. The second endpoint an
+//!   unmodified `MoveGroupInterface` calls in its own right:
+//!   `computeCartesianPath` sends here and returns the reply's `fraction`
+//!   verbatim (`move_group_interface.cpp:873-911`). Its body lives in
+//!   [`moveit_ros::cartesian_path`], which documents what that fraction means
+//!   and which request fields this port refuses rather than ignores.
 //!
 //! The name is upstream's own for the executable that loads exactly these
 //! capabilities: `add_executable(move_group src/move_group.cpp)`
@@ -171,7 +179,7 @@ use moveit_state::RobotState;
 use r2r::QosProfile;
 use r2r::moveit_msgs::action::MoveGroup;
 use r2r::moveit_msgs::msg::MoveItErrorCodes;
-use r2r::moveit_msgs::srv::{GetMotionPlan, GetStateValidity};
+use r2r::moveit_msgs::srv::{GetCartesianPath, GetMotionPlan, GetStateValidity};
 
 /// `MoveItErrorCodes::source` for each endpoint -- see [`plan`], the one
 /// place either is written, for what the field is used for here.
@@ -664,6 +672,25 @@ fn main() -> ExitCode {
         }
     };
 
+    // Upstream `move_group::CARTESIAN_PATH_SERVICE_NAME`
+    // (`capability_names.hpp:59-60`), unqualified for the reason `move_action`
+    // above is. Spelled as a literal rather than as
+    // `moveit_ros::cartesian_path::SERVICE_NAME`, which holds the same string:
+    // `tools/ci/measure-client-endpoint-surface.py`'s `PORT_OPENER` matches a
+    // string literal in the factory call, so a constant here would leave the
+    // endpoint reading `absent` in `doc/client-endpoint-surface.md` while the
+    // server was in fact up.
+    let cartesian_path = match node.create_service::<GetCartesianPath::Service>(
+        "compute_cartesian_path",
+        QosProfile::default(),
+    ) {
+        Ok(service) => service,
+        Err(e) => {
+            eprintln!("create_service(compute_cartesian_path): {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
     // Leaked for the same reason `model` is: `spawn_local` requires
     // `'static`, and this outlives every future spawned on it.
     let srdf: &'static SrdfModel = Box::leak(Box::new(srdf));
@@ -795,6 +822,24 @@ fn main() -> ExitCode {
     });
     if let Err(e) = spawned {
         eprintln!("spawning check_state_validity task: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    let scene_for_cartesian = Rc::clone(&scene);
+    let spawned = spawner.spawn_local(async move {
+        let mut service = cartesian_path;
+        while let Some(req) = service.next().await {
+            let response = {
+                let snapshot = Arc::clone(&scene_for_cartesian.borrow());
+                moveit_ros::cartesian_path::handle(&snapshot, req.message.clone())
+            };
+            if let Err(e) = req.respond(response) {
+                eprintln!("responding to compute_cartesian_path request: {e}");
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("spawning compute_cartesian_path task: {e}");
         return ExitCode::FAILURE;
     }
 
