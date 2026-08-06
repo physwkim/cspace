@@ -33,6 +33,10 @@
 #                                            on text only
 #   search the closure marker document-wide reddens closure_marker_is_per_bullet
 #   hardcode the row citation prefix        reddens continuation's text pair
+#   drop an unbulleted lead-in (the old      reddens prose_only_leadin and
+#   bare `continue`)                          prose_then_bullets
+#   report every unbulleted lead-in as       reddens prose_then_bullets
+#   `불릿 없음`
 #
 # Every line above was produced by applying that neutralization to
 # `check-residual-claims-census.py` and running this script, not predicted:
@@ -107,8 +111,15 @@ expect() {
 }
 
 # expect_text <name> <fixture> present|absent <substring>
+#
+# `%DOC%` in the substring expands to the fixture's basename. Writing the
+# citation out literally is what a `<file>.md:<line>` assertion costs here:
+# check-citation-drift.py reads every tracked file for in-repo citations, so
+# the literal is a citation to a temp path it cannot resolve, and the freeze
+# file gains a key that retires on the next edit.
 expect_text() {
   local name="$1" fixture="$2" mode="$3" want="$4"
+  want="${want//%DOC%/$(basename "$fixture")}"
   checked=$((checked + 1))
   if ! "$GATE" --doc "$fixture" --emit "$ROOT/$name.census" >/dev/null 2>&1; then
     failures=$((failures + 1))
@@ -216,12 +227,48 @@ expect_text closure_marker_is_per_bullet \
 expect_text closure_marker_is_per_bullet \
   "$ROOT/closure_marker_is_per_bullet.md" present "[B] 둘째.** 아직 열려 있다. | OPEN |"
 
+# --- a lead-in with no top-level bullet is listed, not dropped ---------------
+# isolates: the second population. It used to be a bare `continue`, so a section
+# stating its residual claims in prose left no trace at all -- 17 of
+# PORTING-PLAN.md's 60 lead-ins, the hole §301.5 recorded without a size.
+cat > "$ROOT/prose_only_leadin.md" <<'EOF'
+## 900.10 이 절이 하지 않은 것
+
+주장이 프로즈로만 적혀 있다. 최상위 불릿이 하나도 없다.
+
+## 900.11 이 회차가 못 본 것
+
+- **[A] 이 절은 불릿이 있다.**
+EOF
+expect prose_only_leadin "$ROOT/prose_only_leadin.md" 1 1 A
+expect_text prose_only_leadin "$ROOT/prose_only_leadin.md" present "불릿 없음 (프로즈만)"
+expect_text prose_only_leadin "$ROOT/prose_only_leadin.md" present "lead-in 1건 (위 표의 1건과 별개)"
+
+# --- lead-in, prose, then the list: recorded with the bullet it could not reach
+# isolates: the forward scan that tells the two shapes apart. Collapsed to one
+# shape, a section whose list is merely one paragraph away reads the same as a
+# section with no list at all, and the reader cannot tell which needs writing.
+cat > "$ROOT/prose_then_bullets.md" <<'EOF'
+## 900.12 이 절이 재지 않은 것
+
+먼저 설명 문단이 온다. 목록은 그 다음이다:
+
+- 이 불릿은 lead-in 바로 아래가 아니다.
+
+## 900.13 이 회차가 못 본 것
+
+- **[A] 이 절은 불릿이 있다.**
+EOF
+expect prose_then_bullets "$ROOT/prose_then_bullets.md" 1 1 A
+expect_text prose_then_bullets "$ROOT/prose_then_bullets.md" present "| 프로즈 뒤 불릿 |"
+expect_text prose_then_bullets "$ROOT/prose_then_bullets.md" present "%DOC%:5 |"
+
 # --- each row cites the document that was parsed -----------------------------
 # isolates: the citation prefix. It was the literal `PORTING-PLAN.md`, so every
 # row of this file's own fixtures cited PORTING-PLAN.md line numbers belonging
 # to a temp file -- and the census is tracked, so `check-citation-drift.py`
 # resolves those rows against whatever the prefix names.
-expect_text continuation "$ROOT/continuation.md" present "| continuation.md:1 "
+expect_text continuation "$ROOT/continuation.md" present "| %DOC%:1 "
 expect_text continuation "$ROOT/continuation.md" absent "PORTING-PLAN.md:"
 
 # --- a document with no lead-in is a failure, not an empty census ------------

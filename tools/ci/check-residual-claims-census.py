@@ -125,6 +125,7 @@ def parse(doc_path):
             headings.append((i, m.group(1) if m else None))
 
     entries = []  # (leadin_line, section_id, leadin_text, [bullets])
+    unbulleted = []  # (leadin_line, section_id, leadin_text, later_bullet_line)
     for i in sorted(prose):
         line = prose[i]
         if not (HEADING_RE.match(line) or line.strip()):
@@ -176,15 +177,30 @@ def parse(doc_path):
                 j += 1
             bullets.append((bstart, btext))
 
-        if not bullets:
-            continue
         section_id = find_enclosing_section(headings, i)
+        if not bullets:
+            # A lead-in whose claims are not top-level bullets. `continue` here
+            # was a silent drop, and it is the larger of this script's two
+            # known holes: 17 of the 60 lead-in lines in PORTING-PLAN.md today,
+            # 28%, among them §299.10 and §240.7 -- both of which state
+            # residual claims in prose. §301.5 recorded the hole and said its
+            # size was unmeasured; dropping the line is what kept it that way.
+            # They are enumerated instead, classified by whether the section
+            # holds a top-level bullet further down (the §164.2 shape: lead-in,
+            # prose, then the list) or none at all.
+            end = next((h for h, _ in headings if h > i), max(prose) + 1)
+            later = next(
+                (k for k in range(i + 1, end) if k in prose and BULLET_RE.match(prose[k])),
+                None,
+            )
+            unbulleted.append((i, section_id, line.strip(), later))
+            continue
         entries.append((i, section_id, line.strip(), bullets))
 
-    return entries
+    return entries, unbulleted
 
 
-def render(entries, doc_label):
+def render(entries, unbulleted, doc_label):
     """`doc_label` is the citation prefix every row carries, taken from the
     document actually parsed. It was the literal `PORTING-PLAN.md` until a
     fixture run under `--doc` printed rows citing PORTING-PLAN.md line numbers
@@ -243,6 +259,40 @@ def render(entries, doc_label):
                 f"| {doc_label}:{bline} {claim} | {status} |"
             )
     lines.append("")
+
+    # The second population: lead-ins this script found but cannot enumerate,
+    # because the claims under them are not top-level bullets. They used to be
+    # dropped without a trace, which is why §301.5 could record the hole and
+    # not its size. Listed rather than counted-and-forgotten: a reader opening
+    # this file sees exactly which sections still need a human read.
+    lines.append("## lead-in은 있는데 최상위 불릿이 없는 자리 — 이 표가 세지 못한 것")
+    lines.append("")
+    lines.append(
+        "위 표는 lead-in 줄 **바로 아래**(공백 줄만 건너뛰고) 이어지는 최상위 "
+        "`-` 불릿만 모은다. 아래는 lead-in 어휘에는 걸렸지만 그 모양이 아닌 "
+        "자리다 — 주장이 프로즈 문단으로만 적혔거나(§299.10), lead-in과 목록 "
+        "사이에 설명 문단이 끼어 있거나(§164.2). **이 줄들은 위 카운트 밖이고, "
+        "열림/닫힘 판정도 없다.** 여기 있다는 것은 기계가 못 셌다는 뜻이지 "
+        "닫혔다는 뜻이 아니므로, 여는 사람이 본문을 읽어야 한다."
+    )
+    lines.append("")
+    lines.append(f"lead-in {len(unbulleted)}건 (위 표의 {len(entries)}건과 별개).")
+    lines.append("")
+    lines.append("| 절 | lead-in (줄) | 이 절 안의 첫 최상위 불릿 | 모양 |")
+    lines.append("|---|---|---|---|")
+    for leadin_line, section_id, leadin_text, later in unbulleted:
+        sect = f"§{section_id}" if section_id else "(no §)"
+        leadin_short = leadin_text.strip("# ").strip()
+        if len(leadin_short) > 60:
+            leadin_short = leadin_short[:57] + "..."
+        if later is None:
+            where, shape = "—", "불릿 없음 (프로즈만)"
+        else:
+            where, shape = f"{doc_label}:{later}", "프로즈 뒤 불릿"
+        lines.append(
+            f"| {sect} | {doc_label}:{leadin_line} {leadin_short} | {where} | {shape} |"
+        )
+    lines.append("")
     return "\n".join(lines) + "\n"
 
 
@@ -258,11 +308,15 @@ def main():
         print(f"FAIL {doc_path} is missing", file=sys.stderr)
         return 2
 
-    entries = parse(doc_path)
+    entries, unbulleted = parse(doc_path)
+    # Floor both alternatives, not the sum: with the bullet grammar broken every
+    # lead-in lands in `unbulleted` instead, and a check that only asked "did
+    # anything match" would read that collapse as coverage.
     if not entries:
         print(
-            "FAIL parsed zero lead-in lists -- the lead-in vocabulary or bullet "
-            "grammar changed shape and this checked nothing",
+            f"FAIL parsed zero lead-in lists ({len(unbulleted)} lead-in line(s) "
+            f"matched but held no top-level bullet) -- the lead-in vocabulary or "
+            f"the bullet grammar changed shape and this checked nothing",
             file=sys.stderr,
         )
         return 1
@@ -271,12 +325,15 @@ def main():
         doc_label = str(doc_path.resolve().relative_to(REPO_ROOT))
     except ValueError:
         doc_label = doc_path.name
-    rendered = render(entries, doc_label)
+    rendered = render(entries, unbulleted, doc_label)
 
     if args.emit:
         Path(args.emit).write_text(rendered, encoding="utf-8")
         total = sum(len(b) for _, _, _, b in entries)
-        print(f"wrote {args.emit}: {len(entries)} lead-ins, {total} bullets")
+        print(
+            f"wrote {args.emit}: {len(entries)} lead-ins, {total} bullets, "
+            f"{len(unbulleted)} lead-ins with no top-level bullet"
+        )
         return 0
 
     check_path = Path(args.check) if args.check else DEFAULT_CENSUS
