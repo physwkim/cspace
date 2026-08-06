@@ -25,9 +25,13 @@
 #      write from a discarded one. The only observation that separates them is
 #      a `get` afterwards, over the same wire, and that is what leg B does.
 #
-# What these legs do NOT check: nothing plans, so the configuration a `set`
-# stores reaches no planner (D8/§140.3). These legs prove the store round
-# trips; they carry no information about a plan honouring it.
+# What these legs do NOT check: that a plan honours a stored configuration.
+# Nothing here hands the store to a planner -- upstream's `setParams` ends at
+# `setPlannerConfigurations` on the instance the pipeline plans with, and this
+# port has no equivalent -- so there is no such behaviour to assert yet. These
+# legs prove the store round trips over DDS and nothing beyond that. Stated
+# about the wiring rather than about whether the node plans, so it does not
+# quietly become false on the round that makes planning reachable.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

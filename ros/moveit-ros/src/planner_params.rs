@@ -110,12 +110,22 @@
 //! is what makes the write survive at all.
 //!
 //! A `set` is therefore observable -- a following `get` returns what it
-//! wrote, under upstream's own key rule -- but it reaches no planner, because
-//! nothing in this workspace plans (D8/§140.3; the same gap
-//! `/plan_kinematic_path` and `/move_action` already report). Closing that
-//! means handing the store to a planner at `get_planning_context` time, which
-//! is a change to `moveit_planners_sbp::registry`'s trait and belongs to the
-//! round that makes planning reachable, not to this one.
+//! wrote, under upstream's own key rule -- but **no planner reads it**.
+//! Upstream's `setParams` ends at
+//! `planner_interface->setPlannerConfigurations(configs)`
+//! (`query_planners_service_capability.cpp:203`), handing the map to the
+//! instance the pipeline plans with; nothing here does the equivalent,
+//! because no construction path in this workspace takes a
+//! [`PlannerConfigurationMap`] as input at all.
+//!
+//! That sentence is written about the *wiring*, not about whether anything
+//! plans, on purpose: the two are independent, and the wiring is the half
+//! this module owns. So it stays true whether the node's planning path
+//! answers `FAILURE` or returns a real trajectory -- and in the second case
+//! it is the sharper statement, because then a `set` is accepted, is
+//! readable, and still does not change the plan that follows it. Closing it
+//! means giving [`PlannerRegistration::construct`] the store to build from,
+//! which is a change to the planner-registry trait and not to this file.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -124,6 +134,16 @@ use std::rc::Rc;
 use futures::executor::LocalSpawner;
 use futures::stream::StreamExt;
 use futures::task::LocalSpawnExt;
+// MERGE NOTE, and it does not announce itself: on `main` the slice has been
+// moved out to a `moveit-planner-registry` crate, which does not exist at this
+// branch's base, so this line cannot yet be written in its post-merge form.
+// `moveit-planners-sbp` reaches it there through a *private* `use`, with no
+// re-export anywhere in the workspace, so this path stops resolving at merge
+// -- and because this file is new, git merges it clean and the breakage
+// surfaces only as a compile error. The whole fix is this import and the
+// matching dependency in Cargo.toml, both repointed at
+// `moveit_planner_registry::PLANNER_MANAGERS`; nothing else here reads the
+// slice, and the value read is unchanged.
 use moveit_planners_sbp::registry::PLANNER_MANAGERS;
 use r2r::QosProfile;
 use r2r::moveit_msgs::msg::{PlannerInterfaceDescription, PlannerParams};
