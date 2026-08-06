@@ -123,17 +123,47 @@ each crate's own `Cargo.toml`/source):
 | `moveit-planners-pilz` | yes (`Cargo.toml:15`) | yes (`trajectory_functions.rs`) | **yes** — `trajectory_generator{,_circ,_lin,_ptp}.rs` all import `KINEMATICS_SOLVERS`/`SolverParams` and look solvers up by name |
 | `moveit-planners-sbp` | **no** — not in `Cargo.toml` at all | no — `rg 'moveit_kinematics::'` in this crate's `src/` finds one hit, and it is a doc-comment reference inside a prose sentence, not a `use` | no |
 
-`moveit-planners-sbp` reaches `moveit-kinematics` only transitively, twice
-over (`cargo tree -p moveit-planners-sbp -i moveit-kinematics`:
-`moveit-kinematics ← moveit-constraints ← moveit-planners-sbp`, and again
-via `moveit-scene ← moveit-planners-sbp`). It never names the trait because
-`select_default_sampler`'s `solver: Option<Box<dyn KinematicsSolver>>`
-parameter is always filled with `None` at every one of its 3 call sites
-(`crates/moveit-planners-sbp/src/registry.rs:488,598,1370`) and 1 more in `goal_sampler.rs:212` (`sample_goal_carries_the_previous_draws_result_forward_as_the_next_seed`) — type
-inference resolves `None`'s type from the callee's signature, so the caller
-never has to spell `KinematicsSolver` itself. This corrects the brief's
-"moveit-kinematics에 의존하는 것은 5개" framing for one member: sbp is a
-transitive, zero-usage dependent, not a direct one.
+At this round (`cc377ffc`), `moveit-planners-sbp` reached `moveit-kinematics`
+only transitively, twice over (`cargo tree -p moveit-planners-sbp -i
+moveit-kinematics`: `moveit-kinematics ← moveit-constraints ←
+moveit-planners-sbp`, and again via `moveit-scene ← moveit-planners-sbp`). It
+named the trait nowhere, because `select_default_sampler`'s `solver:
+Option<Box<dyn KinematicsSolver>>` parameter was filled with `None` at all
+four of its call sites in the crate — three in `registry.rs` and one in
+`goal_sampler.rs`, at that revision — and type inference resolves `None`'s
+type from the callee's signature, so the caller never had to spell
+`KinematicsSolver` itself. That corrected the brief's "moveit-kinematics에
+의존하는 것은 5개" framing for one member: sbp was a transitive, zero-usage
+dependent, not a direct one.
+
+**갱신 (2026-08-06): 이 행과 위 문단은 `9796b2c0` 이후로 참이 아니다.**
+That commit ("planners-sbp(registry): wire a caller-supplied solver into the
+goal sampler") closes the §163.3 follow-up to this report's own rejection, and
+it makes sbp a direct dependent on every column this table measures.
+`crates/moveit-planners-sbp/Cargo.toml:22` carries
+`moveit-kinematics.workspace = true`. The crate now names the trait:
+`crates/moveit-planners-sbp/src/registry.rs:228` is
+`use moveit_kinematics::{KinematicsSolver, SolveOptions};`, and
+`crates/moveit-planners-sbp/src/registry.rs:686-688` opens
+`impl KinematicsSolver for SharedKinematicsSolver` and its first method,
+`fn group_name(&self) -> &str {`, on a private adapter this crate defines. The production call site inside `resolve_constraint_sampler`,
+`crates/moveit-planners-sbp/src/registry.rs:747`, no longer passes `None` — it
+passes the caller's own solver. The third column is still `no`: nothing in the
+crate looks a solver up by name, which is D4's standing exclusion, and the
+`Answer` paragraph below therefore still holds for `KINEMATICS_SOLVERS`.
+
+The four line numbers the paragraph above used to carry were dropped rather
+than renumbered, and deliberately are not restated here in citation form: each
+of them named a `select_default_sampler(` call at `cc377ffc` and none does
+today, so writing them as `path:line` spans would put four claims about the
+current tree into a gate's corpus that are false by construction. The crate
+has since grown past all four, and a later content-equality remap moved them
+onto lines that hold the same text without holding the same meaning. Today the
+calls are `crates/moveit-planners-sbp/src/registry.rs:747` and
+`crates/moveit-planners-sbp/src/registry.rs:3238` (two, not three) and
+`crates/moveit-planners-sbp/src/goal_sampler.rs:304` and
+`crates/moveit-planners-sbp/src/goal_sampler.rs:400` (two, not one), so no
+substitution preserves the sentence's count either.
 
 **Answer to "trait-only vs needs the full registry":** of the 3 crates with
 a *direct* Cargo dependency, 2 (`moveit-constraints`, `moveit-planners-stomp`)
@@ -141,6 +171,11 @@ use only the trait + `SolveOptions`/`SolutionCallback` — both could switch
 to depending on `moveit-kinematics-base` alone. 1 (`moveit-planners-pilz`)
 uses the compile-time solver registry itself and must keep depending on the
 full `moveit-kinematics`. `moveit-planners-sbp` needs neither directly.
+
+**갱신 (2026-08-06):** `9796b2c0` moves sbp into the first group, not out of
+the count: it is now a 4th direct dependent that uses the trait alone, so it
+could switch to `moveit-kinematics-base` on the same terms as the other two.
+The 1 crate that must keep the full `moveit-kinematics` is unchanged.
 
 ## 5. Decisive finding — this was already decided, twice, and not for a crate-layering reason
 

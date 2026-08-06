@@ -68,6 +68,10 @@ usage: measure-phase8-cpp-baseline.sh <chomp|stomp> <config> <count> <set_seed> 
 environment:
   PLANNER_SEED_BASE  per-problem planner RNG seed base (default 700001, the
                      same base the port harnesses use)
+  CONDITION2_RESOLUTIONS
+                     comma-separated extra densification resolutions; each
+                     produces one more condition-2 verdict over the SAME path
+                     in `condition2_by_resolution`. Unset: field absent.
   CHOMP_MAX_ITERATIONS   default 50, `ChompParameters`'s own constructor value
   STOMP_CLOCK_BOUND      wall-clock ceiling in seconds (default 3600)
   CHOMP_CLOCK_BOUND      wall-clock ceiling in seconds (default 3600)
@@ -89,6 +93,16 @@ case "$PLANNER" in
 esac
 
 PLANNER_SEED_BASE="${PLANNER_SEED_BASE:-700001}"
+# The operating-point grid condition 2 is re-evaluated on. It reaches the
+# oracle as the request field `condition2_resolutions`, which the port
+# harnesses read from the same request, so both sides provably walk the same
+# grid. Empty -> a `null` the oracle treats as an absent field.
+CONDITION2_RESOLUTIONS="${CONDITION2_RESOLUTIONS:-}"
+if [ -n "$CONDITION2_RESOLUTIONS" ]; then
+  C2_GRID_JSON="[$CONDITION2_RESOLUTIONS]"
+else
+  C2_GRID_JSON=null
+fi
 CHOMP_MAX_ITERATIONS="${CHOMP_MAX_ITERATIONS:-50}"
 CHOMP_CLOCK_BOUND="${CHOMP_CLOCK_BOUND:-3600}"
 STOMP_CLOCK_BOUND="${STOMP_CLOCK_BOUND:-3600}"
@@ -125,8 +139,8 @@ fi
 if [ "$PLANNER" = chomp ]; then
   PLANNER_CFG=$(printf '{"max_iterations":%s,"planning_time_limit":%s}' \
     "$CHOMP_MAX_ITERATIONS" "$CHOMP_CLOCK_BOUND")
-  jq -c --argjson cfg "$PLANNER_CFG" \
-    '.op="chomp_plan" | .chomp=$cfg | . as $r
+  jq -c --argjson cfg "$PLANNER_CFG" --argjson c2 "$C2_GRID_JSON" \
+    '.op="chomp_plan" | .chomp=$cfg | .condition2_resolutions=$c2 | . as $r
      | range(0; $r.problems|length) as $i
      | ($r | .problems=[$r.problems[$i]])' "$SET_JSON" \
     | while IFS= read -r line; do
@@ -135,8 +149,8 @@ if [ "$PLANNER" = chomp ]; then
       done
 else
   PLANNER_CFG=$(printf '{"allowed_planning_time":%s}' "$STOMP_CLOCK_BOUND")
-  jq -c --argjson cfg "$PLANNER_CFG" \
-    '.op="stomp_plan" | .stomp=$cfg | . as $r
+  jq -c --argjson cfg "$PLANNER_CFG" --argjson c2 "$C2_GRID_JSON" \
+    '.op="stomp_plan" | .stomp=$cfg | .condition2_resolutions=$c2 | . as $r
      | range(0; $r.problems|length) as $i
      | ($r | .problems=[$r.problems[$i]])' "$SET_JSON" \
     | while IFS= read -r line; do
