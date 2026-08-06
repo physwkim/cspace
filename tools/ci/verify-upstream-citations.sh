@@ -36,8 +36,36 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 require_caller_tree "$REPO_ROOT"
 cd "$REPO_ROOT"
 
+# An absent source is survivable for a run that CHECKS the baseline -- its
+# citations stay in the unresolvable list, which is a declared gap. It is not
+# survivable for a run that WRITES the baseline: the freeze records what this
+# run could resolve, so every citation whose source was missing is retired from
+# the corpus, and `--write-classes` reports `0 demoted` because nothing was
+# demoted -- the rows are simply gone. That happened once here: a freeze run
+# without `third_party/` deleted 100 rows (2733 -> 2631) and read as clean.
+# Both facts -- which sources are present, and whether the caller asked for a
+# freeze -- are known only here, so this is the only place the two can be
+# checked against each other.
+freeze=0
+for arg in "$@"; do
+  if [[ "$arg" == "--write-classes" ]]; then
+    freeze=1
+  fi
+done
+
+refuse_freeze() {
+  echo "FAIL $1 is absent and --write-classes was asked for." >&2
+  echo "FAIL a freeze taken without it silently retires every citation it could" >&2
+  echo "FAIL not resolve and still reports 0 demoted; the baseline then stops" >&2
+  echo "FAIL checking them. Make the source present, then re-freeze." >&2
+  exit 1
+}
+
 MOVEIT2_SRC="${MOVEIT2_SRC:-$HOME/work/moveit2}"
 if [[ ! -d "$MOVEIT2_SRC" ]]; then
+  if (( freeze )); then
+    refuse_freeze "$MOVEIT2_SRC"
+  fi
   echo "SKIP $MOVEIT2_SRC not present -- no upstream citation was resolved."
   echo "SKIP this is not a pass; clone https://github.com/moveit/moveit2 there to cover them."
   exit 0
@@ -63,21 +91,30 @@ fi
 # and `verify-fixture-provenance.sh` depend on, and the same asymmetry as
 # `$MOVEIT2_SRC` above: an absent checkout SKIPs loudly and leaves its
 # citations in the unresolvable list the script already prints, a checkout at
-# the WRONG revision is a hard failure. `third_party/moveit_msgs` and
+# the WRONG revision is a hard failure, and an absent checkout under
+# `--write-classes` is a hard failure too. `third_party/moveit_msgs` and
 # `third_party/moveit_resources` are deliberately not here: no tracked
 # document records a revision for either, so there is nothing to check a
 # checkout against, and neither is cited with a line number.
 THIRD_PARTY_SRC="${THIRD_PARTY_SRC:-$REPO_ROOT/third_party}"
 declare -A THIRD_PARTY_PINS=(
-  # geometric_shapes 2.3.3      -- PORTING-PLAN.md:12828, crates/moveit-geometry/src/shapes.rs:15
+  # Each citation below names the line that RECORDS the revision, not the
+  # section that discusses it: the three §160.3 ones carry a section claim so a
+  # shift leaves something checkable behind rather than a bare number, which is
+  # how all four of these came to point at §160's prose at once.
+  #
+  # geometric_shapes 2.3.3 -- the pin row in §160.3, PORTING-PLAN.md:12869;
+  # the header quoting the same commit is crates/moveit-geometry/src/shapes.rs:15.
   [geometric_shapes]=192801cebacc07d0e9f719576cdd1c9b36d0bc28
-  # srdfdom 2.0.8               -- PORTING-PLAN.md:12829
+  # srdfdom 2.0.8 -- the pin row in §160.3, PORTING-PLAN.md:12870.
   [srdfdom]=58ee1eccd1c34498f67022eb2080daec5e8bc162
-  # octomap v1.9.7              -- PORTING-PLAN.md:12830, doc/claim-audit/moveit-octomap.md:8
+  # octomap v1.9.7 -- the pin row in §160.3, PORTING-PLAN.md:12871; the
+  # claim-audit quoting the same tag is doc/claim-audit/moveit-octomap.md:8.
   [octomap]=aa6372b87eaf7e89bb1c9421f61d58bd634477cb
-  # orocos_kinematics_dynamics v1.5.1 -- doc/upstream-bugs.md:216, which records
+  # orocos_kinematics_dynamics v1.5.1 -- doc/upstream-bugs.md:225, which records
   # the tag and the short `db25b7e` rather than a full SHA; this is the commit
-  # `git rev-parse v1.5.1^{}` resolves to, and it satisfies both.
+  # `git rev-parse v1.5.1^{}` resolves to, and it satisfies both. That file's
+  # headings are slug-named, so there is no section number to claim alongside.
   [orocos_kinematics_dynamics]=db25b7e480e068df068232064f2443b8d52a83c7
 )
 
@@ -86,6 +123,9 @@ for pkg in "${!THIRD_PARTY_PINS[@]}"; do
   dir="$THIRD_PARTY_SRC/$pkg"
   pin="${THIRD_PARTY_PINS[$pkg]}"
   if [[ ! -d "$dir" ]]; then
+    if (( freeze )); then
+      refuse_freeze "$dir"
+    fi
     echo "SKIP $dir not present -- its citations stay in the unresolvable list below."
     echo "SKIP this is not a pass; clone it there at $pin to cover them."
     continue

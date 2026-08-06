@@ -859,7 +859,7 @@ def find_tight_anchors(line, match_start, match_end, spans, prev_citation_extent
       TEST name sits in column 4 instead.
     - Widening the scan to "any name anywhere in the row" (to catch the
       column-4 case above) reintroduced the FIRST problem from the other
-      direction: `doc/assertion-discrimination-ledger-p1-fixtures.md:938`
+      direction: `doc/assertion-discrimination-ledger-p1-fixtures.md:939`
       cites `acceleration_filter.rs:565` in a row whose only nearby name is
       `do_smoothing` -- the production function *being tested*, not the
       function *containing* line 565 (which is some other, unnamed test).
@@ -1021,8 +1021,11 @@ def citing_context(lines, index):
     claim about a different site. Prose is the whole blank-line-delimited
     paragraph, because these documents wrap Korean prose at ~72 columns and a
     citation's subject lands on the line above or below as readily as on its
-    own: `PORTING-PLAN.md:9384` names its test on the preceding line, and
-    `:9916` names `satisfied` on the preceding line."""
+    own. This used to pin two examples by line number; both had rotted onto
+    blank lines by the time the blank predicate could see them, and the
+    second was invisible even then because the shorthand `:NNN` form is in no
+    gate's corpus. An illustrative pin into a document with this churn rate
+    is a claim that goes stale without anything reporting it."""
     if lines[index].lstrip().startswith("|"):
         return lines[index]
     start = index
@@ -1107,7 +1110,7 @@ def resolve_path(fname_part, rs_files_by_basename, rs_files_set):
 #   2. CITER extension. main() builds md_files from `.md` only, so a citation
 #      living in a `.json`, `.sh`, `.py` or `.rs` file is outside the corpus
 #      no matter what it names. This gate's OWN source cites
-#      `PORTING-PLAN.md:9384` and could not see it.
+#      `!PORTING-PLAN.md:9384` and could not see it.
 #
 # WHY THIS IS A SEPARATE POPULATION WITH A SEPARATE BASELINE. Folding these
 # into CLASS_BASELINE would add ~280 rows that were never checked before to a
@@ -1137,6 +1140,23 @@ IN_REPO_BASELINE = "doc/citation-classes-in-repo.txt"
 # Every tracked text extension that is not `.rs`. `.rs` targets belong to the
 # population above; listing them here would double-count them.
 IN_REPO_TARGET_EXT = ("md", "sh", "py", "yml", "yaml", "toml", "urdf", "srdf", "txt", "json", "xacro")
+# A citation QUOTED AS DATA rather than asserted: the remap tables' left
+# column (where a citation used to point), a section documenting a defect by
+# spelling the broken citation out, a comment illustrating a grammar. Four
+# separate rounds have now hit this -- §253.3's tables, §299.3's five sites,
+# §299's own examples, and this gate's own comments -- and each time the fix
+# was to respell the text by hand until it stopped looking like a citation.
+# That is a patch applied once per site, and it loses the citation entirely:
+# nothing counts it, so a document can accumulate them silently.
+#
+# The sigil is the structural version. `!` inside the backticks means "this
+# names a line but asserts nothing about it, do not resolve it". It is
+# greppable, uniform, and the gate DECLARES the count, so quoting-as-data is
+# bounded rather than invisible. It is deliberately not a comment convention
+# or a prose disclaimer: those are what the previous three rounds tried.
+IN_REPO_QUOTED = "quoted"
+IN_REPO_QUOTED_RE = re.compile(r"`!(?:[\w./-]+/)?[\w.-]+\.\w+:\d+(?:[-,]\d+)*`")
+
 _IN_REPO_BODY = (
     r"((?:[\w./-]+/)?[\w.-]+\.(?:" + "|".join(IN_REPO_TARGET_EXT) + r")):"
     r"(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)"
@@ -1147,7 +1167,7 @@ _IN_REPO_BODY = (
 # In a `.md` citer, backticks ARE the convention and bare `foo.md:12` in prose
 # is usually not a citation, so requiring them is what keeps the corpus clean.
 # In a `.rs`, `.py`, `.sh` or `.json` citer there are no backticks to require --
-# a source comment writes `// PORTING-PLAN.md:1152 records that ...` bare, and
+# a source comment writes `// !PORTING-PLAN.md:1152 records that ...` bare, and
 # a JSON provenance string writes `(PORTING-PLAN.md:11242)`. Requiring
 # backticks there misses exactly the population hole 2 exists to close: five
 # real citations, three of them in moveit-planners-sbp comments citing a line
@@ -1157,14 +1177,19 @@ _IN_REPO_BODY = (
 # false positive -- check-porting-plan-sections.sh:309 builds the string
 # "PORTING-PLAN.md:1: parsed zero ## sections" as its own error format. It is
 # kept because moveit-planners-sbp/src/compound.rs:495 writes a real citation
-# the same way, `// PORTING-PLAN.md:1152: whether the StateSpace trait ...`,
+# the same way, `// !PORTING-PLAN.md:1152: whether the StateSpace trait ...`,
 # where the colon is punctuation. Excluding it would drop one of the five real
 # code-citer sites to remove one benign row: the format string resolves, is in
 # bounds and non-blank, so it lands in `resolved` and is declared rather than
 # reported as a finding. A fenced block quoting a gate's FAIL output has the
 # same shape and is dropped by fence-skipping instead.
 IN_REPO_CITATION_RE = re.compile("`" + _IN_REPO_BODY + "`")
-IN_REPO_CODE_CITATION_RE = re.compile(_IN_REPO_BODY)
+# The `(?<!!)` is what makes the sigil bind in a code citer. The backticked
+# grammar cannot match `` `!foo.md:1` `` because the `!` sits where a path
+# character must be, but the BARE grammar has no such anchor -- it would
+# happily match `foo.md:1` starting one character past the `!` and report the
+# quoted form as a live citation.
+IN_REPO_CODE_CITATION_RE = re.compile(r"(?<!!)" + _IN_REPO_BODY)
 # Copied verbatim from tools/ci/check-section-references.sh's HEADING_RE so the
 # two gates cannot disagree about what a section heading is.
 IN_REPO_SECTION_RE = re.compile(r"^#{2,6}\s+§?(\d+(?:\.\d+)*)\b")
@@ -1196,11 +1221,20 @@ IN_REPO_OOB = "out-of-bounds"
 IN_REPO_BLANK = "blank-line"
 IN_REPO_SECTION_MISMATCH = "section-mismatch"
 IN_REPO_FAILING = (IN_REPO_UNRESOLVED, IN_REPO_OOB, IN_REPO_BLANK, IN_REPO_SECTION_MISMATCH)
-# Flipped to True once the population's findings are triaged. Until then the
-# corpus is declared, counted and delta-checked -- a NEW failure still fails,
-# because it arrives as an undeclared row -- but the backlog it arrives with
-# does not fail the run. See PORTING-PLAN.md §299.9.
-IN_REPO_HARD_FAIL = False
+# Which verdicts fail the run. The flip is GRADED rather than all-or-nothing:
+# a class goes hard the moment its backlog is closed, instead of waiting for
+# the slowest class and leaving the closed ones unprotected in the meantime.
+#
+# blank-line, out-of-bounds and unresolvable are closed and hard. Three
+# section-mismatch findings remain, each needing a judgement about whether the
+# LINE or the SECTION NAME is the wrong half -- the content sits in neither
+# place, so no re-derivation settles it without deciding what the sentence
+# meant. They are listed in PORTING-PLAN.md §306 by file:line rather than
+# frozen as passing.
+#
+# Regardless of this set, a NEW failure in ANY class fails the run: it arrives
+# as a row absent from the baseline, which the delta check reports on its own.
+IN_REPO_HARD_FAIL = (IN_REPO_BLANK, IN_REPO_OOB, IN_REPO_UNRESOLVED)
 
 
 def in_repo_section_spans(lines):
@@ -1289,6 +1323,11 @@ def scan_in_repo(tracked):
                     continue
                 if in_fence:
                     continue
+            for q in IN_REPO_QUOTED_RE.finditer(line):
+                out.append((citer, line_no, q.group(0).strip("`"), None, IN_REPO_QUOTED, None))
+            # The `!` form cannot also match the citation grammars: both
+            # require the backtick to be followed by a path character, and
+            # `!` is not one.
             grammar = (
                 IN_REPO_CITATION_RE if citer.endswith(".md") else IN_REPO_CODE_CITATION_RE
             )
@@ -1413,7 +1452,7 @@ def report_in_repo(tracked):
             file=sys.stderr,
         )
 
-    stream = sys.stderr if (failed or IN_REPO_HARD_FAIL) else sys.stdout
+    stream = sys.stderr if (failed or any(r[4] in IN_REPO_HARD_FAIL for r in rows)) else sys.stdout
     print(
         f"--- second population: {len(rows)} in-repo non-`.rs` citations across "
         f"{len({r[0] for r in rows})} citing files: {summary} ---",
@@ -1426,10 +1465,12 @@ def report_in_repo(tracked):
         print(
             f"--- {findings} of them are findings. These were in no gate's corpus before "
             f"this population was declared, so they are first-ever results, not "
-            f"regressions; IN_REPO_HARD_FAIL flips them to failing once triaged. ---",
+            f"regressions. IN_REPO_HARD_FAIL names the classes that are closed and "
+            f"now fail; the rest are listed in PORTING-PLAN.md §306. ---",
             file=stream,
         )
-    return failed or (IN_REPO_HARD_FAIL and bool(findings))
+    hard = [r for r in rows if r[4] in IN_REPO_HARD_FAIL]
+    return failed or bool(hard)
 
 
 def main(write_classes=False):
