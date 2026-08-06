@@ -163,7 +163,7 @@
 //! `chomp_planner.cpp:77-78`). Five re-derivations of one value is a shape
 //! this project's own conduct rules name — an invariant with no owner — and
 //! the port does not need it: [`crate::PlanningRequestAdapter`] and
-//! [`Planner`] both already receive `&mut PlanningScene`/`&PlanningScene` and
+//! [`crate::PlannerManager`] both already receive `&mut PlanningScene` and
 //! already read the start state off `scene.current_state()`
 //! ([`crate::request_adapters::CheckStartStateBounds`] and
 //! [`crate::request_adapters::CheckStartStateCollision`] do exactly that).
@@ -177,8 +177,8 @@
 //! writes the corrected state back into `req.start_state`; here the correction
 //! lands in the scene, which is where every later reader looks). No other site
 //! in this crate applies [`crate::PlanningRequest::start_state`], and no
-//! adapter or [`Planner`] needs to: reading `scene.current_state()` is already
-//! reading it.
+//! adapter or [`crate::PlannerManager`] needs to: reading
+//! `scene.current_state()` is already reading it.
 //!
 //! The cost of the ownership move is that `scene` is left holding the
 //! requested start state rather than the caller's — the same already-documented
