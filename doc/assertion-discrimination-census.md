@@ -124,7 +124,7 @@ against this instrument's output:
   method, not `Option::is_none` — or already-destructured `matches!` used
   as a plain boolean expression outside any `assert!`, e.g.
   `!matches!(shape, Shape::Mesh(_) | Shape::OcTree(_))` at
-  `main.rs:1674`).
+  `main.rs:1718`).
 
 ## 3. Spot-reads
 

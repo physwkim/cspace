@@ -2269,7 +2269,7 @@ epsilon 아래였다 — 솔버 결함이 아니라 측정 도구의 기준선�
 넘겼다. p3-acm의 `collision` op(§13.4)에서 이미 한 번 나온 것과 정확히
 같은 모양이다. `rg '&joint_values' tools/moveit-diff/src/`로 전수 확인해
 한 곳뿐임을 확인하고 고쳤다 — 고친 인자는 지금
-`main.rs:1103`의 `joint_values`이고, 나머지 열 곳은 이미 맨 이름으로
+`main.rs:1147`의 `joint_values`이고, 나머지 열 곳은 이미 맨 이름으로
 넘기고 있었다. 양쪽 브랜치가 각각 clippy를 통과하므로 병합 후
 전체 게이트에서만 잡히는 종류다.
 
@@ -3326,7 +3326,7 @@ fanuc 33.2% / 44.4%를 적고 있고, `b`/`c`는 정의상 성공 개수 차이
 (`rust_success - oracle_success == c - b`)이므로 둘 다 0일 수 없다.
 `failed: 0`은 "각 측이 낸 해가 자기 FK로 목표를 맞추는가"만 보는
 지표이고 두 측이 같은 케이스에서 성공하는가는 보지 않는다 —
-`main.rs:3125-3135`의 `oracle_only`/`rust_only` 독코멘트가 바로 그
+`main.rs:3169-3179`의 `oracle_only`/`rust_only` 독코멘트가 바로 그
 구분을 위해 존재한다고 적고 있다.
 
 병합 시점에 직접 측정했다 (`--cases 500 --seed 20260803`,
@@ -3537,12 +3537,12 @@ MiB 복사 한 건이고, 그건 `p3-acm` 몫이며 이 병합 시점에 아직 
 `fixtures/`가 `third_party/`의 사본인 설계(§"픽스처 출처")가 실제로
 값을 하고 있다는 뜻이다. 커밋된 테스트 중 `third_party/`를 읽는 것은
 없다 — 유일한 경로 문자열은 `MESH_RESOURCES_ROOT`
-(`tools/moveit-diff/src/main.rs:623-626`)인데 컴파일타임 문자열일 뿐
+(`tools/moveit-diff/src/main.rs:653-656`)인데 컴파일타임 문자열일 뿐
 도구를 실제로 돌릴 때만 해석되고, moveit-diff는 CI에서 돌지 않는다.
 
 (이 문단의 "커밋된 테스트 중 `third_party/`를 읽는 것은 없다"는 지금
 거짓이다. `MESH_RESOURCES_ROOT`를 실제로 읽는 테스트 둘이
-`main.rs:4217`·`main.rs:4335`에 있고, 둘 다
+`main.rs:4312`·`main.rs:4430`에 있고, 둘 다
 `needs third_party/moveit_resources`로 `#[ignore]`되어 있다. 여전히 참인
 결론은 "CI가 그것을 돌리지 않는다"뿐이며, 이유는 경로가 컴파일타임
 문자열이라서가 아니라 그 `#[ignore]`가 무조건이라서다 — 리소스가 있는
@@ -6456,7 +6456,7 @@ MTD가 된다.
 
 ### 72.2 7과 2는 겹치지 않는다 — 계기가 보장한다
 
-`main.rs:2515-2582`를 직접 읽었다. `distance_pair_matches`가 참이면
+`main.rs:2559-2626`를 직접 읽었다. `distance_pair_matches`가 참이면
 `*_same_pair_and_value_diverges`, 거짓이면 `*_pair_disagrees` 후
 `*_pair_flip_and_value_diverges`로 간다 — `if/else`이므로 한 케이스가 두
 카운터에 동시에 들어갈 수 없다. §60.2가 손으로 나눈 7 + 2가 구조적으로
@@ -7524,7 +7524,7 @@ moveit-diff --urdf .../pr2.urdf --srdf .../pr2.srdf --group right_arm \
 ```
 
 (`--stats-json`의 `cases` 필드는 표본 수가 아니라 검사 수다 —
-`verdicts.len()`, `main.rs:1223`. 6000 표본이 18001 검사를 낸다. 비율의
+`verdicts.len()`, `main.rs:1267`. 6000 표본이 18001 검사를 낸다. 비율의
 분모는 `--cases` 쪽이다.)
 
 ### 87.3 머지 후 실측
@@ -8101,11 +8101,11 @@ M9는 구멍이 **아니다**. 문서가 강조하는 "`update`에 넘기는 `ne
 담당은 `IK_DEGENERATE_EPS`가 "정보용 카운터로 출력될 뿐 `Verdict`로
 들어가지 않는다"고 적었다 — 그때 오라클/러스트 각각에 있던 두 비교
 자리는 지금 공유 헬퍼 하나로 접혀 `is_degenerate_from_seed`를 두 번
-부른다(`main.rs:3370`, `main.rs:3381` (`minimum_usable_b_plus_c_matches_its_own_derivation`)). `Verdict` 부분은 맞고,
+부른다(`main.rs:3414`, `main.rs:3425` (`minimum_usable_b_plus_c_matches_its_own_derivation`)). `Verdict` 부분은 맞고,
 어떤 테스트도 이 상수나 두 필드를 참조하지 않는 것도 `rg`로 확인했다.
 
 다만 `IkStats`는 `#[derive(serde::Serialize)]`이고
-`main.rs:1231`의 `ik: cfg.ik.then_some(ik_stats)`로 **`--stats-json`에
+`main.rs:1275`의 `ik: cfg.ik.then_some(ik_stats)`로 **`--stats-json`에
 그대로 실린다**. 즉 이 상수는 출력만 되는 것이 아니라 내가 매 sweep마다
 읽는 기계판독 결과의 한 숫자를 정한다. 1e-6 elementwise max-norm이
 "degenerate"의 정의이고, 그 정의가 어디에서도 검증되지 않는다.
@@ -8117,7 +8117,7 @@ M9는 구멍이 **아니다**. 문서가 강조하는 "`update`에 넘기는 `ne
 참조하지 않는다"와 "그 정의가 어디에서도 검증되지 않는다"는 지금
 거짓이다 — `exactly_at_the_threshold_is_not_degenerate`가 정확히 경계값
 `let solution = [IK_DEGENERATE_EPS];`를 넣어 strict `<`임을 고정한다
-(`main.rs:3650`). 두 필드 쪽은 여전히 참이다: `stats.rust_degenerate`나
+(`main.rs:3695`). 두 필드 쪽은 여전히 참이다: `stats.rust_degenerate`나
 `stats.oracle_degenerate`를 읽는 테스트는 없고, 판정도 그대로다.)
 
 ### 93.5 오라클 fixture 부재는 사실이다
@@ -9406,7 +9406,7 @@ config  최대                                      1 ulp
 목표가 이미 `FK(seed)`인 케이스는 `cart_to_jnt`의 첫 반복에서
 `q_full`을 건드리기 전에 수렴해 씨앗을 비트 그대로 돌려준다. 그것을
 `a_case_already_at_the_seed_pose_converges_to_the_seed_unmoved`로
-고정했다(`tools/moveit-diff/src/main.rs:3687`, 내가 확인했다).
+고정했다(`tools/moveit-diff/src/main.rs:3732`, 내가 확인했다).
 
 요구를 그대로 못 하면 **요구가 겨냥한 것을 다른 길로 달성한다** —
 "trait 이음매가 없어서 못 합니다"로 닫지 않은 것이 맞다.
@@ -9938,7 +9938,7 @@ CI가 자동으로 집는다(도커 불필요).
 메트리가 착지한 뒤로 숫자가 변하지 않았다.
 
 `compare_constraints`가 `satisfied`를 먼저 보고 틀리면 그 자리에서
-반환하므로(`main.rs:1634-1642` (`compare_constraints`)), "판정 불일치 0 + 거리 불일치 115"는 코드
+반환하므로(`main.rs:1678-1686` (`compare_constraints`)), "판정 불일치 0 + 거리 불일치 115"는 코드
 경로상 정확히 이 뜻이다 — 내가 확인했다.
 
 원인은 이것이다. `cone_mesh`·`decide_cone`·
@@ -13478,7 +13478,7 @@ generator max cone reach: 0.0150
 까지 거리 제곱은 구간 끝점에서 최대이므로 — 이전에 썼던
 `sqrt(target_radius²+sensor_offset²)`는 느슨한 상한이었을 뿐, 진짜 상한은
 더 작다). `target_radius`의 상한은 생성기의
-`rng.random_range(0.005..0.015)`가 정하는 `0.015`(`main.rs:2078`), `sensor_offset`은
+`rng.random_range(0.005..0.015)`가 정하는 `0.015`(`main.rs:2122`), `sensor_offset`은
 `0.005` 고정이므로 최대 도달은 **0.015**. 136쌍 전부에서 필요한 reach의
 최솟값은 **0.0232**(캐스터 휠 네 쌍) — `0.015`를 항상 초과한다. **어떤 근접
 배치도, 어떤 조인트 상태에서도, 두 번째 링크를 건드릴 수 없다.**
@@ -15290,7 +15290,7 @@ group 필터링 미구현이었다. `#[ignore]`가 사라져 `cost_sources_parit
 
 `cost_sources_parity`의 `#[ignore]`를 지우고 워크스페이스를 돌리니
 1584개 중 2개가 여전히 skip이다. `.config/nextest.toml`에는 필터가 없고,
-남은 둘은 `tools/moveit-diff/src/main.rs:4217,4138` —
+남은 둘은 `tools/moveit-diff/src/main.rs:4312,4233` —
 `needs third_party/moveit_resources`.
 
 `third_party`는 `.gitignore:3`에 통째로 들어 있으니 그 전제는 진짜다. 갓
@@ -25039,8 +25039,12 @@ state-dependent)"로 적었고, 그 문장이 지난 라운드에 `distance` 행
 pr2의 분리 쪽 상위 8건은 **전부** `*_caster_*_wheel_link` 대 `floor`다. 이 쌍은
 정답이 계산 가능하다:
 
-- 바닥은 `Cuboid::new(4.0, 4.0, 0.1)`(반크기가 아니라 전체 크기)를 `z = -0.05`에
-  둔 것이므로 윗면이 평면 `z = 0`이다 (`tools/moveit-diff/src/main.rs:729-736`).
+- 바닥은 `Cuboid::new(4.0, 4.0, FLOOR_THICKNESS)`(반크기가 아니라 전체 크기,
+  `FLOOR_THICKNESS = 0.1`)를 중심 `floor_top_z - FLOOR_THICKNESS / 2.0`에 둔
+  것이므로 윗면이 평면 `z = floor_top_z`이고, 이 측정이 돌아간 기본값
+  `floor_top_z = 0.0`에서는 `z = 0`이다
+  (`tools/moveit-diff/src/main.rs:765-780`). 이 절의 측정 당시에는 중심
+  `-0.05`가 상수로 박혀 있었다.
 - 캐스터 바퀴의 충돌 형상은 반지름 `0.074792`의 원기둥이고, 중심 높이는
   `0.051 + 0.0282 + 0.0 = 0.0792`다 (`fixtures/pr2.urdf`의
   `base_footprint_joint` / `*_caster_rotation_joint` / `*_caster_*_wheel_joint`).
