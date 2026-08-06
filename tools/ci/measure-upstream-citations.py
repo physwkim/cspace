@@ -483,11 +483,17 @@ BRACE_SLACK = 5
 # carries `doc/citation-classes.txt`. This is the same mechanism for the same
 # reason, over the upstream half of the corpus.
 #
-# HISTORICAL `path@rev:NNN` citations are deliberately NOT recorded here. They
-# are bounds-checked against a pinned revision, so nothing about HEAD can
-# demote them; a row per historical citation would be 19 rows that cannot
-# change. Converting a live citation into a historical one still shows up,
-# because the citation's text is the key and the key retires.
+# HISTORICAL `path@rev:NNN` citations are recorded here too, classified against
+# the blob at their own pinned revision. An earlier version left them out on the
+# reasoning that nothing about HEAD can move a pinned citation, so the rows
+# could not change. That is true and beside the point: what moves is the PIN.
+# Re-pinning `oracle.cpp@3241bbab:6584` to a revision whose file merely happens
+# to be long enough was measured to pass in silence -- in bounds, so no
+# `unreadable-historical`, and outside the baseline, so no demotion either. The
+# rows are what make a re-pin fail. Both halves were measured: re-pinning that
+# citation retires its key and arrives undeclared (1 + 1 failures), and editing
+# the quotation out of the citing sentence while leaving the pin alone demotes
+# it content-verified -> bounds-only (1 failure).
 SPAN_VERIFIED = "span-verified"
 CONTENT_VERIFIED = "content-verified"
 BOUNDS_ONLY = "bounds-only"
@@ -1155,6 +1161,16 @@ def main():
             blob_cache[(resolved, rev)] = blob_at(root, rev, rel)
         return blob_cache[(resolved, rev)]
 
+    hist_span_cache = {}
+
+    def historical_spans(resolved, rev, hist_lines):
+        if (resolved, rev) not in hist_span_cache:
+            hist_span_cache[(resolved, rev)] = symbol_spans(
+                "\n".join(hist_lines),
+                allow_decls=resolved.endswith((".hpp", ".h", ".hh")),
+            )
+        return hist_span_cache[(resolved, rev)]
+
     exemptions = load_exemptions()
     total = 0
     historical = 0
@@ -1180,6 +1196,98 @@ def main():
     span_mismatch = []
     unresolved = {}
     exempted = 0
+
+    def classify_citation(
+        doc, doc_lines, line, line_no, start, end, window_floor, resolved, spec, token,
+        file_lines, spans, parts
+    ):
+        """Put one in-bounds citation on the span / content / bounds ladder.
+
+        One classifier, two callers: a live `path:NNN` runs it against HEAD's
+        file, a historical `path@rev:NNN` against the blob at its own pinned
+        revision. Copying the ladder for the second caller was the alternative,
+        and a copy is what lets the two drift into different dialects of
+        "verified" -- the divergence this whole family of scripts reports on.
+
+        Returns a `span_mismatch` tuple for the caller to record, or `None`
+        when the citation was classified (and already recorded)."""
+        nonlocal anchor_verified, content_verified, bounds_only
+
+        anchors = find_anchors(line, start, end, spans, window_floor)
+        # A comma list enumerates SITES, not a span: the four lines of
+        # `collision_env_hybrid.cpp:49,61,69,169` are three
+        # constructor base-init calls plus one `setWorld` call, and
+        # the name they are all paired with is what they are about.
+        # There is no containment claim to check, so these are
+        # bounds-checked only -- which is what caught
+        # `world.cpp:220,326,650,655` anyway.
+        if not anchors and len(parts) == 1 and parts[0][0] != parts[0][1]:
+            # No symbol anchor, but the SENTENCE asserts the range is a
+            # whole definition. That is a containment claim stated in
+            # words instead of in a name, and it needs no anchor to be
+            # checkable: the range must equal a real span.
+            lo, hi = parts[0]
+            if span_assertion(line, start, end, window_floor):
+                every_span = {(s, e) for v in spans.values() for (s, e, _k) in v}
+                legal = contiguous_run_end(
+                    [(s, e, "") for (s, e) in every_span if s == lo],
+                    lo,
+                    file_lines,
+                    sorted(every_span),
+                )
+                if (lo, hi) not in every_span and hi not in (legal or []):
+                    return (
+                        doc,
+                        line_no,
+                        resolved,
+                        spec,
+                        ["<text asserts a whole definition>"],
+                        [
+                            f"{lo}-{hi}: the text calls this range a whole "
+                            f"definition, but no definition in the file spans "
+                            + (
+                                f"{lo}-{hi} (one starting at {lo} ends at "
+                                f"{'/'.join(map(str, legal[:3]))})"
+                                if legal
+                                else f"{lo}-{hi}, and none starts at {lo}"
+                            )
+                        ],
+                        [(lo, e, "") for e in (legal or [])],
+                    )
+                anchor_verified += 1
+                classify(doc, token, SPAN_VERIFIED)
+                return None
+        if not anchors or len(parts) > 1:
+            # No symbol to check containment against -- but the sentence
+            # may already quote the code, which is a claim about the
+            # cited lines that needs no anchor and no rewrite.
+            if content_anchor(
+                quotations_near(citing_context(doc_lines, line_no - 1)),
+                file_lines,
+                parts,
+            ):
+                content_verified += 1
+                classify(doc, token, CONTENT_VERIFIED)
+                return None
+            bounds_only += 1
+            classify(doc, token, BOUNDS_ONLY)
+            bounds_only_why[
+                why_bounds_only(line, start, end, spans, window_floor, parts, anchors)
+            ] += 1
+            return None
+        span_list = all_spans(spans, anchors)
+        every_span = {(s, e) for v in spans.values() for (s, e, _k) in v}
+        reasons = [
+            f"{lo}-{hi}: {r}" if lo != hi else f"{lo}: {r}"
+            for lo, hi in parts
+            if (r := part_verdict(lo, hi, span_list, file_lines, anchors, every_span))
+            is not None
+        ]
+        if reasons:
+            return (doc, line_no, resolved, spec, anchors, reasons, span_list)
+        anchor_verified += 1
+        classify(doc, token, SPAN_VERIFIED)
+        return None
 
     corpus = [p for p in tracked_files() if p.endswith((".md", ".rs"))]
     for doc in corpus:
@@ -1222,8 +1330,26 @@ def main():
                         historical_bad.append(
                             (doc, line_no, resolved, rev, g["hspec"], len(hist_lines))
                         )
-                    else:
-                        historical += 1
+                        continue
+                    # Bounds at the pinned revision is the weakest thing that
+                    # could be said about a citation, and it is the thing this
+                    # script exists to stop calling verification: re-pin a
+                    # citation to any revision whose file is merely long enough
+                    # and an in-bounds number reads as checked. So a historical
+                    # citation goes on the same ladder as a live one, computed
+                    # against its own revision, and lands in the class baseline
+                    # -- where a re-pin retires the old key and a re-pin that
+                    # loses the quotation demotes the class. Both are failures.
+                    historical += 1
+                    total += 1
+                    mismatch = classify_citation(
+                        doc, doc_lines, line, line_no, start, end, window_floor,
+                        f"{resolved}@{rev}", g["hspec"], m.group(0), hist_lines,
+                        historical_spans(resolved, rev, hist_lines),
+                        parse_parts(g["hspec"]),
+                    )
+                    if mismatch is not None:
+                        span_mismatch.append(mismatch)
                     continue
                 if g["rs"] is not None:
                     base = None
@@ -1282,85 +1408,12 @@ def main():
                     out_of_bounds.append((doc, line_no, resolved, spec, n_lines))
                     continue
 
-                spans = spans_of(resolved)
-                anchors = find_anchors(line, start, end, spans, window_floor)
-                # A comma list enumerates SITES, not a span: the four lines of
-                # `collision_env_hybrid.cpp:49,61,69,169` are three
-                # constructor base-init calls plus one `setWorld` call, and
-                # the name they are all paired with is what they are about.
-                # There is no containment claim to check, so these are
-                # bounds-checked only -- which is what caught
-                # `world.cpp:220,326,650,655` anyway.
-                if not anchors and len(parts) == 1 and parts[0][0] != parts[0][1]:
-                    # No symbol anchor, but the SENTENCE asserts the range is a
-                    # whole definition. That is a containment claim stated in
-                    # words instead of in a name, and it needs no anchor to be
-                    # checkable: the range must equal a real span.
-                    lo, hi = parts[0]
-                    if span_assertion(line, start, end, window_floor):
-                        every_span = {(s, e) for v in spans.values() for (s, e, _k) in v}
-                        legal = contiguous_run_end(
-                            [(s, e, "") for (s, e) in every_span if s == lo],
-                            lo,
-                            file_lines,
-                            sorted(every_span),
-                        )
-                        if (lo, hi) not in every_span and hi not in (legal or []):
-                            span_mismatch.append(
-                                (
-                                    doc,
-                                    line_no,
-                                    resolved,
-                                    spec,
-                                    ["<text asserts a whole definition>"],
-                                    [
-                                        f"{lo}-{hi}: the text calls this range a whole "
-                                        f"definition, but no definition in the file spans "
-                                        + (
-                                            f"{lo}-{hi} (one starting at {lo} ends at "
-                                            f"{'/'.join(map(str, legal[:3]))})"
-                                            if legal
-                                            else f"{lo}-{hi}, and none starts at {lo}"
-                                        )
-                                    ],
-                                    [(lo, e, "") for e in (legal or [])],
-                                )
-                            )
-                            continue
-                        anchor_verified += 1
-                        classify(doc, m.group(0), SPAN_VERIFIED)
-                        continue
-                if not anchors or len(parts) > 1:
-                    # No symbol to check containment against -- but the sentence
-                    # may already quote the code, which is a claim about the
-                    # cited lines that needs no anchor and no rewrite.
-                    if content_anchor(
-                        quotations_near(citing_context(doc_lines, line_no - 1)),
-                        file_lines,
-                        parts,
-                    ):
-                        content_verified += 1
-                        classify(doc, m.group(0), CONTENT_VERIFIED)
-                        continue
-                    bounds_only += 1
-                    classify(doc, m.group(0), BOUNDS_ONLY)
-                    bounds_only_why[
-                        why_bounds_only(line, start, end, spans, window_floor, parts, anchors)
-                    ] += 1
-                    continue
-                span_list = all_spans(spans, anchors)
-                every_span = {(s, e) for v in spans.values() for (s, e, _k) in v}
-                reasons = [
-                    f"{lo}-{hi}: {r}" if lo != hi else f"{lo}: {r}"
-                    for lo, hi in parts
-                    if (r := part_verdict(lo, hi, span_list, file_lines, anchors, every_span))
-                    is not None
-                ]
-                if reasons:
-                    span_mismatch.append((doc, line_no, resolved, spec, anchors, reasons, span_list))
-                else:
-                    anchor_verified += 1
-                    classify(doc, m.group(0), SPAN_VERIFIED)
+                mismatch = classify_citation(
+                    doc, doc_lines, line, line_no, start, end, window_floor,
+                    resolved, spec, m.group(0), file_lines, spans_of(resolved), parts
+                )
+                if mismatch is not None:
+                    span_mismatch.append(mismatch)
 
     if total == 0:
         print(
@@ -1657,8 +1710,9 @@ def main():
         f"distinct unresolvable paths all declared in "
         f"{EXEMPTIONS_PATH.name} (reported above, and unverified -- a "
         f"declaration says no tree covers them, not that they are right), "
-        f"{historical} historical `path@rev:NNN` citation(s) bounds-checked "
-        f"against their own pinned revision instead of against HEAD, "
+        f"{historical} of the total are historical `path@rev:NNN` citation(s), "
+        f"put on the same ladder against their own pinned revision instead of "
+        f"against HEAD, "
         f"0 out-of-bounds, 0 obsolete-header, 0 span-mismatch"
     )
     return 0

@@ -30871,6 +30871,12 @@ obsolete-header 0, span-mismatch 0, stale-declaration 0,
 unreadable-historical 0, demoted 0 / recounted 0 / undeclared 0 / retired 0.
 `--write-classes`가 기준선을 다시 쓴다.
 
+저 여섯 숫자는 §NEW.9 이전의 트리에서 잰 것이다. §NEW.9가 역사 인용을 총계와
+사다리에 넣었고 §NEW.9 자신의 인용까지 더해져, 이 절이 커밋되는 트리의 통과
+줄은 인용 2623건, span-verified 202, content-verified 1280, bounds-only 1141,
+그중 역사 39건이다. 맨 needle 연속 469, unresolvable 60은 그대로이고 나머지
+실패 범주도 전부 0으로 같다.
+
 `tools/ci/check-citation-drift.py`의 기준선(`doc/citation-classes.txt`)은
 이 절이 다시 얼리지 않았다. 델타는 이 절의 보고에 적었다.
 
@@ -30910,3 +30916,31 @@ in-repo `.md` 문서 자신의 줄이다. 남는 2110건은 지시 대상이
 §244.2의 3건은 `robot_state.cpp`, §271.3의 12건은 OMPL `NearestNeighbors.hpp`,
 §232.2의 5건은 이 저장소의 parity 테스트 파일이다.
 
+**그리고 못박은 다음이 진짜 문제였다.** 역사 인용은 그 리비전에서 *범위만*
+검사됐다. `oracle.cpp@3241bbab:6584`를 `@f1d4ea22`로 바꿔 달아 봤다 — 7145줄
+파일이라 6584는 범위 안이고, 그 줄은
+`position_constraint.constraint_region.primitive_poses.push_back(...)`으로 인용
+문장과 아무 관계가 없다. 게이트는 **통과했다**. bounds-only가 침묵이라는 이
+절의 논지가 역사 클래스 안에서 그대로 재현된 것이다.
+
+그래서 사다리를 하나로 만들었다. `measure-upstream-citations.py`의 분류 블록을
+`classify_citation`으로 뽑아 살아 있는 인용은 HEAD의 파일에, 역사 인용은
+자기 리비전의 blob에 대해 **같은 함수**가 돌게 했다(복사했으면 두 방언이
+갈라졌을 것이고, 그 갈라짐이 이 스크립트 가족이 보고하는 결함이다). 역사 인용도
+클래스 기준선에 들어간다. 기존 19건 중 span-mismatch는 0이다.
+
+세 변이로 확인했다:
+
+| 변이 | 결과 |
+|---|---|
+| `@3241bbab:6584` → `@f1d4ea22:6584` (범위 안, 무관한 줄) | 이전: 통과. 지금: **recounted 1 + undeclared 1** |
+| `@3241bbab:6584` → `@7b677164:6584` (5692줄 파일, 범위 밖) | `unreadable-historical` 1 — "cites ... `@7b677164:6584`, but that file had only 5692 lines at 7b677164" |
+| 인용 문장의 `` `ik_rng_(ik_rng_seed)` ``만 지움, 못은 그대로 | **demoted 1** — `@3241bbab:858-859` content-verified → bounds-only |
+
+세 변이 전부 편집으로 되돌렸고, 되돌린 뒤 트리는 깨끗하다. 가운데 것은 새 규칙
+이전에도 잡혔다 — 범위 검사는 원래 있었다. 첫째와 셋째가 새로 생긴 것이다.
+
+첫째 줄은 처음에 `retired 1`로 쟀다. 이 절이 같은 인용을 본문에서 두 번 더
+언급하는 바람에 키가 은퇴하지 않고 3x → 2x로 다시 세어져 `recounted`가 됐다 —
+실패 범주만 바뀌고 하드 실패인 것은 같다. 이 절 자신이 코퍼스의 일부라는
+사실이 이 절의 숫자를 바꾼 두 번째 사례다(첫째는 §NEW.8).
