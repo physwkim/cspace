@@ -36,8 +36,36 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 require_caller_tree "$REPO_ROOT"
 cd "$REPO_ROOT"
 
+# An absent source is survivable for a run that CHECKS the baseline -- its
+# citations stay in the unresolvable list, which is a declared gap. It is not
+# survivable for a run that WRITES the baseline: the freeze records what this
+# run could resolve, so every citation whose source was missing is retired from
+# the corpus, and `--write-classes` reports `0 demoted` because nothing was
+# demoted -- the rows are simply gone. That happened once here: a freeze run
+# without `third_party/` deleted 100 rows (2733 -> 2631) and read as clean.
+# Both facts -- which sources are present, and whether the caller asked for a
+# freeze -- are known only here, so this is the only place the two can be
+# checked against each other.
+freeze=0
+for arg in "$@"; do
+  if [[ "$arg" == "--write-classes" ]]; then
+    freeze=1
+  fi
+done
+
+refuse_freeze() {
+  echo "FAIL $1 is absent and --write-classes was asked for." >&2
+  echo "FAIL a freeze taken without it silently retires every citation it could" >&2
+  echo "FAIL not resolve and still reports 0 demoted; the baseline then stops" >&2
+  echo "FAIL checking them. Make the source present, then re-freeze." >&2
+  exit 1
+}
+
 MOVEIT2_SRC="${MOVEIT2_SRC:-$HOME/work/moveit2}"
 if [[ ! -d "$MOVEIT2_SRC" ]]; then
+  if (( freeze )); then
+    refuse_freeze "$MOVEIT2_SRC"
+  fi
   echo "SKIP $MOVEIT2_SRC not present -- no upstream citation was resolved."
   echo "SKIP this is not a pass; clone https://github.com/moveit/moveit2 there to cover them."
   exit 0
@@ -63,7 +91,8 @@ fi
 # and `verify-fixture-provenance.sh` depend on, and the same asymmetry as
 # `$MOVEIT2_SRC` above: an absent checkout SKIPs loudly and leaves its
 # citations in the unresolvable list the script already prints, a checkout at
-# the WRONG revision is a hard failure. `third_party/moveit_msgs` and
+# the WRONG revision is a hard failure, and an absent checkout under
+# `--write-classes` is a hard failure too. `third_party/moveit_msgs` and
 # `third_party/moveit_resources` are deliberately not here: no tracked
 # document records a revision for either, so there is nothing to check a
 # checkout against, and neither is cited with a line number.
@@ -86,6 +115,9 @@ for pkg in "${!THIRD_PARTY_PINS[@]}"; do
   dir="$THIRD_PARTY_SRC/$pkg"
   pin="${THIRD_PARTY_PINS[$pkg]}"
   if [[ ! -d "$dir" ]]; then
+    if (( freeze )); then
+      refuse_freeze "$dir"
+    fi
     echo "SKIP $dir not present -- its citations stay in the unresolvable list below."
     echo "SKIP this is not a pass; clone it there at $pin to cover them."
     continue
