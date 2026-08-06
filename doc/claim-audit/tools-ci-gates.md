@@ -429,6 +429,9 @@ of its parents carried. Not HEAD against its parents: CI runs once per push,
 at the tip, so a removal in any earlier commit of that push is invisible to a
 one-step rule -- and `8f9db1f` was exactly such a commit.
 
+This layer is about commits only, and says nothing whatever about an
+uncommitted tree; the subsection after next is the half that does.
+
 A deliberate removal says so in a commit message:
 
 ```
@@ -454,11 +457,68 @@ cost 2.5 s: 2392 commits over 2833 parent edges, 418 distinct revisions of the
 plan, each parsed once from a single `git grep '^[#`]'` (2.1 s against 8.9 s
 for decoding and splitting the blobs, verified identical on all 418).
 
+### The second layer: the working tree, which no commit covers
+
+The rule above is about commits, and that is not the state the §250 loss was
+ever reviewable in. `git merge` stops with a conflict, leaves the resolution
+in the working tree, and makes no commit; the gates get run there, on a tree
+that has already lost the section, and a commit-versus-parent rule has nothing
+to compare. `59cc402` closes that by applying the same rule once more, HEAD's
+section set against the file this script already read. Re-derived here rather
+than taken from that commit's message:
+
+```
+# synthetic: drop one section, do not commit it
+python3 - <<'EOF'
+import pathlib
+p = pathlib.Path("PORTING-PLAN.md"); l = p.read_text(encoding="utf-8").split("\n")
+a = next(i for i, t in enumerate(l) if t.startswith("## §253 "))
+b = next(i for i, t in enumerate(l) if i > a and t.startswith("## "))
+p.write_text("\n".join(l[:a] + l[b:]), encoding="utf-8")
+EOF
+git show 03e6390:tools/ci/check-porting-plan-sections.sh > /tmp/pre.sh   # the gate before 59cc402
+```
+
+| tree state | gate before `59cc402` | gate at `59cc402` |
+|---|---|---|
+| §253 (interior) dropped, uncommitted | **OK**, `254 top-level sections` silently printed as `253`, headings `1137` as `1132` | FAIL, one line, naming §253 and HEAD |
+| §254 (today's highest) dropped, uncommitted | **OK**, headings printed as `1130` | FAIL, one line |
+| the same §253 drop committed | FAIL (the history walk) | FAIL |
+| committed with `Plan-section-removed: 253 from <parent>` | — | OK, both layers clear |
+
+The OK lines are the point: the counts they print are what a later round quotes
+as evidence of coverage, and they moved without anything saying so.
+
+The historical merge replayed in that same state is sharper than the synthetic
+drop, and corrects an easy overstatement — the old gate did not pass on it, it
+just said nothing about §250:
+
+```
+git checkout -b tmp-replay 10a9c13 && git merge --no-commit --no-ff 8f9db1f
+git status --porcelain PORTING-PLAN.md          # -> UU PORTING-PLAN.md, no commit
+rg -c '^## §250 ' PORTING-PLAN.md               # -> 0 in the tree
+git show HEAD:PORTING-PLAN.md | rg -c '^## §250 '   # -> 1 at HEAD
+```
+
+Four conflict markers, the whole of §250's heading outside them. The old gate
+reported six failures there and every one of them was about the branch's own
+unnumbered placeholders; the loss of §250 produced no line. The new layer adds
+exactly one, naming §250 and telling the reader to check the whole file rather
+than the conflict block.
+
+No declaration can excuse this layer: a trailer names a parent sha, and an
+uncommitted removal has no commit to carry one. That is not a gap -- committing
+the removal with its declaration satisfies the history walk *and* makes the
+tree equal HEAD, so the set difference is empty. The two layers close on the
+one action.
+
 ### Mutations
 
 | mutation | result |
 |---|---|
 | §250 deleted wholesale in a commit | FAIL, naming §250 and the parent, one line |
+| §253 or §254 deleted in the working tree only | FAIL, one line, exclusive — OK before `59cc402` |
+| the real `10a9c13` × `8f9db1f` merge, left unresolved in the working tree | FAIL naming §250, on top of the six placeholder failures the old gate already gave |
 | the same tree, with only the deletion guard neutralised | OK — nothing else in the script catches it |
 | the same tree, removal declared against that parent | OK |
 | a declaration for a removal that never happened | FAIL, "the declaration outlived what it permitted" |
