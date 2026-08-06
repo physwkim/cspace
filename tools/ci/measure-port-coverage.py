@@ -200,6 +200,56 @@ def cited_paths(repo: str, corpus: list[str]) -> dict[str, list[str]]:
     return cites
 
 
+# Matches one line of this script's own default output as it is transcribed
+# into a ```console``` block: the figure's name, whitespace, the number, end
+# of line.  Anchored at both ends on purpose -- prose that happens to contain
+# the word must not be read as a transcription, and a trailing comment would
+# make the value ambiguous.
+FIGURE_LINE = re.compile(r"^([a-z][a-z-]*)[ \t]+(\d+)[ \t]*$", re.M)
+
+
+def check_transcribed_figures(doc: str, doc_path: str, live: dict[str, int]) -> list[str]:
+    """Reconcile a doc's transcribed console figures against the live ones.
+
+    `--check` reconciled the unported TABLE and nothing else, so the four
+    numbers the doc prints above that table were outside every gate.  They
+    drifted: `cited-outside-corpus` sat at 20 while the tree measured 24, and
+    the prose figure for the distinct cited paths sat at 166 against a live
+    183.  Both were transcribed correctly when written, which is exactly why
+    nobody re-read them.
+
+    ABSENCE IS A FAILURE, not a skip.  A missing figure is indistinguishable
+    from a checked one if the rule only compares what it finds, so deleting
+    the line would silence the check -- the same shape as a gate whose parser
+    stops matching and reports OK.  Every name in `live` must appear at least
+    once, and EVERY occurrence must agree, because a doc that prints a figure
+    twice is asserting it twice.
+    """
+    failures = []
+    seen: dict[str, list[tuple[int, int]]] = {name: [] for name in live}
+    for m in FIGURE_LINE.finditer(doc):
+        name = m.group(1)
+        if name not in live:
+            continue
+        line_no = doc.count("\n", 0, m.start()) + 1
+        seen[name].append((line_no, int(m.group(2))))
+    for name, want in live.items():
+        if not seen[name]:
+            failures.append(
+                f"{doc_path}: figure `{name}` is not transcribed anywhere -- "
+                f"this gate cannot check a number the document does not carry "
+                f"(live value {want})"
+            )
+            continue
+        for line_no, got in seen[name]:
+            if got != want:
+                failures.append(
+                    f"{doc_path}:{line_no}: `{name}` transcribed as {got}, "
+                    f"measured {want}"
+                )
+    return failures
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--upstream", default=DEFAULT_UPSTREAM)
@@ -226,6 +276,11 @@ def main() -> int:
     print(f"ported   {len(ported)}")
     print(f"unported {len(unported)}")
     print(f"cited-outside-corpus {len(outside)}")
+    # Printed so `--check` can hold it: doc/port-coverage.md 2 carried this
+    # count in prose ("인용된 서로 다른 상류 경로 166개"), where no gate could
+    # reach it, and it drifted to 183 unobserved.  A figure a document asserts
+    # belongs in the tool's output, not only in its own sentence.
+    print(f"distinct-cited-paths {len(cites)}")
 
     if args.list_ported:
         print("\n--- ported ---")
@@ -274,16 +329,30 @@ def main() -> int:
             print(f"DUPLICATE ROW  {f} ({listed.count(f)} rows)", file=sys.stderr)
         for lineno, why in malformed:
             print(f"MALFORMED ROW  {args.check}:{lineno}: {why}", file=sys.stderr)
-        if missing or extra or duplicated or malformed:
+        figure_failures = check_transcribed_figures(
+            doc,
+            args.check,
+            {
+                "corpus": len(corpus),
+                "ported": len(ported),
+                "unported": len(unported),
+                "cited-outside-corpus": len(outside),
+                "distinct-cited-paths": len(cites),
+            },
+        )
+        for why in figure_failures:
+            print(f"FIGURE  {why}", file=sys.stderr)
+        if missing or extra or duplicated or malformed or figure_failures:
             print(
                 f"FAIL {args.check}: {len(missing)} missing, {len(extra)} stale, "
-                f"{len(duplicated)} duplicated, {len(malformed)} malformed",
+                f"{len(duplicated)} duplicated, {len(malformed)} malformed, "
+                f"{len(figure_failures)} figure",
                 file=sys.stderr,
             )
             return 1
         print(
             f"OK {args.check}: {len(listed)} rows == {len(unported)} unported, "
-            f"all {DOC_ROW_CELLS}-cell"
+            f"all {DOC_ROW_CELLS}-cell; 5 transcribed figures match"
         )
 
     return 0

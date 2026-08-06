@@ -51,8 +51,14 @@ $ ./tools/ci/measure-port-coverage.py
 corpus   245
 ported   159
 unported 86
-cited-outside-corpus 20
+cited-outside-corpus 24
+distinct-cited-paths 183
 ```
+
+이 다섯 줄은 이제 `--check`가 실측과 대조한다. 그 전까지 `--check`가 재는
+것은 아래 미포팅 표뿐이었고, 표 위의 이 숫자들은 어느 게이트에도 닿지
+않았다 — `cited-outside-corpus`는 20에 멈춘 채 트리가 24가 되었다. 한 줄을
+지워서 검사를 피할 수 없도록, 다섯 이름 중 하나라도 문서에 없으면 실패다.
 
 두 계기가 245에 독립적으로 도달한다. 셸 파이프라인 쪽(다섯 루트를 `$R`):
 
@@ -71,9 +77,11 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 `moveit_kinematics/ikfast_kinematics_plugin/templates/ikfast.h`다.
 두 목록을 정렬해 `diff`한 결과는 동일(차이 0줄)이다.
 
-`cited-outside-corpus` 20건은 `moveit_ros/*`·`moveit_core`의 제외
+`cited-outside-corpus` 24건은 `moveit_ros/*`·`moveit_core`의 제외
 서브디렉터리처럼 코퍼스 밖 상류 파일을 인용한 헤더 블록이다. 인용된 서로
-다른 상류 경로 166개는 전부 기준 체크아웃에 실제로 존재한다(파싱 쓰레기 0).
+다른 상류 경로 183개(`distinct-cited-paths`)는 전부 기준 체크아웃에 실제로
+존재한다(파싱 쓰레기 0). 이 두 수는 산문에만 있던 동안 각각 20과 166에서
+멈춰 있었고, 그래서 지금은 계기의 출력 줄로 옮겨 `--check`가 든다.
 
 ## 3. 분류 규칙
 
