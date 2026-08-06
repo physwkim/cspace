@@ -60,7 +60,11 @@ required to be unique:
 
   ROWS    | 계측기 | 절 | 증거 | 행 출처 | 비고 |
     One row per (untracked-output instrument, publishing section). 절 must
-    resolve to a heading. 증거 is a tracked, existing path or `없음`. 행 출처
+    resolve to a heading. 증거 is `없음`, or a comma-separated list of tracked,
+    existing paths -- a list because one section's figures can need two
+    producers' output at once (§269.4's four-way split takes the port arm from
+    `doc/phase8-condition2-stomp/` and the cpp arm from
+    `doc/phase8-seedbase-stomp/`), and every path in the list is checked. 행 출처
     is `자동` (this gate derived the pair: that section's text names that
     instrument) or `수동` (a human recorded it: the section publishes the
     instrument's numbers without naming it). 비고 must be non-empty.
@@ -469,8 +473,11 @@ def run(doc, root, want_derived):
                 f"got {origin_c!r}"
             )
         if ev_c != NONE_TOKEN:
-            ev = only_code(ev_c, "증거", where)
-            check_evidence_path(root, ev, tracked, "증거", where)
+            # A section's figures can need two producers' output at once --
+            # §269.4's four-way split is one arm from each directory -- so this
+            # is a list like 산출물, and every path in it is checked.
+            for ev in code_list(ev_c, "증거", where):
+                check_evidence_path(root, ev, tracked, "증거", where)
             retained += 1
 
     derived = derive_pairs(lines, marks, untracked, excluded)

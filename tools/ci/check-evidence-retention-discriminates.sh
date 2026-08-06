@@ -12,8 +12,8 @@
 #
 # # What each rule is worth, measured
 #
-# Every line below was produced by breaking exactly one of the gate's 24 rules,
-# running this script's 29 scenarios, and reading which scenario names appeared.
+# Every line below was produced by breaking exactly one of the gate's 26 rules,
+# running this script's 31 scenarios, and reading which scenario names appeared.
 # It is a measurement, not a reading of the code. Six results are not what
 # reading it predicts, and they are marked.
 #
@@ -31,6 +31,9 @@
 #   evidence path tracked check               untracked_evidence AND
 #                                             deleted_evidence_dir  (*)
 #   evidence path worktree-exists check       deleted_evidence
+#   증거 is a list, not one token              two_evidence_paths AND
+#                                             second_evidence_path_bad  (*)
+#   every 증거 path checked, not just [0]      second_evidence_path_bad
 #   artifact-named-in-its-own-script check    unclaimed_artifact
 #   부류/산출물 agreement, 없음 direction     class_disagrees
 #   부류/산출물 agreement, path direction     class_disagrees_path
@@ -49,8 +52,13 @@
 #   empty instrument family floor             empty_family
 #   empty git ls-files floor                  empty_index  (*)
 #
-# (*) the six that reading the code gets wrong:
+# (*) the seven that reading the code gets wrong:
 #
+#   - Reverting 증거 to a single token reddens `second_evidence_path_bad` too,
+#     and on the WRONG message: the row never reaches `check_evidence_path`,
+#     it dies on "must be exactly one token". So the two list scenarios do not
+#     pin two independent rules under that neutralization -- only the [0]-slice
+#     neutralization isolates the per-path loop, and it reddens exactly one.
 #   - The undeclared check is one rule with two shapes. Dropping it reddens both
 #     the prose mention and the fenced one; they are not separate rules, and a
 #     fixture set with only the prose one would leave the fence claim unproven.
@@ -313,6 +321,23 @@ d="$(new deleted_evidence)"
 sed -i 's#| `doc/evidence/` |#| `doc/other-run.ndjson` |#' "$d/PLAN.md"
 rm "$d/doc/other-run.ndjson"
 expect_fail deleted_evidence "$d" "is tracked but missing from the worktree"
+
+# --- two evidence paths in one cell, both good --------------------------------
+# isolates: that 증거 is a list, not a single token. One section's figures can
+# need two producers' output at once, and before this was a list the real
+# PORTING-PLAN.md's §269.4 row could not be written at all.
+d="$(new two_evidence_paths)"
+sed -i 's#| `doc/evidence/` |#| `doc/evidence/`, `doc/other-run.ndjson` |#' "$d/PLAN.md"
+expect_ok two_evidence_paths "$d"
+
+# --- two evidence paths, the second one bad ----------------------------------
+# isolates: that EVERY path in the list is checked, not just the first. A list
+# whose head resolves would otherwise vouch for whatever follows it.
+d="$(new second_evidence_path_bad)"
+mkdir -p "$d/doc/scratch"
+printf '{"id": 0}\n' > "$d/doc/scratch/run.ndjson"
+sed -i 's#| `doc/evidence/` |#| `doc/evidence/`, `doc/scratch/run.ndjson` |#' "$d/PLAN.md"
+expect_fail second_evidence_path_bad "$d" "is not a tracked file and no tracked file lives under it"
 
 # --- an evidence directory that is gone --------------------------------------
 # isolates: the third branch of the same helper. A directory pointer resolves
