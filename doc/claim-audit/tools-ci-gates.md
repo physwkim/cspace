@@ -592,10 +592,15 @@ merges. All eight are renumbering, not loss, and each was checked by content
 rather than by number: `24.5` is today's `§36.5` ("남는 것"), `31.4` is
 `§35.4` ("게이트"), `174.1` is `§176.1` ("경계"), and the three separate
 branches that each numbered a subsection `226.5` have theirs at `§227.5`,
-`§228.5` and `§238.5`. So extending the rule one level down would fire on
+`§228.5` and `§238.5`. So extending *that* rule one level down would fire on
 renumbering -- a routine merge operation, eight times in this history -- and
-would need a second declaration for it. Not built here; a silent removal at
-sub-section granularity is currently detected by nothing.
+would need a second declaration for it.
+
+Closed since, from the other direction. `tools/ci/check-document-sections.sh`
+covers every depth in every tracked document, and it does not need a second
+declaration for renumbering because it never treats a renumber as a removal:
+a section whose body survives in a section the same commit added is a rename,
+whatever its heading or number now says. See the closing subsection below.
 
 ### Does the same family reach the other append-only documents?
 
@@ -711,5 +716,53 @@ So: the family reaches 62 of the 68 documents, one of them
 (`doc/upstream-bugs.md`) has a key stable enough for the two layers today and a
 measured zero false-positive rate over its whole history, and the rest need a
 stable per-block identity before any such rule can be written -- a slug, or a
-number, or anything but the prose of the heading. Neither the rule for
-`doc/upstream-bugs.md` nor a key for the other 61 is built here.
+number, or anything but the prose of the heading.
+
+#### What closed it: the key comes from structure, and the noise came from stale parents
+
+`tools/ci/check-document-sections.sh`. Two answers, one to each half of the
+problem above.
+
+The key is never prose when the document offers anything better: a leading
+number (`## 12.`, `## §141`, `### §250.2`) first, then a leading backticked
+slug -- which is exactly `doc/upstream-bugs.md`'s stable key, picked up by the
+same rule rather than by a per-document case -- and heading text only when
+neither exists, where the body test carries it alone. That is what the table
+above says is needed, derived from the document's own structure instead of
+listed per document.
+
+The other half was not visible from that table. Replaying five candidate
+shapes over all 2590 commits, against every parent of every commit:
+
+| shape | fires | verdict |
+|---|---|---|
+| positional deletion hunks >= 20 lines | 99 runs / 64 merges | a reordered Index table reads as a 59-line loss |
+| content in a parent and nowhere in the child, >= 20 lines | 77 runs / 46 merges | a stale branch tip reads as a loss |
+| the three-way form of that, >= 30 lines | 36 runs / 28 merges | the incident's own shape, and still cannot separate a rewrite from a deletion |
+| heading text alone | 271 losses / 178 commits / 16 documents | renames |
+| heading text and body together | 167 / 119 commits | mostly one removal recharged to every later merge |
+| **structural key and body together** | 110 / 77 commits | the same rule, keyed on number or slug |
+| **and attributed only when every parent had it** | **18 / 16 commits** | shipped |
+
+The last row is the one that made it usable, and it is not a threshold: a
+removal is charged to a commit only when *every* parent that has the document
+still had the section. A merge whose other parent is an old tip is then not
+recharged for a deletion that already happened, and the commit that did the
+deleting is named instead -- which still reddens the gate at the merge, since
+that commit becomes reachable there. A resolution that drops a section neither
+parent dropped is the case where the merge itself is charged, by the same
+clause, with nothing special-cased.
+
+All 18 are real removals and all 18 are declared in that script's commit
+message, read against their own commits first. There is no baseline commit:
+a baseline is a one-line edit that silences every removal before it, where a
+declaration silences one.
+
+`tools/ci/check-document-sections-discriminates.sh` asserts the discrimination
+rather than leaving it to the gate's green line -- 19 scenarios in orphan
+repositories, including the two-sided merge itself. Every guard was
+neutralized against it in turn and all 13 neutralizations are caught; two take
+down a family rather than one scenario (turning off the rename test reddens
+both `prose_rename` and `renumber`; keying on prose reddens `number_key` and
+also the two scenarios whose declarations stop matching), which that script's
+header records.
