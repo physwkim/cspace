@@ -260,6 +260,37 @@ FN_DEF_RE = re.compile(
 FOLLOWING_ANCHOR_RE = re.compile(r"^\s*\(`([a-z][a-z0-9_]{3,})`\)")
 
 
+def citation_extent(line, match_end):
+    """Where one citation's territory ends: past its closing backtick, and
+    past the `` (`name`) `` pairing that belongs to it if it has one.
+
+    A tight pairing is owned by exactly one citation -- the one it follows.
+    The forward scan has said so since it was written (see the comment above
+    FOLLOWING_ANCHOR_RE: it stays adjacent so it cannot walk into the NEXT
+    citation's anchor); the backward window is the same rule from the other
+    side, and used to floor at the previous citation's closing backtick,
+    which is BEFORE that citation's pairing. So on
+
+        `` `orientation.rs:187-190` (`invalid_parameterization_is_rejected`),
+           `orientation.rs:217-219` (`degenerate_orientation_is_rejected`) ``
+
+    the second citation swept up the first's anchor and carried both.
+    Measured on the corpus at c178722: 5 citations carry a neighbour's
+    anchor that way, all in
+    `doc/assertion-discrimination-ledger-p9-ros.md:315,320,321`, and none
+    changes class today because each also has its own anchor and lands
+    inside it. It is a latent wrong answer in both directions -- a citation
+    whose own anchor drifted stays "anchor-verified" on the neighbour's
+    span, and a citation with NO anchor of its own is failed
+    anchor-mismatch against a function it never named. The second is not
+    hypothetical: it is what a 72-citation anchoring sample hit on
+    `doc/assertion-discrimination-ledger-p3-acm.md:1011`, where an anchor
+    added to `tree.rs:1944` landed inside `tree.rs:1972`'s backward window.
+    """
+    following = FOLLOWING_ANCHOR_RE.match(line[match_end:])
+    return match_end + (following.end() if following is not None else 0)
+
+
 def parse_cited_lines(match):
     """Every individual line number a citation's regex match covers: both
     ends of an `NNN-MMM` range, plus every comma-separated further line or
@@ -521,7 +552,7 @@ def _valid_idents(text, spans, require_test=False):
     return list(found)
 
 
-def find_tight_anchors(line, match_start, match_end, spans, prev_citation_end=0, is_range=False):
+def find_tight_anchors(line, match_start, match_end, spans, prev_citation_extent=0, is_range=False):
     """Every plausible name anchor for one citation -- a SET of candidates,
     not a single best guess, because this corpus has no one column that
     reliably holds "the" function a citation belongs to.
@@ -586,7 +617,8 @@ def find_tight_anchors(line, match_start, match_end, spans, prev_citation_end=0,
     1. Tight pairing -- `` (`name`) `` immediately after this citation
        (FOLLOWING_ANCHOR_RE), or the NEAREST valid name in a bounded
        trailing window (`LOCAL_WINDOW` chars, never crossing before
-       `prev_citation_end` -- see the comment at its call site).
+       `prev_citation_extent` -- the end of the previous citation TOGETHER
+       WITH its own pairing, see `citation_extent`).
 
        Adjacency alone is not always a containment claim, though: this
        corpus also pairs a production function's name tightly with a
@@ -633,7 +665,7 @@ def find_tight_anchors(line, match_start, match_end, spans, prev_citation_end=0,
         ):
             candidates.append(name)
 
-    window_start = max(prev_citation_end, match_start - LOCAL_WINDOW)
+    window_start = max(prev_citation_extent, match_start - LOCAL_WINDOW)
     window = line[window_start:match_start]
     for name in _valid_idents(window, spans, require_test=require_test):
         if name not in candidates:
@@ -842,16 +874,19 @@ def main(write_classes=False):
             ledger_tables[header] = ledger_tables.get(header, 0) + n
         ledger_rows_total += len(ledger_rows)
         for line_no, line in enumerate(lines, 1):
-            prev_citation_end = 0
+            prev_citation_extent = 0
             for m in CITATION_RE.finditer(line):
                 fname_part = m.group(1)
                 cited_lines = parse_cited_lines(m)
                 spec = m.group(0).strip("`")
-                # Captured before updating prev_citation_end for the NEXT
+                # Captured before updating prev_citation_extent for the NEXT
                 # iteration, so this citation's own anchor search still
                 # sees where the PREVIOUS citation ended, regardless of
                 # which `continue` below this one takes.
-                window_floor, prev_citation_end = prev_citation_end, m.end()
+                window_floor, prev_citation_extent = (
+                    prev_citation_extent,
+                    citation_extent(line, m.end()),
+                )
 
                 if EXTERNAL_PATH_RE.match(fname_part):
                     record(md, line_no, spec, EXEMPT, fname_part)
