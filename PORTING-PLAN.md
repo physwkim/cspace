@@ -18419,9 +18419,9 @@ seed·훅의 쓰기·채택된 해의 쓰기가 공통으로 인덱싱하는 유
 
 ### §220.7 아직 포팅하지 않은 것
 
-`RobotState::interpolate`와 `RobotState::distance`의 지역 사본은
-그대로 두었다. `setFromIK`은 둘 중 어느 것도 쓰지 않으므로, 진짜
-메서드를 포팅하는 것은 이번 작업을 닫는 일부가 아니다.
+- **`RobotState::interpolate`와 `RobotState::distance`의 지역 사본은
+  그대로 두었다.** `setFromIK`은 둘 중 어느 것도 쓰지 않으므로, 진짜
+  메서드를 포팅하는 것은 이번 작업을 닫는 일부가 아니다.
 
 ---
 
