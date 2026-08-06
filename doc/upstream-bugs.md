@@ -541,7 +541,7 @@ outside the inner `for` at `:192-205`, cross-checked against the checked-out
 `moveit2` source this round).
 **Status:** already not reproduced. `joint_acceleration_bounds` rejects a
 multi-variable active joint with a dedicated `Error` before it can reach
-this misalignment (`acceleration_filter.rs:153-159`, tested by
+this misalignment (`acceleration_filter.rs:153-159` (`joint_acceleration_bounds`), tested by
 `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins`,
 confirmed discriminating via live bite this round). The port's own doc
 comment (`acceleration_filter.rs:48-83`) already names this as "upstream's

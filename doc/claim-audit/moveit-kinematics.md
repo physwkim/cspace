@@ -15,7 +15,7 @@ grep-plus-read sweep rather than a full per-claim upstream re-derivation.
 
 ## Swept, no claim found needing verification
 
-`src/chain.rs:518`, `src/velocity.rs:95`, `src/lma.rs:4` — self-referential or
+`src/chain.rs:518` (`build_rejects_an_in_chain_mimic_whose_master_is_outside_the_group`), `src/velocity.rs:95`, `src/lma.rs:4` — self-referential or
 "see this method's own doc comment" pointers, not claims about a separate
 upstream code path's reachability.
 
