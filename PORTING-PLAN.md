@@ -24739,17 +24739,22 @@ MoveGroupInterface`(`move_group_interface.hpp:82`)인데 그 정규식이 `class
 
 ### §259.6 판정 — 아홉 중 (b) 하나, (c) 일곱, 요구 밖 하나
 
-이 트리(`a35bc2e`)가 여는 엔드포인트는 둘뿐이고 한 바이너리에 있다:
-`ros/moveit-ros/src/bin/plan_kinematic_path_server.rs:266`의
-`create_service::<GetMotionPlan::Service>("plan_kinematic_path")`와
-`:282`의 `create_action_server::<MoveGroup::Action>("move_action")`.
-트리 전체에서 `create_subscription`·`create_publisher`는 0건이다.
+이 절의 측정 시점 트리(`a35bc2e`)가 여는 엔드포인트는 둘뿐이었고 한
+바이너리에 있었다. 그 뒤 §255가 바이너리를 `move_group.rs`로 개명하고
+§257이 세 번째·네 번째 엔드포인트를 열었으므로, 아래 표의 근거 열은 이
+문단과 함께 현재 트리 기준으로 재유도한 것이다:
+`ros/moveit-ros/src/bin/move_group.rs:553`의
+`create_service::<GetMotionPlan::Service>("plan_kinematic_path")`,
+`:569`의 `create_action_server::<MoveGroup::Action>("move_action")`,
+`:604`의 `create_service::<GetStateValidity::Service>("check_state_validity")`,
+그리고 `:592`의 `subscribe::<PlanningScene>` (§257). `create_publisher`는
+여전히 0건이다. **(b)/(c) 판정 자체는 재측정하지 않았다 — §259.7 참조.**
 
 | 엔드포인트 | MGI 선언 | 판정 | 근거 | 주인 |
 |---|---|---|---|---|
-| `/move_action` | 4 + 생성자 2 | **(b)** 서버는 있고 변환에서 거부한다 | 서버 `ros/moveit-ros/src/bin/plan_kinematic_path_server.rs:282`; 골 핸들러가 `:188`에서 요청을 변환하고 첫 거부는 `ros/moveit-ros/src/planning.rs:166`(`start_state`), 그 답이 `:193`의 `INVALID_GOAL_CONSTRAINTS`; 변환이 통과해도 `:198`의 `FAILURE`+`NO_PLANNER` | 거부① p11-startstate, 거부② D8(§140.3) → p10-cachedik |
-| `/execute_trajectory` | 4 + 생성자 2 | **(c)** 서버 없음 | `create_action_server`는 트리 전체에서 `:282` 한 건 | — |
-| `/compute_cartesian_path` | 4 | **(c)** 서버 없음 | `create_service`는 트리 전체에서 `:266` 한 건 | — |
+| `/move_action` | 4 + 생성자 2 | **(b)** 서버는 있고 부를 플래너가 없다 | 서버 `ros/moveit-ros/src/bin/move_group.rs:569`; 골 핸들러가 `:267`에서 요청을 변환하고, 실패하면 `:272`의 `INVALID_GOAL_CONSTRAINTS`; 변환이 통과하면 `:277`의 `FAILURE`+`NO_PLANNER`. **거부①(`start_state`)은 §256이 닫았다** — `planning.rs:30-31`이 이제 "mapped, not rejected"라고 적고 있고, 무변경 C++ `MoveGroupInterface::plan()`의 답이 `val=-16`에서 `val=99999`로 옮겨진 것이 그 측정이다 | 거부① §256 완료, 거부② D8(§140.3) → p10-cachedik |
+| `/execute_trajectory` | 4 + 생성자 2 | **(c)** 서버 없음 | `create_action_server`는 트리 전체에서 `move_group.rs:569` 한 건 | — |
+| `/compute_cartesian_path` | 4 | **(c)** 서버 없음 | `create_service`는 `move_group.rs:553`(`plan_kinematic_path`)과 `:604`(`check_state_validity`) 둘뿐이고, 어느 쪽도 이 이름이 아니다 | — |
 | `/query_planner_interface` | 2 | **(c)** 서버 없음 | 같음 | — |
 | `/get_planner_params` | 1 | **(c)** 서버 없음 | 같음 | — |
 | `/set_planner_params` | 1 | **(c)** 서버 없음 | 같음 | — |
