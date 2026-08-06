@@ -26289,10 +26289,11 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
   모집단에 대해 `condition1`, `condition3-pooled`, `condition3-paired`,
   `no-regression-cpp-solved`를 다시 검사로 들고 있고, 기준선이 없을 때 그
   넷을 조용히 빼는 대신 빠졌다고 보고한다
-  (`tools/ci/measure-phase8-optimizer-properties.sh:1018-1022`). 이 라운드가
-  한 것은 계측기 복원까지이며, 그 위에서 낸 수치를 절로 적지는 않았다 — 그
-  수치를 담을 절은 아직 없다. 남는 잔여는 `cpp-endpoints` 하나이고, 그것은
-  논증이
+  (`tools/ci/measure-phase8-optimizer-properties.sh:1018-1022`). §295가 그
+  계측기를 선언된 `full` 모집단(플래너당 500문제)에서 돌려 그 수를 적었다:
+  `condition3` 열여섯 행은 전부 통과하고, `condition1`은 넷 중 셋에서
+  실패하며, `no-regression-cpp-solved`는 `full`에 핀이 없어 판정을 내지
+  않는다. 남는 잔여는 `cpp-endpoints` 하나이고, 그것은 논증이
   아니라 사실이다: `chompPlan`/`stompPlan`은 `path`를 내보내지 않으므로
   (경로를 내보내는 것은 `plan` op뿐 — `oracle.cpp:5870`) C++ 쪽에 끝점
   간극을 잴 대상 자체가 없다. 더하는 것은 오라클 소스 변경이고, digest
@@ -31991,3 +31992,285 @@ span을 지우고 판정하게 됐는데, 판정만 가린 사본에서 하고 *
 - **`## Gate scope` 다섯 절.** 커버리지 경계 선언이고 같은 계열이지만
   판정하지 않았다.
 - **§291의 어휘 후보 전수.** 20/486(또는 1588)만 봤다.
+
+---
+
+## §295 복원한 C++ 기준선을 선언된 500문제에서 잰다 — `condition1`은 넷 중 셋에서 실패하고, 그중 STOMP 두 개는 포트만 시계에 묶인 탓이라 기계와 분리되지 않는다 (2026-08-07)
+
+§264는 Phase 8의 속성 계측기를 만들면서 C++ 기준선이 필요한 항목들을 빼고
+사유를 §264.3에 적었다. 그중 하나("오라클에 CHOMP planning op가 없다")는
+§286이 `chomp_plan`/`stomp_plan`을 만들면서 거짓이 되었고, 앞선 라운드가
+`tools/ci/measure-phase8-optimizer-properties.sh`에 `condition1`,
+`condition3-pooled`, `condition3-paired`, `no-regression-cpp-solved`를 검사로
+되돌렸다. 되돌린 것까지가 그 라운드였고 수치는 절로 적히지 않았다. 이 절이
+그 수치다 — 그리고 재고 나서 나온 것은 통과/실패 표만이 아니다.
+
+### §295.1 모집단과 양쪽의 종료 조건
+
+수는 `tools/ci/measure-phase8-optimizer-properties.sh full` 한 번에서 나왔다.
+`full`은 구성당 125문제(`tools/ci/measure-phase8-optimizer-properties.sh:117`)
+이고 C++ 기준선이 붙는 구성은 넷(`panda floor_wall`, `panda cage`,
+`fanuc floor_wall`, `fanuc cage`)이므로 **플래너당 500문제, stratum당 250**이다.
+기준선이 붙지 않는 `constrained`·`inject_constrained`가 125씩 더 붙어 포트 쪽
+계획 호출은 합계 1,500이다.
+
+- 양쪽이 **같은 바이트**를 본다. 계측기가 만든 요청 파일을 그대로 `SET_FILE`로
+  `tools/ci/measure-phase8-cpp-baseline.sh`에 넘긴다. 생성기를 두 번 돌려
+  "같을 것이다"라고 논증하지 않는다.
+- 플래너 시드는 `SEED_BASE = 525252`, 문제당 `SEED_BASE + problem.id`. 상류가
+  `rsl::rng()`(스레드당 한 번만 시드 가능한 `thread_local std::mt19937`)에서
+  뽑으므로 시드는 요청이 아니라 **프로세스**의 성질이고, 그래서 C++ 쪽은
+  문제당 한 프로세스다
+  (`tools/ci/measure-phase8-cpp-baseline.sh:322`의 `--planner-rng-seed $seed`).
+- **종료 조건이 두 쪽에서 다르다.** C++ 쪽은 반복 상한으로 끝난다:
+  `CHOMP_MAX_ITERATIONS=50`(`tools/ci/measure-phase8-cpp-baseline.sh:161`)에
+  시계는 3600초로 열어 두었다(`tools/ci/measure-phase8-cpp-baseline.sh:162`,
+  `tools/ci/measure-phase8-cpp-baseline.sh:163`). 상류 기본값(CHOMP 6.0/10.0초,
+  STOMP 5.0초)을 쓰면 성공률이 기계 부하를 재는 수가 되기 때문이다. 여덟 번의
+  C++ 실행 전부 `timed_out 0` — 끝낸 것은 시계가 아니라 반복 상한이다. 포트
+  쪽은 호출당 120초 **벽시계**로 끊는다
+  (`tools/ci/measure-phase8-optimizer-properties.sh:112`). 이 비대칭이 §295.4다.
+
+### §295.2 실측 — 플래너당 500문제
+
+**C++ 기준선** (전부 `timed_out 0`):
+
+| | panda floor_wall | panda cage | **panda 250** | fanuc floor_wall | fanuc cage | **fanuc 250** |
+|---|---|---|---|---|---|---|
+| C++ CHOMP | 93/125 | 95/125 | **188 (75.2%)** | 96/125 | 86/125 | **182 (72.8%)** |
+| C++ STOMP | 114/125 | 103/125 | **217 (86.8%)** | 105/125 | 89/125 | **194 (77.6%)** |
+
+**포트** (CHOMP은 시한 초과 0, STOMP은 괄호 안이 시한 초과):
+
+| | panda floor_wall | panda cage | **panda 250** | fanuc floor_wall | fanuc cage | **fanuc 250** |
+|---|---|---|---|---|---|---|
+| 포트 CHOMP | 85/125 | 81/125 | **166 (66.4%)** | 88/125 | 77/125 | **165 (66.0%)** |
+| 포트 STOMP | 98/125 (27) | 87/125 (38) | **185 (74.0%, 65)** | 90/125 (35) | 80/125 (45) | **170 (68.0%, 80)** |
+
+### §295.3 판정 — 복원한 넷 중 이 모드가 답하는 것은 셋
+
+`full`의 핀은 아직 없다(`tools/ci/measure-phase8-optimizer-properties.sh:255`의
+`"full": null`, §264.9). 핀이 없으면 stratum마다
+`pins-unmeasured`(`tools/ci/measure-phase8-optimizer-properties.sh:1032`)가 실패로
+나가고 `pinned_cpp`(`tools/ci/measure-phase8-optimizer-properties.sh:900`)가 돌지
+않으므로 **`no-regression-cpp-solved`는 이 모드에서 판정을 내지 않는다.**
+나머지 셋은 핀에 걸리지 않는
+`cpp_stratum`(`tools/ci/measure-phase8-optimizer-properties.sh:911`)과
+`cpp_set`(`tools/ci/measure-phase8-optimizer-properties.sh:935`)에 있어 그대로
+돈다.
+
+| stratum | `condition1` 포트 / 막대 | 판정 | `condition3-pooled` | `condition3-paired` |
+|---|---|---|---|---|
+| chomp/panda | 66.4% / 67.68% | **실패** (−1.28 pp) | 통과 (0.996x) | 통과 (1x, 161문제) |
+| chomp/fanuc | 66.0% / 65.52% | 통과 (+0.48 pp) | 통과 (0.991x) | 통과 (1x, 165문제) |
+| stomp/panda | 74.0% / 78.12% | **실패** (−4.12 pp) | 통과 (0.957x) | 통과 (0.991x, 185문제) |
+| stomp/fanuc | 68.0% / 69.84% | **실패** (−1.84 pp) | 통과 (0.981x) | 통과 (1x, 170문제) |
+
+per-set `condition1` 여덟 행 중 통과는 둘(`chomp/panda_floor_wall`,
+`chomp/fanuc_floor_wall`)이고 나머지 여섯은 실패다. per-set `condition3` 여덟
+행은 전부 통과(0.951x~1x).
+
+**조건 3은 이 모집단에서 열려 있다.** 여덟 stratum 행과 여덟 set 행 모두 비가
+1 이하이고, 1.3x 한도까지의 여유가 최소 0.3이다. 즉 이 두 최적화기의 경로
+길이는 같은 문제에서 자기 C++ 구현과 사실상 같다.
+
+**조건 1은 셋에서 닫히지 않는다.** 그중 CHOMP 쪽 하나는 기계와 무관한
+판정이고(§295.4), STOMP 쪽 둘은 아니다.
+
+### §295.4 CHOMP의 실패는 판정이고 STOMP의 실패는 아니다
+
+네 stratum(C++ 기준선이 붙는 500문제)에서 포트의 시한 초과는 CHOMP **0회**
+(가장 느린 호출 7.906초 / 120초 예산), STOMP **145회**(panda 65, fanuc 80)다.
+C++ 쪽은 양쪽 다 0이다. (기준선이 없는 `constrained`에서 STOMP은 125문제
+전부, `inject_constrained`에서 13문제가 더 시한을 넘긴다.) 시한 초과는
+해결로 세지 않으므로 `condition1`의 좌변에 그대로 들어간다 — 그래서 STOMP의
+`condition1`은 "포트가 얼마나 푸는가"가 아니라 "포트가 120초 안에 얼마나
+푸는가"를 C++의 반복 상한 성공률에 대는 비교다.
+
+같은 실행 안에 통제된 대조가 하나 있다. 판별 게이트의 STOMP `panda_floor_wall`
+다리는 **계측 단계와 같은 요청 파일·같은 `SEED_BASE`·같은 120초 예산**을 쓰고,
+주입은 계획이 끝난 뒤 경로에 이루어지므로 계획 작업량이 동일하다. 다른 것은
+점유뿐이다:
+
+| | 프로세스 | 그 구간의 load 중앙값 | 해결 | 시한 초과 |
+|---|---|---|---|---|
+| 판별 게이트 다리 | 1 | 7.4 | **105/125** | 20 |
+| 계측 단계 | 16 샤드 | 147.2 | **98/125** | 27 |
+
+7문제, 5.6 pp다. `stomp/panda/condition1`의 미달폭 4.12 pp와
+`stomp/fanuc/condition1`의 1.84 pp는 **둘 다 이 폭보다 작다.** 그러므로 이
+실행의 STOMP `condition1` 판정 두 개는 플래너의 성질과 분리되지 않는다.
+
+**부하를 수로 적는다.** 코어 96개. 계측 단계 구간의 load는 9.5~400.0,
+중앙값 147.2였고 같은 시간 다른 패널의 `stomp_benchmark` 프로세스가 최대
+500개였다. 판별 게이트 구간은 2.9~96.7(중앙값 7.4), C++ 기준선과 교차검사
+구간은 128.7~211.5(중앙값 169.4)다. 즉 이 실행의 `no-timeouts`와 STOMP 쪽
+`condition1`은 **한 실행 안에서 두 부하 영역에 걸쳐 측정되었다.**
+
+CHOMP은 이 영역 어디서도 예산에 닿지 않았다(가장 느린 호출 7.906초, 15배
+여유). 그래서 `chomp/panda/condition1`의 66.4% 대 67.68% 미달은 부하 서술이
+아니라 판정이고, 형제 `chomp/fanuc`가 0.48 pp 차로 통과한다는 것이 그 막대가
+변별한다는 증거다. **§5의 Phase 8 판정 단어는 이 절에서 건드리지 않는다.**
+이 미달을 판정에 반영할지, 아니면 `condition1`을 STOMP에 대해서는 시계 대칭이
+서기 전까지 유보로 둘지는 결정 사항으로 남긴다.
+
+가능한 원인 하나가 이미 측정되어 있다. §293.4는 이 CHOMP 최적화기가 이
+모집단에서 `optimize()`의 `bool`을 참으로 만드는 경로가 메시 검사뿐이고
+`!filter_mode && c_cost < collision_threshold` 팔은 한 번도 발화하지 않음을,
+그 검사를 눌러 해결 수가 380에서 0으로 가는 것으로 보였다. 이것은 예측이지
+결론이 아니다 — 반증 가능한 형태로 적으면 "그 팔이 발화하도록 만들면
+`chomp/*/condition1`의 좌변이 올라간다"이고, 이 절은 그것을 재지 않았다.
+
+### §295.5 판별 게이트가 이 스크립트의 벽시계를 지배한다 — 그리고 재는 것이 없다
+
+게이트 전체가 12,651초(3.51시간)였고 그 안에서 실제 계측은 5,011.7초다
+(포트 4,458.6초 + C++ 기준선 553.1초). **판별 게이트 혼자 7,555.7초**로 전체의
+60%다. 이 단계는 아무것도 재지 않는다 — 검사기가 거짓을 거부할 수 있음만
+보인다.
+
+| 다리 | 벽시계 | 검사한 경로 / 주입한 문제 | 검사되지 않은 것 |
+|---|---|---|---|
+| chomp `inject=collision` | 527.0초 | 85 / 125 | 40 실패 |
+| chomp `inject=constraint` | 456.2초 | 98 / 125 | 27 실패 |
+| stomp `inject=collision` | 4,190.4초 | 105 / 125 | 20 시한 초과 |
+| stomp `inject=constraint` | 2,382.1초 | 119 / 125 | 6 시한 초과 |
+
+**같은 모양의 일에 CHOMP 두 다리가 983.2초, STOMP 두 다리가 6,572.5초** — 6.7배.
+이 단계는 한 프로세스이고(`SHARDS`는
+`tools/ci/measure-phase8-optimizer-properties.sh:543`의 계측 실행에만 붙는다)
+120초 예산은 문제당 감시 스레드로 강제되므로, 다리 하나의 상한은
+`주입 문제 수 × 120초`다. STOMP `inject=collision`의 3,947초 계획 시간 중
+**2,402초(61%)가 경로를 하나도 내놓지 않은 20문제**에 들어갔다.
+
+여기서 나온 결함은 비용이 아니라 보고다. 검사할 수 있는 것은 해결된 경로뿐인데
+성공 줄이 분자만 찍고 있었다: "rejected all 105 paths"는 125가 주입되었다는
+말을 하지 않는다. 시한 초과·실패한 문제는 주입된 웨이포인트를 한 번도
+검사받지 않고 단언의 모집단에서 조용히 빠진다. 세 이진(`plan_benchmark_port`,
+`optimize_benchmark_chomp`, `optimize_benchmark_stomp`)이 이제 분모와 빠진
+이유를 같이 찍는다.
+
+문제당 벽시계로 정리하면: C++ 기준선 1,000문제가 553.1초(0.55초/문제,
+`JOBS=12`), 포트 계측 1,500호출이 4,458.6초(2.97초/호출, 16샤드), 판별 게이트
+500문제가 7,555.7초(15.1초/문제, 1프로세스).
+
+### §295.6 500문제가 처음 보인 것 — `inject_constrained`의 전제가 거짓이다
+
+교차검사가 pilot에서 나오지 않던 실패를 하나 냈다:
+`stomp.inject_constrained`에서 `paths=112 wrong_verdict=[72]`,
+`port/oracle_disagree=0`. 같은 실행의
+`stomp/inject_constrained/validity`는 111/112다. 즉 STOMP이 72번 문제에 대해
+내놓은 경로가 제약 밴드를 벗어나고, **포트의 검사기와 upstream `isPathValid`가
+그 판정에 일치한다.** 포트/오라클 불일치가 아니라 둘 다 무효라고 답한 경로다.
+
+이것이 왜 문제인가는 이 집합이 존재하는 이유에 있다. `inject_constrained`는
+제약을 플래너에서 검사기로 옮긴 같은 문제들이고, 판별 게이트가 그 위에서 하는
+단언은 "주입한 웨이포인트가 거부되었다"다. 그 단언이 뜻을 가지려면 주입 없는
+같은 요청이 100% 유효해야 한다 — 거부된 것이 주입 때문인지 경로 자체 때문인지
+갈라지지 않기 때문이다. pilot의 8문제에서는 8/8이었고, 125문제에서 112분의 1로
+깨진다. 제약 없이 계획한 출력이 밴드 안에 남을 이유는 없으므로 이것은 포트의
+결함이라기보다 **게이트 전제의 결함**이고, 닫는 방법(이미 무효인 경로를
+단언 모집단에서 빼거나, 이 집합에 대해 플래너를 제약하거나)은 이 라운드에서
+고르지 않았다.
+
+### §295.7 `cpp-endpoints`와 constrained 모집단 — 이 라운드 밖
+
+`cpp-endpoints`는 복원하지 않았고, 사유는 논증이 아니라 사실이다.
+`chompPlan`(`tools/moveit-oracle/src/oracle.cpp:6185`)과
+`stompPlan`(`tools/moveit-oracle/src/oracle.cpp:6323`)이 문제마다 내보내는 것은
+`id`, `solved`, `error_code`, `failure`, 그리고 푼 경우 `length`와 조건 2
+필드들이다. **`path`가 없다.** 경로를 내보내는 op는 `plan` 하나뿐이고
+(`tools/moveit-oracle/src/oracle.cpp:5870`의 `problem_out["path"] = waypoints;`,
+그것도 `pdef->hasExactSolution()`일 때만), 그러므로 C++ 쪽에는 요청한
+시작/목표에서 얼마나 벌어졌는지를 잴 대상이 아예 없다. 더하는 데 필요한 것은
+오라클 **소스** 변경이고, `oracle_stamp`가 소스 digest를 이미지 태그로 만들기
+때문에 그것은 이 기계의 모든 워크트리에 대한 이미지 재빌드가 된다.
+
+`constrained`/`inject_constrained` 두 집합에 C++ 기준선이 없는 것은 이유가
+다르다: `chompPlan`/`stompPlan`은 요청의 `joint_constraint`를 읽지 않으므로
+C++ 쪽이 포트와 **다른 문제**를 풀게 된다. 그래서 이 두 집합의 per-set 행은
+C++ 두 항목 없이 넷으로 남는다.
+
+### §295.8 길이가 두 척도였다
+
+`condition3-*`를 켜기 전에 닫아야 했던 것: 두 쪽의 `length`가 **같은 이름의
+다른 양**이었다. 오라클은
+`planSpacePathLength`(`tools/moveit-oracle/src/oracle.cpp:6021`)로 OMPL
+`CompoundStateSpace::distance`를 경로를 따라 더한다 — 축마다 `1/(max-min)`
+가중치가 붙은 합, 유클리드가 아니라 가중 L1이다. 포트 계측기는 원 관절값에
+대한 유클리드 L2를 더하고 있었다. 두 수의 비는 어느 쪽 길이도 아니다.
+
+고친 방향은 눈금이 아니라 척도다. 두 계측기가 이제 `plan_space_length`
+(`crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs:355`,
+`crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs:379`)를
+보고하고, 그것은 `JointModelGroupSpace::distance`
+(`crates/moveit-planners-sbp/src/joint_model_group_space.rs:317`)의 합 —
+`crates/moveit-planners-sbp/tests/plan_space_parity.rs:98`이 오라클의 OMPL
+공간과 비트 단위로 같다고 이미 세워 둔 그 척도이며,
+`chomp_benchmark_port.rs`/`stomp_benchmark_port.rs`가 이미 쓰던 것이다. 한
+필드에 뜻이 하나가 된다. 이 변경이 움직인 핀은 pilot의 `length_ratio_ceiling`
+하나이고 값은 1.05로 그대로다 — 측정된 최악 비가 두 척도 모두에서 1에 있다
+(새 척도로 panda 2.472/2.471, fanuc 1.834/1.834; 옛 척도로 6.076/5.998,
+6.729/6.729).
+
+### §295.9 복원한 체크가 실제로 무는가 — 변이 넷
+
+통과를 보고하기 전에 각 체크가 거짓을 거부할 수 있음을 보인다. 넷 다
+`PLANNERS=chomp` pilot(각 140~163초)이고, 변이는 전부 편집으로 되돌렸다.
+
+| 변이 | 무엇을 바꿨나 | 결과 |
+|---|---|---|
+| m1 | `chomp/panda`의 `cpp_solved_floor` 10 → 13 | `chomp/panda/no-regression-cpp-solved` 실패("C++ solved 12/16 >= floor 13"), 형제 `chomp/fanuc`는 통과 유지. 실패 4 → 5, 움직인 행은 하나 |
+| m2 | `optimize_benchmark_chomp.rs`의 `plan_space_length` 반환값 × 1.6 | stratum `condition3-pooled`·`condition3-paired` 4행 + per-set `condition3` 4행, 합 8행 실패. 같은 실행에서 `length-ratio-band`는 **1x로 통과** — 분자와 분모가 같이 스케일되기 때문이고, 그것이 `condition3`이 메우는 사각이다. 실패 4 → 12 |
+| m3 | `cpp_medians`의 C++ 해결 집합을 `select(.solved)` 없이 전체로 | `condition1`의 막대가 0.9 × 100% = 90%로 올라가 `chomp/fanuc`와 그 per-set 두 행이 통과 → 실패로 뒤집힘. 같은 실행에서 `condition3-*`와 `no-regression-cpp-solved`는 통과 유지. 실패 4 → 7 |
+| m4 | C++ ndjson 파일명을 존재하지 않는 이름으로 | 결정 행이 60 → 46으로 줄고, 그 자리에 `chomp/panda/cpp-baseline-missing`과 `chomp/fanuc/cpp-baseline-missing`이 실패로 선다(`tools/ci/measure-phase8-optimizer-properties.sh:1022`). 기준선이 사라진 실행이 더 가벼운 체크 집합을 깨끗하게 보고하지 않는다 |
+
+m2가 `length-ratio-band`를 통과시킨 채 `condition3`만 무는 것이 `condition3`을
+복원한 이유 그대로다. m4가 없으면 기준선 단계가 조용히 실패한 실행이 그냥
+통과로 읽힌다.
+
+### §295.10 체크 수가 어디로 움직였나
+
+같은 규칙으로 세면(결정 목록 = stratum 행 + per-set 행, 교차검사 12줄과
+injection 4줄은 그 밖):
+
+| | 결정 행 | 통과 | 실패 | 스크립트 종료 요약 |
+|---|---|---|---|---|
+| §264.13의 pilot | 86 | 74 | 12 | 13 |
+| 이 라운드 pilot | 118 | 100 | 18 | 19 |
+| 이 라운드 full | 96 | 71 | 25 | 27 |
+
+pilot의 +32행은 stratum 4개에 4행씩(`condition1`, `condition3-pooled`,
+`condition3-paired`, `no-regression-cpp-solved`) 16, C++ 기준선이 붙는 set 8개에
+2행씩(`condition1`, `condition3`) 16이다. 움직인 실패는 **여섯 개뿐이고 전부
+`condition1`**이다: `chomp/panda`, `stomp/panda`, `chomp/panda_floor_wall`,
+`chomp/panda_cage`, `stomp/panda_floor_wall`, `stomp/fanuc_floor_wall`.
+§264.13이 이름으로 적은 13개는 하나도 사라지지 않았다.
+
+`full`의 96행이 pilot의 118행보다 적은 것은 `full`에 핀이 없어서다: 핀에 걸리는
+행들이 stratum마다 `pins-unmeasured` 한 행으로 대체되어 CHOMP stratum은 14 → 8,
+STOMP stratum은 13 → 8이 된다(합 −22). set 행 64개는 두 모드가 동수다.
+`full`의 25 실패 중 4개가 그 `pins-unmeasured`다.
+
+§264.13의 "86개 중 73 통과 / 13 실패"는 자기 구성 문장과 하나 어긋난다: 그
+문장은 교차검사 12줄을 86 밖에 두는데 실패 표는 `cross-check stomp.constrained`를
+13 안에 넣는다. 결정 행만 세면 그 실행은 86행 74통과 12실패이고, 스크립트가
+종료 시 찍는 13은 교차검사 실패 하나를 더한 수다. 위 표는 두 열을 따로 둔다.
+
+### §295.11 비용과 부하
+
+게이트 전체 **12,651초(3.51시간)**, 그 안에서 계측 5,011.7초·판별 게이트
+7,555.7초. 릴리스 빌드 확인과 문제집합 생성 여섯 개는 앞의 43초 안에 끝났다 —
+`bad_ep_rate`가 56.7%/79.0%/88.5%/90.6%, `constrained` 구성에서는
+98.9%(125문제에 11,428시도)인데도 그렇다. 이 게이트의 비용은 거부 표본추출이
+아니라 §295.5의 단계에 있다.
+
+부하는 §295.4에 수로 적었다. 이 실행의 어떤 `timed_out 0`도 C++ 쪽이고, 포트
+쪽 stratum 시한 초과 145회는 load 9.5~400.0 구간에서 나왔다. 다시 재려면 부하를 같이
+적어야 하는 수는 그 145회와 그것이 좌변에 들어가는 STOMP `condition1` 둘뿐이다.
+
+§264.12의 "`full` 모드의 핀" 항목은 두 문장이고 이 절은 그중 첫 문장만
+무효로 만든다. `full`은 이제 한 번 돌았다 — 위의 수 전부가 그 실행이다.
+핀은 여전히 없다: §264.13이 pilot의 핀을 실측보다 낮게 건 이유가 STOMP의
+해결 수와 `mesh_check_calls`가 벽시계에 달린 양이라는 것이었고, §295.4가
+`full`에서 같은 흔들림을 5.6 pp로 다시 쟀다. 한 번의 실행은 그 폭을 세우지
+못하므로 `full` 핀은 이 절에서도 열려 있다.
