@@ -1,3 +1,11 @@
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// No upstream file: like its sibling `stomp_benchmark_port`, this is Phase 8
+// benchmark infrastructure, not a port. Upstream reaches STOMP only through
+// `StompPlanningContext`'s pluginlib entry point and ships no binary that runs
+// it over a problem set.
+
 //! STOMP half of the Phase 8 property instrument: runs
 //! [`moveit_planners_stomp::planner::plan`] over the *same* problem set
 //! `moveit-planners-sbp`'s `plan_benchmark_problem_set` emits for Phase 7,
