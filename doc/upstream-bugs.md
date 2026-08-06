@@ -128,6 +128,8 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `distance-callback-threshold-suppresses-deeper-pairs` | not-reproduced |
 | `shape-intersect-tangency-follows-libccd-dispatch` | not-reproduced |
 | `psm-topic-header-comments-claim-absolute-names` | not-reproduced |
+| `cartesian-path-capability-accepts-jump-thresholds-it-never-applies` | not-reproduced |
+| `cartesian-path-capability-throws-on-an-unknown-link-name` | not-reproduced |
 
 ---
 
@@ -2673,3 +2675,102 @@ case 4 is a leaf face on a box face, a *specialised* pair, where upstream says
               `MoveGroupInterface`'s endpoints as absolute, which
               `doc/client-endpoint-surface.md` and the port-side scan that
               reads it both had to be corrected for.
+
+### `cartesian-path-capability-accepts-jump-thresholds-it-never-applies` — the service converts `jump_threshold` into a filter, logs it as being in force, and then passes `CartesianPrecision{}` in its place — not-reproduced
+
+**Upstream:** `moveit_ros/move_group/src/default_capabilities/cartesian_path_service_capability.cpp:176-188`
+**Port:**     `ros/moveit-ros/src/cartesian_path.rs:412-428`, the refusal loop in
+              `compute`
+**Symptom:**  `GetCartesianPath.srv` documents five request fields as path
+              filters — `jump_threshold`, `prismatic_jump_threshold`,
+              `revolute_jump_threshold`, `cartesian_speed_limited_link` and
+              `max_cartesian_speed`. The capability applies none of them.
+              `jump_threshold` is the visible one: `:180-184` builds a
+              `moveit::core::JumpThreshold` local from it, and the
+              `computeCartesianPath` call at `:186-188` passes
+              `moveit::core::CartesianPrecision{}` in that argument position
+              instead, so the local is written and never read. The log line
+              immediately above, `:176-179`, prints "using a step of %lf m and
+              jump threshold %lf" with `req->jump_threshold`, telling the
+              operator a filter is in effect that is not. The other four field
+              names do not occur in the file at all. The consequence is not a
+              missing feature but a wrong number: `fraction` is the whole
+              answer this service returns, and a client that asked for
+              truncation at a jump receives the untruncated fraction with a
+              `SUCCESS` code.
+**Evidence:** `git show dae612696` in the upstream checkout — "New
+              implementation for computeCartesianPath() (#2916)" — whose only
+              hunk in this file replaces `jump_threshold` with
+              `moveit::core::CartesianPrecision{}` at the call, leaving
+              `:180-184` behind. The same commit removes the `jump_threshold`
+              parameter from `MoveGroupInterface::computeCartesianPath`'s
+              public signature and marks the `JumpThreshold`-taking
+              interpolator overloads
+              `[[deprecated("Replace JumpThreshold with CartesianPrecision")]]`
+              (`moveit_core/robot_state/include/moveit/robot_state/cartesian_interpolator.hpp:250`,
+              `:262`, `:284`, `:299`). So dropping the *filter* is deliberate;
+              what survives it is the dead local, the log line that still
+              advertises it, and a request surface that still accepts all five.
+              `rg -n 'jump_threshold|max_cartesian_speed'` over the capability
+              returns exactly four hits — `:179`, `:180`, `:181`, `:183` — and
+              none of them is the call.
+**Status:**   `not-reproduced`
+**Cost of not reproducing:** none in fraction parity, because this port does
+              not reinstate the filter either — reinstating it would compute a
+              number upstream stopped producing on purpose. What the port
+              declines to reproduce is accepting the fields *silently*: each
+              of the four numeric ones is accepted at the no-op value the
+              `.srv` itself names ("if jump_threshold is set > 0", "if
+              max_cartesian_speed <= 0 the trajectory is not modified") and
+              answers `FAILURE` above it, at exactly `:180`, the position
+              upstream reads the field — so `INVALID_GROUP_NAME`,
+              `FRAME_TRANSFORM_FAILURE` and the `max_step` `FAILURE` all still
+              win for any request upstream can answer. `cartesian_speed_limited_link`
+              is not tested on its own: it is a link name, and upstream's own
+              documented gate for the speed feature is `max_cartesian_speed >
+              0`, so a name set without a speed asks for nothing.
+
+### `cartesian-path-capability-throws-on-an-unknown-link-name` — a `link_name` that names no link reaches the interpolator as `nullptr` and throws out of the service callback — not-reproduced
+
+**Upstream:** `moveit_ros/move_group/src/default_capabilities/cartesian_path_service_capability.cpp:187`,
+              through `moveit_core/robot_state/src/cartesian_interpolator.cpp:225`
+              to `moveit_core/robot_state/include/moveit/robot_state/robot_state.hpp:1252-1257`
+**Port:**     `ros/moveit-ros/src/cartesian_path.rs:545-556`, the `Err` arm of the
+              `set_from_ik`-backed interpolator call in `compute`
+**Symptom:**  the capability passes `start_state.getLinkModel(link_name)`
+              straight into `CartesianInterpolator::computeCartesianPath`.
+              `RobotModel::getLinkModel` returns `nullptr` for an unknown name
+              (`moveit_core/robot_model/src/robot_model.cpp:1348-1365`; the
+              `has_link` out-parameter is not passed here, so it logs and
+              returns null), and the interpolator's first act on the link is
+              `state.getGlobalLinkTransform(link)`, which is
+              `throw Exception("Invalid link")` when `link` is null. The
+              service callback is a bare lambda handed to `create_service`
+              (`:87-92`) with no `try`, so the exception leaves the callback
+              and the executor: one malformed request takes the whole
+              `move_group` node down, and the client that sent it never gets a
+              response. It is reachable from an ordinary client, not only from
+              a hand-built message —
+              `MoveGroupInterface::setEndEffectorLink`
+              (`moveit_ros/planning_interface/move_group_interface/src/move_group_interface.cpp:1712-1718`)
+              rejects only the empty string and forwards anything else to
+              `MoveGroupInterfaceImpl::setEndEffectorLink` (`:503-506`), which
+              is a bare assignment to `end_effector_link_` -- no lookup
+              against the model -- and `computeCartesianPath` sends that
+              string as `req.link_name`.
+**Evidence:** read of the control flow, four files deep, each step opened in
+              the upstream checkout: the call at `:187`, the null return at
+              `robot_model.cpp:1361-1364`, the throw at `robot_state.hpp:1254-1257`,
+              and the dereference-site at `cartesian_interpolator.cpp:225`
+              (`Eigen::Isometry3d start_pose = state.getGlobalLinkTransform(link) * link_offset;`).
+              The registration with no exception handler is `:87-92` of the
+              capability. Not run — this is a read, the weakest evidence
+              class; what it does not establish is whether some outer
+              rclcpp/executor layer in a particular distribution catches
+              before terminating.
+**Status:**   `not-reproduced`
+**Cost of not reproducing:** none. `Option`/`Result` is how this port names an
+              absent link at all, so there is no version of it that panics
+              here; the request answers `FAILURE` with the link name in
+              `error_code.message`. No oracle comparison covers the throwing
+              input, because the oracle cannot produce a value for it.
