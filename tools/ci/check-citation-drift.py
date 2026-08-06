@@ -1221,11 +1221,20 @@ IN_REPO_OOB = "out-of-bounds"
 IN_REPO_BLANK = "blank-line"
 IN_REPO_SECTION_MISMATCH = "section-mismatch"
 IN_REPO_FAILING = (IN_REPO_UNRESOLVED, IN_REPO_OOB, IN_REPO_BLANK, IN_REPO_SECTION_MISMATCH)
-# Flipped to True once the population's findings are triaged. Until then the
-# corpus is declared, counted and delta-checked -- a NEW failure still fails,
-# because it arrives as an undeclared row -- but the backlog it arrives with
-# does not fail the run. See PORTING-PLAN.md §299.9.
-IN_REPO_HARD_FAIL = False
+# Which verdicts fail the run. The flip is GRADED rather than all-or-nothing:
+# a class goes hard the moment its backlog is closed, instead of waiting for
+# the slowest class and leaving the closed ones unprotected in the meantime.
+#
+# blank-line, out-of-bounds and unresolvable are closed and hard. Three
+# section-mismatch findings remain, each needing a judgement about whether the
+# LINE or the SECTION NAME is the wrong half -- the content sits in neither
+# place, so no re-derivation settles it without deciding what the sentence
+# meant. They are listed in PORTING-PLAN.md §306 by file:line rather than
+# frozen as passing.
+#
+# Regardless of this set, a NEW failure in ANY class fails the run: it arrives
+# as a row absent from the baseline, which the delta check reports on its own.
+IN_REPO_HARD_FAIL = (IN_REPO_BLANK, IN_REPO_OOB, IN_REPO_UNRESOLVED)
 
 
 def in_repo_section_spans(lines):
@@ -1443,7 +1452,7 @@ def report_in_repo(tracked):
             file=sys.stderr,
         )
 
-    stream = sys.stderr if (failed or IN_REPO_HARD_FAIL) else sys.stdout
+    stream = sys.stderr if (failed or any(r[4] in IN_REPO_HARD_FAIL for r in rows)) else sys.stdout
     print(
         f"--- second population: {len(rows)} in-repo non-`.rs` citations across "
         f"{len({r[0] for r in rows})} citing files: {summary} ---",
@@ -1456,10 +1465,12 @@ def report_in_repo(tracked):
         print(
             f"--- {findings} of them are findings. These were in no gate's corpus before "
             f"this population was declared, so they are first-ever results, not "
-            f"regressions; IN_REPO_HARD_FAIL flips them to failing once triaged. ---",
+            f"regressions. IN_REPO_HARD_FAIL names the classes that are closed and "
+            f"now fail; the rest are listed in PORTING-PLAN.md §306. ---",
             file=stream,
         )
-    return failed or (IN_REPO_HARD_FAIL and bool(findings))
+    hard = [r for r in rows if r[4] in IN_REPO_HARD_FAIL]
+    return failed or bool(hard)
 
 
 def main(write_classes=False):
