@@ -49,17 +49,31 @@ PROBE="$REPO_ROOT/tools/fcl-distance-tolerance-probe/probe.cpp"
 # `MAX_SOLVER_GAP` is a ceiling on agreement, so they fail in opposite
 # directions and one cannot be relaxed to rescue the other.
 #
-# First run inside `moveit-rs/oracle:bf084112fdd5730b` (`libfcl-dev
-# 0.7.0-3build2`), 2000 poses: `|default - tight|` max `4.418002e-04`,
-# `|tight - indep|` max `9.761567e-08`. `MIN_DRIFT` is set two orders under
-# the measured drift rather than just under it, because the claim it guards
-# is "the default is imprecise at the scale the clause measures at" (`1e-4`)
-# and `1e-5` is the loosest floor that still says so. `MAX_SOLVER_GAP` is the
-# measured `9.76e-8` with a 5x margin. `MIN_RATIO` is the fact the two
-# together are for: the drift is not the solvers disagreeing.
+# Re-pinned in PORTING-PLAN.md's §298 to `prbt_link_4`'s SECOND box
+# (`fixtures/prbt.urdf:319`, `0.09 x 0.06 x 0.12`) after §284.4 found the
+# probe had been built against the first box
+# (`fixtures/prbt.urdf:313`, `0.121 x 0.08 x 0.17`) instead. Re-run inside
+# `moveit-rs/oracle:d8512bbee12499c3` (`libfcl-dev 0.7.0-3build2`), 2000
+# poses, on the corrected box: `|default - tight|` max `2.051960e-04`,
+# `|tight - indep|` max `6.060727e-10`. Before this re-pin, the thresholds
+# below (then `4.418002e-04`/`9.761567e-08`-derived) were run unchanged
+# against this corrected-box measurement first and passed -- both boxes'
+# numbers clear all three checks, so this gate cannot tell the two boxes
+# apart; the box itself has to be right by construction (see the probe's own
+# citation of `fixtures/prbt.urdf:319`), not by anything this script asserts.
+#
+# `MIN_DRIFT` stays `1e-5`: its claim is "the default is imprecise at the
+# scale the clause measures at" (`1e-4`), a property of the clause, not of
+# whichever box is probed, and `1e-5` is the loosest floor that still says
+# so; the corrected-box drift (`2.051960e-04`) clears it with ~20x headroom.
+# `MAX_SOLVER_GAP` is the corrected-box measured `6.060727e-10` with a 5x
+# margin, rounded to one significant figure: `3e-9`. `MIN_RATIO` is the fact
+# the two together are for: the drift is not the solvers disagreeing; the
+# corrected-box ratio is `3.385667e5`, so `1000` (~338x headroom) is a floor
+# tied to this box's own separation rather than the previous box's `100`.
 MIN_DRIFT="1e-5"
-MAX_SOLVER_GAP="5e-7"
-MIN_RATIO="100"
+MAX_SOLVER_GAP="3e-9"
+MIN_RATIO="1000"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "SKIP docker not on PATH -- fcl's default distance_tolerance is not re-measured."
