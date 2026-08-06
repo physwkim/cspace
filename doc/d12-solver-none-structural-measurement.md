@@ -129,7 +129,7 @@ over (`cargo tree -p moveit-planners-sbp -i moveit-kinematics`:
 via `moveit-scene ← moveit-planners-sbp`). It never names the trait because
 `select_default_sampler`'s `solver: Option<Box<dyn KinematicsSolver>>`
 parameter is always filled with `None` at every one of its 3 call sites
-(`crates/moveit-planners-sbp/src/registry.rs:453,479,1035`) and 1 more in `goal_sampler.rs:212` (`sample_goal_carries_the_previous_draws_result_forward_as_the_next_seed`) — type
+(`crates/moveit-planners-sbp/src/registry.rs:488,598,1370`) and 1 more in `goal_sampler.rs:212` (`sample_goal_carries_the_previous_draws_result_forward_as_the_next_seed`) — type
 inference resolves `None`'s type from the callee's signature, so the caller
 never has to spell `KinematicsSolver` itself. This corrects the brief's
 "moveit-kinematics에 의존하는 것은 5개" framing for one member: sbp is a

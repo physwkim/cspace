@@ -32,11 +32,15 @@
 //! `PlannerConfigurationSettings`/`setPlannerConfigurations`
 //! (`planning_interface.hpp:56-72,193`), owned by the `PlannerManager`,
 //! while `MotionPlanRequest` carries only what a *caller* asks for. They
-//! stay concretely typed here rather than becoming upstream's stringly
-//! typed `config: map<string, string>` bag, because this port's
-//! compile-time registry already knows which concrete planner it is
-//! configuring — there is no runtime plugin boundary for a string bag to
-//! cross.
+//! stay concretely typed here, and upstream's stringly typed
+//! `config: map<string, string>` bag arrives *beside* them as
+//! [`RrtConnectManager::configurations`] — the two are not alternatives.
+//! This paragraph used to end "there is no runtime plugin boundary for a
+//! string bag to cross", which named the wrong boundary: D4 removes the
+//! *plugin* boundary, and the boundary the bag actually crosses is
+//! `/set_planner_params`, a service whose values exist only at runtime.
+//! The typed fields are the floor; the bag overlays it per query
+//! (PORTING-PLAN.md §NEW).
 //!
 //! # Goals are constraints; a concrete state is expressed as constraints
 //!
@@ -224,7 +228,9 @@ use moveit_geometry::Isometry3;
 use moveit_kinematics::{KinematicsSolver, SolveOptions};
 use moveit_model::RobotModel;
 use moveit_planner_registry::{PLANNER_MANAGERS, PlannerRegistration};
-use moveit_planning::{PlannerManager, PlanningContext, PlanningRequest, PlanningResponse};
+use moveit_planning::{
+    PlannerConfigurationMap, PlannerManager, PlanningContext, PlanningRequest, PlanningResponse,
+};
 use moveit_scene::PlanningScene;
 use moveit_trajectory::RobotTrajectory;
 use rand::SeedableRng;
@@ -350,11 +356,25 @@ pub enum PlanError {
 /// tuning in `PlannerConfigurationSettings`, handed to the manager through
 /// `setPlannerConfigurations` (`planning_interface.hpp:56-72,193`) — so
 /// these four fields sit on the manager for the same reason, not as a
-/// leftover from the request type they used to live on. A caller that wants
-/// non-default tuning constructs [`RrtConnectManager`] directly instead of
-/// going through `moveit_planner_registry::resolve_planner`, whose
-/// `construct` takes no arguments and therefore always yields
-/// [`RrtConnectManager::default`].
+/// leftover from the request type they used to live on.
+///
+/// # Two ways to tune it, and which upstream each one is
+///
+/// [`RrtConnectManager::configurations`] is the wire-settable half: the
+/// [`moveit_planning::PlannerConfigurationMap`]
+/// `moveit_planner_registry::PlannerRegistration::construct` hands over,
+/// which for a node is whatever `/set_planner_params` has written. It is
+/// consulted per query, and the one key it carries here is
+/// [`RANGE_KEY`]. The typed fields are the compiled-in defaults it overlays
+/// — upstream's equivalent floor is the OMPL planner's own constructor
+/// defaults, since a key absent from `ompl_planning.yaml` is simply never
+/// passed to `params().setParams` (`planning_context_manager.cpp:213`).
+///
+/// A caller with no ROS in the picture still constructs
+/// [`RrtConnectManager`] directly and sets the typed fields; that is the
+/// only way to reach the three ([`RrtConnectManager::seed`],
+/// [`RrtConnectManager::solver`], and the rest of
+/// [`RrtConnectManager::params`]) that no configuration key maps onto.
 pub struct RrtConnectManager {
     /// [`crate::validity::DiscreteMotionValidator`]'s bisection resolution,
     /// in the group's own [`crate::space::StateSpace::distance`] units.
@@ -426,13 +446,28 @@ pub struct RrtConnectManager {
     /// module) is what actually crosses into `select_default_sampler`,
     /// since that call wants an owned `Box<dyn KinematicsSolver>`.
     pub solver: Option<Rc<RefCell<Box<dyn KinematicsSolver>>>>,
+    /// The configurations this manager plans under — upstream's
+    /// `PlannerManager::config_settings_` (`planning_interface.hpp:210`),
+    /// except that it arrives as a constructor argument rather than through
+    /// a setter (see
+    /// `moveit_planner_registry::PlannerRegistration::construct`).
+    ///
+    /// Consulted once per query, in
+    /// [`RrtConnectManager::get_planning_context`], through
+    /// [`moveit_planning::configuration_for`] — not once at construction —
+    /// because which entry governs is a function of the request's group and
+    /// `planner_id`, exactly as upstream's own lookup is
+    /// (`planning_context_manager.cpp:504-526`). Empty is the ordinary
+    /// case and means every query runs on the typed fields above.
+    pub configurations: PlannerConfigurationMap,
 }
 
 impl Default for RrtConnectManager {
-    /// The configuration
+    /// The configuration a query runs under when no
+    /// [`moveit_planning::PlannerConfigurationSettings`] governs it — the
+    /// floor [`RrtConnectManager::configurations`] overlays, and what
     /// `moveit_planner_registry::PLANNER_MANAGERS`' `"rrt_connect"` entry
-    /// constructs, since [`moveit_planner_registry::PlannerRegistration::construct`]
-    /// takes no arguments.
+    /// constructs from an empty map.
     ///
     /// The values are this repository's own measured ones, not an upstream
     /// citation: OMPL's `RRTConnect` defaults live in the OMPL library,
@@ -454,9 +489,88 @@ impl Default for RrtConnectManager {
                 nn_degree: 8,
             },
             solver: None,
+            configurations: PlannerConfigurationMap::new(),
         }
     }
 }
+
+impl RrtConnectManager {
+    /// The manager `moveit_planner_registry::PlannerRegistration::construct`
+    /// builds: [`RrtConnectManager::default`]'s tuning, planning under
+    /// `configs`.
+    pub fn with_planner_configurations(configs: &PlannerConfigurationMap) -> Self {
+        Self {
+            configurations: configs.clone(),
+            ..Self::default()
+        }
+    }
+
+    /// The parameters one query runs under: [`RrtConnectManager::params`],
+    /// with [`RANGE_KEY`] applied from whichever entry of
+    /// [`RrtConnectManager::configurations`] governs `request`.
+    ///
+    /// Upstream's equivalent is `planner->params().setParams(spec.config_,
+    /// true)` (`planning_context_manager.cpp:213`), which hands the selected
+    /// entry's whole key/value map to OMPL's own parameter system. This port
+    /// binds the one key it has a parameter for and ignores the rest, which
+    /// is what upstream states this map's contract to be
+    /// (`planning_interface.hpp:54`, "Settings with unknown keys are
+    /// ignored").
+    ///
+    /// A value that does not parse as an `f64`, or that
+    /// [`crate::rrt_connect::RrtConnectParams`] would reject, is ignored the
+    /// same way an unknown key is. Two reasons, and the second is the load
+    /// bearing one: `range: 0.0` is upstream's own spelling of "let the
+    /// planner pick" (`moveit_configs_utils/default_configs/ompl_defaults.yaml:40`,
+    /// "if 0.0, set on setup()"), and `RrtConnectParams::assert_valid`
+    /// *panics* on a non-positive step size — a value that arrived over
+    /// `/set_planner_params` must not be able to take the node down.
+    fn params_for(&self, request: &PlanningRequest) -> RrtConnectParams {
+        let mut params = self.params.clone();
+        let settings = moveit_planning::configuration_for(
+            &self.configurations,
+            &request.group_name,
+            &request.planner_id,
+        );
+        if let Some(range) = settings
+            .and_then(|settings| settings.config.get(RANGE_KEY))
+            .and_then(|value| value.parse::<f64>().ok())
+            && range.is_finite()
+            && range > 0.0
+        {
+            params.step_size = range;
+        }
+        params
+    }
+}
+
+/// The one [`moveit_planning::PlannerConfigurationSettings::config`] key this manager reads:
+/// OMPL's `range`, "Max motion added to tree"
+/// (`moveit_configs_utils/default_configs/ompl_defaults.yaml:38-40`, the
+/// `RRTConnect` entry of the configuration file upstream ships as its
+/// default), which is
+/// [`crate::rrt_connect::RrtConnectParams::step_size`]'s quantity exactly —
+/// "maximum distance a single `extend` step advances a tree toward its
+/// target".
+///
+/// The name is upstream's and not this port's invention: it is the key
+/// `ompl_planning.yaml` carries, it lands in
+/// `PlannerConfigurationSettings::config` unaltered, and it reaches the
+/// planner through `planner->params().setParams(spec.config_, true)`
+/// (`planning_context_manager.cpp:213`). What is *not* citable from the
+/// pinned checkout is OMPL's own declaration of it, since OMPL is an
+/// external dependency of moveit2 and is not in that checkout — the same
+/// limit [`RrtConnectManager::default`] records for the default values.
+///
+/// It is also the only key: RRTConnect's other OMPL parameter
+/// (`intermediate_states`) has no counterpart here, and `goal_bias` —
+/// which this port's RRT-Connect does have — is an `RRT`/`EST` key
+/// upstream, not an `RRTConnect` one: the `RRT` block carries it
+/// (`moveit_configs_utils/default_configs/ompl_defaults.yaml:34-37`) and
+/// the `RRTConnect` block three lines below lists `type` and `range`
+/// alone. Binding it would be inventing a name upstream does not use for
+/// this planner.
+pub const RANGE_KEY: &str = "range";
 
 impl std::fmt::Debug for RrtConnectManager {
     /// Manual, not derived: [`moveit_kinematics::KinematicsSolver`] has no
@@ -471,6 +585,11 @@ impl std::fmt::Debug for RrtConnectManager {
                 "solver",
                 &self.solver.as_ref().map(|_| "Box<dyn KinematicsSolver>"),
             )
+            // Printed even though it is the longest field: it is the half of
+            // this manager's tuning that arrives at runtime, so a `Debug`
+            // that omitted it would show two managers planning differently
+            // as identical.
+            .field("configurations", &self.configurations)
             .finish()
     }
 }
@@ -499,7 +618,7 @@ impl PlannerManager for RrtConnectManager {
             request: request.clone(),
             resolution: self.resolution,
             seed: self.seed,
-            params: self.params.clone(),
+            params: self.params_for(request),
             solver: self.solver.clone(),
         }))
     }
@@ -785,7 +904,7 @@ impl<'m> RrtConnectContext<'_, 'm> {
 #[linkme::distributed_slice(PLANNER_MANAGERS)]
 static RRT_CONNECT: PlannerRegistration = PlannerRegistration {
     name: "rrt_connect",
-    construct: || Box::new(RrtConnectManager::default()),
+    construct: |configs| Box::new(RrtConnectManager::with_planner_configurations(configs)),
 };
 
 #[cfg(test)]
@@ -889,8 +1008,224 @@ mod tests {
             .iter()
             .find(|r| r.name == "rrt_connect")
             .expect("RrtConnectManager must be registered under \"rrt_connect\"");
-        let manager = (registration.construct)();
+        let manager = (registration.construct)(&PlannerConfigurationMap::new());
         assert_eq!(manager.name(), "rrt_connect");
+    }
+
+    /// One `range` configuration, keyed the way `/set_planner_params`
+    /// writes one for a group (`configuration_name("panda_arm",
+    /// "RRTConnect")`).
+    fn range_configuration(range: &str) -> PlannerConfigurationMap {
+        let name = moveit_planning::configuration_name("panda_arm", "RRTConnect");
+        let settings = moveit_planning::PlannerConfigurationSettings {
+            group: "panda_arm".to_string(),
+            name: name.clone(),
+            config: [(RANGE_KEY.to_string(), range.to_string())]
+                .into_iter()
+                .collect(),
+        };
+        [(name, settings)].into_iter().collect()
+    }
+
+    /// The seven `panda_arm` joints, in the order every waypoint below is
+    /// read in.
+    const PANDA_ARM_JOINT_NAMES: [&str; 7] = [
+        "panda_joint1",
+        "panda_joint2",
+        "panda_joint3",
+        "panda_joint4",
+        "panda_joint5",
+        "panda_joint6",
+        "panda_joint7",
+    ];
+
+    /// A concrete-state `panda_arm` goal at `panda_joint1 == position`,
+    /// every other joint at its default -- the same goal shape
+    /// `end_to_end_solve_on_panda_arm_reaches_the_requested_goal` uses.
+    fn panda_goal_at(model: &RobotModel, position: f64) -> KinematicConstraintSet {
+        let mut goal_state = RobotState::new(model);
+        goal_state.set_to_default_values();
+        goal_state
+            .set_variable_position("panda_joint1", position)
+            .expect("panda_joint1 is a panda_arm joint");
+        let posed = goal_state.update();
+        construct_goal_joint_constraints(
+            model,
+            &posed,
+            "panda_arm",
+            STATE_GOAL_TOLERANCE,
+            STATE_GOAL_TOLERANCE,
+        )
+        .expect("panda_arm is real and every variable of it is set")
+    }
+
+    fn planner_request(planner_id: &str, goal: KinematicConstraintSet) -> PlanningRequest {
+        PlanningRequest {
+            planner_id: planner_id.to_string(),
+            ..request("panda_arm", goal)
+        }
+    }
+
+    /// Plans `request` through whatever `construct` builds from `configs`
+    /// and returns the trajectory's waypoints, joint by joint.
+    ///
+    /// Goes through `PLANNER_MANAGERS` rather than through
+    /// `RrtConnectManager` directly: the claim under test is that a
+    /// configuration handed to the *registry* reaches the planner, and a
+    /// direct construction would prove only that the field is read.
+    fn waypoints_through_the_registry(
+        model: &RobotModel,
+        srdf: &SrdfModel,
+        configs: &PlannerConfigurationMap,
+        request: &PlanningRequest,
+    ) -> Vec<Vec<f64>> {
+        let registration = PLANNER_MANAGERS
+            .iter()
+            .find(|r| r.name == "rrt_connect")
+            .expect("RrtConnectManager must be registered under \"rrt_connect\"");
+        let manager = (registration.construct)(configs);
+        let mut scene = PlanningScene::new(model, srdf);
+        let env = ParryCollisionEnv::default();
+        let mut context = manager
+            .get_planning_context(&mut scene, &env, request)
+            .expect("panda_arm is a real group");
+        let response = context.solve().expect("an empty-world query is solvable");
+        (0..response.trajectory.way_point_count())
+            .map(|i| {
+                let state = response
+                    .trajectory
+                    .way_point(i)
+                    .expect("the index is below the count");
+                PANDA_ARM_JOINT_NAMES
+                    .iter()
+                    .map(|name| {
+                        state
+                            .variable_position(name)
+                            .expect("every panda_arm joint is in the model")
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// The round's success criterion (PORTING-PLAN.md §NEW): a
+    /// configuration written into the map the registry constructs from
+    /// changes the plan that comes out.
+    ///
+    /// `range` is RRT-Connect's per-`extend` cap, so shortening it to a
+    /// tenth of `RrtConnectManager::default`'s `0.5` forces the same search
+    /// to advance in smaller steps from the same seed. The comparison is
+    /// against the *empty* map through the same call, so what separates the
+    /// two runs is the configuration and nothing else — same registration,
+    /// same seed, same scene, same request.
+    #[test]
+    fn a_range_configuration_reaches_the_registry_planner_and_changes_the_plan() {
+        let (model, srdf) = load_panda();
+        let request = planner_request("RRTConnect", panda_goal_at(&model, 0.4));
+
+        let unconfigured = waypoints_through_the_registry(
+            &model,
+            &srdf,
+            &PlannerConfigurationMap::new(),
+            &request,
+        );
+        let configured =
+            waypoints_through_the_registry(&model, &srdf, &range_configuration("0.05"), &request);
+
+        assert_ne!(
+            unconfigured, configured,
+            "a stored `range` must change the trajectory; identical waypoints mean the \
+             configuration never reached the planner"
+        );
+        // Directional, not just different: `range` caps how far one
+        // `extend` advances, so a tenth of the default has to cross the
+        // same 0.4 rad in more of them. A configuration that reached the
+        // planner but landed on some *other* field (the seed, say) would
+        // satisfy the `assert_ne!` above and fail here. Measured: 3
+        // waypoints unconfigured, 5 configured.
+        assert!(
+            configured.len() > unconfigured.len(),
+            "a smaller `range` must produce a finer path, got {} waypoint(s) configured \
+             against {} unconfigured",
+            configured.len(),
+            unconfigured.len()
+        );
+        // Both still solve the query they were asked to solve -- otherwise
+        // "different" could be satisfied by a configuration that merely
+        // broke planning.
+        for (label, waypoints) in [("unconfigured", &unconfigured), ("configured", &configured)] {
+            // Index 0 of `PANDA_ARM_JOINT_NAMES`, the joint the goal moves.
+            let reached = waypoints.last().expect("a solved plan has waypoints")[0];
+            assert!(
+                (reached - 0.4).abs() < 1e-6,
+                "the {label} plan must still end inside the goal region, got {reached}"
+            );
+        }
+    }
+
+    /// The same configuration, keyed for a group this request does not name:
+    /// `moveit_planning::configuration_for` must not find it, so the plan is
+    /// the unconfigured one. Without this, the test above would pass just as
+    /// well against a manager that applied *any* entry in the map regardless
+    /// of which query it was written for.
+    #[test]
+    fn a_configuration_for_another_group_leaves_the_plan_alone() {
+        let (model, srdf) = load_panda();
+        let request = planner_request("RRTConnect", panda_goal_at(&model, 0.4));
+        let mut elsewhere = range_configuration("0.05");
+        let mut settings = elsewhere
+            .remove("panda_arm[RRTConnect]")
+            .expect("range_configuration keys it for panda_arm");
+        settings.group = "hand".to_string();
+        settings.name = moveit_planning::configuration_name("hand", "RRTConnect");
+        elsewhere.insert(settings.name.clone(), settings);
+
+        assert_eq!(
+            waypoints_through_the_registry(&model, &srdf, &elsewhere, &request),
+            waypoints_through_the_registry(
+                &model,
+                &srdf,
+                &PlannerConfigurationMap::new(),
+                &request
+            ),
+            "a configuration written for another group must not govern this query"
+        );
+    }
+
+    /// `range` values that must be ignored rather than applied, checked
+    /// through `params_for` because a rejection is invisible in a
+    /// trajectory (it produces the *same* plan as the empty map, which is
+    /// also what a wholly broken lookup produces).
+    ///
+    /// The non-positive cases are the load-bearing ones:
+    /// `RrtConnectParams::assert_valid` panics on them, so applying one
+    /// would turn a `/set_planner_params` call into a node crash.
+    #[test]
+    fn a_range_that_rrt_connect_cannot_use_is_ignored_rather_than_applied() {
+        let default_step = RrtConnectManager::default().params.step_size;
+        for value in ["0.0", "-0.1", "not-a-number", "", "inf", "NaN"] {
+            let manager =
+                RrtConnectManager::with_planner_configurations(&range_configuration(value));
+            let request = PlanningRequest {
+                planner_id: "RRTConnect".to_string(),
+                group_name: "panda_arm".to_string(),
+                ..PlanningRequest::default()
+            };
+            assert_eq!(
+                manager.params_for(&request).step_size,
+                default_step,
+                "`range: {value}` must leave the compiled-in step size alone"
+            );
+        }
+        // And the accepted case, so the loop above is not passing because
+        // `params_for` ignores every value it is given.
+        let manager = RrtConnectManager::with_planner_configurations(&range_configuration("0.05"));
+        let request = PlanningRequest {
+            planner_id: "RRTConnect".to_string(),
+            group_name: "panda_arm".to_string(),
+            ..PlanningRequest::default()
+        };
+        assert_eq!(manager.params_for(&request).step_size, 0.05);
     }
 
     #[test]
@@ -1195,6 +1530,7 @@ mod tests {
                 nn_degree: 8,
             },
             solver: None,
+            configurations: PlannerConfigurationMap::new(),
         };
         let template = scene.current_state().clone();
         let request = request(
@@ -1343,6 +1679,7 @@ mod tests {
                 seed,
                 params: small_budget.clone(),
                 solver: None,
+                configurations: PlannerConfigurationMap::new(),
             };
             let template = scene.current_state().clone();
             let request = PlanningRequest {
@@ -1978,6 +2315,7 @@ mod tests {
                 seed,
                 params: small_budget.clone(),
                 solver: None,
+                configurations: PlannerConfigurationMap::new(),
             };
             let template = unwired_scene.current_state().clone();
             let unwired_request = PlanningRequest {
@@ -2006,6 +2344,7 @@ mod tests {
                 seed,
                 params: small_budget.clone(),
                 solver: Some(Rc::new(RefCell::new(wired_solver))),
+                configurations: PlannerConfigurationMap::new(),
             };
             let wired_request = PlanningRequest {
                 path_constraints: Some(build_path_constraints()),
@@ -2180,6 +2519,7 @@ mod tests {
                     seed,
                     params: budget.clone(),
                     solver: None,
+                    configurations: PlannerConfigurationMap::new(),
                 };
                 let unwired_request = PlanningRequest {
                     path_constraints: path_constraints(),
@@ -2204,6 +2544,7 @@ mod tests {
                     seed,
                     params: budget.clone(),
                     solver: Some(Rc::new(RefCell::new(wired_solver))),
+                    configurations: PlannerConfigurationMap::new(),
                 };
                 let wired_request = PlanningRequest {
                     path_constraints: path_constraints(),

@@ -109,23 +109,26 @@
 //! constructed instance would be dropped with it. The node owning the store
 //! is what makes the write survive at all.
 //!
-//! A `set` is therefore observable -- a following `get` returns what it
-//! wrote, under upstream's own key rule -- but **no planner reads it**.
 //! Upstream's `setParams` ends at
 //! `planner_interface->setPlannerConfigurations(configs)`
-//! (`query_planners_service_capability.cpp:203`), handing the map to the
-//! instance the pipeline plans with; nothing here does the equivalent,
-//! because no construction path in this workspace takes a
-//! [`PlannerConfigurationMap`] as input at all.
+//! (`query_planners_service_capability.cpp:205`), handing the map to the
+//! instance the pipeline plans with. The equivalent here is not a call at
+//! all: [`moveit_planner_registry::resolve_planner`] takes the store as an
+//! argument, so the manager the next plan runs on is *built from* whatever
+//! `set` last wrote (PORTING-PLAN.md §NEW). [`spawn`] therefore returns the
+//! store rather than keeping it private -- the binary hands the same
+//! [`PlannerConfigurations`] to `moveit_ros::move_group::plan_only`, and
+//! that sharing is what makes a `set` reach a plan.
 //!
-//! That sentence is written about the *wiring*, not about whether anything
-//! plans, on purpose: the two are independent, and the wiring is the half
-//! this module owns. So it stays true whether the node's planning path
-//! answers `FAILURE` or returns a real trajectory -- and in the second case
-//! it is the sharper statement, because then a `set` is accepted, is
-//! readable, and still does not change the plan that follows it. Closing it
-//! means giving `PlannerRegistration::construct` the store to build from,
-//! which is a change to the planner-registry trait and not to this file.
+//! Which entry of the map a given plan runs under is the planner's lookup,
+//! not this module's: [`moveit_planning::configuration_for`] ports
+//! `PlanningContextManager::getPlanningContext`'s selection
+//! (`planning_context_manager.cpp:504-526`), which keys off the *request's*
+//! group and `planner_id`. One consequence is worth stating because a client
+//! will hit it: a `set` with no `group` is stored under the bare
+//! `planner_config`, and that key is one the reader never looks for -- it
+//! searches `group[planner_id]` and then the bare group name. That is
+//! upstream's behaviour too, not a gap introduced here.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -143,56 +146,24 @@ use futures::task::LocalSpawnExt;
 // links above pointed the same way and fail the doc build rather than the
 // compile, so `cargo build` alone would not have found them.
 use moveit_planner_registry::PLANNER_MANAGERS;
+use moveit_planning::{PlannerConfigurationMap, configuration_name};
 use r2r::QosProfile;
 use r2r::moveit_msgs::msg::{PlannerInterfaceDescription, PlannerParams};
 use r2r::moveit_msgs::srv::{GetPlannerParams, QueryPlannerInterfaces, SetPlannerParams};
 
-/// Upstream's `planning_interface::PlannerConfigurationSettings`
-/// (`planning_interface.hpp:56`).
-///
-/// `config` is a [`BTreeMap`] and not a `HashMap` because upstream's is a
-/// `std::map<std::string, std::string>`, whose ordering is observable: the
-/// key/value arrays `get_planner_params` replies with are filled by iterating
-/// it (`query_planners_service_capability.cpp:150-154`), so they come back
-/// sorted by key.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct PlannerConfigurationSettings {
-    /// The group this configuration belongs to, empty for a global one.
-    pub group: String,
-    /// This configuration's own key in the map: `config` for a global
-    /// configuration and `group[config]` for a group-specific one.
-    pub name: String,
-    /// The parameters themselves.
-    pub config: BTreeMap<String, String>,
-}
-
-/// Upstream's `planning_interface::PlannerConfigurationMap`
-/// (`planning_interface.hpp:72`): map from
-/// [`PlannerConfigurationSettings::name`] to the settings.
-pub type PlannerConfigurationMap = BTreeMap<String, PlannerConfigurationSettings>;
-
-/// The node's live configuration store, shared by the `get` and `set` tasks.
+/// The node's live configuration store, shared by the `get` and `set` tasks
+/// and by every plan the node runs.
 ///
 /// `Rc<RefCell<_>>` and not a lock, for the reason this binary's module doc
 /// gives for the monitored scene: one `LocalPool` on one thread, and no
 /// borrow is held across an `.await`.
-pub type PlannerConfigurations = Rc<RefCell<PlannerConfigurationMap>>;
-
-/// Upstream's key rule for a configuration
-/// (`query_planners_service_capability.cpp:143`, `:185-186`): a bare
-/// `planner_config` when no group is named, and `group[planner_config]`
-/// otherwise.
 ///
-/// One function rather than the two spellings upstream writes -- `getParams`
-/// builds the group form inline and `setParams` builds it again in a ternary
-/// -- so the reader and the writer cannot disagree about the key.
-fn config_key(group: &str, planner_config: &str) -> String {
-    if group.is_empty() {
-        planner_config.to_string()
-    } else {
-        format!("{group}[{planner_config}]")
-    }
-}
+/// The map itself is [`moveit_planning::PlannerConfigurationMap`], defined
+/// where upstream defines it (`planning_interface.hpp:72`, next to the
+/// `PlannerManager` that plans under it) rather than here: it used to live
+/// in this file, which meant the planner-registry crate could not name the
+/// type it now takes as a constructor argument (PORTING-PLAN.md §NEW).
+pub type PlannerConfigurations = Rc<RefCell<PlannerConfigurationMap>>;
 
 /// Whether `pipeline_id` names a pipeline this node serves.
 ///
@@ -274,7 +245,9 @@ fn get_response(
             // `or_insert` is that semantic; `extend`/`insert` would be the
             // opposite one, and the difference is observable to any client
             // that sets a key both globally and per group.
-            if let Some(settings) = configs.get(&config_key(&req.group, &req.planner_config)) {
+            if let Some(settings) =
+                configs.get(&configuration_name(&req.group, &req.planner_config))
+            {
                 for (key, value) in &settings.config {
                     merged.entry(key.clone()).or_insert_with(|| value.clone());
                 }
@@ -298,7 +271,7 @@ fn get_response(
 /// (`query_planners_service_capability.cpp:158-199`).
 ///
 /// Mutates `configs` in place where upstream copies the map, edits the copy
-/// and installs it with `setPlannerConfigurations` (`:198`). That copy exists
+/// and installs it with `setPlannerConfigurations` (`:205`). That copy exists
 /// because upstream's store lives behind an accessor returning a `const&`;
 /// the observable result -- the map after the call -- is the same, and the
 /// store here is owned outright.
@@ -320,7 +293,7 @@ fn apply_set(
         return false;
     }
 
-    let name = config_key(&req.group, &req.planner_config);
+    let name = configuration_name(&req.group, &req.planner_config);
     let settings = configs.entry(name.clone()).or_default();
     settings.group.clone_from(&req.group);
     settings.name = name;
@@ -338,13 +311,24 @@ fn apply_set(
     true
 }
 
-/// Creates the three services on `node` and spawns their handler tasks.
+/// Creates the three services on `node`, spawns their handler tasks, and
+/// returns the store they share.
 ///
 /// One entry point, mirroring upstream's single
 /// `MoveGroupQueryPlannersService::initialize()`
 /// (`query_planners_service_capability.cpp:56-73`), so the node binary
 /// registers this capability the way upstream loads it: as one thing.
-pub fn spawn(node: &mut r2r::Node, spawner: &LocalSpawner) -> Result<(), String> {
+///
+/// The store is *returned* rather than kept private because a planner has to
+/// be built from it -- that is this port's whole equivalent of upstream's
+/// closing `setPlannerConfigurations` call (`:205`), see this module's doc.
+/// Returning it also means the binary cannot accidentally plan against a
+/// second, empty map: there is one `PlannerConfigurationMap::new()` in this
+/// module and every reader holds an `Rc` onto it.
+pub fn spawn(
+    node: &mut r2r::Node,
+    spawner: &LocalSpawner,
+) -> Result<PlannerConfigurations, String> {
     let query = node
         .create_service::<QueryPlannerInterfaces::Service>(
             "query_planner_interface",
@@ -359,6 +343,7 @@ pub fn spawn(node: &mut r2r::Node, spawner: &LocalSpawner) -> Result<(), String>
         .map_err(|e| format!("create_service(set_planner_params): {e}"))?;
 
     let configs: PlannerConfigurations = Rc::new(RefCell::new(PlannerConfigurationMap::new()));
+    let configs_for_plans = Rc::clone(&configs);
 
     spawner
         .spawn_local(async move {
@@ -418,7 +403,7 @@ pub fn spawn(node: &mut r2r::Node, spawner: &LocalSpawner) -> Result<(), String>
         })
         .map_err(|e| format!("spawning set_planner_params task: {e}"))?;
 
-    Ok(())
+    Ok(configs_for_plans)
 }
 
 #[cfg(test)]

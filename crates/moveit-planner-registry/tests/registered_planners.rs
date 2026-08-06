@@ -22,6 +22,7 @@ use moveit_planners_sbp as _;
 
 use moveit_error::Error;
 use moveit_planner_registry::{PLANNER_MANAGERS, resolve_planner};
+use moveit_planning::PlannerConfigurationMap;
 
 /// [`PLANNER_MANAGERS`]' membership must not depend on where `linkme`
 /// happened to place each registration in the link section
@@ -45,7 +46,7 @@ fn every_expected_registration_exists_regardless_of_slice_order() {
 #[test]
 fn registration_names_match_the_managers_they_build() {
     for registration in PLANNER_MANAGERS {
-        let manager = (registration.construct)();
+        let manager = (registration.construct)(&PlannerConfigurationMap::new());
         assert_eq!(
             registration.name,
             manager.name(),
@@ -58,7 +59,8 @@ fn registration_names_match_the_managers_they_build() {
 /// workspace has.
 #[test]
 fn a_registered_name_resolves_to_that_manager() {
-    let manager = resolve_planner("rrt_connect").expect("rrt_connect is registered");
+    let manager = resolve_planner("rrt_connect", &PlannerConfigurationMap::new())
+        .expect("rrt_connect is registered");
     assert_eq!(manager.name(), "rrt_connect");
 }
 
@@ -73,7 +75,7 @@ fn an_unregistered_name_is_rejected_even_with_registrations_present() {
         !PLANNER_MANAGERS.is_empty(),
         "this test is only meaningful against a populated slice"
     );
-    let Err(err) = resolve_planner("no_such_planner") else {
+    let Err(err) = resolve_planner("no_such_planner", &PlannerConfigurationMap::new()) else {
         panic!("an unregistered planner name must not resolve");
     };
     assert!(

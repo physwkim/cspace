@@ -35,7 +35,7 @@
 //! pipeline does.
 
 use moveit_error::{Error, Result};
-use moveit_planning::PlannerManager;
+use moveit_planning::{PlannerConfigurationMap, PlannerManager};
 
 /// One [`PlannerManager`] implementation's compile-time registration.
 ///
@@ -56,12 +56,28 @@ pub struct PlannerRegistration {
     /// `registration_names_match_the_managers_they_build` is what keeps the
     /// two from drifting apart.
     pub name: &'static str,
-    /// Builds one instance of this registration's [`PlannerManager`], in
-    /// whatever default configuration that manager documents (upstream's
-    /// equivalent configuration step is `PlannerManager::initialize` plus
-    /// `setPlannerConfigurations`, both ROS-parameter-driven and both D1 —
-    /// see `moveit_planning::planner`'s module doc).
-    pub construct: fn() -> Box<dyn PlannerManager>,
+    /// Builds one instance of this registration's [`PlannerManager`], to
+    /// plan under `configs`.
+    ///
+    /// Taking the [`PlannerConfigurationMap`] here rather than offering a
+    /// setter is the whole shape of upstream's
+    /// `setPlannerConfigurations` (`planning_interface.hpp:193`) on this
+    /// side: pluginlib hands `move_group` an already-constructed plugin, so
+    /// upstream has no choice but to configure it afterwards — and
+    /// `MoveGroupQueryPlannersService::setParams` closing with
+    /// `planner_interface->setPlannerConfigurations(configs)`
+    /// (`query_planners_service_capability.cpp:205`) is a call any other
+    /// caller can forget to make. There is no plugin loader here, so the
+    /// configuration is an *argument* and a manager that plans under no
+    /// configuration at all cannot be constructed through this registry
+    /// (PORTING-PLAN.md §NEW).
+    ///
+    /// A manager reads whichever keys it documents and ignores the rest —
+    /// upstream's own rule for this map, stated on the struct
+    /// (`planning_interface.hpp:54`, "Settings with unknown keys are
+    /// ignored"). An empty map is the ordinary case, not an error: it means
+    /// the manager plans in whatever default configuration it documents.
+    pub construct: fn(&PlannerConfigurationMap) -> Box<dyn PlannerManager>,
 }
 
 /// Every [`PlannerManager`] any crate linked into the same binary
@@ -90,7 +106,8 @@ pub struct PlannerRegistration {
 #[linkme::distributed_slice]
 pub static PLANNER_MANAGERS: [PlannerRegistration];
 
-/// Build the [`PLANNER_MANAGERS`] entry registered under `name`.
+/// Build the [`PLANNER_MANAGERS`] entry registered under `name`, to plan
+/// under `configs`.
 ///
 /// Selection is by [`PlannerRegistration::name`], never by
 /// [`PLANNER_MANAGERS`]'s iteration order. That order is `linkme`'s
@@ -111,13 +128,18 @@ pub static PLANNER_MANAGERS: [PlannerRegistration];
 /// per-`(model, group)` and can legitimately fail to build, a
 /// [`PlannerManager`] is model-independent: everything that can fail about
 /// a particular query surfaces from
-/// [`PlannerManager::get_planning_context`] instead.
-pub fn resolve_planner(name: &str) -> Result<Box<dyn PlannerManager>> {
+/// [`PlannerManager::get_planning_context`] instead. `configs` cannot fail
+/// either: an entry a manager does not understand is ignored, per
+/// [`PlannerRegistration::construct`].
+pub fn resolve_planner(
+    name: &str,
+    configs: &PlannerConfigurationMap,
+) -> Result<Box<dyn PlannerManager>> {
     let registration = PLANNER_MANAGERS
         .iter()
         .find(|registration| registration.name == name)
         .ok_or_else(|| Error::unknown_name("planner manager", name))?;
-    Ok((registration.construct)())
+    Ok((registration.construct)(configs))
 }
 
 #[cfg(test)]
@@ -142,7 +164,7 @@ mod tests {
         // Destructured rather than `expect_err`: that would require `Debug`
         // on the `Ok` type, and `Box<dyn PlannerManager>` deliberately has
         // none -- a planner is not a value this crate can print.
-        let Err(err) = resolve_planner("no_such_planner") else {
+        let Err(err) = resolve_planner("no_such_planner", &PlannerConfigurationMap::new()) else {
             panic!("an unregistered planner name must not resolve");
         };
         assert!(

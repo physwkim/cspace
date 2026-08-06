@@ -201,6 +201,7 @@ use moveit_ros::joint_states::JointSampler;
 // the diff path and the topic path route through.
 use moveit_ros::monitored_scene::{self, MonitoredScene};
 use moveit_ros::move_group::plan_only;
+use moveit_ros::planner_params::PlannerConfigurations;
 use moveit_ros::planning::{PlanningRequestMsg, PlanningResponseMsgOut};
 use moveit_ros::robot_description;
 use moveit_ros::state::RobotStateMsg;
@@ -245,10 +246,11 @@ struct PlanFailure {
 /// that never reached this node.
 fn plan(
     snapshot: &Arc<PlanningScene<'static>>,
+    configs: &PlannerConfigurations,
     msg: r2r::moveit_msgs::msg::MotionPlanRequest,
     source: &str,
 ) -> r2r::moveit_msgs::msg::MotionPlanResponse {
-    let mut response = plan_inner(snapshot, msg).unwrap_or_else(|failure| {
+    let mut response = plan_inner(snapshot, configs, msg).unwrap_or_else(|failure| {
         r2r::moveit_msgs::msg::MotionPlanResponse {
             error_code: MoveItErrorCodes {
                 val: failure.val,
@@ -278,6 +280,7 @@ fn plan(
 /// child and the monitored scene the next request reads is untouched.
 fn plan_inner(
     snapshot: &Arc<PlanningScene<'static>>,
+    configs: &PlannerConfigurations,
     msg: r2r::moveit_msgs::msg::MotionPlanRequest,
 ) -> Result<r2r::moveit_msgs::msg::MotionPlanResponse, PlanFailure> {
     // Read before the move below: `PlanningRequest` has no `pipeline_id`
@@ -301,10 +304,21 @@ fn plan_inner(
     // plan against the world as it stood before the first `planning_scene`
     // message arrived.
     let env = ParryCollisionEnv::new(scene.world().clone(), Default::default());
-    let response = plan_only(&mut scene, &env, &pipeline_id, request).map_err(|e| PlanFailure {
-        val: MoveItErrorCodes::FAILURE as i32,
-        message: e.to_string(),
-    })?;
+    // Borrowed for the length of the plan, not cloned: this is the store
+    // `/set_planner_params` writes into, and the planner is constructed from
+    // whatever it holds *now* -- upstream's
+    // `setPlannerConfigurations(configs)` on the pipeline instance
+    // (`query_planners_service_capability.cpp:205`), with the direction of
+    // the hand-off reversed. The borrow ends with this statement and never
+    // spans an `.await`, the rule the whole node's `Rc<RefCell<_>>` use
+    // rests on.
+    let response =
+        plan_only(&mut scene, &env, &pipeline_id, &configs.borrow(), request).map_err(|e| {
+            PlanFailure {
+                val: MoveItErrorCodes::FAILURE as i32,
+                message: e.to_string(),
+            }
+        })?;
 
     PlanningResponseMsgOut::try_from(response)
         .map(|out| out.0)
@@ -318,10 +332,16 @@ fn plan_inner(
 /// (`plan_service_capability.cpp:69-106`).
 fn handle_request(
     snapshot: &Arc<PlanningScene<'static>>,
+    configs: &PlannerConfigurations,
     msg: GetMotionPlan::Request,
 ) -> GetMotionPlan::Response {
     GetMotionPlan::Response {
-        motion_plan_response: plan(snapshot, msg.motion_plan_request, PLAN_SERVICE_SOURCE),
+        motion_plan_response: plan(
+            snapshot,
+            configs,
+            msg.motion_plan_request,
+            PLAN_SERVICE_SOURCE,
+        ),
     }
 }
 
@@ -345,6 +365,7 @@ fn handle_request(
 /// different number under upstream's name for one.
 fn handle_move_group_goal(
     snapshot: &Arc<PlanningScene<'static>>,
+    configs: &PlannerConfigurations,
     goal: MoveGroup::Goal,
 ) -> MoveGroup::Result {
     if !goal.planning_options.plan_only {
@@ -362,7 +383,7 @@ fn handle_move_group_goal(
     // upstream's is: on the failing arm they are the empty values
     // `MotionPlanResponse::default` supplies, which is what upstream's own
     // untouched `res.trajectory` holds there too.
-    let response = plan(snapshot, goal.request, MOVE_ACTION_SOURCE);
+    let response = plan(snapshot, configs, goal.request, MOVE_ACTION_SOURCE);
     MoveGroup::Result {
         error_code: response.error_code,
         trajectory_start: response.trajectory_start,
@@ -838,12 +859,20 @@ fn main() -> ExitCode {
     // Upstream's `MoveGroupQueryPlannersService` is one capability serving
     // three services off one configuration map, so it registers as one thing
     // here too -- see `moveit_ros::planner_params`.
-    if let Err(e) = moveit_ros::planner_params::spawn(&mut node, &spawner) {
-        eprintln!("{e}");
-        return ExitCode::FAILURE;
-    }
+    // The returned store is the one the three services share, and the same
+    // handle every plan below is built from -- upstream hands its map to the
+    // planner instance from inside `setParams`; here the node holds it and
+    // the planner is constructed from it (PORTING-PLAN.md §NEW).
+    let planner_configs = match moveit_ros::planner_params::spawn(&mut node, &spawner) {
+        Ok(configs) => configs,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
+        }
+    };
 
     let scene_for_plan_service = Rc::clone(&scene);
+    let configs_for_plan_service = Rc::clone(&planner_configs);
     let spawned = spawner.spawn_local(async move {
         let mut service = service;
         while let Some(req) = service.next().await {
@@ -853,7 +882,7 @@ fn main() -> ExitCode {
             // against.
             let response = {
                 let snapshot = Arc::clone(&scene_for_plan_service.borrow());
-                handle_request(&snapshot, req.message.clone())
+                handle_request(&snapshot, &configs_for_plan_service, req.message.clone())
             };
             if let Err(e) = req.respond(response) {
                 eprintln!("responding to plan_kinematic_path request: {e}");
@@ -866,6 +895,7 @@ fn main() -> ExitCode {
     }
 
     let scene_for_move_action = Rc::clone(&scene);
+    let configs_for_move_action = Rc::clone(&planner_configs);
     let spawned = spawner.spawn_local(async move {
         let mut requests = move_action;
         while let Some(request) = requests.next().await {
@@ -894,7 +924,7 @@ fn main() -> ExitCode {
             }
             let result = {
                 let snapshot = Arc::clone(&scene_for_move_action.borrow());
-                handle_move_group_goal(&snapshot, goal.goal.clone())
+                handle_move_group_goal(&snapshot, &configs_for_move_action, goal.goal.clone())
             };
             // Upstream's three-way terminal branch (`:113-124`). Its
             // `PREEMPTED` arm has no counterpart: nothing here sets that

@@ -49,7 +49,9 @@ use std::fmt;
 
 use moveit_collision::ParryCollisionEnv;
 use moveit_planner_registry::resolve_planner;
-use moveit_planning::{PipelineError, PlannerManager, PlanningRequest, PlanningResponse};
+use moveit_planning::{
+    PipelineError, PlannerConfigurationMap, PlannerManager, PlanningRequest, PlanningResponse,
+};
 use moveit_scene::PlanningScene;
 
 /// The planner an empty `pipeline_id` resolves to.
@@ -76,13 +78,23 @@ pub const DEFAULT_PIPELINE_ID: &str = "rrt_connect";
 /// pipeline '%s'"`); this returns it instead, because the one caller
 /// [`plan_only`] puts the name into the error it reports and a log line
 /// would say it to a different audience.
-pub fn resolve_planning_pipeline(pipeline_id: &str) -> Option<Box<dyn PlannerManager>> {
+///
+/// `configs` is the node's `/set_planner_params` store, and the manager is
+/// *built from* it — upstream's `setPlannerConfigurations` on the resolved
+/// pipeline (`query_planners_service_capability.cpp:205`) has no counterpart
+/// call here because the configuration is a constructor argument instead
+/// (PORTING-PLAN.md §NEW). A caller passing an empty map gets a planner in
+/// its own documented defaults, which is what every non-ROS caller wants.
+pub fn resolve_planning_pipeline(
+    pipeline_id: &str,
+    configs: &PlannerConfigurationMap,
+) -> Option<Box<dyn PlannerManager>> {
     let name = if pipeline_id.is_empty() {
         DEFAULT_PIPELINE_ID
     } else {
         pipeline_id
     };
-    resolve_planner(name).ok()
+    resolve_planner(name, configs).ok()
 }
 
 /// Why a [`plan_only`] call produced no trajectory.
@@ -149,9 +161,10 @@ pub fn plan_only<'m>(
     scene: &mut PlanningScene<'m>,
     env: &ParryCollisionEnv,
     pipeline_id: &str,
+    configs: &PlannerConfigurationMap,
     request: PlanningRequest,
 ) -> Result<PlanningResponse<'m>, PlanOnlyError> {
-    let Some(planner) = resolve_planning_pipeline(pipeline_id) else {
+    let Some(planner) = resolve_planning_pipeline(pipeline_id, configs) else {
         return Err(PlanOnlyError::UnknownPipeline {
             pipeline_id: pipeline_id.to_string(),
         });
@@ -244,8 +257,14 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf);
         let env = ParryCollisionEnv::default();
 
-        let response = plan_only(&mut scene, &env, "", request_for(&model, 0.5))
-            .expect("one_joint's `arm` group has a reachable goal at j1 = 0.5");
+        let response = plan_only(
+            &mut scene,
+            &env,
+            "",
+            &PlannerConfigurationMap::new(),
+            request_for(&model, 0.5),
+        )
+        .expect("one_joint's `arm` group has a reachable goal at j1 = 0.5");
 
         assert_eq!(
             response.planner_id, "rrt_connect",
@@ -270,6 +289,81 @@ mod tests {
         );
     }
 
+    /// The store `planner_params::spawn` hands back reaches the planner:
+    /// the same query, planned twice through [`plan_only`], differs when a
+    /// `range` configuration is in the map.
+    ///
+    /// This is the node-side half of PORTING-PLAN.md §NEW — the sbp crate's
+    /// `a_range_configuration_reaches_the_registry_planner_and_changes_the_plan`
+    /// proves the registry hands the map on, and this proves the function
+    /// the node's goal handler actually calls carries it that far.
+    ///
+    /// Keyed `"arm"`, the bare group name: `request_for` leaves `planner_id`
+    /// empty, which is what an unmodified `MoveGroupInterface` client sends,
+    /// and an empty `planner_id` skips straight to
+    /// `moveit_planning::configuration_for`'s group-default lookup. That is
+    /// the key `/set_planner_params` writes for
+    /// `{group: "", planner_config: "arm"}`.
+    #[test]
+    fn a_stored_configuration_changes_the_plan_plan_only_produces() {
+        let (model, srdf) = one_joint();
+        let env = ParryCollisionEnv::default();
+
+        let plan_with = |configs: &PlannerConfigurationMap| {
+            let mut scene = PlanningScene::new(&model, &srdf);
+            let response = plan_only(&mut scene, &env, "", configs, request_for(&model, 0.5))
+                .expect("one_joint's `arm` group has a reachable goal at j1 = 0.5");
+            (0..response.trajectory.way_point_count())
+                .map(|i| {
+                    response
+                        .trajectory
+                        .way_point(i)
+                        .expect("the index is below the count")
+                        .variable_position("j1")
+                        .expect("j1 is one_joint.urdf's only joint")
+                })
+                .collect::<Vec<f64>>()
+        };
+
+        let name = moveit_planning::configuration_name("", "arm");
+        let mut configured = PlannerConfigurationMap::new();
+        configured.insert(
+            name.clone(),
+            moveit_planning::PlannerConfigurationSettings {
+                group: String::new(),
+                name,
+                config: [("range".to_string(), "0.05".to_string())]
+                    .into_iter()
+                    .collect(),
+            },
+        );
+
+        let unconfigured_path = plan_with(&PlannerConfigurationMap::new());
+        let configured_path = plan_with(&configured);
+        assert_ne!(
+            unconfigured_path, configured_path,
+            "a configuration in the node's store must change the plan; identical paths mean \
+             `plan_only` dropped the map on the way to the planner"
+        );
+        assert!(
+            configured_path.len() > unconfigured_path.len(),
+            "`range` caps one extend, so a tenth of the default must take more of them: \
+             got {} waypoint(s) configured against {} unconfigured",
+            configured_path.len(),
+            unconfigured_path.len()
+        );
+        for (label, path) in [
+            ("unconfigured", &unconfigured_path),
+            ("configured", &configured_path),
+        ] {
+            let reached = *path.last().expect("a solved plan has waypoints");
+            assert!(
+                (reached - 0.5).abs() < 1e-6,
+                "the {label} plan must still end inside the goal region, got j1 = {reached}"
+            );
+        }
+    }
+
     /// The `pipeline_id == ""` boundary of [`resolve_planning_pipeline`]:
     /// upstream's empty branch returns the configured default rather than
     /// looking anything up (`move_group_capability.cpp:225-229`), and this
@@ -279,8 +373,8 @@ mod tests {
     /// nothing.
     #[test]
     fn an_empty_pipeline_id_resolves_to_the_named_default() {
-        let planner =
-            resolve_planning_pipeline("").expect("an empty pipeline_id must reach the default");
+        let planner = resolve_planning_pipeline("", &PlannerConfigurationMap::new())
+            .expect("an empty pipeline_id must reach the default");
         assert_eq!(planner.name(), DEFAULT_PIPELINE_ID);
     }
 
@@ -289,11 +383,11 @@ mod tests {
     /// test above were inverted or dropped, this is the case that notices.
     #[test]
     fn a_named_pipeline_id_is_looked_up_verbatim() {
-        let planner = resolve_planning_pipeline("rrt_connect")
+        let planner = resolve_planning_pipeline("rrt_connect", &PlannerConfigurationMap::new())
             .expect("rrt_connect is registered under its own name");
         assert_eq!(planner.name(), "rrt_connect");
         assert!(
-            resolve_planning_pipeline("ompl").is_none(),
+            resolve_planning_pipeline("ompl", &PlannerConfigurationMap::new()).is_none(),
             "a pipeline_id naming no registered planner must not fall back to the default"
         );
     }
@@ -313,7 +407,13 @@ mod tests {
         // `PlanningResponse`, whose `Debug` carries a full `RobotModel` per
         // waypoint, so a regression here would bury its own message under
         // ~10 KB of fixture (measured while biting this test).
-        let Err(err) = plan_only(&mut scene, &env, "ompl", request_for(&model, 0.5)) else {
+        let Err(err) = plan_only(
+            &mut scene,
+            &env,
+            "ompl",
+            &PlannerConfigurationMap::new(),
+            request_for(&model, 0.5),
+        ) else {
             panic!("no planner is registered as 'ompl'");
         };
         match err {
@@ -342,7 +442,13 @@ mod tests {
             group_name: "not_a_group".to_string(),
             ..request_for(&model, 0.5)
         };
-        let Err(err) = plan_only(&mut scene, &env, "", request) else {
+        let Err(err) = plan_only(
+            &mut scene,
+            &env,
+            "",
+            &PlannerConfigurationMap::new(),
+            request,
+        ) else {
             panic!("one_joint.srdf has no group called 'not_a_group'");
         };
         match err {
