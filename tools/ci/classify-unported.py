@@ -506,6 +506,15 @@ def classify(upstream: str, repo: str) -> list[dict]:
     return out
 
 
+def row_line(i: dict) -> str:
+    """The one table row for `i`.  `--emit` writes it and `--check` re-derives
+    it, so the two cannot disagree about the format they are comparing."""
+    return (
+        f"| `{i['path']}` | {i['symbols']} | {i['class']} | "
+        f"{i['locus']} {i['where']} | {i['verdict']} | {i['blocks']} |"
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--upstream", default=DEFAULT_UPSTREAM)
@@ -554,7 +563,31 @@ def main() -> int:
             print(f"FAIL {args.check}: {len(missing)} missing, {len(extra)} stale, "
                   f"{len(dup)} duplicated", file=sys.stderr)
             return 1
-        print(f"OK {args.check}: {len(listed)} rows == {len(items)} unported files")
+
+        # Comparing only the row SET leaves every other column unchecked --
+        # including the `crates/.../lib.rs:NNN` in the locus column.  Those
+        # citations are bare line numbers, which `check-citation-drift.py`
+        # files under "unanchored (bounds-checked only)": a citation that
+        # moves inside its file still passes there.  Re-deriving the whole
+        # row and comparing it verbatim is what makes them drift-checked --
+        # if a crate doc shifts, the locus line or the verdict changes and
+        # this comparison fails.
+        actual = {m[1]: m[0] for m in re.findall(r"^(\| `(moveit_[^`]+)` \|.*)$", doc, re.M)}
+        drifted = []
+        for i in items:
+            if actual.get(i["path"], "").rstrip() != row_line(i).rstrip():
+                drifted.append(i["path"])
+        if drifted:
+            for p in drifted:
+                print(f"COLUMN DRIFT {p}", file=sys.stderr)
+                print(f"    doc:   {actual.get(p, '(row absent)')}", file=sys.stderr)
+                print(f"    fresh: {row_line(next(i for i in items if i['path'] == p))}",
+                      file=sys.stderr)
+            print(f"FAIL {args.check}: {len(drifted)} row(s) differ from a fresh "
+                  f"derivation -- re-run --emit", file=sys.stderr)
+            return 1
+        print(f"OK {args.check}: {len(listed)} rows == {len(items)} unported files, "
+              f"all 6 columns match a fresh derivation")
 
     if args.emit:
         with open(args.emit, "w", encoding="utf-8") as fh:
@@ -581,10 +614,7 @@ def main() -> int:
             fh.write("\n| 상류 파일 | 심볼 | 분류 | 결정 위치 | 검증 | 막는 UNMET 행 |\n")
             fh.write("|---|---|---|---|---|---|\n")
             for i in items:
-                fh.write(
-                    f"| `{i['path']}` | {i['symbols']} | {i['class']} | "
-                    f"{i['locus']} {i['where']} | {i['verdict']} | {i['blocks']} |\n"
-                )
+                fh.write(row_line(i) + "\n")
         print(f"wrote {args.emit}")
     return 0
 
