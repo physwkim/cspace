@@ -48,6 +48,21 @@ nothing. Ledgers carrying no Totals declaration at all are listed with a
 count; that is a visible gap, not a failure, since 15 of the 16 summarize
 in prose and imposing a grammar on them is their owners' call.
 
+What counts as a DECLARATION, as opposed to prose that merely mentions
+one: a declaration begins its own line at column 0. A post-mortem that
+quotes a broken total -- `handoff-2026-08-06.md`'s pre-`e0e4ed8` revision
+carried "that row's `**Totals:**` line said 70 examined / 68 in-family /
+4 not-family, which does not close" -- is reporting history, and reading
+it as a live claim asks its author to "fix" a sentence whose whole point
+is that the numbers did not add. Such a mention is inside a code span, so
+the marker is looked for on the code-span-blanked line and quotations are
+counted and reported rather than checked.
+
+The classification is total: a marker that is neither at column 0 nor
+inside a code span FAILS rather than being skipped. Silently dropping the
+in-between case is how a checker ends up reporting OK having read
+nothing, so the third bucket is a hard error that names both ways out.
+
 Named `check-` so `.github/workflows/ci.yml`'s glob runs it. Needs
 nothing but python3 and the tracked files -- no docker, no cargo, no
 upstream checkout.
@@ -91,17 +106,34 @@ def blank_code_spans(text):
 
 
 def totals_paragraphs(body):
-    """Every paragraph containing the marker, as (first_line_no, text)."""
-    found, lines, i, n = [], body.split("\n"), 0, len(body.split("\n"))
+    """Classify every marker occurrence.
+
+    Returns (declarations, quotations, ambiguous):
+      declarations -- [(first_line_no, paragraph_text)], marker at column 0
+      quotations   -- [line_no], marker inside a code span (prose about a
+                      declaration, not one itself)
+      ambiguous    -- [line_no], neither; a hard failure for the caller
+    """
+    declarations, quotations, ambiguous = [], [], []
+    lines = body.split("\n")
+    n = len(lines)
+    i = 0
     while i < n:
-        if MARKER in lines[i]:
+        if MARKER not in lines[i]:
+            i += 1
+            continue
+        if blank_code_spans(lines[i]).startswith(MARKER):
             start = i
             while i < n and lines[i].strip():
                 i += 1
-            found.append((start + 1, "\n".join(lines[start:i])))
+            declarations.append((start + 1, "\n".join(lines[start:i])))
+            continue
+        if MARKER not in blank_code_spans(lines[i]):
+            quotations.append(i + 1)
         else:
-            i += 1
-    return found
+            ambiguous.append(i + 1)
+        i += 1
+    return declarations, quotations, ambiguous
 
 
 def split_parens(text):
@@ -221,6 +253,7 @@ def check_paragraph(path, lineno, raw):
 def main():
     failures, prose_total, checks_total = [], 0, 0
     declared, ledgers, unchecked = [], [], []
+    quoted_total = 0
     for path in tracked_markdown():
         try:
             body = open(path, encoding="utf-8").read()
@@ -229,7 +262,15 @@ def main():
             return 1
         if "assertion-discrimination-ledger" in path:
             ledgers.append(path)
-        paragraphs = totals_paragraphs(body)
+        paragraphs, quotations, ambiguous = totals_paragraphs(body)
+        quoted_total += len(quotations)
+        for lineno in ambiguous:
+            failures.append(
+                f"{path}:{lineno}: a `{MARKER}` marker that neither starts its "
+                f"line nor sits inside a code span. This gate cannot tell a "
+                f"declaration from prose about one: put the declaration at "
+                f"column 0, or backtick the mention."
+            )
         if paragraphs:
             declared.append(path)
         for lineno, raw in paragraphs:
@@ -244,7 +285,9 @@ def main():
     print(
         f"{len(declared)} document(s) declare a `**Totals:` paragraph; "
         f"{checks_total} arithmetic claim(s) checked, "
-        f"{prose_total} parenthetical(s) were prose and not summed."
+        f"{prose_total} parenthetical(s) were prose and not summed; "
+        f"{quoted_total} marker(s) were quotations inside a code span and "
+        f"were not read as claims."
     )
     if unchecked:
         print(
@@ -266,9 +309,9 @@ def main():
         for f in failures:
             print(f"FAIL {f}", file=sys.stderr)
         print(
-            f"FAIL {len(failures)} Totals claim(s) do not close. Fix the "
-            f"declaration against the table's own rows -- never the other way "
-            f"round.",
+            f"FAIL {len(failures)} problem(s) in `{MARKER}` declarations. Where "
+            f"the arithmetic does not close, fix the declaration against the "
+            f"table's own rows -- never the other way round.",
             file=sys.stderr,
         )
         return 1
