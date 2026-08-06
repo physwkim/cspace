@@ -149,12 +149,18 @@ UNMET_BLOCKERS = {
     # rate: the bar itself is inherited from a different planner.
     ("Phase 8", "CHOMP/STOMP"): {
         "section": "269",
-        "blocker": "the 89.64% bar is Phase 7's, set by C++ OMPL RRTConnect, and "
-                   "§269 measures upstream's own C++ implementations missing it "
-                   "on the same 500 problems -- CHOMP 370/500 (74.0%) and STOMP "
-                   "446/500 (89.2%).  §263 measured the port short of the same "
-                   "bar.  The harness exists -- what fails is a rate compared "
-                   "against a different planner's baseline, not an absent file",
+        "blocker": "conditions 1 and 3 are MET against the same planner's C++ "
+                   "implementation, which is the baseline Phase 7 actually "
+                   "used; the row is PARTIAL for condition 2 alone, and no "
+                   "implementation satisfies it -- after 0.01 densification "
+                   "§269 counts 1 invalid path of upstream C++ CHOMP's 370, 2 "
+                   "of C++ STOMP's 446, 1 of the port CHOMP's 380 and 3 of the "
+                   "port STOMP's 441.  ChompPlanner::solve gates SUCCESS on "
+                   "isCollisionFree over its own 101 points "
+                   "(chomp_planner.cpp:284), so nothing in CHOMP inspects "
+                   "between waypoints and 100% after densification is not this "
+                   "planner class's contract.  The harness exists -- what is "
+                   "unsatisfied is a condition, not an absent file",
         "candidates": ("moveit_planners/chomp/", "moveit_planners/stomp/"),
         "adjudication":
             "the 8 candidates are all ROS plugin wiring (chomp_interface/*, "
