@@ -26126,3 +26126,118 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
 
 **Phase 7 쪽 재확인.** `verify-phase7-benchmark.sh full`은 이 라운드에서
 39개 전량 통과, 벽시계 4787초(`doc/phase7-benchmark-results.json`).
+
+---
+
+## §NEW planner-params 3종을 묶는다 — 상류가 한 capability로 내보내는 것을 한 모듈로 (2026-08-06)
+
+Phase 9의 클라이언트 표면에서 비어 있던 세 엔드포인트
+(`query_planner_interface`, `get_planner_params`, `set_planner_params`)를
+`ros/moveit-ros`에 붙였다. 상류는 이 셋을 파일 하나
+(`moveit_ros/move_group/src/default_capabilities/query_planners_service_capability.cpp`)의
+`initialize()` 한 번에서 만들고 설정 맵 하나를 공유시킨다. 그래서 여기서도 한
+모듈(`ros/moveit-ros/src/planner_params.rs`)이고, 노드 바이너리 쪽 변경은
+등록 한 줄이다 — 같은 라운드에 여러 패널이 이 바이너리에 엔드포인트를
+넣고 있어서, capability 단위로 파일을 가르는 것이 브랜치를 서로 떼어놓는다.
+
+### §NEW.1 지시받은 전제가 틀렸다 — 파이프라인 4개가 아니라 등록 1개다
+
+이 과제의 브리프는 "ompl, chomp, stomp, pilz 여러 파이프라인이
+`distributed_slice`로 등록되어 있으니 그 레지스트리에서 답을 유도하라"고
+적었다. 설계 전에 다시 유도했고, 전제가 거짓이다. 열거한 결과:
+
+```
+$ rg -n "distributed_slice\(PLANNER_MANAGERS\)" crates/ ros/
+crates/moveit-planners-sbp/src/registry.rs:784:#[linkme::distributed_slice(PLANNER_MANAGERS)]
+```
+
+등록은 하나(`"rrt_connect"`)다. `PLANNER_MANAGERS`는 상류의 **플러그인**
+층위(`PlannerManager`)에 대응하는 레지스트리이지 파이프라인 레지스트리가
+아니고, 이 포트에는 파이프라인이라는 개념 자체가 없다. chomp/stomp/pilz가
+`PlannerManager`를 언급하는 곳은 문서 주석뿐이다.
+
+전제가 틀렸다고 해서 과제가 없어지지는 않는다 — 오히려 답이 단순해진다.
+레지스트리에서 유도하라는 지시의 **이유**(손으로 적은 목록은 매니저가
+하나 늘면 그날로 낡는다)는 등록이 하나여도 그대로 성립하므로, 유도는
+지시대로 하고 목록의 길이만 1이다.
+
+### §NEW.2 `pipeline_id`는 세 다리 모두에서 `""`다
+
+파이프라인이 없으므로 `pipeline_id`에 실을 값이 없다. 세 다리가 서로
+어긋나지 않도록 한 규칙으로 고정했다: **광고하는 값과 받아들이는 값이
+같다.**
+
+- `query_planner_interface`가 내보내는 description의 `pipeline_id`는 `""`.
+- `get`/`set`은 `""`만 해석하고 그 밖은 전부 미해석 취급.
+
+`""`는 상류에서도 "기본 파이프라인"이고, 무변경 클라이언트가 실제로 보내는
+유일한 값이다. 매니저 이름(`"rrt_connect"`)을 파이프라인 id인 척 실어보내는
+쪽은 택하지 않았다 — 한 필드가 두 뜻을 갖게 되고, 그 이중성이 바로 다음
+라운드의 경계 사례를 만든다.
+
+### §NEW.3 저장소의 주인은 노드다
+
+상류의 저장소는 `PlannerManager::config_settings_`이고,
+`setPlannerConfigurations`가 쓰고 파이프라인이 계획할 때 읽는 **같은
+인스턴스**다. 여기서는 `PlannerRegistration::construct`가 호출마다 새
+`Box<dyn PlannerManager>`를 만들기 때문에, 구성된 인스턴스에 쓴 설정은 그
+인스턴스와 함께 사라진다. 그래서 맵의 주인을 노드로 두었다
+(`Rc<RefCell<PlannerConfigurationMap>>`, 세 핸들러가 공유). 쓰기가 살아남는
+유일한 소유 형태다.
+
+### §NEW.4 `set`이 조용히 버려지지 않는지는 wire에서만 보인다
+
+`SetPlannerParams`의 응답에는 필드가 없다 — 오류 코드도, 확인도 없다.
+요청을 파싱하고 버린 핸들러와 저장한 핸들러는 **`set`의 응답만으로는
+구분되지 않는다**. 구분하는 관측은 뒤따르는 `get` 하나뿐이고, 그것이
+`ros/verify-planner-params-interop.sh` leg B가 하는 일이다.
+
+이 게이트를 처음 돌렸을 때 실패했고, 실패가 결함을 하나 드러냈다.
+`ros2 service call`은 응답 앞에 요청을 되울린다
+(`requester: making request: ..._Request(...)`). 이 서비스들은 요청과 응답이
+같은 key/value 문자열을 나르므로, 전체 출력에 대고 건 단언은 "노드가
+저장했다"와 "ros2가 내 요청을 되찍었다"를 구분할 수 없다. 즉 이 게이트의
+가장 중요한 단언이 **저장을 확인하지 못하는 상태**였다. 고친 방식은 우회가
+아니라 구조다: `reply_of()`가 각 호출의 `@@@` 표지 블록 안 `_Response(` 줄만
+잘라내고, 모든 응답 단언이 그 조각에만 걸린다. 요청 되울림은 이제 닿을 수
+없는 곳에 있다. 표지를 잘못 적으면 빈 문자열에 대고 통과해버리는 구멍이
+`assert_reply_lacks`에 생기므로, 빈 응답 가드를 **두 헬퍼 모두**에 넣었다.
+
+### §NEW.5 판별 변이
+
+게이트가 무언가를 보고 있다는 것은 통과로는 증명되지 않는다. 두 다리를
+각각 깨서 확인했다(둘 다 컨테이너에서 실제 실행, 이후 되돌림):
+
+- `apply_set`의 쓰기 루프를 무동작으로 바꿨다 — 요청을 받고 조용히 버리는,
+  이 다리가 존재하는 바로 그 실패. 게이트가
+  `FAIL leg B stored params: expected this string in that reply and did not
+  find it: keys=['range'], values=['0.1']`로 실패했고 leg A는 초록이었다.
+- `resolves_pipeline`이 항상 참을 돌려주게 했다 — 서비스하지 않는
+  `pipeline_id`를 받아들이는 경우. 게이트가
+  `FAIL leg B rejected set did not land: this string must not appear in that
+  reply and did: values=['9.9']`로, **다른** 단언에서 실패했다.
+
+변이 하나로는 두 단언이 서로를 대신하는지 알 수 없어서 둘을 나눠 돌렸다.
+각 변이가 자기 다리에서만 걸린다.
+
+단위 시험 쪽 12개 사이트의 변별 근거는
+`doc/assertion-discrimination-ledger-p11-planner-params.md`에 사이트별로
+적었다. 이미지에 `cargo-nextest`가 없어서(`error: no such command: nextest`)
+그 라운드만 `cargo test`로 돌렸고, 그 사실을 그 문서에 적었다.
+
+### §NEW.6 닫지 않은 것
+
+- **저장된 설정은 어떤 플래너에도 닿지 않는다.** 상류의 `setParams`는
+  `setPlannerConfigurations`로 끝나면서 파이프라인이 계획에 쓰는 인스턴스에
+  맵을 넘긴다. 여기에는 대응하는 호출이 없고, 애초에 이 워크스페이스의 어떤
+  구성 경로도 `PlannerConfigurationMap`을 입력으로 받지 않는다. 즉 `set`은
+  받아들여지고 `get`으로 읽히지만 뒤따르는 계획을 바꾸지 않는다. 닫으려면
+  `PlannerRegistration::construct`가 저장소를 받아야 하고, 그것은 플래너
+  레지스트리 트레이트의 변경이라 이 파일의 일이 아니다.
+- **머지 시점의 import.** 이 브랜치의 base에서 `PLANNER_MANAGERS`는
+  `moveit-planners-sbp`에 있고, `main`에서는 `moveit-planner-registry`
+  크레이트로 옮겨져 있다(그 크레이트는 이 base에 존재하지 않는다). sbp는
+  거기에 비공개 `use`로 닿고 워크스페이스 어디에도 재수출이 없으므로, 새
+  파일인 `planner_params.rs`는 **충돌 없이 머지되고 그 다음 컴파일에서
+  깨진다**. 고칠 곳은 import 한 줄과 `Cargo.toml`의 의존 한 줄이며, 읽는 값은
+  달라지지 않는다. 파일 안 주석에도 같은 내용을 적어두었다.
