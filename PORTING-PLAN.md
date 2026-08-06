@@ -15687,7 +15687,7 @@ p6-totg가 §196 가드를 자기 두 fixture에 넣었다(`d49461e`). 넣은 �
 (§202), 그 둘은 같지 않다. `link_names()`가 비어 있지 않은데
 `updated_link_names()`가 빈 그룹은 이 가드를 통과하면서 여전히 공허하다.
 
-chomp에도 해당한다. `optimizer.rs:1146`가 `group_name`을 `CollisionRequest`에
+chomp에도 해당한다. `optimizer.rs:1259`가 `group_name`을 `CollisionRequest`에
 실어 보내고, 그것을 받는 `ParryCollisionEnv`의 `active_group_links`
 (`parry.rs:1330`)가 `updated_link_names()`를 읽는다. 즉 chomp의 충돌 단언이
 공허해지는지를 결정하는 집합도 `updated_link_names()`이지 `link_names()`가
@@ -19947,7 +19947,7 @@ D6은 "모든 `moveit_msgs` 변환은 `moveit-ros`의 `TryFrom`"이다. 이 함�
 
 트리에서 상류 `planning_interface::MotionPlanDetailedResponse`의 대응물은
 하나뿐이고, `doc/port-coverage.md:146`이 이미 그렇게 판정해 두었다:
-`crates/moveit-planners-chomp/src/planner.rs:205`의 `ChompSolution`. 그
+`crates/moveit-planners-chomp/src/planner.rs:207`의 `ChompSolution`. 그
 타입의 필드는 셋이다 — `trajectory: RobotTrajectory<'m>`(벡터가 아니라
 **하나**), `planner_id: String`, `description: String`(벡터가 아니라
 **하나**). `processing_time`도 `error_code`도 없다(전자는 §138.3, 후자는
@@ -20030,7 +20030,7 @@ ROS 그래프에서 받을 수 있는 곳이 없다.
 ### §234.5 이 절이 하지 않은 것
 
 - `ChompSolution`을 벡터 형태로 넓히지 않았다. 그것은 상류 chomp가 항상
-  길이 1로 resize한다는 `crates/moveit-planners-chomp/src/planner.rs:193-203`의 감사와 어긋나며, 이 절은
+  길이 1로 resize한다는 `crates/moveit-planners-chomp/src/planner.rs:195-205`의 감사와 어긋나며, 이 절은
   그 감사를 다시 열지 않는다.
 - `ros/moveit-ros/Cargo.toml`을 건드리지 않았다. 의존 간선은 추가되지
   않았다.
@@ -22626,7 +22626,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 4 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `crates/moveit-planners-sbp/src/lib.rs:284-332` (`# Round 6 symbol audit`), `crates/moveit-planners-stomp/src/lib.rs:68-106` (completion statement) | 7 |
 | 5 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request.hpp` | `crates/moveit-planning/src/request.rs:4-10` | 1 |
 | 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:414` (`PlanningRequestAdapter`) | 0 |
-| 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:193` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
+| 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:195` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
 | 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:430` (`PlanningResponseAdapter`) | 0 |
 | 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:449-466` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:63-71` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
 | 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-7`, `:56` | 2 |
@@ -22671,7 +22671,7 @@ $ rg -n '^\| Phase ' PORTING-PLAN.md | rg -v '\| MET \|'
 |---|---|---|---|
 | Phase 3 `collision: bool` | §229.1 | ~~상류에 정합할 규약이 자체가 없다 — `z = 0` 정확 접선에서 상류의 답이 한 값으로 정해지지 않는다. 빠진 코드가 아니라 정의되지 않은 의미론이다~~ → **§251이 대체.** 규약이 없는 것이 아니라 fcl의 협면 특수화 등록표가 규약 자리에 있고, prbt의 `cylinder × box`가 그 표의 빈칸이다(§251.1이 49셀 중 49셀을 그 기준으로 가른다). 정의되지 않은 의미론이 아니라 쌍마다 정해진 디스패치다 | **0**. 이 행이 재는 코드는 `moveit_core/collision_detection_fcl/src/collision_common.cpp`이고, 그 디렉터리는 `CORE_EXCLUDED_SUBDIRS`라 코퍼스 245에 애초에 들어오지 않는다 |
 | Phase 3 `distance: f64` | §229.3 | 상류 `distanceCallback`(`collision_detection_fcl/src/collision_common.cpp:471`)이 다른 양을 잰다 — 최대 침투깊이 접촉의 부호를 뒤집은 값. 배율이 아니라 정의 차이다 | **0**. 위와 같은 파일·같은 이유 |
-| Phase 8 CHOMP/STOMP | §217.3 | 포트 쪽에 속성 기반 하네스가 없다. Phase 7의 대응물은 `crates/moveit-planners-sbp/examples/plan_benchmark_{port,problem_set}.rs`이고 chomp/stomp 크레이트에는 `examples/`·`benches/` 자체가 없다 | **0**. 87건 중 chomp/stomp는 8건이지만 전부 ROS 플러그인 배선(`chomp_interface/*`, `stomp_moveit_planner_plugin.cpp`, `trajectory_visualization.hpp`)이고, Phase 7 하네스는 플러그인을 거치지 않는다 — `plan_benchmark_port.rs:182`는 `moveit_planners_sbp::PlannerManager`를 직접 쓰고, 대응 진입점은 이미 있다(`moveit-planners-chomp/src/planner.rs:407 solve`, `moveit-planners-stomp/src/planner.rs:430 plan`) |
+| Phase 8 CHOMP/STOMP | §217.3 | 포트 쪽에 속성 기반 하네스가 없다. Phase 7의 대응물은 `crates/moveit-planners-sbp/examples/plan_benchmark_{port,problem_set}.rs`이고 chomp/stomp 크레이트에는 `examples/`·`benches/` 자체가 없다 | **0**. 87건 중 chomp/stomp는 8건이지만 전부 ROS 플러그인 배선(`chomp_interface/*`, `stomp_moveit_planner_plugin.cpp`, `trajectory_visualization.hpp`)이고, Phase 7 하네스는 플러그인을 거치지 않는다 — `plan_benchmark_port.rs:182`는 `moveit_planners_sbp::PlannerManager`를 직접 쓰고, 대응 진입점은 이미 있다(`moveit-planners-chomp/src/planner.rs:420 solve`, `moveit-planners-stomp/src/planner.rs:430 plan`) |
 | Phase 9 `MoveGroupInterface` | §226.4, §250 | **이 표가 쓰인 시점에는** 서버 쪽이 없었다 — `fn main`을 갖는 노드 바이너리도, `/plan_kinematic_path` 서비스도, `/move_action` 액션 서버도 없었다. 셋 다 §250이 같은 병합 창에서 지었으므로(`ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`) 지금 남은 것은 호출할 플래너가 없다는 것이고, 그것은 D8이 소유한 결정이다 | **0**. 이 행을 막는 상류 코드는 `moveit_ros/move_group/**`이고(예: `src/default_capabilities/plan_service_capability.cpp`가 `/plan_kinematic_path`를 연다), 코퍼스에 `moveit_ros/` 파일은 0건이다 |
 
 **`인용 §` 열은 이 표가 쓰인 시점의 값이다.** 그 뒤로 §5 표에서 두 칸이
@@ -26132,7 +26132,7 @@ upstream에 있고 이 실행에는 없는 경로를 보증하는 셈이 된다.
 
 이 수가 **하한이지 등식이 아닌** 이유도 실측이다. 최적화기는 클로저를
 `iteration % 10 == 0`에서 부르고 루프는 `start_time.elapsed() >
-planning_time_limit`에서 나간다(`optimizer.rs:1764`, `optimizer.rs:1781`). 같은 시드로 연속
+planning_time_limit`에서 나간다(`optimizer.rs:1926`, `optimizer.rs:1945`). 같은 시드로 연속
 두 번 돌린 pilot에서 나머지 per-set 수치는 전부 같고 fanuc_floor_wall의 호출
 수만 9 → 10으로 달랐다. 벽시계에 달린 수를 등식으로 핀하면 그 핀은 기계 부하를
 잰다.
@@ -27267,8 +27267,8 @@ ULP까지 일치한다는 것이다. 그리고 남은 114건이 왜 다른지는
 - 상류: `chomp_optimizer.cpp:568`의 `rsl::uniform_real(0., 1.)`, 바로 위
   `chomp_optimizer.cpp:566`의 `if (parameters_->use_stochastic_descent_)`
   안에 있다.
-- 포트: `optimizer.rs:1501`의 `rng.random_range(0.0..1.0)`,
-  `optimizer.rs:1500`의 `if self.parameters.use_stochastic_descent` 안에 있다.
+- 포트: `optimizer.rs:1618`의 `rng.random_range(0.0..1.0)`,
+  `optimizer.rs:1617`의 `if self.parameters.use_stochastic_descent` 안에 있다.
 
 상류 CHOMP에 난수 소비자로 보이는 다른 두 자리는 살아 있지 않다.
 `ChompOptimizer::perturbTrajectory`(`chomp_optimizer.cpp:959`)의 유일한 호출은
@@ -30220,7 +30220,7 @@ op은 요청의 `motion_resolution`을
 늘 100%인 바는 아무것도 재지 않을 수 있다. 특히 CHOMP에서는 의심할 이유가
 분명하다 — `ChompPlanner::solve`가 SUCCESS를 `optimizer->isCollisionFree()`로
 판정하므로(`chomp_planner.cpp:284`, 포트에서 같은 자리는
-`crates/moveit-planners-chomp/src/planner.rs:503`의
+`crates/moveit-planners-chomp/src/planner.rs:516`의
 `if !optimizer.is_collision_free() {`), "해결했다"가 "자기 waypoint에서 충돌
 없다"를 이미 함의하는 것처럼 보인다.
 
@@ -30233,7 +30233,7 @@ C++ 쪽 FCL)를 본다. 그래서 포트의 그 한 줄을 `if false && !…`로
 | | 해결 | 자기 waypoint에서 조건 2 실패 | 0.01에서 조건 2 실패 |
 | --- | --- | --- | --- |
 | 원본 | 380/500 | **0** | 1 |
-| `crates/moveit-planners-chomp/src/planner.rs:503`의 `if !optimizer.is_collision_free() {`를 막음 | 500/500 | **111** | 112 |
+| `crates/moveit-planners-chomp/src/planner.rs:516`의 `if !optimizer.is_collision_free() {`를 막음 | 500/500 | **111** | 112 |
 
 바가 문다. 되돌린 뒤 `cage` id 0-19를 같은 씨앗으로 재실행한 결과가 기록된
 스윕의 해당 20행과 **바이트 동일**하다.
@@ -30260,7 +30260,7 @@ stratum의 씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지�
 질문이다.
 
 **생성기의 범위.** 진입점은 양쪽에 이미 있다 —
-`crates/moveit-planners-chomp/src/planner.rs:276`의
+`crates/moveit-planners-chomp/src/planner.rs:289`의
 `pub seed_trajectory: Option<&'a RobotTrajectory<'m>>,`, 포트 STOMP의
 `planner::extract_seed_trajectory`, 상류 STOMP의 `extractSeedTrajectory`
 (`stomp_moveit_planning_context.cpp:94`, `req.trajectory_constraints`를
@@ -30303,7 +30303,7 @@ stratum의 씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지�
 - **fanuc과 나머지 세 로봇.** 이 절의 모든 수는 panda_arm이다. §264.7의
   fanuc stratum은 씨앗 유효 비율이 이보다 훨씬 높았다(해결 문제 전부).
 - **조건 2를 자기 검사 단위에서 STOMP에 대해 무력화하는 변이.** §286.8은
-  CHOMP 쪽 `crates/moveit-planners-chomp/src/planner.rs:503`의
+  CHOMP 쪽 `crates/moveit-planners-chomp/src/planner.rs:516`의
   `if !optimizer.is_collision_free() {`만 껐다. STOMP 쪽의 대응 변이는
   §263.6이 `COLLISION_PENALTY` = 0으로 이미 한 번 걸었지만,
   그것은 0.01 바에 대한 것이고 0.05 바에 대해 다시 걸지는 않았다.
@@ -31798,7 +31798,7 @@ goal 1.0에서 내려가고(`last == best`, `descent > 0`) goal 1.8에서
 
 **검사 B — 문장 기준. 별도로 돌렸고, 8건이 실패한다.** 현재 트리에서 이 두
 파일을 가리키는 전체 경로 인용을 전부 열거하면 55건이고(재매핑 대상 53건에
-새 원장의 `optimizer.rs:2206`과 축약→전체 변환 1건이 더해진 수), 55건 각각에 대해
+새 원장의 `optimizer.rs:2383`과 축약→전체 변환 1건이 더해진 수), 55건 각각에 대해
 "이 문장이 이름하는 코드가 지금 가리키는 줄에 실제로 있는가"를 소스를 열어
 판정했다. 통과 47, 실패 8. 실패 8건은 전부 이 라운드 이전부터 main에서
 틀려 있었고(옛 값과 그때의 실제 위치를 아래 표에 같이 적었다), 검사 A를
@@ -31809,12 +31809,12 @@ goal 1.0에서 내려가고(`last == best`, `descent > 0`) goal 1.8에서
 
 | 문서 | 문장이 이름하는 것 | main (실제 위치) | 이 라운드가 쓴 값 | 고친 값 |
 |---|---|---|---|---|
-| `PORTING-PLAN.md` §264.8 | `iteration % 10 == 0` | 1582 (실제 1588) | 1758 | `optimizer.rs:1764` |
-| `PORTING-PLAN.md` §264.8 | `start_time.elapsed() > planning_time_limit` | 1598 (실제 1605) | 1774 | `optimizer.rs:1781` |
-| `doc/claim-audit/moveit-planners-chomp.md` | `ChompOptimizer::optimize`의 span | 1458-1554 (실제 1537-1633) | 1589-1704 | `optimizer.rs:1681-1809` |
-| `doc/claim-audit/moveit-planners-chomp.md` | 클로저에 `self.best_group_trajectory`를 넘기는 코드 | 1509-1510 (실제 1589) | 1653-1654 | `optimizer.rs:1765` |
-| `doc/claim-audit/moveit-planners-chomp.md` | `optimizer.rs`가 든 `chomp_optimizer.cpp` 인용 | 886 (실제 883) | 1007 | `optimizer.rs:1004` |
-| `doc/upstream-bugs.md` | 이중 증가를 재현하는 포트 쪽 코드 | 912 (문서 산문 한가운데) | 1033 | `optimizer.rs:1764-1779` (+ 산문 `optimizer.rs:1023-1034`) |
+| `PORTING-PLAN.md` §264.8 | `iteration % 10 == 0` | 1582 (실제 1588) | 1758 | `optimizer.rs:1926` |
+| `PORTING-PLAN.md` §264.8 | `start_time.elapsed() > planning_time_limit` | 1598 (실제 1605) | 1774 | `optimizer.rs:1945` |
+| `doc/claim-audit/moveit-planners-chomp.md` | `ChompOptimizer::optimize`의 span | 1458-1554 (실제 1537-1633) | 1589-1704 | `optimizer.rs:1826-1986` |
+| `doc/claim-audit/moveit-planners-chomp.md` | 클로저에 `self.best_group_trajectory`를 넘기는 코드 | 1509-1510 (실제 1589) | 1653-1654 | `optimizer.rs:1927` |
+| `doc/claim-audit/moveit-planners-chomp.md` | `optimizer.rs`가 든 `chomp_optimizer.cpp` 인용 | 886 (실제 883) | 1007 | `optimizer.rs:1108` |
+| `doc/upstream-bugs.md` | 이중 증가를 재현하는 포트 쪽 코드 | 912 (문서 산문 한가운데) | 1033 | `optimizer.rs:1926-1943` (+ 산문 `optimizer.rs:1127-1138`) |
 
 표는 6행이고 실패는 8건이다 — 범위 인용 두 건(1589-1704, 1653-1654)이
 각각 숫자 두 개를 실은 인용이라 열거에서 2로 세어진다.
@@ -31824,9 +31824,9 @@ goal 1.0에서 내려가고(`last == best`, `descent > 0`) goal 1.8에서
 행 73의 축약 인용 444(2회)와 363-373은 이 라운드가 `planner.rs`를
 +25줄 민 뒤에도 그대로 남았다 — 그 행의 전체 경로 인용은 이 라운드가 고쳤고
 같은 문장 안의 축약형만 안 고친 것이다. 손으로 읽어
-`crates/moveit-planners-chomp/src/planner.rs:473`
+`crates/moveit-planners-chomp/src/planner.rs:486`
 (`.map_err(|_| Error::Code(MoveItErrorCode::PlanningFailed))?`)과
-`crates/moveit-planners-chomp/src/planner.rs:388-398`(`solve`의 `# Errors`
+`crates/moveit-planners-chomp/src/planner.rs:401-411`(`solve`의 `# Errors`
 문단)로 고쳤다. 444는 main에서도 이미 네 줄 어긋나 있었다(그때의 실제 위치
 448). 축약형은 `check-shorthand-citations.py`가 개수만 얼리고 해석은
 일부러 하지 않는 형식이라(그 스크립트 헤더가 세 가지 해석 규칙이 각각 이
@@ -31845,7 +31845,7 @@ goal 1.0에서 내려가고(`last == best`, `descent > 0`) goal 1.8에서
 생성했다.
 
 **어느 게이트도 이 8건을 잡지 못한다 — 되돌려서 확인했다.** 고친 뒤
-`optimizer.rs:1764`와 `optimizer.rs:1781`을 틀린 값 1758/1774로 되돌리고 기준선을 다시
+`optimizer.rs:1926`와 `optimizer.rs:1945`을 틀린 값 1758/1774로 되돌리고 기준선을 다시
 생성한 뒤 세 게이트를 돌렸다: `check-citation-drift.py` **OK**,
 `check-shorthand-citations.py` **OK**, `verify-orphan-enumeration.sh`
 **OK**. 틀린 줄도 파일 범위 안이고, 드리프트 게이트에서는 등급이
@@ -31991,3 +31991,300 @@ span을 지우고 판정하게 됐는데, 판정만 가린 사본에서 하고 *
 - **`## Gate scope` 다섯 절.** 커버리지 경계 선언이고 같은 계열이지만
   판정하지 않았다.
 - **§291의 어휘 후보 전수.** 20/486(또는 1588)만 봤다.
+
+## §296 249는 최적화가 실패한 횟수가 아니라 0번째 반복에서 이미 성립한 종료 조건이다 — 그 249에서 upstream C++도 같은 길이의 궤적을 돌려준다 (2026-08-07)
+
+§293.3이 실은 수는 이것이다. 해결한 380문제 중 **249**(`floor_wall` 148 +
+`cage` 101)에서 `improvement == 0`, 131에서 `improvement > 0`,
+`improvement < 0`은 0. §293.4는 그 249가 0번째 반복의 메시 검사에 달려
+있다는 것까지 보였지만 — 그 검사 하나를 억제하니 249가 20으로 무너졌다 —
+**왜** 그런지는 네 후보 중에서 가르지 않았다. 이 라운드가 가른다.
+
+후보 넷:
+
+1. 씨앗이 이미 업데이트가 벗어날 수 없는 지역 최소점이다
+2. 씨앗 위에서 충돌항이 어디서나 0이라 gradient가 smoothness뿐이고,
+   직선 씨앗은 이미 smoothness 최적이다
+3. 업데이트는 계산되지만 **기각**된다 — `best_group_trajectory_`가 0번째
+   반복에서 정해지고 한 번도 지지 않는다. 이것은 "하강이 없었다"와 다른
+   진술이다
+4. learning rate / `joint_update_limit` 스케일이 증분을 비용이 분해할 수
+   없는 크기로 무너뜨린다
+
+넷 다 아니다(§296.3). 답은 다섯 번째다 — 루프의 성공 조건이 0번째 반복의
+씨앗 위에서 이미 참이라 갱신된 궤적이 비용으로 **재어진 적이 없다**. 그리고
+그 249는 다른 플래너를 돌린 다른 하네스가 "씨앗이 이미 충돌 없음"으로 짚는
+249와 문제 id 단위로 같다(§296.6) — 즉 249는 이 문제집합의 성질이다.
+
+### §296.1 계측기: 비용이 아니라 루프를 싣는다
+
+`ChompObjectiveProgress`는 비용이 무엇이었는지만 말한다. 후보 3과 나머지를
+가르는 것은 비용이 아니라 **평가 횟수**다: "계산해 보니 더 나빠서 버렸다"와
+"비용으로 재본 적이 아예 없다"는 `improvement == 0` 하나에서 구별되지
+않는다. 그래서 `ChompLoopTrace`
+(`crates/moveit-planners-chomp/src/optimizer.rs:786`)를 `ChompSolution`에
+따로 싣는다(`crates/moveit-planners-chomp/src/planner.rs:258`).
+
+| 필드 | 읽는 것 |
+|---|---|
+| `evaluations` | 루프 본문이 돈 횟수 = 목적함수를 잰 횟수. **1이면 갱신된 궤적이 한 번도 비용으로 재어지지 않았다** |
+| `exit` | 셋 중 어느 출구인가 (`crates/moveit-planners-chomp/src/optimizer.rs:752`) |
+| `accepted` | `chomp_optimizer.cpp:338`의 accept 분기가 발화한 횟수. 0번째 반복의 seeding은 세지 않는다 |
+| `mesh_free_passes` | `chomp_optimizer.cpp:371`의 메시 검사가 참이 된 pass 수 |
+| `below_threshold_passes` | `chomp_optimizer.cpp:408`의 `c_cost < collision_threshold_`가 참이 된 pass 수 |
+| `seed_points_within_clearance` | 씨앗에서 potential이 0이 아닌 충돌점 수 (free 구간) |
+| `seed_points_in_collision` | 씨앗에서 upstream의 `point_is_in_collision_`이 참인 충돌점 수 (패딩 포함 전 구간) |
+| `first_pass_max_update` | 첫 pass가 실제로 **적용한** 최대 절댓값 변화 — `joint_update_limit` 재스케일 **이후** |
+
+마지막 필드 때문에 `add_increments_to_trajectory`
+(`crates/moveit-planners-chomp/src/optimizer.rs:471`)가 반환값을 갖는다.
+스케일 규칙이 그 함수 안에 있으므로
+(`crates/moveit-planners-chomp/src/optimizer.rs:501`) 밖에서 다시 구하는
+것은 같은 규칙의 두 번째 구현이 된다. upstream은 이 값을 계산하고 버린다
+(`chomp_optimizer.cpp:659`의 로그가 주석 처리되어 있다).
+
+두 seed 계수는 **범위도 술어도 다르다**. 하나는 free 구간을,
+다른 하나는 `iteration_ == 0`에서 `performForwardKinematics`가 도는 전
+구간(`chomp_optimizer.cpp:868-874`)을 센다. 그리고 `radius > min_clearance`인
+구면은 충돌로 표시되면서 potential이 0일 수 있다. 어느 쪽도 다른 쪽의
+부분집합이 아니다 — 이것은 표를 읽는 규칙이라 필드 주석에 적었다.
+
+### §296.2 실측: 249는 전부 `evaluations == 1`이다
+
+`tools/ci/measure-chomp-objective.sh`가 `loop`를 요구하고
+(`tools/ci/measure-chomp-objective.sh:146`) 두 층으로 갈라 요약한다
+(`tools/ci/measure-chomp-objective.sh:171`). 같은 500문제, 같은
+`PORT_SEED_BASE=700001`, 같은 비구속 시계 `1e9`.
+
+| 층 | n | `evaluations` 최소/중앙/최대 | `evaluations == 1` | `exit` | `accepted` 최소/중앙/최대 | `mesh_free_passes` | `below_threshold_passes` |
+|---|---|---|---|---|---|---|---|
+| `floor_wall`, `improvement == 0` | 148 | 1 / 1 / 1 | **148** | `break_out` 148 | 0 / 0 / 0 | 1 / 1 / 1 | 0 |
+| `floor_wall`, `improvement > 0` | 47 | 11 / 21 / 41 | 0 | `break_out` 47 | 2 / 8 / 19 | 1 / 1 / 1 | 0 |
+| `cage`, `improvement == 0` | 101 | 1 / 1 / 1 | **101** | `break_out` 101 | 0 / 0 / 0 | 1 / 1 / 1 | 0 |
+| `cage`, `improvement > 0` | 84 | 11 / 21 / 41 | 0 | `break_out` 84 | 3 / 10 / 34 | 1 / 1 / 1 | 0 |
+
+`evaluations`가 취하는 값은 다섯 개뿐이다 — `floor_wall` 1×148, 11×20,
+21×12, 31×10, 41×5 이고 `cage` 1×101, 11×37, 21×20, 31×13, 41×14. 즉 메시
+검사가 도는 반복(0, 10, 20, 30, 40)에서만 루프가 끝나고, **처음 성공하는
+그 검사에서 끊긴다**. `max_iterations`가 50이므로 40이 마지막 검사 지점이고,
+거기서도 실패하면 `is_collision_free`가 거짓이라 포트는
+`INVALID_MOTION_PLAN`을 돌려준다 — 실제로 해결 실패 120건(`floor_wall` 55,
+`cage` 65)이 전부 그 코드다. 그래서 해결한 380건의 `exit`가 예외 없이
+`break_out`인 것이다.
+
+씨앗 쪽 수치는 두 층에서 이렇게 갈린다.
+
+| 층 | 씨앗 충돌점(전 구간) 최소/중앙/최대 | clearance 안 점(free) 최소/중앙/최대 | 씨앗 충돌항 중앙값 | 첫 pass 적용 최대변화 최소/중앙/최대 |
+|---|---|---|---|---|
+| `floor_wall`, `improvement == 0` | 484 / 836.5 / 1291 | 2376 / 2654.5 / 3441 | 16.776712980631956 | 0.00015529859207150427 / 0.0014267981757956631 / 0.0907901798966965 |
+| `floor_wall`, `improvement > 0` | 820 / 1126 / 1737 | 2539 / 2890 / 3553 | 54.067643429786465 | 0.0002753888166777878 / 0.001997599644343607 / 0.1 |
+| `cage`, `improvement == 0` | 697 / 903 / 1256 | 2449 / 2985 / 3427 | 17.104870274525208 | 0.00023866488247968636 / 0.0027132831513867954 / 0.09834752078356726 |
+| `cage`, `improvement > 0` | 882 / 1211 / 1855 | 2684 / 3114 / 3437 | 53.400928124217520 | 0.0002854833581494031 / 0.0060721695505636065 / 0.1 |
+
+두 층은 씨앗 자체가 다르다 — 개선하는 층의 씨앗이 충돌점을 더 많이 들고
+충돌항이 3배 크다. 그러나 그 차이는 정도의 차이이고, 두 층을 갈라놓는
+것은 `evaluations`의 1 대 11 이상이라는 **불연속**이다.
+
+### §296.3 후보 넷의 판정
+
+| 후보 | 판정 | 반증한 측정값 |
+|---|---|---|
+| 1. 씨앗이 지역 최소점 | **거짓** | 첫 pass가 적용한 변화가 249건 전부 0이 아니다(최소 0.00015529859207150427). 그리고 §296.5의 대조군은 씨앗도 업데이트도 그대로 둔 채 첫 메시 검사만 억제하는데, 249 중 229가 진짜 개선으로 바뀐다 — 벗어날 수 없는 최소점이 아니다 |
+| 2. 씨앗 위 충돌항이 0 | **거짓** | `seed_collision_is_zero`가 380건 중 **0**이다. 249건의 씨앗 충돌항 중앙값은 16.78(`floor_wall`)·17.10(`cage`)이고 충돌점 수 최솟값이 484다 |
+| 3. 계산했으나 기각 | **249에 대해서는 거짓** | `evaluations == 1`이 249/249. 기각할 두 번째 비용이 존재한 적이 없다. 단, 이 문장은 §296.5의 대조군에서 살아남는 20건의 정확한 서술이다 — 그 20건은 `evaluations` 11에 `accepted` 0이다 |
+| 4. 증분이 무너진다 | **거짓** | 적용된 최대변화 중앙값이 0.00143(`floor_wall`)·0.00271(`cage`)이고, 최댓값은 `joint_update_limit`의 0.1에 걸린다. 무너진 것이 아니라 재어지지 않았다 |
+
+남는 설명은 후보 목록에 없던 다섯째다: **루프의 성공 판정이 0번째
+반복에서 씨앗에 대해 성립한다.** `iteration_ % 10 == 0`
+(`chomp_optimizer.cpp:368`)은 0번째 반복에서 참이고, 거기서 불리는
+`isCurrentTrajectoryMeshToMeshCollisionFree`(`chomp_optimizer.cpp:520-537`)는
+이름과 달리 **`best_group_trajectory_`를 읽는다**
+(`chomp_optimizer.cpp:530`) — 0번째 반복에서 그것은 방금 스냅숏한 씨앗이다
+(`chomp_optimizer.cpp:334`). 참이면 `num_collision_free_iterations_ = 0`이
+되고(`chomp_optimizer.cpp:373`) 바로 아래 `should_break_out` 게이트의
+`num_collision_free_iterations_ == 0` 분기가 즉시 끊는다
+(`chomp_optimizer.cpp:477-483`). 끝에서 돌려주는 것은
+`best_group_trajectory_`, 즉 씨앗이다(`chomp_optimizer.cpp:507`).
+
+포트는 같은 순서로 같은 것을 한다
+(`crates/moveit-planners-chomp/src/optimizer.rs:1926`,
+`crates/moveit-planners-chomp/src/optimizer.rs:1979-1983`). 그 pass의 증분은
+계산되고 궤적에 적용까지 되지만, 그것을 비용으로 잴 두 번째
+`perform_forward_kinematics`가 오지 않는다.
+
+그래서 249는 "최적화기가 249번 실패했다"가 아니라 **"249문제에서 씨앗이
+이미 이 플래너의 성공 조건을 만족했다"**이다. CHOMP은 그 문제들에서
+최적화기가 아니라 타당성 검사기로 동작한다.
+
+### §296.4 upstream C++ 대조: 같은 249, 같은 길이
+
+`chompPlan`은 목적함수도 waypoint도 내보내지 않는다 — 문제당 나오는 것은
+`{id, solved, error_code, failure, length?, condition2...}`뿐이다
+(`tools/moveit-oracle/src/oracle.cpp:6247-6259`). 그래서 대조는 `length`로
+한다. 두 하네스가 **같은 plan-space 메트릭**을 같은 방식으로 합산하므로
+(`tools/moveit-oracle/src/oracle.cpp:6021-6034` 대
+`crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs:627-630`,
+부분공간 가중치는 양쪽 다 `1/(max-min)`:
+`tools/moveit-oracle/src/oracle.cpp:695` 대
+`crates/moveit-planners-sbp/src/joint_model_group_space.rs:153`), 두 값의
+일치는 두 경로에 대한 진술이다. 씨앗 길이를 URDF 경계에서 다시 유도하는
+길은 택하지 않았다 — 그것은 비교 도구가 피하려는 바로 그 두 번째 구현이다.
+
+어느 쪽이 씨앗을 돌려줬는가는 **길이가 아니라 포트의 트레이스**로 판정한다:
+`evaluations == 1`이고 `accepted == 0`이면 `best`는 0번째 반복 스냅숏
+그대로다. 계측기는 `tools/ci/compare-chomp-cpp-seed-return.sh`이고, C++ 쪽은
+`tools/ci/measure-phase8-cpp-baseline.sh`를 `SET_FILE`로 **포트가 푼 것과
+같은 바이트의 문제집합**에 대고 돌린 것이다(`chomp`, 250문제 × 2,
+`PLANNER_SEED_BASE=700001`, `CHOMP_MAX_ITERATIONS=50`,
+`CHOMP_CLOCK_BOUND=3600`, 문제당 오라클 프로세스 1개).
+
+| 셀 | `floor_wall` | `cage` |
+|---|---|---|
+| 포트 해결 | 195 | 185 |
+| C++ 해결 | 190 | 180 |
+| 양쪽 해결 | 187 | 176 |
+| 양쪽 해결 · **포트가 씨앗 반환 · C++ 길이 동일** | **148** | **101** |
+| 양쪽 해결 · 포트가 씨앗 반환 · C++ 길이 다름 | 0 | 0 |
+| 양쪽 해결 · 포트가 최적화 · C++ 길이 동일 | 0 | 0 |
+| 양쪽 해결 · 포트가 최적화 · C++ 길이 다름 | 39 | 75 |
+| 포트만 해결 | 8 | 9 |
+| C++만 해결 | 3 | 4 |
+| 0이 아닌 최소 상대 길이차 | 0.000025381177369544128 | 0.00005035094683866147 |
+
+**upstream C++ CHOMP은 같은 249문제에서 같은 길이의 궤적을 돌려준다.**
+비트 단위로 같고, 어긋나는 셀은 네 칸 중 두 칸이 정확히 0이다. 길이가 같다는
+것이 경로가 같다는 증명은 아니므로 마지막 줄을 같이 싣는다 — "다름" 쪽에서
+가장 작은 차이가 상대 2.5e-5이고, "같음" 쪽은 정확히 0이다. 그 사이에
+tolerance가 아니라 **빈 구간**이 있다.
+
+그러므로 이것은 upstream 대비 이탈이 **아니고**, `doc/upstream-bugs.md`에
+들어갈 항목도 아니다. 이 라운드가 옮긴 것은 그 사실의 **관측 가능성**이다.
+
+해결 집합이 어긋나는 17건(포트만 8+9)은 이 판정에 닿지 않는다 — 전부 포트
+쪽에서 최적화한 층에 있고, 249는 전부 양쪽이 해결한 문제다. 성공률 차이는
+§286.5가 이미 seed 추첨으로 기록한 별도의 양이다.
+
+### §296.5 대조군: 배포 형상과 첫 메시 검사 억제, 나란히
+
+계수기가 다른 값을 보고할 수 있어야 0이 측정값이 된다. `optimize`의 메시
+검사 조건을 `self.iteration > 0 && self.iteration % 10 == 0`으로 바꿔 0번째
+반복의 검사만 없애고, 같은 500문제를 다시 돌렸다. §293.4는 하네스 클로저의
+첫 호출을 억제해 같은 팔을 만들었는데, 두 방식이 같은 수를 낸다.
+
+| 계수기 | 배포 형상 | 첫 메시 검사만 억제 |
+|---|---|---|
+| 해결 | 380 (195 / 185) | 380 (195 / 185) |
+| `improvement == 0` | **249** (148 / 101) | **20** (15 / 5) |
+| `improvement > 0` | 131 | 360 |
+| `improvement < 0` | 0 | 0 |
+| `descent < 0` | **0** | **39** (30 / 9) |
+| `descent` 최솟값 | **0.0** | **-0.49293650003892253** (`cage` 단독 -0.24314168596174568) |
+| `evaluations == 1` | **249** | **0** |
+| `evaluations` 최솟값 | 1 | 11 |
+
+왼쪽 열이 있어야 오른쪽 열이 의미를 갖는다. `descent < 0`이 배포 형상에서
+0인 것은 같은 코드·같은 문제집합·같은 seed에서 39를 보고할 수 있는 계수기의
+0이고, `evaluations == 1`의 249 → 0은 억제한 것이 정확히 그 249를 만들던
+검사였음을 말한다. 변경은 되돌렸고(`md5sum` 일치), 되돌린 뒤 스윕을 한 번
+더 돌려 요약 JSON이 첫 실행과 바이트 단위로 같음을 확인했다.
+
+살아남는 20건이 후보 3의 정확한 서술이다: `evaluations` 11, `accepted` 0 —
+업데이트를 열 번 재고 열 번 다 기각했다. 249와 같은 현상이 아니다.
+
+### §296.6 같은 문제집합, 다른 플래너: 249는 CHOMP의 성질이 아니라 씨앗의 성질이다
+
+p12-oraclecite 패널(브랜치 `caucus/H8F9NKVWVW/p12-oraclecite-25e926a6-1`,
+이 트리에 아직 병합되지 않았다)이 포트 STOMP를 두 250문제집합에 돌리면서
+씨앗을 따로 기록해 두었다. 아래 수는 전부 그 출력 파일에서 **내가 다시
+유도한** 것이고, 그쪽 절이 병합되면 절 번호를 여기에 붙여야 한다. 그 집합
+파일은 이 라운드가 쓴 것과 **바이트 단위로 같다**:
+
+    $ md5sum <내 스윕>/floor_wall.250.900001.set.json <오라클사이트>/base/floor_wall.250.900001.set.json
+    dfa126bc1b32c991ebd31f72a99c2996  ... (양쪽 동일)
+    $ md5sum <내 스윕>/cage.250.900002.set.json       <오라클사이트>/base/cage.250.900002.set.json
+    d727fe2d7da4fade979bd2c69414d752  ... (양쪽 동일)
+
+그쪽 `seed/seed.<config>.ndjson`은 문제마다 `seed_valid`를 싣는다 — 내
+optimizer의 내부 상태가 아니라, 씨앗 궤적을 바깥에서 검사한 결과다. 두
+계측을 **문제 id 단위로** 맞대면:
+
+| | `floor_wall` | `cage` |
+|---|---|---|
+| 내 CHOMP 씨앗반환 (`evaluations == 1 and accepted == 0`) | 148 | 101 |
+| 저쪽 `seed_valid == true` | 148 | 101 |
+| 둘 다 참인 id | **148** | **101** |
+| 씨앗반환인데 `seed_valid == false` | 0 | 0 |
+| `seed_valid == true`인데 CHOMP가 최적화함 | 0 | 0 |
+| `seed_valid == true`인데 CHOMP가 못 풂 | 0 | 0 |
+
+총계가 아니라 **id별로** 완전히 겹친다. 두 하네스가 같은 궤적을 씨앗으로
+쓴다는 것도 따로 재었다: 249건에서 내 반환 `length`와 저쪽 `seed_length`의
+상대차 최댓값이 `floor_wall` 8.420994854821069e-16, `cage`
+9.715899272202089e-16(정확히 같은 것 32건 / 16건)이다.
+
+**그러므로 249는 "CHOMP가 249번 최적화에 실패했다"가 아니라 "이 500문제
+중 249개는 quintic-spline 씨앗이 이미 충돌 없는 경로다"이다.** 내 crate
+바깥의 계측기가 같은 249를 짚는다. §293.3의 65.5%는 CHOMP의 성질이 아니라
+이 문제집합과 씨앗 생성기의 성질이다. CHOMP는 그 249를 전부 풀고
+(`seed_valid`이면서 못 푼 id 0건), 씨앗이 유효하지 않은 층에서 47(`floor_wall`)
++ 84(`cage`)를 더 풀어 195/185가 된다.
+
+층을 나누면 플래너 차이가 처음으로 보인다. 같은 집합 위의 STOMP를 내가
+직접 재유도한 값이다(`base/port.stomp.<config>.ndjson`의 `length` 대
+`seed/seed.<config>.ndjson`의 `seed_length`):
+
+| 층 | CHOMP 씨앗반환 | STOMP 길이동일 |
+|---|---|---|
+| `seed_valid == true` (`floor_wall` 148) | 148/148 = **100%** | 30/148 = **20.3%** |
+| `seed_valid == true` (`cage` 101) | 101/101 = **100%** | 25/101 = **24.8%** |
+| `seed_valid == false` (`floor_wall` 91 solved) | 0 | **0** |
+| `seed_valid == false` (`cage` 101 solved) | 0 | **0** |
+
+두 플래너 모두 무작동이 유효씨앗 층에만 있다. 그 층 **안에서** CHOMP는
+예외 없이 씨앗을 돌려주고 STOMP는 넷 중 셋꼴로 경로를 옮긴다. 이유는
+§296.2가 이미 말한 구조다: CHOMP의 루프는 증분을 적용하기 **전에**
+0번째 반복에서 성공 조건을 시험하고
+(`crates/moveit-planners-chomp/src/optimizer.rs:1926`) 곧바로 나간다.
+STOMP에는 그 위치의 검사가 없다. 구체적 예 — `floor_wall` id 2는 씨앗이
+유효하고, CHOMP는 `evaluations == 1`로 그 씨앗을 그대로 돌려주며
+(길이 1.869867477225658), STOMP는 같은 문제에서 1.869990191441325를
+돌려준다.
+
+두 가지를 분명히 해 둔다.
+
+- **길이가 같다는 것은 궤적이 같다는 것이 아니다.** 내 249는 코드 수준
+  사실(`evaluations == 1`, `accepted == 0` → 돌려주는 것이 0번째 반복의
+  스냅숏 그 자체)이라 길이에 기대지 않지만, STOMP 쪽 30/25는 길이 동일성뿐이다.
+  이를 격상하려면 waypoint 단위 비교나 STOMP 쪽 `ChompLoopTrace` 상당물이
+  필요하다. 이 라운드는 하지 않았다.
+- **전달받은 40.2% / 32.2%는 그 파일들에서 나오지 않는다.** 내가 위 명령으로
+  재유도한 값은 30/239(12.6%)와 25/202(12.4%)이고, 이는 오라클사이트 자신의
+  `rederive.txt` E절이 적은 값과 같다. 이 절은 재유도한 값만 쓴다.
+
+### §296.7 비용
+
+포트 스윕 벽시계 **140초**(문제집합 생성 포함, 25샤드). C++ 기준선은
+`floor_wall` **52초** + `cage` **54초**, `JOBS=24`, 문제당 오라클 프로세스
+하나(문제당 `wall_secs` 2.5~3.1초). 이 셋은 기계와 부하의 읽기이고 위의
+어떤 계수기도 그렇지 않다 — `1e9` 시계 인자와 `CHOMP_CLOCK_BOUND=3600`이
+양쪽에서 벽시계 의존성을 없앤다. C++ 쪽은 내용 주소 캐시가 있어 두 번째
+실행은 재사용된다. opt-in 게이트를 붙이지 않는 이유는 §293.5와 같다.
+
+### §296.8 남는 것
+
+- **`isCurrentTrajectoryMeshToMeshCollisionFree`의 이름이 몸통과 어긋난다.**
+  "Current"라고 하면서 `best_group_trajectory_`를 읽는다
+  (`chomp_optimizer.cpp:530`). 돌려주는 것이 `best`이므로 동작은 오히려
+  맞고 이름만 틀렸다. `doc/upstream-bugs.md`에 넣지 않았다 — 이 트리에서
+  실패를 만들지 않는다.
+- **유효 반복 예산은 50이 아니라 40이다.** 메시 검사가 0/10/20/30/40에서만
+  돌므로 41~49의 아홉 pass는 성공 판정을 받을 기회가 없다. 이 라운드는
+  그 아홉 pass가 비용을 얼마나 낮추는지 재지 않았다.
+- **20건(대조군에서 살아남는 층)의 원인.** `accepted == 0`이 열 pass 내내
+  유지되는 이유는 재지 않았다.
+- **STOMP 쪽 30/25가 정말 씨앗반환인지.** §296.6의 STOMP 열은 길이
+  동일성이고, 그것이 궤적 동일성을 함의하지 않는다. waypoint 단위 비교나
+  STOMP 쪽 루프 추적이 있어야 CHOMP 열과 같은 종류의 사실이 된다.
+- **유효씨앗 층 안의 20.3% / 24.8%가 STOMP의 어느 종료 조건에서 나오는지.**
+  이 라운드는 STOMP 코드를 읽지 않았다 — 그 비율은 남의 하네스 출력에서
+  재유도한 수이지 STOMP 루프에 대한 진술이 아니다.
