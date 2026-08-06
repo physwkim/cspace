@@ -30501,7 +30501,7 @@ fcl 라인 번호는 전부 **tag `0.7.0`**
 ### §NEW.2 이 포트에도 같은 모양의 표가 있고, 빈칸이 다르다
 
 `parry3d_f64`의 `DefaultQueryDispatcher::contact`
-(`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs:304-357`)는 구조가
+(`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs:305-359`)는 구조가
 같다: `Ball`/`Ball`은 `contact_ball_ball`, 공 대 볼록은
 `contact_ball_convex_polyhedron`/`contact_convex_polyhedron_ball`, 그 밖은
 전부 `contact_support_map_support_map` — 반복 허용오차가 경계를 정하는 GJK —
@@ -30522,7 +30522,7 @@ URDF가 만들 수 있는 세 프리미티브의 여섯 쌍을 두 표에 겹치
 
 `sphere × sphere`는 양쪽 다 특수화가 있는데도 빠진다. 두 닫힌 형태가 경계
 자체의 **반대편**을 잡기 때문이다: fcl은
-`if(len > s1.radius + s2.radius) return false;`(`sphere_sphere-inl.h:71-72`)로
+`if(len > s1.radius + s2.radius) return false;`(`sphere_sphere-inl.h:72-73`)로
 접촉을 포함하고, parry는
 `if distance_squared < sum_radius_with_error * sum_radius_with_error`
 (`parry3d-f64-0.30.0/src/query/contact/contact_ball_ball.rs:16`)로 접촉을
@@ -30537,7 +30537,7 @@ URDF가 만들 수 있는 세 프리미티브의 여섯 쌍을 두 표에 겹치
 
 fcl은 상대 물체 **안의** 가장 가까운 점을 닫힌 형태로 구한 뒤
 `if (squared_distance > r * r) return false;`로만 기각한다
-(`sphere_box-inl.h:119-120`, `sphere_cylinder-inl.h:135-136`). parry는 같은
+(`sphere_box-inl.h:119-120`, `sphere_cylinder-inl.h:136-137`). parry는 같은
 물체에 공의 중심을 같은 클램프로 사영하고
 (`parry3d-f64-0.30.0/src/query/point/point_cuboid.rs:8-12`,
 `parry3d-f64-0.30.0/src/query/point/point_cylinder.rs:7-70`)

@@ -48,7 +48,7 @@
 //!
 //! **This port.** `parry3d_f64`'s `DefaultQueryDispatcher::contact` has the
 //! same shape and a *different* blank set
-//! (`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs:304-357`):
+//! (`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs:305-359`):
 //! `Ball`/`Ball` goes to `contact_ball_ball`, a ball against anything convex
 //! goes to `contact_ball_convex_polyhedron` /
 //! `contact_convex_polyhedron_ball`, and everything else -- including
@@ -74,7 +74,7 @@
 //! `sphere x sphere` is specialised on both sides and still excluded, because
 //! the two closed forms disagree about the boundary itself: fcl rejects on
 //! `if(len > s1.radius + s2.radius) return false;`
-//! (`sphere_sphere-inl.h:71-72`) -- contact included -- while parry accepts on
+//! (`sphere_sphere-inl.h:72-73`) -- contact included -- while parry accepts on
 //! `if distance_squared < sum_radius_with_error * sum_radius_with_error`
 //! (`parry3d-f64-0.30.0/src/query/contact/contact_ball_ball.rs:16`) -- contact
 //! excluded. §251.3 measured that cell as this port's one non-uniform tangency
@@ -83,7 +83,7 @@
 //! The two that survive share a predicate the way §283's three did. fcl finds
 //! the nearest point *inside* the other body and rejects on
 //! `if (squared_distance > r * r) return false;`
-//! (`sphere_box-inl.h:119-120`, `sphere_cylinder-inl.h:135-136`); parry
+//! (`sphere_box-inl.h:119-120`, `sphere_cylinder-inl.h:136-137`); parry
 //! projects the ball centre onto the same body with the same closed-form clamp
 //! (`parry3d-f64-0.30.0/src/query/point/point_cuboid.rs:8-12`,
 //! `parry3d-f64-0.30.0/src/query/point/point_cylinder.rs:7-70`) and accepts on
