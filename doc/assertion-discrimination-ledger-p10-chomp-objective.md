@@ -38,7 +38,7 @@ stated so it can be checked).
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `crates/moveit-planners-chomp/src/optimizer.rs:2206` | `ChompOptimizer::objective`'s `Option` when `optimize`'s loop body never ran | `objective_is_none_when_no_iteration_ever_evaluated_it` | single-branch | read + two bites, below |
+| `crates/moveit-planners-chomp/src/optimizer.rs:2383` | `ChompOptimizer::objective`'s `Option` when `optimize`'s loop body never ran | `objective_is_none_when_no_iteration_ever_evaluated_it` | single-branch | read + two bites, below |
 
 **read.** `objective()` returns `self.best_objective` verbatim, and that
 field has exactly two writers: the constructor's `None` initializer, and the

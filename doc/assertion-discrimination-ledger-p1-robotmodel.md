@@ -70,13 +70,13 @@ expression, never the full crate; no bite touched a convergence test.
 | `cost.rs:424` | `max_quad_cost_inv_value`'s zero-dimension guard | `max_quad_cost_inv_value_rejects_zero_free_points` | single-branch | bite: neutralized guard (`if false`) → test failed (`unwrap_err()` on `Ok`); reverted |
 | `cost.rs:493` | `cost()`'s length guard | `cost_and_derivative_reject_mismatched_length` | discriminating | bite: neutralized `cost()`'s guard alone (leaving `derivative()`'s intact) → test failed via nalgebra dimension panic at the `cost()` call specifically; reverted |
 | `cost.rs:497` | `derivative()`'s length guard | same test | discriminating | bite (mirror): neutralized `derivative()`'s guard alone (leaving `cost()`'s intact) → test failed via nalgebra panic at the `derivative()` call specifically; reverted |
-| `optimizer.rs:2933` | `add_increments_to_trajectory`'s shape guard | `add_increments_to_trajectory_rejects_shape_mismatch` | single-branch | bite: neutralized guard → test failed (nalgebra dimension panic); reverted |
-| `optimizer.rs:2988` | `handle_joint_limits`'s length guard | `handle_joint_limits_rejects_joint_costs_length_mismatch` | single-branch | bite: neutralized guard → test failed (`unwrap_err()` on `Ok`); reverted |
-| `crates/moveit-planners-chomp/src/planner.rs:1098` | `validate_recovery_time_limit`'s combined finite/range guard | `validate_recovery_time_limit_rejects_a_value_whose_plus_five_overflows_i32` | single-branch | bite: forced the guard's condition to `true \|\| ...` → all 4 rejection tests failed, both boundary-accept tests stayed green; reverted |
-| `crates/moveit-planners-chomp/src/planner.rs:1122` | same | `validate_recovery_time_limit_rejects_a_value_whose_plus_five_underflows_i32` | single-branch | same bite |
-| `crates/moveit-planners-chomp/src/planner.rs:1127` | same | `validate_recovery_time_limit_rejects_nan` | single-branch | same bite |
-| `crates/moveit-planners-chomp/src/planner.rs:1132` | same | `validate_recovery_time_limit_rejects_infinity` (+inf) | single-branch | same bite |
-| `crates/moveit-planners-chomp/src/planner.rs:1133` (`validate_recovery_time_limit_rejects_infinity`) | same | same test (-inf) | single-branch | same bite |
+| `optimizer.rs:3307` | `add_increments_to_trajectory`'s shape guard | `add_increments_to_trajectory_rejects_shape_mismatch` | single-branch | bite: neutralized guard → test failed (nalgebra dimension panic); reverted |
+| `optimizer.rs:3362` | `handle_joint_limits`'s length guard | `handle_joint_limits_rejects_joint_costs_length_mismatch` | single-branch | bite: neutralized guard → test failed (`unwrap_err()` on `Ok`); reverted |
+| `crates/moveit-planners-chomp/src/planner.rs:1112` | `validate_recovery_time_limit`'s combined finite/range guard | `validate_recovery_time_limit_rejects_a_value_whose_plus_five_overflows_i32` | single-branch | bite: forced the guard's condition to `true \|\| ...` → all 4 rejection tests failed, both boundary-accept tests stayed green; reverted |
+| `crates/moveit-planners-chomp/src/planner.rs:1136` | same | `validate_recovery_time_limit_rejects_a_value_whose_plus_five_underflows_i32` | single-branch | same bite |
+| `crates/moveit-planners-chomp/src/planner.rs:1141` | same | `validate_recovery_time_limit_rejects_nan` | single-branch | same bite |
+| `crates/moveit-planners-chomp/src/planner.rs:1146` | same | `validate_recovery_time_limit_rejects_infinity` (+inf) | single-branch | same bite |
+| `crates/moveit-planners-chomp/src/planner.rs:1147` (`validate_recovery_time_limit_rejects_infinity`) | same | same test (-inf) | single-branch | same bite |
 | `crates/moveit-planners-chomp/src/trajectory.rs:695` | `from_num_points`'s `num_points < 2` guard (`Error::Other`, distinct variant from the function's other guard, `Error::UnknownName` via `?`) | `from_num_points_rejects_fewer_than_two_points` | discriminating | bite: neutralized the `num_points < 2` guard → test failed (subtract-with-overflow panic downstream); the `matches!(err, Error::Other(_))` shape excludes the sibling `UnknownName` variant by construction; reverted |
 | `crates/moveit-planners-chomp/src/trajectory.rs:697` | same guard, `num_points == 0` case | same test | discriminating | same bite/anchor |
 | `crates/moveit-planners-chomp/src/trajectory.rs:997` | `source.group().is_none()` — precondition sanity check, not `fill_in_from_trajectory`'s own guard | `fill_in_from_trajectory_rejects_a_trajectory_with_no_group` | not-this-family | commit `77a5d7d` (the test's substantive assertion, a few lines below, already checks the error message to discriminate among `fill_in_from_trajectory`'s several `Error::other` sites; this line only confirms the fixture has no group) |
@@ -536,8 +536,8 @@ this round would otherwise derive.
 | `cost.rs:391` | `DIFF_RULES rows` | discriminating | not in "DIFF_RULE_LENGTH-1" or "singular" |
 | `cost.rs:404` | `DIFF_RULE_LENGTH-1` | discriminating | not in the other 2 |
 | `cost.rs:436` | `singular` | discriminating | not in the other 2 |
-| `optimizer.rs:2828` | `joint_costs has` | discriminating | not in `ChompCost::derivative`'s joint_trajectory-length message |
-| `optimizer.rs:2897` (`calculate_total_increments_rejects_column_count_mismatch`) | `columns` | discriminating | in-code: "appears only in this one's message" among 3 sites |
+| `optimizer.rs:3202` | `joint_costs has` | discriminating | not in `ChompCost::derivative`'s joint_trajectory-length message |
+| `optimizer.rs:3271` (`calculate_total_increments_rejects_column_count_mismatch`) | `columns` | discriminating | in-code: "appears only in this one's message" among 3 sites |
 | `crates/moveit-planners-chomp/src/trajectory.rs:712` | `discretization must be finite and positive` | discriminating | not in "would require more than" or `from_num_points`'s num_points<2 message |
 | `crates/moveit-planners-chomp/src/trajectory.rs:727` (`from_duration_rejects_negative_discretization`) | same | discriminating | same guard, negative-discretization boundary |
 | `crates/moveit-planners-chomp/src/trajectory.rs:748` | same | discriminating | same guard, negative/negative boundary that divides positive |

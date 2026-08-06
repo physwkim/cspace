@@ -76,7 +76,7 @@
 //! own shape plus one attribution field,
 //! `{"id", "solved", "length"?, "condition2_valid"?,
 //! "invalid_waypoint_count"?, "condition2_valid_at_returned_waypoints"?,
-//! "objective"?, "failure"?}`. See [`returned_waypoints`] for what the extra
+//! "objective"?, "loop"?, "failure"?}`. See [`returned_waypoints`] for what the extra
 //! field is for and why it is not the condition-2 number.
 //!
 //! # `objective`, and why it is three pairs rather than one number
@@ -109,6 +109,32 @@
 //! upstream computes and discards, so `descent < 0` says gradient descent
 //! ended above where it started and only the best-snapshot kept the answer
 //! from being worse than its own input.
+//!
+//! # `loop`, and why `improvement == 0` needs it
+//!
+//! `improvement == 0` has more than one cause and `objective` cannot tell
+//! them apart: a seed at a local minimum, a collision term with no support, an
+//! update computed and rejected, and an update scaled to nothing all produce
+//! the same zero. `loop` is
+//! [`ChompSolution::loop_trace`](moveit_planners_chomp::ChompSolution::loop_trace)
+//! -- the loop's own account of what it did -- and it separates them.
+//!
+//! ```text
+//! "loop": {"evaluations": n, "exit": "iteration_bound"|"clock_limit"|"break_out",
+//!          "accepted": k, "mesh_free_passes": m, "below_threshold_passes": b,
+//!          "seed_points_within_clearance": w, "seed_points_in_collision": c,
+//!          "first_pass_max_update": u}
+//! ```
+//!
+//! `evaluations` is the one to read first: the objective is evaluated at the
+//! *top* of each pass and the increments are applied after it, so
+//! `evaluations == 1` means the loop left before any updated iterate was ever
+//! costed, and no cause that needs a second evaluation can be the reason.
+//! `accepted` counts the passes that beat the running best, so `accepted == 0`
+//! with `evaluations > 1` is the "computed and rejected" case. `u` is the
+//! largest change the first pass actually applied after
+//! `joint_update_limit`'s rescale, so a `u` at the limit rules out a
+//! collapsed update.
 //!
 //! A request carrying `condition2_resolutions: [r, ...]` additionally gets
 //! `condition2_by_resolution`, one condition-2 verdict per `r` over the same
@@ -180,8 +206,8 @@ use moveit_geometry::{Cuboid, Isometry3, Shape, Vector3};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planners_chomp::optimizer::ChompCollisionContext;
 use moveit_planners_chomp::{
-    ChompGoal, ChompObjective, ChompObjectiveProgress, ChompParameters, ChompRequest,
-    GoalJointConstraint, solve,
+    ChompExit, ChompGoal, ChompLoopTrace, ChompObjective, ChompObjectiveProgress, ChompParameters,
+    ChompRequest, GoalJointConstraint, solve,
 };
 use moveit_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use moveit_scene::PlanningScene;
@@ -453,6 +479,29 @@ fn objective_json(progress: &ChompObjectiveProgress) -> serde_json::Value {
     })
 }
 
+/// Serialises one [`ChompLoopTrace`] into the `loop` object this file's
+/// header documents.
+///
+/// `exit` is a string rather than an index so a consumer cannot silently
+/// re-map it when a variant is added; the three names are
+/// `ChompExit`'s own.
+fn loop_json(trace: &ChompLoopTrace) -> serde_json::Value {
+    serde_json::json!({
+        "evaluations": trace.evaluations,
+        "exit": match trace.exit {
+            ChompExit::IterationBound => "iteration_bound",
+            ChompExit::ClockLimit => "clock_limit",
+            ChompExit::BreakOut => "break_out",
+        },
+        "accepted": trace.accepted,
+        "mesh_free_passes": trace.mesh_free_passes,
+        "below_threshold_passes": trace.below_threshold_passes,
+        "seed_points_within_clearance": trace.seed_points_within_clearance,
+        "seed_points_in_collision": trace.seed_points_in_collision,
+        "first_pass_max_update": trace.first_pass_max_update,
+    })
+}
+
 /// Everything one request's problems share, built once by [`main`] and read
 /// by [`Bench::solve_problem`] for each problem.
 ///
@@ -612,6 +661,9 @@ impl<'m> Bench<'m> {
                 // change, not a configuration.
                 if let Some(progress) = solution.objective {
                     record["objective"] = objective_json(&progress);
+                }
+                if let Some(trace) = solution.loop_trace {
+                    record["loop"] = loop_json(&trace);
                 }
                 if !self.condition2_resolutions.is_empty() {
                     record["condition2_by_resolution"] =
