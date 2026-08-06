@@ -35,38 +35,127 @@
 //! confined to a crate with no other code in it (PORTING-PLAN.md §140.1).
 //! Nothing in this module or in [`crate::pipeline`] resolves a name.
 //!
-//! # Deviations from upstream, one line each
+//! # Scope — full declaration audit of `planning_interface.hpp`
 //!
-//! - `PlanningContext`'s `name_`/`group_`/`planning_scene_`/`request_`
-//!   members and their `get`/`set` pairs (`:82-114`) — upstream's context is
-//!   re-settable (`setPlanningScene`/`setMotionPlanRequest`) so one context
-//!   object can be reused for a second query; every context here is built by
-//!   [`PlannerManager::get_planning_context`] for exactly one query and
-//!   dropped, so there is no second query to re-point it at and no reader
-//!   for the getters.
-//! - `terminate()`/`clear()` (`:126-129`) — asynchronous cancellation and
-//!   reuse-after-clear, both of which need a caller on another thread
-//!   holding the same context. [`PlanningContext::solve`] takes `&mut self`
-//!   and runs to completion synchronously, so no such caller can exist.
-//! - `solve(MotionPlanDetailedResponse&)` (`:122`) — the detailed response
-//!   has no port on this side (`doc/port-coverage.md`'s
-//!   `planning_response.hpp` row: its only counterpart is
-//!   `moveit_planners_chomp::ChompSolution`, narrowed to what chomp fills).
-//! - `initialize` (`:164-165`) — takes an `rclcpp::Node` and a ROS parameter
-//!   namespace (D1); the per-planner configuration it reads is constructor
-//!   arguments on the concrete manager here (e.g.
-//!   `moveit_planners_sbp::RrtConnectManager`'s own tuning fields).
-//! - `setPlannerConfigurations`/`getPlannerConfigurations`/
-//!   `PlannerConfigurationMap` (`:56-72`, `:193-199`) — same: a
-//!   `map<string, map<string, string>>` filled from ROS parameters, whose
-//!   typed equivalent is the concrete manager's own fields.
-//! - `canServiceRequest` (`:190`) and `getPlanningAlgorithms` (`:172`) —
-//!   `PlanningPipeline::generatePlan` calls neither (`planning_pipeline.cpp:294-330`
-//!   calls `getPlanningContext`, `solve` and `getDescription` only); their
-//!   upstream callers are `move_group`'s `query_planners` service capability
-//!   (`query_planners_service_capability.cpp:98,102`) and the concrete
-//!   plugins' own early-outs. Adding either here would be API surface with
-//!   no caller in this workspace.
+//! Every *public* declaration the header makes, one bullet each, with a
+//! disposition: `ported as <symbol>` / `unported (<reason>)` / `D<n>
+//! excludes it` / `no Rust counterpart exists`. The header is 214 lines and
+//! declares two classes and two namespace-level items; nothing else. The
+//! per-class counts below are `tools/ci/count-public-declarations.sh`'s, run
+//! against the pinned checkout, not hand-tallied:
+//! `PlanningContext` **12**, `PlannerManager` **11** — 23 bullets, and the
+//! four namespace-level ones bring the walk to 27. Protected data
+//! (`name_`/`group_`/`planning_scene_`/`request_`, `config_settings_`) is
+//! implementation detail and is not audited, matching
+//! `crates/moveit-scene/src/scene.rs`'s convention for the same reason.
+//!
+//! Three of the 23 are ported. That ratio is the point of the file rather
+//! than an omission: upstream's two classes carry a plugin lifecycle (ROS
+//! parameters, re-settable contexts, asynchronous termination) that D1 and
+//! this port's single-use contexts remove outright, and what survives is
+//! the two-step "build a context, then solve it" shape.
+//!
+//! ## Namespace level (4)
+//!
+//! - `struct PlannerConfigurationSettings` (`:56-69`) — **D1 excludes it.**
+//!   Three `std::string`/`map<string,string>` fields filled from ROS
+//!   parameters; the typed equivalent is the concrete manager's own fields
+//!   (e.g. `moveit_planners_sbp::RrtConnectManager`'s tuning).
+//! - `typedef PlannerConfigurationMap` (`:72`) — **D1 excludes it**, same.
+//! - `MOVEIT_CLASS_FORWARD(PlanningContext)` (`:74`) — **no Rust
+//!   counterpart exists.** It defines `PlanningContextPtr`/`ConstPtr`/
+//!   `WeakPtr` `std::shared_ptr` aliases; this port returns
+//!   `Box<dyn PlanningContext<'m> + 'a>` and has no shared ownership to
+//!   alias.
+//! - `MOVEIT_CLASS_FORWARD(PlannerManager)` (`:145`) — same; the registry
+//!   holds `&'static dyn PlannerManager`.
+//!
+//! ## `PlanningContext` (12)
+//!
+//! - `PlanningContext(const std::string& name, const std::string& group)`
+//!   (`:82`) — **unported.** Upstream stores the pair so the context can be
+//!   re-pointed later; here the group is
+//!   [`crate::PlanningRequest::group_name`] at the one call site that builds
+//!   the context, and the name is [`PlannerManager::name`].
+//! - `virtual ~PlanningContext()` (`:84`) — **no Rust counterpart exists**
+//!   (`Drop`, and nothing here needs a custom one).
+//! - `getGroupName()` (`:87-90`) — **unported (no reader).** See the
+//!   constructor bullet.
+//! - `getName()` (`:93-96`) — **unported (no reader)**, same.
+//! - `getPlanningScene()` (`:99-102`) — **unported (no reader).** The scene
+//!   is the caller's; [`PlannerManager::get_planning_context`] borrows it in.
+//! - `getMotionPlanRequest()` (`:105-108`) — **unported (no reader).**
+//!   [`crate::pipeline::generate_plan`] keeps the request itself, which is
+//!   why the trait borrows rather than moves it.
+//! - `setPlanningScene(...)` (`:111`) — **unported.** Upstream's context is
+//!   re-settable so one object can serve a second query; every context here
+//!   is built for exactly one query and dropped, so there is no second query
+//!   to re-point it at.
+//! - `setMotionPlanRequest(...)` (`:114`) — **unported**, same.
+//! - `virtual void solve(MotionPlanResponse& res) = 0` (`:118`) — **ported
+//!   as** [`PlanningContext::solve`], with the mutated-in-place output
+//!   parameter and its `error_code` replaced by one `Result`.
+//! - `virtual void solve(MotionPlanDetailedResponse& res) = 0` (`:122`) —
+//!   **unported.** The detailed response has no port on this side
+//!   (`doc/port-coverage.md`'s `planning_response.hpp` row: its only
+//!   counterpart is `moveit_planners_chomp::ChompSolution`, narrowed to what
+//!   chomp fills).
+//! - `virtual bool terminate() = 0` (`:126`) — **unported.** Asynchronous
+//!   cancellation needs a caller on another thread holding the same context;
+//!   [`PlanningContext::solve`] takes `&mut self` and runs to completion
+//!   synchronously, so no such caller can exist.
+//! - `virtual void clear() = 0` (`:129`) — **unported**, same: reuse-after-
+//!   clear has no reuse to serve.
+//!
+//! ## `PlannerManager` (11)
+//!
+//! - `PlannerManager()` (`:151-153`) — **no Rust counterpart exists.** A
+//!   trait has no constructor; each concrete manager brings its own.
+//! - `virtual ~PlannerManager()` (`:155-157`) — **no Rust counterpart
+//!   exists** (`Drop`).
+//! - `virtual bool initialize(model, node, parameter_namespace)`
+//!   (`:164-165`) — **D1 excludes it.** It takes an `rclcpp::Node` and a ROS
+//!   parameter namespace; the per-planner configuration it reads is
+//!   constructor arguments on the concrete manager here.
+//! - `virtual std::string getDescription() const = 0` (`:168`) — **ported
+//!   as** [`PlannerManager::name`], which additionally serves as the
+//!   registry key; see that method's own comment for why this port
+//!   deliberately merges the two roles upstream keeps apart.
+//! - `virtual void getPlanningAlgorithms(std::vector<std::string>&) const`
+//!   (`:172`) — **unported (no caller).**
+//!   `PlanningPipeline::generatePlan` does not call it
+//!   (`planning_pipeline.cpp:294-330` calls `getPlanningContext`, `solve`
+//!   and `getDescription` only); its upstream caller is `move_group`'s
+//!   `query_planners` service capability
+//!   (`query_planners_service_capability.cpp:98,102`).
+//! - `virtual PlanningContextPtr getPlanningContext(planning_scene, req,
+//!   error_code) const = 0` (`:181-183`) — **ported as**
+//!   [`PlannerManager::get_planning_context`], whose "empty ptr is returned
+//!   and error code is set" contract is its `Result`.
+//! - `PlanningContextPtr getPlanningContext(planning_scene, req) const`
+//!   (`:186-187`) — **unported.** This overload exists upstream only to drop
+//!   the `error_code` out-parameter; with a `Result` return the same
+//!   spelling is `.ok()` at the call site, so a second method would be one
+//!   name for a combinator.
+//! - `virtual bool canServiceRequest(const MotionPlanRequest&) const = 0`
+//!   (`:190`) — **unported (no caller)**, same citation as
+//!   `getPlanningAlgorithms`; its other upstream callers are the concrete
+//!   plugins' own early-outs.
+//! - `virtual void setPlannerConfigurations(const PlannerConfigurationMap&)`
+//!   (`:193`) — **D1 excludes it**, per the `PlannerConfigurationMap`
+//!   bullet.
+//! - `const PlannerConfigurationMap& getPlannerConfigurations() const`
+//!   (`:196-199`) — **D1 excludes it**, same.
+//! - `void terminate() const` (`:202`) — **unported**, for
+//!   `PlanningContext::terminate`'s reason: it forwards to the contexts this
+//!   manager built, and nothing here outlives its `solve`.
+//!
+//! The two traits' one concrete implementation is
+//! `moveit_planners_sbp::registry` (`RrtConnectManager` and its context),
+//! which cites this same header as the "plugin half" it stands in for; the
+//! dispositions above are what that implementation has to satisfy and are
+//! audited here rather than there, because they are properties of the
+//! interface and not of any one planner.
 
 use moveit_collision::ParryCollisionEnv;
 use moveit_scene::PlanningScene;
