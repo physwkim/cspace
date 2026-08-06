@@ -1018,6 +1018,33 @@ mod tests {
         assert!(err.to_string().contains("must be square"), "got: {err:?}");
     }
 
+    /// The `entry_*` half of the folded length guard (`:288-290`): one `if`
+    /// over two independently named pairs, of which
+    /// `an_acm_with_mismatched_default_lengths_is_rejected` above reaches only
+    /// the `default_entry_*` half. Measured, not assumed: replacing
+    /// `msg.entry_names.len() != msg.entry_values.len()` with `false` left the
+    /// whole `moveit-ros` suite at 203 passed, so before this test the operand
+    /// was a blind site in `doc/folded-operand-guards.md`'s sense -- and it is
+    /// the operand that keeps `msg.entry_values[i]` (`:312`) from indexing past
+    /// the end. The needle names the offending pair and its two lengths rather
+    /// than the shared "equal length" tail, so it cannot pass on its sibling's
+    /// failure.
+    #[test]
+    fn an_acm_with_mismatched_entry_lengths_is_rejected() {
+        let msg = moveit_msgs::AllowedCollisionMatrix {
+            entry_names: vec!["a".to_string()],
+            entry_values: vec![],
+            default_entry_names: vec![],
+            default_entry_values: vec![],
+        };
+        let err = AllowedCollisionMatrix::try_from(AllowedCollisionMatrixMsg(msg)).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("AllowedCollisionMatrix: entry_names/entry_values are 1/0"),
+            "got: {err:?}"
+        );
+    }
+
     /// The diff arm applies the ACM only when `entry_names` is non-empty
     /// (`:1343-1344`), so a diff that states no matrix must not wipe the SRDF-
     /// derived one the scene already has.
