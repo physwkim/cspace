@@ -143,7 +143,9 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 `num_collision_free_iterations_ = 0` and `iteration_++`; the separate
 `if (!parameters_->filter_mode_)` at `:406` sets it to
 `max_iterations_after_collision_free_` and increments `iteration_` again)
-**Port:** `crates/moveit-planners-chomp/src/optimizer.rs:912`
+**Port:** `crates/moveit-planners-chomp/src/optimizer.rs:1764-1779` (the two
+`if` blocks in `ChompOptimizer::optimize`; the deviation is written up at
+`crates/moveit-planners-chomp/src/optimizer.rs:1023-1034`)
 **Symptom:** the `iteration_ % 10 == 0` mesh-to-mesh check and the
 `!filter_mode_` collision-threshold check are two separate,
 unconditionally-evaluated `if` blocks rather than `if`/`else if`. Both can
