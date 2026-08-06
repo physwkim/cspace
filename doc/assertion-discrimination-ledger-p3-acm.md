@@ -189,7 +189,7 @@ Always => None` at `matrix.rs:691,692,702` shares the exact same code
 for both variants, so no isolating mutation can even be constructed
 (unlike `tools.rs:68`'s three independently-computed comparisons) — or a
 3-arm match where only one arm can produce `None`, traced by reachability
-(`env.rs:707`, re-confirmed by reading `common.rs:585-599`'s current
+(`env.rs:707`, re-confirmed by reading `common.rs:585-599` (`merge`)'s current
 `merge` body live). Unlike `moveit-geometry`, `moveit-collision` had no
 pre-existing misverdict; its one fold defect (`tools.rs:68`) was an
 uncounted site, not a mislabeled one.
@@ -210,7 +210,7 @@ the test's own setup. §9b already lists this document's 86-row (now
 application, re-checked against all 89 rows, not copied from any other
 ledger's answers.
 
-**§9's own worked precedent for clause 2** (`nn.rs:227`,
+**§9's own worked precedent for clause 2** (`nn.rs:227` (`empty_index_has_no_nearest`),
 `empty_index_has_no_nearest`) settles exactly the shape this crate's
 bare-`?`/single-lookup rows raise: a `?` on an empty/fresh fixture is
 still in-family if a live bite confirms it is exercised (contrast
@@ -278,9 +278,9 @@ lookup of the kind that sank `matrix.rs:660`.
 8 `not-this-family`, by crate:
 
 - `moveit-collision` (50 rows): excluded = `matrix.rs:660` (clause 2),
-  `octomap_filter.rs:381` (clause 2, pre-existing), `world_parity.rs:226`
+  `octomap_filter.rs:381` (`refine_contact_normals_no_contacts_requested_is_a_noop`) (clause 2, pre-existing), `world_parity.rs:226`
   (clause 3, pre-existing) — **3 excluded, 47 in-family**.
-- `moveit-geometry` (39 rows): excluded = `crates/moveit-geometry/src/shapes.rs:1962` (clause 2,
+- `moveit-geometry` (39 rows): excluded = `crates/moveit-geometry/src/shapes.rs:1962` (`compute_vertex_normals_calls_triangle_normals_when_needed`) (clause 2,
   pre-existing), `bodies.rs:4328,4332,4340,4347` (clause 1, all four
   newly excluded) — **5 excluded, 34 in-family**.
 - 47 + 34 = 81 of 89.
@@ -495,8 +495,8 @@ No `fixture-collapse-fixed` verdicts — none of the 89 sites needed one.
 - **Round 10 (this pass, §1c)**: census §9's three-clause family test
   applied to all 89 rows, fresh (not copied from any other panel's
   ledger). **81 of 89 in-family.** 8 moved to `not-this-family`: 3
-  pre-existing (`octomap_filter.rs:381`, `world_parity.rs:226`,
-  `crates/moveit-geometry/src/shapes.rs:1962`) plus 5 newly excluded this pass —
+  pre-existing (`octomap_filter.rs:381`, `world_parity.rs:226` (`world_matches_oracle`),
+  `crates/moveit-geometry/src/shapes.rs:1962` (`compute_vertex_normals_calls_triangle_normals_when_needed`)) plus 5 newly excluded this pass —
   `matrix.rs:660` (clause 2: a bare `.get()` with no `?`/guard/comparison,
   on a fixture with no antecedent setter call, unlike the structurally
   similar `matrix.rs:880` where the decision lives in `clear()`) and
@@ -505,7 +505,7 @@ No `fixture-collapse-fixed` verdicts — none of the 89 sites needed one.
   dispatch fact, not a could-not/did-not-produce-X signal). No verdict
   (`discriminating`/`single-branch`) changed — this is a family-membership
   question, separate from and prior to the verdict question §1a/§1b
-  answer. Two ambiguous bare-`?` rows (`tools.rs:219`, `matrix.rs:880`)
+  answer. Two ambiguous bare-`?` rows (`tools.rs:219`, `matrix.rs:880` (`clear_removes_entries_and_defaults`))
   were settled by live bite rather than argument, per census §9's own
   `nn.rs:227` precedent.
 
@@ -576,11 +576,11 @@ in-family and all already covered (0 blind operands among them), only
 classified family membership and corrected the geometry count from 9 to
 13. **Corrected round-11/12 total: 43 new sites (30 moveit-collision +
 13 moveit-geometry), 24 in-family, 19 not-this-family, 0 blind operands**
-(one doc-only evidence correction to `world.rs:1399` from round 11).
+(one doc-only evidence correction to `world.rs:1399` (`transform_lookup_unknown_name_errors`) from round 11).
 **Tested:** all 89 sites, one row each, above, plus 43 new sites across
 §6/round-12; `cargo nextest run -p moveit-geometry` 141/141 and `cargo
 nextest run -p moveit-collision` 199/199, both post-fix; the two round-10
-settling bites (`tools.rs:219`, `matrix.rs:880`), the eight round-11
+settling bites (`tools.rs:219` (`sensor_positioning_of_empty_set_is_none`), `matrix.rs:880`), the eight round-11
 settling bites (`matrix.rs:870` read-only via len(), `matrix.rs:879`,
 `octomap_filter.rs:364`, `crates/moveit-geometry/src/shapes.rs:1964`, `world.rs:1300`,
 `world.rs:1326`, `world.rs:1398`, `tools.rs:369/370`), and the three
@@ -632,9 +632,9 @@ catches the mutation; none needed a new test.
 |---|---|---|---|
 | matrix.rs:870 | is_empty | `len_counts_rows_not_pairs` | `!acm.is_empty()` wraps `self.entries.is_empty()`; same `set_entry`-insertion decision the test's own `len()==3` assertion (3 lines above) already exercises. §9 "lives one level up" (the branch is in `set_entry`/`set_pair`, not in `is_empty()`); redundant confirmation, not independently bitten. |
 | matrix.rs:879 | is_empty | `clear_removes_entries_and_defaults` | bite run now: commented out `self.entries.clear()` in `clear()` (kept `self.defaults.clear()`) → this assertion FAILS alone (198/199), sibling `matrix.rs:880` (`default_entry("a").is_none()`) stays GREEN — mirror-direction bite to the one already on record for 880. |
-| octomap_filter.rs:364 | is_some | `metaball_surface_properties_with_depth_reports_signed_depth` | bite run now: forced the `estimate_depth==true` arm of `metaball_surface_properties` to also return `None` → this test FAILS alone, sibling `octomap_filter.rs:355` (`without_depth`, existing row) stays GREEN. Correction: 355's existing `single-branch` verdict had no on-record discriminating partner; this row is it. |
+| octomap_filter.rs:364 | is_some | `metaball_surface_properties_with_depth_reports_signed_depth` | bite run now: forced the `estimate_depth==true` arm of `metaball_surface_properties` to also return `None` → this test FAILS alone, sibling `octomap_filter.rs:355` (`metaball_surface_properties_without_depth_returns_unit_normal_only`) (`without_depth`, existing row) stays GREEN. Correction: 355's existing `single-branch` verdict had no on-record discriminating partner; this row is it. |
 | parry.rs:2701 | is_some | `octree_cache_survives_shape_churn` | read + doc comment (named regression test for an `OctreeCache` pointer-identity bug): `assert_eq!(got.is_some(), occupied, ..)` alternates occupied/empty across 200 iterations, the same occupied-leaves decision already bite-proven for `parry.rs:2659`/`:2669` (existing, `None` side) plus the `.expect()`-based occupied-side test (not is_some-shaped, invisible to any grammar until now). |
-| shapes.rs:1964 | is_some | `compute_vertex_normals_calls_triangle_normals_when_needed` | bite run now: gated `compute_triangle_normals()`'s call behind `if false` inside `compute_vertex_normals` → this test FAILS (panics two lines later at the `.expect()`, before reaching this literal line, but the whole test — and this assertion's own precondition — depends on the guard). §9 "lives one level up": the decision belongs to `compute_vertex_normals`, not the field read (contrast the sibling `crates/moveit-geometry/src/shapes.rs:1962`, not-this-family, §1c). |
+| shapes.rs:1964 | is_some | `compute_vertex_normals_calls_triangle_normals_when_needed` | bite run now: gated `compute_triangle_normals()`'s call behind `if false` inside `compute_vertex_normals` → this test FAILS (panics two lines later at the `.expect()`, before reaching this literal line, but the whole test — and this assertion's own precondition — depends on the guard). §9 "lives one level up": the decision belongs to `compute_vertex_normals`, not the field read (contrast the sibling `crates/moveit-geometry/src/shapes.rs:1962` (`compute_vertex_normals_calls_triangle_normals_when_needed`), not-this-family, §1c). |
 | octree_in_world_parity.rs:220 | is_some | oracle-query loop | oracle parity: `assert_eq!(mapped, actual_log_odds.is_some(), ..)` compares `moveit_octomap::OcTree::log_odds_at` against a committed oracle fixture's `mapped` field — a real per-query decision. **Fence note:** `log_odds_at` itself is implemented in `moveit-octomap`, outside this panel's fence; a blind finding here would need an out-of-fence fix. |
 | world.rs:1326 | eq_none | `set_subframes_of_object_computes_global_pose_and_replaces_old_ones` | bite run now: changed `set_subframes_of_object`'s replace (`obj.subframes = ..collect()`) to a merge (`obj.subframes.extend(..)`) → this assertion FAILS alone (198/199). Confirms the doc-commented "replaced, not merged" claim is actually tested. |
 | world.rs:1398 | eq_none | `transform_lookup_unknown_name_errors` | bite run now: changed `try_get_transform`'s final `None` to `Some(Isometry3::identity())` → this assertion FAILS alone (`world_parity`'s oracle test regresses too, as a downstream consequence). **Corrects existing row `world.rs:1399`**: that row's evidence cites a `knows_transform` bite as proof, but `knows_transform` is a separate function (proves only `world.rs:1397`'s sensitivity) — `try_get_transform`/`get_transform`'s own fallthrough (which both 1398 and 1399 exercise) was never directly bitten before this row. Doc-only correction; 1399's verdict (in-family, single-branch) is unchanged. |
@@ -786,7 +786,7 @@ matching the brief's figures exactly on independent re-derivation.
 | constrained_sampler.rs:305 | contains | `every_sample_satisfies_the_wrapped_constraint` | no | clause 1: a range-plausibility check on a real sampled value, not a could-not/did-not-produce-X signal — same reasoning as round-11's `collision_parity.rs:681/1213`. |
 | goal_sampler.rs:334 | contains | `constrained_branch_is_load_bearing_not_merely_invoked` | no | same reasoning as constrained_sampler.rs:305. |
 | nn.rs:244 | is_empty | `len_and_is_empty_track_insertions` | no | clause 3: reads `Gnat::new(4)`'s trivial post-construction state before any subject call — same shape as `bodies.rs:3967`. |
-| nn.rs:248 | is_empty | (same test) | yes | redundant confirmation of `insert()`'s effect, already proven by the adjacent `len()==2` assertion — same "lives one level up" shape as round-11's `matrix.rs:870`. |
+| nn.rs:248 | is_empty | (same test) | yes | redundant confirmation of `insert()`'s effect, already proven by the adjacent `len()==2` assertion — same "lives one level up" shape as round-11's `matrix.rs:870` (`len_counts_rows_not_pairs`). |
 | registry.rs:1126 | eq_err | `path_constraints_four_scenario_wired_vs_unwired_sweep` | yes | `assert_eq!` pins the exact `PlanningFailure::IterationsExhausted` variant on a real `rrt_connect` call — already discriminating by construction (exact-variant match, not a bare `.is_err()`). |
 | registry.rs:1159 | contains | (same test) | no | range-plausibility check on a real trajectory waypoint value, not an error signal. |
 | registry.rs:1218 | contains | `goal_constraint_is_resolved_and_the_trajectory_ends_inside_the_goal_region` | no | same reasoning as registry.rs:1152. |
@@ -970,10 +970,10 @@ re-verifying a site whose fix-ownership ledger is someone else's:
 
 | site | claimed by |
 |---|---|
-| `crates/moveit-constraints/tests/sampler.rs:78` | p1-fixtures, p1-robotmodel |
+| `crates/moveit-constraints/tests/sampler.rs:78` (`configure_fails_on_empty_intersection_between_two_constraints`) | p1-fixtures, p1-robotmodel |
 | `crates/moveit-constraints/tests/sampler.rs:120` | p1-fixtures, p1-robotmodel |
 | `crates/moveit-kinematics/src/chain.rs:469,512,558` | p1-fixtures, p1-robotmodel |
-| `crates/moveit-kinematics/tests/ik_fk_roundtrip.rs:281` | p1-fixtures, p1-robotmodel |
+| `crates/moveit-kinematics/tests/ik_fk_roundtrip.rs:281` (`constructing_a_solver_on_a_non_chain_group_is_an_error`) | p1-fixtures, p1-robotmodel |
 | `crates/moveit-smoothing/src/acceleration_filter.rs:466,525,542` | p1-fixtures, p1-robotmodel |
 | `crates/moveit-smoothing/src/butterworth.rs:153,162,172,183,200` | p1-fixtures, p1-robotmodel |
 | `crates/moveit-smoothing/src/ruckig_filter.rs:388,530` | p1-fixtures, p1-robotmodel |
@@ -1006,8 +1006,8 @@ actually at `:500`).
 
 | ledger | stale citation | actual site (today) | cause |
 |---|---|---|---|
-| p3-acm (own fence) | `crates/moveit-stomp-core/src/utils.rs:654` | `crates/moveit-stomp-core/src/utils.rs:660` | this round's own fix (`8fa0e48`) added 6 lines above the call; **corrected in this ledger's Round 13 table above** |
-| p1-fixtures | `tree.rs:1930` | `crates/moveit-octomap/src/tree.rs:1958` | insertion above, +28 |
+| p3-acm (own fence) | `crates/moveit-stomp-core/src/utils.rs:654` | `crates/moveit-stomp-core/src/utils.rs:660` (`rows_to_string_panics_instead_of_replicating_ub_on_empty_input`) | this round's own fix (`8fa0e48`) added 6 lines above the call; **corrected in this ledger's Round 13 table above** |
+| p1-fixtures | `tree.rs:1930` | `crates/moveit-octomap/src/tree.rs:1958` (`leaves_in_bbx_returns_none_for_an_out_of_range_max`) | insertion above, +28 |
 | p1-fixtures | `tree.rs:1944` | `crates/moveit-octomap/src/tree.rs:1972` | same insertion, +28 |
 | p1-fixtures | `tree.rs:1805` | `crates/moveit-octomap/src/tree.rs:1833` | same insertion, +28 |
 | p1-fixtures | `tree.rs:1806` | `crates/moveit-octomap/src/tree.rs:1834` | same insertion, +28 |
@@ -1174,7 +1174,7 @@ commit too, so 477 is the more accurate figure for `461a5f1`, not a
 discrepancy to explain away.
 
 Two of the 217 pinned-commit orphans are inside this panel's own fence:
-`crates/moveit-planners-sbp/src/space.rs:247` and
+`crates/moveit-planners-sbp/src/space.rs:247` (`non_finite_min_bound_is_rejected`) and
 `crates/moveit-stomp-core/src/utils.rs:660` — exactly the two accounting
 gaps below, present as orphans at the pin because both fixes landed after
 it. Zero orphans in this fence at `HEAD` confirms both were closed, not
@@ -1270,7 +1270,7 @@ real gaps):
 citations and 2 non-scope explanations this round already hand-triaged
 (`tree.rs:1930/1805/1806/1807`, `robot_model.rs:2024/2025/2026`,
 `trajectory.rs:444/450/456/462`,
-`collision_env_distance_field.rs:3271/3276`, `tree.rs:1781`,
+`collision_env_distance_field.rs:3271/3276`, `tree.rs:1781` (`out_of_bounds_coordinate_has_no_occupancy_even_when_the_tree_center_is_mapped`),
 `crates/moveit-constraints/src/position.rs:165`) are **all still present, unchanged**, in the 72 above
 — re-checked directly against today's list, not assumed carried over.
 The rest were already flagged last round as "unconfirmed, other panels'

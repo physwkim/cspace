@@ -616,7 +616,7 @@ section checks how each channel is actually computed — by reading, not
 guessing, per the standing instruction.
 
 **Port side.** `generate_joint_trajectory_from_cartesian`
-(`crates/moveit-planners-pilz/src/trajectory_functions.rs:505-514`)
+(`crates/moveit-planners-pilz/src/trajectory_functions.rs:505-514` (`generate_joint_trajectory_from_cartesian`))
 computes both from the IK-solved position sequence, chained through one
 backward-difference loop:
 
