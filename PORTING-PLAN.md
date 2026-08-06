@@ -6693,7 +6693,7 @@ p3-acm의 작업으로 넘어간다 — 문서에 한계로 남기면 다시 묻
 ### 75.4 `visibility_cone` 115건은 라운드 4부터 주인이 있었다
 
 내가 열 라운드째 "주인 없음"으로 적어 온 항목인데, 담당이 근거를 대고
-반박했다: `decide_cone`(`moveit-constraints/src/visibility.rs:381`)은
+반박했다: `decide_cone`(`moveit-constraints/src/visibility.rs:626`)은
 자기 `World`/`ParryCollisionEnv`를 만들고 `PlanningScene`을 타지 않으며,
 §37/§38.3이 잔차를 `moveit-collision`의 contact 순회/tie-break 순서로
 좁혀 p3-acm에 배정했고 §46.1이 재확인했다. `moveit-scene`에는
