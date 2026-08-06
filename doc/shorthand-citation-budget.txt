@@ -7,7 +7,7 @@
 # written in a form no gate can check -- write `path.rs:NNN` instead.
 # Shrinking it means a shorthand was converted, which is the goal: re-freeze
 # so the lower number becomes the new ceiling.
-533	PORTING-PLAN.md
+530	PORTING-PLAN.md
 5	crates/moveit-distance-field/doc/f1-f2-f4-predictions.md
 1	crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md
 21	crates/moveit-planners-pilz/doc/mutation-audit-trajectory-blender.md
@@ -28,24 +28,20 @@
 2	doc/assertion-discrimination-round2-brief.md
 5	doc/caucus-handoff-2026-08-05.md
 9	doc/claim-audit/moveit-collision.md
-30	doc/claim-audit/moveit-constraints.md
+16	doc/claim-audit/moveit-constraints.md
 7	doc/claim-audit/moveit-distance-field.md
-1	doc/claim-audit/moveit-geometry.md
-23	doc/claim-audit/moveit-kinematics.md
-6	doc/claim-audit/moveit-metrics.md
-11	doc/claim-audit/moveit-model.md
-43	doc/claim-audit/moveit-planners-chomp.md
-55	doc/claim-audit/moveit-planning.md
-69	doc/claim-audit/moveit-ros.md
+5	doc/claim-audit/moveit-model.md
+10	doc/claim-audit/moveit-planners-chomp.md
+30	doc/claim-audit/moveit-planning.md
+55	doc/claim-audit/moveit-ros.md
 4	doc/claim-audit/moveit-sampling.md
-156	doc/claim-audit/moveit-scene.md
-6	doc/claim-audit/moveit-smoothing.md
-18	doc/claim-audit/moveit-srdf.md
-36	doc/claim-audit/moveit-trajectory.md
+38	doc/claim-audit/moveit-scene.md
+4	doc/claim-audit/moveit-srdf.md
+12	doc/claim-audit/moveit-trajectory.md
 53	doc/claim-audit/upstream-bugs.md
 2	doc/d12-solver-none-structural-measurement.md
 1	doc/folded-operand-guards.md
 4	doc/handoff-2026-08-06.md
-28	doc/port-coverage.md
+25	doc/port-coverage.md
 200	doc/upstream-bugs.md
 32	ros/moveit-ros/doc/message-mapping.md

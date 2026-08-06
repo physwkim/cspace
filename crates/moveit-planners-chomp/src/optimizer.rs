@@ -609,6 +609,127 @@ pub fn handle_joint_limits(
     Ok(())
 }
 
+/// One evaluation of CHOMP's objective function, kept as its two terms
+/// rather than their sum.
+///
+/// # Deviation: upstream keeps this value, and emits it in exactly one shape
+///
+/// Upstream computes both terms every iteration (`chomp_optimizer.cpp:306-308`,
+/// `c_cost`/`s_cost`) and stores their sum on the private member
+/// `best_group_trajectory_cost_` (`chomp_optimizer.hpp:150`), whose three
+/// accessors -- `getTrajectoryCost`, `getSmoothnessCost`, `getCollisionCost`
+/// (`chomp_optimizer.hpp:208-210`) -- are all below that header's `private:`
+/// at `:83`. `ChompOptimizer::optimize` returns a bare `bool`, and
+/// `chomp_planner.cpp` never mentions cost at all, so no caller of upstream's
+/// planner can reach the number.
+///
+/// The one place upstream lets it out is a log line:
+/// `RCLCPP_DEBUG(getLogger(), "Collision cost %f, smoothness cost: %f",
+/// c_cost, s_cost)` (`chomp_optimizer.cpp:310`). That line is the whole
+/// justification for this type's shape -- **the two terms, separately**, in
+/// upstream's own vocabulary, because a single scalar is a granularity
+/// upstream never makes visible. Upstream logs it per iteration and never
+/// logs the sum, nor the cost of the trajectory it actually returns.
+///
+/// Carrying it out of `solve` is therefore a real deviation, recorded on
+/// [`crate::planner::ChompSolution::objective`]. What is *not* invented here
+/// is the decomposition or the word `best`: both come from the lines above.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChompObjective {
+    /// Upstream's `s_cost` -- `getSmoothnessCost()` at
+    /// `chomp_optimizer.cpp:307`, already weighted by
+    /// `smoothness_cost_weight`.
+    pub smoothness: f64,
+    /// Upstream's `c_cost` -- `getCollisionCost()` at
+    /// `chomp_optimizer.cpp:306`, already weighted by `obstacle_cost_weight`.
+    pub collision: f64,
+}
+
+impl ChompObjective {
+    /// The value upstream compares and stores: `c_cost + s_cost`
+    /// (`chomp_optimizer.cpp:308`), which is also what `getTrajectoryCost`
+    /// returns (`chomp_optimizer.cpp:678`).
+    #[must_use]
+    pub fn total(&self) -> f64 {
+        self.smoothness + self.collision
+    }
+}
+
+/// The objective at the two points that make a *paired* improvement claim
+/// possible: the trajectory CHOMP was handed, and the trajectory it returns.
+///
+/// Both are upstream quantities read at upstream's own moments. `seed` is the
+/// cost computed on iteration 0, before any increment has been applied --
+/// upstream's `if (iteration_ == 0)` branch (`chomp_optimizer.cpp:332-337`)
+/// stores exactly this value as its first `best_group_trajectory_cost_`.
+/// `best` is the last value that branch's `else if (cost <
+/// best_group_trajectory_cost_)` (`chomp_optimizer.cpp:338`) accepted, and so
+/// describes `best_group_trajectory_`, which is the trajectory
+/// `optimize` copies out at `chomp_optimizer.cpp:507` and the one a caller
+/// receives.
+///
+/// Keeping the three in one type rather than three `Option` fields is what
+/// makes "seed measured but best not" unrepresentable: all three are observed
+/// on the same passes or none is.
+///
+/// # Why `last` exists, and why a seed-vs-best claim alone would be vacuous
+///
+/// `best` starts at `seed` on iteration 0 and is replaced only when
+/// `cost < best_group_trajectory_cost_` (`chomp_optimizer.cpp:338`), so
+/// `best.total() <= seed.total()` **by construction**. A "did CHOMP improve
+/// the objective?" measurement that compares those two can only ever answer
+/// yes; its zero count of regressions would be a property of the min-tracking,
+/// not of the optimizer.
+///
+/// The falsifiable quantity is `last`: the objective at the final iteration
+/// the loop evaluated. Upstream computes it (it is `cost` on the last pass)
+/// and discards it, and the whole reason upstream keeps a
+/// `best_group_trajectory_` snapshot at all is that the iterate is *not*
+/// monotone -- gradient descent at a fixed `learning_rate` can and does climb.
+/// `seed` vs `last` is therefore the paired claim with an open sign, and
+/// `last` vs `best` counts how often the snapshot is what saved the answer.
+///
+/// One honest limit on `last`: the loop evaluates the objective at the *top*
+/// of each pass, before that pass's increments are applied
+/// (`chomp_optimizer.cpp:305-308` precedes `addIncrementsToTrajectory`), so
+/// `last` describes the iterate entering the final pass, not the trajectory
+/// left after the final increment. Upstream never evaluates that one either.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChompObjectiveProgress {
+    /// The objective of the trajectory handed to the optimizer, evaluated
+    /// before the first increment.
+    pub seed: ChompObjective,
+    /// The objective of the trajectory the optimizer returns.
+    pub best: ChompObjective,
+    /// The objective at the last iteration the loop evaluated -- which the
+    /// optimizer discards in favour of `best`. May exceed `seed`.
+    pub last: ChompObjective,
+}
+
+impl ChompObjectiveProgress {
+    /// `seed.total() - best.total()`: how much better the *returned*
+    /// trajectory is than the seed.
+    ///
+    /// Non-negative by construction (see this type's doc); a negative value
+    /// would mean the port's accept rule had drifted from
+    /// `chomp_optimizer.cpp:338`. Read it as a bound the type guarantees, not
+    /// as a measurement of the optimizer.
+    #[must_use]
+    pub fn improvement(&self) -> f64 {
+        self.seed.total() - self.best.total()
+    }
+
+    /// `seed.total() - last.total()`: how much the descent itself moved the
+    /// objective, ignoring the best-snapshot.
+    ///
+    /// **Negative when CHOMP drove the objective above where it started.**
+    /// This is the sign the seed-vs-`best` comparison cannot expose.
+    #[must_use]
+    pub fn descent(&self) -> f64 {
+        self.seed.total() - self.last.total()
+    }
+}
+
 /// Borrows the two pieces of collision-checking state `ChompOptimizer`
 /// needs from a caller-owned distance field, replacing upstream's
 /// `hy_env_`/`planning_scene_` pair for the one call both of them actually
@@ -970,7 +1091,17 @@ pub struct ChompOptimizer<'m> {
     joint_positions: Vec<Vec<Vector3>>,
 
     best_group_trajectory: DMatrix<f64>,
-    best_group_trajectory_cost: f64,
+    /// Upstream's `best_group_trajectory_cost_` (`chomp_optimizer.hpp:150`),
+    /// kept decomposed and optional rather than as that member's `double`.
+    ///
+    /// Upstream initialises it to nothing in particular and relies on
+    /// `iteration_ == 0` running first to seed it; with `max_iterations_ == 0`
+    /// the loop body never executes and the member is read only as whatever it
+    /// was. `None` here is that same state made unmistakable, so a caller
+    /// cannot read an unmeasured objective as a real `0.0`. The
+    /// `iteration_ == 0` arm of `chomp_optimizer.cpp:332-338` is exactly
+    /// `is_none()`, which is why [`ChompOptimizer::optimize`] resets it.
+    best_objective: Option<ChompObjectiveProgress>,
     last_improvement_iteration: i32,
     num_collision_free_iterations: u32,
 
@@ -1109,7 +1240,7 @@ impl<'m> ChompOptimizer<'m> {
             joint_axes: vec![zeros_vec3(num_joints); num_vars_all],
             joint_positions: vec![zeros_vec3(num_joints); num_vars_all],
             best_group_trajectory,
-            best_group_trajectory_cost: 0.0,
+            best_objective: None,
             last_improvement_iteration: -1,
             num_collision_free_iterations: 0,
             is_collision_free: false,
@@ -1482,6 +1613,19 @@ impl<'m> ChompOptimizer<'m> {
         self.parameters.obstacle_cost_weight * collision_cost
     }
 
+    /// The objective at the seed trajectory and at the trajectory
+    /// [`ChompOptimizer::optimize`] returned, or `None` if no iteration ever
+    /// ran (`max_iterations == 0`).
+    ///
+    /// No upstream counterpart: `best_group_trajectory_cost_` is private
+    /// (`chomp_optimizer.hpp:150`) and `optimize` returns `bool`. See
+    /// [`ChompObjective`]'s doc for the one upstream line that does emit these
+    /// two numbers, and why they are reported separately here.
+    #[must_use]
+    pub fn objective(&self) -> Option<ChompObjectiveProgress> {
+        self.best_objective
+    }
+
     /// Ported from `getTrajectoryCost`.
     pub fn get_trajectory_cost(&mut self) -> Result<f64> {
         Ok(get_smoothness_cost(
@@ -1544,6 +1688,12 @@ impl<'m> ChompOptimizer<'m> {
         let start_time = Instant::now();
 
         self.iteration = 0;
+        // Upstream's `iteration_ == 0` arm re-seeds `best_group_trajectory_cost_`
+        // on every entry to `optimize`, so a second call on the same optimizer
+        // does not inherit the first call's best. `best_objective.is_none()`
+        // stands in for that test below, so it has to be cleared here for the
+        // two to stay the same condition.
+        self.best_objective = None;
         while self.iteration < self.parameters.max_iterations {
             self.perform_forward_kinematics(collision)?;
             let c_cost = self.get_collision_cost();
@@ -1552,12 +1702,38 @@ impl<'m> ChompOptimizer<'m> {
                 &self.group_trajectory,
                 self.parameters.smoothness_cost_weight,
             )?;
-            let cost = c_cost + s_cost;
+            let objective = ChompObjective {
+                smoothness: s_cost,
+                collision: c_cost,
+            };
+            let cost = objective.total();
 
-            if self.iteration == 0 || cost < self.best_group_trajectory_cost {
-                self.best_group_trajectory = self.group_trajectory.trajectory_matrix().clone();
-                self.best_group_trajectory_cost = cost;
-                self.last_improvement_iteration = self.iteration;
+            // `chomp_optimizer.cpp:332-341`. `is_none()` is upstream's
+            // `iteration_ == 0` (both are true on exactly the pass that has no
+            // previous best), and `seed` is fixed on that same pass because
+            // upstream never revisits its iteration-0 assignment.
+            match self.best_objective {
+                None => {
+                    self.best_group_trajectory = self.group_trajectory.trajectory_matrix().clone();
+                    self.best_objective = Some(ChompObjectiveProgress {
+                        seed: objective,
+                        best: objective,
+                        last: objective,
+                    });
+                    self.last_improvement_iteration = self.iteration;
+                }
+                Some(ref mut progress) => {
+                    // `last` tracks every evaluated pass, not just accepted
+                    // ones -- that is the whole point of it (see
+                    // `ChompObjectiveProgress`'s doc).
+                    progress.last = objective;
+                    if cost < progress.best.total() {
+                        self.best_group_trajectory =
+                            self.group_trajectory.trajectory_matrix().clone();
+                        progress.best = objective;
+                        self.last_improvement_iteration = self.iteration;
+                    }
+                }
             }
 
             let smoothness_increments =
@@ -1991,6 +2167,272 @@ mod tests {
             expected_smoothness,
             epsilon = EPS
         );
+    }
+
+    /// `objective()` is `None` -- not `Some(0.0)` -- when the loop body never
+    /// ran, which is the state upstream leaves `best_group_trajectory_cost_`
+    /// in for `max_iterations_ == 0`.
+    #[test]
+    fn objective_is_none_when_no_iteration_ever_evaluated_it() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 0,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+
+        assert_eq!(
+            optimizer.objective(),
+            None,
+            "zero iterations evaluated the objective zero times, so there is no value to report"
+        );
+    }
+
+    /// A trajectory whose objective is identically zero cannot tell any of
+    /// `seed`/`best`/`last` apart, and the all-zero `chomp_full_trajectory`
+    /// fixture is exactly that. Every fixture below therefore drives the last
+    /// point to a non-zero goal and fills the interior in, and this helper is
+    /// the single place that happens.
+    fn seeded_trajectory(model: &RobotModel, num_points: usize, goal: f64) -> ChompTrajectory {
+        let mut source = chomp_full_trajectory(model, num_points);
+        let last = source.num_points() - 1;
+        let num_joints = source.num_joints();
+        source.set_trajectory_point(last, &vec![goal; num_joints]);
+        source.fill_in_min_jerk();
+        source
+    }
+
+    /// Runs `optimize` on `seeded_trajectory(.., goal)` and returns the
+    /// objective triple.
+    fn objective_after_optimize(goal: f64, max_iterations: i32) -> ChompObjectiveProgress {
+        let model = chomp_collision_model();
+        let start_state = RobotState::new(&model);
+        let source = seeded_trajectory(&model, 10, goal);
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations,
+            filter_mode: true,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+        optimizer.objective().expect("iterations ran")
+    }
+
+    /// `optimize`'s `best_objective = None` reset, which
+    /// `objective_is_none_when_no_iteration_ever_evaluated_it` cannot see
+    /// because it calls `optimize` once.
+    ///
+    /// Upstream re-seeds `best_group_trajectory_cost_` on every entry to
+    /// `optimize` through its `iteration_ == 0` arm
+    /// (`chomp_optimizer.cpp:332-337`); the port's `is_none()` stands in for
+    /// that test, so without the reset a second call would keep the first
+    /// call's `seed` and report an improvement it did not make. The second
+    /// call starts from the trajectory the first one returned, so its `seed`
+    /// is the first call's `best` -- an equality the reset is the only thing
+    /// producing.
+    #[test]
+    fn a_second_optimize_reseeds_the_objective_from_the_first_calls_result() {
+        let model = chomp_collision_model();
+        let start_state = RobotState::new(&model);
+        let source = seeded_trajectory(&model, 10, 1.0);
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 10,
+            filter_mode: true,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+        let first = optimizer.objective().expect("iterations ran");
+
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+        let second = optimizer.objective().expect("iterations ran");
+
+        assert_relative_eq!(second.seed.total(), first.best.total(), epsilon = EPS);
+        // Without the reset the second call would report the first call's
+        // seed, so this is the inequality that makes the assertion above a
+        // statement about the reset rather than an identity.
+        assert!(
+            (first.seed.total() - first.best.total()).abs() > EPS,
+            "fixture no longer moves `best` off `seed`, so the reset cannot be observed"
+        );
+    }
+
+    /// `seed` is iteration 0's objective, computed here on an optimizer that
+    /// has taken no step so the assertion is not the loop checked against
+    /// itself.
+    #[test]
+    fn objective_seed_is_the_untouched_trajectorys_two_cost_terms() {
+        let model = chomp_collision_model();
+        let start_state = RobotState::new(&model);
+        let source = seeded_trajectory(&model, 10, 1.0);
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 5,
+            filter_mode: true,
+            ..ChompParameters::default()
+        };
+
+        let mut probe = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        probe.perform_forward_kinematics(&mut collision).unwrap();
+        let expected_collision = probe.get_collision_cost();
+        let expected_smoothness = get_smoothness_cost(
+            &probe.joint_costs,
+            &probe.group_trajectory,
+            parameters.smoothness_cost_weight,
+        )
+        .unwrap();
+        drop(probe);
+
+        // A zero objective would make every assertion below vacuous -- this
+        // fixture has to have a real one for the comparison to mean anything.
+        assert!(
+            expected_smoothness > 0.0,
+            "fixture regressed to a zero-cost trajectory; seed/best/last become indistinguishable"
+        );
+
+        let progress = objective_after_optimize(1.0, 5);
+        assert_relative_eq!(progress.seed.smoothness, expected_smoothness, epsilon = EPS);
+        assert_relative_eq!(progress.seed.collision, expected_collision, epsilon = EPS);
+        assert_relative_eq!(
+            progress.seed.total(),
+            expected_smoothness + expected_collision,
+            epsilon = EPS
+        );
+    }
+
+    /// The invariant `best` is *built* to satisfy, stated where a drift from
+    /// `chomp_optimizer.cpp:338` would trip it: the returned trajectory is
+    /// never worse than the seed, and never worse than the final iterate.
+    #[test]
+    fn objective_best_is_never_above_seed_or_last() {
+        for (goal, iterations) in [(1.0, 10), (1.8, 3), (1.8, 50)] {
+            let progress = objective_after_optimize(goal, iterations);
+            assert!(
+                progress.best.total() <= progress.seed.total(),
+                "goal {goal}: best {} exceeded seed {}",
+                progress.best.total(),
+                progress.seed.total()
+            );
+            assert!(
+                progress.best.total() <= progress.last.total(),
+                "goal {goal}: best {} exceeded last {}",
+                progress.best.total(),
+                progress.last.total()
+            );
+            assert!(progress.improvement() >= 0.0, "goal {goal}");
+        }
+    }
+
+    /// `last` is a distinct observation from `best`, and its sign is open:
+    /// the same optimizer descends on one fixture and climbs above its own
+    /// starting point on another. If `last` were a copy of `best` -- the way
+    /// upstream's single retained `best_group_trajectory_cost_` is -- the
+    /// second case here could not be written at all.
+    #[test]
+    fn objective_last_can_sit_above_seed_where_best_cannot() {
+        let descending = objective_after_optimize(1.0, 50);
+        assert!(
+            descending.descent() > 0.0,
+            "goal 1.0 should descend, got {}",
+            descending.descent()
+        );
+        assert_relative_eq!(
+            descending.last.total(),
+            descending.best.total(),
+            epsilon = EPS
+        );
+
+        let climbing = objective_after_optimize(1.8, 3);
+        assert!(
+            climbing.descent() < 0.0,
+            "goal 1.8 should climb above its seed, got descent {}",
+            climbing.descent()
+        );
+        assert!(
+            climbing.last.total() > climbing.best.total(),
+            "goal 1.8: last {} did not exceed best {}",
+            climbing.last.total(),
+            climbing.best.total()
+        );
+        // The case the round exists to make visible: the optimizer ended above
+        // where it started, and only the best-snapshot kept the answer from
+        // being worse than the input.
+        assert_relative_eq!(climbing.best.total(), climbing.seed.total(), epsilon = EPS);
     }
 
     #[test]

@@ -347,6 +347,7 @@ pub mod planner;
 
 pub use cost::ChompCost;
 pub use moveit_sampling::MultivariateGaussian;
+pub use optimizer::{ChompObjective, ChompObjectiveProgress};
 pub use parameters::ChompParameters;
 pub use planner::{ChompGoal, ChompRequest, ChompSolution, GoalJointConstraint, solve};
 pub use trajectory::ChompTrajectory;

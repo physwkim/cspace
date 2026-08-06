@@ -108,7 +108,7 @@
 //! answer" to match here. This deviation is scoped to exactly that rejected
 //! range and expires if upstream adds its own validation to
 //! `setRecoveryParams`/`ChompParameters::planning_time_limit_`.
-use crate::optimizer::{ChompCollisionContext, ChompOptimizer};
+use crate::optimizer::{ChompCollisionContext, ChompObjectiveProgress, ChompOptimizer};
 use crate::parameters::ChompParameters;
 use crate::trajectory::ChompTrajectory;
 use crate::utils::shortest_angular_distance;
@@ -218,6 +218,31 @@ pub struct ChompSolution<'m> {
     /// kept as a real field rather than an implicit constant since it is
     /// genuine upstream response content a caller may display.
     pub description: String,
+    /// CHOMP's own objective at the seed trajectory and at `trajectory`, or
+    /// `None` when `max_iterations` is 0 and no iteration ever evaluated it.
+    ///
+    /// # Deviation: upstream discards this at exactly this boundary
+    ///
+    /// This field has **no upstream counterpart**, and unlike the four fields
+    /// above it is not a narrowing of one. Upstream's `solve` fills
+    /// `planning_interface::MotionPlanDetailedResponse`, which carries no
+    /// objective value, and `chomp_planner.cpp` does not contain the word
+    /// `cost` anywhere -- the optimizer computes the number, keeps it on the
+    /// private `best_group_trajectory_cost_` (`chomp_optimizer.hpp:150`), and
+    /// `ChompPlanner::solve` returns `void` having never read it. The three
+    /// accessors that could read it are private too
+    /// (`chomp_optimizer.hpp:208-210`, below `private:` at `:83`).
+    ///
+    /// It is added because the value's absence was itself measured:
+    /// `PORTING-PLAN.md` §264.12 records that with no cost at this boundary,
+    /// CHOMP's quality item cannot make the *paired improvement* claim its
+    /// Phase 7 analogue makes, and degrades to a ratio band against a
+    /// straight-line lower bound. What is mirrored rather than invented is the
+    /// shape: upstream's single emission of these numbers
+    /// (`chomp_optimizer.cpp:310`) logs the two terms separately, so they are
+    /// reported separately here. See [`crate::optimizer::ChompObjective`] for
+    /// that reading in full.
+    pub objective: Option<ChompObjectiveProgress>,
 }
 
 /// [`solve`]'s inputs, bundled to keep the function's own argument count
@@ -509,6 +534,12 @@ pub fn solve<'m>(
         trajectory: result,
         planner_id: "chomp".to_string(),
         description: "plan".to_string(),
+        // The optimizer that produced `result`. Under
+        // `enable_failure_recovery` the loop above builds a fresh
+        // `ChompOptimizer` per attempt, so this reads the last one -- the
+        // only one whose `best_group_trajectory_` is what `trajectory`
+        // was filled from.
+        objective: optimizer.objective(),
     })
 }
 
