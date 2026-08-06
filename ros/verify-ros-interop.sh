@@ -35,12 +35,19 @@
 #     round trip once, by hand; those legs are what re-run it.
 #
 # What this does NOT check (read this list before wiring `ros/` into CI):
-#   - Nothing plans. Both live endpoints are asserted to return a *typed
-#     error*, because this workspace has no `moveit_planning::pipeline::
-#     Planner` to call (D8/§140.3). No trajectory is produced, so no trajectory
-#     is compared against anything; §5 Phase 9's completion condition stays
-#     UNMET and these gates are what keep it honestly measured rather than
-#     inferred.
+#   - No trajectory is compared against anything. Both live endpoints now
+#     plan for real -- D8 landed `moveit_planners_sbp::registry::
+#     RrtConnectManager` against `moveit_planning`'s own types -- and the live
+#     legs assert that a plannable request comes back SUCCESS with a
+#     non-empty trajectory. What they do not do is check that trajectory
+#     against upstream: no oracle runs here, so "a plan came back" is the
+#     claim, not "the same plan moveit2 would produce".
+#   - Upstream's own C++ client still cannot get a trajectory out of either
+#     endpoint: `MoveGroupInterface` always sends a non-default `start_state`,
+#     which `PlanningRequest` has no field for and the conversion rejects
+#     (§250.6). §5 Phase 9's completion condition therefore stays UNMET, and
+#     leg B of ros/verify-move-action-interop.sh is what keeps that measured
+#     rather than inferred.
 #   - No in-process message round trip: every test in
 #     ros/moveit-ros/src/**/*.rs constructs `r2r`-generated message structs
 #     and converts them without ever crossing the middleware. The live legs
@@ -170,26 +177,57 @@ run "doc" bash -c "cargo doc --no-deps"
 # built from a different image, and a client that loads a different robot than
 # the node disagrees about group names for reasons that have nothing to do
 # with what is being measured.
-run "live" bash -c '
-  set -e
-  cargo build --bin plan_kinematic_path_server
-  ./target/debug/plan_kinematic_path_server \
-    /repo/ros/fixtures/one_joint.urdf /repo/ros/fixtures/one_joint.srdf &
-  server_pid=$!
-  trap "kill $server_pid 2>/dev/null || true" EXIT
-  sleep 3
-  out="$(timeout 15 ros2 service call /plan_kinematic_path moveit_msgs/srv/GetMotionPlan "{}")"
-  echo "$out"
-  echo "$out" | grep -q "val=-1" || {
-    echo "FAIL live round-trip: response did not carry the expected PLANNING_FAILED (val=-1) error code" >&2
-    exit 1
-  }
-  echo "$out" | grep -q "no moveit_planning::pipeline::Planner to call yet" || {
-    echo "FAIL live round-trip: response did not carry the expected explanatory message" >&2
-    exit 1
-  }
-'
-echo "OK live round-trip: /plan_kinematic_path received a real MotionPlanRequest over DDS and returned the expected typed response"
+# A quoted heredoc, not an inline single-quoted argument: the needles below
+# contain the apostrophes rustc and rosidl print around names
+# (`planner 'rrt_connect' failed`, `group_name='arm'`), and every one of them
+# would have closed a single-quoted `bash -c` word.
+LIVE_SCRIPT=$(cat <<'EOS'
+set -e
+cargo build --bin plan_kinematic_path_server
+./target/debug/plan_kinematic_path_server \
+  /repo/ros/fixtures/one_joint.urdf /repo/ros/fixtures/one_joint.srdf &
+server_pid=$!
+trap "kill $server_pid 2>/dev/null || true" EXIT
+sleep 3
+
+# Boundary 1: a request naming a group and a goal. This is what D8 bought --
+# before it there was no planner to hand the converted request to -- and it is
+# asserted by something only a real plan can produce. `group_name` is derived
+# from the returned trajectory and only when that trajectory is non-empty
+# (`planning_response.cpp:48`, inside upstream's own
+# `if (trajectory && !trajectory->empty())`), so it cannot appear on an empty
+# answer the way a bare SUCCESS code could.
+out="$(timeout 30 ros2 service call /plan_kinematic_path moveit_msgs/srv/GetMotionPlan \
+  "{motion_plan_request: {group_name: arm, goal_constraints: [{joint_constraints: [{joint_name: j1, position: 0.5, tolerance_above: 0.001, tolerance_below: 0.001, weight: 1.0}]}]}}")"
+echo "$out"
+echo "$out" | grep -qF "val=1," || {
+  echo "FAIL live round-trip: a plannable request did not come back SUCCESS (val=1)" >&2
+  exit 1
+}
+echo "$out" | grep -qF "group_name='arm'" || {
+  echo "FAIL live round-trip: SUCCESS carried no trajectory (group_name is empty)" >&2
+  exit 1
+}
+
+# Boundary 2: same endpoint, a request naming no group at all. It converts,
+# reaches the planner, and fails *there* -- a different path from the
+# conversion rejecting a message before any planner runs, and the reason the
+# message has to name the planner rather than just carry a code.
+out="$(timeout 15 ros2 service call /plan_kinematic_path moveit_msgs/srv/GetMotionPlan "{}")"
+echo "$out"
+echo "$out" | grep -qF "val=99999" || {
+  echo "FAIL live round-trip: response did not carry the expected FAILURE (val=99999) error code" >&2
+  exit 1
+}
+echo "$out" | grep -qF "planner 'rrt_connect' failed: unknown joint model group" || {
+  echo "FAIL live round-trip: response did not name the planner that failed" >&2
+  exit 1
+}
+EOS
+)
+run "live" bash -c "$LIVE_SCRIPT"
+echo "OK live round-trip: /plan_kinematic_path planned a real MotionPlanRequest over DDS and"
+echo "OK live round-trip: reported the unplannable one as FAILURE naming rrt_connect"
 
 # `/move_action`, in its own file: it orchestrates three containers and a
 # docker network, and it is the only check here that runs upstream's own C++

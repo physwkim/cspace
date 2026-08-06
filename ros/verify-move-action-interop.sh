@@ -17,9 +17,10 @@
 #     the node serve an action named `/move_action` that accepts a goal,
 #     publishes upstream's `PLANNING` feedback, and terminates it with the
 #     exact `MoveItErrorCodes` this port's handler builds? Cheap, no extra
-#     image, and it can drive *both* sides of the handler's one branch --
-#     a default `start_state`, which converts, and a non-default one, which
-#     does not. The C++ client can only ever produce the second.
+#     image, and it can drive every arm of the handler: a goal that plans, a
+#     goal that converts and then fails in the planner, and a non-default
+#     `start_state` that never converts at all. The C++ client can only ever
+#     produce the last of those.
 #
 #   Leg B (upstream's `moveit::planning_interface::MoveGroupInterface`, two
 #     containers). Does the client Phase 9's completion condition names --
@@ -39,12 +40,15 @@
 # command that would run it -- rather than passing quietly, because a silent
 # skip is exactly the failure mode this whole file exists to close.
 #
-# What these legs still do NOT check: nothing plans. Both legs assert an
-# error, because there is no `moveit_planning::pipeline::Planner` in this
-# workspace to call (D8/§140.3) and no start-state field on
-# `moveit_planning::PlanningRequest` (§250.6). When either lands, the expected
-# strings below change, and that is intended: the gate is pinned to what the
-# node answers today, so the first change to that answer has to come here.
+# What these legs still do NOT check: leg B never gets a trajectory. D8 gave
+# this node a planner to call and leg A's first goal proves it produces one,
+# but `moveit_planning::PlanningRequest` still has no start-state field
+# (§250.6) and `MoveGroupInterface` always sends a non-default `start_state`,
+# so upstream's own client can still only reach the rejection. That is Phase
+# 9's remaining gap, and leg B is pinned to it: when start_state lands, the
+# leg B strings below change, and that is intended -- the gate is pinned to
+# what the node answers today, so the first change to that answer has to come
+# here.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -71,7 +75,19 @@ echo "move_action legs: ROS_DOMAIN_ID=$DOMAIN_ID"
 # is to notice when the answer changes. Deriving it from the source it checks
 # would make it assert only that the source equals itself.
 START_STATE_MSG="MotionPlanRequest.start_state is not representable"
-NO_PLANNER_MSG="no moveit_planning::pipeline::Planner to call yet"
+# The planner's own failure, not the node's: `plan_only` wraps whatever
+# `moveit_planning::generate_plan` returns, and that names the planner that
+# ran. Asserting the planner's name here is what distinguishes "reached
+# rrt_connect and it said no" from "found no planner at all", which this port
+# reports with a different sentence entirely.
+#
+# The doubled apostrophes are not a typo. The node's message is
+# `planner 'rrt_connect' failed: ...`; `ros2 action send_goal` prints the
+# result as YAML, and a YAML single-quoted scalar escapes an apostrophe by
+# doubling it. The `/plan_kinematic_path` leg in ros/verify-ros-interop.sh
+# asserts the same sentence undoubled because `ros2 service call` prints a
+# Python repr instead -- same node, same string, two renderings.
+PLANNER_FAILED_MSG="planner ''rrt_connect'' failed: unknown joint model group"
 SOURCE_STRING="moveit-ros/move_action"
 
 fail() {
@@ -130,10 +146,13 @@ trap 'rm -f "$leg_a_out"' EXIT
 # plan-only warning goes to the node's stderr, and asserting on it out of a
 # merged stream would pass just as well if `ros2` printed it.
 #
-# `|| true` on the two `send_goal` calls: a goal that ends ABORTED -- which is
-# the terminal state this port always reaches -- is a non-zero exit for the
-# CLI, and that is the expected outcome here, not a failure. What must not
-# happen is the reply going missing, and the assertions below catch that.
+# `|| true` on all three `send_goal` calls: a goal that ends ABORTED is a
+# non-zero exit for the CLI, and for two of the three that is the expected
+# outcome, not a failure. The third is expected to SUCCEED, and carries the
+# same `|| true` for a different reason -- without it a regression there would
+# abort this container script before the other two goals ran, and the
+# assertions below would report three missing replies instead of the one that
+# actually changed.
 docker run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
   set -e
@@ -145,7 +164,12 @@ docker run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   echo "@@@ action list"
   ros2 action list
 
-  echo "@@@ default start_state (converts; reaches the no-planner arm)"
+  echo "@@@ a goal that plans (default start_state, real group, real goal)"
+  timeout 40 ros2 action send_goal --feedback /move_action \
+    moveit_msgs/action/MoveGroup \
+    "{request: {group_name: arm, goal_constraints: [{joint_constraints: [{joint_name: j1, position: 0.5, tolerance_above: 0.001, tolerance_below: 0.001, weight: 1.0}]}]}, planning_options: {plan_only: true}}" || true
+
+  echo "@@@ default start_state, no group (converts; fails inside the planner)"
   timeout 25 ros2 action send_goal --feedback /move_action \
     moveit_msgs/action/MoveGroup "{}" || true
 
@@ -179,13 +203,24 @@ assert_has "leg A plan_only warning" \
   "not allowed to execute trajectories but the goal request has plan_only set to false" \
   "$leg_a_out"
 
-# Boundary 1: a default `start_state` converts, so the handler falls through to
-# the arm that stands in for upstream's null-pipeline `FAILURE`
-# (move_action_capability.cpp:207-211).
-assert_has "leg A default-start_state code" "val: 99999" "$leg_a_out"
-assert_has "leg A default-start_state message" "$NO_PLANNER_MSG" "$leg_a_out"
+# Boundary 1: the goal plans. `SUCCEEDED` rather than the error code alone,
+# because it is the only thing that separates the two arms of the handler's
+# terminal branch (plan_kinematic_path_server.rs, upstream's `:113-124`): a
+# `val: 1` result delivered through `abort` would satisfy a code assertion and
+# still be the wrong terminal state. `- j1` is the planned trajectory naming
+# the joint it moves; an empty `planned_trajectory` has no joint_names at all.
+assert_has "leg A planned goal terminal state" "Goal finished with status: SUCCEEDED" "$leg_a_out"
+assert_has "leg A planned goal code" "val: 1" "$leg_a_out"
+assert_has "leg A planned goal trajectory" "- j1" "$leg_a_out"
 
-# Boundary 2: a non-default `start_state` does not convert.
+# Boundary 2: a default `start_state` converts, so the handler falls through to
+# the planner, which rejects the empty group name. Upstream reports the same
+# `FAILURE` for its own unsolved-plan arm (move_action_capability.cpp:219-227).
+assert_has "leg A planner-failure code" "val: 99999" "$leg_a_out"
+assert_has "leg A planner-failure message" "$PLANNER_FAILED_MSG" "$leg_a_out"
+
+# Boundary 3: a non-default `start_state` does not convert, so no planner runs
+# at all -- the failure is the conversion's, one layer before the two above.
 assert_has "leg A non-default-start_state code" "val: -16" "$leg_a_out"
 assert_has "leg A non-default-start_state message" "$START_STATE_MSG" "$leg_a_out"
 
@@ -194,7 +229,8 @@ assert_has "leg A non-default-start_state message" "$START_STATE_MSG" "$leg_a_ou
 assert_has "leg A source" "source: $SOURCE_STRING" "$leg_a_out"
 
 echo "OK leg A: /move_action accepted goals over DDS, published PLANNING feedback,"
-echo "OK leg A: and answered 99999/$NO_PLANNER_MSG and -16/$START_STATE_MSG"
+echo "OK leg A: planned one to SUCCEEDED, and answered 99999 naming rrt_connect"
+echo "OK leg A: and -16/$START_STATE_MSG for the two that cannot plan"
 
 ###############################################################################
 # Leg B -- upstream's C++ MoveGroupInterface, two containers
