@@ -31845,3 +31845,134 @@ content-verified 1107 → 1106, unanchored 891 → 892으로 한 칸 **내려가
 패널의 원장에 행을 덧붙이지 않고 파일을 따로 둔 것은
 `reconcile-assertion-ledgers.py`의 `discover_ledgers`가 적어 둔 이유
 그대로다.
+
+## §294 `## UNFIXED` 여섯 개를 읽었다 — 그 형태는 계열의 26%였고, 계열을 가장 많이 나르는 것은 `### Result`와 만료 조건이다 (2026-08-07)
+
+§291이 두 번째 코퍼스로 이름만 적고 읽지 않은 것이 추적되는 `doc/`의
+`## UNFIXED` 제목 여섯 개다. 읽었다. 그리고 §291.1이 자기 코퍼스에 대해
+쟀던 것 — 이 계열은 어휘가 아니라 구조로 찾힌다 — 이 이 코퍼스에서도
+그대로 성립하며, 이번에는 **구조가 문서마다 다르다**는 것이 추가된다.
+
+### §294.1 여섯 절의 주장, 트리에 대고
+
+여섯 절에 주장단위 일곱 개가 있고 그중 다섯이 "None"이다. 부재 선언이라도
+반증 가능하다 — "닫혀 있다"는 오늘의 트리에 대한 주장이다.
+
+| 절 | 주장 | 판정 | 트리에서의 근거 |
+|---|---|---|---|
+| `ledger-p10-cartesian.md` | 여덟 사이트 전부 변이로 뒷받침, orphan 0 | 성립 | 표 행이 정확히 8개(3+4+1), `verify-orphan-enumeration.sh`가 live·committed 양쪽 0 |
+| `ledger-p10-jointlimits.md` | `a_differing_max_position_is_a_disagreement`에 고립 변이가 없다 | 성립 | 두 테스트 다 `joint_limits_validator.rs`에 있고, 2관절 fixture(`1.0` vs `2.0`)가 3관절 fixture(`1.0`,`1.0`,`2.0`)의 진부분집합이라는 §4의 사유가 오늘 소스에서 그대로 읽힌다 |
+| `ledger-p1-robotmodel.md` | None, 이 회차에 블라인드 없음 | 성립하되 범위가 안 적혀 있었다 | 라운드 8의 것이고 뒤에 열두 회차가 더 붙는다 — 제목에 범위를 넣었다 |
+| `ledger-p1-fixtures.md` ① | `third_party/moveit_resources` 부재 | 이미 자기가 취소선으로 철회 | worktree에서는 확인 불가(그 디렉터리는 worktree에 오지 않는다). 문서가 적은 정정이 그 사실 자체다 |
+| `ledger-p1-fixtures.md` ② | `chain.rs` 타입 가드와 `joint_vel_accel_jerk_bounds` 미검증 | 이미 자기가 취소선으로 철회 | `ruckig_filter.rs`에 `joint_vel_accel_jerk_bounds_fails_without_velocity_limits`·`..._without_jerk_limits`가 있다 |
+| `ledger-pilz.md` (첫째) | None, 32 사이트 중 블라인드 없음 | 성립 | 그 절의 표 행이 정확히 32개, `crates/moveit-planners-pilz/src/trajectory_blender_transition_window.rs:1211`은 `search_intersection_points`를 감싸는 `assert!(matches!(`이고 행이 부르는 테스트가 실재한다 |
+| `ledger-pilz.md` (둘째) | `trajectory_functions.rs`의 두 줄이 고립 테스트로 닫혔다 | 성립 | 두 줄 다 오늘 그 행이 적은 모양 그대로다 — `crates/moveit-planners-pilz/src/trajectory_functions.rs:974`는 `determine_and_check_sampling_time`의 eq_none, `crates/moveit-planners-pilz/src/trajectory_functions.rs:1129`는 `compute_link_fk`의 `assert_eq!(` |
+
+여섯 절에서 거짓은 없었다. 거짓은 **여섯 절 밖**에 있었다.
+
+### §294.2 계열의 형태는 문서마다 다르다 — `## UNFIXED`는 26%다
+
+같은 다섯 파일 안에서 "닫지 못한 것"을 나르는 구조를 센다. 행끼리
+겹치지 않게 셌다 — 한 제목이 두 형태를 만족하면 위 행에만 넣는다
+(`ledger-p1-robotmodel.md`의 `### Result: ... flagged, not fixed`가
+그 경우다). 추적 파일 전체를 같은 정규식으로 돌려 다섯 파일 밖의
+같은 형태도 세웠다.
+
+| 형태 | 다섯 파일 | 추적 전체 |
+|---|---|---|
+| `## UNFIXED` 제목 | 6 | 6 |
+| `### Result` 제목 | 7 | 7 |
+| `## Gate scope` 제목 | 5 | 5 |
+| `### Excluded:`/`### Exclusions` 제목 | 4 | 4 |
+| 남은, 제목이 "not fixed"/"needing a fix"라 적은 것 | 1 | 2 |
+| 합 | 23 | 24 |
+
+`## UNFIXED`는 다섯 파일 안 구조 표식의 **6/23 = 26%**다. §291.1이 잰
+13%와 같은 모양이고, 이유도 같다: 절의 *제목*이 계열을 선언하고 본문은
+내용만 적는다. 추적 전체에서 다섯 파일 밖에 있는 것은
+`claim-audit/moveit-trajectory.md`의 `## Cross-crate finding — not fixed`
+하나뿐이다 — 즉 이 제목 규약들은 일반 문법이 아니라 문서별 관습이다.
+
+두 번째 형태가 더 있다. `**UNFIXED:**`/`**UNFIXED / not this round.**`
+굵은 인라인 선언이 네 파일에 여섯 건이다 —
+`assertion-discrimination-census.md`, `ledger-p3-acm.md`,
+`claim-audit/moveit-collision.md`에 하나씩, `PORTING-PLAN.md`에 셋. 제목
+스캔에 걸리지 않는다. 그리고
+`crates/`의 Rust doc 주석 안에 같은 주장이 열 파일에 걸쳐 있다 — 매체가
+다를 뿐 같은 계열이고, 이 회차는 읽지 않았다.
+
+### §294.3 거짓이던 것 — `### Result:`가 나르고 있었다
+
+`ledger-p1-robotmodel.md` 라운드 13이 `mesh_search_paths.rs`의
+`split_once('/')?`와 `candidate.is_file()` 두 가드를 "**no test at all**,
+a coverage gap, not a fix owed this round"로 적었고, 제목도
+`one coverage gap flagged, not fixed`였다. 오늘 두 가드에는 각자 테스트가
+있다 — `b64806d6`이
+`malformed_package_uri_with_no_relative_path_does_not_resolve`와
+`missing_file_does_not_resolve`를 고립 변이 기록과 함께 넣었고, **같은
+문서의 라운드 14가 바로 그 기록**이다. 즉 이 항목은 문서 안에서 마흔 줄
+아래에 이미 닫혀 있었고, 위쪽 제목만 열린 채로 서 있었다.
+
+같은 파일의 유일한 `## UNFIXED`는 "None"이다. 라운드 8의 것이고, 그
+아래로 열두 회차가 각자 `### Result:`에 자기가 남긴 것을 적는다 — 라운드
+11의 fragile needle 셋, 라운드 13의 위 갭, 라운드 20의
+`Fragility flagged, not fixed`. 이 파일에서 `UNFIXED`를 찾으면 한 절이
+나오고 저것들은 전부 안 나온다. 제목에 라운드 번호를 넣었다
+(`ledger-pilz.md`가 `## UNFIXED (12, now 13)`로 이미 쓰는 형태다).
+
+### §294.4 §291의 코퍼스도 못 보는 세 번째 형태 — 만료 조건
+
+§153.1이 정한 형태가 있다: 항목을 닫으면서 **다시 여는 조건**을 함께
+적는 것(`**만료 조건**`, 영문 문서는 `Expires (§153.1):`). 이 절 자신을
+빼고 세면 추적되는 파일 여덟 개에 46건이다 — `PORTING-PLAN.md` 29,
+`claim-audit/moveit-collision.md` 10, 나머지 여섯 파일에 7. 이것은
+"닫혔다"도 "열려 있다"도 아닌 **조건부로 열린** 항목이고, §291의 224
+주장단위에도 이 절의 UNFIXED 코퍼스에도 들어 있지 않다. 하나를 표본으로
+확인했다: `claim-audit/moveit-collision.md`가 FCL의 `length/2` 안정역
+(`619/1000`)을 UNFIXED로 두면서 단 조건은 "libccd/FCL 핀이 바뀌거나
+`pr2.urdf`의 바퀴 실린더 치수가 바뀌면 다시 연다"이고,
+`crates/moveit-collision/tests/fixtures/pr2.urdf`는 오늘도
+`length="0.034" radius="0.074792"`다(8곳). 조건은 발화하지 않았고 항목은
+유효하다. 나머지 45건은 읽지 않았다.
+
+### §294.5 §291.1의 486을 표본으로 묶었다
+
+§291.1은 부재 어휘가 코퍼스 밖에서 486블록을 물어온다고 적고 분류하지
+않았다. 이 회차도 전수 분류하지 않았다. 대신 20블록을 균등 간격으로
+뽑아 손으로 갈랐다: **2/20**만 이 계열의 주장이었고(둘 다 만료 조건이나
+"인용만으로는 알 수 없다"는 미지 선언), 나머지 18은 설계 규칙·측정
+기록·역사 서술이다. 486이라는 수는 그 회차가 쓴 특정 어휘 목록의
+산출물이고 이 회차는 그 목록을 그대로 다시 돌리지 않았다 — 더 넓은
+목록으로는 1588블록이 나온다. 어느 쪽이든 표본이 말하는 것은 같다:
+어휘로 뽑은 후보의 대부분은 이 계열이 아니고, 계열을 나르는 것은 구조
+표식(`## UNFIXED`, `### Result:`, 만료 조건)이다.
+
+### §294.6 게이트 두 곳이 가린 텍스트를 돌려준다
+
+`check-phase-status.sh`의 `supersession_in`은 §291.3에서 인라인 코드
+span을 지우고 판정하게 됐는데, 판정만 가린 사본에서 하고 **보고까지**
+가린 사본에서 했다. 굵은 span 안에 backtick이 든 선언이 오면 그 인용이
+공백으로 찍힌다. 오늘 두 선언에는 backtick이 없어 잠복이었다 —
+§291.3이 스스로 "지금은 잠복이지만 인용이 하나 생기면 거짓 실패가 된다"고
+적은 것과 같은 모양이다.
+
+구조로 닫았다. `blank_inline_code`가 span을 **같은 길이**의 공백으로
+바꾸므로 가린 사본에서 찾은 위치가 원본을 그대로 가리키고, 보고되는
+문자열은 원본의 slice다 — 주석이 아니라 구성이다. 같은 결함이
+`check-ledger-totals.py`에도 둘 있었다(`Sum:` 주장과 breakdown 괄호).
+`split_parens`가 부분문자열 대신 오프셋을 돌려주게 바꿨다. 변이로 갈랐다:
+굵은 span 안에 인용이 든 선언을 넣으면 이전 코드는
+`'§283의 진단은  을 근거로 §284가 대체한다.'`로, 지금은 인용을 그대로
+보고한다. backtick이 없는 대조 선언은 두 코드가 바이트 단위로 같다.
+
+### §294.7 이 회차가 못 본 것
+
+- **`crates/`의 UNFIXED 주장 열 파일.** 같은 계열, 다른 매체. 안 읽었다.
+- **만료 조건 45건.** 46건 중 표본 하나만 확인했다.
+- **`### Result:` 일곱 중 둘.** 라운드 11의 fragile needle 셋과 라운드 20의
+  한 건은 "지금은 유일하니 손대지 않는다"는 **결정**이라 '고쳤는가'가 아니라
+  '아직 유일한가'가 질문이다. 세 인용된 줄이 오늘도 그 needle을 들고 있는
+  것까지는 확인했고, 형제 메시지 전수 열거는 하지 않았다.
+- **`## Gate scope` 다섯 절.** 커버리지 경계 선언이고 같은 계열이지만
+  판정하지 않았다.
+- **§291의 어휘 후보 전수.** 20/486(또는 1588)만 봤다.
