@@ -69,6 +69,7 @@ use moveit_geometry::{Cuboid, Isometry3, Shape, Vector3};
 use moveit_model::{JointModelGroup, MeshSearchPaths, RobotModel};
 use moveit_planners_chomp::optimizer::ChompCollisionContext;
 use moveit_planners_chomp::{ChompGoal, ChompParameters, ChompRequest, GoalJointConstraint, solve};
+use moveit_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
@@ -337,15 +338,40 @@ fn max_abs_gap(a: &[f64], b: &[f64]) -> f64 {
         .fold(0.0f64, f64::max)
 }
 
-fn path_length(path: &[Vec<f64>]) -> f64 {
-    path.windows(2)
-        .map(|p| {
-            p[0].iter()
-                .zip(&p[1])
-                .map(|(a, b)| (b - a) * (b - a))
-                .sum::<f64>()
-                .sqrt()
+/// The length of `path` in the plan-space metric --
+/// [`JointModelGroupSpace::distance`] summed along it, which is what the
+/// oracle's `chomp_plan`/`stomp_plan` report as their own `length`
+/// (`oracle.cpp`'s `planSpacePathLength`, summing OMPL
+/// `CompoundStateSpace::distance`).
+///
+/// Not Euclidean L2 over raw joint values, which this instrument reported
+/// before and which is a *different quantity*: both spaces weight each bounded
+/// axis by `1/(max - min)` and add the weighted absolute differences, so an L2
+/// length and a plan-space length are not two estimates of one number. Phase
+/// 7's `condition3-*` divides the port's length by the C++ side's, and that
+/// ratio means nothing unless both sides measure in the same metric.
+/// `tests/plan_space_parity.rs` is what makes this one metric rather than two
+/// that agree by argument.
+fn plan_space_length(
+    space: &JointModelGroupSpace,
+    scratch: &mut RobotState<'_>,
+    group: &JointModelGroup,
+    path: &[Vec<f64>],
+) -> f64 {
+    let states: Vec<Vec<CompoundValue>> = path
+        .iter()
+        .map(|row| {
+            for (name, value) in group.active_joint_names().iter().zip(row) {
+                scratch
+                    .set_variable_position(name, *value)
+                    .unwrap_or_else(|e| panic!("set_variable_position({name}): {e}"));
+            }
+            space.read_robot_state(scratch)
         })
+        .collect();
+    states
+        .windows(2)
+        .map(|pair| space.distance(&pair[0], &pair[1]))
         .sum()
 }
 
@@ -514,6 +540,13 @@ fn main() {
     let mut template = RobotState::new(&model);
     template.set_to_default_values();
 
+    // The metric the C++ baseline's `length` is measured in; see
+    // `plan_space_length`. `length_scratch` is the one state it writes group
+    // columns into, reused rather than allocated per waypoint.
+    let space = JointModelGroupSpace::new(&model, &group_name)
+        .unwrap_or_else(|e| panic!("JointModelGroupSpace::new({group_name}): {e}"));
+    let mut length_scratch = template.clone();
+
     let params = ChompParameters::default();
     let mut total = 0usize;
     let mut solved_count = 0usize;
@@ -675,13 +708,18 @@ fn main() {
         let start_gap = max_abs_gap(&path[0], &start_column);
         let goal_gap = max_abs_gap(&path[raw_waypoints - 1], &goal_column);
         max_endpoint_gap = max_endpoint_gap.max(start_gap).max(goal_gap);
-        let length = path_length(&path);
+        let length = plan_space_length(&space, &mut length_scratch, group, &path);
         // CHOMP's own seed under the default `quintic-spline` initialization is
         // not a straight line, so the seed length is measured as the straight
         // line between the two endpoints: the shortest path any trajectory
         // between them can have in this metric, i.e. the strongest baseline the
         // output can be held against without re-deriving `fill_in_min_jerk`.
-        let seed_length = path_length(&[start_column.clone(), goal_column.clone()]);
+        let seed_length = plan_space_length(
+            &space,
+            &mut length_scratch,
+            group,
+            &[start_column.clone(), goal_column.clone()],
+        );
         // No improved/worsened counters here, unlike the STOMP instrument:
         // CHOMP's own objective (smoothness + obstacle cost) is not returned by
         // `solve`, and path length is not it. On a problem CHOMP breaks out of
