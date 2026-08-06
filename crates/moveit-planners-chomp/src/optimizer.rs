@@ -806,10 +806,26 @@ pub struct ChompLoopTrace {
     /// Collision points inside their own clearance band on the seed --
     /// `get_potential` non-zero, i.e. the points the collision term is a
     /// function of at all.
+    ///
+    /// Counted over the **free segment** (`free_vars_start ..=
+    /// free_vars_end`), because that is the range `get_collision_cost` sums
+    /// over. The field below is counted over a *wider* range and against a
+    /// *different* predicate, so the two are not comparable as a
+    /// subset/superset pair -- see its own doc.
     pub seed_points_within_clearance: u32,
     /// Collision points upstream's own `point_is_in_collision_` predicate
     /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:912`)
     /// flags on the seed.
+    ///
+    /// Counted over the **whole padded trajectory**, not the free segment:
+    /// upstream's `performForwardKinematics` walks `0 ..= num_vars_all_ - 1`
+    /// on `iteration_ == 0` and the free segment only afterwards
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:868-874`),
+    /// and this count is taken on that pass. The predicate differs too:
+    /// `distance - radius < radius` here against `get_potential(..) > 0.0`
+    /// above, which is `distance < radius + min_clearance`. Neither count
+    /// bounds the other -- a sphere with `radius > min_clearance` can be
+    /// flagged in collision while its potential is still `0.0`.
     pub seed_points_in_collision: u32,
     /// The largest absolute per-variable change the first pass actually
     /// applied, *after* `joint_update_limit`'s per-joint rescale
