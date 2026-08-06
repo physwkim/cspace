@@ -6,10 +6,16 @@
 // unmodified source -- no patch, no shim, no subclass, no reimplementation of
 // its request-building. Everything in this file is harness around it: read two
 // files, put them on the node as the parameters upstream's own
-// `RobotModelLoader` reads, construct the interface, call `plan()`, print. That
-// is the point: PORTING-PLAN.md Phase 9's completion condition is about the
-// *unmodified* client, so anything this file did to help the request along
-// would be measuring something else.
+// `RobotModelLoader` reads, construct the interface, call `plan()`, grade what
+// came back, print. That is the point: PORTING-PLAN.md Phase 9's completion
+// condition is about the *unmodified* client, so anything this file did to help
+// the request along would be measuring something else.
+//
+// The grading is upstream's too, and that is not incidental: Phase 9's
+// condition says *valid* trajectory, and the only graders that can settle it
+// without assuming the answer are ones the port did not write. See the block
+// above `all_in_bounds` for which upstream entry points do it and why the
+// node's own `/check_state_validity` is not one of them.
 //
 // This prints and does not assert. The assertions live in the shell gate, in
 // one place, next to the `/plan_kinematic_path` leg's, so that what the gate
@@ -20,6 +26,7 @@
 #include <string>
 
 #include <moveit/move_group_interface/move_group_interface.hpp>
+#include <moveit/planning_scene/planning_scene.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 namespace
@@ -103,8 +110,103 @@ int main(int argc, char** argv)
   // `plan.planning_time` is deliberately not printed: upstream's `Plan` leaves
   // it an uninitialized `double` and `plan()` assigns it only on the success
   // path, so on every failing call it reads whatever was on the stack.
+
+  // Everything below grades the trajectory that arrived, because `SUCCESS` and
+  // a non-empty point list are not the completion condition: Phase 9 asks for a
+  // *valid* trajectory, and a node that answered SUCCESS with three waypoints
+  // outside the joint limits, or three that stop short of the goal, would be
+  // indistinguishable from a correct one by the two facts above alone.
+  //
+  // The grader is upstream's own `moveit_core`, built from the same pinned sha
+  // as the client -- `RobotState::satisfiesBounds` and
+  // `PlanningScene::isStateConstrained`, over a `PlanningScene` this process
+  // builds from the same URDF/SRDF. It is deliberately not the node's own
+  // `/check_state_validity`: that would be the port grading its own plan with
+  // the code that produced it, and would pass by construction for a whole class
+  // of shared errors (a joint-limit reader that is wrong the same way in both
+  // places). The goal it is graded against is the client's, not the grader's --
+  // `constructMotionPlanRequest` returns the very request `plan()` just sent.
+  const auto& traj = plan.trajectory.joint_trajectory;
+  const moveit::core::RobotModelConstPtr model = group.getRobotModel();
+  const moveit::core::JointModelGroup* jmg = model->getJointModelGroup(argv[3]);
+  planning_scene::PlanningScene scene(model);
+
+  moveit_msgs::msg::MotionPlanRequest sent;
+  group.constructMotionPlanRequest(sent);
+
+  const auto waypoint_state = [&](const trajectory_msgs::msg::JointTrajectoryPoint& pt) {
+    moveit::core::RobotState state(model);
+    state.setToDefaultValues();
+    for (size_t j = 0; j < traj.joint_names.size() && j < pt.positions.size(); ++j)
+    {
+      state.setVariablePosition(traj.joint_names[j], pt.positions[j]);
+    }
+    state.update();
+    return state;
+  };
+
+  // Joint limits, every waypoint. `one_joint.urdf` bounds `j1` to [-1, 1], so
+  // this is a real rejection and not a formality: a planner that sampled in an
+  // unbounded space, or one that wrote the goal through without clamping, lands
+  // outside it. Counted rather than short-circuited so the printed line says
+  // how many waypoints were checked -- `0/0 in bounds` is vacuously true and
+  // has to be readable as such.
+  size_t in_bounds = 0;
+  for (const auto& pt : traj.points)
+  {
+    if (waypoint_state(pt).satisfiesBounds(jmg))
+    {
+      ++in_bounds;
+    }
+  }
+  const bool all_in_bounds = !traj.points.empty() && in_bounds == traj.points.size();
+  std::cout << "PROBE all_in_bounds=" << (all_in_bounds ? "true" : "false") << " (" << in_bounds << '/'
+            << traj.points.size() << " waypoints, upstream RobotState::satisfiesBounds)" << std::endl;
+
+  // Does the trajectory end where the client asked it to? `goal_constraints[0]`
+  // is what `constructGoal` put on the wire, tolerances included, and
+  // `isStateConstrained` is upstream's own evaluator for it. This is the clause
+  // that separates "a trajectory came back" from "the query was solved": a node
+  // that returns its start state twice satisfies SUCCESS, non-empty and
+  // in-bounds, and fails only here.
+  bool goal_satisfied = false;
+  if (!traj.points.empty() && !sent.goal_constraints.empty())
+  {
+    goal_satisfied = scene.isStateConstrained(waypoint_state(traj.points.back()), sent.goal_constraints[0]);
+  }
+  std::cout << "PROBE goal_satisfied=" << (goal_satisfied ? "true" : "false") << " (upstream "
+            << "PlanningScene::isStateConstrained on the client's own goal_constraints["
+            << (sent.goal_constraints.empty() ? "none" : "0") << "])" << std::endl;
+
+  // Collision is checked and reported, not asserted on by the gate, and the
+  // count of collision objects is printed next to it so the reason is visible
+  // rather than inferred: `one_joint.urdf` declares no `<collision>` element on
+  // either link and the node under test is started with no world, so nothing in
+  // this configuration can collide and `0 colliding` is true of every possible
+  // trajectory. Naming it a passing clause would be claiming a check that
+  // cannot fail. What would make it real is a fixture with collision geometry
+  // plus a `/planning_scene` carrying an obstacle, which is the shape the
+  // scene-topic leg already runs against `/check_state_validity`.
+  size_t colliding = 0;
+  for (const auto& pt : traj.points)
+  {
+    moveit::core::RobotState state = waypoint_state(pt);
+    if (scene.isStateColliding(state, argv[3]))
+    {
+      ++colliding;
+    }
+  }
+  std::cout << "PROBE colliding=" << colliding << '/' << traj.points.size() << " (world objects="
+            << scene.getWorld()->size() << ", links with collision geometry="
+            << model->getLinkModelsWithCollisionGeometry().size() << " -- reported, not asserted)" << std::endl;
+
+  // The verdict is the conjunction of the clauses above, so that the one string
+  // the gate keys on cannot be true of a trajectory that fails any of them.
+  // Before this it read `SUCCESS && !points.empty()`, which is the name
+  // "received a response" and not the name it carries.
   std::cout << "PROBE verdict="
-            << (code == moveit::core::MoveItErrorCode::SUCCESS && !plan.trajectory.joint_trajectory.points.empty()
+            << (code == moveit::core::MoveItErrorCode::SUCCESS && !traj.points.empty() && all_in_bounds &&
+                        goal_satisfied
                     ? "VALID_TRAJECTORY_RECEIVED"
                     : "NO_VALID_TRAJECTORY")
             << std::endl;
