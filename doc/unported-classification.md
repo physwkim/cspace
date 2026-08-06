@@ -2,7 +2,7 @@
      Do not hand-edit: `--check doc/unported-classification.md` fails if the row
      set drifts from the measured unported set. -->
 
-# 미포팅 87건 — 무엇인가 / 왜 안 됐나 / 무엇을 막는가
+# 미포팅 86건 — 무엇인가 / 왜 안 됐나 / 무엇을 막는가
 
 행 수는 `tools/ci/measure-port-coverage.py`의 미포팅 집합과 같아야 하고,
 `tools/ci/classify-unported.py --check`가 그것을 강제한다.
@@ -22,17 +22,17 @@
   접두사가 9건을, Phase 8의 접두사가 8건을 실제로 고르므로 이 열은 발화할
   수 있고, 발화한 건은 아래 판정 문단에서 개별로 기각된다.
 
-## 아직 MET가 아닌 §5 행 — 무엇이 막고 있고, 87건 중 몇이 후보인가
+## 아직 MET가 아닌 §5 행 — 무엇이 막고 있고, 86건 중 몇이 후보인가
 
 판정어는 `PORTING-PLAN.md`의 §5 표에서 읽는다. 이 문서가 자기
 사본을 들고 있으면 §260이 `distance: f64`를 PARTIAL로 바꿨을 때처럼
 조용히 낡는다 — `check_phase_coverage()`가 어긋나면 실패한다.
 
-### Phase 3 — `collision: bool` — **UNMET** (§229.1)
+### Phase 3 — `collision: bool` — **UNMET** (§251.4)
 
-- **막는 것:** fcl narrowphase has no single convention at exact tangency (the sweep in §229.1: robot_collision flips sign at z=0 while robot_distance does not)
+- **막는 것:** fcl's narrowphase specialization registry stands where a convention would, rather than there being no convention: §251.1 finds all 49 of 49 cells decided by whether fcl registered a libccd-bypassing specialization for that shape pair, and prbt's `cylinder x box` is a blank cell in it
 - **후보 경로 접두사:** `moveit_core/collision_detection/`, `moveit_core/collision_detection_fcl/`, `moveit_core/collision_detection_bullet/` → 87건 중 **9건**이 후보
-- **판정:** §229.1 measures the port AGAINST the oracle over a 10,000-sample sweep and reports 6,854 mismatches, so both sides produced values -- the row fails on a semantic disagreement, not on an absent file.  The mechanism it names lives in collision_detection_fcl, which doc/port-coverage.md §1 excludes from the corpus, so no member of the 87 can be it.
+- **판정:** the sweep measures the port AGAINST the oracle over 10,000 samples and reports 6,854 mismatches, so both sides produced values -- the row fails on a semantic disagreement, not on an absent file.  §265 pins all 6,854 to the single pair floor/prbt_base_link, whose world pose no joint moves, so every sampled state hits the same tie; §270 reproduces the whole 5-robot table on merged main.  The mechanism lives in collision_detection_fcl, which doc/port-coverage.md §1 excludes from the corpus, so no member of the 87 can be it.
 - **후보 전건:**
   - `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp`
   - `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp`
@@ -60,11 +60,11 @@
   - `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp`
   - `moveit_core/collision_detection/src/collision_plugin_cache.cpp`
 
-### Phase 8 — `CHOMP/STOMP` — **UNMEASURED** (§217.3)
+### Phase 8 — `CHOMP/STOMP` — **UNMET** (§269)
 
-- **막는 것:** the port has no property-based harness for chomp/stomp; Phase 7's counterpart is crates/moveit-planners-sbp/examples/plan_benchmark_*.rs and neither chomp nor stomp crate has an examples/ or benches/ directory at all (checked: all four absent)
+- **막는 것:** the 89.64% bar is Phase 7's, set by C++ OMPL RRTConnect, and §269 measures upstream's own C++ implementations missing it on the same 500 problems -- CHOMP 370/500 (74.0%) and STOMP 446/500 (89.2%).  §263 measured the port short of the same bar.  The harness exists -- what fails is a rate compared against a different planner's baseline, not an absent file
 - **후보 경로 접두사:** `moveit_planners/chomp/`, `moveit_planners/stomp/` → 87건 중 **8건**이 후보
-- **판정:** the 8 candidates are all ROS plugin wiring (chomp_interface/*, stomp_moveit_planner_plugin.cpp, trajectory_visualization.hpp) and the Phase 7 harness does not go through a plugin -- plan_benchmark_port.rs uses moveit_planners_sbp::PlannerManager directly, and the chomp/stomp entry points it would call already exist (moveit-planners-chomp/src/planner.rs solve, moveit-planners-stomp/src/planner.rs plan).  What is missing is a harness on the port side, not an unported upstream file.
+- **판정:** the 8 candidates are all ROS plugin wiring (chomp_interface/*, stomp_moveit_planner_plugin.cpp, trajectory_visualization.hpp) and §263's harness does not go through a plugin -- it drives the crates directly from crates/moveit-planners-{chomp,stomp}/examples/*_benchmark_port.rs. The row fails on measured success rate, so porting any candidate below could not move it.
 - **후보 전건:**
   - `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_interface.hpp`
   - `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_planning_context.hpp`
@@ -105,7 +105,6 @@
 | `moveit_core/macros/include/moveit/macros/declare_ptr.hpp` | `#define MOVEIT_DECLARE_PTR`, `#define MOVEIT_DECLARE_PTR_MEMBER` | decided-non-port | crate-doc crates/moveit-distance-field/src/lib.rs:873 | named (symbol) | none |
 | `moveit_core/online_signal_smoothing/include/moveit/online_signal_smoothing/smoothing_base_class.hpp` | `SmoothingBaseClass` | decided-non-port | D D1, D4 | resolves | none |
 | `moveit_core/online_signal_smoothing/src/smoothing_base_class.cpp` | `SmoothingBaseClass::SmoothingBaseClass()`, `SmoothingBaseClass::~SmoothingBaseClass()` | decided-non-port | crate-doc crates/moveit-smoothing/src/lib.rs:28 | named (basename) | none |
-| `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | `PlannerConfigurationSettings`, `PlanningContext`, `PlannerManager` | ported-elsewhere | D D1, D4 | resolves | none |
 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request.hpp` | `typedef MotionPlanRequest` | ported-elsewhere | D D1 | resolves | none |
 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `PlanningRequestAdapter` | ported-elsewhere | D D1 | resolves | none |
 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `MotionPlanResponse`, `MotionPlanDetailedResponse` | ported-elsewhere | D D1, D6, D8 | resolves | none |

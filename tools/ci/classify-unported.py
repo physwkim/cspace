@@ -83,23 +83,33 @@ HEADING = re.compile(r"^#+\s+§?(\d+(?:\.\d+)*)\b")
 # `adjudication` is why the candidates that do fire still do not block, and it
 # is quoted from the cited section, not asserted here.
 UNMET_BLOCKERS = {
+    # Cited §229.1 until §251 replaced that section's DIAGNOSIS and the §5 table
+    # moved the citation to §251.4.  §229.1 itself says its conclusion ("upstream
+    # has no convention") was "valid but incomplete", so this entry was repeating
+    # a reading the plan had withdrawn -- the fourth drift check_phase_coverage()
+    # has found, and the first where the section number and the prose were wrong
+    # for different reasons.
     ("Phase 3", "collision: bool"): {
-        "section": "229.1",
-        "blocker": "fcl narrowphase has no single convention at exact tangency "
-                   "(the sweep in §229.1: robot_collision flips sign at z=0 "
-                   "while robot_distance does not)",
+        "section": "251.4",
+        "blocker": "fcl's narrowphase specialization registry stands where a "
+                   "convention would, rather than there being no convention: "
+                   "§251.1 finds all 49 of 49 cells decided by whether fcl "
+                   "registered a libccd-bypassing specialization for that shape "
+                   "pair, and prbt's `cylinder x box` is a blank cell in it",
         "candidates": (
             "moveit_core/collision_detection/",
             "moveit_core/collision_detection_fcl/",
             "moveit_core/collision_detection_bullet/",
         ),
         "adjudication":
-            "§229.1 measures the port AGAINST the oracle over a 10,000-sample "
-            "sweep and reports 6,854 mismatches, so both sides produced values "
-            "-- the row fails on a semantic disagreement, not on an absent "
-            "file.  The mechanism it names lives in collision_detection_fcl, "
-            "which doc/port-coverage.md §1 excludes from the corpus, so no "
-            "member of the 87 can be it.",
+            "the sweep measures the port AGAINST the oracle over 10,000 samples "
+            "and reports 6,854 mismatches, so both sides produced values -- the "
+            "row fails on a semantic disagreement, not on an absent file.  §265 "
+            "pins all 6,854 to the single pair floor/prbt_base_link, whose world "
+            "pose no joint moves, so every sampled state hits the same tie; §270 "
+            "reproduces the whole 5-robot table on merged main.  The mechanism "
+            "lives in collision_detection_fcl, which doc/port-coverage.md §1 "
+            "excludes from the corpus, so no member of the 87 can be it.",
     },
     ("Phase 3", "distance: f64"): {
         # The row cited §229.3 until §260 re-measured it and the §5 table moved
@@ -123,19 +133,23 @@ UNMET_BLOCKERS = {
             "defects in that upstream function; porting any candidate below "
             "would not change what that callback computes.",
     },
-    # Was UNMEASURED against §217.3 until §263 measured it; the row now reads
+    # Was UNMEASURED against §217.3 until §263 measured it; the row then read
     # UNMET against §263 and the harness this entry used to call absent exists
     # (crates/moveit-planners-{chomp,stomp}/examples/).  check_phase_coverage()
     # caught the stale section on the merge that brought §263 in -- the third
     # drift it has found, and the reason this entry no longer describes the
-    # blocker as a missing harness.
+    # blocker as a missing harness.  §269 then measured upstream's OWN C++
+    # implementations on the same 500 problems and the §5 table moved the
+    # citation there, so the blocker below is no longer only about the port's
+    # rate: the bar itself is inherited from a different planner.
     ("Phase 8", "CHOMP/STOMP"): {
-        "section": "263",
-        "blocker": "§263 ran the condition and both planners failed it on the "
-                   "numbers: success rate short of the 89.64% bar (stomp 8 of "
-                   "449 short) and condition 2 short of 100% (chomp 379/380, "
-                   "stomp 438/441).  The harness exists -- what fails is the "
-                   "measured rate, not an absent file",
+        "section": "269",
+        "blocker": "the 89.64% bar is Phase 7's, set by C++ OMPL RRTConnect, and "
+                   "§269 measures upstream's own C++ implementations missing it "
+                   "on the same 500 problems -- CHOMP 370/500 (74.0%) and STOMP "
+                   "446/500 (89.2%).  §263 measured the port short of the same "
+                   "bar.  The harness exists -- what fails is a rate compared "
+                   "against a different planner's baseline, not an absent file",
         "candidates": ("moveit_planners/chomp/", "moveit_planners/stomp/"),
         "adjudication":
             "the 8 candidates are all ROS plugin wiring (chomp_interface/*, "
@@ -552,6 +566,46 @@ def classify(upstream: str, repo: str) -> list[dict]:
 PHASE_ROW = re.compile(
     r"^\| (Phase \d+) \| (.*?) \| (MET|UNMET|PARTIAL|UNMEASURED) \| §([\d.]+) \|", re.M
 )
+TABLE_HEADING = "### 완료 조건 현황표"
+# A real fence toggle is 3+ backticks and nothing else with a backtick on the
+# line -- PORTING-PLAN also writes ```` ```text ```` as an INLINE span while
+# discussing fence conventions, and a naive startswith("```") reads those as
+# toggles and desyncs for the rest of the file.
+FENCE_RE = re.compile(r"^ {0,3}`{3,}[^`]*$")
+
+
+def phase_rows(text: str) -> list[tuple[str, str, str, str]]:
+    """The rows of the LIVE §5 status table, and only those.
+
+    A whole-file `findall` cannot do this, and read one for its whole life.
+    §269.9 quotes the row it proposes to replace inside a fence -- verdict,
+    citation and all -- and that quotation is a well-formed row citing the
+    section the live row has since moved off.  With both in scope no value of
+    `section` below can satisfy the check: setting it to the live row's §
+    fails on the quotation, and setting it to the quotation's § fails on the
+    live row.  The gate was unsatisfiable in one direction and nobody saw it,
+    because nothing runs this file (see check-unmet-blockers.sh).
+
+    So the read is scoped the way check-phase-status.sh scopes the same table:
+    fences are tracked, and the region ends at ANY heading rather than only a
+    `## ` one, so a subsection inserted after the table cannot silently extend
+    it and a later `## ` cannot silently exempt rows below it.
+    """
+    rows, in_fence, in_table = [], False, False
+    for line in text.split("\n"):
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if line.startswith("#"):
+            in_table = line.strip() == TABLE_HEADING
+            continue
+        if in_table:
+            match = PHASE_ROW.match(line)
+            if match is not None:
+                rows.append(match.groups())
+    return rows
 
 
 def check_phase_coverage(repo: str) -> tuple[list[str], dict]:
@@ -563,8 +617,16 @@ def check_phase_coverage(repo: str) -> tuple[list[str], dict]:
     have an entry, and every entry must match a row that is not MET.
     """
     with open(os.path.join(repo, PLAN), encoding="utf-8") as fh:
-        rows = PHASE_ROW.findall(fh.read())
+        rows = phase_rows(fh.read())
     errors: list[str] = []
+    # An empty parse and a clean table are otherwise the same result: every
+    # loop below iterates nothing and the function returns no errors.
+    if not rows:
+        errors.append(
+            f"parsed zero rows from {PLAN}'s `{TABLE_HEADING}` table -- the "
+            f"heading or the row shape changed and this checked nothing"
+        )
+        return errors, {}
     verdicts: dict = {}
     open_rows = [r for r in rows if r[2] != "MET"]
     for phase, cond, verdict, sec in open_rows:
