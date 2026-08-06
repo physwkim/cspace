@@ -539,13 +539,14 @@ is why.)
 
 The scan used to read `.md` and `.rs` only. The justifying sentence in the
 header was mine and it is false: "sections are cited in documentation and in
-doc comments, never in build or CI scripts", against 113 section citations in
-30 tracked files that are neither -- 90 in 20 `.sh`, 11 in
-`tools/moveit-oracle/src/oracle.cpp`, 4 in 2 `.py`, 3 in 3 `.toml`, 3 in 2
-`.json`, 1 in `tools/mpr-vs-epa/mpr_case104.c`, 1 in `ros/Dockerfile`. A
-placeholder duly went through the gap: `p11-planningfailed` wrote one into a
-comment at `ros/verify-ros-interop.sh:203` and it reached the trunk in
-`a746945`. The other gate did not see it either -- `check-section-references.sh`
+doc comments, never in build or CI scripts", against 123 section citations in
+33 tracked files that are neither -- 93 in 21 `.sh`, 11 in 4 `.py`, 11 in
+`tools/moveit-oracle/src/oracle.cpp`, 3 in 3 `.toml`, 3 in 2 `.json`, 1 in
+`tools/mpr-vs-epa/mpr_case104.c`, 1 in `ros/Dockerfile` (re-derived on the
+tree after merging `b4638bb`). A placeholder duly went through the gap:
+`p11-planningfailed` wrote one into the `ros/verify-ros-interop.sh` comment
+that ends "with nothing looking at it." and it reached the trunk in `a746945`
+-- line 203 there, and still line 203 after the merge. The other gate did not see it either -- `check-section-references.sh`
 does read `.sh`, but its reference pattern requires a digit after the sigil,
 so an unassigned placeholder matches nothing there by construction.
 
@@ -566,8 +567,8 @@ tracked files are not valid UTF-8 -- the binary meshes under `fixtures/` -- and
 the old loop's `except UnicodeDecodeError: continue` meant a file it could not
 read was a file it did not check. Now the only way a path goes unread is an
 `OSError`, which is a failure naming the file. The number of files actually
-read is on the OK line (733 of 734 today, the plan being the 734th), and a
-scan that read none is a failure of its own.
+read is on the OK line (739 of 740, the plan being the 740th), and a scan
+that read none is a failure of its own.
 
 PRE is the gate at `f0aa8fe`'s parent, POST the gate as it stands. Each
 mutation is one placeholder inserted into one file, everything else clean:
@@ -581,7 +582,7 @@ mutation is one placeholder inserted into one file, everything else clean:
 | a placeholder inside a fence in `PORTING-PLAN.md`, then the same token outside it | — | OK, then FAIL |
 | the scan handed nothing but `PORTING-PLAN.md`, so `scanned == 0` | — | FAIL, "covered one file out of the tree" — the OK line's file count is what makes this visible |
 | `ros/Dockerfile` at mode 000 | — | FAIL naming it and the `errno`, where the old loop's `continue` said nothing |
-| today's tree, unmutated | OK | OK, 733 files read |
+| the tree unmutated | OK | OK, 739 files read |
 
 ### Where this stops: sub-section numbers
 
