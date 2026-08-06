@@ -57,12 +57,15 @@
 #     non-empty trajectory. What they do not do is check that trajectory
 #     against upstream: no oracle runs here, so "a plan came back" is the
 #     claim, not "the same plan moveit2 would produce".
-#   - Upstream's own C++ client still cannot get a trajectory out of either
-#     endpoint: `MoveGroupInterface` always sends a non-default `start_state`,
-#     which `PlanningRequest` has no field for and the conversion rejects
-#     (§250.6). §5 Phase 9's completion condition therefore stays UNMET, and
-#     leg B of ros/verify-move-action-interop.sh is what keeps that measured
-#     rather than inferred.
+#   - Nothing here grades the trajectory upstream's own C++ client receives
+#     for collision-freeness: leg B of ros/verify-move-action-interop.sh
+#     prints the colliding count and asserts nothing about it, because
+#     `one_joint.urdf` carries no collision geometry for a trajectory over it
+#     to collide with. That the client gets a trajectory at all *is* checked
+#     now, in both start-state spellings -- §250.6's rejection is gone and
+#     §273 moved the §5 Phase 9 row to MET, so an earlier version of this
+#     line calling that row UNMET was reporting a tree this script no longer
+#     runs against.
 #   - No in-process message round trip: every test in
 #     ros/moveit-ros/src/**/*.rs constructs `r2r`-generated message structs
 #     and converts them without ever crossing the middleware. The live legs
