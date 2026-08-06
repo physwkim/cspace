@@ -122,10 +122,14 @@ UNMET_BLOCKERS = {
         # at §229.3 on the very merge that brought §260 in.
         "section": "260",
         "blocker": "the divergence is confined to one branch of the upstream "
-                   "function: §260 measures 0 divergences on the separated "
-                   "branch across 5 robots x 10,000 states, and the "
-                   "penetration branch is incomparable because of 3 upstream "
-                   "defects -- which is why the row reads PARTIAL, not UNMET",
+                   "function, and the row was split along that line: §260 "
+                   "measures 0 divergences on the separated branch across 5 "
+                   "robots x 10,000 states (41,059 comparisons), which is now "
+                   "its own MET row, and this row is the penetration branch, "
+                   "which reads UNMEASURED rather than UNMET because 3 "
+                   "upstream defects fire only there -- the oracle cannot be "
+                   "used as a reference for it, so there is nothing here to "
+                   "close by porting a file",
         "candidates": (
             "moveit_core/collision_detection/",
             "moveit_core/collision_detection_fcl/",
