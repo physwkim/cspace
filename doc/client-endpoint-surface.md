@@ -25,8 +25,8 @@ endpoint, but the client's constructor cannot complete without it.
     reach the wire                 38
     client-local                   88
 
-    port side, absent             7
-    port side, bound              4
+    port side, absent             6
+    port side, bound              5
     port side, surplus            3
 
 ## What the port binds
@@ -44,14 +44,14 @@ a read of the handler or a run of the node. `absent` is the whole of (c).
 | endpoint | the client | the port must provide | opened at | verdict |
 |---|---|---|---|---|
 | `attached_collision_object` | publishes | subscriber | -- | absent |
-| `check_state_validity` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:682` | surplus |
+| `check_state_validity` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:688` | surplus |
 | `compute_cartesian_path` | calls | service server | -- | absent |
-| `execute_trajectory` | calls | action server | `ros/moveit-ros/src/bin/move_group.rs:701` | bound |
+| `execute_trajectory` | calls | action server | `ros/moveit-ros/src/bin/move_group.rs:707` | bound |
 | `get_planner_params` | calls | service server | -- | absent |
-| `joint_states` | subscribes | publisher | -- | absent |
-| `move_action` | calls | action server | `ros/moveit-ros/src/bin/move_group.rs:647` | bound |
-| `plan_kinematic_path` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:631` | surplus |
-| `planning_scene` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:670` | surplus |
+| `joint_states` | subscribes | publisher | `ros/moveit-ros/src/bin/move_group.rs:741` | bound |
+| `move_action` | calls | action server | `ros/moveit-ros/src/bin/move_group.rs:653` | bound |
+| `plan_kinematic_path` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:637` | surplus |
+| `planning_scene` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:676` | surplus |
 | `query_planner_interface` | calls | service server | -- | absent |
 | `robot_description` | reads | parameter or latched publisher | `ros/moveit-ros/src/robot_description.rs:138` | bound |
 | `robot_description_semantic` | reads | parameter or latched publisher | `ros/moveit-ros/src/robot_description.rs:133` | bound |

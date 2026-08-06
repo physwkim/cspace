@@ -42,9 +42,9 @@
 //!   (it needs a collision environment, which exists, not a planning
 //!   pipeline, which does not).
 //!
-//! Two more topics are published here that upstream's `move_group` does not
-//! publish at all, because the client needs them from *somewhere* and in this
-//! workspace there is nowhere else:
+//! Three more topics are published here that upstream's `move_group` does
+//! not publish at all, because the client needs them from *somewhere* and in
+//! this workspace there is nowhere else:
 //!
 //! * `robot_description` and `robot_description_semantic`
 //!   (`std_msgs/msg/String`, latched) -- what an unmodified
@@ -53,6 +53,10 @@
 //!   description without. Upstream publishes these only when told to;
 //!   [`moveit_ros::robot_description`] has the derivation and the
 //!   both-or-neither invariant.
+//! * `joint_states` (`sensor_msgs/msg/JointState`, 10 Hz) -- the robot
+//!   driver's topic, which upstream's `move_group` only ever subscribes to.
+//!   It is what a client's `getCurrentState()` waits on, and `plan()` does
+//!   not need it; [`moveit_ros::joint_states`] has both halves of that.
 //!
 //! The name is upstream's own for the executable that loads exactly these
 //! capabilities: `add_executable(move_group src/move_group.cpp)`
@@ -184,6 +188,7 @@ use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planning::PlanningRequest;
 use moveit_ros::constraints::set::ConstraintsMsg;
 use moveit_ros::execute_trajectory;
+use moveit_ros::joint_states::JointSampler;
 use moveit_ros::move_group::plan_only;
 use moveit_ros::planning::{PlanningRequestMsg, PlanningResponseMsgOut};
 use moveit_ros::robot_description;
@@ -196,6 +201,7 @@ use r2r::QosProfile;
 use r2r::moveit_msgs::action::{ExecuteTrajectory, MoveGroup};
 use r2r::moveit_msgs::msg::MoveItErrorCodes;
 use r2r::moveit_msgs::srv::{GetMotionPlan, GetStateValidity};
+use r2r::sensor_msgs::msg::JointState;
 
 /// `MoveItErrorCodes::source` for each endpoint -- see [`plan`], the one
 /// place either is written, for what the field is used for here.
@@ -720,6 +726,48 @@ fn main() -> ExitCode {
         }
     };
 
+    // `CurrentStateMonitorMiddlewareHandle::createJointStateSubscription`
+    // subscribes with `rclcpp::SystemDefaultsQoS()`
+    // (`current_state_monitor_middleware_handle.cpp:69-74`), whose
+    // reliability and durability the rmw resolves to reliable/volatile.
+    // `QosProfile::default()` is that, which is also what
+    // `robot_state_publisher` and `joint_state_publisher` send with; a
+    // best-effort publisher here would be silently incompatible with
+    // upstream's subscriber and the client would simply never get a state.
+    //
+    // Literal at the call site for the reason `execute_trajectory`'s
+    // registration above records.
+    let joint_state_publisher =
+        match node.create_publisher::<JointState>("joint_states", QosProfile::default()) {
+            Ok(publisher) => publisher,
+            Err(e) => {
+                eprintln!("create_publisher(joint_states): {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+    // 10 Hz. The rate has to clear `getCurrentState`'s own budget --
+    // `waitForCurrentState(node_->now(), wait_seconds)` with
+    // `wait_seconds` defaulting to 1.0 (`move_group_interface.cpp:635`) --
+    // and a period of 100 ms puts the first message stamped after any such
+    // call inside a tenth of it.
+    let mut joint_state_timer = match node.create_timer(Duration::from_millis(100)) {
+        Ok(timer) => timer,
+        Err(e) => {
+            eprintln!("create_timer(joint_states): {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    // Resolved once, here, where a model this topic cannot describe is a
+    // reason to refuse to start rather than an error every 100 ms.
+    let joint_sampler = match JointSampler::new(model) {
+        Ok(sampler) => sampler,
+        Err(e) => {
+            eprintln!("joint_states sampler: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let clock = node.get_ros_clock();
+
     // Leaked for the same reason `model` is: `spawn_local` requires
     // `'static`, and this outlives every future spawned on it.
     let srdf: &'static SrdfModel = Box::leak(Box::new(srdf));
@@ -845,6 +893,54 @@ fn main() -> ExitCode {
     let spawned = spawner.spawn_local(execute_trajectory::serve(execute_trajectory));
     if let Err(e) = spawned {
         eprintln!("spawning execute_trajectory task: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    // The stand-in for the robot driver. Upstream's `move_group` subscribes
+    // to this topic and never publishes it; what this node publishes is the
+    // monitored scene's own current state, so a client's `getCurrentState()`
+    // reads back the state this node plans from. See
+    // [`moveit_ros::joint_states`] for that deviation and for why a latched
+    // message could not serve this endpoint.
+    let scene_for_joint_states = Rc::clone(&scene);
+    let spawned = spawner.spawn_local(async move {
+        while joint_state_timer.tick().await.is_ok() {
+            // Read per tick, not per batch: the stamp is what
+            // `waitForCurrentState` compares against the caller's own
+            // `now()`, so a stamp taken once at startup would satisfy no
+            // call ever made after it.
+            let stamp = {
+                let mut clock = match clock.lock() {
+                    Ok(clock) => clock,
+                    Err(e) => {
+                        eprintln!("locking the ROS clock for joint_states: {e}");
+                        continue;
+                    }
+                };
+                match clock.get_now() {
+                    Ok(now) => r2r::Clock::to_builtin_time(&now),
+                    Err(e) => {
+                        eprintln!("reading the ROS clock for joint_states: {e}");
+                        continue;
+                    }
+                }
+            };
+            // Scoped like every other reader here: the borrow ends before
+            // the next `.await`.
+            let message = {
+                let snapshot = Arc::clone(&scene_for_joint_states.borrow());
+                joint_sampler.sample(snapshot.current_state(), stamp)
+            };
+            // Reported and retried on the next tick rather than ending the
+            // loop: a publish that fails once must not stop every later
+            // `getCurrentState()` from ever completing.
+            if let Err(e) = joint_state_publisher.publish(&message) {
+                eprintln!("publishing joint_states: {e}");
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("spawning joint_states task: {e}");
         return ExitCode::FAILURE;
     }
 

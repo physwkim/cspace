@@ -28028,3 +28028,134 @@ leg A의 두 바늘이 `revolute`/`tip_link`가 아니라 `<axis`/`<group `인 �
 - 같은 파일의 "What this does NOT check" 목록에 §5 Phase 9가 **UNMET**이라는
   문단이 남아 있다. §273이 그 행을 MET으로 옮겼으므로 그 문단은 이 브랜치가
   아니라 §273 기준으로 이미 낡았다. 이 절의 발견이 아니라서 손대지 않았다.
+
+## §NEW3 `joint_states`를 10 Hz로 발행한다 — `getCurrentState()`가 막히던 곳 (2026-08-06)
+
+### §NEW3.1 §273.5의 `joint_states` 주장은 맞다 — 그리고 무엇을 사는지가 그것으로 정해진다
+
+§273.5는 `plan()`이 현재 상태를 묻지 않으며(생성자가 남긴
+`considered_start_state_`가 `setStartStateToCurrentState()`의 빈 diff이므로),
+막히는 것은 `getCurrentState()`를 부르는 클라이언트라고 적었다. 재유도한
+결과 이 주장은 **맞다**. 이 브랜치의 `/move_action` leg B는
+`joint_states`를 발행하는 코드가 존재하기 전부터 통과했고, 계속 통과한다 —
+그 경로는 이 토픽을 건드리지 않는다.
+
+따라서 이 절이 사는 것은 `plan()`이 아니라 `getCurrentState()` 하나다.
+`getCurrentState(wait)`는 `waitForCurrentState(node_->now(), wait)`로 가고
+(`move_group_interface.cpp:635-655`), 그것은
+`while (current_state_time_ < t)`로 도는데 (`current_state_monitor.cpp:240`)
+`t`는 **호출자 자신의 `now()`**다.
+
+### §NEW3.2 그래서 래치 한 장으로는 이 엔드포인트를 섬길 수 없다
+
+위의 `t`가 호출자의 현재 시각이라는 사실이 설계를 결정한다. 시작할 때 한 번
+발행하고 마는 transient_local 메시지는 그 뒤에 이루어지는 **모든** 호출에
+대해 이미 과거이므로, 어떤 호출도 만족시키지 못한다. `robot_description`
+쪽과 정확히 반대다: 저기서는 래치가 유일한 답이고, 여기서는 래치가 답이
+될 수 없다. 그래서 100 ms 주기 타이머다 — `wait_seconds` 기본값이 1.0초
+(`move_group_interface.cpp:635`)이므로 어떤 호출이든 그 예산의 1/10 안에
+자기보다 늦게 찍힌 첫 메시지를 본다.
+
+발행 QoS는 `QosProfile::default()`(KeepLast/10/reliable/volatile)다.
+상류 구독자가 `rclcpp::SystemDefaultsQoS()`이고
+(`current_state_monitor_middleware_handle.cpp:69-74`) rmw가 그것을
+reliable/volatile로 푸는 것과 짝이 맞는다. best-effort 발행자였다면 상류
+구독자와 조용히 비호환이 되어 클라이언트가 상태를 영영 받지 못한다.
+
+### §NEW3.3 메시지가 주장해도 되는 것
+
+`JointSampler`(`ros/moveit-ros/src/joint_states.rs`)는 모델에서 한 번 결정된다.
+
+- **이름은 관절 이름이지 변수 이름이 아니다.** 상류는 각 원소를
+  `robot_model_->getJointModel(name)`으로 찾는다
+  (`current_state_monitor.cpp:345`). 변수 이름을 보내면 다관절 모델에서
+  조용히 아무것도 매칭되지 않는다.
+- **다자유도 관절은 이름에 넣지 않는다.** 상류가 `getVariableCount() != 1`인
+  것을 건너뛰며, 주석 자체가 "they should not even be in the message"라고
+  적는다 (`current_state_monitor.cpp:352-353`).
+- **`name`과 `position`의 길이가 같아야 한다.** 다르면 상류는 메시지 전체를
+  버린다 (`current_state_monitor.cpp:322-334`). 두 배열을 하나의 `unzip`에서
+  만드는 것이 그 불변식을 구조로 만든다 — 길이가 어긋난 메시지를 만들 수
+  있는 경로가 없다.
+- **`velocity`/`effort`는 비운다.** 상류는 `copy_dynamics_`가 켜졌을 때만
+  읽는다. 0으로 채우면 "로봇이 정지해 있다"는, 아무도 측정하지 않은 주장이
+  된다.
+
+단자유도 활성 관절이 하나도 없는 모델은 `JointSampler::new`가 거절한다.
+이 토픽으로 설명할 수 없는 모델은 100 ms마다 오류를 찍는 대신 기동을
+거부하는 편이 맞다.
+
+### §NEW3.4 게이트와, 그것이 실패하는 것을 보인 네 개의 변이
+
+`ros/verify-joint-states-interop.sh`. leg A는 전선, leg B는 상류의
+`CurrentStateMonitor`. leg B는 `/planning_scene`으로 `j1=0.375`를 노드에
+먼저 밀어 넣고, 그 값이 `getCurrentState()`로 돌아오는지를 본다 — 상수를
+보내는 발행자와 감시 중인 상태를 중계하는 발행자를 가르는 것은 그 값
+하나뿐이다.
+
+| 변이 | 무엇을 깼나 | 게이트의 답 |
+|---|---|---|
+| 타임스탬프를 현재 시각 상수로 고정 | 스탬프가 전진한다는 것 | `FAIL two consecutive joint_states samples carry the same header.stamp` |
+| 스탬프에서 10억 초 빼기 | 스탬프가 벽시계 위에 있다는 것 | `FAIL the first joint_states sample is stamped 785996274 but the container's wall clock read 1785996275` |
+| `velocity`를 0으로 채우기 | 측정하지 않은 것을 주장하지 않는다는 것 | `FAIL first velocity: expected this string and did not find it: velocity: []` |
+| 위치를 전부 0으로 | leg B만이 볼 수 있는 것 | leg A **통과**, `PROBE current_state=received`도 **통과**, `FAIL leg B value: ... name=j1 position=0.375` |
+
+마지막 행이 leg B의 존재 이유다. 상수를 보내는 발행자는 모양 검사도,
+스탬프 검사도, `current_state=received`도 전부 통과한다.
+
+### §NEW3.5 프로브가 자기 노드를 돌리지 않고 있었다
+
+이 게이트의 첫 실행은 `PROBE current_state=timeout`이었고, 상류가 스스로
+찍은 진단이 원인을 가리켰다: `latest received state has time 0.000000`.
+`jointStateCallback`은 관절별 필터링보다 **먼저**
+`current_state_time_ = joint_state->header.stamp`를 무조건 대입하므로
+(`current_state_monitor.cpp:341`), 0.000000은 "낡은 스탬프"가 아니라
+"콜백이 한 번도 실행되지 않았다"는 뜻이다.
+
+`MoveGroupInterface`는 자기 콜백 그룹을
+`false /* don't spin with node executor */`로 만들고 그 그룹만 자기
+executor에 넣는다 (`move_group_interface.cpp:129-133`). 그런데
+`CurrentStateMonitor`의 `joint_states` 구독은 노드의 **기본** 콜백 그룹에
+생긴다 (`current_state_monitor_middleware_handle.cpp:69-74`). 즉 그 구독을
+돌리는 것은 응용의 몫인데, 이 프로브는 자기 노드를 한 번도 spin하지 않았다.
+상류 자신의 ROS 2 테스트가 같은 호출 앞에서 정확히 그것을 한다 —
+`executor.add_node(move_group_node)`를 spin 스레드에 올린 뒤
+`getCurrentState(60)` (`test_trajectory_cache.cpp:1047-1064`). 프로브에
+그 스레드를 넣었다.
+
+이것은 포트의 결함이 아니라 계측의 결함이었다. 그러나 그것을 넣기 전의
+게이트는 올바른 발행자에 대해 실패하고 있었고, 브리핑의 "새 경로에는 자기
+첫 실행이 필요하다"가 잡아낸 것이 바로 이것이다.
+
+### §NEW3.6 이 게이트가 자기 안에서 찾은, 실패할 수 없던 검사
+
+첫 변이(스탬프 고정)의 첫 실행은 의도한 곳이 아니라
+`FAIL first stamp: this string must not appear and did: sec: 0`에서
+멈췄다. `grep -F 'sec: 0'`이 `nanosec: 0` 줄에도 걸리기 때문이다. 그
+검사는 미설정 스탬프를 잡겠다고 적혀 있었지만 실제로는 두 필드를 구별하지
+못했고, 나노초가 마침 0인 정상 메시지에 대해 실패한다. 통과하고 있었던
+유일한 이유는 벽시계 나노초가 사실상 0이 되지 않는다는 것뿐이다.
+
+구조로 닫았다: 텍스트 검사를 지우고, 파싱된 초 값에 대한 벽시계 검사가
+그 일을 하게 했다(`^[[:space:]]*sec:`로 앵커되므로 `nanosec:`은 걸리지
+않는다). 미설정 스탬프는 벽시계에서 55년 떨어져 있으므로 거기서 잡히며,
+그 검사는 이제 두 표본 모두에 적용된다 — 한 표본만 벽시계 위에 있고 다음
+표본이 다른 시간축인 경우가 "두 스탬프가 다르다"는 검사를 만족시키기
+때문이다.
+
+### §NEW3.7 병합 담당자에게
+
+- `ros/moveit-ros` 울타리 밖 파일 하나를 다시 건드렸다:
+  `ros/move_group_interface_probe/src/move_group_interface_probe.cpp`
+  (§NEW3.5의 spin 스레드와 `current-state` 모드). 이것 없이는 게이트가
+  올바른 발행자에 대해 실패한다.
+- `ros/moveit-ros/src/robot_description.rs`에는 단위 테스트가 없다. `latch`는
+  살아 있는 `Node`를 요구하고, 이 크레이트의 다른 테스트는 전부 메시지 변환
+  단위 테스트다. 그 모듈이 주장하는 것(래치 QoS, 발행 순서)은 전선에서만
+  관측 가능하며 `ros/verify-robot-description-interop.sh`의 변이 두 개가
+  그것을 구별함을 보였다. 이것은 미측정 항목이 아니라 측정 위치가 게이트
+  쪽이라는 뜻이다.
+- `tools/ci/check-citation-drift.py`는 재동결이 필요하다. 브랜치 tip에서
+  돌린 첫 줄이 그 수이고, 지시대로 이 브랜치는 `doc/citation-classes.txt`를
+  손대지 않았다. 전부 생성물인 `doc/client-endpoint-surface.md`의 행 이동과
+  이 라운드가 연 새 행이다.

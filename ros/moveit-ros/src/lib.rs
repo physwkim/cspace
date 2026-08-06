@@ -77,6 +77,7 @@ mod conversion_coverage;
 pub mod constraints;
 pub mod execute_trajectory;
 pub mod geometry;
+pub mod joint_states;
 pub mod model;
 pub mod move_group;
 pub mod planning;

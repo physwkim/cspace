@@ -36,6 +36,10 @@
 #     subscriber, and upstream's own `MoveGroupInterface` built on a node with
 #     no description parameter at all, so its `RDFLoader` has nowhere to get a
 #     model but these topics
+#   - Two live `joint_states` legs (ros/verify-joint-states-interop.sh): the
+#     stamp advances on the wall clock, and upstream's own
+#     `CurrentStateMonitor` hands `getCurrentState()` back a distinctive value
+#     this gate pushed into the node beforehand
 #   - Two live `/move_action` legs over DDS, one of them driven by upstream's
 #     own unmodified C++ `MoveGroupInterface` (ros/verify-move-action-interop.sh,
 #     called at the end of this script). PORTING-PLAN.md §250 measured that
@@ -432,6 +436,7 @@ run_oracle_gate() { # <script relative to REPO_ROOT> <name for the summary>
 }
 
 run_oracle_gate ros/verify-robot-description-interop.sh "robot_description leg B"
+run_oracle_gate ros/verify-joint-states-interop.sh "joint_states leg B"
 # `/move_action` last, because it is the most expensive and the least likely to
 # be the thing a `cargo fmt` failure was about.
 run_oracle_gate ros/verify-move-action-interop.sh "/move_action leg B"
