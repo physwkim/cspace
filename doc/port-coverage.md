@@ -1,4 +1,4 @@
-# 포트 커버리지 — 상류 코퍼스의 포팅/미포팅 분할과 미포팅 87건의 분류
+# 포트 커버리지 — 상류 코퍼스의 포팅/미포팅 분할과 미포팅 86건의 분류
 
 `PORTING-PLAN.md` §217이 이 파일을 가리킨다. 여기 있는 모든 수는
 `tools/ci/measure-port-coverage.py`가 뽑은 것이고, 그 스크립트는 이 표를
@@ -49,8 +49,8 @@
 ```console
 $ ./tools/ci/measure-port-coverage.py
 corpus   245
-ported   158
-unported 87
+ported   159
+unported 86
 cited-outside-corpus 20
 ```
 
@@ -95,9 +95,9 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 부재 주장은 전부 `crates/ ros/ tools/ doc/ PORTING-PLAN.md` 코퍼스에
 대한 `rg` 결과이고, 비고 칸에 그 명령을 적었다.
 
-## 4. 미포팅 87건 (2026-08-06 실측)
+## 4. 미포팅 86건 (2026-08-06 실측)
 
-`decided-non-port` 71 / `gap` **0** / `ported-elsewhere` 16 — §236이 마지막
+`decided-non-port` 71 / `gap` **0** / `ported-elsewhere` 15 — §236이 마지막
 `gap` 행(`planning_interface.cpp`)을 판정으로 바꾸면서 이 표에 미판정 행은
 남지 않았다. `gap` 줄이 아래 출력에 없는 것은 그 이유다 (awk는 본 키만 찍는다).
 
@@ -108,15 +108,18 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 $ awk -F'|' '/^\| `moveit_/ {gsub(/^ +| +$/,"",$3); c[$3]++; n++} \
              END {for (k in c) print k, c[k]; print "total", n}' doc/port-coverage.md
 decided-non-port 71
-ported-elsewhere 16
-total 87
+ported-elsewhere 15
+total 86
 ```
 
-이 라운드에서 `robot_state/conversions.{hpp,cpp}` 두 건이 표에서 빠졌다.
-`crates/moveit-state/src/conversions.rs`의 헤더 블록이 두 파일을 인용하면서
-계기의 판정이 포팅됨으로 바뀌었기 때문이다 — 행이 사라진 것이 곧 그
-판정이다. 이 표는 미포팅 집합만 담으므로, 그 두 파일에 남은 심볼별 책임은
-여기가 아니라 §5에 적는다.
+행이 사라진 것이 곧 판정이다. 지난 라운드에는
+`robot_state/conversions.{hpp,cpp}` 두 건이 그렇게 빠졌고
+(`crates/moveit-state/src/conversions.rs`의 헤더 블록이 두 파일을 인용),
+이번 라운드에는 D8이 `crates/moveit-planning/src/planner.rs:5-6`에서
+`planning_interface.hpp`를 인용하면서 그 행이 빠져 87 → **86**이 되었다.
+`ported-elsewhere`가 16에서 15로 준 것도 같은 한 행 때문이다. 이 표는
+미포팅 집합만 담으므로, 빠진 파일에 남은 심볼별 책임은 여기가 아니라
+§5에 적는다.
 
 | 상류 파일 | 분류 | 증거 | 비고 |
 |---|---|---|---|
@@ -141,7 +144,6 @@ total 87
 | `moveit_core/macros/include/moveit/macros/declare_ptr.hpp` | decided-non-port | `crates/moveit-distance-field/src/lib.rs:873-876` | "`MOVEIT_DECLARE_PTR_MEMBER(VoxelGrid)` -- unported: a C++ smart-pointer-alias macro with no Rust equivalent needed"; the header's whole content is `MOVEIT_DECLARE_PTR`/`MOVEIT_DECLARE_PTR_MEMBER` (2 `#define`s, verified upstream) |
 | `moveit_core/online_signal_smoothing/include/moveit/online_signal_smoothing/smoothing_base_class.hpp` | decided-non-port | `crates/moveit-smoothing/src/lib.rs:28-37` | "excluded (D1 + D4). `SmoothingBaseClass` is a pluginlib abstract interface: `initialize` takes `rclcpp::Node::SharedPtr` in the trait itself (D1)"; `crates/moveit-smoothing/src/lib.rs:71-79` records the header itself as fully audited |
 | `moveit_core/online_signal_smoothing/src/smoothing_base_class.cpp` | decided-non-port | `crates/moveit-smoothing/src/lib.rs:28-37` | same sentence, plus "`.cpp` has no content to port regardless: it is a default constructor/destructor" |
-| `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | ported-elsewhere | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `crates/moveit-planners-sbp/src/lib.rs:284-326` (`# Round 6 symbol audit`), `crates/moveit-planners-stomp/src/lib.rs:68-106` (completion statement) | `registry.rs` names this file by path: "a D1/D4-adapted stand-in for ... (`PlannerManager`, `PlanningContext`)". The audit accounts for all **25** public declarations, and re-reading the header confirms 25 is the count (2 config + `PlanningContext`'s 12 + `PlannerManager`'s 11): **3 ported** — `solve`'s two overloads collapsed into `registry::PlanningContext::solve`, and `getPlanningContext(scene, req, error_code)` as `registry::PlannerManager::get_planning_context` — and **22** decided unported, one D-number or structural reason per declaration. Nothing is undecided, so the old note's "22 unported and **undecided**" was refuted by the very file it cited, and with it the `gap` that note was the grounds for. Residual: none at declaration granularity; the `.cpp`'s own residual is its own row below |
 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request.hpp` | ported-elsewhere | `crates/moveit-planning/src/request.rs:4-10` | "[`PlanningRequest`] replaces the fields of `moveit_msgs::msg::MotionPlanRequest` this crate's six request adapters actually read"; `WorkspaceBounds` replaces `WorkspaceParameters` minus its D1 header |
 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | ported-elsewhere | `crates/moveit-planning/src/lib.rs:404` (`PlanningRequestAdapter`) | "Replaces `planning_interface::PlanningRequestAdapter`" -- the `PlanningRequestAdapter` trait in `moveit-planning`. Read upstream: the class has **4** public declarations and **2** are ported -- `getDescription` as `description`, and `adapt`, whose `moveit::core::MoveItErrorCode` return becomes `Result<(), RequestAdapterError>` (the trait's own doc states that mapping). Residual, unstated on this row until now: `initialize(node, parameter_namespace)`, which is D1 by signature (`rclcpp::Node::SharedPtr`) and whose upstream body is an empty `{}`; and the `virtual ~PlanningRequestAdapter() = default` dtor, which has no Rust equivalent to audit |
 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | ported-elsewhere | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:193` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | the header declares **two** structs and the single citation covered one: `response.rs`'s D8 audit rules on `MotionPlanResponse`'s 6 members (3 ported / 2 distinct / 1 unported-in-scope), and says nothing about `MotionPlanDetailedResponse`. That one is `ChompSolution` — the detailed response narrowed to what `ChompPlanner::solve` ever fills (it resizes every response vector to exactly 1) — with chomp's own audit accounting for all 5 of its fields. Residual: both `getMessage`s, D1/D6 by construction since `moveit_msgs` lives in `moveit-ros`. `MotionPlanResponse::getMessage` is realized there (`ros/moveit-ros/src/planning.rs`, `TryFrom<PlanningResponse> for PlanningResponseMsgOut`); `MotionPlanDetailedResponse::getMessage` by nothing anywhere — see the `planning_response.cpp` row |
