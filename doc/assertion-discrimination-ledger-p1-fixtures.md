@@ -1174,7 +1174,7 @@ defined"` and `"jerk limit defined"` inside `crates/moveit-smoothing/`
 matched only the guards' own `format!` calls, not any test. This was not
 "corroborated by pattern," it was untested, and unlike the `chain.rs`
 case above, both are reachable: `group.active_joint_names()`
-(`robot_model.rs:1479-1501` (`joint_set.extend(self.expand_chain(base_idx, tip_idx));`)) admits any non-fixed, non-mimic joint
+(`robot_model.rs:1479-1500` (`joint_set.extend(self.expand_chain(base_idx, tip_idx));`)) admits any non-fixed, non-mimic joint
 regardless of DOF, and `panda_arm`'s own URDF already has joints with
 velocity bounds set and jerk bounds unset (the existing
 `joint_vel_accel_jerk_bounds_fails_without_acceleration_limits` test's

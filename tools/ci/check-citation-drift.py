@@ -152,7 +152,10 @@ EXEMPT = "exempt"
 OUT_OF_BOUNDS = "out-of-bounds"
 ANCHOR_MISMATCH = "anchor-mismatch"
 UNRESOLVED = "unresolvable"
-HARD_FAIL_CLASSES = (OUT_OF_BOUNDS, ANCHOR_MISMATCH, UNRESOLVED)
+# A cited line that is empty or whitespace-only. Not a class on the ladder --
+# see the predicate itself for why it sits above it.
+BLANK_LINE = "blank-line"
+HARD_FAIL_CLASSES = (OUT_OF_BOUNDS, ANCHOR_MISMATCH, UNRESOLVED, BLANK_LINE)
 
 Citation = namedtuple("Citation", "md line_no spec cls detail partly")
 
@@ -1181,9 +1184,12 @@ def main(write_classes=False):
                     )
                     continue
                 resolved_path = candidates[0]
-                file_len = len(
-                    (REPO_ROOT / resolved_path).read_text(encoding="utf-8", errors="replace").split("\n")
+                body_lines = (
+                    (REPO_ROOT / resolved_path)
+                    .read_text(encoding="utf-8", errors="replace")
+                    .split("\n")
                 )
+                file_len = len(body_lines)
                 oob = [ln for ln in cited_lines if not (1 <= ln <= file_len)]
                 if oob:
                     record(
@@ -1195,12 +1201,57 @@ def main(write_classes=False):
                     )
                     continue
 
+                # ABOVE THE LADDER, deliberately. A blank line cannot be any
+                # citation's subject, so this is not a weaker class of check
+                # that a stronger one can outrank -- it disqualifies the
+                # citation whatever the anchoring says.
+                #
+                # Putting it ON the ladder was the bug. Blank-target citations
+                # were landing in all three PASSING classes (7 unanchored, 3
+                # content-verified, 1 anchor-verified), so no class rejected
+                # them and the top class actively certified one:
+                # `doc/claim-audit/moveit-scene.md:35` cites
+                # `crates/moveit-scene/src/scene.rs:2585`, a blank line inside
+                # `decouple_parent_then_mutating_the_former_parent_is_not_observed`.
+                # "Inside the function the citing text names" was satisfied,
+                # so ANCHOR_VERIFIED -- the strongest thing this gate can say
+                # -- certified a citation pointing at nothing. The assertion it
+                # means is one line up, at `:2584`.
+                #
+                # That is the second time the top class has vouched for a
+                # citation carrying none of its claim; the previous round found
+                # seven that had slid onto a comment or onto a `#[test]`
+                # attribute line. Both say the same thing about this ladder:
+                # every class on it answers "is the cited line plausibly
+                # nearby", and none answers "does the cited line carry the
+                # claim". This predicate is the cheapest available step toward
+                # the second question -- it cannot confirm a claim, but it can
+                # reject a line that carries nothing at all.
+                #
+                # RANGE SEMANTICS. The test is applied to the line numbers the
+                # citation NAMES -- both ends of `NNN-MMM` and every member of
+                # a comma list -- not to the interior of a span.
+                # `parse_cited_lines` already returns exactly that set, and
+                # those are the numbers a reader checks. So `:2584-2590` must
+                # have content at 2584 and 2590; it says nothing about 2587.
+                # The alternative considered was "fail only when every named
+                # line is blank", which would have passed all six of the
+                # ranges that start one line early and run into the doc comment
+                # they cite -- an off-by-one is exactly what this should catch,
+                # and it is one keystroke to fix once named.
+                blank = [ln for ln in cited_lines if not body_lines[ln - 1].strip()]
+                if blank:
+                    record(
+                        md,
+                        line_no,
+                        spec,
+                        BLANK_LINE,
+                        (fname_part, cited_lines, resolved_path, blank),
+                    )
+                    continue
+
                 spans = spans_for(resolved_path)
-                body = (
-                    (REPO_ROOT / resolved_path)
-                    .read_text(encoding="utf-8", errors="replace")
-                    .split("\n")
-                )
+                body = body_lines
                 # Rule 4's verdict, computed once here so that every path
                 # which used to fall through to bounds-only reaches it: a
                 # citation is never filed as unverified while it is in fact
@@ -1404,7 +1455,11 @@ def main(write_classes=False):
     content_verified = n(CONTENT_VERIFIED)
     partly_anchored = sum(1 for r in records if r.partly)
 
-    hard_fail = bool(out_of_bounds) or bool(anchor_mismatch) or bool(unresolved)
+    blank_line = [(r.md, r.line_no, *r.detail) for r in by_class.get(BLANK_LINE, ())]
+
+    hard_fail = (
+        bool(out_of_bounds) or bool(anchor_mismatch) or bool(unresolved) or bool(blank_line)
+    )
     counts = (
         f"{anchor_verified} anchor-verified (EVERY cited line inside a named function's body), "
         f"{content_verified} content-verified (the citing text's own quotation of the code is "
@@ -1413,7 +1468,7 @@ def main(write_classes=False):
         f"neither names a containing function nor quotes the line), "
         f"{len(external)} exempt (names a dependency or a build artifact, see above), "
         f"{len(out_of_bounds)} out-of-bounds, {len(anchor_mismatch)} anchor-mismatch, "
-        f"{len(unresolved)} unresolvable"
+        f"{len(unresolved)} unresolvable, {len(blank_line)} blank-line"
         f"; {partly_anchored} of those are partly-anchored enumerations (a comma list whose "
         f"named functions hold some of its cited lines and not others), counted in whichever "
         f"bucket rule 4 put them"
@@ -1675,6 +1730,21 @@ def main(write_classes=False):
                 f"repo-relative path it means, or -- if it names a dependency or a "
                 f"build artifact -- write it in the form that says so "
                 f"(`<crate>-<version>/src/...`, `target/...`).",
+                file=sys.stderr,
+            )
+
+    if blank_line:
+        print(
+            f"--- {len(blank_line)} citation(s) whose cited line is blank ---",
+            file=sys.stderr,
+        )
+        for md, line_no, fname_part, cited, resolved_path, blank in blank_line:
+            print(
+                f"FAIL {md}:{line_no}: `{fname_part}:"
+                f"{','.join(str(c) for c in cited)}` -> {resolved_path}: line(s) "
+                f"{blank} are blank or whitespace-only. A blank line carries no claim, "
+                f"so no anchoring can make it the subject -- re-derive the line "
+                f"(a span starting one line early is the common case).",
                 file=sys.stderr,
             )
 

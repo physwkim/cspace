@@ -7390,7 +7390,7 @@ main에 머지. **1036 → 1048**.
 
 `CostSource::operator<`(`collision_detection/collision_common.hpp:128-141`)는
 `cost*getVolume()` 내림차순 → `cost` 내림차순 →
-`aabb_min` 사전순이다. Rust 쪽 `Ord`(`common.rs:148`)는
+`aabb_min` 사전순이다. Rust 쪽 `Ord`(`common.rs:155`)는
 `c2.total_cmp(&c1)` → `other.cost.total_cmp(&self.cost)` →
 `total_cmp_aabb`로 세 단계가 정확히 대응한다.
 
@@ -8382,7 +8382,7 @@ cargo nextest run -p moveit-constraints --no-fail-fast           → 89   일치
 
 **그 명령은 0건이 아니라 28줄을 낸다.** `--glob '!*/tests/*'`는
 통합 테스트 디렉터리만 제외하고, `#[cfg(test)]` 모듈은 `src/` 안에
-있기 때문이다(`scene.rs:2537-2667`, `planning_scene_validity.rs:374-419`).
+있기 때문이다(`scene.rs:2538-2667`, `planning_scene_validity.rs:374-419`).
 
 내가 `#[cfg(test)]` 시작 줄을 기준으로 다시 분류했다:
 
@@ -9142,7 +9142,7 @@ rg -c '^//! - CS:' crates/moveit-constraints/src/lib.rs   →  66
 ### 105.3 §97.2·§97.3의 세 건이 모두 닫혔다
 
 - `utils.rs`의 `rg` 명령: 0건을 함의하던 것을 **기대 출력 그대로**
-  적는 형태로 바꿨다(28줄, 실제 코드 히트는 `scene.rs:821` 하나).
+  적는 형태로 바꿨다(28줄, 실제 코드 히트는 `scene.rs:951` 하나).
   §97.2가 권한 후자를 골랐다.
 - 호출자 위치 논거를 **시그니처 논거**로 교체했다. 담당이 브리프의
   15파일/43줄을 그대로 쓰지 않고 자기가 다시 세어 13파일/7-5-1로
@@ -15508,7 +15508,7 @@ MPR과 EPA를 둘 다 돌려 두 숫자와 그 비를 검증한다. 없으면 �
 철회됐다. 이번엔 표본이 아니라 구조로 증명했고, 내가 직접 확인했다:
 `visibility.rs`에 `group_name`이 한 번도 나오지 않고
 (`rg` 결과 0건), `CollisionRequest::default().group_name == None`이며
-(`common.rs:270`), `active_group_links`는 `group_name?`에서 즉시 `None`을
+(`common.rs:274`), `active_group_links`는 `group_name?`에서 즉시 `None`을
 돌려준다(`parry.rs:1327`). 필터가 no-op이므로 깊이를 바꿀 수 없다.
 
 내가 앞선 라운드에 다른 논거로 같은 결론에 도달했었다 — group 필터링은
@@ -17494,7 +17494,7 @@ MultiDOF joints"라고 적으면서도 이 경로에는 그 가드가 없다.
   `JointConstraintSampler::new`/`UnionConstraintSampler::new`의 첫 줄
   `model.joint_model_group(group_name)?`가 그 조회이고, `?`가 그 "로그 찍고
   계속"을 생성 시점의 `Error::UnknownName`으로 바꾼다
-  (`crates/moveit-constraints/src/sampler.rs:184,377`).
+  (`crates/moveit-constraints/src/sampler.rs:184,378`).
   `IkConstraintSamplerAdapter::new`는 이미 해결된 `&JointModelGroup`을 받아
   조회 자체가 없다. 나머지 초기화 셋(`is_valid_`, `verbose_`, `scene_`)은
   포트에 대응 필드가 없는 것들이고, 각각 이미
@@ -17514,7 +17514,7 @@ MultiDOF joints"라고 적으면서도 이 경로에는 그 가드가 없다.
   살아남기 때문이고, 포트는 그 객체를 만들지 않는다.
 
 따라서 분류는 `ported-elsewhere`(내용이 다른 이름으로 트리 안에 있음),
-증거는 `crates/moveit-constraints/src/sampler.rs:184,377`, 잔여분 `clear()`는 위에서 판정. `sampler.rs`
+증거는 `crates/moveit-constraints/src/sampler.rs:184,378`, 잔여분 `clear()`는 위에서 판정. `sampler.rs`
 모듈 doc이 같은 내용을 그 파일 옆에 적어 둔다.
 
 ### §225.3 `collision_env_allvalid.{hpp,cpp}` — 포팅했다, 고르는 경로까지
@@ -18796,7 +18796,7 @@ found" 절)이 그대로 적용된다. 비-로깅 잔여분은 0이다.
 | 상류 | 이 포트 |
 |---|---|
 | `MoveItErrorCodeException` (코드를 실은 예외) | `moveit_error::Error::Code(MoveItErrorCode)` — `crates/moveit-error/src/lib.rs:100-102` |
-| `catch (MoveItErrorCodeException&) { res.error_code.val = ex.getErrorCode(); }` ×4 | `MotionPlanResponse::failure` — `crates/moveit-planners-pilz/src/trajectory_generator.rs:511-517`, `PilzGenerator::generate`의 네 `Err` 분기 `:606-636` |
+| `catch (MoveItErrorCodeException&) { res.error_code.val = ex.getErrorCode(); }` ×4 | `MotionPlanResponse::failure` — `crates/moveit-planners-pilz/src/trajectory_generator.rs:512-517`, `PilzGenerator::generate`의 네 `Err` 분기 `:606-636` |
 | `TemplatedMoveItErrorCodeException`의 기본 `FAILURE` | `failure`의 `_ => MoveItErrorCode::Failure` 팔 |
 | `ex.what()` | 없음 — 로그 전용이므로 D-정책상 버린다 |
 
@@ -18882,7 +18882,7 @@ INVALID_GROUP_NAME, INVALID_LINK_NAME, NO_IK_SOLUTION, 그리고 명시 인자�
    group->getActiveJointModelNames().size()`를 검사하고 어긋나면
    `INVALID_GOAL_CONSTRAINTS`로 거부한다. `trajectory_generator_lin.rs:122-133`의
    `Goal::Joint(positions)` 분기에는 그 비교가 없고, `check_joint_goal`
-   (`trajectory_generator.rs:748-765`)도 이름의 소속과 한계만 볼 뿐 개수는 세지
+   (`trajectory_generator.rs:748-764`)도 이름의 소속과 한계만 볼 뿐 개수는 세지
    않는다. 그러므로 그룹의 활성 관절 6개 중 3개만 지정한 LIN 요청은 상류에서
    거부되고 이 포트에서는 통과해, 지정되지 않은 관절이 현재 값에 머문 채로
    FK가 계산된다. **같은 검사가 CIRC에는 있다** —
@@ -20078,7 +20078,7 @@ $ grep -n 'create_subscription' \
 액션 핸들러가 실제로 하는 일 — 요청 변환 → 플래닝 파이프라인 호출 → 응답
 변환 — 은 이미 이 포트 안에 있다. `crates/moveit-planning/src/pipeline.rs:377`의
 `generate_plan`이 상류 `generatePlan`을 대신하고,
-`ros/moveit-ros/src/planning.rs:124`의
+`ros/moveit-ros/src/planning.rs:125`의
 `impl<'m> TryFrom<PlanningRequestMsg<'m>> for PlanningRequest`가 요청의
 msg→core 방향을, `:193`의 `impl TryFrom<PlanningRequest> for
 PlanningRequestMsgOut`이 core→msg 방향을 이미 담당한다. 빠진 것은 이
@@ -20210,7 +20210,7 @@ Phase 9의 산출물로 적었다. §235.2가 대조로 보였듯, 이 포트가
    생성, `spin`. 다른 어떤 조각도 이것 없이는 등록될 자리가 없다 —
    순서 1은 고정이다.
 2. **`/plan_kinematic_path` 서비스.** `r2r::Node::create_service::<GetMotionPlan::Service>()`로
-   등록하고, 요청을 `planning.rs:124`의 기존 `TryFrom`으로
+   등록하고, 요청을 `planning.rs:125`의 기존 `TryFrom`으로
    변환 → `pipeline.rs:377`의 기존 `generate_plan` 호출 → 응답을
    `planning.rs:239`의 기존 `TryFrom`으로 변환 → 회신. **이 조각을
    1과 함께 지으면 첫 종단 측정이 열린다** — 서비스는 동기 단발
@@ -22621,7 +22621,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | # | 상류 파일 | 증거 (`doc/port-coverage.md` §4의 같은 행) | 포팅된 인클루더 |
 |---|---|---|---|
 | 1 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp` | `crates/moveit-collision/src/lib.rs:17` | 2 |
-| 2 | `moveit_core/constraint_samplers/src/constraint_sampler.cpp` | `crates/moveit-constraints/src/sampler.rs:184,377`, module doc "`constraint_sampler.cpp`: where its two function bodies went" | —(.cpp) |
+| 2 | `moveit_core/constraint_samplers/src/constraint_sampler.cpp` | `crates/moveit-constraints/src/sampler.rs:184,378`, module doc "`constraint_sampler.cpp`: where its two function bodies went" | —(.cpp) |
 | 3 | `moveit_core/exceptions/src/exceptions.cpp` | `crates/moveit-error/src/lib.rs:21-28,64-73` | —(.cpp) |
 | 4 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `crates/moveit-planners-sbp/src/lib.rs:284-332` (`# Round 6 symbol audit`), `crates/moveit-planners-stomp/src/lib.rs:68-106` (completion statement) | 7 |
 | 5 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request.hpp` | `crates/moveit-planning/src/request.rs:4-10` | 1 |
@@ -22629,12 +22629,12 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:193` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
 | 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:430` (`PlanningResponseAdapter`) | 0 |
 | 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:449-466` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:63-71` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
-| 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-7`, `:56` | 2 |
+| 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-6`, `:56` | 2 |
 | 11 | `moveit_core/robot_state/src/attached_body.cpp` | `crates/moveit-scene/src/attached_body.rs:191` (`set_scale`), `:205` (`set_padding`), `:122` (`subframe_pose`), `:67` (`new`); `crates/moveit-scene/src/scene.rs:1129` (`attach`), `:1200` (`attach_new`), `:1352-1355` (`frame_transform`'s on-demand recompute); `crates/moveit-kinematics/src/set_from_ik.rs:150` | —(.cpp) |
 | 12 | `moveit_core/utils/include/moveit/utils/message_checks.hpp` | `ros/moveit-ros/src/scene/collision_object.rs:11` | 3 |
 | 13 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_base.hpp` | `PORTING-PLAN.md` §227.1-§227.3; `crates/moveit-planners-pilz/src/trajectory_generator.rs:606-636`, `:352` | 0 |
 | 14 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/tip_frame_getter.hpp` | `crates/moveit-planners-pilz/src/trajectory_functions.rs:795` | 4 |
-| 15 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/trajectory_generation_exceptions.hpp` | `PORTING-PLAN.md` §227.5-§227.6; `crates/moveit-error/src/lib.rs:100-102`, `crates/moveit-planners-pilz/src/trajectory_generator.rs:511-517` | 5 |
+| 15 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/trajectory_generation_exceptions.hpp` | `PORTING-PLAN.md` §227.5-§227.6; `crates/moveit-error/src/lib.rs:100-102`, `crates/moveit-planners-pilz/src/trajectory_generator.rs:512-517` | 5 |
 | 16 | `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp` | `crates/moveit-planners-stomp/src/planner.rs` | 1 |
 
 ### §249.6 (b) 0건 · (c) 0건 — 판정 없이 빠진 파일도, Phase 행을 막는 파일도 코퍼스 안에는 없다
@@ -22802,7 +22802,7 @@ Phase 9를 코퍼스 계기로 추적하려면 `CORPUS_ROOTS`에 `moveit_ros/mov
 
 | 조각 | §226.3 | 지금 | 지은 절 |
 |---|---|---|---|
-| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/move_group.rs:216,274,377` (§255.2 이전 이름은 `plan_kinematic_path_server.rs`, 줄 번호는 지금 트리에서 다시 유도했다) | §241 |
+| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/move_group.rs:217,274,377` (§255.2 이전 이름은 `plan_kinematic_path_server.rs`, 줄 번호는 지금 트리에서 다시 유도했다) | §241 |
 | `/plan_kinematic_path` 서비스 | 부재 | **존재** — 같은 파일 `create_service::<GetMotionPlan::Service>` | §241 |
 | `/move_action` 액션 서버 | 부재 | **존재** — 같은 파일 `create_action_server::<MoveGroup::Action>` | 이 절 |
 | planning scene 토픽 구독 | 부재 | **부재** — `rg -n 'create_subscription' ros/moveit-ros/src/ -t rust` 0건 | — |
@@ -22924,7 +22924,7 @@ PHASE9 verdict=NO_VALID_TRAJECTORY
 
 그리고 도착해서 걸린 곳이 §241.2가 예상한 "부를 플래너가 없다"가
 **아니다**. 그보다 앞선 변환에서 걸린다:
-`ros/moveit-ros/src/planning.rs:94-99`의 `robot_state_msg_is_default`는
+`ros/moveit-ros/src/planning.rs@aa0c11f8:94-99`의 `robot_state_msg_is_default`는
 `!is_diff && joint_state.name.is_empty() && ...`을 요구하는데,
 `MoveGroupInterface::plan()`은 생성자가 깔아 둔
 `setStartStateToCurrentState()`의 빈 diff(`is_diff = true`,
@@ -31383,7 +31383,7 @@ STOMP 무력화 변이), §289.7 전체(세 문단). 나머지 **24건**을 트�
 | §264.12 ③ `full` 모드의 핀 | 성립 | `PINS_ALL`의 `"full": null`과 `tools/ci/measure-phase8-optimizer-properties.sh:810`의 `pins-unmeasured`가 그대로다 |
 | §264.12 ⑤ STOMP 끝점 밀림 | 성립 | `PINS_ALL.pilot.stomp`의 `endpoint_ceiling`은 여전히 천장 핀이지 제거가 아니다 |
 | §264.12 ⑥ 제약 비용이 거리 | 성립 | `doc/upstream-bugs.md` 색인 어디에도 이 항목이 없다 |
-| §269.10 ① `max_iterations = 200` | 성립 | `crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs:570-582`의 인자 파싱은 아직 `<seed_base> [planning_time_limit_secs]`뿐이다 |
+| §269.10 ① `max_iterations = 200` | 성립 | `crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs:642-648`의 인자 파싱은 아직 `<seed_base> [planning_time_limit_secs]`뿐이다 |
 | §269.10 ② seed lottery | **절반** | CHOMP 쪽은 §286.5가 닫았다(포트 CHOMP를 424242에서 다시 재어 371/500). 포트 STOMP 쪽만 남고, 약 3시간 비용이 막고 있다 |
 | §269.10 ③ 플러그인 껍데기 파리티 | 성립 | 다만 결정으로 닫힌 것이다 — `097aca77`이 `chomp_interface/*`와 `stomp_moveit_planner_plugin.cpp`를 결정-비이식으로 분류했고, 그것이 §269(`150b66ff`)보다 앞선다. 빈틈이 아니라 범위 기록이다 |
 | §269.10 ④ C++ `COL_CHECK_DISTANCE` 기여도 | **절반** | 그 실험은 지금도 없지만 물음은 §286.3이 다른 방법으로 답했다 |
