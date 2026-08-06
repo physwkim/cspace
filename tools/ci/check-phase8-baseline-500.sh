@@ -53,7 +53,7 @@ WANT=(
 
 missing=0
 for f in "${WANT[@]}"; do
-  if ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+  if ! git ls-files --deduplicate --error-unmatch "$f" >/dev/null 2>&1; then
     echo "FAIL $f is not tracked -- the baseline is not committed" >&2
     missing=$((missing + 1))
   fi
