@@ -2944,28 +2944,31 @@ p3-acm이 pr2 메시를 실제로 넣은 뒤(§32.1) 재측정으로 **부분적
 
 ### 23.1 `resolveConstraintFrames`는 그대로 둔다
 
-§12.7 표(원본 라인 1699 부근)의 기존 메모가 여전히 유효함을
-`crates/moveit-state/src/state.rs:1150-1156`을 다시 읽어 확인했다:
-`Posed::frame_transform`의 문서 주석이 지금도 "attached bodies are
-not ported"라고 명시한다. §18(`p1-fixtures` 3라운드)이 부착체를
+§12.7 표(원본 라인 1699 부근)의 기존 메모는 이 절을 쓰던 시점까지
+유효했다: 그때 `Posed::frame_transform`의 문서 주석이 "attached bodies
+are not ported"라고 명시하고 있었다. §18(`p1-fixtures` 3라운드)이 부착체를
 연결한 것은 맞지만 그건 `CollisionEnv`의 `AttachedBodyGeometry`
-경로뿐이다 — `RobotState`/`Posed` 위에 `getAttachedBodies()`나
-서브프레임을 이름으로 찾는 API는 아직 없다. `resolveConstraintFrames`가
-필요로 하는 것은 정확히 그 API(`link_name`이 부착체/서브프레임을
-가리킬 때 로봇 링크 이름으로 되돌리는 조회)이므로, 이번 라운드에서
-이식해도 `frame_transform`이 항상 링크 이름만 성공시키는 한
-"`c.link_name`이 이미 로봇 링크다"가 항상 참인 퇴화 함수가 된다.
-**`p1-fixtures`(`AttachedBody`/서브프레임 소유자)가 `RobotState`
-레벨에 이름 기반 서브프레임 조회를 추가한 뒤에 재검토할 것.**
+경로뿐이었고 — `RobotState`/`Posed` 위에 `getAttachedBodies()`나
+서브프레임을 이름으로 찾는 API는 그 시점에 없었다(그 레벨에는 지금도
+없다). `resolveConstraintFrames`가 필요로 하는 것은 정확히 그
+API(`link_name`이 부착체/서브프레임을 가리킬 때 로봇 링크 이름으로
+되돌리는 조회)이므로, 이식해도 `frame_transform`이 항상 링크 이름만
+성공시키는 한 "`c.link_name`이 이미 로봇 링크다"가 항상 참인 퇴화 함수가
+된다고 판단하고, `p1-fixtures`(`AttachedBody`/서브프레임 소유자)가
+`RobotState` 레벨에 이름 기반 서브프레임 조회를 추가한 뒤에 재검토할
+것으로 남겼다.
 
 **병합 시점 정정 (같은 라운드에서 해소됨).** `p1-fixtures`가 같은 라운드에
 그 조회를 내놨다 — 다만 `RobotState` 레벨이 아니라 **`PlanningScene` 레벨**로,
 이 포트가 부착체를 상태가 아니라 씬에 두기로 한 결정에 맞춰서다
-(`crates/moveit-scene/src/scene.rs:613` `frame_transform`,
-`:671` `knows_frame_transform` — 모델 프레임/링크 → 부착체 id/서브프레임 →
-월드 객체 id/서브프레임의 3단 사다리). `Posed::frame_transform`의 주석도
-`22bb2a2`에서 "attached bodies are not ported"를 버리고 "씬 한 층 위에서
-해결된다"로 고쳤다. 따라서 §23.1의 차단 사유는 더 이상 성립하지 않는다.
+(`crates/moveit-scene/src/scene.rs:1345` `frame_transform`,
+`:1446` `knows_frame_transform` — 모델 프레임/링크 → 부착체 id → 부착체
+서브프레임 → 월드 객체 id/서브프레임의 사다리이고, §59.2가 뒤에
+extra-fixed-frame 맵을 여섯째 단으로 더해 지금은 6단이다). 위 본문이
+인용하던 `Posed::frame_transform`의 주석도 `22bb2a2`에서 "attached bodies
+are not ported"를 버리고 "씬 한 층 위에서 해결된다"로 고쳤다(지금 자리는
+`crates/moveit-state/src/state.rs:1208-1218`). 따라서 §23.1의 차단 사유는
+더 이상 성립하지 않는다.
 남은 것은 상류가 `const RobotState&`를 받는 시그니처를 이 포트에서 무엇으로
 바꿀지 결정하는 일이고, 그건 `moveit-constraints` 소유자의 몫이다.
 
@@ -8557,13 +8560,16 @@ max(|a|,|b|)`이면 통과한다. 값이 1922이므로 `max_relative = 1e-6`은
   `moveit-model`에 인덱스 목록 메서드를 추가하는 일을 가리키고,
   그 크레이트는 p3-acm 소유다. 소유권 진술이라 맞다.
 
-`crates/moveit-trajectory/src/lib.rs:339`와 `crates/moveit-trajectory/src/robot_trajectory.rs:21` 두 곳은 `RobotTrajectory::print`
-/`operator<<`를 **미이식으로 남은 유일한 항목**으로 지목하면서 그
-이유를 "D 결정도 의존성 부재도 아니고, 어떤 라운드도 요구하지 않았기
-때문"이라고 적는다. 이 저장소가 금지한 "not yet" 자리채움이 아니라
-**행동 가능한 실제 격차**다. 미룬 원래 이유(`RobotState`에 속도·가속도가
-없었다)가 `RuckigSmoothing` 때문에 사라졌다는 것까지 적혀 있다.
-다음 라운드에 이식한다.
+`crates/moveit-trajectory`의 `lib.rs`와 `robot_trajectory.rs` 두 doc은 그
+시점에 `RobotTrajectory::print`/`operator<<`를 **미이식으로 남은 유일한
+항목**으로 지목하면서 그 이유를 "D 결정도 의존성 부재도 아니고, 어떤
+라운드도 요구하지 않았기 때문"이라고 적고 있었다. 이 저장소가 금지한
+"not yet" 자리채움이 아니라 **행동 가능한 실제 격차**였고, 미룬 원래
+이유(`RobotState`에 속도·가속도가 없었다)가 `RuckigSmoothing` 때문에
+사라졌다는 것까지 적혀 있었다. 그래서 다음 라운드에 이식했다 —
+`c90b5c1d`의 `impl std::fmt::Display for
+RobotTrajectory`(`crates/moveit-trajectory/src/robot_trajectory.rs:672`)이고,
+두 doc도 지금은 그렇게 적는다(`crates/moveit-trajectory/src/lib.rs:354-355`).
 
 ## 99. p3-distance-field 라운드 16 머지 — 39%는 진짜고, `<=`는 여전히 안 재진다
 
@@ -20561,13 +20567,18 @@ doc 주석이고 나머지 6줄은 §236.4가 세운 만료 tripwire 테스트 �
 
 **둘째, 받는 자리는 이미 있고 그 자리에는 setter가 없다.** 이 포트의
 `PlanningContext` 계층은 포팅되어 있다:
-`moveit_planners_sbp::registry`의 `PlannerManager::get_planning_context`
-(`crates/moveit-planners-sbp/src/registry.rs:703`)가 `request:
-PlanningRequest`를 **값으로** 받고 `RrtConnectManager`의 구현
-(`:621`)이 그것을 `RrtConnectContext.request`로 옮긴다. 상류가
+`moveit_planning::planner`의 `PlannerManager::get_planning_context`
+(`crates/moveit-planning/src/planner.rs:353`)가 `request:
+&PlanningRequest`를 **차용으로** 받고 `RrtConnectManager`의 구현이 그것을
+복제해 `RrtConnectContext.request`에 넣는다
+(`crates/moveit-planners-sbp/src/registry.rs:618`). 상류가
 `setMotionPlanRequest`에 정규화를 매단 이유는 그것이 요청이 컨텍스트에
 들어오는 유일한 문이라는 점인데, 이 포트에서 그 문은 생성자 인자다 —
-정규화를 매달 setter가 없고, 필요하지도 않다.
+정규화를 매달 setter가 없고, 필요하지도 않다. (이 절을 쓸 때 그 트레이트는
+`moveit-planners-sbp`의 `registry`에 있었고 요청을 값으로 받았다. `fe6fd060`이
+트레이트를 `moveit-planning`으로 옮기면서 인자를 차용으로 바꿨고, 컨텍스트가
+간직할 사본은 자기가 뜬다. 문은 여전히 하나이고 setter는 여전히 없으므로
+논거 자체는 달라지지 않는다.)
 
 **셋째, 이 포트의 타입에서는 세 입력이 만들어질 수 없다.** 이 포트에서
 탐색 예산에 해당하는 것은 `moveit_planners_sbp::Termination`
@@ -20886,11 +20897,15 @@ $
 `removeObserver` — deviation 4, 만료 조건 명시 —,
 `MOVEIT_CLASS_FORWARD(AllowedCollisionMatrix)`, `print`)과 unported-in-scope
 2건이다. 후자는 `AllowedCollisionMatrix`의 메시지 생성자와 `getMessage()`로,
-D6/§4.3이 `moveit-ros`의 `TryFrom` 층에 배정했으나 아직 없다. 새로 발견한
-미처리가 아니라 이미 이름이 적힌 구멍이다 —
-`ros/moveit-ros/src/scene/planning_scene.rs:19-24`가
-`allowed_collision_matrix`를 미변환 `PlanningScene` 필드로 열거해 두었고 그
-파일을 열어 확인했다.
+D6/§4.3이 `moveit-ros`의 `TryFrom` 층에 배정했다. 이 절을 쓸 때는 둘 다
+없었고, 그 근거로 `ros/moveit-ros/src/scene/planning_scene.rs`가
+`allowed_collision_matrix`를 미변환 필드로 열거해 둔 것을 들었다. 그중
+메시지 생성자는 `4f2c9df7`이 `impl TryFrom<AllowedCollisionMatrixMsg> for
+AllowedCollisionMatrix`(`ros/moveit-ros/src/scene/planning_scene.rs:273`)로
+채웠으므로 남은 구멍은 반대 방향 하나다 —
+`ros/moveit-ros/src/conversion_coverage.rs:125-134`가 그 한 방향을 선언된
+단방향 변환으로 적고, 만료를 `getPlanningSceneMsg`/`getPlanningSceneDiffMsg`
+중 하나가 포팅되는 날로 못박아 둔다.
 
 `doc/port-coverage.md`에 새 `gap` 행은 생기지 않았고 생길 수 없다: 그 표는
 미포팅 **파일**을 분류하는데 이 4건은 전부 포팅된 파일이고, 위 2건은 파일이
@@ -22610,7 +22625,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:414` (`PlanningRequestAdapter`) | 0 |
 | 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:193` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
 | 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:430` (`PlanningResponseAdapter`) | 0 |
-| 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:326` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:44-66` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
+| 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:449-466` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:63-71` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
 | 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-7`, `:56` | 2 |
 | 11 | `moveit_core/robot_state/src/attached_body.cpp` | `crates/moveit-scene/src/attached_body.rs:191` (`set_scale`), `:205` (`set_padding`), `:122` (`subframe_pose`), `:67` (`new`); `crates/moveit-scene/src/scene.rs:1129` (`attach`), `:1200` (`attach_new`), `:1352-1355` (`frame_transform`'s on-demand recompute); `crates/moveit-kinematics/src/set_from_ik.rs:150` | —(.cpp) |
 | 12 | `moveit_core/utils/include/moveit/utils/message_checks.hpp` | `ros/moveit-ros/src/scene/collision_object.rs:11` | 3 |
