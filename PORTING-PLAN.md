@@ -8560,13 +8560,16 @@ max(|a|,|b|)`이면 통과한다. 값이 1922이므로 `max_relative = 1e-6`은
   `moveit-model`에 인덱스 목록 메서드를 추가하는 일을 가리키고,
   그 크레이트는 p3-acm 소유다. 소유권 진술이라 맞다.
 
-`crates/moveit-trajectory/src/lib.rs:339`와 `crates/moveit-trajectory/src/robot_trajectory.rs:21` 두 곳은 `RobotTrajectory::print`
-/`operator<<`를 **미이식으로 남은 유일한 항목**으로 지목하면서 그
-이유를 "D 결정도 의존성 부재도 아니고, 어떤 라운드도 요구하지 않았기
-때문"이라고 적는다. 이 저장소가 금지한 "not yet" 자리채움이 아니라
-**행동 가능한 실제 격차**다. 미룬 원래 이유(`RobotState`에 속도·가속도가
-없었다)가 `RuckigSmoothing` 때문에 사라졌다는 것까지 적혀 있다.
-다음 라운드에 이식한다.
+`crates/moveit-trajectory`의 `lib.rs`와 `robot_trajectory.rs` 두 doc은 그
+시점에 `RobotTrajectory::print`/`operator<<`를 **미이식으로 남은 유일한
+항목**으로 지목하면서 그 이유를 "D 결정도 의존성 부재도 아니고, 어떤
+라운드도 요구하지 않았기 때문"이라고 적고 있었다. 이 저장소가 금지한
+"not yet" 자리채움이 아니라 **행동 가능한 실제 격차**였고, 미룬 원래
+이유(`RobotState`에 속도·가속도가 없었다)가 `RuckigSmoothing` 때문에
+사라졌다는 것까지 적혀 있었다. 그래서 다음 라운드에 이식했다 —
+`c90b5c1d`의 `impl std::fmt::Display for
+RobotTrajectory`(`crates/moveit-trajectory/src/robot_trajectory.rs:672`)이고,
+두 doc도 지금은 그렇게 적는다(`crates/moveit-trajectory/src/lib.rs:354-355`).
 
 ## 99. p3-distance-field 라운드 16 머지 — 39%는 진짜고, `<=`는 여전히 안 재진다
 
