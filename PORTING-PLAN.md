@@ -26126,3 +26126,212 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
 
 **Phase 7 쪽 재확인.** `verify-phase7-benchmark.sh full`은 이 라운드에서
 39개 전량 통과, 벽시계 4787초(`doc/phase7-benchmark-results.json`).
+
+---
+
+## §NEW prbt의 6,854건은 6,854개의 사건이 아니라 조인트-무관 고정 쌍 하나다 — 어느 쌍인지, 왜 조인트에 무관한지, 왜 100%가 아닌지를 잰다 (2026-08-06)
+
+§229.1은 정확 접선에서 상류에 단일 규약이 없다는 것을, 서로 반대로 답하는
+두 점(prbt 쌍 `false`, octree 리프 쌍 `true`)으로 보였다. §251은 그 원인을
+fcl의 협면 등록표로 대체했고 `collision: bool` 판정은 UNMET으로 남겼다.
+§262.2는 조건문에 "정확 접선 좌표는 제외"를 덧붙이고 MET으로 바꿀 것을
+제안했지만, 스스로 "새로 확인하지 못한 것"으로 §218.3의 기존 숫자를 새
+조건 문구로 재실행해 재확인하지 못했다고 적었다 — 사유로 든
+`third_party/moveit_resources` 부재는 §262 머지 시점 주석이 이미 틀렸다고
+정정했다(그 트리는 기본 체크아웃에 존재하고, `.gitignore`의 `/third_party`
+때문에 워크트리에서만 안 보인다). 이 절이 여는 질문은 그 정정과는 다른
+것이다: 6,854/10,000 (68.54%)이 무작위 조인트 샘플링에서 나온 숫자로는
+비정상적으로 크다는 것 — 연속 샘플링에서 정확 접선은 측도 0인 사건이므로,
+같은 접선이 표본의 68%에서 반복되려면 장면 구성 어딘가가 조인트 값과
+무관하게 접선을 강제하고 있어야 한다. 아래는 그것을 측정한다.
+
+### §NEW.1 6,854건 전부가 `floor`/`prbt_base_link` 한 쌍이다
+
+이 워크트리에서 이번 라운드에 직접 재측정했다(`git merge main`으로
+766c52e까지 병합한 뒤, `sg docker`로 `moveit-diff` 릴리스 빌드를 다시
+빌드해 실행):
+
+```
+sg docker -c 'target/release/moveit-diff \
+  --urdf fixtures/prbt.urdf --srdf fixtures/prbt.srdf \
+  --cases 10000 --seed 1 --collision --tol-distance 1e-4 \
+  --stats-json prbt_stats.json --oracle tools/moveit-oracle/run-oracle.sh'
+```
+
+`--stats-json`의 `collision_clauses.bool_disagrees`는 `6854`, `self` 쪽은
+`0`, `robot` 쪽이 `6854` — §218.3/§262.2가 인용한 숫자와 정확히 같다.
+같은 파일의 `distance_pairs.robot_same_pair_histogram`(같은 파일
+`tools/moveit-diff/src/main.rs`의 `compare_collision` 함수, `pair_key`
+함수가 채우는 `BTreeMap<String, usize>`, `--robot` 쪽 값이 허용오차를
+넘고 오라클·포트 양쪽이 같은 쌍을 지목한 경우만 채워짐)는 딱 한 키다:
+
+```
+{"floor/prbt_base_link": 6854}
+```
+
+`distance_pairs.robot_pair_disagrees`(오라클과 포트가 **다른** 쌍을
+최솟값으로 꼽은 경우)는 `3146`이고 `robot_pair_flip_and_value_diverges`도
+`3146` — 즉 6,854 + 3,146 = 10,000, 전체 상태가 이 둘로 정확히 나뉜다.
+`floor`/`prbt_base_link` 말고 다른 쌍이 `robot_same_pair_histogram`에
+나타나지 않으므로, prbt의 `bool` 실패 6,854건은 6,854개의 서로 다른
+사건이 아니라 **하나의 고정된 기하 관계가 6,854개의 조인트 값 아래서
+반복 관측된 것**이다. 원시 출력에서도 동일 신호가 그대로 보인다:
+`robot_collision differs` 행 13,708개(사례당 자기충돌 텍스트까지 겹쳐
+찍힌 결과이며 순수 사례 수는 아니다) 전부, 그리고 별도로 `distance
+differs`만 찍힌(=쌍 이름이 갈렸지만 `bool`은 맞은) 사례들에서도, 오라클
+쪽 로봇 최솟값 쌍 이름은 예외 없이 `floor(world_object)/
+prbt_base_link(robot_link)`, 값은 예외 없이 `-1.00000000000000000e0`
+비트 단위로 동일했다 — 이 `-1.0`의 내부 기전(§260/§262.3이 이미 다룬
+`fcl-distance-sentinel-survives-zero-contacts`)은 이 절이 다시 열지
+않는다; 여기서는 오라클이 보고한 쌍 **이름**만 근거로 쓴다.
+
+### §NEW.2 이 쌍의 세계 자세는 조인트 값과 무관하다 — 구조로 확인
+
+`fixtures/prbt.urdf`에서 `prbt_base_link`가 걸린 관절 두 개:
+
+- `world-base_link-fixed`(`type="fixed"`, `<origin>` 요소 없음 → 항등
+  변환)가 `world`를 부모로, `prbt_base_link`를 자식으로 잇는다.
+- `prbt_joint_1`(`type="revolute"`)은 `prbt_base_link`를 **부모**로 하고
+  `prbt_link_1`을 자식으로 한다 — `prbt_base_link` 자신을 자식으로 갖는
+  가동 관절은 트리에 없다.
+
+즉 `prbt_base_link`의 세계 좌표는 모든 조인트 값에 대해 상수다(부모가
+`fixed`뿐이고, 그 자신은 어떤 가동 관절의 자식도 아니다) — 이것은
+10,000상태 각각을 다시 재서 확인할 필요가 없는, URDF 트리 구조 자체의
+사실이다.
+
+### §NEW.3 두 z=0은 우연이다 — 독립된 두 저자적 선택이 같은 평면에서 만난다
+
+**바닥.** `tools/moveit-diff/src/main.rs`의 `collision_scene` 함수:
+`Cuboid::new(4.0, 4.0, 0.1)`(전체 변 길이 — `crates/moveit-geometry/
+src/shapes.rs`의 `Cuboid::size` 필드 문서: "Extents along x, y, z", 상류
+`bodies::Box::getDimensions`와 같은 의미)를
+`Isometry3::translation(0.0, 0.0, -0.05)`로 배치한다. 변환 경로는
+`crates/moveit-collision/src/parry.rs`의 `convert_shape` 함수:
+`Shape::Cuboid` 분기가 `ParryCuboid::new(b.size[0]*0.5, b.size[1]*0.5,
+b.size[2]*0.5)`(반변 길이)를 `Isometry3::identity()`로 감싸므로, 바깥의
+`-0.05` 평행이동이 곧 상자 중심의 세계 좌표다. 상자 z 반높이는 `0.05`이므로
+윗면은 `-0.05 + 0.05 = 0.000...`. 주석("scale-invariant floor box just
+below `z = 0`")이 말하듯 로봇에 무관하게 "z=0 바로 아래"에 놓도록 설계된
+값이다 — panda/fanuc/pr2처럼 팔길이가 전혀 다른 로봇에도 같은 장면을
+쓰기 위한 일반화이지, prbt를 겨냥한 값이 아니다.
+
+**`prbt_base_link`.** `fixtures/prbt.urdf`: `<collision><origin rpy="3.14159...
+0 0" xyz="0 0 0.065"/><geometry><cylinder length="0.13" radius="0.09275"/>
+</geometry></collision>`. 변환 경로는 같은 `convert_shape`의
+`Shape::Cylinder` 분기: `ParryCylinder::new(c.length*0.5, c.radius)`를
+`axis_fix()`(`Isometry3::rotation(...)`, 평행이동 성분 없음)로 감싼다 —
+URDF의 `rpy` 회전과 `axis_fix`의 재정렬 회전 둘 다 도형 자신의 중심을
+지나는 회전이라, 좌우 대칭인 실린더의 세계 중심 z는 오직 `xyz="0 0
+0.065"`만으로 정해진다. 반길이 `0.065`이므로 밑면은 `0.065 - 0.065 =
+0.000...`.
+
+두 값이 만나는 것은 우연이다: 바닥은 "로봇에 무관하게 z=0 바로 아래"라는
+하네스의 일반 규칙에서 나왔고, `prbt_base_link`는 상류
+`moveit_resources_prbt_support`가 실제 로봇의 바닥 설치면을 z=0에 두는
+(바닥 설치형 로봇 URDF의 통상적 관례) 자기 자신의 값에서 나왔다. 어느
+쪽도 상대를 겨냥해 조정되지 않았다.
+
+### §NEW.4 실제로 계산되는 간극은 IEEE-754 반올림 잡음이다, 픽스처 정밀도 문제가 아니다
+
+이 포트가 실제로 재는 값은 정확한 `0.0`이 아니라
+`-2.77555756156288149e-17`(§NEW.1, §229.1도 이미 인용)이다.
+
+```
+$ python3 -c "print(2**-55)"
+2.7755575615628914e-17
+```
+
+16자리까지 일치 — 이 값은 `2^-55`다, 배정밀도 몇 ULP 규모의 잔차다.
+경로 전체(`Isometry3`, `urdf_rs`의 URDF 파싱, `ParryCuboid`/
+`ParryCylinder`)가 `f64`이고 `f32` 왕복은 없다 — 세 후보 중
+"픽스처가 고정 소수점으로 쓰였거나 f32 왕복을 거쳤다"는 배제된다.
+남는 것은: `0.065`, `0.05`, `0.1` 같은 10진 리터럴은 2진 배정밀도로
+정확히 표현되지 않으므로, `world→base_link`(항등) →
+`base_link→collision origin`(URDF `xyz`/`rpy`) →
+`axis_fix` → GJK 최근접점 계산까지 여러 `Isometry3` 합성을 거치며 각
+단계의 1 ULP 미만 오차가 누적돼 `2^-55` 규모로 남는다는 것 — 통상적인
+배정밀도 자세 합성이 어떤 픽스처를 쓰든 발생시키는 잡음이지, 이 픽스처를
+고쳐서 없앨 수 있는 종류가 아니다.
+
+이 미소 음수 간극이 `bool` 불일치를 만드는 것은 §251.1/§251.3이 이미
+확립한 기전 그대로다: `cylinder × box`는 fcl의 34개 비-libccd 특수화
+목록에 없어 일반 libccd MPR 경로(엄격 부등호, 간극이 정확히 0이거나
+그보다 얕게 음수면 접촉을 못 찾음)로 가고, 이 포트의 대응 일반 경로
+(`gjk::closest_points`, `if min_bound > max_dist`, 경계 포함)는 같은
+미소 음수를 접촉으로 받아들인다. 이 절은 그 기전을 다시 유도하지 않고,
+prbt의 실제 6,854건이 바로 그 셀의 사례임을 확인하는 데 썼다.
+
+### §NEW.5 나머지 3,146건: 다른, 진짜 조인트-의존 접촉이 최솟값을 가져간다
+
+`distance_pairs.robot_pair_disagrees = robot_pair_flip_and_value_diverges
+= 3146`이고, 이는 `10000 - 6854`와 정확히 같다 — `bool` 불일치(6854)와
+쌍 불일치(3146)가 상태 전체를 빈틈없이 나눈다. 원시 로그에서 이 3,146의
+표본을 보면(`--stats-json`이 아니라 표준출력의 `distance differs` 행,
+`robot_collision differs`는 없는 것만 골라서):
+
+```
+collision[0]: robot oracle -1.0 [floor/prbt_base_link] vs rust -1.084e-1 [prbt_link_3/floor]
+collision[1]: robot oracle -1.0 [floor/prbt_base_link] vs rust -1.103e-1 [prbt_link_3/floor]
+collision[3]: robot oracle -1.0 [floor/prbt_base_link] vs rust -9.836e-2 [prbt_link_5/floor]
+collision[5]: robot oracle -1.0 [floor/prbt_base_link] vs rust -1.566e-1 [prbt_link_4/floor]
+```
+
+오라클이 보고하는 쌍 이름은 이 표본에서도 여전히 `floor/prbt_base_link`,
+`-1.0`이다(§NEW.1의 유보 그대로, 이 값의 내부 기전은 다시 열지 않는다).
+그러나 포트 쪽 최솟값은 `prbt_link_3`/`prbt_link_4`/`prbt_link_5`처럼
+조인트에 따라 실제로 움직이는 링크가 바닥에 `-0.10`~`-0.16` 깊이로 겹친
+결과다 — `§NEW.4`의 잡음 규모(`~1e-17`)보다 15자리 가까이 크므로 부동소수점
+잡음이 아니라 실제 겹침이다. `bool_disagrees`(6854)가 정확히
+`robot_same_pair_and_value_diverges`(6854)와 같고 이 3,146건과는 전혀
+겹치지 않는다는 것은 이미 §NEW.1의 JSON 필드로 확정된 사실이다. 이
+패턴(포트 쪽이 매 상태 다른, 훨씬 깊은 링크로 최솟값을 옮긴다)은
+"그 상태에서는 베이스 링크의 상시-접선이 로봇 전체의 충돌 여부를 가르는
+쌍이 아니게 된다"는 설명과 부합하지만, 이 절은 오라클·포트 각 쌍의
+개별 불리언까지 직접 뽑아 확인하지는 않았다(`moveit-diff`에
+사례별 원시 불리언 덤프 옵션이 없다) — 그래서 이것은 측정된 패턴과
+부합하는 설명이지, 그 자체로 측정된 사실은 아니라고 구분해 둔다.
+
+### §NEW.6 다른 네 로봇이 이 문제를 겪지 않는 이유 — 밑면이 실린더가 아니다
+
+`fixtures/{panda,fanuc,pr2}.urdf`의 베이스 링크 collision은 셋 다
+`<mesh filename="...">`이지 원시 `<cylinder>`가 아니다(`dual_arm_panda`는
+`left_panda_link0`/`right_panda_link0` 둘 다 panda와 같은 메시). §251.2가
+이미 잰 4×4 표에서 `mesh × mesh`/`mesh × box`류는 `cylinder × box`와
+다른 세 번째 경로(`fcl::BVHModel`)로 가고, 그 경로는 정확 접선에서 항상
+`true`로 이 포트와 일치한다. prbt만 베이스에 원시 `<cylinder>`를 쓰므로,
+같은 z=0 우연이 다른 로봇에도 기하적으로는 있을 수 있지만 `cylinder ×
+box`가 아니라서 §251의 깨진 셀을 건드리지 않는다.
+
+### §NEW.7 제안하는 조건 문구 — §262.2가 이미 쓴 것을 확인한다
+
+§262.2가 이미 제안한 문구를 바꿀 이유를 찾지 못했다: "10,000×5로봇에서
+100% 일치; 정확 접선 좌표는 제외 — 상류 자체에 규약이 없음". 이 절이
+더하는 것은 그 제외가 가리키는 좌표가 **하나**이고 조인트와 무관하다는
+직접 측정(§NEW.1–§NEW.4)과, 68.54%라는 수치 자체가 "포트가 상태의
+2/3에서 흔들린다"가 아니라 "고정된 사실 하나가 나머지 다른 접촉에
+가려지지 않는 상태의 비율"이라는 것(§NEW.5–§NEW.6)이다. §262 머지 시점
+주석이 요구한, third_party가 보이는 환경에서의 재확인은: 이 워크트리는
+(정정 이후) third_party 심링크가 있고 `verify-fixture-provenance.sh`가
+통과하므로 그 요구를 충족하는 환경이지만, 이 절 자체는 prbt 단독
+10,000상태만 다시 돌렸을 뿐 5로봇 전체 스윕(약 80분)을 이번 라운드에
+다시 실행하지는 않았다 — panda/fanuc/dual_arm_panda/pr2의 `bool` 0건은
+이전 라운드(같은 워크트리, 같은 third_party 심링크)의 실측을 그대로
+인용한 것이다. 5로봇 전체를 이번 병합main 위에서 다시 도는 것은 병합자의
+몫으로 남긴다.
+
+### §NEW.8 이 절이 하지 않은 것
+
+- `crates/moveit-collision`을 고치지 않았다 — §262.1이 이미 시도하고
+  되돌린 `contact.dist >= 0.0` 게이트를 다시 만들지 않았다.
+- panda/fanuc/dual_arm_panda/pr2의 5로봇 전체 재스윕(약 80분)을 이번
+  병합 위에서 다시 돌리지 않았다(§NEW.7) — prbt 단독(약 15~18초)만
+  다시 쟀다.
+- §NEW.5의 "다른 쌍이 이긴다"는 오라클·포트 각각의 사례별 원시 불리언을
+  직접 뽑아 확정하지 않았다 — 패턴과 부합한다고만 적었다.
+- `doc/upstream-bugs.md`를 고치지 않았다 — `shape-intersect-tangency-
+  follows-libccd-dispatch`는 이미 §251이 채웠고, 이 절은 그 항목이 잡는
+  셀 하나(`cylinder × box`, offset 0)의 실제 발생 빈도를 정량화했을
+  뿐이다.
+- §5 표를 고치지 않았다 — §262.2가 제안한 문구를 그대로 확인했을 뿐,
+  적용은 병합자의 몫이다(지시 사항).
