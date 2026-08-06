@@ -102,7 +102,7 @@ not to the conversion's difficulty.
 | `has_jerk_limits/max_jerk` | same | yes |
 
 Field-name and field-type identical, confirmed against
-`crates/moveit-model/src/joint/bounds.rs:85-111`
+`crates/moveit-model/src/joint/bounds.rs:85-111` (first field `pub joint_name: String,`)
 (`JointModel::variable_bounds_msg()` already builds this shape from a
 `VariableBounds`, per `crates/moveit-model`'s own survey) **and, this
 round, against the wire message itself** (`moveit/moveit_msgs`, `ros2`
@@ -159,7 +159,7 @@ landmine, same shape as §7's `sensor_view_direction`:
 | `BOX=1` | `Cuboid` | `[BOX_X=0, BOX_Y=1, BOX_Z=2]` — positional, no swap (`Cuboid::new(x,y,z)`) |
 | `SPHERE=2` | `Sphere` | `[SPHERE_RADIUS=0]` |
 | `CYLINDER=3` | `Cylinder` | **`[CYLINDER_HEIGHT=0, CYLINDER_RADIUS=1]`** — the reverse of `Cylinder::new(radius, length)`'s argument order. A naive `dimensions[0]` → radius mapping silently swaps radius and length. |
-| `CONE=4` | `Cone` at the `Shape` level, but **unconditionally rejected one layer down** | same height-then-radius order/landmine as `CYLINDER` at the `Shape::try_from(SolidPrimitiveMsg)` step — but **[R5, previously-undocumented gap]** every `CONE` constraint region then fails inside `moveit_constraints::PositionConstraint::new` (`crates/moveit-constraints/src/position.rs:181`, `Body::from_shape(shape)?.ok_or_else(...)`): `moveit_geometry::Body::from_shape` returns `Ok(None)` for `Shape::Cone` (drift-corrected this round: `bodies.rs:3114`, not the stale `:3065` -- `Shape::Cone(_) | Shape::Plane(_) | Shape::OcTree(_) => None,`, alongside `Shape::Plane`/`Shape::OcTree`) because `Body` (the bounding-volume sum type `ConstraintRegion` stores) has no `Cone` variant at all — only `Sphere`/`Cylinder`/`Cuboid`/`ConvexMesh`. So a `PositionConstraint` message whose `constraint_region.primitives` contains any `SolidPrimitive{type_: CONE}` always fails end-to-end, regardless of dimension order — this was true since round 2, not a regression, and had zero test coverage at either layer (`position.rs`'s own tests cover `CYLINDER`'s dimension order and `PRISM`'s rejection, never `CONE` at all). Fixed this round: added `solid_primitive_cone_dimension_order_is_height_then_radius` (mirrors the `CYLINDER` test) and `cone_constraint_region_is_rejected_end_to_end` (drives it through the full `PositionConstraint::try_from`, not just `Shape::try_from`), both in `src/constraints/position.rs`. Expires if `moveit_geometry::Body` ever grows a `Cone` variant (`moveit-geometry`'s scope, not this crate's) — until then this row's "1:1?" is **no**, not "yes with a landmine." |
+| `CONE=4` | `Cone` at the `Shape` level, but **unconditionally rejected one layer down** | same height-then-radius order/landmine as `CYLINDER` at the `Shape::try_from(SolidPrimitiveMsg)` step — but **[R5, previously-undocumented gap]** every `CONE` constraint region then fails inside `moveit_constraints::PositionConstraint::new` (`crates/moveit-constraints/src/position.rs:181`, reads `Error::construct(format!(`, `Body::from_shape(shape)?.ok_or_else(...)`): `moveit_geometry::Body::from_shape` returns `Ok(None)` for `Shape::Cone` (drift-corrected this round: `bodies.rs:3114`, not the stale `:3065` -- `Shape::Cone(_) | Shape::Plane(_) | Shape::OcTree(_) => None,`, alongside `Shape::Plane`/`Shape::OcTree`) because `Body` (the bounding-volume sum type `ConstraintRegion` stores) has no `Cone` variant at all — only `Sphere`/`Cylinder`/`Cuboid`/`ConvexMesh`. So a `PositionConstraint` message whose `constraint_region.primitives` contains any `SolidPrimitive{type_: CONE}` always fails end-to-end, regardless of dimension order — this was true since round 2, not a regression, and had zero test coverage at either layer (`position.rs`'s own tests cover `CYLINDER`'s dimension order and `PRISM`'s rejection, never `CONE` at all). Fixed this round: added `solid_primitive_cone_dimension_order_is_height_then_radius` (mirrors the `CYLINDER` test) and `cone_constraint_region_is_rejected_end_to_end` (drives it through the full `PositionConstraint::try_from`, not just `Shape::try_from`), both in `src/constraints/position.rs`. Expires if `moveit_geometry::Body` ever grows a `Cone` variant (`moveit-geometry`'s scope, not this crate's) — until then this row's "1:1?" is **no**, not "yes with a landmine." |
 | `PRISM=5` | **no counterpart** | rejected (`Error::Other`) — expires if `moveit_geometry::Shape`/`Body` ever grows a Prism variant (unlikely: `PRISM` support was removed from upstream octomap/FCL-era shape sets years ago, `moveit-geometry`'s call, not this crate's) |
 
 msg→core also guards each `dimensions[]` index with a bounds check
@@ -254,7 +254,7 @@ vs. `moveit_constraints::KinematicConstraintSet{ constraints: Vec<Constraint> }`
 where `Constraint` is `enum { Joint, Position, Orientation, Visibility }`
 (one flat vec of a sum type, not four parallel arrays):
 
-- **`name: string` has no home on the core side at all** — `KinematicConstraintSet` carries no name field (re-checked this round against `crates/moveit-constraints/src/set.rs:47-49`: the struct is still exactly `{ constraints: Vec<Constraint> }`). msg→core drops it; core→msg has nothing to put there (empty string, or the caller must carry the name out-of-band if it matters for a later re-serialization — named here, not resolved, since no round-1 code depends on it). Expires if `KinematicConstraintSet` grows a `name` field; `moveit-constraints`'s call, not this crate's.
+- **`name: string` has no home on the core side at all** — `KinematicConstraintSet` carries no name field (re-checked this round against `crates/moveit-constraints/src/set.rs:45-49`, own doc comment `kinematic_constraints::KinematicConstraintSet`: the struct is still exactly `{ constraints: Vec<Constraint> }`). msg→core drops it; core→msg has nothing to put there (empty string, or the caller must carry the name out-of-band if it matters for a later re-serialization — named here, not resolved, since no round-1 code depends on it). Expires if `KinematicConstraintSet` grows a `name` field; `moveit-constraints`'s call, not this crate's.
 - msg→core: iterate all 4 arrays in order, `push`ing one `Constraint::X(...)` per element (using §4-§7's per-element conversions, any one of which can fail the whole `Constraints`).
 - core→msg: the reverse -- partition the flat `Vec<Constraint>` back into 4 arrays by variant. This is a real many-to-one/one-to-many pair: the wire's 4-array-of-arrays shape and the core's 1-array-of-sum-type shape carry the same information but the array **order across types is not preserved** by either side's natural iteration (e.g. a wire message with `[joint, position, joint]` order becomes core `[joint, joint, position]`-then-`[position]` on the way back, i.e. two joints then a position — **round-trip is not order-identical across constraint *types*, only within each type**). Worth flagging explicitly since D6 asks for exactly this kind of non-identity.
 - **Coded in round 2; core→msg's `Visibility` gap closed round 5.** msg→core
@@ -283,7 +283,7 @@ confirmed by survey, not assumed. A `TryFrom` targeting it must compose:
 |---|---|---|
 | `joint_state.name[]`/`position[]`/`velocity[]`/`effort[]` | `RobotModel::variable_names()` zipped with `RobotState::positions()`/`velocities()`/`effort()` (each gated by its own `has_velocity`/`has_acceleration`/`has_effort` flag on the core side) | **Not 1:1**: core stores positions as one flat `Vec<f64>` indexed by *global variable index across the whole model* (or a group, via `JointModelGroup::variable_names()`); wire `JointState` is an unordered `name[]`/`value[]` pair with **no ordering guarantee at all** (upstream code look up by name, never by position). msg→core must build a name→index map and reject any name not in `RobotModel::variable_names()` (`UnknownName`) rather than positionally zip. Wire also allows `position[]`/`velocity[]`/`effort[]` to have *different lengths* from `name[]` or from each other (`"All arrays in this message should have the same size, or be empty"` — a convention, not a type-enforced invariant) — each independently must be validated before use, another concrete `TryFrom`-must-reject case matching the brief's "길이가 어긋난 병렬 배열." |
 | `multi_dof_joint_state.{joint_names,transforms,twist,wrench}` | **no core equivalent** | **Genuine gap.** Per `moveit-state`'s survey (re-checked this round against `crates/moveit-state/src/state.rs` and `crates/moveit-trajectory/src/*.rs` — no `multi_dof`/`MultiDOF` field on either core type): a floating/planar *virtual joint*'s variables live inside the same flat `positions` vec as every other joint (e.g. `virtual_joint/trans_x`), never split into a separate multi-DOF array. A `TryFrom` targeting `RobotState`'s `multi_dof_joint_state` would need to special-case the model's root/virtual joint's variable names and re-derive a `Transform` from them (using §1's `Transform` shape, not yet coded) — `twist`/`wrench` (velocity/force on the multi-DOF joint) have no core representation to source from at all; core→msg for those two arrays can only ever emit empty arrays, which is itself a documented loss, not an oversight. `joint_names`/`transforms` expire (become codeable) once §1's `Transform` conversion is written and this crate special-cases the virtual joint; `twist`/`wrench` are permanent (no core field could ever source them without `moveit-state` adding velocity/force storage for the virtual joint, which is `moveit-state`'s call). |
-| `attached_collision_objects[]` | `moveit_scene::PlanningScene::attached_bodies()` — **not on `RobotState` at all** | **Structural, not a field gap.** Upstream nests attached objects inside `RobotState`; this port deliberately keeps them on `PlanningScene` instead (module doc, `attached_body.rs:12-23`: `RobotState` "does not carry that concept yet"). A `moveit_msgs::RobotState` → core conversion is therefore not just `TryFrom<RobotState msg> for moveit_state::RobotState` — it needs a `&PlanningScene` (or at minimum a `&BTreeMap<String, AttachedBody>`) in scope too, same "conversion needs more context than the message alone" shape as §4/§5/§6's frame-lookup cases, but one level higher (crate-level, not just model-level). |
+| `attached_collision_objects[]` | `moveit_scene::PlanningScene::attached_bodies()` — **not on `RobotState` at all** | **Structural, not a field gap.** Upstream nests attached objects inside `RobotState`; this port deliberately keeps them on `PlanningScene` instead (module doc, `attached_body.rs:12-23`, opens `moveit::core::RobotState`: `RobotState` does not carry that concept yet). A `moveit_msgs::RobotState` → core conversion is therefore not just `TryFrom<RobotState msg> for moveit_state::RobotState` — it needs a `&PlanningScene` (or at minimum a `&BTreeMap<String, AttachedBody>`) in scope too, same "conversion needs more context than the message alone" shape as §4/§5/§6's frame-lookup cases, but one level higher (crate-level, not just model-level). |
 | `is_diff: bool` | **no core equivalent on `RobotState`** | The diff/non-diff distinction exists only at `PlanningScene`'s level (`PlanningScene::parent().is_some()`, see §11) — `RobotState` itself has no notion of it. msg→core: if `is_diff` is set and the caller expects diff semantics, that has to be handled by the caller composing scenes, not by this conversion; core→msg: no source, must be supplied by the caller's context (0/false is not always the right default to invent silently). |
 
 **Coded in round 2** (`joint_state` field only). msg→core resolves
@@ -400,7 +400,7 @@ patched around):
 - ~~World-object subframes (ADD/APPEND) and MOVE's per-shape repose:
   waiting on `moveit-scene`, not a permanent gap.~~ **Resolved round 6.**
   `PlanningScene::move_shapes_in_object`/`set_subframes_of_object`
-  (`scene.rs:1055`/`:1078`) landed on p1-fixtures round 23 (`de8886a`,
+  (`scene.rs:1055`, own doc comment reads `PlanningScene::move_object`/`:1078`) landed on p1-fixtures round 23 (`de8886a`,
   `PORTING-PLAN.md` §150.1 closed) — plain `bool` returns, no outcome enum
   needed, since p1-fixtures read `World::moveShapesInObject`/
   `setSubframesOfObject`'s bodies (`world.cpp:262-280`/`:365-380`) and found
@@ -415,7 +415,7 @@ patched around):
   has no MOVE branch in `processAttachedCollisionObjectMsg` either.
 - ~~`Octomap.data`'s binary payload: decided round 5, belongs to
   `moveit-octomap` (p3-shapes), not `ros/`.~~ **Resolved round 8.**
-  `OcTree::read_binary_data`/`read_data` (`crates/moveit-octomap/src/tree.rs:1244`/`:1272`)
+  `OcTree::read_binary_data`/`read_data` (`crates/moveit-octomap/src/tree.rs:1244-1246` (`read_binary_data`)/`:1272`)
   landed (`7eb794c`); `apply_octomap` (`src/scene/planning_scene.rs`) now
   dispatches on `map.octomap.binary`, decodes into a freshly-constructed
   `OcTree::new(map.octomap.resolution)`, and inserts the result via
@@ -507,7 +507,7 @@ the two small `is_diff`/`robot_model_name` helpers.
 | `robot_model_name: string` | **no field** | Core carries a live `&RobotModel` reference, never just its name string; msg→core can only use this to *validate against* an already-loaded model (`RobotModel::name()`), not to load one — a `PlanningScene` can't be constructed from the message alone, it needs the model supplied out-of-band. Not really a "loss," but worth naming since it means this `TryFrom` is never `TryFrom<PlanningScene msg>` alone, always `(&RobotModel, PlanningScene msg) -> ...`-shaped. |
 | `fixed_frame_transforms: TransformStamped[]` | `Transforms` (`transforms()`/`transforms_mut()`) | not read this round — `moveit_geometry::Transforms`'s own field layout is out of this survey's scope; named as a follow-up |
 | `allowed_collision_matrix` | `AllowedCollisionMatrix` | **not read this round** — defined in `moveit-collision`, out of this survey's scope per the round-1 brief's crate list; its own mapping table is follow-up work, not attempted here (the wire type itself was pulled above, §-adjacent, for completeness only) |
-| `link_padding[]`/`link_scale[]` | **no field on `PlanningScene` at all** | **Genuine gap, not yet a documented one anywhere else.** These live on `moveit_collision::LinkPaddingScale` (re-checked this round, `crates/moveit-collision/src/env.rs:329-351` — still a standalone struct, not a `PlanningScene` field), passed as a separate argument to collision-checking calls, not stored on the scene. A `TryFrom<PlanningScene msg> for moveit_scene::PlanningScene` cannot round-trip this data through the scene type at all — it would need to return a second value (`(PlanningScene, LinkPaddingScale)`) alongside the scene, or drop it, and either choice needs sign-off since it changes the shape of the conversion's return type, not just its error cases. Expires if `PlanningScene` grows a field carrying `LinkPaddingScale` (or the sign-off above picks the second-return-value shape and someone implements it here); `moveit-scene`'s call either way. |
+| `link_padding[]`/`link_scale[]` | **no field on `PlanningScene` at all** | **Genuine gap, not yet a documented one anywhere else.** These live on `moveit_collision::LinkPaddingScale` (re-checked this round, `crates/moveit-collision/src/env.rs:329-351` -- own doc comment names `Self::with_links` -- still a standalone struct, not a `PlanningScene` field), passed as a separate argument to collision-checking calls, not stored on the scene. A `TryFrom<PlanningScene msg> for moveit_scene::PlanningScene` cannot round-trip this data through the scene type at all — it would need to return a second value (`(PlanningScene, LinkPaddingScale)`) alongside the scene, or drop it, and either choice needs sign-off since it changes the shape of the conversion's return type, not just its error cases. Expires if `PlanningScene` grows a field carrying `LinkPaddingScale` (or the sign-off above picks the second-return-value shape and someone implements it here); `moveit-scene`'s call either way. |
 | `object_colors: ObjectColor[]` | **D1-excluded entirely** | Re-checked this round against `crates/moveit-scene/src/scene.rs:476-477` (drift-corrected this round, was the stale `:1972`) — `moveit-scene`'s own doc comment still states this needs `std_msgs::msg::ColorRGBA` and is out of scope by D1 (core is ROS-independent) — msg→core always drops this array; there is no core representation to build it back from on core→msg either. Permanent by design, not a pending-implementation gap: only resolves if D1 itself is revisited (core stops being ROS-independent), which is a project-wide decision, not something this crate or `moveit-scene` can trigger unilaterally. |
 | `world: PlanningSceneWorld{collision_objects[], octomap}` | `World` (`moveit-collision`, used via `PlanningScene::world()`) | `collision_objects[]` mapping is `CollisionObject`, below. `octomap: octomap_msgs/OctomapWithPose`: **[R3]** an empty `octomap.data` is a correct no-op (`apply_planning_scene_world`, `src/scene/planning_scene.rs`); a non-empty payload is decoded via `moveit_octomap::OcTree::read_binary_data`/`read_data` and inserted as a `Shape::OcTree` — **[R8]** see the "Structural gaps" list above for the decoder's landing and this crate's dispatch. |
 | `is_diff: bool` | **not a stored field — structural** | `parent: Option<Arc<PlanningScene>>` being `Some` **is** "is a diff" on the core side. msg→core: `is_diff=true` implies the conversion must be handed a parent scene to attach to (again, more context than the message alone carries); core→msg: derive as `scene.parent().is_some()`, a pure function of the core value, no loss. |
@@ -519,7 +519,7 @@ and inside `AttachedCollisionObject.object` below):
 |---|---|---|
 | `header` | dropped, same as §1's `Header` row | lossy, documented once, applies here too |
 | `pose: Pose` + `primitives[]`/`primitive_poses[]` (+ meshes, + planes) | `AttachedBody::shapes()` + `shape_poses()`, **one-level** (each shape's pose is already resolved relative to the attach link directly) | **Not 1:1 (composition collapsed).** Wire composes two levels — object pose × each primitive's own pose — core flattens to one: `shape_poses()` are relative to the link directly, per `attached_body.rs:25-33`'s own module doc (an explicit design deviation from upstream's two-level `pose_`/`shape_poses_`, already recorded there, not new). msg→core must pre-multiply `pose * primitive_poses[i]` (and `pose * mesh_poses[i]`) before storing; core→msg has no way to recover a meaningful "object pose" to factor back out (any decomposition is a `moveit-ros` policy choice, e.g. always emit `pose = identity` and put everything in `primitive_poses`/`mesh_poses` — needs naming/sign-off, not resolved here). |
-| `planes[]`/`plane_poses[]` | `moveit_geometry::Plane{a,b,c,d}` (a `Shape::Plane` variant does exist -- confirmed by reading `crates/moveit-geometry/src/shapes.rs:989-1000` directly, correcting an earlier pass over this table that assumed otherwise) | `shape_msgs/Plane` is `{coef: float64[4]}` (`coef[0..3]` = `a,b,c,d` per the `.msg`'s own comment) vs. core's 4 named fields -- 1:1 field-for-field once unpacked. **[R3 CORRECTION]** `coef` is `Vec<f64>` in `r2r`'s generated bindings, not `[f64; 4]` — confirmed by reading the cached bindgen output directly, not assumed from the `.msg` source's `[4]` syntax. Length-checked (`src/scene/shapes.rs`), same family as `BoundingVolume`'s parallel arrays (§5). |
+| `planes[]`/`plane_poses[]` | `moveit_geometry::Plane{a,b,c,d}` (a `Shape::Plane` variant does exist -- confirmed by reading `crates/moveit-geometry/src/shapes.rs:989-1000` directly, own attribute `#[derive(Debug, Clone, Copy, PartialEq, Default)]`, correcting an earlier pass over this table that assumed otherwise) | `shape_msgs/Plane` is `{coef: float64[4]}` (`coef[0..3]` = `a,b,c,d` per the `.msg`'s own comment) vs. core's 4 named fields -- 1:1 field-for-field once unpacked. **[R3 CORRECTION]** `coef` is `Vec<f64>` in `r2r`'s generated bindings, not `[f64; 4]` — confirmed by reading the cached bindgen output directly, not assumed from the `.msg` source's `[4]` syntax. Length-checked (`src/scene/shapes.rs`), same family as `BoundingVolume`'s parallel arrays (§5). |
 | `id: string` | `AttachedBody::id()` | yes |
 | `type: object_recognition_msgs/ObjectType` | **no core equivalent** (re-checked this round against `crates/moveit-scene/src/scene.rs:478-479` — still D1-cited, `object_recognition_msgs::msg::ObjectType`) | genuinely dropped, msg→core and core→msg alike; D1-shaped (orchestration/tagging metadata, no invariant to violate), same treatment as `weight` below. Permanent by design (D1), not pending-implementation — expires only on a project-wide D1 revisit. |
 | `subframe_names[]`/`subframe_poses[]` | `subframe_pose(name)`/`subframe_names()` | yes, but **[R3 CORRECTION]** upstream itself indexes these two arrays without any length check at all (`planning_scene.cpp:1596-1599`, an out-of-bounds read if `subframe_names` is shorter) — this port rejects a length mismatch instead of reproducing that read (`src/scene/attached.rs`), a deliberate parity deviation, not an oversight. |
@@ -531,7 +531,7 @@ and inside `AttachedCollisionObject.object` below):
 |---|---|---|
 | `link_name: string` | `AttachedBody::link_name()` | yes |
 | `touch_links[]` | `AttachedBody::touch_links(): &BTreeSet<String>` | yes (`Vec` → `BTreeSet`: wire allows duplicates, core's set silently dedupes — worth a one-line note in the eventual impl doc, not a failure case) |
-| `detach_posture: trajectory_msgs/JointTrajectory` | **D1-excluded** (re-checked this round, `attached_body.rs:45`, explicit `"D1"` in the core source) | confirmed still true, not new; genuinely dropped, msg→core and core→msg alike (§11's CODED note above). Permanent by design (D1), not pending-implementation — expires only on a project-wide D1 revisit. |
+| `detach_posture: trajectory_msgs/JointTrajectory` | **D1-excluded** (re-checked this round, `attached_body.rs:45`, own text reads `is not carried.`, explicit `"D1"` in the core source) | confirmed still true, not new; genuinely dropped, msg→core and core→msg alike (§11's CODED note above). Permanent by design (D1), not pending-implementation — expires only on a project-wide D1 revisit. |
 | `weight: float64` | **no field anywhere on `AttachedBody`** | **Genuine gap.** msg→core: silently dropped (there is nowhere to put it, and upstream's own `processAttachedCollisionObjectMsg` never reads it back either — purely advisory metadata, "if known"); core→msg: not attempted (no core→msg direction exists for this message family at all, see the CODED note above), so there is no default-value question to resolve. Re-checked this round against `crates/moveit-scene/src/attached_body.rs:56-63` — `AttachedBody`'s field list is still `id`/`link_name`/`shapes`/`shape_poses`/`touch_links`/`subframes`, no `weight`. Expires if `AttachedBody` grows a `weight` field; `moveit-scene`'s call, not this crate's. |
 
 ## 12. Every "코어에 없는 필드" — cross-reference (brief's item 3, bullet 1)
@@ -626,13 +626,13 @@ current `moveit-planning`.
 | `MotionPlanRequest` field | `PlanningRequest` field | 1:1? |
 |---|---|---|
 | `workspace_parameters: WorkspaceParameters{header, min_corner, max_corner}` | `workspace_bounds: WorkspaceBounds{min_corner, max_corner}` | `header` dropped (metadata, same treatment as §1); `min_corner`/`max_corner` via §1's `Vector3` conversion (total) |
-| `start_state: RobotState` | **no field** | **Rejected, not dropped**, if non-default (per D6): assuming a different start state than the one requested would change what the plan actually solves for — same reasoning as §9's `is_diff`/`attached_collision_objects` guards, applied one level up. Re-checked this round (§157 audit) against `crates/moveit-planning/src/request.rs:201-243` — still absent. Expires if `PlanningRequest` grows a `start_state` field; `moveit-planning`'s call, not this crate's. |
+| `start_state: RobotState` | **no field** | **Rejected, not dropped**, if non-default (per D6): assuming a different start state than the one requested would change what the plan actually solves for — same reasoning as §9's `is_diff`/`attached_collision_objects` guards, applied one level up. Re-checked this round (§157 audit) against `crates/moveit-planning/src/request.rs:201-243` (field `pub group_name: String,`) — still absent. Expires if `PlanningRequest` grows a `start_state` field; `moveit-planning`'s call, not this crate's. |
 | `goal_constraints: Constraints[]` | `goal_constraints: Vec<KinematicConstraintSet>` | via §8's `Constraints` conversion per element |
 | `path_constraints: Constraints` (single, wire has no "unset" state — an all-empty `Constraints` is the convention) | `path_constraints: Option<KinematicConstraintSet>` | an all-4-arrays-empty `Constraints` maps to `None`; anything else via §8 |
 | `trajectory_constraints: TrajectoryConstraints{constraints: Constraints[]}` | `trajectory_constraints: Vec<KinematicConstraintSet>` | **[R3]** now representable — mapped via §8's `Constraints` conversion per element, exactly like `goal_constraints` above, just a different field |
-| `reference_trajectories: GenericTrajectory[]` | **no field** | **Rejected if non-empty** — real seed-trajectory content with nowhere to go. Re-checked this round against `crates/moveit-planning/src/request.rs:201-243` — still absent. Expires if `PlanningRequest` grows a `reference_trajectories` field; `moveit-planning`'s call, not this crate's. |
+| `reference_trajectories: GenericTrajectory[]` | **no field** | **Rejected if non-empty** — real seed-trajectory content with nowhere to go. Re-checked this round against `crates/moveit-planning/src/request.rs:201-243` (field `pub group_name: String,`) — still absent. Expires if `PlanningRequest` grows a `reference_trajectories` field; `moveit-planning`'s call, not this crate's. |
 | `planner_id: string` | `planner_id: String` | **[R3]** now representable — mapped directly (`""` = unset on both sides) |
-| `pipeline_id`/`num_planning_attempts`/`allowed_planning_time`/`cartesian_speed_limited_link`/`max_cartesian_speed`/`smoothness_level` | **no field** | **Dropped, not rejected** — planner-orchestration metadata, no invariant a dropped tuning knob could violate, same documented-scope reasoning as `PlanningRequest`'s own doc comment on planner-specific tuning. Re-checked this round against `crates/moveit-planning/src/request.rs:201-243` — none of these six landed. Expires per-field if `PlanningRequest` grows a matching field; `moveit-planning`'s call, not this crate's. |
+| `pipeline_id`/`num_planning_attempts`/`allowed_planning_time`/`cartesian_speed_limited_link`/`max_cartesian_speed`/`smoothness_level` | **no field** | **Dropped, not rejected** — planner-orchestration metadata, no invariant a dropped tuning knob could violate, same documented-scope reasoning as `PlanningRequest`'s own doc comment on planner-specific tuning. Re-checked this round against `crates/moveit-planning/src/request.rs:201-243` (field `pub group_name: String,`) — none of these six landed. Expires per-field if `PlanningRequest` grows a matching field; `moveit-planning`'s call, not this crate's. |
 | `group_name: string` | `group_name: String` | yes |
 | `max_velocity_scaling_factor`/`max_acceleration_scaling_factor: float64` | same names | yes |
 
@@ -640,7 +640,7 @@ current `moveit-planning`.
 
 | `MotionPlanResponse` field | `PlanningResponse` field | 1:1? |
 |---|---|---|
-| `trajectory_start: RobotState` | `start_state: RobotState<'m>` | **[R5 CORRECTION — EXPIRED]** This row said "no field, dropped" through round 4. `PlanningResponse::start_state` landed in `moveit-planning` in the same merge that broke this crate's build (round 4→5 merge, `crates/moveit-planning/src/response.rs:121`); the "no field" claim went stale at that instant and nobody re-checked it before this round. Fixed at the merge point (`c8dd883`, not redone here): mapped via §9's `RobotStateMsg`/`RobotStateMsgOut` both ways, round-trip tested with a start state distinct from the trajectory's own first waypoint so a wrong implementation that reconstructs `start_state` from the trajectory instead of decoding `trajectory_start` cannot pass. See `src/planning.rs`'s `TryFrom<PlanningResponseMsg>` doc comment for the full note. |
+| `trajectory_start: RobotState` | `start_state: RobotState<'m>` | **[R5 CORRECTION — EXPIRED]** This row said "no field, dropped" through round 4. `PlanningResponse::start_state` landed in `moveit-planning` in the same merge that broke this crate's build (round 4→5 merge, `crates/moveit-planning/src/response.rs:121` -- own doc comment reads `before ever touching it. A`); the "no field" claim went stale at that instant and nobody re-checked it before this round. Fixed at the merge point (`c8dd883`, not redone here): mapped via §9's `RobotStateMsg`/`RobotStateMsgOut` both ways, round-trip tested with a start state distinct from the trajectory's own first waypoint so a wrong implementation that reconstructs `start_state` from the trajectory instead of decoding `trajectory_start` cannot pass. See `src/planning.rs`'s `TryFrom<PlanningResponseMsg>` doc comment for the full note. |
 | `group_name: string` | **no field** | dropped — leave as is (round 5 brief: already known, not re-litigated) |
 | `trajectory: moveit_msgs/RobotTrajectory` | `trajectory: RobotTrajectory<'m>` | via §10's `RobotTrajectoryMsg`/`RobotTrajectoryMsgOut` (rejects non-empty `multi_dof_joint_trajectory`) |
 | `planning_time: float64` | **no field** | **Concluded round 6, not just re-checked.** p1-fixtures grounded this (`crates/moveit-planning/src/response.rs:39-68`): every upstream fill site sits inside a `PlanningContext`-equivalent's own `solve()` (`ompl_interface`/`chomp`/`stomp`/`pilz`, all cited by file:line there), never `PlanningPipeline::generatePlan` itself, and no crate in this workspace implements `moveit_planning::pipeline::Planner` yet -- there is no reachable fill site to port to. Dropped, not rejected. Expires the moment any crate implements `Planner` for a concrete planner; `moveit-planning`'s call, not this crate's. |
@@ -705,8 +705,8 @@ guard-checked-only.**
 ### 17.2 Touched fields by risk category
 
 - **frame-relative pose** (12 sites): `CollisionObject.header`(×2 call
-  sites, `collision_object.rs:358,457`), `AttachedCollisionObject.object.
-  header`(`attached.rs:221`), `OctomapWithPose.header`(`planning_scene.rs`,
+  sites, `collision_object.rs:358,457`, `:358` reads `subframe_poses,`), `AttachedCollisionObject.object.
+  header`(`attached.rs:219-222` (`shapes_from_message_geometry`)), `OctomapWithPose.header`(`planning_scene.rs`,
   §183, already fixed), `PositionConstraint.header`/`OrientationConstraint.
   header`(captured as a string and handed to `crates/moveit-constraints`
   for lazy per-`decide()` resolution — that crate's own frame-resolution
@@ -730,7 +730,7 @@ guard-checked-only.**
     (confirmed generated: `target/.../moveit_msgs.rs:6473`, one of 29
     named constants per §2's own audit). Fixed to `val:
     moveit_msgs::MoveItErrorCodes::SUCCESS as i32`.
-  - `collision_object.rs:46-49`: local `const ADD: u8 = 0`/`REMOVE = 1`/
+  - `collision_object.rs:46-49` (own doc comment reads `bindgen-derived type (`): local `const ADD: u8 = 0`/`REMOVE = 1`/
     `APPEND = 2`/`MOVE = 3` duplicated the r2r-generated `moveit_msgs::msg::
     CollisionObject::{ADD,REMOVE,APPEND,MOVE}` constants (confirmed
     generated: `target/.../moveit_msgs.rs:4935-4938`) instead of
@@ -744,7 +744,7 @@ guard-checked-only.**
     matching source comment) claimed the compile-error benefit instead of
     the auto-follows-repin benefit; both are corrected now.
   - `VisibilityConstraint.sensor_view_direction` (§175's own claim-audit
-    row, `constraints/visibility.rs:36-37`) and `OrientationConstraint.
+    row, `constraints/visibility.rs:36-37`, own doc comment reads `moveit_constraints::visibility`) and `OrientationConstraint.
     parameterization` (deferred to `crates/moveit-constraints/src/
     orientation.rs:74`, which cites its own upstream line) are the same
     category but **already independently verified against upstream this
@@ -804,20 +804,21 @@ upstream function line-by-line.
 
 **Sites** (file:line, upstream line, verdict):
 
-- `scene/mod.rs:43` (`header_frame_transform`) — the §183 site itself,
+- `scene/mod.rs:43` (`header_frame_transform`, reads `frame_id.is_empty()`) — the §183 site itself,
   already fixed (`aa45d37`).
-- `scene/collision_object.rs:339` (`apply_add`, no shapes) —
+- `scene/collision_object.rs:339` (`apply_add`, reads `plane_poses,`, no shapes) —
   `planning_scene.cpp:1894`: upstream also errors on empty
   primitives/meshes/planes. Matches.
-- `scene/collision_object.rs:420` (`apply_remove`, empty `id`) —
+- `scene/collision_object.rs:420` (`apply_remove`, reads `REMOVE. Upstream`, empty `id`) —
   `:1933`: upstream's `object.id.empty()` also means "remove
   everything". Matches (and already documented + tested,
   `remove_empty_id_removes_everything`).
-- `scene/collision_object.rs:483` (`apply_move`, empty
+- `scene/collision_object.rs:483` (`apply_move`, reads `.pose();`, empty
   `shape_poses_msgs`) — `:1973`: upstream's
   `!primitive_poses.empty() || ...` guard is the same "no pose data ->
   skip the repose step, still Ok" shape. Matches.
-- `scene/attached.rs:95,100` (`apply_attach`, no-geometry world
+- `scene/attached.rs:95,100` (`apply_attach`, `:95` reads
+  `object.primitives.is_empty()`, no-geometry world
   promotion) — `:1563` (ADD/APPEND gate) + `:1579` (the no-geometry
   check itself, further gated to ADD-only): exactly `is_add &&
   no_geometry`. Matches.
@@ -830,13 +831,15 @@ upstream function line-by-line.
   `link_name`) — `:1665`: upstream's `!attached_bodies.empty() ||
   object.object.id.empty()` return expression, already reproduced and
   documented in this module's own doc comment. Matches.
-- `scene/planning_scene.rs:59` (`robot_model_name_matches`, empty
+- `scene/planning_scene.rs:59` (`robot_model_name_matches`, reads
+  `robot_model_name.is_empty()`, empty
   name) — `setPlanningSceneMsg:1370`: upstream skips the compatibility
   check entirely on an empty name. Matches.
-- `scene/planning_scene.rs:127` (`apply_octomap`, empty
+- `scene/planning_scene.rs:127` (`apply_octomap`, reads
+  `map.octomap.data.is_empty()`, empty
   `octomap.data`) — `:1483`: upstream's own early return once the
   previous octomap is cleared. Matches.
-- `ros/moveit-ros/src/state.rs:68,75,84-87` (`is_diff`/`attached_collision_objects`/
+- `ros/moveit-ros/src/state.rs:68,75,84-87` (`:68` reads `names: &[String],`; `is_diff`/`attached_collision_objects`/
   `multi_dof_joint_state` non-default) — **not this shape**: these
   reject a *non-default* value because there is no core field to carry
   it (a structural gap, `RobotState`'s own doc comment), the opposite
@@ -847,13 +850,13 @@ upstream function line-by-line.
   gains multi-DOF support; `attached_collision_objects`/`is_diff`
   clear only if this crate adds a `&mut PlanningScene`-aware
   conversion entry point, not if `moveit-state` changes.
-- `ros/moveit-ros/src/trajectory.rs:142` (`JointTrajectoryPoint[0].time_from_start`
+- `ros/moveit-ros/src/trajectory.rs:142` (own comment reads `// == 0.0`, for `JointTrajectoryPoint[0].time_from_start`
   nonzero) — same opposite-polarity shape as `state.rs` above:
   rejects a non-default value `RobotTrajectory` cannot represent, not
   a rejected default. Expiry noted inline (§153.1): only
   `moveit_trajectory::RobotTrajectory`'s own `duration_from_previous[0]
   == 0.0` invariant changing clears this, not a new field anywhere.
-- `planning.rs:130,138` (`start_state`/`reference_trajectories`
+- `planning.rs:130,138` (`:138` reads `joint_trajectory,`; `start_state`/`reference_trajectories`
   non-default) — same opposite-polarity shape again, already named
   D6-consistent in this module's own doc comment. Expiry noted inline
   (§153.1): both clear if `moveit_planning::PlanningRequest` gains the
@@ -865,8 +868,9 @@ checked here (see the test names cited inline) — this sweep did not
 find a test gap either.
 
 **One cross-crate observation, resolved since (round 13 update):**
-this paragraph originally read `crates/moveit-constraints/src/
-position.rs:163`/`crates/moveit-constraints/src/joint.rs:108` as rejecting `weight <= EPS` with
+this paragraph originally cited a line in `moveit-constraints`'
+`position.rs` and a line in its `joint.rs` (both since renumbered by
+later edits) as rejecting `weight <= EPS` with
 `Err` where upstream substitutes `1.0`, and (wrongly) filed it as a
 deliberate, out-of-scope policy decision rather than the same
 default-has-meaning defect this section sweeps for — the misreading
@@ -897,9 +901,9 @@ empirically, not just by inspection, since a plausible-looking claim
 about compile errors was already wrong once this round (§17.2's
 corrected renumbering claim).
 
-- **`planning.rs:130-135` (`start_state`/`reference_trajectories`) —
+- **`planning.rs:130-135` (reads `type Error = Error;`; `start_state`/`reference_trajectories`) —
   mechanically self-revealing.** The `Ok(PlanningRequest { ... })`
-  construction at `planning.rs:180-188` is an exhaustive struct
+  construction at `planning.rs:180-188` (`try_from`) is an exhaustive struct
   literal (no `..Default::default()`) even though `PlanningRequest`
   derives `Default`. Verified by temporarily adding an undocumented
   field to `crates/moveit-planning::PlanningRequest` and rebuilding
@@ -911,7 +915,7 @@ corrected renumbering claim).
   after; neither was committed). A new `PlanningRequest` field forces
   a person to this exact line without anyone needing to remember the
   comment exists.
-- **`ros/moveit-ros/src/state.rs:68,75,84-87` (`is_diff`/`attached_collision_objects`/
+- **`ros/moveit-ros/src/state.rs:68,75,84-87` (`:68` reads `names: &[String],`; `is_diff`/`attached_collision_objects`/
   `multi_dof_joint_state`) — requires human memory.** Neither
   `TryFrom<RobotStateMsg>` nor `TryFrom<CoreRobotState>` builds
   `CoreRobotState` through a struct literal (`CoreRobotState::new`,
@@ -921,13 +925,13 @@ corrected renumbering claim).
   `is_diff` gap is even further from compiler-visible: its expiry is
   authoring a conversion entry point that does not exist yet, so there
   is nothing for a future edit to newly fail against.
-- **`ros/moveit-ros/src/trajectory.rs:142` (nonzero `time_from_start[0]`) — not
+- **`ros/moveit-ros/src/trajectory.rs:142` (own comment reads `// == 0.0`; nonzero `time_from_start[0]`) — not
   compiler-enforced, but now runtime-tripwired (round 13 follow-up,
   after D14 proved the tripwire pattern viable and the coordinator
   asked this classification be pushed on again).** The rejection
   guards `RobotTrajectory::add_suffix_way_point`'s own runtime
   invariant (`duration_from_previous.is_empty() && dt != 0.0` — read
-  directly in `crates/moveit-trajectory/src/robot_trajectory.rs:261-263`),
+  directly in `crates/moveit-trajectory/src/robot_trajectory.rs:261-263` (`add_suffix_way_point`)),
   not a type or field `TryFrom<JointTrajectoryMsg>` constructs
   exhaustively, so no E0063-style compile break is possible here. But
   unlike `state.rs`'s two conditions below, `add_suffix_way_point`
@@ -938,7 +942,7 @@ corrected renumbering claim).
   calling `add_suffix_way_point` directly (bypassing this crate's own
   `TryFrom` and its own duplicate guard) and asserting the current
   `Err`; it goes red the moment that invariant relaxes. One caveat
-  documented at `ros/moveit-ros/src/trajectory.rs:148`'s own expiry comment: this crate's
+  documented at `ros/moveit-ros/src/trajectory.rs:148` (reads `// field cannot clear this`)'s own expiry comment: this crate's
   `i == 0 && t != 0.0` check fires *before* `add_suffix_way_point` is
   ever called (it exists only to give a wire-specific message), so
   the wire-level `nonzero_start_time_is_rejected` test would **not**
@@ -946,7 +950,7 @@ corrected renumbering claim).
   tripwire's failure and separately update or remove that duplicate
   check. Partially self-revealing, not fully: the underlying fact is
   now mechanically caught, the crate-local duplicate is not.
-- **`ros/moveit-ros/src/state.rs:68,75,84-87` — checked whether the same runtime-tripwire
+- **`ros/moveit-ros/src/state.rs:68,75,84-87` (`:68` reads `names: &[String],`) — checked whether the same runtime-tripwire
   approach applies; it does not.** A tripwire needs an *existing* call
   path whose current answer changes; both `multi_dof_joint_state` and
   `attached_collision_objects`/`is_diff` name the *arrival* of a
@@ -1056,20 +1060,21 @@ call site's code is the unconditional, unbranched call named above.
 | # | Site (file:line) | Rule | norm=2.0 | norm=1.0011 | norm=1.0009 | all-zero | NaN |
 |---|---|---|---|---|---|---|---|
 | 1 | `geometry.rs` (the rule itself) | generic | ✅site `norm_far_from_one_is_renormalized_not_rejected` → Ok, renormalized | ✅site `norm_just_outside_orientation_rules_1e_minus_3_tolerance_is_still_accepted_here` → Ok | ✅site `norm_just_inside_orientation_rules_1e_minus_3_tolerance_is_also_accepted_here` → Ok | ✅site `zero_quaternion_is_rejected` → `Error::Construct` | ✅site `nan_quaternion_is_rejected` → `Error::Construct` |
-| 2 | `constraints/orientation.rs:93` (`OrientationConstraint.orientation`) | strict | ✅site `orientation_norm_2_is_rejected_end_to_end_unlike_a_scene_pose` → `Error::Construct` | ✅generic-fn `orientation_norm_just_outside_the_1e_minus_3_tolerance_is_rejected` → `Error::Construct` (not run through `orientation.rs`'s own conversion end to end) | ✅generic-fn `orientation_norm_just_inside_the_1e_minus_3_tolerance_is_accepted` → Ok (not run end to end) | ✅generic-fn `orientation_zero_quaternion_is_rejected` → `Error::Construct` (not run end to end) | ✅generic-fn `orientation_nan_quaternion_is_rejected` → `Error::Construct` (not run end to end) |
-| 3 | `constraints/position.rs:161` (`BoundingVolume.primitive_poses`/`mesh_poses`) | generic | ✅site `region_pose_with_norm_2_orientation_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 2 | `constraints/orientation.rs:92-93` (reads `UnitQuaternion::try_from(OrientationConstraintQuaternion(msg.orientation))?;`, `OrientationConstraint.orientation`) | strict | ✅site `orientation_norm_2_is_rejected_end_to_end_unlike_a_scene_pose` → `Error::Construct` | ✅generic-fn `orientation_norm_just_outside_the_1e_minus_3_tolerance_is_rejected` → `Error::Construct` (not run through `orientation.rs`'s own conversion end to end) | ✅generic-fn `orientation_norm_just_inside_the_1e_minus_3_tolerance_is_accepted` → Ok (not run end to end) | ✅generic-fn `orientation_zero_quaternion_is_rejected` → `Error::Construct` (not run end to end) | ✅generic-fn `orientation_nan_quaternion_is_rejected` → `Error::Construct` (not run end to end) |
+| 3 | `constraints/position.rs:161` (reads `Isometry3::try_from(Pose(pose))?;`, `BoundingVolume.primitive_poses`/`mesh_poses`) | generic | ✅site `region_pose_with_norm_2_orientation_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
 | 4 | `constraints/visibility.rs:114` (`sensor_pose`) | generic | ✅site `sensor_and_target_pose_with_norm_2_orientation_succeed_and_normalize` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
 | 5 | `constraints/visibility.rs:115` (`target_pose`) | generic | ✅site (same test as row 4) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| 6 | `scene/collision_object.rs:142` (per-shape pose, ADD/APPEND) | generic | ✅site `add_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| 7 | `scene/collision_object.rs:207` (object pose, ADD/APPEND, non-promoted) | generic | ✅site (same test as row 6) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| 8 | `scene/collision_object.rs:239` (`subframe_poses`) | generic | ✅site `add_with_norm_2_orientation_on_subframe_pose_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| 9 | `scene/collision_object.rs:478` (object pose, MOVE) | generic | ✅site `move_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| 10 | `scene/collision_object.rs:515` (per-shape pose, MOVE repose) | generic | ✅site (same test as row 9) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| — | `scene/planning_scene.rs:147` (octomap `origin`) | generic | ✅site `octomap_origin_with_norm_2_orientation_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 6 | `scene/collision_object.rs:142` (reads `Isometry3::try_from(Pose(p))?,`, per-shape pose, ADD/APPEND) | generic | ✅site `add_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 7 | `scene/collision_object.rs:207` (reads `Isometry3::try_from(Pose(object_pose_msg))?`, object pose, ADD/APPEND, non-promoted) | generic | ✅site (same test as row 6) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 8 | `scene/collision_object.rs:239` (reads `Isometry3::try_from(Pose(pose))?);`, `subframe_poses`) | generic | ✅site `add_with_norm_2_orientation_on_subframe_pose_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 9 | `scene/collision_object.rs:478` (reads `Isometry3::try_from(Pose(pose))?;`, object pose, MOVE) | generic | ✅site `move_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 10 | `scene/collision_object.rs:515` (reads `Isometry3::try_from(Pose(p)))`, per-shape pose, MOVE repose) | generic | ✅site (same test as row 9) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| — | `scene/planning_scene.rs:147` (reads `Isometry3::try_from(Pose(map.origin))?;`, octomap `origin`) | generic | ✅site `octomap_origin_with_norm_2_orientation_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
 
 (This is 11 rows for "ten sites" — §213.2's count of nine generic-rule
 sites did not separately list the octomap `origin` at
-`planning_scene.rs:147`; it belongs to the same generic rule and is
+`planning_scene.rs:147` (reads `Isometry3::try_from(Pose(map.origin))?;`);
+it belongs to the same generic rule and is
 included here for completeness. The brief's "ten sites" is the
 Quaternion/Pose-reaching total from §211/`f2a7847`: nine generic +
 one strict = ten *distinct wire fields*, and `visibility.rs`'s
