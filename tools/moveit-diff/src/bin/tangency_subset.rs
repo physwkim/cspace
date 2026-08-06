@@ -407,7 +407,10 @@ fn targets(model: &RobotModel) -> Vec<Target> {
             Shape::Cylinder(c) => (Kind::Cylinder, [c.radius, c.radius, c.length / 2.0]),
             _ => continue,
         };
-        if half.iter().any(|e| !(*e > 0.0)) {
+        // `all(> 0.0)` rather than `any(<= 0.0)`: a NaN half-extent fails the
+        // strict-positive test and passes the negated one, and it would reach
+        // `surface_point` as a placement this corpus cannot score.
+        if !half.iter().all(|e| *e > 0.0) {
             continue;
         }
         out.push(Target {
@@ -447,7 +450,11 @@ fn surface_point(target: &Target, rng: &mut ChaCha8Rng) -> (Vector3, Vector3) {
     match target.kind {
         Kind::Box => {
             let axis = rng.random_range(0..3usize);
-            let sign = if rng.random_range(0..2u8) == 0 { 1.0 } else { -1.0 };
+            let sign = if rng.random_range(0..2u8) == 0 {
+                1.0
+            } else {
+                -1.0
+            };
             let mut p = Vector3::zeros();
             for i in 0..3 {
                 let reach = EDGE_MARGIN * target.half[i];
@@ -466,7 +473,11 @@ fn surface_point(target: &Target, rng: &mut ChaCha8Rng) -> (Vector3, Vector3) {
             let (s, c) = theta.sin_cos();
             if rng.random_range(0..2u8) == 0 {
                 // A cap: the flat disc at +-half length, normal along z.
-                let sign = if rng.random_range(0..2u8) == 0 { 1.0 } else { -1.0 };
+                let sign = if rng.random_range(0..2u8) == 0 {
+                    1.0
+                } else {
+                    -1.0
+                };
                 let rho = rng.random_range(0.0..EDGE_MARGIN * hx);
                 (
                     Vector3::new(rho * c, rho * s, sign * hz),
@@ -918,7 +929,11 @@ fn run() -> Result<i32, String> {
                     0.0
                 } else {
                     let mag = 10f64.powf(rng.random_range(GAP_DECADE_MIN..hi));
-                    if rng.random_range(0..2u8) == 0 { mag } else { -mag }
+                    if rng.random_range(0..2u8) == 0 {
+                        mag
+                    } else {
+                        -mag
+                    }
                 };
 
                 let local = Isometry3::from_parts(
