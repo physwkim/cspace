@@ -5360,7 +5360,7 @@ python3 - ... | run-oracle.sh ... 2>/dev/null | tail -1 > "$RESPONSE_FILE"
 | `verify-continuous-reseed-wrap.sh:61` | **같은 결함** |
 | `check-no-lint-suppression.sh:33` | **같은 결함** — `if hits=$(rg ...)`가 rg의 "매치 없음"(1)과 "rg 자체 실패"(2)를 같은 분기로 접는다. 검색이 깨져도 `OK`를 찍는다 |
 | `check-dep-direction.sh:33` | **같은 결함** — `cargo tree`가 파이프 머리에 있고 꼬리가 `\|\| true`라, cargo가 해석하지 못한 패키지가 "ROS 의존 없음"이 된다. 검사받지 않은 크레이트가 통과로 보고된다 |
-| `run-oracle.sh:28,42` | 별개 — 부재가 곧 기대되는 신호인 탐침(`\|\| true`가 의도) |
+| `run-oracle.sh:32,46` | 별개 — 부재가 곧 기대되는 신호인 탐침(`\|\| true`가 의도) |
 | `run-oracle-sweep.sh:76`, `verify-fixture-provenance.sh:79,162` | 별개 — 이미 실패가 확정된 분기 안에서 표시용으로 자르는 것 |
 
 셋 다 `8791569` 하나로 고쳤다(한 발견, 여러 자리). 각각 주입해 확인했다:
@@ -11742,7 +11742,7 @@ $ cargo +nightly doc --workspace --no-deps          → Finished, exit 0
 뜻하는지"에 대해 서로 다른 것을 뜻하고 있었다.
 
 **Anchor:** `cargo (build|check|clippy|test|doc|nextest|run)` in `.github/`, `tools/ci/`
-**Sites:** `ci.yml:32,38,40,48`; `check-dep-direction.sh:25,44`;
+**Sites:** `ci.yml:32,39,40,48`; `check-dep-direction.sh:25,44`;
 `check-serde-float-roundtrip.sh:33`; `run-oracle-sweep.sh:50`
 **Same defect at:** `ci.yml`의 빌드 단계 4개 — 넷 다 커밋된 lockfile을 주장하지 않고
 resolve한다.
@@ -16026,7 +16026,7 @@ p1-fixtures 라운드가 두 가지를 보고했다. 하나는 재현된 결함,
 
 ### §210.1 게이트 15개 중 1개만 "실증 가능"이었는데, 나머지도 고쳤다
 
-`verify-clean-checkout.sh:51`이 `mapfile -t steps < <(python3 ...)` 꼴이다.
+`verify-clean-checkout.sh:56`이 `mapfile -t steps < <(python3 ...)` 꼴이다.
 `mapfile`은 producer의 종료 상태를 전파하지 않고 `set -e`도 그것을 보지
 못하므로, 파서 자신의 `sys.exit("no run: steps found in the workflow")`가
 stderr에 찍힌 채로 스크립트는 0으로 끝나며 "every ci.yml step passes"를
@@ -18920,7 +18920,7 @@ INVALID_GROUP_NAME, INVALID_LINK_NAME, NO_IK_SOLUTION, 그리고 명시 인자�
 한 가지 공통점은 적어 둘 값어치가 있다. `robot_model_test_utils.*`와
 `eigen_test_utils.hpp`는 **테스트 지원 코드인데 `test/` 디렉터리 밖에
 산다**(`utils/src/`, `utils/include/`). 코퍼스 계기가 걸러내는 것은 경로에
-`test`/`tests` 성분이 있는 파일이므로(`measure-port-coverage.py:90`) 이
+`test`/`tests` 성분이 있는 파일이므로(`measure-port-coverage.py:99`) 이
 둘은 코퍼스 안으로 쓸려 들어왔다. 상류의 `test/` 아래 테스트들은 애초에
 코퍼스 밖이라 이런 행이 없다.
 
@@ -19539,7 +19539,7 @@ API를 부르는 호출자가 생기면** 다시 연다. `moveit-octomap`으로 
 
 물음은 "이 두 파일이 코퍼스에 있는 것이 경로 성분 사고인가"였다. 사고인
 것은 맞다. `corpus_files()`가 거르는 것은 경로에 `test`/`tests` 성분이
-있는 파일이고(`tools/ci/measure-port-coverage.py:90`), 상류가 이 테스트
+있는 파일이고(`tools/ci/measure-port-coverage.py:99`), 상류가 이 테스트
 본문들을 `collision_detection/include/` 밑에 두었기 때문에 그물을 빠져나온다.
 
 **바꾸기 전에 "다른 코퍼스 멤버 중 상류 테스트 본문이 몇 개인가"를 셋다.**

@@ -859,7 +859,7 @@ def find_tight_anchors(line, match_start, match_end, spans, prev_citation_extent
       TEST name sits in column 4 instead.
     - Widening the scan to "any name anywhere in the row" (to catch the
       column-4 case above) reintroduced the FIRST problem from the other
-      direction: `doc/assertion-discrimination-ledger-p1-fixtures.md:938`
+      direction: `doc/assertion-discrimination-ledger-p1-fixtures.md:939`
       cites `acceleration_filter.rs:565` in a row whose only nearby name is
       `do_smoothing` -- the production function *being tested*, not the
       function *containing* line 565 (which is some other, unnamed test).
@@ -1021,8 +1021,11 @@ def citing_context(lines, index):
     claim about a different site. Prose is the whole blank-line-delimited
     paragraph, because these documents wrap Korean prose at ~72 columns and a
     citation's subject lands on the line above or below as readily as on its
-    own: `PORTING-PLAN.md:9384` names its test on the preceding line, and
-    `:9916` names `satisfied` on the preceding line."""
+    own. This used to pin two examples by line number; both had rotted onto
+    blank lines by the time the blank predicate could see them, and the
+    second was invisible even then because the shorthand `:NNN` form is in no
+    gate's corpus. An illustrative pin into a document with this churn rate
+    is a claim that goes stale without anything reporting it."""
     if lines[index].lstrip().startswith("|"):
         return lines[index]
     start = index
