@@ -4204,9 +4204,9 @@ tests/utils_parity.rs`에 `resolve_constraint_frame_boundary` 모듈(6
 
 ### 36.5 남는 것
 
-`update_joint_constraints`의 `local_variable_name` 미제거 이름 비교
-한계(§23.3-1)는 이 함수와 무관 — `resolveConstraintFrames`는
-위치/방향 제약만 다루고, 상류 자신도 조인트 제약을 건드리지 않는다.
+- **`update_joint_constraints`의 `local_variable_name` 미제거 이름 비교
+  한계(§23.3-1)는 이 함수와 무관이다.** `resolveConstraintFrames`는
+  위치/방향 제약만 다루고, 상류 자신도 조인트 제약을 건드리지 않는다.
 
 ---
 

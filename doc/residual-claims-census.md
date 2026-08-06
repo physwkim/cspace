@@ -7,7 +7,7 @@
 
 PORTING-PLAN.md §301(및 그 이전 §291)이 만든 문서. 헤딩이든 평문이든, 이 절이/회차가 하지/닫지/재지/... 않은 것 계열의 lead-in 줄 바로 아래 최상위 불릿을 전부 모은다 — 본문 어휘(무엇을 안 쟀는지)가 아니라 lead-in 어휘(안 쟀다는 것 자체)로 찾으므로, 이 절이 잰 것을 부르는 단어가 무엇이든 걸린다. **닫힘 여부는 `거짓 → 닫힘 (§N)`이 그 불릿 자신의 텍스트 안에 있는지만 본다** — 한 불릿에 여러 절이 섞여 있고 그중 일부만 닫힌 경우(예: PORTING-PLAN.md §284.3), 그 표식이 있으면 전체가 CLOSED로 잡힌다. 부분 닫힘은 이 표가 못 보고, 여는 사람이 본문을 읽어야 한다.
 
-lead-in 44건, 최상위 불릿 179건 (CLOSED 9 / OPEN 170).
+lead-in 45건, 최상위 불릿 180건 (CLOSED 9 / OPEN 171).
 
 | 절 | lead-in (줄) | 불릿 | 상태 |
 |---|---|---|---|
@@ -19,6 +19,7 @@ lead-in 44건, 최상위 불릿 179건 (CLOSED 9 / OPEN 170).
 | §7.4 | PORTING-PLAN.md:916 7.4 남은 것 | PORTING-PLAN.md:918 - `moveit-error`(에러 코드 + 예외), `moveit-geometry`(Transforms) 착수 완료. 워크스페이스 테스트 14/14 통과. | OPEN |
 | §7.4 | PORTING-PLAN.md:916 7.4 남은 것 | PORTING-PLAN.md:920 - prbt 픽스처는 xacro라 확장이 필요하다 (컨테이너에 xacro 있음). Phase 1 준비물. | OPEN |
 | §7.4 | PORTING-PLAN.md:916 7.4 남은 것 | PORTING-PLAN.md:921 - `.github/workflows/ci.yml`은 작성했으나 원격이 없어 아직 실행된 적 없다. | OPEN |
+| §36.5 | PORTING-PLAN.md:4205 36.5 남는 것 | PORTING-PLAN.md:4207 - **`update_joint_constraints`의 `local_variable_name` 미제거 이름 비교 한계(§23.3-1)는 이 함수와 무관이다... | OPEN |
 | §56.4 | PORTING-PLAN.md:5454 56.4 남는 것 | PORTING-PLAN.md:5456 - 두 곡선의 교차가 0.20과 0.22 사이라는 것까지만 쟀다. 교차점을 좁히면 `min(...)` 해석이 한 번 더 확인된다. | OPEN |
 | §56.4 | PORTING-PLAN.md:5454 56.4 남는 것 | PORTING-PLAN.md:5458 - parry의 TriMesh 접촉은 삼각형별 최대이고, 삼각형 단위 MTD는 메시 전체 MTD보다 얕을 수 있다(얇은 삼각형 문제). 위 일치는 이 구간에... | OPEN |
 | §56.4 | PORTING-PLAN.md:5454 56.4 남는 것 | PORTING-PLAN.md:5461 - §53.3이 찾은 world object 쪽 불일치(`l_gripper_r_finger_link`/`floor`, 포트가 **더 깊게** 답함)는 이 설... | OPEN |
@@ -195,11 +196,10 @@ lead-in 44건, 최상위 불릿 179건 (CLOSED 9 / OPEN 170).
 
 위 표는 lead-in 줄 **바로 아래**(공백 줄만 건너뛰고) 이어지는 최상위 `-` 불릿만 모은다. 아래는 lead-in 어휘에는 걸렸지만 그 모양이 아닌 자리다 — 주장이 프로즈 문단으로만 적혔거나(§299.10), lead-in과 목록 사이에 설명 문단이 끼어 있거나(§164.2). **이 줄들은 위 카운트 밖이고, 열림/닫힘 판정도 없다.** 여기 있다는 것은 기계가 못 셌다는 뜻이지 닫혔다는 뜻이 아니므로, 여는 사람이 본문을 읽어야 한다.
 
-lead-in 17건 (위 표의 44건과 별개).
+lead-in 16건 (위 표의 45건과 별개).
 
 | 절 | lead-in (줄) | 이 절 안의 첫 최상위 불릿 | 모양 |
 |---|---|---|---|
-| §36.5 | PORTING-PLAN.md:4205 36.5 남는 것 | — | 불릿 없음 (프로즈만) |
 | §66.4 | PORTING-PLAN.md:6135 66.4 남은 것 | — | 불릿 없음 (프로즈만) |
 | §70.3 | PORTING-PLAN.md:6366 70.3 남은 것 | — | 불릿 없음 (프로즈만) |
 | §102.3 | PORTING-PLAN.md:8911 102.3 남은 것 | — | 불릿 없음 (프로즈만) |
