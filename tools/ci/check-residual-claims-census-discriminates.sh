@@ -111,8 +111,15 @@ expect() {
 }
 
 # expect_text <name> <fixture> present|absent <substring>
+#
+# `%DOC%` in the substring expands to the fixture's basename. Writing the
+# citation out literally is what a `<file>.md:<line>` assertion costs here:
+# check-citation-drift.py reads every tracked file for in-repo citations, so
+# the literal is a citation to a temp path it cannot resolve, and the freeze
+# file gains a key that retires on the next edit.
 expect_text() {
   local name="$1" fixture="$2" mode="$3" want="$4"
+  want="${want//%DOC%/$(basename "$fixture")}"
   checked=$((checked + 1))
   if ! "$GATE" --doc "$fixture" --emit "$ROOT/$name.census" >/dev/null 2>&1; then
     failures=$((failures + 1))
@@ -254,14 +261,14 @@ cat > "$ROOT/prose_then_bullets.md" <<'EOF'
 EOF
 expect prose_then_bullets "$ROOT/prose_then_bullets.md" 1 1 A
 expect_text prose_then_bullets "$ROOT/prose_then_bullets.md" present "| 프로즈 뒤 불릿 |"
-expect_text prose_then_bullets "$ROOT/prose_then_bullets.md" present "prose_then_bullets.md:5 |"
+expect_text prose_then_bullets "$ROOT/prose_then_bullets.md" present "%DOC%:5 |"
 
 # --- each row cites the document that was parsed -----------------------------
 # isolates: the citation prefix. It was the literal `PORTING-PLAN.md`, so every
 # row of this file's own fixtures cited PORTING-PLAN.md line numbers belonging
 # to a temp file -- and the census is tracked, so `check-citation-drift.py`
 # resolves those rows against whatever the prefix names.
-expect_text continuation "$ROOT/continuation.md" present "| continuation.md:1 "
+expect_text continuation "$ROOT/continuation.md" present "| %DOC%:1 "
 expect_text continuation "$ROOT/continuation.md" absent "PORTING-PLAN.md:"
 
 # --- a document with no lead-in is a failure, not an empty census ------------
