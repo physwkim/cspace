@@ -2134,3 +2134,106 @@ fn visibility_cone_near_placement_interpenetrates_through_the_touched_links_own_
          is describing a measured fact, not an enforced invariant"
     );
 }
+
+/// The one pair in this fixture set whose correct separation distance is
+/// known in closed form, checked against that closed form rather than
+/// against the oracle.
+///
+/// Every other distance claim in this workspace is comparative: it says the
+/// port and the oracle agree, or names why they do not. That cannot settle
+/// which side is right when they disagree by a little, and PORTING-PLAN.md
+/// §5 Phase 3's `distance: f64` clause turns on exactly such a residual --
+/// the sweep's separated-branch worst on pr2 is `6.056201e-07`, far under
+/// the clause's `1e-4` but far over the machine precision the mesh-only
+/// fixtures reach. This pair decides it without a second implementation.
+///
+/// The geometry is fixed by `fixtures/pr2.urdf` and [`floor_env`] alone:
+///
+/// - the floor is `Cuboid::new(4.0, 4.0, 0.1)` -- full extents, not half --
+///   centred at `z = -0.05`, so its top face is the plane `z = 0`;
+/// - `*_caster_*_wheel_link`'s collision geometry is a cylinder of radius
+///   `0.074792`, and its centre sits at `z = 0.051 + 0.0282 + 0.0 = 0.0792`
+///   above the root (`base_footprint_joint`, `*_caster_rotation_joint`,
+///   `*_caster_*_wheel_joint`).
+///
+/// So the separation is `0.0792 - 0.074792 = 0.004408` exactly, and it is
+/// *pose-invariant*: `*_caster_rotation_joint` turns about `z` and cannot
+/// change a centre height, `*_caster_*_wheel_joint` turns the cylinder about
+/// its own axis, and a cylinder is invariant under that. Sweeping both over
+/// a full turn therefore has one correct answer, the same one every time.
+///
+/// Measured before the tolerance was chosen: over the 24 poses below this
+/// backend's worst deviation from that constant is `7.766010e-14`, so
+/// `CLOSED_FORM_TOL` is pinned at `1e-12` -- a 12.9x margin over the
+/// measurement, not a number borrowed from a neighbouring test. For
+/// comparison the oracle's own published value on this pair, case 6338 of
+/// the seed-1 10,000-state sweep, is `4.40860562000265372e-3`, which misses
+/// the same constant by `6.056200e-07`: about 7.8 million times this
+/// backend's error. That is the measurement behind the claim that the
+/// separated branch's residual belongs to the reference rather than to this
+/// port, and it is why widening the clause to absorb it would be the wrong
+/// move -- there is nothing here to absorb.
+///
+/// The argmin pair is asserted too. Which of the eight wheels wins is a tie
+/// broken by pose (all eight appear across these 24), but if the winner ever
+/// stops being a caster wheel against `floor` this test would be silently
+/// measuring some other pair's distance against a constant derived for this
+/// one.
+#[test]
+fn pr2_caster_wheel_floor_clearance_matches_the_closed_form() {
+    /// Pinned from the measurement in this test's doc comment
+    /// (`7.766010e-14` worst over the same 24 poses), with a 12.9x margin.
+    const CLOSED_FORM_TOL: f64 = 1e-12;
+
+    let model = build_model("pr2.urdf", "pr2.srdf");
+    let acm = build_acm("pr2.srdf");
+    let env = floor_env();
+
+    // `0.0792` is the wheel centre's height above the root and `0.074792`
+    // its cylinder radius, both read off `fixtures/pr2.urdf` above.
+    let expected = 0.0792 - 0.074792;
+
+    let mut poses = 0;
+    for step in 0..24 {
+        let angle = f64::from(step) * std::f64::consts::TAU / 24.0;
+        let mut joint_values = BTreeMap::new();
+        for side in ["fl", "fr", "bl", "br"] {
+            // Three different multiples so the steering angle and the two
+            // wheel angles are never equal -- a single shared angle would
+            // pass even if two of the three were being ignored.
+            joint_values.insert(format!("{side}_caster_rotation_joint"), angle);
+            joint_values.insert(format!("{side}_caster_l_wheel_joint"), -angle);
+            joint_values.insert(format!("{side}_caster_r_wheel_joint"), angle * 2.0);
+        }
+        let mut state = build_state(&model, &joint_values);
+        let posed = state.update();
+        let request = DistanceRequest {
+            enable_signed_distance: true,
+            acm: Some(&acm),
+            ..DistanceRequest::default()
+        };
+        let result = env.distance_robot(&request, &posed, &[]);
+        let names = &result.minimum_distance.link_names;
+
+        assert!(
+            names.contains(&"floor".to_owned())
+                && names
+                    .iter()
+                    .any(|n| n.contains("_caster_") && n.ends_with("_wheel_link")),
+            "step {step}: the nearest robot/world pair is {names:?}, no longer a caster wheel \
+             against floor -- the closed form below was derived for that pair and would be \
+             measuring something else"
+        );
+        let deviation = (result.minimum_distance.distance - expected).abs();
+        assert!(
+            deviation <= CLOSED_FORM_TOL,
+            "step {step}: caster clearance is {} but the geometry fixes it at {expected} \
+             (deviation {deviation:.6e} over the pinned {CLOSED_FORM_TOL:.0e}); this is a \
+             closed-form answer, so a miss here is this backend's",
+            result.minimum_distance.distance
+        );
+        poses += 1;
+    }
+
+    assert_eq!(poses, 24, "sanity: every pose above ran");
+}

@@ -39,7 +39,7 @@
 //! four names, and this function could not call the workspace's only
 //! concrete planner at all.
 //!
-//! # Five semantics invisible to a bare diff read
+//! # Seven semantics invisible to a bare diff read
 //!
 //! ## 1. Planner-chain feedforward (`planning_pipeline.cpp:295-302`)
 //!
@@ -152,6 +152,40 @@
 //! exactly the cost `PlanningSceneValidityChecker`'s own doc says this
 //! contract is designed to avoid paying per-call.
 //!
+//! ## 7. `start_state` is applied to the scene once, by this function alone
+//!
+//! Upstream has no single site for this: every reader of
+//! `req.start_state` re-derives the planning start state itself, from the
+//! same two lines (`check_start_state_bounds.cpp:87-88`,
+//! `check_start_state_collision.cpp:74-75`, and through
+//! `PlanningScene::getCurrentStateUpdated` at
+//! `planning_context_manager.cpp:586`, `stomp_moveit_planning_context.cpp:226`,
+//! `chomp_planner.cpp:77-78`). Five re-derivations of one value is a shape
+//! this project's own conduct rules name — an invariant with no owner — and
+//! the port does not need it: [`crate::PlanningRequestAdapter`] and
+//! [`Planner`] both already receive `&mut PlanningScene`/`&PlanningScene` and
+//! already read the start state off `scene.current_state()`
+//! ([`crate::request_adapters::CheckStartStateBounds`] and
+//! [`crate::request_adapters::CheckStartStateCollision`] do exactly that).
+//!
+//! **Invariant: once [`generate_plan`] has been entered, `scene`'s current
+//! state IS the requested start state.** [`generate_plan`] establishes it by
+//! calling [`crate::StartState::apply_to`] on `scene.current_state_mut()`
+//! before `request_chain` runs — before, because upstream's own
+//! `CheckStartStateBounds` sees `getCurrentState()` already overlaid with
+//! `req.start_state` and may then correct it (`check_start_state_bounds.cpp:196`
+//! writes the corrected state back into `req.start_state`; here the correction
+//! lands in the scene, which is where every later reader looks). No other site
+//! in this crate applies [`crate::PlanningRequest::start_state`], and no
+//! adapter or [`Planner`] needs to: reading `scene.current_state()` is already
+//! reading it.
+//!
+//! The cost of the ownership move is that `scene` is left holding the
+//! requested start state rather than the caller's — the same already-documented
+//! non-restoration "Semantic 6" and
+//! `scene_current_state_is_allowed_to_differ_from_start_state_after_generate_plan_returns`
+//! record for the planner's own side effects, now reached one step earlier.
+//!
 //! # Deviation: zero planners is `Err`, not an unset response
 //!
 //! Upstream's `res` is a caller-supplied, mutated-in-place output parameter,
@@ -257,6 +291,18 @@ pub enum PipelineError {
     /// planners is `Err`, not an unset response".
     #[error("generate_plan was called with no planners")]
     NoPlanners,
+    /// [`crate::PlanningRequest::start_state`] could not be written onto
+    /// `scene`'s current state — it names a variable this scene's
+    /// [`moveit_model::RobotModel`] does not have. Upstream reaches the same
+    /// condition as a `moveit::Exception` thrown out of
+    /// `RobotModel::getVariableIndex` inside `setVariablePositions`
+    /// (`robot_state.cpp:395-406`), which `generatePlan`'s own
+    /// `catch (std::exception&)` (`planning_pipeline.cpp:353-359`) turns into
+    /// a failed `res`. Separate from [`PipelineError::Feedforward`] despite
+    /// both wrapping a [`moveit_error::Error`]: they are two different steps,
+    /// and a shared variant could not say which one rejected.
+    #[error("failed to apply the requested start state: {0}")]
+    StartState(#[source] moveit_error::Error),
     /// The private `trajectory_constraints_for` helper (the "Semantic 1"
     /// feedforward step) failed to look up the previous planner's
     /// group/joints/waypoint positions. Upstream's `getTrajectoryConstraints`
@@ -363,7 +409,7 @@ fn run_planner<'m>(
 /// runs `request_chain`, then every planner in `planners` in sequence (with
 /// the "Semantic 1" feedforward between successive planners), then
 /// `response_chain`, then the "Semantic 4" `planner_id` fallback. See this
-/// module's doc for the five semantics ported here that a bare diff read
+/// module's doc for the seven semantics ported here that a bare diff read
 /// would miss, for what D1 excludes, and for what a named planner chain —
 /// not this function — would own.
 ///
@@ -371,8 +417,9 @@ fn run_planner<'m>(
 ///
 /// See [`PipelineError`]'s variants: a request-adapter rejection, a planner
 /// failure (including a feedforward lookup failure between two planners), a
-/// response-adapter rejection, or [`PipelineError::NoPlanners`] if `planners`
-/// is empty.
+/// response-adapter rejection, [`PipelineError::StartState`] if
+/// `request.start_state` names a variable this scene's model lacks, or
+/// [`PipelineError::NoPlanners`] if `planners` is empty.
 pub fn generate_plan<'m>(
     scene: &mut PlanningScene<'m>,
     env: &ParryCollisionEnv,
@@ -384,6 +431,14 @@ pub fn generate_plan<'m>(
     let Some((first_planner, later_planners)) = planners.split_first() else {
         return Err(PipelineError::NoPlanners);
     };
+
+    // Semantic 7: the one site that turns `request.start_state` into scene
+    // state, before the adapter chain, so every later reader gets it by
+    // reading `scene.current_state()` and none re-derives it.
+    request
+        .start_state
+        .apply_to(scene.current_state_mut())
+        .map_err(PipelineError::StartState)?;
 
     run_request_adapters(request_chain, scene, env, &mut request)?;
     let start_state = scene.current_state().clone();
@@ -418,6 +473,7 @@ mod tests {
     use crate::PlanningRequestAdapter;
     use crate::planner::PlanningContext;
     use crate::request::WorkspaceBounds;
+    use crate::start_state::StartState;
 
     fn panda() -> (RobotModel, SrdfModel) {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
@@ -1033,6 +1089,110 @@ mod tests {
             .expect("an unobstructed plan must succeed even though the planner moves the scene");
 
         assert_eq!(response.start_state, pre_planning_state);
+    }
+
+    /// Records the scene's `panda_joint1`/`panda_joint2` positions as the
+    /// *adapter chain* sees them, i.e. after `generate_plan` has applied
+    /// `request.start_state` and before any planner runs. Semantic 7's
+    /// ordering claim ("before `request_chain`") is only checkable from
+    /// inside the chain.
+    struct StartStateRecordingAdapter {
+        seen: std::rc::Rc<std::cell::RefCell<Vec<(f64, f64)>>>,
+    }
+    impl PlanningRequestAdapter for StartStateRecordingAdapter {
+        fn description(&self) -> &'static str {
+            "StartStateRecordingAdapter"
+        }
+        fn adapt<'m>(
+            &self,
+            scene: &mut PlanningScene<'m>,
+            _env: &ParryCollisionEnv,
+            _request: &mut PlanningRequest,
+        ) -> Result<(), RequestAdapterError> {
+            let state = scene.current_state();
+            self.seen.borrow_mut().push((
+                state.variable_position("panda_joint1").unwrap(),
+                state.variable_position("panda_joint2").unwrap(),
+            ));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn the_requested_start_state_reaches_the_scene_before_the_request_adapters_run() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        scene
+            .current_state_mut()
+            .set_joint_positions("panda_joint2", &[-0.75])
+            .unwrap();
+
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let request_chain: Vec<Box<dyn PlanningRequestAdapter>> =
+            vec![Box::new(StartStateRecordingAdapter { seen: seen.clone() })];
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(FixedGoalPlanner {
+            name: "FixedGoalPlanner",
+            planner_id: "fixed",
+        })];
+
+        let mut req = request();
+        req.start_state = StartState::new(vec!["panda_joint1".to_string()], vec![0.25], vec![])
+            .expect("a one-variable overlay is well formed");
+        let response = generate_plan(&mut scene, &env, &request_chain, &planners, &[], req)
+            .expect("an unobstructed plan must succeed");
+
+        assert_eq!(
+            seen.borrow().as_slice(),
+            // `panda_joint2` is the discriminator: an implementation that
+            // replaced the scene's state with the overlay instead of writing
+            // over it would report the model default here, not -0.75.
+            [(0.25, -0.75)],
+            "the adapter chain must see the requested start state, overlaid on the scene's own \
+             current state rather than replacing it"
+        );
+        assert_eq!(
+            response
+                .start_state
+                .variable_position("panda_joint1")
+                .unwrap(),
+            0.25,
+            "Semantic 6 captures the same state Semantic 7 established"
+        );
+    }
+
+    #[test]
+    fn a_start_state_naming_an_unknown_variable_fails_before_any_adapter_or_planner_runs() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let request_chain: Vec<Box<dyn PlanningRequestAdapter>> =
+            vec![Box::new(StartStateRecordingAdapter { seen: seen.clone() })];
+        // A failing planner, so that reaching the planner at all would be
+        // reported as `PipelineError::Planner` rather than as this variant.
+        let planners: Vec<Box<dyn PlannerManager>> = vec![Box::new(FailingPlanner("FirstPlanner"))];
+
+        let mut req = request();
+        req.start_state = StartState::new(vec!["no_such_joint".to_string()], vec![0.1], vec![])
+            .expect("the shape is well formed; only the name is wrong");
+        let err = generate_plan(&mut scene, &env, &request_chain, &planners, &[], req)
+            .expect_err("a start state naming a variable the model lacks must abort the pipeline");
+        match err {
+            PipelineError::StartState(e) => {
+                assert!(
+                    e.to_string().contains("no_such_joint"),
+                    "the rejection must name the variable that could not be written, got: {e}"
+                );
+            }
+            other => panic!("expected PipelineError::StartState, got {other:?}"),
+        }
+        assert!(
+            seen.borrow().is_empty(),
+            "Semantic 7 applies the start state before request_chain, so a start state that \
+             cannot be applied must stop the pipeline before any adapter observes the scene"
+        );
     }
 
     #[test]

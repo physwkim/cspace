@@ -14,10 +14,10 @@
 //!   [`plan_only`].
 //!
 //! They are here, in the library, rather than inline in
-//! `src/bin/plan_kinematic_path_server.rs`, because a `[[bin]]`'s functions
-//! are reachable only from that binary: the node's own goal handler and this
-//! module's tests have to be calling the same code for the tests to say
-//! anything about the node.
+//! `src/bin/move_group.rs`, because a `[[bin]]`'s functions are reachable
+//! only from that binary: the node's own goal handler and this module's tests
+//! have to be calling the same code for the tests to say anything about the
+//! node.
 //!
 //! # What "pipeline" means here
 //!
@@ -138,9 +138,13 @@ impl std::error::Error for PlanOnlyError {
 ///
 /// The scene is `&mut` and stays mutated: upstream plans against a *copy*
 /// (`planning_scene_monitor_->copyPlanningScene(diff)`, `:216-217`), so a
-/// planner that moves the current state cannot affect the next goal. This
-/// port has no scene monitor and no diff to apply, so the caller owns that
-/// isolation — the node builds a fresh [`PlanningScene`] per goal.
+/// planner that moves the current state cannot affect the next goal. The
+/// isolation is the caller's to provide here, and `src/bin/move_group.rs`
+/// provides it the way upstream does — [`moveit_scene::PlanningScene::diff`]
+/// off the monitored snapshot, so what this function mutates is the child.
+/// A caller that hands over the monitored scene itself gets no such
+/// separation, which is why the parameter is `&mut` rather than `&`: the
+/// type says the scene is written to.
 pub fn plan_only<'m>(
     scene: &mut PlanningScene<'m>,
     env: &ParryCollisionEnv,

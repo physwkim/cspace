@@ -652,7 +652,7 @@ catches the mutation; none needed a new test.
 | parry.rs:4605 | is_empty | `mesh_mesh_cost_sources_no_intersection_is_empty` | sibling: the positive-overlap test immediately above it, same function, opposite outcome. |
 | parry.rs:4877 | is_none | `check_self_collision_distance_is_none_when_not_requested` | bite run now: deleted `attach_requested_distance`'s `if !request.distance { return; }` so the field is populated unconditionally → this assertion FAILS alone (229/230 green, `--no-fail-fast`). Its four siblings (`..._distance_reports_the_closest_separation` self and robot, `..._detailed_distance_reports_the_whole_result`, `..._distance_of_a_penetrating_pair_is_unsigned`) bite the opposite direction — an immediate `return` in the same function fails those four and leaves this one green — so the guard is on record from both sides. |
 
-### Not-this-family (19)
+### Not-this-family (20)
 
 | Site | Kind | Test fn | Reason |
 |---|---|---|---|
@@ -669,6 +669,7 @@ catches the mutation; none needed a new test.
 | collision_parity.rs:1450 | contains_member | `pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direction` | `link_names.contains(&point.link_name)` checks *which* links a computed closest-pair names, against an oracle's identification — a computed-identity fact, not an inability signal. |
 | collision_parity.rs:1622 | contains_member | `pr2_self_wheel_same_pair_oracle_magnitude_is_implausible` | same reasoning as 1450. |
 | collision_parity.rs:1803 | contains_member | (Global-vs-Single distance-request comparison) | same reasoning as 1450/1622. |
+| collision_parity.rs:2218 | contains_member | `pr2_caster_wheel_floor_clearance_matches_the_closed_form` | same reasoning as 1450/1622/1803: `link_names.contains("floor")` plus a `_caster_*_wheel_link` predicate checks *which* pair the computed argmin names, so that the closed-form constant asserted on the next line cannot be silently applied to some other pair. A computed-identity fact, not a could-not/did-not signal. |
 | parry.rs:2787 | is_some | `octree_cache_get_or_compute_invokes_build_only_once_per_key` | §9 clause 2 fails: the test's own `build` closure unconditionally returns `Some(..)`; `get_or_compute` cannot return anything but `Some` on either the cache-hit or cache-miss path here, so no engineer-implementable-wrong decision is exercised by this specific assertion (the test's real point, `calls.get()==1`, is a separate assertion outside this grammar). |
 | parry.rs:2788 | is_some | (same test) | same reasoning as 2787. |
 | world_parity.rs:241 | is_some | `world_matches_oracle` | §9 clause 3 fails: `ambiguous.transform.is_some()` reads a field straight off the deserialized oracle fixture (`QueryDump.transform: Option<[f64; 16]>`), not a value produced by calling `World`. Deleting every `world.*` call above it would not change this assertion's outcome. |

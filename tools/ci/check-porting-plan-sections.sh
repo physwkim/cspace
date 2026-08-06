@@ -1,7 +1,7 @@
 #!/bin/bash
 # Checks that `PORTING-PLAN.md`'s section numbers are unique, that no branch
-# has left a `§NEW` placeholder behind, and that no commit has dropped a
-# top-level section its parent still had.
+# has left an unassigned-number placeholder behind, and that no commit has
+# dropped a top-level section its parent still had.
 #
 # Why this exists: parallel panels each append a section and each picks the
 # next free number by reading the file in its own worktree. Every branch is
@@ -15,12 +15,25 @@
 # `moveit-planners-pilz/src/lib.rs` pointing at the *other* panel's §226,
 # which reads as correct because that heading exists.
 #
-# The convention this enforces: a worker writes `## §NEW <title>` (and
-# `### §NEW.1`, `§NEW2` for a second section), never a number. The number is
-# assigned by the single agent that can see all branches at once -- the one
-# doing the merge. This script is what makes that a rule rather than a habit:
-# a duplicate number fails here, and so does a `§NEW` that reached the trunk
-# without being assigned.
+# The convention this enforces: where the number would go, a worker writes the
+# section sigil `§` immediately followed by `NEW` -- so `## `, that token, then
+# the title; suffix `.1` for a sub-section of it, suffix `2` for a second
+# section on the same branch. Never a number. The number is assigned by the
+# single agent that can see all branches at once -- the one doing the merge.
+# This script is what makes that a rule rather than a habit: a duplicate number
+# fails here, and so does a placeholder that reached the trunk unassigned.
+#
+# That token is written in two pieces everywhere in this file, and built from
+# an escape in the code below (`PLACEHOLDER`), so this file's own bytes never
+# contain it. That is load-bearing, not fastidiousness. The scan used to be
+# narrowed to `.md` and `.rs` for exactly one real reason -- this script named
+# the token it was looking for, and would have failed on itself -- with the
+# narrowing justified after the fact by "sections are cited in documentation
+# and in doc comments, never in build or CI scripts". That was false, and a
+# placeholder duly reached the trunk through the gap, in a `.sh` comment. With
+# the literal absent here, the scan needs no exception, so it has none: every
+# tracked file, no suffix list. The one place the token may legitimately appear
+# is a real, unassigned placeholder.
 #
 # The same parallel-append shape has a second, louder failure mode, and it is
 # the reason for the history check below. `8f9db1f` deleted §250 from its own
@@ -130,6 +143,15 @@ NUMBERED = re.compile(r"^(#{2,4}) (§?)([0-9]+(?:\.[0-9]+)*)\.? ")
 # closes it. A fence still open at EOF is a hard failure for the same reason.
 FENCE = re.compile(r"^(`{3,})([^`]*)$")
 
+# The unassigned-number placeholder. `§` is the section sigil, escaped
+# rather than written, so the bytes of this file do not contain the token it
+# looks for -- see the header for why that is what lets the scan below cover
+# every tracked file with no exceptions. An escape rather than two adjacent
+# literals because a formatter will happily join those back together. Every
+# message that shows the token to a reader interpolates this name, so the
+# spelling still reaches the terminal.
+PLACEHOLDER = "\u00a7NEW"
+
 
 def candidates(text_lines):
     """Every line that can open or close a fence, or be a numbered heading.
@@ -147,9 +169,9 @@ def scan(cands):
 
     `top_level` maps a `##` id to the line of its FIRST occurrence; a repeat is
     recorded in `duplicates` rather than overwriting, so both lines can be
-    named. `fenced_spans` are inclusive of both delimiter lines, so a `§NEW`
-    written into a fence marker itself counts as fenced, as it did before this
-    was factored out.
+    named. `fenced_spans` are inclusive of both delimiter lines, so a
+    placeholder written into a fence marker itself counts as fenced, as it did
+    before this was factored out.
     """
     top_level, all_ids, duplicates, spans = {}, set(), [], []
     fence_len, fence_at = 0, 0
@@ -199,34 +221,73 @@ def fenced(line_no):
 
 
 for line_no, line in enumerate(lines, 1):
-    if "§NEW" in line and not fenced(line_no):
+    if PLACEHOLDER in line and not fenced(line_no):
         placeholders.append((line_no, "PORTING-PLAN.md", line.strip()))
 
 # A placeholder anywhere in the tree, not just in the plan: the whole point is
-# that the worker writes `§NEW` in its Rust doc comments too, and the merger
+# that the worker writes it in its Rust doc comments too, and the merger
 # rewrites all of them together.
 #
-# Prose and Rust only. Sections are cited in documentation and in doc
-# comments, never in build or CI scripts -- and the scripts are where a
-# `§NEW` is a *mention* rather than a citation, this file being the first
-# example: it names the placeholder eight times because it defines it. Scoping
-# by file kind keeps that out by rule instead of by an exception list with
-# this script's own name in it.
+# Every tracked file, with no suffix list. The rule used to be prose and Rust
+# only, justified by "sections are cited in documentation and in doc comments,
+# never in build or CI scripts". That is false, and measurably so: 113 section
+# citations live in 30 tracked files that are neither `.md` nor `.rs` -- 90 in
+# 20 `.sh`, 11 in `tools/moveit-oracle/src/oracle.cpp`, 4 in 2 `.py`, 3 in 3
+# `.toml`, 3 in 2 `.json`, 1 in `tools/mpr-vs-epa/mpr_case104.c` and 1 in
+# `ros/Dockerfile`. A placeholder duly reached the trunk through that gap:
+# `ros/verify-ros-interop.sh:203` carried one in a comment. The other gate did
+# not catch it either -- `check-section-references.sh` reads `.sh`, but its
+# reference pattern requires a digit after the sigil, so an unassigned one
+# matches nothing there by construction.
+#
+# Widening to that script's own `SCANNED_SUFFIXES` would not have been enough
+# and is the wrong shape anyway: `ros/Dockerfile` has no suffix at all, and the
+# `.c`/`.cpp` citations are outside that list too. A list of file kinds is the
+# thing that was wrong; a longer list is the same thing, later. So there is no
+# list -- the population is `git ls-files`, and the only exclusion is
+# PORTING-PLAN.md, which is scanned above with the fence rule it needs.
+#
+# Bytes, not decoded text. A text loop has to decide what to do about the 35
+# tracked files that are not valid UTF-8 (the binary meshes under `fixtures/`),
+# and the previous one decided to `continue`: a file it could not read was a
+# file it silently did not check. Matching on bytes means the question does not
+# arise, and the only way a file goes unscanned is an unreadable path -- which
+# is a failure naming the file, not a skip. `scanned` is counted and printed for
+# the same reason, and a scan that covered nothing is a failure too.
+needle = PLACEHOLDER.encode("utf-8")
+scanned = 0
 for path in tracked:
-    if path == "PORTING-PLAN.md" or not path.endswith((".md", ".rs")):
+    if path == "PORTING-PLAN.md":
         continue
     try:
-        with open(path, encoding="utf-8") as handle:
-            for line_no, line in enumerate(handle, 1):
-                if "§NEW" in line:
-                    placeholders.append((line_no, path, line.strip()))
-    except (OSError, UnicodeDecodeError):
+        with open(path, "rb") as handle:
+            blob = handle.read()
+    except OSError as error:
+        failures.append(
+            f"{path}: cannot be read, so it was not scanned for the "
+            f"unassigned-section placeholder: {error}"
+        )
         continue
+    scanned += 1
+    if needle not in blob:
+        continue
+    for line_no, raw in enumerate(blob.split(b"\n"), 1):
+        if needle in raw:
+            placeholders.append(
+                (line_no, path, raw.decode("utf-8", "replace").strip())
+            )
+
+if not scanned:
+    failures.append(
+        "scanned zero tracked files for the unassigned-section placeholder -- "
+        "`git ls-files` returned nothing but PORTING-PLAN.md, so this check "
+        "covered one file out of the tree"
+    )
 
 for line_no, path, text in placeholders:
     failures.append(
         f"{path}:{line_no}: unassigned section placeholder -- the merge must "
-        f"replace §NEW with the number it assigns: {text[:90]}"
+        f"replace {PLACEHOLDER} with the number it assigns: {text[:90]}"
     )
 
 if unclosed_at:
@@ -476,8 +537,9 @@ if failures:
 commits, edges, blobs, removals, declared_n = history_checked
 print(
     f"OK PORTING-PLAN.md: {len(top_level)} top-level sections, "
-    f"{len(all_ids)} numbered headings, all distinct; no §NEW placeholder in "
-    f"{len(tracked)} tracked files; {commits} commits over {edges} parent "
+    f"{len(all_ids)} numbered headings, all distinct; no {PLACEHOLDER} "
+    f"placeholder in it or in the {scanned} other tracked files read as bytes "
+    f"({len(tracked)} tracked); {commits} commits over {edges} parent "
     f"edges and {blobs} distinct revisions of the plan remove {removals} "
     f"top-level sections, under {declared_n} declarations"
 )

@@ -29,13 +29,20 @@
 //! - `workspace_parameters` (`WorkspaceParameters`) — ported as
 //!   [`PlanningRequest::workspace_bounds`] ([`WorkspaceBounds`], minus
 //!   `header`, D1).
-//! - `start_state` (`RobotState`) — distinct: expressed by mutating
-//!   [`moveit_scene::PlanningScene::current_state_mut`]/`set_current_state`
-//!   before the adapter chain runs, not carried as a request field —
-//!   matches upstream's own semantics (`definePlanningRequest.dox:19-20`:
-//!   unset joints default to the scene's current state), just relocated to
-//!   the scene the request is evaluated against rather than duplicated onto
-//!   the request itself.
+//! - `start_state` (`RobotState`) — ported as
+//!   [`PlanningRequest::start_state`] ([`StartState`]). Round 21 called this
+//!   one "distinct: expressed by mutating
+//!   [`moveit_scene::PlanningScene::current_state_mut`] before the adapter
+//!   chain runs". That relocation is real and still how the value reaches
+//!   every reader — [`crate::pipeline::generate_plan`] is the single owner
+//!   that performs it — but it is not a *substitute* for the field, because
+//!   nothing carried the caller's requested overlay as far as that mutation:
+//!   a `MotionPlanRequest` arriving over the wire had nowhere to put it, and
+//!   `ros/moveit-ros` rejected every non-default `start_state` outright
+//!   rather than drop it. See [`crate::start_state`]'s module doc for the
+//!   upstream measurement (the field is an overlay on the scene's current
+//!   state, not a complete state) and PORTING-PLAN.md §250.4/§254 for the
+//!   round trip that rejection blocked.
 //! - `goal_constraints` (`Constraints[]`) — ported as
 //!   [`PlanningRequest::goal_constraints`] (`Vec<KinematicConstraintSet>`,
 //!   already-typed constraint sets in place of raw messages).
@@ -83,7 +90,7 @@
 //! - `smoothness_level` (`float64`) — distinct: same reasoning, same
 //!   pilz-only consumer.
 //!
-//! Total: 8 ported, 4 distinct, 4 unported-in-scope = 16, matching the
+//! Total: 9 ported, 3 distinct, 4 unported-in-scope = 16, matching the
 //! `.msg` field count exactly.
 //!
 //! The *normalization* upstream applies to two of those fields —
@@ -161,6 +168,8 @@
 use moveit_constraints::KinematicConstraintSet;
 use moveit_geometry::Vector3;
 
+use crate::start_state::StartState;
+
 /// Replaces `moveit_msgs::msg::WorkspaceParameters` (minus `header`, D1): the
 /// axis-aligned box a sampling-based planner should search within.
 ///
@@ -193,14 +202,20 @@ impl Default for WorkspaceBounds {
 /// count, ...) is deliberately not a field here.
 ///
 /// `Default` fills [`PlanningRequest::trajectory_constraints`] with an empty
-/// `Vec` and [`PlanningRequest::planner_id`] with `""`, matching an unset
-/// `moveit_msgs::msg::MotionPlanRequest` field for both — the same
-/// unset-means-default reading [`WorkspaceBounds::default`] already
-/// documents for [`PlanningRequest::workspace_bounds`].
+/// `Vec`, [`PlanningRequest::planner_id`] with `""` and
+/// [`PlanningRequest::start_state`] with [`StartState::CurrentState`],
+/// matching an unset `moveit_msgs::msg::MotionPlanRequest` field for all
+/// three — the same unset-means-default reading [`WorkspaceBounds::default`]
+/// already documents for [`PlanningRequest::workspace_bounds`].
 #[derive(Debug, Clone, Default)]
 pub struct PlanningRequest {
     /// The [`moveit_model::JointModelGroup`] to plan for.
     pub group_name: String,
+    /// The state to plan *from*, as an overlay on the scene's current state —
+    /// see [`StartState`] for why an overlay and not a complete state, and
+    /// [`crate::pipeline::generate_plan`]'s module doc, "Semantic 7", for the
+    /// single site that applies it.
+    pub start_state: StartState,
     /// Candidate goal constraint sets — a state satisfying *any one* set is
     /// an acceptable goal. Matches
     /// `MotionPlanRequest::goal_constraints: Vec<Constraints>`'s

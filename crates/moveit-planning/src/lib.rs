@@ -377,6 +377,7 @@ pub mod request;
 pub mod request_adapters;
 pub mod response;
 pub mod response_adapters;
+pub mod start_state;
 
 pub use error::{RequestAdapterError, ResponseAdapterError};
 pub use pipeline::{PipelineError, generate_plan};
@@ -386,6 +387,7 @@ pub use plan_responses::{
 pub use planner::{PlanError, PlannerManager, PlanningContext};
 pub use request::{PlanningRequest, WorkspaceBounds};
 pub use response::PlanningResponse;
+pub use start_state::{StartState, StartStateOverride};
 
 use moveit_collision::ParryCollisionEnv;
 use moveit_scene::PlanningScene;

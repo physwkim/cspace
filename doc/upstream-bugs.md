@@ -127,6 +127,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `check-collision-unpadded-discards-its-own-request-copy` | not-reproduced |
 | `distance-callback-threshold-suppresses-deeper-pairs` | not-reproduced |
 | `shape-intersect-tangency-follows-libccd-dispatch` | not-reproduced |
+| `psm-topic-header-comments-claim-absolute-names` | not-reproduced |
 
 ---
 
@@ -2452,7 +2453,7 @@ request (`PORTING-PLAN.md` §239.3, `crates/moveit-scene/src/scene.rs:566-576`).
 
 **Upstream:** `moveit_core/collision_detection_fcl/src/collision_common.cpp:574`
 (`dist_threshold = cdata->res->minimum_distance.distance;` — the `GLOBAL`
-branch), `:594` (`fcl_result.min_distance = dist_threshold;`), `:602`
+branch), `:594` (`fcl_result.min_distance = dist_threshold;`), `:603`
 (`double distance = fcl::distance(o1, o2, ...)`), `:608` (`if (distance <
 dist_threshold)`), `:663` (`dist_result.distance =
 -contact.penetration_depth;`) and `:694` (`if (dist_result.distance <
@@ -2638,3 +2639,37 @@ that one pair would mean adopting the dispatch table, since the neighbouring
 same defect seen from the other cell: `octree_world_collision_response.json`
 case 4 is a leaf face on a box face, a *specialised* pair, where upstream says
 `true` — and this port already agrees there.
+
+### `psm-topic-header-comments-claim-absolute-names` — six of `PlanningSceneMonitor`'s seven default-topic constants are documented with a leading slash their definitions do not have — not-reproduced
+
+**Upstream:** `moveit_ros/planning/planning_scene_monitor/include/moveit/planning_scene_monitor/planning_scene_monitor.hpp:105`,
+              `:108`, `:111`, `:115`, `:118`, `:121`, against the definitions
+              in `planning_scene_monitor.cpp:70-75`
+**Port:**     `tools/ci/measure-client-endpoint-surface.py:106`
+**Symptom:**  each constant is declared without a value and annotated with a
+              trailing comment giving the value —
+              `static const std::string DEFAULT_JOINT_STATES_TOPIC;  // "/joint_states"` —
+              and the definition is `= "joint_states"`, with no slash. In ROS
+              those are different endpoints, not two spellings of one: a
+              leading slash makes the name absolute, so it ignores the node
+              namespace the relative name resolves against. Every consumer of
+              these constants passes them through
+              `rclcpp::names::append(namespace, name)`, which is meaningful
+              only for the relative form the definitions actually hold.
+**Evidence:** read of the header against the `.cpp`, then enumerated rather
+              than sampled: of the seven `static const std::string` members
+              declared in that header, six carry a slashed comment and
+              disagree with their definition, and the seventh —
+              `MONITORED_PLANNING_SCENE_TOPIC`, `hpp:125` against `cpp:76` —
+              carries no slash in either place and agrees. The one constant
+              whose comment omits the slash is the one that is right, which is
+              what makes this a systematic slip in the comments rather than a
+              disagreement about any single name.
+**Status:**   `not-reproduced`
+**Cost of not reproducing:** none in behaviour — the comments are not
+              compiled, so no oracle comparison moves. The cost was already
+              paid in the other direction: this port's own endpoint table was
+              written from the header comments and recorded all ten of
+              `MoveGroupInterface`'s endpoints as absolute, which
+              `doc/client-endpoint-surface.md` and the port-side scan that
+              reads it both had to be corrected for.

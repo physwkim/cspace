@@ -76,7 +76,7 @@ moveit-planners-sbp = { path = "../../crates/moveit-planners-sbp" }
 # API directly.
 nalgebra = "0.35"
 
-# `src/bin/plan_kinematic_path_server.rs` (PORTING-PLAN.md §241) loads a
+# `src/bin/move_group.rs` (PORTING-PLAN.md §241) loads a
 # RobotModel from URDF/SRDF file paths at startup -- promoted out of
 # dev-dependencies below, where they were test-fixture-only until this round.
 # Version pinned to match the root workspace's own `urdf-rs = "0.9"` (root
@@ -88,7 +88,7 @@ urdf-rs = "0.9"
 # r2r's own service/action API is executor-agnostic (README: "the library
 # purposefully does not chose an async runtime"); its own `examples/service.rs`
 # drives a `create_service` stream with `futures::executor::LocalPool` plus
-# `node.spin_once`, no tokio needed, so `plan_kinematic_path_server.rs` follows
+# `node.spin_once`, no tokio needed, so `move_group.rs` follows
 # the same pattern instead of adding a heavier runtime dependency. Version
 # pinned to match r2r's own `Cargo.toml` dependency (confirmed by reading it
 # at the pinned rev above: `futures = "0.3.25"`).
