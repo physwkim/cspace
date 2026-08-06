@@ -39,6 +39,15 @@
 # two of the six do not move any count at all, and the first one reddens half
 # of what a reading of the code says it should.
 #
+# The fixture headings use PORTING-PLAN.md's bare `## 900.1` spelling rather
+# than its section-sign one, and the closed bullet cites the real §301 that
+# built this census: check-section-references.sh scans THIS file's own text and
+# cannot tell a constructed fixture from a citation, so a made-up number in the
+# section-sign form is a dangling reference to it -- that gate's own header
+# records having written the same line twice for the same reason. Both
+# spellings parse identically (`SECTION_ID_RE`'s optional sign), and no
+# scenario below is about which one is used.
+#
 # The fixtures are synthetic documents in a temp dir, never this tree's
 # PORTING-PLAN.md: a scenario that reads the real document would change its
 # own expectations every time someone writes a section.
@@ -118,7 +127,7 @@ expect_text() {
 # --- the incident: a continuation paragraph inside an item ------------------
 # isolates: that a blank line is a separator, not a boundary.
 cat > "$ROOT/continuation.md" <<'EOF'
-## §900.1 이 절이 하지 않은 것
+## 900.1 이 절이 하지 않은 것
 
 - **[A] 첫째는 재지 않았다.** 바로 이어지는 줄.
 
@@ -131,7 +140,7 @@ expect continuation "$ROOT/continuation.md" 1 2 A B
 # isolates: the same rule from the other side -- the item after the blank is a
 # bullet, so the list continues without any indented paragraph in between.
 cat > "$ROOT/blank_separated_siblings.md" <<'EOF'
-## §900.2 이 회차가 못 본 것
+## 900.2 이 회차가 못 본 것
 
 - **[A] 첫째.**
 
@@ -143,7 +152,7 @@ expect blank_separated_siblings "$ROOT/blank_separated_siblings.md" 1 2 A B
 # isolates: the column-0 boundary. Without it the parser runs past the list and
 # swallows every later top-level bullet in the document, [C] included.
 cat > "$ROOT/unindented_ends_list.md" <<'EOF'
-## §900.3 이 절이 재지 않은 것
+## 900.3 이 절이 재지 않은 것
 
 - **[A] 첫째.**
 - **[B] 둘째.**
@@ -158,7 +167,7 @@ expect unindented_ends_list "$ROOT/unindented_ends_list.md" 1 2 A B
 # isolates: the BULLET_RE boundary inside the item scan. Neutralized, [B]'s
 # line is appended to [A]'s text and the count halves.
 cat > "$ROOT/two_bullets_stay_two.md" <<'EOF'
-## §900.4 이 절이 하지 않은 것
+## 900.4 이 절이 하지 않은 것
 
 - **[A] 첫째.**
 - **[B] 둘째.**
@@ -169,10 +178,10 @@ expect two_bullets_stay_two "$ROOT/two_bullets_stay_two.md" 1 2 A B
 # isolates: the HEADING_RE boundary. Neutralized, the next section's heading and
 # its prose land inside [A]'s claim text.
 cat > "$ROOT/heading_ends_item.md" <<'EOF'
-## §900.5 이 절이 하지 않은 것
+## 900.5 이 절이 하지 않은 것
 
 - **[A] 첫째.**
-### §900.6 다음 절
+### 900.6 다음 절
 평문.
 EOF
 expect heading_ends_item "$ROOT/heading_ends_item.md" 1 1 A
@@ -182,7 +191,7 @@ expect_text heading_ends_item "$ROOT/heading_ends_item.md" absent "다음 절"
 # isolates: the TABLE_ROW_RE boundary. Neutralized, the table's own rows are
 # concatenated into [A], and a `|` inside a claim breaks the census's own table.
 cat > "$ROOT/table_ends_item.md" <<'EOF'
-## §900.7 이 회차가 못 본 것
+## 900.7 이 회차가 못 본 것
 
 - **[A] 첫째.**
 | 열 | 값 |
@@ -194,16 +203,16 @@ expect_text table_ends_item "$ROOT/table_ends_item.md" absent "열 | 값"
 
 # --- the closure marker is read per bullet, not per document -----------------
 # isolates: that CLOSURE_RE is searched in the bullet's own text. Neutralized to
-# a document-wide search, [B] reports CLOSED (§111) too.
+# a document-wide search, [B] reports CLOSED (§301) too.
 cat > "$ROOT/closure_marker_is_per_bullet.md" <<'EOF'
-## §900.8 이 절이 하지 않은 것
+## 900.8 이 절이 하지 않은 것
 
-- **[A] 첫째. 거짓 → 닫힘 (§111).** 이유.
+- **[A] 첫째. 거짓 → 닫힘 (§301).** 이유.
 - **[B] 둘째.** 아직 열려 있다.
 EOF
 expect closure_marker_is_per_bullet "$ROOT/closure_marker_is_per_bullet.md" 1 2 A B
 expect_text closure_marker_is_per_bullet \
-  "$ROOT/closure_marker_is_per_bullet.md" present "| CLOSED (§111) |"
+  "$ROOT/closure_marker_is_per_bullet.md" present "| CLOSED (§301) |"
 expect_text closure_marker_is_per_bullet \
   "$ROOT/closure_marker_is_per_bullet.md" present "[B] 둘째.** 아직 열려 있다. | OPEN |"
 
@@ -220,7 +229,7 @@ expect_text continuation "$ROOT/continuation.md" absent "PORTING-PLAN.md:"
 # with no rows and exits 0.
 checked=$((checked + 1))
 cat > "$ROOT/no_leadin.md" <<'EOF'
-## §900.9 그냥 절
+## 900.9 그냥 절
 
 - 불릿이지만 lead-in 아래가 아니다.
 EOF
