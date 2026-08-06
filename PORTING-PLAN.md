@@ -24457,6 +24457,19 @@ $ rg '^\| `moveit_' doc/unported-classification.md | rg 'MISCITED' \
 pilz `:127`의 10건은 `planning_context_loader{,_circ,_lin,_polyline,_ptp}`의
 `.hpp` 5건과 `.cpp` 5건이다.
 
+위 다섯 줄번호는 각각 그 줄이 실제로 담고 있는 문장을 같이 적는다.
+줄번호만 적은 인용은 `tools/ci/check-citation-drift.py`의 "unanchored
+(bounds-checked only)" 버킷에 들어가 파일 안에서 이동해도 통과하므로,
+게이트가 실제로 검사하도록 내용을 인용한다:
+
+| 인용 | 그 줄의 내용 |
+|---|---|
+| `crates/moveit-planners-pilz/src/lib.rs:127` | ``- `planning_context_loader*.{hpp,cpp}` — a `pluginlib`-loaded factory that`` |
+| `crates/moveit-planners-pilz/src/lib.rs:140` | ``- `pilz_industrial_motion_planner.cpp` — the `planning_interface::PlannerManager``` |
+| `crates/moveit-planners-stomp/src/lib.rs:105` | ``- Pluginlib registration: not in `stomp_moveit_planning_context.cpp` at`` |
+| `crates/moveit-kinematics/src/lib.rs:263` | ``- `srv_kinematics_plugin` — **excluded, D1/D2 (no ROS dependency)**.`` |
+| `crates/moveit-kinematics/src/lib.rs:333` | ``3. *`cached_ur_kinematics_plugin.cpp` — out of D1/D2 scope, not`` |
+
 **UNVERIFIED 2건은 브리프의 규칙으로 결정이 아니라 구멍이다.** 둘 다
 `moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/detail/`
 아래다:
@@ -24487,8 +24500,23 @@ $ git ls-files -z | xargs -0 rg -n -w 'NearestNeighbors|GreedyKCenters'
 
 ### §258.4 질문 3 "무엇을 막는가" — 87건 중 0건. 이 열은 발화할 수 있는 열이다
 
-UNMET은 셋이다(§5 표 `806`, `807`, `819`행). 각 행을 막는 것은 그 행이
-인용한 절에서 읽었고, 파일의 디렉터리로 추측하지 않았다.
+UNMET은 셋이다. 처음 이 자리에는 §5 표의 **줄번호** `806`/`807`/`819`를
+적었는데, `PORTING-PLAN.md`는 매 라운드 자라므로 그 셋은 도착하는 순간
+낡을 수 있는 인용이다. 줄번호 대신 행의 내용으로 적는다 —
+`rg -n '^\| Phase ' PORTING-PLAN.md | rg -v '\| MET \|'`가 내는 네 행 중
+`| UNMET |`인 셋:
+
+- `| Phase 3 | ` + `` `collision: bool` 이 10,000×3로봇에서 100% 일치 `` + ` | UNMET | §229.1 |`
+- `| Phase 3 | ` + `` `distance: f64` 가 `1e-4` 이내 일치 `` + ` | UNMET | §229.3 |`
+- `| Phase 9 | 기존 C++ ` + `` `MoveGroupInterface` `` + ` 클라이언트가 무변경으로 유효 궤적 수신 | UNMET | §250.5 |`
+
+각 행을 막는 것은 그 행이 인용한 절에서 읽었고, 파일의 디렉터리로
+추측하지 않았다. §249.6이 같은 질문에 이미 표로 답해 두었고(네 행 전부
+`0`), 이 절은 계기를 바꿔 독립으로 다시 유도한 것이다. 두 절이 드는
+`collision_common.cpp`의 줄이 다른 것(§249.6은 `:471`, §229.3은 `:646`)은
+드리프트가 아니다 — 상류 `e017c91ee`에서 `:471`은 `distanceCallback`의
+정의 줄이고 `:646`은 그 함수 본문의 `coll_req.num_max_contacts = 200`
+줄로, 같은 함수의 서로 다른 앵커다. 열어서 확인했다.
 
 `none`이 87번 찍히는 열은 그 자체로는 아무 것도 증명하지 못한다 — 이
 계기의 이전 판이 실제로 그랬다(`UNMET_BLOCKERS`의 경로 집합이 비어
@@ -24518,10 +24546,22 @@ $ tools/ci/classify-unported.py
   헤더로, 협면 검사 경로가 아니다.
 - **Phase 9** — 접두사는 `moveit_ros/`. `MoveGroupInterface`는 `moveit_ros`가
   선언하고, `moveit_ros`는 CORPUS_ROOTS가 아니다. 그래서 245건 코퍼스
-  전체에 `moveit_ros` 소속이 0건이고 후보도 0건이다. §250.6이 열어둔 네
-  항목은 모두 포트 쪽이다(`crates/moveit-planning`의 start-state 필드,
-  planning scene 토픽 구독, `PLANNING_FAILED` 파리티,
-  `ros/verify-ros-interop.sh`의 게이트).
+  전체에 `moveit_ros` 소속이 0건이고 후보도 0건이다.
+
+  이 항목이 처음 쓰일 때는 §250.6이 열어둔 네 항목(start-state 필드,
+  planning scene 토픽 구독, `PLANNING_FAILED` 파리티, `/move_action`
+  게이트)을 "모두 포트 쪽"이라고 적었다. **그 네 항목은 이 절이 머지되기
+  전에 이미 전부 닫혔다** — §254가 `/move_action`을 게이트에 올렸고,
+  §255가 오류 코드를 맞추면서 바이너리를 `move_group.rs`로 개명했고,
+  §256이 `crates/moveit-planning/src/start_state.rs`로 start-state를
+  표현했고, §257이 planning scene 구독을 지었다. 그 문장은 41 커밋 뒤진
+  워크트리에서 유도한 것이고, 머지 시점에는 거짓이었다.
+
+  현재 첫 거부는 §256이 적은 "부를 플래너가 없다"이고, 그것은 D8이
+  소유한 결정이다(§249.6 표의 Phase 9 행도 같게 적는다). **이 정정은 이
+  절의 결론을 바꾸지 않는다** — 결론은 열려 있는 포트 쪽 항목이
+  무엇인지에 의존하지 않고, `moveit_ros/`가 코퍼스 245건에 0건이라는
+  사실에만 의존한다. 그 사실은 머지 뒤 재측정에서도 그대로다.
 
 즉 **87건 중 어느 것도 UNMET 세 행을 막지 않는다.** Phase 8은 UNMET이
 아니라 UNMEASURED라 브리프의 셋에 들어가지 않는다.
@@ -24791,3 +24831,110 @@ p3-acm/p10-phase13이다.
 느슨하게 하면 `UNPAIRED`로, 교차검증 스크립트를 되돌리면 `126+4 ≠ 130`으로,
 표의 한 칸을 고치거나 한 행을 지우면 `ROW DISAGREES`/`MISSING ROW`로
 실패한다.
+
+## §NEW §258을 41 커밋 뒤진 트리에서 유도했다 — 머지 후 전수 재검증, 그리고 한 문장이 실제로 거짓이었다 (2026-08-06)
+
+§258은 `a35bc2e` 기준 워크트리에서 유도됐고, 머지 시점의 main은
+`b4638bb`로 **41 커밋 앞**이었다. 공지의 규칙("소스 줄번호를 인용하기
+전에 `git merge main`")을 §258은 지키지 않았다. 이 절은 머지 후 §258의
+모든 수치와 모든 인용을 다시 낸 결과다. 셋 중 하나가 실제로 틀렸다.
+
+### §NEW.1 다시 잰 결과 — 집합과 표는 그대로다
+
+머지된 트리(`b4638bb`)에서:
+
+```
+$ tools/ci/measure-port-coverage.py --upstream /home/stevek/work/moveit2 --repo .
+corpus   245
+ported   158
+unported 87
+$ python3 /tmp/claude-1000/indep.py .
+corpus   245
+ported   158
+unported 87
+```
+
+41 커밋에는 새 포트 작업이 들어 있지만(§255–§257) 그 어느 것도 코퍼스
+245건의 포팅/미포팅 분할을 움직이지 않았다. `--emit`을 다시 돌려 표
+전체를 머지 전 판과 diff한 결과도 **빈 출력**이다 — 6개 열 중 하나도
+움직이지 않았다.
+
+### §NEW.2 인용 40건이 낡지 않은 이유는 줄 수가 아니라 blob 해시로 확인했다
+
+§258의 결정 위치 열은 크레이트 doc의 줄번호 40건을 담는다. 그 줄번호가
+아직 유효한지는 파일이 몇 줄인지로는 알 수 없으므로(같은 줄 수로 내용이
+바뀔 수 있다) 커밋 객체를 비교했다:
+
+```
+$ for f in <다섯 파일>; do git rev-parse HEAD:$f; git rev-parse main:$f; done
+crates/moveit-planners-pilz/src/lib.rs      same
+crates/moveit-planners-stomp/src/lib.rs     same
+crates/moveit-kinematics/src/lib.rs         same
+crates/moveit-kinematics/src/ik_cache.rs    same
+doc/port-coverage.md                        same
+```
+
+다섯 파일 전부 blob이 동일하므로 40건의 줄번호는 이동하지 않았다.
+`PORTING-PLAN.md`만 다르고, 그것은 §255–§259가 자란 결과다.
+
+### §NEW.3 거짓이었던 한 문장 — §258.4의 Phase 9 항목
+
+§258.4는 "§250.6이 열어둔 네 항목은 모두 포트 쪽"이라고 적으며 그 넷을
+열거했다. 머지 시점에 그 넷은 **전부 닫혀 있었다**: §254가 `/move_action`
+게이트를, §255가 오류 코드와 바이너리 개명(`move_group.rs`)을, §256이
+`crates/moveit-planning/src/start_state.rs`로 start-state를, §257이
+planning scene 구독을 지었다. 공지가 p10-cartesian에서 지적한 것과 같은
+형태의 오류이고, 이 절이 그것을 §258.4 본문에서 고쳤다(**기존 절 본문
+편집** — 아래 §NEW.5에 따로 적는다).
+
+결론은 바뀌지 않는다. §258.4의 Phase 9 판정은 어떤 포트 쪽 항목이 열려
+있는지에 의존하지 않고 `moveit_ros/`가 코퍼스 245건에 0건이라는 사실에만
+의존하며, 그 사실은 재측정에서도 그대로다. 틀린 것은 근거 문장이지
+판정이 아니다 — 그래도 거짓 문장은 거짓 문장이다.
+
+### §NEW.4 `check-citation-drift.py`가 초록인 것은 근거가 못 된다 — 이 저장소에서 재현했다
+
+공지의 측정을 여기서 다시 냈다. `crates/moveit-planners-pilz/src/lib.rs`의
+112행 위에 7줄을 끼워 그 아래 모든 인용을 7줄 밀었다:
+
+```
+$ tools/ci/check-citation-drift.py ; echo $?
+0                     # 통과 — 이동을 보지 못한다
+$ tools/ci/classify-unported.py --check doc/unported-classification.md ; echo $?
+COLUMN DRIFT moveit_planners/.../move_group_sequence_action.hpp
+COLUMN DRIFT moveit_planners/.../move_group_sequence_service.hpp
+COLUMN DRIFT moveit_planners/.../pilz_industrial_motion_planner.hpp
+COLUMN DRIFT moveit_planners/.../planning_context_loader.hpp
+FAIL doc/unported-classification.md: ... rows differ from a fresh derivation
+1
+```
+
+그래서 `--check`를 행 **집합** 비교에서 **6개 열 전부**를 새로 유도해
+문자열로 비교하는 것으로 바꿨다. `--emit`과 `--check`가 같은 `row_line()`
+하나를 쓰므로 둘이 형식에서 어긋날 수 없다. 발화 확인은 변이 셋으로 했고
+셋 다 `exit=1`이다:
+
+| 변이 | 결과 |
+|---|---|
+| 문서의 결정 줄 `:127` → `:134` | FAIL, 1행 |
+| 문서의 검증 `UNVERIFIED` → `resolves` | FAIL, 1행 |
+| **소스** `pilz/src/lib.rs`에 7줄 삽입 | FAIL, 4행 (같은 시프트를 `check-citation-drift.py`는 통과시킴) |
+
+§258 본문의 산문 인용 다섯 건(`:127`, `:140`, `:105`, `:263`, `:333`)에는
+그 줄이 담고 있는 문장을 같이 적었다. 줄번호만 적은 인용은
+`check-citation-drift.py`의 "unanchored (bounds-checked only)" 버킷에
+들어가 검사받지 않기 때문이다.
+
+### §NEW.5 기존 절 본문을 편집했다
+
+`PORTING-PLAN.md`는 덧붙이기 전용이지만 이 라운드는 **§258 본문을 세 곳
+고쳤다**. 셋 다 §258이 이 세션의 자기 절이고, 남겨두면 거짓이거나
+검사받지 못하는 문장이기 때문이다:
+
+1. §258.4 Phase 9 항목 — §NEW.3의 거짓 문장을 정정.
+2. §258.4 첫 문단 — `§5 표 806/807/819행`이라는 줄번호 인용을 행의
+   내용으로 교체. `PORTING-PLAN.md`는 매 라운드 자라므로 그 줄번호는
+   구조적으로 낡는 인용이다.
+3. §258.3 — 다섯 개 크레이트 doc 인용에 그 줄의 내용을 붙임.
+
+다른 절은 한 줄도 건드리지 않았다. §258 밖의 삭제·변경 줄은 0이다.
