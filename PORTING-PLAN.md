@@ -24561,3 +24561,228 @@ $ tools/ci/classify-unported.py
 - **크레이트 doc 문장만 있는 40건에 절 번호를 붙이지 않았다.** §249.4가
   35건으로 남긴 같은 작업이고, 이 라운드의 계기로는 40건이다(두 숫자가
   다른 이유까지는 재도출하지 않았다).
+
+## §259 무변경 C++ `MoveGroupInterface`의 공개 선언 126개를 전수로 세고, 각 선언이 무엇을 부르는지 확정했다 (2026-08-06)
+
+Phase 9가 한 라운드에 거부 하나씩 발견하는 것은 우연이 아니다. §226.4는
+막히는 지점을 "서버 쪽" 한 덩어리로 적었고, §250.2가 그것을 넷으로 갈랐고,
+갈라 놓고 실행해 보니 그 넷 중 어느 것도 아닌 `start_state` 변환에서 먼저
+걸렸다(§250.4). 조건이 이름 부른 클라이언트의 표면을 아무도 센 적이 없기
+때문에, 매 라운드가 볼 수 있는 것은 그 클라이언트가 다음에 부딪히는
+`return` 하나뿐이었다.
+
+이 절은 그 표면을 한 번에 센다. 산출물은 계기와 표이고, 표에 나온 구멍은
+이 절이 메우지 않는다 — 하나만 골라 고치면 계기가 절반만 지어진 채 다음
+라운드로 넘어간다.
+
+계기는 `tools/ci/measure-client-endpoint-surface.py`이고
+`tools/ci/verify-client-endpoint-surface.sh`가 핀 고정 전제를 지고
+`doc/client-endpoint-surface.md`(126행 전수)와 맞춘다.
+
+### §259.1 세는 대상은 `.hpp`다 — `.h`는 선언을 하나도 담지 않는다
+
+핀 고정 리비전에서 `move_group_interface.h`는 52줄이고, 그 안에 선언이
+없다. `#pragma once`, 폐기 예고 `#pragma message`, 그리고 `.hpp` `#include`
+하나뿐이다(줄 번호로 인용하지 않는다 —
+`tools/ci/verify-upstream-citations.sh`가 폐기 셔틀로의 인용을 실패로
+만들고, 그게 맞다). 실제 표면은 `move_group_interface.hpp`이고 이 절의 모든
+`hpp:` 줄 번호는 그 파일 것이다.
+
+### §259.2 개수는 126이고, 세는 규칙은 이것이다
+
+수치보다 규칙을 먼저 적는다. 공개 메서드 하나는 **클래스 자기 `public:`
+구역에 선언자가 나타나는 함수 선언 또는 인라인 정의** 하나다. 그 구역은
+`move_group_interface.hpp:84`의 `public:` 다음 줄부터 `:974`의
+`protected:` 앞 줄까지다.
+
+- 오버로드는 각각 하나로 센다. 포트가 각각에 답해야 하므로.
+- 생성자·소멸자·복사/이동 특수 멤버도 세되 태그를 달아, "호출 가능한
+  연산"을 뜻하는 수치에서 뺄 수 있게 한다.
+- 중첩 `struct Options`(`move_group_interface.hpp:89`)와 `struct
+  Plan`(`:114`)의 **본문**은 제외한다. 다른 타입이고 자기 표면을 따로
+  갖는다. 두 struct 정의 자체는 함수가 아니므로 126 밖에서 센다.
+- `MOVEIT_STRUCT_FORWARD(Plan)`(`move_group_interface.hpp:111`)은 매크로
+  호출이고 `ROBOT_DESCRIPTION`(`:86`)은 데이터 멤버다. 둘 다 함수가 아니다.
+
+주석은 문자 단위로 지운 뒤(줄 번호는 보존) 파싱한다. 이 헤더의 doxygen
+연속 줄은 `*`가 아니라 산문으로 시작해서, 줄 앞머리 필터로 지우면 뒤따르는
+선언에 조용히 합쳐지고 문장 마지막 낱말을 이름으로 가진 가짜 메서드가
+생긴다.
+
+```
+$ tools/ci/measure-client-endpoint-surface.py --upstream ~/work/moveit2
+public function declarations                  126
+  ctor/dtor/copy/move special members         7
+  named operations                            119
+non-function public declarations              4
+      hpp:86    [data member] static const std::string ROBOT_DESCRIPTION;
+      hpp:89    [nested type definition] struct Options {
+      hpp:111   [macro invocation] MOVEIT_STRUCT_FORWARD(Plan);
+      hpp:114   [nested type definition] struct Plan {
+count-public-declarations.sh, same header     130
+```
+
+마지막 줄이 교차검증이고, 이 절이 자기 수치를 자기가 확인하지 않게 하는
+장치다. `tools/ci/count-public-declarations.sh`는 이 절과 독립으로 쓰인 awk
+패스이고 클래스 brace-depth 1의 **모든** 공개 선언을 센다 — 함수 126개에
+위 넷을 더한 130. 두 파서가 같은 헤더에 대해 같은 전체를 내야 하고, 어느
+쪽이 흘러도 어긋나서 게이트가 실패한다.
+
+그 스크립트는 이 헤더에 대해 처음에 `0`을 냈다. 클래스 머리가
+`class MOVEIT_MOVE_GROUP_INTERFACE_EXPORT
+MoveGroupInterface`(`move_group_interface.hpp:82`)인데 그 정규식이 `class`
+바로 뒤에 클래스 이름을 요구했기 때문이다. export 매크로 토큰 하나를
+선택적으로 허용하도록 고쳤다. 그 전까지 이 클래스에 대해 그 계기를 돌린
+사람이 없었다는 뜻이고, 지금은 위 130이 그것을 매 실행마다 돌린다.
+
+`.cpp` 쪽에서 재도출한 수도 닫힌다. 파일 스코프 `MoveGroupInterface::`
+정의는 122개이고, 126 − 2(`= delete`, `move_group_interface.hpp:158`·`:159`)
+− 3(헤더 안 인라인 정의 `:771`·`:794`·`:928`) + 1(`protected`
+`getTargetRobotState`, `:974`) = 122.
+
+### §259.3 클라이언트가 묶는 것은 아홉이다 — §252.3의 여덟에 `/joint_states`가 없었다
+
+§252.3은 이 클라이언트가 묶는 엔드포인트를 여덟으로 셌고, 스스로 "생성자가
+묶는 것만 센 하한"이라고 적었다. 하한인 이유가 정확히 하나 더 있다:
+`create_*` 호출에 앵커한 계기는 **자기가 만들지 않는 구독**을 볼 수 없다.
+
+`current_state_monitor_`는 `getSharedStateMonitor`(`common_objects.cpp:132-148`)가
+돌려주는 객체이고, `/joint_states` 구독은 그 객체 안에서
+`CurrentStateMonitor::startStateMonitor`(`current_state_monitor.cpp:160`,
+기본 토픽 `planning_scene_monitor.hpp:105`)가 만든다. 번역 단위
+`move_group_interface.cpp`에는 `create_subscription`이 한 건도 없다.
+그래서 여덟이 나왔고, 아홉이 맞다.
+
+| 핸들 | 엔드포인트 | 종류 | 이름의 출처 | 클라이언트에서 만드는 자리 |
+|---|---|---|---|---|
+| `move_action_client_` | `/move_action` | action | `move_group/capability_names.hpp:52` | `move_group_interface.cpp:188` |
+| `execute_action_client_` | `/execute_trajectory` | action | `move_group/capability_names.hpp:45` | `move_group_interface.cpp:191` |
+| `query_service_` | `/query_planner_interface` | service | `move_group/capability_names.hpp:46-47` | `move_group_interface.cpp:195` |
+| `get_params_service_` | `/get_planner_params` | service | `move_group/capability_names.hpp:48-49` | `move_group_interface.cpp:198` |
+| `set_params_service_` | `/set_planner_params` | service | `move_group/capability_names.hpp:50-51` | `move_group_interface.cpp:201` |
+| `cartesian_path_service_` | `/compute_cartesian_path` | service | `move_group/capability_names.hpp:59-60` | `move_group_interface.cpp:204` |
+| `trajectory_event_publisher_` | `/trajectory_execution_event` | topic-pub | `trajectory_execution_manager.cpp:50` | `move_group_interface.cpp:177` |
+| `attached_object_publisher_` | `/attached_collision_object` | topic-pub | `planning_scene_monitor.hpp:108` | `move_group_interface.cpp:181` |
+| `current_state_monitor_` | `/joint_states` | topic-sub | `planning_scene_monitor.hpp:105` | `move_group_interface.cpp:186` |
+| `constraints_storage_` | warehouse (MongoDB) | non-ROS | — | `move_group_interface.cpp:1201` |
+
+열째는 ROS 엔드포인트가 아니다(warehouse_ros/MongoDB). 그리고 열한 번째가
+하나 더 있는데 핸들이 아니라서 위 표에 자리가 없다: 모델 적재다.
+생성자가 `getSharedRobotModel`(`common_objects.cpp:115-130`)을
+부르고(`move_group_interface.cpp:135`), 그것은 `robot_description`
+파라미터를 읽고 없으면 latched 토픽으로 폴백한다
+(`synchronized_string_parameter.cpp:101`, `:125`). 생성자가 그래프에
+의존하는 지점이 여기 하나 더 있다는 뜻이고, `ros/move_group_interface_probe`가
+그 파라미터를 자기 노드에 얹어서 이 의존을 이미 만족시키고 있다.
+
+계기는 이 표를 양방향으로 지킨다. 표에 있는 핸들이 클라이언트에서
+만들어지지 않으면 `STALE HANDLE`, 클라이언트가 만드는데 표에 없으면
+`UNDECLARED HANDLE`로 실패한다. 상류가 엔드포인트를 하나 더 열면 그것이
+요구 집합에 하나 더 들어온다는 뜻인데, 지금까지 그것을 세는 것이 없었다.
+
+### §259.4 `/plan_kinematic_path`는 이 클래스의 어느 선언도 부르지 않는다
+
+과제의 분류 항목이 `/plan_kinematic_path`를 이름 부르므로 명시적으로
+적는다. `PLANNER_SERVICE_NAME`(`move_group/capability_names.hpp:43-44`)은
+`moveit_ros/planning_interface/` 전체에서 한 번도 나오지 않는다(`rg` 0건).
+`plan()`이 하는 일은 `/move_action` 골에
+`planning_options.plan_only = true`를 세우는 것이다
+(`move_group_interface.cpp:668`, `plan`의 본문은 `:657-732`).
+
+§241.4가 이미 실측으로 확정한 것과 같고, 이 절이 더하는 것은 그것이 이
+클래스 **전체**에 대해 성립한다는 점이다. 126개 선언 중 그 서비스로 가는
+것은 0개다. 즉 이 포트가 지은 두 엔드포인트 중 하나는 조건이 요구하는
+집합 밖에 있다.
+
+### §259.5 126개 선언의 분류 — 와이어 38, 클라이언트-로컬 88
+
+분류는 두 단계 룩업이다. 공개 정의가 직접 부르는 `impl_->X`, 그리고 pimpl
+멤버 자기 본문이 이름 부르는 핸들. pimpl 안에서는 고정점까지 전파하되
+생성자와 소멸자를 전파원에서 뺀다 — 클라이언트를 **만드는** 것은 부르는
+것이 아니고, 생성자를 전파원에 넣으면 열 핸들이 전부로 번져서 포화한다.
+첫 시도가 그렇게 포화했다.
+
+한 단계로는 틀린다. `setJointValueTarget`의 pose 오버로드는
+`getStartState`를 IK 씨앗으로 읽고(`move_group_interface.cpp:449-501`),
+`getStartState`(`:441-447`)는 `getCurrentState`를 부르고, 그것이
+`current_state_monitor_`를 만진다. 두 홉이다.
+
+이름만으로 결정할 수 없는 호출 간선은 계기가 실패로 만든다. 오버로드
+후보들이 서로 **다른** 답을 가질 때만 그렇고(답이 같으면 합집합이 정확),
+지금 그런 간선은 여섯이다 — `setJointValueTarget` 네 건과
+`impl_->setPathConstraints` 두 건. 각각을 실제로 묶는 정의 한 줄로
+고정해 두었고, 그 줄이 그 이름의 정의가 아니게 되면 실패한다.
+
+| 엔드포인트 | 이 엔드포인트로 가는 공개 선언 (`hpp:`) |
+|---|---|
+| `/move_action` | `707` asyncMove, `713` getMoveGroupClient, `719` move, `724` plan, 그리고 생성자 둘 `136`·`147`(액션 서버 대기) |
+| `/execute_trajectory` | `732`·`741` asyncExecute, `750`·`759` execute, 그리고 생성자 둘 `136`·`147` |
+| `/compute_cartesian_path` | `771`·`778`·`794`·`802` computeCartesianPath (`771`·`794`는 `jump_threshold`를 버리는 폐기 셔틀) |
+| `/query_planner_interface` | `205` getInterfaceDescriptions, `208` getInterfaceDescription |
+| `/get_planner_params` | `211` getPlannerParams |
+| `/set_planner_params` | `215` setPlannerParams |
+| `/trajectory_execution_event` | `808` stop |
+| `/attached_collision_object` | `851`·`861` attachObject, `868` detachObject |
+| `/joint_states` | `437`·`450`·`463` setJointValueTarget(pose), `475`·`488`·`501` setApproximateJointValueTarget, `882` startStateMonitor, `885` getCurrentJointValues, `888` getCurrentState, `893` getCurrentPose, `898` getCurrentRPY, `906` getRandomPose, `919` rememberJointValues(name) |
+| `robot_description` | 생성자 둘 `136`·`147` |
+| warehouse | `944` setConstraintsDatabase, `947` getKnownConstraints, `957` setPathConstraints(string) |
+
+와이어를 타는 선언은 38개, 나머지 88개는 순수 클라이언트-로컬이다. 전수
+126행은 `doc/client-endpoint-surface.md`에 있다.
+
+세 가지를 따로 적어 둔다. `getMoveGroupClient`(`hpp:713`)는 스스로 호출을
+하지 않고 액션 클라이언트를 밖으로 내준다 — 호출은 호출자가 한다.
+`setJointValueTarget`은 열 개 오버로드 중 pose 셋만 `/joint_states`를
+읽고, 나머지 일곱은 목표 상태 객체만 만진다. `setPathConstraints`도
+`std::string` 오버로드만 warehouse를 읽고 `Constraints` 오버로드는 받은
+메시지를 저장한다. 오버로드를 이름으로 뭉개면 이 셋이 전부 틀린다.
+
+### §259.6 판정 — 아홉 중 (b) 하나, (c) 일곱, 요구 밖 하나
+
+이 트리(`a35bc2e`)가 여는 엔드포인트는 둘뿐이고 한 바이너리에 있다:
+`ros/moveit-ros/src/bin/plan_kinematic_path_server.rs:266`의
+`create_service::<GetMotionPlan::Service>("plan_kinematic_path")`와
+`:282`의 `create_action_server::<MoveGroup::Action>("move_action")`.
+트리 전체에서 `create_subscription`·`create_publisher`는 0건이다.
+
+| 엔드포인트 | MGI 선언 | 판정 | 근거 | 주인 |
+|---|---|---|---|---|
+| `/move_action` | 4 + 생성자 2 | **(b)** 서버는 있고 변환에서 거부한다 | 서버 `ros/moveit-ros/src/bin/plan_kinematic_path_server.rs:282`; 골 핸들러가 `:188`에서 요청을 변환하고 첫 거부는 `ros/moveit-ros/src/planning.rs:166`(`start_state`), 그 답이 `:193`의 `INVALID_GOAL_CONSTRAINTS`; 변환이 통과해도 `:198`의 `FAILURE`+`NO_PLANNER` | 거부① p11-startstate, 거부② D8(§140.3) → p10-cachedik |
+| `/execute_trajectory` | 4 + 생성자 2 | **(c)** 서버 없음 | `create_action_server`는 트리 전체에서 `:282` 한 건 | — |
+| `/compute_cartesian_path` | 4 | **(c)** 서버 없음 | `create_service`는 트리 전체에서 `:266` 한 건 | — |
+| `/query_planner_interface` | 2 | **(c)** 서버 없음 | 같음 | — |
+| `/get_planner_params` | 1 | **(c)** 서버 없음 | 같음 | — |
+| `/set_planner_params` | 1 | **(c)** 서버 없음 | 같음 | — |
+| `/trajectory_execution_event` | 1 | **(c)** 구독자 없음 | `create_subscription` 0건. 퍼블리시는 구독자가 없어도 실패하지 않으므로 `stop()`은 조용히 아무 일도 하지 않는다 | — |
+| `/attached_collision_object` | 3 | **(c)** 구독자 없음 | `create_subscription` 0건. 메시지 변환 자체는 있다 — `ros/moveit-ros/src/scene/attached.rs` | — |
+| `/joint_states` | 13 | **(c)** 퍼블리셔 없음 | 트리에 `CurrentStateMonitor` 등가가 없다(`rg -i currentstatemonitor` 0건). 상류에서도 이 토픽을 내는 것은 `move_group`이 아니라 로봇 드라이버이므로, 이것은 "포트가 안 지은 서버"가 아니라 종단 시험이 세워야 하는 그래프 조건이다 | — |
+| `robot_description` | 생성자 2 | **(a)** 답한다 | 클라이언트 자기 노드 파라미터로 만족된다 — `ros/move_group_interface_probe/src/move_group_interface_probe.cpp`가 그렇게 얹는다 | — |
+| warehouse (MongoDB) | 3 | 요구 밖 | `constraints_storage_`는 `setConstraintsDatabase`를 클라이언트가 명시적으로 부를 때만 열린다(`move_group_interface.cpp:1201`). 부르지 않으면 세 메서드는 `false`/빈 목록을 답하고 와이어를 타지 않는다 | — |
+
+세로로 읽으면 Phase 9에 남은 작업 목록이다. (b) 하나 안에 거부 둘, (c)
+일곱 — 그중 여섯이 안 지은 서버이고 하나(`/joint_states`)가 그래프 조건.
+
+이 판정에 다른 패널이 잡고 있는 항목을 겹쳐 두면 이렇게 갈린다.
+`MotionPlanRequest.start_state` 거부는 p11-startstate가,
+`PLANNING_FAILED` vs `FAILURE` 불일치는 p11-planningfailed가,
+D8 타입 통합은 p10-cachedik가 잡고 있다. planning scene 토픽 구독은
+p11-scenetopic이 잡고 있지만 **이 클래스의 묶음 집합에는 없다** —
+`move_group_interface.cpp`에 `create_subscription`이 없기 때문이고, 그
+항목의 요구는 `PlanningSceneMonitor` 쪽에서 온다. Phase 3 두 행은
+p3-acm/p10-phase13이다.
+
+### §259.7 이 절이 하지 않은 것
+
+위 표의 (b)/(c) 어느 것도 이 라운드가 메우지 않았다. 하나를 골라 고치면
+계기가 절반만 지어진 채 넘어가고, 다음 라운드는 다시 "다음 거부"를 찾는
+라운드가 된다.
+
+측정의 한계도 적는다. 이 분류는 C++ 오버로드 해석을 하지 않는다 —
+후보들의 답이 갈리는 간선 여섯을 손으로 고정했고, 그 여섯 밖에서 새로
+갈리는 간선이 생기면 계기가 실패한다. 다시 말해 이 계기는 조용히 틀리는
+대신 시끄럽게 멈추도록 되어 있고, 이것이 지금 확인된 성질이다: 후보 고정
+하나를 지우면 `UNDECIDED EDGE`로, 핸들 표를 한 줄 지우거나 한 줄 더하면
+`UNDECLARED HANDLE`/`STALE HANDLE`로, 매개변수 타입 짝짓기를 이름만으로
+느슨하게 하면 `UNPAIRED`로, 교차검증 스크립트를 되돌리면 `126+4 ≠ 130`으로,
+표의 한 칸을 고치거나 한 행을 지우면 `ROW DISAGREES`/`MISSING ROW`로
+실패한다.

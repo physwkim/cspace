@@ -28,6 +28,13 @@
 # the same reason comments are stripped first, not because this repo's
 # headers have hit it yet.
 #
+# The class head may carry one visibility-macro token between `class` and the
+# name -- `class MOVEIT_MOVE_GROUP_INTERFACE_EXPORT MoveGroupInterface`. Before
+# that was allowed the script answered `0` for such a class, which reads as "no
+# public declarations" and not as "this class was never found"; a caller with
+# no independent count would have believed it. Widening only adds matches:
+# `bodies.h`'s six classes answer 28/16/16/16/20/12 either way.
+#
 # Deliberately not wired into check-*.sh or verify-*.sh: it prints a raw
 # integer with no pass/fail sense of its own -- whether that count matches
 # the Rust port's own public surface is a per-class judgment call made in
@@ -59,7 +66,7 @@ BEGIN { depth=-1; in_target=0; access="private"; pending=0; entered_brace=0; cou
   if (!pending && line ~ /^[ \t]*#/) next
   if (!pending && line ~ /^[ \t]*EIGEN_MAKE_ALIGNED_OPERATOR_NEW[ \t]*$/) next
   if (!in_target) {
-    if (line ~ ("class[ \t]+" cls "([ \t]|:|\\{|$)")) { in_target=1; depth=0; access="private" }
+    if (line ~ ("class[ \t]+([A-Z_][A-Z_0-9]*[ \t]+)?" cls "([ \t]|:|\\{|$)")) { in_target=1; depth=0; access="private" }
     else next
   }
   n_open = gsub(/\{/, "{", line)
