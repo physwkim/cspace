@@ -123,26 +123,28 @@ UNMET_BLOCKERS = {
             "defects in that upstream function; porting any candidate below "
             "would not change what that callback computes.",
     },
-    # UNMEASURED, not UNMET -- but it is a not-yet-MET row, so it needs an
-    # entry here or check_phase_coverage() errors.  Its candidates fire on 8
-    # of the 87, which is the largest non-zero candidate set in this dict.
+    # Was UNMEASURED against §217.3 until §263 measured it; the row now reads
+    # UNMET against §263 and the harness this entry used to call absent exists
+    # (crates/moveit-planners-{chomp,stomp}/examples/).  check_phase_coverage()
+    # caught the stale section on the merge that brought §263 in -- the third
+    # drift it has found, and the reason this entry no longer describes the
+    # blocker as a missing harness.
     ("Phase 8", "CHOMP/STOMP"): {
-        "section": "217.3",
-        "blocker": "the port has no property-based harness for chomp/stomp; "
-                   "Phase 7's counterpart is "
-                   "crates/moveit-planners-sbp/examples/plan_benchmark_*.rs "
-                   "and neither chomp nor stomp crate has an examples/ or "
-                   "benches/ directory at all (checked: all four absent)",
+        "section": "263",
+        "blocker": "§263 ran the condition and both planners failed it on the "
+                   "numbers: success rate short of the 89.64% bar (stomp 8 of "
+                   "449 short) and condition 2 short of 100% (chomp 379/380, "
+                   "stomp 438/441).  The harness exists -- what fails is the "
+                   "measured rate, not an absent file",
         "candidates": ("moveit_planners/chomp/", "moveit_planners/stomp/"),
         "adjudication":
             "the 8 candidates are all ROS plugin wiring (chomp_interface/*, "
             "stomp_moveit_planner_plugin.cpp, trajectory_visualization.hpp) "
-            "and the Phase 7 harness does not go through a plugin -- "
-            "plan_benchmark_port.rs uses moveit_planners_sbp::PlannerManager "
-            "directly, and the chomp/stomp entry points it would call already "
-            "exist (moveit-planners-chomp/src/planner.rs solve, "
-            "moveit-planners-stomp/src/planner.rs plan).  What is missing is "
-            "a harness on the port side, not an unported upstream file.",
+            "and §263's harness does not go through a plugin -- it drives "
+            "the crates directly from "
+            "crates/moveit-planners-{chomp,stomp}/examples/*_benchmark_port.rs. "
+            "The row fails on measured success rate, so porting any candidate "
+            "below could not move it.",
     },
     ("Phase 9", "MoveGroupInterface"): {
         # The §5 row cites §250.5, not §250.6 -- check_phase_coverage() caught
