@@ -2983,22 +2983,33 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
     }
     use Side::{Control, Oracle, Port};
 
-    /// `(case, link a, link b, oracle, port, joints, cell, side)`.
+    /// One measured sweep case.
     ///
     /// `oracle` and `port` are the values `moveit-diff --cases 10000 --seed 1
     /// --collision` printed for that case, so this test reproduces sweep rows
-    /// rather than measuring nearby states. The joints are the same run's,
-    /// read back from the oracle's own `random_states` at that seed.
-    #[expect(clippy::type_complexity, reason = "one row of a measured table")]
-    const CASES: &[(u32, &str, &str, f64, f64, [f64; 6], &str, Side)] = &[
+    /// rather than measuring nearby states. `joints` is the same run's state,
+    /// read back from the oracle's own `random_states` at that seed. `cell`
+    /// and `side` are what the assertions below re-derive and compare against.
+    struct Row {
+        case: u32,
+        link_a: &'static str,
+        link_b: &'static str,
+        oracle: f64,
+        port: f64,
+        joints: [f64; 6],
+        cell: &'static str,
+        side: Side,
+    }
+
+    const CASES: &[Row] = &[
         // --- the eight worst by |d|, all on a curved blank cell ---
-        (
-            4697,
-            "prbt_base_link",
-            "prbt_link_4",
-            0.032_876_309_670_400_866,
-            0.032_787_383_820_056_18,
-            [
+        Row {
+            case: 4697,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.032_876_309_670_400_866,
+            port: 0.032_787_383_820_056_18,
+            joints: [
                 2.046_935_426_606_275,
                 1.951_210_528_619_135_7,
                 -1.503_936_973_875_760_9,
@@ -3006,16 +3017,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 1.268_189_592_042_518_6,
                 -2.565_574_970_740_266,
             ],
-            "box x cylinder",
-            Oracle,
-        ),
-        (
-            1613,
-            "prbt_base_link",
-            "prbt_link_4",
-            0.031_014_985_469_437_758,
-            0.030_951_919_742_005_285,
-            [
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 1613,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.031_014_985_469_437_758,
+            port: 0.030_951_919_742_005_285,
+            joints: [
                 0.851_553_251_224_458_1,
                 1.235_381_836_361_619_8,
                 -2.127_395_165_149_960_3,
@@ -3023,16 +3034,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 2.177_800_636_064_429,
                 0.576_180_550_042_335_1,
             ],
-            "box x cylinder",
-            Oracle,
-        ),
-        (
-            6083,
-            "prbt_base_link",
-            "prbt_link_4",
-            0.017_935_858_303_653_622,
-            0.017_893_930_326_642_243,
-            [
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 6083,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.017_935_858_303_653_622,
+            port: 0.017_893_930_326_642_243,
+            joints: [
                 2.250_826_242_100_233,
                 -2.322_526_618_663_194,
                 1.658_086_572_192_516,
@@ -3040,16 +3051,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 1.590_488_045_436_591,
                 -0.994_408_066_262_584_3,
             ],
-            "box x cylinder",
-            Oracle,
-        ),
-        (
-            1339,
-            "prbt_base_link",
-            "prbt_link_3",
-            0.027_654_653_306_817_84,
-            0.027_630_507_734_631_677,
-            [
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 1339,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_3",
+            oracle: 0.027_654_653_306_817_84,
+            port: 0.027_630_507_734_631_677,
+            joints: [
                 2.025_941_445_825_091,
                 -2.228_009_275_569_324_4,
                 1.786_804_303_907_509_4,
@@ -3057,16 +3068,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 -2.386_470_412_323_503,
                 0.252_311_130_742_784_8,
             ],
-            "cylinder x cylinder",
-            Oracle,
-        ),
-        (
-            1198,
-            "prbt_base_link",
-            "prbt_link_3",
-            0.057_744_433_820_988_14,
-            0.057_726_503_283_601_96,
-            [
+            cell: "cylinder x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 1198,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_3",
+            oracle: 0.057_744_433_820_988_14,
+            port: 0.057_726_503_283_601_96,
+            joints: [
                 1.559_323_360_088_970_2,
                 -2.219_118_531_242_744_4,
                 1.544_796_492_067_538,
@@ -3074,16 +3085,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 0.351_357_564_296_023_8,
                 0.450_216_211_135_843_65,
             ],
-            "cylinder x cylinder",
-            Oracle,
-        ),
-        (
-            7824,
-            "prbt_base_link",
-            "prbt_link_4",
-            0.031_426_263_004_283_76,
-            0.031_410_024_507_491_016,
-            [
+            cell: "cylinder x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 7824,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.031_426_263_004_283_76,
+            port: 0.031_410_024_507_491_016,
+            joints: [
                 2.020_553_328_841_840_5,
                 2.122_681_268_064_673_6,
                 -1.926_729_269_134_998_2,
@@ -3091,16 +3102,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 2.000_023_394_251_568,
                 0.528_365_709_883_226,
             ],
-            "box x cylinder",
-            Oracle,
-        ),
-        (
-            327,
-            "prbt_base_link",
-            "prbt_link_4",
-            0.006_123_920_034_705_172_5,
-            0.006_108_567_198_513_176,
-            [
+            cell: "box x cylinder",
+            side: Oracle,
+        },
+        Row {
+            case: 327,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.006_123_920_034_705_172_5,
+            port: 0.006_108_567_198_513_176,
+            joints: [
                 -2.408_657_643_882_679,
                 -2.290_219_786_449_587_2,
                 1.744_491_585_694_625_7,
@@ -3108,17 +3119,17 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 -1.561_452_682_248_540_2,
                 -1.713_741_576_287_923_6,
             ],
-            "box x cylinder",
-            Oracle,
-        ),
+            cell: "box x cylinder",
+            side: Oracle,
+        },
         // --- every port-side case in the family; 5649 is also 8th by |d| ---
-        (
-            5649,
-            "prbt_base_link",
-            "prbt_link_4",
-            0.029_661_234_823_746_39,
-            0.029_675_030_345_831_764,
-            [
+        Row {
+            case: 5649,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.029_661_234_823_746_39,
+            port: 0.029_675_030_345_831_764,
+            joints: [
                 -0.691_202_661_610_459_8,
                 2.227_705_529_090_673_8,
                 -1.715_794_009_803_794_3,
@@ -3126,16 +3137,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 1.069_593_839_742_467,
                 -1.496_425_563_645_093,
             ],
-            "box x cylinder",
-            Port,
-        ),
-        (
-            7146,
-            "prbt_base_link",
-            "prbt_link_4",
-            0.066_862_766_710_035_48,
-            0.066_865_061_208_439_53,
-            [
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 7146,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.066_862_766_710_035_48,
+            port: 0.066_865_061_208_439_53,
+            joints: [
                 1.620_229_256_503_349_4,
                 1.825_248_539_225_668_8,
                 -1.757_139_708_743_803_2,
@@ -3143,16 +3154,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 -1.664_042_447_073_608_6,
                 1.197_706_954_699_382_4,
             ],
-            "box x cylinder",
-            Port,
-        ),
-        (
-            5665,
-            "prbt_base_link",
-            "prbt_link_4",
-            0.036_106_753_270_615_306,
-            0.036_113_410_344_527_835,
-            [
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 5665,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.036_106_753_270_615_306,
+            port: 0.036_113_410_344_527_835,
+            joints: [
                 0.256_691_958_972_858_46,
                 -2.231_338_063_477_646,
                 1.583_508_287_158_794_7,
@@ -3160,16 +3171,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 -1.744_635_748_206_703,
                 0.534_896_605_891_529_7,
             ],
-            "box x cylinder",
-            Port,
-        ),
-        (
-            4397,
-            "prbt_base_link",
-            "prbt_link_4",
-            0.032_042_312_033_412_62,
-            0.032_043_493_016_835_05,
-            [
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 4397,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.032_042_312_033_412_62,
+            port: 0.032_043_493_016_835_05,
+            joints: [
                 1.286_908_191_446_810_8,
                 -2.233_159_342_674_226_4,
                 1.692_021_854_342_333_8,
@@ -3177,16 +3188,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 -1.724_614_119_422_603_5,
                 2.949_868_448_356_921_3,
             ],
-            "box x cylinder",
-            Port,
-        ),
-        (
-            5075,
-            "prbt_base_link",
-            "prbt_link_4",
-            0.043_321_675_148_122_64,
-            0.043_328_909_571_109_145,
-            [
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 5075,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.043_321_675_148_122_64,
+            port: 0.043_328_909_571_109_145,
+            joints: [
                 0.928_507_368_564_801_1,
                 2.089_610_862_541_566_6,
                 -1.427_336_995_697_300_8,
@@ -3194,16 +3205,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 1.459_447_137_713_022_3,
                 -2.771_633_367_949_762,
             ],
-            "box x cylinder",
-            Port,
-        ),
-        (
-            4871,
-            "prbt_base_link",
-            "prbt_link_4",
-            0.018_617_510_485_645_288,
-            0.018_624_360_733_051_952,
-            [
+            cell: "box x cylinder",
+            side: Port,
+        },
+        Row {
+            case: 4871,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_4",
+            oracle: 0.018_617_510_485_645_288,
+            port: 0.018_624_360_733_051_952,
+            joints: [
                 -1.413_117_475_625_239_4,
                 2.065_879_318_967_624_6,
                 -1.469_348_923_351_988,
@@ -3211,17 +3222,17 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 2.674_944_262_325_763_8,
                 1.565_216_264_974_437_9,
             ],
-            "box x cylinder",
-            Port,
-        ),
+            cell: "box x cylinder",
+            side: Port,
+        },
         // --- the worst case of each cell that contributes no family member ---
-        (
-            7079,
-            "prbt_link_2",
-            "prbt_link_4",
-            0.107_133_171_705_236_04,
-            0.107_133_171_705_235_59,
-            [
+        Row {
+            case: 7079,
+            link_a: "prbt_link_2",
+            link_b: "prbt_link_4",
+            oracle: 0.107_133_171_705_236_04,
+            port: 0.107_133_171_705_235_59,
+            joints: [
                 -0.513_620_517_740_165_8,
                 0.806_634_823_239_837,
                 -0.904_574_936_407_897_7,
@@ -3229,16 +3240,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 -0.166_489_225_821_420_56,
                 2.893_071_462_002_853_3,
             ],
-            "box x box",
-            Control,
-        ),
-        (
-            1426,
-            "prbt_link_1",
-            "prbt_link_4",
-            0.018_469_723_001_560_55,
-            0.018_469_723_001_560_19,
-            [
+            cell: "box x box",
+            side: Control,
+        },
+        Row {
+            case: 1426,
+            link_a: "prbt_link_1",
+            link_b: "prbt_link_4",
+            oracle: 0.018_469_723_001_560_55,
+            port: 0.018_469_723_001_560_19,
+            joints: [
                 1.909_071_336_998_865_2,
                 -1.099_279_022_099_138_2,
                 -2.323_425_632_738_694_6,
@@ -3246,16 +3257,16 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 -1.929_633_104_689_456_6,
                 -1.030_606_487_141_931_4,
             ],
-            "box x sphere",
-            Control,
-        ),
-        (
-            8148,
-            "prbt_base_link",
-            "prbt_link_5",
-            0.024_945_378_424_847_01,
-            0.024_945_378_424_846_468,
-            [
+            cell: "box x sphere",
+            side: Control,
+        },
+        Row {
+            case: 8148,
+            link_a: "prbt_base_link",
+            link_b: "prbt_link_5",
+            oracle: 0.024_945_378_424_847_01,
+            port: 0.024_945_378_424_846_468,
+            joints: [
                 -0.681_765_976_663_856,
                 -1.964_314_374_767_602_6,
                 1.950_255_394_847_318_2,
@@ -3263,9 +3274,9 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
                 -0.471_237_441_636_538_36,
                 -1.186_060_955_153_117,
             ],
-            "cylinder x sphere",
-            Control,
-        ),
+            cell: "cylinder x sphere",
+            side: Control,
+        },
     ];
 
     /// A side verdict needs one offset to dominate the other this far. The
@@ -3288,7 +3299,10 @@ fn prbt_separated_tail_splits_on_the_curved_generic_gjk_cell() {
     let mut seen_cells: BTreeSet<&str> = BTreeSet::new();
     let mut sides: BTreeMap<&str, usize> = BTreeMap::new();
 
-    for (case, link_a, link_b, oracle, port, joints, want_cell, want_side) in CASES {
+    for row in CASES {
+        let (case, link_a, link_b) = (&row.case, row.link_a, row.link_b);
+        let (oracle, port, joints) = (&row.oracle, &row.port, &row.joints);
+        let (want_cell, want_side) = (&row.cell, &row.side);
         let values: BTreeMap<String, f64> = (1..=6)
             .map(|i| (format!("prbt_joint_{i}"), joints[i - 1]))
             .collect();
