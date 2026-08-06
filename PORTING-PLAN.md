@@ -815,7 +815,7 @@ Phase 완료 조건 판정이 사는 유일한 곳. 위 각 Phase의 "상태" �
 | Phase 7 | 산출 경로 100%가 충돌 검사와 제약을 통과 | MET | §219 | 2026-08-06 |
 | Phase 7 | 경로 길이 중앙값이 C++ OMPL 대비 1.3배 이내 | MET | §219 | 2026-08-06 |
 | Phase 8 | pilz LIN/PTP/CIRC 궤적이 오라클과 `1e-6` 이내 일치 | MET | §217.3 | 2026-08-05 |
-| Phase 8 | CHOMP/STOMP가 Phase 7과 같은 속성 기반 검증을 통과 | UNMEASURED | §217.3 | 2026-08-05 |
+| Phase 8 | CHOMP/STOMP가 Phase 7과 같은 속성 기반 검증을 통과 | UNMET | §263 | 2026-08-06 |
 | Phase 9 | 기존 C++ `MoveGroupInterface` 클라이언트가 무변경으로 유효 궤적 수신 | UNMET | §250.5 | 2026-08-06 |
 
 ---
@@ -16834,6 +16834,12 @@ CHOMP/STOMP의 속성 기반 검증은 **미측정**이다. 두 크레이트에�
 {examples,benches}`, `crates/moveit-planners-stomp/{examples,benches}` 넷 다
 존재하지 않는다).
 
+**후속 (§263에서 닫힘).** 하네스 두 개를 만들어 세 조건을 다 쟀다: CHOMP
+380/500·379/380·2.163978163668814, STOMP 441/500·438/441·2.210362452483207
+(둘 다 조건 1·2 UNMET, 조건 3 MET). 즉 이 항목은 더 이상 미측정이 아니라
+**UNMET**이다. 상류 기본값의 벽시계 정지 조건이 성공률을 좌우하고 있었다는
+것이 그 과정의 소견이다 — §263.3.
+
 **Phase 9 — UNMET.** 조건: "기존 C++ `MoveGroupInterface` 클라이언트가 코드
 변경 없이 `moveit-ros` 노드에 플래닝 요청을 보내 유효한 궤적을 받는다."
 
@@ -24698,30 +24704,30 @@ MoveGroupInterface`(`move_group_interface.hpp:82`)인데 그 정규식이 `class
 − 3(헤더 안 인라인 정의 `:771`·`:794`·`:928`) + 1(`protected`
 `getTargetRobotState`, `:974`) = 122.
 
-### §259.3 클라이언트가 묶는 것은 아홉이다 — §252.3의 여덟에 `/joint_states`가 없었다
+### §259.3 클라이언트가 묶는 것은 아홉이다 — §252.3의 여덟에 `joint_states`가 없었다
 
 §252.3은 이 클라이언트가 묶는 엔드포인트를 여덟으로 셌고, 스스로 "생성자가
 묶는 것만 센 하한"이라고 적었다. 하한인 이유가 정확히 하나 더 있다:
 `create_*` 호출에 앵커한 계기는 **자기가 만들지 않는 구독**을 볼 수 없다.
 
 `current_state_monitor_`는 `getSharedStateMonitor`(`common_objects.cpp:132-148`)가
-돌려주는 객체이고, `/joint_states` 구독은 그 객체 안에서
+돌려주는 객체이고, `joint_states` 구독은 그 객체 안에서
 `CurrentStateMonitor::startStateMonitor`(`current_state_monitor.cpp:160`,
-기본 토픽 `planning_scene_monitor.hpp:105`)가 만든다. 번역 단위
+기본 토픽 `planning_scene_monitor.cpp:70`)가 만든다. 번역 단위
 `move_group_interface.cpp`에는 `create_subscription`이 한 건도 없다.
 그래서 여덟이 나왔고, 아홉이 맞다.
 
 | 핸들 | 엔드포인트 | 종류 | 이름의 출처 | 클라이언트에서 만드는 자리 |
 |---|---|---|---|---|
-| `move_action_client_` | `/move_action` | action | `move_group/capability_names.hpp:52` | `move_group_interface.cpp:188` |
-| `execute_action_client_` | `/execute_trajectory` | action | `move_group/capability_names.hpp:45` | `move_group_interface.cpp:191` |
-| `query_service_` | `/query_planner_interface` | service | `move_group/capability_names.hpp:46-47` | `move_group_interface.cpp:195` |
-| `get_params_service_` | `/get_planner_params` | service | `move_group/capability_names.hpp:48-49` | `move_group_interface.cpp:198` |
-| `set_params_service_` | `/set_planner_params` | service | `move_group/capability_names.hpp:50-51` | `move_group_interface.cpp:201` |
-| `cartesian_path_service_` | `/compute_cartesian_path` | service | `move_group/capability_names.hpp:59-60` | `move_group_interface.cpp:204` |
-| `trajectory_event_publisher_` | `/trajectory_execution_event` | topic-pub | `trajectory_execution_manager.cpp:50` | `move_group_interface.cpp:177` |
-| `attached_object_publisher_` | `/attached_collision_object` | topic-pub | `planning_scene_monitor.hpp:108` | `move_group_interface.cpp:181` |
-| `current_state_monitor_` | `/joint_states` | topic-sub | `planning_scene_monitor.hpp:105` | `move_group_interface.cpp:186` |
+| `move_action_client_` | `move_action` | action | `move_group/capability_names.hpp:52` | `move_group_interface.cpp:188` |
+| `execute_action_client_` | `execute_trajectory` | action | `move_group/capability_names.hpp:45` | `move_group_interface.cpp:191` |
+| `query_service_` | `query_planner_interface` | service | `move_group/capability_names.hpp:46-47` | `move_group_interface.cpp:195` |
+| `get_params_service_` | `get_planner_params` | service | `move_group/capability_names.hpp:48-49` | `move_group_interface.cpp:198` |
+| `set_params_service_` | `set_planner_params` | service | `move_group/capability_names.hpp:50-51` | `move_group_interface.cpp:201` |
+| `cartesian_path_service_` | `compute_cartesian_path` | service | `move_group/capability_names.hpp:59-60` | `move_group_interface.cpp:204` |
+| `trajectory_event_publisher_` | `trajectory_execution_event` | topic-pub | `trajectory_execution_manager.cpp:50` | `move_group_interface.cpp:177` |
+| `attached_object_publisher_` | `attached_collision_object` | topic-pub | `planning_scene_monitor.cpp:71` | `move_group_interface.cpp:181` |
+| `current_state_monitor_` | `joint_states` | topic-sub | `planning_scene_monitor.cpp:70` | `move_group_interface.cpp:186` |
 | `constraints_storage_` | warehouse (MongoDB) | non-ROS | — | `move_group_interface.cpp:1201` |
 
 열째는 ROS 엔드포인트가 아니다(warehouse_ros/MongoDB). 그리고 열한 번째가
@@ -24738,12 +24744,12 @@ MoveGroupInterface`(`move_group_interface.hpp:82`)인데 그 정규식이 `class
 `UNDECLARED HANDLE`로 실패한다. 상류가 엔드포인트를 하나 더 열면 그것이
 요구 집합에 하나 더 들어온다는 뜻인데, 지금까지 그것을 세는 것이 없었다.
 
-### §259.4 `/plan_kinematic_path`는 이 클래스의 어느 선언도 부르지 않는다
+### §259.4 `plan_kinematic_path`는 이 클래스의 어느 선언도 부르지 않는다
 
-과제의 분류 항목이 `/plan_kinematic_path`를 이름 부르므로 명시적으로
+과제의 분류 항목이 `plan_kinematic_path`를 이름 부르므로 명시적으로
 적는다. `PLANNER_SERVICE_NAME`(`move_group/capability_names.hpp:43-44`)은
 `moveit_ros/planning_interface/` 전체에서 한 번도 나오지 않는다(`rg` 0건).
-`plan()`이 하는 일은 `/move_action` 골에
+`plan()`이 하는 일은 `move_action` 골에
 `planning_options.plan_only = true`를 세우는 것이다
 (`move_group_interface.cpp:668`, `plan`의 본문은 `:657-732`).
 
@@ -24773,15 +24779,15 @@ MoveGroupInterface`(`move_group_interface.hpp:82`)인데 그 정규식이 `class
 
 | 엔드포인트 | 이 엔드포인트로 가는 공개 선언 (`hpp:`) |
 |---|---|
-| `/move_action` | `707` asyncMove, `713` getMoveGroupClient, `719` move, `724` plan, 그리고 생성자 둘 `136`·`147`(액션 서버 대기) |
-| `/execute_trajectory` | `732`·`741` asyncExecute, `750`·`759` execute, 그리고 생성자 둘 `136`·`147` |
-| `/compute_cartesian_path` | `771`·`778`·`794`·`802` computeCartesianPath (`771`·`794`는 `jump_threshold`를 버리는 폐기 셔틀) |
-| `/query_planner_interface` | `205` getInterfaceDescriptions, `208` getInterfaceDescription |
-| `/get_planner_params` | `211` getPlannerParams |
-| `/set_planner_params` | `215` setPlannerParams |
-| `/trajectory_execution_event` | `808` stop |
-| `/attached_collision_object` | `851`·`861` attachObject, `868` detachObject |
-| `/joint_states` | `437`·`450`·`463` setJointValueTarget(pose), `475`·`488`·`501` setApproximateJointValueTarget, `882` startStateMonitor, `885` getCurrentJointValues, `888` getCurrentState, `893` getCurrentPose, `898` getCurrentRPY, `906` getRandomPose, `919` rememberJointValues(name) |
+| `move_action` | `707` asyncMove, `713` getMoveGroupClient, `719` move, `724` plan, 그리고 생성자 둘 `136`·`147`(액션 서버 대기) |
+| `execute_trajectory` | `732`·`741` asyncExecute, `750`·`759` execute, 그리고 생성자 둘 `136`·`147` |
+| `compute_cartesian_path` | `771`·`778`·`794`·`802` computeCartesianPath (`771`·`794`는 `jump_threshold`를 버리는 폐기 셔틀) |
+| `query_planner_interface` | `205` getInterfaceDescriptions, `208` getInterfaceDescription |
+| `get_planner_params` | `211` getPlannerParams |
+| `set_planner_params` | `215` setPlannerParams |
+| `trajectory_execution_event` | `808` stop |
+| `attached_collision_object` | `851`·`861` attachObject, `868` detachObject |
+| `joint_states` | `437`·`450`·`463` setJointValueTarget(pose), `475`·`488`·`501` setApproximateJointValueTarget, `882` startStateMonitor, `885` getCurrentJointValues, `888` getCurrentState, `893` getCurrentPose, `898` getCurrentRPY, `906` getRandomPose, `919` rememberJointValues(name) |
 | `robot_description` | 생성자 둘 `136`·`147` |
 | warehouse | `944` setConstraintsDatabase, `947` getKnownConstraints, `957` setPathConstraints(string) |
 
@@ -24790,55 +24796,98 @@ MoveGroupInterface`(`move_group_interface.hpp:82`)인데 그 정규식이 `class
 
 세 가지를 따로 적어 둔다. `getMoveGroupClient`(`hpp:713`)는 스스로 호출을
 하지 않고 액션 클라이언트를 밖으로 내준다 — 호출은 호출자가 한다.
-`setJointValueTarget`은 열 개 오버로드 중 pose 셋만 `/joint_states`를
+`setJointValueTarget`은 열 개 오버로드 중 pose 셋만 `joint_states`를
 읽고, 나머지 일곱은 목표 상태 객체만 만진다. `setPathConstraints`도
 `std::string` 오버로드만 warehouse를 읽고 `Constraints` 오버로드는 받은
 메시지를 저장한다. 오버로드를 이름으로 뭉개면 이 셋이 전부 틀린다.
 
-### §259.6 판정 — 아홉 중 (b) 하나, (c) 일곱, 요구 밖 하나
+### §259.6 판정 — 아홉 중 묶인 것 하나, 안 묶인 것 여덟
 
-이 절의 측정 시점 트리(`a35bc2e`)가 여는 엔드포인트는 둘뿐이었고 한
-바이너리에 있었다. 그 뒤 §255가 바이너리를 `move_group.rs`로 개명하고
-§257이 세 번째·네 번째 엔드포인트를 열었으므로, 아래 표의 근거 열은 이
-문단과 함께 현재 트리 기준으로 재유도한 것이다:
-`ros/moveit-ros/src/bin/move_group.rs:553`의
-`create_service::<GetMotionPlan::Service>("plan_kinematic_path")`,
-`:569`의 `create_action_server::<MoveGroup::Action>("move_action")`,
-`:604`의 `create_service::<GetStateValidity::Service>("check_state_validity")`,
-그리고 `:592`의 `subscribe::<PlanningScene>` (§257). `create_publisher`는
-여전히 0건이다. **(b)/(c) 판정 자체는 재측정하지 않았다 — §259.7 참조.**
+이 판정의 엔드포인트별 근거는 더 이상 이 표에 손으로 적혀 있지 않다.
+`tools/ci/measure-client-endpoint-surface.py`가 추적되는 `.rs` 전부에서
+r2r 팩토리 호출을 읽어 "이 워크스페이스가 그 이름을 클라이언트가 필요로
+하는 방향으로 여는가"를 유도하고, 결과를
+`doc/client-endpoint-surface.md`의 "What the port binds" 표에 파일:줄과
+함께 싣는다. `verify-client-endpoint-surface.sh`가 그 표를 매 실행 재유도
+한다.
 
-| 엔드포인트 | MGI 선언 | 판정 | 근거 | 주인 |
-|---|---|---|---|---|
-| `/move_action` | 4 + 생성자 2 | **(b)** 서버는 있고 부를 플래너가 없다 | 서버 `ros/moveit-ros/src/bin/move_group.rs:569`; 골 핸들러가 `:267`에서 요청을 변환하고, 실패하면 `:272`의 `INVALID_GOAL_CONSTRAINTS`; 변환이 통과하면 `:277`의 `FAILURE`+`NO_PLANNER`. **거부①(`start_state`)은 §256이 닫았다** — `planning.rs:30-31`이 이제 "mapped, not rejected"라고 적고 있고, 무변경 C++ `MoveGroupInterface::plan()`의 답이 `val=-16`에서 `val=99999`로 옮겨진 것이 그 측정이다 | 거부① §256 완료, 거부② D8(§140.3) → p10-cachedik |
-| `/execute_trajectory` | 4 + 생성자 2 | **(c)** 서버 없음 | `create_action_server`는 트리 전체에서 `move_group.rs:569` 한 건 | — |
-| `/compute_cartesian_path` | 4 | **(c)** 서버 없음 | `create_service`는 `move_group.rs:553`(`plan_kinematic_path`)과 `:604`(`check_state_validity`) 둘뿐이고, 어느 쪽도 이 이름이 아니다 | — |
-| `/query_planner_interface` | 2 | **(c)** 서버 없음 | 같음 | — |
-| `/get_planner_params` | 1 | **(c)** 서버 없음 | 같음 | — |
-| `/set_planner_params` | 1 | **(c)** 서버 없음 | 같음 | — |
-| `/trajectory_execution_event` | 1 | **(c)** 구독자 없음 | `create_subscription` 0건. 퍼블리시는 구독자가 없어도 실패하지 않으므로 `stop()`은 조용히 아무 일도 하지 않는다 | — |
-| `/attached_collision_object` | 3 | **(c)** 구독자 없음 | `create_subscription` 0건. 메시지 변환 자체는 있다 — `ros/moveit-ros/src/scene/attached.rs` | — |
-| `/joint_states` | 13 | **(c)** 퍼블리셔 없음 | 트리에 `CurrentStateMonitor` 등가가 없다(`rg -i currentstatemonitor` 0건). 상류에서도 이 토픽을 내는 것은 `move_group`이 아니라 로봇 드라이버이므로, 이것은 "포트가 안 지은 서버"가 아니라 종단 시험이 세워야 하는 그래프 조건이다 | — |
-| `robot_description` | 생성자 2 | **(a)** 답한다 | 클라이언트 자기 노드 파라미터로 만족된다 — `ros/move_group_interface_probe/src/move_group_interface_probe.cpp`가 그렇게 얹는다 | — |
-| warehouse (MongoDB) | 3 | 요구 밖 | `constraints_storage_`는 `setConstraintsDatabase`를 클라이언트가 명시적으로 부를 때만 열린다(`move_group_interface.cpp:1201`). 부르지 않으면 세 메서드는 `false`/빈 목록을 답하고 와이어를 타지 않는다 | — |
+손으로 적었기 때문에 썩었다. 이 절이 처음 실렸을 때 근거 열은
+`plan_kinematic_path_server.rs`를 가리켰고, 같은 라운드의 §255가 그 파일을
+`move_group.rs`로 개명한 뒤였으므로 네 건이 도착하는 순간 틀렸다. 어느
+게이트도 보지 못했다 — `verify-upstream-citations.sh`는 상류 경로만 풀고,
+`check-citation-drift.py`의 앵커 없는 버킷은 사라진 파일을 가리키는 인용도
+줄 번호가 다른 파일 안에 들어가면 통과시킨다. 유도된 열은 개명을 따라
+움직이고, 사라진 엔드포인트는 판정이 뒤집힌다.
 
-세로로 읽으면 Phase 9에 남은 작업 목록이다. (b) 하나 안에 거부 둘, (c)
-일곱 — 그중 여섯이 안 지은 서버이고 하나(`/joint_states`)가 그래프 조건.
+유도가 답하지 않는 것은 하나다. `bound`는 소켓이 열려 있다는 정적 사실일
+뿐이고, 뒤의 핸들러가 답하는지 거부하는지는 (a)와 (b)의 갈림인데 스캔이
+닿지 않는다. 그 갈림과, 부재가 무엇을 뜻하는지의 판단만 아래에 남긴다.
 
-이 판정에 다른 패널이 잡고 있는 항목을 겹쳐 두면 이렇게 갈린다.
-`MotionPlanRequest.start_state` 거부는 p11-startstate가,
-`PLANNING_FAILED` vs `FAILURE` 불일치는 p11-planningfailed가,
-D8 타입 통합은 p10-cachedik가 잡고 있다. planning scene 토픽 구독은
-p11-scenetopic이 잡고 있지만 **이 클래스의 묶음 집합에는 없다** —
-`move_group_interface.cpp`에 `create_subscription`이 없기 때문이고, 그
-항목의 요구는 `PlanningSceneMonitor` 쪽에서 온다. Phase 3 두 행은
-p3-acm/p10-phase13이다.
+아홉 중 하나가 묶여 있다.
+
+| 엔드포인트 | MGI 선언 | 판정 | 스캔이 답하지 않는 부분 |
+|---|---|---|---|
+| `move_action` | 4 + 생성자 2 | **(b)** 서버는 묶였고 부를 플래너가 없다 | 골 핸들러 `handle_move_group_goal`이 요청을 변환하고, 실패하면 `INVALID_GOAL_CONSTRAINTS`를, 통과하면 `move_group_failure(MoveItErrorCodes::FAILURE as i32, NO_PLANNER)`를 답한다. 거부①(`start_state`)은 §256이 닫았고 — `planning.rs`가 이제 "mapped, not rejected"라고 적는다 — 남은 것은 플래너 부재 하나다. D8(§140.3) → p10-cachedik |
+
+여덟이 안 묶여 있고, 부재의 뜻이 셋으로 갈린다.
+
+| 부재의 종류 | 엔드포인트 | 이것이 뜻하는 것 |
+|---|---|---|
+| 안 지은 서버 (5) | `execute_trajectory`, `compute_cartesian_path`, `query_planner_interface`, `get_planner_params`, `set_planner_params` | 포트가 지어야 할 액션 하나와 서비스 넷. Phase 9에 남은 실제 작업이다 |
+| 안 지은 구독자 (2) | `trajectory_execution_event`, `attached_collision_object` | 퍼블리시는 구독자가 없어도 실패하지 않으므로 `stop()`은 조용히 아무 일도 하지 않는다. `attached_collision_object`는 메시지 변환만 `ros/moveit-ros/src/scene/attached.rs`에 있다 |
+| 그래프 조건 (1) | `joint_states` | 상류에서도 이 토픽을 내는 것은 `move_group`이 아니라 로봇 드라이버다. 포트가 안 지은 서버가 아니라 종단 시험이 세워야 하는 조건이고, 트리에 `CurrentStateMonitor` 등가는 없다 |
+
+5 + 2 + 1 = 8, 여기에 묶인 하나를 더해 아홉이다. 이 절이 처음 실렸을 때
+머리글은 (c)를 일곱이라 했고 맺음말은 여섯이라 했으며 표에는 여덟 행이
+있었다 — 세 숫자가 서로 달랐고, 어느 것도 표를 세어 나온 것이 아니었다.
+
+요구 집합 밖에 둘이 더 있다.
+
+| 엔드포인트 | MGI 선언 | 판정 |
+|---|---|---|
+| `robot_description` | 생성자 2 | 포트의 `move_group` 노드는 이것을 내지 않는다 — URDF/SRDF를 인자로 받은 파일에서 읽는다. 클라이언트 쪽에서 만족된다: 프로브가 `rclcpp::Parameter("robot_description", slurp(argv[1]))`로 자기 노드에 얹는다 |
+| warehouse (MongoDB) | 3 | `constraints_storage_`는 `setConstraintsDatabase`를 클라이언트가 명시적으로 부를 때만 열린다. 부르지 않으면 세 메서드는 `false`/빈 목록을 답하고 와이어를 타지 않는다 |
+
+반대 방향으로, 포트가 여는데 이 클래스가 아무 선언에서도 부르지 않는
+엔드포인트가 셋이다 — `plan_kinematic_path`(§259.4), `check_state_validity`,
+`planning_scene`. 유도된 표는 이것들을 `surplus`로 싣는다. planning scene
+토픽은 p11-scenetopic이 잡고 있지만 그 요구는 `PlanningSceneMonitor`에서
+오는 것이지 이 클래스에서 오지 않는다 — `move_group_interface.cpp`에
+구독이 하나도 없기 때문이다.
+
+이름은 전부 상대다. 클라이언트는 각각을
+`rclcpp::names::append(opt_.move_group_namespace, ...)`로 푸므로 앞의
+슬래시는 다른 엔드포인트를 가리킨다. 이 절이 처음 실렸을 때 열 개를 모두
+절대 이름으로 적었던 것은 `planning_scene_monitor.hpp`의 주석에서 베꼈기
+때문이고, 그 주석 자체가 정의와 어긋난다 —
+`doc/upstream-bugs.md`의 `psm-topic-header-comments-claim-absolute-names`.
+
+이 판정에 다른 패널이 잡고 있는 항목을 겹쳐 두면, `PLANNING_FAILED` vs
+`FAILURE` 불일치는 p11-planningfailed가, D8 타입 통합은 p10-cachedik가,
+Phase 3 두 행은 p3-acm/p10-phase13이 잡고 있다.
 
 ### §259.7 이 절이 하지 않은 것
 
-위 표의 (b)/(c) 어느 것도 이 라운드가 메우지 않았다. 하나를 골라 고치면
-계기가 절반만 지어진 채 넘어가고, 다음 라운드는 다시 "다음 거부"를 찾는
-라운드가 된다.
+위 표의 (b)/(c) 어느 것도 메우지 않았다. 하나를 골라 고치면 계기가 절반만
+지어진 채 넘어가고, 다음 라운드는 다시 "다음 거부"를 찾는 라운드가 된다.
+
+포트 쪽 열은 이제 유도되지만, 그 유도가 답하는 것은 "소켓이 열려 있는가"
+까지다. `move_action`이 `bound`이면서 동시에 (b)인 것이 그 한계의 모습이다
+— 핸들러가 무엇을 답하는지는 스캔이 아니라 읽기로만 나오고, 나머지 여덟에
+대해서는 애초에 물을 핸들러가 없다.
+
+이 유도가 조용히 틀리는 대신 시끄럽게 멈추는지도 확인했다. 추적 목록을
+빈 것으로 만들면 "every endpoint absent를 결과처럼 보이게 두지 않는다"는
+말과 함께 멈추고, 팩토리 정규식이 아무것도 못 잡게 하면 286개 파일에서
+0건이라며 멈춘다. 방향을 뒤집어 `create_action_server`를 서비스로 읽게
+하면 `move_action` 행이 `bound`에서 `role-mismatch`로 뒤집혀 표와
+어긋난다. 주석 제거를 끄면, 산문 안의
+`node.create_action_server::<X>("execute_trajectory")` 한 줄이
+`execute_trajectory`를 `bound`로 만든다 — 지금 트리에 그런 줄은 없지만
+`create_service`를 이름으로 부르는 주석은 두 곳에 이미 있다. 여러 줄
+블록 주석 가지는 오늘 트리의 어느 `.rs`도 지나가지 않아서(진입 0회) 넣어
+보고 확인했고, 그 안에서 줄바꿈을 하나 삼키게 하면 줄 번호 보존 단언이
+먼저 잡는다.
 
 측정의 한계도 적는다. 이 분류는 C++ 오버로드 해석을 하지 않는다 —
 후보들의 답이 갈리는 간선 여섯을 손으로 고정했고, 그 여섯 밖에서 새로
@@ -25423,6 +25472,198 @@ CHOMP/STOMP 행에서 이미 쓰이고 있다), `PARTIAL`만 아직 한 번도 �
   유지한 채 근거 열만 옮긴다.
 
 ---
+
+## §263 Phase 8의 CHOMP/STOMP 항목을 측정했다 — 벽시계가 성공률을 정하고 있었다
+
+§217.3이 "미측정"으로 남긴 하나가 이 항목이다. 먼저 조건을 그대로 옮긴다.
+`PORTING-PLAN.md` §5, 710-719행:
+
+```
+### Phase 8 — 추가 플래너 (14주, ~22,000 LOC)
+
+`moveit-planners-chomp`(3,771), `moveit-planners-stomp`(2,329),
+`moveit-planners-pilz`(23,956 — LIN/PTP/CIRC + sequence blending)
+
+pilz는 해석적이라 결과가 결정론적이다 — **차등 테스트에서 궤적을 직접
+비교할 수 있는 유일한 플래너.**
+
+**완료 조건:** pilz LIN/PTP/CIRC 궤적이 오라클과 `1e-6` 이내 일치.
+CHOMP/STOMP는 Phase 7과 같은 속성 기반 검증.
+```
+
+CHOMP/STOMP 절이 가리키는 Phase 7의 조건은 같은 파일 705-708행이다:
+
+```
+**완료 조건 (경로 자체는 비교 불가 — 속성으로 검증):**
+- 벤치마크 문제 500건에서 성공률이 C++ OMPL RRTConnect의 90% 이상
+- 산출 경로 100%가 `moveit-scene`의 충돌 검사와 제약을 통과
+- 경로 길이 중앙값이 C++ OMPL 대비 1.3배 이내
+```
+
+§217.3이 남긴 전제 — "두 크레이트에 `examples/`·`benches/` 넷 다 없다" — 는
+이번 라운드 시작 시점(main `98541e8`)에 그대로 맞았다. `git ls-tree -r
+--name-only HEAD -- <dir>`가 네 디렉터리 모두 0건이다. 계기가 없으니 조건도
+측정된 적이 없다.
+
+### §263.1 어떤 기준선인가 — 이 읽기는 고른 것이 아니라 강제된 것이다
+
+"Phase 7과 같은"을 "Phase 7이 쓴 **C++ OMPL RRTConnect** 기준선에 대해 같은
+세 조건"으로 읽었다. "각 플래너를 자기 상류 C++ 구현과 비교"로 읽을 수는
+없다: 오라클에 CHOMP 플래닝 op이 없고, `moveit_planners/stomp`는 오라클 op이
+아예 없다. 후자의 읽기는 STOMP에 대해 **구조적으로 측정 불가능**하다.
+
+대가는 숨기지 않고 적는다. 조건 1과 3은 최적화기(CHOMP/STOMP는 시드 궤적
+하나를 다듬는다)를 샘플링 플래너(RRTConnect는 트리를 키운다)와 비교한다.
+따라서 미충족이 곧 포팅 결함의 증거는 아니다. 측정되는 것은 정확히 §5가
+요구한 것 — 이 두 플래너가, 포팅된 그대로, §5가 지명한 기준선 기준으로 §5가
+세운 바를 넘는가 — 이다.
+
+### §263.2 계기 두 개
+
+`crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs`,
+`crates/moveit-planners-stomp/examples/stomp_benchmark_port.rs`. 둘 다 Phase
+7의 `plan_benchmark_problem_set`이 내는 **같은 요청 JSON**을 stdin으로 먹고
+문제별 판정을 NDJSON으로 낸다. 같은 입력이므로 §217이 기록한 500문제와 그
+C++ 기준선이 그대로 적용된다.
+
+- 조건 1의 성공은 플래너가 궤적을 돌려준 것이 아니라 **돌려준 궤적이
+  `moveit-scene`의 검사를 통과한 것**으로 센다. 조건 2가 조건 1의 부분집합이
+  아니라 독립 계기가 되도록 한 것이다.
+- 조건 2는 반환 waypoint 사이를 요청의 `motion_resolution`(0.01)으로 촘촘히
+  나눈 뒤 `PlanningScene::is_path_valid`로 검사한다. 반환 waypoint에서만 검사한
+  결과도 `condition2_valid_at_returned_waypoints`로 같이 낸다 — 실패가
+  플래너 수준의 것인지 densify 간격에서만 드러나는 것인지 귀속시키기 위해서다.
+- 조건 3의 길이는 `moveit-planners-sbp`의 `JointModelGroupSpace::distance`
+  로 잰다. C++ 쪽 `length`가 바로 그 거리 함수의 값이므로, 두 변이 같은
+  계기여야 한다(이것이 두 크레이트가 `moveit-planners-sbp`를
+  dev-dependency로 갖는 이유다). 이 거리는 L2가 아니라 부분공간별
+  `1/extent` 가중 L1 합이다.
+
+### §263.3 상류 기본값으로 재면 숫자가 이 기계를 재고 있다
+
+두 플래너의 상류 기본값에는 **벽시계** 정지 조건이 들어 있다 —
+`ChompParameters::planning_time_limit`(6.0s)와 STOMP의
+`allowed_planning_time` 감시자(5.0s, `MoveGroupInterface`의 기본값,
+`move_group_interface.cpp:165`). 그 값으로 재면:
+
+| 구성 | 성공 | 조건2 | 길이 중앙값 | 벽시계(fw+cage) |
+| --- | --- | --- | --- | --- |
+| CHOMP `planning_time_limit=6.0`, 1회차 | 359/500 | 358/359 | 2.1464396295469816 | 656.5s + 829.4s |
+| CHOMP `planning_time_limit=6.0`, 2회차 | 349/500 | 348/349 | 2.1438164476227604 | 705.0s + 911.4s |
+| STOMP `allowed_planning_time=5.0` | 254/500 | 254/254 | 2.074276162073648 | 1031.7s + 1182.3s |
+
+같은 시드, 같은 입력(`md5sum`으로 동일 확인), 같은 바이너리인데 CHOMP 두
+회차가 **12개 문제에서 갈린다**: `floor_wall` 24·76·125·156·187·225,
+`cage` 56·77·89·129·192·219. 1회차는 유휴 기계, 2회차는 STOMP 스윕과 동시
+실행이었다. STOMP 쪽은 더 노골적이다 — 246건의 실패가 **전부**
+`TIMED_OUT`이다. 즉 이 구성의 성공률 숫자는 플래너가 아니라 기계 부하를
+재고 있다.
+
+그래서 두 하네스 모두 시간 한계를 인자로 받게 만들고, 보고용 측정은
+`1e9`(절대 걸리지 않는 값)로 돌린다. 남는 것은 각자의 **반복 횟수** 한계이고
+그것이 곧 상류 기본값이며 결정론적이다 — `ChompParameters::max_iterations`
+= 50, STOMP `num_iterations` = 1000(`res/stomp_moveit.yaml`). 스윕의 모든
+루프는 시계가 아니라 반복 횟수로 막혀 있다.
+
+결정론은 주장이 아니라 확인했다. CHOMP 500문제를 25-way 샤딩으로 두 번
+돌린 결과가 **바이트 동일**(각각 170.31s, 143.11s, 기계 부하가 다른 상태),
+`floor_wall` 앞 20문제를 샤딩 없이 한 프로세스로 돌린 것이 25-way 결과에서
+같은 id를 뽑은 것과 바이트 동일, id 0·6·221을 한 문제씩 단독 실행한 것이
+스윕 기록과 동일. STOMP도 `floor_wall` id 0-4를 단독 실행한 것이 250문제
+스윕 기록과 마지막 자리까지 동일하다.
+
+### §263.4 세 조건, 측정값과 판정
+
+기준선은 이번 라운드에 세 번 다시 뽑았고(게이트가 매 실행마다 오라클을
+새로 돌린다) 세 번 다 같다: **498/500**, 길이 중앙값
+**2.6597767032746464**. 따라서 조건 1의 바는 `0.9 × 498/500` = **89.64%**
+(500문제 기준 449건), 조건 3의 바는 `1.3 × 2.6597767032746464` =
+**3.4577097142570405**.
+
+| | CHOMP | STOMP |
+| --- | --- | --- |
+| 성공 | 380/500 = 76.0% | 441/500 = 88.2% |
+| 조건 1 (≥ 89.64%) | **UNMET** | **UNMET** (449건에 8건 모자람) |
+| 조건 2 (100%) | 379/380 → **UNMET** | 438/441 → **UNMET** |
+| 길이 중앙값 | 2.163978163668814 | 2.210362452483207 |
+| 조건 3 (≤ 3.4577) | **MET** | **MET** |
+
+세 조건 모두 **미충족이지 측정 불가가 아니다** — 위 표의 숫자가 곧 명령
+하나로 재생된다(§263.5). 실패 사유도 열거해 둔다. CHOMP의 미해결 120건은
+전부 `INVALID_MOTION_PLAN`(궤적은 나왔으나 `moveit-scene` 검사를 통과하지
+못함), STOMP의 미해결 59건은 전부 `PLANNING_FAILED`(1000 반복을 다 쓰고도
+유효 궤적에 도달하지 못함)다.
+
+조건 2 실패 4건은 모두 같은 모양이다 — `condition2_valid_at_returned_waypoints`
+가 **네 건 다 true**다. 즉 반환된 waypoint 자체는 유효하고, 그 사이를
+`motion_resolution` 0.01로 촘촘히 나눴을 때만 충돌이 드러난다.
+
+| 플래너 | config | id | 촘촘화 후 무효 waypoint |
+| --- | --- | --- | --- |
+| CHOMP | cage | 221 | 2 |
+| STOMP | floor_wall | 77 | 3 |
+| STOMP | cage | 133 | 1 |
+| STOMP | cage | 159 | 1 |
+
+STOMP 쪽 3건에는 상류 자신의 이유가 있다: STOMP의 유효성 검사 해상도는
+`COL_CHECK_DISTANCE` = 0.05이고, 조건 2가 요구하는 0.01보다 5배 성기다.
+CHOMP의 1건은 그 설명이 붙지 않는다(CHOMP는 waypoint를 101개로 고정
+이산화한다). 어느 쪽이든 조건 2는 "100%"를 요구하므로 판정은 UNMET이다.
+
+### §263.5 게이트와 비용
+
+`tools/ci/verify-phase8-benchmark.sh`. 위 숫자를 전부 핀으로 박아 두고 매
+실행마다 다시 유도해 정확히 일치하는지 본다(허용치가 아니라 등호 —
+구성에 벽시계 입력이 남아 있지 않으므로 조금이라도 다르면 실제로 무언가
+바뀐 것이다).
+
+비용이 계층을 강제한다. 유효 궤적에 도달하지 못하는 STOMP 문제는 1000
+반복을 다 쓰고, 그런 문제 **하나**가 수십 CPU-분이다. 그래서 STOMP를 포함한
+어떤 부분집합이든 벽시계 하한이 그 한 문제로 정해지며, 샤딩으로는 더 줄지
+않는다. 이 기계(96코어)에서 잰 값:
+
+| `MOVEIT_RS_PHASE8_BENCHMARK` | 재유도하는 것 | 벽시계 |
+| --- | --- | --- |
+| (미설정) | 없음 — 큰 소리로 SKIP | — |
+| `chomp` | 기준선 + CHOMP 500 | **161s** |
+| `1` | + STOMP 앞 50문제 | **6629s** |
+| `full` | + STOMP 500 | 약 3시간 |
+
+`verify-all.sh`는 SKIP 후 exit 0을 통과로 세므로 미설정 경로는 "this is not
+a pass"를 명시해 두 줄로 외친다. 매 병합 라운드에 돌릴 만한 것은 `chomp`
+계층뿐이고, 각 계층은 stdout에 자신이 **덮지 않은 것**을 적는다.
+
+원본 스윕 자체의 비용도 남긴다: CHOMP 500이 25-way 샤딩으로 170.31s와
+143.11s, STOMP 500이 문제당 프로세스 하나로 약 2시간 50분(`floor_wall`
+50샤드 86분 + `cage` 250샤드 83분, 합계 약 100 CPU-시간). 샤딩은 결과를
+바꿀 수 없다(§263.3의 확인) — 벽시계만 바꾼다.
+
+### §263.6 계기가 무는지 확인했다
+
+계기를 믿기 전에, 재는 대상을 망가뜨리고 계기가 잡는지 봤다.
+
+1. **CHOMP.** `chomp_benchmark_port`가 장애물을 distance field에 넣을 때
+   자세를 x축으로 +100m 옮기도록 고쳤다 — CHOMP의 gradient가 읽는 필드가
+   사실상 비게 된다. `MOVEIT_RS_PHASE8_BENCHMARK=chomp` 게이트가 exit 1,
+   핀 3개가 전부 어긋났다: 성공 380 → **261**, 조건2 379 → 261, 중앙값
+   2.163978163668814 → 2.0814228290878725. 되돌린 뒤 같은 게이트가 exit 0,
+   세 값 모두 복귀.
+2. **STOMP.** `COLLISION_PENALTY`를 상류의 1.0에서 0.0으로 바꿨다. 그러면
+   모든 waypoint가 자기 비용함수에는 유효해 보이므로 STOMP가 첫 반복에
+   반환한다. `=1` 게이트가 exit 1: STOMP 50문제가 **17초**에 50/50 "성공"
+   하지만 `moveit-scene`의 독립 검사는 **26/50**만 통과시킨다(핀 42/42).
+   조건 2가 플래너의 자기 보증이 아니라는 것을 이 대비가 보인다. 되돌린 뒤
+   `floor_wall` id 0-4 재실행이 스윕 기록과 바이트 동일.
+
+### §263.7 이 절이 재지 않은 것
+
+- **CHOMP/STOMP를 각자의 상류 C++ 구현과 비교하는 읽기.** §263.1의 이유로
+  구조적으로 불가능하다(오라클에 CHOMP 플래닝 op 없음, STOMP는 op 자체가
+  없음). 이 읽기를 열려면 오라클 쪽 op을 새로 만들어야 한다.
+- **Phase 8의 pilz 항목.** §217.3이 MET으로 측정했고 이 절은 손대지 않았다.
+- **상류 기본 벽시계 구성의 재현 가능한 수치.** §263.3의 표는 기록이지
+  게이트가 아니다 — 그 구성에서는 재현 가능한 숫자가 존재하지 않는다는 것이
+  그 표의 내용이다.
 
 ## §NEW D8을 지었다 — 두 `PlanningRequest`는 합쳐지지 않고 한쪽이 상류 모양을 이겼다 (2026-08-06)
 

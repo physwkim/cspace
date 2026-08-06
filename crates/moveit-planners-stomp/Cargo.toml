@@ -24,8 +24,14 @@ rand.workspace = true
 
 [dev-dependencies]
 moveit-geometry.workspace = true
+# examples/stomp_benchmark_port.rs only (Phase 8's property-based
+# measurement, PORTING-PLAN.md §263): `moveit-planners-sbp` supplies the
+# `JointModelGroupSpace` metric the C++ OMPL baseline's `length` is measured
+# in, so the two sides of Phase 7 condition 3 are the same instrument.
+moveit-planners-sbp.workspace = true
 moveit-srdf.workspace = true
 rand_chacha.workspace = true
+serde_json.workspace = true
 urdf-rs.workspace = true
 
 [lints]

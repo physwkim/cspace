@@ -54,33 +54,33 @@ No crate-row disagreement is an instrument bug; all three are named, dated,
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| constraints/joint.rs:93 | matches! | unknown_joint_name_is_rejected | discriminating | `9c05e4f` |
-| constraints/orientation.rs:176 | matches! | converts_with_xyz_euler_parameterization | not-this-family | §9 clause 1 — `c.tolerance()` is read after `.unwrap()` on a successful build; `OrientationTolerance::XyzEuler{..}` is a computed success-path enum tag, not a failure/absence signal |
-| constraints/orientation.rs:262 | matches! | unknown_frame_is_rejected | discriminating | `3303a7e` |
-| constraints/position.rs:292 | matches! | prism_is_rejected | single-branch | bite run just now — `Error::Other` has exactly one producing arm (`PRISM`) in `TryFrom<SolidPrimitiveMsg> for Shape` |
-| constraints/set.rs:163 | matches! | aggregates_joint_constraints | not-this-family | §9 clause 1 — `set.constraints()[0]` read after `.unwrap()` on a successful build; `Constraint::Joint(_)` is a computed success-path enum tag |
-| constraints/set.rs:183 | matches! | one_bad_element_fails_the_whole_conversion | discriminating | `a7d8682` |
-| constraints/set.rs:421 | matches! | (visibility round-trip) | not-this-family | §9 clause 1 — same shape as `:163`, `Constraint::Visibility(_)` on a successful build |
-| constraints/visibility.rs:218 | matches! | (sensor_view_direction rejects unknown) | single-branch | bite run just now — single `other =>` arm in `TryFrom<SensorViewDirectionMsg>` |
-| geometry.rs:300 | matches! | zero_quaternion_is_rejected | single-branch | bite run just now — one combined guard in `TryFrom<Quaternion> for UnitQuaternion` |
-| geometry.rs:312 | matches! | nan_quaternion_is_rejected | single-branch | bite run just now — same guard as above |
-| geometry.rs:398 | matches! | orientation_zero_quaternion_is_rejected | single-branch | bite run just now — one combined guard in `TryFrom<OrientationConstraintQuaternion>` |
-| geometry.rs:410 | matches! | orientation_nan_quaternion_is_rejected | single-branch | bite run just now — same guard |
-| geometry.rs:433 | matches! | orientation_norm_just_outside_the_1e_minus_3_tolerance_is_rejected | single-branch | bite run just now — same guard |
-| geometry.rs:449 | matches! | orientation_norm_far_from_one_is_rejected_not_silently_renormalized | single-branch | bite run just now — same guard |
-| geometry.rs:522 | matches! | pose_with_degenerate_orientation_fails | single-branch | bite run just now — position leg (`TryFrom<Point>`) is unconditionally `Ok` ("Total in practice" doc comment), so only the orientation guard can fire |
-| planning.rs:570 | bare | converts_minimal_request | fixture-collapse-fixed | `9d829a8` (own earlier commit) |
-| planning.rs:1042 | matches! | multi_dof_joint_trajectory_is_rejected_not_silently_dropped | single-branch | bite run just now — only `Error::Other` site in this impl; delegate produces `Error::Construct` |
-| scene/collision_object.rs:1026 | bare | append_without_subframe_data_clears_existing_subframes | discriminating | §9 all three clauses hold — clause 1: `subframe_pose("tip").is_none()` is a genuine absence signal (retained vs. cleared); clause 2: `apply_add`'s unconditional subframe-replace is a written decision an engineer could gate on non-empty (bite: wrapping it in `if !subframes.is_empty()` flips the assertion); clause 3: deleting the second `apply_collision_object` call leaves the first object's subframe in place, changing the outcome. Bite run once, before I knew the ros gate was paid (docker, targeted single test — see cost note in the round report) |
-| scene/mod.rs:94 | matches! | unresolvable_non_empty_frame_id_is_still_rejected | single-branch | bite run just now — `header_frame_transform`'s only Err path is the single `scene.frame_transform` call |
-| scene/planning_scene.rs:1364 | matches! | unresolvable_non_empty_header_frame_id_is_still_rejected | single-branch | bite run just now — `Error::UnknownName` reachable only via `header_frame_transform` (see scene/mod.rs:94); the file's other two error sites are `Error::Other`/`Error::Construct`, different variants |
-| scene/shapes.rs:203 | matches! | plane_wrong_coef_length_is_rejected | single-branch | bite run just now — single `Error::construct` site in `TryFrom<PlaneMsg> for Plane`; `Plane::new` is infallible |
-| trajectory.rs:383 | matches! | add_suffix_way_point_rejects_a_nonzero_first_dt | single-branch | bite run just now — `moveit_trajectory::RobotTrajectory::add_suffix_way_point`'s single `first_duration_error()` site |
-| trajectory.rs:482 | matches! | seconds_to_duration_rejects_just_above_i32_max_seconds | single-branch | bite run just now — `seconds_to_duration`'s one combined guard |
-| trajectory.rs:488 | matches! | seconds_to_duration_rejects_negative | single-branch | bite run just now — same guard |
-| trajectory.rs:494 | matches! | seconds_to_duration_rejects_nan | single-branch | bite run just now — same guard |
-| trajectory.rs:500 | matches! | seconds_to_duration_rejects_infinity | single-branch | bite run just now — same guard |
-| trajectory.rs:528 | matches! | negative_cumulative_duration_from_an_unvalidated_trajectory_is_rejected | single-branch | bite run just now — `TryFrom<RobotTrajectory> for JointTrajectoryMsgOut`'s sole `?` site is `seconds_to_duration` |
+| `constraints/joint.rs:93` | matches! | unknown_joint_name_is_rejected | discriminating | `9c05e4f` |
+| `constraints/orientation.rs:176` | matches! | converts_with_xyz_euler_parameterization | not-this-family | §9 clause 1 — `c.tolerance()` is read after `.unwrap()` on a successful build; `OrientationTolerance::XyzEuler{..}` is a computed success-path enum tag, not a failure/absence signal |
+| `constraints/orientation.rs:262` | matches! | unknown_frame_is_rejected | discriminating | `3303a7e` |
+| `constraints/position.rs:292` | matches! | prism_is_rejected | single-branch | bite run just now — `Error::Other` has exactly one producing arm (`PRISM`) in `TryFrom<SolidPrimitiveMsg> for Shape` |
+| `constraints/set.rs:163` | matches! | aggregates_joint_constraints | not-this-family | §9 clause 1 — `set.constraints()[0]` read after `.unwrap()` on a successful build; `Constraint::Joint(_)` is a computed success-path enum tag |
+| `constraints/set.rs:183` | matches! | one_bad_element_fails_the_whole_conversion | discriminating | `a7d8682` |
+| `constraints/set.rs:421` | matches! | (visibility round-trip) | not-this-family | §9 clause 1 — same shape as `:163`, `Constraint::Visibility(_)` on a successful build |
+| `constraints/visibility.rs:218` | matches! | (sensor_view_direction rejects unknown) | single-branch | bite run just now — single `other =>` arm in `TryFrom<SensorViewDirectionMsg>` |
+| `geometry.rs:330` | matches! | zero_quaternion_is_rejected | single-branch | bite run just now — one combined guard in `TryFrom<Quaternion> for UnitQuaternion` |
+| `geometry.rs:342` | matches! | nan_quaternion_is_rejected | single-branch | bite run just now — same guard as above |
+| `geometry.rs:428` | matches! | orientation_zero_quaternion_is_rejected | single-branch | bite run just now — one combined guard in `TryFrom<OrientationConstraintQuaternion>` |
+| `geometry.rs:440` | matches! | orientation_nan_quaternion_is_rejected | single-branch | bite run just now — same guard |
+| `geometry.rs:463` | matches! | orientation_norm_just_outside_the_1e_minus_3_tolerance_is_rejected | single-branch | bite run just now — same guard |
+| `geometry.rs:479` | matches! | orientation_norm_far_from_one_is_rejected_not_silently_renormalized | single-branch | bite run just now — same guard |
+| `geometry.rs:552` | matches! | pose_with_degenerate_orientation_fails | single-branch | bite run just now — position leg (`TryFrom<Point>`) is unconditionally `Ok` ("Total in practice" doc comment), so only the orientation guard can fire |
+| `planning.rs:561` | bare | converts_minimal_request | fixture-collapse-fixed | `9d829a8` (own earlier commit) |
+| `planning.rs:1033` | matches! | multi_dof_joint_trajectory_is_rejected_not_silently_dropped | single-branch | bite run just now — only `Error::Other` site in this impl; delegate produces `Error::Construct` |
+| `scene/collision_object.rs:1026` | bare | append_without_subframe_data_clears_existing_subframes | discriminating | §9 all three clauses hold — clause 1: `subframe_pose("tip").is_none()` is a genuine absence signal (retained vs. cleared); clause 2: `apply_add`'s unconditional subframe-replace is a written decision an engineer could gate on non-empty (bite: wrapping it in `if !subframes.is_empty()` flips the assertion); clause 3: deleting the second `apply_collision_object` call leaves the first object's subframe in place, changing the outcome. Bite run once, before I knew the ros gate was paid (docker, targeted single test — see cost note in the round report) |
+| `scene/mod.rs:94` | matches! | unresolvable_non_empty_frame_id_is_still_rejected | single-branch | bite run just now — `header_frame_transform`'s only Err path is the single `scene.frame_transform` call |
+| `scene/planning_scene.rs:1364` | matches! | unresolvable_non_empty_header_frame_id_is_still_rejected | single-branch | bite run just now — `Error::UnknownName` reachable only via `header_frame_transform` (see `scene/mod.rs:94`); the file's other two error sites are `Error::Other`/`Error::Construct`, different variants |
+| `scene/shapes.rs:203` | matches! | plane_wrong_coef_length_is_rejected | single-branch | bite run just now — single `Error::construct` site in `TryFrom<PlaneMsg> for Plane`; `Plane::new` is infallible |
+| `ros/moveit-ros/src/trajectory.rs:383` | matches! | add_suffix_way_point_rejects_a_nonzero_first_dt | single-branch | bite run just now — `moveit_trajectory::RobotTrajectory::add_suffix_way_point`'s single `first_duration_error()` site |
+| `ros/moveit-ros/src/trajectory.rs:482` | matches! | seconds_to_duration_rejects_just_above_i32_max_seconds | single-branch | bite run just now — `seconds_to_duration`'s one combined guard |
+| `ros/moveit-ros/src/trajectory.rs:488` | matches! | seconds_to_duration_rejects_negative | single-branch | bite run just now — same guard |
+| `ros/moveit-ros/src/trajectory.rs:494` | matches! | seconds_to_duration_rejects_nan | single-branch | bite run just now — same guard |
+| `ros/moveit-ros/src/trajectory.rs:500` | matches! | seconds_to_duration_rejects_infinity | single-branch | bite run just now — same guard |
+| `ros/moveit-ros/src/trajectory.rs:528` | matches! | negative_cumulative_duration_from_an_unvalidated_trajectory_is_rejected | single-branch | bite run just now — `TryFrom<RobotTrajectory> for JointTrajectoryMsgOut`'s sole `?` site is `seconds_to_duration` |
 
 No blind/never-covered site survived inspection in `ros/moveit-ros`; the
 27th matches this crate's own scan count exactly. Zero commits this round.
@@ -248,7 +248,7 @@ independent of the baseline issue).
 **The tool's documented blind spot undercounts the real total further, and
 by more than the quoted 25.** `assert_err_mentions(result, needle)` is
 defined separately per file (`ros/moveit-ros/src/state.rs:192` (`assert_err_mentions`), `ros/moveit-ros/src/trajectory.rs:248` (`assert_err_mentions`),
-`planning.rs:504` (`assert_err_mentions`), `scene/attached.rs:323` (`assert_err_mentions`), `scene/collision_object.rs:533` (`assert_err_mentions`)
+`planning.rs:495` (`assert_err_mentions`), `scene/attached.rs:323` (`assert_err_mentions`), `scene/collision_object.rs:533` (`assert_err_mentions`)
 — five independent copies, not a shared import) and renders on one line,
 asserts `rendered.contains(needle)` on the next — invisible to the tool's
 60-byte lookback, exactly as documented. Two things the tool's own output
@@ -310,39 +310,23 @@ time (a uniform +6 exceeds `NEARBY_WINDOW = 5`, so none of them could
 window-match a neighbour and read as correct), and the 11 `state.rs` rows did
 not move at all.
 
-Re-anchored a third time (D8 planner-type unification, `planning.rs` rows
-only): wiring `/plan_kinematic_path` and `/move_action` to a real planner
-added 9 lines above the first cited one, so every citation into this file
-moved uniformly **+9** — old
-`:385,451,475,481,488,494,526-538,583,621,710,713-716,723` ->
-`:394,460,484,490,497,503,535-547,592,630,719,722-725,732`. Each new line was
-obtained by mapping the old one through a `difflib` alignment of
-`git show a35bc2e:ros/moveit-ros/src/planning.rs` against the working tree and
-then reading the row's own named test function at the result, never by
-nearest-line proximity. `--verify` flagged only 5 of the 11 first-column
-citations even though all 11 had moved: a +9 shift exceeds
-`NEARBY_WINDOW = 5`, but two of them landed within 5 lines of a
-*neighbouring* site and so resolved, silently, one assertion off. That is why
-the mapping was run over every citation in the file rather than only the
-flagged ones. No verdict changed — D8 moved lines here, not assertions.
-
 | file:line | in-family verdict | collision verdict |
 |---|---|---|
 | `constraints/orientation.rs:194-196` (`invalid_parameterization_is_rejected`), `constraints/orientation.rs:217-219` (`degenerate_orientation_is_rejected`), `constraints/orientation.rs:244-246` (`orientation_norm_2_is_rejected_end_to_end_unlike_a_scene_pose`) | in-family | CLEAN (3 sites) — pre-existing sibling-collision comments confirmed correct by reading |
 | `constraints/position.rs:308,392,411,432,456,472` | in-family | CLEAN (6 sites) — `dim()`'s `{field}`-interpolated messages (e.g. `:308`'s own `.contains("BOX_Y")`), `PositionConstraint::new`'s three distinct `Error::construct` texts, and the meshes-guard's shared-but-same-branch needle all verified against `crates/moveit-constraints/src/position.rs` |
 | `constraints/set.rs:148` | **not-this-family** (clause 2) | n/a — `empty_constraints_is_empty_set` is the census's own vacuous-accumulator shape verbatim: all four input vecs empty, none of the four `for` loops in `KinematicConstraintSet::try_from` iterate, `set` is never touched |
 | `constraints/visibility.rs:384,385` (`negative_target_radius_activates_but_negative_angles_stay_inactive`) | in-family | CLEAN (2 sites) — `normalize_angle_criterion`'s `>EPS` filter is the sole physical producer of `None` for each field; wire wrapper always constructs `Some(msg.field)` first, never `None` directly |
-| `conversion_coverage.rs:227,232,386,414,437,454` | in-family (all 6) | CLEAN — `:227/:232` are my own round-8 `parse_conversion` tests (already bite-checked); `:386` self-identifies via interpolated `t.from`/`t.to`/`t.covered_by` in its panic text; `:414/437/454` populate disjoint vecs from disjoint scan logic, each panic interpolates the full offending list |
+| `conversion_coverage.rs:261,266,420,448,471,488` | in-family (all 6) | CLEAN — re-derived after `4f2c9df` added 34 lines to `ONE_DIRECTIONAL` ahead of every one of this row's old `:227,232,386,414,437,454` citations, a pure uniform shift confirmed line-by-line against the current body (no semantic change). `:261/:266` are my own round-8 `parse_conversion` tests (already bite-checked); `:420` self-identifies via interpolated `t.from`/`t.to`/`t.covered_by`/`t.reason` in its assert text; `:448/471/488` populate disjoint vecs from disjoint scan logic, each assert interpolates the full offending list |
 | `scene/shapes.rs:161-163` (`mesh_triangle_with_wrong_vertex_count_is_rejected`), `scene/shapes.rs:179-181` (`mesh_out_of_range_vertex_index_is_rejected`) | in-family | CLEAN (2 sites) — `"expected exactly 3"` is `shapes.rs`'s sole `MeshTriangle`-length format string; the "only N vertices exist" wording traces to the single physical site `moveit-geometry/src/shapes.rs:1133` (source: `"mesh triangle references vertex {idx}, but only {n} vertices exist"`), confirmed by grep not reproduced elsewhere reachable from `TryFrom<MeshMsg>` |
 | `scene/planning_scene.rs:1079` (`empty_collision_objects_and_empty_octomap_is_a_no_op`), `scene/planning_scene.rs:1096-1099` (`non_octree_octomap_type_is_rejected`), `scene/planning_scene.rs:1132-1135` (`truncated_octree_payload_is_rejected`) | in-family | CLEAN (3 sites) — `:1079`'s only reachable emptying branch is `apply_octomap`'s `remove_all`-shaped path for this fixture; `:1096/:1132` already sibling-documented and grep-confirmed unique |
 | `scene/attached.rs:442,452,513,532,553,554,594,612,649,671` | in-family except `:532` | `:532` **not-this-family** (clause 2/3) — ADD-path `merged_touch_links` is a straight `.collect()` with the merge branch gated `if !is_add`, i.e. never entered; the real "replace not merge" claim rides on the adjacent `shapes().len()==1` assertion instead. Everything else CLEAN (8 direct + 2 hidden `assert_err_mentions` at `:513,594`), including `:553/:554` (`BTreeSet::contains` is exact-element not substring match, and `moveit-scene`'s `attach_new`/`AttachedBody` store touch_links verbatim with no auto-inclusion of `link_name`, ruling out the fixture's own "tip" link name as a spurious source) |
 | `scene/collision_object.rs:635,710,771,880,893,900,948,1016,1050,1108,1143` | in-family (all 11) | CLEAN (9 direct + 2 hidden `assert_err_mentions` at `:900,948`), including the pair this round corrected: `:1108`/`:1143` (`move_object_pose_with_malformed_pose_is_rejected`/`move_shape_repose_with_malformed_pose_is_rejected`) replace the old single `:1089` citation, which this table had flagged as "latent risk, not a live collision" — `4c56148` ("test(ros): reach apply_move's object-pose parse, close the :1089 gap") already fixed exactly that gap by adding the first test, and its own doc comment (`:1064-1087` in the live source) states the bite-check: neutralizing `apply_move`'s object-pose parse (`:478`) alone fails only `move_object_pose_with_malformed_pose_is_rejected`, neutralizing the shape-repose parse (`:515`) alone fails only `move_shape_repose_with_malformed_pose_is_rejected`. §13 (this ledger's own round-12 write-up) checked `4c56148`'s ancestry and wrongly treated the pre-existing `:1089` row as proof this was already ledgered — it was ledgered as *unfixed*, and the fix had already landed; §13 read "a row exists" as "nothing changed" without checking whether the row's own verdict still held. Corrected here, not re-bitten (the source comment's own trail is the bite-check) |
 | `ros/moveit-ros/src/state.rs:283,307,334,357,379,394,413,432,460,478,496` | in-family (all 11) | CLEAN (11 hidden `assert_err_mentions`) — `set_parallel_array`'s `{field}`-prefixed length/unknown-name messages keep position/velocity/effort textually distinct; the four `multi_dof_joint_state` sites intentionally share one message, discriminated by guard-clause mutation already bite-checked last round, not by text |
 | `ros/moveit-ros/src/trajectory.rs:297,314,337,360,398,421` | in-family (all 6) | CLEAN (6 hidden `assert_err_mentions`) — length-mismatch messages are `{field}`-interpolated; `:297`/`:421` share one needle by design (same branch, redundant coverage, not a collision) |
-| `planning.rs:826,1055` | in-family (all 3) | CLEAN (2 hidden `assert_err_mentions` + `:1055`, added this round) — the two hidden ones were `TryFrom<PlanningRequestMsg>`'s only two `Error::Other` sites, named as siblings in the function's own doc comment; §256 removed one of them (`nondefault_start_state_is_rejected_not_silently_dropped`, since a `start_state` is now carried rather than refused) and `:826` (`nonempty_reference_trajectories_is_rejected_not_silently_dropped`) is the survivor. `:1055` (`multi_dof_joint_trajectory_points_is_rejected_not_silently_dropped`) is a folded-operand sibling of `:1042`'s already-covered `multi_dof_joint_trajectory_is_rejected_not_silently_dropped`: the guard is `!mdjt.joint_names.is_empty() \|\| !mdjt.points.is_empty()` (one guard, two operands), and the test's own comment (`:1045-1048` in the live source, "round 8, folded-operand audit") already states `joint_names` had a test but `points` did not before this test existed — the accepted `doc/folded-operand-guards.md` shape, matched here rather than re-derived, this is not a new finding |
+| `planning.rs:817,1046` | in-family (2 sites, was 3) | CLEAN (1 hidden `assert_err_mentions` at `:817` + `:1046`) — **re-derived after p11-startstate (`10f571f`), which invalidated this row's old `:481,494,1046` citation, not just shifted it.** The old `:481` site, `nondefault_start_state_is_rejected_not_silently_dropped`, tested a blanket "any non-default `start_state` field is rejected" branch that p11-startstate **deleted outright**: `start_state` is now representable via a `StartState` sum type (`CurrentState`/`Overriding`), so position/velocity/name are accepted, not rejected. The name survives only inside a comment at `planning.rs:812` (`crates/moveit-planning::start_state`'s module doc names the same split); the function is gone. The old `:494` site survives, renumbered: its `assert_err_mentions` call is now `planning.rs:817-820` (`nonempty_reference_trajectories_is_rejected_not_silently_dropped`). The row's other claim — "`:475/:488` are `TryFrom<PlanningRequestMsg>`'s only two `Error::Other` sites" — was already wrong *before* this merge (branch-point `:475/:488` landed on `let mut msg = valid_request(&model);` and `fn nonempty_reference_trajectories...`, not on any `Error::Other` construction); re-derived directly against the current body: `TryFrom<PlanningRequestMsg>::try_from` (`planning.rs:266`) now has exactly **one** own `Error::other` site, `planning.rs:278-281` (`reference_trajectories`) — the former second site did not move with a line shift, it moved to a *different* impl, `TryFrom<StartStateMsg>` (`planning.rs:118-166`), which has its own two `Error::other` sites: `planning.rs:150-154` (`attached_collision_objects`) and `planning.rs:162-166` (`multi_dof_joint_state`), backed respectively by `a_start_state_with_attached_collision_objects_is_rejected_not_silently_dropped` (`planning.rs:784-787`) and `a_start_state_with_multi_dof_joints_is_rejected_not_silently_dropped` (`planning.rs:773-776`). Those two tests' needles ("`start_state.attached_collision_objects is not representable`" / "`start_state.multi_dof_joint_state has no core`") are textually distinct from each other and from every other needle in this file — checked by reading, not re-run through the coarse-assertions scanner — but they are **new code this ledger has never censused**, not a re-derivation of the deleted `:481` site, so they are named here for visibility and left OUT of this row's site count and the Totals below; a future full `tools/ci/count-coarse-assertions.py` sweep should pick them up as new sites. `:1046` (`multi_dof_joint_trajectory_points_is_rejected_not_silently_dropped`) is unaffected by any of the above (unrelated impl, `TryFrom<RobotTrajectoryMsg>`) and did not shift; it remains a folded-operand sibling of `:1033`'s already-covered `multi_dof_joint_trajectory_is_rejected_not_silently_dropped`: the guard is `!mdjt.joint_names.is_empty() \|\| !mdjt.points.is_empty()` (one guard, two operands), and the test's own comment (`:1036-1039` in the live source, "round 8, folded-operand audit") already states `joint_names` had a test but `points` did not before this test existed — the accepted `doc/folded-operand-guards.md` shape, matched here rather than re-derived, this is not a new finding |
 
-**Totals: 63 sites examined (62 pre-existing + `planning.rs:1055` (`multi_dof_joint_trajectory_points_is_rejected_not_silently_dropped`), added this
-round), 61 in-family, 2 not-this-family (`constraints/set.rs:148` (`empty_constraints_is_empty_set`),
+**Totals: 62 sites examined (62 pre-existing + `planning.rs:1046` (`multi_dof_joint_trajectory_points_is_rejected_not_silently_dropped`), added this
+round, minus 1 for `planning.rs:481`'s `nondefault_start_state_is_rejected_not_silently_dropped`, deleted by p11-startstate `10f571f` — see the `planning.rs:817,1046` row above), 60 in-family, 2 not-this-family (`constraints/set.rs:148` (`empty_constraints_is_empty_set`),
 `scene/attached.rs:532` (`add_replaces_existing_attached_body_instead_of_merging`)), 0 collisions, 0 latent risks flagged but not live
 (`scene/collision_object.rs:1089` (`move_object_pose_with_malformed_pose_is_rejected`)'s risk was already closed by `4c56148`
 before this round; the table above now says so instead of the opposite).**
@@ -746,7 +730,7 @@ own earlier-round work, already ledgered. Grepping the ledger's existing
 §10 table for the specific lines confirms every one of the ros/ additions
 above already has a CLEAN row there: `position.rs` (`:456,472`,
 "meshes is not supported"), `conversion_coverage.rs` (`:227,232`),
-`planning.rs:1042` (`multi_dof_joint_trajectory_is_rejected_not_silently_dropped`), `collision_object.rs` (10 sites incl. `:1089`'s flagged
+`planning.rs:1033` (`multi_dof_joint_trajectory_is_rejected_not_silently_dropped`), `collision_object.rs` (10 sites incl. `:1089`'s flagged
 latent-not-live risk), `state.rs` (11 hidden `assert_err_mentions` incl.
 `:334,357,379,432,460,478,496` — the four `multi_dof_joint_state` sites'
 own comment already states isolating-mutation bite evidence: "neutralize
@@ -957,7 +941,7 @@ both are in this sweep's grammar and owe a row here.
 
 | file:line | in-family verdict | collision verdict |
 |---|---|---|
-| `planning.rs:914,952` | in-family (both) | CLEAN (2 sites) — same shape, disjoint subjects: `:914` (`allowed_planning_time_boundaries_are_not_observable_on_the_core_request`) tables 5 boundaries (`-1.0`, `0.0`, `f64::EPSILON`, `5.0`, `f64::NAN`), `:952` (`num_planning_attempts_boundaries_are_not_observable_on_the_core_request`) tables 4 (`-1`, `0`, `1`, `2`); each maps its own single `MotionPlanRequest` field through `TryFrom<PlanningRequestMsg>` and compares `format!("{req:?}")` against the table's first row. The needle cannot collide because the panic text interpolates the field name *and* `observable`, the list of boundary labels that differed — a failure names which of the 5-or-4 rows moved, so the two tests cannot be confused with each other or with a neighbouring row of their own table |
+| `planning.rs:905,943` | in-family (both) | CLEAN (2 sites) — same shape, disjoint subjects: `:905` (`allowed_planning_time_boundaries_are_not_observable_on_the_core_request`) tables 5 boundaries (`-1.0`, `0.0`, `f64::EPSILON`, `5.0`, `f64::NAN`), `:943` (`num_planning_attempts_boundaries_are_not_observable_on_the_core_request`) tables 4 (`-1`, `0`, `1`, `2`); each maps its own single `MotionPlanRequest` field through `TryFrom<PlanningRequestMsg>` and compares `format!("{req:?}")` against the table's first row. The needle cannot collide because the panic text interpolates the field name *and* `observable`, the list of boundary labels that differed — a failure names which of the 5-or-4 rows moved, so the two tests cannot be confused with each other or with a neighbouring row of their own table |
 
 Clause-by-clause against census §9, since "asserts a set is empty" is
 exactly the vacuous-accumulator shape §10 ruled `not-this-family` twice:
@@ -965,7 +949,7 @@ exactly the vacuous-accumulator shape §10 ruled `not-this-family` twice:
 1. **Mechanism.** `observable.is_empty()` is a found-nothing tag, but it is
    not vacuous — `rows` is a 5-element (resp. 4-element) array literal in
    the test itself, and `labels_differing_from_the_first`
-   (`planning.rs:535-547`) iterates `rows[1..]`, so the comparison runs 4
+   (`planning.rs:849-861`) iterates `rows[1..]`, so the comparison runs 4
    (resp. 3) times on every run. The failure message interpolates the
    offending labels rather than reporting a bare count.
 2. **Decision.** The decision under test is §236's, and it lives in the

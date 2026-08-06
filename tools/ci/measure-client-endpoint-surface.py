@@ -685,10 +685,10 @@ def strip_rust(text: str) -> str:
 def port_sites():
     """Every endpoint this workspace opens, as (name, role, file, line)."""
     listed = subprocess.run(
-        ["git", "-C", REPO_ROOT, "ls-files", "--", "*.rs"],
+        ["git", "-C", REPO_ROOT, "ls-files", "--deduplicate", "--", "*.rs"],
         capture_output=True, text=True, check=True).stdout.split()
     if not listed:
-        sys.exit(f"FAIL `git ls-files -- '*.rs'` found nothing under "
+        sys.exit(f"FAIL `git ls-files --deduplicate -- '*.rs'` found nothing under "
                  f"{REPO_ROOT} -- the port side cannot be measured, and "
                  f"reporting every endpoint absent would look like a result.")
     sites = []
