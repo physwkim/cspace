@@ -25238,3 +25238,19 @@ $ git diff <머지 커밋>..HEAD -- PORTING-PLAN.md -U0 | rg '^-[^-]'
 
 판정은 바뀌지 않는다. 87건 중 §5의 미충족 행을 막는 것은 여전히 0건이고,
 이번에는 Phase 8까지 후보 발화를 거쳐 기각된 결과다.
+
+세 번째 머지(17 커밋)에서 그 검사가 **또 발화했다**. §260이 §5 표의
+`distance: f64` 행 인용을 `§229.3`에서 `§260` 자신으로 옮겼는데 계기는
+아직 `§229.3`을 들고 있었다. 이번에도 사람이 눈으로 본 것이 아니라
+게이트가 종료 코드 1로 잡았다:
+
+```
+$ tools/ci/classify-unported.py
+PHASE TABLE DRIFT  §5 row `Phase 3 | `distance: f64` 가 분리 분기(오라클 값 > 0)에서 `1e` cites §260; UNMET_BLOCKERS says §229.3
+FAIL: UNMET_BLOCKERS disagrees with PORTING-PLAN.md's §5 표 in 1 place(s)
+```
+
+항목을 §260으로 옮기고 blocker 문장도 §260이 실제로 잰 것으로 바꿨다 —
+분리 분기 발산 5로봇 × 10,000상태에서 0건, 관통 분기는 상류 결함 3건으로
+비교 불가. 이것이 그 행이 UNMET이 아니라 PARTIAL인 이유다. 두 번의 머지
+연속으로 이 검사가 사람보다 먼저 드리프트를 찾았다.
