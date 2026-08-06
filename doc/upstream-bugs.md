@@ -2859,6 +2859,24 @@ robot-world sample at all. Reproducing it is not available anyway: it would mean
 adopting an unspecified iteration-count artefact of another library's solver,
 which has no value this port could target.
 
+That count is robot-world only, and the same blank cell also lands on a *self*
+pair, which no row above covers. In the committed scene (`--floor-top-z 0.0`)
+prbt's worst separated-branch comparison is `8.892585e-5`, case 4697, on
+`prbt_link_4`/`prbt_base_link` — specifically `fixtures/prbt.urdf:319`'s
+`0.09 0.06 0.12` box against `prbt_base_link`'s cylinder, the same
+`cylinder`/`box` cell in the same table. It is inside §5 Phase 3's `1e-4`, so it
+costs no sweep row, but the attribution is the same and it is measured the same
+way: `crates/moveit-collision/tests/collision_parity.rs`'s
+`prbt_link_4_base_link_clearance_brackets_the_separated_residual` pins the exact
+answer to an interval `4.163336e-17` wide and puts this port `2.558970e-11` from
+it against the reference's `8.892588e-5`. Recompiling
+`tools/fcl-distance-tolerance-probe/probe.cpp` with that box's dimensions inside
+the same image drifts `2.051960e-4` between the default `1e-6` and a tightened
+`1e-12`, over the clause's own tolerance — the committed probe builds the
+`0.121, 0.08, 0.17` box (`tools/fcl-distance-tolerance-probe/probe.cpp:77`),
+which is `prbt_link_4`'s *other* `<collision>` and not the one this pair's
+minimum sits on.
+
 ### `cartesian-path-capability-accepts-jump-thresholds-it-never-applies` — the service converts `jump_threshold` into a filter, logs it as being in force, and then passes `CartesianPrecision{}` in its place — not-reproduced
 
 **Upstream:** `moveit_ros/move_group/src/default_capabilities/cartesian_path_service_capability.cpp:176-188`

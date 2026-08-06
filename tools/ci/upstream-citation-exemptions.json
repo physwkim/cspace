@@ -188,6 +188,14 @@
         "oracle.cpp",
         "tools/moveit-oracle/src/oracle.cpp"
       ]
+    },
+    {
+      "project": "fcl-distance-tolerance-probe",
+      "checkout": "this repository, tools/fcl-distance-tolerance-probe/probe.cpp",
+      "why": "NOT external -- an in-repo file, like `oracle` above and blocked behind the same one line: `--source` indexes a git root, not a file, so pointing this gate at this repository resolves oracle.cpp's 41 citations too, and that corpus is the rotten one the entry above holds back. Landing that root closes both at once and this declaration with them. The four citations that exist today all name `probe.cpp:77` and all were read at the merge that introduced them (§284): line 77 is `auto box = std::make_shared<fcl::Box<S>>(0.121, 0.08, 0.17);`, which is what each of the four sentences says it is.",
+      "paths": [
+        "tools/fcl-distance-tolerance-probe/probe.cpp"
+      ]
     }
   ]
 }
