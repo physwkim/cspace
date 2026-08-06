@@ -29582,9 +29582,11 @@ prbt의 `bool` 6,854건이 사라지는 대신 그 로봇에서만 분리 분기
 `0.09 x 0.06 x 0.12`이고, §260.4의 괄호는 같은 링크의 다른 `<collision>`을
 부른다. 정정은 §260.4에 표시했다.
 
-이것은 표기 실수로 끝나지 않는다.
+이것은 표기 실수로 끝나지 않는다. 이 절이 쓰인 시점
 `tools/fcl-distance-tolerance-probe/probe.cpp:77`이
-`std::make_shared<fcl::Box<S>>(0.121, 0.08, 0.17)`을 세우므로, §260.4의
+`std::make_shared<fcl::Box<S>>(0.121, 0.08, 0.17)`을 세우고 있었으므로 (§298이
+이후 `tools/fcl-distance-tolerance-probe/probe.cpp:86`을 `0.09, 0.06, 0.12`로
+다시 세웠다), §260.4의
 `4.418002e-4`는 잔차를 지고 있지 않은 쪽 상자에서 잰 수다. 같은 프로브의 상자만
 `0.09 0.06 0.12`로 바꿔 같은 이미지(`moveit-rs/oracle:fc6738ad78dd45d5`)에서
 같은 2,000자세를 다시 재면:
@@ -29707,13 +29709,16 @@ GJK 경로에 떨어져 `distanceCallback`이 남겨 둔 `distance_tolerance` �
 "`1e-4`에서 최악 `8.9e-5`로 통과"와 "`1e-11`까지 일치"는 이 포트에 대한 서로
 다른 진술이기 때문이다.
 
-이 절이 하지 않은 것:
+이 절이 하지 않은 것 (첫째는 §298이 닫았다):
 
-- **커밋된 프로브의 상자를 고치지 않았다.**
-  `tools/fcl-distance-tolerance-probe/probe.cpp:77`은 여전히
-  `0.121 x 0.08 x 0.17`을 세우고, `tools/ci/verify-fcl-distance-tolerance.sh`의
-  `MIN_DRIFT`/`MAX_SOLVER_GAP`/`MIN_RATIO`는 그 상자의 실측에 박혀 있다.
-  §284.4가 교체 시의 수를 적어 두었을 뿐이다.
+- **커밋된 프로브의 상자를 고치지 않았다. 거짓 → 닫힘 (§298).** 이 절이 쓰인
+  시점 `tools/fcl-distance-tolerance-probe/probe.cpp:77`은
+  `0.121 x 0.08 x 0.17`을 세우고 있었고, `tools/ci/verify-fcl-distance-tolerance.sh`의
+  `MIN_DRIFT`/`MAX_SOLVER_GAP`/`MIN_RATIO`는 그 상자의 실측에 박혀 있었다 —
+  §284.4가 교체 시의 수를 적어 두었을 뿐이었다. §298이 프로브를
+  `tools/fcl-distance-tolerance-probe/probe.cpp:86`의 `0.09, 0.06, 0.12`로
+  다시 세우고 세 핀도 그 상자의 실측에서
+  다시 뽑았다.
 - **관통 분기 쪽 잔차는 이 계측기로 재지 않았다.** 괄호는 분리 쪽에서만
   성립한다(§281.6과 같은 이유).
 - **다른 `box x cylinder` self 쌍은 훑지 않았다.** 이 절이 판정한 것은 case
@@ -30329,8 +30334,15 @@ stratum의 씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지�
 `fcl-distance-tolerance-probe` 두 그룹이 사라졌다. 오늘 게이트가 검사하는 이
 저장소 안 `oracle.cpp` 인용은 **87건**이다 — 이 절 자신이 쓴 18건과 §286이 쓴
 2건을 포함한 수이고, 이 라운드가 들어오기 전 트리 기준으로는 67건이다.
-`tools/fcl-distance-tolerance-probe/probe.cpp:77`을 가리키는 인용 4건도 같은
-루트로 검사된다.
+`tools/fcl-distance-tolerance-probe/probe.cpp:77`을 가리키는 인용 4건도 그
+시점 같은 루트로 검사됐다. §298이 프로브를
+`tools/fcl-distance-tolerance-probe/probe.cpp:86`으로 재핀한 뒤 이 줄은 비어
+있다 — 오늘 이 문서에서 그 줄을 가리키는 인용은 여섯 곳이고, 전부 "이 절이
+쓰인 시점"·"그때" 식으로 시점을 밝힌 채 남아 있다(§253.3–.4의 선례인
+`@<sha>:NNN` 철자는 `probe.cpp`에는 못 쓴다 — §287이 연 `--source` 루트는
+`oracle.cpp`뿐이고, `probe.cpp@<sha>:NNN`은 `verify-upstream-citations.sh`가
+"resolves against no root"로 하드 실패한다는 것을 이 라운드에서 직접
+확인했다).
 
 ### §287.1 루트를 넣기 전에 확인한 것 — basename 충돌 3건, 오늘은 물지 않는다
 
