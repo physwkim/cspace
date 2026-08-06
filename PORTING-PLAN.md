@@ -13072,18 +13072,18 @@ aiProcess_OptimizeGraph`를 더 건다. 즉 **정점 병합은 assimp가 한다.
 
 ### 164.2 기존 테스트가 재는 것과 재지 않는 것
 
-`crates/moveit-geometry/tests/mesh_parity.rs`가 이미 있고 통과한다. 그런데
-무엇을 재는지 보면:
+`crates/moveit-geometry/tests/mesh_parity.rs`가 이미 있고 통과한다. 그런데 무엇을 재는지 보면:
 
 - 정점 **개수** — 잰다
 - 정점 **집합** — 잰다. 다만 `HashSet<[i64;3]>`로 비교하므로 **순서를 버린다**
 - 삼각형 **개수** — 잰다
-- 삼각형 **인덱스** — **전혀 재지 않는다.** fixture에 아예 없다
-  (`mesh_parity.json`의 키는 `resource`/`scale`/`triangle_count`/
-  `vertex_count`/`vertices`뿐)
+- 삼각형 **인덱스** — **전혀 재지 않는다.** fixture에 아예 없다 (`mesh_parity.json`의
+  키는 `resource`/`scale`/`triangle_count`/`vertex_count`/`vertices`뿐)
 
 정점 순서를 버리고 삼각형 인덱스를 안 보는 테스트는, BVH가 달라지는 바로 그
-차이를 통과시킨다. 통과하는 테스트가 있다는 것이 그 후보를 배제하지 않는다.
+차이를 통과시킨다 — 통과가 그 후보를 배제하지 않는다. 이 제목이 잔여-주장
+어휘("재지 않는 것")에 걸려도 위 넷은 이 회차의 미완료 목록이 아니라 기존
+테스트의 측정 범위다 — census가 이 절을 세지 못하는 것은 구멍이 아니다(#41).
 
 ### 164.3 정점 순서는 반증했다 — 36/36 일치
 
