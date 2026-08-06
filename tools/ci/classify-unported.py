@@ -121,32 +121,17 @@ UNMET_BLOCKERS = {
             "lives in collision_detection_fcl, which doc/port-coverage.md §1 "
             "excludes from the corpus, so no unported file can be it.",
     },
-    ("Phase 3", "distance: f64"): {
-        # The row cited §229.3 until §260 re-measured it and the §5 table moved
-        # the citation; check_phase_coverage() caught this entry still pointing
-        # at §229.3 on the very merge that brought §260 in.
-        "section": "260",
-        "blocker": "the divergence is confined to one branch of the upstream "
-                   "function, and the row was split along that line: §260 "
-                   "measures 0 divergences on the separated branch across 5 "
-                   "robots x 10,000 states (41,059 comparisons), which is now "
-                   "its own MET row, and this row is the penetration branch, "
-                   "which reads UNMEASURED rather than UNMET because 3 "
-                   "upstream defects fire only there -- the oracle cannot be "
-                   "used as a reference for it, so there is nothing here to "
-                   "close by porting a file",
-        "candidates": (
-            "moveit_core/collision_detection/",
-            "moveit_core/collision_detection_fcl/",
-            "moveit_core/collision_detection_bullet/",
-        ),
-        "adjudication":
-            "the mechanism is upstream distanceCallback in "
-            "moveit_core/collision_detection_fcl/src/collision_common.cpp, a "
-            "file the corpus excludes, and §260 attributes what remains to 3 "
-            "defects in that upstream function; porting any candidate below "
-            "would not change what that callback computes.",
-    },
+    # ("Phase 3", "distance: f64") lived here while the penetration-branch row
+    # read UNMEASURED.  Both of that clause's rows are MET now: the separated
+    # branch since §260, and the penetration branch on the sub-population where
+    # none of the three upstream defects can fire, measured by
+    # tools/ci/verify-phase3-penetration-subset.sh.  The entry is removed rather
+    # than reworded because this table's contract is "every not-yet-MET row",
+    # and a blocker entry for a MET row is what check_phase_coverage() calls
+    # drift.  What the entry used to carry that the row does not -- that the
+    # rest of the branch (queries with two or more pairs, `box x box`, meshes)
+    # is measurable only against a patched oracle -- is in the row's own clause
+    # and in the round section that row cites.
     # Was UNMEASURED against §217.3 until §263 measured it; the row then read
     # UNMET against §263 and the harness this entry used to call absent exists
     # (crates/moveit-planners-{chomp,stomp}/examples/).  check_phase_coverage()

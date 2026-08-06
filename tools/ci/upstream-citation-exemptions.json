@@ -63,6 +63,8 @@
         "collision_request.h",
         "collision_result-inl.h",
         "cost_source-inl.h",
+        "distance_func_matrix-inl.h",
+        "distance_request-inl.h",
         "fcl/include/fcl/geometry/bvh/detail/BV_fitter-inl.h",
         "fcl/include/fcl/geometry/shape/utility-inl.h",
         "fcl/include/fcl/math/geometry-inl.h",
@@ -72,6 +74,7 @@
         "fcl/include/fcl/narrowphase/detail/traversal/collision/mesh_shape_collision_traversal_node-inl.h",
         "fcl/include/fcl/narrowphase/detail/traversal/collision/shape_collision_traversal_node-inl.h",
         "geometry-inl.h",
+        "gjk_libccd-inl.h",
         "gjk_solver_libccd-inl.h",
         "include/fcl/geometry/bvh/BVH_model-inl.h",
         "include/fcl/geometry/bvh/BVH_model.h",
@@ -84,7 +87,10 @@
         "include/fcl/narrowphase/distance_request.h",
         "mesh_collision_traversal_node-inl.h",
         "mesh_shape_collision_traversal_node-inl.h",
-        "shape_collision_traversal_node-inl.h"
+        "shape_collision_traversal_node-inl.h",
+        "sphere_box-inl.h",
+        "sphere_cylinder-inl.h",
+        "sphere_sphere-inl.h"
       ]
     },
     {

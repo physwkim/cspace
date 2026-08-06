@@ -808,7 +808,7 @@ Phase 완료 조건 판정이 사는 유일한 곳. 위 각 Phase의 "상태" �
 | Phase 2 | 관절 한계 클램핑·mimic 전파·floating/planar 조인트 보간 일치 | MET | §238 | 2026-08-06 |
 | Phase 3 | `collision: bool` 이 10,000×3로봇에서 100% 일치 | UNMET | §275.2 | 2026-08-06 |
 | Phase 3 | `distance: f64` 가 분리 분기(오라클 값 > 0)에서 `1e-4` 이내 일치 | MET | §260 | 2026-08-06 |
-| Phase 3 | `distance: f64` 의 관통 분기(오라클 값 ≤ 0)가 상류와 대조된다 — 상류 결함 3건이 전부 이 분기에서만 발화하므로 오라클을 기준으로 쓸 수 없다 | UNMEASURED | §260 | 2026-08-06 |
+| Phase 3 | `distance: f64` 의 관통 분기(오라클 값 ≤ 0)가, 상류 결함 3건 중 **어느 것도 발화할 수 없는 부분모집단**에서 `1e-4` 이내 일치 — 질의당 쌍 1개 × `sphere × {sphere, box, cylinder}`, 4로봇 4,844표본, 최악 `8.9e-16`. 쌍이 둘 이상인 상태와 `box × box`·메쉬는 이 행이 재지 않았고 오라클 패치를 요구한다 | MET | §283 | 2026-08-06 |
 | Phase 4 | (a) IK 성공이 C++ KDL 플러그인과 구별되지 않는다 — 게이트가 검정력을 갖는(`b + c >= MINIMUM_USABLE_B_PLUS_C`) 모든 `--ik-max-restarts` 동작점에서 짝지은 McNemar 게이트의 절댓값 z가 `PAIRED_DIVERGENCE_Z_THRESHOLD` 이하 | MET | §280 | 2026-08-06 |
 | Phase 4 | (b) 성공한 해의 FK가 `SolverParams::epsilon`(`1e-5`) 이내 일치 | MET | §221.2 | 2026-08-06 |
 | Phase 5 | 제약 조합 2,000건 `decide()` 결과가 오라클과 100% 일치 | MET | §216.1 | 2026-08-05 |
@@ -29016,3 +29016,256 @@ run'`으로 찾은 두 자리 모두 이 헬퍼를 지난다.
 `["base_link", "tip"]`이라고 적고 있었고, 그것이 틀린 문장이었다. 고정 관절로
 `tool`을 하나 더 단 `TOOL_OFFSET_URDF`를 넣어 두 읽기가 모두 풀리고 관절값이
 갈리게(0.2 대 0.5) 만든 뒤 다시 물렸다.
+
+---
+
+## §283 `distance` 관통 분기를 실제로 잰다 — 세 결함의 발화 조건을 상류 소스에서 고정하면, 어느 것도 발화할 수 없는 부분모집단이 남는다 (2026-08-06)
+
+§5 Phase 3의 관통 분기 행은 §260 이래 **UNMEASURED**였고, 그 근거는 "등재된
+`distanceCallback` 결함 3건이 전부 이 분기에서만 발화하므로 오라클을 기준으로 쓸
+수 없다"였다. 그 문장은 **임의의** 관통 상태에 대해 참이다. 그러나 그것은 기준에
+대한 사실이지 분기에 대한 사실이 아니다. 세 결함은 각각 상류 소스에서 읽히는
+발화 조건을 가지며, 그 조건을 하나도 만족하지 않는 질의에서는 오라클이 기준으로
+쓰인다.
+
+결론부터: 그런 부분모집단은 **존재한다**. 그 위에서 이 포트는 절 자신의 허용오차
+`1e-4`를 4,844표본에서 만족하고, 실측 최악 편차는 `8.881784e-16`이다. 오라클을
+고칠 필요는 없었다 — 패치한 오라클로 재는 길은 열려 있었으나, 패치 없이 재는
+부분모집단이 먼저 존재했으므로 쓰지 않았다.
+
+계측기는 `tools/moveit-diff/src/bin/penetration_subset.rs`(모듈 문서에 아래
+유도가 전부 인용과 함께 들어 있다), 게이트는
+`tools/ci/verify-phase3-penetration-subset.sh`다.
+
+### §283.1 세 결함의 발화 조건 — 스윕 출력이 아니라 상류 소스에서
+
+세 항목은 `doc/upstream-bugs.md`에 등재된 것 그대로이고, 아래 조건은 그 등재
+항목의 인용 라인을 다시 열어 읽은 결과다. fcl 라인 번호는 **tag `0.7.0`**
+(`df2702ca5e703dec98ebd725782ce13862e87fc8`) 기준이며 로컬 체크아웃 HEAD
+(`e5efcc4`)가 아니다 — §135가 정한 규칙이고, 아래 §283.6이 그것이 이 절에서
+실제로 문제가 되는 지점을 보인다.
+
+| 등재 항목 | 발화에 필요한 것 | 배제 방법 |
+|---|---|---|
+| `distance-callback-threshold-suppresses-deeper-pairs` | 누적 최소값이 음이 된 **뒤에** 방문되는 쌍이 하나라도 있을 것 | 질의당 쌍을 하나만 남긴다 |
+| `fcl-distance-sentinel-survives-zero-contacts` | `fcl::distance`가 관통이라 한 쌍에 대해 `fcl::collide`가 접촉을 0개 낼 것 | 두 루틴이 같은 술어를 보는 형상 쌍만 쓴다 |
+| `distance-callback-max-contact-depth` | 접촉 집합의 원소가 2개 이상일 것 | 접촉을 정확히 1개 내는 형상 쌍만 쓴다 |
+
+**(1) 임계값이 더 깊은 쌍을 지운다.** GLOBAL 질의에서
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:574`가 누적
+`res->minimum_distance.distance`로 `dist_threshold`를 씨앗 삼고,
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:594`가 그것을
+`fcl_result.min_distance`에 복사한다. 여기서 결정적인 것은 §260이 적은 "임계값이
+관통 깊이를 들고 분리 거리를 잰다"가 아니다 — 실제로는 **fcl이 아예 돌지
+않는다**. `DistanceRequest<S>::isSatisfied`는 글자 그대로
+`return (result.min_distance <= 0);`이고(`distance_request-inl.h:76`),
+`distance_func_matrix-inl.h`의 **모든** 진입점이
+`if(request.isSatisfied(result)) return result.min_distance;`로 열린다(그
+파일에서 10곳, 그중 `distance_func_matrix-inl.h:217`이 `ShapeShapeDistance`).
+따라서 누적 최소값이 한 번 비양수가 되면
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:603`의
+`fcl::distance`는 아무것도 계산하지 않고 임계값을 그대로 돌려주고,
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:608`의
+`if (distance < dist_threshold)`는 `x < x`가 되어 그 쌍은 통째로 버려진다.
+
+이 결함은 **형상 쌍과 무관**하다. 묶는 것은 오직 *순서*이고, 답을 바꾸는 것은
+"최소값이 음이 된 뒤에 방문된 쌍이 더 깊었을 때"뿐이다. 그러므로 질의에 쌍이
+하나뿐이면 잃을 뒤쪽 쌍이 없다.
+
+**(2) 센티널이 접촉 0개를 넘어 살아남는다.**
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:636`이
+`distance <= 0`에서 관통 블록에 들어가고,
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:647`이 같은 쌍을
+`fcl::collide`에 다시 넣는데,
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:648`의
+`if (contacts > 0)`에는 `else`가 없다. 접촉이 0개면 `dist_result.distance`는
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:613`이 넣은
+`fcl_result.min_distance`를 그대로 들고 나가고, 관통 쌍에 대해 그 값은 libccd의
+`-1` 센티널이다(`gjk_libccd-inl.h:2255-2256`, 또는 닫힌 형태 루틴 자신의
+`*dist = -1`). 즉 이 결함은 **거리 루틴과 교차 루틴이 "닿았는가"에 대해 서로 다른
+답을 낼 때** 정확히 그때 발화한다.
+
+**(3) 접촉 집합에서 최대 깊이를 고른다.**
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:646`이 최대 200개의
+접촉을 요구하고,
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:650-659`가 그중
+`penetration_depth`가 **가장 큰** 것을 고른다. 넓은 평면 물체에 걸친 접촉 집합에서
+그 값은 쌍의 깊이가 아니라 옆으로 빠져나가는 거리다. 고를 것이 하나뿐이면 고를
+여지가 없으므로, 이 결함은 **원소 2개 이상의 집합**을 요구한다.
+
+세 조건 중 어느 것도 "상태 공간의 어느 구석"이 아니다. 첫째는 질의의 *쌍 개수*,
+나머지 둘은 *형상 쌍의 종류*에만 걸린다. 그래서 부분모집단을 만들 수 있다.
+
+### §283.2 두 형상 쌍 조건을 동시에 만족하는 쌍은 `sphere × {sphere, box, cylinder}`뿐이다
+
+상류는 URDF 기본 도형에 대해 `fcl::Sphered`/`fcl::Boxd`/`fcl::Cylinderd`를 직접
+만들고(`moveit_core/collision_detection_fcl/src/collision_common.cpp:875-893`),
+fcl의 기본 `gjk_solver_type`은 `GST_LIBCCD`이며(`collision_request.h:102`),
+libccd는 이 셋 각각에 닫힌 형태 교차 루틴을 등록한다 —
+`gjk_solver_libccd-inl.h:245`(sphere/sphere),
+`gjk_solver_libccd-inl.h:250`(sphere/box),
+`gjk_solver_libccd-inl.h:252`(sphere/cylinder). 각 매크로는 두 인자 순서로 모두
+전개된다. 따라서 일반 GJK/MPR 경로에도, BVH 경로에도 가지 않는다.
+
+**접촉은 정확히 1개다.** 세 루틴 각각에 `contacts->emplace_back`이 하나뿐이고
+반복문 안이 아니다(`sphere_sphere-inl.h:82`, `sphere_box-inl.h:175`,
+`sphere_cylinder-inl.h:218`). `ShapeCollisionTraversalNode::leafTesting`은 솔버가
+낸 접촉을 그대로 넣는다(`shape_collision_traversal_node-inl.h:99-100`). 그래서
+`fcl::collide`는 1을 돌려주고,
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:650-659`에는 후보가
+하나뿐이다 → **결함 (3) 발화 불가.**
+
+**두 루틴이 같은 술어를 본다.** `sphereBoxIntersect`는
+`squared_distance > r * r`일 때만 거짓을 돌려주고(`sphere_box-inl.h:119-120`),
+`sphereBoxDistance`는 바로 그 판정의 여집합에서 `*dist = -1`을
+쓴다(`sphere_box-inl.h:205`, `sphere_box-inl.h:224`). 원기둥도
+(`sphere_cylinder-inl.h:136-137` 대 `sphere_cylinder-inl.h:250`,
+`sphere_cylinder-inl.h:269`), 구도(`sphere_sphere-inl.h:72-73` 대
+`sphere_sphere-inl.h:99`, `sphere_sphere-inl.h:107`) 같다. 그러므로
+`moveit_core/collision_detection_fcl/src/collision_common.cpp:636`에 도달한 쌍은
+언제나 접촉을 낸다 → **결함 (2) 발화 불가.**
+
+`box × box`는 일부러 뺐다. `boxBoxIntersect`는 `boxBox2(..., 4, contacts)`가 만든
+집합을 그대로 복사해 내보내며(`box_box-inl.h:857-874`, 호출은
+`box_box-inl.h:865-868`) 접촉을 여러 개 낼 수 있다. 메쉬 링크는 같은 이유로, 더
+강하게 제외된다.
+
+### §283.3 코퍼스, 그리고 마스크가 오라클의 질의에 닿았다는 증명
+
+세계 물체는 구 하나("probe")이고, 충돌 형상이 **정확히 하나의 기본 도형**인 링크
+위에 놓인다. 충돌 요소가 여럿인 링크는 건너뛴다 — ACM은 링크 *이름*으로 키를
+잡으므로, 그런 링크를 열면 그 링크의 모든 형상이 별개의 쌍으로 노출되어 결함 (1)의
+순서 문제가 다시 열린다. 나머지 모든 로봇링크/세계물체 쌍은
+`set_acm_entry`로 허용시켜 질의에 쌍이 하나만 남게 한다 → **결함 (1) 발화 불가.**
+
+이 마스크가 실제로 오라클의 질의에 닿는지는 가정하지 않고 **타깃마다 증명한다**.
+프로브를 링크 형상 자신의 원점에 놓아 구조적으로 겹치게 한 뒤, 타깃까지 포함해
+모든 링크를 허용시킨 요청과 그 직전 요청을 비교해 앞은 `robot_distance <= 0`,
+뒤는 `robot_distance >= 1e30`(= 쌍 없음)임을 요구한다. 실패하면 그 로봇은 측정되지
+않고 실행이 비영으로 끝난다.
+
+처음 쓴 검사는 이것이 아니었고 **틀렸다.** "마스크가 오라클의 답을 바꾸었는가"를
+게이트로 삼았는데, 프로브가 자기 타깃 링크 위에 놓이면 그 쌍이 마스크 없이도 최소인
+경우가 많아 pr2에서 `0 of 27`로 떨어졌다. 그 수는 마스크가 닿았다는 증거가 아니라
+"마스크가 없었어도 같은 쌍이 최소였다"는 사실이었다. 지금은 보고만 하고 판정하지
+않는다(§283.5가 그 수를 쓴다).
+
+표본을 뽑는 난수는 `ChaCha8Rng`이고 시드는 오라클의 `random_states` 시드와 같은
+값에서 갈라져 나오므로, `(STATES, SEED)` 한 쌍이 양쪽 코퍼스를 전부 재현한다.
+전선에 올라가는 프로브 자세는 절대 좌표라, 링크의 충돌 원점을 어느 쪽이 어떻게
+해석하든 양쪽은 동일한 기하를 받는다. 오라클 값이 양수로 돌아온 표본은 애초에 이
+분기가 아니므로 세고 버린다 — 그것은 결과에 대한 필터가 아니라 분기 자신의
+정의(`moveit_core/collision_detection_fcl/src/collision_common.cpp:636`이 보는
+`distance <= 0`)다.
+
+### §283.4 측정 — 4로봇, 4,844표본, 최악 `8.881784e-16`
+
+`tools/ci/verify-phase3-penetration-subset.sh`의 기본값(시드 1), 허용오차는 절
+자신의 `1e-4`이고 넓히지 않았다:
+
+| 로봇 | 요청 | 분리(이 분기 아님) | 남긴 표본 | 최악 \|oracle − port\| | `≤1e-12` 버킷 |
+|---|---:|---:|---:|---|---:|
+| prbt | 400 | 98 | 302 | `3.070461e-16` | 302 |
+| prbt_pg70 | 2100 | 474 | 1626 | `6.661338e-16` | 1626 |
+| one_robot | 1800 | 7 | 1793 | `8.881784e-16` | 1793 |
+| pr2 | 1700 | 577 | 1123 | `5.121771e-16` | 1123 |
+| **합계** | **6000** | **1156** | **4844** | **`8.881784e-16`** | **4844** |
+
+`≤1e-9`, `≤1e-6`, `≤1e-4` 버킷은 네 로봇 모두 0이다 — 즉 남긴 4,844표본이 전부
+`1e-12` 안에 있고, 절의 `1e-4`까지는 8자릿수의 여유가 있다.
+
+형상 쌍별로, 그리고 이 코퍼스가 실제로 얕지 않다는 근거(오라클이 발표한 관통
+깊이의 범위)는:
+
+| 쌍 | 표본 | 최악 \|oracle − port\| | 깊이 min / median / max |
+|---|---:|---|---|
+| `sphere × box` | 3307 | `8.881784e-16` | `2.196e-6` / — / `6.492e-1` |
+| `sphere × cylinder` | 1316 | `3.330669e-16` | `1.783e-5` / — / `2.545e-1` |
+| `sphere × sphere` | 221 | `4.319461e-16` | `9.523e-6` / `5.364e-3` / `1.804e-1` |
+
+(중앙값은 로봇별로 찍히므로 여러 로봇에 걸친 쌍에는 하나로 적을 수 없다. 로봇별
+값은 게이트 출력에 그대로 있다.)
+
+### §283.5 이 코퍼스가 무는가 — 변이 두 개, 그리고 프로브 반지름 범위가 그 때문에 정해졌다
+
+`crates/moveit-collision/src/parry.rs`의 `accumulate_distance` 부호 분기
+(`request.enable_signed_distance`가 참일 때 `contact.dist`를 그대로 쓰는 곳)에 변이를
+심었다:
+
+| 변이 | prbt_pg70 | one_robot |
+|---|---|---|
+| `contact.dist * 1.001` (0.1% 오차) | NOT MET 50/1626, 최악 `2.544690e-4` | NOT MET 1115/1793, 최악 `6.492177e-4` |
+| `contact.dist.max(0.0)` (부호 분기 제거) | NOT MET 1614/1626, 최악 `2.544690e-1` | NOT MET 1792/1793, 최악 `6.492177e-1` |
+
+둘 다 되돌렸다.
+
+**첫 변이가 코퍼스의 설계를 결정했다.** 0.1% 상대 오차의 편차는 정의상
+`0.001 × |깊이|`이고, 위 표가 그 항등식이다 — prbt_pg70의 최악 `2.544690e-4`는 그
+로봇의 최대 깊이 `2.545e-1`의 0.001배이고, one_robot의 `6.492177e-4`는 `6.492e-1`의
+0.001배다. 따라서 **가장 깊은 표본이 `1e-1`에 못 미치는 코퍼스는 0.1% 오차를 절의
+`1e-4`에서 구별할 수 없다.** 처음 쓴 반지름 상한 `0.05`에서 가장 깊은 표본이
+`6.8e-2`였고, 같은 변이의 최악 편차는 `6.8e-5`로 `1e-4` 안이라 실행은 그대로 MET을
+찍었다. 그래서 반지름을 약 2.2자리에 걸친 로그균등
+(`10^-2.7 ≈ 2.0e-3` ~ `10^-0.52 ≈ 3.0e-1`)으로 넓혔고, 그 뒤에 위 표의 값이 나온다.
+허용오차를 넓혀 맞춘 것이 아니라 **모집단을 절이 요구하는 깊이까지 키운 것**이다.
+
+### §283.6 부산물 — 마스크를 벗기면 오라클은 같은 기하에 다른 수를 발표한다
+
+게이트는 남긴 표본마다 "마스크 없는 GLOBAL 질의가 같은 기하에 대해 다른 답을
+내는가"를 세어 보고한다(판정에는 쓰지 않는다):
+
+| 로봇 | 다른 답을 낸 표본 | 최대 차이 |
+|---|---|---|
+| prbt | 90 / 302 | `1.421860e-1` |
+| prbt_pg70 | 861 / 1626 | `2.223585e-1` |
+| one_robot | 1058 / 1793 | `5.733883e-1` |
+| pr2 | 105 / 1123 | `1.323153e-1` |
+
+이것이 결함 (1)의 실측 발자국이다. 스윕이 매 상태마다 던지는 질의가 바로 이
+마스크 없는 모양이고, 거기서 같은 기하에 대한 발표값이 최대 `5.7e-1`만큼
+달라진다 — 절 자신의 `1e-4`의 약 5,700배다. §5의 관통 분기 행이 임의의 상태에서
+오라클을 기준으로 쓸 수 없다는 §260의 판단은 이 수로 다시 확인된다. 이 절이
+바꾼 것은 그 판단이 아니라 **모집단**이다.
+
+### §283.7 fcl 인용을 tag `0.7.0`에서 읽는 것은 이 절에서 장부가 아니었다
+
+처음 유도할 때 fcl 라인 번호를 로컬 체크아웃 HEAD(`e5efcc4`, 0.7.0-17)에서 땄다.
+§135가 금지하는 것이고, 실제로 틀렸다. 인용한 10개 헤더를 오라클 이미지 자신의
+`/usr/include/fcl`과 `cmp`로 맞춰 본 결과 8개는 바이트 동일, `box_box-inl.h`는
+1행, `gjk_libccd-inl.h`는 **95행** 어긋난다 — `-CCD_ONE` 반환이 tag에서
+`gjk_libccd-inl.h:2255-2256`, HEAD에서 2350-2351행이다. §283.1 (2)의 근거가 통째로
+95행 옆을 가리키고 있었다는 뜻이다. 위 인용은 전부
+`git show 0.7.0:include/fcl/...`에서 다시 뽑았다.
+
+이 여섯 파일은 `tools/ci/upstream-citation-exemptions.json`의 `fcl` 그룹에
+새로 등재했다(`distance_request-inl.h`, `distance_func_matrix-inl.h`,
+`gjk_libccd-inl.h`, `sphere_sphere-inl.h`, `sphere_box-inl.h`,
+`sphere_cylinder-inl.h`). 등재는 "어느 트리도 이 경로를 덮지 않는다"는 선언이지
+"라인이 맞다"는 보증이 아니며, 여기서 그 보증을 대신한 것이 위의 `cmp`다.
+
+### §283.8 비용
+
+`tools/ci/verify-phase3-penetration-subset.sh` 전체 실행은 **네 번** 실측해서
+66–81초다(79/70/66/81, 릴리스 빌드 약 14초 별도). 한 번의 값이 아니라 범위로 적는
+이유는 이것이 공유 기계의 벽시계이기 때문이다 — 요청 수는 코퍼스의 성질이지만 이
+초는 아니다. 로봇별로는 prbt 2–3초, prbt_pg70 5–10초, one_robot 2–4초,
+pr2 56–67초. **pr2가 전체의 8할이 넘고 가장 큰 코퍼스가 아니다** —
+비용은 표본 수가 아니라 오라클이 95링크 모델에 대해 요청마다 도는
+`PlanningScene` diff를 따른다. 표본 수로 로봇별 비용을 추정하면 안 된다.
+
+이 크기는 `verify-all.sh`가 조건 없이 돌리는 `verify-oracle-sweep.sh`(113초)와
+같은 부류이므로 opt-in으로 감싸지 않았다. 도커가 없거나 이미지 다이제스트가
+어긋나면 크게 SKIP한다 — 조용한 skip은 통과와 구별되지 않는다.
+
+### §283.9 §5 행이 뭐라고 말해야 하는가
+
+관통 분기 행은 이제 **판정어가 자기 모집단을 이름으로 든다**: 이 측정은 분기
+전체가 아니라 세 결함 중 어느 것도 발화할 수 없는 부분모집단에 대한 것이고,
+행은 무엇을 제외했는지를 말한다. 남는 것(=이 절이 재지 않은 것)은 명시적으로:
+
+- 질의에 쌍이 둘 이상인 관통 상태. 결함 (1)이 거기서 살아 있고, §283.6이 그
+  발자국을 잰다.
+- `box × box`, 메쉬 대 무엇, 그리고 충돌 요소가 여럿인 링크. 결함 (2)·(3)이
+  거기서 살아 있다.
+- 그것들을 재려면 오라클을 패치해야 한다(브리핑의 3단계). 이 절은 그 길을 닫지
+  않고, 다만 더 싼 길이 먼저 있었다고 보고한다.
