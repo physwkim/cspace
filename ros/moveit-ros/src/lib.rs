@@ -78,6 +78,7 @@ pub mod constraints;
 pub mod geometry;
 pub mod model;
 pub mod move_group;
+pub mod planner_params;
 pub mod planning;
 pub mod scene;
 pub mod state;

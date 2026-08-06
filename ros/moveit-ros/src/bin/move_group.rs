@@ -671,6 +671,15 @@ fn main() -> ExitCode {
 
     let mut pool = LocalPool::new();
     let spawner = pool.spawner();
+
+    // Upstream's `MoveGroupQueryPlannersService` is one capability serving
+    // three services off one configuration map, so it registers as one thing
+    // here too -- see `moveit_ros::planner_params`.
+    if let Err(e) = moveit_ros::planner_params::spawn(&mut node, &spawner) {
+        eprintln!("{e}");
+        return ExitCode::FAILURE;
+    }
+
     let scene_for_plan_service = Rc::clone(&scene);
     let spawned = spawner.spawn_local(async move {
         let mut service = service;

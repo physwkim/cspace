@@ -29,6 +29,10 @@
 #     under the round-32 merge gate before this line existed)
 #   - A live `/plan_kinematic_path` round trip over DDS (`run "live"` below,
 #     PORTING-PLAN.md §241)
+#   - Two live planner-parameter legs over DDS -- the three services exist,
+#     `query_planner_interface`'s answer comes off the linked
+#     `PLANNER_MANAGERS` slice, and a `set` is stored rather than silently
+#     dropped (ros/verify-planner-params-interop.sh, PORTING-PLAN.md §274)
 #   - Two live `/move_action` legs over DDS, one of them driven by upstream's
 #     own unmodified C++ `MoveGroupInterface` (ros/verify-move-action-interop.sh,
 #     called at the end of this script). PORTING-PLAN.md §250 measured that
@@ -395,6 +399,12 @@ SRDF
 '
 echo "OK scene-topic: /planning_scene reached the node over DDS, and /check_state_validity"
 echo "OK scene-topic: answered True/False/False/True across an empty world, a full scene, a diff, and a full scene"
+
+# The planner-parameter trio, in its own file: they are one upstream
+# capability (`query_planners_service_capability.cpp` creates all three in one
+# `initialize()`), and a per-capability gate file is what keeps the panels
+# landing endpoints in parallel off each other.
+"$REPO_ROOT/ros/verify-planner-params-interop.sh"
 
 # `/move_action`, in its own file: it orchestrates three containers and a
 # docker network, and it is the only check here that runs upstream's own C++
