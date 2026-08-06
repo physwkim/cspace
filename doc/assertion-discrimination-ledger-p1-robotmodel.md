@@ -90,9 +90,9 @@ expression, never the full crate; no bite touched a convergence test.
 | `goal_sampler.rs:298` | same anchor | `path_constraints_end_to_end_wired_vs_unwired` (unwired-half assertion) | single-branch | same bite/anchor as :220 |
 | `nn.rs:227` | `Gnat::nearest`'s `self.root.as_ref()?` empty-index guard | `empty_index_has_no_nearest` | single-branch | bite: forced panic on the `None` arm → test failed; reverted |
 | `planning_scene_validity.rs:419` | `PositionConstraint::new`'s two `UnknownName` sites (link_name vs. frame_id) | (world-object-transform test) | discriminating | commit `1397dea` (checks `kind: "frame"`/`name == "table"`; commit message records that swapping the expected kind to the link_name sibling had kept the test passing before the fix) |
-| `crates/moveit-planners-sbp/src/registry.rs:858` | `JointModelGroupSpace::new`'s single `UnknownGroup` construction site, reached through `get_planning_context` | `unknown_group_is_rejected_before_any_search_runs` | single-branch | bite: forced panic on the guard's `Err` arm → test failed; reverted. `get_planning_context`'s own doc comment states this is its only failure mode |
-| `crates/moveit-planners-sbp/src/registry.rs:1336` | `PlanningContext::solve`'s single `NoGoalSample` construction site (`sample_goal(...).ok_or(...)`) | `solver_wiring_changes_whether_a_cartesian_pose_goal_is_reachable` | single-branch | bite: forced panic on the `None` arm → test failed; reverted |
-| `crates/moveit-planners-sbp/src/registry.rs:1493` | `resolve_constraint_sampler`'s `None` passthrough from `moveit_constraints::select_default_sampler` | `path_constraints_solver_wiring_matches_the_call_site` | single-branch | bite: forced panic on the wrapper's `None` arm → test failed; reverted. Caveat: `select_default_sampler`'s own internal branching lives in `moveit-constraints`, outside this round's fence — not independently audited beyond confirming this test's fixture always supplies a valid `group_name`, so the sibling "unknown group" `None` inside that function is not reachable from this fixture |
+| `crates/moveit-planners-sbp/src/registry.rs:916` | `JointModelGroupSpace::new`'s single `UnknownGroup` construction site, reached through `get_planning_context` | `unknown_group_is_rejected_before_any_search_runs` | single-branch | bite: forced panic on the guard's `Err` arm → test failed; reverted. `get_planning_context`'s own doc comment states this is its only failure mode |
+| `crates/moveit-planners-sbp/src/registry.rs:1531` | `PlanningContext::solve`'s single `NoGoalSample` construction site (`sample_goal(...).ok_or(...)`) | `solver_wiring_changes_whether_a_cartesian_pose_goal_is_reachable` | single-branch | bite: forced panic on the `None` arm → test failed; reverted |
+| `crates/moveit-planners-sbp/src/registry.rs:1688` | `resolve_constraint_sampler`'s `None` passthrough from `moveit_constraints::select_default_sampler` | `path_constraints_solver_wiring_matches_the_call_site` | single-branch | bite: forced panic on the wrapper's `None` arm → test failed; reverted. Caveat: `select_default_sampler`'s own internal branching lives in `moveit-constraints`, outside this round's fence — not independently audited beyond confirming this test's fixture always supplies a valid `group_name`, so the sibling "unknown group" `None` inside that function is not reachable from this fixture |
 
 ## moveit-planners-stomp (7 — override, was p3-shapes')
 
@@ -117,7 +117,7 @@ its outcome in both directions.
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `pipeline.rs:679` | `generate_plan`'s single `PipelineError::NoPlanners` construction site (nullary variant) | `zero_planners_is_an_error` | single-branch | `rg` enumeration: one construction site (`pipeline.rs:386`); nullary variant carries no payload to lose, so `matches!` cannot be blinder than `==` here. Matches the census's own reconciliation note for this crate |
+| `pipeline.rs:723` | `generate_plan`'s single `PipelineError::NoPlanners` construction site (nullary variant) | `zero_planners_is_an_error` | single-branch | `rg` enumeration: one construction site (`pipeline.rs:385`); nullary variant carries no payload to lose, so `matches!` cannot be blinder than `==` here. Matches the census's own reconciliation note for this crate |
 | `plan_responses.rs:208` | `PlanResponsesContainer` round-trip of a value pushed two lines above in the same test | `plan_responses_container_returns_pushed_outcomes_in_push_order` | not-this-family | direct read: this asserts storage/retrieval fidelity of an `Err` the test itself constructed, not selection among distinct error causes |
 | `plan_responses.rs:214` | `shortest_solution`'s `best` accumulator, empty-input case | `shortest_solution_is_none_on_empty_input` | not-this-family | direct read: `best` starts `None` and the loop body never runs on an empty slice — vacuously the only possible outcome, no guard to discriminate |
 | `add_time_optimal_parameterization.rs:368` | `adapt`'s single `ResponseAdapterError::Failed` construction site | `adapt_rejects_an_invalid_resample_dt_deferred_from_new` | single-branch | `rg` enumeration: one construction site (line 139) |
@@ -1419,7 +1419,7 @@ contributes one the census's crate-level total folds into
 | `moveit-constraints/tests/decide.rs:210` | p1-fixtures | (their verdict, not re-derived here) | n/a — `JointConstraint::new`'s tolerance guard lives in `moveit-constraints/src/joint.rs`, owned by p1-fixtures per `doc/folded-operand-guards.md` (already the precedent this ledger recorded at the `decide.rs:183/184` entry above); `decide.rs` is nominally mine as a test file but the guard is not, so this site is theirs to classify even though it is textually in "my" slice. |
 | `robot_model.rs:2092` | this ledger (line ~861, ~1327 above) + independently, p9-ros (`doc/assertion-discrimination-ledger-p9-ros.md:140`) | **discriminating** | **yes, named twice, independently.** This ledger: the pattern is `[Diagnostic::MimicCycle]`, which requires both slice length exactly 1 *and* the one named variant among three the same function can push (`MimicUnknownJoint`, `MimicDofMismatch`, `MimicCycle`) — a bare `bool` (`!diagnostics.is_empty()`) would not tell these apart, but this pattern's payload does. p9-ros's row states the identical reason independently ("requires both exact length 1 and the named variant"), and ran its own bite. Two independent panels landing on the same exception is stronger than either alone. |
 | `robot_model.rs:2605` | this ledger (line ~1330 above) | not-this-family | n/a — `matches!(shapes[0].shape, Shape::Mesh(_))` is a computed classification tag on an already-successful build (same exclusion as `robot_model_parity.rs:356` and the `urdf.rs` trio above), not a check that could be blind to which of several failure causes fired. |
-| `moveit-planning/src/pipeline.rs:679` | this ledger (line ~120 above) | single-branch | yes — `PipelineError::NoPlanners` is a nullary variant (no payload to lose) with exactly one construction site in the crate (`pipeline.rs:386`, confirmed by `rg` this round: still one hit); `matches!` cannot be blinder than `==` when there is nothing else the value could be and nowhere else it could come from. |
+| `moveit-planning/src/pipeline.rs:723` | this ledger (line ~120 above) | single-branch | yes — `PipelineError::NoPlanners` is a nullary variant (no payload to lose) with exactly one construction site in the crate (`pipeline.rs:385`, confirmed by `rg` this round: still one hit); `matches!` cannot be blinder than `==` when there is nothing else the value could be and nowhere else it could come from. |
 | `moveit-planning/src/response_adapters/add_time_optimal_parameterization.rs:368` | this ledger (line ~123 above) | single-branch | yes — same shape: `ResponseAdapterError::Failed{..}` has exactly one construction site (`rg` this round: still one hit, line 139), so the ignored `{..}` payload loses nothing there was ever more than one of. |
 
 Re-ran `rg -n 'PipelineError::NoPlanners' crates/moveit-planning/src/pipeline.rs`
@@ -1459,3 +1459,33 @@ test-file evidence; `moveit-model`/`moveit-planning` untouched this round,
 their round-16/18 gates stand). No source fixes this round — every site
 audited was already correctly classified; the audit's output is the
 verification itself, not a correction.
+
+## Re-anchored by D8 (planner-type unification)
+
+`PORTING-PLAN.md` D8 merged `moveit_planners_sbp::registry`'s private
+`PlanningRequest`/`PlanningResponse` into `moveit-planning`'s and moved
+`PlannerManager`/`PlanningContext` there too, which rewrote most of
+`registry.rs`'s test module and shifted `pipeline.rs`. Four citations in this
+file moved:
+
+* `crates/moveit-planners-sbp/src/registry.rs:858` -> `:916`
+* `crates/moveit-planners-sbp/src/registry.rs:1336` -> `:1531`
+* `crates/moveit-planners-sbp/src/registry.rs:1493` -> `:1688`
+* `pipeline.rs:679` -> `:723` (both rows; the `PipelineError::NoPlanners`
+  construction site cited in their evidence moved `:386` -> `:385`)
+
+Each new line was obtained by aligning `git show a35bc2e:<file>` against the
+working tree with `difflib` and then reading the row's own named test
+function at the result, not by nearest-line proximity.
+
+`registry.rs:916` is the one that is more than a move. D8 made
+`moveit_planning::PlanError` a `Box<dyn Error + Send + Sync>`, so
+`unknown_group_is_rejected_before_any_search_runs` no longer matches the
+concrete variant directly — it downcasts first and then matches. The row's
+recorded bite was run against the old shape, so it was re-run against the new
+one: replacing `JointModelGroupSpace::new`'s `SbpError::UnknownGroup { .. }`
+with `SbpError::NoSubspaces` fails this test **and**
+`joint_model_group_space::tests::unknown_group_is_rejected`, with 101 of 112
+green; reverted, `git diff --stat` clean. Recorded in full as bite B6 of
+`doc/assertion-discrimination-ledger-d8-planner.md`. The verdict
+(single-branch) is unchanged.
