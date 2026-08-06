@@ -31,8 +31,8 @@
 ### Phase 3 — `collision: bool` — **UNMET** (§251.4)
 
 - **막는 것:** fcl's narrowphase specialization registry stands where a convention would, rather than there being no convention: §251.1 finds all 49 of 49 cells decided by whether fcl registered a libccd-bypassing specialization for that shape pair, and prbt's `cylinder x box` is a blank cell in it
-- **후보 경로 접두사:** `moveit_core/collision_detection/`, `moveit_core/collision_detection_fcl/`, `moveit_core/collision_detection_bullet/` → 87건 중 **9건**이 후보
-- **판정:** the sweep measures the port AGAINST the oracle over 10,000 samples and reports 6,854 mismatches, so both sides produced values -- the row fails on a semantic disagreement, not on an absent file.  §265 pins all 6,854 to the single pair floor/prbt_base_link, whose world pose no joint moves, so every sampled state hits the same tie; §270 reproduces the whole 5-robot table on merged main.  The mechanism lives in collision_detection_fcl, which doc/port-coverage.md §1 excludes from the corpus, so no member of the 87 can be it.
+- **후보 경로 접두사:** `moveit_core/collision_detection/`, `moveit_core/collision_detection_fcl/`, `moveit_core/collision_detection_bullet/` → 86건 중 **9건**이 후보
+- **판정:** the sweep measures the port AGAINST the oracle over 10,000 samples and reports 6,854 mismatches, so both sides produced values -- the row fails on a semantic disagreement, not on an absent file.  §265 pins all 6,854 to the single pair floor/prbt_base_link, whose world pose no joint moves, so every sampled state hits the same tie; §270 reproduces the whole 5-robot table on merged main.  The mechanism lives in collision_detection_fcl, which doc/port-coverage.md §1 excludes from the corpus, so no unported file can be it.
 - **후보 전건:**
   - `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp`
   - `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp`
@@ -47,7 +47,7 @@
 ### Phase 3 — `distance: f64` — **PARTIAL** (§260)
 
 - **막는 것:** the divergence is confined to one branch of the upstream function: §260 measures 0 divergences on the separated branch across 5 robots x 10,000 states, and the penetration branch is incomparable because of 3 upstream defects -- which is why the row reads PARTIAL, not UNMET
-- **후보 경로 접두사:** `moveit_core/collision_detection/`, `moveit_core/collision_detection_fcl/`, `moveit_core/collision_detection_bullet/` → 87건 중 **9건**이 후보
+- **후보 경로 접두사:** `moveit_core/collision_detection/`, `moveit_core/collision_detection_fcl/`, `moveit_core/collision_detection_bullet/` → 86건 중 **9건**이 후보
 - **판정:** the mechanism is upstream distanceCallback in moveit_core/collision_detection_fcl/src/collision_common.cpp, a file the corpus excludes, and §260 attributes what remains to 3 defects in that upstream function; porting any candidate below would not change what that callback computes.
 - **후보 전건:**
   - `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp`
@@ -63,7 +63,7 @@
 ### Phase 8 — `CHOMP/STOMP` — **UNMET** (§269)
 
 - **막는 것:** the 89.64% bar is Phase 7's, set by C++ OMPL RRTConnect, and §269 measures upstream's own C++ implementations missing it on the same 500 problems -- CHOMP 370/500 (74.0%) and STOMP 446/500 (89.2%).  §263 measured the port short of the same bar.  The harness exists -- what fails is a rate compared against a different planner's baseline, not an absent file
-- **후보 경로 접두사:** `moveit_planners/chomp/`, `moveit_planners/stomp/` → 87건 중 **8건**이 후보
+- **후보 경로 접두사:** `moveit_planners/chomp/`, `moveit_planners/stomp/` → 86건 중 **8건**이 후보
 - **판정:** the 8 candidates are all ROS plugin wiring (chomp_interface/*, stomp_moveit_planner_plugin.cpp, trajectory_visualization.hpp) and §263's harness does not go through a plugin -- it drives the crates directly from crates/moveit-planners-{chomp,stomp}/examples/*_benchmark_port.rs. The row fails on measured success rate, so porting any candidate below could not move it.
 - **후보 전건:**
   - `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_interface.hpp`
@@ -78,7 +78,7 @@
 ### Phase 9 — `MoveGroupInterface` — **UNMET** (§250.5)
 
 - **막는 것:** per §256 the current first rejection is that there is no planner to call, which is a decision D8 owns -- port-side, not an unported upstream file
-- **후보 경로 접두사:** `moveit_ros/` → 87건 중 **0건**이 후보
+- **후보 경로 접두사:** `moveit_ros/` → 86건 중 **0건**이 후보
 - **판정:** all four items §250.6 leaves open are port-side (crates/moveit-planning, ros/verify-ros-interop.sh); none is an unported upstream file.
 
 

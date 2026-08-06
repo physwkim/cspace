@@ -77,7 +77,7 @@ HEADING = re.compile(r"^#+\s+§?(\d+(?:\.\d+)*)\b")
 # them cannot block the row.  The distinction matters: an earlier revision of
 # this table carried empty path sets, which made the BLOCKS column read
 # `none` for every file *by construction* -- a column that cannot say anything
-# else is not a measurement.  `Phase 3`'s prefixes below select 9 of the 87,
+# else is not a measurement.  `Phase 3`'s prefixes below select 9 of the set,
 # so the column can fire and is a real test.
 #
 # `adjudication` is why the candidates that do fire still do not block, and it
@@ -109,7 +109,7 @@ UNMET_BLOCKERS = {
             "pose no joint moves, so every sampled state hits the same tie; §270 "
             "reproduces the whole 5-robot table on merged main.  The mechanism "
             "lives in collision_detection_fcl, which doc/port-coverage.md §1 "
-            "excludes from the corpus, so no member of the 87 can be it.",
+            "excludes from the corpus, so no unported file can be it.",
     },
     ("Phase 3", "distance: f64"): {
         # The row cited §229.3 until §260 re-measured it and the §5 table moved
@@ -765,7 +765,7 @@ def main() -> int:
                 fh.write(
                     "- **후보 경로 접두사:** "
                     + ", ".join(f"`{pre}`" for pre in spec["candidates"])
-                    + f" → 87건 중 **{len(hits)}건**이 후보\n"
+                    + f" → {len(items)}건 중 **{len(hits)}건**이 후보\n"
                 )
                 fh.write(f"- **판정:** {spec['adjudication']}\n")
                 if hits:
