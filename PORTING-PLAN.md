@@ -688,6 +688,9 @@ p≈0.19)로 역시 노이즈다. 즉 **횟수 기반 재시도 자체는 상류
 > **상태.** §5의 **완료 조건 현황표**를 보라 — 이 절이 쌓아 온 상태
 > 갱신(§218 초기 측정, §229 원인 확정)은 그 표로 옮겼다. 측정 자체의
 > 증거는 §218.3/§218.4(초기 측정)와 §229.1/§229.3(원인 확정)에 남아 있다.
+> 다만 `collision: bool` 쪽 **원인**은 §229.1이 아니라 §251이 확정한
+> 것이다 — §229.1은 자기 진단을 스스로 물렸고(§251.4가 "유효하되
+> 불완전했다"고 적는다), 측정만 그대로 선다.
 
 ### Phase 4 — 역기구학 (5주, ~5,000 LOC)
 
@@ -22606,10 +22609,17 @@ $ rg -n '^\| Phase ' PORTING-PLAN.md | rg -v '\| MET \|'
 
 | Phase 행 | 인용 § | 그 행을 실제로 막는 것 | 87건 중 이 행을 막는 파일 |
 |---|---|---|---|
-| Phase 3 `collision: bool` | §229.1 | 상류에 정합할 규약이 자체가 없다 — `z = 0` 정확 접선에서 상류의 답이 한 값으로 정해지지 않는다. 빠진 코드가 아니라 정의되지 않은 의미론이다 | **0**. 이 행이 재는 코드는 `moveit_core/collision_detection_fcl/src/collision_common.cpp`이고, 그 디렉터리는 `CORE_EXCLUDED_SUBDIRS`라 코퍼스 245에 애초에 들어오지 않는다 |
+| Phase 3 `collision: bool` | §229.1 | ~~상류에 정합할 규약이 자체가 없다 — `z = 0` 정확 접선에서 상류의 답이 한 값으로 정해지지 않는다. 빠진 코드가 아니라 정의되지 않은 의미론이다~~ → **§251이 대체.** 규약이 없는 것이 아니라 fcl의 협면 특수화 등록표가 규약 자리에 있고, prbt의 `cylinder × box`가 그 표의 빈칸이다(§251.1이 49셀 중 49셀을 그 기준으로 가른다). 정의되지 않은 의미론이 아니라 쌍마다 정해진 디스패치다 | **0**. 이 행이 재는 코드는 `moveit_core/collision_detection_fcl/src/collision_common.cpp`이고, 그 디렉터리는 `CORE_EXCLUDED_SUBDIRS`라 코퍼스 245에 애초에 들어오지 않는다 |
 | Phase 3 `distance: f64` | §229.3 | 상류 `distanceCallback`(`collision_detection_fcl/src/collision_common.cpp:471`)이 다른 양을 잰다 — 최대 침투깊이 접촉의 부호를 뒤집은 값. 배율이 아니라 정의 차이다 | **0**. 위와 같은 파일·같은 이유 |
 | Phase 8 CHOMP/STOMP | §217.3 | 포트 쪽에 속성 기반 하네스가 없다. Phase 7의 대응물은 `crates/moveit-planners-sbp/examples/plan_benchmark_{port,problem_set}.rs`이고 chomp/stomp 크레이트에는 `examples/`·`benches/` 자체가 없다 | **0**. 87건 중 chomp/stomp는 8건이지만 전부 ROS 플러그인 배선(`chomp_interface/*`, `stomp_moveit_planner_plugin.cpp`, `trajectory_visualization.hpp`)이고, Phase 7 하네스는 플러그인을 거치지 않는다 — `plan_benchmark_port.rs:182`는 `moveit_planners_sbp::PlannerManager`를 직접 쓰고, 대응 진입점은 이미 있다(`moveit-planners-chomp/src/planner.rs:382 solve`, `moveit-planners-stomp/src/planner.rs:430 plan`) |
 | Phase 9 `MoveGroupInterface` | §226.4, §250 | **이 표가 쓰인 시점에는** 서버 쪽이 없었다 — `fn main`을 갖는 노드 바이너리도, `/plan_kinematic_path` 서비스도, `/move_action` 액션 서버도 없었다. 셋 다 §250이 같은 병합 창에서 지었으므로(`ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`) 지금 남은 것은 호출할 플래너가 없다는 것이고, 그것은 D8이 소유한 결정이다 | **0**. 이 행을 막는 상류 코드는 `moveit_ros/move_group/**`이고(예: `src/default_capabilities/plan_service_capability.cpp`가 `/plan_kinematic_path`를 연다), 코퍼스에 `moveit_ros/` 파일은 0건이다 |
+
+**`인용 §` 열은 이 표가 쓰인 시점의 값이다.** 그 뒤로 §5 표에서 두 칸이
+움직였다 — `collision: bool`은 §229.1 → §251.4, CHOMP/STOMP는 §217.3 →
+§263 → §269. 이 열을 살아 있는 사본으로 두지 않는 이유는 그 사본이 정확히
+이렇게 조용히 낡기 때문이고, 같은 사본이 `tools/ci/classify-unported.py`의
+`UNMET_BLOCKERS`에도 있어서 지금은 `tools/ci/check-unmet-blockers.sh`가
+그쪽을 §5 표와 대조한다. 여기서 판정을 읽지 말고 §5 표에서 읽으라.
 
 ```
 $ python3 -c "... corpus_files ..." # 두 Phase 3 행이 재는 디렉터리의 코퍼스 소속
