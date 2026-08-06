@@ -26280,12 +26280,23 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
   씨앗이 조건 2 사건율을 올려 §286.4의 검정력 부족을 푸는지는 미측정이다.
   두 진입점은 그대로 그것을 받는다(`ChompRequest::seed_trajectory`, upstream
   STOMP의 `extractSeedTrajectory`).
-- **C++ CHOMP 기준선.** 오라클은 이미 `chomp_motion_planner`를 링크하므로
-  `chomp_plan` op는 만들 수 있다(§264.3). 만들면 `condition1`의
-  `0.9 × cpp_rate`와 `cpp-endpoints`, `no-regression-cpp-solved`가 CHOMP에
-  대해 실제로 복원된다. 이번 라운드에 만들지 않았다: 오라클 소스 변경은
-  digest 게이트가 이미지 재빌드를 강제하고, 그 비용은 이 라운드에 넣지
-  않았다.
+- **C++ CHOMP 기준선.** 만들어졌다 — CHOMP과 STOMP 양쪽으로. 오라클은
+  `chomp_plan`과 `stomp_plan`을 답하고(`oracle.cpp:1067`,
+  `oracle.cpp:1069`가 `chompPlan`(`oracle.cpp:6185`)과
+  `stompPlan`(`oracle.cpp:6323`)으로 보낸다),
+  `tools/ci/measure-phase8-cpp-baseline.sh`가 문제당 한 프로세스로 그것을
+  몬다. `tools/ci/measure-phase8-optimizer-properties.sh`가 이 계측기 자신의
+  모집단에 대해 `condition1`, `condition3-pooled`, `condition3-paired`,
+  `no-regression-cpp-solved`를 다시 검사로 들고 있고, 기준선이 없을 때 그
+  넷을 조용히 빼는 대신 빠졌다고 보고한다
+  (`tools/ci/measure-phase8-optimizer-properties.sh:1018-1022`). 이 라운드가
+  한 것은 계측기 복원까지이며, 그 위에서 낸 수치를 절로 적지는 않았다 — 그
+  수치를 담을 절은 아직 없다. 남는 잔여는 `cpp-endpoints` 하나이고, 그것은
+  논증이
+  아니라 사실이다: `chompPlan`/`stompPlan`은 `path`를 내보내지 않으므로
+  (경로를 내보내는 것은 `plan` op뿐 — `oracle.cpp:5870`) C++ 쪽에 끝점
+  간극을 잴 대상 자체가 없다. 더하는 것은 오라클 소스 변경이고, digest
+  게이트가 그것을 이 기계의 모든 워크트리에 대한 이미지 재빌드로 만든다.
 - **`full` 모드의 핀.** 한 번도 돌리지 않았다(§264.9). 250문제 × 2로봇 ×
   2플래너에 STOMP의 실측 문제당 비용을 곱하면 이 라운드에 들어가지 않는다.
 - **CHOMP의 목적함수가 관측되지 않는다 — §293에서 닫았다.** 닫는 방법은

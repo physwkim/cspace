@@ -15,10 +15,15 @@
 #
 # "Phase 7과 같은" is read here as "the same three conditions against the
 # same C++ OMPL RRTConnect baseline", not as "against a C++ CHOMP/STOMP".
-# That is forced, not chosen: the oracle exposes no CHOMP planning op, and
-# `moveit_planners/stomp` has no oracle op at all, so a
-# planner-against-its-own-upstream reading is unmeasurable here by
-# construction. The consequence is stated rather than hidden -- conditions 1
+# That WAS forced rather than chosen, and is no longer: the oracle now answers
+# `chomp_plan` and `stomp_plan` (`oracle.cpp`'s `chompPlan`/`stompPlan`, over
+# upstream `ChompPlanner::solve` and `StompPlanningContext::solve`), which
+# `tools/ci/measure-phase8-cpp-baseline.sh` drives. This gate keeps the
+# RRTConnect reading because §5 names that baseline by line, and
+# `tools/ci/measure-phase8-optimizer-properties.sh` measures the
+# planner-against-its-own-upstream reading alongside it -- two baselines
+# answering two different questions, neither replacing the other. The
+# consequence of THIS one is stated rather than hidden -- conditions 1
 # and 3 compare an optimiser (CHOMP/STOMP refine one seed trajectory) with a
 # sampling planner (RRTConnect grows trees), so a miss is not by itself
 # evidence of a porting defect. What the conditions do measure is exactly

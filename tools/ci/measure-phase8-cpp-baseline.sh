@@ -48,6 +48,49 @@
 # (`TIMED_OUT` for STOMP). The summary below counts those codes, so a run that
 # quietly became clock-bounded says so in its own output instead of being
 # reported as a planner failure.
+#
+# # Which robot
+#
+# From the set file's own `robot` field, never from a constant here. The
+# generator takes a robot argument and writes what it used into the set
+# (`plan_benchmark_problem_set.rs`'s `robot` and `group` keys), and the oracle
+# is started with a `--urdf`/`--srdf` pair that has to be the same robot or the
+# request's `group` does not exist in the model. This file used to hard-code
+# panda's fixtures while consuming a set that names its own robot, so a fanuc
+# set would have been planned against panda's model -- two sources of truth for
+# one fact, with nothing comparing them. Reading it from the set is what makes
+# `measure-phase8-optimizer-properties.sh`'s fanuc strata measurable at all.
+#
+# # The result cache
+#
+# A per-problem result is reused when it is already on disk, so an interrupted
+# run resumes instead of re-solving 500 problems. That makes the cache's key a
+# correctness question, not a bookkeeping one: a key that omits an input
+# answers the second run with the first run's numbers, unread.
+#
+# The key is therefore not a list of variables. It is a digest of what the
+# oracle process is actually given -- the request bytes on its stdin, the seed
+# in its `--planner-rng-seed`, the URDF and SRDF bytes it is started with, and
+# `oracle_stamp`, the digest run-oracle.sh already requires the image to carry.
+# Everything that shapes a request reaches the key by being in those bytes, so
+# a new request-shaping option (the next `CONDITION2_RESOLUTIONS`, the next
+# clock bound) cannot be forgotten: there is no list to add it to. A name-based
+# key had already lost `PLANNER_SEED_BASE`, which is the one input the whole
+# seed-lottery argument above rests on.
+#
+# What the key provably covers: the request (op, planner config,
+# `condition2_resolutions`, and the set's robot, group, config, seed,
+# `motion_resolution`, objects and the problem itself), the planner seed, the
+# fixture pair's contents, and the oracle sources plus its resolved non-file
+# build inputs. What it does not: the wall clock, this machine's load, and the
+# thread scheduling inside the oracle -- so a reused record's `wall_secs` is
+# the producing run's, never this one's. `JOBS` is deliberately absent; it
+# changes how long the answer takes and not what it is.
+#
+# On reuse the record's own `planner_rng_seed` stamp is checked against the
+# seed this run would have passed, and a mismatch is a hard failure. Under
+# content addressing that is a corruption check rather than the primary gate,
+# and it is cheap enough to keep as one.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -66,6 +109,18 @@ usage: measure-phase8-cpp-baseline.sh <chomp|stomp> <config> <count> <set_seed> 
   out_dir   created if absent; results land in <out_dir>/<planner>.<config>.ndjson
 
 environment:
+  SET_FILE           a problem set already emitted by plan_benchmark_problem_set.
+                     Used instead of generating one, so the C++ side and a port
+                     harness can be handed the SAME BYTES rather than two
+                     generator runs that are only argued to agree. `config`,
+                     `count` and `set_seed` are still required and are checked
+                     against the file's own fields -- a mismatch is a hard
+                     failure, because a set file naming a different population
+                     than the arguments is exactly the substitution this option
+                     would otherwise make silent.
+  ROBOT              which fixture to generate for (default panda). Ignored
+                     when SET_FILE is given: the robot is read from the set
+                     either way, see below.
   PLANNER_SEED_BASE  per-problem planner RNG seed base (default 700001, the
                      same base the port harnesses use)
   CONDITION2_RESOLUTIONS
@@ -108,16 +163,19 @@ CHOMP_CLOCK_BOUND="${CHOMP_CLOCK_BOUND:-3600}"
 STOMP_CLOCK_BOUND="${STOMP_CLOCK_BOUND:-3600}"
 JOBS="${JOBS:-12}"
 
-URDF="$REPO_ROOT/fixtures/panda.urdf"
-SRDF="$REPO_ROOT/fixtures/panda.srdf"
+ROBOT="${ROBOT:-panda}"
+SET_FILE="${SET_FILE:-}"
 ORACLE="$REPO_ROOT/tools/moveit-oracle/run-oracle.sh"
 BIN="$REPO_ROOT/target/release/examples/plan_benchmark_problem_set"
 
 mkdir -p "$OUT_DIR"
 SET_JSON="$OUT_DIR/$CONFIG.$COUNT.$SET_SEED.set.json"
-REQ_DIR="$OUT_DIR/req.$PLANNER.$CONFIG"
-RES_DIR="$OUT_DIR/res.$PLANNER.$CONFIG"
-mkdir -p "$REQ_DIR" "$RES_DIR"
+# One store for every run into this directory, addressed by content rather
+# than by a name assembled from the inputs someone remembered. See the header:
+# the names this used to be built from could not distinguish two planner seed
+# bases over one set, which is the §286.5 experiment.
+RES_DIR="$OUT_DIR/res"
+mkdir -p "$RES_DIR"
 
 if [ ! -x "$BIN" ]; then
   echo "building examples/plan_benchmark_problem_set (release)..." >&2
@@ -127,10 +185,75 @@ fi
 
 # The problem set is generated once and reused for every problem's request, so
 # every shard is provably looking at the same 500 problems as the port run and
-# as the other planner.
-if [ ! -s "$SET_JSON" ]; then
-  "$BIN" "$CONFIG" "$COUNT" "$SET_SEED" >"$SET_JSON" 2>"$OUT_DIR/$CONFIG.stats"
+# as the other planner. `SET_FILE` goes one better: the caller hands over a set
+# it has already run the port against, so "the same problems" is byte identity
+# rather than an argument about two generator runs agreeing.
+if [ -n "$SET_FILE" ]; then
+  [ -s "$SET_FILE" ] || { echo "FAIL SET_FILE=$SET_FILE is empty or absent" >&2; exit 1; }
+  cp "$SET_FILE" "$SET_JSON"
+elif [ ! -s "$SET_JSON" ]; then
+  "$BIN" "$CONFIG" "$COUNT" "$SET_SEED" "$ROBOT" >"$SET_JSON" 2>"$OUT_DIR/$CONFIG.stats"
 fi
+
+# The set's own account of which population it is, against the arguments that
+# name the output file and the seeds. Without this a SET_FILE from another
+# config lands in `<planner>.<config>.ndjson` under this config's name, and the
+# per-problem seeds -- `PLANNER_SEED_BASE + id` -- would be the only thing left
+# saying which problems were actually solved.
+for field in config:CONFIG seed:SET_SEED; do
+  key="${field%%:*}"
+  want="$(eval printf '%s' "\$${field##*:}")"
+  have="$(jq -r --arg k "$key" '.[$k] | tostring' "$SET_JSON")"
+  if [ "$have" != "$want" ]; then
+    echo "FAIL the problem set says $key=$have, the arguments say $want" >&2
+    exit 1
+  fi
+done
+have_count="$(jq '.problems | length' "$SET_JSON")"
+if [ "$have_count" != "$COUNT" ]; then
+  echo "FAIL the problem set holds $have_count problems, the arguments say $COUNT" >&2
+  exit 1
+fi
+
+# The robot is the set's, not this file's. See the header: a constant here and
+# a `robot` field there are two sources of truth for one fact, and the oracle
+# fails obscurely (unknown joint model group) rather than clearly when they
+# disagree.
+SET_ROBOT="$(jq -r '.robot // empty' "$SET_JSON")"
+if [ -z "$SET_ROBOT" ]; then
+  echo "FAIL the problem set names no robot, so no fixture pair can be chosen for it" >&2
+  exit 1
+fi
+URDF="$REPO_ROOT/fixtures/$SET_ROBOT.urdf"
+SRDF="$REPO_ROOT/fixtures/$SET_ROBOT.srdf"
+for f in "$URDF" "$SRDF"; do
+  [ -s "$f" ] || { echo "FAIL the set names robot '$SET_ROBOT' but $f is absent" >&2; exit 1; }
+done
+
+# The three inputs a request's own bytes cannot carry: the two fixture files
+# named in the oracle's argv, and the oracle itself. `oracle_stamp` is the
+# same digest run-oracle.sh insists the image carries, so it names the binary
+# that will actually answer rather than a tag that could have moved.
+# shellcheck source=tools/moveit-oracle/src-digest.sh
+source "$REPO_ROOT/tools/moveit-oracle/src-digest.sh"
+ORACLE_STAMP="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")"
+URDF_SHA="$(sha256sum <"$URDF" | cut -d' ' -f1)"
+SRDF_SHA="$(sha256sum <"$SRDF" | cut -d' ' -f1)"
+
+# Requests are regenerated from the set on every run, so they are not a cache
+# and need no key -- a fresh directory per run means two concurrent runs into
+# one OUT_DIR cannot overwrite each other's stdin. Kept on failure, because
+# the request is the first thing to read when a problem does not solve.
+REQ_DIR="$(mktemp -d "$OUT_DIR/req.XXXXXXXX")"
+cleanup_requests() {
+  local rc=$?
+  if [ "$rc" -eq 0 ]; then
+    rm -rf "$REQ_DIR"
+  else
+    echo "requests kept at $REQ_DIR" >&2
+  fi
+}
+trap cleanup_requests EXIT
 
 # One single-problem request per problem, carrying the whole object list and
 # the set's own `motion_resolution` unchanged -- only `problems` is narrowed.
@@ -159,11 +282,39 @@ else
       done
 fi
 
+# The whole input to one oracle process, hashed: its stdin, its seed, the two
+# fixture files it is handed, and the sources the answering binary was built
+# from. Nothing here enumerates the options that shape a request -- they are
+# already in the bytes -- which is what makes forgetting one unrepresentable
+# rather than merely noticeable.
+cache_key() {
+  local id="$1"
+  {
+    printf 'oracle-src %s\nurdf %s\nsrdf %s\nplanner-rng-seed %s\nrequest\n' \
+      "$ORACLE_STAMP" "$URDF_SHA" "$SRDF_SHA" "$((PLANNER_SEED_BASE + id))"
+    cat "$REQ_DIR/$id.json"
+  } | sha256sum | cut -d' ' -f1
+}
+
 solve_one() {
   local id="$1"
   local seed=$((PLANNER_SEED_BASE + id))
-  local out="$RES_DIR/$id.json"
-  [ -s "$out" ] && return 0
+  local key
+  key="$(cache_key "$id")"
+  local out="$RES_DIR/$key.json"
+  if [ -s "$out" ]; then
+    # The stamp `:249` writes, read back. Content addressing already makes a
+    # seed mismatch here impossible without corruption, and that is exactly
+    # why it is worth failing on: a record whose own account of its seed
+    # disagrees with its key is not a result, whatever else it is.
+    local had
+    had="$(jq -r '.planner_rng_seed // "absent"' "$out")"
+    if [ "$had" != "$seed" ]; then
+      echo "FAIL cached $out records planner_rng_seed=$had, this run needs $seed" >&2
+      return 1
+    fi
+    return 0
+  fi
   local started
   started=$(date +%s.%N)
   # No pipe into jq here: a pipeline's status is its last stage's, so an oracle
@@ -175,25 +326,29 @@ solve_one() {
   fi
   local elapsed
   elapsed=$(echo "$(date +%s.%N) - $started" | bc)
+  # Written aside and renamed, so a run killed mid-`jq` leaves no truncated
+  # record for the next one to accept as a complete answer.
   jq -c --argjson secs "$elapsed" --argjson seed "$seed" \
     '.result.problems[0] + {planner_rng_seed: $seed, wall_secs: $secs}' \
-    <"$out.raw" >"$out"
+    <"$out.raw" >"$out.part"
+  mv "$out.part" "$out"
   rm -f "$out.raw"
 }
-export -f solve_one
-export RES_DIR REQ_DIR ORACLE URDF SRDF PLANNER_SEED_BASE
+export -f cache_key solve_one
+export RES_DIR REQ_DIR ORACLE URDF SRDF PLANNER_SEED_BASE ORACLE_STAMP URDF_SHA SRDF_SHA
 
-echo "=== $PLANNER / $CONFIG: $COUNT problems, $JOBS jobs, seed base $PLANNER_SEED_BASE ===" >&2
+echo "=== $PLANNER / $SET_ROBOT / $CONFIG: $COUNT problems, $JOBS jobs, seed base $PLANNER_SEED_BASE ===" >&2
 seq 0 $((COUNT - 1)) | xargs -P "$JOBS" -I{} bash -c 'solve_one {}'
 
 OUT="$OUT_DIR/$PLANNER.$CONFIG.ndjson"
 : >"$OUT"
 for id in $(seq 0 $((COUNT - 1))); do
-  if [ ! -s "$RES_DIR/$id.json" ]; then
+  key="$(cache_key "$id")"
+  if [ ! -s "$RES_DIR/$key.json" ]; then
     echo "FAIL problem $id produced no result" >&2
     exit 1
   fi
-  cat "$RES_DIR/$id.json" >>"$OUT"
+  cat "$RES_DIR/$key.json" >>"$OUT"
 done
 
 # The clock-bound check the header describes: any TIMED_OUT means the wall
@@ -201,7 +356,7 @@ done
 # then partly a measurement of this machine.
 timed_out=$(jq -s '[.[] | select(.failure == "TIMED_OUT")] | length' "$OUT")
 solved=$(jq -s '[.[] | select(.solved)] | length' "$OUT")
-echo "$PLANNER/$CONFIG: solved $solved/$COUNT, timed_out $timed_out -> $OUT" >&2
+echo "$PLANNER/$SET_ROBOT/$CONFIG: solved $solved/$COUNT, timed_out $timed_out -> $OUT" >&2
 if [ "$timed_out" -ne 0 ]; then
   echo "FAIL $timed_out problems hit the wall-clock bound; this rate measures the machine" >&2
   exit 1

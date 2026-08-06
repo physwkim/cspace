@@ -4,8 +4,7 @@
 // No upstream file: this is Phase 8 benchmark infrastructure (PORTING-PLAN.md
 // §5's "CHOMP/STOMP는 Phase 7과 같은 속성 기반 검증", §263), not a port.
 // Upstream drives STOMP only through `StompPlanningContext`'s pluginlib
-// entry point, never through a benchmark runner, and the oracle image ships
-// no `stomp_moveit` package at all.
+// entry point, never through a benchmark runner.
 
 //! Runs this crate's [`plan`](moveit_planners_stomp::plan) over a `plan`-op
 //! request JSON -- the exact format `moveit-planners-sbp`'s
@@ -20,11 +19,16 @@
 //! `moveit-planners-chomp/examples/chomp_benchmark_port.rs`'s own
 //! "# Which baseline this measures against": §5's Phase 8 clause forwards to
 //! Phase 7's three properties (PORTING-PLAN.md lines 705-708), whose
-//! comparison side is **C++ OMPL RRTConnect**. For STOMP specifically there
-//! is no other option even in principle -- the oracle image's package list
-//! (`ORACLE_MOVEIT2_PACKAGES`, `tools/moveit-oracle/`) contains no
-//! `stomp_moveit`, so no C++ STOMP exists anywhere in this workspace to
-//! compare against. See PORTING-PLAN.md §263.
+//! comparison side is **C++ OMPL RRTConnect**. The "no other option even in
+//! principle" this file used to claim for STOMP no longer holds: the oracle
+//! builds `stomp_moveit_planning_context.cpp` straight out of the pinned
+//! moveit2 tree (`tools/moveit-oracle/CMakeLists.txt`'s `STOMP_MOVEIT_SRC`)
+//! and answers a `stomp_plan` op, which
+//! `tools/ci/measure-phase8-cpp-baseline.sh` drives. This binary keeps the
+//! RRTConnect reading because §5 names that baseline;
+//! `tools/ci/measure-phase8-optimizer-properties.sh` measures the
+//! planner-against-its-own-upstream one. See PORTING-PLAN.md §263 for the
+//! original assumption and the Phase 8 property section for what replaced it.
 //!
 //! # Usage
 //!
