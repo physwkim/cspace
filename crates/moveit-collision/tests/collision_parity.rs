@@ -4859,10 +4859,27 @@ fn prbt_penetration_branch_is_bracketed_by_the_minkowski_instrument() {
             }
         }
     }
-    assert!(
-        !checked.is_empty(),
-        "prbt's SRDF leaves at least one self pair to check; with none, every bracket below \
-         would be vacuous"
+    // The whole set, not a non-empty check: a bracket taken over a subset of
+    // the pairs MoveIt checks is a minimum over the wrong population, and it
+    // reports as a *narrow* answer rather than as a missing one. MEASURED from
+    // `fixtures/prbt.srdf` -- seven pairs survive its `disable_collisions`.
+    let named: BTreeSet<String> = checked.iter().map(|(a, b)| format!("{a}/{b}")).collect();
+    assert_eq!(
+        named,
+        BTreeSet::from(
+            [
+                "prbt_base_link/prbt_link_3",
+                "prbt_base_link/prbt_link_4",
+                "prbt_base_link/prbt_link_5",
+                "prbt_base_link/prbt_flange",
+                "prbt_link_1/prbt_link_4",
+                "prbt_link_1/prbt_link_5",
+                "prbt_link_2/prbt_link_4",
+            ]
+            .map(String::from)
+        ),
+        "the self pairs prbt's SRDF leaves to check moved; every bracket below is a minimum \
+         over this set and would silently be a minimum over a different one"
     );
 
     let mut sides: BTreeMap<Side, usize> = BTreeMap::new();
