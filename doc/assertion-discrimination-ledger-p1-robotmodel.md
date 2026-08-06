@@ -1419,7 +1419,7 @@ contributes one the census's crate-level total folds into
 | `moveit-constraints/tests/decide.rs:210` | p1-fixtures | (their verdict, not re-derived here) | n/a — `JointConstraint::new`'s tolerance guard lives in `moveit-constraints/src/joint.rs`, owned by p1-fixtures per `doc/folded-operand-guards.md` (already the precedent this ledger recorded at the `decide.rs:183/184` entry above); `decide.rs` is nominally mine as a test file but the guard is not, so this site is theirs to classify even though it is textually in "my" slice. |
 | `robot_model.rs:2092` | this ledger (line ~861, ~1327 above) + independently, p9-ros (`doc/assertion-discrimination-ledger-p9-ros.md:140`) | **discriminating** | **yes, named twice, independently.** This ledger: the pattern is `[Diagnostic::MimicCycle]`, which requires both slice length exactly 1 *and* the one named variant among three the same function can push (`MimicUnknownJoint`, `MimicDofMismatch`, `MimicCycle`) — a bare `bool` (`!diagnostics.is_empty()`) would not tell these apart, but this pattern's payload does. p9-ros's row states the identical reason independently ("requires both exact length 1 and the named variant"), and ran its own bite. Two independent panels landing on the same exception is stronger than either alone. |
 | `robot_model.rs:2605` | this ledger (line ~1330 above) | not-this-family | n/a — `matches!(shapes[0].shape, Shape::Mesh(_))` is a computed classification tag on an already-successful build (same exclusion as `robot_model_parity.rs:356` and the `urdf.rs` trio above), not a check that could be blind to which of several failure causes fired. |
-| `moveit-planning/src/pipeline.rs:679` | this ledger (line ~120 above) | single-branch | yes — `PipelineError::NoPlanners` is a nullary variant (no payload to lose) with exactly one construction site in the crate (`pipeline.rs:386`, confirmed by `rg` this round: still one hit); `matches!` cannot be blinder than `==` when there is nothing else the value could be and nowhere else it could come from. |
+| `moveit-planning/src/pipeline.rs:735` (`zero_planners_is_an_error`) | this ledger (line ~120 above) | single-branch | yes — `PipelineError::NoPlanners` is a nullary variant (no payload to lose) with exactly one construction site in the crate (`moveit-planning/src/pipeline.rs:433`, in `generate_plan`, confirmed by `rg 'NoPlanners'` after `10f571f`: still one `return Err` hit); `matches!` cannot be blinder than `==` when there is nothing else the value could be and nowhere else it could come from. |
 | `moveit-planning/src/response_adapters/add_time_optimal_parameterization.rs:368` | this ledger (line ~123 above) | single-branch | yes — same shape: `ResponseAdapterError::Failed{..}` has exactly one construction site (`rg` this round: still one hit, line 139), so the ignored `{..}` payload loses nothing there was ever more than one of. |
 
 Re-ran `rg -n 'PipelineError::NoPlanners' crates/moveit-planning/src/pipeline.rs`
@@ -1459,3 +1459,168 @@ test-file evidence; `moveit-model`/`moveit-planning` untouched this round,
 their round-16/18 gates stand). No source fixes this round — every site
 audited was already correctly classified; the audit's output is the
 verification itself, not a correction.
+
+## Round 20 — the 8 `moveit-planning` orphans `10f571f` opened, each bitten
+
+`10f571f` (p11-startstate) replaced `PlanningRequest::start_state`'s
+transcribed value-plus-`is_diff` pair with a `StartState` sum type, adding
+`crates/moveit-planning/src/start_state.rs` outright and shifting
+`crates/moveit-planning/src/pipeline.rs`. That created 8 scanner sites in
+this ledger's fence with no accounting row — 6 new assertions in the new
+file, 2 new ones in `pipeline.rs` — plus one stale citation of this
+ledger's own, fixed separately in `9515aa4` — which re-derived both line
+numbers in the round-19 `NoPlanners` row above, where they now stand
+verified. Neither the pre-`10f571f` numbers that fix replaced nor the ones
+it wrote are repeated here: a dead line number in backticks reads as a
+live citation and is false by construction, and a live one restated away
+from its row is a second copy to drift. Round 19's "the mechanical gate is the authority and it
+is clean" therefore describes a tree 68 commits of `main` behind this
+round's merge base; this round re-runs it and closes this ledger's half
+of what it now reports.
+
+**Every row below is a fresh isolating mutation run this round**, not a
+reading. Eleven mutations, each applied alone to a byte-identical tree and
+reverted immediately; `cargo nextest run -p moveit-planning
+--no-fail-fast` after each, so the blast radius is the full 57-test count
+and not a fail-fast prefix. Baseline before and after: `57 tests run: 57
+passed, 0 skipped`, `git diff --stat` empty.
+
+### Family membership (census §9), stated before the verdicts
+
+All 8 pass the three clauses. Clause 1: the inspected value is a
+`Result::Err` (the six `start_state.rs` sites, via `assert_err_mentions`'s
+`expect_err`), a `PipelineError` payload (`pipeline.rs:1104`), or an
+absence signal for "no adapter ever observed the scene"
+(`pipeline.rs:1111`) — none is an informative success-path value. Clause
+2: each is produced by a written guard or `?`-propagation —
+`start_state.rs:140`, `:225`, `:231`, `:240`, `:184`, `:192` and
+`pipeline.rs:442` — every one of which an engineer could have written
+backwards. Clause 3: each decision belongs to the function the test's own
+name calls its subject (`StartState::new`, `StartStateOverride::new`,
+`StartState::apply_to`, `generate_plan`).
+
+### The subject's guards, enumerated before mutating them
+
+`StartState::new` (`crates/moveit-planning/src/start_state.rs:134-154`)
+has one guard reachable only under `names.is_empty()` (`:135`):
+`!positions.is_empty() || !velocities.is_empty()` (`:140`) — one
+construction site folding **two** named operands, so two branches per
+`doc/folded-operand-guards.md`, mutated per operand below.
+`StartStateOverride::new` (`:224-255`) has three: `names.is_empty()`
+(`:225`), `positions.len() != names.len()` (`:231`), and
+`!velocities.is_empty() && velocities.len() != names.len()` (`:240`,
+again two operands, again mutated separately).
+`StartState::apply_to` (`:170-195`) has two `?` sites: the position write
+wrapped with index, value and name (`:180-184`) and the velocity write
+propagated bare (`:192`).
+
+Both writes fail for exactly one cause each — `RobotState::set_variable_position`
+(`crates/moveit-state/src/state.rs:557-564`) and `set_variable_velocity`
+(`crates/moveit-state/src/state.rs:401-406`) each resolve the name through
+`variable_index(name)?` and have no other fallible step. Since the position
+write resolves the same name first and returns on failure, `:192` is
+unreachable for the unknown-name cause — which is what the in-source
+comment at `:188-191` claims, confirmed here by reading both callees
+rather than taking the comment's word.
+
+### Per-site verdicts — `crates/moveit-planning/src/start_state.rs`
+
+| file:line | enclosing test (verified by content) | verdict | evidence |
+|---|---|---|---|
+| `crates/moveit-planning/src/start_state.rs:319` | `an_empty_override_is_unconstructible_through_the_override_constructor_too` | discriminating | **bite**: `names.is_empty()` (`:225`) → `false`. Exactly this test failed (`57 tests run: 56 passed, 1 failed`); the other five sites below stayed green, including `:327`/`:338`, whose guard shares the phrase this test needles. Neutralizing `:225` cannot be masked by the other two override guards — for `(vec![], vec![], vec![])`, `positions.len() == names.len() == 0` and `velocities` is empty, so both `:231` and `:240` are false and the call returns `Ok`. |
+| `crates/moveit-planning/src/start_state.rs:327` | `positions_without_names_is_rejected_not_read_as_current_state` | discriminating | **bite, per operand**: `!positions.is_empty()` (left operand of `:140`) → `false`. Exactly this test failed; `:338`'s stayed green. The needle also names the counts (`"…but carries 1 position(s) and 0 velocity(ies)"`), so the message itself says which operand fired. |
+| `crates/moveit-planning/src/start_state.rs:338` | `velocities_without_names_is_rejected_not_read_as_current_state` | discriminating | **bite, the mirror**: `!velocities.is_empty()` (right operand of `:140`) → `false`. Exactly this test failed; `:327`'s stayed green. Both operands of the one construction site are therefore covered, which a single whole-condition mutation would not have shown. |
+| `crates/moveit-planning/src/start_state.rs:349` | `a_name_without_a_position_is_rejected_not_read_as_a_velocity_only_overlay` | discriminating | **bite**: `positions.len() != names.len()` (`:231`) → `false`. Exactly this test failed. Note what the mutation exposes downstream — with `:231` neutralized, `apply_to`'s `over.positions()[index]` (`:179`) indexes past the end, so this guard is the only thing standing between a short `position` array and a panic. |
+| `crates/moveit-planning/src/start_state.rs:357` | `a_short_velocity_array_is_rejected_rather_than_read_past_its_end` | discriminating | **bite, per operand**: `velocities.len() != names.len()` (right operand of `:240`) → `false`. Exactly this test failed. The left operand (`!velocities.is_empty()`, the "no velocities at all is legal" escape) is covered too, by its own mutation → `true`: 5 tests failed (`a_start_state_naming_an_unknown_variable_fails_before_any_adapter_or_planner_runs`, `the_requested_start_state_reaches_the_scene_before_the_request_adapters_run`, `an_overlay_pairs_each_value_with_its_own_name`, `an_overlay_writes_the_named_variables_and_leaves_the_rest_at_the_current_state`, `an_overlay_naming_a_variable_the_model_lacks_is_rejected_at_apply_time`), so neither operand is blind. |
+| `crates/moveit-planning/src/start_state.rs:466` | `an_overlay_naming_a_variable_the_model_lacks_is_rejected_at_apply_time` | discriminating | **two bites, both isolating.** (a) Drop the wrap at `:180-184` (`state.set_variable_position(name, position)?`): exactly this test failed — and `crates/moveit-planning/src/pipeline.rs:1104`, which needles only `"no_such_joint"`, stayed green, so the two sites are provably not testing the same thing. (b) Pair every name with `over.positions()[0]` (`:179`): this test failed on the value component (`position 0.2` no longer appears), alongside `an_overlay_pairs_each_value_with_its_own_name`. The needle's index and value are therefore both live, which is what the test's own comment claims they are for. |
+
+**Fragility flagged, not fixed** (same treatment as round 11's three
+fragile-but-currently-unique needles): `:319`'s needle `"names no
+variable"` is a substring of *two* messages — `:225`'s
+(`"start_state.joint_state override names no variable; …"`) and `:140`'s
+(`"start_state.joint_state names no variable but carries …"`). It
+discriminates today only because `:140` lives in `StartState::new` and
+this test calls `StartStateOverride::new` directly, so `:140` is
+unreachable from it — confirmed by the bites above (mutating either
+operand of `:140` left this test green). A future refactor that routed
+the empty case through `StartStateOverride::new` would silently make the
+needle ambiguous with no test failing. Widening the needle to
+`"override names no variable"` would close it; not done here, since it is
+a test-source change outside the row this round owes.
+
+### Per-site verdicts — `crates/moveit-planning/src/pipeline.rs`
+
+Both sites are in the same test and the two mutations below separate them
+in both directions.
+
+| file:line | enclosing test (verified by content) | verdict | evidence |
+|---|---|---|---|
+| `crates/moveit-planning/src/pipeline.rs:1104` | `a_start_state_naming_an_unknown_variable_fails_before_any_adapter_or_planner_runs` | discriminating | **bite**: replace `.map_err(PipelineError::StartState)` (`crates/moveit-planning/src/pipeline.rs:442`) with a closure discarding the source and constructing a fixed message. The panic names this exact line — `panicked at crates/moveit-planning/src/pipeline.rs:1104:17: the rejection must name the variable that could not be written, got: construction failed: rejected` — and `:1111` did not fire, so this assertion alone carries the "the message survives the variant wrap" claim. The variant itself has exactly one construction site (`:442`, in `generate_plan`), so the outer `match` arm's job is narrower than this needle's. |
+| `crates/moveit-planning/src/pipeline.rs:1111` | `a_start_state_naming_an_unknown_variable_fails_before_any_adapter_or_planner_runs` | discriminating | **bite**: move the `apply_to` call (`crates/moveit-planning/src/pipeline.rs:439-442`) *after* `run_request_adapters` (`:444`). The panic names this exact line — `panicked at crates/moveit-planning/src/pipeline.rs:1111:9: Semantic 7 applies the start state before request_chain, …` — while `:1104` stayed green (the error is still a `StartState` variant carrying the same message). The sibling ordering test at `crates/moveit-planning/src/pipeline.rs:1041-1082` also failed, as that mutation's direct target. |
+
+`:1111` is a `Vec::is_empty()` site, so it gets round 18's sharper
+standard rather than the retired "any push flips it" argument: enumerate
+every **subject-side** path that leaves `seen` empty. There are exactly
+two. The `NoPlanners` early return (`crates/moveit-planning/src/pipeline.rs:432-434`)
+returns before any adapter runs — ruled out inside this same test by the
+preceding `match err { PipelineError::StartState(e) => … , other =>
+panic!(…) }` (`crates/moveit-planning/src/pipeline.rs:1102-1109`), a
+same-test sibling that names the variant. The `?` at
+`crates/moveit-planning/src/pipeline.rs:442` is the claimed cause. There is
+no third: `run_request_adapters` (`crates/moveit-planning/src/lib.rs:448-458`)
+is an unconditional `for adapter in chain` loop with no skip guard —
+read this round, not assumed.
+
+### Result: 8/8 orphans closed with rows, 0 blind sites, 0 source changes
+
+Orphan count over this round, from `python3
+tools/ci/reconcile-assertion-ledgers.py`: 47 orphans + 8 unresolved at the
+merge base, 47 + 7 after `9515aa4`'s citation fix, 39 + 7 after this
+section. The remaining 39 orphans (`ros/moveit-ros/src/scene/planning_scene.rs`
+19, `ros/moveit-ros/src/planning.rs` 10, `ros/moveit-ros/src/state.rs` 7,
+`ros/moveit-ros/src/constraints/orientation.rs` 2,
+`ros/moveit-ros/src/scene/shapes.rs` 1) and all 7 remaining unresolved
+citations are p9-ros's, live in another worktree this round and
+deliberately untouched here.
+
+`doc/assertion-discrimination-orphans.txt` is **not** regenerated. Its
+header still reads 770 sites / 0 orphans against source commit
+`0b4e79b5`, which is stale in both directions (804 live sites, 39 live
+orphans); regenerating it now would write p9-ros's 39 open orphans into
+the expected set — exactly the laundering
+`reconcile-assertion-ledgers.py`'s own header warns about — so it is left
+for whoever closes the last of them.
+
+`doc/citation-classes.txt` is **not** re-frozen either, at the
+orchestrator's instruction that they own it at merge. What this round
+adds to that diff, measured rather than assumed — `check-citation-drift.py`
+run against `eae7de8` with this ledger restored to its merge-tip bytes
+exits `0`, so every entry below is this round's: **0 demoted, 0
+recounted, 0 promoted, 24 undeclared, 2 retired**. 22 of the undeclared
+are this section's own citations entering the corpus; the other two are
+the corrected line numbers `9515aa4` wrote into the round-19 `NoPlanners`
+row. The 2 retired are not 0, so the "leave it alone if nothing retires"
+condition does not literally hold: both are that same row's
+pre-`10f571f` numbers, retired by the fix that replaced them rather than
+by a citation going unchecked. Substantive classes are clean — `0 out-of-bounds, 0
+anchor-mismatch, 0 unresolvable` — and two anchor-mismatches this
+section introduced on first write (a row anchoring
+`crates/moveit-planning/src/pipeline.rs:1111` to the sibling ordering
+test rather than its own, and a prose bullet whose nearest preceding name
+was `set_variable_velocity` when the citation was
+`set_variable_position`'s) were found by the gate and fixed before
+commit, not declared.
+
+### Commands run (round 20)
+
+- `git merge main` — fast-forward, 68 commits, tip `eae7de8`; run before deriving any line number in this section
+- `python3 tools/ci/reconcile-assertion-ledgers.py --emit-orphans` — 8 of the 47 orphans in this ledger's fence, enumerated by path
+- Content-verification of all 8 citations before writing them: a brace-depth walk printing each cited line's innermost enclosing `fn` — all 8 resolve to the test each row names
+- Read `set_variable_position` (`crates/moveit-state/src/state.rs:557-564`), `set_variable_velocity` (`crates/moveit-state/src/state.rs:401-406`) and `run_request_adapters` (`crates/moveit-planning/src/lib.rs:448-458`) rather than trusting the comments that describe them
+- 11 isolating mutations, each alone, each followed by `cargo nextest run -p moveit-planning --no-fail-fast` and an immediate revert from a pre-round copy: `start_state.rs:140` left operand, `:140` right operand, `:225`, `:231`, `:240` whole condition, `:240` left operand, `:240` right operand, `:180-184` wrap, `:179` index, plus `pipeline.rs:442` map_err and the `pipeline.rs:439-444` reorder
+- `cargo nextest run -p moveit-planning --no-fail-fast` — baseline and post-revert both `57 tests run: 57 passed, 0 skipped`; `git status --short` and `git diff --stat` empty after the last revert
+
+Gate scope: `-p moveit-planning`. Doc-only round — every mutation was
+reverted and no source file differs from its pre-round bytes — so
+clippy/nextest below were exercised by the mutation runs themselves; run
+again anyway to confirm the reverts left no residue.
