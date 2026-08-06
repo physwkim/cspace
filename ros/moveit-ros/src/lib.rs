@@ -74,6 +74,7 @@ use moveit_planners_sbp as _;
 #[cfg(test)]
 mod conversion_coverage;
 
+pub mod cartesian_path;
 pub mod constraints;
 pub mod execute_trajectory;
 pub mod execution;

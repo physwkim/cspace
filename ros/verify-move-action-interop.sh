@@ -11,7 +11,7 @@
 # have gone on passing through any later change to it. This file is what makes
 # the measurement re-run.
 #
-# Two legs, because they answer different questions:
+# Three legs, because they answer different questions:
 #
 #   Leg A (`ros2 action send_goal`, one container, the ros-dev image). Does
 #     the node serve an action named `/move_action` that accepts a goal,
@@ -36,7 +36,17 @@
 #     with). Leg B is the measurement, leg A is the fine-grained diagnosis
 #     of why leg B failed.
 #
-# Leg B needs `moveit_ros_planning_interface`, which means the oracle image
+#   Leg C (the same client and containers as leg B, calling
+#     `computeCartesianPath`). Does `/compute_cartesian_path` answer the same
+#     client? It is a service and not the action, so leg B's result says
+#     nothing about it -- this node served `/move_action` for a whole round
+#     with no Cartesian endpoint at all. Its in-process counterpart is
+#     `ros/moveit-ros/src/cartesian_path.rs`'s test module, which can drive
+#     the arms no unmodified client can reach: the three jump thresholds are
+#     not parameters of the client's signature at the pinned sha, so leg C
+#     structurally cannot set them.
+#
+# Legs B and C need `moveit_ros_planning_interface`, which means the oracle image
 # (see ros/move_group_interface_probe/Dockerfile for why that and not the base
 # image). When the oracle image is not built, leg B SKIPs in the loud shape
 # tools/ci/verify-mpr-vs-epa.sh established -- naming what was not run and the
@@ -111,6 +121,11 @@ echo "move_action legs: ROS_DOMAIN_ID=$DOMAIN_ID"
 # Python repr instead -- same node, same string, two renderings.
 PLANNER_FAILED_MSG="planner ''rrt_connect'' failed: unknown joint model group"
 SOURCE_STRING="moveit-ros/move_action"
+# Leg C's own, from `moveit_ros::cartesian_path::SOURCE`. Pinned separately
+# from `SOURCE_STRING` on purpose: the field's whole job is to say which
+# endpoint answered, so a leg that accepted either string would be blind to
+# the one mix-up it exists to catch.
+CARTESIAN_SOURCE_STRING="moveit-ros/compute_cartesian_path"
 # The two `start_state` shapes the conversion still rejects, now that a
 # representable one is carried instead of refused. Both are structural: they
 # name what the wire holds and no robot model is consulted, which is why they
@@ -358,8 +373,10 @@ docker build \
 NET="moveit-rs-move-action-$$"
 NODE_CTR="moveit-rs-move-action-node-$$"
 
+PROBE_CTR="moveit-rs-move-action-probe-$$"
+
 teardown() {
-  docker rm -f "$NODE_CTR" >/dev/null 2>&1 || true
+  docker rm -f "$NODE_CTR" "$PROBE_CTR" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   cleanup_ctx
   rm -rf "$leg_a_dir"
@@ -379,11 +396,38 @@ sleep 3
 
 leg_b_out="$(mktemp)"
 teardown() {
-  docker rm -f "$NODE_CTR" >/dev/null 2>&1 || true
+  docker rm -f "$NODE_CTR" "$PROBE_CTR" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   cleanup_ctx
   rm -rf "$leg_a_dir"
   rm -f "$leg_b_out"
+}
+
+# One probe run, bounded so that a probe which never returns reddens this gate
+# instead of stalling it.
+#
+# `timeout 120 docker run` does not bound it. On expiry `timeout` sends
+# SIGTERM to the docker *client*, which forwards the signal to the container
+# and then waits for the container to exit -- and a probe blocked inside
+# upstream's client does not exit, because
+# `MoveGroupInterfaceImpl::computeCartesianPath` has no timeout on
+# `future_response.get()` (`move_group_interface.cpp:893-896`) and neither has
+# the service call under it. Measured while building leg C: with the node's
+# service renamed away, `timeout 120 docker run` was still running 31 minutes
+# later. The container name plus `docker rm -f` is the one signal it cannot
+# ignore; `-k 5` is what stops `timeout` itself from waiting forever on the
+# client it just signalled.
+run_probe() {  # <mode> <output-file>
+  : >"$2"
+  timeout -k 5 120 docker run --rm --name "$PROBE_CTR" --network "$NET" \
+    -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
+    -v "$REPO_ROOT:/repo" --entrypoint bash "$PROBE_IMAGE" -c "
+      source /opt/ros/\$ROS_DISTRO/setup.bash
+      source /ws/install/setup.bash
+      ros2 run move_group_interface_probe move_group_interface_probe \
+        $URDF $SRDF arm $1
+    " >"$2" 2>&1 || true
+  docker rm -f "$PROBE_CTR" >/dev/null 2>&1 || true
 }
 
 # Both start-state spellings an unmodified client can produce. `plan()` ships
@@ -394,15 +438,7 @@ teardown() {
 # why both modes stay on the gate: one run cannot cover both variants, and the
 # variant a real client picks is decided by whether it called `setStartState`.
 for mode in default-start explicit-start; do
-  : >"$leg_b_out"
-  timeout 120 docker run --rm --network "$NET" \
-    -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
-    -v "$REPO_ROOT:/repo" --entrypoint bash "$PROBE_IMAGE" -c "
-      source /opt/ros/\$ROS_DISTRO/setup.bash
-      source /ws/install/setup.bash
-      ros2 run move_group_interface_probe move_group_interface_probe \
-        $URDF $SRDF arm $mode
-    " >"$leg_b_out" 2>&1 || true
+  run_probe "$mode" "$leg_b_out"
 
   # Printed on success too, in the `/plan_kinematic_path` leg's shape: a gate
   # whose measurement is only visible when it fails leaves the operator with
@@ -411,6 +447,7 @@ for mode in default-start explicit-start; do
 
   assert_has "leg B/$mode model" "PROBE constructed" "$leg_b_out"
   assert_has "leg B/$mode mode" "PROBE mode=$mode" "$leg_b_out"
+  assert_has "leg B/$mode request" "PROBE request=plan" "$leg_b_out"
 
   # The one assertion that separates "the client reached this node" from "the
   # client gave up locally". `move_group_interface.cpp:659-663` returns
@@ -453,4 +490,58 @@ echo "OK leg B: and upstream's own moveit_core graded every waypoint inside j1's
 echo "OK leg B: and the last one satisfying the goal_constraints the client itself sent."
 echo "OK leg B: Collision-freeness is printed, not graded: one_joint.urdf has no"
 echo "OK leg B: collision geometry, so no trajectory over it can collide."
-echo "OK move_action: both legs passed"
+
+# Leg C: `/compute_cartesian_path`, the same unmodified client and the same
+# two containers, but a service rather than the action -- so nothing leg B
+# asserted carries over. The node could serve `/move_action` exactly as
+# measured above and not have this endpoint at all, which is the state this
+# round found it in.
+#
+# It is a third `for` iteration rather than a fourth mode of the loop above
+# because none of that loop's assertions apply: there is no `plan val=`, no
+# `goal_constraints` (the client builds none for a Cartesian request,
+# `move_group_interface.cpp:878-889` sets ten fields and that is not among
+# them), and the source string is this endpoint's own.
+run_probe cartesian "$leg_b_out"
+
+grep '^PROBE ' "$leg_b_out" || true
+
+assert_has "leg C model" "PROBE constructed" "$leg_b_out"
+# `request` and `mode` are separate fields for the reason the probe states
+# where it prints them: this leg fixes the endpoint and leaves the start-state
+# spelling at its default, and both are asserted rather than one standing in
+# for the other.
+assert_has "leg C request" "PROBE request=cartesian" "$leg_b_out"
+assert_has "leg C start state" "PROBE mode=default-start" "$leg_b_out"
+
+# Same discriminator as leg B and for the same reason: the client answers
+# `-1.0` both for a real non-SUCCESS reply and for a call that reached no
+# server (`move_group_interface.cpp:899-911`), so the pair (`val`, `source`)
+# is what says this node built the answer. `$CARTESIAN_SOURCE_STRING` is not
+# `$SOURCE_STRING` -- a reply carrying the action's source would mean the
+# service reply was assembled by the wrong handler.
+assert_has "leg C round trip" "PROBE cartesian val=1 source='$CARTESIAN_SOURCE_STRING'" "$leg_b_out"
+assert_lacks "leg C client-local failure" "PROBE cartesian val=99999 source=''" "$leg_b_out"
+
+# `fraction` is the client's own return value, so it is asserted at its exact
+# value and not as "> 0": `j1` has no `<origin>` in one_joint.urdf, which makes
+# every pose on the straight line to the requested one exactly reachable, so a
+# partial answer here is a defect and not a property of the fixture.
+assert_has "leg C fraction" "PROBE cartesian fraction=1" "$leg_b_out"
+assert_lacks "leg C empty path" "PROBE cartesian points=0" "$leg_b_out"
+
+# Both graded inside the probe by upstream's own moveit_core, never by the
+# node that produced the path: every waypoint inside `j1`'s limits, and the
+# last one placing the client's own end-effector link at the pose the client
+# itself sent. A node that answered `fraction=1` for a path ending elsewhere
+# fails the second.
+assert_has "leg C joint limits" "PROBE cartesian all_in_bounds=true" "$leg_b_out"
+assert_has "leg C pose reached" "PROBE cartesian reached=true" "$leg_b_out"
+assert_has "leg C verdict" "PROBE cartesian verdict=FULL_CARTESIAN_PATH_RECEIVED" "$leg_b_out"
+
+echo "OK leg C: upstream's unmodified MoveGroupInterface::computeCartesianPath() reached"
+echo "OK leg C: /compute_cartesian_path over DDS and got fraction=1 back from this node,"
+echo "OK leg C: with source=$CARTESIAN_SOURCE_STRING naming the endpoint that built it,"
+echo "OK leg C: every waypoint inside j1's limits and the last one placing tip at the"
+echo "OK leg C: pose the client sent, both graded by upstream's own moveit_core."
+echo "OK move_action: all three legs passed"

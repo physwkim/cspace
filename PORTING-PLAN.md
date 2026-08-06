@@ -28881,3 +28881,138 @@ ACM에서 `prbt_flange` 대신 `prbt_link_5`를 열면 쌍 단언이 FAIL, 오�
   `4.418002e-4`로 잰 그것)이 같은 원인인지는 여기서 다시 재지 않았다 —
   같은 표의 같은 빈칸이라는 것 외에는.
 - **관통 분기는 건드리지 않았다.** 닫힌 형태는 분리 쪽에서만 성립한다.
+
+---
+
+## §282 `/compute_cartesian_path`를 묶는다 — 클라이언트가 보내지 않는 다섯 필드가 이 서비스의 설계를 정했다 (2026-08-06)
+
+§273.5가 세어 둔 13개 엔드포인트 중 `compute_cartesian_path`가 absent였다.
+이 절은 그것을 bound로 옮긴 라운드의 기록이며, 결론부터 적으면 **상류가
+받아들이지만 적용하지 않는 다섯 필드가 이 서비스에서 가장 결정적인 설계
+사항이었고, 그 다섯을 클라이언트는 하나도 보내지 않는다**.
+
+### §282.1 전제부터 다시 쟀다 — 이 브랜치가 옮긴 것은 한 행이고, 그 한 행이 마지막 absent였다
+
+`doc/client-endpoint-surface.md`는 생성물이고
+`tools/ci/verify-client-endpoint-surface.sh`가 고정한다. 손으로 고치지 않고
+`tools/ci/measure-client-endpoint-surface.py --emit-doc`으로 다시 뽑았다.
+행과 집계가 함께 움직인다.
+
+아래 표의 오른쪽 열은 이 브랜치 혼자의 결과가 아니다. 이 브랜치가 갈라져
+나온 뒤 §276–§279가 나머지 여덟 엔드포인트를 각자 묶었고, 병합 시점에야
+그 둘이 한 트리에서 만난다 — 브랜치가 제 끝점에서 잰 `absent 8`은 제
+분기 시점의 트리에 대해 맞았고, 병합된 트리에 대해서는 틀렸다.
+
+| | 이 브랜치 분기 시점 | 병합된 main |
+|---|---|---|
+| `compute_cartesian_path` | absent | **bound** (`ros/moveit-ros/src/bin/move_group.rs:819`) |
+| port side, absent | 9 | **0** |
+| port side, bound | 1 | **11** |
+| port side, surplus | 3 | 3 |
+
+이 라운드가 옮긴 행은 하나이고, 그것이 마지막 `absent`였다. `surplus 3`은
+어느 라운드도 건드리지 않았다 — 클라이언트가 요구하지 않는 엔드포인트를
+이 포트가 여는 것은 §259.6이 적어 둔 그대로 남아 있다.
+
+### §282.2 보간기는 이미 있었다 — 서비스가 새로 지은 것은 보간기 바깥이다
+
+`moveit-kinematics`의 `CartesianInterpolator::through_waypoints`를 그대로
+쓴다. 서비스가 그 위에 얹는 것은 네 가지이고, 넷 다 보간기의 일이 아니다.
+
+* `WaypointFrame`으로 좌표계를 정하고 웨이포인트를 모델 프레임으로 옮기는
+  것(상류 `cartesian_path_service_capability.cpp:121-143`).
+* `StartState`로 `req->start_state`를 감시 장면 위에 겹치는 것
+  (`cartesian_path_service_capability.cpp:105-107`).
+* `KinematicConstraintSet`을 `IkContext`의 validity 콜백으로 매다는 것
+  (`cartesian_path_service_capability.cpp:157-172`).
+* 결과를 `RobotTrajectory`로 감싸 TOTG로 시간을 매기고 메시지로 굽는 것
+  (`cartesian_path_service_capability.cpp:189-200`).
+
+보간기 자체에는 이 라운드에서 한 줄도 대지 않았다.
+
+### §282.3 세 jump threshold를 다시 유도했다 — 클라이언트가 안 보내는 다섯이 정확히 필터 다섯이다
+
+`third_party/moveit_msgs/srv/GetCartesianPath.srv`의 요청부는 15개 필드다.
+`MoveGroupInterfaceImpl::computeCartesianPath`
+(`move_group_interface.cpp:873-891`)가 채우는 것은 10개 —
+`start_state`, `group_name`, `header`, `waypoints`, `max_step`,
+`path_constraints`, `avoid_collisions`, `link_name`,
+`max_velocity_scaling_factor`, `max_acceleration_scaling_factor`.
+
+남는 다섯이 `jump_threshold`, `prismatic_jump_threshold`,
+`revolute_jump_threshold`, `cartesian_speed_limited_link`,
+`max_cartesian_speed`다. 이것은 우연한 다섯이 아니라 `.srv`가 필터라고
+문서화한 필드 전부다. 상류 능력도 그 다섯을 하나도 적용하지 않는다
+(`upstream-bugs.md`의
+`cartesian-path-capability-accepts-jump-thresholds-it-never-applies`).
+
+그러므로 이 포트도 필터를 되살리지 않는다 — 되살리면 상류가 일부러 내놓기를
+그만둔 수를 계산하게 된다. 대신 네 개의 수치 필드를 `.srv` 자신이 적은
+무효값 위(`> 0.0`)에서 거절한다. 거절 위치는 상류가 그 필드를 읽는 자리인
+`cartesian_path_service_capability.cpp:180`이며, 그래서
+`INVALID_GROUP_NAME`·`FRAME_TRANSFORM_FAILURE`·`max_step`의 `FAILURE`가
+여전히 먼저 이긴다. `cartesian_speed_limited_link`는 링크 이름일 뿐이고
+상류가 문서화한 관문이 `max_cartesian_speed > 0`이라, 속도 없이 이름만
+설정한 요청은 아무것도 요구하지 않는다.
+
+이 거절은 **무변경 클라이언트가 도달할 수 없다.** 위의 다섯은 클라이언트가
+설정하지 않고, 기본값 0.0이 그대로 간다. 아래 leg C가 초록인 이유가 그것이며,
+거절이 걸리는 것은 손으로 만든 메시지를 보내는 클라이언트뿐이다.
+
+### §282.4 값+플래그 대신 합타입 둘
+
+상류의 `global_frame`은 `bool`이고 그 값이 두 가지를 뜻한다 — "모델 프레임에
+있다"와 "낯선 프레임이라 변환이 필요하다". `WaypointFrame`은 그것을
+`Model` / `Link` / `Foreign(String)`으로 나눈다. `Link`를 먼저 시험하는 것이
+등가성 조건이다: 상류의 `global_frame`은 `!sameFrame(link_name, frame_id)`
+하나뿐이라, `frame_id`가 모델 프레임과 `link_name` 양쪽에 같은 요청은 상류에서
+링크 상대이고, 모델 프레임을 먼저 보면 조용히 전역이 된다.
+
+응답 쪽도 같다. `fraction == 0.0`은 상류에서 두 가지를 뜻한다 — 웨이포인트가
+없어 블록에 들어가지도 않았다(`res`가 전부 기본값), 그리고 보간기가 돌았는데
+하나도 못 풀었다(`start_state`와 `solution`이 채워져 있다). `Computed`가
+`NothingRequested`와 `Path`로 나눠 담고, 두 경우를 가르는 단언은 `fraction`이
+아니라 `start_state.joint_state.name.is_empty()`다.
+
+### §282.5 leg C — 무변경 `computeCartesianPath()`가 DDS 너머에서 받은 값
+
+`ros/verify-move-action-interop.sh`가 세 다리가 됐다. 탐침에 `cartesian`
+모드를 넣었고, 채점자는 leg B와 같은 이유로 탐침이 링크하는 상류
+`moveit_core`다.
+
+```
+PROBE cartesian val=1 source='moveit-ros/compute_cartesian_path'
+PROBE cartesian fraction=1
+PROBE cartesian points=3
+PROBE cartesian all_in_bounds=true (3/3 waypoints, upstream RobotState::satisfiesBounds)
+PROBE cartesian reached=true (link=tip, pose error=0 rad+m, upstream RobotState::getGlobalLinkTransform)
+PROBE cartesian verdict=FULL_CARTESIAN_PATH_RECEIVED
+```
+
+`reached`의 비교 대상은 클라이언트가 방금 보낸 그 목표 포즈이고, 허용오차는
+`1e-6`이다. leg가 공허하지 않다는 것은 세 음성 대조로 보였다 — 엔드포인트
+이름을 바꾸면 `val=99999`, `fraction`을 반으로 나누면 `fraction=0.5`,
+`SOURCE`를 `moveit-ros/move_action`으로 바꾸면 source 단언이, 각각 서로 다른
+줄에서 걸린다.
+
+### §282.6 leg C가 31분 매달렸다 — `timeout`이 `docker run`을 묶지 못한다
+
+첫 음성 대조에서 게이트가 120초 상한을 두고도 31분을 돌았다. `timeout 120
+docker run ...`은 신호를 **docker 클라이언트**에 보내고, 클라이언트는 그것을
+전달한 뒤 컨테이너를 기다린다. 컨테이너가 응답을 영영 기다리는 동안 상한은
+아무것도 하지 않는다. 고친 모양은 `run_probe()` 하나로, `timeout -k 5`와
+이름 붙인 컨테이너와 사후 `docker rm -f`를 함께 쓴다. `rg 'timeout .*docker
+run'`으로 찾은 두 자리 모두 이 헬퍼를 지난다.
+
+### §282.7 물지 않은 물기 하나가 픽스처의 결함을 가리켰다
+
+`link_name`이 비면 그룹의 마지막 링크로 기본값을 잡는다
+(`cartesian_path_service_capability.cpp:110-112`). 그
+`.last()`를 `.first()`로 바꾸는 변이가 아무 시험도 깨지 않았다. 이유는 시험이
+약해서가 아니라 픽스처였다: 그룹의 `link_names()`는 그 관절들의 **자식**
+링크만 담으므로(`crates/moveit-model/src/robot_model.rs:1525-1548`), 관절
+하나짜리 `arm` 그룹의 목록은 `["tip"]` 한 개다. `.first()`와 `.last()`가
+같은 것을 가리키니 변이가 존재하지 않는 셈이다. 시험 주석은 그 목록을
+`["base_link", "tip"]`이라고 적고 있었고, 그것이 틀린 문장이었다. 고정 관절로
+`tool`을 하나 더 단 `TOOL_OFFSET_URDF`를 넣어 두 읽기가 모두 풀리고 관절값이
+갈리게(0.2 대 0.5) 만든 뒤 다시 물렸다.
