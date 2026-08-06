@@ -1,0 +1,883 @@
+#!/bin/bash
+# Phase 8's second completion condition -- "CHOMP/STOMP가 Phase 7과 같은 속성
+# 기반 검증을 통과" (PORTING-PLAN.md §5) -- as a command rather than as a
+# sentence.
+#
+# The condition names Phase 7's verification as its standard, so this script is
+# derived item by item from what `verify-phase7-benchmark.sh` actually does, not
+# from Phase 7's three conditions as prose. Several of those items do not
+# transfer to an optimizing planner that starts from a seed trajectory instead
+# of sampling; each one that does not is named, with its reason and its
+# analogue, in PORTING-PLAN.md's Phase 8 property section, and the ones that do
+# transfer are the checks below. In particular:
+#
+#   * The success rate has NO `0.9 x cpp_rate` bar. Phase 7's bar is against
+#     C++ OMPL RRTConnect, and neither CHOMP nor STOMP is a sampler: on a
+#     problem needing global search a local optimizer fails by construction, so
+#     a fraction-of-RRTConnect bar measures the problem set, not the port. What
+#     replaces it is a pinned floor measured from this tree -- a regression bar.
+#   * There is no C++ baseline here at all, so Phase 7's `cpp-endpoints` and
+#     both `condition3-*` checks have no counterpart. The oracle image does
+#     link `chomp_motion_planner` already (`tools/moveit-oracle/CMakeLists.txt`
+#     line 41 and 99), so a real C++ CHOMP baseline is buildable; it is not
+#     built here. See the plan section for what that would take.
+#   * Path validity, its densification requirement, its coverage requirement,
+#     the independent cross-check against upstream `isPathValid`, the injection
+#     discrimination gate, the population pin, the per-stratum rule and the
+#     no-timeout rule all transfer unchanged, and are checked below for both
+#     planners.
+#
+# This does NOT change Phase 8's verdict word. It is the instrument that would
+# let someone change it: `PLANNER=... MODE=full` produces the numbers, and
+# `doc/phase8-optimizer-properties.json` records them with the blob ids of the
+# files that produced them.
+#
+# # Why this is `measure-` and not `verify-`
+#
+# `verify-all.sh` runs every `tools/ci/verify-*.sh` by glob, per merge round,
+# and `ci.yml` runs every `check-*.sh`. This file is deliberately in neither
+# glob, which `verify-phase7-benchmark.sh` -- a glob member with a 312s pilot --
+# is not. Two measured reasons, both about STOMP:
+#
+#   * Cost. Measured at PILOT_COUNT=8, seeds below, SEED_BASE=525252: the whole
+#     gate takes 1326s wall clock, of which 712.7s is instrument time. The same
+#     gate with `PLANNERS=chomp` takes 131s (45.7s instrument). Nearly all of
+#     the difference is STOMP sitting on the 120s bound: 16 of its 40 problems
+#     do, and the constrained set spends 8 x 120s to solve none of them. A
+#     per-round glob member cannot absorb that, and CHOMP -- whose slowest call
+#     in that run was 6.97s -- would be paying for it.
+#   * A pilot cannot hold `no-timeouts` on this population. That same run fails
+#     it on all four STOMP configs and on the constrained set. Those timeouts
+#     are a real property -- see the plan section: a population of uniformly
+#     sampled start/goal pairs in clutter is a *sampler's* population, and a
+#     local optimizer over a straight-line seed fails a fraction of it by
+#     construction. This file reports that number; it must not turn it into a
+#     red round for everyone.
+#
+# So the run is explicit, and its measured wall clock is printed at the end of
+# every run and recorded in the results file:
+#
+#   sg docker -c 'tools/ci/measure-phase8-optimizer-properties.sh full'
+#
+# docker is needed for one stage only, the cross-check against upstream
+# `isPathValid`; it must go through `sg` because an unwrapped `docker` in this
+# repo reports failure as success.
+
+set -uo pipefail
+
+MODE="${1:-pilot}"
+case "$MODE" in
+  pilot|full) ;;
+  *) echo "usage: $0 [pilot|full]" >&2; exit 2 ;;
+esac
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+
+ORACLE="$REPO_ROOT/tools/moveit-oracle/run-oracle.sh"
+GEN="$REPO_ROOT/target/release/examples/plan_benchmark_problem_set"
+CHOMP="$REPO_ROOT/target/release/examples/optimize_benchmark_chomp"
+STOMP="$REPO_ROOT/target/release/examples/optimize_benchmark_stomp"
+RESULTS="$REPO_ROOT/doc/phase8-optimizer-properties.json"
+
+# Per-problem wall-clock bound. A call that hits it is a FAILURE, never a skip:
+# see each instrument's own `DEFAULT_TIMEOUT_SECONDS` for how the two planners
+# differ in what enforces it (STOMP is cancelled from outside, upstream's own
+# mechanism; CHOMP has an internal `planning_time_limit` and this is an outer
+# bound that should never fire).
+TIMEOUT_SECONDS=120
+
+# 125 per config x 4 configs = 500 problems per planner, the same population
+# size §5 names for Phase 7. Phase 8's row names no count of its own, so this
+# is this gate's declaration, and `pin-population` holds every run to it.
+FULL_COUNT=125
+# Overridable only because it cannot be used to fake coverage: `pin-population`
+# fails a reduced run rather than reporting the smaller set as a pass. It
+# exists so a mutation proof costs seconds instead of a whole pilot. The default
+# is 8 because that is the count every pilot pin below was measured at.
+PILOT_COUNT="${PILOT_COUNT:-8}"
+
+if [[ "$MODE" == "full" ]]; then
+  COUNT="$FULL_COUNT"
+else
+  COUNT="$PILOT_COUNT"
+fi
+
+# robot config count seed. The seeds live here, in the committed harness,
+# rather than in a round brief: they are the reproducibility contract. They are
+# deliberately NOT Phase 7's seeds -- a shared seed would make the two gates`
+# problem sets identical, and then a problem set that happens to suit one
+# planner would flatter both gates at once.
+SETS=(
+  "panda floor_wall $COUNT 810001"
+  "panda cage       $COUNT 810002"
+  "fanuc floor_wall $COUNT 810021"
+  "fanuc cage       $COUNT 810022"
+)
+# The oracle`s `plan` op cannot express path constraints, so Phase 7 measures
+# this set for condition 2 only. Here it is the same: validity, coverage,
+# densification, endpoints and no-timeouts, with no quality check.
+CONSTRAINED_SET="panda floor_wall $COUNT 810011 panda_joint1:0.0:0.5"
+
+# The per-planner regression pins, and the only place a constant that decides a
+# verdict lives. Every pilot pin below was MEASURED on this tree at
+# PILOT_COUNT=8 -- 16 problems per robot, 8 per config, seeds above,
+# SEED_BASE=525252, TIMEOUT_SECONDS=120, one process per problem, 125s wall
+# clock. PORTING-PLAN.md's Phase 8 property section carries the run and the
+# per-set numbers. What each pin was measured at, and why it is where it is:
+#
+#   chomp endpoint_ceiling 0.0    measured max gap exactly 0.0 over 20 solved
+#                                 paths, both robots. Phase 7's exact-zero bar
+#                                 transfers to CHOMP unchanged, so it is used
+#                                 unchanged -- a ceiling above 0 here would
+#                                 accept a regression this tree does not have.
+#   stomp endpoint_ceiling 0.03   measured max gap 1.538e-2 (panda, 13 solved)
+#                                 and 6.144e-4 (fanuc, 11 solved). NOT near
+#                                 zero, and not a defect: see the `endpoints`
+#                                 comment below. One value for both robots
+#                                 because the mechanism is the smoothing
+#                                 filter, not the robot; ~2x the measured
+#                                 maximum so 23 solved paths' worth of spread
+#                                 does not decide the verdict.
+#   length_ratio_ceiling 1.05     `max(1.05, 1 + 1.1*(measured-1))` rounded up
+#                                 to the nearest 0.05: a 10% allowance on the
+#                                 amount by which CHOMP lengthens the path, and
+#                                 a 1.05 floor because the measured ratio is at
+#                                 1 and a ceiling of exactly 1.00 would be
+#                                 decided by the last bit (a direct run of the
+#                                 instrument on panda problems 0-3 printed
+#                                 1.0000000000000002). Measured worst-config
+#                                 ratio 1.013x on panda (panda_cage, output
+#                                 median 6.076 / seed median 5.998) and 1.000x
+#                                 on fanuc (fanuc_cage, 6.729 / 6.729).
+#
+#                                 The 1.433x/1.305x this comment carried before
+#                                 was an artifact of the aggregation, not a
+#                                 measurement: `merge_rows` took the WORST
+#                                 output median across the two configs over the
+#                                 BEST seed median across the two configs, so
+#                                 the panda number divided panda_cage`s output
+#                                 by panda_floor_wall`s seed. `paired_length
+#                                 _ratio` is now computed per config, where both
+#                                 medians are over the same problems, and only
+#                                 the worst *ratio* travels up.
+#
+#                                 A ratio of one is also exactly what a
+#                                 returned-the-seed run looks like -- see
+#                                 `chomp/nontrivial-population` -- which is why
+#                                 the band alone is not evidence either way.
+#   solved_floor                  measured chomp panda 9/16 fanuc 11/16, stomp
+#                                 panda 12-13/16 fanuc 11/16; each floor is two
+#                                 below the measurement, which is the movement
+#                                 Phase 7 (`§248`) measured for the same
+#                                 quantity at its own scale. The two on the
+#                                 STOMP side is not spare margin: consecutive
+#                                 runs of the same seed gave panda_floor_wall
+#                                 6 solved / 2 timeouts and then 7 solved / 1
+#                                 timeout, one problem sitting on the 120s
+#                                 boundary.
+#   seed_invalid_floor 1          anti-vacuity, not a rate: at least one solved
+#                                 problem in the stratum must have had a
+#                                 colliding straight-line seed, by the
+#                                 independent checker on the densified seed.
+#                                 Measured chomp panda 2 fanuc 0, stomp panda 6
+#                                 fanuc 0 -- both fanuc strata FAIL this, and
+#                                 correctly: nothing in either fanuc stratum's
+#                                 solved set needed an optimizer.
+#   mesh_calls_floor 1            anti-vacuity: the injected
+#                                 `mesh_to_mesh_collision_free` must be reached
+#                                 at least once. Measured 33 (panda) and 17-18
+#                                 (fanuc) calls over 16 problems each. A floor
+#                                 and not an equality because the count is
+#                                 wall-clock dependent: the optimizer calls the
+#                                 closure on `iteration % 10 == 0` and leaves
+#                                 the loop on `start_time.elapsed() >
+#                                 planning_time_limit` (`optimizer.rs:1582`,
+#                                 `:1598`), so two runs of the same seed differ
+#                                 by an iteration. Two consecutive runs on this
+#                                 tree gave fanuc_floor_wall 9 then 10 with
+#                                 every other per-set number identical.
+#
+# `full` is deliberately null. MODE=full has never been run, so there is no
+# measured floor for 250 problems per robot, and a floor of 0 would be a check
+# that cannot fail dressed as a check that passed. A null stratum raises
+# `pins-unmeasured` instead -- see the check list.
+PINS_ALL='{
+  "full": null,
+  "pilot": {
+    "chomp": {"panda": {"problems": 16, "solved_floor": 7, "endpoint_ceiling": 0.0,
+                        "length_ratio_ceiling": 1.05, "mesh_calls_floor": 1,
+                        "seed_invalid_floor": 1},
+              "fanuc": {"problems": 16, "solved_floor": 9, "endpoint_ceiling": 0.0,
+                        "length_ratio_ceiling": 1.05, "mesh_calls_floor": 1,
+                        "seed_invalid_floor": 1}},
+    "stomp": {"panda": {"problems": 16, "solved_floor": 10, "endpoint_ceiling": 0.03,
+                        "seed_invalid_floor": 1},
+              "fanuc": {"problems": 16, "solved_floor": 9, "endpoint_ceiling": 0.03,
+                        "seed_invalid_floor": 1}}
+  }
+}'
+PINS_JSON="$(jq -c --arg m "$MODE" '.[$m] // {}' <<<"$PINS_ALL")"
+
+# Which planners this run measures. An override exists for one reason: proving a
+# check discriminates means breaking what it watches and showing it fail, and a
+# both-planner pilot costs minutes of STOMP wall clock per proof (see the
+# `measure-` note at the top). It is honoured in `pilot` mode only -- `full`
+# always measures both, so a results file can never record half a measurement
+# as a whole one -- and the list is printed on the run banner either way.
+if [[ "$MODE" == "full" ]]; then
+  PLANNERS="chomp stomp"
+else
+  PLANNERS="${PLANNERS:-chomp stomp}"
+fi
+for one in $PLANNERS; do
+  case "$one" in
+    chomp | stomp) ;;
+    *) echo "FAIL unknown planner $one in PLANNERS" >&2; exit 2 ;;
+  esac
+done
+
+# Capped well under `nproc` so a machine shared with other work is not
+# oversubscribed; both instruments are single-threaded per problem (STOMP's
+# watchdog thread sleeps), so each shard is one core.
+SHARDS="${SHARDS:-16}"
+
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR"' EXIT
+
+failed=()
+
+# Runs $1 (an instrument binary) over $2's problems, split across $SHARDS
+# processes, concatenating the per-problem NDJSON lines into $3. The per-shard
+# summary lines are dropped: every aggregate below is recomputed from the
+# per-problem lines, which is both what makes sharding transparent and an
+# independent check on each binary's own summary arithmetic.
+run_sharded() {
+  local binary="$1" request="$2" out="$3" timeout="$4" dense="${5:-}"
+  local pids=() i rc=0
+  # A fresh directory per call, named after the output file: fixed shard names
+  # in one shared $WORKDIR let a later, smaller call pick up an earlier call's
+  # leftover shard files. `verify-phase7-benchmark.sh` carries the same note
+  # because that was a real defect there.
+  local dir="$WORKDIR/shards.$(basename "$out")"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  : >"$out"
+  for ((i = 0; i < SHARDS; i++)); do
+    jq --argjson k "$SHARDS" --argjson i "$i" \
+      '.problems = [.problems[] | select((.id % $k) == $i)]' \
+      "$request" >"$dir/shard.$i.json"
+    if [[ "$(jq '.problems|length' "$dir/shard.$i.json")" == "0" ]]; then
+      continue
+    fi
+    "$binary" "$SEED_BASE" "$timeout" "" "$dense" \
+      <"$dir/shard.$i.json" >"$dir/shard.$i.ndjson" 2>"$dir/shard.$i.err" &
+    pids+=("$!")
+  done
+  for pid in "${pids[@]}"; do wait "$pid" || rc=1; done
+  for ((i = 0; i < SHARDS; i++)); do
+    [[ -s "$dir/shard.$i.ndjson" ]] || continue
+    jq -c 'select(.id != null)' "$dir/shard.$i.ndjson" >>"$out"
+  done
+
+  # Every problem in, every problem out. A shard that died mid-run would
+  # otherwise silently shrink the denominator, which reads as a better success
+  # rate rather than as a lost shard.
+  local want have
+  want="$(jq '.problems|length' "$request")"
+  have="$(wc -l <"$out")"
+  if [[ "$want" != "$have" ]]; then
+    echo "FAIL sharded run lost problems: requested $want, got $have ($out)" >&2
+    for ((i = 0; i < SHARDS; i++)); do
+      [[ -s "$dir/shard.$i.err" ]] && tail -3 "$dir/shard.$i.err" >&2
+    done
+    rc=1
+  fi
+  return $rc
+}
+
+# The seed every instrument run is given. One value for the whole gate so a
+# re-run reproduces exactly; the per-problem stream is `SEED_BASE + problem.id`
+# inside each instrument.
+SEED_BASE=525252
+
+# Every aggregate this gate needs, recomputed from per-problem lines. `timeout`
+# is counted as a failure of its own kind, never folded into `solved` and never
+# dropped.
+aggregate() {
+  jq -s '
+    def median: sort | if length==0 then null
+      elif (length%2)==1 then .[length/2|floor]
+      else (.[length/2-1]+.[length/2])/2 end;
+    [.[] | select(.id != null)] |
+    (map(select(.solved == true))) as $s |
+    {
+      problems: length,
+      solved: ($s|length),
+      timeouts: (map(select(.outcome == "timeout"))|length),
+      failures: (map(select(.solved != true and .outcome != "timeout"))|length),
+      condition2_checked: ($s|length),
+      condition2_pass: ($s|map(select(.condition2_valid == true))|length),
+      waypoints_checked: ($s|map(.waypoints_checked // 0)|add // 0),
+      raw_waypoints: ($s|map(.raw_waypoints // 0)|add // 0),
+      max_endpoint_gap: ($s|map([(.start_gap // 0), (.goal_gap // 0)])|flatten|max // 0),
+      slowest_seconds: (map(.plan_seconds // 0)|max // 0),
+      # Optimizer-specific. `seed_*`/`output_*` are the paired quantities: the
+      # same measure on the same problem, before and after the optimizer, so
+      # neither side can improve by failing the hard problems (the survivorship
+      # bias `condition3-paired` exists for in Phase 7).
+      seed_invalid: ($s|map(select(.seed_valid == false))|length),
+      cost_worsened: ($s|map(select((.output_cost // 0) > (.seed_cost // 0)))|length),
+      # STOMP only. The gated direction: a seed the independent checker calls
+      # colliding must cost something under the planner`s own functional.
+      # `cost_fn_margin_only` is the ungated opposite direction (clearance
+      # margin), carried so the pass is readable rather than bare.
+      cost_fn_missed_seed_collision:
+        ($s|map(select(.seed_valid == false and (.seed_cost // 0) <= 0))|length),
+      cost_fn_margin_only:
+        ($s|map(select(.seed_valid == true and (.seed_cost // 0) > 0))|length),
+      cost_fn_seeds_scored: ($s|map(select(.seed_cost != null))|length),
+      paired_seed_cost_median: ($s|map(.seed_cost)|map(select(. != null))|median),
+      paired_output_cost_median: ($s|map(.output_cost)|map(select(. != null))|median),
+      paired_seed_length_median: ($s|map(.seed_length)|map(select(. != null))|median),
+      paired_output_length_median: ($s|map(.length)|map(select(. != null))|median),
+      # The ratio belongs HERE, at the one level where both medians are taken
+      # over the same problems. Computing it after `merge_rows` divides one
+      # config`s median by another config`s and yields a number that is no
+      # population`s ratio: on this tree that read 1.433x for CHOMP on panda
+      # while every solved panda problem`s own ratio was 1.000 or the cage
+      # set`s.
+      paired_length_ratio:
+        (($s|map(.seed_length)|map(select(. != null))|median) as $sm
+         | ($s|map(.length)|map(select(. != null))|median) as $om
+         | if $sm == null or $om == null or $sm == 0 then null else $om / $sm end),
+      mesh_check_calls: (map(.mesh_check_calls // 0)|add // 0),
+      mesh_check_true: (map(.mesh_check_true // 0)|add // 0)
+    }'
+}
+
+# Merges the per-set rows of one robot into that robot's stratum. A stratum is
+# a population: the per-robot 500 is one, each config is one, and pooling two
+# populations is what lets a failure hide inside a pass -- so this sums the
+# counts (which is what a population *is*) and takes the worst of every bound,
+# and each config is ALSO gated in its own name below.
+merge_rows() {
+  jq -s '
+    def median: sort | if length==0 then null
+      elif (length%2)==1 then .[length/2|floor]
+      else (.[length/2-1]+.[length/2])/2 end;
+    {
+      problems: (map(.problems)|add // 0),
+      solved: (map(.solved)|add // 0),
+      timeouts: (map(.timeouts)|add // 0),
+      failures: (map(.failures)|add // 0),
+      condition2_checked: (map(.condition2_checked)|add // 0),
+      condition2_pass: (map(.condition2_pass)|add // 0),
+      waypoints_checked: (map(.waypoints_checked)|add // 0),
+      raw_waypoints: (map(.raw_waypoints)|add // 0),
+      max_endpoint_gap: (map(.max_endpoint_gap)|max // 0),
+      slowest_seconds: (map(.slowest_seconds)|max // 0),
+      seed_invalid: (map(.seed_invalid)|add // 0),
+      cost_worsened: (map(.cost_worsened)|add // 0),
+      cost_fn_missed_seed_collision: (map(.cost_fn_missed_seed_collision)|add // 0),
+      cost_fn_margin_only: (map(.cost_fn_margin_only)|add // 0),
+      cost_fn_seeds_scored: (map(.cost_fn_seeds_scored)|add // 0),
+      mesh_check_calls: (map(.mesh_check_calls)|add // 0),
+      mesh_check_true: (map(.mesh_check_true)|add // 0),
+      # Medians of per-set medians are not a median of the pooled set, so these
+      # are the *worst* per-set value on each side instead: a pooled median that
+      # averaged two sets would be the pooling this gate refuses everywhere
+      # else, and the per-set checks below carry the per-set numbers anyway.
+      paired_seed_cost_median: (map(.paired_seed_cost_median)|map(select(.!=null))|min),
+      paired_output_cost_median: (map(.paired_output_cost_median)|map(select(.!=null))|max),
+      paired_seed_length_median: (map(.paired_seed_length_median)|map(select(.!=null))|min),
+      paired_output_length_median: (map(.paired_output_length_median)|map(select(.!=null))|max),
+      # A ratio may NOT be assembled that way -- worst numerator over one config
+      # and best denominator over another is no config`s ratio. The worst
+      # *ratio* is, so the whole per-set record travels up and the gate reads
+      # this one.
+      worst_length_ratio:
+        ((map(select(.paired_length_ratio != null))
+          | sort_by(.paired_length_ratio) | last)
+         | if . == null then null
+           else {tag: .tag, ratio: .paired_length_ratio,
+                 seed_median: .paired_seed_length_median,
+                 output_median: .paired_output_length_median} end)
+    }'
+}
+
+echo "=== building instruments (release) ==="
+cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
+  -p moveit-planners-sbp -p moveit-planners-chomp -p moveit-planners-stomp \
+  --examples || exit 1
+
+# --- the discrimination gate ------------------------------------------------
+#
+# Runs FIRST, and a failure here invalidates every validity number below. A
+# checker that silently checks nothing reports 100% exactly as a working one
+# does; only a run that must FAIL can tell the two apart. Each instrument
+# splices a state, verified bad by direct query before planning starts, into
+# every solved path and asserts that none passed -- and asserts first that at
+# least one path was checked, because "rejected all 0 paths" is a vacuous pass.
+run_inject() {
+  local planner="$1" binary="$2" request="$3" mode="$4" tag="$5"
+  if "$binary" "$SEED_BASE" "$TIMEOUT_SECONDS" "$mode" \
+       <"$request" >"$WORKDIR/inject.$planner.$tag.json" \
+       2>"$WORKDIR/inject.$planner.$tag.err"; then
+    echo "  PASS inject=$mode $planner/$tag -- $(tail -1 "$WORKDIR/inject.$planner.$tag.err")"
+  else
+    echo "  FAIL inject=$mode $planner/$tag did not reject every injected path:" >&2
+    tail -6 "$WORKDIR/inject.$planner.$tag.err" >&2
+    failed+=("inject=$mode $planner/$tag")
+  fi
+}
+
+echo
+echo "=== generating problem sets (count=$COUNT per config, mode=$MODE) ==="
+for entry in "${SETS[@]}"; do
+  read -r robot config count seed <<<"$entry"
+  tag="${robot}_${config}"
+  "$GEN" "$config" "$count" "$seed" "$robot" \
+    >"$WORKDIR/$tag.request.json" 2>"$WORKDIR/$tag.gen.stderr" \
+    || { echo "FAIL generating $tag" >&2; failed+=("gen $tag"); continue; }
+  echo "  $(cat "$WORKDIR/$tag.gen.stderr")"
+done
+read -r c_robot c_config c_count c_seed c_spec <<<"$CONSTRAINED_SET"
+"$GEN" "$c_config" "$c_count" "$c_seed" "$c_robot" "$c_spec" \
+  >"$WORKDIR/constrained.request.json" 2>"$WORKDIR/constrained.gen.stderr" \
+  || { echo "FAIL generating constrained set" >&2; failed+=("gen constrained"); }
+echo "  $(cat "$WORKDIR/constrained.gen.stderr")"
+
+echo
+echo "=== validity discrimination gate (injected bad waypoints must be rejected) ==="
+for planner in $PLANNERS; do
+  case "$planner" in
+    chomp) binary="$CHOMP" ;;
+    stomp) binary="$STOMP" ;;
+  esac
+  # `collision` needs obstacles for the spliced state to hit; `constraint` needs
+  # a constraint for it to violate.
+  [[ -s "$WORKDIR/panda_floor_wall.request.json" ]] || continue
+  run_inject "$planner" "$binary" "$WORKDIR/panda_floor_wall.request.json" \
+             collision panda_floor_wall
+  # `constraint` cannot use the constrained set as generated. STOMP solves none
+  # of it -- measured 0 solved / 16 timeouts over three constrained sets (seed
+  # 810011 floor_wall tolerance 0.5, 8 problems; seed 810012 floor_wall
+  # tolerance 1.5, 4; seed 810013 cage tolerance 0.5, 4), and one of those
+  # problems given 600s instead of 120s was still not solved when it was killed
+  # at 730s -- because `getConstraintsCostFunction` costs a state by
+  # `decide().distance`, the distance to the constraint TARGET rather than the
+  # amount by which the tolerance is exceeded, and
+  # `cost_function_from_state_validator` marks any timestep with cost > 0
+  # invalid. A group that moves the constrained joint at all therefore has no
+  # valid timestep, at any budget. With no solved path there is nothing to
+  # splice a bad waypoint into, and the stage reports "checked nothing".
+  #
+  # So the constraint moves from the planner to the checker: the same problems,
+  # the same endpoints (sampled to satisfy it, so a path between them can too),
+  # planned WITHOUT it and checked WITH it. That is the pairing the check needs
+  # anyway -- `<planner>/inject_constrained` in the run list below is this exact
+  # request without the injection, and it has to come out 100% valid for the
+  # rejection here to mean the waypoint was rejected rather than the path.
+  [[ -s "$WORKDIR/constrained.request.json" ]] || continue
+  jq '(.check_joint_constraint = .joint_constraint) | .joint_constraint = null' \
+    "$WORKDIR/constrained.request.json" >"$WORKDIR/inject_constrained.request.json"
+  run_inject "$planner" "$binary" "$WORKDIR/inject_constrained.request.json" \
+             constraint inject_constrained
+done
+
+echo
+echo "=== instrument runs, planners=[$PLANNERS], timeout=${TIMEOUT_SECONDS}s per call, ${SHARDS} shards ==="
+run_start=$(date +%s.%N)
+for planner in $PLANNERS; do
+  case "$planner" in
+    chomp) binary="$CHOMP" ;;
+    stomp) binary="$STOMP" ;;
+  esac
+  # `inject_constrained` is the constrained set with its constraint moved from
+  # the planner to the checker (written by the injection stage above). It is run
+  # here WITHOUT injection because that is the other half of the injection
+  # stage's pair: these paths must come out 100% valid under the same checker
+  # constraint the injected run is rejected under, or the rejection there says
+  # nothing about the spliced waypoint.
+  for entry in "${SETS[@]}" "constrained x x x" "inject_constrained x x x"; do
+    read -r robot config count seed <<<"$entry"
+    case "$robot" in
+      constrained | inject_constrained) tag="$robot" ;;
+      *) tag="${robot}_${config}" ;;
+    esac
+    [[ -s "$WORKDIR/$tag.request.json" ]] || continue
+    if ! run_sharded "$binary" "$WORKDIR/$tag.request.json" \
+                     "$WORKDIR/$planner.$tag.ndjson" "$TIMEOUT_SECONDS" dense; then
+      failed+=("$planner run $tag")
+      continue
+    fi
+    aggregate <"$WORKDIR/$planner.$tag.ndjson" >"$WORKDIR/$planner.$tag.agg.json"
+    echo "  $planner/$tag: $(jq -c '{problems, solved, timeouts, failures, condition2_pass, seed_invalid, mesh_check_calls}' "$WORKDIR/$planner.$tag.agg.json")"
+  done
+done
+run_seconds=$(echo "$(date +%s.%N) - $run_start" | bc)
+
+# --- the independent cross-check -------------------------------------------
+#
+# `is_path_valid` (what the validity check reports) and the collision cost the
+# optimizer minimized are two entry points to one `ParryCollisionEnv`, and the
+# injected state was found by asking that same env through a third. So the
+# injection gate proves the entry points agree with each other -- not that the
+# collision model is right. A backend that misses a contact produces a
+# colliding path AND approves it, and every check that only ever asks this port
+# stays green. Only a different implementation can see that.
+#
+# The oracle's `is_state_valid` op is one: upstream MoveIt's
+# `PlanningScene::isPathValid` over FCL, whose loop is per-waypoint with no
+# interpolation of its own (`moveit_core/planning_scene/src/planning_scene.cpp
+# :2365-2424`, at the pinned sha), so handing it the same densified waypoint
+# list this port just checked asks two implementations the same question about
+# the same states. That per-waypoint shape is also why many paths share one
+# invocation, and why `goal_constraints` is left empty.
+#
+# $1 label, $2 robot, $3 the request the paths came from, $4 NDJSON with
+# `dense`, $5 expected verdict, $6 joint-constraint spec or "".
+oracle_path_check() {
+  local label="$1" robot="$2" request="$3" ndjson="$4" expect="$5" spec="$6"
+  local isv="$WORKDIR/isv.$label.ndjson" out="$WORKDIR/isv.$label.out"
+  local pc='{}'
+  if [[ -n "$spec" ]]; then
+    pc="$(jq -c -n --arg spec "$spec" '($spec|split(":")) as $p |
+      {joint_constraints:[{joint_name:$p[0], position:($p[1]|tonumber),
+        tolerance_above:($p[2]|tonumber), tolerance_below:($p[2]|tonumber),
+        weight:1.0}]}')"
+  fi
+  jq -c --slurpfile req "$request" --argjson pc "$pc" \
+    'select(.dense != null)
+     | {id, op:"is_state_valid", objects: $req[0].objects,
+        path_constraints: $pc, waypoints: .dense}' "$ndjson" >"$isv"
+
+  local n_paths
+  n_paths="$(wc -l <"$isv")"
+  if [[ "$n_paths" -eq 0 ]]; then
+    echo "  FAIL cross-check $label: no path carried \`dense\`, nothing was compared" >&2
+    failed+=("cross-check $label (nothing compared)")
+    return 1
+  fi
+  if ! sg docker -c "$ORACLE --urdf $REPO_ROOT/fixtures/$robot.urdf --srdf $REPO_ROOT/fixtures/$robot.srdf" \
+       <"$isv" >"$out" 2>"$WORKDIR/isv.$label.err"; then
+    echo "  FAIL cross-check $label: oracle run failed" >&2
+    tail -5 "$WORKDIR/isv.$label.err" >&2
+    failed+=("cross-check $label (oracle run)")
+    return 1
+  fi
+
+  local report
+  report="$(jq -n --slurpfile o <(jq -s '.' "$out") \
+                  --slurpfile p <(jq -s 'map(select(.dense!=null))' "$ndjson") \
+                  --arg expect "$expect" '
+    ($p[0] | map({key:(.id|tostring), value:.}) | from_entries) as $by |
+    [ $o[0][] | ($by[.id|tostring]) as $pp |
+      { id,
+        ok: (.ok == true),
+        oracle_valid: .result.valid,
+        port_valid: $pp.condition2_valid,
+        same_indices: ((.result.invalid_waypoints // []) == ($pp.invalid_waypoints // [])),
+        n_oracle: ((.result.invalid_waypoints // [])|length),
+        n_port: (($pp.invalid_waypoints // [])|length) } ] as $rows |
+    { paths: ($rows|length),
+      not_ok: [$rows[]|select(.ok|not)|.id],
+      wrong_verdict: [$rows[]|select(.oracle_valid != ($expect == "valid"))|.id],
+      disagree: [$rows[]|select(.oracle_valid != .port_valid)|.id],
+      index_mismatch: [$rows[]|select(.same_indices|not)|{id, n_oracle, n_port}] }')"
+  local paths not_ok wrong disagree mismatch
+  paths="$(jq -r '.paths' <<<"$report")"
+  not_ok="$(jq -r '.not_ok|length' <<<"$report")"
+  wrong="$(jq -r '.wrong_verdict|length' <<<"$report")"
+  disagree="$(jq -r '.disagree|length' <<<"$report")"
+  mismatch="$(jq -r '.index_mismatch|length' <<<"$report")"
+  if [[ "$not_ok" == "0" && "$wrong" == "0" && "$disagree" == "0" && "$mismatch" == "0" ]]; then
+    echo "  PASS cross-check $label: upstream isPathValid agrees on all $paths path(s), expected=$expect, invalid-index sets identical"
+    return 0
+  fi
+  echo "  FAIL cross-check $label: paths=$paths not_ok=$not_ok wrong_verdict=$wrong port/oracle_disagree=$disagree index_mismatch=$mismatch" >&2
+  jq -c '{not_ok, wrong_verdict, disagree, index_mismatch}' <<<"$report" >&2
+  failed+=("cross-check $label")
+  return 1
+}
+
+echo
+echo "=== cross-check: every produced path through upstream isPathValid ==="
+for planner in $PLANNERS; do
+  for entry in "${SETS[@]}"; do
+    read -r robot config count seed <<<"$entry"
+    tag="${robot}_${config}"
+    [[ -s "$WORKDIR/$planner.$tag.ndjson" ]] || continue
+    oracle_path_check "$planner.$tag" "$robot" "$WORKDIR/$tag.request.json" \
+      "$WORKDIR/$planner.$tag.ndjson" valid ""
+  done
+  # Both constrained populations, each against the constraint it was CHECKED
+  # with: `constrained` planned with it, `inject_constrained` only checked with
+  # it. Upstream gets the same spec either way -- the oracle never plans here,
+  # it re-checks this port's own waypoints.
+  for tag in constrained inject_constrained; do
+    [[ -s "$WORKDIR/$planner.$tag.ndjson" ]] || continue
+    oracle_path_check "$planner.$tag" "$c_robot" \
+      "$WORKDIR/$tag.request.json" \
+      "$WORKDIR/$planner.$tag.ndjson" valid "$c_spec"
+  done
+done
+
+# --- the verdict ------------------------------------------------------------
+#
+# One decision list, printed and gated in a single pass, so the printed verdict
+# and the exit code cannot disagree. Building it as data (rather than printing
+# and then re-deriving the exit code) is what `verify-phase7-benchmark.sh`
+# `§248` had to fix there: a stratum printed FAIL while the exit code stayed 0.
+verdict_json="$WORKDIR/verdict.json"
+: >"$verdict_json"
+for planner in $PLANNERS; do
+  for robot in panda fanuc; do
+    rows=()
+    for config in floor_wall cage; do
+      f="$WORKDIR/$planner.${robot}_${config}.agg.json"
+      [[ -s "$f" ]] || continue
+      # Tagged before merging so `worst_length_ratio` can name the config whose
+      # ratio decided the verdict.
+      jq -c --arg t "${robot}_${config}" '. + {tag: $t}' "$f" >"$f.tagged"
+      rows+=("$f.tagged")
+    done
+    [[ ${#rows[@]} -gt 0 ]] || continue
+    cat "${rows[@]}" | merge_rows \
+      | jq -c --arg p "$planner" --arg r "$robot" '{planner:$p, robot:$r, stratum:.}' \
+      >>"$verdict_json"
+  done
+  for entry in "${SETS[@]}"; do
+    read -r robot config count seed <<<"$entry"
+    f="$WORKDIR/$planner.${robot}_${config}.agg.json"
+    [[ -s "$f" ]] || continue
+    jq -c --arg p "$planner" --arg t "${robot}_${config}" \
+      '{planner:$p, tag:$t, set:.}' "$f" >>"$verdict_json"
+  done
+  for tag in constrained inject_constrained; do
+    f="$WORKDIR/$planner.$tag.agg.json"
+    [[ -s "$f" ]] || continue
+    jq -c --arg p "$planner" --arg t "$tag" '{planner:$p, tag:$t, set:.}' "$f" >>"$verdict_json"
+  done
+done
+
+checks_json="$WORKDIR/checks.json"
+jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
+     --arg mode "$MODE" '
+  def r3($x): if $x == null then null else (($x)*1000|round)/1000 end;
+  def ratio($n; $d): (if ($d//0) > 0 then ($n//0)/$d else null end);
+
+  # Every check that transfers from Phase 7 unchanged, plus the two the
+  # optimizer shape replaces. `$label` is "<planner>/<population>" so no two
+  # populations can ever share a check name -- the per-stratum rule, enforced
+  # by construction rather than by convention.
+  def common($s; $label):
+    [
+      { name: "\($label)/validity",
+        detail: "\($s.condition2_pass)/\($s.condition2_checked) paths valid, \($s.waypoints_checked) waypoints checked",
+        ok: (($s.condition2_checked//0) > 0 and $s.condition2_pass == $s.condition2_checked) },
+      # A solved path whose validity was never checked is invisible to the
+      # validity check: `condition2_checked > 0` is satisfied by one path out
+      # of five hundred.
+      { name: "\($label)/validity-covers-every-solved-path",
+        detail: "checked \($s.condition2_checked) of \($s.solved) solved",
+        ok: (($s.solved//0) > 0 and $s.condition2_checked == $s.solved) },
+      # Densification is what makes the validity check independent of the
+      # waypoints the optimizer already scored, so a collapse back to the
+      # returned points has to fail here, not report 100%. It matters more here
+      # than in Phase 7: both instruments return a fixed, coarse point count
+      # (STOMP `num_timesteps`, CHOMP `3.0/0.03`), so the joint motion between
+      # two returned points is unbounded by anything the planner checked.
+      { name: "\($label)/validity-densified",
+        detail: "\($s.waypoints_checked) checked from \($s.raw_waypoints) returned",
+        ok: (($s.raw_waypoints//0) > 0 and ($s.waypoints_checked//0) > ($s.raw_waypoints//0)) },
+      # A run containing a timeout is not reproducible -- the same tree on a
+      # slower machine gives a different answer.
+      { name: "\($label)/no-timeouts",
+        detail: "\($s.timeouts) timeouts, slowest call \(r3($s.slowest_seconds))s of the \($tmo)s budget",
+        ok: (($s.timeouts//1) == 0) }
+    ];
+
+  # `solved` says a trajectory came back, not that it runs between the two
+  # states asked for. Unlike Phase 7 this is a pinned ceiling rather than exact
+  # zero, and for STOMP the ceiling is not near zero either:
+  # `filter_functions::simple_smoothing_matrix` right-multiplies the WHOLE
+  # trajectory by `generate_smoothing_matrix(num_timesteps, 1.0)`, which is the
+  # normalised inverse of the control-cost matrix R -- not a matrix whose first
+  # and last rows are identity -- so timestep 0 and timestep N-1 are smoothed
+  # along with every interior point, exactly as upstream`s `simpleSmoothingMatrix`
+  # does (`filter_functions.hpp` lines 71-77, `row.transpose() = smoothing_matrix
+  # * row.transpose()` over every row). The measured drift is in the plan
+  # section. CHOMP is the other case: it pins index 0 and the goal index, and its
+  # measured gap is exact 0, so its ceiling is near zero and would catch a
+  # regression.
+  def endpoints($s; $label; $pin):
+    { name: "\($label)/endpoints",
+      detail: "max gap from requested start/goal over solved paths: \($s.max_endpoint_gap), ceiling \($pin.endpoint_ceiling)",
+      ok: (($s.max_endpoint_gap//1) <= $pin.endpoint_ceiling) };
+
+  def pinned($s; $label; $pin):
+    [
+      { name: "\($label)/pin-population",
+        detail: "\($s.problems) problems, pinned at \($pin.problems)",
+        ok: (($s.problems//0) == $pin.problems) },
+      { name: "\($label)/no-regression-solved",
+        detail: "solved \($s.solved)/\($s.problems) >= floor \($pin.solved_floor)",
+        ok: (($s.solved//0) >= $pin.solved_floor) }
+    ];
+
+  # CHOMP: its own objective (smoothness + obstacle cost) is not returned by
+  # `solve`, so a paired improvement check cannot be built against the existing
+  # entry point -- see the plan section. What is observable is the returned
+  # path length against the straight line between the same two endpoints, the
+  # shortest any trajectory between them can be. A ratio band is a regression
+  # bar, not a quality claim, and it is labelled as one.
+  def chomp_quality($s; $label; $pin):
+    [
+      { name: "\($label)/length-ratio-band",
+        detail: (if $s.worst_length_ratio == null
+                 then "no solved problem carried a length, nothing was compared"
+                 else "worst config \($s.worst_length_ratio.tag): output median \(r3($s.worst_length_ratio.output_median)) / straight-line median \(r3($s.worst_length_ratio.seed_median)) = \(r3($s.worst_length_ratio.ratio))x, ceiling \($pin.length_ratio_ceiling)x" end),
+        ok: ($s.worst_length_ratio != null
+             and $s.worst_length_ratio.ratio <= $pin.length_ratio_ceiling) },
+      # The `mesh_to_mesh_collision_free` closure this instrument supplies is
+      # upstream`s `isCurrentTrajectoryMeshToMeshCollisionFree`. Every other
+      # caller in the tree passes `|_, _| false`, so if it is never called the
+      # wiring is vouching for a path upstream has and this run does not.
+      { name: "\($label)/mesh-check-exercised",
+        detail: "\($s.mesh_check_true)/\($s.mesh_check_calls) mesh-to-mesh checks returned collision-free",
+        ok: (($s.mesh_check_calls//0) >= $pin.mesh_calls_floor) },
+      # The same anti-vacuity rule as STOMP`s, and for CHOMP it is what makes
+      # `length-ratio-band` mean anything: if the straight line between the two
+      # endpoints was already collision-free, CHOMP breaks out on its first
+      # iteration and the "output" IS the seed. Then validity is 100%, the
+      # endpoints are exact, and the length ratio is 1.000 -- every number above
+      # passes while measuring the problem generator instead of the optimizer.
+      { name: "\($label)/nontrivial-population",
+        detail: "\($s.seed_invalid) of \($s.solved) solved problems had a colliding straight-line seed, floor \($pin.seed_invalid_floor)",
+        ok: (($s.seed_invalid//0) >= $pin.seed_invalid_floor) }
+    ];
+
+  # STOMP. There is deliberately NO `output_cost <= seed_cost` check here.
+  # `Stomp::solve` returns `parameters_valid` (`stomp.rs:601`) and
+  # `cost_function_from_state_validator` clears that flag for any column with
+  # `costs(t) > 0.0` (`cost_functions.rs:174,199`), where every column is a sum
+  # of non-negative validator penalties. So `solved == true` forces
+  # `output_cost == 0` and `seed_cost >= 0` forces the comparison to hold: the
+  # check could not fail on any run this gate can produce. It was in this gate
+  # and it passed with "output cost median 0 <= seed cost median 0" on both
+  # robots, having measured nothing. Measured directly, panda floor_wall
+  # problems 0-3 at SEED_BASE=525252: output_cost 0.0/0.0/0.0 with seed_cost
+  # 0.0/19.0/0.0.
+  #
+  # What survives is the direction the solver does NOT determine: the ported
+  # distance-field cost must see the collisions the independent checker sees.
+  def stomp_quality($s; $label; $pin):
+    [
+      { name: "\($label)/cost-fn-sees-seed-collisions",
+        detail: "\($s.cost_fn_missed_seed_collision) of \($s.seed_invalid) checker-invalid seeds scored cost 0 (must be 0); \($s.cost_fn_margin_only) of \($s.cost_fn_seeds_scored) scored >0 while the checker passed them (clearance margin, ungated)",
+        ok: (($s.cost_fn_missed_seed_collision//1) == 0) },
+      # A population whose seeds were all already valid measures nothing about
+      # the optimizer: STOMP returns the straight line and every check passes.
+      # This is the same anti-vacuity rule as `validity-densified`, applied to
+      # the problem set instead of the waypoints. It is also what gives
+      # `cost-fn-sees-seed-collisions` a non-empty population to check.
+      { name: "\($label)/nontrivial-population",
+        detail: "\($s.seed_invalid) of \($s.solved) solved problems had a colliding straight-line seed, floor \($pin.seed_invalid_floor)",
+        ok: (($s.seed_invalid//0) >= $pin.seed_invalid_floor) }
+    ];
+
+  def quality($planner; $s; $label; $pin):
+    if $planner == "chomp" then chomp_quality($s; $label; $pin)
+    else stomp_quality($s; $label; $pin) end;
+
+  [ .[] | select(.stratum != null)
+    | .planner as $p | "\(.planner)/\(.robot)" as $label
+    | (($pins[$p][.robot]) // null) as $pin
+    | .stratum as $s
+    | common($s; $label)
+      + (if $pin == null then
+           # A mode with no measured pins loses `endpoints`, both `pinned`
+           # checks and both quality checks -- six of this stratum`s ten. An
+           # empty list here would print the four that remain and reach the exit
+           # clean, i.e. report a partially-checked run as a checked one. One
+           # named failure instead, carrying what is missing.
+           [{ name: "\($label)/pins-unmeasured",
+              detail: "mode=\($mode) has no measured pins for \($p)/\(.robot), so endpoints, pin-population, no-regression-solved and both quality checks did not run",
+              ok: false }]
+         else
+           [endpoints($s; $label; $pin)] + pinned($s; $label; $pin)
+           + quality($p; $s; $label; $pin) end) ]
+  + [ .[] | select(.set != null)
+      | "\(.planner)/\(.tag)" as $label | .set as $s
+      | common($s; $label) ]
+  | flatten
+' "$verdict_json" >"$checks_json"
+
+echo
+echo "=== Phase 8 optimizer properties ==="
+while IFS=$'\t' read -r name ok detail; do
+  if [[ "$ok" == "true" ]]; then
+    printf '  PASS %-56s %s\n' "$name" "$detail"
+  else
+    printf '  FAIL %-56s %s\n' "$name" "$detail" >&2
+    failed+=("$name")
+  fi
+done < <(jq -r '.[] | [.name, (.ok|tostring), .detail] | @tsv' "$checks_json")
+
+# An empty list is not a pass. A jq program that emitted nothing would
+# otherwise print no lines and reach the exit as clean.
+check_count="$(jq 'length' "$checks_json")"
+if [[ "${check_count:-0}" -lt 1 ]]; then
+  failed+=("no checks were evaluated")
+fi
+
+printf '\n  instrument wall clock: %.1fs (mode=%s, %s shards)\n' "$run_seconds" "$MODE" "$SHARDS"
+
+if [[ "$MODE" == "full" ]]; then
+  dirty_list="$(cd "$REPO_ROOT" && git status --porcelain)"
+  if [[ -n "$dirty_list" ]]; then tree_dirty=true; else tree_dirty=false; fi
+  # By content, not by revision: `commit` can only name this run's *parent*
+  # when the run produces the artifact being committed. Check with
+  #   git hash-object crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs
+  sources_json="$(cd "$REPO_ROOT" && for f in \
+      tools/ci/measure-phase8-optimizer-properties.sh \
+      crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
+      crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs \
+      crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs; do
+    printf '%s %s\n' "$f" "$(git hash-object "$f")"
+  done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"
+
+  jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg stamp "$(cd "$REPO_ROOT" && git rev-parse HEAD)" \
+        --argjson dirty "$tree_dirty" \
+        --argjson dirty_paths "$(printf '%s' "$dirty_list" | jq -R -s 'split("\n")|map(select(length>0))')" \
+        --argjson sources "$sources_json" \
+        --argjson pins "$PINS_JSON" \
+        --argjson seconds "$run_seconds" \
+        --slurpfile rows "$verdict_json" \
+        --slurpfile checks "$checks_json" \
+     '{measured_at:$ts, commit:$stamp, working_tree_dirty:$dirty,
+       dirty_paths:$dirty_paths, measured_sources:$sources,
+       mode:"full", planners:"chomp stomp", seed_base:'"$SEED_BASE"', timeout_seconds:'"$TIMEOUT_SECONDS"',
+       instrument_wall_clock_seconds:$seconds,
+       regression_pins:$pins, rows:$rows,
+       checks:$checks[0],
+       verdict:($checks[0]|map({key:.name,
+                                value:(if .ok then "PASS" else "FAIL" end)})|from_entries),
+       verdict_all_pass:($checks[0]|all(.ok))}' >"$RESULTS"
+  echo "  wrote $RESULTS"
+else
+  echo "  NOTE mode=pilot ran $PILOT_COUNT problems per config, not the $((FULL_COUNT * 4)) per planner this gate declares."
+  echo "  NOTE these numbers are a harness self-test, not the Phase 8 measurement."
+  echo "  NOTE run '$0 full' for the full population."
+fi
+
+echo
+if [[ ${#failed[@]} -gt 0 ]]; then
+  echo "FAIL ${#failed[@]} Phase 8 property check(s) failed:" >&2
+  printf '  %s\n' "${failed[@]}" >&2
+  exit 1
+fi
+echo "OK $check_count Phase 8 property checks pass (mode=$MODE)"

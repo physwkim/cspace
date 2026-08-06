@@ -31,6 +31,8 @@ moveit-geometry.workspace = true
 moveit-planners-sbp.workspace = true
 moveit-srdf.workspace = true
 rand_chacha.workspace = true
+# `examples/optimize_benchmark_stomp.rs` reads the benchmark problem set and
+# writes its per-problem NDJSON; the library half needs neither.
 serde_json.workspace = true
 urdf-rs.workspace = true
 

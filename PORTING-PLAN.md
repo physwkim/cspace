@@ -25664,3 +25664,465 @@ a pass"를 명시해 두 줄로 외친다. 매 병합 라운드에 돌릴 만한
 - **상류 기본 벽시계 구성의 재현 가능한 수치.** §263.3의 표는 기록이지
   게이트가 아니다 — 그 구성에서는 재현 가능한 숫자가 존재하지 않는다는 것이
   그 표의 내용이다.
+
+## §264 Phase 8의 "Phase 7과 같은 속성 기반 검증"을 항목별로 셌다 — 옮겨지는 것만 계측기에 넣었다 (2026-08-06)
+
+§5 Phase 8의 둘째 조건은 "CHOMP/STOMP가 Phase 7과 같은 속성 기반 검증을
+통과"다. 이 조건의 기준은 **문장이 아니라 `verify-phase7-benchmark.sh`가
+실제로 하는 일**이다(§248 시점 39개 체크). 그래서 이번 라운드는 그 39개를
+항목으로 분해해서, 각 항목이 *씨앗 궤적에서 출발하는 최적화 플래너*에게
+의미가 있는지를 하나씩 판정하고, 의미가 있는 것만
+`tools/ci/measure-phase8-optimizer-properties.sh`로 구현했다. 억지로 대응시킨
+항목은 없다 — 옮겨지지 않는 항목은 그 이유를 이유로 남겼다.
+
+**Phase 8의 판정 단어는 이 절에서 바꾸지 않는다.** §5의 CHOMP/STOMP 줄은
+UNMEASURED 그대로다. 이 절이 만든 것은 그 단어를 바꿀 수 있게 하는 계측기이고,
+그 계측기가 지금 내는 답은 **"Phase 7의 모집단으로는 바꿀 수 없다"**다 —
+§264.6과 §264.7이 그 답의 근거다.
+
+### §264.1 기준선: Phase 7 게이트가 실제로 세는 20종 / 39개
+
+`verify-phase7-benchmark.sh`의 결정 목록은 이름이 20종이고, 모집단에
+인스턴스화되면 39개가 된다: stratum 13종 × 2(panda/fanuc) + per-set 2종 ×
+4(robot×config) + constrained 5종 = 26 + 8 + 5 = 39. 여기에 결정 목록 밖의 세
+단계가 더 있다 — 오라클 `isPathValid` 교차검사, injection 변별
+게이트(collision/constraint), feasibility accounting. 아래 표의 "항목"은 이
+셋을 포함한 전체다.
+
+이 39개가 실제로 통과하는 것을 이 라운드에서 다시 확인했다: `full` 모드
+전량 실행이 **39개 통과, 벽시계 4787초**(`doc/phase7-benchmark-results.json`,
+`working_tree_dirty: true` — 더러운 경로는 그 파일의 `dirty_paths`가
+이름으로 적고 있고 전부 이 라운드가 새로 만든 Phase 8 경로다).
+
+### §264.2 항목별 전이 판정
+
+| # | Phase 7 항목 | 최적화 플래너에서 의미가 있나 | 유사물 / 이번 라운드 처리 |
+|---|---|---|---|
+| 1 | `condition1` (성공률 ≥ 0.9 × C++ OMPL) | **없다** | §264.3 — `no-regression-solved`(이 트리에서 실측한 하한)로 대체 |
+| 2 | `condition2` (해결한 경로 전부 유효) | 있다, 그대로 | `validity` — 그대로 구현 |
+| 3 | `condition2-covers-every-solved-path` | 있다, 그대로 | `validity-covers-every-solved-path` — 그대로 구현 |
+| 4 | `condition2-densified` | 있다, **Phase 7보다 더** | `validity-densified` — 그대로 구현(§264.5) |
+| 5 | `endpoints` (요청한 start/goal에서 정확히 0) | CHOMP은 그대로, **STOMP은 아니다** | CHOMP `endpoints` 상한 0.0, STOMP은 실측 상한 핀(§264.4) |
+| 6 | `cpp-endpoints` | **없다** | C++ 기준선이 없다(§264.3) |
+| 7 | `no-timeouts` | 있다, 그대로 | `no-timeouts` — 그대로 구현. STOMP은 이 모집단에서 **실패한다**(§264.7) |
+| 8 | `condition3-pooled` (중앙 경로길이 ≤ 1.3 × C++) | **없다** | §264.3 |
+| 9 | `condition3-paired` | **없다**, 그러나 *짝지음*이라는 성질은 옮겨진다 | CHOMP `length-ratio-band`, STOMP `cost-fn-sees-seed-collisions`. STOMP의 첫 설계였던 `paired-cost-not-worse`는 반증 불가능해서 지웠다(§264.10) |
+| 10 | `pin-population` | 있다, 그대로 | `pin-population` — 그대로 구현 |
+| 11 | `no-regression-port-solved` | 있다, 그대로 | `no-regression-solved` |
+| 12 | `no-regression-cpp-solved` | **없다** | C++ 기준선이 없다 |
+| 13 | `no-regression-median-ratio` | 있다, 형태를 바꿔서 | CHOMP `length-ratio-band`의 상한 |
+| 14 | per-set 게이트(모집단을 절대 평균하지 않는다) | 있다, 그대로 | 구현 — 체크 이름이 `<planner>/<population>`이라 두 모집단이 이름을 공유할 수 없다 |
+| 15 | 오라클 `isPathValid` 교차검사 | 있다, **플래너와 무관하게 그대로** | 구현, 6개 모집단 × 2 플래너 |
+| 16 | injection 변별 게이트 | collision은 그대로, constraint는 **모집단을 바꿔야 성립한다** | 구현(§264.6) |
+| 17 | feasibility accounting(양쪽 다 못 푼 문제 재시도) | 있다, 형태를 바꿔서 | `nontrivial-population` — 씨앗이 이미 유효했던 문제는 최적화기를 재지 않는다(§264.7) |
+| 18 | (Phase 7에 없음) CHOMP `mesh_to_mesh_collision_free` | — | `mesh-check-exercised`(§264.8) |
+| 19 | (Phase 7에 없음) 핀이 측정되지 않은 모드 | — | `pins-unmeasured` — 핀 없는 모드는 조용히 체크를 줄이지 않고 실패한다 |
+
+### §264.3 C++ 기준선을 요구하는 네 항목 — 왜 없고, 없앨 수 있나
+
+**`0.9 × cpp_rate`는 CHOMP/STOMP의 막대가 아니다.** Phase 7의 조건 1은 C++
+OMPL RRTConnect의 성공률에 대한 비율이다. CHOMP과 STOMP은 표본 추출기가
+아니라 국소 최적화기다: 전역 탐색이 필요한 문제에서는 구조상 실패한다. 실측이
+그 말을 그대로 한다 — 아래 §264.13의 실행에서 CHOMP은 panda 16문제 중 9,
+fanuc 16문제 중 11을 풀었고, 같은 문제에서 Phase 7의 RRTConnect는 panda
+99.4% / fanuc 81%다(`doc/phase7-benchmark-results.json`). `0.9 × cpp_rate`로
+나오는 수는 *문제 집합이 전역 탐색을 얼마나 요구하는지*를 재고, 포트가
+upstream CHOMP/STOMP과 얼마나 일치하는지는 재지 않는다. 대체물은 비교 대상이
+아니라 **회귀 하한**이다: `no-regression-solved`.
+
+**조건 3(중앙 경로길이 ≤ 1.3 × C++)도 같은 이유로 옮겨지지 않는다.** 최적화기
+출력의 경로길이를 RRTConnect의 중앙값에 대는 것은 서로 다른 목적함수를 가진
+두 알고리즘의 부산물을 비교하는 것이다. 다만 Phase 7이 조건 3에서 **짝지음**을
+도입한 이유(`condition3-paired`: 각자 푼 집합에서 중앙값을 내면 어려운 문제를
+실패하는 쪽이 자기 중앙값을 좋게 만든다)는 그대로 옮겨진다. 최적화기에서
+짝지음의 자연스러운 상대는 C++가 아니라 **자기 입력**이다: 같은 문제에서
+씨앗과 출력을 같은 척도로 재면 모집단이 양쪽에서 동일하다.
+
+**`cpp-endpoints`와 `no-regression-cpp-solved`는 C++ 기준선이 없어서 대응이
+없다.** 이것은 "만들 수 없다"가 아니다 — 오라클 이미지는 이미
+`chomp_motion_planner::chomp_motion_planner`를 링크한다
+(`tools/moveit-oracle/CMakeLists.txt:41`의 `find_package`,
+`:99`의 `target_link_libraries`), 그리고 그 패키지에는
+`chomp_planner.hpp`(`ChompPlanner::solve`)가 들어 있다. 즉 진짜 C++ CHOMP
+기준선은 **빌드 가능하다**: 필요한 것은 오라클에 `chomp_plan` op를 추가하고
+이미지를 다시 굽는 것(digest 게이트가 재빌드를 강제한다)이다. STOMP 쪽은
+`moveit_planners_stomp`가 이미지에 링크돼 있지 않으므로 같은 말을 할 수 없다.
+이번 라운드에서는 만들지 않았다 — §264.12에 남긴다.
+
+**§248.1 표의 16행은 이제 닫혔다.** 그 행("C++ 경로의 끝점은 검사되지 않는다")은
+`닫지 않음 §248.9`로 적혀 있는데, 이 라운드의 `test(sbp): hold the C++ baseline
+to the same endpoint requirement as the port`가 `cpp-endpoints`를 stratum마다
+추가했고 위 39개 전량 실행에서 `cpp_max_endpoint_gap: 0` — 498개 C++ 경로
+전부에서 정확히 0 — 으로 통과한다. §248 본문을 여기서 고치지 않는 이유는
+이 브랜치의 사본이 main의 번호 배정 이전 판이어서, 그 절 안을 편집하면 병합이
+충돌하기 때문이다.
+
+### §264.4 실측: STOMP은 요청한 끝점에서 시작하지도 끝나지도 않는다
+
+Phase 7의 `endpoints`는 **정확히 0**을 요구한다(RRTConnect는 건네받은 끝점
+상태를 그대로 반환하므로 허용치가 필요 없다). 최적화기에서는 플래너에 따라
+갈린다. §264.13 실행의 실측(로봇별 16문제, 해결한 경로만):
+
+| stratum | 해결 경로 | `max_endpoint_gap` | 상한 |
+|---|---|---|---|
+| chomp/panda | 9 | **0.0** | 0.0 |
+| chomp/fanuc | 11 | **0.0** | 0.0 |
+| stomp/panda | 13 | 1.53795e-2 | 0.03 |
+| stomp/fanuc | 11 | 6.14368e-4 | 0.03 |
+
+**CHOMP은 20개 해결 경로 전부에서 정확히 0이다.** 그래서 CHOMP에는 Phase 7의
+정확-0 막대가 그대로 옮겨지고, 게이트도 `endpoint_ceiling: 0.0`으로 건다.
+
+**STOMP은 아니다.** 원인은 포트가 아니라 upstream이다.
+`simpleSmoothingMatrix`(`moveit_planners/stomp/include/stomp_moveit/
+filter_functions.hpp:71-77`)는 `for (auto row : filtered_values.rowwise())`로
+**궤적의 모든 행**에 `smoothing_matrix`를 곱한다. 그 행렬은
+`generateSmoothingMatrix`가 만든, 제어비용행렬 R의 역행렬을 열별로 정규화한
+것이지 첫/마지막 행이 항등인 행렬이 아니다(포트의 대응:
+`moveit_stomp_core::generate_smoothing_matrix`,
+`crates/moveit-stomp-core/src/utils.rs:374-400`). 그래서 timestep 0과 N-1도
+내부 점과 함께 평활화되고, 반환된 궤적의 양 끝은 요청한 start/goal에서 밀린다.
+MoveIt 사용자 관점에서는 실질적인 결함(현재 상태에서 출발하지 않는 계획)이지만
+upstream 동작이므로, 게이트는 이 항목을 **실측 상한 핀**(0.03, 실측 최대값
+1.538e-2의 약 2배)으로 건다. 로봇별로 나누지 않은 이유는 원인이 로봇이 아니라
+필터라는 것이다.
+
+### §264.5 실측: 조밀화 요구는 Phase 7보다 여기서 더 중요하다
+
+두 계측기 모두 **고정된, 거친 점 수**를 반환한다: STOMP은
+`config.num_timesteps`(upstream 기본값 40, `stomp_moveit.yaml`), CHOMP은
+`3.0/0.03 = 101`점. §264.13 실행의 per-set 실측(반환 → 검사):
+
+| 모집단 | CHOMP 반환 → 검사 | STOMP 반환 → 검사 |
+|---|---|---|
+| panda floor_wall | 505 → 1871 (3.7배) | 280 → 2693 (9.6배) |
+| panda cage | 404 → 1697 (4.2배) | 240 → 2500 (10.4배) |
+| fanuc floor_wall | 505 → 1695 (3.4배) | 200 → 1487 (7.4배) |
+| fanuc cage | 606 → 1952 (3.2배) | 240 → 1761 (7.3배) |
+| constrained | 606 → 2065 (3.4배) | 0 → 0 (해결 0건, §264.6) |
+
+즉 반환된 점 사이의
+관절 이동은 플래너가 검사한 어떤 것으로도 상한이 없다 —
+`validity-densified`가 없으면 유효성 검사는 플래너가 이미 점수 매긴 점들을
+다시 읽는 것에 그친다.
+
+조밀화 규칙은 **관절별**이다: 두 연속 검사 상태 사이에서 어떤 활성 관절도
+`motion_resolution`보다 많이 움직이지 않는다. 합-거리 척도는 한 관절이 스텝의
+대부분을 쓸어도 통과할 수 있고, 이 두 크레이트에는 Phase 7이 쓰는
+`JointModelGroupSpace`가 없다.
+
+### §264.6 실측: 경로 제약이 걸린 문제를 STOMP은 어떤 시간을 줘도 풀지 못한다
+
+Phase 7의 constrained stratum과 constraint injection 게이트를 그대로 옮기면
+STOMP에서 둘 다 죽는다. 실측 — 세 개의 서로 다른 제약 집합, 문제마다 별도
+프로세스, 120초 상한:
+
+| 제약 집합 | 문제 수 | STOMP 해결 | 시한 초과 |
+|---|---|---|---|
+| floor_wall, `panda_joint1:0.0:0.5`, seed 810011 | 8 | 0 | 8 |
+| floor_wall, `panda_joint1:0.0:1.5`, seed 810012 | 4 | 0 | 4 |
+| cage, `panda_joint1:0.0:0.5`, seed 810013 | 4 | 0 | 4 |
+
+허용치를 0.5에서 1.5로 넓혀도(joint1 범위가 ±2.897이므로 거의 비활성인
+제약이다) 0/4다. 한 문제에 120초 대신 600초를 줘도 풀지 못했다(730초에
+죽였을 때까지 출력 없음). 즉 시간의 문제가 아니고 제약의 세기 문제도 아니다.
+
+**원인은 제약 비용이 "위반량"이 아니라 "목표까지의 거리"라는 것이다.**
+`getConstraintsCostFunction`은 상태의 비용을 `constraints.decide(state).distance
+* cost_scale`로 준다(`cost_functions.hpp:246`). 그리고
+`JointConstraint::decide`는 만족/위반과 **무관하게**
+`ConstraintEvaluationResult(result, constraint_weight_ * fabs(dif))`를
+반환한다 — `dif`는 목표값과의 차이다
+(`moveit_core/kinematic_constraints/src/kinematic_constraint.cpp:326`). 이어서
+`get_cost_function_from_state_validator`는 `costs(timestep) > 0.0`인 timestep을
+무효로 표시한다(`cost_functions.hpp:99`, 포트의 대응은
+`crates/moveit-planners-stomp/src/cost_functions.rs:174`). 그래서 제약이 걸린
+관절을 그룹이 조금이라도 움직이면 **유효한 timestep이 하나도 없고**, STOMP은
+유효한 궤적을 영원히 보고하지 못한다. 이것은 upstream 동작이고 포트는 양쪽
+지점 모두에서 그것과 같다.
+
+계측기에서 이 결론을 우회하지 않고 **역할을 분리**했다. 요청 JSON이 두 필드를
+가진다:
+
+- `joint_constraint` — 플래너에게 주는 제약(STOMP의 `costs::sum`에 들어간다).
+- `check_joint_constraint` — 검사기에게 주는 제약(`is_path_valid`와 주입 상태의
+  거부 판정에만 쓰인다). 없으면 앞 필드로 되돌아간다.
+
+CHOMP 쪽에는 애초에 경로 제약 입력이 없다(`ChompRequest`는 목표 제약만 받는다)
+— 그래서 CHOMP의 요청 제약은 처음부터 검사기 제약이었고, 두 필드를 양쪽에 다
+둔 것은 게이트가 플래너에 따라 분기하지 않게 하려는 것이다.
+
+이 분리로 constraint injection 게이트가 **실제로 변별한다**. 같은 8문제(seed
+810011의 제약 집합, 제약을 `check_joint_constraint`로 옮긴 것), STOMP:
+
+| 실행 | 해결 | 시한 초과 | `is_path_valid` 유효 |
+|---|---|---|---|
+| 주입 없음 | 8/8 (2–65초) | 0 | **8/8** |
+| 주입 있음 | 8/8 | 0 | **0/8** |
+
+같은 요청, 같은 검사기 제약, 차이는 스플라이스된 한 waypoint뿐인데 유효성이
+8/8에서 0/8로 뒤집힌다. 그리고 이 표는 §264.6 앞머리의 주장도 같이 증명한다:
+**같은 끝점**이 제약을 플래너에 줄 때는 0/8이고 검사기에만 줄 때는 8/8이다.
+게이트는 두 실행을 모두 돌린다 — 주입 없는 쪽은 `<planner>/inject_constrained`
+모집단으로 `validity` 100%를 요구하고, 주입 있는 쪽은 전량 거부를 요구한다.
+한쪽만 있으면 "경로가 원래 무효였다"와 "waypoint가 거부됐다"를 구분할 수 없다.
+
+### §264.7 실측: 이 모집단에서 풀리는 문제는 최적화기가 필요 없던 문제다
+
+Phase 7의 모집단은 **표본 추출기의 모집단**이다: 시작/목표를 균일 무작위로
+뽑고 끝점이 나쁜 것만 버린다. 최적화기에게 이 모집단은 두 조각으로 갈린다 —
+직선 씨앗이 이미 충돌 없는 문제(즉시 풀린다)와 전역 탐색이 필요한 문제(구조상
+실패하거나 시한을 넘긴다). §264.13 실행의 실측이 그 갈림을 그대로 보여준다:
+
+| stratum | 해결 | 시한 초과 | 씨앗이 무효였던 해결 문제 | 출력/직선 길이 중앙비 |
+|---|---|---|---|---|
+| chomp/panda | 9/16 | 0 | 2 | 1.013 (panda_cage) |
+| chomp/fanuc | 11/16 | 0 | **0** | 1.000 (fanuc_cage) |
+| stomp/panda | 13/16 | 3 | 6 | — |
+| stomp/fanuc | 11/16 | 5 | **0** | — |
+
+fanuc 두 stratum에서는 **해결한 문제 전부**가 직선 씨앗이 이미 유효했던
+문제다. 그런 문제에서 CHOMP은 첫 반복에서 이탈하고 STOMP은 씨앗을 그대로
+돌려주므로, "유효성 100%, 끝점 정확, 길이비 1.000"은 최적화기가 아니라
+**문제 생성기**를 보증한다. 이것이 `nontrivial-population`이 두 플래너 모두에
+있어야 하는 이유이고, 지금 이 체크가 fanuc에서 **실패한다** — 올바른 판정이다.
+
+시한 초과도 같은 갈림의 다른 쪽이다. STOMP은 40문제 중 16개(40%)에서 120초
+상한에 닿았다. Phase 7의 `no-timeouts`를 "그대로 옮겼다"고 해서 통과한다는
+뜻은 아니다: 규칙은 옮겨지고 **모집단은 옮겨지지 않는다**. Phase 8의 줄을 닫는
+데 필요한 것은 이 계측기가 아니라 씨앗이 주어진 문제 모집단
+(`ChompRequest::seed_trajectory`, upstream STOMP의 `extractSeedTrajectory`)이고,
+그것은 §264.12에 남긴다.
+
+### §264.8 CHOMP의 `mesh_to_mesh_collision_free`를 처음으로 실제로 공급한다
+
+`moveit_planners_chomp::solve`는 upstream의
+`isCurrentTrajectoryMeshToMeshCollisionFree`(`chomp_optimizer.cpp:520-537`)를
+메서드가 아니라 **주입된 클로저**로 받는다. 크레이트 안에서 배선하면
+`moveit-planners-chomp`가 `moveit-scene`/`moveit-collision`에 의존해야 하기
+때문이다(`optimizer`의 자체 doc). 트리의 기존 호출자는 전부 `|_, _| false`를
+넘긴다 — 이는 upstream의 *절대 collision-free가 아님* 분기이고,
+`is_collision_free_`는 구 근사 비용 비교로만 참이 될 수 있다.
+
+이 계측기는 두 크레이트를 다 가진 호출자이므로 진짜 검사를 넘긴다:
+`PlanningScene::is_path_valid`를 그룹 궤적 행렬 위에서, upstream이
+`best_group_trajectory_(i, j)`를 읽는 것과 같은 `(point, joint)` 순서로.
+제약은 넘기지 않는다 — upstream의 메서드는 `isPathValid(trajectory,
+planning_group_)`, 즉 제약 집합을 받지 않는 오버로드를 부르므로, 검사기 제약을
+여기 넘기면 CHOMP 자신의 조기 이탈 기준이 upstream보다 엄해진다. 실측으로 이
+경로가 실제로 돈다: panda 16문제에서 호출 33회, fanuc 16문제에서 17~18회.
+`mesh-check-exercised`는 이 호출 수가 0이 아님을 요구한다 — 0이면 이 배선은
+upstream에 있고 이 실행에는 없는 경로를 보증하는 셈이 된다.
+
+이 수가 **하한이지 등식이 아닌** 이유도 실측이다. 최적화기는 클로저를
+`iteration % 10 == 0`에서 부르고 루프는 `start_time.elapsed() >
+planning_time_limit`에서 나간다(`optimizer.rs:1582`, `:1598`). 같은 시드로 연속
+두 번 돌린 pilot에서 나머지 per-set 수치는 전부 같고 fanuc_floor_wall의 호출
+수만 9 → 10으로 달랐다. 벽시계에 달린 수를 등식으로 핀하면 그 핀은 기계 부하를
+잰다.
+
+시한도 두 플래너가 다르다. STOMP은 upstream이 밖에서 끊는다
+(`stomp_moveit_planning_context.cpp:247-257`의 `std::async` 감시자가
+`stomp->cancel()`), 그래서 계측기도 `CancelHandle` 위의 감시 스레드로 같은 일을
+하고, 발동하면 **실패**로 센다(취소된 STOMP은 씨앗을 반환하므로 발동을 해결로
+세면 직선을 STOMP의 출력으로 보고하게 된다). CHOMP은
+`ChompParameters::planning_time_limit`가 자기 루프를 끊으므로, 계측기의 시한은
+절대 발동하지 않아야 하는 **외곽** 상한이다 — 실측 40문제 전부에서 발동하지
+않았고 가장 느린 호출이 6.78초다.
+
+### §264.9 계측기 구조 — 그리고 왜 `verify-`가 아니라 `measure-`인가
+
+`tools/ci/measure-phase8-optimizer-properties.sh`. Phase 7 게이트와 같은 형태:
+하나의 결정 목록에서 인쇄와 종료 코드가 같이 나오고(§248이 Phase 7에서 고친
+결함), 빈 체크 목록은 통과가 아니며, `full`은
+`doc/phase8-optimizer-properties.json`에 blob id와 함께 기록한다.
+
+**이름이 `measure-`인 것은 의도다.** `verify-all.sh`는 `tools/ci/verify-*.sh`를
+glob으로 매 병합 라운드에 돌리고 `ci.yml`은 `check-*.sh`를 돌린다. 이 파일은
+둘 다에서 빠져 있다. 이유는 두 개고 둘 다 실측이다 — (1) 비용: PILOT_COUNT=8
+실행에서 STOMP은 40문제 중 17개에서 120초 상한에 닿았고, 제약 집합 8문제는
+8/8 전부 상한에 닿아 해결 0으로 끝났다. 같은 실행의 CHOMP 쪽 전량은 45.7초,
+STOMP까지 합친 계측기 벽시계는 723.5초, 오라클 교차검사와 문제 생성을 포함한
+게이트 전체는 1398초다. (2) 이 모집단에서 pilot이 `no-timeouts`를 지킬 수
+없다(§264.7). 실패는 보고할 값이지 남의 라운드를 빨갛게 만들 값이 아니다.
+
+핀은 `PINS_ALL` 한 곳에만 있고, 전부 §264.13의 실행에서 측정한 값이다.
+`full` 모드의 핀은 **null**로 두었다: 250문제 규모를 한 번도 돌리지 않았으므로
+측정된 하한이 없고, 0을 하한으로 적으면 통과한 체크의 모습을 한, 실패할 수
+없는 체크가 된다. 그래서 핀이 없는 모드는 조용히 체크 6개를 잃는 대신
+`pins-unmeasured`로 실패한다.
+
+문제 집합은 Phase 7과 **같은 생성기**(`plan_benchmark_problem_set`)를 쓴다 —
+그래서 p10-phase5가 같은 형식의 문제 집합에서 낸 수를 이 계측기로 읽을 수
+있다. 시드는 다르다(810001/810002/810021/810022, 제약 집합 810011): 같은 시드를
+쓰면 두 게이트의 문제 집합이 동일해지고, 한 플래너에 유리한 집합이 두 게이트를
+동시에 좋게 만든다.
+
+### §264.10 계측기 자신의 결함 두 개 — 모집단을 8문제로 키우자 드러났다
+
+핀을 처음 잰 실행은 PILOT_COUNT=2였다. 그 수로 만든 계측기를 PILOT_COUNT=8로
+돌리자 결함 두 개가 나왔다. 둘 다 "통과하는데 아무것도 재지 않는" 종류다.
+
+**(1) `paired-cost-not-worse`는 반증 불가능했다.** 설계 의도는 "최적화기가 자기
+목적함수 기준으로 입력보다 나쁜 것을 돌려주면 실패"였다. 그런데
+`Stomp::solve`가 돌려주는 성공 여부는 `parameters_valid`이고
+(`crates/moveit-stomp-core/src/stomp.rs:601`),
+`cost_function_from_state_validator`는 어느 한 열이라도 `costs(t) > 0.0`이면 그
+값을 거짓으로 만든다(`crates/moveit-planners-stomp/src/cost_functions.rs:174`,
+`:199`). 각 열은 음이 아닌 validator 벌점의 합이므로 `solved == true`는
+`output_cost == 0`을 **강제**하고, `seed_cost >= 0`이므로
+`output_cost <= seed_cost`는 이 계측기가 낼 수 있는 모든 실행에서 참이다.
+실제로 게이트에 들어 있었고 두 로봇 모두에서 이렇게 통과했다:
+
+```
+PASS stomp/panda/paired-cost-not-worse   output cost median 0 <= seed cost median 0, 0 problems worsened
+PASS stomp/fanuc/paired-cost-not-worse   output cost median 0 <= seed cost median 0, 0 problems worsened
+```
+
+직접 재면 이렇다(panda floor_wall 문제 0–3, `SEED_BASE=525252`, 시한 120초,
+벽시계 240초):
+
+| id | solved | seed_cost | output_cost | seed_valid(검사기) | seed_cost_fn_valid |
+|---|---|---|---|---|---|
+| 0 | true | 0.0 | 0.0 | true | true |
+| 1 | true | 19.0 | 0.0 | **false** | false |
+| 2 | true | 0.0 | 0.0 | true | true |
+| 3 | false | — | — | — | — |
+
+`output_cost`는 해결된 세 문제 전부 0이다. 종료 규칙을 다시 쓴 문장을 체크로
+둔 것이므로 지웠다. 남는 것은 **종료 규칙이 정하지 않는 방향**이다:
+독립 검사기가 충돌이라고 부른 씨앗은 포트의 거리장 비용에서도 값이 0보다 커야
+한다. 이것이 `cost-fn-sees-seed-collisions`이고, 포트된 거리장 비용을 충돌
+검사기에 대고 같은 배열 위에서 맞춰 보는 교차검사다. 반대 방향
+(`cost_fn_margin_only`: 검사기는 통과시켰는데 비용이 0보다 큼)은 여유 간격
+포텐셜 때문에 정상이므로 세되 게이트하지 않는다.
+
+이 결함은 `seed_valid`라는 필드 이름이 두 계측기에서 **다른 것**을 뜻하고 있던
+것과 같은 뿌리다. CHOMP 쪽 `seed_valid`는 조밀화한 씨앗에 대한
+`PlanningScene::is_path_valid`(독립 검사기)였고, STOMP 쪽은 STOMP 자신의 비용
+함수가 낸 불리언이었다. 그런데 `nontrivial-population` 체크 하나가 두 값을 같은
+이름으로 집계했다. 지금은 두 계측기 모두 `seed_valid` = 독립 검사기이고, STOMP의
+비용 함수 쪽은 `seed_cost_fn_valid`라는 다른 이름으로 나온다.
+
+**(2) `length-ratio-band`가 나눈 두 중앙값은 서로 다른 모집단의 것이었다.**
+`merge_rows`는 로봇 stratum을 만들 때 "각 변의 최악값"을 취한다 — 분자는 두
+config 중 **큰** 출력 중앙값, 분모는 두 config 중 **작은** 씨앗 중앙값. 합계에는
+맞는 규칙이지만 비율에는 틀린 규칙이다. 그렇게 만든 수는 어느 모집단의 비율도
+아니다. 실측이 그 차이를 보여준다:
+
+| stratum | 교차-config 비 (옛 계산) | config별 최악 비 (지금) |
+|---|---|---|
+| chomp/panda | 6.076 / 4.239 = **1.433x** | panda_cage 6.076 / 5.998 = **1.013x** |
+| chomp/fanuc | 6.729 / 5.157 = **1.305x** | fanuc_cage 6.729 / 6.729 = **1.000x** |
+
+1.433x는 panda_cage의 출력 중앙값을 panda_floor_wall의 씨앗 중앙값으로 나눈
+값이다. 문제 하나하나로 내려가면 CHOMP의 비는 1이다 — panda 문제 0과 2를 직접
+돌리면 `length/seed_length`가 각각 `1.0000000000000002`,
+`0.9999999999999999`다. 즉 이 게이트는 1.05 상한을 두 로봇에서 **실패**시키고
+있었고, 실패의 원인은 포트가 아니라 집계였다. 비율은 이제 두 중앙값이 같은
+문제 집합 위에 있는 유일한 층(config)에서 계산하고, 위로는 최악 *비율*만
+올라간다. 상한은 `max(1.05, 1 + 1.1*(측정 - 1))`을 0.05 단위로 올림한 값이라
+1.05 그대로다 — 측정이 1 근처라 상한을 정확히 1.00으로 두면 마지막 비트가
+판정을 정한다(위의 `1.0000000000000002`).
+
+### §264.11 변별 변이 — 각 체크가 무엇을 보고 있는지 깨서 확인했다
+
+체크가 통과한다는 것은 그 체크가 무언가를 보고 있다는 뜻이 아니다(§264.10이
+그 반례다). 그래서 체크마다 그것이 감시하는 것을 하나씩 깨고 pilot을 돌려서,
+**그 체크가 실제로 뒤집히는지**를 확인했다. 각 변이는 적용 → 재빌드 → pilot →
+복원이고, 복원은 세 파일의 sha256 일치로 확인한다. 변이 목록과 결과:
+
+| 변이 | 무엇을 깼나 | 기준선에 없던 새 FAIL |
+|---|---|---|
+| m1 | `densify`가 넘겨받은 점을 그대로 반환 | `validity-densified` × 6 모집단 + 2 stratum (3568 → 909점), 그리고 `nontrivial-population`(씨앗 조밀화도 같이 죽어 2 → 0) |
+| m2 | 씨앗 검사 결과를 무조건 `true`로 | `chomp/panda/nontrivial-population` (2 of 9 → 0 of 9) |
+| m3 | `mesh_to_mesh_collision_free`를 트리의 다른 호출자들과 같은 `\|_, _\| false`로 | `mesh-check-exercised` (panda 33회 → 0회), 그리고 CHOMP이 **두 로봇 모두 0/8 해결**로 떨어져 validity·cross-check·injection까지 40개 |
+| m4 | 반환 경로의 첫 점을 버림 | `endpoints` 두 stratum (0.0 → 7.98e-4 / 8.24e-5) |
+| m5 | `PINS_ALL`의 `pilot` 키 이름을 바꿈 | `pins-unmeasured` 두 stratum — 핀이 사라져도 체크 6개가 조용히 줄지 않는다 |
+| m6 (STOMP) | 씨앗 비용을 씨앗이 아니라 **출력** 행렬에서 잼 | `stomp/panda/cost-fn-sees-seed-collisions` (검사기가 무효라고 한 씨앗 5개 전부가 비용 0) |
+| m7 | `length-ratio-band`를 옛 교차-config 계산으로 되돌림 | `length-ratio-band` 두 stratum (1.013x → 1.433x, 1.000x → 1.305x, 상한 1.05x) |
+
+m3은 변별이 좁지 않다 — 클로저를 죽이면 CHOMP이 아예 풀지 못하게 되어
+40개가 무너진다. 그래서 이 변이가 증명하는 것은 "`mesh-check-exercised`만
+반응한다"가 아니라 **이 배선이 장식이 아니라는 것**이다: 트리의 다른 호출자가
+넘기는 `|_, _| false`로는 이 모집단에서 CHOMP의 해결 수가 20에서 0으로 간다.
+
+m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 검사기가
+무효라고 한 씨앗이 하나도 없어서 `cost-fn-sees-seed-collisions`가 "0 of 0"으로
+통과한다 — 즉 이 체크는 모집단이 비면 아무것도 재지 않는다. 그것을 막는 것이
+같은 stratum의 `nontrivial-population`이고, fanuc에서는 그 체크가 실패한다.
+
+### §264.12 닫지 않은 것
+
+- **씨앗이 주어진 문제 모집단.** §264.7이 이 라운드의 가장 큰 미결이다. Phase
+  8의 줄을 정직하게 닫으려면 균일 무작위 끝점 쌍이 아니라 씨앗 궤적이 딸린
+  문제가 필요하다 — 두 진입점이 이미 그것을 받는다
+  (`ChompRequest::seed_trajectory`, upstream STOMP의 `extractSeedTrajectory`).
+  생성기를 그렇게 늘리는 것은 `moveit-planners-sbp`의 예제를 고치는 일이라
+  이 라운드의 두 크레이트 밖이다.
+- **C++ CHOMP 기준선.** 오라클은 이미 `chomp_motion_planner`를 링크하므로
+  `chomp_plan` op는 만들 수 있다(§264.3). 만들면 `condition1`의
+  `0.9 × cpp_rate`와 `cpp-endpoints`, `no-regression-cpp-solved`가 CHOMP에
+  대해 실제로 복원된다. 이번 라운드에 만들지 않았다: 오라클 소스 변경은
+  digest 게이트가 이미지 재빌드를 강제하고, 그 비용은 이 라운드에 넣지
+  않았다.
+- **`full` 모드의 핀.** 한 번도 돌리지 않았다(§264.9). 250문제 × 2로봇 ×
+  2플래너에 STOMP의 실측 문제당 비용을 곱하면 이 라운드에 들어가지 않는다.
+- **CHOMP의 목적함수가 관측되지 않는다.** `solve`는
+  `ChompSolution { trajectory, planner_id, description }`만 반환한다. 최적화기
+  내부의 smoothness/obstacle 비용은 밖에서 볼 수 없으므로, CHOMP의 품질
+  항목은 짝지은 *개선* 주장이 아니라 직선 하한에 대한 **비 밴드**다. 닫는
+  방법은 한 필드다: `ChompSolution`에 최종 궤적 비용을 실어 보내는 것.
+- **STOMP의 끝점 밀림 자체.** §264.4는 상한을 핀으로 걸었을 뿐이고, 밀림을
+  없애지 않았다. upstream 동작이므로 포트가 임의로 다시 고정하면 안 된다.
+- **제약 비용이 위반량이 아니라 거리라는 것.** §264.6의 원인도 upstream
+  동작이다. 포트를 바꾸는 것이 아니라 upstream 쪽 문제로 다뤄야 한다.
+
+### §264.13 측정치와 비용
+
+이 절의 모든 수는 아래 실행에서 나왔다. 재현에 필요한 것 전부:
+
+- 게이트: `tools/ci/measure-phase8-optimizer-properties.sh pilot`
+  (`sg docker -c`로 감싸 실행 — 오라클 교차검사가 컨테이너를 쓴다).
+- 모집단: `PILOT_COUNT=8`. 문제 집합 6개 × 플래너 2개 = **96 계획 호출**.
+  집합과 시드: `panda floor_wall/810001`, `panda cage/810002`,
+  `fanuc floor_wall/810021`, `fanuc cage/810022`,
+  `constrained = panda floor_wall/810011 + panda_joint1:0.0:0.5`,
+  `inject_constrained = 같은 요청에서 제약을 검사기 쪽으로만 옮긴 것`.
+- 플래너 시드: `SEED_BASE=525252`, 문제별 스트림은 `SEED_BASE + problem.id`.
+- 시한: 호출당 **120초**, 초과는 해결이 아니라 `timeout`으로 센다.
+- 병렬: 16 샤드, 샤드마다 별도 프로세스.
+
+**결과: 체크 86개 중 73 통과 / 13 실패.** 86개의 구성은 stratum 38개
+(CHOMP 10종 × 2로봇 + STOMP 9종 × 2로봇) + per-set 48개(4종 × 6모집단 ×
+2플래너)이고, 결정 목록 밖에 오라클 교차검사 12줄과 injection 게이트 4줄이
+더 붙는다. 실패 13개는 전부 이 절이 이름으로 적은 것들이다:
+
+| 실패 | 근거 절 |
+|---|---|
+| `chomp/fanuc/nontrivial-population` (0 of 11) | §264.7 — 모집단 |
+| `stomp/fanuc/nontrivial-population` (0 of 11) | §264.7 — 모집단 |
+| `stomp/{panda,fanuc}/no-timeouts` + per-set 4개 | §264.7 — 모집단 |
+| `stomp/constrained/{validity, …-covers…, …-densified, no-timeouts}` | §264.6 — 제약 비용이 거리 |
+| `cross-check stomp.constrained (nothing compared)` | 같은 원인 — 비교할 경로가 0개 |
+
+**벽시계.** 게이트 전체 1326초. 그 안에서 계측기 실행이 712.7초이고, 나머지는
+문제 생성·injection 단계·오라클 교차검사 12회다. 플래너별로 갈라 재면 CHOMP
+전량(`PLANNERS=chomp`)은 게이트 전체 131초, 계측기 45.7초다 — 즉 이 게이트
+비용의 대부분은 STOMP의 120초 시한에 닿는 16개 호출이다. 가장 느린 CHOMP 호출은
+6.97초로 120초 상한 근처에도 가지 않는다.
+
+**두 번 돌려서 다른 수.** 같은 시드로 pilot을 연속 실행하면 해결 수·실패 수·
+`seed_invalid`·길이 중앙값은 같지만 두 값이 흔들린다: CHOMP의
+`mesh_check_calls`(fanuc_floor_wall 9 → 10 → 8, 로봇 합계 17~18)와 STOMP의
+해결 수(panda_floor_wall 6 → 7, 시한 초과 2 → 1). 둘 다 벽시계에 달린 양이다 —
+전자는 `iteration % 10` 호출과 `planning_time_limit` 이탈의 상호작용이고
+(§264.8), 후자는 120초 경계에 걸친 문제 하나다. 그래서 이 두 양의 핀은 등식이
+아니라 하한이고(`mesh_calls_floor`), 해결 수 하한은 실측보다 2 낮다.
+
+**변이 비용.** §264.11의 변이 7개는 `PLANNERS=chomp`(6개, 각 ~140초)와
+`PLANNERS=stomp`(1개, ~1000초)로 돌렸다. 이 오버라이드가 있는 이유가 이것이다:
+같은 증명을 양쪽 플래너 pilot으로 하면 7 × 22분이 든다.
+
+**Phase 7 쪽 재확인.** `verify-phase7-benchmark.sh full`은 이 라운드에서
+39개 전량 통과, 벽시계 4787초(`doc/phase7-benchmark-results.json`).
