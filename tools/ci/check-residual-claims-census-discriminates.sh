@@ -32,6 +32,7 @@
 #   drop the TABLE_ROW_RE boundary          reddens table_ends_item, likewise
 #                                            on text only
 #   search the closure marker document-wide reddens closure_marker_is_per_bullet
+#   hardcode the row citation prefix        reddens continuation's text pair
 #
 # Every line above was produced by applying that neutralization to
 # `check-residual-claims-census.py` and running this script, not predicted:
@@ -206,6 +207,14 @@ expect_text closure_marker_is_per_bullet \
 expect_text closure_marker_is_per_bullet \
   "$ROOT/closure_marker_is_per_bullet.md" present "[B] 둘째.** 아직 열려 있다. | OPEN |"
 
+# --- each row cites the document that was parsed -----------------------------
+# isolates: the citation prefix. It was the literal `PORTING-PLAN.md`, so every
+# row of this file's own fixtures cited PORTING-PLAN.md line numbers belonging
+# to a temp file -- and the census is tracked, so `check-citation-drift.py`
+# resolves those rows against whatever the prefix names.
+expect_text continuation "$ROOT/continuation.md" present "| continuation.md:1 "
+expect_text continuation "$ROOT/continuation.md" absent "PORTING-PLAN.md:"
+
 # --- a document with no lead-in is a failure, not an empty census ------------
 # isolates: the zero-entry guard. Without it a vocabulary change emits a census
 # with no rows and exits 0.
@@ -234,5 +243,6 @@ fi
 echo "OK check-residual-claims-census.py discriminates on all $checked scenarios:" \
      "a continuation paragraph and a blank line keep the list open, an" \
      "unindented paragraph closes it, a sibling bullet / heading / table row" \
-     "ends the item, the closure marker is read per bullet, and a document" \
-     "with no lead-in is a failure rather than an empty census"
+     "ends the item, the closure marker is read per bullet, each row cites the" \
+     "document that was parsed, and a document with no lead-in is a failure" \
+     "rather than an empty census"
