@@ -32,6 +32,11 @@ importantly -- verifies the second one instead of transcribing it.
 Usage:
     tools/ci/classify-unported.py [--upstream DIR] [--repo DIR]
                                   [--emit DOC] [--check DOC]
+                                  [--phase-table-only]
+
+`--phase-table-only` runs just the §5 cross-check and stops before anything
+that needs `--upstream`; `tools/ci/check-unmet-blockers.sh` is the `check-*`
+entry point for it, and its header says why that split exists.
 """
 
 from __future__ import annotations
@@ -668,6 +673,11 @@ def main() -> int:
     ap.add_argument("--repo", default=os.getcwd())
     ap.add_argument("--emit", metavar="DOC", help="write the classification table to DOC")
     ap.add_argument("--check", metavar="DOC", help="verify DOC has one row per unported file")
+    ap.add_argument(
+        "--phase-table-only",
+        action="store_true",
+        help="check UNMET_BLOCKERS against §5's table and stop -- needs no upstream checkout",
+    )
     args = ap.parse_args()
 
     errors, verdicts = check_phase_coverage(args.repo)
@@ -677,6 +687,19 @@ def main() -> int:
         print(f"FAIL: UNMET_BLOCKERS disagrees with PORTING-PLAN.md's §5 table "
               f"in {len(errors)} place(s)", file=sys.stderr)
         return 1
+
+    # Everything above reads PORTING-PLAN.md and nothing else; everything below
+    # needs the upstream checkout.  The split is what lets check-unmet-blockers.sh
+    # put the part above into the `check-*` glob, whose contract is python3 plus
+    # the tracked files.  Without it this check ran only when someone invoked
+    # this script by hand -- which is how the two stale citations it is designed
+    # to catch sat in the tree until a merge happened to run it.
+    if args.phase_table_only:
+        print(
+            f"OK PORTING-PLAN.md §5: {len(verdicts)} not-yet-MET row(s) each have "
+            f"an UNMET_BLOCKERS entry citing the same § the row cites"
+        )
+        return 0
 
     items = classify(args.upstream, args.repo)
     locus = collections.Counter(i["locus"] for i in items)
