@@ -59,8 +59,17 @@ DECISION_TOKEN = re.compile(r"\bD(1[0-4]|[1-9])\b")
 RS_CITE = re.compile(r"`([A-Za-z0-9_./-]+\.rs):(\d+)(?:-(\d+))?[0-9,-]*`")
 HEADING = re.compile(r"^#+\s+§?(\d+(?:\.\d+)*)\b")
 
-# What actually blocks each UNMET row, read from the section the row cites.
-# Keyed by (phase, short condition).
+# What actually blocks each not-yet-MET row, read from the section the row
+# cites.  Keyed by (phase, short condition) -- the condition is a substring
+# that must appear in the §5 table row, so `check_phase_coverage()` below can
+# tie each entry to a live row instead of trusting this copy.
+#
+# This dict USED to hold its own idea of which rows were UNMET ("three"), and
+# that idea went stale the moment §260 flipped the `distance: f64` row to
+# PARTIAL in a parallel branch.  Nothing failed -- the tool kept printing a
+# verdict about a row that no longer said what the tool thought.  The table
+# lives in PORTING-PLAN.md; the tool now reads it and errors when this dict
+# and that table disagree.
 #
 # `candidates` is the set of upstream path prefixes the row's own section
 # places its mechanism in.  A file under one of those prefixes is a CANDIDATE
@@ -108,11 +117,37 @@ UNMET_BLOCKERS = {
             "file the corpus excludes; porting any candidate below would not "
             "change the quantity that callback computes.",
     },
+    # UNMEASURED, not UNMET -- but it is a not-yet-MET row, so it needs an
+    # entry here or check_phase_coverage() errors.  Its candidates fire on 8
+    # of the 87, which is the largest non-zero candidate set in this dict.
+    ("Phase 8", "CHOMP/STOMP"): {
+        "section": "217.3",
+        "blocker": "the port has no property-based harness for chomp/stomp; "
+                   "Phase 7's counterpart is "
+                   "crates/moveit-planners-sbp/examples/plan_benchmark_*.rs "
+                   "and neither chomp nor stomp crate has an examples/ or "
+                   "benches/ directory at all (checked: all four absent)",
+        "candidates": ("moveit_planners/chomp/", "moveit_planners/stomp/"),
+        "adjudication":
+            "the 8 candidates are all ROS plugin wiring (chomp_interface/*, "
+            "stomp_moveit_planner_plugin.cpp, trajectory_visualization.hpp) "
+            "and the Phase 7 harness does not go through a plugin -- "
+            "plan_benchmark_port.rs uses moveit_planners_sbp::PlannerManager "
+            "directly, and the chomp/stomp entry points it would call already "
+            "exist (moveit-planners-chomp/src/planner.rs solve, "
+            "moveit-planners-stomp/src/planner.rs plan).  What is missing is "
+            "a harness on the port side, not an unported upstream file.",
+    },
     ("Phase 9", "MoveGroupInterface"): {
-        "section": "250.6",
-        "blocker": "moveit_planning::PlanningRequest lacks the start-state field; "
-                   "planning scene topic subscription absent; PLANNING_FAILED "
-                   "parity -- all port-side, none an unported upstream file",
+        # The §5 row cites §250.5, not §250.6 -- check_phase_coverage() caught
+        # that this entry had transcribed the wrong one.  §250.5 is the verdict
+        # subsection; §250.6 is its list of what stayed open, and every item on
+        # that list has since been closed (§254 the /move_action gate, §255 the
+        # error codes, §256 start_state, §257 the planning scene subscription).
+        "section": "250.5",
+        "blocker": "per §256 the current first rejection is that there is no "
+                   "planner to call, which is a decision D8 owns -- port-side, "
+                   "not an unported upstream file",
         # MoveGroupInterface is declared in moveit_ros, which is not a
         # CORPUS_ROOT, so this prefix selects 0 of the 245-file corpus.
         "candidates": ("moveit_ros/",),
@@ -506,6 +541,48 @@ def classify(upstream: str, repo: str) -> list[dict]:
     return out
 
 
+PHASE_ROW = re.compile(
+    r"^\| (Phase \d+) \| (.*?) \| (MET|UNMET|PARTIAL|UNMEASURED) \| §([\d.]+) \|", re.M
+)
+
+
+def check_phase_coverage(repo: str) -> tuple[list[str], dict]:
+    """Tie UNMET_BLOCKERS to the live §5 table.  Returns (errors, verdicts).
+
+    The dict above is a copy of facts that live in PORTING-PLAN.md, and a copy
+    goes stale silently: §260 flipped `distance: f64` from UNMET to PARTIAL in
+    a parallel branch and nothing here noticed.  Every row that is not MET must
+    have an entry, and every entry must match a row that is not MET.
+    """
+    with open(os.path.join(repo, PLAN), encoding="utf-8") as fh:
+        rows = PHASE_ROW.findall(fh.read())
+    errors: list[str] = []
+    verdicts: dict = {}
+    open_rows = [r for r in rows if r[2] != "MET"]
+    for phase, cond, verdict, sec in open_rows:
+        hit = [k for k in UNMET_BLOCKERS if k[0] == phase and k[1] in cond]
+        if not hit:
+            errors.append(
+                f"§5 row `{phase} | {cond[:60]}` is {verdict} but UNMET_BLOCKERS "
+                f"has no entry for it"
+            )
+            continue
+        verdicts[hit[0]] = verdict
+        want = UNMET_BLOCKERS[hit[0]]["section"]
+        if want != sec:
+            errors.append(
+                f"§5 row `{phase} | {cond[:40]}` cites §{sec}; UNMET_BLOCKERS "
+                f"says §{want}"
+            )
+    for k in UNMET_BLOCKERS:
+        if k not in verdicts:
+            errors.append(
+                f"UNMET_BLOCKERS has an entry for {k} but no §5 row that is "
+                f"not MET matches it -- the row was closed or reworded"
+            )
+    return errors, verdicts
+
+
 def row_line(i: dict) -> str:
     """The one table row for `i`.  `--emit` writes it and `--check` re-derives
     it, so the two cannot disagree about the format they are comparing."""
@@ -523,6 +600,14 @@ def main() -> int:
     ap.add_argument("--check", metavar="DOC", help="verify DOC has one row per unported file")
     args = ap.parse_args()
 
+    errors, verdicts = check_phase_coverage(args.repo)
+    for e in errors:
+        print(f"PHASE TABLE DRIFT  {e}", file=sys.stderr)
+    if errors:
+        print(f"FAIL: UNMET_BLOCKERS disagrees with PORTING-PLAN.md's §5 table "
+              f"in {len(errors)} place(s)", file=sys.stderr)
+        return 1
+
     items = classify(args.upstream, args.repo)
     locus = collections.Counter(i["locus"] for i in items)
     verdict = collections.Counter(i["verdict"] for i in items)
@@ -535,15 +620,16 @@ def main() -> int:
     print("  locus verdict:")
     for k, v in verdict.most_common():
         print(f"      {k:60s} {v}")
-    print("  blocks an UNMET row:")
+    print("  blocks a not-yet-MET row:")
     for k, v in blocks.most_common():
         print(f"      {v:4d}  {k}")
-    print("  per-UNMET-row candidate count (files under the row's own mechanism):")
+    print("  per-row candidate count (files under the row's own mechanism):")
     for (p, c), spec in UNMET_BLOCKERS.items():
         n = sum(
             1 for i in items if any(i["path"].startswith(pre) for pre in spec["candidates"])
         )
-        print(f"      {p} ({c}) via §{spec['section']}: {n} of {len(items)} candidates")
+        print(f"      {p} ({c}) [{verdicts[(p, c)]}] via §{spec['section']}: "
+              f"{n} of {len(items)} candidates")
 
     if args.check:
         with open(args.check, encoding="utf-8") as fh:
@@ -592,13 +678,19 @@ def main() -> int:
     if args.emit:
         with open(args.emit, "w", encoding="utf-8") as fh:
             fh.write(EMIT_HEADER.format(n=len(items)))
-            fh.write("\n## UNMET 세 행 — 무엇이 막고 있고, 87건 중 몇이 후보인가\n\n")
+            fh.write(
+                "\n## 아직 MET가 아닌 §5 행 — 무엇이 막고 있고, "
+                f"{len(items)}건 중 몇이 후보인가\n\n"
+                "판정어는 `PORTING-PLAN.md`의 §5 표에서 읽는다. 이 문서가 자기\n"
+                "사본을 들고 있으면 §260이 `distance: f64`를 PARTIAL로 바꿨을 때처럼\n"
+                "조용히 낡는다 — `check_phase_coverage()`가 어긋나면 실패한다.\n\n"
+            )
             for (p, c), spec in UNMET_BLOCKERS.items():
                 hits = [
                     i["path"] for i in items
                     if any(i["path"].startswith(pre) for pre in spec["candidates"])
                 ]
-                fh.write(f"### {p} — `{c}` (§{spec['section']})\n\n")
+                fh.write(f"### {p} — `{c}` — **{verdicts[(p, c)]}** (§{spec['section']})\n\n")
                 fh.write(f"- **막는 것:** {spec['blocker']}\n")
                 fh.write(
                     "- **후보 경로 접두사:** "
@@ -611,7 +703,7 @@ def main() -> int:
                     for h in hits:
                         fh.write(f"  - `{h}`\n")
                 fh.write("\n")
-            fh.write("\n| 상류 파일 | 심볼 | 분류 | 결정 위치 | 검증 | 막는 UNMET 행 |\n")
+            fh.write("\n| 상류 파일 | 심볼 | 분류 | 결정 위치 | 검증 | 막는 §5 행 |\n")
             fh.write("|---|---|---|---|---|---|\n")
             for i in items:
                 fh.write(row_line(i) + "\n")
@@ -635,11 +727,13 @@ EMIT_HEADER = """<!-- GENERATED by tools/ci/classify-unported.py --emit doc/unpo
   없음 = 구멍).
 - **검증** — `resolves` / `named` / `UNVERIFIED`(인용은 열리는데 파일
   이름을 부르지 않음) / `UNRESOLVED`(인용이 안 열림) / `GAP`.
-- **막는 UNMET 행** — UNMET은 셋뿐이고, 각 행을 막는 것은 그 행이 인용한
-  절에서 읽었다(`UNMET_BLOCKERS`). 디렉터리로 추측하지 않는다. 값이
-  `none`인 것은 그 파일이 어느 행의 기전 경로에도 없다는 **측정 결과**다:
-  Phase 3 두 행의 접두사는 87건 중 9건을 실제로 고르므로 이 열은 발화할 수
-  있고, 발화한 9건은 아래 판정 문단에서 개별로 기각된다.
+- **막는 §5 행** — 아직 MET가 아닌 행 각각을 막는 것은 그 행이 인용한
+  절에서 읽었다(`UNMET_BLOCKERS`). 디렉터리로 추측하지 않는다. 어느 행이
+  아직 MET가 아닌지는 `PORTING-PLAN.md`의 §5 표에서 읽으며, 이 문서가 그
+  목록의 사본을 들고 있지 않다. 값이 `none`인 것은 그 파일이 어느 행의
+  기전 경로에도 없다는 **측정 결과**다: Phase 3 `collision: bool`의
+  접두사가 9건을, Phase 8의 접두사가 8건을 실제로 고르므로 이 열은 발화할
+  수 있고, 발화한 건은 아래 판정 문단에서 개별로 기각된다.
 """
 
 

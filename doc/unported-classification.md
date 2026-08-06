@@ -14,15 +14,21 @@
   없음 = 구멍).
 - **검증** — `resolves` / `named` / `UNVERIFIED`(인용은 열리는데 파일
   이름을 부르지 않음) / `UNRESOLVED`(인용이 안 열림) / `GAP`.
-- **막는 UNMET 행** — UNMET은 셋뿐이고, 각 행을 막는 것은 그 행이 인용한
-  절에서 읽었다(`UNMET_BLOCKERS`). 디렉터리로 추측하지 않는다. 값이
-  `none`인 것은 그 파일이 어느 행의 기전 경로에도 없다는 **측정 결과**다:
-  Phase 3 두 행의 접두사는 87건 중 9건을 실제로 고르므로 이 열은 발화할 수
-  있고, 발화한 9건은 아래 판정 문단에서 개별로 기각된다.
+- **막는 §5 행** — 아직 MET가 아닌 행 각각을 막는 것은 그 행이 인용한
+  절에서 읽었다(`UNMET_BLOCKERS`). 디렉터리로 추측하지 않는다. 어느 행이
+  아직 MET가 아닌지는 `PORTING-PLAN.md`의 §5 표에서 읽으며, 이 문서가 그
+  목록의 사본을 들고 있지 않다. 값이 `none`인 것은 그 파일이 어느 행의
+  기전 경로에도 없다는 **측정 결과**다: Phase 3 `collision: bool`의
+  접두사가 9건을, Phase 8의 접두사가 8건을 실제로 고르므로 이 열은 발화할
+  수 있고, 발화한 건은 아래 판정 문단에서 개별로 기각된다.
 
-## UNMET 세 행 — 무엇이 막고 있고, 87건 중 몇이 후보인가
+## 아직 MET가 아닌 §5 행 — 무엇이 막고 있고, 87건 중 몇이 후보인가
 
-### Phase 3 — `collision: bool` (§229.1)
+판정어는 `PORTING-PLAN.md`의 §5 표에서 읽는다. 이 문서가 자기
+사본을 들고 있으면 §260이 `distance: f64`를 PARTIAL로 바꿨을 때처럼
+조용히 낡는다 — `check_phase_coverage()`가 어긋나면 실패한다.
+
+### Phase 3 — `collision: bool` — **UNMET** (§229.1)
 
 - **막는 것:** fcl narrowphase has no single convention at exact tangency (the sweep in §229.1: robot_collision flips sign at z=0 while robot_distance does not)
 - **후보 경로 접두사:** `moveit_core/collision_detection/`, `moveit_core/collision_detection_fcl/`, `moveit_core/collision_detection_bullet/` → 87건 중 **9건**이 후보
@@ -38,7 +44,7 @@
   - `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp`
   - `moveit_core/collision_detection/src/collision_plugin_cache.cpp`
 
-### Phase 3 — `distance: f64` (§229.3)
+### Phase 3 — `distance: f64` — **PARTIAL** (§229.3)
 
 - **막는 것:** distanceCallback (collision_detection_fcl/collision_common.cpp) reports a different QUANTITY -- max penetration_depth over 200 contacts, negated -- not a scaled one
 - **후보 경로 접두사:** `moveit_core/collision_detection/`, `moveit_core/collision_detection_fcl/`, `moveit_core/collision_detection_bullet/` → 87건 중 **9건**이 후보
@@ -54,14 +60,29 @@
   - `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp`
   - `moveit_core/collision_detection/src/collision_plugin_cache.cpp`
 
-### Phase 9 — `MoveGroupInterface` (§250.6)
+### Phase 8 — `CHOMP/STOMP` — **UNMEASURED** (§217.3)
 
-- **막는 것:** moveit_planning::PlanningRequest lacks the start-state field; planning scene topic subscription absent; PLANNING_FAILED parity -- all port-side, none an unported upstream file
+- **막는 것:** the port has no property-based harness for chomp/stomp; Phase 7's counterpart is crates/moveit-planners-sbp/examples/plan_benchmark_*.rs and neither chomp nor stomp crate has an examples/ or benches/ directory at all (checked: all four absent)
+- **후보 경로 접두사:** `moveit_planners/chomp/`, `moveit_planners/stomp/` → 87건 중 **8건**이 후보
+- **판정:** the 8 candidates are all ROS plugin wiring (chomp_interface/*, stomp_moveit_planner_plugin.cpp, trajectory_visualization.hpp) and the Phase 7 harness does not go through a plugin -- plan_benchmark_port.rs uses moveit_planners_sbp::PlannerManager directly, and the chomp/stomp entry points it would call already exist (moveit-planners-chomp/src/planner.rs solve, moveit-planners-stomp/src/planner.rs plan).  What is missing is a harness on the port side, not an unported upstream file.
+- **후보 전건:**
+  - `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_interface.hpp`
+  - `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_planning_context.hpp`
+  - `moveit_planners/chomp/chomp_interface/src/chomp_interface.cpp`
+  - `moveit_planners/chomp/chomp_interface/src/chomp_planning_context.cpp`
+  - `moveit_planners/chomp/chomp_interface/src/chomp_plugin.cpp`
+  - `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp`
+  - `moveit_planners/stomp/include/stomp_moveit/trajectory_visualization.hpp`
+  - `moveit_planners/stomp/src/stomp_moveit_planner_plugin.cpp`
+
+### Phase 9 — `MoveGroupInterface` — **UNMET** (§250.5)
+
+- **막는 것:** per §256 the current first rejection is that there is no planner to call, which is a decision D8 owns -- port-side, not an unported upstream file
 - **후보 경로 접두사:** `moveit_ros/` → 87건 중 **0건**이 후보
 - **판정:** all four items §250.6 leaves open are port-side (crates/moveit-planning, ros/verify-ros-interop.sh); none is an unported upstream file.
 
 
-| 상류 파일 | 심볼 | 분류 | 결정 위치 | 검증 | 막는 UNMET 행 |
+| 상류 파일 | 심볼 | 분류 | 결정 위치 | 검증 | 막는 §5 행 |
 |---|---|---|---|---|---|
 | `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp` | `CollisionDetectorAllocatorAllValid` | decided-non-port | § §225.4 | resolves | candidate, adjudicated no: Phase 3 (collision: bool); Phase 3 (distance: f64) |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp` | `CollisionDetectorAllocator`, `CollisionDetectorAllocatorTemplate` | decided-non-port | § §4.5, §177, §225.4 | resolves | candidate, adjudicated no: Phase 3 (collision: bool); Phase 3 (distance: f64) |
@@ -115,11 +136,11 @@
 | `moveit_kinematics/kdl_kinematics_plugin/src/chainiksolver_vel_mimic_svd.cpp` | `ChainIkSolverVelMimicSVD::ChainIkSolverVelMimicSVD()`, `ChainIkSolverVelMimicSVD::updateInternalDataStructures()`, `ChainIkSolverVelMimicSVD::~ChainIkSolverVelMimicSVD()`, `ChainIkSolverVelMimicSVD::jacToJacReduced()` +1 | decided-non-port | § §159.1, §162 | resolves | none |
 | `moveit_kinematics/srv_kinematics_plugin/include/moveit/srv_kinematics_plugin/srv_kinematics_plugin.hpp` | `SrvKinematicsPlugin` | decided-non-port | D D1, D2 | resolves | none |
 | `moveit_kinematics/srv_kinematics_plugin/src/srv_kinematics_plugin.cpp` | `SrvKinematicsPlugin::SrvKinematicsPlugin()`, `SrvKinematicsPlugin::initialize()`, `SrvKinematicsPlugin::setRedundantJoints()`, `SrvKinematicsPlugin::isRedundantJoint()` +8 | decided-non-port | crate-doc crates/moveit-kinematics/src/lib.rs:232 | MISCITED (decides at :263, basename; lead-in :228) | none |
-| `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_interface.hpp` | `CHOMPInterface` | decided-non-port | D D1, D2 | resolves | none |
-| `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_planning_context.hpp` | `CHOMPPlanningContext` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (dir) | none |
-| `moveit_planners/chomp/chomp_interface/src/chomp_interface.cpp` | `CHOMPInterface::CHOMPInterface()`, `CHOMPInterface::loadParams()` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (basename) | none |
-| `moveit_planners/chomp/chomp_interface/src/chomp_planning_context.cpp` | `CHOMPPlanningContext::CHOMPPlanningContext()`, `CHOMPPlanningContext::solve()`, `CHOMPPlanningContext::terminate()`, `CHOMPPlanningContext::clear()` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (dir) | none |
-| `moveit_planners/chomp/chomp_interface/src/chomp_plugin.cpp` | `CHOMPPlannerManager` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (dir) | none |
+| `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_interface.hpp` | `CHOMPInterface` | decided-non-port | D D1, D2 | resolves | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
+| `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_planning_context.hpp` | `CHOMPPlanningContext` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (dir) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
+| `moveit_planners/chomp/chomp_interface/src/chomp_interface.cpp` | `CHOMPInterface::CHOMPInterface()`, `CHOMPInterface::loadParams()` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (basename) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
+| `moveit_planners/chomp/chomp_interface/src/chomp_planning_context.cpp` | `CHOMPPlanningContext::CHOMPPlanningContext()`, `CHOMPPlanningContext::solve()`, `CHOMPPlanningContext::terminate()`, `CHOMPPlanningContext::clear()` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (dir) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
+| `moveit_planners/chomp/chomp_interface/src/chomp_plugin.cpp` | `CHOMPPlannerManager` | decided-non-port | crate-doc crates/moveit-planners-chomp/src/lib.rs:20 | named (dir) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
 | `moveit_planners/pilz_industrial_motion_planner/include/joint_limits_copy/joint_limits_rosparam.hpp` | `declareParameterTemplate()`, `declareParameters()`, `getJointLimits()` | decided-non-port | § §224.4 | resolves | none |
 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/capability_names.hpp` | `SEQUENCE_SERVICE_NAME` | decided-non-port | D D1 | resolves | none |
 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/joint_limits_interface_extension.hpp` | `declareParameters()`, `getJointLimits()` | decided-non-port | § §224.4 | resolves | none |
@@ -147,6 +168,6 @@
 | `moveit_planners/pilz_industrial_motion_planner/src/planning_context_loader_lin.cpp` | `PlanningContextLoaderLIN::PlanningContextLoaderLIN()`, `PlanningContextLoaderLIN::~PlanningContextLoaderLIN()`, `PlanningContextLoaderLIN::loadContext()` | decided-non-port | crate-doc crates/moveit-planners-pilz/src/lib.rs:116 | MISCITED (decides at :127, glob; lead-in :110 -> D1, D2) | none |
 | `moveit_planners/pilz_industrial_motion_planner/src/planning_context_loader_polyline.cpp` | `PlanningContextLoaderPolyline::PlanningContextLoaderPolyline()`, `PlanningContextLoaderPolyline::~PlanningContextLoaderPolyline()`, `PlanningContextLoaderPolyline::loadContext()` | decided-non-port | crate-doc crates/moveit-planners-pilz/src/lib.rs:116 | MISCITED (decides at :127, glob; lead-in :110 -> D1, D2) | none |
 | `moveit_planners/pilz_industrial_motion_planner/src/planning_context_loader_ptp.cpp` | `PlanningContextLoaderPTP::PlanningContextLoaderPTP()`, `PlanningContextLoaderPTP::~PlanningContextLoaderPTP()`, `PlanningContextLoaderPTP::loadContext()` | decided-non-port | crate-doc crates/moveit-planners-pilz/src/lib.rs:116 | MISCITED (decides at :127, glob; lead-in :110 -> D1, D2) | none |
-| `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp` | `Stomp`, `StompPlanningContext` | ported-elsewhere | crate-doc crates/moveit-planners-stomp/src/lib.rs:93 | MISCITED (decides at :105, basename; lead-in :91 -> D1, D2) | none |
-| `moveit_planners/stomp/include/stomp_moveit/trajectory_visualization.hpp` | `createTrajectoryMarkerArray()`, `getIterationPathPublisher()`, `getSuccessTrajectoryPublisher()` | decided-non-port | crate-doc crates/moveit-planners-stomp/src/lib.rs:119 | named (basename) | none |
-| `moveit_planners/stomp/src/stomp_moveit_planner_plugin.cpp` | `StompPlannerManager` | decided-non-port | crate-doc crates/moveit-planners-stomp/src/lib.rs:111 | named (basename) | none |
+| `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp` | `Stomp`, `StompPlanningContext` | ported-elsewhere | crate-doc crates/moveit-planners-stomp/src/lib.rs:93 | MISCITED (decides at :105, basename; lead-in :91 -> D1, D2) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
+| `moveit_planners/stomp/include/stomp_moveit/trajectory_visualization.hpp` | `createTrajectoryMarkerArray()`, `getIterationPathPublisher()`, `getSuccessTrajectoryPublisher()` | decided-non-port | crate-doc crates/moveit-planners-stomp/src/lib.rs:119 | named (basename) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
+| `moveit_planners/stomp/src/stomp_moveit_planner_plugin.cpp` | `StompPlannerManager` | decided-non-port | crate-doc crates/moveit-planners-stomp/src/lib.rs:111 | named (basename) | candidate, adjudicated no: Phase 8 (CHOMP/STOMP) |
