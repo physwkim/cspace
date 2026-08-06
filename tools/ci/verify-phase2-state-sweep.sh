@@ -35,6 +35,7 @@ set -euo pipefail
 TOL_INTERPOLATE="${1:-0.0}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
 DIFF="$REPO_ROOT/target/release/moveit-diff"
 
 # Every committed fixture, because the three clauses reach disjoint code on
@@ -100,9 +101,20 @@ for robot in "${ROBOTS[@]}"; do
   # looks like says so rather than reading as a pass), and the verdict.
   grep -E '^(clamping|mimic|interpolation|state_interpolation) |tolerance |SKIPPED |^§5 Phase 2 clause 3' "$OUT" || true
   if [[ $status -ne 0 ]]; then
-    echo "--- first 20 disagreements ---" >&2
-    grep -E '^  FAIL' "$OUT" | head -20 >&2 || true
-    failed_robots+=("$robot")
+    verdict="$(run_verdict "$status" "$OUT" '^(clamping|mimic|interpolation|state_interpolation) ')"
+    if [[ $verdict == disagreed ]]; then
+      echo "--- first 20 disagreements ---" >&2
+      grep -E '^  FAIL' "$OUT" | head -20 >&2 || true
+      failed_robots+=("$robot")
+    else
+      # Not added to `failed_robots`: that list feeds a "clause 3 is NOT met"
+      # verdict, and a run that never reported cannot support it. Failing here
+      # keeps the gate red without the gate claiming a measurement it lacks.
+      echo "--- last 20 lines of the run ---" >&2
+      tail -20 "$OUT" >&2 || true
+      echo "FAIL $robot did not finish: $verdict -- clause 3 is unmeasured on $robot, not unmet" >&2
+      exit "$status"
+    fi
   fi
 done
 

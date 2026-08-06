@@ -68,29 +68,28 @@ last round; none of those 9 fold multiple named operands into one
 condition, so they are correctly out of this audit's scope). Per-row
 disposition:
 
-- **`node.rs:153`** (moveit-octomap) — `create_child`'s guard is one
+- **`node.rs:153` (`assert!(n.child(i).is_none(), "slot {i} should stay empty");`)** (moveit-octomap) — `create_child`'s guard is one
   predicate (`self.children.as_deref()?.get(i)`) over one value (slot
   index `i`), not a folded condition. Signature does not apply.
-- **`invariants.rs:585,586,587,588,589,594,595,596,597`** (moveit-state,
-  9 rows) — re-read all 9 accessor bodies (`crates/moveit-state/src/state.rs:369-513`): each
+- **`invariants.rs:585,586,587,588,589,594,595,596,597` (`assert!(state.variable_velocity("no_such_joint").is_err());`)** (moveit-state,
+  9 rows) — re-read all 9 accessor bodies (`crates/moveit-state/src/state.rs:369-513` (`pub fn set_variable_efforts(&mut self, values: &[f64]) {`)): each
   has exactly one `?` on one named operand (`name`), no folded OR/AND.
   Signature does not apply to any of the 9.
-- **`crates/moveit-constraints/tests/constraint_sampler_manager.rs:172`** (moveit-constraints) — guard
+- **`crates/moveit-constraints/tests/constraint_sampler_manager.rs:172` (`assert!(`)** (moveit-constraints) — guard
   is `if regions.len() != 1` in `with_updated_position`, one condition
   over one value (region count). Signature does not apply.
 - **`decide.rs:183,184`** (moveit-constraints) — **matches the
   signature.** `JointConstraint::new`'s guard (`crates/moveit-constraints/src/joint.rs:120`) is
   `tolerance_above < 0.0 || tolerance_below < 0.0`, one `Err::construct`
   folding two named operands. Bit both directions: neutralizing
-  `tolerance_above`'s clause alone (`if false && tolerance_above < 0.0
-  || tolerance_below < 0.0`) failed the assertion at `decide.rs:183`
+  `tolerance_above`'s clause alone (`if false && tolerance_above < 0.0 || tolerance_below < 0.0`) failed the assertion at `decide.rs:183` (`assert!(JointConstraint::new(&model, "panda_joint1", 0.0, -0.1, 0.1, 1.0).is_err());`)
   exactly; neutralizing `tolerance_below`'s clause alone failed at
-  `decide.rs:184` exactly. The two existing test call sites
+  `decide.rs:184` (`assert!(JointConstraint::new(&model, "panda_joint1", 0.0, 0.1, -0.1, 1.0).is_err());`) exactly. The two existing test call sites
   (`tolerance_above=-0.1,tolerance_below=0.1` at 183;
   `tolerance_above=0.1,tolerance_below=-0.1` at 184) already isolate
   one operand each — genuinely `discriminating`, no fix needed. `joint.rs`
   reverted clean after each bite. **Verdict corrected below.**
-- **`utils_parity.rs:221,641,885,896,942`** (moveit-constraints, 5 rows)
+- **`utils_parity.rs:221,641,885,896,942` (`.unwrap_err();`)** (moveit-constraints, 5 rows)
   — re-checked each guard: `221` is a single `?` on group lookup, `641`
   is `regions.len() != 1` (one value), `885`/`896` are
   `resolve_frame_to_link`'s single closure-result `None`, `942` is a
@@ -98,12 +97,12 @@ disposition:
   condition (one boolean expression, not an OR/AND over distinct named
   operands — `crates/moveit-constraints/src/utils.rs:796-802` re-read to confirm). Signature does not
   apply to any of the 5.
-- **`crates/moveit-metrics/src/lib.rs:1068,1072`** (moveit-metrics) — `KinematicsMetrics::group`'s
+- **`crates/moveit-metrics/src/lib.rs:1068,1072` (`assert!(matches!(`)** (moveit-metrics) — `KinematicsMetrics::group`'s
   `is_chain()` check and the `?` on `joint_model_group` are two
   *separate* construction sites (not one folded condition); this pair
   was already correctly split from the family these two rows test.
   Signature does not apply.
-- **`acceleration_filter.rs:552`** (moveit-smoothing) — **matches the
+- **`acceleration_filter.rs:302`** (moveit-smoothing) — **matches the
   signature**, and is the user's named live candidate. Guard is
   `positions.len() != num_joints || velocities.len() != num_joints`,
   one `Error::other` folding two named operands. `reset_rejects_a_mismatched_length`
@@ -118,10 +117,10 @@ disposition:
   `reset_rejects_a_velocities_only_mismatch`, each mismatching exactly
   one array; bite-verified each new test fails when its own clause is
   disabled. Commit `3c2d72f`. **Verdict corrected below.**
-- **`ruckig_filter.rs:546`** (moveit-smoothing) — **matches the
+- **`ruckig_filter.rs:326-329` (`if positions.len() != num_joints`)** (moveit-smoothing) — **matches the
   signature**, structurally identical 3-clause OR
   (`positions.len() != num_joints || velocities.len() != num_joints ||
-  accelerations.len() != num_joints`, `ruckig_filter.rs:326-329`).
+  accelerations.len() != num_joints`, `ruckig_filter.rs:326-329` (`if positions.len() != num_joints`)).
   Same single-fixture-mismatches-everything shape
   (`reset_rejects_a_mismatched_length` mismatches all three arrays at
   once). Bit all three directions individually: each left the test
@@ -133,11 +132,11 @@ disposition:
   disabled. Commit `2829ca2`. **Verdict corrected below.**
 
 **Count checked: 22. Count matching the signature: 3 guards / 4 rows**
-(`decide.rs:183/184` sharing one guard; `acceleration_filter.rs:552`;
-`ruckig_filter.rs:546`). **Outcome: `decide.rs:183/184` — genuinely
+(`decide.rs:183/184` sharing one guard; `acceleration_filter.rs:302` (`if positions.len() != num_joints || velocities.len() != num_joints {`);
+`ruckig_filter.rs:326-329` (`if positions.len() != num_joints`)). **Outcome: `decide.rs:183/184` — genuinely
 discriminating, existing tests already isolate each operand, no source
-fix, verdict-only correction. `acceleration_filter.rs:552` and
-`ruckig_filter.rs:546` — genuine blind sites, neither existing test
+fix, verdict-only correction. `acceleration_filter.rs:302` (`if positions.len() != num_joints || velocities.len() != num_joints {`) and
+`ruckig_filter.rs:326-329` (`if positions.len() != num_joints`) — genuine blind sites, neither existing test
 isolated any individual operand; both fixed this round with new
 isolating tests, bite-verified, gated `-p moveit-smoothing`.**
 
@@ -159,7 +158,7 @@ column plus a prose note under the two crates with an exclusion.
   a different, prior question (§9's own vocabulary section: `not-this-
   family` "is not a fourth answer to that question; it is 'the
   question does not apply'"), so the two are not in tension.
-- **`crates/moveit-constraints/tests/constraint_sampler_manager.rs:172`** (moveit-constraints) — clause
+- **`crates/moveit-constraints/tests/constraint_sampler_manager.rs:172` (`assert!(`)** (moveit-constraints) — clause
   2 (decision) fails. The test's own fixture (empty joints, no solver,
   no subgroup solvers) never lets Steps A/B/C touch a real operand, so
   the `samplers.pop()` fallthrough this assertion inspects is an
@@ -203,7 +202,7 @@ moved and why. This round's folded-multi-operand-condition audit
 reason: a construction-site count cannot see a folded condition's
 independently-coverable operands, so `single-branch`/`structural` was
 also the wrong verdict for `decide.rs:183/184`,
-`acceleration_filter.rs:552`, and `ruckig_filter.rs:546` — the first
+`acceleration_filter.rs:302` (`if positions.len() != num_joints || velocities.len() != num_joints {`), and `ruckig_filter.rs:326-329` (`if positions.len() != num_joints`) — the first
 pair by omission (a bite was owed and now exists), the latter two by
 blind site (a bite exposed unexercised operands, since fixed).
 
@@ -250,8 +249,8 @@ blind site (a bite exposed unexercised operands, since fixed).
 
 | file:line | anchor | test fn | verdict | evidence | in-family |
 |---|---|---|---|---|---|
-| scene.rs:2210 | matches! | `diff_scene_records_a_move_only_change_for_an_existing_object` | discriminating | round-report — this same session, earlier round: ran 3 bites on `PlanningScene::move_object` (`scene.rs:1009`), reverted after each. (1) reachability: forced outcome to `NotFound` → test fails at the `matches!`. (2) discrimination: forced outcome to sibling `NoChange` → test fails at the same `matches!`. (3) payload: kept `Moved` but swapped the notification's `Action` to `CREATE` → the wildcarded `Moved(_)` still passes, but the test's own second assertion (`diff.get("box").unwrap() == Action::MOVE_SHAPE`) catches it. You re-read and confirmed this in-session ("Verified `scene.rs:2210` and agreed — `MoveObjectOutcome`'s three variants map 1:1 to the three guards, bites 1 and 2 both fail... `discriminating`, no fix"). No commit — no fix was needed, gate was `-p moveit-scene` clean at the time. | **not-this-family** — see below |
-| scene.rs:2386 | bare `.is_none()` | (unnamed, `WorldDiff::get`-adjacent) | discriminating | bite (this round) — `WorldDiff::get`'s single guard (`world_diff.rs:104-106`) is the sole producer; see `world_diff.rs:315` bite below, same guard shape | yes |
+| scene.rs:2210 | matches! | `diff_scene_records_a_move_only_change_for_an_existing_object` | discriminating | round-report — this same session, earlier round: ran 3 bites on `PlanningScene::move_object` (`scene.rs:1009` (`pub fn move_object(&mut self, id: &str, transform: Isometry3) -> MoveObjectOutcome {`)), reverted after each. (1) reachability: forced outcome to `NotFound` → test fails at the `matches!`. (2) discrimination: forced outcome to sibling `NoChange` → test fails at the same `matches!`. (3) payload: kept `Moved` but swapped the notification's `Action` to `CREATE` → the wildcarded `Moved(_)` still passes, but the test's own second assertion (`diff.get("box").unwrap() == Action::MOVE_SHAPE`) catches it. You re-read and confirmed this in-session ("Verified `scene.rs:2210` and agreed — `MoveObjectOutcome`'s three variants map 1:1 to the three guards, bites 1 and 2 both fail... `discriminating`, no fix"). No commit — no fix was needed, gate was `-p moveit-scene` clean at the time. | **not-this-family** — see below |
+| scene.rs:2386 | bare `.is_none()` | (unnamed, `WorldDiff::get`-adjacent) | discriminating | bite (this round) — `WorldDiff::get`'s single guard (`world_diff.rs:104-106` (`pub fn get(&self, id: &str) -> Option<Action> {`)) is the sole producer; see `world_diff.rs:315` bite below, same guard shape | yes |
 | scene.rs:2584 | bare `.is_none()` | `decouple_parent_then_mutating_the_former_parent_is_not_observed` | single-branch | structural — `decouple_parent` (`scene.rs:2036-2054`) has exactly one `self.parent = None;` site (verified by `rg 'self\.parent = ' crates/moveit-scene/src/scene.rs`). Corrected from `discriminating`: "exactly one producing site" proves there is nothing to discriminate from, not that there is | yes |
 | scene.rs:2616 | bare `.is_none()` | `decouple_parent_materializes_the_inherited_transforms_map` | single-branch | structural — same single `self.parent = None;` site as 2557. Corrected from `discriminating`, same reason | yes |
 | scene.rs:2651 | bare `.is_none()` | `decouple_parent_then_the_childs_inherited_attached_body_frame_still_resolves` | single-branch | structural — same single `self.parent = None;` site. Corrected from `discriminating`, same reason | yes |
@@ -291,16 +290,16 @@ is a different, prior question, and `Moved(_)` fails it. No fix owed:
 
 | file:line | anchor | test fn | verdict | evidence | in-family |
 |---|---|---|---|---|---|
-| node.rs:143 | bare `.is_none()` | `fresh_node_has_no_children_and_zero_log_odds` | single-branch | bite (this round) — made `Node::new()` eagerly allocate the children array (eliminating the "no array" cause); assertion still passed, proving this test cannot distinguish "no array" from "array present, slot empty" — matches the function's own doc comment (`node.rs:66-67`, "`None` covers both...", a deliberate 2-cause union mirroring upstream's `nodeChildExists`+`getNodeChild`) | yes — `child()`'s `self.children.as_ref()?[idx]` genuinely executes on a fresh node (§9's own `nn.rs:227`/`self.root.as_ref()?` precedent: a written guard that runs even on an "empty" fixture is still a decision) |
+| node.rs:143 | bare `.is_none()` | `fresh_node_has_no_children_and_zero_log_odds` | single-branch | bite (this round) — made `Node::new()` eagerly allocate the children array (eliminating the "no array" cause); assertion still passed, proving this test cannot distinguish "no array" from "array present, slot empty" — matches the function's own doc comment (`node.rs:66-67` (`/// Upstream`), "`None` covers both...", a deliberate 2-cause union mirroring upstream's `nodeChildExists`+`getNodeChild`) | yes — `child()`'s `self.children.as_ref()?[idx]` genuinely executes on a fresh node (§9's own `nn.rs:227`/`self.root.as_ref()?` precedent: a written guard that runs even on an "empty" fixture is still a decision) |
 | node.rs:153 | bare `.is_none()` | `create_child_populates_exactly_one_of_eight_slots` | single-branch | structural — fixture calls `create_child(3)` first, which allocates the array (`get_or_insert_with`, `node.rs:78-80`); only the "array present, slot `i` empty" cause is reachable, the "no array" cause is structurally excluded by this fixture | yes |
-| tree.rs:1736 | bare `.is_none()` | `ray_with_end_outside_tree_bounds_returns_none` | discriminating | bite (this round, §3a mirror) — neutralized the `end`-guard in `compute_ray_keys` (`.unwrap_or_else(Self::root_key)`), this assertion flipped, reverted. Renumbered from a stale `tree.rs:1729` | yes |
-| tree.rs:1740 | bare `.is_none()` | `ray_with_end_outside_tree_bounds_returns_none` | discriminating | bite (this round) — same test, second assertion, covered by the same end-guard mutation above. Renumbered from a stale `tree.rs:1733` | yes |
-| tree.rs:1751 | bare `.is_none()` | `ray_with_origin_outside_tree_bounds_returns_none` | discriminating | bite (this round, §3a mirror) — neutralized the `origin`-guard independently, this assertion flipped while the end-guard mutation left it green; reverted. Renumbered from a stale `tree.rs:1744` | yes |
-| tree.rs:1769 | bare `.is_none()` | `unmapped_coordinate_has_no_occupancy` | discriminating | bite (this round) — `search` (`tree.rs:883-897`, signature line to closing brace; cited `:876-890` before a merge shifted it) has two `None` producers, `self.root.as_deref()?` (empty tree) and the loop's `has_children()`-gated arm (ambiguous partial structure); these are real siblings, so ran both directions. Bite 1: gave the root-absent guard a fallback empty node (temp `Node::EMPTY` const + `.unwrap_or(&Node::EMPTY)` in `search`) — this test FAILED (log_odds_at/is_occupied became `Some` instead of `None`), tree.rs:1822 stayed green. Bite 2: neutralized the inner `has_children()`-gated arm to always `Some(cur)` — this test stayed green (unaffected, root already absent so the loop is never entered), tree.rs:1822 FAILED. Both mutations reverted; `git status --short`/`git diff --stat` empty after. Renumbered from a stale `tree.rs:1762` | yes |
-| tree.rs:1770 | bare `.is_none()` | `unmapped_coordinate_has_no_occupancy` | discriminating | bite (this round) — same test, same bite pair as tree.rs:1769 above (`is_occupied` composes `log_odds_at`, same root-absent cause). Renumbered from a stale `tree.rs:1763` | yes |
-| tree.rs:1822 | bare `.is_none()` | `insert_ray_cut_short_by_max_range_records_only_a_miss` | discriminating | bite (this round) — see tree.rs:1769's bite pair; this test flips under bite 2 (inner `has_children()` guard neutralized) and stays green under bite 1 (root-absent guard neutralized), the mirror image of 1769/1770, confirming it exercises the second, distinct `None` producer. Renumbered from a stale `tree.rs:1794`, which under nearest-line matching in the current file is ambiguous between two unrelated real sites (`tree.rs:1790`/`1791`) | yes |
-| tree.rs:1958 | bare `.is_none()` | `leaves_in_bbx_returns_none_for_an_out_of_range_max` | discriminating | commit — doc comment (`tree.rs:1952-1954`) and prior isolating mutation recorded at `0d10a11`; `git show 0d10a11 --stat` confirms it touches this test/guard pair. Renumbered from a stale `tree.rs:1930` | yes |
-| tree.rs:1972 | bare `.is_none()` | `leaves_in_bbx_returns_none_for_an_out_of_range_min` | discriminating | commit — doc comment (`tree.rs:1964-1968`, explicitly states "before this test existed the `min` guard had no coverage at all") and prior isolating mutation recorded at `567342f`; `git show 567342f --stat` confirms. Renumbered from a stale `tree.rs:1944` | yes |
+| tree.rs:1736 | bare `.is_none()` | `ray_with_end_outside_tree_bounds_returns_none` | discriminating | bite (this round, §3a mirror) — neutralized the `end`-guard in `compute_ray_keys` (`.unwrap_or_else(Self::root_key)`), this assertion flipped, reverted. Renumbered from a stale tree.rs line 1729 | yes |
+| tree.rs:1740 | bare `.is_none()` | `ray_with_end_outside_tree_bounds_returns_none` | discriminating | bite (this round) — same test, second assertion, covered by the same end-guard mutation above. Renumbered from a stale tree.rs line 1733 | yes |
+| tree.rs:1751 | bare `.is_none()` | `ray_with_origin_outside_tree_bounds_returns_none` | discriminating | bite (this round, §3a mirror) — neutralized the `origin`-guard independently, this assertion flipped while the end-guard mutation left it green; reverted. Renumbered from a stale tree.rs line 1744 | yes |
+| tree.rs:1769 | bare `.is_none()` | `unmapped_coordinate_has_no_occupancy` | discriminating | bite (this round) — `search` (`tree.rs:883-897`, signature line to closing brace; cited `:876-890` before a merge shifted it) has two `None` producers, `self.root.as_deref()?` (empty tree) and the loop's `has_children()`-gated arm (ambiguous partial structure); these are real siblings, so ran both directions. Bite 1: gave the root-absent guard a fallback empty node (temp `Node::EMPTY` const + `.unwrap_or(&Node::EMPTY)` in `search`) — this test FAILED (log_odds_at/is_occupied became `Some` instead of `None`), tree.rs:1822 stayed green. Bite 2: neutralized the inner `has_children()`-gated arm to always `Some(cur)` — this test stayed green (unaffected, root already absent so the loop is never entered), tree.rs:1822 FAILED. Both mutations reverted; `git status --short`/`git diff --stat` empty after. Renumbered from a stale tree.rs line 1762 | yes |
+| tree.rs:1770 | bare `.is_none()` | `unmapped_coordinate_has_no_occupancy` | discriminating | bite (this round) — same test, same bite pair as tree.rs:1769 above (`is_occupied` composes `log_odds_at`, same root-absent cause). Renumbered from a stale tree.rs line 1763 | yes |
+| tree.rs:1822 | bare `.is_none()` | `insert_ray_cut_short_by_max_range_records_only_a_miss` | discriminating | bite (this round) — see tree.rs:1769's bite pair; this test flips under bite 2 (inner `has_children()` guard neutralized) and stays green under bite 1 (root-absent guard neutralized), the mirror image of 1769/1770, confirming it exercises the second, distinct `None` producer. Renumbered from a stale tree.rs line 1794, which under nearest-line matching in the current file is ambiguous between two unrelated real sites (`tree.rs:1790`/`1791`) | yes |
+| tree.rs:1958 | bare `.is_none()` | `leaves_in_bbx_returns_none_for_an_out_of_range_max` | discriminating | commit — doc comment (`tree.rs:1952-1954` (`/// Distinct from`)) and prior isolating mutation recorded at `0d10a11`; `git show 0d10a11 --stat` confirms it touches this test/guard pair. Renumbered from a stale tree.rs line 1930 | yes |
+| tree.rs:1972 | bare `.is_none()` | `leaves_in_bbx_returns_none_for_an_out_of_range_min` | discriminating | commit — doc comment (`tree.rs:1964-1968` (`/// Distinct from`), explicitly states "before this test existed the `min` guard had no coverage at all") and prior isolating mutation recorded at `567342f`; `git show 567342f --stat` confirms. Renumbered from a stale tree.rs line 1944 | yes |
 
 All 10 octomap rows hold every clause: mechanism is `Option::None` on a
 lookup/traversal (clause 1), each guard is a written comparison run
@@ -322,7 +321,7 @@ test names as its subject (clause 3). No exclusions.
 | invariants.rs:595 | bare `.is_err()` | same fn | single-branch | structural — `joint_velocity`, same shape | yes |
 | invariants.rs:596 | bare `.is_err()` | same fn | single-branch | structural — `joint_acceleration`, same shape | yes |
 | invariants.rs:597 | bare `.is_err()` | same fn | single-branch | structural — `joint_effort`, same shape | yes |
-| jacobian.rs:211 | matches! | `an_unknown_group_name_is_unknown_name_not_not_a_chain` | discriminating | bite (this round) — I could not locate a citable p1-robotmodel bite for this site: `git log --all` on `jacobian.rs`/`state.rs` shows no commit past the original port (`9230ad3`), no `doc/` file mentions it (including the newly-merged `assertion-discrimination-ledger-p1-robotmodel.md`, whose 7 crates are `moveit-trajectory`/`-planners-chomp`/`-planners-sbp`/`-planners-stomp`/`-planning`/`-sampling`/`-kinematics` — not `moveit-state`), and `Posed::jacobian` (`crates/moveit-state/src/state.rs:1121-1146`) carries no doc-recorded mutation. Ran it myself instead: `Posed::jacobian` has two real sibling `Err` sites, `model.joint_model_group(group)?` (`crates/moveit-state/src/state.rs:1123`) and the `is_chain()` guard's `Error::other(...)` (`crates/moveit-state/src/state.rs:1125-1129`). Bite 1 (reachability): made the group-lookup guard fall back to `"panda_arm"` on failure instead of propagating — test FAILED, `unwrap_err()` panicked on an `Ok` (proves the guard is necessary for any error at all). Bite 2 (discrimination/sibling-swap): kept the guard failing but swapped its `Err` to `Error::other(...)` instead of propagating `UnknownName` — test FAILED at the `matches!`, proving the assertion discriminates the sibling. Both reverted; `git status --short`/`git diff --stat` empty after | yes |
+| jacobian.rs:211 | matches! | `an_unknown_group_name_is_unknown_name_not_not_a_chain` | discriminating | bite (this round) — I could not locate a citable p1-robotmodel bite for this site: `git log --all` on `jacobian.rs`/`state.rs` shows no commit past the original port (`9230ad3`), no `doc/` file mentions it (including the newly-merged `assertion-discrimination-ledger-p1-robotmodel.md`, whose 7 crates are `moveit-trajectory`/`-planners-chomp`/`-planners-sbp`/`-planners-stomp`/`-planning`/`-sampling`/`-kinematics` — not `moveit-state`), and `Posed::jacobian` (`crates/moveit-state/src/state.rs:1121-1146` (`regardless of its (here, empty) input slice.`)) carries no doc-recorded mutation. Ran it myself instead: `Posed::jacobian` has two real sibling `Err` sites, `model.joint_model_group(group)?` (`crates/moveit-state/src/state.rs:1123` (`/// because in this port: the root link's`)) and the `is_chain()` guard's `Error::other(...)` (`crates/moveit-state/src/state.rs:1125-1129` (`regardless of its (here, empty) input slice.`)). Bite 1 (reachability): made the group-lookup guard fall back to `"panda_arm"` on failure instead of propagating — test FAILED, `unwrap_err()` panicked on an `Ok` (proves the guard is necessary for any error at all). Bite 2 (discrimination/sibling-swap): kept the guard failing but swapped its `Err` to `Error::other(...)` instead of propagating `UnknownName` — test FAILED at the `matches!`, proving the assertion discriminates the sibling. Both reverted; `git status --short`/`git diff --stat` empty after | yes |
 
 All 10 hold every clause: `Error::UnknownName`/`Error::Other` are
 canonical "could not produce X" signals (clause 1); each accessor's `?`
@@ -345,13 +344,13 @@ finding.
 | decide.rs:184 | bare `.is_err()` | `new_rejects_negative_tolerance` | discriminating | bite (this round) — mirror of 183: neutralizing `tolerance_below`'s clause alone (`if tolerance_above < 0.0 \|\| false && tolerance_below < 0.0`) failed this assertion exactly. The test's own fixture (`tolerance_above=0.1, tolerance_below=-0.1`) already isolates this operand. `joint.rs` reverted clean after | yes |
 | decide.rs:210 | matches! | `new_rejects_unknown_joint` | fixed | commit `83e3c1c` — this session's own prior fix, asserts the specific `Error::UnknownName{kind:"joint",..}` variant/field rather than bare `.is_err()` | yes |
 | utils_parity.rs:222 | matches! | `unknown_group_is_error` | single-branch | structural — `construct_goal_joint_constraints`'s only reachable guard for an unknown group name is `model.joint_model_group(group_name)?` (`crates/moveit-constraints/src/utils.rs:234`); the loop body's two further `?` sites are unreached when this one fails first | yes |
-| utils_parity.rs:729 | matches! | `multi_region_constraint_is_error` | single-branch | structural — `update_position_constraint` has exactly one `Error::Other`-producing site (`crates/moveit-constraints/src/utils.rs:605-609`, converting `with_updated_position`'s `None` for a >1-region constraint); `with_updated_position`'s own `?`-propagated errors are `Error::UnknownName`, never `Error::Other`, so there is no second producer to conflate — re-verified `2026-08-05`, line renumbered from a stale `utils_parity.rs:641` | yes |
-| utils_parity.rs:973 | bare `.is_none()` | `an_unrecognised_frame_is_none` | single-branch | structural — `resolve_position_constraint_frame` (`crates/moveit-constraints/src/utils.rs:727-747`) has one `None`-producing path, `resolve_frame_to_link`'s own single `None` cause (`crates/moveit-constraints/src/utils.rs:641`, the closure result — the two other tiers only ever return `Some` or fall through, never `None`) — line renumbered from a stale `utils_parity.rs:885` | yes |
-| utils_parity.rs:984 | bare `.is_none()` | same fn, second assertion | single-branch | structural — `resolve_orientation_constraint_frame` (`crates/moveit-constraints/src/utils.rs:777-805`) shares the identical single `resolve_frame_to_link` None cause — line renumbered from a stale `utils_parity.rs:896` | yes |
-| utils_parity.rs:1030 | matches! | `xyz_euler_tolerance_across_a_real_frame_change_is_an_error` | single-branch | structural — `resolve_orientation_constraint_frame`'s only `Error::Other`-producing site is the `XyzEuler`-tolerance-across-a-frame-change guard (`crates/moveit-constraints/src/utils.rs:796-802`), a single `if` — line renumbered from a stale `utils_parity.rs:942` | yes |
+| utils_parity.rs:729 | matches! | `multi_region_constraint_is_error` | single-branch | structural — `update_position_constraint` has exactly one `Error::Other`-producing site (`crates/moveit-constraints/src/utils.rs:605-609`, converting `with_updated_position`'s `None` for a >1-region constraint); `with_updated_position`'s own `?`-propagated errors are `Error::UnknownName`, never `Error::Other`, so there is no second producer to conflate — re-verified `2026-08-05`, line renumbered from a stale utils_parity.rs line 641 | yes |
+| utils_parity.rs:973 | bare `.is_none()` | `an_unrecognised_frame_is_none` | single-branch | structural — `resolve_position_constraint_frame` (`crates/moveit-constraints/src/utils.rs:727-747`) has one `None`-producing path, `resolve_frame_to_link`'s own single `None` cause (`crates/moveit-constraints/src/utils.rs:641` (`Ok(resolve_attached_frame(frame_id))`), the closure result — the two other tiers only ever return `Some` or fall through, never `None`) — line renumbered from a stale utils_parity.rs line 885 | yes |
+| utils_parity.rs:984 | bare `.is_none()` | same fn, second assertion | single-branch | structural — `resolve_orientation_constraint_frame` (`crates/moveit-constraints/src/utils.rs:777-805`) shares the identical single `resolve_frame_to_link` None cause — line renumbered from a stale utils_parity.rs line 896 | yes |
+| utils_parity.rs:1030 | matches! | `xyz_euler_tolerance_across_a_real_frame_change_is_an_error` | single-branch | structural — `resolve_orientation_constraint_frame`'s only `Error::Other`-producing site is the `XyzEuler`-tolerance-across-a-frame-change guard (`crates/moveit-constraints/src/utils.rs:796-802` (`if matches!(tolerance, OrientationTolerance::XyzEuler { .. }) {`)), a single `if` — line renumbered from a stale utils_parity.rs line 942 | yes |
 | sampler_self_validation.rs:637 | bare `.is_empty()` | `every_sampled_state_satisfies_its_own_constraints` | discriminating | bite (2026-08-05, the round that added the file) — two independent mutations, each reverted after, and neither silent: (a) nudging every sampled state by `+0.5` on `panda_joint1` before it is decided fired this assertion for all seven sampler configurations (2178/10000 states still satisfied, so the message named which sampler and how many); (b) `MAX_IK_ATTEMPTS = 0` fired it for the five IK-backed configurations with `produced 0 of its N states ... -- a vacuous 100%`, the zero-production branch that exists precisely so a sampler that converges on nothing cannot report a perfect rate. `failures` is a `Vec<String>` this test builds from per-sampler counters, so the `is_empty()` shape is a collected-diagnostics assertion, not a single-branch guard: the two `assert_eq!`s below it restate the same totals as numbers | yes |
 
-**`crates/moveit-constraints/tests/constraint_sampler_manager.rs:172` moved to `not-this-family` (clause
+**`crates/moveit-constraints/tests/constraint_sampler_manager.rs:172` (`assert!(`) moved to `not-this-family` (clause
 2, decision).** Re-read `select_default_sampler_inner`
 (`crates/moveit-constraints/src/constraint_sampler_manager.rs:202-312`) and the test's own fixture
 (`tests/constraint_sampler_manager.rs:169-177`, `no_constraints_and_no_
@@ -364,7 +363,7 @@ final `Ok(samplers.pop())` pops a `Vec` that was declared empty
 branch of A/B/C's body ever ran. This is exactly census §9 clause 2's
 excluded shape ("an accumulator whose initial value is simply never
 touched because there was nothing to iterate" —
-`shortest_solution_is_none_on_empty_input`), not a `nn.rs:227`-style
+`shortest_solution_is_none_on_empty_input`), not a `nn.rs:227` (`assert!(gnat.nearest(&space, &vec![0.0]).is_none());`)-style
 guard that still runs on an empty structure. The test file's own doc
 comment (`tests/constraint_sampler_manager.rs:105-113`) already states
 this explicitly: "Step D/E's fallthrough produces `Ok(None)` for *any*
@@ -393,7 +392,7 @@ argument), so clause 2 holds on real data, not a skipped comparison.
 | acceleration_filter.rs:575 | matches! | `reset_rejects_a_mismatched_length` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: `reset`'s guard (`acceleration_filter.rs:302`, `positions.len() != num_joints \|\| velocities.len() != num_joints`) is one `Error::Other` site folding two named operands. This test's fixture mismatches both `positions` and `velocities` at once, so neither existing test isolated either clause — bit both directions (`false && positions...`, then `positions... \|\| false && velocities...`), both left this test PASSING: a genuine blind site, not just an undercounted branch. Fixed by adding `reset_rejects_a_positions_only_mismatch`/`reset_rejects_a_velocities_only_mismatch` (each mismatching exactly one array), bite-verified to fail when their own clause is disabled. Commit `3c2d72f`, gated `-p moveit-smoothing`. Line renumbered from a stale `:552`, shifted +23 by Round 6's `do_smoothing_rejects_a_length_mismatch` insertion | yes |
 | acceleration_filter.rs:582 | matches! | `reset_rejects_a_positions_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round — this exact site had only ever been referenced by name, never cited. Line renumbered from a stale `:559`, same +23 shift | yes |
 | acceleration_filter.rs:589 | matches! | `reset_rejects_a_velocities_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round. Line renumbered from a stale `:566`, same +23 shift | yes |
-| ruckig_filter.rs:659 | matches! | `reset_rejects_a_mismatched_length` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: same shape as acceleration_filter.rs:552, 3-clause OR (`ruckig_filter.rs:326-329`) folding `positions`/`velocities`/`accelerations`. This test's fixture mismatches all three at once. Bit all three directions individually — each left this test PASSING, the same blind site three ways. Fixed by adding `reset_rejects_a_positions_only_mismatch`/`reset_rejects_a_velocities_only_mismatch`/`reset_rejects_an_accelerations_only_mismatch`, bite-verified each fails when its own clause is disabled. Commit `2829ca2`, gated `-p moveit-smoothing`. Line renumbered from a stale `ruckig_filter.rs:546`, then again from `:650` (+9, Round 6's `ruckig_filter.rs:289` comment fix) | yes |
+| ruckig_filter.rs:659 | matches! | `reset_rejects_a_mismatched_length` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: same shape as acceleration_filter.rs:552, 3-clause OR (`ruckig_filter.rs:326-329` (`if positions.len() != num_joints`)) folding `positions`/`velocities`/`accelerations`. This test's fixture mismatches all three at once. Bit all three directions individually — each left this test PASSING, the same blind site three ways. Fixed by adding `reset_rejects_a_positions_only_mismatch`/`reset_rejects_a_velocities_only_mismatch`/`reset_rejects_an_accelerations_only_mismatch`, bite-verified each fails when its own clause is disabled. Commit `2829ca2`, gated `-p moveit-smoothing`. Line renumbered from a stale ruckig_filter.rs line 546, then again from `:650` (+9, Round 6's `ruckig_filter.rs:289` (`.map_err(|error| Error::other(format!("ruckig update failed: {error}")))?;`) comment fix) | yes |
 | ruckig_filter.rs:666 | matches! | `reset_rejects_a_positions_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round. Renumbered from a stale `:657`, same +9 shift | yes |
 | ruckig_filter.rs:673 | matches! | `reset_rejects_a_velocities_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round. Renumbered from a stale `:664`, same +9 shift | yes |
 | ruckig_filter.rs:680 | matches! | `reset_rejects_an_accelerations_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round. Renumbered from a stale `:671`, same +9 shift | yes |
@@ -406,7 +405,7 @@ empty-input skip), so clause 2 holds on real operands.
 | file:line | anchor | test fn | verdict | evidence | in-family |
 |---|---|---|---|---|---|
 | boundaries.rs:106 | matches! | `a_virtual_joint_missing_any_required_attribute_is_dropped` | discriminating | structural — I could not locate a citable p9-ros `Parser::required` bite for this site (`git log --all` on `boundaries.rs`/`parse.rs` shows only `0ca2af8` (initial port) and `b819ec1` (a *different* test, `malformed_xml_is_an_error`); no `doc/` file mentions it). Traced the real mechanism instead: `load_virtual_joints` (`parse.rs:107-127`) calls `Parser::required` (`parse.rs:82-98`) four times in sequence, once per attribute, each call passing its own `&'static str` literal (`"name"`/`"child_link"`/`"parent_frame"`/`"type"`) that `required` stores verbatim into `Diagnostic::MissingAttribute{attribute,..}`. These are four distinct call sites with four distinct compile-time literals, not one shared constant — genuine siblings, structurally guaranteed distinguishable by the type system, no mutation needed to prove it | yes |
-| boundaries.rs:422 | matches! | `an_unparsable_joint_value_drops_the_joint_instead_of_storing_zero` | discriminating | structural — same search as boundaries.rs:106 above, same absence of a citable prior bite. Traced the real mechanism: `load_group_states` (`parse.rs:249-300`) has exactly one `MalformedValue`-producing site for a joint value (`parse.rs:285-290`, hardcoded `attribute: "value"`) — single-branch *within this function*. But `rg 'Diagnostic::MalformedValue' crates/moveit-srdf/src/parse.rs` finds two more sibling sites elsewhere in the same parser, `parse.rs:364` (`attribute: "center"`) and `parse.rs:373` (`attribute: "radius"`), for the sphere-collision parser. The `matches!`'s `attribute == "value"` check is what distinguishes this site's diagnostic from those two real siblings at the population level, even though none of the three are reachable from each other's fixtures | yes |
+| boundaries.rs:422 | matches! | `an_unparsable_joint_value_drops_the_joint_instead_of_storing_zero` | discriminating | structural — same search as boundaries.rs:106 above, same absence of a citable prior bite. Traced the real mechanism: `load_group_states` (`parse.rs:249-300`) has exactly one `MalformedValue`-producing site for a joint value (`parse.rs:285-290`, hardcoded `attribute: "value"`) — single-branch *within this function*. But `rg 'Diagnostic::MalformedValue' crates/moveit-srdf/src/parse.rs` finds two more sibling sites elsewhere in the same parser, `parse.rs:364` (`self.warn(Diagnostic::MalformedValue {`) (`attribute: "center"`) and `parse.rs:373` (`self.warn(Diagnostic::MalformedValue {`) (`attribute: "radius"`), for the sphere-collision parser. The `matches!`'s `attribute == "value"` check is what distinguishes this site's diagnostic from those two real siblings at the population level, even though none of the three are reachable from each other's fixtures | yes |
 
 Both fixtures supply real malformed/missing XML (a specific attribute
 actually absent, a specific value actually unparsable), not an empty
@@ -437,7 +436,7 @@ helper (this round's deconfliction: rendered-error-message sites in
 **Both counts I was handed this round needed a correction, found by
 re-measuring, not by reconciling against the number I was given:**
 
-- **72 → 71.** `tree.rs:1781`'s `eq_none` tag is a scanner false
+- **72 → 71.** `tree.rs:1781` (`/// clamped an out-of-bounds point instead of rejecting it would find`)'s `eq_none` tag is a scanner false
   positive: `assert!(tree.insert_ray(origin, end, None, false))` is a
   plain boolean assertion on `insert_ray`'s return value; the `None`
   is `insert_ray`'s `max_range: Option<f64>` argument, not an
@@ -475,7 +474,7 @@ i.e. exclude any line tagged `matches`, `is_err`, `is_none`,
 cross-checked by hand-counting the per-kind and per-crate breakdown
 against the number I was given — both matched (20 `contains_member`,
 18 `is_empty`, 13 `eq_none`, 13 `eq_err`, 8 `is_some`; per-crate 29/25/
-8/6/3/0/0) once the `tree.rs:1781` false positive was pulled out.
+8/6/3/0/0) once the `tree.rs:1781` (`/// clamped an out-of-bounds point instead of rejecting it would find`) false positive was pulled out.
 
 ### Per-crate verdicts, census §9 three clauses (mechanism / decision / subject)
 
@@ -494,12 +493,12 @@ out the sibling cause.
 original 23-in-family figure only counted sites that already had a
 table row. Ten more of the 29 real sites were in-family and
 already-audited (bitten or doc-recorded) but referenced only by test
-name in this section's own prose, `octomap_parity.rs:277`'s note, or
+name in this section's own prose, `octomap_parity.rs:277` (`assert_eq!(`)'s note, or
 the "Commands run" log below — never given their own row, which made
 `tools/ci/reconcile-assertion-ledgers.py` (a table-row scanner) report
-them as orphans despite being covered. One more (`tree.rs:1822`, folded
+them as orphans despite being covered. One more (`tree.rs:1822` (`assert!(tree.log_odds_at(end).is_none());`), folded
 into the `tree.rs:1769, 1770` row below) was found only because fixing
-the stale `tree.rs:1824` citation removed an accidental window-match
+the stale tree.rs line 1824 citation removed an accidental window-match
 that had been covering it — `29 real sites` becomes `30` with that
 addition. The rows below marked
 "Previously uncovered by any table row" / "had never itself been given
@@ -510,14 +509,14 @@ none required a new bite — each cites evidence that already existed.
 |---|---|---|---|---|
 | tree.rs:1781 | eq_none | **scanner false positive** | n/a | `assert!(insert_ray(..., None, ...))` — `None` is an argument, not a comparison |
 | node.rs:151 | is_some | not-this-family | no | clause 2 — `create_child(3)` unconditionally populates slot 3 two lines above; no decision between cause and observation |
-| tree.rs:1833 | contains_member | not-this-family | no | clause 1 — `occupied.contains(&hit_key)` is membership in `compute_update`'s actual computed classification, not an absence signal — renumbered from a stale `tree.rs:1805` |
-| tree.rs:1834 | contains_member | not-this-family | no | clause 1, same reasoning — renumbered from a stale `tree.rs:1806` |
-| tree.rs:1835 | is_empty | not-this-family | no | clause 2 — general "ray tracing produced *some* free cells" sanity check, no crafted decision boundary — renumbered from a stale `tree.rs:1807` |
+| tree.rs:1833 | contains_member | not-this-family | no | clause 1 — `occupied.contains(&hit_key)` is membership in `compute_update`'s actual computed classification, not an absence signal — renumbered from a stale tree.rs line 1805 |
+| tree.rs:1834 | contains_member | not-this-family | no | clause 1, same reasoning — renumbered from a stale tree.rs line 1806 |
+| tree.rs:1835 | is_empty | not-this-family | no | clause 2 — general "ray tracing produced *some* free cells" sanity check, no crafted decision boundary — renumbered from a stale tree.rs line 1807 |
 | tree.rs:1852, 1865, 1880, 1890, 1896, 1906, 1907 | eq_none ×7 | **in-family, was partly blind** | yes | `coord_to_key_checked_axis`'s folded 3-operand guard (`is_finite() && >= min && < max`, one `return None` site). Bite-confirmed (3 live mutations, each reverted): `>= min` and `< max` are each independently caught by a dedicated boundary test (−32768.5/1e300 for min, 32768.0/1e300 for max) — genuinely discriminating. `is_finite()` is **dead**: neutralizing it alone left all 9 tests green, because IEEE 754 comparisons with NaN are always false and ±infinity always falls outside the finite `[min, max)` range, so the other two clauses already reject every non-finite input on their own. **Fixed** (`3e0430d`): removed the dead conjunct — no test could ever have closed this since no input makes it decisive, so the fix is deletion, not a new test. Line list renumbered from a stale `tree.rs:1824/1837/1852/1862/1868/1878/1879`; also switched to comma separation — the reconcile instrument's citation grammar only multi-extracts a comma-separated first column, so the original `/`-separated list was silently read as a single citation (`1824`) and the other six read as orphans regardless of line accuracy |
-| tree.rs:1958, 1972 | is_none ×2 | in-family, discriminating | yes | `leaves_in_bbx_returns_none_for_an_out_of_range_{max,min}` — `LeavesInBbx::new` checks `min` then `max`, each behind its own `?`; doc-recorded bite (the source's own comment on the `min` test, `tree.rs:1964-1968`): before that test existed, neutralizing the `min` guard left all 66 tests green, and each guard now isolates to its own test. Previously uncovered by any table row (only referenced implicitly, never cited) |
-| tree.rs:1736, 1740, 1751 | is_none ×3 | in-family, discriminating | yes | `ray_with_end_outside_tree_bounds_returns_none` (1736/1740, both ends of the ray) and `ray_with_origin_outside_tree_bounds_returns_none` (1751) — the crate's own dedicated unit-level coverage of `compute_ray_keys`'s two `None` causes that `octomap_parity.rs:277`'s note below already names but never cited directly |
-| tree.rs:1769, 1770, 1822 | is_none ×3 | in-family, discriminating | yes | `unmapped_coordinate_has_no_occupancy` (1769/1770) and `insert_ray_cut_short_by_max_range_records_only_a_miss` (1822) both exercise `log_odds_at`'s in-range-but-unmapped `None` cause; paired with the out-of-bounds cause's own dedicated test (`tree.rs:1787, 1790, 1791` below) they jointly discriminate `log_odds_at`'s two causes, same reasoning as `octomap_parity.rs:216`. Bite already recorded under "Commands run" below (`tree.rs:1762/1763/1794` old numbers) but never given its own table row. `tree.rs:1822` was previously mis-covered by an accidental window-match onto the pre-fix `tree.rs:1824` citation, not a genuine row — caught when fixing that citation exposed it as a real orphan |
-| tree.rs:1787, 1790, 1791 | is_some, is_none, is_none | in-family, discriminating | yes | `out_of_bounds_coordinate_has_no_occupancy_even_when_the_tree_center_is_mapped` — this *is* the `08181da` fix's own new test (see `octomap_parity.rs:216` below); it is the direct source-level evidence for that fix and had never itself been given a table row |
+| tree.rs:1958, 1972 | is_none ×2 | in-family, discriminating | yes | `leaves_in_bbx_returns_none_for_an_out_of_range_{max,min}` — `LeavesInBbx::new` checks `min` then `max`, each behind its own `?`; doc-recorded bite (the source's own comment on the `min` test, `tree.rs:1964-1968` (`/// Distinct from`)): before that test existed, neutralizing the `min` guard left all 66 tests green, and each guard now isolates to its own test. Previously uncovered by any table row (only referenced implicitly, never cited) |
+| tree.rs:1736, 1740, 1751 | is_none ×3 | in-family, discriminating | yes | `ray_with_end_outside_tree_bounds_returns_none` (1736/1740, both ends of the ray) and `ray_with_origin_outside_tree_bounds_returns_none` (1751) — the crate's own dedicated unit-level coverage of `compute_ray_keys`'s two `None` causes that `octomap_parity.rs:277` (`assert_eq!(`)'s note below already names but never cited directly |
+| tree.rs:1769, 1770, 1822 | is_none ×3 | in-family, discriminating | yes | `unmapped_coordinate_has_no_occupancy` (1769/1770) and `insert_ray_cut_short_by_max_range_records_only_a_miss` (1822) both exercise `log_odds_at`'s in-range-but-unmapped `None` cause; paired with the out-of-bounds cause's own dedicated test (`tree.rs:1787, 1790, 1791` below) they jointly discriminate `log_odds_at`'s two causes, same reasoning as `octomap_parity.rs:216` (`assert_eq!(mapped, actual.is_some(), "{ctx}: occupancy mapped mismatch");`). Bite already recorded under "Commands run" below (`tree.rs:1762/1763/1794` old numbers) but never given its own table row. `tree.rs:1822` was previously mis-covered by an accidental window-match onto the pre-fix tree.rs line 1824 citation, not a genuine row — caught when fixing that citation exposed it as a real orphan |
+| tree.rs:1787, 1790, 1791 | is_some, is_none, is_none | in-family, discriminating | yes | `out_of_bounds_coordinate_has_no_occupancy_even_when_the_tree_center_is_mapped` — this *is* the `08181da` fix's own new test (see `octomap_parity.rs:216` (`assert_eq!(mapped, actual.is_some(), "{ctx}: occupancy mapped mismatch");`) below); it is the direct source-level evidence for that fix and had never itself been given a table row |
 | tree.rs:2008, 2018, 2024, 2030, 2038, 2048, 2058, 2077, 2090, 2251, 2284 | eq_err ×11 | in-family, discriminating | yes | `DecodeError::UnexpectedEof`/`TreeAlreadyPopulated`/`MaxDepthExceeded` are each reached from 2 production call sites (one per of `read_binary_data`/`read_data`, or one per `read_binary_node`/`read_data_node`'s shared `Cursor::read_u8`/`read_f32_le`). Checked the `DecodeError` catch-all risk you flagged directly: every one of the 11 tests' own in-source comments trace the exact single reachable call site for that test's crafted byte length, ruling out every sibling explicitly (e.g. "`TreeAlreadyPopulated` is excluded (fresh tree) and `MaxDepthExceeded` is unreachable (3 bytes cannot recurse to depth 16)"). None is a bare catch-all — each traces to one call site. Line list renumbered from a stale `tree.rs:1980/1990/1996/2002/2010/2020/2030/2049/2062/2223/2256`; also switched to comma separation, same reason as the `coord_to_key_checked_axis` row above |
 | decode_parity.rs:200, 237 | eq_err ×2 | in-family, discriminating | yes | same `UnexpectedEof`-on-empty-input reasoning as `tree.rs:2024/2030`, run across the oracle fixture corpus. Switched to comma separation (numbers themselves unchanged — no drift here, only the `/`-separator parsing gap) |
 | decode_parity.rs:195, 232 | is_empty ×2 | not-this-family | no | clause 3 — subject is the *oracle's* fixture data (`expected_nodes.is_empty()`), a fixture self-consistency check, not the code under test. Switched to comma separation (numbers themselves unchanged) |
@@ -575,7 +574,7 @@ site, same reasoning as before.
 | decide.rs:1257 | is_empty | not-this-family | no | clause 2 — `KinematicConstraintSet::new()` is `Self::default()` |
 | sampler.rs:194/200 | contains_member ×2 | not-this-family | no | clause 1 — `(min..=max).contains(&v)` validates numeric correctness of a sampled value, not an absence signal |
 | utils_parity.rs:581, 647 | is_empty ×2 | not-this-family | no | clause 2 — `update_{orientation,position}_constraint`'s search loop runs over an empty `KinematicConstraintSet::new()`; the loop body's comparison never executes, matching census §9's `shortest_solution_is_none_on_empty_input` exclusion exactly — lines renumbered from a stale `utils_parity.rs:580/602` (this session's own `9b2bff6` inserted the sibling `mismatched_link_name_leaves_constraint_untouched` tests directly after each, at different offsets: `+1` and `+45`) |
-| utils_parity.rs:786 | is_empty | in-family, discriminating | yes | `merge_constraints` drops a genuinely non-overlapping pair (`low > high`); sibling test `overlapping_windows_merge_to_the_intersection` proves the merge logic isn't vacuously always-empty — line renumbered from a stale `utils_parity.rs:698`, which under nearest-line matching in the current file lands on an unrelated test (`multi_region_constraint_is_error`, not `non_overlapping_windows_are_dropped`) |
+| utils_parity.rs:786 | is_empty | in-family, discriminating | yes | `merge_constraints` drops a genuinely non-overlapping pair (`low > high`); sibling test `overlapping_windows_merge_to_the_intersection` proves the merge logic isn't vacuously always-empty — line renumbered from a stale utils_parity.rs line 698, which under nearest-line matching in the current file lands on an unrelated test (`multi_region_constraint_is_error`, not `non_overlapping_windows_are_dropped`) |
 
 #### moveit-srdf (6 real sites, 4 in-family, 0 blind)
 
@@ -610,12 +609,12 @@ moveit-scene above. Converted to a table; verdict unchanged.
 Two, both found by this round's folded-multi-operand-condition audit
 (see above), both fixed:
 
-- `acceleration_filter.rs:552`/`reset` (moveit-smoothing) — neither
+- `acceleration_filter.rs:302` (`if positions.len() != num_joints || velocities.len() != num_joints {`)/`reset` (moveit-smoothing) — neither
   the `positions` nor the `velocities` clause of the guard's OR
   condition was individually exercised by any existing test. Fixed:
   `reset_rejects_a_positions_only_mismatch`/
   `reset_rejects_a_velocities_only_mismatch` added, commit `3c2d72f`.
-- `ruckig_filter.rs:546`/`reset` (moveit-smoothing) — none of the
+- `ruckig_filter.rs:326-329` (`if positions.len() != num_joints`)/`reset` (moveit-smoothing) — none of the
   `positions`/`velocities`/`accelerations` clauses of the guard's
   3-clause OR condition was individually exercised. Fixed:
   `reset_rejects_a_positions_only_mismatch`/
@@ -627,7 +626,7 @@ Prior to this round's folded-condition audit, every site in this
 round's 7 crates was already discriminating, provably single-branch by
 direct source read, or previously fixed — no blind/never-covered site
 was found by the earlier verdict/evidence review (in contrast to round
-8's `matrix.rs:821`/`set_entry_for_known` fixture collapse). That
+8's `matrix.rs:821` (`assert!(acm.entry("a", "a").is_none());`)/`set_entry_for_known` fixture collapse). That
 review found evidence-shape defects (a single-producer argument
 mislabeled `discriminating`, two citations I could not locate) but no
 site whose *behavior* was wrong. This round's folded-condition
@@ -792,21 +791,21 @@ no correction owed this round.
 
 | Site | Kind | Verdict | Evidence |
 |---|---|---|---|
-| `acceleration_filter.rs:466` | contains | in-family | unique substring vs. sibling single-DOF guard; test's own comment records a prior message-swap bite |
-| `acceleration_filter.rs:525` | contains | in-family | `contains("planar_joint") && contains('3')` — only the single-DOF guard emits a bare digit; structurally unique |
-| `acceleration_filter.rs:542` | contains | in-family, discriminating | `do_smoothing_rejects_a_length_mismatch`, added Round 6 — the guard this site tests (`:329`) had zero coverage anywhere in the workspace before this round; bite-verified (neutralizing `:329` alone fails only this test, falling through to the sibling `:335` guard's distinct message) |
-| `acceleration_filter.rs:565` | contains | in-family | unique substring vs. `do_smoothing`'s other (non-folded) guard. Line renumbered from a stale `:542`, shifted +23 by Round 6's insertion above it |
-| `butterworth.rs:153` | contains | in-family | unique substring ("unstable") vs. 3 sibling `Error::construct` sites; comment records a prior message-swap bite against each |
-| `butterworth.rs:162` | contains | in-family | "scale_term_" unique vs. "infinite feedback_term_"/"...unstable"/"...feedback term of 0" |
-| `butterworth.rs:172` | contains | in-family | boundary case `coeff == 1.0` exactly on the EPSILON guard |
-| `butterworth.rs:183` | contains | in-family | distinct boundary (`coeff == 1 + 1e-10`) of the *same* branch as 172 — two boundary tests of one discriminating branch, not a duplicate |
-| `butterworth.rs:200` | contains | in-family | "feedback_term_" (underscored) is textually disjoint from site 4's "feedback term" (spaced) |
-| `ruckig_filter.rs:388` | contains | in-family | unique substring vs. 3 sibling guards; comment records a prior message-swap bite |
-| `ruckig_filter.rs:530` | contains | in-family | same name+digit pattern as `acceleration_filter.rs:525`, same reasoning — renumbered from a stale `ruckig_filter.rs:465`; this is `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins`, given a full discriminating-verdict row under Round 5 below |
-| `ruckig_filter.rs:613` (`do_smoothing`'s length guard) | contains | **BLIND — fixed** | folded 3-clause OR guard, structurally identical to `reset`'s (fixed in Task 1, `2829ca2`) but never itself isolated — see below. Line renumbered from a stale `ruckig_filter.rs:539`, then `:604` (+9, Round 6's `ruckig_filter.rs:289` comment fix) |
-| `ruckig_filter.rs:626` | contains | in-family, discriminating | bite-verified fix for the row above (`do_smoothing_rejects_a_positions_only_mismatch`); own row added this round. Renumbered from a stale `:617`, same +9 shift |
-| `ruckig_filter.rs:639` | contains | in-family, discriminating | bite-verified fix (`do_smoothing_rejects_a_velocities_only_mismatch`); own row added this round. Renumbered from a stale `:630`, same +9 shift |
-| `ruckig_filter.rs:652` | contains | in-family, discriminating | bite-verified fix (`do_smoothing_rejects_an_accelerations_only_mismatch`); own row added this round. Renumbered from a stale `:643`, same +9 shift |
+| `acceleration_filter.rs:466` (`assert!(`) | contains | in-family | unique substring vs. sibling single-DOF guard; test's own comment records a prior message-swap bite |
+| `acceleration_filter.rs:525` (`assert!(`) | contains | in-family | `contains("planar_joint") && contains('3')` — only the single-DOF guard emits a bare digit; structurally unique |
+| `acceleration_filter.rs:542` (`assert!(`) | contains | in-family, discriminating | `do_smoothing_rejects_a_length_mismatch`, added Round 6 — the guard this site tests (`:329`) had zero coverage anywhere in the workspace before this round; bite-verified (neutralizing `:329` alone fails only this test, falling through to the sibling `:335` guard's distinct message) |
+| `acceleration_filter.rs:565` (`assert!(`) | contains | in-family | unique substring vs. `do_smoothing`'s other (non-folded) guard. Line renumbered from a stale `:542`, shifted +23 by Round 6's insertion above it |
+| `butterworth.rs:153` (`assert!(err.to_string().contains("unstable"), "{err}");`) | contains | in-family | unique substring ("unstable") vs. 3 sibling `Error::construct` sites; comment records a prior message-swap bite against each |
+| `butterworth.rs:162` (`assert!(err.to_string().contains("scale_term_"), "{err}");`) | contains | in-family | "scale_term_" unique vs. "infinite feedback_term_"/"...unstable"/"...feedback term of 0" |
+| `butterworth.rs:172` (`assert!(`) | contains | in-family | boundary case `coeff == 1.0` exactly on the EPSILON guard |
+| `butterworth.rs:183` (`assert!(`) | contains | in-family | distinct boundary (`coeff == 1 + 1e-10`) of the *same* branch as 172 — two boundary tests of one discriminating branch, not a duplicate |
+| `butterworth.rs:200` (`assert!(err.to_string().contains("feedback_term_"), "{err}");`) | contains | in-family | "feedback_term_" (underscored) is textually disjoint from site 4's "feedback term" (spaced) |
+| `ruckig_filter.rs:388` (`assert!(`) | contains | in-family | unique substring vs. 3 sibling guards; comment records a prior message-swap bite |
+| `ruckig_filter.rs:530` (`assert!(`) | contains | in-family | same name+digit pattern as `acceleration_filter.rs:525` (`assert!(`), same reasoning — renumbered from a stale ruckig_filter.rs line 465; this is `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins`, given a full discriminating-verdict row under Round 5 below |
+| `ruckig_filter.rs:613` (`assert!(err.to_string().contains("must each have length"), "{err}");`) (`do_smoothing`'s length guard) | contains | **BLIND — fixed** | folded 3-clause OR guard, structurally identical to `reset`'s (fixed in Task 1, `2829ca2`) but never itself isolated — see below. Line renumbered from a stale ruckig_filter.rs line 539, then `:604` (+9, Round 6's `ruckig_filter.rs:289` (`.map_err(|error| Error::other(format!("ruckig update failed: {error}")))?;`) comment fix) |
+| `ruckig_filter.rs:626` (`assert!(err.to_string().contains("must each have length"), "{err}");`) | contains | in-family, discriminating | bite-verified fix for the row above (`do_smoothing_rejects_a_positions_only_mismatch`); own row added this round. Renumbered from a stale `:617`, same +9 shift |
+| `ruckig_filter.rs:639` (`assert!(err.to_string().contains("must each have length"), "{err}");`) | contains | in-family, discriminating | bite-verified fix (`do_smoothing_rejects_a_velocities_only_mismatch`); own row added this round. Renumbered from a stale `:630`, same +9 shift |
+| `ruckig_filter.rs:652` (`assert!(err.to_string().contains("must each have length"), "{err}");`) | contains | in-family, discriminating | bite-verified fix (`do_smoothing_rejects_an_accelerations_only_mismatch`); own row added this round. Renumbered from a stale `:643`, same +9 shift |
 
 **Fix**: `do_smoothing`'s guard (`positions.len() != num_joints ||
 velocities.len() != num_joints || accelerations.len() != num_joints`)
@@ -825,15 +824,15 @@ passed).
 
 | Site | Kind | Verdict | Evidence |
 |---|---|---|---|
-| `cart_to_jnt.rs:550` | is_some | in-family | sole zero-distance convergence check; default-options regression, doc-scoped |
-| `cart_to_jnt.rs:644` | is_some | in-family | paired in the same test with an `is_none()` tight-limit case (line 667) — both branches of the consistency gate exercised |
-| `cart_to_jnt.rs:707` | is_some | in-family | paired in the same test with an `is_none()` always-rejecting-callback case (line 738), plus call-count assertions on both |
-| `chain.rs:469` | contains | in-family | "not a chain" unique vs. 3 sibling `Error::other` sites in `build` |
-| `chain.rs:512` | contains | in-family | "DOF" unique vs. siblings |
-| `chain.rs:558` | contains | in-family | "not itself in the group" unique vs. siblings |
-| `chain.rs:676` (`root_link_index == None`) | eq_none | in-family — confirmed by live bite | see below |
-| `crates/moveit-kinematics/src/registry.rs:271` | contains | in-family | set-membership loop, one descriptive message per expected name |
-| `ik_fk_roundtrip.rs:281` | contains | in-family | same "not a chain" text as `chain.rs:469`, one layer up through `NewtonRaphsonSolver::new` |
+| `cart_to_jnt.rs:550` (`assert!(`) | is_some | in-family | sole zero-distance convergence check; default-options regression, doc-scoped |
+| `cart_to_jnt.rs:644` (`assert!(`) | is_some | in-family | paired in the same test with an `is_none()` tight-limit case (line 667) — both branches of the consistency gate exercised |
+| `cart_to_jnt.rs:707` (`assert!(`) | is_some | in-family | paired in the same test with an `is_none()` always-rejecting-callback case (line 738), plus call-count assertions on both |
+| `chain.rs:469` (`assert!(err.to_string().contains("not a chain"), "got: {err}");`) | contains | in-family | "not a chain" unique vs. 3 sibling `Error::other` sites in `build` |
+| `chain.rs:512` (`assert!(err.to_string().contains("DOF"), "got: {err}");`) | contains | in-family | "DOF" unique vs. siblings |
+| `chain.rs:558` (`assert!(`) | contains | in-family | "not itself in the group" unique vs. siblings |
+| `chain.rs:676` (`assert_eq!(chain.root_link_index, None);`) (`root_link_index == None`) | eq_none | in-family — confirmed by live bite | see below |
+| `crates/moveit-kinematics/src/registry.rs:271` (`assert!(names.contains(expected), "missing registration: {expected}");`) | contains | in-family | set-membership loop, one descriptive message per expected name |
+| `ik_fk_roundtrip.rs:281` (`assert!(err.to_string().contains("not a chain"), "got: {err}");`) | contains | in-family | same "not a chain" text as `chain.rs:469` (`assert!(err.to_string().contains("not a chain"), "got: {err}");`), one layer up through `NewtonRaphsonSolver::new` |
 
 **`chain.rs:676` bite**: this is the only direct assertion on
 `root_link_index`, and the one same-crate test that reaches the
@@ -862,30 +861,30 @@ No fix needed for moveit-kinematics.
 | Site | Kind | Verdict | Evidence |
 |---|---|---|---|
 | `multivariate_gaussian.rs:213` (`positive_definite_covariance_constructs`) | is_some | in-family | the sole `is_some` case in a suite of 5 boundary tests, each a distinct negative (`is_none`) case: mismatched dims, non-square, indefinite, zero/PSD-not-PD |
-| `moveit-test-support/src/lib.rs:88` (`assert_group_has_updated_links`) | is_empty | **not-this-family** (corrected below) | fixture-precondition helper called before the calling crate's real subject; see the clause-3 re-audit table |
+| `moveit-test-support/src/lib.rs:88` (`assert!(`) (`assert_group_has_updated_links`) | is_empty | **not-this-family** (corrected below) | fixture-precondition helper called before the calling crate's real subject; see the clause-3 re-audit table |
 
 ### tools/moveit-diff (20 sites)
 
 | Site | Kind | Verdict | Evidence |
 |---|---|---|---|
-| `main.rs:3834` | is_empty | **not-this-family** (corrected below) | its own message says "for this diagnostic to mean anything" — a precondition on `parry_representable_link_names`, not on the collision decision this test pins; see the clause-3 re-audit table |
-| `main.rs:3922` | is_empty | in-family | the pinned regression itself; paired one line above with an explicit `touched > 0` per-link guard against exactly the vacuous-pass failure mode the doc comment names |
-| `main.rs:3533` | is_empty | in-family | subject is `compare_ik`: `stats` goes in `&mut` and is read back immediately, and `divergent` is a field only that call pushes to. Emptiness alone would be vacuous (deleting the call leaves `IkStats::default()`, also empty), so the row rests on the mutation instead — forcing `solved_by` to `Some("rust")` on the `(true, true) | (false, false)` arm fails this line and no other, while the two sibling tests pin the same field's opposite outcome from the same call shape |
-| `harness.rs:70` | contains | in-family | unique stdout line |
-| `harness.rs:74` | contains | in-family | unique stdout line |
-| `harness.rs:95` | contains | in-family | secondary corroboration; primary discriminator is the paired `assert_eq!(status.code(), Some(1))` in the same test |
-| `harness.rs:113` | contains | in-family | same text as 95, different invocation (`--stats-json`) — the test's real check is the JSON body that follows; this is a stdout-not-corrupted sanity check |
-| `harness.rs:154` | contains | **not-this-family** (corrected below) | asserts on `fake-oracle.py`'s own file text, read by the test via `std::fs::read_to_string`; no crate code runs before it — see the clause-3 re-audit table |
-| `harness.rs:160` | contains | **not-this-family** (corrected below) | same file read, positive-control sibling of 154 |
+| `main.rs:3834` (`assert!(`) | is_empty | **not-this-family** (corrected below) | its own message says "for this diagnostic to mean anything" — a precondition on `parry_representable_link_names`, not on the collision decision this test pins; see the clause-3 re-audit table |
+| `main.rs:3922` (`assert!(`) | is_empty | in-family | the pinned regression itself; paired one line above with an explicit `touched > 0` per-link guard against exactly the vacuous-pass failure mode the doc comment names |
+| `main.rs:3533` (`assert!(stats.divergent.is_empty());`) | is_empty | in-family | subject is `compare_ik`: `stats` goes in `&mut` and is read back immediately, and `divergent` is a field only that call pushes to. Emptiness alone would be vacuous (deleting the call leaves `IkStats::default()`, also empty), so the row rests on the mutation instead — forcing `solved_by` to `Some("rust")` on the `(true, true) | (false, false)` arm fails this line and no other, while the two sibling tests pin the same field's opposite outcome from the same call shape |
+| `harness.rs:70` (`assert!(`) | contains | in-family | unique stdout line |
+| `harness.rs:74` (`assert!(`) | contains | in-family | unique stdout line |
+| `harness.rs:95` (`assert!(`) | contains | in-family | secondary corroboration; primary discriminator is the paired `assert_eq!(status.code(), Some(1))` in the same test |
+| `harness.rs:113` (`assert!(`) | contains | in-family | same text as 95, different invocation (`--stats-json`) — the test's real check is the JSON body that follows; this is a stdout-not-corrupted sanity check |
+| `harness.rs:154` (`assert!(`) | contains | **not-this-family** (corrected below) | asserts on `fake-oracle.py`'s own file text, read by the test via `std::fs::read_to_string`; no crate code runs before it — see the clause-3 re-audit table |
+| `harness.rs:160` (`assert!(`) | contains | **not-this-family** (corrected below) | same file read, positive-control sibling of 154 |
 | `main.rs:4150` (`a_one_ulp_limit_change_reddens_only_joint_limits`) | any / is_some | **not-this-family** | the scanner token sits in the *mutation closure* — `find(...any(\|(lo, _)\| lo.is_some()))` picks which bound to perturb — not in the assertion's predicate. The assertion is `assert_eq!(failing_clauses(...), vec!["joint_limits"])`, an exact vector equality naming the one clause that must redden and, by exclusion, the four that must not |
 | `main.rs:4173` (`a_flipped_position_bounded_reddens_only_joint_limits`) | is_empty | **not-this-family** | same shape: `!j.position_bounded.is_empty()` selects the joint to perturb; the assertion itself is the exact `assert_eq!(..., vec!["joint_limits"])` |
 | `main.rs:4192` (`an_added_mimic_relation_reddens_only_mimic`) | all / is_none | **not-this-family** | same shape; the assertion is the exact `assert_eq!(..., vec!["mimic"])` |
-| `main.rs:4194` (inside the same test) | all / is_none | **not-this-family** (fixture precondition) | `m.joint_details.iter().all(\|j\| j.mimic.is_none())` pins that prbt genuinely has no mimic joint. Same category as `main.rs:3834` — a precondition, not the subject decision — but here for the inverse reason: prbt's live `mimic` clause compares an empty set against an empty set, so "mimic agrees" carries no information by itself. This line establishes that the emptiness is real, and the enclosing `assert_eq!` then shows the clause still reddens when a relation is added |
+| `main.rs:4194` (`assert!(`) (inside the same test) | all / is_none | **not-this-family** (fixture precondition) | `m.joint_details.iter().all(\|j\| j.mimic.is_none())` pins that prbt genuinely has no mimic joint. Same category as `main.rs:3834` (`assert!(`) — a precondition, not the subject decision — but here for the inverse reason: prbt's live `mimic` clause compares an empty set against an empty set, so "mimic agrees" carries no information by itself. This line establishes that the emptiness is real, and the enclosing `assert_eq!` then shows the clause still reddens when a relation is added |
 
 | `main.rs:4249` (`an_unresolved_collision_mesh_is_refused`) | contains | in-family | asserts the refusal names a link. The subject is `reject_dropped_collision_meshes`, whose whole value is the *content* of what it says -- the behaviour it replaces already stopped the run in one sense (it produced a wrong table) and the defect was that nothing named a cause. Deleting the `format!` of the diagnostic list leaves this red |
-| `main.rs:4250` (same test) | contains | in-family | asserts the refusal names the directory searched. Paired with `main.rs:4249` rather than redundant with it: a message naming the link but not the search root does not tell a reader that `third_party/` is what is missing, which is the actual remedy |
-| `main.rs:4254` (same test) | contains | in-family | asserts the count (7 fanuc collision meshes). Discriminates a refusal that fired on one element from one that enumerated all of them |
-| `main.rs:4284` (`a_robot_with_no_collision_mesh_still_runs_without_any_search_path`) | any / is_none | **not-this-family** (fixture precondition) | pins that prbt genuinely has no `<mesh>` collision element, which is what makes the `Ok(())` on the next line mean "no meshes to lose" rather than "meshes lost but tolerated". Same category as `main.rs:3834` |
+| `main.rs:4250` (`assert!(`) (same test) | contains | in-family | asserts the refusal names the directory searched. Paired with `main.rs:4249` (`assert!(err.contains("base_link"), "must name a link:\n{err}");`) rather than redundant with it: a message naming the link but not the search root does not tell a reader that `third_party/` is what is missing, which is the actual remedy |
+| `main.rs:4254` (`assert!(err.contains('7'), "must count the dropped elements:\n{err}");`) (same test) | contains | in-family | asserts the count (7 fanuc collision meshes). Discriminates a refusal that fired on one element from one that enumerated all of them |
+| `main.rs:4284` (`a_robot_with_no_collision_mesh_still_runs_without_any_search_path`) | any / is_none | **not-this-family** (fixture precondition) | pins that prbt genuinely has no `<mesh>` collision element, which is what makes the `Ok(())` on the next line mean "no meshes to lose" rather than "meshes lost but tolerated". Same category as `main.rs:3834` (`assert!(`) |
 | `main.rs:3072` (`the_default_oracle_seed_collides_with_the_matching_case_seed`) | contains | in-family | `reject_colliding_oracle_streams` has exactly one `Err` site and one `Ok` site (`main.rs:82-96`), so the enclosing `expect_err` is single-branch and pins reachability only. This line is the discriminating half: it asserts the refusal *names the stream collision*, which is the whole reason the guard exists — a refusal that fired for some other reason would leave a caller re-running with a differently wrong seed. Replacing the message body while keeping the `Err` leaves the `expect_err` green and reddens this |
 | `main.rs:3102` (`a_negative_case_seed_is_judged_as_the_stream_it_selects`) | is_err | single-branch | structural: one `Err` site, so `.is_err()` alone cannot name a branch. It is not blind because of the `.is_ok()` on `(-1, 1)` eight lines below: the pair is what pins the `seed as u32` reinterpretation. A guard written `seed == oracle as i32` passes the `.is_ok()` and fails this line; one that waved negatives through entirely fails this line and passes the other |
 | `main.rs:3119` (`zero_is_an_ordinary_seed_on_both_sides`) | is_err | single-branch | same single-`Err` structure, same paired shape: `(0, 0)` must refuse and `(0, 42)` must not. What the pair excludes is a guard that treats `0` as "unset" and skips the comparison — that variant passes the `.is_ok()` and fails this line |
@@ -903,13 +902,13 @@ sibling asserted in the same test.
 
 | Site | Kind | Verdict | Evidence |
 |---|---|---|---|
-| `crates/moveit-constraints/tests/sampler.rs:78` | contains | in-family | "panda_joint1" unique vs. sibling `Error::other` site (which embeds `group_name`, not the joint variable name) |
-| `crates/moveit-constraints/tests/sampler.rs:120` | contains | in-family | "panda_arm" unique vs. sibling (which embeds joint variable name, not group name); input validity also rules out the `UnknownName` path |
-| `crates/moveit-constraints/tests/sampler.rs:194` | contains (range) | in-family | per-iteration bound check, single documented production path |
-| `crates/moveit-constraints/tests/sampler.rs:200` | contains (range) | in-family | same, tightened window |
-| `utils_parity.rs:581` | is_empty | in-family | paired with `assert!(!updated)` in the same test — two views of the same not-found branch. Renumbered from a stale `utils_parity.rs:580`; superseded by the census §9 pass below, which reclassifies this `not-this-family` (clause 2 — empty-fixture exclusion) |
-| `utils_parity.rs:647` | is_empty | in-family | same pattern, position-constraint sibling. Renumbered from a stale `utils_parity.rs:602`; same census §9 supersession as the row above |
-| `utils_parity.rs:786` | is_empty | in-family | one of three distinctly-asserted branches (`merge`→intersect/drop/keep), each with its own test and its own specific check. Renumbered from a stale `utils_parity.rs:698` |
+| `crates/moveit-constraints/tests/sampler.rs:78` (`assert!(`) | contains | in-family | "panda_joint1" unique vs. sibling `Error::other` site (which embeds `group_name`, not the joint variable name) |
+| `crates/moveit-constraints/tests/sampler.rs:120` (`assert!(`) | contains | in-family | "panda_arm" unique vs. sibling (which embeds joint variable name, not group name); input validity also rules out the `UnknownName` path |
+| `crates/moveit-constraints/tests/sampler.rs:194` (`assert!(`) | contains (range) | in-family | per-iteration bound check, single documented production path |
+| `crates/moveit-constraints/tests/sampler.rs:200` (`assert!(`) | contains (range) | in-family | same, tightened window |
+| `utils_parity.rs:581` (`assert!(set.is_empty());`) | is_empty | in-family | paired with `assert!(!updated)` in the same test — two views of the same not-found branch. Renumbered from a stale `utils_parity.rs:580`; superseded by the census §9 pass below, which reclassifies this `not-this-family` (clause 2 — empty-fixture exclusion) |
+| `utils_parity.rs:647` (`assert!(set.is_empty());`) | is_empty | in-family | same pattern, position-constraint sibling. Renumbered from a stale utils_parity.rs line 602; same census §9 supersession as the row above |
+| `utils_parity.rs:786` (`assert!(merged.is_empty());`) | is_empty | in-family | one of three distinctly-asserted branches (`merge`→intersect/drop/keep), each with its own test and its own specific check. Renumbered from a stale utils_parity.rs line 698 |
 
 No fix needed for the 7 stranded sites.
 
@@ -939,44 +938,44 @@ anchor this pass:
 
 | Site | Test's own subject | Delete-the-call test | Verdict |
 |---|---|---|---|
-| `acceleration_filter.rs:466` | `joint_acceleration_bounds` | `err` is `joint_acceleration_bounds(...).unwrap_err()` directly; delete that call and the assertion has nothing to inspect | in-family |
-| `acceleration_filter.rs:525` | `joint_acceleration_bounds` | same shape — `message` comes straight from `joint_acceleration_bounds(...).unwrap_err()` | in-family |
-| `acceleration_filter.rs:542` | `do_smoothing` | `err` is `filter.do_smoothing(...).unwrap_err()` directly; added Round 6, previously uncovered | in-family |
-| `acceleration_filter.rs:565` | `do_smoothing` | same shape, renumbered from a stale `:542` (shifted +23 by Round 6's insertion above it) | in-family |
-| `butterworth.rs:153` | `ButterworthFilter::new` | `new` is simultaneously the construction *and* the decision (no separate arrange-function to defer to); `err` is its direct return | in-family |
-| `butterworth.rs:162` | `ButterworthFilter::new` | same | in-family |
-| `butterworth.rs:172` | `ButterworthFilter::new` | same | in-family |
-| `butterworth.rs:183` | `ButterworthFilter::new` | same (distinct boundary of the same branch as 172) | in-family |
-| `butterworth.rs:200` | `ButterworthFilter::new` | same | in-family |
-| `ruckig_filter.rs:388` | `joint_vel_accel_jerk_bounds` | `err` is its direct return | in-family |
-| `ruckig_filter.rs:530` | `joint_vel_accel_jerk_bounds` | same | in-family (renumbered from a stale `ruckig_filter.rs:465`) |
-| `ruckig_filter.rs:613,626,639,652` (`do_smoothing`'s guard, incl. this round's 3 new tests) | `do_smoothing` | `err` is its direct return | in-family (renumbered from a stale `ruckig_filter.rs:539,552,565,578`, then `:604,617,630,643`, +9, Round 6's `ruckig_filter.rs:289` comment fix) |
-| `cart_to_jnt.rs:550` | `search_position_ik` | `solution` is its direct return; the trivial seed==target fixture still exercises `search_position_ik`'s own written tolerance comparison (unlike the census's `shortest_solution`-on-empty-input clause-2 failure, where the comparison never runs at all) | in-family |
-| `cart_to_jnt.rs:644` | `search_position_ik` | `solution` is its direct return, paired in the same test with an `is_none()` tight-limit case exercising the same guard's other branch | in-family |
-| `cart_to_jnt.rs:707` | `search_position_ik` | `solution` is its direct return, paired with an `is_none()` always-rejecting-callback case and call-count assertions on both | in-family |
-| `chain.rs:469` | `ChainInfo::build` | `err` is its direct return | in-family |
-| `chain.rs:512` | `ChainInfo::build` | `err` is its direct return | in-family |
-| `chain.rs:558` | `ChainInfo::build` | `err` is its direct return | in-family |
+| `acceleration_filter.rs:466` (`assert!(`) | `joint_acceleration_bounds` | `err` is `joint_acceleration_bounds(...).unwrap_err()` directly; delete that call and the assertion has nothing to inspect | in-family |
+| `acceleration_filter.rs:525` (`assert!(`) | `joint_acceleration_bounds` | same shape — `message` comes straight from `joint_acceleration_bounds(...).unwrap_err()` | in-family |
+| `acceleration_filter.rs:542` (`assert!(`) | `do_smoothing` | `err` is `filter.do_smoothing(...).unwrap_err()` directly; added Round 6, previously uncovered | in-family |
+| `acceleration_filter.rs:565` (`assert!(`) | `do_smoothing` | same shape, renumbered from a stale `:542` (shifted +23 by Round 6's insertion above it) | in-family |
+| `butterworth.rs:153` (`assert!(err.to_string().contains("unstable"), "{err}");`) | `ButterworthFilter::new` | `new` is simultaneously the construction *and* the decision (no separate arrange-function to defer to); `err` is its direct return | in-family |
+| `butterworth.rs:162` (`assert!(err.to_string().contains("scale_term_"), "{err}");`) | `ButterworthFilter::new` | same | in-family |
+| `butterworth.rs:172` (`assert!(`) | `ButterworthFilter::new` | same | in-family |
+| `butterworth.rs:183` (`assert!(`) | `ButterworthFilter::new` | same (distinct boundary of the same branch as 172) | in-family |
+| `butterworth.rs:200` (`assert!(err.to_string().contains("feedback_term_"), "{err}");`) | `ButterworthFilter::new` | same | in-family |
+| `ruckig_filter.rs:388` (`assert!(`) | `joint_vel_accel_jerk_bounds` | `err` is its direct return | in-family |
+| `ruckig_filter.rs:530` (`assert!(`) | `joint_vel_accel_jerk_bounds` | same | in-family (renumbered from a stale ruckig_filter.rs line 465) |
+| `ruckig_filter.rs:613,626,639,652` (`assert!(err.to_string().contains("must each have length"), "{err}");`) (`do_smoothing`'s guard, incl. this round's 3 new tests) | `do_smoothing` | `err` is its direct return | in-family (renumbered from a stale ruckig_filter.rs lines 539, 552, 565, 578, then `:604,617,630,643`, +9, Round 6's `ruckig_filter.rs:289` (`.map_err(|error| Error::other(format!("ruckig update failed: {error}")))?;`) comment fix) |
+| `cart_to_jnt.rs:550` (`assert!(`) | `search_position_ik` | `solution` is its direct return; the trivial seed==target fixture still exercises `search_position_ik`'s own written tolerance comparison (unlike the census's `shortest_solution`-on-empty-input clause-2 failure, where the comparison never runs at all) | in-family |
+| `cart_to_jnt.rs:644` (`assert!(`) | `search_position_ik` | `solution` is its direct return, paired in the same test with an `is_none()` tight-limit case exercising the same guard's other branch | in-family |
+| `cart_to_jnt.rs:707` (`assert!(`) | `search_position_ik` | `solution` is its direct return, paired with an `is_none()` always-rejecting-callback case and call-count assertions on both | in-family |
+| `chain.rs:469` (`assert!(err.to_string().contains("not a chain"), "got: {err}");`) | `ChainInfo::build` | `err` is its direct return | in-family |
+| `chain.rs:512` (`assert!(err.to_string().contains("DOF"), "got: {err}");`) | `ChainInfo::build` | `err` is its direct return | in-family |
+| `chain.rs:558` (`assert!(`) | `ChainInfo::build` | `err` is its direct return | in-family |
 | `chain.rs:676` | `ChainInfo::build` | `chain.root_link_index` is a field `build` itself computes and *also* uses, in the same match expression, to derive `base_frame` — there is no separate "arrange" function here the way `RobotTrajectory::new` is separate from `apply_smoothing`; `build` is both construction and decision in one call. Confirmed further by this round's live cross-crate bite (forcing `root_link_index` to always `None` failed `ik_fk_roundtrip.rs`'s pr2 tests) | in-family |
-| `crates/moveit-kinematics/src/registry.rs:271` | the crate's own solver registry (`KINEMATICS_SOLVERS`) | no function call to delete — the "subject" is each solver module's own `#[distributed_slice(KINEMATICS_SOLVERS)]` declaration; deleting one (e.g. `lma`'s) directly flips this assertion. Closest call in this population: it is a static aggregate, not a runtime branch, but per this crate's own documented history (`distributed_slice ordering is not a contract` — a dependency-graph change once silently flipped which solver `pilz` resolved), membership here is genuine, non-tautological production behavior a change could break | in-family, argued rather than assumed |
-| `ik_fk_roundtrip.rs:281` | `NewtonRaphsonSolver::new` (which itself calls `ChainInfo::build`) | `err` is its direct return, one layer up | in-family |
+| `crates/moveit-kinematics/src/registry.rs:271` (`assert!(names.contains(expected), "missing registration: {expected}");`) | the crate's own solver registry (`KINEMATICS_SOLVERS`) | no function call to delete — the "subject" is each solver module's own `#[distributed_slice(KINEMATICS_SOLVERS)]` declaration; deleting one (e.g. `lma`'s) directly flips this assertion. Closest call in this population: it is a static aggregate, not a runtime branch, but per this crate's own documented history (`distributed_slice ordering is not a contract` — a dependency-graph change once silently flipped which solver `pilz` resolved), membership here is genuine, non-tautological production behavior a change could break | in-family, argued rather than assumed |
+| `ik_fk_roundtrip.rs:281` (`assert!(err.to_string().contains("not a chain"), "got: {err}");`) | `NewtonRaphsonSolver::new` (which itself calls `ChainInfo::build`) | `err` is its direct return, one layer up | in-family |
 | `multivariate_gaussian.rs:213` | `MultivariateGaussian::new` | checked inline on the constructor's own return, no intermediate object | in-family |
-| `moveit-test-support/src/lib.rs:88` | *(the calling crate's actual subject — this function is a shared fixture-precondition helper, not itself a decision under test)* | `assert_group_has_updated_links` is called by *other* crates' fixture builders, before those crates' own subject call. Deleting the call to whatever the calling test's real subject is (e.g. `generate_distance_field_cache_entry`) leaves this assertion's outcome completely unaffected — it depends only on the URDF/SRDF fixture's static joint configuration. Same shape as `crates/moveit-trajectory/tests/ruckig_smoothing.rs:199`'s `trajectory.group().is_none()`, just packaged as a shared helper instead of an inline check | **not-this-family** (moved) |
-| `main.rs:3834` | the collision/near-placement decision this test pins (`decide_cone`'s tie-break, checked at `main.rs:3922`) | `eligible.is_empty()`'s own message says it outright: "for this diagnostic to mean anything." `eligible` comes from `parry_representable_link_names(&model)`, not from the collision-checking loop below. Deleting the call to the actual subject (`env.check_robot_collision`, the loop that produces `ambiguous`) leaves this assertion completely unaffected | **not-this-family** (moved) |
-| `main.rs:3922` | `env.check_robot_collision` / `decide_cone`'s tie-break | `ambiguous` is built from `touched_link_counts`, populated once per link by calling `env.check_robot_collision(...)` inside the loop — a genuine per-call subject decision, not a value the test constructed itself. Deleting that call empties `touched_link_counts` and changes this assertion | in-family |
-| `harness.rs:70` | the `moveit-diff` runner binary itself (this whole test file's subject) | `stdout` is the captured output of actually executing `CARGO_BIN_EXE_moveit-diff`; deleting that `Command::output()` call removes `stdout` entirely | in-family |
-| `harness.rs:74` | same | same | in-family |
-| `harness.rs:95` | same | `stdout`/exit code both come from running the binary; this line is a secondary corroboration of the paired `assert_eq!(status.code(), Some(1))` in the same test, not a precondition for it | in-family |
-| `harness.rs:113` | same | same output, different invocation (`--stats-json`); confirms the flag doesn't corrupt the human-readable summary the JSON assertions that follow depend on being unaffected | in-family |
-| `harness.rs:154` | *(no crate subject runs in this test at all)* | `fake` is `std::fs::read_to_string("fake-oracle.py")`, called by the test itself. No `moveit-diff` code runs before this assertion — the exact `fs::read` shape census §9 names verbatim | **not-this-family** (moved) |
-| `harness.rs:160` | same | same — positive-control sibling of 154, same file read | **not-this-family** (moved) |
-| `crates/moveit-constraints/tests/sampler.rs:78` | `JointConstraintSampler::new` | `err` is its direct return | in-family |
-| `crates/moveit-constraints/tests/sampler.rs:120` | `JointConstraintSampler::new` | `err` is its direct return | in-family |
-| `crates/moveit-constraints/tests/sampler.rs:194` | `JointConstraintSampler::sample` | `v` is `state.variable_position(name)`, read back after `sampler.sample(&mut state, &mut rng)` wrote it this same iteration — the `mimic().is_none()` shape exactly: a getter on state the subject just mutated | in-family |
-| `crates/moveit-constraints/tests/sampler.rs:200` | `JointConstraintSampler::sample` | same shape, same iteration | in-family |
-| `utils_parity.rs:581` | `update_orientation_constraint` | `set` is passed `&mut` into `update_orientation_constraint`; `set.is_empty()` reads back whether that call pushed into it — the subject's own side effect, not a value the test constructed independently | in-family (renumbered from a stale `utils_parity.rs:580`) |
-| `utils_parity.rs:647` | `update_position_constraint` | same shape | in-family (renumbered from a stale `utils_parity.rs:602`) |
-| `utils_parity.rs:786` | `merge_constraints` | `merged` is its direct return | in-family (renumbered from a stale `utils_parity.rs:698`) |
+| `moveit-test-support/src/lib.rs:88` (`assert!(`) | *(the calling crate's actual subject — this function is a shared fixture-precondition helper, not itself a decision under test)* | `assert_group_has_updated_links` is called by *other* crates' fixture builders, before those crates' own subject call. Deleting the call to whatever the calling test's real subject is (e.g. `generate_distance_field_cache_entry`) leaves this assertion's outcome completely unaffected — it depends only on the URDF/SRDF fixture's static joint configuration. Same shape as `crates/moveit-trajectory/tests/ruckig_smoothing.rs:203`'s `trajectory.group().is_none()`, just packaged as a shared helper instead of an inline check | **not-this-family** (moved) |
+| `main.rs:3834` (`assert!(`) | the collision/near-placement decision this test pins (`decide_cone`'s tie-break, checked at `main.rs:3922` (`assert!(`)) | `eligible.is_empty()`'s own message says it outright: "for this diagnostic to mean anything." `eligible` comes from `parry_representable_link_names(&model)`, not from the collision-checking loop below. Deleting the call to the actual subject (`env.check_robot_collision`, the loop that produces `ambiguous`) leaves this assertion completely unaffected | **not-this-family** (moved) |
+| `main.rs:3922` (`assert!(`) | `env.check_robot_collision` / `decide_cone`'s tie-break | `ambiguous` is built from `touched_link_counts`, populated once per link by calling `env.check_robot_collision(...)` inside the loop — a genuine per-call subject decision, not a value the test constructed itself. Deleting that call empties `touched_link_counts` and changes this assertion | in-family |
+| `harness.rs:70` (`assert!(`) | the `moveit-diff` runner binary itself (this whole test file's subject) | `stdout` is the captured output of actually executing `CARGO_BIN_EXE_moveit-diff`; deleting that `Command::output()` call removes `stdout` entirely | in-family |
+| `harness.rs:74` (`assert!(`) | same | same | in-family |
+| `harness.rs:95` (`assert!(`) | same | `stdout`/exit code both come from running the binary; this line is a secondary corroboration of the paired `assert_eq!(status.code(), Some(1))` in the same test, not a precondition for it | in-family |
+| `harness.rs:113` (`assert!(`) | same | same output, different invocation (`--stats-json`); confirms the flag doesn't corrupt the human-readable summary the JSON assertions that follow depend on being unaffected | in-family |
+| `harness.rs:154` (`assert!(`) | *(no crate subject runs in this test at all)* | `fake` is `std::fs::read_to_string("fake-oracle.py")`, called by the test itself. No `moveit-diff` code runs before this assertion — the exact `fs::read` shape census §9 names verbatim | **not-this-family** (moved) |
+| `harness.rs:160` (`assert!(`) | same | same — positive-control sibling of 154, same file read | **not-this-family** (moved) |
+| `crates/moveit-constraints/tests/sampler.rs:78` (`assert!(`) | `JointConstraintSampler::new` | `err` is its direct return | in-family |
+| `crates/moveit-constraints/tests/sampler.rs:120` (`assert!(`) | `JointConstraintSampler::new` | `err` is its direct return | in-family |
+| `crates/moveit-constraints/tests/sampler.rs:194` (`assert!(`) | `JointConstraintSampler::sample` | `v` is `state.variable_position(name)`, read back after `sampler.sample(&mut state, &mut rng)` wrote it this same iteration — the `mimic().is_none()` shape exactly: a getter on state the subject just mutated | in-family |
+| `crates/moveit-constraints/tests/sampler.rs:200` (`assert!(`) | `JointConstraintSampler::sample` | same shape, same iteration | in-family |
+| `utils_parity.rs:581` | `update_orientation_constraint` | `set` is passed `&mut` into `update_orientation_constraint`; `set.is_empty()` reads back whether that call pushed into it — the subject's own side effect, not a value the test constructed independently | in-family (renumbered from a stale utils_parity.rs line 580) |
+| `utils_parity.rs:647` (`assert!(set.is_empty());`) | `update_position_constraint` | same shape | in-family (renumbered from a stale utils_parity.rs line 602) |
+| `utils_parity.rs:786` (`assert!(merged.is_empty());`) | `merge_constraints` | `merged` is its direct return | in-family (renumbered from a stale utils_parity.rs line 698) |
 
 ### Round 3 summary (corrected)
 
@@ -986,11 +985,11 @@ pass's 37/0, which used "an anti-vacuous guard is present" as a reason to
 keep a site in-family; that reasoning had the clause backwards. The four
 moved:
 
-- `moveit-test-support/src/lib.rs:88` — fixture-precondition helper,
-  same shape as the census's own `crates/moveit-trajectory/tests/ruckig_smoothing.rs:199` precedent.
-- `tools/moveit-diff/src/main.rs:3834` — its own message names it a
+- `moveit-test-support/src/lib.rs:88` (`assert!(`) — fixture-precondition helper,
+  same shape as the census's own `crates/moveit-trajectory/tests/ruckig_smoothing.rs:203` precedent.
+- `tools/moveit-diff/src/main.rs:3834` (`assert!(`) — its own message names it a
   precondition ("for this diagnostic to mean anything").
-- `tools/moveit-diff/tests/harness.rs:154,160` — assert on
+- `tools/moveit-diff/tests/harness.rs:154,160` (`assert!(`) — assert on
   `fake-oracle.py`'s file text, read by the test itself; no crate code
   runs before either assertion, the census's `fs::read` shape verbatim.
 
@@ -1002,10 +1001,10 @@ construction and decision are the same call, so there is no separate
 arrange-function to defer to), or from a getter reading state the
 subject's own call just mutated in the same test (the `mimic().is_none()`
 precedent — `sampler.rs:194/200`, `utils_parity.rs:580/602`). One site,
-`crates/moveit-kinematics/src/registry.rs:271`, is argued rather than assumed: it has no function call
+`crates/moveit-kinematics/src/registry.rs:271` (`assert!(names.contains(expected), "missing registration: {expected}");`), is argued rather than assumed: it has no function call
 to delete, but its "subject" (each solver's own `#[distributed_slice]`
 registration) is genuine, breakable production behavior, not a
-tautological restatement of source text. `chain.rs:676` is confirmed
+tautological restatement of source text. `chain.rs:676` (`assert_eq!(chain.root_link_index, None);`) is confirmed
 doubly: the operational test alone puts it in-family (`build` is the only
 call, and it's simultaneously construction and decision), and this
 round's live cross-crate bite independently confirmed the `Some(...)`
@@ -1047,10 +1046,10 @@ ambiguity the way multiple guards can share one negative signal.
 | `joint_acceleration_bounds` | 2 (`Err::other` × 2) | bit |
 | `AccelerationLimitedFilter::do_smoothing` (2-arg) | 2 (`Err::other` × 2) | 1 bit directly, 1 already message-swap bite-checked (spot-confirmed by the sibling bite) |
 | `ButterworthFilter::new` | 4 (`Err::construct` × 4) | ~~1 bit directly (spot-check per instruction)~~ **all 4 bit — see Round 6** |
-| `JointConstraintSampler::sample` (`crates/moveit-constraints/tests/sampler.rs:194,200`) | not a `None`/`Err` funnel — numeric range check on subject-mutated state (`mimic().is_none()` shape) | excluded |
-| `cart_to_jnt.rs:550,644,707`, `multivariate_gaussian.rs:213` | `is_some` positive checks | excluded (structural exemption above) |
-| `crates/moveit-kinematics/src/registry.rs:271` | static `#[distributed_slice]` aggregate, no `?`-chain | excluded |
-| `harness.rs:70,74,95,113` | integration tests already execute the real `moveit-diff` binary end-to-end — no separate read-vs-run gap | excluded |
+| `JointConstraintSampler::sample` (`crates/moveit-constraints/tests/sampler.rs:194,200` (`assert!(`)) | not a `None`/`Err` funnel — numeric range check on subject-mutated state (`mimic().is_none()` shape) | excluded |
+| `cart_to_jnt.rs:550,644,707` (`assert!(`), `multivariate_gaussian.rs:213` (`assert!(MultivariateGaussian::new(mean, covariance).is_some());`) | `is_some` positive checks | excluded (structural exemption above) |
+| `crates/moveit-kinematics/src/registry.rs:271` (`assert!(names.contains(expected), "missing registration: {expected}");`) | static `#[distributed_slice]` aggregate, no `?`-chain | excluded |
+| `harness.rs:70,74,95,113` (`assert!(`) | integration tests already execute the real `moveit-diff` binary end-to-end — no separate read-vs-run gap | excluded |
 | `ruckig_filter.rs::joint_vel_accel_jerk_bounds` | 2 (`Err::other` × 2) | not independently re-bit this round — same file, same annotated-and-confirmed pattern as the sibling `joint_acceleration_bounds` bites, itself spot-checked |
 
 ### Bites performed and results
@@ -1061,20 +1060,20 @@ referenced under `-D warnings`, confirmed via
 `cargo nextest run -p <crate> --no-fail-fast`, then reverted via a
 pre-bite backup + `diff` before moving to the next site.
 
-- **`JointConstraintSampler::new`** (`crates/moveit-constraints/src/sampler.rs:213`,`:224`): bit each of the two `Err::other` guards (empty-intersection, no-valid-constraint-for-group) independently. Each bite failed exactly the test targeting it (`configure_fails_on_empty_intersection_between_two_constraints`, `configure_fails_when_the_only_constraint_is_on_a_joint_outside_the_group`) while the other stayed green. **Discriminating, not blind.**
-- **`ChainInfo::build`** (`crates/moveit-kinematics/src/chain.rs:147`,`:185`,`:259`): bit the not-a-chain, DOF≠1, and mimic-master-outside-group guards independently. Each bite failed exactly its own unit test (`build_rejects_a_non_chain_group`, `build_rejects_a_multi_dof_joint`, `build_rejects_an_in_chain_mimic_whose_master_is_outside_the_group`) while the others stayed green; the DOF bite additionally showed the fixture falls through to the *next* guard (unsupported-type) under a still-different message, so `contains("DOF")` remains a real discriminator rather than an accidental pass. Also re-bit the not-a-chain guard through the cross-crate integration test `crates/moveit-kinematics/tests/ik_fk_roundtrip.rs:281`'s `constructing_a_solver_on_a_non_chain_group_is_an_error` (via `NewtonRaphsonSolver::new` → `ChainInfo::build`, its only fallible call) — only that test and its unit-test sibling failed, all 33 other kinematics tests stayed green. **Discriminating, not blind.** The untested unsupported-type guard (`chain.rs:196`) has no assertion at all, so it is not a census site and is out of this audit's scope — noted, not fixed. The fifth guard, the `?` group lookup (`chain.rs:146`), is exempt from needing a bite at all — see Round 6, below.
-- **`update_orientation_constraint` / `update_position_constraint`** (`crates/moveit-constraints/src/utils.rs:516`,`:597`): bit each link-name-comparison guard completely. Both `not_found_returns_false` tests (`utils_parity.rs:580`,`:602`) **stayed green** — confirmed blind. Root cause: both fixtures construct an *empty* `KinematicConstraintSet`, so `for c in constraints.constraints_mut()` never iterates and `set.is_empty()` holds regardless of what the guard decides — the census's own `shortest_solution_is_none_on_empty_input` vacuous-fixture shape. **Fixed** (commit `9b2bff6`): added `mismatched_link_name_leaves_constraint_untouched` to each boundary module, constructing one non-matching constraint so the loop body actually runs; re-biting the same guards against the new tests now fails only the new test in each module, with `not_found_returns_false` (and, for position, `multi_region_constraint_is_error`) staying green — confirmed the new tests could not have passed as a behaviour-preserving no-op, since the bite visibly flips `updated` from `false` to `true` and reconstructs the surviving constraint.
-- **`joint_acceleration_bounds`** (`crates/moveit-smoothing/src/acceleration_filter.rs:153`,`:162`): bit the single-DOF-active-joint guard directly — only `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins` failed, `joint_acceleration_bounds_fails_without_acceleration_limits` (its claimed message-swap sibling) stayed green, confirming the existing "message-swap bite-checked" comment.
-- **`AccelerationLimitedFilter::do_smoothing`** (`acceleration_filter.rs:335`, the reset-before-check guard): bit directly — only `do_smoothing_before_reset_is_an_error` failed (via an index-out-of-bounds panic once the length check no longer short-circuits, still a discriminating failure), all 38 other smoothing tests stayed green.
+- **`JointConstraintSampler::new`** (`crates/moveit-constraints/src/sampler.rs:213` (`/// upstream's "there are no possible values for the joint" — a`),`:224`): bit each of the two `Err::other` guards (empty-intersection, no-valid-constraint-for-group) independently. Each bite failed exactly the test targeting it (`configure_fails_on_empty_intersection_between_two_constraints`, `configure_fails_when_the_only_constraint_is_on_a_joint_outside_the_group`) while the other stayed green. **Discriminating, not blind.**
+- **`ChainInfo::build`** (`crates/moveit-kinematics/src/chain.rs:147` (`if !group.is_chain() {`),`:185`,`:259`): bit the not-a-chain, DOF≠1, and mimic-master-outside-group guards independently. Each bite failed exactly its own unit test (`build_rejects_a_non_chain_group`, `build_rejects_a_multi_dof_joint`, `build_rejects_an_in_chain_mimic_whose_master_is_outside_the_group`) while the others stayed green; the DOF bite additionally showed the fixture falls through to the *next* guard (unsupported-type) under a still-different message, so `contains("DOF")` remains a real discriminator rather than an accidental pass. Also re-bit the not-a-chain guard through the cross-crate integration test `crates/moveit-kinematics/tests/ik_fk_roundtrip.rs:281` (`assert!(err.to_string().contains("not a chain"), "got: {err}");`)'s `constructing_a_solver_on_a_non_chain_group_is_an_error` (via `NewtonRaphsonSolver::new` → `ChainInfo::build`, its only fallible call) — only that test and its unit-test sibling failed, all 33 other kinematics tests stayed green. **Discriminating, not blind.** The untested unsupported-type guard (`chain.rs:196` (`return Err(Error::other(format!(`)) has no assertion at all, so it is not a census site and is out of this audit's scope — noted, not fixed. The fifth guard, the `?` group lookup (`chain.rs:146` (`let group = model.joint_model_group(group_name)?;`)), is exempt from needing a bite at all — see Round 6, below.
+- **`update_orientation_constraint` / `update_position_constraint`** (`crates/moveit-constraints/src/utils.rs:516` (`if oc.link_name() != link_name {`),`:597`): bit each link-name-comparison guard completely. Both `not_found_returns_false` tests (`utils_parity.rs:580`,`:602`) **stayed green** — confirmed blind. Root cause: both fixtures construct an *empty* `KinematicConstraintSet`, so `for c in constraints.constraints_mut()` never iterates and `set.is_empty()` holds regardless of what the guard decides — the census's own `shortest_solution_is_none_on_empty_input` vacuous-fixture shape. **Fixed** (commit `9b2bff6`): added `mismatched_link_name_leaves_constraint_untouched` to each boundary module, constructing one non-matching constraint so the loop body actually runs; re-biting the same guards against the new tests now fails only the new test in each module, with `not_found_returns_false` (and, for position, `multi_region_constraint_is_error`) staying green — confirmed the new tests could not have passed as a behaviour-preserving no-op, since the bite visibly flips `updated` from `false` to `true` and reconstructs the surviving constraint.
+- **`joint_acceleration_bounds`** (`crates/moveit-smoothing/src/acceleration_filter.rs:153` (`if joint.variable_names().len() != 1 {`),`:162`): bit the single-DOF-active-joint guard directly — only `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins` failed, `joint_acceleration_bounds_fails_without_acceleration_limits` (its claimed message-swap sibling) stayed green, confirming the existing "message-swap bite-checked" comment.
+- **`AccelerationLimitedFilter::do_smoothing`** (`acceleration_filter.rs:335` (`if self.last_positions.len() != positions.len() {`), the reset-before-check guard): bit directly — only `do_smoothing_before_reset_is_an_error` failed (via an index-out-of-bounds panic once the length check no longer short-circuits, still a discriminating failure), all 38 other smoothing tests stayed green.
 - **`ButterworthFilter::new`** (`crates/moveit-smoothing/src/butterworth.rs:80`, the `coeff < 1.0` guard): bit directly — only `coefficient_below_one_is_rejected` failed; its three sibling tests (`coefficient_of_negative_one_makes_scale_term_infinite`, `coefficient_of_exactly_one_makes_feedback_term_zero`, `coefficient_of_infinity_makes_feedback_term_infinite`) all stayed green, confirming the existing "message-swap bite-checked against each of them" comment.
 
 ### Exclusions, with reasons on the record
 
-- **`merge_constraints`** (`crates/moveit-constraints/src/utils.rs:147`, tested at `utils_parity.rs:698`): not a `None`/`Err`-funnel shape at all — the function has no fallible return. Its one `is_empty()` boundary test (`non_overlapping_windows_are_dropped`) uses a fixture with exactly one joint constraint per side on the same variable name, so `merged` ends up empty via exactly one internal drop path (`a.merged(b)` returning `None`) — there is no second guard that could produce the same empty result for this fixture shape, so there is nothing to disambiguate. Excluded as "single drop path," not bit.
-- **`crates/moveit-constraints/tests/sampler.rs:194,200`**: `JointConstraintSampler::sample`'s two assertions read `state.variable_position(name)` back after `sampler.sample` wrote it in the same iteration — a getter on subject-mutated state (the `mimic().is_none()` shape from Round 3), not a guard-funnel. `sample` itself has no `None`/`Err` branch (its doc comment: "always succeeds"). Excluded, not bit.
-- **`cart_to_jnt.rs:550,644,707`, `multivariate_gaussian.rs:213`**: all `is_some()`/positive-result checks. Structurally exempt — see this section's opening paragraph. Excluded, not bit.
-- **`crates/moveit-kinematics/src/registry.rs:271`**: static `#[distributed_slice]` aggregate with no `?`-chain or sequential-guard structure to fold into a single signal. Excluded, not bit (also already argued-and-kept in-family for clause 3 in Round 3, a separate question).
-- **`harness.rs:70,74,95,113`**: these integration tests spawn and run the real `moveit-diff` binary end-to-end and assert on its actual stdout — there is no separate "read the source vs. run the code" gap the way a static-source-read test has, so a funnel inside the binary's own internals would show up as a wrong assertion outcome, not a silently-passing one. Not independently bit this round (out of fence to modify `tools/moveit-diff/src/main.rs`'s internals beyond the two `main.rs` sites already in the ledger); reasoning recorded rather than assumed.
+- **`merge_constraints`** (`crates/moveit-constraints/src/utils.rs:147`, tested at `utils_parity.rs:786`): not a `None`/`Err`-funnel shape at all — the function has no fallible return. Its one `is_empty()` boundary test (`non_overlapping_windows_are_dropped`) uses a fixture with exactly one joint constraint per side on the same variable name, so `merged` ends up empty via exactly one internal drop path (`a.merged(b)` returning `None`) — there is no second guard that could produce the same empty result for this fixture shape, so there is nothing to disambiguate. Excluded as "single drop path," not bit.
+- **`crates/moveit-constraints/tests/sampler.rs:194,200` (`assert!(`)**: `JointConstraintSampler::sample`'s two assertions read `state.variable_position(name)` back after `sampler.sample` wrote it in the same iteration — a getter on subject-mutated state (the `mimic().is_none()` shape from Round 3), not a guard-funnel. `sample` itself has no `None`/`Err` branch (its doc comment: "always succeeds"). Excluded, not bit.
+- **`cart_to_jnt.rs:550,644,707` (`assert!(`), `multivariate_gaussian.rs:213`**: all `is_some()`/positive-result checks. Structurally exempt — see this section's opening paragraph. Excluded, not bit.
+- **`crates/moveit-kinematics/src/registry.rs:271` (`assert!(names.contains(expected), "missing registration: {expected}");`)**: static `#[distributed_slice]` aggregate with no `?`-chain or sequential-guard structure to fold into a single signal. Excluded, not bit (also already argued-and-kept in-family for clause 3 in Round 3, a separate question).
+- **`harness.rs:70,74,95,113` (`assert!(`)**: these integration tests spawn and run the real `moveit-diff` binary end-to-end and assert on its actual stdout — there is no separate "read the source vs. run the code" gap the way a static-source-read test has, so a funnel inside the binary's own internals would show up as a wrong assertion outcome, not a silently-passing one. Not independently bit this round (out of fence to modify `tools/moveit-diff/src/main.rs`'s internals beyond the two `main.rs` sites already in the ledger); reasoning recorded rather than assumed.
 - **`ruckig_filter.rs::joint_vel_accel_jerk_bounds`**: same `Err::other` × 2 shape as `joint_acceleration_bounds`, in the same crate, carrying the same "message-swap bite-checked" comment convention. Given `joint_acceleration_bounds`'s identical-shaped bites (above) and `ButterworthFilter::new`'s bite both independently confirmed their own "message-swap bite-checked" claims this round, this site's claim is corroborated by pattern rather than independently re-bit — flagged here rather than silently trusted.
 
 ### Result
@@ -1088,8 +1087,8 @@ listed above with its reason.
 
 ## UNFIXED
 
-- ~~`tools/moveit-diff/src/main.rs:3922`'s `near_placement_never_touches_more_than_one_link_at_once` is `#[ignore]`d and needs `third_party/moveit_resources`; that directory does not exist in this worktree...~~ **Closed by the merger.** The premise was wrong: `third_party/moveit_resources` exists and is populated in the primary checkout. It is untracked, so `git worktree` never materialises it — the absence is a property of every `caucus` worktree, not of this machine, and the `find /` that reported nothing was run from inside one. Run from `/home/stevek/work/moveit-rs`, `cargo nextest run -p moveit-diff --run-ignored all -E 'test(near_placement_never_touches_more_than_one_link_at_once)'` **passes**: 17 links checked, 17 with a near-placement touching ≥1 other link, 0 ambiguous. The diagnostic's conclusion therefore stands — `decide_cone`'s `max_contacts: 1` tie-break is ruled out as the source of the 115-case distance mismatch.
-- ~~`ruckig_filter.rs::joint_vel_accel_jerk_bounds` and `ChainInfo::build`'s untested unsupported-joint-type guard (`chain.rs:196`, no assertion exists) are not independently re-verified/covered — see the Exclusions and Bites sections above for why each was left as-is rather than bit or newly tested.~~ **Closed — see Round 5 below.** `chain.rs:193-200` is proven unreachable by enumeration, not merely untested; `ruckig_filter.rs::joint_vel_accel_jerk_bounds` had two of its four guards (`velocity_bounded`, `jerk_bounded`) with zero test coverage, not merely "corroborated by pattern" as this line previously assumed — both are now tested and isolating-mutation-confirmed.
+- ~~`tools/moveit-diff/src/main.rs:3922` (`assert!(`)'s `near_placement_never_touches_more_than_one_link_at_once` is `#[ignore]`d and needs `third_party/moveit_resources`; that directory does not exist in this worktree...~~ **Closed by the merger.** The premise was wrong: `third_party/moveit_resources` exists and is populated in the primary checkout. It is untracked, so `git worktree` never materialises it — the absence is a property of every `caucus` worktree, not of this machine, and the `find /` that reported nothing was run from inside one. Run from `/home/stevek/work/moveit-rs`, `cargo nextest run -p moveit-diff --run-ignored all -E 'test(near_placement_never_touches_more_than_one_link_at_once)'` **passes**: 17 links checked, 17 with a near-placement touching ≥1 other link, 0 ambiguous. The diagnostic's conclusion therefore stands — `decide_cone`'s `max_contacts: 1` tie-break is ruled out as the source of the 115-case distance mismatch.
+- ~~`ruckig_filter.rs::joint_vel_accel_jerk_bounds` and `ChainInfo::build`'s untested unsupported-joint-type guard (`chain.rs:196` (`return Err(Error::other(format!(`), no assertion exists) are not independently re-verified/covered — see the Exclusions and Bites sections above for why each was left as-is rather than bit or newly tested.~~ **Closed — see Round 5 below.** `chain.rs:193-200` (`joint.joint_type(),`) is proven unreachable by enumeration, not merely untested; `ruckig_filter.rs::joint_vel_accel_jerk_bounds` had two of its four guards (`velocity_bounded`, `jerk_bounded`) with zero test coverage, not merely "corroborated by pattern" as this line previously assumed — both are now tested and isolating-mutation-confirmed.
 
 ## Round 5: `ChainInfo::build`'s type guard and `joint_vel_accel_jerk_bounds`, re-examined under §3a
 
@@ -1098,7 +1097,7 @@ one case and incomplete in the other. This round replaces both reads with
 enumeration plus live bites, `--no-fail-fast`, operands kept live
 (`&& !true`), each mutation reverted and diffed clean before the next.
 
-### `ChainInfo::build`'s type guard (`chain.rs:192-200`) is unreachable, not blind
+### `ChainInfo::build`'s type guard (`chain.rs:192-200` (`if !matches!(`)) is unreachable, not blind
 
 `chain.rs:186-192` (DOF ≠ 1 → `Err`) and `:193-200` (neither `Revolute`
 nor `Prismatic` → `Err`) are immediate siblings, both `Error::other`, the
@@ -1116,7 +1115,7 @@ reach the guard's `Err` arm:
    setter that touches `kind` or `variable_names`' length exists outside
    that file (`rg` for `variable_names\s*=|\.push\(|\.pop\(|\.remove\(|\.truncate\(`
    in that file: zero hits outside the five constructors).
-2. `joint_type()` (`crates/moveit-model/src/joint/model.rs:289-297`) is a pure, exhaustive match on
+2. `joint_type()` (`crates/moveit-model/src/joint/model.rs:289-297` (`pub fn joint_type(&self) -> JointType {`)) is a pure, exhaustive match on
    `kind`, fixed 1:1 with whichever constructor built the value.
 3. `variable_count()` is `variable_names.len()`, fixed at construction:
    `Revolute`→1, `Prismatic`→1, `Planar`→3, `Floating`→7, `Fixed`→0
@@ -1175,7 +1174,7 @@ defined"` and `"jerk limit defined"` inside `crates/moveit-smoothing/`
 matched only the guards' own `format!` calls, not any test. This was not
 "corroborated by pattern," it was untested, and unlike the `chain.rs`
 case above, both are reachable: `group.active_joint_names()`
-(`robot_model.rs:1479-1501`) admits any non-fixed, non-mimic joint
+(`robot_model.rs:1479-1501` (`joint_set.extend(self.expand_chain(base_idx, tip_idx));`)) admits any non-fixed, non-mimic joint
 regardless of DOF, and `panda_arm`'s own URDF already has joints with
 velocity bounds set and jerk bounds unset (the existing
 `joint_vel_accel_jerk_bounds_fails_without_acceleration_limits` test's
@@ -1222,7 +1221,7 @@ rows, citing the assert lines directly:
 | ruckig_filter.rs:456 | contains | in-family, discriminating | yes | `joint_vel_accel_jerk_bounds_fails_without_jerk_limits` — bite-confirmed above (`:161-165` neutralized, this test plus an independent oracle-parity case fail) |
 | ruckig_filter.rs:530 | contains | in-family, discriminating | yes | `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins` — bite-confirmed above (`:138-144` DOF≠1 guard neutralized, only this test fails); `contains("planar_joint") && contains('3')` is one assertion site folding two conjuncts, but no sibling guard in this function can produce that joint-name+variable-count message, so there is no second producer to conflate |
 
-(`ruckig_filter.rs:388` and `:465`, the acceleration guard and the
+(`ruckig_filter.rs:388` (`assert!(`) and `:465`, the acceleration guard and the
 pre-existing message-swap-bite-checked assertion, already have rows in
 the `moveit-smoothing (11 sites)` table above.)
 
@@ -1267,7 +1266,7 @@ Gate: `cargo fmt --all`; `cargo clippy -p moveit-smoothing --all-targets
 -- -D warnings` clean; `cargo nextest run -p moveit-smoothing` (41/41)
 green.
 
-### `chain.rs:146`'s group-lookup guard is exempt, not untested — variant uniqueness, not just message uniqueness
+### `chain.rs:146` (`let group = model.joint_model_group(group_name)?;`)'s group-lookup guard is exempt, not untested — variant uniqueness, not just message uniqueness
 
 `ChainInfo::build`'s fifth guard, `model.joint_model_group(group_name)?`
 (`chain.rs:146`), tested at `chain.rs:488` via
@@ -1294,11 +1293,11 @@ independent case rather than being a new rule. Not bit; no bite is
 needed for this reason to hold, and none would strengthen it further.
 
 `ChainInfo::build`'s five guards are therefore now fully accounted for:
-3 bit directly this round (`chain.rs:469,512,558`), 1 proven unreachable
-by construction (`chain.rs:193-200`, Round 5), 1 exempt by variant
-uniqueness (`chain.rs:146`/`:488`, this section).
+3 bit directly this round (`chain.rs:469,512,558` (`assert!(err.to_string().contains("not a chain"), "got: {err}");`)), 1 proven unreachable
+by construction (`chain.rs:193-200` (`joint.joint_type(),`), Round 5), 1 exempt by variant
+uniqueness (`chain.rs:146` (`let group = model.joint_model_group(group_name)?;`)/`:488`, this section).
 
-### `do_smoothing`'s velocities-length guard (`acceleration_filter.rs:329`) — the one blind spot this whole sweep could not see
+### `do_smoothing`'s velocities-length guard (`acceleration_filter.rs:329` (`if num_positions != num_joints {`)) — the one blind spot this whole sweep could not see
 
 `do_smoothing_before_reset_is_an_error`'s comment claimed its sibling
 guard (`:329`, `num_positions != num_joints`, reading `velocities.len()`
@@ -1338,7 +1337,7 @@ other ways, a fifth: a source edit shifting line numbers underneath a
 table citation this task's own change caused, not an artifact of
 someone else's edit.
 
-### `ruckig_filter.rs`'s "ruckig update failed" site (`:289`) — unreachable, not blind, a second `chain.rs:193-200`
+### `ruckig_filter.rs`'s "ruckig update failed" site (`:289`) — unreachable, not blind, a second `chain.rs:193-200` (`joint.joint_type(),`)
 
 The 4th `message-swap bite-checked` comment that named a sibling with
 no test of its own: `do_smoothing_rejects_a_mismatched_length`
@@ -1346,12 +1345,12 @@ no test of its own: `do_smoothing_rejects_a_mismatched_length`
 `.map_err(|error| Error::other(format!("ruckig update failed:
 {error}")))?`. `rg` for `"ruckig update failed"` across the whole
 workspace found exactly one hit, the guard's own `format!` call —
-same missing-bite shape as `acceleration_filter.rs:329` above. But
+same missing-bite shape as `acceleration_filter.rs:329` (`if num_positions != num_joints {`) above. But
 unlike that guard, this one cannot be fixed by adding a test: it is
 unreachable.
 
 `RuckigFilter` fixes `ruckig: Ruckig<0, IgnoreErrorHandler>`
-(`ruckig_filter.rs:176`). Reading the `rsruckig` 3.0.0 crate source
+(`ruckig_filter.rs:176-179`, struct body ending `have_initial_output: bool,`). Reading the `rsruckig` 3.0.0 crate source
 (`~/.cargo/registry/src/.../rsruckig-3.0.0/src/rsruckig/`): every
 `Err(RuckigError::...)` construction in the whole crate
 (`rsruckig-3.0.0/src/rsruckig/error.rs:103,107`) is reached only through the error-handler type
@@ -1366,10 +1365,10 @@ doc comment on the trait (`rsruckig-3.0.0/src/rsruckig/error.rs:82,94`) says `Er
 "when using `ThrowErrorHandler`". `RuckigFilter::new` never
 constructs a `ThrowErrorHandler` variant; `Ruckig<0, IgnoreErrorHandler>`
 is the only configuration this port uses. So `self.ruckig.update(...)`
-at `ruckig_filter.rs:288` can never return `Err` in this binary,
+at `ruckig_filter.rs:288` (`.update(&self.input, &mut self.output)`) can never return `Err` in this binary,
 making `:289`'s `map_err`/`?` dead code from an input perspective —
 the same enumeration-not-read standard Round 5 applied to
-`chain.rs:193-200`, this time over a dependency's source rather than
+`chain.rs:193-200` (`joint.joint_type(),`), this time over a dependency's source rather than
 this workspace's own. No bite matrix is offered for the same reason
 Round 5 didn't write a test for the unreachable `chain.rs` guard: a
 green bite result here would be indistinguishable from a
@@ -1382,5 +1381,5 @@ possible without changing `RuckigFilter`'s error-handler choice, which
 this task does not authorize. **Verdict: unreachable, not blind** —
 the fourth site the `message-swap bite-checked` anchor sweep found,
 and the second guard in this ledger's population (after
-`chain.rs:193-200`) that a false "untested"/"unbit" framing concealed
+`chain.rs:193-200` (`joint.joint_type(),`)) that a false "untested"/"unbit" framing concealed
 was actually structurally dead code.
