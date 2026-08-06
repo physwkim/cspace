@@ -22513,6 +22513,22 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 **절 번호가 없다는 사실을 열거와 함께 적는다**. 이 35건에 절을 붙이는
 것은 이 라운드가 하지 않은 작업이고, 그래서 이 절이 그 작업 목록이다.
 
+**정정 (§NEW, §NEW2).** 위 문단의 "아래 35건은 결정이 존재하고"는 이
+절이 쓰인 시점에 두 행에 대해 거짓이었다. 9번(`GreedyKCenters.hpp`)과
+10번(`NearestNeighbors.hpp`)이 인용하던 `crates/moveit-kinematics/src/lib.rs`
+구간은 셋 중 `detail/NearestNeighborsGNAT.hpp` 하나만 이름으로 부르고,
+나머지 두 파일을 판정하는 문장은 그 구간에도 그 파일 어디에도 없었다 —
+`classify-unported.py`가 이 둘만 `UNVERIFIED`로 보고한 이유가 그것이다.
+그 결정은 §NEW가 만들었고(세 헤더를 한 결정으로 묶는다), 세 행의 인용은
+그 뒤 판정 문항 자체로 옮겼다. 아래 표의 증거 칸은 이 절이 쓰인 시점의
+값이므로 기록으로 그대로 둔다 — 9·10·11번이 적고 있는 줄 번호는 지금
+트리의 인용이 아니며, 현재 값은 §NEW와 `doc/port-coverage.md`에 있다.
+
+**35라는 수 자체는 오늘도 참이다**(§NEW2가 86행 트리에서 재유도).
+같은 계측기가 `crate-doc` locus를 40으로 찍는 것과 모순되지 않는다:
+40은 클래스를 묻지 않은 수이고, 이 절의 35는 `decided-non-port`로
+한정된 수다. 차이 5건은 전부 §249.5가 열거한 `ported-elsewhere` 행이다.
+
 | # | 상류 파일 | 증거 (`doc/port-coverage.md` §4의 같은 행) | 포팅된 인클루더 |
 |---|---|---|---|
 | 1 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin.hpp` | `crates/moveit-collision/src/lib.rs:37-49` | 0 |
