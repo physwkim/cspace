@@ -29141,7 +29141,7 @@ PROBE cartesian verdict=FULL_CARTESIAN_PATH_RECEIVED
 L1이 아무것도 찍지 못하는 것은 상한이 지나치게 짧아서가 아니라 상류
 클라이언트의 성질이다. `future_response.get()`
 (`move_group_interface.cpp:893-896`)에 시한이 없어서, 서버가 없는 이름으로
-보낸 요청은 영영 반환하지 않는다. §NEW.6이 고치는 매달림과 같은 뿌리이며,
+보낸 요청은 영영 반환하지 않는다. §282.6이 고치는 매달림과 같은 뿌리이며,
 `run_probe()`의 `timeout -k 5`가 그것을 끊는 유일한 것이다.
 
 ### §282.6 leg C가 31분 매달렸다 — `timeout`이 `docker run`을 묶지 못한다
