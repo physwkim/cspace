@@ -11,16 +11,36 @@
 # analogue, in PORTING-PLAN.md's Phase 8 property section, and the ones that do
 # transfer are the checks below. In particular:
 #
-#   * The success rate has NO `0.9 x cpp_rate` bar. Phase 7's bar is against
-#     C++ OMPL RRTConnect, and neither CHOMP nor STOMP is a sampler: on a
-#     problem needing global search a local optimizer fails by construction, so
-#     a fraction-of-RRTConnect bar measures the problem set, not the port. What
-#     replaces it is a pinned floor measured from this tree -- a regression bar.
-#   * There is no C++ baseline here at all, so Phase 7's `cpp-endpoints` and
-#     both `condition3-*` checks have no counterpart. The oracle image does
-#     link `chomp_motion_planner` already (`tools/moveit-oracle/CMakeLists.txt`
-#     line 41 and 99), so a real C++ CHOMP baseline is buildable; it is not
-#     built here. See the plan section for what that would take.
+#   * The C++ baseline IS built here, and it is each planner's own upstream
+#     implementation rather than C++ OMPL RRTConnect. The oracle answers
+#     `chomp_plan` (`oracle.cpp`'s `chompPlan`, upstream `ChompPlanner::solve`)
+#     and `stomp_plan` (`stompPlan`, upstream `StompPlanningContext::solve`),
+#     and `measure-phase8-cpp-baseline.sh` drives them over the SAME request
+#     files this port consumes, one oracle process per problem at the same
+#     per-problem seed. So `condition1`, `condition3-pooled`,
+#     `condition3-paired` and `no-regression-cpp-solved` are real checks here,
+#     not analogues.
+#
+#     This is what changed the argument. A `0.9 x cpp_rate` bar against
+#     RRTConnect measured the problem set: a local optimizer fails a sampler's
+#     population by construction, and the bar would have been about algorithm
+#     class. Against the same planner's own C++ code both sides fail the same
+#     problems for the same reason, and what is left is the port. The pinned
+#     `no-regression-solved` floor stays alongside it -- one watches this tree
+#     against itself, the other against upstream, and neither subsumes the
+#     other.
+#   * `cpp-endpoints` still has no counterpart, and this one is not an
+#     argument: `chompPlan` and `stompPlan` emit `solved`, `error_code`,
+#     `length` and the condition-2 fields, but no `path`. Only the `plan` op
+#     emits waypoints (`oracle.cpp:5870`), so there is nothing on the C++ side
+#     to measure a start/goal gap from. Restoring it is an oracle SOURCE
+#     change, which the digest gate turns into an image rebuild for every
+#     worktree on this machine. See the plan section.
+#   * The constrained population has no C++ baseline either, and for a
+#     different reason: `chompPlan`/`stompPlan` never read the request's
+#     `joint_constraint`, so the oracle would plan a different problem than
+#     the port did. Phase 7 treats its own constrained set as condition-2-only
+#     for the same reason.
 #   * Path validity, its densification requirement, its coverage requirement,
 #     the independent cross-check against upstream `isPathValid`, the injection
 #     discrimination gate, the population pin, the per-stratum rule and the
@@ -143,6 +163,19 @@ CONSTRAINED_SET="panda floor_wall $COUNT 810011 panda_joint1:0.0:0.5"
 #                                 filter, not the robot; ~2x the measured
 #                                 maximum so 23 solved paths' worth of spread
 #                                 does not decide the verdict.
+#   cpp_solved_floor              the C++ baseline's own regression bar, two
+#                                 below its measurement, the same movement
+#                                 allowance `solved_floor` uses. Measured on
+#                                 this population at PLANNER_SEED_BASE=525252,
+#                                 iteration-bounded (clock 3600s, `timed_out 0`
+#                                 on all eight runs): C++ CHOMP panda 12/16
+#                                 (floor_wall 6, cage 6) and fanuc 11/16 (5, 6);
+#                                 C++ STOMP panda 14/16 (8, 6) and fanuc 12/16
+#                                 (6, 6). It watches the BASELINE: a C++ side
+#                                 that quietly stopped solving would lower
+#                                 `condition1`s bar and raise `condition3`s
+#                                 limit together, and both would pass having
+#                                 measured less.
 #   length_ratio_ceiling 1.05     `max(1.05, 1 + 1.1*(measured-1))` rounded up
 #                                 to the nearest 0.05: a 10% allowance on the
 #                                 amount by which CHOMP lengthens the path, and
@@ -150,10 +183,22 @@ CONSTRAINED_SET="panda floor_wall $COUNT 810011 panda_joint1:0.0:0.5"
 #                                 1 and a ceiling of exactly 1.00 would be
 #                                 decided by the last bit (a direct run of the
 #                                 instrument on panda problems 0-3 printed
-#                                 1.0000000000000002). Measured worst-config
-#                                 ratio 1.013x on panda (panda_cage, output
-#                                 median 6.076 / seed median 5.998) and 1.000x
-#                                 on fanuc (fanuc_cage, 6.729 / 6.729).
+#                                 1.0000000000000002). Re-measured after the
+#                                 metric change below: worst-config ratio
+#                                 1.000x on panda (panda_cage, output median
+#                                 2.472 / straight-line median 2.471) and
+#                                 1.000x on fanuc (fanuc_cage, 1.834 / 1.834).
+#
+#                                 The 1.013x/1.000x this comment carried before,
+#                                 over medians 6.076/5.998 and 6.729/6.729, was
+#                                 the same population measured in a different
+#                                 metric: both instruments reported Euclidean
+#                                 L2 over raw joint values until this round and
+#                                 now report `plan_space_length`, the metric the
+#                                 C++ baseline`s own `length` is in. The pin is
+#                                 unchanged at 1.05 because the rule that sizes
+#                                 it -- a 1.05 floor while the measurement sits
+#                                 at 1 -- gives the same answer in either.
 #
 #                                 The 1.433x/1.305x this comment carried before
 #                                 was an artifact of the aggregation, not a
@@ -209,15 +254,19 @@ CONSTRAINED_SET="panda floor_wall $COUNT 810011 panda_joint1:0.0:0.5"
 PINS_ALL='{
   "full": null,
   "pilot": {
-    "chomp": {"panda": {"problems": 16, "solved_floor": 7, "endpoint_ceiling": 0.0,
+    "chomp": {"panda": {"problems": 16, "solved_floor": 7, "cpp_solved_floor": 10,
+                        "endpoint_ceiling": 0.0,
                         "length_ratio_ceiling": 1.05, "mesh_calls_floor": 1,
                         "seed_invalid_floor": 1},
-              "fanuc": {"problems": 16, "solved_floor": 9, "endpoint_ceiling": 0.0,
+              "fanuc": {"problems": 16, "solved_floor": 9, "cpp_solved_floor": 9,
+                        "endpoint_ceiling": 0.0,
                         "length_ratio_ceiling": 1.05, "mesh_calls_floor": 1,
                         "seed_invalid_floor": 1}},
-    "stomp": {"panda": {"problems": 16, "solved_floor": 10, "endpoint_ceiling": 0.03,
+    "stomp": {"panda": {"problems": 16, "solved_floor": 10, "cpp_solved_floor": 12,
+                        "endpoint_ceiling": 0.03,
                         "seed_invalid_floor": 1},
-              "fanuc": {"problems": 16, "solved_floor": 9, "endpoint_ceiling": 0.03,
+              "fanuc": {"problems": 16, "solved_floor": 9, "cpp_solved_floor": 10,
+                        "endpoint_ceiling": 0.03,
                         "seed_invalid_floor": 1}}
   }
 }'
@@ -522,6 +571,112 @@ for planner in $PLANNERS; do
 done
 run_seconds=$(echo "$(date +%s.%N) - $run_start" | bc)
 
+# --- the C++ baseline -------------------------------------------------------
+#
+# Upstream's own CHOMP and STOMP over the SAME request files this port just
+# consumed -- `measure-phase8-cpp-baseline.sh` is given `SET_FILE`, so the two
+# sides see the same bytes rather than two generator runs argued to agree.
+#
+# One oracle process per problem at `--planner-rng-seed $((SEED_BASE + id))`,
+# because upstream draws from `rsl::rng()`, a `thread_local std::mt19937`
+# seedable exactly once per thread; that is also the per-problem stream each
+# port instrument uses, so the comparison is problem by problem and not just
+# rate against rate.
+#
+# The clock bounds are left at that script's defaults (3600s) so the ITERATION
+# bound terminates. A C++ rate measured at upstream's own wall-clock defaults
+# would be a measurement of this machine, and the baseline script hard-fails on
+# any `TIMED_OUT` rather than reporting such a rate.
+#
+# The four stratum sets only. `chomp_plan` and `stomp_plan` never read the
+# request's `joint_constraint` (`oracle.cpp`: it is read at `:562` and `:5166`,
+# by other ops), so a C++ run over the `constrained` set would plan a different
+# problem than the port did -- exactly the substitution a baseline exists to
+# prevent. Phase 7 treats its constrained set as condition-2-only for the
+# analogous reason, and so does this file.
+CPP_BASELINE="$REPO_ROOT/tools/ci/measure-phase8-cpp-baseline.sh"
+echo
+echo "=== C++ baseline: upstream CHOMP/STOMP over the same sets, one process per problem ==="
+cpp_start=$(date +%s.%N)
+for planner in $PLANNERS; do
+  for entry in "${SETS[@]}"; do
+    read -r robot config count seed <<<"$entry"
+    tag="${robot}_${config}"
+    [[ -s "$WORKDIR/$tag.request.json" ]] || continue
+    dir="$WORKDIR/cpp.$planner.$tag"
+    if ! SET_FILE="$WORKDIR/$tag.request.json" PLANNER_SEED_BASE="$SEED_BASE" \
+         JOBS="$SHARDS" "$CPP_BASELINE" "$planner" "$config" "$count" "$seed" "$dir" \
+         >"$WORKDIR/cpp.$planner.$tag.log" 2>&1; then
+      echo "  FAIL C++ baseline $planner/$tag:" >&2
+      tail -5 "$WORKDIR/cpp.$planner.$tag.log" >&2
+      failed+=("cpp baseline $planner/$tag")
+      continue
+    fi
+    cp "$dir/$planner.$config.ndjson" "$WORKDIR/$planner.$tag.cpp.ndjson"
+    echo "  $(tail -1 "$WORKDIR/cpp.$planner.$tag.log")"
+  done
+done
+cpp_seconds=$(echo "$(date +%s.%N) - $cpp_start" | bc)
+
+# The two sides' rates, medians, and the medians over the problems BOTH solved.
+#
+# Keyed `tag#id`, never by bare id: every set numbers its problems from 0, so
+# pooling two sets by id alone would pair `floor_wall` problem 7 with `cage`
+# problem 7. `verify-phase7-benchmark.sh`'s `pooled_medians` carries the same
+# note, and this is its counterpart.
+#
+# `length` on both sides is now the SAME metric -- `JointModelGroupSpace::
+# distance` summed along the path on this side, `planSpacePathLength` summing
+# OMPL `CompoundStateSpace::distance` on the oracle's. Until this round the
+# port instruments reported Euclidean L2 over raw joint values, a different
+# quantity, and no ratio between the two sides meant anything.
+#
+# $1 planner, $2 a name for the pooled files, then its tags. Emits one JSON
+# object, or `null` if no tag had both sides.
+cpp_medians() {
+  local planner="$1" label="$2"
+  shift 2
+  local pc="$WORKDIR/pooled.$planner.$label.port.ndjson"
+  local cc="$WORKDIR/pooled.$planner.$label.cpp.ndjson"
+  : >"$pc"
+  : >"$cc"
+  local tag any=0
+  for tag in "$@"; do
+    [[ -s "$WORKDIR/$planner.$tag.ndjson" && -s "$WORKDIR/$planner.$tag.cpp.ndjson" ]] || continue
+    any=1
+    jq -c --arg tag "$tag" \
+      'select(.id != null) | {key: ($tag + "#" + (.id|tostring)), solved: (.solved == true), length}' \
+      "$WORKDIR/$planner.$tag.ndjson" >>"$pc"
+    jq -c --arg tag "$tag" \
+      'select(.id != null) | {key: ($tag + "#" + (.id|tostring)), solved: (.solved == true), length}' \
+      "$WORKDIR/$planner.$tag.cpp.ndjson" >>"$cc"
+  done
+  if [[ "$any" == "0" ]]; then
+    echo 'null'
+    return 0
+  fi
+  jq -n --slurpfile p <(jq -s '.' "$pc") --slurpfile c <(jq -s '.' "$cc") '
+    def median: map(select(. != null)) | sort
+      | if length==0 then null
+        elif (length%2)==1 then .[length/2|floor]
+        else (.[length/2-1]+.[length/2])/2 end;
+    ($p[0]) as $pt | ($c[0]) as $cp |
+    ([$pt[]|select(.solved)|.key]) as $pk |
+    ([$cp[]|select(.solved)|.key]) as $ck |
+    (($ck - ($ck - $pk))|unique) as $both |
+    {
+      cpp_problems: ($cp|length),
+      cpp_solved: ($ck|length),
+      cpp_rate: (if ($cp|length) > 0 then ($ck|length)/($cp|length) else 0 end),
+      port_rate: (if ($pt|length) > 0 then ($pk|length)/($pt|length) else 0 end),
+      cpp_median_length: ([$cp[]|select(.solved)|.length]|median),
+      port_median_length: ([$pt[]|select(.solved)|.length]|median),
+      paired_problems: ($both|length),
+      cpp_paired_median: ([$cp[]|select(.solved and (.key as $k|$both|index($k)))|.length]|median),
+      port_paired_median: ([$pt[]|select(.solved and (.key as $k|$both|index($k)))|.length]|median)
+    }'
+}
+
 # --- the independent cross-check -------------------------------------------
 #
 # `is_path_valid` (what the validity check reports) and the collision cost the
@@ -648,16 +803,22 @@ for planner in $PLANNERS; do
       rows+=("$f.tagged")
     done
     [[ ${#rows[@]} -gt 0 ]] || continue
+    # Pooled over this stratum's sets, from the per-problem lines of both
+    # sides, so `condition3-pooled` is a median of the pooled population and
+    # not a median of two per-set medians.
+    cpp="$(cpp_medians "$planner" "$robot" "${robot}_floor_wall" "${robot}_cage")"
     cat "${rows[@]}" | merge_rows \
-      | jq -c --arg p "$planner" --arg r "$robot" '{planner:$p, robot:$r, stratum:.}' \
+      | jq -c --arg p "$planner" --arg r "$robot" --argjson cpp "$cpp" \
+        '{planner:$p, robot:$r, stratum:., cpp:$cpp}' \
       >>"$verdict_json"
   done
   for entry in "${SETS[@]}"; do
     read -r robot config count seed <<<"$entry"
     f="$WORKDIR/$planner.${robot}_${config}.agg.json"
     [[ -s "$f" ]] || continue
-    jq -c --arg p "$planner" --arg t "${robot}_${config}" \
-      '{planner:$p, tag:$t, set:.}' "$f" >>"$verdict_json"
+    cpp="$(cpp_medians "$planner" "${robot}_${config}" "${robot}_${config}")"
+    jq -c --arg p "$planner" --arg t "${robot}_${config}" --argjson cpp "$cpp" \
+      '{planner:$p, tag:$t, set:., cpp:$cpp}' "$f" >>"$verdict_json"
   done
   for tag in constrained inject_constrained; do
     f="$WORKDIR/$planner.$tag.agg.json"
@@ -670,6 +831,7 @@ checks_json="$WORKDIR/checks.json"
 jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
      --arg mode "$MODE" '
   def r3($x): if $x == null then null else (($x)*1000|round)/1000 end;
+  def pct($x): (($x//0)*10000|round)/100;
   def ratio($n; $d): (if ($d//0) > 0 then ($n//0)/$d else null end);
 
   # Every check that transfers from Phase 7 unchanged, plus the two the
@@ -729,6 +891,55 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
       { name: "\($label)/no-regression-solved",
         detail: "solved \($s.solved)/\($s.problems) >= floor \($pin.solved_floor)",
         ok: (($s.solved//0) >= $pin.solved_floor) }
+    ];
+
+  # Phase 7`s cpp-baseline floor, transferred. It watches the BASELINE, not the
+  # port: a C++ side that quietly stopped solving would lower `condition1`s bar
+  # and raise `condition3`s limit at the same time, so both would pass while
+  # measuring less. That is the whole reason the check exists there.
+  def pinned_cpp($c; $label; $pin):
+    [
+      { name: "\($label)/no-regression-cpp-solved",
+        detail: "C++ solved \($c.cpp_solved)/\($c.cpp_problems) >= floor \($pin.cpp_solved_floor)",
+        ok: (($c.cpp_solved//0) >= $pin.cpp_solved_floor) }
+    ];
+
+  # Phase 7`s conditions 1 and 3, restored -- see the header. The baseline is
+  # this planner`s OWN C++ implementation over the same problems at the same
+  # per-problem seed, not C++ OMPL RRTConnect, which is what makes the bar a
+  # statement about the port rather than about algorithm class.
+  def cpp_stratum($s; $c; $label):
+    [
+      { name: "\($label)/condition1",
+        detail: "port \($s.solved)/\($s.problems) = \(pct($c.port_rate))% >= 0.9 x C++ \($c.cpp_solved)/\($c.cpp_problems) = \(pct(($c.cpp_rate//0)*0.9))%",
+        # `cpp_problems > 0` is not decoration: without it an empty baseline
+        # reads 0 >= 0 and passes, which is how a stage that measured nothing
+        # reports success.
+        ok: (($c.cpp_problems//0) > 0 and ($c.port_rate//0) >= (($c.cpp_rate//0)*0.9)) },
+      { name: "\($label)/condition3-pooled",
+        detail: "port median \(r3($c.port_median_length)) vs limit \(r3(($c.cpp_median_length//0)*1.3)) (ratio \(r3(ratio($c.port_median_length; $c.cpp_median_length)))x)",
+        ok: (($c.cpp_median_length//0) > 0 and ($c.port_median_length//0) <= ($c.cpp_median_length*1.3)) },
+      # The same 1.3x over the problems BOTH sides solved. Condition 3 as
+      # written takes each side`s median over its own solved set, and a port
+      # that fails the hard problems drops their long paths out of its own
+      # median -- passing more easily the worse it gets.
+      { name: "\($label)/condition3-paired",
+        detail: "over \($c.paired_problems) problems both sides solved: port \(r3($c.port_paired_median)) vs limit \(r3(($c.cpp_paired_median//0)*1.3)) (ratio \(r3(ratio($c.port_paired_median; $c.cpp_paired_median)))x)",
+        ok: (($c.paired_problems//0) > 0 and ($c.cpp_paired_median//0) > 0
+             and ($c.port_paired_median//0) <= ($c.cpp_paired_median*1.3)) }
+    ];
+
+  # The same two conditions at set granularity. Pooling `floor_wall` with
+  # `cage` averages two populations just as much as averaging panda with fanuc
+  # does, so each set is gated in its own name too.
+  def cpp_set($s; $c; $label):
+    [
+      { name: "\($label)/condition1",
+        detail: "port \($s.solved)/\($s.problems) = \(pct($c.port_rate))% >= 0.9 x C++ \($c.cpp_solved)/\($c.cpp_problems) = \(pct(($c.cpp_rate//0)*0.9))%",
+        ok: (($c.cpp_problems//0) > 0 and ($c.port_rate//0) >= (($c.cpp_rate//0)*0.9)) },
+      { name: "\($label)/condition3",
+        detail: "port median \(r3($c.port_median_length)) vs limit \(r3(($c.cpp_median_length//0)*1.3)) (ratio \(r3(ratio($c.port_median_length; $c.cpp_median_length)))x)",
+        ok: (($c.cpp_median_length//0) > 0 and ($c.port_median_length//0) <= ($c.cpp_median_length*1.3)) }
     ];
 
   # CHOMP: its own objective (smoothness + obstacle cost) is not returned by
@@ -800,7 +1011,18 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
     | .planner as $p | "\(.planner)/\(.robot)" as $label
     | (($pins[$p][.robot]) // null) as $pin
     | .stratum as $s
+    | .cpp as $c
     | common($s; $label)
+      + (if $c == null then
+           # Same rule as `pins-unmeasured`: a stratum whose C++ baseline did
+           # not run loses condition1, both condition3 rows and
+           # no-regression-cpp-solved. Dropping them silently would report a
+           # four-check-lighter stratum as a checked one.
+           [{ name: "\($label)/cpp-baseline-missing",
+              detail: "no C++ baseline for \($label), so condition1, condition3-pooled, condition3-paired and no-regression-cpp-solved did not run",
+              ok: false }]
+         else cpp_stratum($s; $c; $label)
+              + (if $pin == null then [] else pinned_cpp($c; $label; $pin) end) end)
       + (if $pin == null then
            # A mode with no measured pins loses `endpoints`, both `pinned`
            # checks and both quality checks -- six of this stratum`s ten. An
@@ -808,14 +1030,21 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
            # clean, i.e. report a partially-checked run as a checked one. One
            # named failure instead, carrying what is missing.
            [{ name: "\($label)/pins-unmeasured",
-              detail: "mode=\($mode) has no measured pins for \($p)/\(.robot), so endpoints, pin-population, no-regression-solved and both quality checks did not run",
+              detail: "mode=\($mode) has no measured pins for \($p)/\(.robot), so endpoints, pin-population, no-regression-solved, no-regression-cpp-solved and both quality checks did not run",
               ok: false }]
          else
            [endpoints($s; $label; $pin)] + pinned($s; $label; $pin)
            + quality($p; $s; $label; $pin) end) ]
   + [ .[] | select(.set != null)
-      | "\(.planner)/\(.tag)" as $label | .set as $s
-      | common($s; $label) ]
+      | "\(.planner)/\(.tag)" as $label | .set as $s | .cpp as $c
+      | common($s; $label)
+        # The two constrained populations carry no `cpp` at all, by the
+        # decision in the C++ baseline stage above: `chomp_plan`/`stomp_plan`
+        # never read `joint_constraint`, so a C++ run over them would answer a
+        # different question. Their absence is a property of the population,
+        # not of a stage that failed, which is why it is not a failure row the
+        # way `cpp-baseline-missing` is on a stratum.
+        + (if $c == null then [] else cpp_set($s; $c; $label) end) ]
   | flatten
 ' "$verdict_json" >"$checks_json"
 
@@ -837,7 +1066,8 @@ if [[ "${check_count:-0}" -lt 1 ]]; then
   failed+=("no checks were evaluated")
 fi
 
-printf '\n  instrument wall clock: %.1fs (mode=%s, %s shards)\n' "$run_seconds" "$MODE" "$SHARDS"
+printf '\n  instrument wall clock: %.1fs port, %.1fs C++ baseline (mode=%s, %s shards)\n' \
+  "$run_seconds" "$cpp_seconds" "$MODE" "$SHARDS"
 
 if [[ "$MODE" == "full" ]]; then
   dirty_list="$(cd "$REPO_ROOT" && git status --porcelain)"
@@ -847,6 +1077,7 @@ if [[ "$MODE" == "full" ]]; then
   #   git hash-object crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs
   sources_json="$(cd "$REPO_ROOT" && for f in \
       tools/ci/measure-phase8-optimizer-properties.sh \
+      tools/ci/measure-phase8-cpp-baseline.sh \
       crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
       crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs \
       crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs; do
@@ -860,12 +1091,14 @@ if [[ "$MODE" == "full" ]]; then
         --argjson sources "$sources_json" \
         --argjson pins "$PINS_JSON" \
         --argjson seconds "$run_seconds" \
+        --argjson cpp_seconds "$cpp_seconds" \
         --slurpfile rows "$verdict_json" \
         --slurpfile checks "$checks_json" \
      '{measured_at:$ts, commit:$stamp, working_tree_dirty:$dirty,
        dirty_paths:$dirty_paths, measured_sources:$sources,
        mode:"full", planners:"chomp stomp", seed_base:'"$SEED_BASE"', timeout_seconds:'"$TIMEOUT_SECONDS"',
        instrument_wall_clock_seconds:$seconds,
+       cpp_baseline_wall_clock_seconds:$cpp_seconds,
        regression_pins:$pins, rows:$rows,
        checks:$checks[0],
        verdict:($checks[0]|map({key:.name,
