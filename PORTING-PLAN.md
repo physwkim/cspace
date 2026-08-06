@@ -26247,11 +26247,18 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
   않았다.
 - **`full` 모드의 핀.** 한 번도 돌리지 않았다(§264.9). 250문제 × 2로봇 ×
   2플래너에 STOMP의 실측 문제당 비용을 곱하면 이 라운드에 들어가지 않는다.
-- **CHOMP의 목적함수가 관측되지 않는다.** `solve`는
-  `ChompSolution { trajectory, planner_id, description }`만 반환한다. 최적화기
-  내부의 smoothness/obstacle 비용은 밖에서 볼 수 없으므로, CHOMP의 품질
-  항목은 짝지은 *개선* 주장이 아니라 직선 하한에 대한 **비 밴드**다. 닫는
-  방법은 한 필드다: `ChompSolution`에 최종 궤적 비용을 실어 보내는 것.
+- **CHOMP의 목적함수가 관측되지 않는다 — §NEW에서 닫았다.** 닫는 방법은
+  여기 적힌 "한 필드"가 아니었다. upstream은 이 값을 폐기하지 않고
+  `best_group_trajectory_cost_`(`chomp_optimizer.hpp:150`)에 들고 있되
+  `private:`(`chomp_optimizer.hpp:83`) 아래에 두고, 유일하게 밖으로 내보내는 곳
+  (`chomp_optimizer.cpp:310`의 `RCLCPP_DEBUG`)에서 **합이 아니라 두 항을
+  따로** 찍는다. 그래서 실린 것은 스칼라 하나가 아니라
+  `ChompObjectiveProgress { seed, best, last }`이고 각 항은
+  `{smoothness, collision}`이다. `best`만으로는 §264.12가 요구한 *개선*
+  주장이 구성상 음수가 될 수 없어(`chomp_optimizer.cpp:338`) 짝지은 주장이
+  최소값 추적을 재는 것에 그친다 — 부호가 열려 있는 양은 upstream이 계산하고
+  버리는 마지막 반복 `last`다. 500문제 실측과 그 계수기가 0이 아닌 값을
+  보고할 수 있음을 보인 반증 실행은 §NEW.
 - **STOMP의 끝점 밀림 자체.** §264.4는 상한을 핀으로 걸었을 뿐이고, 밀림을
   없애지 않았다. upstream 동작이므로 포트가 임의로 다시 고정하면 안 된다.
 - **제약 비용이 위반량이 아니라 거리라는 것.** §264.6의 원인도 upstream
@@ -30944,3 +30951,151 @@ in-repo `.md` 문서 자신의 줄이다. 남는 2110건은 지시 대상이
 언급하는 바람에 키가 은퇴하지 않고 3x → 2x로 다시 세어져 `recounted`가 됐다 —
 실패 범주만 바뀌고 하드 실패인 것은 같다. 이 절 자신이 코퍼스의 일부라는
 사실이 이 절의 숫자를 바꾼 두 번째 사례다(첫째는 §289.8).
+
+---
+
+## §NEW CHOMP의 목적함수를 실어 보낸다 — upstream이 버리는 것은 값이 아니라 접근권이고, 380문제 중 249문제에서 이 최적화기는 자기 목적함수를 한 번도 낮추지 못한다 (2026-08-07)
+
+§264.12의 넷째 항목은 `ChompSolution`에 "최종 궤적 비용"을 한 필드로 실으라고
+제안했다. 그 제안은 upstream을 읽기 전에 쓰인 것이고, 읽고 나니 두 군데가
+틀렸다 — 한 필드도 아니고, 스칼라도 아니다.
+
+### §NEW.1 upstream은 이 값을 버리지 않는다. 감춘다
+
+물어야 할 것은 "upstream이 최종 궤적 비용을 어디선가 노출하는가"였다.
+`/home/stevek/work/moveit2/`(핀 `e017c91e`)에서 확인한 답:
+
+| 물음 | upstream | 근거 |
+|---|---|---|
+| 플래너 경계가 비용을 아는가 | 아니다 | `chomp_planner.cpp`에 `cost`/`Cost`가 **0회** (`rg -n 'cost\|Cost'` → no match) |
+| 최적화기가 비용을 들고 있는가 | 그렇다 | `double best_group_trajectory_cost_;` (`chomp_optimizer.hpp:150`) |
+| 호출자가 그것을 읽을 수 있는가 | 아니다 | 그 멤버도, `getTrajectoryCost()`/`getSmoothnessCost()`/`getCollisionCost()` (`chomp_optimizer.hpp:208-210`)도 전부 `private:`(`chomp_optimizer.hpp:83`) 아래. public 표면은 `optimize()`(`chomp_optimizer.hpp:66`, `bool` 반환)·`isInitialized()`(`chomp_optimizer.hpp:73`)·`isCollisionFree()`(`chomp_optimizer.hpp:78`) 셋뿐 |
+| 어딘가로 내보내기는 하는가 | 한 곳 | `RCLCPP_DEBUG(getLogger(), "Collision cost %f, smoothness cost: %f", c_cost, s_cost);` (`chomp_optimizer.cpp:310`) |
+
+그 한 곳이 이 필드의 **모양**을 정한다. upstream이 이 숫자를 사람에게 보이는
+유일한 형태는 합이 아니라 두 항이고, 반복마다이며, 마지막 `best`가 아니다.
+`optimize()`가 끝나며 찍는 `RCLCPP_INFO`들은 반복 수와 소요 시간만 말하고
+비용은 말하지 않는다. `getTrajectoryCost()`(`chomp_optimizer.cpp:678`)는 존재하지만
+`debugCost()`(`chomp_optimizer.cpp:668`)와 마찬가지로 트리 어디에서도 호출되지 않는다.
+
+그래서 이 필드는 이탈이다 — 값이 upstream에 없어서가 아니라, upstream의
+`ChompPlanner::solve`가 `void`이고 저 멤버가 private이라 **경계에서 버려지기**
+때문이다. 이탈인 것은 `ChompSolution::objective`의 필드 주석이 그 이름으로
+적었다. 흉내 낸 것은 값이 아니라 모양이다: 두 항(`ChompObjective {
+smoothness, collision }`), 그리고 `best`라는 이름
+(`best_group_trajectory_cost_`).
+
+### §NEW.2 `best`만 실었으면 이 라운드는 0을 재고 끝났다
+
+`seed`와 `best`만으로 "개선했는가"를 물으면 답은 항상 "예"다. `best`는
+0번째 반복에서 `seed`로 시작하고 `chomp_optimizer.cpp:338`의
+`else if (cost < best_group_trajectory_cost_)`는 더 작을 때만 갈아치우므로,
+`improvement = seed - best >= 0`은 **구성상** 참이다. 그 수로 "목적함수를
+악화시킨 문제 수 0"을 보고하면 최적화기가 아니라 최소값 추적을 잰 것이다.
+
+부호가 열려 있는 양은 upstream이 매 반복 계산하고 버리는 것 — 루프가 마지막으로
+평가한 반복의 목적함수다. 그래서 실린 것은 셋이다:
+
+```
+ChompObjectiveProgress { seed, best, last }   // 각각 { smoothness, collision }
+improvement = seed.total - best.total   // 구성상 >= 0
+descent     = seed.total - last.total   // 부호 열림
+```
+
+`last`가 별도의 관측인 것은 크레이트 안에서 증명된다:
+`objective_last_can_sit_above_seed_where_best_cannot`는 같은 최적화기가
+goal 1.0에서 내려가고(`last == best`, `descent > 0`) goal 1.8에서
+자기 출발점 위로 올라가는(`descent < 0`, `last > best == seed`) 두 경우를
+같이 세운다. 후자에서 답이 입력보다 나빠지지 않게 막는 것은 best-스냅숏뿐이다.
+
+값을 못 잰 상태는 `Option`으로 만들었다. 대체된 것은 `0.0`으로 초기화되는
+`best_group_trajectory_cost: f64`였고, 그 셀은 "재지 않았다"와 "재보니 0"의
+두 뜻을 가졌다. `max_iterations == 0`이면 `None`이다.
+
+### §NEW.3 실측: 같은 500문제, 380 해결, 악화 0, 그리고 249
+
+계측기는 `tools/ci/measure-chomp-objective.sh`다.
+`verify-phase8-benchmark.sh`의 CHOMP 절반을 그대로 떼어낸 것 — 같은 두 구성
+(`floor_wall` 250/`900001`, `cage` 250/`900002`), 같은 `PORT_SEED_BASE=700001`,
+같은 비구속 시계 인자 `1e9`, 같은 25샤드 — 이고 오라클과 STOMP 절반은 돌리지
+않는다. 해결 수 **380**은 그 게이트의 `EXPECTED_CHOMP_SOLVED=380`과 같다.
+
+| 양 | 전체 500 | `floor_wall` 250 | `cage` 250 |
+|---|---|---|---|
+| 해결 | 380 | 195 | 185 |
+| **반환 궤적이 씨앗보다 나쁨** (`improvement < 0`) | **0** | 0 | 0 |
+| 반환 궤적이 씨앗과 **완전히 같음** (`improvement == 0`) | **249** | 148 | 101 |
+| 반환 궤적이 씨앗보다 나음 | 131 | 47 | 84 |
+| **마지막 반복이 씨앗보다 나쁨** (`descent < 0`) | **0** | 0 | 0 |
+| smoothness 항이 오히려 **커진** 문제 | 92 | 33 | 59 |
+| collision 항이 커진 문제 | 0 | 0 | 0 |
+
+라운드가 물은 "악화시킨 문제 수"는 두 정의 모두에서 0이다. 하나는 구성상
+0이고(위), 다른 하나는 이 모집단에서 측정된 0이다 — §NEW.4가 그 계수기가
+0이 아닌 값을 보고할 수 있음을 보인다.
+
+정작 큰 수는 249다. **해결한 380문제 중 249(65.5%)에서 CHOMP은 자기
+목적함수를 한 번도 낮추지 못했고**, 반환한 궤적의 비용이 받은 씨앗의 비용과
+비트 단위로 같다. 개선한 131문제에서도 개선폭은 씨앗 비용 대비 중앙값
+0.064%, p90 0.217%, 최대 0.470%다. 그리고 개선분은 전부 장애물 항에서
+나온다: collision 항이 커진 문제는 0인데 smoothness 항이 커진 문제는 92다.
+씨앗이 quintic min-jerk 보간이라 smoothness 쪽은 이미 거의 최적이고, CHOMP은
+그것을 조금 내주고 장애물 항을 얻는다. `length`(관절공간 경로 길이)로는
+이 교환이 보이지 않는다 — 그래서 `objective`가 `length` 옆에 실린다.
+
+### §NEW.4 반증: 이 계수기는 0이 아닌 값을 보고할 수 있다
+
+"0"을 보고하기 전에 0이 아닐 수 있음을 보여야 한다. 목적함수가 움직이지 않는
+249건의 원인이 `iteration % 10 == 0`의 메시 검사가 **0번째 반복에서** 이미
+참이 되어 그 자리에서 루프를 끊는 것이라면, 그 첫 검사 하나만 눌러도 수가
+무너져야 한다. 하네스의 `mesh_to_mesh` 클로저가 첫 호출에서만 `false`를
+반환하도록 임시 변경하고 같은 500문제를 다시 돌렸다:
+
+| 계수기 | 배포 형상 | 첫 메시 검사만 억제 |
+|---|---|---|
+| 해결 | 380 | 380 |
+| `improvement == 0` | 249 | **20** |
+| `improvement > 0` | 131 | **360** |
+| `improvement < 0` | 0 | 0 |
+| **`descent < 0`** | **0** | **39** |
+| `descent` 최솟값 | 0.0 | **-0.49293650003892253** |
+
+두 가지가 동시에 닫힌다. 249는 그 첫 검사가 만든 것이고(229건이 진짜 개선으로
+바뀐다), `descent < 0` 계수기는 같은 코드·같은 문제집합에서 39를 보고하므로
+배포 형상의 0은 구조적 침묵이 아니라 측정값이다. `improvement < 0`은 양쪽
+모두 0인데, 그것은 구성상 그래야 한다.
+
+같은 클로저를 **항상** `false`로 두면 해결 수가 380에서 **0**으로 간다. 즉 이
+모집단에서 `optimize()`의 `bool`을 참으로 만드는 것은 메시 검사뿐이고,
+`!filter_mode && c_cost < collision_threshold` 쪽 팔은 한 번도 발화하지
+않는다. 세 변경 모두 편집으로 되돌렸고, 되돌린 뒤 배포 형상을 다시 돌려
+요약 JSON이 첫 실행과 바이트 단위로 같음을 확인했다.
+
+### §NEW.5 비용
+
+계측기 전체가 벽시계 **139초**(문제집합 생성 포함, 25샤드). 이 수는 기계와
+부하의 읽기이고 — 이 실행은 다른 패널의 500문제 STOMP 스윕과 동시에
+돌았다(로드 애버리지 ~16) — 위의 어떤 계수기도 그렇지 않다. `1e9` 시계
+인자가 CHOMP 실행에서 벽시계 의존성을 없애므로, 부하가 다른 두 실행이
+요약 JSON을 바이트 단위로 같게 냈다. 그래서 이 스크립트에는 opt-in 게이트가
+붙지 않는다 — 이 게이트 가족에서 비싼 것은 오라클과 STOMP 절반이고, 이
+스크립트는 그 둘을 의도적으로 돌리지 않는다.
+
+### §NEW.6 이 라운드가 옮긴 인용
+
+`ChompObjective`/`ChompObjectiveProgress`를 `optimizer.rs`에 넣고
+`ChompSolution`에 필드를 하나 더하면서 두 파일의 줄이 밀렸다
+(`optimizer.rs` 2559 → 3001, `planner.rs` 1104 → 1135). 밀린 줄을 가리키던
+인용 53건을 `git diff`의 줄 대응에서 기계적으로 재매핑했고, 재매핑 전후로
+가리키는 소스 줄의 내용이 53건 모두 동일함을 확인했다. 대상 문서 6개:
+`PORTING-PLAN.md`, `doc/assertion-discrimination-ledger-{p1-robotmodel,p3-acm,p9-ros}.md`,
+`doc/claim-audit/moveit-planners-chomp.md`, `doc/upstream-bugs.md`.
+`check-citation-drift.py`의 클래스 기준선(`doc/citation-classes.txt`)도 다시
+생성했다 — 53건 중 클래스가 내려간 것은 0이다.
+
+새로 생긴 조잡-단언 자리 하나
+(`optimizer.rs`의 `assert_eq!(optimizer.objective(), None, ..)`)는
+`doc/assertion-discrimination-ledger-p10-chomp-objective.md`가 받는다. 다른
+패널의 원장에 행을 덧붙이지 않고 파일을 따로 둔 것은
+`reconcile-assertion-ledgers.py`의 `discover_ledgers`가 적어 둔 이유
+그대로다.
