@@ -45,7 +45,7 @@ a read of the handler or a run of the node. `absent` is the whole of (c).
 |---|---|---|---|---|
 | `attached_collision_object` | publishes | subscriber | -- | absent |
 | `check_state_validity` | -- | -- | `ros/moveit-ros/src/bin/move_group.rs:666` | surplus |
-| `compute_cartesian_path` | calls | service server | `ros/moveit-ros/src/bin/move_group.rs:683` | bound |
+| `compute_cartesian_path` | calls | service server | `ros/moveit-ros/src/bin/move_group.rs:684` | bound |
 | `execute_trajectory` | calls | action server | -- | absent |
 | `get_planner_params` | calls | service server | -- | absent |
 | `joint_states` | subscribes | publisher | -- | absent |
