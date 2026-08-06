@@ -98,15 +98,23 @@ fi
 # checkout against, and neither is cited with a line number.
 THIRD_PARTY_SRC="${THIRD_PARTY_SRC:-$REPO_ROOT/third_party}"
 declare -A THIRD_PARTY_PINS=(
-  # geometric_shapes 2.3.3      -- PORTING-PLAN.md:12828, crates/moveit-geometry/src/shapes.rs:15
+  # Each citation below names the line that RECORDS the revision, not the
+  # section that discusses it: the three §160.3 ones carry a section claim so a
+  # shift leaves something checkable behind rather than a bare number, which is
+  # how all four of these came to point at §160's prose at once.
+  #
+  # geometric_shapes 2.3.3 -- the pin row in §160.3, PORTING-PLAN.md:12869;
+  # the header quoting the same commit is crates/moveit-geometry/src/shapes.rs:15.
   [geometric_shapes]=192801cebacc07d0e9f719576cdd1c9b36d0bc28
-  # srdfdom 2.0.8               -- PORTING-PLAN.md:12825
+  # srdfdom 2.0.8 -- the pin row in §160.3, PORTING-PLAN.md:12870.
   [srdfdom]=58ee1eccd1c34498f67022eb2080daec5e8bc162
-  # octomap v1.9.7              -- PORTING-PLAN.md:12830, doc/claim-audit/moveit-octomap.md:8
+  # octomap v1.9.7 -- the pin row in §160.3, PORTING-PLAN.md:12871; the
+  # claim-audit quoting the same tag is doc/claim-audit/moveit-octomap.md:8.
   [octomap]=aa6372b87eaf7e89bb1c9421f61d58bd634477cb
-  # orocos_kinematics_dynamics v1.5.1 -- doc/upstream-bugs.md:216, which records
+  # orocos_kinematics_dynamics v1.5.1 -- doc/upstream-bugs.md:225, which records
   # the tag and the short `db25b7e` rather than a full SHA; this is the commit
-  # `git rev-parse v1.5.1^{}` resolves to, and it satisfies both.
+  # `git rev-parse v1.5.1^{}` resolves to, and it satisfies both. That file's
+  # headings are slug-named, so there is no section number to claim alongside.
   [orocos_kinematics_dynamics]=db25b7e480e068df068232064f2443b8d52a83c7
 )
 
