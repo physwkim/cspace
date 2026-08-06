@@ -54,33 +54,33 @@ No crate-row disagreement is an instrument bug; all three are named, dated,
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| constraints/joint.rs:93 | matches! | unknown_joint_name_is_rejected | discriminating | `9c05e4f` |
-| constraints/orientation.rs:176 | matches! | converts_with_xyz_euler_parameterization | not-this-family | §9 clause 1 — `c.tolerance()` is read after `.unwrap()` on a successful build; `OrientationTolerance::XyzEuler{..}` is a computed success-path enum tag, not a failure/absence signal |
-| constraints/orientation.rs:262 | matches! | unknown_frame_is_rejected | discriminating | `3303a7e` |
-| constraints/position.rs:292 | matches! | prism_is_rejected | single-branch | bite run just now — `Error::Other` has exactly one producing arm (`PRISM`) in `TryFrom<SolidPrimitiveMsg> for Shape` |
-| constraints/set.rs:163 | matches! | aggregates_joint_constraints | not-this-family | §9 clause 1 — `set.constraints()[0]` read after `.unwrap()` on a successful build; `Constraint::Joint(_)` is a computed success-path enum tag |
-| constraints/set.rs:183 | matches! | one_bad_element_fails_the_whole_conversion | discriminating | `a7d8682` |
-| constraints/set.rs:421 | matches! | (visibility round-trip) | not-this-family | §9 clause 1 — same shape as `:163`, `Constraint::Visibility(_)` on a successful build |
-| constraints/visibility.rs:218 | matches! | (sensor_view_direction rejects unknown) | single-branch | bite run just now — single `other =>` arm in `TryFrom<SensorViewDirectionMsg>` |
-| geometry.rs:300 | matches! | zero_quaternion_is_rejected | single-branch | bite run just now — one combined guard in `TryFrom<Quaternion> for UnitQuaternion` |
-| geometry.rs:312 | matches! | nan_quaternion_is_rejected | single-branch | bite run just now — same guard as above |
-| geometry.rs:398 | matches! | orientation_zero_quaternion_is_rejected | single-branch | bite run just now — one combined guard in `TryFrom<OrientationConstraintQuaternion>` |
-| geometry.rs:410 | matches! | orientation_nan_quaternion_is_rejected | single-branch | bite run just now — same guard |
-| geometry.rs:433 | matches! | orientation_norm_just_outside_the_1e_minus_3_tolerance_is_rejected | single-branch | bite run just now — same guard |
-| geometry.rs:449 | matches! | orientation_norm_far_from_one_is_rejected_not_silently_renormalized | single-branch | bite run just now — same guard |
-| geometry.rs:522 | matches! | pose_with_degenerate_orientation_fails | single-branch | bite run just now — position leg (`TryFrom<Point>`) is unconditionally `Ok` ("Total in practice" doc comment), so only the orientation guard can fire |
-| planning.rs:561 | bare | converts_minimal_request | fixture-collapse-fixed | `9d829a8` (own earlier commit) |
-| planning.rs:1033 | matches! | multi_dof_joint_trajectory_is_rejected_not_silently_dropped | single-branch | bite run just now — only `Error::Other` site in this impl; delegate produces `Error::Construct` |
-| scene/collision_object.rs:1026 | bare | append_without_subframe_data_clears_existing_subframes | discriminating | §9 all three clauses hold — clause 1: `subframe_pose("tip").is_none()` is a genuine absence signal (retained vs. cleared); clause 2: `apply_add`'s unconditional subframe-replace is a written decision an engineer could gate on non-empty (bite: wrapping it in `if !subframes.is_empty()` flips the assertion); clause 3: deleting the second `apply_collision_object` call leaves the first object's subframe in place, changing the outcome. Bite run once, before I knew the ros gate was paid (docker, targeted single test — see cost note in the round report) |
-| scene/mod.rs:94 | matches! | unresolvable_non_empty_frame_id_is_still_rejected | single-branch | bite run just now — `header_frame_transform`'s only Err path is the single `scene.frame_transform` call |
-| scene/planning_scene.rs:1364 | matches! | unresolvable_non_empty_header_frame_id_is_still_rejected | single-branch | bite run just now — `Error::UnknownName` reachable only via `header_frame_transform` (see scene/mod.rs:94); the file's other two error sites are `Error::Other`/`Error::Construct`, different variants |
-| scene/shapes.rs:203 | matches! | plane_wrong_coef_length_is_rejected | single-branch | bite run just now — single `Error::construct` site in `TryFrom<PlaneMsg> for Plane`; `Plane::new` is infallible |
-| trajectory.rs:383 | matches! | add_suffix_way_point_rejects_a_nonzero_first_dt | single-branch | bite run just now — `moveit_trajectory::RobotTrajectory::add_suffix_way_point`'s single `first_duration_error()` site |
-| trajectory.rs:482 | matches! | seconds_to_duration_rejects_just_above_i32_max_seconds | single-branch | bite run just now — `seconds_to_duration`'s one combined guard |
-| trajectory.rs:488 | matches! | seconds_to_duration_rejects_negative | single-branch | bite run just now — same guard |
-| trajectory.rs:494 | matches! | seconds_to_duration_rejects_nan | single-branch | bite run just now — same guard |
-| trajectory.rs:500 | matches! | seconds_to_duration_rejects_infinity | single-branch | bite run just now — same guard |
-| trajectory.rs:528 | matches! | negative_cumulative_duration_from_an_unvalidated_trajectory_is_rejected | single-branch | bite run just now — `TryFrom<RobotTrajectory> for JointTrajectoryMsgOut`'s sole `?` site is `seconds_to_duration` |
+| `constraints/joint.rs:93` | matches! | unknown_joint_name_is_rejected | discriminating | `9c05e4f` |
+| `constraints/orientation.rs:176` | matches! | converts_with_xyz_euler_parameterization | not-this-family | §9 clause 1 — `c.tolerance()` is read after `.unwrap()` on a successful build; `OrientationTolerance::XyzEuler{..}` is a computed success-path enum tag, not a failure/absence signal |
+| `constraints/orientation.rs:262` | matches! | unknown_frame_is_rejected | discriminating | `3303a7e` |
+| `constraints/position.rs:292` | matches! | prism_is_rejected | single-branch | bite run just now — `Error::Other` has exactly one producing arm (`PRISM`) in `TryFrom<SolidPrimitiveMsg> for Shape` |
+| `constraints/set.rs:163` | matches! | aggregates_joint_constraints | not-this-family | §9 clause 1 — `set.constraints()[0]` read after `.unwrap()` on a successful build; `Constraint::Joint(_)` is a computed success-path enum tag |
+| `constraints/set.rs:183` | matches! | one_bad_element_fails_the_whole_conversion | discriminating | `a7d8682` |
+| `constraints/set.rs:421` | matches! | (visibility round-trip) | not-this-family | §9 clause 1 — same shape as `:163`, `Constraint::Visibility(_)` on a successful build |
+| `constraints/visibility.rs:218` | matches! | (sensor_view_direction rejects unknown) | single-branch | bite run just now — single `other =>` arm in `TryFrom<SensorViewDirectionMsg>` |
+| `geometry.rs:330` | matches! | zero_quaternion_is_rejected | single-branch | bite run just now — one combined guard in `TryFrom<Quaternion> for UnitQuaternion` |
+| `geometry.rs:342` | matches! | nan_quaternion_is_rejected | single-branch | bite run just now — same guard as above |
+| `geometry.rs:428` | matches! | orientation_zero_quaternion_is_rejected | single-branch | bite run just now — one combined guard in `TryFrom<OrientationConstraintQuaternion>` |
+| `geometry.rs:440` | matches! | orientation_nan_quaternion_is_rejected | single-branch | bite run just now — same guard |
+| `geometry.rs:463` | matches! | orientation_norm_just_outside_the_1e_minus_3_tolerance_is_rejected | single-branch | bite run just now — same guard |
+| `geometry.rs:479` | matches! | orientation_norm_far_from_one_is_rejected_not_silently_renormalized | single-branch | bite run just now — same guard |
+| `geometry.rs:552` | matches! | pose_with_degenerate_orientation_fails | single-branch | bite run just now — position leg (`TryFrom<Point>`) is unconditionally `Ok` ("Total in practice" doc comment), so only the orientation guard can fire |
+| `planning.rs:561` | bare | converts_minimal_request | fixture-collapse-fixed | `9d829a8` (own earlier commit) |
+| `planning.rs:1033` | matches! | multi_dof_joint_trajectory_is_rejected_not_silently_dropped | single-branch | bite run just now — only `Error::Other` site in this impl; delegate produces `Error::Construct` |
+| `scene/collision_object.rs:1026` | bare | append_without_subframe_data_clears_existing_subframes | discriminating | §9 all three clauses hold — clause 1: `subframe_pose("tip").is_none()` is a genuine absence signal (retained vs. cleared); clause 2: `apply_add`'s unconditional subframe-replace is a written decision an engineer could gate on non-empty (bite: wrapping it in `if !subframes.is_empty()` flips the assertion); clause 3: deleting the second `apply_collision_object` call leaves the first object's subframe in place, changing the outcome. Bite run once, before I knew the ros gate was paid (docker, targeted single test — see cost note in the round report) |
+| `scene/mod.rs:94` | matches! | unresolvable_non_empty_frame_id_is_still_rejected | single-branch | bite run just now — `header_frame_transform`'s only Err path is the single `scene.frame_transform` call |
+| `scene/planning_scene.rs:1364` | matches! | unresolvable_non_empty_header_frame_id_is_still_rejected | single-branch | bite run just now — `Error::UnknownName` reachable only via `header_frame_transform` (see `scene/mod.rs:94`); the file's other two error sites are `Error::Other`/`Error::Construct`, different variants |
+| `scene/shapes.rs:203` | matches! | plane_wrong_coef_length_is_rejected | single-branch | bite run just now — single `Error::construct` site in `TryFrom<PlaneMsg> for Plane`; `Plane::new` is infallible |
+| `ros/moveit-ros/src/trajectory.rs:383` | matches! | add_suffix_way_point_rejects_a_nonzero_first_dt | single-branch | bite run just now — `moveit_trajectory::RobotTrajectory::add_suffix_way_point`'s single `first_duration_error()` site |
+| `ros/moveit-ros/src/trajectory.rs:482` | matches! | seconds_to_duration_rejects_just_above_i32_max_seconds | single-branch | bite run just now — `seconds_to_duration`'s one combined guard |
+| `ros/moveit-ros/src/trajectory.rs:488` | matches! | seconds_to_duration_rejects_negative | single-branch | bite run just now — same guard |
+| `ros/moveit-ros/src/trajectory.rs:494` | matches! | seconds_to_duration_rejects_nan | single-branch | bite run just now — same guard |
+| `ros/moveit-ros/src/trajectory.rs:500` | matches! | seconds_to_duration_rejects_infinity | single-branch | bite run just now — same guard |
+| `ros/moveit-ros/src/trajectory.rs:528` | matches! | negative_cumulative_duration_from_an_unvalidated_trajectory_is_rejected | single-branch | bite run just now — `TryFrom<RobotTrajectory> for JointTrajectoryMsgOut`'s sole `?` site is `seconds_to_duration` |
 
 No blind/never-covered site survived inspection in `ros/moveit-ros`; the
 27th matches this crate's own scan count exactly. Zero commits this round.
