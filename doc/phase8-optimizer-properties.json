@@ -1,0 +1,1207 @@
+{
+  "measured_at": "2026-08-06T22:04:40Z",
+  "commit": "900b728ba4e6529907e98d6e15b74049b17627b0",
+  "working_tree_dirty": true,
+  "dirty_paths": [
+    " M crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs",
+    " M crates/moveit-planners-sbp/examples/plan_benchmark_port.rs",
+    " M crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs"
+  ],
+  "measured_sources": {
+    "tools/ci/measure-phase8-optimizer-properties.sh": "2f91ba79930b065b0e28dc60efd86ab60f508eb5",
+    "tools/ci/measure-phase8-cpp-baseline.sh": "1e9dcdc3e18bb3a78c1df273021d48d74dd37c08",
+    "crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs": "75598af6307c86cc0b65329d6480c290726ea555",
+    "crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs": "03c8843fce9b8fa1e8b27cadbebb6067aaba1c65",
+    "crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs": "82c943ab03dd491f944825b70cbfe956e155c4e8"
+  },
+  "mode": "full",
+  "planners": "chomp stomp",
+  "seed_base": 525252,
+  "timeout_seconds": 120,
+  "instrument_wall_clock_seconds": 4458.627123903,
+  "cpp_baseline_wall_clock_seconds": 553.149657862,
+  "regression_pins": {},
+  "rows": [
+    {
+      "planner": "chomp",
+      "robot": "panda",
+      "stratum": {
+        "problems": 250,
+        "solved": 166,
+        "timeouts": 0,
+        "failures": 84,
+        "condition2_checked": 166,
+        "condition2_pass": 166,
+        "waypoints_checked": 63775,
+        "raw_waypoints": 16766,
+        "max_endpoint_gap": 0.0,
+        "slowest_seconds": 6.320510434,
+        "seed_invalid": 34,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 34,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 0,
+        "mesh_check_calls": 542,
+        "mesh_check_true": 166,
+        "paired_seed_cost_median": null,
+        "paired_output_cost_median": null,
+        "paired_seed_length_median": 2.186185587933063,
+        "paired_output_length_median": 2.239964238283189,
+        "worst_length_ratio": {
+          "tag": "panda_cage",
+          "ratio": 1.0111064311568083,
+          "seed_median": 2.186185587933063,
+          "output_median": 2.210466307661448
+        }
+      },
+      "cpp": {
+        "cpp_problems": 250,
+        "cpp_solved": 188,
+        "cpp_rate": 0.752,
+        "port_rate": 0.664,
+        "cpp_median_length": 2.247564641168648,
+        "port_median_length": 2.239008824053288,
+        "paired_problems": 161,
+        "cpp_paired_median": 2.2380534098233875,
+        "port_paired_median": 2.2380534098233875
+      }
+    },
+    {
+      "planner": "chomp",
+      "robot": "fanuc",
+      "stratum": {
+        "problems": 250,
+        "solved": 165,
+        "timeouts": 0,
+        "failures": 85,
+        "condition2_checked": 165,
+        "condition2_pass": 165,
+        "waypoints_checked": 60523,
+        "raw_waypoints": 16665,
+        "max_endpoint_gap": 0.0,
+        "slowest_seconds": 7.906230664,
+        "seed_invalid": 6,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 6,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 0,
+        "mesh_check_calls": 332,
+        "mesh_check_true": 165,
+        "paired_seed_cost_median": null,
+        "paired_output_cost_median": null,
+        "paired_seed_length_median": 1.5499324985433345,
+        "paired_output_length_median": 1.6212901983729844,
+        "worst_length_ratio": {
+          "tag": "fanuc_cage",
+          "ratio": 1.0000000000000004,
+          "seed_median": 1.6212901983729837,
+          "output_median": 1.6212901983729844
+        }
+      },
+      "cpp": {
+        "cpp_problems": 250,
+        "cpp_solved": 182,
+        "cpp_rate": 0.728,
+        "port_rate": 0.66,
+        "cpp_median_length": 1.5991866791320952,
+        "port_median_length": 1.5845285570126577,
+        "paired_problems": 165,
+        "cpp_paired_median": 1.5845285570126577,
+        "port_paired_median": 1.5845285570126577
+      }
+    },
+    {
+      "planner": "chomp",
+      "tag": "panda_floor_wall",
+      "set": {
+        "problems": 125,
+        "solved": 85,
+        "timeouts": 0,
+        "failures": 40,
+        "condition2_checked": 85,
+        "condition2_pass": 85,
+        "waypoints_checked": 32582,
+        "raw_waypoints": 8585,
+        "max_endpoint_gap": 0.0,
+        "slowest_seconds": 6.320510434,
+        "seed_invalid": 12,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 12,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 0,
+        "paired_seed_cost_median": null,
+        "paired_output_cost_median": null,
+        "paired_seed_length_median": 2.239964238283189,
+        "paired_output_length_median": 2.239964238283189,
+        "paired_length_ratio": 1,
+        "mesh_check_calls": 254,
+        "mesh_check_true": 85
+      },
+      "cpp": {
+        "cpp_problems": 125,
+        "cpp_solved": 93,
+        "cpp_rate": 0.744,
+        "port_rate": 0.68,
+        "cpp_median_length": 2.239964238283189,
+        "port_median_length": 2.239964238283189,
+        "paired_problems": 83,
+        "cpp_paired_median": 2.239964238283189,
+        "port_paired_median": 2.239964238283189
+      }
+    },
+    {
+      "planner": "chomp",
+      "tag": "panda_cage",
+      "set": {
+        "problems": 125,
+        "solved": 81,
+        "timeouts": 0,
+        "failures": 44,
+        "condition2_checked": 81,
+        "condition2_pass": 81,
+        "waypoints_checked": 31193,
+        "raw_waypoints": 8181,
+        "max_endpoint_gap": 0.0,
+        "slowest_seconds": 6.250539068,
+        "seed_invalid": 22,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 22,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 0,
+        "paired_seed_cost_median": null,
+        "paired_output_cost_median": null,
+        "paired_seed_length_median": 2.186185587933063,
+        "paired_output_length_median": 2.210466307661448,
+        "paired_length_ratio": 1.0111064311568083,
+        "mesh_check_calls": 288,
+        "mesh_check_true": 81
+      },
+      "cpp": {
+        "cpp_problems": 125,
+        "cpp_solved": 95,
+        "cpp_rate": 0.76,
+        "port_rate": 0.648,
+        "cpp_median_length": 2.2551650440541073,
+        "port_median_length": 2.210466307661448,
+        "paired_problems": 78,
+        "cpp_paired_median": 2.175370373797242,
+        "port_paired_median": 2.1857217453162807
+      }
+    },
+    {
+      "planner": "chomp",
+      "tag": "fanuc_floor_wall",
+      "set": {
+        "problems": 125,
+        "solved": 88,
+        "timeouts": 0,
+        "failures": 37,
+        "condition2_checked": 88,
+        "condition2_pass": 88,
+        "waypoints_checked": 33258,
+        "raw_waypoints": 8888,
+        "max_endpoint_gap": 0.0,
+        "slowest_seconds": 7.906230664,
+        "seed_invalid": 2,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 2,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 0,
+        "paired_seed_cost_median": null,
+        "paired_output_cost_median": null,
+        "paired_seed_length_median": 1.5499324985433345,
+        "paired_output_length_median": 1.5499324985433347,
+        "paired_length_ratio": 1.0000000000000002,
+        "mesh_check_calls": 161,
+        "mesh_check_true": 88
+      },
+      "cpp": {
+        "cpp_problems": 125,
+        "cpp_solved": 96,
+        "cpp_rate": 0.768,
+        "port_rate": 0.704,
+        "cpp_median_length": 1.5629219500844116,
+        "port_median_length": 1.5499324985433347,
+        "paired_problems": 88,
+        "cpp_paired_median": 1.5499324985433347,
+        "port_paired_median": 1.5499324985433347
+      }
+    },
+    {
+      "planner": "chomp",
+      "tag": "fanuc_cage",
+      "set": {
+        "problems": 125,
+        "solved": 77,
+        "timeouts": 0,
+        "failures": 48,
+        "condition2_checked": 77,
+        "condition2_pass": 77,
+        "waypoints_checked": 27265,
+        "raw_waypoints": 7777,
+        "max_endpoint_gap": 0.0,
+        "slowest_seconds": 7.650300347,
+        "seed_invalid": 4,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 4,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 0,
+        "paired_seed_cost_median": null,
+        "paired_output_cost_median": null,
+        "paired_seed_length_median": 1.6212901983729837,
+        "paired_output_length_median": 1.6212901983729844,
+        "paired_length_ratio": 1.0000000000000004,
+        "mesh_check_calls": 171,
+        "mesh_check_true": 77
+      },
+      "cpp": {
+        "cpp_problems": 125,
+        "cpp_solved": 86,
+        "cpp_rate": 0.688,
+        "port_rate": 0.616,
+        "cpp_median_length": 1.6389918638401548,
+        "port_median_length": 1.6212901983729844,
+        "paired_problems": 77,
+        "cpp_paired_median": 1.6212901983729844,
+        "port_paired_median": 1.6212901983729844
+      }
+    },
+    {
+      "planner": "chomp",
+      "tag": "constrained",
+      "set": {
+        "problems": 125,
+        "solved": 99,
+        "timeouts": 0,
+        "failures": 26,
+        "condition2_checked": 99,
+        "condition2_pass": 99,
+        "waypoints_checked": 35463,
+        "raw_waypoints": 9999,
+        "max_endpoint_gap": 0.0,
+        "slowest_seconds": 6.416737257,
+        "seed_invalid": 16,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 16,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 0,
+        "paired_seed_cost_median": null,
+        "paired_output_cost_median": null,
+        "paired_seed_length_median": 1.8603345818377628,
+        "paired_output_length_median": 1.860334581837763,
+        "paired_length_ratio": 1.0000000000000002,
+        "mesh_check_calls": 227,
+        "mesh_check_true": 99
+      }
+    },
+    {
+      "planner": "chomp",
+      "tag": "inject_constrained",
+      "set": {
+        "problems": 125,
+        "solved": 98,
+        "timeouts": 0,
+        "failures": 27,
+        "condition2_checked": 98,
+        "condition2_pass": 98,
+        "waypoints_checked": 34989,
+        "raw_waypoints": 9898,
+        "max_endpoint_gap": 0.0,
+        "slowest_seconds": 6.418367988,
+        "seed_invalid": 15,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 15,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 0,
+        "paired_seed_cost_median": null,
+        "paired_output_cost_median": null,
+        "paired_seed_length_median": 1.85253463603004,
+        "paired_output_length_median": 1.8525346360300403,
+        "paired_length_ratio": 1.0000000000000002,
+        "mesh_check_calls": 223,
+        "mesh_check_true": 98
+      }
+    },
+    {
+      "planner": "stomp",
+      "robot": "panda",
+      "stratum": {
+        "problems": 250,
+        "solved": 185,
+        "timeouts": 65,
+        "failures": 0,
+        "condition2_checked": 185,
+        "condition2_pass": 185,
+        "waypoints_checked": 65016,
+        "raw_waypoints": 7400,
+        "max_endpoint_gap": 0.015079563311925614,
+        "slowest_seconds": 122.578813846,
+        "seed_invalid": 53,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 0,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 185,
+        "mesh_check_calls": 0,
+        "mesh_check_true": 0,
+        "paired_seed_cost_median": 0,
+        "paired_output_cost_median": 0.0,
+        "paired_seed_length_median": 2.1609771829711155,
+        "paired_output_length_median": 2.2259055543138495,
+        "worst_length_ratio": {
+          "tag": "panda_floor_wall",
+          "ratio": 1.0033606408153783,
+          "seed_median": 2.218450140225725,
+          "output_median": 2.2259055543138495
+        }
+      },
+      "cpp": {
+        "cpp_problems": 250,
+        "cpp_solved": 217,
+        "cpp_rate": 0.868,
+        "port_rate": 0.74,
+        "cpp_median_length": 2.2984134921837795,
+        "port_median_length": 2.1993169421548053,
+        "paired_problems": 185,
+        "cpp_paired_median": 2.2203891208803643,
+        "port_paired_median": 2.1993169421548053
+      }
+    },
+    {
+      "planner": "stomp",
+      "robot": "fanuc",
+      "stratum": {
+        "problems": 250,
+        "solved": 170,
+        "timeouts": 80,
+        "failures": 0,
+        "condition2_checked": 170,
+        "condition2_pass": 170,
+        "waypoints_checked": 55821,
+        "raw_waypoints": 6800,
+        "max_endpoint_gap": 0.003529566935069006,
+        "slowest_seconds": 121.391875026,
+        "seed_invalid": 11,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 0,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 170,
+        "mesh_check_calls": 0,
+        "mesh_check_true": 0,
+        "paired_seed_cost_median": 0,
+        "paired_output_cost_median": 0,
+        "paired_seed_length_median": 1.5499324985433347,
+        "paired_output_length_median": 1.6318827072192654,
+        "worst_length_ratio": {
+          "tag": "fanuc_cage",
+          "ratio": 1.0000213579128447,
+          "seed_median": 1.6318478543550163,
+          "output_median": 1.6318827072192654
+        }
+      },
+      "cpp": {
+        "cpp_problems": 250,
+        "cpp_solved": 194,
+        "cpp_rate": 0.776,
+        "port_rate": 0.68,
+        "cpp_median_length": 1.620716363431347,
+        "port_median_length": 1.5900761905531677,
+        "paired_problems": 170,
+        "cpp_paired_median": 1.5900473538220812,
+        "port_paired_median": 1.5900761905531677
+      }
+    },
+    {
+      "planner": "stomp",
+      "tag": "panda_floor_wall",
+      "set": {
+        "problems": 125,
+        "solved": 98,
+        "timeouts": 27,
+        "failures": 0,
+        "condition2_checked": 98,
+        "condition2_pass": 98,
+        "waypoints_checked": 34494,
+        "raw_waypoints": 3920,
+        "max_endpoint_gap": 0.015079563311925614,
+        "slowest_seconds": 122.578813846,
+        "seed_invalid": 25,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 0,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 98,
+        "paired_seed_cost_median": 0,
+        "paired_output_cost_median": 0,
+        "paired_seed_length_median": 2.218450140225725,
+        "paired_output_length_median": 2.2259055543138495,
+        "paired_length_ratio": 1.0033606408153783,
+        "mesh_check_calls": 0,
+        "mesh_check_true": 0
+      },
+      "cpp": {
+        "cpp_problems": 125,
+        "cpp_solved": 114,
+        "cpp_rate": 0.912,
+        "port_rate": 0.784,
+        "cpp_median_length": 2.3224204384591802,
+        "port_median_length": 2.2259055543138495,
+        "paired_problems": 98,
+        "cpp_paired_median": 2.239008824053289,
+        "port_paired_median": 2.2259055543138495
+      }
+    },
+    {
+      "planner": "stomp",
+      "tag": "panda_cage",
+      "set": {
+        "problems": 125,
+        "solved": 87,
+        "timeouts": 38,
+        "failures": 0,
+        "condition2_checked": 87,
+        "condition2_pass": 87,
+        "waypoints_checked": 30522,
+        "raw_waypoints": 3480,
+        "max_endpoint_gap": 0.008097138345360855,
+        "slowest_seconds": 120.949077098,
+        "seed_invalid": 28,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 0,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 87,
+        "paired_seed_cost_median": 0.0,
+        "paired_output_cost_median": 0.0,
+        "paired_seed_length_median": 2.1609771829711155,
+        "paired_output_length_median": 2.1609771829711155,
+        "paired_length_ratio": 1,
+        "mesh_check_calls": 0,
+        "mesh_check_true": 0
+      },
+      "cpp": {
+        "cpp_problems": 125,
+        "cpp_solved": 103,
+        "cpp_rate": 0.824,
+        "port_rate": 0.696,
+        "cpp_median_length": 2.273007798005713,
+        "port_median_length": 2.1609771829711155,
+        "paired_problems": 87,
+        "cpp_paired_median": 2.1609771829711155,
+        "port_paired_median": 2.1609771829711155
+      }
+    },
+    {
+      "planner": "stomp",
+      "tag": "fanuc_floor_wall",
+      "set": {
+        "problems": 125,
+        "solved": 90,
+        "timeouts": 35,
+        "failures": 0,
+        "condition2_checked": 90,
+        "condition2_pass": 90,
+        "waypoints_checked": 30632,
+        "raw_waypoints": 3600,
+        "max_endpoint_gap": 0.003529566935069006,
+        "slowest_seconds": 121.391875026,
+        "seed_invalid": 4,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 0,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 90,
+        "paired_seed_cost_median": 0,
+        "paired_output_cost_median": 0,
+        "paired_seed_length_median": 1.5499324985433347,
+        "paired_output_length_median": 1.5499324985433343,
+        "paired_length_ratio": 0.9999999999999997,
+        "mesh_check_calls": 0,
+        "mesh_check_true": 0
+      },
+      "cpp": {
+        "cpp_problems": 125,
+        "cpp_solved": 105,
+        "cpp_rate": 0.84,
+        "port_rate": 0.72,
+        "cpp_median_length": 1.5851310507822785,
+        "port_median_length": 1.5499324985433343,
+        "paired_problems": 90,
+        "cpp_paired_median": 1.5499625171126037,
+        "port_paired_median": 1.5499324985433343
+      }
+    },
+    {
+      "planner": "stomp",
+      "tag": "fanuc_cage",
+      "set": {
+        "problems": 125,
+        "solved": 80,
+        "timeouts": 45,
+        "failures": 0,
+        "condition2_checked": 80,
+        "condition2_pass": 80,
+        "waypoints_checked": 25189,
+        "raw_waypoints": 3200,
+        "max_endpoint_gap": 0.0032933608730640884,
+        "slowest_seconds": 121.13565771,
+        "seed_invalid": 7,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 0,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 80,
+        "paired_seed_cost_median": 0,
+        "paired_output_cost_median": 0,
+        "paired_seed_length_median": 1.6318478543550163,
+        "paired_output_length_median": 1.6318827072192654,
+        "paired_length_ratio": 1.0000213579128447,
+        "mesh_check_calls": 0,
+        "mesh_check_true": 0
+      },
+      "cpp": {
+        "cpp_problems": 125,
+        "cpp_solved": 89,
+        "cpp_rate": 0.712,
+        "port_rate": 0.64,
+        "cpp_median_length": 1.6383703319251732,
+        "port_median_length": 1.6318827072192654,
+        "paired_problems": 80,
+        "cpp_paired_median": 1.6318478543550161,
+        "port_paired_median": 1.6318827072192654
+      }
+    },
+    {
+      "planner": "stomp",
+      "tag": "constrained",
+      "set": {
+        "problems": 125,
+        "solved": 0,
+        "timeouts": 125,
+        "failures": 0,
+        "condition2_checked": 0,
+        "condition2_pass": 0,
+        "waypoints_checked": 0,
+        "raw_waypoints": 0,
+        "max_endpoint_gap": 0,
+        "slowest_seconds": 122.001345942,
+        "seed_invalid": 0,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 0,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 0,
+        "paired_seed_cost_median": null,
+        "paired_output_cost_median": null,
+        "paired_seed_length_median": null,
+        "paired_output_length_median": null,
+        "paired_length_ratio": null,
+        "mesh_check_calls": 0,
+        "mesh_check_true": 0
+      }
+    },
+    {
+      "planner": "stomp",
+      "tag": "inject_constrained",
+      "set": {
+        "problems": 125,
+        "solved": 112,
+        "timeouts": 13,
+        "failures": 0,
+        "condition2_checked": 112,
+        "condition2_pass": 111,
+        "waypoints_checked": 37062,
+        "raw_waypoints": 4480,
+        "max_endpoint_gap": 0.01257365045516412,
+        "slowest_seconds": 120.601255907,
+        "seed_invalid": 29,
+        "cost_worsened": 0,
+        "cost_fn_missed_seed_collision": 0,
+        "cost_fn_margin_only": 0,
+        "cost_fn_seeds_scored": 112,
+        "paired_seed_cost_median": 0,
+        "paired_output_cost_median": 0,
+        "paired_seed_length_median": 1.8727054709545352,
+        "paired_output_length_median": 1.8727082055213424,
+        "paired_length_ratio": 1.0000014602225762,
+        "mesh_check_calls": 0,
+        "mesh_check_true": 0
+      }
+    }
+  ],
+  "checks": [
+    {
+      "name": "chomp/panda/validity",
+      "detail": "166/166 paths valid, 63775 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda/validity-covers-every-solved-path",
+      "detail": "checked 166 of 166 solved",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda/validity-densified",
+      "detail": "63775 checked from 16766 returned",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda/no-timeouts",
+      "detail": "0 timeouts, slowest call 6.321s of the 120s budget",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda/condition1",
+      "detail": "port 166/250 = 66.4% >= 0.9 x C++ 188/250 = 67.68%",
+      "ok": false
+    },
+    {
+      "name": "chomp/panda/condition3-pooled",
+      "detail": "port median 2.239 vs limit 2.922 (ratio 0.996x)",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda/condition3-paired",
+      "detail": "over 161 problems both sides solved: port 2.238 vs limit 2.909 (ratio 1x)",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda/pins-unmeasured",
+      "detail": "mode=full has no measured pins for chomp/panda, so endpoints, pin-population, no-regression-solved, no-regression-cpp-solved and both quality checks did not run",
+      "ok": false
+    },
+    {
+      "name": "chomp/fanuc/validity",
+      "detail": "165/165 paths valid, 60523 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc/validity-covers-every-solved-path",
+      "detail": "checked 165 of 165 solved",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc/validity-densified",
+      "detail": "60523 checked from 16665 returned",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc/no-timeouts",
+      "detail": "0 timeouts, slowest call 7.906s of the 120s budget",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc/condition1",
+      "detail": "port 165/250 = 66% >= 0.9 x C++ 182/250 = 65.52%",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc/condition3-pooled",
+      "detail": "port median 1.585 vs limit 2.079 (ratio 0.991x)",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc/condition3-paired",
+      "detail": "over 165 problems both sides solved: port 1.585 vs limit 2.06 (ratio 1x)",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc/pins-unmeasured",
+      "detail": "mode=full has no measured pins for chomp/fanuc, so endpoints, pin-population, no-regression-solved, no-regression-cpp-solved and both quality checks did not run",
+      "ok": false
+    },
+    {
+      "name": "stomp/panda/validity",
+      "detail": "185/185 paths valid, 65016 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda/validity-covers-every-solved-path",
+      "detail": "checked 185 of 185 solved",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda/validity-densified",
+      "detail": "65016 checked from 7400 returned",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda/no-timeouts",
+      "detail": "65 timeouts, slowest call 122.579s of the 120s budget",
+      "ok": false
+    },
+    {
+      "name": "stomp/panda/condition1",
+      "detail": "port 185/250 = 74% >= 0.9 x C++ 217/250 = 78.12%",
+      "ok": false
+    },
+    {
+      "name": "stomp/panda/condition3-pooled",
+      "detail": "port median 2.199 vs limit 2.988 (ratio 0.957x)",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda/condition3-paired",
+      "detail": "over 185 problems both sides solved: port 2.199 vs limit 2.887 (ratio 0.991x)",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda/pins-unmeasured",
+      "detail": "mode=full has no measured pins for stomp/panda, so endpoints, pin-population, no-regression-solved, no-regression-cpp-solved and both quality checks did not run",
+      "ok": false
+    },
+    {
+      "name": "stomp/fanuc/validity",
+      "detail": "170/170 paths valid, 55821 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc/validity-covers-every-solved-path",
+      "detail": "checked 170 of 170 solved",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc/validity-densified",
+      "detail": "55821 checked from 6800 returned",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc/no-timeouts",
+      "detail": "80 timeouts, slowest call 121.392s of the 120s budget",
+      "ok": false
+    },
+    {
+      "name": "stomp/fanuc/condition1",
+      "detail": "port 170/250 = 68% >= 0.9 x C++ 194/250 = 69.84%",
+      "ok": false
+    },
+    {
+      "name": "stomp/fanuc/condition3-pooled",
+      "detail": "port median 1.59 vs limit 2.107 (ratio 0.981x)",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc/condition3-paired",
+      "detail": "over 170 problems both sides solved: port 1.59 vs limit 2.067 (ratio 1x)",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc/pins-unmeasured",
+      "detail": "mode=full has no measured pins for stomp/fanuc, so endpoints, pin-population, no-regression-solved, no-regression-cpp-solved and both quality checks did not run",
+      "ok": false
+    },
+    {
+      "name": "chomp/panda_floor_wall/validity",
+      "detail": "85/85 paths valid, 32582 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda_floor_wall/validity-covers-every-solved-path",
+      "detail": "checked 85 of 85 solved",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda_floor_wall/validity-densified",
+      "detail": "32582 checked from 8585 returned",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda_floor_wall/no-timeouts",
+      "detail": "0 timeouts, slowest call 6.321s of the 120s budget",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda_floor_wall/condition1",
+      "detail": "port 85/125 = 68% >= 0.9 x C++ 93/125 = 66.96%",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda_floor_wall/condition3",
+      "detail": "port median 2.24 vs limit 2.912 (ratio 1x)",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda_cage/validity",
+      "detail": "81/81 paths valid, 31193 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda_cage/validity-covers-every-solved-path",
+      "detail": "checked 81 of 81 solved",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda_cage/validity-densified",
+      "detail": "31193 checked from 8181 returned",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda_cage/no-timeouts",
+      "detail": "0 timeouts, slowest call 6.251s of the 120s budget",
+      "ok": true
+    },
+    {
+      "name": "chomp/panda_cage/condition1",
+      "detail": "port 81/125 = 64.8% >= 0.9 x C++ 95/125 = 68.4%",
+      "ok": false
+    },
+    {
+      "name": "chomp/panda_cage/condition3",
+      "detail": "port median 2.21 vs limit 2.932 (ratio 0.98x)",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc_floor_wall/validity",
+      "detail": "88/88 paths valid, 33258 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc_floor_wall/validity-covers-every-solved-path",
+      "detail": "checked 88 of 88 solved",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc_floor_wall/validity-densified",
+      "detail": "33258 checked from 8888 returned",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc_floor_wall/no-timeouts",
+      "detail": "0 timeouts, slowest call 7.906s of the 120s budget",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc_floor_wall/condition1",
+      "detail": "port 88/125 = 70.4% >= 0.9 x C++ 96/125 = 69.12%",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc_floor_wall/condition3",
+      "detail": "port median 1.55 vs limit 2.032 (ratio 0.992x)",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc_cage/validity",
+      "detail": "77/77 paths valid, 27265 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc_cage/validity-covers-every-solved-path",
+      "detail": "checked 77 of 77 solved",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc_cage/validity-densified",
+      "detail": "27265 checked from 7777 returned",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc_cage/no-timeouts",
+      "detail": "0 timeouts, slowest call 7.65s of the 120s budget",
+      "ok": true
+    },
+    {
+      "name": "chomp/fanuc_cage/condition1",
+      "detail": "port 77/125 = 61.6% >= 0.9 x C++ 86/125 = 61.92%",
+      "ok": false
+    },
+    {
+      "name": "chomp/fanuc_cage/condition3",
+      "detail": "port median 1.621 vs limit 2.131 (ratio 0.989x)",
+      "ok": true
+    },
+    {
+      "name": "chomp/constrained/validity",
+      "detail": "99/99 paths valid, 35463 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "chomp/constrained/validity-covers-every-solved-path",
+      "detail": "checked 99 of 99 solved",
+      "ok": true
+    },
+    {
+      "name": "chomp/constrained/validity-densified",
+      "detail": "35463 checked from 9999 returned",
+      "ok": true
+    },
+    {
+      "name": "chomp/constrained/no-timeouts",
+      "detail": "0 timeouts, slowest call 6.417s of the 120s budget",
+      "ok": true
+    },
+    {
+      "name": "chomp/inject_constrained/validity",
+      "detail": "98/98 paths valid, 34989 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "chomp/inject_constrained/validity-covers-every-solved-path",
+      "detail": "checked 98 of 98 solved",
+      "ok": true
+    },
+    {
+      "name": "chomp/inject_constrained/validity-densified",
+      "detail": "34989 checked from 9898 returned",
+      "ok": true
+    },
+    {
+      "name": "chomp/inject_constrained/no-timeouts",
+      "detail": "0 timeouts, slowest call 6.418s of the 120s budget",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda_floor_wall/validity",
+      "detail": "98/98 paths valid, 34494 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda_floor_wall/validity-covers-every-solved-path",
+      "detail": "checked 98 of 98 solved",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda_floor_wall/validity-densified",
+      "detail": "34494 checked from 3920 returned",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda_floor_wall/no-timeouts",
+      "detail": "27 timeouts, slowest call 122.579s of the 120s budget",
+      "ok": false
+    },
+    {
+      "name": "stomp/panda_floor_wall/condition1",
+      "detail": "port 98/125 = 78.4% >= 0.9 x C++ 114/125 = 82.08%",
+      "ok": false
+    },
+    {
+      "name": "stomp/panda_floor_wall/condition3",
+      "detail": "port median 2.226 vs limit 3.019 (ratio 0.958x)",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda_cage/validity",
+      "detail": "87/87 paths valid, 30522 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda_cage/validity-covers-every-solved-path",
+      "detail": "checked 87 of 87 solved",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda_cage/validity-densified",
+      "detail": "30522 checked from 3480 returned",
+      "ok": true
+    },
+    {
+      "name": "stomp/panda_cage/no-timeouts",
+      "detail": "38 timeouts, slowest call 120.949s of the 120s budget",
+      "ok": false
+    },
+    {
+      "name": "stomp/panda_cage/condition1",
+      "detail": "port 87/125 = 69.6% >= 0.9 x C++ 103/125 = 74.16%",
+      "ok": false
+    },
+    {
+      "name": "stomp/panda_cage/condition3",
+      "detail": "port median 2.161 vs limit 2.955 (ratio 0.951x)",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc_floor_wall/validity",
+      "detail": "90/90 paths valid, 30632 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc_floor_wall/validity-covers-every-solved-path",
+      "detail": "checked 90 of 90 solved",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc_floor_wall/validity-densified",
+      "detail": "30632 checked from 3600 returned",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc_floor_wall/no-timeouts",
+      "detail": "35 timeouts, slowest call 121.392s of the 120s budget",
+      "ok": false
+    },
+    {
+      "name": "stomp/fanuc_floor_wall/condition1",
+      "detail": "port 90/125 = 72% >= 0.9 x C++ 105/125 = 75.6%",
+      "ok": false
+    },
+    {
+      "name": "stomp/fanuc_floor_wall/condition3",
+      "detail": "port median 1.55 vs limit 2.061 (ratio 0.978x)",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc_cage/validity",
+      "detail": "80/80 paths valid, 25189 waypoints checked",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc_cage/validity-covers-every-solved-path",
+      "detail": "checked 80 of 80 solved",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc_cage/validity-densified",
+      "detail": "25189 checked from 3200 returned",
+      "ok": true
+    },
+    {
+      "name": "stomp/fanuc_cage/no-timeouts",
+      "detail": "45 timeouts, slowest call 121.136s of the 120s budget",
+      "ok": false
+    },
+    {
+      "name": "stomp/fanuc_cage/condition1",
+      "detail": "port 80/125 = 64% >= 0.9 x C++ 89/125 = 64.08%",
+      "ok": false
+    },
+    {
+      "name": "stomp/fanuc_cage/condition3",
+      "detail": "port median 1.632 vs limit 2.13 (ratio 0.996x)",
+      "ok": true
+    },
+    {
+      "name": "stomp/constrained/validity",
+      "detail": "0/0 paths valid, 0 waypoints checked",
+      "ok": false
+    },
+    {
+      "name": "stomp/constrained/validity-covers-every-solved-path",
+      "detail": "checked 0 of 0 solved",
+      "ok": false
+    },
+    {
+      "name": "stomp/constrained/validity-densified",
+      "detail": "0 checked from 0 returned",
+      "ok": false
+    },
+    {
+      "name": "stomp/constrained/no-timeouts",
+      "detail": "125 timeouts, slowest call 122.001s of the 120s budget",
+      "ok": false
+    },
+    {
+      "name": "stomp/inject_constrained/validity",
+      "detail": "111/112 paths valid, 37062 waypoints checked",
+      "ok": false
+    },
+    {
+      "name": "stomp/inject_constrained/validity-covers-every-solved-path",
+      "detail": "checked 112 of 112 solved",
+      "ok": true
+    },
+    {
+      "name": "stomp/inject_constrained/validity-densified",
+      "detail": "37062 checked from 4480 returned",
+      "ok": true
+    },
+    {
+      "name": "stomp/inject_constrained/no-timeouts",
+      "detail": "13 timeouts, slowest call 120.601s of the 120s budget",
+      "ok": false
+    }
+  ],
+  "verdict": {
+    "chomp/panda/validity": "PASS",
+    "chomp/panda/validity-covers-every-solved-path": "PASS",
+    "chomp/panda/validity-densified": "PASS",
+    "chomp/panda/no-timeouts": "PASS",
+    "chomp/panda/condition1": "FAIL",
+    "chomp/panda/condition3-pooled": "PASS",
+    "chomp/panda/condition3-paired": "PASS",
+    "chomp/panda/pins-unmeasured": "FAIL",
+    "chomp/fanuc/validity": "PASS",
+    "chomp/fanuc/validity-covers-every-solved-path": "PASS",
+    "chomp/fanuc/validity-densified": "PASS",
+    "chomp/fanuc/no-timeouts": "PASS",
+    "chomp/fanuc/condition1": "PASS",
+    "chomp/fanuc/condition3-pooled": "PASS",
+    "chomp/fanuc/condition3-paired": "PASS",
+    "chomp/fanuc/pins-unmeasured": "FAIL",
+    "stomp/panda/validity": "PASS",
+    "stomp/panda/validity-covers-every-solved-path": "PASS",
+    "stomp/panda/validity-densified": "PASS",
+    "stomp/panda/no-timeouts": "FAIL",
+    "stomp/panda/condition1": "FAIL",
+    "stomp/panda/condition3-pooled": "PASS",
+    "stomp/panda/condition3-paired": "PASS",
+    "stomp/panda/pins-unmeasured": "FAIL",
+    "stomp/fanuc/validity": "PASS",
+    "stomp/fanuc/validity-covers-every-solved-path": "PASS",
+    "stomp/fanuc/validity-densified": "PASS",
+    "stomp/fanuc/no-timeouts": "FAIL",
+    "stomp/fanuc/condition1": "FAIL",
+    "stomp/fanuc/condition3-pooled": "PASS",
+    "stomp/fanuc/condition3-paired": "PASS",
+    "stomp/fanuc/pins-unmeasured": "FAIL",
+    "chomp/panda_floor_wall/validity": "PASS",
+    "chomp/panda_floor_wall/validity-covers-every-solved-path": "PASS",
+    "chomp/panda_floor_wall/validity-densified": "PASS",
+    "chomp/panda_floor_wall/no-timeouts": "PASS",
+    "chomp/panda_floor_wall/condition1": "PASS",
+    "chomp/panda_floor_wall/condition3": "PASS",
+    "chomp/panda_cage/validity": "PASS",
+    "chomp/panda_cage/validity-covers-every-solved-path": "PASS",
+    "chomp/panda_cage/validity-densified": "PASS",
+    "chomp/panda_cage/no-timeouts": "PASS",
+    "chomp/panda_cage/condition1": "FAIL",
+    "chomp/panda_cage/condition3": "PASS",
+    "chomp/fanuc_floor_wall/validity": "PASS",
+    "chomp/fanuc_floor_wall/validity-covers-every-solved-path": "PASS",
+    "chomp/fanuc_floor_wall/validity-densified": "PASS",
+    "chomp/fanuc_floor_wall/no-timeouts": "PASS",
+    "chomp/fanuc_floor_wall/condition1": "PASS",
+    "chomp/fanuc_floor_wall/condition3": "PASS",
+    "chomp/fanuc_cage/validity": "PASS",
+    "chomp/fanuc_cage/validity-covers-every-solved-path": "PASS",
+    "chomp/fanuc_cage/validity-densified": "PASS",
+    "chomp/fanuc_cage/no-timeouts": "PASS",
+    "chomp/fanuc_cage/condition1": "FAIL",
+    "chomp/fanuc_cage/condition3": "PASS",
+    "chomp/constrained/validity": "PASS",
+    "chomp/constrained/validity-covers-every-solved-path": "PASS",
+    "chomp/constrained/validity-densified": "PASS",
+    "chomp/constrained/no-timeouts": "PASS",
+    "chomp/inject_constrained/validity": "PASS",
+    "chomp/inject_constrained/validity-covers-every-solved-path": "PASS",
+    "chomp/inject_constrained/validity-densified": "PASS",
+    "chomp/inject_constrained/no-timeouts": "PASS",
+    "stomp/panda_floor_wall/validity": "PASS",
+    "stomp/panda_floor_wall/validity-covers-every-solved-path": "PASS",
+    "stomp/panda_floor_wall/validity-densified": "PASS",
+    "stomp/panda_floor_wall/no-timeouts": "FAIL",
+    "stomp/panda_floor_wall/condition1": "FAIL",
+    "stomp/panda_floor_wall/condition3": "PASS",
+    "stomp/panda_cage/validity": "PASS",
+    "stomp/panda_cage/validity-covers-every-solved-path": "PASS",
+    "stomp/panda_cage/validity-densified": "PASS",
+    "stomp/panda_cage/no-timeouts": "FAIL",
+    "stomp/panda_cage/condition1": "FAIL",
+    "stomp/panda_cage/condition3": "PASS",
+    "stomp/fanuc_floor_wall/validity": "PASS",
+    "stomp/fanuc_floor_wall/validity-covers-every-solved-path": "PASS",
+    "stomp/fanuc_floor_wall/validity-densified": "PASS",
+    "stomp/fanuc_floor_wall/no-timeouts": "FAIL",
+    "stomp/fanuc_floor_wall/condition1": "FAIL",
+    "stomp/fanuc_floor_wall/condition3": "PASS",
+    "stomp/fanuc_cage/validity": "PASS",
+    "stomp/fanuc_cage/validity-covers-every-solved-path": "PASS",
+    "stomp/fanuc_cage/validity-densified": "PASS",
+    "stomp/fanuc_cage/no-timeouts": "FAIL",
+    "stomp/fanuc_cage/condition1": "FAIL",
+    "stomp/fanuc_cage/condition3": "PASS",
+    "stomp/constrained/validity": "FAIL",
+    "stomp/constrained/validity-covers-every-solved-path": "FAIL",
+    "stomp/constrained/validity-densified": "FAIL",
+    "stomp/constrained/no-timeouts": "FAIL",
+    "stomp/inject_constrained/validity": "FAIL",
+    "stomp/inject_constrained/validity-covers-every-solved-path": "PASS",
+    "stomp/inject_constrained/validity-densified": "PASS",
+    "stomp/inject_constrained/no-timeouts": "FAIL"
+  },
+  "verdict_all_pass": false
+}

@@ -124,6 +124,10 @@
 //! build failure when untrue rather than a sentence in a report. Both halves
 //! are load-bearing: `condition2_pass == 0` on its own is what a run that
 //! solved nothing also reports, since it never called the checker at all.
+//! For the same reason the success line prints the injected count next to
+//! the checked one: a problem that times out or errors never has its spliced
+//! waypoint looked at, so the checked count is a numerator and reads as a
+//! population unless the denominator sits beside it.
 //! The injected state is verified to be genuinely bad by direct query before
 //! it is spliced, so the mode cannot silently degrade into injecting a
 //! *valid* state and concluding the checker is broken.
@@ -884,6 +888,18 @@ fn main() {
              solved path, but is_path_valid still passed {condition2_pass}/{condition2_checked} \
              of them -- the condition-2 check is not checking what it reports on"
         );
-        eprintln!("inject={mode} rejected all {condition2_checked} paths, as required");
+        // `condition2_checked` is the numerator, and printing it alone reads as
+        // the population: "rejected all 105 paths" says nothing about the 125
+        // that were injected. A problem that times out or errors never has its
+        // spliced waypoint checked, so it silently leaves the set the assertion
+        // runs over -- measured at 105 of 125 for STOMP and 85 of 125 for CHOMP
+        // on one 125-problem set. The denominator goes in the line so the gate
+        // cannot narrow without saying by how much.
+        let not_checked = total - condition2_checked;
+        eprintln!(
+            "inject={mode} rejected all {condition2_checked} checked paths of {total} injected, \
+             as required; {not_checked} not checked ({timeout_count} timeout, \
+             {failure_count} failure)"
+        );
     }
 }

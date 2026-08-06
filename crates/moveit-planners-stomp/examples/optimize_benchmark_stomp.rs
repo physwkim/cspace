@@ -83,6 +83,12 @@
 //! checked, since "rejected all 0 paths" is a vacuous pass. Same shape, and
 //! the same two assertions, as `plan_benchmark_port`'s own injection mode.
 //!
+//! The report carries the denominator with the count, because only solved
+//! paths can be checked and this planner times out on a real fraction of
+//! them: over one 125-problem `panda floor_wall` set at the 120s budget the
+//! run checked 105 and 20 timed out, so "rejected all 105 paths" on its own
+//! would state a numerator as if it were the injected population.
+//!
 //! Usage: `optimize_benchmark_stomp <seed_base> [timeout_seconds] [inject]
 //! [dense]`, with the problem-set JSON on stdin.
 
@@ -930,6 +936,18 @@ fn main() {
              path, but is_path_valid still passed {condition2_pass}/{condition2_checked} of \
              them -- the validity check is not checking what it reports on"
         );
-        eprintln!("inject={mode} rejected all {condition2_checked} paths, as required");
+        // `condition2_checked` is the numerator, and printing it alone reads as
+        // the population: "rejected all 105 paths" says nothing about the 125
+        // that were injected. A problem that times out or errors never has its
+        // spliced waypoint checked, so it silently leaves the set the assertion
+        // runs over -- measured at 105 of 125 for STOMP and 85 of 125 for CHOMP
+        // on one 125-problem set. The denominator goes in the line so the gate
+        // cannot narrow without saying by how much.
+        let not_checked = total - condition2_checked;
+        eprintln!(
+            "inject={mode} rejected all {condition2_checked} checked paths of {total} injected, \
+             as required; {not_checked} not checked ({timeout_count} timeout, \
+             {failure_count} failure)"
+        );
     }
 }
