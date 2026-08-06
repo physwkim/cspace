@@ -40,7 +40,7 @@
 4	doc/claim-audit/moveit-sampling.md
 141	doc/claim-audit/moveit-scene.md
 6	doc/claim-audit/moveit-smoothing.md
-18	doc/claim-audit/moveit-srdf.md
+17	doc/claim-audit/moveit-srdf.md
 36	doc/claim-audit/moveit-trajectory.md
 53	doc/claim-audit/upstream-bugs.md
 2	doc/d12-solver-none-structural-measurement.md
