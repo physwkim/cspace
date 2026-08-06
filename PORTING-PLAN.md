@@ -15681,7 +15681,7 @@ p6-totg가 §196 가드를 자기 두 fixture에 넣었다(`d49461e`). 넣은 �
 (§202), 그 둘은 같지 않다. `link_names()`가 비어 있지 않은데
 `updated_link_names()`가 빈 그룹은 이 가드를 통과하면서 여전히 공허하다.
 
-chomp에도 해당한다. `optimizer.rs:1015`가 `group_name`을 `CollisionRequest`에
+chomp에도 해당한다. `optimizer.rs:1146`가 `group_name`을 `CollisionRequest`에
 실어 보내고, 그것을 받는 `ParryCollisionEnv`의 `active_group_links`
 (`parry.rs:1330`)가 `updated_link_names()`를 읽는다. 즉 chomp의 충돌 단언이
 공허해지는지를 결정하는 집합도 `updated_link_names()`이지 `link_names()`가
@@ -22647,7 +22647,7 @@ $ rg -n '^\| Phase ' PORTING-PLAN.md | rg -v '\| MET \|'
 |---|---|---|---|
 | Phase 3 `collision: bool` | §229.1 | ~~상류에 정합할 규약이 자체가 없다 — `z = 0` 정확 접선에서 상류의 답이 한 값으로 정해지지 않는다. 빠진 코드가 아니라 정의되지 않은 의미론이다~~ → **§251이 대체.** 규약이 없는 것이 아니라 fcl의 협면 특수화 등록표가 규약 자리에 있고, prbt의 `cylinder × box`가 그 표의 빈칸이다(§251.1이 49셀 중 49셀을 그 기준으로 가른다). 정의되지 않은 의미론이 아니라 쌍마다 정해진 디스패치다 | **0**. 이 행이 재는 코드는 `moveit_core/collision_detection_fcl/src/collision_common.cpp`이고, 그 디렉터리는 `CORE_EXCLUDED_SUBDIRS`라 코퍼스 245에 애초에 들어오지 않는다 |
 | Phase 3 `distance: f64` | §229.3 | 상류 `distanceCallback`(`collision_detection_fcl/src/collision_common.cpp:471`)이 다른 양을 잰다 — 최대 침투깊이 접촉의 부호를 뒤집은 값. 배율이 아니라 정의 차이다 | **0**. 위와 같은 파일·같은 이유 |
-| Phase 8 CHOMP/STOMP | §217.3 | 포트 쪽에 속성 기반 하네스가 없다. Phase 7의 대응물은 `crates/moveit-planners-sbp/examples/plan_benchmark_{port,problem_set}.rs`이고 chomp/stomp 크레이트에는 `examples/`·`benches/` 자체가 없다 | **0**. 87건 중 chomp/stomp는 8건이지만 전부 ROS 플러그인 배선(`chomp_interface/*`, `stomp_moveit_planner_plugin.cpp`, `trajectory_visualization.hpp`)이고, Phase 7 하네스는 플러그인을 거치지 않는다 — `plan_benchmark_port.rs:182`는 `moveit_planners_sbp::PlannerManager`를 직접 쓰고, 대응 진입점은 이미 있다(`moveit-planners-chomp/src/planner.rs:382 solve`, `moveit-planners-stomp/src/planner.rs:430 plan`) |
+| Phase 8 CHOMP/STOMP | §217.3 | 포트 쪽에 속성 기반 하네스가 없다. Phase 7의 대응물은 `crates/moveit-planners-sbp/examples/plan_benchmark_{port,problem_set}.rs`이고 chomp/stomp 크레이트에는 `examples/`·`benches/` 자체가 없다 | **0**. 87건 중 chomp/stomp는 8건이지만 전부 ROS 플러그인 배선(`chomp_interface/*`, `stomp_moveit_planner_plugin.cpp`, `trajectory_visualization.hpp`)이고, Phase 7 하네스는 플러그인을 거치지 않는다 — `plan_benchmark_port.rs:182`는 `moveit_planners_sbp::PlannerManager`를 직접 쓰고, 대응 진입점은 이미 있다(`moveit-planners-chomp/src/planner.rs:407 solve`, `moveit-planners-stomp/src/planner.rs:430 plan`) |
 | Phase 9 `MoveGroupInterface` | §226.4, §250 | **이 표가 쓰인 시점에는** 서버 쪽이 없었다 — `fn main`을 갖는 노드 바이너리도, `/plan_kinematic_path` 서비스도, `/move_action` 액션 서버도 없었다. 셋 다 §250이 같은 병합 창에서 지었으므로(`ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`) 지금 남은 것은 호출할 플래너가 없다는 것이고, 그것은 D8이 소유한 결정이다 | **0**. 이 행을 막는 상류 코드는 `moveit_ros/move_group/**`이고(예: `src/default_capabilities/plan_service_capability.cpp`가 `/plan_kinematic_path`를 연다), 코퍼스에 `moveit_ros/` 파일은 0건이다 |
 
 **`인용 §` 열은 이 표가 쓰인 시점의 값이다.** 그 뒤로 §5 표에서 두 칸이
@@ -26095,7 +26095,7 @@ upstream에 있고 이 실행에는 없는 경로를 보증하는 셈이 된다.
 
 이 수가 **하한이지 등식이 아닌** 이유도 실측이다. 최적화기는 클로저를
 `iteration % 10 == 0`에서 부르고 루프는 `start_time.elapsed() >
-planning_time_limit`에서 나간다(`optimizer.rs:1582`, `:1598`). 같은 시드로 연속
+planning_time_limit`에서 나간다(`optimizer.rs:1758`, `optimizer.rs:1774`). 같은 시드로 연속
 두 번 돌린 pilot에서 나머지 per-set 수치는 전부 같고 fanuc_floor_wall의 호출
 수만 9 → 10으로 달랐다. 벽시계에 달린 수를 등식으로 핀하면 그 핀은 기계 부하를
 잰다.
@@ -27208,8 +27208,8 @@ ULP까지 일치한다는 것이다. 그리고 남은 114건이 왜 다른지는
 - 상류: `chomp_optimizer.cpp:568`의 `rsl::uniform_real(0., 1.)`, 바로 위
   `chomp_optimizer.cpp:566`의 `if (parameters_->use_stochastic_descent_)`
   안에 있다.
-- 포트: `optimizer.rs:1370`의 `rng.random_range(0.0..1.0)`,
-  `optimizer.rs:1369`의 `if self.parameters.use_stochastic_descent` 안에 있다.
+- 포트: `optimizer.rs:1501`의 `rng.random_range(0.0..1.0)`,
+  `optimizer.rs:1500`의 `if self.parameters.use_stochastic_descent` 안에 있다.
 
 상류 CHOMP에 난수 소비자로 보이는 다른 두 자리는 살아 있지 않다.
 `ChompOptimizer::perturbTrajectory`(`chomp_optimizer.cpp:959`)의 유일한 호출은
@@ -30130,7 +30130,7 @@ op은 요청의 `motion_resolution`을
 늘 100%인 바는 아무것도 재지 않을 수 있다. 특히 CHOMP에서는 의심할 이유가
 분명하다 — `ChompPlanner::solve`가 SUCCESS를 `optimizer->isCollisionFree()`로
 판정하므로(`chomp_planner.cpp:284`, 포트에서 같은 자리는
-`crates/moveit-planners-chomp/src/planner.rs:478`의
+`crates/moveit-planners-chomp/src/planner.rs:503`의
 `if !optimizer.is_collision_free() {`), "해결했다"가 "자기 waypoint에서 충돌
 없다"를 이미 함의하는 것처럼 보인다.
 
@@ -30143,7 +30143,7 @@ C++ 쪽 FCL)를 본다. 그래서 포트의 그 한 줄을 `if false && !…`로
 | | 해결 | 자기 waypoint에서 조건 2 실패 | 0.01에서 조건 2 실패 |
 | --- | --- | --- | --- |
 | 원본 | 380/500 | **0** | 1 |
-| `crates/moveit-planners-chomp/src/planner.rs:478`의 `if !optimizer.is_collision_free() {`를 막음 | 500/500 | **111** | 112 |
+| `crates/moveit-planners-chomp/src/planner.rs:503`의 `if !optimizer.is_collision_free() {`를 막음 | 500/500 | **111** | 112 |
 
 바가 문다. 되돌린 뒤 `cage` id 0-19를 같은 씨앗으로 재실행한 결과가 기록된
 스윕의 해당 20행과 **바이트 동일**하다.
@@ -30170,7 +30170,7 @@ stratum의 씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지�
 질문이다.
 
 **생성기의 범위.** 진입점은 양쪽에 이미 있다 —
-`crates/moveit-planners-chomp/src/planner.rs:251`의
+`crates/moveit-planners-chomp/src/planner.rs:276`의
 `pub seed_trajectory: Option<&'a RobotTrajectory<'m>>,`, 포트 STOMP의
 `planner::extract_seed_trajectory`, 상류 STOMP의 `extractSeedTrajectory`
 (`stomp_moveit_planning_context.cpp:94`, `req.trajectory_constraints`를
@@ -30213,7 +30213,7 @@ stratum의 씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지�
 - **fanuc과 나머지 세 로봇.** 이 절의 모든 수는 panda_arm이다. §264.7의
   fanuc stratum은 씨앗 유효 비율이 이보다 훨씬 높았다(해결 문제 전부).
 - **조건 2를 자기 검사 단위에서 STOMP에 대해 무력화하는 변이.** §286.8은
-  CHOMP 쪽 `crates/moveit-planners-chomp/src/planner.rs:478`의
+  CHOMP 쪽 `crates/moveit-planners-chomp/src/planner.rs:503`의
   `if !optimizer.is_collision_free() {`만 껐다. STOMP 쪽의 대응 변이는
   §263.6이 `COLLISION_PENALTY` = 0으로 이미 한 번 걸었지만,
   그것은 0.01 바에 대한 것이고 0.05 바에 대해 다시 걸지는 않았다.
