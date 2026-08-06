@@ -806,7 +806,7 @@ Phase 완료 조건 판정이 사는 유일한 곳. 위 각 Phase의 "상태" �
 | Phase 2 | FK 10,000×3로봇이 `1e-9` 이내 일치 | MET | §217.3 | 2026-08-05 |
 | Phase 2 | 야코비안이 `1e-7` 이내 일치 (열 순서 규약 포함) | MET | §217.3 | 2026-08-05 |
 | Phase 2 | 관절 한계 클램핑·mimic 전파·floating/planar 조인트 보간 일치 | MET | §238 | 2026-08-06 |
-| Phase 3 | `collision: bool` 이 10,000×3로봇에서 100% 일치 | UNMET | §275.2 | 2026-08-06 |
+| Phase 3 | `collision: bool` 이, **두 협면 파견표가 겹치는 형상 쌍**에서 100% 일치 — fcl이 특수화를 등록해 libccd MPR의 빈칸이 발화할 수 없고 `parry`도 닫힌 형태로 보내며 두 형태가 경계의 같은 편을 잡는 쌍은 `sphere × {box, cylinder}`뿐이고, 간극 `1e-12`~`1e-2` 사다리 위 4로봇 2,478표본 전부 일치. fcl의 빈칸(`cylinder × box`·`cylinder × cylinder`), `box × box`, `sphere × sphere`, 간극이 정확히 0인 배치, 메쉬는 이 행이 재지 않았고, 앞 둘은 같은 코퍼스에서 대조로 재어 양의 간극 띠에서 어긋나며(600/3,067, 253/1,515) `sphere × sphere`는 그 사다리에서 101표본 전부 일치하고 간극 0에서만 갈린다(10/27) | MET | §288 | 2026-08-06 |
 | Phase 3 | `distance: f64` 가 분리 분기(오라클 값 > 0)에서 `1e-4` 이내 일치 | MET | §260 | 2026-08-06 |
 | Phase 3 | `distance: f64` 의 관통 분기(오라클 값 ≤ 0)가, 상류 결함 3건 중 **어느 것도 발화할 수 없는 부분모집단**에서 `1e-4` 이내 일치 — 질의당 쌍 1개 × `sphere × {sphere, box, cylinder}`, 4로봇 4,844표본, 최악 `8.9e-16`. 쌍이 둘 이상인 상태와 `box × box`·메쉬는 이 행이 재지 않았고 오라클 패치를 요구한다 | MET | §283 | 2026-08-06 |
 | Phase 4 | (a) IK 성공이 C++ KDL 플러그인과 구별되지 않는다 — 게이트가 검정력을 갖는(`b + c >= MINIMUM_USABLE_B_PLUS_C`) 모든 `--ik-max-restarts` 동작점에서 짝지은 McNemar 게이트의 절댓값 z가 `PAIRED_DIVERGENCE_Z_THRESHOLD` 이하 | MET | §280 | 2026-08-06 |
@@ -3946,7 +3946,7 @@ enforcePositionBounds`(`revolute_joint_model.cpp:218-230`)와 정확히 같은
   공식 하나뿐 — 오라클의 비연속 분기와 정확히 일치, 5라운드에서 이미
   확인한 그대로다.
 - Planar/Floating 관절은 이 op에 도달할 수 없다 — `isSingleDOFJoints()`
-  (오라클 `ik` op 자신의 최상단 조건, `oracle.cpp:1044`)가 이미 걸러낸다.
+  (오라클 `ik` op 자신의 최상단 조건, `oracle.cpp:2062`)가 이미 걸러낸다.
 - 그러므로 `RevoluteJointModel`의 `continuous_` 분기가 이 op이 다루는
   전체 단일 자유도 관절 타입 중 유일하게 클램프 공식과 다른 경우였다 —
   이번에 우연히 처음 찾은 사례가 아니라 그것이 전부다.
@@ -3973,7 +3973,7 @@ enforcePositionBounds`(`revolute_joint_model.cpp:218-230`)와 정확히 같은
 과제의 원래 표현("a seed near ±π on a continuous joint")을 문자 그대로
 만족시키려 했으나, 상류 자체의 설계가 이를 막는다: 오라클의
 `seed_active[k]`는 항상 활성 관절의 bounds 중점이고
-(`seed_active[k] = (joint_min + joint_max) / 2.0`, `oracle.cpp:1144-1146`),
+(`seed_active[k] = (joint_min + joint_max) / 2.0`, `oracle.cpp:2163-2165`),
 연속 관절의 bounds는 어떤 URDF를 넣든 상류 생성자가 하드코딩한
 `-M_PI`/`M_PI`다(`RevoluteJointModel`의 기본 생성자 및
 `setContinuous(true)`, `revolute_joint_model.cpp:60-92`). 포트의
@@ -4595,7 +4595,7 @@ if (!cdata->req->enable_signed_distance && cdata->res->collision)
 
 `!enable_signed_distance`로 게이트된다. 그런데 양쪽 모두
 `enable_signed_distance = true`로 요청한다 —
-`oracle.cpp:1524`/`1530`, `moveit-diff/src/rust_impl.rs:370`. 따라서
+`oracle.cpp:2494`/`:2500`, `moveit-diff/src/rust_impl.rs:370`. 따라서
 상류는 이 스윕에서 조기 종료하지 않고, 편차 7은 발동하지 않는다.
 비교 대상은 양쪽 모두 모든 쌍을 평가한 뒤의 전역 최소값이며, 비교는
 의미가 있다.
@@ -5897,7 +5897,7 @@ dirty-subtree 장부까지 포함해 파생하므로, 정착되지 않은 웨이
 against**: no oracle op exists for a `dynamics_solver`-shaped computation"을
 써 넣었다. 두 주장 모두 사실이 아니다:
 
-- `oracle.cpp`에 `dynamics` op가 이 라운드 이전부터 있다(`:541`), 캡처
+- `oracle.cpp`에 `dynamics` op가 이 라운드 이전부터 있다(`:1029`), 캡처
   스크립트도 `tools/moveit-oracle/capture-dynamics-fixtures.py`로 있다.
 - `moveit_state::dynamics::DynamicsSolver`(`crates/moveit-state/src/dynamics.rs`)가
   RNE 재귀를 직접 써서 포팅돼 있고 — `torques`/`max_torques`/`max_payload`/
@@ -11413,8 +11413,12 @@ taint가 적용되지 않은 실행은 결과를 세지 않았다.
 ### 138.3 같이 드러난 결함: 응답에 들어간 stopwatch
 
 **Anchor:** `rg -n 'planning_time' tools/moveit-oracle/src/oracle.cpp`
-**Sites:** `oracle.cpp:4752`(`plan` → `planning_time_s`), `oracle.cpp:5135`
-(`pilzTrajectory` → `planning_time`) — **둘 다 같은 결함**.
+**Sites:** `oracle.cpp@c0838b4^:4752`(`plan` → `planning_time_s`),
+`oracle.cpp@c0838b4^:5135`(`pilzTrajectory` → `planning_time`) — **둘 다 같은
+결함**. 두 줄은 아래 `c0838b4`가 지운 줄이다. 오늘의 파일에 대응물이 없으므로
+번호를 옮길 수 없고, 옮기면 이 문단이 기록하려는 결함 자체가 지워진다. 그래서
+번호가 참이었던 리비전을 인용 안에 박아 `@c0838b4^`로 적는다 — 이 형태는
+오늘의 파일이 아니라 그 리비전에 대해 검사된다(§287).
 
 wall-clock 값이 바이트 비교되는 fixture에 들어가면 재생할 때마다 drift한다. 같은
 LIN 요청이 `0.001528053` → `0.001346184`로 나왔고 나머지 필드는 전부 동일했다.
@@ -11799,9 +11803,13 @@ doc에 불변식을 이미 적어놨다:
 절반만 강제하고 있었다.
 
 **Anchor:** `clearAttachedBodies` / `attachBody` on the shared `state_`
-**Sites:** `oracle.cpp:2016`(`collision`), `:2214`(`frameTransform`),
-`:2337`(`isStateValid`); `applyJointValues` 호출자 10곳
-(`:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`)
+**Sites:** `oracle.cpp@367c07a^:2016`(`collision`),
+`oracle.cpp@367c07a^:2214`(`frameTransform`),
+`oracle.cpp@367c07a^:2337`(`isStateValid`); `applyJointValues` 호출자 10곳
+(`oracle.cpp@367c07a^:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`)
+— 아래 `367c07a`가 가드를 소유자 안으로 옮기면서 지운 줄들이라, 번호는 그
+커밋 직전 리비전에서만 참이다. 이 절의 `:NNN`은 전부 그 리비전 기준이고,
+인용에 박힌 `@367c07a^`가 오늘의 파일에 대한 주장이 아님을 말한다(§287).
 **Same defect at:** `:2016`, `:2214` — 둘 다 `applyJointValues` 직후에 스스로
 `clearAttachedBodies()`를 부르고 있었다. 나머지 8개 호출자는 부르지 않는다. 두
 집단을 가르는 것은 **누가 그 생각을 했느냐**뿐이었다.
@@ -17671,8 +17679,12 @@ $ moveit-diff --urdf fixtures/panda.urdf --srdf fixtures/panda.srdf \
 이 해석이 성립하려면 오라클의 성공 집합이 세 실행에서 같아야 한다. 같다:
 `Op::Ik`가 실어 보내는 필드는 `group`/`joint_values`/`position_only`/
 `max_restarts`/`consistency_limits` 다섯 개뿐이라(`protocol.rs:186-230`)
-`--ik-rng-seed`는 wire에 실리지 않고, 오라클의 IK 난수는 고정 시드 멤버
-(`tools/moveit-oracle/src/oracle.cpp:6065`, `ik_rng_{ 42 }`)이며, 오라클
+`--ik-rng-seed`는 wire에 실리지 않고, 오라클의 IK 난수는
+`Oracle`(`tools/moveit-oracle/src/oracle.cpp:891-892`)의 시작 인자
+`ik_rng_seed`(기본값 `42`)에서 나온다 — 이 라운드 당시엔 `ik_rng_{ 42 }`
+멤버 초기화였고, `c0736d5`가 인자로 바꾸면서 기본값 42는 유지했다.
+`run-oracle.sh`는 그 인자를 오라클에 넘기지 않으므로(읽는 곳은
+`oracle.cpp:7092-7097` 한 곳뿐이다) 세 실행 모두 42이고, 오라클
 `ik` op에는 벽시계가 없다. 세 실행의 오라클 성공 수가 모두 `4921`로 같고,
 `--ik-rng-seed 0` 실행을 다시 돌리면 `--ik-divergence-json` 파일이 `cmp`로
 바이트 동일하다.
@@ -17761,7 +17773,7 @@ if (delta_twist_norm <= params_.epsilon) { success = true; break; }
 `delta_q`를 더하기 **전에** `break`한다. 즉 반환되는 해는 방금 오차를 잰
 바로 그 구성이고, **성공한 해의 FK 오차는 병진·회전 각각 `epsilon` 이하가
 구조적으로 보장된다.** 오라클도 같은 상수를 박아 두었고
-(`oracle.cpp:1772`, `constexpr double kEpsilon = 0.00001`), 이 포트도 같다
+(`oracle.cpp:2052`, `constexpr double kEpsilon = 0.00001`), 이 포트도 같다
 (`crates/moveit-kinematics/src/params.rs:65`, `epsilon: 0.00001`).
 
 **측정: 오차 상한이 `epsilon`을 정확히 따라간다.** `--ik-epsilon`(이번
@@ -19586,9 +19598,9 @@ Bullet 두 백엔드에 같은 스위트를 물리는 것이다. 인스턴스화
 | panda `PaddingTest` | **이 라운드에 만들었다** (아래) |
 
 **짝이 없던 단언은 하나였고, 없는 이유가 구조적이었다.** 오라클의
-`collision` op은 padding 인자를 받지 않는다(`oracle.cpp:2191`의
-`json collision(const json&)`은 `joint_values`·`attached_bodies`·월드
-객체·`max_contacts_per_pair`만 읽는다). 그래서
+`collision`(`oracle.cpp:2454-2527`)은 padding 인자를 받지 않는다 — 본문이
+`joint_values`·`attached_bodies`·월드 객체·`max_contacts_per_pair`만
+읽는다. 그래서
 `tests/fixtures/{panda,fanuc,pr2}_collision.json`은 전부 생성자 기본값
 padding `0.0`에서 잡혔고, **차분 픽스처로는 `LinkPaddingScale`을 원리상 못
 건드린다.** 실제로 이 라운드 전까지 워크스페이스에서 0이 아닌 padding이
@@ -20352,8 +20364,8 @@ API(`RobotState::interpolate`, 두 whole-state 사이 보간)는 포트되지
 
 **(c) mimic 전파 — 오라클과 비교 가능했고, 지금 처음 비교했다.**
 
-`randomStates`(oracle.cpp:1537, 이 op의 문서 주석 자신이 이미
-적어 놓았다): "RobotModel::getVariableRandomPositions ... derives
+`randomStates`의 문서 주석 자신이 이미 적어 놓았다
+(`oracle.cpp:1579-1580`): "RobotModel::getVariableRandomPositions ... derives
 mimic values." — 즉 `tests/fk_parity.rs`의 네 로봇 픽스처
 (`{panda,dual_arm_panda,pr2,fanuc}_fk.json`, 각 3개의 무작위 case)에
 이미 실려 있는 `joint_values`의 follower 변수 값은 실제 moveit2가
@@ -21486,9 +21498,9 @@ tests`). 두 철자는 실수 위에서 같고 f64 위에서 다르다: 미터 �
 
 오라클은 **표적 풀**과 **자기 IK 재시작**을 같은 생성기 클래스
 (`random_numbers::RandomNumberGenerator`, boost `mt19937`)의 **같은 정수 시드
-공간**에서 뽑는다. `randomStates`는 `request["seed"]`로 하나를 심고
-(`oracle.cpp:1547`), `ik()`의 재시작 루프는 `ik_rng_`에서 뽑는다
-(`oracle.cpp:2235`). 두 시드가 같으면 그 둘은 **같은 스트림**이다. 그러면
+공간**에서 뽑는다. `randomStates`(`oracle.cpp:1583-1600`)는
+`request["seed"]`로 하나를 심고(`:1586`), `ik()`의 재시작 루프는
+`ik_rng_`에서 뽑는다(`oracle.cpp:2343`). 두 시드가 같으면 그 둘은 **같은 스트림**이다. 그러면
 재시작이 표적을 만들어 낸 바로 그 관절 구성을 다시 뽑아내고, 오라클은
 그것을 자기 해로 돌려준다.
 
@@ -21612,8 +21624,10 @@ b 82 / c 67로 §221.4와 같다.
 ### §245.3 재시작을 끈 동작점은 이 레포 자신의 게이트가 "판정 불가"라고 답하는 지점이다
 
 §221.1이 포트 우위의 근거로 든 `--ik-max-restarts 0`은 결정론적 비교가
-아니다. 오라클 쪽은 상수지만(특이점 흔들기가 시드되지 않은 `std::rand()`를
-쓴다 — `oracle.cpp:2188`) **포트 쪽은 아니다**. 포트의 흔들기는 재시작과
+아니다. 오라클 쪽은 상수지만(특이점 흔들기가 `delta_q.data.setRandom()`
+— `oracle.cpp:2296` — 이라 `ik_rng_`가 아니라 Eigen 기본 난수, 즉 시드되지
+않은 `std::rand()`를 소비한다; `std::rand`라는 호출은 이 파일에 없다)
+**포트 쪽은 아니다**. 포트의 흔들기는 재시작과
 같은 rng를 소비한다(`cart_to_jnt.rs:237`). 포트 rng 시드만 옮겨 재측정했다:
 
 | 픽스처 | 오라클(상수) | 포트 표본 | 포트 평균 | 포트 < 오라클 |
@@ -23562,6 +23576,12 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 `unresolvable` 키에 `oracle` 그룹으로 선언해 두었고, 그 `why`가 이 절을
 가리킨다. `--source` 줄을 넣는 것이 이 작업의 **마지막** 단계다.
 
+그 마지막 단계는 §287가 했다. 세 부류에는 새 번호를 주는 대신 리비전을 박은
+철자 `` `oracle.cpp@c0838b4^:4752` ``를 주었고, 그 다음 루트를 넣었다. `oracle`
+그룹은 `unresolvable`에서 사라졌다. 위 세 항목이 적은 2484/2488, 858-859,
+6571/6584는 이 절이 쓰일 당시의 숫자이고 그 뒤로 밀렸다 — 오늘 값은 §287.5에
+있다. 이 절은 측정이므로 그대로 둔다.
+
 ### §253.4 표 (인용 54건)
 
 `인용 위치`는 인용이 적힌 문서:줄, `적힌 곳`은 그 인용이 명시한 spec,
@@ -23628,7 +23648,9 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 재도출 도구는 커밋하지 않았다. 한 번 쓰고 버리는 것이 아니라 게이트가 되어야
 할 물건인데, 게이트로 만들면 오늘 47건이 전부 빨개진다. 그 순서 — 표를 따라
 인용을 고치고, 그 다음 `--source` 한 줄과 함께 게이트로 올리는 것 — 이
-다음 라운드의 작업이다.
+다음 라운드의 작업이다. §287가 그것이다. 다만 이 표를 입력으로 쓰지는
+않았다: `재도출` 열은 그 뒤 `oracle.cpp`가 약 450줄 자라면서 통째로 낡았고,
+표의 54행과 게이트 코퍼스의 54건이 같은 54가 아니었다(§287.2).
 
 ---
 
@@ -30183,3 +30205,505 @@ stratum의 씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지�
   §263.6이 `COLLISION_PENALTY` = 0으로 이미 한 번 걸었지만,
   그것은 0.01 바에 대한 것이고 0.05 바에 대해 다시 걸지는 않았다.
 - **`max_iterations = 200`.** §269.8이 연 자리 그대로다.
+
+---
+
+## §287 `oracle.cpp` 인용을 게이트에 올렸다 — 저장소 자신을 `--source` 루트로, 되짚을 수 없는 열일곱 건은 리비전을 박은 철자로 (2026-08-06)
+
+§253은 측정에서 멈췄다. 그 절이 든 이유는 타당했다: `--source` 한 줄을 그때
+넣었으면 10건이 빨개지고 그 10건만 고쳤을 때 나머지 37건 위에 초록 OK 줄이
+섰을 것이다. 이 절은 그 마지막 단계다 — 인용을 전부 재도출해 고치고, 되짚으면
+안 되는 것들에는 되짚지 않아도 검사되는 철자를 주고, 그 다음에 루트를 넣었다.
+`tools/ci/upstream-citation-exemptions.json`의 `unresolvable`에서 `oracle`과
+`fcl-distance-tolerance-probe` 두 그룹이 사라졌다. 오늘 게이트가 검사하는 이
+저장소 안 `oracle.cpp` 인용은 **87건**이다 — 이 절 자신이 쓴 18건과 §286이 쓴
+2건을 포함한 수이고, 이 라운드가 들어오기 전 트리 기준으로는 67건이다.
+`tools/fcl-distance-tolerance-probe/probe.cpp:77`을 가리키는 인용 4건도 같은
+루트로 검사된다.
+
+### §287.1 루트를 넣기 전에 확인한 것 — basename 충돌 3건, 오늘은 물지 않는다
+
+`--source`는 파일이 아니라 git 루트를 색인하므로, 저장소를 통째로 넣으면
+`$MOVEIT2_SRC`와 같은 basename을 가진 이 저장소 파일이 남의 인용을 가로챌 수
+있다. 전수로 셌다. 정확히 같은 키(경로 전체)로 겹치는 파일은 **0건**이고
+(`source_index`는 그 경우 `SystemExit`으로 죽는다), basename만 겹치는 것은
+**3건**이다:
+
+| basename | 상류 | 이 저장소 |
+| --- | --- | --- |
+| `chainiksolver_vel_mimic_svd.cpp` | `moveit_kinematics/kdl_kinematics_plugin/src/` | `tools/moveit-oracle/src/third_party/kdl_kinematics_plugin/` |
+| `chainiksolver_vel_mimic_svd.hpp` | `moveit_kinematics/kdl_kinematics_plugin/include/moveit/kdl_kinematics_plugin/` | 같음 |
+| `joint_mimic.hpp` | `moveit_kinematics/kdl_kinematics_plugin/include/moveit/kdl_kinematics_plugin/` | 같음 |
+
+오늘 이 셋을 줄 번호와 함께 인용하는 곳은
+`crates/moveit-kinematics/doc/lgpl-provenance-audit.md`의 67·69줄 두 곳뿐이고,
+둘 다 `moveit_kinematics/chainiksolver_vel_mimic_svd.cpp:73-84` 처럼 이 저장소
+사본에는 없는 경로 성분을 쓴다 — `resolve_path`의 접미사 매칭이 상류 쪽으로
+유일하게 좁힌다. 확인 방법은 게이트 자신이다: 루트를 넣은 실행이
+undeclared-unresolvable **0건**으로 통과한다.
+
+**미래에 물면 조용하지 않다.** 경로 성분 없이 basename에 줄 번호만 붙여 쓰면
+후보가 둘이 되어 `ambiguous:`로 해소 실패가 되고, 선언되지 않은 unresolvable은
+하드 실패다. 조용히 한쪽을 고르는 경로는 없다. 이 절의 초고가 그 형태를 예시로
+백틱 안에 적었다가 게이트에 걸린 것이 그 증명이다 — 예시조차 인용으로 읽힌다.
+
+### §287.2 재도출 — §253.4의 표를 입력으로 쓰지 않았다
+
+표는 앞 라운드의 유도물이지 근거가 아니다. 51개 사상을 전부 처음부터 다시
+냈다(인용 줄 blame → 그 리비전에서 인용된 줄 읽기 → 오늘 파일에서 그 내용
+찾기). 표에서 가져다 쓴 행은 **0건**이다. 그렇게 해서 표와 다른 것이 나왔다:
+
+- 표의 `재도출` 열은 통째로 낡았다. `oracle.cpp`가 그 사이 약 450줄 자랐다 —
+  예를 들어 1044를 표는 2025로, 오늘 파일은 2062로 준다. 표의 숫자를
+  그대로 썼다면 51건 전부 틀렸을 것이다.
+- 표에 있으나 게이트가 보는 인용이 **아닌** 행 2건: 표의
+  `PORTING-PLAN.md:20264` 행(오늘 20367-20368)이 든 1537은 백틱 밖이라 토큰이
+  아니었고, `oracle-request-collision-max-contacts-per-pair.md`의 51행(오늘 64)이
+  든 2326은 줄바꿈으로 쪼개져 있었다.
+- 게이트가 보는 인용인데 표에 **없는** 것 2건: `doc/port-coverage.md:166`의
+  5688과 `PORTING-PLAN.md:5900`의 맨 541.
+
+그래서 표의 54행과 코퍼스의 54건은 같은 54가 아니었다. 총계가 맞았다는 것은
+아무것도 보증하지 않는다.
+
+### §287.3 맨 `:NNN` 연속 인용은 7건이 아니라 8건이다
+
+§253.2는 7건으로 셌다. 경로가 해소되면 이들이 처음으로 코퍼스에 들어오므로
+전수로 다시 셌고, 8건이다. 빠져 있던 것은 `PORTING-PLAN.md:5900`의 541
+(`oracle.cpp`에 `dynamics` op가 있다는 문장, 오늘 `oracle.cpp:1029`)이다. 8건 전부 확인해
+고쳤다: 541→1029, 2214·2337·열 개 목록은 아래 §287.4의 역사 철자로,
+3605-3606·3575-3582·2206은 `47a271c^`로 고정, 268-286→294-316,
+4884→5488, 5290-5301→5906-5917.
+
+### §287.4 되짚을 수 없는 번호의 철자 — `` `path@rev:spec` ``
+
+§253.3이 "새 번호로 갈아끼우면 틀린 답"이라고 한 부류에는 옳은 번호가 없다.
+그렇다고 맨 `oracle.cpp:NNN`으로 두면 그건 **오늘 파일에 대한 주장**이고 구성상
+거짓이다. `(was ...)` 같은 괄호 표기도 마찬가지다 — 인용 문법은 괄호를 보지
+않는다.
+
+그래서 리비전을 인용 **안**으로, 확장자와 콜론 사이에 넣는다:
+
+```
+`oracle.cpp@c0838b4^:4752`
+```
+
+이 위치가 핵심이다. `<path>:<line>` 문법 어느 갈래도 이걸 우연히 매치하지
+못하므로 "인식되지 않는" 것이 아니라 **다른 모양**이고,
+`tools/ci/measure-upstream-citations.py`는 이 모양을 HEAD가 아니라
+`git show <rev>:<path>`에 대해 bounds 검사한다(`blob_at`). 경로는 오늘도
+해소되어야 한다 — 이름이 바뀐 파일로 들어가는 역사 인용은 해소가 깨져서 다시
+써야 하지, 아무도 못 찾는 경로 위에 앉아 있으면 안 된다. 리비전을 읽을 수 없거나
+그 리비전에서 범위를 벗어나면 `unreadable-historical`로 하드 실패다. 역사 인용은
+같은 줄의 뒤따르는 맨 `:NNN`에게 파일을 물려주지 않는다(`base = None`) —
+리비전이 박힌 인용에서 오늘의 주장을 상속받는 것이 이 모양이 없애려는 혼동
+자체이기 때문이다.
+
+`tools/ci/check-citation-drift.py`는 이 모양을 볼 일이 없다. 그쪽 코퍼스는
+`.rs` 경로 인용뿐이라 `oracle.cpp`는 애초에 밖이다. 두 파서를 다 읽고 고른
+철자다.
+
+오늘 이 모양으로 적힌 인용은 19건이다: `@c0838b4^` 2건(§138.3),
+`@367c07a^` 4건(§143), `@47a271c^` 11건
+(`oracle-request-collision-max-contacts-per-pair.md`), 그리고 위 예시와
+§253.3이 이 절을 가리키며 든 것 각 1건. 예시도 인용이라 검사된다.
+
+### §287.5 세 부류의 처리
+
+- **역사 기록.** §138.3의 4752/5135는 `@c0838b4^`로, §143의 2016·
+  2214·2337과 `applyJointValues` 호출자 열 개 목록은 `@367c07a^`로
+  고정했다. 두 절 다 본문에 왜 그 리비전인지를 적었다. 열세 개 번호를 전부
+  그 리비전에서 다시 읽어 확인했다.
+- **이미 반영된 요청.** `oracle-request-collision-max-contacts-per-pair.md`는
+  헤더에서 이미 "shipped"라고 말하고 있었지만, 본문 열 개 인용은 여전히 맨
+  번호였다 — 즉 "이 분기는 존재하지 않는다"는 문장이 그 분기를 가진 오늘 파일을
+  가리키고 있었다. 본문 전체를 `47a271c^`로 고정하고(요청은 자기가 바꾸자고
+  한 파일을 서술하는 문서다), 오늘 어디에 앉았는지를 헤더에 새로 적었다:
+  `collision`(`oracle.cpp:2454-2527`)이 `oracle.cpp:2474-2477`에서 필드를 읽고
+  `oracle.cpp:2482`/`oracle.cpp:2489`에 적용하며
+  `oracle.cpp:2521`/`oracle.cpp:2525`에서 `allContactsToJson`으로 낸다.
+- **사라진 코드.** §221.1의 `ik_rng_{ 42 }`는 `c0736d5`가 시작 인자로 바꾸면서
+  없어졌다. 오늘은 `Oracle`(`oracle.cpp:891-892`)의 `ik_rng_seed` 기본값 42이고
+  `--ik-rng-seed`(`oracle.cpp:7092-7097`)로 덮을 수 있다. `run-oracle.sh`는 그
+  인자를 넘기지 않으므로 그 절의 결정론 논증은 그대로 선다 — 문장을 그렇게 고쳤다.
+
+### §287.6 §253이 못 본 것 — 쓰인 시점에 이미 틀린 인용 3건, 그리고 한 문장
+
+§253의 방법은 "인용이 쓰일 당시 무엇을 가리켰는지"를 기준으로 삼는다. 그래서
+**쓰인 시점에 이미 틀린** 인용은 표에 드러나지 않는다. 재도출을 인용 도입
+커밋(`git log -S`)까지 밀어 확인했더니 3건이 그랬다:
+
+- `PORTING-PLAN.md:3976`의 1144-1146. 도입 커밋 `ed7ae982`에서 그 세 줄은
+  빈 줄·선언·`for`이고, 문장이 인용부호로 옮겨 적은 `seed_active[k] = ...`
+  대입은 1147이다. 한 줄 짧았다. 오늘의 대응 블록은 `oracle.cpp:2163-2165`.
+- `crates/moveit-collision/src/parry.rs:486`·:492의 2097. 도입 커밋
+  `e3a45711`에서 `CollisionEnvFCL env(model_, world);`는 2159이고 2097은
+  62줄 위의 doc comment다. 오늘은 `oracle.cpp:2464`.
+- `oracle-request-collision-max-contacts-per-pair.md`의 3605-3606(오늘 87행).
+  그 문서가 인용한 리비전(`47a271c^`)에서 두 번째 `max_contacts_per_pair` 대입은
+  3623-3624이고 3605-3606은 열여덟 줄 위 doc comment의 꼬리다.
+
+그리고 인용은 맞았지만 문장이 틀린 것 1건: §245.3(`PORTING-PLAN.md:21628`)이 오라클의
+특이점 흔들기를 "시드되지 않은 `std::rand()`"라고 적으면서 2188을 인용했다.
+`std::rand(`라는 호출은 `oracle.cpp`에 **없다**. 그 줄은
+`delta_q.data.setRandom();`(오늘 `oracle.cpp:2296`), 즉 Eigen 기본 난수이고, 그것이
+내부적으로 `std::rand()`를 쓴다. 결론(시드되지 않았고 `ik_rng_`가 아니다)은
+그대로지만 문장이 파일에 없는 호출을 인용하고 있었으므로 실제 줄을 말하게 고쳤다.
+
+반대로 `doc/port-coverage.md:166`의 5688은 도입 커밋 `4bcb3d4b`에서는
+맞았다 — 그 뒤에 밀렸을 뿐이다(오늘 `oracle.cpp:5725`).
+
+### §287.7 게이트가 눈으로 보이지 않던 번호 6건을 새로 데려왔다
+
+인용처럼 읽히지만 게이트 코퍼스 밖에 있던 것들이다. 전부 검사되는 형태로 고쳤다:
+
+- `PORTING-PLAN.md:4598`의 `` `1530` `` — 콜론이 없어 토큰이 아니었다 → `` `oracle.cpp:2500` ``
+- `PORTING-PLAN.md:20367-20368`의 백틱 밖 oracle.cpp:1537 → `` `oracle.cpp:1579-1580` ``
+- `oracle-request-collision-max-contacts-per-pair.md`(오늘 64행)의 줄바꿈으로 쪼개진
+  `oracle.cpp:2326-\n2338` → 한 줄로 붙여 `@47a271c^`로
+- `PORTING-PLAN.md`의 2337과 열 개 번호 목록 — 자기 줄에 선행 경로가 없어
+  `base`가 없었다 → `@367c07a^` 전체 형태로
+- `oracle-request-pilz-blend-geometry.md:654`의 `` `5777`-`5778` `` →
+  `` `oracle.cpp:6804-6805` ``
+
+일부러 되짚지 **않은** 것도 하나 있다. `PORTING-PLAN.md:27486`은 `$ rg ...`
+실행 결과를 코드 펜스 안에 그대로 옮긴 것이고, 그 실행은 실제로 5688을
+찍었다. 전사를 고치면 기록이 아니라 위조가 된다.
+
+### §287.8 남은 bounds-only 54건과, 그중 구조적으로 앵커할 수 없는 다섯 건
+
+87건의 오늘 분포: **span-verified 14** / **역사 19** / **bounds-only 54**.
+이 절 자신이 쓴 18건(span 2 / 역사 2 / bounds-only 14)과 §286의 2건을 빼면
+12 / 17 / 38이다.
+§253 시점의 대응 숫자는 47건 중 게이트 가시 10건이었고, 그 10건은 전부
+span-mismatch였다.
+
+bounds-only 54건을 게이트 자신의 사유로 나누면: 이름이 앞 60자 안에 없다 47,
+이름은 있으나 말이 끼어든다 6, 다항 spec이라 포함 주장을 하지 않는다 1.
+이 중 다섯 건은 **앵커를 붙이면 안 된다** — 인용 범위가 심볼 정의 스팬 밖에서
+시작하기 때문이고, 앵커를 붙이면 통과하던 인용이 span-mismatch로 뒤집힌다:
+
+| 인용 | 범위 | 왜 |
+| --- | --- | --- |
+| `...hybrid-collision-env-distance-field.md:202` | `3985-4148` | `groupStateRepresentation`(4148-4295) **위의** doc comment부터 시작 |
+| `collision_env_distance_field_parity.rs:988` | `1491-1548` | `applyAttachedBodies`(1513-1548) 위의 doc comment부터 |
+| `collision_env_distance_field_parity.rs:1082` | `2662-2693` | `contactToJson`과 `allContactsToJson` **두** 심볼과 그 사이를 걸친다 |
+| `collision_env_distance_field_parity.rs:1398` | `3985-4295` | 위와 같은 doc-comment 시작 |
+| `doc/upstream-bugs.md:640` | `1348-1360` | `dynamics`(1361-1436) 위의 doc comment |
+
+**이 절이 main에 합류하는 그 머지가 이것을 실물로 증명했다.** §286(`dce80a5e`)이
+`condition2`에 `extra_resolutions`를 더하면서 `oracle.cpp`가 7145줄에서 7202줄로
+자랐고, 6047줄 이후가 최종 +57 밀렸다. 그 아래에 있던 살아 있는 인용은 정확히
+다섯 건이다:
+
+| 인용 | 합류 전 | 합류 후 | 착지한 줄 |
+| --- | --- | --- | --- |
+| `oracle-request-pilz-blend-geometry.md:650` | `6734-6756` | `6791-6813` | `static json serializePilzWaypoints(const robot_traject...` |
+| `oracle-request-pilz-blend-geometry.md:654` | `6747-6748` | `6804-6805` | `velocities[variable] = waypoint.getVariableVelocity(va...` |
+| `PORTING-PLAN.md:17687` | `7035-7040` | `7092-7097` | `else if (arg == "--ik-rng-seed" && i + 1 < argc)` |
+| §287.5(`--ik-rng-seed`) | `7035-7040` | `7092-7097` | 같음 |
+| §287.7(pilz 재지정) | `6747-6748` | `6804-6805` | 같음 |
+
+새 줄은 +57을 더해서가 아니라 합류 전 파일에서 그 블록의 내용을 떠 합류 후
+파일에서 유일하게 다시 찾아 냈다(세 목표 전부 유일 매치, 그 결과가 +57과
+일치한다). 합류 전 7035-7040이 합류 후 파일에서는 `KDL::Tree kdl_tree_;` 근처
+doc comment 한복판이다 — 즉 고치지 않았다면 문장이 존재하지 않는 코드를
+가리켰다.
+
+**게이트는 다섯 중 하나만 잡았다.** 앵커가 붙은 pilz `6734-6756` 하나가
+span-mismatch로 빨개졌고, 나머지 네 건은 bounds-only라 7040도 6748도 7202줄
+안이므로 그대로 통과했다. 이것이 이 절이 닫으려는 실패 모양 그 자체다: 인용이
+해소되고, 검사되고, 틀렸다. 앵커할 수 없다고 적은 다섯 건(위 표)은 그래서
+"검사되지 않는다"가 아니라 "검사할 방법이 없다"로 읽어야 한다.
+
+나머지는 문장이 심볼을 가리키는 것이 아니라 그 심볼**에 대해** 말하고
+있거나(예: "`rg`가 여기서 히트한다"), 아예 이름을 부르지 않는다. 이들에게
+앵커를 붙이려면 문장을 바꿔야 하는데, 그건 인용을 검사 가능하게 만드는 것이
+아니라 문장을 게이트에 맞추는 것이다. bounds-only로 남긴다 — 파일이 7145줄이니
+범위 검사가 잡는 것은 명백한 쓰레기뿐이라는 §253.2의 지적은 그대로 유효하다.
+
+### §287.9 게이트 상태
+
+`tools/ci/verify-upstream-citations.sh`는 이제 다섯 번째 루트로 이 저장소를
+색인한다. 통과 줄: 인용 2578건, span-verified 193, bounds-only 2385,
+맨 `:NNN` 연속으로 닿은 것 469, 역사 19, unresolvable 60건(전부 선언됨,
+`oracle`/`probe`는 이제 그 목록에 없다), out-of-bounds 0, obsolete-header 0,
+span-mismatch 0, stale-declaration 0, unreadable-historical 0.
+
+`tools/ci/check-citation-drift.py`의 클래스 기준선(`doc/citation-classes.txt`)은
+**일부러 다시 얼리지 않았다**. 그쪽 코퍼스는 `.rs` 경로 인용이라 인용을 고친
+쪽으로는 바뀐 것이 하나도 없다. 바뀐 것은 이 절 자신이다: 위 표가 앵커할 수 없는
+다섯 건을 짚으면서 `collision_env_distance_field_parity.rs`의 988·1082·1398을,
+§287.6이 `parry.rs`의 486행을 새로 인용한다. 그래서 demoted 0 / retired 0 /
+promoted 0 / **undeclared 3** / **recounted 1**(`parry.rs`의 486행이 이 문서에서
+1회→2회)이고, 게이트는 기준선이 다시 얼기 전까지 이 넷으로 실패한다. 셋 다
+bounds-only 클래스이므로 여는 것은 커버리지가 아니라 기록이다 — 어느 것도
+다른 클래스에서 강등되어 온 것이 아니다.
+`doc/shorthand-citation-budget.txt`는 두 문서에서 짧은 인용이 줄어 다시 얼렸다
+(`PORTING-PLAN.md` 551→550, max-contacts 문서는 3→0이라 행 자체가 빠졌다).
+
+---
+
+## §288 `collision: bool` 행을 실제로 잰다 — 접선이 답을 정하는 것은 두 파견표가 어긋난 쌍에서뿐이고, 겹치는 쌍은 남아 있다 (2026-08-06)
+
+§5 Phase 3의 `collision: bool` 행은 §229.1 이래 **UNMET**이었고, §251.4가 그
+원인을 확정한 뒤에도, §275.2가 바닥을 내리면 6,854건이 0이 된다는 것을 잰
+뒤에도 UNMET 그대로였다. 그 근거는 "정확 접선에서 두 구현이 갈리고, 그 갈림은
+허용오차로 닫히지 않는다"였다. 그 문장은 **임의의** 형상 쌍에 대해 참이다.
+그러나 그것은 파견표에 대한 사실이지 절에 대한 사실이 아니다. `fcl::collide`가
+특수화를 등록한 쌍과 `parry`의 `DefaultQueryDispatcher`가 닫힌 형태로 보내는
+쌍은 **겹치고**, 겹치는 곳에서는 두 구현이 같은 양을 같은 부등호로 재므로
+비교가 성립한다.
+
+결론부터: 그런 부분모집단은 **존재한다**. 그 위에서 이 포트는 4로봇 2,478표본
+전부에서 오라클과 같은 `bool`을 내고, 코퍼스가 접촉면까지 다가간 가장 가까운
+간극은 `1.0e-12 m`다. 픽스처는 건드리지 않았다 — `--floor-top-z`의 기본값도,
+어느 URDF도 이 절이 바꾸지 않았다. 바꾼 것은 **모집단**이고, 행은 무엇을
+제외했는지를 자기 문안에 적는다.
+
+계측기는 `tools/moveit-diff/src/bin/tangency_subset.rs`(모듈 문서에 아래 유도가
+전부 인용과 함께 들어 있다), 게이트는
+`tools/ci/verify-phase3-tangency-subset.sh`다.
+
+### §288.1 상류의 빈칸을 표가 아니라 소스에서 다시 유도했다 (49셀 중 49셀)
+
+§251.1의 49셀 표는 앞 라운드의 유도이고, 한 앵커가 재현된다고 나머지 셀이
+보증되지는 않는다. 그래서 두 열을 각각 독립으로 다시 세웠다.
+
+**특수화 열 — 49셀 중 49셀을 fcl 소스에서 다시 유도했다. 표에서 가져온 셀은
+0개다.** `GJKSolver_libccd<S>::shapeIntersect`는 모든 쌍을 일반 템플릿
+`ShapeIntersectLibccdImpl<S, Shape1, Shape2>::run`으로 보내고 그 본문은
+`detail::GJKCollide` — libccd MPR — 를 부른다. 그것을 벗어나는 쌍은
+`gjk_solver_libccd-inl.h:245-267`의 등록 매크로가 만드는 명시적 특수화가
+전부이고, §251.1이 세는 7종(`box`, `sphere`, `ellipsoid`, `capsule`, `cone`,
+`cylinder`, `convex`)으로 제한하면 그 매크로 목록은 다음뿐이다 —
+`FCL_GJK_LIBCCD_SHAPE_INTERSECT(Sphere, ...)`,
+`FCL_GJK_LIBCCD_SHAPE_INTERSECT(Box, ...)`, 그리고 양쪽 인자 순서로 모두
+전개되는 `FCL_GJK_LIBCCD_SHAPE_SHAPE_INTERSECT`의 `(Sphere, Capsule)`,
+`(Sphere, Box)`, `(Sphere, Cylinder)`. 셀로 세면 `sphere×sphere` 1,
+`box×box` 1, 나머지 셋이 각 2 — **49셀 중 8셀**이다. §251.1 표에서
+`T/특수`로 적힌 칸도 정확히 그 8칸이고(box 행 2, sphere 행 4, capsule 행 1,
+cylinder 행 1), 어긋나는 칸이 없다. `plane`/`halfspace`/`triangle`을 넣은
+전체 등록 집합은 34쌍이며, 그 세 행을 뺀 것이 위 8칸이다.
+
+**측정 열 — 표를 인용하지 않고 이미지 안에서 다시 돌렸다.**
+`sg docker -c tools/ci/verify-fcl-tangency-dispatch.sh`가
+`libfcl-dev 0.7.0-3build2`에서 2초에 `49 of 49 tangency cells match the pin,
+and all 49 agree with the 34 non-libccd pairs parsed out of fcl's own header`를
+낸다. 즉 "특수화 등록됨 ⟺ 접선에서 충돌"은 이 라운드에서 다시 성립한다.
+
+fcl 라인 번호는 전부 **tag `0.7.0`**
+(`df2702ca5e703dec98ebd725782ce13862e87fc8`) 기준이다(§135). MoveIt이 이
+분기를 고르지 않는다는 §251.1의 근거 — `CollisionRequest`의 기본
+`GST_LIBCCD`(`collision_request.h:102`)와 고정 체크아웃 전체에
+`gjk_solver_type` 0건 — 은 이 절이 다시 재지 않고 그대로 쓴다.
+
+### §288.2 이 포트에도 같은 모양의 표가 있고, 빈칸이 다르다
+
+`parry3d_f64`의 `DefaultQueryDispatcher::contact`
+(`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs:305-359`)는 구조가
+같다: `Ball`/`Ball`은 `contact_ball_ball`, 공 대 볼록은
+`contact_ball_convex_polyhedron`/`contact_convex_polyhedron_ball`, 그 밖은
+전부 `contact_support_map_support_map` — 반복 허용오차가 경계를 정하는 GJK —
+로 떨어진다. **`Cuboid`/`Cuboid`의 닫힌 형태는 그 파일에서 주석 처리되어
+있다**(`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs:317-320`).
+그 GJK 경계가 0이 아니라 양의 간극 안에 있다는 것은 §229.2가 이미 쟀다.
+
+URDF가 만들 수 있는 세 프리미티브의 여섯 쌍을 두 표에 겹치면:
+
+| 쌍 | fcl | parry | 비교 가능 |
+|---|---|---|---|
+| `sphere × box` | `sphereBoxIntersect` | `contact_*_ball` | **예** |
+| `sphere × cylinder` | `sphereCylinderIntersect` | `contact_*_ball` | **예** |
+| `sphere × sphere` | `sphereSphereIntersect` | `contact_ball_ball` | 아니오 |
+| `box × box` | `boxBoxIntersect` | GJK | 아니오 |
+| `box × cylinder` | libccd MPR | GJK | 아니오 |
+| `cylinder × cylinder` | libccd MPR | GJK | 아니오 |
+
+`sphere × sphere`는 양쪽 다 특수화가 있는데도 빠진다. 두 닫힌 형태가 경계
+자체의 **반대편**을 잡기 때문이다: fcl은
+`if(len > s1.radius + s2.radius) return false;`(`sphere_sphere-inl.h:72-73`)로
+접촉을 포함하고, parry는
+`if distance_squared < sum_radius_with_error * sum_radius_with_error`
+(`parry3d-f64-0.30.0/src/query/contact/contact_ball_ball.rs:16`)로 접촉을
+배제한다. §251.3이 이 백엔드의 유일한 비균일 접선 답으로 지목한 그 칸이다.
+
+`box × box`가 빠지는 이유는 상류가 아니라 **이 포트**다. fcl은 그 쌍을
+특수화하지만 parry는 하지 않으므로, 이 쌍의 답은 GJK 허용오차가 정한다.
+§251.3이 단위 정육면체 `±1e-9`에서 이 쌍을 일치로 쟀지만, 그 측정은 허용오차가
+크기에 따라 자라는 것을 볼 수 없는 배치였다 — §288.6이 그것을 잰다.
+
+### §288.3 겹치는 두 쌍은 같은 술어를 본다
+
+fcl은 상대 물체 **안의** 가장 가까운 점을 닫힌 형태로 구한 뒤
+`if (squared_distance > r * r) return false;`로만 기각한다
+(`sphere_box-inl.h:119-120`, `sphere_cylinder-inl.h:136-137`). parry는 같은
+물체에 공의 중심을 같은 클램프로 사영하고
+(`parry3d-f64-0.30.0/src/query/point/point_cuboid.rs:8-12`,
+`parry3d-f64-0.30.0/src/query/point/point_cylinder.rs:7-70`)
+`if dist <= prediction`으로 채택한다
+(`parry3d-f64-0.30.0/src/query/contact/contact_ball_convex_polyhedron.rs:52`,
+`prediction`은 `accumulate_collision`이 넘기는 `0.0`). **같은 양, 같은 포함
+방향, 양쪽 다 반복 허용오차 없음.** §283.2가 `distance` 절에서 쓴 것과 같은
+모양의 논증이고, 여기서는 `bool` 열에 대해 성립한다.
+
+### §288.4 코퍼스 — 간극을 질의의 파라미터로 만든다
+
+세계 물체("probe")를 **충돌 형상이 정확히 하나의 기본 도형**인 링크에
+대고, 나머지 모든 로봇링크/probe 쌍을 `set_acm_entry`로 허용시켜 질의에 쌍이
+하나만 남게 한다. 충돌 요소가 여럿인 링크는 건너뛴다 — ACM은 링크 *이름*으로
+키를 잡으므로 그런 링크를 열면 형상 쌍이 하나로 정해지지 않는다. 마스크가
+실제로 오라클의 질의에 닿는지는 §283.3과 같은 방식으로 **타깃마다 증명**한다
+(`prove_mask_applies`: 링크 형상 자신의 원점에 놓은 프로브에 대해
+`parent_before`는 `true`, 전부 허용시킨 `child`는 `false`).
+
+배치는 링크 주위의 상자에서 뽑지 않고 **구성한다**: 타깃 표면 위의 점과 그
+자리의 바깥 법선을 뽑은 뒤, 두 표면 사이의 간극이 정확히 뽑은 `gap`이 되도록
+프로브를 그 법선 위에 놓는다. `gap`의 크기는 `1e-12`~`1e-2`에서 로그균등이고
+부호는 무작위이며, 여섯 배치 중 하나는 정확히 0이다. 무작위 오프셋 코퍼스는
+경계 근처에 한 번도 가지 않으므로 이 절과 무관한 이유로 일치했을 것이다.
+
+**컷은 질의만으로 결정된다.** 컷을 이루는 둘 — 형상 쌍과 `gap` — 은 어느
+쪽에 묻기 전에 정해지는 질의의 성질이다. 어느 구현이 발표한 거리도, 관통
+깊이도, 불리언도 컷에 들어가지 않는다.
+
+**FK 전제.** 코퍼스가 `1e-12`의 간극을 주장하므로, 두 구현이 링크의 위치에
+대해 그보다 크게 어긋나면 가장 가는 rung은 협면이 아니라 순기구학을 재게
+된다. 그래서 계측기는 **매 상태마다** 오라클의 `fk`와 이 쪽 전역 변환을
+원소별로 대고 최대 편차를 재며, `1e-14`를 넘으면 측정하지 않고 비영으로
+끝난다. 실측 최대는 네 로봇에서 `1.110223e-15`(prbt_pg70)이고, 이 바닥은 가장
+가는 rung보다 두 자릿수 아래, 실측 최악의 9배다. Phase 2 행의 `1e-9`는 여기서
+쓸 수 없다 — 그 값은 이 rung보다 세 자릿수 **위**다.
+
+표본을 뽑는 난수는 `ChaCha8Rng`이고 시드는 오라클의 `random_states` 시드에서
+갈라져 나오므로, `(STATES, SEED)` 한 쌍이 양쪽 코퍼스를 전부 재현한다.
+
+### §288.5 측정 — 4로봇, 2,478표본, 불일치 0
+
+`tools/ci/verify-phase3-tangency-subset.sh`의 기본값(시드 1). 허용오차는
+없다 — 비교 대상이 `bool`이다. `SCORED`가 이 행이 재는 쌍이고, `control`은
+같은 코퍼스에서 나오지만 판정에 쓰지 않는 쌍이다. `agree |gap|≥`는 그 쌍이
+일치한 가장 작은 간극, `differ |gap|≤`는 어긋난 가장 큰 간극이다.
+
+| 로봇 | 요청 | 쌍 | 표본 | 불일치 | `agree |gap|≥` | `differ |gap|≤` |
+|---|---:|---|---:|---:|---|---|
+| prbt | 1200 | `sphere × cylinder` **SCORED** | 326 | **0** | `1.045e-12` | — |
+| | | `box × cylinder` control | 341 | 78 | `1.001e-12` | `1.039e-7` |
+| | | `cylinder × cylinder` control | 327 | 62 | `1.174e-12` | `5.845e-8` |
+| prbt_pg70 | 2688 | `sphere × box` **SCORED** | 526 | **0** | `1.004e-12` | — |
+| | | `sphere × cylinder` **SCORED** | 218 | **0** | `1.025e-12` | — |
+| | | `box × box` control | 538 | 88 | `1.001e-12` | `2.371e-9` |
+| | | `box × cylinder` control | 749 | 129 | `1.077e-12` | `7.844e-9` |
+| | | `cylinder × cylinder` control | 214 | 43 | `1.066e-12` | `1.443e-7` |
+| one_robot | 3060 | `sphere × box` **SCORED** | 847 | **0** | `1.026e-12` | — |
+| | | `box × box` control | 839 | 139 | `1.030e-12` | `1.730e-8` |
+| | | `box × cylinder` control | 858 | 167 | `1.031e-12` | `1.760e-8` |
+| pr2 | 1632 | `sphere × box` **SCORED** | 242 | **0** | `1.021e-12` | — |
+| | | `sphere × cylinder` **SCORED** | 319 | **0** | `1.157e-12` | — |
+| | | `sphere × sphere` control | 101 | 0 | `1.144e-12` | — |
+| | | `box × box` control | 138 | 26 | `1.212e-12` | `3.922e-9` |
+| | | `box × cylinder` control | 353 | 79 | `1.029e-12` | `2.001e-7` |
+| | | `cylinder × cylinder` control | 225 | 42 | `1.690e-12` | `3.915e-8` |
+| **합계** | **8580** | **SCORED** | **2478** | **0** | | |
+
+**부분모집단 밖으로 나가는 순간 발산이 돌아온다.** fcl이 libccd에 맡기는 두
+쌍(`box × cylinder`, `cylinder × cylinder`)은 3,067표본 중 600건(19.6%)이
+어긋나고, 어긋난 표본은 전부 `differ |gap|≤` 열의 양의 띠 안에 있다 — 그
+띠의 폭이 §229.2가 prbt에서 `5e-8`로 쟀던 parry GJK 경계이고, 여기서는 도형
+크기에 따라 `2.4e-9`부터 `2.0e-7`까지 움직인다. **`differ |gap|≤`가 곧 그
+쌍의 발산 띠 폭이고, `SCORED` 행에서 그 열이 비어 있다는 것이 이 절의
+결과다.**
+
+### §288.6 코퍼스가 무는가 — 대조 arm 세 종류, 그리고 변이 두 개
+
+일치가 코퍼스의 무력함에서 온 것이 아님을 세 방향으로 확인했다.
+
+**(1) libccd 빈칸.** 위 표의 두 쌍, 600/3,067. 게이트는 이것을 *요구*한다:
+libccd 셀 arm이 하나도 어긋나지 않으면 "the corpus has lost its power to
+separate"로 실패한다. 조용히 통과할 수 없다.
+
+**(2) `box × box` — 이 포트 쪽 빈칸.** 1,515표본 중 253건(16.7%)이 어긋나고,
+띠 폭은 pr2의 `3.9e-9`에서 one_robot의 `1.7e-8`까지다. §251.3은 단위
+정육면체 `±1e-9`에서 이 쌍을 **일치**로 쟀다. 그 측정이 틀린 것이 아니라,
+`1e-9`가 그 배치의 띠 밖이었을 뿐이다 — 즉 §288.2가 소스에서 미리 뺀
+`box × box`는 실제로 발산하며, 측정 뒤에 뺀 것이 아니다.
+
+**(3) `sphere × sphere` — 접선에만 있는 발산.** 101표본, `1e-12` 이상에서
+불일치 0. §288.2의 유도가 예측한 그대로다: 두 닫힌 형태의 차이는 **정확한
+접촉 한 점**에만 있고 양의 띠를 만들지 않는다. 이 쌍이 `SCORED`에서 빠진
+이유는 띠가 아니라 그 한 점이다.
+
+**변이 2건**(둘 다 되돌렸다). `crates/moveit-collision/src/parry.rs`의
+`accumulate_collision`이 `query::contact`에 넘기는 prediction `0.0`을 바꿨다.
+prbt·one_robot에서 `--states 60`:
+
+| 변이 | prbt `sphere × cylinder` | one_robot `sphere × box` | 어긋난 최대 `\|gap\|` |
+|---|---|---|---|
+| prediction `1e-9` | NOT MET 20/104 | NOT MET 49/299 | `3.543e-10` / `7.263e-10` |
+| prediction `-1e-9` | NOT MET 11/104 | NOT MET 42/299 | `9.016e-10` / `9.956e-10` |
+
+두 변이는 경계를 각각 양·음으로 `1e-9`만큼 옮기고, 어긋난 표본의 최대 간극이
+둘 다 그 `1e-9` 안에 있다 — 코퍼스가 잡은 것이 정확히 옮겨진 경계이지 다른
+무엇이 아니라는 뜻이다.
+
+### §288.7 간극 0 rung은 어느 쪽 규약도 재지 않는다 — 그래서 행이 그것을 이름으로 뺀다
+
+여섯 배치 중 하나는 `gap`이 정확히 0이다. 그 rung은 판정에 쓰지 않고 세어서
+보고만 한다. 이유는 측정이 말한다:
+
+| 쌍 부류 | 0 rung 표본 | 어긋남 | 비율 |
+|---|---:|---:|---|
+| `SCORED` (`sphere × {box, cylinder}`) | 510 | 183 | 35.9% |
+| `sphere × sphere` | 27 | 10 | 37.0% |
+| `box × box` | 305 | 168 | 55.1% |
+| libccd 빈칸 두 쌍 | 577 | 142 | 24.6% |
+
+**유도상 접촉점에서 규약이 어긋나는 쌍(`sphere × sphere`, 37.0%)과 어긋나지
+않는 쌍(`SCORED`, 35.9%)이 이 rung에서 구별되지 않는다.** 규약 차이가
+지배했다면 앞은 100%에 가깝고 뒤는 0이어야 한다. 지배하는 것은 규약이 아니라
+`link_transform * shape_origin * probe_pose`를 각자 반올림한 결과이고, 두
+반올림은 서로 독립이다. libccd 빈칸이 이 rung에서 24.6%밖에 안 되는 것도 같은
+이야기다 — 그 쌍은 양의 띠 전체에서 체계적으로 어긋나므로 실현된 간극이 0
+근처에서 어느 부호로 떨어졌는지가 답을 정한다.
+
+§251.1이 이 갈림을 볼 수 있었던 것은 도형 크기를 모든 극단점이 정확히
+`±0.5`에 오도록 잡고 변환을 항등으로 두어 **접선이 이진에서 정확**했기
+때문이다. 픽스처의 링크를 FK로 옮긴 자리에서는 그 조건이 성립하지 않는다.
+그러므로 이 절이 접선을 뺀 것은 발산을 피한 것이 아니라, **그 rung에서는 잴
+수 있는 것이 없기 때문**이다. 접선 자체의 갈림은 §251.1·§251.3이 그것을 잴 수
+있는 배치에서 이미 재고 고정해 두었다
+(`crates/moveit-collision/tests/exact_tangency_is_decided_per_shape_pair.rs`,
+`tools/ci/verify-fcl-tangency-dispatch.sh`).
+
+### §288.8 비용
+
+전체 실행은 **세 번** 실측해서 세 번 다 90초다(릴리스 빌드 약 15초 별도).
+로봇별로는 prbt 4–5초(1,200요청), prbt_pg70 11–14초(2,688), one_robot
+5–6초(3,060), pr2 67–68초(1,632). **pr2가 전체의 74%인데 요청은 19%다** —
+비용은 표본 수가 아니라 오라클이 95링크 모델에 대해 요청마다 도는
+`PlanningScene` diff를 따른다. 표본 수로 로봇별 비용을 추정하면 안 된다.
+
+`verify-all.sh`가 조건 없이 돌리는 `verify-oracle-sweep.sh`(113초)와 같은
+부류이므로 opt-in으로 감싸지 않았다. 도커가 없거나 이미지 다이제스트가
+어긋나면 크게 SKIP한다.
+
+### §288.9 §5 행이 뭐라고 말해야 하는가, 그리고 이 절이 재지 않은 것
+
+행은 이제 **판정어가 자기 모집단을 이름으로 든다**: 이 측정은 임의의 형상
+쌍이 아니라 두 파견표가 겹치는 쌍에 대한 것이고, 무엇을 제외했는지를 행 자신이
+말한다. 남는 것(=이 절이 재지 않은 것)은 명시적으로:
+
+- **fcl이 libccd에 맡기는 빈칸** — `cylinder × box`가 그중 하나이고 §275.1의
+  6,854건이 사는 곳이다. §288.5가 그 발산을 600/3,067로 다시 잰다. 이 절은
+  그것을 없애지 않았고 없앨 수 있다고 주장하지도 않는다.
+- **`box × box`와 `sphere × sphere`** — 각각 이 포트의 GJK 허용오차와
+  `contact_ball_ball`의 엄격 `<` 때문에 빠진다. §251.4가 적은 대안 넷은 여전히
+  전부 죽어 있다.
+- **간극이 정확히 0인 배치** — §288.7.
+- **메쉬, 그리고 충돌 요소가 여럿인 링크** — 상류가 `shapes::MESH`를
+  `fcl::BVHModel`로 사상하는 세 번째 순회이고, 이 절은 그것에 대해 아무것도
+  유도하지 않았다. panda·fanuc·dual_arm_panda가 이 코퍼스에 없는 이유가
+  그것이다(전 링크가 단일 메쉬).
+- **`self_collision` 열** — 이 절은 `robot_collision`만 본다. 프로브가 세계
+  물체이므로 자기충돌 쌍은 마스크의 대상이 아니고, 같은 유도를 자기충돌에
+  적용하려면 첨부물 경로로 코퍼스를 다시 지어야 한다.

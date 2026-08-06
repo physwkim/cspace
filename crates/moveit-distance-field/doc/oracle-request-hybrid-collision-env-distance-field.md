@@ -77,7 +77,7 @@ which of the four already has real oracle evidence behind it.
 `distance_field_cache_entry` (→ `checkSelfCollision`) and
 `group_state_representation` (→ `checkCollision` or, with
 `"gradients": true`, `getCollisionGradients`). Both already accept
-`request["objects"]` (`addRequestObjects`, `oracle.cpp:2302`, single-shape
+`request["objects"]` (`addRequestObjects`, `oracle.cpp:2621-2631`, single-shape
 `{id, pose, shape}` schema shared with the `collision` op) to populate a
 real `World` before constructing the env — this is not new plumbing to
 request, it exists and is wired today.
@@ -130,7 +130,7 @@ request, it exists and is wired today.
 - **`check_robot_collision_distance_field`** (→
   `CollisionEnvDistanceField::checkRobotCollision`): **zero coverage of
   any kind.** `rg -n 'checkRobotCollision' tools/moveit-oracle/src/oracle.cpp`
-  does have hits (`oracle.cpp:2184`, `:4884`) — but both are
+  does have hits (`oracle.cpp:2491`, `:5488`) — but both are
   `collision_detection::CollisionEnvFCL::checkRobotCollision`, a
   same-named but entirely distinct virtual method on a different backend
   class, called from the `collision` and `octree_in_world` ops as ground
@@ -187,7 +187,7 @@ upstream on its own terms — it is the identical sequence
 `group_state_representation_gradients_matches_the_oracle` already
 performs by hand to build its comparison field (cited above), and
 `collision_object_point_decomposition` itself has its own dedicated
-oracle op (`collisionObjectPointDecomposition`, `oracle.cpp:3700`) already
+oracle op (`collisionObjectPointDecomposition`, `oracle.cpp:4304-4333`) already
 exercised by `collision_object_point_decomposition_parity.rs`. What is
 untested is specifically the *reachability* claim — that walking a real
 multi-object `World` through this exact sequence and handing the result
@@ -199,7 +199,7 @@ not the sequence's individual steps, each already covered elsewhere.
 
 Reuses `group_state_representation`'s existing request shape in full
 (`group`, `joint_values`, `use_acm`, `attached_bodies`, `objects` — see
-that op's own doc comment, `oracle.cpp:3438-3583`) plus one new field:
+that op's own doc comment, `oracle.cpp:3985-4148`) plus one new field:
 
 ```json
 {
@@ -223,7 +223,7 @@ that op's own doc comment, `oracle.cpp:3438-3583`) plus one new field:
   rather than a boolean, so a third mode is not a breaking shape change
   later. Mutually exclusive with `"gradients": true` the same way that
   field is already mutually exclusive with `"contacts": true`
-  (`oracle.cpp:3608-3611`) — `checkRobotCollision` and
+  (`oracle.cpp:4173-4176`) — `checkRobotCollision` and
   `getCollisionGradients` are different upstream calls, not two flags on
   one call.
 - Every other field: unchanged from the existing op. `objects` is
@@ -265,7 +265,7 @@ drafting this document. Neither is usable as cited: the former's
 per-link `gradient.collision` values were not actually read against
 upstream's `getSelfCollisions`/`getIntraGroupCollisions` "false branch
 returns on first hit and writes neither" short-circuit note in this same
-op's own doc comment (`oracle.cpp:3339-3348`) — meaning "every link
+op's own doc comment (`oracle.cpp:4100-4109`) — meaning "every link
 reports `collision: false`" in a `contacts`-absent response is
 ambiguous between "no self-collision" and "a self-collision exists but
 the per-link flag was never reached," not evidence either way without
@@ -351,7 +351,7 @@ loop should not produce.
 ## Response shape
 
 Unchanged from `group_state_representation`'s existing response
-(`oracle.cpp:3673-3690`: `group_name`, `links[]` each with
+(`oracle.cpp:4277-4294`: `group_name`, `links[]` each with
 `has_link_decomposition`/`bounding_sphere_*`/`sphere_centers`/
 `sphere_radii`/`collision_points_count`/`field_pose`/`gradient`, plus
 `collision`/`contacts` when `"contacts": true`). No new output field for
@@ -382,12 +382,13 @@ fixture entry on the existing `group_state_representation` op's existing
 default path, using the `objects` field that already exists and is
 already wired through `addRequestObjects`. F1/F2/F4 need one small,
 localized C++ change: a `mode`/`"robot_only"` branch in
-`groupStateRepresentation` (`oracle.cpp:3583`) that calls
+`groupStateRepresentation` (`oracle.cpp:4148`) that calls
 `env.checkRobotCollision(req, res, *state_, use_acm ? &acm : nullptr,
 gsr)` instead of `env.checkCollision(...)`, gated the same way the
 existing `want_gradients`/`want_contacts` branches already are —
-confirmed by reading the full existing handler body
-(`oracle.cpp:3583-3691`) that no other line references `dfce->
+confirmed by reading the whole handler,
+`groupStateRepresentation`(`oracle.cpp:4148-4295`): no other line
+references `dfce->
 distance_field_` (the field `checkRobotCollision`'s `generate_distance_
 field=false` path skips building), so the rest of the response-dumping
 code needs no change to serve the new branch. This is a few lines inside

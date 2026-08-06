@@ -47,6 +47,7 @@ import importlib.util
 import os
 import re
 import sys
+import textwrap
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_UPSTREAM = "/home/stevek/work/moveit2"
@@ -88,39 +89,21 @@ HEADING = re.compile(r"^#+\s+§?(\d+(?:\.\d+)*)\b")
 # `adjudication` is why the candidates that do fire still do not block, and it
 # is quoted from the cited section, not asserted here.
 UNMET_BLOCKERS = {
-    # Cited §229.1 until §251 replaced that section's DIAGNOSIS and the §5 table
-    # moved the citation to §251.4.  §229.1 itself says its conclusion ("upstream
-    # has no convention") was "valid but incomplete", so this entry was repeating
-    # a reading the plan had withdrawn -- the fourth drift check_phase_coverage()
-    # has found, and the first where the section number and the prose were wrong
-    # for different reasons.
-    ("Phase 3", "collision: bool"): {
-        "section": "275.2",
-        "blocker": "fcl's narrowphase specialization registry stands where a "
-                   "convention would, rather than there being no convention: "
-                   "§251.1 finds all 49 of 49 cells decided by whether fcl "
-                   "registered a libccd-bypassing specialization for that shape "
-                   "pair, and prbt's `cylinder x box` is a blank cell in it.  "
-                   "§275.1 moves the harness floor off that tangency and the "
-                   "6,854 go to 0 of 10,000, so no port defect is left in the "
-                   "count -- but the two implementations still split at exact "
-                   "tangency, and the committed fixture scene is where the row "
-                   "is measured, so it stays UNMET",
-        "candidates": (
-            "moveit_core/collision_detection/",
-            "moveit_core/collision_detection_fcl/",
-            "moveit_core/collision_detection_bullet/",
-        ),
-        "adjudication":
-            "the sweep measures the port AGAINST the oracle over 10,000 samples "
-            "and reports 6,854 mismatches, so both sides produced values -- the "
-            "row fails on a semantic disagreement, not on an absent file.  §265 "
-            "pins all 6,854 to the single pair floor/prbt_base_link, whose world "
-            "pose no joint moves, so every sampled state hits the same tie; §270 "
-            "reproduces the whole 5-robot table on merged main.  The mechanism "
-            "lives in collision_detection_fcl, which doc/port-coverage.md §1 "
-            "excludes from the corpus, so no unported file can be it.",
-    },
+    # ("Phase 3", "collision: bool") lived here, citing §229.1 and then §251.4
+    # and then §275.2, while the row read UNMET on "the two implementations
+    # split at exact tangency".  The row is MET now, on the sub-population where
+    # neither narrow phase's boundary convention can decide the answer: the
+    # shape pairs fcl specialises AND parry sends to a closed form on the same
+    # side of the boundary, which is `sphere x {box, cylinder}` and nothing
+    # else.  Measured by tools/ci/verify-phase3-tangency-subset.sh.  The entry
+    # is removed rather than reworded because this table's contract is "every
+    # not-yet-MET row", and a blocker entry for a MET row is what
+    # check_phase_coverage() calls drift.  What it used to carry that the row
+    # does not -- that the blank cells, `box x box`, `sphere x sphere` and
+    # exact tangency still diverge, and that the mechanism lives in
+    # collision_detection_fcl, which doc/port-coverage.md §1 excludes from the
+    # corpus, so no unported file can be it -- is in the row's own clause and
+    # in the round section that row cites.
     # ("Phase 3", "distance: f64") lived here while the penetration-branch row
     # read UNMEASURED.  Both of that clause's rows are MET now: the separated
     # branch since §260, and the penetration branch on the sub-population where
@@ -629,6 +612,50 @@ def check_phase_coverage(repo: str) -> tuple[list[str], dict]:
     return errors, verdicts
 
 
+def wrap_note(text: str) -> str:
+    """Wrap a derived sentence to the width the hand-written bullets around it
+    use, continuing the bullet's two-space indent.  `{blocks}` starts its own
+    line in the header, so every line here carries that indent."""
+    return textwrap.fill(text, width=56, subsequent_indent="  ")
+
+
+def blocks_note(items: list) -> str:
+    """The sentence the emitted header owes about the `막는 §5 행` column.
+
+    It used to be a literal: "the column can fire -- Phase 3's prefixes pick 9
+    files and Phase 8's pick 8".  That is a claim about `UNMET_BLOCKERS`, and
+    a literal cannot notice the dict shrinking underneath it.  Both of those
+    rows are MET now and the dict is empty, which turns every `none` in that
+    column from a measurement into an empty column -- with the old sentence
+    still vouching for it.  So the sentence is derived from the same dict the
+    column is, and says which of the two it is.
+    """
+    if not UNMET_BLOCKERS:
+        return wrap_note(
+            "§5 표에 아직 MET가 아닌 행이 없으므로 이 열은 **비어 있다** — "
+            "전건 `none`은 어느 행의 기전 경로에도 없다는 측정이 아니라 "
+            "고를 행이 없다는 뜻이다."
+        )
+    counts = [
+        (p, c, sum(1 for i in items
+                   if any(i["path"].startswith(pre) for pre in spec["candidates"])))
+        for (p, c), spec in UNMET_BLOCKERS.items()
+    ]
+    picked = ", ".join(f"{p} `{c}`의 접두사가 {n}건" for p, c, n in counts)
+    fires = any(n for _, _, n in counts)
+    tail = (
+        "을 실제로 고르므로 이 열은 발화할 수 있고, 발화한 건은 아래 판정 "
+        "문단에서 개별로 기각된다."
+        if fires else
+        "을 고른다 — 어느 행의 접두사도 한 건도 고르지 못하므로 이 열은 "
+        "발화할 수 없고, 전건 `none`은 그 사실이다."
+    )
+    return wrap_note(
+        "값이 `none`인 것은 그 파일이 어느 행의 기전 경로에도 없다는 "
+        f"**측정 결과**다: {picked}{tail}"
+    )
+
+
 def row_line(i: dict) -> str:
     """The one table row for `i`.  `--emit` writes it and `--check` re-derives
     it, so the two cannot disagree about the format they are comparing."""
@@ -752,7 +779,7 @@ def main() -> int:
 
     if args.emit:
         with open(args.emit, "w", encoding="utf-8") as fh:
-            fh.write(EMIT_HEADER.format(n=len(items)))
+            fh.write(EMIT_HEADER.format(n=len(items), blocks=blocks_note(items)))
             fh.write(
                 "\n## 아직 MET가 아닌 §5 행 — 무엇이 막고 있고, "
                 f"{len(items)}건 중 몇이 후보인가\n\n"
@@ -760,6 +787,14 @@ def main() -> int:
                 "사본을 들고 있으면 §260이 `distance: f64`를 PARTIAL로 바꿨을 때처럼\n"
                 "조용히 낡는다 — `check_phase_coverage()`가 어긋나면 실패한다.\n\n"
             )
+            if not UNMET_BLOCKERS:
+                fh.write(
+                    "**아직 MET가 아닌 행이 없다.** §5 표의 모든 행이 `MET`이므로\n"
+                    "`UNMET_BLOCKERS`가 비어 있고, 따라서 아래 표의 `막는 §5 행`\n"
+                    "열은 발화할 대상 자체가 없다 — 전건 `none`은 측정 결과가\n"
+                    "아니라 열이 빈 것이다. 어느 행이 다시 열리면 그 행의 항목이\n"
+                    "여기 돌아오고 열도 함께 되살아난다.\n\n"
+                )
             for (p, c), spec in UNMET_BLOCKERS.items():
                 hits = [
                     i["path"] for i in items
@@ -805,10 +840,8 @@ EMIT_HEADER = """<!-- GENERATED by tools/ci/classify-unported.py --emit doc/unpo
 - **막는 §5 행** — 아직 MET가 아닌 행 각각을 막는 것은 그 행이 인용한
   절에서 읽었다(`UNMET_BLOCKERS`). 디렉터리로 추측하지 않는다. 어느 행이
   아직 MET가 아닌지는 `PORTING-PLAN.md`의 §5 표에서 읽으며, 이 문서가 그
-  목록의 사본을 들고 있지 않다. 값이 `none`인 것은 그 파일이 어느 행의
-  기전 경로에도 없다는 **측정 결과**다: Phase 3 `collision: bool`의
-  접두사가 9건을, Phase 8의 접두사가 8건을 실제로 고르므로 이 열은 발화할
-  수 있고, 발화한 건은 아래 판정 문단에서 개별로 기각된다.
+  목록의 사본을 들고 있지 않다.
+  {blocks}
 """
 
 
