@@ -26633,3 +26633,182 @@ leg A의 여섯 goal이 답한 것(같은 실행):
 그 파일은 p9-ros가 쓰고 있어 여기서 손대지 않는다. **Phase 9의 완료 조건 중 "상류 클라이언트가 궤적을
 받는다"는 이 시점에 충족된다.** 남은 것은 §266.7의 목록이며, 그중 어느 것도
 이 답을 되돌리지 않는다.
+
+## §NEW §5 Phase 9 행을 판정한다 — "유효"는 계측되지 않고 있었고, 재보니 충족이다 (2026-08-06)
+
+§266이 "상류 클라이언트가 궤적을 받는다"를 충족으로 적었고 §5 표의 Phase 9
+행은 §250.5를 근거로 UNMET을 유지하고 있다. 둘 중 하나가 낡았다. 이 절은
+그 판정이며, 결론부터 적으면 **행은 MET으로 바뀌어야 하고, §266의 문장은
+그 자체로는 근거가 부족했다** — 근거가 되기 위해 필요한 측정이 이
+라운드에 새로 생겼다.
+
+### §NEW.1 낡은 것은 §5 행이다. 다만 §266의 문장도 조건 문구를 다 재지 않았다
+
+행의 문구는 "기존 C++ `MoveGroupInterface` 클라이언트가 **무변경으로 유효
+궤적 수신**"이다. 절이 세 개다 — (a) 상류 C++ 클라이언트, 무변경, (b) 궤적을
+수신, (c) 그 궤적이 유효. §266 시점의 leg B가 재고 있던 것은 (a)와 (b)뿐이다.
+탐침의 판정문은
+
+```cpp
+code == moveit::core::MoveItErrorCode::SUCCESS && !plan.trajectory.joint_trajectory.points.empty()
+    ? "VALID_TRAJECTORY_RECEIVED" : "NO_VALID_TRAJECTORY"
+```
+
+이었고, 이름은 "유효"인데 술어는 "응답이 왔고 점이 0개가 아니다"다. 이것이
+(c)를 재지 못한다는 것은 논증이 아니라 측정이다: 노드에서 마지막 웨이포인트
+하나를 버리는 변이(아래 BITE-1)를 넣으면 `SUCCESS`도 `points=2`도 그대로이고
+낡은 판정문은 `VALID_TRAJECTORY_RECEIVED`를 그대로 출력한다. 목표에 도달하지
+않는 궤적을 "유효"라고 부르는 상태였다.
+
+### §NEW.2 (c)를 재는 계측기 — 채점자는 상류이고, 목표는 클라이언트 자신의 것이다
+
+탐침이 `plan()` 뒤에 세 값을 더 찍는다. 채점을 노드의
+`/check_state_validity`로 하지 않은 것이 설계의 핵심이다. 그러면 궤적을
+만든 코드가 자기 궤적을 채점하게 되고, 조인트 한계를 양쪽에서 똑같이 잘못
+읽는 결함군 전체가 구성상 통과한다. 채점자는 탐침이 링크하는 상류
+`moveit_core` 자신이며, 클라이언트와 같은 고정 sha에서 빌드된다.
+
+| 찍는 값 | 채점자 | 무엇을 반증하는가 |
+|---|---|---|
+| `all_in_bounds` | 상류 `RobotState::satisfiesBounds(jmg)`, 모든 웨이포인트 | `one_joint.urdf`의 `j1`은 [-1, 1]이다. 무한 공간에서 표본을 뽑았거나 목표를 클램프 없이 통과시킨 궤적이 여기서 걸린다 |
+| `goal_satisfied` | 상류 `PlanningScene::isStateConstrained`, 마지막 웨이포인트 | 비교 대상은 `constructMotionPlanRequest`가 돌려주는 **클라이언트 자신이 방금 보낸** `goal_constraints[0]`이다. 허용오차도 그 안의 것을 쓴다 |
+| `colliding` | 상류 `PlanningScene::isStateColliding` | **단언하지 않는다.** 아래 §NEW.4 |
+
+판정문은 이제 세 절의 논리곱이므로, 게이트가 키로 삼는 그 한 문자열이 어느
+절이든 어기는 궤적에 대해 참이 될 수 없다.
+
+게이트 쪽 단언도 한 줄에 하나씩이다(`ros/verify-move-action-interop.sh`).
+논리곱 하나만 단언하면 붉어진 게이트가 "어느 절이 깨졌는지"를 말하지 못한다.
+
+### §NEW.3 두 절이 각각 물린다 — 형제는 초록으로 남는다
+
+두 변이 모두 노드(`ros/moveit-ros/src/bin/move_group.rs`의 `MoveGroup::Result`
+구성 직전)에 넣었고, 적용 → 실행 → 되돌림 → `git diff --stat`으로 되돌림
+확인까지 했다.
+
+* **BITE-1** `response.trajectory.joint_trajectory.points.pop()` — 마지막
+  웨이포인트를 버린다. → `goal_satisfied=false`로 `leg B/default-start goal
+  reached` **FAIL**. 형제인 `all_in_bounds=true (2/2)`는 초록이고,
+  `points=2`이므로 빈-궤적 단언도 초록이며, leg A의 네 줄도 전부 초록이다.
+  낡은 판정문이라면 통과했을 궤적이라는 것이 여기서 보인다.
+* **BITE-2** `points[1].positions[0] = 2.0` — **가운데** 웨이포인트만 한계
+  밖으로 민다. 마지막이 아니라 가운데인 이유는 분리 때문이다: 마지막을 밀면
+  목표 절도 같이 깨져서 어느 단언이 무엇을 잡았는지 말할 수 없다. →
+  `all_in_bounds=false (2/3)`로 `leg B/default-start joint limits` **FAIL**,
+  같은 출력에 찍힌 `goal_satisfied=true`가 형제의 초록을 직접 보인다.
+
+### §NEW.4 재지 못하는 절 하나 — 충돌은 이 픽스처에서 반증 불가능하다
+
+`colliding`은 찍기만 하고 단언하지 않는다. 측정값이 이유를 그대로 말한다:
+
+```
+PROBE colliding=0/3 (world objects=0, links with collision geometry=0 -- reported, not asserted)
+```
+
+`ros/fixtures/one_joint.urdf`는 두 링크 어디에도 `<collision>` 요소를 두지
+않고, leg B의 노드는 월드 없이 뜬다. 충돌할 수 있는 것이 하나도 없으므로
+"충돌 없음"은 **가능한 모든 궤적에 대해 참**이고, 이것을 통과 절로 세면
+실패할 수 없는 검사를 검사라고 부르는 것이 된다. 그래서 개수를 옆에 찍는다 —
+공허함이 판정문에 조용히 흡수되지 않고 읽히도록.
+
+이 절을 실재하게 만드는 것은 (1) 충돌 형상을 가진 픽스처와 (2) 장애물을 실은
+`/planning_scene` 발행이다. 둘 다 이 저장소에 이미 있는 모양이다 — scene-topic
+leg가 정확히 그 구성으로 `/check_state_validity`를 재고 있고, 이 라운드에도
+`True/False/False/True`로 초록이다. 옮기지 않은 이유는 1-DOF라는 것이다:
+관절이 하나면 장애물이 경로 위에 있을 때 우회가 존재하지 않으므로 계획이
+정당하게 실패하고, 경로 밖에 있으면 다시 공허해진다. 실재하는 충돌 절은
+2-DOF 이상의 픽스처를 요구하며, 그것은 이 행이 아니라 별도 항목이다.
+
+### §NEW.5 13개 엔드포인트 중 9개가 없는데 클라이언트가 왜 구성되고 왜 답을 받는가
+
+`doc/client-endpoint-surface.md`는 port 쪽 bound 1 / absent 9를 적고,
+생성자(`move_group_interface.hpp:136`, `:147`)가 `move_action`,
+`execute_trajectory`, `robot_description` 셋을 이름으로 부른다. 셋 중 둘이
+absent인데 탐침은 구성되고 궤적을 받는다. 기전은 둘 다 상류 소스에 그대로
+적혀 있다.
+
+**`robot_description`은 그래프를 건너지 않는다.** 생성자는
+`robot_model_ = opt.robot_model ? opt.robot_model : getSharedRobotModel(node_, opt.robot_description)`
+(`move_group_interface.cpp:135`)이고, 그 함수는
+`RobotModelLoader(node, robot_description)`를 **클라이언트 자신의 노드**
+위에 만든다(`common_objects.cpp:109`, `:124`). 모델은 클라이언트가 자기
+파라미터에서 읽는 것이지 서버에서 받는 것이 아니다. 그래서 port가
+`robot_description`을 게시하지 않는 것은 `plan()`을 막을 수 없다. 탐침이
+`parameter_overrides`로 자기 노드에 그 파라미터를 얹는 것은 상류 launch가
+모든 노드에 대해 하는 일과 같은 것이며, 클라이언트를 고치는 것이 아니다.
+
+**`execute_trajectory`의 부재는 대기 시간만 쓴다.** 생성자는
+`execute_action_client_`를 만들고
+`wait_for_action_server(wait_for_servers)`를 부른다
+(`move_group_interface.cpp:191-193`) — 그리고 **반환값을 버린다.** 없으면
+그만큼 기다리고 지나간다. `plan()`은 `move_action_client_`만 본다(`:659`).
+
+이것은 읽기가 아니라 실측이다. 탐침의 `wait_for_servers`는 20초다.
+
+| 그래프 상태 | `plan()` 결과 | 벽시계 |
+|---|---|---|
+| 아무 노드도 없음 | `val=99999 source=''` (클라이언트 로컬 실패) | **41.6 s** |
+| `move_action`만 떠 있음 | `val=1 source='moveit-ros/move_action'` | **21.8 s** |
+
+차이 19.9초가 정확히 한 번의 20초 타임아웃이다. `move_action`이 있으면 그
+대기는 즉시 반환하고, `execute_trajectory`의 대기만 만기까지 쓴다. 나머지
+7개 absent 엔드포인트는 `create_client`로만 만들어지고 대기가 없어서
+(`:194-199` 이하) 부재가 관측되지 않는다. `joint_states`는 다른 이유로
+무해하다 — `plan()`은 현재 상태를 묻지 않는다. 생성자가 남기는
+`considered_start_state_`가 `setStartStateToCurrentState()`의 빈 diff이기
+때문이며, `getCurrentState()`를 부르는 클라이언트라면 거기서 막힌다. 그것은
+이 행의 문구 밖이다.
+
+### §NEW.6 제안하는 §5 행 문구
+
+병합 담당자가 표를 고친다. 제안은 낱말만 바꾸고 조건 문구는 건드리지 않는
+것이다.
+
+| Phase 9 | 기존 C++ `MoveGroupInterface` 클라이언트가 무변경으로 유효 궤적 수신 | **MET** | §NEW | 2026-08-06 |
+
+근거는 `ros/verify-move-action-interop.sh`의 leg B이고, 게이트로 고정돼 있다
+— §250.6이 "게이트로 고정돼 있지 않다"로 남겨 두었던 항목이 이 라운드에
+닫힌다. 측정값은 두 start-state 철자 모두에서
+
+```
+PROBE plan val=1 source='moveit-ros/move_action'
+PROBE points=3 multi_dof_points=0
+PROBE all_in_bounds=true (3/3 waypoints, upstream RobotState::satisfiesBounds)
+PROBE goal_satisfied=true (upstream PlanningScene::isStateConstrained on the client's own goal_constraints[0])
+PROBE verdict=VALID_TRAJECTORY_RECEIVED
+```
+
+이고, `ros/verify-ros-interop.sh`가 이 워크트리 자신의 절대경로로 exit 0이다.
+
+**"유효"가 여기서 무엇을 뜻하는지는 좁혀서 읽어야 한다** — 관절 한계 안이고
+클라이언트 자신의 목표 제약을 그 허용오차 안에서 만족한다는 뜻이며,
+충돌 없음은 §NEW.4의 이유로 포함되지 않는다. 행 문구를 그렇게 좁히자는
+제안은 아니다. 충돌 검사 자체가 없는 것이 아니라 이 픽스처에서 반증
+불가능한 것이고, port의 충돌 검사는 같은 게이트의 scene-topic leg가
+`/check_state_validity`로 따로 재고 있다. 판정을 MET으로 하되 이 문단을
+근거 절에 함께 다는 것이 정직한 모양이다.
+
+### §NEW.7 부수적으로 닫은 것 하나 — 건너뛴 leg B가 초록으로 읽히고 있었다
+
+이 라운드의 첫 실행에서 leg B가 SKIP했다. `main`의 `13e39a9`가
+`tools/moveit-oracle/build.sh`와 `run-oracle.sh`에 `require_caller_tree`를
+넣었고, 그 두 파일이 `oracle_stamp`의 해시 입력이라서(호스트 전용 파일도
+해시한다는 것은 `src-digest.sh`가 명시적으로 택한 트레이드오프다) 이미지
+태그가 `bf084112fdd5730b`에서 `055922b177437403`으로 옮겨 갔기 때문이다.
+문제는 SKIP 자체가 아니라, 그때 `ros/verify-ros-interop.sh`가 **`all gates
+passed`를 exit 0으로 찍었다**는 것이다. SKIP 블록 자신이 "this is not a
+pass"라고 적어 두었지만, 호출자가 분기하는 값은 그 문장이 아니라 종료
+상태였고 그 값은 0이었다.
+
+`all gates passed`가 두 가지를 뜻하고 있었다 — 상류 C++ 클라이언트가 실제로
+돌았다, 또는 돌릴 이미지가 없었다. 이 행을 초록 한 줄로 판정하려는 독자가
+상태값만으로는 둘을 가를 수 없다. 그래서 세 결과를 분리한다: 1은 단언이
+돌고 실패한 것, 0은 두 leg 다 측정된 것, **3은 leg B가 아예 돌지 않은 것**.
+호출자는 3을 건너뜀을 이름으로 부르는 요약 줄에 대응시킨다.
+
+* **BITE-3** SKIP 블록의 `exit 3`을 `exit 0`으로 되돌린다(가드 무력화).
+  실재하지 않는 `ORACLE_IMAGE`로 게이트를 돌리면 마지막 줄이
+  `all gates passed`로 돌아온다. 가드가 있는 트리에서 같은 실행은
+  `all gates passed EXCEPT /move_action leg B, which was SKIPPED: ...`를
+  찍는다. 두 실행 모두 exit 0이므로, 이 결함은 상태값이 아니라 요약 줄에서만
+  보인다 — 그것이 이 수정이 요약 줄을 고치는 이유다.
