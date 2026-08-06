@@ -12,52 +12,81 @@
 #
 # # What each rule is worth, measured
 #
-# Every line below was produced by breaking exactly one of the gate's 30 rules,
-# running this script's 35 scenarios, and reading which scenario names appeared.
-# It is a measurement, not a reading of the code. Nine results are not what
+# Every line below was produced by breaking exactly one of the gate's 53 rules,
+# running this script's 56 scenarios, and reading which scenario names appeared.
+# It is a measurement, not a reading of the code. Fourteen results are not what
 # reading it predicts, and they are marked.
 #
-#   rule neutralized                          scenario that actually reddens
-#   ----------------------------------------  ------------------------------
-#   census missing-row check                  new_instrument
-#   census extra-row check                    ghost_instrument AND
-#                                             gate_in_census  (*)
-#   extra-row present/absent split            gate_in_census  (*)
-#   tools/ci prefix partition                 undeclared_prefix
-#   data-file extension test                  data_file_needs_no_role
-#   reader-carries-no-rows rule               reader_row  (*)
-#   duplicate census row check                duplicate_instrument_row
-#   stale 자동 row check                      deleted_citation
-#   undeclared derived-pair check             unrecorded_mention AND
-#                                             fenced_mention  (*)
-#   duplicate 자동 row check                  duplicate_auto_row
-#   only_code one-token check                 bare_instrument
-#   code_list one-or-more-tokens check        artifact_with_prose
-#   evidence path tracked check               untracked_evidence AND
-#                                             deleted_evidence_dir  (*)
-#   evidence path worktree-exists check       deleted_evidence
-#   증거 is a list, not one token              two_evidence_paths AND
-#                                             second_evidence_path_bad  (*)
-#   every 증거 path checked, not just [0]      second_evidence_path_bad
-#   artifact-named-in-its-own-script check    unclaimed_artifact
-#   부류/산출물 agreement, 없음 direction     class_disagrees
-#   부류/산출물 agreement, path direction     class_disagrees_path
-#   find_table uniqueness                     duplicate_census ONLY, not
-#                                             missing_census  (*)
-#   find_table empty-table check              empty_rows
-#   table row cell-count check                wrong_cell_count  (*)
-#   rows-table 추적 산출물 exclusion          tracked_class_row
-#   절-resolves-to-a-heading check            unresolvable_section
-#   행 출처 closed token set                  unknown_origin
-#   non-empty 비고 check                      empty_note
-#   at-least-one-untracked floor              all_tracked
-#   two-tables-same-section check             split_registry
-#   registry-section exclusion                baseline, deleted_citation,
-#                                             manual_survives_deletion  (*)
-#   empty instrument family floor             empty_family
-#   empty git ls-files floor                  empty_index  (*)
+#   rule neutralized                                     scenario that actually reddens
+#   ---------------------------------------------------  ------------------------------
+#   census missing-row check                             new_instrument
+#   census extra-row check  (*)                          gate_in_census, ghost_instrument
+#   stale 자동 row check                                 deleted_citation
+#   undeclared derived-pair check  (*)                   fenced_mention, unrecorded_mention
+#   only_code exactly-one-token check                    bare_instrument
+#   code_list one-or-more-tokens check                   artifact_with_prose
+#   evidence path tracked check  (*)                     deleted_evidence_dir,
+#                                                        second_evidence_path_bad, untracked_evidence
+#   evidence path worktree-exists check                  deleted_evidence
+#   artifact-named-in-its-own-script check               unclaimed_artifact
+#   부류/산출물 agreement, 없음 direction                class_disagrees
+#   부류/산출물 agreement, path direction                class_disagrees_path
+#   find_table uniqueness (take the first match)  (*)    duplicate_census
+#   rows-table 추적 산출물 exclusion                     tracked_class_row
+#   절-resolves-to-a-heading check                       unresolvable_section
+#   registry-section exclusion in derive_pairs  (*)      baseline, broken_but_runs,
+#                                                        broken_for_another_reason,
+#                                                        broken_reason_fixed,
+#                                                        broken_with_committed_txt,
+#                                                        data_file_needs_no_role, deleted_citation,
+#                                                        duplicate_dir_row, empty_dir_note,
+#                                                        evidence_dir_ghost, evidence_dir_unlisted,
+#                                                        manual_survives_deletion, no_evidence_dirs,
+#                                                        rederive_crashes, rederive_deleted,
+#                                                        rederive_output_drifted,
+#                                                        rederive_txt_untracked,
+#                                                        reproduces_with_missing_file,
+#                                                        two_evidence_paths, unknown_dir_state
+#   empty-table check in find_table                      empty_rows
+#   행 출처 closed token set                             unknown_origin
+#   duplicate census row check                           duplicate_instrument_row
+#   duplicate 자동 row check                             duplicate_auto_row
+#   at-least-one-untracked-instrument floor              all_tracked
+#   table row cell-count check  (*)                      wrong_cell_count
+#   two-registry-tables-same-section check               split_registry
+#   empty producer family floor  (*)                     no_producers
+#   empty git ls-files floor  (*)                        empty_index
+#   non-empty 비고 check, rows table                     empty_note
+#   extra-row present/absent message split  (*)          gate_in_census
+#   every 증거 path checked, not just the first          second_evidence_path_bad
+#   증거 is a list, not a single token  (*)              second_evidence_path_bad, two_evidence_paths
+#   every 산출물 path checked, not just the first        unclaimed_artifact
+#   mention-before-any-heading check                     mention_before_heading
+#   numbered-heading floor                               unnumbered_headings
+#   header-row-followed-by-separator check               no_separator_row
+#   registry-table-inside-a-##-section check             registry_before_heading
+#   undeclared prefix is a failure                       undeclared_prefix
+#   data files skip the role check                       data_file_needs_no_role
+#   tools/ci is a directory                              no_tools_ci_dir
+#   at-least-one-tracked-file-under-tools/ci floor  (*)  empty_family
+#   reader-class instruments carry no row  (*)           reader_row
+#   evidence-dir family floor (tracked doc NDJSON)       no_evidence_dirs
+#   duplicate evidence-dir row                           duplicate_dir_row
+#   family-from-data: unlisted directory                 evidence_dir_unlisted
+#   family-from-data: ghost row                          evidence_dir_ghost
+#   non-empty 비고 check, dirs table                     empty_dir_note
+#   rederive.py must be tracked                          rederive_deleted
+#   재현됨: 빠진 파일 must be 없음                       reproduces_with_missing_file
+#   재현됨: rc must be 0                                 rederive_crashes
+#   재현됨: rederive.txt must be tracked  (*)            rederive_txt_untracked
+#   재현됨: byte comparison against rederive.txt         rederive_output_drifted
+#   깨짐: the named file must really be absent           broken_reason_fixed
+#   깨짐: the script must really fail  (*)               broken_but_runs
+#   깨짐: the failure must name that file                broken_for_another_reason
+#   깨짐: no committed rederive.txt                      broken_with_committed_txt
+#   상태 closed token set                                unknown_dir_state
 #
-# (*) the nine that reading the code gets wrong:
+# (*) the fourteen that reading the code gets wrong:
 #
 #   - Dropping the extra-row check reddens `gate_in_census` too: a census row for
 #     a `check-*` script is an extra row, not a separate rule. What the
@@ -90,14 +119,40 @@
 #     MESSAGE, not the exit code -- so what that guard buys is a named failure,
 #     and an expectation written as "it exits non-zero" would have called the
 #     guard unnecessary.
-#   - Dropping the registry-section exclusion reddens `baseline` and
-#     `manual_survives_deletion` -- the two scenarios that are supposed to PASS
-#     -- plus `deleted_citation`, whose message changes. No dedicated fixture
-#     detects it; the pass cases are the detector.
+#   - Dropping the registry-section exclusion reddens 20 of the 56 scenarios,
+#     `baseline` and `manual_survives_deletion` -- the two that are supposed to
+#     PASS -- among them. It reddened three before the directory table existed;
+#     the new scenarios did not add a rule, they widened one blast radius,
+#     because every fixture's census names the instruments in its own cells. No
+#     dedicated fixture detects this rule; the pass cases are the detector.
 #   - The empty-`git ls-files` floor reddened NOTHING on the first pass of this
 #     sweep: every other rule had a scenario and that one had none. `empty_index`
 #     below was written afterwards for it. An unexercised guard is a claim, and
 #     it took the sweep, not a reading, to find which one it was.
+#   - Two of the three floors under the instrument family -- "one tracked file
+#     under tools/ci" and "one producer among them" -- both measured as
+#     reddening NOTHING, and neither was unexercised. `empty_family` asserted
+#     the shared tail "would report OK having examined nothing", which BOTH
+#     messages end with, so each floor's failure satisfied the other's
+#     expectation. Narrowing that assertion to the head of the message and
+#     adding `no_producers` separated them. An expectation string is part of the
+#     rule a fixture pins, not commentary on it.
+#   - The exit-code test on the 깨짐 branch also reddened nothing:
+#     `broken_reason_fixed` commits the missing file and dies one check earlier,
+#     on the absent-file test, so nothing ever reached this one.
+#     `broken_but_runs` -- named file still absent, script fixed -- was written
+#     for it afterwards.
+#   - So did the tracked test on `rederive.txt`. `rederive_txt_untracked` was
+#     written for it afterwards. Both of these were found by the same sweep, in
+#     the same round that added the rules; a rule and its fixture written
+#     together are not evidence that the fixture reaches the rule.
+#   - A fourteenth rule is not in the table because it was deleted: the span
+#     logic also checked that the rows table's last row falls inside the
+#     excluded `##` span, and no fixture could reach it. The equality above it
+#     already forces both tables into one span, and a table's rows are
+#     contiguous `|` lines, so the last row cannot leave the span its header is
+#     in without a `##` between them -- which would have split the table first.
+#     Unreachable, so removed rather than described.
 #
 # # The fixture spelling
 #
@@ -147,6 +202,13 @@ build_fixture() {
   printf 'second artifact\n' > "$d/doc/alpha-second.md"
   printf '{"id": 0}\n' > "$d/doc/evidence/run.ndjson"
   printf '{"id": 1}\n' > "$d/doc/other-run.ndjson"
+  # The evidence directory carries the shape §305.6 checks: a re-derivation
+  # script beside the data and its committed output. `other-run.ndjson` sits at
+  # doc/ top level on purpose -- its parent is a second family member, so the
+  # family is two directories and one row can never vouch for both.
+  printf '#!/usr/bin/env python3\nimport json, pathlib\nd = pathlib.Path(__file__).resolve().parent\nn = len(json.loads((d / "run.ndjson").read_text())) \nprint(f"fields {n}")\n' > "$d/doc/evidence/rederive.py"
+  printf 'fields 1\n' > "$d/doc/evidence/rederive.txt"
+  printf '#!/usr/bin/env python3\nimport pathlib\nd = pathlib.Path(__file__).resolve().parent\nprint((d / "gone.ndjson").read_text())\n' > "$d/doc/rederive.py"
   git -C "$d" -c init.defaultBranch=main init -q
   git -C "$d" add -A
 }
@@ -176,6 +238,13 @@ plan() {
     echo '| `measure-beta.sh` | 901.1 | `doc/evidence/` | 자동 | 스윕 출력이 그대로 있다 |'
     echo '| `measure-beta.sh` | 901.2 | 없음 | 수동 | 같은 실행, 스크립트 이름 없음 |'
     echo '| `measure-gamma.py` | 901.3 | 없음 | 자동 | 다시 돌리면 나온다 |'
+    echo
+    echo '### 900.3 증거 디렉터리'
+    echo
+    echo '| 증거 디렉터리 | 상태 | 빠진 파일 | 비고 |'
+    echo '|---|---|---|---|'
+    echo '| `doc/evidence/` | 재현됨 | 없음 | 출력이 커밋된 rederive.txt와 같다 |'
+    echo '| `doc/` | 깨짐 | `doc/gone.ndjson` | 그 팔이 커밋되지 않았다 |'
     echo
     echo '## 901 측정한 절'
     echo
@@ -325,13 +394,13 @@ expect_fail duplicate_auto_row "$d" "has a second 자동 row"
 d="$(new untracked_evidence)"
 mkdir -p "$d/doc/scratch"
 printf '{"id": 0}\n' > "$d/doc/scratch/run.ndjson"
-sed -i 's#| `doc/evidence/` |#| `doc/scratch/run.ndjson` |#' "$d/PLAN.md"
+sed -i 's#| 901.1 | `doc/evidence/` |#| 901.1 | `doc/scratch/run.ndjson` |#' "$d/PLAN.md"
 expect_fail untracked_evidence "$d" "is not a tracked file and no tracked file lives under it"
 
 # --- an evidence path that is tracked and gone -------------------------------
 # isolates: the worktree test, which the tracked test does not imply.
 d="$(new deleted_evidence)"
-sed -i 's#| `doc/evidence/` |#| `doc/other-run.ndjson` |#' "$d/PLAN.md"
+sed -i 's#| 901.1 | `doc/evidence/` |#| 901.1 | `doc/other-run.ndjson` |#' "$d/PLAN.md"
 rm "$d/doc/other-run.ndjson"
 expect_fail deleted_evidence "$d" "is tracked but missing from the worktree"
 
@@ -340,7 +409,7 @@ expect_fail deleted_evidence "$d" "is tracked but missing from the worktree"
 # need two producers' output at once, and before this was a list the real
 # PORTING-PLAN.md's §269.4 row could not be written at all.
 d="$(new two_evidence_paths)"
-sed -i 's#| `doc/evidence/` |#| `doc/evidence/`, `doc/other-run.ndjson` |#' "$d/PLAN.md"
+sed -i 's#| 901.1 | `doc/evidence/` |#| 901.1 | `doc/evidence/`, `doc/other-run.ndjson` |#' "$d/PLAN.md"
 expect_ok two_evidence_paths "$d"
 
 # --- two evidence paths, the second one bad ----------------------------------
@@ -349,7 +418,7 @@ expect_ok two_evidence_paths "$d"
 d="$(new second_evidence_path_bad)"
 mkdir -p "$d/doc/scratch"
 printf '{"id": 0}\n' > "$d/doc/scratch/run.ndjson"
-sed -i 's#| `doc/evidence/` |#| `doc/evidence/`, `doc/scratch/run.ndjson` |#' "$d/PLAN.md"
+sed -i 's#| 901.1 | `doc/evidence/` |#| 901.1 | `doc/evidence/`, `doc/scratch/run.ndjson` |#' "$d/PLAN.md"
 expect_fail second_evidence_path_bad "$d" "is not a tracked file and no tracked file lives under it"
 
 # --- an evidence directory that is gone --------------------------------------
@@ -476,6 +545,39 @@ d="$(new wrong_cell_count)"
 sed -i 's#^| `measure-beta.sh` | 901.2 | 없음 | 수동 |#| `measure-beta.sh` | 901.2 | 수동 |#' "$d/PLAN.md"
 expect_fail wrong_cell_count "$d" "4 cells, expected 5"
 
+# --- a header row with no separator under it ---------------------------------
+# isolates: the separator test. Without it the parser starts one line late and
+# reads the table minus its first row -- a smaller table, a smaller OK line, and
+# nothing that says a row went missing.
+d="$(new no_separator_row)"
+sed -i '/^|---|---|---|---|---|$/d' "$d/PLAN.md"
+expect_fail no_separator_row "$d" "is not followed by a separator row"
+
+# --- a document whose headings carry no number -------------------------------
+# isolates: the heading floor. 절 cells resolve against the heading set, so an
+# empty set would make every row's section unresolvable at once -- or, with the
+# resolution check gone too, make them all vacuously fine.
+d="$(new unnumbered_headings)"
+sed -i 's/^\(#\+\) [0-9][0-9.]* /\1 절 /' "$d/PLAN.md"
+expect_fail unnumbered_headings "$d" "no numbered headings"
+
+# --- the registry tables under no `##` section -------------------------------
+# isolates: the span that gets excluded from the derivation. If the tables sit
+# under no top-level heading there is nothing to exclude, and every instrument
+# name inside the census itself would derive a pair about its own row.
+d="$(new registry_before_heading)"
+sed -i '/^## 900 증거 보존$/d' "$d/PLAN.md"
+expect_fail registry_before_heading "$d" "sits outside any"
+
+# --- an instrument named before the first heading ----------------------------
+# isolates: that a mention which belongs to no section is a failure rather than
+# a pair with an empty section. The plan is edited top-down and a line can end up
+# above the first heading; a pair keyed on None would then be compared against
+# rows that can never contain it.
+d="$(new mention_before_heading)"
+sed -i '1i measure-beta.sh 를 첫 제목보다 먼저 적었다.' "$d/PLAN.md"
+expect_fail mention_before_heading "$d" "before any numbered heading"
+
 # --- the two tables in different top-level sections --------------------------
 # isolates: the exclusion span. The gate removes one section from the
 # derivation, so two registries in two sections means one of them derives pairs
@@ -496,13 +598,35 @@ plan "$d"
 git -C "$d" rm -r --cached . -q
 expect_fail empty_index "$d" "this gate would check nothing"
 
-# --- no instrument on disk ---------------------------------------------------
-# isolates: the empty-family floor. A family that matched nothing must be a
-# failure, not an OK line over zero instruments.
+# --- nothing tracked under tools/ci ------------------------------------------
+# isolates: the floor on the DIRECTORY LISTING. The expectation was once the
+# shared tail "would report OK having examined nothing", and the sweep measured
+# this scenario as reddening for neither this floor nor the producer floor below
+# -- both messages end in that sentence, so each masked the other. The
+# discriminating half of the message is the head.
 d="$(new empty_family)"
 rm "$d/tools/ci"/measure-*
 git -C "$d" add -A
-expect_fail empty_family "$d" "would report OK having examined nothing"
+expect_fail empty_family "$d" "no tracked file under tools/ci/"
+
+# --- tools/ci tracked, but not one producer among them -----------------------
+# isolates: the floor on the PARTITION's output, which is a different claim from
+# the one above: the directory is populated and every name in it was classified,
+# just never as something that measures. Without it an all-gates tools/ci would
+# reach the census with an empty family and fail on whatever rows were there.
+d="$(new no_producers)"
+rm "$d/tools/ci"/measure-*
+printf '#!/bin/bash\n# a gate\n' > "$d/tools/ci/check-something.sh"
+git -C "$d" add -A
+expect_fail no_producers "$d" "no producer under tools/ci/"
+
+# --- tools/ci is not a directory in the worktree -----------------------------
+# isolates: the third floor in the same chain. The index still lists the scripts,
+# so the family would enumerate; what is gone is the directory this gate reads
+# the scripts OUT of, which is what a partial checkout looks like.
+d="$(new no_tools_ci_dir)"
+rm -rf "$d/tools/ci"
+expect_fail no_tools_ci_dir "$d" "is not a directory under"
 
 # --- a tools/ci script whose prefix has no declared role ---------------------
 # isolates: the prefix partition. This is the rule the first cut of the gate did
@@ -542,6 +666,129 @@ git -C "$d" add -A
 sed -i 's#^| `measure-gamma.py` | 없음 | 트리에서 재실행 |#| `measure-gamma.py` | 없음 | 트리에서 재실행 |\n| `compare-two-arms.py` | 없음 | 입력이 증거 |#' "$d/PLAN.md"
 sed -i 's#^| `measure-gamma.py` | 901.3 | 없음 | 자동 | 다시 돌리면 나온다 |#| `measure-gamma.py` | 901.3 | 없음 | 자동 | 다시 돌리면 나온다 |\n| `compare-two-arms.py` | 901.2 | 없음 | 수동 | 이 행이 있으면 안 된다 |#' "$d/PLAN.md"
 expect_fail reader_row "$d" "입력이 증거"
+
+# --- a rederive.py whose output no longer matches its committed txt ----------
+# isolates: the byte-comparison. Everything else about the directory is intact
+# -- script tracked, txt tracked, exit 0 -- and it is still not evidence.
+d="$(new rederive_output_drifted)"
+printf '{"id": 0, "extra": 1}\n' > "$d/doc/evidence/run.ndjson"
+git -C "$d" add -A
+expect_fail rederive_output_drifted "$d" "differs from the committed"
+
+# --- a rederive.py that does not run -----------------------------------------
+# isolates: that the script is RUN, not just looked for. A 재현됨 row over a
+# script that dies is the exact state this table exists to make impossible.
+d="$(new rederive_crashes)"
+rm "$d/doc/evidence/run.ndjson"
+git -C "$d" rm -q --cached doc/evidence/run.ndjson
+printf '{"id": 0}\n' > "$d/doc/evidence/other.ndjson"
+git -C "$d" add -A
+expect_fail rederive_crashes "$d" "says 재현됨 but exited"
+
+# --- an evidence directory with no rederive.py -------------------------------
+# isolates: the direction that makes deleting the script a failure. Taking the
+# family from the NDJSON rather than from the script is the whole reason.
+d="$(new rederive_deleted)"
+rm "$d/doc/evidence/rederive.py"
+git -C "$d" rm -q --cached doc/evidence/rederive.py
+expect_fail rederive_deleted "$d" "is not tracked -- a directory of committed"
+
+# --- a 깨짐 row whose named file is present ----------------------------------
+# isolates: that 깨짐 is a PIN, not a waiver. Commit the missing arm and the row
+# has to be rewritten; it cannot keep excusing a directory that now works.
+d="$(new broken_reason_fixed)"
+printf 'x\n' > "$d/doc/gone.ndjson"
+git -C "$d" add -A
+expect_fail broken_reason_fixed "$d" "is present now"
+
+# --- a 깨짐 row whose script has started working ------------------------------
+# isolates: the exit-code test on the 깨짐 branch, which reddened NOTHING on the
+# first sweep -- `broken_reason_fixed` dies on the earlier absent-file test.
+# Here the named file is still absent and the script succeeds anyway, so only
+# this rule can catch it.
+d="$(new broken_but_runs)"
+printf '#!/usr/bin/env python3\nprint("nothing to do")\n' > "$d/doc/rederive.py"
+git -C "$d" add -A
+expect_fail broken_but_runs "$d" "exited 0"
+
+# --- a 재현됨 row whose rederive.txt is not tracked ---------------------------
+# isolates: the tracked test on the output, which also reddened nothing at
+# first. The script runs and its output is right; what is missing is the
+# committed copy, so nothing in any commit pins what it printed.
+d="$(new rederive_txt_untracked)"
+git -C "$d" rm -q --cached doc/evidence/rederive.txt
+expect_fail rederive_txt_untracked "$d" "nothing pins"
+
+# --- a 깨짐 row whose script fails for another reason -------------------------
+# isolates: that the pinned reason is checked against the actual failure. A row
+# that named any absent file would otherwise absorb every future breakage.
+d="$(new broken_for_another_reason)"
+printf '#!/usr/bin/env python3\nraise SystemExit("unrelated")\n' > "$d/doc/rederive.py"
+git -C "$d" add -A
+expect_fail broken_for_another_reason "$d" "for none of the reasons the row names"
+
+# --- a 깨짐 row that ships a rederive.txt anyway ------------------------------
+# isolates: that a committed output whose script cannot reproduce it is worse
+# than none -- nothing in the tree can say what produced it.
+d="$(new broken_with_committed_txt)"
+printf 'stale output\n' > "$d/doc/rederive.txt"
+git -C "$d" add -A
+expect_fail broken_with_committed_txt "$d" "is tracked while the row says"
+
+# --- a directory of tracked NDJSON with no row -------------------------------
+# isolates: the family-from-data direction. Adding evidence without recording it
+# is the shape this whole section is about.
+d="$(new evidence_dir_unlisted)"
+mkdir -p "$d/doc/newarm"
+printf '{"id": 0}\n' > "$d/doc/newarm/run.ndjson"
+git -C "$d" add -A
+expect_fail evidence_dir_unlisted "$d" "have no row: doc/newarm"
+
+# --- a row naming a directory with no tracked NDJSON -------------------------
+# isolates: the other direction of the same set equality.
+# The row is ADDED, not swapped: swapping leaves the real directory unlisted and
+# the gate fails on that first, which is a true message about the other rule.
+d="$(new evidence_dir_ghost)"
+sed -i 's#^\(| `doc/evidence/` | 재현됨 |.*\)$#\1\n| `doc/nowhere/` | 재현됨 | 없음 | 존재하지 않는다 |#' "$d/PLAN.md"
+expect_fail evidence_dir_ghost "$d" "no tracked doc NDJSON"
+
+# --- an unknown 상태 token ----------------------------------------------------
+# isolates: the closed token set. A third word must not read as "not 깨짐".
+d="$(new unknown_dir_state)"
+sed -i 's#^| `doc/evidence/` | 재현됨 |#| `doc/evidence/` | 아마도 |#' "$d/PLAN.md"
+expect_fail unknown_dir_state "$d" "상태 must be"
+
+# --- one directory, two rows --------------------------------------------------
+# isolates: uniqueness in the directory table. The set comparison below works on
+# sets, so a duplicated row balances against the family perfectly and two rows
+# could carry two different 상태 for the same directory.
+d="$(new duplicate_dir_row)"
+sed -i 's#^| `doc/evidence/` | 재현됨 | 없음 | .*#&\n| `doc/evidence/` | 깨짐 | `doc/evidence/run.ndjson` | 같은 디렉터리의 두 번째 행 |#' "$d/PLAN.md"
+expect_fail duplicate_dir_row "$d" "has a second row"
+
+# --- an empty 비고 in the directory table ------------------------------------
+# isolates: that this table's 비고 is required too. It is a separate check from
+# the rows table's, in a separate function, and the sweep measured it as
+# reddening nothing until this scenario existed.
+d="$(new empty_dir_note)"
+sed -i 's#^| `doc/evidence/` | 재현됨 | 없음 | .*#| `doc/evidence/` | 재현됨 | 없음 |  |#' "$d/PLAN.md"
+expect_fail empty_dir_note "$d" "비고 is empty"
+
+# --- a 재현됨 row that also names a missing file ------------------------------
+# isolates: that the two columns cannot disagree. A row saying the directory
+# re-derives while listing a file it is missing is either a stale 깨짐 that was
+# half-edited or a 재현됨 with a caveat nobody checks; both have to be one thing.
+d="$(new reproduces_with_missing_file)"
+sed -i 's#^| `doc/evidence/` | 재현됨 | 없음 | .*#| `doc/evidence/` | 재현됨 | `doc/evidence/gone.ndjson` | 재현되는데 빠진 파일이 있다 |#' "$d/PLAN.md"
+expect_fail reproduces_with_missing_file "$d" "빠진 파일 is not 없음"
+
+# --- no tracked NDJSON at all -------------------------------------------------
+# isolates: the family floor. With no evidence directory the table vouches for
+# nothing, and an OK line over zero rows is the failure mode this file exists
+# to prevent.
+d="$(new no_evidence_dirs)"
+git -C "$d" rm -q --cached doc/evidence/run.ndjson doc/other-run.ndjson
+expect_fail no_evidence_dirs "$d" "this table would vouch for nothing"
 
 require_nonempty "$checked" "scenarios to run against check-evidence-retention.py"
 

@@ -174,6 +174,10 @@ DATA_SUFFIXES = (".json", ".txt")
 
 CENSUS_HEADER = ["계측기", "산출물", "부류"]
 ROWS_HEADER = ["계측기", "절", "증거", "행 출처", "비고"]
+DIRS_HEADER = ["증거 디렉터리", "상태", "빠진 파일", "비고"]
+
+STATE_REPRODUCES = "재현됨"
+STATE_BROKEN = "깨짐"
 
 CLASS_TRACKED = "추적 산출물"
 CLASS_RERUN = "트리에서 재실행"
@@ -421,6 +425,128 @@ def derive_pairs(lines, marks, untracked_instruments, excluded):
     return pairs
 
 
+def check_evidence_dirs(lines, root, tracked, docname):
+    """The third table: a committed evidence directory has to actually re-derive.
+
+    Pointing a 증거 cell at a directory only proves files are there. The shape
+    §305.3 calls doing it right is stronger -- a `rederive.py` beside the data
+    and its committed output, so a reader can diff. This checks that shape is
+    honoured wherever it is claimed, and PINS the one place it is not: a row
+    may say 깨짐 only by naming the exact file whose absence breaks it, and the
+    gate then verifies that file is really absent and that the script really
+    dies on it. Committing the file, or a different breakage, both fail.
+
+    Family: the parent directory of every tracked `doc/**/*.ndjson`. Taking the
+    family from the DATA rather than from the presence of a rederive.py is what
+    makes deleting the script a failure instead of an exit.
+    """
+    fam = sorted({p.rsplit("/", 1)[0] for p in tracked
+                  if p.startswith("doc/") and p.endswith(".ndjson")})
+    if not fam:
+        raise Fail(
+            "no tracked doc/**/*.ndjson -- either the committed evidence moved or "
+            "this table would vouch for nothing"
+        )
+    _s, _e, table = find_table(lines, DIRS_HEADER, "evidence directories")
+    # Set equality first. A row naming a directory that holds no tracked NDJSON
+    # would otherwise die on the per-row rederive.py test -- a true statement
+    # about the wrong thing, since the row should not exist at all.
+    listed = []
+    for ln, (dir_c, _s_c, _m_c, _n_c) in table:
+        where = f"{docname}:{ln}"
+        d = only_code(dir_c, "증거 디렉터리", where).rstrip("/")
+        if d in listed:
+            raise Fail(f"{where}: {d} has a second row")
+        listed.append(d)
+    unlisted = sorted(set(fam) - set(listed))
+    ghost = sorted(set(listed) - set(fam))
+    if unlisted:
+        raise Fail(
+            f"{len(unlisted)} directory(ies) of tracked NDJSON have no row: "
+            + ", ".join(unlisted)
+        )
+    if ghost:
+        raise Fail(
+            f"{len(ghost)} row(s) name a directory holding no tracked doc NDJSON: "
+            + ", ".join(ghost)
+        )
+    for ln, (dir_c, state_c, missing_c, note_c) in table:
+        where = f"{docname}:{ln}"
+        d = only_code(dir_c, "증거 디렉터리", where).rstrip("/")
+        if not note_c:
+            raise Fail(f"{where}: 비고 is empty")
+        script = f"{d}/rederive.py"
+        if script not in tracked:
+            raise Fail(
+                f"{where}: {script} is not tracked -- a directory of committed "
+                f"NDJSON with no re-derivation script is data nobody can check"
+            )
+        proc = subprocess.run(
+            [sys.executable, script], cwd=root,
+            capture_output=True, text=True, check=False,
+        )
+        txt = f"{d}/rederive.txt"
+        if state_c == STATE_REPRODUCES:
+            if missing_c != NONE_TOKEN:
+                raise Fail(f"{where}: 상태 {STATE_REPRODUCES} but 빠진 파일 is not {NONE_TOKEN}")
+            if proc.returncode != 0:
+                raise Fail(
+                    f"{where}: {script} says {STATE_REPRODUCES} but exited "
+                    f"{proc.returncode}: {proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else '(no stderr)'}"
+                )
+            if txt not in tracked:
+                raise Fail(f"{where}: {txt} is not tracked, so nothing pins {script}'s output")
+            want = (root / txt).read_text()
+            if proc.stdout != want:
+                a = proc.stdout.splitlines()
+                b = want.splitlines()
+                i = next((n for n in range(max(len(a), len(b)))
+                          if n >= len(a) or n >= len(b) or a[n] != b[n]), 0)
+                raise Fail(
+                    f"{where}: {script}'s output differs from the committed {txt} "
+                    f"at line {i + 1}: got {(a[i] if i < len(a) else '(eof)')!r}, "
+                    f"committed {(b[i] if i < len(b) else '(eof)')!r}"
+                )
+        elif state_c == STATE_BROKEN:
+            gone = code_list(missing_c, "빠진 파일", where)
+            for g in gone:
+                if g in tracked or (root / g).exists():
+                    raise Fail(
+                        f"{where}: 빠진 파일 `{g}` is present now -- the row says "
+                        f"{STATE_BROKEN} because of it, so either it was committed "
+                        f"and the row is {STATE_REPRODUCES}, or the reason moved"
+                    )
+            if proc.returncode == 0:
+                raise Fail(
+                    f"{where}: the row says {STATE_BROKEN} but {script} exited 0 -- "
+                    f"a fixed re-derivation must be recorded as {STATE_REPRODUCES}"
+                )
+            blob = proc.stdout + proc.stderr
+            if not any(g.rsplit("/", 1)[1] in blob for g in gone):
+                raise Fail(
+                    f"{where}: {script} failed, but for none of the reasons the row "
+                    f"names ({', '.join(gone)}): {blob.strip().splitlines()[-1] if blob.strip() else '(no output)'}"
+                )
+            if txt in tracked:
+                raise Fail(
+                    f"{where}: {txt} is tracked while the row says {STATE_BROKEN} -- "
+                    f"a committed output that its own script cannot reproduce is "
+                    f"worse than none"
+                )
+        else:
+            raise Fail(
+                f"{where}: 상태 must be `{STATE_REPRODUCES}` or `{STATE_BROKEN}`, "
+                f"got {state_c!r}"
+            )
+    ok = sum(1 for _ln, (_d, s, _m, _n) in table if s == STATE_REPRODUCES)
+    return (
+        f"OK {docname}: {len(listed)} committed evidence directory(ies) -- {ok} run "
+        f"their own rederive.py to a byte-identical committed rederive.txt, "
+        f"{len(listed) - ok} pinned {STATE_BROKEN} against the exact file whose "
+        f"absence breaks them."
+    )
+
+
 def run(doc, root, want_derived):
     lines = doc.read_text().split("\n")
 
@@ -429,7 +555,7 @@ def run(doc, root, want_derived):
     on_disk = instruments_on_disk(root, tracked)
 
     c_start, _c_end, census = find_table(lines, CENSUS_HEADER, "census")
-    r_start, r_end, rows = find_table(lines, ROWS_HEADER, "rows")
+    r_start, _r_end, rows = find_table(lines, ROWS_HEADER, "rows")
 
     # --- census: the instrument column IS the filesystem set -----------------
     klass = {}
@@ -516,8 +642,13 @@ def run(doc, root, want_derived):
             f"{excluded} and {r_span}); this gate excludes one span from the "
             f"derivation and cannot exclude two"
         )
-    if not (excluded[0] <= r_end <= excluded[1]):
-        raise Fail("the rows table runs past the end of its own section")
+    # There was a fourth check here -- that the rows table's last row falls
+    # inside the excluded span -- and the neutralization sweep could not make any
+    # fixture reach it. It is unreachable by construction: the equality above
+    # already forces both tables into one `##` span, and a table's rows are
+    # contiguous `|` lines, so the last row cannot leave the span its header is
+    # in without a `##` heading between them, which would have split the table.
+    # An unexercised guard is a claim, so it is deleted rather than described.
 
     declared_auto = set()
     manual = 0
@@ -596,8 +727,11 @@ def run(doc, root, want_derived):
             f"delete the obligation"
         )
 
+    dirs = check_evidence_dirs(lines, root, tracked, doc.name)
+
     by_class = {c: sum(1 for i in seen if klass[i] == c) for c in ALL_CLASSES}
     return (
+        f"{dirs}\n"
         f"OK {doc.name}: {len(seen)} {INSTRUMENT_DIR}/ {ROLE_PRODUCER}(s) -- "
         + ", ".join(f"{by_class[c]} `{c}`" for c in ALL_CLASSES)
         + f"; {len(rows)} publishing row(s) over the {len(untracked)} whose output is "
