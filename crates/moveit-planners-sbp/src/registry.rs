@@ -2,64 +2,99 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // No upstream file ported line-for-line: this is a D1/D4-adapted stand-in
-// for
+// for the plugin half of
 //   moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp
-// (`PlannerManager`, `PlanningContext`). The registration mechanism
-// (`PlannerRegistration` + a `linkme::distributed_slice`) follows
-// `moveit_kinematics::registry`'s existing D4 precedent exactly; the
-// `PlanningRequest`/`PlanningResponse`/`PlanningContext`/`PlannerManager`
-// shapes themselves are new design work, since a motion planner's request
-// and a kinematics solver's request have nothing in common upstream.
+// The interface itself (`PlannerManager`, `PlanningContext`,
+// `MotionPlanRequest`, `MotionPlanResponse`) lives in `moveit-planning`,
+// mirroring the single upstream package that declares all four; this file
+// holds one implementation of it and that implementation's registration.
 
-//! Compile-time [`PlannerManager`] registry and one concrete planner,
-//! [`RrtConnectManager`], that plans through a real
+//! One concrete planner, [`RrtConnectManager`], implementing
+//! [`moveit_planning::PlannerManager`] over a real
 //! [`moveit_scene::PlanningScene`] via
 //! [`crate::planning_scene_validity::PlanningSceneValidityChecker`].
 //!
-//! # `PlanningRequest`: the D1-free `MotionPlanRequest` equivalent
+//! # The request type is `moveit-planning`'s, not this crate's (D8/§140)
+//!
+//! Until this round this file declared its own `PlanningRequest`,
+//! `PlanningResponse`, `PlanningContext` and `PlannerManager`. They shared
+//! only *names* with `moveit-planning`'s, which meant the workspace's
+//! planning pipeline could not call the workspace's only planner at all:
+//! `moveit_planning::pipeline::generate_plan` wanted
+//! `moveit_planning::PlanningRequest` and this crate accepted something
+//! else with the same spelling. All four names now resolve to
+//! `moveit-planning`'s single set, and this crate depends on that crate.
+//!
+//! The three fields the old local request had that upstream's
+//! `MotionPlanRequest` does not — `resolution`, `seed` and `params` — moved
+//! onto [`RrtConnectManager`] itself, together with `solver`. That is
+//! upstream's own placement, not a compromise: per-planner tuning lives in
+//! `PlannerConfigurationSettings`/`setPlannerConfigurations`
+//! (`planning_interface.hpp:56-72,193`), owned by the `PlannerManager`,
+//! while `MotionPlanRequest` carries only what a *caller* asks for. They
+//! stay concretely typed here rather than becoming upstream's stringly
+//! typed `config: map<string, string>` bag, because this port's
+//! compile-time registry already knows which concrete planner it is
+//! configuring — there is no runtime plugin boundary for a string bag to
+//! cross.
+//!
+//! # Goals are constraints; a concrete state is expressed as constraints
 //!
 //! Upstream's `MotionPlanRequest::goal_constraints` is
-//! `Vec<moveit_msgs::msg::Constraints>` — a set of possibly-Cartesian goal
-//! constraints, turned into candidate joint-space states at plan time by a
-//! `constraint_samplers` sampler
-//! (`ConstraintSamplerManager::selectDefaultSampler` picking a
-//! `JointConstraintSampler`, an `IKConstraintSampler`, or a
-//! `UnionConstraintSampler` of both). Per `PORTING-PLAN.md` D1 (no
-//! `moveit_msgs`) this port has no `moveit_msgs::msg::Constraints` to carry
-//! in the first place, and — independently of D1 — `constraint_samplers`
-//! itself has never been ported (`PORTING-PLAN.md` §3 only nominally scoped
-//! it under `moveit-constraints`).
+//! `Vec<moveit_msgs::msg::Constraints>` — goal *regions*, turned into
+//! candidate joint-space states at plan time by a `constraint_samplers`
+//! sampler. `moveit_planning::PlanningRequest::goal_constraints` is that,
+//! as `Vec<KinematicConstraintSet>`.
 //!
-//! **The consequence, settled here rather than left ambiguous: a caller of
-//! this crate cannot express a pose (position/orientation) goal at all —
-//! this is a missing planning capability, not a missing convenience.**
-//! [`PlanningRequest::goal`] is `Vec<CompoundValue>`, and
-//! [`crate::rrt_connect::rrt_connect`] takes that as one concrete
-//! `S::State`, not a region or a sampler; no code path anywhere in this
-//! workspace turns a [`moveit_constraints::PositionConstraint`]/
-//! [`moveit_constraints::OrientationConstraint`] into even one candidate
-//! joint-space state, let alone the several an IK-backed sampler would offer
-//! so the planner could pick whichever is reachable. A caller wanting "move
-//! the end-effector to this pose" must invoke `moveit-kinematics` itself,
-//! outside this crate, and hand in the single joint-space point one IK call
-//! returns — foreclosing the multi-solution goal regions IK is generally
-//! many-to-one over, exactly what `IKConstraintSampler` exists to preserve.
+//! The old local request instead had a `Goal` enum whose `State` variant
+//! carried one concrete `Vec<CompoundValue>`, because
+//! [`crate::rrt_connect::rrt_connect`] takes exactly one `S::State` as its
+//! goal and nothing existed to resolve a region down to one. That is no
+//! longer true (`Goal::Constraints` and `crate::goal_sampler::sample_goal`
+//! landed in round 21), and upstream has no counterpart to the `State`
+//! variant at all: a caller who wants to reach one specific configuration
+//! calls `constructGoalConstraints(state, jmg, tolerance)`
+//! (`kinematic_constraints/utils.hpp:99`), which builds one
+//! `JointConstraint` per group variable at that state's positions. This
+//! port has that function as
+//! [`moveit_constraints::utils::construct_goal_joint_constraints`], and every
+//! former `Goal::State` caller now goes through it. The behavioural
+//! consequence is real and worth stating plainly: a state goal is now
+//! reached to within the tolerance the caller passes, not bit-exactly,
+//! because it is resolved by sampling the constraint window like any other
+//! goal region.
 //!
-//! [`PlanningRequest::goal`] being a concrete state rather than a constraint
-//! to sample from was, at the time, the rejected alternative to a
-//! single-[`moveit_constraints::JointConstraint`]-per-variable stub: the stub
-//! would have silently mishandled any Cartesian goal (exactly the case a
-//! real sampler exists to handle), so it would have been indistinguishable
-//! from this concrete-state design except for an extra, misleading layer of
-//! indirection. That reasoning was correct as far as it went, but stopped one
-//! level short of naming what a real sampler would unlock; the paragraph
-//! above is that.
+//! `goal_constraints` being a *list* is upstream's any-of semantics
+//! (`ModelBasedPlanningContext::setGoalConstraints`,
+//! `model_based_planning_context.cpp:664-695`, builds one
+//! `ConstrainedGoalSampler` per non-empty set and wraps more than one in a
+//! `GoalSampleableRegionMux` whose `sampleGoal` round-robins over them,
+//! `detail/goal_union.cpp:83-95`). [`moveit_planning::PlanningContext::solve`] reproduces
+//! the any-of rule at the resolution this port samples at: it tries each
+//! non-empty set in order and takes the first that yields an accepted
+//! state. Empty sets are dropped exactly as upstream drops them
+//! (`:679-683`); an all-empty `goal_constraints` is
+//! [`PlanError::NoGoalConstraints`], upstream's
+//! `INVALID_GOAL_CONSTRAINTS` return at `:690-694`.
 //!
-//! **Disposition** (round 14: ported, not proposed — the paragraph above
-//! describes the state this section used to be written against; it is
-//! stale about what has since landed in `moveit-constraints`, corrected
-//! here in place rather than deleted, since the still-missing
-//! `rrt_connect` half below is still accurate):
+//! # What a caller still cannot express
+//!
+//! A pose (position/orientation) goal reaches a real `IKConstraintSampler`
+//! only if the caller supplies a [`moveit_kinematics::KinematicsSolver`] —
+//! see [`RrtConnectManager::solver`]. With no solver, a Cartesian-only goal
+//! region builds no sampler and falls back to
+//! [`crate::space::StateSpace::sample_uniform`] every attempt: not
+//! incorrect (the constraint set still gates acceptance), just practically
+//! unable to find a tight region by chance within
+//! `DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS` tries. Nothing in this crate picks
+//! a solver by name, matching D4's standing exclusion of that
+//! runtime-configuration layer (§68.4/§77.1, reaffirmed by §163's D12
+//! rejection).
+//!
+//! # How the sampler wiring got here
+//!
+//! **Round 14** recorded that `constraint_samplers` was unported; it since
+//! landed in `moveit-constraints`:
 //!
 //! - `ConstraintSampler` (the base trait) and `JointConstraintSampler` ->
 //!   ported as [`moveit_constraints::ConstraintSampler`]/
@@ -94,55 +129,57 @@
 //! resolve a region down to the one state `rrt_connect` takes — before it
 //! could consume a sampler's candidates at all.
 //!
-//! **Round 21** made that second change: [`Goal::Constraints`] carries a
-//! [`KinematicConstraintSet`] for the goal (mirroring
+//! **Round 21** made that second change: a goal expressed as a
+//! [`KinematicConstraintSet`] (mirroring
 //! `ompl_interface::ConstrainedGoalSampler`,
 //! `crate::goal_sampler::sample_goal` — see that module's own doc comment
 //! for exactly what is and is not ported), resolved to one concrete state
 //! before [`crate::rrt_connect::rrt_connect`] starts searching. This closes
-//! the joint-constraint case fully: a [`Goal::Constraints`] whose
+//! the joint-constraint case fully: a goal set whose
 //! [`moveit_constraints::JointConstraint`]s cover every one of the group's
 //! variables gets a real [`moveit_constraints::JointConstraintSampler`]
-//! (`select_default_sampler`'s Step A). Through round 22 it did not close
-//! the Cartesian-pose case at all: `RrtConnectContext::solve` always passed
-//! `solver: None` to `select_default_sampler`, so a
+//! (`select_default_sampler`'s Step A) — which is also why a
+//! [`moveit_constraints::utils::construct_goal_joint_constraints`] state goal
+//! resolves accurately rather than by luck. Through round 22 it did not
+//! close the Cartesian-pose case at all: `RrtConnectContext::solve` always
+//! passed `solver: None` to `select_default_sampler`, so a
 //! [`moveit_constraints::PositionConstraint`]/
-//! [`moveit_constraints::OrientationConstraint`]-only [`Goal::Constraints`]
+//! [`moveit_constraints::OrientationConstraint`]-only goal set
 //! built no sampler and fell back to
 //! [`crate::space::StateSpace::sample_uniform`] every attempt — not
-//! incorrect (`goal_constraints.decide()` still gated acceptance), just
+//! incorrect (the set's own `decide()` still gated acceptance), just
 //! practically unable to find a tight Cartesian region by chance within
 //! `DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS` tries.
 //!
 //! **Round 23** (`PORTING-PLAN.md` §163.3, closing the D12-rejection
-//! follow-up §163 left open) added [`PlanningRequest::solver`]: a caller
+//! follow-up §163 left open) added the solver field: a caller
 //! who explicitly constructs a
 //! [`moveit_kinematics::KinematicsSolver`] (e.g. from
-//! `moveit_kinematics::KINEMATICS_SOLVERS`) and sets this field
+//! `moveit_kinematics::KINEMATICS_SOLVERS`) and sets it
 //! now gets a real `IKConstraintSampler` for a Cartesian-pose
-//! [`Goal::Constraints`], the same way a full joint-constraint goal already
-//! did. This is caller-supplied wiring, not automatic resolution — no code
-//! anywhere in this crate picks a solver by name or group, matching D4's
-//! standing exclusion of that runtime-configuration layer (§68.4/§77.1,
-//! reaffirmed by §163's D12 rejection). `None` (every request before this
-//! field existed) is unchanged: identical fallback to uniform sampling.
-//! Through round 23, [`PlanningRequest::path_constraints`]' own
-//! `select_default_sampler` call did **not** read this field: it was
+//! goal, the same way a full joint-constraint goal already
+//! did. `None` is unchanged: identical fallback to uniform sampling.
+//! Through round 23 the `path_constraints` `select_default_sampler` call
+//! did **not** read it: it was
 //! consumed via `.take()` inside the goal call only, so the field's meaning
 //! ("the caller's solver") silently depended on which call site executed —
 //! a path-constraint region needing IK-backed sampling got none, with no
 //! type-level signal that this gap existed.
 //!
 //! **Round 24** (closing the same `PORTING-PLAN.md` §163.3 gap Round 23
-//! opened) fixed that: `solve` now converts `self.request.solver` once into
-//! a shared `Rc<RefCell<Box<dyn KinematicsSolver>>>>`, and both
+//! opened) fixed that: both
 //! `select_default_sampler` calls — `path_constraints`' own and the goal's
 //! own — go through the same `resolve_constraint_sampler` helper (below,
-//! right before this trait's `impl`), wrapped in `SharedKinematicsSolver`,
+//! right before `RrtConnectContext`'s `impl`), wrapped in
+//! `SharedKinematicsSolver`,
 //! so both are backed by the *same* solver instance instead of only
 //! whichever call site got to `.take()` it first. See
-//! [`PlanningRequest::solver`]'s own doc comment for why `Rc<RefCell<>>` was
-//! chosen over `Arc` and over splitting the field in two.
+//! [`RrtConnectManager::solver`]'s own doc comment for why `Rc<RefCell<>>`
+//! was chosen over `Arc` and over splitting the field in two. Since D8
+//! moved that field onto the manager, the sharing is established once at
+//! construction rather than re-derived per query, and the `.take()` this
+//! round's predecessor had to work around is gone entirely: nothing
+//! mutates the request.
 //!
 //! Boundary-tested at the `resolve_constraint_sampler` level
 //! (`path_constraints_solver_wiring_matches_the_call_site`, this module's
@@ -152,8 +189,8 @@
 //! path sampler now measurably beats an unwired one on a Cartesian-corridor
 //! query tight enough to be discriminating.
 //!
-//! [`PlanningRequest::path_constraints`] *is* carried directly as a
-//! [`KinematicConstraintSet`], because path constraints are evaluated
+//! `moveit_planning::PlanningRequest::path_constraints` is carried directly
+//! as a [`KinematicConstraintSet`], because path constraints are evaluated
 //! per-candidate via `decide()` — see
 //! [`crate::planning_scene_validity::PlanningSceneValidityChecker`] — so
 //! correctness never depended on a sampler. **Round 20**: `path_constraints`
@@ -163,24 +200,18 @@
 //! [`crate::rrt_connect::ConstrainedStateSampler`], mirroring upstream's
 //! `ompl_interface::ConstrainedSampler`), a distinct seam from the goal-region
 //! sampling the paragraph above now also describes:
-//! `RrtConnectContext::solve` builds the sampler through
+//! [`moveit_planning::PlanningContext::solve`] builds the sampler through
 //! `crate::constrained_sampler::GroupConstraintSampler` whenever
 //! `path_constraints` is `Some`, purely as a sampling-efficiency aid —
 //! `checker` below still enforces the constraint on every candidate
 //! regardless of whether a sampler was available to help find one.
 //!
-//! `start` is not a [`PlanningRequest`] field: [`RrtConnectManager::get_planning_context`]
+//! `start` is not a request field: [`RrtConnectManager::get_planning_context`]
 //! reads it from the [`moveit_scene::PlanningScene`] it is given
 //! (`scene.current_state()`), matching how upstream planning normally seeds
 //! from the scene's current state rather than duplicating it into the
-//! request.
-//!
-//! Planner-specific tuning ([`crate::rrt_connect::RrtConnectParams`],
-//! [`PlanningRequest::resolution`]) is a concretely-typed field rather than
-//! upstream's stringly-typed `PlannerConfigurationSettings::config:
-//! HashMap<String, String>` bag: this port's compile-time registry already
-//! knows which concrete planner it is constructing a request for, so there
-//! is no runtime plugin boundary for a string bag to cross.
+//! request. `moveit_planning::PlanningResponse::start_state` records what
+//! that start actually was.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -192,18 +223,19 @@ use moveit_constraints::{
 use moveit_geometry::Isometry3;
 use moveit_kinematics::{KinematicsSolver, SolveOptions};
 use moveit_model::RobotModel;
+use moveit_planner_registry::{PLANNER_MANAGERS, PlannerRegistration};
+use moveit_planning::{PlannerManager, PlanningContext, PlanningRequest, PlanningResponse};
 use moveit_scene::PlanningScene;
-use moveit_state::RobotState;
+use moveit_trajectory::RobotTrajectory;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-use crate::compound::CompoundValue;
 use crate::constrained_sampler::GroupConstraintSampler;
 use crate::error::SbpError;
 use crate::joint_model_group_space::JointModelGroupSpace;
 use crate::planning_scene_validity::PlanningSceneValidityChecker;
 use crate::rrt_connect::{
-    ConstrainedStateSampler, PlanningFailure, RrtConnectParams, Sampler, rrt_connect,
+    ConstrainedStateSampler, PlanningFailure, RrtConnectParams, Sampler, Termination, rrt_connect,
 };
 use crate::validity::DiscreteMotionValidator;
 
@@ -259,73 +291,101 @@ const DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS: u32 = 1000;
 //   spacing (`ModelBasedPlanningContext::simplifySolution`), unrelated to
 //   how a goal state or region is sampled.
 
-/// A [`PlanningRequest`]'s goal.
-///
-/// Upstream never has this split at the `MotionPlanRequest` level — a goal
-/// is always `goal_constraints: Vec<moveit_msgs::msg::Constraints>`, and
-/// whether that ends up sampled (`ompl_interface::ConstrainedGoalSampler`)
-/// or driving the fixed-state case directly is decided deeper in the OMPL
-/// planning context, invisibly to the caller. This port's
-/// [`crate::rrt_connect::rrt_connect`] instead takes one concrete
-/// `S::State` as `goal`, so *something* has to resolve a constraint region
-/// down to that one state before the search starts — [`Goal`] is that
-/// choice, made explicit at the [`PlanningRequest`] boundary instead of
-/// buried in `solve()`.
-#[derive(Debug, Clone)]
-pub enum Goal {
-    /// A single concrete target state, in the group's own
-    /// [`crate::joint_model_group_space::JointModelGroupSpace`] shape —
-    /// this crate's only goal shape before round 21. See this module's doc
-    /// comment's "consequence" paragraph for what a caller still cannot
-    /// express even with [`Goal::Constraints`] available alongside it
-    /// (namely: this variant remains the only way to reach a state a
-    /// sampler cannot find on its own, e.g. because no
-    /// `moveit_kinematics::KinematicsSolver` was supplied for an
-    /// IK-backed pose goal).
-    State(Vec<CompoundValue>),
-    /// A goal region expressed as constraints, resolved to one concrete
-    /// state by `goal_sampler::sample_goal` before
-    /// [`crate::rrt_connect::rrt_connect`] runs. See that function's own
-    /// module doc comment for exactly which parts of
-    /// `ompl_interface::ConstrainedGoalSampler` this reproduces, and which
-    /// it deliberately does not (in particular: this resolves to *one*
-    /// state, never a lazily-grown region of up to ten).
-    Constraints(KinematicConstraintSet),
+/// Everything that can go wrong building or running a
+/// [`moveit_planning::PlanningContext`] from this crate. Boxed into
+/// [`moveit_planning::PlanError`] at the trait boundary, which is
+/// deliberately opaque so `moveit-planning` need not depend on any concrete
+/// planner crate.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum PlanError {
+    /// [`RrtConnectManager::get_planning_context`] was given a
+    /// `group_name` the scene's `RobotModel` does not
+    /// have, or another boundary-input error from this crate.
+    #[error(transparent)]
+    Sbp(#[from] SbpError),
+    /// [`moveit_planning::PlanningContext::solve`] ran but did not find a path.
+    #[error("planning failed: {0}")]
+    Failed(#[from] PlanningFailure),
+    /// No goal set in `goal_constraints` could be resolved to a single
+    /// concrete state within `DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS` attempts.
+    /// Mirrors `ConstrainedGoalSampler::sampleUsingConstraintSampler`
+    /// returning `false` after `attempts_so_far >= max_attempts`
+    /// (`constrained_goal_sampler.cpp:102-103`) — upstream surfaces that
+    /// through `GoalLazySamples`'s own empty-goal-region timeout deep in
+    /// OMPL; this port reports it directly instead. Reported only after
+    /// *every* set has been tried, matching `GoalSampleableRegionMux`'s
+    /// round-robin over all of them (`detail/goal_union.cpp:83-95`).
+    #[error("no goal state satisfying the goal constraints was found within the sampling budget")]
+    NoGoalSample,
+    /// `goal_constraints` held no non-empty
+    /// [`KinematicConstraintSet`]. Ports
+    /// `ModelBasedPlanningContext::setGoalConstraints` returning
+    /// `INVALID_GOAL_CONSTRAINTS` when every set it was given turned out
+    /// empty (`model_based_planning_context.cpp:690-694`); upstream drops
+    /// empty sets one by one at `:679-683` and only fails if nothing
+    /// survives, which is exactly the boundary this variant marks.
+    #[error("the request carried no non-empty goal constraint set")]
+    NoGoalConstraints,
+    /// Assembling the solved path into a
+    /// [`moveit_trajectory::RobotTrajectory`] failed. Structurally
+    /// unreachable today — the group name was already resolved by
+    /// [`RrtConnectManager::get_planning_context`] and every waypoint is a
+    /// clone of the scene's own current state — but
+    /// [`moveit_trajectory::RobotTrajectory`]'s API is fallible and this
+    /// port surfaces that rather than `.expect()`-ing an invariant it holds
+    /// only by construction elsewhere.
+    #[error("assembling the planned trajectory failed: {0}")]
+    Trajectory(#[from] moveit_error::Error),
 }
 
-/// A motion planning query. See this module's doc comment for why this,
-/// rather than a transcription of upstream's `MotionPlanRequest`, is the
-/// shape here.
-pub struct PlanningRequest {
-    /// The [`moveit_model::JointModelGroup`] to plan for — looked up
-    /// against `scene.robot_model()` by
-    /// [`RrtConnectManager::get_planning_context`].
-    pub group_name: String,
-    /// The target. See [`Goal`]'s own doc comment for the two shapes this
-    /// can take and why.
-    pub goal: Goal,
-    /// Constraints every waypoint (not just the goal) must satisfy, mirroring
-    /// upstream's `path_constraints`. `None` means unconstrained.
-    pub path_constraints: Option<KinematicConstraintSet>,
+/// [`moveit_planning::PlannerManager`] for
+/// [`crate::rrt_connect::rrt_connect`].
+///
+/// # Why the tuning lives here and not in the request
+///
+/// [`moveit_planning::PlanningRequest`] is a port of upstream's
+/// `MotionPlanRequest`, which carries what a *caller* asks for and nothing
+/// about how a particular planner goes about it. Upstream keeps per-planner
+/// tuning in `PlannerConfigurationSettings`, handed to the manager through
+/// `setPlannerConfigurations` (`planning_interface.hpp:56-72,193`) — so
+/// these four fields sit on the manager for the same reason, not as a
+/// leftover from the request type they used to live on. A caller that wants
+/// non-default tuning constructs [`RrtConnectManager`] directly instead of
+/// going through `moveit_planner_registry::resolve_planner`, whose
+/// `construct` takes no arguments and therefore always yields
+/// [`RrtConnectManager::default`].
+pub struct RrtConnectManager {
     /// [`crate::validity::DiscreteMotionValidator`]'s bisection resolution,
     /// in the group's own [`crate::space::StateSpace::distance`] units.
+    /// Upstream's nearest equivalent is OMPL's
+    /// `longest_valid_segment_fraction` (`model_based_planning_context.cpp:294-315`),
+    /// which is a *fraction* of the space's maximum extent rather than an
+    /// absolute distance; this port validates against an absolute one
+    /// because [`crate::validity::DiscreteMotionValidator`] has no state
+    /// space to ask for an extent.
     pub resolution: f64,
-    /// Seeds this query's RNG — see [`crate::rrt_connect::rrt_connect`]'s
+    /// Seeds each query's RNG — see [`crate::rrt_connect::rrt_connect`]'s
     /// determinism guarantee under [`crate::rrt_connect::Termination::Iterations`].
+    /// Every query this manager builds a context for uses the same seed, so
+    /// two identical queries against an identical scene return identical
+    /// paths; a caller wanting different draws per query constructs a
+    /// manager per query.
     pub seed: u64,
     /// RRT-Connect's own tuning parameters.
     pub params: RrtConnectParams,
-    /// Backs *every* [`select_default_sampler`] call `RrtConnectContext::solve`
-    /// makes — both [`Goal::Constraints`]' own and
-    /// [`PlanningRequest::path_constraints`]' own — with one real IK solver,
+    /// Backs *every* [`select_default_sampler`] call
+    /// [`moveit_planning::PlanningContext::solve`] makes on the context
+    /// this manager builds — the goal's own and
+    /// `path_constraints`' own — with one real IK solver,
     /// so a [`moveit_constraints::PositionConstraint`]/
     /// [`moveit_constraints::OrientationConstraint`] region gets a real
     /// `IKConstraintSampler` instead of always falling back to uniform
     /// sampling. See this module's own doc comment ("Round 21"/"Round 24"
     /// paragraphs) for the gap this closes, and `PORTING-PLAN.md`
-    /// §163.3/§164.5 for why this is caller-supplied wiring, not
-    /// automatic resolution: **nothing in this crate picks a solver by
-    /// name.** A caller wanting one must construct it themselves, e.g. from
+    /// §163.3/§164.5 for why this is caller-supplied wiring, not automatic
+    /// resolution: **nothing in this crate picks a solver by name.** A
+    /// caller wanting one must construct it themselves, e.g. from
     /// `moveit_kinematics::KINEMATICS_SOLVERS`, exactly as D4 already
     /// requires everywhere else in this workspace. `None` (every call
     /// site's behavior before this field existed) remains fully valid and
@@ -334,7 +394,7 @@ pub struct PlanningRequest {
     /// **What is verified for the `path_constraints` call site
     /// specifically:** `registry.rs`'s
     /// `path_constraints_solver_wiring_matches_the_call_site` test proves
-    /// `resolve_constraint_sampler` (the function both call sites now share)
+    /// `resolve_constraint_sampler` (the function both call sites share)
     /// builds no sampler for a Cartesian-only region when this field is
     /// `None`, and a real IK-backed sampler producing constraint-satisfying
     /// draws when it is `Some(..)`. `path_constraints_end_to_end_wired_vs_unwired`
@@ -346,61 +406,120 @@ pub struct PlanningRequest {
     /// per-attempt IK seed not being re-anchored between draws; round 25
     /// fixed that (see that type's own doc comment) and this field's
     /// end-to-end behavior for `path_constraints` now matches its
-    /// already-verified behavior for [`Goal::Constraints`]. Setting this
+    /// already-verified behavior for a goal region. Setting this
     /// field is always safe either way — `checker` still enforces
     /// `path_constraints` on every candidate regardless of whether a
     /// sampler helped find one.
     ///
-    /// # Why `Option<Box<dyn KinematicsSolver>>`, not `Rc`/`Arc`/two fields
+    /// # Why `Rc<RefCell<Box<dyn KinematicsSolver>>>`, not `Box`/`Arc`
     ///
-    /// The caller-facing type stays a plain owned `Box`: a caller building
-    /// one [`PlanningRequest`] never needs to know this context internally
-    /// shares it across two `select_default_sampler` calls.
-    /// `RrtConnectContext::solve` itself does the one-time conversion into
-    /// `SharedKinematicsSolver` (backed by `Rc<RefCell<Box<dyn
-    /// KinematicsSolver>>>` — the exact type `select_default_sampler`
-    /// already builds internally per call,
-    /// `moveit-constraints/src/constraint_sampler_manager.rs`'s own Step B),
-    /// so this field always means the same thing regardless of which
-    /// call site reads it: "the caller's solver, if any." Before round 24
-    /// this field read `Box<dyn KinematicsSolver>` and was consumed via
-    /// `.take()` inside the goal-only call site — meaning depended on
-    /// which branch executed, and a second call site added later would
-    /// have silently observed `None`; that is the exact defect round 24
-    /// closes.
+    /// [`moveit_planning::PlannerManager::get_planning_context`] takes
+    /// `&self`, so a manager cannot hand a `Box` to the context it builds
+    /// without giving it up — and it must be able to build a context more
+    /// than once. `Rc` clones a handle instead. `Arc<Mutex<..>>` would work
+    /// too, at the cost of a `Send + Sync` bound
+    /// [`moveit_kinematics::KinematicsSolver`] does not declare and mutex
+    /// overhead for a caller this crate documents as single-threaded
+    /// throughout. `RefCell`, not a bare `Rc`, because
+    /// [`moveit_kinematics::KinematicsSolver::solve_with_options`] takes
+    /// `&mut self`. A private `SharedKinematicsSolver` adapter (this
+    /// module) is what actually crosses into `select_default_sampler`,
+    /// since that call wants an owned `Box<dyn KinematicsSolver>`.
+    pub solver: Option<Rc<RefCell<Box<dyn KinematicsSolver>>>>,
+}
+
+impl Default for RrtConnectManager {
+    /// The configuration
+    /// `moveit_planner_registry::PLANNER_MANAGERS`' `"rrt_connect"` entry
+    /// constructs, since [`moveit_planner_registry::PlannerRegistration::construct`]
+    /// takes no arguments.
     ///
-    /// Three ownership shapes were weighed for the *internal* sharing
-    /// mechanism `solve` converts into:
-    ///
-    /// - **`Rc<RefCell<Box<dyn KinematicsSolver>>>>` (chosen).** Every
-    ///   [`PlanningContext`] in this crate is already documented
-    ///   single-threaded (see that trait's own doc comment), so this needs
-    ///   no `Send`/`Sync` bound on [`KinematicsSolver`] — none is declared on
-    ///   the trait today, so requiring one would newly constrain every
-    ///   implementation in this workspace. It also matches the sharing
-    ///   mechanism `select_default_sampler` already builds internally per
-    ///   call (`constraint_sampler_manager.rs`'s own Step B), so this round
-    ///   introduces no new pattern, just reuses it across call sites.
-    /// - **`Arc<dyn KinematicsSolver>`.** Rejected on two grounds, not just
-    ///   the `Send + Sync` cost: [`KinematicsSolver::solve_with_options`]
-    ///   takes `&mut self`, and a bare `Arc` grants only shared (immutable)
-    ///   access — reaching `&mut self` through it needs interior mutability
-    ///   regardless (`Arc<Mutex<Box<dyn KinematicsSolver>>>>`, not a plain
-    ///   `Arc`), at which point it is the identical shape as the chosen one
-    ///   plus an unneeded `Send + Sync` bound and mutex overhead for a
-    ///   single-threaded caller.
-    /// - **Splitting into two fields** (one solver per call site). Rejected:
-    ///   it removes the dual meaning but forces a caller with one real
-    ///   solver to either construct it twice or clone a handle themselves —
-    ///   pushing the exact sharing problem this type solves onto every
-    ///   caller instead of solving it once, centrally.
-    pub solver: Option<Box<dyn KinematicsSolver>>,
+    /// The values are this repository's own measured ones, not an upstream
+    /// citation: OMPL's `RRTConnect` defaults live in the OMPL library,
+    /// which is an external dependency of moveit2 and is not present in the
+    /// pinned checkout this port reads, so there is nothing upstream here
+    /// to quote. `step_size: 0.5`/`goal_bias: 0.05`/`Iterations(20_000)`/
+    /// `nn_degree: 8` with `resolution: 0.05` are the parameters
+    /// `end_to_end_solve_on_panda_arm_reaches_the_requested_goal` has been
+    /// solving panda_arm with since this planner landed; `seed: 0` is the
+    /// only value a fixed default can honestly take.
+    fn default() -> Self {
+        Self {
+            resolution: 0.05,
+            seed: 0,
+            params: RrtConnectParams {
+                step_size: 0.5,
+                goal_bias: 0.05,
+                termination: Termination::Iterations(20_000),
+                nn_degree: 8,
+            },
+            solver: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for RrtConnectManager {
+    /// Manual, not derived: [`moveit_kinematics::KinematicsSolver`] has no
+    /// `Debug` bound (nothing here needs one), so `solver` cannot go
+    /// through `#[derive(Debug)]` — printed as presence only.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RrtConnectManager")
+            .field("resolution", &self.resolution)
+            .field("seed", &self.seed)
+            .field("params", &self.params)
+            .field(
+                "solver",
+                &self.solver.as_ref().map(|_| "Box<dyn KinematicsSolver>"),
+            )
+            .finish()
+    }
+}
+
+impl PlannerManager for RrtConnectManager {
+    fn name(&self) -> &'static str {
+        "rrt_connect"
+    }
+
+    fn get_planning_context<'a, 'm>(
+        &self,
+        scene: &'a mut PlanningScene<'m>,
+        env: &'a ParryCollisionEnv,
+        request: &PlanningRequest,
+    ) -> Result<Box<dyn PlanningContext<'m> + 'a>, moveit_planning::PlanError> {
+        let space = JointModelGroupSpace::new(scene.robot_model(), &request.group_name)
+            .map_err(|err| Box::new(PlanError::Sbp(err)) as moveit_planning::PlanError)?;
+        Ok(Box::new(RrtConnectContext {
+            scene,
+            env,
+            space,
+            // Cloned, matching upstream's `request_ = request`
+            // (`planning_interface.hpp:114,142`): the context owns the
+            // query it was built for, so a caller mutating its own request
+            // afterwards cannot change what this context solves.
+            request: request.clone(),
+            resolution: self.resolution,
+            seed: self.seed,
+            params: self.params.clone(),
+            solver: self.solver.clone(),
+        }))
+    }
+}
+
+struct RrtConnectContext<'a, 'm> {
+    scene: &'a mut PlanningScene<'m>,
+    env: &'a ParryCollisionEnv,
+    space: JointModelGroupSpace,
+    request: PlanningRequest,
+    resolution: f64,
+    seed: u64,
+    params: RrtConnectParams,
+    solver: Option<Rc<RefCell<Box<dyn KinematicsSolver>>>>,
 }
 
 /// Forwards to a solver borrowed through `Rc<RefCell<Box<dyn
 /// KinematicsSolver>>>` so more than one owner can hold a
 /// [`KinematicsSolver`]-shaped handle onto the *same* underlying solver
-/// instance — see [`PlanningRequest::solver`]'s own doc comment for why
+/// instance — see [`RrtConnectManager::solver`]'s own doc comment for why
 /// [`RrtConnectContext::solve`] needs this.
 ///
 /// The four `&str`/`&[String]`-returning accessors
@@ -478,171 +597,8 @@ impl KinematicsSolver for SharedKinematicsSolver {
     }
 }
 
-impl std::fmt::Debug for PlanningRequest {
-    /// Manual, not derived: [`moveit_kinematics::KinematicsSolver`] has no
-    /// `Debug` bound (nothing here needs one), so `solver` cannot go
-    /// through `#[derive(Debug)]` — printed as presence only.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PlanningRequest")
-            .field("group_name", &self.group_name)
-            .field("goal", &self.goal)
-            .field("path_constraints", &self.path_constraints)
-            .field("resolution", &self.resolution)
-            .field("seed", &self.seed)
-            .field("params", &self.params)
-            .field(
-                "solver",
-                &self.solver.as_ref().map(|_| "Box<dyn KinematicsSolver>"),
-            )
-            .finish()
-    }
-}
-
-/// A successful plan: one [`RobotState`] per waypoint, in order, first
-/// equal to the request's start (`scene.current_state()`) and last equal to
-/// [`PlanningRequest::goal`] — the concrete state itself for
-/// [`Goal::State`], or whatever `crate::goal_sampler::sample_goal`
-/// resolved for [`Goal::Constraints`].
-#[derive(Debug, Clone)]
-pub struct PlanningResponse<'m> {
-    /// The waypoints, in traversal order.
-    pub trajectory: Vec<RobotState<'m>>,
-}
-
-/// Everything that can go wrong building or running a [`PlanningContext`].
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum PlanError {
-    /// [`RrtConnectManager::get_planning_context`] was given a
-    /// [`PlanningRequest::group_name`] the scene's `RobotModel` does not
-    /// have, or another boundary-input error from this crate.
-    #[error(transparent)]
-    Sbp(#[from] SbpError),
-    /// [`PlanningContext::solve`] ran but did not find a path.
-    #[error("planning failed: {0}")]
-    Failed(#[from] PlanningFailure),
-    /// [`Goal::Constraints`] could not be resolved to a single concrete
-    /// state within `DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS` attempts.
-    /// Mirrors `ConstrainedGoalSampler::sampleUsingConstraintSampler`
-    /// returning `false` after `attempts_so_far >= max_attempts`
-    /// (`constrained_goal_sampler.cpp:102-103`) — upstream surfaces that
-    /// through `GoalLazySamples`'s own empty-goal-region timeout deep in
-    /// OMPL; this port reports it directly instead.
-    #[error("no goal state satisfying the goal constraints was found within the sampling budget")]
-    NoGoalSample,
-}
-
-/// Replaces upstream `planning_interface::PlanningContext`: a planning
-/// query bound to a scene, ready to run.
-///
-/// # Deviation from upstream: no `terminate`/`clear`
-///
-/// Upstream's `PlanningContext` supports being handed to one thread while
-/// `terminate()` is called from another (asynchronous cancellation) and
-/// being reused for a second, unrelated request via `clear()`. Every
-/// [`PlanningContext`] here is single-use and single-threaded — the same
-/// scope discipline [`crate::rrt_connect::rrt_connect`] itself already
-/// has (see [`crate::planning_scene_validity::PlanningSceneValidityChecker`]'s
-/// `# Why RefCell` section) — so neither method has a caller to serve yet;
-/// adding them now would be speculative API surface for a concurrency model
-/// this crate does not have.
-pub trait PlanningContext<'m> {
-    /// Runs the query to completion (this crate's planners are synchronous;
-    /// see this trait's `# Deviation` for why there is no separate
-    /// `terminate`).
-    fn solve(&mut self) -> Result<PlanningResponse<'m>, PlanError>;
-}
-
-/// Replaces upstream `planning_interface::PlannerManager`: builds a
-/// [`PlanningContext`] for a `(scene, request)` pair.
-///
-/// # Deviation from upstream: specialized to [`ParryCollisionEnv`]
-///
-/// Upstream's `PlannerManager` is not itself generic over the collision
-/// checker — the scene it is given already owns one. This port's
-/// [`moveit_scene::PlanningScene`] is generic over `E: CollisionEnv<..>`
-/// instead of owning one (see that type's own doc comment), which would
-/// force `get_planning_context` to be generic over `E` too — and a generic
-/// *type* parameter on a trait method breaks `dyn` object-safety (a generic
-/// *lifetime* parameter, like this method's `'a`/`'m`, does not).
-/// [`moveit_collision::ParryCollisionEnv`] is the only [`moveit_collision::CollisionEnv`]
-/// implementation anywhere in this workspace (`PORTING-PLAN.md` D4.5:
-/// parry3d-f64 replaces FCL+Bullet outright, not as one plugin among
-/// several), so specializing directly to it costs nothing today and keeps
-/// [`PLANNER_MANAGERS`] usable as `[dyn PlannerManager]` rather than
-/// requiring a type parameter on the registry itself.
-pub trait PlannerManager {
-    /// This manager's name, matching [`PlannerRegistration::name`].
-    fn name(&self) -> &'static str;
-
-    /// Builds a [`PlanningContext`] that will plan `request` against
-    /// `scene` using `env` for collision. Fails only if `request` cannot be
-    /// resolved against `scene.robot_model()` (currently: an unknown
-    /// [`PlanningRequest::group_name`]) — planning failure itself surfaces
-    /// from [`PlanningContext::solve`], not here, matching upstream's own
-    /// split between context construction and `solve()`.
-    fn get_planning_context<'a, 'm>(
-        &self,
-        scene: &'a mut PlanningScene<'m>,
-        env: &'a ParryCollisionEnv,
-        request: PlanningRequest,
-    ) -> Result<Box<dyn PlanningContext<'m> + 'a>, PlanError>;
-}
-
-/// One [`PlannerManager`] implementation's compile-time registration.
-/// Replaces upstream's `CLASS_LOADER_REGISTER_CLASS(ConcreteType,
-/// planning_interface::PlannerManager)` — see
-/// `moveit_kinematics::registry::SolverRegistration`'s doc comment, which
-/// this mirrors exactly for the same D4 reason.
-pub struct PlannerRegistration {
-    /// The name a caller scanning [`PLANNER_MANAGERS`] matches on.
-    /// `"rrt_connect"` for this crate's own planner.
-    pub name: &'static str,
-    /// Builds one instance of this registration's [`PlannerManager`].
-    pub construct: fn() -> Box<dyn PlannerManager>,
-}
-
-/// Every [`PlannerManager`] this crate (or, later, another crate linked
-/// into the same binary) registers. See [`PlannerRegistration`]'s doc
-/// comment, and `Cargo.toml`'s `[lints.rust]` comment for why this crate
-/// sets `unsafe_code = "allow"` to host it.
-#[linkme::distributed_slice]
-pub static PLANNER_MANAGERS: [PlannerRegistration];
-
-/// [`PlannerManager`] for [`crate::rrt_connect::rrt_connect`].
-#[derive(Debug, Default)]
-pub struct RrtConnectManager;
-
-impl PlannerManager for RrtConnectManager {
-    fn name(&self) -> &'static str {
-        "rrt_connect"
-    }
-
-    fn get_planning_context<'a, 'm>(
-        &self,
-        scene: &'a mut PlanningScene<'m>,
-        env: &'a ParryCollisionEnv,
-        request: PlanningRequest,
-    ) -> Result<Box<dyn PlanningContext<'m> + 'a>, PlanError> {
-        let space = JointModelGroupSpace::new(scene.robot_model(), &request.group_name)?;
-        Ok(Box::new(RrtConnectContext {
-            scene,
-            env,
-            space,
-            request,
-        }))
-    }
-}
-
-struct RrtConnectContext<'a, 'm> {
-    scene: &'a mut PlanningScene<'m>,
-    env: &'a ParryCollisionEnv,
-    space: JointModelGroupSpace,
-    request: PlanningRequest,
-}
-
 /// The `select_default_sampler` call both the `path_constraints` and the
-/// goal (`Goal::Constraints`) branches of [`RrtConnectContext::solve`] make
+/// goal branches of [`RrtConnectContext::solve`] make
 /// — factored out to one function so this round's boundary test
 /// (`path_constraints_solver_wiring_matches_the_call_site`, below) exercises
 /// the exact code `solve()` runs at the `path_constraints` call site,
@@ -684,24 +640,45 @@ fn resolve_constraint_sampler(
     )
 }
 
-impl<'a, 'm> PlanningContext<'m> for RrtConnectContext<'a, 'm> {
-    fn solve(&mut self) -> Result<PlanningResponse<'m>, PlanError> {
+impl<'m> PlanningContext<'m> for RrtConnectContext<'_, 'm> {
+    fn solve(&mut self) -> Result<PlanningResponse<'m>, moveit_planning::PlanError> {
+        self.solve_inner()
+            .map_err(|err| Box::new(err) as moveit_planning::PlanError)
+    }
+}
+
+impl<'m> RrtConnectContext<'_, 'm> {
+    /// [`PlanningContext::solve`]'s body, before the concrete
+    /// [`PlanError`] is boxed into the opaque
+    /// [`moveit_planning::PlanError`] the trait declares. Split out so this
+    /// crate's own tests can assert on the concrete variant — a boxed
+    /// `dyn Error` can only be matched by downcast, which turns "the goal
+    /// could not be sampled" and "the search ran out of iterations" into
+    /// the same assertion.
+    fn solve_inner(&mut self) -> Result<PlanningResponse<'m>, PlanError> {
+        // Read out before `checker` takes `&mut *self.scene` below.
+        // `PlanningScene::robot_model` returns `&'m RobotModel` — the
+        // model outlives the scene borrow, so one read up here serves
+        // every later use without re-borrowing the scene.
+        let model = self.scene.robot_model();
         let start = self.space.read_robot_state(self.scene.current_state());
         let template = self.scene.current_state().clone();
+        let start_state = template.clone();
 
-        // Round 24: `self.request.solver` is converted to a shared
-        // `Rc<RefCell<Box<dyn KinematicsSolver>>>>` once, up front, so both
-        // `resolve_constraint_sampler` calls below (`path_constraints`' own
-        // and the goal's own) can be backed by the *same* real IK solver
-        // instance instead of only whichever call site got to `.take()` it
-        // first. See `PlanningRequest::solver`'s own doc comment and
-        // `SharedKinematicsSolver` for why this replaces the old
-        // single-consumer `.take()` pattern.
-        let shared_solver: Option<Rc<RefCell<Box<dyn KinematicsSolver>>>> = self
+        // Upstream `ModelBasedPlanningContext::setGoalConstraints` drops
+        // empty goal sets (`model_based_planning_context.cpp:679-683`) and
+        // fails with `INVALID_GOAL_CONSTRAINTS` only if none survives
+        // (`:690-694`). Done here, before any sampler is built, so an
+        // all-empty request costs nothing.
+        let goal_sets: Vec<&KinematicConstraintSet> = self
             .request
-            .solver
-            .take()
-            .map(|solver| Rc::new(RefCell::new(solver)));
+            .goal_constraints
+            .iter()
+            .filter(|set| !set.constraints().is_empty())
+            .collect();
+        if goal_sets.is_empty() {
+            return Err(PlanError::NoGoalConstraints);
+        }
 
         let constraint_sampler = self
             .request
@@ -709,25 +686,32 @@ impl<'a, 'm> PlanningContext<'m> for RrtConnectContext<'a, 'm> {
             .as_ref()
             .and_then(|constraints| {
                 resolve_constraint_sampler(
-                    self.scene.robot_model(),
+                    model,
                     &self.request.group_name,
                     constraints.constraints(),
-                    shared_solver.clone(),
+                    self.solver.clone(),
                 )
             });
         let path_sampler = constraint_sampler
             .as_deref()
             .map(|sampler| GroupConstraintSampler::new(&self.space, sampler, template.clone()));
 
-        let goal_constraint_sampler = match &self.request.goal {
-            Goal::Constraints(goal_constraints) => resolve_constraint_sampler(
-                self.scene.robot_model(),
-                &self.request.group_name,
-                goal_constraints.constraints(),
-                shared_solver.clone(),
-            ),
-            Goal::State(_) => None,
-        };
+        // One sampler per goal set, all built up front — upstream's
+        // `constructGoal` does the same (`model_based_planning_context.cpp:519-549`:
+        // one `ConstrainedGoalSampler` per set, then a
+        // `GoalSampleableRegionMux` over them) rather than deferring
+        // construction until a set is reached.
+        let goal_samplers: Vec<Option<Box<dyn ConstraintSampler>>> = goal_sets
+            .iter()
+            .map(|goal_constraints| {
+                resolve_constraint_sampler(
+                    model,
+                    &self.request.group_name,
+                    goal_constraints.constraints(),
+                    self.solver.clone(),
+                )
+            })
+            .collect();
 
         let checker = PlanningSceneValidityChecker::new(
             &mut *self.scene,
@@ -736,22 +720,32 @@ impl<'a, 'm> PlanningContext<'m> for RrtConnectContext<'a, 'm> {
             self.request.path_constraints.as_ref(),
             &self.space,
         );
-        let motion_validator = DiscreteMotionValidator::new(&checker, self.request.resolution);
-        let mut rng = ChaCha8Rng::seed_from_u64(self.request.seed);
+        let motion_validator = DiscreteMotionValidator::new(&checker, self.resolution);
+        let mut rng = ChaCha8Rng::seed_from_u64(self.seed);
 
-        let goal = match &self.request.goal {
-            Goal::State(state) => state.clone(),
-            Goal::Constraints(goal_constraints) => crate::goal_sampler::sample_goal(
-                &self.space,
-                &checker,
-                goal_constraints,
-                &template,
-                goal_constraint_sampler.as_deref(),
-                &mut rng,
-                DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS,
-            )
-            .ok_or(PlanError::NoGoalSample)?,
-        };
+        // Upstream wraps one `ConstrainedGoalSampler` per goal set in a
+        // `GoalSampleableRegionMux` and round-robins `sampleGoal` over them
+        // (`detail/goal_union.cpp:83-95`). This port resolves a goal to one
+        // concrete state rather than a lazily-grown region (see
+        // `crate::goal_sampler::sample_goal`'s own doc), so the same
+        // any-of rule reduces to: try each set in declaration order, take
+        // the first that yields an accepted state. Order is the request's,
+        // never the linker's or a hash map's.
+        let goal = goal_sets
+            .iter()
+            .zip(&goal_samplers)
+            .find_map(|(goal_constraints, sampler)| {
+                crate::goal_sampler::sample_goal(
+                    &self.space,
+                    &checker,
+                    goal_constraints,
+                    &template,
+                    sampler.as_deref(),
+                    &mut rng,
+                    DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS,
+                )
+            })
+            .ok_or(PlanError::NoGoalSample)?;
 
         let path = rrt_connect(
             &self.space,
@@ -765,26 +759,33 @@ impl<'a, 'm> PlanningContext<'m> for RrtConnectContext<'a, 'm> {
                     .as_ref()
                     .map(|sampler| sampler as &dyn ConstrainedStateSampler<JointModelGroupSpace>),
             },
-            &self.request.params,
+            &self.params,
         )?;
 
-        let trajectory = path
-            .into_iter()
-            .map(|state| {
-                let mut robot_state = template.clone();
-                self.space.write_robot_state(&state, &mut robot_state);
-                robot_state
-            })
-            .collect();
+        // Zero duration per waypoint: RRT-Connect produces a geometric
+        // path, not a timed trajectory, exactly as upstream's OMPL context
+        // does — timing is what `moveit_planning`'s
+        // `AddTimeOptimalParameterization`/`AddRuckigTrajectorySmoothing`
+        // response adapters exist to compute afterwards.
+        let mut trajectory = RobotTrajectory::for_group_name(model, &self.request.group_name)?;
+        for state in path {
+            let mut robot_state = template.clone();
+            self.space.write_robot_state(&state, &mut robot_state);
+            trajectory.add_suffix_way_point(robot_state, 0.0)?;
+        }
 
-        Ok(PlanningResponse { trajectory })
+        Ok(PlanningResponse {
+            trajectory,
+            planner_id: "rrt_connect".to_string(),
+            start_state,
+        })
     }
 }
 
 #[linkme::distributed_slice(PLANNER_MANAGERS)]
 static RRT_CONNECT: PlannerRegistration = PlannerRegistration {
     name: "rrt_connect",
-    construct: || Box::new(RrtConnectManager),
+    construct: || Box::new(RrtConnectManager::default()),
 };
 
 #[cfg(test)]
@@ -793,14 +794,34 @@ mod tests {
     use std::sync::Arc;
 
     use moveit_collision::LinkPaddingScale;
+    use moveit_constraints::utils::construct_goal_joint_constraints;
     use moveit_geometry::{Cuboid, Isometry3, Shape};
     use moveit_model::{MeshSearchPaths, RobotModel};
     use moveit_srdf::SrdfModel;
+    use moveit_state::RobotState;
     use rand::RngExt;
 
     use super::*;
-    use crate::rrt_connect::Termination;
+    use crate::compound::CompoundValue;
     use crate::space::StateSpace;
+
+    /// The tolerance every state goal below is built with, and the bound
+    /// every "did we arrive" assertion checks against.
+    ///
+    /// Upstream's `constructGoalConstraints(state, jmg, tolerance)` defaults
+    /// to `std::numeric_limits<double>::epsilon()`
+    /// (`kinematic_constraints/utils.hpp:101`). This port cannot use that
+    /// value here: `crate::goal_sampler::sample_goal` resolves the region by
+    /// *drawing* from it (`moveit_constraints::JointConstraintSampler`
+    /// samples uniformly in the intersection of the tolerance window and the
+    /// joint's own bounds), so an `f64::EPSILON`-wide window is narrower
+    /// than the rounding of the draw itself — the arithmetic that produces
+    /// the sample cannot land inside a window one ULP wide at every
+    /// magnitude. `1e-9` is wide enough to be sampled reliably and far
+    /// tighter than any tolerance these tests' own assertions care about;
+    /// `state_goal_is_reached_within_its_own_tolerance` is what holds the
+    /// two ends together.
+    const STATE_GOAL_TOLERANCE: f64 = 1e-9;
 
     fn load_panda() -> (RobotModel, SrdfModel) {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
@@ -813,17 +834,53 @@ mod tests {
         (model, srdf)
     }
 
-    fn default_params(seed: u64) -> (f64, u64, RrtConnectParams) {
-        (
-            0.05,
-            seed,
-            RrtConnectParams {
-                step_size: 0.5,
-                goal_bias: 0.05,
-                termination: Termination::Iterations(20_000),
-                nn_degree: 8,
-            },
+    /// The goal these tests used to write as `Goal::State(value)`, in the
+    /// shape upstream expresses a concrete-state goal:
+    /// `constructGoalConstraints(state, jmg, tolerance)`
+    /// (`kinematic_constraints/utils.hpp:99`) — one
+    /// [`moveit_constraints::JointConstraint`] per group variable at that
+    /// state's position, ported as
+    /// [`moveit_constraints::utils::construct_goal_joint_constraints`].
+    fn state_goal(
+        model: &RobotModel,
+        space: &JointModelGroupSpace,
+        template: &RobotState<'_>,
+        group_name: &str,
+        value: &[CompoundValue],
+    ) -> KinematicConstraintSet {
+        let mut state = template.clone();
+        space.write_robot_state(&value.to_vec(), &mut state);
+        let posed = state.update();
+        construct_goal_joint_constraints(
+            model,
+            &posed,
+            group_name,
+            STATE_GOAL_TOLERANCE,
+            STATE_GOAL_TOLERANCE,
         )
+        .expect("the group is real and every variable of it is set")
+    }
+
+    /// The tuning `RrtConnectManager` carries for the panda_arm queries
+    /// below — [`RrtConnectManager::default`] with `seed` substituted, since
+    /// several tests need distinct draws from one another.
+    fn default_manager(seed: u64) -> RrtConnectManager {
+        RrtConnectManager {
+            seed,
+            ..RrtConnectManager::default()
+        }
+    }
+
+    /// A request with only the fields these tests vary; the rest are
+    /// `moveit_planning::PlanningRequest`'s own defaults, which this
+    /// planner does not read (workspace bounds, scaling factors,
+    /// trajectory constraints).
+    fn request(group_name: &str, goal: KinematicConstraintSet) -> PlanningRequest {
+        PlanningRequest {
+            group_name: group_name.to_string(),
+            goal_constraints: vec![goal],
+            ..PlanningRequest::default()
+        }
     }
 
     #[test]
@@ -841,24 +898,160 @@ mod tests {
         let (model, srdf) = load_panda();
         let mut scene = PlanningScene::new(&model, &srdf);
         let env = ParryCollisionEnv::default();
-        let manager = RrtConnectManager;
-        let (resolution, seed, params) = default_params(0);
+        let manager = default_manager(0);
+
+        let request = request("not_a_real_group", KinematicConstraintSet::new());
+
+        let Err(err) = manager.get_planning_context(&mut scene, &env, &request) else {
+            panic!("a group the RobotModel does not have must be rejected");
+        };
+        // `moveit_planning::PlanError` is `Box<dyn Error>` by design, so the
+        // concrete variant is only reachable by downcast -- doing it here
+        // rather than asserting on the message keeps this pinned to
+        // `SbpError::UnknownGroup` specifically, not to any error that
+        // happens to mention the group name.
+        let concrete = err
+            .downcast_ref::<PlanError>()
+            .expect("this crate boxes its own PlanError");
+        assert!(
+            matches!(concrete, PlanError::Sbp(SbpError::UnknownGroup { .. })),
+            "expected PlanError::Sbp(UnknownGroup), got {concrete:?}"
+        );
+    }
+
+    /// The goal-side boundary [`PlanError::NoGoalConstraints`] marks:
+    /// upstream drops empty goal sets one at a time
+    /// (`model_based_planning_context.cpp:679-683`) and only returns
+    /// `INVALID_GOAL_CONSTRAINTS` when nothing survives (`:690-694`). A
+    /// request with one empty set is the smallest input that reaches that
+    /// second branch, and it must not be confused with
+    /// [`PlanError::NoGoalSample`] (a real region that could not be
+    /// sampled).
+    #[test]
+    fn an_all_empty_goal_constraint_list_is_rejected_before_sampling() {
+        let (model, srdf) = load_panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let manager = default_manager(0);
 
         let request = PlanningRequest {
-            group_name: "not_a_real_group".to_string(),
-            goal: Goal::State(vec![]),
-            path_constraints: None,
-            resolution,
-            seed,
-            params,
-            solver: None,
+            group_name: "panda_arm".to_string(),
+            goal_constraints: vec![KinematicConstraintSet::new(), KinematicConstraintSet::new()],
+            ..PlanningRequest::default()
         };
 
-        let result = manager.get_planning_context(&mut scene, &env, request);
-        assert!(matches!(
-            result,
-            Err(PlanError::Sbp(SbpError::UnknownGroup { .. }))
-        ));
+        let mut context = manager
+            .get_planning_context(&mut scene, &env, &request)
+            .expect("panda_arm is a real group");
+        let err = context
+            .solve()
+            .expect_err("a goal list with nothing in it must not plan");
+        let concrete = err
+            .downcast_ref::<PlanError>()
+            .expect("this crate boxes its own PlanError");
+        assert!(
+            matches!(concrete, PlanError::NoGoalConstraints),
+            "expected PlanError::NoGoalConstraints, got {concrete:?}"
+        );
+    }
+
+    /// The any-of rule itself
+    /// (`ModelBasedPlanningContext::setGoalConstraints` +
+    /// `GoalSampleableRegionMux`, `detail/goal_union.cpp:83-95`): a request
+    /// whose *first* goal set cannot be satisfied must still plan, using a
+    /// later one.
+    ///
+    /// The unsatisfiable set is two joint constraints on the *same* joint at
+    /// positions further apart than their tolerances, not one constraint
+    /// outside the joint's limits: `JointConstraint::new` clamps an
+    /// out-of-limits position back onto the nearest bound
+    /// (`joint.rs`, upstream `kinematic_constraint.cpp`'s own
+    /// `configure`), so a constraint written that way is perfectly
+    /// satisfiable by the time the sampler sees it. Measured, not assumed --
+    /// this test was first written that way and passed by reaching
+    /// `panda_joint1`'s upper bound, satisfying the set it was supposed to
+    /// prove unsatisfiable. Two contradictory constraints instead make
+    /// `JointConstraintSampler::new` intersect to an empty window (its
+    /// `min_bound > max_bound` error), which `select_default_sampler` turns
+    /// into "no sampler" and `decide()` then rejects every uniform draw.
+    #[test]
+    fn a_later_goal_set_is_used_when_an_earlier_one_cannot_be_satisfied() {
+        let (model, srdf) = load_panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let manager = default_manager(1);
+
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(3);
+        let reachable = space.sample_uniform(&mut rng);
+        let template = scene.current_state().clone();
+
+        let mut unreachable = KinematicConstraintSet::new();
+        for position in [-2.0, 2.0] {
+            unreachable.push(Constraint::Joint(
+                moveit_constraints::JointConstraint::new(
+                    &model,
+                    "panda_joint1",
+                    position,
+                    STATE_GOAL_TOLERANCE,
+                    STATE_GOAL_TOLERANCE,
+                    1.0,
+                )
+                .unwrap(),
+            ));
+        }
+
+        let request = PlanningRequest {
+            group_name: "panda_arm".to_string(),
+            goal_constraints: vec![
+                unreachable,
+                state_goal(&model, &space, &template, "panda_arm", &reachable),
+            ],
+            ..PlanningRequest::default()
+        };
+
+        let mut context = manager
+            .get_planning_context(&mut scene, &env, &request)
+            .expect("panda_arm is a real group");
+        let response = context
+            .solve()
+            .expect("the second goal set is reachable, so the query must succeed");
+        drop(context);
+
+        let last = response
+            .trajectory
+            .way_point(response.trajectory.way_point_count() - 1)
+            .unwrap();
+        let reached = space.read_robot_state(last);
+        assert_state_within(&reached, &reachable, STATE_GOAL_TOLERANCE);
+    }
+
+    /// Every waypoint value of `reached` is within `tolerance` of `expected`.
+    /// The old `assert_eq!` against a `Goal::State` cannot survive the move
+    /// to constraint goals: a goal region is *sampled*, so the state
+    /// `rrt_connect` is handed is a draw from the tolerance window, not the
+    /// window's centre. `tolerance` is the same value the goal was built
+    /// with, so this asserts exactly the contract
+    /// `constructGoalConstraints` states and nothing looser.
+    fn assert_state_within(reached: &[CompoundValue], expected: &[CompoundValue], tolerance: f64) {
+        assert_eq!(
+            reached.len(),
+            expected.len(),
+            "the reached state must have the group's own shape"
+        );
+        for (index, (got, want)) in reached.iter().zip(expected).enumerate() {
+            let (CompoundValue::RealVector(got), CompoundValue::RealVector(want)) = (got, want)
+            else {
+                panic!("panda_arm is an all-revolute group; subspace {index} is not a real vector");
+            };
+            assert_eq!(got.len(), want.len());
+            for (got, want) in got.iter().zip(want) {
+                assert!(
+                    (got - want).abs() <= tolerance,
+                    "subspace {index}: reached {got} is further than {tolerance} from goal {want}"
+                );
+            }
+        }
     }
 
     /// Registry mechanism plus [`JointModelGroupSpace`] integration on a
@@ -876,8 +1069,7 @@ mod tests {
         let (model, srdf) = load_panda();
         let mut scene = PlanningScene::new(&model, &srdf);
         let env = ParryCollisionEnv::default();
-        let manager = RrtConnectManager;
-        let (resolution, seed, params) = default_params(1);
+        let manager = default_manager(1);
 
         let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
         let mut rng = ChaCha8Rng::seed_from_u64(3);
@@ -887,35 +1079,47 @@ mod tests {
         // its own doc comment's `# Side effect`), so reading it back
         // afterward would not recover the actual start the query ran from.
         let expected_start = space.read_robot_state(scene.current_state());
+        let template = scene.current_state().clone();
 
-        let request = PlanningRequest {
-            group_name: "panda_arm".to_string(),
-            goal: Goal::State(goal.clone()),
-            path_constraints: None,
-            resolution,
-            seed,
-            params,
-            solver: None,
-        };
+        let request = request(
+            "panda_arm",
+            state_goal(&model, &space, &template, "panda_arm", &goal),
+        );
 
         let mut context = manager
-            .get_planning_context(&mut scene, &env, request)
+            .get_planning_context(&mut scene, &env, &request)
             .expect("panda_arm is a real group");
         let response = context
             .solve()
             .expect("an empty-world panda_arm query must be solvable");
         drop(context);
 
-        assert!(response.trajectory.len() >= 2);
-        let start_positions = space.read_robot_state(&response.trajectory[0]);
-        let end_positions = space.read_robot_state(response.trajectory.last().unwrap());
+        assert!(response.trajectory.way_point_count() >= 2);
         assert_eq!(
-            end_positions, goal,
-            "the last waypoint must equal the requested goal exactly"
+            response.planner_id, "rrt_connect",
+            "a planner must name itself in its own response"
         );
+        assert_eq!(
+            response.trajectory.group_name(),
+            "panda_arm",
+            "the trajectory must carry the group it was planned for"
+        );
+        let start_positions = space.read_robot_state(response.trajectory.way_point(0).unwrap());
+        let end_positions = space.read_robot_state(
+            response
+                .trajectory
+                .way_point(response.trajectory.way_point_count() - 1)
+                .unwrap(),
+        );
+        assert_state_within(&end_positions, &goal, STATE_GOAL_TOLERANCE);
         assert_eq!(
             start_positions, expected_start,
             "the first waypoint must equal the scene's start state"
+        );
+        assert_eq!(
+            space.read_robot_state(&response.start_state),
+            expected_start,
+            "PlanningResponse::start_state must record the state the query actually ran from"
         );
     }
 
@@ -981,11 +1185,7 @@ mod tests {
             .unwrap();
         let goal = space.read_robot_state(&goal_state);
 
-        let manager = RrtConnectManager;
-        let request = PlanningRequest {
-            group_name: "body_group".to_string(),
-            goal: Goal::State(goal.clone()),
-            path_constraints: None,
+        let manager = RrtConnectManager {
             resolution: 0.02,
             seed: 3,
             params: RrtConnectParams {
@@ -996,9 +1196,14 @@ mod tests {
             },
             solver: None,
         };
+        let template = scene.current_state().clone();
+        let request = request(
+            "body_group",
+            state_goal(&model, &space, &template, "body_group", &goal),
+        );
 
         let mut context = manager
-            .get_planning_context(&mut scene, &env, request)
+            .get_planning_context(&mut scene, &env, &request)
             .expect("body_group is a real group");
         let response = context
             .solve()
@@ -1006,17 +1211,17 @@ mod tests {
         drop(context);
 
         assert!(
-            response.trajectory.len() > 2,
+            response.trajectory.way_point_count() > 2,
             "a direct 2-waypoint path would cross the wall; a valid solution must detour"
         );
 
-        let validity = scene.is_path_valid(
-            &env,
-            &CollisionRequest::default(),
-            &response.trajectory,
-            None,
-            &[],
-        );
+        let waypoints: Vec<RobotState> = response
+            .trajectory
+            .iter()
+            .map(|(state, _)| state.clone())
+            .collect();
+        let validity =
+            scene.is_path_valid(&env, &CollisionRequest::default(), &waypoints, None, &[]);
         assert!(
             validity.valid,
             "PlanningScene::is_path_valid must independently confirm every waypoint the planner returned: {:?}",
@@ -1133,18 +1338,22 @@ mod tests {
             // Wired: the real registry path.
             let mut scene = PlanningScene::new(&model, &srdf);
             let env = ParryCollisionEnv::default();
-            let manager = RrtConnectManager;
-            let request = PlanningRequest {
-                group_name: "panda_arm".to_string(),
-                goal: Goal::State(goal.clone()),
-                path_constraints: Some(path_constraints),
+            let manager = RrtConnectManager {
                 resolution: 0.05,
                 seed,
                 params: small_budget.clone(),
                 solver: None,
             };
+            let template = scene.current_state().clone();
+            let request = PlanningRequest {
+                path_constraints: Some(path_constraints),
+                ..request(
+                    "panda_arm",
+                    state_goal(&model, &space, &template, "panda_arm", &goal),
+                )
+            };
             let mut context = manager
-                .get_planning_context(&mut scene, &env, request)
+                .get_planning_context(&mut scene, &env, &request)
                 .expect("panda_arm is a real group");
             let response = context.solve().unwrap_or_else(|e| {
                 panic!(
@@ -1154,7 +1363,7 @@ mod tests {
             });
             drop(context);
 
-            for (index, waypoint) in response.trajectory.iter().enumerate() {
+            for (index, (waypoint, _)) in response.trajectory.iter().enumerate() {
                 let value = waypoint.variable_position("panda_joint1").unwrap();
                 assert!(
                     (-0.005..=0.005).contains(&value),
@@ -1183,26 +1392,17 @@ mod tests {
         let (model, srdf) = load_panda();
         let mut scene = PlanningScene::new(&model, &srdf);
         let env = ParryCollisionEnv::default();
-        let manager = RrtConnectManager;
-        let (resolution, seed, params) = default_params(2);
+        let manager = default_manager(2);
 
         let joint_constraint = JointConstraint::new(&model, "panda_joint1", 0.0, 0.001, 0.001, 1.0)
             .expect("valid joint constraint");
         let mut goal_constraints = KinematicConstraintSet::new();
         goal_constraints.push(Constraint::Joint(joint_constraint));
 
-        let request = PlanningRequest {
-            group_name: "panda_arm".to_string(),
-            goal: Goal::Constraints(goal_constraints),
-            path_constraints: None,
-            resolution,
-            seed,
-            params,
-            solver: None,
-        };
+        let request = request("panda_arm", goal_constraints);
 
         let mut context = manager
-            .get_planning_context(&mut scene, &env, request)
+            .get_planning_context(&mut scene, &env, &request)
             .expect("panda_arm is a real group");
         let response = context
             .solve()
@@ -1211,7 +1411,7 @@ mod tests {
 
         let value = response
             .trajectory
-            .last()
+            .way_point(response.trajectory.way_point_count() - 1)
             .unwrap()
             .variable_position("panda_joint1")
             .unwrap();
@@ -1318,28 +1518,23 @@ mod tests {
         for seed in 0..10u64 {
             let mut unwired_scene = PlanningScene::new(&model, &srdf);
             let env = ParryCollisionEnv::default();
-            let manager = RrtConnectManager;
-            let (resolution, req_seed, params) = default_params(seed);
-            let unwired_request = PlanningRequest {
-                group_name: "panda_arm".to_string(),
-                goal: Goal::Constraints(build_goal_constraints()),
-                path_constraints: None,
-                resolution,
-                seed: req_seed,
-                params: params.clone(),
-                solver: None,
-            };
-            let mut unwired_context = manager
-                .get_planning_context(&mut unwired_scene, &env, unwired_request)
+            let unwired_manager = default_manager(seed);
+            let unwired_request = request("panda_arm", build_goal_constraints());
+            let mut unwired_context = unwired_manager
+                .get_planning_context(&mut unwired_scene, &env, &unwired_request)
                 .expect("panda_arm is a real group");
             let unwired_result = unwired_context.solve();
+            let unwired_concrete = unwired_result
+                .as_ref()
+                .err()
+                .and_then(|err| err.downcast_ref::<PlanError>());
             assert!(
-                matches!(unwired_result, Err(PlanError::NoGoalSample)),
+                matches!(unwired_concrete, Some(PlanError::NoGoalSample)),
                 "seed {seed}: solver: None must still fail to resolve a Cartesian-only goal \
                  (no full joint coverage, no solver -- select_default_sampler builds nothing, \
                  and 1000 uniform 7-DOF samples essentially never land inside a 0.02/0.1 \
                  Cartesian window), matching this call site's behaviour before \
-                 PlanningRequest::solver existed; got {unwired_result:?}"
+                 RrtConnectManager::solver existed; got {unwired_concrete:?}"
             );
             drop(unwired_context);
 
@@ -1348,24 +1543,24 @@ mod tests {
                 NewtonRaphsonSolver::new(&model, "panda_arm", &SolverParams::default())
                     .expect("panda_arm is a chain"),
             );
-            let wired_request = PlanningRequest {
-                group_name: "panda_arm".to_string(),
-                goal: Goal::Constraints(build_goal_constraints()),
-                path_constraints: None,
-                resolution,
-                seed: req_seed,
-                params,
-                solver: Some(solver),
+            let wired_manager = RrtConnectManager {
+                solver: Some(Rc::new(RefCell::new(solver))),
+                ..default_manager(seed)
             };
-            let mut wired_context = manager
-                .get_planning_context(&mut wired_scene, &env, wired_request)
+            let wired_request = request("panda_arm", build_goal_constraints());
+            let mut wired_context = wired_manager
+                .get_planning_context(&mut wired_scene, &env, &wired_request)
                 .expect("panda_arm is a real group");
             let response = wired_context
                 .solve()
                 .unwrap_or_else(|e| panic!("seed {seed}: solver: Some(..) must resolve the same goal the unwired control above could not; got {e:?}"));
             drop(wired_context);
 
-            let mut last = response.trajectory.last().unwrap().clone();
+            let mut last = response
+                .trajectory
+                .way_point(response.trajectory.way_point_count() - 1)
+                .unwrap()
+                .clone();
             let posed = last.update();
             assert!(
                 pc.decide(&posed).satisfied,
@@ -1568,9 +1763,22 @@ mod tests {
     /// `solve()`, 5 seeds, matched `step_size`/iteration budget between
     /// wired and unwired.
     ///
-    /// **Measured after the fix: unwired 1/5, wired 5/5** (`step_size:
+    /// **Measured after the fix: unwired 3/5, wired 5/5** (`step_size:
     /// 0.03`, `goal_bias: 0.0`, `Iterations(20)`) -- the reverse of the
-    /// pre-fix regression this scenario's ancestor recorded. This is one
+    /// pre-fix regression this scenario's ancestor recorded.
+    ///
+    /// The unwired count was 1/5 through round 29 and became 3/5 under D8,
+    /// with no change to the search: D8 replaced this test's exact-state
+    /// goal with a `constructGoalConstraints` set, so `solve()` now draws
+    /// the goal out of the same `ChaCha8Rng` `rrt_connect` samples from,
+    /// shifting every later draw by however many the goal sampler consumed.
+    /// Isolated, not assumed: giving `sample_goal` its own stream (a
+    /// one-line experiment, run and reverted) restores exactly 1/5 and 5/5
+    /// here and every pinned number in
+    /// `path_constraints_four_scenario_wired_vs_unwired_sweep`. The shared
+    /// stream is kept because it is what round 28's `Goal::Constraints`
+    /// scenario already used; a second stream would be a new design choice
+    /// made to hold a number still, which is backwards. This is one
     /// scenario, not the four-scenario sweep the pre-fix measurement used
     /// (that sweep was never committed as code to re-run) -- reported as
     /// what it is, a single re-measurement showing the fix reversing the
@@ -1765,18 +1973,22 @@ mod tests {
             let mut unwired_scene = PlanningScene::new(&model, &srdf);
             set_start(&mut unwired_scene);
             let env = ParryCollisionEnv::default();
-            let manager = RrtConnectManager;
-            let unwired_request = PlanningRequest {
-                group_name: "panda_arm".to_string(),
-                goal: Goal::State(goal.clone()),
-                path_constraints: Some(build_path_constraints()),
+            let unwired_manager = RrtConnectManager {
                 resolution: 0.05,
                 seed,
                 params: small_budget.clone(),
                 solver: None,
             };
-            let mut unwired_context = manager
-                .get_planning_context(&mut unwired_scene, &env, unwired_request)
+            let template = unwired_scene.current_state().clone();
+            let unwired_request = PlanningRequest {
+                path_constraints: Some(build_path_constraints()),
+                ..request(
+                    "panda_arm",
+                    state_goal(&model, &space, &template, "panda_arm", &goal),
+                )
+            };
+            let mut unwired_context = unwired_manager
+                .get_planning_context(&mut unwired_scene, &env, &unwired_request)
                 .expect("panda_arm is a real group");
             if unwired_context.solve().is_ok() {
                 unwired_successes += 1;
@@ -1789,17 +2001,21 @@ mod tests {
                 NewtonRaphsonSolver::new(&model, "panda_arm", &SolverParams::default())
                     .expect("panda_arm is a chain"),
             );
-            let wired_request = PlanningRequest {
-                group_name: "panda_arm".to_string(),
-                goal: Goal::State(goal.clone()),
-                path_constraints: Some(build_path_constraints()),
+            let wired_manager = RrtConnectManager {
                 resolution: 0.05,
                 seed,
                 params: small_budget.clone(),
-                solver: Some(wired_solver),
+                solver: Some(Rc::new(RefCell::new(wired_solver))),
             };
-            let mut wired_context = manager
-                .get_planning_context(&mut wired_scene, &env, wired_request)
+            let wired_request = PlanningRequest {
+                path_constraints: Some(build_path_constraints()),
+                ..request(
+                    "panda_arm",
+                    state_goal(&model, &space, &template, "panda_arm", &goal),
+                )
+            };
+            let mut wired_context = wired_manager
+                .get_planning_context(&mut wired_scene, &env, &wired_request)
                 .expect("panda_arm is a real group");
             if wired_context.solve().is_ok() {
                 wired_successes += 1;
@@ -1821,8 +2037,8 @@ mod tests {
         // agree since they share the same geometry and budget.
         assert_eq!(
             (unwired_successes, wired_successes),
-            (1, 5),
-            "moved off the documented unwired 1/5, wired 5/5"
+            (3, 5),
+            "moved off the documented unwired 3/5, wired 5/5"
         );
     }
 
@@ -1861,13 +2077,21 @@ mod tests {
     /// # Measured
     ///
     /// ```text
-    /// scenario 1 (self-motion, Goal::State):          unwired 1/5, wired 5/5
-    /// scenario 2 (Goal::Constraints, no corridor):     unwired 0/5, wired 5/5
-    /// scenario 3 (orientation-only corridor):          unwired 5/5, wired 5/5
-    /// scenario 4, tight  (0.03/Iterations(20)):        unwired 1/5, wired 5/5
+    /// scenario 1 (self-motion, concrete-state goal): unwired 3/5, wired 5/5
+    /// scenario 2 (constraint-region goal):            unwired 0/5, wired 5/5
+    /// scenario 3 (orientation-only corridor):         unwired 5/5, wired 5/5
+    /// scenario 4, tight  (0.03/Iterations(20)):       unwired 3/5, wired 5/5
     /// scenario 4, medium (0.1 /Iterations(20)):        unwired 0/5, wired 5/5
     /// scenario 4, loose  (0.2 /Iterations(200)):       unwired 0/5, wired 5/5
     /// ```
+    ///
+    /// Scenarios 1 and 4-tight read 1/5 through round 29; D8's move from an
+    /// exact-state goal to a `constructGoalConstraints` set put the goal
+    /// draw on the same `ChaCha8Rng` the search samples from, shifting the
+    /// stream. Isolated and reverted: a private goal stream restores every
+    /// pre-D8 number here exactly. See
+    /// `path_constraints_end_to_end_wired_vs_unwired`'s doc for why the
+    /// shared stream is kept.
     ///
     /// Reproduced identically across repeated runs (deterministic seeds
     /// throughout). Three readings, none smoothed over:
@@ -1923,15 +2147,15 @@ mod tests {
 
         /// Runs `num_seeds` wired and `num_seeds` unwired `solve()`s for one
         /// scenario, returning `(wired_successes, unwired_successes)`.
-        /// `goal`/`path_constraints` are factories, not values, because
-        /// `PlanningRequest` cannot derive `Clone` (`solver` is `Option<Box<dyn
-        /// KinematicsSolver>>`) -- each of the `2 * num_seeds` requests built
-        /// needs its own independently owned copy.
+        /// `goal`/`path_constraints` are factories rather than values so
+        /// each of the `2 * num_seeds` requests gets an independently owned
+        /// copy; the solver, now a `RrtConnectManager` field, is built once
+        /// per manager instead.
         fn run_scenario(
             model: &RobotModel,
             srdf: &SrdfModel,
             start_values: &[f64],
-            goal: impl Fn() -> Goal,
+            goal: impl Fn() -> KinematicConstraintSet,
             path_constraints: impl Fn() -> Option<KinematicConstraintSet>,
             budget: &RrtConnectParams,
             num_seeds: u64,
@@ -1946,23 +2170,23 @@ mod tests {
                 }
             };
             let env = ParryCollisionEnv::default();
-            let manager = RrtConnectManager;
             let mut wired_successes = 0u32;
             let mut unwired_successes = 0u32;
             for seed in 0..num_seeds {
                 let mut unwired_scene = PlanningScene::new(model, srdf);
                 set_start(&mut unwired_scene);
-                let unwired_request = PlanningRequest {
-                    group_name: "panda_arm".to_string(),
-                    goal: goal(),
-                    path_constraints: path_constraints(),
+                let unwired_manager = RrtConnectManager {
                     resolution: 0.05,
                     seed,
                     params: budget.clone(),
                     solver: None,
                 };
-                let mut unwired_context = manager
-                    .get_planning_context(&mut unwired_scene, &env, unwired_request)
+                let unwired_request = PlanningRequest {
+                    path_constraints: path_constraints(),
+                    ..request("panda_arm", goal())
+                };
+                let mut unwired_context = unwired_manager
+                    .get_planning_context(&mut unwired_scene, &env, &unwired_request)
                     .expect("panda_arm is a real group");
                 if unwired_context.solve().is_ok() {
                     unwired_successes += 1;
@@ -1975,17 +2199,18 @@ mod tests {
                     NewtonRaphsonSolver::new(model, "panda_arm", &SolverParams::default())
                         .expect("panda_arm is a chain"),
                 );
-                let wired_request = PlanningRequest {
-                    group_name: "panda_arm".to_string(),
-                    goal: goal(),
-                    path_constraints: path_constraints(),
+                let wired_manager = RrtConnectManager {
                     resolution: 0.05,
                     seed,
                     params: budget.clone(),
-                    solver: Some(wired_solver),
+                    solver: Some(Rc::new(RefCell::new(wired_solver))),
                 };
-                let mut wired_context = manager
-                    .get_planning_context(&mut wired_scene, &env, wired_request)
+                let wired_request = PlanningRequest {
+                    path_constraints: path_constraints(),
+                    ..request("panda_arm", goal())
+                };
+                let mut wired_context = wired_manager
+                    .get_planning_context(&mut wired_scene, &env, &wired_request)
                     .expect("panda_arm is a real group");
                 if wired_context.solve().is_ok() {
                     wired_successes += 1;
@@ -1996,7 +2221,6 @@ mod tests {
         }
 
         let (model, srdf) = load_panda();
-        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
         let tf = Transforms::new("world").unwrap();
 
         // --- Scenario 1: self-motion path corridor, Goal::State ---
@@ -2091,7 +2315,15 @@ mod tests {
             for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&scenario1_goal_values) {
                 goal_state.set_variable_position(name, v).unwrap();
             }
-            Goal::State(space.read_robot_state(&goal_state))
+            let posed = goal_state.update();
+            construct_goal_joint_constraints(
+                &model,
+                &posed,
+                "panda_arm",
+                STATE_GOAL_TOLERANCE,
+                STATE_GOAL_TOLERANCE,
+            )
+            .expect("panda_arm is real and every variable of it is set")
         };
         let scenario1_path_constraints = || {
             let mut set = KinematicConstraintSet::new();
@@ -2140,7 +2372,7 @@ mod tests {
             let mut set = KinematicConstraintSet::new();
             set.push(Constraint::Position(pc2.clone()));
             set.push(Constraint::Orientation(oc2.clone()));
-            Goal::Constraints(set)
+            set
         };
         let scenario2_budget = RrtConnectParams {
             step_size: 0.5,
@@ -2204,7 +2436,15 @@ mod tests {
             for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&scenario3_goal_values) {
                 goal_state.set_variable_position(name, v).unwrap();
             }
-            Goal::State(space.read_robot_state(&goal_state))
+            let posed = goal_state.update();
+            construct_goal_joint_constraints(
+                &model,
+                &posed,
+                "panda_arm",
+                STATE_GOAL_TOLERANCE,
+                STATE_GOAL_TOLERANCE,
+            )
+            .expect("panda_arm is real and every variable of it is set")
         };
         let scenario3_path_constraints = || {
             let mut set = KinematicConstraintSet::new();
@@ -2295,8 +2535,9 @@ mod tests {
         // capable of silently drifting as the other five.
         assert_eq!(
             (scenario1_unwired, scenario1_wired),
-            (1, 5),
-            "scenario 1 (self-motion, Goal::State) moved off the documented unwired 1/5, wired 5/5"
+            (3, 5),
+            "scenario 1 (self-motion, concrete-state goal) moved off the documented unwired 3/5, \
+             wired 5/5"
         );
         assert_eq!(
             (scenario2_unwired, scenario2_wired),
@@ -2309,7 +2550,7 @@ mod tests {
             "scenario 3 (orientation-only corridor) moved off the documented unwired 5/5, wired 5/5 tie"
         );
         let expected_scenario4 = [
-            ("tight (0.03/Iterations(20))", 5u32, 1u32),
+            ("tight (0.03/Iterations(20))", 5u32, 3u32),
             ("medium (0.1/Iterations(20))", 5u32, 0u32),
             ("loose (0.2/Iterations(200))", 5u32, 0u32),
         ];

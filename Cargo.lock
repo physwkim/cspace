@@ -416,6 +416,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-planner-registry"
+version = "0.1.0"
+dependencies = [
+ "linkme",
+ "moveit-error",
+ "moveit-planners-sbp",
+ "moveit-planning",
+]
+
+[[package]]
 name = "moveit-planners-chomp"
 version = "0.1.0"
 dependencies = [
@@ -472,9 +482,12 @@ dependencies = [
  "moveit-geometry",
  "moveit-kinematics",
  "moveit-model",
+ "moveit-planner-registry",
+ "moveit-planning",
  "moveit-scene",
  "moveit-srdf",
  "moveit-state",
+ "moveit-trajectory",
  "rand",
  "rand_chacha",
  "serde",
@@ -514,6 +527,7 @@ dependencies = [
  "moveit-error",
  "moveit-geometry",
  "moveit-model",
+ "moveit-planner-registry",
  "moveit-planners-sbp",
  "moveit-scene",
  "moveit-srdf",
