@@ -33930,3 +33930,74 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
 옛 번호 둘(`!PORTING-PLAN.md:30547`, `!PORTING-PLAN.md:27486`)은 §306.1의
 sigil로 데이터임을 밝혀 두었다. 지난 트리에 대한 기록이지 이 트리에 대한
 주장이 아니다.
+
+## §308 감사 층에 완료 조건이 없었다 — §5에 표로 채택하고 게이트를 붙였다 (2026-08-07)
+
+### 308.1 없었다는 것부터
+
+`완료 조건`이라는 문구를 `PORTING-PLAN.md` 와 `doc/*.md` 전체에서 찾으면
+Phase 0–9의 것만 나온다(`PORTING-PLAN.md:618`, "각 단계는 **검증 가능한 완료
+조건**을 갖는다"). 그 조건들을 떠받치는 감사 층 — 게이트, 인용 코퍼스, 잔여
+주장 — 에는 한 줄도 없었다. 라운드는 정지 조건 없이 돌았고, "언제 끝나느냐"에
+답할 근거가 문서에 없었다.
+
+### 308.2 정지 조건 없이 돈 결과, 초록인 트리에서 나온 결함 둘
+
+두 결함 모두 모든 게이트가 rc=0인 tip에서 나왔다. 그래서 A4를 "새 결함 0건"이
+아니라 "**연속 2라운드** 0건"으로 적는다 — 1라운드로는 이 둘을 걸러내지
+못했을 것이다.
+
+첫째, `tools/ci/verify-upstream-citations.sh`의 freeze가 소스 없이도 돌았다.
+`--write-classes`는 그 실행이 해소할 수 있었던 것만 기록하므로, 소스가 없는
+인용은 강등되는 것이 아니라 사라지고, 게이트는 `0 demoted`를 출력한다. 이
+트리에서 재현했다: 래퍼의 source 목록에서 `third_party/`만 뺀 실행이 2735 대신
+2631 citation을 썼다 — 94행 삭제를, `wrote` 한 줄로. 소스가 없고
+`--write-classes`가 요청되면 이제 거부한다.
+
+둘째, 같은 파일의 `third_party` pin 주석 인용 4건이 전부 §160의 산문이나
+하위 제목을 가리키고 있었다. 실제로 revision을 기록한 행은
+§160.3의 `PORTING-PLAN.md:12869`부터 `PORTING-PLAN.md:12871`까지와
+`doc/upstream-bugs.md:225`다.
+`resolved` 등급은 "범위 안이고 빈 줄이 아니다"만 뜻하므로 네 건 모두 등급상
+통과였다. 세 건에 §160.3 section claim을 붙여 `section-verified`로 올렸다 —
+다음에 밀리면 확인 가능한 주장이 남는다.
+
+
+### 308.4 감사 완료 조건 현황표
+
+§5의 `### 완료 조건 현황표`가 **포팅**의 완료 조건이라면, 이 표는 그 판정들을
+떠받치는 **감사 층**의 완료 조건이다. §5 옆에 두는 편이 읽기 좋지만 두지
+않는다: 이 계획서 중간에 한 줄을 넣으면 그 아래의 모든 라인 인용이 그만큼
+밀린다. 처음에 §5 뒤에 넣었다가 20줄을 밀어 인용 여섯 건이 빈 줄로
+떨어졌고 — 그중 셋은 §308.2가 방금 고친 pin 인용이었다 — 그래서 되돌렸다.
+이 문서는 **끝에만 덧붙인다**. §5의 Phase 표는 그 규칙의 예외가 아니라,
+그 표 아래에 인용될 만한 줄이 없어서 지금까지 문제가 되지 않았을 뿐이다.
+
+판정 어휘(`MET`/`UNMET`/`PARTIAL`/`UNMEASURED`)와 갱신 규칙은 §5의 표와 같다.
+
+| 항목 | 조건 | 판정 | 측정한 § | 날짜 |
+|---|---|---|---|---|
+| A1 게이트 커버리지 | `tools/ci/check-*` 와 `verify-*` 전부가 main tip에서 rc=0이고, opt-in 게이트(`PHASE3_SWEEP`, `MOVEIT_RS_PHASE8_BENCHMARK`)를 무장한 실행을 포함해 `not a pass` 출력이 0건 | UNMEASURED | §308 | 2026-08-07 |
+| A2 주장 커버리지 | 세 인용 baseline(`doc/citation-classes.txt`, `doc/citation-classes-in-repo.txt`, `doc/upstream-citation-classes.txt`)에 unresolvable·out-of-bounds·blank-line·anchor-mismatch·span-mismatch·section-mismatch 등급의 행이 0 | UNMET | §308 | 2026-08-07 |
+| A3 잔여 주장 | `doc/residual-claims-census.md`의 OPEN 항목이 0 — 각 항목이 닫히거나, 발화 시점을 적은 만료 조건으로 전환 | UNMET | §308 | 2026-08-07 |
+| A4 수렴 | A1–A3이 충족된 tip에서, 연속 2개 감사 라운드가 게이트 층의 새 결함을 0건 보고 | UNMEASURED | §308 | 2026-08-07 |
+
+### 308.3 채택한 기준과, 게이트가 재는 것과 못 재는 것
+
+`### 감사 완료 조건 현황표`를 §5의 Phase 표 옆에 두었다. 네 행 A1–A4는
+`tools/ci/check-audit-completion.sh`가 검사한다.
+
+그 게이트는 **A2와 A3만 재측정한다**. A2는 세 인용 baseline에서
+failing 등급 행을 세고, A3은 `doc/residual-claims-census.md`의 OPEN을 센다.
+둘 다 이 저장소 안의 추적 파일만 읽으므로 CI의 맨 러너에서 돈다. 채택 시점의
+실측은 A2 = UNMET (section-mismatch 3건, 나머지 등급 전부 0), A3 = UNMET
+(CLOSED 11 / OPEN 198)이다.
+
+A1과 A4는 **재지 못한다**. A1은 상류 체크아웃과 두 opt-in 게이트를 무장한
+실행을 요구하고, A4는 여러 라운드에 걸친 기록을 요구한다. 게이트는 그 둘을
+모양만 검사하고, 출력에서 "4행 중 2행을 쟀다"라고 밝힌다 — 재지 않은 행을
+통과한 행으로 세는 집계가 바로 "26/26 verify scripts passed"에 자기 출력으로
+"this is not a pass"를 찍은 스크립트 둘이 들어간 경로였다.
+
+표의 한 행을 지워서 조건을 피할 수 없다: A1–A4 중 하나라도 없으면 실패이고,
+`### 감사 완료 조건 현황표` 제목 자체가 사라져도 실패다.
