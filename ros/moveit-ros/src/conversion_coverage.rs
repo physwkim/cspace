@@ -143,6 +143,16 @@ const ONE_DIRECTIONAL: &[OneDirectional] = &[
                  inverse anyway, since the wrappers hold the message \
                  verbatim. Expires when getPlanningSceneMsg is ported.",
     },
+    OneDirectional {
+        from: "ExecutionEventMsg",
+        to: "ExecutionEvent",
+        reason: "decodes the trajectory_execution_event payload, which this \
+                 node only ever receives -- publishing the event is the \
+                 *client's* side of the topic (move_group_interface.cpp:179), \
+                 and this crate has no MoveGroupInterface port to publish it \
+                 from. Expires if this crate ever gains a client that calls \
+                 stop() on some other node.",
+    },
 ];
 
 /// A bidirectional pair with no round-trip test of its own, because it is

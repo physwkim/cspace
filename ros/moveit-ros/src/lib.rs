@@ -66,6 +66,7 @@
 mod conversion_coverage;
 
 pub mod constraints;
+pub mod execution;
 pub mod geometry;
 pub mod model;
 pub mod monitored_scene;

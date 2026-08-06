@@ -152,6 +152,7 @@ use moveit_constraints::KinematicConstraintSet;
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planning::PlanningRequest;
 use moveit_ros::constraints::set::ConstraintsMsg;
+use moveit_ros::execution::{ExecutionEvent, ExecutionEventMsg, StopOutcome, TrajectoryExecution};
 use moveit_ros::monitored_scene::{self, MonitoredScene};
 use moveit_ros::planning::PlanningRequestMsg;
 use moveit_ros::state::RobotStateMsg;
@@ -610,6 +611,24 @@ fn main() -> ExitCode {
         }
     };
 
+    // `TrajectoryExecutionManager`'s own subscription
+    // (`trajectory_execution_manager.cpp:204-206`), same QoS again. Upstream
+    // puts it on a dedicated callback group so a `stop` can be processed
+    // while another callback is running (`:199-202`); this node is
+    // single-threaded and has no long-running callback to preempt, so there
+    // is no group to port -- the reason that matters is that nothing here
+    // blocks, not that the concern does not exist.
+    let execution_events = match node.subscribe::<r2r::std_msgs::msg::String>(
+        "trajectory_execution_event",
+        QosProfile::services_default(),
+    ) {
+        Ok(stream) => stream,
+        Err(e) => {
+            eprintln!("subscribe(trajectory_execution_event): {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
     let state_validity = match node
         .create_service::<GetStateValidity::Service>("check_state_validity", QosProfile::default())
     {
@@ -732,6 +751,40 @@ fn main() -> ExitCode {
     });
     if let Err(e) = spawned {
         eprintln!("spawning attached_collision_object subscription task: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    // `TrajectoryExecutionManager::receiveEvent`
+    // (`trajectory_execution_manager.cpp:355`), which logs the payload and
+    // hands it to `processEvent` (`:343`). The state this transitions lives
+    // in `moveit_ros::execution`; the task owns the one instance so nothing
+    // else can reach the transition.
+    let spawned = spawner.spawn_local(async move {
+        let mut events = execution_events;
+        let mut execution = TrajectoryExecution::new();
+        while let Some(msg) = events.next().await {
+            match ExecutionEvent::try_from(ExecutionEventMsg(msg)) {
+                Ok(ExecutionEvent::Stop) => match execution.stop() {
+                    StopOutcome::Preempted => {
+                        // Upstream's "Stopped trajectory execution." (`:1226`).
+                        eprintln!("trajectory_execution_event stop: preempted execution");
+                    }
+                    StopOutcome::NothingToStop => {
+                        eprintln!(
+                            "trajectory_execution_event stop: nothing to stop, \
+                             no trajectory is executing"
+                        );
+                    }
+                },
+                // Upstream's `RCLCPP_WARN_STREAM("Unknown event type: ...")`
+                // (`:351`) -- same severity, and the payload is named for the
+                // same reason.
+                Err(e) => eprintln!("trajectory_execution_event ignored: {e}"),
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("spawning trajectory_execution_event subscription task: {e}");
         return ExitCode::FAILURE;
     }
 
