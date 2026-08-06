@@ -240,8 +240,10 @@ for line_no, line in enumerate(lines, 1):
 # `.toml`, 3 in 2 `.json`, 1 in `tools/mpr-vs-epa/mpr_case104.c` and 1 in
 # `ros/Dockerfile`. A placeholder duly reached the trunk through that gap:
 # `ros/verify-ros-interop.sh` carried one in the comment that ends "with
-# nothing looking at it." -- line 203 in `a746945`, where it landed, and still
-# 203 in the tree today. The other gate did not catch it either --
+# nothing looking at it." -- `a746945`, where it landed. Quoted rather than
+# given as a line number on purpose: that file has taken 221 added lines since,
+# and the number this sentence used to carry was already wrong by 48. The
+# quotation still finds it. The other gate did not catch it either --
 # `check-section-references.sh` reads `.sh`, but its reference pattern requires
 # a digit after the sigil, so an unassigned one matches nothing there by
 # construction.
