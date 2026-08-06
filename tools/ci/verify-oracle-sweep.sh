@@ -35,6 +35,7 @@ CASES="${1:-10000}"
 SEED="${2:-1}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
 DIFF="$REPO_ROOT/target/release/moveit-diff"
 
 # `--group` is what turns the jacobian comparison on; without it moveit-diff
@@ -110,9 +111,16 @@ for entry in "${CASES_TO_RUN[@]}"; do
   # five categories, so the five verdicts are printed by name.
   grep -E '^--- Phase 1 clauses|^(link_count|joint_count|group_composition|joint_limits|mimic) |worst jacobian deviation|^cases:|^passed:|^failed:' "$OUT" || true
   if [[ $status -ne 0 ]]; then
-    echo "--- first 20 disagreements ---" >&2
-    grep '^FAIL' "$OUT" | head -20 >&2 || true
-    echo "$robot / $group disagreed with the oracle (exit $status)" >&2
+    verdict="$(run_verdict "$status" "$OUT" '^failed:')"
+    if [[ $verdict == disagreed ]]; then
+      echo "--- first 20 disagreements ---" >&2
+      grep '^FAIL' "$OUT" | head -20 >&2 || true
+      echo "$robot / $group disagreed with the oracle (exit $status)" >&2
+    else
+      echo "--- last 20 lines of the run ---" >&2
+      tail -20 "$OUT" >&2 || true
+      echo "$robot / $group did not finish: $verdict -- this is not a disagreement" >&2
+    fi
     exit "$status"
   fi
 done

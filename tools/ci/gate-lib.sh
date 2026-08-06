@@ -49,3 +49,52 @@ require_nonempty() {
     exit 1
   fi
 }
+
+# Names what a nonzero `moveit-diff` status actually was: a comparison that ran
+# and disagreed, or a run that never reached a verdict.
+#
+# The sweeps print `--- first 20 disagreements ---` and then "$robot disagreed
+# with the oracle (exit $status)" for any nonzero status, which is a claim
+# about the numbers. It is wrong whenever the run was killed. Observed on
+# `main` at a746945: `verify-all.sh` failed with
+#
+#   === dual_arm_panda / left_panda_arm (10000 cases, seed 1) ===
+#   Terminated
+#   --- first 20 disagreements ---
+#   dual_arm_panda / left_panda_arm disagreed with the oracle (exit 143)
+#
+# and zero `FAIL` lines under that heading, because there were none to print.
+# 143 is 128+SIGTERM. Re-running the same gate alone passed 6/6 entries at
+# 20006 cases each -- so the reported disagreement never existed, and the
+# wording sends the reader after a numeric bug instead of after whoever sent
+# the signal.
+#
+# The discriminator is the run's own verdict line, not the exit code: a
+# comparison that completed prints `failed: N` (`cases:`/`passed:`/`failed:`
+# for the fk/jacobian sweeps, per-clause counts for the state sweep). Absent
+# that line, the process died before deciding anything, whatever its status.
+# The exit code is used only to name the signal, which is the one thing the
+# code carries that the output does not.
+#
+#   run_verdict <status> <output-file> <verdict-line-regex>
+#
+# echoes `disagreed` or `incomplete: <why>`, and returns 0 either way so the
+# caller decides what to do with it.
+run_verdict() {
+  local status="$1" out="$2" verdict_re="$3"
+  if [ "$status" -eq 0 ]; then
+    echo "ok"
+    return 0
+  fi
+  if ! grep -qE "$verdict_re" "$out" 2>/dev/null; then
+    if [ "$status" -gt 128 ]; then
+      local signal="$((status - 128))" name
+      name="$(kill -l "$signal" 2>/dev/null || echo "signal $signal")"
+      echo "incomplete: killed by SIG$name (exit $status) before reporting a verdict"
+    else
+      echo "incomplete: exited $status before reporting a verdict"
+    fi
+    return 0
+  fi
+  echo "disagreed"
+}
