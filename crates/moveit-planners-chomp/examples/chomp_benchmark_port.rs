@@ -1,0 +1,608 @@
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// No upstream file: this is Phase 8 benchmark infrastructure (PORTING-PLAN.md
+// §5's "CHOMP/STOMP는 Phase 7과 같은 속성 기반 검증", §222), not a port. The
+// C++ side of MoveIt has no equivalent binary: upstream drives CHOMP only
+// through `chomp_interface`'s pluginlib `PlanningContext` (excluded from this
+// port by D1/D2, PORTING-PLAN.md §121.3), never through a benchmark runner.
+
+//! Runs this crate's [`chomp::solve`](moveit_planners_chomp::solve) over a
+//! `plan`-op request JSON -- the exact format
+//! `moveit-planners-sbp`'s `examples/plan_benchmark_problem_set` emits and
+//! `moveit-planners-sbp/benches/sweep_baseline.sh` feeds to the oracle -- so
+//! Phase 8's CHOMP measurement runs the *identical* 500 problems the Phase 7
+//! C++ OMPL RRTConnect baseline was measured on, not a re-sample.
+//!
+//! # Which baseline this measures against, and why
+//!
+//! §5's Phase 8 completion condition for CHOMP/STOMP is "Phase 7과 같은 속성
+//! 기반 검증" -- Phase 7's three properties, whose lines 705-708 name **C++
+//! OMPL RRTConnect** as the comparison side of conditions 1 and 3. That is
+//! the baseline this binary's output is compared against. The other
+//! available reading ("the same *shape* of check, but against C++ CHOMP")
+//! is not measurable in this workspace at all: the oracle image
+//! (`tools/moveit-oracle/`) has no CHOMP *planning* op, only the
+//! quad-cost-inverse probe this crate's `tests/chomp_quad_cost_inverse_parity.rs`
+//! uses, and it ships no STOMP package whatsoever -- so the analogous
+//! reading would leave the STOMP half of the same clause permanently
+//! unmeasurable. See PORTING-PLAN.md §222 for the full statement of this
+//! assumption.
+//!
+//! Comparing a trajectory optimizer against a sampling-based planner's
+//! success rate is a comparison between different algorithm classes, and
+//! the numbers should be read that way -- CHOMP seeded from a quintic-spline
+//! interpolation has no mechanism for escaping a local minimum the way
+//! RRT-Connect's random restarts do. This binary measures and reports;
+//! it does not adjust either side to make them look alike.
+//!
+//! # Why this is docker-free (and needs no oracle at all)
+//!
+//! Like `plan_benchmark_port`, this binary consumes the request JSON
+//! directly (`objects` + `problems`), reconstructs the world
+//! `plan_benchmark_problem_set` built when it sampled the pairs, and runs
+//! this crate's own planner. There is nothing here for a C++ process to do.
+//!
+//! # Usage
+//!
+//! `cargo run --release --example chomp_benchmark_port -p
+//! moveit-planners-chomp -- <seed_base> [planning_time_limit_secs]`, with a
+//! `plan`-op request JSON on stdin.
+//!
+//! `planning_time_limit_secs` defaults to upstream's own
+//! `ChompParameters::planning_time_limit` default of `6.0`. That default
+//! makes each problem's outcome depend on how fast the machine ran it:
+//! `ChompOptimizer::optimize` breaks out of its iteration loop on elapsed
+//! wall clock, so a loaded machine completes fewer iterations and reports
+//! more failures. Measured on this tree: the same 500 problems at the same
+//! `seed_base` solved 359 on an otherwise-idle machine and 349 while a
+//! second sweep ran alongside, differing on 12 problems. Pass a value large
+//! enough never to bind (the gate `tools/ci/verify-phase8-benchmark.sh` uses
+//! `1e9`) to make the run depend only on
+//! [`ChompParameters::max_iterations`] and therefore be reproducible.
+//!
+//! `seed_base` seeds the per-problem `ChaCha8Rng` CHOMP's
+//! [`use_stochastic_descent`](moveit_planners_chomp::ChompParameters::use_stochastic_descent)
+//! draws from; each problem uses `seed_base.wrapping_add(problem.id)`, so a
+//! rerun with the same `seed_base` over the same request file is
+//! reproducible. It is unrelated to the request's own `seed` field (that
+//! one is the oracle's OMPL seed).
+//!
+//! Prints one NDJSON line per problem to stdout: `plan_benchmark_port`'s
+//! own shape plus one attribution field,
+//! `{"id", "solved", "length"?, "condition2_valid"?,
+//! "invalid_waypoint_count"?, "condition2_valid_at_returned_waypoints"?,
+//! "failure"?}`. See [`returned_waypoints`] for what the extra field is
+//! for and why it is not the condition-2 number.
+//!
+//! # Where every non-obvious constant comes from
+//!
+//! - CHOMP's own tuning knobs are [`ChompParameters::default`] unmodified --
+//!   upstream's `ChompParameters()` constructor values (`max_iterations = 50`,
+//!   `planning_time_limit = 6.0`, `enable_failure_recovery = false`), not a
+//!   set tuned to make this benchmark look better. Both of those are also
+//!   what bounds this binary's runtime per problem: the optimizer loop runs
+//!   at most `max_iterations` times and additionally breaks once
+//!   `planning_time_limit` seconds have elapsed
+//!   (`ChompOptimizer::optimize`), and with `enable_failure_recovery` unset
+//!   the replan loop in `solve` runs exactly once.
+//! - The environment distance field is upstream `CollisionEnvDistanceField`'s
+//!   own defaults (`collision_env_distance_field.hpp:49-55`): size 3x3x4 m
+//!   centred on the robot origin, resolution 0.02 m, max propagation
+//!   distance 0.25 m, unsigned, collision tolerance 0.0. CHOMP upstream gets
+//!   its distance field from exactly that class via `CollisionEnvHybrid`, so
+//!   these are the values a real upstream CHOMP run uses.
+//! - Goal joint tolerances are `f64::EPSILON`, upstream's own default for
+//!   `kinematic_constraints::constructGoalConstraints(state, jmg, tolerance =
+//!   std::numeric_limits<double>::epsilon())` (`utils.hpp:99-101`), the call
+//!   `move_group` makes to turn a goal *state* into the
+//!   `goal_constraints[0].joint_constraints` CHOMP's `solve` reads.
+//!
+//! # `mesh_to_mesh_collision_free` is really wired here
+//!
+//! [`chomp::solve`](moveit_planners_chomp::solve) takes upstream's
+//! `ChompOptimizer::isCurrentTrajectoryMeshToMeshCollisionFree` as an
+//! injected closure rather than a method, so this crate need not depend on
+//! `moveit-scene`/`moveit-collision`'s `ParryCollisionEnv` (see
+//! `optimizer.rs`'s own "closed API gap" doc). Every caller in the tree
+//! before this file passed `|_, _| false` -- i.e. no test ever exercised
+//! upstream's every-10th-iteration mesh check doing anything. This binary
+//! passes a real implementation: `PlanningScene::is_path_valid` over the
+//! best group trajectory's rows, which is what upstream's method does
+//! (`chomp_optimizer.cpp:520-537`). The dependency that makes it possible is
+//! a **dev**-dependency, so the library's own dependency graph is unchanged.
+//!
+//! # Condition 2's collision-check resolution
+//!
+//! Identical rule to `plan_benchmark_port`'s, deliberately: the returned
+//! path is re-interpolated at the request's own `motion_resolution` before
+//! [`PlanningScene::is_path_valid`] sees it. CHOMP returns a fixed 101-point
+//! trajectory (upstream's `ChompTrajectory(model, 3.0, 0.03, group)`), whose
+//! consecutive points can be much further apart than `motion_resolution`, so
+//! checking the raw 101 points would be a *weaker* check than the one Phase
+//! 7's port measurement passed. Using the same rule for both keeps the two
+//! condition-2 numbers comparable.
+
+use std::collections::BTreeMap;
+use std::env;
+use std::io::{self, Read};
+use std::sync::Arc;
+
+use moveit_collision::{AllowedCollisionMatrix, CollisionRequest, LinkPaddingScale};
+use moveit_collision::{ParryCollisionEnv, World};
+use moveit_distance_field::{
+    DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
+    PropagationDistanceField, add_link_body_decompositions,
+};
+use moveit_geometry::{Cuboid, Isometry3, Shape, Vector3};
+use moveit_model::{MeshSearchPaths, RobotModel};
+use moveit_planners_chomp::optimizer::ChompCollisionContext;
+use moveit_planners_chomp::{ChompGoal, ChompParameters, ChompRequest, GoalJointConstraint, solve};
+use moveit_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
+use moveit_scene::PlanningScene;
+use moveit_srdf::SrdfModel;
+use moveit_state::RobotState;
+use nalgebra::DMatrix;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
+
+/// Upstream `CollisionEnvDistanceField::DEFAULT_RESOLUTION`
+/// (`collision_env_distance_field.hpp:53`). Named once because it is read
+/// twice: by [`distance_field_config`] for the grid, and by
+/// [`add_link_body_decompositions`] for the per-link sphere decomposition --
+/// upstream passes its own `resolution_` to both, and the two disagreeing
+/// would silently mismatch the collision spheres against the grid they are
+/// looked up in.
+const DISTANCE_FIELD_RESOLUTION: f64 = 0.02;
+
+/// Upstream `CollisionEnvDistanceField`'s `DEFAULT_SIZE_X/Y/Z`
+/// (`collision_env_distance_field.hpp:49-51`), as a corner-origin
+/// [`GridGeometry`] centred on the robot origin -- upstream performs that
+/// centre-to-corner shift itself at its own `PropagationDistanceField`
+/// construction site, which this port makes the caller's job (see
+/// [`DistanceFieldConfig`]'s own doc).
+fn distance_field_config() -> DistanceFieldConfig {
+    let size = Vector3::new(3.0, 3.0, 4.0);
+    let origin_center = Vector3::new(0.0, 0.0, 0.0);
+    DistanceFieldConfig {
+        geometry: GridGeometry::new(size, origin_center - 0.5 * size, DISTANCE_FIELD_RESOLUTION)
+            .expect("upstream's own default grid geometry must be constructible"),
+        max_propagation_distance: 0.25,
+        use_signed_distance_field: false,
+    }
+}
+
+/// The `moveit_resources_panda_description` package committed under
+/// `fixtures/meshes/` -- same pattern as
+/// `moveit-planners-sbp/examples/plan_benchmark_port.rs`, duplicated rather
+/// than shared because a cargo example cannot import another crate's
+/// example.
+fn fixture_mesh_search_paths() -> MeshSearchPaths {
+    let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
+    MeshSearchPaths::new([(
+        "moveit_resources_panda_description",
+        format!("{meshes_root}/panda_description"),
+    )])
+}
+
+fn load_panda() -> (RobotModel, SrdfModel) {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+    let urdf_xml = std::fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
+    let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
+    let srdf = SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
+    let model =
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &fixture_mesh_search_paths())
+            .expect("fixture model must build");
+    (model, srdf)
+}
+
+/// The translation column of a row-major 4x4 -- see `plan_benchmark_port`'s
+/// own doc for why only the translation is recovered.
+fn translation_from_row_major_4x4(flat: &[f64]) -> Isometry3 {
+    assert_eq!(flat.len(), 16, "expected a flat 4x4 matrix, got {flat:?}");
+    Isometry3::translation(flat[3], flat[7], flat[11])
+}
+
+/// One obstacle as both a world object (for `moveit-scene`'s mesh-level
+/// checks) and a shape/pose pair (for the distance field CHOMP's gradients
+/// read).
+struct Obstacle {
+    id: String,
+    shape: Arc<Shape>,
+    pose: Isometry3,
+}
+
+fn parse_obstacles(objects: &[serde_json::Value]) -> Vec<Obstacle> {
+    objects
+        .iter()
+        .map(|object| {
+            let id = object["id"]
+                .as_str()
+                .expect("object.id must be a string")
+                .to_string();
+            let size = object["shape"]["size"]
+                .as_array()
+                .expect("object.shape.size must be an array");
+            let (sx, sy, sz) = (
+                size[0].as_f64().unwrap(),
+                size[1].as_f64().unwrap(),
+                size[2].as_f64().unwrap(),
+            );
+            let pose_flat: Vec<f64> = object["pose"]
+                .as_array()
+                .expect("object.pose must be an array")
+                .iter()
+                .map(|v| v.as_f64().unwrap())
+                .collect();
+            Obstacle {
+                id,
+                shape: Arc::new(Shape::Cuboid(
+                    Cuboid::new(sx, sy, sz).unwrap_or_else(|e| panic!("Cuboid::new: {e}")),
+                )),
+                pose: translation_from_row_major_4x4(&pose_flat),
+            }
+        })
+        .collect()
+}
+
+/// Reads a joint-name -> value map (the request JSON's
+/// `problems[].start`/`.goal` shape) into a fresh [`RobotState`].
+fn joint_map_to_robot_state<'m>(
+    model: &'m RobotModel,
+    map: &BTreeMap<String, f64>,
+) -> RobotState<'m> {
+    let mut state = RobotState::new(model);
+    state.set_to_default_values();
+    for (name, value) in map {
+        state
+            .set_variable_position(name, *value)
+            .unwrap_or_else(|e| panic!("set_variable_position({name}): {e}"));
+    }
+    state
+}
+
+/// Densifies `path` at `resolution` spacing -- byte-identical rule to
+/// `plan_benchmark_port`'s own `densify`, see this file's `# Condition 2's
+/// collision-check resolution`.
+fn densify<'m>(
+    space: &JointModelGroupSpace,
+    model: &'m RobotModel,
+    path: &[Vec<CompoundValue>],
+    resolution: f64,
+) -> Vec<RobotState<'m>> {
+    let mut template = RobotState::new(model);
+    template.set_to_default_values();
+    let to_robot_state = |state: &Vec<CompoundValue>| {
+        let mut rs = template.clone();
+        space.write_robot_state(state, &mut rs);
+        rs
+    };
+
+    let mut out = vec![to_robot_state(&path[0])];
+    for pair in path.windows(2) {
+        let (from, to) = (&pair[0], &pair[1]);
+        let dist = space.distance(from, to);
+        let steps = ((dist / resolution).ceil() as u64).max(1);
+        for i in 1..=steps {
+            let t = i as f64 / steps as f64;
+            out.push(to_robot_state(&space.interpolate(from, to, t)));
+        }
+    }
+    out
+}
+
+/// `path` as [`RobotState`]s with no interpolation at all -- exactly the
+/// waypoints the planner returned.
+///
+/// Feeding these to [`PlanningScene::is_path_valid`] reproduces what
+/// upstream's own `isPathValid(trajectory, group)` would report for this
+/// planner's output, and nothing finer. Reported alongside the densified
+/// verdict as `condition2_valid_at_returned_waypoints`, purely to attribute
+/// a condition-2 failure: a path that is valid here and invalid after
+/// densification failed *between* the planner's own waypoints, at a
+/// resolution neither the planner nor upstream ever looks at. The official
+/// condition-2 number stays the densified one.
+fn returned_waypoints<'m>(
+    space: &JointModelGroupSpace,
+    model: &'m RobotModel,
+    path: &[Vec<CompoundValue>],
+) -> Vec<RobotState<'m>> {
+    let mut template = RobotState::new(model);
+    template.set_to_default_values();
+    path.iter()
+        .map(|state| {
+            let mut rs = template.clone();
+            space.write_robot_state(state, &mut rs);
+            rs
+        })
+        .collect()
+}
+
+/// Everything one request's problems share, built once by [`main`] and read
+/// by [`Bench::solve_problem`] for each problem.
+///
+/// This exists to give the robot model's lifetime a *name*.
+/// [`solve`]'s `mesh_to_mesh_collision_free` parameter is
+/// `&mut dyn FnMut(&RobotState<'m>, &DMatrix<f64>) -> bool` with `'m` fixed
+/// by the call, and the [`PlanningScene`] that closure checks against is
+/// itself `PlanningScene<'m>`; a closure written inside `main` gets a
+/// higher-ranked `&RobotState<'_>` instead and cannot hand those states to a
+/// scene borrowed from an outer local (`&mut PlanningScene<'_>` is invariant
+/// in `'_`). Naming `'m` on this struct is what makes the two line up.
+struct Bench<'m> {
+    model: &'m RobotModel,
+    /// The same metric the C++ OMPL baseline's `length` is measured in --
+    /// see this file's own doc comment.
+    space: JointModelGroupSpace,
+    env: ParryCollisionEnv,
+    /// The environment distance field CHOMP's obstacle gradients read.
+    /// Built once for the whole request: every problem in one request shares
+    /// a single obstacle configuration.
+    env_distance_field: PropagationDistanceField,
+    /// Reused across problems, matching upstream, where one
+    /// `CollisionEnvDistanceField` lives for the planning scene's whole
+    /// lifetime and is re-consulted per request.
+    /// `generate_collision_checking_structures` re-validates its cached
+    /// entry against the group/state/ACM it is handed and rebuilds when they
+    /// do not match, so reuse cannot leak one problem's geometry into the
+    /// next.
+    cache: DistanceFieldCollisionCache<'m>,
+    /// Upstream's `isCurrentTrajectoryMeshToMeshCollisionFree` scene, and
+    /// the condition-2 scene. Two separate scenes because the first is
+    /// mutably borrowed by the closure for the whole `solve` call, while the
+    /// second has to be usable after it returns.
+    mesh_scene: PlanningScene<'m>,
+    check_scene: PlanningScene<'m>,
+    acm: AllowedCollisionMatrix,
+    params: ChompParameters,
+    active_joint_names: Vec<String>,
+    group_name: String,
+    resolution: f64,
+}
+
+impl<'m> Bench<'m> {
+    /// Runs one problem and returns its NDJSON verdict line, plus whether it
+    /// counted as solved.
+    fn solve_problem(
+        &mut self,
+        id: u64,
+        start_map: &BTreeMap<String, f64>,
+        goal_map: &BTreeMap<String, f64>,
+        seed: u64,
+    ) -> (bool, serde_json::Value) {
+        let start_state = joint_map_to_robot_state(self.model, start_map);
+        let goal = ChompGoal {
+            joint_constraints: self
+                .active_joint_names
+                .iter()
+                .map(|name| GoalJointConstraint {
+                    joint_name: name.clone(),
+                    position: *goal_map
+                        .get(name)
+                        .unwrap_or_else(|| panic!("problem.goal has no entry for {name}")),
+                    tolerance_above: f64::EPSILON,
+                    tolerance_below: f64::EPSILON,
+                    weight: 1.0,
+                })
+                .collect(),
+        };
+
+        let mut collision = ChompCollisionContext {
+            cache: &mut self.cache,
+            env_distance_field: &self.env_distance_field,
+        };
+
+        let env = &self.env;
+        let active_joint_names = &self.active_joint_names;
+        let mesh_scene = &mut self.mesh_scene;
+        let mut mesh_to_mesh = move |start: &RobotState<'m>, best: &DMatrix<f64>| -> bool {
+            let mut waypoints = Vec::with_capacity(best.nrows());
+            for row in 0..best.nrows() {
+                let mut state = start.clone();
+                for (column, name) in active_joint_names.iter().enumerate() {
+                    state
+                        .set_variable_position(name, best[(row, column)])
+                        .expect("group joint names come from this model");
+                }
+                waypoints.push(state);
+            }
+            mesh_scene
+                .is_path_valid(env, &CollisionRequest::default(), &waypoints, None, &[])
+                .valid
+        };
+
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let chomp_request = ChompRequest {
+            start_state: &start_state,
+            group_name: &self.group_name,
+            goal_constraints: std::slice::from_ref(&goal),
+            params: &self.params,
+            seed_trajectory: None,
+        };
+
+        match solve(
+            &chomp_request,
+            &mut collision,
+            Some(&self.acm),
+            &mut mesh_to_mesh,
+            &mut rng,
+        ) {
+            Ok(solution) => {
+                let path: Vec<Vec<CompoundValue>> = (0..solution.trajectory.way_point_count())
+                    .map(|i| {
+                        self.space.read_robot_state(
+                            solution
+                                .trajectory
+                                .way_point(i)
+                                .expect("index below way_point_count"),
+                        )
+                    })
+                    .collect();
+                let length: f64 = path
+                    .windows(2)
+                    .map(|pair| self.space.distance(&pair[0], &pair[1]))
+                    .sum();
+
+                let raw = returned_waypoints(&self.space, self.model, &path);
+                let raw_validity = self.check_scene.is_path_valid(
+                    &self.env,
+                    &CollisionRequest::default(),
+                    &raw,
+                    None,
+                    &[],
+                );
+                let dense = densify(&self.space, self.model, &path, self.resolution);
+                let validity = self.check_scene.is_path_valid(
+                    &self.env,
+                    &CollisionRequest::default(),
+                    &dense,
+                    None,
+                    &[],
+                );
+
+                (
+                    true,
+                    serde_json::json!({
+                        "id": id,
+                        "solved": true,
+                        "length": length,
+                        "condition2_valid": validity.valid,
+                        "invalid_waypoint_count": validity.invalid_waypoints.len(),
+                        "condition2_valid_at_returned_waypoints": raw_validity.valid,
+                    }),
+                )
+            }
+            Err(e) => (
+                false,
+                serde_json::json!({
+                    "id": id,
+                    "solved": false,
+                    "failure": e.to_string(),
+                }),
+            ),
+        }
+    }
+}
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    let seed_base: u64 = args
+        .get(1)
+        .unwrap_or_else(|| panic!("usage: <seed_base> [planning_time_limit_secs]; got {args:?}"))
+        .parse()
+        .expect("seed_base must be a u64");
+    let planning_time_limit: f64 = args
+        .get(2)
+        .map(|s| {
+            s.parse::<f64>()
+                .expect("planning_time_limit_secs must be a number")
+        })
+        .unwrap_or(ChompParameters::default().planning_time_limit);
+
+    let mut input = String::new();
+    io::stdin()
+        .read_to_string(&mut input)
+        .expect("stdin must contain a plan-op request JSON");
+    let request: serde_json::Value =
+        serde_json::from_str(&input).expect("stdin must be valid JSON");
+
+    let group_name = request["group"]
+        .as_str()
+        .expect("request.group must be a string")
+        .to_string();
+    let resolution = request["motion_resolution"]
+        .as_f64()
+        .expect("request.motion_resolution must be a number");
+
+    let (model, srdf) = load_panda();
+    let space = JointModelGroupSpace::new(&model, &group_name)
+        .unwrap_or_else(|e| panic!("JointModelGroupSpace::new({group_name}): {e}"));
+    let group = model
+        .joint_model_group(&group_name)
+        .unwrap_or_else(|e| panic!("joint_model_group({group_name}): {e}"));
+    let active_joint_names: Vec<String> = group
+        .active_joint_indices()
+        .iter()
+        .map(|&i| model.joint_model_at(i).name().to_string())
+        .collect();
+
+    let obstacles = parse_obstacles(
+        request["objects"]
+            .as_array()
+            .expect("request.objects must be an array"),
+    );
+
+    let mut world = World::new();
+    for obstacle in &obstacles {
+        world.add_shape(&obstacle.id, Arc::clone(&obstacle.shape), obstacle.pose);
+    }
+    let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+
+    let field_config = distance_field_config();
+    let mut env_distance_field = PropagationDistanceField::new(
+        field_config.geometry,
+        field_config.max_propagation_distance,
+        field_config.use_signed_distance_field,
+    )
+    .expect("PropagationDistanceField::new with upstream's own defaults");
+    for obstacle in &obstacles {
+        env_distance_field
+            .add_shape_to_field(&obstacle.shape, &obstacle.pose)
+            .unwrap_or_else(|e| panic!("add_shape_to_field({}): {e}", obstacle.id));
+    }
+
+    let decompositions = add_link_body_decompositions(
+        &model,
+        DISTANCE_FIELD_RESOLUTION,
+        &LinkPaddingScale::new(),
+        None,
+    )
+    .expect("add_link_body_decompositions");
+    let cache = DistanceFieldCollisionCache::new(
+        decompositions,
+        distance_field_config(),
+        /* collision_tolerance, upstream DEFAULT_COLLISION_TOLERANCE */ 0.0,
+    );
+
+    let mut bench = Bench {
+        model: &model,
+        space,
+        env,
+        env_distance_field,
+        cache,
+        mesh_scene: PlanningScene::new(&model, &srdf),
+        check_scene: PlanningScene::new(&model, &srdf),
+        acm: AllowedCollisionMatrix::from_srdf(&srdf),
+        params: ChompParameters {
+            planning_time_limit,
+            ..ChompParameters::default()
+        },
+        active_joint_names,
+        group_name,
+        resolution,
+    };
+
+    let mut solved_count = 0usize;
+    let mut total = 0usize;
+
+    for problem in request["problems"]
+        .as_array()
+        .expect("request.problems must be an array")
+    {
+        total += 1;
+        let id = problem["id"].as_u64().expect("problem.id must be a number");
+        let start_map: BTreeMap<String, f64> =
+            serde_json::from_value(problem["start"].clone()).expect("problem.start");
+        let goal_map: BTreeMap<String, f64> =
+            serde_json::from_value(problem["goal"].clone()).expect("problem.goal");
+
+        let (solved, line) =
+            bench.solve_problem(id, &start_map, &goal_map, seed_base.wrapping_add(id));
+        if solved {
+            solved_count += 1;
+        }
+        println!("{line}");
+    }
+
+    eprintln!("solved={solved_count}/{total}");
+}
