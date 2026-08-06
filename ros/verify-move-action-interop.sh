@@ -324,13 +324,21 @@ ORACLE_STAMP="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")"
 ORACLE_IMAGE="${ORACLE_IMAGE:-$(oracle_image_tag "$ORACLE_STAMP")}"
 PROBE_IMAGE="${PROBE_IMAGE:-moveit-rs/move-group-interface-probe:${ORACLE_STAMP:0:16}}"
 
+# Exit 3, not 0, and not 1: three outcomes have to stay apart here. 1 is an
+# assertion that ran and failed; 0 is both legs measured; 3 is leg A measured
+# and leg B not run at all. Returning 0 for the third made
+# `ros/verify-ros-interop.sh` print `all gates passed` over a run in which
+# nothing had driven the real client -- the exact reading this block's own
+# "this is not a pass" text was written to prevent, and could not, because the
+# status the caller branches on said otherwise. The caller maps 3 to a summary
+# line that names the skip; see the end of that file.
 if ! docker image inspect "$ORACLE_IMAGE" >/dev/null 2>&1; then
   echo "SKIP $ORACLE_IMAGE not built -- upstream's C++ MoveGroupInterface was not run"
   echo "SKIP against /move_action, so Phase 9's completion condition is unmeasured by"
   echo "SKIP this run and leg A above stands alone: it drives the action interface"
   echo "SKIP directly and cannot see whether the real client reaches it."
   echo "SKIP this is not a pass; build it with: sg docker -c tools/moveit-oracle/build.sh"
-  exit 0
+  exit 3
 fi
 
 # Unconditional: the `--packages-up-to` layer keys only on ORACLE_IMAGE and the
@@ -418,13 +426,31 @@ for mode in default-start explicit-start; do
   # (move_group_interface.cpp:156), so `constructMotionPlanRequest` fills
   # `goal_constraints[0]` from `getTargetRobotState()` (`:1041-1046`) even
   # though this probe never sets a target. That is why an unmodified client
-  # gets a plan out of a node with one planner registered, and why the verdict
-  # below is the whole of Phase 9's completion condition in one line.
-  assert_has "leg B/$mode verdict" "PROBE verdict=VALID_TRAJECTORY_RECEIVED" "$leg_b_out"
+  # gets a plan out of a node with one planner registered.
   assert_lacks "leg B/$mode empty trajectory" "PROBE points=0 " "$leg_b_out"
+
+  # Phase 9's condition is a *valid* trajectory, and the three clauses below are
+  # what that decomposes into here, asserted one line each so a red gate names
+  # which one broke instead of only that the conjunction did. All three are
+  # graded by upstream's own `moveit_core` inside the probe, never by the node
+  # that produced the trajectory.
+  #
+  # Collision-freeness is deliberately absent from this list. `one_joint.urdf`
+  # declares no `<collision>` element and the node runs with no world, so every
+  # trajectory is collision-free and an assertion on it would be one that cannot
+  # fail; the probe prints `PROBE colliding=` with the object and geometry
+  # counts beside it so that stays visible rather than being quietly implied by
+  # the verdict.
+  assert_has "leg B/$mode joint limits" "PROBE all_in_bounds=true" "$leg_b_out"
+  assert_has "leg B/$mode goal reached" "PROBE goal_satisfied=true" "$leg_b_out"
+  assert_has "leg B/$mode verdict" "PROBE verdict=VALID_TRAJECTORY_RECEIVED" "$leg_b_out"
 done
 
 echo "OK leg B: upstream's unmodified MoveGroupInterface::plan() reached /move_action over"
 echo "OK leg B: DDS in both start-state spellings and got a real trajectory back from"
 echo "OK leg B: this node, with source=$SOURCE_STRING naming the endpoint that built it"
+echo "OK leg B: and upstream's own moveit_core graded every waypoint inside j1's limits"
+echo "OK leg B: and the last one satisfying the goal_constraints the client itself sent."
+echo "OK leg B: Collision-freeness is printed, not graded: one_joint.urdf has no"
+echo "OK leg B: collision geometry, so no trajectory over it can collide."
 echo "OK move_action: both legs passed"
