@@ -20002,7 +20002,7 @@ D6은 "모든 `moveit_msgs` 변환은 `moveit-ros`의 `TryFrom`"이다. 이 함�
 `rg -n 'moveit_msgs::msg::MotionPlanDetailedResponse'`는 상류 전체에서 정확히
 두 줄 — 위의 선언(`:77`)과 정의(`:52`) — 이다. 메시지 정의 쪽도 같다:
 `rg -n 'MotionPlanDetailedResponse' third_party/moveit_msgs/`는
-`CMakeLists.txt:53`(빌드 목록) 한 줄뿐이고, 어떤 `.srv`/`.action`/`.msg`도
+`tools/moveit-oracle/CMakeLists.txt:53`(빌드 목록) 한 줄뿐이고, 어떤 `.srv`/`.action`/`.msg`도
 이 타입을 담지 않는다. 대조군이 그 차이를 보여준다 — `MotionPlanResponse`는
 `srv/GetMotionPlan.srv:8`, `msg/PipelineState.msg:5`,
 `action/GlobalPlanner.action:6` 셋에 실린다. 즉 이 함수가 채우는 메시지는
