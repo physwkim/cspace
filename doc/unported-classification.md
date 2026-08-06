@@ -75,12 +75,6 @@
   - `moveit_planners/stomp/include/stomp_moveit/trajectory_visualization.hpp`
   - `moveit_planners/stomp/src/stomp_moveit_planner_plugin.cpp`
 
-### Phase 9 — `MoveGroupInterface` — **UNMET** (§250.5)
-
-- **막는 것:** per §256 the current first rejection is that there is no planner to call, which is a decision D8 owns -- port-side, not an unported upstream file
-- **후보 경로 접두사:** `moveit_ros/` → 86건 중 **0건**이 후보
-- **판정:** all four items §250.6 leaves open are port-side (crates/moveit-planning, ros/verify-ros-interop.sh); none is an unported upstream file.
-
 
 | 상류 파일 | 심볼 | 분류 | 결정 위치 | 검증 | 막는 §5 행 |
 |---|---|---|---|---|---|

@@ -165,24 +165,14 @@ UNMET_BLOCKERS = {
             "The row fails on measured success rate, so porting any candidate "
             "below could not move it.",
     },
-    ("Phase 9", "MoveGroupInterface"): {
-        # The §5 row cites §250.5, not §250.6 -- check_phase_coverage() caught
-        # that this entry had transcribed the wrong one.  §250.5 is the verdict
-        # subsection; §250.6 is its list of what stayed open, and every item on
-        # that list has since been closed (§254 the /move_action gate, §255 the
-        # error codes, §256 start_state, §257 the planning scene subscription).
-        "section": "250.5",
-        "blocker": "per §256 the current first rejection is that there is no "
-                   "planner to call, which is a decision D8 owns -- port-side, "
-                   "not an unported upstream file",
-        # MoveGroupInterface is declared in moveit_ros, which is not a
-        # CORPUS_ROOT, so this prefix selects 0 of the 245-file corpus.
-        "candidates": ("moveit_ros/",),
-        "adjudication":
-            "all four items §250.6 leaves open are port-side "
-            "(crates/moveit-planning, ros/verify-ros-interop.sh); none is an "
-            "unported upstream file.",
-    },
+    # ("Phase 9", "MoveGroupInterface") was here until §273 measured the row MET
+    # and the §5 table took the verdict.  Its blocker was "there is no planner to
+    # call, a decision D8 owns"; D8 wired one, and ros/verify-move-action-interop.sh
+    # now gates upstream's unmodified client receiving a trajectory from
+    # /move_action in both start-state spellings, graded by upstream's own
+    # moveit_core.  check_phase_coverage() required this deletion -- a MET row may
+    # not keep a blocker entry -- so the gate caught the row closing, which is the
+    # direction it had never fired in before.
 }
 
 # Upstream declaration forms.  Deliberately shallow: this reports what the
