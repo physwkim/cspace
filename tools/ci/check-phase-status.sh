@@ -149,15 +149,25 @@ for line_no, phase, clause, verdict, section_id, date in table_rows:
 # The marker is deliberately narrow: a BOLD span carrying both a supersession
 # verb and a `§` reference. Bold, because that is how this file writes a
 # declaration as opposed to prose that merely mentions one; both, because
-# either alone is common. Across the whole file that pattern matches twice,
-# and both are real declarations (§229.1's and §239.3's) -- so this is not a
-# heuristic standing in for a reading, it is the form the document uses. A
-# cited section's span runs to the next heading of the same or shallower
-# depth, so citing a parent inherits its subsections' declarations: a reader
-# sent to §229 lands in §229.1's withdrawal just the same.
+# either alone is common. A cited section's span runs to the next heading of
+# the same or shallower depth, so citing a parent inherits its subsections'
+# declarations: a reader sent to §229 lands in §229.1's withdrawal just the
+# same.
+#
+# Inline code spans are blanked first, because this file also QUOTES a
+# declaration while discussing one: §267.1 writes §229.1's sentence inside
+# backticks to explain the rule, and unmasked that quotation is a third match
+# of a pattern whose whole claim to not being a heuristic is that it matches
+# only real declarations. Nothing cites §267 today, so the extra match was
+# latent rather than a failure -- which is exactly the shape that turns into a
+# false failure the round someone adds the citation. Masked, the count is two
+# because a quotation cannot be a declaration, not because no one has quoted
+# one yet. `check-ledger-totals.py` blanks spans the same way and for the same
+# reason.
 SUPERSEDED_RE = re.compile(r"\*\*([^*]+)\*\*")
 SUPERSEDES_VERB_RE = re.compile(r"대체(한다|했다|된다|됐다)")
 SECTION_REF_RE = re.compile(r"§\d+(?:\.\d+)?")
+INLINE_CODE_RE = re.compile(r"(`+)(.+?)\1")
 
 
 def supersession_in(section_id):
@@ -175,11 +185,13 @@ def supersession_in(section_id):
             text = prose_lines.get(line_no)
             if text is None:
                 continue
-            if not (SUPERSEDES_VERB_RE.search(text) and SECTION_REF_RE.search(text)):
+            # Decided on the masked text, reported as the author wrote it.
+            scan = INLINE_CODE_RE.sub(" ", text)
+            if not (SUPERSEDES_VERB_RE.search(scan) and SECTION_REF_RE.search(scan)):
                 continue
             bolds = [
                 bold
-                for bold in SUPERSEDED_RE.findall(text)
+                for bold in SUPERSEDED_RE.findall(scan)
                 if SUPERSEDES_VERB_RE.search(bold) and SECTION_REF_RE.search(bold)
             ]
             if bolds:
