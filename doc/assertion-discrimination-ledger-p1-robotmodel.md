@@ -601,7 +601,7 @@ closed).
 | `crates/moveit-srdf/tests/boundaries.rs:55` | `robot`, **fragile** | discriminating | not in roxmltree's message (verified: that message never names an element at all) today; flagged because `robot` is the XML root tag's own literal name and a future third `Error::Parse` site that echoes a tag name could collide — not fixed, no such site exists |
 
 **`moveit-state/tests/jacobian.rs`** — subject `Posed::jacobian`
-(`crates/moveit-state/src/state.rs:1121-1210`ish), three messages: `is_chain()` false → `the
+(`crates/moveit-state/src/state.rs:1275-1364`ish), three messages: `is_chain()` false → `the
 group '{}' is not a chain; cannot compute Jacobian`; tip-not-descendant →
 `link '{}' does not belong to the chain rooted by group '{}'`; unsupported
 per-joint-kind dispatch → `joint '{}' has unsupported type {} for

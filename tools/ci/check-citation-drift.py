@@ -38,8 +38,22 @@
 #   2. The cited line (both ends of a `NNN-MMM` range) is in-bounds for
 #      that file's current line count. Out-of-bounds is unambiguous drift
 #      and always a hard failure.
-#   3. If the citing text carries a nameable anchor -- a backtick-quoted
-#      identifier that is also a real `fn NAME` in the resolved file,
+#   3. If the citing text names a Rust ITEM of the resolved file DIRECTLY
+#      against the citation -- `` `name`(`path.rs:N`) `` or
+#      `` `path.rs:N` (`name`) ``, nothing between them but a space and the
+#      paren -- every cited line must be inside that item's own span (its
+#      declaration, doc comment and attributes), or the name must occur on
+#      one of the lines the citation itself names, which is that same
+#      parenthetical written as a quotation of the line rather than as an
+#      anchor. This one has no third outcome: adjacency IS the claim, so it
+#      is confirmed or it is a hard failure, never parked in the unanchored
+#      bucket. Item means item, resolved from the
+#      source: `fn`, `trait`, `struct`, `enum`, `union`, `mod`, `type`,
+#      `const`/`static`, `macro_rules!`, and every `impl` block under the
+#      type it is for. See `find_item_anchor`, `item_spans`, `anchor_zones`.
+#   3a. Failing that, if the citing text carries a nameable anchor -- a
+#      backtick-quoted identifier that is also a real `fn NAME` in the
+#      resolved file,
 #      either paired directly with the citation or, for a citation in the
 #      first column of a table that heads that column `file:line`, named
 #      anywhere in the row -- the cited line must fall within that
@@ -247,17 +261,38 @@ CITATION_RE = re.compile(
 # in these documents as commit citations, e.g. `52e38a3`).
 IDENT_IN_BACKTICKS_RE = re.compile(r"`([a-z][a-z0-9_]{3,})`")
 HEX_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
-FN_DEF_RE = re.compile(
-    r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:default\s+)?(?:async\s+)?(?:const\s+)?"
-    r"(?:unsafe\s+)?(?:extern\s+\"[^\"]*\"\s+)?fn\s+(\w+)"
+# Every named item kind. The `fn` alternative must stay first: `const fn
+# foo` has to read as a fn named `foo`, not as a const named `fn`.
+ITEM_DEF_RE = re.compile(
+    r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:default\s+)?(?:"
+    r"(?:async\s+)?(?:const\s+)?(?:unsafe\s+)?(?:extern\s+\"[^\"]*\"\s+)?fn\s+(?P<fn>\w+)"
+    r"|(?:unsafe\s+)?(?:auto\s+)?trait\s+(?P<trait>\w+)"
+    r"|struct\s+(?P<struct>\w+)"
+    r"|enum\s+(?P<enum>\w+)"
+    r"|union\s+(?P<union>\w+)"
+    r"|(?:unsafe\s+)?mod\s+(?P<mod>\w+)"
+    r"|type\s+(?P<type>\w+)"
+    r"|(?:const|static)\s+(?:mut\s+)?(?P<const>[A-Za-z_]\w*)\s*:"
+    r"|macro_rules!\s*(?P<macro>\w+)"
+    r")"
 )
+IMPL_HEAD_RE = re.compile(r"^\s*(?:unsafe\s+)?impl[\s<]")
 # `` `path:NNN` (`fn_name`) `` -- the anchor immediately follows the citation,
 # separated only by "(`...`)" with no other content, e.g.
 # `` `mesh_search_paths.rs:139,140` (`non_package_uri_does_not_resolve`) ``.
 # Kept as tight/adjacent as the backward-window rule in find_anchor, for the
 # same reason: a loose forward scan would walk into the next citation's own
 # anchor on a line that cites several functions in sequence.
-FOLLOWING_ANCHOR_RE = re.compile(r"^\s*\(`([a-z][a-z0-9_]{3,})`\)")
+FOLLOWING_ANCHOR_RE = re.compile(r"^\s*\(`((?:[A-Za-z_]\w*::)*[A-Za-z_]\w{3,})`\)")
+# The mirror shape: the name immediately PRECEDES its citation, with nothing
+# between but an optional space and the opening paren that wraps it --
+# `` `construct_goal_pose_constraints`(`.../utils.rs:291`) ``,
+# `` `DEFAULT_MAX_SAMPLING_ATTEMPTS` (`.../sampler.rs:71`, cited against ...) ``.
+# `$`-anchored against the text before the citation, so the gap is the whole
+# gap; a name three words back is prose ABOUT the citation, not a claim that
+# the cited line is inside it -- the distinction `find_tight_anchors`'
+# docstring draws, and the reason this cannot simply scan backwards.
+PRECEDING_ANCHOR_RE = re.compile(r"`((?:[A-Za-z_]\w*::)*[A-Za-z_]\w{3,})` ?\(?$")
 
 
 def citation_extent(line, match_end):
@@ -389,21 +424,25 @@ ATTR_LINE_RE = re.compile(r"^\s*#\[[^\]]*\]\s*$")
 DOC_LINE_RE = re.compile(r"^\s*///")
 
 
-def body_brace(masked, offset):
-    """Offset of the `{` that opens this `fn`'s body, or None when it has no
-    body at all.
+def item_marker(masked, offset):
+    """`("{", index)` or `(";", index)` for whichever comes first at bracket
+    depth 0 at or after offset, `(None, None)` for neither.
 
-    A `fn` can end at a `;` instead of a body -- 64 of this tree's 5441 do:
-    trait method declarations (`fn extract_motion_plan_info(&self, ...) ->
-    Result<()>;`) and `extern` block declarations. Searching forward for the
-    next `{` regardless does not stop there; it finds the NEXT item's brace
-    and hands that item's whole extent to the bodiless name.
+    Which of the two an item ends at is a fact about the item.
+    `const NAME: T = ...;`, `type Alias = ...;`, `mod name;` and
+    `struct Unit;` are whole items that end at their `;`. Only `fn` reads a
+    `;` as "this declaration has no body here, so it owns no lines" -- and
+    it must: 64 of this tree's 5441 `fn`s are bodiless (trait method
+    declarations like `fn extract_motion_plan_info(&self, ...) ->
+    Result<()>;` and `extern` block declarations), and scanning past the `;`
+    for the next `{` finds the NEXT item's brace and hands that item's whole
+    extent to the bodiless name.
     `crates/moveit-planners-pilz/src/trajectory_generator.rs`'s declaration
-    at 562 was given 562-636 -- swallowing `generate`, whose own span is
-    598-636 -- so `:606-636` would anchor-verify against
+    at 562 was given 562-636 that way -- swallowing `generate`, whose own
+    span is 598-636 -- so `:606-636` would anchor-verify against
     `extract_motion_plan_info`, a function it is not in and that has no
-    lines at all. All 64 invented a span this way; every one of them names
-    a real function whose body is somewhere else entirely.
+    lines at all. All 64 invented a span; every one names a real function
+    whose body is somewhere else entirely.
 
     The `;` terminates only at bracket depth 0: `-> [u8; 4]` is a return
     type, not a declaration end.
@@ -415,19 +454,17 @@ def body_brace(masked, offset):
             depth += 1
         elif c in ")]":
             depth -= 1
-        elif depth == 0:
-            if c == "{":
-                return j
-            if c == ";":
-                return None
-    return None
+        elif depth == 0 and c in "{;":
+            return c, j
+    return None, None
 
 
-def function_spans(path):
+def fn_spans(items):
     """{name: [(start_line, end_line, is_test), ...]} for every `fn NAME` in
-    path, brace-matched on the masked source. Multiple functions can share a
-    name (nested `mod tests`, rare); every occurrence is kept and a citation
-    is accepted if it falls in ANY of them.
+    `item_spans`' output -- rules 1 and 2's view of a file, which is `fn`
+    and nothing else. Multiple functions can share a name (nested
+    `mod tests`, rare); every occurrence is kept and a citation is accepted
+    if it falls in ANY of them.
 
     `is_test` -- whether one of the (up to 3) lines directly above `fn` is a
     `#[test]`/`#[tokio::test]`/... attribute -- is not for containment
@@ -451,35 +488,90 @@ def function_spans(path):
     corpus's assertion-ledger rows are near-universally citing when the
     naming is that loose.
     """
+    return {
+        name: [(s, e, t) for (s, e, kind, t) in occ if kind == "fn"]
+        for name, occ in items.items()
+        if any(kind == "fn" for (_s, _e, kind, _t) in occ)
+    }
+
+
+def item_spans(path):
+    """{name: [(start_line, end_line, kind, is_test), ...]} for every named
+    Rust ITEM in path -- `fn`, `trait`, `struct`, `enum`, `union`, `mod`,
+    `type`, `const`/`static`, `macro_rules!`, plus every `impl` block under
+    the name of the type it is FOR.
+
+    One parser, because a second one over the same source drifts from this
+    one silently: `fn_spans` is this filtered to `fn`, not its own scan.
+    The `fn` half is exactly what it was -- brace-matched on masked source,
+    bodiless declarations skipped (see `item_marker`), span extended
+    upward over the item's leading `#[...]` attributes and `///` lines.
+
+    Extending the span over the doc comment is not a nicety for `fn` and a
+    liberty for the rest: `doc/claim-audit/*` cites a CLAIM, and a claim
+    about upstream behaviour is written in the doc comment of the item that
+    pins it. Judged against the declaration line alone, 30 citations in this
+    corpus that point at exactly the right doc comment read as drift.
+
+    An `impl` block is registered under its self type (`impl Foo`,
+    `impl<T> Trait for Foo<T>` -- both `Foo`) because that is what a
+    citation naming a type and pointing into one of its methods means. The
+    trait side of `impl Trait for Foo` is deliberately NOT registered: the
+    block is Foo's code, not the trait's definition, and the trait has its
+    own `trait` span elsewhere.
+
+    `;`-terminated items own their declaration: `const NAME: T = ...;`,
+    `type Alias = ...;`, `mod name;`, `struct Unit;` span from their first
+    attribute/doc line to the `;`. Only `fn` reads a `;` as "no body here"
+    and drops out.
+    """
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return {}
     masked = mask_non_code(text)
     lines = text.split("\n")
+    line_offsets = []
+    acc = 0
+    for l in lines:
+        line_offsets.append(acc)
+        acc += len(l) + 1
     spans = {}
     for line_no, line in enumerate(lines, 1):
-        m = FN_DEF_RE.match(line)
-        if m is None:
+        m = ITEM_DEF_RE.match(line)
+        if m is not None:
+            kind = m.lastgroup
+            name = m.group(kind)
+        elif IMPL_HEAD_RE.match(line):
+            kind, name = "impl", None
+        else:
             continue
-        # Find this fn's opening `{` starting from its own line (signatures
-        # can wrap onto later lines before the brace appears), or nothing at
-        # all when the fn is a declaration -- see `body_brace`.
-        offset = sum(len(l) + 1 for l in lines[: line_no - 1])
-        brace_at = body_brace(masked, offset)
-        if brace_at is None:
+        # Find this item's `{` or `;` starting from its own line (headers
+        # can wrap onto later lines before either appears).
+        offset = line_offsets[line_no - 1]
+        marker, at = item_marker(masked, offset)
+        if marker is None or (marker == ";" and kind == "fn"):
             continue
-        depth = 0
-        j = brace_at
-        while j < len(masked):
-            if masked[j] == "{":
-                depth += 1
-            elif masked[j] == "}":
-                depth -= 1
-                if depth == 0:
-                    break
-            j += 1
-        end_line = masked.count("\n", 0, j) + 1
+        if kind == "impl":
+            if marker != "{":
+                continue
+            name = impl_self_type(masked[offset:at])
+            if name is None:
+                continue
+        if marker == ";":
+            end_line = masked.count("\n", 0, at) + 1
+        else:
+            depth = 0
+            j = at
+            while j < len(masked):
+                if masked[j] == "{":
+                    depth += 1
+                elif masked[j] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            end_line = masked.count("\n", 0, j) + 1
         is_test = any(
             TEST_ATTR_RE.match(lines[i]) for i in range(max(0, line_no - 4), line_no - 1)
         )
@@ -509,8 +601,147 @@ def function_spans(path):
             or DOC_LINE_RE.match(lines[start_line - 2])
         ):
             start_line -= 1
-        spans.setdefault(m.group(1), []).append((start_line, end_line, is_test))
+        spans.setdefault(name, []).append((start_line, end_line, kind, is_test))
     return spans
+
+
+FOR_KW_RE = re.compile(r"\bfor\b")
+WHERE_KW_RE = re.compile(r"\bwhere\b")
+TYPE_HEAD_RE = re.compile(r"([A-Za-z_]\w*)\s*$")
+
+
+def impl_self_type(header):
+    """The bare type name an `impl` header is FOR, or None.
+
+    `impl Foo`, `impl<T> Foo<T>`, `impl Trait for Foo`, `impl<'a> Trait for
+    &'a mut Foo<T>`, `impl fmt::Display for Foo` all give `Foo`. The trait
+    side is dropped on purpose (see `item_spans`), as are generic
+    arguments, references, lifetimes and the module path -- a citation
+    names the type, not its instantiation.
+    """
+    header = header.strip()
+    if not header.startswith("impl"):
+        return None
+    rest = header[4:]
+    # `impl<...>`'s own generic parameters, balanced -- `impl<T: Into<U>>`.
+    rest = rest.lstrip()
+    if rest.startswith("<"):
+        depth, i = 0, 0
+        for i, ch in enumerate(rest):
+            if ch == "<":
+                depth += 1
+            elif ch == ">":
+                depth -= 1
+                if depth == 0:
+                    break
+        rest = rest[i + 1 :]
+    # `for` and `where` only bind at angle depth 0: `impl Foo<Bar for Baz>`
+    # is not a thing, but `impl Trait<A> for B where A: C` is, and cutting
+    # at the first textual `where` inside a generic argument would truncate
+    # the type this is about.
+    depth = 0
+    cut_for = cut_where = None
+    for i, ch in enumerate(rest):
+        if ch == "<":
+            depth += 1
+        elif ch == ">":
+            depth -= 1
+        elif depth == 0:
+            if cut_for is None and FOR_KW_RE.match(rest, i):
+                cut_for = i
+            elif cut_where is None and WHERE_KW_RE.match(rest, i):
+                cut_where = i
+                break
+    if cut_for is not None:
+        rest = rest[cut_for + 3 : cut_where] if cut_where else rest[cut_for + 3 :]
+    elif cut_where is not None:
+        rest = rest[:cut_where]
+    # Trim generic arguments and any trailing `{`, then take the last path
+    # segment: `fmt::Display`'s `Display`, `crate::robot_model::RobotModel`'s
+    # `RobotModel`.
+    depth = 0
+    head = []
+    for ch in rest:
+        if ch == "<":
+            depth += 1
+        elif ch == ">":
+            depth -= 1
+        elif depth == 0:
+            head.append(ch)
+    text = "".join(head).replace("&", " ").replace("(", " ").replace("{", " ")
+    text = re.sub(r"\bmut\b|\bdyn\b|'\w+", " ", text).strip()
+    if not text:
+        return None
+    last = text.split()[-1].rstrip(":").split("::")[-1]
+    m = TYPE_HEAD_RE.search(last)
+    return m.group(1) if m is not None else None
+
+
+def find_item_anchor(line, match_start, match_end):
+    """Rule 0: the name DIRECTLY adjacent to this citation, whichever side
+    it is on, or None. The trailing `` (`name`) `` wins over a leading one
+    when both are present.
+
+    That precedence is not a tie-break, it is the corpus's own disambiguator.
+    `ros/moveit-ros/doc/message-mapping.md:418` reads
+
+        `OcTree::read_binary_data`/`read_data`
+        (`crates/moveit-octomap/src/tree.rs:1244-1246` (`read_binary_data`)/`:1272`)
+
+    -- two names before the citation and the referent parenthesised after
+    it. A scan that takes the nearest preceding name answers `read_data`
+    and fails a citation that is exactly right; the parenthesised name is
+    the one the author wrote to say WHICH of the two this citation is for.
+
+    A `::`-qualified name reduces to its last segment: `Self::read_data`,
+    `JointConstraint::merged` and `fmt::Display` name items this script
+    resolves within one file, and the qualifier is the reader's context,
+    not part of the definition's name.
+
+    Unlike rule 1 this asks nothing about `#[test]`. Rule 1 needs that gate
+    because it also scans a 60-character backward window, where a name can
+    be there for any reason; adjacency is itself the claim, and demanding a
+    `#[test]` attribute of a `trait`, a `const` or a production `fn` named
+    right against its own citation rejects the shape this rule exists for.
+    """
+    following = FOLLOWING_ANCHOR_RE.match(line[match_end:])
+    if following is not None:
+        return following.group(1).split("::")[-1]
+    preceding = PRECEDING_ANCHOR_RE.search(line[:match_start])
+    if preceding is not None:
+        return preceding.group(1).split("::")[-1]
+    return None
+
+
+def anchor_zones(items, name):
+    """Every line range in one file where `name` is defined: each of its
+    item spans, declaration, doc comment and attributes included.
+
+    An empty list means the name is not an item of this file, and the caller
+    must leave the citation to the later rules rather than fail it --
+    `` `msg` ``, a struct field, a `.msg` wire field or a C++ symbol can all
+    sit adjacent to a citation, and none of them is a claim this rule can
+    adjudicate. That is not a technicality: `ros/moveit-ros/src/
+    planning.rs`'s crate doc names `reference_trajectories`,
+    `attached_collision_objects` and `multi_dof_joint_state`, three wire
+    fields that are Rust items nowhere, and an earlier draft of this rule
+    that armed on a `//!` mention failed all three of
+    `doc/assertion-discrimination-ledger-p9-ros.md:326`'s correct citations
+    against "spans" that were the paragraph discussing them.
+
+    `//!` paragraphs were then tried as an EXTRA landing zone for names that
+    ARE items -- `doc/claim-audit/moveit-trajectory.md:76` cites
+    `crates/moveit-trajectory/src/lib.rs:31-34`, the crate doc's entry for
+    the `time_optimal_trajectory_generation` module, whose `pub mod` is at
+    `:499` -- and measured at zero: with the mechanism and without it, this
+    corpus fails the same six citations. Both crate-doc citations pass
+    because they QUOTE the line they cite, which the caller checks anyway.
+    Dropped rather than kept for the shape's sake: a 30-line paragraph is a
+    wide zone to hand a symbol on the strength of one mention, and a
+    widener that changes no verdict is a place for the next drift to land
+    unnoticed.
+    """
+    return [(s, e) for (s, e, _kind, _t) in items.get(name, ())]
 
 
 LOCAL_WINDOW = 60
@@ -869,10 +1100,16 @@ def main(write_classes=False):
         rs_files_by_basename.setdefault(p.rsplit("/", 1)[-1], []).append(p)
 
     span_cache = {}
+    item_cache = {}
+
+    def items_for(path):
+        if path not in item_cache:
+            item_cache[path] = item_spans(REPO_ROOT / path)
+        return item_cache[path]
 
     def spans_for(path):
         if path not in span_cache:
-            span_cache[path] = function_spans(REPO_ROOT / path)
+            span_cache[path] = fn_spans(items_for(path))
         return span_cache[path]
 
     # ONE record per citation, holding the one class it was assigned. Every
@@ -900,6 +1137,7 @@ def main(write_classes=False):
     ledger_tables = {}
     ledger_rows_total = 0
     rule2_anchored = 0
+    rule0_anchored = 0
 
     for md in md_files:
         text = (REPO_ROOT / md).read_text(encoding="utf-8", errors="replace")
@@ -970,6 +1208,80 @@ def main(write_classes=False):
                 quoted = content_anchor(
                     quotations_near(citing_context(lines, line_no - 1)), body, cited_regions(m)
                 )
+
+                # Rule 0, before every other disposition including the
+                # file-header early-out below: a name written DIRECTLY
+                # against its citation is a claim about where that name
+                # lives, and this rule either confirms it or fails it. It
+                # never leaves one unanchored, which is what let
+                # `PORTING-PLAN.md:7801` -- `` `construct_goal_pose_
+                # constraints`(`crates/moveit-constraints/src/utils.rs:291`) ``,
+                # naming the symbol in backticks touching its own citation,
+                # 71 lines above that function's real span -- pass every
+                # gate for as long as it has. `unanchored` bounds-checks and
+                # asks nothing else; it is the right disposition for a
+                # citation carrying no claim, and the wrong one for a
+                # citation carrying this one.
+                #
+                # It must precede the `first_fn` early-out because two of
+                # the shapes it adjudicates land there by construction: a
+                # `//!` paragraph is the enclosing module's doc, so it is
+                # above every item in the file.
+                item_name = find_item_anchor(line, m.start(), m.end())
+                zones = (
+                    anchor_zones(items_for(resolved_path), item_name)
+                    if item_name
+                    else []
+                )
+                if zones:
+                    rule0_anchored += 1
+                    landed = [ln for ln in cited_lines if any(s <= ln <= e for (s, e) in zones)]
+                    # The same parenthetical carries a SECOND, weaker claim in
+                    # `doc/claim-audit/*`, and it is a quotation, not an
+                    # anchor: that table's column 1 parenthesises a fragment
+                    # of the FIRST cited line. Two rows either side of the one
+                    # that made this visible settle what the convention is --
+                    # `moveit-trajectory.md:164` cites `:332-338` as
+                    # `` (`use std::collections::HashMap;`) `` and `:165`
+                    # cites `:341-342` as
+                    # `` (`use crate::trajectory::Trajectory;`) ``, and 332
+                    # and 341 are exactly those lines. `:163`'s
+                    # `` (`totg_compute_time_stamps`) `` on `:308-319` is the
+                    # same convention with an identifier-shaped fragment: 308
+                    # reads "(including `totg_compute_time_stamps`'s
+                    # internally-recomputed", a crate-doc line, while the
+                    # function itself is at 623.
+                    #
+                    # So the two readings are confirmed independently and
+                    # either one satisfies the citation. Requiring
+                    # containment alone fails a row that is quoting exactly
+                    # the line it cites; dropping to the quotation alone
+                    # would let `PORTING-PLAN.md:7801` pass on nothing, since
+                    # `utils.rs:291` does not say `construct_goal_pose_
+                    # constraints` either.
+                    named_here = any(
+                        re.search(r"\b" + re.escape(item_name) + r"\b", body[ln - 1])
+                        for ln in cited_lines
+                        if 1 <= ln <= len(body)
+                    )
+                    if len(landed) == len(cited_lines) or named_here:
+                        record(md, line_no, spec, ANCHOR_VERIFIED)
+                    else:
+                        record(
+                            md,
+                            line_no,
+                            spec,
+                            ANCHOR_MISMATCH,
+                            (
+                                fname_part,
+                                cited_lines,
+                                landed,
+                                [item_name],
+                                resolved_path,
+                                {item_name: [(s, e, None) for (s, e) in zones]},
+                            ),
+                        )
+                    continue
 
                 # A citation landing entirely above the file's first function
                 # is to file-level content -- the header comment, the module
@@ -1105,6 +1417,9 @@ def main(write_classes=False):
         f"; {partly_anchored} of those are partly-anchored enumerations (a comma list whose "
         f"named functions hold some of its cited lines and not others), counted in whichever "
         f"bucket rule 4 put them"
+        f"; rule 0 (a Rust item named directly against its citation, resolved against that "
+        f"item's own span in the source) adjudicated "
+        f"{rule0_anchored} citation(s)"
         f"; rule 2 read "
         + ", ".join(f"{ledger_tables.get(h, 0)} `{h}`" for h in sorted(LEDGER_FIRST_COLUMN_HEADERS))
         + f" table(s) totalling {ledger_rows_total} row(s) and anchored "
@@ -1151,6 +1466,20 @@ def main(write_classes=False):
         if got == 0:
             print(f"FAIL rule 2 {what}", file=sys.stderr)
             return 1
+
+    # Rule 0 goes quiet the same way and is invisible the same way: its
+    # citations fall back into content-verified or unanchored, both passing.
+    # Its one number is floored for that reason -- an adjacency regex that
+    # stops matching, or an item scan that stops registering `trait`, takes
+    # this to zero while every other total stays healthy.
+    if rule0_anchored == 0:
+        print(
+            "FAIL rule 0 adjudicated no citation at all -- either the adjacency regexes in "
+            "`find_item_anchor` no longer match this corpus's `` `name`(`path.rs:N`) `` / "
+            "`` `path.rs:N` (`name`) `` shapes, or `item_spans` is registering no items",
+            file=sys.stderr,
+        )
+        return 1
 
     live = class_map(records)
     if write_classes:

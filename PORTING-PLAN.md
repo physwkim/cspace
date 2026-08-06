@@ -6693,7 +6693,7 @@ p3-acm의 작업으로 넘어간다 — 문서에 한계로 남기면 다시 묻
 ### 75.4 `visibility_cone` 115건은 라운드 4부터 주인이 있었다
 
 내가 열 라운드째 "주인 없음"으로 적어 온 항목인데, 담당이 근거를 대고
-반박했다: `decide_cone`(`moveit-constraints/src/visibility.rs:381`)은
+반박했다: `decide_cone`(`moveit-constraints/src/visibility.rs:626`)은
 자기 `World`/`ParryCollisionEnv`를 만들고 `PlanningScene`을 타지 않으며,
 §37/§38.3이 잔차를 `moveit-collision`의 contact 순회/tie-break 순서로
 좁혀 p3-acm에 배정했고 §46.1이 재확인했다. `moveit-scene`에는
@@ -7798,7 +7798,7 @@ moveit-planners-sbp/src/planning_scene_validity.rs:398, :411
 ```
 
 **프로덕션 호출자는 0건이다.** 그리고 그건 담당의 잘못이 아니다 —
-`construct_goal_pose_constraints`(`crates/moveit-constraints/src/utils.rs:291`)를 비롯한 생성 경로가
+`construct_goal_pose_constraints`(`crates/moveit-constraints/src/utils.rs:362`)를 비롯한 생성 경로가
 전부 `tf: &Transforms`를 **호출자에게서 받는** 형태이고, 워크스페이스에
 `PlanningScene`에서 목표 제약을 만드는 프로덕션 경로가 아직 없다.
 배선할 대상 자체가 없다.
@@ -13137,7 +13137,7 @@ SolidPrimitive::CONE
 
 ### 165.2 이 포트
 
-`Body::from_shape`(`bodies.rs:3065`)가
+`Body::from_shape`(`bodies.rs:3114`)가
 `Shape::Cone(_) | Shape::Plane(_) | Shape::OcTree(_) => None`으로 처리하고,
 `PositionConstraint::new`가 그 `None`을 거부로 바꾼다. 크래시가 아니라 타입
 있는 거부다.
@@ -20960,7 +20960,7 @@ crates/`는 `crates/moveit-planning/src/pipeline.rs`의
 crates/moveit-planners-{sbp,chomp,stomp,pilz}/Cargo.toml`도 0건 — 이
 워크스페이스의 플래너 크레이트 넷 중 어느 것도 `moveit-planning`에
 의존하지 않는다. 이 워크스페이스에 존재하는 유일한 구체 플래너,
-`moveit_planners_sbp::registry::RrtConnectManager`(`crates/moveit-planners-sbp/src/registry.rs:735`,
+`moveit_planners_sbp::registry::RrtConnectManager`(`crates/moveit-planners-sbp/src/registry.rs:597`,
 `impl PlannerManager for RrtConnectManager`)는 `moveit-planning`의
 `PlanningRequest`/`PlanningResponse`와 이름만 같고 타입이 다른, 자기
 자신의 `PlanningRequest`/`PlanningResponse`를 쓴다
