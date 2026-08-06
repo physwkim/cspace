@@ -1288,11 +1288,14 @@ def main():
         )
         return 1
 
+    # An empty prefix is this repository indexing itself; naming it by the
+    # prefix would print an empty string, which reads as a root that failed to
+    # load rather than as the one whose files are cited by repo-relative path.
     roots = f"{upstream}" + (
-        f" + {len(args.source)} vendored root(s) "
-        f"({', '.join(p.rstrip('/') for p, _ in args.source)})"
+        f" + {len(args.source)} extra root(s) "
+        f"({', '.join(p.rstrip('/') or str(root) for p, root in args.source)})"
         if args.source
-        else " (no vendored root passed)"
+        else " (no extra root passed)"
     )
     print(
         f"OK {total} upstream citations across {len(corpus)} tracked .md/.rs files "
