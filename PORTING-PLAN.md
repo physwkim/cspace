@@ -22516,6 +22516,22 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 **절 번호가 없다는 사실을 열거와 함께 적는다**. 이 35건에 절을 붙이는
 것은 이 라운드가 하지 않은 작업이고, 그래서 이 절이 그 작업 목록이다.
 
+**정정 (§271, §272).** 위 문단의 "아래 35건은 결정이 존재하고"는 이
+절이 쓰인 시점에 두 행에 대해 거짓이었다. 9번(`GreedyKCenters.hpp`)과
+10번(`NearestNeighbors.hpp`)이 인용하던 `crates/moveit-kinematics/src/lib.rs`
+구간은 셋 중 `detail/NearestNeighborsGNAT.hpp` 하나만 이름으로 부르고,
+나머지 두 파일을 판정하는 문장은 그 구간에도 그 파일 어디에도 없었다 —
+`classify-unported.py`가 이 둘만 `UNVERIFIED`로 보고한 이유가 그것이다.
+그 결정은 §271가 만들었고(세 헤더를 한 결정으로 묶는다), 세 행의 인용은
+그 뒤 판정 문항 자체로 옮겼다. 아래 표의 증거 칸은 이 절이 쓰인 시점의
+값이므로 기록으로 그대로 둔다 — 9·10·11번이 적고 있는 줄 번호는 지금
+트리의 인용이 아니며, 현재 값은 §271와 `doc/port-coverage.md`에 있다.
+
+**35라는 수 자체는 오늘도 참이다**(§272가 86행 트리에서 재유도).
+같은 계측기가 `crate-doc` locus를 40으로 찍는 것과 모순되지 않는다:
+40은 클래스를 묻지 않은 수이고, 이 절의 35는 `decided-non-port`로
+한정된 수다. 차이 5건은 전부 §249.5가 열거한 `ported-elsewhere` 행이다.
+
 | # | 상류 파일 | 증거 (`doc/port-coverage.md` §4의 같은 행) | 포팅된 인클루더 |
 |---|---|---|---|
 | 1 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin.hpp` | `crates/moveit-collision/src/lib.rs:37-49` | 0 |
@@ -24389,6 +24405,15 @@ $ diff <(계기1 --list-unported) <(계기2 --list-unported)   # 87 vs 87
 $ diff <(계기1 --list-ported)   <(계기2 --list-ported)     # 158 vs 158
 ```
 
+**정정 (계측기 위치).** 위 블록의 `/tmp/claude-1000/indep.py`는 어느
+커밋에도 없던 파일이다 — 발표된 수를 이 트리에서 재현할 수 없는 계측기가
+떠받치고 있었다는 뜻이다. 같은 계측기를
+`tools/ci/measure-port-coverage-independent.py`로 커밋했으므로 위 호출은
+그 경로로 다시 돌아간다. 옮기면서 한 곳을 고쳤다: `sys.argv[1]`을 무조건
+저장소 경로로 쓰고 있어서 `--list-unported` 하나만 주면 그것을 경로로
+읽고 `ported 0 / unported 245`를 오류 없이 찍었다. 오늘 86행 트리에서 두
+계기의 미포팅 집합 차는 양방향 모두 공집합이다.
+
 둘 다 빈 출력 — 대칭차 0, 즉 행마다 같다. 138/107은 이 트리의 어느
 계기도 내지 않는다. 그 숫자의 출처는 커밋되지 않은 진행 노트이고,
 §249.1이 이미 87을 명령과 함께 적었다. 이 절은 그 87을 계기를 바꿔서
@@ -24465,7 +24490,7 @@ D6 1, D8 1이고, 위치 열만 세면 `D1` 7, `D4` 4, `D1, D4` 2, `D1, D2` 2,
 | `crates/moveit-planners-pilz/src/lib.rs:140` | 2 | `:118` |
 | `crates/moveit-planners-stomp/src/lib.rs:105` | 1 | `:93` |
 | `crates/moveit-kinematics/src/lib.rs:263` | 1 | `:232` |
-| `crates/moveit-kinematics/src/lib.rs:333` | 1 | `:294` |
+| `crates/moveit-kinematics/src/lib.rs:352` | 1 | `:294` |
 
 합은 `10 + 2 + 1 + 1 + 1 = 15`로 위 검증 표의 MISCITED 15와 같다. 건수는
 행을 세어서 냈고, 세기 전에 처음 적은 값은 pilz `:127`이 12여서 합이 17이
@@ -24496,7 +24521,26 @@ pilz `:127`의 10건은 `planning_context_loader{,_circ,_lin,_polyline,_ptp}`의
 | `crates/moveit-planners-pilz/src/lib.rs:140` | ``- `pilz_industrial_motion_planner.cpp` — the `planning_interface::PlannerManager``` |
 | `crates/moveit-planners-stomp/src/lib.rs:105` | ``- Pluginlib registration: not in `stomp_moveit_planning_context.cpp` at`` |
 | `crates/moveit-kinematics/src/lib.rs:263` | ``- `srv_kinematics_plugin` — **excluded, D1/D2 (no ROS dependency)**.`` |
-| `crates/moveit-kinematics/src/lib.rs:333` | ``3. *`cached_ur_kinematics_plugin.cpp` — out of D1/D2 scope, not`` |
+| `crates/moveit-kinematics/src/lib.rs:352` | ``3. *`cached_ur_kinematics_plugin.cpp` — out of D1/D2 scope, not`` |
+
+**정정 (§271).** §271가 같은 파일의 "What did not port, and why" 1번 문항에
+19줄을 넣어 옛 316행 이후가 전부 +19로 밀렸다. 위 두 표에서 그 문항을
+인용문으로 들고 있는 두 칸은 병합 시점에 그 시프트를 따라 옮겼다 — 옛
+값은 333이었고 지금은 352이며, 두 칸 모두 같은
+`cached_ur_kinematics_plugin.cpp` 문항을 가리킨다. 살아 있는 인용인
+`doc/port-coverage.md`의 두 행도 같은 +19를 받았다
+(`crates/moveit-kinematics/src/lib.rs:352-359`와 `:362-366`, 두 구간 모두
+`PLUGINLIB_EXPORT_CLASS`를 담고 있고 `check-citation-drift.py`가
+content-verified로 읽는다). 263행을 가리키는 칸을 비롯해 316행 이전의
+인용은 영향받지 않는다.
+
+두 표가 그 시점의 측정 기록이라는 이유로 옛 번호를 그대로 두는 선택도
+있었고 §271는 그렇게 적었지만, 그러면 백틱 인용 하나가 **정의상 거짓인
+살아 있는 주장**으로 남는다 — 어느 체커도 "이건 기록이니 봐 달라"를 읽지
+못하고, `check-citation-drift.py`는 실제로 이 칸을 content-verified →
+unanchored 강등으로 보고했다. 기록해야 할 것은 옛 숫자가 아니라 시프트가
+있었다는 사실이므로, 숫자는 살아 있는 값으로 옮기고 옛 값은 이 문단의
+산문으로 남긴다. 이 라운드의 워커 브리프가 금지하는 것과 같은 형태다.
 
 **UNVERIFIED 2건은 브리프의 규칙으로 결정이 아니라 구멍이다.** 둘 다
 `moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/detail/`
@@ -25167,6 +25211,10 @@ corpus   245
 ported   158
 unported 87
 ```
+
+(둘째 계측기는 그 뒤 `tools/ci/measure-port-coverage-independent.py`로
+커밋됐다 — §258의 "정정 (계측기 위치)"를 볼 것. 위 호출은 그 경로로
+재현된다.)
 
 41 커밋에는 새 포트 작업이 들어 있지만(§255–§257) 그 어느 것도 코퍼스
 245건의 포팅/미포팅 분할을 움직이지 않았다. `--emit`을 다시 돌려 표
@@ -27226,3 +27274,200 @@ Phase 3 `collision: bool` 행은 UNMET 그대로이고 근거 열도 §251.4 그
 - 관통 분기의 42,259건을 다시 판정하지 않았다. §260이 그 분기를 상류 결함
   3건으로 비교 불가로 분류했고 이 절은 그 분류를 인용만 했다.
 - `distance: f64` 행(PARTIAL, 근거 §260)을 건드리지 않았다.
+
+## §271 `detail/GreedyKCenters.hpp`와 `detail/NearestNeighbors.hpp`를 판정한다 — GNAT 거절이 두 파일을 함께 데려가고, 포트에 있는 GNAT는 이 둘의 포트가 아니다 (2026-08-06)
+
+`doc/unported-classification.md`의 86행 중 둘만 `UNVERIFIED`였다. 그것은
+계측기가 이 두 파일을 판정한 문장을 찾지 못했다는 뜻이고, 실제로도
+없었다 — 두 행이 인용하던 `crates/moveit-kinematics/src/lib.rs` 구간은
+`detail/NearestNeighborsGNAT.hpp` 하나만 이름으로 부른다. 이 절은 그
+판정을 만들어 기록하고, 그것을 계측기가 볼 수 있는 자리에 놓는다.
+(이 절이 옛 구간의 줄 번호를 `path.rs:NNN` 꼴로 다시 적지 않는 이유는
+그 꼴이 살아 있는 인용으로 파싱되기 때문이다 — 옛 번호를 그렇게 적으면
+정의상 거짓인 인용이 하나 늘어난다.)
+
+### §271.1 상류 소비자 전수 — 각각 세 파일, 그리고 그 셋째는 같은 한 파일이다
+
+`/home/stevek/work/moveit2` (`e017c91`) 전체 체크아웃에서:
+
+```
+$ rg -l -w 'GreedyKCenters' .
+.../detail/NearestNeighborsGNAT.hpp
+.../detail/GreedyKCenters.hpp
+.../detail/GreedyKCenters.h
+
+$ rg -l -w 'NearestNeighbors' .
+.../detail/NearestNeighborsGNAT.hpp
+.../detail/NearestNeighbors.hpp
+.../detail/NearestNeighbors.h
+
+$ rg -n 'NearestNeighborsGNAT\.hpp' .
+.../detail/NearestNeighborsGNAT.h:53:#include <...>
+.../cached_ik_kinematics_plugin.hpp:39:#include <...>
+```
+
+세 파일 중 하나는 자기 자신, 하나는 `.h` 전달 셸이다. 남는 소비자는
+양쪽 모두 `NearestNeighborsGNAT.hpp` 하나이고, 그 안에서의 사용 모양은
+상속(`class NearestNeighborsGNAT : public NearestNeighbors<_T>`, `:70`)과
+값 멤버(`GreedyKCenters<_T> pivotSelector_`, `:751`)다. 그리고
+`NearestNeighborsGNAT.hpp`를 include하는 상류 파일은 자기 셸을 뺀
+`cached_ik_kinematics_plugin.hpp:39` 하나뿐이다.
+
+즉 세 헤더는 독립된 세 결정이 아니라 한 결정이다. GNAT 트리를 지지
+않기로 한 순간 나머지 둘은 부를 호출자가 사라진다. 둘 다 MoveIt가 쓴
+파일도 아니다 — 각 헤더가 스스로 "a slightly modified version of
+`<ompl/datastructures/...>`"라고 적고 있고, 저작권줄은 각각 2011 Rice
+University (Mark Moll)와 2008 Willow Garage (Ioan Sucan)다. 크기는 130행과
+120행, GNAT 본체는 755행이다.
+
+### §271.2 판정: 세 파일 모두 `decided-non-port`, 근거는 이미 쓰여 있던 한 문장이다
+
+근거는 새로 만들 것이 없다. `crates/moveit-kinematics/src/lib.rs`의
+`cached_ik_kinematics_plugin` 불릿 안 "What did not port, and why" 목록
+1번이 이미 "not a bottleneck worth porting
+`detail/NearestNeighborsGNAT.hpp` (755 lines implementing a general-purpose
+metric tree) to avoid"라고 적고 있었다. 이 라운드가 한 일은 그 문항에
+나머지 두 헤더를 **이름으로** 넣고, 위 전수 측정을 그 자리에 적은 것이다
+(현재 `:308-334`).
+
+그 전에는 세 행이 모두 같은 옛 구간을 인용하고 있었는데, 그 구간은
+`ikfast_kinematics_plugin` 불릿의 끝과 `cached_ik_kinematics_plugin`
+불릿의 첫 몇 줄이다 — 판정 문장은 그 안에 없다. 그런데도 GNAT 행이
+`named (basename)`으로 통과하고 있었던 이유는 `verify_crate_doc`가 인용
+구간을 둘러싼 불릿 전체로 넓히기 때문이다. 넓히기가 없었으면 세 행 모두
+`UNVERIFIED`였을 것이므로, 세 인용을 모두 판정 문항으로 옮긴다.
+
+### §271.3 포트에 GNAT가 있다 — 그리고 그것은 이 헤더의 포트가 아니다
+
+`NearestNeighbors.hpp` 행은 직전까지 "Same \"no equivalent structure\" `rg`
+anchor ... as the `GreedyKCenters.hpp` row above"라고 적고 있었다. 그 문장은
+거짓이다. 이웃 행의 앵커는 `greedy.?k.?center`를 찾는 것이고, 그것은
+`NearestNeighbors`에 대해 아무것도 측정하지 않는다. 실제로 측정하면 이
+워크스페이스에는 GNAT 계열 인덱스가 존재한다:
+`crates/moveit-planners-sbp/src/nn.rs:42-46`의 `Gnat`이고, 그 필드는
+`root: Option<Node<S::State, T>>` 하나에 `degree`와 `len`이다.
+
+그럼에도 이것은 이 헤더의 포트가 아니며, 근거는 네 가지다.
+
+1. `nn.rs`에 `// Ported from moveit2 @ <sha>:` 블록이 없다
+   (`rg -n 'Ported from moveit2' crates/moveit-planners-sbp/src/nn.rs` → 0건).
+   즉 이 파일은 `doc/port-coverage.md` §1의 "ported" 정의상 어떤 상류
+   경로도 주장하지 않는다.
+2. `crates/moveit-planners-sbp/src/lib.rs:9-10`가 명시한다 — "the
+   nearest-neighbour index is GNAT-family `(Brin, 1995)` for the reason
+   recorded in `nn`'s doc comment, not a port of OMPL's C++ GNAT". 이
+   크레이트는 D3(상류 C++ 파일이 아예 없는 자리)에 대한 원설계다.
+3. 인터페이스 폭이 다르다. `rg -n '^\s*virtual' NearestNeighbors.hpp`는
+   12줄을 세고, 그중 `:59`가 소멸자다. 남는 가상 멤버 함수는 11개다 —
+   `setDistanceFunction`(`:62`), `reportsSortedResults`(`:75`),
+   `clear`(`:78`), `add`(`:81`), `add`(`:84`), `remove`(`:91`),
+   `nearest`(`:94`), `nearestK`(`:101`), `nearestR`(`:108`),
+   `size`(`:111`), `list`(`:114`). `Gnat`의 공개 메서드는 5개다 —
+   `new`, `len`, `is_empty`, `insert`, `nearest`
+   (`nn.rs:66,76,81,86,103`). k-최근접, 반경 질의, 삭제, 열거가 없다.
+4. 피벗 선택 알고리즘이 다르다. 상류는 `GreedyKCenters::kcenters`로 첫
+   센터를 난수로 고르고 이후 "지금까지의 센터들로부터 가장 먼" 점을
+   반복해 고른다(`GreedyKCenters.hpp:97-118`). `Gnat`은 그런 것이 없다 —
+   먼저 도착한 점이 그대로 피벗이 되고, 노드가 차면 새 점은 피벗이 가장
+   가까운 자식으로 라우팅된다 — `nn.rs:112-140` (`insert`). 그 단순화는
+   `nn.rs:20-35`가 이미 "Deviation from the GNAT paper"로 기록하고 있고,
+   같은 문단이 `Node::search`의 커버링 반경 경계는 정확하다고 적는다.
+
+그리고 소비자도 다르다. `Gnat`은 샘플링 기반 플래닝(RRT-Connect)의
+인덱스이고, IK 캐시가 쓰는 것은 `crates/moveit-kinematics/src/ik_cache.rs:193-197`
+(`nearest`) — `pose_distance` 위의 선형 스캔이다. 즉 이
+워크스페이스에서 가장 가까운 구조물이 존재한다는 사실은 이 헤더의 판정을
+바꾸지 않고, 오히려 왜 바꾸지 않는지를 적어두어야 하는 사실이다.
+
+`GreedyKCenters` 쪽은 사정이 다르다 — 그 알고리즘은 이 포트에 아예 없다:
+
+```
+$ rg -n -i -w 'greedy|kcenters|k_centers' crates/ ros/ tools/
+crates/moveit-planners-sbp/src/rrt_connect.rs:89:    /// own greedy walk to close the gap.
+crates/moveit-planners-sbp/src/rrt_connect.rs:304:/// `Trapped` — the "greedy connect loop".
+tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's `connect` step is greedy and unbounded --
+crates/moveit-planners-sbp/benches/sweep_baseline.sh:51:# `connect`'s greedy growth is ever actually blocked rather than closing the
+```
+
+4건이고 네 줄 모두 영어 단어 "greedy"다. 어느 것도 k-센터 선택이 아니다.
+
+### §271.4 계측기에 남는 수
+
+`python3 tools/ci/classify-unported.py --emit doc/unported-classification.md`:
+
+| | 이전 | 이후 |
+|---|---|---|
+| unported files classified | 86 | 86 |
+| `resolves` | 46 | 46 |
+| `named (basename)` | 24 | 26 |
+| `named (glob)` | 8 | 8 |
+| `named (dir)` | 3 | 3 |
+| `named (symbol)` | 2 | 2 |
+| `content-elsewhere (cite resolves)` | 1 | 1 |
+| **`UNVERIFIED`** | **2** | **0** |
+
+86행 전부가 판정을 가진다. "측정이 결정할 수 없다"는 이제 이 셀에
+없다 — 결정은 계측이 아니라 기록이 필요했던 것이고, 위의 전수 측정은
+그 기록을 받침할 수는 있어도 대신해 줄 수는 없었다.
+
+## §272 40 대 35는 두 계측기의 불일치가 아니었다 — 한쪽은 클래스와 무관하게 locus를 세고, 다른 쪽은 `decided-non-port`만 센다 (2026-08-06)
+
+`classify-unported.py`는 `crate-doc` locus를 **40**으로 출력하고,
+§249.4는 같은 성격의 집합을 **35**로 열거한다. 한 집합에 두 수가 나오면
+그 자체가 닫아야 할 항목이므로, 합계가 아니라 **집합**으로 다시 유도했다.
+합계 비교는 서로 상쇄하는 두 행 오류를 숨긴다.
+
+### §272.1 집합 비교
+
+A = 오늘 트리(86행)의 `doc/unported-classification.md`에서 locus 칸이
+`crate-doc`로 시작하는 행. B = §249.4 표의 35행.
+
+```
+A (classify-unported.py, locus crate-doc): 40
+B (§249.4 table rows): 35
+|A|=40 |B|=35  A\B=5  B\A=0  A&B=35
+```
+
+`B\A`가 0이므로 B는 A의 진부분집합이다. 즉 §249.4의 35행은 하나도
+빠지거나 바뀌지 않았고, 두 수의 차이는 전부 A 쪽의 5행이다:
+
+| 상류 파일 | `doc/port-coverage.md`의 클래스 | 오늘 verdict |
+|---|---|---|
+| `moveit_core/exceptions/src/exceptions.cpp` | ported-elsewhere | content-elsewhere (cite resolves) |
+| `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | ported-elsewhere | named (basename) |
+| `moveit_core/utils/include/moveit/utils/message_checks.hpp` | ported-elsewhere | named (basename) |
+| `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/tip_frame_getter.hpp` | ported-elsewhere | named (basename) |
+| `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp` | ported-elsewhere | named (basename) |
+
+다섯 건 모두 `ported-elsewhere`이고, 다섯 건 모두 §249.5가 이미 열거한
+16행 안에 있다 — 그 표의 3, 10, 12, 14, 16번이다. §249.4와 §249.5가
+클래스로 나눠 담고 있던 것을, 계측기의 locus 줄은 나누지 않고 한 수로
+합쳐 찍고 있었을 뿐이다.
+
+### §272.2 두 수는 각자의 정의 아래 모두 참이다
+
+86행 전체를 (클래스 × locus)로 세면:
+
+```
+  decision locus:
+      crate-doc    40  (35 decided-non-port, 5 ported-elsewhere)
+      §            31  (26 decided-non-port, 5 ported-elsewhere)
+      D            15  (10 decided-non-port, 5 ported-elsewhere)
+```
+
+§249.4의 정의("의도적 비포팅 중, 결정이 크레이트 doc 문장만 인용하는")는
+`decided-non-port` ∩ `crate-doc`이고 그 칸은 오늘도 **35**다. 계측기의
+`crate-doc 40`은 클래스를 묻지 않은 수다. 어느 쪽도 틀리지 않았고, 어느
+쪽도 상대를 반증하지 않는다.
+
+§249.4의 35행이 오늘도 전부 검증된다는 것도 같이 쟀다 — `named (basename)`
+22, `named (glob)` 8, `named (dir)` 3, `named (symbol)` 2, `UNVERIFIED` 0.
+(§271 이전에는 이 중 2건이 `UNVERIFIED`였다.)
+
+### §272.3 계측기를 고쳤다 — 합계만 찍던 줄이 이 오독을 만들었다
+
+수를 다시 잰 것으로 끝내면 다음 독자가 같은 자리에서 같은 오독을 한다.
+`tools/ci/classify-unported.py`의 `decision locus` 블록이 locus당 합계
+하나만 찍고 있었고, 그 수를 §249.4의 수와 나란히 놓으면 불일치처럼
+보인다. 이제 각 locus를 클래스로 쪼개 찍는다(위 출력). 40과 35가 같은
+줄에 함께 나오므로 둘을 마주 세울 여지가 없다.

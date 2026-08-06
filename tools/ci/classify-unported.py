@@ -703,13 +703,24 @@ def main() -> int:
 
     items = classify(args.upstream, args.repo)
     locus = collections.Counter(i["locus"] for i in items)
+    locus_by_class = collections.Counter((i["locus"], i["class"]) for i in items)
     verdict = collections.Counter(i["verdict"] for i in items)
     blocks = collections.Counter(i["blocks"] for i in items)
 
     print(f"unported files classified                 {len(items)}")
+    # Split each locus by class.  §249.4 counts the crate-doc rows that are
+    # `decided-non-port` and gets 35; this block counted every row with that
+    # locus and got 40, and for one round the two numbers were carried around
+    # as two instruments disagreeing about one set.  They are two sets: the
+    # extra 5 are `ported-elsewhere`, every one of them already enumerated in
+    # §249.5.  A bare per-locus total cannot say that, so it no longer prints
+    # one alone.
     print("  decision locus:")
     for k, v in locus.most_common():
-        print(f"      {k:12s} {v}")
+        split = ", ".join(
+            f"{n} {cls}" for (lo, cls), n in sorted(locus_by_class.items()) if lo == k
+        )
+        print(f"      {k:12s} {v}  ({split})")
     print("  locus verdict:")
     for k, v in verdict.most_common():
         print(f"      {k:60s} {v}")
