@@ -856,10 +856,17 @@ upstream function line-by-line.
   a rejected default. Expiry noted inline (§153.1): only
   `moveit_trajectory::RobotTrajectory`'s own `duration_from_previous[0]
   == 0.0` invariant changing clears this, not a new field anywhere.
-- `planning.rs:130,138` (`:138` reads `joint_trajectory,`; `start_state`/`reference_trajectories`
-  non-default) — same opposite-polarity shape again, already named
-  D6-consistent in this module's own doc comment. Expiry noted inline
-  (§153.1): both clear if `moveit_planning::PlanningRequest` gains the
+- `planning.rs:150-154,162-166,278-281` (re-derived: row previously cited
+  `:130,138`, which named a single blanket `start_state` rejection that
+  `p11-startstate` (`10f571f`) deleted outright — `start_state` is now a
+  `StartState` sum type, so the old citation points at code that no longer
+  exists. It split into two per-field rejections, `attached_collision_objects`
+  (`:150-154`) and `multi_dof_joint_state` (`:162-166`) on `StartState`,
+  plus the unchanged `reference_trajectories` rejection (`:278-281`) on
+  `PlanningRequest`; `:150` reads `attached_collision_objects.is_empty()`)
+  — same opposite-polarity shape again, already named D6-consistent in
+  this module's own doc comment. Expiry noted inline (§153.1): all three
+  clear if `moveit_planning::StartState`/`PlanningRequest` gain the
   matching field, unlike `state.rs`'s gap above which needs a new
   conversion entry point instead.
 
