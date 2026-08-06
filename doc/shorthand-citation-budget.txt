@@ -7,7 +7,7 @@
 # written in a form no gate can check -- write `path.rs:NNN` instead.
 # Shrinking it means a shorthand was converted, which is the goal: re-freeze
 # so the lower number becomes the new ceiling.
-550	PORTING-PLAN.md
+549	PORTING-PLAN.md
 5	crates/moveit-distance-field/doc/f1-f2-f4-predictions.md
 1	crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md
 21	crates/moveit-planners-pilz/doc/mutation-audit-trajectory-blender.md
@@ -46,6 +46,6 @@
 2	doc/d12-solver-none-structural-measurement.md
 1	doc/folded-operand-guards.md
 4	doc/handoff-2026-08-06.md
-28	doc/port-coverage.md
+27	doc/port-coverage.md
 200	doc/upstream-bugs.md
 32	ros/moveit-ros/doc/message-mapping.md
