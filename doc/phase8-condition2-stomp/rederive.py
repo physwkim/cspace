@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Re-derives every figure §300 will publish, from the four sweep NDJSON files.
+"""Re-derives every figure the STOMP condition-2 plan section publishes.
 
-Nothing here is transcribed: each number is computed from base/ and mut/
-port.stomp.<config>.ndjson and seed/seed.<config>.ndjson.
+Nothing is transcribed: each number is computed from the four sweep NDJSON
+files and the two seed-validity files committed beside this script. Run it
+with no argument to read them from this script's own directory.
 """
 import json
 import sys
 from pathlib import Path
 
-OUT = Path(sys.argv[1])
+OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent
 CONFIGS = ("floor_wall", "cage")
 BAR = 0.05
 
@@ -32,9 +33,9 @@ def bar_invalid(r):
                if float(e["resolution"]) == BAR)
 
 
-seed = {c: load(OUT / "seed" / f"seed.{c}.ndjson") for c in CONFIGS}
-base = {c: load(OUT / "base" / f"port.stomp.{c}.ndjson") for c in CONFIGS}
-mut = {c: load(OUT / "mut" / f"port.stomp.{c}.ndjson") for c in CONFIGS}
+seed = {c: load(OUT / f"seed.{c}.ndjson") for c in CONFIGS}
+base = {c: load(OUT / f"base.port.stomp.{c}.ndjson") for c in CONFIGS}
+mut = {c: load(OUT / f"mut.port.stomp.{c}.ndjson") for c in CONFIGS}
 
 print("=" * 72)
 print("A. SOLVE RATE (the mutation's own signature)")
@@ -73,7 +74,11 @@ for c in CONFIGS:
 
 print()
 print("=" * 72)
-print("C. DOMINANCE: base-arm ids the native bar catches and 0.05 calls clean")
+print("C. base-arm ids the native bar catches and 0.05 calls clean.")
+print("   NOT a dominance result: PORTING-PLAN.md's §286.5 measured that a")
+print("   100% bar finer than the planner's own unit is a coin flip for BOTH")
+print("   implementations, so these are lottery candidates until an upstream")
+print("   column exists to compare them against.")
 print("=" * 72)
 for c, i, iw, grid in paired_missed:
     g = grid[0]
@@ -111,13 +116,32 @@ for c in CONFIGS:
 
 print()
 print("=" * 72)
-print("E. NO-OP RATE: path length bit-identical to the seed's length")
+print("E. NO-OP RATE: path length equal to the seed's length.")
+print("   Exact float equality and tolerance equality are different numbers")
+print("   and both are published. The tolerance column is identical from")
+print("   1e-12 to 1e-6, so it is a real gap in the distribution rather than")
+print("   a threshold chosen to produce it. Length equality is NOT trajectory")
+print("   equality -- the harness emits no waypoint matrix to check that.")
 print("=" * 72)
 for label, arm in (("base", base), ("mut", mut)):
     for c in CONFIGS:
         soln = [i for i in sorted(arm[c]) if arm[c][i].get("solved")]
-        same = [i for i in soln
-                if arm[c][i].get("length") == seed[c][i].get("seed_length")]
-        pct = 100.0 * len(same) / len(soln) if soln else 0.0
-        print(f"  {label:4} {c:11} length == seed_length on {len(same):3}/{len(soln):3} "
-              f"solved ({pct:.1f}%)")
+        exact = [i for i in soln
+                 if arm[c][i].get("length") == seed[c][i].get("seed_length")]
+        near = [i for i in soln
+                if abs(arm[c][i]["length"] - seed[c][i]["seed_length"]) < 1e-9]
+        ep = 100.0 * len(exact) / len(soln) if soln else 0.0
+        np_ = 100.0 * len(near) / len(soln) if soln else 0.0
+        print(f"  {label:4} {c:11} exact {len(exact):3}/{len(soln):3} ({ep:4.1f}%)"
+              f"   within 1e-9 {len(near):3}/{len(soln):3} ({np_:4.1f}%)")
+print()
+print("  tolerance sweep (shows the plateau):")
+for tol in (1e-12, 1e-9, 1e-6, 1e-3):
+    cells = []
+    for label, arm in (("base", base), ("mut", mut)):
+        for c in CONFIGS:
+            soln = [i for i in sorted(arm[c]) if arm[c][i].get("solved")]
+            n = sum(1 for i in soln
+                    if abs(arm[c][i]["length"] - seed[c][i]["seed_length"]) < tol)
+            cells.append(f"{n}/{len(soln)}")
+    print(f"    {tol:<8g} base {cells[0]:>8} {cells[1]:>8}   mut {cells[2]:>8} {cells[3]:>8}")
