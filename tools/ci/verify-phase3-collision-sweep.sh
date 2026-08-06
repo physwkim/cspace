@@ -23,7 +23,14 @@
 # `fcl-distance-sentinel-survives-zero-contacts` -- are defects of the second
 # and cannot fire in the first. So the verdict below rests on the separated
 # branch; the penetration branch is measured, printed on every run, and not
-# scored. That is argued and measured in the round section cited by
+# scored HERE. It is scored elsewhere, and that is the one thing this header
+# must not be read as saying it is not: `verify-phase3-penetration-subset.sh`
+# takes each of the three defects' firing conditions from upstream's own
+# source and scores the sub-population where none of them can fire -- one
+# masked pair per query, sphere against sphere/box/cylinder -- at this same
+# `1e-4`. What stays unscored anywhere is the rest of the branch: a query with
+# two or more pairs, `box x box`, and meshes. That is argued and measured in
+# the round section cited by
 # PORTING-PLAN.md §5's `distance: f64` row, which also carries the two
 # mutations showing what each branch is still guarded by. Cited by row rather
 # than by number on purpose: a worker cannot know the number its section will
@@ -156,6 +163,8 @@ echo "    collision: bool -- exact equality"
 echo "    distance:  f64  -- within 1e-4, on the sides where the oracle publishes"
 echo "                       fcl::distance's own return (collision_common.cpp:636)"
 echo "    distance:  f64  -- on the penetration side: measured and printed, not scored"
+echo "                       here; scored by verify-phase3-penetration-subset.sh on the"
+echo "                       sub-population where none of the three defects can fire"
 echo "    contact-point coordinates -- excluded per §4.5 (recorded verification limit)"
 echo
 
