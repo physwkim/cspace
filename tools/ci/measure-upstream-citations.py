@@ -97,6 +97,10 @@
 # citation with no preceding path on its line is skipped, not attached to
 # whatever came before on some earlier line.
 #
+# A HISTORICAL citation, `` `oracle.cpp@c0838b4^:4752` ``, is none of the
+# above and goes through step 1 and step 2 only, with step 2 run against the
+# named revision rather than against HEAD. See `HIST_REV`.
+#
 # Corpus: tracked `.md` AND `.rs` files. The `.rs` files carry these
 # citations in module and item doc comments in the same grammar the `.md`
 # files use, and nothing else reads them.
@@ -357,6 +361,28 @@ def symbol_spans(text, allow_decls):
 
 CXX_EXT = "cpp|hpp|h|cc|cxx"
 SPEC = r"\d+(?:-\d+)?(?:[,·]\d+(?:-\d+)?)*"
+# The revision half of a HISTORICAL citation, `<path>@<rev>:<spec>`.
+#
+# Some line numbers in this corpus are not claims about the file today and must
+# not be re-pointed at it. `PORTING-PLAN.md` §138.3 records a defect by citing
+# the two lines that carried it, and the fix it reports DELETED both; pointing
+# them at today's file erases the finding the paragraph exists to make. Writing
+# them as bare `<path>:<line>` is worse still -- that is a live claim, false by
+# construction, and every gate here would either fail it or (as happened for
+# years) never resolve the path and report nothing.
+#
+# So the revision moves INSIDE the token, between the extension and the colon.
+# That placement is what makes the shape unambiguous rather than merely
+# unrecognised: no `<path>:<line>` grammar can match it by accident, and the
+# number is checked -- against `git show <rev>:<path>` in the checkout the path
+# resolved into, not against HEAD. Bounds only: the content at that revision is
+# what the citing sentence quotes, and this script does not parse a historical
+# blob for symbol spans.
+#
+# The path must still resolve TODAY, which is deliberate: a historical citation
+# into a file that has since been renamed or deleted stops resolving and has to
+# be rewritten, rather than sitting on a path nothing can find.
+HIST_REV = r"[0-9a-f]{7,40}\^{0,3}"
 # One alternation, scanned in positional order, because a bare `` `:NNN` ``
 # means "the same file as the last one named on this line" and getting that
 # wrong invents drift that is not there. Every token that can name a file has
@@ -381,8 +407,15 @@ SPEC = r"\d+(?:-\d+)?(?:[,·]\d+(?:-\d+)?)*"
 #                                             upstream headers live under
 #                                             `include/`, sources under `src/`.
 #   BARE  `:2490`                          -- inherits whatever came last
+#   HIST  `oracle.cpp@c0838b4^:4752`       -- a line number that was true at a
+#                                             NAMED REVISION and is not a claim
+#                                             about the file today. See
+#                                             HIST_REV below for why this shape
+#                                             exists and what it is checked
+#                                             against.
 TOKEN_RE = re.compile(
-    rf"`(?P<path>(?:[\w./-]+/)?[\w.+-]+\.(?:{CXX_EXT})):(?P<pspec>{SPEC})`"
+    rf"`(?P<hist>(?:[\w./-]+/)?[\w.+-]+\.(?:{CXX_EXT}))@(?P<hrev>{HIST_REV}):(?P<hspec>{SPEC})`"
+    rf"|`(?P<path>(?:[\w./-]+/)?[\w.+-]+\.(?:{CXX_EXT})):(?P<pspec>{SPEC})`"
     rf"|`(?P<rs>(?:[\w./-]+/)?[\w.+-]+\.rs):(?:{SPEC})`"
     rf"|`(?P<rebase>{CXX_EXT}):(?P<rspec>{SPEC})`"
     rf"|`:(?P<bare>{SPEC})`"
@@ -830,7 +863,8 @@ def upstream_tracked(upstream):
 
 
 def source_index(roots):
-    """{path as this corpus writes it: file on disk} across every pinned root.
+    """`({path as this corpus writes it: file on disk}, {same key: (root, rel)})`
+    across every pinned root.
 
     One namespace, not a primary root plus fallbacks: a fallback resolves
     only what the first root missed, so a basename that exists in both would
@@ -841,8 +875,15 @@ def source_index(roots):
     cited by their upstream-relative path and carry no prefix; a vendored
     checkout's files are cited as `third_party/<pkg>/...`, which is where
     they sit in this repository, so that is the name they are indexed under.
+    This repository itself is a root with no prefix and no vendored path: its
+    own files are cited by their repo-relative path exactly as they sit here.
+
+    The second map is what a HISTORICAL citation needs -- `git show
+    <rev>:<rel>` has to run in the checkout the path resolved into, and
+    reconstructing that from the on-disk path afterwards would guess at
+    exactly the thing the index already knows.
     """
-    index = {}
+    index, origins = {}, {}
     for prefix, root in roots:
         for rel in upstream_tracked(root):
             key = prefix + rel
@@ -852,7 +893,24 @@ def source_index(roots):
                     f"win and every citation to it would read as resolved"
                 )
             index[key] = Path(root) / rel
-    return index
+            origins[key] = (Path(root), rel)
+    return index, origins
+
+
+def blob_at(root, rev, rel):
+    """The lines of `rel` at `rev` in the checkout at `root`, or None when that
+    revision does not carry that path. None is a hard failure at the call site,
+    not a skip: a historical citation whose revision cannot be read is a record
+    nobody can check, which is the state this whole shape exists to leave."""
+    out = subprocess.run(
+        ["git", "show", f"{rev}:{rel}"], cwd=root, capture_output=True
+    )
+    if out.returncode != 0:
+        return None
+    body = out.stdout.decode("utf-8", errors="replace").split("\n")
+    if body and body[-1] == "":
+        body.pop()
+    return body
 
 
 def parse_source(arg):
@@ -879,7 +937,7 @@ def main():
     args = ap.parse_args()
     upstream = Path(args.upstream)
 
-    index = source_index([("", upstream)] + args.source)
+    index, origins = source_index([("", upstream)] + args.source)
     upstream_set = set(index)
     by_basename = {}
     for p in index:
@@ -906,8 +964,18 @@ def main():
             )
         return span_cache[rel]
 
+    blob_cache = {}
+
+    def historical_lines(resolved, rev):
+        root, rel = origins[resolved]
+        if (resolved, rev) not in blob_cache:
+            blob_cache[(resolved, rev)] = blob_at(root, rev, rel)
+        return blob_cache[(resolved, rev)]
+
     exemptions = load_exemptions()
     total = 0
+    historical = 0
+    historical_bad = []
     anchor_verified = 0
     bounds_only = 0
     bounds_only_why = collections.Counter()
@@ -930,6 +998,39 @@ def main():
                 window_floor, prev_end = prev_end, end
                 g = m.groupdict()
 
+                if g["hist"] is not None:
+                    # A historical citation lends its file to nothing: a bare
+                    # `:NNN` after it would be a live claim inheriting a
+                    # revision-pinned one, which is the confusion this shape
+                    # exists to remove.
+                    base = None
+                    cands = resolve_path(g["hist"], upstream_set, by_basename)
+                    if len(cands) != 1:
+                        unresolved.setdefault(
+                            g["hist"],
+                            "no upstream file matches" if not cands else f"ambiguous: {cands}",
+                        )
+                        continue
+                    resolved, rev = cands[0], g["hrev"]
+                    hist_lines = historical_lines(resolved, rev)
+                    if hist_lines is None:
+                        historical_bad.append(
+                            (doc, line_no, resolved, rev, g["hspec"], None)
+                        )
+                        continue
+                    oob = [
+                        x
+                        for lo, hi in parse_parts(g["hspec"])
+                        for x in (lo, hi)
+                        if not 1 <= x <= len(hist_lines)
+                    ]
+                    if oob:
+                        historical_bad.append(
+                            (doc, line_no, resolved, rev, g["hspec"], len(hist_lines))
+                        )
+                    else:
+                        historical += 1
+                    continue
                 if g["rs"] is not None:
                     base = None
                     continue
@@ -1085,6 +1186,23 @@ def main():
                 file=sys.stderr,
             )
 
+    if historical_bad:
+        print(
+            f"--- {len(historical_bad)} unreadable historical citation(s) ---",
+            file=sys.stderr,
+        )
+        for doc, line_no, resolved, rev, spec, n_lines in historical_bad:
+            print(
+                f"FAIL {doc}:{line_no}: cites {resolved}@{rev}:{spec}, but "
+                + (
+                    f"`git show {rev}:{resolved}` does not resolve -- the pinned "
+                    f"revision is unreachable or did not carry that path"
+                    if n_lines is None
+                    else f"that file had only {n_lines} lines at {rev}"
+                ),
+                file=sys.stderr,
+            )
+
     if span_mismatch:
         print(f"--- {len(span_mismatch)} span-mismatch citation(s) ---", file=sys.stderr)
         for doc, line_no, resolved, spec, anchors, reasons, span_list in span_mismatch:
@@ -1158,22 +1276,26 @@ def main():
                 file=sys.stderr,
             )
 
-    if out_of_bounds or span_mismatch or obsolete_header or undeclared or stale:
+    if out_of_bounds or span_mismatch or obsolete_header or undeclared or stale or historical_bad:
         print(
             f"FAIL {len(out_of_bounds)} out-of-bounds + {len(obsolete_header)} "
             f"obsolete-header + {len(span_mismatch)} span-mismatch + "
             f"{len(undeclared)} undeclared-unresolvable + {len(stale)} "
-            f"stale-declaration (of {total} upstream citations resolved across "
+            f"stale-declaration + {len(historical_bad)} unreadable-historical "
+            f"(of {total} upstream citations resolved across "
             f"{len(corpus)} tracked .md/.rs files)",
             file=sys.stderr,
         )
         return 1
 
+    # An empty prefix is this repository indexing itself; naming it by the
+    # prefix would print an empty string, which reads as a root that failed to
+    # load rather than as the one whose files are cited by repo-relative path.
     roots = f"{upstream}" + (
-        f" + {len(args.source)} vendored root(s) "
-        f"({', '.join(p.rstrip('/') for p, _ in args.source)})"
+        f" + {len(args.source)} extra root(s) "
+        f"({', '.join(p.rstrip('/') or str(root) for p, root in args.source)})"
         if args.source
-        else " (no vendored root passed)"
+        else " (no extra root passed)"
     )
     print(
         f"OK {total} upstream citations across {len(corpus)} tracked .md/.rs files "
@@ -1185,6 +1307,8 @@ def main():
         f"distinct unresolvable paths all declared in "
         f"{EXEMPTIONS_PATH.name} (reported above, and unverified -- a "
         f"declaration says no tree covers them, not that they are right), "
+        f"{historical} historical `path@rev:NNN` citation(s) bounds-checked "
+        f"against their own pinned revision instead of against HEAD, "
         f"0 out-of-bounds, 0 obsolete-header, 0 span-mismatch"
     )
     return 0

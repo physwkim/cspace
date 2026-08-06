@@ -637,7 +637,7 @@ joint-model order), a real joint's torque is compared against a
 *different* joint's limit — one that is fixed and therefore always
 `0.0` — which saturates the check immediately and forces `payload =
 0.0` for every input.
-**Evidence:** oracle. `tools/moveit-oracle/src/oracle.cpp:1302-1314`
+**Evidence:** oracle. `tools/moveit-oracle/src/oracle.cpp:1348-1360`
 (the `dynamics()` endpoint's doc comment) states the same mechanism
 independently, naming the same two upstream sites and the same
 `right_arm`/`r_upper_arm_joint`/`r_elbow_flex_joint` example. The

@@ -103,4 +103,18 @@ for pkg in "${!THIRD_PARTY_PINS[@]}"; do
   sources+=(--source "third_party/$pkg=$dir")
 done
 
+# This repository is a root too. `tools/moveit-oracle/src/oracle.cpp` and
+# `tools/fcl-distance-tolerance-probe/probe.cpp` are cited by line number like
+# any upstream file and were the last two entries in the unresolvable list --
+# declared unchecked rather than checked, which is how all 47 of the oracle's
+# citations came to be wrong at once. The prefix is empty because this
+# corpus cites in-repo files by their repo-relative path, which is where they
+# already sit. Checked for basename collisions against $MOVEIT2_SRC before
+# landing: the three that exist (`chainiksolver_vel_mimic_svd.cpp`/`.hpp`,
+# `joint_mimic.hpp`) are all cited with a `moveit_kinematics/` component this
+# repository's copies do not have, so `resolve_path`'s suffix match keeps them
+# apart, and `source_index` would raise on an exact-key duplicate rather than
+# silently prefer one.
+sources+=(--source "=$REPO_ROOT")
+
 ./tools/ci/measure-upstream-citations.py --upstream "$MOVEIT2_SRC" "${sources[@]}"

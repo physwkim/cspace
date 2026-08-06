@@ -100,7 +100,7 @@ into three kinds and only the first is a sweep finding:
 `tools/moveit-diff/src/rust_impl.rs:393` is kind 3, and it is **closed with
 no action**. `distance_pair` is private, has no direct unit test, and is
 exercised only through the parity harness. Its guard is character-for-
-character upstream's: `oracle.cpp:2421` reads `if (d.link_names[0].empty()
+character upstream's: `oracle.cpp:2711` reads `if (d.link_names[0].empty()
 || d.link_names[1].empty()) return nullptr;`, and even the port's comment
 saying the names are "empty together" is inherited from upstream's own
 comment four lines above it. The `||`/"together" mismatch is upstream's

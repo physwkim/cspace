@@ -44,9 +44,10 @@
     "",
     "A declaration is not an exemption from correctness. It records that this",
     "gate has no tree to check the citation against; the citation may still be",
-    "wrong, and `oracle` below is the proof that unchecked citations rot --",
-    "every one of its 47 was measured drifted. Anything that CAN be pointed at",
-    "a pinned checkout belongs in `verify-upstream-citations.sh`'s `--source`",
+    "wrong. The `oracle` entry that used to sit here is the proof: it declared",
+    "an IN-REPO file unresolvable, and when the root was finally indexed every",
+    "one of its 47 citations had drifted. Anything that CAN be pointed at a",
+    "pinned checkout belongs in `verify-upstream-citations.sh`'s `--source`",
     "list instead of here."
   ],
   "unresolvable": [
@@ -178,23 +179,6 @@
       "why": "Installed as a binary ROS package. Cited once, by doc/claim-audit/moveit-ros.md:57 for `rclcpp::Duration::from_seconds`.",
       "paths": [
         "duration.hpp"
-      ]
-    },
-    {
-      "project": "oracle",
-      "checkout": "this repository, tools/moveit-oracle/src/oracle.cpp",
-      "why": "NOT external -- an in-repo file, cited 47 times by line number, that no gate has ever checked. Indexing it here is one line and was tried; it is held back because the corpus behind it is wholly rotten and a green gate over it would read as coverage. Re-derivation by content (git-blame the citing line, read the cited line at that revision, locate that content today) puts 47 of 47 on a different line, and two of them are historical defect-fix records whose targets the fix deleted, so they must not be re-pointed at all. See PORTING-PLAN.md's `oracle.cpp 인용 47건` section for the per-citation table and the instrument. Landing the `--source` line is the last step of that work, not the first.",
-      "paths": [
-        "oracle.cpp",
-        "tools/moveit-oracle/src/oracle.cpp"
-      ]
-    },
-    {
-      "project": "fcl-distance-tolerance-probe",
-      "checkout": "this repository, tools/fcl-distance-tolerance-probe/probe.cpp",
-      "why": "NOT external -- an in-repo file, like `oracle` above and blocked behind the same one line: `--source` indexes a git root, not a file, so pointing this gate at this repository resolves oracle.cpp's 41 citations too, and that corpus is the rotten one the entry above holds back. Landing that root closes both at once and this declaration with them. The four citations that exist today all name `probe.cpp:77` and all were read at the merge that introduced them (§284): line 77 is `auto box = std::make_shared<fcl::Box<S>>(0.121, 0.08, 0.17);`, which is what each of the four sentences says it is.",
-      "paths": [
-        "tools/fcl-distance-tolerance-probe/probe.cpp"
       ]
     }
   ]
