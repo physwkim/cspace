@@ -130,6 +130,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `psm-topic-header-comments-claim-absolute-names` | not-reproduced |
 | `execute-trajectory-accepts-cancels-it-never-acts-on` | not-reproduced |
 | `execute-trajectory-drops-its-own-failure-explanation` | not-reproduced |
+| `distance-callback-default-tolerance-makes-distance-order-dependent` | not-reproduced |
 
 ---
 
@@ -2745,3 +2746,113 @@ case 4 is a leaf face on a box face, a *specialised* pair, where upstream says
               one that reads `message` learns which of the three
               `CONTROL_FAILED` conditions it hit. No oracle comparison
               touches this endpoint.
+
+---
+
+### `distance-callback-default-tolerance-makes-distance-order-dependent` — the published separation distance for a pair with no narrowphase specialisation is off the exact answer by up to `2.5e-3` and changes when the two shapes are passed in the other order — not-reproduced
+
+**Upstream:** `moveit_core/collision_detection_fcl/src/collision_common.cpp:603`,
+`distanceCallback`'s
+`fcl::distance(o1, o2, fcl::DistanceRequestd(cdata->req->enable_nearest_points), fcl_result)`.
+One constructor argument, so every remaining parameter keeps fcl's own default,
+`distance_tolerance` among them.
+
+The mechanism is in fcl, a separate project from `moveit2` and a dependency of
+it, named the way `shape-intersect-tangency-follows-libccd-dispatch` names it:
+host checkout `/home/stevek/work/fcl` at
+`e5efcc41b57b2d0da3bf183480f1298a6d531f44` (`git describe --tags`:
+`0.7.0-17-ge5efcc4`). Line numbers below are that checkout's. The oracle image
+(`moveit-rs/oracle:fc6738ad78dd45d5`) links `libfcl-dev 0.7.0-3build2`, and the
+three headers cited here — `include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h`,
+`include/fcl/narrowphase/distance-inl.h`,
+`include/fcl/narrowphase/distance_request.h` — are byte-identical between
+checkout and image (`cmp`) and unchanged between tag `0.7.0` and that HEAD
+(`git diff 0.7.0 HEAD --`), so one set of numbers serves both.
+
+`DistanceRequest`'s constructor defaults `distance_tolerance` to `1e-6`
+(`include/fcl/narrowphase/distance_request.h:109`), and fcl's own comment on the field calls it "the
+threshold used in GJK algorithm to stop distance iteration"
+(`include/fcl/narrowphase/distance_request.h:98`) — a
+*progress* threshold, not a bound on the answer's error. `fcl::distance` copies
+it straight onto the solver (`include/fcl/narrowphase/distance-inl.h:208` for `GST_LIBCCD`,
+`include/fcl/narrowphase/distance-inl.h:214` onto `GST_INDEP`'s
+`gjk_tolerance`), and `GJKSolver_libccd<S>::shapeDistance`
+(`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:640-651`) hands every unspecialised pair to the generic
+`ShapeDistanceLibccdImpl` (`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:605`), whose body is `detail::GJKDistance`
+(`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:620`) driven by exactly that threshold (`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:626`) with a 1000-iteration
+cap (`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:625`). Which pairs are unspecialised is drawn by fcl itself, as an
+ASCII table headed "Shape distance algorithms not using libccd"
+(`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:653-675`);
+`cylinder`/`box` is blank in it, in both orderings.
+
+**Port:** `crates/moveit-collision/src/parry.rs:2350`,
+`accumulate_distance`'s `query::contact`. Pinned by
+`crates/moveit-collision/tests/collision_parity.rs`'s
+`prbt_flange_floor_clearance_matches_the_closed_form`.
+
+**Symptom:** the number MoveIt publishes as a separation distance is not a
+function of the two shapes' geometry. On the `cylinder × box` cell it misses the
+exact answer by up to `2.513565e-3`, and passing the same two shapes in the
+other order moves it by up to `2.513557e-3` — a quantity that cannot depend on
+argument order at all. Both are far over `PORTING-PLAN.md` §5 Phase 3's own
+`1e-4` distance tolerance. Nothing in `distanceCallback` bounds the error: it
+takes fcl's return, stores it as `dist_result.distance`, and the only threshold
+it manages (`dist_threshold`, the running global minimum) prunes *which pair*
+is reported, not how accurately.
+
+**Evidence:** measured, three ways, none of them a read.
+
+A configuration with a closed-form answer. `tools/moveit-diff`'s lowered-floor
+scene (`--floor-top-z -0.5`) puts the floor box's top face on the plane
+`z = -0.5`, and `fixtures/prbt.urdf`'s `prbt_flange` collision cylinder
+(`length 0.02`, `radius 0.0331`) above it; while the cylinder's silhouette
+projects strictly inside the 4x4 footprint the nearest box feature is that face,
+so the distance is exactly `c_z - z0 - h·|a_z| - r·sqrt(1 - a_z²)`.
+`tools/fcl-cylinder-box-distance-probe/probe.cpp` compiles inside the pinned
+image and scores fcl against it over 2,000 poses; `tools/ci/verify-fcl-cylinder-box-distance.sh`
+re-derives the whole table on demand (`sg docker -c ./tools/ci/verify-fcl-cylinder-box-distance.sh`,
+~3s):
+
+| column | max error vs the closed form | over `1e-4` |
+|---|---|---|
+| default `1e-6`, cylinder first | `2.513565e-3` | 5 / 2000 |
+| default `1e-6`, box first | `1.683122e-3` | 5 / 2000 |
+| tightened `1e-12` | `1.335130e-9` | 0 |
+| tightened `1e-12`, `GST_INDEP` | `6.287026e-12` | 0 |
+| `\|box first − cylinder first\|` | `2.513557e-3` | 10 / 2000 |
+
+The third and fourth rows are what make the first two readable as the
+reference's error rather than a wrong closed form: tightening only the stopping
+threshold collapses libccd onto the closed form, and a second algorithm lands
+there too.
+
+Through MoveIt's own wrapper, not just bare fcl. `CollisionEnvFCL::distanceRobot`
+on a two-shape scene — the floor box as the world object, the same cylinder
+attached to `prbt_base_link` (whose default world transform is exactly
+identity) at the case-8148 pose — publishes `3.11769210552093334e-1`, which is
+bit-for-bit the probe's box-first column and bit-for-bit what the 10,000-state
+sweep recorded. So the wrapper adds nothing; it forwards fcl's answer.
+
+Not kinematics. The pose is `prbt_flange`'s world transform at case 8148 of the
+seed-1 sweep taken from the *oracle's own* `fk` answer, and the closed form
+evaluated on it (`3.10086088255497272e-1`) differs from the same closed form on
+this port's fk (`3.10086088255497827e-1`) by `5.551115e-16`.
+
+**Status:** `not-reproduced`. `parry`'s `query::contact` answers
+`3.10086089038992263e-1` at that state, `7.834950e-10` from the exact value —
+about 2.1 million times closer than the reference — and `1.427251e-8` worst over
+the 40-pose sweep the port-side test runs. There is no upstream behaviour to
+transcribe here: `distance_tolerance` is not a documented contract about the
+answer, and its effect is not even a function of the arguments' order.
+
+**Deviation:** none of `D1`..`D14` applies. This port never had the parameter to
+leave at a default; it does not expose a GJK stopping threshold at all.
+
+**Cost of not reproducing:** measured. One comparison in 19,611 — case 8148 of
+`--urdf fixtures/prbt.urdf --cases 10000 --seed 1 --collision --tol-distance 1e-4 --floor-top-z -0.5`,
+`|d| = 1.683122e-3` on `floor`/`prbt_flange`. Zero in the committed scene
+(`--floor-top-z 0.0`), where prbt's robot-side distances are all in the
+penetration branch and §260.2's 41,059 separated comparisons contain no prbt
+robot-world sample at all. Reproducing it is not available anyway: it would mean
+adopting an unspecified iteration-count artefact of another library's solver,
+which has no value this port could target.

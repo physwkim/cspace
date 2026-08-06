@@ -664,12 +664,12 @@ catches the mutation; none needed a new test.
 | world.rs:1488 | contains_member | `action_bits_combine` | tests `Action::BitOr`/`contains` directly on a hand-constructed value, not via any `World` method; a computed bitmask fact, not a fail signal — the operator logic's own breakability is a clause-2 property, but clause 1 fails regardless. |
 | world.rs:1489 | contains_member | (same test) | same as 1341. |
 | world.rs:1490 | contains_member | (same test) | same as 1341, negation form. |
-| collision_parity.rs:681 | contains_member | (panda_link0 bounding-radius check) | `(0.0..1.0).contains(&bounding_radius)` is a plausibility guard on a computed geometric value, not a could-not/did-not signal. |
-| collision_parity.rs:1213 | contains_member | (predicted-crossover bracket check) | same reasoning: numeric-range sanity check on a computed/fitted value. |
-| collision_parity.rs:1450 | contains_member | `pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direction` | `link_names.contains(&point.link_name)` checks *which* links a computed closest-pair names, against an oracle's identification — a computed-identity fact, not an inability signal. |
-| collision_parity.rs:1622 | contains_member | `pr2_self_wheel_same_pair_oracle_magnitude_is_implausible` | same reasoning as 1450. |
-| collision_parity.rs:1803 | contains_member | (Global-vs-Single distance-request comparison) | same reasoning as 1450/1622. |
-| collision_parity.rs:2218 | contains_member | `pr2_caster_wheel_floor_clearance_matches_the_closed_form` | same reasoning as 1450/1622/1803: `link_names.contains("floor")` plus a `_caster_*_wheel_link` predicate checks *which* pair the computed argmin names, so that the closed-form constant asserted on the next line cannot be silently applied to some other pair. A computed-identity fact, not a could-not/did-not signal. |
+| collision_parity.rs:695 | contains_member | (panda_link0 bounding-radius check) | `(0.0..1.0).contains(&bounding_radius)` is a plausibility guard on a computed geometric value, not a could-not/did-not signal. |
+| collision_parity.rs:1227 | contains_member | (predicted-crossover bracket check) | same reasoning: numeric-range sanity check on a computed/fitted value. |
+| collision_parity.rs:1464 | contains_member | `pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direction` | `link_names.contains(&point.link_name)` checks *which* links a computed closest-pair names, against an oracle's identification — a computed-identity fact, not an inability signal. |
+| collision_parity.rs:1636 | contains_member | `pr2_self_wheel_same_pair_oracle_magnitude_is_implausible` | same reasoning as 1450. |
+| collision_parity.rs:1817 | contains_member | (Global-vs-Single distance-request comparison) | same reasoning as 1450/1622. |
+| collision_parity.rs:2232 | contains_member | `pr2_caster_wheel_floor_clearance_matches_the_closed_form` | same reasoning as 1450/1622/1803: `link_names.contains("floor")` plus a `_caster_*_wheel_link` predicate checks *which* pair the computed argmin names, so that the closed-form constant asserted on the next line cannot be silently applied to some other pair. A computed-identity fact, not a could-not/did-not signal. |
 | parry.rs:2787 | is_some | `octree_cache_get_or_compute_invokes_build_only_once_per_key` | §9 clause 2 fails: the test's own `build` closure unconditionally returns `Some(..)`; `get_or_compute` cannot return anything but `Some` on either the cache-hit or cache-miss path here, so no engineer-implementable-wrong decision is exercised by this specific assertion (the test's real point, `calls.get()==1`, is a separate assertion outside this grammar). |
 | parry.rs:2788 | is_some | (same test) | same reasoning as 2787. |
 | world_parity.rs:241 | is_some | `world_matches_oracle` | §9 clause 3 fails: `ambiguous.transform.is_some()` reads a field straight off the deserialized oracle fixture (`QueryDump.transform: Option<[f64; 16]>`), not a value produced by calling `World`. Deleting every `world.*` call above it would not change this assertion's outcome. |
@@ -783,7 +783,7 @@ matching the brief's figures exactly on independent re-derivation.
 
 | Site | Kind | Test fn | In-family | Evidence |
 |---|---|---|---|---|
-| constrained_sampler.rs:305 | contains | `every_sample_satisfies_the_wrapped_constraint` | no | clause 1: a range-plausibility check on a real sampled value, not a could-not/did-not-produce-X signal — same reasoning as round-11's `collision_parity.rs:681/1213`. |
+| constrained_sampler.rs:305 | contains | `every_sample_satisfies_the_wrapped_constraint` | no | clause 1: a range-plausibility check on a real sampled value, not a could-not/did-not-produce-X signal — same reasoning as round-11's `collision_parity.rs:695/1213`. |
 | goal_sampler.rs:334 | contains | `constrained_branch_is_load_bearing_not_merely_invoked` | no | same reasoning as constrained_sampler.rs:305. |
 | nn.rs:244 | is_empty | `len_and_is_empty_track_insertions` | no | clause 3: reads `Gnat::new(4)`'s trivial post-construction state before any subject call — same shape as `bodies.rs:3967`. |
 | nn.rs:248 | is_empty | (same test) | yes | redundant confirmation of `insert()`'s effect, already proven by the adjacent `len()==2` assertion — same "lives one level up" shape as round-11's `matrix.rs:870` (`len_counts_rows_not_pairs`). |
@@ -1316,3 +1316,31 @@ in `doc/claim-audit/moveit-planners-sbp.md` for the isolating experiment that
 identified the cause. `crates/moveit-planners-sbp/src/registry.rs:1331`'s verdict — an exact-variant
 `assert_eq!` on `PlanningFailure::IterationsExhausted` — is unaffected by which
 seeds succeed.
+
+
+## Round: the site p11-planningfailed's case-8148 test brought in
+
+Written at merge, not by the branch: `prbt_flange_floor_clearance_matches_the_closed_form`
+is new in that round and its own round closed before `verify-orphan-enumeration.sh`
+ran against merged `main`, so one of its assertions arrived here as an orphan.
+Only one of the test's six `assert!` sites is in the scanner's grammar --
+the `contains` needle -- and that is the one this row is about. The other
+five are numeric-tolerance comparisons, which this grammar does not reach.
+
+The same merge shifted six of this ledger's existing `collision_parity.rs`
+citations by +14; their new numbers are the ones this file now carries, and
+the six old ones are recoverable as each minus 14. They were
+renumbered by verifying a 13-line window around each cited line is
+byte-identical between the pre-merge and merged trees, not by matching the
+cited line alone -- `        assert!(` matches in a hundred places and dates
+nothing.
+
+| Site | Kind | Test fn | In-family | Evidence |
+|---|---|---|---|---|
+| `crates/moveit-collision/tests/collision_parity.rs:2409` | contains | `prbt_flange_floor_clearance_matches_the_closed_form` | yes | The needle is the *pair*, not the distance. Changing only the name it looks for (`"floor"` -> `"ground"`, one line for one line) fails `crates/moveit-collision/tests/collision_parity.rs:2409` **alone**, 253 passed / 1 failed -- nothing else in the suite reads `minimum_distance.link_names`. It is not redundant with the tolerance assertion that follows it, and it is also not the only thing that catches a wrong pair: allowing the pair in the ACM (`acm.set_entry("floor", "prbt_flange", false)` -> `true`) fails at `crates/moveit-collision/tests/collision_parity.rs:2409`, and with that site deleted the same mutation still fails, at the `deviation <= CLOSED_FORM_TOL` assertion below it. So what this site buys is not detection but attribution: without it a scene whose nearest pair moved reports as a closed-form miss by this backend, which is the opposite of what happened. That distinction is the whole subject of the round the test came from. |
+
+### Totals
+
+**1 site added, 1 in-family, 0 not-this-family, 0 needle collisions, 0
+fixes owed.** The table has one row and it is in-family, so 1 = 1 and
+1+0 = 1.
