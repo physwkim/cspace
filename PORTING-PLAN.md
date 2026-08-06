@@ -23664,3 +23664,200 @@ URDF/SRDF는 `ros/fixtures/`로 옮겼다. 두 다리가 서로 다른 이미지
   닿지만, 그 glob을 도는 러너에 도커가 없다(§129.4). 사람이
   `sg docker -c ./tools/ci/verify-all.sh`를 쳐야 돈다는 점은 §241 이후로
   변하지 않았다.
+
+## §NEW D8을 지었다 — 두 `PlanningRequest`는 합쳐지지 않고 한쪽이 상류 모양을 이겼다 (2026-08-06)
+
+§250.5가 막힌 두 이유 중 두 번째, "부를 플래너가 없다"를 닫는다. §241.2가
+어댑터를 거절한 자리에 D8(§140)의 타입 통합을 실제로 짓고,
+`ros/moveit-ros`의 두 엔드포인트를 그 결과에 연결했다. 이 라운드가 시작한
+트리는 `a35bc2e`다.
+
+### §NEW.1 두 타입의 전수 열거 — 교집합은 두 필드뿐이고, 합집합은 답이 아니다
+
+`moveit_planners_sbp::registry::PlanningRequest`(`a35bc2e` 기준
+`registry.rs:299-398`)와 `moveit_planning::PlanningRequest`
+(`request.rs:201-243`)를 필드 단위로 놓으면:
+
+| sbp 쪽 | moveit-planning 쪽 | 판정 |
+|---|---|---|
+| `group_name: String` | `group_name: String` | 동일 |
+| `goal: Goal` (`State(Vec<CompoundValue>)` \| `Constraints(KinematicConstraintSet)`) | `goal_constraints: Vec<KinematicConstraintSet>` | **충돌** |
+| `path_constraints: Option<KinematicConstraintSet>` | `path_constraints: Option<KinematicConstraintSet>` | 동일 |
+| `resolution: f64` | 없음 | sbp 전용 |
+| `seed: u64` | 없음 | sbp 전용 |
+| `params: RrtConnectParams` | 없음 | sbp 전용 |
+| `solver: Option<Box<dyn KinematicsSolver>>` | 없음 | sbp 전용 |
+| 없음 | `workspace_bounds: WorkspaceBounds` | 상류에 있음 |
+| 없음 | `max_velocity_scaling_factor: f64` | 상류에 있음 |
+| 없음 | `max_acceleration_scaling_factor: f64` | 상류에 있음 |
+| 없음 | `trajectory_constraints: Vec<KinematicConstraintSet>` | 상류에 있음 |
+| 없음 | `planner_id: String` | 상류에 있음 |
+
+응답 쪽은 더 짧다: sbp의 `PlanningResponse`는 `trajectory: Vec<RobotState>`
+한 필드이고, `moveit-planning`의 것은 `trajectory: RobotTrajectory`,
+`planner_id: String`, `start_state: RobotState` 셋이다.
+
+어느 쪽도 상대의 부분집합이 아니다. 그러나 **합집합이 답이 아니라는 것이
+이 라운드의 실제 설계 결정이다.** 상류에서 `planning_interface::MotionPlanRequest`는
+독립 구조체가 아니라 `typedef moveit_msgs::msg::MotionPlanRequest`
+(`planning_request.hpp:45`)이고, 그 메시지에는 `resolution`/`seed`/`params`/
+`solver`에 해당하는 필드가 하나도 없다. 상류에서 플래너 튜닝은 요청이 아니라
+**플래너 쪽**에 산다 — `PlannerManager::initialize` +
+`setPlannerConfigurations`(`planning_interface.hpp`)가 그 자리다. 그래서 sbp
+전용 네 필드는 요청에서 지운 것이 아니라 `RrtConnectManager`의 필드로
+옮겼다(`registry.rs:358-429`). 요청 타입은 `moveit-planning`의 것이 그대로
+남고, sbp가 그것을 쓴다.
+
+`goal` 충돌은 §241.2가 어댑터를 거절한 바로 그 지점이다. `Goal::State`는
+이미 구체화된 한 상태를 실어 나르므로 경계를 넘을 때 "목표 영역"과 "목표
+상태"라는 두 뜻을 갖는다. 상류에는 그 뜻이 없다 —
+`MotionPlanRequest.goal_constraints`는 `Constraints[]` 하나뿐이고,
+`ModelBasedPlanningContext::setGoalConstraints`가 그 배열을 any-of로 읽는다
+(`detail/goal_union.cpp:83-95`). 그래서 `Goal`은 이식되지 않고 사라졌다.
+호출자는 구체 상태를 원하면 `construct_goal_joint_constraints`로 스스로
+좁은 관절 제약을 만든다 — 상류 `constructGoalConstraints`가 하는 일과 같다.
+
+### §NEW.2 defect family 전수 — sbp 하나뿐이다
+
+- **Anchor:** `rg -n 'struct PlanningRequest|struct PlanningResponse|impl .*PlannerManager|impl .*PlanningContext' crates/`
+- **Sites:** `moveit-planning/src/{request,response,planner}.rs`,
+  `moveit-planners-sbp/src/registry.rs`,
+  `moveit-planners-chomp/src/lib.rs`, `moveit-planners-stomp/src/planner.rs`,
+  `moveit-planners-pilz/src/trajectory_generator.rs`
+- **Same defect at:** `moveit-planners-sbp/src/registry.rs`만. 여기만이
+  `moveit-planning`의 타입과 **이름이 같고 타입이 다른** 사본을 들고 있었다.
+- **Distinct, skip:** chomp는 `ChompRequest`, stomp는 `PlanRequest`, pilz는
+  자체 `MotionCmd` 계열로 이름부터 다르다. 셋 다 트레이트를 구현하지 않고
+  자유 함수가 입구이며, 어느 레지스트리에도 등록돼 있지 않다. 이름 충돌이
+  없으므로 "두 뜻을 가진 타입" 결함이 아니다. 셋을 `PlannerManager`로
+  올리는 것은 **부재**이고 결함이 아니다 — §NEW.6에 남긴다.
+
+### §NEW.3 D8의 크레이트 배치를 한 번 더 쪼갰다
+
+§140은 "둘을 한 크레이트로 합친다"고만 정해 뒀는데, 실제로 지어 보니 그
+한 크레이트가 두 가지를 동시에 요구했다.
+
+- 트레이트(`PlannerManager`/`PlanningContext`/`PlanError`)는
+  `moveit-planning`에 둔다. 상류가 그렇다: `planning_interface.hpp:40-41`이
+  `planning_request.hpp`/`planning_response.hpp`를 그대로 include하고, 넷이
+  한 패키지에 산다. 나눌 이유가 없다.
+- `PLANNER_MANAGERS` 슬라이스와 `resolve_planner`만
+  `moveit-planner-registry`라는 새 크레이트에 둔다. `linkme::distributed_slice`가
+  숙주 크레이트에 `unsafe_code = "allow"`를 강제하고 그 완화는 크레이트
+  전체에 걸리기 때문이다(§140.1). 구조체 하나·static 하나·함수 하나 위에
+  덮는 것과 `moveit-planning`의 계획 로직 전체에 덮는 것의 차이다.
+
+`moveit-planning`은 어떤 플래너가 존재하는지 모르고, 플래너 크레이트가
+레지스트리에 자기를 등록하고, 이름 문자열에서 호출 가능한 것으로 가려는
+호출자만 레지스트리에 의존한다. `generate_plan`은 의존하지 않는다 — 이미
+해결된 플래너를 받는다.
+
+### §NEW.4 등록은 의존만으로는 링크되지 않는다 — 세 번 측정했다
+
+`#[distributed_slice]` 등록은 링커가 어떤 심볼 때문에 끌어와야만 남는
+오브젝트 파일 안에 있다. 의존성이지만 아이템 이름이 한 번도 불리지 않는
+크레이트는 아무것도 기여하지 않고, **실패는 조용하다**: `resolve_planner`가
+그 플래너가 애초에 없었던 것처럼 `Error::UnknownName`을 낸다.
+
+추측이 아니라 실측이다. 세 곳이 정확히 그렇게 실패했고 각각
+`use moveit_planners_sbp as _;` 한 줄로 고쳤다 —
+`moveit-planning`의 크레이트 레벨 doctest,
+`moveit-planner-registry/tests/registered_planners.rs`,
+`ros/moveit-ros/src/lib.rs`(운영 쪽).
+
+두 번째 제약이 하나 더 나왔다. 슬라이스를 **선언하는** 크레이트의 *unit*
+테스트 빌드는, 등록하는 크레이트가 dev-dependency일 때 선언 크레이트를 두
+벌 링크한다(`cfg(test)`짜리와 sbp가 컴파일된 평범한 것). `linkme`는 이걸
+시작 시점에 `duplicate #[distributed_slice] with name "PLANNER_MANAGERS"`로
+거부한다. 그래서 등록에 의존하는 네 테스트는 통합 테스트
+(`tests/registered_planners.rs`)에 산다 — 통합 테스트는 평범한 빌드만
+링크하므로 슬라이스가 정확히 하나다. `mod tests`에 남은 하나는 빈 슬라이스
+상대의 `Err` 반쪽뿐이고, 그것이 왜 반쪽인지는
+`doc/assertion-discrimination-ledger-d8-planner.md`의 bite B1이 잰다 —
+첫 등록으로 떨어지는 fallback 버그를 심으면 채워진 슬라이스 쪽 테스트만
+붉어지고 빈 슬라이스 쪽은 초록으로 남는다. 빈 슬라이스에는 떨어질 첫
+등록이 없기 때문이다.
+
+### §NEW.5 sbp가 하나의 RNG 스트림을 쓰게 되면서 unwired 숫자가 1/5 → 3/5로 움직였다
+
+`registry.rs`의 두 테스트가 고정하던 숫자 중 둘이 바뀌었다:
+`path_constraints_end_to_end_wired_vs_unwired`가 `(1, 5)` → `(3, 5)`,
+`path_constraints_four_scenario_wired_vs_unwired_sweep`의 시나리오 1이
+`(1, 5)` → `(3, 5)`, 시나리오 4의 tight 예산이 unwired 1 → 3. 나머지 셋은
+그대로다.
+
+원인은 튜닝이 아니라 D8 자체다. 옛 `Goal::State`는 이미 구체적인 상태를
+실어 와서 draw를 하나도 쓰지 않았는데, 통합된 `goal_constraints`는 세트마다
+`sample_goal`을 돌리므로 탐색이 쓰는 것과 **같은** `ChaCha8Rng` 스트림의
+다른 위상에서 시작한다. 격리해서 확인했다: `sample_goal`에만
+`ChaCha8Rng::seed_from_u64(self.seed)`로 별도 스트림을 주면 D8 이전 숫자가
+여섯 칸 전부 정확히 되돌아온다. 그 실험은 되돌렸다(`git diff --stat` 깨끗).
+두 번째 RNG 스트림은 숫자를 붙들려고 내리는 설계 결정이지 수정이 아니기
+때문이다. 숫자는 한 스트림 설계가 재는 값으로 다시 고정했고, 그 행들이
+결론으로 삼는 방향(시나리오 3의 동점을 뺀 모든 곳에서 wired > unwired)은
+바뀌지 않았다. `doc/claim-audit/moveit-planners-sbp.md`에 행으로 남겼다.
+
+### §NEW.6 성공 기준은 검사다 — 두 엔드포인트가 실제로 계획한다
+
+`ros/moveit-ros/src/move_group.rs`가 이 라운드의 성공 기준이 사는 곳이다.
+상류 두 함수가 여기로 온다: `MoveGroupCapability::resolvePlanningPipeline`
+(`move_group_capability.cpp:223-246`) → `resolve_planning_pipeline`,
+`MoveGroupMoveAction::executeMoveCallbackPlanOnly`의 계획 본문
+(`move_action_capability.cpp:206-227`) → `plan_only`. 바이너리가 아니라
+라이브러리에 둔 이유는 하나다: `[[bin]]`의 함수는 그 바이너리에서만 닿으므로,
+테스트가 노드에 대해 무언가를 말하려면 둘이 같은 코드를 불러야 한다.
+
+DDS 위에서 실제로 잰 것(`sg docker -c ./tools/ci/verify-ros-interop.sh`,
+전부 통과):
+
+- `/plan_kinematic_path`에 group `arm` + `j1` 관절 제약을 보내면
+  `val=1`, `group_name='arm'`, 3 웨이포인트가 돌아온다. `group_name`은 궤적이
+  비어 있지 않을 때만 채워지므로(`planning_response.cpp:48`의 `if (trajectory
+  && !trajectory->empty())`) 빈 답에는 나타날 수 없다.
+- 같은 엔드포인트에 `{}`를 보내면 `val=99999`,
+  `planning failed: planner 'rrt_connect' failed: unknown joint model group ''`.
+  변환은 통과하고 **플래너 안에서** 실패한다 — 메시지가 플래너 이름을
+  실어야 하는 이유다.
+- `/move_action` leg A: 계획 가능한 goal이 `SUCCEEDED`로 끝나고
+  `planned_trajectory.joint_names`에 `j1`이 있다. `{}` goal은 99999,
+  비기본 `start_state`는 -16.
+- leg B(무변경 상류 C++ `MoveGroupInterface`): 여전히 -16이다. 그것이 남은
+  것이다.
+
+§250.3이 적어 둔 파리티 결함도 같이 닫았다: `/plan_kinematic_path`가
+`PLANNING_FAILED`를 답하던 줄을 `FAILURE`로 고쳤다. 상류는 두 실패
+(`resolvePlanningPipeline` null, `generatePlan` false)를 **양쪽 capability
+모두에서** `MoveItErrorCodes::FAILURE`로 인코딩한다
+(`plan_service_capability.cpp:82-85,92-97`,
+`move_action_capability.cpp:207-211,219-227`). 게이트의 기대 문자열도 같이
+옮겼다.
+
+### §NEW.7 이 라운드가 닫지 못한 것
+
+- **`MotionPlanRequest.start_state`.** 그대로 첫 거부다. p11-startstate의
+  몫이고, 이 라운드는 건드리지 않았다. 상류 클라이언트가 궤적을 받는 일은
+  그것이 들어오기 전에는 일어나지 않는다 — leg B의 `-16` 단언이 그 사실을
+  고정한다.
+- **어댑터 체인이 비어 있다.** `plan_only`가 `generate_plan`에 양쪽 체인
+  모두 `&[]`를 넘긴다. 상류는 파이프라인의 `request_adapters`/
+  `response_adapters` 파라미터에서 짓는다. 이 크레이트는 아직 파라미터를
+  읽지 않으므로 넘길 체인이 없고, 지어낼 정직한 방법도 없다. 결과적으로 이
+  모듈을 지난 계획에는 시간 파라미터화가 없고 시작 상태 검증도 플래너가 하는
+  것 이상은 없다.
+- **`planning_time`.** §153.1의 만료 조건("어느 크레이트든 이 타입들에
+  대해 구체 플래너를 구현하는 순간")이 이 라운드에 발화했다. 필드는 여전히
+  없고, 이제 그것은 *제외*가 아니라 *공백*이다 — 채울 자리
+  (`RrtConnectContext::solve`)가 생겼고 비어 있을 뿐이다. 다만 §138.3이 모든
+  오라클 응답에서 벽시계 시간을 제거했으므로 여기에 스톱워치를 달아도
+  비교 대상이 없다.
+- **scene monitor가 없다.** 요청마다 새 `PlanningScene`을 짓고 버린다.
+  `planning_options.planning_scene_diff`는 무시되고, 호출자가 발행한 충돌
+  객체는 플래너가 보는 씬에 없다.
+- **chomp/stomp/pilz는 `PlannerManager`가 아니다.** §NEW.2에서 distinct로
+  분류한 부재다. 셋 다 자유 함수 입구를 갖고 어느 레지스트리에도 없으므로
+  `pipeline_id`로 고를 수 없다. 이름 충돌 결함이 아니라 별도의 이식 작업이다.
+- **`DEFAULT_PIPELINE_ID`가 소스에 박혀 있다.** 상류의 빈 `pipeline_id`
+  분기는 `move_group`이 실행된 설정값을 돌려준다. 이 포트에는 읽을 설정이
+  없고 `PLANNER_MANAGERS`는 의도적으로 순서가 없으므로(§177) "첫 등록"도
+  정의가 아니다. 이름을 명시하는 것이 같은 답을 두 번 주는 유일한 남은
+  선택지였다. 파라미터 처리가 생기면 그때 사라진다.
