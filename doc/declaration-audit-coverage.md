@@ -155,13 +155,14 @@ moveit2 @ ...` 헤더 블록이 하나도 없어서 인용하는 상류 파일�
   `ObserverCallbackFn` / `addObserver` / `removeObserver`(deviation 4,
   만료 조건은 감사문에 명시), `MOVEIT_CLASS_FORWARD(AllowedCollisionMatrix)`,
   `AllowedCollisionMatrix::print`.
-- **unported-in-scope 2건.** `AllowedCollisionMatrix(const
-  moveit_msgs::msg::AllowedCollisionMatrix&)`와 `getMessage()`. D6/§4.3이
-  `moveit-ros`의 `TryFrom` 층으로 보내는데 아직 없다. 새로 발견한 미처리가
-  아니라 이미 트리에 이름이 적힌 구멍이다 —
-  `ros/moveit-ros/src/scene/planning_scene.rs:19-24`가
-  `allowed_collision_matrix`를 미변환 `PlanningScene` 필드 목록에 넣어 두었고,
-  그 파일을 열어 확인했다. 만료는 그 변환이 들어오는 날.
+- **unported-in-scope 2건 중 1건이 남았다.** `AllowedCollisionMatrix(const
+  moveit_msgs::msg::AllowedCollisionMatrix&)`와 `getMessage()`를 D6/§4.3이
+  `moveit-ros`의 `TryFrom` 층으로 보냈고, 이 행을 쓸 때는 둘 다 없었다.
+  메시지 생성자는 `4f2c9df7`이 `impl TryFrom<AllowedCollisionMatrixMsg> for
+  AllowedCollisionMatrix`(`ros/moveit-ros/src/scene/planning_scene.rs:273`)로
+  채웠다. 남은 것은 `getMessage()` 한 방향이고,
+  `ros/moveit-ros/src/conversion_coverage.rs:125-134`가 그것을 선언된 단방향
+  변환으로 들고 있다. 만료는 그 반대 방향이 들어오는 날.
 
 `doc/port-coverage.md`에 새 `gap` 행은 생기지 않았고, 생길 수 없다: 그
 표는 **미포팅 파일**을 분류하는데 이 4건은 전부 포팅된 파일이고, 위 2건은

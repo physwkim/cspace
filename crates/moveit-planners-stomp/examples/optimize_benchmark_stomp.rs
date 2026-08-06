@@ -98,6 +98,7 @@ use moveit_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, Wo
 use moveit_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use moveit_geometry::{Cuboid, Isometry3, Shape};
 use moveit_model::{JointModelGroup, MeshSearchPaths, RobotModel};
+use moveit_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use moveit_planners_stomp::conversion_functions::{positions, robot_trajectory_to_matrix};
 use moveit_planners_stomp::cost_functions;
 use moveit_planners_stomp::planner::{PlanRequest, plan};
@@ -358,6 +359,40 @@ fn endpoint_gap(column: &DVector<f64>, wanted: &DVector<f64>) -> f64 {
     (column - wanted).abs().max()
 }
 
+/// The length of `columns` in the plan-space metric --
+/// [`JointModelGroupSpace::distance`] summed along it, which is what the
+/// oracle's `stomp_plan` reports as its own `length` (`oracle.cpp`'s
+/// `planSpacePathLength`, summing OMPL `CompoundStateSpace::distance`).
+///
+/// Not the Euclidean `.norm()` over raw joint deltas this instrument reported
+/// before: both spaces weight each bounded axis by `1/(max - min)` and add the
+/// weighted absolute differences, so the two are different quantities rather
+/// than two estimates of one. Phase 7's `condition3-*` is a ratio between the
+/// port's length and the C++ side's, and it means nothing until both are in
+/// this metric. See `optimize_benchmark_chomp`'s twin for the same note.
+fn plan_space_length(
+    space: &JointModelGroupSpace,
+    scratch: &mut RobotState<'_>,
+    group: &JointModelGroup,
+    columns: &[DVector<f64>],
+) -> f64 {
+    let states: Vec<Vec<CompoundValue>> = columns
+        .iter()
+        .map(|column| {
+            for (name, value) in group.active_joint_names().iter().zip(column.iter()) {
+                scratch
+                    .set_variable_position(name, *value)
+                    .unwrap_or_else(|e| panic!("set_variable_position({name}): {e}"));
+            }
+            space.read_robot_state(scratch)
+        })
+        .collect();
+    states
+        .windows(2)
+        .map(|pair| space.distance(&pair[0], &pair[1]))
+        .sum()
+}
+
 fn median(mut values: Vec<f64>) -> Option<f64> {
     if values.is_empty() {
         return None;
@@ -510,6 +545,13 @@ fn main() {
 
     let mut template = RobotState::new(&model);
     template.set_to_default_values();
+
+    // The metric the C++ baseline's `length` is measured in; see
+    // `plan_space_length`. `length_scratch` is the one state it writes group
+    // columns into, reused rather than allocated per waypoint.
+    let space = JointModelGroupSpace::new(&model, &group_name)
+        .unwrap_or_else(|e| panic!("JointModelGroupSpace::new({group_name}): {e}"));
+    let mut length_scratch = template.clone();
 
     let mut total = 0usize;
     let mut solved_count = 0usize;
@@ -749,10 +791,11 @@ fn main() {
         let start_gap = endpoint_gap(&path[0], &start_column);
         let goal_gap = endpoint_gap(&path[raw_waypoints - 1], &goal_column);
         max_endpoint_gap = max_endpoint_gap.max(start_gap).max(goal_gap);
-        let length: f64 = path.windows(2).map(|p| (&p[1] - &p[0]).norm()).sum();
-        let seed_length: f64 = (0..seed_matrix.ncols() - 1)
-            .map(|t| (seed_matrix.column(t + 1) - seed_matrix.column(t)).norm())
-            .sum();
+        let length = plan_space_length(&space, &mut length_scratch, group, &path);
+        let seed_columns: Vec<DVector<f64>> = (0..seed_matrix.ncols())
+            .map(|t| seed_matrix.column(t).clone_owned())
+            .collect();
+        let seed_length = plan_space_length(&space, &mut length_scratch, group, &seed_columns);
 
         // After the length and the endpoint gaps, so both still describe what
         // the planner actually returned.

@@ -70,13 +70,13 @@ expression, never the full crate; no bite touched a convergence test.
 | `cost.rs:424` | `max_quad_cost_inv_value`'s zero-dimension guard | `max_quad_cost_inv_value_rejects_zero_free_points` | single-branch | bite: neutralized guard (`if false`) → test failed (`unwrap_err()` on `Ok`); reverted |
 | `cost.rs:493` | `cost()`'s length guard | `cost_and_derivative_reject_mismatched_length` | discriminating | bite: neutralized `cost()`'s guard alone (leaving `derivative()`'s intact) → test failed via nalgebra dimension panic at the `cost()` call specifically; reverted |
 | `cost.rs:497` | `derivative()`'s length guard | same test | discriminating | bite (mirror): neutralized `derivative()`'s guard alone (leaving `cost()`'s intact) → test failed via nalgebra panic at the `derivative()` call specifically; reverted |
-| `optimizer.rs:2491` | `add_increments_to_trajectory`'s shape guard | `add_increments_to_trajectory_rejects_shape_mismatch` | single-branch | bite: neutralized guard → test failed (nalgebra dimension panic); reverted |
-| `optimizer.rs:2546` | `handle_joint_limits`'s length guard | `handle_joint_limits_rejects_joint_costs_length_mismatch` | single-branch | bite: neutralized guard → test failed (`unwrap_err()` on `Ok`); reverted |
-| `crates/moveit-planners-chomp/src/planner.rs:1067` | `validate_recovery_time_limit`'s combined finite/range guard | `validate_recovery_time_limit_rejects_a_value_whose_plus_five_overflows_i32` | single-branch | bite: forced the guard's condition to `true \|\| ...` → all 4 rejection tests failed, both boundary-accept tests stayed green; reverted |
-| `crates/moveit-planners-chomp/src/planner.rs:1091` | same | `validate_recovery_time_limit_rejects_a_value_whose_plus_five_underflows_i32` | single-branch | same bite |
-| `crates/moveit-planners-chomp/src/planner.rs:1096` | same | `validate_recovery_time_limit_rejects_nan` | single-branch | same bite |
-| `crates/moveit-planners-chomp/src/planner.rs:1101` | same | `validate_recovery_time_limit_rejects_infinity` (+inf) | single-branch | same bite |
-| `crates/moveit-planners-chomp/src/planner.rs:1102` (`validate_recovery_time_limit_rejects_infinity`) | same | same test (-inf) | single-branch | same bite |
+| `optimizer.rs:2933` | `add_increments_to_trajectory`'s shape guard | `add_increments_to_trajectory_rejects_shape_mismatch` | single-branch | bite: neutralized guard → test failed (nalgebra dimension panic); reverted |
+| `optimizer.rs:2988` | `handle_joint_limits`'s length guard | `handle_joint_limits_rejects_joint_costs_length_mismatch` | single-branch | bite: neutralized guard → test failed (`unwrap_err()` on `Ok`); reverted |
+| `crates/moveit-planners-chomp/src/planner.rs:1098` | `validate_recovery_time_limit`'s combined finite/range guard | `validate_recovery_time_limit_rejects_a_value_whose_plus_five_overflows_i32` | single-branch | bite: forced the guard's condition to `true \|\| ...` → all 4 rejection tests failed, both boundary-accept tests stayed green; reverted |
+| `crates/moveit-planners-chomp/src/planner.rs:1122` | same | `validate_recovery_time_limit_rejects_a_value_whose_plus_five_underflows_i32` | single-branch | same bite |
+| `crates/moveit-planners-chomp/src/planner.rs:1127` | same | `validate_recovery_time_limit_rejects_nan` | single-branch | same bite |
+| `crates/moveit-planners-chomp/src/planner.rs:1132` | same | `validate_recovery_time_limit_rejects_infinity` (+inf) | single-branch | same bite |
+| `crates/moveit-planners-chomp/src/planner.rs:1133` (`validate_recovery_time_limit_rejects_infinity`) | same | same test (-inf) | single-branch | same bite |
 | `crates/moveit-planners-chomp/src/trajectory.rs:695` | `from_num_points`'s `num_points < 2` guard (`Error::Other`, distinct variant from the function's other guard, `Error::UnknownName` via `?`) | `from_num_points_rejects_fewer_than_two_points` | discriminating | bite: neutralized the `num_points < 2` guard → test failed (subtract-with-overflow panic downstream); the `matches!(err, Error::Other(_))` shape excludes the sibling `UnknownName` variant by construction; reverted |
 | `crates/moveit-planners-chomp/src/trajectory.rs:697` | same guard, `num_points == 0` case | same test | discriminating | same bite/anchor |
 | `crates/moveit-planners-chomp/src/trajectory.rs:997` | `source.group().is_none()` — precondition sanity check, not `fill_in_from_trajectory`'s own guard | `fill_in_from_trajectory_rejects_a_trajectory_with_no_group` | not-this-family | commit `77a5d7d` (the test's substantive assertion, a few lines below, already checks the error message to discriminate among `fill_in_from_trajectory`'s several `Error::other` sites; this line only confirms the fixture has no group) |
@@ -181,10 +181,21 @@ cargo nextest run -p moveit-planning
 cargo nextest run -p moveit-sampling
 ```
 
-## UNFIXED
+## UNFIXED (round 8)
 
 None. No blind assertion was found this round, so there was nothing to
 fix.
+
+The round number is in the heading because this is the only `UNFIXED`
+heading in a document that goes on for a dozen more rounds, and a bare
+one answers "what is open in this fence?" with "None" on behalf of
+rounds it never read. Later rounds close themselves in their own
+`### Result:` line instead — round 11's three fragile-but-unique
+needles, round 13's `mesh_search_paths` coverage gap (closed by round
+14), round 20's `Fragility flagged, not fixed`. Searching this file for
+`UNFIXED` finds one section and misses all of those; searching it for
+`Result:` finds them. `ledger-pilz.md` carries the same convention with
+`## UNFIXED (12, now 13)`.
 
 ## Gate scope
 
@@ -525,8 +536,8 @@ this round would otherwise derive.
 | `cost.rs:391` | `DIFF_RULES rows` | discriminating | not in "DIFF_RULE_LENGTH-1" or "singular" |
 | `cost.rs:404` | `DIFF_RULE_LENGTH-1` | discriminating | not in the other 2 |
 | `cost.rs:436` | `singular` | discriminating | not in the other 2 |
-| `optimizer.rs:2386` | `joint_costs has` | discriminating | not in `ChompCost::derivative`'s joint_trajectory-length message |
-| `optimizer.rs:2455` (`calculate_total_increments_rejects_column_count_mismatch`) | `columns` | discriminating | in-code: "appears only in this one's message" among 3 sites |
+| `optimizer.rs:2828` | `joint_costs has` | discriminating | not in `ChompCost::derivative`'s joint_trajectory-length message |
+| `optimizer.rs:2897` (`calculate_total_increments_rejects_column_count_mismatch`) | `columns` | discriminating | in-code: "appears only in this one's message" among 3 sites |
 | `crates/moveit-planners-chomp/src/trajectory.rs:712` | `discretization must be finite and positive` | discriminating | not in "would require more than" or `from_num_points`'s num_points<2 message |
 | `crates/moveit-planners-chomp/src/trajectory.rs:727` (`from_duration_rejects_negative_discretization`) | same | discriminating | same guard, negative-discretization boundary |
 | `crates/moveit-planners-chomp/src/trajectory.rs:748` | same | discriminating | same guard, negative/negative boundary that divides positive |
@@ -853,10 +864,25 @@ enumeration. One `helper_body` line excluded (`decide.rs:83`,
 **Not fixed, flagged rather than fabricated**: the `split_once('/')?`
 guard (malformed `package://name` with no `/`) and the
 `candidate.is_file()` guard (known package, well-formed path, file
-missing) have **no test at all** — not a blind existing assertion, an
-absent one. Writing new tests is outside "fix the blind ones"; this is
-a coverage gap, not a fix owed this round. Reporting it rather than
+missing) had **no test at all** — not a blind existing assertion, an
+absent one. Writing new tests was outside "fix the blind ones"; this
+was a coverage gap, not a fix owed that round. Reporting it rather than
 silently dropping it.
+
+**Both are tested now, and round 14 below is where that happened.**
+`b64806d6` (`test(moveit-model): prove mesh_search_paths::resolve's four
+None guards actually isolate`) added
+`malformed_package_uri_with_no_relative_path_does_not_resolve`
+(`crates/moveit-model/src/mesh_search_paths.rs:174`) for
+`rest.split_once('/')?`
+(`crates/moveit-model/src/mesh_search_paths.rs:87`) and
+`missing_file_does_not_resolve`
+(`crates/moveit-model/src/mesh_search_paths.rs:189`) for
+`candidate.is_file().then_some(candidate)`
+(`crates/moveit-model/src/mesh_search_paths.rs:89`), each carrying its
+own isolating-mutation record. The gap this paragraph opened was closed
+one round later; the paragraph is the round-13 record of it, not a live
+item.
 
 **`crates/moveit-model/src/robot_model.rs` (24)**
 
@@ -919,7 +945,7 @@ too fails only its own test, `:302`/`:328` staying green. All three
 mutations were applied, run with `--no-fail-fast`, confirmed, and
 reverted; `git status --short` is clean, no residual diff.
 
-### Result: 0 blind sites; 8 of 52 ruled `not-this-family`; one coverage gap flagged, not fixed
+### Result: 0 blind sites; 8 of 52 ruled `not-this-family`; one coverage gap flagged, closed by round 14 (`b64806d6`)
 
 44 of 52 sites are family members: **40 `discriminating`** (8 of those
 are `via:assert_err_mentions`'s call sites) and **4 `single-branch`**

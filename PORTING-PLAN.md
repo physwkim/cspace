@@ -2944,28 +2944,31 @@ p3-acm이 pr2 메시를 실제로 넣은 뒤(§32.1) 재측정으로 **부분적
 
 ### 23.1 `resolveConstraintFrames`는 그대로 둔다
 
-§12.7 표(원본 라인 1699 부근)의 기존 메모가 여전히 유효함을
-`crates/moveit-state/src/state.rs:1150-1156`을 다시 읽어 확인했다:
-`Posed::frame_transform`의 문서 주석이 지금도 "attached bodies are
-not ported"라고 명시한다. §18(`p1-fixtures` 3라운드)이 부착체를
+§12.7 표(원본 라인 1699 부근)의 기존 메모는 이 절을 쓰던 시점까지
+유효했다: 그때 `Posed::frame_transform`의 문서 주석이 "attached bodies
+are not ported"라고 명시하고 있었다. §18(`p1-fixtures` 3라운드)이 부착체를
 연결한 것은 맞지만 그건 `CollisionEnv`의 `AttachedBodyGeometry`
-경로뿐이다 — `RobotState`/`Posed` 위에 `getAttachedBodies()`나
-서브프레임을 이름으로 찾는 API는 아직 없다. `resolveConstraintFrames`가
-필요로 하는 것은 정확히 그 API(`link_name`이 부착체/서브프레임을
-가리킬 때 로봇 링크 이름으로 되돌리는 조회)이므로, 이번 라운드에서
-이식해도 `frame_transform`이 항상 링크 이름만 성공시키는 한
-"`c.link_name`이 이미 로봇 링크다"가 항상 참인 퇴화 함수가 된다.
-**`p1-fixtures`(`AttachedBody`/서브프레임 소유자)가 `RobotState`
-레벨에 이름 기반 서브프레임 조회를 추가한 뒤에 재검토할 것.**
+경로뿐이었고 — `RobotState`/`Posed` 위에 `getAttachedBodies()`나
+서브프레임을 이름으로 찾는 API는 그 시점에 없었다(그 레벨에는 지금도
+없다). `resolveConstraintFrames`가 필요로 하는 것은 정확히 그
+API(`link_name`이 부착체/서브프레임을 가리킬 때 로봇 링크 이름으로
+되돌리는 조회)이므로, 이식해도 `frame_transform`이 항상 링크 이름만
+성공시키는 한 "`c.link_name`이 이미 로봇 링크다"가 항상 참인 퇴화 함수가
+된다고 판단하고, `p1-fixtures`(`AttachedBody`/서브프레임 소유자)가
+`RobotState` 레벨에 이름 기반 서브프레임 조회를 추가한 뒤에 재검토할
+것으로 남겼다.
 
 **병합 시점 정정 (같은 라운드에서 해소됨).** `p1-fixtures`가 같은 라운드에
 그 조회를 내놨다 — 다만 `RobotState` 레벨이 아니라 **`PlanningScene` 레벨**로,
 이 포트가 부착체를 상태가 아니라 씬에 두기로 한 결정에 맞춰서다
-(`crates/moveit-scene/src/scene.rs:613` `frame_transform`,
-`:671` `knows_frame_transform` — 모델 프레임/링크 → 부착체 id/서브프레임 →
-월드 객체 id/서브프레임의 3단 사다리). `Posed::frame_transform`의 주석도
-`22bb2a2`에서 "attached bodies are not ported"를 버리고 "씬 한 층 위에서
-해결된다"로 고쳤다. 따라서 §23.1의 차단 사유는 더 이상 성립하지 않는다.
+(`crates/moveit-scene/src/scene.rs:1345` `frame_transform`,
+`:1446` `knows_frame_transform` — 모델 프레임/링크 → 부착체 id → 부착체
+서브프레임 → 월드 객체 id/서브프레임의 사다리이고, §59.2가 뒤에
+extra-fixed-frame 맵을 여섯째 단으로 더해 지금은 6단이다). 위 본문이
+인용하던 `Posed::frame_transform`의 주석도 `22bb2a2`에서 "attached bodies
+are not ported"를 버리고 "씬 한 층 위에서 해결된다"로 고쳤다(지금 자리는
+`crates/moveit-state/src/state.rs:1208-1218`). 따라서 §23.1의 차단 사유는
+더 이상 성립하지 않는다.
 남은 것은 상류가 `const RobotState&`를 받는 시그니처를 이 포트에서 무엇으로
 바꿀지 결정하는 일이고, 그건 `moveit-constraints` 소유자의 몫이다.
 
@@ -8557,13 +8560,16 @@ max(|a|,|b|)`이면 통과한다. 값이 1922이므로 `max_relative = 1e-6`은
   `moveit-model`에 인덱스 목록 메서드를 추가하는 일을 가리키고,
   그 크레이트는 p3-acm 소유다. 소유권 진술이라 맞다.
 
-`crates/moveit-trajectory/src/lib.rs:339`와 `crates/moveit-trajectory/src/robot_trajectory.rs:21` 두 곳은 `RobotTrajectory::print`
-/`operator<<`를 **미이식으로 남은 유일한 항목**으로 지목하면서 그
-이유를 "D 결정도 의존성 부재도 아니고, 어떤 라운드도 요구하지 않았기
-때문"이라고 적는다. 이 저장소가 금지한 "not yet" 자리채움이 아니라
-**행동 가능한 실제 격차**다. 미룬 원래 이유(`RobotState`에 속도·가속도가
-없었다)가 `RuckigSmoothing` 때문에 사라졌다는 것까지 적혀 있다.
-다음 라운드에 이식한다.
+`crates/moveit-trajectory`의 `lib.rs`와 `robot_trajectory.rs` 두 doc은 그
+시점에 `RobotTrajectory::print`/`operator<<`를 **미이식으로 남은 유일한
+항목**으로 지목하면서 그 이유를 "D 결정도 의존성 부재도 아니고, 어떤
+라운드도 요구하지 않았기 때문"이라고 적고 있었다. 이 저장소가 금지한
+"not yet" 자리채움이 아니라 **행동 가능한 실제 격차**였고, 미룬 원래
+이유(`RobotState`에 속도·가속도가 없었다)가 `RuckigSmoothing` 때문에
+사라졌다는 것까지 적혀 있었다. 그래서 다음 라운드에 이식했다 —
+`c90b5c1d`의 `impl std::fmt::Display for
+RobotTrajectory`(`crates/moveit-trajectory/src/robot_trajectory.rs:672`)이고,
+두 doc도 지금은 그렇게 적는다(`crates/moveit-trajectory/src/lib.rs:354-355`).
 
 ## 99. p3-distance-field 라운드 16 머지 — 39%는 진짜고, `<=`는 여전히 안 재진다
 
@@ -15681,7 +15687,7 @@ p6-totg가 §196 가드를 자기 두 fixture에 넣었다(`d49461e`). 넣은 �
 (§202), 그 둘은 같지 않다. `link_names()`가 비어 있지 않은데
 `updated_link_names()`가 빈 그룹은 이 가드를 통과하면서 여전히 공허하다.
 
-chomp에도 해당한다. `optimizer.rs:1015`가 `group_name`을 `CollisionRequest`에
+chomp에도 해당한다. `optimizer.rs:1146`가 `group_name`을 `CollisionRequest`에
 실어 보내고, 그것을 받는 `ParryCollisionEnv`의 `active_group_links`
 (`parry.rs:1330`)가 `updated_link_names()`를 읽는다. 즉 chomp의 충돌 단언이
 공허해지는지를 결정하는 집합도 `updated_link_names()`이지 `link_names()`가
@@ -16300,7 +16306,7 @@ identical**, drift 0, 다른 출력 라인 0. 그것이 이 라운드에서 스�
 |---|---|---|---|
 | `TryFrom<Quaternion> for UnitQuaternion` (`TryFrom<Pose> for Isometry3`를 통해) | 9곳 — `ros/moveit-ros/src/constraints/position.rs:161`, `ros/moveit-ros/src/constraints/visibility.rs:114`/`115`, `collision_object.rs`×5, `planning_scene.rs` 옥토맵 원점 | `poseMsgToEigen`/`tf2_eigen::fromMsg` — 무조건 normalize, 한 규칙 | §211/`f2a7847`에서 이미 분리 완료 (10번째 자리는 별도 타입 `OrientationConstraintQuaternion`). 이번 스윕에서 재확인, 편차 없음 |
 | `TryFrom<SolidPrimitiveMsg> for Shape` | 2곳 — `ros/moveit-ros/src/constraints/position.rs:160`(BoundingVolume), `collision_object.rs:183`(shapesAndPosesFromCollisionObjectMessage) | 둘 다 `shapes::constructShapeFromMsg(const shape_msgs::msg::SolidPrimitive&)` (`third_party/geometric_shapes/src/shape_operations.cpp:78-112`) 하나 — 같은 함수, 같은 BOX/SPHERE/CYLINDER/CONE 분기, 실패 시 같은 "shape==nullptr" 귀결 | 균일. 편집 불필요 |
-| `TryFrom<u8> for CollisionObjectOperation` | 2곳 — `collision_object.rs:310`(processCollisionObjectMsg), `attached.rs:62`(processAttachedCollisionObjectMsg) | 두 디스패처(`planning_scene.cpp:1774-1798`, `:1536-1769`) 모두 ADD/APPEND/REMOVE/MOVE를 같은 상수와 비교하고, 그 외 값은 둘 다 동일한 "Unknown collision object operation: %d" 에러로 귀결 (직접 읽고 확인, 다르다고 가정하지 않음) | 균일. 편집 불필요 |
+| `TryFrom<u8> for CollisionObjectOperation` | 2곳 — `collision_object.rs:310`(processCollisionObjectMsg), `attached.rs:62`(processAttachedCollisionObjectMsg) | 두 디스패처(`planning_scene.cpp:1774-1798`, `planning_scene.cpp:1536-1769`) 모두 ADD/APPEND/REMOVE/MOVE를 같은 상수와 비교하고, 그 외 값은 둘 다 동일한 "Unknown collision object operation: %d" 에러로 귀결 (직접 읽고 확인, 다르다고 가정하지 않음) | 균일. 편집 불필요 |
 | `TryFrom<ConstraintsMsg> for KinematicConstraintSet` | 3곳 — `planning.rs`의 `goal_constraints`/`path_constraints`/`trajectory_constraints` | 셋 다 `KinematicConstraintSet::add(const moveit_msgs::msg::Constraints&, const Transforms&)` (`kinematic_constraint.cpp:1294`) 단 하나 — 이 함수는 호출자가 `MotionPlanRequest`의 어느 필드에서 왔는지 알지 못한다 | 균일. 편집 불필요 |
 | `TryFrom<Point>`/`TryFrom<Vector3> for CoreVector3` 및 그 역방향(`Point`/`Vector3`/`Pose`/`Quaternion` 출력) | 여러 곳 (`position.rs`, `planning.rs`×2, `shapes.rs` 등) | 실패 분기 자체가 없음 — `geometry.rs`의 기존 doc comment가 이미 "Total in practice"라고 명시하며, 이번 스윕은 그 주장을 소스가 아니라 impl 본문 자체(항상 `Ok`)로 재확인했다 | 균일 — 구조적으로 갈릴 수 없음 |
 | 나머지 전부: `JointLimits`, `JointConstraint`/`PositionConstraint`/`OrientationConstraint`/`VisibilityConstraint`의 msg<->core 양방향, `RobotState`, `RobotTrajectory`/`JointTrajectory`, `MeshMsg`/`PlaneMsg` -> `Shape`/`Plane` | 각 1곳 | 해당 없음 | 애초에 공유 impl이 아님 — 대상 아님 |
@@ -20561,13 +20567,18 @@ doc 주석이고 나머지 6줄은 §236.4가 세운 만료 tripwire 테스트 �
 
 **둘째, 받는 자리는 이미 있고 그 자리에는 setter가 없다.** 이 포트의
 `PlanningContext` 계층은 포팅되어 있다:
-`moveit_planners_sbp::registry`의 `PlannerManager::get_planning_context`
-(`crates/moveit-planners-sbp/src/registry.rs:703`)가 `request:
-PlanningRequest`를 **값으로** 받고 `RrtConnectManager`의 구현
-(`:621`)이 그것을 `RrtConnectContext.request`로 옮긴다. 상류가
+`moveit_planning::planner`의 `PlannerManager::get_planning_context`
+(`crates/moveit-planning/src/planner.rs:353`)가 `request:
+&PlanningRequest`를 **차용으로** 받고 `RrtConnectManager`의 구현이 그것을
+복제해 `RrtConnectContext.request`에 넣는다
+(`crates/moveit-planners-sbp/src/registry.rs:618`). 상류가
 `setMotionPlanRequest`에 정규화를 매단 이유는 그것이 요청이 컨텍스트에
 들어오는 유일한 문이라는 점인데, 이 포트에서 그 문은 생성자 인자다 —
-정규화를 매달 setter가 없고, 필요하지도 않다.
+정규화를 매달 setter가 없고, 필요하지도 않다. (이 절을 쓸 때 그 트레이트는
+`moveit-planners-sbp`의 `registry`에 있었고 요청을 값으로 받았다. `fe6fd060`이
+트레이트를 `moveit-planning`으로 옮기면서 인자를 차용으로 바꿨고, 컨텍스트가
+간직할 사본은 자기가 뜬다. 문은 여전히 하나이고 setter는 여전히 없으므로
+논거 자체는 달라지지 않는다.)
 
 **셋째, 이 포트의 타입에서는 세 입력이 만들어질 수 없다.** 이 포트에서
 탐색 예산에 해당하는 것은 `moveit_planners_sbp::Termination`
@@ -20886,11 +20897,15 @@ $
 `removeObserver` — deviation 4, 만료 조건 명시 —,
 `MOVEIT_CLASS_FORWARD(AllowedCollisionMatrix)`, `print`)과 unported-in-scope
 2건이다. 후자는 `AllowedCollisionMatrix`의 메시지 생성자와 `getMessage()`로,
-D6/§4.3이 `moveit-ros`의 `TryFrom` 층에 배정했으나 아직 없다. 새로 발견한
-미처리가 아니라 이미 이름이 적힌 구멍이다 —
-`ros/moveit-ros/src/scene/planning_scene.rs:19-24`가
-`allowed_collision_matrix`를 미변환 `PlanningScene` 필드로 열거해 두었고 그
-파일을 열어 확인했다.
+D6/§4.3이 `moveit-ros`의 `TryFrom` 층에 배정했다. 이 절을 쓸 때는 둘 다
+없었고, 그 근거로 `ros/moveit-ros/src/scene/planning_scene.rs`가
+`allowed_collision_matrix`를 미변환 필드로 열거해 둔 것을 들었다. 그중
+메시지 생성자는 `4f2c9df7`이 `impl TryFrom<AllowedCollisionMatrixMsg> for
+AllowedCollisionMatrix`(`ros/moveit-ros/src/scene/planning_scene.rs:273`)로
+채웠으므로 남은 구멍은 반대 방향 하나다 —
+`ros/moveit-ros/src/conversion_coverage.rs:125-134`가 그 한 방향을 선언된
+단방향 변환으로 적고, 만료를 `getPlanningSceneMsg`/`getPlanningSceneDiffMsg`
+중 하나가 포팅되는 날로 못박아 둔다.
 
 `doc/port-coverage.md`에 새 `gap` 행은 생기지 않았고 생길 수 없다: 그 표는
 미포팅 **파일**을 분류하는데 이 4건은 전부 포팅된 파일이고, 위 2건은 파일이
@@ -22115,7 +22130,7 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
 | 13 | 1·2·3 | 타임아웃이 하나라도 있으면 그 실행은 재현 불가인데 조건 1의 여유가 그것을 흡수한다 | 닫음 §248.6 (`no-timeouts`) |
 | 14 | 1·3 | §5의 문턱은 큰 퇴행을 통과시킨다 — 48문제 손실, 27% 경로 연장 | 닫음 §248.7 (핀) |
 | 15 | 2 | 오라클과 포트가 **같은** `objects` 배열에서 장면을 만든다 | 닫지 않음 §248.9 |
-| 16 | 1·3 | C++ 경로의 끝점은 검사되지 않는다 (포트 쪽만 검사한다) | 닫지 않음 §248.9 |
+| 16 | 1·3 | C++ 경로의 끝점은 검사되지 않는다 (포트 쪽만 검사한다) | 닫음 `a7d1b9a0` (`cpp-endpoints`, §248.9) |
 
 ### §248.2 조건 1은 스트림 하나에 대한 비교다 — §221의 30건이 여기서도 나오는가
 
@@ -22336,11 +22351,14 @@ M3와 M4는 이 게이트에서 서로 다른 것이 필요한 이유를 보여�
 - **`motion_resolution` 아래의 충돌 간극.** 양쪽이 같은 해상도로 검사한다. 이미
   `plan_benchmark_port.rs`의 `# Condition 2's collision-check resolution`이 기록한
   한계이고 이 라운드에서 바뀌지 않았다.
-- **C++ 경로의 끝점.** 포트 쪽 `endpoints` 검사에 대응하는 C++ 쪽 검사가 없다.
-  오라클 `plan` 응답은 `path`를 실어 오므로 jq 몇 줄로 닫을 수 있으나, 기록된
-  `doc/phase7-benchmark-results.json`을 다시 만들려면 500문제 실행이 한 번 더
-  필요하다. `cpp_solved_floor`가 같은 계열(퇴행한 기준선이 문턱을 낮추는 것)의
-  절반만 막는다.
+- **C++ 경로의 끝점. 닫혔다(§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에
+  대응하는 C++ 쪽 검사가 없었고, 여는 값이 500문제 재실행 한 번이라고 적었다.
+  같은 날 `a7d1b9a0`(`test(sbp): hold the C++ baseline to the same endpoint
+  requirement as the port`)이 stratum마다 `cpp-endpoints`를 넣었고, 기록된
+  `doc/phase7-benchmark-results.json`이 `cpp_max_endpoint_gap: 0`과
+  `"panda(gate)/cpp-endpoints": "PASS"`로 그 재실행을 이미 담고 있다. §264가
+  이 사실을 발견하고도 본문을 고치지 않은 것은 그 시점 사본이 번호 배정 이전
+  판이어서 병합이 충돌했기 때문이고, 그 미룬 고침이 이 항목이다.
 - **paired median 집단의 크기.** `paired_problems_pooled > 0`만 요구하고 그 크기에
   바닥이 없다. 양쪽 해결 집합이 크게 어긋나면 paired 비율은 작은 집단에서 계산된다.
   실측에서는 panda 496, fanuc 405로 각 진영 해결 집합과 거의 같다.
@@ -22610,7 +22628,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:414` (`PlanningRequestAdapter`) | 0 |
 | 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:193` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
 | 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:430` (`PlanningResponseAdapter`) | 0 |
-| 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:326` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:44-66` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
+| 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:449-466` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:63-71` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
 | 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-7`, `:56` | 2 |
 | 11 | `moveit_core/robot_state/src/attached_body.cpp` | `crates/moveit-scene/src/attached_body.rs:191` (`set_scale`), `:205` (`set_padding`), `:122` (`subframe_pose`), `:67` (`new`); `crates/moveit-scene/src/scene.rs:1129` (`attach`), `:1200` (`attach_new`), `:1352-1355` (`frame_transform`'s on-demand recompute); `crates/moveit-kinematics/src/set_from_ik.rs:150` | —(.cpp) |
 | 12 | `moveit_core/utils/include/moveit/utils/message_checks.hpp` | `ros/moveit-ros/src/scene/collision_object.rs:11` | 3 |
@@ -22629,8 +22647,14 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 없다) 결정의 **존재**는 87/87이다. 그래서 (a) 71 + 다른 이름으로 존재
 16 = 87이고 (c)에 남는 것이 없다.
 
-**(b) "빠졌고 Phase 판정을 막는다" = 0건.** 오늘 MET가 아닌 Phase 행은
-넷이다:
+**(b) "빠졌고 Phase 판정을 막는다" = 0건.** 이 절이 쓰인 시점에 MET가 아닌
+Phase 행은 넷이었다 — **넷 다 그 뒤에 MET로 닫혔고, 이 절의 (b) 논증은 그
+사실에 달려 있지 않다**(막는 파일이 0건이라는 것이 결론이므로 행이 닫히면
+같은 결론이 더 강해진다). 넷이 닫힌 자리는 §5가 인용으로 들고 있다:
+`collision: bool`은 §288, 분리 분기의 `distance: f64`는 §260, Phase 8의
+CHOMP/STOMP는 §286, Phase 9의 `MoveGroupInterface`는 §273. 오늘 §5의 Phase
+행 20개는 전부 MET이고 `tools/ci/check-unmet-blockers.sh`가 "0 not-yet-MET
+row(s)"로 독립 확인한다. 아래는 그 시점의 출력이다:
 
 ```
 $ rg -n '^\| Phase ' PORTING-PLAN.md | rg -v '\| MET \|'
@@ -22647,7 +22671,7 @@ $ rg -n '^\| Phase ' PORTING-PLAN.md | rg -v '\| MET \|'
 |---|---|---|---|
 | Phase 3 `collision: bool` | §229.1 | ~~상류에 정합할 규약이 자체가 없다 — `z = 0` 정확 접선에서 상류의 답이 한 값으로 정해지지 않는다. 빠진 코드가 아니라 정의되지 않은 의미론이다~~ → **§251이 대체.** 규약이 없는 것이 아니라 fcl의 협면 특수화 등록표가 규약 자리에 있고, prbt의 `cylinder × box`가 그 표의 빈칸이다(§251.1이 49셀 중 49셀을 그 기준으로 가른다). 정의되지 않은 의미론이 아니라 쌍마다 정해진 디스패치다 | **0**. 이 행이 재는 코드는 `moveit_core/collision_detection_fcl/src/collision_common.cpp`이고, 그 디렉터리는 `CORE_EXCLUDED_SUBDIRS`라 코퍼스 245에 애초에 들어오지 않는다 |
 | Phase 3 `distance: f64` | §229.3 | 상류 `distanceCallback`(`collision_detection_fcl/src/collision_common.cpp:471`)이 다른 양을 잰다 — 최대 침투깊이 접촉의 부호를 뒤집은 값. 배율이 아니라 정의 차이다 | **0**. 위와 같은 파일·같은 이유 |
-| Phase 8 CHOMP/STOMP | §217.3 | 포트 쪽에 속성 기반 하네스가 없다. Phase 7의 대응물은 `crates/moveit-planners-sbp/examples/plan_benchmark_{port,problem_set}.rs`이고 chomp/stomp 크레이트에는 `examples/`·`benches/` 자체가 없다 | **0**. 87건 중 chomp/stomp는 8건이지만 전부 ROS 플러그인 배선(`chomp_interface/*`, `stomp_moveit_planner_plugin.cpp`, `trajectory_visualization.hpp`)이고, Phase 7 하네스는 플러그인을 거치지 않는다 — `plan_benchmark_port.rs:182`는 `moveit_planners_sbp::PlannerManager`를 직접 쓰고, 대응 진입점은 이미 있다(`moveit-planners-chomp/src/planner.rs:382 solve`, `moveit-planners-stomp/src/planner.rs:430 plan`) |
+| Phase 8 CHOMP/STOMP | §217.3 | **이 표가 쓰인 시점에는** 포트 쪽에 속성 기반 하네스가 없었다. Phase 7의 대응물은 `crates/moveit-planners-sbp/examples/plan_benchmark_{port,problem_set}.rs`이고 chomp/stomp 크레이트에는 `examples/`·`benches/` 넷 다 없었다 — §263이 그 전제를 main `98541e8`에 대해 네 디렉터리 0건으로 확인했다. **`examples/`는 오늘 있다**: 네 파일이 네 커밋으로 들어왔다 — `chomp_benchmark_port.rs`(`aa96be03`), `optimize_benchmark_chomp.rs`(`44843b2a`), `stomp_benchmark_port.rs`(`abd98b1c`), `optimize_benchmark_stomp.rs`(`047bd793`). `benches/`는 두 크레이트 모두 여전히 없다. 이 행의 판정은 그대로인데, 오른쪽 열이 세는 것이 하네스의 유무가 아니라 이 행을 막는 상류 파일 수이기 때문이다 | **0**. 87건 중 chomp/stomp는 8건이지만 전부 ROS 플러그인 배선(`chomp_interface/*`, `stomp_moveit_planner_plugin.cpp`, `trajectory_visualization.hpp`)이고, Phase 7 하네스는 플러그인을 거치지 않는다 — `plan_benchmark_port.rs:182`는 `moveit_planners_sbp::PlannerManager`를 직접 쓰고, 대응 진입점은 이미 있다(`moveit-planners-chomp/src/planner.rs:407 solve`, `moveit-planners-stomp/src/planner.rs:430 plan`) |
 | Phase 9 `MoveGroupInterface` | §226.4, §250 | **이 표가 쓰인 시점에는** 서버 쪽이 없었다 — `fn main`을 갖는 노드 바이너리도, `/plan_kinematic_path` 서비스도, `/move_action` 액션 서버도 없었다. 셋 다 §250이 같은 병합 창에서 지었으므로(`ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`) 지금 남은 것은 호출할 플래너가 없다는 것이고, 그것은 D8이 소유한 결정이다 | **0**. 이 행을 막는 상류 코드는 `moveit_ros/move_group/**`이고(예: `src/default_capabilities/plan_service_capability.cpp`가 `/plan_kinematic_path`를 연다), 코퍼스에 `moveit_ros/` 파일은 0건이다 |
 
 **`인용 §` 열은 이 표가 쓰인 시점의 값이다.** 그 뒤로 §5 표에서 두 칸이
@@ -25167,11 +25191,12 @@ cylinder 10, sphere 3), 분리 쪽 최악값이 가장 크다. 그 최악값이 
 `4.01994039066332215e-2`, 뒤의 상자가 `3.27873837944665e-2`다. 오라클
 (`3.287631e-2`)과 이 포트(`3.278738e-2`)가 함께 앉는 값을 내는 것은 **뒤의
 상자**이고, 앞의 상자는 두 답에서 각각 `7.323094e-3`·`7.412020e-3` — 이 절이
-판정하는 잔차의 82배 — 떨어져 있다. 아래의 `4.418002e-4`도 이 절이 쓰인 시점의
-실측 그대로 두지만, 그 수는
-`tools/fcl-distance-tolerance-probe/probe.cpp:77`이 세우는 `0.121, 0.08, 0.17`
-상자의 것이므로 잔차를 지고 있는 상자의 값이 아니다. 같은 프로브를 뒤의
-상자로 바꿔 다시 잰 값(`2.051960e-4`)과 잔차의 판정은 §284.4–.5에 있다.
+판정하는 잔차의 82배 — 떨어져 있다. 아래의 `4.418002e-4`는 이 절이 쓰인
+시점 `tools/fcl-distance-tolerance-probe/probe.cpp:77`이 세우던 `0.121, 0.08,
+0.17` 상자의 실측이고, 잔차를 지고 있는 상자의 값이 아니다.
+§298이 프로브를 뒤의 상자(`0.09, 0.06, 0.12`)로 다시 세우고
+`tools/ci/verify-fcl-distance-tolerance.sh`의 핀 셋도 그 상자의 실측으로
+다시 재웠다 — 판정은 §284.4–.5, 재핀은 §298에 있다.
 
 `distanceCallback`은 요청을 `fcl::DistanceRequestd(cdata->req->enable_nearest_points)`
 로 만든다(`:603`) — 인자가 하나뿐이므로 `distance_tolerance`가
@@ -25188,10 +25213,17 @@ iteration", 즉 **반복 정지 문턱이지 오차 한계가 아니다.**
 
 둘째가 있어야 첫째를 "기본값의 오차"로 읽을 수 있다. 없으면 solver 하나가 헤매는
 것과 구별되지 않는다. **`4.4e-4`만큼 흔들리는 기준으로 `8.9e-5`를 포트의 오차라고
-판정할 수 없다.** `tools/ci/verify-fcl-distance-tolerance.sh`가 이것을 매번 다시
-재고(약 3초, digest-gated, 도커 없으면 큰 소리로 SKIP), 핀 셋 모두 실측 후 여유를
-적어 박았다: `MIN_DRIFT=1e-5`(실측 `4.418002e-4`), `MAX_SOLVER_GAP=5e-7`(실측
-`9.761567e-8`, 5.1배), `MIN_RATIO=100`(실측 4,526배).
+판정할 수 없다.** 이 두 수(`4.418002e-4`, `9.761567e-8`)는 그때
+`tools/fcl-distance-tolerance-probe/probe.cpp:77`이 세우던 `0.121, 0.08, 0.17`
+상자 — §284가 정정한, 잔차를 지지 않는 그 상자 — 의 실측이다.
+`tools/ci/verify-fcl-distance-tolerance.sh`가 이것을 매번 다시 재는데(약 3초,
+digest-gated, 도커 없으면 큰 소리로 SKIP), §298이 프로브를 뒤의
+상자로 다시 세우고 핀 셋도 그 상자의 실측(`2.051960e-4`, `6.060727e-10`,
+`3.385667e5`)으로 다시 여유를 적어 박았다: `MIN_DRIFT=1e-5`, `MAX_SOLVER_GAP=3e-9`
+(5배 여유), `MIN_RATIO=1000`(~338배 여유). 이 절이 적은 `MIN_DRIFT=1e-5`(당시
+실측 `4.418002e-4`), `MAX_SOLVER_GAP=5e-7`(당시 실측 `9.761567e-8`, 5.1배),
+`MIN_RATIO=100`(당시 실측 4,526배)는 앞 상자의 값이고, 지금 스크립트가 쓰는
+핀이 아니다.
 
 ### §260.5 예측 둘 중 하나는 맞았고 하나는 반증됐다
 
@@ -25686,9 +25718,17 @@ CHOMP/STOMP 절이 가리키는 Phase 7의 조건은 같은 파일 705-708행이
 ### §263.1 어떤 기준선인가 — 이 읽기는 고른 것이 아니라 강제된 것이다
 
 "Phase 7과 같은"을 "Phase 7이 쓴 **C++ OMPL RRTConnect** 기준선에 대해 같은
-세 조건"으로 읽었다. "각 플래너를 자기 상류 C++ 구현과 비교"로 읽을 수는
-없다: 오라클에 CHOMP 플래닝 op이 없고, `moveit_planners/stomp`는 오라클 op이
-아예 없다. 후자의 읽기는 STOMP에 대해 **구조적으로 측정 불가능**하다.
+세 조건"으로 읽었다. "각 플래너를 자기 상류 C++ 구현과 비교"로는 **이 절이
+쓰인 시점에** 읽을 수 없었다: 그때 오라클에는 CHOMP 플래닝 op이 없었고,
+`moveit_planners/stomp`는 오라클 op이 아예 없었다. 후자의 읽기는 STOMP에 대해
+구조적으로 측정 불가능했다.
+
+**그 제약은 오늘 없다.** `b146a109`(`feat(oracle): add chomp_plan and stomp_plan
+ops for the Phase 8 C++ baseline`)가 두 op을 넣었고 — 오라클의 op 디스패치가
+`chomp_plan`을 `chompPlan`으로, `stomp_plan`을 `stompPlan`으로 보낸다 — §269가
+바로 그 두 번째 읽기로 같은 500문제를 다시 재서 C++ CHOMP 370/500,
+C++ STOMP 446/500을 냈다. 이 절의 읽기는 그 시점에 강제된 것이고, 판정을
+가진 것은 §269다.
 
 대가는 숨기지 않고 적는다. 조건 1과 3은 최적화기(CHOMP/STOMP는 시드 궤적
 하나를 다듬는다)를 샘플링 플래너(RRTConnect는 트리를 키운다)와 비교한다.
@@ -25835,9 +25875,12 @@ a pass"를 명시해 두 줄로 외친다. 매 병합 라운드에 돌릴 만한
 
 ### §263.7 이 절이 재지 않은 것
 
-- **CHOMP/STOMP를 각자의 상류 C++ 구현과 비교하는 읽기.** §263.1의 이유로
-  구조적으로 불가능하다(오라클에 CHOMP 플래닝 op 없음, STOMP는 op 자체가
-  없음). 이 읽기를 열려면 오라클 쪽 op을 새로 만들어야 한다.
+- **CHOMP/STOMP를 각자의 상류 C++ 구현과 비교하는 읽기. 닫혔다(§269).** 이 절
+  시점에는 §263.1의 이유로 구조적으로 불가능했다 — 오라클에 CHOMP 플래닝 op이
+  없었고 STOMP는 op 자체가 없었다. `b146a109`가 `chomp_plan`과 `stomp_plan`을
+  넣어 그 자리를 열었고, §269가 그 두 op으로 같은 500문제를 다시 재서 C++
+  CHOMP 370/500 · C++ STOMP 446/500을 냈다. 그러므로 이 항목은 "열려면 op을
+  만들어야 한다"가 아니라 "만들어졌고 쟀다"이다.
 - **Phase 8의 pilz 항목.** §217.3이 MET으로 측정했고 이 절은 손대지 않았다.
 - **상류 기본 벽시계 구성의 재현 가능한 수치.** §263.3의 표는 기록이지
   게이트가 아니다 — 그 구성에서는 재현 가능한 숫자가 존재하지 않는다는 것이
@@ -26068,10 +26111,12 @@ fanuc 두 stratum에서는 **해결한 문제 전부**가 직선 씨앗이 이�
 
 시한 초과도 같은 갈림의 다른 쪽이다. STOMP은 40문제 중 16개(40%)에서 120초
 상한에 닿았다. Phase 7의 `no-timeouts`를 "그대로 옮겼다"고 해서 통과한다는
-뜻은 아니다: 규칙은 옮겨지고 **모집단은 옮겨지지 않는다**. Phase 8의 줄을 닫는
-데 필요한 것은 이 계측기가 아니라 씨앗이 주어진 문제 모집단
-(`ChompRequest::seed_trajectory`, upstream STOMP의 `extractSeedTrajectory`)이고,
-그것은 §264.12에 남긴다.
+뜻은 아니다: 규칙은 옮겨지고 **모집단은 옮겨지지 않는다**. 이 절은 여기서
+"Phase 8의 줄을 닫는 데 필요한 것은 이 계측기가 아니라 씨앗이 주어진 문제
+모집단(`ChompRequest::seed_trajectory`, upstream STOMP의
+`extractSeedTrajectory`)"이라고 결론짓고 §264.12에 남겼다. 그 결론은 §286이
+반증했다 — §5의 Phase 8 줄은 새 생성기 없이 MET으로 닫혔고, 조건 2의 변별
+부분모집단은 이 절이 이미 세고 있던 씨앗 무효 stratum 그 자체였다(§286.9).
 
 ### §264.8 CHOMP의 `mesh_to_mesh_collision_free`를 처음으로 실제로 공급한다
 
@@ -26095,7 +26140,7 @@ upstream에 있고 이 실행에는 없는 경로를 보증하는 셈이 된다.
 
 이 수가 **하한이지 등식이 아닌** 이유도 실측이다. 최적화기는 클로저를
 `iteration % 10 == 0`에서 부르고 루프는 `start_time.elapsed() >
-planning_time_limit`에서 나간다(`optimizer.rs:1582`, `:1598`). 같은 시드로 연속
+planning_time_limit`에서 나간다(`optimizer.rs:1764`, `optimizer.rs:1781`). 같은 시드로 연속
 두 번 돌린 pilot에서 나머지 per-set 수치는 전부 같고 fanuc_floor_wall의 호출
 수만 9 → 10으로 달랐다. 벽시계에 달린 수를 등식으로 핀하면 그 핀은 기계 부하를
 잰다.
@@ -26233,25 +26278,47 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
 
 ### §264.12 닫지 않은 것
 
-- **씨앗이 주어진 문제 모집단.** §264.7이 이 라운드의 가장 큰 미결이다. Phase
-  8의 줄을 정직하게 닫으려면 균일 무작위 끝점 쌍이 아니라 씨앗 궤적이 딸린
-  문제가 필요하다 — 두 진입점이 이미 그것을 받는다
-  (`ChompRequest::seed_trajectory`, upstream STOMP의 `extractSeedTrajectory`).
-  생성기를 그렇게 늘리는 것은 `moveit-planners-sbp`의 예제를 고치는 일이라
-  이 라운드의 두 크레이트 밖이다.
-- **C++ CHOMP 기준선.** 오라클은 이미 `chomp_motion_planner`를 링크하므로
-  `chomp_plan` op는 만들 수 있다(§264.3). 만들면 `condition1`의
-  `0.9 × cpp_rate`와 `cpp-endpoints`, `no-regression-cpp-solved`가 CHOMP에
-  대해 실제로 복원된다. 이번 라운드에 만들지 않았다: 오라클 소스 변경은
-  digest 게이트가 이미지 재빌드를 강제하고, 그 비용은 이 라운드에 넣지
-  않았다.
+- **씨앗이 주어진 문제 모집단. 절반 닫혔다(§286.9).** 이 절은 "Phase 8의 줄을
+  정직하게 닫으려면 균일 무작위 끝점 쌍이 아니라 씨앗 궤적이 딸린 문제가
+  필요하다"고 적었고, 그 전제는 **틀렸다**: §5의 Phase 8 줄은 새 생성기 없이
+  MET으로 닫혔다(§286.10). §286.9가 이 항목을 둘로 갈랐다 — 조건 2에 대한
+  변별 부분모집단은 씨앗 무효 stratum 251문제로 **이미 존재하고 이미
+  측정된다**. 남는 것은 씨앗을 *고르는* 것뿐이다: 지금 stratum의 씨앗은
+  "직선이 우연히 무효인 것"이지 난이도를 지정한 것이 아니고, 일부러 어려운
+  씨앗이 조건 2 사건율을 올려 §286.4의 검정력 부족을 푸는지는 미측정이다.
+  두 진입점은 그대로 그것을 받는다(`ChompRequest::seed_trajectory`, upstream
+  STOMP의 `extractSeedTrajectory`).
+- **C++ CHOMP 기준선.** 만들어졌다 — CHOMP과 STOMP 양쪽으로. 오라클은
+  `chomp_plan`과 `stomp_plan`을 답하고(`oracle.cpp:1067`,
+  `oracle.cpp:1069`가 `chompPlan`(`oracle.cpp:6185`)과
+  `stompPlan`(`oracle.cpp:6323`)으로 보낸다),
+  `tools/ci/measure-phase8-cpp-baseline.sh`가 문제당 한 프로세스로 그것을
+  몬다. `tools/ci/measure-phase8-optimizer-properties.sh`가 이 계측기 자신의
+  모집단에 대해 `condition1`, `condition3-pooled`, `condition3-paired`,
+  `no-regression-cpp-solved`를 다시 검사로 들고 있고, 기준선이 없을 때 그
+  넷을 조용히 빼는 대신 빠졌다고 보고한다
+  (`tools/ci/measure-phase8-optimizer-properties.sh:1018-1022`). 이 라운드가
+  한 것은 계측기 복원까지이며, 그 위에서 낸 수치를 절로 적지는 않았다 — 그
+  수치를 담을 절은 아직 없다. 남는 잔여는 `cpp-endpoints` 하나이고, 그것은
+  논증이
+  아니라 사실이다: `chompPlan`/`stompPlan`은 `path`를 내보내지 않으므로
+  (경로를 내보내는 것은 `plan` op뿐 — `oracle.cpp:5870`) C++ 쪽에 끝점
+  간극을 잴 대상 자체가 없다. 더하는 것은 오라클 소스 변경이고, digest
+  게이트가 그것을 이 기계의 모든 워크트리에 대한 이미지 재빌드로 만든다.
 - **`full` 모드의 핀.** 한 번도 돌리지 않았다(§264.9). 250문제 × 2로봇 ×
   2플래너에 STOMP의 실측 문제당 비용을 곱하면 이 라운드에 들어가지 않는다.
-- **CHOMP의 목적함수가 관측되지 않는다.** `solve`는
-  `ChompSolution { trajectory, planner_id, description }`만 반환한다. 최적화기
-  내부의 smoothness/obstacle 비용은 밖에서 볼 수 없으므로, CHOMP의 품질
-  항목은 짝지은 *개선* 주장이 아니라 직선 하한에 대한 **비 밴드**다. 닫는
-  방법은 한 필드다: `ChompSolution`에 최종 궤적 비용을 실어 보내는 것.
+- **CHOMP의 목적함수가 관측되지 않는다 — §293에서 닫았다.** 닫는 방법은
+  여기 적힌 "한 필드"가 아니었다. upstream은 이 값을 폐기하지 않고
+  `best_group_trajectory_cost_`(`chomp_optimizer.hpp:150`)에 들고 있되
+  `private:`(`chomp_optimizer.hpp:83`) 아래에 두고, 유일하게 밖으로 내보내는 곳
+  (`chomp_optimizer.cpp:310`의 `RCLCPP_DEBUG`)에서 **합이 아니라 두 항을
+  따로** 찍는다. 그래서 실린 것은 스칼라 하나가 아니라
+  `ChompObjectiveProgress { seed, best, last }`이고 각 항은
+  `{smoothness, collision}`이다. `best`만으로는 §264.12가 요구한 *개선*
+  주장이 구성상 음수가 될 수 없어(`chomp_optimizer.cpp:338`) 짝지은 주장이
+  최소값 추적을 재는 것에 그친다 — 부호가 열려 있는 양은 upstream이 계산하고
+  버리는 마지막 반복 `last`다. 500문제 실측과 그 계수기가 0이 아닌 값을
+  보고할 수 있음을 보인 반증 실행은 §293.
 - **STOMP의 끝점 밀림 자체.** §264.4는 상한을 핀으로 걸었을 뿐이고, 밀림을
   없애지 않았다. upstream 동작이므로 포트가 임의로 다시 고정하면 안 된다.
 - **제약 비용이 위반량이 아니라 거리라는 것.** §264.6의 원인도 upstream
@@ -27208,8 +27275,8 @@ ULP까지 일치한다는 것이다. 그리고 남은 114건이 왜 다른지는
 - 상류: `chomp_optimizer.cpp:568`의 `rsl::uniform_real(0., 1.)`, 바로 위
   `chomp_optimizer.cpp:566`의 `if (parameters_->use_stochastic_descent_)`
   안에 있다.
-- 포트: `optimizer.rs:1370`의 `rng.random_range(0.0..1.0)`,
-  `optimizer.rs:1369`의 `if self.parameters.use_stochastic_descent` 안에 있다.
+- 포트: `optimizer.rs:1501`의 `rng.random_range(0.0..1.0)`,
+  `optimizer.rs:1500`의 `if self.parameters.use_stochastic_descent` 안에 있다.
 
 상류 CHOMP에 난수 소비자로 보이는 다른 두 자리는 살아 있지 않다.
 `ChompOptimizer::perturbTrajectory`(`chomp_optimizer.cpp:959`)의 유일한 호출은
@@ -27323,8 +27390,12 @@ Phase 8의 이 행에 대해서는 그 답이 예다 — §263이 정확히 그 
 
 - `max_iterations = 200`(`CHOMPInterface::loadParams`의 값)에서의 성공률 —
   양쪽 다 미측정(§269.8).
-- 포트 CHOMP/STOMP를 시드 베이스 여러 개로 돌린 seed lottery. C++ STOMP만
-  세 벌 돌렸다(§269.7). 포트 쪽 폭은 §263의 한 벌뿐이다.
+- 포트 CHOMP/STOMP를 시드 베이스 여러 개로 돌린 seed lottery. 이 절은 C++
+  STOMP만 세 벌 돌렸고(§269.7) 포트 쪽 폭은 §263의 한 벌뿐이었다. **CHOMP
+  쪽은 그 뒤 §286.5가 닫았다** — 같은 500문제를 씨앗 베이스만 700001에서
+  424242로 바꿔 포트 CHOMP을 다시 돌려 371/500을 얻었고, 그 두 벌의 차이가
+  `r*`를 기준에서 탈락시킨 근거다. **남는 것은 포트 STOMP 쪽 한 벌뿐이고**,
+  그 이유는 비용이다(한 벌 약 3시간, §286.11).
 - `moveit_planners_chomp` / `moveit_planners_stomp` 플러그인 **껍데기**의
   파리티. 이 절은 `ChompPlanner::solve`와 `StompPlanningContext::solve`를
   비교했고, 그 위의 pluginlib 등록·ROS 파라미터 읽기·`PlanningContext` 수명
@@ -27332,7 +27403,12 @@ Phase 8의 이 행에 대해서는 그 답이 예다 — §263이 정확히 그 
 - STOMP의 조건 2 실패에 대한 상류 C++ 쪽 `COL_CHECK_DISTANCE` 기여도. §263.4가
   포트 쪽 3건을 그 상수로 설명했고 C++ 쪽 2건도 같은 모양
   (`valid_at_returned_waypoints = true`)이지만, 상수를 바꿔 돌려 인과를 확인한
-  실험은 하지 않았다.
+  실험은 하지 않았다. **그 실험은 지금도 없다. 다만 물음은 §286.3이 다른
+  방법으로 답했다** — 해상도 그리드에서 cpp STOMP의 조건 2 실패는 0.05와 그
+  위에서 0건이고 0.02부터 2건이 되며, cpp STOMP 자신의 waypoint 간격
+  중앙값이 0.0569로 그 상수 바로 위에 앉는다(§286.6). 상수를 끄지 않고 바를 상수
+  주변에서 움직여 같은 인과를 보인 것이고, §5 Phase 8 줄의 조건 2 문안이
+  그 이산화 단위를 이름으로 쓰는 근거다.
 - C++ 스윕의 `wall_secs`. 위 동시 부하에서 잰 값이므로 이 기계의 값이지
   플래너의 값이 아니다(§269.2).
 
@@ -27862,20 +27938,27 @@ crates/moveit-planners-sbp/src/registry.rs:903:#[linkme::distributed_slice(PLANN
 
 ### §274.6 닫지 않은 것
 
-- **저장된 설정은 어떤 플래너에도 닿지 않는다. 닫혔다(§285).** 상류의 `setParams`는
-  `setPlannerConfigurations`로 끝나면서 파이프라인이 계획에 쓰는 인스턴스에
-  맵을 넘긴다. 여기에는 대응하는 호출이 없고, 애초에 이 워크스페이스의 어떤
-  구성 경로도 `PlannerConfigurationMap`을 입력으로 받지 않는다. 즉 `set`은
-  받아들여지고 `get`으로 읽히지만 뒤따르는 계획을 바꾸지 않는다. 닫으려면
-  `PlannerRegistration::construct`가 저장소를 받아야 하고, 그것은 플래너
-  레지스트리 트레이트의 변경이라 이 파일의 일이 아니다.
-- **머지 시점의 import. 이미 해소되었다(§285.1).** 이 브랜치의 base에서 `PLANNER_MANAGERS`는
-  `moveit-planners-sbp`에 있고, `main`에서는 `moveit-planner-registry`
-  크레이트로 옮겨져 있다(그 크레이트는 이 base에 존재하지 않는다). sbp는
-  거기에 비공개 `use`로 닿고 워크스페이스 어디에도 재수출이 없으므로, 새
-  파일인 `planner_params.rs`는 **충돌 없이 머지되고 그 다음 컴파일에서
-  깨진다**. 고칠 곳은 import 한 줄과 `Cargo.toml`의 의존 한 줄이며, 읽는 값은
-  달라지지 않는다. 파일 안 주석에도 같은 내용을 적어두었다.
+- **저장된 설정은 어떤 플래너에도 닿지 않았다. 닫혔다(§285).** 상류의
+  `setParams`는 `setPlannerConfigurations`로 끝나면서 파이프라인이 계획에 쓰는
+  인스턴스에 맵을 넘기는데, 이 절 시점에는 대응하는 호출이 없었고 이
+  워크스페이스의 어떤 구성 경로도 `PlannerConfigurationMap`을 입력으로 받지
+  않았다 — `set`은 받아들여지고 `get`으로 읽히지만 뒤따르는 계획을 바꾸지
+  않았다. 이 항목이 닫는 조건으로 적은 것("`PlannerRegistration::construct`가
+  저장소를 받아야 한다")이 그대로 §285의 형태다: `684ef261`이 그 필드를
+  `fn(&PlannerConfigurationMap) -> Box<dyn PlannerManager>`로 바꿔
+  (`crates/moveit-planner-registry/src/lib.rs:80`) setter가 아니라 **생성자
+  인자**로 만들었고, `resolve_planner`가 유일한 통로이므로 레지스트리로 만든
+  매니저는 자기가 계획할 설정을 반드시 갖는다.
+- **머지 시점의 import. 이미 해소되었다(§285.1).** 이 절이 쓰인 브랜치의
+  base에서 `PLANNER_MANAGERS`는 `moveit-planners-sbp`에 있었고 `main`에서는
+  `moveit-planner-registry` 크레이트로 옮겨져 있었으므로, 새 파일인
+  `planner_params.rs`는 충돌 없이 머지되고 그 다음 컴파일에서 깨질 것이라고
+  적었다. **그 예측대로 됐고 머지가 그 자리에서 고쳤다** — 예고한 두 줄을
+  바꾼 것은 병합 커밋 `421fafbc`(`Merge p11-planningfailed: bind the three
+  planner-params services`) 자신이고, 이후 트리의 `planner_params.rs`는
+  `moveit_planner_registry::PLANNER_MANAGERS`를 읽으며
+  `ros/moveit-ros/Cargo.toml`은 그 크레이트를 의존한다. 읽는 값은 예고대로
+  달라지지 않았다.
 
 ---
 
@@ -29049,10 +29132,25 @@ PROBE cartesian verdict=FULL_CARTESIAN_PATH_RECEIVED
 ```
 
 `reached`의 비교 대상은 클라이언트가 방금 보낸 그 목표 포즈이고, 허용오차는
-`1e-6`이다. leg가 공허하지 않다는 것은 세 음성 대조로 보였다 — 엔드포인트
-이름을 바꾸면 `val=99999`, `fraction`을 반으로 나누면 `fraction=0.5`,
-`SOURCE`를 `moveit-ros/move_action`으로 바꾸면 source 단언이, 각각 서로 다른
-줄에서 걸린다.
+`1e-6`이다. leg가 공허하지 않다는 것은 세 음성 대조로 보였고, 셋 다 게이트를
+붉혔다.
+
+| 변이 | 걸린 단언 | 탐침이 찍은 것 |
+|---|---|---|
+| L1 노드가 엔드포인트를 다른 이름으로 광고 | `leg C round trip` | **아무것도 없다.** `PROBE cartesian` 줄이 한 줄도 나오지 않고 120초 상한이 만기한다 |
+| L2 노드가 `fraction`을 반으로 나눔 | `leg C fraction` | `fraction=0.5`, `verdict=NO_FULL_CARTESIAN_PATH` |
+| L3 노드가 서비스 응답에 action의 `SOURCE`를 찍음 | `leg C round trip` | `source='moveit-ros/move_action'`, 그리고 `fraction=1`·`reached=true`·`verdict=FULL_CARTESIAN_PATH_RECEIVED`는 그대로 초록 |
+
+**세 변이가 세 단언에 일대일로 대응하지는 않는다.** L1과 L3은 같은 줄
+(`leg C round trip`)에서 걸린다. 그 줄이 `val`과 `source`를 한 문자열로
+단언하기 때문이고, 이 게이트에서 그 둘을 가르는 대조는 없다. L2만이 별도
+단언을 물며, 그것도 `fraction` 단언과 `verdict` 단언 둘을 함께 움직인다.
+
+L1이 아무것도 찍지 못하는 것은 상한이 지나치게 짧아서가 아니라 상류
+클라이언트의 성질이다. `future_response.get()`
+(`move_group_interface.cpp:893-896`)에 시한이 없어서, 서버가 없는 이름으로
+보낸 요청은 영영 반환하지 않는다. §282.6이 고치는 매달림과 같은 뿌리이며,
+`run_probe()`의 `timeout -k 5`가 그것을 끊는 유일한 것이다.
 
 ### §282.6 leg C가 31분 매달렸다 — `timeout`이 `docker run`을 묶지 못한다
 
@@ -29484,9 +29582,11 @@ prbt의 `bool` 6,854건이 사라지는 대신 그 로봇에서만 분리 분기
 `0.09 x 0.06 x 0.12`이고, §260.4의 괄호는 같은 링크의 다른 `<collision>`을
 부른다. 정정은 §260.4에 표시했다.
 
-이것은 표기 실수로 끝나지 않는다.
+이것은 표기 실수로 끝나지 않는다. 이 절이 쓰인 시점
 `tools/fcl-distance-tolerance-probe/probe.cpp:77`이
-`std::make_shared<fcl::Box<S>>(0.121, 0.08, 0.17)`을 세우므로, §260.4의
+`std::make_shared<fcl::Box<S>>(0.121, 0.08, 0.17)`을 세우고 있었으므로 (§298이
+이후 `tools/fcl-distance-tolerance-probe/probe.cpp:86`을 `0.09, 0.06, 0.12`로
+다시 세웠다), §260.4의
 `4.418002e-4`는 잔차를 지고 있지 않은 쪽 상자에서 잰 수다. 같은 프로브의 상자만
 `0.09 0.06 0.12`로 바꿔 같은 이미지(`moveit-rs/oracle:fc6738ad78dd45d5`)에서
 같은 2,000자세를 다시 재면:
@@ -29609,13 +29709,16 @@ GJK 경로에 떨어져 `distanceCallback`이 남겨 둔 `distance_tolerance` �
 "`1e-4`에서 최악 `8.9e-5`로 통과"와 "`1e-11`까지 일치"는 이 포트에 대한 서로
 다른 진술이기 때문이다.
 
-이 절이 하지 않은 것:
+이 절이 하지 않은 것 (첫째는 §298이 닫았다):
 
-- **커밋된 프로브의 상자를 고치지 않았다.**
-  `tools/fcl-distance-tolerance-probe/probe.cpp:77`은 여전히
-  `0.121 x 0.08 x 0.17`을 세우고, `tools/ci/verify-fcl-distance-tolerance.sh`의
-  `MIN_DRIFT`/`MAX_SOLVER_GAP`/`MIN_RATIO`는 그 상자의 실측에 박혀 있다.
-  §284.4가 교체 시의 수를 적어 두었을 뿐이다.
+- **커밋된 프로브의 상자를 고치지 않았다. 거짓 → 닫힘 (§298).** 이 절이 쓰인
+  시점 `tools/fcl-distance-tolerance-probe/probe.cpp:77`은
+  `0.121 x 0.08 x 0.17`을 세우고 있었고, `tools/ci/verify-fcl-distance-tolerance.sh`의
+  `MIN_DRIFT`/`MAX_SOLVER_GAP`/`MIN_RATIO`는 그 상자의 실측에 박혀 있었다 —
+  §284.4가 교체 시의 수를 적어 두었을 뿐이었다. §298이 프로브를
+  `tools/fcl-distance-tolerance-probe/probe.cpp:86`의 `0.09, 0.06, 0.12`로
+  다시 세우고 세 핀도 그 상자의 실측에서
+  다시 뽑았다.
 - **관통 분기 쪽 잔차는 이 계측기로 재지 않았다.** 괄호는 분리 쪽에서만
   성립한다(§281.6과 같은 이유).
 - **다른 `box x cylinder` self 쌍은 훑지 않았다.** 이 절이 판정한 것은 case
@@ -30130,7 +30233,7 @@ op은 요청의 `motion_resolution`을
 늘 100%인 바는 아무것도 재지 않을 수 있다. 특히 CHOMP에서는 의심할 이유가
 분명하다 — `ChompPlanner::solve`가 SUCCESS를 `optimizer->isCollisionFree()`로
 판정하므로(`chomp_planner.cpp:284`, 포트에서 같은 자리는
-`crates/moveit-planners-chomp/src/planner.rs:478`의
+`crates/moveit-planners-chomp/src/planner.rs:503`의
 `if !optimizer.is_collision_free() {`), "해결했다"가 "자기 waypoint에서 충돌
 없다"를 이미 함의하는 것처럼 보인다.
 
@@ -30143,7 +30246,7 @@ C++ 쪽 FCL)를 본다. 그래서 포트의 그 한 줄을 `if false && !…`로
 | | 해결 | 자기 waypoint에서 조건 2 실패 | 0.01에서 조건 2 실패 |
 | --- | --- | --- | --- |
 | 원본 | 380/500 | **0** | 1 |
-| `crates/moveit-planners-chomp/src/planner.rs:478`의 `if !optimizer.is_collision_free() {`를 막음 | 500/500 | **111** | 112 |
+| `crates/moveit-planners-chomp/src/planner.rs:503`의 `if !optimizer.is_collision_free() {`를 막음 | 500/500 | **111** | 112 |
 
 바가 문다. 되돌린 뒤 `cage` id 0-19를 같은 씨앗으로 재실행한 결과가 기록된
 스윕의 해당 20행과 **바이트 동일**하다.
@@ -30170,7 +30273,7 @@ stratum의 씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지�
 질문이다.
 
 **생성기의 범위.** 진입점은 양쪽에 이미 있다 —
-`crates/moveit-planners-chomp/src/planner.rs:251`의
+`crates/moveit-planners-chomp/src/planner.rs:276`의
 `pub seed_trajectory: Option<&'a RobotTrajectory<'m>>,`, 포트 STOMP의
 `planner::extract_seed_trajectory`, 상류 STOMP의 `extractSeedTrajectory`
 (`stomp_moveit_planning_context.cpp:94`, `req.trajectory_constraints`를
@@ -30213,7 +30316,7 @@ stratum의 씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지�
 - **fanuc과 나머지 세 로봇.** 이 절의 모든 수는 panda_arm이다. §264.7의
   fanuc stratum은 씨앗 유효 비율이 이보다 훨씬 높았다(해결 문제 전부).
 - **조건 2를 자기 검사 단위에서 STOMP에 대해 무력화하는 변이.** §286.8은
-  CHOMP 쪽 `crates/moveit-planners-chomp/src/planner.rs:478`의
+  CHOMP 쪽 `crates/moveit-planners-chomp/src/planner.rs:503`의
   `if !optimizer.is_collision_free() {`만 껐다. STOMP 쪽의 대응 변이는
   §263.6이 `COLLISION_PENALTY` = 0으로 이미 한 번 걸었지만,
   그것은 0.01 바에 대한 것이고 0.05 바에 대해 다시 걸지는 않았다.
@@ -30231,8 +30334,15 @@ stratum의 씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지�
 `fcl-distance-tolerance-probe` 두 그룹이 사라졌다. 오늘 게이트가 검사하는 이
 저장소 안 `oracle.cpp` 인용은 **87건**이다 — 이 절 자신이 쓴 18건과 §286이 쓴
 2건을 포함한 수이고, 이 라운드가 들어오기 전 트리 기준으로는 67건이다.
-`tools/fcl-distance-tolerance-probe/probe.cpp:77`을 가리키는 인용 4건도 같은
-루트로 검사된다.
+`tools/fcl-distance-tolerance-probe/probe.cpp:77`을 가리키는 인용 4건도 그
+시점 같은 루트로 검사됐다. §298이 프로브를
+`tools/fcl-distance-tolerance-probe/probe.cpp:86`으로 재핀한 뒤 이 줄은 비어
+있다 — 오늘 이 문서에서 그 줄을 가리키는 인용은 여섯 곳이고, 전부 "이 절이
+쓰인 시점"·"그때" 식으로 시점을 밝힌 채 남아 있다(§253.3–.4의 선례인
+`@<sha>:NNN` 철자는 `probe.cpp`에는 못 쓴다 — §287이 연 `--source` 루트는
+`oracle.cpp`뿐이고, `probe.cpp@<sha>:NNN`은 `verify-upstream-citations.sh`가
+"resolves against no root"로 하드 실패한다는 것을 이 라운드에서 직접
+확인했다).
 
 ### §287.1 루트를 넣기 전에 확인한 것 — basename 충돌 3건, 오늘은 물지 않는다
 
@@ -30944,3 +31054,1116 @@ in-repo `.md` 문서 자신의 줄이다. 남는 2110건은 지시 대상이
 언급하는 바람에 키가 은퇴하지 않고 3x → 2x로 다시 세어져 `recounted`가 됐다 —
 실패 범주만 바뀌고 하드 실패인 것은 같다. 이 절 자신이 코퍼스의 일부라는
 사실이 이 절의 숫자를 바꾼 두 번째 사례다(첫째는 §289.8).
+
+## §290 span 클래스의 C++ 문법 — 데이터 멤버가 정의 스팬을 갖고, 옮기지 않기로 한 세 규칙은 실측으로 뺐다 (2026-08-07)
+
+§289가 세 번째 클래스를 넣은 뒤에도 통과 줄의 절반 가까이는 여전히
+bounds-only다 — 2622건 중 **1141건**. bounds-only는 "이 숫자가 파일 줄 수보다
+작다"만 주장한다. 400줄 밀려 무관한 코드를 가리키는 인용도 bounds-only이고
+초록이다. 클래스 기준선이 잡는 것은 *강등*이지, 처음부터 틀린 채 평생
+bounds-only였던 인용이 아니다.
+
+자매 게이트가 그 사이에 rule 0을 갖췄다: 인용 문장이 이름 대는 항목의 **진짜
+스팬**에 대해 이진으로 판정하고, "판단할 수 없었다" 통은 두지 않는다 — 그
+통이 이미 bounds-only이기 때문이다. 이 절은 그 C++ 쪽이다. 옮긴 것은 하나이고,
+옮기지 않기로 한 것이 셋인데 셋 다 **재보고 뺐다**.
+
+### §290.1 없던 것은 항목 문법이었다
+
+`symbol_spans`가 알아보던 것은 함수(중괄호 정합), 헤더의 몸통 없는 선언,
+그리고 `TAG_RE`의 `class`/`struct`/`union`/`enum`뿐이다. 데이터 멤버와 상수는
+없었다. 그래서 `OCTOMAP_NS`·`config_settings_`·`planner_map_`·`node_`·
+`max_contacts_per_pair`·`DEFAULT_MAX_SAMPLING_ATTEMPTS`처럼 코퍼스가 실제로
+인용을 붙이는 이름들이 "안에 있을 스팬"을 갖지 못했다. `why_bounds_only`가
+"tightly paired name has no definition span in the file (field, macro, alias,
+namespace)"로 세던 **14건**이 그것이다.
+
+문법은 코퍼스의 실제 줄에서 읽었다. `PlanningScene::OCTOMAP_NS`
+(`planning_scene.hpp:113`)는 `static const std::string OCTOMAP_NS;`,
+`PlannerManager::config_settings_` (`planning_interface.hpp:210`)는
+`PlannerConfigurationMap config_settings_;`,
+`CollisionRequest::max_contacts_per_pair`
+(`collision_detection/collision_common.hpp:176`)는
+초기화자가 붙은 `std::size_t max_contacts_per_pair = 1;`,
+`ConstraintSampler::DEFAULT_MAX_SAMPLING_ATTEMPTS` (`constraint_sampler.hpp:64`)는
+`static const unsigned int ... = 2;`, `COL_CHECK_DISTANCE`
+(`cost_functions.hpp:59`)와 `DEFAULT_MAX_PROPOGATION_DISTANCE`
+(`collision_env_distance_field.hpp:55`)는 파일 스코프 `constexpr`/`static const`다.
+
+**헤더에 한해서다.** 몸통 없는 `Type name(args);`가 헤더에서만 선언으로
+기록되는 것과 같은 이유로 — `.cpp`에서 이 모양은 지역 변수다. `benchmarks`
+(`BenchmarkExecutor.cpp:1012`)가 그 증거다: 그 줄은 `for` 몸통이고, `double
+benchmarks;`는 40줄 위에 있다. 지역에 스팬을 주면 인용 문장이 뜻하지 않은
+이름에 대한 확신 있는 판정이 나온다.
+
+### §290.2 헤더 안의 지역도 걸러야 했다 — 이름에 기대면 새는 자리
+
+헤더에도 인라인 몸통이 있고 그 안의 선언은 `.cpp`와 같은 지역이다. 처음에는
+이미 기록된 `fn` 스팬으로 걸렀는데, 그 목록은 **이름이 `CXX_KEYWORDS`를
+통과한 것만** 담는다. `eigen_test_utils.hpp:65`의 `std::stringstream msg;`가
+정확히 그 구멍이다 — 감싸는 몸통의 머리가 `operator()`이고 `operator`는
+키워드라 `fn` 스팬이 없다. 그래서 `msg`가 헤더에서 "member" 스팬을 얻었다.
+
+구조로 닫았다: `NAME(...) { ... }` 블록은 이름이 키워드든 아니든 전부
+`blocks`에 모으고, 멤버 규칙은 그 블록 목록으로 거른다. 클래스 몸통은
+`NAME(...)` 블록이 아니므로 멤버를 가리지 않는다. 코퍼스 전체에서 member
+스팬은 헤더 430개에 걸쳐 2361 → **2334**로 줄었고(지역 27건), 이 변경으로
+클래스가 바뀐 인용은 0건이다 — 오늘 새는 인용이 없었다는 뜻이지, 규칙이
+필요 없었다는 뜻이 아니다.
+
+### §290.3 옮기지 않은 것 1 — doc 블록 확장. 승격 0, 오탐 1
+
+자매의 실측은 "선언 줄만 68 mismatch, 항목 스팬 34, 항목 스팬+doc/attrs 4"였고
+차이의 대부분이 doc 주석을 옳게 가리키는 인용이었다. C++에서는 doc 블록이
+스팬에서 빠져 있을 뿐 아니라 **보이지도 않는다** — `mask_non_code`가 주석을
+공백으로 지우므로 `_stmt_start_line`은 `/** ... */`를 빈 줄로 읽고 거기서
+멈춘다. 그래서 Doxygen(`///`·`//!`·`/** */`·`/*! */`)만 위로 흡수하도록
+구현하고 재봤다.
+
+| | 승격 | span-mismatch |
+|---|---|---|
+| doc 확장 켬 | 12 | 2 |
+| doc 확장 끔 | 12 | 1 |
+
+승격은 한 건도 늘지 않았고, 늘어난 실패 1건은 **옳은 인용**이었다:
+`distanceToCollisionUnpadded`의 첫 오버로드 `planning_scene.hpp:553-557`은
+그 함수의 첫 줄부터 닫는 중괄호까지 정확히 일치하는데, 위의 `/** \brief */`가
+스팬에 붙는 순간 "정확히 하나의 정의"이기를 그만둔다.
+
+이유는 구조적이고, 자매와 이쪽이 다른 지점이다. rule 0의 판정은 **포함**이다
+(인용된 줄들이 zone 안에 있는가). 이쪽 `part_verdict`의 판정은 **정확성**이다
+(`starts_a_span`·`ends_a_span`·`(lo,hi) in all_file_spans`). 포함 판정에서는
+스팬을 위로 넓히면 통과가 늘고, 정확성 판정에서는 정확했던 인용이 부정확해진다.
+같은 규칙이 반대 방향으로 작동한다. 규칙째로 뺐다.
+
+### §290.4 옮기지 않은 것 2 — 콤마 목록의 부분별 판정. 실패 5건 중 4건이 옳은 인용
+
+rule 0은 콤마 목록도 판정한다. 이쪽은 "콤마 목록은 자리를 열거할 뿐 포함을
+주장하지 않는다"며 bounds-only로 둔다(64건). 옮겨서 `part_verdict`를 원소마다
+돌려 봤다 — **5건 실패, 그중 4건이 옳은 인용**이었다.
+
+| 인용 | 실제 내용 | 판정 |
+|---|---|---|
+| `collision_env_hybrid.cpp:49,61,69,169` | 생성자 base-init 3개 + `CollisionEnvFCL::setWorld` 호출 1개 | 옳다 |
+| `time_optimal_trajectory_generation.cpp:321,327,333` | `getConfig`/`getTangent`/`getCurvature` **세 함수**의 `getPathSegment` 호출 자리 | 옳다 |
+| `move_group_interface.hpp:732,741,750,759` | `asyncExecute` 선언 2개 + `execute` 선언 2개 | 옳다 |
+| `planning_interface.hpp:56-72,193` | 설정 구조체 + 그것을 받는 메서드 선언 | 옳다 |
+| `planning_pipeline.hpp:261-264` | §290.7 — 진짜 드리프트 |
+
+콤마 목록에서 인접한 이름은 **주어**이지 각 원소를 담는 것이 아니다. 네 건 다
+문장이 두 개 이상의 이름을 대고, 인접성 규칙이 닿는 것은 그중 하나뿐이다.
+포함 주장을 하는 것은 단일 범위 인용뿐이라는 원래 판단이 맞았고, 이제는
+예시 하나가 아니라 실측이 그것을 받친다.
+
+### §290.5 옮기지 않은 것 3 — namespace. 스팬이 파일 전체라 주장이 공허해진다
+
+bounds-only 통의 이름이 "field, macro, alias, namespace"이므로 넷을 다 봤다.
+`namespace`는 재보기 전에 뺐고, 이유는 측정이 아니라 구조다: namespace 스팬은
+파일 전체를 덮으므로 "인용된 줄이 그 안에 있다"가 파일 안의 어느 줄에서나
+참이 된다. 남은 bounds-only 중 `moveit_servo` (`collision_monitor.cpp:124`)가
+정확히 그 모양이고, 그 줄은 `checkCollision` 몸통 안이다. 승격시킬 수는
+있으나 그것은 침묵을 없애는 것이 아니라 옮기는 것이다.
+
+`macro`와 `alias`는 구현하지 않았다. 멤버 규칙을 넣은 뒤 이 통에 남은 7건 중
+매크로도 별칭도 없기 때문이다 — 남은 것은 열거 상수 2건(`shapes::MESH`,
+`AllowedCollision::NEVER`, 둘 다 인용된 `.cpp`가 아니라 헤더에서 정의된다),
+namespace 1건, `.cpp` 지역 1건, 헤더에 정의된 클래스를 `.cpp`에서 인용한 1건,
+Rust 이름 1건, 그리고 §290.9의 잘못 귀속된 맨 needle 1건이다. 코퍼스가 쓰지
+않는 항목 종류를 알아보게 만드는 것은 규칙이 아니라 장식이다.
+
+### §290.6 측정 — 클래스별로 움직인 행 전부
+
+| | span-verified | content-verified | bounds-only | 합 | 키 |
+|---|---|---|---|---|---|
+| 전 (`fadb9718`) | 202 | 1279 | 1141 | 2622 | 2367 |
+| 후 | **215** | 1273 | **1134** | 2622 | 2367 |
+
+promoted 13 / demoted 0 / recounted 0 / retired 1 / undeclared 1.
+
+은퇴 1건과 미신고 1건은 같은 파일에서 1:1로 짝을 이룬다 —
+`crates/moveit-planner-registry`의 모듈 머리 주석에서
+`planning_pipeline.hpp:261-264`가 은퇴하고 `planning_pipeline.hpp:262-263`이
+도착한 것, 즉 §290.7의 인용 수정이다. 그 커밋에서 기준선의 해당 행 하나를
+손으로 옮기고 **바뀌지 않은 게이트로** 초록을 확인했으므로, 중간 커밋이 붉게
+남지는 않는다.
+
+승격 13건의 출처: bounds-only → span-verified **7건**, content-verified →
+span-verified **6건**.
+
+| 문서 | 인용 | 전 → 후 |
+|---|---|---|
+| PORTING-PLAN.md | `constraint_sampler.hpp:64` | bounds-only → span |
+| crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md | `collision_detection/collision_common.hpp:176` | bounds-only → span |
+| crates/moveit-collision/examples/visibility_cone_mpr_sweep.rs | `collision_detection/collision_common.hpp:176` | bounds-only → span |
+| crates/moveit-planner-registry/src/lib.rs | `planning_pipeline.hpp:263` | bounds-only → span |
+| crates/moveit-planners-sbp/src/registry.rs | `planning_interface.hpp:210` | bounds-only → span |
+| crates/moveit-planning/src/pipeline.rs | `planning_pipeline.hpp:257` | bounds-only → span |
+| ros/moveit-ros/src/scene/collision_object.rs | `planning_scene.hpp:113` | bounds-only → span |
+| crates/moveit-planner-registry/src/lib.rs | `planning_pipeline.hpp:262-263` | content → span |
+| crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs | `collision_env_distance_field.hpp:55` | content → span |
+| crates/moveit-planners-stomp/src/cost_functions.rs | `cost_functions.hpp:59` | content → span |
+| crates/moveit-planners-stomp/src/cost_functions.rs | `cost_functions.hpp:60` | content → span |
+| crates/moveit-planning/src/pipeline.rs | `planning_pipeline.hpp:259` | content → span |
+| ros/moveit-ros/doc/message-mapping.md | `planning_scene.hpp:113` | content → span |
+
+열세 건 전부 인용된 줄을 열어 확인했다. content → span 여섯 건은 "문장이
+인용한 텍스트가 그 줄에 있다"에서 "그 줄이 이름 댄 상수/멤버의 정의다"로
+올라간 것이므로 등급이 아니라 검사 내용이 바뀐 것이다.
+
+bounds-only의 구성은 한 통만 움직였다:
+
+| 무엇이 있어야 검증되는가 | 전 | 후 |
+|---|---|---|
+| 인용 60자 앞에 backtick 이름이 없다 | 987 | 987 |
+| 이름은 있으나 사이에 낱말이 있다 (가리킴이 아니라 그것에 대한 산문) | 74 | 74 |
+| 다부분 spec — 자리를 열거할 뿐 포함 주장이 없다 | 64 | 64 |
+| 짝지어진 이름에 파일 안 정의 스팬이 없다 | **14** | **7** |
+| 짝지어진 이름이 `NOT_A_SYMBOL` 불용어다 | 2 | 2 |
+
+### §290.7 게이트가 찾아낸 진짜 드리프트 — 1건
+
+`crates/moveit-planner-registry`의 모듈 머리 주석이 적고 있던 범위는
+`planning_pipeline.hpp:261-264`였다. 그 주석은 `planner_plugin_loader_`와
+`planner_map_` 두 멤버를 이름 댄다. 261은 `// Planner plugin` 구획 주석이고
+264는 빈 줄이다. 두 멤버는 262와 263에 있다.
+`planner_map_`이 멤버 스팬을 갖게 되자마자 실패로 나왔고, 그 인용만이 이번
+회차에서 실패한 유일한 인용이다.
+
+같은 헤더로 가는 인용 13건을 전수로 훑었다: 단일 멤버를 정확히 짚는
+`planning_pipeline.hpp:257`·`planning_pipeline.hpp:259`·`planning_pipeline.hpp:263`
+셋은 이번에 span-verified로 올라갔고,
+나머지는 함수 범위이거나, `doc/claim-audit/moveit-planning.md`가 **반박하기
+위해** 인용해 둔 옛 오인용이다. 고칠 자리는 하나뿐이었다.
+
+고친 뒤에도 한 번 더 실패했는데, 그 실패가 규칙의 빈 곳을 짚었다:
+`262-263`은 인접한 두 정의를 정확히 덮지만 인접성 규칙이 닿는 이름은
+`planner_map_`(263) 하나이므로 범위가 그 스팬보다 한 줄 위에서 시작한다.
+`contiguous_run_end`는 이미 "인접한 쌍이 이름을 공유할 필요는 없다"는
+이유로 파일의 모든 정의를 걷지만, **닻의 스팬에서 시작할 때만** 진입한다.
+반대편에서 들어오는 같은 주장을 더했다 — 양끝이 각각 어떤 정의의 경계에
+정확히 닿고, 사이의 간극이 원본 파일에서 빈 줄뿐이며, 이름 댄 심볼의 정의가
+그 run의 구성원일 것. 관용이 아니라 대칭이다: `getCostSources`의
+`planning_scene.cpp:2451-2490`은 여전히 실패한다(2490은 어느 정의의 마지막
+줄도 아니다).
+
+### §290.8 residual 1 — 역사 인용은 같은 사다리에 있다. 거짓이었던 것은 머리말이다
+
+`classify_citation`은 몸통이 하나이고 호출자가 둘이며(살아 있는 인용은 HEAD의
+파일, 역사 인용은 자기 리비전의 blob), 두 경로 모두 `classify`로 클래스를
+기록한다. `anchor_verified + content_verified + bounds_only`와 기록된 행 수가
+다르면 그 자체로 하드 실패다. 그러므로 사다리에 더한 클래스는 양쪽에 닿는다 —
+읽어서 확인했고, 기준선에 역사 행이 **26건**(그중 span-verified 7건) 있는
+것으로 다시 확인했다.
+
+거짓이었던 것은 `--write-classes`가 쓰는 머리말이다. "Historical `path@rev:NNN`
+citations are not here"라고 적혀 있었는데 26건이 거기 있었다. §289.9가 역사
+인용을 사다리에 넣으면서 `SPAN_VERIFIED` 위의 주석은 고쳤고 머리말은 남긴
+것이다. 고쳤다.
+
+멤버 스팬이 역사 인용의 클래스를 바꾸지는 않았다. 역사 인용 39건이 가리키는
+`oracle.cpp`는 `.cpp`이고 멤버 규칙은 헤더에만 적용되기 때문이다.
+
+### §290.9 residual 2 — span 작업은 버려진 맨 needle에 손잡이를 주지 않는다. 대신 반대쪽을 쟀다
+
+**주지 않는다.** span 판정은 *해결된 파일*이 있어야 스팬을 계산한다. 버려진
+맨 `` `:NNN` ``은 해결된 파일이 없어서 버려진 것이므로, span 규칙은 해결
+문제의 하류에 있고 거기에 기여할 수 없다. §289.7이 적은 구조적 필터가 여전히
+그 문제의 유일한 기계다.
+
+대신 이번 측정이 **반대쪽**을 드러냈다. 게이트가 *버리는* needle이 아니라
+*주장하는* needle 쪽이다. 통과 줄의 2622건 중 **469건**이 맨 `` `:NNN` ``
+이어받기로 파일을 얻는다. 그 469건 중 **287건**은 같은 줄이 `.rs` 파일도
+인용하는 줄에 있다. 여섯 건을 열어 봤고 그중 **여섯 건 전부**가 상류 파일로
+귀속돼 있는데 뜻은 이 저장소의 `.rs` 파일이었다:
+
+- `doc/claim-audit/moveit-scene.md`의 `path_cost_sources` 행에서, "이전에는
+  scene.rs 1852-1867을 인용했고 다섯 항목 중 첫째만 닿는다"는 문장이 뒤에
+  다는 다섯 개의 맨 needle. 그 줄들은 `crates/moveit-scene/src/scene.rs`의
+  doc 항목이다. 같은 줄 앞쪽에서 `planning_scene.cpp`를 **언급**한 것이
+  base를 잡아 두었고, 문장이 포트 쪽으로 돌아설 때 그것을 놓아주는 토큰이
+  없다.
+- 같은 파일의 `knowsFrameTransform` 행에서 "…의 자기 텍스트는
+  `PlanningScene::knows_frame_transform`이라고 읽는다"가 다는 맨 needle 하나.
+  역시 `scene.rs`다.
+
+여섯 건 다 문서 쪽은 옳다 — 틀린 것은 게이트의 귀속이다. 그리고 이것은
+`tools/ci/check-shorthand-citations.py`가 자기 머리말에서 **반증된 규칙으로
+기록해 둔** 바로 그 추측이다("nearest preceding full citation of any
+extension, in reading order" — 그 게이트의 반증 사례 3번이 `message-mapping.md`
+의 한 문장 안에서 좌표계가 교대하는 것이다). 한 저장소의 두 게이트가 같은
+질문에 정반대 입장을 갖고 있고, 추측하는 쪽이 469건을 보증한다.
+
+고치지 않았다. 문서 여섯 건을 전체 철자로 바꾸는 것은 이 회차가 여는 결함
+가족의 **6/287**이고, 부분 수정은 가족이 닫힌 것처럼 읽힌다. 건전한 해결
+규칙은 없다 — 더 엄격한 "맨 needle은 완전한 *인용*에서만 이어받는다"를 그
+줄에 대 보면, 잘못된 다섯 건을 살리는 대신 같은 줄에서 옳은 다섯 건
+(`planning_scene.cpp:2472`로 시작해 `planning_scene.cpp:2490`으로 끝나는
+다섯 개)을 잃는다. 자매 게이트의 결론과 같다: 지배하는 경로는 어휘가 아니라 담화의
+사실이다. 남은 281건은 열어 보지 않았다.
+
+### §290.10 게이트 상태
+
+`tools/ci/verify-upstream-citations.sh`: 2622건 / 378개 문서, span-verified
+215 / content-verified 1273 / bounds-only 1134, out-of-bounds 0,
+obsolete-header 0, span-mismatch 0, unreadable-historical 0, demoted 0,
+recounted 0, undeclared 0, retired 0. 기준선은 다시 얼렸다.
+
+이 절 자신의 인용 37건이 코퍼스에 더해지므로 커밋된 트리의 통과 줄은
+2659건 / 2385키, span-verified 218 / content-verified 1280 / bounds-only
+1161이다 — §289.8이 적은 것과 같은 자기지시이고, §290.6의 표는 그 이전
+트리에서 잰 것이다.
+
+`third_party/`는 gitignore 대상이라 caucus worktree에 오지 않는다. 이 절의
+측정은 `THIRD_PARTY_SRC`를 벤더된 다섯 루트가 실제로 있는 경로로 넘겨서 냈다.
+그 다섯은 이 저장소의 내용이 아니라 리비전이 박힌 외부 체크아웃이고, 게이트
+자신이 SHA를 대조하므로 잘못된 리비전이면 하드 실패한다.
+
+## §291 "닫지 않은 것" 절들을 트리에 대조했다 — 정규식 하나가 본 것은 코퍼스의 13%였고, 읽은 24건 중 7건이 낡아 있었다 (2026-08-07)
+
+이 파일은 절마다 "이 절이 하지 않은 것"을 적는다. 그 문장들은 전부 오늘의
+트리에 대한 반증 가능한 주장인데, 어떤 게이트도 그것을 읽지 않는다. 낡은 줄
+번호는 인용 게이트가 잡고 낡은 판정어는 `check-phase-status.sh`가 잡지만, 낡은
+"우리는 X를 하지 않았다"는 아무것도 잡지 않는다. 그리고 그쪽이 더 나쁘다 —
+낡은 줄 번호는 읽는 사람을 엉뚱한 곳으로 보내고 끝이지만, 낡은 부재 주장은
+다음 회차에게 이미 있는 것을 만들라고 지시하거나, 닫힌 항목을 열린 채로
+광고한다. §263.7의 첫 항목이 정확히 그랬다: "오라클에 CHOMP 플래닝 op이 없다"가
+두 회차 동안 서 있는 동안 `chomp_plan`과 `stomp_plan`은 이미 디스패치되고
+있었고, §269가 그 둘로 C++ CHOMP 370/500·C++ STOMP 446/500을 쟀다.
+
+### §291.1 코퍼스 — 어휘로는 찾을 수 없고, 구조로 찾아야 한다
+
+이 회차의 지시는 여덟 절을 이름으로 줬고, 그것이 정규식 하나에서 나왔으며
+전부가 아닐 것이라고 했다. 전부가 아니다. 제목 형태를 넓혀 가며 세었다:
+`(하지|재지|닫지|증명하지|묻지|잡지|쓰지|고치지|열지) (않은|못한|않는|못하는) 것`,
+`남은 것`/`남는 것`, `열어 두는 것`, `남긴 것`으로 **끝나는** 제목이 52개,
+여기에 제목이 그 어휘를 쓰지 않으면서 본문이 잔여만 적는 절 10개를 손으로
+넣어 **62절**이다. 손으로 넣은 열은 `### 21.4 남은 것 — 닫히지 않았다`처럼
+어휘 뒤에 부제가 붙어 `$` 앵커에 걸리지 않는 것들과, `### §256.4 와이어 쪽 —
+거부가 사라진 자리에 남은 거부들`처럼 어휘가 제목 가운데에만 있는 것들이다.
+
+주장의 단위는 줄이 아니다. 이 파일의 항목은 접힌 한국어 산문이라 줄 단위
+스캐너는 한 주장을 반토막 낸다. 블록으로 셌다 — 최상위 불릿 하나와 그
+연속줄이 한 단위, 불릿이 없는 절은 문단 하나가 한 단위. **62절, 224 주장단위**.
+브리프의 정규식이 본 여덟 절은 30 주장단위다. 절 수로 13%(8/62), 주장단위로
+13%(30/224).
+
+어휘 검색이 왜 안 되는지는 주장하지 않고 쟀다. 부재 어휘(`없다`·`않았다`·
+`못한다`·`재지 않았다` …)를 블록에 걸면, **이미 코퍼스 안에 있는 224 단위 중
+13개**만 맞는다(5.8%). 같은 정규식이 코퍼스 밖에서는 486블록을 물어온다.
+이유는 구조적이다: 잔여 절 안에서는 **제목이 부재를 말하고 본문은 그것을 반복하지
+않는다**. 본문은 부재의 *내용*을 적는다 — "`max_iterations = 200`은 CLI 인자가
+아니다"가 아니라 "`max_iterations = 200`". 그러니 이 계열은 어휘로 찾을 수 없다.
+제목 형태로만 찾힌다. 위 62절은 그래서 제목 스캔이고, 열 개의 손 추가가 그
+스캔이 놓치는 폭이다.
+
+두 번째 코퍼스가 있다. 추적되는 `doc/*.md`에 `## UNFIXED` 제목이 **6개**
+(5개 파일: `doc/assertion-discrimination-ledger-p1-fixtures.md`,
+`-p1-robotmodel.md`, `-p10-jointlimits.md`, `-p10-cartesian.md`,
+`-pilz.md`는 둘). 같은 성질의 주장이고 이 회차가 읽지 않았다.
+
+### §291.2 범위 안 24건의 판정
+
+여덟 절의 30단위 중 여섯은 다른 패널이 같은 회차에 쓰고 있어 울타리를 쳤다:
+§264.12의 둘째(C++ CHOMP 기준선)와 넷째(CHOMP 목적함수), §286.11의 넷째(조건 2
+STOMP 무력화 변이), §289.7 전체(세 문단). 나머지 **24건**을 트리에 대고 읽었다.
+판정은 문서가 아니라 코드·오라클·게이트 스크립트·커밋 그래프에서 나왔다.
+
+| 항목 | 판정 | 트리에서의 근거 |
+|---|---|---|
+| §212.4 (문단 하나) | 성립 | 이미지 태그는 소스 다이제스트에서 나오므로(`oracle_image_tag`) 중간 트리의 태그로는 빌드가 없다. 오늘 스탬프는 `d8512bbee12499c3`, §212가 적은 `700e7be54cb0a61f`가 아니다 — 절이 스스로 역사라고 적은 대로다 |
+| §248.9 ① 둘째 RNG 스트림 | 성립 | `tools/ci/verify-phase7-benchmark.sh:136`의 `SEED_BASE=424242` 하나를 모든 사용처가 읽는다. 둘째 스트림은 없다 |
+| §248.9 ② 같은 `objects` 배열 | 성립 | `oracle_path_check`가 오라클 요청을 `objects: $req[0].objects`로 만든다 — 포트가 푼 바로 그 요청 JSON에서 온다 |
+| §248.9 ③ `motion_resolution` 아래 충돌 | 성립 | `//! # Condition 2's collision-check resolution`(`crates/moveit-planners-sbp/examples/plan_benchmark_port.rs:71`)이 그대로 그 한계를 적고 있고, Phase 7 게이트는 `condition2_resolutions`를 넘기지 않는다 |
+| §248.9 ④ C++ 경로의 끝점 | **거짓 → 닫힘** | `a7d1b9a0`이 `cpp-endpoints` 검사를 넣었다. `doc/phase7-benchmark-results.json`에 `cpp_max_endpoint_gap: 0`이 커밋돼 있다 |
+| §248.9 ⑤ paired median 집단 크기 | 성립 | `tools/ci/verify-phase7-benchmark.sh:1023`은 아직 `paired_problems_pooled > 0`만 요구한다 |
+| §263.7 ① 상류 C++와 비교하는 읽기 | **거짓 → 닫힘** | `b146a109`이 `chompPlan`/`stompPlan`을 넣었고 §269가 같은 500문제를 다시 쟀다 |
+| §263.7 ② Phase 8의 pilz 항목 | 성립 | §5의 pilz 행은 여전히 §217.3을 인용하는 MET이고, 이 절이 그 행을 다시 재지 않았다 |
+| §263.7 ③ 상류 기본 벽시계 구성 | 성립 | §269·§286의 모든 후속 측정이 반복수로 끝나지 반복 벽시계로 끝나지 않는다. 그 구성의 재현 가능한 수치는 오늘도 없다 |
+| §264.12 ① 씨앗이 주어진 문제 모집단 | **절반** | 전제가 틀렸다 — §5의 Phase 8 행은 새 생성기 없이 §286.10으로 MET가 됐다. 남은 것은 씨앗 난이도를 *고르는* 쪽뿐 |
+| §264.12 ③ `full` 모드의 핀 | 성립 | `PINS_ALL`의 `"full": null`과 `tools/ci/measure-phase8-optimizer-properties.sh:810`의 `pins-unmeasured`가 그대로다 |
+| §264.12 ⑤ STOMP 끝점 밀림 | 성립 | `PINS_ALL.pilot.stomp`의 `endpoint_ceiling`은 여전히 천장 핀이지 제거가 아니다 |
+| §264.12 ⑥ 제약 비용이 거리 | 성립 | `doc/upstream-bugs.md` 색인 어디에도 이 항목이 없다 |
+| §269.10 ① `max_iterations = 200` | 성립 | `crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs:570-582`의 인자 파싱은 아직 `<seed_base> [planning_time_limit_secs]`뿐이다 |
+| §269.10 ② seed lottery | **절반** | CHOMP 쪽은 §286.5가 닫았다(포트 CHOMP를 424242에서 다시 재어 371/500). 포트 STOMP 쪽만 남고, 약 3시간 비용이 막고 있다 |
+| §269.10 ③ 플러그인 껍데기 파리티 | 성립 | 다만 결정으로 닫힌 것이다 — `097aca77`이 `chomp_interface/*`와 `stomp_moveit_planner_plugin.cpp`를 결정-비이식으로 분류했고, 그것이 §269(`150b66ff`)보다 앞선다. 빈틈이 아니라 범위 기록이다 |
+| §269.10 ④ C++ `COL_CHECK_DISTANCE` 기여도 | **절반** | 그 실험은 지금도 없지만 물음은 §286.3이 다른 방법으로 답했다 |
+| §269.10 ⑤ C++ 스윕의 `wall_secs` | 성립 | 기록된 적이 없다 |
+| §274.6 ① 저장된 설정 | **거짓 → 닫힘** | `684ef261`이 `construct: fn(&PlannerConfigurationMap)`(`crates/moveit-planner-registry/src/lib.rs:80`)로 바꿨다 |
+| §274.6 ② 머지 시점 import 파손 | **거짓 → 닫힘** | `421fafbc`에서 `planner_params.rs`가 `moveit_planner_registry::PLANNER_MANAGERS`를 읽기 시작했고 깨지지 않았다 |
+| §286.11 ① 어려운 씨앗의 조건 2 사건율 | 성립 | `seed_validity_problem_set`은 직선 씨앗을 분류할 뿐, 난이도를 고르지 않는다 |
+| §286.11 ② 포트 STOMP 둘째 씨앗 베이스 | 성립 | `PORT_SEED_BASE`는 기본 700001이고 둘째 베이스의 STOMP 기록이 없다 |
+| §286.11 ③ fanuc과 나머지 세 로봇 | 성립 | `tools/ci/verify-phase8-benchmark.sh:110-111`이 panda만 적재한다 |
+| §286.11 ⑤ `max_iterations = 200` | 성립 | §269.10 ①과 같은 근거 |
+
+18건 성립, 3건 거짓, 3건 절반. 거짓·절반 여섯 건은 각각 한 커밋으로 다시
+썼고(`1047872f` `cde9ce3b` `7c647f94` `0575b4d0` `2f0bc91b` `7cff0922`
+`d07ff432` — §274.6은 두 항목이라 일곱 커밋), 항목이 딸린 본문 문장까지 열 곳을
+고쳤다. 다시 쓴 문장은 전부 **그 항목을 닫은 커밋을 이름으로 부른다**. 과거형만
+붙이고 커밋을 대지 않으면, 방금 지운 것과 같은 반증 불가능한 문장이 된다.
+
+### §291.3 어떤 게이트도 이 계열을 읽지 않는다 — 한 군데만 빼고, 그리고 그 한 군데에 구멍이 있었다
+
+`rg`로 `tools/ci/` 전체에서 잔여 절의 제목 어휘를 찾으면 아무것도 나오지 않는다.
+잔여 절의 번호로 찾으면 하나 나온다: `tools/ci/check-phase-status.sh`가 §239.3을
+자기 주석에 적는다. 그 게이트는 잔여 항목을 읽는 것이 아니라, 절이 **스스로**
+철회를 선언한 형태 — 굵은 글씨 안에 대체 동사와 `§` 참조가 함께 있는 span —
+를 읽고, §5 행이 그런 절을 인용하고 있으면 실패한다. 파일 전체에서 그 형태는
+두 번 쓰인다(§229.1과 §239.3). 즉 이 문서에는 **낡은 잔여 주장을 기계가 읽을 수
+있게 적는 형태가 이미 있고**, 두 번밖에 쓰이지 않았다.
+
+그 스캔에 구멍이 있었다. §267.1이 규칙을 설명하면서 §229.1의 선언 문장을
+backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인라인 코드 span은
+걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
+잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
+직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:26866`에서 실패하고 지금은
+통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
+(`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
+§283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
+결과다: 인용은 선언일 수 없다.
+
+### §291.4 이 열거가 못 보는 것
+
+- **제목이 잔여를 말하지 않는 절 안의 잔여 문장.** 코퍼스는 제목 형태로 세운
+  것이고, 손 추가 열 개는 내가 눈으로 훑어 찾은 것이다. 잔여를 본문 한가운데
+  한 문단으로만 적은 절은 62에 들어 있지 않다. §291.1의 측정이 그 크기를
+  가늠하게 한다 — 부재 어휘가 코퍼스 밖에서 486블록을 물어오고, 그중 몇이 진짜
+  잔여 주장인지 이 회차는 세지 않았다.
+- **`doc/`의 여섯 `## UNFIXED`.** 코퍼스로 이름만 세웠고 한 건도 읽지 않았다.
+- **울타리 친 여섯 단위.** §264.12 ②④, §286.11 ④, §289.7 세 문단은 다른 패널의
+  것이라 판정하지 않았다.
+- **"성립"의 비대칭.** 거짓 판정은 커밋 하나를 대면 끝나지만, 성립 판정은 "찾았다면
+  나왔을 검색이 아무것도 안 냈다"이다. 위 표의 18건은 전부 그 형태로 적었지만,
+  검색어를 잘못 고르면 부재가 아니라 내 무지를 기록한 것이 된다. 특히 §263.7 ③과
+  §269.10 ⑤ — "그런 수치가 기록된 적이 없다" — 는 파일 전체를 훑어 확인한 것이
+  아니라 해당 계열의 산출물(§269·§286의 표)에서만 확인했다.
+- **주장단위 안의 복문.** 한 불릿이 두 가지를 말하면 하나로 셌다. §264.12 ①이
+  그런 경우였고, 반이 닫혀 있어서 "절반"이 됐다. 다른 23건에서 같은 접힘이
+  있었는지는 재지 않았다.
+
+### §291.5 게이트로 만들 수 있는 부분 — 규칙만 적고 짓지 않았다
+
+잔여 항목이 거짓이 됐는지를 기계가 **판정**할 수는 없다. 문장을 읽어야 한다.
+기계가 할 수 있는 것은 둘로 갈린다.
+
+**앞방향(판정 가능, 값싸다).** 잔여 항목이 자기를 닫은 것을 이름으로 부르면,
+그 이름이 푸는지는 검사할 수 있다 — `§N`이 실재하는 제목인가, 커밋 해시가
+HEAD의 조상인가. 이 회차가 다시 쓴 일곱 항목은 전부 그 형태다. 오늘 그것을
+요구하는 것은 아무것도 없어서, 일곱 개가 제각각의 철자를 골랐다(`닫혔다(§269)`,
+`그 제약은 오늘 없다`, `절반 닫혔다(§286.9)`). 문서에는 이미 기계가 읽는 철자가
+있다 — §291.3의 굵은 대체 선언 — 고, 잔여 항목의 닫힘을 같은 형태로 적게 하면
+게이트는 그때부터 앞방향을 검사할 수 있다.
+
+**뒷방향(판정 불가, 후보만).** 표식이 아예 없는 거짓 항목을 찾는 쪽은 읽어야
+한다. 후보를 뽑는 두 발견법을 이 회차의 일곱 건에 대고 **쟀다**:
+
+| 발견법 | 이 회차 7건 중 |
+|---|---|
+| R1: 닫힘 표식과 현재형 부재 서술이 한 항목 안에 같이 있다 | 2 (§274.6 ①②) |
+| R2: 뒤의 절이 그 잔여 소절을 점 번호로 지목한다(62절 중 25절이 그렇다) | 3 (§248.9, §264.12, §274.6) |
+| R1 ∪ R2 | 4 |
+
+일곱 중 셋 — §263.7 ①, §269.10 ②④ — 은 두 발견법 다 못 본다. §263.7 ①은 오라클
+소스를 열어야 보이고, §269.10의 둘은 뒤 절이 §269를 통째로만 부르지 소절을
+부르지 않는다. 그러니 뒷방향은 게이트가 아니라 회차 작업으로 남는다. 이
+회차는 게이트를 짓지 않았다.
+
+### §291.6 §5의 판정으로 넘기는 두 건 — 낱말은 건드리지 않았다
+
+두 건은 이 회차가 고칠 자리가 아니다. 적어서 넘긴다.
+
+**§249.6의 "오늘 MET가 아닌 Phase 행은 넷이다".** 오늘 §5의 Phase 행 20개는
+전부 MET이고, `tools/ci/check-unmet-blockers.sh`도 "0 not-yet-MET row(s)"로
+통과한다. 저 문장은 현재형으로 넷을 말한다. 넷이 언제 어떻게 닫혔는지를 §249.6이
+적어야 하는지, 아니면 문장을 그때의 트리로 과거형화해야 하는지는 §5의 역사를
+어떻게 보이고 싶은가의 문제라 판단을 넘긴다.
+
+**§249.6 표의 "chomp/stomp 크레이트에는 `examples/`·`benches/` 자체가 없다".**
+`aa96be03`과 `abd98b1c`가 `chomp_benchmark_port.rs`와 `stomp_benchmark_port.rs`를
+넣었다. 그 표 행이 무엇을 세는 행인지(오늘의 트리인지, 그 회차의 트리인지)에
+따라 고치는 방식이 달라서 손대지 않았다.
+
+**닫혔다 — 그리고 이 항목 자신이 절반을 놓치고 있었다.** 판단은 §263의
+선례가 이미 정했다: §263은 같은 §217.3 전제를 "라운드 시작 시점(main
+`98541e8`)에 그대로 맞았다"로 과거형화한 뒤 오늘의 사실과 그것을 바꾼 커밋을
+따로 적는다. §249.6 행도 그 형태로 고쳤다. 다만 위 문단이 든 커밋은 넷 중
+**둘**이다 — `optimize_benchmark_chomp.rs`(`44843b2a`)와
+`optimize_benchmark_stomp.rs`(`047bd793`)가 빠졌고, 넷 다 적어야 `examples/`가
+비어 있지 않다는 말이 성립한다. `benches/`는 두 크레이트 모두 여전히 0건이라
+그 절반은 지금도 맞다. 행의 판정 **0**은 움직이지 않는다: 오른쪽 열이 세는
+것은 하네스의 유무가 아니라 그 행을 막는 상류 파일 수다.
+
+## §292 bare `:NNN`의 파일은 추론 대상이 아니다 — 469건을 전부 열었고, 갈라놓는 규칙이 없음을 실측했다 (2026-08-07)
+
+§290이 span 클래스를 넓히는 동안 그 아래에는 다른 침묵이 있었다. 통과 줄의
+2642건 중 **469건**은 인용 안에 파일이 없다. 같은 문서 줄에서 앞서 이름 불린
+업스트림 파일을 물려받을 뿐이고, 게이트는 그 상속을 확인이 아니라 **추론**으로
+한다. 물려받은 파일이 그 줄 번호를 담을 만큼만 길면 in-bounds이고 초록이다.
+
+§290.9가 이 가족을 열어 6건을 UNFIXED로 남겼다. 그 6건을 닫는 것이 아니라
+**모집단 전체**를 여는 것이 이 절이다.
+
+### §292.1 469건 전수, 표본 아님
+
+계측기는 게이트의 문법·해결기·인덱스를 그대로 import하고 `main`의 base 추적
+루프만 복제한다. 복제가 맞는지는 게이트 자신이 찍는 `inherited_checked`로
+검증했다 — 계측기가 센 수가 그 수와 정확히 같지 않으면 분류는 아무 뜻이 없다.
+469 = 469으로 일치했다.
+
+그 469건을 상속 시점에 그 줄이 이미 다른 좌표계를 이름 불렀는지로 나누면:
+
+| 모양 | 건수 |
+|---|---|
+| 앞서 `.rs` 인용이 있음 (모호) | 265 |
+| 앞뒤 양쪽에 `.rs` (모호) | 22 |
+| `.rs`가 뒤에만 | 29 |
+| 줄에 `.rs`가 없음 | 153 |
+
+모호한 것은 **287건**, 14개 문서, **123개 문서 줄**이다. 그중 50건은 `.rs`
+후보에서 범위를 벗어나므로 산술로 정리된다 — 그 파일일 수는 없다. 남은 237건이
+앉은 **96줄을 손으로 열었다**. 열어야 할 줄이 96줄이라는 것이 "손으로 못 연다"의
+반증이고, 그래서 표본을 쓰지 않았다.
+
+### §292.2 17건이 틀렸고, 전부 bounds-only로 통과하고 있었다
+
+96줄을 읽어 **17건**이 상속이 준 파일과 다른 것을 뜻함을 확인했다. 16건은 이
+포트의 `.rs` 파일을, 1건은 `.rs`도 업스트림도 아닌 픽스처를 뜻한다.
+
+`doc/claim-audit/moveit-scene.md`의 15건과 `doc/port-coverage.md`의 1건이
+앞의 16건이다. 모양은 하나다 — 한 절이 업스트림을 인용해 base를 채우고, 다음
+절이 포트 파일로 돌아오는데 돌아온 것을 알리는 표시가 없다. `path_cost_sources`의
+다섯 항목 인용이 그 전형인데, 그 줄에서 좌표계를 되돌리는 문구가
+"scene.rs lines 1852-1867"이라는 **백틱 없는 산문**이라 TOKEN_RE에 잡히지 않는다.
+
+17번째는 다른 모양이다. `doc/claim-audit/moveit-srdf.md`가 `fixtures/panda.srdf`를
+전체 경로로 이름 부른 바로 다음 절에서 그 파일의 `<group name="hand">` 블록을
+가리키는데, TOKEN_RE는 `.srdf` 확장자를 **아예 보지 못한다**. 그래서 그 이름은
+base를 채우지도 비우지도 못하고, 뒤따르는 인용이 두 절 앞의 `model.cpp`를 그대로
+물려받았다. 참조 대상이 두 후보 중 어느 쪽도 아니다.
+
+17건 전부 `doc/upstream-citation-classes.txt`에서 **bounds-only**였다. 즉 이
+게이트가 그것들에 대해 확인한 것은 처음부터 줄 번호의 크기뿐이었다.
+
+### §292.3 (a)가 아니라 (b)다 — 갈라놓는 규칙이 없음을 재서 보였다
+
+세 후보를 구현해서 재고 버렸다. 셋 다 "더 나은 추측"이지 확인이 아니다.
+
+**내용 판정.** 인용 문장 자신의 인용부호가 두 후보 중 어느 쪽 인용 줄에
+있는지로 가른다. 11건을 `.rs` 쪽으로 판정했고 열어보니 **3건이 틀렸다**.
+`doc/claim-audit/moveit-scene.md`의 `getCollisionEnv` 행이 그 이유를 그대로
+보여준다: 인용부호 `getCollisionEnv(name)`은 `crates/moveit-scene/src/scene.rs:288-311`
+안에 있고 `planning_scene.cpp:288-311` 안에는 없다 — 포트의 문서 주석이 업스트림을
+*인용하기 때문에* 업스트림의 이름을 담고 있어서다. 포트가 업스트림을 문서화하는
+한 심볼 인용부호는 둘을 가르지 못한다. 구조적 이유이지 표본 운이 아니다.
+
+**숫자 겹침 판정.** 바늘의 범위가 그 줄이 앞서 이름 부른 `.rs` 범위 안에
+들어가면 포트로 돌린다. 287건 중 15건에 발화해서 14건이 맞고 1건이 틀렸으며,
+17건 중 2건은 놓친다. 정밀도 14/15, 재현율 14/16.
+
+틀리는 1건이 이 규칙의 사망 증명이다. **같은 표의 이웃한 두 행**을 보면 된다:
+
+| 문서 줄 | 바늘 | 그 줄이 앞서 부른 `.rs` 범위 | 실제 참조 대상 |
+|---|---|---|---|
+| `moveit-scene.md`의 `getTransforms` 행 | `260` | `crates/moveit-scene/src/scene.rs:257-260` | **포트** |
+| `moveit-scene.md`의 `getCollisionDetectorName` 행 | `304` | `crates/moveit-scene/src/scene.rs:300-304` | **업스트림** |
+
+같은 표, 같은 스키마, 같은 모양, 같은 신호 — 답이 반대다. 토큰과 그 앞의 파일
+토큰만 보는 어떤 함수도 이 둘을 가를 수 없다. 둘의 차이는 주변 **영어**에만 있다.
+
+**두 후보 중 고르기 자체.** 17번째가 이것도 막는다. 참조 대상이 두 후보 어디에도
+없으므로, 완벽한 2지선다기라도 도달할 수 없다.
+
+`tools/ci/check-shorthand-citations.py`가 자기 헤더에 적어둔 결론과 같다 —
+지배 경로는 어휘적 사실이 아니라 담화적 사실이다. 그 게이트는 세 규칙을 반증해
+그 결론에 닿았고, 이 절은 네 번째·다섯 번째를 반증해 같은 곳에 닿았다.
+
+### §292.4 구조적 조치 — 추론을 지우고, 경로를 요구한다
+
+패치는 "모호하면 추측을 조금 더 잘 한다"였을 것이다. 취하지 않았다. 상속은 그
+줄이 **하나의 좌표계만** 이름 부르는 동안에만 건전하고, 전환을 넘지 못한다.
+
+1. 17건을 참뜻대로 고쳤다 (커밋 둘, 모양이 둘이므로).
+2. 전환 잘못된 편에 서 있던 287건에 **경로를 적어 넣었다** — 270건은 아직
+   바늘이었고 (17건은 1번에서 이미 처리), 267건은 basename으로, 3건은
+   basename이 유일하게 풀리지 않아 전체 경로로 썼다. 어느 철자를 쓸지는
+   `resolve_path`에게 되물어 같은 파일로 돌아오는지 확인했다.
+3. 게이트는 이제 전환 뒤의 바늘을 **하드 실패**시킨다 (`foreign_switch`,
+   `ambiguous_base`). 전환은 두 가지다 — `.rs` 인용, 그리고 TOKEN_RE가 못 보는
+   확장자의 인용. 두 번째가 17번째를 구조적으로 닫는다: 그 파일을 *따라갈* 수
+   없는 것은 괜찮지만, 그것을 넘어 이전 파일을 조용히 이어가는 것은 아니다.
+
+2번 없이 3번만 하면 270건의 실제 확인이 코퍼스에서 사라지고, 3번 없이 2번만
+하면 다음에 쓰이는 인용이 같은 가족을 다시 연다. 하나의 변경이다.
+
+### §292.5 실측 — 클래스는 하나도 움직이지 않았다
+
+287건에 경로를 적어 넣은 것이 판정을 바꾸지 않았음을 확인했다:
+
+| | span-verified | content-verified | bounds-only | 합계 |
+|---|---|---|---|---|
+| 이전 | 218 | 1280 | 1144 | 2642 |
+| 이후 | 218 | 1280 | 1144 | 2642 |
+
+**demoted 0 / promoted 0 / recounted 40 / retired 228 / undeclared 189.**
+움직인 것은 키의 철자뿐이다 (키 2369 → 2330; 새 철자가 같은 문서의 기존 키와
+겹치면 retired 1건이 undeclared 대신 recounted로 나타나므로 189+40이 228과
+어긋나지 않는다). 이것이 "침묵을 옮긴 것이 아니라 지웠다"의 검사다 —
+판정이 하나라도 올라갔다면 더 약한 시험으로 승격시킨 것이다.
+
+17건은 반대로 클래스가 **바뀌어야** 정상이고, 바뀌었다. 업스트림 게이트에서
+bounds-only 17건이 은퇴하고 자매 게이트 `check-citation-drift.py`의 코퍼스로
+들어갔는데, 그중 셋(`crates/moveit-scene/src/scene.rs:1639-1647`,
+`crates/moveit-scene/src/scene.rs:1664-1669`,
+`crates/moveit-scene/src/scene.rs:2032-2033`)이 곧바로 anchor-verified로 나온다.
+내가 손대지 않은 게이트가 재귀속을 독립적으로 확인해 준 것이다.
+
+`doc/shorthand-citation-budget.txt`: 42개 문서 2056건 → 38개 문서 1769건.
+287건이 그 게이트가 세는 형태에서 빠져 이 게이트가 확인하는 형태로 넘어갔다.
+
+### §292.6 게이트 두 개가 한 질문에 반대 입장을 갖고 있지 않다
+
+`check-shorthand-citations.py`의 헤더는 "이 게이트는 추측하지 않는다"라고
+적고 반증된 세 규칙을 남겼는데, 그 사이 자매 게이트는 그 shorthand 중 182건을
+실제로 풀고 있었다. 반대 입장처럼 읽힌다. 아니다 — 정의역이 다르고, 그 경계를
+논증이 아니라 실측으로 잡았다.
+
+자매 게이트는 **한 문서 줄 안에서만**, 업스트림 파일에서만, 그리고 이제
+전환을 넘지 않고 상속한다. 헤더의 반증 3(`message-mapping.md`의 절 중간
+좌표계 교대)은 그 게이트의 사정거리 밖이다: 오도하는 `1933`(선행 콜론 없이
+적어 이 줄이 그 자체로 살아 있는 인용이 되지 않게 했다)과
+`collision_object.rs:420`은 그 문서의 **서로 다른 두 줄**에 있고, 그 게이트는
+줄바꿈마다 base를 버리므로 그 인용을 애초에 주장하지 않는다.
+
+정의역이 겹치는 곳에서는 같은 판결이 돌아왔다 — 469건 전부를 열어 17건이
+틀렸음이 이 절의 내용이다. 그 사실을 그 게이트의 헤더에 적었다. 예산 둘은
+경쟁하지 않고 맞물린다: shorthand를 경로로 바꾸면 이쪽 계수에서 빠지고 저쪽
+기준선이 얼리는 키로 들어간다.
+
+### §292.7 규칙이 실제로 무는지 — 두 전환 각각에 변이 하나씩
+
+규칙을 넣고 초록인 것은 증거가 아니다. 전환 종류마다 바늘을 하나씩 되돌려
+넣고 게이트를 돌린 뒤, 원문을 기억에서 복원했다 (`git checkout --`는 커밋되지
+않은 작업을 지우므로 쓰지 않았다).
+
+| 변이 | 결과 |
+|---|---|
+| `.rs` 인용 뒤에 바늘 하나 (`moveit-scene.md`) | exit 1, ambiguous-base 1 |
+| `.srdf` 인용 뒤에 바늘 하나 (`moveit-srdf.md`) | exit 1, ambiguous-base 1 |
+| 복원 후 | exit 0 |
+
+두 번째는 recounted 0으로 물었다 — 다른 계정이 곁다리로 실패한 것이 아니라
+이 규칙만 발화했다는 뜻이다.
+
+### §292.8 남은 182건과, 재지 않은 것
+
+전환 뒤가 아닌 상속은 남는다: 153건은 줄에 `.rs`가 아예 없고, 29건은 `.rs`가
+바늘보다 뒤에 있다. 이 182건(그중 125건이 `.md`, 57건이 `.rs` 파일 안)은 손으로
+열지 않았다. 논거는 "그 줄이 이름 부른 파일이 하나뿐이니 그것을 뜻한다"이고,
+그 논거의 유일한 구멍은 §292.2의 `path_cost_sources` 모양 — 되돌아가는 파일이
+**백틱 없는 산문**으로만 적힌 경우다. 그 구멍은 논증하지 않고 쟀다: 182건 중
+바늘 앞에 백틱 없는 파일명이 오는 것은 **0건**이다.
+
+`.rs`가 뒤에만 있는 29건을 규칙이 거르지 않는 것은 의도다. 바늘보다 뒤에 오는
+이름은 그 바늘이 이미 상속한 것을 바꿀 수 없다.
+
+### §292.9 게이트
+
+`tools/ci/verify-upstream-citations.sh` exit 0 (2642건, 378파일,
+span-verified 218 / content-verified 1280 / bounds-only 1144, 182건이 바늘
+상속, out-of-bounds 0, span-mismatch 0, ambiguous-base 0, demoted 0,
+recounted 0, undeclared 0, retired 0, promoted 0).
+`tools/ci/check-citation-drift.py` exit 0, `tools/ci/check-shorthand-citations.py`
+exit 0. 기준선 셋을 다시 얼렸다 — `doc/upstream-citation-classes.txt`,
+`doc/shorthand-citation-budget.txt`, 그리고 이번에는 `doc/citation-classes.txt`도.
+마지막 것은 §289 라운드에서 건드리지 말라고 지시받은 파일인데, 이번 수정이
+`.rs` 인용 16건을 새로 쓰는 것이라 그 기준선에 넣지 않으면 자매 게이트가
+빨간 채로 남는다.
+
+`third_party/`는 gitignore 대상이라 caucus worktree에 오지 않는다. 이 절의
+측정은 §290과 마찬가지로 `THIRD_PARTY_SRC`를 벤더된 다섯 루트로 넘겨서 냈다.
+
+---
+
+## §293 CHOMP의 목적함수를 실어 보낸다 — upstream이 버리는 것은 값이 아니라 접근권이고, 380문제 중 249문제에서 이 최적화기는 자기 목적함수를 한 번도 낮추지 못한다 (2026-08-07)
+
+§264.12의 넷째 항목은 `ChompSolution`에 "최종 궤적 비용"을 한 필드로 실으라고
+제안했다. 그 제안은 upstream을 읽기 전에 쓰인 것이고, 읽고 나니 두 군데가
+틀렸다 — 한 필드도 아니고, 스칼라도 아니다.
+
+### §293.1 upstream은 이 값을 버리지 않는다. 감춘다
+
+물어야 할 것은 "upstream이 최종 궤적 비용을 어디선가 노출하는가"였다.
+`/home/stevek/work/moveit2/`(핀 `e017c91e`)에서 확인한 답:
+
+| 물음 | upstream | 근거 |
+|---|---|---|
+| 플래너 경계가 비용을 아는가 | 아니다 | `chomp_planner.cpp`에 `cost`/`Cost`가 **0회** (`rg -n 'cost\|Cost'` → no match) |
+| 최적화기가 비용을 들고 있는가 | 그렇다 | `double best_group_trajectory_cost_;` (`chomp_optimizer.hpp:150`) |
+| 호출자가 그것을 읽을 수 있는가 | 아니다 | 그 멤버도, `getTrajectoryCost()`/`getSmoothnessCost()`/`getCollisionCost()` (`chomp_optimizer.hpp:208-210`)도 전부 `private:`(`chomp_optimizer.hpp:83`) 아래. public 표면은 `optimize()`(`chomp_optimizer.hpp:66`, `bool` 반환)·`isInitialized()`(`chomp_optimizer.hpp:73`)·`isCollisionFree()`(`chomp_optimizer.hpp:78`) 셋뿐 |
+| 어딘가로 내보내기는 하는가 | 한 곳 | `RCLCPP_DEBUG(getLogger(), "Collision cost %f, smoothness cost: %f", c_cost, s_cost);` (`chomp_optimizer.cpp:310`) |
+
+그 한 곳이 이 필드의 **모양**을 정한다. upstream이 이 숫자를 사람에게 보이는
+유일한 형태는 합이 아니라 두 항이고, 반복마다이며, 마지막 `best`가 아니다.
+`optimize()`가 끝나며 찍는 `RCLCPP_INFO`들은 반복 수와 소요 시간만 말하고
+비용은 말하지 않는다. `getTrajectoryCost()`(`chomp_optimizer.cpp:678`)는 존재하지만
+`debugCost()`(`chomp_optimizer.cpp:668`)와 마찬가지로 트리 어디에서도 호출되지 않는다.
+
+그래서 이 필드는 이탈이다 — 값이 upstream에 없어서가 아니라, upstream의
+`ChompPlanner::solve`가 `void`이고 저 멤버가 private이라 **경계에서 버려지기**
+때문이다. 이탈인 것은 `ChompSolution::objective`의 필드 주석이 그 이름으로
+적었다. 흉내 낸 것은 값이 아니라 모양이다: 두 항(`ChompObjective {
+smoothness, collision }`), 그리고 `best`라는 이름
+(`best_group_trajectory_cost_`).
+
+### §293.2 `best`만 실었으면 이 라운드는 0을 재고 끝났다
+
+`seed`와 `best`만으로 "개선했는가"를 물으면 답은 항상 "예"다. `best`는
+0번째 반복에서 `seed`로 시작하고 `chomp_optimizer.cpp:338`의
+`else if (cost < best_group_trajectory_cost_)`는 더 작을 때만 갈아치우므로,
+`improvement = seed - best >= 0`은 **구성상** 참이다. 그 수로 "목적함수를
+악화시킨 문제 수 0"을 보고하면 최적화기가 아니라 최소값 추적을 잰 것이다.
+
+부호가 열려 있는 양은 upstream이 매 반복 계산하고 버리는 것 — 루프가 마지막으로
+평가한 반복의 목적함수다. 그래서 실린 것은 셋이다:
+
+```
+ChompObjectiveProgress { seed, best, last }   // 각각 { smoothness, collision }
+improvement = seed.total - best.total   // 구성상 >= 0
+descent     = seed.total - last.total   // 부호 열림
+```
+
+`last`가 별도의 관측인 것은 크레이트 안에서 증명된다:
+`objective_last_can_sit_above_seed_where_best_cannot`는 같은 최적화기가
+goal 1.0에서 내려가고(`last == best`, `descent > 0`) goal 1.8에서
+자기 출발점 위로 올라가는(`descent < 0`, `last > best == seed`) 두 경우를
+같이 세운다. 후자에서 답이 입력보다 나빠지지 않게 막는 것은 best-스냅숏뿐이다.
+
+값을 못 잰 상태는 `Option`으로 만들었다. 대체된 것은 `0.0`으로 초기화되는
+`best_group_trajectory_cost: f64`였고, 그 셀은 "재지 않았다"와 "재보니 0"의
+두 뜻을 가졌다. `max_iterations == 0`이면 `None`이다.
+
+### §293.3 실측: 같은 500문제, 380 해결, 악화 0, 그리고 249
+
+계측기는 `tools/ci/measure-chomp-objective.sh`다.
+`verify-phase8-benchmark.sh`의 CHOMP 절반을 그대로 떼어낸 것 — 같은 두 구성
+(`floor_wall` 250/`900001`, `cage` 250/`900002`), 같은 `PORT_SEED_BASE=700001`,
+같은 비구속 시계 인자 `1e9`, 같은 25샤드 — 이고 오라클과 STOMP 절반은 돌리지
+않는다. 해결 수 **380**은 그 게이트의 `EXPECTED_CHOMP_SOLVED=380`과 같다.
+
+| 양 | 전체 500 | `floor_wall` 250 | `cage` 250 |
+|---|---|---|---|
+| 해결 | 380 | 195 | 185 |
+| **반환 궤적이 씨앗보다 나쁨** (`improvement < 0`) | **0** | 0 | 0 |
+| 반환 궤적이 씨앗과 **완전히 같음** (`improvement == 0`) | **249** | 148 | 101 |
+| 반환 궤적이 씨앗보다 나음 | 131 | 47 | 84 |
+| **마지막 반복이 씨앗보다 나쁨** (`descent < 0`) | **0** | 0 | 0 |
+| smoothness 항이 오히려 **커진** 문제 | 92 | 33 | 59 |
+| collision 항이 커진 문제 | 0 | 0 | 0 |
+
+라운드가 물은 "악화시킨 문제 수"는 두 정의 모두에서 0이다. 하나는 구성상
+0이고(위), 다른 하나는 이 모집단에서 측정된 0이다 — §293.4가 그 계수기가
+0이 아닌 값을 보고할 수 있음을 보인다.
+
+정작 큰 수는 249다. **해결한 380문제 중 249(65.5%)에서 CHOMP은 자기
+목적함수를 한 번도 낮추지 못했고**, 반환한 궤적의 비용이 받은 씨앗의 비용과
+비트 단위로 같다. 개선한 131문제에서도 개선폭은 씨앗 비용 대비 중앙값
+0.064%, p90 0.217%, 최대 0.470%다. 그리고 개선분은 전부 장애물 항에서
+나온다: collision 항이 커진 문제는 0인데 smoothness 항이 커진 문제는 92다.
+씨앗이 quintic min-jerk 보간이라 smoothness 쪽은 이미 거의 최적이고, CHOMP은
+그것을 조금 내주고 장애물 항을 얻는다. `length`(관절공간 경로 길이)로는
+이 교환이 보이지 않는다 — 그래서 `objective`가 `length` 옆에 실린다.
+
+### §293.4 반증: 이 계수기는 0이 아닌 값을 보고할 수 있다
+
+"0"을 보고하기 전에 0이 아닐 수 있음을 보여야 한다. 목적함수가 움직이지 않는
+249건의 원인이 `iteration % 10 == 0`의 메시 검사가 **0번째 반복에서** 이미
+참이 되어 그 자리에서 루프를 끊는 것이라면, 그 첫 검사 하나만 눌러도 수가
+무너져야 한다. 하네스의 `mesh_to_mesh` 클로저가 첫 호출에서만 `false`를
+반환하도록 임시 변경하고 같은 500문제를 다시 돌렸다:
+
+| 계수기 | 배포 형상 | 첫 메시 검사만 억제 |
+|---|---|---|
+| 해결 | 380 | 380 |
+| `improvement == 0` | 249 | **20** |
+| `improvement > 0` | 131 | **360** |
+| `improvement < 0` | 0 | 0 |
+| **`descent < 0`** | **0** | **39** |
+| `descent` 최솟값 | 0.0 | **-0.49293650003892253** |
+
+두 가지가 동시에 닫힌다. 249는 그 첫 검사가 만든 것이고(229건이 진짜 개선으로
+바뀐다), `descent < 0` 계수기는 같은 코드·같은 문제집합에서 39를 보고하므로
+배포 형상의 0은 구조적 침묵이 아니라 측정값이다. `improvement < 0`은 양쪽
+모두 0인데, 그것은 구성상 그래야 한다.
+
+같은 클로저를 **항상** `false`로 두면 해결 수가 380에서 **0**으로 간다. 즉 이
+모집단에서 `optimize()`의 `bool`을 참으로 만드는 것은 메시 검사뿐이고,
+`!filter_mode && c_cost < collision_threshold` 쪽 팔은 한 번도 발화하지
+않는다. 세 변경 모두 편집으로 되돌렸고, 되돌린 뒤 배포 형상을 다시 돌려
+요약 JSON이 첫 실행과 바이트 단위로 같음을 확인했다.
+
+### §293.5 비용
+
+계측기 전체가 벽시계 **139초**(문제집합 생성 포함, 25샤드). 이 수는 기계와
+부하의 읽기이고 — 이 실행은 다른 패널의 500문제 STOMP 스윕과 동시에
+돌았다(로드 애버리지 ~16) — 위의 어떤 계수기도 그렇지 않다. `1e9` 시계
+인자가 CHOMP 실행에서 벽시계 의존성을 없애므로, 부하가 다른 두 실행이
+요약 JSON을 바이트 단위로 같게 냈다. 그래서 이 스크립트에는 opt-in 게이트가
+붙지 않는다 — 이 게이트 가족에서 비싼 것은 오라클과 STOMP 절반이고, 이
+스크립트는 그 둘을 의도적으로 돌리지 않는다.
+
+### §293.6 이 라운드가 옮긴 인용
+
+`ChompObjective`/`ChompObjectiveProgress`를 `optimizer.rs`에 넣고
+`ChompSolution`에 필드를 하나 더하면서 두 파일의 줄이 밀렸다
+(`optimizer.rs` 2559 → 3001, `planner.rs` 1104 → 1135). 밀린 줄을 가리키던
+인용 53건을 `git diff`의 줄 대응에서 기계적으로 재매핑했다. 대상 문서 6개:
+`PORTING-PLAN.md`, `doc/assertion-discrimination-ledger-{p1-robotmodel,p3-acm,p9-ros}.md`,
+`doc/claim-audit/moveit-planners-chomp.md`, `doc/upstream-bugs.md`.
+
+**검사 A — 재매핑 전후 텍스트 동일성. 53/53 통과. 이것이 증명하는 것은
+"diff의 줄 대응을 일관되게 적용했다"뿐이다.** 옛 줄이 이미 틀린 곳을
+가리키고 있었다면 새 줄도 똑같이 틀린 채로 이 검사를 통과한다 — 비교의 두
+항이 모두 인용문이 아니라 서로이기 때문이다. 이 검사만 근거로 "53건
+확인"이라고 쓰면 안 된다.
+
+**검사 B — 문장 기준. 별도로 돌렸고, 8건이 실패한다.** 현재 트리에서 이 두
+파일을 가리키는 전체 경로 인용을 전부 열거하면 55건이고(재매핑 대상 53건에
+새 원장의 `optimizer.rs:2206`과 축약→전체 변환 1건이 더해진 수), 55건 각각에 대해
+"이 문장이 이름하는 코드가 지금 가리키는 줄에 실제로 있는가"를 소스를 열어
+판정했다. 통과 47, 실패 8. 실패 8건은 전부 이 라운드 이전부터 main에서
+틀려 있었고(옛 값과 그때의 실제 위치를 아래 표에 같이 적었다), 검사 A를
+그대로 통과했다. 이 라운드가 그 숫자를 다시 썼으므로 이 라운드에서 고쳤다.
+
+옛 값(main 열, 이 라운드가 쓴 값 열)은 지금 트리에 대한 주장이 아니므로
+§287.7의 규칙대로 백틱 없는 맨 숫자로 적는다. 고친 값만 살아 있는 인용이다.
+
+| 문서 | 문장이 이름하는 것 | main (실제 위치) | 이 라운드가 쓴 값 | 고친 값 |
+|---|---|---|---|---|
+| `PORTING-PLAN.md` §264.8 | `iteration % 10 == 0` | 1582 (실제 1588) | 1758 | `optimizer.rs:1764` |
+| `PORTING-PLAN.md` §264.8 | `start_time.elapsed() > planning_time_limit` | 1598 (실제 1605) | 1774 | `optimizer.rs:1781` |
+| `doc/claim-audit/moveit-planners-chomp.md` | `ChompOptimizer::optimize`의 span | 1458-1554 (실제 1537-1633) | 1589-1704 | `optimizer.rs:1681-1809` |
+| `doc/claim-audit/moveit-planners-chomp.md` | 클로저에 `self.best_group_trajectory`를 넘기는 코드 | 1509-1510 (실제 1589) | 1653-1654 | `optimizer.rs:1765` |
+| `doc/claim-audit/moveit-planners-chomp.md` | `optimizer.rs`가 든 `chomp_optimizer.cpp` 인용 | 886 (실제 883) | 1007 | `optimizer.rs:1004` |
+| `doc/upstream-bugs.md` | 이중 증가를 재현하는 포트 쪽 코드 | 912 (문서 산문 한가운데) | 1033 | `optimizer.rs:1764-1779` (+ 산문 `optimizer.rs:1023-1034`) |
+
+표는 6행이고 실패는 8건이다 — 범위 인용 두 건(1589-1704, 1653-1654)이
+각각 숫자 두 개를 실은 인용이라 열거에서 2로 세어진다.
+
+**검사 B가 드러낸 재매핑 자체의 구멍.** 재매핑 스크립트는 전체 경로
+형식(`path.rs:NNN`)만 훑었다. 그래서 `doc/claim-audit/moveit-planners-chomp.md`
+행 73의 축약 인용 444(2회)와 363-373은 이 라운드가 `planner.rs`를
++25줄 민 뒤에도 그대로 남았다 — 그 행의 전체 경로 인용은 이 라운드가 고쳤고
+같은 문장 안의 축약형만 안 고친 것이다. 손으로 읽어
+`crates/moveit-planners-chomp/src/planner.rs:473`
+(`.map_err(|_| Error::Code(MoveItErrorCode::PlanningFailed))?`)과
+`crates/moveit-planners-chomp/src/planner.rs:388-398`(`solve`의 `# Errors`
+문단)로 고쳤다. 444는 main에서도 이미 네 줄 어긋나 있었다(그때의 실제 위치
+448). 축약형은 `check-shorthand-citations.py`가 개수만 얼리고 해석은
+일부러 하지 않는 형식이라(그 스크립트 헤더가 세 가지 해석 규칙이 각각 이
+트리의 실제 자리에서 반증된 기록을 들고 있다) 어떤 게이트도 이 세 건이
+밀렸다고 말해 주지 않았다.
+
+같은 방식으로 읽어서 하나 더 나왔는데 고치지 **않았다**.
+`doc/assertion-discrimination-ledger-p9-ros.md`가
+`calculate_smoothness_increments`의 guard를 축약 377로 가리키는데, 그 함수의
+`if joint_costs.len() != num_joints`는 `optimizer.rs:378`이고 377은 그 바로
+앞 줄(`let num_joints = ...`)이다. 이 라운드는 이 줄을 밀지도(첫 hunk가
+612부터다) 다시 쓰지도 않았으므로 이 라운드의 것이 아니고, 재저작하지 않은
+인용을 이 커밋이 건드릴 이유가 없다. 기록만 남긴다.
+
+`check-citation-drift.py`의 클래스 기준선(`doc/citation-classes.txt`)도 다시
+생성했다.
+
+**어느 게이트도 이 8건을 잡지 못한다 — 되돌려서 확인했다.** 고친 뒤
+`optimizer.rs:1764`와 `optimizer.rs:1781`을 틀린 값 1758/1774로 되돌리고 기준선을 다시
+생성한 뒤 세 게이트를 돌렸다: `check-citation-drift.py` **OK**,
+`check-shorthand-citations.py` **OK**, `verify-orphan-enumeration.sh`
+**OK**. 틀린 줄도 파일 범위 안이고, 드리프트 게이트에서는 등급이
+content-verified 1107 → 1106, unanchored 891 → 892으로 한 칸 **내려가면서**
+통과한다 — 통과하는 등급들 사이의 강등이라 실패가 아니라 재분류로 보고된다.
+되돌린 것은 되돌렸고(`git checkout --`, 이후 트리 clean, 등급도 1107/891로
+복귀) 이 절의 8건은 게이트가 아니라 문장을 읽어서만 나온다.
+
+새로 생긴 조잡-단언 자리 하나
+(`optimizer.rs`의 `assert_eq!(optimizer.objective(), None, ..)`)는
+`doc/assertion-discrimination-ledger-p10-chomp-objective.md`가 받는다. 다른
+패널의 원장에 행을 덧붙이지 않고 파일을 따로 둔 것은
+`reconcile-assertion-ledgers.py`의 `discover_ledgers`가 적어 둔 이유
+그대로다.
+
+## §294 `## UNFIXED` 여섯 개를 읽었다 — 그 형태는 계열의 26%였고, 계열을 가장 많이 나르는 것은 `### Result`와 만료 조건이다 (2026-08-07)
+
+§291이 두 번째 코퍼스로 이름만 적고 읽지 않은 것이 추적되는 `doc/`의
+`## UNFIXED` 제목 여섯 개다. 읽었다. 그리고 §291.1이 자기 코퍼스에 대해
+쟀던 것 — 이 계열은 어휘가 아니라 구조로 찾힌다 — 이 이 코퍼스에서도
+그대로 성립하며, 이번에는 **구조가 문서마다 다르다**는 것이 추가된다.
+
+### §294.1 여섯 절의 주장, 트리에 대고
+
+여섯 절에 주장단위 일곱 개가 있고 그중 다섯이 "None"이다. 부재 선언이라도
+반증 가능하다 — "닫혀 있다"는 오늘의 트리에 대한 주장이다.
+
+| 절 | 주장 | 판정 | 트리에서의 근거 |
+|---|---|---|---|
+| `ledger-p10-cartesian.md` | 여덟 사이트 전부 변이로 뒷받침, orphan 0 | 성립 | 표 행이 정확히 8개(3+4+1), `verify-orphan-enumeration.sh`가 live·committed 양쪽 0 |
+| `ledger-p10-jointlimits.md` | `a_differing_max_position_is_a_disagreement`에 고립 변이가 없다 | 성립 | 두 테스트 다 `joint_limits_validator.rs`에 있고, 2관절 fixture(`1.0` vs `2.0`)가 3관절 fixture(`1.0`,`1.0`,`2.0`)의 진부분집합이라는 §4의 사유가 오늘 소스에서 그대로 읽힌다 |
+| `ledger-p1-robotmodel.md` | None, 이 회차에 블라인드 없음 | 성립하되 범위가 안 적혀 있었다 | 라운드 8의 것이고 뒤에 열두 회차가 더 붙는다 — 제목에 범위를 넣었다 |
+| `ledger-p1-fixtures.md` ① | `third_party/moveit_resources` 부재 | 이미 자기가 취소선으로 철회 | worktree에서는 확인 불가(그 디렉터리는 worktree에 오지 않는다). 문서가 적은 정정이 그 사실 자체다 |
+| `ledger-p1-fixtures.md` ② | `chain.rs` 타입 가드와 `joint_vel_accel_jerk_bounds` 미검증 | 이미 자기가 취소선으로 철회 | `ruckig_filter.rs`에 `joint_vel_accel_jerk_bounds_fails_without_velocity_limits`·`..._without_jerk_limits`가 있다 |
+| `ledger-pilz.md` (첫째) | None, 32 사이트 중 블라인드 없음 | 성립 | 그 절의 표 행이 정확히 32개, `crates/moveit-planners-pilz/src/trajectory_blender_transition_window.rs:1211`은 `search_intersection_points`를 감싸는 `assert!(matches!(`이고 행이 부르는 테스트가 실재한다 |
+| `ledger-pilz.md` (둘째) | `trajectory_functions.rs`의 두 줄이 고립 테스트로 닫혔다 | 성립 | 두 줄 다 오늘 그 행이 적은 모양 그대로다 — `crates/moveit-planners-pilz/src/trajectory_functions.rs:974`는 `determine_and_check_sampling_time`의 eq_none, `crates/moveit-planners-pilz/src/trajectory_functions.rs:1129`는 `compute_link_fk`의 `assert_eq!(` |
+
+여섯 절에서 거짓은 없었다. 거짓은 **여섯 절 밖**에 있었다.
+
+### §294.2 계열의 형태는 문서마다 다르다 — `## UNFIXED`는 26%다
+
+같은 다섯 파일 안에서 "닫지 못한 것"을 나르는 구조를 센다. 행끼리
+겹치지 않게 셌다 — 한 제목이 두 형태를 만족하면 위 행에만 넣는다
+(`ledger-p1-robotmodel.md`의 `### Result: ... flagged, not fixed`가
+그 경우다). 추적 파일 전체를 같은 정규식으로 돌려 다섯 파일 밖의
+같은 형태도 세웠다.
+
+| 형태 | 다섯 파일 | 추적 전체 |
+|---|---|---|
+| `## UNFIXED` 제목 | 6 | 6 |
+| `### Result` 제목 | 7 | 7 |
+| `## Gate scope` 제목 | 5 | 5 |
+| `### Excluded:`/`### Exclusions` 제목 | 4 | 4 |
+| 남은, 제목이 "not fixed"/"needing a fix"라 적은 것 | 1 | 2 |
+| 합 | 23 | 24 |
+
+`## UNFIXED`는 다섯 파일 안 구조 표식의 **6/23 = 26%**다. §291.1이 잰
+13%와 같은 모양이고, 이유도 같다: 절의 *제목*이 계열을 선언하고 본문은
+내용만 적는다. 추적 전체에서 다섯 파일 밖에 있는 것은
+`claim-audit/moveit-trajectory.md`의 `## Cross-crate finding — not fixed`
+하나뿐이다 — 즉 이 제목 규약들은 일반 문법이 아니라 문서별 관습이다.
+
+두 번째 형태가 더 있다. `**UNFIXED:**`/`**UNFIXED / not this round.**`
+굵은 인라인 선언이 네 파일에 여섯 건이다 —
+`assertion-discrimination-census.md`, `ledger-p3-acm.md`,
+`claim-audit/moveit-collision.md`에 하나씩, `PORTING-PLAN.md`에 셋. 제목
+스캔에 걸리지 않는다. 그리고
+`crates/`의 Rust doc 주석 안에 같은 주장이 열 파일에 걸쳐 있다 — 매체가
+다를 뿐 같은 계열이고, 이 회차는 읽지 않았다.
+
+### §294.3 거짓이던 것 — `### Result:`가 나르고 있었다
+
+`ledger-p1-robotmodel.md` 라운드 13이 `mesh_search_paths.rs`의
+`split_once('/')?`와 `candidate.is_file()` 두 가드를 "**no test at all**,
+a coverage gap, not a fix owed this round"로 적었고, 제목도
+`one coverage gap flagged, not fixed`였다. 오늘 두 가드에는 각자 테스트가
+있다 — `b64806d6`이
+`malformed_package_uri_with_no_relative_path_does_not_resolve`와
+`missing_file_does_not_resolve`를 고립 변이 기록과 함께 넣었고, **같은
+문서의 라운드 14가 바로 그 기록**이다. 즉 이 항목은 문서 안에서 마흔 줄
+아래에 이미 닫혀 있었고, 위쪽 제목만 열린 채로 서 있었다.
+
+같은 파일의 유일한 `## UNFIXED`는 "None"이다. 라운드 8의 것이고, 그
+아래로 열두 회차가 각자 `### Result:`에 자기가 남긴 것을 적는다 — 라운드
+11의 fragile needle 셋, 라운드 13의 위 갭, 라운드 20의
+`Fragility flagged, not fixed`. 이 파일에서 `UNFIXED`를 찾으면 한 절이
+나오고 저것들은 전부 안 나온다. 제목에 라운드 번호를 넣었다
+(`ledger-pilz.md`가 `## UNFIXED (12, now 13)`로 이미 쓰는 형태다).
+
+### §294.4 §291의 코퍼스도 못 보는 세 번째 형태 — 만료 조건
+
+§153.1이 정한 형태가 있다: 항목을 닫으면서 **다시 여는 조건**을 함께
+적는 것(`**만료 조건**`, 영문 문서는 `Expires (§153.1):`). 이 절 자신을
+빼고 세면 추적되는 파일 여덟 개에 46건이다 — `PORTING-PLAN.md` 29,
+`claim-audit/moveit-collision.md` 10, 나머지 여섯 파일에 7. 이것은
+"닫혔다"도 "열려 있다"도 아닌 **조건부로 열린** 항목이고, §291의 224
+주장단위에도 이 절의 UNFIXED 코퍼스에도 들어 있지 않다. 하나를 표본으로
+확인했다: `claim-audit/moveit-collision.md`가 FCL의 `length/2` 안정역
+(`619/1000`)을 UNFIXED로 두면서 단 조건은 "libccd/FCL 핀이 바뀌거나
+`pr2.urdf`의 바퀴 실린더 치수가 바뀌면 다시 연다"이고,
+`crates/moveit-collision/tests/fixtures/pr2.urdf`는 오늘도
+`length="0.034" radius="0.074792"`다(8곳). 조건은 발화하지 않았고 항목은
+유효하다. 나머지 45건은 읽지 않았다.
+
+### §294.5 §291.1의 486을 표본으로 묶었다
+
+§291.1은 부재 어휘가 코퍼스 밖에서 486블록을 물어온다고 적고 분류하지
+않았다. 이 회차도 전수 분류하지 않았다. 대신 20블록을 균등 간격으로
+뽑아 손으로 갈랐다: **2/20**만 이 계열의 주장이었고(둘 다 만료 조건이나
+"인용만으로는 알 수 없다"는 미지 선언), 나머지 18은 설계 규칙·측정
+기록·역사 서술이다. 486이라는 수는 그 회차가 쓴 특정 어휘 목록의
+산출물이고 이 회차는 그 목록을 그대로 다시 돌리지 않았다 — 더 넓은
+목록으로는 1588블록이 나온다. 어느 쪽이든 표본이 말하는 것은 같다:
+어휘로 뽑은 후보의 대부분은 이 계열이 아니고, 계열을 나르는 것은 구조
+표식(`## UNFIXED`, `### Result:`, 만료 조건)이다.
+
+### §294.6 게이트 두 곳이 가린 텍스트를 돌려준다
+
+`check-phase-status.sh`의 `supersession_in`은 §291.3에서 인라인 코드
+span을 지우고 판정하게 됐는데, 판정만 가린 사본에서 하고 **보고까지**
+가린 사본에서 했다. 굵은 span 안에 backtick이 든 선언이 오면 그 인용이
+공백으로 찍힌다. 오늘 두 선언에는 backtick이 없어 잠복이었다 —
+§291.3이 스스로 "지금은 잠복이지만 인용이 하나 생기면 거짓 실패가 된다"고
+적은 것과 같은 모양이다.
+
+구조로 닫았다. `blank_inline_code`가 span을 **같은 길이**의 공백으로
+바꾸므로 가린 사본에서 찾은 위치가 원본을 그대로 가리키고, 보고되는
+문자열은 원본의 slice다 — 주석이 아니라 구성이다. 같은 결함이
+`check-ledger-totals.py`에도 둘 있었다(`Sum:` 주장과 breakdown 괄호).
+`split_parens`가 부분문자열 대신 오프셋을 돌려주게 바꿨다. 변이로 갈랐다:
+굵은 span 안에 인용이 든 선언을 넣으면 이전 코드는
+`'§283의 진단은  을 근거로 §284가 대체한다.'`로, 지금은 인용을 그대로
+보고한다. backtick이 없는 대조 선언은 두 코드가 바이트 단위로 같다.
+
+### §294.7 이 회차가 못 본 것
+
+- **`crates/`의 UNFIXED 주장 열 파일.** 같은 계열, 다른 매체. 안 읽었다.
+- **만료 조건 45건.** 46건 중 표본 하나만 확인했다.
+- **`### Result:` 일곱 중 둘.** 라운드 11의 fragile needle 셋과 라운드 20의
+  한 건은 "지금은 유일하니 손대지 않는다"는 **결정**이라 '고쳤는가'가 아니라
+  '아직 유일한가'가 질문이다. 세 인용된 줄이 오늘도 그 needle을 들고 있는
+  것까지는 확인했고, 형제 메시지 전수 열거는 하지 않았다.
+- **`## Gate scope` 다섯 절.** 커버리지 경계 선언이고 같은 계열이지만
+  판정하지 않았다.
+- **§291의 어휘 후보 전수.** 20/486(또는 1588)만 봤다.
+
+## §298 §284.4가 미룬 계측기 교체 — 프로브를 다시 세우기 전에, 옛 핀이 두 상자를 구별 못 함을 먼저 쟀다 (2026-08-07)
+
+§284.4는 잔차가 앉는 도형을 `fixtures/prbt.urdf:313`의 상자(`0.121 0.08
+0.17`)에서 `fixtures/prbt.urdf:319`의 상자(`0.09 0.06 0.12`)로 바로잡았지만,
+`tools/fcl-distance-tolerance-probe/probe.cpp`와
+`tools/ci/verify-fcl-distance-tolerance.sh`의 세 핀은 그 회차에서 손대지
+않았다 — 본문의 표현으로 "이 라운드가 요청받은 측정이 아니라 계측기
+교체"였기 때문이다. 이 절이 그 교체다.
+
+### §298.1 손대기 전에: 옛 핀이 옳은 상자에서도 통과하는가
+
+프로브를 고치기 전에, 고친 프로브의 출력을 **옛 핀 그대로** 먼저
+재웠다 — 핀을 옮기면서 동시에 도형도 옮기면 "핀이 옳은 도형을
+구별하는가"라는 질문 자체가 사라지기 때문이다. `tools/ci/verify-fcl-distance-tolerance.sh:60`–`62`의
+당시 값(`MIN_DRIFT=1e-5`, `MAX_SOLVER_GAP=5e-7`, `MIN_RATIO=100`, 모두
+§284 이전에 §260.4가 앞 상자에서 뽑은 핀)은 그대로 두고,
+`tools/fcl-distance-tolerance-probe/probe.cpp:86`의 상자만 뒤의 상자로
+바꿔 `sg docker -c '.../tools/ci/verify-fcl-distance-tolerance.sh'`를
+돌렸다:
+
+```
+== libfcl-dev:amd64 0.7.0-3build2 in moveit-rs/oracle:d8512bbee12499c3, 3s
+2000 separated box/cylinder poses
+  |default - tight| : max 2.051960e-04 (pose 1934), >1e-6 424, >1e-5 41, >1e-4 6
+  |tight   - indep| : max 6.060727e-10 (pose 1902), 338567x under the drift above
+OK fcl's own answer moves up to 2.051960e-04 on tolerance alone (>= 1e-05),
+OK while its two tightened solvers agree to 6.060727e-10 (<= 5e-07, 338567x under)
+```
+
+exit 0, 둘 다 `OK`. **옛 핀은 옳은 상자에서도 통과한다.** §284.4가 실측한
+`2.051960e-4`/`6.060727e-10`/`3.385667e5`배와 자릿수까지 그대로 일치한다 —
+독립 재측정이 §284.4를 확증한다. 그런데 이 값들이 앞 상자의 실측
+(`4.418002e-4`/`9.761567e-8`/4,526배)과도 함께 세 핀을 전부 통과한다:
+`MIN_DRIFT=1e-5`는 `4.418e-4`와 `2.052e-4` 둘 다 한참 위이고,
+`MAX_SOLVER_GAP=5e-7`는 `9.76e-8`과 `6.06e-10` 둘 다 한참 아래이고,
+`MIN_RATIO=100`은 4,526배와 338,567배 둘 다 한참 위다. **이 게이트는 두
+상자를 구별하지 못한다** — 상자가 바뀌어도 세 부등식의 방향이 안
+바뀔 만큼 두 상자의 자릿수가 가깝기 때문이고, 이것이 §284.4가 찾을
+때까지 상자 오배선이 CI에서 한 번도 걸리지 않은 이유다. 상자가
+맞는지는 이 게이트가 지키는 대상이 아니다 — `probe.cpp`가 세우는
+도형 자체가 `fixtures/prbt.urdf`의 어느 줄과 일치하는지로만 지켜진다.
+
+이 상자가 `2026-08-06`(§284) 발견부터 이 절까지 얼마나 오래 걸리지 않고
+지나갔는지를 세 핀 모두에 대해 적으면:
+
+| 검사 | 교정된 상자의 실측 | 옛 핀 (§260.4, 앞 상자에서 뽑음) | 옛 핀에 대한 판정 | 새 핀 (§298.3, 이 상자에서 뽑음) |
+|---|---|---|---|---|
+| `MIN_DRIFT` (바닥) | `2.051960e-4` | `1e-5` | 통과 — 실측이 ~20.5배 위 | `1e-5` (유지, 근거는 이 상자가 아니라 절의 `1e-4`) |
+| `MAX_SOLVER_GAP` (천장) | `6.060727e-10` | `5e-7` | 통과 — 실측이 ~825배 아래 | `3e-9` (실측의 5배) |
+| `MIN_RATIO` (바닥) | `3.385667e5` | `100` | 통과 — 실측이 ~3,386배 위 | `1000` (~338배 여유) |
+
+옛 핀 열의 세 판정이 전부 "통과"인 것 자체가 §298.1의 결론이다: 상자가
+바뀌어도 이 게이트는 침묵했다. 셋 중 어느 것도 좁은 여유로 통과한 게
+아니라(가장 빡빡한 `MIN_DRIFT`조차 20배 여유), 두 상자의 자릿수가
+애초에 이 세 부등식의 방향을 가를 만큼 멀지 않았다.
+
+### §298.2 프로브 재핀
+
+`tools/fcl-distance-tolerance-probe/probe.cpp:86`의
+`std::make_shared<fcl::Box<S>>(0.121, 0.08, 0.17)`을
+`std::make_shared<fcl::Box<S>>(0.09, 0.06, 0.12)`로 바꾸고, 모듈 주석
+(`tools/fcl-distance-tolerance-probe/probe.cpp:15`–`26`)에 어느 상자가
+잔차를 지는지와 `fixtures/prbt.urdf:313`·`fixtures/prbt.urdf:319`의 인용을
+적었다. 같은 형태의 다른 프로브가 있는지
+`rg -n 'make_shared<fcl::(Box|Cylinder|Sphere)' tools/`로 훑었다:
+`tools/fcl-cylinder-box-distance-probe/probe.cpp:53`–`57`의
+`kCylRadius=0.0331`/`kCylLength=0.02`는 `fixtures/prbt.urdf:400`의
+`prbt_flange` 실린더(유일한 `<collision>`, 이 링크는 §284.4가 찾은
+것처럼 둘을 갖지 않는다) 그대로이고 갈라질 여지가 없다.
+`tools/fcl-tangency-probe/probe.cpp:44`–`50`은 어느 픽스처에도 안 묶인
+합성 단위도형(`1.0`/`0.5`)이다. 같은 계열의 다른 사이트는 없다.
+
+### §298.3 핀을 실측에서 다시 뽑았다 — 옆 게이트 상수를 옮기지 않았다
+
+세 핀 모두 §298.1의 실측(`2.051960e-4`, `6.060727e-10`, `3.385667e5`배)에서
+다시 뽑았다. `tools/ci/verify-fcl-distance-tolerance.sh:46`–`62`에 근거를
+적었다:
+
+- **`MIN_DRIFT=1e-5`, 그대로 둔다.** 이 핀의 근거는 측정값이 아니라 절의
+  허용오차 `1e-4` 자체다 — "기본값이 절이 재는 자릿수(`1e-4`)에서
+  부정확하다"는 주장을 지키는 가장 느슨한 바닥이 `1e-4`보다 한 자릿수
+  아래인 `1e-5`이고, 이것은 어느 상자를 재든 같다. 옮기지 않은 이유를
+  명시했으므로 이것은 "옆 게이트 상수를 그대로 옮긴" 것과 다르다 — 새
+  실측(`2.051960e-4`)이 그 바닥을 ~20배 여유로 넘는지 다시 확인했다.
+- **`MAX_SOLVER_GAP`: `5e-7` → `3e-9`.** 원래 유도식 그대로("실측값의
+  5배") 새 실측 `6.060727e-10`에 적용하면 `3.0303635e-9`, 유효숫자
+  하나로 반올림해 `3e-9`.
+- **`MIN_RATIO`: `100` → `1000`.** 이전 핀은 실측 4,526배에서 ~45배
+  여유였다. 새 상자의 분리는 한 자릿수 더 크므로(338,567배) 바닥도 한
+  자릿수 올려 `1000`(~338배 여유)으로 잡았다 — `100`을 그대로 두면
+  이번에도 "실측에서 다시 뽑은" 값이 아니라 옆 상자(실은 같은 게이트의
+  옛 상자) 유도값을 그대로 옮기는 것이 된다.
+
+세 핀을 옮긴 뒤 같은 명령을 다시 돌렸다(`sg docker -c
+'.../tools/ci/verify-fcl-distance-tolerance.sh'`, `moveit-rs/oracle:d8512bbee12499c3`,
+3초, 도커 재빌드 없음):
+
+```
+OK fcl's own answer moves up to 2.051960e-04 on tolerance alone (>= 1e-05),
+OK while its two tightened solvers agree to 6.060727e-10 (<= 3e-09, 338567x under)
+```
+
+exit 0.
+
+### §298.4 §260.4의 `4.418002e-4`는 앞 상자의 값이다
+
+§260.4의 본문(`prbt의 8.9e-5도 포트에 물을 수 없다` 절)이 인용하던
+`4.418002e-4`/`9.761567e-8`은 그 절이 쓰인 시점
+`tools/fcl-distance-tolerance-probe/probe.cpp:77`(재핀 전 줄 번호)이
+세우던 `fixtures/prbt.urdf:313`의 상자(`0.121 0.08 0.17`) — §284가 정정한,
+잔차를 지지 않는 그 상자 — 의 실측이다. §260.4에 두 곳을 고쳐, 아래
+표처럼 어느 수가 어느 상자의 것인지 적었다.
+
+| 수 | 상자 | 앉은 절 |
+|---|---|---|
+| `4.418002e-4` / `9.761567e-8` / 4,526배 | `fixtures/prbt.urdf:313` (`0.121 0.08 0.17`, 잔차를 지지 않음) | §260.4 본문, 역사적 실측으로 유지 |
+| `2.051960e-4` / `6.060727e-10` / `3.385667e5`배 | `fixtures/prbt.urdf:319` (`0.09 0.06 0.12`, 잔차를 지는 상자) | §284.4·§298.1, 그리고 지금 `tools/ci/verify-fcl-distance-tolerance.sh`가 재는 값 |
+
+§260.4 자체의 판정("**`4.4e-4`만큼 흔들리는 기준으로 `8.9e-5`를 포트의
+오차라고 판정할 수 없다**")은 §284.4가 이미 적었듯 바뀌지 않는다 — 옳은
+상자에서는 기준의 드리프트가 오히려 더 크다(`8.892585e-5`의 2.31배,
+§284.4). 바뀌는 것은 그 수가 어느 상자에서 나왔는지뿐이다.
+
+### §298.5 도커
+
+이미지는 `moveit-rs/oracle:d8512bbee12499c3` — 재빌드 없이 캐시에서
+바로 떴다(총 3초, 재핀 전/후 두 번 모두). 재빌드 비용은 없다.
+`tools/ci/verify-fcl-distance-tolerance.sh`의 헤더가 인용하던
+`moveit-rs/oracle:bf084112fdd5730b`, §284.4가 인용하던
+`moveit-rs/oracle:fc6738ad78dd45d5`, 이번의 `d8512bbee12499c3`까지 세
+번의 회차에서 세 태그가 관측됐다 — `$IMAGE`는 `oracle_stamp`로 매번
+동적으로 정하므로 스크립트 정확성에는 영향이 없고, 헤더 주석의 태그는
+그때그때의 기록일 뿐이다. 이번 헤더 주석은 `d8512bbee12499c3`로 다시
+썼다.
+
+### §298.6 이 회차가 못 본 것
+
+- **다른 시드·다른 픽스처.** 프로브는 여전히 xorshift64 고정 시드,
+  prbt 하나의 쌍 하나만 잰다. 다른 로봇에 같은 형태(box 대 cylinder,
+  다중 `<collision>`)가 있는지는 §298.2의 `rg` 한 번으로만 훑었다.
+- **`MIN_DRIFT=1e-5`를 실측 기반 수식으로 다시 유도할지.** §298.3에서
+  적었듯 이 핀은 절의 `1e-4` 허용오차에 묶인 것이지 이 상자의 실측에
+  비례한 값이 아니다 — 상자가 또 바뀌어 드리프트가 `1e-5`에 가까워지면
+  이 바닥도 재검토가 필요하다는 뜻이고, 이 회차는 그 재검토를 하지
+  않았다.

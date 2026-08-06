@@ -186,6 +186,30 @@ TAG_RE = re.compile(
     r"\b(class|struct|union|enum)\s+(?:class\s+|struct\s+)?"
     r"(?:[A-Za-z_]\w*_EXPORT\s+|MOVEIT_[A-Z_]*\s+)?([A-Za-z_]\w*)\b"
 )
+# A one-line declaration that declares a NAME rather than calling something:
+# everything up to a `;`, with an optional initializer cut off first. The
+# shapes are read off the corpus, not imagined --
+#
+#   static const std::string OCTOMAP_NS;                  planning_scene.hpp:113
+#   PlannerConfigurationMap config_settings_;      planning_interface.hpp:210
+#   std::shared_ptr<rclcpp::Node> node_;             planning_pipeline.hpp:257
+#   std::size_t max_contacts_per_pair = 1;           collision_common.hpp:176
+#   static const unsigned int DEFAULT_MAX_SAMPLING_ATTEMPTS = 2;
+#                                                   constraint_sampler.hpp:64
+#
+# -- and every one of them is a name this corpus anchors a citation on and
+# `symbol_spans` had no span for, which is what `why_bounds_only`'s "field,
+# macro, alias, namespace" bucket was counting.
+MEMBER_DECL_RE = re.compile(r"^\s*(?P<decl>[^;=]*?)\s*(?:=[^;]*)?;\s*$")
+# The first word rules the line out: a tag is a forward declaration or a
+# definition `TAG_RE` already owns, and the rest introduce something that is
+# not a declarator. `DECL_PREFIX_RE` covers the statement keywords.
+NOT_A_DECL_HEAD = {
+    "class", "struct", "union", "enum", "namespace", "template", "friend",
+    "using", "typedef", "public", "private", "protected", "operator",
+    "extern", "export", "static_assert",
+}
+IDENT_RE = re.compile(r"[A-Za-z_]\w*")
 
 
 def _line_starts(text):
@@ -257,11 +281,16 @@ def symbol_spans(text, allow_decls):
     starts = _line_starts(masked)
     n = len(masked)
     spans = {}
+    # Every `NAME(...) { ... }` block, keyword-headed or not. The member rule
+    # below uses this to tell a class-scope declaration from a local, and it
+    # must not depend on the head's name surviving `CXX_KEYWORDS`: the
+    # `std::stringstream msg;` at `eigen_test_utils.hpp:65` is a local inside
+    # an `operator()` body, and `operator` is a keyword, so a name-derived
+    # exclusion would hand `msg` a "member" span in a header.
+    blocks = []
 
     for m in IDENT_CALL_RE.finditer(masked):
         name = m.group(1)
-        if name in CXX_KEYWORDS:
-            continue
         depth, j = 0, m.end() - 1
         while j < n:
             if masked[j] == "(":
@@ -302,6 +331,8 @@ def symbol_spans(text, allow_decls):
         start_line = _stmt_start_line(lines, sig_line)
 
         if brace_at == -1:
+            if name in CXX_KEYWORDS:
+                continue
             # No body. A bodiless `NAME(...)` is either a DECLARATION (which
             # this corpus cites constantly -- a header's pure-virtual or
             # out-of-line-defined member is a real, nameable location) or a
@@ -330,6 +361,9 @@ def symbol_spans(text, allow_decls):
         end_at = _match_brace(masked, brace_at)
         if end_at == -1:
             continue
+        blocks.append((start_line, _line_of(starts, end_at)))
+        if name in CXX_KEYWORDS:
+            continue
         spans.setdefault(name, []).append((start_line, _line_of(starts, end_at), "fn"))
 
     for m in TAG_RE.finditer(masked):
@@ -351,6 +385,42 @@ def symbol_spans(text, allow_decls):
         spans.setdefault(m.group(2), []).append(
             (_stmt_start_line(lines, sig_line), _line_of(starts, end_at), m.group(1))
         )
+
+    # Data members and static constants. HEADERS only, and for the same reason
+    # `Type name(args);` is: in a `.cpp` this shape is a local variable, and
+    # giving a local a "definition span" is how `benchmarks`
+    # (`BenchmarkExecutor.cpp:1012`, a `for` body 40 lines from the `double
+    # benchmarks;` that would have carried the span) turns into a confident
+    # verdict about a name the citing sentence does not mean.
+    if allow_decls:
+        # A header carries inline bodies too, and a local declared inside one
+        # is exactly the `.cpp` shape this restriction exists to keep out. The
+        # blocks are already known by here, so the exclusion is exact rather
+        # than a brace-depth guess that a namespace or a class body would
+        # throw off -- and a class body, which is what a member is declared
+        # in, is not a `NAME(...) { ... }` block and so never excludes.
+        bodies = sorted(blocks)
+        for i, line in enumerate(lines, 1):
+            if "(" in line or ")" in line or "{" in line or "}" in line:
+                continue
+            if any(s < i <= e for (s, e) in bodies):
+                continue
+            m = MEMBER_DECL_RE.match(line)
+            if not m:
+                continue
+            decl = m.group("decl")
+            if not decl or not DECL_PREFIX_RE.match(decl):
+                continue
+            names = IDENT_RE.findall(decl)
+            # A type and a declarator, in that order, and nothing after the
+            # declarator but array bounds: one identifier is an expression
+            # statement, and a declarator that is not last is a call or a cast
+            # this scan has no business naming.
+            if len(names) < 2 or names[0] in NOT_A_DECL_HEAD:
+                continue
+            if not re.fullmatch(r"\s*(?:\[[^\]]*\])*", decl[decl.rindex(names[-1]) + len(names[-1]) :]):
+                continue
+            spans.setdefault(names[-1], []).append((i, i, "member"))
 
     for v in spans.values():
         v.sort()
@@ -422,6 +492,52 @@ TOKEN_RE = re.compile(
     rf"|`(?P<file>(?:[\w./-]+/)?[\w.+-]+\.(?:{CXX_EXT}|rs))`"
     rf"|`\.(?P<ext>{CXX_EXT})`"
 )
+# A bare `:NNN` inherits the last file named to its left, and that inheritance
+# is only sound while the line has named exactly ONE coordinate system. It does
+# not survive a switch. §292 measured the whole population: of 469 inherited
+# citations, 287 sat on a line that had already named a port `.rs` file, and 17
+# of those meant a file the inheritance did not give them -- 16 the port file,
+# one a `.srdf` fixture. All 17 passed, because the file they were wrongly
+# given was long enough to hold the line number.
+#
+# No rule recovers the referent from the text. Two rows of the same table, same
+# schema, same shape, settle it: `doc/claim-audit/moveit-scene.md`'s
+# `getTransforms` row cites `:260` meaning the port, and its
+# `getCollisionDetectorName` row cites `:304` meaning upstream -- and BOTH sit
+# inside the `.rs` range named earlier on their own line, so the one numeric
+# signal available answers them identically and is wrong once either way. The
+# `.srdf` case closes the other escape: its referent is in neither candidate,
+# so even a perfect two-way chooser could not reach it. `check-shorthand-
+# citations.py`'s header reaches the same verdict from its own three refuted
+# rules -- the governing path is a discourse fact, not a lexical one.
+#
+# So the file is not inferred across a switch; it is required. The 287 were
+# rewritten with their path spelled out (which is also what the sibling gate
+# wants -- converting a shorthand is the thing its budget counts down), and
+# this is the rule that keeps them that way. Inheritance still serves the 182
+# citations on single-coordinate lines, where the only file named IS the one
+# meant.
+ANY_EXT_CITATION_RE = re.compile(
+    rf"`(?:[\w./-]+/)?[\w.+-]+\.([A-Za-z][\w+]{{0,7}}):{SPEC}`"
+)
+KNOWN_CITED_EXTS = frozenset(CXX_EXT.split("|")) | {"rs"}
+
+
+def foreign_switch(line):
+    """The column of the first citation to a file in a coordinate system
+    TOKEN_RE cannot track, or None.
+
+    TOKEN_RE sees C++ and `.rs`. A `` `fixtures/panda.srdf:80` `` is neither,
+    so it can neither arm a base nor clear one -- it passes through invisibly
+    and the `:73-81` after it kept the `model.cpp` named two clauses earlier.
+    Being unable to FOLLOW that file is fine; silently continuing the previous
+    one across it is not."""
+    for m in ANY_EXT_CITATION_RE.finditer(line):
+        if m.group(1) not in KNOWN_CITED_EXTS:
+            return m.start()
+    return None
+
+
 IDENT_IN_BACKTICKS_RE = re.compile(r"`([A-Za-z_][\w:]{2,})(?:\(\))?`")
 HEX_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 # `` `file:NNN` (`name`) `` -- the anchor immediately follows the citation.
@@ -919,6 +1035,26 @@ def part_verdict(lo, hi, span_list, file_lines, anchors, all_file_spans):
         return None
 
     sorted_all = sorted(all_file_spans)
+    # The same contiguous run, entered from a definition that is NOT the named
+    # one. `contiguous_run_end`'s own reason for walking every definition in
+    # the file -- "an adjacent pair need not share a name ... and the citing
+    # text names both" -- applies whichever of the pair the tight-gap rule
+    # happened to reach, and it reaches only one: in
+    # "(`planner_plugin_loader_`/`planner_map_`,
+    # `planning_pipeline.hpp:262-263`)" the first name is separated from the
+    # citation by the second, so only `planner_map_` (263) anchors, and the
+    # range starts one line above its span. Every part of the claim is still
+    # checked exactly -- both ends land on a definition's own boundary, the
+    # gaps between are blank in the raw file, and the named symbol's
+    # definition is one of the run's members -- so this admits a pair and not
+    # a range that overshoots one. `getCostSources`'s `:2451-2490` still
+    # fails: 2490 is no definition's last line.
+    if not inside and any(s == lo for (s, _e) in all_file_spans):
+        run = contiguous_run_end(
+            [(s, e, "") for (s, e) in all_file_spans if s == lo], lo, file_lines, sorted_all
+        )
+        if run and hi in run and any(lo <= s and e <= hi for (s, e, _k) in span_list):
+            return None
     if starts_a_span:
         legal_ends = contiguous_run_end(span_list, lo, file_lines, sorted_all) or []
         if hi in legal_ends:
@@ -1191,6 +1327,7 @@ def main():
     bounds_only = 0
     bounds_only_why = collections.Counter()
     inherited_checked = 0
+    ambiguous_base = []
     out_of_bounds = []
     obsolete_header = []
     span_mismatch = []
@@ -1221,6 +1358,20 @@ def main():
         # There is no containment claim to check, so these are
         # bounds-checked only -- which is what caught
         # `world.cpp:220,326,650,655` anyway.
+        #
+        # `check-citation-drift.py`'s rule 0 does adjudicate a comma list, so
+        # the port of it tried that too and the trial is what settled this:
+        # running `part_verdict` over every element produced five failures and
+        # four were correct citations. `getCurvature`'s
+        # `time_optimal_trajectory_generation.cpp:321,327,333` is the
+        # `getPathSegment` call site in each of THREE functions, and the
+        # sentence names all three; `asyncExecute`'s
+        # `move_group_interface.hpp:732,741,750,759` is two `asyncExecute`
+        # declarations and two `execute` ones, and the sentence names both;
+        # `setPlannerConfigurations`'s `planning_interface.hpp:56-72,193` is
+        # the settings struct plus the method that takes it. The adjacent name
+        # in a comma list is the SUBJECT, and only a single-range citation
+        # makes the containment claim this rule can check.
         if not anchors and len(parts) == 1 and parts[0][0] != parts[0][1]:
             # No symbol anchor, but the SENTENCE asserts the range is a
             # whole definition. That is a containment claim stated in
@@ -1294,6 +1445,9 @@ def main():
         doc_lines = (REPO_ROOT / doc).read_text(encoding="utf-8", errors="replace").split("\n")
         for line_no, line in enumerate(doc_lines, 1):
             base = None  # the file a bare `:NNN` on this line would inherit
+            # The column past which this line no longer has one coordinate
+            # system, so inheritance stops meaning anything. See `foreign_switch`.
+            switch_at = foreign_switch(line)
             prev_end = 0
             for m in TOKEN_RE.finditer(line):
                 start, end = m.start(), m.end()
@@ -1353,10 +1507,12 @@ def main():
                     continue
                 if g["rs"] is not None:
                     base = None
+                    switch_at = start if switch_at is None else min(switch_at, start)
                     continue
                 if g["file"] is not None:
                     if g["file"].endswith(".rs"):
                         base = None
+                        switch_at = start if switch_at is None else min(switch_at, start)
                     else:
                         cands = resolve_path(g["file"], upstream_set, by_basename)
                         base = cands[0] if len(cands) == 1 else None
@@ -1388,6 +1544,9 @@ def main():
                 else:
                     spec = g["bare"]
                     if base is None:
+                        continue
+                    if switch_at is not None and switch_at < start:
+                        ambiguous_base.append((doc, line_no, m.group(0), base))
                         continue
                     resolved = base
                     inherited_checked += 1
@@ -1457,10 +1616,15 @@ def main():
             f"#   content-verified: {content_verified}",
             f"#   bounds-only: {bounds_only}",
             "#",
-            "# Historical `path@rev:NNN` citations are not here: they are checked",
-            "# against a pinned revision, so nothing about HEAD can demote them.",
+            "# Historical `path@rev:NNN` citations ARE here, on this same ladder,",
+            "# classified by the same `classify_citation` against the blob at their",
+            "# own pinned revision. An earlier version of this header said they were",
+            "# not, on the reasoning that nothing about HEAD can move a pinned",
+            "# citation; that is true and beside the point, because what moves is the",
+            "# PIN. A re-pin to a revision whose file merely happens to be long enough",
+            "# is in bounds and outside the baseline, so only a row makes it fail.",
             "# Citations that FAIL (out-of-bounds, span-mismatch, obsolete-header,",
-            "# unreadable-historical) are not here either -- the run already fails",
+            "# unreadable-historical) are not here -- the run already fails",
             "# on them, so a row would only offer them a place to be recorded in.",
             "# Format: <citing document>\\t<citation>\\t<class>[*N] ...",
         ]
@@ -1472,6 +1636,24 @@ def main():
             f"{sum(len(v) for v in live.values())} citations, {len(live)} keys"
         )
         return 0
+
+    if ambiguous_base:
+        print(
+            f"--- {len(ambiguous_base)} bare citation(s) after a coordinate "
+            f"switch ---",
+            file=sys.stderr,
+        )
+        for doc, line_no, token, would_be in ambiguous_base:
+            print(
+                f"FAIL {doc}:{line_no}: {token} follows a citation to a different "
+                f"file's line numbering on this line, so which file it means is a "
+                f"discourse fact this gate cannot read. It would have inherited "
+                f"{would_be}; §292 measured 17 such citations that meant something "
+                f"else and passed anyway. Write the path: `{would_be.rsplit('/', 1)[-1]}"
+                f":{token.strip('`').lstrip(':')}`, or the port file if that is what "
+                f"is meant",
+                file=sys.stderr,
+            )
 
     if out_of_bounds:
         print(f"--- {len(out_of_bounds)} out-of-bounds citation(s) ---", file=sys.stderr)
@@ -1674,6 +1856,7 @@ def main():
         or stale
         or historical_bad
         or class_drift
+        or ambiguous_base
     ):
         print(
             f"FAIL {len(out_of_bounds)} out-of-bounds + {len(obsolete_header)} "
@@ -1682,6 +1865,7 @@ def main():
             f"stale-declaration + {len(historical_bad)} unreadable-historical + "
             f"{len(demoted)} demoted + {len(recounted)} recounted + "
             f"{len(undeclared_cls)} undeclared-class + {len(retired_cls)} retired-class "
+            f"+ {len(ambiguous_base)} ambiguous-base "
             f"(of {total} upstream citations resolved across "
             f"{len(corpus)} tracked .md/.rs files)",
             file=sys.stderr,
@@ -1706,7 +1890,9 @@ def main():
         f"tightly-paired symbol with a definition span, and no quotation "
         f"either), {exempted} exempted "
         f"(tools/ci/upstream-citation-exemptions.json), {inherited_checked} of the "
-        f"total reached through a bare `:NNN` continuation, {len(unresolved)} "
+        f"total reached through a bare `:NNN` continuation on a line that named "
+        f"one coordinate system (a continuation across a switch is a hard failure, "
+        f"not an inference -- see `foreign_switch`), {len(unresolved)} "
         f"distinct unresolvable paths all declared in "
         f"{EXEMPTIONS_PATH.name} (reported above, and unverified -- a "
         f"declaration says no tree covers them, not that they are right), "
