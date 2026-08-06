@@ -26097,10 +26097,12 @@ fanuc 두 stratum에서는 **해결한 문제 전부**가 직선 씨앗이 이�
 
 시한 초과도 같은 갈림의 다른 쪽이다. STOMP은 40문제 중 16개(40%)에서 120초
 상한에 닿았다. Phase 7의 `no-timeouts`를 "그대로 옮겼다"고 해서 통과한다는
-뜻은 아니다: 규칙은 옮겨지고 **모집단은 옮겨지지 않는다**. Phase 8의 줄을 닫는
-데 필요한 것은 이 계측기가 아니라 씨앗이 주어진 문제 모집단
-(`ChompRequest::seed_trajectory`, upstream STOMP의 `extractSeedTrajectory`)이고,
-그것은 §264.12에 남긴다.
+뜻은 아니다: 규칙은 옮겨지고 **모집단은 옮겨지지 않는다**. 이 절은 여기서
+"Phase 8의 줄을 닫는 데 필요한 것은 이 계측기가 아니라 씨앗이 주어진 문제
+모집단(`ChompRequest::seed_trajectory`, upstream STOMP의
+`extractSeedTrajectory`)"이라고 결론짓고 §264.12에 남겼다. 그 결론은 §286이
+반증했다 — §5의 Phase 8 줄은 새 생성기 없이 MET으로 닫혔고, 조건 2의 변별
+부분모집단은 이 절이 이미 세고 있던 씨앗 무효 stratum 그 자체였다(§286.9).
 
 ### §264.8 CHOMP의 `mesh_to_mesh_collision_free`를 처음으로 실제로 공급한다
 
@@ -26262,12 +26264,16 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
 
 ### §264.12 닫지 않은 것
 
-- **씨앗이 주어진 문제 모집단.** §264.7이 이 라운드의 가장 큰 미결이다. Phase
-  8의 줄을 정직하게 닫으려면 균일 무작위 끝점 쌍이 아니라 씨앗 궤적이 딸린
-  문제가 필요하다 — 두 진입점이 이미 그것을 받는다
-  (`ChompRequest::seed_trajectory`, upstream STOMP의 `extractSeedTrajectory`).
-  생성기를 그렇게 늘리는 것은 `moveit-planners-sbp`의 예제를 고치는 일이라
-  이 라운드의 두 크레이트 밖이다.
+- **씨앗이 주어진 문제 모집단. 절반 닫혔다(§286.9).** 이 절은 "Phase 8의 줄을
+  정직하게 닫으려면 균일 무작위 끝점 쌍이 아니라 씨앗 궤적이 딸린 문제가
+  필요하다"고 적었고, 그 전제는 **틀렸다**: §5의 Phase 8 줄은 새 생성기 없이
+  MET으로 닫혔다(§286.10). §286.9가 이 항목을 둘로 갈랐다 — 조건 2에 대한
+  변별 부분모집단은 씨앗 무효 stratum 251문제로 **이미 존재하고 이미
+  측정된다**. 남는 것은 씨앗을 *고르는* 것뿐이다: 지금 stratum의 씨앗은
+  "직선이 우연히 무효인 것"이지 난이도를 지정한 것이 아니고, 일부러 어려운
+  씨앗이 조건 2 사건율을 올려 §286.4의 검정력 부족을 푸는지는 미측정이다.
+  두 진입점은 그대로 그것을 받는다(`ChompRequest::seed_trajectory`, upstream
+  STOMP의 `extractSeedTrajectory`).
 - **C++ CHOMP 기준선.** 오라클은 이미 `chomp_motion_planner`를 링크하므로
   `chomp_plan` op는 만들 수 있다(§264.3). 만들면 `condition1`의
   `0.9 × cpp_rate`와 `cpp-endpoints`, `no-regression-cpp-solved`가 CHOMP에
