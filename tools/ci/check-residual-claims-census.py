@@ -142,26 +142,39 @@ def parse(doc_path):
             bstart = j
             btext = prose[j]
             j += 1
-            while (
-                j in prose
-                and prose[j].strip() != ""
-                and not BULLET_RE.match(prose[j])
-                and not HEADING_RE.match(prose[j])
-                and not TABLE_ROW_RE.match(prose[j])
-            ):
-                btext += " " + prose[j].strip()
+            # One rule for where an item ends, applied to blank and non-blank
+            # alike: the next TOP-LEVEL bullet, a heading, a table row, or any
+            # non-blank line at column 0. A blank line is not a boundary --
+            # `-` item + blank + INDENTED paragraph is markdown's continuation
+            # paragraph, still this item, and reading the blank as the end of
+            # the list dropped whatever bullet followed the paragraph. It did:
+            # 16387969 gave PORTING-PLAN.md §281.6's `cylinder × box` item a
+            # continuation paragraph, and the still-open `관통 분기는 건드리지
+            # 않았다` bullet after it left this census silently, total 169 ->
+            # 168, with a fresh derivation that agreed with itself.
+            while j in prose:
+                nxt = prose[j]
+                if nxt.strip() == "":
+                    k = j
+                    while k in prose and prose[k].strip() == "":
+                        k += 1
+                    # Out of prose (EOF or a fence), a sibling bullet, or an
+                    # unindented line: this item is over. The outer loop reads
+                    # `prose[j]` again and continues the list iff it is one.
+                    if k not in prose or not prose[k].startswith((" ", "\t")):
+                        j = k
+                        break
+                    j = k
+                    continue
+                if (
+                    BULLET_RE.match(nxt)
+                    or HEADING_RE.match(nxt)
+                    or TABLE_ROW_RE.match(nxt)
+                ):
+                    break
+                btext += " " + nxt.strip()
                 j += 1
             bullets.append((bstart, btext))
-            # A single blank line may separate bullets in the same list; two
-            # or the next non-blank not being a bullet ends the list.
-            if j in prose and prose[j].strip() == "":
-                k = j
-                while k in prose and prose[k].strip() == "":
-                    k += 1
-                if k in prose and BULLET_RE.match(prose[k]):
-                    j = k
-                else:
-                    break
 
         if not bullets:
             continue
