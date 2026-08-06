@@ -79,8 +79,11 @@
 //! real regression could hide inside; a single `TOL` sized for them would
 //! spuriously fail on duration's honest noise. Split: `TOL = 1e-9` covers
 //! position/velocity/acceleration with ~3.6 orders of headroom over
-//! `2.27e-13`; `DURATION_TOL = 2e-5` covers duration with ~3.35 orders of
-//! headroom over `8.893e-9`. Both still
+//! `2.27e-13`; `DURATION_TOL = 4e-8` covers duration with ~0.65 orders of
+//! headroom over `8.893039e-9`. Duration's headroom is deliberately the
+//! tighter of the two: it is bounded above by §5's Phase 6 condition
+//! (`1e-6`), which this constant has to stay under for the test to hold the
+//! verdict that row claims -- see `DURATION_TOL`'s own comment. Both still
 //! absolute, not relative -- several expected values (e.g. case 2's
 //! terminal velocity `3.19e-17`) are legitimately near zero, where a
 //! relative bound is meaningless, matching `ruckig_parity.rs`'s original
@@ -104,7 +107,27 @@ const TOL: f64 = 1e-9;
 /// search, whose accumulated floating-point noise floor is measurably
 /// looser than a direct position/velocity/acceleration coordinate read --
 /// see this module's "Tolerance" doc section.
-const DURATION_TOL: f64 = 2e-5;
+///
+/// This must stay **below** PORTING-PLAN.md §5's Phase 6 condition, which
+/// requires TOTG timing to match the oracle within `1e-6`. It read `2e-5`
+/// until this line, twenty times looser than the condition the §5 row
+/// claims MET -- so a duration regression anywhere in `[1e-6, 2e-5)` broke
+/// that condition while this test, and every gate that runs it, stayed
+/// green. §217.3 reached the `1e-6` verdict only by tightening this
+/// constant by hand and not committing the edit; the pilz siblings had the
+/// same gap and were resized from their own measurements at that section's
+/// merge-time follow-up, and this is the last of that family. `4e-8` is the
+/// measured floor (`8.893039e-9`, case 4, over the committed fixture) times
+/// about four and a half, matching how those siblings were sized.
+///
+/// The gap was demonstrated in both directions before this constant moved,
+/// with an additive mutation rather than a multiplicative one -- case 4's
+/// duration is `1922.14`, so a relative factor overshoots the band and both
+/// constants catch it, which is why the earlier discrimination note below
+/// proves less than it appears to. Adding `5e-6` to `Trajectory::duration`
+/// -- a regression that violates §5's `1e-6` -- passed under `2e-5` and
+/// fails under `4e-8` on case 1 (`abs diff 5.000e-6`).
+const DURATION_TOL: f64 = 4e-8;
 
 fn fixture_path(file_name: &str) -> String {
     format!(

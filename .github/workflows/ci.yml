@@ -68,21 +68,34 @@ jobs:
       - name: docs
         run: cargo doc --workspace --no-deps
       # Globbed, not enumerated. `tools/ci/verify-fixture-provenance.sh`'s header
-      # and PORTING-PLAN both say `check-*.sh` is the set CI runs -- and named
-      # that script `verify-*` specifically to stay out of it. That convention
-      # only carries weight if this step derives from the glob: with three steps
-      # listed by hand, a new `check-*.sh` would go unrun here while both
-      # documents claimed otherwise. An empty glob fails rather than passing
-      # vacuously, so a rename cannot silently empty the set.
+      # and PORTING-PLAN both say the `check-` prefix is the set CI runs -- and
+      # named that script `verify-*` specifically to stay out of it. That
+      # convention only carries weight if this step derives from the glob: with
+      # three steps listed by hand, a new `check-` gate would go unrun here
+      # while both documents claimed otherwise. An empty glob fails rather than
+      # passing vacuously, so a rename cannot silently empty the set.
+      #
+      # The glob is on the PREFIX, not the extension. It read `check-*.sh` until
+      # `e0e4ed8`, which silently excluded `check-citation-drift.py` -- named
+      # `check-` and self-describing as needing "python3 and the tracked files
+      # -- no docker, no cargo, no upstream", yet never once run by CI in its
+      # whole life. A non-executable match is a hard failure for the same
+      # reason: dropping the `+x` bit must not be a way to leave the set.
       - name: ci checks
         shell: bash
         run: |
           shopt -s nullglob
-          scripts=(tools/ci/check-*.sh)
+          scripts=(tools/ci/check-*)
           if [[ ${#scripts[@]} -eq 0 ]]; then
-            echo "no tools/ci/check-*.sh found -- the glob CI runs is empty" >&2
+            echo "no tools/ci/check-* found -- the glob CI runs is empty" >&2
             exit 1
           fi
+          for s in "${scripts[@]}"; do
+            if [[ ! -x "$s" ]]; then
+              echo "$s matches the check-* glob but is not executable" >&2
+              exit 1
+            fi
+          done
           for s in "${scripts[@]}"; do
             echo "== $s"
             "$s"

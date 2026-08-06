@@ -80,6 +80,8 @@ for i, line in enumerate(lines, 1):
             fail(i, f"unresolved conflict marker {marker!r}")
 
 heading_ids = set()
+headings = []  # (line_no, id, depth) in file order, for span computation
+prose_lines = {}  # line_no -> text, outside every fence
 phase_heading_lines = {}  # phase number -> line of its `### Phase N` heading
 
 in_fence = False
@@ -92,11 +94,13 @@ for i, line in enumerate(lines, 1):
         continue
     if in_fence:
         continue
+    prose_lines[i] = line
 
     if line.startswith("#"):
         match = HEADING_ID_RE.match(line)
         if match is not None:
             heading_ids.add(match.group(1))
+            headings.append((i, match.group(1), len(line) - len(line.lstrip("#"))))
         phase_match = PHASE_HEADING_RE.match(line)
         if phase_match is not None:
             phase_heading_lines.setdefault(phase_match.group(1), i)
@@ -135,6 +139,82 @@ for line_no, phase, clause, verdict, section_id, date in table_rows:
             f"Phase {phase} row cites {section_id!r}, no such heading exists in the file",
         )
 
+# A cited section that has declared its own diagnosis superseded is a
+# citation the reader cannot follow: §229.1 closes with "**이 소절의 진단은
+# 뒤에 오는 §251 절이 대체한다.**" while Phase 3's `collision: bool` row went
+# on citing it, so the row pointed at reasoning the file itself had
+# withdrawn. The verdict word can still be right -- §229.1's UNMET was -- so
+# nothing here reads the verdict; what fails is the pointer.
+#
+# The marker is deliberately narrow: a BOLD span carrying both a supersession
+# verb and a `§` reference. Bold, because that is how this file writes a
+# declaration as opposed to prose that merely mentions one; both, because
+# either alone is common. Across the whole file that pattern matches twice,
+# and both are real declarations (§229.1's and §239.3's) -- so this is not a
+# heuristic standing in for a reading, it is the form the document uses. A
+# cited section's span runs to the next heading of the same or shallower
+# depth, so citing a parent inherits its subsections' declarations: a reader
+# sent to §229 lands in §229.1's withdrawal just the same.
+SUPERSEDED_RE = re.compile(r"\*\*([^*]+)\*\*")
+SUPERSEDES_VERB_RE = re.compile(r"대체(한다|했다|된다|됐다)")
+SECTION_REF_RE = re.compile(r"§\d+(?:\.\d+)?")
+
+
+def supersession_in(section_id):
+    """((line, text) declaration or None, [(line, text) unbolded mentions])."""
+    declaration, mentions = None, []
+    for index, (start, ident, depth) in enumerate(headings):
+        if ident != section_id:
+            continue
+        end = len(lines) + 1
+        for next_start, _, next_depth in headings[index + 1 :]:
+            if next_depth <= depth:
+                end = next_start
+                break
+        for line_no in range(start, end):
+            text = prose_lines.get(line_no)
+            if text is None:
+                continue
+            if not (SUPERSEDES_VERB_RE.search(text) and SECTION_REF_RE.search(text)):
+                continue
+            bolds = [
+                bold
+                for bold in SUPERSEDED_RE.findall(text)
+                if SUPERSEDES_VERB_RE.search(bold) and SECTION_REF_RE.search(bold)
+            ]
+            if bolds:
+                if declaration is None:
+                    declaration = (line_no, bolds[0].strip())
+            else:
+                mentions.append((line_no, text.strip()))
+    return declaration, mentions
+
+
+# Reported, not failed: a supersession sentence a cited section did not bold.
+# The bold rule above excludes nothing in the file today -- every one of the
+# two declarations is bolded -- but a rule whose miss is invisible is how a
+# checker ends up reporting OK having read nothing, so the weaker matches are
+# printed instead of dropped. They are not failures because the unbolded form
+# is also how prose *mentions* a supersession without declaring one, and a
+# blocking gate must not turn that ambiguity into everyone's problem.
+unbolded = []
+
+for line_no, phase, clause, verdict, section_id, date in table_rows:
+    cited = section_id.lstrip("§")
+    if cited not in heading_ids:
+        continue
+    declaration, mentions = supersession_in(cited)
+    unbolded.extend((phase, section_id, m) for m in mentions)
+    if declaration is not None:
+        decl_line, decl_text = declaration
+        fail(
+            line_no,
+            f"Phase {phase} row cites {section_id}, but that section declares "
+            f"itself superseded at line {decl_line}: {decl_text!r}. Repoint the "
+            f"row at the section that replaced it -- the verdict word may well "
+            f"be unchanged, the citation is what has gone stale.",
+        )
+
 seen = {}
 for line_no, phase, clause, verdict, section_id, date in table_rows:
     key = (phase, clause)
@@ -148,6 +228,15 @@ for phase, heading_line in sorted(phase_heading_lines.items(), key=lambda kv: in
     if phase not in rows_by_phase:
         fail(heading_line, f"Phase {phase} has a '### Phase {phase}' heading in §5 but no table row")
 
+if unbolded:
+    print(
+        f"--- {len(unbolded)} unbolded supersession sentence(s) inside a cited "
+        f"section. Not failures -- the form is ambiguous between declaring a "
+        f"supersession and mentioning one -- but nothing else looks at them: ---"
+    )
+    for phase, section_id, (mention_line, mention_text) in unbolded:
+        print(f"  Phase {phase} cites {section_id}: {path}:{mention_line}: {mention_text[:110]}")
+
 if failures:
     for failure in failures:
         print("FAIL " + failure, file=sys.stderr)
@@ -156,7 +245,8 @@ if failures:
 print(
     f"OK PORTING-PLAN.md: {len(table_rows)} status rows across "
     f"{len(rows_by_phase)} phases (of {len(phase_heading_lines)} defined) "
-    "agree on verdict vocabulary, every cited § resolves to a real heading, "
-    "and no phase or row is missing/duplicated"
+    "agree on verdict vocabulary, every cited § resolves to a real heading "
+    "that has not declared itself superseded, and no phase or row is "
+    "missing/duplicated"
 )
 PY
