@@ -358,8 +358,10 @@ docker build \
 NET="moveit-rs-move-action-$$"
 NODE_CTR="moveit-rs-move-action-node-$$"
 
+PROBE_CTR="moveit-rs-move-action-probe-$$"
+
 teardown() {
-  docker rm -f "$NODE_CTR" >/dev/null 2>&1 || true
+  docker rm -f "$NODE_CTR" "$PROBE_CTR" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   cleanup_ctx
   rm -rf "$leg_a_dir"
@@ -379,11 +381,38 @@ sleep 3
 
 leg_b_out="$(mktemp)"
 teardown() {
-  docker rm -f "$NODE_CTR" >/dev/null 2>&1 || true
+  docker rm -f "$NODE_CTR" "$PROBE_CTR" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   cleanup_ctx
   rm -rf "$leg_a_dir"
   rm -f "$leg_b_out"
+}
+
+# One probe run, bounded so that a probe which never returns reddens this gate
+# instead of stalling it.
+#
+# `timeout 120 docker run` does not bound it. On expiry `timeout` sends
+# SIGTERM to the docker *client*, which forwards the signal to the container
+# and then waits for the container to exit -- and a probe blocked inside
+# upstream's client does not exit, because
+# `MoveGroupInterfaceImpl::computeCartesianPath` has no timeout on
+# `future_response.get()` (`move_group_interface.cpp:893-896`) and neither has
+# the service call under it. Measured on a `/compute_cartesian_path` probe with
+# the node's service renamed away: `timeout 120 docker run` was still running
+# 31 minutes later. The container name plus `docker rm -f` is the one signal it cannot
+# ignore; `-k 5` is what stops `timeout` itself from waiting forever on the
+# client it just signalled.
+run_probe() {  # <mode> <output-file>
+  : >"$2"
+  timeout -k 5 120 docker run --rm --name "$PROBE_CTR" --network "$NET" \
+    -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
+    -v "$REPO_ROOT:/repo" --entrypoint bash "$PROBE_IMAGE" -c "
+      source /opt/ros/\$ROS_DISTRO/setup.bash
+      source /ws/install/setup.bash
+      ros2 run move_group_interface_probe move_group_interface_probe \
+        $URDF $SRDF arm $1
+    " >"$2" 2>&1 || true
+  docker rm -f "$PROBE_CTR" >/dev/null 2>&1 || true
 }
 
 # Both start-state spellings an unmodified client can produce. `plan()` ships
@@ -394,15 +423,7 @@ teardown() {
 # why both modes stay on the gate: one run cannot cover both variants, and the
 # variant a real client picks is decided by whether it called `setStartState`.
 for mode in default-start explicit-start; do
-  : >"$leg_b_out"
-  timeout 120 docker run --rm --network "$NET" \
-    -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
-    -v "$REPO_ROOT:/repo" --entrypoint bash "$PROBE_IMAGE" -c "
-      source /opt/ros/\$ROS_DISTRO/setup.bash
-      source /ws/install/setup.bash
-      ros2 run move_group_interface_probe move_group_interface_probe \
-        $URDF $SRDF arm $mode
-    " >"$leg_b_out" 2>&1 || true
+  run_probe "$mode" "$leg_b_out"
 
   # Printed on success too, in the `/plan_kinematic_path` leg's shape: a gate
   # whose measurement is only visible when it fails leaves the operator with
