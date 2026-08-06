@@ -72,8 +72,39 @@
 //! own shape plus one attribution field,
 //! `{"id", "solved", "length"?, "condition2_valid"?,
 //! "invalid_waypoint_count"?, "condition2_valid_at_returned_waypoints"?,
-//! "failure"?}`. See [`returned_waypoints`] for what the extra field is
-//! for and why it is not the condition-2 number.
+//! "objective"?, "failure"?}`. See [`returned_waypoints`] for what the extra
+//! field is for and why it is not the condition-2 number.
+//!
+//! # `objective`, and why it is three pairs rather than one number
+//!
+//! `length` is a *path-length* proxy, not CHOMP's own objective; a CHOMP run
+//! that lowers its smoothness+obstacle cost can raise its joint-space path
+//! length and vice versa. `objective` is the optimizer's own cost function,
+//! read off
+//! [`ChompSolution::objective`](moveit_planners_chomp::ChompSolution::objective),
+//! and it is present on every solved line and absent on every failed one
+//! (`solve` returns `Err`, so there is no solution to read it from).
+//!
+//! ```text
+//! "objective": {"seed": {"smoothness": s, "collision": c, "total": t},
+//!               "best": {...}, "last": {...},
+//!               "improvement": seed.total - best.total,
+//!               "descent":     seed.total - last.total}
+//! ```
+//!
+//! `best` is the objective of the trajectory this line's `length` and
+//! `condition2_valid` were measured on -- the one
+//! `ChompOptimizer::optimize` copied back out of `best_group_trajectory_`.
+//! `improvement` is therefore the paired improvement claim PORTING-PLAN.md
+//! §264.12 asked for, but it cannot be negative: `best` starts at `seed` and
+//! the optimizer only ever replaces it with something smaller
+//! (`chomp_optimizer.cpp:338`). A sweep that reported "0 problems made worse"
+//! from `improvement` alone would be reporting the min-tracking, not the
+//! optimizer. `descent` is the number whose sign is open -- `last` is the
+//! objective of the final iterate the loop actually evaluated, which
+//! upstream computes and discards, so `descent < 0` says gradient descent
+//! ended above where it started and only the best-snapshot kept the answer
+//! from being worse than its own input.
 //!
 //! A request carrying `condition2_resolutions: [r, ...]` additionally gets
 //! `condition2_by_resolution`, one condition-2 verdict per `r` over the same
@@ -144,7 +175,10 @@ use moveit_distance_field::{
 use moveit_geometry::{Cuboid, Isometry3, Shape, Vector3};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planners_chomp::optimizer::ChompCollisionContext;
-use moveit_planners_chomp::{ChompGoal, ChompParameters, ChompRequest, GoalJointConstraint, solve};
+use moveit_planners_chomp::{
+    ChompGoal, ChompObjective, ChompObjectiveProgress, ChompParameters, ChompRequest,
+    GoalJointConstraint, solve,
+};
 use moveit_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
@@ -389,6 +423,32 @@ fn returned_waypoints<'m>(
         .collect()
 }
 
+/// Serialises one [`ChompObjectiveProgress`] into the `objective` object this
+/// file's header documents.
+///
+/// `total` is emitted alongside its two components rather than left for the
+/// consumer to add: the sum is the quantity CHOMP's accept test compares
+/// (`chomp_optimizer.cpp:338`), and a consumer that re-derived it would be
+/// free to derive a different one. `improvement` and `descent` are emitted
+/// for the same reason -- see the header for why the two are not the same
+/// claim.
+fn objective_json(progress: &ChompObjectiveProgress) -> serde_json::Value {
+    let term = |o: &ChompObjective| {
+        serde_json::json!({
+            "smoothness": o.smoothness,
+            "collision": o.collision,
+            "total": o.total(),
+        })
+    };
+    serde_json::json!({
+        "seed": term(&progress.seed),
+        "best": term(&progress.best),
+        "last": term(&progress.last),
+        "improvement": progress.improvement(),
+        "descent": progress.descent(),
+    })
+}
+
 /// Everything one request's problems share, built once by [`main`] and read
 /// by [`Bench::solve_problem`] for each problem.
 ///
@@ -541,6 +601,14 @@ impl<'m> Bench<'m> {
                     "invalid_waypoint_count": validity.invalid_waypoints.len(),
                     "condition2_valid_at_returned_waypoints": raw_validity.valid,
                 });
+                // Absent rather than null when the optimizer never evaluated
+                // its objective, which under these parameters
+                // (`max_iterations` = 50) cannot happen -- so a reader that
+                // finds a solved line without this key has found a real
+                // change, not a configuration.
+                if let Some(progress) = solution.objective {
+                    record["objective"] = objective_json(&progress);
+                }
                 if !self.condition2_resolutions.is_empty() {
                     record["condition2_by_resolution"] =
                         serde_json::Value::Array(condition2_by_resolution(
