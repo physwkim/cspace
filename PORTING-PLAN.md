@@ -24484,6 +24484,19 @@ pilz `:127`의 10건은 `planning_context_loader{,_circ,_lin,_polyline,_ptp}`의
 | `crates/moveit-kinematics/src/lib.rs:263` | ``- `srv_kinematics_plugin` — **excluded, D1/D2 (no ROS dependency)**.`` |
 | `crates/moveit-kinematics/src/lib.rs:333` | ``3. *`cached_ur_kinematics_plugin.cpp` — out of D1/D2 scope, not`` |
 
+**정정 (§NEW).** 위 두 표에서 `crates/moveit-kinematics/src/lib.rs`의 333행을
+가리키는 두 칸은 지금 트리의 줄 번호가 아니다. §NEW가 같은 파일의 "What did
+not port, and why" 1번 문항에 19줄을 넣었고, 그래서 옛 316행 이후가 전부
++19로 밀렸다 — 그 칸이 인용문으로 들고 있는 `cached_ur_kinematics_plugin.cpp`
+문항은 지금 352행에서 시작한다. 두 표는 그 시점의 측정 기록이므로 그대로
+두고, 살아 있는 인용인 `doc/port-coverage.md`의 두 행만 +19로 옮겼다
+(`crates/moveit-kinematics/src/lib.rs:352-359`와 `:362-366`, 두 구간 모두
+`PLUGINLIB_EXPORT_CLASS`를 담고 있고 `check-citation-drift.py`가
+content-verified로 읽는다). 263행을 가리키는
+칸을 비롯해 316행 이전의 인용은 영향받지 않는다. 이 절의 `:333`은
+`doc/citation-classes.txt` 기준선에서 content-verified → unanchored 강등으로
+보고되며, 그 강등은 이 시프트가 낸 것이다.
+
 **UNVERIFIED 2건은 브리프의 규칙으로 결정이 아니라 구멍이다.** 둘 다
 `moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/detail/`
 아래다:
@@ -26638,9 +26651,12 @@ leg A의 여섯 goal이 답한 것(같은 실행):
 
 `doc/unported-classification.md`의 86행 중 둘만 `UNVERIFIED`였다. 그것은
 계측기가 이 두 파일을 판정한 문장을 찾지 못했다는 뜻이고, 실제로도
-없었다 — 두 행이 인용하던 `crates/moveit-kinematics/src/lib.rs:279-287`은
+없었다 — 두 행이 인용하던 `crates/moveit-kinematics/src/lib.rs` 구간은
 `detail/NearestNeighborsGNAT.hpp` 하나만 이름으로 부른다. 이 절은 그
 판정을 만들어 기록하고, 그것을 계측기가 볼 수 있는 자리에 놓는다.
+(이 절이 옛 구간의 줄 번호를 `path.rs:NNN` 꼴로 다시 적지 않는 이유는
+그 꼴이 살아 있는 인용으로 파싱되기 때문이다 — 옛 번호를 그렇게 적으면
+정의상 거짓인 인용이 하나 늘어난다.)
 
 ### §NEW.1 상류 소비자 전수 — 각각 세 파일, 그리고 그 셋째는 같은 한 파일이다
 
@@ -26686,7 +26702,7 @@ metric tree) to avoid"라고 적고 있었다. 이 라운드가 한 일은 그 �
 나머지 두 헤더를 **이름으로** 넣고, 위 전수 측정을 그 자리에 적은 것이다
 (현재 `:308-334`).
 
-그 전에는 세 행이 모두 `:279-287`을 인용하고 있었는데, 그 구간은
+그 전에는 세 행이 모두 같은 옛 구간을 인용하고 있었는데, 그 구간은
 `ikfast_kinematics_plugin` 불릿의 끝과 `cached_ik_kinematics_plugin`
 불릿의 첫 몇 줄이다 — 판정 문장은 그 안에 없다. 그런데도 GNAT 행이
 `named (basename)`으로 통과하고 있었던 이유는 `verify_crate_doc`가 인용
