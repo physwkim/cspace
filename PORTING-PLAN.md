@@ -26239,12 +26239,17 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
   (`ChompRequest::seed_trajectory`, upstream STOMP의 `extractSeedTrajectory`).
   생성기를 그렇게 늘리는 것은 `moveit-planners-sbp`의 예제를 고치는 일이라
   이 라운드의 두 크레이트 밖이다.
-- **C++ CHOMP 기준선.** 오라클은 이미 `chomp_motion_planner`를 링크하므로
-  `chomp_plan` op는 만들 수 있다(§264.3). 만들면 `condition1`의
-  `0.9 × cpp_rate`와 `cpp-endpoints`, `no-regression-cpp-solved`가 CHOMP에
-  대해 실제로 복원된다. 이번 라운드에 만들지 않았다: 오라클 소스 변경은
-  digest 게이트가 이미지 재빌드를 강제하고, 그 비용은 이 라운드에 넣지
-  않았다.
+- **C++ CHOMP 기준선.** 만들어졌다 — CHOMP과 STOMP 양쪽으로. 오라클은
+  `chomp_plan`과 `stomp_plan`을 답하고(`oracle.cpp:1067`, `:1069`가
+  `chompPlan`(`:6185`)과 `stompPlan`(`:6323`)으로 보낸다),
+  `tools/ci/measure-phase8-cpp-baseline.sh`가 문제당 한 프로세스로 그것을
+  몬다. §NEW가 이 계측기 자신의 모집단에서 재고 `condition1`,
+  `condition3-pooled`, `condition3-paired`, `no-regression-cpp-solved`를
+  실제로 복원했다. 남는 잔여는 `cpp-endpoints` 하나이고, 그것은 논증이
+  아니라 사실이다: `chompPlan`/`stompPlan`은 `path`를 내보내지 않으므로
+  (경로를 내보내는 것은 `plan` op뿐 — `oracle.cpp:5870`) C++ 쪽에 끝점
+  간극을 잴 대상 자체가 없다. 더하는 것은 오라클 소스 변경이고, digest
+  게이트가 그것을 이 기계의 모든 워크트리에 대한 이미지 재빌드로 만든다.
 - **`full` 모드의 핀.** 한 번도 돌리지 않았다(§264.9). 250문제 × 2로봇 ×
   2플래너에 STOMP의 실측 문제당 비용을 곱하면 이 라운드에 들어가지 않는다.
 - **CHOMP의 목적함수가 관측되지 않는다.** `solve`는
