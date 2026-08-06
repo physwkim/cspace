@@ -67,7 +67,7 @@
 //! `getPlanningAlgorithms()` into `planner_ids`.
 //!
 //! This port's [`moveit_planners_sbp::registry::PlannerManager`] has none of
-//! those three. It has `name()`, and [`PlannerRegistration`] carries that
+//! those three. It has `name()`, and `PlannerRegistration` carries that
 //! same name plus a constructor. So:
 //!
 //! * `name` is the registration's name. Upstream's `getDescription` is "a
@@ -104,7 +104,7 @@
 //! pipeline, for the life of the node.
 //!
 //! Here the map is owned by the node ([`PlannerConfigurations`]) rather than
-//! by a manager instance, because [`PlannerRegistration::construct`] builds a
+//! by a manager instance, because `PlannerRegistration::construct` builds a
 //! *fresh* `Box<dyn PlannerManager>` on each call: a config written into a
 //! constructed instance would be dropped with it. The node owning the store
 //! is what makes the write survive at all.
@@ -124,7 +124,7 @@
 //! answers `FAILURE` or returns a real trajectory -- and in the second case
 //! it is the sharper statement, because then a `set` is accepted, is
 //! readable, and still does not change the plan that follows it. Closing it
-//! means giving [`PlannerRegistration::construct`] the store to build from,
+//! means giving `PlannerRegistration::construct` the store to build from,
 //! which is a change to the planner-registry trait and not to this file.
 
 use std::cell::RefCell;
@@ -140,10 +140,10 @@ use futures::task::LocalSpawnExt;
 // `moveit-planners-sbp` reaches it there through a *private* `use`, with no
 // re-export anywhere in the workspace, so this path stops resolving at merge
 // -- and because this file is new, git merges it clean and the breakage
-// surfaces only as a compile error. The whole fix is this import and the
-// matching dependency in Cargo.toml, both repointed at
-// `moveit_planner_registry::PLANNER_MANAGERS`; nothing else here reads the
-// slice, and the value read is unchanged.
+// surfaces only as a compile error. The fix is this import, the Cargo.toml
+// dependency, and the two `moveit_planners_sbp::registry::` intra-doc links
+// above -- those fail the doc build, not the compile, so `cargo build` alone
+// will not find them. The value read is unchanged.
 use moveit_planners_sbp::registry::PLANNER_MANAGERS;
 use r2r::QosProfile;
 use r2r::moveit_msgs::msg::{PlannerInterfaceDescription, PlannerParams};
