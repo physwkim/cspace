@@ -1,0 +1,17 @@
+n=250 min=4.8s median=20.2s mean=181.2s max=5062.6s
+  p50=20.0s
+  p90=183.5s
+  p95=301.4s
+  p99=3315.7s
+slowest 10 (seconds, id):
+      2202.4  id 170
+      2334.4  id 6
+      2408.5  id 120
+      2563.1  id 177
+      2564.2  id 173
+      2954.0  id 53
+      3315.7  id 49
+      3897.0  id 36
+      4032.4  id 227
+      5062.6  id 61
+sum of all problem times = 45292s; wall clock = 5063s
