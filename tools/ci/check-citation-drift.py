@@ -1107,7 +1107,7 @@ def resolve_path(fname_part, rs_files_by_basename, rs_files_set):
 #   2. CITER extension. main() builds md_files from `.md` only, so a citation
 #      living in a `.json`, `.sh`, `.py` or `.rs` file is outside the corpus
 #      no matter what it names. This gate's OWN source cites
-#      `PORTING-PLAN.md:9384` and could not see it.
+#      `!PORTING-PLAN.md:9384` and could not see it.
 #
 # WHY THIS IS A SEPARATE POPULATION WITH A SEPARATE BASELINE. Folding these
 # into CLASS_BASELINE would add ~280 rows that were never checked before to a
@@ -1137,6 +1137,23 @@ IN_REPO_BASELINE = "doc/citation-classes-in-repo.txt"
 # Every tracked text extension that is not `.rs`. `.rs` targets belong to the
 # population above; listing them here would double-count them.
 IN_REPO_TARGET_EXT = ("md", "sh", "py", "yml", "yaml", "toml", "urdf", "srdf", "txt", "json", "xacro")
+# A citation QUOTED AS DATA rather than asserted: the remap tables' left
+# column (where a citation used to point), a section documenting a defect by
+# spelling the broken citation out, a comment illustrating a grammar. Four
+# separate rounds have now hit this -- §253.3's tables, §299.3's five sites,
+# §299's own examples, and this gate's own comments -- and each time the fix
+# was to respell the text by hand until it stopped looking like a citation.
+# That is a patch applied once per site, and it loses the citation entirely:
+# nothing counts it, so a document can accumulate them silently.
+#
+# The sigil is the structural version. `!` inside the backticks means "this
+# names a line but asserts nothing about it, do not resolve it". It is
+# greppable, uniform, and the gate DECLARES the count, so quoting-as-data is
+# bounded rather than invisible. It is deliberately not a comment convention
+# or a prose disclaimer: those are what the previous three rounds tried.
+IN_REPO_QUOTED = "quoted"
+IN_REPO_QUOTED_RE = re.compile(r"`!(?:[\w./-]+/)?[\w.-]+\.\w+:\d+(?:[-,]\d+)*`")
+
 _IN_REPO_BODY = (
     r"((?:[\w./-]+/)?[\w.-]+\.(?:" + "|".join(IN_REPO_TARGET_EXT) + r")):"
     r"(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)"
@@ -1147,7 +1164,7 @@ _IN_REPO_BODY = (
 # In a `.md` citer, backticks ARE the convention and bare `foo.md:12` in prose
 # is usually not a citation, so requiring them is what keeps the corpus clean.
 # In a `.rs`, `.py`, `.sh` or `.json` citer there are no backticks to require --
-# a source comment writes `// PORTING-PLAN.md:1152 records that ...` bare, and
+# a source comment writes `// !PORTING-PLAN.md:1152 records that ...` bare, and
 # a JSON provenance string writes `(PORTING-PLAN.md:11242)`. Requiring
 # backticks there misses exactly the population hole 2 exists to close: five
 # real citations, three of them in moveit-planners-sbp comments citing a line
@@ -1157,14 +1174,19 @@ _IN_REPO_BODY = (
 # false positive -- check-porting-plan-sections.sh:309 builds the string
 # "PORTING-PLAN.md:1: parsed zero ## sections" as its own error format. It is
 # kept because moveit-planners-sbp/src/compound.rs:495 writes a real citation
-# the same way, `// PORTING-PLAN.md:1152: whether the StateSpace trait ...`,
+# the same way, `// !PORTING-PLAN.md:1152: whether the StateSpace trait ...`,
 # where the colon is punctuation. Excluding it would drop one of the five real
 # code-citer sites to remove one benign row: the format string resolves, is in
 # bounds and non-blank, so it lands in `resolved` and is declared rather than
 # reported as a finding. A fenced block quoting a gate's FAIL output has the
 # same shape and is dropped by fence-skipping instead.
 IN_REPO_CITATION_RE = re.compile("`" + _IN_REPO_BODY + "`")
-IN_REPO_CODE_CITATION_RE = re.compile(_IN_REPO_BODY)
+# The `(?<!!)` is what makes the sigil bind in a code citer. The backticked
+# grammar cannot match `` `!foo.md:1` `` because the `!` sits where a path
+# character must be, but the BARE grammar has no such anchor -- it would
+# happily match `foo.md:1` starting one character past the `!` and report the
+# quoted form as a live citation.
+IN_REPO_CODE_CITATION_RE = re.compile(r"(?<!!)" + _IN_REPO_BODY)
 # Copied verbatim from tools/ci/check-section-references.sh's HEADING_RE so the
 # two gates cannot disagree about what a section heading is.
 IN_REPO_SECTION_RE = re.compile(r"^#{2,6}\s+§?(\d+(?:\.\d+)*)\b")
@@ -1289,6 +1311,11 @@ def scan_in_repo(tracked):
                     continue
                 if in_fence:
                     continue
+            for q in IN_REPO_QUOTED_RE.finditer(line):
+                out.append((citer, line_no, q.group(0).strip("`"), None, IN_REPO_QUOTED, None))
+            # The `!` form cannot also match the citation grammars: both
+            # require the backtick to be followed by a path character, and
+            # `!` is not one.
             grammar = (
                 IN_REPO_CITATION_RE if citer.endswith(".md") else IN_REPO_CODE_CITATION_RE
             )

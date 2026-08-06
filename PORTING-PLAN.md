@@ -23629,7 +23629,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 | 인용 위치 | 적힌 곳 | 재도출 |
 | --- | --- | --- |
 | `PORTING-PLAN.md:3933` | `:1044` | `2025` |
-| `PORTING-PLAN.md:3960` | `:1144-1146` | `2125-2127` |
+| `!PORTING-PLAN.md:3960` | `:1144-1146` | `2125-2127` |
 | `PORTING-PLAN.md:4582` | `:1524` | `2457` |
 | `PORTING-PLAN.md:11391` | `:4752` | 손: `c0838b4^`에서 `{ "planning_time_s", elapsed },`. `c0838b4`가 그 필드를 지웠으므로 오늘 대응하는 줄이 없다 |
 | `PORTING-PLAN.md:11391` | `:5135` | 손: `c0838b4^`에서 `res.planning_time`. 같은 커밋이 지웠고 남은 것은 주석 `oracle.cpp@3241bbab:6166`뿐 |
@@ -23640,7 +23640,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 | `PORTING-PLAN.md:20264` | `:1537` | `1546` |
 | `PORTING-PLAN.md:21397` | `:1547` | `1549` |
 | `PORTING-PLAN.md:21398` | `:2235` | `2306` |
-| `PORTING-PLAN.md:21523` | `:2188` | `2259` |
+| `!PORTING-PLAN.md:21523` | `:2188` | `2259` |
 | `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:51` | `:2326` | `2579` |
 | `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:65` | `:2364-2374` | `2617-2627` |
 | `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:73` | `:3391-3392` | 손: `3902` — blame 사상은 depth 주석으로 가는데 인용 문장은 `max_contacts_per_pair` 대입을 가리킨다 |
@@ -30574,7 +30574,7 @@ undeclared-unresolvable **0건**으로 통과한다.
 
 인용처럼 읽히지만 게이트 코퍼스 밖에 있던 것들이다. 전부 검사되는 형태로 고쳤다:
 
-- `PORTING-PLAN.md:4598`의 `` `1530` `` — 콜론이 없어 토큰이 아니었다 → `` `oracle.cpp:2500` ``
+- `!PORTING-PLAN.md:4598`의 `` `1530` `` — 콜론이 없어 토큰이 아니었다 → `` `oracle.cpp:2500` ``
 - `PORTING-PLAN.md:20367-20368`의 백틱 밖 oracle.cpp:1537 → `` `oracle.cpp:1579-1580` ``
 - `oracle-request-collision-max-contacts-per-pair.md`(오늘 64행)의 줄바꿈으로 쪼개진
   `oracle.cpp:2326-\n2338` → 한 줄로 붙여 `@47a271c^`로
@@ -33030,7 +33030,7 @@ A가 핵심이다 — 술어가 사다리 위에 있음을 이 한 건이 증명
 `crates/moveit-planners-sbp/src/compound.rs:495`,
 `crates/moveit-planners-sbp/src/se3.rs:469`,
 `crates/moveit-planners-sbp/src/so2.rs:210`가 모두
-`PORTING-PLAN.md:1152`를 가리키는데 그 줄은 **비어 있다**(제목
+`!PORTING-PLAN.md:1152`를 가리키는데 그 줄은 **비어 있다**(제목
 `## 10. 1차 병렬 라운드 병합`은 1153이다). StateSpace 트레이트를 논한다며
 병합 회차 제목 언저리를 가리키는 주석이 세 개, 그것이 문서화 대상인 바로 그
 크레이트의 소스에 실려 있다. 나머지 둘은
@@ -33065,9 +33065,9 @@ gapaudit은 이미 main에 병합돼 있다(`a4d5db85`). 그 트리에서 예측
 때문이다. 같은 코퍼스에서 빈 줄 술어가 보고하는 것은 이것이 아닌 **8건**
 이고, 그중 3건은 §253.3의 재매핑 표가 데이터로 적어 둔 옛 번호다(구성상
 과거의 것이므로 살아 있는 인용으로 취급하면 안 된다). 나머지 중
-`tools/ci/check-citation-drift.py:1024`가 `PORTING-PLAN.md:9384`를 가리키는
+`tools/ci/check-citation-drift.py:1024`가 `!PORTING-PLAN.md:9384`를 가리키는
 건은 인용자 확장자 구멍(§299.9의 2번) 안에 있고, `doc/handoff-2026-08-06.md:112`가
-`PORTING-PLAN.md:801-819`를 가리키는 건은 §5의 표가 19행이던 시절에 쓰인
+`!PORTING-PLAN.md:801-819`를 가리키는 건은 §5의 표가 19행이던 시절에 쓰인
 것이다.
 
 그러므로 "`.md` 대상 코퍼스를 열면 그 1건이 잡힌다"는 예측은 **반증됐다**.
@@ -33120,7 +33120,7 @@ gapaudit은 이미 main에 병합돼 있다(`a4d5db85`). 그 트리에서 예측
    않는다.
 2. **인용자 확장자.** 코퍼스를 `.md` 인용자만으로 만들기 때문에,
    `.rs`·`.py`·`.json` 안에 사는 인용은 무엇을 가리키든 밖이다. 이 게이트
-   자신의 소스가 `PORTING-PLAN.md:9384`를 인용하면서 그것을 보지 못했다.
+   자신의 소스가 `!PORTING-PLAN.md:9384`를 인용하면서 그것을 보지 못했다.
 
 둘 다 닫았다. 새 모집단은 **283건**(인용 파일 31개)이고,
 `doc/citation-classes.txt`가 아니라 `doc/citation-classes-in-repo.txt`에
@@ -33142,7 +33142,7 @@ gapaudit은 이미 main에 병합돼 있다(`a4d5db85`). 그 트리에서 예측
 소스 주석은 `// PORTING-PLAN.md:1152 records that ...`처럼 맨몸으로 적는다.
 백틱을 요구하면 구멍 2가 존재하는 이유인 바로 그 다섯 건을 놓친다. `external`은 이 저장소에 없는 파일을 가리키는 인용이고
 `measure-upstream-citations.py`의 영역이므로 실패가 아니라 선언 대상이다.
-`unresolvable`은 이 게이트의 것이다 — `CMakeLists.txt:53`처럼 추적 파일
+`unresolvable`은 이 게이트의 것이다 — `!CMakeLists.txt:53`처럼 추적 파일
 여러 개에 걸리는 basename은 그중 아무것도 이름 대지 못한다.
 
 **절 포함 검사가 §299.7의 그 형태를 잡는다.** Rust fn 앵커링은 이 대상들에
