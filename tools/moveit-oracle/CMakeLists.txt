@@ -36,14 +36,72 @@ find_package(ompl REQUIRED)
 # package, so it is built from source and rides MOVEIT2_PACKAGES -- see
 # src-digest.sh's own comment on that line.
 find_package(pilz_industrial_motion_planner REQUIRED)
-# For the chomp_quad_cost_inverse op's real ChompCost -- see oracle.cpp's
-# include comment for why the upstream class and not a transcription.
+# For the chomp_quad_cost_inverse op's real ChompCost and the chomp_plan op's
+# real ChompPlanner::solve -- see oracle.cpp's include comment for why the
+# upstream class and not a transcription.
 find_package(chomp_motion_planner REQUIRED)
+# For the stomp_plan op, whose three dependencies are all already in the image
+# but none of which arrive as a built `moveit_planners_stomp`: `stomp` is the
+# prebuilt ros-industrial core solver, `rsl` is the RNG both C++ planners draw
+# from, and generate_parameter_library turns upstream's own res/stomp_moveit.yaml
+# into the Params struct StompPlanningContext takes. See STOMP_MOVEIT_SRC below.
+find_package(stomp REQUIRED)
+find_package(rsl REQUIRED)
+find_package(generate_parameter_library REQUIRED)
+
+# `moveit_planners_stomp` is not one of the packages this image builds
+# (MOVEIT2_PACKAGES in src-digest.sh), because adding it would invalidate the
+# Dockerfile's expensive first stage and rebuild moveit_core from scratch for
+# one small package. It does not have to be built to be *used*: the Dockerfile
+# copies the whole moveit2 tree to /ws/src/moveit2 at the pinned SHA and leaves
+# it there, so the planning context compiles straight from upstream's sources.
+#
+# The path is absolute and image-only on purpose. This project is only ever
+# configured inside the oracle image (the Dockerfile's second stage is its sole
+# caller), and a relative path would be a claim about a host layout that has no
+# bearing on where these sources actually live. Asserted rather than assumed: a
+# missing directory here means the base image changed shape, and failing at
+# configure time with that sentence is much cheaper than a link error later.
+set(STOMP_MOVEIT_SRC /ws/src/moveit2/moveit_planners/stomp)
+if(NOT EXISTS ${STOMP_MOVEIT_SRC}/src/stomp_moveit_planning_context.cpp)
+  message(FATAL_ERROR
+    "upstream STOMP sources not found at ${STOMP_MOVEIT_SRC} -- the stomp_plan op "
+    "compiles them from the moveit2 tree the image ships at /ws/src")
+endif()
+
+find_package(tf2_eigen REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+
+# The macro pins its yaml argument under the calling project's source dir --
+# its own body does `set(YAML_FILE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/${YAML_FILE})`
+# unconditionally -- so an absolute path silently becomes
+# /ws/oracle-src//ws/src/... and the build stops on a missing rule. The path
+# stays absolute everywhere else in this file; only this one call gets the
+# relative spelling the macro requires, derived rather than hand-written so the
+# two cannot drift.
+file(RELATIVE_PATH STOMP_MOVEIT_YAML_REL
+     ${CMAKE_CURRENT_SOURCE_DIR} ${STOMP_MOVEIT_SRC}/res/stomp_moveit.yaml)
+generate_parameter_library(stomp_moveit_parameters ${STOMP_MOVEIT_YAML_REL})
+
+# generate_parameter_library writes its header to
+# ${CMAKE_CURRENT_BINARY_DIR}/include/${PROJECT_NAME}/<lib>.hpp -- keyed on the
+# *consuming* project's name, which here is moveit_oracle. Upstream's own
+# sources include it as <moveit_planners_stomp/stomp_moveit_parameters.hpp>
+# (both stomp_moveit_planning_context.{hpp,cpp} do), the name it has when the
+# package builds itself. A directory symlink gives the generated header that
+# second name without editing upstream's include lines, which is the thing that
+# must not happen: the whole point of compiling these sources is that they are
+# upstream's, unmodified.
+file(CREATE_LINK ${CMAKE_CURRENT_BINARY_DIR}/include/${PROJECT_NAME}
+                 ${CMAKE_CURRENT_BINARY_DIR}/include/moveit_planners_stomp
+     SYMBOLIC)
 
 add_executable(moveit_oracle
   src/oracle.cpp
   src/pilz_polyline_factory.cpp
   src/third_party/kdl_kinematics_plugin/chainiksolver_vel_mimic_svd.cpp
+  ${STOMP_MOVEIT_SRC}/src/stomp_moveit_planning_context.cpp
 )
 
 # Namespaced targets, not bare library names: moveit_core exports
@@ -97,6 +155,20 @@ target_link_libraries(moveit_oracle
     pilz_industrial_motion_planner::joint_limits_common
     pilz_industrial_motion_planner::cartesian_limits_parameters
     chomp_motion_planner::chomp_motion_planner
+    # The stomp_plan op. `moveit_constraint_samplers` carries the
+    # `ConstraintSamplerManager` StompPlanningContext::solve uses to turn the
+    # request's goal constraints into a goal state; the other four are what
+    # moveit_planners_stomp's own CMakeLists links (as moveit_core::moveit_core,
+    # resolved here to the specific libraries the planning context actually
+    # pulls in) plus the two message packages and the core solver.
+    moveit_core::moveit_constraint_samplers
+    moveit_core::moveit_planning_interface
+    stomp::stomp
+    stomp_moveit_parameters
+    rsl::rsl
+    tf2_eigen::tf2_eigen
+    ${visualization_msgs_TARGETS}
+    ${std_msgs_TARGETS}
 )
 # octomap ships old-style CMake variables (OCTOMAP_INCLUDE_DIRS/LIBRARIES),
 # not an imported target, per its own octomap-config.cmake. orocos_kdl and
@@ -106,6 +178,14 @@ target_include_directories(moveit_oracle PRIVATE
   ${OCTOMAP_INCLUDE_DIRS}
   ${orocos_kdl_INCLUDE_DIRS}
   ${OMPL_INCLUDE_DIRS}
+  # Upstream's STOMP headers, read straight out of the moveit2 tree the image
+  # ships -- this package is compiled from source rather than linked, see
+  # STOMP_MOVEIT_SRC above.
+  ${STOMP_MOVEIT_SRC}/include
+  # Where generate_parameter_library wrote stomp_moveit_parameters.hpp, plus
+  # the moveit_planners_stomp symlink that gives it the name upstream's
+  # sources include it by.
+  ${CMAKE_CURRENT_BINARY_DIR}/include
 )
 
 install(TARGETS moveit_oracle RUNTIME DESTINATION bin)

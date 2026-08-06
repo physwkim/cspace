@@ -26797,3 +26797,358 @@ Phase 6 하나뿐이었다.
 물린 자리 넷: 인용 추가(+1 실패), 전체 형식으로 변환(-1 실패, 재동결 요구),
 예산 행이 없는 새 문서(실패), 펜스 안의 짧은 인용(세지 않음 — 오늘 이
 분기를 실행하는 실재 사이트가 0건이므로 물어서만 확인된다).
+
+---
+
+## §269 상류 자신의 C++ CHOMP/STOMP를 같은 500문제에 돌렸다 — 조건 1·2를 못 넘는 것은 포팅이 아니라 기준이다
+
+§263은 Phase 8의 CHOMP/STOMP 항목 세 조건을 모두 UNMET으로 측정했다. 그
+판정은 그대로 서지만, 그 UNMET이 **무엇의** 결함인지는 §263이 답하지 않았다.
+조건 1의 바가 `0.9 ×` **C++ OMPL RRTConnect**이기 때문이다. Phase 7은 우리
+RRTConnect를 상류 RRTConnect와 비교했다 — 양쪽이 같은 알고리즘이다. Phase 8은
+같은 문장을 그대로 가리키면서 우리 CHOMP/STOMP를 **다른 플래너의** 성공률과
+비교한다. 이 차이가 UNMET의 뜻을 정한다: 포팅 결함이거나, 아니면 어떤
+CHOMP/STOMP 구현도 만족하지 못하는 기준이거나.
+
+이 절은 상류 자신의 C++ `ChompPlanner::solve`와 `StompPlanningContext::solve`를
+**같은 500문제·같은 config·같은 시드 규칙·같은 유효성 판정**에 걸어 그 둘을
+가른다.
+
+**판정: 기준이 잘못 지정되어 있다.** 상류의 C++ CHOMP는 500문제 중 370건
+(74.0%), C++ STOMP는 446건(89.2%)을 푼다. 조건 1의 바인 89.64%(449건)를
+**상류 자신의 두 구현 모두 넘지 못한다.** 조건 2도 마찬가지다 — C++ CHOMP는
+푼 370건 중 1건, C++ STOMP는 푼 446건 중 2건이 0.01 촘촘화 후 무효다. 즉 이
+조건은 CHOMP도 STOMP도 — 상류의 것이든 우리 것이든 — 만족하지 못한다. 네 측정
+집합 전부가 **세 조건에 대해 같은 판정**(조건 1 UNMET, 조건 2 UNMET, 조건 3
+MET)을 낸다. 우리 포팅만 못 넘는 바가 아니라, 이 두 플래너 부류가 넘도록
+설계되지 않은 바다.
+
+### §269.1 게이트 질문 — 플러그인 패키지는 없고, 플래너 본체는 있다
+
+먼저 오라클 이미지가 `chomp_interface` / `stomp_moveit` 플러그인을 실을 수
+있는지부터 확인했다. 대답은 반쪽짜리이고, 그 비대칭이 이 라운드를 가능하게
+한다.
+
+```
+=== the two plugin packages this question is about ===
+ABSENT  moveit_planners_chomp
+ABSENT  moveit_planners_stomp
+PRESENT chomp_motion_planner
+
+=== upstream sources the image ships (/ws/src/moveit2/moveit_planners) ===
+README.md  chomp  moveit_planners  ompl  pilz_industrial_motion_planner
+pilz_industrial_motion_planner_testutils  stomp  test_configs
+
+=== prebuilt stomp solver ===
+/opt/ros/rolling/lib/libstomp.so
+```
+
+플러그인 **패키지**는 둘 다 `/ws/install`에 없다 — `ORACLE_MOVEIT2_PACKAGES`
+(`src-digest.sh:95`)가 부르지 않기 때문이고, 거기에 추가하면 Dockerfile 1단계
+(`moveit_core` 전체 빌드)가 무효화된다. 그러나 없는 것은 **플러그인 껍데기**뿐이다:
+
+- CHOMP: `ChompPlanner::solve` 전체를 담은 `chomp_motion_planner`는 빌드되어
+  있다. 없는 `moveit_planners_chomp`가 그 위에 얹는 것은 ROS 파라미터 읽기
+  (`CHOMPInterface::loadParams`)와 씬을 HYBRID 검출기로 바꾸는 두 줄
+  (`chomp_plugin.cpp:94-95`)뿐이다.
+- STOMP: 핵심 솔버 `libstomp.so`는 베이스 이미지에 이미 있고,
+  `stomp_moveit_planning_context.cpp` 원본은 `/ws/src/moveit2`에 그대로 있다.
+
+그래서 오라클에 `chomp_plan` / `stomp_plan` 두 op을 넣고 **상류 소스를 무수정
+그대로 컴파일**했다(`tools/moveit-oracle/CMakeLists.txt`가 `STOMP_MOVEIT_SRC`
+로 그 경로를 못박고, 없으면 configure 시점에 FATAL_ERROR로 죽는다). 합성하지
+않았고, 공개 수치로 추정하지 않았으며, 다른 플래너로 대체하지 않았다.
+
+CHOMP 쪽은 플러그인이 하던 일 중 한 줄을 재현해야 했다. `ChompOptimizer`는
+씬의 현재 충돌 환경을 `CollisionEnvHybrid`로 `dynamic_cast` 하고
+(`chomp_optimizer.cpp:76-77`), 실패하면 초기화되지 않은 채 전건
+`PLANNING_FAILED`를 낸다. 그래서 `chomp_plan`은 문제마다
+`chomp_plugin.cpp:94-95`와 같은 `diff()` + `allocateCollisionDetector(HYBRID)`를
+한다. 조건 2 검사는 diff하지 않은 원래 씬(기본 FCL 검출기)에서 하므로, 포트
+쪽과 같은 판정기를 쓴다.
+
+### §269.2 계기 — 시드는 프로세스 인자이고, 정지 조건은 반복 수다
+
+두 C++ 플래너의 난수는 전부 `rsl::rng()`에서 나온다. 이것은
+`thread_local std::mt19937`이고 스레드당 **정확히 한 번만** 시드할 수 있다 —
+이후의 시드 시도는 예외다. 게다가 `moveit::getLogger()`의 기본 로거 이름이
+`fmt::format("moveit_{}", rsl::rng()())`(`logger.cpp:55`)라서, RobotModel을
+로드하는 순간 그 한 번의 기회를 로거가 먼저 써 버린다. 그래서 시드는 요청
+필드가 아니라 **프로세스 시작 인자** `--planner-rng-seed`이고, 오라클의
+`main()`이 `RobotModel`이 존재하기 전에 적용한다.
+
+따라서 문제당 프로세스 하나를 띄우고 `PLANNER_SEED_BASE + id`로 시드한다 —
+포트 하니스가 `seed_base.wrapping_add(problem.id)`로 문제마다 `ChaCha8Rng`를
+새로 만드는 것과 같은 규칙이다. 한 프로세스로 250문제를 돌리면 각 문제의
+결과가 그 앞의 모든 문제에 의존하게 되어 샤딩만으로 값이 바뀐다.
+
+**시드가 결과를 바꾼다는 것은 가정이 아니라 측정이다.** `cage` 0..9에서 C++
+CHOMP는 시드 베이스 700001에서 7/10, 424242에서 6/10을 풀고 id 6과 8에서
+엇갈린다.
+
+정지 조건은 양쪽 다 **작업량**이지 벽시계가 아니다. §263.3이 이미 상류 기본
+벽시계(CHOMP 6.0s, STOMP의 `allowed_planning_time` 5.0s)가 성공률을 이 기계의
+부하 측정치로 바꿔 버리는 것을 잡았다. 그 함정을 다시 열지 않으려고 이번
+측정은 반복 수를 정지 조건으로 두고 벽시계는 3600s 천장으로만 둔다. 천장이
+물면 스윕이 0이 아닌 코드로 죽는다.
+
+| | 반복 한계 | 벽시계 한계 | 실측 최대 문제 1건 소요 |
+| --- | --- | --- | --- |
+| port CHOMP | `max_iterations` 50 | 6.0s (`ChompParameters` 기본, §263) | — |
+| cpp CHOMP | `max_iterations` 50 | 3600s (천장, 미작동) | 19.956896244s (cage) |
+| port STOMP | `num_iterations` 1000 | 없음 (§263.3에서 제거) | — |
+| cpp STOMP | `num_iterations` 1000 | 3600s (천장, 미작동) | 34.373373386s (floor_wall) |
+
+여섯 번의 500문제 실행 전부에서 `timed_out`이 **0건**이다(아래 §269.7의
+seed lottery 두 벌 포함). 천장은 실측 최악(34.4s)보다 100배 이상 위에 있고,
+어떤 판정도 벽시계가 정하지 않았다. `wall_secs`는 레코드에 남기지만 **플래너의
+속성으로 발표하지 않는다** — 그 숫자는 아래 부하에서 잰 이 기계의 값이다.
+
+**동시 부하.** C++ 스윕은 2026-08-06 12:12:30 – 12:27:55(15분 25초)에
+`JOBS=4`로 돌았고, 그동안 이 기계에서는 사용자의 5로봇 Phase 3 충돌 스윕
+(10,000상태 × 5로봇)과 다른 패널 두 개가 같이 돌고 있었다. 1분 loadavg는
+시작 **12.42**, 레그 경계 최고 **26.64**, 종료 **12.48**이었다. 위 표의
+판정량(성공/실패, 조건 2, 길이)은 전부 작업량으로 종료되므로 이 부하와
+무관하고, 부하에 의존하는 유일한 열은 `wall_secs`다.
+
+### §269.3 네 측정, 하나의 판정
+
+바는 §263이 세 번 다시 뽑아 동일했던 C++ OMPL RRTConnect 기준선에서 온다:
+조건 1은 `0.9 × 498/500` = **89.64%**(500문제 기준 **449건**), 조건 3은
+`1.3 × 2.6597767032746464` = **3.4577097142570405**.
+
+| | 성공 | 조건 1 (≥ 449) | 조건 2 실패 | 조건 2 (100%) | 길이 중앙값 | 조건 3 (≤ 3.4577) |
+| --- | --- | --- | --- | --- | --- | --- |
+| port CHOMP | 380/500 = 76.0% | **UNMET** | 1 | **UNMET** | 2.163978163668814 | MET |
+| **cpp CHOMP** | **370/500 = 74.0%** | **UNMET** | **1** | **UNMET** | **2.1469494181135858** | **MET** |
+| port STOMP | 441/500 = 88.2% | **UNMET** | 3 | **UNMET** | 2.210362452483207 | MET |
+| **cpp STOMP** | **446/500 = 89.2%** | **UNMET** | **2** | **UNMET** | **2.2141803455060045** | **MET** |
+
+네 집합이 세 조건 전부에서 같은 판정을 낸다. 조건 1에서 상류 C++ STOMP는
+449건에 **3건** 모자라고(포트는 8건), 상류 C++ CHOMP는 **79건** 모자란다
+(포트는 69건). 조건 1에 관한 한 포트 CHOMP는 상류보다 10건을 더 풀고, 포트
+STOMP는 5건을 덜 푼다.
+
+같은 기준을 **Phase 7이 실제로 쓴 모양**으로 — 같은 플래너의 C++ 구현을
+기준선으로 — 다시 재면 이렇게 된다.
+
+| | 측정 | 같은 플래너 기준의 바 | 판정 |
+| --- | --- | --- | --- |
+| port CHOMP 조건 1 | 76.0000% | `0.9 × 370/500` = 66.6000% | **MET** |
+| port CHOMP 조건 3 | 2.163978163668814 | `1.3 × 2.1469494181135858` = 2.7910342435476614 | **MET** |
+| port STOMP 조건 1 | 88.2000% | `0.9 × 446/500` = 80.2800% | **MET** |
+| port STOMP 조건 3 | 2.210362452483207 | `1.3 × 2.2141803455060045` = 2.878434449157806 | **MET** |
+
+### §269.4 문제별 비교 — 실패 집합은 대부분 겹친다
+
+같은 총계가 서로소인 두 실패 집합을 감출 수 있다. 그래서 500문제를 id 단위로
+네 갈래로 갈랐다(`tools/ci/compare-phase8-port-vs-cpp.py`; 양쪽이 같은 id
+집합을 덮지 않으면 종료 코드 1).
+
+| | 둘 다 품 | 포트만 | C++만 | 둘 다 못 품 | 엇갈림 |
+| --- | --- | --- | --- | --- | --- |
+| CHOMP | 363 | 17 | 7 | 113 | 24 |
+| STOMP | 437 | 4 | 9 | 50 | 13 |
+
+엇갈리는 id를 전부 적는다.
+
+- CHOMP 포트만 (17): `floor_wall/1 8 136 176 187 190 197 231`,
+  `cage/16 30 47 103 133 141 161 178 191`
+- CHOMP C++만 (7): `floor_wall/130 203 222`, `cage/6 33 83 143`
+- STOMP 포트만 (4): `cage/133 161 222 231`
+- STOMP C++만 (9): `floor_wall/120 221`, `cage/1 48 91 95 150 170 200`
+
+실패 집합은 서로소가 아니다 — CHOMP는 못 푸는 문제의 113/137 = 82.5%가
+공통이고, STOMP는 50/63 = 79.4%가 공통이다. 실패 사유 히스토그램도 같은
+모양이다: CHOMP의 미해결은 양쪽 다 **전건** `INVALID_MOTION_PLAN`(포트 120건,
+C++ 130건), STOMP의 미해결은 양쪽 다 **전건** `PLANNING_FAILED`(포트 59건,
+C++ 54건). 즉 두 구현이 서로 다른 이유로 실패하고 있는 것이 아니다.
+
+### §269.5 조건 2는 CHOMP가 검사하지 않는 것을 검사한다 — `chomp_planner.cpp:284`
+
+§263.4는 조건 2 실패 4건 중 STOMP 3건을 `COL_CHECK_DISTANCE` = 0.05 대 조건
+2의 0.01로 설명하고, CHOMP의 `cage/221` 1건은 설명되지 않은 채 남겼다 —
+CHOMP는 waypoint를 101개로 고정 이산화하므로 해상도 논리가 붙지 않기
+때문이다. 이번 라운드가 그 자리를 메운다. **상류의 C++ CHOMP도 같은 현상을
+낸다.**
+
+`cage/221`에 C++ CHOMP를 시드 10개로 걸었더니 그중 하나(시드 555)가
+`solved=true, condition2_valid=false, invalid_waypoint_count=1`을 낸다. 500문제
+전체 스윕에서도 C++ CHOMP의 조건 2 실패는 정확히 1건이며, 그 자리는
+`cage/27`이다. 포트의 스윕 시드(700001+221 = 700222)에서 C++이 깨끗하게 푸는
+것은 파리티 차이가 아니라 시드 추첨의 결과다 — 두 구현의 난수열은 mt19937과
+ChaCha8로 서로 다르므로 같은 시드 번호가 같은 뽑기를 뜻하지 않는다.
+
+이유는 상류 코드 한 줄에 있다. `ChompPlanner::solve`는 SUCCESS를
+`optimizer->isCollisionFree()`로 판정한다(`chomp_planner.cpp:284`, 그 앞
+주석이 `// report planning failure if path has collisions`). 이것은
+**옵티마이저 자신의 거리장 상태를 자신의 101개 점에서** 본 값이다. CHOMP의
+어느 코드도 waypoint **사이**를 들여다보지 않는다. 그러므로 0.01로 촘촘히
+나눈 뒤의 유효성은 CHOMP가 한 번도 검사하지 않는 양이고, 조건 2는 이 플래너
+부류가 제공하겠다고 한 적 없는 보장을 요구한다.
+
+이것이 측정으로 뒷받침된다. 양쪽·양 플래너의 조건 2 실패 **7건 전부**가
+`condition2_valid_at_returned_waypoints = true`다. 무효한 점은 언제나
+보간으로 생긴 점이지 플래너가 돌려준 점이 아니다.
+
+| 플래너 | 구현 | config/id | 촘촘화 후 무효 | 반환 waypoint에서 무효 | densified / returned |
+| --- | --- | --- | --- | --- | --- |
+| CHOMP | port | cage/221 | 2 | 0 | — |
+| CHOMP | cpp | cage/27 | 1 | 0 | 263 / 101 |
+| STOMP | port | floor_wall/77 | 3 | 0 | — |
+| STOMP | port | cage/133 | 1 | 0 | — |
+| STOMP | port | cage/159 | 1 | 0 | — |
+| STOMP | cpp | floor_wall/84 | 1 | 0 | 337 / 40 |
+| STOMP | cpp | floor_wall/230 | 1 | 0 | 256 / 40 |
+
+`condition2_valid_at_returned_waypoints`는 이 절이 가진 1,637개 해결 레코드
+전부에서 true이고, 스크래치패드의 어떤 NDJSON에서도 false인 적이 없다. 늘
+true인 필드는 재는 것이 없을 수 있으므로, 물 수 있는지 확인했다. `condition2`
+의 `invalid_count(waypoints)`를 `invalid_count(densified)`로 한 줄 바꿔
+이미지를 다시 굽고 `cage/27`을 같은 시드로 돌리면
+`condition2_valid_at_returned_waypoints`가 **false**로 뒤집힌다. 되돌려 다시
+구우면 같은 문제·같은 시드에서 다시 true이며, 나머지 필드
+(`invalid_waypoint_count 1`, `densified 263`, `returned 101`)는 스윕이 남긴
+행과 그대로 일치한다.
+
+### §269.6 발산은 stochastic descent 한 줄 안에 갇혀 있다
+
+두 CHOMP가 **같은 문제를 둘 다 푼** 363건 중 **249건**에서 경로 길이가
+비트 단위로 같다. 예를 들어 `cage/0`은 양쪽 다 2.255867188072641,
+`cage/3`은 양쪽 다 3.078278451297897이다. 다른 114건은 실제로 다르다
+(`cage/8` 3.1092144553832064 대 3.0371232228519887, `cage/12`
+3.000549462345657 대 2.9839247012702725, `cage/14` 2.1707077777257044 대
+2.243265031881522). STOMP는 대조군이다 — 둘 다 푼 437건 중 비트 동일은
+41건뿐이고, 이는 STOMP가 매 반복 전체 rollout을 난수로 뽑는 것과 일치한다.
+
+이 249건이 말하는 것은, quintic-spline 초기화·smoothness cost·quadratic cost
+inverse·거리장 충돌 비용·관절 한계 처리·증분 적용이 50회 반복 내내 마지막
+ULP까지 일치한다는 것이다. 그리고 남은 114건이 왜 다른지는 구조적으로 이미
+정해져 있다: **양쪽 모두 난수를 뽑는 자리가 정확히 한 곳뿐이다.**
+
+- 상류: `chomp_optimizer.cpp:568`의 `rsl::uniform_real(0., 1.)`, 바로 위
+  `chomp_optimizer.cpp:566`의 `if (parameters_->use_stochastic_descent_)`
+  안에 있다.
+- 포트: `optimizer.rs:1370`의 `rng.random_range(0.0..1.0)`,
+  `optimizer.rs:1369`의 `if self.parameters.use_stochastic_descent` 안에 있다.
+
+상류 CHOMP에 난수 소비자로 보이는 다른 두 자리는 살아 있지 않다.
+`ChompOptimizer::perturbTrajectory`(`chomp_optimizer.cpp:959`)의 유일한 호출은
+주석 처리되어 있고(`chomp_optimizer.cpp:442`),
+`MultivariateGaussian::sample`(`chomp_motion_planner/multivariate_gaussian.hpp:79-82`
+— STOMP도 같은 이름의 헤더를 따로 갖고 있으므로 basename만으로는 가리키지
+못한다)은 `rsl::rng()`를 쓰지만 CHOMP 트리 전체에서 호출되는 곳이 없다(객체는
+`chomp_optimizer.cpp:182-183`에서 만들어지되 생성자는 난수를 뽑지 않는다).
+
+즉 두 구현의 발산은 옵티마이저 전체에 퍼져 있는 것이 아니라 stochastic
+descent가 시작점을 뽑는 한 줄에 갇혀 있고, 그 한 줄은 mt19937과 ChaCha8이라는
+서로 다른 난수열을 쓰므로 일치할 수 없다.
+
+### §269.7 seed lottery — 89.64% 근처가 아니다
+
+C++ STOMP의 89.2%는 조건 1의 바(89.64%)에 3건 차이로 근접하므로, 한 번의
+뽑기로 판정을 세우면 안 된다. 시드 베이스를 바꿔 두 번 더 돌렸다.
+
+| 시드 베이스 | C++ STOMP 성공 |
+| --- | --- |
+| 700001 | 446/500 |
+| 800001 | 442/500 |
+| 900501 | 440/500 |
+
+세 번 다 449건에 못 미친다. 세 실행 모두 `timed_out` 0건이다. C++ CHOMP는
+370/500으로 바에서 79건 떨어져 있어 추첨의 폭이 판정을 바꿀 자리가 아니다.
+
+### §269.8 상류의 두 기본값이 서로 다르다 — 50과 200
+
+위 측정은 전부 `max_iterations = 50`, `planning_time_limit = 6.0`에서 났다.
+이것은 `ChompParameters` **생성자**의 값이다(`chomp_parameters.cpp:45-46`).
+그런데 상류의 플러그인 경로는 다른 값을 쓴다 — `CHOMPInterface::loadParams`는
+ROS 파라미터가 없을 때 `chomp.planning_time_limit` 10.0,
+`chomp.max_iterations` 200으로 떨어진다(`chomp_interface.cpp:57-58`). 상류가
+스스로 두 개의 기본값을 갖고 있고, 어느 쪽이 "상류 기본"인지는 어느 진입점을
+쓰느냐에 달렸다.
+
+이 사실을 기록하되 도피구로 쓰지 않는다. **아는 것:** 50에서 포트 380, C++
+370이고, 두 값은 같은 진입점(`ChompPlanner::solve` 직접 호출)에서 났으므로
+비교 가능하다. **모르는 것:** 200에서 어느 쪽이 몇 건을 푸는지 이 절은 재지
+않았다. C++ 쪽은 `chomp_plan` op이 `max_iterations`를 요청 필드로 받으므로
+바로 잴 수 있지만, 포트 하니스는 `<seed_base> [planning_time_limit_secs]` 두
+인자만 받고 `max_iterations`는 CLI 인자가 아니다 — 포트 쪽 200 측정은 예제
+코드 변경을 요구하므로 이 라운드에서 하지 않았다. 따라서 **200에서 조건 1이
+충족될지 여부는 양쪽 모두 미측정이다.** 다만 그 미지는 이 절의 판정을 바꾸지
+않는다: 50에서 상류 자신이 바를 79건 차이로 못 넘는다는 사실이, 이 바가
+CHOMP를 향해 지정된 바가 아님을 이미 보인다.
+
+### §269.9 §5 Phase 8 행 — 교체 문안 제안
+
+현재 `PORTING-PLAN.md:818`은 이렇다.
+
+```
+| Phase 8 | CHOMP/STOMP가 Phase 7과 같은 속성 기반 검증을 통과 | UNMET | §263 | 2026-08-06 |
+```
+
+이 행은 두 가지를 한 칸에 섞고 있다. "Phase 7과 같은 속성 기반 검증"이
+세 조건의 **모양**(성공률·유효성·길이 중앙값)을 뜻한다면 그것은 재는 것이
+가능하고, 실제로 §263과 이 절이 쟀다. 그러나 그 문장이 Phase 7의 **기준선**
+(C++ OMPL RRTConnect)까지 상속한다고 읽으면, 상류 자신의 구현도 못 넘는 바가
+되어 포팅에 대해 아무것도 말하지 않는다.
+
+`check-phase-status.sh`는 판정 어휘를 {MET, UNMET, PARTIAL, UNMEASURED}로
+제한하고 인용 §가 실재 헤딩으로 풀릴 것을 요구하므로, 한 행에 한 §만 넣을 수
+있다. 아래를 제안한다 — **적용은 하지 않았다.** 조건 2가 어느 구현도 만족하지
+못하는 조건인 이상 판정 칸은 PARTIAL이며, 절 번호는 병합 시 배정되는 값이다.
+
+```
+| Phase 8 | CHOMP/STOMP가 Phase 7과 같은 세 속성을, 같은 플래너의 C++ 구현을 기준선으로 통과 (조건 1·3 충족; 조건 2는 상류 C++도 100%가 아니므로 이 부류에 대해 미지정) | PARTIAL | §<이 절> | 2026-08-06 |
+```
+
+이 문안을 고른 이유를 셋으로 적는다.
+
+1. **기준선을 같은 플래너로 못박는다.** Phase 7이 실제로 한 비교가 그것이고
+   (우리 RRTConnect 대 상류 RRTConnect), 그렇게 재면 조건 1과 3은 CHOMP·STOMP
+   양쪽 모두 MET이다(§269.3 두 번째 표).
+2. **조건 2를 지운 것이 아니라, 만족 불가로 명시한다.** 삭제하면 §263과 이
+   절이 잰 7건이 문서에서 사라진다. `chomp_planner.cpp:284`가 SUCCESS를
+   판정하는 지점이 옵티마이저 자신의 101개 점인 이상, 0.01 촘촘화 후 100%는
+   CHOMP의 계약이 아니다.
+3. **판정을 MET으로 올리지 않는다.** 세 조건 중 하나가 이 플래너 부류에 대해
+   지정 불가로 남으므로 PARTIAL이 정확하다 — Phase 3의 `distance: f64` 행이
+   같은 이유로 PARTIAL인 것과 같은 모양이다.
+
+기존 문안을 그대로 두기로 결정한다면, UNMET 옆에 "상류 C++ CHOMP 370/500,
+C++ STOMP 446/500으로 상류도 이 바를 넘지 못한다(§<이 절>)"가 어딘가에
+붙어야 한다. 그 사실 없이 UNMET만 남으면 이 행은 포팅 결함을 뜻하는 것으로
+읽힌다.
+
+이 제안은 §267과 충돌하지 않고 그 라운드가 열어 둔 자리에 들어간다. §267은
+같은 표 열아홉 행을 "**인용한 절이 이 행이 말하는 것을 쟀는가**"로 읽었고,
+Phase 8의 이 행에 대해서는 그 답이 예다 — §263이 정확히 그 세 조건을 쟀다.
+이 절이 묻는 것은 그 다음 질문이다: **그 행이 말하는 조건이 맞는 조건인가.**
+같은 모양의 자리가 이미 하나 열려 있다 — §267.4의 Phase 4 (a)는 조건문이
+동작점을 말하지 않는다는 것을 "조건문을 고칠지는 §5를 소유한 쪽의 결정"
+이라고 적고 닫지 않았다. 이 행도 같은 종류이며, 그래서 여기서 표를 고치지
+않고 문안만 제안한다.
+
+§263은 **철회되지 않는다.** 이 절은 §263의 어떤 숫자도 뒤집지 않는다 —
+포트 CHOMP 380/500, STOMP 441/500, 세 조건의 판정이 전부 그대로다. 이 절이
+더하는 것은 그 옆에 놓일 상류 쪽 두 열이다. 따라서 §263에 §267.1이 게이트로
+만든 대체 선언(볼드 구간 안의 대체 동사 + `§` 참조)을 붙이면 안 되고,
+행의 인용을 옮긴다면 그것은 대체가 아니라 더 넓은 측정으로의 이동이다.
+
+### §269.10 이 절이 재지 않은 것
+
+- `max_iterations = 200`(`CHOMPInterface::loadParams`의 값)에서의 성공률 —
+  양쪽 다 미측정(§269.8).
+- 포트 CHOMP/STOMP를 시드 베이스 여러 개로 돌린 seed lottery. C++ STOMP만
+  세 벌 돌렸다(§269.7). 포트 쪽 폭은 §263의 한 벌뿐이다.
+- `moveit_planners_chomp` / `moveit_planners_stomp` 플러그인 **껍데기**의
+  파리티. 이 절은 `ChompPlanner::solve`와 `StompPlanningContext::solve`를
+  비교했고, 그 위의 pluginlib 등록·ROS 파라미터 읽기·`PlanningContext` 수명
+  관리는 비교 대상이 아니었다.
+- STOMP의 조건 2 실패에 대한 상류 C++ 쪽 `COL_CHECK_DISTANCE` 기여도. §263.4가
+  포트 쪽 3건을 그 상수로 설명했고 C++ 쪽 2건도 같은 모양
+  (`valid_at_returned_waypoints = true`)이지만, 상수를 바꿔 돌려 인과를 확인한
+  실험은 하지 않았다.
+- C++ 스윕의 `wall_secs`. 위 동시 부하에서 잰 값이므로 이 기계의 값이지
+  플래너의 값이 아니다(§269.2).
+
