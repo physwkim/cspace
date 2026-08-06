@@ -33,6 +33,17 @@
 #     `query_planner_interface`'s answer comes off the linked
 #     `PLANNER_MANAGERS` slice, and a `set` is stored rather than silently
 #     dropped (ros/verify-planner-params-interop.sh, PORTING-PLAN.md §274)
+#   - A live `/execute_trajectory` leg over DDS
+#     (ros/verify-execute-trajectory-interop.sh, called below)
+#   - Two live `robot_description` / `robot_description_semantic` legs
+#     (ros/verify-robot-description-interop.sh): a late transient-local
+#     subscriber, and upstream's own `MoveGroupInterface` built on a node with
+#     no description parameter at all, so its `RDFLoader` has nowhere to get a
+#     model but these topics
+#   - Two live `joint_states` legs (ros/verify-joint-states-interop.sh): the
+#     stamp advances on the wall clock, and upstream's own
+#     `CurrentStateMonitor` hands `getCurrentState()` back a distinctive value
+#     this gate pushed into the node beforehand
 #   - Two live `/move_action` legs over DDS, one of them driven by upstream's
 #     own unmodified C++ `MoveGroupInterface` (ros/verify-move-action-interop.sh,
 #     called at the end of this script). PORTING-PLAN.md §250 measured that
@@ -572,25 +583,51 @@ SRDF
 echo "OK inbound-topics: /attached_collision_object flipped a collision answer via an attached"
 echo "OK inbound-topics: body (body_type 2) and back, and /trajectory_execution_event decoded both payloads"
 
-# `/move_action`, in its own file: it orchestrates three containers and a
-# docker network, and it is the only check here that runs upstream's own C++
-# client. Last, because it is the most expensive and the least likely to be
-# the thing a `cargo fmt` failure was about.
-# Captured rather than called bare: under `set -e` a bare call aborts this
-# script on the sub-gate's exit 3 and the summary line below never runs, which
-# is the one place the skip has to be reported.
-move_action_status=0
-"$REPO_ROOT/ros/verify-move-action-interop.sh" || move_action_status=$?
+# `/execute_trajectory`, in its own file for the same reason the scene-topic
+# leg above takes its own domain id: it starts its own node and asserts on
+# replies matched by content. Called bare rather than captured, unlike the
+# `/move_action` legs below -- it has no skip outcome to report, so `set -e`
+# aborting on its exit status is the whole handling it needs.
+"$REPO_ROOT/ros/verify-execute-trajectory-interop.sh"
 
-# One summary line per outcome, because `all gates passed` meant two different
+# The sub-gates that orchestrate their own containers and a docker network, and
+# whose leg B runs upstream's own unmodified C++ client. Each of them exits 3
+# when the oracle image is absent, which is a third outcome and not a pass:
+# their leg A still measured, their leg B never ran.
+#
+# Called through this helper rather than bare, for two reasons. Under `set -e` a
+# bare call aborts this script on the 3, and the summary below -- the one place
+# a skip is reported -- never runs. And the summary has to name *which* legs did
+# not run: with one status variable and one `case` arm per gate, that naming was
+# restated per gate and silently omitted for the next one added.
+skipped=()
+run_oracle_gate() { # <script relative to REPO_ROOT> <name for the summary>
+  local status=0
+  "$REPO_ROOT/$1" || status=$?
+  case "$status" in
+    0) ;;
+    3) skipped+=("$2") ;;
+    *) exit "$status" ;;
+  esac
+}
+
+run_oracle_gate ros/verify-robot-description-interop.sh "robot_description leg B"
+run_oracle_gate ros/verify-joint-states-interop.sh "joint_states leg B"
+# `/move_action` last, because it is the most expensive and the least likely to
+# be the thing a `cargo fmt` failure was about.
+run_oracle_gate ros/verify-move-action-interop.sh "/move_action leg B"
+
+# The summary names the skips, because `all gates passed` meant two different
 # things: with the oracle image built it includes upstream's own C++ client
-# reaching /move_action, and without it that leg never ran. A reader settling
-# PORTING-PLAN.md's Phase 9 row off a green run cannot tell those apart from
-# the status alone, so the line says which.
-case "$move_action_status" in
-  0) echo "all gates passed" ;;
-  3) echo "all gates passed EXCEPT /move_action leg B, which was SKIPPED: upstream's"
-     echo "C++ MoveGroupInterface never ran, so Phase 9's completion condition is"
-     echo "unmeasured by this run. Build the oracle image and re-run before citing it." ;;
-  *) exit "$move_action_status" ;;
-esac
+# reaching these endpoints, and without it those legs never ran. A reader
+# settling PORTING-PLAN.md's Phase 9 row off a green run cannot tell those
+# apart from the status alone.
+if [ "${#skipped[@]}" -eq 0 ]; then
+  echo "all gates passed"
+else
+  echo "all gates passed EXCEPT these legs, which were SKIPPED because the oracle"
+  echo "image is not built, so upstream's own C++ client never ran against them:"
+  printf '  %s\n' "${skipped[@]}"
+  echo "Phase 9's completion condition is unmeasured by this run. Build the image"
+  echo "with: sg docker -c tools/moveit-oracle/build.sh -- and re-run before citing it."
+fi

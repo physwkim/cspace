@@ -75,13 +75,16 @@ use moveit_planners_sbp as _;
 mod conversion_coverage;
 
 pub mod constraints;
+pub mod execute_trajectory;
 pub mod execution;
 pub mod geometry;
+pub mod joint_states;
 pub mod model;
 pub mod monitored_scene;
 pub mod move_group;
 pub mod planner_params;
 pub mod planning;
+pub mod robot_description;
 pub mod scene;
 pub mod state;
 pub mod trajectory;

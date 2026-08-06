@@ -128,6 +128,8 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `distance-callback-threshold-suppresses-deeper-pairs` | not-reproduced |
 | `shape-intersect-tangency-follows-libccd-dispatch` | not-reproduced |
 | `psm-topic-header-comments-claim-absolute-names` | not-reproduced |
+| `execute-trajectory-accepts-cancels-it-never-acts-on` | not-reproduced |
+| `execute-trajectory-drops-its-own-failure-explanation` | not-reproduced |
 
 ---
 
@@ -2673,3 +2675,73 @@ case 4 is a leaf face on a box face, a *specialised* pair, where upstream says
               `MoveGroupInterface`'s endpoints as absolute, which
               `doc/client-endpoint-surface.md` and the port-side scan that
               reads it both had to be corrected for.
+
+### `execute-trajectory-accepts-cancels-it-never-acts-on` — the `execute_trajectory` cancel callback is a constant `ACCEPT` and the function that would stop the motion is never called — not-reproduced
+
+**Upstream:** `moveit_ros/move_group/src/default_capabilities/execute_trajectory_action_capability.cpp:82`
+              (the cancel callback), against
+              `moveit_ros/move_group/src/default_capabilities/execute_trajectory_action_capability.cpp:151-154`
+              (`preemptExecuteTrajectoryCallback`)
+**Port:**     `ros/moveit-ros/src/execute_trajectory.rs`
+**Symptom:**  `create_server`'s cancel callback is
+              `[](const std::shared_ptr<ExecTrajectoryGoal>& /* unused */)
+              { return rclcpp_action::CancelResponse::ACCEPT; }` — it accepts
+              unconditionally and ignores the goal. Accepting moves the goal
+              to CANCELING and tells the client the cancellation was taken,
+              but nothing in this capability then stops the motion:
+              `preemptExecuteTrajectoryCallback`, whose whole body is
+              `context_->trajectory_execution_manager_->stopExecution(true)`,
+              is never invoked. The trajectory runs to completion while the
+              client has been told it is being cancelled. A server that
+              *rejected* the cancel would leave the client strictly better
+              informed.
+**Evidence:** read of the control flow plus an enumeration, not a sample:
+              `rg -n preemptExecuteTrajectoryCallback` over the whole
+              upstream checkout returns exactly two hits, the declaration at
+              `moveit_ros/move_group/src/default_capabilities/execute_trajectory_action_capability.hpp:66`
+              and the definition above. There is no call site anywhere in the
+              tree — not in this capability, not in `MoveGroupCapability`, not
+              in any other default capability.
+**Status:**   `not-reproduced`
+**Cost of not reproducing:** none. This port answers cancel requests with
+              `reject` (`ros/moveit-ros/src/execute_trajectory.rs`, and the
+              reasoning is in that module's "The cancel path" section), which
+              is a true statement here for an independent reason as well:
+              this workspace has no execution backend, so a goal is already
+              terminal before a cancel could be routed to it. No oracle
+              comparison touches this endpoint.
+
+### `execute-trajectory-drops-its-own-failure-explanation` — the sentence explaining a `CONTROL_FAILED` abort is built into a local and never assigned to the message the client receives — not-reproduced
+
+**Upstream:** `moveit_ros/move_group/src/default_capabilities/execute_trajectory_action_capability.cpp:92`
+**Port:**     `ros/moveit-ros/src/execute_trajectory.rs`
+**Symptom:**  the `!trajectory_execution_manager_` branch reads
+              `const std::string response = "Cannot execute trajectory since
+              ~allow_trajectory_execution was set to false";` and then sets
+              only `action_res->error_code.val` before aborting. `response`
+              is never read, never logged, and never assigned to
+              `action_res->error_code.message`, which stays empty. The client
+              receives a bare `-4`. That number is ambiguous by upstream's own
+              design: three of the six conditions this capability can end in
+              — the branch above, a `push` that returned false, and any
+              non-`SUCCEEDED`/`PREEMPTED`/`TIMED_OUT` execution status — all
+              answer `CONTROL_FAILED`, and `message` is the only field that
+              could separate them.
+**Evidence:** read of the function. The variable is `const`, declared inside
+              the `if` block, and the block's remaining three statements are
+              the `val` assignment, `goal->abort(action_res)` and `return` —
+              there is no path from it to any output. The sibling
+              `response` at
+              `moveit_ros/move_group/src/default_capabilities/execute_trajectory_action_capability.cpp:100`
+              is used (it becomes the feedback `state`), which is what makes
+              this one look like an editing slip rather than an intended
+              silence.
+**Status:**   `not-reproduced`
+**Cost of not reproducing:** none in `val`, which is what a client branches
+              on: this port answers upstream's `CONTROL_FAILED` unchanged. The
+              deviation is additive — `message` carries a sentence naming the
+              upstream branch, and `source` names the endpoint — so a client
+              that reads only `val` cannot tell this port from upstream, and
+              one that reads `message` learns which of the three
+              `CONTROL_FAILED` conditions it hit. No oracle comparison
+              touches this endpoint.

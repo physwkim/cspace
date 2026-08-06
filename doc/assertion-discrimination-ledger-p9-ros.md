@@ -1120,3 +1120,37 @@ Test runs are `cargo test --lib` inside `moveit-rs/ros-dev:latest`
 fixes owed.** Enumerating the table's two rows gives 1+1 = 2, and
 2+0 = 2. Running total for `ros/moveit-ros` under the wide grammar:
 93 at the end of §15 + these 2 = 95.
+
+---
+
+## §17. The five sites p11-startstate's merge brought in — `execute_trajectory.rs` and `joint_states.rs`
+
+Fence: `ros/moveit-ros` only. Written at merge for the same reason §16
+was: both files are new in p11-startstate and its round closed before
+`verify-orphan-enumeration.sh` ran against merged `main`, so the five
+assertions arrived on `main` as orphans with 0 unresolved citations.
+None of the five needed a separate guard mutation — each one sits in a
+test whose other assertions are `assert_eq!`/`assert_ne!`/`.expect()`,
+so there is no second `assert!` in the same test for a guard mutation to
+be confused with, and the mutation that reaches the needle is the only
+one that reaches it.
+
+Test runs are `cargo test` inside `moveit-rs/ros-dev:latest` (249 unit
+tests at this merge; nextest is not in that image). Every mutation below
+replaces one line with one line, so the panic lines printed are the
+shipped tree's, unmutated.
+
+| file:line | in-family verdict | evidence: mutation -> failing test @ panic line |
+|---|---|---|
+| `ros/moveit-ros/src/execute_trajectory.rs:350` | in-family, discriminating **by message** | `the_message_names_the_upstream_branch_this_port_lands_on`. Renaming the branch inside `NO_EXECUTION_BACKEND` (`` `!trajectory_execution_manager_` branch `` -> `` `!execution_manager_` branch ``) fails `ros/moveit-ros/src/execute_trajectory.rs:350` **alone**, 248 passed / 1 failed. The needle is not that a message exists but that it names *which* of the six rows in this module's own table (`ros/moveit-ros/src/execute_trajectory.rs:31-36`) the port lands on. Three of those rows carry `CONTROL_FAILED`, so the code alone cannot say it and a client logging `message` is the only reader that can |
+| `ros/moveit-ros/src/execute_trajectory.rs:354` | in-family, discriminating **by message** | Same test, second needle. Breaking only the code name in the same constant (`CONTROL_FAILED` -> `CONTROL FAILED`) fails `ros/moveit-ros/src/execute_trajectory.rs:354` **alone**, 248 passed / 1 failed — the branch-name needle above still passes, which is what makes these two separate rows rather than one. `error_code.val` is asserted elsewhere by `assert_eq!`; this row is about the sentence agreeing with the number it ships beside |
+| `ros/moveit-ros/src/joint_states.rs:325` | in-family, discriminating **by variant** | `a_model_with_no_active_single_dof_joint_is_refused`. Returning the module's *other* error from the same site (`SamplerError::NoSingleDofJoints` -> `SamplerError::UnknownVariable`) fails `ros/moveit-ros/src/joint_states.rs:325` **alone**, 248 passed / 1 failed. The `.expect()` on the line above still succeeds under that mutation — construction still fails — so the `matches!` is the only thing separating "refused" from "refused for the reason this endpoint can act on". The distinction is load-bearing: `NoSingleDofJoints` is a model this topic can never serve, `UnknownVariable` is a broken model builder |
+| `ros/moveit-ros/src/joint_states.rs:340` | in-family, discriminating **by field** | `no_velocity_or_effort_is_claimed`. Filling `velocity` in `JointSampler::sample` (`velocity: Vec::new()` -> `velocity: vec![0.0]`) fails `ros/moveit-ros/src/joint_states.rs:340` **alone**, 248 passed / 1 failed. A zero-filled `velocity` is not a smaller claim than an empty one, it is a different one — it asserts the robot is stationary, where the empty array asserts nothing measured it, and upstream reads the field only under `copy_dynamics_` |
+| `ros/moveit-ros/src/joint_states.rs:341` | in-family, discriminating **by field** | Same test, the `effort` half. The matching mutation (`effort: Vec::new()` -> `effort: vec![0.0]`) fails `ros/moveit-ros/src/joint_states.rs:341` **alone**, 248 passed / 1 failed, with `ros/moveit-ros/src/joint_states.rs:340` still passing. Two rows rather than one because the two fields are filled at two sites and either could be filled without the other |
+
+### Totals
+
+**5 sites added, 5 in-family, 0 not-this-family, 0 needle collisions, 0
+fixes owed.** Enumerating the table's five rows gives 1+1+1+1+1 = 5, and
+5+0 = 5. Running total for `ros/moveit-ros` under the wide grammar:
+95 at the end of §16 + these 5 = 100.

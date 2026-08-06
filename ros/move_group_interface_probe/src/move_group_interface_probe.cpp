@@ -4,10 +4,10 @@
 //
 // The class under test is upstream moveit2 at the pinned sha, compiled from
 // unmodified source -- no patch, no shim, no subclass, no reimplementation of
-// its request-building. Everything in this file is harness around it: read two
-// files, put them on the node as the parameters upstream's own
-// `RobotModelLoader` reads, construct the interface, call `plan()`, grade what
-// came back, print. That is the point: PORTING-PLAN.md Phase 9's completion
+// its request-building. Everything in this file is harness around it: give the
+// node its model source (parameters, or nothing at all so the client goes to
+// the graph for it), construct the interface, call `plan()`, grade what came
+// back, print. That is the point: PORTING-PLAN.md Phase 9's completion
 // condition is about the *unmodified* client, so anything this file did to help
 // the request along would be measuring something else.
 //
@@ -24,6 +24,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
 
 #include <moveit/move_group_interface/move_group_interface.hpp>
 #include <moveit/planning_scene/planning_scene.hpp>
@@ -49,22 +50,96 @@ int main(int argc, char** argv)
 {
   if (argc < 4)
   {
-    std::cerr << "usage: move_group_interface_probe <urdf> <srdf> <group> [explicit-start]\n";
+    std::cerr << "usage: move_group_interface_probe <urdf> <srdf> <group> [mode...]\n"
+              << "  start state:  default-start | explicit-start\n"
+              << "  model source: description-from-parameters | description-from-topic\n"
+              << "  extra:        current-state\n";
     return 2;
   }
+
+  // Every trailing argument is a mode word, and an unrecognised one is a
+  // usage error rather than a default. It used to be
+  // `argc > 4 && argv[4] == "explicit-start"`, under which a misspelled mode
+  // silently ran the other one and the gate asserting `PROBE mode=` would
+  // then be asserting against the probe's own echo of the same typo.
+  bool explicit_start = false;
+  bool description_from_topic = false;
+  bool read_current_state = false;
+  for (int i = 4; i < argc; ++i)
+  {
+    const std::string mode(argv[i]);
+    if (mode == "default-start")
+      explicit_start = false;
+    else if (mode == "explicit-start")
+      explicit_start = true;
+    else if (mode == "description-from-parameters")
+      description_from_topic = false;
+    else if (mode == "description-from-topic")
+      description_from_topic = true;
+    else if (mode == "current-state")
+      read_current_state = true;
+    else
+    {
+      std::cerr << "PROBE unknown mode '" << mode << "'" << std::endl;
+      return 2;
+    }
+  }
+
   rclcpp::init(argc, argv);
 
-  // `robot_description` / `robot_description_semantic` as node parameters is
-  // how `MoveGroupInterfaceImpl`'s constructor gets a model: it calls
-  // `getSharedRobotModel(node_, opt.robot_description)`, and that reads the
-  // parameter off this node. Publishing them on a latched topic instead would
-  // exercise a different upstream path than the one under test.
+  // The two ways upstream's own `SynchronizedStringParameter::loadInitialValue`
+  // can obtain a description, made selectable because they are different code
+  // paths with different failure modes and only one of them can be exercised
+  // per run.
+  //
+  //   `description-from-parameters` sets them as node parameters, which
+  //   `getMainParameter` reads and returns early on -- the topic is never
+  //   touched.
+  //
+  //   `description-from-topic` sets neither, which is what a bare client looks
+  //   like: `getMainParameter` returns false, `loadInitialValue` falls through
+  //   to a transient-local `std_msgs/String` subscription on the same name and
+  //   blocks up to `robot_description_timeout` (10 s by default), twice. This
+  //   is the mode that measures whether something on the graph is publishing
+  //   what the client needs, and the only one whose success says anything
+  //   about a publisher.
   rclcpp::NodeOptions options;
-  options.parameter_overrides({
-      rclcpp::Parameter("robot_description", slurp(argv[1])),
-      rclcpp::Parameter("robot_description_semantic", slurp(argv[2])),
-  });
+  if (!description_from_topic)
+  {
+    options.parameter_overrides({
+        rclcpp::Parameter("robot_description", slurp(argv[1])),
+        rclcpp::Parameter("robot_description_semantic", slurp(argv[2])),
+    });
+  }
   auto node = rclcpp::Node::make_shared("move_group_interface_probe", options);
+  std::cout << "PROBE description=" << (description_from_topic ? "topic" : "parameters") << std::endl;
+
+  // Spin the probe's own node, because `MoveGroupInterface` deliberately does
+  // not. Its constructor creates its callback group with
+  // `false /* don't spin with node executor */` and adds *only that group* to
+  // its private executor (`move_group_interface.cpp:129-133`), so everything it
+  // puts on the node's default group is the application's to service. The
+  // `CurrentStateMonitor`'s `joint_states` subscription is exactly that --
+  // `createJointStateSubscription` calls `node_->create_subscription` with no
+  // callback group (`current_state_monitor_middleware_handle.cpp:69-74`).
+  // Without this thread the subscription exists and never fires, and
+  // `getCurrentState` reports `latest received state has time 0.000000`: not a
+  // stale stamp but no message at all, because
+  // `CurrentStateMonitor::jointStateCallback` assigns `current_state_time_`
+  // unconditionally (`current_state_monitor.cpp:341`) and had never run.
+  //
+  // Upstream's own ROS 2 test does the same thing before the same call --
+  // `executor.add_node(move_group_node)` on a spin thread, then
+  // `getCurrentState(60)` (`test_trajectory_cache.cpp:1047-1064`) -- so this is
+  // the documented way to drive the unmodified class, not a modification of it.
+  //
+  // It does not disturb the description path: `SynchronizedStringParameter::`
+  // `waitForMessage` subscribes on a *temporary node* of its own and drains it
+  // with its own `rclcpp::WaitSet` (`synchronized_string_parameter.cpp:120-133`),
+  // never touching this node's executor.
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  std::thread spin_thread([&executor]() { executor.spin(); });
 
   // The four-argument constructor, with an explicit wait: the two-argument one
   // spins up a `tf2_ros::Buffer` this probe has no transforms for, and the
@@ -75,6 +150,31 @@ int main(int argc, char** argv)
   moveit::planning_interface::MoveGroupInterface group(node, argv[3], std::shared_ptr<tf2_ros::Buffer>(),
                                                        rclcpp::Duration::from_seconds(20.0));
   std::cout << "PROBE constructed" << std::endl;
+
+  // `getCurrentState`, opt-in so the two runs that do not ask for it behave
+  // exactly as before. This is the only client call that needs `joint_states`:
+  // it starts the `CurrentStateMonitor` and then waits for a state stamped no
+  // earlier than the call itself, so a null return here is a topic that is
+  // absent, stale-stamped, or carrying joints this model does not have.
+  // `plan()` needs none of that -- it ships the constructor's empty diff.
+  //
+  // The variables are printed, not summarised: the gate sets a distinctive
+  // joint value on the node through `/planning_scene` before this runs, so a
+  // publisher sending zeros, or the model's own defaults, reads differently
+  // here from one relaying the node's monitored state.
+  if (read_current_state)
+  {
+    const moveit::core::RobotStatePtr current = group.getCurrentState(5.0);
+    std::cout << "PROBE current_state=" << (current ? "received" : "timeout") << std::endl;
+    if (current)
+    {
+      for (const std::string& variable : current->getRobotModel()->getVariableNames())
+      {
+        std::cout << "PROBE current_state_variable name=" << variable
+                  << " position=" << current->getVariablePosition(variable) << std::endl;
+      }
+    }
+  }
 
   // The second spelling of the start state, and the only other one an
   // unmodified client can produce. `plan()` ships whatever
@@ -90,7 +190,6 @@ int main(int argc, char** argv)
   // cannot cover both. This comment used to say the port's
   // `robot_state_msg_is_default` accepted neither; that predicate is what
   // answered -16 to both, and it no longer exists anywhere in the tree.
-  const bool explicit_start = argc > 4 && std::string(argv[4]) == "explicit-start";
   if (explicit_start)
   {
     moveit::core::RobotState start(group.getRobotModel());
@@ -215,6 +314,8 @@ int main(int argc, char** argv)
                     : "NO_VALID_TRAJECTORY")
             << std::endl;
 
+  executor.cancel();
+  spin_thread.join();
   rclcpp::shutdown();
   return 0;
 }
