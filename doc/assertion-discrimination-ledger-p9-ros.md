@@ -62,13 +62,13 @@ No crate-row disagreement is an instrument bug; all three are named, dated,
 | `constraints/set.rs:183` | matches! | one_bad_element_fails_the_whole_conversion | discriminating | `a7d8682` |
 | `constraints/set.rs:421` | matches! | (visibility round-trip) | not-this-family | §9 clause 1 — same shape as `:163`, `Constraint::Visibility(_)` on a successful build |
 | `constraints/visibility.rs:218` | matches! | (sensor_view_direction rejects unknown) | single-branch | bite run just now — single `other =>` arm in `TryFrom<SensorViewDirectionMsg>` |
-| `geometry.rs:300` | matches! | zero_quaternion_is_rejected | single-branch | bite run just now — one combined guard in `TryFrom<Quaternion> for UnitQuaternion` |
-| `geometry.rs:312` | matches! | nan_quaternion_is_rejected | single-branch | bite run just now — same guard as above |
-| `geometry.rs:398` | matches! | orientation_zero_quaternion_is_rejected | single-branch | bite run just now — one combined guard in `TryFrom<OrientationConstraintQuaternion>` |
-| `geometry.rs:410` | matches! | orientation_nan_quaternion_is_rejected | single-branch | bite run just now — same guard |
-| `geometry.rs:433` | matches! | orientation_norm_just_outside_the_1e_minus_3_tolerance_is_rejected | single-branch | bite run just now — same guard |
-| `geometry.rs:449` | matches! | orientation_norm_far_from_one_is_rejected_not_silently_renormalized | single-branch | bite run just now — same guard |
-| `geometry.rs:522` | matches! | pose_with_degenerate_orientation_fails | single-branch | bite run just now — position leg (`TryFrom<Point>`) is unconditionally `Ok` ("Total in practice" doc comment), so only the orientation guard can fire |
+| `geometry.rs:330` | matches! | zero_quaternion_is_rejected | single-branch | bite run just now — one combined guard in `TryFrom<Quaternion> for UnitQuaternion` |
+| `geometry.rs:342` | matches! | nan_quaternion_is_rejected | single-branch | bite run just now — same guard as above |
+| `geometry.rs:428` | matches! | orientation_zero_quaternion_is_rejected | single-branch | bite run just now — one combined guard in `TryFrom<OrientationConstraintQuaternion>` |
+| `geometry.rs:440` | matches! | orientation_nan_quaternion_is_rejected | single-branch | bite run just now — same guard |
+| `geometry.rs:463` | matches! | orientation_norm_just_outside_the_1e_minus_3_tolerance_is_rejected | single-branch | bite run just now — same guard |
+| `geometry.rs:479` | matches! | orientation_norm_far_from_one_is_rejected_not_silently_renormalized | single-branch | bite run just now — same guard |
+| `geometry.rs:552` | matches! | pose_with_degenerate_orientation_fails | single-branch | bite run just now — position leg (`TryFrom<Point>`) is unconditionally `Ok` ("Total in practice" doc comment), so only the orientation guard can fire |
 | `planning.rs:561` | bare | converts_minimal_request | fixture-collapse-fixed | `9d829a8` (own earlier commit) |
 | `planning.rs:1033` | matches! | multi_dof_joint_trajectory_is_rejected_not_silently_dropped | single-branch | bite run just now — only `Error::Other` site in this impl; delegate produces `Error::Construct` |
 | `scene/collision_object.rs:1026` | bare | append_without_subframe_data_clears_existing_subframes | discriminating | §9 all three clauses hold — clause 1: `subframe_pose("tip").is_none()` is a genuine absence signal (retained vs. cleared); clause 2: `apply_add`'s unconditional subframe-replace is a written decision an engineer could gate on non-empty (bite: wrapping it in `if !subframes.is_empty()` flips the assertion); clause 3: deleting the second `apply_collision_object` call leaves the first object's subframe in place, changing the outcome. Bite run once, before I knew the ros gate was paid (docker, targeted single test — see cost note in the round report) |
