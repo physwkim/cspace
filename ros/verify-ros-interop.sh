@@ -35,12 +35,19 @@
 #     round trip once, by hand; those legs are what re-run it.
 #
 # What this does NOT check (read this list before wiring `ros/` into CI):
-#   - Nothing plans. Both live endpoints are asserted to return a *typed
-#     error*, because this workspace has no `moveit_planning::pipeline::
-#     Planner` to call (D8/§140.3). No trajectory is produced, so no trajectory
-#     is compared against anything; §5 Phase 9's completion condition stays
-#     UNMET and these gates are what keep it honestly measured rather than
-#     inferred.
+#   - No trajectory is compared against anything. Both live endpoints now
+#     plan for real -- D8 landed `moveit_planners_sbp::registry::
+#     RrtConnectManager` against `moveit_planning`'s own types -- and the live
+#     legs assert that a plannable request comes back SUCCESS with a
+#     non-empty trajectory. What they do not do is check that trajectory
+#     against upstream: no oracle runs here, so "a plan came back" is the
+#     claim, not "the same plan moveit2 would produce".
+#   - Upstream's own C++ client still cannot get a trajectory out of either
+#     endpoint: `MoveGroupInterface` always sends a non-default `start_state`,
+#     which `PlanningRequest` has no field for and the conversion rejects
+#     (§250.6). §5 Phase 9's completion condition therefore stays UNMET, and
+#     leg B of ros/verify-move-action-interop.sh is what keeps that measured
+#     rather than inferred.
 #   - No in-process message round trip: every test in
 #     ros/moveit-ros/src/**/*.rs constructs `r2r`-generated message structs
 #     and converts them without ever crossing the middleware. The live legs
@@ -66,6 +73,10 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+. "$REPO_ROOT/tools/ci/gate-lib.sh"
+
+require_caller_tree "$REPO_ROOT"
 IMAGE="${IMAGE:-moveit-rs/ros-dev:latest}"
 
 run() {  # <label> <command...>
@@ -170,47 +181,87 @@ run "doc" bash -c "cargo doc --no-deps"
 # built from a different image, and a client that loads a different robot than
 # the node disagrees about group names for reasons that have nothing to do
 # with what is being measured.
-run "live" bash -c '
-  set -e
-  cargo build --bin move_group
-  ./target/debug/move_group \
-    /repo/ros/fixtures/one_joint.urdf /repo/ros/fixtures/one_joint.srdf &
-  server_pid=$!
-  trap "kill $server_pid 2>/dev/null || true" EXIT
-  sleep 3
-  out="$(timeout 15 ros2 service call /plan_kinematic_path moveit_msgs/srv/GetMotionPlan "{}")"
-  echo "$out"
-  # `-E` with a trailing non-digit guard rather than a plain substring: the
-  # `grep -q "val=-1"` this replaced also matched `val=-16`, the other code
-  # this same handler returns (INVALID_GOAL_CONSTRAINTS, when the request
-  # does not convert) -- so it could not tell the two apart, and a handler
-  # that answered the conversion error for every request would have passed it.
-  echo "$out" | grep -qE "val=99999([^0-9]|$)" || {
-    echo "FAIL live round-trip: response did not carry the expected FAILURE (val=99999) error code" >&2
-    echo "FAIL upstream answers a null resolvePlanningPipeline with FAILURE in both capabilities" >&2
-    echo "FAIL (plan_service_capability.cpp, move_action_capability.cpp); PLANNING_FAILED is for a" >&2
-    echo "FAIL pipeline that ran and did not solve, which this port never does." >&2
-    exit 1
-  }
-  echo "$out" | grep -q "no moveit_planning::pipeline::Planner to call yet" || {
-    echo "FAIL live round-trip: response did not carry the expected explanatory message" >&2
-    exit 1
-  }
-  # `source` is what separates an answer built by this node from one built
-  # anywhere else -- the same assertion the move_action legs make about their
-  # own endpoint. It names the endpoint, not the binary: this reply used to
-  # carry the binary name and went stale on the wire the moment the binary was
-  # renamed (PORTING-PLAN.md §255), with nothing looking at it.
-  #
-  # `\b` and not a trailing `.`: without a right-hand word boundary this would
-  # match the `source=...plan_kinematic_path_server` it replaced just as well,
-  # and a check that accepts both spellings cannot tell them apart.
-  echo "$out" | grep -qE "source=.moveit-ros/plan_kinematic_path\b" || {
-    echo "FAIL live round-trip: response did not carry source=moveit-ros/plan_kinematic_path" >&2
-    exit 1
-  }
-'
-echo "OK live round-trip: /plan_kinematic_path received a real MotionPlanRequest over DDS and returned the expected typed response"
+# A quoted heredoc, not an inline single-quoted argument: the needles below
+# contain the apostrophes rustc and rosidl print around names
+# (`planner 'rrt_connect' failed`, `group_name='arm'`), and every one of them
+# would have closed a single-quoted `bash -c` word.
+LIVE_SCRIPT=$(cat <<'EOS'
+set -e
+cargo build --bin move_group
+./target/debug/move_group \
+  /repo/ros/fixtures/one_joint.urdf /repo/ros/fixtures/one_joint.srdf &
+server_pid=$!
+trap "kill $server_pid 2>/dev/null || true" EXIT
+sleep 3
+
+# Boundary 1: a request naming a group and a goal. This is what D8 bought --
+# before it there was no planner to hand the converted request to -- and it is
+# asserted by something only a real plan can produce. `group_name` is derived
+# from the returned trajectory and only when that trajectory is non-empty
+# (`planning_response.cpp:48`, inside upstream's own
+# `if (trajectory && !trajectory->empty())`), so it cannot appear on an empty
+# answer the way a bare SUCCESS code could.
+out="$(timeout 30 ros2 service call /plan_kinematic_path moveit_msgs/srv/GetMotionPlan \
+  "{motion_plan_request: {group_name: arm, goal_constraints: [{joint_constraints: [{joint_name: j1, position: 0.5, tolerance_above: 0.001, tolerance_below: 0.001, weight: 1.0}]}]}}")"
+echo "$out"
+echo "$out" | grep -qF "val=1," || {
+  echo "FAIL live round-trip: a plannable request did not come back SUCCESS (val=1)" >&2
+  exit 1
+}
+echo "$out" | grep -qF "group_name='arm'" || {
+  echo "FAIL live round-trip: SUCCESS carried no trajectory (group_name is empty)" >&2
+  exit 1
+}
+# On the success reply too, not only the failure one below: `source` names the
+# endpoint that built the answer, and a rule that held on one arm and not the
+# other would leave the reply that matters most -- the one carrying a plan --
+# unattributable. `src/bin/move_group.rs`'s `plan` is where the stamp happens,
+# on both arms, so that this and the assertion below check the same thing.
+echo "$out" | grep -qE "source=.moveit-ros/plan_kinematic_path\b" || {
+  echo "FAIL live round-trip: the SUCCESS reply did not name the endpoint that built it" >&2
+  exit 1
+}
+
+# Boundary 2: same endpoint, a request naming no group at all. It converts,
+# reaches the planner, and fails *there* -- a different path from the
+# conversion rejecting a message before any planner runs, and the reason the
+# message has to name the planner rather than just carry a code.
+out="$(timeout 15 ros2 service call /plan_kinematic_path moveit_msgs/srv/GetMotionPlan "{}")"
+echo "$out"
+# `-E` with a trailing non-digit guard rather than a plain substring: §255's
+# `grep -q "val=-1"` also matched `val=-16`, the other code this same handler
+# returns (INVALID_GOAL_CONSTRAINTS, when the request does not convert) -- so
+# it could not tell the two apart. The code changed; the guard is kept because
+# the reason for it did not.
+echo "$out" | grep -qE "val=99999([^0-9]|$)" || {
+  echo "FAIL live round-trip: response did not carry the expected FAILURE (val=99999) error code" >&2
+  echo "FAIL upstream answers both a null resolvePlanningPipeline and a pipeline that ran and" >&2
+  echo "FAIL did not solve with FAILURE, in both capabilities (plan_service_capability.cpp:82-85," >&2
+  echo "FAIL :92-97; move_action_capability.cpp:207-211,218-227)." >&2
+  exit 1
+}
+echo "$out" | grep -qF "planner 'rrt_connect' failed: unknown joint model group" || {
+  echo "FAIL live round-trip: response did not name the planner that failed" >&2
+  exit 1
+}
+# `source` is what separates an answer built by this node from one built
+# anywhere else -- the same assertion the move_action legs make about their
+# own endpoint. It names the endpoint, not the binary: this reply used to
+# carry the binary name and went stale on the wire the moment the binary was
+# renamed (PORTING-PLAN.md §255), with nothing looking at it.
+#
+# `\b` and not a trailing `.`: without a right-hand word boundary this would
+# match the `source=...plan_kinematic_path_server` it replaced just as well,
+# and a check that accepts both spellings cannot tell them apart.
+echo "$out" | grep -qE "source=.moveit-ros/plan_kinematic_path\b" || {
+  echo "FAIL live round-trip: response did not carry source=moveit-ros/plan_kinematic_path" >&2
+  exit 1
+}
+EOS
+)
+run "live" bash -c "$LIVE_SCRIPT"
+echo "OK live round-trip: /plan_kinematic_path planned a real MotionPlanRequest over DDS and"
+echo "OK live round-trip: reported the unplannable one as FAILURE naming rrt_connect"
 
 # Leg C -- the planning-scene subscription (PORTING-PLAN.md §257). Same shape
 # as the `/move_action` legs: publish on live DDS and assert the node answers

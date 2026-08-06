@@ -53,6 +53,10 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+. "$REPO_ROOT/tools/ci/gate-lib.sh"
+
+require_caller_tree "$REPO_ROOT"
 RUN_ORACLE="$REPO_ROOT/tools/moveit-oracle/run-oracle.sh"
 
 REPLAY_ONE="$(mktemp)"

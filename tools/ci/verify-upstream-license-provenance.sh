@@ -83,6 +83,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+require_caller_tree "$REPO_ROOT"
 cd "$REPO_ROOT"
 
 MOVEIT2_SRC="${MOVEIT2_SRC:-$HOME/work/moveit2}"

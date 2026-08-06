@@ -13,9 +13,9 @@ Method: a subagent did the first pass over all 41 citation sites in this
 crate (40 in `scene.rs`, 1 in `attached_body.rs`); I independently
 re-opened and re-verified `scene.rs:693` (whose doc reads `clearDiffs()`
 at that line), `:853`, `:1644`, and the `pipeline.rs:20`/`:303`/
-`response.rs:98-99` sites that belong to `moveit-planning` (not this
+`response.rs:97` sites that belong to `moveit-planning` (not this
 file, see below) myself before trusting them — `pipeline.rs:20` reads
-`unordered_map<string, PlannerManagerPtr>`, and `response.rs:98-99`
+`unordered_map<string, PlannerManagerPtr>`, and `response.rs:97`
 reads `moveit_msgs::msg::RobotState start_state;`.
 
 Round `c0061a9` (this round): the two aggregate rows this note used to

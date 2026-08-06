@@ -50,6 +50,43 @@ require_nonempty() {
   fi
 }
 
+# Fails the calling gate when it is about to examine a different worktree of
+# this repository than the caller is standing in.
+#
+# Every gate here derives its root from its own path
+# (`dirname "${BASH_SOURCE[0]}"`), which is correct when it is invoked as
+# `tools/ci/foo.sh` from the tree under test and silently wrong when it is
+# invoked by an absolute path from somewhere else. The gates that need docker
+# must be invoked that way -- `sg docker -c` takes a command string, not a
+# working directory -- so a worker in a worktree running
+# `sg docker -c '/home/stevek/work/moveit-rs/tools/ci/verify-ros-interop.sh'`
+# gates the session root instead. Observed: that command printed
+# `all gates passed` with exit 0 and 174/174 tests, against a tree containing
+# none of the caller's changes. A green measurement of the wrong subject is
+# worse than a red one, because nothing about it looks wrong.
+#
+# The check is deliberately narrow. Being outside a git tree is allowed (a
+# release tarball has no repository to disagree with), and so is standing in an
+# unrelated repository -- gating this tree from `~/work/moveit2` is odd but not
+# a mistake this guard can distinguish from a deliberate one. The failure is
+# the specific case it can prove: caller and gate are in two different
+# worktrees that share one `.git`, which is exactly the caucus layout and the
+# only shape where "the gate ran against my changes" is false while everything
+# printed says otherwise.
+require_caller_tree() {
+  local repo_root="$1" caller_root gate_common caller_common
+  caller_root="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$caller_root" ] || return 0
+  [ "$caller_root" != "$repo_root" ] || return 0
+  gate_common="$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  caller_common="$(git -C "$caller_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  [ -n "$gate_common" ] && [ "$gate_common" = "$caller_common" ] || return 0
+  echo "FAIL this gate would examine $repo_root, but you are standing in $caller_root." >&2
+  echo "FAIL both are worktrees of the same repository, so it would report on changes that are not yours." >&2
+  echo "FAIL run that worktree's own copy instead: ${caller_root}/${BASH_SOURCE[1]#"$repo_root"/}" >&2
+  exit 1
+}
+
 # Names what a nonzero `moveit-diff` status actually was: a comparison that ran
 # and disagreed, or a run that never reached a verdict.
 #

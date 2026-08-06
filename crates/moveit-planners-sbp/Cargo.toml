@@ -20,7 +20,10 @@ moveit-constraints.workspace = true
 moveit-error.workspace = true
 moveit-geometry.workspace = true
 moveit-kinematics.workspace = true
+moveit-planner-registry.workspace = true
+moveit-planning.workspace = true
 moveit-scene.workspace = true
+moveit-trajectory.workspace = true
 
 [dev-dependencies]
 moveit-srdf.workspace = true

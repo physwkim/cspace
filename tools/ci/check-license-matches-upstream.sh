@@ -30,7 +30,9 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 . "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
+require_caller_tree "$repo_root"
 cd "$repo_root"
 
 workspace_license="$(sed -n 's/^license[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)"

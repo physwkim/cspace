@@ -176,13 +176,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use moveit_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
+use moveit_constraints::utils::construct_goal_joint_constraints;
 use moveit_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use moveit_geometry::{Cuboid, Isometry3, Shape};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planners_sbp::{
-    CompoundValue, Goal, JointModelGroupSpace, PlanError, PlannerManager, PlanningFailure,
-    PlanningRequest, RrtConnectManager, RrtConnectParams, StateSpace, Termination,
+    CompoundValue, JointModelGroupSpace, PlanError, PlanningFailure, RrtConnectManager,
+    RrtConnectParams, StateSpace, Termination,
 };
+use moveit_planning::{PlannerManager, PlanningRequest};
 use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
@@ -290,6 +292,33 @@ fn translation_from_row_major_4x4(flat: &[f64]) -> Isometry3 {
 /// reads a joint-name -> value map (the request JSON's
 /// `problems[].start`/`.goal` shape) back into this group's
 /// `StateSpace::State`.
+/// The tolerance the concrete-state goal is expressed with.
+///
+/// Upstream's `constructGoalConstraints` defaults to
+/// `numeric_limits<double>::epsilon()` (`kinematic_constraints/utils.hpp:101`).
+/// That default is for a goal that is *checked*; this planner *samples* its
+/// goal region, so an epsilon-wide window is narrower than the rounding of
+/// the draw that has to land in it. 1e-9 rad is still far below the
+/// `goal_gap` this benchmark reports and asserts on.
+const GOAL_TOLERANCE: f64 = 1e-9;
+
+/// `constructGoalConstraints(state, jmg, tolerance)` over a state-space
+/// value: one [`JointConstraint`] per variable of `group_name` at the
+/// position `value` puts it in.
+fn goal_constraints_for(
+    space: &JointModelGroupSpace,
+    model: &RobotModel,
+    group_name: &str,
+    value: &[CompoundValue],
+) -> KinematicConstraintSet {
+    let mut robot_state = RobotState::new(model);
+    robot_state.set_to_default_values();
+    space.write_robot_state(&value.to_vec(), &mut robot_state);
+    let posed = robot_state.update();
+    construct_goal_joint_constraints(model, &posed, group_name, GOAL_TOLERANCE, GOAL_TOLERANCE)
+        .unwrap_or_else(|e| panic!("construct_goal_joint_constraints({group_name}): {e}"))
+}
+
 fn joint_map_to_state(
     space: &JointModelGroupSpace,
     model: &RobotModel,
@@ -587,7 +616,6 @@ fn main() {
         )
     });
 
-    let manager = RrtConnectManager;
     let mut solved_count = 0usize;
     let mut timeout_count = 0usize;
     let mut failure_count = 0usize;
@@ -621,11 +649,21 @@ fn main() {
 
         let planning_request = PlanningRequest {
             group_name: group_name.clone(),
-            // Cloned rather than moved: `goal_gap` compares the returned
-            // path's last waypoint against this same requested goal after
-            // the solve.
-            goal: Goal::State(goal_state.clone()),
+            // A concrete-state goal expressed the way upstream expresses one:
+            // `constructGoalConstraints(state, jmg, tolerance)`
+            // (`kinematic_constraints/utils.hpp:99`), one JointConstraint per
+            // group variable. `goal_state` itself is kept because `goal_gap`
+            // compares the returned path's last waypoint against it.
+            goal_constraints: vec![goal_constraints_for(
+                &space,
+                &model,
+                &group_name,
+                &goal_state,
+            )],
             path_constraints: constraints.clone(),
+            ..PlanningRequest::default()
+        };
+        let manager = RrtConnectManager {
             resolution,
             seed: seed_base.wrapping_add(id),
             params: RrtConnectParams {
@@ -642,7 +680,7 @@ fn main() {
         };
 
         let mut context = manager
-            .get_planning_context(&mut scene, &env, planning_request)
+            .get_planning_context(&mut scene, &env, &planning_request)
             .unwrap_or_else(|e| panic!("get_planning_context: {e}"));
         let t0 = Instant::now();
         let result = context.solve();
@@ -658,7 +696,7 @@ fn main() {
                 let mut path: Vec<Vec<CompoundValue>> = response
                     .trajectory
                     .iter()
-                    .map(|rs| space.read_robot_state(rs))
+                    .map(|(rs, _)| space.read_robot_state(rs))
                     .collect();
                 let length: f64 = path
                     .windows(2)
@@ -739,7 +777,15 @@ fn main() {
                 println!("{line}");
             }
             Err(e) => {
-                let outcome = outcome_name(&Err(&e));
+                // `PlanningContext::solve` hands back
+                // `moveit_planning::PlanError` (a boxed `dyn Error`), while
+                // this benchmark classifies outcomes by sbp's own variants.
+                // `RrtConnectManager` is the only planner it constructs, so
+                // any other error type here is a wiring bug, not an outcome.
+                let sbp_error = e.downcast_ref::<PlanError>().unwrap_or_else(|| {
+                    panic!("RrtConnectContext::solve must fail with an sbp PlanError: {e}")
+                });
+                let outcome = outcome_name(&Err(sbp_error));
                 if outcome == "timeout" {
                     timeout_count += 1;
                 } else {

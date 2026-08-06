@@ -72,7 +72,9 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 . "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
+require_caller_tree "$REPO_ROOT"
 cd "$REPO_ROOT"
 
 mapfile -t test_files < <(git ls-files --deduplicate -- 'crates/*/tests/*.rs' | sort)

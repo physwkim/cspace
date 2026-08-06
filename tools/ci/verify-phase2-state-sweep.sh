@@ -35,7 +35,9 @@ set -euo pipefail
 TOL_INTERPOLATE="${1:-0.0}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 . "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
+require_caller_tree "$REPO_ROOT"
 DIFF="$REPO_ROOT/target/release/moveit-diff"
 
 # Every committed fixture, because the three clauses reach disjoint code on
