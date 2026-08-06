@@ -1,7 +1,15 @@
 #!/bin/bash
-# Runs every tools/ci/verify-*.sh, by glob.
+# Runs every tools/ci/verify-*, by glob.
 #
-# The `verify-*.sh` scripts are deliberately not in `ci.yml`'s `check-*.sh`
+# The glob is on the PREFIX, not the extension, for the reason ci.yml's own
+# now is: `ci.yml` globbed `check-*.sh` and so never once ran
+# `check-citation-drift.py`, a gate that needs nothing but python3 and the
+# tracked files. Every `verify-*` happens to be a `.sh` today, so widening
+# this one changes nothing that runs -- it removes the way the next Python
+# gate would leave the set without anyone noticing. A match without the
+# executable bit is a hard failure here too.
+#
+# The `verify-*` scripts are deliberately not in `ci.yml`'s `check-*`
 # glob -- each one's own header says why (docker, the gitignored
 # `third_party/` tree, an upstream checkout a bare runner never has), and
 # `verify-fixture-provenance.sh` states the principle: a script that always
@@ -36,13 +44,20 @@ cd "$REPO_ROOT"
 self="$(basename "${BASH_SOURCE[0]}")"
 
 shopt -s nullglob
-scripts=(tools/ci/verify-*.sh)
+scripts=(tools/ci/verify-*)
 shopt -u nullglob
 
 if [[ ${#scripts[@]} -eq 0 ]]; then
-  echo "FAIL no tools/ci/verify-*.sh found -- did the layout change?" >&2
+  echo "FAIL no tools/ci/verify-* found -- did the layout change?" >&2
   exit 1
 fi
+
+for script in "${scripts[@]}"; do
+  if [[ ! -x "$script" ]]; then
+    echo "FAIL $script matches the verify-* glob but is not executable." >&2
+    exit 1
+  fi
+done
 
 failed=()
 ran=0
