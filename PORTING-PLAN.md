@@ -26408,15 +26408,17 @@ leg A의 여섯 goal이 답한 것(같은 실행):
 `/plan_kinematic_path`도 같은 실행에서 `val=1` + `group_name='arm'` +
 3 웨이포인트를 돌려준다.
 
-**인용 게이트에 남는 것은 한 파일이다.** D8은 `ros/moveit-ros/src/planning.rs`를
-495행 아래로 일률적으로 9줄 민다. `doc/assertion-discrimination-ledger-p9-ros.md`가
-그 파일을 19번 인용하고 있어서, 이 브랜치만으로는
-`check-citation-drift.py`가 7건 강등을, `verify-orphan-enumeration.sh`가
-36 orphan / 4 unresolved를 보고한다(`main` 단독은 32 / 0). 그 19개 인용에
-`+9`를 일률 적용한 트리를 만들어 두 게이트를 다시 돌린 결과가 각각
+**인용 게이트에 남는 것은 한 파일이다.** D8은 `ros/moveit-ros/src/planning.rs`의
+줄 번호를 두 구간으로 민다 — 281행까지는 **+7**, 495행부터는 **+9**
+(`difflib.SequenceMatcher`로 `main`의 같은 파일과 정렬해 얻은 값이고,
+그 사이에 인용된 줄은 없다). `doc/assertion-discrimination-ledger-p9-ros.md`가
+그 파일을 26번 인용하고 있어서, 이 브랜치만으로는
+`check-citation-drift.py`가 강등 8건 + anchor-mismatch 2건을,
+`verify-orphan-enumeration.sh`가 34 orphan / 12 unresolved를 보고한다.
+그 26개 인용에 위 사상을 적용한 트리를 만들어 두 게이트를 다시 돌리면
 "0 demoted, 0 out-of-bounds, 0 anchor-mismatch, 0 unresolvable"과
-"32 orphan / 0 unresolved" — `main` 단독과 같은 수 — 이므로, 이 브랜치가
-남기는 인용 부채는 그 한 파일의 일률 재번호 하나다. 그 파일은 p9-ros가
-쓰고 있어 여기서 손대지 않는다. **Phase 9의 완료 조건 중 "상류 클라이언트가 궤적을
+"22 orphan / 0 unresolved"가 나오고, 뒤의 22는 `main` 단독이 보고하는 수와
+같다. 즉 이 브랜치가 남기는 인용 부채는 그 한 파일의 재번호 하나뿐이다.
+그 파일은 p9-ros가 쓰고 있어 여기서 손대지 않는다. **Phase 9의 완료 조건 중 "상류 클라이언트가 궤적을
 받는다"는 이 시점에 충족된다.** 남은 것은 §NEW.7의 목록이며, 그중 어느 것도
 이 답을 되돌리지 않는다.
