@@ -254,4 +254,52 @@ mod tests {
         apply_attached_collision_object_msg(&cell, attached("held", 1)).unwrap();
         assert!(!snapshot(&cell).has_attached_body("held"));
     }
+
+    #[test]
+    fn a_topic_detach_sees_an_attach_that_arrived_inside_a_scene_diff() {
+        let cell = cell();
+        // The whole point of one owner. The attach arrives inside a
+        // `PlanningScene` diff, the detach arrives on
+        // `attached_collision_object`, and the second must see the first.
+        // Two mutators with private paths into the scene is exactly the
+        // arrangement in which the detach could miss it.
+        let mut diff = moveit_msgs::PlanningScene {
+            is_diff: true,
+            ..Default::default()
+        };
+        diff.robot_state.attached_collision_objects = vec![attached("held", 0)];
+        apply_planning_scene_msg(&cell, diff).unwrap();
+        assert!(snapshot(&cell).has_attached_body("held"));
+
+        apply_attached_collision_object_msg(&cell, attached("held", 1)).unwrap();
+        assert!(!snapshot(&cell).has_attached_body("held"));
+    }
+
+    #[test]
+    fn a_scene_diff_detach_sees_an_attach_that_arrived_on_the_topic() {
+        let cell = cell();
+        // The reverse order, because "one owner" has to hold in both
+        // directions: an ordering bug that only shows up when the topic goes
+        // first would pass the test above.
+        apply_attached_collision_object_msg(&cell, attached("held", 0)).unwrap();
+        assert!(snapshot(&cell).has_attached_body("held"));
+
+        let mut diff = moveit_msgs::PlanningScene {
+            is_diff: true,
+            ..Default::default()
+        };
+        // REMOVE inside a non-diff `RobotState` is upstream's rejected case
+        // (`planning_scene.cpp:1238-1245`) -- so a scene diff cannot detach,
+        // and this asserts the rejection names that rule rather than
+        // silently leaving the body attached.
+        diff.robot_state.attached_collision_objects = vec![attached("held", 1)];
+        let err = apply_planning_scene_msg(&cell, diff)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("is not marked is_diff"),
+            "expected the RobotState non-diff guard, got: {err}"
+        );
+        assert!(snapshot(&cell).has_attached_body("held"));
+    }
 }
