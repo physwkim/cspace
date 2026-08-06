@@ -152,7 +152,10 @@ EXEMPT = "exempt"
 OUT_OF_BOUNDS = "out-of-bounds"
 ANCHOR_MISMATCH = "anchor-mismatch"
 UNRESOLVED = "unresolvable"
-HARD_FAIL_CLASSES = (OUT_OF_BOUNDS, ANCHOR_MISMATCH, UNRESOLVED)
+# A cited line that is empty or whitespace-only. Not a class on the ladder --
+# see the predicate itself for why it sits above it.
+BLANK_LINE = "blank-line"
+HARD_FAIL_CLASSES = (OUT_OF_BOUNDS, ANCHOR_MISMATCH, UNRESOLVED, BLANK_LINE)
 
 Citation = namedtuple("Citation", "md line_no spec cls detail partly")
 
@@ -1091,6 +1094,344 @@ def resolve_path(fname_part, rs_files_by_basename, rs_files_set):
     return sorted(rs_files_by_basename.get(basename, []))
 
 
+# ---------------------------------------------------------------------------
+# SECOND POPULATION: in-repo citations that are not `.md` -> `.rs`.
+#
+# The corpus above has two independent holes, and closing only one leaves the
+# worst sites invisible because they are exactly the ones that fall in the
+# other:
+#
+#   1. TARGET extension. CITATION_RE hard-codes `\.rs`, so a citation naming
+#      an in-repo `.md`/`.sh`/`.py`/`.toml`/`.urdf` target is not parsed as a
+#      citation at all -- never resolved, never bounds-checked, never counted.
+#   2. CITER extension. main() builds md_files from `.md` only, so a citation
+#      living in a `.json`, `.sh`, `.py` or `.rs` file is outside the corpus
+#      no matter what it names. This gate's OWN source cites
+#      `PORTING-PLAN.md:9384` and could not see it.
+#
+# WHY THIS IS A SEPARATE POPULATION WITH A SEPARATE BASELINE. Folding these
+# into CLASS_BASELINE would add ~280 rows that were never checked before to a
+# file whose whole purpose is to make a DELTA meaningful. A reader could not
+# tell "this citation is newly visible" from "this citation newly broke", and
+# a re-freeze would absorb both into one passing count -- which is the exact
+# laundering CLASS_BASELINE exists to prevent. So the two populations are
+# declared, counted and reported independently. The set difference IS the
+# separation: everything here is by construction absent from CLASS_BASELINE.
+#
+# WHY NO CLASS LADDER HERE. Rust-fn anchoring does not apply to a `.md` or
+# `.sh` target, so there is no "inside the function the text names" to check.
+# What replaces it is SECTION CONTAINMENT: when the citing text names a
+# section (`§129.3`) tightly adjacent to the citation, the cited line must sit
+# inside that section's own span in the target. That is the rule that catches
+# a shift onto a live line -- the failure mode the blank predicate cannot see,
+# measured in PORTING-PLAN.md §299.7.
+# A real fence toggle is 3+ backticks and nothing else with a backtick on the
+# line. Copied from check-shorthand-citations.py, which had to solve the same
+# case: these documents write ```` ```text ```` as an INLINE span while
+# discussing fences, and a naive startswith("```") reads those as toggles and
+# desyncs for the rest of the file. The `.rs` population above does not skip
+# fences at all; this one does, because a citation shown inside a fence is
+# displayed sample text rather than a claim about the tree.
+FENCE_RE = re.compile(r"^ {0,3}`{3,}[^`]*$")
+IN_REPO_BASELINE = "doc/citation-classes-in-repo.txt"
+# Every tracked text extension that is not `.rs`. `.rs` targets belong to the
+# population above; listing them here would double-count them.
+IN_REPO_TARGET_EXT = ("md", "sh", "py", "yml", "yaml", "toml", "urdf", "srdf", "txt", "json", "xacro")
+_IN_REPO_BODY = (
+    r"((?:[\w./-]+/)?[\w.-]+\.(?:" + "|".join(IN_REPO_TARGET_EXT) + r")):"
+    r"(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)"
+)
+# TWO grammars, because the two kinds of citer spell a citation differently and
+# one rule gets each of them wrong.
+#
+# In a `.md` citer, backticks ARE the convention and bare `foo.md:12` in prose
+# is usually not a citation, so requiring them is what keeps the corpus clean.
+# In a `.rs`, `.py`, `.sh` or `.json` citer there are no backticks to require --
+# a source comment writes `// PORTING-PLAN.md:1152 records that ...` bare, and
+# a JSON provenance string writes `(PORTING-PLAN.md:11242)`. Requiring
+# backticks there misses exactly the population hole 2 exists to close: five
+# real citations, three of them in moveit-planners-sbp comments citing a line
+# that is blank today.
+#
+# A trailing colon is NOT excluded, though it would drop this gate's one known
+# false positive -- check-porting-plan-sections.sh:309 builds the string
+# "PORTING-PLAN.md:1: parsed zero ## sections" as its own error format. It is
+# kept because moveit-planners-sbp/src/compound.rs:495 writes a real citation
+# the same way, `// PORTING-PLAN.md:1152: whether the StateSpace trait ...`,
+# where the colon is punctuation. Excluding it would drop one of the five real
+# code-citer sites to remove one benign row: the format string resolves, is in
+# bounds and non-blank, so it lands in `resolved` and is declared rather than
+# reported as a finding. A fenced block quoting a gate's FAIL output has the
+# same shape and is dropped by fence-skipping instead.
+IN_REPO_CITATION_RE = re.compile("`" + _IN_REPO_BODY + "`")
+IN_REPO_CODE_CITATION_RE = re.compile(_IN_REPO_BODY)
+# Copied verbatim from tools/ci/check-section-references.sh's HEADING_RE so the
+# two gates cannot disagree about what a section heading is.
+IN_REPO_SECTION_RE = re.compile(r"^#{2,6}\s+§?(\d+(?:\.\d+)*)\b")
+# Tight adjacency, same discipline as FOLLOWING_ANCHOR_RE/PRECEDING_ANCHOR_RE
+# above and for the same reason: a loose scan finds a section number three
+# clauses back that is prose ABOUT the citation, not a claim that the cited
+# line is inside it. A wide scan was implemented and measured before being
+# discarded -- it produced 20 attributions and got the two census sites the
+# tight rule gets right WRONG, and attributed a textbook's own "4.4.1" and
+# another document's local "17.5" as if they named sections of this plan.
+# Both are spelled without the section sigil here for the same reason
+# PORTING-PLAN.md §299.3 respells a wrong citation: quoted as data, they
+# would otherwise read as live references to sections that do not exist.
+IN_REPO_SECTION_BEFORE_RE = re.compile(r"§(\d+(?:\.\d+)*)[^`§]{0,40}$")
+IN_REPO_SECTION_AFTER_RE = re.compile(r"^[ ,)]{0,3}§(\d+(?:\.\d+)*)")
+IN_REPO_RESOLVED = "resolved"
+IN_REPO_SECTION_VERIFIED = "section-verified"
+IN_REPO_UNRESOLVED = "unresolvable"
+# A path that matches NO tracked file names something this repository does not
+# contain -- an upstream MoveIt source, an oracle-container path, an elided
+# `.../foo.md`. Those belong to measure-upstream-citations.py, whose domain is
+# exactly the files this one cannot open, so calling them a failure here would
+# report a defect against the wrong gate. Counted and declared rather than
+# dropped, so this population stays a total enumeration of its corpus rather
+# than of the part this gate can adjudicate. `unresolvable` is kept for the
+# case that IS this gate's: a path that matches several tracked files.
+IN_REPO_EXTERNAL = "external"
+IN_REPO_OOB = "out-of-bounds"
+IN_REPO_BLANK = "blank-line"
+IN_REPO_SECTION_MISMATCH = "section-mismatch"
+IN_REPO_FAILING = (IN_REPO_UNRESOLVED, IN_REPO_OOB, IN_REPO_BLANK, IN_REPO_SECTION_MISMATCH)
+# Flipped to True once the population's findings are triaged. Until then the
+# corpus is declared, counted and delta-checked -- a NEW failure still fails,
+# because it arrives as an undeclared row -- but the backlog it arrives with
+# does not fail the run. See PORTING-PLAN.md §299.9.
+IN_REPO_HARD_FAIL = False
+
+
+def in_repo_section_spans(lines):
+    """{section number: (first line, last line)} for a document's own headings.
+
+    A section runs to the line before the next heading at ANY depth, so
+    `§299` ends where `§299.1` begins. Containment is therefore checked
+    against the most specific section that holds the line, which is what the
+    citing text means when it writes `§299.1`.
+    """
+    heads = []
+    for i, line in enumerate(lines, 1):
+        m = IN_REPO_SECTION_RE.match(line)
+        if m:
+            heads.append((m.group(1), i))
+    spans = {}
+    for idx, (num, start) in enumerate(heads):
+        end = heads[idx + 1][1] - 1 if idx + 1 < len(heads) else len(lines)
+        # A number can appear twice (an index line and the section itself);
+        # keep the widest span so containment does not fail on the duplicate.
+        if num in spans:
+            spans[num] = (min(spans[num][0], start), max(spans[num][1], end))
+        else:
+            spans[num] = (start, end)
+    return spans
+
+
+def in_repo_section_claim(line, start, end):
+    """The section number the citing text attaches to THIS citation, or None.
+
+    `start`/`end` are the citation match's own bounds on the line, so the
+    windows are the text immediately before and immediately after it.
+    """
+    before = IN_REPO_SECTION_BEFORE_RE.search(line[:start])
+    if before:
+        return before.group(1)
+    after = IN_REPO_SECTION_AFTER_RE.match(line[end:])
+    return after.group(1) if after else None
+
+
+def scan_in_repo(tracked):
+    """Every in-repo citation whose target is not `.rs`, from EVERY citer."""
+    tset = set(tracked)
+    by_base = {}
+    for p in tracked:
+        by_base.setdefault(p.rsplit("/", 1)[-1], []).append(p)
+
+    body_cache = {}
+
+    def body(path):
+        if path not in body_cache:
+            body_cache[path] = (
+                (REPO_ROOT / path).read_text(encoding="utf-8", errors="replace").split("\n")
+            )
+        return body_cache[path]
+
+    span_cache = {}
+
+    def spans(path):
+        if path not in span_cache:
+            span_cache[path] = in_repo_section_spans(body(path)) if path.endswith(".md") else {}
+        return span_cache[path]
+
+    out = []
+    for citer in tracked:
+        # The two baselines ARE enumerations of citations, so scanning them
+        # ingests every row as a citation of its own and the population
+        # doubles itself on each re-freeze.
+        if citer in (CLASS_BASELINE, IN_REPO_BASELINE):
+            continue
+        if citer.rsplit(".", 1)[-1] not in IN_REPO_TARGET_EXT + ("rs",):
+            continue
+        try:
+            text = (REPO_ROOT / citer).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        lines = text.split("\n")
+        in_fence = False
+        for line_no, line in enumerate(lines, 1):
+            # Only `.md` uses ``` fences; in a `.py` or `.sh` citer the same
+            # bytes are ordinary content and toggling on them desyncs the
+            # rest of the file.
+            if citer.endswith(".md"):
+                if FENCE_RE.match(line):
+                    in_fence = not in_fence
+                    continue
+                if in_fence:
+                    continue
+            grammar = (
+                IN_REPO_CITATION_RE if citer.endswith(".md") else IN_REPO_CODE_CITATION_RE
+            )
+            for m in grammar.finditer(line):
+                name, spec = m.group(1), m.group(2)
+                cited = []
+                for tok in spec.split(","):
+                    cited.extend(int(x) for x in tok.split("-"))
+                full = f"{name}:{spec}"
+                if name in tset:
+                    target = name
+                else:
+                    cands = [p for p in by_base.get(name.rsplit("/", 1)[-1], []) if path_matches(p, name)]
+                    if not cands:
+                        out.append((citer, line_no, full, None, IN_REPO_EXTERNAL, None))
+                        continue
+                    if len(cands) > 1:
+                        out.append((citer, line_no, full, None, IN_REPO_UNRESOLVED, cands))
+                        continue
+                    target = cands[0]
+                tl = body(target)
+                if any(not (1 <= n <= len(tl)) for n in cited):
+                    out.append((citer, line_no, full, target, IN_REPO_OOB, len(tl)))
+                    continue
+                # Same predicate, same reason, same range semantics as the
+                # `.rs` population: only NAMED lines, never a range interior.
+                blank = [n for n in cited if not tl[n - 1].strip()]
+                if blank:
+                    out.append((citer, line_no, full, target, IN_REPO_BLANK, blank))
+                    continue
+                claim = in_repo_section_claim(line, m.start(), m.end())
+                sp = spans(target)
+                if claim and claim in sp:
+                    lo, hi = sp[claim]
+                    outside = [n for n in cited if not (lo <= n <= hi)]
+                    if outside:
+                        out.append(
+                            (citer, line_no, full, target, IN_REPO_SECTION_MISMATCH, (claim, lo, hi, outside))
+                        )
+                    else:
+                        out.append((citer, line_no, full, target, IN_REPO_SECTION_VERIFIED, claim))
+                    continue
+                out.append((citer, line_no, full, target, IN_REPO_RESOLVED, None))
+    return out
+
+
+def render_in_repo(rows):
+    counts = {}
+    for citer, _, spec, _, verdict, _ in rows:
+        counts.setdefault((citer, spec, verdict), 0)
+        counts[(citer, spec, verdict)] += 1
+    return [
+        f"{citer}\t{spec}\t{verdict}" + (f"*{n}" if n > 1 else "")
+        for (citer, spec, verdict), n in sorted(counts.items())
+    ]
+
+
+def report_in_repo(tracked):
+    """Report the second population against its own baseline. Returns True to
+    fail the run.
+
+    The two populations are reported independently and never summed. A reader
+    has to be able to see that these citations were never checked before --
+    a single blended total would make a first-ever finding indistinguishable
+    from a regression, which is what having two files prevents.
+    """
+    rows = scan_in_repo(tracked)
+    path = REPO_ROOT / IN_REPO_BASELINE
+    if not path.exists():
+        print(
+            f"FAIL {IN_REPO_BASELINE} is missing -- regenerate with "
+            f"tools/ci/check-citation-drift.py --write-classes",
+            file=sys.stderr,
+        )
+        return True
+
+    declared = {}
+    for line in path.read_text(encoding="utf-8").split("\n"):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        citer, spec, verdict = line.split("\t")
+        n = 1
+        if "*" in verdict:
+            verdict, _, mult = verdict.partition("*")
+            n = int(mult)
+        declared[(citer, spec, verdict)] = n
+
+    live = {}
+    for r in rows:
+        live[(r[0], r[2], r[4])] = live.get((r[0], r[2], r[4]), 0) + 1
+
+    counts = {}
+    for r in rows:
+        counts[r[4]] = counts.get(r[4], 0) + 1
+    summary = ", ".join(f"{counts[k]} {k}" for k in sorted(counts))
+    findings = sum(counts.get(k, 0) for k in IN_REPO_FAILING)
+
+    undeclared = sorted(k for k in live if k not in declared)
+    retired = sorted(k for k in declared if k not in live)
+    recounted = sorted(k for k in live if k in declared and live[k] != declared[k])
+
+    failed = False
+    for citer, spec, verdict in undeclared:
+        failed = True
+        print(
+            f"FAIL {citer}: `{spec}` ({verdict}) is not in {IN_REPO_BASELINE} -- a citation "
+            f"whose line number changed retires its old key and arrives as a new one",
+            file=sys.stderr,
+        )
+    for citer, spec, verdict in retired:
+        failed = True
+        print(
+            f"FAIL {citer}: `{spec}` ({verdict}) is in {IN_REPO_BASELINE} but no longer in "
+            f"the tree",
+            file=sys.stderr,
+        )
+    for citer, spec, verdict in recounted:
+        failed = True
+        print(
+            f"FAIL {citer}: `{spec}` ({verdict}) occurred {declared[(citer, spec, verdict)]}x, "
+            f"now {live[(citer, spec, verdict)]}x",
+            file=sys.stderr,
+        )
+
+    stream = sys.stderr if (failed or IN_REPO_HARD_FAIL) else sys.stdout
+    print(
+        f"--- second population: {len(rows)} in-repo non-`.rs` citations across "
+        f"{len({r[0] for r in rows})} citing files: {summary} ---",
+        file=stream,
+    )
+    if findings:
+        for r in rows:
+            if r[4] in IN_REPO_FAILING:
+                print(f"    {r[4]:17s} {r[0]}:{r[1]}  `{r[2]}`", file=stream)
+        print(
+            f"--- {findings} of them are findings. These were in no gate's corpus before "
+            f"this population was declared, so they are first-ever results, not "
+            f"regressions; IN_REPO_HARD_FAIL flips them to failing once triaged. ---",
+            file=stream,
+        )
+    return failed or (IN_REPO_HARD_FAIL and bool(findings))
+
+
 def main(write_classes=False):
     tracked = tracked_files()
     md_files = [p for p in tracked if p.endswith(".md")]
@@ -1181,9 +1522,12 @@ def main(write_classes=False):
                     )
                     continue
                 resolved_path = candidates[0]
-                file_len = len(
-                    (REPO_ROOT / resolved_path).read_text(encoding="utf-8", errors="replace").split("\n")
+                body_lines = (
+                    (REPO_ROOT / resolved_path)
+                    .read_text(encoding="utf-8", errors="replace")
+                    .split("\n")
                 )
+                file_len = len(body_lines)
                 oob = [ln for ln in cited_lines if not (1 <= ln <= file_len)]
                 if oob:
                     record(
@@ -1195,12 +1539,57 @@ def main(write_classes=False):
                     )
                     continue
 
+                # ABOVE THE LADDER, deliberately. A blank line cannot be any
+                # citation's subject, so this is not a weaker class of check
+                # that a stronger one can outrank -- it disqualifies the
+                # citation whatever the anchoring says.
+                #
+                # Putting it ON the ladder was the bug. Blank-target citations
+                # were landing in all three PASSING classes (7 unanchored, 3
+                # content-verified, 1 anchor-verified), so no class rejected
+                # them and the top class actively certified one:
+                # `doc/claim-audit/moveit-scene.md:35` cites
+                # `crates/moveit-scene/src/scene.rs:2585`, a blank line inside
+                # `decouple_parent_then_mutating_the_former_parent_is_not_observed`.
+                # "Inside the function the citing text names" was satisfied,
+                # so ANCHOR_VERIFIED -- the strongest thing this gate can say
+                # -- certified a citation pointing at nothing. The assertion it
+                # means is one line up, at `:2584`.
+                #
+                # That is the second time the top class has vouched for a
+                # citation carrying none of its claim; the previous round found
+                # seven that had slid onto a comment or onto a `#[test]`
+                # attribute line. Both say the same thing about this ladder:
+                # every class on it answers "is the cited line plausibly
+                # nearby", and none answers "does the cited line carry the
+                # claim". This predicate is the cheapest available step toward
+                # the second question -- it cannot confirm a claim, but it can
+                # reject a line that carries nothing at all.
+                #
+                # RANGE SEMANTICS. The test is applied to the line numbers the
+                # citation NAMES -- both ends of `NNN-MMM` and every member of
+                # a comma list -- not to the interior of a span.
+                # `parse_cited_lines` already returns exactly that set, and
+                # those are the numbers a reader checks. So `:2584-2590` must
+                # have content at 2584 and 2590; it says nothing about 2587.
+                # The alternative considered was "fail only when every named
+                # line is blank", which would have passed all six of the
+                # ranges that start one line early and run into the doc comment
+                # they cite -- an off-by-one is exactly what this should catch,
+                # and it is one keystroke to fix once named.
+                blank = [ln for ln in cited_lines if not body_lines[ln - 1].strip()]
+                if blank:
+                    record(
+                        md,
+                        line_no,
+                        spec,
+                        BLANK_LINE,
+                        (fname_part, cited_lines, resolved_path, blank),
+                    )
+                    continue
+
                 spans = spans_for(resolved_path)
-                body = (
-                    (REPO_ROOT / resolved_path)
-                    .read_text(encoding="utf-8", errors="replace")
-                    .split("\n")
-                )
+                body = body_lines
                 # Rule 4's verdict, computed once here so that every path
                 # which used to fall through to bounds-only reaches it: a
                 # citation is never filed as unverified while it is in fact
@@ -1404,7 +1793,11 @@ def main(write_classes=False):
     content_verified = n(CONTENT_VERIFIED)
     partly_anchored = sum(1 for r in records if r.partly)
 
-    hard_fail = bool(out_of_bounds) or bool(anchor_mismatch) or bool(unresolved)
+    blank_line = [(r.md, r.line_no, *r.detail) for r in by_class.get(BLANK_LINE, ())]
+
+    hard_fail = (
+        bool(out_of_bounds) or bool(anchor_mismatch) or bool(unresolved) or bool(blank_line)
+    )
     counts = (
         f"{anchor_verified} anchor-verified (EVERY cited line inside a named function's body), "
         f"{content_verified} content-verified (the citing text's own quotation of the code is "
@@ -1413,7 +1806,7 @@ def main(write_classes=False):
         f"neither names a containing function nor quotes the line), "
         f"{len(external)} exempt (names a dependency or a build artifact, see above), "
         f"{len(out_of_bounds)} out-of-bounds, {len(anchor_mismatch)} anchor-mismatch, "
-        f"{len(unresolved)} unresolvable"
+        f"{len(unresolved)} unresolvable, {len(blank_line)} blank-line"
         f"; {partly_anchored} of those are partly-anchored enumerations (a comma list whose "
         f"named functions hold some of its cited lines and not others), counted in whichever "
         f"bucket rule 4 put them"
@@ -1510,6 +1903,37 @@ def main(write_classes=False):
         ]
         (REPO_ROOT / CLASS_BASELINE).write_text("\n".join(header + render_classes(live)) + "\n")
         print(f"wrote {CLASS_BASELINE}: {total} citations, {len(live)} keys")
+
+        rows = scan_in_repo(tracked)
+        by_verdict = {}
+        for r in rows:
+            by_verdict[r[4]] = by_verdict.get(r[4], 0) + 1
+        head = [
+            "# The SECOND citation population: every in-repo citation whose target is",
+            "# not `.rs`, from EVERY tracked citer -- not just `.md` ones. It is a",
+            "# separate file from doc/citation-classes.txt on purpose: these citations",
+            "# were in no gate's corpus until they were declared here, so folding them",
+            "# into that file would mix `newly visible` with `newly broken` in one",
+            "# count. The set difference between the two files IS that separation.",
+            "#",
+            "# Verdicts. resolved = the target exists here and every named line is in",
+            "# bounds and non-blank. section-verified = the citing text names a section",
+            "# tightly against the citation and every named line is inside that",
+            "# section's span. external = the path names a file this repository does",
+            "# not contain, which is measure-upstream-citations.py's domain, not this",
+            "# one's. The rest are findings: blank-line, out-of-bounds,",
+            "# section-mismatch, and unresolvable (a path matching several tracked",
+            "# files, which names none of them).",
+            "#",
+            "# Generated by: tools/ci/check-citation-drift.py --write-classes",
+            f"# Source commit: {head_sha}",
+            f"# Citations: {len(rows)} across {len({r[0] for r in rows})} citing files",
+        ]
+        for k in sorted(by_verdict):
+            head.append(f"#   {k}: {by_verdict[k]}")
+        head.append("# Format: <citing file>\\t<citation>\\t<verdict>[*N]")
+        (REPO_ROOT / IN_REPO_BASELINE).write_text("\n".join(head + render_in_repo(rows)) + "\n")
+        print(f"wrote {IN_REPO_BASELINE}: {len(rows)} citations")
         return 0
 
     baseline_path = REPO_ROOT / CLASS_BASELINE
@@ -1678,7 +2102,24 @@ def main(write_classes=False):
                 file=sys.stderr,
             )
 
-    if hard_fail or baseline_fail:
+    if blank_line:
+        print(
+            f"--- {len(blank_line)} citation(s) whose cited line is blank ---",
+            file=sys.stderr,
+        )
+        for md, line_no, fname_part, cited, resolved_path, blank in blank_line:
+            print(
+                f"FAIL {md}:{line_no}: `{fname_part}:"
+                f"{','.join(str(c) for c in cited)}` -> {resolved_path}: line(s) "
+                f"{blank} are blank or whitespace-only. A blank line carries no claim, "
+                f"so no anchoring can make it the subject -- re-derive the line "
+                f"(a span starting one line early is the common case).",
+                file=sys.stderr,
+            )
+
+    in_repo_fail = report_in_repo(tracked)
+
+    if hard_fail or baseline_fail or in_repo_fail:
         print(
             f"FAIL of {total} `.rs` citations across {len(md_files)} tracked .md files "
             f"(corpus: every `` `path.rs:NNN[-MMM]` `` span in every tracked .md file): "

@@ -102,7 +102,7 @@ every `f64` constant in both crates chosen from a measured floor.
 same round (commit `b867015`, already on `main` before this session's
 `git reset --hard main`) — the pre-`float_roundtrip` figures did not
 reproduce and were replaced. `moveit-scene`'s `COST_SOURCE_EPSILON`
-(`cost_sources_parity.rs:494`, commit `bb212dd9`, 2026-08-04 20:13) and
+(`cost_sources_parity.rs:495`, commit `bb212dd9`, 2026-08-04 20:13) and
 `moveit-scene`'s `TOLERANCE` (`attached_collision_parity.rs:135`, a
 fixed `PORTING-PLAN.md` §5 spec value, not an empirically measured
 floor) both post-date `70a6b31` (2026-08-04 09:42, the fix) — neither

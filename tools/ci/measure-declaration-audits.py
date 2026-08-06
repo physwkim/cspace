@@ -167,6 +167,14 @@ def main() -> int:
     for path in sorted({f for f in rows if listed.count(f) > 1}):
         failures.append(f"DUPLICATE ROW  {path} ({listed.count(path)} rows)")
 
+    # The `ported N` this doc transcribes from our own stdout was reconciled
+    # by nothing until now -- the row rules above check the table only, which
+    # is the same hole that let `cited-outside-corpus` drift 20 -> 24 in
+    # `port-coverage.md`.  This doc prints the figure twice; both must agree.
+    failures.extend(
+        mpc.check_transcribed_figures("\n".join(lines), args.check, {"ported": len(ported)})
+    )
+
     if failures:
         for failure in failures:
             print("FAIL " + failure, file=sys.stderr)

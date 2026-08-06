@@ -1,0 +1,56 @@
+========================================================================
+A. SOLVE RATE (the mutation's own signature)
+========================================================================
+  floor_wall  base 239/250   mut 250/250
+  cage        base 202/250   mut 250/250
+
+========================================================================
+B. PAIRED ON BASE-SOLVED IDS -- the only non-confounded comparison
+========================================================================
+  floor_wall (n=239 base-solved)
+    native motion_resolution 0.01    base    1 -> mut   90
+    0.05 grid bar                    base    0 -> mut   90
+    returned waypoints               base    0 -> mut   90
+  cage (n=202 base-solved)
+    native motion_resolution 0.01    base    2 -> mut  101
+    0.05 grid bar                    base    0 -> mut  101
+    returned waypoints               base    0 -> mut  101
+
+========================================================================
+C. base-arm ids the native bar catches and 0.05 calls clean.
+   NOT a dominance result: PORTING-PLAN.md's §286.5 measured that a
+   100% bar finer than the planner's own unit is a coin flip for BOTH
+   implementations, so these are lottery candidates until an upstream
+   column exists to compare them against.
+========================================================================
+  floor_wall  id  77  native invalid_wp=3  ->  0.05 densifies to 94 wp, invalid_count=0, valid=True
+  cage        id 133  native invalid_wp=1  ->  0.05 densifies to 79 wp, invalid_count=0, valid=True
+  cage        id 159  native invalid_wp=1  ->  0.05 densifies to 79 wp, invalid_count=0, valid=True
+  total native-only violations: 3
+  reverse direction (0.05 catches, native clean): 0  []
+
+========================================================================
+D. WHAT THE MUTATION ARM ACTUALLY FLAGS vs the seed's own invalidity
+========================================================================
+  floor_wall  seed-invalid 102   mut 0.05-invalid 101   overlap 101   mut-only   0   seed-only   1
+    seed-only id 95: seed_invalid_count=21 seed_length=3.305256730200891 | mut length=3.305194699165239 bar_ok=True native_ok=True
+  cage        seed-invalid 149   mut 0.05-invalid 149   overlap 149   mut-only   0   seed-only   0
+
+========================================================================
+E. NO-OP RATE: path length equal to the seed's length.
+   Exact float equality and tolerance equality are different numbers
+   and both are published. The tolerance column is identical from
+   1e-12 to 1e-6, so it is a real gap in the distribution rather than
+   a threshold chosen to produce it. Length equality is NOT trajectory
+   equality -- the harness emits no waypoint matrix to check that.
+========================================================================
+  base floor_wall  exact  30/239 (12.6%)   within 1e-9  96/239 (40.2%)
+  base cage        exact  25/202 (12.4%)   within 1e-9  65/202 (32.2%)
+  mut  floor_wall  exact  48/250 (19.2%)   within 1e-9 171/250 (68.4%)
+  mut  cage        exact  52/250 (20.8%)   within 1e-9 177/250 (70.8%)
+
+  tolerance sweep (shows the plateau):
+    1e-12    base   96/239   65/202   mut  171/250  177/250
+    1e-09    base   96/239   65/202   mut  171/250  177/250
+    1e-06    base   96/239   65/202   mut  171/250  177/250
+    0.001    base  171/239  137/202   mut  243/250  234/250

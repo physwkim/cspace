@@ -1189,7 +1189,7 @@ moveit-model visual_mesh --no-fail-fast`. Reverted; `git diff` on
 
 ### Excluded: `Vec::is_empty()` class, `:2411,:2518` cleared round-16-precedent, remaining 9 audited round 18
 
-`robot_model.rs:1972,2260,2369,2411,2518,2561,2781,3427,3428,3429,3430` (11
+`robot_model.rs:1972,2260,2369,2413,2518,2561,2781,3427,3428,3429,3430` (11
 sites total, current line numbers — the last four were lines 3393-3396 before
 this round's fixture edit, see the `:3427...` row below). `:2392,3048`
 already `not-this-family`; `:2903` (old `:2886`)
@@ -1382,7 +1382,7 @@ required editing a file I do not own. No action taken, none owed.
 No fixes to source were left in the tree — both bites this round (`:2837`/
 `:2856`'s `get_end_effector`, `:3003`/`:3038`'s `build_group_states`) were
 reverted immediately after confirming isolation. The only correction that
-changes a verdict is `robot_model.rs:2903` (discriminating →
+changes a verdict is `robot_model.rs:2904` (discriminating →
 not-this-family); everything else is a line-number fix or a formal row for
 evidence that already existed. This ledger's own citations are what
 produced 25 of the 29 "orphans" in the first place — a real instance of the
