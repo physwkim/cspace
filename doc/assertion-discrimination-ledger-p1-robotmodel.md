@@ -181,10 +181,21 @@ cargo nextest run -p moveit-planning
 cargo nextest run -p moveit-sampling
 ```
 
-## UNFIXED
+## UNFIXED (round 8)
 
 None. No blind assertion was found this round, so there was nothing to
 fix.
+
+The round number is in the heading because this is the only `UNFIXED`
+heading in a document that goes on for a dozen more rounds, and a bare
+one answers "what is open in this fence?" with "None" on behalf of
+rounds it never read. Later rounds close themselves in their own
+`### Result:` line instead — round 11's three fragile-but-unique
+needles, round 13's `mesh_search_paths` coverage gap (closed by round
+14), round 20's `Fragility flagged, not fixed`. Searching this file for
+`UNFIXED` finds one section and misses all of those; searching it for
+`Result:` finds them. `ledger-pilz.md` carries the same convention with
+`## UNFIXED (12, now 13)`.
 
 ## Gate scope
 
