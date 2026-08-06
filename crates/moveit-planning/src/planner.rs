@@ -8,7 +8,7 @@
 //! [`PlannerManager`] and [`PlanningContext`]: the two-step
 //! "build a context, then solve it" interface every concrete planner
 //! implements, ported from `planning_interface::PlannerManager`
-//! (`planning_interface.hpp:148-207`) and
+//! (`planning_interface.hpp:148-211`) and
 //! `planning_interface::PlanningContext` (`:78-143`).
 //!
 //! # Why these live here and not in a planner crate
@@ -100,7 +100,7 @@ pub trait PlanningContext<'m> {
 }
 
 /// Builds a [`PlanningContext`] for a `(scene, request)` pair. Ports
-/// `planning_interface::PlannerManager` (`planning_interface.hpp:148-207`);
+/// `planning_interface::PlannerManager` (`planning_interface.hpp:148-211`);
 /// see this module's doc for the methods that have no counterpart here and
 /// why.
 ///
