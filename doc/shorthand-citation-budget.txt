@@ -24,7 +24,7 @@
 9	doc/assertion-discrimination-ledger-p10-interpolation.md
 17	doc/assertion-discrimination-ledger-p10-setfromik.md
 14	doc/assertion-discrimination-ledger-p3-acm.md
-129	doc/assertion-discrimination-ledger-p9-ros.md
+179	doc/assertion-discrimination-ledger-p9-ros.md
 69	doc/assertion-discrimination-ledger-pilz.md
 2	doc/assertion-discrimination-round2-brief.md
 5	doc/caucus-handoff-2026-08-05.md
