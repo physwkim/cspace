@@ -59,9 +59,21 @@ grammar. **The union is the population; either alone is a sample.**
 | `ros/moveit-ros/src/conversion_coverage.rs:209` | 2 | `from_base.is_empty() \|\| to_base.is_empty()` | p9-ros |
 | `ros/moveit-ros/src/planning.rs:112` | 2 | `!joint_names.is_empty() \|\| !points.is_empty()` | p9-ros |
 | `ros/moveit-ros/src/scene/collision_object.rs:345` | 3 | `primitives/meshes/planes.is_empty()` | p9-ros |
+| `ros/moveit-ros/src/scene/planning_scene.rs:288` | 2 | `entry_names.len() != entry_values.len() \|\| default_entry_names.len() != default_entry_values.len()` | kind 2, fixed — `an_acm_with_mismatched_entry_lengths_is_rejected` |
 | `ros/moveit-ros/src/state.rs:112` | 4 | `!joint_names/transforms/twist/wrench.is_empty()` | p9-ros |
 | `ros/moveit-ros/src/trajectory.rs:165` | 2 | `i == 0 && t != 0.0` | p9-ros |
 | `tools/moveit-diff/src/rust_impl.rs:393` | 2 | `link_names[0].is_empty() \|\| link_names[1].is_empty()` | closed, see below |
+
+One row postdates the `0379f9d` enumeration and was found by mutating, not
+by either anchor: `planning_scene.rs:288`'s guard arrived with `4f2c9df`
+(p11-scenetopic's `usePlanningSceneMsg` port) after this table was measured.
+Its `default_entry_*` operand had a test (`an_acm_with_mismatched_default_lengths_is_rejected`),
+its `entry_*` operand had none — replacing that clause with `false` left the
+whole `moveit-ros` suite at 203 passed. Kind 2, now closed with
+`an_acm_with_mismatched_entry_lengths_is_rejected`. The lesson is the same
+one the two anchors already teach: a table measured at one main is a sample
+of a moving population, so new ported code owes this check again rather
+than inheriting the old row set.
 
 **Excluded, different shape:** `ros/moveit-ros/src/trajectory.rs:45` and
 `moveit-distance-field`'s `checked_max_distance_sq` fold one variable
