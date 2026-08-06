@@ -27917,13 +27917,16 @@ crates/moveit-planners-sbp/src/registry.rs:903:#[linkme::distributed_slice(PLANN
   (`crates/moveit-planner-registry/src/lib.rs:80`) setter가 아니라 **생성자
   인자**로 만들었고, `resolve_planner`가 유일한 통로이므로 레지스트리로 만든
   매니저는 자기가 계획할 설정을 반드시 갖는다.
-- **머지 시점의 import. 이미 해소되었다(§285.1).** 이 브랜치의 base에서 `PLANNER_MANAGERS`는
-  `moveit-planners-sbp`에 있고, `main`에서는 `moveit-planner-registry`
-  크레이트로 옮겨져 있다(그 크레이트는 이 base에 존재하지 않는다). sbp는
-  거기에 비공개 `use`로 닿고 워크스페이스 어디에도 재수출이 없으므로, 새
-  파일인 `planner_params.rs`는 **충돌 없이 머지되고 그 다음 컴파일에서
-  깨진다**. 고칠 곳은 import 한 줄과 `Cargo.toml`의 의존 한 줄이며, 읽는 값은
-  달라지지 않는다. 파일 안 주석에도 같은 내용을 적어두었다.
+- **머지 시점의 import. 이미 해소되었다(§285.1).** 이 절이 쓰인 브랜치의
+  base에서 `PLANNER_MANAGERS`는 `moveit-planners-sbp`에 있었고 `main`에서는
+  `moveit-planner-registry` 크레이트로 옮겨져 있었으므로, 새 파일인
+  `planner_params.rs`는 충돌 없이 머지되고 그 다음 컴파일에서 깨질 것이라고
+  적었다. **그 예측대로 됐고 머지가 그 자리에서 고쳤다** — 예고한 두 줄을
+  바꾼 것은 병합 커밋 `421fafbc`(`Merge p11-planningfailed: bind the three
+  planner-params services`) 자신이고, 이후 트리의 `planner_params.rs`는
+  `moveit_planner_registry::PLANNER_MANAGERS`를 읽으며
+  `ros/moveit-ros/Cargo.toml`은 그 크레이트를 의존한다. 읽는 값은 예고대로
+  달라지지 않았다.
 
 ---
 
