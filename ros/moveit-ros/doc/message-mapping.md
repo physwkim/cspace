@@ -831,11 +831,15 @@ upstream function line-by-line.
   `link_name`) — `:1665`: upstream's `!attached_bodies.empty() ||
   object.object.id.empty()` return expression, already reproduced and
   documented in this module's own doc comment. Matches.
-- `scene/planning_scene.rs:59` (`robot_model_name_matches`, reads
+- `scene/planning_scene.rs:90` (drift: row previously cited `:59`, which
+  is now well before `robot_model_name_matches`, a stale line number)
+  (`robot_model_name_matches`, reads
   `robot_model_name.is_empty()`, empty
   name) — `setPlanningSceneMsg:1370`: upstream skips the compatibility
   check entirely on an empty name. Matches.
-- `scene/planning_scene.rs:127` (`apply_octomap`, reads
+- `scene/planning_scene.rs:516` (drift: row previously cited `:127`,
+  stale after `p11-scenetopic` grew this file 522 -> 1367 lines)
+  (`apply_octomap`, reads
   `map.octomap.data.is_empty()`, empty
   `octomap.data`) — `:1483`: upstream's own early return once the
   previous octomap is cleared. Matches.
@@ -856,10 +860,17 @@ upstream function line-by-line.
   a rejected default. Expiry noted inline (§153.1): only
   `moveit_trajectory::RobotTrajectory`'s own `duration_from_previous[0]
   == 0.0` invariant changing clears this, not a new field anywhere.
-- `planning.rs:130,138` (`:138` reads `joint_trajectory,`; `start_state`/`reference_trajectories`
-  non-default) — same opposite-polarity shape again, already named
-  D6-consistent in this module's own doc comment. Expiry noted inline
-  (§153.1): both clear if `moveit_planning::PlanningRequest` gains the
+- `planning.rs:150-154,162-166,278-281` (re-derived: row previously cited
+  `:130,138`, which named a single blanket `start_state` rejection that
+  `p11-startstate` (`10f571f`) deleted outright — `start_state` is now a
+  `StartState` sum type, so the old citation points at code that no longer
+  exists. It split into two per-field rejections, `attached_collision_objects`
+  (`:150-154`) and `multi_dof_joint_state` (`:162-166`) on `StartState`,
+  plus the unchanged `reference_trajectories` rejection (`:278-281`) on
+  `PlanningRequest`; `:150` reads `attached_collision_objects.is_empty()`)
+  — same opposite-polarity shape again, already named D6-consistent in
+  this module's own doc comment. Expiry noted inline (§153.1): all three
+  clear if `moveit_planning::StartState`/`PlanningRequest` gain the
   matching field, unlike `state.rs`'s gap above which needs a new
   conversion entry point instead.
 
@@ -1069,11 +1080,11 @@ call site's code is the unconditional, unbranched call named above.
 | 8 | `scene/collision_object.rs:239` (reads `Isometry3::try_from(Pose(pose))?);`, `subframe_poses`) | generic | ✅site `add_with_norm_2_orientation_on_subframe_pose_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
 | 9 | `scene/collision_object.rs:478` (reads `Isometry3::try_from(Pose(pose))?;`, object pose, MOVE) | generic | ✅site `move_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
 | 10 | `scene/collision_object.rs:515` (reads `Isometry3::try_from(Pose(p)))`, per-shape pose, MOVE repose) | generic | ✅site (same test as row 9) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| — | `scene/planning_scene.rs:147` (reads `Isometry3::try_from(Pose(map.origin))?;`, octomap `origin`) | generic | ✅site `octomap_origin_with_norm_2_orientation_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| — | `scene/planning_scene.rs:536` (drift: row previously cited `:147`, stale after `p11-scenetopic` grew this file 522 -> 1367 lines) (reads `Isometry3::try_from(Pose(map.origin))?;`, octomap `origin`) | generic | ✅site `octomap_origin_with_norm_2_orientation_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
 
 (This is 11 rows for "ten sites" — §213.2's count of nine generic-rule
 sites did not separately list the octomap `origin` at
-`planning_scene.rs:147` (reads `Isometry3::try_from(Pose(map.origin))?;`);
+`planning_scene.rs:536` (reads `Isometry3::try_from(Pose(map.origin))?;`);
 it belongs to the same generic rule and is
 included here for completeness. The brief's "ten sites" is the
 Quaternion/Pose-reaching total from §211/`f2a7847`: nine generic +
