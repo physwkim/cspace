@@ -1129,11 +1129,15 @@ Fence: `ros/moveit-ros` only. Written at merge for the same reason §16
 was: both files are new in p11-startstate and its round closed before
 `verify-orphan-enumeration.sh` ran against merged `main`, so the five
 assertions arrived on `main` as orphans with 0 unresolved citations.
-None of the five needed a separate guard mutation — each one sits in a
-test whose other assertions are `assert_eq!`/`assert_ne!`/`.expect()`,
-so there is no second `assert!` in the same test for a guard mutation to
-be confused with, and the mutation that reaches the needle is the only
-one that reaches it.
+Three of the five share a test with another of the five
+(`ros/moveit-ros/src/execute_trajectory.rs:350` with
+`ros/moveit-ros/src/execute_trajectory.rs:354`,
+`ros/moveit-ros/src/joint_states.rs:340` with
+`ros/moveit-ros/src/joint_states.rs:341`), so the question each mutation had to answer was not "does the
+test bite" but "which of the test's two needles bit". Every mutation
+below is therefore reported with the panic line, not just the test name,
+and each one names exactly one line — a mutation that failed the test at
+the sibling's line would have shown these to be one needle written twice.
 
 Test runs are `cargo test` inside `moveit-rs/ros-dev:latest` (249 unit
 tests at this merge; nextest is not in that image). Every mutation below
