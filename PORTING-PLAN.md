@@ -22130,7 +22130,7 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
 | 13 | 1·2·3 | 타임아웃이 하나라도 있으면 그 실행은 재현 불가인데 조건 1의 여유가 그것을 흡수한다 | 닫음 §248.6 (`no-timeouts`) |
 | 14 | 1·3 | §5의 문턱은 큰 퇴행을 통과시킨다 — 48문제 손실, 27% 경로 연장 | 닫음 §248.7 (핀) |
 | 15 | 2 | 오라클과 포트가 **같은** `objects` 배열에서 장면을 만든다 | 닫지 않음 §248.9 |
-| 16 | 1·3 | C++ 경로의 끝점은 검사되지 않는다 (포트 쪽만 검사한다) | 닫지 않음 §248.9 |
+| 16 | 1·3 | C++ 경로의 끝점은 검사되지 않는다 (포트 쪽만 검사한다) | 닫음 `a7d1b9a0` (`cpp-endpoints`, §248.9) |
 
 ### §248.2 조건 1은 스트림 하나에 대한 비교다 — §221의 30건이 여기서도 나오는가
 
@@ -22351,11 +22351,14 @@ M3와 M4는 이 게이트에서 서로 다른 것이 필요한 이유를 보여�
 - **`motion_resolution` 아래의 충돌 간극.** 양쪽이 같은 해상도로 검사한다. 이미
   `plan_benchmark_port.rs`의 `# Condition 2's collision-check resolution`이 기록한
   한계이고 이 라운드에서 바뀌지 않았다.
-- **C++ 경로의 끝점.** 포트 쪽 `endpoints` 검사에 대응하는 C++ 쪽 검사가 없다.
-  오라클 `plan` 응답은 `path`를 실어 오므로 jq 몇 줄로 닫을 수 있으나, 기록된
-  `doc/phase7-benchmark-results.json`을 다시 만들려면 500문제 실행이 한 번 더
-  필요하다. `cpp_solved_floor`가 같은 계열(퇴행한 기준선이 문턱을 낮추는 것)의
-  절반만 막는다.
+- **C++ 경로의 끝점. 닫혔다(§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에
+  대응하는 C++ 쪽 검사가 없었고, 여는 값이 500문제 재실행 한 번이라고 적었다.
+  같은 날 `a7d1b9a0`(`test(sbp): hold the C++ baseline to the same endpoint
+  requirement as the port`)이 stratum마다 `cpp-endpoints`를 넣었고, 기록된
+  `doc/phase7-benchmark-results.json`이 `cpp_max_endpoint_gap: 0`과
+  `"panda(gate)/cpp-endpoints": "PASS"`로 그 재실행을 이미 담고 있다. §264가
+  이 사실을 발견하고도 본문을 고치지 않은 것은 그 시점 사본이 번호 배정 이전
+  판이어서 병합이 충돌했기 때문이고, 그 미룬 고침이 이 항목이다.
 - **paired median 집단의 크기.** `paired_problems_pooled > 0`만 요구하고 그 크기에
   바닥이 없다. 양쪽 해결 집합이 크게 어긋나면 paired 비율은 작은 집단에서 계산된다.
   실측에서는 panda 496, fanuc 405로 각 진영 해결 집합과 거의 같다.
