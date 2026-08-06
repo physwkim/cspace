@@ -24824,9 +24824,9 @@ count-public-declarations.sh, same header     130
 쪽이 흘러도 어긋나서 게이트가 실패한다.
 
 그 스크립트는 이 헤더에 대해 처음에 `0`을 냈다. 클래스 머리가
-`class MOVEIT_MOVE_GROUP_INTERFACE_EXPORT
-MoveGroupInterface`(`move_group_interface.hpp:82`)인데 그 정규식이 `class`
-바로 뒤에 클래스 이름을 요구했기 때문이다. export 매크로 토큰 하나를
+`class MOVEIT_MOVE_GROUP_INTERFACE_EXPORT MoveGroupInterface`
+(`move_group_interface.hpp:82`)인데 그 정규식이 `class` 바로 뒤에
+클래스 이름을 요구했기 때문이다. export 매크로 토큰 하나를
 선택적으로 허용하도록 고쳤다. 그 전까지 이 클래스에 대해 그 계기를 돌린
 사람이 없었다는 뜻이고, 지금은 위 130이 그것을 매 실행마다 돌린다.
 
@@ -25994,8 +25994,9 @@ STOMP에서 둘 다 죽는다. 실측 — 세 개의 서로 다른 제약 집합
 죽였을 때까지 출력 없음). 즉 시간의 문제가 아니고 제약의 세기 문제도 아니다.
 
 **원인은 제약 비용이 "위반량"이 아니라 "목표까지의 거리"라는 것이다.**
-`getConstraintsCostFunction`은 상태의 비용을 `constraints.decide(state).distance
-* cost_scale`로 준다(`cost_functions.hpp:246`). 그리고
+`getConstraintsCostFunction`은 상태의 비용을
+`constraints.decide(state).distance * cost_scale`로
+준다(`cost_functions.hpp:246`). 그리고
 `JointConstraint::decide`는 만족/위반과 **무관하게**
 `ConstraintEvaluationResult(result, constraint_weight_ * fabs(dif))`를
 반환한다 — `dif`는 목표값과의 차이다
