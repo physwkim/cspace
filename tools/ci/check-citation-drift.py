@@ -46,8 +46,9 @@
 #      function's own brace-matched body span. A citation whose named
 #      function exists elsewhere in the file, just not around the cited
 #      line, is exactly the "content-blind window match" failure mode
-#      above, made mechanical. See `find_anchors` for which of those two
-#      shapes a name has to have before it counts as a claim at all.
+#      above, made mechanical. See `find_tight_anchors` and `find_row_anchors`
+#      for which of those two shapes a name has to have before it counts
+#      as a claim at all.
 #   4. Failing that, if the citing text QUOTES the code -- a backtick span
 #      that is a code fragment rather than prose -- that fragment must
 #      occur literally at one of the lines the citation names. See
@@ -256,7 +257,8 @@ def function_spans(path):
     `is_test` -- whether one of the (up to 3) lines directly above `fn` is a
     `#[test]`/`#[tokio::test]`/... attribute -- is not for containment
     checking (a citation is either in a span or it is not, `#[test]` or no).
-    It is for CANDIDATE SELECTION in find_anchors: this corpus cites two
+    It is for CANDIDATE SELECTION in the two `find_*_anchors`: this corpus
+    cites two
     different things under the same "name mentioned near a citation" shape
     -- a citation legitimately inside the NAMED function's own body
     (`` `build_group_states` (`robot_model.rs:1557-1595`) ``, a direct claim
@@ -341,21 +343,41 @@ TABLE_SEP_RE = re.compile(r"^\|[\s:|-]+\|\s*$")
 # The first-column headers under which a table's column-one citation is a
 # source location INSIDE the function the row discusses. That is what makes
 # rule 2 below sound, and it is a convention of the assertion-discrimination
-# ledgers only: 93 tables head that column `file:line`, two `current
-# file:line`. The claim-audit tables head it `where` -- "where in the port
-# this claim is written" -- which is the doc comment that MAKES the claim,
-# not an assertion inside the test the row names. Those two happen to
+# ledgers only: today 96 tables head that column `file:line` and two
+# `current file:line`, a split the run now prints for itself rather than
+# leaving here to rot. The claim-audit tables head it `where` -- "where in
+# the port this claim is written" -- which is the doc comment that MAKES the
+# claim, not an assertion inside the test the row names. Those two happen to
 # coincide whenever a test states its own rationale in its own doc comment,
 # and diverge as soon as the claim lives in a file header
 # (`doc/claim-audit/moveit-trajectory.md:186` cites `ruckig_smoothing.rs`'s
 # header comment while naming the test 150 lines below it).
+#
+# Every entry here must match at least one real table -- `main` fails the
+# run otherwise. This is a DECLARATION of the spellings this corpus uses,
+# so an entry matching nothing is either a spelling that drifted or dead
+# configuration, and both are worth a failure: an entry that quietly stops
+# matching takes its tables' citations out of rule 2 and leaves them in
+# passing buckets. A total-count floor would not catch that, because the
+# other entries keep the total non-zero -- measured, rewriting this one
+# string to `File:line` still leaves 2 tables, 11 rows and 1 rule-2
+# anchoring, so `> 0` on any aggregate passes while 188 citations stop
+# being checked.
 LEDGER_FIRST_COLUMN_HEADERS = {"file:line", "current file:line"}
 
 
 def ledger_row_lines(lines):
-    """Line numbers (1-based) of body rows of tables whose first column is a
-    `file:line` location -- see LEDGER_FIRST_COLUMN_HEADERS."""
+    """`(row_line_numbers, {header: table_count})` for the tables whose first
+    column is a `file:line` location -- see LEDGER_FIRST_COLUMN_HEADERS. Row
+    line numbers are 1-based.
+
+    The per-header table counts are returned rather than a bare total
+    because that is what `main`'s guard needs: rule 2 checking nothing is
+    invisible in every verdict (its citations just land in content-verified
+    or unanchored, both passing), so the parse result itself has to be
+    reported and floored, per declared spelling."""
     out = set()
+    tables = {}
     for i, line in enumerate(lines):
         if not TABLE_SEP_RE.match(line) or i == 0:
             continue
@@ -365,11 +387,12 @@ def ledger_row_lines(lines):
         first = header.split("|")[1].strip()
         if first not in LEDGER_FIRST_COLUMN_HEADERS:
             continue
+        tables[first] = tables.get(first, 0) + 1
         j = i + 1
         while j < len(lines) and lines[j].lstrip().startswith("|"):
             out.add(j + 1)
             j += 1
-    return out
+    return out, tables
 
 
 def _valid_idents(text, spans, require_test=False):
@@ -388,12 +411,20 @@ def _valid_idents(text, spans, require_test=False):
     return list(found)
 
 
-def find_anchors(
-    line, match_start, match_end, spans, prev_citation_end=0, is_range=False, ledger_row=False
-):
+def find_tight_anchors(line, match_start, match_end, spans, prev_citation_end=0, is_range=False):
     """Every plausible name anchor for one citation -- a SET of candidates,
     not a single best guess, because this corpus has no one column that
     reliably holds "the" function a citation belongs to.
+
+    Rule 1 of two. Rule 2 is `find_row_anchors`, which the caller tries only
+    when this returns nothing. They are two functions rather than one with a
+    `ledger_row` argument so that WHICH rule answered is a fact about the
+    call the caller made, not a value handed back with the answer: a
+    returned `tight` flag was read as the containment quantifier, which gave
+    one citation shape two verdicts. A caller that must never quantify by
+    provenance should not be handed provenance to quantify by. The split is
+    also what lets the run count rule 2's firings (`rule2_anchored`), which
+    a merged function cannot report without returning that flag again.
 
     An earlier version of this script picked exactly one anchor per
     citation (first backtick-identifier in the row, or the row's own
@@ -470,55 +501,12 @@ def find_anchors(
        test's own single assertion, or a bare fn declaration line);
        a range pairing is trusted regardless, since the range shape
        itself is strong enough evidence of a containment claim.
-    2. Table row, first column, with no tight pairing found, IN A TABLE
-       THAT HEADS THAT COLUMN `file:line` (`ledger_row`, see
-       LEDGER_FIRST_COLUMN_HEADERS): if the row loosely names at least one
-       `#[test]`-attested function in the cited file, every valid
-       identifier anywhere else in the row -- otherwise nothing.
-
-       Two independent gates, and both are needed. The table gate is what
-       makes the rule's premise true at all: only a `file:line` column
-       says the cited line is a location inside what the row discusses.
-       The claim-audit tables head that column `where` -- "where in the
-       port this claim is written" -- which is the doc comment that MAKES
-       the claim and need not sit inside the test the row names
-       (`doc/claim-audit/moveit-trajectory.md:186` cites
-       `ruckig_smoothing.rs`'s file header while naming the test 150 lines
-       below it). Firing rule 2 there verified fifteen claim-audit rows on
-       a premise that does not hold for them.
-
-       The row gate decides which names in a qualifying row count.
-       `#[test]`-attestation gates the ROW, not each candidate. What it
-       establishes is that this row is using the ledger's loose
-       test-naming idiom at all; the `do_smoothing` row above names NO
-       test in `acceleration_filter.rs`, which is exactly why its lone
-       production-function mention must not be trusted. Once a row is in
-       the idiom, the function containing the cited line is sometimes a
-       plain helper rather than a test -- a row citing a `mod tests`
-       fixture builder and naming the tests that cover it is the shape --
-       and rejecting it for want of a `#[test]` attribute rejects a
-       correct citation over a fact about the containing function that
-       the check never claimed to be about. Attesting each candidate
-       separately instead was measured over this corpus at 75 new
-       failures, `do_smoothing`'s own citation
-       (`p1-fixtures.md:938`, `acceleration_filter.rs:565`) among them.
+    2. `find_row_anchors` -- see there.
 
     Accept the citation if it falls inside ANY candidate's span -- not
     exactly one -- for the same reason a row can mention several correctly-
     cited functions at once (`move_object`, `decouple_parent`,
     `frame_transform` in one ledger's disposition list).
-
-    Returns `(candidates, tight)`. `tight` says which rule produced them,
-    and the caller quantifies over a multi-site citation accordingly: a
-    tight pairing `` `name` (`f.rs:a,b`) `` claims BOTH a and b are inside
-    `name`, so every cited line must land; a loose rule-2 mention claims
-    only that the sites it discusses are inside the test it names, so at
-    least one must land. That distinction is what a census row needs --
-    `doc/assertion-discrimination-ledger-p9-ros.md:323` lists eleven sites
-    across `collision_object.rs` in its first column and names two tests in
-    its prose, which contain two of the eleven; the other nine live in
-    tests the row never mentions, and demanding all eleven land in those
-    two asserted something the row never said.
 
     An empty result leaves the citation unverified (bounds-only) rather
     than guessed at -- see the module docstring.
@@ -540,21 +528,56 @@ def find_anchors(
     for name in _valid_idents(window, spans, require_test=require_test):
         if name not in candidates:
             candidates.append(name)
-    if candidates:
-        return candidates, True
+    return candidates
 
-    stripped = line.lstrip()
-    if ledger_row and stripped.startswith("|"):
-        pipes = [i for i, ch in enumerate(line) if ch == "|"]
-        if len(pipes) >= 2 and pipes[0] < match_start < pipes[1]:
-            rest_of_row = line[:match_start] + line[match_end:]
-            if not _valid_idents(rest_of_row, spans, require_test=True):
-                return [], False
-            # Loose: the names came from anywhere in the row, so they are the
-            # functions the row *discusses*, not ones paired with this span.
-            return _valid_idents(rest_of_row, spans, require_test=False), False
 
-    return [], False
+def find_row_anchors(line, match_start, match_end, spans):
+    """Rule 2: for a citation in the FIRST COLUMN of a table row, with no
+    rule-1 pairing found, in a table that heads that column `file:line` --
+    if the row loosely names at least one `#[test]`-attested function in
+    the cited file, every valid identifier anywhere else in the row;
+    otherwise nothing. The caller owns the table gate (`ledger_row_lines`)
+    and reaches this only for a row inside one.
+
+    Two independent gates, and both are needed. The table gate is what
+    makes the rule's premise true at all: only a `file:line` column says
+    the cited line is a location inside what the row discusses. The
+    claim-audit tables head that column `where` -- "where in the port this
+    claim is written" -- which is the doc comment that MAKES the claim and
+    need not sit inside the test the row names
+    (`doc/claim-audit/moveit-trajectory.md:186` cites
+    `ruckig_smoothing.rs`'s file header while naming the test 150 lines
+    below it). Firing rule 2 there verified fifteen claim-audit rows on a
+    premise that does not hold for them.
+
+    The row gate decides which names in a qualifying row count.
+    `#[test]`-attestation gates the ROW, not each candidate. What it
+    establishes is that this row is using the ledger's loose test-naming
+    idiom at all; the `do_smoothing` row in `find_tight_anchors`' docstring
+    names NO test in `acceleration_filter.rs`, which is exactly why its
+    lone production-function mention must not be trusted. Once a row is in
+    the idiom, the function containing the cited line is sometimes a plain
+    helper rather than a test -- a row citing a `mod tests` fixture builder
+    and naming the tests that cover it is the shape -- and rejecting it for
+    want of a `#[test]` attribute rejects a correct citation over a fact
+    about the containing function that the check never claimed to be about.
+    Attesting each candidate separately instead was measured over this
+    corpus at 75 new failures, `do_smoothing`'s own citation
+    (`p1-fixtures.md:938`, `acceleration_filter.rs:565`) among them.
+
+    The names come from anywhere in the row, so they are the functions the
+    row *discusses*. That does NOT license a weaker containment quantifier
+    than rule 1's -- see the caller.
+    """
+    if not line.lstrip().startswith("|"):
+        return []
+    pipes = [i for i, ch in enumerate(line) if ch == "|"]
+    if not (len(pipes) >= 2 and pipes[0] < match_start < pipes[1]):
+        return []
+    rest_of_row = line[:match_start] + line[match_end:]
+    if not _valid_idents(rest_of_row, spans, require_test=True):
+        return []
+    return _valid_idents(rest_of_row, spans, require_test=False)
 
 
 # Rule 4's floor for a backtick span to count as a quotation of code rather
@@ -681,13 +704,24 @@ def main():
     out_of_bounds = []  # (md, line_no, fname_part, cited_line, resolved_path, file_len)
     anchor_mismatch = []  # (md, line_no, fname_part, cited_line, anchor, resolved_path, spans_for_anchor)
     anchor_verified = 0
+    partly_anchored = 0
     content_verified = 0
     unanchored_by_file = {}
+    # Rule 2's own parse result, at each of the three stages it can go quiet
+    # at: which declared header spellings matched a table, how many rows
+    # those tables held, and how many citations the rule actually anchored.
+    # None of the three is visible in any verdict -- see the guard below.
+    ledger_tables = {}
+    ledger_rows_total = 0
+    rule2_anchored = 0
 
     for md in md_files:
         text = (REPO_ROOT / md).read_text(encoding="utf-8", errors="replace")
         lines = text.split("\n")
-        ledger_rows = ledger_row_lines(lines)
+        ledger_rows, tables_here = ledger_row_lines(lines)
+        for header, n in tables_here.items():
+            ledger_tables[header] = ledger_tables.get(header, 0) + n
+        ledger_rows_total += len(ledger_rows)
         for line_no, line in enumerate(lines, 1):
             prev_citation_end = 0
             for m in CITATION_RE.finditer(line):
@@ -763,15 +797,18 @@ def main():
                         unanchored_by_file[md] = unanchored_by_file.get(md, 0) + 1
                     continue
 
-                anchors, tight = find_anchors(
+                anchors = find_tight_anchors(
                     line,
                     m.start(),
                     m.end(),
                     spans,
                     window_floor,
                     is_range=m.group(3) is not None,
-                    ledger_row=line_no in ledger_rows,
                 )
+                if not anchors and line_no in ledger_rows:
+                    anchors = find_row_anchors(line, m.start(), m.end(), spans)
+                    if anchors:
+                        rule2_anchored += 1
                 if not anchors:
                     if quoted:
                         content_verified += 1
@@ -788,14 +825,6 @@ def main():
                 # exactly that shape, discovered by spot-reading this
                 # script's own output against a citation this round's fixes
                 # had just corrected.
-                #
-                # How many must land is set by how the anchor was attached,
-                # not by the citation: see `find_anchors`. Tight pairing =>
-                # every cited line; loose row mention => at least one. For a
-                # single-site citation the two coincide, so the loosening
-                # touches only multi-site lists -- exactly the shape whose
-                # sites can legitimately live in functions the row never
-                # names.
                 landed = [
                     ln
                     for ln in cited_lines
@@ -805,36 +834,52 @@ def main():
                         for (start, end, _is_test) in spans[name]
                     )
                 ]
-                in_span = len(landed) == len(cited_lines) if tight else bool(landed)
-                if in_span:
+                # How many of the cited lines must land is a property of the
+                # CITATION'S SHAPE, not of how its anchor happened to attach.
+                # It used to be both, and the two disagreed about one shape:
+                # a partly-contained comma list dropped to bounds-only when a
+                # tight pairing named the function and counted as
+                # anchor-verified when a rule-2 row did. Same citation, same
+                # evidence, two verdicts -- and the passing one put nine of
+                # `p9-ros.md:323`'s eleven lines under an "anchor-verified
+                # (cited line inside the named function's body)" total that
+                # was false for them.
+                #
+                # A comma list is an ENUMERATION: `p9-ros.md:323` cites all
+                # 11 of `scene/collision_object.rs`'s assertion sites and
+                # names the two whose citation that round corrected, `:326`
+                # cites 3 and names 1. All 14 are exact current
+                # `count-coarse-assertions.py` sites, so demanding every one
+                # sit inside a named test failed citations that were right.
+                # A RANGE is not an enumeration -- `a-b` claims one span, so
+                # `a` inside and `b` outside is the range straddling the
+                # function's end, which is drift and stays a failure.
+                #
+                # ZERO containment is a failure under either shape; that is
+                # what caught `p1-robotmodel.md:825`, whose 2 cited lines were
+                # in neither named test.
+                if len(landed) == len(cited_lines):
                     anchor_verified += 1
                 elif landed and m.group(4) is not None:
-                    # A comma list is an ENUMERATION, and a row that
-                    # enumerates names the tests it discusses, not one per
-                    # cited line: `p9-ros.md:323` cites all 11 of
-                    # `scene/collision_object.rs`'s assertion sites and names
-                    # the two whose citation that round corrected, `:326`
-                    # cites 3 and names 1. Every one of those 14 lines is an
-                    # exact current `count-coarse-assertions.py` site, so
-                    # demanding all 11 sit inside the 2 named tests failed
-                    # citations that were right. Partial containment is the
-                    # census shape and carries no drift signal either way, so
-                    # it drops through to rule 4 rather than passing or
-                    # failing. ZERO containment stays a failure -- that is
-                    # what caught `p1-robotmodel.md:825`, whose 2 cited lines
-                    # were in neither named test.
+                    # Falls through to rule 4 rather than passing or failing:
+                    # partial containment carries no drift signal either way,
+                    # and both of today's two are quoted, so rule 4 has real
+                    # per-line evidence to offer them that this bucket would
+                    # throw away. Counted here so the shape is visible on the
+                    # OK line instead of hiding inside another bucket's total.
+                    partly_anchored += 1
                     if quoted:
                         content_verified += 1
                     else:
                         unanchored_by_file[md] = unanchored_by_file.get(md, 0) + 1
                 else:
                     anchor_mismatch.append(
-                        (md, line_no, fname_part, cited_lines, anchors, resolved_path, spans)
+                        (md, line_no, fname_part, cited_lines, landed, anchors, resolved_path, spans)
                     )
 
     hard_fail = bool(out_of_bounds) or bool(anchor_mismatch) or bool(unresolved)
     counts = (
-        f"{anchor_verified} anchor-verified (cited line inside the named function's body), "
+        f"{anchor_verified} anchor-verified (EVERY cited line inside a named function's body), "
         f"{content_verified} content-verified (the citing text's own quotation of the code is "
         f"at the cited line), "
         f"{sum(unanchored_by_file.values())} unanchored (bounds-checked only -- the citing text "
@@ -842,11 +887,55 @@ def main():
         f"{len(external)} exempt (names a dependency or a build artifact, see above), "
         f"{len(out_of_bounds)} out-of-bounds, {len(anchor_mismatch)} anchor-mismatch, "
         f"{len(unresolved)} unresolvable"
+        f"; {partly_anchored} of those are partly-anchored enumerations (a comma list whose "
+        f"named functions hold some of its cited lines and not others), counted in whichever "
+        f"bucket rule 4 put them"
+        f"; rule 2 read "
+        + ", ".join(f"{ledger_tables.get(h, 0)} `{h}`" for h in sorted(LEDGER_FIRST_COLUMN_HEADERS))
+        + f" table(s) totalling {ledger_rows_total} row(s) and anchored "
+        f"{rule2_anchored} citation(s)"
     )
 
     if total == 0:
         print("FAIL parsed zero `path.rs:NNN` citations across tracked .md files -- the citation grammar changed and this checked nothing", file=sys.stderr)
         return 1
+
+    # Rule 2 going quiet is invisible in every verdict: the citations it
+    # would have anchored land in content-verified or unanchored instead,
+    # and both of those pass. So its parse result is floored directly, at
+    # each stage that can independently reach nothing -- and PER DECLARED
+    # HEADER rather than on a total, because the totals stay comfortably
+    # non-zero while a spelling dies. Measured by mutation on this corpus:
+    # rewriting `file:line` to `File:line` above leaves 2 tables, 11 rows
+    # and 1 rule-2 anchoring -- every aggregate still positive -- while
+    # anchor-verified falls from 249 to 63, 188 citations quietly move into
+    # content-verified and unanchored, and the run exits 0.
+    #
+    # Of the three, the per-header floor and the anchoring floor each catch
+    # a mutation nothing else here catches (that same header rewrite; and
+    # `find_row_anchors` returning [] with tables and rows intact). The row
+    # floor does not: neutralising the body-row scan takes the anchoring
+    # count to zero too, so the run fails either way. It is kept because the
+    # anchoring floor's message is then WRONG -- it says "its tables and
+    # rows parsed", which is exactly what did not happen -- and a gate that
+    # fails with a false cause sends the next reader into the wrong
+    # function.
+    for got, what in (
+        *(
+            (ledger_tables.get(h, 0), f"matched no table heading its first column `{h}` -- that "
+                                      f"spelling is in LEDGER_FIRST_COLUMN_HEADERS, so it either "
+                                      f"drifted in the ledgers or is dead configuration")
+            for h in sorted(LEDGER_FIRST_COLUMN_HEADERS)
+        ),
+        (ledger_rows_total, "matched tables but found no body rows under any of them -- the row "
+                            "scan in `ledger_row_lines` no longer recognises this corpus"),
+        (rule2_anchored, "anchored no citation at all -- its tables and rows parsed, so the "
+                         "first-column or `#[test]`-attestation gate in `find_row_anchors` is "
+                         "matching nothing"),
+    ):
+        if got == 0:
+            print(f"FAIL rule 2 {what}", file=sys.stderr)
+            return 1
 
     if out_of_bounds:
         print(f"--- {len(out_of_bounds)} out-of-bounds citation(s) ---", file=sys.stderr)
@@ -859,13 +948,24 @@ def main():
 
     if anchor_mismatch:
         print(f"--- {len(anchor_mismatch)} anchor-mismatch citation(s) ---", file=sys.stderr)
-        for md, line_no, fname_part, cited_lines, anchors, resolved_path, spans in anchor_mismatch:
+        for md, line_no, fname_part, cited_lines, landed, anchors, resolved_path, spans in anchor_mismatch:
             candidate_desc = "; ".join(
                 f"`{name}` spans {', '.join(f'{s}-{e}' for s, e, _ in spans[name])}" for name in anchors
             )
+            # `landed` is spelled out rather than summarised as "none": a
+            # partly-contained RANGE reaches here (only an enumeration is
+            # allowed to be partial), and telling its author that none of
+            # `723-740` is inside the function that holds 723 sends them
+            # looking for the wrong defect.
+            missed = [ln for ln in cited_lines if ln not in landed]
+            which = (
+                "inside none of"
+                if not landed
+                else f"has {', '.join(map(str, missed))} outside every one of"
+            )
             print(
-                f"FAIL {md}:{line_no}: cites {fname_part}:{'-'.join(map(str, cited_lines))}, "
-                f"inside none of its {len(anchors)} nearby candidate function(s) in {resolved_path}: "
+                f"FAIL {md}:{line_no}: cites {fname_part}:{','.join(map(str, cited_lines))}, "
+                f"{which} its {len(anchors)} nearby candidate function(s) in {resolved_path}: "
                 f"{candidate_desc}",
                 file=sys.stderr,
             )
