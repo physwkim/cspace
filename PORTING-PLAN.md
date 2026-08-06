@@ -26168,7 +26168,7 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
 **플래너 쪽**에 산다 — `PlannerManager::initialize` +
 `setPlannerConfigurations`(`planning_interface.hpp`)가 그 자리다. 그래서 sbp
 전용 네 필드는 요청에서 지운 것이 아니라 `RrtConnectManager`의 필드로
-옮겼다(`registry.rs:358-429`). 요청 타입은 `moveit-planning`의 것이 그대로
+옮겼다(`crates/moveit-planners-sbp/src/registry.rs:358-429`). 요청 타입은 `moveit-planning`의 것이 그대로
 남고, sbp가 그것을 쓴다.
 
 `goal` 충돌은 §241.2가 어댑터를 거절한 바로 그 지점이다. `Goal::State`는

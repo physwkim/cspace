@@ -1291,10 +1291,17 @@ Gate: doc + tooling only (`reconcile-assertion-ledgers.py`,
 test module (the private `PlanningRequest`/`PlanningResponse` it used are now
 `moveit-planning`'s). Four citations in this file moved:
 
-* `registry.rs:1126` -> `:1331`
-* `registry.rs:1152` -> `:1361`
-* `registry.rs:1159` -> `:1368`
-* `registry.rs:1218` -> `:1418`
+* `crates/moveit-planners-sbp/src/registry.rs:1331`
+* `crates/moveit-planners-sbp/src/registry.rs:1361`
+* `crates/moveit-planners-sbp/src/registry.rs:1368`
+* `crates/moveit-planners-sbp/src/registry.rs:1418`
+
+Only the current location is spelled, and it is spelled by full path. A pre-D8
+line number written as `file.rs:NNN` reads as a claim about the tree in front
+of the reader -- and about the tree `tools/ci/check-citation-drift.py` resolves
+against -- so it is false the moment it is written; `a35bc2e` names the old
+tree without pointing into it. The bare basename is equally unusable here:
+`registry.rs` matches two tracked files.
 
 Each new line was obtained by aligning `git show a35bc2e:<file>` against the
 working tree with `difflib` and then reading the row's own named test function
@@ -1306,6 +1313,6 @@ rather than here: `path_constraints_four_scenario_wired_vs_unwired_sweep`'s
 scenario 1 now measures unwired **3**/5 where it measured 1/5, because D8's
 goal sampling draws from the same `ChaCha8Rng` the search does. See the D8 row
 in `doc/claim-audit/moveit-planners-sbp.md` for the isolating experiment that
-identified the cause. `registry.rs:1331`'s verdict — an exact-variant
+identified the cause. `crates/moveit-planners-sbp/src/registry.rs:1331`'s verdict — an exact-variant
 `assert_eq!` on `PlanningFailure::IterationsExhausted` — is unaffected by which
 seeds succeed.

@@ -1489,12 +1489,12 @@ passed, 0 skipped`, `git diff --stat` empty.
 
 All 8 pass the three clauses. Clause 1: the inspected value is a
 `Result::Err` (the six `start_state.rs` sites, via `assert_err_mentions`'s
-`expect_err`), a `PipelineError` payload (`pipeline.rs:1104`), or an
+`expect_err`), a `PipelineError` payload (`pipeline.rs:1184`), or an
 absence signal for "no adapter ever observed the scene"
-(`pipeline.rs:1111`) — none is an informative success-path value. Clause
+(`pipeline.rs:1191`) — none is an informative success-path value. Clause
 2: each is produced by a written guard or `?`-propagation —
 `start_state.rs:140`, `:225`, `:231`, `:240`, `:184`, `:192` and
-`pipeline.rs:442` — every one of which an engineer could have written
+`pipeline.rs:441` — every one of which an engineer could have written
 backwards. Clause 3: each decision belongs to the function the test's own
 name calls its subject (`StartState::new`, `StartStateOverride::new`,
 `StartState::apply_to`, `generate_plan`).
@@ -1532,7 +1532,7 @@ rather than taking the comment's word.
 | `crates/moveit-planning/src/start_state.rs:338` | `velocities_without_names_is_rejected_not_read_as_current_state` | discriminating | **bite, the mirror**: `!velocities.is_empty()` (right operand of `:140`) → `false`. Exactly this test failed; `:327`'s stayed green. Both operands of the one construction site are therefore covered, which a single whole-condition mutation would not have shown. |
 | `crates/moveit-planning/src/start_state.rs:349` | `a_name_without_a_position_is_rejected_not_read_as_a_velocity_only_overlay` | discriminating | **bite**: `positions.len() != names.len()` (`:231`) → `false`. Exactly this test failed. Note what the mutation exposes downstream — with `:231` neutralized, `apply_to`'s `over.positions()[index]` (`:179`) indexes past the end, so this guard is the only thing standing between a short `position` array and a panic. |
 | `crates/moveit-planning/src/start_state.rs:357` | `a_short_velocity_array_is_rejected_rather_than_read_past_its_end` | discriminating | **bite, per operand**: `velocities.len() != names.len()` (right operand of `:240`) → `false`. Exactly this test failed. The left operand (`!velocities.is_empty()`, the "no velocities at all is legal" escape) is covered too, by its own mutation → `true`: 5 tests failed (`a_start_state_naming_an_unknown_variable_fails_before_any_adapter_or_planner_runs`, `the_requested_start_state_reaches_the_scene_before_the_request_adapters_run`, `an_overlay_pairs_each_value_with_its_own_name`, `an_overlay_writes_the_named_variables_and_leaves_the_rest_at_the_current_state`, `an_overlay_naming_a_variable_the_model_lacks_is_rejected_at_apply_time`), so neither operand is blind. |
-| `crates/moveit-planning/src/start_state.rs:466` | `an_overlay_naming_a_variable_the_model_lacks_is_rejected_at_apply_time` | discriminating | **two bites, both isolating.** (a) Drop the wrap at `:180-184` (`state.set_variable_position(name, position)?`): exactly this test failed — and `crates/moveit-planning/src/pipeline.rs:1104`, which needles only `"no_such_joint"`, stayed green, so the two sites are provably not testing the same thing. (b) Pair every name with `over.positions()[0]` (`:179`): this test failed on the value component (`position 0.2` no longer appears), alongside `an_overlay_pairs_each_value_with_its_own_name`. The needle's index and value are therefore both live, which is what the test's own comment claims they are for. |
+| `crates/moveit-planning/src/start_state.rs:466` | `an_overlay_naming_a_variable_the_model_lacks_is_rejected_at_apply_time` | discriminating | **two bites, both isolating.** (a) Drop the wrap at `:180-184` (`state.set_variable_position(name, position)?`): exactly this test failed — and `crates/moveit-planning/src/pipeline.rs:1184`, which needles only `"no_such_joint"`, stayed green, so the two sites are provably not testing the same thing. (b) Pair every name with `over.positions()[0]` (`:179`): this test failed on the value component (`position 0.2` no longer appears), alongside `an_overlay_pairs_each_value_with_its_own_name`. The needle's index and value are therefore both live, which is what the test's own comment claims they are for. |
 
 **Fragility flagged, not fixed** (same treatment as round 11's three
 fragile-but-currently-unique needles): `:319`'s needle `"names no
@@ -1555,19 +1555,19 @@ in both directions.
 
 | file:line | enclosing test (verified by content) | verdict | evidence |
 |---|---|---|---|
-| `crates/moveit-planning/src/pipeline.rs:1104` | `a_start_state_naming_an_unknown_variable_fails_before_any_adapter_or_planner_runs` | discriminating | **bite**: replace `.map_err(PipelineError::StartState)` (`crates/moveit-planning/src/pipeline.rs:442`) with a closure discarding the source and constructing a fixed message. The panic names this exact line — `panicked at crates/moveit-planning/src/pipeline.rs:1104:17: the rejection must name the variable that could not be written, got: construction failed: rejected` — and `:1111` did not fire, so this assertion alone carries the "the message survives the variant wrap" claim. The variant itself has exactly one construction site (`:442`, in `generate_plan`), so the outer `match` arm's job is narrower than this needle's. |
-| `crates/moveit-planning/src/pipeline.rs:1111` | `a_start_state_naming_an_unknown_variable_fails_before_any_adapter_or_planner_runs` | discriminating | **bite**: move the `apply_to` call (`crates/moveit-planning/src/pipeline.rs:439-442`) *after* `run_request_adapters` (`:444`). The panic names this exact line — `panicked at crates/moveit-planning/src/pipeline.rs:1111:9: Semantic 7 applies the start state before request_chain, …` — while `:1104` stayed green (the error is still a `StartState` variant carrying the same message). The sibling ordering test at `crates/moveit-planning/src/pipeline.rs:1041-1082` also failed, as that mutation's direct target. |
+| `crates/moveit-planning/src/pipeline.rs:1184` | `a_start_state_naming_an_unknown_variable_fails_before_any_adapter_or_planner_runs` | discriminating | **bite**: replace `.map_err(PipelineError::StartState)` (`crates/moveit-planning/src/pipeline.rs:441`) with a closure discarding the source and constructing a fixed message. The panic names this exact line — `panicked at crates/moveit-planning/src/pipeline.rs:1104:17: the rejection must name the variable that could not be written, got: construction failed: rejected` — and `:1191` did not fire, so this assertion alone carries the "the message survives the variant wrap" claim. The variant itself has exactly one construction site (`:441`, in `generate_plan`), so the outer `match` arm's job is narrower than this needle's. |
+| `crates/moveit-planning/src/pipeline.rs:1191` | `a_start_state_naming_an_unknown_variable_fails_before_any_adapter_or_planner_runs` | discriminating | **bite**: move the `apply_to` call (`crates/moveit-planning/src/pipeline.rs:438-441`) *after* `run_request_adapters` (`:443`). The panic names this exact line — `panicked at crates/moveit-planning/src/pipeline.rs:1111:9: Semantic 7 applies the start state before request_chain, …` — while `:1184` stayed green (the error is still a `StartState` variant carrying the same message). The sibling ordering test at `crates/moveit-planning/src/pipeline.rs:1121-1162` also failed, as that mutation's direct target. |
 
-`:1111` is a `Vec::is_empty()` site, so it gets round 18's sharper
+`:1191` is a `Vec::is_empty()` site, so it gets round 18's sharper
 standard rather than the retired "any push flips it" argument: enumerate
 every **subject-side** path that leaves `seen` empty. There are exactly
-two. The `NoPlanners` early return (`crates/moveit-planning/src/pipeline.rs:432-434`)
+two. The `NoPlanners` early return (`crates/moveit-planning/src/pipeline.rs:431-433`)
 returns before any adapter runs — ruled out inside this same test by the
 preceding `match err { PipelineError::StartState(e) => … , other =>
-panic!(…) }` (`crates/moveit-planning/src/pipeline.rs:1102-1109`), a
+panic!(…) }` (`crates/moveit-planning/src/pipeline.rs:1182-1189`), a
 same-test sibling that names the variant. The `?` at
-`crates/moveit-planning/src/pipeline.rs:442` is the claimed cause. There is
-no third: `run_request_adapters` (`crates/moveit-planning/src/lib.rs:448-458`)
+`crates/moveit-planning/src/pipeline.rs:441` is the claimed cause. There is
+no third: `run_request_adapters` (`crates/moveit-planning/src/lib.rs:437-447`)
 is an unconditional `for adapter in chain` loop with no skip guard —
 read this round, not assumed.
 
@@ -1605,7 +1605,7 @@ pre-`10f571f` numbers, retired by the fix that replaced them rather than
 by a citation going unchecked. Substantive classes are clean — `0 out-of-bounds, 0
 anchor-mismatch, 0 unresolvable` — and two anchor-mismatches this
 section introduced on first write (a row anchoring
-`crates/moveit-planning/src/pipeline.rs:1111` to the sibling ordering
+`crates/moveit-planning/src/pipeline.rs:1191` to the sibling ordering
 test rather than its own, and a prose bullet whose nearest preceding name
 was `set_variable_velocity` when the citation was
 `set_variable_position`'s) were found by the gate and fixed before
@@ -1616,8 +1616,8 @@ commit, not declared.
 - `git merge main` — fast-forward, 68 commits, tip `eae7de8`; run before deriving any line number in this section
 - `python3 tools/ci/reconcile-assertion-ledgers.py --emit-orphans` — 8 of the 47 orphans in this ledger's fence, enumerated by path
 - Content-verification of all 8 citations before writing them: a brace-depth walk printing each cited line's innermost enclosing `fn` — all 8 resolve to the test each row names
-- Read `set_variable_position` (`crates/moveit-state/src/state.rs:557-564`), `set_variable_velocity` (`crates/moveit-state/src/state.rs:401-406`) and `run_request_adapters` (`crates/moveit-planning/src/lib.rs:448-458`) rather than trusting the comments that describe them
-- 11 isolating mutations, each alone, each followed by `cargo nextest run -p moveit-planning --no-fail-fast` and an immediate revert from a pre-round copy: `start_state.rs:140` left operand, `:140` right operand, `:225`, `:231`, `:240` whole condition, `:240` left operand, `:240` right operand, `:180-184` wrap, `:179` index, plus `pipeline.rs:442` map_err and the `pipeline.rs:439-444` reorder
+- Read `set_variable_position` (`crates/moveit-state/src/state.rs:557-564`), `set_variable_velocity` (`crates/moveit-state/src/state.rs:401-406`) and `run_request_adapters` (`crates/moveit-planning/src/lib.rs:437-447`) rather than trusting the comments that describe them
+- 11 isolating mutations, each alone, each followed by `cargo nextest run -p moveit-planning --no-fail-fast` and an immediate revert from a pre-round copy: `start_state.rs:140` left operand, `:140` right operand, `:225`, `:231`, `:240` whole condition, `:240` left operand, `:240` right operand, `:180-184` wrap, `:179` index, plus `pipeline.rs:441` map_err and the `pipeline.rs:438-443` reorder
 - `cargo nextest run -p moveit-planning --no-fail-fast` — baseline and post-revert both `57 tests run: 57 passed, 0 skipped`; `git status --short` and `git diff --stat` empty after the last revert
 
 Gate scope: `-p moveit-planning`. Doc-only round — every mutation was
@@ -1653,7 +1653,8 @@ Each new line was obtained by aligning `git show a35bc2e:<file>` against the
 working tree with `difflib` and then reading the row's own named test
 function at the result, not by nearest-line proximity.
 
-`registry.rs:916` is the one that is more than a move. D8 made
+`crates/moveit-planners-sbp/src/registry.rs:916` is the one that is more than a
+move. D8 made
 `moveit_planning::PlanError` a `Box<dyn Error + Send + Sync>`, so
 `unknown_group_is_rejected_before_any_search_runs` no longer matches the
 concrete variant directly — it downcasts first and then matches. The row's
