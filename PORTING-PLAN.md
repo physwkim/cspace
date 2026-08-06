@@ -32248,3 +32248,76 @@ sphere x {sphere, box, cylinder}에 ACM 허용 쌍 하나로 모집단을 **제�
 - **44건의 "우세하지 않음".** 계열의 18%다. 괄호는 좁은데 양쪽이 비슷하게
   떨어져 있다는 뜻이므로 두 solver가 같은 자리에서 같은 크기로 어긋난 경우일
   수 있다. 열어 보지 않았다.
+
+### §297.6 fcl 인용 24건은 면제로 선언돼 있고, 그 면제가 드는 근거 두 줄은 드리프트했다
+
+§297.2의 앵커는 fcl 특수화 표를 여덟 줄로 인용한다. 그 인용들이 드리프트
+사다리 위에 있는지 확인했다.
+
+`doc/citation-classes.txt`는 `tools/ci/check-citation-drift.py
+--write-classes`가, `doc/upstream-citation-classes.txt`는
+`tools/ci/verify-upstream-citations.sh --write-classes`가 낸다 — 두 파일의
+헤더가 스스로 이름 대는 명령이다. 이 라운드에서 둘 다 다시 냈고 diff는 각각
+`# Source commit:` 한 줄뿐이다. 등급 추가도, 강등도 없다.
+
+없는 이유는 오해할 만한 자리다. 상류 도구는 확장자로는 `.h`를 다루고(2,690건
+중 22건이 `.h`) fcl 경로를 **빠뜨린** 것이 아니라
+`tools/ci/upstream-citation-exemptions.json`에 **선언해서 뺐다**. 선언은 이유를
+달고 있다: fcl은 vendored도 indexed도 아니며, 인용된 줄 번호가 tag `0.7.0`
+기준인데 디스크의 체크아웃 HEAD는 그보다 17커밋 앞서므로, 게이트를 그 체크아웃에
+겨누면 아무도 인용하지 않은 리비전에 대고 검사하게 된다는 것.
+
+그 이유는 옳다 — 다만 24건 중 **한 건**에 대해서만 그렇다. 인용된 fcl 파일은
+셋이고, 두 리비전 사이의 실제 차이는 이렇다:
+
+| 인용된 파일 | 인용 수 | `0.7.0`..`e5efcc4` |
+|---|---|---|
+| `include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h` | 22 | **동일** |
+| `include/fcl/narrowphase/collision_request.h` | 1 | **동일** |
+| `include/fcl/narrowphase/detail/convexity_based_algorithm/gjk_libccd-inl.h` | 1 (2회) | +271 −176 |
+
+즉 tag와 HEAD가 갈리는 파일은 `gjk_libccd-inl.h` 하나뿐이고, 그 한 건
+(`gjk_libccd-inl.h:2255-2256`)은 §283.7이 이미 **의도적으로** tag 기준으로
+고정해 둔 것이다. 그 절이 "tag에서 2255-2256, HEAD에서 2350-2351"이라고 두
+좌표를 다 적어 두었고, tag `0.7.0`에서 그 두 줄을 열면
+`if (__ccdGJK(obj1, obj2, ccd, &simplex) == 0)` / `return -CCD_ONE;`으로
+인용문이 말하는 `-CCD_ONE` 센티널 그대로다. 나머지 23건은 두 리비전에서
+바이트 동일한 파일 위에 있으므로, 면제가 근거로 드는 tag-대-HEAD 구분이 그
+23건에는 **존재하지 않는다**.
+
+고정 sha `e5efcc41b57b2d0da3bf183480f1298a6d531f44`에 대해 24건을 직접 풀었다:
+전부 범위 안, out-of-bounds 0, 해소 불가 0. 범위 검사는 사다리의 맨 아래
+등급이므로 이 라운드가 쓰지 **않은** 네 건을 열어 내용까지 봤다 —
+`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:174`는
+`ShapeIntersectLibccdImpl` 디스패치,
+`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:245-252`는
+`FCL_GJK_LIBCCD_SHAPE_INTERSECT`/`..._SHAPE_SHAPE_INTERSECT` 매크로 줄,
+`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:605`는
+`ShapeDistanceLibccdImpl` 주 템플릿,
+`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:620`은 그 안의
+`detail::GJKDistance` 호출로, 넷 다 인용한 문장이 말하는 것과 같다.
+
+**면제 항목 자신의 인용 두 개는 드리프트했다.** 항목의 `checkout` 필드는
+`PORTING-PLAN.md:11242`를, `why` 필드는 `PORTING-PLAN.md:11254`를 든다. 이
+문단이 커밋된 트리(§297을 단 커밋)에서 그 두 줄을 열면 각각 §134.1 CHOMP
+`num_vars_free` 표의 `| 15 | 3 | 3×3 | |` 행과 §134.2 오라클 스탬프 이력의
+`` `230e92be6fa5cc3a`(pilz+IK) → `6797447ac4dc46e9`(+chomp) `` 줄이 나온다 —
+둘 다 fcl과 무관하다. 실제로 그 두 주장을 드는 자리는 **§135**의 sha 표
+행(`| fcl | e5efcc4, 0.7.0-17-ge5efcc4 | libfcl-dev 0.7.0-3build2 |`)과
+**§283.7**이다.
+
+이 문단이 두 좌표를 절 번호로 적고 줄 번호로 적지 않는 것은 의도다. 드리프트한
+두 인용은 면제 항목이 쓴 형태 그대로 인용해야 보고가 성립하므로 남기지만, 그
+자리를 대신 가리키는 좌표까지 `PORTING-PLAN.md:NNN`으로 쓰면 이 절이 보고하는
+바로 그 결함을 두 건 더 만든다 — `PORTING-PLAN.md`는 라운드마다 자라고 절
+번호는 자라지 않으며, 절 번호는 `tools/ci/check-section-references.sh`가
+검사한다.
+
+면제 항목의 두 인용은 `.md` 문서 안이 아니라 `.json` 게이트 설정 안에 있어서
+`tools/ci/check-citation-drift.py`의 코퍼스(tracked `.md`)에도 들지 않는다 —
+면제를 정당화하는 근거가, 면제를 검사하는 게이트와 그 게이트의 인용 검사 양쪽
+바깥에 있다.
+
+이 절은 세 가지를 **하지 않았다**: 면제 항목의 두 인용을 고치지 않았고(게이트
+설정 파일이라 이 라운드가 요청받은 측정의 대상이 아니다), 23건을 면제에서
+빼지 않았으며, 상류 인용 도구에 fcl을 두 번째 고정 저장소로 붙이지 않았다.
