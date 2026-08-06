@@ -230,15 +230,17 @@ for line_no, line in enumerate(lines, 1):
 #
 # Every tracked file, with no suffix list. The rule used to be prose and Rust
 # only, justified by "sections are cited in documentation and in doc comments,
-# never in build or CI scripts". That is false, and measurably so: 113 section
-# citations live in 30 tracked files that are neither `.md` nor `.rs` -- 90 in
-# 20 `.sh`, 11 in `tools/moveit-oracle/src/oracle.cpp`, 4 in 2 `.py`, 3 in 3
+# never in build or CI scripts". That is false, and measurably so: 123 section
+# citations live in 33 tracked files that are neither `.md` nor `.rs` -- 93 in
+# 21 `.sh`, 11 in 4 `.py`, 11 in `tools/moveit-oracle/src/oracle.cpp`, 3 in 3
 # `.toml`, 3 in 2 `.json`, 1 in `tools/mpr-vs-epa/mpr_case104.c` and 1 in
 # `ros/Dockerfile`. A placeholder duly reached the trunk through that gap:
-# `ros/verify-ros-interop.sh:203` carried one in a comment. The other gate did
-# not catch it either -- `check-section-references.sh` reads `.sh`, but its
-# reference pattern requires a digit after the sigil, so an unassigned one
-# matches nothing there by construction.
+# `ros/verify-ros-interop.sh` carried one in the comment that ends "with
+# nothing looking at it." -- line 203 in `a746945`, where it landed, and still
+# 203 in the tree today. The other gate did not catch it either --
+# `check-section-references.sh` reads `.sh`, but its reference pattern requires
+# a digit after the sigil, so an unassigned one matches nothing there by
+# construction.
 #
 # Widening to that script's own `SCANNED_SUFFIXES` would not have been enough
 # and is the wrong shape anyway: `ros/Dockerfile` has no suffix at all, and the
