@@ -458,12 +458,21 @@ pub fn calculate_total_increments(
 /// `parameters_->joint_update_limit_ / fabs(0.0)` reaches upstream — not a
 /// special case added here.
 ///
+/// Returns the largest absolute per-entry change it applied, which is the
+/// scaled quantity and therefore the one a caller measuring "did the update
+/// collapse" has to read. Deriving it outside would mean re-deriving `scale`
+/// against the same three-way `min`, i.e. a second implementation of the rule
+/// this function owns; upstream discards it (its own `// ROS_DEBUG("Scale:
+/// %f",scale)` at
+/// `moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:659` is
+/// commented out).
+///
 /// Ported from `addIncrementsToTrajectory`.
 pub fn add_increments_to_trajectory(
     group_trajectory: &mut ChompTrajectory,
     final_increments: &DMatrix<f64>,
     joint_update_limit: f64,
-) -> Result<()> {
+) -> Result<f64> {
     let num_joints = group_trajectory.num_joints();
     let num_vars_free = group_trajectory.num_free_points();
     if final_increments.nrows() != num_vars_free || final_increments.ncols() != num_joints {
@@ -474,6 +483,7 @@ pub fn add_increments_to_trajectory(
         )));
     }
 
+    let mut applied_max = 0.0f64;
     let mut block = group_trajectory.free_trajectory_block_mut();
     for i in 0..num_joints {
         let max = final_increments.column(i).max();
@@ -487,10 +497,12 @@ pub fn add_increments_to_trajectory(
         if min_scale < scale {
             scale = min_scale;
         }
+        let update = scale * final_increments.column(i);
+        applied_max = applied_max.max(update.amax());
         let mut col = block.column_mut(i);
-        col += scale * final_increments.column(i);
+        col += update;
     }
-    Ok(())
+    Ok(applied_max)
 }
 
 /// The weighted sum of every joint's smoothness cost:
@@ -728,6 +740,98 @@ impl ChompObjectiveProgress {
     pub fn descent(&self) -> f64 {
         self.seed.total() - self.last.total()
     }
+}
+
+/// Which of `optimize`'s three exits ended the loop.
+///
+/// Upstream has exactly these three and no more: the `for` condition, the
+/// wall-clock `break`, and the `should_break_out` `break`. A fourth would be
+/// a port deviation, which is why this is an enum rather than a pair of
+/// booleans a caller has to interpret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChompExit {
+    /// `iteration_ < max_iterations_` went false --
+    /// `moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:303`.
+    IterationBound,
+    /// The wall-clock `break` at
+    /// `moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:421-426`.
+    ClockLimit,
+    /// The `should_break_out` `break` at
+    /// `moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:477-487`.
+    BreakOut,
+}
+
+/// What `optimize`'s loop did, as distinct from what its objective was.
+///
+/// [`ChompObjectiveProgress`] answers "did the returned trajectory cost less
+/// than the seed". It cannot answer *why* the answer was no, because all four
+/// of the candidate reasons -- a seed at a local minimum, a zero collision
+/// term, an update computed and rejected, an update scaled below what the
+/// cost resolves -- produce the same `improvement == 0`. They differ in how
+/// many times the loop evaluated the objective at all, in whether the accept
+/// branch ever fired, and in how large the applied update was; this type
+/// carries those.
+///
+/// # Deviation
+///
+/// Upstream logs pieces of this and keeps the rest private:
+/// `chomp_optimizer.cpp:370` logs `iteration_`, `chomp_optimizer.cpp:374`
+/// logs the mesh-to-mesh break, `chomp_optimizer.cpp:417` logs the
+/// over-threshold case, and `point_is_in_collision_`
+/// (`chomp_optimizer.cpp:912`) is a member with no accessor. No caller of
+/// `ChompPlanner::solve` can read any of it, so carrying it out is the same
+/// class of deviation as [`ChompObjective`] and is recorded the same way, on
+/// [`crate::planner::ChompSolution::loop_trace`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChompLoopTrace {
+    /// How many times the loop body ran, i.e. how many times the objective
+    /// was evaluated. `1` means the loop left before any updated iterate was
+    /// ever costed -- upstream evaluates at the top of the pass and applies
+    /// its increments after
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:305-354`).
+    pub evaluations: u32,
+    /// Which exit ran.
+    pub exit: ChompExit,
+    /// How many passes replaced `best` through the accept branch
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:338`).
+    /// The iteration-0 seeding is not counted: `0` means the seed was never
+    /// beaten.
+    pub accepted: u32,
+    /// How many passes found the mesh-to-mesh check collision free
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:371`).
+    pub mesh_free_passes: u32,
+    /// How many passes had `c_cost < collision_threshold_`
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:408`).
+    pub below_threshold_passes: u32,
+    /// Collision points inside their own clearance band on the seed --
+    /// `get_potential` non-zero, i.e. the points the collision term is a
+    /// function of at all.
+    ///
+    /// Counted over the **free segment** (`free_vars_start ..=
+    /// free_vars_end`), because that is the range `get_collision_cost` sums
+    /// over. The field below is counted over a *wider* range and against a
+    /// *different* predicate, so the two are not comparable as a
+    /// subset/superset pair -- see its own doc.
+    pub seed_points_within_clearance: u32,
+    /// Collision points upstream's own `point_is_in_collision_` predicate
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:912`)
+    /// flags on the seed.
+    ///
+    /// Counted over the **whole padded trajectory**, not the free segment:
+    /// upstream's `performForwardKinematics` walks `0 ..= num_vars_all_ - 1`
+    /// on `iteration_ == 0` and the free segment only afterwards
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:868-874`),
+    /// and this count is taken on that pass. The predicate differs too:
+    /// `distance - radius < radius` here against `get_potential(..) > 0.0`
+    /// above, which is `distance < radius + min_clearance`. Neither count
+    /// bounds the other -- a sphere with `radius > min_clearance` can be
+    /// flagged in collision while its potential is still `0.0`.
+    pub seed_points_in_collision: u32,
+    /// The largest absolute per-variable change the first pass actually
+    /// applied, *after* `joint_update_limit`'s per-joint rescale
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:643-661`).
+    /// This is the update the next evaluation would have costed.
+    pub first_pass_max_update: f64,
 }
 
 /// Borrows the two pieces of collision-checking state `ChompOptimizer`
@@ -1102,10 +1206,19 @@ pub struct ChompOptimizer<'m> {
     /// `iteration_ == 0` arm of `chomp_optimizer.cpp:332-338` is exactly
     /// `is_none()`, which is why [`ChompOptimizer::optimize`] resets it.
     best_objective: Option<ChompObjectiveProgress>,
+    /// What the last [`ChompOptimizer::optimize`] call's loop did. `None`
+    /// before the first call, on exactly the same condition as
+    /// `best_objective`.
+    loop_trace: Option<ChompLoopTrace>,
     last_improvement_iteration: i32,
     num_collision_free_iterations: u32,
 
     is_collision_free: bool,
+    /// Upstream keeps `point_is_in_collision_` per point
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:912`)
+    /// and reads it in one place this port already covers; only the count is
+    /// kept here, refreshed by every `perform_forward_kinematics`.
+    points_in_collision: u32,
     worst_collision_cost_state: i64,
 }
 
@@ -1241,9 +1354,11 @@ impl<'m> ChompOptimizer<'m> {
             joint_positions: vec![zeros_vec3(num_joints); num_vars_all],
             best_group_trajectory,
             best_objective: None,
+            loop_trace: None,
             last_improvement_iteration: -1,
             num_collision_free_iterations: 0,
             is_collision_free: false,
+            points_in_collision: 0,
             worst_collision_cost_state: -1,
         })
     }
@@ -1385,6 +1500,7 @@ impl<'m> ChompOptimizer<'m> {
         };
 
         self.is_collision_free = true;
+        self.points_in_collision = 0;
 
         let req = CollisionRequest {
             group_name: Some(self.planning_group.clone()),
@@ -1422,6 +1538,7 @@ impl<'m> ChompOptimizer<'m> {
                         info.distances[k] - info.sphere_radii[k] < info.sphere_radii[k];
                     if point_is_in_collision {
                         self.is_collision_free = false;
+                        self.points_in_collision += 1;
                     }
                     j += 1;
                 }
@@ -1613,6 +1730,34 @@ impl<'m> ChompOptimizer<'m> {
         self.parameters.obstacle_cost_weight * collision_cost
     }
 
+    /// Collision points whose potential is non-zero over the free segment --
+    /// the points `get_collision_cost` sums anything but `0.0` for. A point
+    /// outside its clearance band contributes nothing to the collision term
+    /// and nothing to the collision gradient (`get_potential` returns `0.0`
+    /// there), so this is the size of the support of the collision half of
+    /// the objective.
+    fn points_within_clearance(&self) -> u32 {
+        let mut n = 0;
+        for i in self.free_vars_start..=self.free_vars_end {
+            for j in 0..self.num_collision_points {
+                if self.collision_point_potential[i][j] > 0.0 {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    /// What the last [`ChompOptimizer::optimize`] call's loop did, or `None`
+    /// if it has not been called.
+    ///
+    /// No upstream counterpart, for the reason [`ChompLoopTrace`]'s doc
+    /// gives.
+    #[must_use]
+    pub fn loop_trace(&self) -> Option<ChompLoopTrace> {
+        self.loop_trace
+    }
+
     /// The objective at the seed trajectory and at the trajectory
     /// [`ChompOptimizer::optimize`] returned, or `None` if no iteration ever
     /// ran (`max_iterations == 0`).
@@ -1694,8 +1839,19 @@ impl<'m> ChompOptimizer<'m> {
         // stands in for that test below, so it has to be cleared here for the
         // two to stay the same condition.
         self.best_objective = None;
+        // Same reset, same reason: a trace that survived into a second call
+        // would describe the first call's loop.
+        let mut evaluations: u32 = 0;
+        let mut accepted: u32 = 0;
+        let mut mesh_free_passes: u32 = 0;
+        let mut below_threshold_passes: u32 = 0;
+        let mut seed_points_within_clearance: u32 = 0;
+        let mut seed_points_in_collision: u32 = 0;
+        let mut first_pass_max_update = 0.0f64;
+        let mut exit = ChompExit::IterationBound;
         while self.iteration < self.parameters.max_iterations {
             self.perform_forward_kinematics(collision)?;
+            evaluations += 1;
             let c_cost = self.get_collision_cost();
             let s_cost = get_smoothness_cost(
                 &self.joint_costs,
@@ -1721,6 +1877,8 @@ impl<'m> ChompOptimizer<'m> {
                         last: objective,
                     });
                     self.last_improvement_iteration = self.iteration;
+                    seed_points_in_collision = self.points_in_collision;
+                    seed_points_within_clearance = self.points_within_clearance();
                 }
                 Some(ref mut progress) => {
                     // `last` tracks every evaluated pass, not just accepted
@@ -1732,6 +1890,7 @@ impl<'m> ChompOptimizer<'m> {
                             self.group_trajectory.trajectory_matrix().clone();
                         progress.best = objective;
                         self.last_improvement_iteration = self.iteration;
+                        accepted += 1;
                     }
                 }
             }
@@ -1745,11 +1904,14 @@ impl<'m> ChompOptimizer<'m> {
                 &collision_increments,
                 &self.parameters,
             )?;
-            add_increments_to_trajectory(
+            let applied_max = add_increments_to_trajectory(
                 &mut self.group_trajectory,
                 &final_increments,
                 self.parameters.joint_update_limit,
             )?;
+            if evaluations == 1 {
+                first_pass_max_update = applied_max;
+            }
 
             handle_joint_limits(
                 self.robot_model,
@@ -1768,6 +1930,7 @@ impl<'m> ChompOptimizer<'m> {
                 self.is_collision_free = true;
                 self.iteration += 1;
                 should_break_out = true;
+                mesh_free_passes += 1;
             }
 
             if !self.parameters.filter_mode && c_cost < self.parameters.collision_threshold {
@@ -1776,9 +1939,11 @@ impl<'m> ChompOptimizer<'m> {
                 self.is_collision_free = true;
                 self.iteration += 1;
                 should_break_out = true;
+                below_threshold_passes += 1;
             }
 
             if start_time.elapsed().as_secs_f64() > self.parameters.planning_time_limit {
+                exit = ChompExit::ClockLimit;
                 break;
             }
 
@@ -1790,12 +1955,24 @@ impl<'m> ChompOptimizer<'m> {
                 if self.num_collision_free_iterations == 0
                     || self.collision_free_iteration > self.num_collision_free_iterations
                 {
+                    exit = ChompExit::BreakOut;
                     break;
                 }
             }
 
             self.iteration += 1;
         }
+
+        self.loop_trace = Some(ChompLoopTrace {
+            evaluations,
+            exit,
+            accepted,
+            mesh_free_passes,
+            below_threshold_passes,
+            seed_points_within_clearance,
+            seed_points_in_collision,
+            first_pass_max_update,
+        });
 
         let optimization_result = self.is_collision_free;
 
@@ -2699,6 +2876,203 @@ mod tests {
             "mesh-to-mesh alone sets num_collision_free_iterations = 0 on iteration 0, and \
              filter_mode disables the only other writer, so the very next should_break_out \
              check (num_collision_free_iterations == 0) must break immediately"
+        );
+    }
+
+    /// The shape 249 of the Phase 8 benchmark's 380 solved problems have
+    /// (`PORTING-PLAN.md` §296): the mesh-to-mesh closure is true on the
+    /// seed, so the loop leaves after costing exactly one trajectory. The
+    /// assertion that carries the finding is `evaluations == 1` paired with
+    /// `first_pass_max_update > 0.0` -- an increment *was* computed and
+    /// applied, and then nothing ever costed it.
+    #[test]
+    fn loop_trace_says_one_evaluation_when_the_seed_already_passes_mesh_to_mesh() {
+        let model = chomp_collision_model();
+        let mut source = chomp_full_trajectory(&model, 10);
+        // A kink in the seed, so the smoothness gradient is not identically
+        // zero. Without it the applied update is `0.0` for a reason that
+        // belongs to the fixture (a constant trajectory is already
+        // smoothness-optimal) rather than to the loop being measured.
+        let kink = vec![0.3; source.num_joints()];
+        source.set_trajectory_point(4, &kink);
+        let start_state = RobotState::new(&model);
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 50,
+            filter_mode: true,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| true, &mut rng)
+            .unwrap();
+
+        let trace = optimizer.loop_trace().expect("optimize records a trace");
+        assert_eq!(trace.evaluations, 1);
+        assert_eq!(trace.exit, ChompExit::BreakOut);
+        assert_eq!(trace.mesh_free_passes, 1);
+        assert_eq!(trace.below_threshold_passes, 0, "filter_mode disables it");
+        assert_eq!(
+            trace.accepted, 0,
+            "`accepted` counts the strict improvements after the seed pass, and a loop with one \
+             evaluation cannot have one"
+        );
+        assert!(
+            trace.first_pass_max_update > 0.0,
+            "the increments for the pass that broke out were still computed and applied; what \
+             never happened is a second `perform_forward_kinematics` to cost them"
+        );
+    }
+
+    /// The other end of `evaluations`: with nothing ever breaking out, the
+    /// loop costs one trajectory per iteration up to `max_iterations`, and
+    /// the exit reason is the bound rather than the break.
+    #[test]
+    fn loop_trace_counts_one_evaluation_per_iteration_when_nothing_breaks_out() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 7,
+            filter_mode: true,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+
+        let trace = optimizer.loop_trace().expect("optimize records a trace");
+        assert_eq!(trace.evaluations, 7);
+        assert_eq!(trace.exit, ChompExit::IterationBound);
+        assert_eq!(trace.mesh_free_passes, 0);
+    }
+
+    /// `seed_points_*` name the *first* pass, which is a different claim
+    /// from "the counts the last pass happened to leave behind". Two runs
+    /// over the same seed and the same obstacle, one costing a single
+    /// trajectory and one costing twelve, must report the same seed counts
+    /// -- and the twelve-pass run's live counter must have moved off them,
+    /// or the two readings would be indistinguishable.
+    #[test]
+    fn loop_trace_seed_point_counts_are_the_first_passs_not_the_last() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+
+        let obstacle_point = {
+            let mut cache = chomp_collision_cache(&model);
+            let field = env_field_with_points(&[]);
+            let mut collision = ChompCollisionContext {
+                cache: &mut cache,
+                env_distance_field: &field,
+            };
+            let mut optimizer = ChompOptimizer::new(
+                &source,
+                CHOMP_COLLISION_GROUP,
+                &ChompParameters::default(),
+                &start_state,
+                &mut collision,
+                None,
+            )
+            .unwrap();
+            optimizer
+                .perform_forward_kinematics(&mut collision)
+                .unwrap();
+            optimizer.collision_point_pos_eigen[optimizer.free_vars_start][0]
+        };
+
+        let run = |max_iterations: i32| {
+            let mut full = source.clone();
+            let mut cache = chomp_collision_cache(&model);
+            let field = env_field_with_points(&[obstacle_point]);
+            let mut collision = ChompCollisionContext {
+                cache: &mut cache,
+                env_distance_field: &field,
+            };
+            let parameters = ChompParameters {
+                max_iterations,
+                filter_mode: true,
+                ..ChompParameters::default()
+            };
+            let mut optimizer = ChompOptimizer::new(
+                &source,
+                CHOMP_COLLISION_GROUP,
+                &parameters,
+                &start_state,
+                &mut collision,
+                None,
+            )
+            .unwrap();
+            let mut rng = ChaCha8Rng::seed_from_u64(1);
+            optimizer
+                .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+                .unwrap();
+            (
+                optimizer.loop_trace().expect("optimize records a trace"),
+                optimizer.points_in_collision,
+            )
+        };
+
+        let (one, _) = run(1);
+        let (twelve, last_points_in_collision) = run(12);
+
+        assert_eq!(one.evaluations, 1);
+        assert_eq!(twelve.evaluations, 12);
+        assert!(
+            one.seed_points_in_collision > 0,
+            "the obstacle sits on a collision sphere's center, so the seed is in collision"
+        );
+        assert_eq!(
+            one.seed_points_in_collision,
+            twelve.seed_points_in_collision
+        );
+        assert_eq!(
+            one.seed_points_within_clearance,
+            twelve.seed_points_within_clearance
+        );
+        assert!(
+            one.seed_points_within_clearance > 0,
+            "the same obstacle puts points inside their clearance band, which is a different \
+             count over a different range -- see the two fields' docs, neither bounds the other"
+        );
+        assert_ne!(
+            twelve.seed_points_in_collision, last_points_in_collision,
+            "the twelfth pass left a different count behind, so the seed reading is not just \
+             whatever the loop last wrote"
         );
     }
 

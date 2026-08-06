@@ -516,9 +516,9 @@ sequence of the function each test actually calls:
 | `moveit-trajectory/src/robot_trajectory.rs:876` (`velocity_acceleration_and_effort_columns_appear_when_the_waypoint_carries_them`) | `" pos "` | **N/A** | Checks `Display` column-header text, not an error message. |
 | `moveit-trajectory/tests/robot_trajectory.rs:736,751,766` (drift-corrected this round: dropped `:704`, which is the out-of-range-index test's `"out of bounds"` check, not a `"dirty: None"` site -- only 3 `"dirty: None"` sites exist tree-wide, confirmed by `rg`) | `"dirty: None"` | **N/A** | `Debug`-format checks on a struct field, not error-branch discrimination; unique tree-wide regardless. Each cited line reads `assert!(`, one line above its own `debug.contains("dirty: None")`. |
 | `moveit-trajectory/tests/ruckig_smoothing.rs:208` (`no_group_set_is_an_error`) | `"did not set the group"` | CLEAN | `apply_smoothing` -> `validate_group` is the only reachable producer; TOTG's identically-worded message (`time_optimal_trajectory_generation.rs:702` -- `Error::other("it looks like the planner`, inside `validate_group`) is a different module's function, unreachable from `apply_smoothing`. |
-| `moveit-planners-chomp/src/cost.rs:436` | `"singular"` | CLEAN | `ChompCost::new`'s only "singular" message is its own (`cost.rs:177` -- `Error::other("quad_cost is singular`, inside `new`); `optimizer.rs:1490` (`Error::other("jacobian_jacobian_tranpose is singular")`, inside `calculate_pseudo_inverse`)'s belongs to an unrelated, unreachable function. |
-| `moveit-planners-chomp/src/optimizer.rs:2828` | `"joint_costs has"` | CLEAN | Pre-existing test doc comment already correct: `calculate_smoothness_increments`'s own guard (`:377`) vs. `ChompCost::derivative`'s guard (`"joint_trajectory has..."`, textually distinct) — confirmed by reading both function bodies. |
-| `moveit-planners-chomp/src/optimizer.rs:2897` | `"columns"` | CLEAN | Pre-existing test doc comment already correct; unique among `calculate_total_increments`'s 3 `Error::other` sites. |
+| `moveit-planners-chomp/src/cost.rs:436` | `"singular"` | CLEAN | `ChompCost::new`'s only "singular" message is its own (`cost.rs:177` -- `Error::other("quad_cost is singular`, inside `new`); `optimizer.rs:1607` (`Error::other("jacobian_jacobian_tranpose is singular")`, inside `calculate_pseudo_inverse`)'s belongs to an unrelated, unreachable function. |
+| `moveit-planners-chomp/src/optimizer.rs:3202` | `"joint_costs has"` | CLEAN | Pre-existing test doc comment already correct: `calculate_smoothness_increments`'s own guard (`:377`) vs. `ChompCost::derivative`'s guard (`"joint_trajectory has..."`, textually distinct) — confirmed by reading both function bodies. |
+| `moveit-planners-chomp/src/optimizer.rs:3271` | `"columns"` | CLEAN | Pre-existing test doc comment already correct; unique among `calculate_total_increments`'s 3 `Error::other` sites. |
 | `moveit-planners-pilz/src/path_circle.rs:590` (`half_circle_from_center_has_no_determinable_plane`) | `"colinear"` | CLEAN | `PathCircle::new`'s only colinear-text guard is its own (`:293`); `circle_from_interim`'s (`:187`) belongs to a different, uncalled function. |
 | `moveit-planners-stomp/src/filter_functions.rs:314` (`enforce_position_bounds_rejects_a_multi_variable_joint`) | `"world_joint"` | CLEAN | Data value (a joint name), not branch-selection text; pre-existing doc comment already documents this as the loop's only guard. |
 | `moveit-smoothing/src/butterworth.rs:162,200` | `"scale_term_"`/`"feedback_term_"` | CLEAN | One producer each. |
@@ -547,7 +547,7 @@ from an unchecked one:
   49,55`); `:55` already fixed by another panel this session, re-confirmed
   clean here.
 - **Zero collisions in `moveit-planners-chomp`.** 12 sites; the 5 flagged
-  (`cost.rs:436` (`new_rejects_a_singular_quad_cost`), `optimizer.rs:2828,2897` -- both `assert!(`) checked above by reading;
+  (`cost.rs:436` (`new_rejects_a_singular_quad_cost`), `optimizer.rs:3202,3271` -- both `assert!(`) checked above by reading;
   `cost.rs:391,404` (both `assert!(`) and `crates/moveit-planners-chomp/src/trajectory.rs:712,727,748,766,925,968,1004`
   (7, all `assert!(`) unflagged/unique tree-wide, not individually re-traced beyond that.
 - **Zero collisions in `moveit-planners-pilz`.** 5 sites; `path_circle.
