@@ -691,17 +691,60 @@ mod tests {
 </robot>
 "#;
 
-    fn one_joint() -> (&'static RobotModel, &'static SrdfModel) {
-        let urdf = urdf_rs::read_from_string(ONE_JOINT_URDF).expect("inline URDF must parse");
-        let srdf = SrdfModel::parse_str(ONE_JOINT_SRDF).expect("inline SRDF must parse");
+    /// `arm`'s `link_names()` here is `["tip", "tool"]`, not `["tool"]`: a
+    /// group's link list is the *child* links of its joints, so a chain needs
+    /// two joints before its front and its back are different elements. The
+    /// one-joint fixture's `arm` is `["tip"]` alone, which cannot tell
+    /// `link_names().last()` from `.first()`.
+    ///
+    /// `j1` slides instead of turning, and `j2`'s offset is along the same
+    /// axis, so a straight-line Cartesian path is exactly reachable for
+    /// *both* links and each answers `1.0` — the two readings of `:110-112`
+    /// then differ in the joint value they arrive at, `0.2` against `0.5`,
+    /// rather than in whether they solved at all.
+    const TOOL_OFFSET_URDF: &str = r#"<?xml version="1.0"?>
+<robot name="tool_offset">
+  <link name="base_link"/>
+  <link name="tip"/>
+  <link name="tool"/>
+  <joint name="j1" type="prismatic">
+    <parent link="base_link"/>
+    <child link="tip"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-1" upper="1" effort="10" velocity="1"/>
+  </joint>
+  <joint name="j2" type="fixed">
+    <parent link="tip"/>
+    <child link="tool"/>
+    <origin xyz="0.3 0 0"/>
+  </joint>
+</robot>
+"#;
+
+    const TOOL_OFFSET_SRDF: &str = r#"<?xml version="1.0"?>
+<robot name="tool_offset">
+  <group name="arm">
+    <chain base_link="base_link" tip_link="tool"/>
+  </group>
+</robot>
+"#;
+
+    fn leak(urdf_str: &'static str, srdf_str: &str) -> (&'static RobotModel, &'static SrdfModel) {
+        let urdf = urdf_rs::read_from_string(urdf_str).expect("inline URDF must parse");
+        let srdf = SrdfModel::parse_str(srdf_str).expect("inline SRDF must parse");
         let model =
-            RobotModel::from_urdf_and_srdf(&urdf, ONE_JOINT_URDF, &srdf, &MeshSearchPaths::none())
-                .expect("valid single-joint urdf");
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_str, &srdf, &MeshSearchPaths::none())
+                .expect("valid inline urdf");
         (Box::leak(Box::new(model)), Box::leak(Box::new(srdf)))
     }
 
     fn scene() -> Arc<PlanningScene<'static>> {
-        let (model, srdf) = one_joint();
+        let (model, srdf) = leak(ONE_JOINT_URDF, ONE_JOINT_SRDF);
+        Arc::new(PlanningScene::new(model, srdf))
+    }
+
+    fn tool_offset_scene() -> Arc<PlanningScene<'static>> {
+        let (model, srdf) = leak(TOOL_OFFSET_URDF, TOOL_OFFSET_SRDF);
         Arc::new(PlanningScene::new(model, srdf))
     }
 
@@ -841,50 +884,96 @@ mod tests {
         );
     }
 
-    /// `:110-112`: an empty `link_name` is the group's *last* link
-    /// (`link_names() == ["base_link", "tip"]`), not its first.
+    /// `:110-112`: an empty `link_name` is the group's *last* link, not its
+    /// first.
     ///
-    /// Both halves are needed to say that. The first pins the default to the
-    /// same answer an explicit `tip` gives; the second shows the other end of
-    /// the list is not interchangeable with it -- `base_link` is a link of
-    /// `arm` that no solver tip is rigidly connected to, so a default reading
-    /// `link_names().first()` would turn every unnamed-link request into the
-    /// refusal below.
+    /// This runs on [`TOOL_OFFSET_URDF`] because the one-joint fixture cannot
+    /// state the boundary: its `arm` has a single link, so `.first()` and
+    /// `.last()` name the same one and either reading passes. Here both
+    /// readings also *solve* — reaching `x = 0.5` with `tool` puts `j1` at
+    /// `0.2` and with `tip` at `0.5` — so what separates them is the joint
+    /// value arrived at, which a fraction of `1.0` alone would hide.
     #[test]
     fn an_empty_link_name_defaults_to_the_groups_last_link() {
-        let scene = scene();
-
-        let defaulted = handle(&scene, client_request(vec![tip_at(0.5)]));
-        let explicit = GetCartesianPath::Request {
-            link_name: "tip".to_string(),
-            ..client_request(vec![tip_at(0.5)])
+        let scene = tool_offset_scene();
+        let at_x = |x: f64| r2r::geometry_msgs::msg::Pose {
+            position: r2r::geometry_msgs::msg::Point { x, y: 0.0, z: 0.0 },
+            orientation: r2r::geometry_msgs::msg::Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
         };
-        let explicit = handle(&scene, explicit);
-        assert_val(&defaulted, MoveItErrorCodes::SUCCESS as i32, "defaulted");
+        let answer = |link: &str| -> (i32, f64, f64) {
+            let response = handle(
+                &scene,
+                GetCartesianPath::Request {
+                    link_name: link.to_string(),
+                    ..client_request(vec![at_x(0.5)])
+                },
+            );
+            let end = response
+                .solution
+                .joint_trajectory
+                .points
+                .last()
+                .map_or(f64::NAN, |point| point.positions[0]);
+            (response.error_code.val, response.fraction, end)
+        };
+
+        let defaulted = answer("");
         assert_eq!(
-            (
-                defaulted.fraction,
-                defaulted.solution.joint_trajectory.points.len()
-            ),
-            (
-                explicit.fraction,
-                explicit.solution.joint_trajectory.points.len()
-            ),
-            "an empty link_name must answer exactly what an explicit `tip` answers"
+            defaulted,
+            answer("tool"),
+            "an empty link_name must answer exactly what an explicit `tool` answers"
         );
-        assert_eq!(defaulted.fraction, 1.0);
-
-        let front = GetCartesianPath::Request {
-            link_name: "base_link".to_string(),
-            ..client_request(vec![tip_at(0.5)])
-        };
-        let front = handle(&scene, front);
-        assert_val(&front, MoveItErrorCodes::FAILURE as i32, "base_link path");
+        assert_eq!(defaulted.0, MoveItErrorCodes::SUCCESS as i32);
+        assert_eq!(defaulted.1, 1.0);
         assert!(
-            front.error_code.message.contains("base_link"),
-            "the front of the list must not be silently interchangeable with the back, \
-             got {:?}",
-            front.error_code.message
+            (defaulted.2 - 0.2).abs() < 1e-6,
+            "the default must move `tool` to x = 0.5, which is j1 = 0.2, got j1 = {}",
+            defaulted.2
+        );
+
+        let front = answer("tip");
+        assert!(
+            (front.2 - 0.5).abs() < 1e-6,
+            "the front of the list must reach a different joint value, or this test \
+             cannot tell the two readings apart; got j1 = {}",
+            front.2
+        );
+    }
+
+    /// The fourth refusal in this module's "Where this refuses rather than
+    /// guesses": `base_link` is a link of `arm` that no solver tip is rigidly
+    /// connected to, where upstream's `setFromIK` answers `false` and this
+    /// port's `set_from_ik` answers `Err`.
+    ///
+    /// Upstream would turn that into `SUCCESS` with a fraction of `0.0`. The
+    /// discriminator is which of the two a client sees, so the error code and
+    /// the named link are both asserted -- a bare "not 1.0" would pass under
+    /// either.
+    #[test]
+    fn a_group_link_no_solver_tip_reaches_is_refused_rather_than_scored_zero() {
+        let scene = scene();
+        let response = handle(
+            &scene,
+            GetCartesianPath::Request {
+                link_name: "base_link".to_string(),
+                ..client_request(vec![tip_at(0.5)])
+            },
+        );
+
+        assert_val(
+            &response,
+            MoveItErrorCodes::FAILURE as i32,
+            "base_link path",
+        );
+        assert!(
+            response.error_code.message.contains("base_link"),
+            "the refusal must name the link it could not solve for, got {:?}",
+            response.error_code.message
         );
     }
 
