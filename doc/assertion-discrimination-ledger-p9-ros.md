@@ -402,7 +402,7 @@ owner to route to, so all 39 are enumerated here.
 
 **Totals: 39 sites, 17 in-family (1 blind, fixed; 16 clean), 22
 not-this-family (5 clause-2 unconditional-reset, 1 clause-2
-unconditional-population, 1 clause-1 membership/oracle-comparison, 13
+unconditional-population, 1 clause-1 membership/oracle-comparison, 15
 clause-3 fixture/test preconditions), 0 unresolved.**
 
 One commit this section: `9c42c11` (the blind-fixture fix above). Gated
