@@ -806,7 +806,7 @@ Phase 완료 조건 판정이 사는 유일한 곳. 위 각 Phase의 "상태" �
 | Phase 2 | FK 10,000×3로봇이 `1e-9` 이내 일치 | MET | §217.3 | 2026-08-05 |
 | Phase 2 | 야코비안이 `1e-7` 이내 일치 (열 순서 규약 포함) | MET | §217.3 | 2026-08-05 |
 | Phase 2 | 관절 한계 클램핑·mimic 전파·floating/planar 조인트 보간 일치 | MET | §238 | 2026-08-06 |
-| Phase 3 | `collision: bool` 이, **두 협면 파견표가 겹치는 형상 쌍**에서 100% 일치 — fcl이 특수화를 등록해 libccd MPR의 빈칸이 발화할 수 없고 `parry`도 닫힌 형태로 보내며 두 형태가 경계의 같은 편을 잡는 쌍은 `sphere × {box, cylinder}`뿐이고, 간극 `1e-12`~`1e-2` 사다리 위 4로봇 2,478표본 전부 일치. fcl의 빈칸(`cylinder × box`·`cylinder × cylinder`), `box × box`, `sphere × sphere`, 간극이 정확히 0인 배치, 메쉬는 이 행이 재지 않았고, 앞 셋은 같은 코퍼스에서 대조로 재어 각각 어긋난다 | MET | §NEW | 2026-08-06 |
+| Phase 3 | `collision: bool` 이, **두 협면 파견표가 겹치는 형상 쌍**에서 100% 일치 — fcl이 특수화를 등록해 libccd MPR의 빈칸이 발화할 수 없고 `parry`도 닫힌 형태로 보내며 두 형태가 경계의 같은 편을 잡는 쌍은 `sphere × {box, cylinder}`뿐이고, 간극 `1e-12`~`1e-2` 사다리 위 4로봇 2,478표본 전부 일치. fcl의 빈칸(`cylinder × box`·`cylinder × cylinder`), `box × box`, `sphere × sphere`, 간극이 정확히 0인 배치, 메쉬는 이 행이 재지 않았고, 앞 둘은 같은 코퍼스에서 대조로 재어 양의 간극 띠에서 어긋나며(600/3,067, 253/1,515) `sphere × sphere`는 그 사다리에서 101표본 전부 일치하고 간극 0에서만 갈린다(10/27) | MET | §NEW | 2026-08-06 |
 | Phase 3 | `distance: f64` 가 분리 분기(오라클 값 > 0)에서 `1e-4` 이내 일치 | MET | §260 | 2026-08-06 |
 | Phase 3 | `distance: f64` 의 관통 분기(오라클 값 ≤ 0)가, 상류 결함 3건 중 **어느 것도 발화할 수 없는 부분모집단**에서 `1e-4` 이내 일치 — 질의당 쌍 1개 × `sphere × {sphere, box, cylinder}`, 4로봇 4,844표본, 최악 `8.9e-16`. 쌍이 둘 이상인 상태와 `box × box`·메쉬는 이 행이 재지 않았고 오라클 패치를 요구한다 | MET | §283 | 2026-08-06 |
 | Phase 4 | (a) IK 성공이 C++ KDL 플러그인과 구별되지 않는다 — 게이트가 검정력을 갖는(`b + c >= MINIMUM_USABLE_B_PLUS_C`) 모든 `--ik-max-restarts` 동작점에서 짝지은 McNemar 게이트의 절댓값 z가 `PAIRED_DIVERGENCE_Z_THRESHOLD` 이하 | MET | §280 | 2026-08-06 |
