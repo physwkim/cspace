@@ -26,9 +26,11 @@
 # scored. That is argued and measured in the round section cited by
 # PORTING-PLAN.md §5's `distance: f64` row, which also carries the two
 # mutations showing what each branch is still guarded by. Cited by row rather
-# than by number on purpose: `check-porting-plan-sections.sh` rewrites a `§NEW`
-# placeholder only in `.md` and `.rs` files, so a not-yet-assigned number
-# written into a shell script would never be filled in.
+# than by number on purpose: a worker cannot know the number its section will
+# be assigned at merge, and the unassigned-placeholder scan in
+# `check-porting-plan-sections.sh` now reads every tracked file as bytes, so
+# writing one into this script would fail the gate rather than sit here
+# unfilled -- which is what citing by row avoids needing.
 #
 # What is restricted is the compared *population*, never the tolerance. `1e-4`
 # is the condition's own number and stays; every separated side that misses it
