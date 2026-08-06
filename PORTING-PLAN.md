@@ -11413,8 +11413,12 @@ taint가 적용되지 않은 실행은 결과를 세지 않았다.
 ### 138.3 같이 드러난 결함: 응답에 들어간 stopwatch
 
 **Anchor:** `rg -n 'planning_time' tools/moveit-oracle/src/oracle.cpp`
-**Sites:** `oracle.cpp:4752`(`plan` → `planning_time_s`), `oracle.cpp:5135`
-(`pilzTrajectory` → `planning_time`) — **둘 다 같은 결함**.
+**Sites:** `oracle.cpp@c0838b4^:4752`(`plan` → `planning_time_s`),
+`oracle.cpp@c0838b4^:5135`(`pilzTrajectory` → `planning_time`) — **둘 다 같은
+결함**. 두 줄은 아래 `c0838b4`가 지운 줄이다. 오늘의 파일에 대응물이 없으므로
+번호를 옮길 수 없고, 옮기면 이 문단이 기록하려는 결함 자체가 지워진다. 그래서
+번호가 참이었던 리비전을 인용 안에 박아 `@c0838b4^`로 적는다 — 이 형태는
+오늘의 파일이 아니라 그 리비전에 대해 검사된다(§NEW).
 
 wall-clock 값이 바이트 비교되는 fixture에 들어가면 재생할 때마다 drift한다. 같은
 LIN 요청이 `0.001528053` → `0.001346184`로 나왔고 나머지 필드는 전부 동일했다.
@@ -11799,9 +11803,13 @@ doc에 불변식을 이미 적어놨다:
 절반만 강제하고 있었다.
 
 **Anchor:** `clearAttachedBodies` / `attachBody` on the shared `state_`
-**Sites:** `oracle.cpp:2016`(`collision`), `:2214`(`frameTransform`),
-`:2337`(`isStateValid`); `applyJointValues` 호출자 10곳
-(`:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`)
+**Sites:** `oracle.cpp@367c07a^:2016`(`collision`),
+`oracle.cpp@367c07a^:2214`(`frameTransform`),
+`oracle.cpp@367c07a^:2337`(`isStateValid`); `applyJointValues` 호출자 10곳
+(`oracle.cpp@367c07a^:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`)
+— 아래 `367c07a`가 가드를 소유자 안으로 옮기면서 지운 줄들이라, 번호는 그
+커밋 직전 리비전에서만 참이다. 이 절의 `:NNN`은 전부 그 리비전 기준이고,
+인용에 박힌 `@367c07a^`가 오늘의 파일에 대한 주장이 아님을 말한다(§NEW).
 **Same defect at:** `:2016`, `:2214` — 둘 다 `applyJointValues` 직후에 스스로
 `clearAttachedBodies()`를 부르고 있었다. 나머지 8개 호출자는 부르지 않는다. 두
 집단을 가르는 것은 **누가 그 생각을 했느냐**뿐이었다.
