@@ -128,6 +128,11 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `distance-callback-threshold-suppresses-deeper-pairs` | not-reproduced |
 | `shape-intersect-tangency-follows-libccd-dispatch` | not-reproduced |
 | `psm-topic-header-comments-claim-absolute-names` | not-reproduced |
+| `execute-trajectory-accepts-cancels-it-never-acts-on` | not-reproduced |
+| `execute-trajectory-drops-its-own-failure-explanation` | not-reproduced |
+| `distance-callback-default-tolerance-makes-distance-order-dependent` | not-reproduced |
+| `cartesian-path-capability-accepts-jump-thresholds-it-never-applies` | not-reproduced |
+| `cartesian-path-capability-throws-on-an-unknown-link-name` | not-reproduced |
 
 ---
 
@@ -176,9 +181,9 @@ signed off on — this ledger entry is the whole record.
 ### `attached-body-count-check` — Attached-body count check upstream's own comment doubts — reproduced-grandfathered
 
 **Upstream:** `moveit_core/collision_distance_field/src/collision_env_distance_field.cpp:1132`
-(verified verbatim: `// TODO: This logic for checking attached body count might
-be incorrect`, guarding
-`gsr->attached_body_decompositions_.size() != att->getShapes().size()`)
+(verified verbatim:
+`// TODO: This logic for checking attached body count might be incorrect`,
+guarding `gsr->attached_body_decompositions_.size() != att->getShapes().size()`)
 **Port:** `crates/moveit-distance-field/src/collision_env_distance_field.rs:1055`
 **Symptom:** upstream's own author flagged the comparison as possibly
 wrong and it was shipped unchanged.
@@ -369,8 +374,8 @@ next audit to rediscover.
 ### `max-distance-sq-narrowing` — `max_distance_sq_`'s narrowing would OOM if unguarded — not-reproduced
 
 **Upstream:** `moveit_core/distance_field/src/propagation_distance_field.cpp:88`
-(`max_distance_sq_ = ceil(max_distance_ / resolution_) *
-ceil(max_distance_ / resolution_);`, a `double` product narrowed into an
+(`max_distance_sq_ = ceil(max_distance_ / resolution_) * ceil(max_distance_ / resolution_);`,
+a `double` product narrowed into an
 `int` field with no range check before it) used at `:95-96,99-100` to
 size `bucket_queue_`/`negative_bucket_queue_`/`sqrt_table_` — verified at
 the pinned `e017c91e`.
@@ -632,7 +637,7 @@ joint-model order), a real joint's torque is compared against a
 *different* joint's limit — one that is fixed and therefore always
 `0.0` — which saturates the check immediately and forces `payload =
 0.0` for every input.
-**Evidence:** oracle. `tools/moveit-oracle/src/oracle.cpp:1302-1314`
+**Evidence:** oracle. `tools/moveit-oracle/src/oracle.cpp:1348-1360`
 (the `dynamics()` endpoint's doc comment) states the same mechanism
 independently, naming the same two upstream sites and the same
 `right_arm`/`r_upper_arm_joint`/`r_elbow_flex_joint` example. The
@@ -1015,8 +1020,9 @@ the two `reserve` calls that set the bound, verified at the pinned
 `e017c91e`.
 **Port:** `crates/moveit-kinematics/src/ik_cache.rs`, `IkCache::update`;
 `crates/moveit-kinematics/src/ik_cache/format.rs`, `from_json`.
-**Symptom:** the insert gate is `ik_cache_.size() <
-ik_cache_.capacity()` — the limit enforced is the allocator's, not the
+**Symptom:** the insert gate is
+`ik_cache_.size() < ik_cache_.capacity()` — the limit enforced is the
+allocator's, not the
 `max_cache_size` the user configured. `initializeCache` establishes it with
 `ik_cache_.reserve(max_cache_size_)` (`:75`), and `reserve` guarantees only
 `capacity() >= n`, so the two coincide by implementation habit rather than
@@ -1169,8 +1175,9 @@ comment — "Explicitly use a single IK attempt only (by setting a timeout of
 0.0), using the current state as the seed. Random seeding (of additional
 attempts) would create large joint-space jumps" — and then passes `0.0`.
 `setFromIK` reads that argument as a sentinel, not as a value:
-`if (timeout < std::numeric_limits<double>::epsilon()) timeout =
-jmg->getDefaultIKTimeout()`, and `KinematicsSolver::KinematicsSolver()`
+`if (timeout < std::numeric_limits<double>::epsilon())` then
+`timeout = jmg->getDefaultIKTimeout();`, and
+`KinematicsSolver::KinematicsSolver()`
 initialises `default_ik_timeout_(0.5)`. So the request reaching
 `searchPositionIK` is a 0.5-second budget, and that function's body is
 `do { ++attempt; if (attempt > 1) getRandomConfiguration(...); CartToJnt(...);
@@ -2673,3 +2680,314 @@ case 4 is a leaf face on a box face, a *specialised* pair, where upstream says
               `MoveGroupInterface`'s endpoints as absolute, which
               `doc/client-endpoint-surface.md` and the port-side scan that
               reads it both had to be corrected for.
+
+### `execute-trajectory-accepts-cancels-it-never-acts-on` — the `execute_trajectory` cancel callback is a constant `ACCEPT` and the function that would stop the motion is never called — not-reproduced
+
+**Upstream:** `moveit_ros/move_group/src/default_capabilities/execute_trajectory_action_capability.cpp:82`
+              (the cancel callback), against
+              `moveit_ros/move_group/src/default_capabilities/execute_trajectory_action_capability.cpp:151-154`
+              (`preemptExecuteTrajectoryCallback`)
+**Port:**     `ros/moveit-ros/src/execute_trajectory.rs`
+**Symptom:**  `create_server`'s cancel callback is
+              `[](const std::shared_ptr<ExecTrajectoryGoal>& /* unused */) { return rclcpp_action::CancelResponse::ACCEPT; }`
+              — it accepts unconditionally and ignores the goal. Accepting moves the goal
+              to CANCELING and tells the client the cancellation was taken,
+              but nothing in this capability then stops the motion:
+              `preemptExecuteTrajectoryCallback`, whose whole body is
+              `context_->trajectory_execution_manager_->stopExecution(true)`,
+              is never invoked. The trajectory runs to completion while the
+              client has been told it is being cancelled. A server that
+              *rejected* the cancel would leave the client strictly better
+              informed.
+**Evidence:** read of the control flow plus an enumeration, not a sample:
+              `rg -n preemptExecuteTrajectoryCallback` over the whole
+              upstream checkout returns exactly two hits, the declaration at
+              `moveit_ros/move_group/src/default_capabilities/execute_trajectory_action_capability.hpp:66`
+              and the definition above. There is no call site anywhere in the
+              tree — not in this capability, not in `MoveGroupCapability`, not
+              in any other default capability.
+**Status:**   `not-reproduced`
+**Cost of not reproducing:** none. This port answers cancel requests with
+              `reject` (`ros/moveit-ros/src/execute_trajectory.rs`, and the
+              reasoning is in that module's "The cancel path" section), which
+              is a true statement here for an independent reason as well:
+              this workspace has no execution backend, so a goal is already
+              terminal before a cancel could be routed to it. No oracle
+              comparison touches this endpoint.
+
+### `execute-trajectory-drops-its-own-failure-explanation` — the sentence explaining a `CONTROL_FAILED` abort is built into a local and never assigned to the message the client receives — not-reproduced
+
+**Upstream:** `moveit_ros/move_group/src/default_capabilities/execute_trajectory_action_capability.cpp:92`
+**Port:**     `ros/moveit-ros/src/execute_trajectory.rs`
+**Symptom:**  the `!trajectory_execution_manager_` branch reads
+              `const std::string response = "Cannot execute trajectory since ~allow_trajectory_execution was set to false";`
+              and then sets
+              only `action_res->error_code.val` before aborting. `response`
+              is never read, never logged, and never assigned to
+              `action_res->error_code.message`, which stays empty. The client
+              receives a bare `-4`. That number is ambiguous by upstream's own
+              design: three of the six conditions this capability can end in
+              — the branch above, a `push` that returned false, and any
+              non-`SUCCEEDED`/`PREEMPTED`/`TIMED_OUT` execution status — all
+              answer `CONTROL_FAILED`, and `message` is the only field that
+              could separate them.
+**Evidence:** read of the function. The variable is `const`, declared inside
+              the `if` block, and the block's remaining three statements are
+              the `val` assignment, `goal->abort(action_res)` and `return` —
+              there is no path from it to any output. The sibling
+              `response` at
+              `moveit_ros/move_group/src/default_capabilities/execute_trajectory_action_capability.cpp:100`
+              is used (it becomes the feedback `state`), which is what makes
+              this one look like an editing slip rather than an intended
+              silence.
+**Status:**   `not-reproduced`
+**Cost of not reproducing:** none in `val`, which is what a client branches
+              on: this port answers upstream's `CONTROL_FAILED` unchanged. The
+              deviation is additive — `message` carries a sentence naming the
+              upstream branch, and `source` names the endpoint — so a client
+              that reads only `val` cannot tell this port from upstream, and
+              one that reads `message` learns which of the three
+              `CONTROL_FAILED` conditions it hit. No oracle comparison
+              touches this endpoint.
+
+---
+
+### `distance-callback-default-tolerance-makes-distance-order-dependent` — the published separation distance for a pair with no narrowphase specialisation is off the exact answer by up to `2.5e-3` and changes when the two shapes are passed in the other order — not-reproduced
+
+**Upstream:** `moveit_core/collision_detection_fcl/src/collision_common.cpp:603`,
+`distanceCallback`'s
+`fcl::distance(o1, o2, fcl::DistanceRequestd(cdata->req->enable_nearest_points), fcl_result)`.
+One constructor argument, so every remaining parameter keeps fcl's own default,
+`distance_tolerance` among them.
+
+The mechanism is in fcl, a separate project from `moveit2` and a dependency of
+it, named the way `shape-intersect-tangency-follows-libccd-dispatch` names it:
+host checkout `/home/stevek/work/fcl` at
+`e5efcc41b57b2d0da3bf183480f1298a6d531f44` (`git describe --tags`:
+`0.7.0-17-ge5efcc4`). Line numbers below are that checkout's. The oracle image
+(`moveit-rs/oracle:fc6738ad78dd45d5`) links `libfcl-dev 0.7.0-3build2`, and the
+three headers cited here — `include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h`,
+`include/fcl/narrowphase/distance-inl.h`,
+`include/fcl/narrowphase/distance_request.h` — are byte-identical between
+checkout and image (`cmp`) and unchanged between tag `0.7.0` and that HEAD
+(`git diff 0.7.0 HEAD --`), so one set of numbers serves both.
+
+`DistanceRequest`'s constructor defaults `distance_tolerance` to `1e-6`
+(`include/fcl/narrowphase/distance_request.h:109`), and fcl's own comment on the field calls it "the
+threshold used in GJK algorithm to stop distance iteration"
+(`include/fcl/narrowphase/distance_request.h:98`) — a
+*progress* threshold, not a bound on the answer's error. `fcl::distance` copies
+it straight onto the solver (`include/fcl/narrowphase/distance-inl.h:208` for `GST_LIBCCD`,
+`include/fcl/narrowphase/distance-inl.h:214` onto `GST_INDEP`'s
+`gjk_tolerance`), and `GJKSolver_libccd<S>::shapeDistance`
+(`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:640-651`) hands every unspecialised pair to the generic
+`ShapeDistanceLibccdImpl` (`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:605`), whose body is `detail::GJKDistance`
+(`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:620`) driven by exactly that threshold (`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:626`) with a 1000-iteration
+cap (`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:625`). Which pairs are unspecialised is drawn by fcl itself, as an
+ASCII table headed "Shape distance algorithms not using libccd"
+(`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:653-675`);
+`cylinder`/`box` is blank in it, in both orderings.
+
+**Port:** `crates/moveit-collision/src/parry.rs:2350`,
+`accumulate_distance`'s `query::contact`. Pinned by
+`crates/moveit-collision/tests/collision_parity.rs`'s
+`prbt_flange_floor_clearance_matches_the_closed_form`.
+
+**Symptom:** the number MoveIt publishes as a separation distance is not a
+function of the two shapes' geometry. On the `cylinder × box` cell it misses the
+exact answer by up to `2.513565e-3`, and passing the same two shapes in the
+other order moves it by up to `2.513557e-3` — a quantity that cannot depend on
+argument order at all. Both are far over `PORTING-PLAN.md` §5 Phase 3's own
+`1e-4` distance tolerance. Nothing in `distanceCallback` bounds the error: it
+takes fcl's return, stores it as `dist_result.distance`, and the only threshold
+it manages (`dist_threshold`, the running global minimum) prunes *which pair*
+is reported, not how accurately.
+
+**Evidence:** measured, three ways, none of them a read.
+
+A configuration with a closed-form answer. `tools/moveit-diff`'s lowered-floor
+scene (`--floor-top-z -0.5`) puts the floor box's top face on the plane
+`z = -0.5`, and `fixtures/prbt.urdf`'s `prbt_flange` collision cylinder
+(`length 0.02`, `radius 0.0331`) above it; while the cylinder's silhouette
+projects strictly inside the 4x4 footprint the nearest box feature is that face,
+so the distance is exactly `c_z - z0 - h·|a_z| - r·sqrt(1 - a_z²)`.
+`tools/fcl-cylinder-box-distance-probe/probe.cpp` compiles inside the pinned
+image and scores fcl against it over 2,000 poses; `tools/ci/verify-fcl-cylinder-box-distance.sh`
+re-derives the whole table on demand (`sg docker -c ./tools/ci/verify-fcl-cylinder-box-distance.sh`,
+~3s):
+
+| column | max error vs the closed form | over `1e-4` |
+|---|---|---|
+| default `1e-6`, cylinder first | `2.513565e-3` | 5 / 2000 |
+| default `1e-6`, box first | `1.683122e-3` | 5 / 2000 |
+| tightened `1e-12` | `1.335130e-9` | 0 |
+| tightened `1e-12`, `GST_INDEP` | `6.287026e-12` | 0 |
+| `\|box first − cylinder first\|` | `2.513557e-3` | 10 / 2000 |
+
+The third and fourth rows are what make the first two readable as the
+reference's error rather than a wrong closed form: tightening only the stopping
+threshold collapses libccd onto the closed form, and a second algorithm lands
+there too.
+
+Through MoveIt's own wrapper, not just bare fcl. `CollisionEnvFCL::distanceRobot`
+on a two-shape scene — the floor box as the world object, the same cylinder
+attached to `prbt_base_link` (whose default world transform is exactly
+identity) at the case-8148 pose — publishes `3.11769210552093334e-1`, which is
+bit-for-bit the probe's box-first column and bit-for-bit what the 10,000-state
+sweep recorded. So the wrapper adds nothing; it forwards fcl's answer.
+
+Not kinematics. The pose is `prbt_flange`'s world transform at case 8148 of the
+seed-1 sweep taken from the *oracle's own* `fk` answer, and the closed form
+evaluated on it (`3.10086088255497272e-1`) differs from the same closed form on
+this port's fk (`3.10086088255497827e-1`) by `5.551115e-16`.
+
+**Status:** `not-reproduced`. `parry`'s `query::contact` answers
+`3.10086089038992263e-1` at that state, `7.834950e-10` from the exact value —
+about 2.1 million times closer than the reference — and `1.427251e-8` worst over
+the 40-pose sweep the port-side test runs. There is no upstream behaviour to
+transcribe here: `distance_tolerance` is not a documented contract about the
+answer, and its effect is not even a function of the arguments' order.
+
+**Deviation:** none of `D1`..`D14` applies. This port never had the parameter to
+leave at a default; it does not expose a GJK stopping threshold at all.
+
+**Cost of not reproducing:** measured. One comparison in 19,611 — case 8148 of
+`--urdf fixtures/prbt.urdf --cases 10000 --seed 1 --collision --tol-distance 1e-4 --floor-top-z -0.5`,
+`|d| = 1.683122e-3` on `floor`/`prbt_flange`. Zero in the committed scene
+(`--floor-top-z 0.0`), where prbt's robot-side distances are all in the
+penetration branch and §260.2's 41,059 separated comparisons contain no prbt
+robot-world sample at all. Reproducing it is not available anyway: it would mean
+adopting an unspecified iteration-count artefact of another library's solver,
+which has no value this port could target.
+
+That count is robot-world only, and the same blank cell also lands on a *self*
+pair, which no row above covers. In the committed scene (`--floor-top-z 0.0`)
+prbt's worst separated-branch comparison is `8.892585e-5`, case 4697, on
+`prbt_link_4`/`prbt_base_link` — specifically `fixtures/prbt.urdf:319`'s
+`0.09 0.06 0.12` box against `prbt_base_link`'s cylinder, the same
+`cylinder`/`box` cell in the same table. It is inside §5 Phase 3's `1e-4`, so it
+costs no sweep row, but the attribution is the same and it is measured the same
+way: `crates/moveit-collision/tests/collision_parity.rs`'s
+`prbt_link_4_base_link_clearance_brackets_the_separated_residual` pins the exact
+answer to an interval `4.163336e-17` wide and puts this port `2.558970e-11` from
+it against the reference's `8.892588e-5`. Recompiling
+`tools/fcl-distance-tolerance-probe/probe.cpp` with that box's dimensions inside
+the same image drifts `2.051960e-4` between the default `1e-6` and a tightened
+`1e-12`, over the clause's own tolerance — the committed probe builds the
+`0.121, 0.08, 0.17` box (`tools/fcl-distance-tolerance-probe/probe.cpp:77`),
+which is `prbt_link_4`'s *other* `<collision>` and not the one this pair's
+minimum sits on.
+
+### `cartesian-path-capability-accepts-jump-thresholds-it-never-applies` — the service converts `jump_threshold` into a filter, logs it as being in force, and then passes `CartesianPrecision{}` in its place — not-reproduced
+
+**Upstream:** `moveit_ros/move_group/src/default_capabilities/cartesian_path_service_capability.cpp:176-188`
+**Port:**     `ros/moveit-ros/src/cartesian_path.rs:412-428`, the refusal loop in
+              `compute`
+**Symptom:**  `GetCartesianPath.srv` documents five request fields as path
+              filters — `jump_threshold`, `prismatic_jump_threshold`,
+              `revolute_jump_threshold`, `cartesian_speed_limited_link` and
+              `max_cartesian_speed`. The capability applies none of them.
+              `jump_threshold` is the visible one:
+              `cartesian_path_service_capability.cpp:180-184` builds a
+              `moveit::core::JumpThreshold` local from it, and the
+              `computeCartesianPath` call at
+              `cartesian_path_service_capability.cpp:186-188` passes
+              `moveit::core::CartesianPrecision{}` in that argument position
+              instead, so the local is written and never read. The log line
+              immediately above,
+              `cartesian_path_service_capability.cpp:176-179`, prints
+              "using a step of %lf m and
+              jump threshold %lf" with `req->jump_threshold`, telling the
+              operator a filter is in effect that is not. The other four field
+              names do not occur in the file at all. The consequence is not a
+              missing feature but a wrong number: `fraction` is the whole
+              answer this service returns, and a client that asked for
+              truncation at a jump receives the untruncated fraction with a
+              `SUCCESS` code.
+**Evidence:** `git show dae612696` in the upstream checkout — "New
+              implementation for computeCartesianPath() (#2916)" — whose only
+              hunk in this file replaces `jump_threshold` with
+              `moveit::core::CartesianPrecision{}` at the call, leaving
+              `cartesian_path_service_capability.cpp:180-184` behind. The
+              same commit removes the `jump_threshold`
+              parameter from `MoveGroupInterface::computeCartesianPath`'s
+              public signature and marks the `JumpThreshold`-taking
+              interpolator overloads
+              `[[deprecated("Replace JumpThreshold with CartesianPrecision")]]`
+              (`moveit_core/robot_state/include/moveit/robot_state/cartesian_interpolator.hpp:250`,
+              `cartesian_interpolator.hpp:262`, `cartesian_interpolator.hpp:284`,
+              `cartesian_interpolator.hpp:299`). So dropping the *filter* is
+              deliberate; what survives it is the dead local, the log line that
+              still advertises it, and a request surface that still accepts all
+              five. `rg -n 'jump_threshold|max_cartesian_speed'` over the
+              capability returns exactly four hits —
+              `cartesian_path_service_capability.cpp:179`,
+              `cartesian_path_service_capability.cpp:180`,
+              `cartesian_path_service_capability.cpp:181`,
+              `cartesian_path_service_capability.cpp:183` — and none of them is
+              the call.
+**Status:**   `not-reproduced`
+**Cost of not reproducing:** none in fraction parity, because this port does
+              not reinstate the filter either — reinstating it would compute a
+              number upstream stopped producing on purpose. What the port
+              declines to reproduce is accepting the fields *silently*: each
+              of the four numeric ones is accepted at the no-op value the
+              `.srv` itself names ("if jump_threshold is set > 0", "if
+              max_cartesian_speed <= 0 the trajectory is not modified") and
+              answers `FAILURE` above it, at exactly
+              `cartesian_path_service_capability.cpp:180`, the position
+              upstream reads the field — so `INVALID_GROUP_NAME`,
+              `FRAME_TRANSFORM_FAILURE` and the `max_step` `FAILURE` all still
+              win for any request upstream can answer. `cartesian_speed_limited_link`
+              is not tested on its own: it is a link name, and upstream's own
+              documented gate for the speed feature is `max_cartesian_speed >
+              0`, so a name set without a speed asks for nothing.
+
+### `cartesian-path-capability-throws-on-an-unknown-link-name` — a `link_name` that names no link reaches the interpolator as `nullptr` and throws out of the service callback — not-reproduced
+
+**Upstream:** `moveit_ros/move_group/src/default_capabilities/cartesian_path_service_capability.cpp:187`,
+              through `moveit_core/robot_state/src/cartesian_interpolator.cpp:225`
+              to `moveit_core/robot_state/include/moveit/robot_state/robot_state.hpp:1252-1257`
+**Port:**     `ros/moveit-ros/src/cartesian_path.rs:545-556`, the `Err` arm of the
+              `set_from_ik`-backed interpolator call in `compute`
+**Symptom:**  the capability passes `start_state.getLinkModel(link_name)`
+              straight into `CartesianInterpolator::computeCartesianPath`.
+              `RobotModel::getLinkModel` returns `nullptr` for an unknown name
+              (`moveit_core/robot_model/src/robot_model.cpp:1348-1365`; the
+              `has_link` out-parameter is not passed here, so it logs and
+              returns null), and the interpolator's first act on the link is
+              `state.getGlobalLinkTransform(link)`, which is
+              `throw Exception("Invalid link")` when `link` is null. The
+              service callback is a bare lambda handed to `create_service`
+              (`cartesian_path_service_capability.cpp:87-92`) with no `try`,
+              so the exception leaves the callback
+              and the executor: one malformed request takes the whole
+              `move_group` node down, and the client that sent it never gets a
+              response. It is reachable from an ordinary client, not only from
+              a hand-built message —
+              `MoveGroupInterface::setEndEffectorLink`
+              (`moveit_ros/planning_interface/move_group_interface/src/move_group_interface.cpp:1712-1718`)
+              rejects only the empty string and forwards anything else to
+              `MoveGroupInterfaceImpl::setEndEffectorLink`
+              (`move_group_interface.cpp:503-506`), which
+              is a bare assignment to `end_effector_link_` -- no lookup
+              against the model -- and `computeCartesianPath` sends that
+              string as `req.link_name`.
+**Evidence:** read of the control flow, four files deep, each step opened in
+              the upstream checkout: the call at
+              `cartesian_path_service_capability.cpp:187`, the null return at
+              `robot_model.cpp:1361-1364`, the throw at `robot_state.hpp:1254-1257`,
+              and the dereference-site at `cartesian_interpolator.cpp:225`
+              (`Eigen::Isometry3d start_pose = state.getGlobalLinkTransform(link) * link_offset;`).
+              The registration with no exception handler is
+              `cartesian_path_service_capability.cpp:87-92`. Not run — this is
+              a read, the weakest evidence
+              class; what it does not establish is whether some outer
+              rclcpp/executor layer in a particular distribution catches
+              before terminating.
+**Status:**   `not-reproduced`
+**Cost of not reproducing:** none. `Option`/`Result` is how this port names an
+              absent link at all, so there is no version of it that panics
+              here; the request answers `FAILURE` with the link name in
+              `error_code.message`. No oracle comparison covers the throwing
+              input, because the oracle cannot produce a value for it.

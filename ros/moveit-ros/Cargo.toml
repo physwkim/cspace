@@ -57,15 +57,19 @@ moveit-constraints = { path = "../../crates/moveit-constraints" }
 moveit-planning = { path = "../../crates/moveit-planning" }
 moveit-scene = { path = "../../crates/moveit-scene" }
 moveit-collision = { path = "../../crates/moveit-collision" }
+moveit-kinematics = { path = "../../crates/moveit-kinematics" }
 moveit-octomap = { path = "../../crates/moveit-octomap" }
 
 # The planner side of `/move_action`'s plan-only arm (PORTING-PLAN.md D8).
-# `moveit-planner-registry` is what `src/move_group.rs` calls; the
-# `moveit-planners-sbp` dependency exists only so its `RrtConnectManager`
-# registration is linked into this crate's binaries and test binaries at all
-# -- a `linkme::distributed_slice` entry lives in an rlib no symbol
-# references, and `src/lib.rs`'s `use moveit_planners_sbp as _;` is what
-# keeps the linker from dropping the object file it sits in.
+# `moveit-planner-registry` is what `src/move_group.rs` calls, and what
+# `src/planner_params.rs` derives `query_planner_interface`'s answer from --
+# upstream builds that answer by walking its `pluginlib`-loaded planner
+# managers, and a hand-written list here would go stale the moment a manager
+# is registered. The `moveit-planners-sbp` dependency exists only so its
+# `RrtConnectManager` registration is linked into this crate's binaries and
+# test binaries at all -- a `linkme::distributed_slice` entry lives in an
+# rlib no symbol references, and `src/lib.rs`'s `use moveit_planners_sbp as
+# _;` is what keeps the linker from dropping the object file it sits in.
 moveit-planner-registry = { path = "../../crates/moveit-planner-registry" }
 moveit-planners-sbp = { path = "../../crates/moveit-planners-sbp" }
 

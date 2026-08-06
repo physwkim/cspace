@@ -343,13 +343,27 @@ fn build_acm(srdf_file: &str) -> AllowedCollisionMatrix {
 /// `tools/moveit-diff`'s own `collision_scene` is, so both crates' tests bear
 /// out the identical geometry that comparison relies on.
 fn floor_env() -> ParryCollisionEnv {
+    floor_env_with_top(0.0)
+}
+
+/// [`floor_env`] with the box's *top face* placed at `top_z`, the same
+/// parameter `tools/moveit-diff --floor-top-z` names and with the same meaning
+/// -- the face the robot base stands on, not the box centre.
+///
+/// A parameter rather than a second hard-coded constructor: the two scenes
+/// differ only in that one number, and a copy would let the box size or
+/// thickness drift apart between them, which is exactly the input every
+/// closed-form claim in this file is derived from.
+fn floor_env_with_top(top_z: f64) -> ParryCollisionEnv {
+    const FLOOR_THICKNESS: f64 = 0.1;
     let mut world = World::new();
     world.add_shape(
         "floor",
         Arc::new(Shape::Cuboid(
-            Cuboid::new(4.0, 4.0, 0.1).expect("4x4x0.1 are valid, positive cuboid dimensions"),
+            Cuboid::new(4.0, 4.0, FLOOR_THICKNESS)
+                .expect("4x4x0.1 are valid, positive cuboid dimensions"),
         )),
-        Isometry3::translation(0.0, 0.0, -0.05),
+        Isometry3::translation(0.0, 0.0, top_z - FLOOR_THICKNESS / 2.0),
     );
     ParryCollisionEnv::new(world, LinkPaddingScale::default())
 }
@@ -2236,4 +2250,759 @@ fn pr2_caster_wheel_floor_clearance_matches_the_closed_form() {
     }
 
     assert_eq!(poses, 24, "sanity: every pose above ran");
+}
+
+/// The second pair in this fixture set whose correct separation distance is
+/// known in closed form -- and the first where the closed form contradicts the
+/// oracle by more than PORTING-PLAN.md §5 Phase 3's own `1e-4`.
+///
+/// [`pr2_caster_wheel_floor_clearance_matches_the_closed_form`] settled a
+/// `6.1e-7` residual the same way; this settles a `1.7e-3` one. The sweep that
+/// raised it is `tools/moveit-diff` on prbt with the floor lowered off the
+/// mounting tangency (`--cases 10000 --seed 1 --floor-top-z -0.5`), whose one
+/// separated-branch failure in 19,611 comparisons is case 8148:
+///
+/// ```text
+/// collision[8148] robot |d| 1.683122e-3
+///   oracle 3.11769210552093334e-1 [floor(world_object)/prbt_flange(robot_link)]
+///   vs rust 3.10086089038992263e-1 [prbt_flange(robot_link)/floor(world_object)]
+/// ```
+///
+/// Both sides name the same pair, so this is a two-shape distance disagreement
+/// with nothing else in it. The geometry is fixed by `fixtures/prbt.urdf` and
+/// [`floor_env_with_top`] alone:
+///
+/// - the floor is `Cuboid::new(4.0, 4.0, 0.1)` -- full extents, not half --
+///   centred at `z = -0.55`, so its top face is the plane `z = -0.5`;
+/// - `prbt_flange`'s collision geometry is a cylinder of `length 0.02` and
+///   `radius 0.0331` at `<origin xyz="0 0 -0.0035">` in the link frame
+///   (`fixtures/prbt.urdf`'s `prbt_flange` link).
+///
+/// While the cylinder is above that face and its whole silhouette projects
+/// inside the 4x4 footprint -- both asserted per state below, because the
+/// closed form is only the answer while the nearest box feature is the face --
+/// the exact distance for a cylinder of half-length `h`, radius `r`, centre `c`
+/// and unit axis `a` is `c_z - z0 - h * |a_z| - r * sqrt(1 - a_z^2)`.
+///
+/// `c` and `a` come from *this port's* forward kinematics, which needs saying:
+/// §5 Phase 2's fk condition is MET at `1e-9` against the oracle, so the pose
+/// is not the thing under test here. It is also checkable directly for the
+/// pinned case -- evaluating the same closed form on the oracle's own `fk`
+/// answer for case 8148 gives `3.10086088255497272e-1` against this port's
+/// `3.10086088255497827e-1`, a difference of `5.551115e-16`. The `1.683122e-3`
+/// therefore cannot be kinematics.
+///
+/// Measured before the tolerance was chosen: over the 40 poses below this
+/// backend's worst deviation from the closed form is `1.427251e-8`, so
+/// `CLOSED_FORM_TOL` is pinned at `1e-7` -- a 7.0x margin over the
+/// measurement. Case 8148 itself is `7.834950e-10`, pinned separately at
+/// `1e-8` (12.8x), because that is the number the sweep row is about.
+///
+/// The reference's own error is `1.683122e-3`, about 2.1 million times this
+/// backend's on the same state, and `tools/ci/verify-fcl-cylinder-box-distance.sh`
+/// re-derives where it comes from inside the pinned oracle image: bare
+/// `fcl::distance` on these two shapes answers `3.11769210552093334e-1` with
+/// the box passed first and `3.10086138896653651e-1` with the cylinder passed
+/// first, and tightening only the GJK stopping threshold collapses both onto
+/// the closed form. See `doc/upstream-bugs.md`'s
+/// `distance-callback-default-tolerance-makes-distance-order-dependent`.
+#[test]
+fn prbt_flange_floor_clearance_matches_the_closed_form() {
+    /// Pinned from the measurement in this test's doc comment
+    /// (`1.427251e-8` worst over the same 40 poses), with a 7.0x margin.
+    const CLOSED_FORM_TOL: f64 = 1e-7;
+    /// The same, for the one pinned state (`7.834950e-10`), with 12.8x.
+    const CASE_8148_TOL: f64 = 1e-8;
+    /// What the oracle published for `floor`/`prbt_flange` at case 8148. The
+    /// sweep printed `3.11769210552093334e-1`; that is one digit past what an
+    /// `f64` can carry, and this is the same value written so the literal is
+    /// exactly the number the compiler stores.
+    const CASE_8148_ORACLE: f64 = 0.311_769_210_552_093_33;
+    /// PORTING-PLAN.md §5 Phase 3's distance tolerance, the bar the oracle's
+    /// value has to miss for the sweep row to be a real disagreement.
+    const CLAUSE_TOL: f64 = 1e-4;
+    /// `fixtures/prbt.urdf`'s `prbt_flange` <collision>, and the scene.
+    const CYL_RADIUS: f64 = 0.0331;
+    const CYL_HALF_LENGTH: f64 = 0.01;
+    const CYL_ORIGIN_Z: f64 = -0.0035;
+    const FLOOR_TOP_Z: f64 = -0.5;
+    const FLOOR_HALF_EXTENT: f64 = 2.0;
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let env = floor_env_with_top(FLOOR_TOP_Z);
+
+    // Everything allowed except the one pair the closed form is derived for,
+    // so `minimum_distance` is that pair's distance rather than whichever
+    // link happens to be lowest. Without it a state where `prbt_link_5` wins
+    // would be scored against a constant derived for the flange.
+    let mut names: Vec<String> = model
+        .link_models()
+        .iter()
+        .map(|link| link.name().to_owned())
+        .collect();
+    names.push("floor".to_owned());
+    let mut acm = AllowedCollisionMatrix::from_names(&names, true);
+    acm.set_entry("floor", "prbt_flange", false);
+
+    // Case 8148's own joint values, as `tools/moveit-diff --stats-json`
+    // recorded them for that state.
+    let case_8148 = [
+        -0.681765976663856,
+        -1.9643143747676026,
+        1.9502553948473182,
+        -0.2497111438317039,
+        -0.47123744163653836,
+        -1.186060955153117,
+    ];
+
+    let mut poses = 0;
+    let mut saw_case_8148 = false;
+    for step in 0..40 {
+        // A scan through case 8148's own joint vector rather than around it:
+        // `scale == 1.0` at step 20 *is* case 8148, and every other step moves
+        // all six joints at once, so a state cannot pass by one joint being
+        // ignored.
+        let scale = 0.4 + f64::from(step) * 0.03;
+        let joint_values: BTreeMap<String, f64> = case_8148
+            .iter()
+            .enumerate()
+            .map(|(i, value)| (format!("prbt_joint_{}", i + 1), value * scale))
+            .collect();
+        let mut state = build_state(&model, &joint_values);
+        let posed = state.update();
+
+        let flange = posed
+            .global_link_transform("prbt_flange")
+            .expect("prbt has a prbt_flange link");
+        let centre = (flange * Isometry3::translation(0.0, 0.0, CYL_ORIGIN_Z))
+            .translation
+            .vector;
+        let axis = flange.rotation * moveit_geometry::Vector3::new(0.0, 0.0, 1.0);
+
+        // The closed form is the distance to the *plane* the top face lies in,
+        // so it is the distance to the box only while no cylinder point is
+        // nearer a box edge. `reach` is the largest horizontal offset of any
+        // cylinder point from the centre, `CYL_HALF_LENGTH + CYL_RADIUS` the
+        // largest vertical one.
+        let reach = CYL_HALF_LENGTH * axis[0].hypot(axis[1]) + CYL_RADIUS;
+        assert!(
+            centre[0].abs() + reach < FLOOR_HALF_EXTENT
+                && centre[1].abs() + reach < FLOOR_HALF_EXTENT
+                && centre[2] - (CYL_HALF_LENGTH + CYL_RADIUS) > FLOOR_TOP_Z,
+            "step {step}: the flange cylinder at {centre:?} (axis {axis:?}) is not strictly \
+             above the floor's top face and inside its footprint, so the plane closed form \
+             below is not the distance to the box"
+        );
+
+        let expected = centre[2]
+            - FLOOR_TOP_Z
+            - CYL_HALF_LENGTH * axis[2].abs()
+            - CYL_RADIUS * (1.0 - axis[2] * axis[2]).max(0.0).sqrt();
+
+        let request = DistanceRequest {
+            enable_signed_distance: true,
+            acm: Some(&acm),
+            ..DistanceRequest::default()
+        };
+        let result = env.distance_robot(&request, &posed, &[]);
+        let names = &result.minimum_distance.link_names;
+        assert!(
+            names.contains(&"floor".to_owned()) && names.contains(&"prbt_flange".to_owned()),
+            "step {step}: the nearest robot/world pair is {names:?}, not floor/prbt_flange -- \
+             the closed form below was derived for that pair and would be measuring something \
+             else"
+        );
+
+        let deviation = (result.minimum_distance.distance - expected).abs();
+        assert!(
+            deviation <= CLOSED_FORM_TOL,
+            "step {step}: flange clearance is {} but the geometry fixes it at {expected} \
+             (deviation {deviation:.6e} over the pinned {CLOSED_FORM_TOL:.0e}); this is a \
+             closed-form answer, so a miss here is this backend's",
+            result.minimum_distance.distance
+        );
+
+        if scale == 1.0 {
+            saw_case_8148 = true;
+            assert!(
+                deviation <= CASE_8148_TOL,
+                "case 8148: this port is {deviation:.6e} from the closed form, over the pinned \
+                 {CASE_8148_TOL:.0e}"
+            );
+            // The other half of the sweep row, and the reason this test is not
+            // just another parity check: the reference's published value for
+            // this very pair misses the same closed form by more than the
+            // clause tolerates, so the `1.683122e-3` is the reference's error
+            // and there is nothing here for a wider tolerance to absorb.
+            let oracle_deviation = (CASE_8148_ORACLE - expected).abs();
+            assert!(
+                oracle_deviation > CLAUSE_TOL,
+                "case 8148: the oracle's published {CASE_8148_ORACLE} is only \
+                 {oracle_deviation:.6e} from the closed form, inside the clause's \
+                 {CLAUSE_TOL:.0e} -- the divergence this test exists to attribute is gone"
+            );
+        }
+        poses += 1;
+    }
+
+    assert_eq!(poses, 40, "sanity: every pose above ran");
+    assert!(saw_case_8148, "sanity: step 20 is case 8148 itself");
+}
+
+/// One convex collision shape, already placed in world coordinates, reduced
+/// to the two closed-form primitives [`convex_distance_bracket`] needs.
+///
+/// Deliberately not a general shape type, and deliberately only the two
+/// variants its callers reach: the bracket below is a *proof* only for convex
+/// bodies whose support function and point projection are exact. A mesh has
+/// both, but only up to its own triangulation, and calling that a third
+/// answer would be circular. Every other `Shape` -- sphere included, though
+/// it would be exact -- panics in [`WorldConvex::from_link_shape`] rather
+/// than being added unused, so a new caller has to state which shapes it
+/// means.
+enum WorldConvex {
+    Box {
+        centre: moveit_geometry::Vector3,
+        /// World directions of the box's own three axes, unit length.
+        axes: [moveit_geometry::Vector3; 3],
+        /// Half-extents along `axes`, i.e. `Cuboid::size` halved.
+        half: [f64; 3],
+    },
+    Cylinder {
+        centre: moveit_geometry::Vector3,
+        /// World direction of the cylinder's local `+z`, unit length.
+        axis: moveit_geometry::Vector3,
+        half_length: f64,
+        radius: f64,
+    },
+}
+
+impl WorldConvex {
+    /// `link_shape` placed by `link_pose`, or a panic naming the shape kind.
+    ///
+    /// Panics rather than returning `None`: a caller that silently skipped an
+    /// unsupported shape would compute the bracket over a *subset* of a
+    /// link's geometry and report it as the link's distance, which is the one
+    /// failure mode that would look like a pass.
+    fn from_link_shape(link_pose: &Isometry3, link_shape: &moveit_model::LinkShape) -> Self {
+        let pose = link_pose * link_shape.origin_transform;
+        let centre = pose.translation.vector;
+        let dir = |x, y, z| pose.rotation * moveit_geometry::Vector3::new(x, y, z);
+        match &link_shape.shape {
+            Shape::Cuboid(b) => Self::Box {
+                centre,
+                axes: [dir(1.0, 0.0, 0.0), dir(0.0, 1.0, 0.0), dir(0.0, 0.0, 1.0)],
+                half: [b.size[0] * 0.5, b.size[1] * 0.5, b.size[2] * 0.5],
+            },
+            Shape::Cylinder(c) => Self::Cylinder {
+                centre,
+                axis: dir(0.0, 0.0, 1.0),
+                half_length: c.length * 0.5,
+                radius: c.radius,
+            },
+            other => panic!(
+                "convex_distance_bracket has no exact support function for {other:?}; the \
+                 bracket it produces would not be a proof"
+            ),
+        }
+    }
+
+    /// `max_{x in S} x . n`, exact for both variants.
+    fn support_max(&self, n: &moveit_geometry::Vector3) -> f64 {
+        match self {
+            Self::Box { centre, axes, half } => {
+                centre.dot(n) + (0..3).map(|k| half[k] * axes[k].dot(n).abs()).sum::<f64>()
+            }
+            Self::Cylinder {
+                centre,
+                axis,
+                half_length,
+                radius,
+            } => {
+                let along = axis.dot(n);
+                centre.dot(n)
+                    + half_length * along.abs()
+                    + radius * (1.0 - along * along).max(0.0).sqrt()
+            }
+        }
+    }
+
+    /// `min_{x in S} x . n`, by the same closed form on `-n`.
+    fn support_min(&self, n: &moveit_geometry::Vector3) -> f64 {
+        -self.support_max(&(-n))
+    }
+
+    /// The point of `S` nearest `p` -- exact for both variants (clamp in the
+    /// box's own frame; clamp radially and axially in the cylinder's).
+    fn project(&self, p: &moveit_geometry::Vector3) -> moveit_geometry::Vector3 {
+        match self {
+            Self::Box { centre, axes, half } => {
+                let d = p - centre;
+                let mut out = *centre;
+                for k in 0..3 {
+                    out += axes[k] * d.dot(&axes[k]).clamp(-half[k], half[k]);
+                }
+                out
+            }
+            Self::Cylinder {
+                centre,
+                axis,
+                half_length,
+                radius,
+            } => {
+                let d = p - centre;
+                let along = d.dot(axis).clamp(-*half_length, *half_length);
+                let radial = d - axis * d.dot(axis);
+                let norm = radial.norm();
+                let radial = if norm > *radius {
+                    radial * (*radius / norm)
+                } else {
+                    radial
+                };
+                centre + axis * along + radial
+            }
+        }
+    }
+
+    fn centre(&self) -> moveit_geometry::Vector3 {
+        match self {
+            Self::Box { centre, .. } | Self::Cylinder { centre, .. } => *centre,
+        }
+    }
+}
+
+/// A certified `[lower, upper]` bracket on `dist(a, b)` for two disjoint
+/// convex bodies, and the witness pair that produced it.
+///
+/// This is what stands in for a closed form on a shape pair that has none.
+/// PORTING-PLAN.md §260.8 recorded that prbt's separated-branch residual
+/// could not be settled the way pr2's caster was, because "box 대 cylinder의
+/// 분리 거리는 자세에 따라 변하므로 상수가 없다" -- and that is still true:
+/// the minimising features here are the cylinder's bottom rim *circle* and an
+/// *edge* of the box, whose common perpendicular is the root of a quartic, so
+/// there is no short formula to write down. What there is instead is a proof
+/// with two closed-form halves, neither of which depends on the answer being
+/// searched for correctly:
+///
+///   * **upper**, `|p - q|` for *any* `p` in `a` and `q` in `b`. Every pair of
+///     points on the two bodies is an upper bound on their distance.
+///   * **lower**, `min_{x in a} x.n - max_{y in b} y.n` for *any* unit `n`.
+///     Every direction separates the two bodies by at most their distance
+///     (weak duality between the two support functions).
+///
+/// So the returned interval contains `dist(a, b)` whatever the alternating
+/// projection below did -- the iteration is only a way to *find* a tight
+/// pair, and the interval's width is the measure of how tight, checked by the
+/// caller rather than assumed. A run that converged badly reports a wide
+/// bracket and fails its caller's assertion; it cannot report a wrong answer
+/// as a narrow one.
+fn convex_distance_bracket(a: &WorldConvex, b: &WorldConvex) -> DistanceBracket {
+    let mut p = a.project(&b.centre());
+    for _ in 0..256 {
+        let q = b.project(&p);
+        let next = a.project(&q);
+        if (next - p).norm() <= f64::EPSILON {
+            p = next;
+            break;
+        }
+        p = next;
+    }
+    let q = b.project(&p);
+    let gap = p - q;
+    let upper = gap.norm();
+    // A zero-length gap means the bodies touch or overlap, where the dual
+    // direction is undefined; the caller's own separation assertion is what
+    // rules that out, and a zero-width bracket keeps this function total.
+    if upper == 0.0 {
+        return DistanceBracket {
+            lower: 0.0,
+            upper: 0.0,
+            on_a: p,
+            on_b: q,
+        };
+    }
+    let n = gap / upper;
+    DistanceBracket {
+        lower: a.support_min(&n) - b.support_max(&n),
+        upper,
+        on_a: p,
+        on_b: q,
+    }
+}
+
+/// [`convex_distance_bracket`]'s result: the two bounds and the witness pair
+/// that produced them.
+///
+/// The witnesses are carried out because *which features* realise the minimum
+/// is the reason this pair has no short closed form, and a claim about that
+/// belongs on the same instrument as the numbers rather than in a scratch
+/// script beside it.
+struct DistanceBracket {
+    lower: f64,
+    upper: f64,
+    /// The witness point on the first body, in world coordinates.
+    on_a: moveit_geometry::Vector3,
+    /// The witness point on the second body, in world coordinates.
+    on_b: moveit_geometry::Vector3,
+}
+
+/// §260.8's open item: prbt's separated-branch residual `8.892585e-5`,
+/// attributed to one side or the other by a third answer that is neither
+/// implementation's.
+///
+/// The residual is the worst separated-branch deviation of the whole prbt
+/// sweep and it sits on one state -- `--stats-json`'s
+/// `collision_clauses.separated.tail[0]`, case 4697, side `self`, pair
+/// `prbt_link_4`/`prbt_base_link`, oracle `3.2876309670400866e-2` against
+/// this port's `3.278738382005618e-2`. §260.4 already named that link pair;
+/// what it got wrong is the *shape*. It says the worst value sits on
+/// `prbt_link_4`'s `box 0.121 x 0.08 x 0.17`, and `fixtures/prbt.urdf` gives
+/// that link two `<collision>` boxes. At case 4697 the first one is
+/// `4.0199e-2` away from the base cylinder and the *second*, `0.09 x 0.06 x
+/// 0.12`, is the one at `3.2787e-2`. Both are computed below, so the ranking
+/// is measured here rather than asserted from that section.
+///
+/// The third answer is [`convex_distance_bracket`] -- see its doc for why an
+/// interval is what this pair admits instead of a formula. Measured by this
+/// test on this state: the bracket is `[3.27873837944664820e-2,
+/// 3.27873837944665236e-2]`, `4.163336e-17` wide; this port lands
+/// `2.558970e-11` from it and the oracle `8.892588e-5`, a factor of
+/// `3.475066e6`. The residual is the reference's.
+///
+/// The bracket is computed at the pose *this port's* forward kinematics puts
+/// the two links in, so a pose disagreement would move it rather than the
+/// oracle. It cannot: `moveit-diff --cases 10000 --seed 1 --tol-fk 1e-9` on
+/// this fixture -- the same seeded state pool case 4697 is drawn from --
+/// passes 10,006 of 10,006, so the two sides' link transforms for these
+/// states agree five orders below the residual being attributed.
+///
+/// That does not open a new `doc/upstream-bugs.md` entry: the cause is the
+/// one §281 already filed as
+/// `distance-callback-default-tolerance-makes-distance-order-dependent`.
+/// `cylinder x box` is a blank cell in fcl's narrowphase specialisation table
+/// in both orders (`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h`,
+/// the `ShapeDistanceLibccdImpl` primary template), so this pair reaches the
+/// generic GJK path with `distanceCallback`'s default `distance_tolerance`
+/// of `1e-6` -- an iteration stop threshold, not an error bound. §260.4
+/// measured the same pair drifting `4.418002e-4` between that default and a
+/// tightened `1e-12`, which is five times the residual this test attributes.
+///
+/// Note the residual is *inside* §5 Phase 3's `1e-4`, so no sweep row turns
+/// red either way; this test exists because a passing row still has an owner,
+/// and "passes at 1e-4 with a worst of 8.9e-5" and "agrees to 1e-11" are
+/// different claims about this port.
+#[test]
+fn prbt_link_4_base_link_clearance_brackets_the_separated_residual() {
+    /// Case 4697's oracle value, as `--stats-json` recorded it for that state.
+    const CASE_4697_ORACLE: f64 = 0.032_876_309_670_400_866;
+    /// The same run's value for this port, so this test reproduces the sweep
+    /// row rather than measuring some other state that resembles it.
+    const CASE_4697_RUST: f64 = 0.032_787_383_820_056_18;
+    /// How far apart the two bounds may be before the bracket stops being a
+    /// third answer. Measured `-1.387779e-17` for link_4's first box and
+    /// `4.163336e-17` for its second -- signed, because two closed forms that
+    /// are mathematically equal at the optimum round past each other, and an
+    /// unsigned assertion would accept a lower bound arbitrarily far *above*
+    /// the upper one. Pinned 24x above the larger magnitude, still eight
+    /// orders below the residual being attributed.
+    const MAX_BRACKET_WIDTH: f64 = 1e-15;
+    /// Measured `2.558970e-11` for this port, with a 4x margin.
+    const PORT_TOL: f64 = 1e-10;
+    /// Measured `8.892588e-5` for the oracle. Pinned as a *floor*: the claim
+    /// is that the reference is far, so the assertion has to fail if it ever
+    /// gets close.
+    const MIN_ORACLE_ERROR: f64 = 1e-5;
+
+    // The sweep's own state, from the same `--stats-json` tail entry.
+    let case_4697: BTreeMap<String, f64> = [
+        ("prbt_joint_1", 2.046_935_426_606_275),
+        ("prbt_joint_2", 1.951_210_528_619_135_7),
+        ("prbt_joint_3", -1.503_936_973_875_760_9),
+        ("prbt_joint_4", -1.046_554_922_150_457_3),
+        ("prbt_joint_5", 1.268_189_592_042_518_6),
+        ("prbt_joint_6", -2.565_574_970_740_266),
+    ]
+    .into_iter()
+    .map(|(name, value)| (name.to_owned(), value))
+    .collect();
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let mut state = build_state(&model, &case_4697);
+    let posed = state.update();
+
+    // Read the geometry out of the model the port itself loaded, not from
+    // constants transcribed out of the URDF: a fixture that drifted would
+    // then move both this bracket and the port's answer together, and the
+    // test would keep passing while measuring a different robot.
+    let shapes = |link: &str| -> Vec<WorldConvex> {
+        let pose = posed
+            .global_link_transform(link)
+            .unwrap_or_else(|e| panic!("prbt has a {link} link: {e}"));
+        model
+            .link_model(link)
+            .unwrap_or_else(|e| panic!("prbt has a {link} link model: {e}"))
+            .shapes()
+            .iter()
+            .map(|s| WorldConvex::from_link_shape(&pose, s))
+            .collect()
+    };
+    let base = shapes("prbt_base_link");
+    let link_4 = shapes("prbt_link_4");
+    assert_eq!(
+        base.len(),
+        1,
+        "prbt_base_link should carry exactly the one <collision> cylinder this bracket is for"
+    );
+    assert_eq!(
+        link_4.len(),
+        2,
+        "prbt_link_4 should carry exactly the two <collision> boxes §260.4 conflated into one"
+    );
+
+    // Every (box, cylinder) combination, so which one wins is measured.
+    let mut brackets: Vec<(usize, DistanceBracket)> = Vec::new();
+    for (i, box_shape) in link_4.iter().enumerate() {
+        let bracket = convex_distance_bracket(box_shape, &base[0]);
+        let (lower, upper) = (bracket.lower, bracket.upper);
+        assert!(
+            (upper - lower).abs() <= MAX_BRACKET_WIDTH,
+            "link_4 shape {i}: the bracket is [{lower:.17e}, {upper:.17e}], {:.6e} apart, over \
+             the pinned {MAX_BRACKET_WIDTH:.0e} -- it is no longer tight enough to attribute a \
+             residual of 8.9e-5 to either side",
+            upper - lower
+        );
+        brackets.push((i, bracket));
+    }
+    let (winner, bracket) = brackets
+        .iter()
+        .min_by(|a, b| a.1.upper.total_cmp(&b.1.upper))
+        .expect("two shapes were bracketed above");
+    let (winner, lower, upper) = (*winner, bracket.lower, bracket.upper);
+    let WorldConvex::Box { half, .. } = &link_4[winner] else {
+        panic!("prbt_link_4's <collision> shapes are both boxes")
+    };
+    assert_eq!(
+        half.map(|h| (h * 2000.0).round() as i64),
+        [90, 60, 120],
+        "the nearest of prbt_link_4's two boxes at case 4697 is {half:?} (full size {:?}), not \
+         the 0.09 x 0.06 x 0.12 one this test and §260.4's correction are written for",
+        half.map(|h| h * 2.0)
+    );
+
+    // Which features realise the minimum, measured rather than asserted --
+    // this is the reason the pair has no short closed form, and §260.8's
+    // successor says so out loud.
+    let WorldConvex::Box { centre, axes, .. } = &link_4[winner] else {
+        panic!("prbt_link_4's <collision> shapes are both boxes")
+    };
+    let box_local = {
+        let d = bracket.on_a - centre;
+        [d.dot(&axes[0]), d.dot(&axes[1]), d.dot(&axes[2])]
+    };
+    let on_face = [0, 1, 2].map(|k| (box_local[k].abs() - half[k]).abs() <= 1e-12);
+    assert_eq!(
+        on_face,
+        [true, true, false],
+        "the box witness {box_local:?} is not in the interior of an edge (half-extents \
+         {half:?}); the doc's account of why this pair has no short closed form -- a circle \
+         against a line segment -- is derived from it being one"
+    );
+    let WorldConvex::Cylinder {
+        centre,
+        axis,
+        half_length,
+        radius,
+    } = &base[0]
+    else {
+        panic!("prbt_base_link's <collision> shape is a cylinder")
+    };
+    let d = bracket.on_b - centre;
+    let along = d.dot(axis);
+    let rho = (d - axis * along).norm();
+    assert!(
+        (rho - radius).abs() <= 1e-12 && (along.abs() - half_length).abs() <= 1e-12,
+        "the cylinder witness is at radius {rho} (r {radius}), axial {along} (h {half_length}) \
+         -- not on the rim circle where the two caps meet the side, which is the other half of \
+         that account"
+    );
+
+    // The port's own answer for the pair, isolated out of the exhaustive
+    // minimum-distance search so the number compared below is this pair's and
+    // not whichever pair happens to rank first.
+    let mut acm = AllowedCollisionMatrix::new();
+    for link in model.link_models() {
+        acm.set_default_entry(link.name(), true);
+    }
+    acm.set_entry("prbt_link_4", "prbt_base_link", false);
+    let request = DistanceRequest {
+        enable_signed_distance: true,
+        acm: Some(&acm),
+        ..DistanceRequest::default()
+    };
+    let env = floor_env();
+    let port = env
+        .distance_self(&request, &posed, &[])
+        .minimum_distance
+        .distance;
+    assert!(
+        (port - CASE_4697_RUST).abs() <= 1e-15,
+        "this port now answers {port} for prbt_link_4/prbt_base_link at case 4697, not the \
+         {CASE_4697_RUST} the sweep row this test attributes was measured from"
+    );
+
+    let port_error = (port - upper).abs().max((port - lower).abs());
+    let oracle_error = (CASE_4697_ORACLE - upper)
+        .abs()
+        .min((CASE_4697_ORACLE - lower).abs());
+    assert!(
+        port_error <= PORT_TOL,
+        "this port is {port_error:.6e} from the bracket [{lower:.17e}, {upper:.17e}], over the \
+         pinned {PORT_TOL:.0e} -- the residual would then be this port's"
+    );
+    assert!(
+        CASE_4697_ORACLE > upper || CASE_4697_ORACLE < lower,
+        "the oracle's {CASE_4697_ORACLE} now falls inside the bracket [{lower:.17e}, \
+         {upper:.17e}] -- the divergence this test attributes is gone"
+    );
+    assert!(
+        oracle_error >= MIN_ORACLE_ERROR,
+        "the oracle is only {oracle_error:.6e} from the bracket, under the pinned \
+         {MIN_ORACLE_ERROR:.0e} -- this test's claim that the residual is the reference's no \
+         longer holds at that margin"
+    );
+}
+
+/// The other half of §260.8's open pair: pr2's separated-branch residual
+/// `6.056201e-7`, asked with the *same* instrument as prbt's so the two
+/// answers come off one measuring device rather than two.
+///
+/// §260.3 already settled this residual with a genuine closed form -- the
+/// caster wheel's cylinder against the floor box's top face is a
+/// cylinder-vs-plane pair, and its separation `0.0792 - 0.074792 = 0.004408`
+/// is pose-invariant, which is what
+/// `pr2_caster_wheel_floor_clearance_matches_the_closed_form` pins. So the
+/// question this test answers is not "does the residual have an owner" but
+/// the narrower one §260.8's successor has to answer out loud: *does
+/// [`convex_distance_bracket`] reach this pair too?* It does, and the point
+/// of asking is that a bracket agreeing with an independently derived
+/// constant is a cross-check of both -- the constant comes from subtracting
+/// two heights read out of `fixtures/pr2.urdf`, the bracket from two support
+/// functions evaluated on the model the port loaded, and they share no
+/// arithmetic.
+///
+/// Measured here, over all eight wheels: the bracket is
+/// `[4.40799999991675628e-3, 4.40800000008395587e-3]` at worst,
+/// `1.671996e-13` apart, and §260.3's constant is `8.394674e-14` from it.
+/// The oracle's published value for this pair (case 6338 of the seed-1
+/// sweep, `4.40860562000265372e-3`) is `6.056199e-7` outside -- so the
+/// bracket picks the same winner the closed form did, by the same margin.
+///
+/// The `8.4e-14` is not slop in either instrument, and it is not a free
+/// parameter either -- it is predicted. `fixtures/pr2.urdf` writes the caster
+/// wheel's `<collision>` roll as `1.57079632679`, a truncated `pi/2`, which
+/// leaves the cylinder's axis `4.896528e-12 rad` off horizontal. A cylinder
+/// of half-length `0.017` tilted by `t` drops its lowest point by
+/// `0.017 * sin(t)`, i.e. `8.324097e-14` -- against a measured gap of
+/// `8.325285e-14` on the wheels whose bracket is tightest. So the constant
+/// §260.3 derives from the *nominal* geometry is that much above the
+/// clearance the fixture actually describes, and part of the `7.766010e-14`
+/// worst that `pr2_caster_wheel_floor_clearance_matches_the_closed_form`
+/// charges to this backend is the fixture's own rounding.
+#[test]
+fn pr2_caster_wheel_clearance_bracket_agrees_with_260_3s_closed_form() {
+    /// §260.3's closed form for this pair: the wheel cylinder's centre height
+    /// less its radius, both out of `fixtures/pr2.urdf`.
+    const CLOSED_FORM: f64 = 0.0792 - 0.074_792;
+    /// The oracle's own published value on this pair, case 6338 of the
+    /// seed-1 10,000-state sweep, as `pr2_caster_wheel_floor_clearance_
+    /// matches_the_closed_form` records it. That section and the sweep both
+    /// print `4.40860562000265372e-3`, one digit past what an `f64` carries;
+    /// this is the same value written so the literal is exactly what the
+    /// compiler stores.
+    const CASE_6338_ORACLE: f64 = 4.408_605_620_002_654e-3;
+    /// Measured `1.671996e-13` apart at worst over the eight wheels -- two
+    /// orders wider than prbt's pair in the test above, because this one's
+    /// optimum is degenerate (a whole generatrix of the cylinder is equally
+    /// near the plane) and the witness direction is correspondingly less
+    /// determined. Pinned 60x above the measurement, still six orders below
+    /// the residual being attributed.
+    const MAX_BRACKET_WIDTH: f64 = 1e-11;
+    /// Measured `8.394674e-14` at worst, pinned 119x above it. See the doc
+    /// comment for why this is not zero.
+    const MAX_CLOSED_FORM_GAP: f64 = 1e-11;
+    /// Measured `6.056199e-7` for the oracle, pinned as a floor with a 6x
+    /// margin.
+    const MIN_ORACLE_ERROR: f64 = 1e-7;
+
+    let model = build_model("pr2.urdf", "pr2.srdf");
+    let mut state = build_state(&model, &BTreeMap::new());
+    let posed = state.update();
+
+    // The floor of [`floor_env`], as a convex body rather than a `World`
+    // object: `WorldConvex::from_link_shape` takes a link's shape, and this
+    // side of the pair is not a link. Same numbers as `floor_env_with_top`'s,
+    // and the assertion below would fail if they drifted apart, since the
+    // constant this bracket is checked against is derived from the top face
+    // being the plane `z = 0`.
+    let floor = WorldConvex::Box {
+        centre: moveit_geometry::Vector3::new(0.0, 0.0, -0.05),
+        axes: [
+            moveit_geometry::Vector3::new(1.0, 0.0, 0.0),
+            moveit_geometry::Vector3::new(0.0, 1.0, 0.0),
+            moveit_geometry::Vector3::new(0.0, 0.0, 1.0),
+        ],
+        half: [2.0, 2.0, 0.05],
+    };
+
+    // All eight caster wheels, because which one the sweep's argmin lands on
+    // is a pose-broken tie (see the closed-form test's doc) and the constant
+    // is the same for every one of them.
+    let mut wheels = 0;
+    for front in ["f", "b"] {
+        for side in ["l", "r"] {
+            for wheel in ["l", "r"] {
+                let link = format!("{front}{side}_caster_{wheel}_wheel_link");
+                let pose = posed
+                    .global_link_transform(&link)
+                    .unwrap_or_else(|e| panic!("pr2 has a {link} link: {e}"));
+                let shapes = model
+                    .link_model(&link)
+                    .unwrap_or_else(|e| panic!("pr2 has a {link} link model: {e}"))
+                    .shapes();
+                assert_eq!(
+                    shapes.len(),
+                    1,
+                    "{link} should carry exactly the one <collision> cylinder §260.3 derives \
+                     its constant from"
+                );
+                let body = WorldConvex::from_link_shape(&pose, &shapes[0]);
+                let bracket = convex_distance_bracket(&body, &floor);
+                let (lower, upper) = (bracket.lower, bracket.upper);
+                assert!(
+                    (upper - lower).abs() <= MAX_BRACKET_WIDTH,
+                    "{link}: the bracket is [{lower:.17e}, {upper:.17e}], {:.6e} apart, over the \
+                     pinned {MAX_BRACKET_WIDTH:.0e}",
+                    upper - lower
+                );
+                let closed_form_error =
+                    (CLOSED_FORM - upper).abs().max((CLOSED_FORM - lower).abs());
+                assert!(
+                    closed_form_error <= MAX_CLOSED_FORM_GAP,
+                    "{link}: §260.3's closed form {CLOSED_FORM} is {closed_form_error:.6e} from \
+                     the bracket [{lower:.17e}, {upper:.17e}] -- two instruments that share no \
+                     arithmetic disagree, and neither may be published alone"
+                );
+                let oracle_error = (CASE_6338_ORACLE - upper)
+                    .abs()
+                    .min((CASE_6338_ORACLE - lower).abs());
+                assert!(
+                    oracle_error >= MIN_ORACLE_ERROR,
+                    "{link}: the oracle's {CASE_6338_ORACLE} is only {oracle_error:.6e} from the \
+                     bracket, under the pinned {MIN_ORACLE_ERROR:.0e}"
+                );
+                wheels += 1;
+            }
+        }
+    }
+    assert_eq!(wheels, 8, "sanity: all eight caster wheels were bracketed");
 }

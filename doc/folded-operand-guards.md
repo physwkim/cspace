@@ -56,17 +56,17 @@ grammar. **The union is the population; either alone is a sample.**
 | `moveit-trajectory/src/robot_trajectory.rs:261,349` | 2 | `waypoints.is_empty() && dt != 0.0` | p1-robotmodel |
 | `moveit-trajectory/src/robot_trajectory.rs:535` | 2 | `duration < 0.0 \|\| waypoints.is_empty()` (tuple return) | p1-robotmodel |
 | `ros/moveit-ros/src/constraints/position.rs:151` | 2 | `!meshes.is_empty() \|\| !mesh_poses.is_empty()` | p9-ros |
-| `ros/moveit-ros/src/conversion_coverage.rs:209` | 2 | `from_base.is_empty() \|\| to_base.is_empty()` | p9-ros |
+| `ros/moveit-ros/src/conversion_coverage.rs:219` | 2 | `from_base.is_empty() \|\| to_base.is_empty()` | p9-ros |
 | `ros/moveit-ros/src/planning.rs:112` | 2 | `!joint_names.is_empty() \|\| !points.is_empty()` | p9-ros |
 | `ros/moveit-ros/src/scene/collision_object.rs:345` | 3 | `primitives/meshes/planes.is_empty()` | p9-ros |
-| `ros/moveit-ros/src/scene/planning_scene.rs:288` | 2 | `if msg.entry_names.len() != msg.entry_values.len()`, `\|\| msg.default_entry_names.len() != msg.default_entry_values.len()` | kind 2, fixed — `an_acm_with_mismatched_entry_lengths_is_rejected` |
+| `ros/moveit-ros/src/scene/planning_scene.rs:289` | 2 | `if msg.entry_names.len() != msg.entry_values.len()`, `\|\| msg.default_entry_names.len() != msg.default_entry_values.len()` | kind 2, fixed — `an_acm_with_mismatched_entry_lengths_is_rejected` |
 | `ros/moveit-ros/src/state.rs:112` | 4 | `!joint_names/transforms/twist/wrench.is_empty()` | p9-ros |
 | `ros/moveit-ros/src/trajectory.rs:165` | 2 | `i == 0 && t != 0.0` | p9-ros |
 | `tools/moveit-diff/src/rust_impl.rs:393` | 2 | `link_names[0].is_empty() \|\| link_names[1].is_empty()` | closed, see below |
 
 One row postdates the `0379f9d` enumeration and was found by mutating, not
 by either anchor: the guard reading
-`if msg.entry_names.len() != msg.entry_values.len()` (`planning_scene.rs:288`)
+`if msg.entry_names.len() != msg.entry_values.len()` (`planning_scene.rs:289`)
 arrived with `4f2c9df` (p11-scenetopic's `usePlanningSceneMsg` port) after
 this table was measured.
 Its `default_entry_*` operand had a test (`an_acm_with_mismatched_default_lengths_is_rejected`),
@@ -100,7 +100,7 @@ into three kinds and only the first is a sweep finding:
 `tools/moveit-diff/src/rust_impl.rs:393` is kind 3, and it is **closed with
 no action**. `distance_pair` is private, has no direct unit test, and is
 exercised only through the parity harness. Its guard is character-for-
-character upstream's: `oracle.cpp:2421` reads `if (d.link_names[0].empty()
+character upstream's: `oracle.cpp:2711` reads `if (d.link_names[0].empty()
 || d.link_names[1].empty()) return nullptr;`, and even the port's comment
 saying the names are "empty together" is inherited from upstream's own
 comment four lines above it. The `||`/"together" mismatch is upstream's

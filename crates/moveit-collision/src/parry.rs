@@ -483,13 +483,13 @@
 //!    (`collision_env.cpp:83-96`) — not per-link, one constant for the whole
 //!    robot. The oracle's `collision` op constructs
 //!    `collision_detection::CollisionEnvFCL env(model_, world);`
-//!    (`tools/moveit-oracle/src/oracle.cpp:2097`), the 2-argument
+//!    (`tools/moveit-oracle/src/oracle.cpp:2464`), the 2-argument
 //!    constructor, and never calls `setPadding`/`setLinkPadding` anywhere on
 //!    that op's path — so every pr2 link's padding stays at the ctor
 //!    default. That default genuinely reaches FCL's geometry construction,
 //!    not a dead field: `CollisionEnvFCL`'s own `model, world, padding,
 //!    scale` constructor (the one `CollisionEnvFCL env(model_, world)` at
-//!    `oracle.cpp:2097` resolves to) calls
+//!    `oracle.cpp:2464` resolves to) calls
 //!    `createCollisionGeometry(shape, getLinkScale(name), getLinkPadding(name),
 //!    link, j)` per link per shape, the padding/scale-taking overload
 //!    (`collision_detection_fcl/src/collision_env_fcl.cpp:135`, mirrored at
@@ -4986,5 +4986,110 @@ mod tests {
 
         assert!(result.collision, "the cubes overlap by 0.5");
         assert_eq!(closest_distance(&result), 0.0);
+    }
+
+    /// Why [`accumulate_collision`]'s `sphere × sphere` tangency cell cannot be
+    /// closed by swapping its query, measured on the two configurations that
+    /// pull in opposite directions.
+    ///
+    /// `parry` answers "do these two touch?" with two different queries, and
+    /// they disagree in *both* directions -- each one is the only correct
+    /// answer for a case this crate already pins, so neither can replace the
+    /// other and neither is right for both:
+    ///
+    /// | pair | gap | `contact(_, 0.0)` | `intersection_test` |
+    /// |---|---|---|---|
+    /// | `sphere × sphere`, exact tangency | exactly `0` | `None` | `true` |
+    /// | octree leaf face on the robot box | `+4.129349354679189e-17` | `Some` | `false` |
+    ///
+    /// Row 1 is the cell §251.3 records: `contact_ball_ball` takes the boundary
+    /// with a strict `<`, so the port's `sphere × sphere` alone answers `false`
+    /// at exact tangency where its other 24 pairs answer `true`.
+    /// [`query::intersection_test`] has no such gap -- it is `true` for all 25
+    /// pairs at exact tangency, because `intersection_test_ball_ball` takes the
+    /// same boundary with `<=`.
+    ///
+    /// Row 2 is why it still cannot be substituted. The octree leaf's `-x` face
+    /// and the box's `+x` face are one leaf-quantisation ulp apart rather than
+    /// exactly equal, so the pair sits in strictly positive air.
+    /// [`query::intersection_test`] is exactly "gap `<= 0`" and rejects it;
+    /// only the positive margin `query::contact` carries at prediction `0.0`
+    /// admits it, and upstream calls that pair a collision
+    /// (`octree_world_collision_response.json` case 4, `robot_collision: true`).
+    /// Substituting `intersection_test` was run: it fails that fixture with
+    /// `id 4: robot_collision mismatch`, alongside
+    /// `check_robot_collision_touching_exactly_on_an_octree_leaf_face_is_detected`
+    /// and `exact_tangency_boundary`'s `the_collision_boundary_sits_in_a_positive_gap`
+    /// -- the same case §229.2's `contact.dist <= 0.0` gate broke, and for the
+    /// same reason: both remove the margin.
+    ///
+    /// Taking the union instead (`contact(_, 0.0).is_some() || intersection_test`)
+    /// keeps the margin and does turn row 1's cell `true`, but it can only
+    /// report that collision with no `Contact` to describe it, and upstream
+    /// never does: `res_->collision = true` sits inside `if (num_contacts > 0)`
+    /// in all three branches of `collisionCallback`
+    /// (`moveit_core/collision_detection_fcl/src/collision_common.cpp:269`,
+    /// `moveit_core/collision_detection_fcl/src/collision_common.cpp:332`,
+    /// `moveit_core/collision_detection_fcl/src/collision_common.cpp:367`),
+    /// and the first of those reaches it only through a `DecideContactFn` call
+    /// made once per contact
+    /// (`moveit_core/collision_detection_fcl/src/collision_common.cpp:243-247`)
+    /// that a contactless branch would
+    /// bypass.
+    #[test]
+    fn parry_boolean_queries_disagree_in_both_directions_at_the_tie() {
+        let cache = OctreeCache::default();
+
+        // Two balls of radius `0.5` whose centres are exactly `2 * 0.5` apart:
+        // the tie is exact in binary, not an approximation of one.
+        let sphere = Shape::Sphere(Sphere::new(0.5).expect("sphere"));
+        let (upper, upper_fix) = convert_shape(&sphere, &cache).expect("sphere converts");
+        let (lower, lower_fix) = convert_shape(&sphere, &cache).expect("sphere converts");
+        let upper_pose = to_pose(Isometry3::translation(0.0, 0.0, 0.5) * upper_fix);
+        let lower_pose = to_pose(Isometry3::translation(0.0, 0.0, -0.5) * lower_fix);
+        if let Some(found) = query::contact(&upper_pose, &*upper, &lower_pose, &*lower, 0.0)
+            .expect("ball/ball is dispatched")
+        {
+            panic!(
+                "contact_ball_ball's strict `<` must still exclude the exact tie, \
+                 but it yielded a contact at dist {:e}",
+                found.dist
+            );
+        }
+        assert!(
+            query::intersection_test(&upper_pose, &*upper, &lower_pose, &*lower)
+                .expect("ball/ball is dispatched"),
+            "intersection_test_ball_ball's `<=` must still include the exact tie"
+        );
+
+        // The same configuration as
+        // `check_robot_collision_touching_exactly_on_an_octree_leaf_face_is_detected`,
+        // read one level down: a 0.1 leaf centred at x=0.55 against the 1x1x1
+        // box at the origin.
+        let mut tree = moveit_octomap::OcTree::new(0.1);
+        tree.update_node(nalgebra::Point3::new(0.55, 0.0, 0.0), true, false);
+        let leaf = Shape::OcTree(OcTree::from_tree(Arc::new(tree)));
+        let (leaf_shape, leaf_fix) = convert_shape(&leaf, &cache).expect("leaf converts");
+        let robot_box = Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).expect("cuboid"));
+        let (box_shape, box_fix) = convert_shape(&robot_box, &cache).expect("cuboid converts");
+        let leaf_pose = to_pose(leaf_fix);
+        let box_pose = to_pose(box_fix);
+        let gap = query::contact(&box_pose, &*box_shape, &leaf_pose, &*leaf_shape, 0.0)
+            .expect("cuboid/compound is dispatched")
+            .expect("the positive margin admits this pair")
+            .dist;
+        // Measured `4.129349354679189e-17`. The load-bearing half is `> 0.0`:
+        // it is what makes every "gap `<= 0`" predicate reject this pair. The
+        // upper bound states the magnitude with a ~24x margin over the measured
+        // value, so a real change in the leaf's placement is not absorbed.
+        assert!(
+            gap > 0.0 && gap < 1e-15,
+            "the leaf face must sit in strictly positive air, near 4.13e-17, not {gap:e}"
+        );
+        assert!(
+            !query::intersection_test(&box_pose, &*box_shape, &leaf_pose, &*leaf_shape)
+                .expect("cuboid/compound is dispatched"),
+            "intersection_test is exactly `gap <= 0` and must reject this pair"
+        );
     }
 }

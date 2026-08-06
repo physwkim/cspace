@@ -671,6 +671,7 @@ dependencies = [
  "moveit-constraints",
  "moveit-error",
  "moveit-geometry",
+ "moveit-kinematics",
  "moveit-model",
  "moveit-octomap",
  "moveit-planner-registry",

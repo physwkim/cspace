@@ -145,11 +145,11 @@ convention needed to become a command rather than staying prose.
   - 2 of the 140 are false-positive text matches, not real
     declarations: `world.hpp:138` (`std::size_t size() const` — a
     method whose *return type* is `std::size_t`, not a declaration
-    named `size`) and `kinematic_constraint.cpp:947` (`new unsigned
-    int[m->triangle_count * 3]` — an array-new expression, not a
-    declaration named `int`). The script cannot tell these apart from a
-    real declaration by text alone; noted here per the script's own
-    documented limitation.
+    named `size`) and `kinematic_constraint.cpp:947`
+    (`new unsigned int[m->triangle_count * 3]` — an array-new
+    expression, not a declaration named `int`). The script cannot tell
+    these apart from a real declaration by text alone; noted here per
+    the script's own documented limitation.
   - A further ~13 are bare function-signature parameters or class
     fields with no initializer at all (e.g. the `getCostSources`
     overloads' `std::size_t max_costs` parameter, repeated across both

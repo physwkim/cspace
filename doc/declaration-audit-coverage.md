@@ -1,7 +1,7 @@
-# 선언 단위 감사 커버리지 — 포팅됨 158건 중 어디까지 세어 봤는가
+# 선언 단위 감사 커버리지 — 포팅됨 159건 중 어디까지 세어 봤는가
 
 `doc/port-coverage.md`는 **미포팅** 87건을 분류한다. 이 파일은 반대쪽,
-**포팅됨 158건**을 다룬다. 두 문서가 재는 것이 다르다는 점이 이 파일이
+**포팅됨 159건**을 다룬다. 두 문서가 재는 것이 다르다는 점이 이 파일이
 존재하는 이유다.
 
 `port-coverage.md` §1이 "포팅됨"의 판정을 그대로 적어 두었다: 어떤 `.rs`
@@ -27,10 +27,10 @@
 
 ```console
 $ ./tools/ci/measure-declaration-audits.py
-ported 158
+ported 159
 ```
 
-같은 158이며, 계기가 `measure-port-coverage.py`의 `corpus_files()`/
+같은 159이며, 계기가 `measure-port-coverage.py`의 `corpus_files()`/
 `cited_paths()`를 **import**한다(복사가 아니다 —
 `check-audit-scripts-not-copied.sh` 헤더가 적은 이유 그대로).
 
@@ -75,13 +75,15 @@ ported 158
 
 ```console
 $ ./tools/ci/verify-declaration-audits.sh
-ported 158
-OK doc/declaration-audit-coverage.md: 158 rows == 158 ported files; 73 audited, 85 none
+ported 159
+OK doc/declaration-audit-coverage.md: 159 rows == 159 ported files; 74 audited, 85 none
 ```
 
 측정을 시작했을 때는 **69 / 89**였다. 그 중 4건 —
 `collision_detection/{world,collision_matrix}.{hpp,cpp}` — 을 이 라운드에서
-실제로 감사해 `audited`로 넘겼고, 그래서 지금 값이 73 / 85다. 두 수를 다
+실제로 감사해 `audited`로 넘겼고, 73 / 85가 됐다. D8이
+`planning_interface.hpp`를 포팅하면서 코퍼스가 159로 늘었고 그 행을
+`audited`로 판정해 지금 값이 74 / 85다. 두 수를 다
 적는 이유는 89가 이미 여러 곳에서 인용될 수 있는 값이라서가 아니라, 이
 문서를 만든 라운드가 그 값을 스스로 4만큼 움직였다는 사실이 표 자체에는
 남지 않기 때문이다.
@@ -235,6 +237,7 @@ moveit2 @ ...` 헤더 블록이 하나도 없어서 인용하는 상류 파일�
 | `moveit_core/online_signal_smoothing/src/acceleration_filter.cpp` | audited | `crates/moveit-smoothing/src/acceleration_filter.rs` (`online_signal_smoothing/src/`)  | `crates/moveit-smoothing/src/lib.rs:14` |
 | `moveit_core/online_signal_smoothing/src/butterworth_filter.cpp` | audited | `crates/moveit-smoothing/src/butterworth.rs`, `crates/moveit-smoothing/src/lib.rs` (`online_signal_smoothing/src/`)  | `crates/moveit-smoothing/src/lib.rs:14` |
 | `moveit_core/online_signal_smoothing/src/ruckig_filter.cpp` | audited | `crates/moveit-smoothing/src/ruckig_filter.rs` (`online_signal_smoothing/src/`)  | `crates/moveit-smoothing/src/lib.rs:14` |
+| `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | audited | `crates/moveit-planning/src/planner.rs` (`planning_interface::PlanningContext`, `planning_interface::PlannerManager`)  | `crates/moveit-planning/src/planner.rs:38` |
 | `moveit_core/planning_scene/include/moveit/planning_scene/planning_scene.hpp` | audited | `crates/moveit-scene/src/lib.rs`, `crates/moveit-scene/src/scene.rs` (`planning_scene::PlanningScene`)  | `crates/moveit-scene/src/scene.rs:51` |
 | `moveit_core/planning_scene/src/planning_scene.cpp` | audited | `crates/moveit-scene/src/lib.rs`, `crates/moveit-scene/src/scene.rs`, `ros/moveit-ros/src/scene/attached.rs`, `ros/moveit-ros/src/scene/collision_object.rs`, `ros/moveit-ros/src/scene/planning_scene.rs` (`planning_scene::PlanningScene`)  | `crates/moveit-scene/src/scene.rs:51` |
 | `moveit_core/robot_model/include/moveit/robot_model/aabb.hpp` | none | `crates/moveit-model/src/aabb.rs` | — |

@@ -592,10 +592,15 @@ merges. All eight are renumbering, not loss, and each was checked by content
 rather than by number: `24.5` is today's `§36.5` ("남는 것"), `31.4` is
 `§35.4` ("게이트"), `174.1` is `§176.1` ("경계"), and the three separate
 branches that each numbered a subsection `226.5` have theirs at `§227.5`,
-`§228.5` and `§238.5`. So extending the rule one level down would fire on
+`§228.5` and `§238.5`. So extending *that* rule one level down would fire on
 renumbering -- a routine merge operation, eight times in this history -- and
-would need a second declaration for it. Not built here; a silent removal at
-sub-section granularity is currently detected by nothing.
+would need a second declaration for it.
+
+Closed since, from the other direction. `tools/ci/check-document-sections.sh`
+covers every depth in every tracked document, and it does not need a second
+declaration for renumbering because it never treats a renumber as a removal:
+a section whose body survives in a section the same commit added is a rename,
+whatever its heading or number now says. See the closing subsection below.
 
 ### Does the same family reach the other append-only documents?
 
@@ -711,5 +716,127 @@ So: the family reaches 62 of the 68 documents, one of them
 (`doc/upstream-bugs.md`) has a key stable enough for the two layers today and a
 measured zero false-positive rate over its whole history, and the rest need a
 stable per-block identity before any such rule can be written -- a slug, or a
-number, or anything but the prose of the heading. Neither the rule for
-`doc/upstream-bugs.md` nor a key for the other 61 is built here.
+number, or anything but the prose of the heading.
+
+#### What closed it: the key comes from structure, and the noise came from stale parents
+
+`tools/ci/check-document-sections.sh`. Two answers, one to each half of the
+problem above.
+
+The key is never prose when the document offers anything better: a leading
+number (`## 12.`, `## §141`, `### §250.2`) first, then a leading backticked
+slug -- which is exactly `doc/upstream-bugs.md`'s stable key, picked up by the
+same rule rather than by a per-document case -- and heading text only when
+neither exists, where the body test carries it alone. That is what the table
+above says is needed, derived from the document's own structure instead of
+listed per document.
+
+The other half was not visible from that table. Replaying five candidate
+shapes over all 2590 commits, against every parent of every commit:
+
+| shape | fires | verdict |
+|---|---|---|
+| positional deletion hunks >= 20 lines | 99 runs / 64 merges | a reordered Index table reads as a 59-line loss |
+| content in a parent and nowhere in the child, >= 20 lines | 77 runs / 46 merges | a stale branch tip reads as a loss |
+| the three-way form of that, >= 30 lines | 36 runs / 28 merges | the incident's own shape, and still cannot separate a rewrite from a deletion |
+| heading text alone | 271 losses / 178 commits / 16 documents | renames |
+| heading text and body together | 167 / 119 commits | mostly one removal recharged to every later merge |
+| **structural key and body together** | 110 / 77 commits | the same rule, keyed on number or slug |
+| **and attributed only when every parent had it** | **18 / 16 commits** | shipped |
+
+The last row is the one that made it usable, and it is not a threshold: a
+removal is charged to a commit only when *every* parent that has the document
+still had the section. A merge whose other parent is an old tip is then not
+recharged for a deletion that already happened, and the commit that did the
+deleting is named instead -- which still reddens the gate at the merge, since
+that commit becomes reachable there. A resolution that drops a section neither
+parent dropped is the case where the merge itself is charged, by the same
+clause, with nothing special-cased.
+
+One more clause came out of testing it rather than out of the history.
+Deleting the last section from all 70 documents at once caught 59 of the 60
+that had one; the miss was `doc/assertion-discrimination-ledger-p9-ros.md`,
+which carries `### Totals` three times, so removing one left the key present.
+Four other documents share a key the same way (`## 172` twice in both
+`doc/claim-audit/moveit-planners-stomp.md` and
+`doc/claim-audit/moveit-stomp-core.md`, `### Result` twice in the
+p1-robotmodel ledger, `## §119` twice here). The key must therefore survive as
+many *times* as the parent had it, not merely at all -- instances pair
+parent-to-child by body overlap and the surplus goes to the rename test. That
+sweep is 60 of 60 now, the other 10 documents carry no `##` heading at all, and
+the history walk still finds the same 18.
+
+All 18 are real removals and all 18 are declared in that script's commit
+message, read against their own commits first. There is no baseline commit:
+a baseline is a one-line edit that silences every removal before it, where a
+declaration silences one.
+
+`tools/ci/check-document-sections-discriminates.sh` asserts the discrimination
+rather than leaving it to the gate's green line -- 19 scenarios in orphan
+repositories, including the two-sided merge itself. Every guard was
+neutralized against it in turn and all 13 neutralizations are caught; two take
+down a family rather than one scenario (turning off the rename test reddens
+both `prose_rename` and `renumber`; keying on prose reddens `number_key` and
+also the two scenarios whose declarations stop matching), which that script's
+header records.
+
+## The anchor form `check-citation-drift.py` cannot read
+
+Reported by p9-ros and verified here against the script as it stands. One
+regex decides whether a citation gets checked for anything beyond its line
+number:
+
+```python
+IDENT_IN_BACKTICKS_RE = re.compile(r"`([a-z][a-z0-9_]{3,})`")
+```
+
+Both backticks are in the pattern, so the *whole* backtick-quoted span has to
+be one lowercase-starting `[a-z0-9_]` identifier and nothing else. p9-ros
+named the shape as a qualified or trait-impl anchor -- `` `Type::method` ``,
+`` `<Type as Trait>::method` `` -- which is right, but the rule underneath is
+wider than the uppercase and the angle brackets. Any character inside the
+backticks outside `[a-z0-9_]` defeats it. Run against the current script:
+
+| written as | anchors? |
+|---|---|
+| `` `try_from` `` | yes |
+| `` `TryFrom<PlanningRequestMsg>::try_from` `` | no |
+| `` `PlanningRequest::try_from` `` | no |
+| `` `<PlanningRequestMsg as TryFrom>::try_from` `` | no |
+| `` `Self::try_from` `` | no |
+| `` `msg::try_from` `` -- all lowercase, still a path | no |
+| `` `try_from()` `` -- the call form | no |
+
+`FOLLOWING_ANCHOR_RE`, the other way in (`` `path:NNN` (`fn_name`) ``), carries
+the same `[a-z][a-z0-9_]{3,}` body inside its parentheses, so it rejects every
+row of that table too. A citation with no readable anchor is not failed; it
+falls to `unanchored`, which is bounds-checked only -- the line number has to
+stay inside the file and nothing else is asked. That is the bucket the
+orchestrator measured at 45% of all citations, where a +7-line shift is caught
+in 2 cases out of 8.
+
+What it costs today, over the 2125 lines in tracked `.md` that carry an
+`x.rs:NNN` citation: 60 of them name their function only in `Type::method`
+form with no bare identifier anywhere on the line, spread over 16 documents.
+Resolving each qualified tail against the file the line cites: 24 have a bare
+tail that really is a `fn` there and would anchor-verify if written bare, 35
+name a C++ symbol or a type (`std::ostream`, `boost::trim`, `Path::create`
+where the `.rs` has no such `fn`) which the script's `name not in spans` test
+would drop anyway, and 1 cites a file no tracked `.rs` basename matches. So
+24 is the floor on citations demoted purely by how the anchor is spelled --
+a floor and not a count, because the tight rule reads only a backward window
+`line[window_start:match_start]`, so a line whose bare identifier sits after
+its citation was excluded from the 60 without being anchored in practice.
+
+The 24 span `PORTING-PLAN.md`, four discrimination ledgers, five claim audits,
+`doc/port-coverage.md`, `doc/upstream-bugs.md` and
+`ros/moveit-ros/doc/message-mapping.md`; `Path::create` and `Trajectory::create`
+in `doc/claim-audit/moveit-trajectory.md` and `ChainInfo::build` in the
+p1-fixtures ledger are each written that way four or more times, so this is a
+house style rather than a slip.
+
+Until the gate reads the qualified form, a citation that wants to be checked
+writes the bare identifier somewhere before it on the line, or uses the
+following-anchor form `` `path:NNN` (`fn_name`) ``. Writing the receiver as
+prose and the method in backticks -- `RobotState`'s `` `update` `` -- also
+anchors, and keeps the type visible to the reader.

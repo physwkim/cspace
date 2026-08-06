@@ -97,6 +97,10 @@
 # citation with no preceding path on its line is skipped, not attached to
 # whatever came before on some earlier line.
 #
+# A HISTORICAL citation, `` `oracle.cpp@c0838b4^:4752` ``, is none of the
+# above and goes through step 1 and step 2 only, with step 2 run against the
+# named revision rather than against HEAD. See `HIST_REV`.
+#
 # Corpus: tracked `.md` AND `.rs` files. The `.rs` files carry these
 # citations in module and item doc comments in the same grammar the `.md`
 # files use, and nothing else reads them.
@@ -357,6 +361,28 @@ def symbol_spans(text, allow_decls):
 
 CXX_EXT = "cpp|hpp|h|cc|cxx"
 SPEC = r"\d+(?:-\d+)?(?:[,·]\d+(?:-\d+)?)*"
+# The revision half of a HISTORICAL citation, `<path>@<rev>:<spec>`.
+#
+# Some line numbers in this corpus are not claims about the file today and must
+# not be re-pointed at it. `PORTING-PLAN.md` §138.3 records a defect by citing
+# the two lines that carried it, and the fix it reports DELETED both; pointing
+# them at today's file erases the finding the paragraph exists to make. Writing
+# them as bare `<path>:<line>` is worse still -- that is a live claim, false by
+# construction, and every gate here would either fail it or (as happened for
+# years) never resolve the path and report nothing.
+#
+# So the revision moves INSIDE the token, between the extension and the colon.
+# That placement is what makes the shape unambiguous rather than merely
+# unrecognised: no `<path>:<line>` grammar can match it by accident, and the
+# number is checked -- against `git show <rev>:<path>` in the checkout the path
+# resolved into, not against HEAD. Bounds only: the content at that revision is
+# what the citing sentence quotes, and this script does not parse a historical
+# blob for symbol spans.
+#
+# The path must still resolve TODAY, which is deliberate: a historical citation
+# into a file that has since been renamed or deleted stops resolving and has to
+# be rewritten, rather than sitting on a path nothing can find.
+HIST_REV = r"[0-9a-f]{7,40}\^{0,3}"
 # One alternation, scanned in positional order, because a bare `` `:NNN` ``
 # means "the same file as the last one named on this line" and getting that
 # wrong invents drift that is not there. Every token that can name a file has
@@ -381,8 +407,15 @@ SPEC = r"\d+(?:-\d+)?(?:[,·]\d+(?:-\d+)?)*"
 #                                             upstream headers live under
 #                                             `include/`, sources under `src/`.
 #   BARE  `:2490`                          -- inherits whatever came last
+#   HIST  `oracle.cpp@c0838b4^:4752`       -- a line number that was true at a
+#                                             NAMED REVISION and is not a claim
+#                                             about the file today. See
+#                                             HIST_REV below for why this shape
+#                                             exists and what it is checked
+#                                             against.
 TOKEN_RE = re.compile(
-    rf"`(?P<path>(?:[\w./-]+/)?[\w.+-]+\.(?:{CXX_EXT})):(?P<pspec>{SPEC})`"
+    rf"`(?P<hist>(?:[\w./-]+/)?[\w.+-]+\.(?:{CXX_EXT}))@(?P<hrev>{HIST_REV}):(?P<hspec>{SPEC})`"
+    rf"|`(?P<path>(?:[\w./-]+/)?[\w.+-]+\.(?:{CXX_EXT})):(?P<pspec>{SPEC})`"
     rf"|`(?P<rs>(?:[\w./-]+/)?[\w.+-]+\.rs):(?:{SPEC})`"
     rf"|`(?P<rebase>{CXX_EXT}):(?P<rspec>{SPEC})`"
     rf"|`:(?P<bare>{SPEC})`"
@@ -416,6 +449,69 @@ TIGHT_GAP_RE = re.compile(r"^[\s(,:;/·—–\-'’\"]*$")
 # called drift rather than a deliberate sub-region. See `part_verdict`.
 BRACE_SLACK = 5
 
+# ------------------------------------------------- content verification (rule 4)
+#
+# The third class, ranked between span-verified and bounds-only: the citing
+# text's OWN backticked quotation of the code is at the cited line. This is
+# `check-citation-drift.py`'s rule 4, ported rather than reinvented, because a
+# second dialect of "what counts as a quotation" would make the two gates
+# disagree about the same sentence.
+#
+# It exists because bounds-only is silence. §287.8 measured that directly: a
+# 57-line insertion in `oracle.cpp` invalidated five citations, and the four
+# that were bounds-only resolved, passed, and pointed at the wrong code --
+# `oracle.cpp:7035-7040` landed mid doc-comment and the gate said OK. Anchoring
+# is the only remedy this script had, and anchoring a sentence that does not
+# name its symbol means rewriting the sentence to suit the gate. A quotation
+# that is ALREADY in the sentence needs no rewrite at all.
+#
+# The constants are the sibling's, unchanged, and C++ needs no additions to
+# them: every delimiter Rust reaches for here (`::`, `->`, `..`, `&`, `(`, `[`,
+# `=`, `!`, `"`, `/`, `.`, `_`) is also a C++ delimiter, and the two that are
+# idiomatically Rust (`..`, `->`) are harmless rather than wrong. The one
+# C++ shape the borrowed floor under-serves is a bare template or type name --
+# `` `CollisionRequest` `` carries no delimiter and does not qualify -- which is
+# the same treatment Rust's `` `revolute` `` gets, and for the same reason: a
+# single undelimited word lands somewhere in a 7000-line file by accident and
+# would verify a citation against nothing.
+# The three ranked classes, and the file that freezes which one each citation
+# got. Without the freeze this whole section would be decoration: content
+# verification can only ever say YES, so a citation that stops being
+# content-verified just becomes bounds-only, both pass, and the run's visible
+# change is two totals moving by one. That is the exact silence
+# `check-citation-drift.py`'s own header describes, and it is why that gate
+# carries `doc/citation-classes.txt`. This is the same mechanism for the same
+# reason, over the upstream half of the corpus.
+#
+# HISTORICAL `path@rev:NNN` citations are recorded here too, classified against
+# the blob at their own pinned revision. An earlier version left them out on the
+# reasoning that nothing about HEAD can move a pinned citation, so the rows
+# could not change. That is true and beside the point: what moves is the PIN.
+# Re-pinning `oracle.cpp@3241bbab:6584` to a revision whose file merely happens
+# to be long enough was measured to pass in silence -- in bounds, so no
+# `unreadable-historical`, and outside the baseline, so no demotion either. The
+# rows are what make a re-pin fail. Both halves were measured: re-pinning that
+# citation retires its key and arrives undeclared (1 + 1 failures), and editing
+# the quotation out of the citing sentence while leaving the pin alone demotes
+# it content-verified -> bounds-only (1 failure).
+SPAN_VERIFIED = "span-verified"
+CONTENT_VERIFIED = "content-verified"
+BOUNDS_ONLY = "bounds-only"
+CLASS_RANK = {SPAN_VERIFIED: 3, CONTENT_VERIFIED: 2, BOUNDS_ONLY: 1}
+UPSTREAM_CLASS_BASELINE = "doc/upstream-citation-classes.txt"
+BASELINE_ROW_RE = re.compile(r"^([^\t]+)\t([^\t]+)\t(.+)$")
+MIN_QUOTATION = 8
+QUOTATION_DELIMS = ("(", ")", "::", "!", "=", "..", "->", "[", "]", '"', "&", ".", "/", "_")
+BACKTICK_SPAN_RE = re.compile(r"`([^`\n]+)`")
+# A quotation cannot itself be a citation or a bare path -- a pointer at code is
+# not a quotation of it. Any extension, not just the C++ ones: an upstream
+# citation sits next to a port citation constantly in these documents.
+ANY_CITATION_RE = re.compile(r"^[\w./-]+\.\w+(?:@[0-9a-f]{7,40}\^{0,3})?:\d+(?:[-,·]\d+)*$")
+BARE_PATH_RE = re.compile(r"^[\w./-]+\.\w+$")
+# Markdown escapes a cell-splitting `|` inside a table; the source being quoted
+# has the bare operator.
+MD_ESCAPES = (("\\|", "|"), ("\\*", "*"), ("\\_", "_"), ("\\<", "<"), ("\\`", "`"))
+
 
 def parse_parts(spec):
     """`2451-2490,2517` -> [(2451, 2490), (2517, 2517)]. Each comma-separated
@@ -429,6 +525,125 @@ def parse_parts(spec):
         else:
             parts.append((int(chunk), int(chunk)))
     return parts
+
+
+def citing_context(doc_lines, index):
+    """The text a citation's claim is made in, 0-based `index` being its own
+    line. `check-citation-drift.py`'s rule, unchanged: a table row is its own
+    context, because a neighbouring row is a different claim about a different
+    site; prose is the whole blank-line-delimited paragraph, because these
+    documents wrap at ~72 columns and a citation's subject lands on the line
+    above as readily as on its own."""
+    if doc_lines[index].lstrip().startswith("|"):
+        return doc_lines[index]
+    start = index
+    while (
+        start > 0
+        and doc_lines[start - 1].strip()
+        and not doc_lines[start - 1].lstrip().startswith("|")
+    ):
+        start -= 1
+    end = index
+    while (
+        end + 1 < len(doc_lines)
+        and doc_lines[end + 1].strip()
+        and not doc_lines[end + 1].lstrip().startswith("|")
+    ):
+        end += 1
+    return "\n".join(doc_lines[start : end + 1])
+
+
+def quotations_near(context):
+    """Every backtick span in `context` that is a quotation of code rather than
+    a word of prose or a pointer: at least MIN_QUOTATION characters, carrying at
+    least one QUOTATION_DELIMS delimiter, and not itself a citation, a bare
+    path, or a commit SHA.
+
+    `BACKTICK_SPAN_RE` forbids a newline inside the span, so a quotation the
+    document wrapped across two source lines is invisible here. That is the
+    sibling's blind spot and it is kept rather than fixed, because the two gates
+    reading the same sentence differently is worse than either reading it
+    narrowly; the fix belongs in the document, which is where §289 applied it."""
+    out = []
+    for m in BACKTICK_SPAN_RE.finditer(context):
+        token = m.group(1).strip()
+        for escaped, raw in MD_ESCAPES:
+            token = token.replace(escaped, raw)
+        if len(token) < MIN_QUOTATION or HEX_SHA_RE.match(token):
+            continue
+        if ANY_CITATION_RE.match(token) or BARE_PATH_RE.match(token):
+            continue
+        if not any(d in token for d in QUOTATION_DELIMS):
+            continue
+        out.append(token)
+    return out
+
+
+def content_anchor(quotations, file_lines, parts):
+    """The first quotation of the citing text that occurs literally inside one
+    of the lines the citation names, or None.
+
+    Verification only. The inverse -- "this quotation is NOT at the cited
+    line, so the citation is wrong" -- was implemented, measured, and removed:
+    it produced 489 failures on this corpus, and reading them showed the
+    premise is false. A paragraph quotes several things, and the ones that are
+    not the cited line's own text land wherever they happen to occur; cited
+    lines 271-272 with `` `joint_name` `` at 76 is a sentence mentioning an
+    identifier, not drift. Text present elsewhere in a 7000-line file
+    falsifies nothing.
+
+    What DOES make this class fail is the same thing that makes the sibling's
+    fail: the class is written down per citation in UPSTREAM_CLASS_BASELINE,
+    and a citation that drops down the ladder is a demotion. See CLASS_RANK."""
+    for lo, hi in parts:
+        for n in range(lo, min(hi, len(file_lines)) + 1):
+            for token in quotations:
+                if token in file_lines[n - 1]:
+                    return token
+    return None
+
+
+def render_classes(classes):
+    """One tab-separated row per `(document, citation text)`, classes
+    most-checked first. Keyed by the citation's TEXT, not by its line in the
+    citing document, so inserting a paragraph above it is not a diff; the
+    citation's own line NUMBER changing is what must not be absorbed, and
+    changing it changes the key."""
+    rows = []
+    for (doc, spec), clss in sorted(classes.items()):
+        counted = []
+        for cls in dict.fromkeys(clss):
+            k = clss.count(cls)
+            counted.append(cls if k == 1 else f"{cls}*{k}")
+        rows.append(f"{doc}\t{spec}\t{' '.join(counted)}")
+    return rows
+
+
+def parse_classes(text):
+    """Inverse of `render_classes`. Returns `(map, n_malformed)`; a malformed
+    row is counted rather than skipped, so a format change cannot quietly
+    shrink the baseline to the rows that still happen to parse."""
+    out = {}
+    malformed = 0
+    for line in text.split("\n"):
+        if not line.strip() or line.startswith("#"):
+            continue
+        m = BASELINE_ROW_RE.match(line)
+        if m is None:
+            malformed += 1
+            continue
+        clss = []
+        for tok in m.group(3).split():
+            cls, _, k = tok.partition("*")
+            if cls not in CLASS_RANK or (k and not k.isdigit()):
+                malformed += 1
+                break
+            clss.extend([cls] * (int(k) if k else 1))
+        else:
+            out[(m.group(1), m.group(2))] = sorted(
+                clss, key=lambda c: (-CLASS_RANK.get(c, 0), c)
+            )
+    return out, malformed
 
 
 def path_matches(full_path, want):
@@ -830,7 +1045,8 @@ def upstream_tracked(upstream):
 
 
 def source_index(roots):
-    """{path as this corpus writes it: file on disk} across every pinned root.
+    """`({path as this corpus writes it: file on disk}, {same key: (root, rel)})`
+    across every pinned root.
 
     One namespace, not a primary root plus fallbacks: a fallback resolves
     only what the first root missed, so a basename that exists in both would
@@ -841,8 +1057,15 @@ def source_index(roots):
     cited by their upstream-relative path and carry no prefix; a vendored
     checkout's files are cited as `third_party/<pkg>/...`, which is where
     they sit in this repository, so that is the name they are indexed under.
+    This repository itself is a root with no prefix and no vendored path: its
+    own files are cited by their repo-relative path exactly as they sit here.
+
+    The second map is what a HISTORICAL citation needs -- `git show
+    <rev>:<rel>` has to run in the checkout the path resolved into, and
+    reconstructing that from the on-disk path afterwards would guess at
+    exactly the thing the index already knows.
     """
-    index = {}
+    index, origins = {}, {}
     for prefix, root in roots:
         for rel in upstream_tracked(root):
             key = prefix + rel
@@ -852,7 +1075,24 @@ def source_index(roots):
                     f"win and every citation to it would read as resolved"
                 )
             index[key] = Path(root) / rel
-    return index
+            origins[key] = (Path(root), rel)
+    return index, origins
+
+
+def blob_at(root, rev, rel):
+    """The lines of `rel` at `rev` in the checkout at `root`, or None when that
+    revision does not carry that path. None is a hard failure at the call site,
+    not a skip: a historical citation whose revision cannot be read is a record
+    nobody can check, which is the state this whole shape exists to leave."""
+    out = subprocess.run(
+        ["git", "show", f"{rev}:{rel}"], cwd=root, capture_output=True
+    )
+    if out.returncode != 0:
+        return None
+    body = out.stdout.decode("utf-8", errors="replace").split("\n")
+    if body and body[-1] == "":
+        body.pop()
+    return body
 
 
 def parse_source(arg):
@@ -876,10 +1116,17 @@ def main():
         help="an additional pinned source root, indexed under PREFIX "
         "(repeatable); the wrapper passes one per vendored third_party/ package",
     )
+    ap.add_argument(
+        "--write-classes",
+        action="store_true",
+        help=f"regenerate {UPSTREAM_CLASS_BASELINE} from this run instead of "
+        "checking against it; read the diff, because a demotion accepted there "
+        "is a citation nobody is checking any more",
+    )
     args = ap.parse_args()
     upstream = Path(args.upstream)
 
-    index = source_index([("", upstream)] + args.source)
+    index, origins = source_index([("", upstream)] + args.source)
     upstream_set = set(index)
     by_basename = {}
     for p in index:
@@ -906,9 +1153,41 @@ def main():
             )
         return span_cache[rel]
 
+    blob_cache = {}
+
+    def historical_lines(resolved, rev):
+        root, rel = origins[resolved]
+        if (resolved, rev) not in blob_cache:
+            blob_cache[(resolved, rev)] = blob_at(root, rev, rel)
+        return blob_cache[(resolved, rev)]
+
+    hist_span_cache = {}
+
+    def historical_spans(resolved, rev, hist_lines):
+        if (resolved, rev) not in hist_span_cache:
+            hist_span_cache[(resolved, rev)] = symbol_spans(
+                "\n".join(hist_lines),
+                allow_decls=resolved.endswith((".hpp", ".h", ".hh")),
+            )
+        return hist_span_cache[(resolved, rev)]
+
     exemptions = load_exemptions()
     total = 0
+    historical = 0
+    historical_bad = []
     anchor_verified = 0
+    content_verified = 0
+    # ONE record per classified citation. Every count below is derived from
+    # this list, so a class and the number reporting it cannot drift apart.
+    classes = {}
+
+    def classify(doc, spec, cls):
+        # TOKEN_RE keeps the backticks a citation is written in; the sibling
+        # gate's corpus is uniformly backticked so its key never carries them.
+        # Strip here so both baselines spell a key the same way and the FAIL
+        # message can wrap it in backticks without doubling them.
+        classes.setdefault((doc, spec.strip("`")), []).append(cls)
+
     bounds_only = 0
     bounds_only_why = collections.Counter()
     inherited_checked = 0
@@ -918,11 +1197,102 @@ def main():
     unresolved = {}
     exempted = 0
 
+    def classify_citation(
+        doc, doc_lines, line, line_no, start, end, window_floor, resolved, spec, token,
+        file_lines, spans, parts
+    ):
+        """Put one in-bounds citation on the span / content / bounds ladder.
+
+        One classifier, two callers: a live `path:NNN` runs it against HEAD's
+        file, a historical `path@rev:NNN` against the blob at its own pinned
+        revision. Copying the ladder for the second caller was the alternative,
+        and a copy is what lets the two drift into different dialects of
+        "verified" -- the divergence this whole family of scripts reports on.
+
+        Returns a `span_mismatch` tuple for the caller to record, or `None`
+        when the citation was classified (and already recorded)."""
+        nonlocal anchor_verified, content_verified, bounds_only
+
+        anchors = find_anchors(line, start, end, spans, window_floor)
+        # A comma list enumerates SITES, not a span: the four lines of
+        # `collision_env_hybrid.cpp:49,61,69,169` are three
+        # constructor base-init calls plus one `setWorld` call, and
+        # the name they are all paired with is what they are about.
+        # There is no containment claim to check, so these are
+        # bounds-checked only -- which is what caught
+        # `world.cpp:220,326,650,655` anyway.
+        if not anchors and len(parts) == 1 and parts[0][0] != parts[0][1]:
+            # No symbol anchor, but the SENTENCE asserts the range is a
+            # whole definition. That is a containment claim stated in
+            # words instead of in a name, and it needs no anchor to be
+            # checkable: the range must equal a real span.
+            lo, hi = parts[0]
+            if span_assertion(line, start, end, window_floor):
+                every_span = {(s, e) for v in spans.values() for (s, e, _k) in v}
+                legal = contiguous_run_end(
+                    [(s, e, "") for (s, e) in every_span if s == lo],
+                    lo,
+                    file_lines,
+                    sorted(every_span),
+                )
+                if (lo, hi) not in every_span and hi not in (legal or []):
+                    return (
+                        doc,
+                        line_no,
+                        resolved,
+                        spec,
+                        ["<text asserts a whole definition>"],
+                        [
+                            f"{lo}-{hi}: the text calls this range a whole "
+                            f"definition, but no definition in the file spans "
+                            + (
+                                f"{lo}-{hi} (one starting at {lo} ends at "
+                                f"{'/'.join(map(str, legal[:3]))})"
+                                if legal
+                                else f"{lo}-{hi}, and none starts at {lo}"
+                            )
+                        ],
+                        [(lo, e, "") for e in (legal or [])],
+                    )
+                anchor_verified += 1
+                classify(doc, token, SPAN_VERIFIED)
+                return None
+        if not anchors or len(parts) > 1:
+            # No symbol to check containment against -- but the sentence
+            # may already quote the code, which is a claim about the
+            # cited lines that needs no anchor and no rewrite.
+            if content_anchor(
+                quotations_near(citing_context(doc_lines, line_no - 1)),
+                file_lines,
+                parts,
+            ):
+                content_verified += 1
+                classify(doc, token, CONTENT_VERIFIED)
+                return None
+            bounds_only += 1
+            classify(doc, token, BOUNDS_ONLY)
+            bounds_only_why[
+                why_bounds_only(line, start, end, spans, window_floor, parts, anchors)
+            ] += 1
+            return None
+        span_list = all_spans(spans, anchors)
+        every_span = {(s, e) for v in spans.values() for (s, e, _k) in v}
+        reasons = [
+            f"{lo}-{hi}: {r}" if lo != hi else f"{lo}: {r}"
+            for lo, hi in parts
+            if (r := part_verdict(lo, hi, span_list, file_lines, anchors, every_span))
+            is not None
+        ]
+        if reasons:
+            return (doc, line_no, resolved, spec, anchors, reasons, span_list)
+        anchor_verified += 1
+        classify(doc, token, SPAN_VERIFIED)
+        return None
+
     corpus = [p for p in tracked_files() if p.endswith((".md", ".rs"))]
     for doc in corpus:
-        for line_no, line in enumerate(
-            (REPO_ROOT / doc).read_text(encoding="utf-8", errors="replace").split("\n"), 1
-        ):
+        doc_lines = (REPO_ROOT / doc).read_text(encoding="utf-8", errors="replace").split("\n")
+        for line_no, line in enumerate(doc_lines, 1):
             base = None  # the file a bare `:NNN` on this line would inherit
             prev_end = 0
             for m in TOKEN_RE.finditer(line):
@@ -930,6 +1300,57 @@ def main():
                 window_floor, prev_end = prev_end, end
                 g = m.groupdict()
 
+                if g["hist"] is not None:
+                    # A historical citation lends its file to nothing: a bare
+                    # `:NNN` after it would be a live claim inheriting a
+                    # revision-pinned one, which is the confusion this shape
+                    # exists to remove.
+                    base = None
+                    cands = resolve_path(g["hist"], upstream_set, by_basename)
+                    if len(cands) != 1:
+                        unresolved.setdefault(
+                            g["hist"],
+                            "no upstream file matches" if not cands else f"ambiguous: {cands}",
+                        )
+                        continue
+                    resolved, rev = cands[0], g["hrev"]
+                    hist_lines = historical_lines(resolved, rev)
+                    if hist_lines is None:
+                        historical_bad.append(
+                            (doc, line_no, resolved, rev, g["hspec"], None)
+                        )
+                        continue
+                    oob = [
+                        x
+                        for lo, hi in parse_parts(g["hspec"])
+                        for x in (lo, hi)
+                        if not 1 <= x <= len(hist_lines)
+                    ]
+                    if oob:
+                        historical_bad.append(
+                            (doc, line_no, resolved, rev, g["hspec"], len(hist_lines))
+                        )
+                        continue
+                    # Bounds at the pinned revision is the weakest thing that
+                    # could be said about a citation, and it is the thing this
+                    # script exists to stop calling verification: re-pin a
+                    # citation to any revision whose file is merely long enough
+                    # and an in-bounds number reads as checked. So a historical
+                    # citation goes on the same ladder as a live one, computed
+                    # against its own revision, and lands in the class baseline
+                    # -- where a re-pin retires the old key and a re-pin that
+                    # loses the quotation demotes the class. Both are failures.
+                    historical += 1
+                    total += 1
+                    mismatch = classify_citation(
+                        doc, doc_lines, line, line_no, start, end, window_floor,
+                        f"{resolved}@{rev}", g["hspec"], m.group(0), hist_lines,
+                        historical_spans(resolved, rev, hist_lines),
+                        parse_parts(g["hspec"]),
+                    )
+                    if mismatch is not None:
+                        span_mismatch.append(mismatch)
+                    continue
                 if g["rs"] is not None:
                     base = None
                     continue
@@ -987,71 +1408,12 @@ def main():
                     out_of_bounds.append((doc, line_no, resolved, spec, n_lines))
                     continue
 
-                spans = spans_of(resolved)
-                anchors = find_anchors(line, start, end, spans, window_floor)
-                # A comma list enumerates SITES, not a span: the four lines of
-                # `collision_env_hybrid.cpp:49,61,69,169` are three
-                # constructor base-init calls plus one `setWorld` call, and
-                # the name they are all paired with is what they are about.
-                # There is no containment claim to check, so these are
-                # bounds-checked only -- which is what caught
-                # `world.cpp:220,326,650,655` anyway.
-                if not anchors and len(parts) == 1 and parts[0][0] != parts[0][1]:
-                    # No symbol anchor, but the SENTENCE asserts the range is a
-                    # whole definition. That is a containment claim stated in
-                    # words instead of in a name, and it needs no anchor to be
-                    # checkable: the range must equal a real span.
-                    lo, hi = parts[0]
-                    if span_assertion(line, start, end, window_floor):
-                        every_span = {(s, e) for v in spans.values() for (s, e, _k) in v}
-                        legal = contiguous_run_end(
-                            [(s, e, "") for (s, e) in every_span if s == lo],
-                            lo,
-                            file_lines,
-                            sorted(every_span),
-                        )
-                        if (lo, hi) not in every_span and hi not in (legal or []):
-                            span_mismatch.append(
-                                (
-                                    doc,
-                                    line_no,
-                                    resolved,
-                                    spec,
-                                    ["<text asserts a whole definition>"],
-                                    [
-                                        f"{lo}-{hi}: the text calls this range a whole "
-                                        f"definition, but no definition in the file spans "
-                                        + (
-                                            f"{lo}-{hi} (one starting at {lo} ends at "
-                                            f"{'/'.join(map(str, legal[:3]))})"
-                                            if legal
-                                            else f"{lo}-{hi}, and none starts at {lo}"
-                                        )
-                                    ],
-                                    [(lo, e, "") for e in (legal or [])],
-                                )
-                            )
-                            continue
-                        anchor_verified += 1
-                        continue
-                if not anchors or len(parts) > 1:
-                    bounds_only += 1
-                    bounds_only_why[
-                        why_bounds_only(line, start, end, spans, window_floor, parts, anchors)
-                    ] += 1
-                    continue
-                span_list = all_spans(spans, anchors)
-                every_span = {(s, e) for v in spans.values() for (s, e, _k) in v}
-                reasons = [
-                    f"{lo}-{hi}: {r}" if lo != hi else f"{lo}: {r}"
-                    for lo, hi in parts
-                    if (r := part_verdict(lo, hi, span_list, file_lines, anchors, every_span))
-                    is not None
-                ]
-                if reasons:
-                    span_mismatch.append((doc, line_no, resolved, spec, anchors, reasons, span_list))
-                else:
-                    anchor_verified += 1
+                mismatch = classify_citation(
+                    doc, doc_lines, line, line_no, start, end, window_floor,
+                    resolved, spec, m.group(0), file_lines, spans_of(resolved), parts
+                )
+                if mismatch is not None:
+                    span_mismatch.append(mismatch)
 
     if total == 0:
         print(
@@ -1060,6 +1422,56 @@ def main():
             file=sys.stderr,
         )
         return 1
+
+    live = {k: sorted(v, key=lambda c: (-CLASS_RANK[c], c)) for k, v in classes.items()}
+    if anchor_verified + content_verified + bounds_only != sum(len(v) for v in live.values()):
+        # A classified citation that never reached `classify` would sit outside
+        # the baseline for ever, unwatched, while the totals still looked right.
+        print(
+            f"FAIL {anchor_verified + content_verified + bounds_only} citations were "
+            f"classified but {sum(len(v) for v in live.values())} were recorded -- a "
+            f"classification path does not write its class",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.write_classes:
+        head_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True
+        ).stdout.strip()
+        header = [
+            "# Per-citation verification class for every upstream `path.cpp:NNN`",
+            "# citation in every tracked .md/.rs file. The class says WHAT WAS",
+            "# CHECKED, and the classes are ranked: span-verified (the cited lines",
+            "# are inside the definition of the symbol the citing text names) >",
+            "# content-verified (the citing text's own quotation of the code is at a",
+            "# cited line) > bounds-only (only that the line number is inside the",
+            "# file). Drift moves a citation DOWN that ladder, and without this file",
+            "# a demotion is invisible -- two totals move by one and the run passes.",
+            "#",
+            "# Generated by: tools/ci/verify-upstream-citations.sh --write-classes",
+            f"# Source commit: {head_sha}",
+            f"# Citations: {sum(len(v) for v in live.values())} in {len(live)} distinct "
+            "(document, citation) keys",
+            f"#   span-verified: {anchor_verified}",
+            f"#   content-verified: {content_verified}",
+            f"#   bounds-only: {bounds_only}",
+            "#",
+            "# Historical `path@rev:NNN` citations are not here: they are checked",
+            "# against a pinned revision, so nothing about HEAD can demote them.",
+            "# Citations that FAIL (out-of-bounds, span-mismatch, obsolete-header,",
+            "# unreadable-historical) are not here either -- the run already fails",
+            "# on them, so a row would only offer them a place to be recorded in.",
+            "# Format: <citing document>\\t<citation>\\t<class>[*N] ...",
+        ]
+        (REPO_ROOT / UPSTREAM_CLASS_BASELINE).write_text(
+            "\n".join(header + render_classes(live)) + "\n"
+        )
+        print(
+            f"wrote {UPSTREAM_CLASS_BASELINE}: "
+            f"{sum(len(v) for v in live.values())} citations, {len(live)} keys"
+        )
+        return 0
 
     if out_of_bounds:
         print(f"--- {len(out_of_bounds)} out-of-bounds citation(s) ---", file=sys.stderr)
@@ -1082,6 +1494,23 @@ def main():
                 f"upstream's `.h header is obsolete` forwarding shim -- it holds "
                 f"nothing but a licence block and one `#include`. The code cited "
                 f"is in {hpp or '(no .hpp sibling found)'}",
+                file=sys.stderr,
+            )
+
+    if historical_bad:
+        print(
+            f"--- {len(historical_bad)} unreadable historical citation(s) ---",
+            file=sys.stderr,
+        )
+        for doc, line_no, resolved, rev, spec, n_lines in historical_bad:
+            print(
+                f"FAIL {doc}:{line_no}: cites {resolved}@{rev}:{spec}, but "
+                + (
+                    f"`git show {rev}:{resolved}` does not resolve -- the pinned "
+                    f"revision is unreachable or did not carry that path"
+                    if n_lines is None
+                    else f"that file had only {n_lines} lines at {rev}"
+                ),
                 file=sys.stderr,
             )
 
@@ -1158,33 +1587,132 @@ def main():
                 file=sys.stderr,
             )
 
-    if out_of_bounds or span_mismatch or obsolete_header or undeclared or stale:
+    baseline_path = REPO_ROOT / UPSTREAM_CLASS_BASELINE
+    if not baseline_path.exists():
+        print(
+            f"FAIL {UPSTREAM_CLASS_BASELINE} is missing -- every citation's class is "
+            f"unchecked, so a content-verified citation can silently become "
+            f"bounds-only. Regenerate it with --write-classes.",
+            file=sys.stderr,
+        )
+        return 1
+    baseline, malformed = parse_classes(baseline_path.read_text(encoding="utf-8"))
+    if malformed:
+        print(
+            f"FAIL {UPSTREAM_CLASS_BASELINE} parsed {len(baseline)} rows and "
+            f"{malformed} malformed one(s) -- a baseline that half-parses vouches "
+            f"for the half it read",
+            file=sys.stderr,
+        )
+        return 1
+
+    def rank(cs):
+        return sorted((CLASS_RANK[c] for c in cs), reverse=True)
+
+    demoted, promoted, recounted = [], [], []
+    for key in sorted(set(live) & set(baseline)):
+        was, now = baseline[key], live[key]
+        if was == now:
+            continue
+        if len(was) != len(now):
+            recounted.append((key, was, now))
+        elif rank(now) < rank(was):
+            demoted.append((key, was, now))
+        else:
+            promoted.append((key, was, now))
+    undeclared_cls = sorted(set(live) - set(baseline))
+    retired_cls = sorted(set(baseline) - set(live))
+
+    print(
+        f"--- {len(demoted)} demoted, {len(recounted)} recounted, "
+        f"{len(undeclared_cls)} undeclared, {len(retired_cls)} retired, "
+        f"{len(promoted)} promoted vs {UPSTREAM_CLASS_BASELINE} ---",
+        file=sys.stderr,
+    )
+    for (doc, spec), was, now in demoted:
+        print(
+            f"FAIL {doc}: `{spec}` was {' '.join(was)}, now {' '.join(now)} -- the "
+            f"citation dropped down the ladder; nothing is checked about it now "
+            f"that was checked before, which is what drift looks like from here",
+            file=sys.stderr,
+        )
+    for (doc, spec), was, now in recounted:
+        print(
+            f"FAIL {doc}: `{spec}` occurred {len(was)}x ({' '.join(was)}), now "
+            f"{len(now)}x ({' '.join(now)}) -- the document gained or lost an "
+            f"occurrence of this exact citation",
+            file=sys.stderr,
+        )
+    for doc, spec in undeclared_cls:
+        print(
+            f"FAIL {doc}: `{spec}` ({' '.join(live[(doc, spec)])}) is not in "
+            f"{UPSTREAM_CLASS_BASELINE} -- a citation whose line number changed "
+            f"retires its old key and arrives as a new one, so an undeclared "
+            f"citation is how a shift shows up",
+            file=sys.stderr,
+        )
+    for doc, spec in retired_cls:
+        print(
+            f"FAIL {doc}: `{spec}` ({' '.join(baseline[(doc, spec)])}) is in "
+            f"{UPSTREAM_CLASS_BASELINE} but no longer in the document",
+            file=sys.stderr,
+        )
+    class_drift = bool(demoted or recounted or undeclared_cls or retired_cls)
+    if class_drift:
+        print(
+            f"FAIL regenerate with tools/ci/verify-upstream-citations.sh "
+            f"--write-classes and read the diff: a demotion accepted there is a "
+            f"citation nobody is checking any more",
+            file=sys.stderr,
+        )
+
+    if (
+        out_of_bounds
+        or span_mismatch
+        or obsolete_header
+        or undeclared
+        or stale
+        or historical_bad
+        or class_drift
+    ):
         print(
             f"FAIL {len(out_of_bounds)} out-of-bounds + {len(obsolete_header)} "
             f"obsolete-header + {len(span_mismatch)} span-mismatch + "
             f"{len(undeclared)} undeclared-unresolvable + {len(stale)} "
-            f"stale-declaration (of {total} upstream citations resolved across "
+            f"stale-declaration + {len(historical_bad)} unreadable-historical + "
+            f"{len(demoted)} demoted + {len(recounted)} recounted + "
+            f"{len(undeclared_cls)} undeclared-class + {len(retired_cls)} retired-class "
+            f"(of {total} upstream citations resolved across "
             f"{len(corpus)} tracked .md/.rs files)",
             file=sys.stderr,
         )
         return 1
 
+    # An empty prefix is this repository indexing itself; naming it by the
+    # prefix would print an empty string, which reads as a root that failed to
+    # load rather than as the one whose files are cited by repo-relative path.
     roots = f"{upstream}" + (
-        f" + {len(args.source)} vendored root(s) "
-        f"({', '.join(p.rstrip('/') for p, _ in args.source)})"
+        f" + {len(args.source)} extra root(s) "
+        f"({', '.join(p.rstrip('/') or str(root) for p, root in args.source)})"
         if args.source
-        else " (no vendored root passed)"
+        else " (no extra root passed)"
     )
     print(
         f"OK {total} upstream citations across {len(corpus)} tracked .md/.rs files "
         f"against {roots}: {anchor_verified} span-verified (cited lines inside "
-        f"the named symbol's definition), {bounds_only} bounds-checked only (no "
-        f"tightly-paired symbol with a definition span), {exempted} exempted "
+        f"the named symbol's definition), {content_verified} content-verified "
+        f"(the citing text's own quotation of the code is at a cited line), "
+        f"{bounds_only} bounds-checked only (no "
+        f"tightly-paired symbol with a definition span, and no quotation "
+        f"either), {exempted} exempted "
         f"(tools/ci/upstream-citation-exemptions.json), {inherited_checked} of the "
         f"total reached through a bare `:NNN` continuation, {len(unresolved)} "
         f"distinct unresolvable paths all declared in "
         f"{EXEMPTIONS_PATH.name} (reported above, and unverified -- a "
         f"declaration says no tree covers them, not that they are right), "
+        f"{historical} of the total are historical `path@rev:NNN` citation(s), "
+        f"put on the same ladder against their own pinned revision instead of "
+        f"against HEAD, "
         f"0 out-of-bounds, 0 obsolete-header, 0 span-mismatch"
     )
     return 0

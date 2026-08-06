@@ -1,19 +1,12 @@
 {
-  "measured_at": "2026-08-05T23:16:24Z",
-  "commit": "a7d1b9a0fd2f35231188625ad9a482fb69577a21",
-  "working_tree_dirty": true,
-  "dirty_paths": [
-    " M Cargo.lock",
-    " M crates/moveit-planners-chomp/Cargo.toml",
-    " M crates/moveit-planners-stomp/Cargo.toml",
-    "?? crates/moveit-planners-chomp/examples/",
-    "?? crates/moveit-planners-stomp/examples/",
-    "?? tools/ci/measure-phase8-optimizer-properties.sh"
-  ],
+  "measured_at": "2026-08-06T16:18:49Z",
+  "commit": "e4a71c988e48c2882c48da973487652e2c34d657",
+  "working_tree_dirty": false,
+  "dirty_paths": [],
   "measured_sources": {
-    "tools/ci/verify-phase7-benchmark.sh": "caeec6d0419b628c2a5a146f4667182d16435329",
+    "tools/ci/verify-phase7-benchmark.sh": "f3cb8e7b50729abaef3f5697d9be55c89a76913b",
     "crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs": "75598af6307c86cc0b65329d6480c290726ea555",
-    "crates/moveit-planners-sbp/examples/plan_benchmark_port.rs": "d908a299fcafbe980c8af224d489c60f82087c7f"
+    "crates/moveit-planners-sbp/examples/plan_benchmark_port.rs": "7ba9eb121e75ffa35f1ebfe25127b4ab58be4742"
   },
   "mode": "full",
   "gate": {
@@ -26,18 +19,18 @@
     "port_failures": 3,
     "condition2_checked": 497,
     "condition2_pass": 497,
-    "waypoints_checked": 168340,
-    "raw_waypoints": 31497,
+    "waypoints_checked": 168586,
+    "raw_waypoints": 31503,
     "max_endpoint_gap": 0.0,
     "cpp_max_endpoint_gap": 0,
-    "slowest_seconds": 20.190780559,
+    "slowest_seconds": 13.995792828999999,
     "cpp_median_length": 2.6642661353453647,
-    "port_median_length": 2.6698401424773417,
+    "port_median_length": 2.6534479453450195,
     "cpp_median_length_pooled": 2.6597767032746464,
-    "port_median_length_pooled": 2.668003737362192,
+    "port_median_length_pooled": 2.653717928871305,
     "paired_problems_pooled": 496,
     "cpp_paired_median_pooled": 2.654464899995115,
-    "port_paired_median_pooled": 2.666819298968239,
+    "port_paired_median_pooled": 2.653516783760235,
     "feasible_witnessed": 500,
     "feasibility_unknown": 0
   },
@@ -51,18 +44,18 @@
     "port_failures": 95,
     "condition2_checked": 405,
     "condition2_pass": 405,
-    "waypoints_checked": 52983,
-    "raw_waypoints": 10285,
+    "waypoints_checked": 52623,
+    "raw_waypoints": 10265,
     "max_endpoint_gap": 0.0,
     "cpp_max_endpoint_gap": 0,
-    "slowest_seconds": 60.964824006,
+    "slowest_seconds": 44.243191838,
     "cpp_median_length": 1.8682404083563018,
-    "port_median_length": 1.8556940608849652,
+    "port_median_length": 1.8547068070637471,
     "cpp_median_length_pooled": 1.873377471827347,
-    "port_median_length_pooled": 1.8928516465801457,
+    "port_median_length_pooled": 1.853655640220872,
     "paired_problems_pooled": 405,
     "cpp_paired_median_pooled": 1.8716659738120327,
-    "port_paired_median_pooled": 1.8928516465801457,
+    "port_paired_median_pooled": 1.853655640220872,
     "feasible_witnessed": 406,
     "feasibility_unknown": 94
   },
@@ -84,18 +77,18 @@
       "port_timeouts": 0,
       "port_failures": 1,
       "port_rate": 0.996,
-      "port_median_length": 2.5652908191002353,
+      "port_median_length": 2.58161237291674,
       "paired_problems": 249,
       "cpp_paired_median": 2.5699962580562348,
-      "port_paired_median": 2.5652908191002353,
+      "port_paired_median": 2.58161237291674,
       "condition2_checked": 249,
       "condition2_pass": 249,
-      "waypoints_checked": 85824,
-      "raw_waypoints": 16036,
+      "waypoints_checked": 85686,
+      "raw_waypoints": 16018,
       "max_endpoint_gap": 0.0,
-      "cpu_seconds": 609.9081533769998,
-      "slowest_seconds": 17.476659137,
-      "slowest_problem_id": 189
+      "cpu_seconds": 451.9197624280002,
+      "slowest_seconds": 13.995792828999999,
+      "slowest_problem_id": 77
     },
     {
       "tag": "panda_cage",
@@ -114,17 +107,17 @@
       "port_timeouts": 0,
       "port_failures": 2,
       "port_rate": 0.992,
-      "port_median_length": 2.7743894658544486,
+      "port_median_length": 2.725283517773299,
       "paired_problems": 247,
       "cpp_paired_median": 2.747889355996495,
-      "port_paired_median": 2.7723625943325954,
+      "port_paired_median": 2.713805636330128,
       "condition2_checked": 248,
       "condition2_pass": 248,
-      "waypoints_checked": 82516,
-      "raw_waypoints": 15461,
+      "waypoints_checked": 82900,
+      "raw_waypoints": 15485,
       "max_endpoint_gap": 0.0,
-      "cpu_seconds": 557.7242635889997,
-      "slowest_seconds": 20.190780559,
+      "cpu_seconds": 426.56637295800016,
+      "slowest_seconds": 12.143757682,
       "slowest_problem_id": 129
     },
     {
@@ -144,18 +137,18 @@
       "port_timeouts": 0,
       "port_failures": 45,
       "port_rate": 0.82,
-      "port_median_length": 1.8987190553332907,
+      "port_median_length": 1.8960133598130968,
       "paired_problems": 205,
       "cpp_paired_median": 1.9114221405236582,
-      "port_paired_median": 1.8987190553332907,
+      "port_paired_median": 1.8960133598130968,
       "condition2_checked": 205,
       "condition2_pass": 205,
-      "waypoints_checked": 27847,
-      "raw_waypoints": 5387,
+      "waypoints_checked": 27704,
+      "raw_waypoints": 5399,
       "max_endpoint_gap": 0.0,
-      "cpu_seconds": 2499.2300334199977,
-      "slowest_seconds": 60.723639164,
-      "slowest_problem_id": 130
+      "cpu_seconds": 1744.865754494,
+      "slowest_seconds": 41.649699568,
+      "slowest_problem_id": 6
     },
     {
       "tag": "fanuc_cage",
@@ -174,21 +167,21 @@
       "port_timeouts": 0,
       "port_failures": 50,
       "port_rate": 0.8,
-      "port_median_length": 1.8126690664366398,
+      "port_median_length": 1.8134002543143977,
       "paired_problems": 200,
       "cpp_paired_median": 1.8222527747553507,
-      "port_paired_median": 1.8126690664366398,
+      "port_paired_median": 1.8134002543143977,
       "condition2_checked": 200,
       "condition2_pass": 200,
-      "waypoints_checked": 25136,
-      "raw_waypoints": 4898,
+      "waypoints_checked": 24919,
+      "raw_waypoints": 4866,
       "max_endpoint_gap": 0.0,
-      "cpu_seconds": 2732.7373913239994,
-      "slowest_seconds": 60.964824006,
-      "slowest_problem_id": 99
+      "cpu_seconds": 1965.4212386459994,
+      "slowest_seconds": 44.243191838,
+      "slowest_problem_id": 7
     }
   ],
-  "parallel_wall_clock_seconds": 865.528578632,
+  "parallel_wall_clock_seconds": 644.256158144,
   "feasibility": [
     {
       "tag": "panda_floor_wall",
@@ -224,15 +217,15 @@
     "solved": 250,
     "timeouts": 0,
     "failures": 0,
-    "median_length": 2.119126199130924,
+    "median_length": 2.1290222188088466,
     "condition2_checked": 250,
     "condition2_pass": 250,
-    "waypoints_checked": 67820,
-    "raw_waypoints": 12733,
+    "waypoints_checked": 68182,
+    "raw_waypoints": 12763,
     "max_endpoint_gap": 0.0,
-    "cpu_seconds": 269.43031112399996,
-    "slowest_seconds": 9.010676154,
-    "slowest_problem_id": 190,
+    "cpu_seconds": 250.6493347600001,
+    "slowest_seconds": 8.254662899,
+    "slowest_problem_id": 229,
     "joint_constraint": "panda_joint1:0.0:0.5"
   },
   "regression_pins": {
@@ -259,7 +252,7 @@
     },
     {
       "name": "panda(gate)/condition2",
-      "detail": "497/497 paths valid, 168340 waypoints checked",
+      "detail": "497/497 paths valid, 168586 waypoints checked",
       "ok": true
     },
     {
@@ -269,7 +262,7 @@
     },
     {
       "name": "panda(gate)/condition2-densified",
-      "detail": "168340 checked from 31497 returned",
+      "detail": "168586 checked from 31503 returned",
       "ok": true
     },
     {
@@ -284,17 +277,17 @@
     },
     {
       "name": "panda(gate)/no-timeouts",
-      "detail": "0 timeouts, slowest call 20.191s of the 120s budget",
+      "detail": "0 timeouts, slowest call 13.996s of the 120s budget",
       "ok": true
     },
     {
       "name": "panda(gate)/condition3-pooled",
-      "detail": "2.668003737362192 vs limit 3.4577097142570405 (ratio 1.003x)",
+      "detail": "2.653717928871305 vs limit 3.4577097142570405 (ratio 0.998x)",
       "ok": true
     },
     {
       "name": "panda(gate)/condition3-paired",
-      "detail": "over 496 problems both sides solved: 2.666819298968239 vs limit 3.4508043699936493 (ratio 1.005x)",
+      "detail": "over 496 problems both sides solved: 2.653516783760235 vs limit 3.4508043699936493 (ratio 1x)",
       "ok": true
     },
     {
@@ -314,7 +307,7 @@
     },
     {
       "name": "panda(gate)/no-regression-median-ratio",
-      "detail": "pooled ratio 1.003x within [0.90, 1.10]",
+      "detail": "pooled ratio 0.998x within [0.90, 1.10]",
       "ok": true
     },
     {
@@ -324,7 +317,7 @@
     },
     {
       "name": "fanuc/condition2",
-      "detail": "405/405 paths valid, 52983 waypoints checked",
+      "detail": "405/405 paths valid, 52623 waypoints checked",
       "ok": true
     },
     {
@@ -334,7 +327,7 @@
     },
     {
       "name": "fanuc/condition2-densified",
-      "detail": "52983 checked from 10285 returned",
+      "detail": "52623 checked from 10265 returned",
       "ok": true
     },
     {
@@ -349,17 +342,17 @@
     },
     {
       "name": "fanuc/no-timeouts",
-      "detail": "0 timeouts, slowest call 60.965s of the 120s budget",
+      "detail": "0 timeouts, slowest call 44.243s of the 120s budget",
       "ok": true
     },
     {
       "name": "fanuc/condition3-pooled",
-      "detail": "1.8928516465801457 vs limit 2.435390713375551 (ratio 1.01x)",
+      "detail": "1.853655640220872 vs limit 2.435390713375551 (ratio 0.989x)",
       "ok": true
     },
     {
       "name": "fanuc/condition3-paired",
-      "detail": "over 405 problems both sides solved: 1.8928516465801457 vs limit 2.4331657659556427 (ratio 1.011x)",
+      "detail": "over 405 problems both sides solved: 1.853655640220872 vs limit 2.4331657659556427 (ratio 0.99x)",
       "ok": true
     },
     {
@@ -379,7 +372,7 @@
     },
     {
       "name": "fanuc/no-regression-median-ratio",
-      "detail": "pooled ratio 1.01x within [0.90, 1.10]",
+      "detail": "pooled ratio 0.989x within [0.90, 1.10]",
       "ok": true
     },
     {
@@ -389,7 +382,7 @@
     },
     {
       "name": "panda_floor_wall/condition3",
-      "detail": "2.5652908191002353 vs limit 3.347278633407412 (ratio 0.996x)",
+      "detail": "2.58161237291674 vs limit 3.347278633407412 (ratio 1.003x)",
       "ok": true
     },
     {
@@ -399,7 +392,7 @@
     },
     {
       "name": "panda_cage/condition3",
-      "detail": "2.7743894658544486 vs limit 3.579813318490537 (ratio 1.008x)",
+      "detail": "2.725283517773299 vs limit 3.579813318490537 (ratio 0.99x)",
       "ok": true
     },
     {
@@ -409,7 +402,7 @@
     },
     {
       "name": "fanuc_floor_wall/condition3",
-      "detail": "1.8987190553332907 vs limit 2.488496454544429 (ratio 0.992x)",
+      "detail": "1.8960133598130968 vs limit 2.488496454544429 (ratio 0.99x)",
       "ok": true
     },
     {
@@ -419,12 +412,12 @@
     },
     {
       "name": "fanuc_cage/condition3",
-      "detail": "1.8126690664366398 vs limit 2.368928607181956 (ratio 0.995x)",
+      "detail": "1.8134002543143977 vs limit 2.368928607181956 (ratio 0.995x)",
       "ok": true
     },
     {
       "name": "constrained/condition2",
-      "detail": "constraint=panda_joint1:0.0:0.5, solved 250/250, 250/250 valid, 67820 waypoints",
+      "detail": "constraint=panda_joint1:0.0:0.5, solved 250/250, 250/250 valid, 68182 waypoints",
       "ok": true
     },
     {
@@ -434,7 +427,7 @@
     },
     {
       "name": "constrained/condition2-densified",
-      "detail": "67820 checked from 12733 returned",
+      "detail": "68182 checked from 12763 returned",
       "ok": true
     },
     {

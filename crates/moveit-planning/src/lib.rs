@@ -311,7 +311,7 @@
 //! use moveit_constraints::utils::construct_goal_joint_constraints;
 //! use moveit_model::{MeshSearchPaths, RobotModel};
 //! use moveit_planner_registry::resolve_planner;
-//! use moveit_planning::{PlanningRequest, generate_plan};
+//! use moveit_planning::{PlannerConfigurationMap, PlanningRequest, generate_plan};
 //! use moveit_scene::PlanningScene;
 //! use moveit_srdf::SrdfModel;
 //! use moveit_state::RobotState;
@@ -340,11 +340,13 @@
 //!
 //! // A concrete-state goal, written the way upstream writes one:
 //! // `constructGoalConstraints(state, jmg, tolerance)`, one joint
-//! // constraint per group variable.
+//! // constraint per group variable. Tolerance zero because this is a
+//! // concrete state and not a region around one -- a planner that resolves
+//! // the set by sampling reproduces it exactly only at that width.
 //! let mut goal_state = RobotState::new(&model);
 //! goal_state.set_to_default_values();
 //! goal_state.set_joint_positions("panda_joint1", &[0.4]).unwrap();
-//! let goal = construct_goal_joint_constraints(&model, &goal_state.update(), "panda_arm", 1e-9, 1e-9)
+//! let goal = construct_goal_joint_constraints(&model, &goal_state.update(), "panda_arm", 0.0, 0.0)
 //!     .unwrap();
 //!
 //! let request = PlanningRequest {
@@ -355,8 +357,13 @@
 //!
 //! // Selected by name, never by slice position: `PLANNER_MANAGERS` is a
 //! // `linkme::distributed_slice` and its order is the linker's
-//! // (PORTING-PLAN.md §177).
-//! let planner = resolve_planner("rrt_connect").expect("rrt_connect is registered");
+//! // (PORTING-PLAN.md §177). The map is the configuration the manager
+//! // plans under -- upstream's `setPlannerConfigurations` argument, taken
+//! // at construction here so a manager cannot exist without one. Empty
+//! // means "this planner's own documented defaults", which is what a
+//! // caller with no `/set_planner_params` in the picture wants.
+//! let planner = resolve_planner("rrt_connect", &PlannerConfigurationMap::new())
+//!     .expect("rrt_connect is registered");
 //!
 //! // Empty adapter chains: this example is about reaching the planner, and
 //! // the chains have their own example above.
@@ -384,7 +391,10 @@ pub use pipeline::{PipelineError, generate_plan};
 pub use plan_responses::{
     PlanOutcome, PlanResponsesContainer, shortest_solution, stop_at_first_solution,
 };
-pub use planner::{PlanError, PlannerManager, PlanningContext};
+pub use planner::{
+    PlanError, PlannerConfigurationMap, PlannerConfigurationSettings, PlannerManager,
+    PlanningContext, configuration_for, configuration_name,
+};
 pub use request::{PlanningRequest, WorkspaceBounds};
 pub use response::PlanningResponse;
 pub use start_state::{StartState, StartStateOverride};

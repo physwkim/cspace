@@ -117,6 +117,27 @@ struct Config {
     /// existing `fk`-only invocations are unaffected.
     collision: bool,
     tol_distance: f64,
+    /// World z of the collision scene's floor box TOP face, default `0.0`.
+    ///
+    /// This is a parameter because the default is a coincidence with
+    /// measurable consequences, and an unstated coincidence is not a
+    /// condition anyone can vary. The floor was placed "just below `z = 0`"
+    /// as a robot-agnostic rule (see `collision_scene`); `prbt_base_link`'s
+    /// collision cylinder puts its own bottom face at exactly `z = 0` by the
+    /// ordinary URDF convention for a floor-mounted robot. Neither value was
+    /// chosen with the other in view, and yet they meet exactly, so every
+    /// sampled state of prbt asks the two libraries the same
+    /// `cylinder x box` EXACT-TANGENCY question -- which fcl and this port
+    /// answer differently (PORTING-PLAN.md §251), producing 6,854 of prbt's
+    /// 10,000 `collision: bool` mismatches from one fixed geometric pair
+    /// (§265).
+    ///
+    /// Moving the floor does not remove that question; it separates it from
+    /// this sweep, which exists to ask whether the two agree ACROSS THE JOINT
+    /// SPACE. The tangency question has its own test over all 25 shape pairs
+    /// (`exact_tangency_is_decided_per_shape_pair`), where a disagreement
+    /// names the offending cell instead of being reported 6,854 times.
+    floor_top_z: f64,
     /// Also run the `ik` op against every `fk` case, using `group` (this
     /// flag is meaningless without `--group`). Success is a statistic, not
     /// a per-case verdict -- see `run`'s ik block -- but a converged
@@ -282,6 +303,9 @@ impl Config {
         let mut tol_constraints = 1e-9;
         let mut collision = false;
         let mut tol_distance = 1e-4;
+        // See `Config::floor_top_z`. The default reproduces every measurement
+        // taken before this flag existed.
+        let mut floor_top_z = 0.0;
         let mut ik = false;
         // See `Config::tol_ik`'s own doc comment: this must stay looser than
         // `SolverParams::default().epsilon` (1e-5), which is what actually
@@ -348,6 +372,11 @@ impl Config {
                     tol_distance = want("--tol-distance")?
                         .parse()
                         .map_err(|e| format!("--tol-distance: {e}"))?
+                }
+                "--floor-top-z" => {
+                    floor_top_z = want("--floor-top-z")?
+                        .parse()
+                        .map_err(|e| format!("--floor-top-z: {e}"))?
                 }
                 "--ik" => ik = true,
                 "--tol-ik" => {
@@ -448,6 +477,7 @@ impl Config {
             tol_constraints,
             collision,
             tol_distance,
+            floor_top_z,
             ik,
             tol_ik,
             ik_position_only,
@@ -580,7 +610,7 @@ fn main() {
             eprintln!("usage: moveit-diff --urdf <path> --srdf <path> [--cases N] [--seed S]");
             eprintln!("                   [--tol-fk EPS] [--group NAME] [--tol-jacobian EPS]");
             eprintln!("                   [--constraints N] [--tol-constraints EPS]");
-            eprintln!("                   [--collision] [--tol-distance EPS]");
+            eprintln!("                   [--collision] [--tol-distance EPS] [--floor-top-z Z]");
             eprintln!(
                 "                   [--ik] [--tol-ik EPS] [--ik-position-only] [--ik-max-restarts N]"
             );
@@ -718,21 +748,35 @@ fn build_rust_model(cfg: &Config) -> Result<RobotModel, String> {
 }
 
 /// The fixed collision scene both sides check the robot against: a single
-/// scale-invariant floor box just below `z = 0`, sized to be robot-agnostic
-/// across panda/fanuc/pr2's very different reach envelopes (unlike a
-/// fixed-radius sphere, which would need per-robot tuning).
+/// scale-invariant floor box whose top face is at `floor_top_z` (default
+/// `0.0`), sized to be robot-agnostic across panda/fanuc/pr2's very different
+/// reach envelopes (unlike a fixed-radius sphere, which would need per-robot
+/// tuning).
+///
+/// The height is an argument rather than a constant because the default value
+/// is exactly tangent to `prbt_base_link`'s own mounting face; see
+/// [`Config::floor_top_z`] for what that costs and why the default is kept
+/// anyway.
 ///
 /// Built once as `(id, shape, pose)` triples and converted into both the
 /// wire [`CollisionObjectSpec`]s and the local [`World`] from that single
 /// list, so a disagreement can never come from the two sides being handed
 /// different geometry.
-fn collision_scene() -> Vec<(String, Arc<Shape>, Isometry3)> {
+fn collision_scene(floor_top_z: f64) -> Vec<(String, Arc<Shape>, Isometry3)> {
+    // The box is 0.1 thick and `Isometry3::translation` places its CENTRE, so
+    // the top face sits half a thickness above the centre. Expressing the
+    // argument as the top face rather than the centre is deliberate: the top
+    // face is the surface a robot's base rests against, and it is the number
+    // that has to be compared against a URDF's mounting height to see whether
+    // the two are exactly tangent.
+    const FLOOR_THICKNESS: f64 = 0.1;
     vec![(
         "floor".to_owned(),
         Arc::new(Shape::Cuboid(
-            Cuboid::new(4.0, 4.0, 0.1).expect("4x4x0.1 are valid, positive cuboid dimensions"),
+            Cuboid::new(4.0, 4.0, FLOOR_THICKNESS)
+                .expect("4x4x0.1 are valid, positive cuboid dimensions"),
         )),
-        Isometry3::translation(0.0, 0.0, -0.05),
+        Isometry3::translation(0.0, 0.0, floor_top_z - FLOOR_THICKNESS / 2.0),
     )]
 }
 
@@ -779,7 +823,7 @@ fn build_collision_fixture(cfg: &Config) -> Result<CollisionFixture, String> {
         SrdfModel::parse_file(&cfg.srdf).map_err(|e| format!("parsing SRDF {}: {e}", cfg.srdf))?;
     let acm = AllowedCollisionMatrix::from_srdf(&srdf);
 
-    let scene = collision_scene();
+    let scene = collision_scene(cfg.floor_top_z);
     let mut world = World::new();
     let mut wire_objects = Vec::with_capacity(scene.len());
     for (id, shape, pose) in &scene {
@@ -2202,6 +2246,10 @@ struct PairProbeRow {
     /// when both are present — the port picked its own pair *because* it was
     /// the smaller — so the question is only its magnitude.
     candidate_gap: Option<f64>,
+    /// The full-space joint values this state is, for the same reason
+    /// [`DistanceBranchOutlier::joint_values`] carries them: a `case` index
+    /// alone cannot be re-entered without regenerating the oracle's pool.
+    joint_values: BTreeMap<String, f64>,
 }
 
 /// Accumulates [`PairProbeRow`]s, owning the scratch ACM the probe flips.
@@ -2306,6 +2354,7 @@ impl PairProbe {
             rust_distance: outcome.rust_distance,
             rust_distance_at_oracle_pair: at_oracle_pair,
             candidate_gap: at_oracle_pair.map(|value| value - outcome.rust_distance),
+            joint_values: joint_values.clone(),
         });
     }
 }
@@ -2616,6 +2665,7 @@ fn compare_collision(
             rust,
             oracle_pair: format_distance_pair(oracle_pair),
             rust_pair: format_distance_pair(rust_pair),
+            joint_values: joint_values.clone(),
         };
         // `> 0` and not `>= 0` because `:636` tests `distance <= 0`: a
         // published exact zero comes out of the penetration branch upstream,
@@ -2745,6 +2795,15 @@ struct DistanceBranchOutlier {
     rust: f64,
     oracle_pair: String,
     rust_pair: String,
+    /// The full-space joint values this state is, so the row can be
+    /// re-entered on its own -- exactly like [`IkDivergentCase::joint_values`].
+    ///
+    /// A `case` index alone names a position in a pool that only the oracle
+    /// can regenerate, so "go look at case 8148" meant re-running the whole
+    /// sweep under docker and then having no way to get the pose out of it.
+    /// Carrying the state makes every claim the tail supports checkable
+    /// without the sweep.
+    joint_values: BTreeMap<String, f64>,
 }
 
 impl DistanceBranchStats {
@@ -3566,6 +3625,7 @@ mod ik_divergence_recording_tests {
             tol_constraints: 1e-9,
             collision: false,
             tol_distance: 1e-4,
+            floor_top_z: 0.0,
             ik: true,
             tol_ik: 2e-5,
             ik_position_only: false,
@@ -3728,6 +3788,56 @@ mod ik_divergence_recording_tests {
 
         assert_eq!((stats.oracle_only, stats.rust_only), (0, 0));
         assert!(stats.divergent.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod floor_placement_tests {
+    use super::*;
+
+    /// `Isometry3::translation` places the box's CENTRE, so a helper that
+    /// forwarded `floor_top_z` straight through would put the top face half a
+    /// thickness too high. This is the boundary that makes the argument mean
+    /// "top face" rather than "centre", and it is the only reason the default
+    /// `0.0` reproduces the pre-argument measurements: the old constant was
+    /// `-0.05`, a centre.
+    #[test]
+    fn the_argument_names_the_top_face_not_the_centre() {
+        let scene = collision_scene(0.0);
+        let (_, shape, pose) = &scene[0];
+        let Shape::Cuboid(c) = &**shape else {
+            panic!("the floor is a cuboid");
+        };
+        let half = c.size[2] / 2.0;
+        assert_eq!(
+            pose.translation.vector.z + half,
+            0.0,
+            "the default floor's top face is z = 0"
+        );
+    }
+
+    /// The experiment §5's Phase 3 `collision: bool` row turns on is "move the
+    /// floor off `prbt_base_link`'s mounting face and re-measure", so the
+    /// argument has to translate the whole box rigidly -- a helper that
+    /// clamped, rounded, or re-derived the height from the thickness would
+    /// leave the tangency in place and make the experiment report a false
+    /// negative.
+    #[test]
+    fn a_nonzero_argument_translates_the_whole_box() {
+        let at_zero = collision_scene(0.0);
+        let lowered = collision_scene(-0.25);
+        assert_eq!(
+            lowered[0].2.translation.vector.z - at_zero[0].2.translation.vector.z,
+            -0.25,
+            "the centre moves by exactly the requested amount"
+        );
+        let Shape::Cuboid(a) = &*at_zero[0].1 else {
+            panic!("the floor is a cuboid");
+        };
+        let Shape::Cuboid(b) = &*lowered[0].1 else {
+            panic!("the floor is a cuboid");
+        };
+        assert_eq!(a.size, b.size, "moving the floor does not resize it");
     }
 }
 

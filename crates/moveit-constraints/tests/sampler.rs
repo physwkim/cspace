@@ -10,7 +10,10 @@
 //! don't reach: [`JointConstraintSampler::sample`]'s scratch-`RobotState`
 //! draw for a group's *unconstrained* variables actually stays within each
 //! joint's own bounds (see that method's doc comment for why it goes through
-//! a scratch state rather than a duplicated per-joint-kind sampler).
+//! a scratch state rather than a duplicated per-joint-kind sampler). A sixth
+//! raises the single-point boundary from one hand-built constraint to the
+//! whole-group goal set a concrete-state request becomes
+//! ([`a_zero_tolerance_goal_set_resolves_to_its_own_state`]).
 //!
 //! `panda.urdf`/`panda.srdf` (copied from `moveit-state`'s fixtures, already
 //! oracle-verified — see `crates/moveit-model/tests/fixtures/panda_model_info.json`)
@@ -22,8 +25,10 @@
 
 use std::fs;
 
+use moveit_constraints::utils::construct_goal_joint_constraints;
 use moveit_constraints::{
     ConstraintSampler, JointConstraint, JointConstraintSampler, UnionConstraintSampler,
+    select_default_sampler,
 };
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
@@ -99,11 +104,106 @@ fn single_point_intersection_samples_the_exact_position_every_time() {
     for _ in 0..20 {
         assert!(sampler.sample(&mut state, &mut rng));
         let v = state.variable_position("panda_joint1").unwrap();
-        assert!(
-            (v - 0.3).abs() < 1e-12,
+        assert_eq!(
+            v, 0.3,
             "single-point constraint sampled {v}, expected exactly 0.3"
         );
     }
+}
+
+/// The tolerance a goal that names a concrete state must be built at, and
+/// the subject of [`a_zero_tolerance_goal_set_resolves_to_its_own_state`]:
+/// change this constant and that test fails, which is the whole point of it
+/// being a constant rather than a literal inside the assertion.
+const EXACT_STATE_GOAL_TOLERANCE: f64 = 0.0;
+
+/// The whole-set form of the single-point case above, and the property a
+/// concrete-state goal rests on: a goal set built from a state by
+/// [`construct_goal_joint_constraints`] at
+/// [`EXACT_STATE_GOAL_TOLERANCE`], resolved the way a planner resolves one
+/// (`select_default_sampler` then [`ConstraintSampler::sample`]), gives that
+/// state back bit for bit on every variable of the group.
+///
+/// The test above covers one hand-built constraint on one joint; this one
+/// covers the path an actual goal takes — all seven variables at once, from
+/// positions that are drawn rather than chosen. Without it a caller can
+/// widen the tolerance it builds goals with and nothing in the workspace
+/// notices, which is how `1e-9` reached `plan_benchmark_port` and put a
+/// sampled region where the requested state should have been.
+///
+/// The `f64::EPSILON` half is what makes the first half mean something: that
+/// width is upstream's own `constructGoalConstraints` default, it satisfies
+/// every [`moveit_constraints::JointConstraint::decide`] check here, and it
+/// still misses the requested state. "The sample is accepted" and "the
+/// sample is the state" are different properties, and only a zero-width
+/// window buys the second.
+#[test]
+fn a_zero_tolerance_goal_set_resolves_to_its_own_state() {
+    let model = panda_model();
+    let mut rng = ChaCha8Rng::seed_from_u64(19);
+
+    // Resolves `tolerance`-wide goal constraints built from `posed` and
+    // returns each `panda_arm` variable's (requested, resolved) pair.
+    let resolve = |posed: &moveit_state::Posed<'_, '_>, tolerance: f64, rng: &mut ChaCha8Rng| {
+        let set =
+            construct_goal_joint_constraints(&model, posed, "panda_arm", tolerance, tolerance)
+                .expect("panda_arm is real and every variable of it is set");
+        let sampler =
+            select_default_sampler(&model, "panda_arm", set.constraints(), None, vec![], 4)
+                .expect("no subgroup solvers are named, so the only Err arm is unreachable")
+                .expect("an all-joint-constraint set resolves to a JointConstraintSampler");
+
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        assert!(
+            sampler.sample(&mut state, rng),
+            "JointConstraintSampler::sample is infallible"
+        );
+        let resolved = state.update();
+        assert!(
+            set.decide(&resolved).satisfied,
+            "tolerance {tolerance:e}: the resolved state must satisfy the set it was drawn from"
+        );
+        PANDA_ARM_BOUNDS
+            .iter()
+            .map(|(name, _, _)| {
+                (
+                    *name,
+                    posed.variable_position(name).unwrap(),
+                    resolved.variable_position(name).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let mut epsilon_misses = 0usize;
+    for _ in 0..64 {
+        let mut goal = RobotState::new(&model);
+        goal.set_to_random_positions_with(&mut rng);
+        let posed = goal.update();
+
+        for (name, want, got) in resolve(&posed, EXACT_STATE_GOAL_TOLERANCE, &mut rng) {
+            assert_eq!(
+                got,
+                want,
+                "an exact goal on {name} resolved to {got}, not the requested {want} \
+                 (gap {})",
+                got - want
+            );
+        }
+        epsilon_misses += resolve(&posed, f64::EPSILON, &mut rng)
+            .into_iter()
+            .filter(|(_, want, got)| got != want)
+            .count();
+    }
+
+    assert!(
+        epsilon_misses > 0,
+        "upstream's f64::EPSILON default reproduced the requested state exactly on all {} \
+         variable draws; if that ever becomes true, the exact half above no longer \
+         discriminates and this test's reason for existing must be re-derived",
+        64 * PANDA_ARM_BOUNDS.len()
+    );
 }
 
 /// A [`JointConstraint`] on `panda_finger_joint1`, which is not a member of

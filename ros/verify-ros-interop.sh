@@ -29,6 +29,21 @@
 #     under the round-32 merge gate before this line existed)
 #   - A live `/plan_kinematic_path` round trip over DDS (`run "live"` below,
 #     PORTING-PLAN.md §241)
+#   - Two live planner-parameter legs over DDS -- the three services exist,
+#     `query_planner_interface`'s answer comes off the linked
+#     `PLANNER_MANAGERS` slice, and a `set` is stored rather than silently
+#     dropped (ros/verify-planner-params-interop.sh, PORTING-PLAN.md §274)
+#   - A live `/execute_trajectory` leg over DDS
+#     (ros/verify-execute-trajectory-interop.sh, called below)
+#   - Two live `robot_description` / `robot_description_semantic` legs
+#     (ros/verify-robot-description-interop.sh): a late transient-local
+#     subscriber, and upstream's own `MoveGroupInterface` built on a node with
+#     no description parameter at all, so its `RDFLoader` has nowhere to get a
+#     model but these topics
+#   - Two live `joint_states` legs (ros/verify-joint-states-interop.sh): the
+#     stamp advances on the wall clock, and upstream's own
+#     `CurrentStateMonitor` hands `getCurrentState()` back a distinctive value
+#     this gate pushed into the node beforehand
 #   - Two live `/move_action` legs over DDS, one of them driven by upstream's
 #     own unmodified C++ `MoveGroupInterface` (ros/verify-move-action-interop.sh,
 #     called at the end of this script). PORTING-PLAN.md §250 measured that
@@ -42,12 +57,15 @@
 #     non-empty trajectory. What they do not do is check that trajectory
 #     against upstream: no oracle runs here, so "a plan came back" is the
 #     claim, not "the same plan moveit2 would produce".
-#   - Upstream's own C++ client still cannot get a trajectory out of either
-#     endpoint: `MoveGroupInterface` always sends a non-default `start_state`,
-#     which `PlanningRequest` has no field for and the conversion rejects
-#     (§250.6). §5 Phase 9's completion condition therefore stays UNMET, and
-#     leg B of ros/verify-move-action-interop.sh is what keeps that measured
-#     rather than inferred.
+#   - Nothing here grades the trajectory upstream's own C++ client receives
+#     for collision-freeness: leg B of ros/verify-move-action-interop.sh
+#     prints the colliding count and asserts nothing about it, because
+#     `one_joint.urdf` carries no collision geometry for a trajectory over it
+#     to collide with. That the client gets a trajectory at all *is* checked
+#     now, in both start-state spellings -- §250.6's rejection is gone and
+#     §273 moved the §5 Phase 9 row to MET, so an earlier version of this
+#     line calling that row UNMET was reporting a tree this script no longer
+#     runs against.
 #   - No in-process message round trip: every test in
 #     ros/moveit-ros/src/**/*.rs constructs `r2r`-generated message structs
 #     and converts them without ever crossing the middleware. The live legs
@@ -78,6 +96,22 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 require_caller_tree "$REPO_ROOT"
 IMAGE="${IMAGE:-moveit-rs/ros-dev:latest}"
+
+# `CollisionObject.operation` is declared `byte`
+# (`moveit_msgs/msg/CollisionObject.msg:51`, with `byte ADD=0` at `:38` and
+# `byte REMOVE=1` at `:41`), and rclpy models a ROS `byte` as a one-element
+# `bytes` -- not an `int`. Writing `operation: 1` in a `ros2 topic pub` YAML
+# therefore leaves the field at its default 0 and *still prints
+# `publishing #1`*: a REMOVE published that way arrives as an ADD, and the
+# publisher reports success. `!!binary` is the only spelling measured to
+# reach the wire (`ros2 topic echo` shows `operation: "\x01"` for
+# `!!binary AQ==`, and `operation: "\0"` for a bare `1`; the quoted-escape
+# form `"\x01"` is rejected outright). See PORTING-PLAN.md §276.
+#
+# These two are the file's only definition of an operation number, exported
+# into every container below, so no publish site writes one itself.
+export OP_ADD="!!binary AA=="
+export OP_REMOVE="!!binary AQ=="
 
 run() {  # <label> <command...>
   local label="$1"
@@ -299,6 +333,7 @@ echo "OK live round-trip: reported the unplannable one as FAILURE naming rrt_con
 SCENE_DOMAIN_ID="${ROS_DOMAIN_ID:-$((($$ % 100) + 1))}"
 echo "=== scene-topic (ROS_DOMAIN_ID=$SCENE_DOMAIN_ID) ==="
 docker run --rm -e "ROS_DOMAIN_ID=$SCENE_DOMAIN_ID" \
+  -e OP_ADD -e OP_REMOVE \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
   set -e
   cat >/tmp/boxed.urdf <<\URDF
@@ -362,7 +397,7 @@ SRDF
 
   publish() {  # <step label> <is_diff> <object id> <x>
     timeout 25 ros2 topic pub -1 -w 1 /planning_scene moveit_msgs/msg/PlanningScene \
-      "{is_diff: $2, world: {collision_objects: [{header: {frame_id: base_link}, id: $3, operation: 0, pose: {position: {x: $4}, orientation: {w: 1.0}}, primitives: [{type: 1, dimensions: [0.2, 0.2, 0.2]}], primitive_poses: [{orientation: {w: 1.0}}]}]}}" \
+      "{is_diff: $2, world: {collision_objects: [{header: {frame_id: base_link}, id: $3, operation: $OP_ADD, pose: {position: {x: $4}, orientation: {w: 1.0}}, primitives: [{type: 1, dimensions: [0.2, 0.2, 0.2]}], primitive_poses: [{orientation: {w: 1.0}}]}]}}" \
       >/dev/null || fail "$1: publishing on /planning_scene failed"
     sleep 2
   }
@@ -396,10 +431,206 @@ SRDF
 echo "OK scene-topic: /planning_scene reached the node over DDS, and /check_state_validity"
 echo "OK scene-topic: answered True/False/False/True across an empty world, a full scene, a diff, and a full scene"
 
-# `/move_action`, in its own file: it orchestrates three containers and a
-# docker network, and it is the only check here that runs upstream's own C++
-# client. Last, because it is the most expensive and the least likely to be
-# the thing a `cargo fmt` failure was about.
-"$REPO_ROOT/ros/verify-move-action-interop.sh"
+# The planner-parameter trio, in its own file: they are one upstream
+# capability (`query_planners_service_capability.cpp` creates all three in one
+# `initialize()`), and a per-capability gate file is what keeps the panels
+# landing endpoints in parallel off each other.
+"$REPO_ROOT/ros/verify-planner-params-interop.sh"
 
-echo "all gates passed"
+# Leg D -- the two inbound topics a MoveGroupInterface client publishes to
+# (PORTING-PLAN.md §276): `attached_collision_object` (attachObject/
+# detachObject) and `trajectory_execution_event` (stop). Both are
+# SUBSCRIBERS on this node, so "bound" means a subscription that actually
+# receives -- doc/client-endpoint-surface.md's instrument reads the role from
+# the r2r factory and calls a name opened the other way `role-mismatch`, not
+# bound. This leg checks the half that instrument cannot: that the received
+# message changes what the node answers.
+#
+# For the attach that means a collision query flipping on an *attached body*
+# rather than on a world object, which is a different code path
+# (PlanningScene::check_collision folds attached bodies into the robot
+# object; a world object goes in through the world). The world holds
+# `bystander` at x=10 throughout and the robot sits at the origin, so the
+# only thing that can put geometry at x=10 on the robot side is the attach.
+#
+# For the stop event the observable is the node's own stderr, and that is a
+# weaker observable than a flipped answer -- said plainly rather than dressed
+# up. Nothing in this workspace executes a trajectory (no
+# moveit_controller_manager is ported), so a `stop` has no execution to
+# preempt and upstream's own no-op arm is the reachable one. What the two
+# assertions below do discriminate is that the payload is *decoded*: a
+# callback that ignored its payload could not produce both the no-op line and
+# the unknown-event line naming `wobble`.
+SCENE_DOMAIN_ID="${ROS_DOMAIN_ID:-$((($$ % 100) + 2))}"
+echo "=== inbound-topics (ROS_DOMAIN_ID=$SCENE_DOMAIN_ID) ==="
+docker run --rm -e "ROS_DOMAIN_ID=$SCENE_DOMAIN_ID" \
+  -e OP_ADD -e OP_REMOVE \
+  -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
+  set -e
+  cat >/tmp/boxed.urdf <<\URDF
+<?xml version="1.0"?>
+<robot name="one_joint">
+  <link name="base_link">
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.2 0.2 0.2"/></geometry>
+    </collision>
+  </link>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="base_link"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="10" velocity="1"/>
+  </joint>
+</robot>
+URDF
+  cat >/tmp/boxed.srdf <<\SRDF
+<?xml version="1.0"?>
+<robot name="one_joint">
+  <group name="arm"><chain base_link="base_link" tip_link="tip"/></group>
+</robot>
+SRDF
+
+  cargo build --bin move_group
+  ./target/debug/move_group /tmp/boxed.urdf /tmp/boxed.srdf 2>/tmp/node.stderr &
+  server_pid=$!
+  trap "kill $server_pid 2>/dev/null || true" EXIT
+  sleep 3
+
+  fail() {
+    echo "FAIL inbound-topics: $*" >&2
+    echo "--- last /check_state_validity reply ---" >&2
+    cat /tmp/validity >&2 2>/dev/null || true
+    echo "--- node stderr ---" >&2
+    cat /tmp/node.stderr >&2
+    exit 1
+  }
+
+  ros2 topic list >/tmp/topics
+  for t in /attached_collision_object /trajectory_execution_event; do
+    grep -qxF "$t" /tmp/topics || {
+      cat /tmp/topics >&2
+      fail "the node is not subscribed to $t"
+    }
+  done
+
+  validity() {  # <step label>
+    out="$(timeout 20 ros2 service call /check_state_validity \
+      moveit_msgs/srv/GetStateValidity "{}")" ||
+      fail "$1: /check_state_validity did not answer"
+    printf %s "$out" | sed -n "/^response:/,\$p" >/tmp/validity
+    echo "PROBE $1: $(grep -o "valid=[A-Za-z]*" /tmp/validity) $(grep -o "contact_body_[12]=.[a-z]*." /tmp/validity | tr "\n" " ")"
+  }
+
+  # A world object far from the robot. Everything below turns on whether the
+  # robot side reaches out to it.
+  timeout 25 ros2 topic pub -1 -w 1 /planning_scene moveit_msgs/msg/PlanningScene \
+    "{is_diff: false, world: {collision_objects: [{header: {frame_id: base_link}, id: bystander, operation: $OP_ADD, pose: {position: {x: 10.0}, orientation: {w: 1.0}}, primitives: [{type: 1, dimensions: [0.2, 0.2, 0.2]}], primitive_poses: [{orientation: {w: 1.0}}]}]}}" \
+    >/dev/null || fail "seeding the world with bystander failed"
+  sleep 2
+  validity "step 1 (world object far away, nothing attached)"
+  grep -q "valid=True" /tmp/validity ||
+    fail "step 1: a world object 10m away must not collide, or nothing below means anything"
+
+  # <operation> is `$OP_ADD`/`$OP_REMOVE` -- never a number. See the top of
+  # this file for why a bare int here publishes ADD no matter what it says.
+  attach() {  # <step label> <operation> <x>
+    timeout 25 ros2 topic pub -1 -w 1 /attached_collision_object \
+      moveit_msgs/msg/AttachedCollisionObject \
+      "{link_name: base_link, object: {header: {frame_id: base_link}, id: held, operation: $2, pose: {position: {x: $3}, orientation: {w: 1.0}}, primitives: [{type: 1, dimensions: [0.2, 0.2, 0.2]}], primitive_poses: [{orientation: {w: 1.0}}]}}" \
+      >/dev/null || fail "$1: publishing on /attached_collision_object failed"
+    sleep 2
+  }
+
+  attach "step 2" "$OP_ADD" 10.0
+  validity "step 2 (a body attached to base_link, reaching bystander)"
+  grep -q "valid=False" /tmp/validity ||
+    fail "step 2: the attached body never reached the scene -- attaching geometry onto bystander is a collision"
+  grep -q "held" /tmp/validity ||
+    fail "step 2: a collision was reported, but not against the attached body"
+  # body_type 2 is RobotAttached. A world object would report 1, so this is
+  # what separates "the attach was applied as an attached body" from "the
+  # attach was applied as a world object", which would collide too.
+  grep -qE "body_type_[12]=2" /tmp/validity ||
+    fail "step 2: the contact names held but not as an attached body (body_type 2) -- the attach landed in the world instead"
+
+  attach "step 3" "$OP_REMOVE" 10.0
+  validity "step 3 (the same body detached)"
+  grep -q "valid=True" /tmp/validity ||
+    fail "step 3: REMOVE on attached_collision_object did not detach -- the body is still on the robot"
+
+  event() {  # <step label> <payload>
+    timeout 25 ros2 topic pub -1 -w 1 /trajectory_execution_event \
+      std_msgs/msg/String "{data: $2}" \
+      >/dev/null || fail "$1: publishing on /trajectory_execution_event failed"
+    sleep 2
+  }
+
+  event "step 4" stop
+  grep -q "trajectory_execution_event stop: nothing to stop" /tmp/node.stderr ||
+    fail "step 4: a stop with nothing executing must take the defined no-op arm"
+  if grep -q "preempted execution" /tmp/node.stderr; then
+    fail "step 4: the node claims it preempted an execution, but nothing in this workspace executes"
+  fi
+  echo "PROBE step 4 (stop while idle): no-op arm taken, nothing claimed preempted"
+
+  event "step 5" wobble
+  grep -q "unknown trajectory_execution_event type: .wobble." /tmp/node.stderr ||
+    fail "step 5: an unrecognised event must be reported by name, not silently dropped"
+  echo "PROBE step 5 (unknown event): reported by name"
+
+  echo "--- node stderr ---"
+  cat /tmp/node.stderr
+'
+echo "OK inbound-topics: /attached_collision_object flipped a collision answer via an attached"
+echo "OK inbound-topics: body (body_type 2) and back, and /trajectory_execution_event decoded both payloads"
+
+# `/execute_trajectory`, in its own file for the same reason the scene-topic
+# leg above takes its own domain id: it starts its own node and asserts on
+# replies matched by content. Called bare rather than captured, unlike the
+# `/move_action` legs below -- it has no skip outcome to report, so `set -e`
+# aborting on its exit status is the whole handling it needs.
+"$REPO_ROOT/ros/verify-execute-trajectory-interop.sh"
+
+# The sub-gates that orchestrate their own containers and a docker network, and
+# whose leg B runs upstream's own unmodified C++ client. Each of them exits 3
+# when the oracle image is absent, which is a third outcome and not a pass:
+# their leg A still measured, their leg B never ran.
+#
+# Called through this helper rather than bare, for two reasons. Under `set -e` a
+# bare call aborts this script on the 3, and the summary below -- the one place
+# a skip is reported -- never runs. And the summary has to name *which* legs did
+# not run: with one status variable and one `case` arm per gate, that naming was
+# restated per gate and silently omitted for the next one added.
+skipped=()
+run_oracle_gate() { # <script relative to REPO_ROOT> <name for the summary>
+  local status=0
+  "$REPO_ROOT/$1" || status=$?
+  case "$status" in
+    0) ;;
+    3) skipped+=("$2") ;;
+    *) exit "$status" ;;
+  esac
+}
+
+run_oracle_gate ros/verify-robot-description-interop.sh "robot_description leg B"
+run_oracle_gate ros/verify-joint-states-interop.sh "joint_states leg B"
+# `/move_action` last, because it is the most expensive and the least likely to
+# be the thing a `cargo fmt` failure was about.
+run_oracle_gate ros/verify-move-action-interop.sh "/move_action leg B"
+
+# The summary names the skips, because `all gates passed` meant two different
+# things: with the oracle image built it includes upstream's own C++ client
+# reaching these endpoints, and without it those legs never ran. A reader
+# settling PORTING-PLAN.md's Phase 9 row off a green run cannot tell those
+# apart from the status alone.
+if [ "${#skipped[@]}" -eq 0 ]; then
+  echo "all gates passed"
+else
+  echo "all gates passed EXCEPT these legs, which were SKIPPED because the oracle"
+  echo "image is not built, so upstream's own C++ client never ran against them:"
+  printf '  %s\n' "${skipped[@]}"
+  echo "Phase 9's completion condition is unmeasured by this run. Build the image"
+  echo "with: sg docker -c tools/moveit-oracle/build.sh -- and re-run before citing it."
+fi

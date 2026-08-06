@@ -4,11 +4,13 @@
 //! The `moveit-ros` node: upstream's `move_group` capabilities that Phase 9's
 //! completion condition names, on one `r2r::Node`.
 //!
-//! Four endpoints are hosted here, matching upstream's own arrangement --
-//! `move_group` loads `MoveGroupPlanService`, `MoveGroupMoveAction` and
-//! `MoveGroupStateValidationService` as capabilities of a single node, not as
-//! separate processes, and that node's `PlanningSceneMonitor` opens the scene
-//! subscription those capabilities read through:
+//! Six `move_group` endpoints are hosted here, matching upstream's own
+//! arrangement -- `move_group` loads `MoveGroupPlanService`,
+//! `MoveGroupMoveAction`, `MoveGroupExecuteTrajectoryAction`,
+//! `MoveGroupStateValidationService` and `MoveGroupCartesianPathService` as
+//! capabilities of a single node, not as separate processes, and that node's
+//! `PlanningSceneMonitor` opens the scene subscription those capabilities
+//! read through:
 //!
 //! * `/plan_kinematic_path` (`moveit_msgs/srv/GetMotionPlan`), PORTING-PLAN.md
 //!   §241 -- upstream `move_group/src/default_capabilities/
@@ -20,6 +22,14 @@
 //!   anything at all unless this action server is up, and `:712` then sends
 //!   the goal here. That file mentions `GetMotionPlan`/`plan_kinematic_path`
 //!   nowhere, so the service above is unreachable from that client (§241.4).
+//! * `/execute_trajectory` (`moveit_msgs/action/ExecuteTrajectory`) --
+//!   upstream `execute_trajectory_action_capability.cpp`. Bound because
+//!   `MoveGroupInterface`'s constructor opens it
+//!   (`move_group_interface.cpp:191-193`) whether or not the client ever
+//!   executes anything, and its absence costs that constructor one silent
+//!   `wait_for_servers` timeout. Everything the server answers, and which of
+//!   the two possible servers it is, lives in
+//!   [`moveit_ros::execute_trajectory`].
 //! * `planning_scene` (`moveit_msgs/msg/PlanningScene`, subscription) --
 //!   upstream `PlanningSceneMonitor::startSceneMonitor`
 //!   (`planning_scene_monitor.cpp:1197`). See "The monitored scene" below.
@@ -31,6 +41,29 @@
 //!   consults the scene *and* can be answered end to end by this workspace
 //!   (it needs a collision environment, which exists, not a planning
 //!   pipeline, which does not).
+//! * `compute_cartesian_path` (`moveit_msgs/srv/GetCartesianPath`) --
+//!   upstream `cartesian_path_service_capability.cpp`. The second endpoint an
+//!   unmodified `MoveGroupInterface` calls in its own right:
+//!   `computeCartesianPath` sends here and returns the reply's `fraction`
+//!   verbatim (`move_group_interface.cpp:873-911`). Its body lives in
+//!   [`moveit_ros::cartesian_path`], which documents what that fraction means
+//!   and which request fields this port refuses rather than ignores.
+//!
+//! Three more topics are published here that upstream's `move_group` does
+//! not publish at all, because the client needs them from *somewhere* and in
+//! this workspace there is nowhere else:
+//!
+//! * `robot_description` and `robot_description_semantic`
+//!   (`std_msgs/msg/String`, latched) -- what an unmodified
+//!   `MoveGroupInterface` falls back to when its own node has no such
+//!   parameter, and therefore what its constructor blocks 10 s per
+//!   description without. Upstream publishes these only when told to;
+//!   [`moveit_ros::robot_description`] has the derivation and the
+//!   both-or-neither invariant.
+//! * `joint_states` (`sensor_msgs/msg/JointState`, 10 Hz) -- the robot
+//!   driver's topic, which upstream's `move_group` only ever subscribes to.
+//!   It is what a client's `getCurrentState()` waits on, and `plan()` does
+//!   not need it; [`moveit_ros::joint_states`] has both halves of that.
 //!
 //! The name is upstream's own for the executable that loads exactly these
 //! capabilities: `add_executable(move_group src/move_group.cpp)`
@@ -145,7 +178,6 @@
 //! §255 was written in. It is no longer the only outcome: a request naming a
 //! registered planner now reaches it and can come back `SUCCESS`.
 
-use std::cell::RefCell;
 use std::env;
 use std::fs;
 use std::process::ExitCode;
@@ -161,17 +193,26 @@ use moveit_constraints::KinematicConstraintSet;
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planning::PlanningRequest;
 use moveit_ros::constraints::set::ConstraintsMsg;
+use moveit_ros::execute_trajectory;
+use moveit_ros::execution::{ExecutionEvent, ExecutionEventMsg, StopOutcome, TrajectoryExecution};
+use moveit_ros::joint_states::JointSampler;
+// `use_planning_scene_msg` is no longer imported here: every scene write in
+// this binary now goes through `monitored_scene`, which is the one owner both
+// the diff path and the topic path route through.
+use moveit_ros::monitored_scene::{self, MonitoredScene};
 use moveit_ros::move_group::plan_only;
+use moveit_ros::planner_params::PlannerConfigurations;
 use moveit_ros::planning::{PlanningRequestMsg, PlanningResponseMsgOut};
-use moveit_ros::scene::planning_scene::use_planning_scene_msg;
+use moveit_ros::robot_description;
 use moveit_ros::state::RobotStateMsg;
 use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 use r2r::QosProfile;
-use r2r::moveit_msgs::action::MoveGroup;
+use r2r::moveit_msgs::action::{ExecuteTrajectory, MoveGroup};
 use r2r::moveit_msgs::msg::MoveItErrorCodes;
-use r2r::moveit_msgs::srv::{GetMotionPlan, GetStateValidity};
+use r2r::moveit_msgs::srv::{GetCartesianPath, GetMotionPlan, GetStateValidity};
+use r2r::sensor_msgs::msg::JointState;
 
 /// `MoveItErrorCodes::source` for each endpoint -- see [`plan`], the one
 /// place either is written, for what the field is used for here.
@@ -205,10 +246,11 @@ struct PlanFailure {
 /// that never reached this node.
 fn plan(
     snapshot: &Arc<PlanningScene<'static>>,
+    configs: &PlannerConfigurations,
     msg: r2r::moveit_msgs::msg::MotionPlanRequest,
     source: &str,
 ) -> r2r::moveit_msgs::msg::MotionPlanResponse {
-    let mut response = plan_inner(snapshot, msg).unwrap_or_else(|failure| {
+    let mut response = plan_inner(snapshot, configs, msg).unwrap_or_else(|failure| {
         r2r::moveit_msgs::msg::MotionPlanResponse {
             error_code: MoveItErrorCodes {
                 val: failure.val,
@@ -238,6 +280,7 @@ fn plan(
 /// child and the monitored scene the next request reads is untouched.
 fn plan_inner(
     snapshot: &Arc<PlanningScene<'static>>,
+    configs: &PlannerConfigurations,
     msg: r2r::moveit_msgs::msg::MotionPlanRequest,
 ) -> Result<r2r::moveit_msgs::msg::MotionPlanResponse, PlanFailure> {
     // Read before the move below: `PlanningRequest` has no `pipeline_id`
@@ -261,10 +304,21 @@ fn plan_inner(
     // plan against the world as it stood before the first `planning_scene`
     // message arrived.
     let env = ParryCollisionEnv::new(scene.world().clone(), Default::default());
-    let response = plan_only(&mut scene, &env, &pipeline_id, request).map_err(|e| PlanFailure {
-        val: MoveItErrorCodes::FAILURE as i32,
-        message: e.to_string(),
-    })?;
+    // Borrowed for the length of the plan, not cloned: this is the store
+    // `/set_planner_params` writes into, and the planner is constructed from
+    // whatever it holds *now* -- upstream's
+    // `setPlannerConfigurations(configs)` on the pipeline instance
+    // (`query_planners_service_capability.cpp:205`), with the direction of
+    // the hand-off reversed. The borrow ends with this statement and never
+    // spans an `.await`, the rule the whole node's `Rc<RefCell<_>>` use
+    // rests on.
+    let response =
+        plan_only(&mut scene, &env, &pipeline_id, &configs.borrow(), request).map_err(|e| {
+            PlanFailure {
+                val: MoveItErrorCodes::FAILURE as i32,
+                message: e.to_string(),
+            }
+        })?;
 
     PlanningResponseMsgOut::try_from(response)
         .map(|out| out.0)
@@ -278,10 +332,16 @@ fn plan_inner(
 /// (`plan_service_capability.cpp:69-106`).
 fn handle_request(
     snapshot: &Arc<PlanningScene<'static>>,
+    configs: &PlannerConfigurations,
     msg: GetMotionPlan::Request,
 ) -> GetMotionPlan::Response {
     GetMotionPlan::Response {
-        motion_plan_response: plan(snapshot, msg.motion_plan_request, PLAN_SERVICE_SOURCE),
+        motion_plan_response: plan(
+            snapshot,
+            configs,
+            msg.motion_plan_request,
+            PLAN_SERVICE_SOURCE,
+        ),
     }
 }
 
@@ -305,6 +365,7 @@ fn handle_request(
 /// different number under upstream's name for one.
 fn handle_move_group_goal(
     snapshot: &Arc<PlanningScene<'static>>,
+    configs: &PlannerConfigurations,
     goal: MoveGroup::Goal,
 ) -> MoveGroup::Result {
     if !goal.planning_options.plan_only {
@@ -322,7 +383,7 @@ fn handle_move_group_goal(
     // upstream's is: on the failing arm they are the empty values
     // `MotionPlanResponse::default` supplies, which is what upstream's own
     // untouched `res.trajectory` holds there too.
-    let response = plan(snapshot, goal.request, MOVE_ACTION_SOURCE);
+    let response = plan(snapshot, configs, goal.request, MOVE_ACTION_SOURCE);
     MoveGroup::Result {
         error_code: response.error_code,
         trajectory_start: response.trajectory_start,
@@ -330,12 +391,6 @@ fn handle_move_group_goal(
         ..Default::default()
     }
 }
-
-/// The monitored scene: one immutable snapshot, replaced wholesale by the
-/// subscription and read (never mutated) by the capabilities. See this
-/// binary's module doc for why this shape stands in for upstream's
-/// `scene_update_mutex_`.
-type MonitoredScene = Rc<RefCell<Arc<PlanningScene<'static>>>>;
 
 /// Upstream `contactToMsg` (`collision_tools.cpp:284`), plus the two header
 /// fields `MoveGroupStateValidationService::isStateValid` fills in right
@@ -654,6 +709,41 @@ fn main() -> ExitCode {
         }
     };
 
+    // `PlanningSceneMonitor::startStateMonitor` opens this one
+    // (`planning_scene_monitor.cpp:1384-1388`) with the same
+    // `rclcpp::ServicesQoS()` and the same unqualified default topic name,
+    // `DEFAULT_ATTACHED_COLLISION_OBJECT_TOPIC` (`:71`). It is a plain
+    // subscription, not a message filter -- upstream's own comment on the
+    // line says why: "using regular message filter as there's no header".
+    let attached_objects = match node.subscribe::<r2r::moveit_msgs::msg::AttachedCollisionObject>(
+        "attached_collision_object",
+        QosProfile::services_default(),
+    ) {
+        Ok(stream) => stream,
+        Err(e) => {
+            eprintln!("subscribe(attached_collision_object): {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    // `TrajectoryExecutionManager`'s own subscription
+    // (`trajectory_execution_manager.cpp:204-206`), same QoS again. Upstream
+    // puts it on a dedicated callback group so a `stop` can be processed
+    // while another callback is running (`:199-202`); this node is
+    // single-threaded and has no long-running callback to preempt, so there
+    // is no group to port -- the reason that matters is that nothing here
+    // blocks, not that the concern does not exist.
+    let execution_events = match node.subscribe::<r2r::std_msgs::msg::String>(
+        "trajectory_execution_event",
+        QosProfile::services_default(),
+    ) {
+        Ok(stream) => stream,
+        Err(e) => {
+            eprintln!("subscribe(trajectory_execution_event): {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
     let state_validity = match node
         .create_service::<GetStateValidity::Service>("check_state_validity", QosProfile::default())
     {
@@ -664,14 +754,125 @@ fn main() -> ExitCode {
         }
     };
 
+    // Upstream `move_group::EXECUTE_ACTION_NAME`
+    // (`moveit_ros/move_group/include/moveit/move_group/capability_names.hpp:45`),
+    // verbatim and unqualified for the reason `move_action` above is. The
+    // literal is written here rather than referenced from a constant in
+    // [`moveit_ros::execute_trajectory`] on purpose:
+    // `tools/ci/measure-client-endpoint-surface.py`'s `PORT_OPENER` matches a
+    // string literal inside the factory call, so a named constant would leave
+    // this endpoint reading `absent` in `doc/client-endpoint-surface.md` with
+    // the server running -- a wrong measurement, not a missing one.
+    let execute_trajectory =
+        match node.create_action_server::<ExecuteTrajectory::Action>("execute_trajectory") {
+            Ok(server) => server,
+            Err(e) => {
+                eprintln!("create_action_server(execute_trajectory): {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+
+    // The two descriptions the client's own constructor blocks on. Both or
+    // neither, and fatal on failure -- the invariant and the reason a half
+    // latch is worse than none are in
+    // [`moveit_ros::robot_description`]. Held for the process's life: the
+    // samples are transient-local, so dropping this would leave the client
+    // subscribing to a topic that answers nothing.
+    let _descriptions = match robot_description::latch(&mut node, &urdf_xml, &srdf_xml) {
+        Ok(descriptions) => descriptions,
+        Err(e) => {
+            eprintln!("latching robot_description/robot_description_semantic: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    // `CurrentStateMonitorMiddlewareHandle::createJointStateSubscription`
+    // subscribes with `rclcpp::SystemDefaultsQoS()`
+    // (`current_state_monitor_middleware_handle.cpp:69-74`), whose
+    // reliability and durability the rmw resolves to reliable/volatile.
+    // `QosProfile::default()` is that, which is also what
+    // `robot_state_publisher` and `joint_state_publisher` send with; a
+    // best-effort publisher here would be silently incompatible with
+    // upstream's subscriber and the client would simply never get a state.
+    //
+    // Literal at the call site for the reason `execute_trajectory`'s
+    // registration above records.
+    let joint_state_publisher =
+        match node.create_publisher::<JointState>("joint_states", QosProfile::default()) {
+            Ok(publisher) => publisher,
+            Err(e) => {
+                eprintln!("create_publisher(joint_states): {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+    // 10 Hz. The rate has to clear `getCurrentState`'s own budget --
+    // `waitForCurrentState(node_->now(), wait_seconds)` with
+    // `wait_seconds` defaulting to 1.0 (`move_group_interface.cpp:635`) --
+    // and a period of 100 ms puts the first message stamped after any such
+    // call inside a tenth of it.
+    let mut joint_state_timer = match node.create_timer(Duration::from_millis(100)) {
+        Ok(timer) => timer,
+        Err(e) => {
+            eprintln!("create_timer(joint_states): {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    // Resolved once, here, where a model this topic cannot describe is a
+    // reason to refuse to start rather than an error every 100 ms.
+    let joint_sampler = match JointSampler::new(model) {
+        Ok(sampler) => sampler,
+        Err(e) => {
+            eprintln!("joint_states sampler: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let clock = node.get_ros_clock();
+
+    // Upstream `move_group::CARTESIAN_PATH_SERVICE_NAME`
+    // (`moveit_ros/move_group/include/moveit/move_group/capability_names.hpp:59-60`
+    // -- the basename alone is ambiguous, pilz ships one too).
+    // Spelled as a literal rather than as
+    // `moveit_ros::cartesian_path::SERVICE_NAME`, which holds the same string:
+    // `tools/ci/measure-client-endpoint-surface.py`'s `PORT_OPENER` matches a
+    // string literal in the factory call, so a constant here would leave the
+    // endpoint reading `absent` in `doc/client-endpoint-surface.md` while the
+    // server was in fact up.
+    let cartesian_path = match node.create_service::<GetCartesianPath::Service>(
+        "compute_cartesian_path",
+        QosProfile::default(),
+    ) {
+        Ok(service) => service,
+        Err(e) => {
+            eprintln!("create_service(compute_cartesian_path): {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
     // Leaked for the same reason `model` is: `spawn_local` requires
     // `'static`, and this outlives every future spawned on it.
     let srdf: &'static SrdfModel = Box::leak(Box::new(srdf));
-    let scene: MonitoredScene = Rc::new(RefCell::new(Arc::new(PlanningScene::new(model, srdf))));
+    let scene: MonitoredScene = monitored_scene::new(model, srdf);
 
     let mut pool = LocalPool::new();
     let spawner = pool.spawner();
+
+    // Upstream's `MoveGroupQueryPlannersService` is one capability serving
+    // three services off one configuration map, so it registers as one thing
+    // here too -- see `moveit_ros::planner_params`.
+    // The returned store is the one the three services share, and the same
+    // handle every plan below is built from -- upstream hands its map to the
+    // planner instance from inside `setParams`; here the node holds it and
+    // the planner is constructed from it (PORTING-PLAN.md §285).
+    let planner_configs = match moveit_ros::planner_params::spawn(&mut node, &spawner) {
+        Ok(configs) => configs,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
     let scene_for_plan_service = Rc::clone(&scene);
+    let configs_for_plan_service = Rc::clone(&planner_configs);
     let spawned = spawner.spawn_local(async move {
         let mut service = service;
         while let Some(req) = service.next().await {
@@ -681,7 +882,7 @@ fn main() -> ExitCode {
             // against.
             let response = {
                 let snapshot = Arc::clone(&scene_for_plan_service.borrow());
-                handle_request(&snapshot, req.message.clone())
+                handle_request(&snapshot, &configs_for_plan_service, req.message.clone())
             };
             if let Err(e) = req.respond(response) {
                 eprintln!("responding to plan_kinematic_path request: {e}");
@@ -694,6 +895,7 @@ fn main() -> ExitCode {
     }
 
     let scene_for_move_action = Rc::clone(&scene);
+    let configs_for_move_action = Rc::clone(&planner_configs);
     let spawned = spawner.spawn_local(async move {
         let mut requests = move_action;
         while let Some(request) = requests.next().await {
@@ -722,7 +924,7 @@ fn main() -> ExitCode {
             }
             let result = {
                 let snapshot = Arc::clone(&scene_for_move_action.borrow());
-                handle_move_group_goal(&snapshot, goal.goal.clone())
+                handle_move_group_goal(&snapshot, &configs_for_move_action, goal.goal.clone())
             };
             // Upstream's three-way terminal branch (`:113-124`). Its
             // `PREEMPTED` arm has no counterpart: nothing here sets that
@@ -759,19 +961,14 @@ fn main() -> ExitCode {
     let spawned = spawner.spawn_local(async move {
         let mut updates = scene_updates;
         while let Some(msg) = updates.next().await {
-            // Scoped so the borrow ends before the next `.await` -- the
-            // single-threaded stand-in for upstream's `std::unique_lock` on
-            // `scene_update_mutex_` (`:748`) being scoped to the update block.
-            let mut cell = scene_for_updates.borrow_mut();
-            let mut next = PlanningScene::cloned(&cell);
-            match use_planning_scene_msg(&mut next, msg) {
-                // Upstream returns the `bool` its callers ignore
-                // (`newPlanningSceneCallback` discards it outright); this port
-                // has a real error to report, so it reports it and leaves the
-                // previous snapshot in place rather than installing a
-                // half-applied scene.
-                Ok(()) => *cell = Arc::new(next),
-                Err(e) => eprintln!("planning_scene update rejected, scene unchanged: {e}"),
+            // Upstream returns the `bool` its callers ignore
+            // (`newPlanningSceneCallback` discards it outright); this port has
+            // a real error to report, so it reports it. `apply` is what
+            // guarantees the previous scene is still installed after a
+            // rejection -- see `monitored_scene`'s module doc for why that
+            // lives there and not here.
+            if let Err(e) = monitored_scene::apply_planning_scene_msg(&scene_for_updates, msg) {
+                eprintln!("planning_scene update rejected, scene unchanged: {e}");
             }
         }
     });
@@ -780,12 +977,128 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // `PlanningSceneMonitor::processAttachedCollisionObjectMsg`
+    // (`planning_scene_monitor.cpp:841`). Upstream returns `false` on a
+    // rejected object *after* having already mutated the scene under the
+    // lock (`:853`); `apply` cannot leave that state behind, so a rejection
+    // here is reported and changes nothing.
+    let scene_for_attach = Rc::clone(&scene);
+    let spawned = spawner.spawn_local(async move {
+        let mut objects = attached_objects;
+        while let Some(msg) = objects.next().await {
+            let id = msg.object.id.clone();
+            if let Err(e) =
+                monitored_scene::apply_attached_collision_object_msg(&scene_for_attach, msg)
+            {
+                eprintln!("attached_collision_object '{id}' rejected, scene unchanged: {e}");
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("spawning attached_collision_object subscription task: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    // `TrajectoryExecutionManager::receiveEvent`
+    // (`trajectory_execution_manager.cpp:355`), which logs the payload and
+    // hands it to `processEvent` (`:343`). The state this transitions lives
+    // in `moveit_ros::execution`; the task owns the one instance so nothing
+    // else can reach the transition.
+    let spawned = spawner.spawn_local(async move {
+        let mut events = execution_events;
+        let mut execution = TrajectoryExecution::new();
+        while let Some(msg) = events.next().await {
+            match ExecutionEvent::try_from(ExecutionEventMsg(msg)) {
+                Ok(ExecutionEvent::Stop) => match execution.stop() {
+                    StopOutcome::Preempted => {
+                        // Upstream's "Stopped trajectory execution." (`:1226`).
+                        eprintln!("trajectory_execution_event stop: preempted execution");
+                    }
+                    StopOutcome::NothingToStop => {
+                        eprintln!(
+                            "trajectory_execution_event stop: nothing to stop, \
+                             no trajectory is executing"
+                        );
+                    }
+                },
+                // Upstream's `RCLCPP_WARN_STREAM("Unknown event type: ...")`
+                // (`:351`) -- same severity, and the payload is named for the
+                // same reason.
+                Err(e) => eprintln!("trajectory_execution_event ignored: {e}"),
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("spawning trajectory_execution_event subscription task: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    // The whole registration: this capability owns its goals end to end in
+    // [`moveit_ros::execute_trajectory::serve`], so no goal handle, no result
+    // and no terminal transition is visible here. See that module for which of
+    // the two possible servers this is -- it is the no-execution-backend one,
+    // answering upstream's own `CONTROL_FAILED`, not a server reporting
+    // `SUCCESS` having executed nothing.
+    let spawned = spawner.spawn_local(execute_trajectory::serve(execute_trajectory));
+    if let Err(e) = spawned {
+        eprintln!("spawning execute_trajectory task: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    // The stand-in for the robot driver. Upstream's `move_group` subscribes
+    // to this topic and never publishes it; what this node publishes is the
+    // monitored scene's own current state, so a client's `getCurrentState()`
+    // reads back the state this node plans from. See
+    // [`moveit_ros::joint_states`] for that deviation and for why a latched
+    // message could not serve this endpoint.
+    let scene_for_joint_states = Rc::clone(&scene);
+    let spawned = spawner.spawn_local(async move {
+        while joint_state_timer.tick().await.is_ok() {
+            // Read per tick, not per batch: the stamp is what
+            // `waitForCurrentState` compares against the caller's own
+            // `now()`, so a stamp taken once at startup would satisfy no
+            // call ever made after it.
+            let stamp = {
+                let mut clock = match clock.lock() {
+                    Ok(clock) => clock,
+                    Err(e) => {
+                        eprintln!("locking the ROS clock for joint_states: {e}");
+                        continue;
+                    }
+                };
+                match clock.get_now() {
+                    Ok(now) => r2r::Clock::to_builtin_time(&now),
+                    Err(e) => {
+                        eprintln!("reading the ROS clock for joint_states: {e}");
+                        continue;
+                    }
+                }
+            };
+            // Scoped like every other reader here: the borrow ends before
+            // the next `.await`.
+            let message = {
+                let snapshot = Arc::clone(&scene_for_joint_states.borrow());
+                joint_sampler.sample(snapshot.current_state(), stamp)
+            };
+            // Reported and retried on the next tick rather than ending the
+            // loop: a publish that fails once must not stop every later
+            // `getCurrentState()` from ever completing.
+            if let Err(e) = joint_state_publisher.publish(&message) {
+                eprintln!("publishing joint_states: {e}");
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("spawning joint_states task: {e}");
+        return ExitCode::FAILURE;
+    }
+
     let scene_for_validity = Rc::clone(&scene);
     let spawned = spawner.spawn_local(async move {
         let mut service = state_validity;
         while let Some(req) = service.next().await {
             let response = {
-                let snapshot = Arc::clone(&scene_for_validity.borrow());
+                let snapshot = monitored_scene::snapshot(&scene_for_validity);
                 handle_state_validity(&snapshot, req.message.clone())
             };
             if let Err(e) = req.respond(response) {
@@ -795,6 +1108,24 @@ fn main() -> ExitCode {
     });
     if let Err(e) = spawned {
         eprintln!("spawning check_state_validity task: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    let scene_for_cartesian = Rc::clone(&scene);
+    let spawned = spawner.spawn_local(async move {
+        let mut service = cartesian_path;
+        while let Some(req) = service.next().await {
+            let response = {
+                let snapshot = Arc::clone(&scene_for_cartesian.borrow());
+                moveit_ros::cartesian_path::handle(&snapshot, req.message.clone())
+            };
+            if let Err(e) = req.respond(response) {
+                eprintln!("responding to compute_cartesian_path request: {e}");
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("spawning compute_cartesian_path task: {e}");
         return ExitCode::FAILURE;
     }
 

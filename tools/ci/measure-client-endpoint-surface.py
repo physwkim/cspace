@@ -121,10 +121,12 @@ NOT_A_CALL = {"MoveGroupInterfaceImpl", "~MoveGroupInterfaceImpl"}
 # What the constructor itself puts on the wire, as opposed to what it merely
 # creates.  Two blocking waits on action servers, and the model load, which
 # reads a parameter and falls back to a latched topic
-# (`synchronized_string_parameter.cpp:101`, `:125`).  Not derived: each of
+# (`synchronized_string_parameter.cpp:101`, `:125`) -- once per description,
+# and there are two of them (`rdf_loader.cpp:92-99`).  Not derived: each of
 # these is a call through a handle-typed local or a free function, not a use
 # of a member the classifier can see.
-CTOR_ENDPOINTS = ("move_action", "execute_trajectory", "robot_description")
+CTOR_ENDPOINTS = ("move_action", "execute_trajectory", "robot_description",
+                  "robot_description_semantic")
 
 # Call edges a name-based resolver cannot decide, because the overloads that
 # share the name do NOT share an endpoint set.  Each entry pins one call site
@@ -583,17 +585,33 @@ CLIENT_USE = {
     "topic-sub": "subscribes", "parameter": "reads",
 }
 
+# Per kind: the prose the doc prints, and the set of port-side roles that
+# actually satisfy it.  Two fields rather than one because `parameter`'s
+# prose names two things and only one of them is on the graph at all -- the
+# client reads the parameter from its OWN node, which no other process can
+# set, so the latched publisher is the whole of what a port can do about it.
+# While the prose WAS the equality key, `create_publisher("robot_description")`
+# -- that one thing -- compared unequal to the string naming it and the row
+# read `role-mismatch`: a port that had done the only available thing was
+# reported as having done the wrong thing.
 PORT_ROLE = {
-    "action": "action server", "service": "service server",
-    "topic-pub": "subscriber", "topic-sub": "publisher",
-    "parameter": "parameter or latched publisher",
+    "action": ("action server", {"action server"}),
+    "service": ("service server", {"service server"}),
+    "topic-pub": ("subscriber", {"subscriber"}),
+    "topic-sub": ("publisher", {"publisher"}),
+    "parameter": ("parameter or latched publisher", {"publisher"}),
 }
 
 # The model load is not one of the ten handles -- it is a free function the
 # constructor calls before any handle exists -- but the client cannot be
-# constructed without it, so it is a row here.
+# constructed without it, so it is a row here.  BOTH descriptions are rows:
+# `RDFLoader`'s constructor calls `loadInitialValue` once for the name it was
+# given and once for that name + `"_semantic"`, so a client whose node
+# carries neither parameter waits out two timeouts, not one, and builds its
+# model from whatever both produced.
 PARAM_ENDPOINTS = {
     "robot_description": ("parameter", "common_objects.cpp:115-130"),
+    "robot_description_semantic": ("parameter", "rdf_loader.cpp:96-99"),
 }
 
 # r2r's factories, and the role each one fills.  Client-side factories are
@@ -724,8 +742,9 @@ def port_table(sites):
             chosen = same_name[0]
         else:
             kind = need[endpoint]
-            role, use = PORT_ROLE[kind], CLIENT_USE[kind]
-            exact = [s for s in same_name if s[1] == role]
+            role, accepted = PORT_ROLE[kind]
+            use = CLIENT_USE[kind]
+            exact = [s for s in same_name if s[1] in accepted]
             chosen = exact[0] if exact else (same_name[0] if same_name else None)
             verdict = "bound" if exact else (
                 "role-mismatch" if same_name else "absent")

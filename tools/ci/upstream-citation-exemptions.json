@@ -44,9 +44,10 @@
     "",
     "A declaration is not an exemption from correctness. It records that this",
     "gate has no tree to check the citation against; the citation may still be",
-    "wrong, and `oracle` below is the proof that unchecked citations rot --",
-    "every one of its 47 was measured drifted. Anything that CAN be pointed at",
-    "a pinned checkout belongs in `verify-upstream-citations.sh`'s `--source`",
+    "wrong. The `oracle` entry that used to sit here is the proof: it declared",
+    "an IN-REPO file unresolvable, and when the root was finally indexed every",
+    "one of its 47 citations had drifted. Anything that CAN be pointed at a",
+    "pinned checkout belongs in `verify-upstream-citations.sh`'s `--source`",
     "list instead of here."
   ],
   "unresolvable": [
@@ -63,6 +64,8 @@
         "collision_request.h",
         "collision_result-inl.h",
         "cost_source-inl.h",
+        "distance_func_matrix-inl.h",
+        "distance_request-inl.h",
         "fcl/include/fcl/geometry/bvh/detail/BV_fitter-inl.h",
         "fcl/include/fcl/geometry/shape/utility-inl.h",
         "fcl/include/fcl/math/geometry-inl.h",
@@ -72,6 +75,7 @@
         "fcl/include/fcl/narrowphase/detail/traversal/collision/mesh_shape_collision_traversal_node-inl.h",
         "fcl/include/fcl/narrowphase/detail/traversal/collision/shape_collision_traversal_node-inl.h",
         "geometry-inl.h",
+        "gjk_libccd-inl.h",
         "gjk_solver_libccd-inl.h",
         "include/fcl/geometry/bvh/BVH_model-inl.h",
         "include/fcl/geometry/bvh/BVH_model.h",
@@ -80,9 +84,14 @@
         "include/fcl/narrowphase/collision_request.h",
         "include/fcl/narrowphase/contact.h",
         "include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h",
+        "include/fcl/narrowphase/distance-inl.h",
+        "include/fcl/narrowphase/distance_request.h",
         "mesh_collision_traversal_node-inl.h",
         "mesh_shape_collision_traversal_node-inl.h",
-        "shape_collision_traversal_node-inl.h"
+        "shape_collision_traversal_node-inl.h",
+        "sphere_box-inl.h",
+        "sphere_cylinder-inl.h",
+        "sphere_sphere-inl.h"
       ]
     },
     {
@@ -170,15 +179,6 @@
       "why": "Installed as a binary ROS package. Cited once, by doc/claim-audit/moveit-ros.md:57 for `rclcpp::Duration::from_seconds`.",
       "paths": [
         "duration.hpp"
-      ]
-    },
-    {
-      "project": "oracle",
-      "checkout": "this repository, tools/moveit-oracle/src/oracle.cpp",
-      "why": "NOT external -- an in-repo file, cited 47 times by line number, that no gate has ever checked. Indexing it here is one line and was tried; it is held back because the corpus behind it is wholly rotten and a green gate over it would read as coverage. Re-derivation by content (git-blame the citing line, read the cited line at that revision, locate that content today) puts 47 of 47 on a different line, and two of them are historical defect-fix records whose targets the fix deleted, so they must not be re-pointed at all. See PORTING-PLAN.md's `oracle.cpp 인용 47건` section for the per-citation table and the instrument. Landing the `--source` line is the last step of that work, not the first.",
-      "paths": [
-        "oracle.cpp",
-        "tools/moveit-oracle/src/oracle.cpp"
       ]
     }
   ]

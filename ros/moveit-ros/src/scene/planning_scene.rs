@@ -66,7 +66,8 @@ use moveit_scene::PlanningScene;
 use moveit_state::RobotState as CoreRobotState;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
-use super::collision_object::{OCTOMAP_NS, apply_collision_object};
+use super::attached::apply_attached_collision_object;
+use super::collision_object::{CollisionObjectOperation, OCTOMAP_NS, apply_collision_object};
 use super::header_frame_transform;
 use crate::geometry::{Pose, Transform};
 use crate::state::RobotStateMsg;
@@ -335,6 +336,69 @@ impl TryFrom<AllowedCollisionMatrixMsg> for AllowedCollisionMatrix {
     }
 }
 
+/// Upstream `setCurrentState` (`planning_scene.cpp:1217`), the RobotState
+/// overload -- **the single owner of "a `RobotState` message reaches the
+/// scene"**, and with it of every `AttachedCollisionObject` that arrives
+/// inside a `PlanningScene`.
+///
+/// Upstream does not let the joint-state path touch attached bodies at all:
+/// it copies the message, clears `attached_collision_objects` on the copy
+/// (`:1221-1222`), converts *that* into the robot state, and then loops the
+/// original message's attached objects through
+/// `processAttachedCollisionObjectMsg` (`:1246`) one at a time. This port
+/// takes the same shape, with [`apply_attached_collision_object`] as the
+/// owner -- the same function
+/// [`crate::monitored_scene::apply_attached_collision_object_msg`] routes the
+/// `attached_collision_object` topic through. There is no second path that
+/// attaches a body to the scene, which is what stops a topic attach and a
+/// scene diff from being two mutators whose order decides the answer.
+///
+/// # Only ADD is reachable from here, and that is upstream's rule
+///
+/// Upstream rejects a non-ADD operation when the `RobotState` is not itself
+/// a diff (`:1238-1245`), because "modify what is already attached" has no
+/// meaning against a state that claims to be the whole truth. It logs and
+/// skips the object; this port returns `Err` instead, per D6 and matching
+/// how [`AllowedCollisionMatrixMsg`] treats upstream's log-and-continue on a
+/// malformed matrix.
+///
+/// `is_diff == true` never reaches that test: [`RobotStateMsg`] rejects it
+/// first (a bare `&RobotModel` conversion has no parent to diff against), so
+/// the guard here reduces to "every attached object stated inside a
+/// `PlanningScene` must be an ADD". That is a real narrowing against
+/// upstream and it is recorded rather than hidden -- the `attached_collision_object`
+/// topic is the path that carries REMOVE and APPEND.
+fn set_current_state_msg(
+    scene: &mut PlanningScene<'_>,
+    mut msg: moveit_msgs::RobotState,
+) -> Result<()> {
+    let attached = std::mem::take(&mut msg.attached_collision_objects);
+    let is_diff = msg.is_diff;
+
+    let state = CoreRobotState::try_from(RobotStateMsg {
+        model: scene.robot_model(),
+        msg,
+    })?;
+    scene.set_current_state(state);
+
+    for object in attached {
+        if !is_diff
+            && CollisionObjectOperation::try_from(object.object.operation)?
+                != CollisionObjectOperation::Add
+        {
+            return Err(Error::other(format!(
+                "RobotState.attached_collision_objects['{}'] asks for operation {} on a \
+                 RobotState that is not marked is_diff -- upstream ignores the object here \
+                 (planning_scene.cpp:1238-1245); use the attached_collision_object topic \
+                 for anything but ADD",
+                object.object.id, object.object.operation
+            )));
+        }
+        apply_attached_collision_object(scene, object)?;
+    }
+    Ok(())
+}
+
 /// Upstream `setPlanningSceneMsg` (`planning_scene.cpp:1367`): the message
 /// *is* the scene afterwards.
 ///
@@ -368,11 +432,7 @@ pub fn set_planning_scene_msg<'m>(
     scene.decouple_parent();
 
     apply_fixed_frame_transforms(scene, msg.fixed_frame_transforms)?;
-    let state = CoreRobotState::try_from(RobotStateMsg {
-        model: scene.robot_model(),
-        msg: msg.robot_state,
-    })?;
-    scene.set_current_state(state);
+    set_current_state_msg(scene, msg.robot_state)?;
     scene.set_allowed_collision_matrix(AllowedCollisionMatrix::try_from(
         AllowedCollisionMatrixMsg(msg.allowed_collision_matrix),
     )?);
@@ -412,11 +472,7 @@ pub fn set_planning_scene_diff_msg<'m>(
         || !robot_state.joint_state.name.is_empty()
         || !robot_state.attached_collision_objects.is_empty()
     {
-        let state = CoreRobotState::try_from(RobotStateMsg {
-            model: scene.robot_model(),
-            msg: robot_state,
-        })?;
-        scene.set_current_state(state);
+        set_current_state_msg(scene, robot_state)?;
     }
 
     if !msg.allowed_collision_matrix.entry_names.is_empty() {

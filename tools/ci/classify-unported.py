@@ -32,6 +32,11 @@ importantly -- verifies the second one instead of transcribing it.
 Usage:
     tools/ci/classify-unported.py [--upstream DIR] [--repo DIR]
                                   [--emit DOC] [--check DOC]
+                                  [--phase-table-only]
+
+`--phase-table-only` runs just the §5 cross-check and stops before anything
+that needs `--upstream`; `tools/ci/check-unmet-blockers.sh` is the `check-*`
+entry point for it, and its header says why that split exists.
 """
 
 from __future__ import annotations
@@ -42,6 +47,7 @@ import importlib.util
 import os
 import re
 import sys
+import textwrap
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_UPSTREAM = "/home/stevek/work/moveit2"
@@ -77,93 +83,60 @@ HEADING = re.compile(r"^#+\s+§?(\d+(?:\.\d+)*)\b")
 # them cannot block the row.  The distinction matters: an earlier revision of
 # this table carried empty path sets, which made the BLOCKS column read
 # `none` for every file *by construction* -- a column that cannot say anything
-# else is not a measurement.  `Phase 3`'s prefixes below select 9 of the 87,
+# else is not a measurement.  `Phase 3`'s prefixes below select 9 of the set,
 # so the column can fire and is a real test.
 #
 # `adjudication` is why the candidates that do fire still do not block, and it
 # is quoted from the cited section, not asserted here.
 UNMET_BLOCKERS = {
-    ("Phase 3", "collision: bool"): {
-        "section": "229.1",
-        "blocker": "fcl narrowphase has no single convention at exact tangency "
-                   "(the sweep in §229.1: robot_collision flips sign at z=0 "
-                   "while robot_distance does not)",
-        "candidates": (
-            "moveit_core/collision_detection/",
-            "moveit_core/collision_detection_fcl/",
-            "moveit_core/collision_detection_bullet/",
-        ),
-        "adjudication":
-            "§229.1 measures the port AGAINST the oracle over a 10,000-sample "
-            "sweep and reports 6,854 mismatches, so both sides produced values "
-            "-- the row fails on a semantic disagreement, not on an absent "
-            "file.  The mechanism it names lives in collision_detection_fcl, "
-            "which doc/port-coverage.md §1 excludes from the corpus, so no "
-            "member of the 87 can be it.",
-    },
-    ("Phase 3", "distance: f64"): {
-        # The row cited §229.3 until §260 re-measured it and the §5 table moved
-        # the citation; check_phase_coverage() caught this entry still pointing
-        # at §229.3 on the very merge that brought §260 in.
-        "section": "260",
-        "blocker": "the divergence is confined to one branch of the upstream "
-                   "function: §260 measures 0 divergences on the separated "
-                   "branch across 5 robots x 10,000 states, and the "
-                   "penetration branch is incomparable because of 3 upstream "
-                   "defects -- which is why the row reads PARTIAL, not UNMET",
-        "candidates": (
-            "moveit_core/collision_detection/",
-            "moveit_core/collision_detection_fcl/",
-            "moveit_core/collision_detection_bullet/",
-        ),
-        "adjudication":
-            "the mechanism is upstream distanceCallback in "
-            "moveit_core/collision_detection_fcl/src/collision_common.cpp, a "
-            "file the corpus excludes, and §260 attributes what remains to 3 "
-            "defects in that upstream function; porting any candidate below "
-            "would not change what that callback computes.",
-    },
-    # Was UNMEASURED against §217.3 until §263 measured it; the row now reads
-    # UNMET against §263 and the harness this entry used to call absent exists
-    # (crates/moveit-planners-{chomp,stomp}/examples/).  check_phase_coverage()
-    # caught the stale section on the merge that brought §263 in -- the third
-    # drift it has found, and the reason this entry no longer describes the
-    # blocker as a missing harness.
-    ("Phase 8", "CHOMP/STOMP"): {
-        "section": "263",
-        "blocker": "§263 ran the condition and both planners failed it on the "
-                   "numbers: success rate short of the 89.64% bar (stomp 8 of "
-                   "449 short) and condition 2 short of 100% (chomp 379/380, "
-                   "stomp 438/441).  The harness exists -- what fails is the "
-                   "measured rate, not an absent file",
-        "candidates": ("moveit_planners/chomp/", "moveit_planners/stomp/"),
-        "adjudication":
-            "the 8 candidates are all ROS plugin wiring (chomp_interface/*, "
-            "stomp_moveit_planner_plugin.cpp, trajectory_visualization.hpp) "
-            "and §263's harness does not go through a plugin -- it drives "
-            "the crates directly from "
-            "crates/moveit-planners-{chomp,stomp}/examples/*_benchmark_port.rs. "
-            "The row fails on measured success rate, so porting any candidate "
-            "below could not move it.",
-    },
-    ("Phase 9", "MoveGroupInterface"): {
-        # The §5 row cites §250.5, not §250.6 -- check_phase_coverage() caught
-        # that this entry had transcribed the wrong one.  §250.5 is the verdict
-        # subsection; §250.6 is its list of what stayed open, and every item on
-        # that list has since been closed (§254 the /move_action gate, §255 the
-        # error codes, §256 start_state, §257 the planning scene subscription).
-        "section": "250.5",
-        "blocker": "per §256 the current first rejection is that there is no "
-                   "planner to call, which is a decision D8 owns -- port-side, "
-                   "not an unported upstream file",
-        # MoveGroupInterface is declared in moveit_ros, which is not a
-        # CORPUS_ROOT, so this prefix selects 0 of the 245-file corpus.
-        "candidates": ("moveit_ros/",),
-        "adjudication":
-            "all four items §250.6 leaves open are port-side "
-            "(crates/moveit-planning, ros/verify-ros-interop.sh); none is an "
-            "unported upstream file.",
-    },
+    # ("Phase 3", "collision: bool") lived here, citing §229.1 and then §251.4
+    # and then §275.2, while the row read UNMET on "the two implementations
+    # split at exact tangency".  The row is MET now, on the sub-population where
+    # neither narrow phase's boundary convention can decide the answer: the
+    # shape pairs fcl specialises AND parry sends to a closed form on the same
+    # side of the boundary, which is `sphere x {box, cylinder}` and nothing
+    # else.  Measured by tools/ci/verify-phase3-tangency-subset.sh.  The entry
+    # is removed rather than reworded because this table's contract is "every
+    # not-yet-MET row", and a blocker entry for a MET row is what
+    # check_phase_coverage() calls drift.  What it used to carry that the row
+    # does not -- that the blank cells, `box x box`, `sphere x sphere` and
+    # exact tangency still diverge, and that the mechanism lives in
+    # collision_detection_fcl, which doc/port-coverage.md §1 excludes from the
+    # corpus, so no unported file can be it -- is in the row's own clause and
+    # in the round section that row cites.
+    # ("Phase 3", "distance: f64") lived here while the penetration-branch row
+    # read UNMEASURED.  Both of that clause's rows are MET now: the separated
+    # branch since §260, and the penetration branch on the sub-population where
+    # none of the three upstream defects can fire, measured by
+    # tools/ci/verify-phase3-penetration-subset.sh.  The entry is removed rather
+    # than reworded because this table's contract is "every not-yet-MET row",
+    # and a blocker entry for a MET row is what check_phase_coverage() calls
+    # drift.  What the entry used to carry that the row does not -- that the
+    # rest of the branch (queries with two or more pairs, `box x box`, meshes)
+    # is measurable only against a patched oracle -- is in the row's own clause
+    # and in the round section that row cites.
+    # ("Phase 8", "CHOMP/STOMP") was here until the §5 table took MET.  Its
+    # blocker was condition 2 alone, left unspecified because no implementation
+    # reached 100% after 0.01 densification -- §269 counted 1 invalid path of
+    # upstream C++ CHOMP's 370, 2 of C++ STOMP's 446, 1 of the port CHOMP's 380
+    # and 3 of the port STOMP's 441.  §286 specified the condition instead of
+    # widening it: each planner is held to the discretisation its own upstream
+    # implementation checks at, which is the same rule Phase 7 applies to
+    # RRTConnect at setStateValidityCheckingResolution.  What refuted the finer
+    # bar is a measurement, not a preference -- changing only the planner RNG
+    # seed base moves upstream C++ CHOMP's own condition-2 failure count between
+    # 1 and 0 over the same 500 problems.  The row's candidates were 8 ROS
+    # plugin-wiring files that §263's crate-level harness never goes through, so
+    # this closing did not port any of them; they now fall to the same `none`
+    # blocker as every other unported file no non-MET row names.
+    # ("Phase 9", "MoveGroupInterface") was here until §273 measured the row MET
+    # and the §5 table took the verdict.  Its blocker was "there is no planner to
+    # call, a decision D8 owns"; D8 wired one, and ros/verify-move-action-interop.sh
+    # now gates upstream's unmodified client receiving a trajectory from
+    # /move_action in both start-state spellings, graded by upstream's own
+    # moveit_core.  check_phase_coverage() required this deletion -- a MET row may
+    # not keep a blocker entry -- so the gate caught the row closing, which is the
+    # direction it had never fired in before.
 }
 
 # Upstream declaration forms.  Deliberately shallow: this reports what the
@@ -552,6 +525,46 @@ def classify(upstream: str, repo: str) -> list[dict]:
 PHASE_ROW = re.compile(
     r"^\| (Phase \d+) \| (.*?) \| (MET|UNMET|PARTIAL|UNMEASURED) \| §([\d.]+) \|", re.M
 )
+TABLE_HEADING = "### 완료 조건 현황표"
+# A real fence toggle is 3+ backticks and nothing else with a backtick on the
+# line -- PORTING-PLAN also writes ```` ```text ```` as an INLINE span while
+# discussing fence conventions, and a naive startswith("```") reads those as
+# toggles and desyncs for the rest of the file.
+FENCE_RE = re.compile(r"^ {0,3}`{3,}[^`]*$")
+
+
+def phase_rows(text: str) -> list[tuple[str, str, str, str]]:
+    """The rows of the LIVE §5 status table, and only those.
+
+    A whole-file `findall` cannot do this, and read one for its whole life.
+    §269.9 quotes the row it proposes to replace inside a fence -- verdict,
+    citation and all -- and that quotation is a well-formed row citing the
+    section the live row has since moved off.  With both in scope no value of
+    `section` below can satisfy the check: setting it to the live row's §
+    fails on the quotation, and setting it to the quotation's § fails on the
+    live row.  The gate was unsatisfiable in one direction and nobody saw it,
+    because nothing runs this file (see check-unmet-blockers.sh).
+
+    So the read is scoped the way check-phase-status.sh scopes the same table:
+    fences are tracked, and the region ends at ANY heading rather than only a
+    `## ` one, so a subsection inserted after the table cannot silently extend
+    it and a later `## ` cannot silently exempt rows below it.
+    """
+    rows, in_fence, in_table = [], False, False
+    for line in text.split("\n"):
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if line.startswith("#"):
+            in_table = line.strip() == TABLE_HEADING
+            continue
+        if in_table:
+            match = PHASE_ROW.match(line)
+            if match is not None:
+                rows.append(match.groups())
+    return rows
 
 
 def check_phase_coverage(repo: str) -> tuple[list[str], dict]:
@@ -563,8 +576,16 @@ def check_phase_coverage(repo: str) -> tuple[list[str], dict]:
     have an entry, and every entry must match a row that is not MET.
     """
     with open(os.path.join(repo, PLAN), encoding="utf-8") as fh:
-        rows = PHASE_ROW.findall(fh.read())
+        rows = phase_rows(fh.read())
     errors: list[str] = []
+    # An empty parse and a clean table are otherwise the same result: every
+    # loop below iterates nothing and the function returns no errors.
+    if not rows:
+        errors.append(
+            f"parsed zero rows from {PLAN}'s `{TABLE_HEADING}` table -- the "
+            f"heading or the row shape changed and this checked nothing"
+        )
+        return errors, {}
     verdicts: dict = {}
     open_rows = [r for r in rows if r[2] != "MET"]
     for phase, cond, verdict, sec in open_rows:
@@ -591,6 +612,50 @@ def check_phase_coverage(repo: str) -> tuple[list[str], dict]:
     return errors, verdicts
 
 
+def wrap_note(text: str) -> str:
+    """Wrap a derived sentence to the width the hand-written bullets around it
+    use, continuing the bullet's two-space indent.  `{blocks}` starts its own
+    line in the header, so every line here carries that indent."""
+    return textwrap.fill(text, width=56, subsequent_indent="  ")
+
+
+def blocks_note(items: list) -> str:
+    """The sentence the emitted header owes about the `막는 §5 행` column.
+
+    It used to be a literal: "the column can fire -- Phase 3's prefixes pick 9
+    files and Phase 8's pick 8".  That is a claim about `UNMET_BLOCKERS`, and
+    a literal cannot notice the dict shrinking underneath it.  Both of those
+    rows are MET now and the dict is empty, which turns every `none` in that
+    column from a measurement into an empty column -- with the old sentence
+    still vouching for it.  So the sentence is derived from the same dict the
+    column is, and says which of the two it is.
+    """
+    if not UNMET_BLOCKERS:
+        return wrap_note(
+            "§5 표에 아직 MET가 아닌 행이 없으므로 이 열은 **비어 있다** — "
+            "전건 `none`은 어느 행의 기전 경로에도 없다는 측정이 아니라 "
+            "고를 행이 없다는 뜻이다."
+        )
+    counts = [
+        (p, c, sum(1 for i in items
+                   if any(i["path"].startswith(pre) for pre in spec["candidates"])))
+        for (p, c), spec in UNMET_BLOCKERS.items()
+    ]
+    picked = ", ".join(f"{p} `{c}`의 접두사가 {n}건" for p, c, n in counts)
+    fires = any(n for _, _, n in counts)
+    tail = (
+        "을 실제로 고르므로 이 열은 발화할 수 있고, 발화한 건은 아래 판정 "
+        "문단에서 개별로 기각된다."
+        if fires else
+        "을 고른다 — 어느 행의 접두사도 한 건도 고르지 못하므로 이 열은 "
+        "발화할 수 없고, 전건 `none`은 그 사실이다."
+    )
+    return wrap_note(
+        "값이 `none`인 것은 그 파일이 어느 행의 기전 경로에도 없다는 "
+        f"**측정 결과**다: {picked}{tail}"
+    )
+
+
 def row_line(i: dict) -> str:
     """The one table row for `i`.  `--emit` writes it and `--check` re-derives
     it, so the two cannot disagree about the format they are comparing."""
@@ -606,6 +671,11 @@ def main() -> int:
     ap.add_argument("--repo", default=os.getcwd())
     ap.add_argument("--emit", metavar="DOC", help="write the classification table to DOC")
     ap.add_argument("--check", metavar="DOC", help="verify DOC has one row per unported file")
+    ap.add_argument(
+        "--phase-table-only",
+        action="store_true",
+        help="check UNMET_BLOCKERS against §5's table and stop -- needs no upstream checkout",
+    )
     args = ap.parse_args()
 
     errors, verdicts = check_phase_coverage(args.repo)
@@ -616,15 +686,39 @@ def main() -> int:
               f"in {len(errors)} place(s)", file=sys.stderr)
         return 1
 
+    # Everything above reads PORTING-PLAN.md and nothing else; everything below
+    # needs the upstream checkout.  The split is what lets check-unmet-blockers.sh
+    # put the part above into the `check-*` glob, whose contract is python3 plus
+    # the tracked files.  Without it this check ran only when someone invoked
+    # this script by hand -- which is how the two stale citations it is designed
+    # to catch sat in the tree until a merge happened to run it.
+    if args.phase_table_only:
+        print(
+            f"OK PORTING-PLAN.md §5: {len(verdicts)} not-yet-MET row(s) each have "
+            f"an UNMET_BLOCKERS entry citing the same § the row cites"
+        )
+        return 0
+
     items = classify(args.upstream, args.repo)
     locus = collections.Counter(i["locus"] for i in items)
+    locus_by_class = collections.Counter((i["locus"], i["class"]) for i in items)
     verdict = collections.Counter(i["verdict"] for i in items)
     blocks = collections.Counter(i["blocks"] for i in items)
 
     print(f"unported files classified                 {len(items)}")
+    # Split each locus by class.  §249.4 counts the crate-doc rows that are
+    # `decided-non-port` and gets 35; this block counted every row with that
+    # locus and got 40, and for one round the two numbers were carried around
+    # as two instruments disagreeing about one set.  They are two sets: the
+    # extra 5 are `ported-elsewhere`, every one of them already enumerated in
+    # §249.5.  A bare per-locus total cannot say that, so it no longer prints
+    # one alone.
     print("  decision locus:")
     for k, v in locus.most_common():
-        print(f"      {k:12s} {v}")
+        split = ", ".join(
+            f"{n} {cls}" for (lo, cls), n in sorted(locus_by_class.items()) if lo == k
+        )
+        print(f"      {k:12s} {v}  ({split})")
     print("  locus verdict:")
     for k, v in verdict.most_common():
         print(f"      {k:60s} {v}")
@@ -685,7 +779,7 @@ def main() -> int:
 
     if args.emit:
         with open(args.emit, "w", encoding="utf-8") as fh:
-            fh.write(EMIT_HEADER.format(n=len(items)))
+            fh.write(EMIT_HEADER.format(n=len(items), blocks=blocks_note(items)))
             fh.write(
                 "\n## 아직 MET가 아닌 §5 행 — 무엇이 막고 있고, "
                 f"{len(items)}건 중 몇이 후보인가\n\n"
@@ -693,6 +787,14 @@ def main() -> int:
                 "사본을 들고 있으면 §260이 `distance: f64`를 PARTIAL로 바꿨을 때처럼\n"
                 "조용히 낡는다 — `check_phase_coverage()`가 어긋나면 실패한다.\n\n"
             )
+            if not UNMET_BLOCKERS:
+                fh.write(
+                    "**아직 MET가 아닌 행이 없다.** §5 표의 모든 행이 `MET`이므로\n"
+                    "`UNMET_BLOCKERS`가 비어 있고, 따라서 아래 표의 `막는 §5 행`\n"
+                    "열은 발화할 대상 자체가 없다 — 전건 `none`은 측정 결과가\n"
+                    "아니라 열이 빈 것이다. 어느 행이 다시 열리면 그 행의 항목이\n"
+                    "여기 돌아오고 열도 함께 되살아난다.\n\n"
+                )
             for (p, c), spec in UNMET_BLOCKERS.items():
                 hits = [
                     i["path"] for i in items
@@ -703,7 +805,7 @@ def main() -> int:
                 fh.write(
                     "- **후보 경로 접두사:** "
                     + ", ".join(f"`{pre}`" for pre in spec["candidates"])
-                    + f" → 87건 중 **{len(hits)}건**이 후보\n"
+                    + f" → {len(items)}건 중 **{len(hits)}건**이 후보\n"
                 )
                 fh.write(f"- **판정:** {spec['adjudication']}\n")
                 if hits:
@@ -738,10 +840,8 @@ EMIT_HEADER = """<!-- GENERATED by tools/ci/classify-unported.py --emit doc/unpo
 - **막는 §5 행** — 아직 MET가 아닌 행 각각을 막는 것은 그 행이 인용한
   절에서 읽었다(`UNMET_BLOCKERS`). 디렉터리로 추측하지 않는다. 어느 행이
   아직 MET가 아닌지는 `PORTING-PLAN.md`의 §5 표에서 읽으며, 이 문서가 그
-  목록의 사본을 들고 있지 않다. 값이 `none`인 것은 그 파일이 어느 행의
-  기전 경로에도 없다는 **측정 결과**다: Phase 3 `collision: bool`의
-  접두사가 9건을, Phase 8의 접두사가 8건을 실제로 고르므로 이 열은 발화할
-  수 있고, 발화한 건은 아래 판정 문단에서 개별로 기각된다.
+  목록의 사본을 들고 있지 않다.
+  {blocks}
 """
 
 
