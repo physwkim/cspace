@@ -20929,13 +20929,13 @@ AllowedCollisionMatrix`(`ros/moveit-ros/src/scene/planning_scene.rs:273`)로
 
 ### §240.7 이 절이 하지 않은 것
 
-미감사 85건 중 81건은 그대로다. `moveit-planners-pilz` 39,
-`moveit-model` 20, `robot_state.hpp`/`.cpp` 2를 포함한다. 감사 결과 발견될
-미처리 선언은 이 문서의 행이거나 판정이지 `port-coverage.md`의 행이 아니다
-(§240.5).
+- **미감사 85건 중 81건은 그대로다.** `moveit-planners-pilz` 39,
+  `moveit-model` 20, `robot_state.hpp`/`.cpp` 2를 포함한다. 감사 결과 발견될
+  미처리 선언은 이 문서의 행이거나 판정이지 `port-coverage.md`의 행이 아니다
+  (§240.5).
 
-`moveit-test-support`의 `doc/claim-audit/` 부재도 그대로다 — 이 문서가 재는
-구멍이 아니어서 판정하지 않았다.
+- **`moveit-test-support`의 `doc/claim-audit/` 부재도 그대로다.** 이 문서가
+  재는 구멍이 아니어서 판정하지 않았다.
 
 ## §241 `/plan_kinematic_path` 서비스와 노드 바이너리를 지었다 — 서비스는 살아있고 와이어를 왕복하지만, `MoveGroupInterface::plan()`은 이 서비스를 아예 부르지 않는다 (2026-08-06)
 
