@@ -2879,6 +2879,203 @@ mod tests {
         );
     }
 
+    /// The shape 249 of the Phase 8 benchmark's 380 solved problems have
+    /// (`PORTING-PLAN.md` §296): the mesh-to-mesh closure is true on the
+    /// seed, so the loop leaves after costing exactly one trajectory. The
+    /// assertion that carries the finding is `evaluations == 1` paired with
+    /// `first_pass_max_update > 0.0` -- an increment *was* computed and
+    /// applied, and then nothing ever costed it.
+    #[test]
+    fn loop_trace_says_one_evaluation_when_the_seed_already_passes_mesh_to_mesh() {
+        let model = chomp_collision_model();
+        let mut source = chomp_full_trajectory(&model, 10);
+        // A kink in the seed, so the smoothness gradient is not identically
+        // zero. Without it the applied update is `0.0` for a reason that
+        // belongs to the fixture (a constant trajectory is already
+        // smoothness-optimal) rather than to the loop being measured.
+        let kink = vec![0.3; source.num_joints()];
+        source.set_trajectory_point(4, &kink);
+        let start_state = RobotState::new(&model);
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 50,
+            filter_mode: true,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| true, &mut rng)
+            .unwrap();
+
+        let trace = optimizer.loop_trace().expect("optimize records a trace");
+        assert_eq!(trace.evaluations, 1);
+        assert_eq!(trace.exit, ChompExit::BreakOut);
+        assert_eq!(trace.mesh_free_passes, 1);
+        assert_eq!(trace.below_threshold_passes, 0, "filter_mode disables it");
+        assert_eq!(
+            trace.accepted, 0,
+            "`accepted` counts the strict improvements after the seed pass, and a loop with one \
+             evaluation cannot have one"
+        );
+        assert!(
+            trace.first_pass_max_update > 0.0,
+            "the increments for the pass that broke out were still computed and applied; what \
+             never happened is a second `perform_forward_kinematics` to cost them"
+        );
+    }
+
+    /// The other end of `evaluations`: with nothing ever breaking out, the
+    /// loop costs one trajectory per iteration up to `max_iterations`, and
+    /// the exit reason is the bound rather than the break.
+    #[test]
+    fn loop_trace_counts_one_evaluation_per_iteration_when_nothing_breaks_out() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 7,
+            filter_mode: true,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+
+        let trace = optimizer.loop_trace().expect("optimize records a trace");
+        assert_eq!(trace.evaluations, 7);
+        assert_eq!(trace.exit, ChompExit::IterationBound);
+        assert_eq!(trace.mesh_free_passes, 0);
+    }
+
+    /// `seed_points_*` name the *first* pass, which is a different claim
+    /// from "the counts the last pass happened to leave behind". Two runs
+    /// over the same seed and the same obstacle, one costing a single
+    /// trajectory and one costing twelve, must report the same seed counts
+    /// -- and the twelve-pass run's live counter must have moved off them,
+    /// or the two readings would be indistinguishable.
+    #[test]
+    fn loop_trace_seed_point_counts_are_the_first_passs_not_the_last() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+
+        let obstacle_point = {
+            let mut cache = chomp_collision_cache(&model);
+            let field = env_field_with_points(&[]);
+            let mut collision = ChompCollisionContext {
+                cache: &mut cache,
+                env_distance_field: &field,
+            };
+            let mut optimizer = ChompOptimizer::new(
+                &source,
+                CHOMP_COLLISION_GROUP,
+                &ChompParameters::default(),
+                &start_state,
+                &mut collision,
+                None,
+            )
+            .unwrap();
+            optimizer
+                .perform_forward_kinematics(&mut collision)
+                .unwrap();
+            optimizer.collision_point_pos_eigen[optimizer.free_vars_start][0]
+        };
+
+        let run = |max_iterations: i32| {
+            let mut full = source.clone();
+            let mut cache = chomp_collision_cache(&model);
+            let field = env_field_with_points(&[obstacle_point]);
+            let mut collision = ChompCollisionContext {
+                cache: &mut cache,
+                env_distance_field: &field,
+            };
+            let parameters = ChompParameters {
+                max_iterations,
+                filter_mode: true,
+                ..ChompParameters::default()
+            };
+            let mut optimizer = ChompOptimizer::new(
+                &source,
+                CHOMP_COLLISION_GROUP,
+                &parameters,
+                &start_state,
+                &mut collision,
+                None,
+            )
+            .unwrap();
+            let mut rng = ChaCha8Rng::seed_from_u64(1);
+            optimizer
+                .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+                .unwrap();
+            (
+                optimizer.loop_trace().expect("optimize records a trace"),
+                optimizer.points_in_collision,
+            )
+        };
+
+        let (one, _) = run(1);
+        let (twelve, last_points_in_collision) = run(12);
+
+        assert_eq!(one.evaluations, 1);
+        assert_eq!(twelve.evaluations, 12);
+        assert!(
+            one.seed_points_in_collision > 0,
+            "the obstacle sits on a collision sphere's center, so the seed is in collision"
+        );
+        assert_eq!(
+            one.seed_points_in_collision,
+            twelve.seed_points_in_collision
+        );
+        assert_eq!(
+            one.seed_points_within_clearance,
+            twelve.seed_points_within_clearance
+        );
+        assert!(
+            one.seed_points_within_clearance > 0,
+            "the same obstacle puts points inside their clearance band, which is a different \
+             count over a different range -- see the two fields' docs, neither bounds the other"
+        );
+        assert_ne!(
+            twelve.seed_points_in_collision, last_points_in_collision,
+            "the twelfth pass left a different count behind, so the seed reading is not just \
+             whatever the loop last wrote"
+        );
+    }
+
     /// Item 1 family sweep (this round): the same mesh-to-mesh signal as
     /// [`optimize_mesh_to_mesh_alone_breaks_out_after_exactly_one_should_break_out_pass`],
     /// but with the collision-threshold site *not* disabled (`filter_mode`
