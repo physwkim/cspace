@@ -18873,10 +18873,7 @@ INVALID_GROUP_NAME, INVALID_LINK_NAME, NO_IK_SOLUTION, 그리고 명시 인자�
 
 ### §227.6 실제 누락 둘 — 이 라운드가 고치지 않은 것
 
-표의 46행 중 "상류가 거부하는 요청을 포트가 받아들인다"에 해당하는 것은
-둘뿐이고, 둘 다 이 라운드의 여덟 파일 밖이므로 **여기서는 기록만 한다.**
-
-1. **#41 `JointNumberMismatch`** — `trajectory_generator_lin.cpp:88-97`은
+- **#41 `JointNumberMismatch`** — `trajectory_generator_lin.cpp:88-97`은
    LIN의 관절 공간 목표에 대해
    `goal_constraints.front().joint_constraints.size() !=
    group->getActiveJointModelNames().size()`를 검사하고 어긋나면
@@ -18889,10 +18886,13 @@ INVALID_GROUP_NAME, INVALID_LINK_NAME, NO_IK_SOLUTION, 그리고 명시 인자�
    `trajectory_generator_circ.rs:163-164`가 `NumberOfConstraintsMismatch`(#20)를
    같은 코드로 포팅했다. 즉 상류에서 동일하던 두 생성기가 이 포트에서
    갈라져 있다.
-2. **#11 `MoreThanOneTipFrameException`** — `tip_frame_getter.hpp:85`의
+- **#11 `MoreThanOneTipFrameException`** — `tip_frame_getter.hpp:85`의
    multi-tip 분기. 이것은 새 사실이 아니라 `doc/port-coverage.md`의
    `tip_frame_getter.hpp` 행이 이미 잔여분으로 적어 둔 것이며, 이 표가 그
    기록과 일치함을 확인한 것이다.
+
+표의 46행 중 "상류가 거부하는 요청을 포트가 받아들인다"에 해당하는 것은
+위 둘뿐이고, 둘 다 이 라운드의 여덟 파일 밖이므로 **여기서는 기록만 한다.**
 
 ### §227.7 이 표가 하지 않은 것
 
