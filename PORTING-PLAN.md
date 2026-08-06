@@ -26326,8 +26326,9 @@ DDS 위에서 실제로 잰 것(`sg docker -c ./tools/ci/verify-ros-interop.sh`,
 
 ### §NEW.8 `main`을 머지하면서 죽은 분기 하나와 살아난 답 하나
 
-이 브랜치는 `a35bc2e`에서 갈라졌고, 머지 시점의 `main`은 `df30f43`으로
-99 커밋 앞서 있었다. 겹치는 것이 셋이라 여기 적는다.
+이 브랜치는 `a35bc2e`에서 갈라졌고, `main`이 라운드 중에 세 번 움직여
+`df30f43` · `c178722` · `7ce765f`를 차례로 받았다(합쳐 122+23+7 커밋).
+겹치는 것이 셋이라 여기 적는다.
 
 **§255의 바이너리 개명(rename/modify 충돌).** §255가
 `src/bin/plan_kinematic_path_server.rs`를 `src/bin/move_group.rs`로 옮겼고,
@@ -26405,6 +26406,17 @@ leg A의 여섯 goal이 답한 것(같은 실행):
 | `multi-dof` | `val: -16`, `start_state.multi_dof_joint_state has no core representation` |
 
 `/plan_kinematic_path`도 같은 실행에서 `val=1` + `group_name='arm'` +
-3 웨이포인트를 돌려준다. **Phase 9의 완료 조건 중 "상류 클라이언트가 궤적을
+3 웨이포인트를 돌려준다.
+
+**인용 게이트에 남는 것은 한 파일이다.** D8은 `ros/moveit-ros/src/planning.rs`를
+495행 아래로 일률적으로 9줄 민다. `doc/assertion-discrimination-ledger-p9-ros.md`가
+그 파일을 19번 인용하고 있어서, 이 브랜치만으로는
+`check-citation-drift.py`가 7건 강등을, `verify-orphan-enumeration.sh`가
+36 orphan / 4 unresolved를 보고한다(`main` 단독은 32 / 0). 그 19개 인용에
+`+9`를 일률 적용한 트리를 만들어 두 게이트를 다시 돌린 결과가 각각
+"0 demoted, 0 out-of-bounds, 0 anchor-mismatch, 0 unresolvable"과
+"32 orphan / 0 unresolved" — `main` 단독과 같은 수 — 이므로, 이 브랜치가
+남기는 인용 부채는 그 한 파일의 일률 재번호 하나다. 그 파일은 p9-ros가
+쓰고 있어 여기서 손대지 않는다. **Phase 9의 완료 조건 중 "상류 클라이언트가 궤적을
 받는다"는 이 시점에 충족된다.** 남은 것은 §NEW.7의 목록이며, 그중 어느 것도
 이 답을 되돌리지 않는다.
