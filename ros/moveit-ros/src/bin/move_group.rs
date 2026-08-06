@@ -4,7 +4,8 @@
 //! The `moveit-ros` node: upstream's `move_group` capabilities that Phase 9's
 //! completion condition names, on one `r2r::Node`.
 //!
-//! Five endpoints are hosted here, matching upstream's own arrangement --
+//! Five `move_group` endpoints are hosted here, matching upstream's own
+//! arrangement --
 //! `move_group` loads `MoveGroupPlanService`, `MoveGroupMoveAction`,
 //! `MoveGroupExecuteTrajectoryAction` and `MoveGroupStateValidationService`
 //! as capabilities of a single node, not as separate processes, and that
@@ -40,6 +41,18 @@
 //!   consults the scene *and* can be answered end to end by this workspace
 //!   (it needs a collision environment, which exists, not a planning
 //!   pipeline, which does not).
+//!
+//! Two more topics are published here that upstream's `move_group` does not
+//! publish at all, because the client needs them from *somewhere* and in this
+//! workspace there is nowhere else:
+//!
+//! * `robot_description` and `robot_description_semantic`
+//!   (`std_msgs/msg/String`, latched) -- what an unmodified
+//!   `MoveGroupInterface` falls back to when its own node has no such
+//!   parameter, and therefore what its constructor blocks 10 s per
+//!   description without. Upstream publishes these only when told to;
+//!   [`moveit_ros::robot_description`] has the derivation and the
+//!   both-or-neither invariant.
 //!
 //! The name is upstream's own for the executable that loads exactly these
 //! capabilities: `add_executable(move_group src/move_group.cpp)`
@@ -173,6 +186,7 @@ use moveit_ros::constraints::set::ConstraintsMsg;
 use moveit_ros::execute_trajectory;
 use moveit_ros::move_group::plan_only;
 use moveit_ros::planning::{PlanningRequestMsg, PlanningResponseMsgOut};
+use moveit_ros::robot_description;
 use moveit_ros::scene::planning_scene::use_planning_scene_msg;
 use moveit_ros::state::RobotStateMsg;
 use moveit_scene::PlanningScene;
@@ -691,6 +705,20 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
+
+    // The two descriptions the client's own constructor blocks on. Both or
+    // neither, and fatal on failure -- the invariant and the reason a half
+    // latch is worse than none are in
+    // [`moveit_ros::robot_description`]. Held for the process's life: the
+    // samples are transient-local, so dropping this would leave the client
+    // subscribing to a topic that answers nothing.
+    let _descriptions = match robot_description::latch(&mut node, &urdf_xml, &srdf_xml) {
+        Ok(descriptions) => descriptions,
+        Err(e) => {
+            eprintln!("latching robot_description/robot_description_semantic: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
 
     // Leaked for the same reason `model` is: `spawn_local` requires
     // `'static`, and this outlives every future spawned on it.

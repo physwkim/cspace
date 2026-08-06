@@ -80,6 +80,7 @@ pub mod geometry;
 pub mod model;
 pub mod move_group;
 pub mod planning;
+pub mod robot_description;
 pub mod scene;
 pub mod state;
 pub mod trajectory;

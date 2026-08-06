@@ -27831,26 +27831,29 @@ SUCCEEDED가 아닐 것**, `val: -4`일 것, 실제 백엔드가 답할 세 코�
 적는다. 전부 `ros/moveit-ros/src/bin/move_group.rs`의 행 이동이다 —
 등록 블록이 그 위에 들어가면서 기존 네 행이 +10줄 밀렸다.
 
-옛 행 번호는 백틱 인용 문법 **밖에** 산문으로 적는다. 백틱 안에 넣으면
-citation 체커들이 그것을 살아 있는 주장으로 읽는데, 옛 행 번호는 정의상
+이 표는 행 번호를 하나도 적지 않는다. 옛 행 번호를 백틱 인용 문법 안에
+넣으면 citation 체커들이 그것을 살아 있는 주장으로 읽고, 옛 번호는 정의상
 그 트리에서 거짓이다 — 이 표를 처음 쓸 때 그렇게 적었고,
 `tools/ci/check-citation-drift.py`가 이 문서 자체를 undeclared 9건으로
-붉혔다. 아래 두 번째 항목이 같은 결함의 다른 사례다.
+붉혔다. 그런데 **새** 번호를 백틱 안에 적는 것도 같은 함정이었다: 그 다섯
+키는 백틱 밖의 옛 번호를 고친 바로 다음 커밋(§NEW2)이 같은 파일에
+발행자를 넣으면서 전부 밀렸고, 이 문서는 자기 트리에 대해 거짓이 되었다.
+행이 아니라 엔드포인트 이름으로 적으면 그 실패 방식이 사라진다 — 이름은
+행이 밀려도 같은 것을 가리킨다.
 
-| 새 키 (이 트리에서 재유도) | 옛 행 | `doc/client-endpoint-surface.md`에서의 클래스 |
-|---|---|---|
-| `ros/moveit-ros/src/bin/move_group.rs:617` | 607 | content-verified → content-verified |
-| `ros/moveit-ros/src/bin/move_group.rs:633` | 623 | content-verified → content-verified |
-| `ros/moveit-ros/src/bin/move_group.rs:656` | 646 | unanchored → unanchored |
-| `ros/moveit-ros/src/bin/move_group.rs:668` | 658 | content-verified → content-verified |
-| `ros/moveit-ros/src/bin/move_group.rs:687` | 없음 — 이 라운드가 연 행 | content-verified (새 행) |
+| 엔드포인트 (행 번호 대신 이름) | `doc/client-endpoint-surface.md`에서의 클래스 |
+|---|---|
+| `plan_kinematic_path` | content-verified → content-verified |
+| `move_action` | content-verified → content-verified |
+| `planning_scene` | unanchored → unanchored |
+| `check_state_validity` | content-verified → content-verified |
+| `execute_trajectory` | 없던 행 → content-verified (이 라운드가 연 엔드포인트) |
 
-**강등 0건**, undeclared 10건, retired 4건. 넷은 짝이 그대로 유지되고
-다섯째는 이 라운드가 연 엔드포인트의 새 행이다. undeclared가 5가 아니라
-10인 것은 위 표 자체가 같은 다섯 키를 두 번째로 등장시키기 때문이다 —
-`doc/client-endpoint-surface.md`에서 5건, 이 문서에서 5건. 이 문서 쪽
-5건은 unanchored로 들어간다: 표의 행이 그 행의 코드를 인용하지 않기
-때문이며, 재동결할 때 그 클래스가 맞다.
+**강등 0건.** undeclared/retired 건수는 이 문서가 어느 커밋에서 읽히느냐에
+따라 달라지므로 여기에 고정하지 않는다 — 브랜치 tip에서
+`tools/ci/check-citation-drift.py`를 돌린 첫 줄이 그 수다. 넷은 짝이 그대로
+유지되고 다섯째는 이 라운드가 연 엔드포인트의 새 행이라는 것이 이 표의
+내용이며, 그 사실은 행이 밀려도 변하지 않는다.
 
 여기에 구조적 결합이 하나 보인다: 생성물인
 `doc/client-endpoint-surface.md`의 행이 citation-drift 코퍼스 안에 있으므로,
@@ -27874,3 +27877,154 @@ FAIL 1 out-of-bounds + 0 obsolete-header + 0 span-mismatch + 0 undeclared-unreso
 적는다). 체커는 그것을 살아 있는 주장으로 읽고, 그 파일은 209행뿐이므로
 out-of-bounds가 된다. 고치는 것은 백틱을 벗겨 산문으로 옮기는 한 줄이지만,
 다른 라운드의 절이라 이 브랜치는 손대지 않았다.
+
+## §NEW2 `robot_description`/`robot_description_semantic`를 래치한다 — §273.5의 "never off the graph"는 틀렸다 (2026-08-06)
+
+### §NEW2.1 §273.5의 주장을 상류에서 재유도했다
+
+§273.5는 클라이언트가 로봇 모델을 "자기 노드의 파라미터에서 읽고, 그래프에서는
+결코 읽지 않는다(never off the graph)"고 적었다. 브리핑은 이 주장을 직접
+재유도하라고 했고, 재유도한 결과 **앞의 절반은 맞고 뒤의 절반은 틀렸다**.
+파라미터는 두 원천 중 *첫 번째*일 뿐이고, 두 번째는 래치된 토픽이다.
+
+사슬은 이렇다. `getSharedRobotModel`이 `RobotModelLoader`를 만들고
+(`common_objects.cpp:124`), 그것이 `RDFLoader(node_, opt.robot_description)`를
+만들며 (`robot_model_loader.cpp:115`), 그 생성자가
+`SynchronizedStringParameter::loadInitialValue`를 **두 번** 부른다 — 한 번은
+주어진 이름으로, 한 번은 그 이름 + `"_semantic"`로 (`rdf_loader.cpp:92-99`).
+`loadInitialValue` 안에서 `getMainParameter`가 참을 돌려주면 거기서 끝나지만
+(`synchronized_string_parameter.cpp:50-62`), 노드에 그 파라미터가 없으면
+비어 있는 문자열이 돌아오고 함수는 `waitForMessage`로 떨어진다
+(`synchronized_string_parameter.cpp:82`).
+`waitForMessage`는 **같은 이름의 토픽**에 `std_msgs/String` 구독을
+`rclcpp::QoS(1).transient_local().reliable()`로 열고
+(`synchronized_string_parameter.cpp:121-133`), `<name>_timeout` 파라미터
+(기본 10.0초)만큼 `rclcpp::WaitSet`에서 막힌다.
+
+즉 파라미터가 없는 클라이언트는 그래프를 읽는다. 그것도 설명마다 한 번씩,
+두 번.
+
+이것은 논증이 아니라 측정으로 닫았다. `ros/verify-robot-description-interop.sh`의
+leg B는 `robot_description` 파라미터를 **하나도 설정하지 않은** 노드 위에
+상류의 손대지 않은 `MoveGroupInterface`를 세우고, 그 클라이언트가 이 노드의
+두 래치 토픽에서 모델을 지어 계획까지 받아온다:
+
+```
+PROBE description=topic
+PROBE constructed
+PROBE plan val=1 source='moveit-ros/move_action'
+PROBE verdict=VALID_TRAJECTORY_RECEIVED
+```
+
+`source`가 비어 있지 않다는 것이 그 답이 DDS를 건넜다는 뜻이고
+(`move_group_interface.cpp:659-663`), `arm` 그룹으로 계획이 성립했다는 것이
+SRDF도 토픽에서 읽혔다는 뜻이다 — 그룹 없는 모델로는 이 줄이 나올 수 없다.
+
+### §NEW2.2 둘 다이거나 아무것도 아니거나 — 발행 순서가 그 불변식을 값싸게 만든다
+
+절반만 제공하는 것은 제공하지 않는 것보다 나쁘다. 두 실패가 대칭이 아니기
+때문이다. SRDF가 없으면 `RDFLoader`는 그룹이 하나도 없는 모델을 짓는다 —
+*틀린* 모델이고, 클라이언트는 그것을 정상으로 취급한다. URDF가 없으면
+`urdf->initString`이 실패하고 모델 자체가 없어, 클라이언트 생성자가 크게
+실패한다 (`rdf_loader.cpp:101`, `rdf_loader.cpp:109-119`).
+
+그래서 `latch`는 두 발행자를 **먼저 다 만든 뒤** SRDF를 먼저, URDF를 마지막에
+보낸다. 부분 실패가 남길 수 있는 상태 중 조용한 쪽(URDF만 있고 SRDF 없음)이
+발행 순서상 도달 불가능해진다. 나머지 절반은 타입이 진다:
+`ros/moveit-ros/src/robot_description.rs`의 `Descriptions`는 `latch`만이
+만들 수 있고, 필드도 접근자도 없다. `latch`가 `Err`이면 `move_group`은
+`ExitCode::FAILURE`로 죽으므로 "아무것도 아님"은 프로세스가 사라지는 것과
+같은 뜻이 된다 — transient_local 표본은 프로세스와 함께 사라진다.
+
+핸들을 프로세스 수명 동안 붙잡는 것은 관례가 아니라 필요다. r2r의
+`Node::create_publisher`는 자기 `Arc`를 노드에 밀어 넣으므로 핸들을 떨어뜨려도
+소켓은 닫히지 않는다 — 즉 "떨어뜨리면 닫힌다"에 기대는 설계였다면 조용히
+틀렸을 것이다. `Descriptions`는 그 사실에 기대지 않고 명시적으로 산다.
+
+### §NEW2.3 게이트와, 그것이 실패하는 것을 보인 네 개의 변이
+
+`ros/verify-robot-description-interop.sh`. leg A는 **늦게** 붙는
+transient_local 구독자, leg B는 위의 상류 클라이언트. 각 주장이 실제로
+구별하는지를 네 개의 변이로 확인했다 — 각각 정확히 한 가지를 깨고, FAIL을
+보고, 되돌렸다.
+
+| 변이 | 무엇을 깼나 | 게이트의 답 |
+|---|---|---|
+| `.transient_local()` 제거 | 래치 자체 | `FAIL urdf payload: expected this string and did not find it: one_joint` |
+| 두 페이로드 맞바꾸기 | 토픽↔문서 대응 | `FAIL urdf payload: expected this string and did not find it: <axis` |
+| 토픽 이름을 `robot_semantic_description`로 | 상류가 짓는 이름 | `FAIL semantic topic name: expected this exact line and did not find it: /robot_description_semantic` |
+| URDF 뒤 15바이트 자르기 | leg B만이 볼 수 있는 것 | leg A는 **통과**, `FAIL leg B constructed: expected this string and did not find it: PROBE constructed` |
+
+마지막 행이 leg B가 왜 있는지다. 잘린 URDF는 `one_joint`도 `<axis`도 여전히
+담고 `<group `는 여전히 담지 않으므로 leg A의 모든 주장을 만족시킨다. 그것을
+모델로 지을 수 없다는 것은 상류의 `RDFLoader`만이 말할 수 있다.
+
+leg A의 두 바늘이 `revolute`/`tip_link`가 아니라 `<axis`/`<group `인 데에도
+측정된 이유가 있다: 두 픽스처 모두 산문 주석에 `revolute`를 담고 있어서, 그
+바늘은 페이로드를 맞바꿔도 통과한다. 첫 실행에서 `ros2 topic echo`가 150자쯤에서
+잘라 버려 주석만 검사하고 있었던 것도 같은 실행에서 드러났다 — `--full-length`가
+그래서 붙어 있다.
+
+### §NEW2.4 계측기 결함 — `PORT_ROLE`의 문자열이 산문이자 동등성 키였다
+
+`tools/ci/measure-client-endpoint-surface.py`는 이 두 발행자를 열어 놓은
+트리에 대해 `robot_description`을 `role-mismatch`로 보고했다. 같은 트리에서
+`HEAD`의 계측기를 그대로 돌린 결과가 이것이다:
+
+```
+    port side, absent             7
+    port side, bound              2
+    port side, role-mismatch      1
+    port side, surplus            4
+```
+```
+| `robot_description` | reads | parameter or latched publisher | ... | role-mismatch |
+| `robot_description_semantic` | -- | -- | ... | surplus |
+```
+
+원인은 `PORT_ROLE`의 값 하나가 두 가지 의미를 겸한 것이다: 문서에 찍히는
+산문이면서 동시에 포트 쪽 역할과의 **동등성 키**였다. `parameter` 종류의
+산문은 `"parameter or latched publisher"`인데 포트가 실제로 만드는 것은
+`publisher` 하나뿐이므로, 그 한 가지를 한 포트가 산문과 글자로 비교되어
+불일치가 되었다. 구조적으로 닫았다 — 값을 `(산문, 허용 역할 집합)` 쌍으로
+쪼개고 비교를 `in accepted`로 바꿨다. 파라미터에 대해 포트가 할 수 있는
+유일한 일이 래치 발행자이므로, 그 집합은 `{"publisher"}`다.
+
+`robot_description_semantic`이 `surplus`였던 것은 두 번째 결함이다: 그것은
+포트가 덤으로 연 엔드포인트가 아니라 상류 생성자가 반드시 읽는 두 번째
+설명인데 (`rdf_loader.cpp:96-99`), `PARAM_ENDPOINTS`와 `CTOR_ENDPOINTS`에
+행이 없었다. 두 곳에 넣었다.
+
+고친 계측기의 같은 트리 측정:
+
+```
+    port side, absent             7
+    port side, bound              4
+    port side, surplus            3
+```
+
+`doc/client-endpoint-surface.md`는 손으로 고치지 않고 재생성했다.
+
+### §NEW2.5 프로브의 모드 파서 — 게이트가 자기 오타를 검사하고 있었다
+
+`ros/move_group_interface_probe`는 `argc > 4 && argv[4] == "explicit-start"`로
+모드를 읽었다. 철자가 틀린 모드 단어는 조용히 반대쪽 기본값으로 떨어지고,
+`PROBE mode=`를 검사하는 게이트는 프로브가 되울린 자기 오타를 검사하게 된다.
+모든 후행 인자를 모드 단어로 읽고 모르는 것은 `PROBE unknown mode '<x>'` 뒤
+종료 코드 2로 만드는 파서로 바꿨다. `description-from-topic`이 그 파서 위에
+얹힌 새 모드다.
+
+### §NEW2.6 병합 담당자에게
+
+- 이 절의 코드는 `ros/moveit-ros` 울타리 안이지만, 두 파일은 밖이다:
+  `ros/move_group_interface_probe/src/move_group_interface_probe.cpp`(위 §NEW2.5)와
+  `tools/ci/measure-client-endpoint-surface.py`(§NEW2.4). 둘 다 이 절을
+  *측정하기 위한* 도구이고, 손대지 않으면 게이트가 자기 오타를 검사하거나
+  올바른 포트를 `role-mismatch`로 보고한다.
+- `ros/verify-ros-interop.sh`의 서브게이트 호출이 `run_oracle_gate` 헬퍼로
+  바뀌었다. exit 3(오라클 이미지 없음)을 게이트마다 `case` 한 갈래로 적던
+  것을 한 규칙으로 모았다 — 다음 게이트를 더할 때 요약에서 이름이 빠지는
+  것이 이전 모양의 실패 방식이었다.
+- 같은 파일의 "What this does NOT check" 목록에 §5 Phase 9가 **UNMET**이라는
+  문단이 남아 있다. §273이 그 행을 MET으로 옮겼으므로 그 문단은 이 브랜치가
+  아니라 §273 기준으로 이미 낡았다. 이 절의 발견이 아니라서 손대지 않았다.
