@@ -170,6 +170,21 @@ SECTION_REF_RE = re.compile(r"§\d+(?:\.\d+)?")
 INLINE_CODE_RE = re.compile(r"(`+)(.+?)\1")
 
 
+def blank_inline_code(text):
+    """`text` with each inline code span replaced by spaces of its own width.
+
+    The width is the point. A declaration is *decided* on the masked copy and
+    *reported* from what the author wrote, and equal lengths are what make
+    those the same span rather than two spellings that agree until one of them
+    has a quotation in it -- the offsets of a match on the result index
+    straight back into the original, so every reported string is a slice of
+    it. Collapsing a span to one space instead leaves the two disagreeing by
+    exactly the width of the quotation, silently, in the sentence a reader is
+    being sent to go and fix.
+    """
+    return INLINE_CODE_RE.sub(lambda m: " " * len(m.group(0)), text)
+
+
 def supersession_in(section_id):
     """((line, text) declaration or None, [(line, text) unbolded mentions])."""
     declaration, mentions = None, []
@@ -185,14 +200,19 @@ def supersession_in(section_id):
             text = prose_lines.get(line_no)
             if text is None:
                 continue
-            # Decided on the masked text, reported as the author wrote it.
-            scan = INLINE_CODE_RE.sub(" ", text)
-            if not (SUPERSEDES_VERB_RE.search(scan) and SECTION_REF_RE.search(scan)):
+            # Decided on the masked text, reported as the author wrote it --
+            # the same offsets, so the second half is a slice and not a
+            # promise.
+            masked = blank_inline_code(text)
+            if not (
+                SUPERSEDES_VERB_RE.search(masked) and SECTION_REF_RE.search(masked)
+            ):
                 continue
             bolds = [
-                bold
-                for bold in SUPERSEDED_RE.findall(scan)
-                if SUPERSEDES_VERB_RE.search(bold) and SECTION_REF_RE.search(bold)
+                text[found.start(1) : found.end(1)]
+                for found in SUPERSEDED_RE.finditer(masked)
+                if SUPERSEDES_VERB_RE.search(found.group(1))
+                and SECTION_REF_RE.search(found.group(1))
             ]
             if bolds:
                 if declaration is None:
