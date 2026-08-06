@@ -137,7 +137,6 @@
 //! live leg of `ros/verify-ros-interop.sh` is pinned to `val=99999`, so the
 //! two now move together.
 
-use std::cell::RefCell;
 use std::env;
 use std::fs;
 use std::process::ExitCode;
@@ -153,8 +152,8 @@ use moveit_constraints::KinematicConstraintSet;
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planning::PlanningRequest;
 use moveit_ros::constraints::set::ConstraintsMsg;
+use moveit_ros::monitored_scene::{self, MonitoredScene};
 use moveit_ros::planning::PlanningRequestMsg;
-use moveit_ros::scene::planning_scene::use_planning_scene_msg;
 use moveit_ros::state::RobotStateMsg;
 use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
@@ -276,12 +275,6 @@ fn handle_move_group_goal(model: &RobotModel, goal: MoveGroup::Goal) -> MoveGrou
 
     move_group_failure(MoveItErrorCodes::FAILURE as i32, NO_PLANNER)
 }
-
-/// The monitored scene: one immutable snapshot, replaced wholesale by the
-/// subscription and read (never mutated) by the capabilities. See this
-/// binary's module doc for why this shape stands in for upstream's
-/// `scene_update_mutex_`.
-type MonitoredScene = Rc<RefCell<Arc<PlanningScene<'static>>>>;
 
 /// Upstream `contactToMsg` (`collision_tools.cpp:284`), plus the two header
 /// fields `MoveGroupStateValidationService::isStateValid` fills in right
@@ -600,6 +593,23 @@ fn main() -> ExitCode {
         }
     };
 
+    // `PlanningSceneMonitor::startStateMonitor` opens this one
+    // (`planning_scene_monitor.cpp:1384-1388`) with the same
+    // `rclcpp::ServicesQoS()` and the same unqualified default topic name,
+    // `DEFAULT_ATTACHED_COLLISION_OBJECT_TOPIC` (`:71`). It is a plain
+    // subscription, not a message filter -- upstream's own comment on the
+    // line says why: "using regular message filter as there's no header".
+    let attached_objects = match node.subscribe::<r2r::moveit_msgs::msg::AttachedCollisionObject>(
+        "attached_collision_object",
+        QosProfile::services_default(),
+    ) {
+        Ok(stream) => stream,
+        Err(e) => {
+            eprintln!("subscribe(attached_collision_object): {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
     let state_validity = match node
         .create_service::<GetStateValidity::Service>("check_state_validity", QosProfile::default())
     {
@@ -613,7 +623,7 @@ fn main() -> ExitCode {
     // Leaked for the same reason `model` is: `spawn_local` requires
     // `'static`, and this outlives every future spawned on it.
     let srdf: &'static SrdfModel = Box::leak(Box::new(srdf));
-    let scene: MonitoredScene = Rc::new(RefCell::new(Arc::new(PlanningScene::new(model, srdf))));
+    let scene: MonitoredScene = monitored_scene::new(model, srdf);
 
     let mut pool = LocalPool::new();
     let spawner = pool.spawner();
@@ -687,19 +697,14 @@ fn main() -> ExitCode {
     let spawned = spawner.spawn_local(async move {
         let mut updates = scene_updates;
         while let Some(msg) = updates.next().await {
-            // Scoped so the borrow ends before the next `.await` -- the
-            // single-threaded stand-in for upstream's `std::unique_lock` on
-            // `scene_update_mutex_` (`:748`) being scoped to the update block.
-            let mut cell = scene_for_updates.borrow_mut();
-            let mut next = PlanningScene::cloned(&cell);
-            match use_planning_scene_msg(&mut next, msg) {
-                // Upstream returns the `bool` its callers ignore
-                // (`newPlanningSceneCallback` discards it outright); this port
-                // has a real error to report, so it reports it and leaves the
-                // previous snapshot in place rather than installing a
-                // half-applied scene.
-                Ok(()) => *cell = Arc::new(next),
-                Err(e) => eprintln!("planning_scene update rejected, scene unchanged: {e}"),
+            // Upstream returns the `bool` its callers ignore
+            // (`newPlanningSceneCallback` discards it outright); this port has
+            // a real error to report, so it reports it. `apply` is what
+            // guarantees the previous scene is still installed after a
+            // rejection -- see `monitored_scene`'s module doc for why that
+            // lives there and not here.
+            if let Err(e) = monitored_scene::apply_planning_scene_msg(&scene_for_updates, msg) {
+                eprintln!("planning_scene update rejected, scene unchanged: {e}");
             }
         }
     });
@@ -708,12 +713,34 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // `PlanningSceneMonitor::processAttachedCollisionObjectMsg`
+    // (`planning_scene_monitor.cpp:841`). Upstream returns `false` on a
+    // rejected object *after* having already mutated the scene under the
+    // lock (`:853`); `apply` cannot leave that state behind, so a rejection
+    // here is reported and changes nothing.
+    let scene_for_attach = Rc::clone(&scene);
+    let spawned = spawner.spawn_local(async move {
+        let mut objects = attached_objects;
+        while let Some(msg) = objects.next().await {
+            let id = msg.object.id.clone();
+            if let Err(e) =
+                monitored_scene::apply_attached_collision_object_msg(&scene_for_attach, msg)
+            {
+                eprintln!("attached_collision_object '{id}' rejected, scene unchanged: {e}");
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("spawning attached_collision_object subscription task: {e}");
+        return ExitCode::FAILURE;
+    }
+
     let scene_for_validity = Rc::clone(&scene);
     let spawned = spawner.spawn_local(async move {
         let mut service = state_validity;
         while let Some(req) = service.next().await {
             let response = {
-                let snapshot = Arc::clone(&scene_for_validity.borrow());
+                let snapshot = monitored_scene::snapshot(&scene_for_validity);
                 handle_state_validity(&snapshot, req.message.clone())
             };
             if let Err(e) = req.respond(response) {
