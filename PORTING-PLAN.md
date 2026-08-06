@@ -6365,15 +6365,15 @@ moveit_py/src/moveit/moveit_core/planning_scene/planning_scene.cpp
 
 ### 70.3 남은 것
 
-`isFixedFrame`의 world object frame 위임은 여전히 살아 있는 호출자가
-없다. 다만 falsifier의 전제는 바뀌었다 — `moveit-constraints`가 이제
-통째로 미포팅이 아니고 `PositionConstraint`/`OrientationConstraint`/
-`VisibilityConstraint`가 `can_transform`으로 base class 절반을 이미
-재현한다. 막고 있는 것은 살아 있는 `PlanningScene`에서 `Transforms`를
-그 생성자들로 흘려보내는 다리가 없다는 것이고, 그것이 생기면 닫힌다.
+- **`isFixedFrame`의 world object frame 위임은 여전히 살아 있는 호출자가
+  없다.** 다만 falsifier의 전제는 바뀌었다 — `moveit-constraints`가 이제
+  통째로 미포팅이 아니고 `PositionConstraint`/`OrientationConstraint`/
+  `VisibilityConstraint`가 `can_transform`으로 base class 절반을 이미
+  재현한다. 막고 있는 것은 살아 있는 `PlanningScene`에서 `Transforms`를
+  그 생성자들로 흘려보내는 다리가 없다는 것이고, 그것이 생기면 닫힌다.
 
-새로 표면화된 것: `getCostSources`가 막혀 있다 —
-`ParryCollisionEnv`가 `cost_sources: None`을 하드코딩한다. p3-acm 소관.
+- **새로 표면화된 것: `getCostSources`가 막혀 있다.**
+  `ParryCollisionEnv`가 `cost_sources: None`을 하드코딩한다. p3-acm 소관.
 
 ### 70.4 머지 후 실측
 
