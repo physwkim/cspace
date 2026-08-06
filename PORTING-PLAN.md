@@ -26765,3 +26765,65 @@ crates/moveit-planners-sbp/benches/sweep_baseline.sh:51:# `connect`'s greedy gro
 86행 전부가 판정을 가진다. "측정이 결정할 수 없다"는 이제 이 셀에
 없다 — 결정은 계측이 아니라 기록이 필요했던 것이고, 위의 전수 측정은
 그 기록을 받침할 수는 있어도 대신해 줄 수는 없었다.
+
+## §NEW2 40 대 35는 두 계측기의 불일치가 아니었다 — 한쪽은 클래스와 무관하게 locus를 세고, 다른 쪽은 `decided-non-port`만 센다 (2026-08-06)
+
+`classify-unported.py`는 `crate-doc` locus를 **40**으로 출력하고,
+§249.4는 같은 성격의 집합을 **35**로 열거한다. 한 집합에 두 수가 나오면
+그 자체가 닫아야 할 항목이므로, 합계가 아니라 **집합**으로 다시 유도했다.
+합계 비교는 서로 상쇄하는 두 행 오류를 숨긴다.
+
+### §NEW2.1 집합 비교
+
+A = 오늘 트리(86행)의 `doc/unported-classification.md`에서 locus 칸이
+`crate-doc`로 시작하는 행. B = §249.4 표의 35행.
+
+```
+A (classify-unported.py, locus crate-doc): 40
+B (§249.4 table rows): 35
+|A|=40 |B|=35  A\B=5  B\A=0  A&B=35
+```
+
+`B\A`가 0이므로 B는 A의 진부분집합이다. 즉 §249.4의 35행은 하나도
+빠지거나 바뀌지 않았고, 두 수의 차이는 전부 A 쪽의 5행이다:
+
+| 상류 파일 | `doc/port-coverage.md`의 클래스 | 오늘 verdict |
+|---|---|---|
+| `moveit_core/exceptions/src/exceptions.cpp` | ported-elsewhere | content-elsewhere (cite resolves) |
+| `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | ported-elsewhere | named (basename) |
+| `moveit_core/utils/include/moveit/utils/message_checks.hpp` | ported-elsewhere | named (basename) |
+| `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/tip_frame_getter.hpp` | ported-elsewhere | named (basename) |
+| `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp` | ported-elsewhere | named (basename) |
+
+다섯 건 모두 `ported-elsewhere`이고, 다섯 건 모두 §249.5가 이미 열거한
+16행 안에 있다 — 그 표의 3, 10, 12, 14, 16번이다. §249.4와 §249.5가
+클래스로 나눠 담고 있던 것을, 계측기의 locus 줄은 나누지 않고 한 수로
+합쳐 찍고 있었을 뿐이다.
+
+### §NEW2.2 두 수는 각자의 정의 아래 모두 참이다
+
+86행 전체를 (클래스 × locus)로 세면:
+
+```
+  decision locus:
+      crate-doc    40  (35 decided-non-port, 5 ported-elsewhere)
+      §            31  (26 decided-non-port, 5 ported-elsewhere)
+      D            15  (10 decided-non-port, 5 ported-elsewhere)
+```
+
+§249.4의 정의("의도적 비포팅 중, 결정이 크레이트 doc 문장만 인용하는")는
+`decided-non-port` ∩ `crate-doc`이고 그 칸은 오늘도 **35**다. 계측기의
+`crate-doc 40`은 클래스를 묻지 않은 수다. 어느 쪽도 틀리지 않았고, 어느
+쪽도 상대를 반증하지 않는다.
+
+§249.4의 35행이 오늘도 전부 검증된다는 것도 같이 쟀다 — `named (basename)`
+22, `named (glob)` 8, `named (dir)` 3, `named (symbol)` 2, `UNVERIFIED` 0.
+(§NEW 이전에는 이 중 2건이 `UNVERIFIED`였다.)
+
+### §NEW2.3 계측기를 고쳤다 — 합계만 찍던 줄이 이 오독을 만들었다
+
+수를 다시 잰 것으로 끝내면 다음 독자가 같은 자리에서 같은 오독을 한다.
+`tools/ci/classify-unported.py`의 `decision locus` 블록이 locus당 합계
+하나만 찍고 있었고, 그 수를 §249.4의 수와 나란히 놓으면 불일치처럼
+보인다. 이제 각 locus를 클래스로 쪼개 찍는다(위 출력). 40과 35가 같은
+줄에 함께 나오므로 둘을 마주 세울 여지가 없다.
