@@ -7390,7 +7390,7 @@ main에 머지. **1036 → 1048**.
 
 `CostSource::operator<`(`collision_detection/collision_common.hpp:128-141`)는
 `cost*getVolume()` 내림차순 → `cost` 내림차순 →
-`aabb_min` 사전순이다. Rust 쪽 `Ord`(`common.rs:148`)는
+`aabb_min` 사전순이다. Rust 쪽 `Ord`(`common.rs:155`)는
 `c2.total_cmp(&c1)` → `other.cost.total_cmp(&self.cost)` →
 `total_cmp_aabb`로 세 단계가 정확히 대응한다.
 
@@ -8382,7 +8382,7 @@ cargo nextest run -p moveit-constraints --no-fail-fast           → 89   일치
 
 **그 명령은 0건이 아니라 28줄을 낸다.** `--glob '!*/tests/*'`는
 통합 테스트 디렉터리만 제외하고, `#[cfg(test)]` 모듈은 `src/` 안에
-있기 때문이다(`scene.rs:2537-2667`, `planning_scene_validity.rs:374-419`).
+있기 때문이다(`scene.rs:2538-2667`, `planning_scene_validity.rs:374-419`).
 
 내가 `#[cfg(test)]` 시작 줄을 기준으로 다시 분류했다:
 
@@ -9142,7 +9142,7 @@ rg -c '^//! - CS:' crates/moveit-constraints/src/lib.rs   →  66
 ### 105.3 §97.2·§97.3의 세 건이 모두 닫혔다
 
 - `utils.rs`의 `rg` 명령: 0건을 함의하던 것을 **기대 출력 그대로**
-  적는 형태로 바꿨다(28줄, 실제 코드 히트는 `scene.rs:821` 하나).
+  적는 형태로 바꿨다(28줄, 실제 코드 히트는 `scene.rs:951` 하나).
   §97.2가 권한 후자를 골랐다.
 - 호출자 위치 논거를 **시그니처 논거**로 교체했다. 담당이 브리프의
   15파일/43줄을 그대로 쓰지 않고 자기가 다시 세어 13파일/7-5-1로
@@ -15508,7 +15508,7 @@ MPR과 EPA를 둘 다 돌려 두 숫자와 그 비를 검증한다. 없으면 �
 철회됐다. 이번엔 표본이 아니라 구조로 증명했고, 내가 직접 확인했다:
 `visibility.rs`에 `group_name`이 한 번도 나오지 않고
 (`rg` 결과 0건), `CollisionRequest::default().group_name == None`이며
-(`common.rs:270`), `active_group_links`는 `group_name?`에서 즉시 `None`을
+(`common.rs:274`), `active_group_links`는 `group_name?`에서 즉시 `None`을
 돌려준다(`parry.rs:1327`). 필터가 no-op이므로 깊이를 바꿀 수 없다.
 
 내가 앞선 라운드에 다른 논거로 같은 결론에 도달했었다 — group 필터링은
@@ -17494,7 +17494,7 @@ MultiDOF joints"라고 적으면서도 이 경로에는 그 가드가 없다.
   `JointConstraintSampler::new`/`UnionConstraintSampler::new`의 첫 줄
   `model.joint_model_group(group_name)?`가 그 조회이고, `?`가 그 "로그 찍고
   계속"을 생성 시점의 `Error::UnknownName`으로 바꾼다
-  (`crates/moveit-constraints/src/sampler.rs:184,377`).
+  (`crates/moveit-constraints/src/sampler.rs:184,378`).
   `IkConstraintSamplerAdapter::new`는 이미 해결된 `&JointModelGroup`을 받아
   조회 자체가 없다. 나머지 초기화 셋(`is_valid_`, `verbose_`, `scene_`)은
   포트에 대응 필드가 없는 것들이고, 각각 이미
@@ -17514,7 +17514,7 @@ MultiDOF joints"라고 적으면서도 이 경로에는 그 가드가 없다.
   살아남기 때문이고, 포트는 그 객체를 만들지 않는다.
 
 따라서 분류는 `ported-elsewhere`(내용이 다른 이름으로 트리 안에 있음),
-증거는 `crates/moveit-constraints/src/sampler.rs:184,377`, 잔여분 `clear()`는 위에서 판정. `sampler.rs`
+증거는 `crates/moveit-constraints/src/sampler.rs:184,378`, 잔여분 `clear()`는 위에서 판정. `sampler.rs`
 모듈 doc이 같은 내용을 그 파일 옆에 적어 둔다.
 
 ### §225.3 `collision_env_allvalid.{hpp,cpp}` — 포팅했다, 고르는 경로까지
@@ -18796,7 +18796,7 @@ found" 절)이 그대로 적용된다. 비-로깅 잔여분은 0이다.
 | 상류 | 이 포트 |
 |---|---|
 | `MoveItErrorCodeException` (코드를 실은 예외) | `moveit_error::Error::Code(MoveItErrorCode)` — `crates/moveit-error/src/lib.rs:100-102` |
-| `catch (MoveItErrorCodeException&) { res.error_code.val = ex.getErrorCode(); }` ×4 | `MotionPlanResponse::failure` — `crates/moveit-planners-pilz/src/trajectory_generator.rs:511-517`, `PilzGenerator::generate`의 네 `Err` 분기 `:606-636` |
+| `catch (MoveItErrorCodeException&) { res.error_code.val = ex.getErrorCode(); }` ×4 | `MotionPlanResponse::failure` — `crates/moveit-planners-pilz/src/trajectory_generator.rs:512-517`, `PilzGenerator::generate`의 네 `Err` 분기 `:606-636` |
 | `TemplatedMoveItErrorCodeException`의 기본 `FAILURE` | `failure`의 `_ => MoveItErrorCode::Failure` 팔 |
 | `ex.what()` | 없음 — 로그 전용이므로 D-정책상 버린다 |
 
@@ -18882,7 +18882,7 @@ INVALID_GROUP_NAME, INVALID_LINK_NAME, NO_IK_SOLUTION, 그리고 명시 인자�
    group->getActiveJointModelNames().size()`를 검사하고 어긋나면
    `INVALID_GOAL_CONSTRAINTS`로 거부한다. `trajectory_generator_lin.rs:122-133`의
    `Goal::Joint(positions)` 분기에는 그 비교가 없고, `check_joint_goal`
-   (`trajectory_generator.rs:748-765`)도 이름의 소속과 한계만 볼 뿐 개수는 세지
+   (`trajectory_generator.rs:748-764`)도 이름의 소속과 한계만 볼 뿐 개수는 세지
    않는다. 그러므로 그룹의 활성 관절 6개 중 3개만 지정한 LIN 요청은 상류에서
    거부되고 이 포트에서는 통과해, 지정되지 않은 관절이 현재 값에 머문 채로
    FK가 계산된다. **같은 검사가 CIRC에는 있다** —
@@ -20078,7 +20078,7 @@ $ grep -n 'create_subscription' \
 액션 핸들러가 실제로 하는 일 — 요청 변환 → 플래닝 파이프라인 호출 → 응답
 변환 — 은 이미 이 포트 안에 있다. `crates/moveit-planning/src/pipeline.rs:377`의
 `generate_plan`이 상류 `generatePlan`을 대신하고,
-`ros/moveit-ros/src/planning.rs:124`의
+`ros/moveit-ros/src/planning.rs:125`의
 `impl<'m> TryFrom<PlanningRequestMsg<'m>> for PlanningRequest`가 요청의
 msg→core 방향을, `:193`의 `impl TryFrom<PlanningRequest> for
 PlanningRequestMsgOut`이 core→msg 방향을 이미 담당한다. 빠진 것은 이
@@ -20210,7 +20210,7 @@ Phase 9의 산출물로 적었다. §235.2가 대조로 보였듯, 이 포트가
    생성, `spin`. 다른 어떤 조각도 이것 없이는 등록될 자리가 없다 —
    순서 1은 고정이다.
 2. **`/plan_kinematic_path` 서비스.** `r2r::Node::create_service::<GetMotionPlan::Service>()`로
-   등록하고, 요청을 `planning.rs:124`의 기존 `TryFrom`으로
+   등록하고, 요청을 `planning.rs:125`의 기존 `TryFrom`으로
    변환 → `pipeline.rs:377`의 기존 `generate_plan` 호출 → 응답을
    `planning.rs:239`의 기존 `TryFrom`으로 변환 → 회신. **이 조각을
    1과 함께 지으면 첫 종단 측정이 열린다** — 서비스는 동기 단발
@@ -22621,7 +22621,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | # | 상류 파일 | 증거 (`doc/port-coverage.md` §4의 같은 행) | 포팅된 인클루더 |
 |---|---|---|---|
 | 1 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp` | `crates/moveit-collision/src/lib.rs:17` | 2 |
-| 2 | `moveit_core/constraint_samplers/src/constraint_sampler.cpp` | `crates/moveit-constraints/src/sampler.rs:184,377`, module doc "`constraint_sampler.cpp`: where its two function bodies went" | —(.cpp) |
+| 2 | `moveit_core/constraint_samplers/src/constraint_sampler.cpp` | `crates/moveit-constraints/src/sampler.rs:184,378`, module doc "`constraint_sampler.cpp`: where its two function bodies went" | —(.cpp) |
 | 3 | `moveit_core/exceptions/src/exceptions.cpp` | `crates/moveit-error/src/lib.rs:21-28,64-73` | —(.cpp) |
 | 4 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `crates/moveit-planners-sbp/src/lib.rs:284-332` (`# Round 6 symbol audit`), `crates/moveit-planners-stomp/src/lib.rs:68-106` (completion statement) | 7 |
 | 5 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request.hpp` | `crates/moveit-planning/src/request.rs:4-10` | 1 |
@@ -22629,12 +22629,12 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:193` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
 | 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:430` (`PlanningResponseAdapter`) | 0 |
 | 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:449-466` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:63-71` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
-| 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-7`, `:56` | 2 |
+| 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-6`, `:56` | 2 |
 | 11 | `moveit_core/robot_state/src/attached_body.cpp` | `crates/moveit-scene/src/attached_body.rs:191` (`set_scale`), `:205` (`set_padding`), `:122` (`subframe_pose`), `:67` (`new`); `crates/moveit-scene/src/scene.rs:1129` (`attach`), `:1200` (`attach_new`), `:1352-1355` (`frame_transform`'s on-demand recompute); `crates/moveit-kinematics/src/set_from_ik.rs:150` | —(.cpp) |
 | 12 | `moveit_core/utils/include/moveit/utils/message_checks.hpp` | `ros/moveit-ros/src/scene/collision_object.rs:11` | 3 |
 | 13 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_base.hpp` | `PORTING-PLAN.md` §227.1-§227.3; `crates/moveit-planners-pilz/src/trajectory_generator.rs:606-636`, `:352` | 0 |
 | 14 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/tip_frame_getter.hpp` | `crates/moveit-planners-pilz/src/trajectory_functions.rs:795` | 4 |
-| 15 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/trajectory_generation_exceptions.hpp` | `PORTING-PLAN.md` §227.5-§227.6; `crates/moveit-error/src/lib.rs:100-102`, `crates/moveit-planners-pilz/src/trajectory_generator.rs:511-517` | 5 |
+| 15 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/trajectory_generation_exceptions.hpp` | `PORTING-PLAN.md` §227.5-§227.6; `crates/moveit-error/src/lib.rs:100-102`, `crates/moveit-planners-pilz/src/trajectory_generator.rs:512-517` | 5 |
 | 16 | `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp` | `crates/moveit-planners-stomp/src/planner.rs` | 1 |
 
 ### §249.6 (b) 0건 · (c) 0건 — 판정 없이 빠진 파일도, Phase 행을 막는 파일도 코퍼스 안에는 없다
@@ -22802,7 +22802,7 @@ Phase 9를 코퍼스 계기로 추적하려면 `CORPUS_ROOTS`에 `moveit_ros/mov
 
 | 조각 | §226.3 | 지금 | 지은 절 |
 |---|---|---|---|
-| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/move_group.rs:216,274,377` (§255.2 이전 이름은 `plan_kinematic_path_server.rs`, 줄 번호는 지금 트리에서 다시 유도했다) | §241 |
+| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/move_group.rs:217,274,377` (§255.2 이전 이름은 `plan_kinematic_path_server.rs`, 줄 번호는 지금 트리에서 다시 유도했다) | §241 |
 | `/plan_kinematic_path` 서비스 | 부재 | **존재** — 같은 파일 `create_service::<GetMotionPlan::Service>` | §241 |
 | `/move_action` 액션 서버 | 부재 | **존재** — 같은 파일 `create_action_server::<MoveGroup::Action>` | 이 절 |
 | planning scene 토픽 구독 | 부재 | **부재** — `rg -n 'create_subscription' ros/moveit-ros/src/ -t rust` 0건 | — |
@@ -22924,7 +22924,7 @@ PHASE9 verdict=NO_VALID_TRAJECTORY
 
 그리고 도착해서 걸린 곳이 §241.2가 예상한 "부를 플래너가 없다"가
 **아니다**. 그보다 앞선 변환에서 걸린다:
-`ros/moveit-ros/src/planning.rs:94-99`의 `robot_state_msg_is_default`는
+`ros/moveit-ros/src/planning.rs@aa0c11f8:94-99`의 `robot_state_msg_is_default`는
 `!is_diff && joint_state.name.is_empty() && ...`을 요구하는데,
 `MoveGroupInterface::plan()`은 생성자가 깔아 둔
 `setStartStateToCurrentState()`의 빈 diff(`is_diff = true`,
@@ -31465,7 +31465,7 @@ STOMP 무력화 변이), §289.7 전체(세 문단). 나머지 **24건**을 트�
 | §264.12 ③ `full` 모드의 핀 | 성립 | `PINS_ALL`의 `"full": null`과 `tools/ci/measure-phase8-optimizer-properties.sh:810`의 `pins-unmeasured`가 그대로다 |
 | §264.12 ⑤ STOMP 끝점 밀림 | 성립 | `PINS_ALL.pilot.stomp`의 `endpoint_ceiling`은 여전히 천장 핀이지 제거가 아니다 |
 | §264.12 ⑥ 제약 비용이 거리 | 성립 | `doc/upstream-bugs.md` 색인 어디에도 이 항목이 없다 |
-| §269.10 ① `max_iterations = 200` | 성립 | `crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs:570-582`의 인자 파싱은 아직 `<seed_base> [planning_time_limit_secs]`뿐이다 |
+| §269.10 ① `max_iterations = 200` | 성립 | `crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs:642-648`의 인자 파싱은 아직 `<seed_base> [planning_time_limit_secs]`뿐이다 |
 | §269.10 ② seed lottery | **절반** | CHOMP 쪽은 §286.5가 닫았다(포트 CHOMP를 424242에서 다시 재어 371/500). 포트 STOMP 쪽만 남고, 약 3시간 비용이 막고 있다 |
 | §269.10 ③ 플러그인 껍데기 파리티 | 성립 | 다만 결정으로 닫힌 것이다 — `097aca77`이 `chomp_interface/*`와 `stomp_moveit_planner_plugin.cpp`를 결정-비이식으로 분류했고, 그것이 §269(`150b66ff`)보다 앞선다. 빈틈이 아니라 범위 기록이다 |
 | §269.10 ④ C++ `COL_CHECK_DISTANCE` 기여도 | **절반** | 그 실험은 지금도 없지만 물음은 §286.3이 다른 방법으로 답했다 |
@@ -32585,6 +32585,272 @@ exit 0.
   비례한 값이 아니다 — 상자가 또 바뀌어 드리프트가 `1e-5`에 가까워지면
   이 바닥도 재검토가 필요하다는 뜻이고, 이 회차는 그 재검토를 하지
   않았다.
+
+## §299 인용이 빈 줄을 가리켜도 사다리의 맨 윗칸이 인증했다 — 술어를 사다리 위로 올렸다 (2026-08-07)
+
+`tools/ci/check-citation-drift.py`의 등급 사다리는
+anchor-verified > content-verified > unanchored 순으로 인용을 분류한다.
+세 등급 모두가 답하는 질문은 "이 줄이 그럴듯하게 근처인가"이지
+"이 줄이 그 주장을 싣고 있는가"가 아니다. 그래서 인용이 **빈 줄**로
+밀려나도 등급은 그대로 남는다. 빈 줄은 아무 주장도 싣지 않으므로
+이것은 근사도 아니고 반증이다.
+
+### §299.1 표본 — 최상위 등급이 인증한 빈 줄
+
+`doc/claim-audit/moveit-scene.md:35`는
+`crates/moveit-scene/src/scene.rs` line 2585를 인용하며
+`decouple_parent_then_mutating_the_former_parent_is_not_observed`의
+주장을 건다. 그 line 2585는 빈 줄이고, 그 주장을 싣는 `assert!`는
+`crates/moveit-scene/src/scene.rs:2584`에 있다. 인용은 함수 몸통 안에
+있으므로 사다리는 이것을 **anchor-verified**로, 즉 가장 강한 등급으로
+분류했다.
+
+최상위 등급이 자기 주장을 하나도 싣지 않은 인용을 인증한 것은 이번이
+두 번째다. 등급이 낮아서 놓친 것이 아니라 등급이 답하는 질문이 다른
+것이므로, 사다리를 고쳐서는 닫히지 않는다.
+
+### §299.2 술어는 사다리 위에 있다 — 등급이 매겨지기 전에 판정한다
+
+`BLANK_LINE`은 사다리의 새 칸이 아니다. 등급 판정 자체보다 먼저,
+경계 검사 직후에 돈다. 그래서 어떤 등급으로 분류될 인용이든 똑같이
+걸린다 — 위 line 2585처럼 anchor-verified가 될 인용도 포함해서.
+새 칸으로 넣었다면 사다리의 다른 칸에 들어간 인용은 검사받지 못했을
+것이고, 그것이 §299.1을 만든 구조다.
+
+**범위의 의미.** 술어는 **이름 붙은 줄만** 검사한다: 범위의 두 끝점과
+쉼표 목록의 모든 원소. 범위의 *내부*는 검사하지 않는다. 인용이
+주장하는 것은 자기가 적은 줄 번호이지 그 사이의 모든 줄이 아니고,
+내부까지 검사하면 빈 줄 하나를 품은 정상적인 30줄 범위가 전부
+실패한다. 반대로 범위가 빈 줄에서 *시작*하거나 *끝나는* 것은
+off-by-one 그 자체이므로 반드시 걸려야 한다 — 실제로 이번 52건 중
+가장 흔한 형태였다.
+
+### §299.3 52건: 47건은 드리프트, 5건은 인용이 아니었다
+
+술어를 켜자 기존 코퍼스(2,630건)에서 52건이 걸렸다. 손으로 전부 열어
+분류했다.
+
+| 부류 | 건수 | 처리 |
+|---|---|---|
+| 실제 드리프트 — 줄 번호가 밀렸다 | 47 | 재도출해서 고쳤다 |
+| 인용이 아니라 **데이터** — 틀린 인용을 인용부호째 인용한 기록 | 3 | 인용 문법 밖으로 다시 적었다 |
+| 인용이 아니라 **지시** — "이 줄이 비어 있다"가 주장 자체 | 1 | 같음 |
+| 과거 트리에 대해 **옳은** 인용 | 1 | `@<sha>` 형태로 적었다 |
+
+47건 중 다수는 경계 off-by-one이었지만 전부는 아니다.
+`crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs` line 570-582은
+인자 파싱을 가리킨다고 적혀 있었는데 실제 인자 파싱은
+`crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs:642-648`에
+있다 — 70줄 밀린 것이고, 원래 자리에는 거리 합산 코드가 들어와 있었다.
+`crates/moveit-scene/src/scene.rs` line 821은 130줄 밀려
+`crates/moveit-scene/src/scene.rs:951`이었다.
+
+**인용이 아니었던 5건.** `doc/assertion-discrimination-ledger-p3-acm.md`의
+재매핑 표는 왼쪽 열에 "이 인용이 *예전에* 가리키던 곳"을 적는다. 그것은
+어느 리비전에서도 옳지 않은 번호이므로 — 틀렸다는 것이 그 열의 내용이다
+— 살아 있는 인용으로 적으면 구성상 거짓이다. `doc/claim-audit/moveit-scene.md:56`은
+더 직접적이다: 그 문장의 주장 자체가 "그 줄이 비어 있다"이다. 다섯 건
+모두 백틱 인용 문법 밖으로 다시 적었다(`` `path.rs` line NNN ``).
+`ros/moveit-ros/src/planning.rs` line 94-99만은 다르다 — `robot_state_msg_is_default`는
+`aa0c11f8`에서 정확히 그 줄에 있었고 `10f571f5`가 지웠다. 이것은 과거
+트리에 대한 옳은 인용이므로 `ros/moveit-ros/src/planning.rs@aa0c11f8:94-99`로
+적었다.
+
+### §299.4 뮤테이션 — 양방향 5건
+
+술어가 무는지와, 물지 *말아야* 할 때 물지 않는지를 둘 다 쟀다. 각
+경우는 한 줄만 바꾸고 원본을 메모리에서 복원한다(git에서 복원하지
+않는다 — 트리에 미커밋 작업이 있다).
+
+| # | 뮤테이션 | 기대 | 결과 |
+|---|---|---|---|
+| A | 같은 함수 안의 빈 줄로 옮김 (안 그러면 anchor-verified) | 문다 | 물었다 |
+| B | 범위의 시작을 빈 줄로 | 문다 | 물었다 |
+| C | 범위의 끝을 빈 줄로 | 문다 | 물었다 |
+| D | 쉼표 목록의 원소를 빈 줄로 | 문다 | 물었다 |
+| E | 끝점은 멀쩡하고 *내부*만 빈 범위 | **물지 않는다** | 물지 않았다 |
+
+A가 핵심이다 — 술어가 사다리 위에 있음을 이 한 건이 증명한다. E는
+§299.2의 범위 의미가 실제로 구현된 것임을 증명한다.
+
+### §299.5 재동결 회계 — 강등을 흡수하지 않았다
+
+`doc/citation-classes.txt`를 `--write-classes`로 다시 얼렸다. 델타는
+**0 demoted, 0 promoted, 49 retired, 44 undeclared**다. 강등이 0이라는
+것이 이 재동결이 아무것도 감추지 않았다는 증거다 — 줄 번호가 바뀐
+인용은 옛 키를 은퇴시키고 새 키로 도착하므로 retired/undeclared로만
+움직인다. 49 − 44 = 5는 인용 문법 밖으로 나간 §299.3의 다섯 건이고,
+총계는 2,630 → 2,625로 정확히 그만큼 줄었다.
+
+### §299.6 재드리프트는 실재하지만, 비율은 훨씬 낮다 — 붙이기와 고치기의 차이
+
+`doc/claim-audit/upstream-bugs.md:37`이 기록한 앞 회차는 이 계열 세 건을
+손으로 재도출해 고쳤다. 독립적으로 확인했다: 그 커밋은 2026-08-06,
+세 건 모두 2026-08-07 안에 다시 밀렸다. 이동량은 +53과 +49다(브리프의
++51/+50이 아니다). 그 사이 `PORTING-PLAN.md`를 건드린 커밋은 321개다.
+
+그렇다고 "손으로 고친 번호의 유통기한이 한 회차"인 것은 **아니다**.
+그 문장은 대상이 잘 자란다는 점에서만 옳고 비율에서는 틀렸다. 이 트리의
+`PORTING-PLAN.md`를 가리키는 인용 전수를 세고, p10-gapaudit이 병합될 때의
+이동을 계산했다. **분모는 문법에 따라 크게 움직이므로 문법을 같이 적는다** —
+인용 문법을 다루는 절에서 분모를 암묵적으로 두는 것이야말로 하면 안 되는
+일이다.
+
+| 문법 | 건수 |
+|---|---|
+| 백틱으로 감싼 `` `PORTING-PLAN.md:NNN` `` | 53 |
+| 감싸지 않은 것까지 포함, 쉼표 목록 허용 | 65 |
+
+그 회차에 밀린 것은 **1건**이다(넓은 문법 65 기준, 좁은 문법 53에서도
+같은 1건). 그 회차가 문서에 400줄 가까이를 더했는데도 그렇다.
+
+두 문법의 차이 12건은 한 덩어리가 아니다. 그중 다섯은 **진짜 인용인데
+좁은 문법이 놓친 것**이고, 전부 §299.9의 구멍 2 안에 산다:
+`crates/moveit-planners-sbp/src/compound.rs:495`,
+`crates/moveit-planners-sbp/src/se3.rs:469`,
+`crates/moveit-planners-sbp/src/so2.rs:210`가 모두
+`PORTING-PLAN.md:1152`를 가리키는데 그 줄은 **비어 있다**(제목
+`## 10. 1차 병렬 라운드 병합`은 1153이다). StateSpace 트레이트를 논한다며
+병합 회차 제목 언저리를 가리키는 주석이 세 개, 그것이 문서화 대상인 바로 그
+크레이트의 소스에 실려 있다. 나머지 둘은
+`tools/ci/upstream-citation-exemptions.json`의 provenance 문자열이다.
+
+반대로 넓은 문법이 **인용이 아닌 것을 세는** 경우도 있다:
+`tools/ci/check-porting-plan-sections.sh:309`의 포맷 문자열
+("...:1: parsed zero `##` sections")과, 게이트의 FAIL 출력을 데이터로 옮겨
+적은 코드 펜스 안의 행이다. 후자는 펜스 건너뛰기로 구조적으로 빠지고,
+전자는 남는다 — 같은 모양을 `compound.rs:495`가 진짜 인용으로 쓰기 때문에
+콜론으로 잘라내면 진짜 다섯 중 하나를 잃는다. 해석 가능하고 범위 안이고
+비어 있지 않으므로 `resolved`로 선언될 뿐 findings가 되지는 않는다.
+
+이유는 구조적이고, 그것이 적어 둘 값어치가 있는 부분이다:
+**붙이기는 아래를 밀지 않는다.** 이 문서는 대부분 끝에 새 절을 붙이는
+식으로 자라고, 인용은 대부분 더 앞쪽 절을 가리킨다. 그래서 드리프트는
+새 절을 *붙이는* 회차가 아니라 이미 있는 절을 *고치는* 회차에 몰린다.
+gapaudit이 §270.2에 13줄을 끼워 넣은 것이 바로 그 종류이고, 게이트가
+견뎌야 하는 것도 그 종류다.
+
+### §299.7 그 1건을 실제로 잡아 봤다 — 빈 줄 술어로는 못 잡는다
+
+gapaudit은 이미 main에 병합돼 있다(`a4d5db85`). 그 트리에서 예측을
+그대로 시험했다.
+
+밀린 1건은 `PORTING-PLAN.md:30547`이 `PORTING-PLAN.md:27486`을 가리키는
+자기 인용이다. 인용된 내용(`$ rg -l -w 'NearestNeighbors' .`, 코드 펜스
+안의 실행 결과)은 **27499로 정확히 +13** 옮겨 갔고, 인용은 27486에 그대로
+남아 지금은 무관한 산문을 가리킨다. 이동 산술은 맞았다.
+
+그런데 **빈 줄 술어는 이것을 잡지 못한다.** 27486은 비어 있지 않기
+때문이다. 같은 코퍼스에서 빈 줄 술어가 보고하는 것은 이것이 아닌 **8건**
+이고, 그중 3건은 §253.3의 재매핑 표가 데이터로 적어 둔 옛 번호다(구성상
+과거의 것이므로 살아 있는 인용으로 취급하면 안 된다). 나머지 중
+`tools/ci/check-citation-drift.py:1024`가 `PORTING-PLAN.md:9384`를 가리키는
+건은 인용자 확장자 구멍(§299.9의 2번) 안에 있고, `doc/handoff-2026-08-06.md:112`가
+`PORTING-PLAN.md:801-819`를 가리키는 건은 §5의 표가 19행이던 시절에 쓰인
+것이다.
+
+그러므로 "`.md` 대상 코퍼스를 열면 그 1건이 잡힌다"는 예측은 **반증됐다**.
+빈 줄은 *틀렸음을 증명하는* 검사이고, 27486 같은 이동은 *다른 내용을 실은
+멀쩡한 줄*로 착지한다. 그것을 잡는 규칙은 빈 줄이 아니라 절(`§NNN`) 포함
+검사다 — 인용문이 절 번호를 이름 대고 있고 인용된 줄이 그 절의 범위 밖으로
+나갔는지를 본다. 두 규칙은 서로를 대신하지 못한다.
+
+### §299.8 인용 대상별 빈 줄 비율 — 재도출했고, 설명 변수는 재현되지 않았다
+
+브리프가 준 분해를 직접 다시 쟀다(코퍼스·문법은 게이트의 것, 대상
+확장자만 열었다).
+
+| 인용 대상 | 인용 | 빈 줄 | 비율 | 파일 수 | 최근 30커밋 삽입 | 파일당 |
+|---|---|---|---|---|---|---|
+| `PORTING-PLAN.md` | 46 | 7 | 15.2% | 1 | 1,284 | 1,284 |
+| 그 외 `.md` | 57 | 0 | 0.0% | 15 | 5,914 | 394 |
+| 도구 (`.sh`/`.py`/`.yml`) | 40 | 5 | 12.5% | 25 | 9,840 | 394 |
+| 정적 (`.urdf`/`.srdf`/`.toml`/`.txt`) | 36 | 0 | 0.0% | 8 | 4,629 | 579 |
+
+**재현된 것.** `PORTING-PLAN.md`의 빈 줄 **개수 7**은 정확히 같다.
+방향도 같다 — `PORTING-PLAN.md`가 다른 `.md` 대상 57건(0.0%)에 비해
+압도적으로 나쁘다. 여기까지가 브리프의 결론이 지지되는 범위다.
+
+**재현되지 않은 것.** 분모가 다르다(46/57 대 브리프의 49/64). 그리고
+`.md`가 아닌 대상의 빈 줄은 1건이 아니라 **5건**, 1.6%가 아니라
+6.6%다. 다섯 건 전부가 `PORTING-PLAN.md`에서 인용된 것이므로, 대상별
+분해는 인용자 쪽과 얽혀 있다 — `PORTING-PLAN.md`는 가장 많이 자라는
+대상이면서 동시에 지배적인 인용자다.
+
+**설명 변수가 틀렸다.** 파일당 삽입량은 빈 줄 비율을 정렬하지 못한다:
+"정적" 묶음은 파일당 579줄이 삽입되고도 0.0%인데 "도구" 묶음은 394줄에
+12.5%다. 줄을 미는 것은 *인용된 줄 위쪽의* 삽입이지 파일 전체의
+삽입량이 아니고, `Cargo.toml`이나 URDF 픽스처는 줄을 밀어내기보다
+제자리에서 고쳐진다. 인용마다 "그 줄 위쪽 삽입량"을 세는 계측은
+이번 회차에 하지 않았으므로, 위 표의 마지막 두 열은 가설을 지지하는
+증거가 아니라 그 가설이 **이 형태로는 반증됐다**는 기록이다.
+
+빈 줄은 **하한**이라는 점도 그대로다. 빈 줄은 틀렸음을 증명하지만
+비어 있지 않음은 아무것도 증명하지 않는다. 15.2%는 `PORTING-PLAN.md`
+인용이 틀린 비율의 하한이지 그 값이 아니다.
+
+### §299.9 두 번째 코퍼스를 선언했다 — 두 모집단을 따로 얼린다
+
+게이트에는 서로 독립인 구멍이 둘 있었고, 하나만 닫으면 최악의 site들은
+정확히 다른 쪽에 남는다.
+
+1. **대상 확장자.** `CITATION_RE`가 `\.rs`를 박아 넣어서, 저장소 안의
+   `.md`·`.sh`·`.py`·`.toml`·`.urdf`를 가리키는 인용은 인용으로 파싱되지조차
+   않는다.
+2. **인용자 확장자.** 코퍼스를 `.md` 인용자만으로 만들기 때문에,
+   `.rs`·`.py`·`.json` 안에 사는 인용은 무엇을 가리키든 밖이다. 이 게이트
+   자신의 소스가 `PORTING-PLAN.md:9384`를 인용하면서 그것을 보지 못했다.
+
+둘 다 닫았다. 새 모집단은 **283건**(인용 파일 31개)이고,
+`doc/citation-classes.txt`가 아니라 `doc/citation-classes-in-repo.txt`에
+따로 얼린다. 이유는 하나다: 이 255건은 구성상 전부 옛 baseline에 없다.
+한 파일에 합치면 "새로 보이게 된 것"과 "새로 깨진 것"이 한 숫자로 섞이고,
+그것이 baseline이 존재하는 이유 자체를 없앤다. 두 파일의 차집합이 곧
+그 분리다.
+
+**판정은 인용자 종류별로 따로 적는다** — `.md` 인용자, `.rs` 주석,
+`.json` provenance 문자열은 실패 양상이 다른 세 모집단이고 하나의 수로
+합치면 그 구분이 사라진다.
+
+| 인용자 | 건수 | 판정 |
+|---|---|---|
+| `.md` | 223 | 180 resolved, 17 external, 15 blank-line, 6 section-mismatch, 5 unresolvable |
+| 코드(`.rs`/`.py`/`.sh`/`.json`) | 60 | 38 resolved, 10 external, 9 blank-line, 3 unresolvable |
+
+코드 인용자 쪽은 **문법이 다르다**: `.md`에서는 백틱이 관례이므로 요구하지만,
+소스 주석은 `// PORTING-PLAN.md:1152 records that ...`처럼 맨몸으로 적는다.
+백틱을 요구하면 구멍 2가 존재하는 이유인 바로 그 다섯 건을 놓친다. `external`은 이 저장소에 없는 파일을 가리키는 인용이고
+`measure-upstream-citations.py`의 영역이므로 실패가 아니라 선언 대상이다.
+`unresolvable`은 이 게이트의 것이다 — `CMakeLists.txt:53`처럼 추적 파일
+여러 개에 걸리는 basename은 그중 아무것도 이름 대지 못한다.
+
+**절 포함 검사가 §299.7의 그 형태를 잡는다.** Rust fn 앵커링은 이 대상들에
+적용되지 않으므로, 그 자리를 절(`§NNN`) 포함 검사가 대신한다. 인용문이
+인용에 바짝 붙여 절 번호를 이름 대면, 인용된 줄이 그 절의 범위 안에
+있어야 한다. 6건이 걸렸고 손으로 열어 확인했다: 예컨대
+`doc/assertion-discrimination-census.md:466`은 `PORTING-PLAN.md:10883`을
+§129.3으로 인용하며 그 절의 제목을 그대로 따옴표로 옮겨 적는데, 그 제목은
+`PORTING-PLAN.md:11014`에 있고 10883은 p1-fixtures의 크레이트 이야기다.
+**비어 있지 않은 살아 있는 줄로 착지한 이동**이고, 빈 줄 술어로는 구조적으로
+잡을 수 없는 종류다.
+
+**중간 상태.** 30건의 findings는 아직 런을 실패시키지 않는다
+(`IN_REPO_HARD_FAIL = False`). 전에 어떤 게이트의 코퍼스에도 없었으므로
+회귀가 아니라 최초 관측이고, 분류되기 전에 실패로 만들면 그 구분이 사라진다.
+**새로** 생긴 실패는 지금도 런을 실패시킨다 — 선언되지 않은 행으로 도착하기
+때문이다. 뮤테이션으로 확인했다: resolved 인용 하나를 범위 밖으로 옮기자
+`IN_REPO_HARD_FAIL`이 False인 채로 exit 1이 났다.
+
+### §299.10 아직 고치지 않은 것
+
+30건의 findings 자체는 이 회차에 고치지 않았다 — 세 부류(blank-line 17,
+section-mismatch 6, unresolvable 7)이고 부류마다 한 커밋이 맞는 단위다.
+baseline이 이미 그것들을 깨진 것으로 선언하고 있으므로 아무것도 세탁되지
+않는다. 셋을 고친 뒤 `IN_REPO_HARD_FAIL`을 뒤집는 것이 남은 일이다.
+
+`doc/handoff-2026-08-06.md:112`의 §5 표 행 수(쓰일 때 19행, 지금 20행)와
+`PORTING-PLAN.md:807`도 그대로다. 후자는 §5의 범위 안에 있어서 포함 검사로는
+구별되지 않는다 — 근거를 댈 수 있는 규칙이 없고 손으로 고쳐야 한다.
 
 ## §300 STOMP 쪽 0.05 바에 변이를 걸었다 — 두 계기가 모두 빗나갔고, §286.11의 물음은 열린 채다 (2026-08-07)
 

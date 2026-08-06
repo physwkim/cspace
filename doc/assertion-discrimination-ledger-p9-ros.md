@@ -172,7 +172,7 @@ Final breakdown: 6 discriminating, 8 single-branch, 2 fixture-collapse-fixed
 `joint/urdf.rs:366,372,378` (`fixed_floating_and_planar_produce_the_matching_kind`) clause 1 `JointKind` variants,
 `robot_model.rs:2492` (`mesh_collision_whose_package_is_not_in_any_search_path_is_skipped_with_a_diagnostic`) clause 3 fixture precondition, `robot_model.rs:2564` (`mesh_collision_resolving_to_an_unreadable_file_is_skipped_with_a_diagnostic`)
 clause 1 `Shape::Mesh` variant). 6+8+2+6 = 22. No site here reads as a
-hidden D6 finding: `robot_model.rs:2796` (`end_effector_wires_name_and_falls_back_to_fewest_joints_parent`)/`2815`'s doc comment flags two
+hidden D6 finding: `robot_model.rs:2791` (`end_effector_wires_name_and_falls_back_to_fewest_joints_parent`)/`2815`'s doc comment flags two
 conceptual input scenarios, but both trace to the same single construction
 call, not two guards collapsing to an indistinguishable shared
 `None`/error. One commit this round: `9661d4c`.
@@ -889,7 +889,7 @@ a read:
   (`9661d4c`, giving `j4` a real mimic so a cycle-clear check isn't
   vacuous), a plain field read (`.mimic().is_none()`), not a multi-guard
   function.
-- `moveit-model/src/robot_model.rs:2796` (`end_effector_wires_name_and_falls_back_to_fewest_joints_parent`) — `get_end_effector`'s own body
+- `moveit-model/src/robot_model.rs:2791` (`end_effector_wires_name_and_falls_back_to_fewest_joints_parent`) — `get_end_effector`'s own body
   is `self.groups.get(name).filter(is_end_effector).ok_or_else(...)`: a
   *single* `Error::unknown_name` construction site reachable through two
   distinct input categories (name not a group at all vs. name a group but

@@ -70,7 +70,7 @@ pub(crate) solver: Option<Arc<dyn moveit_kinematics_base::KinematicsSolver>>,
 derives `Clone` (`joint_model_group.rs:51`) and that `Clone` is used in
 production, not just tests —
 `moveit-constraints/src/constraint_sampler_manager.rs:152`,
-`crates/moveit-constraints/src/sampler.rs:184`, `crates/moveit-constraints/src/sampler.rs:377` all call `.clone()` on a
+`crates/moveit-constraints/src/sampler.rs:184`, `crates/moveit-constraints/src/sampler.rs:378` all call `.clone()` on a
 `JointModelGroup` fetched from the model. `Box<dyn Trait>` has no blanket
 `Clone`; `Arc<dyn Trait>` does (a refcount bump), which is exactly why
 upstream's own `solver_instance_` is a `shared_ptr` and not a
