@@ -191,6 +191,17 @@ use crate::state::RobotStateMsgOut;
 /// client, the same trap `move_action` documents in `src/bin/move_group.rs`.
 pub const SERVICE_NAME: &str = "compute_cartesian_path";
 
+/// `MoveItErrorCodes::source` for this endpoint, in the shape
+/// `src/bin/move_group.rs`'s `PLAN_SERVICE_SOURCE` and `MOVE_ACTION_SOURCE`
+/// already use.
+///
+/// Deliberately not [`SERVICE_NAME`]: `source` says which node's endpoint
+/// built the reply and the service name says only which endpoint, so the two
+/// are different strings even though one contains the other. A client on a
+/// graph with a second `compute_cartesian_path` server cannot tell whose
+/// answer it holds from the unqualified form.
+pub const SOURCE: &str = "moveit-ros/compute_cartesian_path";
+
 /// How `req->waypoints` are to be read: upstream's `no_transform` (`:117-119`)
 /// and `global_frame` (`:174`) booleans, with the combination the two of them
 /// cannot jointly mean removed.
@@ -298,7 +309,7 @@ pub fn handle<'m>(
             error_code: MoveItErrorCodes {
                 val,
                 message,
-                source: SERVICE_NAME.to_string(),
+                source: SOURCE.to_string(),
             },
             ..Default::default()
         },
@@ -325,7 +336,7 @@ fn success() -> MoveItErrorCodes {
     MoveItErrorCodes {
         val: MoveItErrorCodes::SUCCESS as i32,
         message: String::new(),
-        source: SERVICE_NAME.to_string(),
+        source: SOURCE.to_string(),
     }
 }
 
@@ -815,7 +826,7 @@ mod tests {
             "reachable path",
         );
         assert_eq!(response.fraction, 1.0);
-        assert_eq!(response.error_code.source, SERVICE_NAME);
+        assert_eq!(response.error_code.source, SOURCE);
 
         let points = &response.solution.joint_trajectory.points;
         assert!(
