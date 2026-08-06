@@ -24,6 +24,12 @@ rand_distr.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
+# `examples/optimize_benchmark_chomp.rs` only: it is the one caller in the tree
+# that supplies `solve`'s `mesh_to_mesh_collision_free` closure for real, which
+# is upstream's `PlanningScene::isPathValid` over the group trajectory. Kept a
+# dev-dependency so the library half still cannot reach `moveit-scene` -- the
+# whole reason `optimizer` takes that check as an injected closure.
+moveit-scene.workspace = true
 moveit-srdf.workspace = true
 moveit-test-support.workspace = true
 rand_chacha.workspace = true
