@@ -17,7 +17,7 @@
 //! Two request sets, two problems:
 //!
 //! - **`group_state_representation_robot_only`** (`mode: "robot_only"`,
-//!   `oracle.cpp:3660-3712`): drives `checkRobotCollision`, which -- unlike
+//!   `oracle.cpp:4178-4230`): drives `checkRobotCollision`, which -- unlike
 //!   `checkCollision` -- calls only `getEnvironmentCollisions`
 //!   (`collision_env_distance_field.cpp:1447-1500`, both overloads read in
 //!   full: no `getSelfCollisions`/`getIntraGroupCollisions` call exists on

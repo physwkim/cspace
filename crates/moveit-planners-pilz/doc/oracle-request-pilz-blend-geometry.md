@@ -647,11 +647,11 @@ waypoint_joint.accelerations.push_back((joint_velocity - joint_velocity_last.at(
 joint_velocity_last[joint_name] = joint_velocity;
 ```
 
-**Oracle wrapper side.** `serializePilzWaypoints`
-(`tools/moveit-oracle/src/oracle.cpp:5764-5786`) does no post-processing
-of its own -- it reads `getVariableVelocity`/`getVariableAcceleration`
-directly off the `RobotState`s upstream's own `blend()` already produced
-(line `5777`-`5778`), so the fixture's `velocities`/`accelerations`
+**Oracle wrapper side.** `serializePilzWaypoints`(`tools/moveit-oracle/src/oracle.cpp:6734-6756`)
+does no post-processing of its own -- it reads
+`getVariableVelocity`/`getVariableAcceleration` directly off the
+`RobotState`s upstream's own `blend()` already produced
+(`oracle.cpp:6747-6748`), so the fixture's `velocities`/`accelerations`
 fields are upstream's own finite-difference output, not a value this
 document's tooling derived.
 

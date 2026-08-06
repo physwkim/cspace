@@ -3946,7 +3946,7 @@ enforcePositionBounds`(`revolute_joint_model.cpp:218-230`)와 정확히 같은
   공식 하나뿐 — 오라클의 비연속 분기와 정확히 일치, 5라운드에서 이미
   확인한 그대로다.
 - Planar/Floating 관절은 이 op에 도달할 수 없다 — `isSingleDOFJoints()`
-  (오라클 `ik` op 자신의 최상단 조건, `oracle.cpp:1044`)가 이미 걸러낸다.
+  (오라클 `ik` op 자신의 최상단 조건, `oracle.cpp:2062`)가 이미 걸러낸다.
 - 그러므로 `RevoluteJointModel`의 `continuous_` 분기가 이 op이 다루는
   전체 단일 자유도 관절 타입 중 유일하게 클램프 공식과 다른 경우였다 —
   이번에 우연히 처음 찾은 사례가 아니라 그것이 전부다.
@@ -3973,7 +3973,7 @@ enforcePositionBounds`(`revolute_joint_model.cpp:218-230`)와 정확히 같은
 과제의 원래 표현("a seed near ±π on a continuous joint")을 문자 그대로
 만족시키려 했으나, 상류 자체의 설계가 이를 막는다: 오라클의
 `seed_active[k]`는 항상 활성 관절의 bounds 중점이고
-(`seed_active[k] = (joint_min + joint_max) / 2.0`, `oracle.cpp:1144-1146`),
+(`seed_active[k] = (joint_min + joint_max) / 2.0`, `oracle.cpp:2163-2165`),
 연속 관절의 bounds는 어떤 URDF를 넣든 상류 생성자가 하드코딩한
 `-M_PI`/`M_PI`다(`RevoluteJointModel`의 기본 생성자 및
 `setContinuous(true)`, `revolute_joint_model.cpp:60-92`). 포트의
@@ -4595,7 +4595,7 @@ if (!cdata->req->enable_signed_distance && cdata->res->collision)
 
 `!enable_signed_distance`로 게이트된다. 그런데 양쪽 모두
 `enable_signed_distance = true`로 요청한다 —
-`oracle.cpp:1524`/`1530`, `moveit-diff/src/rust_impl.rs:370`. 따라서
+`oracle.cpp:2494`/`:2500`, `moveit-diff/src/rust_impl.rs:370`. 따라서
 상류는 이 스윕에서 조기 종료하지 않고, 편차 7은 발동하지 않는다.
 비교 대상은 양쪽 모두 모든 쌍을 평가한 뒤의 전역 최소값이며, 비교는
 의미가 있다.
@@ -5897,7 +5897,7 @@ dirty-subtree 장부까지 포함해 파생하므로, 정착되지 않은 웨이
 against**: no oracle op exists for a `dynamics_solver`-shaped computation"을
 써 넣었다. 두 주장 모두 사실이 아니다:
 
-- `oracle.cpp`에 `dynamics` op가 이 라운드 이전부터 있다(`:541`), 캡처
+- `oracle.cpp`에 `dynamics` op가 이 라운드 이전부터 있다(`:1029`), 캡처
   스크립트도 `tools/moveit-oracle/capture-dynamics-fixtures.py`로 있다.
 - `moveit_state::dynamics::DynamicsSolver`(`crates/moveit-state/src/dynamics.rs`)가
   RNE 재귀를 직접 써서 포팅돼 있고 — `torques`/`max_torques`/`max_payload`/
@@ -17773,7 +17773,7 @@ if (delta_twist_norm <= params_.epsilon) { success = true; break; }
 `delta_q`를 더하기 **전에** `break`한다. 즉 반환되는 해는 방금 오차를 잰
 바로 그 구성이고, **성공한 해의 FK 오차는 병진·회전 각각 `epsilon` 이하가
 구조적으로 보장된다.** 오라클도 같은 상수를 박아 두었고
-(`oracle.cpp:1772`, `constexpr double kEpsilon = 0.00001`), 이 포트도 같다
+(`oracle.cpp:2052`, `constexpr double kEpsilon = 0.00001`), 이 포트도 같다
 (`crates/moveit-kinematics/src/params.rs:65`, `epsilon: 0.00001`).
 
 **측정: 오차 상한이 `epsilon`을 정확히 따라간다.** `--ik-epsilon`(이번
@@ -19598,9 +19598,9 @@ Bullet 두 백엔드에 같은 스위트를 물리는 것이다. 인스턴스화
 | panda `PaddingTest` | **이 라운드에 만들었다** (아래) |
 
 **짝이 없던 단언은 하나였고, 없는 이유가 구조적이었다.** 오라클의
-`collision` op은 padding 인자를 받지 않는다(`oracle.cpp:2191`의
-`json collision(const json&)`은 `joint_values`·`attached_bodies`·월드
-객체·`max_contacts_per_pair`만 읽는다). 그래서
+`collision`(`oracle.cpp:2454-2527`)은 padding 인자를 받지 않는다 — 본문이
+`joint_values`·`attached_bodies`·월드 객체·`max_contacts_per_pair`만
+읽는다. 그래서
 `tests/fixtures/{panda,fanuc,pr2}_collision.json`은 전부 생성자 기본값
 padding `0.0`에서 잡혔고, **차분 픽스처로는 `LinkPaddingScale`을 원리상 못
 건드린다.** 실제로 이 라운드 전까지 워크스페이스에서 0이 아닌 padding이
@@ -20364,8 +20364,8 @@ API(`RobotState::interpolate`, 두 whole-state 사이 보간)는 포트되지
 
 **(c) mimic 전파 — 오라클과 비교 가능했고, 지금 처음 비교했다.**
 
-`randomStates`(oracle.cpp:1537, 이 op의 문서 주석 자신이 이미
-적어 놓았다): "RobotModel::getVariableRandomPositions ... derives
+`randomStates`의 문서 주석 자신이 이미 적어 놓았다
+(`oracle.cpp:1579-1580`): "RobotModel::getVariableRandomPositions ... derives
 mimic values." — 즉 `tests/fk_parity.rs`의 네 로봇 픽스처
 (`{panda,dual_arm_panda,pr2,fanuc}_fk.json`, 각 3개의 무작위 case)에
 이미 실려 있는 `joint_values`의 follower 변수 값은 실제 moveit2가
@@ -21498,9 +21498,9 @@ tests`). 두 철자는 실수 위에서 같고 f64 위에서 다르다: 미터 �
 
 오라클은 **표적 풀**과 **자기 IK 재시작**을 같은 생성기 클래스
 (`random_numbers::RandomNumberGenerator`, boost `mt19937`)의 **같은 정수 시드
-공간**에서 뽑는다. `randomStates`는 `request["seed"]`로 하나를 심고
-(`oracle.cpp:1547`), `ik()`의 재시작 루프는 `ik_rng_`에서 뽑는다
-(`oracle.cpp:2235`). 두 시드가 같으면 그 둘은 **같은 스트림**이다. 그러면
+공간**에서 뽑는다. `randomStates`(`oracle.cpp:1583-1600`)는
+`request["seed"]`로 하나를 심고(`:1586`), `ik()`의 재시작 루프는
+`ik_rng_`에서 뽑는다(`oracle.cpp:2343`). 두 시드가 같으면 그 둘은 **같은 스트림**이다. 그러면
 재시작이 표적을 만들어 낸 바로 그 관절 구성을 다시 뽑아내고, 오라클은
 그것을 자기 해로 돌려준다.
 
@@ -21624,8 +21624,10 @@ b 82 / c 67로 §221.4와 같다.
 ### §245.3 재시작을 끈 동작점은 이 레포 자신의 게이트가 "판정 불가"라고 답하는 지점이다
 
 §221.1이 포트 우위의 근거로 든 `--ik-max-restarts 0`은 결정론적 비교가
-아니다. 오라클 쪽은 상수지만(특이점 흔들기가 시드되지 않은 `std::rand()`를
-쓴다 — `oracle.cpp:2188`) **포트 쪽은 아니다**. 포트의 흔들기는 재시작과
+아니다. 오라클 쪽은 상수지만(특이점 흔들기가 `delta_q.data.setRandom()`
+— `oracle.cpp:2296` — 이라 `ik_rng_`가 아니라 Eigen 기본 난수, 즉 시드되지
+않은 `std::rand()`를 소비한다; `std::rand`라는 호출은 이 파일에 없다)
+**포트 쪽은 아니다**. 포트의 흔들기는 재시작과
 같은 rng를 소비한다(`cart_to_jnt.rs:237`). 포트 rng 시드만 옮겨 재측정했다:
 
 | 픽스처 | 오라클(상수) | 포트 표본 | 포트 평균 | 포트 < 오라클 |
