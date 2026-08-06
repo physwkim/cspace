@@ -48,6 +48,9 @@
 #include <moveit/collision_detection_fcl/collision_env_fcl.hpp>
 #include <moveit/collision_distance_field/collision_distance_field_types.hpp>
 #include <moveit/collision_distance_field/collision_env_distance_field.hpp>
+// For the chomp_plan op's hybrid planning scene -- CHOMP's optimizer requires
+// it, see `chompPlan`'s doc comment.
+#include <moveit/collision_distance_field/collision_detector_allocator_hybrid.hpp>
 #include <moveit/distance_field/find_internal_points.hpp>
 #include <moveit/distance_field/propagation_distance_field.hpp>
 #include <moveit/dynamics_solver/dynamics_solver.hpp>
@@ -136,6 +139,19 @@
 // and a transcription slip would read as a decomposition difference.
 #include <chomp_motion_planner/chomp_cost.hpp>
 #include <chomp_motion_planner/chomp_trajectory.hpp>
+// For the `chomp_plan` op's real `chomp::ChompPlanner::solve` -- the entry
+// point `chomp_interface`'s pluginlib wrapper forwards to unchanged.
+#include <chomp_motion_planner/chomp_planner.hpp>
+#include <chomp_motion_planner/chomp_parameters.hpp>
+// For the `stomp_plan` op. These resolve into /ws/src/moveit2 rather than an
+// installed package: `moveit_planners_stomp` is not one of this image's built
+// packages, and its planning code is compiled into the oracle from upstream's
+// own sources instead -- see CMakeLists.txt and `stompPlan`'s doc comment.
+#include <stomp_moveit/stomp_moveit_planning_context.hpp>
+#include <moveit_planners_stomp/stomp_moveit_parameters.hpp>
+// `rsl::rng` is the single random source both C++ planners draw from; see
+// `seedRslOnce`.
+#include <rsl/random.hpp>
 #include <pilz_industrial_motion_planner/joint_limits_container.hpp>
 #include <pilz_industrial_motion_planner/limits_container.hpp>
 #include <pilz_industrial_motion_planner/trajectory_generator_circ.hpp>
@@ -622,6 +638,23 @@ double so3DistanceOfQuarterTurn()
   return d;
 }
 
+/// What `main` passed to `--planner-rng-seed`, or unset when it passed
+/// nothing.
+///
+/// File scope rather than an `Oracle` member because the seeding it records
+/// has to happen before an `Oracle` (and so before any `RobotModel`) exists --
+/// see the seeding block in `main`. `chomp_plan` and `stomp_plan` echo it so a
+/// result file says which stream produced it instead of leaving that to the
+/// command line that is no longer around.
+std::optional<std::uint32_t> g_planner_rng_seed;
+
+/// `g_planner_rng_seed` as JSON: the number, or null when the process was left
+/// on `rsl::rng`'s own `std::random_device` seeding.
+json plannerRngSeedJson()
+{
+  return g_planner_rng_seed ? json(*g_planner_rng_seed) : json(nullptr);
+}
+
 /// The OMPL mirror of one `JointModelGroupSpace`, plus the per-subspace
 /// description echoed back so the Rust side can assert the two constructions
 /// agree without having to trust this one.
@@ -1031,6 +1064,10 @@ public:
       return pilzBlend(request);
     if (op == "chomp_quad_cost_inverse")
       return chompQuadCostInverse(request);
+    if (op == "chomp_plan")
+      return chompPlan(request);
+    if (op == "stomp_plan")
+      return stompPlan(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -5893,6 +5930,418 @@ private:
     return json{ { "num_vars_free", static_cast<std::int64_t>(inverse.rows()) }, { "quad_cost_inverse", rows } };
   }
 
+  /// The name of a `moveit_msgs::msg::MoveItErrorCodes` value.
+  ///
+  /// Switched over the generated named constants rather than over integer
+  /// literals: the numeric values are a property of the message definition
+  /// this image was built against, and a table of hand-copied integers here
+  /// would be a second, silently-diverging definition of them. Only the
+  /// codes `ChompPlanner::solve` and `StompPlanningContext::solve` can
+  /// actually set are named; anything else is reported as its number so an
+  /// unexpected code is visible rather than collapsed into a wrong name.
+  static std::string moveItErrorCodeName(std::int32_t val)
+  {
+    using Codes = moveit_msgs::msg::MoveItErrorCodes;
+    switch (val)
+    {
+      case Codes::SUCCESS:
+        return "SUCCESS";
+      case Codes::FAILURE:
+        return "FAILURE";
+      case Codes::PLANNING_FAILED:
+        return "PLANNING_FAILED";
+      case Codes::INVALID_MOTION_PLAN:
+        return "INVALID_MOTION_PLAN";
+      case Codes::TIMED_OUT:
+        return "TIMED_OUT";
+      case Codes::START_STATE_IN_COLLISION:
+        return "START_STATE_IN_COLLISION";
+      case Codes::GOAL_IN_COLLISION:
+        return "GOAL_IN_COLLISION";
+      case Codes::GOAL_CONSTRAINTS_VIOLATED:
+        return "GOAL_CONSTRAINTS_VIOLATED";
+      case Codes::INVALID_GROUP_NAME:
+        return "INVALID_GROUP_NAME";
+      case Codes::INVALID_GOAL_CONSTRAINTS:
+        return "INVALID_GOAL_CONSTRAINTS";
+      case Codes::INVALID_ROBOT_STATE:
+        return "INVALID_ROBOT_STATE";
+      default:
+        return "UNNAMED(" + std::to_string(val) + ")";
+    }
+  }
+
+  /// Densifies `waypoints` to at most `resolution` spacing in `space`'s own
+  /// metric -- the same rule, step for step, as the port harnesses'
+  /// `densify` (`chomp_benchmark_port.rs`'s `fn densify`, whose body reads
+  /// `let steps = ((dist / resolution).ceil() as u64).max(1);` and pushes
+  /// `interpolate(from, to, i / steps)` for `i` in `1..=steps`).
+  ///
+  /// Condition 2 asks whether a returned path is collision-free at a
+  /// resolution finer than the planner's own waypoint spacing, so the two
+  /// sides have to densify identically or the comparison measures the
+  /// densifier. `buildPlanSpace` is what makes that possible: it is the same
+  /// weighted compound space the port's `JointModelGroupSpace` is, so
+  /// `distance` and `interpolate` agree term by term.
+  std::vector<moveit::core::RobotState> densifyPath(const PlanSpace& plan_space,
+                                                    const std::vector<moveit::core::RobotState>& waypoints,
+                                                    double resolution) const
+  {
+    std::vector<moveit::core::RobotState> out;
+    if (waypoints.empty())
+      return out;
+
+    ob::ScopedState<> from(plan_space.space);
+    ob::ScopedState<> to(plan_space.space);
+    ob::ScopedState<> mid(plan_space.space);
+
+    out.push_back(waypoints.front());
+    for (std::size_t i = 0; i + 1 < waypoints.size(); ++i)
+    {
+      robotStateToPlanState(waypoints[i], plan_space.layout, from.get());
+      robotStateToPlanState(waypoints[i + 1], plan_space.layout, to.get());
+      const double dist = plan_space.space->distance(from.get(), to.get());
+      const auto steps = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(std::ceil(dist / resolution)));
+      for (std::uint64_t step = 1; step <= steps; ++step)
+      {
+        const double t = static_cast<double>(step) / static_cast<double>(steps);
+        plan_space.space->interpolate(from.get(), to.get(), t, mid.get());
+        moveit::core::RobotState densified(*state_);
+        planStateToRobotState(mid.get(), plan_space.layout, densified);
+        densified.update();
+        out.push_back(densified);
+      }
+    }
+    return out;
+  }
+
+  /// Path length in `plan_space`'s metric -- the sum of `space->distance`
+  /// over consecutive waypoints, which is what `plan()` reports for the OMPL
+  /// baseline (`PathGeometric::length()`) and what the port harnesses sum.
+  double planSpacePathLength(const PlanSpace& plan_space,
+                             const std::vector<moveit::core::RobotState>& waypoints) const
+  {
+    ob::ScopedState<> a(plan_space.space);
+    ob::ScopedState<> b(plan_space.space);
+    double length = 0.0;
+    for (std::size_t i = 0; i + 1 < waypoints.size(); ++i)
+    {
+      robotStateToPlanState(waypoints[i], plan_space.layout, a.get());
+      robotStateToPlanState(waypoints[i + 1], plan_space.layout, b.get());
+      length += plan_space.space->distance(a.get(), b.get());
+    }
+    return length;
+  }
+
+  /// Condition 2 for one returned path, in both of the port harnesses'
+  /// two forms: densified at `resolution`, and at the planner's own returned
+  /// waypoints only.
+  ///
+  /// Validity is `!scene.isStateColliding(state, "", false)` per waypoint --
+  /// the upstream method the port's `PlanningScene::is_state_valid` with
+  /// `constraints: None` reduces to (its body is `if
+  /// self.is_state_colliding(env, request) { return false; }` then `None =>
+  /// true`), and the empty group name is what makes it a whole-robot check
+  /// on both sides rather than a group-restricted one.
+  json condition2(planning_scene::PlanningScene& scene, const PlanSpace& plan_space,
+                  const std::vector<moveit::core::RobotState>& waypoints, double resolution) const
+  {
+    const auto invalid_count = [&scene](const std::vector<moveit::core::RobotState>& states) {
+      std::size_t invalid = 0;
+      for (const moveit::core::RobotState& state : states)
+      {
+        if (scene.isStateColliding(state, "", false))
+          ++invalid;
+      }
+      return invalid;
+    };
+
+    const std::vector<moveit::core::RobotState> densified = densifyPath(plan_space, waypoints, resolution);
+    const std::size_t densified_invalid = invalid_count(densified);
+    const std::size_t returned_invalid = invalid_count(waypoints);
+
+    return json{
+      { "condition2_valid", densified_invalid == 0 },
+      { "invalid_waypoint_count", densified_invalid },
+      { "condition2_valid_at_returned_waypoints", returned_invalid == 0 },
+      { "densified_waypoint_count", densified.size() },
+      { "returned_waypoint_count", waypoints.size() },
+    };
+  }
+
+  /// Reads a request's joint-name -> value map into a full `RobotState`,
+  /// starting from the default state so joints outside the planning group
+  /// hold the same values here as they do on the port side.
+  ///
+  /// Shared by `chompPlan` and `stompPlan`; `plan()` keeps its own lambda of
+  /// the same shape because it closes over that op's own error prefix.
+  moveit::core::RobotState readBenchmarkState(const json& joints, const char* op_name) const
+  {
+    moveit::core::RobotState robot_state(*state_);
+    for (auto it = joints.begin(); it != joints.end(); ++it)
+    {
+      if (!hasVariable(it.key()))
+        throw std::runtime_error(std::string(op_name) + ": unknown joint variable: " + it.key());
+      robot_state.setVariablePosition(it.key(), it.value().get<double>());
+    }
+    robot_state.update();
+    return robot_state;
+  }
+
+  /// Phase 8's C++ CHOMP baseline: `chomp::ChompPlanner::solve` over the same
+  /// request shape the `plan` op consumes, so the identical 500-problem set
+  /// emitted by `plan_benchmark_problem_set` drives both baselines and the
+  /// port with only the `op` field changed.
+  ///
+  /// # Why `chomp_motion_planner` and not `chomp_interface`
+  ///
+  /// `moveit_planners_chomp` (the `chomp_interface` package, which carries
+  /// the pluginlib entry point) is not in this image. It does not need to
+  /// be: `CHOMPPlanningContext::solve` is one forwarding call --
+  /// `chomp_interface_->solve(planning_scene_, request_, chomp_interface_->getParams(), res);`
+  /// (`chomp_planning_context.cpp:50-53`) -- into `chomp::ChompPlanner::solve`,
+  /// and `class CHOMPInterface : public chomp::ChompPlanner`
+  /// (`chomp_interface.hpp:48`) adds exactly one thing over its base, a
+  /// `loadParams()` that reads `ChompParameters` off the ROS parameter
+  /// server. All of the planning -- the 3.0s/0.03s `ChompTrajectory`, the
+  /// joint-space-goal validation, the trajectory initialization, the
+  /// `ChompOptimizer` and its recovery loop -- is in the base class, in
+  /// `chomp_motion_planner`, which this image does build and this oracle
+  /// already links for the `chomp_quad_cost_inverse` op.
+  ///
+  /// So this op runs upstream's real CHOMP. What it does not reproduce is
+  /// the ROS parameter *plumbing*, and that turns out to matter: the two
+  /// upstream sources of a default disagree. `ChompParameters`'s own
+  /// constructor (`chomp_parameters.cpp`) sets `max_iterations_ = 50` and
+  /// `planning_time_limit_ = 6.0`, while `CHOMPInterface::loadParams`
+  /// (`chomp_interface.cpp`) declares its fallbacks as
+  /// `get_parameter_or("chomp.max_iterations", ..., 200)` and
+  /// `get_parameter_or("chomp.planning_time_limit", ..., 10.0)`. A
+  /// parameter-free `move_group` therefore runs CHOMP at 200 iterations,
+  /// not the 50 a bare `ChompParameters` gives. Both are requestable here
+  /// (`chomp.max_iterations`), and the resolved values are echoed back in
+  /// `config` so a run's own output says which it was.
+  ///
+  /// # The clock
+  ///
+  /// `planning_time_limit_` is wall-clock: `ChompOptimizer::optimize` breaks
+  /// out when it elapses, so leaving it at either default makes the success
+  /// rate a measurement of how loaded this machine was. It is a request
+  /// field here for exactly that reason, and the sweep sets it far beyond
+  /// reach so that `max_iterations_` -- a work bound -- is what terminates.
+  json chompPlan(const json& request)
+  {
+    const std::string group_name = request.at("group").get<std::string>();
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    if (!group)
+      throw std::runtime_error("chomp_plan: unknown joint model group: " + group_name);
+
+    PlanSpace plan_space = buildPlanSpace(group);
+    plan_space.space->setup();
+    const double motion_resolution = request.at("motion_resolution").get<double>();
+
+    const json cfg = request.value("chomp", json::object());
+    chomp::ChompParameters params;
+    params.max_iterations_ = cfg.value("max_iterations", params.max_iterations_);
+    params.planning_time_limit_ = cfg.value("planning_time_limit", params.planning_time_limit_);
+
+    auto scene = std::make_shared<planning_scene::PlanningScene>(model_);
+    addRequestObjects(*scene->getWorldNonConst(), request);
+
+    chomp::ChompPlanner planner;
+
+    json problems_out = json::array();
+    for (const json& problem : request.value("problems", json::array()))
+    {
+      const moveit::core::RobotState start_state = readBenchmarkState(problem.at("start"), "chomp_plan");
+      const moveit::core::RobotState goal_state = readBenchmarkState(problem.at("goal"), "chomp_plan");
+      scene->getCurrentStateNonConst() = start_state;
+
+      planning_interface::MotionPlanRequest req;
+      req.group_name = group_name;
+      moveit::core::robotStateToRobotStateMsg(start_state, req.start_state);
+      req.goal_constraints.push_back(kinematic_constraints::constructGoalConstraints(goal_state, group));
+      req.allowed_planning_time = params.planning_time_limit_;
+
+      // `CHOMPPlannerManager::getPlanningContext` hands the context a
+      // hybrid-collision *diff* of the scene, not the scene itself
+      // (`chomp_plugin.cpp:94-95`: `ps = planning_scene->diff();` then
+      // `ps->allocateCollisionDetector(CollisionDetectorAllocatorHybrid::create());`),
+      // and that is load-bearing rather than incidental: `ChompOptimizer`'s
+      // constructor casts the scene's *current* collision environment,
+      // `planning_scene->getCollisionEnv(planning_scene->getCollisionDetectorName())`,
+      // down to `CollisionEnvHybrid` and gives up when the cast fails
+      // (`chomp_optimizer.cpp:76-78`) -- so it is the allocation above, which
+      // is what makes that name "HYBRID", that decides the cast. A scene left
+      // on the default detector makes `isInitialized()` false and
+      // `ChompPlanner::solve` return PLANNING_FAILED without ever optimizing.
+      // Measured: without this line all 3 problems of a floor_wall smoke set
+      // returned PLANNING_FAILED in 1.6s total.
+      //
+      // The diff is per problem because the plugin builds one per request. The
+      // undiffed `scene` keeps its default detector and is what `condition2`
+      // checks against, so the validity verdict stays the FCL one both the
+      // port and every other op in this file use, rather than silently
+      // becoming a distance-field verdict for this planner alone.
+      planning_scene::PlanningScenePtr hybrid_scene = scene->diff();
+      hybrid_scene->allocateCollisionDetector(collision_detection::CollisionDetectorAllocatorHybrid::create());
+
+      planning_interface::MotionPlanDetailedResponse res;
+      planner.solve(hybrid_scene, req, params, res);
+
+      const bool solved = res.error_code.val == moveit_msgs::msg::MoveItErrorCodes::SUCCESS;
+      json problem_out{ { "id", problem.at("id") },
+                        { "solved", solved },
+                        { "error_code", res.error_code.val },
+                        { "failure", moveItErrorCodeName(res.error_code.val) } };
+
+      if (solved && !res.trajectory.empty() && res.trajectory[0])
+      {
+        std::vector<moveit::core::RobotState> waypoints;
+        waypoints.reserve(res.trajectory[0]->getWayPointCount());
+        for (std::size_t i = 0; i < res.trajectory[0]->getWayPointCount(); ++i)
+          waypoints.push_back(res.trajectory[0]->getWayPoint(i));
+
+        problem_out["length"] = planSpacePathLength(plan_space, waypoints);
+        problem_out.update(condition2(*scene, plan_space, waypoints, motion_resolution));
+      }
+      problems_out.push_back(problem_out);
+    }
+
+    return json{ { "planner_rng_seed", plannerRngSeedJson() },
+                 { "config",
+                   { { "max_iterations", params.max_iterations_ },
+                     { "planning_time_limit", params.planning_time_limit_ },
+                     { "trajectory_initialization_method", params.trajectory_initialization_method_ },
+                     { "use_stochastic_descent", params.use_stochastic_descent_ },
+                     { "enable_failure_recovery", params.enable_failure_recovery_ },
+                     { "max_recovery_attempts", params.max_recovery_attempts_ },
+                     { "learning_rate", params.learning_rate_ },
+                     { "smoothness_cost_weight", params.smoothness_cost_weight_ },
+                     { "obstacle_cost_weight", params.obstacle_cost_weight_ },
+                     { "collision_threshold", params.collision_threshold_ },
+                     { "min_clearance", params.min_clearance_ },
+                     { "joint_update_limit", params.joint_update_limit_ } } },
+                 { "problems", problems_out } };
+  }
+
+  /// Phase 8's C++ STOMP baseline: `stomp_moveit::StompPlanningContext::solve`,
+  /// the same class the `stomp_moveit/StompPlanner` plugin instantiates,
+  /// over the same request shape as `chompPlan`.
+  ///
+  /// # Where this code comes from
+  ///
+  /// `moveit_planners_stomp` is not one of this image's built packages, but
+  /// its sources ship inside it (the whole moveit2 tree is copied to
+  /// `/ws/src/moveit2` at the pinned SHA and left there), so the oracle
+  /// compiles `stomp_moveit_planning_context.cpp` directly and generates
+  /// `stomp_moveit_parameters.hpp` from upstream's own
+  /// `res/stomp_moveit.yaml` -- see this project's `CMakeLists.txt`. The
+  /// planning code is upstream's, unmodified, at the same SHA as everything
+  /// else the oracle answers from; only the build system is this repo's.
+  ///
+  /// # This is the plugin's own path, including the null publisher
+  ///
+  /// `StompPlanningContext` takes its `Params` from
+  /// `stomp_moveit::ParamListener`, which is exactly how
+  /// `stomp_moveit_planner_plugin.cpp` builds it. That plugin then sets a
+  /// path publisher *only* when `path_marker_topic` is non-empty, and the
+  /// yaml's default for it is `""` -- so a default-configured plugin leaves
+  /// the publisher null, `visualization::getIterationPathPublisher` returns
+  /// a no-op for a null publisher by its own explicit `if (marker_publisher
+  /// == nullptr)` branch, and this op's null publisher is not a deviation
+  /// but the default configuration.
+  ///
+  /// # The clock
+  ///
+  /// `StompPlanningContext::solve` arms `cv.wait_for(lock,
+  /// duration<double>(req.allowed_planning_time))` on a separate thread and
+  /// calls `stomp->cancel()` when it fires, so `allowed_planning_time` is a
+  /// wall clock and leaving it at `move_group`'s 5.0s default would make the
+  /// success rate a property of this machine. It is taken from the request
+  /// and the sweep sets it far beyond reach, leaving `num_iterations`
+  /// (upstream's own default, 1000) as the terminating bound. The distinction
+  /// survives into the output: upstream reports `TIMED_OUT` when the
+  /// timeout future has fired and `PLANNING_FAILED` otherwise, and this op
+  /// reports that code verbatim, so a run that silently became
+  /// clock-bounded says so in its own failure counts.
+  json stompPlan(const json& request)
+  {
+    const std::string group_name = request.at("group").get<std::string>();
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    if (!group)
+      throw std::runtime_error("stomp_plan: unknown joint model group: " + group_name);
+
+    PlanSpace plan_space = buildPlanSpace(group);
+    plan_space.space->setup();
+    const double motion_resolution = request.at("motion_resolution").get<double>();
+
+    if (!rclcpp::ok())
+      rclcpp::init(0, nullptr);
+    static int node_counter = 0;
+    auto node = std::make_shared<rclcpp::Node>("stomp_plan_oracle_" + std::to_string(node_counter++));
+    stomp_moveit::ParamListener param_listener(node, "");
+    const stomp_moveit::Params params = param_listener.get_params();
+
+    auto scene = std::make_shared<planning_scene::PlanningScene>(model_);
+    addRequestObjects(*scene->getWorldNonConst(), request);
+
+    const double allowed_planning_time = request.at("stomp").at("allowed_planning_time").get<double>();
+
+    json problems_out = json::array();
+    for (const json& problem : request.value("problems", json::array()))
+    {
+      const moveit::core::RobotState start_state = readBenchmarkState(problem.at("start"), "stomp_plan");
+      const moveit::core::RobotState goal_state = readBenchmarkState(problem.at("goal"), "stomp_plan");
+      scene->getCurrentStateNonConst() = start_state;
+
+      planning_interface::MotionPlanRequest req;
+      req.group_name = group_name;
+      moveit::core::robotStateToRobotStateMsg(start_state, req.start_state);
+      req.goal_constraints.push_back(kinematic_constraints::constructGoalConstraints(goal_state, group));
+      req.allowed_planning_time = allowed_planning_time;
+
+      stomp_moveit::StompPlanningContext context("stomp", group_name, params);
+      context.setPlanningScene(scene);
+      context.setMotionPlanRequest(req);
+
+      planning_interface::MotionPlanResponse res;
+      context.solve(res);
+
+      const bool solved = res.error_code.val == moveit_msgs::msg::MoveItErrorCodes::SUCCESS;
+      json problem_out{ { "id", problem.at("id") },
+                        { "solved", solved },
+                        { "error_code", res.error_code.val },
+                        { "failure", moveItErrorCodeName(res.error_code.val) } };
+
+      if (solved && res.trajectory)
+      {
+        std::vector<moveit::core::RobotState> waypoints;
+        waypoints.reserve(res.trajectory->getWayPointCount());
+        for (std::size_t i = 0; i < res.trajectory->getWayPointCount(); ++i)
+          waypoints.push_back(res.trajectory->getWayPoint(i));
+
+        problem_out["length"] = planSpacePathLength(plan_space, waypoints);
+        problem_out.update(condition2(*scene, plan_space, waypoints, motion_resolution));
+      }
+      problems_out.push_back(problem_out);
+    }
+
+    return json{ { "planner_rng_seed", plannerRngSeedJson() },
+                 { "config",
+                   { { "num_iterations", params.num_iterations },
+                     { "num_iterations_after_valid", params.num_iterations_after_valid },
+                     { "num_rollouts", params.num_rollouts },
+                     { "max_rollouts", params.max_rollouts },
+                     { "num_timesteps", params.num_timesteps },
+                     { "exponentiated_cost_sensitivity", params.exponentiated_cost_sensitivity },
+                     { "control_cost_weight", params.control_cost_weight },
+                     { "delta_t", params.delta_t },
+                     { "path_marker_topic", params.path_marker_topic },
+                     { "allowed_planning_time", allowed_planning_time } } },
+                 { "problems", problems_out } };
+  }
+
   /// Attaches `kdl_kinematics_plugin/KDLKinematicsPlugin` to `group_name`,
   /// once per group, and reports whether the group now has a solver.
   ///
@@ -6552,6 +7001,8 @@ private:
   // Determinism section.
   bool ompl_seeded_ = false;
 
+
+
   // For `ensureKinematicsSolver` only: a pluginlib loader unloads its
   // library on destruction, which would leave the group's cached solver
   // pointing into unmapped code, and KDLKinematicsPlugin holds the node it
@@ -6569,6 +7020,11 @@ int main(int argc, char** argv)
   // Default 42 -- the value this was hard-coded to before it became an
   // argument, so omitting the flag reproduces every earlier measurement.
   std::uint32_t ik_rng_seed = 42;
+  // Unset means "leave rsl::rng to seed itself from std::random_device",
+  // which is upstream's own behaviour and what every op other than
+  // chomp_plan/stomp_plan gets. See the seeding block below.
+  bool have_planner_rng_seed = false;
+  std::uint32_t planner_rng_seed = 0;
   for (int i = 1; i < argc; ++i)
   {
     const std::string arg = argv[i];
@@ -6589,6 +7045,20 @@ int main(int argc, char** argv)
         return 2;
       }
     }
+    else if (arg == "--planner-rng-seed" && i + 1 < argc)
+    {
+      const std::string value = argv[++i];
+      try
+      {
+        planner_rng_seed = static_cast<std::uint32_t>(std::stoul(value));
+        have_planner_rng_seed = true;
+      }
+      catch (const std::exception&)
+      {
+        std::cerr << "oracle: --planner-rng-seed expects an unsigned integer, got " << value << '\n';
+        return 2;
+      }
+    }
     else
     {
       std::cerr << "oracle: unrecognized argument " << arg << '\n';
@@ -6597,8 +7067,44 @@ int main(int argc, char** argv)
   }
   if (urdf_path.empty() || srdf_path.empty())
   {
-    std::cerr << "usage: moveit_oracle --urdf <path> --srdf <path> [--ik-rng-seed <n>]\n";
+    std::cerr << "usage: moveit_oracle --urdf <path> --srdf <path> [--ik-rng-seed <n>] "
+                 "[--planner-rng-seed <n>]\n";
     return 2;
+  }
+
+  // Seeds `rsl::rng()` -- the single generator both C++ planners draw from
+  // (`chomp_plan`'s stochastic descent through `rsl::uniform_real`,
+  // `stomp_plan`'s noise through `MultivariateGaussian::sample`) -- and it
+  // has to happen here, before anything else in the process runs.
+  //
+  // `rsl::rng` builds its thread_local `std::mt19937` on the first call and
+  // throws on any later call that carries a seed sequence. MoveIt takes that
+  // first call for itself: `moveit::getLogger()`'s fallback names the default
+  // logger `fmt::format("moveit_{}", rsl::rng()())`
+  // (`moveit_core/utils/src/logger.cpp:55`), and the model load logs through
+  // it -- the `[moveit_2154718666]` in this oracle's own stderr is that draw.
+  // Constructing the `Oracle` first therefore burns the seeding opportunity
+  // and leaves the planners running off `std::random_device`, which is a
+  // nondeterministic baseline; a per-request seed field cannot fix that
+  // because by then it is already too late.
+  //
+  // So this is a startup argument rather than a request field, and it is
+  // applied before the `Oracle` (and so before any `RobotModel`) exists. The
+  // logger's own draw then comes out of the seeded stream, which costs one
+  // value and makes even the generated logger name reproducible -- a free
+  // check that nothing consumed the generator ahead of this line.
+  if (have_planner_rng_seed)
+  {
+    try
+    {
+      rsl::rng(std::seed_seq{ planner_rng_seed });
+      g_planner_rng_seed = planner_rng_seed;
+    }
+    catch (const std::exception& e)
+    {
+      std::cerr << "oracle: --planner-rng-seed could not be applied: " << e.what() << '\n';
+      return 2;
+    }
   }
 
   std::unique_ptr<Oracle> oracle;
