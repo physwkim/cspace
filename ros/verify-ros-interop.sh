@@ -68,6 +68,22 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${IMAGE:-moveit-rs/ros-dev:latest}"
 
+# `CollisionObject.operation` is declared `byte`
+# (`moveit_msgs/msg/CollisionObject.msg:51`, with `byte ADD=0` at `:38` and
+# `byte REMOVE=1` at `:41`), and rclpy models a ROS `byte` as a one-element
+# `bytes` -- not an `int`. Writing `operation: 1` in a `ros2 topic pub` YAML
+# therefore leaves the field at its default 0 and *still prints
+# `publishing #1`*: a REMOVE published that way arrives as an ADD, and the
+# publisher reports success. `!!binary` is the only spelling measured to
+# reach the wire (`ros2 topic echo` shows `operation: "\x01"` for
+# `!!binary AQ==`, and `operation: "\0"` for a bare `1`; the quoted-escape
+# form `"\x01"` is rejected outright). See PORTING-PLAN.md §NEW.
+#
+# These two are the file's only definition of an operation number, exported
+# into every container below, so no publish site writes one itself.
+export OP_ADD="!!binary AA=="
+export OP_REMOVE="!!binary AQ=="
+
 run() {  # <label> <command...>
   local label="$1"
   shift
@@ -248,6 +264,7 @@ echo "OK live round-trip: /plan_kinematic_path received a real MotionPlanRequest
 SCENE_DOMAIN_ID="${ROS_DOMAIN_ID:-$((($$ % 100) + 1))}"
 echo "=== scene-topic (ROS_DOMAIN_ID=$SCENE_DOMAIN_ID) ==="
 docker run --rm -e "ROS_DOMAIN_ID=$SCENE_DOMAIN_ID" \
+  -e OP_ADD -e OP_REMOVE \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
   set -e
   cat >/tmp/boxed.urdf <<\URDF
@@ -311,7 +328,7 @@ SRDF
 
   publish() {  # <step label> <is_diff> <object id> <x>
     timeout 25 ros2 topic pub -1 -w 1 /planning_scene moveit_msgs/msg/PlanningScene \
-      "{is_diff: $2, world: {collision_objects: [{header: {frame_id: base_link}, id: $3, operation: 0, pose: {position: {x: $4}, orientation: {w: 1.0}}, primitives: [{type: 1, dimensions: [0.2, 0.2, 0.2]}], primitive_poses: [{orientation: {w: 1.0}}]}]}}" \
+      "{is_diff: $2, world: {collision_objects: [{header: {frame_id: base_link}, id: $3, operation: $OP_ADD, pose: {position: {x: $4}, orientation: {w: 1.0}}, primitives: [{type: 1, dimensions: [0.2, 0.2, 0.2]}], primitive_poses: [{orientation: {w: 1.0}}]}]}}" \
       >/dev/null || fail "$1: publishing on /planning_scene failed"
     sleep 2
   }
@@ -344,6 +361,7 @@ SRDF
 '
 echo "OK scene-topic: /planning_scene reached the node over DDS, and /check_state_validity"
 echo "OK scene-topic: answered True/False/False/True across an empty world, a full scene, a diff, and a full scene"
+
 
 # `/move_action`, in its own file: it orchestrates three containers and a
 # docker network, and it is the only check here that runs upstream's own C++
