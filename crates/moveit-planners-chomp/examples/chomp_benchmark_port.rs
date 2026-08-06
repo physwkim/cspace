@@ -21,13 +21,17 @@
 //! OMPL RRTConnect** as the comparison side of conditions 1 and 3. That is
 //! the baseline this binary's output is compared against. The other
 //! available reading ("the same *shape* of check, but against C++ CHOMP")
-//! is not measurable in this workspace at all: the oracle image
-//! (`tools/moveit-oracle/`) has no CHOMP *planning* op, only the
-//! quad-cost-inverse probe this crate's `tests/chomp_quad_cost_inverse_parity.rs`
-//! uses, and it ships no STOMP package whatsoever -- so the analogous
-//! reading would leave the STOMP half of the same clause permanently
-//! unmeasurable. See PORTING-PLAN.md §263 for the full statement of this
-//! assumption.
+//! was not measurable in this workspace when this file was written, and now
+//! is: the oracle answers `chomp_plan` (`oracle.cpp`'s `chompPlan`, upstream
+//! `ChompPlanner::solve`) and `stomp_plan` (`stompPlan`, upstream
+//! `StompPlanningContext::solve`), and
+//! `tools/ci/measure-phase8-cpp-baseline.sh` drives both. So the reading is
+//! now a choice rather than the only option, and this binary keeps the
+//! RRTConnect one because §5 names that baseline; the planner-against-its-own-
+//! upstream reading is measured by
+//! `tools/ci/measure-phase8-optimizer-properties.sh` instead. See
+//! PORTING-PLAN.md §263 for the original assumption and the Phase 8 property
+//! section for what replaced it.
 //!
 //! Comparing a trajectory optimizer against a sampling-based planner's
 //! success rate is a comparison between different algorithm classes, and
