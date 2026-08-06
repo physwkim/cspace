@@ -977,7 +977,9 @@ exactly the vacuous-accumulator shape §10 ruled `not-this-family` twice:
 **2 sites added, 2 in-family, 0 not-this-family, 0 collisions, 0 fixes
 owed.** §10's `planning.rs` row is unchanged in substance and re-anchored
 only (see §10's second re-anchoring note). Running total for
-`ros/moveit-ros` under the wide grammar: 63 sites in §10 + these 2 = 65.
+`ros/moveit-ros` under the wide grammar: 73 sites in §10 + these 2 = 75
+(this line read "63 sites in §10 ... = 65" until §15's round; §10's table
+enumerates 73 and its own totals line has said so since `9e6873a`).
 Gated with the round's own list, including
 `sg docker -c './tools/ci/verify-ros-interop.sh'` (the only gate that
 compiles `ros/moveit-ros`) and `./tools/ci/verify-orphan-enumeration.sh`.
