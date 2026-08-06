@@ -1419,7 +1419,7 @@ contributes one the census's crate-level total folds into
 | `moveit-constraints/tests/decide.rs:210` | p1-fixtures | (their verdict, not re-derived here) | n/a — `JointConstraint::new`'s tolerance guard lives in `moveit-constraints/src/joint.rs`, owned by p1-fixtures per `doc/folded-operand-guards.md` (already the precedent this ledger recorded at the `decide.rs:183/184` entry above); `decide.rs` is nominally mine as a test file but the guard is not, so this site is theirs to classify even though it is textually in "my" slice. |
 | `robot_model.rs:2092` | this ledger (line ~861, ~1327 above) + independently, p9-ros (`doc/assertion-discrimination-ledger-p9-ros.md:140`) | **discriminating** | **yes, named twice, independently.** This ledger: the pattern is `[Diagnostic::MimicCycle]`, which requires both slice length exactly 1 *and* the one named variant among three the same function can push (`MimicUnknownJoint`, `MimicDofMismatch`, `MimicCycle`) — a bare `bool` (`!diagnostics.is_empty()`) would not tell these apart, but this pattern's payload does. p9-ros's row states the identical reason independently ("requires both exact length 1 and the named variant"), and ran its own bite. Two independent panels landing on the same exception is stronger than either alone. |
 | `robot_model.rs:2605` | this ledger (line ~1330 above) | not-this-family | n/a — `matches!(shapes[0].shape, Shape::Mesh(_))` is a computed classification tag on an already-successful build (same exclusion as `robot_model_parity.rs:356` and the `urdf.rs` trio above), not a check that could be blind to which of several failure causes fired. |
-| `moveit-planning/src/pipeline.rs:723` | this ledger (line ~120 above) | single-branch | yes — `PipelineError::NoPlanners` is a nullary variant (no payload to lose) with exactly one construction site in the crate (`pipeline.rs:385`, confirmed by `rg` this round: still one hit); `matches!` cannot be blinder than `==` when there is nothing else the value could be and nowhere else it could come from. |
+| `moveit-planning/src/pipeline.rs:779` | this ledger (line ~120 above) | single-branch | yes — `PipelineError::NoPlanners` is a nullary variant (no payload to lose) with exactly one construction site in the crate (`pipeline.rs:432`, confirmed by `rg` this round: still one hit); `matches!` cannot be blinder than `==` when there is nothing else the value could be and nowhere else it could come from. |
 | `moveit-planning/src/response_adapters/add_time_optimal_parameterization.rs:368` | this ledger (line ~123 above) | single-branch | yes — same shape: `ResponseAdapterError::Failed{..}` has exactly one construction site (`rg` this round: still one hit, line 139), so the ignored `{..}` payload loses nothing there was ever more than one of. |
 
 Re-ran `rg -n 'PipelineError::NoPlanners' crates/moveit-planning/src/pipeline.rs`
@@ -1468,11 +1468,21 @@ verification itself, not a correction.
 `registry.rs`'s test module and shifted `pipeline.rs`. Four citations in this
 file moved:
 
-* `crates/moveit-planners-sbp/src/registry.rs:858` -> `:916`
-* `crates/moveit-planners-sbp/src/registry.rs:1336` -> `:1531`
-* `crates/moveit-planners-sbp/src/registry.rs:1493` -> `:1688`
-* `pipeline.rs:679` -> `:723` (both rows; the `PipelineError::NoPlanners`
-  construction site cited in their evidence moved `:386` -> `:385`)
+* `crates/moveit-planners-sbp/src/registry.rs:916`
+  (`unknown_group_is_rejected_before_any_search_runs`)
+* `crates/moveit-planners-sbp/src/registry.rs:1531`
+  (`solver_wiring_changes_whether_a_cartesian_pose_goal_is_reachable`)
+* `crates/moveit-planners-sbp/src/registry.rs:1688`
+  (`path_constraints_solver_wiring_matches_the_call_site`)
+* `crates/moveit-planning/src/pipeline.rs:779` (`zero_planners_is_an_error`,
+  both rows; the `PipelineError::NoPlanners` construction site cited in their
+  evidence is now `crates/moveit-planning/src/pipeline.rs:432`)
+
+Only the current location is spelled here. A pre-D8 line number written as
+`file.rs:NNN` reads to every reader and to `tools/ci/check-citation-drift.py`
+alike as a claim about the tree in front of them, and it is false the moment
+it is written; the branch point (`a35bc2e`) names the old tree without
+pointing into it.
 
 Each new line was obtained by aligning `git show a35bc2e:<file>` against the
 working tree with `difflib` and then reading the row's own named test

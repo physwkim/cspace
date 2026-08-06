@@ -22478,7 +22478,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 9 | `moveit_core/constraint_samplers/src/constraint_sampler_tools.cpp` | §225.1 | `PORTING-PLAN.md` §225.1, `crates/moveit-constraints/src/lib.rs:574-611` | —(.cpp) |
 | 10 | `moveit_core/macros/include/moveit/macros/console_colors.hpp` | §228.5 | `PORTING-PLAN.md` §228.5 | 1 |
 | 11 | `moveit_core/online_signal_smoothing/include/moveit/online_signal_smoothing/smoothing_base_class.hpp` | D1, D4 | `crates/moveit-smoothing/src/lib.rs:28-37` | 3 |
-| 12 | `moveit_core/planning_interface/src/planning_interface.cpp` | §236 | `crates/moveit-planners-sbp/src/lib.rs:300-391` (`# Round 6 symbol audit`) -- 8 of the 9 definitions; `PORTING-PLAN.md` §236 + `crates/moveit-planning/src/request.rs:89-105` -- the 9th | —(.cpp) |
+| 12 | `moveit_core/planning_interface/src/planning_interface.cpp` | §236 | `crates/moveit-planners-sbp/src/lib.rs:284-326` (`# Round 6 symbol audit`) -- 8 of the 9 definitions; `PORTING-PLAN.md` §236 + `crates/moveit-planning/src/request.rs:89-105` -- the 9th | —(.cpp) |
 | 13 | `moveit_core/utils/include/moveit/utils/eigen_test_utils.hpp` | §228.4 | `PORTING-PLAN.md` §228.4; `crates/moveit-test-support/src/lib.rs:8-22` | 0 |
 | 14 | `moveit_core/utils/include/moveit/utils/lexical_casts.hpp` | §228.1, D3 | `PORTING-PLAN.md` §228.1 | 0 |
 | 15 | `moveit_core/utils/include/moveit/utils/logger.hpp` | D1 | `crates/moveit-planners-pilz/src/lib.rs:162` | 50 |
@@ -22566,7 +22566,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 1 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp` | `crates/moveit-collision/src/lib.rs:17` | 2 |
 | 2 | `moveit_core/constraint_samplers/src/constraint_sampler.cpp` | `crates/moveit-constraints/src/sampler.rs:184,377`, module doc "`constraint_sampler.cpp`: where its two function bodies went" | —(.cpp) |
 | 3 | `moveit_core/exceptions/src/exceptions.cpp` | `crates/moveit-error/src/lib.rs:21-28,64-73` | —(.cpp) |
-| 4 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `crates/moveit-planners-sbp/src/lib.rs:300-391` (`# Round 6 symbol audit`), `crates/moveit-planners-stomp/src/lib.rs:68-106` (completion statement) | 7 |
+| 4 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `crates/moveit-planners-sbp/src/lib.rs:284-326` (`# Round 6 symbol audit`), `crates/moveit-planners-stomp/src/lib.rs:68-106` (completion statement) | 7 |
 | 5 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request.hpp` | `crates/moveit-planning/src/request.rs:4-10` | 1 |
 | 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:404` (`PlanningRequestAdapter`) | 0 |
 | 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:193` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
