@@ -19955,7 +19955,10 @@ M5.
   포팅됐다고 주장하게 된다. 그래서 계기는 이 `.cpp`를 여전히 미포팅으로
   세고, 행은 표에 남는다.
 - `geometric_shapes`의 예외 거동을 확인하지 않았다. §233.3의 오류 규약은
-  이 포트 쪽 사실만으로 적혀 있다.
+  이 포트 쪽 사실만으로 적혀 있다. **거짓 → 닫힘 (§316.1)** — 핀된 상류
+  소스(`geometric_shapes` 2.3.3)를 읽어 도형별로 대조했다: Sphere·
+  Cylinder·Cone·Box는 메시지 문자열까지 동일하게 거부하고, Plane·OcTree는
+  둘 다 no-op이고, Mesh는 둘 다 검사가 없다.
 
 
 ## §234 `planning_response.cpp`의 남은 28줄 — `MotionPlanDetailedResponse::getMessage`를 포팅하지 않기로 판정했다
@@ -36257,3 +36260,51 @@ tools/ci/verify-phase8-benchmark.sh` (릴리스 빌드 포함 벽시계 171초,
 — 하나씩 다시 돌려 확인하지는 않았다. `verify-phase8-benchmark.sh`가
 집계-보존/구성-미보존이라는 결론이 이 9개 전체로 일반화되는지는 이 절이
 확인한 범위 밖이다.
+
+
+## §316 collision-distance-accuracy C1 잔여 24건을 재측정했다 (2026-08-07)
+
+`doc/residual-claims-triage.md`의 라운드 분할 제안 C1(`§229.4, §230.5,
+§232.4, §233.4, §237.4, §247.6`, 24건)을 각각 열어 오늘 다시 쟀다. 새
+측정이 필요했던 것은 둘뿐이었다(아래 §316.1·§316.2) — 나머지 닫힘·만료는
+같은 날 다른 절(§238, §260, §283, §288, §232.3)이 이미 낸 값을 그
+불릿에 연결하는 일이라 그 절 자신의 마커로 처리했고 새 문단을 만들지
+않았다. 24건 전수의 처분 표는 이 라운드 결과 보고에 있다.
+
+### §316.1 `geometric_shapes`의 예외 거동을 상류 소스로 확인했다 — 포트와 도형별로 정확히 같다
+
+§233.3가 미확정으로 남긴 것: 이 포트의 `moveit_geometry::Shape::scale`/
+`::padd`는 치수가 0 미만이 되는 인자를 `Result::Err`로 거부하는데,
+`geometric_shapes` 원본이 같은 지점에서 실패할 수 있는지는 그 라운드가
+읽지 않아 확정하지 못했다.
+
+`geometric_shapes`는 이 워크스페이스 git 저장소 밖(`third_party/`,
+gitignore됨)이라 이 worktree에는 없지만 이 기계의 형제 체크아웃에
+있다: `/home/stevek/work/moveit-rs/third_party/geometric_shapes`,
+`shapes.rs:5-25`가 이미 핀으로 박아 둔 바로 그 버전(태그 `2.3.3`, 커밋
+`192801cebacc07d0e9f719576cdd1c9b36d0bc28`). `src/shapes.cpp`를 열어
+`scaleAndPadd` 전 도형을 읽었다:
+
+| 도형 | 상류 (`shapes.cpp`) | 포트 (`crates/moveit-geometry/src/shapes.rs`) |
+|---|---|---|
+| `Sphere` | `:287-293` 음수 반지름이면 `throw std::runtime_error("Sphere radius must be non-negative.")` | `:625-632` 같은 조건에서 `Err(Error::construct("Sphere radius must be non-negative."))` — 메시지 문자열까지 동일 |
+| `Cylinder` | `:295-303` 반지름·길이 중 하나라도 음수면 `throw ... "Cylinder dimensions must be non-negative."` | `:705-722` 동일 조건, 동일 메시지 |
+| `Cone` | `:320-328` 동일 모양, `"Cone dimensions must be non-negative."` | `:814-829` 동일 |
+| `Box` | `:345-355` x/y/z 중 하나라도 음수면 `"Box dimensions must be non-negative."` | `:917-934` (`Cuboid`) 동일 |
+| `Plane` | `:272-275` `CONSOLE_BRIDGE_logWarn`만 찍고 아무 것도 안 함(no-op) | `:1014-1022` `const fn`, no-op — 이 포트는 로그 프레임워크가 없어 경고만 뺐다(기존 §233 범위 밖의 별개 기록된 차이) |
+| `OcTree` | `:267-270` 위와 동일한 no-op 규약 | `:1061-1073` 동일 no-op |
+| `Mesh` | `:372-406` **검사가 아예 없다** — `scaleX/Y/Z`·`paddX/Y/Z`를 정점마다 무조건 적용 | `:1159-1190` **마찬가지로 치수 검사가 없다** — 유일한 실패 조건은 `vertex_normals: None`(§233.3가 이미 이 포트 자신의 것으로 기록한, 무관한 별개 갈래) |
+
+포트의 `Shape::scale_and_padd`(`:1473-1489`)는 이 여섯 구현체로
+그대로 위임하는 다형 디스패처일 뿐 자기 검사를 추가하지 않으므로, 위
+표는 실제로 호출되는 경로 그대로다.
+
+**결론: 도형별 예외 거동이 상류와 포트에서 정확히 같다.** 거부하는
+도형(Sphere/Cylinder/Cone/Box)·메시지 문자열까지 같고, no-op인
+도형(Plane/OcTree)도 같고, 검사 자체가 없는 도형(Mesh)도 같다. 이
+포트의 `Result<()>`는 §233.3이 적어 둔 대로 "이 포트 자신의 규약"이
+아니라, C++의 예외 던지기를 Rust의 `Result`로 표현만 바꾼 것 — 발화
+지점과 발화 여부는 상류가 이미 도형별로 정해 둔 그대로다.
+
+§233.4의 세 번째 불릿("`geometric_shapes`의 예외 거동을 확인하지
+않았다")에 `거짓 → 닫힘 (§316.1)`을 붙인다.
