@@ -137,8 +137,8 @@ pub struct CircleGeometry {
 /// `center` within [`MAX_RADIUS_DIFF`] (upstream:
 /// `ErrorMotionPlanningCenterPointDifferentRadius`), or if either distance
 /// is zero — the [`MAX_RADIUS_DIFF`] check compares `|a - b|` and so admits
-/// `a == b == 0.0`, which upstream carries into [`cosines`]'s division. That
-/// second case has no upstream counterpart; see [`cosines`].
+/// `a == b == 0.0`, which upstream's `cosines` divides by, returning a `NaN`
+/// sweep angle. That second error has no upstream counterpart.
 pub fn circle_from_center(
     start: Vector3,
     goal: Vector3,
