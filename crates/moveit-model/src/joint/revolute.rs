@@ -77,6 +77,14 @@ impl RevoluteJoint {
         }
     }
 
+    /// Upstream: `variable_bounds_[0].max_position -
+    /// variable_bounds_[0].min_position` -- ignores the `other_bounds`
+    /// parameter entirely (upstream's own signature comments it out:
+    /// `getMaximumExtent(const Bounds& /*other_bounds*/)`), unlike
+    /// Prismatic/Planar/Floating, whose siblings all read `other_bounds` in
+    /// some form. `bounds` here is always this joint's *own* installed
+    /// bounds; the dispatcher must pass that, not its `other_bounds`
+    /// argument.
     pub(super) fn maximum_extent(bounds: &VariableBounds) -> f64 {
         bounds.max_position - bounds.min_position
     }
