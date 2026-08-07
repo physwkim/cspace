@@ -98,7 +98,7 @@ impl NewtonRaphsonSolver {
         seed: u64,
     ) -> Result<Self> {
         let chain = ChainInfo::build(model, group_name)?;
-        let joint_weights = chain.resolve_joint_weights(params);
+        let joint_weights = chain.resolve_joint_weights(params)?;
         Ok(Self {
             model: model.clone(),
             chain,

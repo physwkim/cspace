@@ -449,7 +449,9 @@ mod tests {
             let model = build_model("panda.urdf", "panda.srdf");
             let chain = ChainInfo::build(&model, "panda_arm").expect("real panda_arm chain");
             let params = SolverParams::default();
-            let joint_weights = chain.resolve_joint_weights(&params);
+            let joint_weights = chain
+                .resolve_joint_weights(&params)
+                .expect("default params give every joint weight 1.0");
             Self {
                 model,
                 chain,
@@ -466,7 +468,9 @@ mod tests {
             let model = build_model("pr2.urdf", "pr2.srdf");
             let chain = ChainInfo::build(&model, "right_arm").expect("real right_arm chain");
             let params = SolverParams::default();
-            let joint_weights = chain.resolve_joint_weights(&params);
+            let joint_weights = chain
+                .resolve_joint_weights(&params)
+                .expect("default params give every joint weight 1.0");
             Self {
                 model,
                 chain,
