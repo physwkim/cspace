@@ -6507,7 +6507,7 @@ moveit_py/src/moveit/moveit_core/planning_scene/planning_scene.cpp
   그 생성자들로 흘려보내는 다리가 없다는 것이고, 그것이 생기면 닫힌다.
 
 - **새로 표면화된 것: `getCostSources`가 막혀 있다.**
-  `ParryCollisionEnv`가 `cost_sources: None`을 하드코딩한다. p3-acm 소관.
+  `ParryCollisionEnv`가 `cost_sources: None`을 하드코딩한다. p3-acm 소관. **거짓 → 닫힘 (§323.1).**
 
 ### 70.4 머지 후 실측
 
