@@ -97,7 +97,7 @@ request, it exists and is wired today.
   `"objects": [{"id": "env_sphere", "shape": {"type": "sphere", "radius":
   0.05}, ...}]`, and
   `group_state_representation_gradients_matches_the_oracle`
-  (`collision_env_distance_field_parity.rs:1725`) builds its own
+  (`collision_env_distance_field_parity.rs:1745`) builds its own
   `PropagationDistanceField` from that same object via `World::new()` →
   `collision_object_point_decomposition` → `add_points_to_field` — **the
   exact sequence `HybridCollisionEnv::build_env_distance_field` runs
@@ -116,7 +116,7 @@ request, it exists and is wired today.
   (`collision_env_distance_field.cpp:1389-1412`). The only existing
   oracle-compared `check_collision` call,
   `check_collision_matches_the_oracle_with_contacts_and_attached_bodies`
-  (`collision_env_distance_field_parity.rs:1448`), passes `empty_env` — a
+  (`collision_env_distance_field_parity.rs:1468`), passes `empty_env` — a
   `PropagationDistanceField` with zero points added, by construction,
   every fixture id. An empty field can only ever answer "no collision";
   `get_environment_collisions`'s actual comparison logic (distance

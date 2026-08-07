@@ -2807,7 +2807,7 @@ phase 3 시작부터 열려 있던 `<mesh>` collision geometry 미로딩이 닫�
 
 자동 병합이 성공했지만 의미상 깨진 두 곳: `main` 쪽
 `moveit-model/tests/robot_model_parity.rs:483`과
-`moveit-distance-field/tests/collision_env_distance_field_parity.rs:379`이
+`moveit-distance-field/tests/collision_env_distance_field_parity.rs:399`이
 `UnsupportedLinkGeometry`를 옛 3필드 모양으로 구조분해하고 있었다. 둘 다
 `..`로 고쳤다. `collision_env_distance_field_parity.rs`의 import 블록은
 3-way 충돌이 났고, 양쪽을 합쳐 해결했다(HEAD의 새 심볼 + p3-acm의
@@ -5548,7 +5548,7 @@ upstream 결함)이 self-collision뿐 아니라 world-object 쌍에서도 같은
 
 **구성.** 원점 중심, 축 정렬된 두 상자 껍질 — `outer` 반폭 `1.0`, `inner`
 반폭 `0.1` — 을 12개 삼각형(면당 2개)으로 손으로 지었다
-(`box_shell_mesh`, `crates/moveit-collision/src/parry.rs:4245`). `inner`는
+(`box_shell_mesh`, `crates/moveit-collision/src/parry.rs:4283`). `inner`는
 `outer`의 경계 어디에도 닿지 않는다 — 두 메시의 평행한 면 사이 거리가
 축마다 `1.0 - 0.1 = 0.9`이고, 그것이 임의의 두 삼각형 쌍 사이 최소
 거리이기도 하다(꼭짓점이든 면이든, 같은 축 방향으로 내린 최근접점이 항상
@@ -5563,7 +5563,7 @@ upstream 결함)이 self-collision뿐 아니라 world-object 쌍에서도 같은
 (`p` 자신의 기본 `1x1x1` 박스 충돌은 `translation(100,0,0)`로 치워
 간섭하지 않게 했다), 새 시험
 `mesh_engulfment_is_reported_as_no_collision_and_a_positive_gap_not_penetration`
-(`crates/moveit-collision/src/parry.rs:4275`)으로 쟀다:
+(`crates/moveit-collision/src/parry.rs:4313`)으로 쟀다:
 
 | 호출 | 실측 |
 |---|---|
@@ -7556,7 +7556,7 @@ emits one CostSource per intersecting triangle pair"라고 쓰고, 문서는
 `AABB(p1,p2,p3).overlap(AABB(q1,q2,q3))`를 인용한다. 그런데 삼각형별
 AABB를 메시 전체 AABB로 바꿔도 168건 전부 통과한다.
 
-원인은 테스트 픽스처다. `big_flat_triangle()`(`parry.rs:2721`)은
+원인은 테스트 픽스처다. `big_flat_triangle()`(`parry.rs:2759`)은
 **삼각형 하나짜리 메시**라서 전체 AABB와 그 한 삼각형의 AABB가 같다.
 테스트 이름이
 `mesh_shape_cost_sources_is_one_triangle_aabb_overlapped_with_the_whole_shape_aabb`
@@ -17787,7 +17787,7 @@ false`만 쓰고 받은 입력을 하나도 읽지 않는다. 어려운 쪽은 "
    맞다 — `0.0`은 이 백엔드가 존재 이유로 삼는 "충돌 없음"의 반대편
    경계다.
 2. **연속(두 상태) 형태는 `Err`가 아니라 답한다.** `ParryCollisionEnv`는
-   스윕 질의가 없어 `Err`를 내지만(`parry.rs:2532`), 상류는 두 개의
+   스윕 질의가 없어 `Err`를 내지만(`parry.rs:2570`), 상류는 두 개의
    `checkRobotCollision(state1, state2, ...)` 오버로드를 **둘 다**
    `res.collision = false`로 재정의한다(`collision_env_allvalid.cpp:89-106`).
    "아무것도 충돌하지 않는다"는 주장은 경로에도 상태와 똑같이 적용된다.
@@ -17795,7 +17795,7 @@ false`만 쓰고 받은 입력을 하나도 읽지 않는다. 어려운 쪽은 "
 `CollisionResult`의 세 `Option` 필드는 요청을 따라간다 — 상류가
 기본 생성된 결과를 그대로 두는 것이 이 포트에서는 "물어봤으니 `Some`,
 안 물어봤으니 `None`"이다. 여기서 인접 결함 하나가 드러났다:
-`ParryCollisionEnv`의 `accumulate_collision`(`parry.rs:2298-2425`)은
+`ParryCollisionEnv`의 `accumulate_collision`(`parry.rs:2336-2463`)은
 `distance: None`을 무조건 쓰므로 `CollisionRequest::distance`를 켠
 호출자에게도 `None`을 준다. `CollisionResult::distance`의 doc이 적어 둔
 "요청했을 때 정확히 존재한다"를 어기는 쪽은 그쪽이다. 이번 라운드 범위가
@@ -23931,10 +23931,10 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 | `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:354` | `:3673-3690` | `4240-4257` |
 | `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:385` | `:3583` | 손: 4111 |
 | `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:390` | `:3583-3691` | 손: 4111-4258 |
-| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:988` | `:1343-1400` | `1454-1511` |
-| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1082` | `:2230-2261` | `2625-2656` |
-| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1398` | `:3183-3393` | `3948-4258` |
-| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1432` | `:3336` | `4200` |
+| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1008` | `:1343-1400` | `1454-1511` |
+| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1102` | `:2230-2261` | `2625-2656` |
+| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1418` | `:3183-3393` | `3948-4258` |
+| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1452` | `:3336` | `4200` |
 | `crates/moveit-distance-field/tests/collision_env_hybrid_parity.rs:20` | `:3660-3712` | `4141-4193` |
 | `crates/moveit-planners-pilz/doc/oracle-request-pilz-blend-geometry.md:651` | `:5764-5786` | `6285-6307` |
 | `doc/claim-audit/moveit-planners-chomp.md:76` | `:129-130` | `137-138` |
@@ -31057,9 +31057,9 @@ bounds-only 54건을 게이트 자신의 사유로 나누면: 이름이 앞 60�
 | 인용 | 범위 | 왜 |
 | --- | --- | --- |
 | `...hybrid-collision-env-distance-field.md:202` | `3985-4148` | `groupStateRepresentation`(4148-4295) **위의** doc comment부터 시작 |
-| `collision_env_distance_field_parity.rs:988` | `1491-1548` | `applyAttachedBodies`(1513-1548) 위의 doc comment부터 |
-| `collision_env_distance_field_parity.rs:1082` | `2662-2693` | `contactToJson`과 `allContactsToJson` **두** 심볼과 그 사이를 걸친다 |
-| `collision_env_distance_field_parity.rs:1398` | `3985-4295` | 위와 같은 doc-comment 시작 |
+| `collision_env_distance_field_parity.rs:1008` | `1491-1548` | `applyAttachedBodies`(1513-1548) 위의 doc comment부터 |
+| `collision_env_distance_field_parity.rs:1102` | `2662-2693` | `contactToJson`과 `allContactsToJson` **두** 심볼과 그 사이를 걸친다 |
+| `collision_env_distance_field_parity.rs:1418` | `3985-4295` | 위와 같은 doc-comment 시작 |
 | `doc/upstream-bugs.md:640` | `1348-1360` | `dynamics`(1361-1436) 위의 doc comment |
 
 **이 절이 main에 합류하는 그 머지가 이것을 실물로 증명했다.** §286(`dce80a5e`)이
@@ -31094,9 +31094,9 @@ span-mismatch로 빨개졌고, 나머지 네 건은 bounds-only라 7040도 6748�
 | 인용 | 범위 | 인용문이 이미 적고 있던 조각 | 착지 |
 | --- | --- | --- | --- |
 | `...hybrid-collision-env-distance-field.md:202` | `3985-4148` | `group_state_representation` | 3985(6곳) |
-| `collision_env_distance_field_parity.rs:988` | `1491-1548` | `attached_bodies` | 1491, 1515 |
-| `collision_env_distance_field_parity.rs:1082` | `2662-2693` | `shape_kinds_1` | 2667 |
-| `collision_env_distance_field_parity.rs:1398` | `3985-4295` | `group_state_representation` | 3985(6곳) |
+| `collision_env_distance_field_parity.rs:1008` | `1491-1548` | `attached_bodies` | 1491, 1515 |
+| `collision_env_distance_field_parity.rs:1102` | `2662-2693` | `shape_kinds_1` | 2667 |
+| `collision_env_distance_field_parity.rs:1418` | `3985-4295` | `group_state_representation` | 3985(6곳) |
 | `doc/upstream-bugs.md:640` | `1348-1360` | `right_arm` | 1354 |
 
 다섯 다 상수 하한(8자, 코드 구분자 하나)을 겨우 넘는 식별자다. 문장 단위
@@ -36086,8 +36086,8 @@ task #43은 "`>` 비교와 `assert_ne!`로 코퍼스를 넓히라"고 적혀 있
 않은 이유인 **타입 사실**이 아니다 — 그래서 여기서는 가르고 거기서는 안 가른다.
 
 `cmp_compound`는 하나의 kind로 남긴다. 이유는 §307.4에서 손으로 읽은 36건
-자체가 증거다: `parry.rs:4725`의 `.abs() > 0.1`은 `.abs()`가 있어도
-half_plane이고(초과 판정), `parry.rs:5273`의 `gap > 0.0 && gap < 1e-15`는
+자체가 증거다: `parry.rs:4763`의 `.abs() > 0.1`은 `.abs()`가 있어도
+half_plane이고(초과 판정), `parry.rs:5311`의 `gap > 0.0 && gap < 1e-15`는
 `.abs()` 없이도 정밀 톨러런스다. 가르는 기준은 바깥 피연산자가 이미
 `.norm()`/`.angle_to()`로 음이 아닌 값인지, 상수의 폭이 부동소수점 잡음인지
 실제 정의역인지 — 둘 다 정규식이 볼 수 없는 데이터플로/의미 사실이다.
@@ -36102,9 +36102,9 @@ half_plane이고(초과 판정), `parry.rs:5273`의 `gap > 0.0 && gap < 1e-15`�
 
 | 파일:줄 | 모양(요약) | 판정 | 근거 |
 |---|---|---|---|
-| `parry.rs:4764` | 4개 OR, AABB 포함 위반 | coarse | 무경계 반평면 4개 OR |
-| `parry.rs:4725` | `.abs() >` OR (브리프 예시) | coarse | "초과 판정", `.abs()`가 있어도 half_plane |
-| `parry.rs:5273` | `gap>0.0 && gap<1e-15` (브리프 예시) | precise | `.abs()` 없는 양측 밴드, 폭이 수치 잡음 |
+| `parry.rs:4802` | 4개 OR, AABB 포함 위반 | coarse | 무경계 반평면 4개 OR |
+| `parry.rs:4763` | `.abs() >` OR (브리프 예시) | coarse | "초과 판정", `.abs()`가 있어도 half_plane |
+| `parry.rs:5311` | `gap>0.0 && gap<1e-15` (브리프 예시) | precise | `.abs()` 없는 양측 밴드, 폭이 수치 잡음 |
 | `collision_parity.rs:958` | `.abs()<` AND `.abs()<` | precise | 두 abs 톨러런스 AND |
 | `collision_parity.rs:1414` | `.abs()<` AND `.abs()<` | precise | 위와 동일 모양 |
 | `collision_parity.rs:2388` | `.abs()+reach<BOUND` ×2 AND `축>TOP_Z` | coarse | FLOOR_HALF_EXTENT/TOP_Z는 씬의 실제 공간 경계, 잡음 아님 |
@@ -37021,7 +37021,7 @@ crates/moveit-planners-sbp/examples/plan_benchmark_port.rs` 종료 코드 1). fa
 
 ### §317.2 §251.6 — 셋은 참이다, 넷째는 §229.1에서 이미 두 번 더 옮겨가 있어 거짓이다
 
-**`sphere × sphere` 셀.** falsifier: `accumulate_collision`(`parry.rs:2298`)의
+**`sphere × sphere` 셀.** falsifier: `accumulate_collision`(`parry.rs:2336`)의
 `contact_ball_ball` 호출이나 그 판정 경계가 바뀌었다면 거짓. §251.6이 쓰인 커밋
 (`c5fa6985`, 07:36) 이후 `parry.rs`를 건드린 커밋은 셋뿐이다(`2abc8d0a`·`f1d4ea22`·
 `a1c1ecb7`) — `git diff c5fa6985 HEAD -- crates/moveit-collision/src/parry.rs`의 훅
@@ -37379,7 +37379,7 @@ Display")도 이 지역 사본을 건드리지 않는다. falsifier 불발 — O
 falsifier 발화 — **거짓 → 닫힘 (§323.5).**
 
 **접선 자체를 고치지 않았다.** falsifier: `accumulate_collision`
-(`parry.rs:2298`)의 `contact_ball_ball` 호출이나 그 판정 경계가 바뀌었다면
+(`parry.rs:2336`)의 `contact_ball_ball` 호출이나 그 판정 경계가 바뀌었다면
 거짓. §251.6이 쓰인 커밋(`c5fa6985`) 이후 `parry.rs`를 건드린 커밋 셋
 (§317.2가 이미 확인)에 더해 오늘 다시 `git diff c5fa6985 HEAD --
 crates/moveit-collision/src/parry.rs`를 돌려도 `accumulate_collision` 본문은
