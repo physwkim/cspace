@@ -19178,7 +19178,7 @@ found" 절)이 그대로 적용된다. 비-로깅 잔여분은 0이다.
 | 38 | `NoIKSolverAvailable` | NO_IK_SOLUTION | `trajectory_generator.cpp:211` | `check_cartesian_goal`의 솔버 탐색 (`trajectory_generator.rs:794`) | NoIkSolution |
 | 39 | `NoPrimitivePoseGiven` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator.cpp:216` | 표현 불가 — `trajectory_generator.rs:24-42` | — |
 | 40 | `LinTrajectoryConversionFailure` | FAILURE | `trajectory_generator_lin.cpp:172`, `trajectory_generator_polyline.cpp:185` | `generate_joint_trajectory`의 반환을 전파 (`trajectory_generator_lin.rs:231`, `trajectory_generator_polyline.rs:250`) | 그 함수가 낸 코드 — 상류도 `error_code.val`을 명시 인자로 넘긴다 |
-| 41 | `JointNumberMismatch` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator_lin.cpp:97` | **대응 없음 — §227.6** | — |
+| 41 | `JointNumberMismatch` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator_lin.cpp:97` | `extract_motion_plan_info`의 `Goal::Joint` 분기 (`crates/moveit-planners-pilz/src/trajectory_generator_lin.rs:134-135`) — §327.17이 고쳤다 | InvalidGoalConstraints |
 | 42 | `LinInverseForGoalIncalculable` | NO_IK_SOLUTION | `trajectory_generator_lin.cpp:136`, `trajectory_generator_polyline.cpp:122` | `trajectory_generator_lin.rs:161`,`:171`; `trajectory_generator_polyline.rs:172`,`:182` | NoIkSolution |
 | 43 | `NoWaypointsSpecified` | INVALID_MOTION_PLAN | `trajectory_generator_polyline.cpp:221` | `cmd_specific_request_validation` (`trajectory_generator_polyline.rs:130`) | InvalidMotionPlan |
 | 44 | `ConsicutiveColinearWaypoints` | INVALID_MOTION_PLAN | `trajectory_generator_polyline.cpp:164` | `plan`의 `polyline_from_waypoints` 실패 (`trajectory_generator_polyline.rs:226`) | InvalidMotionPlan |
@@ -19192,7 +19192,8 @@ INVALID_GROUP_NAME, INVALID_LINK_NAME, NO_IK_SOLUTION, 그리고 명시 인자�
 **코드 축에 빠진 변형은 없다.** 세 부류가 값으로 대응하지 않는데, 각각의
 이유가 다르다: 죽은 선언 3개(#7, #26, #32 — 상류 트리 어디서도 throw되지
 않는다), 타입 모양으로 표현 불가 10개(#6, #8, #16, #17, #18, #27, #30, #31,
-#37, #39), 그리고 실제 누락 2개(#11, #41).
+#37, #39), 그리고 실제 누락 1개(#11). #41은 이 표가 쓰일 당시 실제 누락이었고
+§327.17이 코드로 고쳐 닫았다 — 위 41행이 이제 포트 사이트를 댄다.
 
 ### §227.6 실제 누락 둘 — 이 라운드가 고치지 않은 것
 
@@ -37201,6 +37202,13 @@ sbp 레지스트리가 pilz를 등록하지 않는다. falsifier 불발 — 둘 
 적는다.
 
 falsifier 둘 다 불발 — OPEN.
+
+**그 뒤 (병합 시점 기록).** #41의 falsifier는 §327.17에서 **발화했다** —
+`Goal::Joint` 분기가
+`positions.len() != group.active_joint_names().len()` 비교를 얻었다
+(`crates/moveit-planners-pilz/src/trajectory_generator_lin.rs:134-135`,
+커밋 `240b88db`). 위 측정은 쓰인 시점에 정확했고 그 뒤 코드가 바뀐 것이므로
+문장을 고치지 않고 여기 이어 적는다. #11은 오늘도 OPEN이다.
 
 ### §316.4 §227.7 — 46행 실행 미확인, 상류 doc 결함 둘 다 오늘도 참이다
 

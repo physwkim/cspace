@@ -164,8 +164,10 @@
 //! `trajectory_generator.cpp:312,324,337,350` reduce to once `ex.what()` —
 //! consumed by `RCLCPP_ERROR_STREAM` and nothing else — is dropped with the
 //! rest of the logging. PORTING-PLAN.md §227.5 maps all 46 macro-generated
-//! class names onto their port sites; §227.6 names the two that have no
-//! counterpart here.
+//! class names onto their port sites; §227.6 names the one that still has no
+//! counterpart here (`MoreThanOneTipFrameException`). The other it named,
+//! `JointNumberMismatch`, was a real gap until §327.17 ported LIN's
+//! active-joint-count check.
 //!
 //! `plan_components_builder.{hpp,cpp}` was on this list until §153.1
 //! (measured 2026-08-04) refuted its stated reason: the file has **zero**
