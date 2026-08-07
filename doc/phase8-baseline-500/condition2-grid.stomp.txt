@@ -1,0 +1,44 @@
+=== phase 8 condition 2, stomp: n=500 problems ===
+port solved 441/500   cpp solved 446/500   both solved 437
+
+population: which problems already had a collision-free straight seed
+  floor_wall   seed-valid 148/250
+  cage         seed-valid 101/250
+  TOTAL        seed-valid 249/500 (49.8%)
+  port solved: 249/249 of the seed-valid stratum, 192/251 of the seed-invalid stratum
+  cpp solved: 249/249 of the seed-valid stratum, 197/251 of the seed-invalid stratum
+
+  port: returned path length equals its seed's to 1e-09 relative on 161/249 of the seed-valid problems it solved
+  cpp: returned path length equals its seed's to 1e-09 relative on 162/249 of the seed-valid problems it solved
+
+--- full population, n=500 ---
+level                 port valid     cpp valid  b(port-)  c(cpp-)   b+c    |z|  power
+returned-waypoints       441/441       446/446         0        0     0   0.00  underpowered
+0.2                      441/441       446/446         0        0     0   0.00  underpowered
+0.1                      441/441       446/446         0        0     0   0.00  underpowered
+0.05                     441/441       446/446         0        0     0   0.00  underpowered
+0.02                     438/441       444/446         2        2     4   0.00  underpowered
+0.01                     438/441       444/446         2        2     4   0.00  underpowered
+0.005                    437/441       443/446         3        2     5   0.45  underpowered
+0.002                    437/441       443/446         3        2     5   0.45  underpowered
+0.001                    437/441       443/446         3        2     5   0.45  underpowered
+
+--- seed-invalid stratum only, n=251 (port solved 192, cpp solved 197, both 188) ---
+level                 port valid     cpp valid  b(port-)  c(cpp-)   b+c    |z|  power
+returned-waypoints       192/192       197/197         0        0     0   0.00  underpowered
+0.2                      192/192       197/197         0        0     0   0.00  underpowered
+0.1                      192/192       197/197         0        0     0   0.00  underpowered
+0.05                     192/192       197/197         0        0     0   0.00  underpowered
+0.02                     189/192       195/197         2        2     4   0.00  underpowered
+0.01                     189/192       195/197         2        2     4   0.00  underpowered
+0.005                    188/192       194/197         3        2     5   0.45  underpowered
+0.002                    188/192       194/197         3        2     5   0.45  underpowered
+0.001                    188/192       194/197         3        2     5   0.45  underpowered
+
+seed-valid stratum: port and cpp disagree at 0 of 2241 level-verdicts over the 249 problems both solved. This stratum cannot discriminate the two implementations.
+
+r* = 0.05: the finest level at which C++ stomp is 446/446 = 100%.
+     one level finer (0.02) C++ stomp is 444/446, so the bar cannot be set there.
+condition 2 at r*: port stomp 441/441 -> MET
+paired gate: UNDERPOWERED at every level in this grid -- the largest b + c is 5 at 0.005, against MINIMUM_USABLE_B_PLUS_C = 61.
+             at that level's disagreement rate (5/437 of the problems both sides solved), reaching b + c = 61 needs about 5,331 solved-by-both problems.
