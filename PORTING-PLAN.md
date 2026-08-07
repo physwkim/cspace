@@ -19862,9 +19862,16 @@ ACM 없이 한 번 더 돌려 충돌이 나오는 것을 단언한다. 상류 �
   아니라 `update_state_with_link_at` 미이식, `kinect.dae` 부재,
   `EXPECT_TIME_LT`의 초 단위 절단 셋이다. 옮길 수 있던 3건은 §232.3이
   `crates/moveit-collision/tests/upstream_pr2_harness.rs`로 만들었다.
+  **거짓 → 닫힘 (§232.3)** — 위 취소선·비고가 이미 이 사실을 적어 뒀고,
+  정식 마커만 없었다. 이 라운드가 census를 재확인해 여전히 OPEN으로
+  집계되는 것을 보고 정식 마커로 옮긴다.
 - `MoveMesh`/`TestCollisionMapAdditionSpeed`가 쓰는 `kinect_dae_resource_`
   (`.dae` 메시)를 이 포트에 들여오지 않았다. `MoveMesh`는 단언이 0건이고
   `TestCollisionMapAdditionSpeed`는 §232.3이 실질 단언으로 옮겼다.
+  **OPEN → 만료 조건 (`fixtures/meshes/`가 커밋된 `kinect.dae`를 갖고
+  `tools/ci/verify-fixture-provenance.sh:196`의 `mesh_fixtures` glob이
+  `.dae`까지 훑도록 갱신되면 다시 연다 — §232.3 자신의 만료 조건과
+  같다. 오늘 재확인: `fd -i kinect fixtures/meshes/` 0건, 아직 없다.)**
 
 ## §233 `attached_body.cpp`의 마지막 갭 둘 — `setScale`/`setPadding`을 옮겼고, `Arc::make_mut` 등가는 **강한** 공유에서만 성립한다 (2026-08-06)
 
