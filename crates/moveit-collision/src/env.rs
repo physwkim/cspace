@@ -261,6 +261,20 @@ pub trait CollisionEnv<State> {
     /// [`CollisionResult::merge`]. A backend that also enforces
     /// `max_contacts` against its own request cannot then store more than
     /// `request.max_contacts` contacts in total across both calls.
+    ///
+    /// The same budgeting applies to `cost_sources`: upstream's shared
+    /// `res_->cost_sources` (a `std::set`) is trimmed to `req.max_cost_sources`
+    /// on every single insertion, in both `checkSelfCollision`'s and
+    /// `checkRobotCollision`'s callback
+    /// (`collision_detection_fcl/collision_common.cpp:285-287`, `:351-353`,
+    /// `:388-390`), so the shared set never exceeds `max_cost_sources` at any
+    /// point across either phase. This default implementation passes the
+    /// remaining `max_cost_sources` budget (less however many
+    /// [`check_self_collision`](CollisionEnv::check_self_collision) already
+    /// returned) into the second call for the same reason it does so for
+    /// `max_contacts` above — merging two results each independently capped
+    /// at the *full* budget could otherwise hold up to twice
+    /// `request.max_cost_sources` entries.
     fn check_collision(
         &self,
         request: &CollisionRequest,
@@ -275,8 +289,12 @@ pub trait CollisionEnv<State> {
             .is_some_and(|c| c.pair_count() < request.max_contacts);
         if !result.collision || contacts_have_room {
             let already_found = result.contacts.as_ref().map_or(0, ContactData::count);
+            let already_found_cost_sources = result.cost_sources.as_ref().map_or(0, Vec::len);
             let remaining_request = CollisionRequest {
                 max_contacts: request.max_contacts.saturating_sub(already_found),
+                max_cost_sources: request
+                    .max_cost_sources
+                    .saturating_sub(already_found_cost_sources),
                 ..request.clone()
             };
             result.merge(self.check_robot_collision(
@@ -497,7 +515,7 @@ impl LinkPaddingScale {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::CollisionDistance;
+    use crate::common::{CollisionDistance, CostSource};
     use std::cell::Cell;
     use std::collections::BTreeMap;
 
@@ -511,6 +529,10 @@ mod tests {
         /// was actually called with, for tests that check what budget
         /// [`CollisionEnv::check_collision`]'s default merge passed down.
         robot_seen_max_contacts: Cell<usize>,
+        /// `max_cost_sources` of the request [`CollisionEnv::check_robot_collision`]
+        /// was actually called with — the `cost_sources` analogue of
+        /// `robot_seen_max_contacts` above.
+        robot_seen_max_cost_sources: Cell<usize>,
     }
 
     impl CollisionEnv<FakeRobotState> for StubEnv {
@@ -532,6 +554,8 @@ mod tests {
             _acm: Option<&AllowedCollisionMatrix>,
         ) -> CollisionResult {
             self.robot_seen_max_contacts.set(request.max_contacts);
+            self.robot_seen_max_cost_sources
+                .set(request.max_cost_sources);
             self.robot_result.clone()
         }
 
@@ -572,6 +596,13 @@ mod tests {
             vec![crate::common::Contact::default(); n],
         );
         ContactData { by_pair }
+    }
+
+    fn cost_source(cost: f64) -> CostSource {
+        CostSource {
+            cost,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -698,6 +729,48 @@ mod tests {
         };
         env.check_collision(&request, &FakeRobotState, &[], None);
         assert_eq!(env.robot_seen_max_contacts.get(), 2);
+    }
+
+    #[test]
+    fn check_collision_passes_the_remaining_cost_source_budget_not_the_full_one() {
+        // Same defect shape as
+        // check_collision_passes_the_remaining_contact_budget_not_the_full_one,
+        // for cost_sources instead of contacts. Upstream's shared
+        // `res_->cost_sources` set is trimmed to `req.max_cost_sources` on
+        // every insertion (`collision_detection_fcl/collision_common.cpp:285-287`,
+        // `:351-353`, `:388-390`) across *both* the self- and robot-collision
+        // phases of `CollisionEnv::checkCollision` (`collision_env.cpp:310-316`),
+        // which pass one `CollisionResult&` by reference into both calls. This
+        // port's `check_self_collision`/`check_robot_collision` each return
+        // their own owned `CollisionResult`, so `check_collision` must budget
+        // the second call's `max_cost_sources` down by however many the first
+        // call already found -- the unmodified request would let the merged
+        // total exceed `max_cost_sources`.
+        //
+        // `self_result.collision` is `false` (rather than mirroring the
+        // contacts test's `true`) so the robot check actually runs: the
+        // `!result.collision || contacts_have_room` guard has no
+        // `cost_sources`-based room check, only the `contacts`-based one,
+        // and this test's `self_result` carries no `contacts`. Cost sources
+        // are computed independent of the collision verdict upstream (see
+        // `parry.rs`'s `accumulate_collision` doc), so a collision-free
+        // self-check still reporting a cost source is a real, reachable
+        // case, not a contrived one.
+        let env = StubEnv {
+            self_result: CollisionResult {
+                collision: false,
+                cost_sources: Some(vec![cost_source(1.0)]),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let request = CollisionRequest {
+            cost: true,
+            max_cost_sources: 3,
+            ..Default::default()
+        };
+        env.check_collision(&request, &FakeRobotState, &[], None);
+        assert_eq!(env.robot_seen_max_cost_sources.get(), 2);
     }
 
     #[test]
