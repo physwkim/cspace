@@ -7,7 +7,7 @@
 # directive comments -- written for a linter that had never run, so nothing
 # had ever confirmed those directives even resolve.
 #
-# shellcheck absence is a FAIL, not a skip. A checker that quietly no-ops
+# A missing shellcheck is a FAIL, not a skip. A checker that quietly no-ops
 # when its tool is missing is the exact failure mode this repository keeps
 # finding (`gate-lib.sh`'s `oracle_stamp_verdict`/`oracle_stamp_explain` exist
 # because six gates once collapsed "docker refused us" into the same silent
