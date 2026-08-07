@@ -34396,6 +34396,7 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 | `count-coarse-assertions.py` | 307.3 | `tools/ci/count-coarse-assertions.py` | 자동 | 수를 싣지 않는다 — `top_level_comparisons()`를 어디에 넣었는지(`tools/ci/count-coarse-assertions.py:347-356`)와 `.abs() <` 하나짜리를 kind에서 뺀 근거를 적는다. 그 인용은 이 회차에 12줄 어긋나 있었다(335-344는 `contains`·`eq_none` 구간이다) — 재도출해 고쳤다 |
 | `count-coarse-assertions.py` | 307.5 | `tools/ci/count-coarse-assertions.py` | 자동 | 수를 싣지 않는다 — 새 고아를 `--write-orphans`로 흡수하지 않고 둘째 모집단 장치를 이식했다는 진술이고, 이 계기는 그 분리를 diff로 얻는 쪽으로만 이름이 나온다 |
 | `count-coarse-assertions.py` | 309.3 | 없음 | 자동 | 수를 싣지 않는다 — §305 게이트가 병합 후 붉어진 9건을 옮겨 적으면서 계측기 이름이 나올 뿐이다 |
+| `count-coarse-assertions.py` | 310.9 | `tools/ci/count-coarse-assertions.py` | 자동 | 새로 재지 않는다 — 바로 위 307.6 행이 실은 재현값(`3613 = 195 + 3418`)을 인용해 §307.6의 세 불릿 중 무엇이 닫히는지 판정하고, 셋 다 열린 채라고 적는다 |
 | `count-narrowing-sweep.sh` | 189 | `tools/ci/count-narrowing-sweep.sh` | 자동 | 상류 8파일 **140**과 파일별 내역(`planning_scene.cpp` 24 · `planning_scene.hpp` 4 · `robot_state.cpp` 76 · `attached_body.hpp` 0 · `attached_body.cpp` 1 · `world.cpp` 10 · `world.hpp` 4 · `kinematic_constraint.cpp` 21). 코퍼스가 고정 상류 체크아웃이므로 다시 돌리는 것이 증거다 |
 | `count-narrowing-sweep.sh` | 189.1 | `tools/ci/count-narrowing-sweep.sh` | 자동 | 스크립트가 자기 오탐 두 형태를 헤더에 적는다는 사실과 그에 해당하는 두 줄. 수가 아니라 스크립트 본문에 대한 진술이다 |
 | `count-public-declarations.sh` | 119.4 | `tools/ci/count-public-declarations.sh` | 자동 | 수를 싣지 않는다 — 계수 관례를 문장에서 명령으로 옮겼다는 진술뿐이다 |
