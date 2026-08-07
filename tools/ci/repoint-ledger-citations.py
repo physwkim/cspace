@@ -190,6 +190,17 @@ def cite_re(fname_part, old):
     )
 
 
+def adjacency_re(old):
+    """``:914 (`the_test_name`)`` -- the gate's `adjacent_key` grammar, whose
+    line number is NOT part of a `file.rs:NNN` citation and so survives
+    cite_re() untouched. Left stale it silently disables that row's subject
+    key, which is the one thing standing between the row and being credited
+    for a neighbour's assertion."""
+    return re.compile(
+        r"(?<!\d):" + str(old) + r"(?![\d-])(`?\s*\(`[a-z_][a-z0-9_]{5,}`\))"
+    )
+
+
 def apply_moves(moves):
     """Rewrite each moved citation EVERYWHERE in its own ledger, not only in
     the row's first column. A ledger's prose cites the same site again --
@@ -199,7 +210,11 @@ def apply_moves(moves):
     one gate's failure for another's. A document-wide rewrite is safe here
     precisely because the plan is 1:1: if two rows cited the same old line
     they would both be unresolved and could want different new lines, so
-    that case refuses to write rather than pick one."""
+    that case refuses to write rather than pick one.
+
+    The `:NNN (`fn`)` adjacency labels move too, but only on the lines the
+    citation rewrite actually touched: that spelling carries no file name, so
+    document-wide it would collide with any other row's line number."""
     by_ledger = {}
     for ledger, fname_part, old, new, _fn in moves:
         by_ledger.setdefault(ledger, []).append((fname_part, old, new))
@@ -214,15 +229,20 @@ def apply_moves(moves):
                     f"-- resolve those two rows by hand"
                 )
         path = ROOT / ledger
-        text = original = path.read_text(encoding="utf-8")
+        lines = original = path.read_text(encoding="utf-8").split("\n")
         for fname_part, old, new in items:
-            text, n = cite_re(fname_part, old).subn(
-                lambda mm, new=new, f=fname_part: f"{f}:{mm.group(1)}{new}", text
-            )
-            total += n
-        if text.count("\n") != original.count("\n"):
+            pattern = cite_re(fname_part, old)
+            for i, line in enumerate(lines):
+                line, n = pattern.subn(
+                    lambda mm, new=new, f=fname_part: f"{f}:{mm.group(1)}{new}", line
+                )
+                if not n:
+                    continue
+                total += n
+                lines[i] = adjacency_re(old).sub(rf":{new}\1", line)
+        if len(lines) != len(original):
             raise SystemExit(f"FAIL {ledger}: rewrite changed the line count")
-        path.write_text(text, encoding="utf-8")
+        path.write_text("\n".join(lines), encoding="utf-8")
     return total
 
 
