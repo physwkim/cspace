@@ -1410,7 +1410,7 @@ impl<'m> PlanningScene<'m> {
     /// delegation: not ported, and here is why it still does not fire
     ///
     /// Upstream `SceneTransforms` also overrides `isFixedFrame`
-    /// (`planning_scene.cpp:123-135`) to strip a leading `/` and consult
+    /// (`planning_scene.cpp:123-137`) to strip a leading `/` and consult
     /// `knowsObjectFrame` before falling back to the base class. That
     /// override exists so that code holding a bare `moveit::core::
     /// Transforms&` -- not knowing it is actually scene-backed -- still

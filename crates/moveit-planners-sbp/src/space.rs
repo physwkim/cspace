@@ -264,7 +264,7 @@ mod tests {
     /// builds a `RealVectorSpace` at, one axis per bounded revolute or
     /// prismatic joint -- this degenerates to upstream `PrismaticJointModel::
     /// distance`/the non-continuous branch of `RevoluteJointModel::distance`
-    /// (`prismatic_joint_model.cpp:114-116`, `revolute_joint_model.cpp:180-181`):
+    /// (`prismatic_joint_model.cpp:114-117`, `revolute_joint_model.cpp:180-181`):
     /// both are `fabs(values1[0] - values2[0])`. Pinned against that formula
     /// transcribed independently here (`(v1 - v2).abs()`), not against
     /// `RealVectorSpace::distance` itself, so a regression in the

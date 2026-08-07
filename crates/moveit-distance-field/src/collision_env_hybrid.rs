@@ -308,7 +308,7 @@ impl<'m> HybridCollisionEnv<'m> {
     /// `CREATE`/`ADD_SHAPE` (add only) vs. `MOVE_SHAPE`/`REMOVE_SHAPE`
     /// (remove old points, add current points) vs. `DESTROY` (remove only)
     /// branching upstream's own `notifyObjectChange`
-    /// (`collision_env_distance_field.cpp:1704-1724`) uses. `env_field` is
+    /// (`collision_env_distance_field.cpp:1704-1728`) uses. `env_field` is
     /// therefore maintained incrementally, matching upstream's own design,
     /// not rebuilt per call.
     ///
@@ -461,7 +461,7 @@ impl<'m> HybridCollisionEnv<'m> {
 
     /// Applies one [`Notification`] to `env_field`/`env_field_points`,
     /// mirroring upstream `CollisionEnvDistanceField::notifyObjectChange`
-    /// (`collision_env_distance_field.cpp:1704-1724`). See
+    /// (`collision_env_distance_field.cpp:1704-1728`). See
     /// [`Self::mutate_world`]'s doc comment for the branch-by-`Action`
     /// rationale and why this cannot use [`ParryCollisionEnv`]'s
     /// `OctreeCache` pattern unchanged.

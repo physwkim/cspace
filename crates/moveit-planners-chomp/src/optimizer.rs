@@ -1223,8 +1223,8 @@ pub struct ChompOptimizer<'m> {
 }
 
 impl<'m> ChompOptimizer<'m> {
-    /// Ported from the `ChompOptimizer` constructor plus `initialize`
-    /// (`chomp_optimizer.cpp:63-247`). Unlike upstream, initialization
+    /// Ported from `ChompOptimizer::ChompOptimizer` (`chomp_optimizer.cpp:61-85`) plus
+    /// `initialize` (`chomp_optimizer.cpp:87-244`). Unlike upstream, initialization
     /// cannot silently fail into an unusable, `is_initialized() == false`
     /// object: upstream's constructor returns early (leaving `initialized_
     /// == false`) only when `dynamic_cast<const CollisionEnvHybrid*>`

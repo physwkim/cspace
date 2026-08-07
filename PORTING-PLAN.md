@@ -3958,7 +3958,7 @@ enforcePositionBounds`(`revolute_joint_model.cpp:218-230`)와 정확히 같은
 다른 단일 자유도 관절 타입도 같은 방식으로 확인했다:
 
 - `PrismaticJointModel::getVariableRandomPositionsNearBy`
-  (`prismatic_joint_model.cpp:91-96`)는 연속 개념이 전혀 없고 클램프
+  (`prismatic_joint_model.cpp:91-97`)는 연속 개념이 전혀 없고 클램프
   공식 하나뿐 — 오라클의 비연속 분기와 정확히 일치, 5라운드에서 이미
   확인한 그대로다.
 - Planar/Floating 관절은 이 op에 도달할 수 없다 — `isSingleDOFJoints()`
@@ -6782,7 +6782,7 @@ main `252354d`에 머지. **995 → 999**.
 `planning_scene.cpp:123-137`의 `SceneTransforms::isFixedFrame`을 읽었다:
 빈 문자열 false → `Transforms::isFixedFrame`(원문 그대로, 베이스 맵)
 → 앞의 `/` 하나만 벗겨 `knowsObjectFrame` → `World::knowsTransform`
-(`world.cpp:142-162`, 객체 이름 우선, 다음 `object/subframe`).
+(`world.cpp:142-164`, 객체 이름 우선, 다음 `object/subframe`).
 `getCurrentState()`는 어느 경로에도 없다.
 
 새 접근자는 이 범위를 그대로 재현한다 — 베이스 맵 복제에 world 객체와

@@ -199,7 +199,7 @@ fn sorted_names(mut names: Vec<&'static str>) -> Vec<&'static str> {
 }
 
 /// `MoveGroupQueryPlannersService::queryInterface`
-/// (`query_planners_service_capability.cpp:78-107`).
+/// (`query_planners_service_capability.cpp:76-105`).
 ///
 /// Takes the names rather than reading the registry itself so the boundary
 /// tests below can drive it with an empty registry and with several
@@ -219,7 +219,7 @@ fn query_response(interface_names: &[&str]) -> QueryPlannerInterfaces::Response 
 }
 
 /// `MoveGroupQueryPlannersService::getParams`
-/// (`query_planners_service_capability.cpp:109-156`).
+/// (`query_planners_service_capability.cpp:107-155`).
 ///
 /// `interface_count` stands in for upstream's two preconditions between the
 /// pipeline and the config map -- `planner_plugin_names.empty()` and a null
@@ -268,7 +268,7 @@ fn get_response(
 }
 
 /// `MoveGroupQueryPlannersService::setParams`
-/// (`query_planners_service_capability.cpp:158-199`).
+/// (`query_planners_service_capability.cpp:157-206`).
 ///
 /// Mutates `configs` in place where upstream copies the map, edits the copy
 /// and installs it with `setPlannerConfigurations` (`:205`). That copy exists
@@ -316,7 +316,7 @@ fn apply_set(
 ///
 /// One entry point, mirroring upstream's single
 /// `MoveGroupQueryPlannersService::initialize()`
-/// (`query_planners_service_capability.cpp:56-73`), so the node binary
+/// (`query_planners_service_capability.cpp:56-74`), so the node binary
 /// registers this capability the way upstream loads it: as one thing.
 ///
 /// The store is *returned* rather than kept private because a planner has to

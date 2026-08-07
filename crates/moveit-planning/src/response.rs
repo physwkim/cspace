@@ -30,7 +30,7 @@ use moveit_trajectory::RobotTrajectory;
 ///
 /// # D8 delta audit (round 21): every member of upstream `MotionPlanResponse`
 ///
-/// `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp:48-70`
+/// `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp:48-73`
 /// (`planning_interface::MotionPlanResponse`) has 6 members, one line each:
 ///
 /// - `trajectory` (`RobotTrajectoryPtr`) — ported as
