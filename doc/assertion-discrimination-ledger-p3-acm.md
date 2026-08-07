@@ -1015,10 +1015,10 @@ actually at `:500`).
 | p9-ros | `robot_model.rs:2024` | `crates/moveit-model/src/robot_model.rs:2092` | fixture widened 3→4 joints (`7676185`, adds a joint block above), +27 |
 | p9-ros | `robot_model.rs:2025` | `crates/moveit-model/src/robot_model.rs:2052` | same cause, +27 |
 | p9-ros | `robot_model.rs:2026` | `crates/moveit-model/src/robot_model.rs:2053` | same cause, +27 |
-| p9-ros | `ros/moveit-ros/src/trajectory.rs:444` (ros) | `ros/moveit-ros/src/trajectory.rs:482` | insertion above, +38 |
-| p9-ros | `ros/moveit-ros/src/trajectory.rs:450` (ros) | `ros/moveit-ros/src/trajectory.rs:488` | same, +38 |
-| p9-ros | `ros/moveit-ros/src/trajectory.rs:456` (ros) | `ros/moveit-ros/src/trajectory.rs:494` | same, +38 |
-| p9-ros | `ros/moveit-ros/src/trajectory.rs` line 462 (ros, as miscited) | `ros/moveit-ros/src/trajectory.rs:500` | same, +38 — nearest-line search alone would have matched this to `:494`, wrongly |
+| p9-ros | `!ros/moveit-ros/src/trajectory.rs:444` (ros) | `ros/moveit-ros/src/trajectory.rs:484` | insertion above, +38; +40 after this round's doc comments |
+| p9-ros | `!ros/moveit-ros/src/trajectory.rs:450` (ros) | `ros/moveit-ros/src/trajectory.rs:490` | same, +40 |
+| p9-ros | `!ros/moveit-ros/src/trajectory.rs:456` (ros) | `ros/moveit-ros/src/trajectory.rs:496` | same, +40 |
+| p9-ros | `ros/moveit-ros/src/trajectory.rs` line 462 (ros, as miscited) | `ros/moveit-ros/src/trajectory.rs:502` | same, +40 — nearest-line search alone would have matched this to `:496`, wrongly |
 | p9-ros | `collision_env_distance_field.rs` line 3271 (as miscited) | `crates/moveit-distance-field/src/collision_env_distance_field.rs:3284` | citation points at the audit comment's opening line, not the `assert!`; +13 |
 | p9-ros | `collision_env_distance_field.rs:3276` | `crates/moveit-distance-field/src/collision_env_distance_field.rs:3289` | same convention, +13 |
 

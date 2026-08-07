@@ -705,8 +705,8 @@ guard-checked-only.**
 ### 17.2 Touched fields by risk category
 
 - **frame-relative pose** (12 sites): `CollisionObject.header`(×2 call
-  sites, `collision_object.rs:358,457`, `:358` reads `subframe_poses,`), `AttachedCollisionObject.object.
-  header`(`attached.rs:219-222` (`shapes_from_message_geometry`)), `OctomapWithPose.header`(`planning_scene.rs`,
+  sites, `collision_object.rs:361,460`, `:358` reads `subframe_poses,`), `AttachedCollisionObject.object.
+  header`(`attached.rs:204-207` (`shapes_from_message_geometry`)), `OctomapWithPose.header`(`planning_scene.rs`,
   §183, already fixed), `PositionConstraint.header`/`OrientationConstraint.
   header`(captured as a string and handed to `crates/moveit-constraints`
   for lazy per-`decide()` resolution — that crate's own frame-resolution
@@ -806,28 +806,28 @@ upstream function line-by-line.
 
 - `scene/mod.rs:43` (`header_frame_transform`, reads `frame_id.is_empty()`) — the §183 site itself,
   already fixed (`aa45d37`).
-- `scene/collision_object.rs:339` (`apply_add`, reads `plane_poses,`, no shapes) —
+- `scene/collision_object.rs:342` (`apply_add`, reads `plane_poses,`, no shapes) —
   `planning_scene.cpp:1894`: upstream also errors on empty
   primitives/meshes/planes. Matches.
-- `scene/collision_object.rs:420` (`apply_remove`, reads `REMOVE. Upstream`, empty `id`) —
+- `scene/collision_object.rs:423` (`apply_remove`, reads `REMOVE. Upstream`, empty `id`) —
   `:1933`: upstream's `object.id.empty()` also means "remove
   everything". Matches (and already documented + tested,
   `remove_empty_id_removes_everything`).
-- `scene/collision_object.rs:483` (`apply_move`, reads `.pose();`, empty
+- `scene/collision_object.rs:486` (`apply_move`, reads `.pose();`, empty
   `shape_poses_msgs`) — `:1973`: upstream's
   `!primitive_poses.empty() || ...` guard is the same "no pose data ->
   skip the repose step, still Ok" shape. Matches.
-- `scene/attached.rs:95,100` (`apply_attach`, `:95` reads
+- `scene/attached.rs:94,99` (`apply_attach`, `:95` reads
   `object.primitives.is_empty()`, no-geometry world
   promotion) — `:1563` (ADD/APPEND gate) + `:1579` (the no-geometry
   check itself, further gated to ADD-only): exactly `is_add &&
   no_geometry`. Matches.
-- `scene/attached.rs:142` (`apply_attach`, `shapes.is_empty()` after
+- `scene/attached.rs:116` (`apply_attach`, `shapes.is_empty()` after
   conversion) — `:1620`: upstream's own
   `if (shapes.empty()) return false`. Matches (already tested,
   `add_with_no_geometry_and_no_world_object_is_rejected` covers the
   no-world-object variant of the same check).
-- `scene/attached.rs:285,288,298` (`apply_detach`, empty `id`/
+- `scene/attached.rs:270,273,283` (`apply_detach`, empty `id`/
   `link_name`) — `:1665`: upstream's `!attached_bodies.empty() ||
   object.object.id.empty()` return expression, already reproduced and
   documented in this module's own doc comment. Matches.
@@ -843,7 +843,7 @@ upstream function line-by-line.
   `map.octomap.data.is_empty()`, empty
   `octomap.data`) — `:1483`: upstream's own early return once the
   previous octomap is cleared. Matches.
-- `ros/moveit-ros/src/state.rs:68,75,84-87` (`:68` reads `names: &[String],`; `is_diff`/`attached_collision_objects`/
+- `ros/moveit-ros/src/state.rs:70,77,86-89` (`:68` reads `names: &[String],`; `is_diff`/`attached_collision_objects`/
   `multi_dof_joint_state` non-default) — **not this shape**: these
   reject a *non-default* value because there is no core field to carry
   it (a structural gap, `RobotState`'s own doc comment), the opposite
@@ -854,13 +854,13 @@ upstream function line-by-line.
   gains multi-DOF support; `attached_collision_objects`/`is_diff`
   clear only if this crate adds a `&mut PlanningScene`-aware
   conversion entry point, not if `moveit-state` changes.
-- `ros/moveit-ros/src/trajectory.rs:142` (own comment reads `// == 0.0`, for `JointTrajectoryPoint[0].time_from_start`
+- `ros/moveit-ros/src/trajectory.rs:144` (own comment reads `// == 0.0`, for `JointTrajectoryPoint[0].time_from_start`
   nonzero) — same opposite-polarity shape as `state.rs` above:
   rejects a non-default value `RobotTrajectory` cannot represent, not
   a rejected default. Expiry noted inline (§153.1): only
   `moveit_trajectory::RobotTrajectory`'s own `duration_from_previous[0]
   == 0.0` invariant changing clears this, not a new field anywhere.
-- `planning.rs:150-154,162-166,278-281` (re-derived: row previously cited
+- `planning.rs:150-154,162-166,282-285` (re-derived: row previously cited
   `:130,138`, which named a single blanket `start_state` rejection that
   `p11-startstate` (`10f571f`) deleted outright — `start_state` is now a
   `StartState` sum type, so the old citation points at code that no longer
@@ -912,9 +912,9 @@ empirically, not just by inspection, since a plausible-looking claim
 about compile errors was already wrong once this round (§17.2's
 corrected renumbering claim).
 
-- **`planning.rs:271` (reads `type Error = Error;`; `start_state`/`reference_trajectories`) —
+- **`planning.rs:275` (reads `type Error = Error;`; `start_state`/`reference_trajectories`) —
   mechanically self-revealing.** The `Ok(PlanningRequest { ... })`
-  construction at `planning.rs:322-332` (`try_from`) is an exhaustive struct
+  construction at `planning.rs:326-336` (`try_from`) is an exhaustive struct
   literal (no `..Default::default()`) even though `PlanningRequest`
   derives `Default`. Verified by temporarily adding an undocumented
   field to `crates/moveit-planning::PlanningRequest` and rebuilding
@@ -926,7 +926,7 @@ corrected renumbering claim).
   after; neither was committed). A new `PlanningRequest` field forces
   a person to this exact line without anyone needing to remember the
   comment exists.
-- **`ros/moveit-ros/src/state.rs:68,75,84-87` (`:68` reads `names: &[String],`; `is_diff`/`attached_collision_objects`/
+- **`ros/moveit-ros/src/state.rs:70,77,86-89` (`:68` reads `names: &[String],`; `is_diff`/`attached_collision_objects`/
   `multi_dof_joint_state`) — requires human memory.** Neither
   `TryFrom<RobotStateMsg>` nor `TryFrom<CoreRobotState>` builds
   `CoreRobotState` through a struct literal (`CoreRobotState::new`,
@@ -936,7 +936,7 @@ corrected renumbering claim).
   `is_diff` gap is even further from compiler-visible: its expiry is
   authoring a conversion entry point that does not exist yet, so there
   is nothing for a future edit to newly fail against.
-- **`ros/moveit-ros/src/trajectory.rs:142` (own comment reads `// == 0.0`; nonzero `time_from_start[0]`) — not
+- **`ros/moveit-ros/src/trajectory.rs:144` (own comment reads `// == 0.0`; nonzero `time_from_start[0]`) — not
   compiler-enforced, but now runtime-tripwired (round 13 follow-up,
   after D14 proved the tripwire pattern viable and the coordinator
   asked this classification be pushed on again).** The rejection
@@ -953,7 +953,7 @@ corrected renumbering claim).
   calling `add_suffix_way_point` directly (bypassing this crate's own
   `TryFrom` and its own duplicate guard) and asserting the current
   `Err`; it goes red the moment that invariant relaxes. One caveat
-  documented at `ros/moveit-ros/src/trajectory.rs:148` (reads `// field cannot clear this`)'s own expiry comment: this crate's
+  documented at `ros/moveit-ros/src/trajectory.rs:150` (reads `// field cannot clear this`)'s own expiry comment: this crate's
   `i == 0 && t != 0.0` check fires *before* `add_suffix_way_point` is
   ever called (it exists only to give a wire-specific message), so
   the wire-level `nonzero_start_time_is_rejected` test would **not**
@@ -961,7 +961,7 @@ corrected renumbering claim).
   tripwire's failure and separately update or remove that duplicate
   check. Partially self-revealing, not fully: the underlying fact is
   now mechanically caught, the crate-local duplicate is not.
-- **`ros/moveit-ros/src/state.rs:68,75,84-87` (`:68` reads `names: &[String],`) — checked whether the same runtime-tripwire
+- **`ros/moveit-ros/src/state.rs:70,77,86-89` (`:68` reads `names: &[String],`) — checked whether the same runtime-tripwire
   approach applies; it does not.** A tripwire needs an *existing* call
   path whose current answer changes; both `multi_dof_joint_state` and
   `attached_collision_objects`/`is_diff` name the *arrival* of a
@@ -1071,15 +1071,15 @@ call site's code is the unconditional, unbranched call named above.
 | # | Site (file:line) | Rule | norm=2.0 | norm=1.0011 | norm=1.0009 | all-zero | NaN |
 |---|---|---|---|---|---|---|---|
 | 1 | `geometry.rs` (the rule itself) | generic | ✅site `norm_far_from_one_is_renormalized_not_rejected` → Ok, renormalized | ✅site `norm_just_outside_orientation_rules_1e_minus_3_tolerance_is_still_accepted_here` → Ok | ✅site `norm_just_inside_orientation_rules_1e_minus_3_tolerance_is_also_accepted_here` → Ok | ✅site `zero_quaternion_is_rejected` → `Error::Construct` | ✅site `nan_quaternion_is_rejected` → `Error::Construct` |
-| 2 | `constraints/orientation.rs:92-93` (reads `UnitQuaternion::try_from(OrientationConstraintQuaternion(msg.orientation))?;`, `OrientationConstraint.orientation`) | strict | ✅site `orientation_norm_2_is_rejected_end_to_end_unlike_a_scene_pose` → `Error::Construct` | ✅generic-fn `orientation_norm_just_outside_the_1e_minus_3_tolerance_is_rejected` → `Error::Construct` (not run through `orientation.rs`'s own conversion end to end) | ✅generic-fn `orientation_norm_just_inside_the_1e_minus_3_tolerance_is_accepted` → Ok (not run end to end) | ✅generic-fn `orientation_zero_quaternion_is_rejected` → `Error::Construct` (not run end to end) | ✅generic-fn `orientation_nan_quaternion_is_rejected` → `Error::Construct` (not run end to end) |
-| 3 | `constraints/position.rs:161` (reads `Isometry3::try_from(Pose(pose))?;`, `BoundingVolume.primitive_poses`/`mesh_poses`) | generic | ✅site `region_pose_with_norm_2_orientation_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| 4 | `constraints/visibility.rs:114` (`sensor_pose`) | generic | ✅site `sensor_and_target_pose_with_norm_2_orientation_succeed_and_normalize` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| 5 | `constraints/visibility.rs:115` (`target_pose`) | generic | ✅site (same test as row 4) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| 6 | `scene/collision_object.rs:142` (reads `Isometry3::try_from(Pose(p))?,`, per-shape pose, ADD/APPEND) | generic | ✅site `add_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| 7 | `scene/collision_object.rs:207` (reads `Isometry3::try_from(Pose(object_pose_msg))?`, object pose, ADD/APPEND, non-promoted) | generic | ✅site (same test as row 6) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| 8 | `scene/collision_object.rs:239` (reads `Isometry3::try_from(Pose(pose))?);`, `subframe_poses`) | generic | ✅site `add_with_norm_2_orientation_on_subframe_pose_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| 9 | `scene/collision_object.rs:478` (reads `Isometry3::try_from(Pose(pose))?;`, object pose, MOVE) | generic | ✅site `move_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
-| 10 | `scene/collision_object.rs:515` (reads `Isometry3::try_from(Pose(p)))`, per-shape pose, MOVE repose) | generic | ✅site (same test as row 9) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 2 | `constraints/orientation.rs:94-95` (reads `UnitQuaternion::try_from(OrientationConstraintQuaternion(msg.orientation))?;`, `OrientationConstraint.orientation`) | strict | ✅site `orientation_norm_2_is_rejected_end_to_end_unlike_a_scene_pose` → `Error::Construct` | ✅generic-fn `orientation_norm_just_outside_the_1e_minus_3_tolerance_is_rejected` → `Error::Construct` (not run through `orientation.rs`'s own conversion end to end) | ✅generic-fn `orientation_norm_just_inside_the_1e_minus_3_tolerance_is_accepted` → Ok (not run end to end) | ✅generic-fn `orientation_zero_quaternion_is_rejected` → `Error::Construct` (not run end to end) | ✅generic-fn `orientation_nan_quaternion_is_rejected` → `Error::Construct` (not run end to end) |
+| 3 | `constraints/position.rs:163` (reads `Isometry3::try_from(Pose(pose))?;`, `BoundingVolume.primitive_poses`/`mesh_poses`) | generic | ✅site `region_pose_with_norm_2_orientation_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 4 | `constraints/visibility.rs:116` (`sensor_pose`) | generic | ✅site `sensor_and_target_pose_with_norm_2_orientation_succeed_and_normalize` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 5 | `constraints/visibility.rs:117` (`target_pose`) | generic | ✅site (same test as row 4) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 6 | `scene/collision_object.rs:145` (reads `Isometry3::try_from(Pose(p))?,`, per-shape pose, ADD/APPEND) | generic | ✅site `add_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 7 | `scene/collision_object.rs:210` (reads `Isometry3::try_from(Pose(object_pose_msg))?`, object pose, ADD/APPEND, non-promoted) | generic | ✅site (same test as row 6) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 8 | `scene/collision_object.rs:242` (reads `Isometry3::try_from(Pose(pose))?);`, `subframe_poses`) | generic | ✅site `add_with_norm_2_orientation_on_subframe_pose_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 9 | `scene/collision_object.rs:481` (reads `Isometry3::try_from(Pose(pose))?;`, object pose, MOVE) | generic | ✅site `move_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 10 | `scene/collision_object.rs:518` (reads `Isometry3::try_from(Pose(p)))`, per-shape pose, MOVE repose) | generic | ✅site (same test as row 9) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
 | — | `scene/planning_scene.rs:592` (drift: row previously cited `:147`, stale after `p11-scenetopic` grew this file 522 -> 1367 lines) (reads `Isometry3::try_from(Pose(map.origin))?;`, octomap `origin`) | generic | ✅site `octomap_origin_with_norm_2_orientation_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
 
 (This is 11 rows for "ten sites" — §213.2's count of nine generic-rule
