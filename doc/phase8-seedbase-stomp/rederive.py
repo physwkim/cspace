@@ -11,9 +11,11 @@ not of a planner seed, so it is not duplicated here).
 
 Run with no argument to read them from this script's own directory and print
 the report; pass `--check FILE` to compare the whole report against a
-committed transcript instead (what
-`tools/ci/check-phase8-seedbase-stomp.sh` runs) -- a number that drifts fails
-by name rather than by a total, the same `--check`
+committed transcript instead (what `tools/ci/check-phase8-baseline-500.sh`
+runs -- that gate walks this directory alongside `doc/phase8-baseline-500/`
+and `doc/phase8-condition2-stomp/` rather than each having its own
+check-*.sh) -- a number that drifts fails by name rather than by a total,
+the same `--check`
 `doc/phase8-baseline-500/rederive.py` uses.
 
 # Condition-2 validity is not monotone in the resolution
