@@ -2449,6 +2449,152 @@ fn prbt_flange_floor_clearance_matches_the_closed_form() {
     assert!(saw_case_8148, "sanity: step 20 is case 8148 itself");
 }
 
+/// PORTING-PLAN.md §281.6's third residual bullet said the closed form
+/// above "only holds on the separated side". It does not: raising the floor
+/// above case 8148's own flange pose turns the SAME formula negative -- a
+/// penetration-depth prediction rather than a clearance -- and this backend's
+/// `distance_robot` matches it there too, to a tighter tolerance than the
+/// separated branch above.
+///
+/// `FLOOR_TOP_Z` is raised from -0.5 to -0.16 -- 0.34m above
+/// [`prbt_flange_floor_clearance_matches_the_closed_form`]'s floor, chosen so
+/// case 8148's own pose (`scale == 1.0`) penetrates by about 3cm, well inside
+/// the box's 0.05m half-thickness margin the footprint/depth assertions below
+/// require (so the top face, not the bottom one, stays the nearest feature --
+/// the same "closed form is only the answer while ..." caveat the separated
+/// test states, extended to a symmetric depth bound). The scan is the same
+/// case-8148-relative scale sweep as that test, restricted to the eight steps
+/// (15..=22, scale 0.85 to 1.06) whose closed-form value is actually negative
+/// at this floor height; the other 32 steps are that test's territory, not
+/// this one's.
+///
+/// MEASURED over those eight poses before the tolerance was chosen: worst
+/// deviation `1.583803e-15` (step 15, scale 0.85), the deepest state (step 19,
+/// scale 0.97, depth `3.361721e-2`) at `1.804112e-16`. `CLOSED_FORM_TOL` is
+/// pinned at `1e-14`, a 6.3x margin -- tighter than the separated branch's
+/// `1e-7` because there is no GJK iteration to converge here, just the same
+/// closed-form arithmetic evaluated at a shifted plane.
+#[test]
+fn prbt_flange_floor_clearance_matches_the_closed_form_when_penetrating() {
+    /// Pinned from the measurement in this test's doc comment
+    /// (`1.583803e-15` worst over the eight penetrating poses), with a 6.3x
+    /// margin.
+    const CLOSED_FORM_TOL: f64 = 1e-14;
+    /// `fixtures/prbt.urdf`'s `prbt_flange` <collision>, and the scene.
+    const CYL_RADIUS: f64 = 0.0331;
+    const CYL_HALF_LENGTH: f64 = 0.01;
+    const CYL_ORIGIN_Z: f64 = -0.0035;
+    /// Raised from -0.5 (the separated test's floor) so case 8148's own pose
+    /// penetrates by roughly 3cm -- see this test's doc comment.
+    const FLOOR_TOP_Z: f64 = -0.16;
+    const FLOOR_HALF_EXTENT: f64 = 2.0;
+    /// `floor_env_with_top`'s own box thickness; the closed form is only the
+    /// distance to the *top face* while the penetration depth stays under
+    /// half of this, so the bottom face cannot be nearer.
+    const FLOOR_HALF_THICKNESS: f64 = 0.05;
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let env = floor_env_with_top(FLOOR_TOP_Z);
+
+    let mut names: Vec<String> = model
+        .link_models()
+        .iter()
+        .map(|link| link.name().to_owned())
+        .collect();
+    names.push("floor".to_owned());
+    let mut acm = AllowedCollisionMatrix::from_names(&names, true);
+    acm.set_entry("floor", "prbt_flange", false);
+
+    // Case 8148's own joint values -- same array
+    // [`prbt_flange_floor_clearance_matches_the_closed_form`] scales.
+    let case_8148 = [
+        -0.681765976663856,
+        -1.9643143747676026,
+        1.9502553948473182,
+        -0.2497111438317039,
+        -0.47123744163653836,
+        -1.186060955153117,
+    ];
+
+    let mut poses = 0;
+    let mut saw_case_8148 = false;
+    for step in 15..=22 {
+        // Same scale formula as the separated test, so step numbers line up
+        // with its own (step == 20 is still case 8148 itself, scale 1.0).
+        let scale = 0.4 + f64::from(step) * 0.03;
+        let joint_values: BTreeMap<String, f64> = case_8148
+            .iter()
+            .enumerate()
+            .map(|(i, value)| (format!("prbt_joint_{}", i + 1), value * scale))
+            .collect();
+        let mut state = build_state(&model, &joint_values);
+        let posed = state.update();
+
+        let flange = posed
+            .global_link_transform("prbt_flange")
+            .expect("prbt has a prbt_flange link");
+        let centre = (flange * Isometry3::translation(0.0, 0.0, CYL_ORIGIN_Z))
+            .translation
+            .vector;
+        let axis = flange.rotation * moveit_geometry::Vector3::new(0.0, 0.0, 1.0);
+
+        let reach = CYL_HALF_LENGTH * axis[0].hypot(axis[1]) + CYL_RADIUS;
+        let expected = centre[2]
+            - FLOOR_TOP_Z
+            - CYL_HALF_LENGTH * axis[2].abs()
+            - CYL_RADIUS * (1.0 - axis[2] * axis[2]).max(0.0).sqrt();
+        assert!(
+            centre[0].abs() + reach < FLOOR_HALF_EXTENT
+                && centre[1].abs() + reach < FLOOR_HALF_EXTENT
+                && expected < 0.0
+                && expected > -FLOOR_HALF_THICKNESS,
+            "step {step}: the flange cylinder at {centre:?} (axis {axis:?}) is not strictly \
+             inside the floor's footprint and penetrating the top face by less than half its \
+             thickness, so the plane closed form below is not the distance to the box"
+        );
+
+        let request = DistanceRequest {
+            enable_signed_distance: true,
+            acm: Some(&acm),
+            ..DistanceRequest::default()
+        };
+        let result = env.distance_robot(&request, &posed, &[]);
+        let names = &result.minimum_distance.link_names;
+        assert!(
+            names.contains(&"floor".to_owned()) && names.contains(&"prbt_flange".to_owned()),
+            "step {step}: the nearest robot/world pair is {names:?}, not floor/prbt_flange -- \
+             the closed form below was derived for that pair and would be measuring something \
+             else"
+        );
+        assert!(
+            result.minimum_distance.distance < 0.0,
+            "step {step}: expected a penetrating (negative) signed distance, got {} -- this pose \
+             is no longer in the penetration branch this test exists to check",
+            result.minimum_distance.distance
+        );
+
+        let deviation = (result.minimum_distance.distance - expected).abs();
+        assert!(
+            deviation <= CLOSED_FORM_TOL,
+            "step {step}: flange penetration is {} but the geometry fixes it at {expected} \
+             (deviation {deviation:.6e} over the pinned {CLOSED_FORM_TOL:.0e}); this is a \
+             closed-form answer, so a miss here is this backend's",
+            result.minimum_distance.distance
+        );
+
+        if step == 20 {
+            saw_case_8148 = true;
+        }
+        poses += 1;
+    }
+
+    assert_eq!(poses, 8, "sanity: every penetrating pose above ran");
+    assert!(
+        saw_case_8148,
+        "sanity: step 20 is case 8148 itself, scaled to 1.0"
+    );
+}
+
 /// One convex collision shape, already placed in world coordinates, reduced
 /// to the two closed-form primitives [`convex_distance_bracket`] needs.
 ///
