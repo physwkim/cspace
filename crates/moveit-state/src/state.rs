@@ -15,10 +15,10 @@ use nalgebra::DMatrix;
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Vector3};
-use moveit_model::JointModelGroup;
-use moveit_model::RobotModel;
-use moveit_model::joint::{JointKind, JointModel};
+use moveit_model::joint::{JointKind, JointModel, PlanarJoint};
+use moveit_model::{JointModelGroup, RobotModel};
 use rand::{Rng, RngExt};
+use rand_distr::StandardNormal;
 
 /// An index into [`RobotModel::joint_models`](moveit_model::RobotModel::joint_models).
 ///
@@ -412,6 +412,79 @@ impl<'m> RobotState<'m> {
         self.has_velocity = true;
     }
 
+    /// `setVariableVelocities(const std::map<std::string, double>&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any key is not a variable in this model.
+    /// Upstream throws partway through the map on the first unknown key,
+    /// leaving earlier entries already applied; this port does the same —
+    /// see [`RobotState::set_variable_positions_by_name`]'s doc comment for
+    /// why the differing iteration order is immaterial.
+    pub fn set_variable_velocities_by_name(&mut self, values: &HashMap<String, f64>) -> Result<()> {
+        for (name, &value) in values {
+            self.set_variable_velocity(name, value)?;
+        }
+        Ok(())
+    }
+
+    /// `setVariableVelocities(const std::map<std::string, double>&,
+    /// std::vector<std::string>&)`: as
+    /// [`RobotState::set_variable_velocities_by_name`], plus every model
+    /// variable absent from `values` (see [`RobotState::missing_keys`]).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any key is not a variable in this model.
+    pub fn set_variable_velocities_by_name_and_missing(
+        &mut self,
+        values: &HashMap<String, f64>,
+    ) -> Result<Vec<String>> {
+        self.set_variable_velocities_by_name(values)?;
+        Ok(self.missing_keys(values))
+    }
+
+    /// `setVariableVelocities(const std::vector<std::string>&, const
+    /// std::vector<double>&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any name is not a variable in this model.
+    pub fn set_variable_velocities_named(&mut self, names: &[&str], values: &[f64]) -> Result<()> {
+        debug_assert_eq!(names.len(), values.len());
+        for (&name, &value) in names.iter().zip(values) {
+            self.set_variable_velocity(name, value)?;
+        }
+        Ok(())
+    }
+
+    /// `setJointVelocities(const JointModel*, const double*)`: one joint's
+    /// own variables. Unlike [`RobotState::set_joint_positions`], upstream's
+    /// `setJointVelocities` does not mark anything dirty and does not
+    /// propagate to mimic joints — it only writes `velocity_` and
+    /// `has_velocity_`, so this port matches that (no
+    /// [`RobotState::mark_dirty`] / [`RobotState::update_mimic_joint`]
+    /// calls here).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no joint is named `name`.
+    ///
+    /// # Panics
+    ///
+    /// If `values.len()` does not equal the joint's own variable count.
+    pub fn set_joint_velocities(&mut self, name: &str, values: &[f64]) -> Result<()> {
+        let joint_index = self.joint_index(name)?;
+        let joint = self.model.joint_model_at(joint_index);
+        if joint.variable_count() == 0 {
+            return Ok(());
+        }
+        let first = self.first_variable_index[joint_index];
+        self.velocity[first..first + joint.variable_count()].copy_from_slice(values);
+        self.has_velocity = true;
+        Ok(())
+    }
+
     /// `invertVelocity`: negate every velocity in place, a no-op when no
     /// velocity has been set. Upstream's `invertVelocity` negates only
     /// velocity, not acceleration, despite what a "reversing a trajectory"
@@ -458,6 +531,57 @@ impl<'m> RobotState<'m> {
         self.has_acceleration = true;
     }
 
+    /// `setVariableAccelerations(const std::map<std::string, double>&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any key is not a variable in this model.
+    /// See [`RobotState::set_variable_velocities_by_name`]'s doc comment for
+    /// the error-partway-through-the-map behavior this matches.
+    pub fn set_variable_accelerations_by_name(
+        &mut self,
+        values: &HashMap<String, f64>,
+    ) -> Result<()> {
+        for (name, &value) in values {
+            self.set_variable_acceleration(name, value)?;
+        }
+        Ok(())
+    }
+
+    /// `setVariableAccelerations(const std::map<std::string, double>&,
+    /// std::vector<std::string>&)`: as
+    /// [`RobotState::set_variable_accelerations_by_name`], plus every model
+    /// variable absent from `values` (see [`RobotState::missing_keys`]).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any key is not a variable in this model.
+    pub fn set_variable_accelerations_by_name_and_missing(
+        &mut self,
+        values: &HashMap<String, f64>,
+    ) -> Result<Vec<String>> {
+        self.set_variable_accelerations_by_name(values)?;
+        Ok(self.missing_keys(values))
+    }
+
+    /// `setVariableAccelerations(const std::vector<std::string>&, const
+    /// std::vector<double>&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any name is not a variable in this model.
+    pub fn set_variable_accelerations_named(
+        &mut self,
+        names: &[&str],
+        values: &[f64],
+    ) -> Result<()> {
+        debug_assert_eq!(names.len(), values.len());
+        for (&name, &value) in names.iter().zip(values) {
+            self.set_variable_acceleration(name, value)?;
+        }
+        Ok(())
+    }
+
     /// `getVariableEffort(const std::string&)`
     ///
     /// # Errors
@@ -489,6 +613,55 @@ impl<'m> RobotState<'m> {
     pub fn set_variable_effort_at(&mut self, index: usize, value: f64) {
         self.effort[index] = value;
         self.has_effort = true;
+    }
+
+    /// `setVariableEffort(const std::map<std::string, double>&)`. Named
+    /// `_efforts_` (matching [`RobotState::set_variable_efforts`]) to stay
+    /// distinct from the per-variable
+    /// [`RobotState::set_variable_effort`]/[`RobotState::set_variable_effort_at`],
+    /// the same reason [`RobotState::set_variable_efforts`]'s own doc
+    /// comment gives.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any key is not a variable in this model.
+    /// See [`RobotState::set_variable_velocities_by_name`]'s doc comment for
+    /// the error-partway-through-the-map behavior this matches.
+    pub fn set_variable_efforts_by_name(&mut self, values: &HashMap<String, f64>) -> Result<()> {
+        for (name, &value) in values {
+            self.set_variable_effort(name, value)?;
+        }
+        Ok(())
+    }
+
+    /// `setVariableEffort(const std::map<std::string, double>&,
+    /// std::vector<std::string>&)`: as
+    /// [`RobotState::set_variable_efforts_by_name`], plus every model
+    /// variable absent from `values` (see [`RobotState::missing_keys`]).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any key is not a variable in this model.
+    pub fn set_variable_efforts_by_name_and_missing(
+        &mut self,
+        values: &HashMap<String, f64>,
+    ) -> Result<Vec<String>> {
+        self.set_variable_efforts_by_name(values)?;
+        Ok(self.missing_keys(values))
+    }
+
+    /// `setVariableEffort(const std::vector<std::string>&, const
+    /// std::vector<double>&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any name is not a variable in this model.
+    pub fn set_variable_efforts_named(&mut self, names: &[&str], values: &[f64]) -> Result<()> {
+        debug_assert_eq!(names.len(), values.len());
+        for (&name, &value) in names.iter().zip(values) {
+            self.set_variable_effort(name, value)?;
+        }
+        Ok(())
     }
 
     /// `getJointVelocities`: a joint's own variable slice of
@@ -594,6 +767,26 @@ impl<'m> RobotState<'m> {
             self.set_variable_position(name, value)?;
         }
         Ok(())
+    }
+
+    /// `getMissingKeys`: every model variable name absent from
+    /// `variable_map`, excluding variables whose owning joint mimics
+    /// another — a mimic's value is derived from its master rather than
+    /// independently settable, so upstream does not count it as missing.
+    /// Returned in [`RobotModel::variable_names`] order, matching upstream's
+    /// iteration order over the same list.
+    pub fn missing_keys(&self, variable_map: &HashMap<String, f64>) -> Vec<String> {
+        self.model
+            .variable_names()
+            .iter()
+            .enumerate()
+            .filter(|(_, name)| !variable_map.contains_key(name.as_str()))
+            .filter(|&(index, _)| {
+                let joint_index = self.joint_of_variable[index];
+                self.model.joint_model_at(joint_index).mimic().is_none()
+            })
+            .map(|(_, name)| name.clone())
+            .collect()
     }
 
     /// `setJointPositions(const JointModel*, const double*)`: one joint's
@@ -946,6 +1139,31 @@ impl<'m> RobotState<'m> {
         self.dirty = Some(self.root_joint_index);
     }
 
+    /// `setToDefaultValues(group, name)`: `group`'s SRDF `<group_state>`
+    /// named `name`, via [`JointModelGroup::variable_default_positions`].
+    /// Returns whether such a state was found.
+    ///
+    /// Upstream builds a `std::map` from
+    /// `JointModelGroup::getVariableDefaultPositions` and always forwards it
+    /// to `setVariablePositions(map)`, even when the lookup failed and the
+    /// map is empty — an empty map makes that call a no-op, so this port
+    /// short-circuits instead of building and applying an empty map; the
+    /// observable behavior (state unchanged, `false` returned) is the same.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    pub fn set_to_default_values_group(&mut self, group_name: &str, name: &str) -> Result<bool> {
+        let group = self.model.joint_model_group(group_name)?;
+        let Some(defaults) = group.variable_default_positions(name) else {
+            return Ok(false);
+        };
+        for (variable_name, &value) in defaults {
+            self.set_variable_position(variable_name, value)?;
+        }
+        Ok(true)
+    }
+
     /// `setToRandomPositions()`, sampling with a caller-supplied RNG.
     ///
     /// Upstream owns a lazily-seeded `random_numbers::RandomNumberGenerator`
@@ -967,6 +1185,85 @@ impl<'m> RobotState<'m> {
         }
         self.propagate_all_mimics();
         self.dirty = Some(self.root_joint_index);
+    }
+
+    /// `setToRandomPositionsNearBy(group, seed, distance, rng)`: every
+    /// active joint in `group` sampled near its value in `seed`, all with
+    /// the same `distance`, via [`sample_random_positions_near_by`].
+    ///
+    /// Upstream exposes this both with and without an explicit RNG
+    /// parameter; this port only ever takes one explicit RNG, matching
+    /// [`RobotState::set_to_random_positions_with`]'s own deviation (see its
+    /// doc comment).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    pub fn set_to_random_positions_near_by_group(
+        &mut self,
+        group_name: &str,
+        seed: &Self,
+        distance: f64,
+        rng: &mut impl Rng,
+    ) -> Result<()> {
+        let model = self.model;
+        let group = model.joint_model_group(group_name)?;
+        for &joint_index in group.active_joint_indices() {
+            let joint = model.joint_model_at(joint_index);
+            let first = self.first_variable_index[joint_index];
+            let count = joint.variable_count();
+            sample_random_positions_near_by(
+                joint,
+                rng,
+                &seed.positions[first..first + count],
+                distance,
+                &mut self.positions[first..first + count],
+            );
+        }
+        self.update_mimic_joints_group(group);
+        Ok(())
+    }
+
+    /// `setToRandomPositionsNearBy(group, seed, distances, rng)`: as
+    /// [`RobotState::set_to_random_positions_near_by_group`], but with a
+    /// per-joint distance instead of one shared by every joint.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    ///
+    /// # Panics
+    ///
+    /// If `distances.len()` is less than `group_name`'s active joint count.
+    /// Upstream reads this unchecked past a debug-only `assert(distances.size()
+    /// == joints.size())` — indexing `distances[i]` here fails the same way
+    /// a release build's out-of-bounds read would, rather than silently
+    /// truncating (which a `zip` over the two slices would do instead). A
+    /// `distances` longer than the active joint count is not an error,
+    /// matching upstream: the extra entries are simply never read.
+    pub fn set_to_random_positions_near_by_group_with_distances(
+        &mut self,
+        group_name: &str,
+        seed: &Self,
+        distances: &[f64],
+        rng: &mut impl Rng,
+    ) -> Result<()> {
+        let model = self.model;
+        let group = model.joint_model_group(group_name)?;
+        for (i, &joint_index) in group.active_joint_indices().iter().enumerate() {
+            let joint = model.joint_model_at(joint_index);
+            let first = self.first_variable_index[joint_index];
+            let count = joint.variable_count();
+            sample_random_positions_near_by(
+                joint,
+                rng,
+                &seed.positions[first..first + count],
+                distances[i],
+                &mut self.positions[first..first + count],
+            );
+        }
+        self.update_mimic_joints_group(group);
+        Ok(())
     }
 
     // ---- Interpolation --------------------------------------------------
@@ -1317,6 +1614,32 @@ impl<'m> RobotState<'m> {
         }
         for follower_index in self.mimic_requests[joint_index].clone() {
             self.write_mimic(follower_index);
+        }
+    }
+
+    /// `RobotState::updateMimicJoints(const JointModelGroup*)`: every mimic
+    /// joint in `group`, derived from its master's *current* value, plus a
+    /// dirty mark on every one of `group`'s own active joints. Used by
+    /// [`RobotState::set_to_random_positions_near_by_group`] and
+    /// [`RobotState::set_to_random_positions_near_by_group_with_distances`]
+    /// after they have already written every active joint's value.
+    ///
+    /// Upstream's version marks each mimic joint dirty individually (which
+    /// [`RobotState::write_mimic`] already does here) and then marks the
+    /// group's *own* active joints dirty too, expanding the tracked dirty
+    /// region to their common root
+    /// (`markDirtyJointTransforms(const JointModelGroup*)`,
+    /// `robot_state.hpp:1686`). This port has no per-joint dirty-transform
+    /// array to set — [`RobotState::dirty`] already collapses to a single
+    /// common-root marker — so folding every active joint through
+    /// [`RobotState::mark_dirty`] is the literal translation of that
+    /// expansion, not an approximation of it.
+    fn update_mimic_joints_group(&mut self, group: &JointModelGroup) {
+        for &mimic_index in group.mimic_joint_indices() {
+            self.write_mimic(mimic_index);
+        }
+        for &joint_index in group.active_joint_indices() {
+            self.mark_dirty(joint_index);
         }
     }
 
@@ -1731,4 +2054,375 @@ fn sample_unit_quaternion(rng: &mut impl Rng) -> (f64, f64, f64, f64) {
     let z = sqrt_u1 * (2.0 * PI * u3).sin();
     let w = sqrt_u1 * (2.0 * PI * u3).cos();
     (x, y, z, w)
+}
+
+/// `JointModel::getVariableRandomPositionsNearBy`, dispatched per joint
+/// kind (upstream splits this across `RevoluteJointModel`,
+/// `PrismaticJointModel`, `PlanarJointModel`, `FloatingJointModel`,
+/// `FixedJointModel`, each overriding the base class's pure-virtual
+/// method). Mirrors [`sample_random_positions`]'s per-kind dispatch shape;
+/// unlike that function, every non-fixed kind's sample here is drawn from
+/// `[near - distance, near + distance]` (clamped to bounds, or wrapped for
+/// a continuous revolute), not from the joint's full range.
+///
+/// - Revolute, continuous: unclamped uniform in `[near - distance, near +
+///   distance]`, then wrapped into `(-pi, pi]` via
+///   [`JointModel::enforce_position_bounds`] on the joint's own bounds —
+///   matching `crates/moveit-kinematics/src/cart_to_jnt.rs`'s
+///   `near_by_configuration`, which ports this same case for the KDL path.
+/// - Revolute (non-continuous) and prismatic: uniform in `[near -
+///   distance, near + distance]`, clamped to bounds.
+/// - Planar/floating translation: as above, or `0.0` if that axis's
+///   bounds are non-finite (see [`sample_random_positions`]'s doc comment
+///   for why "bounded" cannot be used as the finiteness check here).
+/// - Planar rotation: uniform in `[near - da, near + da]` where `da =
+///   angular_distance_weight * distance` clamped to `pi`, then wrapped
+///   into `[-pi, pi]` via [`PlanarJoint::normalize_rotation`] — *not*
+///   clamped to bounds, matching upstream (which calls `normalizeRotation`,
+///   not `enforcePositionBounds`, here).
+/// - Floating rotation: a small rotation composed onto `near`'s
+///   quaternion. When `da = angular_distance_weight * distance >= pi/4`,
+///   upstream gives up on "near" and draws a fully random unit quaternion
+///   instead (matched here via [`sample_unit_quaternion`]). Otherwise it
+///   draws a random axis and an angle via OMPL's rejection-free
+///   ball-sampling (see [`sample_near_axis_angle_quaternion`]) and
+///   left-multiplies `near`'s quaternion by the resulting small rotation,
+///   using upstream's exact component-wise Hamilton product rather than
+///   going through a quaternion type — `values[3..7]` is `(x, y, z, w)`,
+///   matching [`sample_unit_quaternion`]'s own component order, and `near`
+///   is assumed to already be in that order (as every caller's `position_`
+///   slice for a floating joint is).
+///
+/// # Panics
+///
+/// Upstream reads `distance` (and, for planar/floating,
+/// `angular_distance_weight * distance`) unchecked into `uniformReal(low,
+/// high)`, whose `low <= high` precondition a negative `distance` can
+/// violate. This port matches that: a negative `distance` can make `near -
+/// distance > near + distance`, and [`RngExt::random_range`] panics on an
+/// empty range rather than silently swapping the bounds.
+fn sample_random_positions_near_by(
+    joint: &JointModel,
+    rng: &mut impl Rng,
+    near: &[f64],
+    distance: f64,
+    out: &mut [f64],
+) {
+    let bounds = joint.variable_bounds();
+    match joint.kind() {
+        JointKind::Revolute(r) => {
+            if r.is_continuous() {
+                out[0] = rng.random_range((near[0] - distance)..=(near[0] + distance));
+                joint.enforce_position_bounds(out);
+            } else {
+                out[0] = sample_uniform_near_by(
+                    rng,
+                    bounds[0].min_position,
+                    bounds[0].max_position,
+                    near[0],
+                    distance,
+                );
+            }
+        }
+        JointKind::Prismatic(_) => {
+            out[0] = sample_uniform_near_by(
+                rng,
+                bounds[0].min_position,
+                bounds[0].max_position,
+                near[0],
+                distance,
+            );
+        }
+        JointKind::Planar(p) => {
+            out[0] = sample_uniform_or_zero_near_by(
+                rng,
+                bounds[0].min_position,
+                bounds[0].max_position,
+                near[0],
+                distance,
+            );
+            out[1] = sample_uniform_or_zero_near_by(
+                rng,
+                bounds[1].min_position,
+                bounds[1].max_position,
+                near[1],
+                distance,
+            );
+            let da = (p.angular_distance_weight() * distance).min(PI);
+            out[2] = rng.random_range((near[2] - da)..=(near[2] + da));
+            let out3: &mut [f64; 3] = (&mut out[..3])
+                .try_into()
+                .expect("planar joint has 3 variables");
+            PlanarJoint::normalize_rotation(out3);
+        }
+        JointKind::Floating(f) => {
+            out[0] = sample_uniform_or_zero_near_by(
+                rng,
+                bounds[0].min_position,
+                bounds[0].max_position,
+                near[0],
+                distance,
+            );
+            out[1] = sample_uniform_or_zero_near_by(
+                rng,
+                bounds[1].min_position,
+                bounds[1].max_position,
+                near[1],
+                distance,
+            );
+            out[2] = sample_uniform_or_zero_near_by(
+                rng,
+                bounds[2].min_position,
+                bounds[2].max_position,
+                near[2],
+                distance,
+            );
+            let da = f.angular_distance_weight() * distance;
+            if da >= 0.25 * PI {
+                let (x, y, z, w) = sample_unit_quaternion(rng);
+                out[3] = x;
+                out[4] = y;
+                out[5] = z;
+                out[6] = w;
+            } else {
+                let (qx, qy, qz, qw) = sample_near_axis_angle_quaternion(rng, da);
+                // Hamilton product `near * q`, upstream's exact formula
+                // (`floating_joint_model.cpp`): near = (near[3..7]) =
+                // (x, y, z, w), q = (qx, qy, qz, qw).
+                out[3] = near[6] * qx + near[3] * qw + near[4] * qz - near[5] * qy;
+                out[4] = near[6] * qy + near[4] * qw + near[5] * qx - near[3] * qz;
+                out[5] = near[6] * qz + near[5] * qw + near[3] * qy - near[4] * qx;
+                out[6] = near[6] * qw - near[3] * qx - near[4] * qy - near[5] * qz;
+            }
+        }
+        JointKind::Fixed => {}
+    }
+}
+
+/// Uniform in `[near - distance, near + distance]`, clamped to `[min,
+/// max]`. `FloatingJointModel`/`PlanarJointModel`/`PrismaticJointModel`/
+/// `RevoluteJointModel::getVariableRandomPositionsNearBy`'s common
+/// `uniformReal(std::max(min, near - distance), std::min(max, near +
+/// distance))` shape.
+fn sample_uniform_near_by(rng: &mut impl Rng, min: f64, max: f64, near: f64, distance: f64) -> f64 {
+    sample_uniform(rng, min.max(near - distance), max.min(near + distance))
+}
+
+/// As [`sample_uniform_near_by`], or `0.0` if `min`/`max` are not both
+/// finite — see [`sample_random_positions_near_by`]'s doc comment.
+fn sample_uniform_or_zero_near_by(
+    rng: &mut impl Rng,
+    min: f64,
+    max: f64,
+    near: f64,
+    distance: f64,
+) -> f64 {
+    if min.is_finite() && max.is_finite() {
+        sample_uniform_near_by(rng, min, max, near, distance)
+    } else {
+        0.0
+    }
+}
+
+/// A small rotation as `(x, y, z, w)`, for `FloatingJointModel`'s
+/// near-by sampling when `da < pi/4`. Upstream (comment: "taken from
+/// OMPL"): draw a random axis from 3 iid standard-normal components
+/// (normalized; the identity quaternion if the draw norm is under
+/// `1e-6`), and an angle `2 * cbrt(u) * da` for `u` uniform in `[0, 1)` —
+/// rejection-free sampling of a ball of radius `da` in the tangent space,
+/// then wrapped onto `SO(3)` via the half-angle. This port uses
+/// [`f64::cbrt`] where upstream writes `pow(u, 1.0/3.0)`; the two agree
+/// for `u >= 0` (guaranteed here) and `cbrt` is the more direct
+/// translation of "cube root", not a behavior change.
+fn sample_near_axis_angle_quaternion(rng: &mut impl Rng, da: f64) -> (f64, f64, f64, f64) {
+    let ax: f64 = rng.sample(StandardNormal);
+    let ay: f64 = rng.sample(StandardNormal);
+    let az: f64 = rng.sample(StandardNormal);
+    let angle = 2.0 * rng.random::<f64>().cbrt() * da;
+    let norm = (ax * ax + ay * ay + az * az).sqrt();
+    if norm < 1e-6 {
+        (0.0, 0.0, 0.0, 1.0)
+    } else {
+        let s = (angle / 2.0).sin();
+        (
+            s * ax / norm,
+            s * ay / norm,
+            s * az / norm,
+            (angle / 2.0).cos(),
+        )
+    }
+}
+
+// This crate's other tests all live in `tests/*.rs`, exercising the public
+// `RobotState` API through URDF/SRDF fixtures (see e.g.
+// `tests/group_joint_values.rs`). `sample_random_positions_near_by`'s
+// per-joint-kind branches are boundary-tested directly here instead,
+// matching how `moveit_model::joint::{RevoluteJoint, PlanarJoint,
+// FloatingJoint}` test their own analogous per-kind logic: no fixture in
+// this crate's `tests/fixtures/` puts a floating or a continuous-revolute
+// joint inside an SRDF group, so a fixture-only test could not reach two
+// of the five kinds at all, and even where a fixture exists, an RNG-driven
+// integration test could only check post-hoc properties (bounds
+// satisfied), not pin the exact branch (continuous wrap vs. clamp,
+// infinite-bounds-zero, small-vs-large `da`) a given input takes.
+#[cfg(test)]
+mod near_by_sampling_tests {
+    use approx::assert_relative_eq;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    use moveit_model::joint::VariableBounds;
+
+    use super::*;
+
+    #[test]
+    fn revolute_continuous_near_by_wraps_past_pi_instead_of_clamping() {
+        let mut joint = JointModel::new_revolute("j");
+        joint.set_continuous(true).unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0];
+        // distance = 0.0 collapses the near-by window to the single point
+        // `near`, so the sampled value before wrapping is deterministic
+        // regardless of the RNG draw.
+        sample_random_positions_near_by(&joint, &mut rng, &[PI + 0.5], 0.0, &mut out);
+        assert_relative_eq!(out[0], -PI + 0.5, epsilon = 1e-12);
+    }
+
+    #[test]
+    #[should_panic]
+    fn near_by_panics_on_a_negative_distance_for_a_continuous_revolute() {
+        let mut joint = JointModel::new_revolute("j");
+        joint.set_continuous(true).unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0];
+        // A negative distance makes `near - distance > near + distance`,
+        // an empty range -- upstream reads this unchecked into
+        // `uniformReal`'s `low <= high` precondition (see this function's
+        // `# Panics` doc comment); this port's `random_range` panics
+        // instead of silently swapping the bounds.
+        sample_random_positions_near_by(&joint, &mut rng, &[0.0], -1.0, &mut out);
+    }
+
+    #[test]
+    fn revolute_non_continuous_near_by_clamps_to_the_joint_bounds() {
+        let joint = JointModel::new_revolute("j"); // bounds [-pi, pi], not continuous
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0];
+        // near - distance = pi (inside), near + distance = pi + 2.0
+        // (outside) -- the clamp collapses the window to the single point
+        // `pi`, the upper bound itself.
+        sample_random_positions_near_by(&joint, &mut rng, &[PI + 1.0], 1.0, &mut out);
+        assert_eq!(out[0], PI);
+    }
+
+    #[test]
+    fn prismatic_near_by_clamps_to_bounds() {
+        let mut joint = JointModel::new_prismatic("j");
+        joint
+            .set_variable_bounds(
+                "j",
+                VariableBounds {
+                    min_position: -1.0,
+                    max_position: 1.0,
+                    position_bounded: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0];
+        // near - distance = 1.0 (== the upper bound), near + distance =
+        // 3.0 (outside) -- the clamp collapses the window to the single
+        // point `1.0`.
+        sample_random_positions_near_by(&joint, &mut rng, &[2.0], 1.0, &mut out);
+        assert_eq!(out[0], 1.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn near_by_panics_on_a_negative_distance_that_empties_the_range() {
+        let joint = JointModel::new_prismatic("j");
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0];
+        sample_random_positions_near_by(&joint, &mut rng, &[0.0], -1.0, &mut out);
+    }
+
+    #[test]
+    fn planar_translation_near_by_is_zero_when_bounds_are_infinite() {
+        let joint = JointModel::new_planar("j"); // x/y bounds default to +/-inf
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0; 3];
+        sample_random_positions_near_by(&joint, &mut rng, &[5.0, -3.0, 0.0], 1.0, &mut out);
+        assert_eq!(out[0], 0.0);
+        assert_eq!(out[1], 0.0);
+    }
+
+    #[test]
+    fn planar_rotation_near_by_wraps_via_normalize_rotation() {
+        let joint = JointModel::new_planar("j");
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0; 3];
+        // distance = 0.0 collapses `da` to 0.0 too, so `out[2]` is `near[2]`
+        // itself before `normalize_rotation` wraps it back into [-pi, pi].
+        sample_random_positions_near_by(&joint, &mut rng, &[0.0, 0.0, PI + 0.1], 0.0, &mut out);
+        assert_relative_eq!(out[2], -PI + 0.1, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn floating_translation_near_by_is_zero_when_bounds_are_infinite() {
+        let joint = JointModel::new_floating("j"); // translation bounds default to +/-inf
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0; 7];
+        let near = [5.0, -3.0, 2.0, 0.0, 0.0, 0.0, 1.0];
+        sample_random_positions_near_by(&joint, &mut rng, &near, 1.0, &mut out);
+        assert_eq!(out[0], 0.0);
+        assert_eq!(out[1], 0.0);
+        assert_eq!(out[2], 0.0);
+    }
+
+    #[test]
+    fn floating_rotation_near_by_produces_a_unit_quaternion_when_da_is_large() {
+        let mut joint = JointModel::new_floating("j");
+        joint
+            .as_floating_mut()
+            .unwrap()
+            .set_angular_distance_weight(1.0);
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0; 7];
+        let near = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        // da = angular_distance_weight * distance = 1.0 >= pi/4, so upstream
+        // gives up on "near" and draws a fully random unit quaternion.
+        sample_random_positions_near_by(&joint, &mut rng, &near, 1.0, &mut out);
+        let norm_squared = out[3] * out[3] + out[4] * out[4] + out[5] * out[5] + out[6] * out[6];
+        assert_relative_eq!(norm_squared, 1.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn floating_rotation_near_by_is_the_identity_perturbation_when_distance_is_zero() {
+        let joint = JointModel::new_floating("j");
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0; 7];
+        // A non-identity, already-normalized "near" quaternion.
+        let near = [0.0, 0.0, 0.0, 0.6, 0.0, 0.0, 0.8];
+        // distance = 0.0 forces da = 0.0, so the composed small rotation's
+        // half-angle is exactly 0 regardless of the sampled axis -- the
+        // small-rotation branch's `sin(angle/2)` term zeroes out `qx, qy,
+        // qz` and `near`'s quaternion passes through the Hamilton product
+        // unchanged (`near * identity == near`), landing on the exact
+        // input rather than merely something close to it.
+        sample_random_positions_near_by(&joint, &mut rng, &near, 0.0, &mut out);
+        assert_eq!(out[3], near[3]);
+        assert_eq!(out[4], near[4]);
+        assert_eq!(out[5], near[5]);
+        assert_eq!(out[6], near[6]);
+    }
+
+    #[test]
+    fn fixed_near_by_is_a_no_op() {
+        let joint = JointModel::new_fixed("j");
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out: [f64; 0] = [];
+        // Must not panic on the empty `near`/`out` slices.
+        sample_random_positions_near_by(&joint, &mut rng, &[], 1.0, &mut out);
+    }
 }

@@ -608,6 +608,7 @@ dependencies = [
  "nalgebra",
  "rand",
  "rand_chacha",
+ "rand_distr",
  "serde",
  "serde_json",
  "urdf-rs",
