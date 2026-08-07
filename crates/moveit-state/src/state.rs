@@ -861,6 +861,70 @@ impl<'m> RobotState<'m> {
         Ok(out)
     }
 
+    /// `setJointGroupAccelerations(const JointModelGroup*, const double*)`:
+    /// one value per variable in `group`'s own
+    /// [`JointModelGroup::joint_indices`] order, including mimic joints'
+    /// own slots — same "no mimic derivation for a dynamics quantity"
+    /// rule as [`RobotState::set_joint_group_velocities`].
+    ///
+    /// Sets only [`RobotState::has_accelerations`]. Upstream's
+    /// `markAcceleration()` also clears `has_effort_`, because it aliases
+    /// `effort_`/`acceleration_` onto one buffer; this port gives
+    /// acceleration and effort independent storage instead (see this
+    /// type's own doc comment, "Deviations from upstream" §1), so there is
+    /// no aliased flag to clear — matching
+    /// [`RobotState::set_variable_accelerations`], which already leaves
+    /// [`RobotState::has_effort`] untouched for the same reason.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    ///
+    /// # Panics
+    ///
+    /// If `values` holds fewer entries than `group`'s variable count —
+    /// same unchecked-primitive reasoning as
+    /// [`RobotState::set_joint_group_positions`]: upstream's `double*`
+    /// overload performs no length check at all.
+    pub fn set_joint_group_accelerations(
+        &mut self,
+        group_name: &str,
+        values: &[f64],
+    ) -> Result<()> {
+        let model = self.model;
+        let group = model.joint_model_group(group_name)?;
+        self.has_acceleration = true;
+        let mut i = 0;
+        for &joint_index in group.joint_indices() {
+            let joint = model.joint_model_at(joint_index);
+            let count = joint.variable_count();
+            let first = self.first_variable_index[joint_index];
+            self.acceleration[first..first + count].copy_from_slice(&values[i..i + count]);
+            i += count;
+        }
+        Ok(())
+    }
+
+    /// `copyJointGroupAccelerations`: `group`'s own accelerations, in
+    /// [`JointModelGroup::joint_indices`] order — reads
+    /// [`RobotState::acceleration`] regardless of
+    /// [`RobotState::has_accelerations`], matching upstream.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    pub fn joint_group_accelerations(&self, group_name: &str) -> Result<Vec<f64>> {
+        let group = self.model.joint_model_group(group_name)?;
+        let mut out = Vec::with_capacity(group.variable_names().len());
+        for &joint_index in group.joint_indices() {
+            let joint = self.model.joint_model_at(joint_index);
+            let count = joint.variable_count();
+            let first = self.first_variable_index[joint_index];
+            out.extend_from_slice(&self.acceleration[first..first + count]);
+        }
+        Ok(out)
+    }
+
     /// `setToDefaultValues()`: every active joint to
     /// [`JointModel::variable_default_positions`], then every mimic joint
     /// derived from its (possibly just-changed) master —

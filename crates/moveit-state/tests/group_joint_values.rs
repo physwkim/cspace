@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! Boundary tests for the `setJointGroupPositions`/`setJointGroupActivePositions`/
-//! `copyJointGroupPositions` family and its `Velocities` sibling
-//! (`moveit_core/robot_state/src/robot_state.cpp:571-683`).
+//! `copyJointGroupPositions` family and its `Velocities`/`Accelerations`
+//! siblings (`moveit_core/robot_state/src/robot_state.cpp:571-728`).
 //!
 //! `panda`'s `hand` group is the fixture of choice throughout: it has
 //! exactly one active joint (`panda_finger_joint1`) and one mimic joint
@@ -297,4 +297,75 @@ fn set_joint_group_velocities_panics_on_a_short_input() {
     let mut state = RobotState::new(&model);
     state.set_to_default_values();
     let _ = state.set_joint_group_velocities("hand", &[0.1]);
+}
+
+// ---- Accelerations: independent storage from effort ---------------------
+
+/// See `positions_error_on_unknown_group_rather_than_no_op`.
+#[test]
+fn accelerations_error_on_unknown_group_rather_than_no_op() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+
+    assert!(
+        state
+            .set_joint_group_accelerations("no_such_group", &[])
+            .is_err()
+    );
+    assert!(state.joint_group_accelerations("no_such_group").is_err());
+}
+
+/// This port gives acceleration and effort independent storage rather than
+/// upstream's aliased buffer (`RobotState`'s own "Deviations from
+/// upstream" §1); `set_joint_group_accelerations` must therefore leave
+/// `has_effort` untouched, unlike upstream's `markAcceleration()`, which
+/// clears the aliased `has_effort_`.
+#[test]
+fn set_joint_group_accelerations_does_not_clear_has_effort() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    state.set_variable_efforts(&vec![1.0; model.variable_count()]);
+    assert!(state.has_effort());
+
+    let group = model.joint_model_group("panda_arm").unwrap();
+    let n = group.variable_names().len();
+    state
+        .set_joint_group_accelerations("panda_arm", &vec![2.0; n])
+        .unwrap();
+
+    assert!(state.has_accelerations());
+    assert!(
+        state.has_effort(),
+        "independent acceleration/effort storage must not alias has_effort"
+    );
+}
+
+#[test]
+fn joint_group_accelerations_round_trips_a_seven_joint_chain() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+
+    let group = model.joint_model_group("panda_arm").unwrap();
+    let n = group.variable_names().len();
+    let values: Vec<f64> = (0..n).map(|i| 0.3 * (i as f64 + 1.0)).collect();
+
+    state
+        .set_joint_group_accelerations("panda_arm", &values)
+        .unwrap();
+    assert_eq!(
+        state.joint_group_accelerations("panda_arm").unwrap(),
+        values
+    );
+}
+
+#[test]
+#[should_panic]
+fn set_joint_group_accelerations_panics_on_a_short_input() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    let _ = state.set_joint_group_accelerations("hand", &[0.1]);
 }
