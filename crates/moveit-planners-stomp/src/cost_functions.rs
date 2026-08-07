@@ -312,23 +312,68 @@ where
 /// `costs::getConstraintsCostFunction(planning_scene, group, constraints,
 /// cost_scale)` (`cost_functions.hpp:230-250`). Builds a
 /// [`StateValidatorFn`] that writes `positions` into `scene`'s current state,
-/// updates its transforms, and returns `constraints.decide(state).distance *
-/// cost_scale` -- a continuous penalty, not a binary one. See this module's
-/// doc, "Deviation: `&KinematicConstraintSet`", for why `constraints` is
-/// already built rather than a ROS message here.
+/// updates its transforms, and scores it against `constraints`. See this
+/// module's doc, "Deviation: `&KinematicConstraintSet`", for why
+/// `constraints` is already built rather than a ROS message here.
 ///
-/// # A satisfied-but-nonzero-distance state still reads as "invalid" downstream
+/// # Deviation: gated on `satisfied`, not raw `distance * cost_scale`
 ///
-/// [`KinematicConstraintSet::decide`]'s `satisfied` flag is not consulted at
-/// all here -- only `distance`, matching upstream exactly. A state can be
-/// `satisfied` (inside tolerance) yet have `distance > 0.0` (not *exactly*
-/// on the target value), and
+/// Upstream returns `constraints.decide(state).distance * cost_scale`
+/// unconditionally (`cost_functions.hpp:246`) -- it never reads
+/// `.satisfied`. [`ConstraintEvaluationResult::distance`] is "distance from
+/// the exact nominal target" for every constraint kind (see e.g.
+/// `JointConstraint::decide`, `kinematic_constraint.cpp:325`:
+/// `constraint_weight_ * fabs(dif)`, nonzero for any `dif != 0` regardless
+/// of tolerance), not "amount by which tolerance is exceeded" -- so a state
+/// comfortably inside tolerance but not landing on the exact target still
+/// gets `distance > 0.0`, and
 /// [`cost_function_from_state_validator`]'s own `costs(timestep) > 0.0` test
-/// treats any nonzero return as an invalid waypoint. This is upstream's own
-/// behavior (`getConstraintsCostFunction` never reads `.satisfied` either),
-/// not a bug introduced by this port: the constraints cost function is a
-/// continuous potential field toward the exact target, not a hard
-/// satisfied/violated gate.
+/// then flags it invalid. For a joint constraint reached through STOMP's
+/// noise-sampled optimization, which essentially never lands on a target
+/// value bit-exactly, this makes every waypoint of every trajectory read as
+/// invalid: measured on this tree (2026-08-08, 125 problems x 2, one
+/// obstacle config, same seed), a joint constraint supplied as a path
+/// constraint went from 0/125 solved to 119/125 solved when the identical
+/// constraint was checked post-hoc instead of driving the optimizer.
+///
+/// This is not a porting-introduced regression -- `JointConstraint::decide`,
+/// `getConstraintsCostFunction` and `getCostFunctionFromStateValidator` are
+/// all ported faithfully (verified line-for-line against
+/// `kinematic_constraint.cpp:289-326` and `cost_functions.hpp:76-130,
+/// 230-250` this round) -- but it is also not a combination upstream has
+/// ever exercised: `StompPlanningContext::createStompTask`
+/// (`stomp_moveit_planning_context.cpp:155-167`) only routes
+/// `request.path_constraints` into `getConstraintsCostFunction`;
+/// `request.goal_constraints` -- where a `JointConstraint` normally lives
+/// (`MoveGroupInterface::setJointValueTarget`) -- is consumed only once, by
+/// `ConstraintSamplerManager::selectSampler` to sample a single goal state
+/// (`stomp_moveit_planning_context.cpp:228-234`), and never re-enters cost
+/// evaluation. No code in the upstream tree at
+/// `e017c91ee12984393a28ba246075c65f69cde3bf` ever builds a
+/// `path_constraints` containing a `JointConstraint`; `moveit_planners/
+/// stomp/test/test_cost_functions.cpp` never calls
+/// `getConstraintsCostFunction` at all, with any constraint type; the one
+/// historical STOMP+constraints demo (`stomp_moveit_example.cpp`, added and
+/// deleted the same day in commit `d566983e5`/`e00b89e28`) used an
+/// end-effector orientation constraint, was an uncontested interactive RViz
+/// loop, and no longer exists. So this is a latent upstream defect this
+/// port is the first to actually measure, not a known, accepted tradeoff.
+///
+/// The fix: `if satisfied { 0.0 } else { distance * cost_scale }`. Uniform
+/// across every [`Constraint`] variant (all four `decide()` implementations
+/// share the same "nonzero distance even when satisfied" shape --
+/// `PositionConstraint::decide`'s `finish` and
+/// `OrientationConstraint::decide` both compute a magnitude from the exact
+/// target/center, gated separately by their own tolerance/region test), so
+/// no per-variant special case is needed. This makes "satisfied implies
+/// zero cost" hold by construction at this one call site rather than by an
+/// implicit assumption the struct's own (now corrected) doc comment used to
+/// state as a fact. The discontinuity this introduces at the tolerance
+/// boundary is not new to this file: [`get_collision_cost_function`]
+/// already scores every state as a flat `collision_penalty` or `0.0`, a
+/// step function of the same shape: this cost function's post-boundary
+/// slope still follows `distance`, unlike collision's flat penalty, so it
+/// keeps a real gradient signal pointing back toward the target.
 ///
 /// # Errors
 ///
@@ -354,7 +399,12 @@ pub fn get_constraints_cost_function<'a, 'm>(
         set_positions(positions, group, scene.current_state_mut())
             .expect("checked in get_constraints_cost_function's own constructor");
         let posed = scene.current_state_mut().update();
-        constraints.decide(&posed).distance * cost_scale
+        let result = constraints.decide(&posed);
+        if result.satisfied {
+            0.0
+        } else {
+            result.distance * cost_scale
+        }
     });
     Ok(cost_function_from_state_validator(
         validator,
@@ -936,8 +986,18 @@ mod planning_scene_tests {
         assert_eq!(costs[0], 2.0);
     }
 
+    // Regression for the "satisfied-but-nonzero-distance" defect this
+    // module's doc on `get_constraints_cost_function` records: before the
+    // `if result.satisfied` gate this test failed both assertions (cost ==
+    // weight * dif.abs() * cost_scale != 0.0, validity == false) for a
+    // position squarely inside tolerance, not just at its exact edge --
+    // this is the position class STOMP's noise-sampled optimizer actually
+    // produces, so it is the case that decided 0/125 vs 119/125 on the
+    // measured population, not the target-exact case
+    // `constraint_satisfied_exactly_at_the_target_value_has_zero_cost`
+    // above already covered.
     #[test]
-    fn constraint_cost_at_the_exact_tolerance_edge_equals_the_continuous_distance_formula() {
+    fn constraint_cost_is_exactly_zero_anywhere_inside_tolerance_not_only_at_the_target() {
         let (model, srdf) = load_panda();
         let group = model.joint_model_group("panda_arm").unwrap();
         let mut scene = PlanningScene::new(&model, &srdf);
@@ -950,23 +1010,52 @@ mod planning_scene_tests {
 
         let cost_scale = 3.0;
         let mut cost_fn = get_constraints_cost_function(&cell, group, &set, cost_scale).unwrap();
-        // Exactly at the tolerance edge -- JointConstraint::decide's own
-        // `dif <= tolerance_above + 2*EPS` reports this position as
-        // satisfied, but see this module's "A satisfied-but-nonzero-distance
-        // state" doc section: the cost function only reads `.distance`, and
-        // `.distance` is a continuous function of `dif` with no discontinuity
-        // at the satisfied/violated edge.
+        // Halfway into the tolerance window, not at the target and not at
+        // the edge: `JointConstraint::decide` reports `distance =
+        // weight * 0.05 = 0.05 != 0.0` here, but `satisfied == true`.
         let (costs, validity) =
-            cost_fn(&single_waypoint(&positions_with_joint1(tolerance))).unwrap();
-        assert!(
-            (costs[0] - tolerance * cost_scale).abs() < 1e-9,
-            "cost must equal weight(1.0) * tolerance * cost_scale exactly at the edge"
+            cost_fn(&single_waypoint(&positions_with_joint1(tolerance / 2.0))).unwrap();
+        assert_eq!(
+            costs[0], 0.0,
+            "a state inside tolerance must cost exactly 0.0, not the raw distance to the exact \
+             target"
         );
         assert!(
-            !validity,
-            "even though JointConstraint::decide reports this state as satisfied at the exact \
-             edge, the wrapping cost function's own costs>0.0 threshold still marks the \
-             waypoint invalid -- distance is nonzero right up to dif == 0.0"
+            validity,
+            "a state inside tolerance must read as valid, matching JointConstraint::decide's \
+             own satisfied flag"
+        );
+    }
+
+    #[test]
+    fn constraint_cost_at_the_exact_tolerance_edge_is_still_satisfied_and_zero() {
+        let (model, srdf) = load_panda();
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let cell = RefCell::new(&mut scene);
+        let tolerance = 0.1;
+        let constraint =
+            JointConstraint::new(&model, "panda_joint1", 0.0, tolerance, tolerance, 1.0).unwrap();
+        let mut set = KinematicConstraintSet::new();
+        set.push(Constraint::Joint(constraint));
+
+        let cost_scale = 3.0;
+        let mut cost_fn = get_constraints_cost_function(&cell, group, &set, cost_scale).unwrap();
+        // Exactly at the tolerance edge: `JointConstraint::decide`'s own
+        // `dif <= tolerance_above + 2*EPS` reports this position as
+        // satisfied (the boundary is inclusive), so the cost function must
+        // now read it as free, not as `distance * cost_scale`.
+        let (costs, validity) =
+            cost_fn(&single_waypoint(&positions_with_joint1(tolerance))).unwrap();
+        assert_eq!(
+            costs[0], 0.0,
+            "the tolerance edge is inclusive (satisfied == true there), so cost must be 0.0, \
+             not weight * tolerance * cost_scale"
+        );
+        assert!(
+            validity,
+            "JointConstraint::decide reports this state as satisfied at the exact edge, and the \
+             cost function must now agree"
         );
     }
 }
