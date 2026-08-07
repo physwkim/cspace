@@ -796,6 +796,71 @@ impl<'m> RobotState<'m> {
         }
     }
 
+    /// `setJointGroupVelocities(const JointModelGroup*, const double*)`:
+    /// one value per variable in `group`'s own
+    /// [`JointModelGroup::joint_indices`] order, including mimic joints'
+    /// own slots — unlike position, upstream never derives a mimic
+    /// joint's *velocity* from its master (`setJointGroupVelocities` calls
+    /// neither `updateMimicJoint` nor `updateMimicJoints`), so a mimic
+    /// joint's slot here takes exactly the value `values` supplies, with
+    /// no override.
+    ///
+    /// Does not call upstream's `markVelocity()` zero-fill step: that step
+    /// only matters the first time velocity is ever set, to give the rest
+    /// of the buffer a defined `0.0` rather than leftover memory: this
+    /// port's `velocity` buffer is `vec![0.0; ...]` from
+    /// [`RobotState::new`] and every mutator only ever writes finite
+    /// values into it, so every not-yet-written slot is already `0.0` —
+    /// matching how [`RobotState::set_variable_velocity`] and its
+    /// siblings already only set [`RobotState::has_velocity`], with no
+    /// zero-fill of their own.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    ///
+    /// # Panics
+    ///
+    /// If `values` holds fewer entries than `group`'s variable count —
+    /// same unchecked-primitive reasoning as
+    /// [`RobotState::set_joint_group_positions`]: upstream's `double*`
+    /// overload performs no length check at all.
+    pub fn set_joint_group_velocities(&mut self, group_name: &str, values: &[f64]) -> Result<()> {
+        let model = self.model;
+        let group = model.joint_model_group(group_name)?;
+        self.has_velocity = true;
+        let mut i = 0;
+        for &joint_index in group.joint_indices() {
+            let joint = model.joint_model_at(joint_index);
+            let count = joint.variable_count();
+            let first = self.first_variable_index[joint_index];
+            self.velocity[first..first + count].copy_from_slice(&values[i..i + count]);
+            i += count;
+        }
+        Ok(())
+    }
+
+    /// `copyJointGroupVelocities`: `group`'s own velocities, in
+    /// [`JointModelGroup::joint_indices`] order — reads
+    /// [`RobotState::velocity`] regardless of
+    /// [`RobotState::has_velocities`], matching upstream (which never
+    /// checks `has_velocity_` in `copyJointGroupVelocities` either).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    pub fn joint_group_velocities(&self, group_name: &str) -> Result<Vec<f64>> {
+        let group = self.model.joint_model_group(group_name)?;
+        let mut out = Vec::with_capacity(group.variable_names().len());
+        for &joint_index in group.joint_indices() {
+            let joint = self.model.joint_model_at(joint_index);
+            let count = joint.variable_count();
+            let first = self.first_variable_index[joint_index];
+            out.extend_from_slice(&self.velocity[first..first + count]);
+        }
+        Ok(out)
+    }
+
     /// `setToDefaultValues()`: every active joint to
     /// [`JointModel::variable_default_positions`], then every mimic joint
     /// derived from its (possibly just-changed) master —

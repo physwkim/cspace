@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! Boundary tests for the `setJointGroupPositions`/`setJointGroupActivePositions`/
-//! `copyJointGroupPositions` family
-//! (`moveit_core/robot_state/src/robot_state.cpp:571-638`).
+//! `copyJointGroupPositions` family and its `Velocities` sibling
+//! (`moveit_core/robot_state/src/robot_state.cpp:571-683`).
 //!
 //! `panda`'s `hand` group is the fixture of choice throughout: it has
 //! exactly one active joint (`panda_finger_joint1`) and one mimic joint
@@ -235,4 +235,66 @@ fn set_joint_group_positions_accepts_a_longer_than_needed_input() {
         .set_joint_group_positions("hand", &[0.03, 0.02, 999.0])
         .unwrap();
     assert!(state.variable_position("panda_finger_joint1").unwrap() != 999.0);
+}
+
+// ---- Velocities: no mimic derivation -----------------------------------
+
+/// See `positions_error_on_unknown_group_rather_than_no_op`.
+#[test]
+fn velocities_error_on_unknown_group_rather_than_no_op() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+
+    assert!(
+        state
+            .set_joint_group_velocities("no_such_group", &[])
+            .is_err()
+    );
+    assert!(state.joint_group_velocities("no_such_group").is_err());
+}
+
+/// Unlike position, upstream never derives a mimic joint's *velocity* from
+/// its master (`setJointGroupVelocities` calls neither `updateMimicJoint`
+/// nor `updateMimicJoints`) — both supplied values must land untouched.
+#[test]
+fn set_joint_group_velocities_does_not_derive_the_mimic_slot() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    assert!(!state.has_velocities());
+
+    state
+        .set_joint_group_velocities("hand", &[0.5, 0.9])
+        .unwrap();
+
+    assert!(state.has_velocities());
+    let copied = state.joint_group_velocities("hand").unwrap();
+    assert_eq!(copied.len(), 2);
+    assert!(copied.contains(&0.5) && copied.contains(&0.9));
+}
+
+#[test]
+fn joint_group_velocities_round_trips_a_seven_joint_chain() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+
+    let group = model.joint_model_group("panda_arm").unwrap();
+    let n = group.variable_names().len();
+    let values: Vec<f64> = (0..n).map(|i| 0.2 * (i as f64 + 1.0)).collect();
+
+    state
+        .set_joint_group_velocities("panda_arm", &values)
+        .unwrap();
+    assert_eq!(state.joint_group_velocities("panda_arm").unwrap(), values);
+}
+
+#[test]
+#[should_panic]
+fn set_joint_group_velocities_panics_on_a_short_input() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    let _ = state.set_joint_group_velocities("hand", &[0.1]);
 }
