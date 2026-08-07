@@ -108,7 +108,7 @@ for name in "${override_names[@]}"; do
   for c in POSITION VELOCITY ACCELERATION TIME; do
     if [[ "$name" == *"_${c}_TOLERANCE" ]]; then
       channel="$c"
-      prefix="${name%_${c}_TOLERANCE}"
+      prefix="${name%_"${c}"_TOLERANCE}"
       break
     fi
   done
