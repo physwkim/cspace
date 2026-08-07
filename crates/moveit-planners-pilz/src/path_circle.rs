@@ -51,17 +51,20 @@
 //!   [`circle_from_interim`] must pass
 //!   [`crate::velocity_profile::KDL_EPSILON`] — reproducing the same two
 //!   tolerances upstream's swap produces, without a mutable global.
-//! - **No "both zero" guard, matching upstream's own asymmetry.**
+//! - **A "both zero" guard upstream lacks, closing its own asymmetry.**
 //!   `KDL::Path_Line`'s constructor has an explicit branch for
 //!   `angle == 0 && dist == 0` (see [`crate::path_line::PathLine::new`]'s own
 //!   deviation note); `KDL::Path_Circle`'s constructor has no equivalent
 //!   branch — its `else` arm unconditionally computes `scalerot = oalpha /
 //!   pathlength`, dividing by `dist` even when both `oalpha` and `dist` are
-//!   zero. [`PathCircle::new`] preserves this upstream asymmetry rather than
-//!   silently patching it in: for a `CIRC` request with `start == goal` (a
-//!   client bug, not a case a correctly-formed circle command hits), this
-//!   port's `scalerot` is `NaN`, exactly reproducing upstream's own
-//!   behaviour there.
+//!   zero, so upstream's `scalerot` is `NaN` there. [`PathCircle::new`] adds
+//!   the arm `Path_Line` already has, with that arm's own placeholder values,
+//!   rather than reproducing a `NaN` into the constructed path. Both
+//!   [`circle_from_center`] and [`circle_from_interim`] reject a coincident
+//!   start/goal at their colinearity guard before `alpha` can reach zero, but
+//!   [`CircleGeometry`]'s fields and [`PathCircle::new`] are `pub`, so an
+//!   out-of-crate caller reaches the division directly; pinned by
+//!   `coincident_sweep_and_rotation_does_not_divide_zero_by_zero`.
 //!
 //! # Why this file stays BSD-3-Clause
 //!
@@ -305,11 +308,16 @@ impl PathCircle {
                 dist / (oalpha * eqradius),
                 1.0 / eqradius,
             )
-        } else {
-            // Upstream has no "both zero" guard here, unlike `Path_Line` --
-            // see the module doc's deviation note. `scale_rot` is `NaN` when
-            // `oalpha == 0.0 && dist == 0.0`, faithfully reproducing that.
+        } else if dist > 0.0 {
+            // Translation is the limitation.
             (dist, 1.0, oalpha / dist)
+        } else {
+            // Both extents are zero. Upstream `Path_Circle` has no such arm
+            // and divides `0.0/0.0` here; KDL added exactly this arm to
+            // `Path_Line` (`path_line.cpp:78-82`, its own comment reads
+            // "both were zero") and never carried it across. Placeholder
+            // values match that arm, and this port's own `PathLine::new`.
+            (0.0, 1.0, 1.0)
         };
 
         Ok(Self {
@@ -590,6 +598,46 @@ mod tests {
         assert!(
             err.to_string().contains("colinear"),
             "expected the colinear-plane message, got {err}"
+        );
+    }
+
+    /// KDL guards `Path_Line`'s `scalerot = alpha/pathlength` with an
+    /// explicit three-way form whose third arm carries its own comment
+    /// `// both were zero` (`orocos_kdl/src/path_line.cpp:67-83`);
+    /// `Path_Circle`'s two-arm form (`path_circle.cpp:86-95`) never got the
+    /// same treatment, so its `scalerot = oalpha/pathlength` evaluates
+    /// `0.0/0.0` when the sweep angle and the rotation angle are both zero.
+    ///
+    /// `CircleGeometry`'s fields are all `pub` and so is [`PathCircle::new`],
+    /// so this is reachable from outside this crate whatever the two in-crate
+    /// callers ([`circle_from_center`]/[`circle_from_interim`], both of which
+    /// reject a coincident start/goal at their own colinearity guard first)
+    /// can produce. `alpha == 0.0` with a plane that is still determined
+    /// needs only an auxiliary point off the start-to-center radius, which
+    /// this fixture supplies.
+    #[test]
+    fn coincident_sweep_and_rotation_does_not_divide_zero_by_zero() {
+        let start = identity_pose(Vector3::new(1.0, 0.0, 0.0));
+        let goal = identity_pose(Vector3::new(1.0, 0.0, 0.0));
+        let geom = CircleGeometry {
+            center: Vector3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+            alpha: 0.0,
+            aux_point: Vector3::new(0.0, 1.0, 0.0),
+        };
+        let path = PathCircle::new(&start, &goal, &geom, 1.0, MAX_COLINEAR_NORM)
+            .expect("radius 1.0 and a non-colinear auxiliary point clear both guards");
+        assert_eq!(
+            path.path_length, 0.0,
+            "a zero sweep over a unit radius is a zero-length path"
+        );
+        assert_eq!(
+            path.scale_rot, 1.0,
+            "scale_rot must take Path_Line's both-zero placeholder, not 0.0/0.0"
+        );
+        assert_eq!(
+            path.scale_lin, 1.0,
+            "scale_lin must take Path_Line's both-zero placeholder"
         );
     }
 }
