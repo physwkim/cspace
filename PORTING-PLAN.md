@@ -26296,7 +26296,8 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
   씨앗이 조건 2 사건율을 올려 §286.4의 검정력 부족을 푸는지는 미측정이다.
   두 진입점은 그대로 그것을 받는다(`ChompRequest::seed_trajectory`, upstream
   STOMP의 `extractSeedTrajectory`).
-- **C++ CHOMP 기준선.** 만들어졌다 — CHOMP과 STOMP 양쪽으로. 오라클은
+- **C++ CHOMP 기준선. 거짓 → 닫힘 (§304).** 만들어졌다 — CHOMP과 STOMP
+  양쪽으로. 오라클은
   `chomp_plan`과 `stomp_plan`을 답하고(`oracle.cpp:1067`,
   `oracle.cpp:1069`가 `chompPlan`(`oracle.cpp:6185`)과
   `stompPlan`(`oracle.cpp:6323`)으로 보낸다),
@@ -26305,10 +26306,22 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
   모집단에 대해 `condition1`, `condition3-pooled`, `condition3-paired`,
   `no-regression-cpp-solved`를 다시 검사로 들고 있고, 기준선이 없을 때 그
   넷을 조용히 빼는 대신 빠졌다고 보고한다
-  (`tools/ci/measure-phase8-optimizer-properties.sh:1018-1022`). 이 라운드가
-  한 것은 계측기 복원까지이며, 그 위에서 낸 수치를 절로 적지는 않았다 — 그
-  수치를 담을 절은 아직 없다. 남는 잔여는 `cpp-endpoints` 하나이고, 그것은
-  논증이
+  (`tools/ci/measure-phase8-optimizer-properties.sh:1022-1026`). 이 문단이
+  "그 위에서 낸 수치를 담을 절은 아직 없다"로 끝났던 것은 쓰이는 순간 이미
+  절반이 거짓이었다 — §269.3이 네 팔의 조건 1·2·3을 싣고 있다. 나머지 절반을
+  **두 절이 각각 닫는데 모집단이 서로 다르므로, 두 절의 수를 맞추려 하지
+  말 것.** §295는 선언된 `full` 모집단(플래너당 500 = panda 250 + fanuc 250,
+  구성당 125문제 × 넷)에서 이 계측기를 돌렸다: `condition3` 열여섯 행은 전부
+  통과하고, `condition1`은 넷 중 셋에서 실패하며, `no-regression-cpp-solved`는
+  `full`에 핀이 없어 판정을 내지 않는다. §304는 panda 500(floor_wall 250 +
+  cage 250, 양쪽 다 panda)에서 `condition3-paired`와
+  `no-regression-cpp-solved`를 이 모집단에 처음 발표한다(§304.6, §304.7).
+  그래서 짝 개수가 어긋난다 — §295는 stratum 합으로 CHOMP 326(161+165) /
+  STOMP 355(185+170), §304는 pooled로 CHOMP 363 / STOMP 437이다. 모순이
+  아니라 다른 집합을 잰 것이다. 같은 절이 §269·§286이 기대던 per-problem
+  NDJSON이 **한 번도 커밋된 적이 없었다**는 것을 찾아 여덟 팔을 다시 재
+  `doc/phase8-baseline-500/`에 커밋했고, 네 표를 그 바이트에서 셀 단위로 다시
+  뽑았다. 남는 잔여는 `cpp-endpoints` 하나이고, 그것은 논증이
   아니라 사실이다: `chompPlan`/`stompPlan`은 `path`를 내보내지 않으므로
   (경로를 내보내는 것은 `plan` op뿐 — `oracle.cpp:5870`) C++ 쪽에 끝점
   간극을 잴 대상 자체가 없다. 더하는 것은 오라클 소스 변경이고, digest
@@ -30401,10 +30414,13 @@ stratum의 씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지�
 
 - **일부러 어려운 씨앗에서의 조건 2 사건율.** §286.9. 검정력 부족이 모집단
   크기의 문제인지 난이도의 문제인지는 이 절이 가르지 못한다.
-- **포트 STOMP의 두 번째 씨앗 베이스.** CHOMP 두 팔만 424242로 다시 돌렸다
-  (§286.5). 포트 STOMP 한 벌이 약 3시간이라 두 벌을 이 라운드에 넣지 않았다.
-  §286.5의 반증은 CHOMP 쪽 측정으로 성립하고, STOMP 쪽 `r*`가 같은 방식으로
-  움직이는지는 미측정이다.
+- **포트 STOMP의 두 번째 씨앗 베이스. 거짓 → 닫힘 (§303).** 이 절은 CHOMP
+  두 팔만 424242로 다시 돌렸고(§286.5), 포트 STOMP 한 벌이 약 3시간이라
+  두 벌을 넣지 않았다. §303이 그 두 벌을 돌렸다 — 포트 두 팔 약 121분(동시
+  실행), C++ 네 팔 각 3분 이내. 결과는 `r*`가 **움직이지 않는다**는 것이다
+  (두 베이스 모두 0.05 = `COL_CHECK_DISTANCE`, §303.5). 대신 실패 id가 네
+  팔에서 하나도 겹치지 않고 포트/cpp의 많고 적음이 뒤집혀(§303.4·§303.7),
+  §286.5가 CHOMP에서 뽑기라고 부른 것과 같은 결론이 STOMP에서도 성립한다.
 - **fanuc과 나머지 세 로봇.** 이 절의 모든 수는 panda_arm이다. §264.7의
   fanuc stratum은 씨앗 유효 비율이 이보다 훨씬 높았다(해결 문제 전부).
 - **조건 2를 자기 검사 단위에서 STOMP에 대해 무력화하는 변이.** §300가
@@ -30583,7 +30599,7 @@ undeclared-unresolvable **0건**으로 통과한다.
 - `oracle-request-pilz-blend-geometry.md:654`의 `` `5777`-`5778` `` →
   `` `oracle.cpp:6804-6805` ``
 
-일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27602`는
+일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27615`는
 `$ rg ...` 실행 결과를 코드 펜스 안에 그대로 옮긴 것이고, 그 실행은 실제로
 5688을 찍었다. 전사를 고치면 기록이 아니라 위조가 된다. (이 인용은 쓰인
 커밋 `580f1995` 당시 `!PORTING-PLAN.md:27486`이었고, 그 뒤 두 번 밀렸다.
@@ -31476,7 +31492,7 @@ STOMP 무력화 변이), §289.7 전체(세 문단). 나머지 **24건**을 트�
 | §263.7 ② Phase 8의 pilz 항목 | 성립 | §5의 pilz 행은 여전히 §217.3을 인용하는 MET이고, 이 절이 그 행을 다시 재지 않았다 |
 | §263.7 ③ 상류 기본 벽시계 구성 | 성립 | §269·§286의 모든 후속 측정이 반복수로 끝나지 반복 벽시계로 끝나지 않는다. 그 구성의 재현 가능한 수치는 오늘도 없다 |
 | §264.12 ① 씨앗이 주어진 문제 모집단 | **절반** | 전제가 틀렸다 — §5의 Phase 8 행은 새 생성기 없이 §286.10으로 MET가 됐다. 남은 것은 씨앗 난이도를 *고르는* 쪽뿐 |
-| §264.12 ③ `full` 모드의 핀 | 성립 | `PINS_ALL`의 `"full": null`과 `tools/ci/measure-phase8-optimizer-properties.sh:810`의 `pins-unmeasured`가 그대로다 |
+| §264.12 ③ `full` 모드의 핀 | 성립 | `PINS_ALL`의 `"full": null`과 `tools/ci/measure-phase8-optimizer-properties.sh:1036`의 `pins-unmeasured`가 그대로다 |
 | §264.12 ⑤ STOMP 끝점 밀림 | 성립 | `PINS_ALL.pilot.stomp`의 `endpoint_ceiling`은 여전히 천장 핀이지 제거가 아니다 |
 | §264.12 ⑥ 제약 비용이 거리 | 성립 | `doc/upstream-bugs.md` 색인 어디에도 이 항목이 없다 |
 | §269.10 ① `max_iterations = 200` | 성립 | `crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs:694-706`의 인자 파싱은 아직 `<seed_base> [planning_time_limit_secs]`뿐이다 |
@@ -31512,7 +31528,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:26866`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:26879`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -32117,6 +32133,300 @@ span을 지우고 판정하게 됐는데, 판정만 가린 사본에서 하고 *
 - **`## Gate scope` 다섯 절.** 커버리지 경계 선언이고 같은 계열이지만
   판정하지 않았다.
 - **§291의 어휘 후보 전수.** 20/486(또는 1588)만 봤다.
+
+---
+
+## §295 복원한 C++ 기준선을 선언된 500문제에서 잰다 — `condition1`은 넷 중 셋에서 실패하고, 그중 STOMP 두 개는 포트만 시계에 묶인 탓이라 기계와 분리되지 않는다 (2026-08-07)
+
+§264는 Phase 8의 속성 계측기를 만들면서 C++ 기준선이 필요한 항목들을 빼고
+사유를 §264.3에 적었다. 그중 하나("오라클에 CHOMP planning op가 없다")는
+§286이 `chomp_plan`/`stomp_plan`을 만들면서 거짓이 되었고, 앞선 라운드가
+`tools/ci/measure-phase8-optimizer-properties.sh`에 `condition1`,
+`condition3-pooled`, `condition3-paired`, `no-regression-cpp-solved`를 검사로
+되돌렸다. 되돌린 것까지가 그 라운드였고 수치는 절로 적히지 않았다. 이 절이
+그 수치다 — 그리고 재고 나서 나온 것은 통과/실패 표만이 아니다.
+
+### §295.1 모집단과 양쪽의 종료 조건
+
+수는 `tools/ci/measure-phase8-optimizer-properties.sh full` 한 번에서 나왔다.
+`full`은 구성당 125문제(`tools/ci/measure-phase8-optimizer-properties.sh:117`)
+이고 C++ 기준선이 붙는 구성은 넷(`panda floor_wall`, `panda cage`,
+`fanuc floor_wall`, `fanuc cage`)이므로 **플래너당 500문제, stratum당 250**이다.
+기준선이 붙지 않는 `constrained`·`inject_constrained`가 125씩 더 붙어 포트 쪽
+계획 호출은 합계 1,500이다.
+
+- 양쪽이 **같은 바이트**를 본다. 계측기가 만든 요청 파일을 그대로 `SET_FILE`로
+  `tools/ci/measure-phase8-cpp-baseline.sh`에 넘긴다. 생성기를 두 번 돌려
+  "같을 것이다"라고 논증하지 않는다.
+- 플래너 시드는 `SEED_BASE = 525252`, 문제당 `SEED_BASE + problem.id`. 상류가
+  `rsl::rng()`(스레드당 한 번만 시드 가능한 `thread_local std::mt19937`)에서
+  뽑으므로 시드는 요청이 아니라 **프로세스**의 성질이고, 그래서 C++ 쪽은
+  문제당 한 프로세스다
+  (`tools/ci/measure-phase8-cpp-baseline.sh:322`의 `--planner-rng-seed $seed`).
+- **종료 조건이 두 쪽에서 다르다.** C++ 쪽은 반복 상한으로 끝난다:
+  `CHOMP_MAX_ITERATIONS=50`(`tools/ci/measure-phase8-cpp-baseline.sh:161`)에
+  시계는 3600초로 열어 두었다(`tools/ci/measure-phase8-cpp-baseline.sh:162`,
+  `tools/ci/measure-phase8-cpp-baseline.sh:163`). 상류 기본값(CHOMP 6.0/10.0초,
+  STOMP 5.0초)을 쓰면 성공률이 기계 부하를 재는 수가 되기 때문이다. 여덟 번의
+  C++ 실행 전부 `timed_out 0` — 끝낸 것은 시계가 아니라 반복 상한이다. 포트
+  쪽은 호출당 120초 **벽시계**로 끊는다
+  (`tools/ci/measure-phase8-optimizer-properties.sh:112`). 이 비대칭이 §295.4다.
+
+### §295.2 실측 — 플래너당 500문제
+
+**C++ 기준선** (전부 `timed_out 0`):
+
+| | panda floor_wall | panda cage | **panda 250** | fanuc floor_wall | fanuc cage | **fanuc 250** |
+|---|---|---|---|---|---|---|
+| C++ CHOMP | 93/125 | 95/125 | **188 (75.2%)** | 96/125 | 86/125 | **182 (72.8%)** |
+| C++ STOMP | 114/125 | 103/125 | **217 (86.8%)** | 105/125 | 89/125 | **194 (77.6%)** |
+
+**포트** (CHOMP은 시한 초과 0, STOMP은 괄호 안이 시한 초과):
+
+| | panda floor_wall | panda cage | **panda 250** | fanuc floor_wall | fanuc cage | **fanuc 250** |
+|---|---|---|---|---|---|---|
+| 포트 CHOMP | 85/125 | 81/125 | **166 (66.4%)** | 88/125 | 77/125 | **165 (66.0%)** |
+| 포트 STOMP | 98/125 (27) | 87/125 (38) | **185 (74.0%, 65)** | 90/125 (35) | 80/125 (45) | **170 (68.0%, 80)** |
+
+### §295.3 판정 — 복원한 넷 중 이 모드가 답하는 것은 셋
+
+`full`의 핀은 아직 없다(`tools/ci/measure-phase8-optimizer-properties.sh:255`의
+`"full": null`, §264.9). 핀이 없으면 stratum마다
+`pins-unmeasured`(`tools/ci/measure-phase8-optimizer-properties.sh:1036`)가 실패로
+나가고 `pinned_cpp`(`tools/ci/measure-phase8-optimizer-properties.sh:904`)가 돌지
+않으므로 **`no-regression-cpp-solved`는 이 모드에서 판정을 내지 않는다.**
+나머지 셋은 핀에 걸리지 않는
+`cpp_stratum`(`tools/ci/measure-phase8-optimizer-properties.sh:915`)과
+`cpp_set`(`tools/ci/measure-phase8-optimizer-properties.sh:939`)에 있어 그대로
+돈다.
+
+| stratum | `condition1` 포트 / 막대 | 판정 | `condition3-pooled` | `condition3-paired` |
+|---|---|---|---|---|
+| chomp/panda | 66.4% / 67.68% | **실패** (−1.28 pp) | 통과 (0.996x) | 통과 (1x, 161문제) |
+| chomp/fanuc | 66.0% / 65.52% | 통과 (+0.48 pp) | 통과 (0.991x) | 통과 (1x, 165문제) |
+| stomp/panda | 74.0% / 78.12% | **실패** (−4.12 pp) | 통과 (0.957x) | 통과 (0.991x, 185문제) |
+| stomp/fanuc | 68.0% / 69.84% | **실패** (−1.84 pp) | 통과 (0.981x) | 통과 (1x, 170문제) |
+
+per-set `condition1` 여덟 행 중 통과는 둘(`chomp/panda_floor_wall`,
+`chomp/fanuc_floor_wall`)이고 나머지 여섯은 실패다. per-set `condition3` 여덟
+행은 전부 통과(0.951x~1x).
+
+**조건 3은 이 모집단에서 열려 있다.** 여덟 stratum 행과 여덟 set 행 모두 비가
+1 이하이고, 1.3x 한도까지의 여유가 최소 0.3이다. 즉 이 두 최적화기의 경로
+길이는 같은 문제에서 자기 C++ 구현과 사실상 같다.
+
+**조건 1은 셋에서 닫히지 않는다.** 그중 CHOMP 쪽 하나는 기계와 무관한
+판정이고(§295.4), STOMP 쪽 둘은 아니다.
+
+### §295.4 CHOMP의 실패는 판정이고 STOMP의 실패는 아니다
+
+네 stratum(C++ 기준선이 붙는 500문제)에서 포트의 시한 초과는 CHOMP **0회**
+(가장 느린 호출 7.906초 / 120초 예산), STOMP **145회**(panda 65, fanuc 80)다.
+C++ 쪽은 양쪽 다 0이다. (기준선이 없는 `constrained`에서 STOMP은 125문제
+전부, `inject_constrained`에서 13문제가 더 시한을 넘긴다.) 시한 초과는
+해결로 세지 않으므로 `condition1`의 좌변에 그대로 들어간다 — 그래서 STOMP의
+`condition1`은 "포트가 얼마나 푸는가"가 아니라 "포트가 120초 안에 얼마나
+푸는가"를 C++의 반복 상한 성공률에 대는 비교다.
+
+같은 실행 안에 통제된 대조가 하나 있다. 판별 게이트의 STOMP `panda_floor_wall`
+다리는 **계측 단계와 같은 요청 파일·같은 `SEED_BASE`·같은 120초 예산**을 쓰고,
+주입은 계획이 끝난 뒤 경로에 이루어지므로 계획 작업량이 동일하다. 다른 것은
+점유뿐이다:
+
+| | 프로세스 | 그 구간의 load 중앙값 | 해결 | 시한 초과 |
+|---|---|---|---|---|
+| 판별 게이트 다리 | 1 | 7.4 | **105/125** | 20 |
+| 계측 단계 | 16 샤드 | 147.2 | **98/125** | 27 |
+
+7문제, 5.6 pp다. `stomp/panda/condition1`의 미달폭 4.12 pp와
+`stomp/fanuc/condition1`의 1.84 pp는 **둘 다 이 폭보다 작다.** 그러므로 이
+실행의 STOMP `condition1` 판정 두 개는 플래너의 성질과 분리되지 않는다.
+
+**부하를 수로 적는다.** 코어 96개. 계측 단계 구간의 load는 9.5~400.0,
+중앙값 147.2였고 같은 시간 다른 패널의 `stomp_benchmark` 프로세스가 최대
+500개였다. 판별 게이트 구간은 2.9~96.7(중앙값 7.4), C++ 기준선과 교차검사
+구간은 128.7~211.5(중앙값 169.4)다. 즉 이 실행의 `no-timeouts`와 STOMP 쪽
+`condition1`은 **한 실행 안에서 두 부하 영역에 걸쳐 측정되었다.**
+
+CHOMP은 이 영역 어디서도 예산에 닿지 않았다(가장 느린 호출 7.906초, 15배
+여유). 그래서 `chomp/panda/condition1`의 66.4% 대 67.68% 미달은 부하 서술이
+아니라 판정이고, 형제 `chomp/fanuc`가 0.48 pp 차로 통과한다는 것이 그 막대가
+변별한다는 증거다. **§5의 Phase 8 판정 단어는 이 절에서 건드리지 않는다.**
+이 미달을 판정에 반영할지, 아니면 `condition1`을 STOMP에 대해서는 시계 대칭이
+서기 전까지 유보로 둘지는 결정 사항으로 남긴다.
+
+가능한 원인 하나가 이미 측정되어 있다. §293.4는 이 CHOMP 최적화기가 이
+모집단에서 `optimize()`의 `bool`을 참으로 만드는 경로가 메시 검사뿐이고
+`!filter_mode && c_cost < collision_threshold` 팔은 한 번도 발화하지 않음을,
+그 검사를 눌러 해결 수가 380에서 0으로 가는 것으로 보였다. 이것은 예측이지
+결론이 아니다 — 반증 가능한 형태로 적으면 "그 팔이 발화하도록 만들면
+`chomp/*/condition1`의 좌변이 올라간다"이고, 이 절은 그것을 재지 않았다.
+
+### §295.5 판별 게이트가 이 스크립트의 벽시계를 지배한다 — 그리고 재는 것이 없다
+
+게이트 전체가 12,651초(3.51시간)였고 그 안에서 실제 계측은 5,011.7초다
+(포트 4,458.6초 + C++ 기준선 553.1초). **판별 게이트 혼자 7,555.7초**로 전체의
+60%다. 이 단계는 아무것도 재지 않는다 — 검사기가 거짓을 거부할 수 있음만
+보인다.
+
+| 다리 | 벽시계 | 검사한 경로 / 주입한 문제 | 검사되지 않은 것 |
+|---|---|---|---|
+| chomp `inject=collision` | 527.0초 | 85 / 125 | 40 실패 |
+| chomp `inject=constraint` | 456.2초 | 98 / 125 | 27 실패 |
+| stomp `inject=collision` | 4,190.4초 | 105 / 125 | 20 시한 초과 |
+| stomp `inject=constraint` | 2,382.1초 | 119 / 125 | 6 시한 초과 |
+
+**같은 모양의 일에 CHOMP 두 다리가 983.2초, STOMP 두 다리가 6,572.5초** — 6.7배.
+이 단계는 한 프로세스이고(`SHARDS`는
+`tools/ci/measure-phase8-optimizer-properties.sh:547`의 계측 실행에만 붙는다)
+120초 예산은 문제당 감시 스레드로 강제되므로, 다리 하나의 상한은
+`주입 문제 수 × 120초`다. STOMP `inject=collision`의 3,947초 계획 시간 중
+**2,402초(61%)가 경로를 하나도 내놓지 않은 20문제**에 들어갔다.
+
+여기서 나온 결함은 비용이 아니라 보고다. 검사할 수 있는 것은 해결된 경로뿐인데
+성공 줄이 분자만 찍고 있었다: "rejected all 105 paths"는 125가 주입되었다는
+말을 하지 않는다. 시한 초과·실패한 문제는 주입된 웨이포인트를 한 번도
+검사받지 않고 단언의 모집단에서 조용히 빠진다. 세 이진(`plan_benchmark_port`,
+`optimize_benchmark_chomp`, `optimize_benchmark_stomp`)이 이제 분모와 빠진
+이유를 같이 찍는다.
+
+분모를 찍는 것은 좁아짐을 보이게 할 뿐 막지는 못한다. 그래서 같은 세 이진에
+회계 항등식을 단언으로 걸었다 — 주입된 모든 문제는 `checked`·`timeout`·
+`failure` 중 정확히 하나에 들어가고, 셋의 합이 주입 수와 다르면 단언이 문다.
+이 항등식은 기계의 부하로 움직이지 않는다는 점에서 검사율 하한과 다르다:
+한 상자의 시한 초과 수에서 뽑은 하한은 §295.4가 잰 98/125 대 105/125 사이를
+오가는 부하 게이트가 된다. 8문제 집합(5 해결 / 3 시한 초과)에서 해결된 경로
+하나가 검사기를 건너뛰도록 변이를 넣으면 `4 checked + 3 timeout + 0 failure`가
+8이 아니라며 단언이 물고, 변이를 되돌리면 통과한다. 단언을 뺀 같은 변이는
+`rejected all 4 checked paths of 8 injected, as required; 4 not checked
+(3 timeout, 0 failure)`를 찍고 종료 코드 0으로 끝났다 — 줄 자체가 4 ≠ 3+0을
+보이고 있는데 그것을 읽는 검사가 없었다.
+
+문제당 벽시계로 정리하면: C++ 기준선 1,000문제가 553.1초(0.55초/문제,
+`JOBS=12`), 포트 계측 1,500호출이 4,458.6초(2.97초/호출, 16샤드), 판별 게이트
+500문제가 7,555.7초(15.1초/문제, 1프로세스).
+
+### §295.6 500문제가 처음 보인 것 — `inject_constrained`의 전제가 거짓이다
+
+교차검사가 pilot에서 나오지 않던 실패를 하나 냈다:
+`stomp.inject_constrained`에서 `paths=112 wrong_verdict=[72]`,
+`port/oracle_disagree=0`. 같은 실행의
+`stomp/inject_constrained/validity`는 111/112다. 즉 STOMP이 72번 문제에 대해
+내놓은 경로가 제약 밴드를 벗어나고, **포트의 검사기와 upstream `isPathValid`가
+그 판정에 일치한다.** 포트/오라클 불일치가 아니라 둘 다 무효라고 답한 경로다.
+
+이것이 왜 문제인가는 이 집합이 존재하는 이유에 있다. `inject_constrained`는
+제약을 플래너에서 검사기로 옮긴 같은 문제들이고, 판별 게이트가 그 위에서 하는
+단언은 "주입한 웨이포인트가 거부되었다"다. 그 단언이 뜻을 가지려면 주입 없는
+같은 요청이 100% 유효해야 한다 — 거부된 것이 주입 때문인지 경로 자체 때문인지
+갈라지지 않기 때문이다. pilot의 8문제에서는 8/8이었고, 125문제에서 112분의 1로
+깨진다. 제약 없이 계획한 출력이 밴드 안에 남을 이유는 없으므로 이것은 포트의
+결함이라기보다 **게이트 전제의 결함**이고, 닫는 방법(이미 무효인 경로를
+단언 모집단에서 빼거나, 이 집합에 대해 플래너를 제약하거나)은 이 라운드에서
+고르지 않았다.
+
+### §295.7 `cpp-endpoints`와 constrained 모집단 — 이 라운드 밖
+
+`cpp-endpoints`는 복원하지 않았고, 사유는 논증이 아니라 사실이다.
+`chompPlan`(`tools/moveit-oracle/src/oracle.cpp:6185`)과
+`stompPlan`(`tools/moveit-oracle/src/oracle.cpp:6323`)이 문제마다 내보내는 것은
+`id`, `solved`, `error_code`, `failure`, 그리고 푼 경우 `length`와 조건 2
+필드들이다. **`path`가 없다.** 경로를 내보내는 op는 `plan` 하나뿐이고
+(`tools/moveit-oracle/src/oracle.cpp:5870`의 `problem_out["path"] = waypoints;`,
+그것도 `pdef->hasExactSolution()`일 때만), 그러므로 C++ 쪽에는 요청한
+시작/목표에서 얼마나 벌어졌는지를 잴 대상이 아예 없다. 더하는 데 필요한 것은
+오라클 **소스** 변경이고, `oracle_stamp`가 소스 digest를 이미지 태그로 만들기
+때문에 그것은 이 기계의 모든 워크트리에 대한 이미지 재빌드가 된다.
+
+`constrained`/`inject_constrained` 두 집합에 C++ 기준선이 없는 것은 이유가
+다르다: `chompPlan`/`stompPlan`은 요청의 `joint_constraint`를 읽지 않으므로
+C++ 쪽이 포트와 **다른 문제**를 풀게 된다. 그래서 이 두 집합의 per-set 행은
+C++ 두 항목 없이 넷으로 남는다.
+
+### §295.8 길이가 두 척도였다
+
+`condition3-*`를 켜기 전에 닫아야 했던 것: 두 쪽의 `length`가 **같은 이름의
+다른 양**이었다. 오라클은
+`planSpacePathLength`(`tools/moveit-oracle/src/oracle.cpp:6021`)로 OMPL
+`CompoundStateSpace::distance`를 경로를 따라 더한다 — 축마다 `1/(max-min)`
+가중치가 붙은 합, 유클리드가 아니라 가중 L1이다. 포트 계측기는 원 관절값에
+대한 유클리드 L2를 더하고 있었다. 두 수의 비는 어느 쪽 길이도 아니다.
+
+고친 방향은 눈금이 아니라 척도다. 두 계측기가 이제 `plan_space_length`
+(`crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs:355`,
+`crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs:379`)를
+보고하고, 그것은 `JointModelGroupSpace::distance`
+(`crates/moveit-planners-sbp/src/joint_model_group_space.rs:317`)의 합 —
+`crates/moveit-planners-sbp/tests/plan_space_parity.rs:98`이 오라클의 OMPL
+공간과 비트 단위로 같다고 이미 세워 둔 그 척도이며,
+`chomp_benchmark_port.rs`/`stomp_benchmark_port.rs`가 이미 쓰던 것이다. 한
+필드에 뜻이 하나가 된다. 이 변경이 움직인 핀은 pilot의 `length_ratio_ceiling`
+하나이고 값은 1.05로 그대로다 — 측정된 최악 비가 두 척도 모두에서 1에 있다
+(새 척도로 panda 2.472/2.471, fanuc 1.834/1.834; 옛 척도로 6.076/5.998,
+6.729/6.729).
+
+### §295.9 복원한 체크가 실제로 무는가 — 변이 넷
+
+통과를 보고하기 전에 각 체크가 거짓을 거부할 수 있음을 보인다. 넷 다
+`PLANNERS=chomp` pilot(각 140~163초)이고, 변이는 전부 편집으로 되돌렸다.
+
+| 변이 | 무엇을 바꿨나 | 결과 |
+|---|---|---|
+| m1 | `chomp/panda`의 `cpp_solved_floor` 10 → 13 | `chomp/panda/no-regression-cpp-solved` 실패("C++ solved 12/16 >= floor 13"), 형제 `chomp/fanuc`는 통과 유지. 실패 4 → 5, 움직인 행은 하나 |
+| m2 | `optimize_benchmark_chomp.rs`의 `plan_space_length` 반환값 × 1.6 | stratum `condition3-pooled`·`condition3-paired` 4행 + per-set `condition3` 4행, 합 8행 실패. 같은 실행에서 `length-ratio-band`는 **1x로 통과** — 분자와 분모가 같이 스케일되기 때문이고, 그것이 `condition3`이 메우는 사각이다. 실패 4 → 12 |
+| m3 | `cpp_medians`의 C++ 해결 집합을 `select(.solved)` 없이 전체로 | `condition1`의 막대가 0.9 × 100% = 90%로 올라가 `chomp/fanuc`와 그 per-set 두 행이 통과 → 실패로 뒤집힘. 같은 실행에서 `condition3-*`와 `no-regression-cpp-solved`는 통과 유지. 실패 4 → 7 |
+| m4 | C++ ndjson 파일명을 존재하지 않는 이름으로 | 결정 행이 60 → 46으로 줄고, 그 자리에 `chomp/panda/cpp-baseline-missing`과 `chomp/fanuc/cpp-baseline-missing`이 실패로 선다(`tools/ci/measure-phase8-optimizer-properties.sh:1025`). 기준선이 사라진 실행이 더 가벼운 체크 집합을 깨끗하게 보고하지 않는다 |
+
+m2가 `length-ratio-band`를 통과시킨 채 `condition3`만 무는 것이 `condition3`을
+복원한 이유 그대로다. m4가 없으면 기준선 단계가 조용히 실패한 실행이 그냥
+통과로 읽힌다.
+
+### §295.10 체크 수가 어디로 움직였나
+
+같은 규칙으로 세면(결정 목록 = stratum 행 + per-set 행, 교차검사 12줄과
+injection 4줄은 그 밖):
+
+| | 결정 행 | 통과 | 실패 | 스크립트 종료 요약 |
+|---|---|---|---|---|
+| §264.13의 pilot | 86 | 74 | 12 | 13 |
+| 이 라운드 pilot | 118 | 100 | 18 | 19 |
+| 이 라운드 full | 96 | 71 | 25 | 27 |
+
+pilot의 +32행은 stratum 4개에 4행씩(`condition1`, `condition3-pooled`,
+`condition3-paired`, `no-regression-cpp-solved`) 16, C++ 기준선이 붙는 set 8개에
+2행씩(`condition1`, `condition3`) 16이다. 움직인 실패는 **여섯 개뿐이고 전부
+`condition1`**이다: `chomp/panda`, `stomp/panda`, `chomp/panda_floor_wall`,
+`chomp/panda_cage`, `stomp/panda_floor_wall`, `stomp/fanuc_floor_wall`.
+§264.13이 이름으로 적은 13개는 하나도 사라지지 않았다.
+
+`full`의 96행이 pilot의 118행보다 적은 것은 `full`에 핀이 없어서다: 핀에 걸리는
+행들이 stratum마다 `pins-unmeasured` 한 행으로 대체되어 CHOMP stratum은 14 → 8,
+STOMP stratum은 13 → 8이 된다(합 −22). set 행 64개는 두 모드가 동수다.
+`full`의 25 실패 중 4개가 그 `pins-unmeasured`다.
+
+§264.13의 "86개 중 73 통과 / 13 실패"는 자기 구성 문장과 하나 어긋난다: 그
+문장은 교차검사 12줄을 86 밖에 두는데 실패 표는 `cross-check stomp.constrained`를
+13 안에 넣는다. 결정 행만 세면 그 실행은 86행 74통과 12실패이고, 스크립트가
+종료 시 찍는 13은 교차검사 실패 하나를 더한 수다. 위 표는 두 열을 따로 둔다.
+
+### §295.11 비용과 부하
+
+게이트 전체 **12,651초(3.51시간)**, 그 안에서 계측 5,011.7초·판별 게이트
+7,555.7초. 릴리스 빌드 확인과 문제집합 생성 여섯 개는 앞의 43초 안에 끝났다 —
+`bad_ep_rate`가 56.7%/79.0%/88.5%/90.6%, `constrained` 구성에서는
+98.9%(125문제에 11,428시도)인데도 그렇다. 이 게이트의 비용은 거부 표본추출이
+아니라 §295.5의 단계에 있다.
+
+부하는 §295.4에 수로 적었다. 이 실행의 어떤 `timed_out 0`도 C++ 쪽이고, 포트
+쪽 stratum 시한 초과 145회는 load 9.5~400.0 구간에서 나왔다. 다시 재려면 부하를 같이
+적어야 하는 수는 그 145회와 그것이 좌변에 들어가는 STOMP `condition1` 둘뿐이다.
+
+§264.12의 "`full` 모드의 핀" 항목은 두 문장이고 이 절은 그중 첫 문장만
+무효로 만든다. `full`은 이제 한 번 돌았다 — 위의 수 전부가 그 실행이다.
+핀은 여전히 없다: §264.13이 pilot의 핀을 실측보다 낮게 건 이유가 STOMP의
+해결 수와 `mesh_check_calls`가 벽시계에 달린 양이라는 것이었고, §295.4가
+`full`에서 같은 흔들림을 5.6 pp로 다시 쟀다. 한 번의 실행은 그 폭을 세우지
+못하므로 `full` 핀은 이 절에서도 열려 있다.
 
 ## §296 249는 최적화가 실패한 횟수가 아니라 0번째 반복에서 이미 성립한 종료 조건이다 — 그 249에서 upstream C++도 같은 길이의 궤적을 돌려준다 (2026-08-07)
 
@@ -33792,6 +34102,708 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
   낸 것이고, 게이트가 쥔 것은 31행 축소판이다. 389이라는 수 자체를 게이트가
   다시 세지는 않는다.
 
+
+## §305 발표한 수의 증거가 트리에 있는가 — 계측기 20개를 네 부류로 갈랐고, 출판 71행 중 35행은 증거가 없다 (2026-08-07)
+
+§269.3은 500문제 네 팔의 성공 수와 소수 16자리 중앙값을 싣는다. 그 수를 낸
+계측기는 전부 커밋돼 있다 — `tools/ci/measure-phase8-cpp-baseline.sh`,
+`tools/ci/measure-phase8-condition2-grid.sh`,
+`tools/ci/compare-phase8-port-vs-cpp.py`. **그 출력은 하나도 커밋돼 있지
+않다.** 실행은 지금 없는 스크래치 디렉터리로 갔다.
+
+이것이 정리 문제가 아닌 이유를 §269.4가 같은 절에서 말한다. 조건 3의 중앙값은
+각 팔이 **자기가 푼 집합** 위에서 잰 것이고, §269.4가 CHOMP을 둘 다 품 363 /
+포트만 17 / C++만 7로 가른다. 두 중앙값은 서로 다른 문제 위에 있다. 교란되지
+않은 수 — 363건 위의 중앙값 — 은 이 트리에서 계산할 수 없고, 되찾는 값은 네
+팔 전부의 재실행이다.
+
+이 절은 그 셀을 고치지 않는다(그 재실행은 이 라운드에 p10-phase13이 한다).
+이 절이 고치는 것은 **그 셀이 실릴 수 있었던 규칙**이다: 어느 계측기의 출력이
+트리에 남지 않는지, 어느 절이 그런 실행의 수를 싣는지, 그리고 각 절에 대해
+커밋된 파일이 그 수를 다시 낼 수 있는지를 표로 못박고, 표가 트리와 어긋나면
+`tools/ci/check-evidence-retention.py`가 실패한다.
+
+### §305.1 계측기 전수 — 두 부류가 아니라 네 부류이고, 가족은 접두사가 아니다
+
+브리프는 `tools/ci/measure-*`를 둘로 갈랐다: 추적 산출물을 쓰는 것과 `out_dir`
+인자를 받는 것. 트리를 세어 보면 부류가 넷이고, 가족 자체가 `measure-*`보다
+넓다.
+
+`measure-port-coverage-independent.py`와 `measure-requirement-closure.py`는
+어느 쪽도 아니다 — 커밋하는 산출물이 없고 출력 디렉터리도 받지 않는다. 둘 다
+**추적된 트리와 고정된 상류 체크아웃만 읽고 출력은 stdout뿐**이므로, 다시
+돌리는 것 자체가 증거다. 이 둘을 앞의 두 부류 중 하나로 부르면 거짓이 된다:
+`추적 산출물`이라 하면 없는 `--check` 대상 파일을 주장하게 되고,
+`out_dir`이라 하면 증거가 사라졌다고 잘못 적게 된다.
+
+세 번째 부류의 이름도 `out_dir`이 아니다. 네 구성원 중 셋은 출력 디렉터리를
+인자로 받지만 `measure-phase8-optimizer-properties.sh`는 받지 않는다 —
+`mktemp -d`를 열고 종료 시 지운다. 그리고 그 스크립트는
+`tools/ci/measure-phase8-optimizer-properties.sh:105`에서
+`doc/phase8-optimizer-properties.json`을 선언하되 `MODE=full`에서만 쓰는데,
+`full`은 돈 적이 없어 그 파일은 트리에도 인덱스에도 없다(`ls`는
+`No such file or directory`, `git ls-files --error-unmatch`는
+`Did you forget to 'git add'?`). 부류를 인자 이름으로 지으면 이 계측기 하나가
+전수에서 빠진다. 그래서 부류는 **`미보존 산출물`** 이다 — 몇 시간짜리 플래너
+스윕의 문제별 출력을 내고, 그 출력이 트리 어디에도 앉지 않는다.
+
+**그리고 가족이 `measure-*`가 아니다.** 이 절의 첫 판은 접두사를 가족으로
+썼고, 그것이 브리프가 §269.3의 세 계기 중 하나로 이름을 든
+`tools/ci/compare-phase8-port-vs-cpp.py`를 전수 밖에 두었다 — §269.4의 네
+갈래를 계산한 그 스크립트다. 접두사는 가족이 아니다. `tools/ci/`의 추적
+파일을 전부 세면 79개이고 접두사는 13종이다
+(`git ls-files tools/ci/ | sed 's#.*/##' | sed 's/-.*//' | sort | uniq -c`).
+그래서 게이트는 **모든** 접두사에 역할을 붙이게 하고, 역할이 선언되지 않은
+접두사를 만나면 실패한다: 생산자 7종(`analyse-`·`classify-`·`compare-`·
+`count-`·`measure-`·`reconcile-`·`requirement-`), 게이트 2종(`check-`·
+`verify-`), 라이브러리 1종(`gate-`), 그리고 확장자가 `.json`/`.txt`인 입력
+파일. 전수가 10에서 **20**으로 늘었다.
+
+늘면서 네 번째 부류가 생겼다. `analyse-phase8-condition2-grid.py`,
+`compare-chomp-cpp-seed-return.sh`, `compare-phase8-port-vs-cpp.py` 셋은 남의
+출력을 인자로 받아 파생 뷰를 찍는다. 이들의 보존 의무는 자기 것이 아니라
+**입력을 낸 생산자의 것**이고, 그 생산자는 이미 그 절들에 대해 행을 갖고
+있다. 그래서 부류는 `입력이 증거`이고, 규약은 "이 부류는 출판 행을 갖지
+않는다"이다 — 행을 하나 더 달면 같은 의무가 두 번 세어져 사라진 스윕이 두
+군데서 덮인 것처럼 보인다.
+
+| 계측기 | 산출물 | 부류 |
+|---|---|---|
+| `analyse-phase8-condition2-grid.py` | 없음 | 입력이 증거 |
+| `compare-chomp-cpp-seed-return.sh` | 없음 | 입력이 증거 |
+| `compare-phase8-port-vs-cpp.py` | 없음 | 입력이 증거 |
+| `classify-unported.py` | `doc/unported-classification.md` | 추적 산출물 |
+| `count-coarse-assertions.py` | 없음 | 트리에서 재실행 |
+| `count-narrowing-sweep.sh` | 없음 | 트리에서 재실행 |
+| `count-public-declarations.sh` | 없음 | 트리에서 재실행 |
+| `count-relative-eq.pl` | 없음 | 트리에서 재실행 |
+| `reconcile-assertion-ledgers.py` | `doc/assertion-discrimination-orphans.txt` | 추적 산출물 |
+| `requirement-message-closure.py` | 없음 | 트리에서 재실행 |
+| `measure-chomp-objective.sh` | 없음 | 미보존 산출물 |
+| `measure-client-endpoint-surface.py` | `doc/client-endpoint-surface.md` | 추적 산출물 |
+| `measure-declaration-audits.py` | `doc/declaration-audit-coverage.md` | 추적 산출물 |
+| `measure-phase8-condition2-grid.sh` | 없음 | 미보존 산출물 |
+| `measure-phase8-cpp-baseline.sh` | 없음 | 미보존 산출물 |
+| `measure-phase8-optimizer-properties.sh` | 없음 | 미보존 산출물 |
+| `measure-port-coverage-independent.py` | 없음 | 트리에서 재실행 |
+| `measure-port-coverage.py` | `doc/port-coverage.md` | 추적 산출물 |
+| `measure-requirement-closure.py` | 없음 | 트리에서 재실행 |
+| `measure-upstream-citations.py` | `doc/citation-classes.txt`, `doc/upstream-citation-classes.txt` | 추적 산출물 |
+
+`추적 산출물` 넷은 브리프가 말한 그대로다 — 각자 커밋된 파일과 그 파일에 대고
+재는 모드를 갖는다. 하나만 다르다:
+`measure-upstream-citations.py`는 **두 개**를 다시 만든다
+(`doc/citation-classes.txt`와 `doc/upstream-citation-classes.txt`). 산출물 열이
+한 경로만 담았으면 그 둘째 파일은 이 전수에서 보이지 않았을 것이라, 열은
+쉼표로 나눈 목록이다. (`doc/citation-classes-in-repo.txt`는 이 가족이 아니다 —
+`tools/ci/check-citation-drift.py`가 만든다. 열 개 `measure-*` 어느 것도 그
+이름을 담고 있지 않다.)
+
+### §305.2 출판 행 — 어느 절이 어느 계측기의 수를 싣는가
+
+행의 단위는 (계측기, 절)이고, 대상은 산출물이 트리에 남지 않는 열하나다
+(`미보존 산출물` 넷 + `트리에서 재실행` 일곱). `입력이 증거` 셋은 규약상
+행을 갖지 않고, `추적 산출물` 여섯은 자기 파일이 곧 증거다.
+
+행 출처가 `자동`인 것은 그 절의 본문이 계측기를 **이름으로** 부르는 경우로,
+게이트가 문서에서 직접 유도한다. `수동`은 사람이 적은 것 — 그 절이 그 실행의
+수를 실으면서 스크립트 이름을 적지 않은 경우다. 표에 쓴 두 규약:
+
+- **행은 그 수를 처음 싣는 절에 붙는다.** 다른 절의 수를 `§` 인용과 함께 다시
+  드는 절에는 붙이지 않는다. 증거 의무는 잰 절에 있다. 그래서 §269.8의
+  "50에서 포트 380, C++ 370"과 §269.9의 370/500·446/500에는 행이 없다 —
+  둘 다 §269.3의 표를 다시 부른 것이다.
+- **증거 열은 그 절의 발표값 중 하나라도 다시 낼 수 있는 커밋된 경로를
+  가리키고, 못 내는 부분은 비고가 적는다.** 한 칸으로는 부분 보존을 말할 수
+  없기 때문이고, 실제로 부분 보존이 있다(§300.2).
+
+| 계측기 | 절 | 증거 | 행 출처 | 비고 |
+|---|---|---|---|---|
+| `measure-chomp-objective.sh` | 293.3 | 없음 | 자동 | 380 해결·악화 0·249. `verify-phase8-benchmark.sh`의 `EXPECTED_CHOMP_SOLVED=380`이 380 하나만 붙든다 |
+| `measure-chomp-objective.sh` | 293.4 | 없음 | 수동 | 첫 메시 검사 억제 팔(249→20, `descent<0` 0→39, 최솟값 -0.49293650003892253). 변경은 되돌렸고 요약 JSON은 남지 않았다 |
+| `measure-chomp-objective.sh` | 293.5 | 없음 | 수동 | 벽시계 139초. 기계의 값이지 플래너의 값이 아니다 |
+| `measure-chomp-objective.sh` | 296.2 | 없음 | 자동 | `loop` 층 요약. 249 전부 `evaluations == 1` |
+| `measure-chomp-objective.sh` | 296.3 | 없음 | 수동 | 후보 넷의 반증값(0.00015529859207150427, `seed_collision_is_zero` 0/380, 중앙값 16.78·17.10, 0.00143·0.00271) |
+| `measure-chomp-objective.sh` | 296.5 | 없음 | 수동 | 배포 형상 대 첫 메시 검사 억제, 여덟 계수기. §293.4와 다른 방식으로 같은 수를 낸다 |
+| `measure-chomp-objective.sh` | 296.6 | `doc/phase8-condition2-stomp/` | 수동 | 저쪽 패널의 `seed_valid` 열 148·101은 `seed.floor_wall.ndjson`·`seed.cage.ndjson`에서 그대로 다시 센다. 내 CHOMP 씨앗반환 148·101 쪽은 트리에 없다 |
+| `measure-chomp-objective.sh` | 296.7 | 없음 | 수동 | 포트 스윕 벽시계 140초 |
+| `measure-phase8-condition2-grid.sh` | 286.2 | 없음 | 자동 | 그리드 계기 절. 스윕 한 번이 아홉 해상도를 낳는다는 진술이고 수는 아래 절들에 있다 |
+| `measure-phase8-condition2-grid.sh` | 286.1 | `doc/phase8-condition2-stomp/` | 수동 | 씨앗 유효 148/250·101/250 갈림은 `seed.*.ndjson`에서 다시 나온다. 네 팔의 249/249·120/251·2,241 판정은 나오지 않는다 |
+| `measure-phase8-condition2-grid.sh` | 286.3 | 없음 | 수동 | port CHOMP·port STOMP 두 열 전부. 실패 id(`cage/221`, `floor_wall/77`, `cage/98 133 159`)와 점 수까지 |
+| `measure-phase8-condition2-grid.sh` | 286.4 | 없음 | 수동 | 짝지은 게이트의 `b`/`c`/`z` 표 중 포트 쪽 |
+| `measure-phase8-condition2-grid.sh` | 286.5 | 없음 | 수동 | 씨앗 베이스 700001의 379/380과 424242 재실행의 371/500 |
+| `measure-phase8-condition2-grid.sh` | 286.8 | 없음 | 수동 | `is_collision_free` 차단 변이 표(380/500→500/500, 0→111, 1→112). 되돌린 뒤 `cage` 0-19 20행 바이트 동일 확인도 여기 |
+| `measure-phase8-condition2-grid.sh` | 286.9 | 없음 | 수동 | port 1/131 사건율과 그로부터 나온 3,477 |
+| `measure-phase8-condition2-grid.sh` | 300.2 | `doc/phase8-condition2-stomp/` | 수동 | 씨앗 무효 251(102·149)은 `seed.*.ndjson`으로 다시 나온다. 벽시계 표(4.8s~5062.6s, 합 45,292s·167,937s)는 나오지 않는다 — 커밋된 NDJSON에 `wall_secs` 필드가 없다 |
+| `measure-phase8-condition2-grid.sh` | 300.3 | `doc/phase8-condition2-stomp/` | 수동 | 세 해상도 표. `rederive.py`의 A·B 절이 같은 수를 낸다 |
+| `measure-phase8-condition2-grid.sh` | 300.4 | `doc/phase8-condition2-stomp/` | 수동 | 변이 팔 대 씨앗 무효 대조. `rederive.py`의 D 절 |
+| `measure-phase8-condition2-grid.sh` | 300.5 | `doc/phase8-condition2-stomp/` | 수동 | 원본 팔 세 건의 전모. `rederive.py`의 C 절 |
+| `measure-phase8-condition2-grid.sh` | 300.6 | `doc/phase8-condition2-stomp/` | 수동 | 무동작률. `rederive.py`의 E 절 |
+| `measure-phase8-condition2-grid.sh` | 300.7 | `doc/phase8-condition2-stomp/` | 수동 | `floor_wall` id 95. `rederive.py` D 절의 seed-only 줄 |
+| `measure-phase8-condition2-grid.sh` | 300.8 | `doc/phase8-condition2-stomp/` | 자동 | 이진 파일 쌍둥이 확인. 이 절이 커밋을 지시했고 커밋은 됐다 |
+| `measure-phase8-condition2-grid.sh` | 269.3 | `doc/phase8-condition2-stomp/` | 수동 | port STOMP 열 441/500·조건 2 실패 3·중앙값 2.210362452483207이 `base.port.stomp.*`에서 정확히 나온다. 이 행은 이 라운드의 병합 전에도 있어야 했다 — 증거는 그 전부터 트리에 있었다. port CHOMP 열은 없음 |
+| `measure-phase8-condition2-grid.sh` | 269.4 | `doc/phase8-condition2-stomp/` | 수동 | 네 갈래의 포트 쪽 해결 집합. `base.port.stomp.*`의 441이 그것이다 |
+| `measure-phase8-condition2-grid.sh` | 269.6 | `doc/phase8-condition2-stomp/` | 수동 | 비트 동일 비교의 포트 쪽 길이. 이 열이 트리에 있어서 36 대 41이 재어졌다 |
+| `measure-phase8-cpp-baseline.sh` | 264.12 | 없음 | 자동 | C++ 기준선이 없다는 항목을 닫으며 계기를 이름으로 든다 |
+| `measure-phase8-cpp-baseline.sh` | 286.2 | 없음 | 자동 | 그리드 계기 절이 두 계기를 같이 든다 |
+| `measure-phase8-cpp-baseline.sh` | 296.4 | 없음 | 자동 | `SET_FILE`로 포트가 푼 집합에 맞춰 돌린 대조 |
+| `measure-phase8-cpp-baseline.sh` | 269.2 | 없음 | 수동 | `timed_out` 필드가 커밋된 레코드에 없고, 같은 씨앗 베이스 재측정의 floor_wall 최대 벽시계는 50.65520113s로 발표값 34.373373386s와 다르다 — §269.2 자신이 `wall_secs`를 기계의 값이라 적었다 |
+| `measure-phase8-cpp-baseline.sh` | 269.3 | `doc/phase8-seedbase-stomp/` | 수동 | cpp STOMP 446/500과 조건 2 실패 2는 `cpp700001.*`에서 그대로 나온다. 조건 3 중앙값은 1 ULP 다르다 — 재측정 2.214180345506004, 발표 2.2141803455060045. cpp CHOMP 두 열은 없음 |
+| `measure-phase8-cpp-baseline.sh` | 269.4 | `doc/phase8-condition2-stomp/`, `doc/phase8-seedbase-stomp/` | 수동 | STOMP 행 437/4/9/50/13과 엇갈린 id 13개가 정확히 나오고 C++ 미해결 54건 전건 `PLANNING_FAILED`도 나온다. CHOMP 행은 없음 |
+| `measure-phase8-cpp-baseline.sh` | 269.5 | 없음 | 수동 | `cage/221`에 C++ CHOMP 시드 10벌 |
+| `measure-phase8-cpp-baseline.sh` | 269.6 | `doc/phase8-condition2-stomp/`, `doc/phase8-seedbase-stomp/` | 수동 | 둘 다 푼 437은 맞으나 비트 동일 길이는 41이 아니라 **36**이다. 41을 낸 실행의 출력이 커밋되지 않아 어느 쪽이 움직였는지 이 트리로는 가리지 못한다 |
+| `measure-phase8-cpp-baseline.sh` | 269.7 | `doc/phase8-seedbase-stomp/` | 수동 | 700001 행의 446/500만. 800001·900501 두 벌과 세 실행 `timed_out` 0은 없음 |
+| `measure-phase8-cpp-baseline.sh` | 286.1 | `doc/phase8-condition2-stomp/`, `doc/phase8-seedbase-stomp/` | 수동 | STOMP 쪽 전부 정확히 나온다 — cpp 249/249, cpp 54/251·port 59/251, 1e-9 안 cpp 162·port 161, 길이비 0.999873-1.018523 중앙값 1.000000. CHOMP 쪽과 0/2,241은 없음(커밋된 포트 팔의 그리드가 0.05 한 점이다) |
+| `measure-phase8-cpp-baseline.sh` | 286.3 | `doc/phase8-seedbase-stomp/` | 수동 | cpp STOMP 열 0/0/0/0/2/2/3/3/3과 실패 id `floor_wall/84 120 230`(120은 0.005에서 합류)이 정확히 나온다. cpp CHOMP 열은 없음 |
+| `measure-phase8-cpp-baseline.sh` | 286.4 | 없음 | 수동 | 짝지은 게이트 표 중 C++ 쪽 |
+| `measure-phase8-cpp-baseline.sh` | 286.5 | 없음 | 수동 | `r*` = 0.02와 cpp 370/370·369/370 |
+| `measure-phase8-cpp-baseline.sh` | 286.6 | `doc/phase8-seedbase-stomp/` | 수동 | n=446과 `returned_waypoint_count` 446건 전부 40은 나온다. 간격 중앙값 0.0569·p90 0.0809는 나오지 않는다 — NDJSON에 waypoint 좌표가 없고 `length/39` 대리값은 0.0568·0.0801이다(max 0.1045만 일치) |
+| `measure-phase8-cpp-baseline.sh` | 286.9 | 없음 | 수동 | cpp 1/121 사건율 |
+| `measure-phase8-cpp-baseline.sh` | 296.7 | 없음 | 수동 | C++ 기준선 벽시계 52초·54초, 문제당 2.5~3.1초 |
+| `measure-phase8-optimizer-properties.sh` | 264 | 없음 | 자동 | 절 머리글이 계기를 이름으로 든다 |
+| `measure-phase8-optimizer-properties.sh` | 264.9 | 없음 | 자동 | 계기 구조 절. `full`이 `doc/phase8-optimizer-properties.json`에 blob id를 쓴다고 적지만 `full`은 돈 적이 없다 |
+| `measure-phase8-optimizer-properties.sh` | 264.12 | 없음 | 자동 | 닫지 않은 것 목록 |
+| `measure-phase8-optimizer-properties.sh` | 264.13 | 없음 | 자동 | `pilot` 실행 자체. 86 체크 중 73/13, 벽시계 1326초, 계측기 712.7초 |
+| `measure-phase8-optimizer-properties.sh` | 291.2 | 없음 | 자동 | 수를 싣지 않는다 — 계기의 `pins-unmeasured` 두 줄을 인용만 한다 |
+| `measure-phase8-optimizer-properties.sh` | 264.3 | 없음 | 수동 | panda 16문제 중 9, fanuc 16문제 중 11 |
+| `measure-phase8-optimizer-properties.sh` | 264.4 | 없음 | 수동 | STOMP 끝점 밀림 실측 상한 |
+| `measure-phase8-optimizer-properties.sh` | 264.5 | 없음 | 수동 | 조밀화 요구 실측 |
+| `measure-phase8-optimizer-properties.sh` | 264.6 | 없음 | 수동 | 제약 문제 STOMP 실패 |
+| `measure-phase8-optimizer-properties.sh` | 264.7 | 없음 | 수동 | `nontrivial-population` 0 of 11 두 건 |
+| `measure-phase8-optimizer-properties.sh` | 264.8 | 없음 | 수동 | 메시 검사 호출 33회·17~18회, 9→10, 가장 느린 호출 6.78초 |
+| `measure-phase8-optimizer-properties.sh` | 264.10 | 없음 | 수동 | 계측기 자신의 결함 둘 |
+| `measure-phase8-optimizer-properties.sh` | 264.11 | 없음 | 수동 | 변별 변이 결과 |
+| `count-narrowing-sweep.sh` | 189 | `tools/ci/count-narrowing-sweep.sh` | 자동 | 상류 8파일 **140**과 파일별 내역(`planning_scene.cpp` 24 · `planning_scene.hpp` 4 · `robot_state.cpp` 76 · `attached_body.hpp` 0 · `attached_body.cpp` 1 · `world.cpp` 10 · `world.hpp` 4 · `kinematic_constraint.cpp` 21). 코퍼스가 고정 상류 체크아웃이므로 다시 돌리는 것이 증거다 |
+| `count-narrowing-sweep.sh` | 189.1 | `tools/ci/count-narrowing-sweep.sh` | 자동 | 스크립트가 자기 오탐 두 형태를 헤더에 적는다는 사실과 그에 해당하는 두 줄. 수가 아니라 스크립트 본문에 대한 진술이다 |
+| `count-public-declarations.sh` | 119.4 | `tools/ci/count-public-declarations.sh` | 자동 | 수를 싣지 않는다 — 계수 관례를 문장에서 명령으로 옮겼다는 진술뿐이다 |
+| `count-public-declarations.sh` | 189 | `tools/ci/count-public-declarations.sh` | 자동 | 수를 싣지 않는다 — 이 계기가 이미 명령 형태였다는 대조로만 나온다 |
+| `count-public-declarations.sh` | 240.3 | `tools/ci/count-public-declarations.sh` | 자동 | `RobotState` 공개 선언 **228**개(파일 1,764줄) |
+| `count-public-declarations.sh` | 259.2 | `tools/ci/count-public-declarations.sh` | 자동 | 같은 헤더에 대한 교차검증 **130** = 함수 126 + 넷. 이 절의 자기 파서와 독립인 awk 패스다 |
+| `count-relative-eq.pl` | 119.4 | `tools/ci/count-relative-eq.pl` | 자동 | 수를 싣지 않는다 — §119.4의 진술은 두 계기가 명령이 됐다는 것이다 |
+| `count-relative-eq.pl` | 127.4 | `tools/ci/count-relative-eq.pl` | 자동 | 실제 6건인 `epsilon =` 호출을 **0건**으로 보고한 사건. 계기 자신의 결함이고 원인 파일 쪽에서 고쳤다 |
+| `count-relative-eq.pl` | 128.2 | `tools/ci/count-relative-eq.pl` | 자동 | 수를 싣지 않는다 — 통합이 결함을 드러냈다는 진술이다 |
+| `count-relative-eq.pl` | 189 | `tools/ci/count-relative-eq.pl` | 자동 | 수를 싣지 않는다 — 이 계기가 이미 명령 형태였다는 대조로만 나온다 |
+| `requirement-message-closure.py` | 252.3 | `tools/ci/requirement-message-closure.py`, `tools/ci/requirement-closure-moveit-msgs.txt` | 자동 | 컨테이너 안에서만 도는 절반. 그 출력의 `moveit_msgs` 쪽은 체크인돼 있어 포트 쪽 16/18은 컨테이너 없이 재현된다 — 나머지 절반은 오라클 이미지를 요구한다 |
+| `measure-port-coverage-independent.py` | 258.1 | `tools/ci/measure-port-coverage-independent.py` | 자동 | 245/158/87 행 집합 일치. 계기가 트리만 읽으므로 다시 돌리는 것이 증거다 |
+| `measure-port-coverage-independent.py` | 261.1 | `tools/ci/measure-port-coverage-independent.py` | 자동 | 병합 뒤 재측정 |
+| `measure-requirement-closure.py` | 252.1 | `tools/ci/measure-requirement-closure.py` | 자동 | `--check`가 §5 표를 다시 읽는다 |
+| `measure-requirement-closure.py` | 252.2 | `tools/ci/measure-requirement-closure.py` | 자동 | `R-ORACLE` 요구 폐포 69건 중 코퍼스 밖 3건 |
+| `measure-requirement-closure.py` | 252.3 | `tools/ci/measure-requirement-closure.py` | 자동 | `R-CLIENT` 여덟 |
+| `measure-requirement-closure.py` | 252.5 | `tools/ci/measure-requirement-closure.py` | 자동 | 계기별 앵커와 사각 표 |
+
+71행 중 `자동` 29 · `수동` 42이고, 커밋된 증거를 가리키는 것은 **36행**,
+`없음`이 **35행**이다. 증거를 가진 36행 중 12행은
+`doc/phase8-condition2-stomp/`, 4행은 `doc/phase8-seedbase-stomp/`, 3행은 둘
+다이고, 17행은 계측기 자신이다(`트리에서 재실행` 부류).
+
+이 표는 두 번 틀렸다가 고쳐졌다. 하나는 **병합** 때문이다 — `없음`이던 7행이
+이 절을 쓴 날 들어온 증거를 가리키게 됐고, 그 7행은 아래 §305.3이 적는다.
+다른 하나는 병합과 무관한 **누락**이다: §269.3·§269.4·§269.6의 port STOMP
+쪽은 이 라운드 **전부터** `base.port.stomp.*`로 다시 낼 수 있었는데 이 절의
+첫 판에는 그 세 행이 아예 없었다. 게이트는 둘 다 잡지 못한다(§305.4).
+
+### §305.3 제대로 한 자리 하나, 그리고 그 자리에도 있는 구멍
+
+`doc/phase8-condition2-stomp/`는 스윕의 날 출력이 커밋된 자리다. 추적 파일
+18개이고, 그것은 살아 있다 — `python3 doc/phase8-condition2-stomp/rederive.py`
+의 출력이 커밋된 `rederive.txt`와 **바이트 동일**하다(이 라운드가 다시
+확인했다).
+
+이 절의 첫 판은 그 자리를 **유일한** 자리라고 적었고, 근거로 추적된
+`.ndjson`/`.stats` 9개가 전부 그 안에 있다는 것을 들었다. 그 문장은 이 절을 쓴
+날 거짓이 됐다. 지금 세면 15개이고 6개가 `doc/phase8-seedbase-stomp/`에 있다
+(`git ls-files | rg '\.(ndjson|stats)$' | sed 's#/[^/]*$##' | sort | uniq -c` →
+`9 doc/phase8-condition2-stomp` · `6 doc/phase8-seedbase-stomp`). 그 병합이
+무엇을 살렸고 그 자리가 어떻게 깨져 있는지는 아래 셋째 항목이 적는다.
+
+네 가지가 나왔다.
+
+**하나, 그 디렉터리가 자기 절 밖의 수도 되돌려 준다.** §296.6은 아직 병합되지
+않은 다른 패널의 출력 파일에서 유도한 수라고 자기 절에 적어 두었는데, 그
+`seed_valid` 열은 지금 이 트리에 있다 — `seed.floor_wall.ndjson`에서 148,
+`seed.cage.ndjson`에서 101이고, 그 절이 싣는 148·101과 정확히 같다. §300의
+라운드가 커밋한 것이 §296과 §286.1의 절반을 같이 살렸다.
+
+**둘, 그 디렉터리도 전부를 덮지는 않는다.** §300.2의 벽시계 표(최소 4.8s,
+중앙값 20.2s, 최대 5062.6s, 합 45,292s·167,937s)는 여기서 다시 나오지 않는다.
+커밋된 `base.port.stomp.floor_wall.ndjson`의 필드는
+`condition2_by_resolution`·`condition2_valid`·`condition2_valid_at_returned_waypoints`·`id`·`invalid_waypoint_count`·`length`·`solved`
+일곱이고 `wall_secs`가 없다. 증거 열만 읽으면 그 절이 덮인 것으로 보인다 —
+비고 열이 있는 이유다.
+
+**셋, 이 절을 쓴 날 병합이 `없음` 7행을 채웠고, 그중 둘은 발표값과 어긋난다.**
+main의 `1cada05d`가 `doc/phase8-seedbase-stomp/`를 넣었다 — 상류 C++ STOMP를
+씨앗 베이스 700001과 424242에서 잰 네 파일이고, 포트 팔은 없다. 이것이
+§269·§286의 cpp STOMP 열의 원자료다. 이 라운드가 그 파일들에 대고 발표값을
+전부 다시 쟀다.
+
+정확히 다시 나온 것: §269.3의 cpp STOMP 성공 **446/500**과 조건 2 실패 **2**,
+§269.4의 STOMP 행 **437 / 4 / 9 / 50 / 13**과 엇갈리는 id **13개 전부**
+(`cage/133 161 222 231`과 `floor_wall/120 221`·`cage/1 48 91 95 150 170 200`),
+C++ 미해결 **54건 전건** `PLANNING_FAILED`, §286.3의 cpp STOMP 열
+**0·0·0·0·2·2·3·3·3**과 실패 id `floor_wall/84 120 230`(`120`은 0.005에서 처음
+합류한다), §286.1의 STOMP 넷(cpp 씨앗 유효 249/249, 씨앗 무효 미해결 cpp
+54/251·port 59/251, 씨앗 길이 `1e-9` 안 cpp **162**·port **161**, 길이비
+`0.999873`-`1.018523` 중앙값 `1.000000`), §286.6의 `n` = 446과 "cpp STOMP
+446건 전부 40점". 포트 쪽이 필요한 항목은 `doc/phase8-condition2-stomp/`의
+`base.port.stomp.*`가 댄다.
+
+어긋난 것 둘. **§269.6의 "437 중 비트 동일 41"은 재측정에서 36이다.** 둘 다
+푼 437은 맞고, 그 안에서 port와 cpp의 `length`가 정확히 같은 문제가 36건이다.
+**§269.3의 cpp STOMP 조건 3 중앙값은 1 ULP 다르다** — 커밋된 446건에서
+`statistics.median`은 `2.214180345506004`(`0x1.1b6a42f5b2776p+1`)이고 발표값은
+`2.2141803455060045`(`0x1.1b6a42f5b2777p+1`)다. IEEE 배정도로 그 두 중앙
+길이를 어떤 순서로 더해도 발표값이 나오지 않는다(`(a+b)/2`, `a+(b-a)/2`,
+`a/2+b/2`, `0.5*(a+b)` 전부 같은 값). 이 둘을 **어느 쪽이 움직였는지는 이
+트리로 가릴 수 없다** — 발표값을 낸 실행의 출력이 커밋되지 않았기 때문이다.
+같은 팔이라는 것은 확실하다(성공 집합이 id 단위로 일치한다). 이 디렉터리의
+`cpp700001.*`가 재측정이라는 것도 확실하다: `floor_wall`의 최대 `wall_secs`가
+50.65520113s인데 §269.2가 발표한 같은 팔의 최댓값은 34.373373386s다 — §269.2
+자신이 그 열을 기계의 값이라고 적었으므로 이것은 모순이 아니라 다른 실행의
+표식이다.
+
+그리고 브리프가 "이 트리에서 계산할 수 없다"고 한 수 하나가 **STOMP에
+대해서는** 계산된다. 둘 다 푼 437 위에서 잰 조건 3 중앙값은 port
+`2.2078758245130863`, cpp `2.203224917426498`이다. §269.3이 각 팔의 자기 해결
+집합 위에서 잰 `2.210362452483207` 대 `2.2141803455060045`는 이 값이 아니다.
+CHOMP의 363 위 중앙값은 여전히 계산할 수 없다 — CHOMP NDJSON은 어느
+디렉터리에도 없다.
+
+**넷, 그 새 디렉터리는 자기 재현 스크립트가 돌지 않는다.** `rederive.py`의
+머리글은 "Nothing is transcribed. Each number is computed from the NDJSON files
+committed beside this script"라고 적지만, 그것이 읽는 다섯 팔 중 둘이
+커밋되지 않았다 — `port.stomp.floor_wall.ndjson`과 `port.stomp.cage.ndjson`,
+즉 씨앗 베이스 424242의 포트 팔이다. 스크립트는 첫 표를 찍기도 전에
+`FileNotFoundError`로 죽는다(`python3 doc/phase8-seedbase-stomp/rederive.py`,
+종료 코드 1). 그리고 그 디렉터리의 README는 파일 표에 `rederive.txt`를
+"`rederive.py`'s output, committed so a reader can diff"로 싣지만 그 파일은
+커밋돼 있지 않다(`git ls-files doc/phase8-seedbase-stomp/` 10개, `rederive`로
+걸리는 것은 `rederive.py` 하나). 즉 §305가 "제대로 한 모양"이라고 부른 그
+모양이 같은 라운드에 이름만 붙고 깨진 채로 들어왔다. 이 절은 그 두 파일을
+지어내지 않는다 — 몇 시간짜리 포트 STOMP 스윕이고, 없는 것은 없다고 적는
+것이 이 절의 규칙이다. 대신 그 상태를 표에 못박는다 — §305.6이 그 표이고,
+그 두 파일이 커밋되는 순간 게이트가 행을 고치라고 실패한다.
+
+### §305.4 게이트 — 부재는 어느 방향으로만 검사 가능한가
+
+`tools/ci/check-evidence-retention.py`는 세 표를 헤더 행으로 찾아
+(`| 계측기 | 산출물 | 부류 |`, `| 계측기 | 절 | 증거 | 행 출처 | 비고 |`,
+`| 증거 디렉터리 | 상태 | 빠진 파일 | 비고 |`), 각각 문서에 정확히 하나 있을
+것을 요구하고, 어긋나면 실패한다. `check-` 접두사라
+`.github/workflows/ci.yml`의 glob이 집는다.
+
+**검사되고, 문서에서 끌 수 없는 방향.** 전수의 계측기 열은 디스크의 생산자
+집합과 **정확히** 같아야 한다. 그 집합은 접두사 추측이 아니라 §305.1의 선언된
+분할에서 나온다 — `tools/ci/` 아래 추적된 스크립트 전부에 역할이 붙고, 역할이
+선언되지 않은 접두사는 조용한 제외가 아니라 **실패**다. 새 계측기가 생기면
+행이 없어 실패하고, `PORTING-PLAN.md`에 무엇을 써도 그것을 끌 수 없다 —
+방아쇠가 파일이기 때문이다. 반대쪽도 같다: 스크립트가 사라지면 남은 행이
+실패시킨다. 세 번째 표의 방아쇠도 파일이다: 추적된 `doc/**/*.ndjson`의 부모
+디렉터리 전부가 행을 가져야 한다.
+
+**인용을 지워서 만족시킬 수 없는 방향.** 계측기를 이름으로 부르는 문장을
+지우면 그 행이 조용해지는 것이 아니라 **깨진다**. 쌍이 유도되지 않게 되어
+`자동` 행이 남는 행이 되고, 게이트가 그 행을 이름으로 부르며 실패한다.
+조용하게 만들려면 행 출처를 `수동`으로 고쳐야 하고, 그러면 증거 처분은 표에
+그대로 남는다.
+
+**검사되지 않는 방향 — 이것이 구멍이고, 그대로 적는다.** 계측기를 이름으로
+부르지 **않으면서** 그 실행의 수를 싣는 절은 유도되는 쌍을 만들지 않는다.
+§269.3이 정확히 그 모양이다 — 네 팔의 표를 실으면서 스크립트를 한 번도 적지
+않는다. 그런 절은 `수동` 행으로만 기록되고, 그 행 하나가 빠졌는지는 이
+트리의 무엇으로도 증명할 수 없다. 숫자는 숫자일 뿐이고, 사라진 스윕이 낸
+숫자와 다른 숫자를 가르는 규칙이 없다. 게이트는 각 `수동` 행이 실재하는 절과
+실재하는 계측기를 가리키는지만 보지, 그 목록이 전부인지는 보지 않는다.
+
+일곱 가지가 더 검사되지 않는다. 아래 일곱 중 둘은 이 절이 나온 날 **실제로
+일어났고**, 그래서 추정이 아니라 관측이다.
+
+- **`없음` 행의 증거가 그 뒤 커밋되는 것.** 게이트는 증거 열이 가리키는 경로가
+  추적돼 있는지는 보지만, `없음`이 옳은지는 보지 않는다. `없음`은 아무 검사도
+  받지 않는 값이다. 이 절이 나온 날 병합 하나가 7행의 `없음`을 거짓으로
+  만들었고 게이트는 그대로 통과했다(§305.3 셋째 항목). 표가 안전한 방향으로
+  낡는 것이므로 CI를 붉히지 않지만, 그것이 곧 아무도 못 본다는 뜻이다.
+- **행 하나가 아예 없는 것 — `수동` 쪽뿐 아니라 증거가 있는 쪽에서도.** 위에
+  적은 구멍의 두 번째 얼굴이다. §269.3·§269.4·§269.6의 port STOMP 쪽은 증거가
+  이 라운드 전부터 트리에 있었는데 이 절의 첫 판에 행이 없었다. 유도되는 쌍이
+  없으므로 게이트가 셀 대상이 아니었다.
+- **증거 열의 디렉터리가 그 절의 수를 되돌려 주는지.** 게이트는 그 경로가
+  추적돼 있고 존재하는지만 본다. 디렉터리에 추적 파일이 하나라도 있으면
+  증거로 친다. §305.6이 그 디렉터리의 `rederive.py`가 도는지는 따로 재지만,
+  그것이 **이 행이 인용하는 수**를 내는지는 어느 쪽도 재지 않는다.
+- **산출물이 그 계측기가 *쓰는* 파일이라는 것.** 게이트는 그 경로가 추적돼
+  있고, 워크트리에 있고, 그 스크립트의 본문에 문자열로 나타나는지만 본다.
+  쓴다는 것은 행의 주장이지 이 게이트의 측정이 아니다.
+- **유도 코퍼스가 `PORTING-PLAN.md` 하나라는 것.** 오늘 `doc/` 아래에서
+  미보존 계측기를 이름으로 부르는 파일은 셋뿐이고 전부 이 문제 밖이다
+  (`doc/phase8-condition2-stomp/README.md`와 그 안의 `run-subset.sh`는 커밋된
+  증거 자신을 설명하고, `doc/citation-classes-in-repo.txt`는 생성물이다).
+- **`verify-*`·`check-*`를 게이트로 분류해 전수에서 뺀 것.** 근거는 CI가
+  매번 다시 돌리므로 그 판정이 살아 있다는 것인데, 그것은 측정이 아니라
+  판단이다. `tools/ci/verify-*` 중 `mktemp -d`를 여는 것이 9개 있고
+  `verify-phase8-benchmark.sh`가 그중 하나이며 그 파일은 §293·§300이
+  인용하는 상수를 쥐고 있다. 이것은 그것들이 깨끗하다는 주장이 아니라,
+  보지 않았다는 기록이다.
+- **`트리에서 재실행` 일곱의 `수동` 행이 전부인지.** `자동` 쌍은 명령이
+  유도하지만, `count-*` 넷과 `requirement-message-closure.py`에 대해서는
+  이름 없이 그 수를 싣는 절을 찾아 문서를 끝까지 읽은 사람이 없다. 이
+  라운드는 그 넷의 유도 쌍 11개를 명령으로 얻고, `narrowing sweep`·
+  `assertion-discrimination-census`·`public 선언`·`epsilon =` 네 갈래를
+  grep으로 훑는 데서 멈췄다. 보존에는 영향이 없다 — 그 부류는 다시 도는
+  것이 증거다 — 그러나 행 목록이 전수라는 증명은 그쪽에도 없다.
+
+### §305.5 변별 — 규칙 53개를 하나씩 깨서 실제로 붉어지는 것을 쟀다
+
+`tools/ci/check-evidence-retention-discriminates.sh`가 합성 저장소 56개를 짓고
+기대값을 손으로 적는다. 각 시나리오는 `git init`한 별개의 트리이므로
+`PORTING-PLAN.md`가 자라도 기대값이 바뀌지 않는다.
+
+그 다음 게이트의 규칙을 하나씩 무력화하고 **어느 시나리오가 실제로
+붉어지는지** 를 기록했다. 53개 전부의 결과가 그 스크립트 머리에 표로 있다.
+코드를 읽어 예측한 것과 다른 것이 열넷이고, 그중 여섯이 이 절의 산출물을
+바꿨다 — 시나리오 여섯 개가 그 때문에 새로 생겼고 규칙 하나가 지워졌다.
+
+- **`git ls-files`가 빈 경우의 바닥이 아무것도 붉히지 않았다.** 첫 스윕에서
+  나머지 규칙은 전부 시나리오가 있었고 그 하나만 없었다. 검증되지 않은 가드는
+  주장이므로 `empty_index` 시나리오를 그 뒤에 썼다. 스윕이 없었으면 어느
+  규칙인지 알 수 없었다.
+- **계측기 가족 아래 바닥 셋 중 둘이 아무것도 붉히지 않았고, 둘 다
+  시나리오는 있었다.** `empty_family`의 기대 문자열이 두 메시지가 **공유하는
+  꼬리**("would report OK having examined nothing")였기 때문에, 한 바닥을
+  무력화해도 다른 바닥의 실패가 그 기대를 그대로 만족시켰다. 기대를 메시지의
+  머리로 좁히고 `no_producers`를 추가해서야 갈렸다. 기대 문자열은 그 픽스처가
+  고정하는 규칙의 일부이지 주석이 아니다.
+- **`깨짐` 가지의 종료 코드 검사도 아무것도 붉히지 않았다.** `broken_reason_fixed`
+  는 빠진 파일을 커밋하므로 그 앞의 부재 검사에서 먼저 죽어 이 검사에 닿지
+  않는다. 파일은 여전히 없는데 스크립트만 고쳐진 `broken_but_runs`를 그 뒤에
+  썼다. `재현됨` 가지의 `rederive.txt` 추적 검사도 같았고
+  `rederive_txt_untracked`가 그 뒤에 생겼다 — 규칙과 픽스처를 같은 라운드에
+  같이 쓴 것은 픽스처가 그 규칙에 닿는다는 증거가 아니다.
+- **닿을 수 없는 규칙이 하나 있었고, 적지 않고 지웠다.** 출판 행 표의 마지막
+  행이 제외 구간 안에 있는지 보는 검사인데, 바로 위의 "두 표가 같은 `##`
+  절에 있다"가 이미 그것을 함의한다(표의 행은 연속한 `|` 줄이므로 헤더가 있는
+  구간을 벗어나려면 사이에 `##`가 있어야 하고, 그러면 표가 먼저 갈라진다).
+  어떤 픽스처로도 붉힐 수 없었다.
+- **`find_table`의 `len(starts) != 1`은 한 규칙처럼 보이지만 둘이다.**
+  "첫 일치를 쓴다"로 약화시키면 `duplicate_census`만 붉어지고
+  `missing_census`는 여전히 스스로 실패한다. `missing_census` 하나만 있는
+  픽스처 집합이었으면 이 규칙이 전부 덮인 것으로 측정됐을 것이다.
+- **셀 수 검사를 빼도 `wrong_cell_count`는 0이 아닌 코드로 끝난다** — 튜플
+  언패킹의 `ValueError`로. 그 시나리오가 붉어지는 것은 **메시지** 때문이지
+  종료 코드 때문이 아니다. 기대값을 "0이 아닌 코드로 끝난다"로 적었으면 그
+  가드는 불필요한 것으로 판정됐을 것이다.
+
+나머지는 규칙 하나가 시나리오 하나에 대응하지 않는 경우다: 미신고 쌍 검사를
+빼면 산문 언급과 펜스 안 언급이 **둘 다** 붉어지고(한 규칙, 두 모양), 추적
+검사를 무조건 통과로 바꾸면 다른 분기를 재는 `deleted_evidence_dir`까지
+붉어지며(`check_evidence_path`의 세 분기는 독립적으로 무력화되지 않는다),
+증거 열을 한 토큰으로 되돌리면 두 시나리오가 다 붉어지되 둘째는 **틀린
+메시지**로 붉어지고(행이 경로 검사에 닿기 전에 죽는다 — 경로별 검사를
+고립시키는 것은 `[:1]` 무력화 하나뿐이다), 전수 절 제외를 빼면 **통과해야
+하는** `baseline`과 `manual_survives_deletion`이 붉어진다 — 그 규칙을 잡는
+것은 실패 픽스처가 아니라 통과 픽스처다.
+
+그 마지막 규칙의 폭발 반경이 이 라운드에 3에서 **20**으로 늘었다. 새 규칙이
+아니라 새 시나리오 때문이다: 증거 디렉터리 시나리오는 전부 자기 전수 표 안에서
+계측기를 이름으로 부르므로, 제외가 빠지면 그 표들이 자기 자신에 대한 쌍을
+유도한다. 시나리오를 늘리는 것이 규칙 하나의 측정값을 바꾼다는 뜻이고, 표에
+적힌 수는 그 스윕 시점의 것이다.
+
+증거 열이 목록이어야 한다는 것은 이 라운드가 표를 고치다 배웠다. §269.4의
+STOMP 행은 포트 팔과 cpp 팔이 서로 다른 디렉터리에 있어 한 경로로는 적을 수
+없고, 게이트가 `증거 must be exactly one backticked token`으로 그것을 막았다.
+`산출물` 열은 이미 목록이었는데(계측기 하나가 파일 둘을 쓰는 경우가 있어서)
+증거 열만 한 토큰이었다 — 같은 모양을 두 열 중 한 곳에만 적용한 것이 이
+라운드에 물었다.
+
+### §305.6 커밋된 증거 디렉터리 — 그 안의 재현 스크립트가 실제로 도는가
+
+증거 열이 디렉터리를 가리킨다는 것은 그 안에 파일이 있다는 뜻일 뿐이다.
+§305.3이 "제대로 한 모양"이라고 부른 것은 더 강하다 — 데이터 옆에
+`rederive.py`가 있고 그 출력이 `rederive.txt`로 커밋돼 있어 읽는 사람이 diff를
+뜰 수 있다는 것. 세 번째 표가 그 모양을 **주장하는 자리마다 실제로 도는지**
+재고, 도는 자리와 깨진 자리를 각각 못박는다.
+
+| 증거 디렉터리 | 상태 | 빠진 파일 | 비고 |
+|---|---|---|---|
+| `doc/phase8-condition2-stomp/` | 재현됨 | 없음 | 추적 18파일. `rederive.py`의 출력이 커밋된 `rederive.txt`와 바이트 동일하다 |
+| `doc/phase8-seedbase-stomp/` | 깨짐 | `doc/phase8-seedbase-stomp/port.stomp.floor_wall.ndjson`, `doc/phase8-seedbase-stomp/port.stomp.cage.ndjson` | 씨앗 베이스 424242의 포트 STOMP 팔. 그 README의 파일 표는 이 둘과 `rederive.txt`를 싣지만 셋 다 어느 커밋에도 없다 |
+
+가족은 **데이터에서** 온다 — 추적된 `doc/**/*.ndjson`의 부모 디렉터리 집합
+이고, 오늘 그것이 위 둘이다. 스크립트가 있는 자리에서 가족을 잡으면
+`rederive.py`를 지우는 것이 게이트를 끄는 방법이 된다. 데이터에서 잡으면
+지우는 것이 **실패**다.
+
+`깨짐`은 면제가 아니라 **고정**이다. 그 행은 자기를 깨는 파일을 이름으로 적어야
+하고, 게이트는 그 파일이 정말로 인덱스에도 워크트리에도 없는지, 스크립트가
+정말로 0이 아닌 코드로 죽는지, 그리고 그 실패 출력이 그 파일을 부르는지를
+전부 확인한다. 셋 중 무엇이 바뀌어도 실패한다 — 그 파일이 커밋되면 "행이
+`재현됨`이어야 한다"로, 다른 이유로 죽으면 "행이 부르는 이유가 아니다"로.
+그리고 `깨짐` 행은 `rederive.txt`가 추적돼 있으면 실패한다: 자기 스크립트가
+재현하지 못하는 출력을 커밋해 두는 것은 없는 것보다 나쁘다.
+
+### §305.7 이 절이 재지 않은 것
+
+재지 않은 것:
+
+- **`수동` 42행이 전부인지.** 위 §305.4가 적은 구멍의 다른 이름이다. 이
+  목록은 §252·§258·§261·§264·§269·§286·§293·§296·§300의 본문을 읽어 손으로
+  만든 것이고, 빠진 절이 있는지는 어떤 명령으로도 확인되지 않는다. 이 절이
+  나온 날 그 목록에서 3행이 빠져 있던 것이 측정으로 드러났다(§269.3·§269.4·
+  §269.6의 port STOMP 쪽) — 명령이 아니라 발표값을 하나씩 다시 재다가 나왔다.
+- **`tools/ci/verify-*` 9개.** `mktemp -d`를 열지만 이 게이트의 가족이
+  아니다. 그중 `verify-phase8-benchmark.sh`는 §293·§300이 인용하는 상수를
+  쥐고 있으므로 같은 질문이 붙을 자리이고, 이 절은 열어 보지 않았다.
+- **사라진 35행의 복구.** 다른 패널의 스크래치 출력을 지어내지 않았다. 없는
+  것은 행이 `없음`이라고 적는다. §269의 네 팔은 이 라운드에 p10-phase13이
+  다시 돌리고 있고, 그 결과가 병합되면 §305.2의 해당 행들의 증거 열이
+  바뀌어야 한다 — 이 절은 그 재실행을 중복하지 않았다.
+- **`doc/phase8-seedbase-stomp/`의 빠진 두 파일.** 씨앗 베이스 424242의 포트
+  STOMP 팔이고, 그것이 없어 그 디렉터리의 `rederive.py`가 돌지 않는다
+  (§305.3 넷째 항목). 이 절은 그 스윕을 돌리지 않았고 스크립트도 고치지
+  않았다 — 그 디렉터리는 다른 패널의 것이고, 지금 계산할 수 있는 것만 남기려면
+  E·F 절의 분석을 지워야 한다. 그 결정은 그 절을 쓸 패널의 것이다.
+- **§269.6의 41과 36 중 어느 쪽이 옳은지.** 어긋남은 쟀지만 가리지 못했다.
+  발표값을 낸 실행의 cpp 길이 열이 커밋되지 않았고, 지금 트리에 있는 것은
+  같은 씨앗 베이스의 **다른** 실행이다(§305.3 셋째 항목). 이 절은 어느 쪽을
+  고치지도, 어느 쪽을 옳다고 적지도 않았다.
+- **C++ STOMP의 `length`가 같은 씨앗 베이스에서 실행 간 재현되는지.** 위
+  어긋남의 원인 후보이고, 확인에는 `cpp700001.*`를 한 번 더 돌려 자기 자신과
+  비교하는 것이 필요하다 — 오라클 컨테이너의 500문제 실행이고 이 절은 하지
+  않았다.
+- **`doc/phase8-optimizer-properties.json`을 만드는 것.** `MODE=full`을 돌리면
+  §264의 13행이 증거를 갖게 되지만, 그 실행의 비용은 §264.13이 쟀듯 게이트
+  전체 1326초이고 이 절은 돌리지 않았다.
+- **§300.2의 벽시계 표.** `wall_secs`를 NDJSON에 싣게 하는 것은 하네스
+  변경이고, 이 절은 그 필드가 없다는 사실만 쟀다.
+
+
+## §304 §269·§286의 네 표가 기대던 파일이 없었다 — 여덟 팔을 다시 재서 커밋했고, 짝지은 중앙값을 처음 발표한다 (2026-08-07)
+
+§264.12의 `C++ CHOMP 기준선` 불릿은 "이 라운드가 한 것은 계측기 복원까지이며,
+그 위에서 낸 수치를 절로 적지는 않았다 — 그 수치를 담을 절은 아직 없다"로
+끝난다. 절반은 이미 거짓이었다: §269.3이 네 팔의 조건 1·2·3을 싣고 있다.
+절반은 참이었고 그쪽이 이 라운드의 일이다 — 같은 불릿이 이름을 부른 네 검사 중
+`condition3-paired`와 `no-regression-cpp-solved`는 이 모집단에 대해 **발표된 값이
+없었다**.
+
+그리고 어느 쪽도 이 트리에서 확인할 수 없었다. §269.3·§269.4·§286.3·§286.6의
+per-problem NDJSON은 **한 번도 커밋된 적이 없다**. `git ls-files`가 찾는 것은
+`doc/phase8-condition2-stomp/` 하나뿐이고, 그것은 한 라운드의 *포트* STOMP 두 팔을
+단일 동작점(`[0.05]`)에서 잰 것이며 C++ 팔은 없다. 네 표가 전부 사라진 스크래치
+파일에 기대고 있었다.
+
+이 절은 여덟 팔(플래너 2 × 설정 2 × 양쪽 2)을 같은 모집단·같은 씨앗 베이스·§286의
+그리드로 다시 재서 `doc/phase8-baseline-500/`에 커밋하고, 그 바이트에서 네 표를
+셀 단위로 다시 뽑은 기록이다.
+
+### §304.1 모집단 — 같은 500문제임을 먼저 확인하고 시작했다
+
+panda_arm, `floor_wall` 250문제(집합 씨앗 900001) + `cage` 250문제(900002),
+문제당 플래너 RNG 씨앗 베이스는 양쪽 다 700001(`PORT_SEED_BASE` /
+`PLANNER_SEED_BASE`). 조건 2 그리드는 §286의 여덟 점
+`0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001`이다.
+
+무엇이든 오래 돌리기 **전에** 모집단부터 맞췄다. 생성한 두 집합은 §296.6이
+기록한 `dfa126bc1b32c991ebd31f72a99c2996`와
+`d727fe2d7da4fade979bd2c69414d752`로 해시되고, 커밋되어 있던
+`doc/phase8-condition2-stomp/`의 사본과 **바이트 동일**하다(`cmp`). C++ 쪽에는
+생성기를 한 번 더 돌리는 대신 포트가 쓴 그 파일을 `SET_FILE=`로 넘겼으므로,
+"같은 문제"는 논증이 아니라 바이트 동일성이다.
+
+한 가지 함정을 적어 둔다. C++ 하네스는 `SET_FILE`을
+`<out_dir>/<config>.<count>.<seed>.set.json`으로 복사하므로, `SET_FILE`이 이미
+그 경로이면 `cp`가 거부하고 팔은 **아무것도 계획하지 않은 채 몇 초 만에 rc=1로
+끝난다** — 상태 줄에서는 빠른 성공처럼 읽힌다. 네 C++ 팔이 처음에 정확히 그렇게
+죽었고(`rc=1 secs=0`), 양쪽에 다른 출력 디렉터리를 준 뒤 다시 돌렸다.
+
+### §304.2 이 측정이 몇 자리까지 재현되는가 — 먼저 재고 나서 바를 정했다
+
+§269.3은 중앙값을 16·17자리로 싣는다. 재현 여부를 셀 단위로 판정하려면 그
+자릿수가 실제로 재현되는지부터 알아야 하므로, 바를 고르기 전에 **쟀다**.
+
+계기는 두 패널이 각각 만든 **완전한 두 팔**이다. 이 절의
+`doc/phase8-baseline-500/cpp.stomp.*`와, p10-phase7이 같은 씨앗 베이스에서
+독립적으로 낸 `doc/phase8-seedbase-stomp/cpp700001.*`(두 집합 파일은 서로
+바이트 동일). 500 id 전부에서
+
+- `solved` 불일치 **0건**,
+- `planner_rng_seed`가 양쪽 다 `700001 + id`인 행 **500/500**,
+- 푼 446문제의 **조건 2 그리드 전체가 446/446 동일**,
+- `length`는 446 중 **300건이 다르고**, 최대 상대차 **1.577e-15**,
+- `floor_wall` 중앙값은 비트 동일, `cage` 중앙값은 **2.056e-16** 차이.
+
+즉 길이는 약 **15자리**까지 재현되고 그 아래는 재현되지 않는다. §269.3이 싣는
+16·17자리는 이 측정이 감당하는 것보다 두어 자리 많다.
+
+작은 규모에서 같은 것을 한 번 더 확인했다. 같은 이미지·같은
+`--planner-rng-seed`·같은 요청 바이트로 한 문제를 두 번 돌리면 STOMP는 21문제 중
+**15건**의 길이가 움직이고(최대 상대차 **4.890e-16**), CHOMP는 22문제 중
+**0건**이 움직인다. 두 반복 사이에 `length` 말고 다른 필드가 달라진 쌍은
+없다 — 여덟 점 조건 2 그리드까지 포함해서다
+(`doc/phase8-baseline-500/repeat.cpp.*.floor_wall.ndjson`; 이 파일은 팔이 아니라
+`floor_wall`의 21·22개 층화 id다).
+
+그래서 이 절의 판정 규칙은 이렇다. **개수·id 집합·조건 2 판정은 정확히**
+비교하고, **중앙값은 상대차 1e-12**로 비교한다. 1e-12는 잰 바닥(1.577e-15)보다
+세 자릿수 위라 합산 순서로는 닿을 수 없고, 두 실행이 서로 다르게 계획했다는
+뜻이 될 만한 차이보다는 한참 아래다. 이 바 위로 어긋나는 칸이나, 이산 필드가
+하나라도 어긋나는 칸은 실제 발산이다.
+
+### §304.3 §269.3의 네 팔은 재현된다
+
+| | 성공 | 발표값 | 조건 2 실패 | 발표값 | 길이 중앙값 | 발표값 | 상대차 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| port CHOMP | 380/500 | 380 | 1 | 1 | 2.163978163668814 | 같음 | 0 |
+| cpp CHOMP | 370/500 | 370 | 1 | 1 | 2.1469494181135858 | 같음 | 0 |
+| port STOMP | 441/500 | 441 | 3 | 3 | 2.210362452483207 | 같음 | 0 |
+| cpp STOMP | 446/500 | 446 | 2 | 2 | 2.214180345506004 | 2.2141803455060045 | 2.006e-16 |
+
+성공 수·조건 2 실패 수는 네 팔 전부 **정확히** 같고, 중앙값은 셋이 비트 동일,
+넷째가 **1 ulp** 어긋난다. §304.2가 잰 바(1e-12)로 네 칸 모두 재현이다. 그
+1 ulp는 이 포트의 것이 아니라 상류 C++ STOMP가 자기 자신과도 그만큼밖에
+일치하지 않는다는 사실이며, §269.3이 그 자리에 17자리를 실은 것이 과했던
+것이다.
+
+포트 쪽은 대조적으로 **완전히 결정적**이다. 이 절의 port STOMP 두 팔은 다른
+라운드가 같은 모집단·같은 씨앗 베이스에서 낸
+`doc/phase8-condition2-stomp/base.port.stomp.*`와 푼 441문제의 길이가
+**441/441 비트 동일**하고 `solved` 불일치가 0건이다. 재현되지 않는 것은 한
+쪽뿐이다.
+
+같은 절의 둘째 표(같은 플래너를 기준선으로 삼은 네 바)도 다시 나온다:
+port CHOMP 조건 1 `76.0000% vs 66.6000%`, 조건 3
+`2.163978163668814 vs 2.7910342435476614`, port STOMP 조건 1
+`88.2000% vs 80.2800%`, 조건 3
+`2.210362452483207 vs 2.8784344491578056` — 네 칸 MET이고, 마지막 바만
+발표된 `2.878434449157806`과 1.5e-16 어긋난다. 그 어긋남은 이 바가 cpp STOMP
+중앙값의 1.3배이기 때문이며, 위 표의 1 ulp가 그대로 전파된 것이다.
+
+### §304.4 §269.4의 네 갈래 분할은 id까지 재현된다
+
+| | 둘 다 품 | 포트만 | C++만 | 둘 다 못 품 | 엇갈림 |
+| --- | --- | --- | --- | --- | --- |
+| CHOMP | 363 | 17 | 7 | 113 | 24 |
+| STOMP | 437 | 4 | 9 | 50 | 13 |
+
+네 칸 전부 발표값과 같고, **엇갈린 id 37개가 하나도 빠짐없이** 같다 — CHOMP
+포트만 17건, C++만 7건, STOMP 포트만 4건, C++만 9건. 실패 사유 히스토그램도
+같다: CHOMP는 양쪽 전건 `INVALID_MOTION_PLAN`(포트 120, C++ 130), STOMP는
+양쪽 전건 `PLANNING_FAILED`(포트 59, C++ 54).
+
+### §304.5 §286.3의 그리드 아홉 행도 재현된다 — §300.9가 지목한 id 포함
+
+아홉 행 × 네 열, 36칸 전부가 발표값과 정확히 같다. 실패한 id도 전부 같다:
+port CHOMP `cage/221`, cpp CHOMP `cage/27`, cpp STOMP `floor_wall/84 120 230`,
+port STOMP `floor_wall/77`, `cage/98 133 159`.
+
+§300.9가 이름을 부른 주장이 여기서 처음으로 **커밋된 파일로** 확인된다.
+0.01 바에서 cpp STOMP가 깨는 것은 정확히 `floor_wall/84`와 `floor_wall/230`
+둘이고, `floor_wall/120`은 0.005부터 합류한다. 포트가 깨는 것은
+`floor_wall/77`, `cage/133`, `cage/159`이고 0.005에서 `cage/98`이 합류한다.
+**두 집합은 그리드 전체에서 하나도 겹치지 않는다.** 그 주장의 C++ 쪽은
+§269.5의 옮겨 적은 표에만 있었고 확인할 파일이 없었다 — 그것이 이 라운드가
+존재하는 이유 자체였다.
+
+같은 절의 stratum 주장도 확인된다: 네 팔의 조건 2 실패는 **전부** 씨앗 무효
+stratum에서 나오고, 씨앗 유효 249문제에서 조건 2가 깨진 사례는 어느 팔에도
+없다.
+
+### §304.6 `condition3-paired` — 이 모집단에 처음 발표하는 값
+
+§269.3의 조건 3은 **각자 자기 해결 집합 위의** 중앙값이다. 그것은 약한 형태다:
+어려운 문제를 못 푸는 쪽은 그 문제의 긴 경로가 자기 중앙값에서 **빠지므로**,
+나빠질수록 더 쉽게 통과한다. 짝지은 형태 — 양쪽이 **둘 다 푼** 문제만으로
+중앙값을 내는 것 — 은 그 탈출구를 막는다.
+
+| | 짝 n | port 중앙값 | cpp 중앙값 | 1.3x 한계 | 비 | 판정 |
+| --- | --- | --- | --- | --- | --- | --- |
+| CHOMP / floor_wall | 187 | 2.1206673038481596 | 2.1206673038481596 | 2.7568674950026075 | 1.000000x | MET |
+| CHOMP / cage | 176 | 2.1742506069063845 | 2.1791540303592862 | 2.8329002394670724 | 0.997750x | MET |
+| CHOMP / pooled | 363 | 2.1464396295469816 | 2.1464396295469816 | 2.7903715184110762 | 1.000000x | MET |
+| STOMP / floor_wall | 239 | 2.304367310777734 | 2.3043673107777334 | 2.9956775040110535 | 1.000000x | MET |
+| STOMP / cage | 198 | 2.144364491533381 | 2.144309877523285 | 2.7876028407802704 | 1.000025x | MET |
+| STOMP / pooled | 437 | 2.2078758245130863 | 2.2032249174264993 | 2.864192392654449 | 1.002111x | MET |
+
+여섯 판정 전부 MET이고, **가장 나쁜 칸이 1.002111x** — 한계 1.3x에 대해 여유가
+299 대 2다. 짝지은 모집단이 §269.4의 "둘 다 품" 칸과 정확히 같은 수(CHOMP 363,
+STOMP 437)라는 것도 표에서 읽힌다.
+
+**검정력.** 씨앗 유효 stratum의 문제는 두 구현 모두 시작 궤적을 그대로
+돌려주므로(포트 CHOMP의 `loop.accepted == 0`과 `seed_valid`가 380/380 정확히
+일치한다) 그 문제들의 길이는 양쪽이 **같을 수밖에 없고**, 위 표의 짝에서 그만큼이
+자동 통과다. 그래서 씨앗 무효 stratum만으로 다시 냈다.
+
+| | 짝 n | port 중앙값 | cpp 중앙값 | 비 | 포트가 김 / C++가 김 | 판정 |
+| --- | --- | --- | --- | --- | --- | --- |
+| CHOMP / pooled | 114 (363 중) | 2.3932796258685256 | 2.3871388224689474 | 1.002572x | 55 / 59 | MET |
+| STOMP / pooled | 188 (437 중) | 2.3875403194605296 | 2.394765869825624 | 0.996983x | 87 / 101 | MET |
+
+검정력 있는 부분집합에서도 최악이 1.002572x이고, 어느 쪽이 더 긴지는 거의
+반반이다(CHOMP 55:59, STOMP 87:101) — 한쪽으로 치우친 편향이 아니라 문제별
+잡음이다. 나머지 249문제는 정확히 씨앗 유효 stratum(148 + 101)이다.
+
+### §304.7 `no-regression-cpp-solved` — 값은 냈고, 바닥선은 걸지 않는다
+
+이 모집단에서 C++ 쪽이 푸는 수는 이렇다.
+
+| | floor_wall | cage | 합 |
+| --- | --- | --- | --- |
+| cpp CHOMP | 190/250 | 180/250 | **370/500** |
+| cpp STOMP | 241/250 | 205/250 | **446/500** |
+
+그리고 **바닥선을 걸 것을 권하지 않는다.** 한 문장으로: 이 수는 씨앗 베이스를
+고정하면 정확히 재현되지만(두 패널의 독립 실행이 500/500 `solved` 플래그를
+일치시켰다, §304.2) §286.5가 **씨앗 베이스만** 700001에서 424242로 바꿔 같은
+500문제에서 cpp CHOMP를 370에서 378로 옮긴 것을 이미 쟀으므로, `>= 370` 같은
+바닥선은 구현이 아니라 **이 뽑기**를 고정하게 된다.
+
+거기서 따라 나오는 것을 적어 둔다. 잡음이 8문제인 양에 대해 바닥선은 8문제보다
+작은 회귀를 잡을 수 없고, 잡으려고 바를 370에 붙이면 다른 씨앗 베이스에서
+거짓 경보를 낸다. 재현이 정확한 것은 **씨앗 베이스를 고정했을 때**뿐이므로,
+쓸 만한 형태는 바닥선(`>=`)이 아니라 고정 씨앗 베이스에서의 **등식 고정**
+(700001에서 CHOMP 370, STOMP 446)이고, 그것이 값어치가 있으려면 재는 대상이
+"상류 구현이 얼마나 잘 푸는가"가 아니라 "오라클 이미지가 어제와 같은가"임을
+이름에 적어야 한다. 후자는 이미 다이제스트 고정이 하고 있다. 그래서 이
+라운드는 값만 발표하고 검사는 만들지 않는다.
+
+### §304.8 이 수치들은 커밋된 바이트에서 다시 나온다
+
+여덟 팔의 per-problem NDJSON, 두 `.set.json`, 두 stratum 파일, 반복 프로브 둘,
+재유도 스크립트와 그 전사본, README — 17개 파일이
+`doc/phase8-baseline-500/`에 커밋되어 있다.
+
+`rederive.py`는 **그 디렉터리만** 읽는다. 오라클도, docker도, cargo도, 상류
+체크아웃도, 디렉터리 밖 경로도 쓰지 않는다. 위 네 표와 §300.9의 id 집합과
+§304.6의 짝 중앙값이 전부 그 바이트에서 1초 안에 다시 나온다.
+
+`tools/ci/check-phase8-baseline-500.sh`가 17개 파일을 **하나씩 이름으로**
+추적 여부를 확인한 뒤(glob은 살아남은 것에 대해 OK를 내므로) `--check`로
+전사본과 대조한다. 세 종류의 변형으로 물리는 것을 확인했다: 전사본의 숫자
+하나를 바꾸면 diff와 함께 exit 1, NDJSON의 조건 2 판정 하나를 뒤집으면
+exit 1, 기대 파일 하나를 untrack하면 그 이름으로 exit 1.
+
+한 가지를 더 막아 두었다. 그리드 없이 단일 동작점만 실린 팔을 먹이면
+`rederive.py`는 §286.3 표를 **전부 0으로 채운 채 통과**했다 — 없는 판정을
+통과로 읽은 것이다. 지금은 팔을 읽자마자 푼 문제마다 여덟 점이 다 있는지
+확인하고, 하나라도 없으면 그 팔이 그리드로 쓸린 것이 아니라며 exit 1 한다.
+
+### §304.9 이 절이 재지 않은 것
+
+- **비용은 기계의 성질이다.** 여덟 팔의 벽시계는 cpp CHOMP 89 s·93 s,
+  cpp STOMP 120 s·146 s, port CHOMP 336 s·332 s, port STOMP 7505 s
+  (`floor_wall`)·5737 s (`cage`)다. 마지막 둘은 다른 패널이 자기 STOMP 팔을
+  돌리는 동안, 그리고 서로 1시간 26분 겹친 채(문제당 한 프로세스이므로 최대
+  500개 동시) 잰 것이다. 플래너의 성질로 읽으면 안 된다.
+- **다른 씨앗 베이스는 이 라운드가 다시 재지 않았다.** §286.5의 424242 표는
+  그 절이 잰 것이고 그 NDJSON은 여전히 커밋되어 있지 않다. 이 절이 닫은 것은
+  700001 모집단이다.
+- **`seed.<config>.ndjson`은 다시 재지 않고 옮겨 실었다.** 커밋되어 있던
+  `doc/phase8-condition2-stomp/`의 바이트 사본이며, md5는
+  `33bad700bcb05af4f80961be875c9ef0`·`88800c09bcb3604d9b99f261ef6f18a3`다.
+- **`repeat.cpp.*`는 팔이 아니다.** `floor_wall`의 층화 21·22 id이고 `cage`는
+  없다. §304.2의 자릿수는 이것이 아니라 두 패널의 완전한 두 팔에서 나온다.
+
 ## §306 두 번째 코퍼스의 findings를 닫았다 — 세 등급을 hard로 올리고, 판단이 필요한 셋은 남겼다 (2026-08-07)
 
 §299.9가 선언만 하고 남겨 둔 findings를 이번 회차에 닫았다. 브리프가 준
@@ -33865,8 +34877,8 @@ unresolvable이다.
 
 | 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30563` | `PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
-| `PORTING-PLAN.md:31513` | `PORTING-PLAN.md:26866` | §267.1 (26904-26926) | §266.8 |
+| `PORTING-PLAN.md:30579` | `PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
+| `PORTING-PLAN.md:31531` | `PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
 | `doc/claim-audit/upstream-bugs.md:37` | `PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
 
 세 건 다 baseline에 findings로 선언돼 있고 passing 등급으로 얼려지지
@@ -33902,11 +34914,11 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
 `oracle.cpp:5688` 전사 줄이다. §287.7의 문장이 "그 실행은 실제로 5688을
 찍었다"고 말하는 것과 정확히 맞고, 그 문장이 이 인용을 고치면 위조가 된다고
 한 이유이기도 하다 — 5688은 살아 있는 `oracle.cpp` 인용이 아니라 실행
-출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27602`에 있다(§271.3
-안, 펜스 27597–27604).
+출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27615`에 있다(§271.3
+안, 펜스 27611–27617).
 
 §299.7은 이것을 `$ rg -l -w 'NearestNeighbors' .` 출력으로 읽고 27499(+13)로
-옮겼다고 적었다. 그 펜스는 오늘 27507–27522에 있고, 5688을 찍은 펜스와 약
+옮겼다고 적었다. 그 펜스는 오늘 27514–27529에 있고, 5688을 찍은 펜스와 약
 85줄 떨어져 있다. **+13은 다른 펜스에 대한 산술이었다.** §299.7을 그 자리에서
 고쳤다.
 
@@ -33922,7 +34934,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
   자리가 남는다.
 
 그래서 번호만 고치지 않고 **검사 가능한 형태로 바꿨다**: §287.7의 문장이
-이제 `§271.3의 PORTING-PLAN.md:27602`로 절을 이름 댄다. 다음에 §271.3의
+이제 `§271.3의 PORTING-PLAN.md:27615`로 절을 이름 댄다. 다음에 §271.3의
 내용이 밀리면 인용이 절 범위 밖으로 나가고, 그때는 게이트가 말한다. 손으로
 고친 번호는 다시 밀린다 — 이 인용은 이미 두 번 밀렸다. 남길 것은 번호가
 아니라 그것을 붙잡는 규칙이다.
@@ -34001,3 +35013,540 @@ A1과 A4는 **재지 못한다**. A1은 상류 체크아웃과 두 opt-in 게이
 
 표의 한 행을 지워서 조건을 피할 수 없다: A1–A4 중 하나라도 없으면 실패이고,
 `### 감사 완료 조건 현황표` 제목 자체가 사라져도 실패다.
+
+---
+
+## §303 STOMP의 두 번째 씨앗 베이스 — 실패 id가 하나도 겹치지 않고 순서까지 뒤집히는데, `r*`만은 움직이지 않는다 (2026-08-07)
+
+§286.5는 CHOMP에 대해 `r*`를 반증했다: 플래너 씨앗 베이스만 700001에서
+424242로 바꾸자 상류 C++ CHOMP의 조건 2 실패가 1건에서 0건이 되고 `r*`가 네
+칸 내려갔다. §286.11은 같은 교체를 STOMP에 대해서는 하지 않았다고 적었다 —
+포트 STOMP 한 벌이 약 두 시간이기 때문이다. 이 절이 그것을 돌렸다.
+
+물음은 §286.11이 연 그대로이고, 어느 쪽으로도 답이 나올 수 있게 적는다:
+두 번째 씨앗 베이스에서 STOMP은 §286.5의 CHOMP처럼 **같은 자릿수의 실패가
+다른 문제 id에 앉는가**, 아니면 포트가 **같은 id를 계속 실패**하거나 **두
+베이스 모두에서 cpp보다 체계적으로 많이** 실패하는가. 뒤의 둘 중 하나라면
+그것은 포팅 결함 신호이고 그렇게 적어야 한다.
+
+답은 앞쪽이다. 다만 CHOMP과 갈리는 대목이 하나 있고(§303.5), 그 대목이
+§286.7이 채택한 문안을 이 씨앗 베이스에서도 지탱한다.
+
+### §303.1 여섯 팔, 같은 500문제 — 그리고 계기가 맞는지부터
+
+모집단은 §286과 **바이트 단위로 같다**. panda_arm, `floor_wall` 250문제
+(집합 씨앗 900001), `cage` 250문제(900002). 이 라운드가 생성기로 다시 뽑은
+집합 파일이 `doc/phase8-condition2-stomp/`의 것과 `cmp` 동일이다:
+
+    dfa126bc1b32c991ebd31f72a99c2996  floor_wall.250.900001.set.json
+    d727fe2d7da4fade979bd2c69414d752  cage.250.900002.set.json
+
+§296.6이 집합 동일성을 `md5sum`으로 박아 둔 그 두 값이다. C++ 쪽에는
+`SET_FILE=`로 포트가 소비한 **그 파일**을 넘겼으므로, 두 구현이 같은 바이트를
+본다는 것은 두 생성기 실행이 일치한다는 논증이 아니라 복사다.
+
+여섯 팔을 돌렸다. 팔마다 다른 것은 문제마다의 플래너 RNG 씨앗
+(`seed_base + problem.id`) 하나뿐이다.
+
+| 팔 | 씨앗 베이스 | 출처 | 벽시계 |
+| --- | --- | --- | --- |
+| port STOMP `floor_wall` | 424242 | `doc/phase8-seedbase-stomp/port.stomp.floor_wall.ndjson` | 6,533.1s |
+| port STOMP `cage` | 424242 | `doc/phase8-seedbase-stomp/port.stomp.cage.ndjson` | 7,265.7s |
+| cpp STOMP `floor_wall` | 424242 | `doc/phase8-seedbase-stomp/stomp.floor_wall.ndjson` | 131.6s |
+| cpp STOMP `cage` | 424242 | `doc/phase8-seedbase-stomp/stomp.cage.ndjson` | 162.8s |
+| cpp STOMP `floor_wall` | 700001 | `doc/phase8-seedbase-stomp/cpp700001.floor_wall.ndjson` | 138.1s |
+| cpp STOMP `cage` | 700001 | `doc/phase8-seedbase-stomp/cpp700001.cage.ndjson` | 157.5s |
+
+두 포트 팔은 **동시에** 돌렸다(96코어에 문제당 한 프로세스씩 500개). 그래서
+위 벽시계는 서로 경합한 값이고, 두 팔의 합이 아니라 큰 쪽인 약 121분이 이
+라운드의 측정 시간이다. 결과 자체는 부하와 무관하다 — 포트 쪽 시계 인자는
+비구속값 `NO_CLOCK_BOUND` = 1e9이고, C++ 쪽은 `STOMP_CLOCK_BOUND` = 3600에
+`timed_out`이 양쪽 config 모두 0으로 검사된다.
+
+일곱 번째 팔은 새로 돌리지 않았다. 씨앗 베이스 700001의 **포트** 팔은
+`doc/phase8-condition2-stomp/base.port.stomp.<config>.ndjson`으로 이미
+커밋되어 있고, 그 스윕의 그리드가 `[0.05]`라 0.05·0.01(자기
+`motion_resolution`)·반환 waypoint 세 지점만 답한다. 그 세 지점이 아래
+교집합의 핵심이므로 그대로 쓰고, 그 아래 해상도에 대한 §286.3의 진술은
+인용으로만 적는다(§303.4).
+
+**계기가 맞는지부터 확인했다.** cpp@700001은 §286.3이 이미 발표한 열이다.
+이 라운드가 그것을 다시 재서, 발표된 값과 대조했다.
+
+| | §286.3이 적은 값 | 이 라운드의 재측정 |
+| --- | --- | --- |
+| 해결 | 446/500 | **446/500** |
+| 0.01에서 실패 | 2 (`floor_wall/84`, `230`) | **2 (`floor_wall/84`, `230`)** |
+| 0.005 이하에서 실패 | 3 (`floor_wall/120` 추가) | **3 (`floor_wall/120` 추가)** |
+| 반환 waypoint에서 실패 | 0 | **0** |
+| `r*` | 0.05 | **0.05** |
+| 자기 waypoint 간격 중앙값 | 0.0569 (p90 0.0809, max 0.1045) | **0.056871** (p90 0.080879, max 0.104474) |
+| 반환 waypoint 수 | 446건 전부 40점 | **446건 전부 40점** |
+
+id 단위까지 같다. §286.3의 cpp 열은 이제 이 저장소 안의 파일에서 다시 유도
+된다 — 이 라운드 이전에는 어떤 커밋된 파일도 그 열을 재현하지 못했고, 그것이
+저 열을 다시 잰 이유다.
+
+### §303.2 조건 2 검증은 해상도에 대해 단조가 아니다 — 합집합은 어떤 해상도의 집합도 아니다
+
+아래 표를 읽기 전에 하나를 먼저 박아 둔다. 조밀화 규칙은
+`steps = ceil(distance / resolution)`이고 표본은 `i / steps`에 놓인다. 그래서
+**촘촘한 해상도의 표본 집합이 성긴 쪽을 포함하지 않는다.** 길이 0.15인
+구간이면 0.02는 `i/8`에, 0.01은 `i/15`에 표본을 놓고 둘이 공유하는 것은
+양 끝점뿐이다.
+
+이 데이터에 실제로 그런 문제가 있다. cpp@424242 `cage/161`(플래너 씨앗
+424403, 길이 1.766791, 반환 40점):
+
+| 해상도 | 조밀화 점수 | `invalid_count` | `valid` |
+| --- | --- | --- | --- |
+| 0.05 | 46 | 0 | true |
+| 0.02 | 118 | 1 | **false** |
+| 0.01 | 202 | 0 | **true** |
+| 0.005 | 372 | 1 | false |
+| 0.002 | 906 | 3 | false |
+| 0.001 | 1,789 | 6 | false |
+
+0.02에서 실패하고 **더 촘촘한** 0.01에서 통과한다. 더 촘촘한 격자가 성긴
+격자가 밟았던 얇은 무효 구간을 건너뛴 것이다. 네 팔 전체에서 이런 경우는
+이 한 건이다.
+
+따라서 이 절의 모든 표는 **해상도별**이다. 해상도들의 실패 id를 합집합으로
+묶은 것은 **어떤 단일 해상도도 내지 않는 집합**이므로, 그렇게 인용하면 안
+된다. `rederive.py`는 합집합도 찍지만 그 줄에 그렇게 적어 둔다.
+
+같은 이유로 `r*`는 **문턱이 아니다.** "C++이 100%인 가장 촘촘한 해상도"는
+여전히 잘 정의되지만, 그것이 "그보다 성긴 곳에서는 항상 100%"를 함의하지
+않는다. 어느 쪽인지는 §303.3의 열을 그대로 읽어야 한다.
+
+### §303.3 해상도별 조건 2 실패 수
+
+칸은 **조건 2 실패 문제 수**이고 분모는 그 팔이 푼 문제 수다. `returned`는
+조밀화 없이 플래너가 돌려준 waypoint 그대로다. **누적이 아니다**(§303.2).
+`--`는 그 팔의 스윕 그리드에 없는 지점이다.
+
+| 해상도 | port@424242 (442) | cpp@424242 (438) | port@700001 (441) | cpp@700001 (446) |
+| --- | --- | --- | --- | --- |
+| returned | 0 | 0 | 0 | 0 |
+| 0.2 | 0 | 0 | -- | 0 |
+| 0.1 | 0 | 0 | -- | 0 |
+| 0.05 | 0 | 0 | 0 | 0 |
+| 0.02 | 1 | 3 | -- | 2 |
+| 0.01 | 1 | 3 | 3 | 2 |
+| 0.005 | 1 | 4 | -- | 3 |
+| 0.002 | 1 | 4 | -- | 3 |
+| 0.001 | 1 | 4 | -- | 3 |
+
+씨앗 무효 stratum(251문제)만으로 좁히면 분모만 바뀌고 분자는 그대로다 —
+port@424242 193, cpp@424242 189, port@700001 192, cpp@700001 197. **네 팔의
+조건 2 실패가 전부 씨앗 무효 stratum에서 나온다**는 §286.3의 관찰이 두 번째
+씨앗 베이스에서도 성립한다.
+
+해결 수는 네 팔 모두 씨앗 유효 stratum 249문제를 249/249로 푼다. 차이는 전부
+씨앗 무효 쪽이다: port@424242 193/251, cpp@424242 189/251, port@700001
+192/251, cpp@700001 197/251.
+
+### §303.4 실패한 id 전부 — 해상도별, 그리고 교집합
+
+| 팔 | 해상도 | 실패 id | 반환 waypoint에서 `valid` | 씨앗 |
+| --- | --- | --- | --- | --- |
+| port@424242 | 0.02 · 0.01 · 0.005 · 0.002 · 0.001 | `floor_wall/71` | **true** | 무효 |
+| cpp@424242 | 0.02 | `cage/161` `cage/196` `cage/202` | **true** (셋 다) | 무효 |
+| cpp@424242 | 0.01 | `cage/196` `cage/202` `cage/222` | **true** (셋 다) | 무효 |
+| cpp@424242 | 0.005 · 0.002 · 0.001 | `cage/161` `cage/196` `cage/202` `cage/222` | **true** (넷 다) | 무효 |
+| port@700001 | 0.01 | `floor_wall/77` `cage/133` `cage/159` | **true** (셋 다) | 무효 |
+| cpp@700001 | 0.02 · 0.01 | `floor_wall/84` `floor_wall/230` | **true** (둘 다) | 무효 |
+| cpp@700001 | 0.005 · 0.002 · 0.001 | `floor_wall/84` `floor_wall/120` `floor_wall/230` | **true** (셋 다) | 무효 |
+
+0.2 · 0.1 · 0.05 · `returned`에서는 **네 팔 모두 실패가 0건**이다.
+`condition2_valid_at_returned_waypoints`는 위 모든 실패에서 참이다 — 즉 어느
+경우에도 플래너가 자기 waypoint에서 충돌하는 경로를 성공으로 돌려주지
+않았고, 깨지는 것은 waypoint **사이**를 조밀화했을 때뿐이다. §286.3이 일곱
+건에 대해 적은 것과 같은 모양이다.
+
+port@700001 열에 대해서만 인용이 하나 붙는다: 그 팔의 스윕 그리드가 0.05에서
+멈추므로 0.005 이하는 이 데이터에 없고, §286.3이 그 아래에서 `cage/98`이
+추가된다고 적는다. 이 절은 그 한 건을 재유도하지 않았다(§303.8).
+
+**교집합은 어디서도 비어 있다.** 같은 해상도끼리만 맞댄다.
+
+| 비교 | 해상도 | 교집합 |
+| --- | --- | --- |
+| port: 424242 vs 700001 | returned · 0.05 · 0.01 | **∅** (세 지점 모두) |
+| cpp: 424242 vs 700001 | 아홉 지점 전부 | **∅** (전부) |
+| 같은 베이스 안 port vs cpp | @424242 0.01 | **∅** (`floor_wall/71` 대 `cage/196 202 222`) |
+| 같은 베이스 안 port vs cpp | @700001 0.01 | **∅** (`floor_wall/77 cage/133 159` 대 `floor_wall/84 230`) |
+
+네 팔이 낸 서로 다른 문제는 **열한 개**다 — `floor_wall/71`(port@424242),
+`floor_wall/77` `cage/133` `cage/159`(port@700001), `cage/161` `196` `202`
+`222`(cpp@424242), `floor_wall/84` `120` `230`(cpp@700001). 1 + 3 + 4 + 3 =
+11이고, 한 문제도 두 번 나오지 않는다. 자리까지 갈린다: @700001에서는 cpp가 전부 `floor_wall`,
+@424242에서는 cpp가 전부 `cage`이고 포트는 반대로 `floor_wall` 하나다.
+
+### §303.5 `r*`는 움직이지 않았다 — CHOMP과 갈리는 유일한 대목
+
+| | `r*` | 100%인 지점 | 자기 waypoint 간격 중앙값 | 반환 점수 |
+| --- | --- | --- | --- | --- |
+| cpp STOMP @700001 | **0.05** | returned · 0.2 · 0.1 · 0.05 | 0.056871 | 446건 전부 40 |
+| cpp STOMP @424242 | **0.05** | returned · 0.2 · 0.1 · 0.05 | 0.056615 | 438건 전부 40 |
+
+CHOMP에서는 `r*`가 0.02에서 그리드 밖으로 네 칸 내려갔다(§286.5). STOMP에서는
+움직이지 않는다. 이유는 표가 그대로 말한다: cpp CHOMP의 실패 수는 1에서 0으로
+갔지만, cpp STOMP은 **두 베이스 모두 0.02에서 실패하고 0.05에서는 실패하지
+않는다**. 100%의 경계가 같은 칸에 남는다.
+
+그 칸은 `COL_CHECK_DISTANCE` = 0.05(`cost_functions.hpp:59`), 즉 상류 STOMP이
+자기 궤적을 실제로 검사한다고 말하는 거리이고, 자기 반환 waypoint의 간격
+중앙값(0.0566·0.0569)이 바로 그 위다. §286.6이 한 씨앗 베이스에서 관찰한
+일치가 두 번째에서도 성립한다.
+
+그러므로 §286.7이 채택한 문안 — STOMP의 조건 2는 0.05에서 100% — 이 씨앗
+베이스에서도 유지된다. **port@424242는 그 바에서 442/442**, 씨앗 무효
+stratum만으로도 193/193이다. **MET.**
+
+다만 `r*`가 안 움직였다는 것은 뽑기의 반례가 아니다. 움직이지 않은 것은
+**바의 위치**이고, 그 바 아래에서 어느 문제가 깨지는지는 §303.4대로 완전히
+갈린다. 그리고 이 안정성의 표본 크기는 씨앗 베이스 **둘**이다(§303.8).
+
+### §303.6 짝지은 게이트 — 두 번째 베이스에서도 검정력이 없다
+
+`b` = 포트가 실패하고 C++이 통과, `c` = 그 반대. 통계량과 문턱은
+`moveit-diff`의 `paired_divergence_z`와 `MINIMUM_USABLE_B_PLUS_C` = 61이다.
+양쪽 다 푼 433문제(씨앗 무효 stratum 184문제):
+
+| 해상도 | b | c | b + c |
+| --- | --- | --- | --- |
+| returned · 0.2 · 0.1 · 0.05 | 0 | 0 | 0 |
+| 0.02 | 1 | 3 | 4 |
+| 0.01 | 1 | 2 | 3 |
+| 0.005 · 0.002 · 0.001 | 1 | 3 | 4 |
+
+씨앗 무효 stratum만으로 좁혀도 같은 수다(분모만 184로 바뀐다). 최댓값 `b+c`
+= 4, 문턱 61. §286.4의 결론이 두 번째 베이스에서 그대로다 — 아홉 동작점 어디
+에도 검정력이 없다.
+
+### §303.7 판정 — 그리고 무엇이 이것을 뒤집는가
+
+**STOMP은 §286.5의 CHOMP과 같이 행동한다.** 두 씨앗 베이스에서 네 팔이 낸
+조건 2 실패는 자릿수가 같고(약 440건당 1–4건), 문제 id가 하나도 겹치지 않으며
+(§303.4의 교집합 네 줄이 전부 ∅), 전부 씨앗 무효 stratum에서 나오고 전부
+자기 반환 waypoint에서는 통과한다. 브리프가 포팅 결함 신호로 지목한 두 모양은
+둘 다 데이터가 부정한다. **"같은 id를 계속 실패한다"** — port@424242는
+`floor_wall/71`, port@700001은 `floor_wall/77`·`cage/133`·`cage/159`로
+교집합이 비어 있다. **"두 베이스 모두에서 포트가 cpp보다 체계적으로 많다"** —
+순서가 뒤집힌다. **같은 해상도끼리만** 세면, 0.01에서 @700001은 포트 3 대
+cpp 2인데 @424242는 포트 1 대 cpp 3이다. 두 베이스를 합쳐도 0.01에서 포트
+3+1 = 4 대 cpp 2+3 = 5로 포트가 많은 쪽이 아니고, 0.005에서는 포트
+4+1 = 5(앞의 4는 §286.3이 적는 `cage/98` 포함) 대 cpp 3+4 = 7이다.
+
+그러므로 §300.9가 "포팅 결함으로 적을 근거는 없다"고 한 세 건
+(`floor_wall/77`·`cage/133`·`cage/159`)에 대한 **직접** 반증이 이제 STOMP에도
+있다. §286.5가 CHOMP에 대해 한 것과 같은 종류의 반증이다.
+
+**이것을 뒤집을 측정을 적어 둔다.** 셋 중 어느 하나라도 나오면 위 문단은
+철회되어야 한다.
+
+1. 세 번째 씨앗 베이스에서 포트의 실패 id가 앞의 두 베이스 중 하나와
+   **겹치는 것**. 뽑기라면 겹치지 않아야 한다.
+2. 포트가 **0.05 또는 반환 waypoint에서** 조건 2를 깨는 것. 지금은 네 팔
+   모두 그 두 지점에서 0건이고, 0.05는 상류가 자기 검사 거리라고 말하는
+   값이다. 여기서 깨지는 것은 뽑기 대역 밖이다.
+3. 씨앗 베이스를 셋 이상 늘렸을 때 0.01 이하에서 포트 쪽 수가 **매번** cpp
+   보다 큰 것. 두 베이스로는 순서가 뒤집혔을 뿐 방향을 말할 수 없다.
+
+### §303.8 이 절이 재지 않은 것
+
+- **세 번째 씨앗 베이스.** `r*` = 0.05의 안정성도, id가 겹치지 않는다는
+  것도 표본이 **둘**이다. 두 점은 추세가 아니다. 포트 STOMP 한 벌이 약
+  두 시간이라는 것이 이 축의 값이다.
+- **port@700001의 0.005 이하.** 커밋된 그 팔의 스윕 그리드가 `[0.05]`라
+  0.05·0.01·반환 세 지점만 답한다. §286.3이 적은 `cage/98`은 이 절이
+  재유도하지 않고 인용으로 남긴다. 여덟 점 그리드로 그 팔을 다시 돌리는
+  비용은 위와 같은 약 두 시간이다.
+- **§286.11의 나머지 항목들.** 일부러 어려운 씨앗에서의 사건율, fanuc과
+  나머지 로봇, `max_iterations = 200`은 이 절이 건드리지 않았다. 모든 수는
+  panda_arm이다.
+- **§300.9가 연 변이 실험.** 최적화기를 계속 돌게 두면서 0.05 바에 검정력이
+  있는지 보는 실험은 이 절의 축이 아니다. 이 절은 같은 소스에 씨앗만 바꿔
+  돌렸다.
+- **길이가 아니라 궤적의 일치.** §300.6 그대로다. 하네스가 waypoint 행렬을
+  내보내지 않으므로, 두 구현이 같은 문제에서 같은 경로를 내는지는 여전히
+  길이로만 본다.
+
+## §307 비교 연산자 509건이 `scan()`의 `if not kinds: continue`에 조용히 사라졌다 — task #43의 절반은 이미 처리돼 있었고, 남은 절반을 재고 손으로 쪼갰다 (2026-08-07)
+
+### §307.1 task #43 전제 정정 — `assert_ne!`는 이미 `MACROS`에 있다
+
+task #43은 "`>` 비교와 `assert_ne!`로 코퍼스를 넓히라"고 적혀 있었다.
+`assert_ne!` 쪽은 이미 거짓이다: `tools/ci/count-coarse-assertions.py:112`의
+`MACROS`는 `("assert", "assert_eq", "assert_ne", "debug_assert",
+"debug_assert_eq")`이고, `assert_ne!(x, None)` / `assert_ne!(x, Err(..))`는
+`classify()`가 이미 `eq_none`/`eq_err`로 잡는다. 다시 하지 않는다. 비교 연산자
+쪽만 실제 공백이었다.
+
+### §307.2 공백 — `scan()`의 드롭 분기가 세지 않은 것
+
+`tools/ci/count-coarse-assertions.py:403`(당시 292)의
+
+    kinds = classify(m.group(1), body)
+    if not kinds:
+        continue
+
+는 `classify()`가 어떤 kind도 못 주는 호출을 코퍼스에서 통째로 지운다 —
+세지도, 보고하지도, 남기지도 않는다. `classify()`에는 비교 연산자 kind가
+전혀 없었다.
+
+**Totals:** Sum: 1098 + 3610 = 4708 (이번 라운드 이후, 직접 매크로 호출 기준).
+
+이 절이 커밋된 `tools/ci/count-coarse-assertions.py` 자체로 재현한 수치다
+(`git merge main --ff-only`로 main 최신 `1cada05d`까지 두 번 따라잡은 뒤,
+`CCA_LEGACY_KINDS_ONLY=1`로 이번 라운드 이전 동작을 재현):
+
+| 계기 | 직접 매크로 호출 | classify() 유지(kept) | 드롭됨 |
+|---|---|---|---|
+| 이번 라운드 이전 (`CCA_LEGACY_KINDS_ONLY=1`) | 4708 | 800 | 3908 |
+| 이번 라운드 이후 (기본) | 4708 | 1098 | 3610 |
+
+브리프가 `48ab9f8b`에서 잰 4708 / 800 / 3908은 이 트리에서 정확히 재현된다
+— 이 라운드가 main을 두 번 더 따라잡는 동안 낀 22개 커밋(STOMP 시드베이스
+증거 등)은 이 매크로 집합 자체를 건드리지 않았다는 뜻이다.
+
+드롭된 3908 중 비교 연산자를 argument 1에 가진 것은 이전에도 지금도 509건이
+아니라, 이번 라운드가 `half_plane`/`cmp_compound`로 흡수한 298건(262+36)과
+아래 §307.5의 잔여로 나뉜다 — 브리프의 509(195/267/47)는 그쪽이 그은 3분할의
+합이고, 이 절은 그 분할을 그대로 들고 오지 않았다(§307.3).
+
+### §307.3 kind을 넓힌 방식 — `abs_tol`은 왜 kind가 아닌가, `cmp_compound`는 왜 쪼개지 않는가
+
+`classify()`에 `top_level_comparisons(args[0])`을 추가했다(`count-coarse-
+assertions.py:335-344`). argument 1의 최상위(괄호 깊이 0) 비교 연산자를
+턴트리시/`<<`/`>>`/`->`를 제외하고 세어, 정확히 하나면 `half_plane`, 둘
+이상이면 `cmp_compound`다.
+
+`.abs() <`/`.abs() <=` 하나짜리는 **어느 kind에도 넣지 않는다.** 그 모양은
+근사 **동등성**이다 — `(actual[i] - expected[i]).abs() < 1e-12`는 부동소수점의
+가장 정밀한 형태이고, 이걸 coarse로 채점하면 계기의 의미가 뒤집힌다. 브리프의
+논거를 그대로 받는다: `.abs() <`는 **토큰 패턴**이지, `.contains()`가 갈라놓지
+않은 이유인 **타입 사실**이 아니다 — 그래서 여기서는 가르고 거기서는 안 가른다.
+
+`cmp_compound`는 하나의 kind로 남긴다. 이유는 §307.4에서 손으로 읽은 36건
+자체가 증거다: `parry.rs:4537`의 `.abs() > 0.1`은 `.abs()`가 있어도
+half_plane이고(초과 판정), `parry.rs:5085`의 `gap > 0.0 && gap < 1e-15`는
+`.abs()` 없이도 정밀 톨러런스다. 가르는 기준은 바깥 피연산자가 이미
+`.norm()`/`.angle_to()`로 음이 아닌 값인지, 상수의 폭이 부동소수점 잡음인지
+실제 정의역인지 — 둘 다 정규식이 볼 수 없는 데이터플로/의미 사실이다.
+`.contains()`가 이미 진 싸움과 같은 모양이라 같은 결론을 낸다.
+
+### §307.4 `cmp_compound` 36건 손 분류 — 브리프의 47건도, 3분할도 들고 오지 않았다
+
+브리프는 "47건을 손으로 한 줄씩 읽고, 찾은 것이 규칙을 정하게 하라. 내가
+발표했다고 3분할을 그대로 들고 오지 마라"고 지시했다. 이 트리에서 실측한
+`cmp_compound`는 36건이다(브리프의 47이 아니다 — 코퍼스가 자랐고 분할 규칙이
+다르므로 다른 수가 나오는 것이 맞다). 소스를 읽고 하나씩 판정했다:
+
+| 파일:줄 | 모양(요약) | 판정 | 근거 |
+|---|---|---|---|
+| `parry.rs:4462` | 4개 OR, AABB 포함 위반 | coarse | 무경계 반평면 4개 OR |
+| `parry.rs:4537` | `.abs() >` OR (브리프 예시) | coarse | "초과 판정", `.abs()`가 있어도 half_plane |
+| `parry.rs:5085` | `gap>0.0 && gap<1e-15` (브리프 예시) | precise | `.abs()` 없는 양측 밴드, 폭이 수치 잡음 |
+| `collision_parity.rs:958` | `.abs()<` AND `.abs()<` | precise | 두 abs 톨러런스 AND |
+| `collision_parity.rs:1414` | `.abs()<` AND `.abs()<` | precise | 위와 동일 모양 |
+| `collision_parity.rs:2388` | `.abs()+reach<BOUND` ×2 AND `축>TOP_Z` | coarse | FLOOR_HALF_EXTENT/TOP_Z는 씬의 실제 공간 경계, 잡음 아님 |
+| `collision_parity.rs:3419` | `signed_low<=upper && lower<=signed_high` | coarse | 서로 독립된 두 증명 구간의 겹침 검사, 톨러런스 아님 |
+| `collision_parity.rs:3609` | `.abs()<=1e-12` AND `.abs()<=1e-12` | precise | 두 abs 톨러런스 AND, 폭 1e-12 |
+| `collision_parity.rs:3649` | `oracle>upper OR oracle<lower` | coarse | 오라클이 구간 밖임을 확인하는 OR 반평면 |
+| `penetration_depth_scale_invariance.rs:299` | `translation<1e-12 && rotation<1e-12` | precise | `.norm()`/`.angle()`로 이미 음이 아닌 두 피연산자, AND |
+| `voxel_grid.rs:536` | `x>0 && y>0 && z>0` | coarse | 서로 다른 세 변수의 독립 양수 검사 |
+| `octree_collision.rs:179` | `mins.x<=0.0 && maxs.x>=5.1` | coarse | 고정 씬 경계에 대한 AABB 포함 |
+| `mesh_parity.rs:143` (§307.4.1) | `.abs()<` ×3 AND | precise | 세 축 각각 정점 오차 톨러런스 |
+| `probe_parity.rs:509,520,572` | `hit[0].c < origin.c && origin.c < hit[1].c` | coarse | 서로 다른 히트점 사이의 순서 구조 검사 |
+| `cart_to_jnt.rs:784` | `value>-PI && value<=PI` | coarse | 각도의 전체 정의역 |
+| `crates/moveit-kinematics/tests/cartesian_interpolator.rs:223,711` | `errors()`가 준 `translation<TOL && rotation<TOL` | precise | `errors()`가 `.norm()`/`.angle_to()`로 이미 음이 아님 |
+| `ik_fk_roundtrip.rs:118` | `value>=min-1e-9 && value<=max+1e-9` | coarse | 관절의 실제 최소/최대 범위, ±패딩만 작음 |
+| `crates/moveit-kinematics/tests/set_from_ik.rs` 11건(316,349,452,518,524,557,592,649,682,1157,1259) | `translation_error(...)<=TOL && rotation_error(...)<=TOL` | precise | `translation_error`/`rotation_error`가 `.norm()`/`.angle_to()`로 이미 음이 아님(정의: `crates/moveit-kinematics/tests/set_from_ik.rs:183-185`(`translation_error`), `crates/moveit-kinematics/tests/set_from_ik.rs:187-189`(`rotation_error`)) |
+| `pilz_trajectory_polyline_parity.rs:492` | `near<MIN_SEG && would_be<MIN_SEG` | precise | 둘 다 벡터 차의 `.norm()`, abs_tol과 같은 모양을 벡터로 확장한 것 |
+| `attached_frames_reach_ik.rs:197` | `translation_error(...)<=TOL && rotation_error(...)<=TOL` | precise | 같은 헬퍼 모양(정의: `attached_frames_reach_ik.rs:174-176`(`translation_error`), `attached_frames_reach_ik.rs:178-180`(`rotation_error`)) |
+| `path.rs:349` | `pos>0.0 && pos<path.length()` | coarse | path의 실제 길이 정의역 |
+| `time_optimal_trajectory_generation.rs:1105` | `subnormal>0.0 && subnormal<f64::MIN_POSITIVE` | precise | 최소 서브노멀 경계의 타이트 밴드 |
+| `cartesian_path.rs:857` | `fraction>0.0 && fraction<1.0` | coarse | 개구간 전체를 허용하는 정의역 검사(부분 성공 여부) |
+
+**Totals:** Sum: 14 + 22 = 36 (14 coarse, 22 precise).
+
+#### §307.4.1 `mesh_parity.rs:143`은 스윕이 사이트로 세는 위치가 아니다
+
+`assert_vertex_close` 헬퍼 자신의 본문(`scope=helper_body`)이고, 판정은 그
+헬퍼의 호출부(`via:assert_vertex_close`, 예: `mesh_parity.rs:179` 등)로
+넘어간다. `classify()` 수준에서는 여전히 하나의 `cmp_compound` 발생이므로
+표에 남기되, §307.5의 "제외 대상(excl. helper_body)" 집계에서는 이 줄이
+빠지고 그 호출부들이 `via` 집계로 들어간다.
+
+규칙: 어느 사이트도 `.abs() <`/`.abs() <=` 정확히 하나의 토큰 패턴을 벗어나는
+추가 규칙을 요구하지 않았다 — coarse/precise를 가른 것은 전부 (a) 바깥
+피연산자가 `.norm()`/`.angle_to()`/`.angle()`로 이미 음이 아닌지, (b) 밴드
+폭이 수치 잡음(`1e-9`~`1e-15`)인지 실제 정의역(관절 범위, 씬 경계, path
+길이, 단위 구간)인지, (c) OR 절이 반평면 위반 검사인지, (d) 두 절이 서로
+독립된 값의 구간-겹침 검사인지 — 이 넷은 전부 데이터플로/의미 사실이지
+토큰이 아니다. `cmp_compound`를 하나의 kind로 남긴 §307.3의 판단이 이
+36건에서 뒤집히지 않는다.
+
+### §307.5 newly-visible / newly-broken 분리 — `check-citation-drift.py`의 둘째 모집단과 같은 장치
+
+`tools/ci/reconcile-assertion-ledgers.py --verify`는 원래 라이브 불변식을
+먼저 본다: 고아(orphan) 0건, 미해결 인용 0건. 이 트리에 이번 라운드 코드를
+그대로 얹고 돌리면 즉시 깨진다 — `half_plane`/`cmp_compound`가 새로 만든
+사이트 어느 것도 어떤 로저(ledger)도 인용한 적이 없으므로 전부 고아다.
+
+이 게이트 자신의 독스트링이 명시적으로 경고한다: "스냅샷 diff만으로는 드리프트만
+잡지 공백은 못 잡는다 — 새 고아는 `--write-orphans`로 기대 집합에 흡수시키는
+한 줄 변경으로 세탁된다"(`reconcile-assertion-ledgers.py:52-59`). 이건 이
+라운드가 피하라고 한 바로 그 실패다 — "509건을 그대로 흡수해 하나의 통과
+카운트로 만드는 재동결"과 동형이고, 규모만 320건으로 크다. 그래서 orphans.txt
+스냅샷을 그대로 다시 굽는 건 처방이 아니다.
+
+대신 `check-citation-drift.py`가 자신의 둘째 모집단(`.md`가 아닌 in-repo
+인용)에 쓴 것과 같은 장치를 이식했다 — `IN_REPO_BASELINE` +
+`IN_REPO_HARD_FAIL=False`(`check-citation-drift.py:1136,1203`). 첫 모집단
+(`CLASS_BASELINE`)의 불변식은 손대지 않고, 둘째 모집단은 별도 파일에 선언하고
+드리프트만 검사하되 백로그 크기 자체로는 실패시키지 않는다.
+
+`reconcile-assertion-ledgers.py`에 이식한 것:
+
+- **분리 방법은 kind 문자열 필터가 아니라 diff.** `count-coarse-
+  assertions.py`에 `CCA_LEGACY_KINDS_ONLY` 환경변수를 추가해 이번 라운드
+  이전 동작(half_plane/cmp_compound 미분류)을 재현하게 했다. 처음에는
+  `kind`에 `"half_plane"`/`"cmp_compound"`가 들어있는지로 나누려 했으나,
+  헬퍼 함수 자신의 내부 assert가 이번 라운드에서 처음 classify()될 때
+  그 헬퍼가 `helpers` 딕셔너리에 처음 등록되고, 그 호출부 37건이
+  `via:<fn>`로 — kind 문자열에 `half_plane`/`cmp_compound`가 전혀 없는
+  채로 — 함께 새로 드러났다(예: `octomap/src/tree.rs`의 `node_size`,
+  `velocity_profile.rs`의 `set_profile_all_durations`). kind 문자열
+  필터는 이 연쇄를 볼 수 없다 — `run_scanner(legacy=True)`로 실제
+  이전 동작을 다시 돌려 diff하는 쪽이 구조적으로 맞다
+  (`reconcile-assertion-ledgers.py:reconcile()`).
+- **`COMPARISON_BASELINE`** = `doc/assertion-discrimination-orphans-
+  comparison.txt`, `--write-comparison-baseline`로 생성.
+- **`COMPARISON_HARD_FAIL = False`** — 백로그가 트리아지되면 뒤집는다.
+
+**Totals:** Sum: 248 + 37 + 35 = 320 (248 half_plane, 37 via, 35 cmp_compound).
+
+| 모집단 | 제외 대상 사이트 수 | 매치됨 | 고아 | `--verify` 처분 |
+|---|---|---|---|---|
+| 첫째 (이번 라운드 이전부터 있던 kind 전체) | 841 | 841 | 0 | 그대로 하드 불변식 — 그대로 0이어야 실패하지 않는다 |
+| 둘째 (half_plane/cmp_compound + 연쇄 via) | 320 | 0 | 320 | `COMPARISON_BASELINE`에 선언, 드리프트만 검사, 크기 자체는 비실패 |
+
+320건 전부가 newly-visible이다 — 이번 라운드 전에는 어떤 kind로도 나온 적이
+없으므로 어떤 로저도 인용할 기회가 없었다. newly-broken은 0건이다 — 첫째
+모집단의 841/841/0은 이번 변경으로 손상되지 않았다(같은 수치로 재현됨).
+
+`python3 tools/ci/reconcile-assertion-ledgers.py --verify` — exit 0. 첫째
+모집단 0/0, 둘째 모집단 320/320(백로그, 논-페일).
+
+### §307.6 이 절이 재지 않은 것 — 폭이 넓어져도 남는 수
+
+`count-coarse-assertions.py`의 `scan()`이 드롭 사유를 리포트하는 두 갈래
+(§307.2의 `residue`)로 최종 수치를 낸다:
+
+    dropped = 3610 = 195 (abs_tol) + 3415 (other)
+
+**3415건은 이번 라운드가 넓힌 뒤에도 여전히 어떤 kind도 못 받는다** —
+argument 1에 `matches!`/`.is_err()`/`.is_none()`/`.is_some()`/
+`.is_empty()`/`.contains()`도, `assert_eq!(x, None)`/`assert_eq!(x, Err(..))`
+꼴의 피연산자도, 최상위 비교 연산자도 전혀 없는 모든 `assert!`류 호출이다.
+"일부"가 아니라 3415라는 수로 보고된다 — `count-coarse-assertions.py:461-467`의
+stderr 요약이 매 실행마다 이 수를 출력하므로, 다음에 코퍼스가 또 넓혀지지
+않는 한 조용히 사라질 수 없다.
+
+닫는 것:
+
+- **task #43의 `assert_ne!` 절반.** 이미 처리돼 있었다(§307.1).
+- **task #43의 비교 연산자 절반.** `half_plane`/`cmp_compound` 298건(+연쇄
+  via 37건)을 분류에 편입했다.
+- **§43의 "509건이 사라진다"는 관찰.** 사라지지 않는다 — 293건(정확히는
+  335건, helper_body 제외 시 320건)이 매 실행마다 보고되는 kind를 얻었고,
+  나머지는 `residue`로 리포트된다.
+
+재지 않은 것:
+
+- **3415건의 "other" 잔여.** 이 절은 이들을 세었을 뿐 하나도 읽지 않았다.
+  그 안에 또 다른 coarse 모양이 있는지는 다음 라운드의 물음이다.
+- **둘째 모집단 320건을 로저로 흡수하는 일.** `COMPARISON_BASELINE`은
+  드리프트만 잠근다 — 320건 각각을 census §9의 in-family/subject 판정으로
+  로저 행에 적어 넣는 일은 이 절이 하지 않았다.
+- **연쇄 via 37건의 완전한 목록화.** §307.5에서 존재와 개수(37)만 확인했고,
+  그 37건이 이미 로저에 있는 다른 사이트와 어떤 관계인지는 손대지 않았다.
+
+## §309 여섯 브랜치를 한 번에 병합했다 — 세 결함은 어느 브랜치 tip에서도 볼 수 없었고, 한 건은 같은 기능의 중복 구현이었다 (2026-08-07)
+
+이 절은 라운드가 아니라 **병합**의 기록이다. 다섯 브랜치를 main에 넣고
+여섯째를 넣지 않기로 정했다. 여기 적는 것은 각 브랜치가 자기 tip에서
+초록이었는데 병합된 트리에서 붉어진 것들 — 즉 병합자만 볼 수 있는
+부류다.
+
+### §309.1 같은 불릿을 두 절이 서로 다른 500에서 닫았다
+
+§264.12의 `C++ CHOMP 기준선` 불릿을 p12-tangency는 §295로, p10-phase13은
+§304로 닫는다. 머리 줄(`거짓 → 닫힘 (§304)`)은 자동 병합되고 맺음 문단만
+충돌했다 — 즉 git이 막지 않았다면 머리와 몸이 다른 절을 가리키는 불릿이
+남았을 것이다.
+
+두 절 다 "선언된 500문제 모집단"이라고 쓰는데 그 500이 다르다. §295는
+panda 250 + fanuc 250(구성당 125문제 × 넷), §304는 panda 500(floor_wall
+250 + cage 250, 양쪽 다 panda)이다. 그래서 `condition3-paired`의 짝
+개수가 어긋난다 — §295는 stratum 합으로 CHOMP 326(161+165) / STOMP
+355(185+170), §304는 pooled로 CHOMP 363 / STOMP 437. **모순이 아니라
+다른 집합을 잰 것이고**, 해소는 수치를 맞추는 것이 아니라 두 절이 각자
+어느 500인지 본문에서 말하게 하는 것이다. 그렇게 고쳐 썼다.
+
+### §309.2 양쪽이 같은 인용을 각자 다른 양만큼 재지정했다
+
+`!PORTING-PLAN.md:27602`를 p12-tangency는 27603으로, p10-phase13은
+27609로 밀었다. 병합된 트리에서는 **어느 쪽도 맞지 않는다** — 실제 값은
+`PORTING-PLAN.md:27615`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
+꽂았고 `check-citation-drift.py`가 blank-line 3건으로 잡았다. 여덟 개를
+게이트가 찍은 citer 위치와 대상 재독으로 다시 유도했다.
+
+여기서 한 번 헛디딘 것도 적는다. 재지정을 백틱 붙은 토큰
+(`` `!PORTING-PLAN.md:27603` `` 모양)으로 걸었더니 셋 중 둘만 잡혔다 — 세 번째는
+`` `§271.3의 !PORTING-PLAN.md:27603` `` 형태로 백틱이 앞머리에 있었다.
+**인용 재지정은 한 문법만 가정하면 안 된다.**
+
+강등 세탁이 없었음은 따로 쟀다: premerge 대비 `.rs` 모집단 2168 → 2199
+키에 강등 0·소실 0, in-repo 269 → 287에 강등 0, 소실 7은 전부 후계 키가
+확인된 재지정이다(`:810` → `:1036`은 p12-tangency가 옮긴 것이고 그 줄이
+실제로 `pins-unmeasured`다).
+
+### §309.3 §305의 게이트는 형제 절이 들어오자 붉어졌다
+
+`tools/ci/check-evidence-retention.py`는 p10-gapaudit이 §305로 넣은
+게이트다. 자기 브랜치에서는 초록이었다 — 그 base에 §295도 §307도 없었기
+때문이다. 병합 후 9건으로 붉다: `count-coarse-assertions.py`가 §307.1·2·6,
+`measure-phase8-cpp-baseline.sh`가 §295.1, `measure-phase8-optimizer-
+properties.sh`가 §295·§295.1·§295.3·§295.5·§295.9. 게이트의 결함도
+그 절들의 결함도 아니고, 어느 브랜치도 자기 워크트리에서 볼 수 없던
+경계다. 이것이 지금 GitHub Actions CI를 붉게 하는 유일한 게이트다.
+
+### §309.4 p10-jointlimits는 병합하지 않는다 — 같은 기능이 이미 main에 있다
+
+`ros/moveit-ros/src/robot_description.rs`가 add/add로 충돌했다. 양쪽이
+같은 기능을 독립으로 구현한 것이다 — main은 `8634ad31`, 브랜치는
+`3ec0d57c`.
+
+| | 구현 | 테스트 | 호출자 |
+|---|---|---|---|
+| main | `latch(node, urdf, srdf) -> Descriptions`, 150줄 | 0 | `src/bin/move_group.rs:781` |
+| p10-jointlimits | `RobotDescription`/`LatchedDescription`, 289줄 | 5 | **없음** |
+
+main 쪽이 QoS(`keep_last(1).transient_local().reliable()`), semantic →
+description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포인트 스캐너의
+`PORT_OPENER`가 팩토리 호출 안의 문자열 리터럴을 매칭한다)를 다 갖추고
+있고 실제로 배선돼 있다. 브랜치 쪽은 테스트 5개를 갖지만 자기 파일 밖에서
+`RobotDescription`을 부르는 곳이 하나도 없다. 그 다섯 중 넷은 main에
+존재하지 않는 API(`load`/`parse`/`from_strings`)를 검사하므로 이식도
+그래프트가 아니라 API 채택이 된다. 사용자 판단으로 **main 것을 유지하고
+브랜치 커밋을 병합하지 않는다.**
+
+남는 사실 하나: 그 브랜치의 base는 main보다 389커밋 뒤였고
+`verify-orphan-enumeration.sh`가 그 tip에서 orphan 25건을 냈다. main은
+0이므로 22건은 이미 해소된 것이 base 탓에 다시 보인 것이고, 실제 신규
+3건은 전부 `robot_description.rs` 안이었다 — 병합하지 않으므로 그 셋도
+들어오지 않는다.

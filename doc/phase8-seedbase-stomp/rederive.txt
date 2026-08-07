@@ -1,0 +1,183 @@
+==============================================================================
+A. POPULATION AND SOLVE RATE
+   n=500: floor_wall 250 @ set seed 900001, cage 250 @ 900002, panda_arm
+==============================================================================
+  seed-invalid stratum: 251/500
+  port@424242  solved 442/500   seed-valid 249/249   seed-invalid 193/251
+  cpp@424242   solved 438/500   seed-valid 249/249   seed-invalid 189/251
+  port@700001  solved 441/500   seed-valid 249/249   seed-invalid 192/251
+  cpp@700001   solved 446/500   seed-valid 249/249   seed-invalid 197/251
+
+==============================================================================
+B. CONDITION-2 FAILURES PER LEVEL -- counts are NOT cumulative
+   (see this script's docstring: validity is not monotone in resolution)
+==============================================================================
+       level      port@424242       cpp@424242      port@700001       cpp@700001
+    returned          0 /442            0 /438            0 /441            0 /446  
+         0.2          0 /442            0 /438                 --          0 /446  
+         0.1          0 /442            0 /438                 --          0 /446  
+        0.05          0 /442            0 /438            0 /441            0 /446  
+        0.02          1 /442            3 /438                 --          2 /446  
+        0.01          1 /442            3 /438            3 /441            2 /446  
+       0.005          1 /442            4 /438                 --          3 /446  
+       0.002          1 /442            4 /438                 --          3 /446  
+       0.001          1 /442            4 /438                 --          3 /446  
+
+  seed-invalid stratum only:
+       level      port@424242       cpp@424242      port@700001       cpp@700001
+    returned          0 /193            0 /189            0 /192            0 /197  
+         0.2          0 /193            0 /189                 --          0 /197  
+         0.1          0 /193            0 /189                 --          0 /197  
+        0.05          0 /193            0 /189            0 /192            0 /197  
+        0.02          1 /193            3 /189                 --          2 /197  
+        0.01          1 /193            3 /189            3 /192            2 /197  
+       0.005          1 /193            4 /189                 --          3 /197  
+       0.002          1 /193            4 /189                 --          3 /197  
+       0.001          1 /193            4 /189                 --          3 /197  
+
+==============================================================================
+C. THE FAILING IDS AT EVERY LEVEL, PER ARM
+   The last line of each arm is the UNION over levels. It is NOT a set
+   any single resolution produces -- do not quote it as one.
+==============================================================================
+  port@424242:
+      returned  (none)
+           0.2  (none)
+           0.1  (none)
+          0.05  (none)
+          0.02  floor_wall/71
+          0.01  floor_wall/71
+         0.005  floor_wall/71
+         0.002  floor_wall/71
+         0.001  floor_wall/71
+         UNION  floor_wall/71   <- union over levels, not a resolution
+  cpp@424242:
+      returned  (none)
+           0.2  (none)
+           0.1  (none)
+          0.05  (none)
+          0.02  cage/161 cage/196 cage/202
+          0.01  cage/196 cage/202 cage/222
+         0.005  cage/161 cage/196 cage/202 cage/222
+         0.002  cage/161 cage/196 cage/202 cage/222
+         0.001  cage/161 cage/196 cage/202 cage/222
+         UNION  cage/161 cage/196 cage/202 cage/222   <- union over levels, not a resolution
+  port@700001:
+      returned  (none)
+           0.2  (not in this arm's grid)
+           0.1  (not in this arm's grid)
+          0.05  (none)
+          0.02  (not in this arm's grid)
+          0.01  cage/133 cage/159 floor_wall/77
+         0.005  (not in this arm's grid)
+         0.002  (not in this arm's grid)
+         0.001  (not in this arm's grid)
+         UNION  cage/133 cage/159 floor_wall/77   <- union over levels, not a resolution
+                port@700001 adds cage/98 at 0.005 and finer (§286.3; not in this data)
+  cpp@700001:
+      returned  (none)
+           0.2  (none)
+           0.1  (none)
+          0.05  (none)
+          0.02  floor_wall/84 floor_wall/230
+          0.01  floor_wall/84 floor_wall/230
+         0.005  floor_wall/84 floor_wall/120 floor_wall/230
+         0.002  floor_wall/84 floor_wall/120 floor_wall/230
+         0.001  floor_wall/84 floor_wall/120 floor_wall/230
+         UNION  floor_wall/84 floor_wall/120 floor_wall/230   <- union over levels, not a resolution
+
+==============================================================================
+D. RETURNED-WAYPOINT VERDICT AND SEED VALIDITY FOR EVERY FAILING PROBLEM
+==============================================================================
+  port@424242: 1 problem(s) fail at one or more levels
+    floor_wall/71   seed=424242+71  fails 0.02 0.01 0.005 0.002 0.001  passes returned 0.2 0.1 0.05
+                returned-waypoints valid = True   seed_valid = False
+  cpp@424242: 4 problem(s) fail at one or more levels
+    cage/161  seed=424242+161  fails 0.02 0.005 0.002 0.001  passes returned 0.2 0.1 0.05 0.01
+                returned-waypoints valid = True   seed_valid = False
+    cage/196  seed=424242+196  fails 0.02 0.01 0.005 0.002 0.001  passes returned 0.2 0.1 0.05
+                returned-waypoints valid = True   seed_valid = False
+    cage/202  seed=424242+202  fails 0.02 0.01 0.005 0.002 0.001  passes returned 0.2 0.1 0.05
+                returned-waypoints valid = True   seed_valid = False
+    cage/222  seed=424242+222  fails 0.01 0.005 0.002 0.001  passes returned 0.2 0.1 0.05 0.02
+                returned-waypoints valid = True   seed_valid = False
+  port@700001: 3 problem(s) fail at one or more levels
+    cage/133  seed=700001+133  fails 0.01  passes returned 0.05
+                returned-waypoints valid = True   seed_valid = False
+    cage/159  seed=700001+159  fails 0.01  passes returned 0.05
+                returned-waypoints valid = True   seed_valid = False
+    floor_wall/77   seed=700001+77  fails 0.01  passes returned 0.05
+                returned-waypoints valid = True   seed_valid = False
+  cpp@700001: 3 problem(s) fail at one or more levels
+    floor_wall/84   seed=700001+84  fails 0.02 0.01 0.005 0.002 0.001  passes returned 0.2 0.1 0.05
+                returned-waypoints valid = True   seed_valid = False
+    floor_wall/120  seed=700001+120  fails 0.005 0.002 0.001  passes returned 0.2 0.1 0.05 0.02 0.01
+                returned-waypoints valid = True   seed_valid = False
+    floor_wall/230  seed=700001+230  fails 0.02 0.01 0.005 0.002 0.001  passes returned 0.2 0.1 0.05
+                returned-waypoints valid = True   seed_valid = False
+
+==============================================================================
+E. INTERSECTION BETWEEN THE TWO SEED BASES, PER LEVEL
+   Every row compares two sets measured at the SAME level.
+==============================================================================
+  port: port@424242 vs port@700001
+      returned  424242=(none)                                   700001=(none)                           intersection=(none)
+          0.05  424242=(none)                                   700001=(none)                           intersection=(none)
+          0.01  424242=floor_wall/71                            700001=cage/133 cage/159 floor_wall/77  intersection=(none)
+  cpp : cpp@424242 vs cpp@700001
+      returned  424242=(none)                                   700001=(none)                           intersection=(none)
+           0.2  424242=(none)                                   700001=(none)                           intersection=(none)
+           0.1  424242=(none)                                   700001=(none)                           intersection=(none)
+          0.05  424242=(none)                                   700001=(none)                           intersection=(none)
+          0.02  424242=cage/161 cage/196 cage/202               700001=floor_wall/84 floor_wall/230     intersection=(none)
+          0.01  424242=cage/196 cage/202 cage/222               700001=floor_wall/84 floor_wall/230     intersection=(none)
+         0.005  424242=cage/161 cage/196 cage/202 cage/222      700001=floor_wall/84 floor_wall/120 floor_wall/230 intersection=(none)
+         0.002  424242=cage/161 cage/196 cage/202 cage/222      700001=floor_wall/84 floor_wall/120 floor_wall/230 intersection=(none)
+         0.001  424242=cage/161 cage/196 cage/202 cage/222      700001=floor_wall/84 floor_wall/120 floor_wall/230 intersection=(none)
+
+  cross-implementation at the native bar 0.01:
+    @424242  port=floor_wall/71                      cpp=cage/196 cage/202 cage/222         intersection=(none)
+    @700001  port=cage/133 cage/159 floor_wall/77    cpp=floor_wall/84 floor_wall/230       intersection=(none)
+
+==============================================================================
+F. r* -- the finest level at which upstream C++ STOMP is 100%
+   Not a threshold: validity is not monotone, so read the column in B.
+==============================================================================
+  cpp@700001: r* = 0.05   100% over its own 446 solved
+      levels at 100%: returned 0.2 0.1 0.05
+      port@424242 at that level: 442/442 -> MET
+  cpp@424242: r* = 0.05   100% over its own 438 solved
+      levels at 100%: returned 0.2 0.1 0.05
+      port@424242 at that level: 442/442 -> MET
+
+==============================================================================
+G. PAIRED TABLE AT 424242 (b = port fails where cpp passes, c = reverse)
+==============================================================================
+  both solved, n=433
+      returned  b=0   c=0   b+c=0   UNDERPOWERED
+           0.2  b=0   c=0   b+c=0   UNDERPOWERED
+           0.1  b=0   c=0   b+c=0   UNDERPOWERED
+          0.05  b=0   c=0   b+c=0   UNDERPOWERED
+          0.02  b=1   c=3   b+c=4   UNDERPOWERED
+          0.01  b=1   c=2   b+c=3   UNDERPOWERED
+         0.005  b=1   c=3   b+c=4   UNDERPOWERED
+         0.002  b=1   c=3   b+c=4   UNDERPOWERED
+         0.001  b=1   c=3   b+c=4   UNDERPOWERED
+  both solved & seed-invalid, n=184
+      returned  b=0   c=0   b+c=0   UNDERPOWERED
+           0.2  b=0   c=0   b+c=0   UNDERPOWERED
+           0.1  b=0   c=0   b+c=0   UNDERPOWERED
+          0.05  b=0   c=0   b+c=0   UNDERPOWERED
+          0.02  b=1   c=3   b+c=4   UNDERPOWERED
+          0.01  b=1   c=2   b+c=3   UNDERPOWERED
+         0.005  b=1   c=3   b+c=4   UNDERPOWERED
+         0.002  b=1   c=3   b+c=4   UNDERPOWERED
+         0.001  b=1   c=3   b+c=4   UNDERPOWERED
+
+==============================================================================
+H. NON-MONOTONE CASES -- a problem that fails at a level and passes at a
+   FINER one. Enumerated because the union in C is meaningless without
+   them, and because a reader will otherwise assume a threshold.
+==============================================================================
+  cpp@424242 cage/161: fails at 0.02, passes at finer 0.01
+  total: 1

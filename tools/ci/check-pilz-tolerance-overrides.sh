@@ -50,8 +50,10 @@ fi
 # No `command -v rg` guard here, deliberately: this script parses with awk,
 # grep and sed and never invokes ripgrep, so requiring it would abort the
 # gate on any host without ripgrep installed for a reason that has nothing
-# to do with what the gate checks. `check-no-lint-suppression.sh` keeps its
-# own guard because it really does call `rg --pcre2`.
+# to do with what the gate checks. No `check-*` gate needs such a guard any
+# more: `check-no-lint-suppression.sh` was the last one that called ripgrep,
+# and it now uses `grep -P` -- the GitHub runner has no ripgrep, so its
+# guard was the whole `ci checks` step's exit 1 on two consecutive runs.
 
 # The four base constants `Tolerances::SHARED` names -- not a hardcoded
 # list: read out of the `const SHARED: Self = Self { ... };` block itself,

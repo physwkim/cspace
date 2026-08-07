@@ -1,0 +1,142 @@
+=== population ===
+cage.250.900002.set.json: md5 d727fe2d7da4fade979bd2c69414d752 == §296.6
+floor_wall.250.900001.set.json: md5 dfa126bc1b32c991ebd31f72a99c2996 == §296.6
+seed stratum floor_wall: seed-valid 148, seed-invalid 102
+seed stratum cage: seed-valid 101, seed-invalid 149
+
+=== §269.3 four arms ===
+condition 1 bar: 89.6400% = 449/500
+condition 3 bar: 3.4577097142570405
+
+port chomp: solved 380/500 = 76.0%  condition1 UNMET  condition2 failures 1  median 2.163978163668814  condition3 MET
+cpp chomp: solved 370/500 = 74.0%  condition1 UNMET  condition2 failures 1  median 2.1469494181135858  condition3 MET
+port stomp: solved 441/500 = 88.2%  condition1 UNMET  condition2 failures 3  median 2.210362452483207  condition3 MET
+cpp stomp: solved 446/500 = 89.2%  condition1 UNMET  condition2 failures 2  median 2.214180345506004  condition3 MET
+
+--- does §269.3 reproduce?  counts exact, medians within 1e-12 relative ---
+port chomp: solved 380 vs 380  condition2 1 vs 1  median 2.163978163668814 vs 2.163978163668814 (relative 0.000e+00)  -> REPRODUCES
+cpp chomp: solved 370 vs 370  condition2 1 vs 1  median 2.1469494181135858 vs 2.1469494181135858 (relative 0.000e+00)  -> REPRODUCES
+port stomp: solved 441 vs 441  condition2 3 vs 3  median 2.210362452483207 vs 2.210362452483207 (relative 0.000e+00)  -> REPRODUCES
+cpp stomp: solved 446 vs 446  condition2 2 vs 2  median 2.214180345506004 vs 2.2141803455060045 (relative 2.006e-16)  -> REPRODUCES
+
+--- same-planner bars (§269.3's second table) ---
+port chomp condition1: 76.0000% vs bar 0.9 x 370/500 = 66.6000% -> MET
+port chomp condition3: 2.163978163668814 vs bar 1.3 x 2.1469494181135858 = 2.7910342435476614 -> MET
+port stomp condition1: 88.2000% vs bar 0.9 x 446/500 = 80.2800% -> MET
+port stomp condition3: 2.210362452483207 vs bar 1.3 x 2.214180345506004 = 2.8784344491578056 -> MET
+
+=== §269.4 four-way split ===
+chomp: both 363  port-only 17  cpp-only 7  neither 113  disagreements 24
+chomp port-only ids: floor_wall/1 floor_wall/8 floor_wall/136 floor_wall/176 floor_wall/187 floor_wall/190 floor_wall/197 floor_wall/231 cage/16 cage/30 cage/47 cage/103 cage/133 cage/141 cage/161 cage/178 cage/191
+chomp cpp-only ids : floor_wall/130 floor_wall/203 floor_wall/222 cage/6 cage/33 cage/83 cage/143
+chomp port failure reasons: {'INVALID_MOTION_PLAN': 120}
+chomp cpp  failure reasons: {'INVALID_MOTION_PLAN': 130}
+chomp counts: (363, 17, 7, 113) vs (363, 17, 7, 113) -> REPRODUCES
+chomp port-only ids: 17 vs 17 -> REPRODUCES
+chomp cpp-only ids: 7 vs 7 -> REPRODUCES
+chomp failure reasons: port {'INVALID_MOTION_PLAN': 120} vs {'INVALID_MOTION_PLAN': 120}, cpp {'INVALID_MOTION_PLAN': 130} vs {'INVALID_MOTION_PLAN': 130} -> REPRODUCES
+stomp: both 437  port-only 4  cpp-only 9  neither 50  disagreements 13
+stomp port-only ids: cage/133 cage/161 cage/222 cage/231
+stomp cpp-only ids : floor_wall/120 floor_wall/221 cage/1 cage/48 cage/91 cage/95 cage/150 cage/170 cage/200
+stomp port failure reasons: {'PLANNING_FAILED': 59}
+stomp cpp  failure reasons: {'PLANNING_FAILED': 54}
+stomp counts: (437, 4, 9, 50) vs (437, 4, 9, 50) -> REPRODUCES
+stomp port-only ids: 4 vs 4 -> REPRODUCES
+stomp cpp-only ids: 9 vs 9 -> REPRODUCES
+stomp failure reasons: port {'PLANNING_FAILED': 59} vs {'PLANNING_FAILED': 59}, cpp {'PLANNING_FAILED': 54} vs {'PLANNING_FAILED': 54} -> REPRODUCES
+
+=== §286.3 condition-2 failures per resolution ===
+resolution      port chomp        cpp chomp         port stomp        cpp stomp         
+returned        0                 0                 0                 0                 
+0.2             0                 0                 0                 0                 
+0.1             0                 0                 0                 0                 
+0.05            0                 0                 0                 0                 
+0.02            1                 0                 3                 2                 
+0.01            1                 1                 3                 2                 
+0.005           1                 1                 4                 3                 
+0.002           1                 1                 4                 3                 
+0.001           1                 1                 4                 3                 
+
+--- does §286.3 reproduce?  every cell is a count, so every check is exact ---
+returned: (0, 0, 0, 0) vs (0, 0, 0, 0) -> REPRODUCES
+0.2: (0, 0, 0, 0) vs (0, 0, 0, 0) -> REPRODUCES
+0.1: (0, 0, 0, 0) vs (0, 0, 0, 0) -> REPRODUCES
+0.05: (0, 0, 0, 0) vs (0, 0, 0, 0) -> REPRODUCES
+0.02: (1, 0, 3, 2) vs (1, 0, 3, 2) -> REPRODUCES
+0.01: (1, 1, 3, 2) vs (1, 1, 3, 2) -> REPRODUCES
+0.005: (1, 1, 4, 3) vs (1, 1, 4, 3) -> REPRODUCES
+0.002: (1, 1, 4, 3) vs (1, 1, 4, 3) -> REPRODUCES
+0.001: (1, 1, 4, 3) vs (1, 1, 4, 3) -> REPRODUCES
+
+--- failing ids, every arm, every resolution where the set is nonempty ---
+cpp chomp @ 0.01: cage/27
+cpp chomp @ 0.005: cage/27
+cpp chomp @ 0.002: cage/27
+cpp chomp @ 0.001: cage/27
+port chomp @ 0.02: cage/221
+port chomp @ 0.01: cage/221
+port chomp @ 0.005: cage/221
+port chomp @ 0.002: cage/221
+port chomp @ 0.001: cage/221
+cpp stomp @ 0.02: floor_wall/230 floor_wall/84
+cpp stomp @ 0.01: floor_wall/230 floor_wall/84
+cpp stomp @ 0.005: floor_wall/120 floor_wall/230 floor_wall/84
+cpp stomp @ 0.002: floor_wall/120 floor_wall/230 floor_wall/84
+cpp stomp @ 0.001: floor_wall/120 floor_wall/230 floor_wall/84
+port stomp @ 0.02: cage/133 cage/159 floor_wall/77
+port stomp @ 0.01: cage/133 cage/159 floor_wall/77
+port stomp @ 0.005: cage/133 cage/159 cage/98 floor_wall/77
+port stomp @ 0.002: cage/133 cage/159 cage/98 floor_wall/77
+port stomp @ 0.001: cage/133 cage/159 cage/98 floor_wall/77
+
+--- the set's own motion_resolution field vs the grid's matching row ---
+port chomp: condition2_valid fails ['cage/221'] ; grid @ 0.01 fails ['cage/221'] ; agree
+cpp chomp: condition2_valid fails ['cage/27'] ; grid @ 0.01 fails ['cage/27'] ; agree
+port stomp: condition2_valid fails ['cage/133', 'cage/159', 'floor_wall/77'] ; grid @ 0.01 fails ['cage/133', 'cage/159', 'floor_wall/77'] ; agree
+cpp stomp: condition2_valid fails ['floor_wall/230', 'floor_wall/84'] ; grid @ 0.01 fails ['floor_wall/230', 'floor_wall/84'] ; agree
+
+=== condition3-paired (median over the problems both sides solved) ===
+chomp/floor_wall: n=187  port 2.1206673038481596  cpp 2.1206673038481596  limit 1.3x = 2.7568674950026075  ratio 1.000000x  MET
+chomp/cage: n=176  port 2.1742506069063845  cpp 2.1791540303592862  limit 1.3x = 2.8329002394670724  ratio 0.997750x  MET
+chomp/pooled: n=363  port 2.1464396295469816  cpp 2.1464396295469816  limit 1.3x = 2.7903715184110762  ratio 1.000000x  MET
+stomp/floor_wall: n=239  port 2.304367310777734  cpp 2.3043673107777334  limit 1.3x = 2.9956775040110535  ratio 1.000000x  MET
+stomp/cage: n=198  port 2.144364491533381  cpp 2.144309877523285  limit 1.3x = 2.7876028407802704  ratio 1.000025x  MET
+stomp/pooled: n=437  port 2.2078758245130863  cpp 2.2032249174264993  limit 1.3x = 2.864192392654449  ratio 1.002111x  MET
+
+=== condition3-paired, restricted to the seed-invalid stratum ===
+chomp/pooled: n=114 of 363 paired  port 2.3932796258685256  cpp 2.3871388224689474  limit 1.3x = 3.103280469209632  ratio 1.002572x  MET
+chomp/pooled: port longer on 55, cpp longer on 59
+stomp/pooled: n=188 of 437 paired  port 2.3875403194605296  cpp 2.394765869825624  limit 1.3x = 3.1131956307733115  ratio 0.996983x  MET
+stomp/pooled: port longer on 87, cpp longer on 101
+
+--- the criterion, checked against the port CHOMP arm's own loop counter ---
+seed_valid <-> port CHOMP accepted no update: agree 380, disagree 0 (exact)
+
+=== no-regression-cpp-solved (the C++ solved counts a floor would pin) ===
+cpp chomp/floor_wall: 190/250
+cpp chomp/cage: 180/250
+cpp chomp/pooled: 370/500
+cpp stomp/floor_wall: 241/250
+cpp stomp/cage: 205/250
+cpp stomp/pooled: 446/500
+
+=== §300.9's named claim, at the 0.01 bar ===
+cpp STOMP  @ 0.01: floor_wall/230 floor_wall/84
+port STOMP @ 0.01: cage/133 cage/159 floor_wall/77
+disjoint @ 0.01: yes
+cpp STOMP  over the whole grid: floor_wall/120 floor_wall/230 floor_wall/84
+port STOMP over the whole grid: cage/133 cage/159 cage/98 floor_wall/77
+disjoint over the whole grid: yes
+every condition-2 failure is in the seed-invalid stratum: yes
+
+=== repeat runs: how many digits of a length are reproducible ===
+cpp chomp: 22 problems run twice -- length identical 22, length differs 0 (worst relative 0.000e+00); records differing in any other field (including the whole condition-2 grid): 0; rows whose recorded seed is not 700001+id: 0
+cpp chomp: ids [0, 16, 26, 37, 50, 63, 74, 86, 96, 107, 118, 129, 141, 154, 163, 175, 191, 202, 212, 225, 239, 249] -- a stratified subset of the floor_wall arm, not the arm
+cpp stomp: 21 problems run twice -- length identical 6, length differs 15 (worst relative 4.890e-16); records differing in any other field (including the whole condition-2 grid): 0; rows whose recorded seed is not 700001+id: 0
+cpp stomp: ids [0, 13, 25, 38, 51, 65, 77, 89, 101, 113, 125, 137, 149, 161, 175, 188, 200, 212, 224, 237, 249] -- a stratified subset of the floor_wall arm, not the arm
+
+=== cross-check: this cpp STOMP arm against an independently produced one ===
+floor_wall: ids 250  solved-flag disagreements 0  seeds pinned to 700001+id on both 250/250  condition-2 grids identical 241/241
+floor_wall: length identical 78/241, worst relative 7.735e-16; median 2.3043673107777334 vs 2.3043673107777334 (relative 0.000e+00, within 1e-12)
+cage: ids 250  solved-flag disagreements 0  seeds pinned to 700001+id on both 250/250  condition-2 grids identical 205/205
+cage: length identical 68/205, worst relative 1.577e-15; median 2.1600234549101125 vs 2.160023454910113 (relative 2.056e-16, within 1e-12)

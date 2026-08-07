@@ -81,6 +81,16 @@ jobs:
       # -- no docker, no cargo, no upstream", yet never once run by CI in its
       # whole life. A non-executable match is a hard failure for the same
       # reason: dropping the `+x` bit must not be a way to leave the set.
+      #
+      # Every gate runs even after one fails; failures are collected and
+      # reported together at the end, the same shape `tools/ci/verify-all.sh`
+      # already uses for the `verify-*` glob. Under the default `for s in
+      # ...; do "$s"; done` this step aborted at the first failing gate --
+      # runs 31135034802/92732383116 ran only 14 of 26 before `bash -eo
+      # pipefail` killed the step on gate 15, so CI's red said nothing about
+      # the other 12. `if ! "$s"; then` is exempt from `-e` (it is the
+      # condition of an `if`), so this loop keeps going under the same shell
+      # options instead of needing `set +e`.
       - name: ci checks
         shell: bash
         run: |
@@ -96,10 +106,20 @@ jobs:
               exit 1
             fi
           done
+          failed=()
           for s in "${scripts[@]}"; do
             echo "== $s"
-            "$s"
+            if ! "$s"; then
+              failed+=("$s")
+            fi
           done
+          echo
+          if [[ ${#failed[@]} -gt 0 ]]; then
+            echo "FAIL ${#failed[@]} of ${#scripts[@]} check(s) failed:" >&2
+            printf '  %s\n' "${failed[@]}" >&2
+            exit 1
+          fi
+          echo "OK all ${#scripts[@]} check(s) passed"
 
   # The differential harness needs the C++ oracle image, which takes long enough
   # to build that it is not run on every push. `workflow_dispatch` and the

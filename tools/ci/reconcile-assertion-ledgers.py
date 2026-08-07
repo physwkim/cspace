@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Usage: tools/ci/reconcile-assertion-ledgers.py [--emit-orphans] [--emit-unresolved]
-#                                                 [--write-orphans] [--verify]
+#                                                 [--write-orphans] [--write-comparison-baseline]
+#                                                 [--verify]
 #
 # Assertion-discrimination sweep instrument (see
 # doc/assertion-discrimination-census.md, and the p3-acm ledger's "Round 14
@@ -61,6 +62,7 @@
 # header plus body) so regenerating it is one redirect, not a hand-typed
 # header.
 import json
+import os
 import re
 import subprocess
 import sys
@@ -80,6 +82,31 @@ SCAN_ROOTS = ("crates", "ros", "tools")
 EQUIVALENCES_FILE = REPO_ROOT / "tools" / "ci" / "assertion-ledger-equivalences.json"
 ORPHANS_FILE = REPO_ROOT / "doc" / "assertion-discrimination-orphans.txt"
 NEARBY_WINDOW = 5
+
+# SECOND POPULATION: sites the scanner only finds because half_plane/
+# cmp_compound exist now (PORTING-PLAN.md §307), INCLUDING an assertion-helper
+# fn's call sites that only became visible because the helper's OWN internal
+# assertion just became classifiable (see `helpers` in count-coarse-
+# assertions.py's scan()) -- a call site can carry kind `via:<fn>` with
+# neither new kind in that string at all, so membership is computed by
+# diffing against a `CCA_LEGACY_KINDS_ONLY=1` re-run (see run_scanner), not by
+# filtering on a kind string. Folding these orphans into ORPHANS_FILE's
+# 0-must-hold invariant would do exactly what this gate's own header warns
+# against -- "a new orphan is laundered green by --write-orphans-ing it into
+# the expected set" -- except at the scale of 320 sites in one commit instead
+# of one. So, same as check-citation-drift.py's IN_REPO_BASELINE/
+# IN_REPO_HARD_FAIL split for its own second population: these orphans get a
+# SEPARATE baseline file, declared and drift-checked on their own, while
+# ORPHANS_FILE and its 0-orphan invariant keep meaning exactly what they meant
+# before this round -- every site under the kinds that existed before it
+# still has, and must keep having, an accounting ledger row.
+COMPARISON_BASELINE = REPO_ROOT / "doc" / "assertion-discrimination-orphans-comparison.txt"
+# Flipped to True once the backlog is triaged into ledger rows (or vetted
+# equivalences). Until then the population is declared, counted and
+# drift-checked -- a site leaving or a NEW site joining the live set without
+# the baseline being regenerated still fails, so the backlog cannot grow
+# silently -- but its current size does not fail the run by itself.
+COMPARISON_HARD_FAIL = False
 
 
 def discover_ledgers():
@@ -112,15 +139,28 @@ def current_commit():
     ).stdout.strip()
 
 
-def run_scanner():
+def run_scanner(legacy=False):
     """Live scanner sites, excluding helper_body. Never reads a cached file --
-    this is the whole point of "reproducible from a clean checkout"."""
+    this is the whole point of "reproducible from a clean checkout".
+
+    `legacy=True` sets CCA_LEGACY_KINDS_ONLY, which makes the scanner
+    recompute the corpus as it stood before half_plane/cmp_compound existed
+    (count-coarse-assertions.py's own flag, not this script's). Diffing that
+    set against the live one is how the two populations below are told
+    apart -- see COMPARISON_KINDS' comment for why a kind-string filter
+    alone cannot do it."""
+    env = dict(os.environ)
+    if legacy:
+        env["CCA_LEGACY_KINDS_ONLY"] = "1"
+    else:
+        env.pop("CCA_LEGACY_KINDS_ONLY", None)
     out = subprocess.run(
         [sys.executable, str(SCANNER), *(f"{r}/" for r in SCAN_ROOTS)],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=True,
+        env=env,
     ).stdout
     sites = {}
     basenames = {}
@@ -263,6 +303,8 @@ def reconcile():
     --emit-unresolved, --write-orphans, --verify) computes the partition
     exactly once, the same way."""
     sites, basenames = run_scanner()
+    legacy_sites, _ = run_scanner(legacy=True)
+    comparison_sites = set(sites) - set(legacy_sites)
     equivalences = load_equivalences()
     ledgers = discover_ledgers()
 
@@ -304,6 +346,8 @@ def reconcile():
 
     all_scanner_sites = set(sites)
     orphans = sorted(all_scanner_sites - matched_sites)
+    orphans_first = [s for s in orphans if s not in comparison_sites]
+    orphans_second = [s for s in orphans if s in comparison_sites]
 
     return {
         "sites": sites,
@@ -311,14 +355,23 @@ def reconcile():
         "total": len(all_scanner_sites),
         "matched_count": len(matched_sites),
         "orphans": orphans,
+        "orphans_first": orphans_first,
+        "orphans_second": orphans_second,
+        # First-population total/matched, i.e. this file's numbers with the
+        # second population's sites excluded entirely -- ORPHANS_FILE's
+        # header describes only what its own 0-orphan invariant covers.
+        "total_first": len(all_scanner_sites) - len(comparison_sites),
+        "matched_count_first": len(matched_sites - comparison_sites),
+        "total_second": len(comparison_sites),
+        "matched_count_second": len(matched_sites & comparison_sites),
         "match_notes": match_notes,
         "unresolved": unresolved,
         "non_scope": non_scope,
     }
 
 
-def orphan_lines(result):
-    return [f"{path}:{line}:{result['sites'][(path, line)]}" for path, line in result["orphans"]]
+def orphan_lines(result, key="orphans"):
+    return [f"{path}:{line}:{result['sites'][(path, line)]}" for path, line in result[key]]
 
 
 # A header field is a comment line whose text ends in `<label>: <one token>`.
@@ -336,11 +389,14 @@ HEADER_FIELD_RE = re.compile(r"^#\s*(.+?):\s*(\S+)\s*$")
 def write_orphans_header(result, commit):
     return [
         "# Orphan enumeration: coarse-assertion scanner sites with no accounting ledger row.",
+        "# First population only -- excludes the half_plane/cmp_compound comparison",
+        "# population, which has its own baseline (see doc/assertion-discrimination-",
+        "# orphans-comparison.txt and run_scanner(legacy=...) in this script).",
         "# Generated by: python3 tools/ci/reconcile-assertion-ledgers.py --write-orphans",
         f"# Source commit: {commit}",
-        f"# Scanner sites (excl. helper_body): {result['total']}",
-        f"# Matched (some ledger row accounts for the site): {result['matched_count']}",
-        f"# Orphans (no ledger row accounts for the site): {len(result['orphans'])}",
+        f"# Scanner sites (excl. helper_body): {result['total_first']}",
+        f"# Matched (some ledger row accounts for the site): {result['matched_count_first']}",
+        f"# Orphans (no ledger row accounts for the site): {len(result['orphans_first'])}",
         "# This file goes stale the moment the corpus or a ledger changes without",
         "# regenerating it -- run with --verify (wired into tools/ci/verify-all.sh via",
         "# tools/ci/verify-orphan-enumeration.sh) to catch that before it ships.",
@@ -348,12 +404,30 @@ def write_orphans_header(result, commit):
     ]
 
 
-def read_committed_orphans():
-    if not ORPHANS_FILE.exists():
+def write_comparison_header(result, commit):
+    return [
+        "# Second-population baseline: half_plane/cmp_compound orphans (PORTING-PLAN.md",
+        "# §307). Declared and drift-checked like the first population, but its size does",
+        "# NOT fail --verify by itself (COMPARISON_HARD_FAIL=False in reconcile-assertion-",
+        "# ledgers.py) -- these 320 sites were never in any ledger's corpus before this",
+        "# baseline was cut, so they are first-ever results, not regressions. A site",
+        "# leaving or a new site joining this set without the baseline being regenerated",
+        "# still fails -- the backlog is pinned, not laundered.",
+        "# Generated by: python3 tools/ci/reconcile-assertion-ledgers.py --write-comparison-baseline",
+        f"# Source commit: {commit}",
+        f"# Scanner sites in this population: {result['total_second']}",
+        f"# Matched (some ledger row accounts for the site): {result['matched_count_second']}",
+        f"# Orphans (backlog, not yet reconciled into a ledger): {len(result['orphans_second'])}",
+        "# Format: file:line:kind (kind per tools/ci/count-coarse-assertions.py's classify())",
+    ]
+
+
+def read_committed_orphans(path=ORPHANS_FILE):
+    if not path.exists():
         return None, []
     header = {}
     body = []
-    for line in ORPHANS_FILE.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith("#"):
             m = HEADER_FIELD_RE.match(line)
             if m:
@@ -368,6 +442,7 @@ def main(argv):
     emit_orphans = "--emit-orphans" in argv
     emit_unresolved = "--emit-unresolved" in argv
     write_orphans = "--write-orphans" in argv
+    write_comparison_baseline = "--write-comparison-baseline" in argv
     verify = "--verify" in argv
 
     result = reconcile()
@@ -381,8 +456,15 @@ def main(argv):
     if write_orphans:
         for line in write_orphans_header(result, current_commit()):
             print(line)
-        for line in orphan_lines(result):
+        for line in orphan_lines(result, "orphans_first"):
             print(line)
+        return 0
+
+    if write_comparison_baseline:
+        lines = write_comparison_header(result, current_commit()) + orphan_lines(result, "orphans_second")
+        COMPARISON_BASELINE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print(f"wrote {COMPARISON_BASELINE.relative_to(REPO_ROOT)}: "
+              f"{len(result['orphans_second'])} orphan(s) in the comparison population")
         return 0
 
     if verify:
@@ -390,12 +472,15 @@ def main(argv):
         # snapshot can make a fresh orphan look expected, and an
         # unresolved citation never reaches the snapshot at all when some
         # other ledger still matches the site -- neither is catchable by
-        # comparing two orphan lists.
+        # comparing two orphan lists. Scoped to the FIRST population only
+        # (see COMPARISON_KINDS above) -- the second population's own
+        # baseline is checked separately, below.
+        orphan_count = len(result["orphans_first"])
         if orphan_count or unresolved:
             print(f"FAIL the sweep's invariant is broken: {orphan_count} orphan site(s), "
                   f"{len(unresolved)} unresolved ledger citation(s) "
-                  f"(both must be 0; scanner sites, excl. helper_body: {total})")
-            for site, line in result["orphans"]:
+                  f"(both must be 0; scanner sites, excl. helper_body: {result['total_first']})")
+            for site, line in result["orphans_first"]:
                 print(f"  orphan   {site}:{line}")
             for ledger, fname_part, lineno, _raw, _status, category, detail in unresolved:
                 print(f"  citation {Path(ledger).name} -> {fname_part}:{lineno} :: {category}; {detail}")
@@ -410,7 +495,7 @@ def main(argv):
         if header is None:
             print(f"FAIL {ORPHANS_FILE.relative_to(REPO_ROOT)} does not exist -- run --write-orphans first")
             return 1
-        live_body = orphan_lines(result)
+        live_body = orphan_lines(result, "orphans_first")
         committed_set = set(committed_body)
         live_set = set(live_body)
         added = sorted(live_set - committed_set)
@@ -448,14 +533,15 @@ def main(argv):
             if header.get(field) != value
         )
 
-        print(f"scanner sites (excl. helper_body), live: {total}")
+        total_first = result["total_first"]
+        print(f"scanner sites (excl. helper_body), live: {total_first}")
         print(f"orphans, live: {orphan_count}  |  orphans, committed file: {len(committed_body)}")
+        first_failed = False
         if not added and not removed and not drifted:
             print(f"OK {ORPHANS_FILE.relative_to(REPO_ROOT)} matches the live orphan set exactly "
                   f"({orphan_count} sites, commit {current_commit()[:12]})")
-            return 0
-
-        if drifted and not added and not removed:
+        elif drifted and not added and not removed:
+            first_failed = True
             print(f"FAIL {ORPHANS_FILE.relative_to(REPO_ROOT)} has the right orphan set but a "
                   f"stale header: {len(drifted)} count(s) no longer describe the tree "
                   f"(file's own header says source commit "
@@ -465,23 +551,56 @@ def main(argv):
             print()
             print("regenerate with: python3 tools/ci/reconcile-assertion-ledgers.py "
                   "--write-orphans > doc/assertion-discrimination-orphans.txt")
-            return 1
+        else:
+            first_failed = True
+            print(f"FAIL {ORPHANS_FILE.relative_to(REPO_ROOT)} is stale: "
+                  f"{len(added)} site(s) added, {len(removed)} site(s) removed since it was generated "
+                  f"(file's own header says source commit {header.get('source commit', '<missing>')})")
+            if added:
+                print(f"--- {len(added)} orphan site(s) now present but missing from the committed file ---")
+                for line in added:
+                    print(f"  + {line}")
+            if removed:
+                print(f"--- {len(removed)} site(s) in the committed file that are no longer orphans ---")
+                for line in removed:
+                    print(f"  - {line}")
+            print()
+            print("regenerate with: python3 tools/ci/reconcile-assertion-ledgers.py --write-orphans "
+                  "> doc/assertion-discrimination-orphans.txt")
 
-        print(f"FAIL {ORPHANS_FILE.relative_to(REPO_ROOT)} is stale: "
-              f"{len(added)} site(s) added, {len(removed)} site(s) removed since it was generated "
-              f"(file's own header says source commit {header.get('source commit', '<missing>')})")
-        if added:
-            print(f"--- {len(added)} orphan site(s) now present but missing from the committed file ---")
-            for line in added:
-                print(f"  + {line}")
-        if removed:
-            print(f"--- {len(removed)} site(s) in the committed file that are no longer orphans ---")
-            for line in removed:
-                print(f"  - {line}")
-        print()
-        print("regenerate with: python3 tools/ci/reconcile-assertion-ledgers.py --write-orphans "
-              "> doc/assertion-discrimination-orphans.txt")
-        return 1
+        # Second population: drift-checked the same way, but a nonzero
+        # backlog does not fail the run by itself (COMPARISON_HARD_FAIL).
+        comparison_header, comparison_committed = read_committed_orphans(COMPARISON_BASELINE)
+        if comparison_header is None:
+            print(f"FAIL {COMPARISON_BASELINE.relative_to(REPO_ROOT)} does not exist -- run "
+                  "--write-comparison-baseline first")
+            return 1
+        comparison_live = set(orphan_lines(result, "orphans_second"))
+        comparison_committed_set = set(comparison_committed)
+        comparison_added = sorted(comparison_live - comparison_committed_set)
+        comparison_removed = sorted(comparison_committed_set - comparison_live)
+        second_failed = bool(comparison_added or comparison_removed)
+        stream_note = " (backlog; COMPARISON_HARD_FAIL=False)" if not second_failed else ""
+        print(f"second population (half_plane/cmp_compound), live orphans: {len(comparison_live)}"
+              f"  |  baseline: {len(comparison_committed_set)}{stream_note}")
+        if second_failed:
+            if comparison_added:
+                print(f"--- {len(comparison_added)} second-population orphan(s) not in "
+                      f"{COMPARISON_BASELINE.relative_to(REPO_ROOT)} ---")
+                for line in comparison_added:
+                    print(f"  + {line}")
+            if comparison_removed:
+                print(f"--- {len(comparison_removed)} baselined site(s) no longer orphaned "
+                      f"(reconciled into a ledger?) ---")
+                for line in comparison_removed:
+                    print(f"  - {line}")
+            print("regenerate with: python3 tools/ci/reconcile-assertion-ledgers.py "
+                  "--write-comparison-baseline")
+        elif COMPARISON_HARD_FAIL:
+            print(f"FAIL COMPARISON_HARD_FAIL is set and the backlog is still {len(comparison_live)}")
+            second_failed = True
+
+        return 1 if (first_failed or second_failed) else 0
 
     print(f"ledgers discovered (doc/assertion-discrimination-ledger-*.md): {len(result['ledgers'])}")
     for ledger in result["ledgers"]:

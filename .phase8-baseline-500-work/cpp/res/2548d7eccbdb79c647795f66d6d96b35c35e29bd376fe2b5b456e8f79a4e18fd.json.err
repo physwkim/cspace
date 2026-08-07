@@ -1,0 +1,11 @@
+[WARN] [1786050429.183116764] [moveit_730177146]: exception thrown while creating node for logging: failed to create guard condition: context argument is null, at ./src/rcl/guard_condition.c:63
+[WARN] [1786050429.183158985] [moveit_730177146]: if rclcpp::init was not called, messages from this logger may be missing from /rosout
+[INFO] [1786050429.183196285] [moveit_730177146.moveit.core.robot_model]: Loading robot model 'panda'...
+[INFO] [1786050429.882953724] [moveit_730177146.moveit.planners.chomp.planner]: CHOMP trajectory initialized using method: quintic-spline 
+[INFO] [1786050429.883108018] [moveit_730177146.moveit.planners.chomp.optimizer]: Active collision detector is: HYBRID
+[INFO] [1786050430.028651515] [moveit_730177146.moveit.planners.chomp.optimizer]: First coll check took 0.145521 sec
+[INFO] [1786050430.047700102] [moveit_730177146.moveit.planners.chomp.optimizer]: Chomp Got mesh to mesh safety at iter 0. Breaking out early.
+[INFO] [1786050430.047738563] [moveit_730177146.moveit.planners.chomp.optimizer]: Chomp path is collision free
+[INFO] [1786050430.047744830] [moveit_730177146.moveit.planners.chomp.optimizer]: Terminated after 1 iterations, using path from iteration 0
+[INFO] [1786050430.047749217] [moveit_730177146.moveit.planners.chomp.optimizer]: Optimization core finished in 0.006674 sec
+[INFO] [1786050430.047756509] [moveit_730177146.moveit.planners.chomp.optimizer]: Time per iteration 0.006681 sec
