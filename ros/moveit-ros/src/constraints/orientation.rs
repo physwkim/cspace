@@ -21,7 +21,9 @@ const ROTATION_VECTOR: u8 = 1;
 /// Wraps the wire message with the `&RobotModel` needed to resolve
 /// `link_name`/`header.frame_id` (§6).
 pub struct OrientationConstraintMsg<'m> {
+    /// Resolves `msg.link_name` and `msg.header.frame_id`.
     pub model: &'m RobotModel,
+    /// The wire message, unmodified.
     pub msg: moveit_msgs::OrientationConstraint,
 }
 

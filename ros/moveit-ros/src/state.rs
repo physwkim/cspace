@@ -55,7 +55,9 @@ use r2r::sensor_msgs::msg as sensor_msgs;
 /// is not enough to build a [`CoreRobotState`], same shape as
 /// `doc/message-mapping.md`'s per-row notes on frame-lookup conversions).
 pub struct RobotStateMsg<'m> {
+    /// Resolves `msg.joint_state.name` to variable indices.
     pub model: &'m RobotModel,
+    /// The wire message, unmodified.
     pub msg: moveit_msgs::RobotState,
 }
 

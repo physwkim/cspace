@@ -125,7 +125,9 @@ fn body_to_solid_primitive(body: &Body) -> Result<shape_msgs::SolidPrimitive, Er
 /// Wraps the wire message with the `&RobotModel` needed to resolve
 /// `link_name`/`header.frame_id` (§5).
 pub struct PositionConstraintMsg<'m> {
+    /// Resolves `msg.link_name` and `msg.header.frame_id`.
     pub model: &'m RobotModel,
+    /// The wire message, unmodified.
     pub msg: moveit_msgs::PositionConstraint,
 }
 

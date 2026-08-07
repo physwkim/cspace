@@ -13,7 +13,9 @@ use r2r::moveit_msgs::msg as moveit_msgs;
 /// `joint_name` into a variable index (§4: not a pure function of the
 /// message alone).
 pub struct JointConstraintMsg<'m> {
+    /// Resolves `msg.joint_name` to a variable index.
     pub model: &'m RobotModel,
+    /// The wire message, unmodified.
     pub msg: moveit_msgs::JointConstraint,
 }
 

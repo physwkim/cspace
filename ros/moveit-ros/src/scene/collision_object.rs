@@ -59,6 +59,9 @@ const ADD: u8 = moveit_msgs::CollisionObject::ADD as u8;
 const REMOVE: u8 = moveit_msgs::CollisionObject::REMOVE as u8;
 const APPEND: u8 = moveit_msgs::CollisionObject::APPEND as u8;
 const MOVE: u8 = moveit_msgs::CollisionObject::MOVE as u8;
+
+/// `CollisionObject.operation` as an enum, so an unrecognized wire value is
+/// rejected once here rather than falling through a `match` at each caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CollisionObjectOperation {
     /// `CollisionObject::ADD` (0).

@@ -644,7 +644,7 @@ the instrument getting *less* clever rather than more:
   parameter (`|d| d.contains("only STL")`, five sites in `crates/`),
   and reading the argument instead calls
   `body.touch_links().contains("should_not_survive")`
-  (`scene/attached.rs:532`) a message search. Which one a `.contains` is
+  (`scene/attached.rs:520`) a message search. Which one a `.contains` is
   depends on the receiver's *type*, and the instrument has no types. It
   now emits one kind and leaves the call to §9 clause 1, where every
   other kind's membership is already decided by reading.
@@ -763,7 +763,7 @@ Both corrections are now in the tool (`ccac7ea`): a body that asserts on
 its own parameter is emitted as `helper_body`, and each of its call sites
 as `via:<fn>`. Running it today gives **63**, not 62, and the extra site
 is real rather than a regrading — `4c56148` ("reach `apply_move`'s
-object-pose parse") split `collision_object.rs:1089` (`fn move_object_pose_with_malformed_pose_is_rejected() {`) into `:1108` and
+object-pose parse") split `collision_object.rs:1092` (`fn move_object_pose_with_malformed_pose_is_rejected() {`) into `:1108` and
 `:1143` after `p9-ros` measured. 62 was right at `2dd3169`; 63 is right at
 this document's HEAD. The pair is worth keeping side by side, because a
 hand count and an instrument disagreeing by one is exactly the shape that
@@ -778,7 +778,7 @@ have been `main`'s figure.
 
 Counting call sites of a helper by hand is its own trap: `rg -c` merges
 same-line hits, and of the 24 non-definition occurrences of
-`assert_err_mentions` in `ros/`, one (`scene/attached.rs:441`) is inside a
+`assert_err_mentions` in `ros/`, one (`scene/attached.rs:429`) is inside a
 comment. 23 is right; the naive occurrences-minus-definitions arithmetic
 gives 24.
 
@@ -796,7 +796,7 @@ the needle, which is the correct division of labour between a needle and a
 mutation.
 
 One latent risk is recorded unfixed and should stay that way:
-`scene/collision_object.rs:1089` (`fn move_object_pose_with_malformed_pose_is_rejected() {`) has two physical call sites inside
+`scene/collision_object.rs:1092` (`fn move_object_pose_with_malformed_pose_is_rejected() {`) has two physical call sites inside
 `apply_move` sharing one message, and only one is reachable by the current
 fixture — so there is nothing live to bite-check today, and a fix would be
 a guess. A future edit touching `mv.pose` in that test would misattribute
