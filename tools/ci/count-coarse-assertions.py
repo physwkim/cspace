@@ -377,6 +377,16 @@ def fn_spans(masked):
     return out
 
 
+def end_line(masked, end_offset):
+    """1-based line holding the closing paren of an assertion whose args
+    `arg_span` measured. A ledger that cites a clause INSIDE a multi-line
+    assertion -- `err.to_string().contains("panda_joint1"),` two lines into
+    an `assert!(` -- is naming this site precisely, not drifting off it, and
+    the consumer needs the span to tell those two apart without falling back
+    on proximity."""
+    return masked.count("\n", 0, end_offset) + 1
+
+
 def scan(path):
     text = path.read_text(encoding="utf-8", errors="replace")
     masked = blank_comments_and_strings(text)
@@ -435,9 +445,9 @@ def scan(path):
                 r"\brendered\b|\bactual\b|\bresult\b", body
             ):
                 helpers[owner[0]] = (kinds, owner[1], owner[2])
-                hits.append((line, ",".join(kinds), "helper_body", shown))
+                hits.append((line, end_line(masked, end), ",".join(kinds), "helper_body", shown))
                 continue
-        hits.append((line, ",".join(kinds), scope_at(m.start()), shown))
+        hits.append((line, end_line(masked, end), ",".join(kinds), scope_at(m.start()), shown))
 
     for name, (kinds, ds, de) in helpers.items():
         for c in re.finditer(r"\b" + name + r"\s*\(", masked):
@@ -448,7 +458,7 @@ def scan(path):
             shown = " ".join(text[c.start() : end + 1].split())
             if len(shown) > 120:
                 shown = shown[:117] + "..."
-            hits.append((line, "via:" + name, scope_at(c.start()), shown))
+            hits.append((line, end_line(masked, end), "via:" + name, scope_at(c.start()), shown))
     return sorted(hits), residue
 
 
@@ -463,8 +473,11 @@ def main(argv):
     total_residue = {"abs_tol": 0, "other": 0}
     for path in sorted(files):
         hits, residue = scan(path)
-        for line, kinds, scope, shown in hits:
-            print(f"{path}:{line}:{kinds}:{scope}:{shown}")
+        for line, last, kinds, scope, shown in hits:
+            # Opt-in so the default one-line-per-site format every other
+            # reader parses stays byte-identical.
+            span = f"{line}-{last}" if os.environ.get("CCA_EMIT_SPAN") else f"{line}"
+            print(f"{path}:{span}:{kinds}:{scope}:{shown}")
         for k in total_residue:
             total_residue[k] += residue[k]
     # stderr, not stdout: callers that parse this script's stdout
