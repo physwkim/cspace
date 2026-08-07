@@ -16832,7 +16832,9 @@ parent_before`는 진짜 살아 있는 검사이고 커밋된 픽스처가 그�
   넣는 경로는 오라클 op으로 열려 있지 않다. 오늘 재확인:
   `tools/moveit-oracle/src/oracle.cpp`에 `push_diffs`/`decouple_parent`/
   `clear_diffs` 이름이 0건인 반면(rg 재확인), `crates/moveit-scene/src/scene.rs`는
-  세 함수 모두 실제로 포팅돼 있다(`:1974`,`:2036`, doc 목록 `:231-233`) —
+  세 함수 모두 실제로 포팅돼 있다(`crates/moveit-scene/src/scene.rs:1974`,
+  `crates/moveit-scene/src/scene.rs:2036`, doc 목록
+  `crates/moveit-scene/src/scene.rs:231-233`) —
   포트에는 있고 오라클 op으로는 대조할 방법이 없는 비대칭이 오늘도
   그대로다. **OPEN → 만료 조건 (`push_diffs`/`decouple_parent`/
   `clear_diffs`가 왕복하는 상태를 오라클이 관찰 가능하게 하는 새 op이
@@ -18731,7 +18733,8 @@ seed·훅의 쓰기·채택된 해의 쓰기가 공통으로 인덱싱하는 유
   대조 6,392케이스, 후자는 `RobotState`에 대응 메서드 자체가 없어
   비교할 대상이 없음), 통합은 순수 리팩터라 이 라운드가 추측성으로
   만들지 않는다. **OPEN → 만료 조건 (`interpolate_into`/`distance`
-  (`crates/moveit-trajectory/src/robot_trajectory.rs:585`,`:613`)가 `RobotState::interpolate`/
+  (`crates/moveit-trajectory/src/robot_trajectory.rs:585`,
+  `crates/moveit-trajectory/src/robot_trajectory.rs:613`)가 `RobotState::interpolate`/
   `distance`의 진짜 메서드로 위임하도록 바뀌는 시점 — `distance` 쪽은
   `RobotState`에 그 메서드 자체가 먼저 생겨야 한다, §327.14).**
 
