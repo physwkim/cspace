@@ -38014,3 +38014,34 @@ $ rg -n '"full":' tools/ci/measure-phase8-optimizer-properties.sh
 `full` 모드에서 판정을 내지 못한다는 사실도 §295.3이 같은 날
 (2026-08-07) 독립적으로 측정해 적어 두고 있다. falsifier 불발 —
 OPEN.
+
+### §324.7 §264.12 — STOMP의 끝점 밀림 자체가 없어지지 않았다는 것
+
+불릿: "STOMP의 끝점 밀림 자체. §264.4는 상한을 핀으로 걸었을 뿐이고,
+밀림을 없애지 않았다. upstream 동작이므로 포트가 임의로 다시 고정하면
+안 된다."
+
+falsifier: 포트의 `generate_smoothing_matrix`가 첫/마지막 행을
+항등으로 특수 처리하게 됐다면(즉 upstream과 달리 끝점을 평활화에서
+빼게 됐다면) 거짓 — 그것은 곧 §264.4가 upstream 동작이라 부른 원인이
+포트에서 사라졌다는 뜻이다.
+
+```
+$ sed -n '374,399p' crates/moveit-stomp-core/src/utils.rs
+374:pub fn generate_smoothing_matrix(num_timesteps: usize, dt: f64) -> Option<DMatrix<f64>> {
+...
+394:    for t in 0..num_timesteps {
+395:        let max = projection_matrix_m[(t, t)];
+396:        let mut col = projection_matrix_m.column_mut(t);
+397:        col *= 1.0 / (num_timesteps as f64 * max);
+398:    }
+399:    Some(projection_matrix_m)
+```
+
+루프는 `0..num_timesteps` 전체를 돈다 — timestep 0과 N-1을 건너뛰는
+분기가 없다. upstream의 `simpleSmoothingMatrix`가
+`for (auto row : filtered_values.rowwise())`로 모든 행을 도는 것과
+같은 모양이다(§264.4 인용). 포트를 upstream과 다르게 고치는 것은 이
+불릿 자신이 금지하는 일이므로, 이 항목은 falsifier가 원리상
+"고쳐졌는가"가 아니라 "아직 upstream과 같은가"를 묻는다 — 답은
+그렇다다. falsifier 불발 — OPEN.
