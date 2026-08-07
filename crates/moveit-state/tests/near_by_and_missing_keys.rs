@@ -216,6 +216,57 @@ fn set_variable_efforts_named_errors_on_unknown_name() {
     );
 }
 
+// ---- setJointVelocities: no mimic derivation, no dirty mark -------------
+
+/// Unlike `set_joint_positions`, upstream's `setJointVelocities` calls
+/// neither `updateMimicJoint` nor `markDirtyJointTransforms` — only the
+/// leader's velocity must land; the mimic follower's stays untouched.
+#[test]
+fn set_joint_velocities_does_not_derive_the_mimic_slot() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    assert!(!state.has_velocities());
+
+    state
+        .set_joint_velocities("panda_finger_joint1", &[0.5])
+        .unwrap();
+
+    assert!(state.has_velocities());
+    assert_relative_eq!(state.variable_velocity("panda_finger_joint1").unwrap(), 0.5);
+    assert_relative_eq!(
+        state.variable_velocity("panda_finger_joint2").unwrap(),
+        0.0,
+        epsilon = 1e-12
+    );
+}
+
+#[test]
+fn set_joint_velocities_errors_on_unknown_joint() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    assert!(state.set_joint_velocities("no_such_joint", &[1.0]).is_err());
+}
+
+#[test]
+#[should_panic]
+fn set_joint_velocities_panics_on_a_short_input() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    let _ = state.set_joint_velocities("panda_joint1", &[]);
+}
+
+/// `panda_hand_joint` is fixed (0 variables) — the early return must skip
+/// even `has_velocity_ = true`, matching upstream's identical early return
+/// in `setJointVelocities`.
+#[test]
+fn set_joint_velocities_is_a_no_op_for_a_fixed_joint() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_joint_velocities("panda_hand_joint", &[]).unwrap();
+    assert!(!state.has_velocities());
+}
+
 // ---- setToRandomPositionsNearBy -----------------------------------------
 
 #[test]
