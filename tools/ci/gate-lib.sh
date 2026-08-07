@@ -237,3 +237,161 @@ oracle_stamp_explain() {
   echo "${prefix}rebuild with tools/moveit-oracle/build.sh" >&2
   return 0
 }
+
+# Reserved exit status meaning "this gate did not run its measurement" --
+# distinct from 0 (ran, and it held) and 1 (ran, and it failed). Nothing else
+# in this directory used exit 3 before this was reserved
+# (`rg -n 'exit [0-9]+' tools/ci/*.sh` at the time this was written showed 0,
+# 1 and one unrelated usage-error 2 in `verify-phase7-benchmark.sh`, which
+# `verify-all.sh` never reaches because it always invokes that script with no
+# argument). `verify-all.sh` is the one place that has to tell this apart
+# from a pass, which it could not when every gate below spelled "did not
+# measure" as `exit 0` -- the same code a real pass uses.
+NOT_MEASURED=3
+
+# Prints each line prefixed `SKIP (<kind>) ` and exits $NOT_MEASURED.
+#
+#   skip_not_measured blocked "docker is not on PATH" "this is not a pass."
+#   skip_not_measured opt-in  "PHASE3_SWEEP is not 1" "run with PHASE3_SWEEP=1 ..."
+#
+# <kind> is the one thing this function forces every call site to declare,
+# because "did not measure" is not one fact:
+#
+#   blocked  something this gate needs is absent from THIS environment --
+#            docker, the oracle image at the tree's stamp, a dependency
+#            checkout, a vendored fixture tree. It tried and could not.
+#   opt-in   an explicit switch this gate requires was left at its default.
+#            Nobody asked it to run this time; nothing is missing.
+#
+# Both are equally "not a pass", which is the only distinction `verify-all.sh`
+# acts on -- but a run full of `blocked` lines says this machine cannot cover
+# part of the suite, and a run full of `opt-in` lines says nobody asked for
+# the expensive part yet, and those call for different responses from
+# whoever reads the log. The tag is what keeps that readable without having
+# to know, per script, which category it was.
+#
+# This function does not invent a "this is not a pass" sentence for you --
+# every existing call site already says why in its own words; centralising
+# the wording would just be a second place for it to drift from the reason.
+# Its only job is the one thing that WAS drifting: the exit status.
+skip_not_measured() {
+  local kind="$1"
+  shift
+  case "$kind" in
+    blocked | opt-in) ;;
+    *)
+      echo "FAIL skip_not_measured: unknown kind '$kind' (want blocked or opt-in)" >&2
+      exit 1
+      ;;
+  esac
+  local line
+  for line in "$@"; do
+    echo "SKIP ($kind) $line"
+  done
+  exit "$NOT_MEASURED"
+}
+
+# Reserved exit status meaning "this gate ran its measurement and its own
+# hard checks held, but the run carries a qualification a plain pass would
+# hide" -- distinct from 0 (ran, held, nothing to qualify), 1 (a hard check
+# did not hold) and $NOT_MEASURED (no measurement happened at all). Nothing
+# else in this directory used this exit before it was reserved (same
+# `rg -n 'exit [0-9]+' tools/ci/*.sh` sweep `NOT_MEASURED`'s own comment
+# describes, re-run at the time this was written).
+#
+# `verify-phase8-benchmark.sh` is the motivating case: its three CHOMP/STOMP
+# property conditions compare an optimiser against a sampling planner, so an
+# UNMET condition is not by itself a porting defect (see that script's
+# header) -- the gate is right to exit 0 rather than fail. But a blanket 0
+# is exactly the code a plain pass uses, so `verify-all.sh`'s summary folded
+# a run that printed UNMET conditions into "passed" with no trace, the same
+# shape `NOT_MEASURED` exists to close one level down. A gate that has this
+# shape reports it through `report_qualified` instead of a bare `exit 0`.
+QUALIFIED=4
+
+# Prints each line prefixed `QUALIFIED ` and exits $QUALIFIED.
+#
+#   report_qualified "phase 8 condition 1 UNMET for chomp -- see the" \
+#                    "CONDITIONS line above and this script's header"
+#
+# Like `skip_not_measured`, this does not invent the explanation -- every
+# call site already printed its own qualified verdict in its own words
+# before calling this; the only job here is the exit status, kept in one
+# place so it cannot drift from what a gate that qualifies a pass ought to
+# use.
+report_qualified() {
+  local line
+  for line in "$@"; do
+    echo "QUALIFIED $line"
+  done
+  exit "$QUALIFIED"
+}
+
+# Content digest of one entry in a `measured_sources` map -- the maps the two
+# benchmark instruments write and `check-measured-sources-current.sh` enforces.
+#
+# A FILE digests to its own git blob id, unchanged from what those maps already
+# hold, so records written before this function existed keep reading correctly.
+# A DIRECTORY digests to a hash over `path blob` for every tracked file beneath
+# it, sorted, so adding, deleting or editing any file under that subtree moves
+# the value.
+#
+# Directories are why this exists. Both instruments listed only their own
+# harness files, which left the code being measured outside the record they
+# claim closes over it: Phase 8 named `optimize_benchmark_chomp.rs` but not
+# `crates/moveit-planners-chomp/src`, and two behavioural CHOMP fixes
+# (`112ec645` mapping goal-constraint construction failure, `823d771e`
+# persisting `should_break_out`) landed after
+# `doc/phase8-optimizer-properties.json` was measured with the gate structurally
+# unable to see either. Extending the list file by file cannot close that -- it
+# goes stale the next time a module is added -- so the unit is the subtree.
+#
+# The closure is the code under measurement, not its transitive dependencies:
+# the planner crates whose binaries run, the harnesses that drive them, and the
+# oracle that produces the C++ side. A change to `moveit-collision` can move
+# these numbers and will not be caught here. That boundary is a deliberate
+# tradeoff -- digesting all of `crates` would invalidate an 85-minute
+# measurement on any unrelated commit, and a gate that is always red is a gate
+# nobody reads -- but it is a real limit and callers should not read a passing
+# record as proof that nothing relevant moved.
+#
+# One more limit, measured rather than assumed: `git ls-files` is index-scoped,
+# so an UNTRACKED new file under a subtree does not move its digest, while a
+# tracked one does (both checked by mutation when this was written). That case
+# is covered by a different field -- both instruments record `working_tree_dirty`
+# and `dirty_paths` from `git status --porcelain`, which lists untracked files --
+# so a run against a tree carrying an unstaged module is identifiable there and
+# not here.
+measured_source_digest() {
+  local path="$1"
+  if [ -f "$path" ]; then
+    git hash-object "$path"
+    return
+  fi
+  if [ ! -d "$path" ]; then
+    echo "FAIL measured_source_digest: '$path' is neither a file nor a directory" >&2
+    return 1
+  fi
+  local files
+  files="$(git ls-files --deduplicate -- "$path")"
+  if [ -z "$files" ]; then
+    echo "FAIL measured_source_digest: no tracked files under '$path' -- a subtree" >&2
+    echo "  that digests to nothing would record as unchanged forever" >&2
+    return 1
+  fi
+  # `git hash-object` per file rather than the index's or HEAD's blob ids: the
+  # digest has to describe the worktree the run actually compiled, which for a
+  # dirty tree is neither of those. `|| exit 1` inside the subshell so a file
+  # that is tracked but missing fails the digest instead of silently dropping a
+  # line from it.
+  local listing
+  if ! listing="$(printf '%s\n' "$files" | LC_ALL=C sort | while IFS= read -r f; do
+    local blob
+    blob="$(git hash-object "$f")" || exit 1
+    printf '%s %s\n' "$f" "$blob"
+  done)"; then
+    echo "FAIL measured_source_digest: hashing a tracked file under '$path' failed" >&2
+    return 1
+  fi
+  printf '%s\n' "$listing" | sha256sum | cut -d' ' -f1
+}

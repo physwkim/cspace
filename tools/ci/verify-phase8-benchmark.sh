@@ -103,9 +103,9 @@ cd "$REPO_ROOT"
 
 TIER="${MOVEIT_RS_PHASE8_BENCHMARK:-}"
 if [[ -z "$TIER" ]]; then
-  echo "SKIP MOVEIT_RS_PHASE8_BENCHMARK is unset -- Phase 8's CHOMP/STOMP property conditions are not re-derived."
-  echo "SKIP this is not a pass; set MOVEIT_RS_PHASE8_BENCHMARK=chomp (~165s), =1 (adds STOMP's 50-problem prefix, ~110min) or =full (adds STOMP's 500, ~3h) to cover them."
-  exit 0
+  skip_not_measured opt-in \
+    "MOVEIT_RS_PHASE8_BENCHMARK is unset -- Phase 8's CHOMP/STOMP property conditions are not re-derived." \
+    "this is not a pass; set MOVEIT_RS_PHASE8_BENCHMARK=chomp (~165s), =1 (adds STOMP's 50-problem prefix, ~110min) or =full (adds STOMP's 500, ~3h) to cover them."
 fi
 if [[ "$TIER" != "chomp" && "$TIER" != "1" && "$TIER" != "full" ]]; then
   echo "FAIL MOVEIT_RS_PHASE8_BENCHMARK=$TIER is not one of chomp, 1, full." >&2
@@ -267,25 +267,33 @@ jq -s -c '[.[0].result.problems[], .[1].result.problems[]]' \
   "$WORKDIR/${CONFIGS[0]}.response.json" "$WORKDIR/${CONFIGS[1]}.response.json" \
   >"$WORKDIR/cpp.all.json"
 
+rc=0
 python3 - \
   "$WORKDIR/cpp.all.json" "$WORKDIR/chomp.all.ndjson" "$WORKDIR/stomp.all.ndjson" \
-  "$TIER" \
+  "$TIER" "$QUALIFIED" \
   "$EXPECTED_CPP_SOLVED" "$EXPECTED_CPP_MEDIAN" \
   "$EXPECTED_CHOMP_SOLVED" "$EXPECTED_CHOMP_COND2" "$EXPECTED_CHOMP_MEDIAN" \
   "$EXPECTED_STOMP_SOLVED" "$EXPECTED_STOMP_COND2" "$EXPECTED_STOMP_MEDIAN" \
   "$EXPECTED_STOMP50_SOLVED" "$EXPECTED_STOMP50_COND2" "$EXPECTED_STOMP50_MEDIAN" \
-  <<'PY'
+  <<'PY' || rc=$?
 import json
 import statistics
 import sys
 
-(cpp_path, chomp_path, stomp_path, tier,
+(cpp_path, chomp_path, stomp_path, tier, qualified_code,
  e_cpp_solved, e_cpp_median,
  e_chomp_solved, e_chomp_cond2, e_chomp_median,
  e_stomp_solved, e_stomp_cond2, e_stomp_median,
- e_stomp50_solved, e_stomp50_cond2, e_stomp50_median) = sys.argv[1:16]
+ e_stomp50_solved, e_stomp50_cond2, e_stomp50_median) = sys.argv[1:17]
 
 fails = []
+# Every condition verdict this run produced, as (name, index, met). The
+# closing line is printed from THIS list rather than written as a string
+# below, because a hand-written summary and the `c1`/`c2`/`c3` booleans are
+# two places for one fact and they drift: this gate spent its whole life
+# closing with "property conditions re-derived" while printing two of them
+# UNMET, and `verify-all.sh` counted that as a plain pass.
+conditions = []
 
 def check(what, got, expected):
     # Repr, not a formatted float: these are exact re-derivations, and a
@@ -326,6 +334,7 @@ def report(name, rows, e_solved, e_cond2, e_median):
           f"{len(cond2)}/{len(solved)} paths valid")
     print(f"     {name} condition 3 {'MET' if c3 else 'UNMET'}: "
           f"median {median:.4f} vs bar {length_bar:.4f}")
+    conditions.extend([(name, 1, c1), (name, 2, c2), (name, 3, c3)])
 
 report("chomp", [json.loads(l) for l in open(chomp_path)],
        e_chomp_solved, e_chomp_cond2, e_chomp_median)
@@ -347,6 +356,34 @@ if fails:
     print(f"FAIL {len(fails)} pinned value(s) no longer reproduce: "
           + ", ".join(fails), file=sys.stderr)
     sys.exit(1)
+
+# What this gate actually verified is that the pinned values reproduce; it
+# does not, and by design must not, fail on an UNMET condition -- the header
+# gives the reason per condition (1 and 3 compare an optimiser against a
+# sampling planner, 2 fails only between the planner's own waypoints at a
+# resolution upstream never checks). But the closing line has to say which
+# of the two it is, or the reader takes an exit-0 for the conditions
+# holding.
+unmet = [f"{n} condition {i}" for n, i, met in conditions if not met]
+print(f"CONDITIONS {len(conditions) - len(unmet)} MET, {len(unmet)} UNMET"
+      + (f" ({', '.join(unmet)}) -- see this script's header for why each "
+         "UNMET is not by itself a porting defect" if unmet else ""))
+# A blanket exit 0 here is the same code a run with nothing UNMET uses --
+# exactly the ambiguity `verify-all.sh`'s summary folded silently into
+# "passed" until this script's own QUALIFIED exit gave it something to
+# branch on instead of grepping this print.
+if unmet:
+    sys.exit(int(qualified_code))
 PY
 
-echo "OK phase 8 CHOMP/STOMP property conditions re-derived (tier=$TIER, shards=$SHARDS, wall=$(( $(date +%s) - started ))s)"
+case "$rc" in
+  0)
+    echo "OK phase 8 pinned values reproduce (tier=$TIER, shards=$SHARDS, wall=$(( $(date +%s) - started ))s) -- see the CONDITIONS line above for what is MET"
+    ;;
+  "$QUALIFIED")
+    report_qualified "phase 8 pinned values reproduce (tier=$TIER, shards=$SHARDS, wall=$(( $(date +%s) - started ))s), but not every condition is MET -- see the CONDITIONS line above for which, and this script's header for why an UNMET condition here is not by itself a porting defect"
+    ;;
+  *)
+    exit "$rc"
+    ;;
+esac

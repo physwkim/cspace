@@ -15,7 +15,13 @@
 //! See `optimize_benchmark_stomp`'s module doc (and `PORTING-PLAN.md`'s Phase 8
 //! property section) for which of Phase 7's checks transfer to an optimizing
 //! planner and which do not; the reasoning is the same for both planners and is
-//! not repeated here. What is specific to CHOMP:
+//! not repeated here. That includes [`returned_waypoints`]'s undensified
+//! verdict, reported alongside the densified one as
+//! `condition2_valid_at_returned_waypoints` for the same reason
+//! `optimize_benchmark_stomp` carries it: to attribute a condition-2 failure
+//! to interpolation between waypoints neither the planner nor upstream ever
+//! evaluates, without moving the bar off the densified `condition2_valid`.
+//! What is specific to CHOMP:
 //!
 //! # This binary supplies `mesh_to_mesh_collision_free` for the first time
 //!
@@ -99,11 +105,14 @@ const DF_SIZE: (f64, f64, f64) = (3.0, 3.0, 4.0);
 const GOAL_TOLERANCE: f64 = 0.01;
 
 /// The wall-clock bound per `solve` call when no third argument is given.
-/// `ChompParameters::planning_time_limit` bounds CHOMP's own iteration loop, so
-/// unlike STOMP this is a *second*, outer bound that should never fire; it is
-/// here so that a call which does hang is a counted failure rather than a
-/// stalled run. Matching `plan_benchmark_port`'s default keeps the two
-/// benchmarks bounded identically.
+///
+/// This is the binary's *only* budget: it is also what
+/// `ChompParameters::planning_time_limit` is set to, so CHOMP's own iteration
+/// loop and this harness stop on the same clock rather than on two. A call
+/// that hangs is therefore a counted failure rather than a stalled run, and a
+/// call that finishes is one `max_iterations` terminated. Matching
+/// `plan_benchmark_port`'s default keeps the two benchmarks bounded
+/// identically.
 const DEFAULT_TIMEOUT_SECONDS: f64 = 120.0;
 
 /// How many rejection-sampling attempts `build_injected_state` gets.
@@ -243,6 +252,38 @@ fn densify<'m>(
         }
     }
     out
+}
+
+/// `path` as [`RobotState`]s with no interpolation at all -- exactly the
+/// waypoints CHOMP returned. Same construction as `densify`'s own `write`
+/// closure, minus the interpolation loop.
+///
+/// Reported alongside the densified verdict as
+/// `condition2_valid_at_returned_waypoints`, purely to attribute a
+/// condition-2 failure: a path that is valid here and invalid after
+/// [`densify`] failed *between* the planner's own waypoints, at a resolution
+/// neither the planner nor upstream ever evaluates. The official condition-2
+/// number stays the densified one -- this adds an attribution field, it does
+/// not move the bar. Same reason `optimize_benchmark_stomp`'s own
+/// `returned_waypoints` exists (both benchmark infrastructure, not a port --
+/// see this file's header -- so there is no upstream citation for either).
+fn returned_waypoints<'m>(
+    template: &RobotState<'m>,
+    group: &JointModelGroup,
+    path: &[Vec<f64>],
+) -> Vec<RobotState<'m>> {
+    path.iter()
+        .map(|values| {
+            let mut state = template.clone();
+            for (name, value) in group.active_joint_names().iter().zip(values) {
+                state
+                    .set_variable_position(name, *value)
+                    .unwrap_or_else(|e| panic!("set_variable_position({name}): {e}"));
+            }
+            state.update();
+            state
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -547,7 +588,30 @@ fn main() {
         .unwrap_or_else(|e| panic!("JointModelGroupSpace::new({group_name}): {e}"));
     let mut length_scratch = template.clone();
 
-    let params = ChompParameters::default();
+    // CHOMP's loop breaks out on elapsed wall clock
+    // (`ChompOptimizer::optimize`, `chomp_optimizer.cpp:421-426`), so leaving
+    // `planning_time_limit` at `ChompParameters::default()`'s 6.0 made each
+    // problem's outcome a property of how loaded this machine was --
+    // `chomp_benchmark_port.rs`'s own header measures that: 359 solved idle
+    // and 349 solved alongside a second sweep, same 500 problems, same seed.
+    //
+    // That is not survivable here, because this binary is compared against a
+    // C++ baseline `measure-phase8-cpp-baseline.sh` deliberately runs at a
+    // 3600s clock so its ITERATION bound is what terminates. The two sides
+    // were stopped by different rules, and the port's clock stops were
+    // recorded as convergence failures with nothing to tell them apart:
+    // `solve` returns `Err` when the trajectory is still in collision, and
+    // `ChompLoopTrace` -- which names `ChompExit::ClockLimit` -- rides on
+    // `ChompSolution`, so it is unreachable on exactly the runs that need it.
+    //
+    // Binding the inner clock to this harness's outer bound leaves one budget
+    // in the binary instead of two, and it is the one the run reports its
+    // timeouts against. `max_iterations` is then what terminates, as on the
+    // C++ side.
+    let params = ChompParameters {
+        planning_time_limit: timeout_seconds,
+        ..ChompParameters::default()
+    };
     let mut total = 0usize;
     let mut solved_count = 0usize;
     let mut timeout_count = 0usize;
@@ -657,9 +721,9 @@ fn main() {
         if elapsed > slowest.0 {
             slowest = (elapsed, id);
         }
-        // `ChompParameters::planning_time_limit` bounds CHOMP's own loop, so
-        // this outer bound firing means the call did not return within a
-        // budget it was supposed to respect. Counted as a failure, never as a
+        // `ChompParameters::planning_time_limit` is set to this same bound, so
+        // this firing means CHOMP's own clock break did not return control
+        // within the budget it was given. Counted as a failure, never as a
         // solve -- see `DEFAULT_TIMEOUT_SECONDS`. It is checked after the fact
         // rather than enforced by cancellation because `solve` exposes no
         // cancel handle: a call that hangs forever would hang this binary, and
@@ -761,8 +825,16 @@ fn main() {
             path.insert(mid, bad.clone());
         }
 
-        let dense = densify(&template, group, &path, resolution);
         let mut check_scene = PlanningScene::new(&model, &srdf);
+        let raw = returned_waypoints(&template, group, &path);
+        let raw_validity = check_scene.is_path_valid(
+            &env,
+            &CollisionRequest::default(),
+            &raw,
+            check_constraints.as_ref(),
+            &[],
+        );
+        let dense = densify(&template, group, &path, resolution);
         let validity = check_scene.is_path_valid(
             &env,
             &CollisionRequest::default(),
@@ -783,6 +855,7 @@ fn main() {
             "outcome": "solved",
             "plan_seconds": elapsed,
             "condition2_valid": validity.valid,
+            "condition2_valid_at_returned_waypoints": raw_validity.valid,
             "waypoints_checked": dense.len(),
             "raw_waypoints": raw_waypoints,
             "start_gap": start_gap,
@@ -907,6 +980,139 @@ fn main() {
             "inject={mode} rejected all {condition2_checked} checked paths of {total} injected, \
              as required; {not_checked} not checked ({timeout_count} timeout, \
              {failure_count} failure)"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn returned_waypoints_emits_exactly_one_state_per_row_with_no_interpolation() {
+        // The property that distinguishes `returned_waypoints` from `densify`:
+        // same input, but `densify` inserts extra points between every pair
+        // (`out.push` runs `steps` times per `windows(2)` pair, `steps >= 1`),
+        // while `returned_waypoints` must produce exactly `path.len()` states,
+        // each one a direct round-trip of its input row -- otherwise the "no
+        // interpolation at all" claim in its own doc is untested.
+        let (model, _srdf) = load_robot("panda");
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut template = RobotState::new(&model);
+        template.set_to_default_values();
+        let path = vec![
+            vec![0.0, -0.5, 0.0, -1.5, 0.0, 1.0, 0.5],
+            vec![0.3, -0.4, 0.1, -1.4, 0.05, 1.05, 0.55],
+            vec![0.6, -0.3, 0.2, -1.3, 0.1, 1.1, 0.6],
+        ];
+
+        let raw = returned_waypoints(&template, group, &path);
+
+        assert_eq!(raw.len(), path.len());
+        for (state, row) in raw.iter().zip(path.iter()) {
+            assert_eq!(columns_of(state, group), *row);
+        }
+
+        // Contrast: the same path through `densify` at a resolution finer
+        // than any consecutive-row delta produces MORE than `path.len()`
+        // states -- confirming the two functions actually differ, not just
+        // that this test only exercises the trivial resolution=infinity case.
+        let dense = densify(&template, group, &path, 0.05);
+        assert!(
+            dense.len() > path.len(),
+            "densify at resolution 0.05 produced {} states from {} raw waypoints -- expected \
+             interpolation to add some",
+            dense.len(),
+            path.len()
+        );
+    }
+
+    #[test]
+    fn condition2_valid_at_returned_waypoints_is_true_when_densified_is_false() {
+        // The scenario `condition2_valid_at_returned_waypoints` exists to
+        // attribute: two raw waypoints that do not themselves collide, but
+        // whose straight-line interpolation sweeps the arm through an
+        // obstacle strictly between them. `is_path_valid` on
+        // `returned_waypoints`'s output must stay `true` while the same call
+        // on `densify`'s output goes `false` -- if both moved together, the
+        // new field would just restate `condition2_valid` under a second
+        // name.
+        let (model, srdf) = load_robot("panda");
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut template = RobotState::new(&model);
+        template.set_to_default_values();
+
+        // A real problem's start/goal (`doc/phase8-baseline-500/
+        // floor_wall.250.900001.set.json`, problem id 1), not a synthetic
+        // all-other-joints-at-default pose: panda's zero configuration is
+        // itself self-colliding (measured -- every waypoint of an all-default
+        // sweep was invalid even against an empty world), so a fabricated
+        // two-point path risks testing self-collision instead of the wall.
+        // Problem id 1 specifically, not id 0: this instrument's own
+        // `seed_valid` field (computed the same way, over the same set)
+        // already measured id 0's straight-line seed as collision-free and
+        // id 1's as colliding, so id 1 is the one whose densified
+        // interpolation is known to cross an obstacle somewhere between two
+        // otherwise-valid endpoints.
+        let start = state_from_map(
+            &model,
+            &BTreeMap::from([
+                ("panda_joint1".to_string(), -0.12569973212653407),
+                ("panda_joint2".to_string(), 0.8539681979683693),
+                ("panda_joint3".to_string(), 2.784858631146275),
+                ("panda_joint4".to_string(), -2.829531705878982),
+                ("panda_joint5".to_string(), 0.7209874782302768),
+                ("panda_joint6".to_string(), 0.9767144543011761),
+                ("panda_joint7".to_string(), -2.63052329696014),
+            ]),
+        );
+        let goal = state_from_map(
+            &model,
+            &BTreeMap::from([
+                ("panda_joint1".to_string(), -1.0206841738437522),
+                ("panda_joint2".to_string(), -1.507401901709096),
+                ("panda_joint3".to_string(), -1.3901007965446428),
+                ("panda_joint4".to_string(), -0.8806967682840048),
+                ("panda_joint5".to_string(), -1.2343998073850808),
+                ("panda_joint6".to_string(), 2.111189573531795),
+                ("panda_joint7".to_string(), 2.0759920810853454),
+            ]),
+        );
+        let path = vec![columns_of(&start, group), columns_of(&goal, group)];
+
+        // The same floor + wall obstacles `doc/phase8-baseline-500/
+        // floor_wall.250.900001.set.json` places for this problem.
+        let mut world = World::new();
+        world.add_shape(
+            "floor",
+            Arc::new(Shape::Cuboid(Cuboid::new(2.0, 2.0, 0.5).unwrap())),
+            Isometry3::translation(0.0, 0.0, -0.28),
+        );
+        world.add_shape(
+            "wall",
+            Arc::new(Shape::Cuboid(Cuboid::new(0.05, 1.6, 1.6).unwrap())),
+            Isometry3::translation(0.45, 0.0, 0.8),
+        );
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let mut scene = PlanningScene::new(&model, &srdf);
+
+        let raw = returned_waypoints(&template, group, &path);
+        let raw_validity = scene.is_path_valid(&env, &CollisionRequest::default(), &raw, None, &[]);
+        let dense = densify(&template, group, &path, 0.05);
+        let dense_validity =
+            scene.is_path_valid(&env, &CollisionRequest::default(), &dense, None, &[]);
+
+        assert!(
+            raw_validity.valid,
+            "problem id 1's own start and goal must not collide with floor_wall on their own -- \
+             got invalid_waypoints={:?}",
+            raw_validity.invalid_waypoints
+        );
+        assert!(
+            !dense_validity.valid,
+            "problem id 1's straight-line interpolation is already known invalid (this \
+             instrument's own seed_valid measured it colliding), so the densified path must \
+             disagree with the raw one -- got both valid"
         );
     }
 }

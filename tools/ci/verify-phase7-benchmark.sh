@@ -305,6 +305,39 @@ port_aggregate() {
     }' "$1"
 }
 
+# Snapshotted HERE, before the build, and not where it is written out at the
+# end. The digest has to describe the source this run compiled; taken after the
+# measurement it describes whatever is on disk hours later instead, and an edit
+# landing mid-run -- a parallel worker, a fix to the very harness whose numbers
+# are being produced -- would be recorded as the code that ran. That record
+# then reads as current precisely when it is furthest from true.
+#
+# `|| exit 1` on the digest rather than inlining it into `printf`: a failed
+# digest must abort the run, not land in the record as an empty value that a
+# later reader would see as drift.
+# Same reason, same moment: `working_tree_dirty` and `dirty_paths` describe the
+# tree this run measured, and taken at write time they would describe the tree
+# hours of parallel work later. They also carry what the digests structurally
+# cannot -- `git status --porcelain` lists untracked files, which are invisible
+# to the index-scoped `git ls-files` inside `measured_source_digest` -- so the
+# two fields only compose if they are captured together.
+DIRTY_LIST="$(cd "$REPO_ROOT" && git status --porcelain)"
+if [[ -n "$DIRTY_LIST" ]]; then TREE_DIRTY=true; else TREE_DIRTY=false; fi
+
+if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
+    tools/ci/verify-phase7-benchmark.sh \
+    crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
+    crates/moveit-planners-sbp/examples/plan_benchmark_port.rs \
+    crates/moveit-planners-sbp/src \
+    tools/moveit-oracle/src; do
+  d="$(measured_source_digest "$f")" || exit 1
+  printf '%s %s\n' "$f" "$d"
+done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"; then
+  echo "FAIL could not digest this run's measured sources -- refusing to start a" >&2
+  echo "  measurement whose record could not say what code produced it" >&2
+  exit 1
+fi
+
 echo "=== building benchmark binaries (release) ==="
 cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
   -p moveit-planners-sbp --examples || exit 1
@@ -681,35 +714,77 @@ for entry in "${SETS[@]}"; do
   witnessed=$((n_total - n_unsolved))
   still_unknown=0
 
+  unknown_clock=0
+  escalate_slowest=null
   if [[ "$n_unsolved" -gt 0 ]]; then
-    e_cpp=$(jq '[.result.problems[]|select(.exact==true)]|length' "$WORKDIR/$tag.escalate.oracle.json" 2>/dev/null || echo 0)
-    e_port=$(jq -s '[.[]|select(.outcome=="solved")]|length' "$WORKDIR/$tag.escalate.port.ndjson" 2>/dev/null || echo 0)
-    # Union by id, not a sum: a problem solved by both sides at the escalated
-    # budget is one witness, and adding the two counts would over-credit it
-    # and could report more newly-witnessed problems than were escalated.
-    newly=$(jq -n \
-      --slurpfile o "$WORKDIR/$tag.escalate.oracle.json" \
-      --slurpfile p <(jq -s '.' "$WORKDIR/$tag.escalate.port.ndjson") \
-      '((($o[0].result.problems//[])|map(select(.exact==true)|.id)) + (($p[0]//[])|map(select(.outcome=="solved")|.id)))|unique|length' 2>/dev/null || echo 0)
+    # One jq pass computes the union AND the still-unknown breakdown from the
+    # same `$still_unknown_ids`, rather than a second pass re-deriving that
+    # set: two derivations of "which ids are still unknown" could disagree,
+    # and a disagreement here would be invisible (both are just counts).
+    #
+    # The breakdown matters because `still_unknown` conflates two different
+    # facts under one number. The port's own `outcome` field already tells
+    # them apart per problem -- `"timeout"` is `PlanningFailure::
+    # DeadlineExhausted` (`rrt_connect.rs`), the port's *clock* firing before
+    # its search did; `"iterations_exhausted"`/`"invalid_endpoint"` are the
+    # search itself running out of budget or never starting. The oracle's
+    # `plan()` op offers OMPL only an iteration-counting
+    # `PlannerTerminationCondition` (`oracle.cpp:6068-6069`, no wall clock at
+    # either stage), so it has no clock-stop of its own to confuse with a
+    # search failure. `still_unknown_port_clock_bound` is therefore the
+    # subset of `still_unknown` that says "the port's escalated deadline cut
+    # this off," not "the port could not find a path" -- see
+    # `escalate_port_slowest_seconds` below for whether that deadline is
+    # anywhere near binding.
+    read -r e_cpp e_port newly still_unknown unknown_clock escalate_slowest < <(
+      jq -nr \
+        --slurpfile o "$WORKDIR/$tag.escalate.oracle.json" \
+        --slurpfile p <(jq -s '.' "$WORKDIR/$tag.escalate.port.ndjson") \
+        --argjson n_unsolved "$n_unsolved" '
+      (($o[0].result.problems//[])|map(select(.exact==true)|.id)) as $cpp_ids |
+      (($p[0]//[])|map(select(.outcome=="solved")|.id)) as $port_ids |
+      # Union by id, not a sum: a problem solved by both sides at the
+      # escalated budget is one witness, and adding the two counts would
+      # over-credit it and could report more newly-witnessed problems than
+      # were escalated.
+      (($cpp_ids + $port_ids)|unique) as $newly_ids |
+      (($p[0]//[])|map(.id)) as $escalated_ids |
+      ($escalated_ids - $newly_ids) as $still_unknown_ids |
+      (($p[0]//[])|map(select(.id as $i|$still_unknown_ids|index($i)))) as $rows |
+      [ ($cpp_ids|length), ($port_ids|length), ($newly_ids|length),
+        ($still_unknown_ids|length),
+        ([$rows[]|select(.outcome=="timeout")]|length),
+        (([$p[0][]|.plan_seconds]|max) // 0)
+      ] | @tsv' 2>/dev/null
+    )
+    e_cpp="${e_cpp:-0}"; e_port="${e_port:-0}"; newly="${newly:-0}"
+    still_unknown="${still_unknown:-$n_unsolved}"
+    unknown_clock="${unknown_clock:-0}"
+    escalate_slowest="${escalate_slowest:-null}"
     # More newly-witnessed than were escalated is arithmetically impossible;
     # if it happens the escalation read results that are not this set's (the
     # shape of the shard-leftover defect `run_port_sharded` now prevents).
     # Fail loudly rather than publish a negative unknown count.
-    if [[ "${newly:-0}" -gt "$n_unsolved" ]]; then
+    if [[ "$newly" -gt "$n_unsolved" ]]; then
       echo "FAIL $tag: escalation witnessed $newly of $n_unsolved escalated problems" >&2
       failed+=("escalation accounting $tag")
       newly="$n_unsolved"
+      still_unknown=0
+      unknown_clock=0
     fi
     witnessed=$((witnessed + newly))
-    still_unknown=$((n_unsolved - newly))
-    echo "  $tag: $n_unsolved unsolved at budget -> escalated (C++ ${e_cpp:-0}, port ${e_port:-0}, union ${newly:-0} newly witnessed), $still_unknown still unknown"
+    echo "  $tag: $n_unsolved unsolved at budget -> escalated (C++ $e_cpp, port $e_port, union $newly newly witnessed), $still_unknown still unknown ($unknown_clock port-clock-bound of ${ESCALATED_TIMEOUT}s, escalated slowest call ${escalate_slowest}s)"
   else
     echo "  $tag: every problem witnessed feasible at the benchmark budget"
   fi
 
   jq -n --arg tag "$tag" --argjson total "$n_total" \
         --argjson witnessed "$witnessed" --argjson unknown "$still_unknown" \
-    '{tag:$tag, problems:$total, feasible_witnessed:$witnessed, feasibility_unknown:$unknown}' \
+        --argjson unknown_clock "$unknown_clock" \
+        --argjson escalate_slowest "$escalate_slowest" \
+    '{tag:$tag, problems:$total, feasible_witnessed:$witnessed, feasibility_unknown:$unknown,
+      feasibility_unknown_port_clock_bound:$unknown_clock,
+      escalate_port_slowest_seconds:$escalate_slowest}' \
     >>"$feas_rows"
 done
 jq -s '.' "$feas_rows" >"$WORKDIR/feasibility_array.json"
@@ -925,8 +1000,12 @@ jq --argjson pooled_gate "${pooled_gate:-null}" \
     | .problems_per_config = '"$COUNT"'
     | .gate.feasible_witnessed = ([$feas[0][]|select(.tag|startswith("panda"))|.feasible_witnessed]|add // 0)
     | .gate.feasibility_unknown = ([$feas[0][]|select(.tag|startswith("panda"))|.feasibility_unknown]|add // 0)
+    | .gate.feasibility_unknown_port_clock_bound = ([$feas[0][]|select(.tag|startswith("panda"))|.feasibility_unknown_port_clock_bound]|add // 0)
+    | .gate.escalate_port_slowest_seconds = ([$feas[0][]|select(.tag|startswith("panda"))|.escalate_port_slowest_seconds]|max // null)
     | .fanuc.feasible_witnessed = ([$feas[0][]|select(.tag|startswith("fanuc"))|.feasible_witnessed]|add // 0)
-    | .fanuc.feasibility_unknown = ([$feas[0][]|select(.tag|startswith("fanuc"))|.feasibility_unknown]|add // 0)' \
+    | .fanuc.feasibility_unknown = ([$feas[0][]|select(.tag|startswith("fanuc"))|.feasibility_unknown]|add // 0)
+    | .fanuc.feasibility_unknown_port_clock_bound = ([$feas[0][]|select(.tag|startswith("fanuc"))|.feasibility_unknown_port_clock_bound]|add // 0)
+    | .fanuc.escalate_port_slowest_seconds = ([$feas[0][]|select(.tag|startswith("fanuc"))|.escalate_port_slowest_seconds]|max // null)' \
    "$verdict_json" >"$verdict_json.tmp" && mv "$verdict_json.tmp" "$verdict_json"
 
 # The constrained set carries condition 2's constraint half; it has no C++
@@ -938,12 +1017,12 @@ con=$(port_aggregate "$WORKDIR/constrained.slim.ndjson" 2>/dev/null \
 jq -r '
   .gate as $g |
   "  problems (gate set, panda): \($g.problems)",
-  "  feasibility: \($g.feasible_witnessed) witnessed solvable (a validated path exists), \($g.feasibility_unknown) unknown after escalation (never called infeasible -- no finite budget proves that)",
+  "  feasibility: \($g.feasible_witnessed) witnessed solvable (a validated path exists), \($g.feasibility_unknown) unknown after escalation (\($g.feasibility_unknown_port_clock_bound) of those are the ports escalated deadline firing, not a search failure -- never called infeasible -- no finite budget proves that)",
   "  C++ OMPL RRTConnect: \($g.cpp_solved)/\($g.problems) = \((($g.cpp_rate//0)*10000|round)/100)%",
   "  port:                \($g.port_solved)/\($g.problems) = \((($g.port_rate//0)*10000|round)/100)%  (timeouts \($g.port_timeouts), other failures \($g.port_failures))",
   "  second robot (fanuc), its own stratum, never averaged into the gate set:",
   "    C++ \(.fanuc.cpp_solved)/\(.fanuc.problems) = \(((.fanuc.cpp_rate//0)*10000|round)/100)%, port \(.fanuc.port_solved)/\(.fanuc.problems) = \(((.fanuc.port_rate//0)*10000|round)/100)% (timeouts \(.fanuc.port_timeouts), other failures \(.fanuc.port_failures))",
-  "    feasibility: \(.fanuc.feasible_witnessed) witnessed solvable, \(.fanuc.feasibility_unknown) unknown after escalation",
+  "    feasibility: \(.fanuc.feasible_witnessed) witnessed solvable, \(.fanuc.feasibility_unknown) unknown after escalation (\(.fanuc.feasibility_unknown_port_clock_bound) port-clock-bound, escalated slowest call \(.fanuc.escalate_port_slowest_seconds)s of '"$ESCALATED_TIMEOUT"'s -- the oracle side has no clock at either stage, so it has no counterpart figure)",
   "  slowest single planner call: \($g.slowest_seconds)s (panda), \(.fanuc.slowest_seconds)s (fanuc)",
   "  parallel wall clock, all port runs: \(.parallel_wall_clock_seconds)s",
   ""
@@ -1103,38 +1182,34 @@ if [[ "$MODE" == "full" ]]; then
   # numbers to a tree that never produced them. `dirty_paths` says *which*
   # files, so a later reader can decide whether the difference could touch
   # these numbers instead of having to guess from a bare boolean.
-  dirty_list="$(cd "$REPO_ROOT" && git status --porcelain)"
-  if [[ -n "$dirty_list" ]]; then
-    tree_dirty=true
-  else
-    tree_dirty=false
-  fi
-
+  # `$DIRTY_LIST` / `$TREE_DIRTY` were captured before the build alongside the
+  # source digests, not here -- see that site for why.
+  #
   # `commit` can only ever name the run's *parent* when the run is what
   # produces the artifact being committed, so on its own it cannot identify
   # the code that made these numbers -- and a note saying "the commit that
   # adds this harness" names a sha a later reader cannot resolve.
   #
-  # `measured_sources` closes that by content instead of by revision: the git
-  # blob id of each file that determines a number here. Checkable in one
-  # command against any tree, tracked or not, with no sha to look up:
+  # `measured_sources` closes that by content instead of by revision: the
+  # content digest of each source that determines a number here -- a file's own
+  # git blob id, a directory's hash over every tracked file beneath it.
+  # Checkable in one command against any tree, tracked or not, with no sha to
+  # look up:
   #
   #   git hash-object crates/moveit-planners-sbp/examples/plan_benchmark_port.rs
   #
   # If that differs from the value recorded here, the committed code is not
   # the code that ran and these figures need re-measuring.
-  sources_json="$(cd "$REPO_ROOT" && for f in \
-      tools/ci/verify-phase7-benchmark.sh \
-      crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
-      crates/moveit-planners-sbp/examples/plan_benchmark_port.rs; do
-    printf '%s %s\n' "$f" "$(git hash-object "$f")"
-  done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"
-
+  #
+  # `$SOURCES_JSON` was taken before the build, not here -- see the snapshot
+  # site for why the timing is the point. `crates/moveit-planners-sbp/src` and
+  # the oracle are in it because the harnesses are not what solves these
+  # problems.
   jq --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
      --arg stamp "$(cd "$REPO_ROOT" && git rev-parse HEAD)" \
-     --argjson dirty "$tree_dirty" \
-     --argjson dirty_paths "$(printf '%s' "$dirty_list" | jq -R -s 'split("\n")|map(select(length>0))')" \
-     --argjson sources "$sources_json" \
+     --argjson dirty "$TREE_DIRTY" \
+     --argjson dirty_paths "$(printf '%s' "$DIRTY_LIST" | jq -R -s 'split("\n")|map(select(length>0))')" \
+     --argjson sources "$SOURCES_JSON" \
      --argjson con "${con:-null}" \
      --argjson pins "$PINS_JSON" \
      --slurpfile checks "$checks_json" \

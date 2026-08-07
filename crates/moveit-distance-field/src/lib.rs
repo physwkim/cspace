@@ -187,10 +187,17 @@
 //! `createCollisionModelMarker` (D1) -- see
 //! `collision_env_distance_field.rs`'s module doc, "Round 21" section, for
 //! the difference table against all seven upstream call sites this round
-//! reads and ports individually. `CollisionEnvHybrid` and both
-//! `CollisionDetectorAllocator*` classes are D-decision-excluded (D1's
-//! FCL/Bullet replacement, D4's compile-time-trait plugin model). The
-//! `AttachedBody`-dependent decomposition functions
+//! reads and ports individually. Both `CollisionDetectorAllocator*`
+//! classes are D-decision-excluded, but not under D1: they are
+//! `CollisionDetectorAllocatorTemplate<...>` ROS-pluginlib-style runtime
+//! plugin registrations with zero ROS-typed members of their own, excluded
+//! under D4 instead (this port's plugin model is a compile-time trait +
+//! `linkme` registry) -- see "Whole-file exclusions" below for the full
+//! reasoning. `CollisionEnvHybrid` itself is **not** excluded at all: a
+//! stale claim here previously said it was, contradicting this same
+//! module's "Whole-file exclusions" section below, which has carried its
+//! correct status (ported as [`HybridCollisionEnv`], round 29) since that
+//! round. The `AttachedBody`-dependent decomposition functions
 //! (`getAttachedBodySphereDecomposition`/`getAttachedBodyPointDecomposition`)
 //! are now ported too, as of round 22, as
 //! [`attached_body_sphere_decomposition`]/[`attached_body_point_decomposition`]
@@ -930,8 +937,17 @@
 //!
 //! ## `distance_field.hpp`
 //!
-//! - `PlaneVisualizationType` (enum) — D-decision excludes it: D1 (used
-//!   only by `getPlaneMarkers`, see the marker methods below).
+//! - `PlaneVisualizationType` (enum) — unported, but not itself D1: the
+//!   three variants (`XY_PLANE`/`XZ_PLANE`/`YZ_PLANE`,
+//!   `distance_field.hpp:67-72`) are a plain value with no ROS type in
+//!   sight, exactly the kind GOALS.md's D1 rule says gets redefined in pure
+//!   Rust rather than excluded. It stays unported for a narrower reason:
+//!   `rg -n PlaneVisualizationType` against the pinned moveit2 tree turns
+//!   up only its declaration and its one use as `getPlaneMarkers`'s
+//!   parameter (itself genuinely D1 below) — zero consumer, the same
+//!   reasoning `moveit-octomap/src/tree.rs` now gives for `insertPointCloud`.
+//!   Porting the enum with no caller in this crate to pass it to would be
+//!   dead code.
 //! - `DistanceField` constructor / destructor — N/A: see [`DistanceField`]'s
 //!   own doc comment, "The rest is not ported", last bullet.
 //! - `addPointsToField`/`removePointsFromField`/`updatePointsInField`/

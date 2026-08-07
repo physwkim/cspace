@@ -54,35 +54,35 @@
 //!   limits,
 //! - a Cartesian goal names a non-empty link an IK solver can be built for.
 //!
-//! # Deviation from upstream: how "an IK solver exists for this link" is
-//! decided
+//! # How "an IK solver exists for this link" is decided
 //!
 //! Upstream's `checkCartesianGoalConstraint` asks the *group*'s one
 //! SRDF-`kinematics.yaml`-configured solver
 //! (`JointModelGroup::canSetStateFromIK`, via `getSolverInstance()`) whether
 //! its tip matches the requested link, falling back to
 //! `getRigidlyConnectedParentLinkModel` if not (a fixed-transform-chain
-//! search). This port's `moveit-model::JointModelGroup` carries no
-//! `kinematics.yaml`-derived solver mapping, and `LinkModel` carries no
-//! `associated_fixed_transforms_` (`link_model.rs`'s own doc records that
-//! absence), neither of which is a gap this crate can quietly work around.
+//! search, always called with a `nullptr` group — group-independent). This
+//! port's `moveit-model::JointModelGroup` carries no `kinematics.yaml`-derived
+//! solver mapping — nothing in this workspace's `RobotModel` port loads
+//! `kinematics.yaml` — so [`check_cartesian_goal`] instead scans
+//! [`static@moveit_kinematics::KINEMATICS_SOLVERS`] and attempts to build
+//! each registered solver for `(robot_model, group_name)`; that per-group
+//! solver-selection deviation stays open, since there is no
+//! `kinematics.yaml` data here to close it with.
 //!
-//! The rigidly-connected-parent half of that reason has since become false:
-//! `moveit_model::RobotModel::rigidly_connected_parent_link` is ported, with
-//! upstream's `nullptr`-group semantics. It is not used here because closing
-//! the deviation needs the *plan* path too -- `TrajectoryGeneratorLin::plan`
-//! selects its solver with an exact `solver.tip_frame() == info.link_name`
-//! filter, so accepting a rigidly-connected link in validation alone would
-//! only move the rejection later. Closing it is a behavioural change to what
-//! a Cartesian goal may name, not a local fix.
-//!
-//! [`check_cartesian_goal`] instead
-//! scans [`static@moveit_kinematics::KINEMATICS_SOLVERS`], attempts to build each
-//! registered solver for `(robot_model, group_name)`, and accepts the goal if
-//! any constructed solver's [`moveit_kinematics::KinematicsSolver::tip_frame`]
-//! equals the requested link exactly. There is no fixed-transform-chain
-//! fallback — a link rigidly attached to, but not equal to, a constructible
-//! solver's own tip is rejected here where upstream would accept it.
+//! The fixed-transform-chain fallback itself is not open, though:
+//! [`check_cartesian_goal`] accepts the goal if any constructed solver's tip
+//! is `is_rigidly_connected` (`crate::trajectory_functions`) to the requested
+//! link — exact match, or connected to it by fixed joints only, mirroring
+//! `getRigidlyConnectedParentLinkModel`'s own `nullptr`-group semantics via
+//! [`moveit_model::RobotModel::rigidly_connected_parent_link`]. Validation
+//! accepting a rigidly-connected link only matters together with the plan
+//! path actually reaching IK for it, which is why
+//! [`crate::trajectory_functions::compute_pose_ik`] performs the same
+//! rigid-connection check (plus the constant fixed-joint offset upstream's
+//! `setFromIK` folds into the IK target pose) rather than `plan` filtering
+//! solvers by an exact `solver.tip_frame() == info.link_name` beforehand —
+//! see that function's own doc.
 //!
 //! # `generate`, `MotionPlanInfo`, `MotionPlanResponse`
 //!
@@ -147,7 +147,7 @@ use moveit_state::Posed;
 use moveit_trajectory::RobotTrajectory;
 
 use crate::limits::{JointLimitsContainer, LimitsContainer};
-use crate::trajectory_functions::IkContext;
+use crate::trajectory_functions::{IkContext, is_rigidly_connected};
 
 /// Lower bound (exclusive) on `max_velocity_scaling_factor`/
 /// `max_acceleration_scaling_factor`. Upstream `MIN_SCALING_FACTOR`.
@@ -179,6 +179,20 @@ pub enum Goal {
         /// The link this pose targets. Upstream's (matching)
         /// `PositionConstraint::link_name`/`OrientationConstraint::link_name`.
         link_name: String,
+        /// The frame `position`/`orientation` are expressed in; [`None`] is
+        /// the planning frame. Upstream's (matching)
+        /// `PositionConstraint::header.frame_id`/
+        /// `OrientationConstraint::header.frame_id`, fused into one field the
+        /// same way `link_name` above already fuses the two message's own
+        /// `link_name`s — upstream's actual rule is "either empty -> use the
+        /// planning frame, else use the position constraint's", never a
+        /// mismatch check between the two, so there is no third case this
+        /// fusion could lose. Resolved once, by
+        /// [`crate::trajectory_functions::resolve_goal_frame`], during
+        /// `extract_motion_plan_info` — see that function's own doc for
+        /// where, mirroring upstream's own `scene->getFrameTransform(frame_id)
+        /// * getConstraintPose(...)`.
+        frame: Option<String>,
         /// Target position. Upstream
         /// `position_constraints[0].constraint_region.primitive_poses[0].position`.
         position: Vector3,
@@ -225,6 +239,16 @@ pub struct CircPathConstraint {
     /// constraint. Upstream
     /// `req.path_constraints.position_constraints[0].link_name`.
     pub link_name: String,
+    /// The frame `point` is expressed in; [`None`] is the planning frame.
+    /// Upstream
+    /// `req.path_constraints.position_constraints[0].header.frame_id`. This
+    /// is deliberately its own field, not shared with
+    /// [`Goal::Cartesian::frame`]: upstream resolves
+    /// `center_point_frame_id` completely independently of the goal's own
+    /// `frame_id` (`extractMotionPlanInfo` reads and transforms by each
+    /// separately), and a request naming a different frame for each is not
+    /// malformed there.
+    pub frame: Option<String>,
     /// The interim or center point. Upstream
     /// `req.path_constraints.position_constraints[0].constraint_region.primitive_poses[0].position`.
     pub point: Vector3,
@@ -446,8 +470,12 @@ pub struct MotionPlanInfo<'m> {
     /// and with `req.start_state` applied. Upstream `start_scene`.
     pub start_scene: Arc<PlanningScene<'m>>,
     /// `CIRC`'s resolved auxiliary point (kind plus its final position, after
-    /// a Cartesian goal's `target_point_offset` is applied — see
+    /// [`CircPathConstraint::frame`]'s transform and a Cartesian goal's
+    /// `target_point_offset` are both applied — see
     /// [`crate::trajectory_generator_circ`]'s own doc for that adjustment).
+    /// This reuses [`CircPathConstraint`] for a *resolved* point, unlike
+    /// [`MotionPlanRequest::path_constraints`]'s raw one — `frame` is always
+    /// [`None`] here, meaning "already resolved", not "no frame was given".
     /// `None` for `PTP`/`LIN`, whose `extract_motion_plan_info` never writes
     /// it. Upstream `circ_path_point`.
     pub circ_aux_point: Option<CircPathConstraint>,
@@ -777,14 +805,15 @@ pub fn check_joint_goal(
 /// ori_constraint.link_name` (`PositionOrientationConstraintNameMismatch`)
 /// and `primitive_poses.empty()` (`NoPrimitivePoseGiven`) have no counterpart
 /// here — see this module's `# What changed shape, and why`. See the
-/// module's `# Deviation from upstream` section for how "an IK solver exists"
-/// is decided here instead of via `canSetStateFromIK`.
+/// module's `# How "an IK solver exists for this link" is decided` section
+/// for how this differs from upstream's per-group `canSetStateFromIK`.
 ///
 /// # Errors
 ///
 /// [`MoveItErrorCode::InvalidGoalConstraints`] if `link_name` is empty.
 /// [`MoveItErrorCode::NoIkSolution`] if no [`static@KINEMATICS_SOLVERS`] entry can
-/// be built for `group_name` with `link_name` as its tip.
+/// be built for `group_name` with `link_name` as its tip, or as a link
+/// `is_rigidly_connected` (`crate::trajectory_functions`) to its tip.
 pub fn check_cartesian_goal(
     robot_model: &RobotModel,
     group_name: &str,
@@ -797,7 +826,7 @@ pub fn check_cartesian_goal(
     let params = SolverParams::default();
     let solver_available = KINEMATICS_SOLVERS.iter().any(|registration| {
         (registration.construct)(robot_model, group_name, &params)
-            .map(|solver| solver.tip_frame() == link_name)
+            .map(|solver| is_rigidly_connected(robot_model, solver.tip_frame(), link_name))
             .unwrap_or(false)
     });
     if !solver_available {
@@ -1034,6 +1063,20 @@ mod tests {
             matches!(err, Error::Code(MoveItErrorCode::NoIkSolution)),
             "expected Error::Code(NoIkSolution), got {err:?}"
         );
+    }
+
+    /// `panda_hand` is not `panda_arm`'s solver tip (`panda_link8`), but is
+    /// connected to it by two fixed joints only (`panda_joint8`,
+    /// `panda_hand_joint` -- `fixtures/panda.urdf`), unlike `panda_link4`
+    /// above, which sits behind the *revolute* `panda_joint4`/.../`panda_joint7`
+    /// and so is never in the same rigid cluster no matter which link the
+    /// walk starts from. Upstream accepts this
+    /// (`getRigidlyConnectedParentLinkModel`/`canSetStateFromIK` — this
+    /// module's own `# How "an IK solver exists for this link" is decided`).
+    #[test]
+    fn cartesian_goal_accepts_a_link_rigidly_connected_to_the_tip() {
+        let model = load_panda();
+        assert!(check_cartesian_goal(&model, "panda_arm", "panda_hand").is_ok());
     }
 
     // -- PORTING-PLAN.md §177: the solver every generator resolves to is a

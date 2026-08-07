@@ -68,7 +68,7 @@ use moveit_trajectory::RobotTrajectory;
 use crate::path_line::PathLine;
 use crate::trajectory_functions::{
     CartesianPath, IkContext, compute_link_fk, compute_pose_ik, constraint_pose,
-    generate_joint_trajectory, solver_tip_frame,
+    generate_joint_trajectory, resolve_goal_frame, solver_tip_frame,
 };
 use crate::trajectory_generator::{
     Goal, MotionPlanInfo, MotionPlanRequest, PilzGenerator, TrajectoryGenerator,
@@ -146,19 +146,19 @@ where
             }
             Goal::Cartesian {
                 link_name,
+                frame,
                 position,
                 orientation,
                 target_point_offset,
             } => {
                 info.link_name = link_name.clone();
-                info.goal_pose = constraint_pose(position, orientation, target_point_offset);
+                let local_pose = constraint_pose(position, orientation, target_point_offset);
+                info.goal_pose = resolve_goal_frame(ctx, frame.as_deref())? * local_pose;
 
                 let params = SolverParams::default();
                 let mut solver =
                     resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
-                        .ok()
-                        .filter(|solver| solver.tip_frame() == link_name.as_str())
-                        .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+                        .map_err(|_| Error::Code(MoveItErrorCode::NoIkSolution))?;
 
                 compute_pose_ik(
                     ctx,
@@ -224,9 +224,7 @@ where
         let robot_model = self.base.robot_model();
         let params = SolverParams::default();
         let mut solver = resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
-            .ok()
-            .filter(|solver| solver.tip_frame() == info.link_name.as_str())
-            .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+            .map_err(|_| Error::Code(MoveItErrorCode::NoIkSolution))?;
 
         generate_joint_trajectory(
             ctx,
@@ -257,5 +255,266 @@ impl CartesianPath for LinSegment {
 
     fn pos(&self, t: f64) -> Isometry3 {
         self.path.pos(self.velocity_profile.pos(t))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::fs;
+    use std::sync::Arc;
+
+    use approx::assert_relative_eq;
+    use moveit_collision::{LinkPaddingScale, ParryCollisionEnv};
+    use moveit_geometry::{UnitQuaternion, Vector3};
+    use moveit_model::{MeshSearchPaths, RobotModel};
+    use moveit_scene::PlanningScene;
+    use moveit_srdf::SrdfModel;
+
+    use super::*;
+    use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer};
+    use crate::trajectory_generator::StartState;
+
+    fn fixture_mesh_search_paths() -> MeshSearchPaths {
+        let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
+        MeshSearchPaths::new([(
+            "moveit_resources_panda_description",
+            format!("{meshes_root}/panda_description"),
+        )])
+    }
+
+    fn load_panda() -> (RobotModel, SrdfModel) {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+        let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
+        let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &fixture_mesh_search_paths())
+                .expect("fixture model must build");
+        (model, srdf)
+    }
+
+    const PANDA_ARM_JOINTS: [&str; 7] = [
+        "panda_joint1",
+        "panda_joint2",
+        "panda_joint3",
+        "panda_joint4",
+        "panda_joint5",
+        "panda_joint6",
+        "panda_joint7",
+    ];
+
+    fn panda_joint_limits() -> JointLimitsContainer {
+        let mut limits = JointLimitsContainer::default();
+        for joint in PANDA_ARM_JOINTS {
+            limits.add_limit(
+                joint,
+                JointLimit {
+                    has_position_limits: true,
+                    min_position: -2.9,
+                    max_position: 2.9,
+                    has_velocity_limits: true,
+                    max_velocity: 2.0,
+                    has_acceleration_limits: true,
+                    max_acceleration: 3.0,
+                    has_deceleration_limits: true,
+                    max_deceleration: -3.0,
+                    ..Default::default()
+                },
+            );
+        }
+        limits
+    }
+
+    /// `panda_moveit_config/config/pilz_cartesian_limits.yaml`'s values --
+    /// the same figures `command_list_manager.rs`'s own test fixture and the
+    /// `tests/pilz_trajectory_lin_parity.rs` fixtures use. `plan`'s
+    /// [`VelocityProfileTrap`] needs a nonzero `max_trans_vel`/`max_trans_acc`
+    /// to produce a finite-duration profile at all --
+    /// [`LimitsContainer::new`] alone leaves `cartesian_limits` all-zero (see
+    /// [`crate::limits::LimitsContainer::cartesian_limits`]'s doc), which
+    /// makes an unreachable (zero-velocity, zero-acceleration) profile for
+    /// any nonzero path length.
+    fn panda_generator(model: &RobotModel) -> TrajectoryGeneratorLin<'_> {
+        let mut limits = LimitsContainer::new();
+        limits.set_joint_limits(panda_joint_limits());
+        limits.set_cartesian_limits(CartesianLimits {
+            max_trans_vel: 1.0,
+            max_trans_acc: 2.25,
+            max_trans_dec: -5.0,
+            max_rot_vel: 1.57,
+        });
+        let base = TrajectoryGenerator::new(model, limits);
+        TrajectoryGeneratorLin::new(base, "panda_arm")
+    }
+
+    /// panda.srdf's `"ready"` named state for `panda_arm`.
+    fn ready_positions() -> HashMap<String, f64> {
+        [
+            ("panda_joint1", 0.0),
+            ("panda_joint2", -0.785),
+            ("panda_joint3", 0.0),
+            ("panda_joint4", -2.356),
+            ("panda_joint5", 0.0),
+            ("panda_joint6", 1.571),
+            ("panda_joint7", 0.785),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect()
+    }
+
+    /// Upstream: `PositionConstraint::header.frame_id = "panda_link8"`,
+    /// `position = (0, 0, 0.1)` -- 10cm along local Z off the flange, not off
+    /// the world origin. `extractMotionPlanInfo` resolves this via
+    /// `scene->getFrameTransform("panda_link8") * getConstraintPose(...)`
+    /// before any IK is attempted -- see `trajectory_generator.rs`'s own
+    /// module doc for the full upstream citation.
+    ///
+    /// [`Goal::Cartesian`] had no field to carry `"panda_link8"` at all
+    /// before this fix: this exact test (`goal: Goal::Cartesian { frame:
+    /// Some("panda_link8".to_string()), .. }`) does not compile against the
+    /// pre-fix type -- "cannot be represented", not merely "computed wrong".
+    #[test]
+    fn cartesian_goal_in_a_named_frame_resolves_relative_to_that_frames_current_pose() {
+        let (model, srdf) = load_panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        scene
+            .current_state_mut()
+            .set_variable_positions_by_name(&ready_positions())
+            .unwrap();
+        let scene = Arc::new(scene);
+        let env =
+            ParryCollisionEnv::new(moveit_collision::World::new(), LinkPaddingScale::default());
+        let ctx = IkContext {
+            scene: &scene,
+            env: &env,
+            check_self_collision: false,
+        };
+
+        // panda_link8's own pose at "ready", computed independently of the
+        // code under test.
+        let mut fk_state = scene.current_state().clone();
+        let link8_pose = compute_link_fk(&mut fk_state, "panda_link8", &ready_positions()).unwrap();
+
+        let base = TrajectoryGenerator::new(&model, LimitsContainer::new());
+        let generator = TrajectoryGeneratorLin::new(base, "panda_arm");
+        let req = MotionPlanRequest {
+            group_name: "panda_arm".to_string(),
+            start_state: StartState {
+                position: ready_positions(),
+                velocity: HashMap::new(),
+            },
+            goal: Goal::Cartesian {
+                link_name: "panda_link8".to_string(),
+                frame: Some("panda_link8".to_string()),
+                position: Vector3::new(0.0, 0.0, 0.1),
+                orientation: UnitQuaternion::identity(),
+                target_point_offset: Vector3::zeros(),
+            },
+            max_velocity_scaling_factor: 1.0,
+            max_acceleration_scaling_factor: 1.0,
+            path_constraints: None,
+        };
+        let mut info = MotionPlanInfo::new(&scene, &req).unwrap();
+        generator
+            .extract_motion_plan_info(&ctx, &req, &mut info)
+            .expect("panda_link8 is reachable from itself with a pure-Z offset");
+
+        let expected = link8_pose * nalgebra::Translation3::new(0.0, 0.0, 0.1);
+        assert_relative_eq!(
+            info.goal_pose.translation.vector,
+            expected.translation.vector,
+            epsilon = 1e-9
+        );
+        // Not 10cm off the world origin, which is what today's un-transformed
+        // `constraint_pose(position, orientation, target_point_offset)` alone
+        // would compute.
+        assert!(info.goal_pose.translation.vector.z - 0.1 > 1e-3);
+    }
+
+    /// The full `generate` pipeline (`validate_request` ->
+    /// `cmd_specific_request_validation` -> `extract_motion_plan_info` ->
+    /// `plan`) for a Cartesian goal naming `"panda_hand"` -- rigidly
+    /// connected to `panda_arm`'s solver tip (`"panda_link8"`) by fixed
+    /// joints only, never equal to it (`fixtures/panda.urdf`:
+    /// `panda_joint8`/`panda_hand_joint`).
+    ///
+    /// This is deliberately the whole pipeline, not `check_cartesian_goal`
+    /// or `compute_pose_ik` in isolation: before this round's fix,
+    /// `check_cartesian_goal` rejected `"panda_hand"` at `validate_request`
+    /// (`NoIkSolution`), and even had it not, `plan`'s own
+    /// `resolve_solver(..).filter(|solver| solver.tip_frame() ==
+    /// info.link_name)` would have rejected it again immediately after --
+    /// two gates on the one path, either sufficient alone to fail this test.
+    /// Fixing only one and leaving the other is exactly what this test would
+    /// catch.
+    #[test]
+    fn generate_end_to_end_reaches_a_link_rigidly_connected_to_the_solver_tip() {
+        let (model, srdf) = load_panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        scene
+            .current_state_mut()
+            .set_variable_positions_by_name(&ready_positions())
+            .unwrap();
+        let scene = Arc::new(scene);
+        let env =
+            ParryCollisionEnv::new(moveit_collision::World::new(), LinkPaddingScale::default());
+        let ctx = IkContext {
+            scene: &scene,
+            env: &env,
+            check_self_collision: false,
+        };
+
+        // `panda_hand`'s own pose at "ready", offset 2cm along world Z --
+        // computed independently of the code under test, and far enough from
+        // "ready" that a converging IK solve proves the fixed-joint offset
+        // was actually applied, not merely that start already equalled goal.
+        let mut fk_state = scene.current_state().clone();
+        let hand_pose = compute_link_fk(&mut fk_state, "panda_hand", &ready_positions()).unwrap();
+        let target_position = hand_pose.translation.vector + Vector3::new(0.0, 0.0, 0.02);
+
+        let generator = panda_generator(&model);
+        let req = MotionPlanRequest {
+            group_name: "panda_arm".to_string(),
+            start_state: StartState {
+                position: ready_positions(),
+                velocity: HashMap::new(),
+            },
+            goal: Goal::Cartesian {
+                link_name: "panda_hand".to_string(),
+                frame: None,
+                position: target_position,
+                orientation: hand_pose.rotation,
+                target_point_offset: Vector3::zeros(),
+            },
+            // Matches `tests/fixtures/panda_lin_request.json`'s scaling --
+            // 1.0 on both factors drives the real
+            // `fixtures/panda.urdf`/panda_moveit_config joint acceleration
+            // limits for this short 2cm move past their limit on the very
+            // first sample, which is a request-level `PlanningFailed`, not
+            // anything to do with the rigid-offset fix under test.
+            max_velocity_scaling_factor: 0.1,
+            max_acceleration_scaling_factor: 0.1,
+            path_constraints: None,
+        };
+
+        let response = generator.generate(&ctx, &req, 0.1);
+        assert_eq!(response.error_code, MoveItErrorCode::Success);
+        let trajectory = response.trajectory.expect("success carries a trajectory");
+
+        let final_state = trajectory.last_way_point().unwrap();
+        let final_positions: HashMap<String, f64> = ready_positions()
+            .keys()
+            .map(|name| (name.clone(), final_state.variable_position(name).unwrap()))
+            .collect();
+        let mut check_state = scene.current_state().clone();
+        let final_hand_pose =
+            compute_link_fk(&mut check_state, "panda_hand", &final_positions).unwrap();
+        assert_relative_eq!(
+            final_hand_pose.translation.vector,
+            target_position,
+            epsilon = 1e-4
+        );
     }
 }

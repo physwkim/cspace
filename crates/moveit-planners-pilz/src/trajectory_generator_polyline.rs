@@ -26,14 +26,20 @@
 //!   Same two deviations as
 //!   [`crate::trajectory_generator_lin::TrajectoryGeneratorLin`] — see that
 //!   module's own doc. `plan` below takes the identical fallback branch.
-//! - **Waypoints arrive already in the planning frame.** Upstream's
-//!   `extractMotionPlanInfo` composes each `path_constraints` position
-//!   constraint into a pose and left-multiplies it by
-//!   `scene->getFrameTransform(frame_id)`; the frame resolution belongs to
-//!   the message layer, which this crate does not have
-//!   ([`crate::trajectory_generator`]'s own `# What changed shape, and why`).
-//!   [`crate::trajectory_generator::PolylinePathConstraint::waypoints`] is
-//!   therefore already frame-resolved.
+//! - **Waypoints arrive already in the planning frame; the goal does not.**
+//!   Upstream's `extractMotionPlanInfo` composes each `path_constraints`
+//!   position constraint into a pose and left-multiplies it by
+//!   `scene->getFrameTransform(frame_id)`, the same as it does for the goal
+//!   constraint — but [`crate::trajectory_generator::PolylinePathConstraint::waypoints`]
+//!   is `Vec<Isometry3>`, already-composed poses with no raw
+//!   position/orientation/frame components a caller could pass
+//!   unresolved, so this crate leaves resolving them to the caller
+//!   (documented as this type's own contract, not a gap). [`Goal::Cartesian`]
+//!   is the opposite shape — separate `position`/`orientation`/`frame`
+//!   fields that invite passing raw, unresolved numbers straight through —
+//!   so its `frame` field *is* resolved here, by
+//!   [`crate::trajectory_functions::resolve_goal_frame`], the same as
+//!   `PTP`/`LIN`/`CIRC`.
 //! - **The goal pose is the last waypoint's, not a separate goal
 //!   constraint.** Upstream reads `req.goal_constraints` for the final pose
 //!   *and* `req.path_constraints` for the vias, so a request can name a goal
@@ -68,7 +74,7 @@ use crate::path_polyline_generator::polyline_from_waypoints;
 use crate::path_rounded_composite::PathRoundedComposite;
 use crate::trajectory_functions::{
     CartesianPath, IkContext, compute_link_fk, compute_pose_ik, constraint_pose,
-    generate_joint_trajectory,
+    generate_joint_trajectory, resolve_goal_frame,
 };
 use crate::trajectory_generator::{
     Goal, MotionPlanInfo, MotionPlanRequest, PilzGenerator, PolylinePathConstraint,
@@ -154,6 +160,7 @@ where
 
         let Goal::Cartesian {
             link_name,
+            frame,
             position,
             orientation,
             target_point_offset,
@@ -163,13 +170,12 @@ where
         };
 
         info.link_name = link_name.clone();
-        info.goal_pose = constraint_pose(position, orientation, target_point_offset);
+        let local_pose = constraint_pose(position, orientation, target_point_offset);
+        info.goal_pose = resolve_goal_frame(ctx, frame.as_deref())? * local_pose;
 
         let params = SolverParams::default();
         let mut solver = resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
-            .ok()
-            .filter(|solver| solver.tip_frame() == link_name.as_str())
-            .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+            .map_err(|_| Error::Code(MoveItErrorCode::NoIkSolution))?;
 
         compute_pose_ik(
             ctx,
@@ -243,9 +249,7 @@ where
         let robot_model = self.base.robot_model();
         let params = SolverParams::default();
         let mut solver = resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
-            .ok()
-            .filter(|solver| solver.tip_frame() == info.link_name.as_str())
-            .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+            .map_err(|_| Error::Code(MoveItErrorCode::NoIkSolution))?;
 
         generate_joint_trajectory(
             ctx,

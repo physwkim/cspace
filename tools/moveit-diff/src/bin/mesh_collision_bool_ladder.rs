@@ -58,7 +58,14 @@
 //! One NDJSON line per `(upper, lower, delta)` cell on stdout:
 //! `{"upper","lower","delta","port_collision","port_distance","oracle_collision","oracle_distance","match"}`,
 //! `oracle_*` and `match` are `null` for the 9 cone-involving cells. Exits
-//! non-zero iff any non-null `match` is `false`.
+//! non-zero iff any non-null `match` is `false`, an oracle request itself
+//! errored, or nothing was scored against the oracle at all -- the last of
+//! those is not a hypothetical: the whole 5x5 grid this measures has no
+//! per-robot decomposition to skip a sub-population legitimately (contrast
+//! `penetration_extended.rs`, where a robot with no `box` target is an
+//! expected empty run), so zero scored here can only mean the oracle
+//! rejected more shape kinds than the 9 cone-involving cells this binary
+//! already excludes, or the ladder produced nothing.
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -312,7 +319,7 @@ impl Oracle {
 impl Drop for Oracle {
     fn drop(&mut self) {
         drop(self.stdin.take());
-        let _ = self.child.wait();
+        moveit_diff::wait_or_kill(&mut self.child, moveit_diff::ORACLE_SHUTDOWN_TIMEOUT);
     }
 }
 
@@ -513,13 +520,32 @@ fn run() -> Result<i32, String> {
     for err in &oracle_errors {
         eprintln!("oracle error: {err}");
     }
+    let scored = cells.iter().filter(|c| c.oracle.is_some()).count();
     eprintln!(
         "{} cells, {} scored against the oracle, {} mismatch(es), {} oracle error(s)",
         cells.len(),
-        cells.iter().filter(|c| c.oracle.is_some()).count(),
+        scored,
         mismatches,
         oracle_errors.len(),
     );
+
+    // A run that compared nothing is not a pass: `mismatches` and
+    // `oracle_errors` are both vacuously empty when every cell was skipped
+    // (an oracle rejecting more kinds than the 9 already-excluded
+    // cone-involving cells, or `ladder()` returning nothing), and this
+    // binary has no per-robot decomposition -- unlike
+    // `penetration_extended.rs`, where a robot legitimately has no `box`
+    // target and the empty-population guard belongs in the shell wrapper
+    // that sums across robots, every run of this binary measures the same
+    // fixed grid on the same fixture, so there is no legitimate reason for
+    // it to score zero. The guard therefore belongs here, not in a future
+    // wrapper.
+    if scored == 0 {
+        eprintln!(
+            "0 cells were scored against the oracle -- nothing was measured, this is not a pass"
+        );
+        return Ok(1);
+    }
 
     Ok(if mismatches > 0 || !oracle_errors.is_empty() {
         1

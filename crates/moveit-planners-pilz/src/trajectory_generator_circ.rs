@@ -73,7 +73,7 @@ use crate::path_circle::{
 };
 use crate::trajectory_functions::{
     CartesianPath, IkContext, compute_link_fk, compute_pose_ik, constraint_pose,
-    generate_joint_trajectory,
+    generate_joint_trajectory, resolve_goal_frame,
 };
 use crate::trajectory_generator::{
     CircPathConstraint, CircPathConstraintKind, Goal, MotionPlanInfo, MotionPlanRequest,
@@ -175,19 +175,19 @@ where
             }
             Goal::Cartesian {
                 link_name,
+                frame,
                 position,
                 orientation,
                 target_point_offset,
             } => {
                 info.link_name = link_name.clone();
-                info.goal_pose = constraint_pose(position, orientation, target_point_offset);
+                let local_pose = constraint_pose(position, orientation, target_point_offset);
+                info.goal_pose = resolve_goal_frame(ctx, frame.as_deref())? * local_pose;
 
                 let params = SolverParams::default();
                 let mut solver =
                     resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
-                        .ok()
-                        .filter(|solver| solver.tip_frame() == link_name.as_str())
-                        .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+                        .map_err(|_| Error::Code(MoveItErrorCode::NoIkSolution))?;
 
                 compute_pose_ik(
                     ctx,
@@ -209,25 +209,37 @@ where
             info.start_pose = pose;
         }
 
-        // The auxiliary point's `target_point_offset` re-adjustment only
-        // applies to a Cartesian goal -- upstream reads it from
-        // `goal_constraints.front()`'s own position constraint, which is
-        // only populated for a Cartesian goal.
+        // The frame transform applies unconditionally to the raw point,
+        // before the `target_point_offset` re-adjustment below -- upstream
+        // applies `center_point_frame_id`'s transform first, then only
+        // re-folds through the goal's own orientation/offset for a Cartesian
+        // goal (`goal_constraints.front()`'s position constraint is only
+        // populated then).
+        let center_transform = resolve_goal_frame(ctx, path_constraint.frame.as_deref())?;
+        let center_point =
+            center_transform.rotation * path_constraint.point + center_transform.translation.vector;
         let point = match &req.goal {
             Goal::Cartesian {
                 orientation,
                 target_point_offset,
                 ..
             } => {
-                constraint_pose(&path_constraint.point, orientation, target_point_offset)
+                constraint_pose(&center_point, orientation, target_point_offset)
                     .translation
                     .vector
             }
-            Goal::Joint(_) => path_constraint.point,
+            Goal::Joint(_) => center_point,
         };
         info.circ_aux_point = Some(crate::trajectory_generator::CircPathConstraint {
             kind: path_constraint.kind,
             link_name: path_constraint.link_name.clone(),
+            // `point` above is already resolved into the planning frame --
+            // `frame: None` here means exactly that, not "no frame was
+            // given". Carrying `path_constraint.frame` forward unchanged
+            // would leave one field meaning two different things depending
+            // on which `CircPathConstraint` (the request's raw one, or this
+            // resolved one) holds it.
+            frame: None,
             point,
         });
 
@@ -289,9 +301,7 @@ where
         let robot_model = self.base.robot_model();
         let params = SolverParams::default();
         let mut solver = resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
-            .ok()
-            .filter(|solver| solver.tip_frame() == info.link_name.as_str())
-            .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+            .map_err(|_| Error::Code(MoveItErrorCode::NoIkSolution))?;
 
         generate_joint_trajectory(
             ctx,
