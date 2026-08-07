@@ -454,3 +454,79 @@ fn lin_panda_arm_rejects_the_same_request_the_oracle_rejects() {
         "rejection reason must match the oracle's PLANNING_FAILED"
     );
 }
+
+/// Regression for a real port divergence found while auditing residual
+/// claims (`PORTING-PLAN.md` §327): `TrajectoryGeneratorLin`'s `Goal::Joint`
+/// arm built `info.goal_joint_position` directly from the request without
+/// ever checking its size against the planning group, unlike
+/// `TrajectoryGeneratorCirc`'s identical arm (`trajectory_generator_circ.rs`)
+/// and upstream `TrajectoryGeneratorLIN::extractMotionPlanInfo`, which throws
+/// `JointNumberMismatch` for exactly this case right after resolving the tip
+/// frame. No oracle fixture exercises this path (both `panda_lin_*.json`
+/// fixtures are Cartesian goals), so this is a plain no-oracle construction
+/// rather than a captured-response comparison; before the fix this request
+/// planned successfully against whatever 6 joints were named, silently
+/// leaving `panda_joint7` at its start-state value instead of being
+/// rejected.
+#[test]
+fn lin_panda_arm_rejects_a_joint_goal_with_the_wrong_position_count() {
+    let request: RequestFixture = load_json("panda_lin_request.json");
+    let (model, srdf) = load_panda();
+
+    let mut joint_limits = JointLimitsContainer::default();
+    for (name, limit) in request.joint_limits {
+        assert!(
+            joint_limits.add_limit(name.clone(), limit.into()),
+            "duplicate or invalid joint limit for {name} in fixture"
+        );
+    }
+    let mut limits = LimitsContainer::new();
+    limits.set_joint_limits(joint_limits);
+    limits.set_cartesian_limits(request.cartesian_limits.into());
+
+    let base = TrajectoryGenerator::new(&model, limits);
+    let generator = TrajectoryGeneratorLin::new(base, &request.group_name);
+
+    // panda_arm has 7 active joints; this omits panda_joint7.
+    let positions: HashMap<String, f64> = [
+        "panda_joint1",
+        "panda_joint2",
+        "panda_joint3",
+        "panda_joint4",
+        "panda_joint5",
+        "panda_joint6",
+    ]
+    .into_iter()
+    .map(|name| (name.to_string(), 0.0))
+    .collect();
+    let plan_request = MotionPlanRequest {
+        group_name: request.group_name,
+        start_state: StartState {
+            position: request.start_state,
+            velocity: HashMap::new(),
+        },
+        goal: Goal::Joint(positions),
+        max_velocity_scaling_factor: request.max_velocity_scaling_factor,
+        max_acceleration_scaling_factor: request.max_acceleration_scaling_factor,
+        path_constraints: None,
+    };
+
+    let scene = Arc::new(PlanningScene::new(&model, &srdf));
+    let env = ParryCollisionEnv::new(World::new(), LinkPaddingScale::default());
+    let ctx = IkContext {
+        scene: &scene,
+        env: &env,
+        check_self_collision: CHECK_SELF_COLLISION,
+    };
+
+    let response = generator.generate(&ctx, &plan_request, request.sampling_time);
+    assert!(
+        response.trajectory.is_none(),
+        "a joint-space goal with the wrong position count must be rejected, not silently planned"
+    );
+    assert_eq!(
+        response.error_code,
+        moveit_error::MoveItErrorCode::InvalidGoalConstraints,
+        "must match TrajectoryGeneratorCirc's identical check and upstream's JointNumberMismatch"
+    );
+}

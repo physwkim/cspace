@@ -107,7 +107,12 @@ where
     ///
     /// [`MoveItErrorCode::Failure`] if `req.goal` is a joint-space target and
     /// no [`static@moveit_kinematics::KINEMATICS_SOLVERS`] entry can be built for
-    /// `req.group_name` (upstream's `getSolverTipFrame` failure). [`MoveItErrorCode::NoIkSolution`]
+    /// `req.group_name` (upstream's `getSolverTipFrame` failure).
+    /// [`MoveItErrorCode::InvalidGroupName`] if `req.group_name` names no
+    /// joint model group. [`MoveItErrorCode::InvalidGoalConstraints`] if
+    /// `req.goal` is a joint-space target whose position count does not match
+    /// the group's active joint count (upstream's `JointNumberMismatch`).
+    /// [`MoveItErrorCode::NoIkSolution`]
     /// if `req.goal` is a Cartesian target with no reachable IK solution.
     fn extract_motion_plan_info(
         &self,
@@ -122,6 +127,14 @@ where
         match &req.goal {
             Goal::Joint(positions) => {
                 info.link_name = solver_tip_frame(robot_model, &req.group_name)?;
+
+                let group = robot_model
+                    .joint_model_group(&req.group_name)
+                    .map_err(|_| Error::Code(MoveItErrorCode::InvalidGroupName))?;
+                if positions.len() != group.active_joint_names().len() {
+                    return Err(Error::Code(MoveItErrorCode::InvalidGoalConstraints));
+                }
+
                 info.goal_joint_position = positions.clone();
                 if let Some(pose) = compute_link_fk(
                     &mut scratch_state,
