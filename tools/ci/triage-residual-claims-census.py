@@ -70,10 +70,14 @@ fresh output only to its own committed doc:
      owns that invariant and is hardened against the undercount. A bullet
      deleted from PORTING-PLAN.md fails here first.
   2. Reads the committed census's own header line
-     ("최상위 불릿 N건 (CLOSED c / OPEN o)") and asserts this script's own
-     classify loop accounted for exactly `o` bullets -- catches a bug in
-     *this* script's loop losing a bullet even when the census parser is
-     fine.
+     ("최상위 불릿 N건 (CLOSED c / EXPIRY e / OPEN o)") and asserts this
+     script's own classify loop accounted for exactly `o` bullets -- catches
+     a bug in *this* script's loop losing a bullet even when the census
+     parser is fine. `census_module.EXPIRY_RE`-marked bullets (PORTING-PLAN.md
+     §308.4's A3 other legitimate exit, `OPEN → 만료 조건 (<trigger>)`) are
+     census's OPEN-exclusion too, same as CLOSED -- this script's own loop
+     skips them the same way, so they never enter `scope`/`closed-unmarked`/
+     `measurement` at all.
   3. Compares a fresh render of the triage doc against the committed one,
      the same contract `check-residual-claims-census.py --check` uses.
 
@@ -268,13 +272,13 @@ def tag_theme(group_measurement_texts):
     return matched[0] if matched else "unclassified"
 
 
-def render(entries, doc_label, closure_re):
+def render(entries, doc_label, closure_re, expiry_re):
     kinds = {"scope": [], "closed-unmarked": [], "measurement": []}
     mixed_flagged = []
     for leadin_line, section_id, leadin_text, bullets in entries:
         for bline, btext in bullets:
-            if closure_re.search(btext):
-                continue  # CLOSED by the canonical marker; not this tool's input
+            if closure_re.search(btext) or expiry_re.search(btext):
+                continue  # CLOSED or EXPIRY by a canonical marker; not this tool's input
             kind = classify(section_id, leadin_text, btext)
             row = (section_id, leadin_line, leadin_text, bline, btext)
             kinds[kind].append(row)
@@ -544,7 +548,9 @@ def main():
     except ValueError:
         doc_label = doc_path.name
 
-    rendered, open_total = render(entries, doc_label, census_module.CLOSURE_RE)
+    rendered, open_total = render(
+        entries, doc_label, census_module.CLOSURE_RE, census_module.EXPIRY_RE
+    )
 
     if args.emit:
         Path(args.emit).write_text(rendered, encoding="utf-8")
@@ -592,17 +598,19 @@ def main():
         return 2
     census_text = census_path.read_text(encoding="utf-8")
     header_match = re.search(
-        r"최상위\s*불릿\s*(\d+)\s*건\s*\(CLOSED\s*(\d+)\s*/\s*OPEN\s*(\d+)\)", census_text
+        r"최상위\s*불릿\s*(\d+)\s*건\s*"
+        r"\(CLOSED\s*(\d+)\s*/\s*EXPIRY\s*(\d+)\s*/\s*OPEN\s*(\d+)\)",
+        census_text,
     )
     if not header_match:
         print(
-            f"FAIL could not find the 'CLOSED n / OPEN n' header line in "
-            f"{census_path} -- its format changed and this script cannot "
-            "cross-check its own bullet count against it",
+            f"FAIL could not find the 'CLOSED n / EXPIRY n / OPEN n' header "
+            f"line in {census_path} -- its format changed and this script "
+            "cannot cross-check its own bullet count against it",
             file=sys.stderr,
         )
         return 1
-    census_open = int(header_match.group(3))
+    census_open = int(header_match.group(4))
     if open_total != census_open:
         print(
             f"FAIL this script's own classify loop accounted for {open_total} "

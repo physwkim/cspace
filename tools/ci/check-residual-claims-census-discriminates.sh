@@ -55,6 +55,15 @@
 # The fixtures are synthetic documents in a temp dir, never this tree's
 # PORTING-PLAN.md: a scenario that reads the real document would change its
 # own expectations every time someone writes a section.
+#
+# expiry_marker / expiry_marker_removed / expiry_blank_trigger below are not
+# about the continuation-paragraph incident above -- they discriminate
+# PORTING-PLAN.md §308.4's A3 other legitimate exit, `OPEN → 만료 조건
+# (<trigger>)`, added the same round these three were: with a stated trigger
+# the marked bullet tallies EXPIRY (not OPEN); strip the marker back off and
+# OPEN rises again (the removal mutation); leave the trigger sentence blank
+# and the gate refuses to emit a census at all, because A3's own wording
+# does not accept an expiry conversion with no stated trigger time.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -227,6 +236,61 @@ expect_text closure_marker_is_per_bullet \
 expect_text closure_marker_is_per_bullet \
   "$ROOT/closure_marker_is_per_bullet.md" present "[B] 둘째.** 아직 열려 있다. | OPEN |"
 
+# --- the expiry marker is EXPIRY, not OPEN, and removing it raises OPEN back -
+# isolates: PORTING-PLAN.md §308.4's A3 other legitimate exit (an expiry
+# condition with a stated trigger, not a `거짓 → 닫힘` measurement). Two
+# fixtures, same two-bullet shape: with the marker on [A], the header tallies
+# EXPIRY 1 / OPEN 1; strip the marker back off (mutation) and the header
+# tallies EXPIRY 0 / OPEN 2 -- the same bullet that left OPEN comes back the
+# moment the marker is gone, which is the removal-raises-OPEN mutation the
+# brief asked to be demonstrated, not merely asserted.
+cat > "$ROOT/expiry_marker.md" <<'EOF'
+## 900.14 이 절이 하지 않은 것
+
+- **[A] 첫째. OPEN → 만료 조건 (moveit-octomap이 생기면 만료된다).** 이유.
+- **[B] 둘째.** 아직 열려 있다.
+EOF
+expect expiry_marker "$ROOT/expiry_marker.md" 1 2 A B
+expect_text expiry_marker "$ROOT/expiry_marker.md" present "(CLOSED 0 / EXPIRY 1 / OPEN 1)."
+expect_text expiry_marker "$ROOT/expiry_marker.md" present \
+  "moveit-octomap이 생기면 만료된다).** 이유. | EXPIRY |"
+expect_text expiry_marker "$ROOT/expiry_marker.md" present "[B] 둘째.** 아직 열려 있다. | OPEN |"
+
+cat > "$ROOT/expiry_marker_removed.md" <<'EOF'
+## 900.15 이 회차가 못 본 것
+
+- **[A] 첫째.** 이유.
+- **[B] 둘째.** 아직 열려 있다.
+EOF
+expect expiry_marker_removed "$ROOT/expiry_marker_removed.md" 1 2 A B
+expect_text expiry_marker_removed "$ROOT/expiry_marker_removed.md" present \
+  "(CLOSED 0 / EXPIRY 0 / OPEN 2)."
+
+# --- an expiry marker with no trigger sentence fails the gate, not "OPEN" ----
+# isolates: A3's own condition (PORTING-PLAN.md:35022) accepts an expiry
+# conversion only when it states WHEN it expires -- an empty or
+# whitespace-only trigger is the disallowed unconditional "permanent, no
+# trigger" exit wearing this marker's shape, and the gate must refuse to emit
+# a census at all rather than silently reading it as EXPIRY or OPEN.
+checked=$((checked + 1))
+cat > "$ROOT/expiry_blank_trigger.md" <<'EOF'
+## 900.16 이 절이 하지 않은 것
+
+- **[A] 첫째. OPEN → 만료 조건 ().** 발화 시점을 안 적었다.
+- **[B] 둘째. OPEN → 만료 조건 (   ).** 공백만 있다.
+EOF
+if out="$("$GATE" --doc "$ROOT/expiry_blank_trigger.md" --emit "$ROOT/expiry_blank_trigger.census" 2>&1)"; then
+  failures=$((failures + 1))
+  echo "FAIL scenario expiry_blank_trigger: the gate exited 0 on two blank-trigger markers" >&2
+elif ! printf '%s' "$out" | grep -qF -- "FAIL 2 \`OPEN → 만료 조건 ()\` marker(s)"; then
+  failures=$((failures + 1))
+  echo "FAIL scenario expiry_blank_trigger: nonzero exit but not the blank-trigger message:" >&2
+  printf '%s\n' "$out" | sed 's/^/       /' >&2
+elif [ -f "$ROOT/expiry_blank_trigger.census" ]; then
+  failures=$((failures + 1))
+  echo "FAIL scenario expiry_blank_trigger: gate wrote a census despite the blank trigger" >&2
+fi
+
 # --- a lead-in with no top-level bullet is listed, not dropped ---------------
 # isolates: the second population. It used to be a bare `continue`, so a section
 # stating its residual claims in prose left no trace at all -- 17 of
@@ -300,5 +364,7 @@ echo "OK check-residual-claims-census.py discriminates on all $checked scenarios
      "a continuation paragraph and a blank line keep the list open, an" \
      "unindented paragraph closes it, a sibling bullet / heading / table row" \
      "ends the item, the closure marker is read per bullet, each row cites the" \
-     "document that was parsed, and a document with no lead-in is a failure" \
+     "document that was parsed, an expiry marker with a stated trigger tallies" \
+     "EXPIRY and removing it raises OPEN back, a blank expiry trigger fails" \
+     "the gate outright, and a document with no lead-in is a failure" \
      "rather than an empty census"
