@@ -30,7 +30,7 @@ wrong in two directions the census's single rule cannot distinguish:
       about closing *this* claim, not some unrelated sentence.
 
 Everything left over is (a): an open measurement someone could still go
-make. That count -- not 198 -- is A3's real size.
+make. That count -- not the raw OPEN total above -- is A3's real size.
 
 Classification rule (mechanical, applied per bullet in the census's own
 OPEN set):
@@ -312,10 +312,11 @@ def render(entries, doc_label, closure_re, expiry_re):
     )
     lines.append("")
     lines.append(
-        "**A3의 실제 크기는 198이 아니라 "
+        f"**A3의 실제 크기는 {open_total}이 아니라 "
         f"{len(kinds['measurement'])}이다** — `scope` {len(kinds['scope'])}건은 "
-        "정의상 마커를 받을 수 없고, `closed-unmarked` {n}건은 이미 본문상 닫혔지만 "
-        "정식 마커가 없을 뿐이다.".format(n=len(kinds["closed-unmarked"]))
+        f"정의상 마커를 받을 수 없고, `closed-unmarked` "
+        f"{len(kinds['closed-unmarked'])}건은 이미 본문상 닫혔지만 "
+        "정식 마커가 없을 뿐이다."
     )
     lines.append("")
 

@@ -9,7 +9,7 @@
 
 OPEN 196건 = measurement 191 + scope 5 + closed-unmarked 0.
 
-**A3의 실제 크기는 198이 아니라 191이다** — `scope` 5건은 정의상 마커를 받을 수 없고, `closed-unmarked` 0건은 이미 본문상 닫혔지만 정식 마커가 없을 뿐이다.
+**A3의 실제 크기는 196이 아니라 191이다** — `scope` 5건은 정의상 마커를 받을 수 없고, `closed-unmarked` 0건은 이미 본문상 닫혔지만 정식 마커가 없을 뿐이다.
 
 ## scope — 정의상 영원히 안 닫히는 것
 
