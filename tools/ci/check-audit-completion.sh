@@ -19,7 +19,31 @@
 # output rather than reporting four rows checked -- an aggregate that counts
 # an unmeasured row as a passing one is how "26/26 verify scripts passed"
 # came to include two scripts that printed "this is not a pass".
+#
+# `--write` rewrites the A2 and A3 verdict cells from that measurement.
+# It exists because a hand-written cell whose truth is measured elsewhere
+# desynchronises in BOTH directions, and did: main's first-parent line held
+# 16 commits on which this gate was red, in three windows. Thirteen said
+# `UNMET` after the tree was already clean (verdict lagging measurement);
+# three said `MET` while a citation repair was still split across the next
+# commit (measurement lagging verdict). Regenerating is now the only way to
+# change those two cells, so neither lag is representable.
+#
+# Only the two measured cells are written. A1 and A4 stay hand-written --
+# this gate cannot measure them, and a generated verdict it cannot derive
+# would be the same defect wearing a producer's name. `측정한 §` and the
+# date stay hand-written for the same reason: which section recorded a
+# measurement is a judgment, not a measurement, so `--write` names the rows
+# it changed and leaves those columns to the commit that changes them.
 set -euo pipefail
+
+WRITE=0
+for arg in "$@"; do
+  case "$arg" in
+    --write) WRITE=1 ;;
+    *) echo "FAIL unknown argument: $arg (only --write is accepted)" >&2; exit 2 ;;
+  esac
+done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -33,12 +57,13 @@ if [[ ! -s "$DOC" ]]; then
   exit 2
 fi
 
-python3 - "$REPO_ROOT" <<'PY'
+python3 - "$REPO_ROOT" "$WRITE" <<'PY'
 import re
 import sys
 from pathlib import Path
 
 repo = Path(sys.argv[1])
+write = sys.argv[2] == "1"
 doc = repo / "PORTING-PLAN.md"
 lines = doc.read_text(encoding="utf-8").split("\n")
 
@@ -156,6 +181,40 @@ else:
 
 measured = {"A2": "MET" if not a2_hits else "UNMET",
             "A3": "MET" if a3_open == 0 else "UNMET"}
+
+if write:
+    # Refuse to write over a table this run could not parse: a shape failure
+    # means the cell this would rewrite is not the cell it measured.
+    if failures:
+        for f in failures:
+            print(f"FAIL {f}", file=sys.stderr)
+        print("FAIL --write refuses to run: the table did not parse cleanly "
+              "above, so the cell to rewrite is not the cell that was read.",
+              file=sys.stderr)
+        raise SystemExit(1)
+    changed = []
+    for rid, want in measured.items():
+        if rid not in rows:
+            continue
+        line_no, _, _, verdict, section, _ = rows[rid]
+        if verdict == want:
+            continue
+        # The verdict is the 4th cell; splitting on `|` keeps every other
+        # cell byte-identical, so this never reflows the row.
+        parts = lines[line_no - 1].split("|")
+        parts[3] = f" {want} "
+        lines[line_no - 1] = "|".join(parts)
+        changed.append((rid, verdict, want, section))
+    if changed:
+        doc.write_text("\n".join(lines), encoding="utf-8")
+    for rid, was, now, section in changed:
+        print(f"wrote {rid}: {was} -> {now}. `측정한 §` still says {section} "
+              f"-- update it in the same commit if a different section "
+              f"measured this.")
+    if not changed:
+        print("no change: both measured verdicts already match the table.")
+    raise SystemExit(0)
+
 for rid, want in measured.items():
     if rid not in rows:
         continue

@@ -124,7 +124,7 @@ against this instrument's output:
   method, not `Option::is_none` — or already-destructured `matches!` used
   as a plain boolean expression outside any `assert!`, e.g.
   `!matches!(shape, Shape::Mesh(_) | Shape::OcTree(_))` at
-  `main.rs:1718`).
+  `main.rs:1751`).
 
 ## 3. Spot-reads
 
@@ -463,11 +463,11 @@ new one in a ledger reopens the same gap one level down.
 **Correction of record:** `doc/assertion-discrimination-ledger-pilz.md`
 cited "census §9's D6 exemption" for this site. The census has no D6 in any
 section, so the pointer resolves to nothing. D6 itself is real and defined
-— `PORTING-PLAN.md:11027` §129.3, "호환은 `TryFrom` 양방향 변환으로만" —
+— `PORTING-PLAN.md:11148` §129.3, "호환은 `TryFrom` 양방향 변환으로만" —
 and it is cited throughout `ros/moveit-ros/src/`. It is a rule about not
 absorbing failure into a silent default: `moveit_msgs` is wider than the
 core types, so conversion is `TryFrom` and rejects rather than defaults.
-`PORTING-PLAN.md:15522` §199.2 draws its operative boundary — an
+`PORTING-PLAN.md:15643` §199.2 draws its operative boundary — an
 unresolvable lookup stays `Err` (D6), a wire default upstream itself gives
 meaning to follows upstream (D14). Neither reading licenses collapsing two
 error sites that share a variant, and neither mentions pilz. So the row was

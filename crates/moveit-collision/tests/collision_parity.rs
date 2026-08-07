@@ -1496,6 +1496,148 @@ fn pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direc
     }
 }
 
+/// Round 9's original find (§53.3) and §60.2's own listing: the seed-20260804
+/// `right_arm --collision` 300-case sweep's case 122, one of the nine world-
+/// object robot-distance cases whose deviation exceeds Phase 3's `1e-4` and
+/// whose two sides pick *different* argmin pairs -- not one of
+/// [`pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direction`]'s
+/// two same-pair cases. Oracle: `l_gripper_r_finger_link`/`floor` at
+/// `-1.17505058621331926e-2`. This port: `l_gripper_r_finger_tip_link`/
+/// `floor` at `-3.30976249554740254e-2`, about 2.8x deeper.
+///
+/// PORTING-PLAN.md §56.4's third residual bullet read this as a case the
+/// plateau/min-of-two-candidates explanation (§56.3) does not cover, "the
+/// direction is reversed" -- and it is not covered by that specific formula,
+/// which is derived for an unrelated pair's geometry. But
+/// `deepest_vertex_under_floor` -- the same independent, both-backends-blind
+/// mesh-vertex measurement the same-pair test above uses -- answers the
+/// actual question: are *both* reported numbers real vertices, just of
+/// different links?
+///
+/// MEASURED: `l_gripper_r_finger_tip_link`'s own deepest vertex under the
+/// floor is `3.30976249554739491e-2`, matching this port's reported
+/// magnitude to `TOLERANCE`. `l_gripper_r_finger_link`'s own deepest vertex
+/// is `1.17505058621332897e-2`, matching the *oracle's* reported magnitude
+/// to `TOLERANCE` -- not this port's. Both sides are reporting a real vertex
+/// depth; they simply picked different links as the global argmin. Since
+/// penetration severity is the deepest overlap, not the shallowest, the pair
+/// that actually reaches deeper is the correct argmin, and this port found
+/// it while the oracle did not. That is §302.4's already-documented mechanism
+/// (`fcl-distance-threshold-suppresses-deeper-pairs`, upstream stopping its
+/// per-pair search once a shallower penetrating pair is found) landing on a
+/// world-object case, not a new one -- so the reversed direction this bullet
+/// flagged is this port being *more* correct, not less.
+#[test]
+fn pr2_world_object_pair_flip_case_122_both_sides_are_real_vertices() {
+    let model = build_model("pr2.urdf", "pr2.srdf");
+    let acm = build_acm("pr2.srdf");
+    let env = floor_env();
+
+    // Case 122's own joint values -- as `tools/moveit-diff --pair-probe-json`
+    // recorded them for that state (seed 20260804, `--group right_arm`,
+    // `--cases 300`) -- reproduced live and confirmed identical to §53.3's
+    // original oracle/port values to 10+ significant digits before this test
+    // was written.
+    let joints: &[(&str, f64)] = &[
+        ("bl_caster_l_wheel_joint", 1.8110843327376944),
+        ("bl_caster_r_wheel_joint", -1.3565553651303288),
+        ("bl_caster_rotation_joint", -2.0946291775757473),
+        ("br_caster_l_wheel_joint", -2.8638606040208527),
+        ("br_caster_r_wheel_joint", -1.240851715711764),
+        ("br_caster_rotation_joint", 0.7775410132584644),
+        ("fl_caster_l_wheel_joint", -2.5131292699901304),
+        ("fl_caster_r_wheel_joint", 2.428917916580673),
+        ("fl_caster_rotation_joint", -1.157821668651315),
+        ("fr_caster_l_wheel_joint", -1.8029447004321946),
+        ("fr_caster_r_wheel_joint", 1.6507924616978693),
+        ("fr_caster_rotation_joint", 0.34544718322748835),
+        ("head_pan_joint", -0.16913603377528474),
+        ("head_tilt_joint", 0.5262407144957595),
+        ("l_elbow_flex_joint", -0.15970503807084158),
+        ("l_forearm_roll_joint", 3.0863743147586256),
+        ("l_gripper_joint", 0.071583628911525),
+        ("l_gripper_l_finger_joint", 0.45979399859160186),
+        ("l_gripper_l_finger_tip_joint", 0.45979399859160186),
+        ("l_gripper_motor_screw_joint", 0.16252357158768227),
+        ("l_gripper_motor_slider_joint", 0.05244462559930982),
+        ("l_gripper_r_finger_joint", 0.45979399859160186),
+        ("l_gripper_r_finger_tip_joint", 0.45979399859160186),
+        ("l_shoulder_lift_joint", 1.1735535482576585),
+        ("l_shoulder_pan_joint", 0.49178570006825517),
+        ("l_upper_arm_roll_joint", -0.6450686627067626),
+        ("l_wrist_flex_joint", -0.15731475260108718),
+        ("l_wrist_roll_joint", -1.0238852147804027),
+        ("laser_tilt_mount_joint", 1.38974086358116),
+        ("r_elbow_flex_joint", -1.7188994917039528),
+        ("r_forearm_roll_joint", 0.5885763984437711),
+        ("r_gripper_joint", 0.06041045605018735),
+        ("r_gripper_l_finger_joint", 0.02140877056401223),
+        ("r_gripper_l_finger_tip_joint", 0.02140877056401223),
+        ("r_gripper_motor_screw_joint", 3.1167337328588207),
+        ("r_gripper_motor_slider_joint", -0.0832570452708751),
+        ("r_gripper_r_finger_joint", 0.02140877056401223),
+        ("r_gripper_r_finger_tip_joint", 0.02140877056401223),
+        ("r_shoulder_lift_joint", 0.18841398464860393),
+        ("r_shoulder_pan_joint", 0.43360092085106183),
+        ("r_upper_arm_roll_joint", -2.3519548690877854),
+        ("r_wrist_flex_joint", -1.5207342812791467),
+        ("r_wrist_roll_joint", -0.148801931043419),
+        ("torso_lift_joint", 0.01276570774964057),
+        ("torso_lift_motor_screw_joint", -3.0057428418484173),
+        ("world_joint/theta", -2.5874911909597635),
+        ("world_joint/x", 0.0),
+        ("world_joint/y", 0.0),
+    ];
+    let joint_values: BTreeMap<String, f64> = joints
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), *value))
+        .collect();
+    let mut state = build_state(&model, &joint_values);
+    let posed = state.update();
+    let request = DistanceRequest {
+        enable_signed_distance: true,
+        acm: Some(&acm),
+        ..DistanceRequest::default()
+    };
+    let distance = env.distance_robot(&request, &posed, &[]);
+    assert_eq!(
+        distance.minimum_distance.link_names,
+        ["l_gripper_r_finger_tip_link".to_owned(), "floor".to_owned()],
+        "case 122: this port's argmin pair changed -- no longer the pair-flip case this test \\
+         exists to characterize"
+    );
+
+    let tip_vertex = deepest_vertex_under_floor(&model, &posed, "l_gripper_r_finger_tip_link");
+    assert!(
+        (tip_vertex - (-distance.minimum_distance.distance)).abs() < TOLERANCE,
+        "l_gripper_r_finger_tip_link: independent straight-up vertex bound {tip_vertex} != \\
+         this backend's own {}",
+        -distance.minimum_distance.distance
+    );
+
+    // The oracle's own pick, checked against the *same* independent
+    // instrument: its reported value should match a real vertex of the link
+    // *it* named, not this port's.
+    const ORACLE_LINK: &str = "l_gripper_r_finger_link";
+    const ORACLE_DISTANCE: f64 = -1.175_050_586_213_319_3e-2;
+    let oracle_link_vertex = deepest_vertex_under_floor(&model, &posed, ORACLE_LINK);
+    assert!(
+        (oracle_link_vertex - (-ORACLE_DISTANCE)).abs() < TOLERANCE,
+        "{ORACLE_LINK}: independent straight-up vertex bound {oracle_link_vertex} != the \\
+         oracle's own published {}",
+        -ORACLE_DISTANCE
+    );
+
+    // The falsifiable claim: this port's pick is the deeper -- hence
+    // correct -- global argmin, not an unexplained magnitude blow-up.
+    assert!(
+        tip_vertex > oracle_link_vertex,
+        "l_gripper_r_finger_tip_link's own vertex depth {tip_vertex} is not deeper than \\
+         l_gripper_r_finger_link's {oracle_link_vertex} -- the oracle's pick would then be the \\
+         correct global argmin and this port's deeper answer would be unexplained"
+    );
+}
+
 /// One `self_distance`/`self_distance_pair` case from
 /// `pr2_self_wheel_same_pair_oracle_implausible_{request,response}.json` --
 /// three states (seed 20260804, `right_arm --collision`, case indices 216,
@@ -2449,6 +2591,152 @@ fn prbt_flange_floor_clearance_matches_the_closed_form() {
     assert!(saw_case_8148, "sanity: step 20 is case 8148 itself");
 }
 
+/// PORTING-PLAN.md §281.6's third residual bullet said the closed form
+/// above "only holds on the separated side". It does not: raising the floor
+/// above case 8148's own flange pose turns the SAME formula negative -- a
+/// penetration-depth prediction rather than a clearance -- and this backend's
+/// `distance_robot` matches it there too, to a tighter tolerance than the
+/// separated branch above.
+///
+/// `FLOOR_TOP_Z` is raised from -0.5 to -0.16 -- 0.34m above
+/// [`prbt_flange_floor_clearance_matches_the_closed_form`]'s floor, chosen so
+/// case 8148's own pose (`scale == 1.0`) penetrates by about 3cm, well inside
+/// the box's 0.05m half-thickness margin the footprint/depth assertions below
+/// require (so the top face, not the bottom one, stays the nearest feature --
+/// the same "closed form is only the answer while ..." caveat the separated
+/// test states, extended to a symmetric depth bound). The scan is the same
+/// case-8148-relative scale sweep as that test, restricted to the eight steps
+/// (15..=22, scale 0.85 to 1.06) whose closed-form value is actually negative
+/// at this floor height; the other 32 steps are that test's territory, not
+/// this one's.
+///
+/// MEASURED over those eight poses before the tolerance was chosen: worst
+/// deviation `1.583803e-15` (step 15, scale 0.85), the deepest state (step 19,
+/// scale 0.97, depth `3.361721e-2`) at `1.804112e-16`. `CLOSED_FORM_TOL` is
+/// pinned at `1e-14`, a 6.3x margin -- tighter than the separated branch's
+/// `1e-7` because there is no GJK iteration to converge here, just the same
+/// closed-form arithmetic evaluated at a shifted plane.
+#[test]
+fn prbt_flange_floor_clearance_matches_the_closed_form_when_penetrating() {
+    /// Pinned from the measurement in this test's doc comment
+    /// (`1.583803e-15` worst over the eight penetrating poses), with a 6.3x
+    /// margin.
+    const CLOSED_FORM_TOL: f64 = 1e-14;
+    /// `fixtures/prbt.urdf`'s `prbt_flange` <collision>, and the scene.
+    const CYL_RADIUS: f64 = 0.0331;
+    const CYL_HALF_LENGTH: f64 = 0.01;
+    const CYL_ORIGIN_Z: f64 = -0.0035;
+    /// Raised from -0.5 (the separated test's floor) so case 8148's own pose
+    /// penetrates by roughly 3cm -- see this test's doc comment.
+    const FLOOR_TOP_Z: f64 = -0.16;
+    const FLOOR_HALF_EXTENT: f64 = 2.0;
+    /// `floor_env_with_top`'s own box thickness; the closed form is only the
+    /// distance to the *top face* while the penetration depth stays under
+    /// half of this, so the bottom face cannot be nearer.
+    const FLOOR_HALF_THICKNESS: f64 = 0.05;
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let env = floor_env_with_top(FLOOR_TOP_Z);
+
+    let mut names: Vec<String> = model
+        .link_models()
+        .iter()
+        .map(|link| link.name().to_owned())
+        .collect();
+    names.push("floor".to_owned());
+    let mut acm = AllowedCollisionMatrix::from_names(&names, true);
+    acm.set_entry("floor", "prbt_flange", false);
+
+    // Case 8148's own joint values -- same array
+    // [`prbt_flange_floor_clearance_matches_the_closed_form`] scales.
+    let case_8148 = [
+        -0.681765976663856,
+        -1.9643143747676026,
+        1.9502553948473182,
+        -0.2497111438317039,
+        -0.47123744163653836,
+        -1.186060955153117,
+    ];
+
+    let mut poses = 0;
+    let mut saw_case_8148 = false;
+    for step in 15..=22 {
+        // Same scale formula as the separated test, so step numbers line up
+        // with its own (step == 20 is still case 8148 itself, scale 1.0).
+        let scale = 0.4 + f64::from(step) * 0.03;
+        let joint_values: BTreeMap<String, f64> = case_8148
+            .iter()
+            .enumerate()
+            .map(|(i, value)| (format!("prbt_joint_{}", i + 1), value * scale))
+            .collect();
+        let mut state = build_state(&model, &joint_values);
+        let posed = state.update();
+
+        let flange = posed
+            .global_link_transform("prbt_flange")
+            .expect("prbt has a prbt_flange link");
+        let centre = (flange * Isometry3::translation(0.0, 0.0, CYL_ORIGIN_Z))
+            .translation
+            .vector;
+        let axis = flange.rotation * moveit_geometry::Vector3::new(0.0, 0.0, 1.0);
+
+        let reach = CYL_HALF_LENGTH * axis[0].hypot(axis[1]) + CYL_RADIUS;
+        let expected = centre[2]
+            - FLOOR_TOP_Z
+            - CYL_HALF_LENGTH * axis[2].abs()
+            - CYL_RADIUS * (1.0 - axis[2] * axis[2]).max(0.0).sqrt();
+        assert!(
+            centre[0].abs() + reach < FLOOR_HALF_EXTENT
+                && centre[1].abs() + reach < FLOOR_HALF_EXTENT
+                && expected < 0.0
+                && expected > -FLOOR_HALF_THICKNESS,
+            "step {step}: the flange cylinder at {centre:?} (axis {axis:?}) is not strictly \
+             inside the floor's footprint and penetrating the top face by less than half its \
+             thickness, so the plane closed form below is not the distance to the box"
+        );
+
+        let request = DistanceRequest {
+            enable_signed_distance: true,
+            acm: Some(&acm),
+            ..DistanceRequest::default()
+        };
+        let result = env.distance_robot(&request, &posed, &[]);
+        let names = &result.minimum_distance.link_names;
+        assert!(
+            names.contains(&"floor".to_owned()) && names.contains(&"prbt_flange".to_owned()),
+            "step {step}: the nearest robot/world pair is {names:?}, not floor/prbt_flange -- \
+             the closed form below was derived for that pair and would be measuring something \
+             else"
+        );
+        assert!(
+            result.minimum_distance.distance < 0.0,
+            "step {step}: expected a penetrating (negative) signed distance, got {} -- this pose \
+             is no longer in the penetration branch this test exists to check",
+            result.minimum_distance.distance
+        );
+
+        let deviation = (result.minimum_distance.distance - expected).abs();
+        assert!(
+            deviation <= CLOSED_FORM_TOL,
+            "step {step}: flange penetration is {} but the geometry fixes it at {expected} \
+             (deviation {deviation:.6e} over the pinned {CLOSED_FORM_TOL:.0e}); this is a \
+             closed-form answer, so a miss here is this backend's",
+            result.minimum_distance.distance
+        );
+
+        if step == 20 {
+            saw_case_8148 = true;
+        }
+        poses += 1;
+    }
+
+    assert_eq!(poses, 8, "sanity: every penetrating pose above ran");
+    assert!(
+        saw_case_8148,
+        "sanity: step 20 is case 8148 itself, scaled to 1.0"
+    );
+}
+
 /// One convex collision shape, already placed in world coordinates, reduced
 /// to the two closed-form primitives [`convex_distance_bracket`] needs.
 ///
@@ -2872,6 +3160,14 @@ const FULL_BUDGET: usize = 200_000;
 /// enough on prbt's population to pick the winning pair in every case.
 const SCOUT_BUDGET: usize = 512;
 
+/// Default absolute bracket width [`minkowski_depth_bracket`] stops at. Five
+/// orders below the `1e-4` the §5 Phase 3 clause is written at, so a bracket
+/// that reaches it can arbitrate any disagreement that clause would call a
+/// failure. A caller measuring what a tighter bracket would resolve (see
+/// §302.9) passes a narrower value directly rather than through this
+/// constant.
+const TOL: f64 = 1e-9;
+
 /// The smallest signed distance over `pairs`, as a certified bracket, with the
 /// pair that realises it.
 ///
@@ -2889,7 +3185,7 @@ const SCOUT_BUDGET: usize = 512;
 /// of the lower bounds and at most the `min` of the upper bounds, so the
 /// interval is still a proof after aggregation, even though it can be wider
 /// than any single pair's.
-fn min_signed_distance_over(pairs: &[(WorldConvex, WorldConvex)]) -> (f64, f64, usize) {
+fn min_signed_distance_over(pairs: &[(WorldConvex, WorldConvex)], tol: f64) -> (f64, f64, usize) {
     // Deepest-looking first, by the free floor, so the scout certifies a large
     // depth early and the rest drop against it.
     let mut order: Vec<usize> = (0..pairs.len()).collect();
@@ -2906,7 +3202,13 @@ fn min_signed_distance_over(pairs: &[(WorldConvex, WorldConvex)]) -> (f64, f64, 
         if -signed_distance_floor(&pairs[i].0, &pairs[i].1) < certified_depth {
             continue;
         }
-        let d = minkowski_depth_bracket(&pairs[i].0, &pairs[i].1, f64::NEG_INFINITY, SCOUT_BUDGET);
+        let d = minkowski_depth_bracket(
+            &pairs[i].0,
+            &pairs[i].1,
+            f64::NEG_INFINITY,
+            SCOUT_BUDGET,
+            TOL,
+        );
         certified_depth = certified_depth.max(d.lower);
         scouted.push((i, d.upper));
     }
@@ -2920,7 +3222,7 @@ fn min_signed_distance_over(pairs: &[(WorldConvex, WorldConvex)]) -> (f64, f64, 
         if upper < certified_depth {
             continue;
         }
-        let d = minkowski_depth_bracket(&pairs[i].0, &pairs[i].1, -hi, FULL_BUDGET);
+        let d = minkowski_depth_bracket(&pairs[i].0, &pairs[i].1, -hi, FULL_BUDGET, tol);
         let (slo, shi) = d.signed();
         if shi < hi {
             hi = shi;
@@ -2960,12 +3262,8 @@ fn minkowski_depth_bracket(
     b: &WorldConvex,
     cutoff: f64,
     max_evals: usize,
+    tol: f64,
 ) -> DepthBracket {
-    /// Absolute bracket width to stop at. Five orders below the `1e-4` the
-    /// §5 Phase 3 clause is written at, so a bracket that reaches it can
-    /// arbitrate any disagreement that clause would call a failure.
-    const TOL: f64 = 1e-9;
-
     type V3 = moveit_geometry::Vector3;
 
     // `h_D` and its witness, the only two places the geometry enters.
@@ -3130,7 +3428,7 @@ fn minkowski_depth_bracket(
             break;
         }
         let Some(front) = heap.peek() else { break };
-        if best_upper - front.lower <= TOL {
+        if best_upper - front.lower <= tol {
             break;
         }
         // Best-first: split only the patch that currently certifies the least,
@@ -3297,7 +3595,7 @@ fn minkowski_depth_bracket_matches_the_closed_forms_it_has() {
     const CLOSED_FORM_SLACK: f64 = 16.0 * f64::EPSILON;
 
     let check = |name: &str, a: &WorldConvex, b: &WorldConvex, want: f64| {
-        let bracket = minkowski_depth_bracket(a, b, f64::NEG_INFINITY, FULL_BUDGET);
+        let bracket = minkowski_depth_bracket(a, b, f64::NEG_INFINITY, FULL_BUDGET, TOL);
         let slack = CLOSED_FORM_SLACK * want.abs();
         let overshoot = (bracket.lower - want).max(want - bracket.upper).max(0.0);
         println!(
@@ -3354,7 +3652,7 @@ fn minkowski_depth_bracket_matches_the_closed_forms_it_has() {
     // `n = (c2 - c1)/|c2 - c1|` -- pointing from the first body toward the
     // second, which is the direction the first has to be pushed back along.
     let want_axis = (c2 - c1).normalize();
-    let got_axis = minkowski_depth_bracket(&sa, &sb, f64::NEG_INFINITY, FULL_BUDGET).axis;
+    let got_axis = minkowski_depth_bracket(&sa, &sb, f64::NEG_INFINITY, FULL_BUDGET, TOL).axis;
     assert!(
         (got_axis - want_axis).norm() <= 1e-4,
         "sphere x sphere: minimum-translation axis {got_axis:?}, closed form {want_axis:?} -- \
@@ -3414,7 +3712,7 @@ fn minkowski_depth_bracket_matches_the_closed_forms_it_has() {
     };
     let near = aligned(v(0.0, 0.0, 0.0), half_a);
     let separated = convex_distance_bracket(&near, &far);
-    let depth = minkowski_depth_bracket(&near, &far, f64::NEG_INFINITY, FULL_BUDGET);
+    let depth = minkowski_depth_bracket(&near, &far, f64::NEG_INFINITY, FULL_BUDGET, TOL);
     let (signed_low, signed_high) = depth.signed();
     assert!(
         signed_low <= separated.upper && separated.lower <= signed_high,
@@ -4919,7 +5217,7 @@ fn prbt_penetration_branch_is_bracketed_by_the_minkowski_instrument() {
             }
         }
 
-        let (lo, hi, win) = min_signed_distance_over(&bodies);
+        let (lo, hi, win) = min_signed_distance_over(&bodies, TOL);
         assert_eq!(
             owner[win], row.pair,
             "case {case}: the minimum signed distance is realised by {}, not the recorded {} -- \
@@ -5015,5 +5313,400 @@ fn prbt_penetration_branch_is_bracketed_by_the_minkowski_instrument() {
          blank-specialisation anchor, all four of its members in this population are too \
          narrow a deviation to judge, and if one of them ever became judgeable the cell has \
          started contributing"
+    );
+}
+
+/// One row of `prbt_self_penetration_389.json` -- see
+/// [`load_prbt_self_penetration_389`] for how the fixture was produced.
+#[derive(Deserialize)]
+struct SelfPenetrationRow {
+    case: u32,
+    oracle: f64,
+    rust: f64,
+    joint_values: BTreeMap<String, f64>,
+}
+
+/// PORTING-PLAN.md §302.6's fifth residual bullet: §302.3/§302.4's
+/// 277/0/19/93-of-389 totals came from a one-off probe that section's own
+/// text says was not committed, and
+/// [`prbt_penetration_branch_is_bracketed_by_the_minkowski_instrument`]
+/// above keeps only a 31-row reduced table -- the number 389 itself was not
+/// re-derivable by any gate.
+///
+/// This fixture is every self-side case, from the same sweep §270's own
+/// table row reproduces (`--urdf fixtures/prbt.urdf --srdf
+/// fixtures/prbt.srdf --cases 10000 --seed 1 --collision --tol-distance
+/// 1e-4 --oracle tools/moveit-oracle/run-oracle.sh`), whose *oracle* value
+/// drew the penetration branch -- written by `tools/moveit-diff`'s new
+/// `--self-penetration-json` flag, added this round because no existing
+/// flag kept more than `DistanceBranchStats`'s worst-eight tail. MEASURED
+/// against a fresh `--stats-json` run on this tree right before this
+/// fixture was captured: `bool_disagrees` 6854, `self_bool_disagrees` 0,
+/// `robot_bool_disagrees` 6854, `penetrating.total` 10389 -- all four match
+/// §270's table row for prbt cell-for-cell, so this is the same run. 389
+/// rows, matching §297.4's count exactly.
+fn load_prbt_self_penetration_389() -> Vec<SelfPenetrationRow> {
+    let path = fixture_path("prbt_self_penetration_389.json");
+    let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+    serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
+}
+
+/// Re-derives
+/// [`prbt_penetration_branch_is_bracketed_by_the_minkowski_instrument`]'s
+/// verdict rule over the *whole* 389-case population in
+/// [`load_prbt_self_penetration_389`], not the 31 rows that test hand-picks,
+/// and asserts the published totals: fcl's 277, the port's 0, undominated
+/// 19, too-wide-to-judge 93. The classification is re-derived from
+/// (oracle_off, port_off, width, deviation) alone, the same closed rule that
+/// test applies per recorded verdict, rather than read off a per-row label
+/// this fixture does not carry.
+#[test]
+fn prbt_penetration_branch_full_389_population_matches_the_published_totals() {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+    enum Side {
+        Oracle,
+        Port,
+        Undominated,
+        TooWide,
+    }
+    use Side::{Oracle, Port, TooWide, Undominated};
+
+    /// §297.3's constant, unchanged -- see the reduced table's own doc.
+    const DOMINANCE: f64 = 100.0;
+    /// §302.3's constant, unchanged.
+    const WIDTH_FRACTION: f64 = 0.1;
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let acm = build_acm("prbt.srdf");
+
+    let with_shapes: Vec<&str> = model
+        .link_names()
+        .iter()
+        .filter(|n| model.link_model(n).is_ok_and(|l| !l.shapes().is_empty()))
+        .map(String::as_str)
+        .collect();
+    let mut checked: Vec<(&str, &str)> = Vec::new();
+    for (i, a) in with_shapes.iter().enumerate() {
+        for b in &with_shapes[i + 1..] {
+            let allowed = acm
+                .allowed_collision(a, b)
+                .is_some_and(|e| e.kind() == moveit_collision::AllowedCollisionType::Always);
+            if !allowed {
+                checked.push((a, b));
+            }
+        }
+    }
+    assert_eq!(
+        checked.len(),
+        7,
+        "prbt's SRDF-derived candidate self-pair set moved from the 7 pairs the reduced \
+         table's own assertion pins -- this population is a minimum over a different set now"
+    );
+
+    let rows = load_prbt_self_penetration_389();
+    assert_eq!(
+        rows.len(),
+        389,
+        "the fixture's own row count moved from §297.4's 389"
+    );
+
+    let mut sides: BTreeMap<Side, usize> = BTreeMap::new();
+    for row in &rows {
+        let mut state = build_state(&model, &row.joint_values);
+        let posed = state.update();
+
+        let mut bodies: Vec<(WorldConvex, WorldConvex)> = Vec::new();
+        for (a, b) in &checked {
+            let shapes = |link: &str| -> Vec<WorldConvex> {
+                let pose = posed
+                    .global_link_transform(link)
+                    .unwrap_or_else(|e| panic!("case {}: prbt has a {link} link: {e}", row.case));
+                model
+                    .link_model(link)
+                    .unwrap_or_else(|e| panic!("case {}: prbt has a {link} model: {e}", row.case))
+                    .shapes()
+                    .iter()
+                    .map(|s| WorldConvex::from_link_shape(&pose, s))
+                    .collect()
+            };
+            let (sa, sb) = (shapes(a), shapes(b));
+            for x in &sa {
+                for y in &sb {
+                    bodies.push((x.clone(), y.clone()));
+                }
+            }
+        }
+
+        let (lo, hi, _win) = min_signed_distance_over(&bodies, TOL);
+        let (low, high) = (lo.min(hi), lo.max(hi));
+        let offset = |v: f64| {
+            if v < low {
+                low - v
+            } else if v > high {
+                v - high
+            } else {
+                0.0
+            }
+        };
+        let (port_off, oracle_off) = (offset(row.rust), offset(row.oracle));
+        let deviation = (row.oracle - row.rust).abs();
+        let width = high - low;
+
+        let side = if width > WIDTH_FRACTION * deviation {
+            TooWide
+        } else {
+            let slack = width.max(f64::MIN_POSITIVE);
+            let oracle_dominates = oracle_off > DOMINANCE * port_off.max(slack);
+            let port_dominates = port_off > DOMINANCE * oracle_off.max(slack);
+            match (oracle_dominates, port_dominates) {
+                (true, false) => Oracle,
+                (false, true) => Port,
+                _ => Undominated,
+            }
+        };
+        *sides.entry(side).or_default() += 1;
+    }
+
+    assert_eq!(
+        (
+            sides.get(&Oracle).copied().unwrap_or(0),
+            sides.get(&Port).copied().unwrap_or(0),
+            sides.get(&Undominated).copied().unwrap_or(0),
+            sides.get(&TooWide).copied().unwrap_or(0),
+        ),
+        (277, 0, 19, 93),
+        "the full 389-case verdict moved from §302.3's published (fcl, port, undominated, \
+         too-wide) = (277, 0, 19, 93): got {:?}",
+        sides
+    );
+}
+
+/// PORTING-PLAN.md §302.6's third residual bullet: the 19 undominated cases
+/// "could be" both solvers erring by the same amount at the same spot, and
+/// that was never opened. It measures each undominated row's
+/// `(oracle_off, port_off)` rather than reading the aggregate `Undominated`
+/// label back, so it stands even if the published 19 ever moves.
+#[test]
+fn prbt_penetration_branch_undominated_19_are_all_a_near_margin_oracle_lean() {
+    const DOMINANCE: f64 = 100.0;
+    const WIDTH_FRACTION: f64 = 0.1;
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let acm = build_acm("prbt.srdf");
+    let with_shapes: Vec<&str> = model
+        .link_names()
+        .iter()
+        .filter(|n| model.link_model(n).is_ok_and(|l| !l.shapes().is_empty()))
+        .map(String::as_str)
+        .collect();
+    let mut checked: Vec<(&str, &str)> = Vec::new();
+    for (i, a) in with_shapes.iter().enumerate() {
+        for b in &with_shapes[i + 1..] {
+            let allowed = acm
+                .allowed_collision(a, b)
+                .is_some_and(|e| e.kind() == moveit_collision::AllowedCollisionType::Always);
+            if !allowed {
+                checked.push((a, b));
+            }
+        }
+    }
+
+    // (case, oracle_off, port_off, oracle_off / width) per undominated row.
+    let mut undominated: Vec<(u32, f64, f64, f64)> = Vec::new();
+    let rows = load_prbt_self_penetration_389();
+    for row in &rows {
+        let mut state = build_state(&model, &row.joint_values);
+        let posed = state.update();
+        let mut bodies: Vec<(WorldConvex, WorldConvex)> = Vec::new();
+        for (a, b) in &checked {
+            let shapes = |link: &str| -> Vec<WorldConvex> {
+                let pose = posed
+                    .global_link_transform(link)
+                    .unwrap_or_else(|e| panic!("case {}: prbt has a {link} link: {e}", row.case));
+                model
+                    .link_model(link)
+                    .unwrap_or_else(|e| panic!("case {}: prbt has a {link} model: {e}", row.case))
+                    .shapes()
+                    .iter()
+                    .map(|s| WorldConvex::from_link_shape(&pose, s))
+                    .collect()
+            };
+            let (sa, sb) = (shapes(a), shapes(b));
+            for x in &sa {
+                for y in &sb {
+                    bodies.push((x.clone(), y.clone()));
+                }
+            }
+        }
+        let (lo, hi, _win) = min_signed_distance_over(&bodies, TOL);
+        let (low, high) = (lo.min(hi), lo.max(hi));
+        let offset = |v: f64| {
+            if v < low {
+                low - v
+            } else if v > high {
+                v - high
+            } else {
+                0.0
+            }
+        };
+        let (port_off, oracle_off) = (offset(row.rust), offset(row.oracle));
+        let deviation = (row.oracle - row.rust).abs();
+        let width = high - low;
+        if width > WIDTH_FRACTION * deviation {
+            continue;
+        }
+        let slack = width.max(f64::MIN_POSITIVE);
+        let oracle_dominates = oracle_off > DOMINANCE * port_off.max(slack);
+        let port_dominates = port_off > DOMINANCE * oracle_off.max(slack);
+        if !oracle_dominates && !port_dominates {
+            undominated.push((row.case, oracle_off, port_off, oracle_off / width));
+        }
+    }
+
+    assert_eq!(
+        undominated.len(),
+        19,
+        "the undominated count moved from §302.3's published 19: got {undominated:?}"
+    );
+
+    // MEASURED: in every one of the 19, port_off is exactly 0.0 -- the
+    // port's own value sits *inside* the geometric bracket, not offset from
+    // it at all -- while oracle_off is strictly positive and, scaled by the
+    // bracket width, sits strictly between 10x and 100x. This is the
+    // opposite of "both solvers err by the same amount": these are cases
+    // where only the oracle sits outside the bracket, by a margin under the
+    // 100x DOMINANCE bar rather than over it.
+    for &(case, oracle_off, port_off, ratio) in &undominated {
+        assert_eq!(
+            port_off, 0.0,
+            "case {case}: port_off is nonzero ({port_off:e}) -- the 19 are no longer all \
+             a within-bracket port value against an outside-bracket oracle value"
+        );
+        assert!(
+            oracle_off > 0.0,
+            "case {case}: oracle_off is zero -- this row should not have been undominated"
+        );
+        assert!(
+            (10.0..100.0).contains(&ratio),
+            "case {case}: oracle_off/width = {ratio:.3} left the measured (10x, 100x) band"
+        );
+    }
+}
+
+/// PORTING-PLAN.md §302.6's fourth residual bullet: how many of the 93
+/// too-wide-to-judge rows become judgeable if the bracket narrows from the
+/// published `TOL = 1e-9` to `1e-12` -- three orders tighter, not measured
+/// before. Re-runs the same verdict rule
+/// [`prbt_penetration_branch_full_389_population_matches_the_published_totals`]
+/// applies, over the whole 389-row population again rather than just the 93,
+/// since narrowing the bracket can also move a currently-judged row.
+#[test]
+fn prbt_penetration_branch_at_a_thousandfold_tighter_tolerance() {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+    enum Side {
+        Oracle,
+        Port,
+        Undominated,
+        TooWide,
+    }
+    use Side::{Oracle, Port, TooWide, Undominated};
+
+    const DOMINANCE: f64 = 100.0;
+    const WIDTH_FRACTION: f64 = 0.1;
+    /// Three orders below the published [`TOL`] -- the narrowing this
+    /// bullet asks about.
+    const TIGHT_TOL: f64 = 1e-12;
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let acm = build_acm("prbt.srdf");
+    let with_shapes: Vec<&str> = model
+        .link_names()
+        .iter()
+        .filter(|n| model.link_model(n).is_ok_and(|l| !l.shapes().is_empty()))
+        .map(String::as_str)
+        .collect();
+    let mut checked: Vec<(&str, &str)> = Vec::new();
+    for (i, a) in with_shapes.iter().enumerate() {
+        for b in &with_shapes[i + 1..] {
+            let allowed = acm
+                .allowed_collision(a, b)
+                .is_some_and(|e| e.kind() == moveit_collision::AllowedCollisionType::Always);
+            if !allowed {
+                checked.push((a, b));
+            }
+        }
+    }
+
+    let rows = load_prbt_self_penetration_389();
+    let mut sides: BTreeMap<Side, usize> = BTreeMap::new();
+    for row in &rows {
+        let mut state = build_state(&model, &row.joint_values);
+        let posed = state.update();
+        let mut bodies: Vec<(WorldConvex, WorldConvex)> = Vec::new();
+        for (a, b) in &checked {
+            let shapes = |link: &str| -> Vec<WorldConvex> {
+                let pose = posed
+                    .global_link_transform(link)
+                    .unwrap_or_else(|e| panic!("case {}: prbt has a {link} link: {e}", row.case));
+                model
+                    .link_model(link)
+                    .unwrap_or_else(|e| panic!("case {}: prbt has a {link} model: {e}", row.case))
+                    .shapes()
+                    .iter()
+                    .map(|s| WorldConvex::from_link_shape(&pose, s))
+                    .collect()
+            };
+            let (sa, sb) = (shapes(a), shapes(b));
+            for x in &sa {
+                for y in &sb {
+                    bodies.push((x.clone(), y.clone()));
+                }
+            }
+        }
+        let (lo, hi, _win) = min_signed_distance_over(&bodies, TIGHT_TOL);
+        let (low, high) = (lo.min(hi), lo.max(hi));
+        let offset = |v: f64| {
+            if v < low {
+                low - v
+            } else if v > high {
+                v - high
+            } else {
+                0.0
+            }
+        };
+        let (port_off, oracle_off) = (offset(row.rust), offset(row.oracle));
+        let deviation = (row.oracle - row.rust).abs();
+        let width = high - low;
+        let side = if width > WIDTH_FRACTION * deviation {
+            TooWide
+        } else {
+            let slack = width.max(f64::MIN_POSITIVE);
+            let oracle_dominates = oracle_off > DOMINANCE * port_off.max(slack);
+            let port_dominates = port_off > DOMINANCE * oracle_off.max(slack);
+            match (oracle_dominates, port_dominates) {
+                (true, false) => Oracle,
+                (false, true) => Port,
+                _ => Undominated,
+            }
+        };
+        *sides.entry(side).or_default() += 1;
+    }
+
+    // MEASURED: narrowing to TIGHT_TOL resolves 58 of the 93 -- but 57 of
+    // those 58 land Undominated, not a clean winner. Only 1 flips to a
+    // clear Oracle win. Tightening the bracket mostly reveals rows where
+    // oracle and port are close to *each other*, not rows with a hidden
+    // clear winner.
+    assert_eq!(
+        (
+            sides.get(&Oracle).copied().unwrap_or(0),
+            sides.get(&Port).copied().unwrap_or(0),
+            sides.get(&Undominated).copied().unwrap_or(0),
+            sides.get(&TooWide).copied().unwrap_or(0),
+        ),
+        (278, 0, 76, 35),
+        "the thousandfold-tighter verdict moved from the measured (fcl, port, undominated, \
+         too-wide) = (278, 0, 76, 35): got {:?}",
+        sides
     );
 }

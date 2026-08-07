@@ -2282,7 +2282,7 @@ epsilon 아래였다 — 솔버 결함이 아니라 측정 도구의 기준선�
 넘겼다. p3-acm의 `collision` op(§13.4)에서 이미 한 번 나온 것과 정확히
 같은 모양이다. `rg '&joint_values' tools/moveit-diff/src/`로 전수 확인해
 한 곳뿐임을 확인하고 고쳤다 — 고친 인자는 지금
-`main.rs:1147`의 `joint_values`이고, 나머지 열 곳은 이미 맨 이름으로
+`main.rs:1170`의 `joint_values`이고, 나머지 열 곳은 이미 맨 이름으로
 넘기고 있었다. 양쪽 브랜치가 각각 clippy를 통과하므로 병합 후
 전체 게이트에서만 잡히는 종류다.
 
@@ -3553,12 +3553,12 @@ MiB 복사 한 건이고, 그건 `p3-acm` 몫이며 이 병합 시점에 아직 
 `fixtures/`가 `third_party/`의 사본인 설계(§"픽스처 출처")가 실제로
 값을 하고 있다는 뜻이다. 커밋된 테스트 중 `third_party/`를 읽는 것은
 없다 — 유일한 경로 문자열은 `MESH_RESOURCES_ROOT`
-(`tools/moveit-diff/src/main.rs:653-656`)인데 컴파일타임 문자열일 뿐
+(`tools/moveit-diff/src/main.rs:671-674`)인데 컴파일타임 문자열일 뿐
 도구를 실제로 돌릴 때만 해석되고, moveit-diff는 CI에서 돌지 않는다.
 
 (이 문단의 "커밋된 테스트 중 `third_party/`를 읽는 것은 없다"는 지금
 거짓이다. `MESH_RESOURCES_ROOT`를 실제로 읽는 테스트 둘이
-`main.rs:4327`·`main.rs:4445`에 있고, 둘 다
+`main.rs:4371`·`main.rs:4445`에 있고, 둘 다
 `needs third_party/moveit_resources`로 `#[ignore]`되어 있다. 여전히 참인
 결론은 "CI가 그것을 돌리지 않는다"뿐이며, 이유는 경로가 컴파일타임
 문자열이라서가 아니라 그 `#[ignore]`가 무조건이라서다 — 리소스가 있는
@@ -5466,13 +5466,134 @@ EPA 잡음이 아니다. 워커가 든 "상수를 유지하지 못한다"는 근
 
 ### 56.4 남는 것
 
-- 두 곡선의 교차가 0.20과 0.22 사이라는 것까지만 쟀다. 교차점을 좁히면
-  `min(...)` 해석이 한 번 더 확인된다.
+- **두 곡선의 교차가 0.20과 0.22 사이라는 것까지만 쟀다. 교차점을 좁히면
+  `min(...)` 해석이 한 번 더 확인된다. 거짓 → 닫힘 (§63.1).** §63.1이
+  이 백엔드의 살아 있는 `distance_self` 호출을 30회 이분해 교차점을
+  직접 관측했고, 예측(물리에서 온 기울기 1.0 직선)과 `1e-4` 안에서
+  일치함을 캡처된 오라클 응답 기준 반증 가능한 시험
+  (`pr2_torso_lift_bellow_pair_crossover_confirms_min_of_two_candidates`)
+  으로 박았다. 이 라운드에서 그 시험을 현재 tree에서 다시 돌려 여전히
+  통과함을 확인했다.
 - parry의 TriMesh 접촉은 삼각형별 최대이고, 삼각형 단위 MTD는 메시 전체
   MTD보다 얕을 수 있다(얇은 삼각형 문제). 위 일치는 이 구간에서 그 과소평가가
   일어나지 않았음을 보이지만, 일반적으로 일어나지 않는다는 뜻은 아니다.
-- §53.3이 찾은 world object 쪽 불일치(`l_gripper_r_finger_link`/`floor`,
-  포트가 **더 깊게** 답함)는 이 설명으로 덮이지 않는다. 방향이 반대다.
+  거짓 → 닫힘 (§56.6).
+- **§53.3이 찾은 world object 쪽 불일치(`l_gripper_r_finger_link`/`floor`,
+  포트가 더 깊게 답함)는 이 설명으로 덮이지 않는다. 방향이 반대다.
+  거짓 → 닫힘 (§56.5).** §56.3의 min(candidate_x, candidate_z) 공식
+  자체는 이 쌍의 기하와 무관해 여전히 적용되지 않지만, §72.1과 같은
+  독립 계측기로 재 보면 "방향이 반대"는 설명 없는 이상치가 아니라 이
+  포트가 더 정확하다는 신호였다.
+
+### 56.5 §56.4 세 번째 잔차 — case 122도 §72.1과 같은 메커니즘이다, 양쪽 다 진짜 정점이다
+
+§53.3이 찾은 `l_gripper_r_finger_link`/`floor` world-object 불일치는 §56.3의
+min(candidate_x, candidate_z) 공식으로는 덮이지 않는다 — 그 공식은
+`torso_lift_link`/`base_bellow_link` 쌍의 기하에서 유도된 것이고, 이 케이스는
+완전히 다른 쌍(`l_gripper_r_finger_tip_link`/`floor` 대
+`l_gripper_r_finger_link`/`floor`)이다. 그런데 "덮이지 않는다"가 "설명이
+없다"는 아니다 — §72.1이 self-collision 같은 쌍 사례에 쓴 것과 같은
+계측기(`deepest_vertex_under_floor`, 양쪽 백엔드와 무관한 순수 정점 측정)를
+이 world-object flip 사례에도 그대로 댈 수 있다.
+
+seed 20260804, `--group right_arm --collision --cases 300`의 case 122를
+`--pair-probe-json`으로 살아 있는 오라클에 다시 물어 재현했다(§53.3의
+수치와 10자리 이상 일치, 결정론 확인). 이 포트:
+`l_gripper_r_finger_tip_link`/`floor` `-3.30976249554740254e-2`. 오라클:
+`l_gripper_r_finger_link`/`floor` `-1.17505058621331926e-2`.
+
+`deepest_vertex_under_floor`로 두 링크 각각의 자기 자신 정점 깊이를 쟀다:
+
+```
+l_gripper_r_finger_tip_link  deepest vertex under floor = 3.30976249554739491e-2
+l_gripper_r_finger_link      deepest vertex under floor = 1.17505058621332897e-2
+```
+
+이 포트의 답은 `l_gripper_r_finger_tip_link` 자신의 정점 깊이와 `4e-15`
+안에서 같다. 오라클의 답은 (이 포트가 아니라) `l_gripper_r_finger_link`
+자신의 정점 깊이와 같은 정밀도로 같다. 즉 **둘 다 실재하는 정점 깊이를
+정확히 보고하고 있다** — 서로 다른 링크를 골랐을 뿐이다.
+
+침투 심각도는 가장 얕은 겹침이 아니라 가장 깊은 겹침이다. 두 링크가 동시에
+바닥과 겹치는 상태에서 전역 argmin은 더 깊은 쪽
+(`l_gripper_r_finger_tip_link`, `3.31e-2`)이어야 하고, 이 포트가 그것을
+찾았다. 오라클은 `l_gripper_r_finger_link`(`1.18e-2`)에서 멈췄다 —
+§302.4가 이미 문서화한 `fcl-distance-threshold-suppresses-deeper-pairs`
+메커니즘(더 얕은 침투 쌍을 찾으면 그 쌍의 탐색을 멈추고 더 깊은 쌍을 놓치는
+upstream 결함)이 self-collision뿐 아니라 world-object 쌍에서도 같은
+모양으로 나타난다는 뜻이다. "방향이 반대다"는 새 결함이 아니라 이 포트가
+더 정확한 쪽이라는 신호였다.
+
+커밋된 시험:
+`pr2_world_object_pair_flip_case_122_both_sides_are_real_vertices`
+(`crates/moveit-collision/tests/collision_parity.rs`). 두 mutation으로
+확인했다: 어느 쪽 정점이 더 깊은지 비교하는 부등호를 뒤집으면 실측 수치를
+보여주며 실패하고, 오라클 상수 리터럴을 손상시키면(자릿수를 줄여) 그
+링크의 정점 대조가 정확한 수치로 실패한다 — 둘 다 원래대로 되돌렸다.
+
+`cargo fmt --all` 적용, clippy `-p moveit-collision --all-targets -- -D warnings` 0건,
+`cargo nextest run -p moveit-collision --release` **262/262**(이 시험 포함).
+
+### 56.6 §56.4 넷째 잔차 — 메시 포함이 실제로 미탐지를 낸다, 프로덕션 경로에서 재현했다
+
+§56.4의 잔차는 "삼각형 단위 MTD가 메시 전체 MTD보다 얕을 수 있다는 것이
+일반적으로 일어나는지는 안 재봤다"였다. `WorldConvex`(§302.1)는 메시를
+거부하므로(그 절 자신의 주석: 메시도 지지함수/투영은 있지만 자신의
+삼각분할까지만이라, 그것을 제3의 답이라 부르면 순환이 된다) 이 계측기로는
+이 잔차를 잴 수 없다 — 재려면 이 크레이트의 실제 프로덕션 경로
+(`ParryCollisionEnv::check_robot_collision`/`distance_robot`, `Shape::Mesh`가
+`convert_shape`(`crates/moveit-collision/src/parry.rs:1454-1463`)를 거쳐
+진짜 `parry3d_f64::shape::TriMesh`가 되는 그 경로) 자체에 합성 메시를
+직접 걸어야 한다.
+
+**구성.** 원점 중심, 축 정렬된 두 상자 껍질 — `outer` 반폭 `1.0`, `inner`
+반폭 `0.1` — 을 12개 삼각형(면당 2개)으로 손으로 지었다
+(`box_shell_mesh`, `crates/moveit-collision/src/parry.rs:4049`). `inner`는
+`outer`의 경계 어디에도 닿지 않는다 — 두 메시의 평행한 면 사이 거리가
+축마다 `1.0 - 0.1 = 0.9`이고, 그것이 임의의 두 삼각형 쌍 사이 최소
+거리이기도 하다(꼭짓점이든 면이든, 같은 축 방향으로 내린 최근접점이 항상
+가장 가깝다). 그런데 이 두 메시가 나타내는 **입체**로 보면 `inner`는
+`outer` 안에 완전히 들어 있어 겹침이 100%이고, 그 상태를 풀기 위한 진짜
+최소이동거리(MTD)는 `1.0 + 0.1 = 1.1`이다(`inner`를 한 축으로
+`outer`의 반대쪽 면 밖으로 밀어낼 때까지) — 경계면 간극 `0.9`와는 부호도
+크기도 다르다.
+
+`outer`는 world 오브젝트로, `inner`는 `AttachedBodyGeometry`로(§56.4가
+읽은 프로덕션 API 그대로) 원점에 겹쳐 놓고
+(`p` 자신의 기본 `1x1x1` 박스 충돌은 `translation(100,0,0)`로 치워
+간섭하지 않게 했다), 새 시험
+`mesh_engulfment_is_reported_as_no_collision_and_a_positive_gap_not_penetration`
+(`crates/moveit-collision/src/parry.rs:4079`)으로 쟀다:
+
+| 호출 | 실측 |
+|---|---|
+| `check_robot_collision` | `collision: false` |
+| `distance_robot` | `collision: false`, `minimum_distance.distance` = `0.8999999999999999` |
+
+닫힌 형식 `0.9`와 `1e-12` 안에서 같다(`distance_robot`이 벡터 최근접점
+계산을 거치므로 스칼라 뺄셈 `1.0 - 0.1`과 한 ULP 다르다). 즉 이 포트는
+완전히 포함된 메시를 **충돌 없음**으로, 참 침투(`-1.1`)가 아니라 **양의
+간극**(`0.9`)으로 보고한다 — §56.4가 걱정한 "삼각형 단위 답이 메시 전체
+답보다 얕다"보다 더 나쁜 결과다(얕은 게 아니라 아예 없다). 이것이 메시
+전용 결함이지 이 충돌 엔진 일반의 결함이 아님을 확인하려고, 같은 두
+반폭의 **`Cuboid`**(진짜 solid, 지지함수 기반 GJK/EPA)로 같은 시험을
+돌연변이해 돌렸다 — `check_robot_collision`이 `collision: true`를 내며
+`!collision.collision` 단언에서 실패했다(원래대로 되돌렸다). 같은 기하,
+같은 API 호출인데 도형 표현만 메시에서 solid로 바꾸자 판정이 뒤집힌 것이
+이 결함을 메시의 경계-전용 표현 탓으로 좁힌다.
+
+**정직한 한계.** 이 구성은 §56.4가 문자 그대로 이름 붙인 "얇은 삼각형"
+(둘이 실제로 교차하는데 국소적으로만 얕게 답하는 경우)이 아니라 그
+메커니즘의 가장 극단적인 사례(완전 포함, 어느 삼각형 쌍도 교차하지 않는
+경우)다 — 배경 조사가 이미 지적했듯, 국소적으로 얕은 교차 사례는 손으로
+닫힌 형식을 미리 유도하기가 이만큼 쉽지 않고 시험을 돌려 값을 보는 쪽이
+더 현실적이다. 그래도 §56.4가 실제로 묻는 질문 — "이 메커니즘이 이
+코드베이스의 실제 충돌 경로에서 진짜로 일어나는가" — 에는 이 구성으로도
+확정적으로 답한다: **일어난다.**
+
+`cargo fmt --all` 적용, clippy `-p moveit-collision --all-targets -- -D warnings`
+0건, `cargo nextest run -p moveit-collision --release`
+**266/266**(이 시험 포함, 이전 265건에서 하나 늘었다).
 
 ## 57. §40이 닫혔다 — 22/22. 그리고 pr2 메시는 한 번도 대조된 적이 없다 (2026-08-04)
 
@@ -7540,7 +7661,7 @@ moveit-diff --urdf .../pr2.urdf --srdf .../pr2.srdf --group right_arm \
 ```
 
 (`--stats-json`의 `cases` 필드는 표본 수가 아니라 검사 수다 —
-`verdicts.len()`, `main.rs:1267`. 6000 표본이 18001 검사를 낸다. 비율의
+`verdicts.len()`, `main.rs:1300`. 6000 표본이 18001 검사를 낸다. 비율의
 분모는 `--cases` 쪽이다.)
 
 ### 87.3 머지 후 실측
@@ -8117,11 +8238,11 @@ M9는 구멍이 **아니다**. 문서가 강조하는 "`update`에 넘기는 `ne
 담당은 `IK_DEGENERATE_EPS`가 "정보용 카운터로 출력될 뿐 `Verdict`로
 들어가지 않는다"고 적었다 — 그때 오라클/러스트 각각에 있던 두 비교
 자리는 지금 공유 헬퍼 하나로 접혀 `is_degenerate_from_seed`를 두 번
-부른다(`main.rs:3429`, `main.rs:3440` (`minimum_usable_b_plus_c_matches_its_own_derivation`)). `Verdict` 부분은 맞고,
+부른다(`main.rs:3472`, `main.rs:3483` (`minimum_usable_b_plus_c_matches_its_own_derivation`)). `Verdict` 부분은 맞고,
 어떤 테스트도 이 상수나 두 필드를 참조하지 않는 것도 `rg`로 확인했다.
 
 다만 `IkStats`는 `#[derive(serde::Serialize)]`이고
-`main.rs:1275`의 `ik: cfg.ik.then_some(ik_stats)`로 **`--stats-json`에
+`main.rs:1308`의 `ik: cfg.ik.then_some(ik_stats)`로 **`--stats-json`에
 그대로 실린다**. 즉 이 상수는 출력만 되는 것이 아니라 내가 매 sweep마다
 읽는 기계판독 결과의 한 숫자를 정한다. 1e-6 elementwise max-norm이
 "degenerate"의 정의이고, 그 정의가 어디에서도 검증되지 않는다.
@@ -9425,7 +9546,7 @@ config  최대                                      1 ulp
 목표가 이미 `FK(seed)`인 케이스는 `cart_to_jnt`의 첫 반복에서
 `q_full`을 건드리기 전에 수렴해 씨앗을 비트 그대로 돌려준다. 그것을
 `a_case_already_at_the_seed_pose_converges_to_the_seed_unmoved`로
-고정했다(`tools/moveit-diff/src/main.rs:3747`, 내가 확인했다).
+고정했다(`tools/moveit-diff/src/main.rs:3592`, 내가 확인했다).
 
 요구를 그대로 못 하면 **요구가 겨냥한 것을 다른 길로 달성한다** —
 "trait 이음매가 없어서 못 합니다"로 닫지 않은 것이 맞다.
@@ -13584,7 +13705,7 @@ generator max cone reach: 0.0150
 까지 거리 제곱은 구간 끝점에서 최대이므로 — 이전에 썼던
 `sqrt(target_radius²+sensor_offset²)`는 느슨한 상한이었을 뿐, 진짜 상한은
 더 작다). `target_radius`의 상한은 생성기의
-`rng.random_range(0.005..0.015)`가 정하는 `0.015`(`main.rs:2122`), `sensor_offset`은
+`rng.random_range(0.005..0.015)`가 정하는 `0.015`(`main.rs:2155`), `sensor_offset`은
 `0.005` 고정이므로 최대 도달은 **0.015**. 136쌍 전부에서 필요한 reach의
 최솟값은 **0.0232**(캐스터 휠 네 쌍) — `0.015`를 항상 초과한다. **어떤 근접
 배치도, 어떤 조인트 상태에서도, 두 번째 링크를 건드릴 수 없다.**
@@ -15396,7 +15517,7 @@ group 필터링 미구현이었다. `#[ignore]`가 사라져 `cost_sources_parit
 
 `cost_sources_parity`의 `#[ignore]`를 지우고 워크스페이스를 돌리니
 1584개 중 2개가 여전히 skip이다. `.config/nextest.toml`에는 필터가 없고,
-남은 둘은 `tools/moveit-diff/src/main.rs:4327,4248` —
+남은 둘은 `tools/moveit-diff/src/main.rs:4371,4292` —
 `needs third_party/moveit_resources`.
 
 `third_party`는 `.gitignore:3`에 통째로 들어 있으니 그 전제는 진짜다. 갓
@@ -23352,7 +23473,7 @@ MoveIt은 이 분기를 고르지 않는다: 고정된 `e017c91ee` 체크아웃 
   — **처리됨(`17d62b6`).** 그 열은 이제 `§251.4`이고, 위 문단은 이 절이
   쓰인 시점의 상태다. 같은 병합에서 `check-phase-status.sh`에
   supersession 규칙이 붙어, 스스로 진단을 물린 절을 §5 행이 계속 가리키면
-  이제 게이트가 잡는다.
+  이제 게이트가 잡는다. `§251.4`도 오늘의 상태는 아니다. **거짓 → 닫힘 (§317.2).**
 
 ---
 
@@ -23673,7 +23794,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 
 한계는 blame이 **그 줄을 마지막으로 건드린** 커밋이지 인용을 쓴 커밋이 아니라는
 것이다. 문서가 나중에 리플로우되면 blame은 엉뚱한 리비전을 가리킨다. 이 표에서
-실제로 그렇게 어긋난 다섯 건(`PORTING-PLAN.md:11391` 둘,
+실제로 그렇게 어긋난 다섯 건(`PORTING-PLAN.md:11512` 둘,
 `oracle-request-collision-max-contacts-per-pair.md:73`/`:85`, 그리고
 `PORTING-PLAN.md:11778`)은 blame 사상이 인용 문장의 주장과 모순되는 것으로
 드러났고, 내용으로 손수 다시 잡았다. 표의 `손:` 행이 그것이다.
@@ -23705,7 +23826,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
   없어진 줄이다. 두 인용 모두 `c0838b4^`에서 정확히 일치하는 것을 확인했다
   (`{ "planning_time_s", elapsed },` / `res.planning_time`). 오늘 줄로 옮기면
   기록이 가리키던 결함 자체가 지워진다. `applyJointValues` 호출자 10곳을 적은
-  `PORTING-PLAN.md:11778-11780`도 같다 — `oracle.cpp@367c07a^:2016`과
+  `PORTING-PLAN.md:11899-11901`도 같다 — `oracle.cpp@367c07a^:2016`과
   `oracle.cpp@367c07a^:2214`가 `state_->clearAttachedBodies();`이고 열 개 번호
   `oracle.cpp@367c07a^:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`가
   전부 그대로 맞는다.
@@ -23749,13 +23870,13 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 | `PORTING-PLAN.md:3933` | `:1044` | `2025` |
 | `!PORTING-PLAN.md:3960` | `:1144-1146` | `2125-2127` |
 | `PORTING-PLAN.md:4582` | `:1524` | `2457` |
-| `PORTING-PLAN.md:11391` | `:4752` | 손: `c0838b4^`에서 `{ "planning_time_s", elapsed },`. `c0838b4`가 그 필드를 지웠으므로 오늘 대응하는 줄이 없다 |
-| `PORTING-PLAN.md:11391` | `:5135` | 손: `c0838b4^`에서 `res.planning_time`. 같은 커밋이 지웠고 남은 것은 주석 `oracle.cpp@3241bbab:6166`뿐 |
+| `PORTING-PLAN.md:11512` | `:4752` | 손: `c0838b4^`에서 `{ "planning_time_s", elapsed },`. `c0838b4`가 그 필드를 지웠으므로 오늘 대응하는 줄이 없다 |
+| `PORTING-PLAN.md:11512` | `:5135` | 손: `c0838b4^`에서 `res.planning_time`. 같은 커밋이 지웠고 남은 것은 주석 `oracle.cpp@3241bbab:6166`뿐 |
 | `PORTING-PLAN.md:11778` | `:2016` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 (수정으로 삭제) |
 | `PORTING-PLAN.md:17645` | `:6065` | 손: `ik_rng_{ 42 }` 자체가 사라졌다 — `oracle.cpp@3241bbab:858-859`가 `ik_rng_(ik_rng_seed)`, 멤버 선언은 `oracle.cpp@3241bbab:6547` |
-| `PORTING-PLAN.md:17732` | `:1772` | `2015` |
+| `PORTING-PLAN.md:17853` | `:1772` | `2015` |
 | `PORTING-PLAN.md:19500` | `:2191` | `2417` |
-| `PORTING-PLAN.md:20264` | `:1537` | `1546` |
+| `PORTING-PLAN.md:20385` | `:1537` | `1546` |
 | `PORTING-PLAN.md:21397` | `:1547` | `1549` |
 | `PORTING-PLAN.md:21398` | `:2235` | `2306` |
 | `!PORTING-PLAN.md:21523` | `:2188` | `2259` |
@@ -25290,7 +25411,7 @@ pr2의 분리 쪽 상위 8건은 **전부** `*_caster_*_wheel_link` 대 `floor`�
   `FLOOR_THICKNESS = 0.1`)를 중심 `floor_top_z - FLOOR_THICKNESS / 2.0`에 둔
   것이므로 윗면이 평면 `z = floor_top_z`이고, 이 측정이 돌아간 기본값
   `floor_top_z = 0.0`에서는 `z = 0`이다
-  (`tools/moveit-diff/src/main.rs:765-780`). 이 절의 측정 당시에는 중심
+  (`tools/moveit-diff/src/main.rs:783-798`). 이 절의 측정 당시에는 중심
   `-0.05`가 상수로 박혀 있었다.
 - 캐스터 바퀴의 충돌 형상은 반지름 `0.074792`의 원기둥이고, 중심 높이는
   `0.051 + 0.0282 + 0.0 = 0.0792`다 (`fixtures/pr2.urdf`의
@@ -25464,7 +25585,7 @@ fanuc·pr2 결과가 나오기 전에 두 예측을 적어 두었다.
 - prbt의 `8.9e-5`를 닫힌 형태로 확인하지 않았다. pr2의 캐스터 쌍과 달리 box 대
   cylinder의 분리 거리는 자세에 따라 변하므로 상수가 없다. 그쪽 근거는 §260.4의
   프로브(기준의 흔들림 `4.4e-4`)이며, 이것은 "포트가 옳다"가 아니라 "기준이 이
-  자릿수를 판정할 수 없다"는 더 약한 주장이다.
+  자릿수를 판정할 수 없다"는 더 약한 주장이다. **거짓 → 닫힘 (§317.3).**
 - 분리 분기의 잔차를 0으로 만들지 않았다. prbt `8.892585e-5`와 pr2 `6.056201e-7`은
   그대로 남고, 게이트는 매 실행 그 값을 찍는다.
 - §5 표의 근거 열은 번호가 배정된 뒤에 옮겼다(`§229.3` → `§260`). 절을 쓰는
@@ -26423,16 +26544,17 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
 
 ### §264.12 닫지 않은 것
 
-- **씨앗이 주어진 문제 모집단. 절반 닫혔다(§286.9).** 이 절은 "Phase 8의 줄을
-  정직하게 닫으려면 균일 무작위 끝점 쌍이 아니라 씨앗 궤적이 딸린 문제가
-  필요하다"고 적었고, 그 전제는 **틀렸다**: §5의 Phase 8 줄은 새 생성기 없이
-  MET으로 닫혔다(§286.10). §286.9가 이 항목을 둘로 갈랐다 — 조건 2에 대한
-  변별 부분모집단은 씨앗 무효 stratum 251문제로 **이미 존재하고 이미
-  측정된다**. 남는 것은 씨앗을 *고르는* 것뿐이다: 지금 stratum의 씨앗은
-  "직선이 우연히 무효인 것"이지 난이도를 지정한 것이 아니고, 일부러 어려운
-  씨앗이 조건 2 사건율을 올려 §286.4의 검정력 부족을 푸는지는 미측정이다.
-  두 진입점은 그대로 그것을 받는다(`ChompRequest::seed_trajectory`, upstream
-  STOMP의 `extractSeedTrajectory`).
+- **씨앗 궤적이 딸린 문제 없이는 §5의 Phase 8 줄을 정직하게 닫을 수 없다는
+  전제. 거짓 → 닫힘 (§286.10).** §5의 Phase 8 줄은 새 생성기 없이 MET으로
+  닫혔다 — §286.9가 이 항목을 둘로 갈라, 조건 2에 대한 변별 부분모집단이
+  씨앗 무효 stratum 251문제로 **이미 존재하고 이미 측정된다**는 것을 보였다.
+- **일부러 어려운 씨앗이 조건 2 사건율을 올려 §286.4의 검정력 부족을 푸는가.**
+  §286.9가 이 항목의 나머지 절반으로 남긴 것 — 지금 씨앗 무효 stratum의
+  씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지정한 것이 아니다. 오늘도
+  미측정이다: `seed_validity_problem_set.rs`는 직선 씨앗을 분류할 뿐 난이도를
+  고르는 파라미터가 없다(§286.11①과 같은 근거로 재확인). 두 진입점은 그대로
+  그것을 받는다(`ChompRequest::seed_trajectory`, upstream STOMP의
+  `extractSeedTrajectory`).
 - **C++ CHOMP 기준선. 거짓 → 닫힘 (§304).** 만들어졌다 — CHOMP과 STOMP
   양쪽으로. 오라클은
   `chomp_plan`과 `stomp_plan`을 답하고(`oracle.cpp:1067`,
@@ -26463,8 +26585,18 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
   (경로를 내보내는 것은 `plan` op뿐 — `oracle.cpp:5870`) C++ 쪽에 끝점
   간극을 잴 대상 자체가 없다. 더하는 것은 오라클 소스 변경이고, digest
   게이트가 그것을 이 기계의 모든 워크트리에 대한 이미지 재빌드로 만든다.
-- **`full` 모드의 핀.** 한 번도 돌리지 않았다(§264.9). 250문제 × 2로봇 ×
-  2플래너에 STOMP의 실측 문제당 비용을 곱하면 이 라운드에 들어가지 않는다.
+- **`full` 모드를 한 번도 돌리지 않았다는 것. 거짓 → 닫힘 (§295.11).** §295가
+  선언된 `full` 모집단(플래너당 500 = panda 250 + fanuc 250)에서 이
+  계측기를 실제로 돌렸다 — §295.11이 그 비용과 부하를 적는다. 첫 문장만
+  거짓이 됐을 뿐, 아래 두 번째 문장(250문제 × 2로봇 × 2플래너에 STOMP의
+  실측 문제당 비용을 곱한 전체 격자)은 §295가 재지 않았다: §295가 실제로
+  돌린 것은 `full` 모집단 하나이지, panda/fanuc 각각에 대해 CHOMP·STOMP
+  둘 다 도는 조합 전수가 아니다.
+- **`full` 모드에 핀이 없다는 것.** §264.9가 지목한 핀 자체는 여전히
+  없다 — §295.11이 잰 것은 `full`을 "돌렸다"는 사실이지 그 산출값에 대한
+  판정 기준(핀)이 아니다. 바로 위 "C++ CHOMP 기준선" 항목이 이미 적듯
+  `no-regression-cpp-solved`는 `full`에 핀이 없어 판정을 내지 않고,
+  §295.11 자신도 "핀은 여전히 없다"고 같은 문장으로 확인한다.
 - **CHOMP의 목적함수가 관측되지 않는다. 거짓 → 닫힘 (§293).** 닫는 방법은
   여기 적힌 "한 필드"가 아니었다. upstream은 이 값을 폐기하지 않고
   `best_group_trajectory_cost_`(`chomp_optimizer.hpp:150`)에 들고 있되
@@ -27563,25 +27695,31 @@ Phase 8의 이 행에 대해서는 그 답이 예다 — §263이 정확히 그 
 
 - `max_iterations = 200`(`CHOMPInterface::loadParams`의 값)에서의 성공률 —
   양쪽 다 미측정(§269.8).
-- 포트 CHOMP/STOMP를 시드 베이스 여러 개로 돌린 seed lottery. 이 절은 C++
-  STOMP만 세 벌 돌렸고(§269.7) 포트 쪽 폭은 §263의 한 벌뿐이었다. **CHOMP
-  쪽은 그 뒤 §286.5가 닫았다** — 같은 500문제를 씨앗 베이스만 700001에서
-  424242로 바꿔 포트 CHOMP을 다시 돌려 371/500을 얻었고, 그 두 벌의 차이가
-  `r*`를 기준에서 탈락시킨 근거다. **남는 것은 포트 STOMP 쪽 한 벌뿐이고**,
-  그 이유는 비용이다(한 벌 약 3시간, §286.11).
+- **포트 CHOMP/STOMP를 시드 베이스 여러 개로 돌린 seed lottery. 거짓 → 닫힘
+  (§303).** 이 절은 C++ STOMP만 세 벌 돌렸고(§269.7) 포트 쪽 폭은 §263의
+  한 벌뿐이었다. CHOMP 쪽은 §286.5가 닫았다 — 같은 500문제를 씨앗 베이스만
+  700001에서 424242로 바꿔 포트 CHOMP을 다시 돌려 371/500을 얻었고, 그 두
+  벌의 차이가 `r*`를 기준에서 탈락시킨 근거다. 남았던 포트 STOMP 쪽 한
+  벌은 §303이 돌렸다 — panda_arm `floor_wall`/`cage` 500문제를 씨앗 베이스
+  424242에서 포트·cpp 양쪽 다시 실측해(§303.1), 실패 id가 두 베이스
+  사이에서 하나도 겹치지 않으면서도 `r*`는 움직이지 않는다는 것을 보였다
+  (§303.5, §303.7).
 - `moveit_planners_chomp` / `moveit_planners_stomp` 플러그인 **껍데기**의
   파리티. 이 절은 `ChompPlanner::solve`와 `StompPlanningContext::solve`를
   비교했고, 그 위의 pluginlib 등록·ROS 파라미터 읽기·`PlanningContext` 수명
   관리는 비교 대상이 아니었다.
-- STOMP의 조건 2 실패에 대한 상류 C++ 쪽 `COL_CHECK_DISTANCE` 기여도. §263.4가
-  포트 쪽 3건을 그 상수로 설명했고 C++ 쪽 2건도 같은 모양
-  (`valid_at_returned_waypoints = true`)이지만, 상수를 바꿔 돌려 인과를 확인한
-  실험은 하지 않았다. **그 실험은 지금도 없다. 다만 물음은 §286.3이 다른
-  방법으로 답했다** — 해상도 그리드에서 cpp STOMP의 조건 2 실패는 0.05와 그
-  위에서 0건이고 0.02부터 2건이 되며, cpp STOMP 자신의 waypoint 간격
-  중앙값이 0.0569로 그 상수 바로 위에 앉는다(§286.6). 상수를 끄지 않고 바를 상수
-  주변에서 움직여 같은 인과를 보인 것이고, §5 Phase 8 줄의 조건 2 문안이
-  그 이산화 단위를 이름으로 쓰는 근거다.
+- STOMP의 조건 2 실패에 대한 상류 C++ 쪽 `COL_CHECK_DISTANCE` 기여도를 상수를
+  바꿔 돌려 직접 확인하는 실험. §263.4가 포트 쪽 3건을 그 상수로 설명했고
+  C++ 쪽 2건도 같은 모양(`valid_at_returned_waypoints = true`)이지만, 상수
+  자체를 바꿔 돌려 인과를 확인한 실험은 그 형태로는 지금도 없다 — §286.3도
+  §303도 `COL_CHECK_DISTANCE`를 고쳐 컴파일한 적은 없다.
+- **같은 물음(C++ 쪽 조건 2 실패가 그 상수에 달렸는가)을 해상도 그리드로
+  답한 것. 거짓 → 닫힘 (§286.3).** 상수를 끄고 다시 돌리는 실험은 없지만,
+  §286.3이 다른 방법으로 인과를 보였다 — 해상도 그리드에서 cpp STOMP의
+  조건 2 실패는 0.05와 그 위에서 0건이고 0.02부터 2건이 되며, cpp STOMP
+  자신의 waypoint 간격 중앙값이 0.0569로 그 상수 바로 위에 앉는다(§286.6).
+  상수를 끄지 않고 바를 상수 주변에서 움직여 같은 인과를 보인 것이고, §5
+  Phase 8 줄의 조건 2 문안이 그 이산화 단위를 이름으로 쓰는 근거다.
 - C++ 스윕의 `wall_secs`. 위 동시 부하에서 잰 값이므로 이 기계의 값이지
   플래너의 값이 아니다(§269.2).
 
@@ -27628,9 +27766,9 @@ Phase 3 `collision: bool` 행은 UNMET 그대로이고 근거 열도 §251.4 그
 
 ### §270.2 이 절이 하지 않은 것
 
-- 시드를 바꿔 돌리지 않았다. 시드 1 한 벌이고, §260.2와 같은 시드다 —
-  그래서 25셀 일치가 강한 증거인 동시에 시드 독립성에 대해서는 아무 말도
-  하지 않는다.
+- 시드를 바꿔 돌리지 않았다. 거짓 → 닫힘 (§270.3). 시드 1 한 벌이고,
+  §260.2와 같은 시드다 — 그래서 25셀 일치가 강한 증거인 동시에 시드
+  독립성에 대해서는 아무 말도 하지 않는다.
 - 관통 분기의 42,259건을 다시 판정하지 않았다. §260이 그 분기를 상류 결함
   3건으로 비교 불가로 분류했고 이 절은 그 분류를 인용만 했다.
   **여전히 열려 있다 — 다만 §297.4가 그 42,259건의 부분집합 249건을
@@ -27651,8 +27789,83 @@ Phase 3 `collision: bool` 행은 UNMET 그대로이고 근거 열도 §251.4 그
   fcl 쪽이다. 따라서 이 항목에서 판정된 부분은 249건(0.59%)이고 그 249건의
   주인까지 정해졌다. **42,010건은 §302 뒤에도 그대로 미판정이다** — §302의
   계측기는 볼록 프리미티브 위에서만 성립하므로 메시 링크뿐인 세 로봇에는
-  걸 수 없고, pr2에는 걸 수 있지만 걸지 않았다.
+  걸 수 없고, pr2에는 걸 수 있지만 걸지 않았다. **여전히 열려 있다 —
+  다만 §302.10이 그 뒤쪽 절반("pr2에는 걸 수 있지만 걸지 않았다")을
+  실제로 걸었다.** pr2도 실제로 걸었고, 결과는 판정 가능 행 0/10,000이다
+  — 정의역(17개 프리미티브 링크)은 비어 있지 않지만, pr2의 실제
+  self-penetration 불일치 population이 그 정의역과 겹치지 않는다. 이
+  항목의 42,010건 자체는 §302.10 뒤에도 그대로 미판정이다.
 - `distance: f64` 행(PARTIAL, 근거 §260)을 건드리지 않았다.
+  거짓 → 닫힘 (§270.4).
+
+### §270.3 §270.2의 첫째 잔차 — 시드를 바꿔 다시 돌렸다, 판정에 관련된 10셀이 시드 1과 시드 7에서 같다
+
+§270.2가 남긴 문장은 "시드를 바꿔 돌리지 않았다 ... 시드 독립성에 대해서는
+아무 말도 하지 않는다"였다. 시드 7, 로봇당 1,000상태로 같은 스윕을
+다시 돌렸다(§270과 같은 병합main `8309d6a`):
+
+```
+PHASE3_SWEEP=1 sg docker -c 'tools/ci/verify-phase3-collision-sweep.sh 1000 7'
+```
+
+| 로봇 | bool (시드7/1000) | 분리 dis/tot (시드7) | 분리 최악 (시드7) | bool (시드1/10000) | 분리 dis/tot (시드1) | 분리 최악 (시드1) |
+|---|---|---|---|---|---|---|
+| panda | 0/1000 | 0/874 | `3.538836e-16` | 0/10000 | 0/8734 | `5.134781e-16` |
+| prbt | 679/1000 | 0/957 | `9.040106e-05` | 6854/10000 | 0/9611 | `8.892585e-05` |
+| fanuc | 0/1000 | 0/504 | `1.013079e-15` | 0/10000 | 0/5053 | `1.744264e-15` |
+| dual_arm_panda | 0/1000 | 0/761 | `6.418477e-16` | 0/10000 | 0/7703 | `8.396062e-16` |
+| pr2 | 0/1000 | 0/998 | `1.057443e-06` | 0/10000 | 0/9958 | `6.056201e-07` |
+
+§5 Phase 3의 완료 조건(불리언 정확 일치 + 분리 분기 거리가 `1e-4` 이내)에
+실제로 관련되는 10개 셀 — `bool` 5개, `분리 dis/tot` 5개 — 이 두 시드에서
+전부 같다: `bool`은 prbt만 불일치하고(비율도 67.9% 대 68.5%로 근접),
+나머지 넷은 0이다. `분리 dis/tot`은 다섯 로봇 전부 두 시드 모두 0/N —
+완료 조건이 실제로 재는 자리는 시드를 바꿔도 UNMET/충족이 뒤집히지
+않는다. 최악값도 같은 자릿수(`e-16`대 셋, `e-7`대 하나, `e-5`대
+하나)에 머물러 있어, 시드에 따라 자릿수 자체가 바뀌는 새 결함은 없다.
+
+이 절이 재지 않은 것: 시드 2개는 시드 공간 전체가 아니다. 표본 크기도
+다르다(1,000 대 10,000) — `분리 dis/tot`의 분모가 시드1보다 작은 것은
+자세 분포가 달라 분리 쪽으로 떨어지는 케이스 비율이 조금 다르기
+때문이지, 판정 조건이 좁아진 게 아니다. wall clock 등 성능 수치는
+비교 대상이 아니다.
+
+### §270.4 §270.2의 셋째 잔차 — distance: f64 행의 PARTIAL 근거 둘을 병합 트리에서 다시 돌렸다, 둘 다 그대로 선다
+
+PARTIAL 판정은 두 사실에 기댄다 — pr2의 분리 쪽 잔차(§260.2 표의
+`6.056201e-7`)는 닫힌 형태로 오라클 쪽 오차임이 확인되고(§260.3),
+prbt의 잔차(`8.892585e-5`)는 기준(fcl) 자신이 그만큼(`4.4e-4`) 흔들려
+포트 탓으로 돌릴 수 없다(§260.4). §270 자신의 표가 이미 이 두 값이
+병합 뒤에도 마지막 자리까지 같다는 것을 냈으므로("§260.2 표와 25셀이
+전부 같다"), 남은 것은 그 두 값을 지지하는 두 계측기 자체가 병합
+트리에서도 여전히 서는지다. 둘 다 다시 돌렸다.
+
+pr2 닫힌 형태(커밋된 시험, 오라클도 도커도 안 씀):
+
+```
+$ cargo nextest run -p moveit-collision --release -- pr2_caster_wheel_floor_clearance_matches_the_closed_form
+PASS [0.447s] moveit-collision::collision_parity pr2_caster_wheel_floor_clearance_matches_the_closed_form
+```
+
+prbt 기준 흔들림(§298이 다시 세운 프로브, digest-gated):
+
+```
+$ sg docker -c 'tools/ci/verify-fcl-distance-tolerance.sh'
+|default - tight| : max 2.051960e-04 (pose 1934), >1e-6 424, >1e-5 41, >1e-4 6
+|tight   - indep| : max 6.060727e-10 (pose 1902), 338567x under the drift above
+OK fcl's own answer moves up to 2.051960e-04 on tolerance alone (>= 1e-05)
+OK while its two tightened solvers agree to 6.060727e-10 (<= 3e-09, 338567x under)
+```
+
+두 결과 다 §298이 박은 핀(`2.051960e-4`, `6.060727e-10`, `3.385667e5`)과
+정확히 같다 — 병합 여덟 건도, §270의 재실행도 이 두 계측기의 답을
+움직이지 않았다. pr2의 잔차는 여전히 오라클의 것이고, prbt의 잔차는
+여전히 기준 자체가 그 자릿수를 판정하지 못한다. `distance: f64` 행의
+PARTIAL 근거 둘 다 병합 트리에서 다시 서는 것을 실제로 확인했다.
+
+이 절이 재지 않은 것: PARTIAL을 FULL로 바꾸지 않았다 — prbt의
+`8.9e-5` 자체를 포트 오차 0으로 좁히는 새 증거는 내지 않았고, §260.4가
+이미 적은 "기준이 이 자릿수를 판정할 수 없다"는 더 약한 주장 그대로다.
 
 ## §271 `detail/GreedyKCenters.hpp`와 `detail/NearestNeighbors.hpp`를 판정한다 — GNAT 거절이 두 파일을 함께 데려가고, 포트에 있는 GNAT는 이 둘의 포트가 아니다 (2026-08-06)
 
@@ -29077,7 +29290,7 @@ executor에 넣는다 (`move_group_interface.cpp:129-133`). 그런데
 바닥은 `Cuboid::new(4.0, 4.0, FLOOR_THICKNESS)`(반크기가 아니라 전체 크기)를
 `Isometry3::translation(0.0, 0.0, floor_top_z - FLOOR_THICKNESS / 2.0)`에 둔
 것이므로 `--floor-top-z -0.5`에서 윗면이 평면
-`z = -0.5`다(`tools/moveit-diff/src/main.rs:776-779`). `prbt_flange`의 충돌
+`z = -0.5`다(`tools/moveit-diff/src/main.rs:794-797`). `prbt_flange`의 충돌
 형상은 링크 좌표 `xyz="0 0 -0.0035"`에 놓인 `length 0.02`, `radius 0.0331`
 실린더다(`fixtures/prbt.urdf:397-402`). 실린더의 실루엣이 4×4 발자국 **안쪽**에
 전부 들어오고 윗면 위에 떠 있는 동안, 상자에서 가장 가까운 특징은 그 윗면
@@ -29231,9 +29444,41 @@ ACM에서 `prbt_flange` 대신 `prbt_link_5`를 열면 쌍 단언이 FAIL, 오�
   앵커에서 `box × cylinder`와 `cylinder × cylinder`가 함께 계열이 된다. 즉 이
   항목이 "다른 발현"을 `cylinder × box` 하나로 좁혀 적은 것도 좁다. 숫자는
   §297.2의 표에 한 벌만 두고 여기서 옮겨 적지 않는다.
-- **관통 분기는 건드리지 않았다.** 닫힌 형태는 분리 쪽에서만 성립한다.
+- **관통 분기는 건드리지 않았다. 거짓 → 닫힘 (§281.7).** §281.7이 case 8148의 flange 포즈 위로 바닥을 올려 같은 닫힌 형태를 음수(관통 깊이) 쪽에서 다시 재고 닫았다.
 
 ---
+
+### §281.7 §281.6의 마지막 잔차 — 같은 닫힌 형태가 관통 쪽에서도 성립한다
+
+§281.1의 실린더 대 평면 닫힌 형태(`c_z - z0 - h·|a_z| - r·√(1-a_z²)`)는
+그 시점까지 분리(양수) 쪽에서만 시험되었다. 같은 식이 관통(음수) 쪽에서도
+성립하는지는 바닥을 올리면 바로 잴 수 있다 — 실린더의 바닥까지 거리가 음수가
+되는 만큼만 올리면, 같은 식이 이제 관통 깊이를 예측한다.
+
+`floor_env_with_top`으로 바닥 상면을 `-0.5`에서 `-0.16`으로 올렸다 — case
+8148 자체 포즈(scale == 1.0)가 약 3cm 관통하게 되는 높이다. 같은 스케일
+스윕(step 15..=22, scale 0.85부터 1.06)에서 닫힌 형태가 실제로 음수인 여덟
+스텝만 이 절이 다루고, 나머지는 분리 쪽이라 이미 §281.1/§281.3의 영토다.
+
+각 스텝에서 이 백엔드의 `distance_robot`이 음수이고 쌍이 `floor`/`prbt_flange`
+임을 먼저 확인한 뒤, 같은 닫힌 형태 값과 대조했다. 측정(허용오차를 정하기
+전): 여덟 포즈 중 최악 편차 `1.583803e-15`(step 15, scale 0.85), 최심 포즈
+(step 19, scale 0.97, 깊이 `3.361721e-2`)에서 `1.804112e-16`.
+`CLOSED_FORM_TOL`을 `1e-14`로 박았다 — 6.3배 여유. 분리 쪽의 `1e-7`보다
+오히려 빡빡하다: 관통 쪽은 GJK 반복이 수렴할 것도 없이 같은 닫힌 형태
+산술을 이동한 평면에 다시 평가하는 것뿐이다.
+
+커밋된 시험:
+`prbt_flange_floor_clearance_matches_the_closed_form_when_penetrating`
+(`crates/moveit-collision/tests/collision_parity.rs`). 바닥 발판(footprint)과
+쌍 이름을 먼저 사전조건으로 걺으로써(top face가 아니라 bottom face가
+가깝게 될 수 있는 포즈를 배제), 닫힌 형태가 온전히 다른 것을 재는 거짓
+통과를 막았다. 두 mutation으로 확인했다: 허용오차를 `1e-20`으로 좁히면
+실측 편차를 그대로 보여주며 실패하고, 닫힌 형태의 부호를 뒤집으면
+사전조건(`expected < 0.0`) 자체가 깨져 실패한다. 둘 다 원래대로 되돌렸다.
+
+`cargo fmt --all` 적용, clippy `-p moveit-collision --all-targets -- -D warnings` 0건,
+`cargo nextest run -p moveit-collision --release` **261/261**(이 시험 포함).
 
 ## §282 `/compute_cartesian_path`를 묶는다 — 클라이언트가 보내지 않는 다섯 필드가 이 서비스의 설계를 정했다 (2026-08-06)
 
@@ -30642,11 +30887,11 @@ undeclared-unresolvable **0건**으로 통과한다.
   예를 들어 1044를 표는 2025로, 오늘 파일은 2062로 준다. 표의 숫자를
   그대로 썼다면 51건 전부 틀렸을 것이다.
 - 표에 있으나 게이트가 보는 인용이 **아닌** 행 2건: 표의
-  `PORTING-PLAN.md:20264` 행(오늘 20367-20368)이 든 1537은 백틱 밖이라 토큰이
+  `PORTING-PLAN.md:20385` 행(오늘 20367-20368)이 든 1537은 백틱 밖이라 토큰이
   아니었고, `oracle-request-collision-max-contacts-per-pair.md`의 51행(오늘 64)이
   든 2326은 줄바꿈으로 쪼개져 있었다.
 - 게이트가 보는 인용인데 표에 **없는** 것 2건: `doc/port-coverage.md:166`의
-  5688과 `PORTING-PLAN.md:5900`의 맨 541.
+  5688과 `PORTING-PLAN.md:6021`의 맨 541.
 
 그래서 표의 54행과 코퍼스의 54건은 같은 54가 아니었다. 총계가 맞았다는 것은
 아무것도 보증하지 않는다.
@@ -30654,7 +30899,7 @@ undeclared-unresolvable **0건**으로 통과한다.
 ### §287.3 맨 `:NNN` 연속 인용은 7건이 아니라 8건이다
 
 §253.2는 7건으로 셌다. 경로가 해소되면 이들이 처음으로 코퍼스에 들어오므로
-전수로 다시 셌고, 8건이다. 빠져 있던 것은 `PORTING-PLAN.md:5900`의 541
+전수로 다시 셌고, 8건이다. 빠져 있던 것은 `PORTING-PLAN.md:6021`의 541
 (`oracle.cpp`에 `dynamics` op가 있다는 문장, 오늘 `oracle.cpp:1029`)이다. 8건 전부 확인해
 고쳤다: 541→1029, 2214·2337·열 개 목록은 아래 §287.4의 역사 철자로,
 3605-3606·3575-3582·2206은 `47a271c^`로 고정, 268-286→294-316,
@@ -30728,7 +30973,7 @@ undeclared-unresolvable **0건**으로 통과한다.
   그 문서가 인용한 리비전(`47a271c^`)에서 두 번째 `max_contacts_per_pair` 대입은
   3623-3624이고 3605-3606은 열여덟 줄 위 doc comment의 꼬리다.
 
-그리고 인용은 맞았지만 문장이 틀린 것 1건: §245.3(`PORTING-PLAN.md:21734-21735`)이 오라클의
+그리고 인용은 맞았지만 문장이 틀린 것 1건: §245.3(`PORTING-PLAN.md:21855-21856`)이 오라클의
 특이점 흔들기를 "시드되지 않은 `std::rand()`"라고 적으면서 2188을 인용했다.
 `std::rand(`라는 호출은 `oracle.cpp`에 **없다**. 그 줄은
 `delta_q.data.setRandom();`(오늘 `oracle.cpp:2296`), 즉 Eigen 기본 난수이고, 그것이
@@ -30751,7 +30996,7 @@ undeclared-unresolvable **0건**으로 통과한다.
 - `oracle-request-pilz-blend-geometry.md:654`의 `` `5777`-`5778` `` →
   `` `oracle.cpp:6804-6805` ``
 
-일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27724`는
+일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27920`는
 `$ rg ...` 실행 결과를 코드 펜스 안에 그대로 옮긴 것이고, 그 실행은 실제로
 5688을 찍었다. 전사를 고치면 기록이 아니라 위조가 된다. (이 인용은 쓰인
 커밋 `580f1995` 당시 `!PORTING-PLAN.md:27486`이었고, 그 뒤 두 번 밀렸다.
@@ -31680,7 +31925,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27039`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27171`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -33626,7 +33871,7 @@ gapaudit은 이미 main에 병합돼 있다(`a4d5db85`). 그 트리에서 예측
 있어야 한다. 6건이 걸렸고 손으로 열어 확인했다: 예컨대
 `doc/assertion-discrimination-census.md:466`은 `PORTING-PLAN.md:10896`을
 §129.3으로 인용하며 그 절의 제목을 그대로 따옴표로 옮겨 적는데, 그 제목은
-`PORTING-PLAN.md:11027`에 있고 10883은 p1-fixtures의 크레이트 이야기다.
+`PORTING-PLAN.md:11148`에 있고 10883은 p1-fixtures의 크레이트 이야기다.
 **비어 있지 않은 살아 있는 줄로 착지한 이동**이고, 빈 줄 술어로는 구조적으로
 잡을 수 없는 종류다.
 
@@ -33895,8 +34140,14 @@ id에서 나온다.
 - **500문제 전체의 병합 무관함.** §300.8의 바이트 동일은 20 id에 대한 것이다.
 - **길이 일치를 궤적 일치로 올리는 것.** §300.6. 하네스가 waypoint 행렬이나
   그 해시를 내보내야 한다.
-- **panda_arm 외의 로봇, 두 번째 씨앗 베이스, `max_iterations = 200`.**
-  §286.11의 해당 항목들이 그대로 열려 있다. 이 절은 그 축을 건드리지 않았다.
+- **panda_arm 외의 로봇, `max_iterations = 200`.** §286.11의 해당 항목들이
+  그대로 열려 있다. 이 절은 그 축을 건드리지 않았다.
+- **두 번째 씨앗 베이스. 거짓 → 닫힘 (§303).** §286.11이 "포트 STOMP의 두
+  번째 씨앗 베이스"로 열어 둔 항목을 §303이 돌렸다 — panda_arm
+  `floor_wall`/`cage` 500문제를 씨앗 베이스 424242에서 포트·cpp 양쪽
+  실측해, 실패 id가 두 베이스 사이에서 하나도 겹치지 않으면서도 `r*`는
+  움직이지 않는다는 것을 보였다(§303.5, §303.7). 이 절이 직접 돌린 것은
+  아니지만 §286.11이 이 절 안에 열어 둔 항목 자체는 그렇게 닫혔다.
 
 ---
 
@@ -34244,18 +34495,253 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 - **§270.2의 42,259건.** 이 절의 모집단은 여전히 prbt 한 실행의 self 면
   389건이다. §270.2의 처분(389건이 그 안의 부분집합이라는 것)은 그대로이고,
   42,010건은 이 절 뒤에도 미판정이다.
-- **나머지 네 로봇.** panda·fanuc·dual_arm_panda는 링크가 전부 메시라
-  `WorldConvex`가 성립하지 않고, pr2는 성립하지만 걸지 않았다. 메시까지
-  덮으려면 지지함수를 볼록包 위에서 정의해야 하고, 이 절은 하지 않았다.
-- **우세하지 않음 19건.** 괄호는 좁은데 양쪽이 비슷하게 떨어져 있다. 두
-  solver가 같은 자리에서 같은 크기로 어긋난 경우일 수 있고, 열어 보지 않았다.
-- **판정 불가 93건.** 전부 편차 `1e-4` 미만이라 조항에는 걸리지 않지만,
-  폭을 `1e-12`까지 좁히면 판정 가능해지는 것이 몇 건인지는 재지 않았다.
-  현재 `TOL`은 `1e-9`이고, 그 아래로 가면 2차 수렴이 배정밀도 반올림에
-  부딪히는 지점이 어디인지가 먼저 필요하다.
-- **커밋된 전수 계측기.** §302.3과 §302.4의 표는 이 라운드의 일회용 프로브가
-  낸 것이고, 게이트가 쥔 것은 31행 축소판이다. 389이라는 수 자체를 게이트가
-  다시 세지는 않는다.
+- **나머지 네 로봇. 거짓 → 닫힘 (§302.10).** panda·fanuc·dual_arm_panda는
+  링크가 전부 메시라 `WorldConvex`가 성립하지 않고, pr2는 성립하지만
+  걸지 않았다. 메시까지 덮으려면 지지함수를 볼록包 위에서 정의해야 하고,
+  이 절은 하지 않았다.
+- **우세하지 않음 19건. 거짓 → 닫힘 (§302.8).** 괄호는 좁은데 양쪽이 비슷하게
+  떨어져 있다. 두 solver가 같은 자리에서 같은 크기로 어긋난 경우일 수 있고,
+  열어 보지 않았다.
+- **판정 불가 93건. 거짓 → 닫힘 (§302.9).** 전부 편차 `1e-4` 미만이라
+  조항에는 걸리지 않지만, 폭을 `1e-12`까지 좁히면 판정 가능해지는 것이 몇
+  건인지는 재지 않았다. 현재 `TOL`은 `1e-9`이고, 그 아래로 가면 2차 수렴이
+  배정밀도 반올림에 부딪히는 지점이 어디인지가 먼저 필요하다.
+- **커밋된 전수 계측기. 거짓 → 닫힘 (§302.7).** §302.3과 §302.4의 표는 이
+  라운드의 일회용 프로브가 낸 것이었고, 그때 게이트가 쥔 것은 31행
+  축소판뿐이었다. §302.7이 389건 전부를 커밋된 고정물로 만들고, 그 위에서
+  같은 판정 규칙을 다시 돌려 389이라는 수 자체와 277/0/19/93 네 수 전부를
+  게이트가 재도록 했다.
+
+### §302.7 §302.6의 다섯째 잔차 — 389건 전부를 커밋된 고정물로 만들었다
+
+`tools/moveit-diff`에는 그때까지 이 모집단 전체를 낼 수단이 없었다.
+`--pair-probe-json`은 거리 조항이 실패하고 두 쌍이 갈린 경우만 기록하고,
+`--stats-json`의 `DistanceBranchStats::tail`은 편차 최악 8건만 남긴다. 둘 다
+389건 전부(통과/실패, 쌍 일치 여부와 무관하게 오라클 값이 관통 분기로 간
+self 쪽 모든 case)를 내지 않는다.
+
+새 플래그 `--self-penetration-json <path>`를 더했다 — `side == "self"`이고
+오라클 값이 `<= 0.0`인 모든 case를 기존 `DistanceBranchOutlier` 행 그대로
+(조인트 값 포함) JSON 배열로 쓴다. 조건 하나만 넓혔을 뿐 기존 통계 경로는
+건드리지 않았으므로 `cargo nextest run -p moveit-diff --release`(기존 42건)가
+전부 그대로 통과한다.
+
+이 플래그로 §270.1이 인용한 것과 같은 스윕을 이 워크트리에서 다시 돌렸다:
+
+```
+sg docker -c 'target/release/moveit-diff \
+  --urdf fixtures/prbt.urdf --srdf fixtures/prbt.srdf \
+  --cases 10000 --seed 1 --collision --tol-distance 1e-4 \
+  --self-penetration-json prbt_self_penetration.json \
+  --oracle tools/moveit-oracle/run-oracle.sh'
+```
+
+같은 실행에서 `--stats-json`도 함께 재 확인했다: `bool_disagrees` 6854,
+`self_bool_disagrees` 0, `robot_bool_disagrees` 6854, `penetrating.total`
+10389 — §270의 prbt 행과 칸 단위로 같다. `--self-penetration-json`은
+**389행**을 냈다 — §297.4의 수와 정확히 같다.
+
+이 389행을
+`crates/moveit-collision/tests/fixtures/prbt_self_penetration_389.json`로
+커밋하고, 새 시험
+`prbt_penetration_branch_full_389_population_matches_the_published_totals`를
+추가했다. 이 시험은 §302.5가 이미 판별을 두 mutation 10건으로 확인한 규칙 —
+폭 `WIDTH_FRACTION = 0.1`을 넘으면 판정 불가, 아니면 `DOMINANCE = 100`배
+우세 쪽 — 을 각 행의 `(oracle_off, port_off, width, deviation)`에서 다시
+계산해 낸다(사전 기록된 라벨을 읽는 것이 아니다). 결과:
+
+| 판정 | 이 시험이 낸 값 | §302.3의 값 |
+|---|---|---|
+| fcl 쪽 | 277 | 277 |
+| 포트 쪽 | 0 | 0 |
+| 우세하지 않음 | 19 | 19 |
+| 판정 불가 | 93 | 93 |
+
+네 수 전부 일치. 이 시험(`prbt_penetration_branch_full_389_population_matches_the_published_totals`)은
+`cargo nextest run -p moveit-collision --release`로 2.6초. 두 mutation으로
+시험이 실제로 판별하는지 확인했다: `WIDTH_FRACTION`을
+`0.5`로 풀면 `(277, 0, 21, 91)`로 실패(우세하지 않음/판정 불가 경계가
+움직인 것이 그대로 드러난다), 우세 판정의 `Oracle`/`Port` 분기를 서로
+바꾸면 `(0, 277, 19, 93)`로 실패. 둘 다 이름 있는 단언에서 실패했다.
+
+`cargo fmt --all` 적용, clippy `-p moveit-diff --all-targets -- -D warnings`
+및 `-p moveit-collision --all-targets -- -D warnings` 0건,
+`cargo nextest run -p moveit-collision --release` **263/263**(이 시험 포함),
+`cargo nextest run -p moveit-diff --release` **42/42**(그대로, 새 플래그는
+추가 조건 하나만 넓혔을 뿐이라 기존 42건에 회귀가 없다).
+
+닫는 것은 "389라는 수 자체와 그 위의 277/0/19/93을 게이트가 다시 세는가"
+하나뿐이다. §302.6의 나머지 넷 — §270.2의 42,010건, 나머지 네 로봇, 우세하지
+않음 19건의 정체, 판정 불가 93건을 더 좁은 폭에서 재는 것 — 은 이 절 뒤에도
+그대로 열려 있다. 이번에 커밋된 389행 고정물은 그 중 우세하지 않음/판정
+불가 두 항목을 다음에 여는 재료가 될 수 있지만, 이 절 스스로는 그 둘을 열지
+않았다.
+
+### §302.8 §302.6의 셋째 잔차 — 우세하지 않음 19건은 전부 오라클 쪽 근소 우위다
+
+"두 solver가 같은 자리에서 같은 크기로 어긋난 경우일 수 있다"는 열어 보지
+않은 추측이었다. §302.7의 389행 고정물 위에서 §302.3의 판정 규칙을 그대로
+19건에 적용해 각 행의 `(oracle_off, port_off)`를 직접 쟀다
+(`prbt_penetration_branch_undominated_19_are_all_a_near_margin_oracle_lean`,
+`crates/moveit-collision/tests/collision_parity.rs`).
+
+측정값은 추측과 반대다. 19건 **전부**에서 `port_off`는 정확히 `0.0`이다 —
+포트 자신의 값은 기하 괄호 `[low, high]` 안에 있어 바깥으로 전혀 벗어나지
+않는다. 어긋난 것은 오라클 하나뿐이고, 그 어긋남의 크기를 폭으로 나눈
+`oracle_off / width`는 19건 모두 10.9에서 93.2 사이 — `DOMINANCE = 100`의
+문턱 바로 아래다. 즉 이 19건은 "양쪽 다 비슷하게 틀렸다"가 아니라 "오라클만
+괄호 밖에 있고, 그 이탈폭이 100배 문턱에 못 미치는 근소 사례"다.
+
+시험은 19라는 개수, `port_off == 0.0`, `oracle_off > 0.0`, 그리고
+`oracle_off / width`가 측정된 `(10, 100)` 구간 안에 있다는 것을 각 행에서
+단언한다 — 사전 기록된 라벨이 아니라 §302.3과 같은 판정 규칙을 다시 계산해
+낸 값이다. mutation으로 확인했다: 구간 상한을 `100`에서 `50`으로 좁히면
+case 370(`oracle_off / width = 77.399`)에서 바로 실패한다.
+
+`cargo fmt --all` 적용,
+clippy `-p moveit-collision --all-targets -- -D warnings` 0건,
+`cargo nextest run -p moveit-collision --release`
+**264/264**(이 시험 포함, §302.7의 263건에서 이 시험 하나가 늘었다).
+
+닫는 것은 §302.6의 "우세하지 않음 19건... 열어 보지 않았다" 하나뿐이다.
+§302.6의 나머지 셋 — §270.2의 42,010건, 나머지 네 로봇, 판정 불가 93건을
+더 좁은 폭에서 재는 것 — 은 이 절 뒤에도 그대로 열려 있다.
+
+### §302.9 §302.6의 넷째 잔차 — 폭을 1e-12로 좁히면 93건 중 58건이 판정되지만, 그중 57건은 우세하지 않음이다
+
+`minkowski_depth_bracket`의 정지 폭 `TOL`은 함수 안 지역 상수였다. 이
+질문 — "`1e-12`까지 좁히면 몇 건이 판정 가능해지는가" — 을 실제로 재려면
+매 실행마다 값을 바꿀 수 있어야 하므로, `TOL`을 모듈 상수로 올리고
+`minkowski_depth_bracket`과 `min_signed_distance_over` 둘 다에
+`tol: f64` 매개변수를 추가했다(기존 5개 호출부는 전부 `TOL`을 그대로
+넘겨 동작이 바뀌지 않는다 —
+`cargo nextest run -p moveit-collision --release`가 이 변경 전후로
+같은 264건을 통과시킨다).
+
+새 시험
+`prbt_penetration_branch_at_a_thousandfold_tighter_tolerance`가
+`TIGHT_TOL = 1e-12`로 389건 전부에 §302.7과 같은 판정 규칙을 다시
+돌린다. 결과: `(fcl, 포트, 우세하지 않음, 판정 불가) = (278, 0, 76, 35)` —
+93건 중 **58건**이 판정 가능해진다(93 - 35). 그러나 그 58건의 내역이
+질문의 핵심이다: fcl 쪽은 277에서 278로 **1건**만 늘고, 우세하지 않음은
+19에서 76으로 **57건** 는다. 즉 폭을 좁혀서 드러나는 것은 대부분 "숨은
+승자"가 아니라 "오라클과 포트가 서로 가깝다"는 것이다 — 이 절이 재려던
+질문에 대한 답은 "58건 판정 가능, 그중 57건은 판정이 곧 '우세하지 않음'"
+이다.
+
+mutation으로 확인했다: `TIGHT_TOL`을 `1e-9`(원래 `TOL`과 같음)로 되돌리면
+같은 시험이 `(277, 0, 19, 93)`을 내고 새 단언과 어긋나 실패한다 —
+값이 실제로 계산에 쓰인다는 뜻이다.
+
+`cargo fmt --all` 적용,
+clippy `-p moveit-collision --all-targets -- -D warnings` 0건,
+`cargo nextest run -p moveit-collision --release`
+**265/265**(이 시험 포함, 실행 4.1초 — 389건 전부를 `1e-12`까지 다시
+좁히는 비용이지만 스위트 전체가 4초대에 그대로 있다).
+
+닫는 것은 §302.6의 "판정 불가 93건... 재지 않았다" 하나뿐이다. 이 절이
+연 "왜 2차 수렴이 1e-9 아래로 못 가는가"는 열지 않았다 — `TIGHT_TOL`이
+실제로 `1e-12`의 폭을 대부분의 행에서 달성했다는 것(35건은 여전히
+그 폭에도 못 미친다)만으로 충분했고, 그 메커니즘은 이 절 밖이다.
+§302.6의 나머지 둘 — §270.2의 42,010건, 나머지 네 로봇 — 은 이 절 뒤에도
+그대로 열려 있다.
+
+### §302.10 §302.6의 마지막 잔차 — 나머지 네 로봇에 실제로 걸었다, 넷 다 적용 불가로 확정됐다
+
+§302.6이 남긴 문장은 "panda·fanuc·dual_arm_panda는 링크가 전부 메시라
+`WorldConvex`가 성립하지 않고, pr2는 성립하지만 걸지 않았다"였다. 넷 다
+실제로 걸어 그 문장을 확정한다.
+
+**panda·fanuc·dual_arm_panda.** §15.2·§22.1이 이미
+`parry_representable_link_names`로 낸 결과(셋 다 `<collision>`이 전부
+STL `<mesh>`)를, 이번에는 그 계측기를 거치지 않고 URDF
+`<collision><geometry>`를 직접 다시 파싱해 재확인했다:
+
+```
+panda:          primitive 0  mesh 11  no-collision 1
+fanuc:          primitive 0  mesh  7  no-collision 2
+dual_arm_panda: primitive 0  mesh 22  no-collision 3
+```
+
+`box`/`cylinder`/`sphere` 태그가 셋 다 0건이다. `WorldConvex`는
+프리미티브 형상에서만 지지함수를 갖는다(§302.1)이므로, 이 셋은 "재지
+않았다"가 아니라 계측기의 정의역이 원천적으로 공집합이다 — 걸 대상
+자체가 없다.
+
+**pr2.** §13.4·§15.2가 이미 센 17개 프리미티브(박스 5·실린더 8·구 4)가
+있어 정의역이 비어 있지 않다. §302.7이 prbt에 쓴 것과 같은 플래그로
+pr2 전체를 다시 돌렸다:
+
+```
+sg docker -c 'target/release/moveit-diff \
+  --urdf fixtures/pr2.urdf --srdf fixtures/pr2.srdf \
+  --cases 10000 --seed 1 --collision --tol-distance 1e-4 \
+  --self-penetration-json pr2_self_penetration.json \
+  --oracle tools/moveit-oracle/run-oracle.sh'
+```
+
+**10,000행**을 냈다 — §260.2·§270의 pr2 관통 10,022/10,042(같은 실행,
+같은 모집단의 self 면)와 정합한다. §302.1의 계측기가 한 행을 판정하려면
+두 구현이 지목한 쌍(`oracle_pair`, `rust_pair`) **둘 다** 프리미티브
+링크로만 이루어져야 한다 — 닫힌 형태 지지함수가 박스·실린더·구에만
+있기 때문이다. 10,000행 전부를 그 조건으로 세면:
+
+| 조건 | 건수 |
+|---|---|
+| `oracle_pair` 두 링크 모두 프리미티브 | 0 |
+| `rust_pair` 두 링크 모두 프리미티브 | 0 |
+| 둘 다 프리미티브 (계측기가 판정 가능) | **0 / 10,000** |
+
+계측기가 실제로 판정할 수 있는 행이 **하나도 없다**. `rust_pair`
+자체가 사실상 9가지 조합으로 붕괴돼 있고(9종류의 합이 정확히
+10,000), 전부 프리미티브 하나(캐스터 휠 또는 `base_bellow_link`)와
+메시 하나(`base_link` 또는 `torso_lift_link`)의 짝이다:
+
+```
+6240  base_bellow_link / torso_lift_link
+ 580  base_link / fr_caster_r_wheel_link
+ 564  base_link / fr_caster_l_wheel_link
+ 533  base_link / bl_caster_l_wheel_link
+ 496  base_link / bl_caster_r_wheel_link
+ 416  base_link / br_caster_r_wheel_link
+ 415  base_link / br_caster_l_wheel_link
+ 398  base_link / fl_caster_r_wheel_link
+ 358  base_link / fl_caster_l_wheel_link
+```
+
+62.4%(6,240/10,000)를 차지하는 `base_bellow_link`/`torso_lift_link`는
+URDF에서 인접 쌍이 아니다 — 둘 다 `base_link`의 자식이고(`base_bellow_joint`,
+`torso_lift_joint`), 서로 부모-자식 관계가 아니다. 그런데도 이 픽스처의
+SRDF는 이 쌍을 비활성화하지 않는다. `fixtures/pr2.srdf`의
+`disable_collisions` 태그는 **딱 하나**(`r_shoulder_pan_link`/
+`r_shoulder_lift_link`)뿐이고, 바로 다음 줄이 문자 그대로
+`<!-- and many more disable_collisions tags -->`다. 이것이 이 저장소가
+잘라낸 결과인지 확인하려 벤더링된 원본과 diff했다:
+
+```
+$ diff third_party/moveit_resources/pr2_description/srdf/robot.xml fixtures/pr2.srdf
+(출력 없음 -- 바이트 단위로 동일)
+```
+
+두 파일이 바이트 단위로 같다 — 이 스텁은 moveit-rs가 잘라낸 것이 아니라
+벤더 패키지 `moveit_resources/pr2_description`이 원래 이렇게 배포한다.
+실물 PR2가 쓰는 전체 ACM(통상 링크 인접 쌍 전부와 "항상 겹침" 쌍을
+포함해 수백 항목)은 이 저장소 어디에도 없다. `base_bellow_link`/
+`torso_lift_link`가 스윕의 `rust` 쪽에서 항상 음수(겹침)로 나오는 것은
+벨로우즈가 토르소 리프트 기구를 감싸는 실제 형상과 들어맞고, 실물
+SRDF라면 `reason="Default"`류로 비활성화될 자리로 보이지만, 이 확인이
+실물 SRDF의 내용까지 안다고 주장하지는 않는다 — 확정하는 것은 "이
+픽스처의 ACM이 명백히 불완전하고, 그 불완전함이 pr2 self-penetration
+불일치 모집단의 62%를 차지한다"는 사실이다.
+
+**결론.** 넷 다 실제로 걸었다. panda·fanuc·dual_arm_panda는 정의역이
+공집합이라 걸 대상이 없고, pr2는 정의역이 있지만(17개 프리미티브)
+실제 self-penetration 불일치 10,000건 중 계측기가 판정 가능한 행이
+0건이다 — 셋은 프리미티브가 전무해서, pr2는 있어도 실제 불일치가 그
+프리미티브들 사이에서 나지 않아서(대신 벤더 SRDF 스텁이 놓친 프리미티브
+×메시 쌍에서 난다)다. §270.2의 42,010건은 이 절 뒤에도 그대로
+미판정이다 — 이 절이 확정한 것은 "왜 이 계측기로 그 42,010건에 닿을 수
+없는가"이지, 42,010건 자체의 판정이 아니다.
 
 
 ## §305 발표한 수의 증거가 트리에 있는가 — 계측기 20개를 네 부류로 갈랐고, 출판 80행 중 41행은 증거가 없다 (2026-08-07)
@@ -35101,7 +35587,7 @@ unresolvable이다.
 | 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
 |---|---|---|---|
 | `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
-| `PORTING-PLAN.md:31630` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
+| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
 | `doc/claim-audit/upstream-bugs.md:37` | `!PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
 
 세 건 다 baseline에 findings로 선언돼 있고 passing 등급으로 얼려지지
@@ -35137,7 +35623,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
 `oracle.cpp:5688` 전사 줄이다. §287.7의 문장이 "그 실행은 실제로 5688을
 찍었다"고 말하는 것과 정확히 맞고, 그 문장이 이 인용을 고치면 위조가 된다고
 한 이유이기도 하다 — 5688은 살아 있는 `oracle.cpp` 인용이 아니라 실행
-출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27724`에 있다(§271.3
+출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27920`에 있다(§271.3
 안, 펜스 27720–27726).
 
 §299.7은 이것을 `$ rg -l -w 'NearestNeighbors' .` 출력으로 읽고 27499(+13)로
@@ -35157,7 +35643,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
   자리가 남는다.
 
 그래서 번호만 고치지 않고 **검사 가능한 형태로 바꿨다**: §287.7의 문장이
-이제 `§271.3의 PORTING-PLAN.md:27724`로 절을 이름 댄다. 다음에 §271.3의
+이제 `§271.3의 PORTING-PLAN.md:27920`로 절을 이름 댄다. 다음에 §271.3의
 내용이 밀리면 인용이 절 범위 밖으로 나가고, 그때는 게이트가 말한다. 손으로
 고친 번호는 다시 밀린다 — 이 인용은 이미 두 번 밀렸다. 남길 것은 번호가
 아니라 그것을 붙잡는 규칙이다.
@@ -35191,7 +35677,7 @@ Phase 0–9의 것만 나온다(`PORTING-PLAN.md:618`, "각 단계는 **검증 �
 
 둘째, 같은 파일의 `third_party` pin 주석 인용 4건이 전부 §160의 산문이나
 하위 제목을 가리키고 있었다. 실제로 revision을 기록한 행은
-§160.3의 `PORTING-PLAN.md:12958`부터 `PORTING-PLAN.md:12960`까지와
+§160.3의 `PORTING-PLAN.md:13080`부터 `PORTING-PLAN.md:13082`까지와
 `doc/upstream-bugs.md:225`다.
 `resolved` 등급은 "범위 안이고 빈 줄이 아니다"만 뜻하므로 네 건 모두 등급상
 통과였다. 세 건에 §160.3 section claim을 붙여 `section-verified`로 올렸다 —
@@ -35553,8 +36039,8 @@ task #43은 "`>` 비교와 `assert_ne!`로 코퍼스를 넓히라"고 적혀 있
 않은 이유인 **타입 사실**이 아니다 — 그래서 여기서는 가르고 거기서는 안 가른다.
 
 `cmp_compound`는 하나의 kind로 남긴다. 이유는 §307.4에서 손으로 읽은 36건
-자체가 증거다: `parry.rs:4537`의 `.abs() > 0.1`은 `.abs()`가 있어도
-half_plane이고(초과 판정), `parry.rs:5085`의 `gap > 0.0 && gap < 1e-15`는
+자체가 증거다: `parry.rs:4643`의 `.abs() > 0.1`은 `.abs()`가 있어도
+half_plane이고(초과 판정), `parry.rs:5191`의 `gap > 0.0 && gap < 1e-15`는
 `.abs()` 없이도 정밀 톨러런스다. 가르는 기준은 바깥 피연산자가 이미
 `.norm()`/`.angle_to()`로 음이 아닌 값인지, 상수의 폭이 부동소수점 잡음인지
 실제 정의역인지 — 둘 다 정규식이 볼 수 없는 데이터플로/의미 사실이다.
@@ -35569,9 +36055,9 @@ half_plane이고(초과 판정), `parry.rs:5085`의 `gap > 0.0 && gap < 1e-15`�
 
 | 파일:줄 | 모양(요약) | 판정 | 근거 |
 |---|---|---|---|
-| `parry.rs:4462` | 4개 OR, AABB 포함 위반 | coarse | 무경계 반평면 4개 OR |
-| `parry.rs:4537` | `.abs() >` OR (브리프 예시) | coarse | "초과 판정", `.abs()`가 있어도 half_plane |
-| `parry.rs:5085` | `gap>0.0 && gap<1e-15` (브리프 예시) | precise | `.abs()` 없는 양측 밴드, 폭이 수치 잡음 |
+| `parry.rs:4568` | 4개 OR, AABB 포함 위반 | coarse | 무경계 반평면 4개 OR |
+| `parry.rs:4643` | `.abs() >` OR (브리프 예시) | coarse | "초과 판정", `.abs()`가 있어도 half_plane |
+| `parry.rs:5191` | `gap>0.0 && gap<1e-15` (브리프 예시) | precise | `.abs()` 없는 양측 밴드, 폭이 수치 잡음 |
 | `collision_parity.rs:958` | `.abs()<` AND `.abs()<` | precise | 두 abs 톨러런스 AND |
 | `collision_parity.rs:1414` | `.abs()<` AND `.abs()<` | precise | 위와 동일 모양 |
 | `collision_parity.rs:2388` | `.abs()+reach<BOUND` ×2 AND `축>TOP_Z` | coarse | FLOOR_HALF_EXTENT/TOP_Z는 씬의 실제 공간 경계, 잡음 아님 |
@@ -35724,7 +36210,7 @@ panda 250 + fanuc 250(구성당 125문제 × 넷), §304는 panda 500(floor_wall
 
 `!PORTING-PLAN.md:27602`를 p12-tangency는 27603으로, p10-phase13은
 27609로 밀었다. 병합된 트리에서는 **어느 쪽도 맞지 않는다** — 실제 값은
-`PORTING-PLAN.md:27724`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
+`PORTING-PLAN.md:27920`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
 꽂았고 `check-citation-drift.py`가 blank-line 3건으로 잡았다. 여덟 개를
 게이트가 찍은 citer 위치와 대상 재독으로 다시 유도했다.
 
@@ -35783,8 +36269,8 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21734-21735` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
-| `PORTING-PLAN.md:31630` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27039` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21855-21856` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
+| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27171` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
 `section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도
@@ -36285,6 +36771,386 @@ tools/ci/verify-phase8-benchmark.sh` (릴리스 빌드 포함 벽시계 171초,
 — 하나씩 다시 돌려 확인하지는 않았다. `verify-phase8-benchmark.sh`가
 집계-보존/구성-미보존이라는 결론이 이 9개 전체로 일반화되는지는 이 절이
 확인한 범위 밖이다.
+
+---
+
+## §316 A3 — pilz-pipeline 테마(PZ) 20건을 재쟀다, 전부 오늘도 참이다 (2026-08-07)
+
+`doc/residual-claims-triage.md`의 `pilz-pipeline` 테마(20건, 8개 절 —
+§130.3, §227.4, §227.6, §227.7, §234.5, §240.7, §263.7, §266.7)를 절
+단위로 열어 각 불릿마다 falsifier를 정하고 실행했다. 20건 모두 falsifier
+불발 — OPEN으로 남는다. 시작 전에 `git merge main`으로 20개 이상 커밋을
+받았다(fast-forward, 충돌 없음).
+
+### §316.1 §130.3 — 정리 대상 오라클 이미지는 89개가 아니라 133개다, 정리는 여전히 사용자 승인 대기
+
+불릿: "정리 대상 이미지가 하나 늘었다(현재 89개, 정리는 사용자 승인
+필요). 이 변종 이미지는 요청서가 확정되면 버린다." falsifier: 사용자가
+정리를 승인해 이미지가 실제로 지워졌거나, 다른 근거로 이 잔여가
+없어졌다면 거짓.
+
+`sg docker -c 'docker images "moveit-rs/oracle"'`로 태그를 직접 세면 오늘
+**133개**다(`ce29f1718ca74fda` 변종 포함, 여전히 살아 있다). "요청서가
+확정되면 버린다"던 예측 중 앞쪽 절반은 맞아떨어졌다 —
+`pilz_industrial_motion_planner`가 `tools/moveit-oracle/src-digest.sh:95`의
+`ORACLE_MOVEIT2_PACKAGES` 기본값에 이미 들어가 정본이 됐고, `oracle.cpp`도
+`pilz_trajectory` op을 영구히 갖고 있다(`oracle.cpp:1061-1062`). 그러나
+예측의 술어는 "버린다" — 이미지 삭제였고, 그 삭제는 일어나지 않았다.
+`tools/moveit-oracle/` 전체에 `cleanup`/`prune`/`정리` 어휘가 0건이라
+정리 스크립트 자체가 없다. 잔여의 핵심 — "쌓인 이미지를 사용자 승인 없이
+지우지 않는다" — 는 오늘도 그대로이고, 숫자는 89에서 133으로 더 늘었을
+뿐이다. falsifier 불발 — OPEN.
+
+### §316.2 §227.4 — `PlanningContext`는 오늘도 이 크레이트에 없다
+
+두 불릿(`PlanningContext` 자체 미도입 / 그래서 구현 타입 없음)을 함께
+잰다. falsifier: `moveit-planners-pilz`가 `moveit-planning`이나
+`moveit-planners-sbp`에 의존 간선을 얻었거나, `PlanningContext`를 구현하는
+타입이 그 크레이트에 생겼다면 거짓.
+
+`crates/moveit-planners-pilz/Cargo.toml`의 `[dependencies]`를 읽으면
+`moveit-planning`도 `moveit-planners-sbp`도 없다. `rg -n 'PlanningContext'
+crates/moveit-planners-pilz/src/`는 `lib.rs`의 부재를 설명하는 산문 한
+줄뿐, 구현이 없다. `rg -rln pilz crates/moveit-planners-sbp/src/`도 0건 —
+sbp 레지스트리가 pilz를 등록하지 않는다. falsifier 불발 — 둘 다 OPEN.
+
+### §316.3 §227.6 — #41/#11 두 실제 누락은 오늘도 열려 있다
+
+**#41 `JointNumberMismatch`.** falsifier: `trajectory_generator_lin.rs`의
+`Goal::Joint` 분기나 `check_joint_goal`
+(`crates/moveit-planners-pilz/src/trajectory_generator.rs:746-764`)이
+목표 관절 개수와 그룹의 활성 관절 개수를 비교하는 코드를 얻었다면 거짓.
+두 함수를 다시 읽으면 `check_joint_goal`은 이름의 소속(`has_joint_model`)과
+한계만 보고 개수는 세지 않는다 — 비교가 여전히 없다.
+
+**#11 `MoreThanOneTipFrameException`.** falsifier: `solver_tip_frame`
+(`crates/moveit-planners-pilz/src/trajectory_functions.rs:803-809`)이나
+그 호출자가 복수 tip frame을 분기하는 코드를 얻었다면 거짓. 함수는
+오늘도 `resolve_solver`의 결과 하나를 그대로 감쌀 뿐이고,
+`doc/port-coverage.md:207`도 오늘 "multi-tip 분기"를 여전히 잔여로
+적는다.
+
+falsifier 둘 다 불발 — OPEN.
+
+### §316.4 §227.7 — 46행 실행 미확인, 상류 doc 결함 둘 다 오늘도 참이다
+
+**46행 실행 미확인.** falsifier: 이후 어느 라운드가 46행 전체를 테스트로
+실행 확인했다면 거짓. `grep -n "46개.*실행\|46행" PORTING-PLAN.md`는
+§227.7 자신의 문장 밖에 후속이 없고,
+`crates/moveit-planners-pilz/tests/`의 여섯 파일 어디에도 46개 에러
+코드를 전수로 발생시키는 테스트가 없다.
+
+**상류 doc 넷 중 셋의 `@throw` 불일치.** falsifier: 핀(`e017c91e`)이
+바뀌었거나 상류가 그 문서를 고쳤다면 거짓. 이 세션 내내 핀은
+`e017c91ee12984393a28ba246075c65f69cde3bf`로 고정이고,
+`/home/stevek/work/moveit2`를 그 SHA에서 직접 읽으면
+`trajectory_generator_{circ,lin,polyline}.hpp` 셋 다 `@throw
+TrajectoryGeneratorInvalidLimitsException`을 여전히 적고 그 `.cpp`
+생성자 본문은 `printCartesianLimits()` 한 줄뿐이다(PTP만 실제로
+던진다) — 상류 자체가 안 바뀌었으므로 이 문서 결함은 핀이 고정인 한
+falsifier가 정의상 불발한다.
+
+falsifier 둘 다 불발 — OPEN.
+
+### §316.5 §234.5 — 네 불릿 모두 오늘도 참이다
+
+- **`ChompSolution`을 벡터로 넓히지 않았다.** falsifier:
+  `ChompSolution::trajectory`가 `Vec`로 바뀌었다면 거짓.
+  `crates/moveit-planners-chomp/src/planner.rs:213`은 오늘도 `pub
+  trajectory: RobotTrajectory<'m>` — bare 타입 그대로다. OPEN.
+- **`ros/moveit-ros/Cargo.toml`을 안 건드렸다.** falsifier: 그 파일이
+  `moveit-planners-pilz`나 `moveit-planners-chomp`에 의존 간선을 얻었다면
+  거짓. 오늘 그 파일은 `moveit-planners-sbp` 하나만 플래너 크레이트로
+  갖는다(`Cargo.toml:74`) — pilz/chomp 간선은 여전히 없다. OPEN.
+- **`planning_time` 잔여를 안 닫았다.** falsifier: `PlanningResponse`
+  (`crates/moveit-planning/src/response.rs:129-148`)에 `planning_time`
+  필드가 생겼다면 거짓. 구조체는 오늘도 `trajectory`/`planner_id`/
+  `start_state` 셋뿐이다. D8 감사 자신이 §153.1의 만료 조건이
+  "발화했다"고 적어 두었지만(`response.rs:59`), 그 발화는 이 필드가
+  이제 *제외*가 아니라 *공백*이라는 분류 변경일 뿐 필드를 채우는 것과
+  다르다 — 채워지지 않았으므로 OPEN.
+- **`pilz-detailed-response-pushes-null-trajectory`의 등급을 안
+  바꿨다.** falsifier: `doc/upstream-bugs.md`에서 그 항목의 등급이
+  `not-reproduced`가 아니게 됐다면 거짓. 오늘도 `not-reproduced`다
+  (`doc/upstream-bugs.md:121`). OPEN.
+
+### §316.6 §240.7 — 미감사 분포와 `moveit-test-support`의 공백 둘 다 오늘도 그대로다
+
+**미감사 분포.** falsifier: `doc/declaration-audit-coverage.md`가
+`moveit-planners-pilz`/`moveit-model`/`robot_state.hpp,.cpp`를 더 이상
+39/20/2로 적지 않는다면 거짓. `tools/ci/verify-declaration-audits.sh`를
+다시 돌리면 오늘도 "159 rows == 159 ported files; 74 audited, 85
+none"이고, 그 문서의 크레이트별 요약표(`declaration-audit-coverage.md:107-114`)는
+여전히 pilz 39 / model(+geometry) 20 / robot_state 2를 적는다 — §240.7이 쓰인
+시점과 숫자가 하나도 안 바뀌었다. (불릿 자신의 "81건" 표기는 이 표의
+합계 85와도, pilz+model+robot_state의 합 61과도 안 맞는 것을 재확인했다
+— 어느 산식으로도 81이 안 나온다. 이 산술은 불릿이 쓰인 시점부터 이미
+안 맞았던 것으로 보이고, 그 자체가 명명한 세 수치를 거짓으로 만들지는
+않는다 — 별개의 결함으로만 적어 둔다.) falsifier 불발 — OPEN.
+
+**`moveit-test-support`의 `doc/claim-audit/` 공백.** falsifier:
+`doc/claim-audit/moveit-test-support.md`가 생겼다면 거짓. `doc/claim-audit/`
+목록에 오늘도 그 파일이 없다(19개 크레이트 파일뿐, `moveit-test-support`
+제외). OPEN.
+
+### §316.7 §263.7 — Phase 8 pilz 항목은 손대지 않았고, 상류 기본 벽시계 구성은 구조적으로 비재현이다
+
+**Phase 8의 pilz 항목.** falsifier: §5의 Phase 8 pilz 행이 §217.3 아닌
+다른 절을 인용하거나 등급이 바뀌었다면 거짓. `PORTING-PLAN.md:821`은
+오늘도 "Phase 8 | pilz LIN/PTP/CIRC 궤적이 오라클과 `1e-6` 이내 일치 |
+MET | §217.3 | 2026-08-05"다 — §263 이후 어느 절도 이 행을 다시 열지
+않았다. OPEN.
+
+**상류 기본 벽시계 구성의 재현 가능한 수치.** 이 불릿은 "그 구성에서는
+재현 가능한 숫자가 존재하지 않는다"는 구조적 주장이지, 미래에 누가 재면
+바뀔 수치 주장이 아니다 — §263.3이 같은 시드·같은 바이너리로 CHOMP를
+두 번 돌려 12문제가 갈리는 것을 직접 관측했다(공유 기계의 벽시계 정지
+조건이 원인). 하네스는 오늘도 §263.3의 수정(반복 횟수 상한, `1e9`
+벽시계) 그대로다 — falsifier가 성립하려면 공유 기계에서도 결정론적인
+벽시계 측정 방법이 있어야 하는데, 그런 방법이 없다는 것 자체가 불릿의
+내용이다. 구조가 안 바뀐 한 falsifier는 정의상 불발한다. OPEN.
+
+### §316.8 §266.7 — 다섯 불릿 모두 오늘도 참이다
+
+- **어댑터 체인이 비어 있다.** falsifier: `plan_only`
+  (`ros/moveit-ros/src/move_group.rs:160-174`)가 `generate_plan`에 빈
+  슬라이스가 아닌 실제 체인을 넘긴다면 거짓. 오늘도 `&[]`,
+  `&[planner]`, `&[]` 그대로다. OPEN.
+- **`planning_time`.** §316.5와 같은 필드, 같은 결과 — 오늘도 없다.
+  OPEN.
+- **goal의 `planning_scene_diff`가 무시된다.** falsifier:
+  `move_group.rs` bin이 `goal.planning_options.planning_scene_diff`를
+  읽어 씬에 반영한다면 거짓. `ros/moveit-ros/src/bin/move_group.rs:141`은
+  오늘도 스스로 "`planning_options.planning_scene_diff` is ignored"라고
+  적는다. OPEN.
+- **chomp/stomp/pilz는 `PlannerManager`가 아니다.** falsifier: 셋 중
+  하나라도 `PlannerManager`를 구현했다면 거짓. `rg -l
+  'impl.*PlannerManager'`를 `moveit-planners-{chomp,stomp,pilz}/src`에
+  돌리면 오늘도 0건 — `moveit-planners-sbp`만 구현한다. OPEN.
+- **`DEFAULT_PIPELINE_ID`가 소스에 박혀 있다.** falsifier: 그 상수가
+  설정/파라미터에서 읽힌다면 거짓. `ros/moveit-ros/src/move_group.rs:67`은
+  오늘도 `pub const DEFAULT_PIPELINE_ID: &str = "rrt_connect"`다. OPEN.
+
+---
+
+## §317 A3 round C2 — collision-distance-accuracy 테마 §248.9/§251.6/§260.8/§262.5/§265.8의 18건을 재쟀다, 2건은 이미 다른 절이 닫혔다 (2026-08-07)
+
+`doc/residual-claims-triage.md`의 `collision-distance-accuracy` 테마 아래 C2로 묶인 다섯 절
+(§248.9(4)·§251.6(4)·§260.8(7)·§262.5(2)·§265.8(1), 합 18건)을 절 단위로 열어 각 불릿마다
+falsifier를 정하고 실행했다. 16건은 falsifier 불발 — OPEN으로 남는다. 2건은 falsifier가
+발화했다 — 두 경우 다 이 라운드가 새로 잰 것이 아니라, 이미 merge된 다른 절(§288·§284)이
+각각 다른 목적으로 먼저 답해 둔 것을 이 라운드가 발견하고 원래 불릿에 마커를 옮겨 적는다.
+시작 전 `git merge --no-edit main`으로 fast-forward 60커밋을 받았다(충돌 없음).
+
+### §317.1 §248.9 — 넷 다 오늘도 참이다
+
+**둘째 RNG 스트림.** falsifier: 이 게이트가 `SEED_BASE` 말고 다른 시드/RNG 스트림을
+얻었다면 거짓. `tools/ci/verify-phase7-benchmark.sh`를 전수 grep하면 `SEED_BASE=424242`
+(136행) 하나뿐이고 모든 호출부(200·242·436·455·475·490·732행)가 그 값을 그대로 읽는다.
+falsifier 불발 — OPEN.
+
+**같은 `objects` 배열로 장면을 만든다.** falsifier: 오라클 쪽 world가 포트가 푼 요청과
+다른 JSON에서 만들어진다면 거짓. `oracle_path_check`(`verify-phase7-benchmark.sh:338-354`)를
+읽으면 354행이 `objects: $req[0].objects`로 만들며, `$req`는 포트가 실제로 푼 그 요청
+JSON이다. falsifier 불발 — OPEN.
+
+**`motion_resolution` 아래의 충돌 간극.** falsifier: Phase 7 게이트나
+`plan_benchmark_port.rs`가 여러 해상도 그리드(`condition2_resolutions`)를 받아 조건 2를
+재게 됐다면 거짓. 주석 `# Condition 2's collision-check resolution`은
+`plan_benchmark_port.rs:71`에 그대로 있고, `condition2_resolutions` 식별자는 저장소
+전체에서 Phase 8 하네스(`chomp_benchmark_port.rs`·`stomp_benchmark_port.rs`·
+`seed_validity_problem_set.rs`)와 오라클에만 있다 — `plan_benchmark_port.rs`와
+`verify-phase7-benchmark.sh`에는 0건(`rg -c condition2_resolutions
+crates/moveit-planners-sbp/examples/plan_benchmark_port.rs` 종료 코드 1). falsifier
+불발 — OPEN.
+
+**paired median 집단의 크기.** falsifier: `verify-phase7-benchmark.sh`의 판정식이
+`paired_problems_pooled`에 바닥값을 추가했다면 거짓. 1023행은 오늘도
+`(($s.paired_problems_pooled//0) > 0 and ...)`뿐이다. falsifier 불발 — OPEN.
+
+이 네 건은 §291.2("§248.9 ①~⑤" 행)가 같은 날 독립적으로 측정한 결론과 일치한다 — 다만
+§291은 여덟 절의 정규식-매치 코퍼스를 다룬 것이고 이 라운드는 그 결과를 그대로 옮기지
+않고 위 falsifier로 직접 재확인했다.
+
+### §317.2 §251.6 — 셋은 참이다, 넷째는 §229.1에서 이미 두 번 더 옮겨가 있어 거짓이다
+
+**`sphere × sphere` 셀.** falsifier: `accumulate_collision`(`parry.rs:2140`)의
+`contact_ball_ball` 호출이나 그 판정 경계가 바뀌었다면 거짓. §251.6이 쓰인 커밋
+(`c5fa6985`, 07:36) 이후 `parry.rs`를 건드린 커밋은 셋뿐이다(`2abc8d0a`·`f1d4ea22`·
+`a1c1ecb7`) — `git diff c5fa6985 HEAD -- crates/moveit-collision/src/parry.rs`의 훅
+셋은 각각 `mod tests` 안의 테스트 추가 둘과 483행 부근 doc-comment 인용 줄번호 정정
+하나뿐, `accumulate_collision` 본문은 한 글자도 안 바뀌었다. `2abc8d0a`가 새로 편
+`sphere × sphere` 접선 테스트가 오늘도 통과한다(`contact_ball_ball's strict '<' must
+still exclude the exact tie`). falsifier 불발 — OPEN.
+
+**`Plane`/`Halfspace`/`OcTree`를 25쌍에서 뺐다.** falsifier:
+`crates/moveit-collision/tests/exact_tangency_is_decided_per_shape_pair.rs`의 25쌍
+목록이 그 세 타입을 포함하게 바뀌었다면 거짓. 그 파일은 §251.6과 같은 커밋
+(`c5fa6985`) 이후 한 번도 수정되지 않았다(`git log --follow` 마지막 히트가 `c5fa6985`
+자신). falsifier 불발 — OPEN.
+
+**`distance` 열은 건드리지 않았다.** falsifier: `mesh × mesh` 접선의 `-1.0`이 §251.2
+말고 다른 절에서도 다뤄졌다면 거짓. `rg -n 'mesh × mesh' PORTING-PLAN.md`는 오늘도
+정확히 두 히트(§251.2 자신의 23283행과 이 불릿 23438행)뿐이다. `distance_robot`
+경로도 §251.6 이후 `parry.rs` 미변경(위 항목과 같은 diff 증거)이므로 값 자체도
+안 바뀌었다. falsifier 불발 — OPEN.
+
+**Phase 3 완료 조건 현황표의 `collision: bool` 행 근거 열 — 거짓 → 닫힘 (§317.2).**
+불릿 본문은 스스로 "처리됨(`17d62b6`) — 이제 `§251.4`"라고 이미 한 번 고쳐 적었지만,
+그 문단 자체가 §251.6이 **쓰인 시점**의 상태라고 명시한다. 오늘의 §5 표
+(PORTING-PLAN.md:809)는 "MET | §288 | 2026-08-06"이다 — `§251.4`도 아니다. 근거 열이
+그 자리로 옮겨간 것은 `e0afcc0c`(`phase3: measure the collision clause where both
+dispatch tables agree`, 2026-08-06T22:57:17)이고, §251.6이 쓰인 07:30과 "처리됨" 메모가
+붙은 13:34 둘 다보다 뒤다 — 즉 근거 열은 §229.1에서 §251.4로 한 번(`17d62b6`), 그 뒤
+다시 §288로 또 한 번(`e0afcc0c`, 그 사이 §275.2를 거쳤다 — `git log -G'^\| Phase 3 \|
+\`collision: bool\`'`이 그 행을 다섯 번 고친 커밋을 전부 보여준다) 옮겨갔다.
+"§229.1 그대로 두었다"는 원래 주장도, 그것을 스스로 고친 "이제 `§251.4`"도 오늘은 둘
+다 거짓이다. 판정이 바뀐 것은 아니다(오늘도 MET) — 근거 열의 목적지가 문서화된 것보다
+한 홉 더 옮겨갔을 뿐이다.
+
+### §317.3 §260.8 — 여섯은 참이다, prbt `8.892585e-5`는 §284의 지지함수 괄호로 이미 닫혔다
+
+**`collision: bool` 행을 건드리지 않았다.** falsifier: §229.1이 잰 prbt
+6,854/10,000이 오늘 다른 값을 낸다면(원래 조건 문구 그대로 재실행했을 때) 거짓.
+`accumulate_collision`은 §260.8이 쓰인 시점(`7cc69f0ec`, 09:44) 이후로도 논리가
+안 바뀌었고(§317.2와 같은 diff 증거), 같은 6,854라는 수는 그날 늦게 §265
+(26629행 이하, `--stats-json`의 `collision_clauses.bool_disagrees: 6854`)가 별도
+계측기로 다시 확인했다. §288이 §5 행의 **조건 문구**를 겹치는 파견표 쌍으로 좁혀 그
+행을 MET으로 바꾼 것이지, prbt의 원래-조건 결과 자체를 고친 것이 아니다 — §262.4가
+직접 "판정 어휘를 바꾸는 대신 조건문 자체를 고쳤다"고 적어 둔 그 구분이다. falsifier
+불발 — OPEN.
+
+**허용오차를 넓히지 않았다.** falsifier: `verify-phase3-collision-sweep.sh`의
+`--tol-distance`가 `1e-4`보다 커졌거나 "모집단도 좁히지 말 것" 문구가 지워졌다면
+거짓. 192행은 오늘도 `--tol-distance 1e-4`이고, 266-270행은 오늘도 "The tolerance is
+the condition's own 1e-4 and is not to be widened... Neither is the judged
+population to be narrowed further"를 그대로 찍는다. falsifier 불발 — OPEN.
+
+**`doc/upstream-bugs.md`에 항목을 올리지 않았다(관통 쪽 셋의 경계만).** falsifier:
+§260.8이 이름 댄 관통 쪽 세 항목(`fcl-distance-sentinel-survives-zero-contacts`·
+`distance-callback-max-contact-depth`·`distance-callback-threshold-suppresses-deeper-pairs`)
+말고 §260.8 **자신이** 새 항목을 올렸다면 거짓. 세 항목은 오늘도 그 셋뿐이고, §260.8은
+그중 어느 것도 고치지 않았다. `86be07b0`(§284.7, 17:26)이 이후
+`distance-callback-default-tolerance-makes-distance-order-dependent`에 문단을
+추가한 것은 사실이지만, 그것은 **분리** 분기의 별개 항목이고(§260.8이 말하는 "관통 쪽
+셋"이 아니다), §260.8 자신이 한 일도 아니다 — 이 불릿의 주장 범위(이 절이 무엇을
+했는가)는 안 바뀐다. falsifier 불발 — OPEN.
+
+**상류 결함을 재현하지 않았다.** falsifier: 이후 어느 커밋이든 `minimum_distance`를
+최소가 아니게 만드는 재현을 이 포트에 실제로 넣었다면 거짓. `rg -n
+'minimum_distance.*재현|재현.*minimum_distance'`는 오늘도 이 불릿(25555행)과
+§248.10 근처의 같은 문구(22283행) 둘뿐 — 재현을 완료했다고 적은 곳이 없다. falsifier
+불발 — OPEN.
+
+**prbt의 `8.892585e-5`를 닫힌 형태로 확인하지 않았다 — 거짓 → 닫힘 (§317.3).**
+falsifier: 이후 어느 절이 이 잔차를 상수(닫힌 형태 또는 그와 동등한 방법)로 확인했다면
+거짓. `86be07b0`(§284.4-.5, 17:26)이 정확히 그것을 했다: `cylinder`-`box` 쌍엔 짧은
+닫힌 형태가 없지만(교점이 실린더 아랫면 테두리 원과 상자 모서리 선분의 내부이고,
+최근접 조건이 원의 매개변수에 대한 4차식), 두 볼록체의 지지함수로 만든 괄호는
+witness 탐색의 질과 무관하게 참값을 반드시 포함한다는 것을 §284.5가 증명하고
+`convex_distance_bracket`으로 구현했다. 테스트
+`prbt_link_4_base_link_clearance_brackets_the_separated_residual`
+(`crates/moveit-collision/tests/collision_parity.rs:3780`, 자기 doc-comment
+3734행에서 스스로 "§260.8's open item"이라 이름 붙인다)이 case 4697에서 괄호
+`[3.27873837944664820e-2, 3.27873837944665236e-2]`(폭 `4.163336e-17`)를 재고, 이
+포트는 그 괄호에서 `2.558970e-11`, 오라클은 `8.892588e-5` 떨어져 있다는 것을 실측
+핀으로 고정한다. 오늘 재실행:
+
+```
+$ cargo nextest run -p moveit-collision prbt_link_4_base_link_clearance_brackets_the_separated_residual
+PASS [0.008s] moveit-collision::collision_parity prbt_link_4_base_link_clearance_brackets_the_separated_residual
+```
+
+잔차는 포트의 것이 아니라 기준의 것이라는 결론까지 닫힌 형태로 확인됐다. §260.4가
+잔차가 앉는 상자를 잘못 짚었던 것도 §284.4가 같은 case에서 두 상자를 직접 재
+정정했다(§260.4에 표시 완료).
+
+**분리 분기의 잔차를 0으로 만들지 않았다.** falsifier: `8.892585e-5`(prbt)나
+`6.056201e-7`(pr2)이 이후 0이 됐거나 게이트가 더 이상 그 값을 찍지 않는다면 거짓.
+둘 다 오늘도 §284.4·§284.6에서 같은 자릿수로 반복 인용되고, 게이트
+(`verify-phase3-collision-sweep.sh`)는 실행마다 `sep_worst`를 여전히 출력한다.
+§284.5-.6이 두 값 모두 **기준 자신의 오차**(prbt는 fcl의 `distance_tolerance` 기본값
+`1e-6`이 낳는 드리프트, pr2는 `fixtures/pr2.urdf`의 roll 절단이 낳는
+`8.324097e-14`)임을 지지함수 괄호로 증명했지만, 그것은 "왜 0이 될 수 없는가"를 닫힌
+형태로 답한 것이지 값을 0으로 만든 것이 아니다 — 상류(fcl)를 패치하지 않는 한 이
+포트 쪽에서 손댈 자유도가 없다. falsifier 불발, 다만 구조상 0으로 만들 방법이
+없다는 것까지 §284가 이미 답했다는 것을 덧붙인다 — OPEN.
+
+**§5 표의 근거 열은 번호 배정 뒤에 옮겼다, `verify-phase3-collision-sweep.sh`는 절
+번호가 아니라 행 참조로 그대로 둔다.** falsifier: 그 스크립트가 이후 `§260`을
+리터럴로 박았거나, §5의 분리-분기 행이 §260 아닌 다른 절을 인용한다면 거짓.
+`verify-phase3-collision-sweep.sh:34-40`은 오늘도 "PORTING-PLAN.md §5's `distance:
+f64` row" 식으로 행을 참조하며 그 이유("워커가 병합 시점 번호를 미리 알 수 없다")를
+그대로 적고 있고, PORTING-PLAN.md:809의 분리-분기 행은 오늘도 근거 §260이다.
+falsifier 불발 — OPEN.
+
+### §317.4 §262.5 — 둘 다 참이다
+
+**`crates/moveit-collision/src/parry.rs`를 고치지 않았다.** falsifier: §262.5가
+쓰인 커밋(`cb1ae178`, 10:00) 이후 그 파일의 비-테스트 로직이 바뀌었다면 거짓. §317.2와
+같은 diff 증거 — `git diff cb1ae178 HEAD -- crates/moveit-collision/src/parry.rs`의
+세 훅 전부 `mod tests` 안이거나 doc-comment 인용 정정이다. `contact.dist >= 0.0`
+게이트도 오늘 0건(`rg -c 'contact\.dist\s*>=\s*0\.0' parry.rs`). falsifier 불발 —
+OPEN.
+
+**`distance` 행의 원인 두 가지(panda의 §229.3, fanuc·pr2의 §247)를 하나로 합치지
+않았다.** falsifier: 이후 어느 절이 두 원인을 같은 결함으로 재분류했다면 거짓.
+같은 날 인접 §262.3이 이미 "panda는 최대 침투깊이(escaping-artifact)를 재고
+(§229.3), fanuc·pr2는 distanceCallback이 부호 있는 값과 침투깊이를 같은 변수로
+착각한다(§247.3)"로 구분을 재확인했고, §284/§297/§298 어디에서도 이 둘을 합치는
+문장이 없다(`rg -n '§229\.3.*§247|§247.*§229\.3'`가 이 불릿과 §262.3 둘만 히트).
+falsifier 불발 — OPEN.
+
+### §317.5 §265.8 — 하나 남은 항목도 참이다
+
+**`crates/moveit-collision`을 고치지 않았다 — `contact.dist >= 0.0` 게이트를 다시
+만들지 않았다.** falsifier: 그 게이트가 이후 어디에서든 재도입됐다면 거짓. §265.8이
+쓰인 커밋(`e6652fdb`, 11:23) 이후로도 `crates/moveit-collision/src/parry.rs`의
+비-테스트 로직은 안 바뀌었고(§317.4와 같은 diff 증거), `contact.dist >= 0.0` 패턴은
+오늘 저장소 전체에서 0건이다. falsifier 불발 — OPEN.
+
+## §321 §308.4의 A2·A3 판정 칸은 손으로 쓰고 진위는 게이트가 잰다 — main의 first-parent 71커밋 중 16개에서 그 둘이 어긋나 있었다 (2026-08-07)
+
+`check-audit-completion.sh`는 A2와 A3를 다시 재고, 그 결과를 §308.4 표의
+판정 칸과 대조한다. 그런데 그 칸은 사람이 쓴다. 재는 쪽과 쓰는 쪽이 갈려
+있으면 어긋남은 커밋 하나에 한 번씩 생길 수 있고, 실제로 생겼다.
+
+게이트가 채택된 `d9a8c9dd`부터 `0da2ba42`까지 main의 first-parent 커밋
+71개를 detached worktree에서 하나씩 체크아웃해 이 게이트를 돌렸다. 예측이
+아니라 실행이다. **16개가 rc=1이었고, 세 구간으로 나뉜다.**
+
+| 구간 | 커밋 | 개수 | 어긋남의 방향 | 닫은 커밋 |
+|---|---|---|---|---|
+| 1 | `d8847edf` … `7963470f` | 13 | 표가 `UNMET`, 게이트가 `MET` | `2f232017` |
+| 2 | `60bc4e5b` | 1 | 표가 `MET`, 게이트가 `UNMET` | `96946a05` |
+| 3 | `2d07c87a` … `26149055` | 2 | 표가 `MET`, 게이트가 `UNMET` | `e3bc8cc1` |
+
+**두 방향은 서로 다른 결함이다.** 구간 1은 트리가 이미 깨끗해진 뒤에도
+표가 13커밋 동안 `UNMET`을 달고 있던 것 — 기록이 측정을 못 따라간 경우다.
+구간 2·3은 인용 수리가 다음 커밋으로 갈라져 있는 동안 표가 `MET`을 달고
+있던 것 — 측정이 기록을 못 따라간 경우다. 앞은 게으름이고 뒤는 "결함 하나에
+커밋 하나" 규칙을 인용 baseline처럼 트리 전체가 걸린 ratchet에 적용할 때
+자동으로 생긴다. 셋 다 오늘 닫혀 있고 `0da2ba42`에서 rc=0이다.
+
+**구조적 원인은 하나다: 게이트가 재는 값을 사람이 따로 적는다.** 그래서
+`--write`를 붙였다. A2·A3 판정 칸은 이제 그 측정에서 생성되고, 그 둘을 바꾸는
+방법은 재생성뿐이다 — 어느 방향의 지연도 표현할 수 없다. 이 저장소가
+`check-residual-claims-census.py --emit`/`--check`에 이미 쓰고 있는 계약과
+같은 모양이다.
+
+`--write`가 건드리지 않는 것을 이름으로 적는다. A1·A4 판정은 손으로 남는다 —
+이 게이트가 재지 못하는 값을 생성된 것처럼 적으면 그것이 바로 지금 고치는
+결함이다. `측정한 §`과 날짜도 손으로 남는다: 어느 절이 그 측정을 기록했는가는
+측정이 아니라 판단이다. 대신 `--write`는 바꾼 행과 그 행의 현재 `측정한 §`을
+찍어, 같은 커밋에서 사람이 갱신하도록 이름을 부른다. 표가 파싱되지 않으면
+`--write`는 쓰지 않고 거부한다 — 읽은 칸과 쓸 칸이 같다는 보장이 없기 때문이다.
+
+**이 절을 부른 보고는 원인을 틀리게 짚었다.** residual-mesh-penetration
+패널이 UNFIXED로 올리며 "`d9a8c9dd`에서 도입됐다"고 적었는데, 그 커밋에서
+게이트를 돌리면 rc=0이다. 그 커밋의 표는 A2를 `UNMET`으로 적고 있었고 게이트도
+`UNMET`을 쟀다 — 어긋남이 없다. 구간이 실제로 열린 것은 13커밋 뒤
+`d8847edf`("freeze the in-repo classes with section-mismatch")부터다. 패널이
+본 것(어긋남이 자기 커밋들보다 앞선다)은 맞고, 어디서 시작했는지는 틀렸다.
 
 
 ## §322 collision-distance-accuracy C1 잔여 24건을 재측정했다 (2026-08-07)

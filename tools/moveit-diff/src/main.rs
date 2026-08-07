@@ -268,6 +268,19 @@ struct Config {
     /// such failure, and because the run it exists for is the 80-minute
     /// opt-in sweep, not the per-round gate.
     pair_probe_json: Option<String>,
+    /// Opt-in: write every self-side case whose *oracle* value is
+    /// non-positive (i.e. drew the penetration branch of
+    /// `moveit_core/collision_detection_fcl/src/collision_common.cpp:636`)
+    /// to this path as a JSON array of [`DistanceBranchOutlier`] rows --
+    /// the whole population, not just [`DistanceBranchStats::TAIL`]'s worst
+    /// eight. PORTING-PLAN.md §302's own instrument was run against a
+    /// one-off, uncommitted probe over this population; this makes the
+    /// population itself a committed, re-derivable artifact instead.
+    ///
+    /// Off by default: it holds one row per penetrating self-side case in
+    /// memory for the whole run, and no existing consumer needs more than
+    /// the tail.
+    self_penetration_json: Option<String>,
     /// Run §5 Phase 2's third completion condition instead of the
     /// random-state fk/jacobian/collision/ik loop -- see `state_ops`'s own
     /// module doc. A separate mode rather than another flag folded into
@@ -323,6 +336,7 @@ impl Config {
         let mut ik_divergence_json: Option<String> = None;
         let mut stats_json: Option<String> = None;
         let mut pair_probe_json: Option<String> = None;
+        let mut self_penetration_json: Option<String> = None;
         let mut state_ops = false;
         let mut tol_interpolate = 0.0;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
@@ -415,6 +429,9 @@ impl Config {
                 "--ik-divergence-json" => ik_divergence_json = Some(want("--ik-divergence-json")?),
                 "--stats-json" => stats_json = Some(want("--stats-json")?),
                 "--pair-probe-json" => pair_probe_json = Some(want("--pair-probe-json")?),
+                "--self-penetration-json" => {
+                    self_penetration_json = Some(want("--self-penetration-json")?)
+                }
                 "--state-ops" => state_ops = true,
                 "--tol-interpolate" => {
                     tol_interpolate = want("--tol-interpolate")?
@@ -489,6 +506,7 @@ impl Config {
             ik_divergence_json,
             stats_json,
             pair_probe_json,
+            self_penetration_json,
             state_ops,
             tol_interpolate,
             oracle,
@@ -1026,6 +1044,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
     let mut max_jacobian_dev = 0.0f64;
     let mut pair_stats = DistancePairStats::default();
     let mut clause_stats = CollisionClauseStats::default();
+    let mut self_penetration_dump: Vec<DistanceBranchOutlier> = Vec::new();
     // Kept for the constraint-case generator below, which needs each state's
     // link poses to build "meaningful" (boundary-straddling) constraints
     // rather than re-asking the oracle for the same fk it already answered.
@@ -1117,6 +1136,10 @@ fn run(cfg: &Config) -> Result<usize, String> {
                     pair_stats: &mut pair_stats,
                     clause_stats: &mut clause_stats,
                     pair_probe: pair_probe.as_mut(),
+                    self_penetration_dump: cfg
+                        .self_penetration_json
+                        .is_some()
+                        .then_some(&mut self_penetration_dump),
                 },
             );
             if dev.is_finite() {
@@ -1260,6 +1283,16 @@ fn run(cfg: &Config) -> Result<usize, String> {
             .map_err(|e| format!("serializing --pair-probe-json: {e}"))?;
         std::fs::write(path, json).map_err(|e| format!("writing {path}: {e}"))?;
         println!("pair probe: {} rows -> {path}", probe.rows.len());
+    }
+
+    if let Some(path) = &cfg.self_penetration_json {
+        let json = serde_json::to_string_pretty(&self_penetration_dump)
+            .map_err(|e| format!("serializing --self-penetration-json: {e}"))?;
+        std::fs::write(path, json).map_err(|e| format!("writing {path}: {e}"))?;
+        println!(
+            "self penetration dump: {} rows -> {path}",
+            self_penetration_dump.len()
+        );
     }
 
     if let Some(path) = &cfg.stats_json {
@@ -2383,6 +2416,8 @@ struct CollisionAccumulators<'a> {
     pair_stats: &'a mut DistancePairStats,
     clause_stats: &'a mut CollisionClauseStats,
     pair_probe: Option<&'a mut PairProbe>,
+    /// See [`Config::self_penetration_json`]. `None` unless that flag is set.
+    self_penetration_dump: Option<&'a mut Vec<DistanceBranchOutlier>>,
 }
 
 #[derive(Debug, Default, Clone, serde::Serialize)]
@@ -2512,6 +2547,7 @@ fn compare_collision(
         pair_stats,
         clause_stats,
         pair_probe,
+        self_penetration_dump,
     } = acc;
     let actual = match rust_impl::collision(rust_model, &fixture.env, &fixture.acm, joint_values) {
         Ok(a) => a,
@@ -2678,6 +2714,13 @@ fn compare_collision(
             clause_stats
                 .penetrating
                 .record(deviation, cfg.tol_distance, outlier);
+            // The whole self-side penetration population, unconditionally --
+            // `DistanceBranchStats::record` above only keeps the worst eight.
+            if side == "self" {
+                if let Some(dump) = self_penetration_dump.as_deref_mut() {
+                    dump.push(outlier());
+                }
+            }
         }
     }
     let distance_failure = if max_dev.is_nan() || max_dev > cfg.tol_distance {
@@ -3637,6 +3680,7 @@ mod ik_divergence_recording_tests {
             ik_divergence_json: None,
             stats_json: None,
             pair_probe_json: None,
+            self_penetration_json: None,
             state_ops: false,
             tol_interpolate: 0.0,
             oracle: Vec::new(),
