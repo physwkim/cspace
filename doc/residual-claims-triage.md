@@ -7,9 +7,9 @@
 
 `doc/residual-claims-census.md`의 OPEN 불릿을 셋으로 나눈다. PORTING-PLAN.md §308.4의 A3("doc/residual-claims-census.md OPEN 0")가 재는 것은 그 문서의 OPEN 전체이지만, OPEN 전체가 다 '언젠가 잴 수 있는 것'은 아니다 — 아래 `scope`가 그 반례다. 분류 규칙은 이 파일 자신의 docstring에 있다.
 
-OPEN 152건 = measurement 147 + scope 5 + closed-unmarked 0.
+OPEN 145건 = measurement 140 + scope 5 + closed-unmarked 0.
 
-**A3의 실제 크기는 152이 아니라 147이다** — `scope` 5건은 정의상 마커를 받을 수 없고, `closed-unmarked` 0건은 이미 본문상 닫혔지만 정식 마커가 없을 뿐이다.
+**A3의 실제 크기는 145이 아니라 140이다** — `scope` 5건은 정의상 마커를 받을 수 없고, `closed-unmarked` 0건은 이미 본문상 닫혔지만 정식 마커가 없을 뿐이다.
 
 ## scope — 정의상 영원히 안 닫히는 것
 
@@ -32,7 +32,7 @@ OPEN 152건 = measurement 147 + scope 5 + closed-unmarked 0.
 
 ## measurement — A3가 실제로 재야 하는 것
 
-147건. 나머지 전부 — 미래의 어느 라운드가 실제로 가서 재거나 고칠 수 있는 항목.
+140건. 나머지 전부 — 미래의 어느 라운드가 실제로 가서 재거나 고칠 수 있는 항목.
 
 **예외 하나, 자동 분류하지 않음: PORTING-PLAN.md:918 (§7.4).** "`moveit-error`/`moveit-geometry` 착수 완료. 워크스페이스 테스트 14/14 통과." — 이 불릿은 부정 어휘가 전혀 없다(닫힘 증거도, `아직/않았다/못했다`류 잔여 서술도 없다). '남은 것' lead-in 아래 앉아 있지만 내용은 완료 보고문이다. 같은 방식으로 '부정 어휘 없음'을 규칙화해 자동으로 걸러 보는 실험을 이 도구를 설계할 때 한 번 해봤다 — 이 문장은 그 실험의 고정된 기록이지 매 --emit마다 다시 재는 값이 아니다(당시 measurement 187건 중 39건이 걸렸고, 그중 38건은 '거부한다'/'그대로다'/'미결'처럼 이 정규식이 놓친 다른 부정 표현으로 여전히 열린 진짜 잔여 claim이었다) — 부정-어휘-부재는 이 코퍼스에서 신뢰할 수 없는 신호였다(38/39가 오탐, 코퍼스가 지금처럼 자라도 이 결론이 뒤집힐 정도로 빡빡한 비율은 아니었다). 그래서 이 도구는 918을 `measurement`에 그대로 두고, 이 한 줄만 산문으로 이름 붙인다. 편집자가 볼 때: 이 불릿을 지우거나 '완료' 절로 옮기는 것은 결정이지 측정이 아니라서, 이 도구가 대신 하지 않는다.
 
@@ -46,7 +46,7 @@ measurement 불릿을 lead-in(=절)별로 묶고, 그 절의 measurement 불릿 
 | penetration-branch | 1 | §270.2(1) |
 | planner-benchmark-parity | 36 | §219.8(4), §264.12(4), §269.10(4), §285.9(4), §286.11(3), §296.8(5), §300.9(3), §303.8(5), §304.9(4) |
 | pilz-pipeline | 19 | §227.4(2), §227.6(2), §227.7(2), §234.5(4), §240.7(2), §263.7(2), §266.7(5) |
-| move-group-service-parity | 10 | §250.6(4), §256.8(6) |
+| move-group-service-parity | 3 | §256.8(3) |
 | collision-distance-accuracy | 44 | §216.4(2), §220.7(1), §230.5(3), §233.4(2), §237.4(1), §247.6(6), §248.9(4), §251.6(3), §260.8(6), §262.5(2), §265.8(1), §275.4(1), §284.3(2), §288.9(5), §297.5(3), §298.6(2) |
 | citation-audit-hygiene | 9 | §258.6(1), §267.5(2), §289.7(1), §294.7(5) |
 | unclassified | 20 | §157.5(2), §212.4(1), §229.4(3), §232.4(1), §280.4(4), §292.8(1), §299.10(1), §302.6(1), §307.6(3), §36.5(1), §66.4(1), §7.4(1) |
@@ -64,5 +64,5 @@ measurement 불릿을 lead-in(=절)별로 묶고, 그 절의 measurement 불릿 
 
 **주의 — 위 라운드 표가 코퍼스를 다 못 덮는다.** ROUND_SPLIT_PROPOSAL(이 파일 상단)이 아직 이름 붙이지 않은 절: `planner-benchmark-parity`: §303.8, §304.9. 코퍼스가 바뀌었다는 뜻이니 ROUND_SPLIT_PROPOSAL을 다시 짜야 한다.
 
-나머지 4개 테마(`ci-not-wired` 8, `penetration-branch` 1, `move-group-service-parity` 10, `citation-audit-hygiene` 9)와 `unclassified`(20, 12개 절 — 서로 무관해 한 절씩 개별 검토)는 각각 세션 하나 안에 들어가는 크기라 그대로 한 라운드씩이다.
+나머지 4개 테마(`ci-not-wired` 8, `penetration-branch` 1, `move-group-service-parity` 3, `citation-audit-hygiene` 9)와 `unclassified`(20, 12개 절 — 서로 무관해 한 절씩 개별 검토)는 각각 세션 하나 안에 들어가는 크기라 그대로 한 라운드씩이다.
 
