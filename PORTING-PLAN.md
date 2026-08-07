@@ -6504,7 +6504,7 @@ moveit_py/src/moveit/moveit_core/planning_scene/planning_scene.cpp
   통째로 미포팅이 아니고 `PositionConstraint`/`OrientationConstraint`/
   `VisibilityConstraint`가 `can_transform`으로 base class 절반을 이미
   재현한다. 막고 있는 것은 살아 있는 `PlanningScene`에서 `Transforms`를
-  그 생성자들로 흘려보내는 다리가 없다는 것이고, 그것이 생기면 닫힌다.
+  그 생성자들로 흘려보내는 다리가 없다는 것이고, 그것이 생기면 닫힌다. **OPEN → 만료 조건 (`PositionConstraint::new`/`OrientationConstraint::new`/`VisibilityConstraint::new` 중 하나가 `PlanningScene::transforms_with_world_objects`가 만든 `Transforms`를 프로덕션 호출 경로에서 받는 순간, §323.1).**
 
 - **새로 표면화된 것: `getCostSources`가 막혀 있다.**
   `ParryCollisionEnv`가 `cost_sources: None`을 하드코딩한다. p3-acm 소관. **거짓 → 닫힘 (§323.1).**
