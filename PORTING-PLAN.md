@@ -23188,10 +23188,15 @@ PHASE9 verdict=NO_VALID_TRAJECTORY
   `ros/verify-move-action-interop.sh`(leg A/B/C)를 붙였고, 오늘도
   `ros/verify-ros-interop.sh`의 마지막 단계로 매 게이트 실행마다
   돈다(§320.3).
-- **종단 시도를 게이트로 옮기지 못했다.** §250.4의 두 컨테이너 구성은
-  오라클 이미지 위에 3개 패키지를 더 빌드해서 만든 임시 이미지에
-  기댄다. 이미지를 커밋하거나 게이트에 싣는 것은 `ros/Dockerfile`과
-  `tools/moveit-oracle`을 건드리는 일이고 둘 다 펜스 밖이다.
+- **종단 시도를 게이트로 옮기지 못했다. 거짓 → 닫힘 (§320.4).** §250.4의
+  두 컨테이너 구성은 오라클 이미지 위에 3개 패키지를 더 빌드해서 만든
+  임시 이미지에 기댄다. 이미지를 커밋하거나 게이트에 싣는 것은
+  `ros/Dockerfile`과 `tools/moveit-oracle`을 건드리는 일이고 둘 다 펜스
+  밖이었다. §254가 그 둘을 건드리지 않는 별도 경로로 풀었다 —
+  `ros/move_group_interface_probe/Dockerfile`이 오라클 이미지 위에
+  레이어(`FROM ${ORACLE_IMAGE}`)로 커밋돼 있고,
+  `ros/verify-move-action-interop.sh`가 매 실행마다 `docker build`로
+  그 이미지를 짓는다(§320.4).
 
 ## §251 `collision: bool` 절의 접선 답은 도형 쌍의 성질이다 — 원인은 fcl의 협면 등록표이고, 이 포트도 균일하지 않다 (2026-08-06)
 
@@ -31905,7 +31910,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27177`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27182`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -35566,7 +35571,7 @@ unresolvable이다.
 
 | 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
+| `PORTING-PLAN.md:30602` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
 | `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
 | `doc/claim-audit/upstream-bugs.md:37` | `!PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
 
@@ -36249,8 +36254,8 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21855-21856` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
-| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27177` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `PORTING-PLAN.md:30602` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21855-21856` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
+| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27182` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
 `section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도
@@ -37021,5 +37026,44 @@ OK move_action: all three legs passed
 §250.6이 이 불릿을 적은 시점 이후 §254가 정확히 이 모양의 회귀 게이트를
 지었고, 그 사본은 §254.6에서 정식으로 닫혔지만 §250.6의 사본은 그
 사실을 반영하지 않은 채로 남아 있었다.
+
+falsifier 성립 — 거짓, §250.6의 사본을 닫는다.
+
+### §320.4 §250.6 "종단 시도를 게이트로 옮기지 못했다" — 별도 Dockerfile로 우회했다
+
+불릿: "종단 시도를 게이트로 옮기지 못했다. §250.4의 두 컨테이너 구성은
+오라클 이미지 위에 3개 패키지를 더 빌드해서 만든 임시 이미지에 기댄다.
+이미지를 커밋하거나 게이트에 싣는 것은 `ros/Dockerfile`과
+`tools/moveit-oracle`을 건드리는 일이고 둘 다 펜스 밖이다." falsifier:
+그 종단 이미지가 `ros/Dockerfile`이나 `tools/moveit-oracle`을 건드리지
+않는 별도 경로로 커밋돼 있고 매 게이트 실행마다 실제로 지어진다면
+거짓.
+
+```
+$ head -32 ros/move_group_interface_probe/Dockerfile | tail -2
+ARG ORACLE_IMAGE
+FROM ${ORACLE_IMAGE}
+```
+
+오라클 이미지 위에 얹는 레이어다. 이 Dockerfile을 도입한 커밋이
+`ros/Dockerfile`이나 `tools/moveit-oracle`을 건드렸는지:
+
+```
+$ git show 1366632a --stat | rg 'ros/Dockerfile|tools/moveit-oracle'
+(0건)
+```
+
+건드리지 않았다. 게이트가 매 실행마다 짓는지:
+
+```
+$ rg -n 'move_group_interface_probe|docker build' ros/verify-move-action-interop.sh
+365:cp -R "$REPO_ROOT/ros/move_group_interface_probe" "$CTX/move_group_interface_probe"
+366:cp "$REPO_ROOT/ros/move_group_interface_probe/Dockerfile" "$CTX/Dockerfile"
+367:docker build \
+```
+
+§320.1–§320.3과 같은 라이브 실행이 이 이미지로 실제 `/move_action` leg
+B/C를 통과시킨 것이 §320.3의 증거다 — 별도 재실행 없이 그 결과를
+재사용한다.
 
 falsifier 성립 — 거짓, §250.6의 사본을 닫는다.

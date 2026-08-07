@@ -267,7 +267,7 @@ expect_text expiry_marker_removed "$ROOT/expiry_marker_removed.md" present \
   "(CLOSED 0 / EXPIRY 0 / OPEN 2)."
 
 # --- an expiry marker with no trigger sentence fails the gate, not "OPEN" ----
-# isolates: A3's own condition (PORTING-PLAN.md:35201) accepts an expiry
+# isolates: A3's own condition (PORTING-PLAN.md:35206) accepts an expiry
 # conversion only when it states WHEN it expires -- an empty or
 # whitespace-only trigger is the disallowed unconditional "permanent, no
 # trigger" exit wearing this marker's shape, and the gate must refuse to emit
