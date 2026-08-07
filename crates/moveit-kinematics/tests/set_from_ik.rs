@@ -1396,6 +1396,43 @@ fn one_target_per_subgroup_solver_or_it_is_an_error() {
 }
 
 #[test]
+fn missing_a_subgroup_solver_is_an_error_not_a_partial_sweep() {
+    let model = pr2_model();
+    let mut state = pr2_arms_state(&model);
+    let entry = state.positions().to_vec();
+    // "arms" has two subgroups, left_arm and right_arm; only left_arm's
+    // solver is supplied, with a matching single target, so the
+    // mismatched-*count* check (`solvers.len() != targets.len()`) does not
+    // fire -- only the sub-group *coverage* check should catch this.
+    let mut solvers: Vec<Box<dyn KinematicsSolver>> =
+        vec![Box::new(solver_for(&model, "left_arm", &one_attempt()))];
+    let left = shifted(&world_pose(&mut state, "l_wrist_roll_link"), REACHABLE_STEP);
+
+    let error = set_from_ik_subgroups(
+        &mut state,
+        "arms",
+        &mut solvers,
+        &[IkTarget {
+            pose: left,
+            frame: "l_wrist_roll_link",
+        }],
+        &mut IkContext::default(),
+        1,
+    )
+    .expect_err("right_arm has no solver; the sweep must not silently skip it");
+
+    assert!(
+        matches!(error, Error::Other(ref m) if m.contains("cover 1 of")),
+        "got {error:?}"
+    );
+    assert_eq!(
+        state.positions(),
+        entry.as_slice(),
+        "a rejected call must not touch the state"
+    );
+}
+
+#[test]
 fn a_solver_for_a_group_that_is_not_a_subgroup_is_refused() {
     let model = pr2_model();
     let mut state = pr2_arms_state(&model);
