@@ -30685,7 +30685,7 @@ undeclared-unresolvable **0건**으로 통과한다.
   그 문서가 인용한 리비전(`47a271c^`)에서 두 번째 `max_contacts_per_pair` 대입은
   3623-3624이고 3605-3606은 열여덟 줄 위 doc comment의 꼬리다.
 
-그리고 인용은 맞았지만 문장이 틀린 것 1건: §245.3(`PORTING-PLAN.md:21733-21734`)이 오라클의
+그리고 인용은 맞았지만 문장이 틀린 것 1건: §245.3(`PORTING-PLAN.md:21734-21735`)이 오라클의
 특이점 흔들기를 "시드되지 않은 `std::rand()`"라고 적으면서 2188을 인용했다.
 `std::rand(`라는 호출은 `oracle.cpp`에 **없다**. 그 줄은
 `delta_q.data.setRandom();`(오늘 `oracle.cpp:2296`), 즉 Eigen 기본 난수이고, 그것이
@@ -30708,7 +30708,7 @@ undeclared-unresolvable **0건**으로 통과한다.
 - `oracle-request-pilz-blend-geometry.md:654`의 `` `5777`-`5778` `` →
   `` `oracle.cpp:6804-6805` ``
 
-일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27714`는
+일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27724`는
 `$ rg ...` 실행 결과를 코드 펜스 안에 그대로 옮긴 것이고, 그 실행은 실제로
 5688을 찍었다. 전사를 고치면 기록이 아니라 위조가 된다. (이 인용은 쓰인
 커밋 `580f1995` 당시 `!PORTING-PLAN.md:27486`이었고, 그 뒤 두 번 밀렸다.
@@ -35052,8 +35052,8 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
 `oracle.cpp:5688` 전사 줄이다. §287.7의 문장이 "그 실행은 실제로 5688을
 찍었다"고 말하는 것과 정확히 맞고, 그 문장이 이 인용을 고치면 위조가 된다고
 한 이유이기도 하다 — 5688은 살아 있는 `oracle.cpp` 인용이 아니라 실행
-출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27714`에 있다(§271.3
-안, 펜스 27611–27617).
+출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27724`에 있다(§271.3
+안, 펜스 27720–27726).
 
 §299.7은 이것을 `$ rg -l -w 'NearestNeighbors' .` 출력으로 읽고 27499(+13)로
 옮겼다고 적었다. 그 펜스는 오늘 27514–27529에 있고, 5688을 찍은 펜스와 약
@@ -35072,7 +35072,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
   자리가 남는다.
 
 그래서 번호만 고치지 않고 **검사 가능한 형태로 바꿨다**: §287.7의 문장이
-이제 `§271.3의 PORTING-PLAN.md:27714`로 절을 이름 댄다. 다음에 §271.3의
+이제 `§271.3의 PORTING-PLAN.md:27724`로 절을 이름 댄다. 다음에 §271.3의
 내용이 밀리면 인용이 절 범위 밖으로 나가고, 그때는 게이트가 말한다. 손으로
 고친 번호는 다시 밀린다 — 이 인용은 이미 두 번 밀렸다. 남길 것은 번호가
 아니라 그것을 붙잡는 규칙이다.
@@ -35106,7 +35106,7 @@ Phase 0–9의 것만 나온다(`PORTING-PLAN.md:618`, "각 단계는 **검증 �
 
 둘째, 같은 파일의 `third_party` pin 주석 인용 4건이 전부 §160의 산문이나
 하위 제목을 가리키고 있었다. 실제로 revision을 기록한 행은
-§160.3의 `PORTING-PLAN.md:12957`부터 `PORTING-PLAN.md:12959`까지와
+§160.3의 `PORTING-PLAN.md:12958`부터 `PORTING-PLAN.md:12960`까지와
 `doc/upstream-bugs.md:225`다.
 `resolved` 등급은 "범위 안이고 빈 줄이 아니다"만 뜻하므로 네 건 모두 등급상
 통과였다. 세 건에 §160.3 section claim을 붙여 `section-verified`로 올렸다 —
@@ -35639,7 +35639,7 @@ panda 250 + fanuc 250(구성당 125문제 × 넷), §304는 panda 500(floor_wall
 
 `!PORTING-PLAN.md:27602`를 p12-tangency는 27603으로, p10-phase13은
 27609로 밀었다. 병합된 트리에서는 **어느 쪽도 맞지 않는다** — 실제 값은
-`PORTING-PLAN.md:27714`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
+`PORTING-PLAN.md:27724`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
 꽂았고 `check-citation-drift.py`가 blank-line 3건으로 잡았다. 여덟 개를
 게이트가 찍은 citer 위치와 대상 재독으로 다시 유도했다.
 
@@ -35698,7 +35698,7 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30582` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21733-21734` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
+| `PORTING-PLAN.md:30582` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21734-21735` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
 | `PORTING-PLAN.md:31630` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27024` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
