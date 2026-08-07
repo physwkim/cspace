@@ -7,9 +7,9 @@
 
 `doc/residual-claims-census.md`의 OPEN 불릿을 셋으로 나눈다. PORTING-PLAN.md §308.4의 A3("doc/residual-claims-census.md OPEN 0")가 재는 것은 그 문서의 OPEN 전체이지만, OPEN 전체가 다 '언젠가 잴 수 있는 것'은 아니다 — 아래 `scope`가 그 반례다. 분류 규칙은 이 파일 자신의 docstring에 있다.
 
-OPEN 199건 = measurement 188 + scope 5 + closed-unmarked 6.
+OPEN 198건 = measurement 187 + scope 5 + closed-unmarked 6.
 
-**A3의 실제 크기는 198이 아니라 188이다** — `scope` 5건은 정의상 마커를 받을 수 없고, `closed-unmarked` 6건은 이미 본문상 닫혔지만 정식 마커가 없을 뿐이다.
+**A3의 실제 크기는 198이 아니라 187이다** — `scope` 5건은 정의상 마커를 받을 수 없고, `closed-unmarked` 6건은 이미 본문상 닫혔지만 정식 마커가 없을 뿐이다.
 
 ## scope — 정의상 영원히 안 닫히는 것
 
@@ -33,12 +33,12 @@ OPEN 199건 = measurement 188 + scope 5 + closed-unmarked 6.
 | §248.9 | PORTING-PLAN.md:22563 - **C++ 경로의 끝점. 닫혔다(§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에 대응하는 C++ 쪽 검사가 없었고, 여는 값이 500문제 재실행 한 번이라고 적었다. 같은 날 `a7d1b9a0`(`test(sbp): hold the C++ baseline... |
 | §263.7 | PORTING-PLAN.md:26106 - **CHOMP/STOMP를 각자의 상류 C++ 구현과 비교하는 읽기. 닫혔다(§269).** 이 절 시점에는 §263.1의 이유로 구조적으로 불가능했다 — 오라클에 CHOMP 플래닝 op이 없었고 STOMP는 op 자체가 없었다. `b146a109`가 `chomp_plan`과 ... |
 | §264.12 | PORTING-PLAN.md:26551 - **CHOMP의 목적함수가 관측되지 않는다 — §293에서 닫았다.** 닫는 방법은 여기 적힌 "한 필드"가 아니었다. upstream은 이 값을 폐기하지 않고 `best_group_trajectory_cost_`(`chomp_optimizer.hpp:150`)에 들고 있되 `... |
-| §274.6 | PORTING-PLAN.md:28206 - **저장된 설정은 어떤 플래너에도 닿지 않았다. 닫혔다(§285).** 상류의 `setParams`는 `setPlannerConfigurations`로 끝나면서 파이프라인이 계획에 쓰는 인스턴스에 맵을 넘기는데, 이 절 시점에는 대응하는 호출이 없었고 이 워크스페이스의 어떤 구... |
-| §274.6 | PORTING-PLAN.md:28217 - **머지 시점의 import. 이미 해소되었다(§285.1).** 이 절이 쓰인 브랜치의 base에서 `PLANNER_MANAGERS`는 `moveit-planners-sbp`에 있었고 `main`에서는 `moveit-planner-registry` 크레이트로 옮겨져 있었으므로... |
+| §274.6 | PORTING-PLAN.md:28238 - **저장된 설정은 어떤 플래너에도 닿지 않았다. 닫혔다(§285).** 상류의 `setParams`는 `setPlannerConfigurations`로 끝나면서 파이프라인이 계획에 쓰는 인스턴스에 맵을 넘기는데, 이 절 시점에는 대응하는 호출이 없었고 이 워크스페이스의 어떤 구... |
+| §274.6 | PORTING-PLAN.md:28249 - **머지 시점의 import. 이미 해소되었다(§285.1).** 이 절이 쓰인 브랜치의 base에서 `PLANNER_MANAGERS`는 `moveit-planners-sbp`에 있었고 `main`에서는 `moveit-planner-registry` 크레이트로 옮겨져 있었으므로... |
 
 ## measurement — A3가 실제로 재야 하는 것
 
-188건. 나머지 전부 — 미래의 어느 라운드가 실제로 가서 재거나 고칠 수 있는 항목.
+187건. 나머지 전부 — 미래의 어느 라운드가 실제로 가서 재거나 고칠 수 있는 항목.
 
 **예외 하나, 자동 분류하지 않음: PORTING-PLAN.md:918 (§7.4).** "`moveit-error`/`moveit-geometry` 착수 완료. 워크스페이스 테스트 14/14 통과." — 이 불릿은 부정 어휘가 전혀 없다(닫힘 증거도, `아직/않았다/못했다`류 잔여 서술도 없다). '남은 것' lead-in 아래 앉아 있지만 내용은 완료 보고문이다. 같은 방식으로 '부정 어휘 없음'을 규칙화해 자동으로 걸러 보는 실험을 이 도구를 설계할 때 한 번 해봤다 — 이 문장은 그 실험의 고정된 기록이지 매 --emit마다 다시 재는 값이 아니다(당시 measurement 187건 중 39건이 걸렸고, 그중 38건은 '거부한다'/'그대로다'/'미결'처럼 이 정규식이 놓친 다른 부정 표현으로 여전히 열린 진짜 잔여 claim이었다) — 부정-어휘-부재는 이 코퍼스에서 신뢰할 수 없는 신호였다(38/39가 오탐, 코퍼스가 지금처럼 자라도 이 결론이 뒤집힐 정도로 빡빡한 비율은 아니었다). 그래서 이 도구는 918을 `measurement`에 그대로 두고, 이 한 줄만 산문으로 이름 붙인다. 편집자가 볼 때: 이 불릿을 지우거나 '완료' 절로 옮기는 것은 결정이지 측정이 아니라서, 이 도구가 대신 하지 않는다.
 
@@ -56,7 +56,7 @@ measurement 불릿을 lead-in(=절)별로 묶고, 그 절의 measurement 불릿 
 | 테마 | 불릿 수 | 절 |
 |---|---|---|
 | ci-not-wired | 8 | §136.1(1), §254.6(1), §257.9(6) |
-| penetration-branch | 3 | §270.2(3) |
+| penetration-branch | 2 | §270.2(2) |
 | planner-benchmark-parity | 47 | §219.8(4), §264.12(4), §269.10(5), §285.9(4), §286.11(4), §296.8(5), §300.9(4), §303.8(5), §304.9(4), §305.7(8) |
 | pilz-pipeline | 20 | §130.3(1), §227.4(2), §227.6(2), §227.7(2), §234.5(4), §240.7(2), §263.7(2), §266.7(5) |
 | move-group-service-parity | 10 | §250.6(4), §256.8(6) |
@@ -77,5 +77,5 @@ measurement 불릿을 lead-in(=절)별로 묶고, 그 절의 measurement 불릿 
 
 **주의 — 위 라운드 표가 코퍼스를 다 못 덮는다.** ROUND_SPLIT_PROPOSAL(이 파일 상단)이 아직 이름 붙이지 않은 절: `planner-benchmark-parity`: §303.8, §304.9, §305.7. 코퍼스가 바뀌었다는 뜻이니 ROUND_SPLIT_PROPOSAL을 다시 짜야 한다.
 
-나머지 4개 테마(`ci-not-wired` 8, `penetration-branch` 3, `move-group-service-parity` 10, `citation-audit-hygiene` 11)와 `unclassified`(19, 11개 절 — 서로 무관해 한 절씩 개별 검토)는 각각 세션 하나 안에 들어가는 크기라 그대로 한 라운드씩이다.
+나머지 4개 테마(`ci-not-wired` 8, `penetration-branch` 2, `move-group-service-parity` 10, `citation-audit-hygiene` 11)와 `unclassified`(19, 11개 절 — 서로 무관해 한 절씩 개별 검토)는 각각 세션 하나 안에 들어가는 크기라 그대로 한 라운드씩이다.
 

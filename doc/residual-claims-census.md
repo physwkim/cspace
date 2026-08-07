@@ -7,7 +7,7 @@
 
 PORTING-PLAN.md §301(및 그 이전 §291)이 만든 문서. 헤딩이든 평문이든, 이 절이/회차가 하지/닫지/재지/... 않은 것 계열의 lead-in 줄 바로 아래 최상위 불릿을 전부 모은다 — 본문 어휘(무엇을 안 쟀는지)가 아니라 lead-in 어휘(안 쟀다는 것 자체)로 찾으므로, 이 절이 잰 것을 부르는 단어가 무엇이든 걸린다. **닫힘 여부는 `거짓 → 닫힘 (§N)`이 그 불릿 자신의 텍스트 안에 있는지만 본다** — 한 불릿에 여러 절이 섞여 있고 그중 일부만 닫힌 경우(예: PORTING-PLAN.md §284.3), 그 표식이 있으면 전체가 CLOSED로 잡힌다. 부분 닫힘은 이 표가 못 보고, 여는 사람이 본문을 읽어야 한다.
 
-lead-in 64건, 최상위 불릿 229건 (CLOSED 30 / OPEN 199).
+lead-in 64건, 최상위 불릿 229건 (CLOSED 31 / OPEN 198).
 
 | 절 | lead-in (줄) | 불릿 | 상태 |
 |---|---|---|---|
@@ -154,92 +154,92 @@ lead-in 64건, 최상위 불릿 229건 (CLOSED 30 / OPEN 199).
 | §269.10 | PORTING-PLAN.md:27630 §269.10 이 절이 재지 않은 것 | PORTING-PLAN.md:27640 - `moveit_planners_chomp` / `moveit_planners_stomp` 플러그인 **껍데기**의 파리티. 이 절은 `ChompPlann... | OPEN |
 | §269.10 | PORTING-PLAN.md:27630 §269.10 이 절이 재지 않은 것 | PORTING-PLAN.md:27644 - STOMP의 조건 2 실패에 대한 상류 C++ 쪽 `COL_CHECK_DISTANCE` 기여도. §263.4가 포트 쪽 3건을 그 상수로 설명했고 C++... | OPEN |
 | §269.10 | PORTING-PLAN.md:27630 §269.10 이 절이 재지 않은 것 | PORTING-PLAN.md:27653 - C++ 스윕의 `wall_secs`. 위 동시 부하에서 잰 값이므로 이 기계의 값이지 플래너의 값이 아니다(§269.2). | OPEN |
-| §270.2 | PORTING-PLAN.md:27697 §270.2 이 절이 하지 않은 것 | PORTING-PLAN.md:27699 - 시드를 바꿔 돌리지 않았다. 시드 1 한 벌이고, §260.2와 같은 시드다 — 그래서 25셀 일치가 강한 증거인 동시에 시드 독립성에 대해서는 아무 말... | OPEN |
+| §270.2 | PORTING-PLAN.md:27697 §270.2 이 절이 하지 않은 것 | PORTING-PLAN.md:27699 - 시드를 바꿔 돌리지 않았다. 거짓 → 닫힘 (§270.3). 시드 1 한 벌이고, §260.2와 같은 시드다 — 그래서 25셀 일치가 강한 증거인 동시에... | CLOSED (§270.3) |
 | §270.2 | PORTING-PLAN.md:27697 §270.2 이 절이 하지 않은 것 | PORTING-PLAN.md:27702 - 관통 분기의 42,259건을 다시 판정하지 않았다. §260이 그 분기를 상류 결함 3건으로 비교 불가로 분류했고 이 절은 그 분류를 인용만 했다. **... | OPEN |
 | §270.2 | PORTING-PLAN.md:27697 §270.2 이 절이 하지 않은 것 | PORTING-PLAN.md:27728 - `distance: f64` 행(PARTIAL, 근거 §260)을 건드리지 않았다. | OPEN |
-| §274.6 | PORTING-PLAN.md:28204 §274.6 닫지 않은 것 | PORTING-PLAN.md:28206 - **저장된 설정은 어떤 플래너에도 닿지 않았다. 닫혔다(§285).** 상류의 `setParams`는 `setPlannerConfigurations`로 ... | OPEN |
-| §274.6 | PORTING-PLAN.md:28204 §274.6 닫지 않은 것 | PORTING-PLAN.md:28217 - **머지 시점의 import. 이미 해소되었다(§285.1).** 이 절이 쓰인 브랜치의 base에서 `PLANNER_MANAGERS`는 `moveit-... | OPEN |
-| §275.4 | PORTING-PLAN.md:28331 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28333 - **다른 4로봇은 다시 재지 않았다. 거짓 → 닫힘 (§284.1·§284.3).** panda/fanuc/dual_arm_panda/pr2는 기본 바닥... | CLOSED (§284.1·§284.3) |
-| §275.4 | PORTING-PLAN.md:28331 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28340 - **case 8148을 닫지 않았다.** §275.3의 1건은 열린 항목이다. | OPEN |
-| §275.4 | PORTING-PLAN.md:28331 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28341 - **접선 자체를 고치지 않았다.** `sphere × sphere`의 비균일성(#16)과 같은 부류이고, §251.4가 적은 두 대안(양의 엡실론 / 쌍... | OPEN |
-| §280.4 | PORTING-PLAN.md:29127 §280.4 이 절이 하지 않은 것 | PORTING-PLAN.md:29129 - 조건 (b)는 손대지 않았다. 그 행(`성공한 해의 FK가 SolverParams::epsilon 이내`)은 동작점 문제가 없다 — 성공한 해에 대한 진... | OPEN |
-| §280.4 | PORTING-PLAN.md:29127 §280.4 이 절이 하지 않은 것 | PORTING-PLAN.md:29132 - 다른 어떤 Phase의 조건문도 고치지 않았다. §267.4가 남긴 결정은 이 하나뿐이다. | OPEN |
-| §280.4 | PORTING-PLAN.md:29127 §280.4 이 절이 하지 않은 것 | PORTING-PLAN.md:29133 - 새 측정을 하지 않았다. 이 절의 근거는 전부 §245.4의 표이고, 그 표를 재현하지 않았다. | OPEN |
-| §280.4 | PORTING-PLAN.md:29127 §280.4 이 절이 하지 않은 것 | PORTING-PLAN.md:29135 - 이 결정은 되돌릴 수 있다. 옛 문구로 돌아가려면 §280.1이 적은 대가 — 동작점에 따라 판정이 달라지는 행 — 를 받아들이면 된다. | OPEN |
-| §281.6 | PORTING-PLAN.md:29285 §281.6 이 절이 하지 않은 것 | PORTING-PLAN.md:29287 - **다른 4로봇은 여전히 재지 않았다. 거짓 → 닫힘 (§284.1·§284.3).** §275.4가 적은 그대로였고, 바닥을 내린 장면에서 panda/... | CLOSED (§284.1·§284.3) |
-| §281.6 | PORTING-PLAN.md:29285 §281.6 이 절이 하지 않은 것 | PORTING-PLAN.md:29293 - **`cylinder × box`의 다른 발현을 훑지 않았다. 거짓 → 닫힘 (§297.2), 그리고 마지막 줄은 정정된다.** 이 절이 잰 것은 바닥 ... | CLOSED (§297.2) |
-| §281.6 | PORTING-PLAN.md:29285 §281.6 이 절이 하지 않은 것 | PORTING-PLAN.md:29307 - **관통 분기는 건드리지 않았다. 거짓 → 닫힘 (§281.7).** §281.7이 case 8148의 flange 포즈 위로 바닥을 올려 같은 닫힌 형... | CLOSED (§281.7) |
-| §284.3 | PORTING-PLAN.md:29865 이 절이 하지 않은 것: | PORTING-PLAN.md:29867 - **바닥 높이는 두 개만 쟀다.** `0.0`과 `-0.5`뿐이고, 그 사이나 아래에서 다른 로봇의 초과가 나타나는지는 재지 않았다. | OPEN |
-| §284.3 | PORTING-PLAN.md:29865 이 절이 하지 않은 것: | PORTING-PLAN.md:29869 - **시드는 1 하나다.** 다섯 로봇 전부 같은 10,000상태 풀이고, 다른 시드에서 넷 중 하나가 초과를 내는지는 이 절의 코퍼스 밖이다. | OPEN |
-| §284.3 | PORTING-PLAN.md:29865 이 절이 하지 않은 것: | PORTING-PLAN.md:29871 - **관통 분기는 판정하지 않았다. 세 절 모두 거짓 → 닫힘 (앞 둘 §297.4, 셋째 §302).** 이 항목은 세 주장을 한 문장에 담고 있어서 통... | CLOSED (앞 둘 §297.4, 셋째 §302) |
-| §284.7 | PORTING-PLAN.md:30063 이 절이 하지 않은 것 (첫째는 §298이, 나머지 둘은 §297이 닫았다): | PORTING-PLAN.md:30065 - **커밋된 프로브의 상자를 고치지 않았다. 거짓 → 닫힘 (§298).** 이 절이 쓰인 시점 `tools/fcl-distance-tolerance-pr... | CLOSED (§298) |
-| §284.7 | PORTING-PLAN.md:30063 이 절이 하지 않은 것 (첫째는 §298이, 나머지 둘은 §297이 닫았다): | PORTING-PLAN.md:30073 - **관통 분기 쪽 잔차는 이 계측기로 재지 않았다. 거짓 → 닫힘 (§297).** 괄호가 분리 쪽에서만 성립한다는 것은 지금도 참이고(§281.6과 같... | CLOSED (§297) |
-| §284.7 | PORTING-PLAN.md:30063 이 절이 하지 않은 것 (첫째는 §298이, 나머지 둘은 §297이 닫았다): | PORTING-PLAN.md:30081 - **다른 `box x cylinder` self 쌍은 훑지 않았다. 거짓 → 닫힘 (§297).** 이 절이 판정한 것은 case 4697 하나였고, p... | CLOSED (§297) |
-| §285.9 | PORTING-PLAN.md:30299 §285.9 이 절이 하지 않은 것 | PORTING-PLAN.md:30301 - **`range` 말고 다른 키는 묶지 않았다.** 오늘 이 포트가 `RRTConnect`에 대해 상류와 이름을 공유하는 키는 그것 하나다(§285.2)... | OPEN |
-| §285.9 | PORTING-PLAN.md:30299 §285.9 이 절이 하지 않은 것 | PORTING-PLAN.md:30305 - **`getPlannerConfigurations`는 포팅하지 않았다.** 상류에서 `getParams`가 매니저에게 되묻는 이유는 저장소가 매니저의 것... | OPEN |
-| §285.9 | PORTING-PLAN.md:30299 §285.9 이 절이 하지 않은 것 | PORTING-PLAN.md:30311 - **group 없는 `set`의 도달 불가능성은 그대로 두었다.** group을 비운 `set`은 `planner_config` 이름 그대로 저장되는데,... | OPEN |
-| §285.9 | PORTING-PLAN.md:30299 §285.9 이 절이 하지 않은 것 | PORTING-PLAN.md:30315 - **§274.6의 나머지 인용 표류는 이 절의 것이 아니다.** `planner_params.rs`의 주석이 상류 `query_planners_servi... | OPEN |
-| §286.11 | PORTING-PLAN.md:30670 §286.11 이 절이 재지 않은 것 | PORTING-PLAN.md:30672 - **일부러 어려운 씨앗에서의 조건 2 사건율.** §286.9. 검정력 부족이 모집단 크기의 문제인지 난이도의 문제인지는 이 절이 가르지 못한다. | OPEN |
-| §286.11 | PORTING-PLAN.md:30670 §286.11 이 절이 재지 않은 것 | PORTING-PLAN.md:30674 - **포트 STOMP의 두 번째 씨앗 베이스. 거짓 → 닫힘 (§303).** 이 절은 CHOMP 두 팔만 424242로 다시 돌렸고(§286.5), 포트... | CLOSED (§303) |
-| §286.11 | PORTING-PLAN.md:30670 §286.11 이 절이 재지 않은 것 | PORTING-PLAN.md:30681 - **fanuc과 나머지 세 로봇.** 이 절의 모든 수는 panda_arm이다. §264.7의 fanuc stratum은 씨앗 유효 비율이 이보다 훨씬 ... | OPEN |
-| §286.11 | PORTING-PLAN.md:30670 §286.11 이 절이 재지 않은 것 | PORTING-PLAN.md:30683 - **조건 2를 자기 검사 단위에서 STOMP에 대해 무력화하는 변이.** §300가 걸었고, 물음은 열린 채로 남았다. `COLLISION_PENALTY... | OPEN |
-| §286.11 | PORTING-PLAN.md:30670 §286.11 이 절이 재지 않은 것 | PORTING-PLAN.md:30690 - **`max_iterations = 200`.** §269.8이 연 자리 그대로다. | OPEN |
-| §288.9 | PORTING-PLAN.md:31199 §288.9 §5 행이 뭐라고 말해야 하는가, 그리고 이 절이 재지 않은 것 | PORTING-PLAN.md:31201 - **fcl이 libccd에 맡기는 빈칸** — `cylinder × box`가 그중 하나이고 §275.1의 6,854건이 사는 곳이다. §288.5가 그... | OPEN |
-| §288.9 | PORTING-PLAN.md:31199 §288.9 §5 행이 뭐라고 말해야 하는가, 그리고 이 절이 재지 않은 것 | PORTING-PLAN.md:31204 - **`box × box`와 `sphere × sphere`** — 각각 이 포트의 GJK 허용오차와 `contact_ball_ball`의 엄격 `<` 때... | OPEN |
-| §288.9 | PORTING-PLAN.md:31199 §288.9 §5 행이 뭐라고 말해야 하는가, 그리고 이 절이 재지 않은 것 | PORTING-PLAN.md:31207 - **간극이 정확히 0인 배치** — §288.7. | OPEN |
-| §288.9 | PORTING-PLAN.md:31199 §288.9 §5 행이 뭐라고 말해야 하는가, 그리고 이 절이 재지 않은 것 | PORTING-PLAN.md:31208 - **메쉬, 그리고 충돌 요소가 여럿인 링크** — 상류가 `shapes::MESH`를 `fcl::BVHModel`로 사상하는 세 번째 순회이고, 이 절은... | OPEN |
-| §288.9 | PORTING-PLAN.md:31199 §288.9 §5 행이 뭐라고 말해야 하는가, 그리고 이 절이 재지 않은 것 | PORTING-PLAN.md:31212 - **`self_collision` 열** — 이 절은 `robot_collision`만 본다. 프로브가 세계 물체이므로 자기충돌 쌍은 마스크의 대상이 아... | OPEN |
-| §289.7 | PORTING-PLAN.md:31319 §289.7 남은 것 | PORTING-PLAN.md:31321 - **614건은 bounds-only에 머문다 — 하한을 낮추지 않았다.** 커밋된 트리의 bounds-only 1125건을 "문장이 이미 착지하는 조각을... | OPEN |
-| §292.8 | PORTING-PLAN.md:32026 §292.8 남은 182건과, 재지 않은 것 | PORTING-PLAN.md:32028 - **182건(그중 125건이 `.md`, 57건이 `.rs` 파일 안)은 손으로 열지 않았다.** 전환 뒤가 아닌 상속은 남는다: 153건은 줄에 `.r... | OPEN |
-| §294.7 | PORTING-PLAN.md:32382 §294.7 이 회차가 못 본 것 | PORTING-PLAN.md:32384 - **`crates/`의 UNFIXED 주장 열 파일.** 같은 계열, 다른 매체. 안 읽었다. | OPEN |
-| §294.7 | PORTING-PLAN.md:32382 §294.7 이 회차가 못 본 것 | PORTING-PLAN.md:32385 - **만료 조건 45건.** 46건 중 표본 하나만 확인했다. | OPEN |
-| §294.7 | PORTING-PLAN.md:32382 §294.7 이 회차가 못 본 것 | PORTING-PLAN.md:32386 - **`### Result:` 일곱 중 둘.** 라운드 11의 fragile needle 셋과 라운드 20의 한 건은 "지금은 유일하니 손대지 않는다"는 ... | OPEN |
-| §294.7 | PORTING-PLAN.md:32382 §294.7 이 회차가 못 본 것 | PORTING-PLAN.md:32390 - **`## Gate scope` 다섯 절.** 커버리지 경계 선언이고 같은 계열이지만 판정하지 않았다. | OPEN |
-| §294.7 | PORTING-PLAN.md:32382 §294.7 이 회차가 못 본 것 | PORTING-PLAN.md:32392 - **§291의 어휘 후보 전수.** 20/486(또는 1588)만 봤다. | OPEN |
-| §296.8 | PORTING-PLAN.md:32966 §296.8 남는 것 | PORTING-PLAN.md:32968 - **`isCurrentTrajectoryMeshToMeshCollisionFree`의 이름이 몸통과 어긋난다.** "Current"라고 하면서 `best... | OPEN |
-| §296.8 | PORTING-PLAN.md:32966 §296.8 남는 것 | PORTING-PLAN.md:32973 - **유효 반복 예산은 50이 아니라 40이다.** 메시 검사가 0/10/20/30/40에서만 돌므로 41~49의 아홉 pass는 성공 판정을 받을 기회가... | OPEN |
-| §296.8 | PORTING-PLAN.md:32966 §296.8 남는 것 | PORTING-PLAN.md:32976 - **20건(대조군에서 살아남는 층)의 원인.** `accepted == 0`이 열 pass 내내 유지되는 이유는 재지 않았다. | OPEN |
-| §296.8 | PORTING-PLAN.md:32966 §296.8 남는 것 | PORTING-PLAN.md:32978 - **STOMP 쪽 30/25가 정말 씨앗반환인지.** §296.6의 STOMP 열은 길이 동일성이고, 그것이 궤적 동일성을 함의하지 않는다. waypoi... | OPEN |
-| §296.8 | PORTING-PLAN.md:32966 §296.8 남는 것 | PORTING-PLAN.md:32981 - **유효씨앗 층 안의 20.3% / 24.8%가 STOMP의 어느 종료 조건에서 나오는지.** 이 라운드는 STOMP 코드를 읽지 않았다 — 그 비율은 ... | OPEN |
-| §297.5 | PORTING-PLAN.md:33200 §297.5 이 회차가 재지 않은 것 | PORTING-PLAN.md:33202 - **관통 깊이의 제3의 답. 거짓 → 닫힘 (§302).** 민코프스키 차 `D = A ⊖ B`의 지지함수가 `h_D(n) = h_A(n) + h_B(-... | CLOSED (§302) |
-| §297.5 | PORTING-PLAN.md:33200 §297.5 이 회차가 재지 않은 것 | PORTING-PLAN.md:33215 - **9,611건 교차표를 다시 내는 커밋된 계측기.** §297.2와 §297.3의 표는 이 라운드가 만든 일회용 프로브가 낸 것이고, 커밋된 것은 `c... | OPEN |
-| §297.5 | PORTING-PLAN.md:33200 §297.5 이 회차가 재지 않은 것 | PORTING-PLAN.md:33223 - **나머지 네 로봇.** 이 절의 앵커는 prbt 위에서만 쟀다. panda·fanuc· dual_arm_panda는 링크가 전부 메시라 이 칸 분류 자... | OPEN |
-| §297.5 | PORTING-PLAN.md:33200 §297.5 이 회차가 재지 않은 것 | PORTING-PLAN.md:33226 - **44건의 "우세하지 않음".** 계열의 18%다. 괄호는 좁은데 양쪽이 비슷하게 떨어져 있다는 뜻이므로 두 solver가 같은 자리에서 같은 크기로 ... | OPEN |
-| §297.5 | PORTING-PLAN.md:33200 §297.5 이 회차가 재지 않은 것 | PORTING-PLAN.md:33229 - **`.md` 바깥에서 인용하는 파일을 잡는 게이트.** §297.6이 실측한 것은 fcl 면제 항목의 세 인용이 드리프트했다는 사실 하나지만, 그 셋이... | OPEN |
-| §298.6 | PORTING-PLAN.md:33463 §298.6 이 회차가 못 본 것 | PORTING-PLAN.md:33465 - **다른 시드·다른 픽스처.** 프로브는 여전히 xorshift64 고정 시드, prbt 하나의 쌍 하나만 잰다. 다른 로봇에 같은 형태(box 대 cy... | OPEN |
-| §298.6 | PORTING-PLAN.md:33463 §298.6 이 회차가 못 본 것 | PORTING-PLAN.md:33468 - **`MIN_DRIFT=1e-5`를 실측 기반 수식으로 다시 유도할지.** §298.3에서 적었듯 이 핀은 절의 `1e-4` 허용오차에 묶인 것이지 이 ... | OPEN |
-| §299.10 | PORTING-PLAN.md:33742 §299.10 아직 고치지 않은 것 | PORTING-PLAN.md:33744 - **30건의 findings 자체는 이 회차에 고치지 않았다** — 세 부류(blank-line 17, section-mismatch 6, unresol... | OPEN |
-| §299.10 | PORTING-PLAN.md:33742 §299.10 아직 고치지 않은 것 | PORTING-PLAN.md:33749 - **`doc/handoff-2026-08-06.md:112`의 §5 표 행 수(쓰일 때 19행, 지금 20행)와 `PORTING-PLAN.md:807`도... | OPEN |
-| §300.9 | PORTING-PLAN.md:33973 §300.9 이 절이 재지 않은 것 | PORTING-PLAN.md:33975 - **§286.11의 물음 자체.** 0.05 바가 옳은지 눈이 먼 지는 여전히 미결이다. 이 절의 두 계기가 각각 §300.4와 §300.5에서 빗나갔다... | OPEN |
-| §300.9 | PORTING-PLAN.md:33973 §300.9 이 절이 재지 않은 것 | PORTING-PLAN.md:33982 - **`floor_wall` 77 · `cage` 133 · `cage` 159의 성격. 거짓 → 닫힘 (§286.3).** 이 항목이 요구한 비교 — C... | CLOSED (§286.3) |
-| §300.9 | PORTING-PLAN.md:33973 §300.9 이 절이 재지 않은 것 | PORTING-PLAN.md:33997 - **500문제 전체의 병합 무관함.** §300.8의 바이트 동일은 20 id에 대한 것이다. | OPEN |
-| §300.9 | PORTING-PLAN.md:33973 §300.9 이 절이 재지 않은 것 | PORTING-PLAN.md:33998 - **길이 일치를 궤적 일치로 올리는 것.** §300.6. 하네스가 waypoint 행렬이나 그 해시를 내보내야 한다. | OPEN |
-| §300.9 | PORTING-PLAN.md:33973 §300.9 이 절이 재지 않은 것 | PORTING-PLAN.md:34000 - **panda_arm 외의 로봇, 두 번째 씨앗 베이스, `max_iterations = 200`.** §286.11의 해당 항목들이 그대로 열려 있다.... | OPEN |
-| §302.6 | PORTING-PLAN.md:34344 재지 않은 것: | PORTING-PLAN.md:34346 - **§270.2의 42,259건.** 이 절의 모집단은 여전히 prbt 한 실행의 self 면 389건이다. §270.2의 처분(389건이 그 안의 부분... | OPEN |
-| §302.6 | PORTING-PLAN.md:34344 재지 않은 것: | PORTING-PLAN.md:34349 - **나머지 네 로봇. 거짓 → 닫힘 (§302.10).** panda·fanuc·dual_arm_panda는 링크가 전부 메시라 `WorldConvex`... | CLOSED (§302.10) |
-| §302.6 | PORTING-PLAN.md:34344 재지 않은 것: | PORTING-PLAN.md:34353 - **우세하지 않음 19건. 거짓 → 닫힘 (§302.8).** 괄호는 좁은데 양쪽이 비슷하게 떨어져 있다. 두 solver가 같은 자리에서 같은 크기로 ... | CLOSED (§302.8) |
-| §302.6 | PORTING-PLAN.md:34344 재지 않은 것: | PORTING-PLAN.md:34356 - **판정 불가 93건. 거짓 → 닫힘 (§302.9).** 전부 편차 `1e-4` 미만이라 조항에는 걸리지 않지만, 폭을 `1e-12`까지 좁히면 판정 ... | CLOSED (§302.9) |
-| §302.6 | PORTING-PLAN.md:34344 재지 않은 것: | PORTING-PLAN.md:34360 - **커밋된 전수 계측기. 거짓 → 닫힘 (§302.7).** §302.3과 §302.4의 표는 이 라운드의 일회용 프로브가 낸 것이었고, 그때 게이트가 ... | CLOSED (§302.7) |
-| §305.7 | PORTING-PLAN.md:35067 재지 않은 것: | PORTING-PLAN.md:35069 - **`수동` 42행이 전부인지.** 위 §305.4가 적은 구멍의 다른 이름이다. 이 목록은 §252·§258·§261·§264·§269·§286·§29... | OPEN |
-| §305.7 | PORTING-PLAN.md:35067 재지 않은 것: | PORTING-PLAN.md:35074 - **`tools/ci/verify-*` 9개.** `mktemp -d`를 열지만 이 게이트의 가족이 아니다. 그중 `verify-phase8-benchm... | OPEN |
-| §305.7 | PORTING-PLAN.md:35067 재지 않은 것: | PORTING-PLAN.md:35077 - **사라진 35행의 복구.** 다른 패널의 스크래치 출력을 지어내지 않았다. 없는 것은 행이 `없음`이라고 적는다. §269의 네 팔은 이 라운드에 p1... | OPEN |
-| §305.7 | PORTING-PLAN.md:35067 재지 않은 것: | PORTING-PLAN.md:35081 - **`doc/phase8-seedbase-stomp/`의 빠진 두 파일.** 씨앗 베이스 424242의 포트 STOMP 팔이고, 그것이 없어 그 디렉터리... | OPEN |
-| §305.7 | PORTING-PLAN.md:35067 재지 않은 것: | PORTING-PLAN.md:35086 - **§269.6의 41과 36 중 어느 쪽이 옳은지.** 어긋남은 쟀지만 가리지 못했다. 발표값을 낸 실행의 cpp 길이 열이 커밋되지 않았고, 지금 트... | OPEN |
-| §305.7 | PORTING-PLAN.md:35067 재지 않은 것: | PORTING-PLAN.md:35090 - **C++ STOMP의 `length`가 같은 씨앗 베이스에서 실행 간 재현되는지.** 위 어긋남의 원인 후보이고, 확인에는 `cpp700001.*`를 ... | OPEN |
-| §305.7 | PORTING-PLAN.md:35067 재지 않은 것: | PORTING-PLAN.md:35094 - **`doc/phase8-optimizer-properties.json`을 만드는 것.** `MODE=full`을 돌리면 §264의 13행이 증거를 갖게... | OPEN |
-| §305.7 | PORTING-PLAN.md:35067 재지 않은 것: | PORTING-PLAN.md:35097 - **§300.2의 벽시계 표.** `wall_secs`를 NDJSON에 싣게 하는 것은 하네스 변경이고, 이 절은 그 필드가 없다는 사실만 쟀다. | OPEN |
-| §304.9 | PORTING-PLAN.md:35311 §304.9 이 절이 재지 않은 것 | PORTING-PLAN.md:35313 - **비용은 기계의 성질이다.** 여덟 팔의 벽시계는 cpp CHOMP 89 s·93 s, cpp STOMP 120 s·146 s, port CHOMP 3... | OPEN |
-| §304.9 | PORTING-PLAN.md:35311 §304.9 이 절이 재지 않은 것 | PORTING-PLAN.md:35318 - **다른 씨앗 베이스는 이 라운드가 다시 재지 않았다.** §286.5의 424242 표는 그 절이 잰 것이고 그 NDJSON은 여전히 커밋되어 있지 않... | OPEN |
-| §304.9 | PORTING-PLAN.md:35311 §304.9 이 절이 재지 않은 것 | PORTING-PLAN.md:35321 - **`seed.<config>.ndjson`은 다시 재지 않고 옮겨 실었다.** 커밋되어 있던 `doc/phase8-condition2-stomp/`의 ... | OPEN |
-| §304.9 | PORTING-PLAN.md:35311 §304.9 이 절이 재지 않은 것 | PORTING-PLAN.md:35324 - **`repeat.cpp.*`는 팔이 아니다.** `floor_wall`의 층화 21·22 id이고 `cage`는 없다. §304.2의 자릿수는 이것이 ... | OPEN |
-| §303.8 | PORTING-PLAN.md:35777 §303.8 이 절이 재지 않은 것 | PORTING-PLAN.md:35779 - **세 번째 씨앗 베이스.** `r*` = 0.05의 안정성도, id가 겹치지 않는다는 것도 표본이 **둘**이다. 두 점은 추세가 아니다. 포트 STO... | OPEN |
-| §303.8 | PORTING-PLAN.md:35777 §303.8 이 절이 재지 않은 것 | PORTING-PLAN.md:35782 - **port@700001의 0.005 이하.** 커밋된 그 팔의 스윕 그리드가 `[0.05]`라 0.05·0.01·반환 세 지점만 답한다. §286.3이... | OPEN |
-| §303.8 | PORTING-PLAN.md:35777 §303.8 이 절이 재지 않은 것 | PORTING-PLAN.md:35786 - **§286.11의 나머지 항목들.** 일부러 어려운 씨앗에서의 사건율, fanuc과 나머지 로봇, `max_iterations = 200`은 이 절이 ... | OPEN |
-| §303.8 | PORTING-PLAN.md:35777 §303.8 이 절이 재지 않은 것 | PORTING-PLAN.md:35789 - **§300.9가 연 변이 실험.** 최적화기를 계속 돌게 두면서 0.05 바에 검정력이 있는지 보는 실험은 이 절의 축이 아니다. 이 절은 같은 소스에... | OPEN |
-| §303.8 | PORTING-PLAN.md:35777 §303.8 이 절이 재지 않은 것 | PORTING-PLAN.md:35792 - **길이가 아니라 궤적의 일치.** §300.6 그대로다. 하네스가 waypoint 행렬을 내보내지 않으므로, 두 구현이 같은 문제에서 같은 경로를 내는... | OPEN |
-| §307.6 | PORTING-PLAN.md:35988 재지 않은 것: | PORTING-PLAN.md:35990 - **3415건의 "other" 잔여.** 이 절은 이들을 세었을 뿐 하나도 읽지 않았다. 그 안에 또 다른 coarse 모양이 있는지는 다음 라운드의 물... | OPEN |
-| §307.6 | PORTING-PLAN.md:35988 재지 않은 것: | PORTING-PLAN.md:35992 - **둘째 모집단 320건을 로저로 흡수하는 일.** `COMPARISON_BASELINE`은 드리프트만 잠근다 — 320건 각각을 census §9의 i... | OPEN |
-| §307.6 | PORTING-PLAN.md:35988 재지 않은 것: | PORTING-PLAN.md:35995 - **연쇄 via 37건의 완전한 목록화.** §307.5에서 존재와 개수(37)만 확인했고, 그 37건이 이미 로저에 있는 다른 사이트와 어떤 관계인지는... | OPEN |
+| §274.6 | PORTING-PLAN.md:28236 §274.6 닫지 않은 것 | PORTING-PLAN.md:28238 - **저장된 설정은 어떤 플래너에도 닿지 않았다. 닫혔다(§285).** 상류의 `setParams`는 `setPlannerConfigurations`로 ... | OPEN |
+| §274.6 | PORTING-PLAN.md:28236 §274.6 닫지 않은 것 | PORTING-PLAN.md:28249 - **머지 시점의 import. 이미 해소되었다(§285.1).** 이 절이 쓰인 브랜치의 base에서 `PLANNER_MANAGERS`는 `moveit-... | OPEN |
+| §275.4 | PORTING-PLAN.md:28363 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28365 - **다른 4로봇은 다시 재지 않았다. 거짓 → 닫힘 (§284.1·§284.3).** panda/fanuc/dual_arm_panda/pr2는 기본 바닥... | CLOSED (§284.1·§284.3) |
+| §275.4 | PORTING-PLAN.md:28363 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28372 - **case 8148을 닫지 않았다.** §275.3의 1건은 열린 항목이다. | OPEN |
+| §275.4 | PORTING-PLAN.md:28363 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28373 - **접선 자체를 고치지 않았다.** `sphere × sphere`의 비균일성(#16)과 같은 부류이고, §251.4가 적은 두 대안(양의 엡실론 / 쌍... | OPEN |
+| §280.4 | PORTING-PLAN.md:29159 §280.4 이 절이 하지 않은 것 | PORTING-PLAN.md:29161 - 조건 (b)는 손대지 않았다. 그 행(`성공한 해의 FK가 SolverParams::epsilon 이내`)은 동작점 문제가 없다 — 성공한 해에 대한 진... | OPEN |
+| §280.4 | PORTING-PLAN.md:29159 §280.4 이 절이 하지 않은 것 | PORTING-PLAN.md:29164 - 다른 어떤 Phase의 조건문도 고치지 않았다. §267.4가 남긴 결정은 이 하나뿐이다. | OPEN |
+| §280.4 | PORTING-PLAN.md:29159 §280.4 이 절이 하지 않은 것 | PORTING-PLAN.md:29165 - 새 측정을 하지 않았다. 이 절의 근거는 전부 §245.4의 표이고, 그 표를 재현하지 않았다. | OPEN |
+| §280.4 | PORTING-PLAN.md:29159 §280.4 이 절이 하지 않은 것 | PORTING-PLAN.md:29167 - 이 결정은 되돌릴 수 있다. 옛 문구로 돌아가려면 §280.1이 적은 대가 — 동작점에 따라 판정이 달라지는 행 — 를 받아들이면 된다. | OPEN |
+| §281.6 | PORTING-PLAN.md:29317 §281.6 이 절이 하지 않은 것 | PORTING-PLAN.md:29319 - **다른 4로봇은 여전히 재지 않았다. 거짓 → 닫힘 (§284.1·§284.3).** §275.4가 적은 그대로였고, 바닥을 내린 장면에서 panda/... | CLOSED (§284.1·§284.3) |
+| §281.6 | PORTING-PLAN.md:29317 §281.6 이 절이 하지 않은 것 | PORTING-PLAN.md:29325 - **`cylinder × box`의 다른 발현을 훑지 않았다. 거짓 → 닫힘 (§297.2), 그리고 마지막 줄은 정정된다.** 이 절이 잰 것은 바닥 ... | CLOSED (§297.2) |
+| §281.6 | PORTING-PLAN.md:29317 §281.6 이 절이 하지 않은 것 | PORTING-PLAN.md:29339 - **관통 분기는 건드리지 않았다. 거짓 → 닫힘 (§281.7).** §281.7이 case 8148의 flange 포즈 위로 바닥을 올려 같은 닫힌 형... | CLOSED (§281.7) |
+| §284.3 | PORTING-PLAN.md:29897 이 절이 하지 않은 것: | PORTING-PLAN.md:29899 - **바닥 높이는 두 개만 쟀다.** `0.0`과 `-0.5`뿐이고, 그 사이나 아래에서 다른 로봇의 초과가 나타나는지는 재지 않았다. | OPEN |
+| §284.3 | PORTING-PLAN.md:29897 이 절이 하지 않은 것: | PORTING-PLAN.md:29901 - **시드는 1 하나다.** 다섯 로봇 전부 같은 10,000상태 풀이고, 다른 시드에서 넷 중 하나가 초과를 내는지는 이 절의 코퍼스 밖이다. | OPEN |
+| §284.3 | PORTING-PLAN.md:29897 이 절이 하지 않은 것: | PORTING-PLAN.md:29903 - **관통 분기는 판정하지 않았다. 세 절 모두 거짓 → 닫힘 (앞 둘 §297.4, 셋째 §302).** 이 항목은 세 주장을 한 문장에 담고 있어서 통... | CLOSED (앞 둘 §297.4, 셋째 §302) |
+| §284.7 | PORTING-PLAN.md:30095 이 절이 하지 않은 것 (첫째는 §298이, 나머지 둘은 §297이 닫았다): | PORTING-PLAN.md:30097 - **커밋된 프로브의 상자를 고치지 않았다. 거짓 → 닫힘 (§298).** 이 절이 쓰인 시점 `tools/fcl-distance-tolerance-pr... | CLOSED (§298) |
+| §284.7 | PORTING-PLAN.md:30095 이 절이 하지 않은 것 (첫째는 §298이, 나머지 둘은 §297이 닫았다): | PORTING-PLAN.md:30105 - **관통 분기 쪽 잔차는 이 계측기로 재지 않았다. 거짓 → 닫힘 (§297).** 괄호가 분리 쪽에서만 성립한다는 것은 지금도 참이고(§281.6과 같... | CLOSED (§297) |
+| §284.7 | PORTING-PLAN.md:30095 이 절이 하지 않은 것 (첫째는 §298이, 나머지 둘은 §297이 닫았다): | PORTING-PLAN.md:30113 - **다른 `box x cylinder` self 쌍은 훑지 않았다. 거짓 → 닫힘 (§297).** 이 절이 판정한 것은 case 4697 하나였고, p... | CLOSED (§297) |
+| §285.9 | PORTING-PLAN.md:30331 §285.9 이 절이 하지 않은 것 | PORTING-PLAN.md:30333 - **`range` 말고 다른 키는 묶지 않았다.** 오늘 이 포트가 `RRTConnect`에 대해 상류와 이름을 공유하는 키는 그것 하나다(§285.2)... | OPEN |
+| §285.9 | PORTING-PLAN.md:30331 §285.9 이 절이 하지 않은 것 | PORTING-PLAN.md:30337 - **`getPlannerConfigurations`는 포팅하지 않았다.** 상류에서 `getParams`가 매니저에게 되묻는 이유는 저장소가 매니저의 것... | OPEN |
+| §285.9 | PORTING-PLAN.md:30331 §285.9 이 절이 하지 않은 것 | PORTING-PLAN.md:30343 - **group 없는 `set`의 도달 불가능성은 그대로 두었다.** group을 비운 `set`은 `planner_config` 이름 그대로 저장되는데,... | OPEN |
+| §285.9 | PORTING-PLAN.md:30331 §285.9 이 절이 하지 않은 것 | PORTING-PLAN.md:30347 - **§274.6의 나머지 인용 표류는 이 절의 것이 아니다.** `planner_params.rs`의 주석이 상류 `query_planners_servi... | OPEN |
+| §286.11 | PORTING-PLAN.md:30702 §286.11 이 절이 재지 않은 것 | PORTING-PLAN.md:30704 - **일부러 어려운 씨앗에서의 조건 2 사건율.** §286.9. 검정력 부족이 모집단 크기의 문제인지 난이도의 문제인지는 이 절이 가르지 못한다. | OPEN |
+| §286.11 | PORTING-PLAN.md:30702 §286.11 이 절이 재지 않은 것 | PORTING-PLAN.md:30706 - **포트 STOMP의 두 번째 씨앗 베이스. 거짓 → 닫힘 (§303).** 이 절은 CHOMP 두 팔만 424242로 다시 돌렸고(§286.5), 포트... | CLOSED (§303) |
+| §286.11 | PORTING-PLAN.md:30702 §286.11 이 절이 재지 않은 것 | PORTING-PLAN.md:30713 - **fanuc과 나머지 세 로봇.** 이 절의 모든 수는 panda_arm이다. §264.7의 fanuc stratum은 씨앗 유효 비율이 이보다 훨씬 ... | OPEN |
+| §286.11 | PORTING-PLAN.md:30702 §286.11 이 절이 재지 않은 것 | PORTING-PLAN.md:30715 - **조건 2를 자기 검사 단위에서 STOMP에 대해 무력화하는 변이.** §300가 걸었고, 물음은 열린 채로 남았다. `COLLISION_PENALTY... | OPEN |
+| §286.11 | PORTING-PLAN.md:30702 §286.11 이 절이 재지 않은 것 | PORTING-PLAN.md:30722 - **`max_iterations = 200`.** §269.8이 연 자리 그대로다. | OPEN |
+| §288.9 | PORTING-PLAN.md:31231 §288.9 §5 행이 뭐라고 말해야 하는가, 그리고 이 절이 재지 않은 것 | PORTING-PLAN.md:31233 - **fcl이 libccd에 맡기는 빈칸** — `cylinder × box`가 그중 하나이고 §275.1의 6,854건이 사는 곳이다. §288.5가 그... | OPEN |
+| §288.9 | PORTING-PLAN.md:31231 §288.9 §5 행이 뭐라고 말해야 하는가, 그리고 이 절이 재지 않은 것 | PORTING-PLAN.md:31236 - **`box × box`와 `sphere × sphere`** — 각각 이 포트의 GJK 허용오차와 `contact_ball_ball`의 엄격 `<` 때... | OPEN |
+| §288.9 | PORTING-PLAN.md:31231 §288.9 §5 행이 뭐라고 말해야 하는가, 그리고 이 절이 재지 않은 것 | PORTING-PLAN.md:31239 - **간극이 정확히 0인 배치** — §288.7. | OPEN |
+| §288.9 | PORTING-PLAN.md:31231 §288.9 §5 행이 뭐라고 말해야 하는가, 그리고 이 절이 재지 않은 것 | PORTING-PLAN.md:31240 - **메쉬, 그리고 충돌 요소가 여럿인 링크** — 상류가 `shapes::MESH`를 `fcl::BVHModel`로 사상하는 세 번째 순회이고, 이 절은... | OPEN |
+| §288.9 | PORTING-PLAN.md:31231 §288.9 §5 행이 뭐라고 말해야 하는가, 그리고 이 절이 재지 않은 것 | PORTING-PLAN.md:31244 - **`self_collision` 열** — 이 절은 `robot_collision`만 본다. 프로브가 세계 물체이므로 자기충돌 쌍은 마스크의 대상이 아... | OPEN |
+| §289.7 | PORTING-PLAN.md:31351 §289.7 남은 것 | PORTING-PLAN.md:31353 - **614건은 bounds-only에 머문다 — 하한을 낮추지 않았다.** 커밋된 트리의 bounds-only 1125건을 "문장이 이미 착지하는 조각을... | OPEN |
+| §292.8 | PORTING-PLAN.md:32058 §292.8 남은 182건과, 재지 않은 것 | PORTING-PLAN.md:32060 - **182건(그중 125건이 `.md`, 57건이 `.rs` 파일 안)은 손으로 열지 않았다.** 전환 뒤가 아닌 상속은 남는다: 153건은 줄에 `.r... | OPEN |
+| §294.7 | PORTING-PLAN.md:32414 §294.7 이 회차가 못 본 것 | PORTING-PLAN.md:32416 - **`crates/`의 UNFIXED 주장 열 파일.** 같은 계열, 다른 매체. 안 읽었다. | OPEN |
+| §294.7 | PORTING-PLAN.md:32414 §294.7 이 회차가 못 본 것 | PORTING-PLAN.md:32417 - **만료 조건 45건.** 46건 중 표본 하나만 확인했다. | OPEN |
+| §294.7 | PORTING-PLAN.md:32414 §294.7 이 회차가 못 본 것 | PORTING-PLAN.md:32418 - **`### Result:` 일곱 중 둘.** 라운드 11의 fragile needle 셋과 라운드 20의 한 건은 "지금은 유일하니 손대지 않는다"는 ... | OPEN |
+| §294.7 | PORTING-PLAN.md:32414 §294.7 이 회차가 못 본 것 | PORTING-PLAN.md:32422 - **`## Gate scope` 다섯 절.** 커버리지 경계 선언이고 같은 계열이지만 판정하지 않았다. | OPEN |
+| §294.7 | PORTING-PLAN.md:32414 §294.7 이 회차가 못 본 것 | PORTING-PLAN.md:32424 - **§291의 어휘 후보 전수.** 20/486(또는 1588)만 봤다. | OPEN |
+| §296.8 | PORTING-PLAN.md:32998 §296.8 남는 것 | PORTING-PLAN.md:33000 - **`isCurrentTrajectoryMeshToMeshCollisionFree`의 이름이 몸통과 어긋난다.** "Current"라고 하면서 `best... | OPEN |
+| §296.8 | PORTING-PLAN.md:32998 §296.8 남는 것 | PORTING-PLAN.md:33005 - **유효 반복 예산은 50이 아니라 40이다.** 메시 검사가 0/10/20/30/40에서만 돌므로 41~49의 아홉 pass는 성공 판정을 받을 기회가... | OPEN |
+| §296.8 | PORTING-PLAN.md:32998 §296.8 남는 것 | PORTING-PLAN.md:33008 - **20건(대조군에서 살아남는 층)의 원인.** `accepted == 0`이 열 pass 내내 유지되는 이유는 재지 않았다. | OPEN |
+| §296.8 | PORTING-PLAN.md:32998 §296.8 남는 것 | PORTING-PLAN.md:33010 - **STOMP 쪽 30/25가 정말 씨앗반환인지.** §296.6의 STOMP 열은 길이 동일성이고, 그것이 궤적 동일성을 함의하지 않는다. waypoi... | OPEN |
+| §296.8 | PORTING-PLAN.md:32998 §296.8 남는 것 | PORTING-PLAN.md:33013 - **유효씨앗 층 안의 20.3% / 24.8%가 STOMP의 어느 종료 조건에서 나오는지.** 이 라운드는 STOMP 코드를 읽지 않았다 — 그 비율은 ... | OPEN |
+| §297.5 | PORTING-PLAN.md:33232 §297.5 이 회차가 재지 않은 것 | PORTING-PLAN.md:33234 - **관통 깊이의 제3의 답. 거짓 → 닫힘 (§302).** 민코프스키 차 `D = A ⊖ B`의 지지함수가 `h_D(n) = h_A(n) + h_B(-... | CLOSED (§302) |
+| §297.5 | PORTING-PLAN.md:33232 §297.5 이 회차가 재지 않은 것 | PORTING-PLAN.md:33247 - **9,611건 교차표를 다시 내는 커밋된 계측기.** §297.2와 §297.3의 표는 이 라운드가 만든 일회용 프로브가 낸 것이고, 커밋된 것은 `c... | OPEN |
+| §297.5 | PORTING-PLAN.md:33232 §297.5 이 회차가 재지 않은 것 | PORTING-PLAN.md:33255 - **나머지 네 로봇.** 이 절의 앵커는 prbt 위에서만 쟀다. panda·fanuc· dual_arm_panda는 링크가 전부 메시라 이 칸 분류 자... | OPEN |
+| §297.5 | PORTING-PLAN.md:33232 §297.5 이 회차가 재지 않은 것 | PORTING-PLAN.md:33258 - **44건의 "우세하지 않음".** 계열의 18%다. 괄호는 좁은데 양쪽이 비슷하게 떨어져 있다는 뜻이므로 두 solver가 같은 자리에서 같은 크기로 ... | OPEN |
+| §297.5 | PORTING-PLAN.md:33232 §297.5 이 회차가 재지 않은 것 | PORTING-PLAN.md:33261 - **`.md` 바깥에서 인용하는 파일을 잡는 게이트.** §297.6이 실측한 것은 fcl 면제 항목의 세 인용이 드리프트했다는 사실 하나지만, 그 셋이... | OPEN |
+| §298.6 | PORTING-PLAN.md:33495 §298.6 이 회차가 못 본 것 | PORTING-PLAN.md:33497 - **다른 시드·다른 픽스처.** 프로브는 여전히 xorshift64 고정 시드, prbt 하나의 쌍 하나만 잰다. 다른 로봇에 같은 형태(box 대 cy... | OPEN |
+| §298.6 | PORTING-PLAN.md:33495 §298.6 이 회차가 못 본 것 | PORTING-PLAN.md:33500 - **`MIN_DRIFT=1e-5`를 실측 기반 수식으로 다시 유도할지.** §298.3에서 적었듯 이 핀은 절의 `1e-4` 허용오차에 묶인 것이지 이 ... | OPEN |
+| §299.10 | PORTING-PLAN.md:33774 §299.10 아직 고치지 않은 것 | PORTING-PLAN.md:33776 - **30건의 findings 자체는 이 회차에 고치지 않았다** — 세 부류(blank-line 17, section-mismatch 6, unresol... | OPEN |
+| §299.10 | PORTING-PLAN.md:33774 §299.10 아직 고치지 않은 것 | PORTING-PLAN.md:33781 - **`doc/handoff-2026-08-06.md:112`의 §5 표 행 수(쓰일 때 19행, 지금 20행)와 `PORTING-PLAN.md:807`도... | OPEN |
+| §300.9 | PORTING-PLAN.md:34005 §300.9 이 절이 재지 않은 것 | PORTING-PLAN.md:34007 - **§286.11의 물음 자체.** 0.05 바가 옳은지 눈이 먼 지는 여전히 미결이다. 이 절의 두 계기가 각각 §300.4와 §300.5에서 빗나갔다... | OPEN |
+| §300.9 | PORTING-PLAN.md:34005 §300.9 이 절이 재지 않은 것 | PORTING-PLAN.md:34014 - **`floor_wall` 77 · `cage` 133 · `cage` 159의 성격. 거짓 → 닫힘 (§286.3).** 이 항목이 요구한 비교 — C... | CLOSED (§286.3) |
+| §300.9 | PORTING-PLAN.md:34005 §300.9 이 절이 재지 않은 것 | PORTING-PLAN.md:34029 - **500문제 전체의 병합 무관함.** §300.8의 바이트 동일은 20 id에 대한 것이다. | OPEN |
+| §300.9 | PORTING-PLAN.md:34005 §300.9 이 절이 재지 않은 것 | PORTING-PLAN.md:34030 - **길이 일치를 궤적 일치로 올리는 것.** §300.6. 하네스가 waypoint 행렬이나 그 해시를 내보내야 한다. | OPEN |
+| §300.9 | PORTING-PLAN.md:34005 §300.9 이 절이 재지 않은 것 | PORTING-PLAN.md:34032 - **panda_arm 외의 로봇, 두 번째 씨앗 베이스, `max_iterations = 200`.** §286.11의 해당 항목들이 그대로 열려 있다.... | OPEN |
+| §302.6 | PORTING-PLAN.md:34376 재지 않은 것: | PORTING-PLAN.md:34378 - **§270.2의 42,259건.** 이 절의 모집단은 여전히 prbt 한 실행의 self 면 389건이다. §270.2의 처분(389건이 그 안의 부분... | OPEN |
+| §302.6 | PORTING-PLAN.md:34376 재지 않은 것: | PORTING-PLAN.md:34381 - **나머지 네 로봇. 거짓 → 닫힘 (§302.10).** panda·fanuc·dual_arm_panda는 링크가 전부 메시라 `WorldConvex`... | CLOSED (§302.10) |
+| §302.6 | PORTING-PLAN.md:34376 재지 않은 것: | PORTING-PLAN.md:34385 - **우세하지 않음 19건. 거짓 → 닫힘 (§302.8).** 괄호는 좁은데 양쪽이 비슷하게 떨어져 있다. 두 solver가 같은 자리에서 같은 크기로 ... | CLOSED (§302.8) |
+| §302.6 | PORTING-PLAN.md:34376 재지 않은 것: | PORTING-PLAN.md:34388 - **판정 불가 93건. 거짓 → 닫힘 (§302.9).** 전부 편차 `1e-4` 미만이라 조항에는 걸리지 않지만, 폭을 `1e-12`까지 좁히면 판정 ... | CLOSED (§302.9) |
+| §302.6 | PORTING-PLAN.md:34376 재지 않은 것: | PORTING-PLAN.md:34392 - **커밋된 전수 계측기. 거짓 → 닫힘 (§302.7).** §302.3과 §302.4의 표는 이 라운드의 일회용 프로브가 낸 것이었고, 그때 게이트가 ... | CLOSED (§302.7) |
+| §305.7 | PORTING-PLAN.md:35099 재지 않은 것: | PORTING-PLAN.md:35101 - **`수동` 42행이 전부인지.** 위 §305.4가 적은 구멍의 다른 이름이다. 이 목록은 §252·§258·§261·§264·§269·§286·§29... | OPEN |
+| §305.7 | PORTING-PLAN.md:35099 재지 않은 것: | PORTING-PLAN.md:35106 - **`tools/ci/verify-*` 9개.** `mktemp -d`를 열지만 이 게이트의 가족이 아니다. 그중 `verify-phase8-benchm... | OPEN |
+| §305.7 | PORTING-PLAN.md:35099 재지 않은 것: | PORTING-PLAN.md:35109 - **사라진 35행의 복구.** 다른 패널의 스크래치 출력을 지어내지 않았다. 없는 것은 행이 `없음`이라고 적는다. §269의 네 팔은 이 라운드에 p1... | OPEN |
+| §305.7 | PORTING-PLAN.md:35099 재지 않은 것: | PORTING-PLAN.md:35113 - **`doc/phase8-seedbase-stomp/`의 빠진 두 파일.** 씨앗 베이스 424242의 포트 STOMP 팔이고, 그것이 없어 그 디렉터리... | OPEN |
+| §305.7 | PORTING-PLAN.md:35099 재지 않은 것: | PORTING-PLAN.md:35118 - **§269.6의 41과 36 중 어느 쪽이 옳은지.** 어긋남은 쟀지만 가리지 못했다. 발표값을 낸 실행의 cpp 길이 열이 커밋되지 않았고, 지금 트... | OPEN |
+| §305.7 | PORTING-PLAN.md:35099 재지 않은 것: | PORTING-PLAN.md:35122 - **C++ STOMP의 `length`가 같은 씨앗 베이스에서 실행 간 재현되는지.** 위 어긋남의 원인 후보이고, 확인에는 `cpp700001.*`를 ... | OPEN |
+| §305.7 | PORTING-PLAN.md:35099 재지 않은 것: | PORTING-PLAN.md:35126 - **`doc/phase8-optimizer-properties.json`을 만드는 것.** `MODE=full`을 돌리면 §264의 13행이 증거를 갖게... | OPEN |
+| §305.7 | PORTING-PLAN.md:35099 재지 않은 것: | PORTING-PLAN.md:35129 - **§300.2의 벽시계 표.** `wall_secs`를 NDJSON에 싣게 하는 것은 하네스 변경이고, 이 절은 그 필드가 없다는 사실만 쟀다. | OPEN |
+| §304.9 | PORTING-PLAN.md:35343 §304.9 이 절이 재지 않은 것 | PORTING-PLAN.md:35345 - **비용은 기계의 성질이다.** 여덟 팔의 벽시계는 cpp CHOMP 89 s·93 s, cpp STOMP 120 s·146 s, port CHOMP 3... | OPEN |
+| §304.9 | PORTING-PLAN.md:35343 §304.9 이 절이 재지 않은 것 | PORTING-PLAN.md:35350 - **다른 씨앗 베이스는 이 라운드가 다시 재지 않았다.** §286.5의 424242 표는 그 절이 잰 것이고 그 NDJSON은 여전히 커밋되어 있지 않... | OPEN |
+| §304.9 | PORTING-PLAN.md:35343 §304.9 이 절이 재지 않은 것 | PORTING-PLAN.md:35353 - **`seed.<config>.ndjson`은 다시 재지 않고 옮겨 실었다.** 커밋되어 있던 `doc/phase8-condition2-stomp/`의 ... | OPEN |
+| §304.9 | PORTING-PLAN.md:35343 §304.9 이 절이 재지 않은 것 | PORTING-PLAN.md:35356 - **`repeat.cpp.*`는 팔이 아니다.** `floor_wall`의 층화 21·22 id이고 `cage`는 없다. §304.2의 자릿수는 이것이 ... | OPEN |
+| §303.8 | PORTING-PLAN.md:35809 §303.8 이 절이 재지 않은 것 | PORTING-PLAN.md:35811 - **세 번째 씨앗 베이스.** `r*` = 0.05의 안정성도, id가 겹치지 않는다는 것도 표본이 **둘**이다. 두 점은 추세가 아니다. 포트 STO... | OPEN |
+| §303.8 | PORTING-PLAN.md:35809 §303.8 이 절이 재지 않은 것 | PORTING-PLAN.md:35814 - **port@700001의 0.005 이하.** 커밋된 그 팔의 스윕 그리드가 `[0.05]`라 0.05·0.01·반환 세 지점만 답한다. §286.3이... | OPEN |
+| §303.8 | PORTING-PLAN.md:35809 §303.8 이 절이 재지 않은 것 | PORTING-PLAN.md:35818 - **§286.11의 나머지 항목들.** 일부러 어려운 씨앗에서의 사건율, fanuc과 나머지 로봇, `max_iterations = 200`은 이 절이 ... | OPEN |
+| §303.8 | PORTING-PLAN.md:35809 §303.8 이 절이 재지 않은 것 | PORTING-PLAN.md:35821 - **§300.9가 연 변이 실험.** 최적화기를 계속 돌게 두면서 0.05 바에 검정력이 있는지 보는 실험은 이 절의 축이 아니다. 이 절은 같은 소스에... | OPEN |
+| §303.8 | PORTING-PLAN.md:35809 §303.8 이 절이 재지 않은 것 | PORTING-PLAN.md:35824 - **길이가 아니라 궤적의 일치.** §300.6 그대로다. 하네스가 waypoint 행렬을 내보내지 않으므로, 두 구현이 같은 문제에서 같은 경로를 내는... | OPEN |
+| §307.6 | PORTING-PLAN.md:36020 재지 않은 것: | PORTING-PLAN.md:36022 - **3415건의 "other" 잔여.** 이 절은 이들을 세었을 뿐 하나도 읽지 않았다. 그 안에 또 다른 coarse 모양이 있는지는 다음 라운드의 물... | OPEN |
+| §307.6 | PORTING-PLAN.md:36020 재지 않은 것: | PORTING-PLAN.md:36024 - **둘째 모집단 320건을 로저로 흡수하는 일.** `COMPARISON_BASELINE`은 드리프트만 잠근다 — 320건 각각을 census §9의 i... | OPEN |
+| §307.6 | PORTING-PLAN.md:36020 재지 않은 것: | PORTING-PLAN.md:36027 - **연쇄 via 37건의 완전한 목록화.** §307.5에서 존재와 개수(37)만 확인했고, 그 37건이 이미 로저에 있는 다른 사이트와 어떤 관계인지는... | OPEN |
 
 ## lead-in은 있는데 최상위 불릿이 없는 자리 — 이 표가 세지 못한 것
 
@@ -251,6 +251,6 @@ lead-in 4건 (위 표의 64건과 별개).
 |---|---|---|---|
 | §164.2 | PORTING-PLAN.md:13282 164.2 기존 테스트가 재는 것과 재지 않는 것 | PORTING-PLAN.md:13286 | 프로즈 뒤 불릿 |
 | §215.3 | PORTING-PLAN.md:16628 §215.3 아직 "실행하지 않음"으로 남긴 것 | — | 불릿 없음 (프로즈만) |
-| §302.6 | PORTING-PLAN.md:34336 §302.6 이 절이 닫는 것과 재지 않은 것 | PORTING-PLAN.md:34340 | 프로즈 뒤 불릿 |
-| §305.7 | PORTING-PLAN.md:35065 §305.7 이 절이 재지 않은 것 | PORTING-PLAN.md:35069 | 프로즈 뒤 불릿 |
+| §302.6 | PORTING-PLAN.md:34368 §302.6 이 절이 닫는 것과 재지 않은 것 | PORTING-PLAN.md:34372 | 프로즈 뒤 불릿 |
+| §305.7 | PORTING-PLAN.md:35097 §305.7 이 절이 재지 않은 것 | PORTING-PLAN.md:35101 | 프로즈 뒤 불릿 |
 
