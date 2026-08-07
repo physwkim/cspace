@@ -1,0 +1,1 @@
+robot=panda group=panda_arm config=cage scale=1 count=250 attempts=1111 bad_ep=861 bad_ep_rate=77.5% constraint=<none>
