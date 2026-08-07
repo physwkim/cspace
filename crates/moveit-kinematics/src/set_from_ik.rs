@@ -618,11 +618,14 @@ pub fn set_from_ik<'m>(
 /// # Errors
 ///
 /// - [`Error::Other`] if `solvers` and `targets` differ in length, if
-///   `solvers` is empty, or if a solver's group is not a subgroup of
-///   `group_name`. Upstream checks the counts against `getSubgroups()`' length
+///   `solvers` is empty, if a solver's group is not a subgroup of
+///   `group_name`, if the same subgroup is supplied more than once, or if
+///   the supplied solvers do not cover every one of `group_name`'s
+///   sub-groups. Upstream checks the counts against `getSubgroups()`' length
 ///   and then takes the pairing positionally; pairing by the solver's own
-///   group name instead makes a mis-ordered call impossible rather than
-///   merely mis-counted.
+///   group name instead makes a mis-ordered call impossible, and the
+///   coverage check below reproduces upstream's count check without relying
+///   on position.
 /// - [`Error::UnknownName`] if `group_name` is not a group of the model.
 /// - Whatever [`set_from_ik`] reports for an individual subgroup.
 pub fn set_from_ik_subgroups<'m>(
@@ -646,6 +649,7 @@ pub fn set_from_ik_subgroups<'m>(
             "set_from_ik_subgroups needs at least one subgroup solver for group {group_name:?}"
         )));
     }
+    let mut covered = std::collections::BTreeSet::new();
     for solver in solvers.iter() {
         if !group.is_subgroup(solver.group_name()) {
             return Err(Error::other(format!(
@@ -653,6 +657,27 @@ pub fn set_from_ik_subgroups<'m>(
                 solver.group_name(),
             )));
         }
+        if !covered.insert(solver.group_name()) {
+            return Err(Error::other(format!(
+                "solver group {:?} was supplied more than once for {group_name:?}",
+                solver.group_name(),
+            )));
+        }
+    }
+    // Upstream's positional count check (`poses_in.size() != sub_groups.size()`,
+    // `robot_state.cpp:2062-2067`) against the model's *complete* sub-group
+    // list -- not just "each supplied group is *a* sub-group" -- expressed
+    // here as a coverage check, since this port pairs solvers to sub-groups
+    // by name rather than by position. Without this, a caller supplying a
+    // strict subset of the group's sub-groups (e.g. one arm's solver for a
+    // two-arm group) silently sweeps only that subset, leaving the other
+    // sub-group's joints untouched and still reporting `Ok(true)`.
+    if covered.len() != group.subgroup_names().len() {
+        return Err(Error::other(format!(
+            "subgroup solvers cover {} of group {group_name:?}'s {} sub-groups",
+            covered.len(),
+            group.subgroup_names().len(),
+        )));
     }
 
     // No validity hook and no consistency limits on the subgroup solves:
