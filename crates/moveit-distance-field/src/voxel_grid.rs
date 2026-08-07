@@ -77,9 +77,11 @@ impl GridGeometry {
     /// check above and yields `1e10`, past `i32::MAX` (`2147483647`). Past
     /// that point Rust's `as i32` **saturates**; C++'s `(int)(double)`
     /// narrowing of an out-of-range value is **UB**, so there is no
-    /// upstream value to compare against. Unlike `inv_twice_resolution_`'s
-    /// saturation boundary (PORTING-PLAN.md §172.1), an ordinary
-    /// `size`/`resolution` ratio reaches this one, and `VoxelGrid::new`
+    /// upstream value to compare against. `DistanceField::distance_gradient`
+    /// used to carry a saturation boundary of the same shape and no longer
+    /// does (it stopped reproducing upstream's narrowing at all); an
+    /// ordinary `size`/`resolution` ratio reaches this one, and
+    /// `VoxelGrid::new`
     /// sizes its cell storage (via `num_cells_total`) from the saturated
     /// result -- a resource exhaustion, not merely a wrong value, the same
     /// shape as §172.1's `max_distance_sq` case. This section expires if
