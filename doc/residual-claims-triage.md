@@ -7,9 +7,9 @@
 
 `doc/residual-claims-census.md`의 OPEN 불릿을 셋으로 나눈다. PORTING-PLAN.md §308.4의 A3("doc/residual-claims-census.md OPEN 0")가 재는 것은 그 문서의 OPEN 전체이지만, OPEN 전체가 다 '언젠가 잴 수 있는 것'은 아니다 — 아래 `scope`가 그 반례다. 분류 규칙은 이 파일 자신의 docstring에 있다.
 
-OPEN 211건 = measurement 205 + scope 5 + closed-unmarked 1.
+OPEN 210건 = measurement 205 + scope 5 + closed-unmarked 0.
 
-**A3의 실제 크기는 198이 아니라 205이다** — `scope` 5건은 정의상 마커를 받을 수 없고, `closed-unmarked` 1건은 이미 본문상 닫혔지만 정식 마커가 없을 뿐이다.
+**A3의 실제 크기는 198이 아니라 205이다** — `scope` 5건은 정의상 마커를 받을 수 없고, `closed-unmarked` 0건은 이미 본문상 닫혔지만 정식 마커가 없을 뿐이다.
 
 ## scope — 정의상 영원히 안 닫히는 것
 
@@ -25,11 +25,10 @@ OPEN 211건 = measurement 205 + scope 5 + closed-unmarked 1.
 
 ## closed-unmarked — 본문상 이미 닫혔지만 정식 마커가 없는 것
 
-1건. `닫혔다(§N)`/`닫았다`/`해소되었다` 같은 비정규 철자로 스스로 닫혔다고 적었을 뿐, `거짓 → 닫힘 (§N)` 정규 마커가 없어 census가 OPEN으로 센다. 아래 각 항목은 그 항목이 이름 댄 닫는 절을 열어 측정이 실제로 있는지 확인한 뒤에만 정식 마커로 옮길 것 — 정식 마커로 옮기는 것은 편집 결정이라 이 도구가 대신 쓰지 않는다.
+0건. `닫혔다(§N)`/`닫았다`/`해소되었다` 같은 비정규 철자로 스스로 닫혔다고 적었을 뿐 `거짓 → 닫힘 (§N)` 정규 마커가 없는 항목은 지금 없다 — 과거에 이 표에 있었던 항목은 인용된 절을 열어 측정을 확인한 뒤 정식 마커로 옮겨 census의 CLOSED로 넘어갔다.
 
 | 절 | 불릿 |
 |---|---|
-| §274.6 | PORTING-PLAN.md:27992 - **머지 시점의 import. 이미 해소되었다(§285.1).** 이 절이 쓰인 브랜치의 base에서 `PLANNER_MANAGERS`는 `moveit-planners-sbp`에 있었고 `main`에서는 `moveit-planner-registry` 크레이트로 옮겨져 있었으므로... |
 
 ## measurement — A3가 실제로 재야 하는 것
 

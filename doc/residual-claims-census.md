@@ -7,7 +7,7 @@
 
 PORTING-PLAN.md §301(및 그 이전 §291)이 만든 문서. 헤딩이든 평문이든, 이 절이/회차가 하지/닫지/재지/... 않은 것 계열의 lead-in 줄 바로 아래 최상위 불릿을 전부 모은다 — 본문 어휘(무엇을 안 쟀는지)가 아니라 lead-in 어휘(안 쟀다는 것 자체)로 찾으므로, 이 절이 잰 것을 부르는 단어가 무엇이든 걸린다. **닫힘 여부는 `거짓 → 닫힘 (§N)`이 그 불릿 자신의 텍스트 안에 있는지만 본다** — 한 불릿에 여러 절이 섞여 있고 그중 일부만 닫힌 경우(예: PORTING-PLAN.md §284.3), 그 표식이 있으면 전체가 CLOSED로 잡힌다. 부분 닫힘은 이 표가 못 보고, 여는 사람이 본문을 읽어야 한다.
 
-lead-in 64건, 최상위 불릿 229건 (CLOSED 18 / OPEN 211).
+lead-in 64건, 최상위 불릿 229건 (CLOSED 19 / OPEN 210).
 
 | 절 | lead-in (줄) | 불릿 | 상태 |
 |---|---|---|---|
@@ -158,7 +158,7 @@ lead-in 64건, 최상위 불릿 229건 (CLOSED 18 / OPEN 211).
 | §270.2 | PORTING-PLAN.md:27477 §270.2 이 절이 하지 않은 것 | PORTING-PLAN.md:27482 - 관통 분기의 42,259건을 다시 판정하지 않았다. §260이 그 분기를 상류 결함 3건으로 비교 불가로 분류했고 이 절은 그 분류를 인용만 했다. **... | OPEN |
 | §270.2 | PORTING-PLAN.md:27477 §270.2 이 절이 하지 않은 것 | PORTING-PLAN.md:27503 - `distance: f64` 행(PARTIAL, 근거 §260)을 건드리지 않았다. | OPEN |
 | §274.6 | PORTING-PLAN.md:27979 §274.6 닫지 않은 것 | PORTING-PLAN.md:27981 - **저장된 설정은 어떤 플래너에도 닿지 않았다. 거짓 → 닫힘 (§285).** 상류의 `setParams`는 `setPlannerConfiguratio... | CLOSED (§285) |
-| §274.6 | PORTING-PLAN.md:27979 §274.6 닫지 않은 것 | PORTING-PLAN.md:27992 - **머지 시점의 import. 이미 해소되었다(§285.1).** 이 절이 쓰인 브랜치의 base에서 `PLANNER_MANAGERS`는 `moveit-... | OPEN |
+| §274.6 | PORTING-PLAN.md:27979 §274.6 닫지 않은 것 | PORTING-PLAN.md:27992 - **머지 시점의 import. 거짓 → 닫힘 (§285.1).** 이 절이 쓰인 브랜치의 base에서 `PLANNER_MANAGERS`는 `moveit-... | CLOSED (§285.1) |
 | §275.4 | PORTING-PLAN.md:28106 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28108 - **다른 4로봇은 다시 재지 않았다. 거짓 → 닫힘 (§284.1·§284.3).** panda/fanuc/dual_arm_panda/pr2는 기본 바닥... | CLOSED (§284.1·§284.3) |
 | §275.4 | PORTING-PLAN.md:28106 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28115 - **case 8148을 닫지 않았다.** §275.3의 1건은 열린 항목이다. | OPEN |
 | §275.4 | PORTING-PLAN.md:28106 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28116 - **접선 자체를 고치지 않았다.** `sphere × sphere`의 비균일성(#16)과 같은 부류이고, §251.4가 적은 두 대안(양의 엡실론 / 쌍... | OPEN |

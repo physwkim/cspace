@@ -27989,7 +27989,7 @@ crates/moveit-planners-sbp/src/registry.rs:903:#[linkme::distributed_slice(PLANN
   (`crates/moveit-planner-registry/src/lib.rs:80`) setter가 아니라 **생성자
   인자**로 만들었고, `resolve_planner`가 유일한 통로이므로 레지스트리로 만든
   매니저는 자기가 계획할 설정을 반드시 갖는다.
-- **머지 시점의 import. 이미 해소되었다(§285.1).** 이 절이 쓰인 브랜치의
+- **머지 시점의 import. 거짓 → 닫힘 (§285.1).** 이 절이 쓰인 브랜치의
   base에서 `PLANNER_MANAGERS`는 `moveit-planners-sbp`에 있었고 `main`에서는
   `moveit-planner-registry` 크레이트로 옮겨져 있었으므로, 새 파일인
   `planner_params.rs`는 충돌 없이 머지되고 그 다음 컴파일에서 깨질 것이라고
