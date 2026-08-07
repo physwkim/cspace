@@ -132,7 +132,8 @@
 //!
 //! ```text
 //! "loop": {"evaluations": n, "exit": "iteration_bound"|"clock_limit"|"break_out",
-//!          "accepted": k, "mesh_free_passes": m, "below_threshold_passes": b,
+//!          "accepted": k, "mesh_checks": mc, "mesh_free_passes": m,
+//!          "threshold_checks": tc, "below_threshold_passes": b,
 //!          "seed_points_within_clearance": w, "seed_points_in_collision": c,
 //!          "first_pass_max_update": u}
 //! ```
@@ -145,7 +146,14 @@
 //! with `evaluations > 1` is the "computed and rejected" case. `u` is the
 //! largest change the first pass actually applied after
 //! `joint_update_limit`'s rescale, so a `u` at the limit rules out a
-//! collapsed update.
+//! collapsed update. `m`/`b` alone are ambiguous: `m == 0` is consistent both
+//! with "the mesh check ran every 10th pass and never found the trajectory
+//! free" and with "the check never ran" (`max_iterations` too small to hit a
+//! multiple of 10 before the loop otherwise exited), and those are different
+//! diagnoses. `mc`/`tc` are the counts of how many passes *reached* each
+//! check at all, regardless of outcome -- `m == 0` with `mc > 0` is the
+//! former; `mc == 0` is the latter. Same relation between `tc` and `b`, where
+//! `tc == 0` specifically means `filter_mode` disabled the comparison.
 //!
 //! A request carrying `condition2_resolutions: [r, ...]` additionally gets
 //! `condition2_by_resolution`, one condition-2 verdict per `r` over the same
@@ -505,7 +513,9 @@ fn loop_json(trace: &ChompLoopTrace) -> serde_json::Value {
             ChompExit::BreakOut => "break_out",
         },
         "accepted": trace.accepted,
+        "mesh_checks": trace.mesh_checks,
         "mesh_free_passes": trace.mesh_free_passes,
+        "threshold_checks": trace.threshold_checks,
         "below_threshold_passes": trace.below_threshold_passes,
         "seed_points_within_clearance": trace.seed_points_within_clearance,
         "seed_points_in_collision": trace.seed_points_in_collision,
