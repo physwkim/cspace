@@ -221,49 +221,53 @@ build_fixture() {
 plan() {
   local d="$1" beta_mention="${2-yes}" gamma_mention="${3-yes}"
   {
-    echo '## 900 증거 보존'
-    echo
-    echo '### 900.1 계측기 전수'
-    echo
-    echo '| 계측기 | 산출물 | 부류 |'
-    echo '|---|---|---|'
-    echo '| `measure-alpha.sh` | `doc/alpha-artifact.md`, `doc/alpha-second.md` | 추적 산출물 |'
-    echo '| `measure-beta.sh` | 없음 | 미보존 산출물 |'
-    echo '| `measure-gamma.py` | 없음 | 트리에서 재실행 |'
-    echo
-    echo '부류별 수는 오늘 `추적 산출물` **1**, `트리에서 재실행` **1**, `미보존 산출물` **1**, `입력이 증거` **0**이다.'
-    echo
-    echo '### 900.2 출판 행'
-    echo
-    echo '| 계측기 | 절 | 증거 | 행 출처 | 비고 |'
-    echo '|---|---|---|---|---|'
-    echo '| `measure-beta.sh` | 901.1 | `doc/evidence/` | 자동 | 스윕 출력이 그대로 있다 |'
-    echo '| `measure-beta.sh` | 901.2 | 없음 | 수동 | 같은 실행, 스크립트 이름 없음 |'
-    echo '| `measure-gamma.py` | 901.3 | 없음 | 자동 | 다시 돌리면 나온다 |'
-    echo
-    echo '### 900.3 증거 디렉터리'
-    echo
-    echo '| 증거 디렉터리 | 상태 | 빠진 파일 | 비고 |'
-    echo '|---|---|---|---|'
-    echo '| `doc/evidence/` | 재현됨 | 없음 | 출력이 커밋된 rederive.txt와 같다 |'
-    echo '| `doc/` | 깨짐 | `doc/gone.ndjson` | 그 팔이 커밋되지 않았다 |'
-    echo
-    echo '## 901 측정한 절'
-    echo
-    echo '### 901.1 스윕'
-    echo
+    cat <<'PLAN_HEAD'
+## 900 증거 보존
+
+### 900.1 계측기 전수
+
+| 계측기 | 산출물 | 부류 |
+|---|---|---|
+| `measure-alpha.sh` | `doc/alpha-artifact.md`, `doc/alpha-second.md` | 추적 산출물 |
+| `measure-beta.sh` | 없음 | 미보존 산출물 |
+| `measure-gamma.py` | 없음 | 트리에서 재실행 |
+
+부류별 수는 오늘 `추적 산출물` **1**, `트리에서 재실행` **1**, `미보존 산출물` **1**, `입력이 증거` **0**이다.
+
+### 900.2 출판 행
+
+| 계측기 | 절 | 증거 | 행 출처 | 비고 |
+|---|---|---|---|---|
+| `measure-beta.sh` | 901.1 | `doc/evidence/` | 자동 | 스윕 출력이 그대로 있다 |
+| `measure-beta.sh` | 901.2 | 없음 | 수동 | 같은 실행, 스크립트 이름 없음 |
+| `measure-gamma.py` | 901.3 | 없음 | 자동 | 다시 돌리면 나온다 |
+
+### 900.3 증거 디렉터리
+
+| 증거 디렉터리 | 상태 | 빠진 파일 | 비고 |
+|---|---|---|---|
+| `doc/evidence/` | 재현됨 | 없음 | 출력이 커밋된 rederive.txt와 같다 |
+| `doc/` | 깨짐 | `doc/gone.ndjson` | 그 팔이 커밋되지 않았다 |
+
+## 901 측정한 절
+
+### 901.1 스윕
+
+PLAN_HEAD
     if [ "$beta_mention" = yes ]; then
       echo '이 표는 measure-beta.sh 실행에서 나왔다.'
     else
       echo '이 표는 어느 스윕에서 나왔다.'
     fi
-    echo
-    echo '### 901.2 같은 스윕의 다른 표'
-    echo
-    echo '스크립트를 이름으로 적지 않고 같은 실행의 수를 싣는다.'
-    echo
-    echo '### 901.3 트리에서 재실행'
-    echo
+    cat <<'PLAN_MID'
+
+### 901.2 같은 스윕의 다른 표
+
+스크립트를 이름으로 적지 않고 같은 실행의 수를 싣는다.
+
+### 901.3 트리에서 재실행
+
+PLAN_MID
     if [ "$gamma_mention" = yes ]; then
       echo '    $ tools/ci/measure-gamma.py'
     else
@@ -524,14 +528,14 @@ expect_fail missing_census "$d" "found 0"
 # isolates: the uniqueness half of the same rule. Two registries mean two
 # answers, and taking the first would leave the second unchecked.
 d="$(new duplicate_census)"
-{
-  echo
-  echo '### 900.3 두 번째 전수'
-  echo
-  echo '| 계측기 | 산출물 | 부류 |'
-  echo '|---|---|---|'
-  echo '| `measure-beta.sh` | 없음 | 미보존 산출물 |'
-} >> "$d/PLAN.md"
+cat <<'DUP_CENSUS' >> "$d/PLAN.md"
+
+### 900.3 두 번째 전수
+
+| 계측기 | 산출물 | 부류 |
+|---|---|---|
+| `measure-beta.sh` | 없음 | 미보존 산출물 |
+DUP_CENSUS
 expect_fail duplicate_census "$d" "found 2"
 
 # --- a table with a header and no rows ---------------------------------------
