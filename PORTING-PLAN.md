@@ -6506,8 +6506,12 @@ moveit_py/src/moveit/moveit_core/planning_scene/planning_scene.cpp
   재현한다. 막고 있는 것은 살아 있는 `PlanningScene`에서 `Transforms`를
   그 생성자들로 흘려보내는 다리가 없다는 것이고, 그것이 생기면 닫힌다.
 
-- **새로 표면화된 것: `getCostSources`가 막혀 있다.**
-  `ParryCollisionEnv`가 `cost_sources: None`을 하드코딩한다. p3-acm 소관.
+- **새로 표면화된 것: `getCostSources`가 막혀 있다. 거짓 → 닫힘 (§318.1).**
+  `6890fdd`(moveit-collision: implement cost_sources instead of
+  documenting it as blocked)가 `ParryCollisionEnv`의 하드코딩된
+  `cost_sources: None`을 `PlanningScene::cost_sources`/`path_cost_sources`
+  실제 계산으로 교체했다. `cost_sources_parity.rs`가 panda로 오라클과
+  대조하며 오늘 11/11 통과.
 
 ### 70.4 머지 후 실측
 
