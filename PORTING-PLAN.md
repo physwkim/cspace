@@ -34291,7 +34291,7 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 | `count-coarse-assertions.py` | 307.1 | `tools/ci/count-coarse-assertions.py` | 자동 | `MACROS` 튜플과 `classify()`의 `eq_none`/`eq_err` 분기가 지금도 `assert_ne`를 잡는다 — 이 절이 정정하는 전제 자체가 이 계기의 지금 소스로 확인된다. 수를 싣지 않는다 |
 | `count-coarse-assertions.py` | 307.2 | `tools/ci/count-coarse-assertions.py` | 자동 | 재실행이 이 부류의 증거이나 코퍼스가 `count-narrowing-sweep.sh`처럼 고정 상류 체크아웃이 아니라 이 저장소 자신의 살아 있는 `crates/`·`ros/`·`tools/`다. 이 커밋에서 재실행하면 기본 모드 4800(1187 kept·3613 dropped), `CCA_LEGACY_KINDS_ONLY=1` 모드 4763(852 kept·3911 dropped)이라, 이 절이 실은 4708/1098/3610과 4708/800/3908 어느 쪽도 다시 나오지 않는다 — 이 절 이후 병합된 커밋들이 매크로 호출을 늘렸다 |
 | `count-coarse-assertions.py` | 307.6 | `tools/ci/count-coarse-assertions.py` | 자동 | 이 절의 `dropped = 3610 = 195(abs_tol) + 3415(other)`을 이 커밋에서 재현하면 `3613 = 195 + 3418`이다 — `abs_tol`은 정확히 재현되고 `other`만 어긋난다. §307.2와 같은 원인(코퍼스가 고정 상류 체크아웃이 아니라 이 저장소 자체라 이 절 이후의 병합이 수를 움직인다) |
-| `count-coarse-assertions.py` | 307.3 | `tools/ci/count-coarse-assertions.py` | 자동 | 수를 싣지 않는다 — `top_level_comparisons()`를 어디에 넣었는지(`count-coarse-assertions.py:335-344`)와 `.abs() <` 하나짜리를 kind에서 뺀 근거를 적는다. 그 인용은 추적된 소스에 대고 확인된다 |
+| `count-coarse-assertions.py` | 307.3 | `tools/ci/count-coarse-assertions.py` | 자동 | 수를 싣지 않는다 — `top_level_comparisons()`를 어디에 넣었는지(`tools/ci/count-coarse-assertions.py:347-356`)와 `.abs() <` 하나짜리를 kind에서 뺀 근거를 적는다. 그 인용은 이 회차에 12줄 어긋나 있었다(335-344는 `contains`·`eq_none` 구간이다) — 재도출해 고쳤다 |
 | `count-coarse-assertions.py` | 307.5 | `tools/ci/count-coarse-assertions.py` | 자동 | 수를 싣지 않는다 — 새 고아를 `--write-orphans`로 흡수하지 않고 둘째 모집단 장치를 이식했다는 진술이고, 이 계기는 그 분리를 diff로 얻는 쪽으로만 이름이 나온다 |
 | `count-coarse-assertions.py` | 309.3 | 없음 | 자동 | 수를 싣지 않는다 — §305 게이트가 병합 후 붉어진 9건을 옮겨 적으면서 계측기 이름이 나올 뿐이다 |
 | `count-narrowing-sweep.sh` | 189 | `tools/ci/count-narrowing-sweep.sh` | 자동 | 상류 8파일 **140**과 파일별 내역(`planning_scene.cpp` 24 · `planning_scene.hpp` 4 · `robot_state.cpp` 76 · `attached_body.hpp` 0 · `attached_body.cpp` 1 · `world.cpp` 10 · `world.hpp` 4 · `kinematic_constraint.cpp` 21). 코퍼스가 고정 상류 체크아웃이므로 다시 돌리는 것이 증거다 |
@@ -35346,8 +35346,8 @@ task #43은 "`>` 비교와 `assert_ne!`로 코퍼스를 넓히라"고 적혀 있
 
 ### §307.3 kind을 넓힌 방식 — `abs_tol`은 왜 kind가 아닌가, `cmp_compound`는 왜 쪼개지 않는가
 
-`classify()`에 `top_level_comparisons(args[0])`을 추가했다(`count-coarse-
-assertions.py:335-344`). argument 1의 최상위(괄호 깊이 0) 비교 연산자를
+`classify()`에 `top_level_comparisons(args[0])`을 추가했다
+(`tools/ci/count-coarse-assertions.py:347-356`). argument 1의 최상위(괄호 깊이 0) 비교 연산자를
 턴트리시/`<<`/`>>`/`->`를 제외하고 세어, 정확히 하나면 `half_plane`, 둘
 이상이면 `cmp_compound`다.
 
