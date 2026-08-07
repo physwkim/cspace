@@ -332,11 +332,20 @@ Rust 크레이트 확인(crates.io, 직접 조회):
 
 ### 4.7 명시적 범위 밖 — 영구히 C++로 남는 것
 
-- `moveit_setup_assistant` (27,714) — Qt5/rviz 위젯
-- `moveit_ros/visualization` (13,346) — RViz 디스플레이 플러그인
-- `moveit_ros/perception` (7,877) — mesh_filter가 OpenGL/GLUT 의존
-- `moveit_plugins` (2,990) — ros2_control 컨트롤러 인터페이스
-- `moveit_py` (5,368) — 필요 시 PyO3로 별도 재작성
+- `moveit_setup_assistant` (27,714) — Qt5/rviz 위젯. **OPEN → 만료 조건
+  (pinned 상류 SHA `e017c91e`가 갱신되고 `moveit_setup_assistant`의
+  `.cpp`/`.hpp`/`.h` 줄수가 재검산되는 라운드가 실행되는 시점, §327.1).**
+- `moveit_ros/visualization` (13,346) — RViz 디스플레이 플러그인. **OPEN →
+  만료 조건 (같은 SHA 갱신 시 `moveit_ros/visualization`이 재검산되는
+  시점, §327.2).**
+- `moveit_ros/perception` (7,877) — mesh_filter가 OpenGL/GLUT 의존. **OPEN
+  → 만료 조건 (같은 SHA 갱신 시 `moveit_ros/perception`이 재검산되는 시점,
+  §327.3).**
+- `moveit_plugins` (2,990) — ros2_control 컨트롤러 인터페이스. **OPEN →
+  만료 조건 (같은 SHA 갱신 시 `moveit_plugins`가 재검산되는 시점,
+  §327.4).**
+- `moveit_py` (5,368) — 필요 시 PyO3로 별도 재작성. **OPEN → 만료 조건
+  (같은 SHA 갱신 시 `moveit_py`가 재검산되는 시점, §327.5).**
 
 ### 4.8 OcTree 충돌 도형 — parry에 다중 해상도 옥트리가 없다 (결정 완료)
 
@@ -924,7 +933,11 @@ fanuc(9 links, 9 joints, 1 group)로도 51/51 동일하게 동작.
   `cargo test --workspace`를 재현했다: `moveit-error` 4 + `moveit-geometry`
   10 = 14, 0 failed, 0 ignored — 그 시점의 주장은 참이었다. 이 불릿을 지우거나
   '완료' 절로 옮기는 것은 편집 결정이라(`doc/residual-claims-triage.md`가
-  이미 이렇게 적어 뒀다) 여기서는 하지 않는다.
+  이미 이렇게 적어 뒀다) 여기서는 하지 않는다. **OPEN → 만료 조건 (이
+  불릿이 실제로 지워지거나 '완료' 절로 옮겨지는 편집이 실행되는 시점 —
+  `doc/residual-claims-triage.md`가 이미 남겨 둔 그 옵션이 실행에
+  옮겨지는 순간이지, 측정으로는 뒤집을 수 없는 역사적 진술이라 falsifier
+  자체가 없다, §327.6).**
 - prbt 픽스처는 xacro라 확장이 필요하다 (컨테이너에 xacro 있음). Phase 1
   준비물. **거짓 → 닫힘 (§218.1).** 핀된 오라클 이미지 안에서 실제 `xacro`를
   돌려 전개한 결과를 `fixtures/prbt.{urdf,srdf}`로 벤더링했다 — 오늘 트리에
@@ -4220,6 +4233,14 @@ tests/utils_parity.rs`에 `resolve_constraint_frame_boundary` 모듈(6
 - **`update_joint_constraints`의 `local_variable_name` 미제거 이름 비교
   한계(§23.3-1)는 이 함수와 무관이다.** `resolveConstraintFrames`는
   위치/방향 제약만 다루고, 상류 자신도 조인트 제약을 건드리지 않는다.
+  오늘 재확인: `resolve_position_constraint_frame`/
+  `resolve_orientation_constraint_frame`(`utils.rs:690`)은 `Constraint::Joint`를
+  전혀 참조하지 않고, `update_joint_constraints`(`utils.rs:322`)는 오늘도
+  `local_variable_name` 접미사를 벗기지 않는 상류의 문자열 비교를 그대로
+  재현한다고 자기 doc에 적혀 있다 — 두 함수는 여전히 분리돼 있다. **OPEN →
+  만료 조건 (미래 라운드가 `resolveConstraintFrames` 포트와
+  `update_joint_constraints`를 하나의 `KinematicConstraintSet` 순회로
+  합쳐 이 분리 자체가 사라지는 시점, §327.7).**
 
 ---
 
@@ -6271,7 +6292,21 @@ body와 world object가 같은 이름일 때 어느 쪽이 이기는지,
 - **`SceneTransforms::isFixedFrame`의 선행 `/` 처리와 object frame 위임은
   재현되지 않았다.** 유예 근거는 falsifier가 붙어 있다: 상류 전체에서 유일한
   호출자가 `kinematic_constraints/kinematic_constraint.cpp`(4곳)이고 그것이
-  아직 미포팅에 메시지 타입이다. 소비자가 생기면 닫힌다.
+  아직 미포팅에 메시지 타입이다. 소비자가 생기면 닫힌다. **전제가 갱신됐다
+  — §70.3/§323.1이 이미 같은 결론에 도달했다.** 네 호출자(`kinematic_constraint.cpp:382,622,848,861` —
+  `PositionConstraint`, `OrientationConstraint`, `VisibilityConstraint`×2)는
+  오늘 전부
+  `moveit-constraints`에 존재하므로 "소비자가 미포팅"은 더 이상 사실이
+  아니다. 막고 있는 것은 소비자의 부재가 아니라 살아 있는
+  `PlanningScene::transforms_with_world_objects()`를 그 세 생성자 중
+  하나에 프로덕션 호출 경로로 흘려보내는 다리가 없다는 것이다 — 오늘
+  재확인: `PositionConstraint::new`/`OrientationConstraint::new`/
+  `VisibilityConstraint::new`의 비-테스트 호출부는 워크스페이스 전체에
+  0건이다. **OPEN → 만료 조건 (`PositionConstraint::new`/
+  `OrientationConstraint::new`/`VisibilityConstraint::new` 중 하나가
+  `PlanningScene::transforms_with_world_objects()`가 만든 `Transforms`를
+  시험 코드가 아닌 프로덕션 호출 경로에서 받는 순간 — §323.1과 동일
+  조건, §327.8).**
 
 ### 66.5 머지 후 실측
 
@@ -11481,7 +11516,13 @@ CI에서도 똑같이 건너뛴다.
    거부한 근거("우리가 고칠 수 없는 서드파티 경고")는 워크스페이스 멤버에는
    적용되지 않으므로, 이 실패 모드는 그 주석이 막아주지 않는다. 고정할지
    말지는 트레이드오프가 있는 결정이라(고정하면 새 린트를 놓친다) 여기
-   기록만 하고 바꾸지 않았다.
+   기록만 하고 바꾸지 않았다. 오늘 재확인: `rust-toolchain.toml`/
+   `rust-toolchain` 둘 다 여전히 트리에 없고, `ci.yml`은 오늘도
+   `dtolnay/rust-toolchain@stable`로 뜬다(§320.8도 같은 날 독립 재확인,
+   `ci-not-wired: §136.1 툴체인이 떠 있다` — falsifier 불발).
+   **OPEN → 만료 조건 (`rust-toolchain.toml` 또는 `rust-toolchain` 파일이
+   트리에 커밋되어 `dtolnay/rust-toolchain@stable`이 고정 버전을 읽게
+   되는 시점, §327.9).**
 
 셋 다 남아 있다 — "CI를 검증했다"로 뭉뚱그리지 않기 위해 위 셋을 따로 적었다.
 
@@ -12891,10 +12932,29 @@ bounds 적용 **뒤에** "waypoints/durations_from_previous length mismatch"로 
   쓰인 시점엔 참이었으나 그 뒤 갱신되지 않은 드리프트였다. 그룹 크기 1의 사각지대와 n! 비전수
   한계는 여전히 남아 §310.3에 적었다.
 - 그룹 크기 1(`totg_synthetic`)은 영원히 이 pass의 사각지대다. 같은 모델을 쓰는
-  fixture가 하나 더 생기면 만료된다(§153.1).
+  fixture가 하나 더 생기면 만료된다(§153.1). §310.3도 오늘 독립
+  재확인했다: 오늘의 66개 fixture(43에서 성장) 전체에 그룹핑 로직을
+  재구현해 돌려도 `totg_synthetic`은 여전히 그룹 크기 1이고 그룹 수는
+  여전히 6이다 — falsifier 불발. **OPEN → 만료 조건
+  (`totg_synthetic.urdf`/`.srdf`와 sha256이 같은 urdf/srdf 쌍을 쓰는
+  fixture가 새로 커밋되는 시점, §327.10).**
 - committed fixture는 전부 자기 프로세스에서 캡처됐으므로 이번 누수에 오염되지
   않았다(43/43 identical이 그 증거다). 오염될 수 있었던 것은 **한 프로세스에 여러
   op을 보내는 실행** — `moveit-diff`, 그리고 캡처를 batch로 돌릴 경우다.
+  **거짓 → 닫힘 (§327.11).** 두 위험 경로 다 오늘 직접 재확인했다: (1)
+  batch capture는 정확히 `verify-fixture-replay.sh`의 combined pass가
+  하는 일이다(같은 로봇 모델의 모든 fixture 요청을 한 배열로 묶어 오라클
+  프로세스 하나에 순서대로 흘려보낸다) — 이 라운드가 라이브 오라클에 대고
+  다시 돌려 5개 그룹(panda×2, pr2, fanuc, octree_world_robot) 전부
+  combined/reversed 모두 identical, DRIFT 0건을 오늘 확인했다. (2)
+  `moveit-diff`는 `tools/moveit-diff/src/protocol.rs`의 `Op` 열거형
+  21개 변형 중 어느 것도 `model_`의 variable bounds를 수정하는 세 op
+  이름(`totgRobotTrajectoryCase`/`accelerationFilterCase`/
+  `setJointAccelerationVelocityJerkBounds`, `oracle.cpp`)과 겹치지
+  않는다 — 프로토콜 자체가 그 op을 구성할 방법이 없다. `de020fa`의
+  `Oracle::handle`(모든 op의 단일 dispatcher) `ScopedJointBounds` RAII와
+  합쳐, 이번 누수는 호출자에 상관없이 구조로 막혀 있고 오늘 라이브로도
+  재현되지 않는다.
 
 ## §158 `ros/`가 72커밋 동안 main에서 컴파일되지 않았다 — 같은 경계, 두 번째
 
@@ -16500,7 +16560,13 @@ identical**, drift 0, 다른 출력 라인 0. 그것이 이 라운드에서 스�
   빌드하고 재생을 확인한 것은 두 변경이 모두 들어간 최종 트리
   (`700e7be54cb0a61f`)다. 커밋은 발견 단위로 나뉘고 검증은 트리 단위로
   이뤄진다는 뜻이며, 중간 커밋 하나만 체크아웃해 오라클을 돌리려는
-  사람은 자기 손으로 빌드해야 한다.
+  사람은 자기 손으로 빌드해야 한다. §310.4가 오늘도 독립 재확인했다:
+  `b1ef9a8` 언급은 `.md`/`.txt`/`.json` 전체에서 이 절 자신의 문장 밖에는
+  없고, 별도 이미지-매니페스트도 없다 — falsifier 불발. **OPEN → 만료
+  조건 (누군가 `b1ef9a8` 단독 트리의 오라클 이미지를 실제로 빌드하고
+  재생을 재확인하는 시점 — 최종 트리가 이미 두 변경을 다 담고 있어
+  아무도 그럴 이유가 없다는 것 자체가 이 조건이 자연 발화하지 않을
+  것이라는 뜻이다, §327.12).**
 
 ## §213 "인용 하나-소비자 열 개" 검사를 크레이트 전체로 확장 — 갈라진 곳은 §211 하나뿐이었다
 
@@ -16762,7 +16828,14 @@ parent_before`는 진짜 살아 있는 검사이고 커밋된 픽스처가 그�
   둘째가 별도로 다루는 다른 잔여다.)
 - 씬 diff는 `push_diffs`/`decouple_parent`/`clear_diffs`까지 있는데
   이번 비교는 `diff()` 적용 후의 충돌 결과만 덮는다. 부모로 되밀어
-  넣는 경로는 오라클 op으로 열려 있지 않다.
+  넣는 경로는 오라클 op으로 열려 있지 않다. 오늘 재확인:
+  `tools/moveit-oracle/src/oracle.cpp`에 `push_diffs`/`decouple_parent`/
+  `clear_diffs` 이름이 0건인 반면(rg 재확인), `crates/moveit-scene/src/scene.rs`는
+  세 함수 모두 실제로 포팅돼 있다(`:1974`,`:2036`, doc 목록 `:231-233`) —
+  포트에는 있고 오라클 op으로는 대조할 방법이 없는 비대칭이 오늘도
+  그대로다. **OPEN → 만료 조건 (`push_diffs`/`decouple_parent`/
+  `clear_diffs`가 왕복하는 상태를 오라클이 관찰 가능하게 하는 새 op이
+  추가되는 시점, §327.13).**
 
 ---
 
@@ -18647,6 +18720,19 @@ seed·훅의 쓰기·채택된 해의 쓰기가 공통으로 인덱싱하는 유
   `cartesian_interpolator.rs`의 지역 사본은 그 real method를 호출하도록
   바뀌지 않아 그대로 남아 있다. `distance` 쪽은 오늘도 `RobotState`에
   없다 — `group_distance`/`joint_distance` 지역 사본이 유일한 구현이다.
+  §318.4와 §323.4가 오늘 각자 독립적으로 같은 결론을 재확인했다:
+  `robot_trajectory.rs`의 `interpolate_into`/`distance`는 오늘도
+  `RobotState::interpolate`/`distance`에 위임하지 않고(둘 다 falsifier
+  불발), "절반 닫혔다"는 §318.4 자신이 "반쪽 닫힘 아님"으로 정정한
+  표현이다 — 두 지역 사본 모두 여전히 대체되지 않았으므로 이 불릿
+  전체가 오늘도 참이다. 대체하지 않은 이유는 결함이 아니라 설계
+  선택이다: 두 지역 사본 다 자기 자리에서 검증됐고(전자는 오라클
+  대조 6,392케이스, 후자는 `RobotState`에 대응 메서드 자체가 없어
+  비교할 대상이 없음), 통합은 순수 리팩터라 이 라운드가 추측성으로
+  만들지 않는다. **OPEN → 만료 조건 (`interpolate_into`/`distance`
+  (`robot_trajectory.rs:585`,`:613`)가 `RobotState::interpolate`/
+  `distance`의 진짜 메서드로 위임하도록 바뀌는 시점 — `distance` 쪽은
+  `RobotState`에 그 메서드 자체가 먼저 생겨야 한다, §327.14).**
 
 ---
 
@@ -18994,10 +19080,18 @@ public:
 - `planning_interface::PlanningContext` 자체를 pilz로 들여오지 않았다.
   `moveit-planners-pilz`는 `moveit-planning`에도 `moveit-planners-sbp`에도
   의존하지 않으며, 이 라운드는 그 의존 간선을 만들지 않는다(`Cargo.toml`
-  변경은 `linkme` distributed_slice 순서를 바꾼다).
+  변경은 `linkme` distributed_slice 순서를 바꾼다). 오늘 재확인:
+  `rg -n 'moveit-planning|moveit-planners-sbp' crates/moveit-planners-pilz/Cargo.toml`
+  0건. **OPEN → 만료 조건 (`moveit-planners-pilz/Cargo.toml`이
+  `moveit-planning` 또는 `moveit-planners-sbp`에 대한 의존을 추가하는
+  라운드가 실행되는 시점 — 그 자체가 `linkme` 순서 변경을 감수하는
+  명시적 결정이어야 한다, §327.15).**
 - 따라서 이 크레이트에는 `PlanningContext`를 구현하는 타입이 없다. pilz
   생성기를 `moveit-planners-sbp`의 레지스트리에 등록하는 것은 별개의
-  결정이고, 이 절은 그것을 하지 않는다.
+  결정이고, 이 절은 그것을 하지 않는다. 오늘 재확인:
+  `rg -n 'impl PlanningContext for' crates/ --type rust` 워크스페이스
+  전체 0건. **OPEN → 만료 조건 (워크스페이스 어딘가에 `impl
+  PlanningContext for`가 처음 나타나는 시점, §327.16).**
 
 ### §227.5 `trajectory_generation_exceptions.hpp` — 46개 예외 클래스가 8개 코드로 접힌다
 
@@ -19110,11 +19204,26 @@ INVALID_GROUP_NAME, INVALID_LINK_NAME, NO_IK_SOLUTION, 그리고 명시 인자�
    FK가 계산된다. **같은 검사가 CIRC에는 있다** —
    `trajectory_generator_circ.rs:163-164`가 `NumberOfConstraintsMismatch`(#20)를
    같은 코드로 포팅했다. 즉 상류에서 동일하던 두 생성기가 이 포트에서
-   갈라져 있다.
+   갈라져 있다. **거짓 → 닫힘 (§327.17).** CIRC의 정확히 같은 검사를
+   LIN의 `Goal::Joint` 분기(`trajectory_generator_lin.rs`)에 그대로
+   옮겨 고쳤다 — `solver_tip_frame` 직후, `goal_joint_position` 대입
+   직전에 그룹을 조회해 `positions.len() != group.active_joint_names().len()`이면
+   `InvalidGoalConstraints`로 거부한다. 회귀 시험
+   `lin_panda_arm_rejects_a_joint_goal_with_the_wrong_position_count`
+   (`pilz_trajectory_lin_parity.rs`)를 고치기 전 코드에 대고 먼저 돌려
+   FAIL을 확인했고, 고친 뒤 PASS로 전환됨을 확인했다 — 오라클 fixture가
+   아니라 순수 구성 시험이다(LIN의 두 committed fixture 모두 Cartesian
+   목표라 이 경로를 아무 fixture도 덮지 않았다). `cargo nextest run -p
+   moveit-planners-pilz` 240/240, clippy `-D warnings` 0건.
 - **#11 `MoreThanOneTipFrameException`** — `tip_frame_getter.hpp:85`의
    multi-tip 분기. 이것은 새 사실이 아니라 `doc/port-coverage.md`의
    `tip_frame_getter.hpp` 행이 이미 잔여분으로 적어 둔 것이며, 이 표가 그
-   기록과 일치함을 확인한 것이다.
+   기록과 일치함을 확인한 것이다. 오늘 재확인: `doc/port-coverage.md`의
+   `tip_frame_getter.hpp` 행은 오늘도 그대로다 — `KinematicsSolver::tip_frame`이
+   단수 반환이라 "multi-tip"은 이 포트의 타입 모양으로 표현 불가능하고,
+   결함이 아니라 §227.7이 이미 기록한 설계 상 한계다. **OPEN → 만료
+   조건 (`KinematicsSolver::tip_frame`이 복수 tip frame을 표현하도록
+   타입이 바뀌는 시점, §327.18).**
 
 표의 46행 중 "상류가 거부하는 요청을 포트가 받아들인다"에 해당하는 것은
 위 둘뿐이고, 둘 다 이 라운드의 여덟 파일 밖이므로 **여기서는 기록만 한다.**
@@ -19123,12 +19232,25 @@ INVALID_GROUP_NAME, INVALID_LINK_NAME, NO_IK_SOLUTION, 그리고 명시 인자�
 
 - 46개 각 행을 실행으로 확인하지 않았다. 표의 근거는 상류 throw 사이트와
   포트 `Err` 사이트를 양쪽에서 읽은 것이고, 그것이 이 절의 증거 등급이다.
+  §327.17이 46행 중 #41을 실행 기반 회귀 시험으로 처음 실측했다 — 그래도
+  1/46이고, 나머지 45행은 오늘도 소스 대조뿐이다. **OPEN → 만료 조건
+  (§227.5 46행 표의 각 행에 실행 기반 회귀 시험(오라클 fixture 또는
+  순수 구성 시험)이 최소 1개씩 존재함을 확인하는 감사가 수행되는 시점,
+  §327.19).**
 - `trajectory_generator_{lin,circ,polyline}.hpp`의 생성자 doc 넷이
   `@throw TrajectoryGeneratorInvalidLimitsException`이라고 적지만 그 셋의
   생성자 본문은 `planner_limits_.printCartesianLimits()` 한 줄뿐이고 아무것도
   throw하지 않는다(`trajectory_generator_{circ,lin,polyline}.cpp:62-76`). PTP만
   실제로 던진다. 문서 결함이고 동작 결함이 아니므로
-  `doc/upstream-bugs.md`에 넣지 않는다.
+  `doc/upstream-bugs.md`에 넣지 않는다. 오늘 pinned SHA(`e017c91e`)에서
+  네 헤더를 직접 재확인했다: `trajectory_generator_{lin,circ,polyline,ptp}.hpp`
+  전부 63/78/67/60행에 `@throw TrajectoryGeneratorInvalidLimitsException`을
+  적고, lin/circ/polyline 세 `.cpp` 생성자는 오늘도 `printCartesianLimits()`
+  한 줄뿐이며 PTP(`trajectory_generator_ptp.cpp:57-71`)만 실제로
+  `throw TrajectoryGeneratorInvalidLimitsException`을 두 자리(joint
+  limits 미설정, 미상 그룹)에서 던진다 — 관찰은 오늘도 정확하다.
+  **OPEN → 만료 조건 (pinned 상류 SHA `e017c91e`가 갱신되고 이 네 헤더의
+  doc/구현 짝이 재검산되는 라운드가 실행되는 시점, §327.20).**
 
 ## §228 `moveit_core/utils`의 테스트/문자열 유틸 일곱 파일과 `console_colors.hpp` — 갭 8건을 판정으로 바꿨다
 
@@ -38773,5 +38895,507 @@ $ find doc/phase8-baseline-500 -iname 'repeat.cpp.*'
 doc/phase8-baseline-500/repeat.cpp.chomp.floor_wall.ndjson
 doc/phase8-baseline-500/repeat.cpp.stomp.floor_wall.ndjson
 ```
+
+## §327 A3 — 잔여 주장 12절 20건을 오늘의 트리에 재쟀다: 2건 닫힘(1건은 코드 결함 수정 동반), 18건 만료 조건으로 전환 (2026-08-07)
+
+대상은 §4.7(5건), §7.4(1건), §36.5(1건), §66.4(1건), §136.1(1건),
+§157.5(2건), §212.4(1건), §216.4(1건), §220.7(1건), §227.4(2건),
+§227.6(2건), §227.7(2건) — 12절의 OPEN 불릿 전부, 20건. §324-§326이 같은
+falsifier-불릿 형식으로 12+12+13건을 쟀지만 본문은 한 글자도 고치지
+않았다("판정 근거만 아래에 절마다 적는다")는 점은 여기서 뒤집는다:
+falsifier가 불발하면(주장이 오늘도 참이면) A3(§308.4)가 허용하는 두
+번째 출구, `OPEN → 만료 조건 (<발화 시점 문장>)`을 그 불릿 자신의 텍스트
+안에 박는다. §4.7의 다섯 건은 원래 "영구히 C++로 남는다"는 절 제목이
+붙어 있지만 A3의 조건문은 "닫히거나 발화 시점을 적은 만료 조건으로
+전환"만 허용하고 "영구"는 그 자체로 출구가 아니므로, 다섯 건 모두
+pinned SHA 갱신을 발화 시점으로 하는 만료 조건을 받는다.
+
+falsifier가 발화하면(주장이 오늘 거짓이면) `거짓 → 닫힘 (§327.N)`을
+박는다. 20건 중 2건이 여기 해당한다 — §227.6 #41은 이 라운드가 직접
+코드를 고쳐 거짓으로 만든 것이고(측정이 아니라 수정), §157.5 셋째는
+이 라운드의 라이브 측정이 실제로 반증했다.
+
+### §327.1-5 §4.7 — 다섯 패키지의 LOC 재검산, 전부 오늘도 정확하다
+
+불릿: "`moveit_setup_assistant`(27,714)/`moveit_ros/visualization`(13,346)/
+`moveit_ros/perception`(7,877)/`moveit_plugins`(2,990)/`moveit_py`(5,368)는
+영구히 C++로 남는다."
+
+falsifier: pinned 상류 체크아웃(`/home/stevek/work/moveit2` @
+`e017c91e`)에서 다섯 패키지 중 하나라도 `.cpp`/`.hpp`/`.h` 줄수가
+인용된 숫자와 다르면 거짓 — `tools/ci/measure-port-coverage.py`의
+`SOURCE_EXTS = (".cpp", ".hpp", ".h")` 관례를 그대로 따랐다(`tokei`
+미설치라 `wc -l`로 대체, 확장자 집합은 동일).
+
+```
+$ cd /home/stevek/work/moveit2 && git rev-parse HEAD
+e017c91ee12984393a28ba246075c65f69cde3bf
+$ git ls-files moveit_setup_assistant | rg '\.(cpp|hpp|h)$' | xargs cat | wc -l
+27714
+$ git ls-files moveit_ros/visualization | rg '\.(cpp|hpp|h)$' | xargs cat | wc -l
+13346
+$ git ls-files moveit_ros/perception | rg '\.(cpp|hpp|h)$' | xargs cat | wc -l
+7877
+$ git ls-files moveit_plugins | rg '\.(cpp|hpp|h)$' | xargs cat | wc -l
+2990
+$ git ls-files moveit_py | rg '\.(cpp|hpp|h)$' | xargs cat | wc -l
+5368
+```
+
+다섯 다 정확히 일치. falsifier 불발 — 다섯 건 전부 오늘도 참이다. 다만
+"영구"는 A3의 두 출구 중 어디에도 없으므로, 다섯 불릿 각각에
+pinned-SHA-갱신을 발화 시점으로 하는 `OPEN → 만료 조건`을 박았다
+(§4.7 본문).
+
+### §327.6 §7.4 — 역사적 완료 보고문, 측정으로 뒤집을 수 없다
+
+불릿: "`moveit-error`(에러 코드 + 예외), `moveit-geometry`(Transforms)
+착수 완료. 워크스페이스 테스트 14/14 통과." 이 불릿은 이미 `36907d30`을
+별도 워크트리로 체크아웃해 재현한 "측정 (2026-08-07)" 주석이 붙어 있다
+(이 라운드가 쓴 것이 아니라 이미 커밋된 상태에서 발견했다) — "그
+시점엔 14/14였다"는 역사적 진술이라 오늘 워크스페이스 테스트 수가
+얼마든 이 문장의 참/거짓에 영향이 없다.
+
+이 불릿의 잔여는 "닫거나 만료 조건을 박는다"는 형식 요구를 아직
+만족하지 않는다는 것뿐이다 — 측정으로 뒤집을 falsifier 자체가 없는
+문장이므로, 발화 시점은 측정 사건이 아니라 편집 사건이어야 한다:
+`doc/residual-claims-triage.md`가 이미 남겨 둔 편집 옵션(이 불릿을
+지우거나 '완료' 절로 옮기는 것)이 실행에 옮겨지는 순간. **OPEN → 만료
+조건**을 그 문장으로 박았다(§7.4 본문).
+
+### §327.7 §36.5 — `resolveConstraintFrames`와 `update_joint_constraints`는 오늘도 분리돼 있다
+
+불릿: "`update_joint_constraints`의 `local_variable_name` 미제거 이름
+비교 한계(§23.3-1)는 이 함수와 무관이다 — `resolveConstraintFrames`는
+위치/방향 제약만 다루고, 상류 자신도 조인트 제약을 건드리지 않는다."
+
+falsifier: `resolve_position_constraint_frame`/
+`resolve_orientation_constraint_frame`이 `Constraint::Joint`를 참조하게
+됐거나, `update_joint_constraints`가 더 이상 상류의 문자열 비교
+한계를 재현하지 않는다면 거짓.
+
+```
+$ rg -n 'Constraint::Joint' crates/moveit-constraints/src/utils.rs
+332:        let Constraint::Joint(jc) = c else { continue };
+$ sed -n '690,695p;322,327p' crates/moveit-constraints/src/utils.rs
+```
+
+`Constraint::Joint`를 참조하는 유일한 함수는 `update_joint_constraints`
+자신(322행)이고, `resolveConstraintFrames`의 포트(690행,
+`resolve_position_constraint_frame`)는 위치/방향 제약만 다룬다는 doc이
+오늘도 그대로다. `update_joint_constraints`의 doc(302-313행)도 오늘도
+"reproduces upstream's membership check literally... an upstream
+limitation this port reproduces rather than papers over"라고 적는다.
+falsifier 불발 — OPEN. 두 함수가 하나로 합쳐지는 것은 순수 리팩터이자
+아키텍처 결정이라 이 라운드가 추측성으로 만들지 않는다. **OPEN → 만료
+조건**을 §36.5 본문에 박았다.
+
+### §327.8 §66.4 — 이미 §70.3/§323.1이 같은 결론에 도달해 있었다, 전제만 갱신했다
+
+불릿: "`SceneTransforms::isFixedFrame`의 선행 `/` 처리와 object frame
+위임은 재현되지 않았다... 소비자가 아직 미포팅에 메시지 타입이다.
+소비자가 생기면 닫힌다."
+
+이 절을 열자마자 `crates/moveit-scene/src/scene.rs:1409` 부근의 doc과
+PORTING-PLAN.md §70.3/§323.1이 **같은 주제를 이미 갱신해 놓은 것**을
+발견했다 — §66.4가 쓰인 뒤 `moveit-constraints`가 통째로 미포팅에서
+`PositionConstraint`/`OrientationConstraint`/`VisibilityConstraint`
+셋 다 존재하는 상태로 바뀌었고, §70.3(2026-08-04)이 그 드리프트를 먼저
+잡아 "소비자가 미포팅"이 아니라 "프로덕션 호출 경로가 없다"로 전제를
+바꿔 적었으며, §323.1(2026-08-07 앞선 라운드)이 그 조건을 오늘의
+트리에 다시 재확인했다. §66.4 자신의 불릿은 그 갱신을 받지 못한 채
+남아 있었다.
+
+falsifier(§323.1과 동일): `PositionConstraint::new`/
+`OrientationConstraint::new`/`VisibilityConstraint::new` 중 하나가
+`PlanningScene::transforms_with_world_objects()`가 만든 `Transforms`를
+프로덕션(비-시험) 호출 경로에서 받으면 거짓.
+
+```
+$ rg -n 'PositionConstraint::new|OrientationConstraint::new|VisibilityConstraint::new' crates/*/src/*.rs \
+  | rg -v 'moveit-constraints/src/(position|orientation|visibility)\.rs'
+```
+
+남는 호출부는 전부 `#[test]`/`#[cfg(test)]` 안(`moveit-planners-sbp/src/
+{planning_scene_validity,registry}.rs`, `moveit-planners-stomp/src/
+planner.rs:1306`)이거나 `moveit-constraints/src/utils.rs` 자신의
+`constructGoalConstraints`류 헬퍼(호출자가 넘긴 `&Transforms`를 그대로
+받을 뿐)다. 비-시험 호출부 0건. falsifier 불발 — OPEN. §66.4의 원래
+"소비자가 미포팅" 전제를 "전제가 갱신됐다" 문단으로 정정하고, §323.1과
+동일한 `OPEN → 만료 조건`을 박았다(§66.4 본문) — 새 결론이 아니라
+이미 있던 §323.1의 결론을 이 불릿 자신의 텍스트에도 반영한 것이다.
+
+### §327.9 §136.1 — 툴체인은 오늘도 떠 있다
+
+불릿: "툴체인이 떠 있다 — `rust-toolchain.toml`이 없어 고정돼 있지
+않은데... 새 rustc가 새 린트를 켜면 빌드가 깨진다."
+
+falsifier: `rust-toolchain.toml` 또는 `rust-toolchain`이 트리에
+있으면 거짓.
+
+```
+$ ls rust-toolchain.toml rust-toolchain
+ls: cannot access 'rust-toolchain.toml': No such file or directory
+ls: cannot access 'rust-toolchain': No such file or directory
+$ rg -n 'dtolnay/rust-toolchain' .github/workflows/ci.yml
+33:      - uses: dtolnay/rust-toolchain@stable
+```
+
+둘 다 없다. falsifier 불발 — OPEN. §320.8(같은 날 앞선 라운드)도
+`ci-not-wired: §136.1 툴체인이 떠 있다`로 독립적으로 같은 falsifier를
+돌려 같은 결론에 도달했다 — 이 라운드는 그 결론을 이 불릿 자신의
+텍스트에 박아 넣는다는 점만 다르다. **OPEN → 만료 조건**을 §136.1
+본문에 박았다.
+
+### §327.10 §157.5 둘째 — 그룹 크기 1은 오늘도 사각지대다
+
+불릿: "그룹 크기 1(`totg_synthetic`)은 영원히 이 pass의 사각지대다.
+같은 모델을 쓰는 fixture가 하나 더 생기면 만료된다."
+
+falsifier: `totg_synthetic.urdf`/`.srdf`와 sha256이 같은 쌍을 쓰는
+fixture가 새로 생겼으면 거짓. §310.3(같은 날 앞선 라운드)이 이미
+`verify-fixture-replay.sh`의 그룹핑 로직((sha256(urdf), sha256(srdf))
+키)을 재구현해 오늘의 66개 fixture(43에서 성장) 전체에 돌렸다 —
+`totg_synthetic`은 여전히 그룹 크기 1, 그룹 수는 여전히 6. 이 라운드는
+아래 §327.11의 라이브 오라클 재생(§157.5 셋째)에서 같은 66-fixture
+집합을 직접 다시 돌려 그룹 구성이 동일함을 한 번 더 확인했다(`single
+moveit-trajectory/totg_synthetic -- only fixture on totg_synthetic.urdf`).
+falsifier 불발 — OPEN. "만료된다(§153.1)"라는 기존 문구는 프로즈일 뿐
+`OPEN → 만료 조건 (...)`의 정확한 형태가 아니라 파서가 여전히 OPEN으로
+읽는다 — 형식을 갖춘 마커로 교체했다(§157.5 본문).
+
+### §327.11 §157.5 셋째 — 오염 경로 둘 다 오늘 라이브로 재확인했다, 거짓으로 닫는다
+
+불릿: "committed fixture는 전부 자기 프로세스에서 캡처됐으므로 이번
+누수에 오염되지 않았다(43/43 identical이 그 증거다). 오염될 수 있었던
+것은 한 프로세스에 여러 op을 보내는 실행 — `moveit-diff`, 그리고
+캡처를 batch로 돌릴 경우다."
+
+이 불릿이 이미 스스로 인정하듯, 이번 누수(§157.2-157.3: `model_`의
+`setVariableBounds` 오염)가 실제로 남을 수 있는 두 경로는 (1) 한
+오라클 프로세스에 여러 op을 batch로 보내는 캡처, (2) `moveit-diff`
+실행이다. 앞선 §310.3(같은 날)은 이 두 경로를 소스 구조로만 논증하고
+"근거가 해석에 의존하는 만큼 닫지 않는다"고 명시적으로 유보했다. 이
+라운드는 두 경로 모두 실제로 재현해 그 유보를 넘어섰다.
+
+**(1) batch capture.** `verify-fixture-replay.sh`의 combined pass가
+정확히 이 시나리오다 — 같은 로봇 모델을 쓰는 모든 fixture의 요청을 한
+JSON 배열로 묶어(`combined_request.json`) 오라클 프로세스 하나에
+순서대로 흘려보낸다. 라이브 오라클에 대고 다시 돌렸다:
+
+```
+$ sg docker -c 'tools/ci/verify-fixture-replay.sh'
+...
+combined    octree_world_robot.urdf: 3 fixtures, 13 requests, 1 crate(s)
+reversed    octree_world_robot.urdf: 3 fixtures, 13 requests, 1 crate(s)
+combined    pr2.urdf: 20 fixtures, 72 requests, 3 crate(s)
+reversed    pr2.urdf: 20 fixtures, 72 requests, 3 crate(s)
+combined    panda.urdf: 34 fixtures, 64 requests, 7 crate(s)
+reversed    panda.urdf: 34 fixtures, 64 requests, 7 crate(s)
+combined    fanuc.urdf: 6 fixtures, 31 requests, 2 crate(s)
+reversed    fanuc.urdf: 6 fixtures, 31 requests, 2 crate(s)
+combined    panda.urdf: 2 fixtures, 2 requests, 1 crate(s)
+reversed    panda.urdf: 2 fixtures, 2 requests, 1 crate(s)
+```
+
+5개 model 그룹 전부 combined/reversed 모두 identical, DRIFT 0건.
+(스크립트 자체는 종료코드 1로 끝났지만 원인은 이 불릿과 무관한 별개
+결함이다 — 아래 "이 라운드가 발견했지만 고치지 않은 것" 참조.)
+
+**(2) `moveit-diff`.** 이번 누수를 일으키는 세 op(`totgRobotTrajectoryCase`/
+`accelerationFilterCase`/`setJointAccelerationVelocityJerkBounds`,
+`oracle.cpp:1039-1040`)과 `moveit-diff`의 `Op` 열거형을 대조했다:
+
+```
+$ rg -n '^\s+[A-Z][a-zA-Z]+[ ,{]' tools/moveit-diff/src/protocol.rs
+36:pub enum Op {
+38:    ModelInfo,
+40:    Fk {
+53:    RandomStates {
+70:    EnforceBounds {
+...(총 21개 변형: ModelInfo, Fk, RandomStates, EnforceBounds,
+    MimicPropagate, Interpolate, StateInterpolate, Jacobian, Acm, World,
+    DistanceField, ShapePoints, Constraints, Collision, Ik, XyzEuler,
+    RotationVector, Sphere, Box, Cylinder, Mesh)
+```
+
+21개 변형 중 세 누수-유발 op 이름과 겹치는 것은 0건 — `moveit-diff`는
+그 op을 구성할 프로토콜 자체가 없다. `de020fa`의 `Oracle::handle`
+(모든 op이 지나가는 단일 dispatcher)의 `ScopedJointBounds` RAII와
+합치면: batch capture 경로는 오늘 라이브로 재현해 무손상을 확인했고,
+`moveit-diff` 경로는 애초에 그 op을 보낼 방법이 없어 구조로 막혀 있다.
+falsifier 발화 — **거짓 → 닫힘 (§327.11)**을 §157.5 본문에 박았다.
+§310.3보다 강한 증거(라이브 재현)로 넘어섰기 때문에 여는 것이지,
+§310.3의 유보가 틀렸다는 뜻은 아니다 — 그 라운드는 이 라이브 재현을
+하지 않았을 뿐이다.
+
+### §327.12 §212.4 — 중간 트리 이미지는 오늘도 빌드된 적이 없다
+
+불릿: "`b1ef9a8`(mode 분기)만 담긴 중간 트리의 이미지는 빌드하지
+않았다."
+
+falsifier: 그 뒤 어느 라운드가 `b1ef9a8` 단독 트리의 오라클 이미지를
+빌드하고 재생을 확인했다면 거짓. §310.4(같은 날 앞선 라운드)가 이미
+`grep -rn "b1ef9a8"`을 `.md`/`.txt`/`.json` 전체에 돌려 §212 자신의
+문장 밖에는 0건임을 확인했고, 별도 이미지-매니페스트도 없다고
+적었다. 이 라운드는 그 결론을 받아 이 불릿 자신의 텍스트에 형식을
+갖춘 마커로 박아 넣는다. falsifier 불발 — OPEN. **OPEN → 만료 조건**을
+§212.4 본문에 박았다 — 발화 시점(`b1ef9a8` 단독 트리 이미지의 실제
+빌드+재생)은 최종 트리가 이미 두 변경을 다 담고 있어 아무도 그럴
+이유가 없다는 것 자체가, 이 조건이 자연 발화하지 않을 가능성이 높다는
+뜻임을 §212.4 본문에도 함께 적었다.
+
+### §327.13 §216.4 — 씬 diff 왕복 경로는 오늘도 오라클 op이 없다
+
+불릿: "씬 diff는 `push_diffs`/`decouple_parent`/`clear_diffs`까지
+있는데 이번 비교는 `diff()` 적용 후의 충돌 결과만 덮는다. 부모로
+되밀어 넣는 경로는 오라클 op으로 열려 있지 않다."
+
+falsifier: `tools/moveit-oracle/src/oracle.cpp`에 `push_diffs`/
+`decouple_parent`/`clear_diffs` 중 하나라도 대응하는 op이 생겼으면
+거짓.
+
+```
+$ rg -n 'push_diffs|decouple_parent|clear_diffs' tools/moveit-oracle/src/oracle.cpp
+(0 hits)
+$ rg -n 'push_diffs|decouple_parent|clear_diffs' crates/moveit-scene/src/scene.rs
+231:/// - `clearDiffs` — ported as [`PlanningScene::clear_diffs`].
+232:/// - `pushDiffs` — ported as [`PlanningScene::push_diffs`].
+233:/// - `decoupleParent` — ported as [`PlanningScene::decouple_parent`].
+1974:    pub fn push_diffs(&self, target: &mut PlanningScene<'m>) {
+2036:    pub fn decouple_parent(&mut self) {
+```
+
+포트는 세 함수 모두 포팅돼 있는데 오라클 op은 0건 — 대조할 방법
+자체가 없는 비대칭이 오늘도 그대로다. falsifier 불발 — OPEN. **OPEN →
+만료 조건**을 §216.4 본문에 박았다.
+
+### §327.14 §220.7 — `RobotState::interpolate`/`distance` 지역 사본은 오늘도 대체되지 않았다, 세 라운드가 독립적으로 같은 결론
+
+불릿: "`RobotState::interpolate`와 `RobotState::distance`의 지역
+사본은 그대로 두었다."
+
+falsifier: `robot_trajectory.rs`의 `interpolate_into`/`distance`가
+`RobotState`의 진짜 메서드로 위임하도록 바뀌었으면 거짓. 이 절을 열자
+§318.4와 §323.4(둘 다 같은 날 앞선 라운드)가 이미 각자 독립적으로 같은
+falsifier를 돌려 놓은 것을 발견했다 — 세 번째 독립 측정으로 재확인했다:
+
+```
+$ rg -n 'fn interpolate_into|fn distance' crates/moveit-trajectory/src/robot_trajectory.rs
+585:    pub fn interpolate_into(...)
+613:    pub fn distance(...)
+$ sed -n '585,630p' crates/moveit-trajectory/src/robot_trajectory.rs | rg -n 'joint\.(interpolate|distance)'
+$ rg -n 'fn distance\b' crates/moveit-state/src/state.rs
+(0 hits)
+```
+
+`interpolate_into`는 오늘도 조인트별 `joint.interpolate`를 직접
+호출하고(`RobotState::interpolate`를 부르지 않음), `distance`도
+조인트별 `joint.distance`를 직접 합산한다(`RobotState::distance`는
+애초에 존재하지 않음 — `state.rs`에 `fn distance` 0건). falsifier
+불발 — OPEN, 세 라운드(이 라운드, §318.4, §323.4) 모두 일치. 대체하지
+않은 이유는 설계 선택이지 결함이 아니다 — `interpolate` 쪽 real
+method는 §244.2가 오라클과 허용오차 0.0으로 6,392케이스 이미 대조
+했고, `distance` 쪽은 `RobotState`에 비교할 real method 자체가 없다.
+통합은 순수 리팩터라 이 라운드가 추측성으로 만들지 않는다. **OPEN →
+만료 조건**을 §220.7 본문에 박았다.
+
+### §327.15-16 §227.4 — pilz는 오늘도 `PlanningContext`에 닿지 않는다
+
+불릿 1: "`planning_interface::PlanningContext` 자체를 pilz로 들여오지
+않았다. `moveit-planners-pilz`는 `moveit-planning`에도
+`moveit-planners-sbp`에도 의존하지 않는다." 불릿 2: "이 크레이트에는
+`PlanningContext`를 구현하는 타입이 없다."
+
+falsifier 1: `Cargo.toml`에 그 의존이 생겼으면 거짓. falsifier 2:
+워크스페이스 어딘가에 `impl PlanningContext for`가 생겼으면 거짓.
+
+```
+$ rg -n 'moveit-planning|moveit-planners-sbp' crates/moveit-planners-pilz/Cargo.toml
+(0 hits)
+$ rg -n 'impl PlanningContext for' crates/ --type rust
+(0 hits)
+```
+
+둘 다 0건. falsifier 둘 다 불발 — 두 불릿 모두 오늘도 참이다. **OPEN →
+만료 조건**을 §227.4 본문 두 불릿 각각에 박았다.
+
+### §327.17 §227.6 #41 — `JointNumberMismatch`, 코드로 직접 고쳤다
+
+불릿: "#41 `JointNumberMismatch`... `trajectory_generator_lin.rs`의
+`Goal::Joint(positions)` 분기에는 그 비교가 없고... 그룹의 활성 관절
+6개 중 3개만 지정한 LIN 요청은 상류에서 거부되고 이 포트에서는
+통과해... 같은 검사가 CIRC에는 있다... 상류에서 동일하던 두 생성기가
+이 포트에서 갈라져 있다."
+
+이것은 측정 대상이 아니라 이 라운드가 직접 고친 실제 포트 결함이다.
+upstream(`/home/stevek/work/moveit2` @ `e017c91e`)을 다시 읽어 정확한
+검사 순서를 확인했다:
+
+```
+$ sed -n '60,110p' moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator_lin.cpp
+```
+
+`getSolverTipFrame` 직후, 관절 개수 검사, 그 다음 `goal_joint_position`
+채움 순서다. CIRC의 Rust 포트(`trajectory_generator_circ.rs:160-164`)가
+이미 이 순서 그대로 `group.active_joint_names().len()`과 비교해
+`InvalidGoalConstraints`를 던지는 동일 패턴을 갖고 있어, 그 패턴을
+LIN에 그대로 옮겼다(`trajectory_generator_lin.rs`, `Goal::Joint` 분기 —
+`solver_tip_frame` 직후, `goal_joint_position` 대입 직전에 그룹을
+조회해 개수를 비교):
+
+```rust
+Goal::Joint(positions) => {
+    info.link_name = solver_tip_frame(robot_model, &req.group_name)?;
+
+    let group = robot_model
+        .joint_model_group(&req.group_name)
+        .map_err(|_| Error::Code(MoveItErrorCode::InvalidGroupName))?;
+    if positions.len() != group.active_joint_names().len() {
+        return Err(Error::Code(MoveItErrorCode::InvalidGoalConstraints));
+    }
+
+    info.goal_joint_position = positions.clone();
+    ...
+}
+```
+
+회귀 시험을 새로 추가했다
+(`lin_panda_arm_rejects_a_joint_goal_with_the_wrong_position_count`,
+`tests/pilz_trajectory_lin_parity.rs`) — LIN의 커밋된 fixture 둘 다
+Cartesian 목표라 이 경로를 아무 오라클 fixture도 덮지 않으므로, 순수
+구성(오라클 없이 `load_panda()` + 손수 만든 `MotionPlanRequest`) 시험
+이다. 고치기 전 코드에 대고 먼저 돌려 FAIL을 확인했다:
+
+```
+$ git stash push -- crates/moveit-planners-pilz/src/trajectory_generator_lin.rs
+$ cargo nextest run -p moveit-planners-pilz lin_panda_arm_rejects_a_joint_goal_with_the_wrong_position_count
+FAIL ... "a joint-space goal with the wrong position count must be rejected, not silently planned"
+$ git stash pop
+```
+
+고친 뒤:
+
+```
+$ cargo fmt --all && cargo clippy -p moveit-planners-pilz --all-targets -- -D warnings
+Finished ... (0 warnings)
+$ cargo nextest run -p moveit-planners-pilz
+Summary [ 0.167s ] 240 tests run: 240 passed, 0 skipped
+```
+
+falsifier 발화(코드가 결함을 갖고 있었다는 뜻에서) — **거짓 → 닫힘
+(§327.17)**을 §227.6 본문에 박았다. 커밋
+`240b88db`("fix(pilz): reject a LIN joint goal whose position count
+mismatches the group").
+
+**§227.5의 46행 표(19083행 부근) #41 행은 이 라운드 밖이다.** 그 행은
+지금도 "대응 없음 — §227.6"으로 남아 있어 이 수정과 어긋나지만,
+§227.5는 내 배정 12절 밖이고(다섯 패널이 PORTING-PLAN.md를 병렬
+편집하는 이유가 서로소 구간이다) 그 표를 직접 고치면 §227.5를 배정받은
+쪽과 충돌할 수 있다. 병합 시점에 반영하도록 여기 기록만 한다.
+
+### §327.18 §227.6 #11 — `MoreThanOneTipFrameException`, 여전히 표현 불가능한 설계 한계
+
+불릿: "#11 `MoreThanOneTipFrameException` — `tip_frame_getter.hpp:85`의
+multi-tip 분기. `doc/port-coverage.md`의 `tip_frame_getter.hpp` 행이
+이미 잔여분으로 적어 둔 것이며, 이 표가 그 기록과 일치함을 확인한
+것이다."
+
+falsifier: `KinematicsSolver::tip_frame`이 복수 tip frame을 표현하게
+바뀌었거나 `doc/port-coverage.md`의 해당 행이 갱신됐다면 거짓.
+
+```
+$ rg -n 'tip_frame_getter.hpp' doc/port-coverage.md
+207:| ... tip_frame_getter.hpp ... |
+```
+
+행은 오늘도 그대로다 — `KinematicsSolver::tip_frame`이 단수 반환이라
+"multi-tip"은 이 포트의 타입 모양 자체로 표현 불가능하다(§227.6 본문이
+이미 §227.7에서 이렇게 분류). falsifier 불발 — OPEN. **OPEN → 만료
+조건**을 §227.6 본문에 박았다.
+
+### §327.19 §227.7 첫째 — 46행 중 1행만 실행 기반이 됐다, 나머지는 오늘도 소스 대조뿐이다
+
+불릿: "46개 각 행을 실행으로 확인하지 않았다. 표의 근거는 상류 throw
+사이트와 포트 `Err` 사이트를 양쪽에서 읽은 것이고, 그것이 이 절의
+증거 등급이다."
+
+§327.17이 46행 중 #41을 이 라운드에서 실행 기반 회귀 시험으로 처음
+실측했다 — 그래도 1/46이고, 다른 45행에는 이 라운드도 손대지 않았다.
+falsifier(46행 전부가 실행 기반이 됐다면 거짓) 불발 — OPEN. 46행 전체를
+실행 기반으로 만드는 것은 이 절 밖(§227.5는 내 배정 밖)의 훨씬 큰
+작업이라 추측성으로 벌이지 않는다. **OPEN → 만료 조건**을 §227.7
+본문에 박았다.
+
+### §327.20 §227.7 둘째 — 상류 생성자 doc의 `@throw` 불일치, pinned SHA에서 오늘도 정확하다
+
+불릿: "`trajectory_generator_{lin,circ,polyline}.hpp`의 생성자 doc
+넷이 `@throw TrajectoryGeneratorInvalidLimitsException`이라고 적지만
+그 셋의 생성자 본문은 `printCartesianLimits()` 한 줄뿐이고 아무것도
+throw하지 않는다. PTP만 실제로 던진다."
+
+falsifier: pinned SHA(`e017c91e`)에서 네 헤더 중 하나라도 doc과
+구현이 어긋나지 않으면(즉 이 관찰이 틀렸으면) 거짓.
+
+```
+$ cd /home/stevek/work/moveit2
+$ grep -n '@throw' moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/trajectory_generator_{lin,circ,polyline,ptp}.hpp
+trajectory_generator_lin.hpp:63:   * @throw TrajectoryGeneratorInvalidLimitsException
+trajectory_generator_circ.hpp:78:   * @throw TrajectoryGeneratorInvalidLimitsException
+trajectory_generator_polyline.hpp:67:   * @throw TrajectoryGeneratorInvalidLimitsException
+trajectory_generator_ptp.hpp:60:   * @throw TrajectoryGeneratorInvalidLimitsException
+$ sed -n '68,72p' moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator_lin.cpp
+$ sed -n '63,67p' moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator_circ.cpp
+$ sed -n '70,75p' moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator_polyline.cpp
+```
+
+세 생성자 모두 `planner_limits_.printCartesianLimits();` 한 줄뿐,
+throw 없음. PTP만:
+
+```
+$ sed -n '57,71p' moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator_ptp.cpp
+  if (!planner_limits_.hasJointLimits())
+    throw TrajectoryGeneratorInvalidLimitsException("joint limit not set");
+  ...
+  if (!jmg)
+    throw TrajectoryGeneratorInvalidLimitsException("invalid group: " + group_name);
+```
+
+관찰이 오늘도 정확하다 — 네 개의 `@throw` 중 셋은 doc 결함, 하나(PTP)는
+진짜다. falsifier 불발 — OPEN(참으로 남는 역사적 관찰이지, 거짓이 되어
+닫히는 주장이 아니다). 문서 결함이고 동작 결함이 아니므로
+`doc/upstream-bugs.md`에 넣지 않는다는 원래 판단도 오늘 다시 유효함을
+확인했다. **OPEN → 만료 조건**을 §227.7 본문에 박았다 — 발화 시점은
+pinned SHA 갱신 뒤 이 관찰의 재검산이다.
+
+### §327.21 이 라운드가 발견했지만 고치지 않은 것 — 배정 밖 두 건
+
+- **§227.5의 46행 표 #41 행이 이 라운드의 코드 수정과 어긋난다.**
+  §327.17 참조. §227.5는 내 배정 12절 밖이라 표는 고치지 않고 병합
+  시점에 반영하도록 여기 기록만 한다.
+- **`moveit-collision/tangency_boundary_bside` fixture 쌍이
+  `oracle-models.json`에 등록돼 있지 않다.** §327.11의 라이브
+  `verify-fixture-replay.sh` 실행이 첫 줄에서 발견했다: `UNREGISTERED
+  moveit-collision/tangency_boundary_bside -- committed fixture pair
+  absent from crates/moveit-collision/tests/fixtures/oracle-models.json,
+  so it is never replayed against the live oracle`. 이 때문에 스크립트
+  종료코드가 1이었다(§327.11이 인용한 combined/reversed 통과와는 무관한
+  별개 원인). §157.5/§227.6/§227.7 어느 것과도 무관하고
+  `moveit-collision`은 내 배정 12절에 없어 고치지 않는다 — 등록
+  누락은 그 fixture가 재생 검증에서 조용히 빠져 있다는 뜻이라 병합
+  시점에 별도로 다룰 것을 권한다.
+
+### §327.22 병합 후 실측
+
+`cargo fmt --all -- --check` 통과(diff 0). `cargo clippy -p
+moveit-planners-pilz --all-targets -- -D warnings` 0건. `cargo nextest
+run -p moveit-planners-pilz` 240/240(새 회귀 시험 1건 포함). 라이브
+오라클 `verify-fixture-replay.sh` combined+reversed 5개 model 그룹
+전부 identical(§327.11) — 스크립트 자체의 종료코드는 배정 밖 미등록
+fixture 때문에 1이었다(§327.21).
+
+`python3 tools/ci/check-residual-claims-census.py --check
+doc/residual-claims-census.md`는 아래(§327 끝) 재생성 뒤 통과를
+확인했다.
 
 오늘도 `floor_wall` 둘뿐, `cage`는 없다. falsifier 불발 — OPEN.
