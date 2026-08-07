@@ -36933,9 +36933,11 @@ move-group-service-parity, §136.1(1)·§254.6(1)·§257.9(6)은 ci-not-wired다
 계열(§254~§257)이 닫지 못했다고 적은 목록인데, 그 계열 자신이 이미
 일부를 닫아 놓고도 §250.6·§256.8 두 절의 인용은 그 사실을 반영하지 않은
 채로 있었다 — §254.6·§257.9는 같은 항목을 정식 마커로 닫았지만 §250.6과
-§256.8의 사본은 그러지 않았다. 이 절의 하위절이 그 사본들을 마저 닫고,
-새 조치로 닫는 것 하나와, falsifier 불발로 OPEN인 채 남는 것들의 실측을
-더한다. 아래 §320.1이 첫 건이다.
+§256.8의 사본은 그러지 않았다. §320.1–§320.6이 그 사본 6건을 마저
+닫고, §320.7이 `doc/upstream-bugs.md`에 새 항목을 내는 조치로 1건을
+더 닫는다. §320.8이 falsifier 불발로 OPEN인 채 남는 나머지 11건(§256.8
+3건, ci-not-wired 8건)의 실측을 담아 이 절을 마무리한다 — 18건 중 7건
+닫힘, 11건 OPEN.
 
 ### §320.1 §250.6 "planning scene 토픽 구독" — §257.4가 이미 지었다
 
@@ -37157,3 +37159,162 @@ pairing` 항목을 새로 냈다(Index 표 + 본문, `not-reproduced`) — 상�
 남겨 뒀던 것을 정식 항목으로 옮긴 사실을 담았다.
 
 falsifier 성립 — 거짓, §256.8의 사본을 닫는다.
+
+### §320.8 남은 11건 — 재고, 전부 아직 참이다
+
+§320.1–§320.7이 두 테마의 18건 중 7건을 닫았다. 나머지 11건은
+`triage-residual-claims-census.py`가 오늘 트리에서 다시 뽑아도 여전히
+`measurement`로 남는다 — §256.8의 3건, ci-not-wired 8건(§136.1(1),
+§254.6(1), §257.9(6)). 각각의 falsifier를 실행했고, 전부 불발했다.
+
+**§256.8 ① 변환 실패 전부가 오류 코드 하나다.** falsifier:
+`move_group.rs`가 `INVALID_GOAL_CONSTRAINTS` 외의 다른
+`MoveItErrorCodes` 변형으로도 변환 실패를 답한다면 거짓.
+
+```
+$ rg -n 'INVALID_GOAL_CONSTRAINTS' ros/moveit-ros/src/bin/move_group.rs
+149://! `MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS`, whatever the conversion
+297:        val: MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS as i32,
+```
+
+방출 지점 1건, 여전히 하나다. falsifier 불발 — OPEN.
+
+**§256.8 ② 시작 상태의 값이 착지했는지는 게이트가 보지 못한다.**
+불릿 자신이 만료 조건을 적어 뒀다: "`moveit_planning::pipeline::Planner`가
+이 워크스페이스에 등록되는 순간." falsifier: 그 타입이 지금 존재한다면
+거짓.
+
+```
+$ rg -n '^pub (struct|trait|fn)' crates/moveit-planning/src/pipeline.rs
+423:pub fn generate_plan<'m>(
+```
+
+`Planner`라는 이름의 타입은 없다 — `pipeline.rs`에 `pub fn
+generate_plan`만 있다. 만료 조건 미충족. falsifier 불발 — OPEN.
+
+**§256.8 ⑤ `attached_collision_objects`/`multi_dof_joint_state` 거부.**
+falsifier: `ros/moveit-ros/src/state.rs`가 둘 중 하나라도 받아들인다면
+거짓.
+
+```
+$ rg -n 'attached_collision_objects|multi_dof_joint_state' ros/moveit-ros/src/state.rs
+103:        if !msg.attached_collision_objects.is_empty() {
+105:                "RobotState.attached_collision_objects is not \
+111:        let mdjs = &msg.multi_dof_joint_state;
+118:                "RobotState.multi_dof_joint_state has no core \
+```
+
+103-118행, 둘 다 여전히 거부 경로다. falsifier 불발 — OPEN.
+
+**ci-not-wired: §136.1 툴체인이 떠 있다.** falsifier:
+`rust-toolchain.toml`이 트리에 있다면 거짓.
+
+```
+$ ls rust-toolchain.toml rust-toolchain
+ls: cannot access 'rust-toolchain.toml': No such file or directory
+ls: cannot access 'rust-toolchain': No such file or directory
+$ rg -n 'dtolnay/rust-toolchain' .github/workflows/ci.yml
+33:      - uses: dtolnay/rust-toolchain@stable
+```
+
+둘 다 없다 — 고정 파일도 없고, CI는 여전히 `@stable`을 뜬다.
+`Cargo.toml`의 `warnings = "deny"`(90행)도 그대로다. falsifier 불발 —
+OPEN.
+
+**ci-not-wired: §254.6/§257.9 게이트는 CI에서 돌지 않는다** (같은
+결함, 두 절에 각자 적혀 있다). falsifier: `.github/workflows/ci.yml`에
+docker를 쓰는 job이나 `verify-*` 실행 단계가 있다면 거짓.
+
+```
+$ rg -n 'docker|verify-' .github/workflows/ci.yml
+70:      # Globbed, not enumerated. `tools/ci/verify-fixture-provenance.sh`'s header
+72:      # named that script `verify-*` specifically to stay out of it. That
+81:      # -- no docker, no cargo, no upstream", yet never once run by CI in its
+86:      # reported together at the end, the same shape `tools/ci/verify-all.sh`
+87:      # already uses for the `verify-*` glob. Under the default `for s in
+$ rg -n 'jobs:' .github/workflows/ci.yml
+15:jobs:
+```
+
+`docker`/`verify-`의 실제 매치는 전부 주석 안이다 — job은 여전히
+`rust` 하나뿐이고, 마지막 단계가 `tools/ci/check-*`만 글롭한다. `gh
+run list`로 재확인한 것도 아직 유효하다(§136.3 — 그때 확인한 CI 실행
+2건 모두 "ci checks" 단계에서만 실패했고, 그 단계는 `check-*`다). 사람이
+`sg docker -c ...`를 쳐야 도는 상태는 변하지 않았다. falsifier 불발 —
+OPEN. (§254.6과 §257.9 두 사본 모두 같은 측정이 적용된다.)
+
+**§257.9 A: `ros/fixtures/one_joint.urdf`에 `<collision>`이 없다.**
+falsifier: 그 파일에 `<collision>` 요소가 있다면 거짓.
+
+```
+$ rg -c '<collision' ros/fixtures/one_joint.urdf
+0
+```
+
+falsifier 불발 — OPEN.
+
+**§257.9 B: §226.3 표의 근거 칸 둘이 틀린 채로 남아 있다.** 이 불릿은
+스스로 "역사 기록이라 본문을 고쳐 쓰지 않는다"고 적었다 — 참/거짓을
+다투는 게 아니라 "고치지 않았다"는 정책 선언이므로, 이 표 두 칸이
+여전히 §257.2/§257.7을 그대로 가리키는지만 확인했다.
+
+```
+$ rg -n '이미 순수 .TryFrom.으로 포팅|create_subscription' PORTING-PLAN.md | rg '226\.3|22[0-9][0-9][0-9]:'
+```
+
+§226.3 표 자체를 다시 열어 두 칸이 고쳐지지 않았음을 확인했다(§257.2·
+§257.7이 여전히 정정으로만 남아 있고, 표 본문은 편집되지 않았다). 표를
+고쳐 쓰지 않는 것이 이 불릿의 정의이므로, "닫힘"이라는 낱말 자체가
+이 불릿에는 적용되지 않는다 — falsifier 불발이 아니라 falsifier가
+없는 항목이다. OPEN으로 남긴다.
+
+**§257.9 C: `/check_state_validity`의 변환 실패가 `valid: false`로
+뭉개진다.** falsifier: `handle_state_validity`가 오류 필드를 채우는
+응답을 낸다면 거짓.
+
+```
+$ rg -n 'fn handle_state_validity' -A 25 ros/moveit-ros/src/bin/move_group.rs | rg -A3 'Err\(e\)'
+            Err(e) => {
+                eprintln!(
+                    "check_state_validity: GetStateValidity.robot_state is not representable, \
+                     answering valid=false: {e}"
+```
+
+`GetStateValidity::Response { valid: false, ..Default::default() }` —
+오류 필드 없이 여전히 뭉갠다. D6 이탈로 소스가 스스로 표시한다.
+falsifier 불발 — OPEN.
+
+**§257.9 D: 다리 C가 바이너리 이름을 두 곳에 박아 뒀다.** falsifier:
+`ros/verify-ros-interop.sh`가 바이너리 이름을 변수에서 읽는다면 거짓.
+
+```
+$ rg -n 'cargo build --bin|target/debug/' ros/verify-ros-interop.sh
+224:cargo build --bin move_group
+225:./target/debug/move_group \
+364:  cargo build --bin move_group
+365:  ./target/debug/move_group /tmp/boxed.urdf /tmp/boxed.srdf 2>/tmp/node.stderr &
+495:  cargo build --bin move_group
+496:  ./target/debug/move_group /tmp/boxed.urdf /tmp/boxed.srdf 2>/tmp/node.stderr &
+```
+
+3곳 다 하드코드, 변수 인용 0건. falsifier 불발 — OPEN.
+
+**§257.9 E: `contact_to_msg`/`cost_source_to_msg`가 자유 함수라
+`conversion_coverage.rs`의 간선 스캔에 안 잡힌다.** falsifier: 둘 중
+하나가 `impl (TryFrom|From)` 블록이 됐거나, 스캔이 자유 함수도
+본다면 거짓.
+
+```
+$ rg -n 'fn contact_to_msg|fn cost_source_to_msg' ros/moveit-ros/src/bin/move_group.rs
+404:fn contact_to_msg(
+437:fn cost_source_to_msg(source: &moveit_collision::CostSource) -> r2r::moveit_msgs::msg::CostSource {
+$ rg -n 'starts_with\("impl"\)' ros/moveit-ros/src/conversion_coverage.rs
+216:    line.starts_with("impl") && (line.contains("TryFrom<") || line.contains(" From<"))
+```
+
+둘 다 여전히 자유 함수고, 스캔은 여전히 `impl` 시작 줄만 본다.
+falsifier 불발 — OPEN.
+
+11건 중 falsifier가 있는 10건은 전부 불발했고, 1건(B)은 정의상
+falsifier가 없다. 이번 라운드가 새로 닫은 것은 없다 — §320.1–§320.7의
+7건이 이 라운드의 전부다.
