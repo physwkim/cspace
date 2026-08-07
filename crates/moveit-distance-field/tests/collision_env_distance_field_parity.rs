@@ -168,6 +168,11 @@ fn build_pr2_model() -> RobotModel {
 // --- link_models_with_collision_geometry ---
 
 #[derive(Deserialize)]
+struct LmwcgRequest {
+    op: String,
+}
+
+#[derive(Deserialize)]
 struct LmwcgResult {
     links: Vec<String>,
 }
@@ -185,6 +190,21 @@ struct LmwcgResponseEntry {
 #[test]
 fn link_models_with_collision_geometry_matches_the_oracle() {
     let model = build_pr2_model();
+
+    // `linkModelsWithCollisionGeometry()` (oracle.cpp) takes no request
+    // fields at all -- `op` is the only thing this request fixture could
+    // ever carry -- so reading it and confirming it actually names this op
+    // is what "replaying the committed request" means here; there is no
+    // parameter to route into the call below.
+    let requests: Vec<LmwcgRequest> = serde_json::from_str(&read_fixture(
+        "link_models_with_collision_geometry_request.json",
+    ))
+    .expect("parse link_models_with_collision_geometry_request.json");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].op, "link_models_with_collision_geometry",
+        "request fixture must actually be a link_models_with_collision_geometry op"
+    );
 
     let responses: Vec<LmwcgResponseEntry> = serde_json::from_str(&read_fixture(
         "link_models_with_collision_geometry_response.json",
