@@ -7,9 +7,9 @@
 
 `doc/residual-claims-census.md`의 OPEN 불릿을 셋으로 나눈다. PORTING-PLAN.md §308.4의 A3("doc/residual-claims-census.md OPEN 0")가 재는 것은 그 문서의 OPEN 전체이지만, OPEN 전체가 다 '언젠가 잴 수 있는 것'은 아니다 — 아래 `scope`가 그 반례다. 분류 규칙은 이 파일 자신의 docstring에 있다.
 
-OPEN 216건 = measurement 205 + scope 5 + closed-unmarked 6.
+OPEN 215건 = measurement 205 + scope 5 + closed-unmarked 5.
 
-**A3의 실제 크기는 198이 아니라 205이다** — `scope` 5건은 정의상 마커를 받을 수 없고, `closed-unmarked` 6건은 이미 본문상 닫혔지만 정식 마커가 없을 뿐이다.
+**A3의 실제 크기는 198이 아니라 205이다** — `scope` 5건은 정의상 마커를 받을 수 없고, `closed-unmarked` 5건은 이미 본문상 닫혔지만 정식 마커가 없을 뿐이다.
 
 ## scope — 정의상 영원히 안 닫히는 것
 
@@ -25,11 +25,10 @@ OPEN 216건 = measurement 205 + scope 5 + closed-unmarked 6.
 
 ## closed-unmarked — 본문상 이미 닫혔지만 정식 마커가 없는 것
 
-6건. `닫혔다(§N)`/`닫았다`/`해소되었다` 같은 비정규 철자로 스스로 닫혔다고 적었을 뿐, `거짓 → 닫힘 (§N)` 정규 마커가 없어 census가 OPEN으로 센다. 아래 각 항목은 그 항목이 이름 댄 닫는 절을 열어 측정이 실제로 있는지 확인한 뒤에만 정식 마커로 옮길 것 — 정식 마커로 옮기는 것은 편집 결정이라 이 도구가 대신 쓰지 않는다.
+5건. `닫혔다(§N)`/`닫았다`/`해소되었다` 같은 비정규 철자로 스스로 닫혔다고 적었을 뿐, `거짓 → 닫힘 (§N)` 정규 마커가 없어 census가 OPEN으로 센다. 아래 각 항목은 그 항목이 이름 댄 닫는 절을 열어 측정이 실제로 있는지 확인한 뒤에만 정식 마커로 옮길 것 — 정식 마커로 옮기는 것은 편집 결정이라 이 도구가 대신 쓰지 않는다.
 
 | 절 | 불릿 |
 |---|---|
-| §229.4 | PORTING-PLAN.md:19321 - fanuc의 2,897배를 이 기전으로 설명하지 않는다 (§218.4 자신이 "이탈 6이 아니다"라 적은 pair-flip 사례다) — 위 "적용 범위" 문단 참고. pr2의 3.218e-1(§21.4)도 같은 쌍/다른 쌍 구분을 시행한 적이 없어 미확인이다. **둘 다 §24... |
 | §248.9 | PORTING-PLAN.md:22354 - **C++ 경로의 끝점. 닫혔다(§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에 대응하는 C++ 쪽 검사가 없었고, 여는 값이 500문제 재실행 한 번이라고 적었다. 같은 날 `a7d1b9a0`(`test(sbp): hold the C++ baseline... |
 | §263.7 | PORTING-PLAN.md:25886 - **CHOMP/STOMP를 각자의 상류 C++ 구현과 비교하는 읽기. 닫혔다(§269).** 이 절 시점에는 §263.1의 이유로 구조적으로 불가능했다 — 오라클에 CHOMP 플래닝 op이 없었고 STOMP는 op 자체가 없었다. `b146a109`가 `chomp_plan`과 ... |
 | §264.12 | PORTING-PLAN.md:26331 - **CHOMP의 목적함수가 관측되지 않는다 — §293에서 닫았다.** 닫는 방법은 여기 적힌 "한 필드"가 아니었다. upstream은 이 값을 폐기하지 않고 `best_group_trajectory_cost_`(`chomp_optimizer.hpp:150`)에 들고 있되 `... |
