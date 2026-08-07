@@ -15,6 +15,7 @@ use nalgebra::DMatrix;
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Vector3};
+use moveit_model::JointModelGroup;
 use moveit_model::RobotModel;
 use moveit_model::joint::{JointKind, JointModel};
 use rand::{Rng, RngExt};
@@ -640,6 +641,159 @@ impl<'m> RobotState<'m> {
         self.mark_dirty(joint_index);
         self.update_mimic_joint(joint_index);
         Ok(())
+    }
+
+    // ---- Group positions, velocities, accelerations --------------------
+    //
+    // Upstream declares each of these three times over (`const double*`,
+    // `const std::vector<double>&`, `const Eigen::VectorXd&` — plus a
+    // fourth `const std::string& joint_group_name` convenience layer that
+    // just resolves the name and forwards). All three value-carrying forms
+    // are the same pointer-plus-length pairing in different clothes, so
+    // this port takes one `&[f64]` per setter, matching how
+    // [`RobotState::set_variable_positions`]/[`RobotState::set_joint_positions`]
+    // already collapse upstream's `double*`/`std::vector<double>&`
+    // overloads above. Every group lookup goes through
+    // [`RobotModel::joint_model_group`], matching this file's existing
+    // `_group` variants ([`RobotState::enforce_bounds_group`],
+    // [`RobotState::harmonize_positions_group`]) rather than upstream's
+    // silent no-op on an unknown group name.
+
+    /// `setJointGroupPositions(const JointModelGroup*, const double*)`: one
+    /// value per variable in `group`'s own [`JointModelGroup::joint_indices`]
+    /// order — *including* mimic joints' slots, whose supplied values are
+    /// immediately overwritten by the mimic propagation below (matching
+    /// upstream's own doc comment: "including values of mimic joints").
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    ///
+    /// # Panics
+    ///
+    /// If `values` holds fewer entries than `group`'s variable count.
+    /// Upstream's primitive — the `double*` overload every other overload
+    /// in this family forwards to — performs **no** length check at all,
+    /// not even a debug-only `assert`; a short buffer is undefined
+    /// behaviour there. Rust has no safe equivalent of that unchecked read,
+    /// so this port's closest faithful match is the slice index's own
+    /// panic. A `values` slice *longer* than needed is accepted silently
+    /// either way, matching upstream exactly — the trailing entries are
+    /// never read.
+    pub fn set_joint_group_positions(&mut self, group_name: &str, values: &[f64]) -> Result<()> {
+        let model = self.model;
+        let group = model.joint_model_group(group_name)?;
+        let mut i = 0;
+        for &joint_index in group.joint_indices() {
+            let joint = model.joint_model_at(joint_index);
+            let count = joint.variable_count();
+            let first = self.first_variable_index[joint_index];
+            self.positions[first..first + count].copy_from_slice(&values[i..i + count]);
+            i += count;
+        }
+        self.update_mimic_joints_for_group(group);
+        Ok(())
+    }
+
+    /// `setJointGroupActivePositions`: one value per variable in `group`'s
+    /// own [`JointModelGroup::active_joint_indices`] order — *excluding*
+    /// mimic joints, unlike [`RobotState::set_joint_group_positions`].
+    ///
+    /// Upstream writes each active joint through
+    /// `setJointPositions(JointModel*, double*)`
+    /// (`robot_state.cpp:600`), which — unlike this family's `Positions`
+    /// primitive above — propagates each write to that joint's own mimic
+    /// followers immediately (`updateMimicJoint`, global, not
+    /// group-scoped) before the trailing group-wide
+    /// `updateMimicJoints(group)` runs. A follower outside `group` that
+    /// mimics an active joint written here is therefore updated too, same
+    /// as upstream; that is not reachable by only calling
+    /// [`RobotState::update_mimic_joints_for_group`], which is why this
+    /// setter also calls [`RobotState::update_mimic_joint`] per active
+    /// joint, matching upstream's two-layer propagation exactly.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    ///
+    /// # Panics
+    ///
+    /// If `values` holds fewer entries than `group`'s *active* variable
+    /// count. Upstream's own primitive here (unlike the `Positions`
+    /// primitive above) does carry a debug-only `assert(gstate.size() ==
+    /// group->getActiveVariableCount())`, compiled out entirely in a
+    /// release build — so, same as
+    /// [`RobotState::set_variable_positions`], this port enforces the
+    /// bound unconditionally via the slice index rather than reproducing
+    /// upstream's build-mode-dependent behaviour.
+    pub fn set_joint_group_active_positions(
+        &mut self,
+        group_name: &str,
+        values: &[f64],
+    ) -> Result<()> {
+        let model = self.model;
+        let group = model.joint_model_group(group_name)?;
+        let mut i = 0;
+        for &joint_index in group.active_joint_indices() {
+            let joint = model.joint_model_at(joint_index);
+            let count = joint.variable_count();
+            let first = self.first_variable_index[joint_index];
+            self.positions[first..first + count].copy_from_slice(&values[i..i + count]);
+            self.mark_dirty(joint_index);
+            self.update_mimic_joint(joint_index);
+            i += count;
+        }
+        self.update_mimic_joints_for_group(group);
+        Ok(())
+    }
+
+    /// `copyJointGroupPositions`: `group`'s own variables, in
+    /// [`JointModelGroup::joint_indices`] order (including mimic joints,
+    /// matching [`RobotState::set_joint_group_positions`]'s own input
+    /// order). Upstream copies rather than returning a pointer because a
+    /// group's variables are "not necessarily a contiguous block of memory
+    /// in the `RobotState` itself" (upstream's own doc comment); this port
+    /// returns an owned `Vec` for the same reason, covering upstream's
+    /// `double*`/`std::vector<double>&`/`Eigen::VectorXd&` out-param trio
+    /// in one signature.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    pub fn joint_group_positions(&self, group_name: &str) -> Result<Vec<f64>> {
+        let group = self.model.joint_model_group(group_name)?;
+        let mut out = Vec::with_capacity(group.variable_names().len());
+        for &joint_index in group.joint_indices() {
+            let joint = self.model.joint_model_at(joint_index);
+            let count = joint.variable_count();
+            let first = self.first_variable_index[joint_index];
+            out.extend_from_slice(&self.positions[first..first + count]);
+        }
+        Ok(out)
+    }
+
+    /// `RobotState::updateMimicJoints(const JointModelGroup*)`: every mimic
+    /// joint in `group`, derived from its master's *current* value —
+    /// plus the group-dirty half of upstream's private
+    /// `markDirtyJointTransforms(const JointModelGroup*)`
+    /// (`robot_state.hpp:1686`), which marks every one of `group`'s
+    /// *active* joints and merges in `group->getCommonRoot()`. This port
+    /// caches no per-group common root (see [`JointModelGroup`]'s own doc
+    /// comment on why), so the merge is done by folding
+    /// [`RobotState::mark_dirty`] over the group's active joints instead —
+    /// the lowest common ancestor of a node set is the same regardless of
+    /// the order it is folded in, so the two are equivalent.
+    ///
+    /// Shared by [`RobotState::set_joint_group_positions`] and
+    /// [`RobotState::set_joint_group_active_positions`], upstream's only
+    /// two group setters that call `updateMimicJoints(group)`.
+    fn update_mimic_joints_for_group(&mut self, group: &JointModelGroup) {
+        for &mimic_index in group.mimic_joint_indices() {
+            self.write_mimic(mimic_index);
+        }
+        for &joint_index in group.active_joint_indices() {
+            self.mark_dirty(joint_index);
+        }
     }
 
     /// `setToDefaultValues()`: every active joint to
