@@ -25780,7 +25780,7 @@ CHOMP/STOMP 행에서 이미 쓰이고 있다), `PARTIAL`만 아직 한 번도 �
   `shape-intersect-tangency-follows-libccd-dispatch`,
   `distance-callback-max-contact-depth`,
   `distance-callback-threshold-suppresses-deeper-pairs`)은 모두 이미
-  §229/§247/§251이 채워 두었다.
+  §229/§247/§251이 채워 두었다. 거짓 → 닫힘 (§311).
 - 오라클로 조건 재정의 이후의 10,000×5로봇 `bool` 스윕을 직접 다시
   돌리지 못했다 — `third_party/moveit_resources`가 이 워크트리에
   없다(§262.2). §218.3의 기존 실측을 새 조건 문구로 다시 읽은 것이지,
@@ -26699,7 +26699,7 @@ box`가 아니라서 §251의 깨진 셀을 건드리지 않는다.
 - `doc/upstream-bugs.md`를 고치지 않았다 — `shape-intersect-tangency-
   follows-libccd-dispatch`는 이미 §251이 채웠고, 이 절은 그 항목이 잡는
   셀 하나(`cylinder × box`, offset 0)의 실제 발생 빈도를 정량화했을
-  뿐이다.
+  뿐이다. 거짓 → 닫힘 (§311).
 - §5 표를 고치지 않았다 — §262.2가 제안한 문구를 그대로 확인했을 뿐,
   적용은 병합자의 몫이다(지시 사항).
 
@@ -35780,3 +35780,21 @@ $ sg docker -c 'docker images --format "{{.Repository}}"' | sort | uniq -c
 images`, 저장소 `moveit-rs/oracle`)는 §130.3이 쓴 것과 같고, 바뀐 것은
 시점과 그사이 쌓인 변종 빌드 수뿐이다. 정리는 이 절도 대신 하지 않는다 —
 사용자 승인이 여전히 먼저다.
+
+## §311 §262.5·§265.8이 "`doc/upstream-bugs.md`를 고치지 않았다"고 적은 네 항목, 오늘도 전부 있다
+
+§262.5와 §265.8은 각각 자신이 쓰는 상류 결함 식별자가 `doc/upstream-bugs.md`에
+이미 있으므로 그 문서를 고칠 필요가 없었다고 적었다. 그 전제 자체를
+`doc/upstream-bugs.md`와 `PORTING-PLAN.md` 양쪽에서 직접 확인했다 — 이름을
+안다고 존재를 안다는 뜻은 아니라서, 넷 다 `grep`으로 다시 찾았다.
+
+| 식별자 | `doc/upstream-bugs.md` 항목 | `PORTING-PLAN.md`에서 채우는 절 |
+|---|---|---|
+| `fcl-distance-sentinel-survives-zero-contacts` | 1282행, `not-reproduced` | §229.1(19252행), §251.4(23162행) |
+| `shape-intersect-tangency-follows-libccd-dispatch` | 2551행, `not-reproduced` | §251.4(23271행) |
+| `distance-callback-max-contact-depth` | 2105행, `not-reproduced` | §229.3 |
+| `distance-callback-threshold-suppresses-deeper-pairs` | 2461행, `not-reproduced` | §247.1 |
+
+넷 다 있고, 넷 다 §262.5/§265.8이 이름 댄 절(§229/§247/§251) 안에서 실제로
+인용된다. `doc/upstream-bugs.md`를 고치지 않은 것은 빠뜨린 것이 아니라
+고칠 것이 없었기 때문이라는 두 절의 주장은 오늘 다시 확인해도 참이다.
