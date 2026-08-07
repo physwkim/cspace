@@ -23,23 +23,30 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 require_caller_tree "$REPO_ROOT"
 cd "$REPO_ROOT"
 
-if ! command -v rg >/dev/null 2>&1; then
-  echo "ripgrep (rg) not found" >&2
-  exit 1
-fi
-
 # Attribute forms only: `#[allow(`, `#![allow(`, and the `expect` equivalents.
 # This deliberately does not match `Option::expect` or `Result::expect`, which
 # are ordinary calls and take a string literal rather than a lint name.
 pattern='^\s*#!?\[\s*(allow|expect)\s*\('
 
-# rg's three exit codes are three different answers and only two of them are
-# this check's business: 0 is "found suppressions", 1 is "found none", and 2 is
-# "rg itself failed" (unreadable path, bad pattern). Testing the command in an
-# `if` collapses 1 and 2 into the same branch, so a broken search would print
-# OK -- the whole failure mode this file exists to prevent, one level up.
+# grep -P, not rg: this pattern is plain PCRE (\s, alternation, anchors) with
+# no rg-only feature, and GNU grep's -P is built on the same libpcre2 that
+# ships in Ubuntu's base image -- unlike ripgrep, which `ubuntu-latest`
+# runners do not have preinstalled. `check-pilz-tolerance-overrides.sh`
+# states the same principle for its own awk/grep/sed parse: don't require a
+# tool the gate doesn't structurally need. `--include='*.rs'` over `crates`
+# and `tools` matches rg's `--glob '*.rs' crates tools` scope; there is no
+# per-crate `target/` under either directory to filter (`.gitignore` anchors
+# it at `/target`), so grep's lack of gitignore-awareness changes nothing
+# here -- verified equal hit counts against `rg` before this rewrite.
+#
+# grep's three exit codes are three different answers and only two of them
+# are this check's business: 0 is "found suppressions", 1 is "found none",
+# and 2 is "grep itself failed" (unreadable path, bad pattern). Testing the
+# command in an `if` collapses 1 and 2 into the same branch, so a broken
+# search would print OK -- the whole failure mode this file exists to
+# prevent, one level up.
 status=0
-hits=$(rg -n --pcre2 "$pattern" --glob '*.rs' crates tools) || status=$?
+hits=$(grep -rn --include='*.rs' -P "$pattern" crates tools) || status=$?
 case "$status" in
   0)
     echo "lint suppression is not permitted -- fix the lint at source:" >&2
@@ -48,7 +55,7 @@ case "$status" in
     ;;
   1) ;;  # no matches: the pass case
   *)
-    echo "rg failed (exit $status) -- this check did not run" >&2
+    echo "grep failed (exit $status) -- this check did not run" >&2
     exit "$status"
     ;;
 esac
