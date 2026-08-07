@@ -23172,7 +23172,10 @@ PHASE9 verdict=NO_VALID_TRAJECTORY
   붙였고, `ros/moveit-ros/src/planning.rs`의 모듈 doc이 "`start_state` **is**
   representable as of this round ... and is mapped, not rejected"라고 스스로
   적어 §250.4/§254의 그 첫 거부가 사라졌다고 말한다.
-- **planning scene 토픽 구독.** §226.4 항목 3 그대로 부재.
+- **planning scene 토픽 구독. 거짓 → 닫힘 (§320.1).** §226.4 항목 3 그대로
+  부재였다. §257.4가 `ros/moveit-ros/src/bin/move_group.rs`에
+  `node.subscribe::<r2r::moveit_msgs::msg::PlanningScene>`로 구독을 지었고,
+  오늘 트리에서도 그 줄이 그대로 있다(§320.1).
 - **`/plan_kinematic_path`의 `PLANNING_FAILED`.** §250.3이 적은 파리티
   결함. 소스 한 줄과 `ros/verify-ros-interop.sh`의 `grep -q "val=-1"`
   한 줄을 같이 고쳐야 하고, 후자가 펜스 밖이다.
@@ -31897,7 +31900,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27171`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27174`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -36242,7 +36245,7 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
 | `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21855-21856` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
-| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27171` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27174` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
 `section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도
@@ -36902,3 +36905,42 @@ MET | §217.3 | 2026-08-05"다 — §263 이후 어느 절도 이 행을 다시 
 - **`DEFAULT_PIPELINE_ID`가 소스에 박혀 있다.** falsifier: 그 상수가
   설정/파라미터에서 읽힌다면 거짓. `ros/moveit-ros/src/move_group.rs:67`은
   오늘도 `pub const DEFAULT_PIPELINE_ID: &str = "rrt_connect"`다. OPEN.
+
+## §320 A3 — move-group-service-parity(§250.6/§256.8) 10건 + ci-not-wired(§136.1/§254.6/§257.9) 8건을 재쟀다, 7건이 드리프트로 닫혔다 (2026-08-07)
+
+`doc/residual-claims-triage.md`의 두 테마를 절 단위로 열어 각 불릿마다
+falsifier를 정하고 실행했다. 시작 전에 `git merge --no-edit main`으로
+받았다(fast-forward, `0da2ba42`, 충돌 없음). §250.6(4)·§256.8(6)은
+move-group-service-parity, §136.1(1)·§254.6(1)·§257.9(6)은 ci-not-wired다.
+
+§250.6과 §256.8은 같은 `/move_action`·`/plan_kinematic_path` 라운드
+계열(§254~§257)이 닫지 못했다고 적은 목록인데, 그 계열 자신이 이미
+일부를 닫아 놓고도 §250.6·§256.8 두 절의 인용은 그 사실을 반영하지 않은
+채로 있었다 — §254.6·§257.9는 같은 항목을 정식 마커로 닫았지만 §250.6과
+§256.8의 사본은 그러지 않았다. 이 절의 하위절이 그 사본들을 마저 닫고,
+새 조치로 닫는 것 하나와, falsifier 불발로 OPEN인 채 남는 것들의 실측을
+더한다. 아래 §320.1이 첫 건이다.
+
+### §320.1 §250.6 "planning scene 토픽 구독" — §257.4가 이미 지었다
+
+불릿: "planning scene 토픽 구독. §226.4 항목 3 그대로 부재." falsifier:
+`ros/moveit-ros/src/` 안에 `moveit_msgs::msg::PlanningScene`을 구독하는
+코드가 있다면 거짓.
+
+`rg -n '\.subscribe::<' ros/moveit-ros/src/ -t rust`:
+
+```
+ros/moveit-ros/src/bin/move_group.rs:701:    let scene_updates = match node.subscribe::<r2r::moveit_msgs::msg::PlanningScene>(
+```
+
+§257.4가 §254 이후 이 라운드에서 지은 구독이다. 오늘 트리에 그대로
+있고, 라이브 게이트로도 재확인했다 — `sg docker -c
+./ros/verify-ros-interop.sh`의 `scene-topic` 다리:
+
+```
+=== scene-topic (ROS_DOMAIN_ID=25) ===
+OK scene-topic: /planning_scene reached the node over DDS, and /check_state_validity
+OK scene-topic: answered True/False/False/True across an empty world, a full scene, a diff, and a full scene
+```
+
+falsifier 성립 — 거짓, §250.6의 사본을 닫는다.
