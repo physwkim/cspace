@@ -1849,6 +1849,16 @@ impl<'m> ChompOptimizer<'m> {
         let mut seed_points_in_collision: u32 = 0;
         let mut first_pass_max_update = 0.0f64;
         let mut exit = ChompExit::IterationBound;
+        // Declared once, outside the loop, matching upstream
+        // (`chomp_optimizer.cpp:300`): once any pass sets it, it stays
+        // `true` for every later pass in this call, so
+        // `collision_free_iteration` below keeps incrementing on later
+        // passes even when that pass's own mesh/threshold condition
+        // doesn't refire. Upstream never resets it inside the loop -- a
+        // per-pass-local `let mut should_break_out = false;` here would
+        // silently narrow that persisted-until-break semantics to
+        // "refires every single pass", which is a different condition.
+        let mut should_break_out = false;
         while self.iteration < self.parameters.max_iterations {
             self.perform_forward_kinematics(collision)?;
             evaluations += 1;
@@ -1920,8 +1930,6 @@ impl<'m> ChompOptimizer<'m> {
                 &self.joint_costs,
             )?;
             full_trajectory.update_from_group_trajectory(&self.group_trajectory);
-
-            let mut should_break_out = false;
 
             if self.iteration % 10 == 0
                 && mesh_to_mesh_collision_free(&self.start_state, &self.best_group_trajectory)
@@ -2031,7 +2039,8 @@ mod tests {
 
     use moveit_collision::LinkPaddingScale;
     use moveit_distance_field::{
-        DistanceFieldConfig, GridGeometry, PropagationDistanceField, add_link_body_decompositions,
+        DistanceFieldConfig, DistanceGradient, GridGeometry, PropagationDistanceField,
+        add_link_body_decompositions,
     };
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
@@ -2818,6 +2827,238 @@ mod tests {
              on iteration 0 without breaking (grace period 5 > collision_free_iteration 1) -- \
              the pass's branch-local increment plus the loop's own unconditional increment \
              put self.iteration at 2 after exactly one real optimization pass, not 1"
+        );
+    }
+
+    /// Test double for [`DistanceField`] whose
+    /// [`DistanceField::distance_gradient`] reports a caller-chosen
+    /// distance per `optimize` pass instead of a real geometric lookup --
+    /// every other [`DistanceField`] method delegates to a real (empty)
+    /// field, so nothing but the collision-cost-driving query is faked.
+    /// [`get_collision_sphere_gradients`](moveit_distance_field) is the only
+    /// caller in the environment-proximity path, and it queries nothing but
+    /// `distance_gradient` (`p.x, p.y, p.z` in, `DistanceGradient` out), so
+    /// overriding that one method is sufficient to control `c_cost`.
+    ///
+    /// Exists to drive a below-threshold-then-above-threshold `c_cost`
+    /// sequence through the real `optimize` loop: every real collision
+    /// fixture in this file produces a *monotone* sequence (constant ~0, or
+    /// one-shot convergence to ~0), so no scenario built from real geometry
+    /// can exercise a pass whose collision-threshold condition fires and
+    /// then does *not* refire on the very next pass -- exactly the case
+    /// that distinguishes "`should_break_out` persists across the whole
+    /// call" (upstream, `chomp_optimizer.cpp:300`) from "`should_break_out`
+    /// resets every pass" (this port, pre-fix).
+    struct StepDistanceField {
+        inner: PropagationDistanceField,
+        calls: std::cell::Cell<u32>,
+        /// How many `distance_gradient` calls pass 0 issues --
+        /// `perform_forward_kinematics`'s own `self.iteration == 0` branch
+        /// walks every trajectory point, unlike every later pass (free
+        /// segment only) -- measured per fixture, not assumed, since it
+        /// depends on the fixture's own collision-sphere count.
+        calls_pass_zero: u32,
+        /// How many `distance_gradient` calls every pass after 0 issues.
+        calls_pass_n: u32,
+    }
+
+    impl DistanceField for StepDistanceField {
+        fn size_x(&self) -> f64 {
+            self.inner.size_x()
+        }
+        fn size_y(&self) -> f64 {
+            self.inner.size_y()
+        }
+        fn size_z(&self) -> f64 {
+            self.inner.size_z()
+        }
+        fn origin_x(&self) -> f64 {
+            self.inner.origin_x()
+        }
+        fn origin_y(&self) -> f64 {
+            self.inner.origin_y()
+        }
+        fn origin_z(&self) -> f64 {
+            self.inner.origin_z()
+        }
+        fn resolution(&self) -> f64 {
+            self.inner.resolution()
+        }
+        fn uninitialized_distance(&self) -> f64 {
+            self.inner.uninitialized_distance()
+        }
+        fn add_points_to_field(&mut self, points: &[Vector3]) {
+            self.inner.add_points_to_field(points);
+        }
+        fn remove_points_from_field(&mut self, points: &[Vector3]) {
+            self.inner.remove_points_from_field(points);
+        }
+        fn update_points_in_field(&mut self, old_points: &[Vector3], new_points: &[Vector3]) {
+            self.inner.update_points_in_field(old_points, new_points);
+        }
+        fn reset(&mut self) {
+            self.inner.reset();
+        }
+        fn distance(&self, x: f64, y: f64, z: f64) -> f64 {
+            self.inner.distance(x, y, z)
+        }
+        fn distance_cell(&self, x: i32, y: i32, z: i32) -> f64 {
+            self.inner.distance_cell(x, y, z)
+        }
+        fn is_cell_valid(&self, x: i32, y: i32, z: i32) -> bool {
+            self.inner.is_cell_valid(x, y, z)
+        }
+        fn num_cells_x(&self) -> i32 {
+            self.inner.num_cells_x()
+        }
+        fn num_cells_y(&self) -> i32 {
+            self.inner.num_cells_y()
+        }
+        fn num_cells_z(&self) -> i32 {
+            self.inner.num_cells_z()
+        }
+        fn grid_to_world(&self, x: i32, y: i32, z: i32) -> Vector3 {
+            self.inner.grid_to_world(x, y, z)
+        }
+        fn world_to_grid(&self, world: &Vector3) -> (bool, i32, i32, i32) {
+            self.inner.world_to_grid(world)
+        }
+
+        fn distance_gradient(&self, _x: f64, _y: f64, _z: f64) -> DistanceGradient {
+            let call = self.calls.get();
+            self.calls.set(call + 1);
+            let pass = if call < self.calls_pass_zero {
+                0
+            } else {
+                1 + (call - self.calls_pass_zero) / self.calls_pass_n
+            };
+            // Pass 0 reads as far outside `max_propagation_distance`
+            // (0.3, `chomp_collision_field_config`) -- the same "no
+            // update" outcome an empty real field gives (its
+            // `uninitialized_distance` is that same 0.3, also not `<`
+            // it), so pass 0's `c_cost` matches this file's own
+            // established empty-field baseline. Every later pass reads as
+            // deep in collision.
+            let distance = if pass == 0 { 10.0 } else { -1.0 };
+            DistanceGradient {
+                distance,
+                gradient: Vector3::zeros(),
+                in_bounds: true,
+            }
+        }
+    }
+
+    /// The `should_break_out` scope bug found against upstream
+    /// `chomp_optimizer.cpp:300` (declared once before the `for` loop, never
+    /// reset) versus the pre-fix port (declared inside the `while` body,
+    /// reset every pass): once any pass sets `should_break_out`,
+    /// `collision_free_iteration_` must keep incrementing on *every* later
+    /// pass, whether or not that pass's own mesh/threshold condition
+    /// refires.
+    ///
+    /// Built via [`StepDistanceField`] because no real collision fixture in
+    /// this file can tell the two apart -- see that type's doc.
+    #[test]
+    fn optimize_should_break_out_persists_across_iterations_like_upstream() {
+        let model = chomp_collision_model();
+        // A moving path, not `chomp_full_trajectory`'s degenerate
+        // zero-motion one: `get_collision_cost` weights every point's
+        // potential by `collision_point_vel_mag`, so a trajectory that
+        // never moves reads as ~0 cost regardless of `StepDistanceField`'s
+        // reported distance.
+        let source = seeded_trajectory(&model, 10, 1.0);
+        let start_state = RobotState::new(&model);
+
+        // Measure how many `distance_gradient` queries pass 0 (full
+        // trajectory) and every later pass (free segment only) each issue
+        // for this fixture, rather than assume it.
+        let (calls_pass_zero, calls_pass_n) = {
+            let mut cache = chomp_collision_cache(&model);
+            let field = StepDistanceField {
+                inner: env_field_with_points(&[]),
+                calls: std::cell::Cell::new(0),
+                calls_pass_zero: u32::MAX,
+                calls_pass_n: u32::MAX,
+            };
+            let parameters = ChompParameters::default();
+            let mut collision = ChompCollisionContext {
+                cache: &mut cache,
+                env_distance_field: &field,
+            };
+            let mut optimizer = ChompOptimizer::new(
+                &source,
+                CHOMP_COLLISION_GROUP,
+                &parameters,
+                &start_state,
+                &mut collision,
+                None,
+            )
+            .unwrap();
+            optimizer
+                .perform_forward_kinematics(&mut collision)
+                .unwrap();
+            let calls_pass_zero = field.calls.get();
+            optimizer.iteration = 1;
+            optimizer
+                .perform_forward_kinematics(&mut collision)
+                .unwrap();
+            let calls_pass_n = field.calls.get() - calls_pass_zero;
+            (calls_pass_zero, calls_pass_n)
+        };
+        assert!(
+            calls_pass_zero > 0,
+            "fixture must query the environment field on pass 0"
+        );
+        assert!(
+            calls_pass_n > 0,
+            "fixture must query the environment field on later passes"
+        );
+
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = StepDistanceField {
+            inner: env_field_with_points(&[]),
+            calls: std::cell::Cell::new(0),
+            calls_pass_zero,
+            calls_pass_n,
+        };
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 5,
+            max_iterations_after_collision_free: 1,
+            collision_threshold: 0.5,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+
+        let trace = optimizer.loop_trace().unwrap();
+        assert_eq!(
+            trace.exit,
+            ChompExit::BreakOut,
+            "collision_free_iteration must keep counting on pass 1 even though pass 1's own \
+             c_cost is back above collision_threshold -- upstream's should_break_out \
+             (chomp_optimizer.cpp:300) is set on pass 0 and never reset, so pass 1 still \
+             enters the should_break_out block and its grace period (1) is exceeded"
+        );
+        assert_eq!(
+            trace.evaluations, 2,
+            "must break after pass 1's grace-period check, not run to max_iterations"
         );
     }
 
