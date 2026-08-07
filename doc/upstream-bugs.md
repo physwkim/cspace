@@ -1288,7 +1288,7 @@ already wrong upstream.
 (`std::size_t contacts = fcl::collide(o1, o2, coll_req, coll_res); if (contacts > 0)`),
 `:663` (`dist_result.distance = -contact.penetration_depth;`). The `if` at
 648 has no `else`.
-**Port:** `crates/moveit-collision/src/parry.rs:2362`
+**Port:** `crates/moveit-collision/src/parry.rs:2476`
 **Symptom:** For a pair FCL reports as touching or penetrating
 (`distance <= 0`) with `enable_signed_distance` set, line 613 has already
 stored `fcl_result.min_distance` — which for an in-collision pair is FCL's
@@ -1345,7 +1345,7 @@ cylinder (`length 0.13`, `origin z 0.065`) puts its bottom face at exactly
 `tools/moveit-diff/src/main.rs`'s scene, so every sampled state hits the
 tangency case regardless of joint values.
 **Status:** `not-reproduced`, and structurally so rather than by choice.
-`parry.rs:2362` takes `contact.dist` from `parry3d_f64::query::contact` and
+`parry.rs:2476` takes `contact.dist` from `parry3d_f64::query::contact` and
 substitutes no sentinel on any path, so `-1.0` is not constructible here.
 **Deviation:** none of `D1`..`D14` applies. This is not a policy the port
 adopted to route around the defect — parry simply has no in-collision
@@ -2523,8 +2523,8 @@ away — the same masked-ACM probe, run on the oracle instead of on the port:
 Every published value is between `7.79x` and `21.18x` shallower than the value
 upstream itself produces for a pair that was in the same query.
 **Status:** `not-reproduced`. `accumulate_distance` mirrors the `GLOBAL`
-running threshold (`parry.rs:2333`) and the discard (`:2359`), but the
-`contact.dist` it tests is the *same* signed quantity `:2385` folds into
+running threshold (`parry.rs:2447`) and the discard (`:2473`), but the
+`contact.dist` it tests is the *same* signed quantity `:2499` folds into
 `minimum_distance` — a penetration depth on both sides of the comparison — so a
 deeper pair cannot fail the gate. The invariant is pinned by
 `crates/moveit-collision/tests/minimum_distance_is_the_minimum.rs`, 3 cases,
@@ -2573,7 +2573,7 @@ libccd" (`:178-201`), and registered immediately below it (`:245-267`).
 'gjk_solver_type|GST_LIBCCD|GST_INDEP'` over the pinned `e017c91ee` checkout
 returns **0 matches in 1,926 files**, so `CollisionRequest`'s default
 `GST_LIBCCD` (`collision_request.h:102`) is what every MoveIt query runs.
-**Port:** `crates/moveit-collision/src/parry.rs:2174`, `accumulate_collision`'s
+**Port:** `crates/moveit-collision/src/parry.rs:2245`, `accumulate_collision`'s
 `query::contact(a_pose, a_shape, b_pose, b_shape, 0.0)`. Pinned by
 `crates/moveit-collision/tests/exact_tangency_is_decided_per_shape_pair.rs`.
 **Symptom:** at a gap of *exactly* zero, `fcl::collide` returns a contact of
@@ -2791,7 +2791,7 @@ ASCII table headed "Shape distance algorithms not using libccd"
 (`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:653-675`);
 `cylinder`/`box` is blank in it, in both orderings.
 
-**Port:** `crates/moveit-collision/src/parry.rs:2350`,
+**Port:** `crates/moveit-collision/src/parry.rs:2464`,
 `accumulate_distance`'s `query::contact`. Pinned by
 `crates/moveit-collision/tests/collision_parity.rs`'s
 `prbt_flange_floor_clearance_matches_the_closed_form`.
