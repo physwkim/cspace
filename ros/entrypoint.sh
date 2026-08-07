@@ -10,6 +10,11 @@ set -eo pipefail
 # `set -u` stays off across the sourcing: ROS 2's setup.bash reads optional
 # variables (e.g. AMENT_TRACE_SETUP_FILES) without a default, and an
 # unbound-variable check would abort here before anything runs.
+#
+# source=/dev/null: the real target is installed by the ROS base image at
+# container build time, keyed on $ROS_DISTRO, and never exists in this repo
+# for shellcheck to open.
+# shellcheck source=/dev/null
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
 source "/ws/install/setup.bash"
 
