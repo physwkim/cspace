@@ -16754,11 +16754,15 @@ parent_before`는 진짜 살아 있는 검사이고 커밋된 픽스처가 그�
 
 ### 216.4 남는 것
 
-- pr2의 `self_collision`/`self_distance`는 이 비교에서 제외했다.
-  이 포트가 메시를 싣지 않아 pr2 자기충돌면 대부분이 없고, 그 불일치가
-  diff 층의 신호를 덮는다. 오라클은 두 필드를 그대로 보고하고
-  `verify-fixture-replay.sh`가 커밋된 응답 전체를 살아 있는 오라클과
-  대조하므로, 드리프트에 대해서는 여전히 고정돼 있다.
+- **pr2의 `self_collision`/`self_distance`는 이 비교에서 제외했다.
+  거짓 → 닫힘 (§318.3).** STL 로더(`947f3e67`)가 `LinkModel`에
+  결선되고 pr2 메시 fixture가 결선(`1ff4d3b8`)된 뒤,
+  `pr2_collision_matches_the_oracle`이 `self_collision`/`self_distance`를
+  포함한 전체 패리티를 오라클과 bool 단위로 대조하며 오늘 통과한다 —
+  이 절이 잔여로 지목한 "메시를 싣지 않아 대조할 수 없다"는 실체는
+  다른 비교가 닫았다. (이 절 자신의 `scene_diff_collision_parity.rs`는
+  여전히 `robot_collision`/`robot_distance`만 보지만, 그것은 §318.3
+  둘째가 별도로 다루는 다른 잔여다.)
 - 씬 diff는 `push_diffs`/`decouple_parent`/`clear_diffs`까지 있는데
   이번 비교는 `diff()` 적용 후의 충돌 결과만 덮는다. 부모로 되밀어
   넣는 경로는 오라클 op으로 열려 있지 않다.
