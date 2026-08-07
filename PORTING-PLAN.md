@@ -27719,7 +27719,12 @@ Phase 3 `collision: bool` 행은 UNMET 그대로이고 근거 열도 §251.4 그
   fcl 쪽이다. 따라서 이 항목에서 판정된 부분은 249건(0.59%)이고 그 249건의
   주인까지 정해졌다. **42,010건은 §302 뒤에도 그대로 미판정이다** — §302의
   계측기는 볼록 프리미티브 위에서만 성립하므로 메시 링크뿐인 세 로봇에는
-  걸 수 없고, pr2에는 걸 수 있지만 걸지 않았다.
+  걸 수 없고, pr2에는 걸 수 있지만 걸지 않았다. **여전히 열려 있다 —
+  다만 §302.10이 그 뒤쪽 절반("pr2에는 걸 수 있지만 걸지 않았다")을
+  실제로 걸었다.** pr2도 실제로 걸었고, 결과는 판정 가능 행 0/10,000이다
+  — 정의역(17개 프리미티브 링크)은 비어 있지 않지만, pr2의 실제
+  self-penetration 불일치 population이 그 정의역과 겹치지 않는다. 이
+  항목의 42,010건 자체는 §302.10 뒤에도 그대로 미판정이다.
 - `distance: f64` 행(PARTIAL, 근거 §260)을 건드리지 않았다.
 
 ## §271 `detail/GreedyKCenters.hpp`와 `detail/NearestNeighbors.hpp`를 판정한다 — GNAT 거절이 두 파일을 함께 데려가고, 포트에 있는 GNAT는 이 둘의 포트가 아니다 (2026-08-06)
@@ -34341,9 +34346,10 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 - **§270.2의 42,259건.** 이 절의 모집단은 여전히 prbt 한 실행의 self 면
   389건이다. §270.2의 처분(389건이 그 안의 부분집합이라는 것)은 그대로이고,
   42,010건은 이 절 뒤에도 미판정이다.
-- **나머지 네 로봇.** panda·fanuc·dual_arm_panda는 링크가 전부 메시라
-  `WorldConvex`가 성립하지 않고, pr2는 성립하지만 걸지 않았다. 메시까지
-  덮으려면 지지함수를 볼록包 위에서 정의해야 하고, 이 절은 하지 않았다.
+- **나머지 네 로봇. 거짓 → 닫힘 (§302.10).** panda·fanuc·dual_arm_panda는
+  링크가 전부 메시라 `WorldConvex`가 성립하지 않고, pr2는 성립하지만
+  걸지 않았다. 메시까지 덮으려면 지지함수를 볼록包 위에서 정의해야 하고,
+  이 절은 하지 않았다.
 - **우세하지 않음 19건. 거짓 → 닫힘 (§302.8).** 괄호는 좁은데 양쪽이 비슷하게
   떨어져 있다. 두 solver가 같은 자리에서 같은 크기로 어긋난 경우일 수 있고,
   열어 보지 않았다.
@@ -34490,6 +34496,103 @@ clippy `-p moveit-collision --all-targets -- -D warnings` 0건,
 그 폭에도 못 미친다)만으로 충분했고, 그 메커니즘은 이 절 밖이다.
 §302.6의 나머지 둘 — §270.2의 42,010건, 나머지 네 로봇 — 은 이 절 뒤에도
 그대로 열려 있다.
+
+### §302.10 §302.6의 마지막 잔차 — 나머지 네 로봇에 실제로 걸었다, 넷 다 적용 불가로 확정됐다
+
+§302.6이 남긴 문장은 "panda·fanuc·dual_arm_panda는 링크가 전부 메시라
+`WorldConvex`가 성립하지 않고, pr2는 성립하지만 걸지 않았다"였다. 넷 다
+실제로 걸어 그 문장을 확정한다.
+
+**panda·fanuc·dual_arm_panda.** §15.2·§22.1이 이미
+`parry_representable_link_names`로 낸 결과(셋 다 `<collision>`이 전부
+STL `<mesh>`)를, 이번에는 그 계측기를 거치지 않고 URDF
+`<collision><geometry>`를 직접 다시 파싱해 재확인했다:
+
+```
+panda:          primitive 0  mesh 11  no-collision 1
+fanuc:          primitive 0  mesh  7  no-collision 2
+dual_arm_panda: primitive 0  mesh 22  no-collision 3
+```
+
+`box`/`cylinder`/`sphere` 태그가 셋 다 0건이다. `WorldConvex`는
+프리미티브 형상에서만 지지함수를 갖는다(§302.1)이므로, 이 셋은 "재지
+않았다"가 아니라 계측기의 정의역이 원천적으로 공집합이다 — 걸 대상
+자체가 없다.
+
+**pr2.** §13.4·§15.2가 이미 센 17개 프리미티브(박스 5·실린더 8·구 4)가
+있어 정의역이 비어 있지 않다. §302.7이 prbt에 쓴 것과 같은 플래그로
+pr2 전체를 다시 돌렸다:
+
+```
+sg docker -c 'target/release/moveit-diff \
+  --urdf fixtures/pr2.urdf --srdf fixtures/pr2.srdf \
+  --cases 10000 --seed 1 --collision --tol-distance 1e-4 \
+  --self-penetration-json pr2_self_penetration.json \
+  --oracle tools/moveit-oracle/run-oracle.sh'
+```
+
+**10,000행**을 냈다 — §260.2·§270의 pr2 관통 10,022/10,042(같은 실행,
+같은 모집단의 self 면)와 정합한다. §302.1의 계측기가 한 행을 판정하려면
+두 구현이 지목한 쌍(`oracle_pair`, `rust_pair`) **둘 다** 프리미티브
+링크로만 이루어져야 한다 — 닫힌 형태 지지함수가 박스·실린더·구에만
+있기 때문이다. 10,000행 전부를 그 조건으로 세면:
+
+| 조건 | 건수 |
+|---|---|
+| `oracle_pair` 두 링크 모두 프리미티브 | 0 |
+| `rust_pair` 두 링크 모두 프리미티브 | 0 |
+| 둘 다 프리미티브 (계측기가 판정 가능) | **0 / 10,000** |
+
+계측기가 실제로 판정할 수 있는 행이 **하나도 없다**. `rust_pair`
+자체가 사실상 9가지 조합으로 붕괴돼 있고(9종류의 합이 정확히
+10,000), 전부 프리미티브 하나(캐스터 휠 또는 `base_bellow_link`)와
+메시 하나(`base_link` 또는 `torso_lift_link`)의 짝이다:
+
+```
+6240  base_bellow_link / torso_lift_link
+ 580  base_link / fr_caster_r_wheel_link
+ 564  base_link / fr_caster_l_wheel_link
+ 533  base_link / bl_caster_l_wheel_link
+ 496  base_link / bl_caster_r_wheel_link
+ 416  base_link / br_caster_r_wheel_link
+ 415  base_link / br_caster_l_wheel_link
+ 398  base_link / fl_caster_r_wheel_link
+ 358  base_link / fl_caster_l_wheel_link
+```
+
+62.4%(6,240/10,000)를 차지하는 `base_bellow_link`/`torso_lift_link`는
+URDF에서 인접 쌍이 아니다 — 둘 다 `base_link`의 자식이고(`base_bellow_joint`,
+`torso_lift_joint`), 서로 부모-자식 관계가 아니다. 그런데도 이 픽스처의
+SRDF는 이 쌍을 비활성화하지 않는다. `fixtures/pr2.srdf`의
+`disable_collisions` 태그는 **딱 하나**(`r_shoulder_pan_link`/
+`r_shoulder_lift_link`)뿐이고, 바로 다음 줄이 문자 그대로
+`<!-- and many more disable_collisions tags -->`다. 이것이 이 저장소가
+잘라낸 결과인지 확인하려 벤더링된 원본과 diff했다:
+
+```
+$ diff third_party/moveit_resources/pr2_description/srdf/robot.xml fixtures/pr2.srdf
+(출력 없음 -- 바이트 단위로 동일)
+```
+
+두 파일이 바이트 단위로 같다 — 이 스텁은 moveit-rs가 잘라낸 것이 아니라
+벤더 패키지 `moveit_resources/pr2_description`이 원래 이렇게 배포한다.
+실물 PR2가 쓰는 전체 ACM(통상 링크 인접 쌍 전부와 "항상 겹침" 쌍을
+포함해 수백 항목)은 이 저장소 어디에도 없다. `base_bellow_link`/
+`torso_lift_link`가 스윕의 `rust` 쪽에서 항상 음수(겹침)로 나오는 것은
+벨로우즈가 토르소 리프트 기구를 감싸는 실제 형상과 들어맞고, 실물
+SRDF라면 `reason="Default"`류로 비활성화될 자리로 보이지만, 이 확인이
+실물 SRDF의 내용까지 안다고 주장하지는 않는다 — 확정하는 것은 "이
+픽스처의 ACM이 명백히 불완전하고, 그 불완전함이 pr2 self-penetration
+불일치 모집단의 62%를 차지한다"는 사실이다.
+
+**결론.** 넷 다 실제로 걸었다. panda·fanuc·dual_arm_panda는 정의역이
+공집합이라 걸 대상이 없고, pr2는 정의역이 있지만(17개 프리미티브)
+실제 self-penetration 불일치 10,000건 중 계측기가 판정 가능한 행이
+0건이다 — 셋은 프리미티브가 전무해서, pr2는 있어도 실제 불일치가 그
+프리미티브들 사이에서 나지 않아서(대신 벤더 SRDF 스텁이 놓친 프리미티브
+×메시 쌍에서 난다)다. §270.2의 42,010건은 이 절 뒤에도 그대로
+미판정이다 — 이 절이 확정한 것은 "왜 이 계측기로 그 42,010건에 닿을 수
+없는가"이지, 42,010건 자체의 판정이 아니다.
 
 
 ## §305 발표한 수의 증거가 트리에 있는가 — 계측기 20개를 네 부류로 갈랐고, 출판 80행 중 41행은 증거가 없다 (2026-08-07)
