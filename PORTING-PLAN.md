@@ -12671,9 +12671,10 @@ bounds 적용 **뒤에** "waypoints/durations_from_previous length mismatch"로 
 
 ### 157.5 남는 것
 
-- combined pass는 **한 가지 순서**(그룹 내 crate/stem 정렬)만 밟는다. 역순이나
-  임의 순열은 밟지 않는다. 누수가 남아 있어도 이 순서에서 관측되지 않으면 여전히
-  안 보인다.
+- **combined pass는 한 가지 순서(그룹 내 crate/stem 정렬)만 밟는다. 거짓 → 닫힘 (§310.3).**
+  `308064ee`가 이 절이 쓰인 날 세 시간 뒤 `combined`/`reversed` 두 순서를 다 밟도록 바꿨다 —
+  쓰인 시점엔 참이었으나 그 뒤 갱신되지 않은 드리프트였다. 그룹 크기 1의 사각지대와 n! 비전수
+  한계는 여전히 남아 §310.3에 적었다.
 - 그룹 크기 1(`totg_synthetic`)은 영원히 이 pass의 사각지대다. 같은 모델을 쓰는
   fixture가 하나 더 생기면 만료된다(§153.1).
 - committed fixture는 전부 자기 프로세스에서 캡처됐으므로 이번 누수에 오염되지
