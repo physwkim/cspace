@@ -39,6 +39,27 @@
 # are absent for a stated reason rather than unlisted, and the binary errors
 # rather than passing when handed one.
 #
+# one_robot is absent for the same shape of reason, not the same reason: it
+# HAS scored pairs (sphere x {box, cylinder} against its own box-shaped
+# links), but its six links are all the identical box half [0.5, 1.0, 0.5]
+# (fixtures/one_robot.urdf), so every control-arm sample this binary can draw
+# for it -- box x box and box x cylinder -- lands nowhere near the libccd/GJK
+# boundary the control arms exist to exercise. Measured at both the former
+# default (170 states/target, 858 control samples) and at 1200
+# (~7x, 5996 control samples): 0 disagree either way, where every other
+# robot here disagrees on 3-8% of its control samples at the default. That is
+# a property of this fixture's uniform box geometry, not a thin corpus --
+# more states does not buy the pair back its power, and `tangency_subset`'s
+# own `libccd_disagrees == 0` check refuses to certify a boolean the corpus
+# cannot separate (`tools/moveit-diff/src/bin/tangency_subset.rs`). Dropping
+# it here, rather than reporting it as a distinct non-fatal verdict per
+# robot, keeps that refusal a property of the fixture roster instead of a
+# string this script has to recognise in a comparison binary's stderr to
+# know it is not a real failure -- `oracle_stamp_verdict`'s own doc names
+# exactly that trap (`grep -n 'reworded error message' tools/ci/gate-lib.sh`).
+# If a future edit to fixtures/one_robot.urdf gives it varied link shapes,
+# re-add it and re-measure.
+#
 # Needs docker (through `sg`, per this repo's wrapper rule) and the
 # digest-gated oracle image. Without them it SKIPs loudly: a silent skip is
 # indistinguishable from a pass.
@@ -60,14 +81,18 @@
 # rather than single figures, because these are wall clocks on a shared
 # machine; the three totals happened to come out 90s, 90s and 90s, which is
 # the spread being small today and not a promise. The request counts are the
-# corpus's and do not move.
+# corpus's and do not move. one_robot's 5-6s (3060 req) row is subtracted
+# below, arithmetically, since dropping it from ROBOTS (see "Robots:" above)
+# was not re-measured as a fourth full run.
 #
-#     prbt       4-5s  (1200 req)   one_robot  5-6s  (3060 req)
-#     prbt_pg70 11-14s (2688 req)   pr2       67-68s (1632 req)
-#     ----------------------------------------------------------
-#     total     90s
+#     prbt       4-5s  (1200 req)
+#     prbt_pg70 11-14s (2688 req)
+#     pr2       67-68s (1632 req)
+#     ----------------------------
+#     total     ~84s
 #
-# pr2 is 74% of it on 19% of the requests -- the cost tracks the oracle's
+# pr2 is ~80% of it (arithmetic, from the row above) on ~30% of the
+# remaining requests (1632 of 1200+2688+1632=5520) -- the cost tracks the oracle's
 # per-request `PlanningScene` diff over a 95-link model, not the number of
 # samples kept. Do not infer a per-robot cost from sample count. This is the
 # same class of cost as `verify-oracle-sweep.sh` (113s), which `verify-all.sh`
@@ -92,10 +117,9 @@ BIN="$REPO_ROOT/target/release/tangency_subset"
 declare -A DEFAULT_STATES=(
   [prbt]=200
   [prbt_pg70]=128
-  [one_robot]=170
   [pr2]=32
 )
-ROBOTS=(prbt prbt_pg70 one_robot pr2)
+ROBOTS=(prbt prbt_pg70 pr2)
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "SKIP docker is not on PATH -- §5 Phase 3's collision clause is not measured by this run."
