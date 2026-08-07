@@ -676,8 +676,16 @@ cpp_medians() {
     jq -c --arg tag "$tag" \
       'select(.id != null) | {key: ($tag + "#" + (.id|tostring)), solved: (.solved == true), length}' \
       "$WORKDIR/$planner.$tag.ndjson" >>"$pc"
+    # `wall` is carried from the C++ side only, and only to answer one
+    # question: whether the clock the C++ arm was given is what stopped any of
+    # its calls. `stratum.slowest_seconds` already records the same for the
+    # port arm, so with `clock_bounds` above the record finally holds all four
+    # numbers a reader needs to tell a budget artifact from a port defect.
+    # Before this it held the port arm's bound and slowest call and neither of
+    # the C++ arm's, which is how a 6.0s-vs-3600s split published a FAIL.
     jq -c --arg tag "$tag" \
-      'select(.id != null) | {key: ($tag + "#" + (.id|tostring)), solved: (.solved == true), length}' \
+      'select(.id != null) | {key: ($tag + "#" + (.id|tostring)), solved: (.solved == true), length,
+                              wall: (.wall_secs? // null)}' \
       "$WORKDIR/$planner.$tag.cpp.ndjson" >>"$cc"
   done
   if [[ "$any" == "0" ]]; then
@@ -702,7 +710,9 @@ cpp_medians() {
       port_median_length: ([$pt[]|select(.solved)|.length]|median),
       paired_problems: ($both|length),
       cpp_paired_median: ([$cp[]|select(.solved and (.key as $k|$both|index($k)))|.length]|median),
-      port_paired_median: ([$pt[]|select(.solved and (.key as $k|$both|index($k)))|.length]|median)
+      port_paired_median: ([$pt[]|select(.solved and (.key as $k|$both|index($k)))|.length]|median),
+      cpp_slowest_seconds: ([$cp[]|.wall|select(. != null)]|if length==0 then null else max end),
+      cpp_wall_secs_recorded: ([$cp[]|.wall|select(. != null)]|length)
     }'
 }
 
