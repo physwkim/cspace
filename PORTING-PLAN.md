@@ -37897,3 +37897,18 @@ $ rg -n "일부러 어려운 씨앗" PORTING-PLAN.md
 출발하므로) — 난이도 등급이나 그래디언트를 만들지 않는다. rg 결과의 세
 히트 전부 이 불릿 자신과 그 재인용이고, 난이도로 씨앗을 고르거나 사건율을
 난이도별로 쪼갠 계측은 어디에도 없다. **판정: 참, OPEN 유지.**
+
+### §325.2 §286.11 B — "fanuc과 나머지 세 로봇"(30840)은 여전히 panda_arm뿐이다
+
+불릿 원문: "fanuc과 나머지 세 로봇. 이 절의 모든 수는 panda_arm이다."
+
+**Falsifier.** phase8 벤치마크 게이트가 로드하는 URDF/SRDF가 panda 고정인지.
+
+```
+$ rg -n "URDF=|SRDF=" tools/ci/verify-phase8-benchmark.sh
+115:URDF="$REPO_ROOT/fixtures/panda.urdf"
+116:SRDF="$REPO_ROOT/fixtures/panda.srdf"
+```
+
+다른 로봇(fanuc, prbt, ur5, panda_two_finger 등) 경로 분기가 없다. **판정:
+참, OPEN 유지.**
