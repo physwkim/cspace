@@ -23176,9 +23176,11 @@ PHASE9 verdict=NO_VALID_TRAJECTORY
   부재였다. §257.4가 `ros/moveit-ros/src/bin/move_group.rs`에
   `node.subscribe::<r2r::moveit_msgs::msg::PlanningScene>`로 구독을 지었고,
   오늘 트리에서도 그 줄이 그대로 있다(§320.1).
-- **`/plan_kinematic_path`의 `PLANNING_FAILED`.** §250.3이 적은 파리티
-  결함. 소스 한 줄과 `ros/verify-ros-interop.sh`의 `grep -q "val=-1"`
-  한 줄을 같이 고쳐야 하고, 후자가 펜스 밖이다.
+- **`/plan_kinematic_path`의 `PLANNING_FAILED`. 거짓 → 닫힘 (§320.2).**
+  §250.3이 적은 파리티 결함. 소스 한 줄과 `ros/verify-ros-interop.sh`의
+  `grep -q "val=-1"` 한 줄을 같이 고쳐야 하고, 후자가 펜스 밖이었다.
+  §255.1이 이미 둘 다 고쳤다 — §254.6의 사본은 그때 정식 마커로 닫혔지만
+  이 사본은 반영되지 않은 채로 남아 있었다(§320.2).
 - **`/move_action`에는 회귀 게이트가 없다.** §241이 `/plan_kinematic_path`에
   붙인 `run "live"` 단계와 같은 모양의 `ros2 action send_goal` 한 단계를
   `ros/verify-ros-interop.sh`에 더하면 되지만, 그 파일이 펜스 밖이다.
@@ -30971,7 +30973,7 @@ undeclared-unresolvable **0건**으로 통과한다.
 - `oracle-request-pilz-blend-geometry.md:654`의 `` `5777`-`5778` `` →
   `` `oracle.cpp:6804-6805` ``
 
-일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27920`는
+일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27922`는
 `$ rg ...` 실행 결과를 코드 펜스 안에 그대로 옮긴 것이고, 그 실행은 실제로
 5688을 찍었다. 전사를 고치면 기록이 아니라 위조가 된다. (이 인용은 쓰인
 커밋 `580f1995` 당시 `!PORTING-PLAN.md:27486`이었고, 그 뒤 두 번 밀렸다.
@@ -35598,7 +35600,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
 `oracle.cpp:5688` 전사 줄이다. §287.7의 문장이 "그 실행은 실제로 5688을
 찍었다"고 말하는 것과 정확히 맞고, 그 문장이 이 인용을 고치면 위조가 된다고
 한 이유이기도 하다 — 5688은 살아 있는 `oracle.cpp` 인용이 아니라 실행
-출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27920`에 있다(§271.3
+출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27922`에 있다(§271.3
 안, 펜스 27720–27726).
 
 §299.7은 이것을 `$ rg -l -w 'NearestNeighbors' .` 출력으로 읽고 27499(+13)로
@@ -35618,7 +35620,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
   자리가 남는다.
 
 그래서 번호만 고치지 않고 **검사 가능한 형태로 바꿨다**: §287.7의 문장이
-이제 `§271.3의 PORTING-PLAN.md:27920`로 절을 이름 댄다. 다음에 §271.3의
+이제 `§271.3의 PORTING-PLAN.md:27922`로 절을 이름 댄다. 다음에 §271.3의
 내용이 밀리면 인용이 절 범위 밖으로 나가고, 그때는 게이트가 말한다. 손으로
 고친 번호는 다시 밀린다 — 이 인용은 이미 두 번 밀렸다. 남길 것은 번호가
 아니라 그것을 붙잡는 규칙이다.
@@ -36185,7 +36187,7 @@ panda 250 + fanuc 250(구성당 125문제 × 넷), §304는 panda 500(floor_wall
 
 `!PORTING-PLAN.md:27602`를 p12-tangency는 27603으로, p10-phase13은
 27609로 밀었다. 병합된 트리에서는 **어느 쪽도 맞지 않는다** — 실제 값은
-`PORTING-PLAN.md:27920`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
+`PORTING-PLAN.md:27922`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
 꽂았고 `check-citation-drift.py`가 blank-line 3건으로 잡았다. 여덟 개를
 게이트가 찍은 citer 위치와 대상 재독으로 다시 유도했다.
 
@@ -36942,5 +36944,32 @@ ros/moveit-ros/src/bin/move_group.rs:701:    let scene_updates = match node.subs
 OK scene-topic: /planning_scene reached the node over DDS, and /check_state_validity
 OK scene-topic: answered True/False/False/True across an empty world, a full scene, a diff, and a full scene
 ```
+
+falsifier 성립 — 거짓, §250.6의 사본을 닫는다.
+
+### §320.2 §250.6 "`/plan_kinematic_path`의 `PLANNING_FAILED`" — §255.1이 이미 고쳤다
+
+불릿: "`/plan_kinematic_path`의 `PLANNING_FAILED`. §250.3이 적은 파리티
+결함. 소스 한 줄과 `ros/verify-ros-interop.sh`의 `grep -q "val=-1"` 한
+줄을 같이 고쳐야 하고, 후자가 펜스 밖이다." falsifier:
+`ros/moveit-ros/src/bin/move_group.rs`가 실패를 `PLANNING_FAILED`가
+아니라 `FAILURE`로 낸다면, 그리고 게이트가 그 값을 실제로 확인한다면
+거짓.
+
+`rg -n 'PLANNING_FAILED' ros/moveit-ros/src/bin/move_group.rs`는 주석
+두 줄(168-169행, 이 파리티 결함의 역사를 적은 모듈 doc)만 남기고 코드
+방출은 0건이다. `rg -n 'MoveItErrorCodes::FAILURE' ros/moveit-ros/src/
+bin/move_group.rs`는 두 실제 방출 지점을 낸다(318행, 326행).
+
+`sg docker -c ./ros/verify-ros-interop.sh`의 라이브 출력(오늘 재실행,
+§320.1과 같은 실행)에서 `/plan_kinematic_path`의 실패 응답:
+
+```
+error_code=moveit_msgs.msg.MoveItErrorCodes(val=99999, message="planning failed: planner 'rrt_connect' failed: unknown joint model group ''", source='moveit-ros/plan_kinematic_path')
+```
+
+`val=99999`는 `FAILURE`고, `PLANNING_FAILED`(-1)가 아니다. §255.1이
+소스와 게이트를 같이 고친 것을 §254.6의 사본은 정식 마커로 닫았지만,
+§250.6의 사본은 §255 도입 이후로도 마커 없이 남아 있었다.
 
 falsifier 성립 — 거짓, §250.6의 사본을 닫는다.
