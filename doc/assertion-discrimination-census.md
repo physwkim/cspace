@@ -467,7 +467,7 @@ section, so the pointer resolves to nothing. D6 itself is real and defined
 and it is cited throughout `ros/moveit-ros/src/`. It is a rule about not
 absorbing failure into a silent default: `moveit_msgs` is wider than the
 core types, so conversion is `TryFrom` and rejects rather than defaults.
-`PORTING-PLAN.md:15520` §199.2 draws its operative boundary — an
+`PORTING-PLAN.md:15521` §199.2 draws its operative boundary — an
 unresolvable lookup stays `Err` (D6), a wire default upstream itself gives
 meaning to follows upstream (D14). Neither reading licenses collapsing two
 error sites that share a variant, and neither mentions pilz. So the row was

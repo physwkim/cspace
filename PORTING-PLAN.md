@@ -23686,7 +23686,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
   달라는 요청 문서다. 그 교체는 이미 되어 있다(이 절을 쓴
   `oracle.cpp@3241bbab:2484`와 `oracle.cpp@3241bbab:2488`). 번호만
   갈아끼우면 끝난 변경을 미결로 서술하게 된다.
-- **인용된 코드 자체가 사라진 것.** `PORTING-PLAN.md:17643`이 인용하는
+- **인용된 코드 자체가 사라진 것.** `PORTING-PLAN.md:17644`이 인용하는
   `ik_rng_{ 42 }`는 더는 없다. 이 절을 쓴 리비전에서는
   `ik_rng_(ik_rng_seed)`(`oracle.cpp@3241bbab:858-859`)에 기본값 42이고 CLI
   오버라이드(`oracle.cpp@3241bbab:6571`, `oracle.cpp@3241bbab:6584`)가 붙었다.
@@ -23723,9 +23723,9 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 | `PORTING-PLAN.md:11391` | `:4752` | 손: `c0838b4^`에서 `{ "planning_time_s", elapsed },`. `c0838b4`가 그 필드를 지웠으므로 오늘 대응하는 줄이 없다 |
 | `PORTING-PLAN.md:11391` | `:5135` | 손: `c0838b4^`에서 `res.planning_time`. 같은 커밋이 지웠고 남은 것은 주석 `oracle.cpp@3241bbab:6166`뿐 |
 | `PORTING-PLAN.md:11777` | `:2016` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 (수정으로 삭제) |
-| `PORTING-PLAN.md:17643` | `:6065` | 손: `ik_rng_{ 42 }` 자체가 사라졌다 — `oracle.cpp@3241bbab:858-859`가 `ik_rng_(ik_rng_seed)`, 멤버 선언은 `oracle.cpp@3241bbab:6547` |
+| `PORTING-PLAN.md:17644` | `:6065` | 손: `ik_rng_{ 42 }` 자체가 사라졌다 — `oracle.cpp@3241bbab:858-859`가 `ik_rng_(ik_rng_seed)`, 멤버 선언은 `oracle.cpp@3241bbab:6547` |
 | `PORTING-PLAN.md:17732` | `:1772` | `2015` |
-| `PORTING-PLAN.md:19498` | `:2191` | `2417` |
+| `PORTING-PLAN.md:19499` | `:2191` | `2417` |
 | `PORTING-PLAN.md:20264` | `:1537` | `1546` |
 | `PORTING-PLAN.md:21397` | `:1547` | `1549` |
 | `PORTING-PLAN.md:21398` | `:2235` | `2306` |
@@ -30737,7 +30737,7 @@ bounds-only 54건을 게이트 자신의 사유로 나누면: 이름이 앞 60�
 | --- | --- | --- | --- |
 | `oracle-request-pilz-blend-geometry.md:650` | `6734-6756` | `6791-6813` | `static json serializePilzWaypoints(const robot_traject...` |
 | `oracle-request-pilz-blend-geometry.md:654` | `6747-6748` | `6804-6805` | `velocities[variable] = waypoint.getVariableVelocity(va...` |
-| `PORTING-PLAN.md:17687` | `7035-7040` | `7092-7097` | `else if (arg == "--ik-rng-seed" && i + 1 < argc)` |
+| `PORTING-PLAN.md:17688` | `7035-7040` | `7092-7097` | `else if (arg == "--ik-rng-seed" && i + 1 < argc)` |
 | §287.5(`--ik-rng-seed`) | `7035-7040` | `7092-7097` | 같음 |
 | §287.7(pilz 재지정) | `6747-6748` | `6804-6805` | 같음 |
 
@@ -31630,7 +31630,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27018`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27021`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -33081,7 +33081,7 @@ sphere x {sphere, box, cylinder}에 ACM 허용 쌍 하나로 모집단을 **제�
   게이트는 짓지 않았다 — 그쪽은 p12-plannerparams가 task #37로 짓고 있으며,
   같은 계열의 나머지(shipped sbp 소스 안의 `// PORTING-PLAN.md:1152:` 주석
   셋과 `tools/ci/verify-upstream-citations.sh`가 고정 SHA의 출처로 드는
-  `PORTING-PLAN.md:12828-12830`)도 그쪽이 가져갔다. 이 절은 계열의 한
+  `PORTING-PLAN.md:12829-12831`)도 그쪽이 가져갔다. 이 절은 계열의 한
   표본이지 전부가 아니다.
 
 ### §297.6 fcl 인용 24건은 면제로 선언돼 있고, 그 면제가 드는 근거 두 줄은 드리프트했다
@@ -35007,8 +35007,8 @@ unresolvable이다.
 
 | 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30579` | `PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
-| `PORTING-PLAN.md:31630` | `PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
+| `PORTING-PLAN.md:30582` | `PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
+| `PORTING-PLAN.md:31630` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
 | `doc/claim-audit/upstream-bugs.md:37` | `PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
 
 세 건 다 baseline에 findings로 선언돼 있고 passing 등급으로 얼려지지
@@ -35690,8 +35690,8 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30579` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21733-21734` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
-| `PORTING-PLAN.md:31630` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27018` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `PORTING-PLAN.md:30582` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21733-21734` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
+| `PORTING-PLAN.md:31630` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27021` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
 `section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도

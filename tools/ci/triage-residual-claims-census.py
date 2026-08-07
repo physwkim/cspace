@@ -16,7 +16,7 @@ wrong in two directions the census's single rule cannot distinguish:
       will ever legitimately land on `moveit_setup_assistant` (§4.7).
   (c) some OPEN bullets are already false in substance, just spelled with a
       closure word the census's marker regex does not recognize. §291.5
-      (PORTING-PLAN.md:31563-31565) found and named this exact gap: seven
+      (PORTING-PLAN.md:31566-31568) found and named this exact gap: seven
       residual items it rewrote that round picked seven different
       spellings (`닫혔다(§269)`, `절반 닫혔다(§286.9)`, ...), and
       `check-closure-citations.sh` deliberately declined to widen its own
