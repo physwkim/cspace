@@ -37176,7 +37176,7 @@ falsifier 불발 — OPEN.
 `geometric_shapes`는 이 워크스페이스 git 저장소 밖(`third_party/`,
 gitignore됨)이라 이 worktree에는 없지만 이 기계의 형제 체크아웃에
 있다: `/home/stevek/work/moveit-rs/third_party/geometric_shapes`,
-`shapes.rs:5-25`가 이미 핀으로 박아 둔 바로 그 버전(태그 `2.3.3`, 커밋
+`crates/moveit-geometry/src/shapes.rs:5-25`가 이미 핀으로 박아 둔 바로 그 버전(태그 `2.3.3`, 커밋
 `192801cebacc07d0e9f719576cdd1c9b36d0bc28`). `src/shapes.cpp`를 열어
 `scaleAndPadd` 전 도형을 읽었다:
 
