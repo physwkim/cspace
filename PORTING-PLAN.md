@@ -25971,7 +25971,10 @@ CHOMP/STOMP 행에서 이미 쓰이고 있다), `PARTIAL`만 아직 한 번도 �
 ### §262.5 이 절이 하지 않은 것
 
 - `crates/moveit-collision/src/parry.rs`를 고치지 않았다. §262.1의
-  실험은 되돌렸고(git diff 없음), 그 실험이 만든 관찰만 여기 남는다.
+  실험은 되돌렸고(git diff 없음), 그 실험이 만든 관찰만 여기 남는다. 오늘의 HEAD는
+  `tie_scale`/`touches_at_tie`를 도입해 `accumulate_collision`/`accumulate_distance`
+  본문을 바꿨다 — `contact.dist >= 0.0` 게이트 자체는 재도입되지 않았지만(그 세부는
+  참), "고치지 않았다"는 결론은 거짓이다. **거짓 → 닫힘 (§330.2).**
 - `tools/ci/check-phase-status.sh`/`check-porting-plan-sections.sh`의
   어휘나 placeholder 메커니즘을 고치지 않았다 — 둘 다 이미 있는 것을
   썼다. 거짓 → 닫힘 (§314).
