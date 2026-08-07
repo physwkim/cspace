@@ -523,10 +523,13 @@ pub fn solve<'m>(
     // the same raw fields [`GoalJointConstraint`] carries -- see that
     // type's doc comment for why the raw form, not a pre-resolved
     // `KinematicConstraintSet`, is what this function accepts. Upstream's
-    // `!jc.configure(constraint)` half of its `||` is already covered by
-    // `JointConstraint::new`'s own `?` below: an invalid constraint is a
-    // typed `Err` before `decide` is ever reached, not a boolean to check
-    // afterward.
+    // `!jc.configure(constraint) || !jc.decide(last_state).satisfied`
+    // converges *both* halves to the same `GOAL_CONSTRAINTS_VIOLATED` code
+    // (`chomp_planner.cpp:294-299`) -- a plain `?` on `JointConstraint::new`
+    // would instead let the construct half escape as whatever typed
+    // `moveit_error::Error` variant construction failed with (e.g.
+    // `Error::Construct` for a negative tolerance), so it is mapped
+    // explicitly here instead.
     let last_state = result.last_way_point_mut()?;
     let posed = last_state.update();
     for gjc in &request.goal_constraints[0].joint_constraints {
@@ -537,7 +540,8 @@ pub fn solve<'m>(
             gjc.tolerance_above,
             gjc.tolerance_below,
             gjc.weight,
-        )?;
+        )
+        .map_err(|_| Error::Code(MoveItErrorCode::GoalConstraintsViolated))?;
         if !jc.decide(&posed).satisfied {
             return Err(Error::Code(MoveItErrorCode::GoalConstraintsViolated));
         }
@@ -962,6 +966,51 @@ mod tests {
         let last = solution.trajectory.last_way_point().unwrap();
         assert_relative_eq!(last.variable_position("j1").unwrap(), 0.5, epsilon = 1e-12);
         assert_relative_eq!(last.variable_position("j2").unwrap(), 1.0, epsilon = 1e-12);
+    }
+
+    /// Upstream's `!jc.configure(constraint)` half of the goal-tolerance
+    /// `||` (`chomp_planner.cpp:292-302`): a malformed goal joint
+    /// constraint (here, a negative tolerance) must fail with the *same*
+    /// `GoalConstraintsViolated` code as a satisfied-tolerance check that
+    /// simply fails, not with `JointConstraint::new`'s own construction
+    /// error -- upstream converges both halves of that `||` to one error
+    /// code, and never reaches `decide()` for the failing half either way.
+    #[test]
+    fn solve_reports_goal_constraints_violated_for_a_malformed_goal_tolerance() {
+        let model = two_joint_chain_model();
+        let start_state = RobotState::new(&model);
+        let params = ChompParameters {
+            max_iterations: 5,
+            ..ChompParameters::default()
+        };
+        let mut cache = collision_cache(&model);
+        let field = empty_env_field();
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(7);
+        let mut malformed_j1_goal = joint_goal("j1", 0.5);
+        // `JointConstraint::new` rejects a negative tolerance outright --
+        // this plan otherwise succeeds (same fixture as
+        // `solve_succeeds_with_no_obstacles_and_produces_a_101_point_trajectory`),
+        // so the only way to reach `Err` here is through the goal-tolerance
+        // loop's construction step, not a genuinely unsatisfied tolerance.
+        malformed_j1_goal.tolerance_above = -0.01;
+        let goal = ChompGoal {
+            joint_constraints: vec![malformed_j1_goal, joint_goal("j2", 1.0)],
+        };
+        let request = ChompRequest {
+            start_state: &start_state,
+            group_name: GROUP,
+            goal_constraints: std::slice::from_ref(&goal),
+            params: &params,
+            seed_trajectory: None,
+        };
+
+        let result = solve(&request, &mut collision, None, &mut |_, _| false, &mut rng);
+
+        assert_code(&result, MoveItErrorCode::GoalConstraintsViolated);
     }
 
     /// Item 3 (this round): upstream's `chomp_moveit_test_rrbot.cpp`
