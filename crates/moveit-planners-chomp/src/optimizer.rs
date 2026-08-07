@@ -1129,13 +1129,18 @@ fn resolve_collision_point_joint_index(
 ///   check and the `!filter_mode_` collision-threshold check) are kept as
 ///   two separate, unconditionally-evaluated `if` blocks, not collapsed
 ///   into `if / else if`.** Both can fire in the same pass
-///   (`chomp_optimizer.cpp:367-410`): if the first increments `iteration_`
-///   and sets `num_collision_free_iterations_ = 0`, the second can
-///   still fire afterward, incrementing `iteration_` a second time in one
-///   loop pass and overwriting `num_collision_free_iterations_` with
-///   `max_iterations_after_collision_free_`. This looks like it could be
-///   an upstream bug, but the brief for this port is to transcribe the
-///   numerics as written, not to "fix" behavior no test here contradicts.
+///   (`chomp_optimizer.cpp:367-410`): if the first sets
+///   `num_collision_free_iterations_ = 0`, the second can still fire
+///   afterward and silently overwrite it with
+///   `max_iterations_after_collision_free_`, discarding the mesh check's
+///   immediate-break signal in favor of the threshold branch's grace
+///   period (pinned by
+///   `optimize_collision_threshold_silently_discards_mesh_to_meshs_immediate_break_signal`).
+///   That overwrite is a distinct upstream bug this port still reproduces.
+///   These same two `if` blocks used to also each call
+///   `iteration_++`/`self.iteration += 1` independently, which could
+///   double- or triple-advance the pass counter in one loop pass -- that
+///   part is fixed, not reproduced; see `optimize`'s own doc comment.
 /// - **Dead/write-only upstream fields are not ported at all**, verified
 ///   via `rg` across the whole `chomp_motion_planner` package, not just
 ///   `chomp_optimizer.cpp`: `group_trajectory_backup_` (read only inside
@@ -1785,44 +1790,43 @@ impl<'m> ChompOptimizer<'m> {
     /// replaces, and for why its two `should_break_out` conditions are kept
     /// as two independent `if` blocks rather than collapsed.
     ///
-    /// # Deviation (transcribed, not fixed): `self.iteration` can advance by
-    /// 2 in a single pass
+    /// # Deviation: `self.iteration` advances by exactly one pass, never two
     ///
     /// Upstream's `for (iteration_ = 0; iteration_ < max_iterations_;
     /// ++iteration_)` (`chomp_optimizer.cpp:303`) increments `iteration_`
-    /// unconditionally at the end of every pass, on top of the two
-    /// branch-local `iteration_++;` at `:376` (the mesh check) and `:412`
-    /// (the collision-threshold check) that each also fire when their
-    /// condition is met. `should_break_out`'s gate (`:477-486`,
-    /// `if (should_break_out) { collision_free_iteration_++; if
-    /// (num_collision_free_iterations_ == 0) break; else if
-    /// (collision_free_iteration_ > num_collision_free_iterations_) break;
-    /// }`) does not `break` on every pass where `should_break_out` was set --
+    /// unconditionally at the end of every pass, *on top of* a branch-local
+    /// `iteration_++;` at `:376` (the mesh check) and another at `:412` (the
+    /// collision-threshold check) that each also fire when their own
+    /// condition is met. Upstream's `should_break_out` gate (`:477-486`)
+    /// does not `break` on every pass where `should_break_out` was set --
     /// only once the grace period (`num_collision_free_iterations_`, from
-    /// `parameters_->max_iterations_after_collision_free_`) is exhausted.
-    /// When it doesn't break, control falls through to the `for` loop's own
-    /// `++iteration_` -- so that pass advances `iteration_` by 2, not 1. The
-    /// mesh-check branch forecloses this on its own (it hardcodes
-    /// `num_collision_free_iterations_ = 0`, which always breaks
-    /// immediately), but the collision-threshold branch sets
-    /// `num_collision_free_iterations_` to the configured grace period,
-    /// which is `5` by default (`ChompParameters::default`) -- so with
-    /// default parameters, the very first pass where `c_cost` drops below
-    /// `collision_threshold_` is exactly such a pass, transcribed here as
-    /// `self.iteration += 1` inside the `if !self.parameters.filter_mode &&
-    /// c_cost < self.parameters.collision_threshold` block (below) plus the
-    /// unconditional `self.iteration += 1` at this loop's end. This is
-    /// reachable on ordinary inputs, not a corner case requiring a crafted
-    /// fixture -- see
-    /// `optimize_reaches_iteration_two_after_one_pass_via_the_double_increment`
-    /// in this module's tests, which pins it with `max_iterations: 1` and
-    /// otherwise-default parameters: exactly one real optimization pass
-    /// runs, and `self.iteration` ends at `2`, not `1`. Left as upstream
-    /// wrote it (`PORTING-PLAN.md`: transcribe the numerics, don't rewrite
-    /// them into something cleaner) -- this changes how many grace-period
-    /// passes actually execute before `num_collision_free_iterations_` is
-    /// exhausted (each such pass consumes 2 of `max_iterations_`'s budget
-    /// instead of 1), not whether the loop terminates or what it returns.
+    /// `parameters_->max_iterations_after_collision_free_`) is exhausted --
+    /// so a pass that trips the collision-threshold branch (the common
+    /// case: its grace period defaults to `5`, not `0`) falls through to
+    /// the `for` loop's own `++iteration_` on top of its own branch-local
+    /// one, advancing `iteration_` by 2 for that single executed pass; both
+    /// branches firing on the same pass advances it by 3. Reachable on
+    /// ordinary inputs, not a corner case requiring a crafted fixture.
+    ///
+    /// This port no longer reproduces it. It was `doc/upstream-bugs.md`'s
+    /// `chomp-iteration-double-increment` (`reproduced-grandfathered`
+    /// pending a fresh decision, per that entry's own text) before that
+    /// file was deleted; `GOALS.md` records every Phase condition met as of
+    /// 2026-08-06, moving this project from "transcribe the numerics" to
+    /// fixing code defects against upstream, and this is one such fix. The
+    /// two branch-local increments below are gone; the unconditional
+    /// increment at this loop's end is now `self.iteration`'s only writer,
+    /// so every executed pass advances it by exactly one step, matching how
+    /// [`ChompLoopTrace::evaluations`] (which was never affected by this
+    /// bug) already counts passes. This does not change whether the loop
+    /// terminates or what it returns -- `is_collision_free`/
+    /// `best_group_trajectory` never read `self.iteration`'s absolute
+    /// value -- only: (a) how many optimization passes run before
+    /// `max_iterations` is exhausted, since a grace-period pass no longer
+    /// consumes 2-3 units of that budget for one executed pass; (b) which
+    /// iteration index the every-10th-pass mesh recheck
+    /// (`self.iteration % 10 == 0`) lands on during a grace period, since
+    /// it no longer drifts off a clean multiple of 10.
     pub fn optimize(
         &mut self,
         full_trajectory: &mut ChompTrajectory,
@@ -1936,7 +1940,6 @@ impl<'m> ChompOptimizer<'m> {
             {
                 self.num_collision_free_iterations = 0;
                 self.is_collision_free = true;
-                self.iteration += 1;
                 should_break_out = true;
                 mesh_free_passes += 1;
             }
@@ -1945,7 +1948,6 @@ impl<'m> ChompOptimizer<'m> {
                 self.num_collision_free_iterations =
                     self.parameters.max_iterations_after_collision_free as u32;
                 self.is_collision_free = true;
-                self.iteration += 1;
                 should_break_out = true;
                 below_threshold_passes += 1;
             }
@@ -2693,8 +2695,10 @@ mod tests {
 
         assert!(result, "an empty env field never puts a point in collision");
         assert_eq!(
-            optimizer.iteration, 1,
-            "num_collision_free_iterations == 0 must break out on the very first should_break_out pass"
+            optimizer.iteration, 0,
+            "num_collision_free_iterations == 0 must break out on the very first should_break_out \
+             pass, and self.iteration's only writer is the loop's own unconditional per-pass \
+             increment, which a break skips -- exactly like a for-loop's control variable at break"
         );
         assert!(optimizer.iteration < parameters.max_iterations);
     }
@@ -2768,23 +2772,27 @@ mod tests {
         );
         assert_eq!(
             run(measured_c_cost + f64::EPSILON.max(1e-12)),
-            1,
-            "a threshold strictly above the measured c_cost must break out on the first pass"
+            0,
+            "a threshold strictly above the measured c_cost must break out on the first pass, and \
+             a zero grace period means that break is immediate -- self.iteration's only writer, \
+             the loop's own unconditional per-pass increment, never runs"
         );
     }
 
-    /// Pins `optimize`'s doc comment's "`self.iteration` can advance by 2 in
-    /// a single pass" deviation note. Unlike
+    /// Pins `optimize`'s doc comment's "`self.iteration` advances by exactly
+    /// one pass, never two" deviation note. Unlike
     /// `optimize_collision_threshold_break_is_a_strict_less_than` (which
     /// forces `max_iterations_after_collision_free: 0` to get an immediate
     /// break), this uses `ChompParameters::default`'s own grace period
     /// (`5`), so `num_collision_free_iterations` is non-zero when the
     /// collision-threshold branch trips -- `collision_free_iteration`
-    /// reaches only `1`, `1 > 5` is false, and the loop does not break: the
-    /// branch-local `self.iteration += 1` and the loop's own unconditional
-    /// `self.iteration += 1` both apply on this one pass.
+    /// reaches only `1`, `1 > 5` is false, and the loop does not break.
+    /// Upstream advances `iteration_` by 2 on exactly this pass (its own
+    /// branch-local `iteration_++` plus the `for` loop's unconditional
+    /// step); this port's `self.iteration` has exactly one writer left --
+    /// the loop's own unconditional step -- so it advances by 1.
     #[test]
-    fn optimize_reaches_iteration_two_after_one_pass_via_the_double_increment() {
+    fn optimize_iteration_advances_by_one_pass_when_the_threshold_branch_fires_without_breaking() {
         let model = chomp_collision_model();
         let source = chomp_full_trajectory(&model, 10);
         let start_state = RobotState::new(&model);
@@ -2801,9 +2809,9 @@ mod tests {
         };
         assert!(
             !parameters.filter_mode && parameters.max_iterations_after_collision_free > 0,
-            "the double increment needs the threshold branch reachable (filter_mode off) \
-             and its grace period non-zero (or the threshold branch's should_break_out \
-             breaks immediately instead of falling through to the loop's own increment)"
+            "this pins the threshold branch firing without breaking, which needs the branch \
+             reachable (filter_mode off) and its grace period non-zero -- a zero grace period \
+             breaks immediately instead of falling through to the loop's own increment"
         );
         let mut optimizer = ChompOptimizer::new(
             &source,
@@ -2821,12 +2829,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            optimizer.iteration, 2,
+            optimizer.iteration, 1,
             "an empty env field's c_cost (0.0) is below the default collision_threshold \
              (0.07) from the first pass, so the threshold branch's should_break_out fires \
              on iteration 0 without breaking (grace period 5 > collision_free_iteration 1) -- \
-             the pass's branch-local increment plus the loop's own unconditional increment \
-             put self.iteration at 2 after exactly one real optimization pass, not 1"
+             the loop's own unconditional increment is self.iteration's only writer, putting it \
+             at 1 after exactly one real optimization pass, not 2"
         );
     }
 
@@ -3062,14 +3070,14 @@ mod tests {
         );
     }
 
-    /// Item 1 family sweep (this round): `num_collision_free_iterations`
-    /// has the same two independent, non-`else` write sites as
-    /// `self.iteration` (`chomp_optimizer.cpp:373`/`410`, mesh-to-mesh and
-    /// collision-threshold respectively) -- but unlike `self.iteration`
-    /// (where both sites always agree: `+= 1`), these two sites write
-    /// *different* values (`0` vs `parameters.max_iterations_after_collision_free`),
-    /// so whichever site runs last on a pass where both fire wins outright,
-    /// silently discarding the other. This control test isolates the
+    /// `num_collision_free_iterations` has two independent, non-`else`
+    /// write sites (`chomp_optimizer.cpp:373`/`410`, mesh-to-mesh and
+    /// collision-threshold respectively) that write *different* values
+    /// (`0` vs `parameters.max_iterations_after_collision_free`), so
+    /// whichever site runs last on a pass where both fire wins outright,
+    /// silently discarding the other -- still reproduced, see
+    /// `optimize_collision_threshold_silently_discards_mesh_to_meshs_immediate_break_signal`
+    /// below. This control test isolates the
     /// mesh-to-mesh site alone (`filter_mode: true` disables the
     /// collision-threshold site per `chomp_optimizer.cpp:406`'s
     /// `if (!parameters_->filter_mode_)` guard, matching the existing
@@ -3113,10 +3121,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            optimizer.iteration, 1,
+            optimizer.iteration, 0,
             "mesh-to-mesh alone sets num_collision_free_iterations = 0 on iteration 0, and \
              filter_mode disables the only other writer, so the very next should_break_out \
-             check (num_collision_free_iterations == 0) must break immediately"
+             check (num_collision_free_iterations == 0) must break immediately -- \
+             self.iteration's only writer is the loop's own increment, which a break skips"
         );
     }
 
@@ -3337,13 +3346,13 @@ mod tests {
     /// such passes, one more than
     /// `parameters.max_iterations_after_collision_free`.
     ///
-    /// A collapsed double-increment (this file's `optimize_reaches_iteration_two_after_one_pass_via_the_double_increment`)
-    /// is silent because the loop still terminates, just one pass later.
-    /// This is the same shape: `is_collision_free` ends up `true` either
-    /// way (both sites agree), so `optimize`'s caller-visible return value
-    /// is unaffected -- only the *termination point*, and the number of
-    /// wasted optimization passes after the optimizer already found a
-    /// mesh-to-mesh-safe trajectory, silently changes.
+    /// Silent the same way `self.iteration`'s former double-increment was
+    /// (see `optimize`'s doc comment; that one is fixed, this one is not):
+    /// `is_collision_free` ends up `true` either way (both sites agree), so
+    /// `optimize`'s caller-visible return value is unaffected -- only the
+    /// *termination point*, and the number of wasted optimization passes
+    /// after the optimizer already found a mesh-to-mesh-safe trajectory,
+    /// silently changes.
     #[test]
     fn optimize_collision_threshold_silently_discards_mesh_to_meshs_immediate_break_signal() {
         let model = chomp_collision_model();
