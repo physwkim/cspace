@@ -981,9 +981,9 @@
 //!   [`DistanceField::uninitialized_distance`].
 //! - `getDistanceGradient` — ported as the default trait method
 //!   [`DistanceField::distance_gradient`]; see that method's own doc for the
-//!   `inv_twice_resolution_` truncation bug (round 26: reproduced
-//!   bit-for-bit via an `as i32` cast rather than left to silently diverge
-//!   at resolutions where it is not a no-op), and
+//!   `inv_twice_resolution_` truncation bug (fixed here, not reproduced —
+//!   upstream's multiplier is `0` from `resolution >= 0.51`, zeroing the
+//!   gradient outright), and
 //!   [`PosedDistanceField::get_collision_sphere_gradients`]'s "Decision" doc
 //!   section for the downstream consequence of this method's
 //!   zero-on-out-of-bounds behaviour.
@@ -1006,12 +1006,12 @@
 //!   trait.
 //! - field `inv_twice_resolution_` (mistyped `int`, silently truncating) —
 //!   unported as a *stored* field (this port recomputes it from
-//!   `resolution()` each call instead of caching it), but its truncation is
-//!   ported: see [`DistanceField::distance_gradient`]'s own doc for the
-//!   round-26 fix that casts the recomputed value through `i32` to
-//!   reproduce upstream's narrowing bug bit-for-bit rather than only
-//!   matching it by coincidence at the two resolutions this crate's own
-//!   fixtures happen to use.
+//!   `resolution()` each call instead of caching it), and its truncation is
+//!   **not** reproduced: see [`DistanceField::distance_gradient`]'s own doc.
+//!   The two multipliers agree at every resolution used anywhere in this
+//!   workspace, so no oracle comparison here distinguishes them; they part
+//!   at any resolution where `1.0/(2.0*resolution)` is not an exact
+//!   integer, and from `resolution >= 0.51` upstream's is `0`.
 //!
 //! ## `propagation_distance_field.hpp`
 //!
