@@ -27137,6 +27137,8 @@ DDS 위에서 실제로 잰 것(`sg docker -c ./tools/ci/verify-ros-interop.sh`,
 - **chomp/stomp/pilz는 `PlannerManager`가 아니다.** §266.2에서 distinct로
   분류한 부재다. 셋 다 자유 함수 입구를 갖고 어느 레지스트리에도 없으므로
   `pipeline_id`로 고를 수 없다. 이름 충돌 결함이 아니라 별도의 이식 작업이다.
+  OPEN → 만료 조건 (chomp/stomp/pilz 중 하나라도
+  `#[distributed_slice(PLANNER_MANAGERS)]`로 등록되면).
 - **`DEFAULT_PIPELINE_ID`가 소스에 박혀 있다.** 상류의 빈 `pipeline_id`
   분기는 `move_group`이 실행된 설정값을 돌려준다. 이 포트에는 읽을 설정이
   없고 `PLANNER_MANAGERS`는 의도적으로 순서가 없으므로(§177) "첫 등록"도
