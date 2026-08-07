@@ -9048,9 +9048,13 @@ B의 "x만 떨어지고 y·z는 6개를 유지한다"는 포트 테스트의 주
 
 ### 102.3 남은 것
 
-- **이 op으로 fixture를 캡처하는 것은 아직 안 했다.** 소유자가
-  p3-distance-field이고 라운드 17에서 세 사례의 입력을 확정해 오기로
-  돼 있다. op이 먼저 들어갔으니 사례는 코드가 아니라 데이터로 붙는다.
+- **이 op으로 fixture를 캡처하는 것은 아직 안 했다. 거짓 → 닫힘 (§318.2).**
+  `d529de80`(test(distance-field): capture the octree_points oracle
+  fixture)가 `tests/fixtures/octree_points_request.json`/`_response.json`을
+  커밋해 세 경계 사례 전부를 실제 `moveit2` C++ 오라클과 비트 단위로
+  대조했다.
+  `octree_points_matches_the_oracle_for_all_three_pinned_boundary_cases`가
+  오늘 1/1 통과.
 
 ## 103. p3-shapes 라운드 16 머지 — 158줄 감사와 돌지 않는 명령 두 개
 
