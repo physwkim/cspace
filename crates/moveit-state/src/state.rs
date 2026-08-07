@@ -615,6 +615,55 @@ impl<'m> RobotState<'m> {
         self.has_effort = true;
     }
 
+    /// `setVariableEffort(const std::map<std::string, double>&)`. Named
+    /// `_efforts_` (matching [`RobotState::set_variable_efforts`]) to stay
+    /// distinct from the per-variable
+    /// [`RobotState::set_variable_effort`]/[`RobotState::set_variable_effort_at`],
+    /// the same reason [`RobotState::set_variable_efforts`]'s own doc
+    /// comment gives.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any key is not a variable in this model.
+    /// See [`RobotState::set_variable_velocities_by_name`]'s doc comment for
+    /// the error-partway-through-the-map behavior this matches.
+    pub fn set_variable_efforts_by_name(&mut self, values: &HashMap<String, f64>) -> Result<()> {
+        for (name, &value) in values {
+            self.set_variable_effort(name, value)?;
+        }
+        Ok(())
+    }
+
+    /// `setVariableEffort(const std::map<std::string, double>&,
+    /// std::vector<std::string>&)`: as
+    /// [`RobotState::set_variable_efforts_by_name`], plus every model
+    /// variable absent from `values` (see [`RobotState::missing_keys`]).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any key is not a variable in this model.
+    pub fn set_variable_efforts_by_name_and_missing(
+        &mut self,
+        values: &HashMap<String, f64>,
+    ) -> Result<Vec<String>> {
+        self.set_variable_efforts_by_name(values)?;
+        Ok(self.missing_keys(values))
+    }
+
+    /// `setVariableEffort(const std::vector<std::string>&, const
+    /// std::vector<double>&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any name is not a variable in this model.
+    pub fn set_variable_efforts_named(&mut self, names: &[&str], values: &[f64]) -> Result<()> {
+        debug_assert_eq!(names.len(), values.len());
+        for (&name, &value) in names.iter().zip(values) {
+            self.set_variable_effort(name, value)?;
+        }
+        Ok(())
+    }
+
     /// `getJointVelocities`: a joint's own variable slice of
     /// [`RobotState::velocities`]. Empty for a fixed joint (see
     /// [`RobotState::joint_position`] for why an empty slice is the

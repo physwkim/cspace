@@ -133,6 +133,89 @@ fn missing_keys_is_empty_when_every_non_mimic_variable_is_present() {
     assert!(state.missing_keys(&values).is_empty());
 }
 
+// ---- setVariableVelocities/Accelerations/Effort: map and named forms ---
+
+#[test]
+fn set_variable_velocities_by_name_and_missing_reports_the_active_gap() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    let mut values = full_variable_map(&model, 1.5);
+    values.remove("panda_joint3");
+
+    let missing = state
+        .set_variable_velocities_by_name_and_missing(&values)
+        .unwrap();
+
+    assert_eq!(missing, vec!["panda_joint3".to_string()]);
+    assert!(state.has_velocities());
+    assert_relative_eq!(state.variable_velocity("panda_joint1").unwrap(), 1.5);
+}
+
+#[test]
+fn set_variable_velocities_named_errors_on_unknown_name() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    assert!(
+        state
+            .set_variable_velocities_named(&["no_such_variable"], &[1.0])
+            .is_err()
+    );
+}
+
+#[test]
+fn set_variable_accelerations_by_name_and_missing_reports_the_active_gap() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    let mut values = full_variable_map(&model, 2.5);
+    values.remove("panda_joint4");
+
+    let missing = state
+        .set_variable_accelerations_by_name_and_missing(&values)
+        .unwrap();
+
+    assert_eq!(missing, vec!["panda_joint4".to_string()]);
+    assert!(state.has_accelerations());
+    assert_relative_eq!(state.variable_acceleration("panda_joint1").unwrap(), 2.5);
+}
+
+#[test]
+fn set_variable_accelerations_named_errors_on_unknown_name() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    assert!(
+        state
+            .set_variable_accelerations_named(&["no_such_variable"], &[1.0])
+            .is_err()
+    );
+}
+
+#[test]
+fn set_variable_efforts_by_name_and_missing_reports_the_active_gap() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    let mut values = full_variable_map(&model, 3.5);
+    values.remove("panda_joint5");
+
+    let missing = state
+        .set_variable_efforts_by_name_and_missing(&values)
+        .unwrap();
+
+    assert_eq!(missing, vec!["panda_joint5".to_string()]);
+    assert!(state.has_effort());
+    assert_relative_eq!(state.variable_effort("panda_joint1").unwrap(), 3.5);
+}
+
+#[test]
+fn set_variable_efforts_named_errors_on_unknown_name() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    assert!(
+        state
+            .set_variable_efforts_named(&["no_such_variable"], &[1.0])
+            .is_err()
+    );
+}
+
 // ---- setToRandomPositionsNearBy -----------------------------------------
 
 #[test]
