@@ -27726,6 +27726,7 @@ Phase 3 `collision: bool` 행은 UNMET 그대로이고 근거 열도 §251.4 그
   self-penetration 불일치 population이 그 정의역과 겹치지 않는다. 이
   항목의 42,010건 자체는 §302.10 뒤에도 그대로 미판정이다.
 - `distance: f64` 행(PARTIAL, 근거 §260)을 건드리지 않았다.
+  거짓 → 닫힘 (§270.4).
 
 ### §270.3 §270.2의 첫째 잔차 — 시드를 바꿔 다시 돌렸다, 판정에 관련된 10셀이 시드 1과 시드 7에서 같다
 
@@ -27758,6 +27759,43 @@ PHASE3_SWEEP=1 sg docker -c 'tools/ci/verify-phase3-collision-sweep.sh 1000 7'
 자세 분포가 달라 분리 쪽으로 떨어지는 케이스 비율이 조금 다르기
 때문이지, 판정 조건이 좁아진 게 아니다. wall clock 등 성능 수치는
 비교 대상이 아니다.
+
+### §270.4 §270.2의 셋째 잔차 — distance: f64 행의 PARTIAL 근거 둘을 병합 트리에서 다시 돌렸다, 둘 다 그대로 선다
+
+PARTIAL 판정은 두 사실에 기댄다 — pr2의 분리 쪽 잔차(§260.2 표의
+`6.056201e-7`)는 닫힌 형태로 오라클 쪽 오차임이 확인되고(§260.3),
+prbt의 잔차(`8.892585e-5`)는 기준(fcl) 자신이 그만큼(`4.4e-4`) 흔들려
+포트 탓으로 돌릴 수 없다(§260.4). §270 자신의 표가 이미 이 두 값이
+병합 뒤에도 마지막 자리까지 같다는 것을 냈으므로("§260.2 표와 25셀이
+전부 같다"), 남은 것은 그 두 값을 지지하는 두 계측기 자체가 병합
+트리에서도 여전히 서는지다. 둘 다 다시 돌렸다.
+
+pr2 닫힌 형태(커밋된 시험, 오라클도 도커도 안 씀):
+
+```
+$ cargo nextest run -p moveit-collision --release -- pr2_caster_wheel_floor_clearance_matches_the_closed_form
+PASS [0.447s] moveit-collision::collision_parity pr2_caster_wheel_floor_clearance_matches_the_closed_form
+```
+
+prbt 기준 흔들림(§298이 다시 세운 프로브, digest-gated):
+
+```
+$ sg docker -c 'tools/ci/verify-fcl-distance-tolerance.sh'
+|default - tight| : max 2.051960e-04 (pose 1934), >1e-6 424, >1e-5 41, >1e-4 6
+|tight   - indep| : max 6.060727e-10 (pose 1902), 338567x under the drift above
+OK fcl's own answer moves up to 2.051960e-04 on tolerance alone (>= 1e-05)
+OK while its two tightened solvers agree to 6.060727e-10 (<= 3e-09, 338567x under)
+```
+
+두 결과 다 §298이 박은 핀(`2.051960e-4`, `6.060727e-10`, `3.385667e5`)과
+정확히 같다 — 병합 여덟 건도, §270의 재실행도 이 두 계측기의 답을
+움직이지 않았다. pr2의 잔차는 여전히 오라클의 것이고, prbt의 잔차는
+여전히 기준 자체가 그 자릿수를 판정하지 못한다. `distance: f64` 행의
+PARTIAL 근거 둘 다 병합 트리에서 다시 서는 것을 실제로 확인했다.
+
+이 절이 재지 않은 것: PARTIAL을 FULL로 바꾸지 않았다 — prbt의
+`8.9e-5` 자체를 포트 오차 0으로 좁히는 새 증거는 내지 않았고, §260.4가
+이미 적은 "기준이 이 자릿수를 판정할 수 없다"는 더 약한 주장 그대로다.
 
 ## §271 `detail/GreedyKCenters.hpp`와 `detail/NearestNeighbors.hpp`를 판정한다 — GNAT 거절이 두 파일을 함께 데려가고, 포트에 있는 GNAT는 이 둘의 포트가 아니다 (2026-08-06)
 
@@ -35430,7 +35468,7 @@ unresolvable이다.
 | 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
 |---|---|---|---|
 | `PORTING-PLAN.md:30579` | `PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
-| `PORTING-PLAN.md:31820` | `PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
+| `PORTING-PLAN.md:31858` | `PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
 | `doc/claim-audit/upstream-bugs.md:37` | `PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
 
 세 건 다 baseline에 findings로 선언돼 있고 passing 등급으로 얼려지지
@@ -36113,7 +36151,7 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
 | `PORTING-PLAN.md:30579` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21645-21646` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
-| `PORTING-PLAN.md:31820` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:26919` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:26919` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
 `section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도
