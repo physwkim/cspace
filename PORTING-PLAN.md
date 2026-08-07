@@ -4234,8 +4234,9 @@ tests/utils_parity.rs`에 `resolve_constraint_frame_boundary` 모듈(6
   한계(§23.3-1)는 이 함수와 무관이다.** `resolveConstraintFrames`는
   위치/방향 제약만 다루고, 상류 자신도 조인트 제약을 건드리지 않는다.
   오늘 재확인: `resolve_position_constraint_frame`/
-  `resolve_orientation_constraint_frame`(`utils.rs:690`)은 `Constraint::Joint`를
-  전혀 참조하지 않고, `update_joint_constraints`(`utils.rs:322`)는 오늘도
+  `resolve_orientation_constraint_frame`(`crates/moveit-constraints/src/utils.rs:690`)은
+  `Constraint::Joint`를 전혀 참조하지 않고,
+  `update_joint_constraints`(`crates/moveit-constraints/src/utils.rs:322`)는 오늘도
   `local_variable_name` 접미사를 벗기지 않는 상류의 문자열 비교를 그대로
   재현한다고 자기 doc에 적혀 있다 — 두 함수는 여전히 분리돼 있다. **OPEN →
   만료 조건 (미래 라운드가 `resolveConstraintFrames` 포트와
@@ -18730,7 +18731,7 @@ seed·훅의 쓰기·채택된 해의 쓰기가 공통으로 인덱싱하는 유
   대조 6,392케이스, 후자는 `RobotState`에 대응 메서드 자체가 없어
   비교할 대상이 없음), 통합은 순수 리팩터라 이 라운드가 추측성으로
   만들지 않는다. **OPEN → 만료 조건 (`interpolate_into`/`distance`
-  (`robot_trajectory.rs:585`,`:613`)가 `RobotState::interpolate`/
+  (`crates/moveit-trajectory/src/robot_trajectory.rs:585`,`:613`)가 `RobotState::interpolate`/
   `distance`의 진짜 메서드로 위임하도록 바뀌는 시점 — `distance` 쪽은
   `RobotState`에 그 메서드 자체가 먼저 생겨야 한다, §327.14).**
 
