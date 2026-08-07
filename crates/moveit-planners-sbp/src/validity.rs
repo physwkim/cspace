@@ -65,7 +65,7 @@ pub struct DiscreteMotionValidator<'c, S, C> {
 ///
 /// Shared between [`DiscreteMotionValidator::new`]'s panic (a direct
 /// construction is a programming error, per [`crate::error`]'s module doc)
-/// and [`crate::registry::RrtConnectManager::get_planning_context`]'s
+/// and [`RrtConnectManager::get_planning_context`](moveit_planning::PlannerManager::get_planning_context)'s
 /// `Result`-returning check of the same field reached through the
 /// [`moveit_planning::PlannerManager`] trait boundary instead, where a
 /// caller-supplied value must not be able to panic.

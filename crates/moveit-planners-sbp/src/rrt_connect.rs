@@ -104,7 +104,7 @@ impl RrtConnectParams {
     /// different ways: [`Self::assert_valid`] panics with `reason` for a
     /// direct construction (a programming error, per this module's own doc
     /// comment), and
-    /// [`crate::registry::RrtConnectManager::get_planning_context`] turns
+    /// [`RrtConnectManager::get_planning_context`](moveit_planning::PlannerManager::get_planning_context) turns
     /// `reason` into `Err(SbpError::InvalidPlannerConfiguration(reason))`
     /// for the same fields reached through the
     /// [`moveit_planning::PlannerManager`] trait boundary instead, where a

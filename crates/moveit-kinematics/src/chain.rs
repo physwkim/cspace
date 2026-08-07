@@ -337,7 +337,7 @@ impl ChainInfo {
     /// parameter-server load step to reject it at that point, so the check
     /// has to live here, at the one place every [`SolverParams::joint_weights`]
     /// entry is actually consumed. A weight of `0.0` is not a milder version
-    /// of a small positive one: [`crate::solve_velocity`]'s weighted
+    /// of a small positive one: [`crate::velocity::solve_velocity`]'s weighted
     /// least-squares fold multiplies a joint's Jacobian column by its weight
     /// and divides the result by that same weight on the way out, so `0.0`
     /// zeroes the column outright and locks the joint at its seed value on
