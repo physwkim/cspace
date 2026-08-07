@@ -34974,6 +34974,8 @@ SRDF라면 `reason="Default"`류로 비활성화될 자리로 보이지만, 이 
 | `measure-phase8-optimizer-properties.sh` | 295.9 | 없음 | 자동 | 변이 m1-m4 넷의 통과/실패 결과는 이 pilot 실행들의 실측이다. 넷 다 편집으로 되돌려 소스에는 남지 않는다 — 커밋된 것은 없다 |
 | `measure-phase8-optimizer-properties.sh` | 309.3 | 없음 | 자동 | 수를 싣지 않는다 — 병합 후 붉어진 9건의 목록에 이름으로만 나온다. 그 절이 이 이름을 줄바꿈해 적었고, 그래서 이 행은 랩을 견디게 고친 뒤에야 요구됐다 |
 | `measure-phase8-optimizer-properties.sh` | 309.2 | 없음 | 자동 | 수를 싣지 않는다 — 재지정 한 쌍(`!tools/ci/measure-phase8-optimizer-properties.sh:810` → `tools/ci/measure-phase8-optimizer-properties.sh:1036`)의 대상 파일로만 이름이 나온다. 축약형을 전체 경로로 바꾸면서 이 절도 계측기를 이름 대게 됐다 |
+| `measure-phase8-optimizer-properties.sh` | 324.6 | 없음 | 자동 | 수를 싣지 않는다 — falsifier가 계기를 돌리지 않고 `PINS_ALL.full`이 아직 `null`인지 스크립트 본문만 `rg`로 읽는다. 근거는 실행 산출물이 아니라 커밋된 소스 줄이다 |
+| `measure-phase8-optimizer-properties.sh` | 325.7 | 없음 | 자동 | 같은 형태 — `SEED_BASE` 값을 `tools/ci/*.sh` 본문에서 뽑아 세 번째 씨앗 베이스가 없음을 보인다. 계기를 돌리지 않으므로 산출물이 없다 |
 | `count-coarse-assertions.py` | 307.1 | `tools/ci/count-coarse-assertions.py` | 자동 | `MACROS` 튜플과 `classify()`의 `eq_none`/`eq_err` 분기가 지금도 `assert_ne`를 잡는다 — 이 절이 정정하는 전제 자체가 이 계기의 지금 소스로 확인된다. 수를 싣지 않는다 |
 | `count-coarse-assertions.py` | 307.2 | `tools/ci/count-coarse-assertions.py` | 자동 | 재실행이 이 부류의 증거이나 코퍼스가 `count-narrowing-sweep.sh`처럼 고정 상류 체크아웃이 아니라 이 저장소 자신의 살아 있는 `crates/`·`ros/`·`tools/`다. 이 커밋에서 재실행하면 기본 모드 4800(1187 kept·3613 dropped), `CCA_LEGACY_KINDS_ONLY=1` 모드 4763(852 kept·3911 dropped)이라, 이 절이 실은 4708/1098/3610과 4708/800/3908 어느 쪽도 다시 나오지 않는다 — 이 절 이후 병합된 커밋들이 매크로 호출을 늘렸다 |
 | `count-coarse-assertions.py` | 307.6 | `tools/ci/count-coarse-assertions.py` | 자동 | 이 절의 `dropped = 3610 = 195(abs_tol) + 3415(other)`을 이 커밋에서 재현하면 `3613 = 195 + 3418`이다 — `abs_tol`은 정확히 재현되고 `other`만 어긋난다. §307.2와 같은 원인(코퍼스가 고정 상류 체크아웃이 아니라 이 저장소 자체라 이 절 이후의 병합이 수를 움직인다) |
@@ -34999,10 +35001,10 @@ SRDF라면 `reason="Default"`류로 비활성화될 자리로 보이지만, 이 
 | `measure-requirement-closure.py` | 252.3 | `tools/ci/measure-requirement-closure.py` | 자동 | `R-CLIENT` 여덟 |
 | `measure-requirement-closure.py` | 252.5 | `tools/ci/measure-requirement-closure.py` | 자동 | 계기별 앵커와 사각 표 |
 
-80행 중 `자동` 38 · `수동` 42이고, 커밋된 증거를 가리키는 것은 **39행**,
-`없음`이 **41행**이다. 증거를 가진 39행 중 12행은
+89행 중 `자동` 47 · `수동` 42이고, 커밋된 증거를 가리키는 것은 **42행**,
+`없음`이 **47행**이다. 증거를 가진 42행 중 12행은
 `doc/phase8-condition2-stomp/`, 4행은 `doc/phase8-seedbase-stomp/`, 3행은 둘
-다이고, 20행은 계측기 자신이다(`트리에서 재실행` 부류).
+다이고, 23행은 계측기 자신이다(`트리에서 재실행` 부류).
 
 이 표는 세 번 틀렸다가 고쳐졌다. 하나는 **병합** 때문이다 — `없음`이던 7행이
 이 절을 쓴 날 들어온 증거를 가리키게 됐고, 그 7행은 아래 §305.3이 적는다.
