@@ -60,10 +60,9 @@ if [[ ${#TESTS[@]} -eq 0 ]]; then
 fi
 
 if [[ ! -d "$RESOURCE_DIR" ]]; then
-  echo "SKIP $RESOURCE_DIR not present -- ${#TESTS[@]} vendored-fixture test(s) not run:"
+  echo "SKIP (blocked) $RESOURCE_DIR not present -- ${#TESTS[@]} vendored-fixture test(s) not run:"
   printf '  %s\n' "${TESTS[@]}"
-  echo "SKIP this is not a pass; fetch the resource to cover them."
-  exit 0
+  skip_not_measured blocked "this is not a pass; fetch the resource to cover them."
 fi
 
 filter=""

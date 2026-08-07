@@ -29,9 +29,13 @@
 #   sg docker -c ./tools/ci/verify-all.sh
 #
 # Every script runs even after one fails; the failures are reported
-# together at the end. A `SKIP` line inside a script is that script's own
-# business -- it is not a failure here, and each such script prints its own
-# loud "this is not a pass" note.
+# together at the end. A gate that could not run its measurement (docker
+# absent, the oracle image unstamped, an opt-in env var left off, ...) exits
+# `$NOT_MEASURED` (see `gate-lib.sh`'s `skip_not_measured`), not 0 -- so it is
+# counted separately below, not folded into "passed". It used to exit 0 like
+# a real pass, which is exactly what let `OK all $ran verify script(s)
+# passed` be true while one of them had, by its own printed SKIP lines,
+# measured nothing.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -61,12 +65,20 @@ for script in "${scripts[@]}"; do
 done
 
 failed=()
+not_measured=()
+passed=0
 ran=0
 for script in "${scripts[@]}"; do
   [[ "$(basename "$script")" == "$self" ]] && continue
   ran=$((ran + 1))
   echo "=== $script"
-  if ! "$script"; then
+  "$script"
+  rc=$?
+  if [[ "$rc" -eq 0 ]]; then
+    passed=$((passed + 1))
+  elif [[ "$rc" -eq "$NOT_MEASURED" ]]; then
+    not_measured+=("$script")
+  else
     failed+=("$script")
   fi
 done
@@ -77,9 +89,14 @@ if [[ $ran -eq 0 ]]; then
 fi
 
 echo
+if [[ ${#not_measured[@]} -gt 0 ]]; then
+  echo "${#not_measured[@]} of $ran verify script(s) did not measure anything this run" \
+    "(see their own SKIP lines above) -- not counted as passed:"
+  printf '  %s\n' "${not_measured[@]}"
+fi
 if [[ ${#failed[@]} -gt 0 ]]; then
   echo "FAIL ${#failed[@]} of $ran verify script(s) failed:" >&2
   printf '  %s\n' "${failed[@]}" >&2
   exit 1
 fi
-echo "OK all $ran verify script(s) passed"
+echo "OK $passed of $ran verify script(s) passed, ${#not_measured[@]} not measured"

@@ -16,7 +16,7 @@ use moveit_collision::{
 };
 use moveit_constraints::KinematicConstraintSet;
 use moveit_error::{Error, Result};
-use moveit_geometry::{Isometry3, Shape, Transforms};
+use moveit_geometry::{Isometry3, OcTree, Shape, Transforms};
 use moveit_model::RobotModel;
 use moveit_srdf::SrdfModel;
 use moveit_state::{Posed, RobotState};
@@ -257,7 +257,7 @@ pub struct ObjectType {
 /// - `DEFAULT_SCENE_NAME` — **not D1** either: `initialize()`
 ///   (`planning_scene.cpp:190`) sets `name_ = DEFAULT_SCENE_NAME` for every
 ///   root-scene constructor, unconditionally. Reproduced as the private
-///   [`DEFAULT_SCENE_NAME`] constant, used by
+///   `DEFAULT_SCENE_NAME` constant, used by
 ///   [`PlanningScene::with_world`] and [`PlanningScene::diff`].
 ///
 /// Both bullets read "D1 (octomap/message-round-trip naming constants,
@@ -486,10 +486,17 @@ pub struct ObjectType {
 /// - `processPlanningSceneWorldMsg` — D1 (`moveit_msgs::msg::PlanningSceneWorld`).
 /// - `processOctomapMsg` (2 overloads) — D1
 ///   (`octomap_msgs::msg::OctomapWithPose`, `octomap_msgs::msg::Octomap`).
-/// - `processOctomapPtr` — D1-adjacent: takes a raw `octomap::OcTree`
-///   pointer rather than a message directly, but exists solely to serve the
-///   octomap message-processing path above; no octomap handling exists
-///   anywhere in this port.
+/// - `processOctomapPtr` — **not D1**: an earlier round of this doc filed
+///   it "D1-adjacent" as existing solely to serve the octomap
+///   message-processing path above, without checking that claim. Its own
+///   signature (`std::shared_ptr<const octomap::OcTree>` +
+///   `Eigen::Isometry3d`) carries no message type at all, and upstream's
+///   one real caller (`planning_scene_monitor.cpp:1441`, searched with `rg
+///   processOctomapPtr` across the whole `moveit2` tree) feeds it straight
+///   from `OccupancyMapMonitor::getOcTreePtr()` — an octree built from live
+///   sensor fusion via octomap's own C++ API, with no
+///   `octomap_msgs::msg::Octomap`/`OctomapWithPose` ever constructed. This
+///   round found and ported it — see [`PlanningScene::process_octomap_ptr`].
 ///
 /// ## World-change callbacks
 ///
@@ -818,6 +825,50 @@ pub struct PlanningScene<'m> {
     /// (`std::optional<ObjectTypeMap>`); same always-present-map
     /// representation as `object_colors`, for the same reason.
     object_types: BTreeMap<String, ObjectType>,
+    /// Whether [`PlanningScene::attached_bodies`] has been locally mutated
+    /// since [`PlanningScene::diff`] (or [`PlanningScene::clear_diffs`])
+    /// time. `Some` only for a diff (child) scene, mirroring
+    /// [`PlanningScene::world_diff`]; `None` for a root scene, where the
+    /// question does not apply.
+    ///
+    /// Upstream has no matching field — attached bodies live on
+    /// `RobotState` there, so `pushDiffs`' `robot_state_.has_value()` guard
+    /// (`planning_scene.cpp:344-357`) already answers this for free, as a
+    /// side effect of whatever first materialized `robot_state_`. This
+    /// port moved attached bodies onto [`PlanningScene`] itself (see
+    /// [`AttachedBody`]'s module doc), which decoupled that free ride, so
+    /// [`PlanningScene::attach`]/[`PlanningScene::attach_new`]/
+    /// [`PlanningScene::detach`] record the transition explicitly, at the
+    /// moment it happens, via [`PlanningScene::mark_attached_bodies_touched`].
+    ///
+    /// Deliberately *not* a `BTreeSet<String>` snapshot compared against
+    /// the current [`PlanningScene::attached_bodies`] at push time: a
+    /// snapshot comparison cannot tell "never touched" apart from
+    /// "touched, then undone" — an id attached and detached again within
+    /// one diff nets back to exactly its starting value, and a
+    /// before/after diff sees no change where upstream's sticky
+    /// `has_value()` would still force a push. Recording the transition
+    /// when it happens, instead of inferring it afterward from two
+    /// snapshots that can agree by coincidence, is what closes that gap;
+    /// see [`PlanningScene::push_diffs`]'s doc for the push side.
+    attached_bodies_diff: Option<AttachedBodiesDiff>,
+}
+
+/// [`PlanningScene::attached_bodies_diff`]'s two states. See that field's
+/// doc for why this exists instead of a before/after snapshot comparison.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AttachedBodiesDiff {
+    /// Still exactly the value inherited at diff/clear_diffs time.
+    /// [`PlanningScene::push_diffs`] does nothing for attached bodies.
+    Untouched,
+    /// [`PlanningScene::attach`], [`PlanningScene::attach_new`], or
+    /// [`PlanningScene::detach`] has been called at least once since.
+    /// Sticky — does not revert to [`AttachedBodiesDiff::Untouched`] even
+    /// if a later call happens to net back to the original set, matching
+    /// upstream's `robot_state_.has_value()` granularity: attached bodies
+    /// live inside `RobotState` there, so pushing it is all-or-nothing,
+    /// not a per-id diff.
+    Touched,
 }
 
 /// The default name given to a root scene. Upstream
@@ -865,6 +916,7 @@ impl<'m> PlanningScene<'m> {
             object_colors: BTreeMap::new(),
             original_object_colors: BTreeMap::new(),
             object_types: BTreeMap::new(),
+            attached_bodies_diff: None,
         }
     }
 
@@ -1127,6 +1179,17 @@ impl<'m> PlanningScene<'m> {
         }
     }
 
+    /// Record that [`PlanningScene::attached_bodies`] was just mutated.
+    /// A no-op on a root scene (`attached_bodies_diff` is `None` there).
+    /// See the `attached_bodies_diff` field's own doc for why this is
+    /// recorded here, at the moment of mutation, instead of inferred later
+    /// by comparing snapshots.
+    fn mark_attached_bodies_touched(&mut self) {
+        if self.attached_bodies_diff.is_some() {
+            self.attached_bodies_diff = Some(AttachedBodiesDiff::Touched);
+        }
+    }
+
     /// Add a single shape as a new (or augmented) world object. Upstream
     /// `World::addToObject`, reached through the scene so the change is
     /// tracked.
@@ -1194,6 +1257,56 @@ impl<'m> PlanningScene<'m> {
         for id in &ids {
             acm.remove_entries_for(id);
         }
+    }
+
+    /// Insert or update the reserved octomap object directly from an
+    /// octree, bypassing any octomap message entirely. Upstream
+    /// `processOctomapPtr` (`planning_scene.cpp:1501-1534`) — see that
+    /// method's own doc bullet above ("Message round-tripping") for why
+    /// this is message-free despite living next to `processOctomapMsg`.
+    ///
+    /// Three cases, matching upstream's pointer-identity check exactly
+    /// (upstream compares the wrapped `octomap::OcTree` raw pointer with
+    /// `==`; [`OcTree`]'s own [`PartialEq`] is the same `Arc`-identity
+    /// comparison):
+    /// - No octomap object yet, or its stored tree is a different `OcTree`:
+    ///   replace it wholesale (remove, then re-add as a single shape).
+    /// - Same tree, and `pose` matches the stored pose within upstream's
+    ///   own `std::numeric_limits<double>::epsilon() * 100.0` tolerance:
+    ///   a true no-op — nothing is re-mutated, unlike calling
+    ///   [`PlanningScene::move_shapes_in_object`] with an unchanged pose,
+    ///   which would still touch the object.
+    /// - Same tree, different pose: move the existing shape in place
+    ///   (upstream `World::moveShapeInObject`).
+    ///
+    /// Upstream additionally forces a `world_diff_` entry
+    /// (`DESTROY|CREATE|ADD_SHAPE`) on the no-op branch, so a diff scene
+    /// still reports the octomap as touched even though nothing observably
+    /// changed. `world_diff.rs` is out of this round's scope, so that one
+    /// bookkeeping detail is not reproduced here; every other branch's
+    /// diff tracking already flows through the normal private `track`
+    /// funnel via `self.world`'s own mutators.
+    pub fn process_octomap_ptr(&mut self, octree: OcTree, pose: Isometry3) {
+        const ISAPPROX_PRECISION: f64 = f64::EPSILON * 100.0;
+
+        if let Some(object) = self.world.get_object(Self::OCTOMAP_NS) {
+            if let [entry] = object.shapes() {
+                if let Shape::OcTree(existing) = entry.shape().as_ref() {
+                    if *existing == octree {
+                        if !isometry_is_approx(entry.pose(), pose, ISAPPROX_PRECISION) {
+                            let shape = Arc::clone(entry.shape());
+                            let notification =
+                                self.world
+                                    .move_shape_in_object(Self::OCTOMAP_NS, &shape, pose);
+                            self.track(notification);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+        self.remove_object(Self::OCTOMAP_NS);
+        self.add_shape(Self::OCTOMAP_NS, Arc::new(Shape::OcTree(octree)), pose);
     }
 
     /// Replace the poses of an existing object's shapes, leaving the
@@ -1467,6 +1580,7 @@ impl<'m> PlanningScene<'m> {
                 subframes,
             ),
         );
+        self.mark_attached_bodies_touched();
         Ok(())
     }
 
@@ -1515,6 +1629,7 @@ impl<'m> PlanningScene<'m> {
                 subframes,
             ),
         );
+        self.mark_attached_bodies_touched();
         Ok(())
     }
 
@@ -1546,6 +1661,7 @@ impl<'m> PlanningScene<'m> {
             .attached_bodies
             .remove(id)
             .expect("just confirmed present above");
+        self.mark_attached_bodies_touched();
         let notification =
             self.world
                 .add_to_object(id, link_transform, body.shapes(), body.shape_poses());
@@ -2256,6 +2372,7 @@ impl<'m> PlanningScene<'m> {
             object_colors: BTreeMap::new(),
             original_object_colors: BTreeMap::new(),
             object_types: BTreeMap::new(),
+            attached_bodies_diff: Some(AttachedBodiesDiff::Untouched),
         }
     }
 
@@ -2269,9 +2386,20 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// If this scene has a parent, apply what changed here — the
-    /// extra-fixed-frame map, current state, ACM, object colors/types, and
-    /// world changes — onto `target`. A no-op if this scene has no parent.
-    /// Upstream `pushDiffs` (`planning_scene.cpp:329-386`).
+    /// extra-fixed-frame map, current state, ACM, object colors/types,
+    /// attached bodies, and world changes — onto `target`. A no-op if this
+    /// scene has no parent. Upstream `pushDiffs` (`planning_scene.cpp:329-386`).
+    ///
+    /// If the private `attached_bodies_diff` is `Touched`, `target`'s entire
+    /// attached-body set is overwritten with this scene's — matching
+    /// upstream's granularity exactly: attached bodies live inside
+    /// `RobotState` there, so pushing `robot_state_`
+    /// (`planning_scene.cpp:348`, only if locally materialized) already
+    /// replaces the whole thing at once, not a per-id merge. If `Untouched`
+    /// (or this is a root scene, `None`), `target`'s attached bodies are
+    /// left alone — see that field's own doc for why the distinction is
+    /// recorded at mutation time rather than inferred here from a
+    /// before/after comparison.
     ///
     /// The world-change replay preserves the one ACM subtlety upstream is
     /// careful about: an id whose only recorded action here is a *pure*
@@ -2282,8 +2410,10 @@ impl<'m> PlanningScene<'m> {
     /// its `target` ACM entry pruned too — *unless* `target` already
     /// considers that id an attached body, exactly mirroring upstream's
     /// `if (!scene->getCurrentState().hasAttachedBody(it.first))` guard via
-    /// [`PlanningScene::has_attached_body`]. Colors/types have no such
-    /// guard: a `DESTROY` entry strips `target`'s color/type for `id`
+    /// [`PlanningScene::has_attached_body`]. The attached-body push above
+    /// runs first so an id attached in this diff already reads as attached
+    /// on `target` by the time this guard checks it. Colors/types have no
+    /// such guard: a `DESTROY` entry strips `target`'s color/type for `id`
     /// unconditionally (`:375-376`), same as upstream, even when `id` is
     /// simultaneously becoming an attached body this round — the two
     /// don't collide in practice because [`PlanningScene::attach`]/
@@ -2318,6 +2448,9 @@ impl<'m> PlanningScene<'m> {
         }
         if let Layered::Own(acm) = &self.acm {
             target.set_allowed_collision_matrix(acm.clone());
+        }
+        if self.attached_bodies_diff == Some(AttachedBodiesDiff::Touched) {
+            target.attached_bodies = self.attached_bodies.clone();
         }
         let Some(diff) = &self.world_diff else {
             return;
@@ -2404,6 +2537,7 @@ impl<'m> PlanningScene<'m> {
             self.object_types.entry(id).or_insert(object_type);
         }
         self.world_diff = None;
+        self.attached_bodies_diff = None;
         self.parent = None;
     }
 
@@ -2436,6 +2570,7 @@ impl<'m> PlanningScene<'m> {
         // — see that field's own doc for why it never resets.
         self.object_colors.clear();
         self.object_types.clear();
+        self.attached_bodies_diff = Some(AttachedBodiesDiff::Untouched);
     }
 }
 
@@ -2475,6 +2610,24 @@ fn insert_object_frame(snapshot: &mut Transforms, name: &str, pose: Isometry3) {
         let _ = snapshot.set_transform(pose, name);
     }
     let _ = snapshot.set_transform(pose, format!("/{name}"));
+}
+
+/// Eigen's `Transform::isApprox(other, precision)`: relative precision
+/// against the smaller of the two transforms' squared Frobenius norms.
+/// Verified against `Eigen/src/Core/Fuzzy.h` — the same formula
+/// `moveit_collision::World` uses internally for its own `isApprox` calls,
+/// duplicated here (rather than reused) because
+/// [`PlanningScene::process_octomap_ptr`] needs upstream's call-site
+/// precision (`std::numeric_limits<double>::epsilon() * 100.0`), not
+/// `moveit-collision`'s hardcoded dummy-precision default, and that
+/// crate's own helper is private.
+fn isometry_is_approx(a: Isometry3, b: Isometry3, precision: f64) -> bool {
+    let ma = a.to_homogeneous();
+    let mb = b.to_homogeneous();
+    let diff_sq: f64 = (ma - mb).iter().map(|x| x * x).sum();
+    let norm_a: f64 = ma.iter().map(|x| x * x).sum();
+    let norm_b: f64 = mb.iter().map(|x| x * x).sum();
+    diff_sq <= precision * precision * norm_a.min(norm_b)
 }
 
 #[cfg(test)]
@@ -2912,6 +3065,112 @@ mod tests {
         );
     }
 
+    fn octree_shape(resolution: f64) -> OcTree {
+        OcTree::from_tree(Arc::new(moveit_octomap::OcTree::new(resolution)))
+    }
+
+    #[test]
+    fn process_octomap_ptr_creates_the_octomap_object_when_absent() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let pose = Isometry3::translation(1.0, 2.0, 3.0);
+
+        scene.process_octomap_ptr(octree_shape(0.1), pose);
+
+        let object = scene.world().get_object(PlanningScene::OCTOMAP_NS).unwrap();
+        let [entry] = object.shapes() else {
+            panic!("expected exactly one shape");
+        };
+        assert!(matches!(entry.shape().as_ref(), Shape::OcTree(_)));
+        // Upstream's 3-arg `addToObject(id, shape, shape_pose)` forwards to
+        // `addToObject(id, Identity, {shape}, {shape_pose})`
+        // (`world.hpp:209-212`): the octomap object's own pose stays
+        // identity and `pose` becomes the shape's relative (here, since
+        // the object pose is identity, also global) pose -- matching
+        // `getOctomapMsg`'s own read of `map->shape_poses_[0]`, not
+        // `map->pose_`.
+        assert_eq!(entry.pose(), pose);
+    }
+
+    #[test]
+    fn process_octomap_ptr_replaces_a_different_octree() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let first = octree_shape(0.1);
+        scene.process_octomap_ptr(first.clone(), Isometry3::identity());
+
+        let second = octree_shape(0.2);
+        scene.process_octomap_ptr(second.clone(), Isometry3::identity());
+
+        let object = scene.world().get_object(PlanningScene::OCTOMAP_NS).unwrap();
+        let [entry] = object.shapes() else {
+            panic!("expected exactly one shape");
+        };
+        let Shape::OcTree(stored) = entry.shape().as_ref() else {
+            panic!("expected an OcTree shape");
+        };
+        assert_ne!(
+            *stored, first,
+            "a different octree pointer must replace the object wholesale"
+        );
+        assert_eq!(*stored, second);
+    }
+
+    #[test]
+    fn process_octomap_ptr_moves_the_same_octree_in_place_on_pose_change() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let tree = octree_shape(0.1);
+        scene.process_octomap_ptr(tree.clone(), Isometry3::identity());
+
+        let new_pose = Isometry3::translation(5.0, 0.0, 0.0);
+        scene.process_octomap_ptr(tree.clone(), new_pose);
+
+        let object = scene.world().get_object(PlanningScene::OCTOMAP_NS).unwrap();
+        let [entry] = object.shapes() else {
+            panic!("expected exactly one shape");
+        };
+        assert_eq!(
+            entry.pose(),
+            new_pose,
+            "upstream World::moveShapeInObject moves the shape's own pose in place"
+        );
+        let Shape::OcTree(stored) = entry.shape().as_ref() else {
+            panic!("expected an OcTree shape");
+        };
+        assert_eq!(
+            *stored, tree,
+            "the same octree pointer must be moved, not replaced"
+        );
+    }
+
+    /// Upstream's `if (o->octree == octree) { if (isApprox(t)) { ... } }`
+    /// (`planning_scene.cpp:1510-1520`) branch is a true no-op when the
+    /// pointer and pose both match -- unlike moving to an unchanged pose,
+    /// it must not touch the object at all. Distinguishing that from "moved
+    /// to the same value" needs an observable that only a real mutation
+    /// flips: `World`'s copy-on-write `ensure_unique` clones the object's
+    /// `Arc` on any mutating call while an outside snapshot (like `before`
+    /// below) is still alive, so a genuine no-op leaves the `Arc` identity
+    /// unchanged and a mutation does not.
+    #[test]
+    fn process_octomap_ptr_same_tree_same_pose_is_a_true_noop() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let tree = octree_shape(0.1);
+        let pose = Isometry3::translation(1.0, 0.0, 0.0);
+        scene.process_octomap_ptr(tree.clone(), pose);
+
+        let before = scene.world().get_object(PlanningScene::OCTOMAP_NS).unwrap();
+        scene.process_octomap_ptr(tree, pose);
+        let after = scene.world().get_object(PlanningScene::OCTOMAP_NS).unwrap();
+
+        assert!(
+            Arc::ptr_eq(&before, &after),
+            "same tree, same pose must be a true no-op, not a move-to-the-same-pose"
+        );
+    }
+
     // ---- move_shapes_in_object / set_subframes_of_object ---------------------
 
     #[test]
@@ -3156,6 +3415,139 @@ mod tests {
         child.push_diffs(&mut target);
 
         assert_eq!(target.object_color("box"), Some(blue()));
+    }
+
+    #[test]
+    fn push_diffs_propagates_an_attach_made_on_the_child_onto_the_target() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("box", cuboid_shape(), Isometry3::identity());
+        let root = Arc::new(root);
+        let mut child = root.diff();
+
+        child.attach("box", "hand", BTreeSet::new()).unwrap();
+        assert!(child.has_attached_body("box"));
+
+        // `target` has NOT independently attached "box" — this is the
+        // ordinary case pushDiffs exists for: the child did the attaching,
+        // and the target (typically the parent) should end up with it too.
+        // Upstream: attached bodies live on `RobotState`, so `pushDiffs`'
+        // `scene->getCurrentStateNonConst() = robot_state_.value();`
+        // (`planning_scene.cpp:348`) carries the attach along for free.
+        // This port moved attached bodies onto `PlanningScene` itself, so
+        // that push no longer touches them.
+        let mut target = PlanningScene::cloned(&root);
+        child.push_diffs(&mut target);
+
+        assert!(
+            target.has_attached_body("box"),
+            "push_diffs must propagate an attach made on the child onto the target, \
+             the way pushing robot_state_ does upstream"
+        );
+    }
+
+    #[test]
+    fn push_diffs_propagates_a_detach_made_on_the_child_onto_the_target() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("box", cuboid_shape(), Isometry3::identity());
+        root.attach("box", "hand", BTreeSet::new()).unwrap();
+        let root = Arc::new(root);
+        // The child inherits "box" already attached, from the parent.
+        let mut child = root.diff();
+        assert!(child.has_attached_body("box"));
+
+        child.detach("box").unwrap();
+        assert!(!child.has_attached_body("box"));
+
+        // The target also starts with "box" attached (cloned from the same
+        // root), matching what a real push target would look like.
+        let mut target = PlanningScene::cloned(&root);
+        assert!(target.has_attached_body("box"));
+
+        child.push_diffs(&mut target);
+
+        assert!(
+            !target.has_attached_body("box"),
+            "push_diffs must propagate a detach made on the child onto the target"
+        );
+    }
+
+    #[test]
+    fn push_diffs_overwrites_on_an_attach_then_detach_round_trip_within_one_diff() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("box", cuboid_shape(), Isometry3::identity());
+        let root = Arc::new(root);
+        let mut child = root.diff();
+
+        // Attach then detach the SAME id within one diff, before ever
+        // pushing -- nets back to exactly the diff-time value (root never
+        // had "box" attached), so a comparison against a starting
+        // snapshot would see no change here at all.
+        child.attach("box", "hand", BTreeSet::new()).unwrap();
+        child.detach("box").unwrap();
+        assert!(!child.has_attached_body("box"));
+
+        // The target independently attached "box" itself. Upstream's
+        // sticky, whole-bundle overwrite (attached bodies live inside
+        // RobotState; robot_state_.has_value() stays true once ever
+        // materialized and is pushed unconditionally from then on --
+        // planning_scene.cpp:344-357) means this push must still clear
+        // it: `child` touched its attached bodies at least once, even
+        // though the net effect looks like nothing happened.
+        let mut target = PlanningScene::cloned(&root);
+        target.attach("box", "hand", BTreeSet::new()).unwrap();
+
+        child.push_diffs(&mut target);
+
+        assert!(
+            !target.has_attached_body("box"),
+            "push_diffs must overwrite target's attached bodies once the child \
+             has touched its own at all, even if the child's net change is a \
+             no-op round trip a before/after snapshot comparison cannot see"
+        );
+    }
+
+    #[test]
+    fn push_diffs_does_not_clobber_a_same_id_attached_body_the_child_never_touched() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("widget", cuboid_shape(), Isometry3::identity());
+        root.attach("widget", "hand", BTreeSet::new()).unwrap();
+        let root = Arc::new(root);
+        // The child inherits "widget" already attached, from the parent,
+        // and never touches it itself.
+        let child = root.diff();
+        assert!(child.has_attached_body("widget"));
+
+        // The target independently diverged on the same id: detached and
+        // re-attached fresh geometry with a distinct `touch_links` set.
+        // What matters here is only that this survives untouched -- the
+        // child's baseline for "widget" was never invalidated, so it must
+        // not be re-pushed over the target's own divergent value.
+        let mut target = PlanningScene::cloned(&root);
+        target.detach("widget").unwrap();
+        let mut touch = BTreeSet::new();
+        touch.insert("hand".to_owned());
+        target
+            .attach_new(
+                "widget",
+                "hand",
+                vec![cuboid_shape()],
+                vec![Isometry3::identity()],
+                touch.clone(),
+                BTreeMap::new(),
+            )
+            .unwrap();
+
+        child.push_diffs(&mut target);
+
+        assert_eq!(
+            target.attached_body("widget").unwrap().touch_links(),
+            &touch,
+            "push_diffs must not clobber a same-id attached body the child never touched"
+        );
     }
 
     #[test]

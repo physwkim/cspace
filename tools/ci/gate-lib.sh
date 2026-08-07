@@ -237,3 +237,56 @@ oracle_stamp_explain() {
   echo "${prefix}rebuild with tools/moveit-oracle/build.sh" >&2
   return 0
 }
+
+# Reserved exit status meaning "this gate did not run its measurement" --
+# distinct from 0 (ran, and it held) and 1 (ran, and it failed). Nothing else
+# in this directory used exit 3 before this was reserved
+# (`rg -n 'exit [0-9]+' tools/ci/*.sh` at the time this was written showed 0,
+# 1 and one unrelated usage-error 2 in `verify-phase7-benchmark.sh`, which
+# `verify-all.sh` never reaches because it always invokes that script with no
+# argument). `verify-all.sh` is the one place that has to tell this apart
+# from a pass, which it could not when every gate below spelled "did not
+# measure" as `exit 0` -- the same code a real pass uses.
+NOT_MEASURED=3
+
+# Prints each line prefixed `SKIP (<kind>) ` and exits $NOT_MEASURED.
+#
+#   skip_not_measured blocked "docker is not on PATH" "this is not a pass."
+#   skip_not_measured opt-in  "PHASE3_SWEEP is not 1" "run with PHASE3_SWEEP=1 ..."
+#
+# <kind> is the one thing this function forces every call site to declare,
+# because "did not measure" is not one fact:
+#
+#   blocked  something this gate needs is absent from THIS environment --
+#            docker, the oracle image at the tree's stamp, a dependency
+#            checkout, a vendored fixture tree. It tried and could not.
+#   opt-in   an explicit switch this gate requires was left at its default.
+#            Nobody asked it to run this time; nothing is missing.
+#
+# Both are equally "not a pass", which is the only distinction `verify-all.sh`
+# acts on -- but a run full of `blocked` lines says this machine cannot cover
+# part of the suite, and a run full of `opt-in` lines says nobody asked for
+# the expensive part yet, and those call for different responses from
+# whoever reads the log. The tag is what keeps that readable without having
+# to know, per script, which category it was.
+#
+# This function does not invent a "this is not a pass" sentence for you --
+# every existing call site already says why in its own words; centralising
+# the wording would just be a second place for it to drift from the reason.
+# Its only job is the one thing that WAS drifting: the exit status.
+skip_not_measured() {
+  local kind="$1"
+  shift
+  case "$kind" in
+    blocked | opt-in) ;;
+    *)
+      echo "FAIL skip_not_measured: unknown kind '$kind' (want blocked or opt-in)" >&2
+      exit 1
+      ;;
+  esac
+  local line
+  for line in "$@"; do
+    echo "SKIP ($kind) $line"
+  done
+  exit "$NOT_MEASURED"
+}

@@ -122,10 +122,10 @@ require_caller_tree "$REPO_ROOT"
 DIFF="$REPO_ROOT/target/release/moveit-diff"
 
 if [[ "${PHASE3_SWEEP:-}" != "1" ]]; then
-  echo "SKIP PHASE3_SWEEP is not 1 -- the ${CASES}-state collision sweep did not run."
-  echo "SKIP this is not a pass; §5 Phase 3's completion condition is unmeasured by this run."
-  echo "SKIP run it with: PHASE3_SWEEP=1 sg docker -c $0"
-  exit 0
+  skip_not_measured opt-in \
+    "PHASE3_SWEEP is not 1 -- the ${CASES}-state collision sweep did not run." \
+    "this is not a pass; §5 Phase 3's completion condition is unmeasured by this run." \
+    "run it with: PHASE3_SWEEP=1 sg docker -c $0"
 fi
 
 # Every committed robot description, not only the condition's named three
