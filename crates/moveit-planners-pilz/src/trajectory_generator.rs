@@ -64,9 +64,19 @@
 //! `getRigidlyConnectedParentLinkModel` if not (a fixed-transform-chain
 //! search). This port's `moveit-model::JointModelGroup` carries no
 //! `kinematics.yaml`-derived solver mapping, and `LinkModel` carries no
-//! `associated_fixed_transforms_`/rigidly-connected-parent search either
-//! (both are documented absences in `moveit-model`/`moveit-state`, not gaps
-//! this crate can quietly work around). [`check_cartesian_goal`] instead
+//! `associated_fixed_transforms_` (`link_model.rs`'s own doc records that
+//! absence), neither of which is a gap this crate can quietly work around.
+//!
+//! The rigidly-connected-parent half of that reason has since become false:
+//! `moveit_model::RobotModel::rigidly_connected_parent_link` is ported, with
+//! upstream's `nullptr`-group semantics. It is not used here because closing
+//! the deviation needs the *plan* path too -- `TrajectoryGeneratorLin::plan`
+//! selects its solver with an exact `solver.tip_frame() == info.link_name`
+//! filter, so accepting a rigidly-connected link in validation alone would
+//! only move the rejection later. Closing it is a behavioural change to what
+//! a Cartesian goal may name, not a local fix.
+//!
+//! [`check_cartesian_goal`] instead
 //! scans [`static@moveit_kinematics::KINEMATICS_SOLVERS`], attempts to build each
 //! registered solver for `(robot_model, group_name)`, and accepts the goal if
 //! any constructed solver's [`moveit_kinematics::KinematicsSolver::tip_frame`]
