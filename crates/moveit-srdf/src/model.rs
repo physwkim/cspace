@@ -222,11 +222,12 @@ pub struct JointProperty {
 ///    dependency order (PORTING-PLAN.md §3) and has no URDF to check against,
 ///    so those checks move to `moveit-model`, which holds both descriptions.
 ///    Concretely, the following are **not** validated here and every such
-///    element is retained: link names in groups, chains, `disable_collisions`,
-///    `enable_collisions`, `disable_default_collisions`,
-///    `link_sphere_approximation` and end effectors; joint names in groups,
-///    group states, passive joints and joint properties; whether a chain's two
-///    links really form a chain; and whether the robot name matches the URDF's.
+///    element is retained: link names in groups, chains, a virtual joint's
+///    `child_link`, `disable_collisions`, `enable_collisions`,
+///    `disable_default_collisions`, `link_sphere_approximation` and end
+///    effectors; joint names in groups, group states, passive joints and
+///    joint properties; whether a chain's two links really form a chain; and
+///    whether the robot name matches the URDF's.
 ///    An `SrdfModel` therefore describes *the document*, not a URDF-validated
 ///    robot.
 ///
