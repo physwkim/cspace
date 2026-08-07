@@ -44,10 +44,11 @@
 //!    `kinematics.yaml`), so [`compute_pose_ik`] and
 //!    [`generate_joint_trajectory`]/[`generate_joint_trajectory_from_cartesian`]
 //!    take an already-constructed `&mut dyn KinematicsSolver` instead of
-//!    looking one up from `group_name`. [`compute_pose_ik`] still checks
-//!    `solver.tip_frame() == link_name`, the one piece of upstream's
-//!    `setFromIK`/`canSetStateFromIK` link-matching this port can perform
-//!    without that mapping.
+//!    looking one up from `group_name`. [`compute_pose_ik`] still performs
+//!    upstream's `setFromIK` link-matching against `solver.tip_frame()` —
+//!    exact match, or `is_rigidly_connected` plus the constant fixed-joint
+//!    offset — the one piece of that matching this port can do without a
+//!    `kinematics.yaml` mapping.
 //! 2. **No `KDL::Trajectory` equivalent exists yet.** Upstream's first
 //!    `generateJointTrajectory` overload samples a concrete `KDL::Trajectory`
 //!    (position + orientation as a function of time, built from a path plus a
@@ -101,7 +102,8 @@ use moveit_collision::{CollisionEnv, CollisionRequest};
 use moveit_error::{Error, MoveItErrorCode, Result};
 use moveit_geometry::{Isometry3, UnitQuaternion, Vector3};
 use moveit_kinematics::{
-    DEFAULT_SOLVER_NAME, KinematicsSolver, SolveOptions, SolverParams, resolve_solver,
+    AttachedFrames, DEFAULT_SOLVER_NAME, KinematicsSolver, SolveOptions, SolverParams,
+    resolve_solver,
 };
 use moveit_model::RobotModel;
 use moveit_scene::PlanningScene;
@@ -144,12 +146,77 @@ pub struct IkContext<'a, 'm, E> {
     pub check_self_collision: bool,
 }
 
+/// Whether `a` and `b` name the same link, or two links connected by a
+/// chain of fixed joints only — upstream's
+/// `RobotState::getRigidlyConnectedParentLinkModel(frame)`, called with its
+/// default `jmg = nullptr` at every one of its own call sites this crate
+/// mirrors (`checkCartesianGoalConstraint`'s and `setFromIK`'s), so this
+/// wraps [`moveit_model::RobotModel::rigidly_connected_parent_link`] with
+/// `group: None` rather than taking a group parameter of its own. `false`
+/// if either name is not a link in `model` at all.
+pub(crate) fn is_rigidly_connected(model: &RobotModel, a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    let Ok(a_index) = model.link_model(a).map(|link| link.link_index()) else {
+        return false;
+    };
+    let Ok(b_index) = model.link_model(b).map(|link| link.link_index()) else {
+        return false;
+    };
+    model.rigidly_connected_parent_link(a_index, None)
+        == model.rigidly_connected_parent_link(b_index, None)
+}
+
+/// Resolve `frame_id` against `posed` first (the model frame or a link),
+/// and if that fails, `scene`'s attached bodies via
+/// [`AttachedFrames::attached_frame`] — the same seam
+/// [`moveit_kinematics::set_from_ik`] uses to reach the identical tier.
+///
+/// Upstream `RobotState::getFrameTransform` performs both tiers itself
+/// (the state carries its own attached bodies); this port's states cannot
+/// (see `moveit-scene`'s `attached_body` module doc), so any caller
+/// needing that combined resolution for a state other than the scene's
+/// own current one — a trajectory waypoint, as in
+/// `trajectory_blender_transition_window`'s `# Deviations` — must pass its
+/// scene explicitly, as this does. [`PlanningScene::frame_transform`]
+/// already performs this same two-tier resolution for `scene`'s own
+/// current state (its tiers 1-3); this function is that same resolution
+/// applied to an arbitrary `posed` instead.
+///
+/// # Errors
+///
+/// [`Error::UnknownName`] if `frame_id` names neither the model frame, a
+/// link, nor an attached body in `scene`.
+pub fn resolve_link_or_attached_body_transform<'m>(
+    scene: &PlanningScene<'m>,
+    posed: &Posed<'_, 'm>,
+    frame_id: &str,
+) -> Result<Isometry3> {
+    if let Ok(transform) = posed.frame_transform(frame_id) {
+        return Ok(transform);
+    }
+    let attached = scene
+        .attached_frame(frame_id)
+        .ok_or_else(|| Error::unknown_name("link", frame_id))?;
+    Ok(posed.global_link_transform(attached.link_name)? * attached.link_pose_frame)
+}
+
 /// Compute the inverse kinematics of `pose`, optionally rejecting a
 /// self-colliding solution.
 ///
-/// `solver` must already be built for the group/tip this call targets (see
-/// this module's `# Deviations`, item 1); `link_name` is checked against
-/// `solver.tip_frame()` rather than used to look one up.
+/// `solver` must already be built for the group this call targets (see this
+/// module's `# Deviations`, item 1). `link_name` need not literally be
+/// `solver.tip_frame()` — `is_rigidly_connected` first (substituting an
+/// attached body's own attach link for this check, if `link_name` names
+/// one — see this function's own body comment), and if the two are only
+/// fixed-joint-connected rather than equal, `pose` (a target for
+/// `link_name`) is re-targeted to `solver.tip_frame()` by the constant
+/// offset between them before solving; upstream `setFromIK`'s
+/// `pose_parent_to_frame`/`tip_parent_to_tip` transform, folded in here
+/// since this port's `solver` is always already a specific tip's solver
+/// rather than one upstream's `setFromIK` still has to search a `jmg`'s
+/// several tip frames for (this module's `# Deviations`, item 1).
 ///
 /// `seed`'s entries override the corresponding variables of `ctx.scene`'s
 /// current state; any variable [`KinematicsSolver::joint_names`] needs that
@@ -158,9 +225,10 @@ pub struct IkContext<'a, 'm, E> {
 /// `scene->getCurrentState()`.
 ///
 /// Upstream `computePoseIK`. Returns `None` where upstream returns `false`
-/// (unknown group, `frame_id` mismatch, tip mismatch, or no IK solution) —
-/// every one of those is an ordinary negative outcome upstream itself never
-/// treats as an exception.
+/// (unknown group, `frame_id` mismatch, `link_name` neither `solver`'s tip
+/// nor rigidly connected to it, or no IK solution) — every one of those is
+/// an ordinary negative outcome upstream itself never treats as an
+/// exception.
 pub fn compute_pose_ik<'m, E>(
     ctx: &IkContext<'_, 'm, E>,
     solver: &mut dyn KinematicsSolver,
@@ -179,9 +247,41 @@ where
     if frame_id != robot_model.model_frame() {
         return None;
     }
-    if solver.tip_frame() != link_name {
+
+    let solver_tip = solver.tip_frame().to_string();
+    // `link_name` reaches here as-is from `generate_joint_trajectory_from_cartesian`,
+    // whose own caller (`trajectory_blender_transition_window::blend`) is the
+    // one path in this crate that lets `link_name` name an attached body
+    // rather than a robot model link (see that module's `# Deviations`).
+    // `is_rigidly_connected` needs a real model link on both sides -- an
+    // attached body has no entry in `robot_model` at all -- so its own
+    // attach link substitutes for the check here, once, rather than
+    // teaching `is_rigidly_connected` itself about attached bodies: it is
+    // also `check_cartesian_goal`'s check (LIN/PTP/CIRC), and upstream's
+    // `checkCartesianGoalConstraint` never gains that fallback (only
+    // `TrajectoryBlenderTransitionWindow::validateRequest` does). The
+    // offset-retargeting two lines below needs no equivalent substitution:
+    // `offset_probe` is a [`PlanningScene`], and its own
+    // [`PlanningScene::frame_transform`] already resolves an attached
+    // body's bare id through its own tier 3, unlike
+    // [`moveit_state::Posed::frame_transform`].
+    let rigid_check_name = if robot_model.has_link_model(link_name) {
+        link_name
+    } else if let Some(attached) = ctx.scene.attached_frame(link_name) {
+        attached.link_name
+    } else {
+        link_name
+    };
+    let target_pose = if link_name == solver_tip {
+        *pose
+    } else if is_rigidly_connected(robot_model, rigid_check_name, &solver_tip) {
+        let mut offset_probe = ctx.scene.diff();
+        let link_transform = offset_probe.frame_transform(link_name).ok()?;
+        let tip_transform = offset_probe.frame_transform(&solver_tip).ok()?;
+        *pose * link_transform.inverse() * tip_transform
+    } else {
         return None;
-    }
+    };
 
     let mut probe = ctx.scene.diff();
     probe
@@ -211,7 +311,7 @@ where
         ..Default::default()
     };
 
-    let solution = solver.solve_with_options(&seed_vec, pose, &mut options)?;
+    let solution = solver.solve_with_options(&seed_vec, &target_pose, &mut options)?;
     Some(solver.joint_names().iter().cloned().zip(solution).collect())
 }
 
@@ -660,12 +760,18 @@ pub fn is_robot_state_stationary<'m>(state: &RobotState<'m>, group: &str, epsilo
 /// Linear search for the waypoint index at which `link_name`'s trajectory
 /// crosses the blending sphere centred at `center_position` with radius `r`.
 ///
+/// `link_name` is resolved against `scene` as well as each waypoint (see
+/// [`resolve_link_or_attached_body_transform`]), so it may name an attached
+/// body — needed by `trajectory_blender_transition_window`'s own
+/// `validateRequest` fallback; see that module's `# Deviations`.
+///
 /// `inverse_order`: scan from the last waypoint backward (farthest from the
 /// sphere's center sits at the smallest index) instead of forward.
 ///
 /// Upstream `linearSearchIntersectionPoint`. Returns `None` where upstream
 /// returns `false` (no crossing found).
 pub fn linear_search_intersection_point<'m>(
+    scene: &PlanningScene<'m>,
     link_name: &str,
     center_position: &Vector3,
     r: f64,
@@ -678,10 +784,9 @@ pub fn linear_search_intersection_point<'m>(
     }
 
     let translation_at = |traj: &mut RobotTrajectory<'m>, i: usize| -> Vector3 {
-        traj.way_point_mut(i)
-            .expect("index within way_point_count")
-            .update()
-            .frame_transform(link_name)
+        let state = traj.way_point_mut(i).expect("index within way_point_count");
+        let posed = state.update();
+        resolve_link_or_attached_body_transform(scene, &posed, link_name)
             .expect("link_name resolves for every waypoint of the same trajectory")
             .translation
             .vector
@@ -1316,6 +1421,74 @@ mod tests {
             target_pose.translation.vector,
             epsilon = 1e-4
         );
+    }
+
+    /// Same round trip as `compute_pose_ik_round_trips_a_reachable_pose`, but
+    /// `link_name` is `"panda_hand"` -- rigidly connected to `panda_arm`'s
+    /// solver tip (`"panda_link8"`) by two fixed joints
+    /// (`panda_joint8`/`panda_hand_joint`, `fixtures/panda.urdf`), never
+    /// equal to it. Before this fix `solver.tip_frame() != link_name` alone
+    /// rejected this outright (`None`, matching what
+    /// `cartesian_goal_accepts_a_link_rigidly_connected_to_the_tip`'s sibling
+    /// test proved fails at the validation layer); this proves the *IK
+    /// layer* the validation layer's [`crate::trajectory_generator::check_cartesian_goal`]
+    /// promises exists actually solves it, and does so for the constant
+    /// fixed-joint offset upstream's `setFromIK` folds into the target pose
+    /// -- not merely for a link name equal to the tip.
+    #[test]
+    fn compute_pose_ik_solves_for_a_link_rigidly_connected_to_the_solver_tip() {
+        let (model, srdf) = load_panda();
+        let scene = Arc::new(PlanningScene::new(&model, &srdf));
+        let env =
+            ParryCollisionEnv::new(moveit_collision::World::new(), LinkPaddingScale::default());
+        let mut solver = panda_arm_solver(&model);
+        assert_eq!(solver.tip_frame(), "panda_link8");
+
+        let target_positions = ready_positions();
+        let mut fk_state = RobotState::new(&model);
+        fk_state.set_to_default_values();
+        let target_pose = compute_link_fk(&mut fk_state, "panda_hand", &target_positions).unwrap();
+
+        let seed: HashMap<String, f64> = solver
+            .joint_names()
+            .iter()
+            .map(|n| (n.clone(), 0.0))
+            .collect();
+        let ctx = IkContext {
+            scene: &scene,
+            env: &env,
+            check_self_collision: false,
+        };
+        let solution = compute_pose_ik(
+            &ctx,
+            &mut solver,
+            "panda_hand",
+            &target_pose,
+            model.model_frame(),
+            &seed,
+        )
+        .expect("panda_hand's pose, rigidly connected to panda_arm's solver tip, must solve");
+
+        let mut check_state = RobotState::new(&model);
+        check_state.set_to_default_values();
+        let solved_pose = compute_link_fk(&mut check_state, "panda_hand", &solution).unwrap();
+        assert_relative_eq!(
+            solved_pose.translation.vector,
+            target_pose.translation.vector,
+            epsilon = 1e-4
+        );
+    }
+
+    /// Neither name resolving in `model` is a distinct failure from the
+    /// resolving-but-unconnected case above (`compute_pose_ik` returns
+    /// `None` for both, but for different reasons inside
+    /// [`is_rigidly_connected`]) -- covered directly since
+    /// [`is_rigidly_connected`] is `pub(crate)` and has no test of its own.
+    #[test]
+    fn is_rigidly_connected_rejects_an_unknown_link_name() {
+        let (model, _srdf) = load_panda();
+        assert!(!is_rigidly_connected(&model, "panda_link8", "no_such_link"));
+        assert!(!is_rigidly_connected(&model, "no_such_link", "panda_link8"));
     }
 
     /// `compute_pose_ik` has five `None`-producing paths (three guards plus
