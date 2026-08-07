@@ -1,9 +1,0 @@
-{
-  "_comment": "Section numbers that belong to something outside this repository, so check-section-references.sh must not try to resolve them against PORTING-PLAN.md. Every entry names a substring that must appear on the citing line; a reference is exempt only when the line carries that substring, so the exemption travels with the citation instead of a line number. This is NOT a place to park a plan reference that stopped resolving -- fix the reference or promote the paragraph it names to a heading.",
-  "external": [
-    {
-      "match": "Real-Time Collision Detection",
-      "why": "Christer Ericson, Real-Time Collision Detection (Morgan Kaufmann, 2004). crates/moveit-geometry/src/bodies.rs cites its §4.4.1 for the OBB separating-axis test that upstream's bodies.cpp implements without attribution."
-    }
-  ]
-}
