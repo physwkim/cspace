@@ -104,6 +104,7 @@ approx = "0.5"
 [lints.rust]
 unsafe_code = "forbid"
 warnings = "deny"
+missing_docs = "warn"
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }

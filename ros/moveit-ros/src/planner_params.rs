@@ -44,7 +44,8 @@
 //! a null pipeline.
 //!
 //! This workspace has no planning-pipeline registry at all -- there is one
-//! *planner manager* registry, [`moveit_planner_registry::PLANNER_MANAGERS`],
+//! *planner manager* registry,
+//! [`static@moveit_planner_registry::PLANNER_MANAGERS`],
 //! which corresponds to upstream's planner-plugin level (`pluginlib`'s
 //! `planning_interface::PlannerManager`), not to its pipeline level. So the
 //! rule here is upstream's with an empty pipeline map: the empty id resolves

@@ -27,6 +27,9 @@
 #     an unresolved intra-doc link or a link to a private item compiles and
 #     tests clean but fails `cargo doc`, which is exactly how main went red
 #     under the round-32 merge gate before this line existed)
+#   - the same build again under `--document-private-items`, which is the
+#     only thing that resolves links written in a private module's or
+#     private function's own doc comment
 #   - A live `/plan_kinematic_path` round trip over DDS (`run "live"` below,
 #     PORTING-PLAN.md §241)
 #   - Two live planner-parameter legs over DDS -- the three services exist,
@@ -196,6 +199,16 @@ fi
 echo "OK $actual_tests/$expected_tests source-declared unit tests actually ran"
 
 run "doc" bash -c "cargo doc --no-deps"
+
+# And again with private items, because the build above resolves intra-doc
+# links only for the items it documents: a link in a private module's `//!`
+# header or a private fn's `///` compiles, tests, and docs clean while being
+# broken. `tools/ci/verify-private-doc-links.sh` closes exactly this for the
+# root workspace and reaches this crate never -- it is `cargo doc
+# --workspace`, and D5 keeps moveit-ros out of that workspace. The first run
+# of this line found an ambiguous `PLANNER_MANAGERS` link (df3efa00) that the
+# public build had been passing over since the module was written.
+run "doc (private items)" bash -c 'RUSTDOCFLAGS="--document-private-items" cargo doc --no-deps'
 
 # Live round-trip (PORTING-PLAN.md §241): every check above compiles and
 # unit-tests moveit-ros in-process -- this script's own "what this does NOT

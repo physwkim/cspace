@@ -47,7 +47,7 @@ as a disagreement.
   configuration stored under a bare planner name governs a query that names
   a group. This is not a hypothetical: `/set_planner_params` with an empty
   `group` writes exactly that key
-  (`ros/moveit-ros/src/planner_params.rs:296`), so the bite is the shape the
+  (`ros/moveit-ros/src/planner_params.rs:297`), so the bite is the shape the
   port would take if the writer's key rule and the reader's disagreed.
 - **`K2`** — the `planner_id` lookup is removed (`let _ = &key;` in place of
   the `configs.get(&key)` early return), leaving only the group fallback.

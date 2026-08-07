@@ -798,7 +798,7 @@ owed.
 ("collapse `count-coarse-assertions.py`'s `contains_msg`/`contains_member`
 split" — round 11/12's `detail`-field blind spot forced this: a
 receiver-type distinction has no regex, and the alternative rule tried
-misfiled `body.touch_links().contains(...)` at `ros/moveit-ros/src/scene/attached.rs:532`)
+misfiled `body.touch_links().contains(...)` at `ros/moveit-ros/src/scene/attached.rs:520`)
 and `6792ef1` ("score `None`/`Err` only as an operand of an equality
 macro"). The tool now emits one `contains` kind and leaves membership to
 census §9 clause 1, by reading — exactly what this round does. Fence

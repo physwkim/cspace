@@ -128,7 +128,10 @@ pub enum ExecutionState {
     /// `last` is `None` before anything has ever executed and `Some` after a
     /// completed or preempted execution -- the distinction upstream needs two
     /// fields to express.
-    Idle { last: Option<ExecutionStatus> },
+    Idle {
+        /// `None` until something has executed, `Some` from then on.
+        last: Option<ExecutionStatus>,
+    },
     /// A trajectory is executing (upstream `execution_complete_ == false`).
     Executing,
 }
@@ -166,6 +169,8 @@ impl TrajectoryExecution {
         Self::default()
     }
 
+    /// The current state. The field behind it is private, so this type's own
+    /// methods are the only thing that can transition it.
     pub fn state(&self) -> ExecutionState {
         self.state
     }

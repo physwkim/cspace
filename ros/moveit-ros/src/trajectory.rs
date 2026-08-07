@@ -18,7 +18,9 @@ use r2r::trajectory_msgs::msg as trajectory_msgs;
 /// needed to build each waypoint's [`RobotState`] (same context-carrying
 /// wrapper shape as [`crate::state::RobotStateMsg`]).
 pub struct JointTrajectoryMsg<'m> {
+    /// Resolves `msg.joint_names` to the variable indices each waypoint sets.
     pub model: &'m RobotModel,
+    /// The wire message, unmodified.
     pub msg: trajectory_msgs::JointTrajectory,
 }
 

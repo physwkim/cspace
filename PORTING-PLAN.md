@@ -14710,8 +14710,8 @@ family 규칙이 이미 요구하는 것이고, 이번에는 소유권 경계가
 p9-ros 라운드 9가 `apply_octomap`에서 자기 결함을 찾아 고쳤다 —
 `map.origin`은 `map.header.frame_id` 기준인데 그것을 월드 좌표로 쓰고
 있었다(`0e3f706`). 상류 `planning_scene.cpp:1494-1497`의
-`p = t * p`가 맞고, 같은 크레이트의 `collision_object.rs:358`,
-`attached.rs:221`이 이미 쓰던 패턴이다. 회귀 테스트를 직접 검증했다:
+`p = t * p`가 맞고, 같은 크레이트의 `collision_object.rs:361`,
+`attached.rs:206`이 이미 쓰던 패턴이다. 회귀 테스트를 직접 검증했다:
 합성을 걷어내면 정확히 하나가 빨개진다.
 
 ```text
@@ -15136,7 +15136,7 @@ raw hit을 그대로 가족 크기로 쓸 뻔했다. 세는 도구는 자기가 
 
 p9-ros가 §183을 결함군 규칙대로 처리했다. 앵커
 `rg -n "frame_transform\(" ros/moveit-ros/src`, 사이트 4개 열거, 3개는 같은
-결함으로 수정, 1개(`collision_object.rs:358`)는 상류가 `:1889`에서
+결함으로 수정, 1개(`collision_object.rs:361`)는 상류가 `:1889`에서
 `knowsFrameTransform`으로 가드하므로 distinct — 그 판정을
 `RobotState::knowsFrameTransform`/`World::knowsTransform`/
 `Transforms::canTransform` 셋을 다 추적해 빈 문자열에서 전부 false임을 확인해
@@ -15635,7 +15635,7 @@ deviation 1을 인용한다. p9-ros는 그 doc을 읽고 의도적 결정으로 
 `weight`가 0.0인 것은 답할 수 없는 입력이 아니다. 상류가 **0.0에 1.0이라는
 의미를 부여한** 값이다. 두 가지는 같은 모양이 아니다.
 
-그리고 이것은 이론이 아니다. `ros/moveit-ros/src/constraints/set.rs:50,57`이
+그리고 이것은 이론이 아니다. `ros/moveit-ros/src/constraints/set.rs:52,59`이
 wire 메시지를 코어 제약으로 변환하는 살아있는 경로이고, ROS 메시지의
 `weight`는 미지정 시 0.0으로 도착한다. 즉 **상류가 정상 처리하는 메시지를
 포트는 통째로 거부한다.** §183이 정의한 결함 그대로다.
@@ -16333,10 +16333,10 @@ p9-ros가 `4ff563d`에서 `ros/moveit-ros/src/geometry.rs`의
 
 | 포트 지점 | 상류 도달 경로 | 상류 규칙 |
 |---|---|---|
-| `constraints/orientation.rs:85` | `OrientationConstraint::configure` :609-615 | `\|norm-1\|>1e-3` → 경고 후 항등원 치환 |
-| `constraints/position.rs:161` | `PositionConstraint::configure` :405-406, :433-434 | `tf2::fromMsg` + `ASSERT_ISOMETRY` |
-| `constraints/visibility.rs:114,115` | `VisibilityConstraint::configure` :845-846, :858-859 | `tf2::fromMsg` + `ASSERT_ISOMETRY` |
-| `scene/collision_object.rs:142,207,239,478,515` | `planning_scene.cpp` `utilities::poseMsgToEigen` | 무조건 `quaternion.normalize()` |
+| `constraints/orientation.rs:87` | `OrientationConstraint::configure` :609-615 | `\|norm-1\|>1e-3` → 경고 후 항등원 치환 |
+| `constraints/position.rs:163` | `PositionConstraint::configure` :405-406, :433-434 | `tf2::fromMsg` + `ASSERT_ISOMETRY` |
+| `constraints/visibility.rs:116,117` | `VisibilityConstraint::configure` :845-846, :858-859 | `tf2::fromMsg` + `ASSERT_ISOMETRY` |
+| `scene/collision_object.rs:145,210,242,481,518` | `planning_scene.cpp` `utilities::poseMsgToEigen` | 무조건 `quaternion.normalize()` |
 | `scene/planning_scene.rs:148` | `planning_scene.cpp:1496` 같은 헬퍼 | 무조건 `quaternion.normalize()` |
 
 두 가지가 이 표를 만들었다.
@@ -16411,8 +16411,8 @@ void fromMsg(const geometry_msgs::msg::Pose & msg, Eigen::Isometry3d & out)
 ```
 
 조건 없는 `quat.normalize()`다 -- `planning_scene.cpp`의
-`utilities::poseMsgToEigen`과 **똑같은 규칙**이다. `ros/moveit-ros/src/constraints/position.rs:161`/
-`ros/moveit-ros/src/constraints/visibility.rs:114,115`가 실제로 여기 닿는다는 것은
+`utilities::poseMsgToEigen`과 **똑같은 규칙**이다. `ros/moveit-ros/src/constraints/position.rs:163`/
+`ros/moveit-ros/src/constraints/visibility.rs:116,117`가 실제로 여기 닿는다는 것은
 `kinematic_constraint.hpp:875,877`의 `Eigen::Isometry3d sensor_pose_,
 target_pose_;` 선언으로 확인된다 (`t`/`target_pose_`/`sensor_pose_`가
 전부 `Isometry3d`이므로 오버로드 해석이 이 함수를 정확히 고른다).
@@ -16426,7 +16426,7 @@ target_pose_;` 선언으로 확인된다 (`t`/`target_pose_`/`sensor_pose_`가
    정규화, 절대 실패하지 않음. `poseMsgToEigen`과 `tf2_eigen::fromMsg`
    둘 다 이 규칙 하나로 수렴한다.
 2. **`OrientationConstraint::configure`의 의심 규칙** (1곳:
-   `ros/moveit-ros/src/constraints/orientation.rs:85`만) -- `\|norm-1\|>1e-3`이면 항등원으로 치환.
+   `ros/moveit-ros/src/constraints/orientation.rs:87`만) -- `\|norm-1\|>1e-3`이면 항등원으로 치환.
 
 §211.3이 요구한 "이중 의미 제거"는 그대로 유효하다 -- 다만 이름을 줘야
 할 규칙이 셋이 아니라 둘이었다. p9-ros가 `geometry.rs`에
@@ -16515,9 +16515,9 @@ identical**, drift 0, 다른 출력 라인 0. 그것이 이 라운드에서 스�
 
 | impl | 프로덕션 콜사이트 | 상류 도달 경로 | 판정 |
 |---|---|---|---|
-| `TryFrom<Quaternion> for UnitQuaternion` (`TryFrom<Pose> for Isometry3`를 통해) | 9곳 — `ros/moveit-ros/src/constraints/position.rs:161`, `ros/moveit-ros/src/constraints/visibility.rs:114`/`115`, `collision_object.rs`×5, `planning_scene.rs` 옥토맵 원점 | `poseMsgToEigen`/`tf2_eigen::fromMsg` — 무조건 normalize, 한 규칙 | §211/`f2a7847`에서 이미 분리 완료 (10번째 자리는 별도 타입 `OrientationConstraintQuaternion`). 이번 스윕에서 재확인, 편차 없음 |
-| `TryFrom<SolidPrimitiveMsg> for Shape` | 2곳 — `ros/moveit-ros/src/constraints/position.rs:160`(BoundingVolume), `collision_object.rs:183`(shapesAndPosesFromCollisionObjectMessage) | 둘 다 `shapes::constructShapeFromMsg(const shape_msgs::msg::SolidPrimitive&)` (`third_party/geometric_shapes/src/shape_operations.cpp:78-112`) 하나 — 같은 함수, 같은 BOX/SPHERE/CYLINDER/CONE 분기, 실패 시 같은 "shape==nullptr" 귀결 | 균일. 편집 불필요 |
-| `TryFrom<u8> for CollisionObjectOperation` | 2곳 — `collision_object.rs:310`(processCollisionObjectMsg), `attached.rs:62`(processAttachedCollisionObjectMsg) | 두 디스패처(`planning_scene.cpp:1774-1798`, `planning_scene.cpp:1536-1769`) 모두 ADD/APPEND/REMOVE/MOVE를 같은 상수와 비교하고, 그 외 값은 둘 다 동일한 "Unknown collision object operation: %d" 에러로 귀결 (직접 읽고 확인, 다르다고 가정하지 않음) | 균일. 편집 불필요 |
+| `TryFrom<Quaternion> for UnitQuaternion` (`TryFrom<Pose> for Isometry3`를 통해) | 9곳 — `ros/moveit-ros/src/constraints/position.rs:163`, `ros/moveit-ros/src/constraints/visibility.rs:116`/`115`, `collision_object.rs`×5, `planning_scene.rs` 옥토맵 원점 | `poseMsgToEigen`/`tf2_eigen::fromMsg` — 무조건 normalize, 한 규칙 | §211/`f2a7847`에서 이미 분리 완료 (10번째 자리는 별도 타입 `OrientationConstraintQuaternion`). 이번 스윕에서 재확인, 편차 없음 |
+| `TryFrom<SolidPrimitiveMsg> for Shape` | 2곳 — `ros/moveit-ros/src/constraints/position.rs:162`(BoundingVolume), `collision_object.rs:186`(shapesAndPosesFromCollisionObjectMessage) | 둘 다 `shapes::constructShapeFromMsg(const shape_msgs::msg::SolidPrimitive&)` (`third_party/geometric_shapes/src/shape_operations.cpp:78-112`) 하나 — 같은 함수, 같은 BOX/SPHERE/CYLINDER/CONE 분기, 실패 시 같은 "shape==nullptr" 귀결 | 균일. 편집 불필요 |
+| `TryFrom<u8> for CollisionObjectOperation` | 2곳 — `collision_object.rs:313`(processCollisionObjectMsg), `attached.rs:61`(processAttachedCollisionObjectMsg) | 두 디스패처(`planning_scene.cpp:1774-1798`, `planning_scene.cpp:1536-1769`) 모두 ADD/APPEND/REMOVE/MOVE를 같은 상수와 비교하고, 그 외 값은 둘 다 동일한 "Unknown collision object operation: %d" 에러로 귀결 (직접 읽고 확인, 다르다고 가정하지 않음) | 균일. 편집 불필요 |
 | `TryFrom<ConstraintsMsg> for KinematicConstraintSet` | 3곳 — `planning.rs`의 `goal_constraints`/`path_constraints`/`trajectory_constraints` | 셋 다 `KinematicConstraintSet::add(const moveit_msgs::msg::Constraints&, const Transforms&)` (`kinematic_constraint.cpp:1294`) 단 하나 — 이 함수는 호출자가 `MotionPlanRequest`의 어느 필드에서 왔는지 알지 못한다 | 균일. 편집 불필요 |
 | `TryFrom<Point>`/`TryFrom<Vector3> for CoreVector3` 및 그 역방향(`Point`/`Vector3`/`Pose`/`Quaternion` 출력) | 여러 곳 (`position.rs`, `planning.rs`×2, `shapes.rs` 등) | 실패 분기 자체가 없음 — `geometry.rs`의 기존 doc comment가 이미 "Total in practice"라고 명시하며, 이번 스윕은 그 주장을 소스가 아니라 impl 본문 자체(항상 `Ok`)로 재확인했다 | 균일 — 구조적으로 갈릴 수 없음 |
 | 나머지 전부: `JointLimits`, `JointConstraint`/`PositionConstraint`/`OrientationConstraint`/`VisibilityConstraint`의 msg<->core 양방향, `RobotState`, `RobotTrajectory`/`JointTrajectory`, `MeshMsg`/`PlaneMsg` -> `Shape`/`Plane` | 각 1곳 | 해당 없음 | 애초에 공유 impl이 아님 — 대상 아님 |
@@ -16610,9 +16610,9 @@ end-to-end 테스트를 새로 추가했다: `4ff563d`가 실제로 깨뜨린 �
 ### §215.2 이번 라운드에 추가한 사이트별 실측 테스트
 
 - `constraints/position.rs`: `region_pose_with_norm_2_orientation_succeeds_and_normalizes`
-  (`ros/moveit-ros/src/constraints/position.rs:161`)
+  (`ros/moveit-ros/src/constraints/position.rs:163`)
 - `constraints/visibility.rs`: `sensor_and_target_pose_with_norm_2_orientation_succeed_and_normalize`
-  (`ros/moveit-ros/src/constraints/visibility.rs:114`/`115`, 필드 두 개를 테스트 하나로)
+  (`ros/moveit-ros/src/constraints/visibility.rs:116`/`115`, 필드 두 개를 테스트 하나로)
 - `scene/collision_object.rs`: `add_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes`
   (`:142`/`:207`), `add_with_norm_2_orientation_on_subframe_pose_succeeds_and_normalizes`
   (`:239`), `move_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes`
@@ -20437,7 +20437,7 @@ Phase 9의 산출물로 적었다. §235.2가 대조로 보였듯, 이 포트가
 2. **`/plan_kinematic_path` 서비스.** `r2r::Node::create_service::<GetMotionPlan::Service>()`로
    등록하고, 요청을 `planning.rs:125`의 기존 `TryFrom`으로
    변환 → `pipeline.rs:377`의 기존 `generate_plan` 호출 → 응답을
-   `planning.rs:239`의 기존 `TryFrom`으로 변환 → 회신. **이 조각을
+   `planning.rs:241`의 기존 `TryFrom`으로 변환 → 회신. **이 조각을
    1과 함께 지으면 첫 종단 측정이 열린다** — 서비스는 동기 단발
    RPC라 액션의 goal/feedback/cancel 상태 기계가 필요 없고,
    요청 자체에 `start_state`를 (diff 아닌 완전 지정으로) 채워 보내는
@@ -22867,7 +22867,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:414` (`PlanningRequestAdapter`) | 0 |
 | 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:195` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
 | 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:430` (`PlanningResponseAdapter`) | 0 |
-| 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:449-466` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:63-71` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
+| 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:455-472` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:63-71` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
 | 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-6`, `:56` | 2 |
 | 11 | `moveit_core/robot_state/src/attached_body.cpp` | `crates/moveit-scene/src/attached_body.rs:191` (`set_scale`), `:205` (`set_padding`), `:122` (`subframe_pose`), `:67` (`new`); `crates/moveit-scene/src/scene.rs:1129` (`attach`), `:1200` (`attach_new`), `:1352-1355` (`frame_transform`'s on-demand recompute); `crates/moveit-kinematics/src/set_from_ik.rs:150` | —(.cpp) |
 | 12 | `moveit_core/utils/include/moveit/utils/message_checks.hpp` | `ros/moveit-ros/src/scene/collision_object.rs:11` | 3 |
@@ -32165,7 +32165,7 @@ bounds-only 17건이 은퇴하고 자매 게이트 `check-citation-drift.py`의 
 전환을 넘지 않고 상속한다. 헤더의 반증 3(`message-mapping.md`의 절 중간
 좌표계 교대)은 그 게이트의 사정거리 밖이다: 오도하는 `1933`(선행 콜론 없이
 적어 이 줄이 그 자체로 살아 있는 인용이 되지 않게 했다)과
-`collision_object.rs:420`은 그 문서의 **서로 다른 두 줄**에 있고, 그 게이트는
+`collision_object.rs:423`은 그 문서의 **서로 다른 두 줄**에 있고, 그 게이트는
 줄바꿈마다 base를 버리므로 그 인용을 애초에 주장하지 않는다.
 
 정의역이 겹치는 곳에서는 같은 판결이 돌아왔다 — 469건 전부를 열어 17건이
@@ -36495,7 +36495,7 @@ batch로 돌릴 경우다." `tools/moveit-oracle/src/oracle.cpp`를 읽으면
   Service>("compute_cartesian_path", ...)`(§282),
   `query_planner_interface`/`get_planner_params`/`set_planner_params`는
   `moveit_ros::planner_params::spawn`이 셋 다 등록하고
-  (`planner_params.rs:333-343`) `ros/moveit-ros/src/bin/move_group.rs:866`이
+  (`planner_params.rs:334-344`) `ros/moveit-ros/src/bin/move_group.rs:866`이
   실제로 호출한다(§274) — 전부 `rg`로 콜사이트를 직접 확인했다.
 
 §266은 §259보다 뒤(§266.6이 §255/§259 이후 병합 라운드의 성공

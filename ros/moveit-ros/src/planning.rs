@@ -218,7 +218,9 @@ impl TryFrom<StartState> for StartStateMsgOut {
 /// `joint_trajectory` field is representable, same gap as
 /// `RobotState.multi_dof_joint_state` (`state.rs`).
 pub struct RobotTrajectoryMsg<'m> {
+    /// Resolves `msg.joint_trajectory.joint_names` to variable indices.
     pub model: &'m RobotModel,
+    /// The wire message, unmodified.
     pub msg: moveit_msgs::RobotTrajectory,
 }
 
@@ -260,7 +262,9 @@ impl<'m> TryFrom<RobotTrajectory<'m>> for RobotTrajectoryMsgOut {
 /// Wraps the wire message with the `&RobotModel` needed by every
 /// constraint-set element conversion.
 pub struct PlanningRequestMsg<'m> {
+    /// Passed through to every constraint-set element conversion.
     pub model: &'m RobotModel,
+    /// The wire message, unmodified.
     pub msg: moveit_msgs::MotionPlanRequest,
 }
 
@@ -374,7 +378,9 @@ impl TryFrom<PlanningRequest> for PlanningRequestMsgOut {
 /// Wraps the wire message with the `&RobotModel` [`RobotTrajectoryMsg`]
 /// needs.
 pub struct PlanningResponseMsg<'m> {
+    /// Passed through to [`RobotTrajectoryMsg`].
     pub model: &'m RobotModel,
+    /// The wire message, unmodified.
     pub msg: moveit_msgs::MotionPlanResponse,
 }
 
