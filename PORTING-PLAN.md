@@ -37865,3 +37865,30 @@ falsifier 불발 — OPEN.
 11건 중 falsifier가 있는 10건은 전부 불발했고, 1건(B)은 정의상
 falsifier가 없다. 이번 라운드가 새로 닫은 것은 없다 — §320.1–§320.7의
 7건이 이 라운드의 전부다.
+
+## §324 A3 — planner-benchmark-parity 테마(§219.8/§264.12/§269.10) 12건을 오늘의 트리에 재쟀다, 전부 오늘도 참이다 (2026-08-07)
+
+대상은 세 절의 OPEN 불릿 전부다: §219.8(4건), §264.12의 OPEN 4건(다른
+회차가 §304/§295.11/§293/§286.10으로 이미 닫은 나머지 넷은 손대지
+않는다), §269.10의 OPEN 4건(다른 회차가 §303/§286.3으로 이미 닫은
+나머지 둘은 손대지 않는다). 불릿마다 오늘 실행 가능한 falsifier를
+정해 실제로 돌렸다. 12건 전부 falsifier 불발 — 오늘의 트리에서도 그
+불릿의 주장이 참이다. 그래서 본문은 한 글자도 고치지 않았고, 판정
+근거만 아래에 절마다 적는다.
+
+### §324.1 §219.8 ① — moveit `ompl_interface` 대비 비교가 없다는 것
+
+불릿: "moveit `ompl_interface` 대비 비교. 이미지에 그 패키지가 없다."
+
+falsifier: 오라클 이미지가 `moveit_planners_ompl`/`ompl_interface`를
+빌드하게 됐다면 거짓. `tools/moveit-oracle/src-digest.sh:95`의
+`ORACLE_MOVEIT2_PACKAGES` 기본값을 읽었다:
+
+```
+$ rg -n 'ORACLE_MOVEIT2_PACKAGES=' tools/moveit-oracle/src-digest.sh
+95:ORACLE_MOVEIT2_PACKAGES="${ORACLE_MOVEIT2_PACKAGES:-moveit_core moveit_resources_fanuc_description pilz_industrial_motion_planner moveit_kinematics chomp_motion_planner}"
+```
+
+다섯 패키지 중 ompl 관련은 없다. `tools/moveit-oracle/Dockerfile`도
+`ompl`을 이름으로 부르지 않는다(`rg -n 'ompl' tools/moveit-oracle/Dockerfile`
+0건). falsifier 불발 — OPEN.
