@@ -1,5 +1,0 @@
-[WARN] [1786050682.642954457] [moveit_1103926479]: exception thrown while creating node for logging: failed to create guard condition: context argument is null, at ./src/rcl/guard_condition.c:63
-[WARN] [1786050682.643001930] [moveit_1103926479]: if rclcpp::init was not called, messages from this logger may be missing from /rosout
-[INFO] [1786050682.643038917] [moveit_1103926479.moveit.core.robot_model]: Loading robot model 'panda'...
-Error:   STOMP failed to find a valid solution after 1001 iterations
-         at line 274 in ./src/stomp.cpp

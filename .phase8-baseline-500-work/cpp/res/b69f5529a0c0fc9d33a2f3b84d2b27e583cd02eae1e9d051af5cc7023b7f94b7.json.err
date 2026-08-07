@@ -1,3 +1,0 @@
-[WARN] [1786050721.165008276] [moveit_3799971597]: exception thrown while creating node for logging: failed to create guard condition: context argument is null, at ./src/rcl/guard_condition.c:63
-[WARN] [1786050721.165128731] [moveit_3799971597]: if rclcpp::init was not called, messages from this logger may be missing from /rosout
-[INFO] [1786050721.165162078] [moveit_3799971597.moveit.core.robot_model]: Loading robot model 'panda'...
