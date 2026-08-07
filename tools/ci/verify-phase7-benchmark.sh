@@ -305,6 +305,39 @@ port_aggregate() {
     }' "$1"
 }
 
+# Snapshotted HERE, before the build, and not where it is written out at the
+# end. The digest has to describe the source this run compiled; taken after the
+# measurement it describes whatever is on disk hours later instead, and an edit
+# landing mid-run -- a parallel worker, a fix to the very harness whose numbers
+# are being produced -- would be recorded as the code that ran. That record
+# then reads as current precisely when it is furthest from true.
+#
+# `|| exit 1` on the digest rather than inlining it into `printf`: a failed
+# digest must abort the run, not land in the record as an empty value that a
+# later reader would see as drift.
+# Same reason, same moment: `working_tree_dirty` and `dirty_paths` describe the
+# tree this run measured, and taken at write time they would describe the tree
+# hours of parallel work later. They also carry what the digests structurally
+# cannot -- `git status --porcelain` lists untracked files, which are invisible
+# to the index-scoped `git ls-files` inside `measured_source_digest` -- so the
+# two fields only compose if they are captured together.
+DIRTY_LIST="$(cd "$REPO_ROOT" && git status --porcelain)"
+if [[ -n "$DIRTY_LIST" ]]; then TREE_DIRTY=true; else TREE_DIRTY=false; fi
+
+if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
+    tools/ci/verify-phase7-benchmark.sh \
+    crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
+    crates/moveit-planners-sbp/examples/plan_benchmark_port.rs \
+    crates/moveit-planners-sbp/src \
+    tools/moveit-oracle/src; do
+  d="$(measured_source_digest "$f")" || exit 1
+  printf '%s %s\n' "$f" "$d"
+done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"; then
+  echo "FAIL could not digest this run's measured sources -- refusing to start a" >&2
+  echo "  measurement whose record could not say what code produced it" >&2
+  exit 1
+fi
+
 echo "=== building benchmark binaries (release) ==="
 cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
   -p moveit-planners-sbp --examples || exit 1
@@ -1103,13 +1136,9 @@ if [[ "$MODE" == "full" ]]; then
   # numbers to a tree that never produced them. `dirty_paths` says *which*
   # files, so a later reader can decide whether the difference could touch
   # these numbers instead of having to guess from a bare boolean.
-  dirty_list="$(cd "$REPO_ROOT" && git status --porcelain)"
-  if [[ -n "$dirty_list" ]]; then
-    tree_dirty=true
-  else
-    tree_dirty=false
-  fi
-
+  # `$DIRTY_LIST` / `$TREE_DIRTY` were captured before the build alongside the
+  # source digests, not here -- see that site for why.
+  #
   # `commit` can only ever name the run's *parent* when the run is what
   # produces the artifact being committed, so on its own it cannot identify
   # the code that made these numbers -- and a note saying "the commit that
@@ -1126,34 +1155,15 @@ if [[ "$MODE" == "full" ]]; then
   # If that differs from the value recorded here, the committed code is not
   # the code that ran and these figures need re-measuring.
   #
-  # `crates/moveit-planners-sbp/src` and the oracle are listed alongside the
-  # harnesses because the harnesses are not what solves these problems. The
-  # list used to name three harness files, which left every planner and oracle
-  # change invisible to `check-measured-sources-current.sh` -- the record read
-  # as current while the code that produced it had moved.
-  #
-  # `|| exit 1` on the digest rather than inlining it into `printf`: a failed
-  # digest must abort the write, not land in the record as an empty value that
-  # a later reader would see as drift.
-  if ! sources_json="$(cd "$REPO_ROOT" && for f in \
-      tools/ci/verify-phase7-benchmark.sh \
-      crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
-      crates/moveit-planners-sbp/examples/plan_benchmark_port.rs \
-      crates/moveit-planners-sbp/src \
-      tools/moveit-oracle/src; do
-    d="$(measured_source_digest "$f")" || exit 1
-    printf '%s %s\n' "$f" "$d"
-  done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"; then
-    echo "FAIL could not digest this run's measured sources -- refusing to write" >&2
-    echo "  a result file whose source map does not describe the code that ran" >&2
-    exit 1
-  fi
-
+  # `$SOURCES_JSON` was taken before the build, not here -- see the snapshot
+  # site for why the timing is the point. `crates/moveit-planners-sbp/src` and
+  # the oracle are in it because the harnesses are not what solves these
+  # problems.
   jq --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
      --arg stamp "$(cd "$REPO_ROOT" && git rev-parse HEAD)" \
-     --argjson dirty "$tree_dirty" \
-     --argjson dirty_paths "$(printf '%s' "$dirty_list" | jq -R -s 'split("\n")|map(select(length>0))')" \
-     --argjson sources "$sources_json" \
+     --argjson dirty "$TREE_DIRTY" \
+     --argjson dirty_paths "$(printf '%s' "$DIRTY_LIST" | jq -R -s 'split("\n")|map(select(length>0))')" \
+     --argjson sources "$SOURCES_JSON" \
      --argjson con "${con:-null}" \
      --argjson pins "$PINS_JSON" \
      --slurpfile checks "$checks_json" \

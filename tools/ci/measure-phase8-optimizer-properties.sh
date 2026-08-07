@@ -483,6 +483,45 @@ merge_rows() {
     }'
 }
 
+# Snapshotted HERE, before the build, and not where it is written out at the
+# end. The digest has to describe the source this run compiled; taken after the
+# measurement it describes whatever is on disk an hour later instead, and an
+# edit landing mid-run -- a parallel worker, a fix to the very harness whose
+# numbers are being produced -- would be recorded as the code that ran. That
+# record then reads as current precisely when it is furthest from true, which
+# is the failure `check-measured-sources-current.sh` exists to catch and the
+# one shape of it the gate structurally cannot see.
+#
+# `|| exit 1` on the digest, not `$(...)` inline: this script runs under
+# `set -uo pipefail` with no `-e`, so a failed digest inlined into `printf`
+# would record an empty value and the record would then disagree with the tree
+# for a reason that has nothing to do with drift.
+# Same reason, same moment: `working_tree_dirty` and `dirty_paths` describe the
+# tree this run measured, and taken at write time they would describe the tree
+# an hour of parallel work later. They also carry what the digests structurally
+# cannot -- `git status --porcelain` lists untracked files, which are invisible
+# to the index-scoped `git ls-files` inside `measured_source_digest` -- so the
+# two fields only compose if they are captured together.
+DIRTY_LIST="$(cd "$REPO_ROOT" && git status --porcelain)"
+if [[ -n "$DIRTY_LIST" ]]; then TREE_DIRTY=true; else TREE_DIRTY=false; fi
+
+if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
+    tools/ci/measure-phase8-optimizer-properties.sh \
+    tools/ci/measure-phase8-cpp-baseline.sh \
+    crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
+    crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs \
+    crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs \
+    crates/moveit-planners-chomp/src \
+    crates/moveit-planners-stomp/src \
+    tools/moveit-oracle/src; do
+  d="$(measured_source_digest "$f")" || exit 1
+  printf '%s %s\n' "$f" "$d"
+done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"; then
+  echo "FAIL could not digest this run's measured sources -- refusing to start a" >&2
+  echo "  measurement whose record could not say what code produced it" >&2
+  exit 1
+fi
+
 echo "=== building instruments (release) ==="
 cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
   -p moveit-planners-sbp -p moveit-planners-chomp -p moveit-planners-stomp \
@@ -1134,45 +1173,18 @@ printf '\n  instrument wall clock: %.1fs port, %.1fs C++ baseline (mode=%s, %s s
   "$run_seconds" "$cpp_seconds" "$MODE" "$SHARDS"
 
 if [[ "$MODE" == "full" ]]; then
-  dirty_list="$(cd "$REPO_ROOT" && git status --porcelain)"
-  if [[ -n "$dirty_list" ]]; then tree_dirty=true; else tree_dirty=false; fi
   # By content, not by revision: `commit` can only name this run's *parent*
   # when the run produces the artifact being committed. Check one entry with
   #   tools/ci/gate-lib.sh's measured_source_digest <path>
   #
-  # The planner `src` subtrees are here because the harnesses alone are not what
-  # produces these rates. This list held only the five harness and CI files, and
-  # two behavioural CHOMP fixes landed after the committed artifact was measured
-  # without `check-measured-sources-current.sh` being able to see either. A
-  # directory entry digests every tracked file beneath it, so a new module
-  # cannot slip past the way a new file would past a per-file list.
-  #
-  # `|| exit 1` on the digest, not `$(...)` inline: this script runs under
-  # `set -uo pipefail` with no `-e`, so a failed digest inlined into `printf`
-  # would record an empty value and the record would then disagree with the
-  # tree for a reason that has nothing to do with drift.
-  if ! sources_json="$(cd "$REPO_ROOT" && for f in \
-      tools/ci/measure-phase8-optimizer-properties.sh \
-      tools/ci/measure-phase8-cpp-baseline.sh \
-      crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
-      crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs \
-      crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs \
-      crates/moveit-planners-chomp/src \
-      crates/moveit-planners-stomp/src \
-      tools/moveit-oracle/src; do
-    d="$(measured_source_digest "$f")" || exit 1
-    printf '%s %s\n' "$f" "$d"
-  done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"; then
-    echo "FAIL could not digest this run's measured sources -- refusing to write" >&2
-    echo "  $RESULTS with a source map that does not describe the code that ran" >&2
-    exit 1
-  fi
-
+  # `$SOURCES_JSON` was taken before the build, not here -- see the snapshot
+  # site for why the timing is the point. The planner `src` subtrees are in it
+  # because the harnesses alone are not what produces these rates.
   jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --arg stamp "$(cd "$REPO_ROOT" && git rev-parse HEAD)" \
-        --argjson dirty "$tree_dirty" \
-        --argjson dirty_paths "$(printf '%s' "$dirty_list" | jq -R -s 'split("\n")|map(select(length>0))')" \
-        --argjson sources "$sources_json" \
+        --argjson dirty "$TREE_DIRTY" \
+        --argjson dirty_paths "$(printf '%s' "$DIRTY_LIST" | jq -R -s 'split("\n")|map(select(length>0))')" \
+        --argjson sources "$SOURCES_JSON" \
         --argjson pins "$PINS_JSON" \
         --argjson seconds "$run_seconds" \
         --argjson cpp_seconds "$cpp_seconds" \
