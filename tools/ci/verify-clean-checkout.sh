@@ -195,6 +195,52 @@ for record in "${steps[@]}"; do
   command="${command//$'\035'/$'\n'}"
 
   printf '== %s\n' "$step_name"
+
+  # A step that PROVISIONS the runner cannot be replayed here: this harness
+  # has no root and no package manager, so `sudo apt-get install -y X` fails
+  # on sudo before apt is ever reached. Running it verbatim would leave this
+  # gate permanently red on a step that is correct, and a permanently-red
+  # gate is one nobody reads.
+  #
+  # It is NOT skipped, which would be the silent no-op this repository keeps
+  # finding. It is replaced by the assertion the step exists to guarantee:
+  # every package it names must be reachable on the bare-runner PATH. That is
+  # what the later steps actually depend on, and it is a strictly stronger
+  # local check than running apt would be -- if the tool were absent, or
+  # present only on the host PATH this harness strips, this fails by name.
+  # The package-name-is-the-command assumption is asserted, not assumed: a
+  # package whose binary differs (or that installs no binary at all) fails
+  # here and has to be named explicitly rather than passing quietly.
+  if [[ "$command" == *"apt-get install"* ]]; then
+    pkgs=()
+    while IFS= read -r p; do pkgs+=("$p"); done < <(
+      printf '%s\n' "$command" | tr ' ' '\n' \
+        | sed -n '/apt-get/,$p' | grep -v -e '^-' -e '^$' \
+            -e '^apt-get$' -e '^install$' -e '^update$' -e '^sudo$' -e '^&&$')
+    if [ "${#pkgs[@]}" -eq 0 ]; then
+      printf '   FAIL\n'
+      printf '   | this step runs apt-get install but no package name was parsed out of it --\n'
+      printf '   | the assertion below would have checked nothing.\n'
+      status=1
+      continue
+    fi
+    missing=()
+    for p in "${pkgs[@]}"; do
+      PATH="$bare_bin" command -v "$p" >/dev/null 2>&1 || missing+=("$p")
+    done
+    if [ "${#missing[@]}" -eq 0 ]; then
+      printf '   PASS (provisioning step not replayed; %s reachable on the bare-runner PATH)\n' \
+             "${pkgs[*]}"
+    else
+      printf '   FAIL\n'
+      printf '   | provisioning step installs %s, but %s is not on the bare-runner PATH --\n' \
+             "${pkgs[*]}" "${missing[*]}"
+      printf '   | the steps below that need it would fail on a runner without this step.\n'
+      status=1
+    fi
+    continue
+  fi
+
   if output="$(PATH="$bare_bin" bash -e -c "$command" 2>&1)"; then
     printf '   PASS\n'
   else
