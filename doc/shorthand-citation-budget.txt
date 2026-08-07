@@ -7,7 +7,7 @@
 # written in a form no gate can check -- write `path.rs:NNN` instead.
 # Shrinking it means a shorthand was converted, which is the goal: re-freeze
 # so the lower number becomes the new ceiling.
-530	PORTING-PLAN.md
+528	PORTING-PLAN.md
 5	crates/moveit-distance-field/doc/f1-f2-f4-predictions.md
 1	crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md
 21	crates/moveit-planners-pilz/doc/mutation-audit-trajectory-blender.md
@@ -22,7 +22,7 @@
 16	doc/assertion-discrimination-ledger-p10-conversions.md
 9	doc/assertion-discrimination-ledger-p10-interpolation.md
 17	doc/assertion-discrimination-ledger-p10-setfromik.md
-14	doc/assertion-discrimination-ledger-p3-acm.md
+12	doc/assertion-discrimination-ledger-p3-acm.md
 179	doc/assertion-discrimination-ledger-p9-ros.md
 69	doc/assertion-discrimination-ledger-pilz.md
 2	doc/assertion-discrimination-round2-brief.md
