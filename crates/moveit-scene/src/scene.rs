@@ -1277,7 +1277,17 @@ impl<'m> PlanningScene<'m> {
     /// Set `id`'s color on this scene. Upstream `setObjectColor`
     /// (`:2173-2189`): also records `color` into `original_object_colors`
     /// the first time `id` gets a color at all (never overwritten after).
+    ///
+    /// A no-op, in both maps, for an empty `id` — upstream's own guard
+    /// (`:2175-2179`, `RCLCPP_ERROR` then `return`) is scoped to this one
+    /// function; `setObjectType` and `World`'s object-adding methods take
+    /// an empty id upstream without complaint, so this is not a crate-wide
+    /// "ids are non-empty" invariant to encode in the id type, just this
+    /// function's own upstream-matching boundary check.
     pub fn set_object_color(&mut self, id: &str, color: ObjectColor) {
+        if id.is_empty() {
+            return;
+        }
         self.object_colors.insert(id.to_owned(), color);
         self.original_object_colors
             .entry(id.to_owned())
@@ -2838,6 +2848,22 @@ mod tests {
             "upstream setObjectColor only records original_object_colors_ \
              the first time an id gets a color (planning_scene.cpp:2185-2188)"
         );
+    }
+
+    /// Upstream `setObjectColor` opens with `if (object_id.empty()) {
+    /// RCLCPP_ERROR(...); return; }` (`planning_scene.cpp:2175-2179`) —
+    /// unlike `setObjectType`, which has no such guard.
+    #[test]
+    fn set_object_color_with_an_empty_id_sets_nothing() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+
+        scene.set_object_color("", red());
+
+        assert!(!scene.has_object_color(""));
+        assert_eq!(scene.object_color(""), None);
+        assert_eq!(scene.original_object_color(""), None);
+        assert!(scene.known_object_colors().is_empty());
     }
 
     /// Upstream `processCollisionObjectRemove` removes 4 things per id: the
