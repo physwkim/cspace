@@ -1128,19 +1128,26 @@ fn resolve_collision_point_joint_index(
 ///   conditions in `optimize` (the `iteration_ % 10 == 0` mesh-to-mesh
 ///   check and the `!filter_mode_` collision-threshold check) are kept as
 ///   two separate, unconditionally-evaluated `if` blocks, not collapsed
-///   into `if / else if`.** Both can fire in the same pass
-///   (`chomp_optimizer.cpp:367-410`): if the first sets
-///   `num_collision_free_iterations_ = 0`, the second can still fire
-///   afterward and silently overwrite it with
-///   `max_iterations_after_collision_free_`, discarding the mesh check's
-///   immediate-break signal in favor of the threshold branch's grace
-///   period (pinned by
-///   `optimize_collision_threshold_silently_discards_mesh_to_meshs_immediate_break_signal`).
-///   That overwrite is a distinct upstream bug this port still reproduces.
+///   into `if / else if`.** Both can still fire in the same pass
+///   (`chomp_optimizer.cpp:367-410`, reachable: `iteration % 10 == 0` and
+///   `c_cost < collision_threshold` are independent conditions, both true
+///   on pass 0 with an empty env field). Upstream writes both
+///   `num_collision_free_iterations_` unconditionally, so whichever block
+///   runs second (always the threshold block, textually) silently
+///   overwrites the mesh check's `0` with `max_iterations_after_collision_free_`,
+///   discarding a ground-truth mesh-safety confirmation
+///   (`isCurrentTrajectoryMeshToMeshCollisionFree`, `:520-537`) in favor of
+///   a sphere/distance-field cost proxy's weaker one
+///   (`getCollisionCost`, `:691-`). Fixed here, not reproduced: the
+///   threshold block's write to `num_collision_free_iterations` is now
+///   conditional on the mesh check not having already confirmed safety
+///   this same pass, so the stronger signal wins regardless of which block
+///   runs first (pinned by
+///   `optimize_collision_threshold_no_longer_discards_mesh_to_meshs_immediate_break_signal`).
 ///   These same two `if` blocks used to also each call
 ///   `iteration_++`/`self.iteration += 1` independently, which could
 ///   double- or triple-advance the pass counter in one loop pass -- that
-///   part is fixed, not reproduced; see `optimize`'s own doc comment.
+///   part is also fixed, not reproduced; see `optimize`'s own doc comment.
 /// - **Dead/write-only upstream fields are not ported at all**, verified
 ///   via `rg` across the whole `chomp_motion_planner` package, not just
 ///   `chomp_optimizer.cpp`: `group_trajectory_backup_` (read only inside
@@ -1935,9 +1942,9 @@ impl<'m> ChompOptimizer<'m> {
             )?;
             full_trajectory.update_from_group_trajectory(&self.group_trajectory);
 
-            if self.iteration % 10 == 0
-                && mesh_to_mesh_collision_free(&self.start_state, &self.best_group_trajectory)
-            {
+            let mesh_confirmed_this_pass = self.iteration % 10 == 0
+                && mesh_to_mesh_collision_free(&self.start_state, &self.best_group_trajectory);
+            if mesh_confirmed_this_pass {
                 self.num_collision_free_iterations = 0;
                 self.is_collision_free = true;
                 should_break_out = true;
@@ -1945,11 +1952,34 @@ impl<'m> ChompOptimizer<'m> {
             }
 
             if !self.parameters.filter_mode && c_cost < self.parameters.collision_threshold {
-                self.num_collision_free_iterations =
-                    self.parameters.max_iterations_after_collision_free as u32;
                 self.is_collision_free = true;
                 should_break_out = true;
                 below_threshold_passes += 1;
+                // Deviation: `num_collision_free_iterations` is written here only
+                // if the mesh-to-mesh check above did not already confirm safety
+                // this same pass. Upstream (`chomp_optimizer.cpp:373`/`:410`)
+                // writes both unconditionally, so whichever block runs second
+                // wins when both fire in one pass -- reachable, since
+                // `iteration % 10 == 0` and `c_cost < collision_threshold` are
+                // independent conditions, trivially both true on pass 0 with an
+                // empty env field. Textually the threshold block runs second, so
+                // it always overwrites the mesh block's `0` with the (larger)
+                // grace period, discarding the ground-truth mesh check's
+                // "already verified, break at the next check" signal in favor of
+                // its own weaker one. `isCurrentTrajectoryMeshToMeshCollisionFree`
+                // (`chomp_optimizer.cpp:520-537`) directly validates the actual
+                // trajectory via `planning_scene_->isPathValid`; `c_cost`
+                // (`getCollisionCost`, `:691-`) is a sphere/distance-field cost
+                // sum, a proxy for the same thing computed without ever calling
+                // the mesh check. The mesh signal must win, and win regardless of
+                // which block happens to run first -- not by reordering the two
+                // (still fragile to a future reorder), but by making the write
+                // explicitly conditional on the stronger signal not already
+                // having fired.
+                if !mesh_confirmed_this_pass {
+                    self.num_collision_free_iterations =
+                        self.parameters.max_iterations_after_collision_free as u32;
+                }
             }
 
             if start_time.elapsed().as_secs_f64() > self.parameters.planning_time_limit {
@@ -3092,21 +3122,21 @@ mod tests {
     /// `num_collision_free_iterations` has two independent, non-`else`
     /// write sites (`chomp_optimizer.cpp:373`/`410`, mesh-to-mesh and
     /// collision-threshold respectively) that write *different* values
-    /// (`0` vs `parameters.max_iterations_after_collision_free`), so
-    /// whichever site runs last on a pass where both fire wins outright,
-    /// silently discarding the other -- still reproduced, see
-    /// `optimize_collision_threshold_silently_discards_mesh_to_meshs_immediate_break_signal`
-    /// below. This control test isolates the
-    /// mesh-to-mesh site alone (`filter_mode: true` disables the
-    /// collision-threshold site per `chomp_optimizer.cpp:406`'s
+    /// (`0` vs `parameters.max_iterations_after_collision_free`) on a pass
+    /// where both fire -- see
+    /// `optimize_collision_threshold_no_longer_discards_mesh_to_meshs_immediate_break_signal`
+    /// below for that same-pass case and the fix. This control test
+    /// isolates the mesh-to-mesh site alone (`filter_mode: true` disables
+    /// the collision-threshold site per `chomp_optimizer.cpp:406`'s
     /// `if (!parameters_->filter_mode_)` guard, matching the existing
     /// `optimize_runs_exactly_max_iterations_when_filter_mode_and_mesh_to_mesh_never_break_out`
     /// precedent), confirming its own `num_collision_free_iterations = 0`
     /// signal reaches the break check unmodified and breaks out after
     /// exactly one `should_break_out` pass. See
-    /// `optimize_collision_threshold_silently_discards_mesh_to_meshs_immediate_break_signal`
-    /// for the same mesh-to-mesh signal with the threshold site *not*
-    /// disabled, where the outcome differs.
+    /// `optimize_collision_threshold_no_longer_discards_mesh_to_meshs_immediate_break_signal`
+    /// for the same mesh-to-mesh signal with the threshold site also
+    /// firing, where the outcome now matches this one instead of differing
+    /// from it.
     #[test]
     fn optimize_mesh_to_mesh_alone_breaks_out_after_exactly_one_should_break_out_pass() {
         let model = chomp_collision_model();
@@ -3419,35 +3449,48 @@ mod tests {
         );
     }
 
-    /// Item 1 family sweep (this round): the same mesh-to-mesh signal as
+    /// Item 1 family sweep (an earlier round): the same mesh-to-mesh signal
+    /// as
     /// [`optimize_mesh_to_mesh_alone_breaks_out_after_exactly_one_should_break_out_pass`],
     /// but with the collision-threshold site *not* disabled (`filter_mode`
     /// at its `false` default) and an empty env field, whose `c_cost ==
     /// 0.0` is below `collision_threshold` (`0.07`) on every single pass --
     /// so the threshold site also fires every pass, including the first,
     /// where mesh-to-mesh fires too (`self.iteration % 10 == 0` at
-    /// `self.iteration == 0`).
+    /// `self.iteration == 0`). This is the reachability case: both
+    /// conditions are independent (one keys off the pass count, the other
+    /// off a computed cost) and this fixture makes both true on pass 0
+    /// without needing anything contrived.
     ///
-    /// `chomp_optimizer.cpp:373` (mesh-to-mesh) runs first and sets
+    /// `chomp_optimizer.cpp:373` (mesh-to-mesh) sets
     /// `num_collision_free_iterations_ = 0`; `chomp_optimizer.cpp:410`
-    /// (collision-threshold) runs immediately after in the *same* pass and
-    /// overwrites it to `parameters_->max_iterations_after_collision_free_`
-    /// (default `5`) -- textual order, not upstream intent, decides the
-    /// winner. Mesh-to-mesh's "break out now" signal is silently discarded:
-    /// instead of breaking after 1 `should_break_out` pass (the control
-    /// test above), the loop needs `collision_free_iteration_ > 5`, i.e. 6
-    /// such passes, one more than
-    /// `parameters.max_iterations_after_collision_free`.
+    /// (collision-threshold) runs immediately after in the *same* pass.
+    /// Upstream writes both unconditionally, so whichever runs second (the
+    /// threshold site, textually) wins and overwrites the mesh site's `0`
+    /// with `parameters_->max_iterations_after_collision_free_` (default
+    /// `5`) -- discarding a ground-truth mesh-safety confirmation
+    /// (`isCurrentTrajectoryMeshToMeshCollisionFree`, `chomp_optimizer.cpp:520-537`,
+    /// a real `planning_scene_->isPathValid` check on the actual
+    /// trajectory) in favor of a sphere/distance-field cost proxy's weaker
+    /// one (`getCollisionCost`, `:691-`, which never calls the mesh check
+    /// at all). The asymmetry in what each signal actually verifies is why
+    /// mesh must win, not just a preference: deferring to the proxy after
+    /// the real check already succeeded cannot produce new information,
+    /// only more passes for `best_group_trajectory` to be replaced by an
+    /// unverified one (the same failure mode
+    /// `optimize_corrects_is_collision_free_when_the_grace_period_expires_on_a_mesh_unsafe_trajectory`
+    /// closes at the other end, on grace-period expiry).
     ///
-    /// Silent the same way `self.iteration`'s former double-increment was
-    /// (see `optimize`'s doc comment; that one is fixed, this one is not):
-    /// `is_collision_free` ends up `true` either way (both sites agree), so
-    /// `optimize`'s caller-visible return value is unaffected -- only the
-    /// *termination point*, and the number of wasted optimization passes
-    /// after the optimizer already found a mesh-to-mesh-safe trajectory,
-    /// silently changes.
+    /// Fixed: the threshold site's write to `num_collision_free_iterations`
+    /// is now conditional on the mesh site not having already confirmed
+    /// safety this same pass, so the mesh signal wins independent of
+    /// execution order. `is_collision_free` was already `true` either way
+    /// (both sites agree, unaffected by this fix) -- what changes is the
+    /// *termination point*: this fixture now breaks after exactly 1
+    /// `should_break_out` pass, identical to the mesh-alone control test
+    /// above, instead of needing `collision_free_iteration_ > 5`.
     #[test]
-    fn optimize_collision_threshold_silently_discards_mesh_to_meshs_immediate_break_signal() {
+    fn optimize_collision_threshold_no_longer_discards_mesh_to_meshs_immediate_break_signal() {
         let model = chomp_collision_model();
         let source = chomp_full_trajectory(&model, 10);
         let start_state = RobotState::new(&model);
@@ -3464,9 +3507,9 @@ mod tests {
         };
         assert_eq!(
             parameters.max_iterations_after_collision_free, 5,
-            "this test's expected iteration/collision_free_iteration counts below are derived \
-             from the default grace period of 5; if the default ever changes, the derivation \
-             (not just the asserted numbers) must be re-checked"
+            "this test's doc contrasts the fixed outcome with what the (larger) default grace \
+             period would have produced; if the default ever changes, that contrast must be \
+             re-checked"
         );
         let mut optimizer = ChompOptimizer::new(
             &source,
@@ -3488,16 +3531,17 @@ mod tests {
             "mesh-to-mesh and collision-threshold both report collision-free"
         );
         assert_eq!(
-            optimizer.collision_free_iteration, 6,
-            "num_collision_free_iterations is silently overwritten from 0 to 5 on the pass \
-             where both sites fire, so breaking out needs collision_free_iteration > 5, not \
-             the > 0 mesh-to-mesh alone would have produced"
+            optimizer.collision_free_iteration, 1,
+            "the mesh site's num_collision_free_iterations = 0 must survive the threshold site \
+             also firing this same pass, so breaking out needs only collision_free_iteration > 0 \
+             -- a regression back to unconditional overwriting would need > 5 instead, like the \
+             pre-fix pin this test replaces"
         );
-        assert!(
-            optimizer.iteration > 1,
-            "had mesh-to-mesh's num_collision_free_iterations = 0 survived unmodified, this \
-             would have broken out after exactly 1 pass like the control test above; instead \
-             the collision-threshold site's overwrite keeps the loop running well past it"
+        assert_eq!(
+            optimizer.iteration, 0,
+            "mesh-to-mesh's num_collision_free_iterations = 0 surviving unmodified must break \
+             out after exactly 1 pass, identical to the mesh-alone control test above -- a \
+             regression to the old overwrite would run well past it"
         );
     }
 
