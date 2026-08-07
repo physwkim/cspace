@@ -37892,3 +37892,28 @@ $ rg -n 'ORACLE_MOVEIT2_PACKAGES=' tools/moveit-oracle/src-digest.sh
 다섯 패키지 중 ompl 관련은 없다. `tools/moveit-oracle/Dockerfile`도
 `ompl`을 이름으로 부르지 않는다(`rg -n 'ompl' tools/moveit-oracle/Dockerfile`
 0건). falsifier 불발 — OPEN.
+
+### §324.2 §219.8 ② — 오라클의 `plan` 연산에 제약 입력이 없다는 것
+
+불릿: "제약 조건의 C++ 대조. 오라클 `plan` 연산에 제약 입력이 없다 —
+제약 집합은 포트 단독 250건이다."
+
+falsifier: 오라클의 `plan()`이 문제별 `constraints`/`path_constraints`
+필드를 읽게 됐다면 거짓. `tools/moveit-oracle/src/oracle.cpp`의 `plan`
+루프를 열었다:
+
+```
+$ rg -n 'for .const json& problem : request' tools/moveit-oracle/src/oracle.cpp
+5816:    for (const json& problem : request.value("problems", json::array()))
+$ sed -n '5816,5824p' tools/moveit-oracle/src/oracle.cpp
+5816:    for (const json& problem : request.value("problems", json::array()))
+5817:    {
+5818:      ob::ScopedState<> start(plan_space.space);
+5819:      ob::ScopedState<> goal(plan_space.space);
+5820:      robotStateToPlanState(read_state(problem.at("start")), plan_space.layout, start.get());
+5821:      robotStateToPlanState(read_state(problem.at("goal")), plan_space.layout, goal.get());
+```
+
+문제 하나가 읽는 필드는 `start`/`goal`뿐이고 제약 키를 읽는 줄이 없다.
+`rg -n '"constraint' tools/moveit-oracle/src/oracle.cpp`도 `plan()`의
+본문(줄 5751–) 안에서는 0건이다. falsifier 불발 — OPEN.
