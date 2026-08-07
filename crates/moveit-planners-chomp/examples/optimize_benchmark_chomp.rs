@@ -99,11 +99,14 @@ const DF_SIZE: (f64, f64, f64) = (3.0, 3.0, 4.0);
 const GOAL_TOLERANCE: f64 = 0.01;
 
 /// The wall-clock bound per `solve` call when no third argument is given.
-/// `ChompParameters::planning_time_limit` bounds CHOMP's own iteration loop, so
-/// unlike STOMP this is a *second*, outer bound that should never fire; it is
-/// here so that a call which does hang is a counted failure rather than a
-/// stalled run. Matching `plan_benchmark_port`'s default keeps the two
-/// benchmarks bounded identically.
+///
+/// This is the binary's *only* budget: it is also what
+/// `ChompParameters::planning_time_limit` is set to, so CHOMP's own iteration
+/// loop and this harness stop on the same clock rather than on two. A call
+/// that hangs is therefore a counted failure rather than a stalled run, and a
+/// call that finishes is one `max_iterations` terminated. Matching
+/// `plan_benchmark_port`'s default keeps the two benchmarks bounded
+/// identically.
 const DEFAULT_TIMEOUT_SECONDS: f64 = 120.0;
 
 /// How many rejection-sampling attempts `build_injected_state` gets.
@@ -547,7 +550,30 @@ fn main() {
         .unwrap_or_else(|e| panic!("JointModelGroupSpace::new({group_name}): {e}"));
     let mut length_scratch = template.clone();
 
-    let params = ChompParameters::default();
+    // CHOMP's loop breaks out on elapsed wall clock
+    // (`ChompOptimizer::optimize`, `chomp_optimizer.cpp:421-426`), so leaving
+    // `planning_time_limit` at `ChompParameters::default()`'s 6.0 made each
+    // problem's outcome a property of how loaded this machine was --
+    // `chomp_benchmark_port.rs`'s own header measures that: 359 solved idle
+    // and 349 solved alongside a second sweep, same 500 problems, same seed.
+    //
+    // That is not survivable here, because this binary is compared against a
+    // C++ baseline `measure-phase8-cpp-baseline.sh` deliberately runs at a
+    // 3600s clock so its ITERATION bound is what terminates. The two sides
+    // were stopped by different rules, and the port's clock stops were
+    // recorded as convergence failures with nothing to tell them apart:
+    // `solve` returns `Err` when the trajectory is still in collision, and
+    // `ChompLoopTrace` -- which names `ChompExit::ClockLimit` -- rides on
+    // `ChompSolution`, so it is unreachable on exactly the runs that need it.
+    //
+    // Binding the inner clock to this harness's outer bound leaves one budget
+    // in the binary instead of two, and it is the one the run reports its
+    // timeouts against. `max_iterations` is then what terminates, as on the
+    // C++ side.
+    let params = ChompParameters {
+        planning_time_limit: timeout_seconds,
+        ..ChompParameters::default()
+    };
     let mut total = 0usize;
     let mut solved_count = 0usize;
     let mut timeout_count = 0usize;
@@ -657,9 +683,9 @@ fn main() {
         if elapsed > slowest.0 {
             slowest = (elapsed, id);
         }
-        // `ChompParameters::planning_time_limit` bounds CHOMP's own loop, so
-        // this outer bound firing means the call did not return within a
-        // budget it was supposed to respect. Counted as a failure, never as a
+        // `ChompParameters::planning_time_limit` is set to this same bound, so
+        // this firing means CHOMP's own clock break did not return control
+        // within the budget it was given. Counted as a failure, never as a
         // solve -- see `DEFAULT_TIMEOUT_SECONDS`. It is checked after the fact
         // rather than enforced by cancellation because `solve` exposes no
         // cancel handle: a call that hangs forever would hang this binary, and

@@ -108,8 +108,14 @@ RESULTS="$REPO_ROOT/doc/phase8-optimizer-properties.json"
 # Per-problem wall-clock bound. A call that hits it is a FAILURE, never a skip:
 # see each instrument's own `DEFAULT_TIMEOUT_SECONDS` for how the two planners
 # differ in what enforces it (STOMP is cancelled from outside, upstream's own
-# mechanism; CHOMP has an internal `planning_time_limit` and this is an outer
-# bound that should never fire).
+# mechanism; CHOMP sets its own `planning_time_limit` to this value, so its
+# loop and this bound stop on one clock rather than two).
+#
+# It has to be far above any per-problem time either side needs, because the
+# C++ baseline below is deliberately run at a 3600s clock so its ITERATION
+# bound terminates: a port arm stopped by a tighter clock than the arm it is
+# compared against reports the difference as a planner failure. CHOMP used to
+# be, at `ChompParameters::default()`'s 6.0.
 TIMEOUT_SECONDS=120
 
 # 125 per config x 4 configs = 500 problems per planner, the same population
