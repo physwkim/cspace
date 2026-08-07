@@ -26,13 +26,22 @@ Two rules, the same two that make the in-repo repointer safe to run:
    vouched for an assertion nobody had measured while the one it did
    measure sat in the orphan list.
 
-Column 3 is the subject column in every ledger layout in this repository.
-That is measured, not assumed: over the 1087 citations that resolve exactly
-today, 272 have a bare identifier in column 3 that names a function in the
-cited file, and in 272 of 272 that function is the site's own enclosing
-function -- zero disagreements. (The other rows name the production function
-under test, or a prose phrase like `(same test)`; both are left for a human,
-never guessed at.)
+Which part of a row names that function differs per ledger -- p3-acm puts it
+in column 3, pilz in column 4 (column 3 there names the production function
+under test), p9-ros inside a prose cell as ``:914 (`the_test_name`)``. So
+the key is not hardcoded but LEARNED per ledger, by validating candidates
+against that ledger's own citations that resolve exactly today. That
+learning now lives in the gate (`learn_keys`, `subject_mismatch` in
+reconcile-assertion-ledgers.py), because the gate is what has to REJECT a
+citation resolving into a test its row does not name; this tool imports it
+and reuses the same keys to decide where such a row belongs.
+
+The 100%-agreement bar there is not decoration. Widening the search to "any
+identifier anywhere in the row that names a function holding scanner sites"
+raises coverage from 272 to 433 of the 1087 exact citations -- and mispoints
+8, every one of them onto a SIBLING test the row's prose mentions ("same
+reasoning as ...") rather than the row's own. Coverage bought that way is how
+a ledger ends up vouching for an assertion nobody measured.
 
 Among the sites inside the named function, only ORPHAN sites are candidates:
 a site another row already accounts for must not be stolen by this one. Of
@@ -61,13 +70,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RECONCILE = ROOT / "tools/ci/reconcile-assertion-ledgers.py"
 
-# A whole cell that is one snake_case identifier, optionally backticked.
-# Anything else in column 3 -- `(same test)`, a prose phrase, two names --
-# yields no relocation key, which is the intended outcome: this tool has
-# nothing content-grounded to move that row to.
-IDENT_CELL_RE = re.compile(r"^`?([a-z_][a-z0-9_]{5,})`?$")
-FN_DEF_RE = re.compile(r"^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)")
-
 
 def load_reconcile():
     spec = importlib.util.spec_from_file_location("reconcile", RECONCILE)
@@ -76,48 +78,8 @@ def load_reconcile():
     return mod
 
 
-_fn_cache = {}
-
-
-def fn_defs(rel_path):
-    """[(line, name)] for every `fn` in a source file, in file order."""
-    if rel_path not in _fn_cache:
-        lines = (ROOT / rel_path).read_text(encoding="utf-8").splitlines()
-        _fn_cache[rel_path] = [
-            (i + 1, m.group(1)) for i, line in enumerate(lines) if (m := FN_DEF_RE.match(line))
-        ]
-    return _fn_cache[rel_path]
-
-
-def fn_span(rel_path, name):
-    """[(first_line, last_line)] for each definition of `name`. The span ends
-    at the next `fn` rather than at a matching brace: a nested `fn` inside a
-    test body would end the span early, and no ledger's subject function has
-    one. Two definitions of the same name (two `mod tests` in one file) make
-    the key ambiguous and the row is skipped."""
-    defs = fn_defs(rel_path)
-    out = []
-    for i, (line, n) in enumerate(defs):
-        if n == name:
-            end = defs[i + 1][0] - 1 if i + 1 < len(defs) else 10**9
-            out.append((line, end))
-    return out
-
-
-def row_cells(raw_row):
-    return raw_row.split("|")
-
-
-def subject_fn(raw_row):
-    cells = row_cells(raw_row)
-    if len(cells) < 5:
-        return None
-    m = IDENT_CELL_RE.match(cells[3].strip())
-    return m.group(1) if m else None
-
-
-def row_kind(raw_row):
-    cells = row_cells(raw_row)
+def row_kind(mod, raw_row):
+    cells = mod.row_cells(raw_row)
     return cells[2].strip() if len(cells) >= 3 else ""
 
 
@@ -133,49 +95,88 @@ def plan(mod):
     every unresolved citation this tool declines to move."""
     result = mod.reconcile()
     sites = result["sites"]
+    keys = mod.learn_keys(sites, result["basenames"], result["spans"])
+    for ledger, ks in sorted(keys.items()):
+        print(f"  key {ledger}: {', '.join(k.name for k in ks) or '(none validated)'}")
     orphans = set(result["orphans"])
     first_population = set(result["orphans_first"])
     moves, skipped = [], []
-    for ledger, fname_part, lineno, raw, _status, _cat, _detail in result["unresolved"]:
+    row_cache = {}
+    # Pass 1: give every unresolved citation its (source file, subject fn), or
+    # a reason it has none. Pass 2 needs the whole set at once -- see below.
+    grouped = {}
+    for ledger, fname_part, lineno, _short, _status, _cat, _detail in result["unresolved"]:
         cite = f"{ledger} -> {fname_part}:{lineno}"
-        name = subject_fn(raw)
+        if ledger not in row_cache:
+            row_cache[ledger] = mod.full_rows(ledger)
+        raw = row_cache[ledger].get((fname_part, lineno))
+        if raw is None:
+            skipped.append((cite, "no table row carries this citation"))
+            continue
+        name = next(
+            (n for k in keys.get(ledger, []) if (n := k(raw, lineno)) is not None), None
+        )
         if name is None:
-            skipped.append((cite, "column 3 is not a bare function name"))
+            skipped.append((cite, "no validated key names a function in this row"))
             continue
         files = candidate_files(mod, fname_part, sites)
         if len(files) != 1:
             skipped.append((cite, f"{len(files)} source file(s) match this citation"))
             continue
         path = files[0]
-        spans = fn_span(path, name)
+        spans = mod.fn_span(path, name)
         if len(spans) != 1:
             skipped.append((cite, f"`fn {name}` is defined {len(spans)}x in {path}"))
             continue
-        lo, hi = spans[0]
-        inside = sorted(
-            line for (p, line) in orphans if p == path and lo <= line <= hi
+        grouped.setdefault((path, name, spans[0]), []).append(
+            (ledger, fname_part, lineno, raw)
         )
+
+    # Pass 2: assign per subject function, not per citation. Two rows of one
+    # ledger citing two assertions in the same test drift together, and a
+    # citation-at-a-time loop sees "2 candidates" for each and gives up on
+    # both. With the group in hand the N-rows/N-orphans case is settled by
+    # order: an insertion above shifts every site in the function equally, so
+    # the rows' relative order is preserved even when their line numbers are
+    # not. That is a content fact about how drift happens, not a guess.
+    for (path, name, (lo, hi)), rows in sorted(grouped.items()):
+        inside = sorted(line for (p, line) in orphans if p == path and lo <= line <= hi)
+        rows.sort(key=lambda r: r[2])
+        cites = [f"{r[0]} -> {r[1]}:{r[2]}" for r in rows]
         if not inside:
-            skipped.append((cite, f"`fn {name}` holds no orphan scanner site"))
+            for c in cites:
+                skipped.append((c, f"`fn {name}` holds no orphan scanner site"))
             continue
-        first = [line for line in inside if (path, line) in first_population]
-        want = row_kind(raw)
-        same_kind = [line for line in inside if sites[(path, line)] == want]
-        if len(first) == 1:
-            new = first[0]
-        elif len(same_kind) == 1:
-            new = same_kind[0]
-        elif len(inside) == 1:
-            new = inside[0]
+        if len(rows) == len(inside) and len(rows) > 1:
+            chosen = inside
+        elif len(rows) == 1:
+            ledger, fname_part, lineno, raw = rows[0]
+            first = [line for line in inside if (path, line) in first_population]
+            want = row_kind(mod, raw)
+            same_kind = [line for line in inside if sites[(path, line)] == want]
+            if len(inside) == 1:
+                chosen = inside
+            elif len(first) == 1:
+                chosen = first
+            elif len(same_kind) == 1:
+                chosen = same_kind
+            else:
+                skipped.append(
+                    (cites[0], f"`fn {name}` holds {len(inside)} orphan sites {inside} "
+                               f"({len(first)} in the first population, {len(same_kind)} "
+                               f"of kind {want!r}) -- ambiguous")
+                )
+                continue
         else:
-            skipped.append(
-                (cite, f"`fn {name}` holds {len(inside)} orphan sites {inside} "
-                       f"({len(first)} in the first population, {len(same_kind)} of "
-                       f"kind {want!r}) -- ambiguous")
-            )
+            for c in cites:
+                skipped.append(
+                    (c, f"`fn {name}` holds {len(inside)} orphan sites {inside} for "
+                        f"{len(rows)} drifted row(s) -- ambiguous")
+                )
             continue
-        orphans.discard((path, new))
-        moves.append((ledger, fname_part, lineno, new, name))
+        for (ledger, fname_part, lineno, _raw), new in zip(rows, chosen):
+            orphans.discard((path, new))
+            moves.append((ledger, fname_part, lineno, new, name))
     return moves, skipped
 
 
