@@ -354,6 +354,7 @@ impl PathCircle {
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+    use moveit_test_support::KnownOracleDeviation;
     use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
     /// A quarter circle solved from its explicit center.
@@ -639,5 +640,56 @@ mod tests {
             path.scale_lin, 1.0,
             "scale_lin must take Path_Line's both-zero placeholder"
         );
+    }
+
+    /// [`KnownOracleDeviation`] proof that the "both zero" arm above actually
+    /// diverges from upstream's own unguarded division, not just from the
+    /// placeholder values this port chose for it.
+    ///
+    /// `oracle`/`actual` are compared as `is_nan()` booleans, not the raw
+    /// `f64`s: under IEEE 754 `NaN != NaN` unconditionally, so a raw
+    /// comparison would read "diverged" even if a regression reintroduced
+    /// the division and both sides went back to `NaN` -- exactly the
+    /// regression [`KnownOracleDeviation`] exists to catch, and the one
+    /// direction a raw-value comparison cannot catch here.
+    #[test]
+    fn scale_rot_diverges_from_upstreams_unguarded_division() {
+        let mut deviation = KnownOracleDeviation::new(
+            "PathCircle::new's \"both zero\" scale_rot",
+            "orocos_kdl/src/path_circle.cpp:86-95 (unguarded `scalerot = oalpha/pathlength`), \
+             orocos_kdl/src/path_line.cpp:67-83 (the guard KDL wrote for Path_Line but never \
+             carried across to Path_Circle)",
+            "5b1f5021",
+        );
+
+        let start = identity_pose(Vector3::new(1.0, 0.0, 0.0));
+        let goal = identity_pose(Vector3::new(1.0, 0.0, 0.0));
+        let geom = CircleGeometry {
+            center: Vector3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+            alpha: 0.0,
+            aux_point: Vector3::new(0.0, 1.0, 0.0),
+        };
+        let path = PathCircle::new(&start, &goal, &geom, 1.0, MAX_COLINEAR_NORM)
+            .expect("radius 1.0 and a non-colinear auxiliary point clear both guards");
+
+        // Upstream's own unguarded expression (path_circle.cpp:94's
+        // `scalerot = oalpha/pathlength`), evaluated with the zero
+        // `oalpha`/`dist` (upstream's `pathlength`) this geometry produces:
+        // a coincident start/goal rotation gives `oalpha == 0.0`, and
+        // `alpha == 0.0` gives `dist == geometry.alpha * radius == 0.0`.
+        // This is upstream's formula re-evaluated on those inputs, not a
+        // value read from `PathCircle::new`, which never computes this
+        // division at all.
+        let oalpha = 0.0_f64;
+        let dist = 0.0_f64;
+        let upstream_scale_rot = oalpha / dist;
+
+        deviation.observe(
+            "alpha=0.0, coincident start/goal rotation",
+            &upstream_scale_rot.is_nan(),
+            &path.scale_rot.is_nan(),
+        );
+        deviation.finish();
     }
 }
