@@ -589,9 +589,16 @@ pub struct ObjectType {
 ///   [`PlanningScene::is_state_constrained`] (`RobotState` +
 ///   `KinematicConstraintSet` form, see its own doc); the 3
 ///   `moveit_msgs`-involving overloads — D1.
-/// - `isStateValid` (5 overloads) — ported as [`PlanningScene::is_state_valid`]
-///   (`RobotState` + `KinematicConstraintSet` form); the 4
-///   `moveit_msgs`-involving overloads — D1.
+/// - `isStateValid` (5 overloads) — ported as [`PlanningScene::is_state_valid`],
+///   whose `constraints: Option<&KinematicConstraintSet>` folds in a second
+///   message-free overload the count below used to miss: `Some` is the
+///   `RobotState` + `KinematicConstraintSet` form (`:824`), and `None` is
+///   `isStateValid(RobotState, group, verbose)` (`:810`) — message-free at
+///   its own signature even though it delegates through a static empty
+///   `moveit_msgs::msg::Constraints` sentinel to reach a `moveit_msgs`-typed
+///   overload internally (`planning_scene.cpp:2283-2287`). Only the 3
+///   remaining overloads carry a `moveit_msgs` type in their own signature
+///   (`:805`, `:814`, `:819`) — D1.
 /// - `isPathValid` (8 overloads) — ported as [`PlanningScene::is_path_valid`]
 ///   (see its own doc); 7 overloads carry a `moveit_msgs` type somewhere in
 ///   their signature — D1. The remaining message-free overload
