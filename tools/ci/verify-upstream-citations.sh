@@ -46,6 +46,22 @@ cd "$REPO_ROOT"
 # Both facts -- which sources are present, and whether the caller asked for a
 # freeze -- are known only here, so this is the only place the two can be
 # checked against each other.
+#
+# "Stays in the unresolvable list, which is a declared gap" undersold it: a
+# checking run that loses a `third_party/<pkg>` tree does not just gain
+# entries in the unresolvable list, it LOSES every one of that package's rows
+# from `classes` entirely (`measure-upstream-citations.py` only records a
+# class for a citation it resolved), and every worker worktree hits this --
+# `third_party/` is gitignored and never follows a worktree. To the baseline
+# comparison a citation missing because its source is absent and a citation
+# genuinely deleted from the document are the same shape: gone from this
+# run's classes. Measured: 94 retired-class + 4 undeclared-class + 25
+# undeclared-unresolvable FAILs from a byte-identical checkout, purely from
+# `third_party/` being absent. `--missing-source PREFIX` below is how this
+# script tells `measure-upstream-citations.py` which pins it could not pass,
+# so it can exclude exactly those citations from the comparison instead of
+# reporting them as drift -- see `unresolved_citations` and
+# `source_incomplete` there for the two places that reads.
 freeze=0
 for arg in "$@"; do
   if [[ "$arg" == "--write-classes" ]]; then
@@ -128,6 +144,12 @@ for pkg in "${!THIRD_PARTY_PINS[@]}"; do
     fi
     echo "SKIP $dir not present -- its citations stay in the unresolvable list below."
     echo "SKIP this is not a pass; clone it there at $pin to cover them."
+    # `measure-upstream-citations.py` has no other way to learn this pin
+    # exists but wasn't passed: `--missing-source` is what stops it comparing
+    # this package's citations against `doc/upstream-citation-classes.txt` --
+    # a missing tree and a genuinely deleted citation are the same shape
+    # (absent from `--source`) unless told apart here.
+    sources+=(--missing-source "third_party/$pkg")
     continue
   fi
   if ! pkg_sha="$(git -C "$dir" rev-parse HEAD 2>/dev/null)"; then
