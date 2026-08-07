@@ -41,7 +41,7 @@ pattern='^\s*#!?\[\s*(allow|expect)\s*\('
 # The process substitution cannot swallow a git failure here: it would yield
 # an empty list, and `require_nonempty` fails the gate on exactly that.
 rs_files=()
-while IFS= read -r -d '' f; do rs_files+=("$f"); done < <(git ls-files -z -- '*.rs')
+while IFS= read -r -d '' f; do rs_files+=("$f"); done < <(git ls-files --deduplicate -z -- '*.rs')
 require_nonempty "${#rs_files[@]}" "tracked .rs files to search"
 
 # grep -P, not rg: this pattern is plain PCRE (\s, alternation, anchors) with
