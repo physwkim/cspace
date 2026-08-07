@@ -2165,10 +2165,12 @@ median contact.
 defect by policy; it never accumulates a per-triangle contact set at this
 layer, so the selection rule that produces the artifact does not exist here.
 **Cost of not reproducing:** measured for panda, and it accounts for 6,364 of
-the 10,715 rows behind the `distance: f64` clause `PORTING-PLAN.md` §5
-records `UNMET` (`PORTING-PLAN.md:807`, which carries the verdict and
-delegates the diagnosis to §229.3) — a majority of that miss, not the whole
-of it. §218.4's per-robot table (`PORTING-PLAN.md:17272-17276`) splits panda
+the 10,715 penetration-branch rows that `PORTING-PLAN.md` §5's `distance: f64`
+penetration row (`PORTING-PLAN.md:811`, which delegates the diagnosis to
+§229.3) does not measure — that row reads `MET` over one pair per query and
+`sphere × {sphere, box, cylinder}` only, and names meshes among what it leaves
+unmeasured pending an oracle patch. So this entry is a majority of that
+unmeasured remainder, not the whole of it. §218.4's per-robot table (`PORTING-PLAN.md:17272-17276`) splits panda
 into `self 1,225 / robot 9,490`, and the robot column again into 6,364
 same-pair value divergence — all of it the single pair `floor/panda_link0`
 — against 3,126 pair-flips (row at `:17010`). Only the 6,364 are this
