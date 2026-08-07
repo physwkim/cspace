@@ -61,8 +61,8 @@
 use std::fs;
 
 use moveit_geometry::bodies::Body;
-use moveit_geometry::{Isometry3, Shape, Vector3};
-use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion};
+use moveit_geometry::{Shape, Vector3};
+use moveit_test_support::isometry_from_row_major;
 use serde::Deserialize;
 
 const LINEAR_EPS: f64 = 1e-9;
@@ -167,17 +167,6 @@ fn load_responses() -> Vec<OracleResponse> {
     serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse body_query_response.json: {e}"))
 }
 
-/// `oracle.cpp`'s `fromRowMajor4x4`, reproduced here (see
-/// `octree_in_world_parity.rs` for the same helper).
-fn isometry_from_row_major4x4(m: &[f64; 16]) -> Isometry3 {
-    let rotation = Matrix3::new(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
-    let translation = Vector3::new(m[3], m[7], m[11]);
-    Isometry3::from_parts(
-        Translation3::from(translation),
-        UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(rotation)),
-    )
-}
-
 fn assert_close(actual: f64, expected: f64, eps: f64, ctx: &str) {
     assert!(
         (actual - expected).abs() < eps,
@@ -227,7 +216,7 @@ fn body_posed_algorithms_match_the_oracle() {
             .unwrap_or_else(|e| panic!("{ctx}: from_shape failed: {e}"))
             .unwrap_or_else(|| panic!("{ctx}: from_shape returned None for a supported shape"));
 
-        body.set_pose(isometry_from_row_major4x4(&request.pose));
+        body.set_pose(isometry_from_row_major(&request.pose));
         body.set_scale(request.scale)
             .unwrap_or_else(|e| panic!("{ctx}: set_scale failed: {e}"));
         body.set_padding(request.padding)

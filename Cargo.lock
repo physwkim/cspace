@@ -351,6 +351,7 @@ dependencies = [
  "glamx",
  "moveit-error",
  "moveit-octomap",
+ "moveit-test-support",
  "nalgebra",
  "parry3d-f64",
  "serde",
