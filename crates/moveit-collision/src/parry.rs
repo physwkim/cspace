@@ -1252,9 +1252,26 @@ const EFFECTIVELY_UNBOUNDED: f64 = 1.0e6;
 /// upper one -- a negative margin is otherwise reachable the first time a
 /// deeply-penetrating pair updates the accumulator before every pair has been
 /// visited. Clamping to `0.0` (rather than leaving the query out entirely)
-/// still finds any pair at least as penetrating, matching
-/// [`accumulate_collision`]'s own prediction-`0.0` convention for a
-/// touching-or-penetrating-only query.
+/// still finds any pair at least as penetrating, which is all a
+/// touching-or-penetrating-only prediction can be asked to do; this is not,
+/// and does not need to be, the same value [`accumulate_collision`] passes
+/// -- that function has no running accumulator to protect and always queries
+/// at a literal `0.0`, while this one's argument tracks whatever the current
+/// sweep has found so far. The two functions' *tie verdict* is unified by
+/// [`touches_at_tie`], which both now call on the `Contact::dist` this
+/// clamp only shapes the search radius for -- not by their prediction
+/// arguments matching, which they do not and are not meant to.
+///
+/// Neither clamp is dead code: every [`DistanceRequestType`] variant's
+/// threshold traces back to [`DistanceRequest::distance_threshold`]'s
+/// `f64::MAX` default at least once (`Global` and `Single` on a pair whose
+/// running bound/bucket is not yet set; `Limited`/`All` on every pair, since
+/// they read it directly), so the upper clamp fires on every real query this
+/// crate has ever run (`rg -n distance_threshold` outside this file finds no
+/// caller that overrides the default). The lower clamp fires whenever
+/// `Global`'s running minimum, or `Single`'s per-key bucket, has already
+/// gone negative from an earlier pair in the same sweep -- ordinary, not
+/// hypothetical, the moment a query touches more than one penetrating pair.
 fn bounded_prediction(threshold: f64) -> f64 {
     threshold.clamp(0.0, EFFECTIVELY_UNBOUNDED)
 }
@@ -2141,9 +2158,9 @@ fn tangency_kind(shape: &dyn parry3d_f64::shape::Shape) -> Option<TangencyKind> 
     }
 }
 
-/// Whether either shape in the pair is a mesh. Consulted only where
-/// [`fcl_tangency_verdict`] is used at `dist == 0.0` in [`accumulate_collision`]
-/// — not in that function's `None`-but-touching branch, whose
+/// Whether either shape in the pair is a mesh. Consulted only from
+/// [`touches_at_tie`]'s rounding band, alongside [`fcl_tangency_verdict`] —
+/// not in [`accumulate_collision`]'s `None`-but-touching branch, whose
 /// [`query::intersection_test`] fallback exists specifically for a
 /// *specialised closed-form* routine excluding a boundary its own geometric
 /// test admits (`contact_ball_ball`'s strict `<`; see
@@ -2176,6 +2193,76 @@ fn fcl_tangency_verdict(
     )
 }
 
+/// The larger of the two shapes' AABB half-extent (the largest single
+/// component of either half-extent vector, so an anisotropic shape's scale
+/// follows its longest axis rather than its shortest) — the same
+/// `compute_aabb` call [`cost_sources_for_part_pair`] already makes for its
+/// own overlap test, reused here rather than a second, independent notion of
+/// "how big is this pair" ([`touches_at_tie`]'s own doc has the reason it
+/// needs one at all).
+fn tie_scale(
+    a_pose: &Pose,
+    a_shape: &dyn ParryShape,
+    b_pose: &Pose,
+    b_shape: &dyn ParryShape,
+) -> f64 {
+    let half_extent_max = |aabb: &Aabb| aabb.half_extents().max_element();
+    half_extent_max(&a_shape.compute_aabb(a_pose))
+        .max(half_extent_max(&b_shape.compute_aabb(b_pose)))
+}
+
+/// How many multiples of `f64::EPSILON * `[`tie_scale`]` a measured `dist`
+/// may sit away from zero and still be [`touches_at_tie`]'s "exact tie"
+/// case, rather than a real signed distance this crate can trust the sign
+/// of directly.
+///
+/// Measured, not chosen — `tie_rounding_margin_clears_measured_ties_and_does_not_swallow_a_real_delta`
+/// (below) is the derivation, run fresh on every test invocation rather than
+/// trusted as a one-time reading: the largest rounding this crate has found
+/// at a genuine exact tie, across every [`TangencyKind`] pair and five
+/// orders of magnitude of scale, is `1.92` `EPS * scale` units
+/// (`cylinder x cylinder`); `16.0` sits comfortably above that without
+/// reaching anywhere close to `query::contact`'s own reach before it starts
+/// answering `None` (on the order of `1e6`-`1e7` `EPS * scale`, matching
+/// `parry3d_f64::query::gjk::gjk::eps_tol`'s `10.0 * f64::EPSILON`
+/// convergence tolerance) — the pinning test's own doc has the two-sided
+/// reasoning and the numbers.
+const TIE_ROUNDING_MARGIN: f64 = 16.0;
+
+/// The single rule [`accumulate_collision`] and [`accumulate_distance`] both
+/// consult for "does this pair, at this measured `dist`, count as touching":
+/// within [`TIE_ROUNDING_MARGIN`] `* f64::EPSILON * `[`tie_scale`]` of zero,
+/// `dist`'s own sign is GJK's rounding on what is geometrically an exact
+/// tie, not a real answer, so [`is_mesh_pair`]/[`fcl_tangency_verdict`]
+/// decide instead; outside that band, `dist`'s sign is trusted directly.
+///
+/// This replaces two independent rules that happened to agree until they
+/// did not: `accumulate_collision` special-cased literal `dist == 0.0`
+/// (unreachable for most of the pairs that are geometrically tangent — GJK's
+/// own iteration rounds a true `0.0` to a nonzero value far more often than
+/// not, see the constant's own doc) and treated every other `Some` as a
+/// touch regardless of sign; `accumulate_distance` used `dist <= 0.0`
+/// directly, with no tie case at all. Two owners of the same question is an
+/// edge factory by construction — this crate's own `octree_world_collision_
+/// parity.rs` case 4 and `exact_tangency_boundary.rs`'s prbt fixture already
+/// disagree with each other on which side of `0.0` an exactly-touching pair
+/// lands, so a rule keyed on the literal bit pattern was never going to
+/// generalise. One helper, one answer, called from both places.
+fn touches_at_tie(
+    dist: f64,
+    a_pose: &Pose,
+    a_shape: &dyn ParryShape,
+    b_pose: &Pose,
+    b_shape: &dyn ParryShape,
+) -> bool {
+    let scale = tie_scale(a_pose, a_shape, b_pose, b_shape);
+    if dist.abs() <= TIE_ROUNDING_MARGIN * f64::EPSILON * scale {
+        is_mesh_pair(a_shape, b_shape) || fcl_tangency_verdict(a_shape, b_shape).unwrap_or(true)
+    } else {
+        dist <= 0.0
+    }
+}
+
 /// `collisionCallback`'s per-pair algorithm (see the module doc, deviations
 /// 4 and 5, and "Attached-body geometry"), folded over every candidate pair:
 ///
@@ -2185,16 +2272,16 @@ fn fcl_tangency_verdict(
 ///   after it — it can override any other ACM outcome, including `Never` or
 ///   no entry, matching upstream's own evaluation order.
 /// - Real contact found (`parry3d_f64::query::contact`, prediction `0.0`,
-///   so only touching/penetrating pairs yield `Some`), off the exact tie
-///   (`contact.dist != 0.0`), and [`AllowedCollision::Conditional`]: the
+///   so only touching/penetrating pairs yield `Some`), [`touches_at_tie`]
+///   says the pair touches, and [`AllowedCollision::Conditional`]: the
 ///   predicate decides — rejected (`false`) is a collision, accepted
 ///   (`true`) is silently not.
-/// - Real contact found off the exact tie, and [`AllowedCollision::Never`]
-///   or no entry: unconditionally a collision.
-/// - Real contact found exactly at the tie (`contact.dist == 0.0`):
-///   [`fcl_tangency_verdict`]/[`is_mesh_pair`] decide whether the pair
-///   touches at all before the two rules above ever run — see their own
-///   docs and [`TangencyKind`].
+/// - Real contact found, `touches_at_tie` says touching, and
+///   [`AllowedCollision::Never`] or no entry: unconditionally a collision.
+/// - Real contact found but `touches_at_tie` says not touching (a real
+///   clearance `query::contact`'s own margin still reported, or a rounding
+///   tie the dispatch table says this shape pair does not collide at):
+///   no collision, regardless of the ACM entry.
 /// - No contact, but the pair classifies into [`TangencyKind`] as one the
 ///   table says collides, is not [`AllowedCollision::Conditional`], and
 ///   [`query::intersection_test`] independently confirms they touch:
@@ -2249,26 +2336,9 @@ fn accumulate_collision<'a>(
                 // across a small positive gap too: measured on prbt's base
                 // cylinder against a `4x4x0.1` box, a `3e-8 m` gap yields `Some`
                 // and a `1e-7 m` gap yields `None`, so the effective boundary sits
-                // near `5e-8 m` of clear air rather than at zero.
+                // near `5e-8 m` of clear air rather than at zero -- far above
+                // `touches_at_tie`'s own band, so this margin is untouched by it.
                 //
-                // A blanket sign check was tried and reverted, because upstream
-                // is not uniform at exact contact and the margin is what absorbs
-                // the difference away from it. `fcl::collide` dispatches per
-                // shape pair: `octree_world_collision_response.json` case 4 --
-                // an octree leaf whose `-x` face lands exactly on the robot
-                // box's `+x` face -- comes back `robot_collision: true,
-                // robot_distance: -0.0`, while prbt's cylinder resting exactly
-                // on a box comes back `false` with the `-1.0` sentinel
-                // (`doc/upstream-bugs.md`,
-                // `fcl-distance-sentinel-survives-zero-contacts`). `parry` puts
-                // that octree pair a hair *above* zero, so a strict `dist > 0.0`
-                // guard turns case 4 into a parity failure while changing
-                // nothing about prbt, whose tie already lands at
-                // `-2.775558e-17`, not exactly `0.0` -- which is why the exact
-                // dispatch table below leaves both of those cases alone: it is
-                // reached only at `dist == 0.0` exactly.
-                // `crates/moveit-collision/tests/exact_tangency_boundary.rs` pins
-                // both ends of this as measurements rather than intentions.
                 // Independent of `is_collision`, below: `collision_common.cpp`
                 // computes cost sources unconditionally once a real contact is
                 // found, whether or not `AllowedCollision::Conditional`'s own
@@ -2283,19 +2353,24 @@ fn accumulate_collision<'a>(
                     }
                 }
                 let mut c = to_contact(&contact, &a.name, a.body_type, &b.name, b.body_type);
-                // Off the exact tie (either sign) a `Some` is unconditionally a
-                // touch, unchanged from above `contact.dist == 0.0` did not
-                // exist as a case: §229.2's positive margin and octree case 4
-                // both depend on that staying true. Only an exact-zero gap asks
-                // what shape pair this is -- fcl's own dispatch decides there,
-                // via `fcl_tangency_verdict`, mesh via `is_mesh_pair` ahead of
-                // it since mesh is not in that table (see its doc).
-                let touches = if contact.dist == 0.0 {
-                    is_mesh_pair(a_shape, b_shape)
-                        || fcl_tangency_verdict(a_shape, b_shape).unwrap_or(true)
-                } else {
-                    true
-                };
+                // `touches_at_tie` decides this, not a literal `dist == 0.0`
+                // check: `fcl::collide` dispatches per shape pair --
+                // `octree_world_collision_response.json` case 4 (an octree
+                // leaf whose `-x` face lands exactly on the robot box's `+x`
+                // face) comes back `robot_collision: true, robot_distance:
+                // -0.0`, while prbt's cylinder resting exactly on a box comes
+                // back `false` with the `-1.0` sentinel (`doc/upstream-bugs.md`,
+                // `fcl-distance-sentinel-survives-zero-contacts`) -- and
+                // `parry` does not land on `0.0` exactly for most of these
+                // ties either (`crate::TIE_ROUNDING_MARGIN`'s own doc has the
+                // measurement); `parry` puts the octree pair a hair *above*
+                // zero and prbt's at `-2.775558e-17`, both well inside
+                // `touches_at_tie`'s rounding band, so both still reach the
+                // table rather than falling through to a raw sign check that
+                // would get one of them wrong.
+                // `crates/moveit-collision/tests/exact_tangency_boundary.rs` pins
+                // both ends of this as measurements rather than intentions.
+                let touches = touches_at_tie(contact.dist, a_pose, a_shape, b_pose, b_shape);
                 let is_collision = touches
                     && match allowed {
                         Some(AllowedCollision::Conditional(ref predicate)) => !predicate(&mut c),
@@ -2499,7 +2574,14 @@ fn accumulate_distance<'a>(
             if data.distance < result.minimum_distance.distance {
                 result.minimum_distance = data.clone();
             }
-            if data.distance <= 0.0 {
+            // `touches_at_tie` on the raw `contact.dist`, not `data.distance`:
+            // `enable_signed_distance == false` clamps `data.distance` to
+            // `contact.dist.max(0.0)` above, which would otherwise turn every
+            // negative rounding tie into an unconditional `<= 0.0` match here
+            // regardless of the margin -- the same two-owners problem
+            // `touches_at_tie`'s own doc describes, reappearing between this
+            // clamp and the check rather than between the two functions.
+            if touches_at_tie(contact.dist, a_pose, a_shape, b_pose, b_shape) {
                 result.collision = true;
             }
             match request.request_type {
@@ -5325,5 +5407,146 @@ mod tests {
                 .expect("cuboid/compound is dispatched"),
             "intersection_test is exactly `gap <= 0` and must reject this pair"
         );
+    }
+
+    /// [`TIE_ROUNDING_MARGIN`]'s own evidence: reproduces
+    /// `exact_tangency_is_decided_per_shape_pair.rs`'s construction (every
+    /// [`TangencyKind`] pair, both orders, tangent at `delta == 0.0`) at five
+    /// scales spanning five orders of magnitude, and pins both margins the
+    /// constant has to clear.
+    ///
+    /// Upper margin: every one of those genuine exact ties -- GJK's own
+    /// rounding on a `dist` whose true value is `0.0` -- must measure under
+    /// the constant. The largest observed here is `1.92` (`cylinder x
+    /// cylinder`, scale `50.0`); four pairs this crate has documented before
+    /// (`box x cylinder`, `cylinder x box`, `box x cone`, `cone x box`) also
+    /// show it, all under `1`. `TIE_ROUNDING_MARGIN`'s `16.0` is set above
+    /// that measurement, not equal to it, so a marginally worse rounding
+    /// case on a shape or scale this sweep does not cover still clears the
+    /// bound rather than silently reclassifying as a real distance.
+    ///
+    /// Lower margin: a delta an order of magnitude above the constant must
+    /// still measure as *itself*, not get rounded away into the tie bucket.
+    /// `160.0 * f64::EPSILON * scale` on `box x cylinder` (one of the four
+    /// pairs with nonzero rounding at `delta == 0.0`, so the hardest case to
+    /// keep distinct) is confirmed close to its injected value at every
+    /// scale tried -- proving the margin has not silently drifted wide
+    /// enough to swallow a real, if tiny, clearance.
+    ///
+    /// What this file's own measurement found and the margin does *not* try
+    /// to encode: there is no wide, empty gap between "rounding noise" and
+    /// "a real clearance report" the way a first read of this constant's
+    /// name might suggest. `dist` tracks an injected delta accurately from
+    /// a few `EPS * scale` up through roughly `1e6`-`1e7` `EPS * scale`
+    /// (`query::contact`'s own reach before it starts returning `None`,
+    /// matching the order of `parry3d_f64::query::gjk::gjk::eps_tol`'s
+    /// `10.0 * f64::EPSILON` convergence tolerance) -- a continuum, not two
+    /// separated clusters. `TIE_ROUNDING_MARGIN` only has to sit above the
+    /// rounding ceiling and below anything this crate treats as a
+    /// meaningfully different clearance (§229.2's own `~5e-8 m` positive
+    /// margin, itself far above `16.0 * EPS * scale` for any shape size this
+    /// workspace builds), not at the edge of a cliff either side of it.
+    ///
+    /// Separately and not part of this bound at all: an isolated,
+    /// reproducible `query::contact` anomaly exists for `cylinder x box`/
+    /// `cone x box` at `scale == 500.0`, `delta` in roughly `[2.6, 3.55] *
+    /// EPS * scale` -- `dist` comes back `-4.08`, seven-plus orders of
+    /// magnitude too large, instead of the near-zero value every
+    /// neighbouring `delta` in that sweep produces. No `TIE_ROUNDING_MARGIN`
+    /// choice can route around it (the reported magnitude is nowhere near
+    /// any sane margin, in either direction), and it does not regress
+    /// anything this change touches: `dist <= 0.0` misjudges that pair
+    /// identically before and after, since old code took *any* `Some` as a
+    /// touch regardless of `dist`'s value. Filed as a `parry3d_f64`
+    /// numerical-robustness gap, not this crate's dispatch logic, and out of
+    /// this change's scope.
+    #[test]
+    fn tie_rounding_margin_clears_measured_ties_and_does_not_swallow_a_real_delta() {
+        #[derive(Clone, Copy, Debug)]
+        enum K {
+            Box,
+            Sphere,
+            Cylinder,
+            Cone,
+        }
+        impl K {
+            fn shape(self, half: f64) -> Shape {
+                match self {
+                    K::Box => {
+                        Shape::Cuboid(Cuboid::new(2.0 * half, 2.0 * half, 2.0 * half).unwrap())
+                    }
+                    K::Sphere => Shape::Sphere(Sphere::new(half).unwrap()),
+                    K::Cylinder => {
+                        Shape::Cylinder(moveit_geometry::Cylinder::new(half, 2.0 * half).unwrap())
+                    }
+                    K::Cone => Shape::Cone(moveit_geometry::Cone::new(half, 2.0 * half).unwrap()),
+                }
+            }
+            fn name(self) -> &'static str {
+                match self {
+                    K::Box => "box",
+                    K::Sphere => "sphere",
+                    K::Cylinder => "cylinder",
+                    K::Cone => "cone",
+                }
+            }
+        }
+        const KINDS: [K; 4] = [K::Box, K::Sphere, K::Cylinder, K::Cone];
+        // Five orders of magnitude, matching this constant's own doc.
+        const SCALES: [f64; 5] = [0.005, 0.05, 0.5, 50.0, 500.0];
+        let cache = OctreeCache::default();
+
+        let pair_at = |half: f64, upper: K, lower: K, delta: f64| {
+            let (u, u_fix) = convert_shape(&upper.shape(half), &cache).expect("converts");
+            let (l, l_fix) = convert_shape(&lower.shape(half), &cache).expect("converts");
+            let u_pose = to_pose(Isometry3::translation(0.0, 0.0, 2.0 * half + delta) * u_fix);
+            let l_pose = to_pose(Isometry3::translation(0.0, 0.0, 0.0) * l_fix);
+            let scale = tie_scale(&u_pose, &*u, &l_pose, &*l);
+            let dist = query::contact(&u_pose, &*u, &l_pose, &*l, 0.0)
+                .expect("dispatched")
+                .map(|c| c.dist);
+            (dist, scale)
+        };
+
+        // Upper margin: no genuine exact tie may reach the constant.
+        let mut worst: Option<(f64, K, K, f64)> = None;
+        for &half in &SCALES {
+            for upper in KINDS {
+                for lower in KINDS {
+                    let (dist, scale) = pair_at(half, upper, lower, 0.0);
+                    let Some(dist) = dist else { continue }; // sphere x sphere: strict `<`, no Some
+                    let units = dist.abs() / (f64::EPSILON * scale);
+                    if worst.is_none_or(|(w, ..)| units > w) {
+                        worst = Some((units, upper, lower, half));
+                    }
+                }
+            }
+        }
+        let (worst_units, upper, lower, half) = worst.expect("at least one pair measured");
+        assert!(
+            worst_units < TIE_ROUNDING_MARGIN,
+            "{} x {} at scale {half:e} measured {worst_units:e} EPS*scale of rounding at an \
+             exact tie, at or above TIE_ROUNDING_MARGIN ({TIE_ROUNDING_MARGIN:e}) -- widen the \
+             margin (with a new doc citation) or investigate why rounding got worse",
+            upper.name(),
+            lower.name(),
+        );
+
+        // Lower margin: a real delta an order of magnitude above the margin
+        // must not be rounded away into the tie bucket, on the pair hardest
+        // to tell apart from one (it already has nonzero rounding at
+        // delta == 0.0).
+        for &half in &SCALES {
+            let delta = 10.0 * TIE_ROUNDING_MARGIN * f64::EPSILON * half;
+            let (dist, scale) = pair_at(half, K::Box, K::Cylinder, delta);
+            let dist = dist.expect("a real positive gap this small still returns Some (§229.2)");
+            let relative_error = ((dist - delta) / delta).abs();
+            assert!(
+                relative_error < 0.05,
+                "box x cylinder at scale {half:e}: injected delta {delta:e}, measured dist \
+                 {dist:e} (scale {scale:e}) -- a real delta ten margins above \
+                 TIE_ROUNDING_MARGIN must be reported close to itself, not rounded toward zero"
+            );
+        }
     }
 }

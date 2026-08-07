@@ -126,7 +126,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `collision-callback-logs-contact-stored-when-dropped` | not-reproduced |
 | `check-collision-unpadded-discards-its-own-request-copy` | not-reproduced |
 | `distance-callback-threshold-suppresses-deeper-pairs` | not-reproduced |
-| `shape-intersect-tangency-follows-libccd-dispatch` | not-reproduced |
+| `shape-intersect-tangency-follows-libccd-dispatch` | reproduced-deliberately |
 | `psm-topic-header-comments-claim-absolute-names` | not-reproduced |
 | `execute-trajectory-accepts-cancels-it-never-acts-on` | not-reproduced |
 | `execute-trajectory-drops-its-own-failure-explanation` | not-reproduced |
@@ -2549,7 +2549,7 @@ they occur together (`PORTING-PLAN.md` §247 classifies each flip); on fanuc's
 robot side this one occurs alone, with the two sides agreeing on the suppressing
 pair to `9.93e-16`.
 
-### `shape-intersect-tangency-follows-libccd-dispatch` — a gap of exactly zero collides or not by which narrowphase the shape pair dispatches to, not by the geometry — not-reproduced
+### `shape-intersect-tangency-follows-libccd-dispatch` — a gap of exactly zero collides or not by which narrowphase the shape pair dispatches to, not by the geometry — reproduced-deliberately
 
 **Upstream:** fcl, a separate project from `moveit2` and a dependency of it, so
 it is named the way `kdl-path-circle-nan-scale-rot` names `third_party/` and
@@ -2612,43 +2612,52 @@ maps `shapes::MESH` to
 `fcl::BVHModel<BV>`, a third traversal that is neither. At `±1e-9` all 16 cells
 are uniform (`false` at clearance, `true` at overlap), so the split is confined
 to the exact tie.
-**Status:** `not-reproduced`. `parry` has no equivalent registration table, and
-this port asks `query::contact` with a prediction of `0.0` and treats any `Some`
-as a collision, so 24 of the 25 shape pairs it can build collide at exact
-tangency. It is not uniform either: `parry`'s one relevant specialisation,
-`contact_ball_ball`
-(`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs:316` →
-`parry3d-f64-0.30.0/src/query/contact/contact_ball_ball.rs:16`), admits a pair on a *strict* `<`,
-so `sphere × sphere` at a gap of exactly zero is the one cell that does not
-collide — the mirror image of fcl's split, since `parry`'s generic
-`gjk::closest_points` rejects on `min_bound > max_dist`
-(`parry3d-f64-0.30.0/src/query/gjk/gjk.rs:411`)
-and so *includes* the boundary. Of the 48 (pair, offset) cells both sides can
-build, 6 disagree: `sphere × sphere` at the tie (upstream `true` via
-`sphereSphereIntersect`, this port `false`), and `box × cylinder` /
-`cylinder × box` at both `+1e-9` and the tie plus `cylinder × cylinder` at the
-tie (upstream `false` via generic libccd, this port `true`). Making the port
-uniform is not attempted: it needs either a positive prediction — an epsilon
-with no upstream to size it against, on top of the positive margin
-`exact_tangency_boundary.rs` already measures — or a per-pair branch, which is
-the structure that produced the defect in both libraries. Gating on
-`contact.dist <= 0.0` was tried and reverted (see `exact_tangency_boundary.rs`'s
-module doc: it breaks octree case 4).
-**Deviation:** none of `D1`..`D14` applies. The port is not routing around the
-defect by policy; it never had a per-shape-pair dispatch table to disagree with
-itself through.
-**Cost of not reproducing:** measured, and it is `PORTING-PLAN.md` §5 Phase 3's
-`collision: bool` clause on prbt — 6,854 of 10,000 sampled states. `prbt_base_link`'s
-collision cylinder bottom face is at exactly `z = 0` and `tools/moveit-diff`'s
-floor box top face is at exactly `z = 0`, and no joint value moves the base
-link, so every sampled state presents the same `cylinder × box` tie — a
-generic-libccd cell, where upstream says `false` and this port says `true`.
-No tolerance closes it, because `bool` has none; adopting upstream's answer for
-that one pair would mean adopting the dispatch table, since the neighbouring
-`sphere × box` tie has to stay `true` at the same time. The octree side is the
-same defect seen from the other cell: `octree_world_collision_response.json`
-case 4 is a leaf face on a box face, a *specialised* pair, where upstream says
-`true` — and this port already agrees there.
+**Status:** `reproduced-deliberately`. `parry` gained an equivalent
+registration table: `crates/moveit-collision/src/parry.rs`'s `touches_at_tie`
+now consults `fcl_tangency_table::SPECIALISED` — the same table this entry's
+probe re-derives — within a rounding band around the tie
+(`TIE_ROUNDING_MARGIN`), in place of the old unconditional `dist != 0.0 =>
+collide` fallback. Pinned by `exact_tangency_is_decided_per_shape_pair.rs`'s
+`TANGENT`/`CLEARANCE` tables (now equal to `SPECIALISED` extended with mesh's
+all-true row/col) and by `parry.rs`'s own
+`tie_rounding_margin_clears_measured_ties_and_does_not_swallow_a_real_delta`.
+Of the 6 disagreeing cells measured above, 5 now agree: `box × cylinder` /
+`cylinder × box` at both `+1e-9` and the tie, and `cylinder × cylinder` at
+the tie. `sphere × sphere` at the tie does not, and cannot from this fix:
+`contact_ball_ball`'s strict `<` (cited above) means `query::contact` never
+returns a `Contact` for that pair at the tie, so there is no `dist` for
+`touches_at_tie` to classify — re-confirmed in this tree, `sphere × sphere`
+is the one pair the margin test's own sweep skips with `None` at every scale
+tried. That is `parry3d-f64`'s routine, a distinct defect from the one this
+entry names, and this fix does not reach it. Reproducing fcl's split rather
+than overriding it is the right call for the same reason
+`totg-velocity-step-function` gives: it is upstream's own observable
+behaviour, and `PORTING-PLAN.md` §5 Phase 3's `collision: bool` clause is
+built on matching it — see Cost below.
+**Deviation:** none of `D1`..`D14` applies. The port is not routing around
+the defect by policy: 5 of the 6 measured cells are answered correctly by
+adopting upstream's own dispatch table, and the 6th (`sphere × sphere`) stays
+open because a different library routine, not a policy choice, keeps it from
+ever reaching this port's table at all.
+**Cost of reproducing:** none currently measured against a committed
+fixture. `sphere × sphere` at an exact, zero-measure tie is the one cell this
+now answers differently from a hypothetical strict-sign-only port, and no
+committed URDF places two spheres tangent to machine precision, so nothing in
+this workspace's parity suite exercises it. Historically, *not* reproducing
+cost `PORTING-PLAN.md` §5 Phase 3's `collision: bool` clause on prbt — 6,854
+of 10,000 sampled states, entirely the `cylinder × box` tie described above,
+since `prbt_base_link`'s collision cylinder bottom face and
+`tools/moveit-diff`'s floor box top face are both at exactly `z = 0` and no
+joint value moves the base link. Re-measured after this fix with
+`tools/ci/verify-phase3-collision-sweep.sh`'s own invocation (`moveit-diff
+--collision --cases 10000 --seed 1`, prbt only, 2026-08-07): `bool_disagrees:
+0` of `10000`. `PORTING-PLAN.md` §218.3's own table and prose still read the
+pre-fix count as of this writing. The octree side was always the same defect
+seen from the other cell and needed no change: `octree_world_collision_response.json`
+case 4 is a leaf face on a box face, a *specialised* pair, where upstream
+says `true` — its shape converts to a `Compound`, which
+`fcl_tangency_verdict` does not classify, so it still falls back to `true`
+unchanged.
 
 ### `psm-topic-header-comments-claim-absolute-names` — six of `PlanningSceneMonitor`'s seven default-topic constants are documented with a leading slash their definitions do not have — not-reproduced
 
