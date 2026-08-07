@@ -42,31 +42,35 @@ require_nonempty "${#sh_files[@]}" "tracked .sh files to search"
 
 # Global disables, never per-site (a per-site `# shellcheck disable=` reaches
 # green by hiding the one instance a reviewer can see instead of the
-# structural cause). Both codes below are noise this codebase's own
-# conventions produce, not defects:
+# structural cause). The three codes below are noise this codebase's own
+# conventions produce, not defects. Note that a comment line beginning
+# `# shellcheck ` is itself parsed as a directive -- keep prose about a
+# code off the start of a line, or this file fails its own check.
 #
-# SC1091 (not following: FILE was not specified as input) -- every gate here
-# sources tools/ci/gate-lib.sh (and several source
-# tools/moveit-oracle/src-digest.sh) as `. "$REPO_ROOT/tools/ci/gate-lib.sh"`,
-# where REPO_ROOT is resolved at runtime from `${BASH_SOURCE[0]}`. shellcheck
-# cannot statically follow a path built from a runtime variable, so this
-# fires on nearly every one of the 59 tools/ci/ scripts regardless of
-# whether the sourced file is correct. Per-site `source=` directives are the
-# documented escape for this, but this codebase intentionally resolves
-# REPO_ROOT dynamically rather than hardcoding it (so a script keeps working
-# from any worktree), and requiring every one of ~60 call sites to carry a
-# directive naming a path that already appears one line above it is the
-# per-site burden this exclusion avoids -- see this file's own header for why
-# a global, stated reason is preferred over scattering suppressions.
+# SC1091 (not following: FILE was not specified as input) -- 13 occurrences
+# in 12 files, measured on the corpus this gate actually passes. Nine are
+# `tools/ci/` scripts sourcing gate-lib.sh as
+# `. "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"`, plus
+# `tools/mpr-vs-epa/build.sh` reaching it as `"$HERE/../ci/gate-lib.sh"`;
+# A path built from a runtime expression is one that cannot be followed
+# statically. The remaining two are `ros/entrypoint.sh` and
+# `tools/moveit-oracle/entrypoint.sh` sourcing `/ws/install/setup.bash`, an
+# absolute path that exists only inside the oracle image -- no `source=`
+# directive can resolve a file that is not in this tree at all.
 #
-# SC2154 (VAR is referenced but not assigned) -- `gate-lib.sh` and
-# `src-digest.sh` are sourced for the functions and variables they define
-# (`require_nonempty`, `require_caller_tree`, `ORACLE_MOVEIT2_SHA`, ...).
-# Because SC1091 above already means shellcheck cannot see into those files
-# from a call site that sources them dynamically, it also cannot see that
-# names used afterward were assigned there, and reports them as unassigned
-# under this codebase's near-universal `set -u`. Fixing the SC1091 cause
-# fixes this one too; they are one structural cause, not two.
+# The nine-plus-one gate-lib sites COULD each carry
+# `# shellcheck source=tools/ci/gate-lib.sh`, and those directives do
+# resolve (the 16 existing `source=` directives for src-digest.sh prove it:
+# they report "was not specified as input", which is shellcheck declining to
+# follow an external file, not failing to find one). Retiring this exclusion
+# in favour of ten directives is open work, not a settled preference.
+#
+# An earlier version of this comment claimed SC1091 "fires on nearly every
+# one of the 59 tools/ci/ scripts"; it fires on nine of sixty. It also
+# excluded SC2154 on the theory that an unfollowable source makes the names
+# it defines read as unassigned -- SC2154 has zero occurrences across all 75
+# tracked `.sh` files, so that exclusion suppressed nothing and is gone.
+# Both figures were written before shellcheck was installed here.
 #
 # SC2016 (expressions don't expand in single quotes) -- 41 sites, 40 of them
 # in `check-evidence-retention-discriminates.sh` and one in
@@ -89,7 +93,6 @@ require_nonempty "${#sh_files[@]}" "tracked .sh files to search"
 # Everything else stays enabled and unmodified.
 EXCLUDE=(
   --exclude=SC1091
-  --exclude=SC2154
   --exclude=SC2016
   --exclude=SC2317
 )
