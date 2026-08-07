@@ -163,9 +163,7 @@ where
                 let params = SolverParams::default();
                 let mut solver =
                     resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
-                        .ok()
-                        .filter(|solver| solver.tip_frame() == link_name.as_str())
-                        .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+                        .map_err(|_| Error::Code(MoveItErrorCode::NoIkSolution))?;
 
                 let solution = compute_pose_ik(
                     ctx,

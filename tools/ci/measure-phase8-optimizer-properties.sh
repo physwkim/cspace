@@ -483,6 +483,45 @@ merge_rows() {
     }'
 }
 
+# Snapshotted HERE, before the build, and not where it is written out at the
+# end. The digest has to describe the source this run compiled; taken after the
+# measurement it describes whatever is on disk an hour later instead, and an
+# edit landing mid-run -- a parallel worker, a fix to the very harness whose
+# numbers are being produced -- would be recorded as the code that ran. That
+# record then reads as current precisely when it is furthest from true, which
+# is the failure `check-measured-sources-current.sh` exists to catch and the
+# one shape of it the gate structurally cannot see.
+#
+# `|| exit 1` on the digest, not `$(...)` inline: this script runs under
+# `set -uo pipefail` with no `-e`, so a failed digest inlined into `printf`
+# would record an empty value and the record would then disagree with the tree
+# for a reason that has nothing to do with drift.
+# Same reason, same moment: `working_tree_dirty` and `dirty_paths` describe the
+# tree this run measured, and taken at write time they would describe the tree
+# an hour of parallel work later. They also carry what the digests structurally
+# cannot -- `git status --porcelain` lists untracked files, which are invisible
+# to the index-scoped `git ls-files` inside `measured_source_digest` -- so the
+# two fields only compose if they are captured together.
+DIRTY_LIST="$(cd "$REPO_ROOT" && git status --porcelain)"
+if [[ -n "$DIRTY_LIST" ]]; then TREE_DIRTY=true; else TREE_DIRTY=false; fi
+
+if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
+    tools/ci/measure-phase8-optimizer-properties.sh \
+    tools/ci/measure-phase8-cpp-baseline.sh \
+    crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
+    crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs \
+    crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs \
+    crates/moveit-planners-chomp/src \
+    crates/moveit-planners-stomp/src \
+    tools/moveit-oracle/src; do
+  d="$(measured_source_digest "$f")" || exit 1
+  printf '%s %s\n' "$f" "$d"
+done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"; then
+  echo "FAIL could not digest this run's measured sources -- refusing to start a" >&2
+  echo "  measurement whose record could not say what code produced it" >&2
+  exit 1
+fi
+
 echo "=== building instruments (release) ==="
 cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
   -p moveit-planners-sbp -p moveit-planners-chomp -p moveit-planners-stomp \
@@ -676,8 +715,16 @@ cpp_medians() {
     jq -c --arg tag "$tag" \
       'select(.id != null) | {key: ($tag + "#" + (.id|tostring)), solved: (.solved == true), length}' \
       "$WORKDIR/$planner.$tag.ndjson" >>"$pc"
+    # `wall` is carried from the C++ side only, and only to answer one
+    # question: whether the clock the C++ arm was given is what stopped any of
+    # its calls. `stratum.slowest_seconds` already records the same for the
+    # port arm, so with `clock_bounds` above the record finally holds all four
+    # numbers a reader needs to tell a budget artifact from a port defect.
+    # Before this it held the port arm's bound and slowest call and neither of
+    # the C++ arm's, which is how a 6.0s-vs-3600s split published a FAIL.
     jq -c --arg tag "$tag" \
-      'select(.id != null) | {key: ($tag + "#" + (.id|tostring)), solved: (.solved == true), length}' \
+      'select(.id != null) | {key: ($tag + "#" + (.id|tostring)), solved: (.solved == true), length,
+                              wall: (.wall_secs? // null)}' \
       "$WORKDIR/$planner.$tag.cpp.ndjson" >>"$cc"
   done
   if [[ "$any" == "0" ]]; then
@@ -702,7 +749,9 @@ cpp_medians() {
       port_median_length: ([$pt[]|select(.solved)|.length]|median),
       paired_problems: ($both|length),
       cpp_paired_median: ([$cp[]|select(.solved and (.key as $k|$both|index($k)))|.length]|median),
-      port_paired_median: ([$pt[]|select(.solved and (.key as $k|$both|index($k)))|.length]|median)
+      port_paired_median: ([$pt[]|select(.solved and (.key as $k|$both|index($k)))|.length]|median),
+      cpp_slowest_seconds: ([$cp[]|.wall|select(. != null)]|if length==0 then null else max end),
+      cpp_wall_secs_recorded: ([$cp[]|.wall|select(. != null)]|length)
     }'
 }
 
@@ -858,10 +907,35 @@ done
 
 checks_json="$WORKDIR/checks.json"
 jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
+     --argjson cppclock "$CPP_CLOCK_BOUND" \
      --arg mode "$MODE" '
   def r3($x): if $x == null then null else (($x)*1000|round)/1000 end;
   def pct($x): (($x//0)*10000|round)/100;
   def ratio($n; $d): (if ($d//0) > 0 then ($n//0)/$d else null end);
+
+  # Condition 1 compares two success RATES, and that is a statement about the
+  # port only when both arms had the same chance to finish. The two arms run
+  # at different clocks by design ($tmo and $cppclock), which is harmless while
+  # neither binds -- and stops being harmless the moment the port arm records a
+  # timeout, because then its rate is partly a property of its budget.
+  #
+  # The verdict is deliberately NOT changed, in either direction. A timeout can
+  # only lower the port rate, so a PASS carrying timeouts is conservative and
+  # needs no caveat; a FAIL carrying them is the ambiguous one, and what is
+  # wrong there is not the boolean but reading the number as a quality finding.
+  # This note is what stops that reading. It exists because I made exactly that
+  # mistake from this files own output: STOMP 185/250 against C++ 217/250 was
+  # relayed as "the port is too slow" when every one of the 65 missing problems
+  # was a timeout and the C++ arm had 30x the budget.
+  def budget_note($s; $c):
+    if ($s.timeouts//0) == 0 then ""
+    else " -- NOT a clean rate comparison: the port arm timed out on "
+         + "\($s.timeouts) of \($s.problems) calls at its \($tmo)s bound while "
+         + "the C++ arm ran at \($cppclock)s and its slowest call was "
+         + (if ($c.cpp_slowest_seconds // null) == null then "not recorded"
+            else "\(r3($c.cpp_slowest_seconds))s" end)
+         + ", so the port rate here is a lower bound"
+    end;
 
   # Every check that transfers from Phase 7 unchanged, plus the two the
   # optimizer shape replaces. `$label` is "<planner>/<population>" so no two
@@ -940,7 +1014,7 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
   def cpp_stratum($s; $c; $label):
     [
       { name: "\($label)/condition1",
-        detail: "port \($s.solved)/\($s.problems) = \(pct($c.port_rate))% >= 0.9 x C++ \($c.cpp_solved)/\($c.cpp_problems) = \(pct(($c.cpp_rate//0)*0.9))%",
+        detail: "port \($s.solved)/\($s.problems) = \(pct($c.port_rate))% >= 0.9 x C++ \($c.cpp_solved)/\($c.cpp_problems) = \(pct(($c.cpp_rate//0)*0.9))%\(budget_note($s; $c))",
         # `cpp_problems > 0` is not decoration: without it an empty baseline
         # reads 0 >= 0 and passes, which is how a stage that measured nothing
         # reports success.
@@ -964,7 +1038,7 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
   def cpp_set($s; $c; $label):
     [
       { name: "\($label)/condition1",
-        detail: "port \($s.solved)/\($s.problems) = \(pct($c.port_rate))% >= 0.9 x C++ \($c.cpp_solved)/\($c.cpp_problems) = \(pct(($c.cpp_rate//0)*0.9))%",
+        detail: "port \($s.solved)/\($s.problems) = \(pct($c.port_rate))% >= 0.9 x C++ \($c.cpp_solved)/\($c.cpp_problems) = \(pct(($c.cpp_rate//0)*0.9))%\(budget_note($s; $c))",
         ok: (($c.cpp_problems//0) > 0 and ($c.port_rate//0) >= (($c.cpp_rate//0)*0.9)) },
       { name: "\($label)/condition3",
         detail: "port median \(r3($c.port_median_length)) vs limit \(r3(($c.cpp_median_length//0)*1.3)) (ratio \(r3(ratio($c.port_median_length; $c.cpp_median_length)))x)",
@@ -1099,25 +1173,18 @@ printf '\n  instrument wall clock: %.1fs port, %.1fs C++ baseline (mode=%s, %s s
   "$run_seconds" "$cpp_seconds" "$MODE" "$SHARDS"
 
 if [[ "$MODE" == "full" ]]; then
-  dirty_list="$(cd "$REPO_ROOT" && git status --porcelain)"
-  if [[ -n "$dirty_list" ]]; then tree_dirty=true; else tree_dirty=false; fi
   # By content, not by revision: `commit` can only name this run's *parent*
-  # when the run produces the artifact being committed. Check with
-  #   git hash-object crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs
-  sources_json="$(cd "$REPO_ROOT" && for f in \
-      tools/ci/measure-phase8-optimizer-properties.sh \
-      tools/ci/measure-phase8-cpp-baseline.sh \
-      crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
-      crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs \
-      crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs; do
-    printf '%s %s\n' "$f" "$(git hash-object "$f")"
-  done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"
-
+  # when the run produces the artifact being committed. Check one entry with
+  #   tools/ci/gate-lib.sh's measured_source_digest <path>
+  #
+  # `$SOURCES_JSON` was taken before the build, not here -- see the snapshot
+  # site for why the timing is the point. The planner `src` subtrees are in it
+  # because the harnesses alone are not what produces these rates.
   jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --arg stamp "$(cd "$REPO_ROOT" && git rev-parse HEAD)" \
-        --argjson dirty "$tree_dirty" \
-        --argjson dirty_paths "$(printf '%s' "$dirty_list" | jq -R -s 'split("\n")|map(select(length>0))')" \
-        --argjson sources "$sources_json" \
+        --argjson dirty "$TREE_DIRTY" \
+        --argjson dirty_paths "$(printf '%s' "$DIRTY_LIST" | jq -R -s 'split("\n")|map(select(length>0))')" \
+        --argjson sources "$SOURCES_JSON" \
         --argjson pins "$PINS_JSON" \
         --argjson seconds "$run_seconds" \
         --argjson cpp_seconds "$cpp_seconds" \

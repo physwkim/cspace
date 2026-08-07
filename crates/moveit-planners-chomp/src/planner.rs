@@ -385,44 +385,21 @@ fn validate_recovery_time_limit(planning_time_limit: f64) -> Result<i32> {
     }
 }
 
-/// Ported from `ChompPlanner::solve` (`chomp_planner.cpp:63-306`). See this
-/// module's doc comment for the field-coverage measurement behind porting
-/// it (`eb4fa4e`), and [`ChompRequest`]'s doc for why `planning_scene`/
-/// `moveit_planning` are not parameters here.
-///
-/// # Errors
-///
-/// [`MoveItErrorCode::InvalidRobotState`] if `request.start_state` or the
-/// constructed goal state violates joint limits.
-/// [`MoveItErrorCode::InvalidGoalConstraints`] if `request.goal_constraints`
-/// does not have exactly one entry, or that entry has no joint constraints
-/// (see [`ChompGoal`]'s doc comment for the position/orientation-rejection
-/// half of upstream's check, which this port makes structural instead).
-/// [`MoveItErrorCode::PlanningFailed`] if the optimizer fails to
-/// initialize -- upstream sets `PLANNING_FAILED` explicitly on this path
-/// (`chomp_planner.cpp:211`).
-/// [`MoveItErrorCode::Failure`] if `trajectory_initialization_method` is
-/// not one of [`crate::parameters::VALID_INITIALIZATION_METHODS`], the
-/// `"fillTrajectory"` method's required seed trajectory is missing, or
-/// `fill_in_from_trajectory` reports fewer than two points -- upstream
-/// leaves `res.error_code` **unset** on all three of these paths
-/// (`chomp_planner.cpp:151-169`; no `res.error_code.val = ...` assignment
-/// on any of the three branches, unlike every other failure branch in
-/// this function), an upstream gap this port does not reproduce as "leave
-/// the error unspecified": [`MoveItErrorCode::Failure`] is used instead,
-/// matching the same "no code was actually set upstream" fallback
-/// `moveit-planners-pilz::trajectory_generator`'s `failure` helper already
-/// uses for the same situation.
-/// [`MoveItErrorCode::InvalidMotionPlan`] if the optimizer does not report
-/// the final trajectory collision-free.
-/// [`MoveItErrorCode::GoalConstraintsViolated`] if the final trajectory
-/// state does not satisfy every goal joint constraint's tolerance.
-pub fn solve<'m>(
+/// The shared implementation behind [`solve`] and [`solve_with_trace`] --
+/// see [`solve`]'s doc comment for the port itself and its `# Errors`
+/// section, both unchanged here. The only addition is `trace_out`: written
+/// every time an attempt's [`ChompOptimizer::optimize`] call returns `Ok`,
+/// so it holds the most recently *completed* attempt's [`ChompLoopTrace`]
+/// no matter which of this function's `Err` returns fires afterwards. See
+/// [`solve_with_trace`]'s doc for why a bare port of `ChompPlanner::solve`
+/// cannot expose this itself.
+fn solve_inner<'m>(
     request: &ChompRequest<'_, 'm>,
     collision: &mut ChompCollisionContext<'_, 'm>,
     acm: Option<&AllowedCollisionMatrix>,
     mesh_to_mesh_collision_free: &mut dyn FnMut(&RobotState<'m>, &DMatrix<f64>) -> bool,
     rng: &mut impl Rng,
+    trace_out: &mut Option<ChompLoopTrace>,
 ) -> Result<ChompSolution<'m>> {
     let start_state = request.start_state;
     let group_name = request.group_name;
@@ -487,6 +464,16 @@ pub fn solve<'m>(
 
         let optimization_result =
             optimizer.optimize(&mut trajectory, collision, mesh_to_mesh_collision_free, rng)?;
+        // `optimize` unconditionally sets its trace before returning `Ok`
+        // (`ChompLoopTrace`'s doc), so capture it here rather than only in
+        // the `Ok(ChompSolution { .. })` built below -- this is what makes
+        // the trace reachable from the `Err` returns past this point too
+        // (`is_collision_free() == false`, goal-tolerance failure). A later
+        // replan iteration overwrites it with its own attempt's trace; if
+        // that iteration's `ChompOptimizer::new` fails before reaching this
+        // line, this keeps the last attempt that actually ran one instead
+        // of losing it.
+        *trace_out = optimizer.loop_trace();
 
         if params_nonconst.enable_failure_recovery {
             if !optimization_result && replan_count < params_nonconst.max_recovery_attempts {
@@ -561,9 +548,108 @@ pub fn solve<'m>(
     })
 }
 
+/// Ported from `ChompPlanner::solve` (`chomp_planner.cpp:63-306`). See this
+/// module's doc comment for the field-coverage measurement behind porting
+/// it (`eb4fa4e`), and [`ChompRequest`]'s doc for why `planning_scene`/
+/// `moveit_planning` are not parameters here.
+///
+/// # Errors
+///
+/// [`MoveItErrorCode::InvalidRobotState`] if `request.start_state` or the
+/// constructed goal state violates joint limits.
+/// [`MoveItErrorCode::InvalidGoalConstraints`] if `request.goal_constraints`
+/// does not have exactly one entry, or that entry has no joint constraints
+/// (see [`ChompGoal`]'s doc comment for the position/orientation-rejection
+/// half of upstream's check, which this port makes structural instead).
+/// [`MoveItErrorCode::PlanningFailed`] if the optimizer fails to
+/// initialize -- upstream sets `PLANNING_FAILED` explicitly on this path
+/// (`chomp_planner.cpp:211`).
+/// [`MoveItErrorCode::Failure`] if `trajectory_initialization_method` is
+/// not one of [`crate::parameters::VALID_INITIALIZATION_METHODS`], the
+/// `"fillTrajectory"` method's required seed trajectory is missing, or
+/// `fill_in_from_trajectory` reports fewer than two points -- upstream
+/// leaves `res.error_code` **unset** on all three of these paths
+/// (`chomp_planner.cpp:151-169`; no `res.error_code.val = ...` assignment
+/// on any of the three branches, unlike every other failure branch in
+/// this function), an upstream gap this port does not reproduce as "leave
+/// the error unspecified": [`MoveItErrorCode::Failure`] is used instead,
+/// matching the same "no code was actually set upstream" fallback
+/// `moveit-planners-pilz::trajectory_generator`'s `failure` helper already
+/// uses for the same situation.
+/// [`MoveItErrorCode::InvalidMotionPlan`] if the optimizer does not report
+/// the final trajectory collision-free.
+/// [`MoveItErrorCode::GoalConstraintsViolated`] if the final trajectory
+/// state does not satisfy every goal joint constraint's tolerance.
+pub fn solve<'m>(
+    request: &ChompRequest<'_, 'm>,
+    collision: &mut ChompCollisionContext<'_, 'm>,
+    acm: Option<&AllowedCollisionMatrix>,
+    mesh_to_mesh_collision_free: &mut dyn FnMut(&RobotState<'m>, &DMatrix<f64>) -> bool,
+    rng: &mut impl Rng,
+) -> Result<ChompSolution<'m>> {
+    let mut trace = None;
+    solve_inner(
+        request,
+        collision,
+        acm,
+        mesh_to_mesh_collision_free,
+        rng,
+        &mut trace,
+    )
+}
+
+/// [`solve`], plus the [`ChompLoopTrace`] of the attempt that produced this
+/// outcome -- on success **and** on `Err`.
+///
+/// # Deviation: no upstream counterpart, closing a port-only gap
+///
+/// [`ChompSolution::loop_trace`] already carries the trace on success.
+/// [`ChompOptimizer::optimize`] records why its loop stopped
+/// (`chomp_optimizer.cpp:290-518`) into a [`ChompLoopTrace`] unconditionally
+/// -- converged or not -- but [`solve`] only ever attached that trace to the
+/// `Ok` value it builds. Every `Err` it can return *after* an optimizer has
+/// completed a loop (`is_collision_free() == false`, or a goal-tolerance
+/// failure on an otherwise-successful optimization) drops `optimizer`, and
+/// the trace along with it -- so the diagnostic was reachable on exactly
+/// the runs that did not need it, and unreachable on every run that did.
+///
+/// [`solve`]'s own signature and semantics stay exactly as they are for
+/// existing callers: this crate has no upstream contract to keep for a
+/// port-only diagnostic, so the trace rides beside the `Result` here
+/// instead of inside [`Error`] -- `Error` is shared workspace-wide with no
+/// CHOMP-specific variant to carry it, and giving it one would mean every
+/// other crate's `match` on `Error` gaining a case it can never produce.
+///
+/// `None` when no attempt ever completed a loop: every failure before the
+/// recovery loop's first `optimize()` call returns (bounds or
+/// goal-constraint validation, trajectory initialization, optimizer
+/// construction) has no loop to report on. Under
+/// [`ChompParameters::enable_failure_recovery`], this is the most recently
+/// *completed* attempt's trace, which is the final attempt unless a later
+/// replan's own [`ChompOptimizer::new`] failed to construct.
+pub fn solve_with_trace<'m>(
+    request: &ChompRequest<'_, 'm>,
+    collision: &mut ChompCollisionContext<'_, 'm>,
+    acm: Option<&AllowedCollisionMatrix>,
+    mesh_to_mesh_collision_free: &mut dyn FnMut(&RobotState<'m>, &DMatrix<f64>) -> bool,
+    rng: &mut impl Rng,
+) -> (Result<ChompSolution<'m>>, Option<ChompLoopTrace>) {
+    let mut trace = None;
+    let result = solve_inner(
+        request,
+        collision,
+        acm,
+        mesh_to_mesh_collision_free,
+        rng,
+        &mut trace,
+    );
+    (result, trace)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::optimizer::ChompExit;
     use approx::assert_relative_eq;
     use moveit_distance_field::{
         DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
@@ -708,6 +794,44 @@ mod tests {
         let result = solve(&request, &mut collision, None, &mut |_, _| false, &mut rng);
 
         assert_code(&result, MoveItErrorCode::InvalidRobotState);
+    }
+
+    /// The other side of
+    /// `solve_with_trace_reports_iteration_bound_on_a_failed_plan`'s
+    /// boundary: an `Err` that fires *before* `ChompOptimizer::optimize`
+    /// is ever called has no loop to report on, and [`solve_with_trace`]
+    /// must say so with `None` rather than carrying over some earlier
+    /// call's trace (this is the first request `collision`/`rng` see in
+    /// the test, so there is no earlier call to leak).
+    #[test]
+    fn solve_with_trace_reports_no_trace_when_the_optimizer_never_runs() {
+        let model = two_joint_chain_model();
+        let mut start_state = RobotState::new(&model);
+        start_state.set_variable_position("j1", 5.0).unwrap();
+        let params = ChompParameters::default();
+        let mut cache = collision_cache(&model);
+        let field = empty_env_field();
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        let goal = ChompGoal {
+            joint_constraints: vec![joint_goal("j1", 0.0), joint_goal("j2", 0.0)],
+        };
+        let request = ChompRequest {
+            start_state: &start_state,
+            group_name: GROUP,
+            goal_constraints: std::slice::from_ref(&goal),
+            params: &params,
+            seed_trajectory: None,
+        };
+
+        let (result, trace) =
+            solve_with_trace(&request, &mut collision, None, &mut |_, _| false, &mut rng);
+
+        assert_code(&result, MoveItErrorCode::InvalidRobotState);
+        assert_eq!(trace, None);
     }
 
     #[test]
@@ -1094,6 +1218,53 @@ mod tests {
         let result = solve(&request, &mut collision, None, &mut |_, _| false, &mut rng);
 
         assert_code(&result, MoveItErrorCode::InvalidMotionPlan);
+    }
+
+    /// [`solve_with_trace`]'s whole reason to exist: the [`ChompLoopTrace`]
+    /// must survive past an `Err(InvalidMotionPlan)`, not just past a
+    /// success. Same fixture as the test just above
+    /// (`solve_returns_invalid_motion_plan_when_the_path_cannot_escape_collision`,
+    /// `max_iterations: 1`, no mesh/threshold break fires -- see that
+    /// test's doc comment for why) so the loop's only way out is the `for`
+    /// condition going false, i.e. [`ChompExit::IterationBound`].
+    #[test]
+    fn solve_with_trace_reports_iteration_bound_on_a_failed_plan() {
+        let model = two_joint_chain_model();
+        let mut start_state = RobotState::new(&model);
+        start_state.set_variable_position("j1", -0.8).unwrap();
+        let params = ChompParameters {
+            max_iterations: 1,
+            ..ChompParameters::default()
+        };
+        let mut cache = collision_cache(&model);
+        let mut field = empty_env_field();
+        field.add_points_to_field(&[Vector3::new(0.6, 0.0, 0.0)]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(3);
+        let goal = ChompGoal {
+            joint_constraints: vec![joint_goal("j1", 0.8), joint_goal("j2", 0.0)],
+        };
+        let request = ChompRequest {
+            start_state: &start_state,
+            group_name: GROUP,
+            goal_constraints: std::slice::from_ref(&goal),
+            params: &params,
+            seed_trajectory: None,
+        };
+
+        let (result, trace) =
+            solve_with_trace(&request, &mut collision, None, &mut |_, _| false, &mut rng);
+
+        assert_code(&result, MoveItErrorCode::InvalidMotionPlan);
+        let trace = trace.expect("an attempt whose optimizer ran a loop must report a trace");
+        assert_eq!(trace.exit, ChompExit::IterationBound);
+        assert_eq!(
+            trace.evaluations, 1,
+            "max_iterations: 1 means the loop's only pass evaluates once"
+        );
     }
 
     #[test]

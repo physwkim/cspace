@@ -603,7 +603,7 @@ impl Drop for Oracle {
         // waiting before that deadlocks -- the child blocks reading a request
         // that will never come while the parent blocks waiting for it to exit.
         drop(self.stdin.take());
-        let _ = self.child.wait();
+        moveit_diff::wait_or_kill(&mut self.child, moveit_diff::ORACLE_SHUTDOWN_TIMEOUT);
     }
 }
 

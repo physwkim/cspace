@@ -3,8 +3,13 @@
 # tree's own version of each source it was produced by.
 #
 # The Phase 7 and Phase 8 instruments both write a `measured_sources` map into
-# their result JSON -- path to `git hash-object` blob, for the scripts and
-# harnesses that produced the numbers. verify-phase7-benchmark.sh:1118 says
+# their result JSON -- path to content digest, for the scripts, harnesses,
+# planner crates and oracle that produced the numbers. A file's digest is its
+# own `git hash-object` blob id; a directory's is a hash over every tracked file
+# beneath it, so a planner crate enters the record as one entry that no new
+# module can slip past. Both sides compute it through `gate-lib.sh`'s
+# `measured_source_digest`, so the value cannot be produced one way and checked
+# another. verify-phase7-benchmark.sh:1118 says
 # what it is for: the record closes over its inputs by CONTENT rather than by
 # revision, so a number cannot be read as current when the thing that computed
 # it has moved.
@@ -70,11 +75,18 @@ checked=0
 for record in "${records[@]}"; do
   while IFS=$'\t' read -r path recorded; do
     checked=$((checked + 1))
-    if [[ ! -f "$path" ]]; then
+    if [[ ! -e "$path" ]]; then
       missing+=("$record: $path no longer exists in the tree")
       continue
     fi
-    current="$(git hash-object "$path")"
+    # Through the same helper the producers use, so a file's blob id and a
+    # subtree's digest cannot be computed one way when written and another when
+    # checked. A helper failure is not drift: it exits rather than reporting a
+    # mismatch it did not measure.
+    if ! current="$(measured_source_digest "$path")"; then
+      echo "FAIL $record: could not digest $path -- see above" >&2
+      exit 2
+    fi
     if [[ "$current" != "$recorded" ]]; then
       drift+=("$record: $path recorded $recorded, tree has $current")
     fi

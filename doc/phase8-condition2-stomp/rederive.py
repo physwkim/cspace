@@ -5,7 +5,9 @@ Nothing is transcribed: each number is computed from the four sweep NDJSON
 files and the two seed-validity files committed beside this script. Run it
 with no argument to read them from this script's own directory and print the
 report; pass `--check FILE` to compare the whole report against a committed
-transcript instead (what `tools/ci/check-phase8-condition2-stomp.sh` runs) --
+transcript instead (what `tools/ci/check-phase8-baseline-500.sh` runs --
+that gate walks this directory alongside `doc/phase8-baseline-500/` and
+`doc/phase8-seedbase-stomp/` rather than each having its own check-*.sh) --
 a number that drifts fails by name rather than by a total, the same
 `--check` `doc/phase8-baseline-500/rederive.py` uses.
 """
