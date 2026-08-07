@@ -59,6 +59,20 @@
 //! state unconstructable: [`MultivariateGaussian::new`] returns `None` for
 //! a `mean`/`covariance` shape mismatch or when `covariance`'s Cholesky
 //! decomposition fails.
+//!
+//! # Deviation: `sample` cannot be called with a wrongly-sized output
+//!
+//! Neither upstream `sample` resizes or validates `output`; both loop
+//! `output(i) = ...` for `i` in `0..size_` on the assumption the caller
+//! already sized it to match, and Eigen's dimension checks
+//! (`eigen_assert`) compile out under `NDEBUG`, so a mismatched `output` in
+//! a release build is either an out-of-bounds write (too small) or a
+//! dimension-mismatched matrix expression (too large) -- undefined
+//! behaviour either way, not a caught error. This port resizes `output` to
+//! [`MultivariateGaussian::size`] first whenever it does not already match,
+//! in both [`MultivariateGaussian::sample_with_covariance`] and
+//! [`MultivariateGaussian::sample_without_covariance`], so no caller can
+//! reach that state.
 
 use nalgebra::{Cholesky, DMatrix, DVector};
 use rand::{Rng, RngExt};
@@ -254,6 +268,29 @@ mod tests {
         let mut output = DVector::zeros(0);
         g.sample_with_covariance(&mut output, &mut rng);
         assert_eq!(output.len(), 2);
+    }
+
+    /// The undersized case above and this one share one `output.len() !=
+    /// size` guard (`draw_standard_normal`), but upstream's own failure mode
+    /// is asymmetric by direction -- too few elements is an out-of-bounds
+    /// write, too many is a dimension-mismatched matrix expression -- so an
+    /// oversized `output` is a distinct boundary worth its own case, not a
+    /// restatement of the same one. Covers both public entry points, since
+    /// each calls `draw_standard_normal` independently.
+    #[test]
+    fn sample_resizes_an_oversized_output_vector() {
+        let mean = DVector::from_vec(vec![0.0, 0.0]);
+        let covariance = DMatrix::identity(2, 2);
+        let g = MultivariateGaussian::new(mean, covariance).unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        let mut with_covariance = DVector::zeros(5);
+        g.sample_with_covariance(&mut with_covariance, &mut rng);
+        assert_eq!(with_covariance.len(), 2);
+
+        let mut without_covariance = DVector::zeros(5);
+        g.sample_without_covariance(&mut without_covariance, &mut rng);
+        assert_eq!(without_covariance.len(), 2);
     }
 
     #[test]
