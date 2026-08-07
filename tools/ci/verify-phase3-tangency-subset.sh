@@ -106,7 +106,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 . "$REPO_ROOT/tools/ci/gate-lib.sh"
 require_caller_tree "$REPO_ROOT"
-cd "$REPO_ROOT"
+# This script runs without -e on purpose, so a failed cd would not abort it
+# and every path below would resolve against the caller's directory instead.
+cd "$REPO_ROOT" || exit 1
 
 BIN="$REPO_ROOT/target/release/tangency_subset"
 
