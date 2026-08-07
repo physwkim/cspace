@@ -2193,13 +2193,47 @@ fn fcl_tangency_verdict(
     )
 }
 
-/// The larger of the two shapes' AABB half-extent (the largest single
-/// component of either half-extent vector, so an anisotropic shape's scale
-/// follows its longest axis rather than its shortest) — the same
-/// `compute_aabb` call [`cost_sources_for_part_pair`] already makes for its
-/// own overlap test, reused here rather than a second, independent notion of
-/// "how big is this pair" ([`touches_at_tie`]'s own doc has the reason it
+/// The magnitude of the largest world coordinate this pair's narrow phase
+/// works in: the larger of the two shapes' AABB half-extent (the largest
+/// single component of either half-extent vector, so an anisotropic shape's
+/// scale follows its longest axis rather than its shortest), and the larger
+/// of the two AABB centres' distance from the origin along any one axis. The
+/// same `compute_aabb` call [`cost_sources_for_part_pair`] already makes for
+/// its own overlap test, reused here rather than a second, independent notion
+/// of "how big is this pair" ([`touches_at_tie`]'s own doc has the reason it
 /// needs one at all).
+///
+/// The centre term is not decoration, and the reason is not that GJK's
+/// rounding grows with distance — it does not. Placed on exactly
+/// representable coordinates, a pair measures the same `dist` at every
+/// offset. What grows is the error in *placing* the tangency at all:
+/// `100.0 + 0.1` is not a representable sum, so a pair that is tangent in
+/// exact arithmetic is stored up to half a coordinate ULP away from
+/// tangency. At 100 m that is `1.4e-14`, while the spacing of the shapes'
+/// own 5 cm half-extents is `1.1e-17` — a factor of 1280. A separation
+/// below the spacing of the coordinates a pair is expressed in cannot be
+/// told from an exact tie by any arithmetic on those poses, so the band
+/// that decides which comparisons *are* ties has to be measured in that
+/// spacing, not in the shapes' own.
+///
+/// [`TIE_ROUNDING_MARGIN`]'s sweep never separated the two, because its
+/// `pair_at` puts the lower shape at `translation(0, 0, 0)` — world
+/// magnitude and shape size are the same number in every case it measures,
+/// so a half-extent-only scale fit its data exactly and was wrong off it.
+/// Measured with 5 cm shapes, a tangency placed 10 m out lands `-3.6e-16`
+/// from zero, which is `0.20` coordinate ULP but `32.5`
+/// `EPS * half_extent` units; 100 m out it is `-5.7e-15`, `0.40` ULP but
+/// `512` units. (Pairs differ in the last digit — the curved-cap ones read
+/// `-3.7e-16` and `33.8` at 10 m — so these are the `box`/`cylinder` row,
+/// the one the regression test reports first.) Both are outside the `16.0`
+/// band, so `touches_at_tie` fell
+/// through to `dist`'s sign, which rounds negative and answers "touching"
+/// for every pair the dispatch table calls apart — all ten of the table's
+/// `false` cells, at both offsets. With the centre folded in the same
+/// cases read `0.16` and `0.26` units and reach the table, which is the
+/// answer they have at the origin.
+/// `an_exact_tie_is_decided_by_the_dispatch_table_however_far_from_the_origin`
+/// is the regression case.
 fn tie_scale(
     a_pose: &Pose,
     a_shape: &dyn ParryShape,
@@ -2207,8 +2241,12 @@ fn tie_scale(
     b_shape: &dyn ParryShape,
 ) -> f64 {
     let half_extent_max = |aabb: &Aabb| aabb.half_extents().max_element();
-    half_extent_max(&a_shape.compute_aabb(a_pose))
-        .max(half_extent_max(&b_shape.compute_aabb(b_pose)))
+    let centre_max = |aabb: &Aabb| {
+        let c = aabb.center();
+        c.x.abs().max(c.y.abs()).max(c.z.abs())
+    };
+    let reach = |aabb: &Aabb| half_extent_max(aabb).max(centre_max(aabb));
+    reach(&a_shape.compute_aabb(a_pose)).max(reach(&b_shape.compute_aabb(b_pose)))
 }
 
 /// How many multiples of `f64::EPSILON * `[`tie_scale`]` a measured `dist`
@@ -5548,5 +5586,175 @@ mod tests {
                  TIE_ROUNDING_MARGIN must be reported close to itself, not rounded toward zero"
             );
         }
+    }
+
+    /// An exact tie stays an exact tie when the pair is not at the origin.
+    ///
+    /// The sweep above never varies this: its `pair_at` puts the lower shape
+    /// at `translation(0, 0, 0)`, so world-coordinate magnitude and shape size
+    /// are the same number in every case it measures, and a [`tie_scale`]
+    /// built from half-extents alone fit that data exactly while being wrong
+    /// everywhere off it.
+    ///
+    /// What goes wrong off the origin is not that GJK's rounding grows -- it
+    /// does not; placed on exactly-representable coordinates the same pair
+    /// measures the same `dist` at every offset. It is that a tangency
+    /// *cannot be placed* far from the origin: `100.0 + 0.1` is not a
+    /// representable sum, so the stored pair misses tangency by up to half a
+    /// coordinate ULP, which at 100 m is 1.4e-14 while the shapes' own
+    /// half-extent spacing is 1.1e-17. A separation below the spacing of the
+    /// coordinates the pair is expressed in is not distinguishable from an
+    /// exact tie by any arithmetic on those poses, so it is one, and the band
+    /// that decides which comparisons are ties has to be measured in that
+    /// spacing.
+    ///
+    /// So this asserts the invariant directly: **where the pair sits within
+    /// one coordinate ULP of tangency, the verdict is the dispatch table's**,
+    /// at every offset. The expectation is [`fcl_tangency_verdict`] rather
+    /// than a transcribed table so it cannot drift from the generated one.
+    ///
+    /// On the half-extent-only `tie_scale` this reaches 59 tie placements
+    /// (14 at the origin, 45 away from it) and 20 of them disagree: all ten
+    /// of the table's `false` cells, at 10 m and at 100 m, each answered
+    /// "touching" because the sign of a `-3.7e-16` / `-5.7e-15` miss rounds
+    /// negative, `-3.6e-16` being `32.5` half-extent units against a `16.0`
+    /// band and `0.20` of a coordinate ULP. The `true` cells are unaffected
+    /// — the sign happens to agree with them — so a test that only checked
+    /// pairs the table calls touching would pass on the defect.
+    ///
+    /// `None` from the production query (`prediction = 0.0`) is a verdict, not
+    /// a skip: it is the "apart" answer, and is scored as `false`.
+    #[test]
+    fn an_exact_tie_is_decided_by_the_dispatch_table_however_far_from_the_origin() {
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        enum K {
+            Box,
+            Sphere,
+            Cylinder,
+            Cone,
+        }
+        impl K {
+            fn shape(self, half: f64) -> Shape {
+                match self {
+                    K::Box => {
+                        Shape::Cuboid(Cuboid::new(2.0 * half, 2.0 * half, 2.0 * half).unwrap())
+                    }
+                    K::Sphere => Shape::Sphere(Sphere::new(half).unwrap()),
+                    K::Cylinder => {
+                        Shape::Cylinder(moveit_geometry::Cylinder::new(half, 2.0 * half).unwrap())
+                    }
+                    K::Cone => Shape::Cone(moveit_geometry::Cone::new(half, 2.0 * half).unwrap()),
+                }
+            }
+            fn name(self) -> &'static str {
+                match self {
+                    K::Box => "box",
+                    K::Sphere => "sphere",
+                    K::Cylinder => "cylinder",
+                    K::Cone => "cone",
+                }
+            }
+        }
+        const KINDS: [K; 4] = [K::Box, K::Sphere, K::Cylinder, K::Cone];
+        // 0.0 reproduces the sweep above; the rest are ordinary placements --
+        // 10 m is well inside a normal octomap extent, not a stress value.
+        const OFFSETS: [f64; 4] = [0.0, 0.5, 10.0, 100.0];
+        const HALF: f64 = 0.05;
+        let cache = OctreeCache::default();
+
+        // Cases that reached the assertion, split by whether the offset was
+        // the one the sweep above already covers. A band bug that made every
+        // placement read as a resolvable gap would otherwise pass this test
+        // having tested nothing.
+        let mut ties_at_origin = 0usize;
+        let mut ties_off_origin = 0usize;
+
+        for upper in KINDS {
+            for lower in KINDS {
+                // parry's `contact_ball_ball` compares the gap strictly
+                // against the prediction, so an exact sphere/sphere tangency
+                // is `None` at production's `prediction = 0.0` and never
+                // reaches `touches_at_tie` at all, while the table says
+                // `true`. That disagreement is a distinct defect in a
+                // different function, present at the origin and unchanged by
+                // any band, so it is excluded here rather than left to fail
+                // this test for a reason this test is not about. The
+                // assertion below the loop is what stops the exclusion from
+                // outliving the defect.
+                if upper == K::Sphere && lower == K::Sphere {
+                    continue;
+                }
+                let (u, u_fix) = convert_shape(&upper.shape(HALF), &cache).expect("converts");
+                let (l, l_fix) = convert_shape(&lower.shape(HALF), &cache).expect("converts");
+                let table = fcl_tangency_verdict(&*u, &*l).expect("both are specialised shapes");
+                for off in OFFSETS {
+                    let base = Isometry3::translation(off, off, off);
+                    let u_pose =
+                        to_pose(base * Isometry3::translation(0.0, 0.0, 2.0 * HALF) * u_fix);
+                    let l_pose = to_pose(base * l_fix);
+
+                    // The spacing of the coordinates the poses are stored in.
+                    let coord = off.abs().max(2.0 * HALF);
+                    let ulp = coord.next_up() - coord;
+
+                    // `prediction = 0.0` hides a positive gap behind `None`,
+                    // so classify with a wider one: is this placement within a
+                    // ULP of tangency, or a gap the arithmetic can resolve?
+                    let gap = query::contact(&u_pose, &*u, &l_pose, &*l, 4.0 * ulp)
+                        .expect("dispatched")
+                        .map(|c| c.dist);
+                    let Some(gap) = gap else { continue };
+                    if gap.abs() > ulp {
+                        continue; // a real, resolvable gap: not a tie
+                    }
+                    if off == 0.0 {
+                        ties_at_origin += 1;
+                    } else {
+                        ties_off_origin += 1;
+                    }
+
+                    // What production answers, through the query it really makes.
+                    let got = match query::contact(&u_pose, &*u, &l_pose, &*l, 0.0)
+                        .expect("dispatched")
+                    {
+                        Some(c) => touches_at_tie(c.dist, &u_pose, &*u, &l_pose, &*l),
+                        None => false,
+                    };
+                    assert_eq!(
+                        got,
+                        table,
+                        "{} x {} sits {gap:e} from tangency at offset {off}: {:.2} of the \
+                         {ulp:e} spacing of its own coordinates, but {:.1} EPS * half-extent \
+                         units, which is what a half-extent-only tie_scale would compare \
+                         against the {TIE_ROUNDING_MARGIN:.1} band. Inside one coordinate ULP \
+                         the dispatch table decides it; tie_scale was {:e}",
+                        upper.name(),
+                        lower.name(),
+                        gap.abs() / ulp,
+                        gap.abs() / (f64::EPSILON * HALF),
+                        tie_scale(&u_pose, &*u, &l_pose, &*l),
+                    );
+                }
+            }
+        }
+        assert!(
+            ties_at_origin > 0 && ties_off_origin > 0,
+            "this test asserted on {ties_at_origin} tie(s) at the origin and \
+             {ties_off_origin} away from it -- it must exercise both or it is not \
+             comparing the two"
+        );
+
+        // The sphere/sphere exclusion above, kept honest: if parry starts
+        // reporting that contact, delete the exclusion rather than this.
+        let (s, s_fix) = convert_shape(&K::Sphere.shape(HALF), &cache).expect("converts");
+        let up = to_pose(Isometry3::translation(0.0, 0.0, 2.0 * HALF) * s_fix);
+        let lo = to_pose(s_fix);
+        assert!(
+            query::contact(&up, &*s, &lo, &*s, 0.0)
+                .expect("dispatched")
+                .is_none(),
+            "parry now reports the sphere x sphere tangency -- drop the exclusion in this \
+             test and let the pair be asserted like every other"
+        );
     }
 }
