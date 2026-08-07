@@ -380,17 +380,38 @@ const PAIRS: [(Kind, Kind); 6] = [
     (Kind::Sphere, Kind::Cylinder),
 ];
 
-#[allow(clippy::too_many_arguments)]
-fn report_row(
+/// One printed row of `main`'s per-pair sweep -- the shape-kind pair and
+/// sweep-point coordinates under test, plus the `Verdict` at exact tie and
+/// both accumulators' boundary-search results. `report_row` used to take
+/// each of these positionally: `half`/`position_x` (both `f64`), `upper`/
+/// `lower` (both `Kind`) and `bool_boundary`/`dist_boundary` (both
+/// `Result<f64, &'static str>`) are each an interchangeable same-typed pair
+/// a positional call could transpose silently, the same hazard
+/// `clippy::too_many_arguments` was flagging in `GridGeometry`'s
+/// `size_*`/`origin_*` precedent. A struct literal forces every field to be
+/// named at its construction site instead.
+struct SweepRow {
     half: f64,
     position_x: f64,
-    axis: &str,
+    axis: &'static str,
     upper: Kind,
     lower: Kind,
     tie: Verdict,
-    bnd_bool: Result<f64, &'static str>,
-    bnd_dist: Result<f64, &'static str>,
-) {
+    bool_boundary: Result<f64, &'static str>,
+    dist_boundary: Result<f64, &'static str>,
+}
+
+fn report_row(row: SweepRow) {
+    let SweepRow {
+        half,
+        position_x,
+        axis,
+        upper,
+        lower,
+        tie,
+        bool_boundary: bnd_bool,
+        dist_boundary: bnd_dist,
+    } = row;
     let scale = half.max(position_x.abs()).max(1e-300);
     let bnd_bool_str = match bnd_bool {
         Ok(b) => format!("{b:.6e}"),
@@ -610,9 +631,16 @@ fn main() {
             let tie = tie_noise(&model, &acm, upper, lower, half, position_x);
             let bnd_bool = find_bool_boundary(&model, &acm, upper, lower, half, position_x);
             let bnd_dist = find_dist_boundary(&model, &acm, upper, lower, half, position_x);
-            report_row(
-                half, position_x, "size", upper, lower, tie, bnd_bool, bnd_dist,
-            );
+            report_row(SweepRow {
+                half,
+                position_x,
+                axis: "size",
+                upper,
+                lower,
+                tie,
+                bool_boundary: bnd_bool,
+                dist_boundary: bnd_dist,
+            });
         }
     }
     for (upper, lower) in PAIRS {
@@ -621,9 +649,16 @@ fn main() {
             let tie = tie_noise(&model, &acm, upper, lower, half, position_x);
             let bnd_bool = find_bool_boundary(&model, &acm, upper, lower, half, position_x);
             let bnd_dist = find_dist_boundary(&model, &acm, upper, lower, half, position_x);
-            report_row(
-                half, position_x, "position", upper, lower, tie, bnd_bool, bnd_dist,
-            );
+            report_row(SweepRow {
+                half,
+                position_x,
+                axis: "position",
+                upper,
+                lower,
+                tie,
+                bool_boundary: bnd_bool,
+                dist_boundary: bnd_dist,
+            });
         }
     }
     for (upper, lower) in PAIRS {
@@ -632,9 +667,16 @@ fn main() {
             let tie = tie_noise(&model, &acm, upper, lower, half, position_x);
             let bnd_bool = find_bool_boundary(&model, &acm, upper, lower, half, position_x);
             let bnd_dist = find_dist_boundary(&model, &acm, upper, lower, half, position_x);
-            report_row(
-                half, position_x, "joint", upper, lower, tie, bnd_bool, bnd_dist,
-            );
+            report_row(SweepRow {
+                half,
+                position_x,
+                axis: "joint",
+                upper,
+                lower,
+                tie,
+                bool_boundary: bnd_bool,
+                dist_boundary: bnd_dist,
+            });
         }
     }
 
