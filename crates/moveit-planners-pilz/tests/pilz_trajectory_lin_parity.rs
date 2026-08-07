@@ -455,8 +455,9 @@ fn lin_panda_arm_rejects_the_same_request_the_oracle_rejects() {
     );
 }
 
-/// Regression for a real port divergence found while auditing residual
-/// claims (`PORTING-PLAN.md` §327): `TrajectoryGeneratorLin`'s `Goal::Joint`
+/// Regression for the gap `PORTING-PLAN.md` §227.6 records as #41
+/// `JointNumberMismatch`, found while auditing residual claims:
+/// `TrajectoryGeneratorLin`'s `Goal::Joint`
 /// arm built `info.goal_joint_position` directly from the request without
 /// ever checking its size against the planning group, unlike
 /// `TrajectoryGeneratorCirc`'s identical arm (`trajectory_generator_circ.rs`)
