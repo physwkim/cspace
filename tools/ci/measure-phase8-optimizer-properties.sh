@@ -505,6 +505,10 @@ merge_rows() {
 DIRTY_LIST="$(cd "$REPO_ROOT" && git status --porcelain)"
 if [[ -n "$DIRTY_LIST" ]]; then TREE_DIRTY=true; else TREE_DIRTY=false; fi
 
+# The list below is the two arms' own algorithm crates plus the validity/cost
+# code both arms call to decide what they report -- see the closure argument
+# on `measured_source_digest` in gate-lib.sh for how this list was derived
+# and what was deliberately left out.
 if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
     tools/ci/measure-phase8-optimizer-properties.sh \
     tools/ci/measure-phase8-cpp-baseline.sh \
@@ -513,6 +517,11 @@ if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
     crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs \
     crates/moveit-planners-chomp/src \
     crates/moveit-planners-stomp/src \
+    crates/moveit-stomp-core/src \
+    crates/moveit-distance-field/src \
+    crates/moveit-collision/src \
+    crates/moveit-scene/src \
+    crates/moveit-constraints/src \
     tools/moveit-oracle/src; do
   d="$(measured_source_digest "$f")" || exit 1
   printf '%s %s\n' "$f" "$d"

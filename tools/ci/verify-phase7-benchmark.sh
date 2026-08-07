@@ -324,11 +324,20 @@ port_aggregate() {
 DIRTY_LIST="$(cd "$REPO_ROOT" && git status --porcelain)"
 if [[ -n "$DIRTY_LIST" ]]; then TREE_DIRTY=true; else TREE_DIRTY=false; fi
 
+# The list below is the SBP arm's own algorithm/dispatch crates plus the
+# validity/cost code every arm calls to decide what it reports -- see the
+# closure argument on `measured_source_digest` in gate-lib.sh for how this
+# list was derived and what was deliberately left out.
 if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
     tools/ci/verify-phase7-benchmark.sh \
     crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
     crates/moveit-planners-sbp/examples/plan_benchmark_port.rs \
     crates/moveit-planners-sbp/src \
+    crates/moveit-planning/src \
+    crates/moveit-planner-registry/src \
+    crates/moveit-collision/src \
+    crates/moveit-scene/src \
+    crates/moveit-constraints/src \
     tools/moveit-oracle/src; do
   d="$(measured_source_digest "$f")" || exit 1
   printf '%s %s\n' "$f" "$d"

@@ -346,14 +346,66 @@ report_qualified() {
 # unable to see either. Extending the list file by file cannot close that -- it
 # goes stale the next time a module is added -- so the unit is the subtree.
 #
-# The closure is the code under measurement, not its transitive dependencies:
-# the planner crates whose binaries run, the harnesses that drive them, and the
-# oracle that produces the C++ side. A change to `moveit-collision` can move
-# these numbers and will not be caught here. That boundary is a deliberate
-# tradeoff -- digesting all of `crates` would invalidate an 85-minute
-# measurement on any unrelated commit, and a gate that is always red is a gate
-# nobody reads -- but it is a real limit and callers should not read a passing
-# record as proof that nothing relevant moved.
+# The closure is role-based, not proximity-based: a path belongs iff it is
+# (a) the arm's own algorithm, wherever that algorithm is actually factored,
+# or (b) code every arm calls to decide whether a state or path is valid or
+# what it costs. It is not "whatever the harness file imports" (a file
+# digest already covers the harness itself, not what it calls into) and it
+# is not "used by exactly one arm" -- fan-in undercounts too, since
+# `moveit-collision`, `moveit-scene` and `moveit-constraints` are consulted
+# by every arm and a single-consumer test would wrongly drop them.
+#
+# (a): CHOMP has no core crate of its own, so `crates/moveit-planners-chomp/src`
+# alone covers its algorithm, but STOMP does -- `Stomp::solve` lives in
+# `crates/moveit-stomp-core/src/stomp.rs`, and `a6a81a79` changed its seeding
+# tolerance inside Phase 8's measurement window while the old list, built by
+# treating the two arms as symmetric, was structurally unable to see it.
+# Phase 7's analogue is `crates/moveit-planner-registry/src`:
+# `moveit-planners-sbp/src/registry.rs` registers into its `PLANNER_MANAGERS`
+# slice, so it is how the SBP arm gets selected and constructed, not shared
+# framework -- confirmed neither CHOMP's nor STOMP's source references it.
+#
+# (b): `moveit-collision`, `moveit-scene`, `moveit-constraints` and (CHOMP
+# only) `moveit-distance-field` answer "is this state or path valid, and
+# what does it cost" -- the question both phases report a rate or a score
+# over. `crates/moveit-planning/src` is Phase 7's case of the same role:
+# its `request_adapters/check_start_state_collision.rs` and
+# `response_adapters/validate_path.rs` are where the SBP benchmark's start
+# state and result actually get validated, and it is SBP-only among the
+# three arms -- CHOMP's and STOMP's own references to `moveit_planning` are
+# doc comments, not `use` imports, confirmed by reading the call sites
+# rather than trusting the dependency edge. `fc908c51` (moveit-scene,
+# attached-body touch tracking) and `73c44a25` (moveit-collision,
+# exact-tangency tie dispatch) both changed that verdict inside Phase 8's
+# window with the old list structurally unable to see either.
+#
+# Sharing a role does not mean sharing a dependency edge pulls a crate in.
+# `moveit-octomap` is a normal dependency of both `moveit-distance-field`
+# and `moveit-collision`, but it stays out: it is a generic occupancy-grid
+# data structure consulted BY the validity code, the same role
+# `moveit-geometry`'s shape types already play, not a place a validity or
+# cost decision is made. The same reasoning keeps out `moveit-geometry`,
+# `moveit-model`, `moveit-state`, `moveit-error`, `moveit-srdf`,
+# `moveit-sampling`, `moveit-kinematics` and `moveit-trajectory` -- each
+# gated independently by its own `-p` clippy/nextest, none of them deciding
+# a validity or cost verdict. `moveit-planners-sbp` stays out of Phase 8's
+# list for the mirror reason: CHOMP's and STOMP's examples import it only
+# for `JointModelGroupSpace`'s length metric, a reported number rather than
+# a decision.
+#
+# Derived from `cargo metadata`'s resolved dependency graph -- both normal
+# and dev-dependency edges, since these harnesses are `[[example]]` binaries
+# that link their own package's dev-dependencies too, so a dev-only edge
+# like moveit-planners-chomp -> moveit-scene still ships inside the
+# benchmark binary that gets measured -- then confirmed by reading the
+# actual call sites, not by hand-listing crate names that look parallel.
+# Hand-listing is what produced the stomp-core miss above, since
+# `crates/moveit-planners-chomp/src` and `crates/moveit-planners-stomp/src`
+# look symmetric and are not. It is still a real limit, not a complete one:
+# digesting all of `crates` would invalidate a long-running measurement on
+# any unrelated commit, and a gate that is always red is a gate nobody
+# reads. A change to a crate outside this list (`moveit-octomap` included)
+# can still move these numbers and will not be caught here.
 #
 # One more limit, measured rather than assumed: `git ls-files` is index-scoped,
 # so an UNTRACKED new file under a subtree does not move its digest, while a
