@@ -37963,3 +37963,25 @@ $ rg -n "waypoint_hash|trajectory_hash|waypoints_hash" crates/moveit-planners-st
 
 궤적 자체나 그 해시를 내보내는 필드가 없다 — 길이 일치보다 강한 비교는 아직
 불가능하다. **판정: 참, OPEN 유지.**
+
+### §325.6 §300.9 F — "panda_arm 외의 로봇, `max_iterations = 200`"(34174)은 §286.11의 미해결이 그대로다
+
+불릿 원문: "panda_arm 외의 로봇, `max_iterations = 200`. §286.11의 해당
+항목들이 그대로 열려 있다. 이 절은 그 축을 건드리지 않았다."
+
+**Falsifier.** §325.2·§325.3의 두 falsifier(URDF/SRDF 고정, CLI 인자 부재)를
+§300.9가 실제로 쓰는 소스에도 다시 돌렸다 — §300.9는 §303 계열과 같은
+`verify-phase8-benchmark.sh`/`chomp_benchmark_port.rs`를 공유한다.
+
+```
+$ rg -n "URDF=|SRDF=" tools/ci/verify-phase8-benchmark.sh
+115:URDF="$REPO_ROOT/fixtures/panda.urdf"
+116:SRDF="$REPO_ROOT/fixtures/panda.srdf"
+$ rg -n "fn main" -A 12 crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs | rg "get\(1\)|get\(2\)|max_iterations"
+        .get(1)
+        .get(2)
+```
+
+두 결과 모두 §325.2·§325.3과 동일(panda 고정, `max_iterations` CLI 없음) —
+§300.9는 이 두 축을 건드리는 별도 코드를 갖고 있지 않다. **판정: 참, OPEN
+유지.**
