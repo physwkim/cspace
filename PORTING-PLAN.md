@@ -5471,8 +5471,61 @@ EPA 잡음이 아니다. 워커가 든 "상수를 유지하지 못한다"는 근
 - parry의 TriMesh 접촉은 삼각형별 최대이고, 삼각형 단위 MTD는 메시 전체
   MTD보다 얕을 수 있다(얇은 삼각형 문제). 위 일치는 이 구간에서 그 과소평가가
   일어나지 않았음을 보이지만, 일반적으로 일어나지 않는다는 뜻은 아니다.
-- §53.3이 찾은 world object 쪽 불일치(`l_gripper_r_finger_link`/`floor`,
-  포트가 **더 깊게** 답함)는 이 설명으로 덮이지 않는다. 방향이 반대다.
+- **§53.3이 찾은 world object 쪽 불일치(`l_gripper_r_finger_link`/`floor`,
+  포트가 더 깊게 답함)는 이 설명으로 덮이지 않는다. 방향이 반대다.
+  거짓 → 닫힘 (§56.5).** §56.3의 min(candidate_x, candidate_z) 공식
+  자체는 이 쌍의 기하와 무관해 여전히 적용되지 않지만, §72.1과 같은
+  독립 계측기로 재 보면 "방향이 반대"는 설명 없는 이상치가 아니라 이
+  포트가 더 정확하다는 신호였다.
+
+### 56.5 §56.4 세 번째 잔차 — case 122도 §72.1과 같은 메커니즘이다, 양쪽 다 진짜 정점이다
+
+§53.3이 찾은 `l_gripper_r_finger_link`/`floor` world-object 불일치는 §56.3의
+min(candidate_x, candidate_z) 공식으로는 덮이지 않는다 — 그 공식은
+`torso_lift_link`/`base_bellow_link` 쌍의 기하에서 유도된 것이고, 이 케이스는
+완전히 다른 쌍(`l_gripper_r_finger_tip_link`/`floor` 대
+`l_gripper_r_finger_link`/`floor`)이다. 그런데 "덮이지 않는다"가 "설명이
+없다"는 아니다 — §72.1이 self-collision 같은 쌍 사례에 쓴 것과 같은
+계측기(`deepest_vertex_under_floor`, 양쪽 백엔드와 무관한 순수 정점 측정)를
+이 world-object flip 사례에도 그대로 댈 수 있다.
+
+seed 20260804, `--group right_arm --collision --cases 300`의 case 122를
+`--pair-probe-json`으로 살아 있는 오라클에 다시 물어 재현했다(§53.3의
+수치와 10자리 이상 일치, 결정론 확인). 이 포트:
+`l_gripper_r_finger_tip_link`/`floor` `-3.30976249554740254e-2`. 오라클:
+`l_gripper_r_finger_link`/`floor` `-1.17505058621331926e-2`.
+
+`deepest_vertex_under_floor`로 두 링크 각각의 자기 자신 정점 깊이를 쟀다:
+
+```
+l_gripper_r_finger_tip_link  deepest vertex under floor = 3.30976249554739491e-2
+l_gripper_r_finger_link      deepest vertex under floor = 1.17505058621332897e-2
+```
+
+이 포트의 답은 `l_gripper_r_finger_tip_link` 자신의 정점 깊이와 `4e-15`
+안에서 같다. 오라클의 답은 (이 포트가 아니라) `l_gripper_r_finger_link`
+자신의 정점 깊이와 같은 정밀도로 같다. 즉 **둘 다 실재하는 정점 깊이를
+정확히 보고하고 있다** — 서로 다른 링크를 골랐을 뿐이다.
+
+침투 심각도는 가장 얕은 겹침이 아니라 가장 깊은 겹침이다. 두 링크가 동시에
+바닥과 겹치는 상태에서 전역 argmin은 더 깊은 쪽
+(`l_gripper_r_finger_tip_link`, `3.31e-2`)이어야 하고, 이 포트가 그것을
+찾았다. 오라클은 `l_gripper_r_finger_link`(`1.18e-2`)에서 멈췄다 —
+§302.4가 이미 문서화한 `fcl-distance-threshold-suppresses-deeper-pairs`
+메커니즘(더 얕은 침투 쌍을 찾으면 그 쌍의 탐색을 멈추고 더 깊은 쌍을 놓치는
+upstream 결함)이 self-collision뿐 아니라 world-object 쌍에서도 같은
+모양으로 나타난다는 뜻이다. "방향이 반대다"는 새 결함이 아니라 이 포트가
+더 정확한 쪽이라는 신호였다.
+
+커밋된 시험:
+`pr2_world_object_pair_flip_case_122_both_sides_are_real_vertices`
+(`crates/moveit-collision/tests/collision_parity.rs`). 두 mutation으로
+확인했다: 어느 쪽 정점이 더 깊은지 비교하는 부등호를 뒤집으면 실측 수치를
+보여주며 실패하고, 오라클 상수 리터럴을 손상시키면(자릿수를 줄여) 그
+링크의 정점 대조가 정확한 수치로 실패한다 — 둘 다 원래대로 되돌렸다.
+
+`cargo fmt --all` 적용, clippy `-p moveit-collision --all-targets -- -D warnings` 0건,
+`cargo nextest run -p moveit-collision --release` **262/262**(이 시험 포함).
 
 ## 57. §40이 닫혔다 — 22/22. 그리고 pr2 메시는 한 번도 대조된 적이 없다 (2026-08-04)
 

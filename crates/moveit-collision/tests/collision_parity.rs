@@ -1496,6 +1496,148 @@ fn pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direc
     }
 }
 
+/// Round 9's original find (§53.3) and §60.2's own listing: the seed-20260804
+/// `right_arm --collision` 300-case sweep's case 122, one of the nine world-
+/// object robot-distance cases whose deviation exceeds Phase 3's `1e-4` and
+/// whose two sides pick *different* argmin pairs -- not one of
+/// [`pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direction`]'s
+/// two same-pair cases. Oracle: `l_gripper_r_finger_link`/`floor` at
+/// `-1.17505058621331926e-2`. This port: `l_gripper_r_finger_tip_link`/
+/// `floor` at `-3.30976249554740254e-2`, about 2.8x deeper.
+///
+/// PORTING-PLAN.md §56.4's third residual bullet read this as a case the
+/// plateau/min-of-two-candidates explanation (§56.3) does not cover, "the
+/// direction is reversed" -- and it is not covered by that specific formula,
+/// which is derived for an unrelated pair's geometry. But
+/// `deepest_vertex_under_floor` -- the same independent, both-backends-blind
+/// mesh-vertex measurement the same-pair test above uses -- answers the
+/// actual question: are *both* reported numbers real vertices, just of
+/// different links?
+///
+/// MEASURED: `l_gripper_r_finger_tip_link`'s own deepest vertex under the
+/// floor is `3.30976249554739491e-2`, matching this port's reported
+/// magnitude to `TOLERANCE`. `l_gripper_r_finger_link`'s own deepest vertex
+/// is `1.17505058621332897e-2`, matching the *oracle's* reported magnitude
+/// to `TOLERANCE` -- not this port's. Both sides are reporting a real vertex
+/// depth; they simply picked different links as the global argmin. Since
+/// penetration severity is the deepest overlap, not the shallowest, the pair
+/// that actually reaches deeper is the correct argmin, and this port found
+/// it while the oracle did not. That is §302.4's already-documented mechanism
+/// (`fcl-distance-threshold-suppresses-deeper-pairs`, upstream stopping its
+/// per-pair search once a shallower penetrating pair is found) landing on a
+/// world-object case, not a new one -- so the reversed direction this bullet
+/// flagged is this port being *more* correct, not less.
+#[test]
+fn pr2_world_object_pair_flip_case_122_both_sides_are_real_vertices() {
+    let model = build_model("pr2.urdf", "pr2.srdf");
+    let acm = build_acm("pr2.srdf");
+    let env = floor_env();
+
+    // Case 122's own joint values -- as `tools/moveit-diff --pair-probe-json`
+    // recorded them for that state (seed 20260804, `--group right_arm`,
+    // `--cases 300`) -- reproduced live and confirmed identical to §53.3's
+    // original oracle/port values to 10+ significant digits before this test
+    // was written.
+    let joints: &[(&str, f64)] = &[
+        ("bl_caster_l_wheel_joint", 1.8110843327376944),
+        ("bl_caster_r_wheel_joint", -1.3565553651303288),
+        ("bl_caster_rotation_joint", -2.0946291775757473),
+        ("br_caster_l_wheel_joint", -2.8638606040208527),
+        ("br_caster_r_wheel_joint", -1.240851715711764),
+        ("br_caster_rotation_joint", 0.7775410132584644),
+        ("fl_caster_l_wheel_joint", -2.5131292699901304),
+        ("fl_caster_r_wheel_joint", 2.428917916580673),
+        ("fl_caster_rotation_joint", -1.157821668651315),
+        ("fr_caster_l_wheel_joint", -1.8029447004321946),
+        ("fr_caster_r_wheel_joint", 1.6507924616978693),
+        ("fr_caster_rotation_joint", 0.34544718322748835),
+        ("head_pan_joint", -0.16913603377528474),
+        ("head_tilt_joint", 0.5262407144957595),
+        ("l_elbow_flex_joint", -0.15970503807084158),
+        ("l_forearm_roll_joint", 3.0863743147586256),
+        ("l_gripper_joint", 0.071583628911525),
+        ("l_gripper_l_finger_joint", 0.45979399859160186),
+        ("l_gripper_l_finger_tip_joint", 0.45979399859160186),
+        ("l_gripper_motor_screw_joint", 0.16252357158768227),
+        ("l_gripper_motor_slider_joint", 0.05244462559930982),
+        ("l_gripper_r_finger_joint", 0.45979399859160186),
+        ("l_gripper_r_finger_tip_joint", 0.45979399859160186),
+        ("l_shoulder_lift_joint", 1.1735535482576585),
+        ("l_shoulder_pan_joint", 0.49178570006825517),
+        ("l_upper_arm_roll_joint", -0.6450686627067626),
+        ("l_wrist_flex_joint", -0.15731475260108718),
+        ("l_wrist_roll_joint", -1.0238852147804027),
+        ("laser_tilt_mount_joint", 1.38974086358116),
+        ("r_elbow_flex_joint", -1.7188994917039528),
+        ("r_forearm_roll_joint", 0.5885763984437711),
+        ("r_gripper_joint", 0.06041045605018735),
+        ("r_gripper_l_finger_joint", 0.02140877056401223),
+        ("r_gripper_l_finger_tip_joint", 0.02140877056401223),
+        ("r_gripper_motor_screw_joint", 3.1167337328588207),
+        ("r_gripper_motor_slider_joint", -0.0832570452708751),
+        ("r_gripper_r_finger_joint", 0.02140877056401223),
+        ("r_gripper_r_finger_tip_joint", 0.02140877056401223),
+        ("r_shoulder_lift_joint", 0.18841398464860393),
+        ("r_shoulder_pan_joint", 0.43360092085106183),
+        ("r_upper_arm_roll_joint", -2.3519548690877854),
+        ("r_wrist_flex_joint", -1.5207342812791467),
+        ("r_wrist_roll_joint", -0.148801931043419),
+        ("torso_lift_joint", 0.01276570774964057),
+        ("torso_lift_motor_screw_joint", -3.0057428418484173),
+        ("world_joint/theta", -2.5874911909597635),
+        ("world_joint/x", 0.0),
+        ("world_joint/y", 0.0),
+    ];
+    let joint_values: BTreeMap<String, f64> = joints
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), *value))
+        .collect();
+    let mut state = build_state(&model, &joint_values);
+    let posed = state.update();
+    let request = DistanceRequest {
+        enable_signed_distance: true,
+        acm: Some(&acm),
+        ..DistanceRequest::default()
+    };
+    let distance = env.distance_robot(&request, &posed, &[]);
+    assert_eq!(
+        distance.minimum_distance.link_names,
+        ["l_gripper_r_finger_tip_link".to_owned(), "floor".to_owned()],
+        "case 122: this port's argmin pair changed -- no longer the pair-flip case this test \\
+         exists to characterize"
+    );
+
+    let tip_vertex = deepest_vertex_under_floor(&model, &posed, "l_gripper_r_finger_tip_link");
+    assert!(
+        (tip_vertex - (-distance.minimum_distance.distance)).abs() < TOLERANCE,
+        "l_gripper_r_finger_tip_link: independent straight-up vertex bound {tip_vertex} != \\
+         this backend's own {}",
+        -distance.minimum_distance.distance
+    );
+
+    // The oracle's own pick, checked against the *same* independent
+    // instrument: its reported value should match a real vertex of the link
+    // *it* named, not this port's.
+    const ORACLE_LINK: &str = "l_gripper_r_finger_link";
+    const ORACLE_DISTANCE: f64 = -1.175_050_586_213_319_3e-2;
+    let oracle_link_vertex = deepest_vertex_under_floor(&model, &posed, ORACLE_LINK);
+    assert!(
+        (oracle_link_vertex - (-ORACLE_DISTANCE)).abs() < TOLERANCE,
+        "{ORACLE_LINK}: independent straight-up vertex bound {oracle_link_vertex} != the \\
+         oracle's own published {}",
+        -ORACLE_DISTANCE
+    );
+
+    // The falsifiable claim: this port's pick is the deeper -- hence
+    // correct -- global argmin, not an unexplained magnitude blow-up.
+    assert!(
+        tip_vertex > oracle_link_vertex,
+        "l_gripper_r_finger_tip_link's own vertex depth {tip_vertex} is not deeper than \\
+         l_gripper_r_finger_link's {oracle_link_vertex} -- the oracle's pick would then be the \\
+         correct global argmin and this port's deeper answer would be unexplained"
+    );
+}
+
 /// One `self_distance`/`self_distance_pair` case from
 /// `pr2_self_wheel_same_pair_oracle_implausible_{request,response}.json` --
 /// three states (seed 20260804, `right_arm --collision`, case indices 216,
