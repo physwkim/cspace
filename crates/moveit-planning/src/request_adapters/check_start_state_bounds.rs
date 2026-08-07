@@ -46,7 +46,15 @@
 //!    adapter must never silently clamp a genuinely out-of-bounds *bounded*
 //!    joint the way the whole-state `enforce_bounds()` would, so this port
 //!    calls the per-joint dispatcher only inside this `is_continuous()`
-//!    guard, exactly mirroring cpp:112's own guard.
+//!    guard, exactly mirroring cpp:112's own guard. Whether this step
+//!    counts as a `should_fix_state` change is decided by comparing the
+//!    position *before* and *after* the call (cpp:112-119), not by
+//!    `enforce_position_bounds`'s return value: that value is
+//!    unconditionally `true` for a continuous joint regardless of whether
+//!    the position actually moved (see the same doc comment above), so a
+//!    prior version of this port that treated it as "did this change
+//!    anything" rejected every start state with a continuous joint under
+//!    `fix_start_state = false`, wrap needed or not. Fixed.
 //! 2. If planar: `values[2]` (yaw) renormalized via
 //!    [`moveit_model::joint::PlanarJoint::normalize_rotation`] (cpp:129).
 //! 3. If floating: the quaternion renormalized via
@@ -141,7 +149,17 @@ impl PlanningRequestAdapter for CheckStartStateBounds {
 
             match joint.joint_type() {
                 JointType::Revolute if joint.as_revolute().unwrap().is_continuous() => {
-                    if joint.enforce_position_bounds(&mut values) {
+                    // `enforce_position_bounds` always returns `true` for a
+                    // continuous joint (`moveit-model`'s `revolute.rs`),
+                    // whether or not it actually changed `values` -- unlike
+                    // `PlanarJoint`/`FloatingJoint::normalize_rotation`
+                    // below, whose return value genuinely means "changed
+                    // something". Upstream (cpp:112-119) compares the
+                    // before/after position itself, not a return value, so
+                    // this does too.
+                    let before = values[0];
+                    joint.enforce_position_bounds(&mut values);
+                    if (values[0] - before).abs() > f64::EPSILON {
                         should_fix_state = true;
                     }
                 }
@@ -515,6 +533,41 @@ mod tests {
             .joint_position(&continuous_joint)
             .unwrap()[0];
         assert!((-PI..=PI).contains(&wrapped), "wrapped = {wrapped}");
+    }
+
+    /// Boundary the existing wrap test above never exercises: a continuous
+    /// joint already inside `[-PI, PI]` needs no wrap at all.
+    /// `enforce_position_bounds` always returns `true` for a continuous
+    /// joint, whether or not it actually changed anything (see
+    /// `moveit-model`'s `revolute.rs`, `enforce_position_bounds`'s own doc
+    /// comment) -- trusting that return value as "did this change the
+    /// state" rejected every start state containing a continuous joint
+    /// under `fix_start_state = false`, upstream's own default, regardless
+    /// of whether the joint needed wrapping at all.
+    #[test]
+    fn a_continuous_joint_already_in_bounds_needs_no_fix() {
+        let (model, srdf) = pr2();
+        let env = ParryCollisionEnv::default();
+        let continuous_joint = model
+            .joint_models()
+            .find(|j| j.as_revolute().map(|r| r.is_continuous()).unwrap_or(false))
+            .expect(
+                "fixture must have at least one continuous joint for this test to mean anything",
+            )
+            .name()
+            .to_string();
+
+        let mut scene = PlanningScene::new(&model, &srdf);
+        scene
+            .current_state_mut()
+            .set_joint_positions(&continuous_joint, &[0.5])
+            .unwrap();
+        assert_eq!(
+            CheckStartStateBounds::new(false).adapt(&mut scene, &env, &mut request()),
+            Ok(()),
+            "an already-in-bounds continuous joint must not be rejected under \
+             fix_start_state = false"
+        );
     }
 
     /// Isolating mutation (assertion-discrimination sweep, round 15):
