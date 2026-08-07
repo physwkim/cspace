@@ -30599,7 +30599,7 @@ undeclared-unresolvable **0건**으로 통과한다.
 - `oracle-request-pilz-blend-geometry.md:654`의 `` `5777`-`5778` `` →
   `` `oracle.cpp:6804-6805` ``
 
-일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27603`는
+일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27615`는
 `$ rg ...` 실행 결과를 코드 펜스 안에 그대로 옮긴 것이고, 그 실행은 실제로
 5688을 찍었다. 전사를 고치면 기록이 아니라 위조가 된다. (이 인용은 쓰인
 커밋 `580f1995` 당시 `!PORTING-PLAN.md:27486`이었고, 그 뒤 두 번 밀렸다.
@@ -31528,7 +31528,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:26867`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:26879`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -34877,8 +34877,8 @@ unresolvable이다.
 
 | 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30564` | `PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
-| `PORTING-PLAN.md:31514` | `PORTING-PLAN.md:26867` | §267.1 (26905-26927) | §266.8 |
+| `PORTING-PLAN.md:30579` | `PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
+| `PORTING-PLAN.md:31531` | `PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
 | `doc/claim-audit/upstream-bugs.md:37` | `PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
 
 세 건 다 baseline에 findings로 선언돼 있고 passing 등급으로 얼려지지
@@ -34914,8 +34914,8 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
 `oracle.cpp:5688` 전사 줄이다. §287.7의 문장이 "그 실행은 실제로 5688을
 찍었다"고 말하는 것과 정확히 맞고, 그 문장이 이 인용을 고치면 위조가 된다고
 한 이유이기도 하다 — 5688은 살아 있는 `oracle.cpp` 인용이 아니라 실행
-출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27603`에 있다(§271.3
-안, 펜스 27598–27605).
+출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27615`에 있다(§271.3
+안, 펜스 27611–27617).
 
 §299.7은 이것을 `$ rg -l -w 'NearestNeighbors' .` 출력으로 읽고 27499(+13)로
 옮겼다고 적었다. 그 펜스는 오늘 27514–27529에 있고, 5688을 찍은 펜스와 약
@@ -34934,7 +34934,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
   자리가 남는다.
 
 그래서 번호만 고치지 않고 **검사 가능한 형태로 바꿨다**: §287.7의 문장이
-이제 `§271.3의 PORTING-PLAN.md:27603`로 절을 이름 댄다. 다음에 §271.3의
+이제 `§271.3의 PORTING-PLAN.md:27615`로 절을 이름 댄다. 다음에 §271.3의
 내용이 밀리면 인용이 절 범위 밖으로 나가고, 그때는 게이트가 말한다. 손으로
 고친 번호는 다시 밀린다 — 이 인용은 이미 두 번 밀렸다. 남길 것은 번호가
 아니라 그것을 붙잡는 규칙이다.
@@ -35278,7 +35278,7 @@ cpp 2인데 @424242는 포트 1 대 cpp 3이다. 두 베이스를 합쳐도 0.01
 ### §307.1 task #43 전제 정정 — `assert_ne!`는 이미 `MACROS`에 있다
 
 task #43은 "`>` 비교와 `assert_ne!`로 코퍼스를 넓히라"고 적혀 있었다.
-`assert_ne!` 쪽은 이미 거짓이다: `tools/ci/count-coarse-assertions.py:111`의
+`assert_ne!` 쪽은 이미 거짓이다: `tools/ci/count-coarse-assertions.py:112`의
 `MACROS`는 `("assert", "assert_eq", "assert_ne", "debug_assert",
 "debug_assert_eq")`이고, `assert_ne!(x, None)` / `assert_ne!(x, Err(..))`는
 `classify()`가 이미 `eq_none`/`eq_err`로 잡는다. 다시 하지 않는다. 비교 연산자
@@ -35286,7 +35286,7 @@ task #43은 "`>` 비교와 `assert_ne!`로 코퍼스를 넓히라"고 적혀 있
 
 ### §307.2 공백 — `scan()`의 드롭 분기가 세지 않은 것
 
-`tools/ci/count-coarse-assertions.py:391`(당시 292)의
+`tools/ci/count-coarse-assertions.py:403`(당시 292)의
 
     kinds = classify(m.group(1), body)
     if not kinds:
