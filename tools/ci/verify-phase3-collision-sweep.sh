@@ -234,7 +234,15 @@ PY
     SUMMARY+=("$robot: NO RESULT (stats unreadable)")
     continue
   fi
-  IFS='|' read -r bool_bad bool_tot _dist_bad dist_tot errored _cases worst secs \
+  # _dist_tot and _worst are the *combined* separated+penetrating distance
+  # total and worst deviation -- read for completeness with the rest of the
+  # line, never compared. This script's own header (above) argues at length
+  # that the combined figure must not drive the verdict, only the separated
+  # branch may; both numbers are already visible per-robot in the `sed`
+  # block below (`worst distance deviation: ...` and the `clause
+  # `distance: f64`` line), so leaving them discarded here does not drop
+  # them from the report, just from this second, bash-side parse of it.
+  IFS='|' read -r bool_bad bool_tot _dist_bad _dist_tot errored _cases _worst secs \
     sep_bad sep_tot sep_worst pen_bad pen_tot pen_worst <<<"$line"
 
   sed -n '/^worst distance deviation/,/^robot same-pair/p' "$out"
