@@ -1644,7 +1644,7 @@ def main(write_classes=False):
                 # against its citation is a claim about where that name
                 # lives, and this rule either confirms it or fails it. It
                 # never leaves one unanchored, which is what let
-                # `PORTING-PLAN.md:7801` -- `` `construct_goal_pose_
+                # `!PORTING-PLAN.md:7801` -- `` `construct_goal_pose_
                 # constraints`(`crates/moveit-constraints/src/utils.rs:291`) ``,
                 # naming the symbol in backticks touching its own citation,
                 # 71 lines above that function's real span -- pass every
@@ -1686,7 +1686,7 @@ def main(write_classes=False):
                     # either one satisfies the citation. Requiring
                     # containment alone fails a row that is quoting exactly
                     # the line it cites; dropping to the quotation alone
-                    # would let `PORTING-PLAN.md:7801` pass on nothing, since
+                    # would let `!PORTING-PLAN.md:7801` pass on nothing, since
                     # `utils.rs:291` does not say `construct_goal_pose_
                     # constraints` either.
                     named_here = any(
