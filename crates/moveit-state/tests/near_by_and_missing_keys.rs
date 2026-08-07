@@ -19,6 +19,7 @@
 
 use std::fs;
 
+use approx::assert_relative_eq;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -50,6 +51,49 @@ fn panda() -> RobotModel {
 
 fn pr2() -> RobotModel {
     build_model("pr2.urdf", "pr2.srdf")
+}
+
+// ---- setToDefaultValues(group, name) -----------------------------------
+
+#[test]
+fn set_to_default_values_group_applies_a_known_state() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+
+    let applied = state
+        .set_to_default_values_group("panda_arm", "ready")
+        .unwrap();
+
+    assert!(applied);
+    assert_relative_eq!(state.variable_position("panda_joint2").unwrap(), -0.785);
+    assert_relative_eq!(state.variable_position("panda_joint7").unwrap(), 0.785);
+}
+
+#[test]
+fn set_to_default_values_group_returns_false_and_leaves_state_unchanged_for_unknown_name() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    state.set_variable_position("panda_joint1", 1.23).unwrap();
+
+    let applied = state
+        .set_to_default_values_group("panda_arm", "no_such_state")
+        .unwrap();
+
+    assert!(!applied);
+    assert_relative_eq!(state.variable_position("panda_joint1").unwrap(), 1.23);
+}
+
+#[test]
+fn set_to_default_values_group_errors_on_unknown_group() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    assert!(
+        state
+            .set_to_default_values_group("no_such_group", "ready")
+            .is_err()
+    );
 }
 
 // ---- setToRandomPositionsNearBy -----------------------------------------
