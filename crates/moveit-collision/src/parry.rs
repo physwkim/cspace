@@ -2487,6 +2487,75 @@ fn accumulate_collision<'a>(
                 // cone`) never reaches `intersection_test` here at all --
                 // this branch cannot make one of those `true`.
                 //
+                // Upstream fcl verdict for every pair class this gate can
+                // actually open for, checked against a live
+                // `/home/stevek/work/fcl` checkout at `0.7.0-17-ge5efcc4`.
+                // `fcl_tangency_verdict` is a pure
+                // `SPECIALISED[tangency_kind(a)][tangency_kind(b)]` lookup,
+                // so "opens for" means every unordered `TangencyKind` pair
+                // the table marks `true` -- that is four classes, not one:
+                // `box x box`, `box x sphere`, `sphere x sphere`, and
+                // `sphere x cylinder`. `Halfspace x {box, sphere, cylinder,
+                // cone}` and `TriMesh x anything` never reach any of them --
+                // `tangency_kind` has no arm for either shape (see
+                // `HalfSpace`'s own doc and
+                // `mesh_pair_never_opens_the_none_but_touching_safety_net`),
+                // so `fcl_tangency_verdict` short-circuits to `None` on the
+                // very first `tangency_kind` call before this branch's
+                // condition is even evaluated, regardless of what fcl does
+                // for those shapes.
+                //
+                // All four reachable classes are a single closed-form
+                // routine that rejects with a strict `>` and fills
+                // `contacts` unconditionally in the same call once past it,
+                // so an exact-zero gap is never classified separated and
+                // fcl cannot itself report no-contact for a true touch in
+                // any of them -- this branch's `true` matches upstream
+                // whenever it fires:
+                // - `box x box` (the `Compound`-as-boxes case):
+                //   `boxBoxIntersect`/`boxBox2`
+                //   (`box_box-inl.h:858-875,248-567`), 15 SAT axes, each
+                //   `if(s2 > 0) { *return_code = 0; return 0; }`
+                //   (`:302,314,326,339,351,363` face,
+                //   `:406,424,442,461,479,497,516,534,552` edge-edge),
+                //   contacts filled at `:568-616`.
+                // - `box x sphere` (also reached by `Compound x Sphere`):
+                //   `sphereBoxIntersect` (`sphere_box-inl.h:98-178`),
+                //   `if (squared_distance > r * r) return false;` at
+                //   `:119`, contacts filled at `:124-176`.
+                // - `sphere x sphere`: `sphereSphereIntersect`
+                //   (`sphere_sphere-inl.h:66-86`), `if(len > s1.radius +
+                //   s2.radius) return false;` at `:72`, contacts filled at
+                //   `:75-83`. This is the *opposite* boundary convention
+                //   from parry's own `contact_ball_ball`, whose strict `<`
+                //   is what motivates this branch in the first place
+                //   (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`)
+                //   -- fcl's own routine does not share parry's gap here,
+                //   so this is not the branch's strongest justification, it
+                //   is simply another case fcl always agrees with.
+                // - `sphere x cylinder`: `sphereCylinderIntersect`
+                //   (`sphere_cylinder-inl.h:114-221`), `if
+                //   (p_SN_squared_dist > r_s * r_s) return false;` at
+                //   `:136`, contacts filled at `:141-219`.
+                //
+                // No masking case found in any of the four: fcl either
+                // always reports the touch this branch also reports, or
+                // never lets this branch answer for that pair at all
+                // (`Halfspace`, `TriMesh`). Mesh's own narrow phase is a
+                // separate, moot question for the same reason: it routes
+                // `Mesh x Sphere` to a closed-form routine but `Mesh x
+                // {Box, Cylinder, Cone}` to generic libccd MPR
+                // (`gjk_solver_libccd-inl.h:403-419,422-458`), whose own
+                // `discoverPortal` rejects an exact-zero support-direction
+                // dot product as *separated*, not touching
+                // (`/home/stevek/work/libccd`, checkout `7931e76`,
+                // `mpr.c:189,209,232`) -- the opposite boundary convention
+                // from every closed-form routine above. It does not matter
+                // today because the gate never opens for mesh; a future
+                // `TriMesh` arm in `tangency_kind` would need this
+                // re-derived, not assumed safe by analogy with the box/
+                // sphere classes.
+                //
                 // There is no `Contact` to build for this pair, so unlike
                 // every other branch this sets `collision` alone: no
                 // `by_pair` entry, no cost sources, and
@@ -5971,5 +6040,75 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Pin for the "no contact, but geometrically touching" safety net in
+    /// `accumulate_collision` (the `else if fcl_tangency_verdict(...) ==
+    /// Some(true) && query::intersection_test(...)` branch, just above
+    /// `touches_at_tie` in this module): unlike `HalfSpace` (pinned above)
+    /// and `Box x Box`
+    /// (`compound_at_a_tie_reads_the_box_row_not_unwrap_or_true`'s own
+    /// `expected` table), `TriMesh` was never assigned a `TangencyKind` --
+    /// `tangency_kind`'s match has no `TriMesh` arm, so it falls to `_ =>
+    /// None` the same way `HalfSpace` does. This pins that the safety net's
+    /// gate is therefore unreachable for every mesh pairing:
+    /// `fcl_tangency_verdict` short-circuits to `None` on the `?` for
+    /// whichever shape is the mesh, so `== Some(true)` can never hold and
+    /// the branch cannot fire. The branch's own doc comment has the fuller
+    /// upstream-fcl reasoning (why this is harmless, and what it would take
+    /// to stop being harmless).
+    ///
+    /// Boundary coverage: every reachable `TriMesh` partner (`Sphere`,
+    /// `Box`, `Cylinder`, `Cone`, `HalfSpace`, `Compound`, `TriMesh`
+    /// itself), both operand orders.
+    #[test]
+    fn mesh_pair_never_opens_the_none_but_touching_safety_net() {
+        let cache = OctreeCache::default();
+        let mesh = big_flat_triangle();
+
+        let mut octree = moveit_octomap::OcTree::new(0.1);
+        octree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
+
+        let partners: [(&str, Shape); 6] = [
+            ("sphere", Shape::Sphere(Sphere::new(0.05).expect("sphere"))),
+            (
+                "box",
+                Shape::Cuboid(Cuboid::new(0.1, 0.1, 0.1).expect("cuboid")),
+            ),
+            (
+                "cylinder",
+                Shape::Cylinder(moveit_geometry::Cylinder::new(0.05, 0.1).expect("cylinder")),
+            ),
+            (
+                "cone",
+                Shape::Cone(moveit_geometry::Cone::new(0.05, 0.1).expect("cone")),
+            ),
+            ("halfspace", Shape::Plane(Plane::new(0.0, 0.0, 1.0, 0.0))),
+            (
+                "compound",
+                Shape::OcTree(OcTree::from_tree(Arc::new(octree))),
+            ),
+        ];
+
+        for (name, shape) in partners {
+            let (other, _fix) = convert_shape(&shape, &cache).expect("converts");
+            assert_eq!(
+                fcl_tangency_verdict(&mesh, &*other),
+                None,
+                "mesh x {name} must classify as None -- tangency_kind has no TriMesh arm"
+            );
+            assert_eq!(
+                fcl_tangency_verdict(&*other, &mesh),
+                None,
+                "{name} x mesh (operand order swapped) must classify as None"
+            );
+        }
+
+        let other_mesh = big_flat_triangle();
+        assert_eq!(
+            fcl_tangency_verdict(&mesh, &other_mesh),
+            None,
+            "mesh x mesh must classify as None -- neither side has a TangencyKind"
+        );
     }
 }
