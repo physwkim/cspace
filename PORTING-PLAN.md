@@ -27123,7 +27123,9 @@ DDS 위에서 실제로 잰 것(`sg docker -c ./tools/ci/verify-ros-interop.sh`,
   없고, 이제 그것은 *제외*가 아니라 *공백*이다 — 채울 자리
   (`RrtConnectContext::solve`)가 생겼고 비어 있을 뿐이다. 다만 §138.3이 모든
   오라클 응답에서 벽시계 시간을 제거했으므로 여기에 스톱워치를 달아도
-  비교 대상이 없다.
+  비교 대상이 없다. OPEN → 만료 조건 (`PlanningResponse`
+  (`crates/moveit-planning/src/response.rs`)에 `planning_time` 필드가 생겨
+  구체 플래너의 실측 solve 시간을 채우면).
 - **goal의 `planning_scene_diff`가 무시된다.** 이 절이 처음 쓰였을 때는
   scene monitor 자체가 없었고 §257이 그것을 지었다(§266.8). 남은 것은
   상류 `copyPlanningScene(planning_options.planning_scene_diff)`
