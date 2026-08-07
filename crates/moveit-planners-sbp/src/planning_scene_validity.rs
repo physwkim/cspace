@@ -17,6 +17,7 @@ use moveit_state::Posed;
 
 use crate::compound::CompoundValue;
 use crate::joint_model_group_space::JointModelGroupSpace;
+use crate::space::StateSpace;
 use crate::validity::StateValidityChecker;
 
 /// Checks a [`JointModelGroupSpace`] sample against a real
@@ -139,6 +140,17 @@ where
     /// relies on: a caller that needs the pre-planning state preserved
     /// clones it once, itself, before handing the scene to this type.
     fn is_valid(&self, state: &Vec<CompoundValue>) -> bool {
+        // Bounds first, matching OMPL's own `StateValidityChecker` ordering:
+        // `write_robot_state` writes `state` into the scene's `RobotState`
+        // with no bounds enforcement of its own (mirroring
+        // `RobotState::set_variable_position`), and
+        // `PlanningScene::is_state_valid`'s collision-then-constraints
+        // composition has nothing that checks joint limits either -- a
+        // grossly out-of-limit sample that happens to be collision-free and
+        // constraint-satisfying would otherwise read as valid.
+        if !self.space.satisfies_bounds(state) {
+            return false;
+        }
         let mut scene = self.scene.borrow_mut();
         self.space
             .write_robot_state(state, scene.current_state_mut());
@@ -276,6 +288,41 @@ mod tests {
         assert!(
             clear_checker.is_valid(&ready),
             "the same state must be collision-free once the obstacle is moved 10m away"
+        );
+    }
+
+    #[test]
+    fn a_state_grossly_outside_joint_limits_is_rejected_even_with_no_collision() {
+        let (model, srdf) = load_panda();
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env =
+            ParryCollisionEnv::new(moveit_collision::World::new(), LinkPaddingScale::default());
+
+        let checker = PlanningSceneValidityChecker::new(
+            &mut scene,
+            &env,
+            moveit_collision::CollisionRequest::default(),
+            None,
+            &space,
+        );
+
+        // panda_joint1's real limit is +/-2.9671 rad (panda.urdf); 100.0 rad
+        // is nowhere near reachable. Nothing in the collision/constraint
+        // path this checker calls can see that -- only
+        // `StateSpace::satisfies_bounds` can, and `RobotState::set_variable_position`
+        // (unlike this crate's own request adapters) does not enforce
+        // bounds on write.
+        let mut out_of_bounds = ready_state(&model);
+        out_of_bounds
+            .set_variable_position("panda_joint1", 100.0)
+            .unwrap();
+        let sample = space.read_robot_state(&out_of_bounds);
+
+        assert!(
+            !checker.is_valid(&sample),
+            "a state 100.0 rad past panda_joint1's real limit of +/-2.9671 rad must not be \
+             reported valid"
         );
     }
 
