@@ -25884,27 +25884,39 @@ fanuc·pr2 결과가 나오기 전에 두 예측을 적어 두었다.
 ### §260.8 이 절이 하지 않은 것
 
 - `collision: bool` 행을 건드리지 않았다. prbt의 6,854건은 §229.1의 판정 그대로
-  미충족이고, 이 절의 게이트 실행에서도 prbt만 UNMET으로 남는다.
+  미충족이고, 이 절의 게이트 실행에서도 prbt만 UNMET으로 남는다. 오늘의 HEAD에서
+  원래 조건 그대로 재측정하면 0/10,000이다. **거짓 → 닫힘 (§330.1).**
 - 허용오차를 넓히지 않았다. `1e-4`는 조건 자신의 숫자 그대로이고, 게이트의
-  실패 문구에 "모집단도 더 좁히지 말 것"을 새로 적어 두었다.
+  실패 문구에 "모집단도 더 좁히지 말 것"을 새로 적어 두었다. OPEN → 만료 조건
+  (`verify-phase3-collision-sweep.sh`의 `--tol-distance`가 `1e-4`보다 커지거나
+  "not to be widened" 문구가 지워지면).
 - `doc/upstream-bugs.md`에 항목을 올리지 않았다. 관통 쪽 원인은 이미 등재된
   셋이고, 이 절이 더한 것은 그 셋의 **경계**(전부 `:663`의 산물)이지 새 결함이
-  아니다.
+  아니다. OPEN → 만료 조건 (§260.8 자신이 관통 쪽에 네 번째 `doc/upstream-bugs.md`
+  항목을 올리면).
 - 상류 결함을 재현하지 않았다. 재현은 `minimum_distance`를 최소가 아니게 만드는
-  일이고, §247.5의 3이 그 이유를 적어 두었다.
+  일이고, §247.5의 3이 그 이유를 적어 두었다. OPEN → 만료 조건
+  (`masking_the_tangent_pair_does_not_move_the_answer`
+  (`crates/moveit-collision/tests/minimum_distance_is_the_minimum.rs`)가 실패하는
+  커밋이 들어오면 — 최소-불변식을 실제로 깨는 재현이 그때 처음 생긴다).
 - prbt의 `8.9e-5`를 닫힌 형태로 확인하지 않았다. pr2의 캐스터 쌍과 달리 box 대
   cylinder의 분리 거리는 자세에 따라 변하므로 상수가 없다. 그쪽 근거는 §260.4의
   프로브(기준의 흔들림 `4.4e-4`)이며, 이것은 "포트가 옳다"가 아니라 "기준이 이
   자릿수를 판정할 수 없다"는 더 약한 주장이다. **거짓 → 닫힘 (§317.3).**
 - 분리 분기의 잔차를 0으로 만들지 않았다. prbt `8.892585e-5`와 pr2 `6.056201e-7`은
-  그대로 남고, 게이트는 매 실행 그 값을 찍는다.
+  그대로 남고, 게이트는 매 실행 그 값을 찍는다. OPEN → 만료 조건 (두 값 중 하나가
+  이후 0이 되거나 게이트가 `sep_worst`를 더 이상 찍지 않으면 — §284가 이미
+  지지함수 괄호로 증명했듯 상류 FCL 자체를 패치하지 않는 한 이 포트 쪽에서 만들 수
+  있는 변화가 아니라, 사실상 상류 패치를 기다리는 조건이다).
 - §5 표의 근거 열은 번호가 배정된 뒤에 옮겼다(`§229.3` → `§260`). 절을 쓰는
   시점에는 쓸 수 없었다 — `check-phase-status.sh`가 그 열을 실재하는 heading으로
   해석하므로 미배정 자리표시자를 넣으면 그 게이트가 빨개진다(§247.6). 그 사이
   §229.3에는 이 절로 잇는 문단을 두어 두 홉으로 닿게 해 두었고, 번호가 붙은
   지금은 그 문단도 §260을 직접 가리킨다. `tools/ci/verify-phase3-collision-sweep.sh`가
   이 절을 번호가 아니라 "§5의 `distance: f64` 행이 가리키는 절"로 부르는 것은
-  그대로 두었다 — 그 표현은 번호가 바뀌어도 썩지 않는다.
+  그대로 두었다 — 그 표현은 번호가 바뀌어도 썩지 않는다. OPEN → 만료 조건
+  (`verify-phase3-collision-sweep.sh`가 이후 §260을 리터럴 절 번호로 박거나
+  PORTING-PLAN.md §5의 분리-분기 행이 §260 아닌 다른 절을 인용하면).
 
 ## §261 §258을 41 커밋 뒤진 트리에서 유도했다 — 머지 후 전수 재검증, 그리고 한 문장이 실제로 거짓이었다 (2026-08-06)
 
@@ -26236,7 +26248,10 @@ CHOMP/STOMP 행에서 이미 쓰이고 있다), `PARTIAL`만 아직 한 번도 �
 ### §262.5 이 절이 하지 않은 것
 
 - `crates/moveit-collision/src/parry.rs`를 고치지 않았다. §262.1의
-  실험은 되돌렸고(git diff 없음), 그 실험이 만든 관찰만 여기 남는다.
+  실험은 되돌렸고(git diff 없음), 그 실험이 만든 관찰만 여기 남는다. 오늘의 HEAD는
+  `tie_scale`/`touches_at_tie`를 도입해 `accumulate_collision`/`accumulate_distance`
+  본문을 바꿨다 — `contact.dist >= 0.0` 게이트 자체는 재도입되지 않았지만(그 세부는
+  참), "고치지 않았다"는 결론은 거짓이다. **거짓 → 닫힘 (§330.2).**
 - `tools/ci/check-phase-status.sh`/`check-porting-plan-sections.sh`의
   어휘나 placeholder 메커니즘을 고치지 않았다 — 둘 다 이미 있는 것을
   썼다. 거짓 → 닫힘 (§314).
@@ -26255,7 +26270,8 @@ CHOMP/STOMP 행에서 이미 쓰이고 있다), `PARTIAL`만 아직 한 번도 �
   `collision: bool` 행은 오늘 §262.2가 아니라 §288을 근거로 든다.
 - `distance` 행의 원인 두 가지(panda의 §229.3, fanuc·pr2의 §247)를
   하나로 합치지 않았다 — 서로 다른 상류 결함이고, 이 절은 그 구분을
-  유지한 채 근거 열만 옮긴다.
+  유지한 채 근거 열만 옮긴다. OPEN → 만료 조건 (이후 어느 절이 두 원인을 같은
+  결함으로 재분류하면).
 
 ---
 
@@ -26457,10 +26473,14 @@ a pass"를 명시해 두 줄로 외친다. 매 병합 라운드에 돌릴 만한
   넣어 그 자리를 열었고, §269가 그 두 op으로 같은 500문제를 다시 재서 C++
   CHOMP 370/500 · C++ STOMP 446/500을 냈다. 그러므로 이 항목은 "열려면 op을
   만들어야 한다"가 아니라 "만들어졌고 쟀다"이다.
-- **Phase 8의 pilz 항목.** §217.3이 MET으로 측정했고 이 절은 손대지 않았다.
+- **Phase 8의 pilz 항목.** §217.3이 MET으로 측정했고 이 절은 손대지 않았다. OPEN →
+  만료 조건 (§5의 Phase 8 pilz 행이 §217.3 아닌 다른 절을 인용하게 되거나 등급이
+  바뀌면, 또는 `cargo nextest run -p moveit-planners-pilz`가 회귀하면).
 - **상류 기본 벽시계 구성의 재현 가능한 수치.** §263.3의 표는 기록이지
   게이트가 아니다 — 그 구성에서는 재현 가능한 숫자가 존재하지 않는다는 것이
-  그 표의 내용이다.
+  그 표의 내용이다. OPEN → 만료 조건 (공유 기계에서도 결정론적인 벽시계 측정
+  방법이 생겨, 상류 기본값(`planning_time_limit=6.0`/`allowed_planning_time=5.0`)으로
+  CHOMP·STOMP를 여러 번 반복해도 성공 수가 흔들리지 않는다는 것이 실측되면).
 
 ## §264 Phase 8의 "Phase 7과 같은 속성 기반 검증"을 항목별로 셌다 — 옮겨지는 것만 계측기에 넣었다 (2026-08-06)
 
@@ -27169,7 +27189,10 @@ box`가 아니라서 §251의 깨진 셀을 건드리지 않는다.
 ### §265.8 이 절이 하지 않은 것
 
 - `crates/moveit-collision`을 고치지 않았다 — §262.1이 이미 시도하고
-  되돌린 `contact.dist >= 0.0` 게이트를 다시 만들지 않았다.
+  되돌린 `contact.dist >= 0.0` 게이트를 다시 만들지 않았다. §330.2와 같은 diff
+  증거로 재확인: 오늘의 HEAD는 `tie_scale`/`touches_at_tie` 도입으로
+  `parry.rs`의 비-테스트 로직을 바꿨다 — 그 특정 게이트는 재도입되지 않았지만(그
+  세부는 참), "고치지 않았다"는 결론은 거짓이다. **거짓 → 닫힘 (§330.3).**
 - panda/fanuc/dual_arm_panda/pr2의 5로봇 전체 재스윕(약 80분)을 이번
   병합 위에서 다시 돌리지 않았다(§265.7) — prbt 단독(약 15~18초)만
   다시 쟀다. 거짓 → 닫힘 (§288) — §288이 §265.7의 제안 문구 대신 겹치는
@@ -27370,27 +27393,36 @@ DDS 위에서 실제로 잰 것(`sg docker -c ./tools/ci/verify-ros-interop.sh`,
   `response_adapters` 파라미터에서 짓는다. 이 크레이트는 아직 파라미터를
   읽지 않으므로 넘길 체인이 없고, 지어낼 정직한 방법도 없다. 결과적으로 이
   모듈을 지난 계획에는 시간 파라미터화가 없고 시작 상태 검증도 플래너가 하는
-  것 이상은 없다.
+  것 이상은 없다. OPEN → 만료 조건 (`plan_only`가 `generate_plan`에 빈 슬라이스가
+  아닌 실제 어댑터 체인을 넘기게 되면).
 - **`planning_time`.** §153.1의 만료 조건("어느 크레이트든 이 타입들에
   대해 구체 플래너를 구현하는 순간")이 이 라운드에 발화했다. 필드는 여전히
   없고, 이제 그것은 *제외*가 아니라 *공백*이다 — 채울 자리
   (`RrtConnectContext::solve`)가 생겼고 비어 있을 뿐이다. 다만 §138.3이 모든
   오라클 응답에서 벽시계 시간을 제거했으므로 여기에 스톱워치를 달아도
-  비교 대상이 없다.
+  비교 대상이 없다. OPEN → 만료 조건 (`PlanningResponse`
+  (`crates/moveit-planning/src/response.rs`)에 `planning_time` 필드가 생겨
+  구체 플래너의 실측 solve 시간을 채우면).
 - **goal의 `planning_scene_diff`가 무시된다.** 이 절이 처음 쓰였을 때는
   scene monitor 자체가 없었고 §257이 그것을 지었다(§266.8). 남은 것은
   상류 `copyPlanningScene(planning_options.planning_scene_diff)`
   (`move_action_capability.cpp:216-217`)의 **인자**다: goal 안에 세계를 실어
   보내는 클라이언트는 자기가 요청한 것보다 빈 씬을 상대로 계획하고, 그
-  사실은 wire 위 어디에도 적히지 않는다.
+  사실은 wire 위 어디에도 적히지 않는다. OPEN → 만료 조건
+  (`ros/moveit-ros/src/bin/move_group.rs`의 액션 핸들러가
+  `goal.planning_options.planning_scene_diff`를 읽어 씬에 반영하게 되면).
 - **chomp/stomp/pilz는 `PlannerManager`가 아니다.** §266.2에서 distinct로
   분류한 부재다. 셋 다 자유 함수 입구를 갖고 어느 레지스트리에도 없으므로
   `pipeline_id`로 고를 수 없다. 이름 충돌 결함이 아니라 별도의 이식 작업이다.
+  OPEN → 만료 조건 (chomp/stomp/pilz 중 하나라도
+  `#[distributed_slice(PLANNER_MANAGERS)]`로 등록되면).
 - **`DEFAULT_PIPELINE_ID`가 소스에 박혀 있다.** 상류의 빈 `pipeline_id`
   분기는 `move_group`이 실행된 설정값을 돌려준다. 이 포트에는 읽을 설정이
   없고 `PLANNER_MANAGERS`는 의도적으로 순서가 없으므로(§177) "첫 등록"도
   정의가 아니다. 이름을 명시하는 것이 같은 답을 두 번 주는 유일한 남은
-  선택지였다. 파라미터 처리가 생기면 그때 사라진다.
+  선택지였다. 파라미터 처리가 생기면 그때 사라진다. OPEN → 만료 조건
+  (`move_group.rs`의 빈-`pipeline_id` 분기가 `DEFAULT_PIPELINE_ID` 상수 대신
+  설정/파라미터 값을 읽게 되면).
 
 ### §266.8 `main`을 머지하면서 죽은 분기 하나와 살아난 답 하나
 
@@ -27588,9 +27620,12 @@ Phase 6 하나뿐이었다.
 ### §267.5 이 절이 하지 않은 것
 
 - 판정어를 하나도 바꾸지 않았다. §267.1은 인용을, §267.2는 그 인용을
-  지키는 상수를 고쳤을 뿐이다.
+  지키는 상수를 고쳤을 뿐이다. OPEN → 만료 조건 (§267이 손댄 두 행 — Phase 3
+  `collision: bool`, Phase 6 TOTG — 중 하나의 판정어가 실제로 뒤집히면).
 - 인용된 절이 **자기 안에서** 옳은지는 읽지 않았다. 이 라운드가 물은 것은
   "이 절이 이 행이 말하는 것을 쟀는가"이지 "그 측정이 옳은가"가 아니다.
+  OPEN → 만료 조건 (§5의 19행 전부 또는 §267이 다룬 부분집합에 대해, 인용이
+  아니라 측정 자체의 정확성을 검증하는 포괄적 재검증 절이 생기면).
 - **Phase 4 (a)의 동작점 공백(§267.4)은 열린 채로 남는다. 거짓 → 닫힘
   (§280).** 그것은 조건문을 고치는 결정이었고, §280(같은 날, §267.4보다
   나중)이 그 결정을 내렸다 — §245.4가 이미 잰 동작점 규칙과 검정을
@@ -40135,3 +40170,202 @@ OPEN.
   순간)
 - **연쇄 via 37건의 완전한 목록화.** OPEN → 만료 조건 (37건 각각과
   로저에 이미 있는 다른 사이트 사이의 관계가 표로 확정되는 순간)
+
+## §330 A3 — collision-distance-accuracy(§260.8/§262.5/§265.8) + PZ(§263.7/§266.7) + citation-audit-hygiene(§267.5) 잔여 18건, cc351321 이후 트리에 다시 쟀다 (2026-08-07)
+
+§317(C2 라운드)이 §260.8/§262.5/§265.8의 18건에, §316(PZ 테마)이 §263.7/§266.7의 7건에, §311이
+§267.5의 2건에 falsifier를 이미 정의했다. 세 라운드 모두 그 시점 트리에서는 falsifier가
+불발했다. 이 라운드는 같은 falsifier들을 오늘의 HEAD(`99b50996`)에 대고 다시 실행한다 —
+§317/§316/§311 이후 residual-triage 브랜치의 `cc351321`("fix(collision): unify the tie
+verdict behind touches_at_tie")과 그 뒤를 잇는 `tie_scale`의 중심항 확장(같은 5-브랜치 병합,
+`crates/moveit-collision/src/parry.rs`에 224행)이 merge됐고, 이 둘이 §260.8/§262.5/§265.8이
+공유하는 parry.rs 관련 falsifier를 처음으로 발화시킨다.
+
+```
+$ git merge-base --is-ancestor cc351321 HEAD && echo yes
+yes
+```
+
+18건 중 3건(§260.8의 `collision: bool` 행, §262.5·§265.8 각각의 "parry.rs를 고치지 않았다")이
+이 라운드에서 falsifier 발화로 닫힌다. 나머지 15건은 오늘도 falsifier 불발 — `OPEN → 만료
+조건 (...)`으로 전환해 §308.4(A3)의 두 번째 출구로 옮긴다. 시작 전 `git merge --no-edit
+main`으로 fast-forward 했다(충돌 없음, HEAD `99b50996`).
+
+### §330.1 §260.8 — `collision: bool` 행은 오늘 닫혔다, 나머지 다섯은 구조적으로 산다
+
+**`collision: bool` 행.** falsifier(§317.3 그대로): §229.1이 잰 prbt 6,854/10,000이 오늘 원래
+조건 문구로 다시 재면 다른 값을 낸다면 거짓. 오늘의 HEAD에서 prbt만 골라 직접 재측정
+(`moveit-diff --collision --tol-distance 1e-4 --cases 10000 --seed 1`, 절대경로,
+`sg docker`):
+
+```
+$ python3 -c "import json; d=json.load(open('prbt_recheck.json')); \
+  print(d['collision_clauses']['bool_disagrees'])"
+0
+```
+
+6,854/10,000 → 0/10,000. falsifier 발화 — **거짓, §330.1로 닫힘.** §317.3은 §262.4가 이미 적은
+구분("판정 어휘를 바꾸는 대신 조건문 자체를 고쳤다" — §288의 조건-좁히기는 prbt의
+원래-조건 결과를 고치지 않는다)을 근거로 이 불릿을 살려 두었다. 그 구분은 오늘도 옳다 —
+다만 §288이 아니라 `cc351321`이 조건문이 아니라 **판정 로직 자체**(`accumulate_collision`이
+쓰는 tie 규칙)를 바꿔, 원래 조건 그대로도 prbt가 이제 0건이다. `accumulate_collision`이
+`touches_at_tie(contact.dist, ...)`를 호출하는 것(`parry.rs:2411`)이 그 배선이다.
+
+**나머지 다섯.** 같은 오늘의 HEAD에서 §317.3의 나머지 falsifier 다섯을 다시 실행:
+
+- 허용오차: `verify-phase3-collision-sweep.sh:192`는 오늘도 `--tol-distance 1e-4`, 274-275행은
+  오늘도 "The tolerance is the condition's own 1e-4 and is not to be widened ... Neither is
+  the judged population to be narrowed further"를 그대로 찍는다. falsifier 불발.
+- `doc/upstream-bugs.md`: 관통 쪽 세 항목(`fcl-distance-sentinel-survives-zero-contacts`·
+  `distance-callback-max-contact-depth`·`distance-callback-threshold-suppresses-deeper-pairs`,
+  전부 오늘도 `doc/upstream-bugs.md`에 있음)이 여전히 그 셋뿐이고, §260.8 자신은 오늘도 그중
+  어느 것도 고치지 않았다. falsifier 불발.
+- 상류 재현: `masking_the_tangent_pair_does_not_move_the_answer` 오늘 재실행:
+
+  ```
+  $ cargo nextest run -p moveit-collision --release --test minimum_distance_is_the_minimum
+  3 tests run: 3 passed, 0 skipped
+  ```
+
+  이 포트의 "고려된 쌍 중 최소" 불변식이 오늘도 성립 — 재현(최소값을 최소가 아니게 만드는
+  일)은 여전히 이 포트에 없다. falsifier 불발.
+- 분리 분기 잔차: 오늘 재측정한 prbt `8.892585034468714e-05`(반올림 `8.892585e-5`, §284가 이미
+  확인한 값과 동일)와 pr2 `6.05620058533908e-07`(반올림 `6.056201e-7`, 역시 동일) 둘 다
+  여전히 0이 아니다. `cc351321`이 바꾼 것은 tie(경계) 판정이고, 분리(오라클 값 > 0) 쪽의
+  실제 거리 계산(GJK/FCL 경로)은 그 변경의 대상이 아니므로 값이 바뀔 이유가 없고, 실측도
+  그대로 확인한다. falsifier 불발 — 다만 §284가 이미 지지함수 괄호로 두 값 모두 **기준
+  자신의 오차**(prbt는 fcl `distance_tolerance` 기본값이 낳는 드리프트, pr2는
+  `fixtures/pr2.urdf`의 roll 절단이 낳는 오차)임을 증명해 두었으므로, 이 포트 쪽에서 값을
+  0으로 만들 자유도가 구조적으로 없다.
+- §5 근거열 표현: `verify-phase3-collision-sweep.sh:33-36`은 오늘도 절 번호가 아니라 "§5의
+  `distance: f64` 행" 서술로 자기 자신을 가리키고, PORTING-PLAN.md:810의 분리-분기 행은 오늘도
+  근거 §260이다. falsifier 불발.
+
+### §330.2 §262.5 — `parry.rs`는 오늘 고쳐졌다, 두 원인 구분은 오늘도 산다
+
+**`crates/moveit-collision/src/parry.rs`를 고치지 않았다.** falsifier(§317.4 그대로): §262.5가
+쓰인 커밋(`cb1ae178`) 이후 그 파일의 비-테스트 로직이 바뀌었다면 거짓.
+
+```
+$ git diff cb1ae178 HEAD -- crates/moveit-collision/src/parry.rs | rg -n '^@@'
+```
+
+오늘은 §317.4가 본 세 훅이 아니라 열한 개 훅이 뜨고, 그중 `@@ -2112,6 +2129,178`이
+`mod tests`(2843행) 훨씬 앞, `accumulate_collision`/`accumulate_distance` 본문(각각
+2374-2425행·2612행 부근) 자체를 바꾼다 — 새 함수 `tangency_kind`/`is_mesh_pair`/
+`fcl_tangency_verdict`/`tie_scale`/`touches_at_tie`와 상수 `TIE_ROUNDING_MARGIN`을 도입하고,
+`accumulate_collision`/`accumulate_distance` 둘 다 그 결과를 `contact.dist`의 원시 부호 대신
+쓰도록 배선을 바꾼다. falsifier 발화 — **거짓, §330.2로 닫힘.** 다만 정확한 형태를 적어
+둔다: `contact.dist >= 0.0` 게이트(§262.1이 되돌린 그 실험) 자체는 오늘도 재도입되지
+않았다(`rg -c 'contact\.dist\s*>=\s*0\.0' parry.rs` = 0) — 고쳐진 것은 그 실험과 다른
+메커니즘(tie 판정을 `accumulate_collision`/`accumulate_distance` 양쪽이 공유하는 하나의
+`touches_at_tie` 헬퍼로 통합)이다. "고치지 않았다"는 이 불릿의 결론(전체 판단)이 거짓이지,
+"그 특정 게이트를 다시 만들지 않았다"는 세부 서술 자체는 오늘도 참이다 — 다른 길로 같은
+결함을 닫았다.
+
+**`distance` 행의 원인 두 가지(panda의 §229.3, fanuc·pr2의 §247)를 하나로 합치지 않았다.**
+falsifier(§317.4 그대로): 이후 어느 절이 두 원인을 같은 결함으로 재분류했다면 거짓.
+
+```
+$ rg -n '§229\.3.*§247|§247.*§229\.3' PORTING-PLAN.md
+```
+
+오늘도 이 불릿 자신(25979행)과 §317.4의 같은 문장(37143행) 둘뿐 — 셋째 히트가 없다.
+`doc/upstream-bugs.md`도 오늘 `distance-callback-max-contact-depth`(panda)와
+`distance-callback-threshold-suppresses-deeper-pairs`(fanuc)를 여전히 별개 항목으로 싣는다.
+falsifier 불발 — OPEN.
+
+### §330.3 §265.8 — 같은 `parry.rs` 근거로 닫힌다
+
+**`crates/moveit-collision`을 고치지 않았다 — `contact.dist >= 0.0` 게이트를 다시 만들지
+않았다.** falsifier(§317.5 그대로, §330.2와 같은 diff 증거): §265.8이 쓰인 커밋(`e6652fdb`)
+이후 `parry.rs`의 비-테스트 로직이 바뀌었다면 거짓. §330.2에서 이미 실행한
+`git diff cb1ae178 HEAD -- crates/moveit-collision/src/parry.rs`가 `e6652fdb`(`cb1ae178`보다
+나중 커밋)에도 그대로 적용된다 — `tie_scale`/`touches_at_tie` 도입은 두 커밋 다음이다.
+falsifier 발화 — **거짓, §330.3으로 닫힘.** §330.2와 같은 단서: `contact.dist >= 0.0` 게이트
+자체는 재도입되지 않았고(같은 `rg -c` = 0), 고쳐진 것은 `touches_at_tie` 통합이다.
+
+### §330.4 §263.7 — 둘 다 오늘도 구조적으로 산다
+
+**Phase 8의 pilz 항목.** falsifier(§316.7 그대로): §5의 Phase 8 pilz 행이 §217.3 아닌 다른
+절을 인용하거나 등급이 바뀌었다면 거짓. PORTING-PLAN.md:821은 오늘도 "Phase 8 | pilz
+LIN/PTP/CIRC 궤적이 오라클과 `1e-6` 이내 일치 | MET | §217.3 | 2026-08-05"다. pilz 크레이트
+자체의 회귀도 오늘 재확인:
+
+```
+$ cargo nextest run -p moveit-planners-pilz --release
+239 tests run: 239 passed, 0 skipped
+```
+
+falsifier 불발 — OPEN.
+
+**상류 기본 벽시계 구성의 재현 가능한 수치.** 이 불릿은 미래에 누가 재면 바뀔 수치 주장이
+아니라 "그 구성에서는 재현 가능한 숫자가 존재하지 않는다"는 구조적 주장이다(§316.7이 이미
+같은 이유로 적었다) — §263.3이 같은 시드·같은 바이너리로 CHOMP를 두 번 돌려 12문제가 갈리는
+것을 직접 관측했다(공유 기계의 벽시계 정지 조건이 원인, 656.5s+829.4s 대 705.0s+911.4s).
+하네스는 오늘도 §263.3의 수정(반복 횟수 상한, 보고용 벽시계는 `1e9`) 그대로다 — 재실행 한
+번을 더 보태는 것은 이 주장을 반박하지 못한다(같은 이유로 세 번째 수치도 갈릴 수 있고, 갈리지
+않아도 우연 이상을 증명하지 못한다: 재현성은 여러 번의 일치가 필요하고 그 자체가 §263.3이
+이미 낸 결론과 같다). CHOMP 벽시계 회차 하나가 656-911초, STOMP가 1032-1182초 걸리므로
+이 재실행은 코드 정확성에 대한 새 정보 없이 25-40분을 쓴다 — 이번 라운드는 재실행하지
+않았다. falsifier가 성립하려면 공유 기계에서도 결정론적인 벽시계 측정 방법이 있어야 하는데,
+그런 방법이 없다는 것 자체가 이 불릿의 내용이다. falsifier 불발 — OPEN.
+
+### §330.5 §266.7 — 다섯 다 오늘도 산다
+
+§316.8이 오늘 아침 이미 다섯 다 재쟀다. 같은 falsifier를 이 라운드가 다시 실행해 재확인한다.
+
+- **어댑터 체인이 비어 있다.** falsifier: `plan_only`(`ros/moveit-ros/src/move_group.rs:160-174`)가
+  `generate_plan`에 빈 슬라이스가 아닌 실제 체인을 넘긴다면 거짓.
+
+  ```
+  $ rg -n 'generate_plan' ros/moveit-ros/src/move_group.rs
+  172:    moveit_planning::generate_plan(scene, env, &[], &[planner], &[], request)
+  ```
+
+  오늘도 `&[]`, `&[planner]`, `&[]` 그대로다. falsifier 불발.
+- **`planning_time`.** falsifier: `PlanningResponse`(`crates/moveit-planning/src/response.rs`)에
+  `planning_time` 필드가 생겼다면 거짓. 39행은 오늘도 "unported, in scope"뿐이고
+  `RrtConnectContext::solve`(`crates/moveit-planners-sbp/src/registry.rs:763`)는 존재하지만 그
+  값을 읽어 채우는 코드는 없다. falsifier 불발.
+- **goal의 `planning_scene_diff`가 무시된다.** falsifier: `ros/moveit-ros/src/bin/move_group.rs`
+  bin이 `goal.planning_options.planning_scene_diff`를 읽어 씬에 반영한다면 거짓. 141행은 오늘도
+  스스로 "`planning_options.planning_scene_diff` is ignored"라고 적는다. falsifier 불발.
+- **chomp/stomp/pilz는 `PlannerManager`가 아니다.** falsifier: 셋 중 하나라도
+  `#[distributed_slice(PLANNER_MANAGERS)]`로 등록됐다면 거짓.
+
+  ```
+  $ rg -n 'distributed_slice\(PLANNER_MANAGERS\)' crates/
+  crates/moveit-planners-sbp/src/registry.rs:904:#[linkme::distributed_slice(PLANNER_MANAGERS)]
+  ```
+
+  오늘도 sbp 하나뿐이다. falsifier 불발.
+- **`DEFAULT_PIPELINE_ID`가 소스에 박혀 있다.** falsifier: 그 상수가 설정/파라미터에서
+  읽힌다면 거짓. `ros/moveit-ros/src/move_group.rs:67`은 오늘도
+  `pub const DEFAULT_PIPELINE_ID: &str = "rrt_connect"`다. falsifier 불발.
+
+다섯 다 falsifier 불발 — OPEN.
+
+### §330.6 §267.5 — 둘 다 오늘도 산다, §311.2와 같은 결론이다
+
+§311.2(2026-08-07, 이 라운드보다 이르다)가 이미 같은 두 불릿에 falsifier를 실행해 OPEN으로
+남겼다. 이 라운드는 §311.2 이후 트리에 새 변화가 있는지만 추가로 확인한다.
+
+**판정어를 하나도 바꾸지 않았다.** falsifier(§311.2 그대로): §267이 손댄 두 행(Phase 3
+`collision: bool`, Phase 6 TOTG) 중 하나의 판정어가 §311.2 이후 바뀌었다면 거짓.
+
+```
+$ rg -n '`collision: bool`|TOTG' PORTING-PLAN.md | rg 'MET|UNMET' 
+```
+
+오늘 §5 표에서 Phase 3 행(810행)은 여전히 MET·근거 §260(분리-분기)이고, Phase 6 TOTG 행은
+여전히 §217.3을 인용하며 MET다 — §311.2가 확인한 이후 둘 다 한 번도 안 바뀌었다. falsifier
+불발 — OPEN.
+
+**인용된 절이 자기 안에서 옳은지는 읽지 않았다.** falsifier(§311.2 그대로): §5의 19행 전부(또는
+§267이 다룬 부분집합)에 대해 인용이 아니라 측정 자체의 정확성을 검증한 포괄적 재검증 절이
+§311.2 이후 생겼다면 거짓. §312-§326 및 이 라운드(§330) 자신을 포함해 §311.2 이후의 절들은
+모두 개별 잔여-주장 불릿의 falsifier이지, "§5의 19행이 스스로 옳은가"를 묻는 포괄 재검증이
+아니다. falsifier 불발 — OPEN.
+
+---
