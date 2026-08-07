@@ -505,6 +505,27 @@ merge_rows() {
 DIRTY_LIST="$(cd "$REPO_ROOT" && git status --porcelain)"
 if [[ -n "$DIRTY_LIST" ]]; then TREE_DIRTY=true; else TREE_DIRTY=false; fi
 
+# Same snapshot moment, for a fact the source digest cannot see. `oracle_stamp`
+# (tools/moveit-oracle/src-digest.sh) hashes the oracle's files together with
+# its resolved, env-overridable ORACLE_BASE_IMAGE/ORACLE_MOVEIT2_PACKAGES/
+# ORACLE_MOVEIT2_SHA build inputs. `measured_source_digest("tools/moveit-oracle/src")`
+# below is index-scoped to `src/`; the Dockerfile, build.sh, entrypoint.sh and
+# the pinned MOVEIT2_SHA all live outside that directory, so repinning the
+# oracle's moveit2 checkout changes which C++ numbers this run produces
+# without moving that digest at all. run-oracle.sh checks the running image's
+# stamp against this same value on every call, but that only catches a STALE
+# image -- it never writes what it checked into anything the artifact keeps,
+# so two runs made under two different pins each pass their own check and
+# leave artifacts whose measured_sources cannot tell them apart. The image
+# TAG is not recorded separately: `oracle_image_tag` (src-digest.sh) derives
+# it from the stamp by truncating to the first 16 hex characters, so the tag
+# is recoverable from the stamp and not the reverse -- recording the stamp is
+# strictly more informative, and `oracle_image_tag "$ORACLE_STAMP"` recovers
+# the tag whenever something needs to `docker image inspect` it.
+# shellcheck source=tools/moveit-oracle/src-digest.sh
+source "$REPO_ROOT/tools/moveit-oracle/src-digest.sh"
+ORACLE_STAMP="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")" || exit 1
+
 # The list below is the two arms' own algorithm crates plus the validity/cost
 # code both arms call to decide what they report -- see the closure argument
 # on `measured_source_digest` in gate-lib.sh for how this list was derived
@@ -1191,6 +1212,7 @@ if [[ "$MODE" == "full" ]]; then
   # because the harnesses alone are not what produces these rates.
   jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --arg stamp "$(cd "$REPO_ROOT" && git rev-parse HEAD)" \
+        --arg oracle_stamp "$ORACLE_STAMP" \
         --argjson dirty "$TREE_DIRTY" \
         --argjson dirty_paths "$(printf '%s' "$DIRTY_LIST" | jq -R -s 'split("\n")|map(select(length>0))')" \
         --argjson sources "$SOURCES_JSON" \
@@ -1199,7 +1221,7 @@ if [[ "$MODE" == "full" ]]; then
         --argjson cpp_seconds "$cpp_seconds" \
         --slurpfile rows "$verdict_json" \
         --slurpfile checks "$checks_json" \
-     '{measured_at:$ts, commit:$stamp, working_tree_dirty:$dirty,
+     '{measured_at:$ts, commit:$stamp, oracle_stamp:$oracle_stamp, working_tree_dirty:$dirty,
        dirty_paths:$dirty_paths, measured_sources:$sources,
        mode:"full", planners:"chomp stomp", seed_base:'"$SEED_BASE"', timeout_seconds:'"$TIMEOUT_SECONDS"',
        clock_bounds:{port_seconds:'"$TIMEOUT_SECONDS"', cpp_seconds:'"$CPP_CLOCK_BOUND"',
