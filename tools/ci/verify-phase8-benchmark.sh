@@ -286,6 +286,13 @@ import sys
  e_stomp50_solved, e_stomp50_cond2, e_stomp50_median) = sys.argv[1:16]
 
 fails = []
+# Every condition verdict this run produced, as (name, index, met). The
+# closing line is printed from THIS list rather than written as a string
+# below, because a hand-written summary and the `c1`/`c2`/`c3` booleans are
+# two places for one fact and they drift: this gate spent its whole life
+# closing with "property conditions re-derived" while printing two of them
+# UNMET, and `verify-all.sh` counted that as a plain pass.
+conditions = []
 
 def check(what, got, expected):
     # Repr, not a formatted float: these are exact re-derivations, and a
@@ -326,6 +333,7 @@ def report(name, rows, e_solved, e_cond2, e_median):
           f"{len(cond2)}/{len(solved)} paths valid")
     print(f"     {name} condition 3 {'MET' if c3 else 'UNMET'}: "
           f"median {median:.4f} vs bar {length_bar:.4f}")
+    conditions.extend([(name, 1, c1), (name, 2, c2), (name, 3, c3)])
 
 report("chomp", [json.loads(l) for l in open(chomp_path)],
        e_chomp_solved, e_chomp_cond2, e_chomp_median)
@@ -347,6 +355,18 @@ if fails:
     print(f"FAIL {len(fails)} pinned value(s) no longer reproduce: "
           + ", ".join(fails), file=sys.stderr)
     sys.exit(1)
+
+# What this gate actually verified is that the pinned values reproduce; it
+# does not, and by design must not, fail on an UNMET condition -- the header
+# gives the reason per condition (1 and 3 compare an optimiser against a
+# sampling planner, 2 fails only between the planner's own waypoints at a
+# resolution upstream never checks). But the closing line has to say which
+# of the two it is, or the reader takes an exit-0 for the conditions
+# holding.
+unmet = [f"{n} condition {i}" for n, i, met in conditions if not met]
+print(f"CONDITIONS {len(conditions) - len(unmet)} MET, {len(unmet)} UNMET"
+      + (f" ({', '.join(unmet)}) -- see this script's header for why each "
+         "UNMET is not by itself a porting defect" if unmet else ""))
 PY
 
-echo "OK phase 8 CHOMP/STOMP property conditions re-derived (tier=$TIER, shards=$SHARDS, wall=$(( $(date +%s) - started ))s)"
+echo "OK phase 8 pinned values reproduce (tier=$TIER, shards=$SHARDS, wall=$(( $(date +%s) - started ))s) -- see the CONDITIONS line above for what is MET"
