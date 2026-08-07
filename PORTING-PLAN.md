@@ -23866,7 +23866,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 | `PORTING-PLAN.md:17853` | `:1772` | `2015` |
 | `PORTING-PLAN.md:19500` | `:2191` | `2417` |
 | `PORTING-PLAN.md:20385` | `:1537` | `1546` |
-| `PORTING-PLAN.md:21397` | `:1547` | `1549` |
+| `PORTING-PLAN.md:21414` | `:1547` | `1549` |
 | `PORTING-PLAN.md:21398` | `:2235` | `2306` |
 | `!PORTING-PLAN.md:21523` | `:2188` | `2259` |
 | `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:51` | `:2326` | `2579` |
@@ -30949,7 +30949,7 @@ undeclared-unresolvable **0건**으로 통과한다.
   그 문서가 인용한 리비전(`47a271c^`)에서 두 번째 `max_contacts_per_pair` 대입은
   3623-3624이고 3605-3606은 열여덟 줄 위 doc comment의 꼬리다.
 
-그리고 인용은 맞았지만 문장이 틀린 것 1건: §245.3(`PORTING-PLAN.md:21855-21856`)이 오라클의
+그리고 인용은 맞았지만 문장이 틀린 것 1건: §245.3(`PORTING-PLAN.md:21872-21873`)이 오라클의
 특이점 흔들기를 "시드되지 않은 `std::rand()`"라고 적으면서 2188을 인용했다.
 `std::rand(`라는 호출은 `oracle.cpp`에 **없다**. 그 줄은
 `delta_q.data.setRandom();`(오늘 `oracle.cpp:2296`), 즉 Eigen 기본 난수이고, 그것이
@@ -30964,7 +30964,7 @@ undeclared-unresolvable **0건**으로 통과한다.
 인용처럼 읽히지만 게이트 코퍼스 밖에 있던 것들이다. 전부 검사되는 형태로 고쳤다:
 
 - `!PORTING-PLAN.md:4598`의 `` `1530` `` — 콜론이 없어 토큰이 아니었다 → `` `oracle.cpp:2500` ``
-- `PORTING-PLAN.md:20367-20368`의 백틱 밖 oracle.cpp:1537 → `` `oracle.cpp:1579-1580` ``
+- `PORTING-PLAN.md:20384-20385`의 백틱 밖 oracle.cpp:1537 → `` `oracle.cpp:1579-1580` ``
 - `oracle-request-collision-max-contacts-per-pair.md`(오늘 64행)의 줄바꿈으로 쪼개진
   `oracle.cpp:2326-\n2338` → 한 줄로 붙여 `@47a271c^`로
 - `PORTING-PLAN.md`의 2337과 열 개 번호 목록 — 자기 줄에 선행 경로가 없어
@@ -31901,7 +31901,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27160`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27177`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -33352,7 +33352,7 @@ sphere x {sphere, box, cylinder}에 ACM 허용 쌍 하나로 모집단을 **제�
   게이트는 짓지 않았다 — 그쪽은 p12-plannerparams가 task #37로 짓고 있으며,
   같은 계열의 나머지(shipped sbp 소스 안의 `// PORTING-PLAN.md:1152:` 주석
   셋과 `tools/ci/verify-upstream-citations.sh`가 고정 SHA의 출처로 드는
-  `PORTING-PLAN.md:12830-12832`)도 그쪽이 가져갔다. 이 절은 계열의 한
+  `PORTING-PLAN.md:12838-12840`)도 그쪽이 가져갔다. 이 절은 계열의 한
   표본이지 전부가 아니다. 거짓 → 닫힘 (§299) — task #37이 이미 병합됐다:
   `check-citation-drift.py`는 오늘 이 둘을 각각 SECOND POPULATION으로
   독립 선언해 잡는다(대상 확장자가 `.rs`가 아닌 것, citer 확장자가 `.md`가
@@ -33412,9 +33412,9 @@ sphere x {sphere, box, cylinder}에 ACM 허용 쌍 하나로 모집단을 **제�
 
 | 면제 파일의 자리 | 인용 | 그 좌표가 오늘 가리키는 것 | 실제로 그 주장을 드는 자리 |
 |---|---|---|---|
-| `tools/ci/upstream-citation-exemptions.json:56` (fcl `checkout`) | `PORTING-PLAN.md:11255` | §134.1 CHOMP `num_vars_free` 표의 `\| 15 \| 3 \| 3×3 \| \|` 행 | **§135**의 sha 표 `fcl` 행 |
-| `tools/ci/upstream-citation-exemptions.json:57` (fcl `why`) | `PORTING-PLAN.md:11254` | §134.2 스탬프 이력의 `` `230e92be6fa5cc3a`(pilz+IK) → `6797447ac4dc46e9`(+chomp) `` 줄 | **§135**의 "그래서 fcl은 `0.7.0` 태그에서 읽어야 한다" 문단, 그리고 **§283.7** |
-| `tools/ci/upstream-citation-exemptions.json:99` (libccd `checkout`) | `PORTING-PLAN.md:11244` | §134.1 같은 표의 `\| 16 \| 4 \| 4×4 \| \|` 행 | **§135**의 sha 표 `libccd` 행 |
+| `tools/ci/upstream-citation-exemptions.json:56` (fcl `checkout`) | `PORTING-PLAN.md:11263` | §134.1 CHOMP `num_vars_free` 표의 `\| 15 \| 3 \| 3×3 \| \|` 행 | **§135**의 sha 표 `fcl` 행 |
+| `tools/ci/upstream-citation-exemptions.json:57` (fcl `why`) | `PORTING-PLAN.md:11262` | §134.2 스탬프 이력의 `` `230e92be6fa5cc3a`(pilz+IK) → `6797447ac4dc46e9`(+chomp) `` 줄 | **§135**의 "그래서 fcl은 `0.7.0` 태그에서 읽어야 한다" 문단, 그리고 **§283.7** |
+| `tools/ci/upstream-citation-exemptions.json:99` (libccd `checkout`) | `PORTING-PLAN.md:11252` | §134.1 같은 표의 `\| 16 \| 4 \| 4×4 \| \|` 행 | **§135**의 sha 표 `libccd` 행 |
 
 세 좌표가 `11242`·`11243`·`11254`로 나란한 것이 원인을 말해 준다 — 원래는
 §135의 sha 표 두 행과 그 아래 태그 문단을 가리키던 연속 좌표였고, §135 위쪽에
@@ -33847,7 +33847,7 @@ gapaudit은 이미 main에 병합돼 있다(`a4d5db85`). 그 트리에서 예측
 있어야 한다. 6건이 걸렸고 손으로 열어 확인했다: 예컨대
 `doc/assertion-discrimination-census.md:466`은 `PORTING-PLAN.md:10896`을
 §129.3으로 인용하며 그 절의 제목을 그대로 따옴표로 옮겨 적는데, 그 제목은
-`PORTING-PLAN.md:11148`에 있고 10883은 p1-fixtures의 크레이트 이야기다.
+`PORTING-PLAN.md:11156`에 있고 10883은 p1-fixtures의 크레이트 이야기다.
 **비어 있지 않은 살아 있는 줄로 착지한 이동**이고, 빈 줄 술어로는 구조적으로
 잡을 수 없는 종류다.
 
@@ -35556,8 +35556,8 @@ unresolvable이다.
 
 | 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
-| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
+| `PORTING-PLAN.md:30618` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
+| `PORTING-PLAN.md:31879` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
 | `doc/claim-audit/upstream-bugs.md:37` | `!PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
 
 세 건 다 baseline에 findings로 선언돼 있고 passing 등급으로 얼려지지
@@ -35647,7 +35647,7 @@ Phase 0–9의 것만 나온다(`PORTING-PLAN.md:618`, "각 단계는 **검증 �
 
 둘째, 같은 파일의 `third_party` pin 주석 인용 4건이 전부 §160의 산문이나
 하위 제목을 가리키고 있었다. 실제로 revision을 기록한 행은
-§160.3의 `PORTING-PLAN.md:13080`부터 `PORTING-PLAN.md:13082`까지와
+§160.3의 `PORTING-PLAN.md:13088`부터 `PORTING-PLAN.md:13090`까지와
 `doc/upstream-bugs.md:225`다.
 `resolved` 등급은 "범위 안이고 빈 줄이 아니다"만 뜻하므로 네 건 모두 등급상
 통과였다. 세 건에 §160.3 section claim을 붙여 `section-verified`로 올렸다 —
@@ -36239,8 +36239,8 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21855-21856` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
-| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27160` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `PORTING-PLAN.md:30618` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21872-21873` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
+| `PORTING-PLAN.md:31879` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27177` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
 `section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도

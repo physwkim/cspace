@@ -2176,7 +2176,7 @@ entry. The 3,126 flips are the near-tie mechanism §218.4's own "다른 쌍
 three paragraphs below, so counting them here would re-make inside panda
 the over-generalization §229.3 already corrected across robots; the 1,225
 self-side rows are a column this world-object defect cannot reach at all.
-The `27,384x` figure §218.4 (`PORTING-PLAN.md:17238`) and §229.3
+The `27,384x` figure §218.4 (`PORTING-PLAN.md:17250`) and §229.3
 record is panda's worst `|Δ|` against the `1e-4` threshold — a magnitude,
 not a count — so it neither states nor bounds this entry's share.
 
