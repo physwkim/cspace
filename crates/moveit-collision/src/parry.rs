@@ -2258,10 +2258,14 @@ fn tie_scale(
 /// (below) is the derivation, run fresh on every test invocation rather than
 /// trusted as a one-time reading: the largest rounding this crate has found
 /// at a genuine exact tie, across every [`TangencyKind`] pair and five
-/// orders of magnitude of scale, is `1.92` `EPS * scale` units
-/// (`cylinder x cylinder`); `16.0` sits comfortably above that without
-/// reaching anywhere close to `query::contact`'s own reach before it starts
-/// answering `None` (on the order of `1e6`-`1e7` `EPS * scale`, matching
+/// orders of magnitude of scale, is `cylinder x cylinder` at scale `50.0`,
+/// pinned in that test at `0.96 EPS * scale` units (see the test's own doc
+/// for the two assertions that pin it, and for why an earlier reading of
+/// this same pair, `1.92`, is the identical GJK measurement under
+/// [`tie_scale`]'s pre-`71490970` definition, not a rival or drifted value);
+/// `16.0` sits comfortably above it without reaching anywhere close to
+/// `query::contact`'s own reach before it starts answering `None` (on the
+/// order of `1e6`-`1e7` `EPS * scale`, matching
 /// `parry3d_f64::query::gjk::gjk::eps_tol`'s `10.0 * f64::EPSILON`
 /// convergence tolerance) — the pinning test's own doc has the two-sided
 /// reasoning and the numbers.
@@ -5455,13 +5459,55 @@ mod tests {
     ///
     /// Upper margin: every one of those genuine exact ties -- GJK's own
     /// rounding on a `dist` whose true value is `0.0` -- must measure under
-    /// the constant. The largest observed here is `1.92` (`cylinder x
-    /// cylinder`, scale `50.0`); four pairs this crate has documented before
-    /// (`box x cylinder`, `cylinder x box`, `box x cone`, `cone x box`) also
-    /// show it, all under `1`. `TIE_ROUNDING_MARGIN`'s `16.0` is set above
-    /// that measurement, not equal to it, so a marginally worse rounding
-    /// case on a shape or scale this sweep does not cover still clears the
-    /// bound rather than silently reclassifying as a real distance.
+    /// the constant. The largest observed here is `cylinder x cylinder`,
+    /// scale `50.0`; four pairs this crate has documented before (`box x
+    /// cylinder`, `cylinder x box`, `box x cone`, `cone x box`) also show
+    /// it, all under `1`. `TIE_ROUNDING_MARGIN`'s `16.0` is set above that
+    /// measurement, not equal to it, so a marginally worse rounding case on
+    /// a shape or scale this sweep does not cover still clears the bound
+    /// rather than silently reclassifying as a real distance.
+    ///
+    /// That largest value is also pinned below (`PINNED_WORST_UNITS`), not
+    /// just bounded against `TIE_ROUNDING_MARGIN` -- this doc used to name
+    /// it directly (`1.92`), and that number was never itself checked: the
+    /// assertion below it only tested `< TIE_ROUNDING_MARGIN`, so a passing
+    /// run computed `worst_units`, compared it, and discarded it, leaving
+    /// `1.92` retained nowhere but this prose and cc351321's commit message.
+    /// Re-measured while adding the pin: `0.96`, not `1.92`, bit-identical
+    /// across three consecutive runs on this machine (rustc 1.97.0,
+    /// parry3d-f64 0.30.0/963d52f7).
+    ///
+    /// The gap is resolved, not unexplained: `dist` itself is the identical
+    /// GJK measurement either way (`2.1316282072803006e-14`, verified with a
+    /// throwaway instrumented run of this same pair against both `tie_scale`
+    /// definitions). What changed is the divisor. cc351321's `tie_scale`
+    /// took the shapes' half-extent alone (`5e1` for this pair); `71490970`
+    /// ("fold the pair's world position into tie_scale") added the AABB
+    /// centre magnitude, and this sweep's own `pair_at` places the upper
+    /// shape's centre at `z = 2 * half`, which for `half = 50.0` is `1e2` --
+    /// exactly double the half-extent term, so `tie_scale` doubled and
+    /// `worst_units` exactly halved (`1.92 / 2 = 0.96`, confirmed to the
+    /// last bit: `new_scale / old_scale == 1.9999999999999998e0`). `1.92`
+    /// and `0.96` are the same rounding measurement under two different
+    /// `tie_scale` definitions, not a machine, dependency, or profile
+    /// difference, and not a hand-transcription error -- the earlier guess
+    /// that `1.92` was transcribed from an unretained ad hoc run does not
+    /// survive this: it is exactly reconstructible from `cc351321`'s own
+    /// `tie_scale` applied to today's `dist`.
+    ///
+    /// `PINNED_WORST_UNITS`/`WORST_UNITS_TOLERANCE` pin only today's
+    /// `0.96` under today's `tie_scale`; they do not need to cover `1.92`,
+    /// because `1.92` is not a rival current reading -- it is what this same
+    /// quantity measures under a `tie_scale` this crate no longer has.
+    /// `MIN_PLAUSIBLE_WORST_UNITS` is a second, independent assertion, not a
+    /// wider band: a single symmetric tolerance wide enough to also catch a
+    /// collapsed sweep (every `dist` reading `0.0`, or `worst_units` never
+    /// leaving its zero-valued initialiser) would have to be so wide it
+    /// stops discriminating a real regression from noise; a floor and a
+    /// proximity check are two different questions ("did the sweep measure
+    /// something real" vs "did it measure the same thing as before") and are
+    /// kept as two assertions on purpose so a future widening of one cannot
+    /// silently disable the other.
     ///
     /// Lower margin: a delta an order of magnitude above the constant must
     /// still measure as *itself*, not get rounded away into the tie bucket.
@@ -5566,6 +5612,81 @@ mod tests {
             "{} x {} at scale {half:e} measured {worst_units:e} EPS*scale of rounding at an \
              exact tie, at or above TIE_ROUNDING_MARGIN ({TIE_ROUNDING_MARGIN:e}) -- widen the \
              margin (with a new doc citation) or investigate why rounding got worse",
+            upper.name(),
+            lower.name(),
+        );
+
+        // The measured NUMBER, not just "cleared the margin" -- see this
+        // function's own doc for how this crate had a `1.92` in two places
+        // that nothing had ever checked against a real run, what a fresh run
+        // measures instead, and why the gap between them is resolved (a
+        // `tie_scale` definition change, not drift) rather than unexplained.
+        //
+        // Two independent assertions below, each catching a different
+        // failure and neither substituting for the other:
+        //
+        // Floor (`MIN_PLAUSIBLE_WORST_UNITS`): every one of the ten worst
+        // pairs this sweep measures today sits at `0.64` or above (see the
+        // full ranking in this function's own doc history); `0.5` sits below
+        // all of them with room while staying far above the `0.0` a
+        // collapsed sweep would report -- every `dist` reading exactly
+        // `0.0`, the inner loop silently not executing, or `worst_units`
+        // never leaving a zero-valued initialiser. A collapsed sweep is
+        // report-nothing-as-something: it would still satisfy `worst_units <
+        // TIE_ROUNDING_MARGIN` above (`0.0 < 16.0`) and, without this floor,
+        // could still satisfy a wide-enough proximity band too, so it needs
+        // its own check rather than relying on the proximity check to catch
+        // it as a side effect.
+        //
+        // Proximity (`WORST_UNITS_TOLERANCE`): pinned to what this run
+        // measures today (`0.96`), not to `1.92` -- `1.92` is not a rival
+        // current reading, it is the same measurement under a `tie_scale`
+        // this crate no longer has (see the doc above), so there is nothing
+        // to arbitrate between them. The tolerance is sized from this same
+        // sweep's own data, not from the gap being explained: the two
+        // largest pairs measured here are `0.96` (`cylinder x cylinder`) and
+        // `0.9375` (`cone x box`), `0.0225` apart, while the third-largest
+        // drops to `0.716`, `0.22` away -- a plausible rebuild-to-rebuild
+        // reordering within that top cluster (a different pair narrowly
+        // becoming the worst one) should not trip this test, but the worst
+        // pair actually dropping to the next cluster down should. `0.1`
+        // covers the first gap with more than 4x room and does not reach the
+        // second. This machine has shown zero variance across three runs
+        // (bit-identical `0.96`), so `0.1` is not validated against real
+        // cross-platform or cross-parry3d-version jitter -- there is no such
+        // data yet -- and if a future legitimate rebuild trips this
+        // narrowly, that absence of prior data is why, not a wrong pin.
+        const MIN_PLAUSIBLE_WORST_UNITS: f64 = 0.5;
+        const PINNED_WORST_UNITS: f64 = 0.96;
+        const WORST_UNITS_TOLERANCE: f64 = 0.1;
+        // `eprintln!` so the number is visible on a PASSING run too, with
+        // `cargo nextest run -p moveit-collision --lib -- --no-capture` (or
+        // `cargo test -- --nocapture`) -- before this pin there was no way
+        // to see it at all without first breaking the assertion above.
+        eprintln!(
+            "tie_rounding_margin_clears_measured_ties: worst = {worst_units:e} EPS*scale \
+             ({} x {} at scale {half:e}), pinned {PINNED_WORST_UNITS:e} +/- \
+             {WORST_UNITS_TOLERANCE:e}",
+            upper.name(),
+            lower.name(),
+        );
+        assert!(
+            worst_units > MIN_PLAUSIBLE_WORST_UNITS,
+            "worst observed rounding at an exact tie measured {worst_units:e} EPS*scale \
+             ({} x {} at scale {half:e}), at or below the {MIN_PLAUSIBLE_WORST_UNITS:e} floor \
+             every real measurement in this sweep clears -- this looks like a collapsed sweep \
+             (dist stuck at 0.0, or worst_units never updated), not a genuinely quieter GJK",
+            upper.name(),
+            lower.name(),
+        );
+        assert!(
+            (worst_units - PINNED_WORST_UNITS).abs() <= WORST_UNITS_TOLERANCE,
+            "worst observed rounding at an exact tie drifted outside the pinned band: \
+             {worst_units:e} EPS*scale ({} x {} at scale {half:e}), pinned \
+             {PINNED_WORST_UNITS:e} +/- {WORST_UNITS_TOLERANCE:e} -- if this is a real shift \
+             (parry3d version, GJK tolerance, shape construction), re-measure and update this \
+             pin AND TIE_ROUNDING_MARGIN's own doc comment; if it is legitimate \
+             rebuild-to-rebuild jitter within the band, no action needed",
             upper.name(),
             lower.name(),
         );
