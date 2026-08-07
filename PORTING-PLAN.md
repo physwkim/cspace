@@ -36668,10 +36668,10 @@ round)"라고 명시한다. §291.4 이후 어느 절도 §289.7 소유권을 �
 **측정.** 남은 불릿(614건 bounds-only, 하한을 낮추지 않았다)을 거짓으로
 만드는 관측은 "`MIN_QUOTATION`/`QUOTATION_DELIMS` 하한이 그 뒤 낮아졌는가"
 와 "bounds-only 모집단이 그 뒤 줄었는가" 둘이다. `git blame`으로 확인한
-`tools/ci/measure-upstream-citations.py:619-620`의 마지막 수정은
+`tools/ci/measure-upstream-citations.py:660-661`의 마지막 수정은
 2026-08-06 23:28:10(`133aad2e`)이고 §289.7의 커밋(01:23:28)보다도
 이르다 — 그 뒤 이 파일을 건드린 커밋 다섯 개(이 라운드 자신의 이전 커밋
-`e25caf70` 포함) 중 619-620행을 건드린 것은 없다. 하한은 낮아지지
+`e25caf70` 포함) 중 그 두 줄을 건드린 것은 없다. 하한은 낮아지지
 않았다. `tools/ci/verify-upstream-citations.sh`를 오늘
 `$MOVEIT2_SRC=~/work/moveit2`로 돌리면 bounds-checked-only는 **1137**건
 — 이 절이 적은 1125건보다 늘었지, 줄지 않았다. 두 관측 다 주장을
