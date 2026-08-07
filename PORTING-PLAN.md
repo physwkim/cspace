@@ -19526,7 +19526,11 @@ fanuc의 2,897배를 설명하지 않는다. pr2의 mesh-vs-box 최악값
   적었다.
 - `distance` 절을 초록으로 만들지 않았다. 상류 수치와의 일치는 상류의
   결함을 재현해야만 얻어지고, 그러면 §229.3의 두 불변량 시험이 함께
-  깨진다.
+  깨진다. **거짓 → 닫힘 (§260, §283)** — §5 표의 `distance: f64` 행은
+  분리 분기(§260)·관통 분기(§283) 둘 다 MET다. 이 절이 예상한 경로(상류
+  결함 재현)로 닫힌 것이 아니라, 그 결함 셋 중 어느 것도 발화 못 하는
+  부분모집단으로 좁혀서 닫혔다 — §229.3의 불변량 시험은 그 경로에서는
+  깨지지 않는다.
 - 10,000 상태 스윕을 다시 돌리지 않았다. §218이 잰 수치를 그대로 쓰며,
   이 절이 더한 것은 그 수치의 **원인**이지 새 스윕이 아니다.
 - fanuc의 2,897배를 이 기전으로 설명하지 않는다 (§218.4 자신이 "이탈
@@ -19979,9 +19983,16 @@ ACM 없이 한 번 더 돌려 충돌이 나오는 것을 단언한다. 상류 �
   아니라 `update_state_with_link_at` 미이식, `kinect.dae` 부재,
   `EXPECT_TIME_LT`의 초 단위 절단 셋이다. 옮길 수 있던 3건은 §232.3이
   `crates/moveit-collision/tests/upstream_pr2_harness.rs`로 만들었다.
+  **거짓 → 닫힘 (§232.3)** — 위 취소선·비고가 이미 이 사실을 적어 뒀고,
+  정식 마커만 없었다. 이 라운드가 census를 재확인해 여전히 OPEN으로
+  집계되는 것을 보고 정식 마커로 옮긴다.
 - `MoveMesh`/`TestCollisionMapAdditionSpeed`가 쓰는 `kinect_dae_resource_`
   (`.dae` 메시)를 이 포트에 들여오지 않았다. `MoveMesh`는 단언이 0건이고
   `TestCollisionMapAdditionSpeed`는 §232.3이 실질 단언으로 옮겼다.
+  **OPEN → 만료 조건 (`fixtures/meshes/`가 커밋된 `kinect.dae`를 갖고
+  `tools/ci/verify-fixture-provenance.sh:196`의 `mesh_fixtures` glob이
+  `.dae`까지 훑도록 갱신되면 다시 연다 — §232.3 자신의 만료 조건과
+  같다. 오늘 재확인: `fd -i kinect fixtures/meshes/` 0건, 아직 없다.)**
 
 ## §233 `attached_body.cpp`의 마지막 갭 둘 — `setScale`/`setPadding`을 옮겼고, `Arc::make_mut` 등가는 **강한** 공유에서만 성립한다 (2026-08-06)
 
@@ -20076,7 +20087,10 @@ M5.
   포팅됐다고 주장하게 된다. 그래서 계기는 이 `.cpp`를 여전히 미포팅으로
   세고, 행은 표에 남는다.
 - `geometric_shapes`의 예외 거동을 확인하지 않았다. §233.3의 오류 규약은
-  이 포트 쪽 사실만으로 적혀 있다.
+  이 포트 쪽 사실만으로 적혀 있다. **거짓 → 닫힘 (§322.1)** — 핀된 상류
+  소스(`geometric_shapes` 2.3.3)를 읽어 도형별로 대조했다: Sphere·
+  Cylinder·Cone·Box는 메시지 문자열까지 동일하게 거부하고, Plane·OcTree는
+  둘 다 no-op이고, Mesh는 둘 다 검사가 없다.
 
 
 ## §234 `planning_response.cpp`의 남은 28줄 — `MotionPlanDetailedResponse::getMessage`를 포팅하지 않기로 판정했다
@@ -20667,12 +20681,17 @@ Phase 단위 집계가 아니다.
 - 클램핑·보간 절을 닫지 않았다. 닫으려면 `tools/moveit-oracle/src/
   oracle.cpp`에 새 op를 추가하고 핀된 오라클 이미지를 재빌드해야
   한다 — 이 절의 fence 밖. **UNFIXED, 사유: 도구 부재(§237.2 (a)/(b)).**
+  **거짓 → 닫힘 (§238)** — 같은 날 다른 가지가 그 세 op을 오라클에
+  추가했고, §238이 5로봇 4,224케이스를 허용오차 0.0에서 재 불일치
+  0건을 얻었다. §5 표의 Phase 2 셋째 조건 행이 이를 인용해 MET다.
 - 셋째 항목의 명시적 허용오차 공백(§237.1)을 문서에 채워 넣지
   않았다 — mimic 하위 절은 실측이 bit-exact라 막히지 않았지만, 클램핑·
   보간 하위 절은 애초에 비교 자체가 없어 허용오차 공백이 의미가
   없다.
 - Phase 2 전체를 MET로 표시하지 않았다. 세 하위 절 중 둘이 미측정인 한
-  AND 조건은 닫히지 않는다.
+  AND 조건은 닫히지 않는다. **거짓 → 닫힘 (§238)** — §5:808이 Phase 2
+  셋째 조건 행을 MET로 적고 §238을 인용한다. 세 하위 절(클램핑·mimic·
+  보간) 전부가 이제 측정돼 있다.
 
 ## §236 `setMotionPlanRequest`의 요청 정규화는 포팅하지 않는다 — 고칠 피연산자가 없고, 그 규칙 자체가 NaN을 놓친다 (2026-08-06)
 
@@ -22279,6 +22298,12 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
 ### §247.6 이 절이 하지 않은 것
 
 - 두 행 중 어느 쪽도 초록으로 만들지 않았다. 둘 다 **미충족**으로 남는다.
+  **거짓 → 닫힘 (§260, §283, §288)** — §5 표(:809-811)에서 `collision:
+  bool`(§288)·`distance: f64`의 분리 분기(§260)·관통 분기(§283) 전부
+  MET다. 셋 다 좁힌 부분모집단 위에서 얻은 것이고(§288.9/§283.9가 원래
+  실패 픽스처인 prbt cylinder×box·panda 메시 관통을 여전히 명시적으로
+  제외한다), 이 절이 특정 픽스처를 짚어 말한 것이 아니라 "두 행" 자체를
+  말했으므로 행 수준에서는 닫힌다.
 - 허용오차를 넓히지 않았다. 넓힐 수 없다는 것이 §247.5의 1이다.
 - 상류 결함을 재현하지 않았다. 재현은 `minimum_distance`가 최소가 아니게
   만드는 일이다.
@@ -22309,7 +22334,10 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
   로 병합 전후 파일의 `equal` 구간을 잡아 옛 줄 → 새 줄 사상을 만들고,
   옮긴 뒤 `./tools/ci/verify-orphan-enumeration.sh`가 고아 0 / 미해결 인용
   0을 낼 때까지 확인한다. 게이트 자체가 적어둔 대로 고아 스냅샷을
-  재생성해 흡수시키면 안 된다.
+  재생성해 흡수시키면 안 된다. **거짓 → 닫힘 (§322.2)** — 이 라운드가
+  `git merge main`을 마친 뒤 `reconcile-assertion-ledgers.py --verify`를
+  이 트리에서 직접 돌렸고 고아 0/0으로 나왔다. 예측된 충돌은 실측에서
+  나타나지 않았다.
 
 ## §248 Phase 7 게이트가 못 보던 것 — 조건별로 세고, 닫을 것은 게이트 안에서 닫았다 (2026-08-06)
 
@@ -23849,7 +23877,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 | `PORTING-PLAN.md:17853` | `:1772` | `2015` |
 | `PORTING-PLAN.md:19500` | `:2191` | `2417` |
 | `PORTING-PLAN.md:20385` | `:1537` | `1546` |
-| `PORTING-PLAN.md:21397` | `:1547` | `1549` |
+| `PORTING-PLAN.md:21416` | `:1547` | `1549` |
 | `PORTING-PLAN.md:21398` | `:2235` | `2306` |
 | `!PORTING-PLAN.md:21523` | `:2188` | `2259` |
 | `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:51` | `:2326` | `2579` |
@@ -30945,7 +30973,7 @@ undeclared-unresolvable **0건**으로 통과한다.
   그 문서가 인용한 리비전(`47a271c^`)에서 두 번째 `max_contacts_per_pair` 대입은
   3623-3624이고 3605-3606은 열여덟 줄 위 doc comment의 꼬리다.
 
-그리고 인용은 맞았지만 문장이 틀린 것 1건: §245.3(`PORTING-PLAN.md:21855-21856`)이 오라클의
+그리고 인용은 맞았지만 문장이 틀린 것 1건: §245.3(`PORTING-PLAN.md:21874-21875`)이 오라클의
 특이점 흔들기를 "시드되지 않은 `std::rand()`"라고 적으면서 2188을 인용했다.
 `std::rand(`라는 호출은 `oracle.cpp`에 **없다**. 그 줄은
 `delta_q.data.setRandom();`(오늘 `oracle.cpp:2296`), 즉 Eigen 기본 난수이고, 그것이
@@ -30968,7 +30996,7 @@ undeclared-unresolvable **0건**으로 통과한다.
 - `oracle-request-pilz-blend-geometry.md:654`의 `` `5777`-`5778` `` →
   `` `oracle.cpp:6804-6805` ``
 
-일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27920`는
+일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27948`는
 `$ rg ...` 실행 결과를 코드 펜스 안에 그대로 옮긴 것이고, 그 실행은 실제로
 5688을 찍었다. 전사를 고치면 기록이 아니라 위조가 된다. (이 인용은 쓰인
 커밋 `580f1995` 당시 `!PORTING-PLAN.md:27486`이었고, 그 뒤 두 번 밀렸다.
@@ -31897,7 +31925,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27171`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27199`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -35559,7 +35587,7 @@ unresolvable이다.
 | 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
 |---|---|---|---|
 | `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
-| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
+| `PORTING-PLAN.md:31886` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
 | `doc/claim-audit/upstream-bugs.md:37` | `!PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
 
 세 건 다 baseline에 findings로 선언돼 있고 passing 등급으로 얼려지지
@@ -35595,7 +35623,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
 `oracle.cpp:5688` 전사 줄이다. §287.7의 문장이 "그 실행은 실제로 5688을
 찍었다"고 말하는 것과 정확히 맞고, 그 문장이 이 인용을 고치면 위조가 된다고
 한 이유이기도 하다 — 5688은 살아 있는 `oracle.cpp` 인용이 아니라 실행
-출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27920`에 있다(§271.3
+출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27948`에 있다(§271.3
 안, 펜스 27720–27726).
 
 §299.7은 이것을 `$ rg -l -w 'NearestNeighbors' .` 출력으로 읽고 27499(+13)로
@@ -35615,7 +35643,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
   자리가 남는다.
 
 그래서 번호만 고치지 않고 **검사 가능한 형태로 바꿨다**: §287.7의 문장이
-이제 `§271.3의 PORTING-PLAN.md:27920`로 절을 이름 댄다. 다음에 §271.3의
+이제 `§271.3의 PORTING-PLAN.md:27948`로 절을 이름 댄다. 다음에 §271.3의
 내용이 밀리면 인용이 절 범위 밖으로 나가고, 그때는 게이트가 말한다. 손으로
 고친 번호는 다시 밀린다 — 이 인용은 이미 두 번 밀렸다. 남길 것은 번호가
 아니라 그것을 붙잡는 규칙이다.
@@ -36182,7 +36210,7 @@ panda 250 + fanuc 250(구성당 125문제 × 넷), §304는 panda 500(floor_wall
 
 `!PORTING-PLAN.md:27602`를 p12-tangency는 27603으로, p10-phase13은
 27609로 밀었다. 병합된 트리에서는 **어느 쪽도 맞지 않는다** — 실제 값은
-`PORTING-PLAN.md:27920`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
+`PORTING-PLAN.md:27948`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
 꽂았고 `check-citation-drift.py`가 blank-line 3건으로 잡았다. 여덟 개를
 게이트가 찍은 citer 위치와 대상 재독으로 다시 유도했다.
 
@@ -36241,8 +36269,8 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21855-21856` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
-| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27171` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21874-21875` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
+| `PORTING-PLAN.md:31886` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27199` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
 `section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도
@@ -37123,3 +37151,87 @@ falsifier 불발 — OPEN.
 `UNMET`을 쟀다 — 어긋남이 없다. 구간이 실제로 열린 것은 13커밋 뒤
 `d8847edf`("freeze the in-repo classes with section-mismatch")부터다. 패널이
 본 것(어긋남이 자기 커밋들보다 앞선다)은 맞고, 어디서 시작했는지는 틀렸다.
+
+
+## §322 collision-distance-accuracy C1 잔여 24건을 재측정했다 (2026-08-07)
+
+`doc/residual-claims-triage.md`의 라운드 분할 제안 C1(`§229.4, §230.5,
+§232.4, §233.4, §237.4, §247.6`, 24건)을 각각 열어 오늘 다시 쟀다. 새
+측정이 필요했던 것은 둘뿐이었다(아래 §322.1·§322.2) — 나머지 닫힘·만료는
+같은 날 다른 절(§238, §260, §283, §288, §232.3)이 이미 낸 값을 그
+불릿에 연결하는 일이라 그 절 자신의 마커로 처리했고 새 문단을 만들지
+않았다. 24건 전수의 처분 표는 이 라운드 결과 보고에 있다.
+
+(원래 §316으로 썼으나 main에 이미 다른 테마의 §316 A3 — pilz-pipeline
+테마(PZ)가 병합돼 있어 §322로 옮긴다 — 아래 §322.1/§322.2 및 §233.4·
+§247.6의 마커도 함께.)
+
+### §322.1 `geometric_shapes`의 예외 거동을 상류 소스로 확인했다 — 포트와 도형별로 정확히 같다
+
+§233.3가 미확정으로 남긴 것: 이 포트의 `moveit_geometry::Shape::scale`/
+`::padd`는 치수가 0 미만이 되는 인자를 `Result::Err`로 거부하는데,
+`geometric_shapes` 원본이 같은 지점에서 실패할 수 있는지는 그 라운드가
+읽지 않아 확정하지 못했다.
+
+`geometric_shapes`는 이 워크스페이스 git 저장소 밖(`third_party/`,
+gitignore됨)이라 이 worktree에는 없지만 이 기계의 형제 체크아웃에
+있다: `/home/stevek/work/moveit-rs/third_party/geometric_shapes`,
+`crates/moveit-geometry/src/shapes.rs:5-25`가 이미 핀으로 박아 둔 바로 그 버전(태그 `2.3.3`, 커밋
+`192801cebacc07d0e9f719576cdd1c9b36d0bc28`). `src/shapes.cpp`를 열어
+`scaleAndPadd` 전 도형을 읽었다:
+
+| 도형 | 상류 (`shapes.cpp`) | 포트 (`crates/moveit-geometry/src/shapes.rs`) |
+|---|---|---|
+| `Sphere` | `:287-293` 음수 반지름이면 `throw std::runtime_error("Sphere radius must be non-negative.")` | `:625-632` 같은 조건에서 `Err(Error::construct("Sphere radius must be non-negative."))` — 메시지 문자열까지 동일 |
+| `Cylinder` | `:295-303` 반지름·길이 중 하나라도 음수면 `throw ... "Cylinder dimensions must be non-negative."` | `:705-722` 동일 조건, 동일 메시지 |
+| `Cone` | `:320-328` 동일 모양, `"Cone dimensions must be non-negative."` | `:814-829` 동일 |
+| `Box` | `:345-355` x/y/z 중 하나라도 음수면 `"Box dimensions must be non-negative."` | `:917-934` (`Cuboid`) 동일 |
+| `Plane` | `:272-275` `CONSOLE_BRIDGE_logWarn`만 찍고 아무 것도 안 함(no-op) | `:1014-1022` `const fn`, no-op — 이 포트는 로그 프레임워크가 없어 경고만 뺐다(기존 §233 범위 밖의 별개 기록된 차이) |
+| `OcTree` | `:267-270` 위와 동일한 no-op 규약 | `:1061-1073` 동일 no-op |
+| `Mesh` | `:372-406` **검사가 아예 없다** — `scaleX/Y/Z`·`paddX/Y/Z`를 정점마다 무조건 적용 | `:1159-1190` **마찬가지로 치수 검사가 없다** — 유일한 실패 조건은 `vertex_normals: None`(§233.3가 이미 이 포트 자신의 것으로 기록한, 무관한 별개 갈래) |
+
+포트의 `Shape::scale_and_padd`(`:1473-1489`)는 이 여섯 구현체로
+그대로 위임하는 다형 디스패처일 뿐 자기 검사를 추가하지 않으므로, 위
+표는 실제로 호출되는 경로 그대로다.
+
+**결론: 도형별 예외 거동이 상류와 포트에서 정확히 같다.** 거부하는
+도형(Sphere/Cylinder/Cone/Box)·메시지 문자열까지 같고, no-op인
+도형(Plane/OcTree)도 같고, 검사 자체가 없는 도형(Mesh)도 같다. 이
+포트의 `Result<()>`는 §233.3이 적어 둔 대로 "이 포트 자신의 규약"이
+아니라, C++의 예외 던지기를 Rust의 `Result`로 표현만 바꾼 것 — 발화
+지점과 발화 여부는 상류가 이미 도형별로 정해 둔 그대로다.
+
+§233.4의 세 번째 불릿("`geometric_shapes`의 예외 거동을 확인하지
+않았다")에 `거짓 → 닫힘 (§322.1)`을 붙인다.
+
+### §322.2 인용 원장 재조정을 이 트리에서 다시 돌렸다 — 병합 후에도 고아 0
+
+§247.6의 마지막 불릿은 `doc/assertion-discrimination-ledger-p1-fixtures.md`의
+`main.rs` 인용 11개가 이 브랜치 기점(`ceb496a`) 기준 `+247` 오프셋으로
+재도출됐고, main이 그 뒤 174커밋 나아가며 같은 파일을 5개 커밋이 건드려
+그 오프셋이 병합 시 충돌하리라 예측했다 — 병합 후 내용 기반으로 다시
+도출해 `verify-orphan-enumeration.sh`가 고아 0을 낼 때까지 확인하라는
+지시와 함께.
+
+이 라운드 시작에 이미 `git merge main`을 마쳤다(충돌 없음, fast-forward).
+그 상태에서 그 불릿이 요구한 검증을 그대로 실행했다:
+
+```console
+$ python3 tools/ci/reconcile-assertion-ledgers.py --verify
+scanner sites (excl. helper_body), live: 841
+orphans, live: 0  |  orphans, committed file: 0
+OK doc/assertion-discrimination-orphans.txt matches the live orphan set exactly (0 sites, commit 69bfc3d63261)
+second population (half_plane/cmp_compound), live orphans: 320  |  baseline: 320 (backlog; COMPARISON_HARD_FAIL=False)
+```
+
+`tools/ci/verify-orphan-enumeration.sh`는 이 호출의 얇은 래퍼일 뿐이라
+(주석 자체가 그렇게 적는다) 별도로 실행할 것이 없다. 예측된 실패는
+일어나지 않았다 — main과의 병합이 정확히 이 불릿이 걱정한 그 파일에
+충돌을 내지 않았고(git의 줄 기반 병합이 5개 커밋의 변경분과 겹치지
+않았거나, 이미 다른 라운드가 재도출해 두었을 수 있다 — 이 절은 그
+이유까지는 가르지 않았다), 그 결과가 지금 이 라이브 트리에서 고아
+0건으로 확인된다.
+
+§247.6의 마지막 불릿("병합하면 이 문서는 충돌하며 ... 다시 도출해야
+한다")에 `거짓 → 닫힘 (§322.2)`을 붙인다 — 예측된 충돌이 실측 결과
+나타나지 않았다.

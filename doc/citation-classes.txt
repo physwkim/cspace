@@ -10,7 +10,7 @@
 # Source commit: ed610c9a11068f2514331f546ebe6033e6bba884
 # Citations: 2703 in 2217 distinct (document, citation) keys
 #   anchor-verified: 570
-#   content-verified: 1149
+#   content-verified: 1150
 #   unanchored: 953
 #   exempt: 31
 #   out-of-bounds: 0
@@ -126,6 +126,7 @@ PORTING-PLAN.md	crates/moveit-error/src/lib.rs:312	unanchored
 PORTING-PLAN.md	crates/moveit-geometry/src/shapes.rs:1492	content-verified
 PORTING-PLAN.md	crates/moveit-geometry/src/shapes.rs:318	unanchored
 PORTING-PLAN.md	crates/moveit-geometry/src/shapes.rs:491	unanchored
+PORTING-PLAN.md	crates/moveit-geometry/src/shapes.rs:5-25	content-verified
 PORTING-PLAN.md	crates/moveit-geometry/src/shapes.rs:72-73	content-verified
 PORTING-PLAN.md	crates/moveit-geometry/tests/mesh_parity.rs:19-23	content-verified
 PORTING-PLAN.md	crates/moveit-kinematics/src/ik_cache.rs:193-197	content-verified
