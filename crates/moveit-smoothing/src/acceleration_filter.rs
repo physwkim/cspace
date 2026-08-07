@@ -120,6 +120,18 @@
 //   instead of the tight one every other case uses --
 //   [`crate::EPSILON`]-scale tolerances would fail on that case forever, not
 //   from a bug in either side.
+// - **`AccelerationLimitedFilter::new` rejects a non-finite or non-positive
+//   `update_period`, which upstream's C++ constructor does not.** Upstream's
+//   only enforcement is `acceleration_filter_parameters.yaml`'s
+//   `update_period: { validation: { gt<>: 0.0 } }`, checked by
+//   `generate_parameter_library`'s ROS parameter-loading tooling before
+//   `AccelerationLimitedPlugin::initialize` is ever called -- the C++
+//   constructor body itself has no code-level check for it, so a plain
+//   function diff against `acceleration_filter.cpp` finds nothing missing
+//   here. This port has no such YAML-loading layer in front of
+//   [`Self::new`], so without this check a bad `update_period` would reach
+//   [`Self::do_smoothing`]'s `/ dt` divisions unguarded and silently produce
+//   a non-finite velocity instead.
 
 use moveit_error::{Error, Result};
 use moveit_model::{JointModelGroup, RobotModel};
@@ -245,6 +257,7 @@ fn norm(v: &[f64]) -> f64 {
 /// consecutive commands by finding the point on the line from the last
 /// commanded position to the newly desired one that is closest to the new
 /// desired position while respecting every joint's acceleration limit.
+#[derive(Debug)]
 pub struct AccelerationLimitedFilter {
     min_acceleration_limits: Vec<f64>,
     max_acceleration_limits: Vec<f64>,
@@ -263,22 +276,39 @@ impl AccelerationLimitedFilter {
     /// [`joint_acceleration_bounds`]; `update_period` is the control-cycle
     /// duration in seconds (upstream `params_.update_period`).
     ///
-    /// Infallible and untrusting of nothing beyond equal-length inputs,
-    /// matching `RuckigFilter::new`'s identical convention: the natural
-    /// caller ([`joint_acceleration_bounds`]) always returns a matching
-    /// pair.
+    /// Untrusting of nothing beyond equal-length inputs, matching
+    /// `RuckigFilter::new`'s identical convention: the natural caller
+    /// ([`joint_acceleration_bounds`]) always returns a matching pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Construct`] if `update_period` is not finite and
+    /// positive. Upstream's C++ constructor has no such check -- the bound is
+    /// enforced only by `acceleration_filter_parameters.yaml`'s
+    /// `update_period: { validation: { gt<>: 0.0 } }`, read by
+    /// `generate_parameter_library`'s ROS parameter-loading tooling before
+    /// `AccelerationLimitedPlugin::initialize` ever runs. This port has no
+    /// such loading layer, so [`Self::do_smoothing`]'s `/ dt` divisions
+    /// (`:371`, `:375`) would otherwise silently produce a non-finite
+    /// velocity instead of upstream's YAML-level rejection.
     pub fn new(
         min_acceleration_limits: &[f64],
         max_acceleration_limits: &[f64],
         update_period: f64,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        if !update_period.is_finite() || update_period <= 0.0 {
+            return Err(Error::construct(format!(
+                "online_signal_smoothing::AccelerationLimitedFilter: update_period must be \
+                 finite and positive, got {update_period}"
+            )));
+        }
+        Ok(Self {
             min_acceleration_limits: min_acceleration_limits.to_vec(),
             max_acceleration_limits: max_acceleration_limits.to_vec(),
             update_period,
             last_positions: Vec::new(),
             last_velocities: Vec::new(),
-        }
+        })
     }
 
     /// The number of joints this filter was constructed for.
@@ -533,7 +563,7 @@ mod tests {
         // `:329`'s guard, previously untested anywhere in the workspace
         // (see `do_smoothing_before_reset_is_an_error`'s comment below);
         // bite-checked against that guard's sibling.
-        let mut filter = AccelerationLimitedFilter::new(&[-2.0], &[2.0], 1.0);
+        let mut filter = AccelerationLimitedFilter::new(&[-2.0], &[2.0], 1.0).unwrap();
         let mut positions = [0.5];
         let mut velocities = [0.5, 0.5];
         let err = filter
@@ -556,7 +586,7 @@ mod tests {
         // against this one, despite what an earlier version of this
         // comment claimed. See `do_smoothing_rejects_a_length_mismatch`
         // above for the guard's own coverage and bite.
-        let mut filter = AccelerationLimitedFilter::new(&[-2.0], &[2.0], 1.0);
+        let mut filter = AccelerationLimitedFilter::new(&[-2.0], &[2.0], 1.0).unwrap();
         let mut positions = [0.5];
         let mut velocities = [0.5];
         let err = filter
@@ -570,23 +600,43 @@ mod tests {
 
     #[test]
     fn reset_rejects_a_mismatched_length() {
-        let mut filter = AccelerationLimitedFilter::new(&[-2.0, -2.0], &[2.0, 2.0], 1.0);
+        let mut filter = AccelerationLimitedFilter::new(&[-2.0, -2.0], &[2.0, 2.0], 1.0).unwrap();
         let err = filter.reset(&[0.0], &[0.0]).unwrap_err();
         assert!(matches!(err, Error::Other(_)), "{err:?}");
     }
 
     #[test]
     fn reset_rejects_a_positions_only_mismatch() {
-        let mut filter = AccelerationLimitedFilter::new(&[-2.0, -2.0], &[2.0, 2.0], 1.0);
+        let mut filter = AccelerationLimitedFilter::new(&[-2.0, -2.0], &[2.0, 2.0], 1.0).unwrap();
         let err = filter.reset(&[0.0], &[0.0, 0.0]).unwrap_err();
         assert!(matches!(err, Error::Other(_)), "{err:?}");
     }
 
     #[test]
     fn reset_rejects_a_velocities_only_mismatch() {
-        let mut filter = AccelerationLimitedFilter::new(&[-2.0, -2.0], &[2.0, 2.0], 1.0);
+        let mut filter = AccelerationLimitedFilter::new(&[-2.0, -2.0], &[2.0, 2.0], 1.0).unwrap();
         let err = filter.reset(&[0.0, 0.0], &[0.0]).unwrap_err();
         assert!(matches!(err, Error::Other(_)), "{err:?}");
+    }
+
+    // Before this check existed, `update_period = 0.0` reached
+    // `do_smoothing`'s `/ dt` divisions (`:371`/`:375`) unguarded and
+    // silently produced `velocities=[NaN]` instead of an error -- see
+    // [`AccelerationLimitedFilter::new`]'s `# Errors`.
+    #[test]
+    fn new_rejects_a_non_positive_update_period() {
+        let err = AccelerationLimitedFilter::new(&[-2.0], &[2.0], 0.0).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "{err:?}");
+        let err = AccelerationLimitedFilter::new(&[-2.0], &[2.0], -1.0).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "{err:?}");
+    }
+
+    #[test]
+    fn new_rejects_a_non_finite_update_period() {
+        let err = AccelerationLimitedFilter::new(&[-2.0], &[2.0], f64::NAN).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "{err:?}");
+        let err = AccelerationLimitedFilter::new(&[-2.0], &[2.0], f64::INFINITY).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "{err:?}");
     }
 
     // The six cases below are `acceleration_filter_request.json`/
@@ -609,7 +659,8 @@ mod tests {
         let min_acceleration_limits: Vec<f64> =
             max_acceleration_limits.iter().map(|&m| -m).collect();
         let mut filter =
-            AccelerationLimitedFilter::new(&min_acceleration_limits, max_acceleration_limits, 1.0);
+            AccelerationLimitedFilter::new(&min_acceleration_limits, max_acceleration_limits, 1.0)
+                .unwrap();
         filter.reset(&READY_POSE, last_velocities).unwrap();
         filter
     }

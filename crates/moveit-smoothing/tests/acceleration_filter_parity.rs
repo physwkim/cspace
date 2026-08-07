@@ -211,15 +211,16 @@ fn acceleration_filter_matches_the_oracle() {
                 .unwrap_or_else(|e| panic!("case {case_index}: joint_acceleration_bounds: {e}"));
         let joint_names = group.active_joint_names().to_vec();
 
-        let mut filter = AccelerationLimitedFilter::new(
-            &min_acceleration_limits,
-            &max_acceleration_limits,
-            case.update_period,
-        );
         assert!(
             expected.initialize_ok,
             "case {case_index}: expected initialize_ok"
         );
+        let mut filter = AccelerationLimitedFilter::new(
+            &min_acceleration_limits,
+            &max_acceleration_limits,
+            case.update_period,
+        )
+        .unwrap_or_else(|e| panic!("case {case_index}: AccelerationLimitedFilter::new: {e}"));
 
         let named = |values: &HashMap<String, f64>| -> Vec<f64> {
             joint_names

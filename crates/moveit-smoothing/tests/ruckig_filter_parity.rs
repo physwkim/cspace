@@ -295,7 +295,8 @@ fn ruckig_filter_matches_the_oracle() {
             &acceleration_bounds,
             &jerk_bounds,
             case.update_period,
-        );
+        )
+        .unwrap_or_else(|e| panic!("case {case_index}: RuckigFilter::new: {e}"));
 
         let named = |values: &HashMap<String, f64>| -> Vec<f64> {
             joint_names
