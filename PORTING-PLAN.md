@@ -35600,3 +35600,220 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 틀려 있었다. 등급 사다리의 아래 두 칸(`resolved`/`unanchored`)은 줄이
 경계 안에 있고 비어 있지 않다는 것만 말하므로, 내용이 바뀐 인용을 통과시킨다.
 A2의 조건은 실패 등급이 0인 것이지 통과 등급이 옳은 것이 아니다.
+
+## §310 A3 — `unclassified` 잔여-주장 17건을 절 아홉 개로 나눠 개별 재검토했다, 3건이 드리프트로 닫혔다 (2026-08-07)
+
+`doc/residual-claims-triage.md`의 `unclassified` 테마(17건, 9개 절 —
+테마 규칙이 못 묶은 잔여라 서로 무관)를 절 단위로 하나씩 열었다. 각
+불릿에 대해 그 주장을 거짓으로 만들 관측을 정하고 실제로 돌렸다 —
+`rg`/`git log -S`/`git merge-base --is-ancestor`로 후속 커밋을 뒤지거나,
+현재 소스를 읽어 서술된 메커니즘이 오늘도 성립하는지 확인하는 형태다.
+3건이 닫혔고(§310.3 첫째, §310.5, §310.8 첫째) 14건은 오늘도 참이라
+OPEN으로 남긴다.
+
+### §310.1 §36.5 — `local_variable_name` 무관 주장은 오늘도 참이다
+
+불릿: "`update_joint_constraints`의 `local_variable_name` 미제거 이름
+비교 한계(§23.3-1)는 이 함수(`resolveConstraintFrames`)와 무관이다."
+falsifier: `resolveConstraintFrames`/`resolve_position_constraint_frame`/
+`resolve_orientation_constraint_frame`이 조인트 제약이나
+`local_variable_name`을 실제로 건드린다면 거짓이 된다.
+
+상류 `kinematic_constraints/utils.cpp:623-676`을 직접 읽었다 —
+`resolveConstraintFrames`는 `constraints.position_constraints`와
+`constraints.orientation_constraints` 두 필드만 순회하고,
+`joint_constraints` 필드는 함수 전체에서 한 번도 참조되지 않는다. 이
+포트의 `crates/moveit-constraints/src/utils.rs`도 같은 두 함수로만
+쪼개져 있다. falsifier가 발화하지 않았다 — OPEN.
+
+### §310.2 §66.4 — `transforms_with_world_objects`는 있지만 프로덕션 호출자가 아직 없다
+
+불릿: "`SceneTransforms::isFixedFrame`의 선행 `/` 처리와 object frame
+위임은 재현되지 않았다 ... 소비자가 생기면 닫힌다." falsifier: 이
+포트의 `PositionConstraint::new`/`OrientationConstraint::new`/
+`VisibilityConstraint::new` 생성자 중 하나라도 프로덕션 코드에서
+`PlanningScene::transforms()` 대신 `transforms_with_world_objects()`를
+받는 호출부가 생기면 거짓이 된다.
+
+`rg -n 'transforms_with_world_objects' crates/ --glob '!*/tests/*'`는
+`crates/moveit-scene/src/scene.rs`의 정의·doc과
+`crates/moveit-planners-sbp/src/planning_scene_validity.rs`의 **테스트**
+안 호출만 낸다 — 프로덕션 콜사이트 0건. 그 테스트 자신의 doc이
+명시한다: "there is no production call site to wire yet ... when that
+production path exists, its call site ... has to live here." 메커니즘
+(leading-`/`, object-frame 위임)은 `scene.rs`의 단위 테스트들이 상류와
+맞게 재현하고 있지만, §66.4가 닫히는 조건으로 스스로 적은 "소비자가
+생긴다"는 아직 일어나지 않았다. falsifier 불발 — OPEN.
+
+### §310.3 §157.5 — 세 불릿 중 첫째가 드리프트로 닫혔다
+
+**첫째 (닫힘).** 불릿: "combined pass는 한 가지 순서(그룹 내
+crate/stem 정렬)만 밟는다. 역순이나 임의 순열은 밟지 않는다." falsifier:
+`verify-fixture-replay.sh`의 combined pass가 순서를 하나 이상 더
+밟으면 거짓이 된다.
+
+**거짓 → 닫힘 (§310.3).** `git log -S "Two orders, not one" --
+tools/ci/verify-fixture-replay.sh`가 `308064ee`(2026-08-04 21:12,
+verify-fixture-replay: walk each combined group in both directions)를
+낸다. §157(이 절)은 같은 날 18:15(`7b677164`)에 쓰였다 — 3시간 뒤
+`combined`/`reversed` 두 순서 루프가 이미 들어갔고(`tools/ci/
+verify-fixture-replay.sh:361-399`), §157.5는 그 뒤로 갱신되지 않은 채
+드리프트 상태였다. `git merge-base --is-ancestor 308064ee HEAD` 참.
+스크립트 자신의 주석이 남은 한계를 정확히 적는다: "not full coverage
+of n! orders: it catches leaks between any two requests, not one that
+needs a specific third request sitting between them" — n! 전수는
+아니지만 "한 가지 순서만"은 더 이상 참이 아니다.
+
+**둘째 (OPEN).** 불릿: "그룹 크기 1(`totg_synthetic`)은 영원히 이
+pass의 사각지대다 ... 같은 모델을 쓰는 fixture가 하나 더 생기면
+만료된다." falsifier: `totg_synthetic.urdf`/`.srdf`와 sha256이 같은
+urdf/srdf 쌍을 쓰는 fixture가 추가되면 거짓이 된다. `verify-fixture-
+replay.sh`의 그룹핑 로직((sha256(urdf), sha256(srdf)) 키)을 그대로
+재구현해 오늘의 66개 fixture(43 → 66, 코퍼스는 자랐다) 전체에
+돌렸다 — `totg_synthetic`은 여전히 그룹 크기 1이고 그룹 수는 여전히
+6이다. falsifier 불발 — OPEN.
+
+**셋째 (OPEN).** 불릿: "committed fixture는 ... 이번 누수에 오염되지
+않았다 ... 오염될 수 있었던 것은 ... `moveit-diff`, 그리고 캡처를
+batch로 돌릴 경우다." `tools/moveit-oracle/src/oracle.cpp`를 읽으면
+`ScopedJointBounds`가 모든 op의 단일 진입점인 `handle`의 맨 위에서
+무조건 생성되므로(:973-975), §157이 고친 특정 리크(joint bounds가
+요청 경계를 넘어 남는 것)는 호출자가 누구든(`moveit-diff` 포함) 구조로
+막힌다 — `moveit-diff`도 결국 같은 `handle`에 JSON 요청을 한 줄씩
+보내는 클라이언트일 뿐이다(`tools/moveit-diff/src/main.rs:512` 이하
+`Oracle::spawn`). 다만 이 구조적 논증이 불릿 자신의 "오염될 수
+있었던 것"이라는 과거 서술을 오늘의 참/거짓 주장으로 바꿔 읽는
+해석에 의존하고, 살아 있는 `moveit-diff` 실행으로 직접 재현하지는
+않았다 — 근거가 해석에 의존하는 만큼 닫지 않고 구조적 정황만 적는다.
+
+### §310.4 §212.4 — 중간 트리 이미지는 오늘도 빌드된 적이 없다
+
+불릿: "`b1ef9a8`(mode 분기)만 담긴 중간 트리의 이미지는 빌드하지
+않았다." falsifier: 그 뒤 어느 라운드가 `b1ef9a8` 단독 트리의 오라클
+이미지를 빌드하고 재생을 확인했다면 거짓이 된다.
+
+`grep -rn "b1ef9a8"`을 `.md`/`.txt`/`.json` 전체에 돌리면 §212 자신의
+문장 밖에는 한 건도 없다 — 별도 이미지-매니페스트 파일도 없다.
+`b1ef9a8`은 `git merge-base --is-ancestor b1ef9a8 HEAD`로 오늘도 조상
+커밋이지만, 그 커밋 단독 트리를 다시 빌드해 재생을 확인하는 일은
+최종 트리(`700e7be54cb0a61f`)가 이미 두 변경을 다 담고 있어 아무도
+할 이유가 없는 절차이기도 하다. falsifier 불발 — OPEN.
+
+### §310.5 §259.7 — (b)/(c) 둘 다 이미 채워졌다
+
+불릿: "위 표의 (b)/(c) 어느 것도 메우지 않았다." (b) = `move_action`이
+묶여 있지만 부를 플래너가 없다, (c) = 안 지은 서버 다섯
+(`execute_trajectory`, `compute_cartesian_path`,
+`query_planner_interface`, `get_planner_params`,
+`set_planner_params`). falsifier: 이 다섯 서버가 실제로 지어지고
+묶이거나, `move_action`에 실제 플래너가 물리면 거짓이 된다.
+
+**거짓 → 닫힘 (§310.5).** 둘 다 이미 일어났다.
+
+- (b): `ros/moveit-ros/src/bin/move_group.rs`의
+  `handle_move_group_goal` → `plan` → `plan_inner`이 실제
+  `plan_only(&mut scene, &env, &pipeline_id, &configs.borrow(),
+  request)`를 부른다(§266.6). §266.8이 §255가 남긴 `NO_PLANNER` 상수
+  문장을 "이제 거짓이므로" 지웠다고 직접 기록한다.
+- (c): `execute_trajectory`는 `create_action_server::<
+  ExecuteTrajectory::Action>("execute_trajectory")`(§277),
+  `compute_cartesian_path`는 `create_service::<GetCartesianPath::
+  Service>("compute_cartesian_path", ...)`(§282),
+  `query_planner_interface`/`get_planner_params`/
+  `set_planner_params`는 `moveit_ros::planner_params::spawn`이 셋 다
+  등록하고(`planner_params.rs:333-343`) `move_group.rs:866`이
+  실제로 호출한다(§274) — 전부 `rg`로 콜사이트를 직접 확인했다.
+
+§266은 §259보다 뒤(§266.6이 §255/§259 이후 병합 라운드의 성공
+기준으로 자기를 적는다), §274/§277/§282는 그보다도 뒤다. §259.7이
+쓰인 시점엔 참이었던 "아무것도 메우지 않았다"가 그 뒤 세 라운드에
+걸쳐 전부 메워졌는데 §259.7 자신은 갱신되지 않았다.
+
+### §310.6 §280.4 — 네 불릿 모두 오늘도 참이다
+
+- **조건 (b)는 손대지 않았다는 불릿.** falsifier: (b)에 (a)와 같은
+  동작점 문제가 실은 있었다면 거짓. §267.3을 읽으면 (b)의 결함은
+  달랐다("같은 모양으로 보이지만 다른 것") — `tol_ik` 느슨함은 솔버
+  계약이고, §221.2의 `--ik-epsilon` 격자가 `tol_ik == epsilon`에서
+  실패 0건으로 이미 닫았다. 동작점 문제가 아니었다는 진술이 그대로
+  맞다 — OPEN.
+- **§267.4가 남긴 결정은 이것 하나뿐이라는 불릿.** falsifier: §267.4가
+  실은 둘 이상의 "아직 결정되지 않았다" 항목을 남겼다면 거짓. §267.4
+  본문을 다시 읽으면 Phase 0/1/5(둘째)는 "성립하지만 이유를 말하지
+  않는다"이고 오직 Phase 4(a) 하나만 "아직 결정되지 않았다"로
+  적혀 있다 — OPEN.
+- **새 측정을 하지 않았고 §245.4의 표를 재현하지 않았다는 불릿.**
+  falsifier: 후속 라운드가 §245.4의 격자를 다시 돌렸다면 거짓.
+  `grep -n "§245.4" PORTING-PLAN.md`의 유일한 후속 참조(§286.4,
+  line 30225)는 같은 판정 패턴(검정력 있는 동작점 × 짝지은 McNemar
+  게이트)을 CHOMP/STOMP condition-2라는 **다른 모집단**에 적용한
+  것이지 §245.4의 IK 표 자체의 재현이 아니다 — OPEN.
+- **이 결정은 되돌릴 수 있다는 불릿.** 되돌림 여부를 확인했다 —
+  `PORTING-PLAN.md:812`(§5 현황표 Phase 4 (a) 행)이 오늘도 새 조건문
+  (McNemar/`PAIRED_DIVERGENCE_Z_THRESHOLD`)을 쓰고 있어 되돌려지지
+  않았다. 가역성 진술 자체는 참/거짓을 매길 대상이 아니라 조건문이라
+  falsifier가 없다 — OPEN.
+
+### §310.7 §292.8 — 182건은 오늘도 손대지 않았다
+
+불릿: "182건(그중 125건이 `.md`, 57건이 `.rs` 파일 안)은 손으로 열지
+않았다." falsifier: 후속 라운드가 이 182건을 손으로 열어 확인했다면
+거짓. `grep -n "182건" PORTING-PLAN.md`는 §292.8 자신의 두 문장
+밖에는 아무것도 내지 않는다 — 이 수를 다시 언급하거나 그 목록을 손으로
+연 후속 절이 없다. falsifier 불발 — OPEN.
+
+### §310.8 §299.10 — 첫 불릿은 §306/§309.5가 닫았고, 둘째는 오늘도 참이다
+
+**첫째 (닫힘).** 불릿: "30건의 findings 자체는 이 회차에 고치지
+않았다 — 세 부류(blank-line 17, section-mismatch 6, unresolvable 7).
+... 셋을 고친 뒤 `IN_REPO_HARD_FAIL`을 뒤집는 것이 남은 일이다."
+falsifier: 후속 라운드가 세 부류를 실제로 고쳤다면 거짓.
+
+**거짓 → 닫힘 (§310.8).** §306("두 번째 코퍼스의 findings를 닫았다")이
+자기 서두에서 직접 이름 댄다 — "§299.9가 선언만 하고 남겨 둔
+findings를 이번 회차에 닫았다." §306.2의 표: blank-line 25 → **0**,
+unresolvable 8 → **0**, section-mismatch 6→8 → **3**(판단 필요 셋,
+§306.4). 그 남은 셋을 §309.5(A2 종결)가 셋 다 드리프트로 재도출해
+section-mismatch도 **0**이 됐다. `tools/ci/check-citation-drift.py`의
+`IN_REPO_HARD_FAIL = (IN_REPO_BLANK, IN_REPO_OOB, IN_REPO_UNRESOLVED)`
+주석이 "blank-line, out-of-bounds and unresolvable are closed and
+hard"라 적고, `grep -P '\t(blank-line|out-of-bounds|unresolvable|
+section-mismatch)(\*\d+)?$' doc/citation-classes-in-repo.txt`는
+오늘 0건이다. §299.10이 쓰인 시점의 30건 세 부류가 그 뒤 두 라운드
+(§306, §309.5=A2)에 걸쳐 전부 0으로 닫혔다.
+
+**둘째 (OPEN).** 불릿: "`doc/handoff-2026-08-06.md:112`의 §5 표 행
+수(쓰일 때 19행, 지금 20행)와 `PORTING-PLAN.md:807`도 그대로다."
+falsifier: 그 핸드오프 문서가 수정되었거나 `:807`이 고쳐졌다면 거짓.
+`doc/handoff-2026-08-06.md`는 오늘도 "The table is 19 rows"라고
+적고, `PORTING-PLAN.md:802-823`(헤더+구분선+데이터 20행)을 직접 세면
+오늘 20행이다 — 핸드오프 문서의 19행 주장은 오늘도 안 고쳐진 채다.
+`:807`도 §309.5가 방금 독립적으로 확인했다: "`!PORTING-PLAN.md:807`은
+`resolved` 등급으로 통과하면서 틀려 있었다." 이 절이 쓰인 시점부터
+A2 종결 시점까지 아무도 손대지 않은 것으로 두 계기(내 재측정,
+§309.5)가 일치한다 — OPEN.
+
+### §310.9 §307.6 — census 재현이 세 불릿 중 어느 것도 닫지 않는다
+
+§305.2에 방금 추가한 행(§307.6, `count-coarse-assertions.py`)이 이
+절의 `dropped = 3610 = 195(abs_tol) + 3415(other)`를 오늘 커밋에서
+재현하면 `3613 = 195 + 3418`이라고 적는다 — `abs_tol`은 정확히
+재현되고 `other`만 195→195, 3415→3418로 어긋난다(이 절 이후 병합된
+커밋이 매크로 호출을 늘렸다). 이 사실 자체가 세 불릿 중 무엇을
+닫는지 확인했다 — **아무것도 닫지 않는다.**
+
+- **"3415건의 other 잔여는 하나도 읽지 않았다."** 재현된 수가
+  3415→3418로 드리프트한 것은 이 불릿의 주장("아무것도 읽지 않았다")을
+  거짓으로 만들지 않는다 — 오히려 3건이 늘어 미독 잔여가 더 커졌다는
+  뜻이다. 드리프트는 이미 §305.2 행에 기록했고, 그것과 별개로 이
+  불릿의 핵심 주장(미독)은 오늘도 참이다 — OPEN.
+- **"둘째 모집단 320건을 로저로 흡수하는 일은 하지 않았다."** abs_tol/
+  other 재현과 무관한 다른 수(320)에 대한 불릿이다.
+  `grep -n "320건" PORTING-PLAN.md`는 §307 자신 밖에 후속이 없다 —
+  OPEN.
+- **"연쇄 via 37건의 완전한 목록화는 하지 않았다."** 역시 다른 수(37)에
+  대한 불릿이다. `grep -n "via 37\|37건" PORTING-PLAN.md`도 §307
+  자신 밖에 후속이 없다 — OPEN.
+
+census 재현이 §307.6에 준 것은 새로운 드리프트 사실(3415→3418) 하나이지,
+세 불릿 중 어느 것을 참에서 거짓으로 뒤집는 관측은 아니었다.
