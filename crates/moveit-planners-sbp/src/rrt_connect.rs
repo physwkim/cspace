@@ -274,13 +274,21 @@ where
     let nearest_state = nearest_state.clone();
 
     let dist = space.distance(&nearest_state, target);
-    if dist == 0.0 {
-        // The nearest node already *is* the target: nothing to extend.
-        return ExtendResult::Reached(nearest_index);
-    }
-
     let reaches = dist <= step_size;
     let new_state = if reaches {
+        // Always the literal `target`, never `nearest_state`, even when
+        // `dist == 0.0`: a space with a degenerate metric (`So2Space`
+        // wraparound, or a zero-weight `CompoundSpace` subspace) can have
+        // `distance(a, b) == 0.0` for `a != b`. Short-circuiting on
+        // `dist == 0.0` to return `nearest_index` without ever validating or
+        // storing `target` breaks this function's own "`path.last() ==
+        // Some(&goal)` exactly" contract, and can splice an unvalidated
+        // edge into the returned path (the literal `target` is never
+        // checked against `checker`/`motion_validator` at all in that
+        // case). Folding `dist == 0.0` into the ordinary `reaches` branch
+        // below makes every accepted step -- including a zero-distance one
+        // -- go through the same validity checks and land the same literal
+        // state.
         target.clone()
     } else {
         space.interpolate(&nearest_state, target, step_size / dist)
@@ -515,6 +523,45 @@ mod tests {
 
         assert_eq!(path.first(), Some(&start));
         assert_eq!(path.last(), Some(&goal));
+    }
+
+    #[test]
+    fn wraparound_endpoints_with_zero_distance_but_unequal_values_reach_the_literal_goal() {
+        // `So2Space::distance(-PI, PI) == 0.0` (they name the same point on
+        // the circle) even though `-PI != PI` as `f64`. `extend`'s "dist ==
+        // 0.0 -> already at target" shortcut cannot distinguish this from
+        // the ordinary case where the nearest node is bit-identical to the
+        // target, so it must not treat zero distance as "nothing to do".
+        let space = So2Space::new();
+        let always_valid = |_: &f64| true;
+        let mv = DiscreteMotionValidator::new(&always_valid, 0.1);
+        let start = -std::f64::consts::PI;
+        let goal = std::f64::consts::PI;
+        assert_eq!(
+            space.distance(&start, &goal),
+            0.0,
+            "test setup: this only exercises the bug if distance is exactly zero"
+        );
+
+        let mut p = params();
+        p.goal_bias = 1.0; // force the very first sample to be the other tree's root
+
+        let path = rrt_connect(
+            &space,
+            &always_valid,
+            &mv,
+            start,
+            goal,
+            Sampler::unconstrained(&mut rng(1)),
+            &p,
+        )
+        .expect("a fully open SO(2) space must be solvable");
+
+        assert_eq!(
+            path.last(),
+            Some(&goal),
+            "path did not end at the literal goal state: {path:?}"
+        );
     }
 
     #[test]
