@@ -208,9 +208,15 @@ impl<'m> KinematicsMetrics<'m> {
         self.penalty_multiplier
     }
 
-    /// `setPenaltyMultiplier`.
+    /// `setPenaltyMultiplier`. Upstream normalizes the sign away here
+    /// (`penalty_multiplier_ = fabs(multiplier)`, `kinematics_metrics.hpp:129`)
+    /// rather than in [`Self::joint_limits_penalty`], so every reader of
+    /// `penalty_multiplier_` -- including this port's own short-circuit check
+    /// there -- can assume it is never negative. See
+    /// `tests::joint_limits_penalty_is_the_same_for_a_penalty_multiplier_and_its_negation`
+    /// for what skipping this does to the computed penalty.
     pub fn set_penalty_multiplier(&mut self, value: f64) {
-        self.penalty_multiplier = value;
+        self.penalty_multiplier = value.abs();
     }
 
     fn group(&self, group: &str, caller: &str) -> Result<&'m JointModelGroup> {
@@ -432,6 +438,71 @@ mod tests {
 
         metrics.set_penalty_multiplier(2.5);
         assert_eq!(metrics.penalty_multiplier(), 2.5);
+    }
+
+    /// Upstream `setPenaltyMultiplier` is `penalty_multiplier_ = fabs(multiplier);`
+    /// (`kinematics_metrics.hpp:129`) -- the sign is normalized away at the
+    /// setter, unconditionally, the same shape as `kdl_kinematics_parameters.yaml`'s
+    /// `weight > 0.0` validation normalizing a solver's joint weight before
+    /// `getJointWeights` ever runs (see `moveit-kinematics`'s
+    /// `resolve_joint_weights`). A negative multiplier must read back positive.
+    #[test]
+    fn set_penalty_multiplier_takes_the_absolute_value() {
+        let model = build_model();
+        let mut metrics = KinematicsMetrics::new(&model);
+        metrics.set_penalty_multiplier(-2.5);
+        assert_eq!(metrics.penalty_multiplier(), 2.5);
+    }
+
+    /// The concrete wrong-output consequence of skipping that `fabs()`: since
+    /// [`KinematicsMetrics::joint_limits_penalty`]'s final line is
+    /// `1.0 - exp(-penalty_multiplier * product)` with `product >= 0` always
+    /// (every per-joint factor is a ratio of two non-negative distances), a
+    /// non-negative `penalty_multiplier` keeps the exponent `<= 0`, so the
+    /// penalty is always in `[0, 1)` -- upstream's own invariant, guaranteed by
+    /// `fabs()` at the setter, not rechecked at every call site. Without it, a
+    /// caller that passes a *negative* `penalty_multiplier` flips the exponent's
+    /// sign: `exp(+huge) >= 1`, so `1.0 - exp(...)` goes negative -- not a
+    /// smaller penalty but a wrong-signed one, silently corrupting every
+    /// manipulability metric that multiplies by it. `+1.5` and `-1.5` must
+    /// therefore produce the identical penalty, matching upstream's
+    /// write-time normalization; pre-fix they diverge (`-1.5` gives a large
+    /// negative penalty instead of the same positive one `+1.5` gives).
+    #[test]
+    fn joint_limits_penalty_is_the_same_for_a_penalty_multiplier_and_its_negation() {
+        let model = build_model();
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        for (name, value) in [
+            ("panda_joint1", -1.786_761_282_483_162_5),
+            ("panda_joint2", -0.954_429_279_574_379_3),
+            ("panda_joint3", 1.509_848_116_235_015_7),
+            ("panda_joint4", -2.229_931_635_927_409),
+            ("panda_joint5", 0.334_922_289_471_980_33),
+            ("panda_joint6", 1.365_463_238_975_498_8),
+            ("panda_joint7", 0.945_243_850_904_563_3),
+        ] {
+            state.set_variable_position(name, value).unwrap();
+        }
+        let group = model.joint_model_group("panda_arm").unwrap();
+
+        let mut positive = KinematicsMetrics::new(&model);
+        positive.set_penalty_multiplier(1.5);
+        let positive_penalty = positive.joint_limits_penalty(&state, group).unwrap();
+        assert!(
+            (0.0..1.0).contains(&positive_penalty),
+            "a penalty must stay in [0, 1): {positive_penalty}"
+        );
+
+        let mut negative = KinematicsMetrics::new(&model);
+        negative.set_penalty_multiplier(-1.5);
+        let negative_penalty = negative.joint_limits_penalty(&state, group).unwrap();
+
+        assert_eq!(
+            negative_penalty, positive_penalty,
+            "a negated penalty_multiplier must normalize to the same penalty, matching \
+             upstream's fabs() at the setter"
+        );
     }
 
     /// Default `penalty_multiplier` is `0.0`: [`KinematicsMetrics::joint_limits_penalty`]
