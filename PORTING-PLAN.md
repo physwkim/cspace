@@ -27978,7 +27978,7 @@ crates/moveit-planners-sbp/src/registry.rs:903:#[linkme::distributed_slice(PLANN
 
 ### §274.6 닫지 않은 것
 
-- **저장된 설정은 어떤 플래너에도 닿지 않았다. 닫혔다(§285).** 상류의
+- **저장된 설정은 어떤 플래너에도 닿지 않았다. 거짓 → 닫힘 (§285).** 상류의
   `setParams`는 `setPlannerConfigurations`로 끝나면서 파이프라인이 계획에 쓰는
   인스턴스에 맵을 넘기는데, 이 절 시점에는 대응하는 호출이 없었고 이
   워크스페이스의 어떤 구성 경로도 `PlannerConfigurationMap`을 입력으로 받지
