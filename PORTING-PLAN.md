@@ -22351,7 +22351,7 @@ M3와 M4는 이 게이트에서 서로 다른 것이 필요한 이유를 보여�
 - **`motion_resolution` 아래의 충돌 간극.** 양쪽이 같은 해상도로 검사한다. 이미
   `plan_benchmark_port.rs`의 `# Condition 2's collision-check resolution`이 기록한
   한계이고 이 라운드에서 바뀌지 않았다.
-- **C++ 경로의 끝점. 닫혔다(§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에
+- **C++ 경로의 끝점. 거짓 → 닫힘 (§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에
   대응하는 C++ 쪽 검사가 없었고, 여는 값이 500문제 재실행 한 번이라고 적었다.
   같은 날 `a7d1b9a0`(`test(sbp): hold the C++ baseline to the same endpoint
   requirement as the port`)이 stratum마다 `cpp-endpoints`를 넣었고, 기록된

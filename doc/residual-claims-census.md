@@ -7,7 +7,7 @@
 
 PORTING-PLAN.md §301(및 그 이전 §291)이 만든 문서. 헤딩이든 평문이든, 이 절이/회차가 하지/닫지/재지/... 않은 것 계열의 lead-in 줄 바로 아래 최상위 불릿을 전부 모은다 — 본문 어휘(무엇을 안 쟀는지)가 아니라 lead-in 어휘(안 쟀다는 것 자체)로 찾으므로, 이 절이 잰 것을 부르는 단어가 무엇이든 걸린다. **닫힘 여부는 `거짓 → 닫힘 (§N)`이 그 불릿 자신의 텍스트 안에 있는지만 본다** — 한 불릿에 여러 절이 섞여 있고 그중 일부만 닫힌 경우(예: PORTING-PLAN.md §284.3), 그 표식이 있으면 전체가 CLOSED로 잡힌다. 부분 닫힘은 이 표가 못 보고, 여는 사람이 본문을 읽어야 한다.
 
-lead-in 64건, 최상위 불릿 229건 (CLOSED 14 / OPEN 215).
+lead-in 64건, 최상위 불릿 229건 (CLOSED 15 / OPEN 214).
 
 | 절 | lead-in (줄) | 불릿 | 상태 |
 |---|---|---|---|
@@ -82,7 +82,7 @@ lead-in 64건, 최상위 불릿 229건 (CLOSED 14 / OPEN 215).
 | §248.9 | PORTING-PLAN.md:22343 §248.9 닫지 않은 것 | PORTING-PLAN.md:22345 - **게이트에 둘째 RNG 스트림.** 측정 결과 섭동이 마진의 1/50이고 비용은 두 배다(§248.2). 같은 여유를 비용 0인 핀으로 닫았다. | OPEN |
 | §248.9 | PORTING-PLAN.md:22343 §248.9 닫지 않은 것 | PORTING-PLAN.md:22347 - **양쪽이 같은 `objects` 배열에서 장면을 만든다.** 오라클의 world도 포트가 읽는 그 요청 JSON에서 만들어지므로, 생성기가 잘못된 장애... | OPEN |
 | §248.9 | PORTING-PLAN.md:22343 §248.9 닫지 않은 것 | PORTING-PLAN.md:22351 - **`motion_resolution` 아래의 충돌 간극.** 양쪽이 같은 해상도로 검사한다. 이미 `plan_benchmark_port.rs`의 `# ... | OPEN |
-| §248.9 | PORTING-PLAN.md:22343 §248.9 닫지 않은 것 | PORTING-PLAN.md:22354 - **C++ 경로의 끝점. 닫혔다(§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에 대응하는 C++ 쪽 검사가 없었고, 여는 값이 5... | OPEN |
+| §248.9 | PORTING-PLAN.md:22343 §248.9 닫지 않은 것 | PORTING-PLAN.md:22354 - **C++ 경로의 끝점. 거짓 → 닫힘 (§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에 대응하는 C++ 쪽 검사가 없었고, 여는... | CLOSED (§264) |
 | §248.9 | PORTING-PLAN.md:22343 §248.9 닫지 않은 것 | PORTING-PLAN.md:22362 - **paired median 집단의 크기.** `paired_problems_pooled > 0`만 요구하고 그 크기에 바닥이 없다. 양쪽 해결 집합이 ... | OPEN |
 | §250.6 | PORTING-PLAN.md:22955 §250.6 이 라운드가 닫지 못한 것 | PORTING-PLAN.md:22957 - **`moveit_planning::PlanningRequest`의 start-state 필드. 거짓 → 닫힘 (§301).** §250.4가 찾은 첫 ... | CLOSED (§301) |
 | §250.6 | PORTING-PLAN.md:22955 §250.6 이 라운드가 닫지 못한 것 | PORTING-PLAN.md:22964 - **planning scene 토픽 구독.** §226.4 항목 3 그대로 부재. | OPEN |
