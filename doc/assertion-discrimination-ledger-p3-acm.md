@@ -181,8 +181,8 @@ read the actual guard behind every `single-branch` citation, not just
 the row's existing comment. Result: **0 misverdicts** — every guard is
 either a bare `?`/single map lookup (`tools.rs:219`, `matrix.rs:658,660,
 880`, `world.rs:1288,1363`), a single boolean flag (`octomap_filter.rs:
-300,355`, `parry.rs:4729`), an unconditional single path
-(`parry.rs:2810,2817,3967`), a sequential-fallthrough function with only
+300,355`, `parry.rs:4843`), an unconditional single path
+(`parry.rs:2924,2931,4081`), a sequential-fallthrough function with only
 one terminal `None` path and no folded clause (`world.rs:1399`), or a
 match arm that is genuinely inseparable by construction — `Never |
 Always => None` at `matrix.rs:691,692,702` shares the exact same code

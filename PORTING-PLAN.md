@@ -5548,7 +5548,7 @@ upstream 결함)이 self-collision뿐 아니라 world-object 쌍에서도 같은
 
 **구성.** 원점 중심, 축 정렬된 두 상자 껍질 — `outer` 반폭 `1.0`, `inner`
 반폭 `0.1` — 을 12개 삼각형(면당 2개)으로 손으로 지었다
-(`box_shell_mesh`, `crates/moveit-collision/src/parry.rs:4049`). `inner`는
+(`box_shell_mesh`, `crates/moveit-collision/src/parry.rs:4163`). `inner`는
 `outer`의 경계 어디에도 닿지 않는다 — 두 메시의 평행한 면 사이 거리가
 축마다 `1.0 - 0.1 = 0.9`이고, 그것이 임의의 두 삼각형 쌍 사이 최소
 거리이기도 하다(꼭짓점이든 면이든, 같은 축 방향으로 내린 최근접점이 항상
@@ -5563,7 +5563,7 @@ upstream 결함)이 self-collision뿐 아니라 world-object 쌍에서도 같은
 (`p` 자신의 기본 `1x1x1` 박스 충돌은 `translation(100,0,0)`로 치워
 간섭하지 않게 했다), 새 시험
 `mesh_engulfment_is_reported_as_no_collision_and_a_positive_gap_not_penetration`
-(`crates/moveit-collision/src/parry.rs:4079`)으로 쟀다:
+(`crates/moveit-collision/src/parry.rs:4193`)으로 쟀다:
 
 | 호출 | 실측 |
 |---|---|
@@ -17786,7 +17786,7 @@ false`만 쓰고 받은 입력을 하나도 읽지 않는다. 어려운 쪽은 "
 `CollisionResult`의 세 `Option` 필드는 요청을 따라간다 — 상류가
 기본 생성된 결과를 그대로 두는 것이 이 포트에서는 "물어봤으니 `Some`,
 안 물어봤으니 `None`"이다. 여기서 인접 결함 하나가 드러났다:
-`ParryCollisionEnv`의 `accumulate_collision`(`parry.rs:2195-2150`)은
+`ParryCollisionEnv`의 `accumulate_collision`(`parry.rs:2270-2221`)은
 `distance: None`을 무조건 쓰므로 `CollisionRequest::distance`를 켠
 호출자에게도 `None`을 준다. `CollisionResult::distance`의 doc이 적어 둔
 "요청했을 때 정확히 존재한다"를 어기는 쪽은 그쪽이다. 이번 라운드 범위가
@@ -36086,7 +36086,7 @@ half_plane이고(초과 판정), `parry.rs:5191`의 `gap > 0.0 && gap < 1e-15`�
 
 | 파일:줄 | 모양(요약) | 판정 | 근거 |
 |---|---|---|---|
-| `parry.rs:4568` | 4개 OR, AABB 포함 위반 | coarse | 무경계 반평면 4개 OR |
+| `parry.rs:4682` | 4개 OR, AABB 포함 위반 | coarse | 무경계 반평면 4개 OR |
 | `parry.rs:4643` | `.abs() >` OR (브리프 예시) | coarse | "초과 판정", `.abs()`가 있어도 half_plane |
 | `parry.rs:5191` | `gap>0.0 && gap<1e-15` (브리프 예시) | precise | `.abs()` 없는 양측 밴드, 폭이 수치 잡음 |
 | `collision_parity.rs:958` | `.abs()<` AND `.abs()<` | precise | 두 abs 톨러런스 AND |
@@ -37005,7 +37005,7 @@ crates/moveit-planners-sbp/examples/plan_benchmark_port.rs` 종료 코드 1). fa
 
 ### §317.2 §251.6 — 셋은 참이다, 넷째는 §229.1에서 이미 두 번 더 옮겨가 있어 거짓이다
 
-**`sphere × sphere` 셀.** falsifier: `accumulate_collision`(`parry.rs:2140`)의
+**`sphere × sphere` 셀.** falsifier: `accumulate_collision`(`parry.rs:2211`)의
 `contact_ball_ball` 호출이나 그 판정 경계가 바뀌었다면 거짓. §251.6이 쓰인 커밋
 (`c5fa6985`, 07:36) 이후 `parry.rs`를 건드린 커밋은 셋뿐이다(`2abc8d0a`·`f1d4ea22`·
 `a1c1ecb7`) — `git diff c5fa6985 HEAD -- crates/moveit-collision/src/parry.rs`의 훅
@@ -37363,7 +37363,7 @@ Display")도 이 지역 사본을 건드리지 않는다. falsifier 불발 — O
 falsifier 발화 — **거짓 → 닫힘 (§323.5).**
 
 **접선 자체를 고치지 않았다.** falsifier: `accumulate_collision`
-(`parry.rs:2140`)의 `contact_ball_ball` 호출이나 그 판정 경계가 바뀌었다면
+(`parry.rs:2211`)의 `contact_ball_ball` 호출이나 그 판정 경계가 바뀌었다면
 거짓. §251.6이 쓰인 커밋(`c5fa6985`) 이후 `parry.rs`를 건드린 커밋 셋
 (§317.2가 이미 확인)에 더해 오늘 다시 `git diff c5fa6985 HEAD --
 crates/moveit-collision/src/parry.rs`를 돌려도 `accumulate_collision` 본문은
