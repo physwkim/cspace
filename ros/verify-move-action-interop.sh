@@ -375,11 +375,17 @@ NODE_CTR="moveit-rs-move-action-node-$$"
 
 PROBE_CTR="moveit-rs-move-action-probe-$$"
 
+# Assigned before the trap that reads it, not just before the mktemp below:
+# an EXIT firing while $leg_b_out is still empty (docker network create, the
+# node container, or the mktemp itself failing) must still run teardown
+# safely, and `rm -f ""` is a no-op under `-f` rather than an error.
+leg_b_out=""
 teardown() {
   docker rm -f "$NODE_CTR" "$PROBE_CTR" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   cleanup_ctx
   rm -rf "$leg_a_dir"
+  rm -f "$leg_b_out"
 }
 trap teardown EXIT
 
@@ -395,13 +401,6 @@ docker run -d --rm --name "$NODE_CTR" --network "$NET" \
 sleep 3
 
 leg_b_out="$(mktemp)"
-teardown() {
-  docker rm -f "$NODE_CTR" "$PROBE_CTR" >/dev/null 2>&1 || true
-  docker network rm "$NET" >/dev/null 2>&1 || true
-  cleanup_ctx
-  rm -rf "$leg_a_dir"
-  rm -f "$leg_b_out"
-}
 
 # One probe run, bounded so that a probe which never returns reddens this gate
 # instead of stalling it.
