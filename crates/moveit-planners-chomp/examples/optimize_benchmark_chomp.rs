@@ -74,7 +74,10 @@ use moveit_distance_field::{
 use moveit_geometry::{Cuboid, Isometry3, Shape, Vector3};
 use moveit_model::{JointModelGroup, MeshSearchPaths, RobotModel};
 use moveit_planners_chomp::optimizer::ChompCollisionContext;
-use moveit_planners_chomp::{ChompGoal, ChompParameters, ChompRequest, GoalJointConstraint, solve};
+use moveit_planners_chomp::{
+    ChompExit, ChompGoal, ChompLoopTrace, ChompParameters, ChompRequest, GoalJointConstraint,
+    solve_with_trace,
+};
 use moveit_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
@@ -429,6 +432,28 @@ fn median(mut values: Vec<f64>) -> Option<f64> {
     })
 }
 
+/// Same shape as `chomp_benchmark_port.rs`'s own `loop_json` -- duplicated
+/// rather than shared, matching this repo's existing convention of
+/// independently duplicating example-local helpers (`densify`,
+/// `returned_waypoints`, `plan_space_length`, `median`) across sibling
+/// benchmark binaries rather than factoring them into a shared module.
+fn loop_json(trace: &ChompLoopTrace) -> serde_json::Value {
+    serde_json::json!({
+        "evaluations": trace.evaluations,
+        "exit": match trace.exit {
+            ChompExit::IterationBound => "iteration_bound",
+            ChompExit::ClockLimit => "clock_limit",
+            ChompExit::BreakOut => "break_out",
+        },
+        "accepted": trace.accepted,
+        "mesh_free_passes": trace.mesh_free_passes,
+        "below_threshold_passes": trace.below_threshold_passes,
+        "seed_points_within_clearance": trace.seed_points_within_clearance,
+        "seed_points_in_collision": trace.seed_points_in_collision,
+        "first_pass_max_update": trace.first_pass_max_update,
+    })
+}
+
 /// One problem's emitted JSON record.
 ///
 /// Every emission site in this file's main loop builds one of these and
@@ -468,12 +493,19 @@ struct ProblemRecord {
     invalid_waypoint_count: Option<usize>,
     invalid_waypoints: Option<Vec<usize>>,
     length: Option<f64>,
+    /// The most recently completed optimizer attempt's trace, straight from
+    /// `solve_with_trace`. `None` only when no attempt ever completed a
+    /// loop -- failure before the recovery loop's first `optimize()` call
+    /// returns -- which can happen on either the solved or the failure path
+    /// (a solved path always has one, a failure may or may not).
+    loop_trace: Option<ChompLoopTrace>,
     /// Computed from `start_column`/`goal_column` alone; present on every
-    /// outcome, `solve` is never consulted for either of these two.
+    /// outcome, `solve_with_trace` is never consulted for either of these
+    /// two.
     seed_length: f64,
     seed_valid: bool,
-    /// Updated inside `mesh_to_mesh` during `solve`'s own run, so both are
-    /// real regardless of what `solve` returns.
+    /// Updated inside `mesh_to_mesh` during `solve_with_trace`'s own run, so
+    /// both are real regardless of what it returns.
     mesh_check_calls: usize,
     mesh_check_true: usize,
 }
@@ -495,6 +527,7 @@ impl ProblemRecord {
             "invalid_waypoint_count": self.invalid_waypoint_count,
             "invalid_waypoints": self.invalid_waypoints,
             "length": self.length,
+            "loop": self.loop_trace.as_ref().map(loop_json),
             "seed_length": self.seed_length,
             "seed_valid": self.seed_valid,
             "mesh_check_calls": self.mesh_check_calls,
@@ -672,11 +705,19 @@ fn main() {
     // That is not survivable here, because this binary is compared against a
     // C++ baseline `measure-phase8-cpp-baseline.sh` deliberately runs at a
     // 3600s clock so its ITERATION bound is what terminates. The two sides
-    // were stopped by different rules, and the port's clock stops were
+    // were stopped by different rules, and the port's clock stops used to be
     // recorded as convergence failures with nothing to tell them apart:
     // `solve` returns `Err` when the trajectory is still in collision, and
     // `ChompLoopTrace` -- which names `ChompExit::ClockLimit` -- rides on
-    // `ChompSolution`, so it is unreachable on exactly the runs that need it.
+    // `ChompSolution`, unreachable through `solve` on exactly the runs that
+    // need it. This binary now calls `solve_with_trace` instead, which
+    // returns the same `Result` plus the most recently completed attempt's
+    // `ChompLoopTrace` on *both* the success and the failure path -- so that
+    // gap is closed; the trace is emitted below as the `loop` field. It does
+    // not reopen the double-budget problem this comment is really about:
+    // `solve_with_trace` is a pure wrapper around the same inner
+    // implementation `solve` calls, with `params.planning_time_limit` still
+    // the only clock either one obeys.
     //
     // Binding the inner clock to this harness's outer bound leaves one budget
     // in the binary instead of two, and it is the one the run reports its
@@ -790,7 +831,7 @@ fn main() {
         let mut trues = 0usize;
         // Scoped so the closure's `&mut calls`/`&mut trues` borrows end before
         // the counters are read; the block yields what the run produced.
-        let (outcome, elapsed) = {
+        let (outcome, trace, elapsed) = {
             // Upstream's `isCurrentTrajectoryMeshToMeshCollisionFree`, supplied for
             // real: `isPathValid` over the matrix rows, in the same
             // `(point, joint)` order upstream reads `best_group_trajectory_(i, j)`.
@@ -823,14 +864,14 @@ fn main() {
             };
             let mut rng = ChaCha8Rng::seed_from_u64(seed_base.wrapping_add(id));
             let t0 = Instant::now();
-            let outcome = solve(
+            let (outcome, trace) = solve_with_trace(
                 &chomp_request,
                 &mut collision,
                 None,
                 &mut mesh_to_mesh,
                 &mut rng,
             );
-            (outcome, t0.elapsed().as_secs_f64())
+            (outcome, trace, t0.elapsed().as_secs_f64())
         };
         mesh_check_calls += calls;
         mesh_check_true += trues;
@@ -841,9 +882,10 @@ fn main() {
         // this firing means CHOMP's own clock break did not return control
         // within the budget it was given. Counted as a failure, never as a
         // solve -- see `DEFAULT_TIMEOUT_SECONDS`. It is checked after the fact
-        // rather than enforced by cancellation because `solve` exposes no
-        // cancel handle: a call that hangs forever would hang this binary, and
-        // that is a failure the gate reports as a stalled run, not a pass.
+        // rather than enforced by cancellation because `solve_with_trace`
+        // exposes no cancel handle: a call that hangs forever would hang this
+        // binary, and that is a failure the gate reports as a stalled run,
+        // not a pass.
         let timed_out = elapsed > timeout_seconds;
 
         let solution = match outcome {
@@ -856,9 +898,18 @@ fn main() {
                     failure_count += 1;
                     "error"
                 };
-                let detail = match other {
-                    Err(e) => e.to_string(),
-                    Ok(_) => format!("solved in {elapsed}s, over the {timeout_seconds}s bound"),
+                // On `Ok` (a solve that finished but too late to count), the
+                // trace belongs to the solution that was actually produced,
+                // so it is read from `solution.loop_trace`, not the outer
+                // `trace` -- matching `chomp_benchmark_port.rs`'s own rule.
+                // `trace` is the right source only on `Err`, where there is
+                // no `ChompSolution` to read it from.
+                let (detail, loop_trace) = match other {
+                    Err(e) => (e.to_string(), trace),
+                    Ok(solution) => (
+                        format!("solved in {elapsed}s, over the {timeout_seconds}s bound"),
+                        solution.loop_trace,
+                    ),
                 };
                 println!(
                     "{}",
@@ -877,6 +928,7 @@ fn main() {
                         invalid_waypoint_count: None,
                         invalid_waypoints: None,
                         length: None,
+                        loop_trace,
                         seed_length,
                         seed_valid,
                         mesh_check_calls: calls,
@@ -889,6 +941,7 @@ fn main() {
         };
 
         solved_count += 1;
+        let loop_trace = solution.loop_trace;
         let trajectory = solution.trajectory;
         let mut path: Vec<Vec<f64>> = (0..trajectory.way_point_count())
             .map(|i| {
@@ -962,6 +1015,7 @@ fn main() {
             invalid_waypoint_count: Some(validity.invalid_waypoints.len()),
             invalid_waypoints: Some(validity.invalid_waypoints.clone()),
             length: Some(length),
+            loop_trace,
             seed_length,
             seed_valid,
             mesh_check_calls: calls,
