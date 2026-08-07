@@ -126,6 +126,15 @@ for entry in "${DIRS[@]}"; do
     WANT_phase8_baseline_500) want=("${WANT_phase8_baseline_500[@]}") ;;
     WANT_phase8_condition2_stomp) want=("${WANT_phase8_condition2_stomp[@]}") ;;
     WANT_phase8_seedbase_stomp) want=("${WANT_phase8_seedbase_stomp[@]}") ;;
+    # The nameref this replaced picked up a new DIRS entry automatically;
+    # a case does not. Without this arm a fourth entry would leave `want`
+    # empty, check none of its files and report "0 of 0" -- the gate would
+    # go green precisely on the directory nobody had wired up yet.
+    *)
+      echo "FAIL DIRS names ${entry#*:}, which has no arm in this case --" \
+           "add one, or this directory is checked for nothing" >&2
+      exit 2
+      ;;
   esac
   dir_missing=0
   for f in "${want[@]}"; do
