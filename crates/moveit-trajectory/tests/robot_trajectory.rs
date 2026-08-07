@@ -529,6 +529,54 @@ fn add_prefix_way_point_always_lands_at_a_zero_duration() {
 }
 
 #[test]
+fn remove_way_point_at_zero_restores_the_zero_duration_invariant() {
+    // `remove_way_point` is not in the module doc's enumerated list of
+    // operations that maintain the `duration_from_previous[0] == 0.0`
+    // invariant (unlike `add_prefix_way_point`/`add_suffix_way_point`/
+    // `insert_way_point`/`append`, all covered above) -- removing index 0
+    // shifts the old index-1 duration (a real inter-waypoint gap) into slot
+    // 0, which is not the "no previous waypoint" `0.0` the invariant
+    // promises.
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    let mut trajectory = RobotTrajectory::new(&model);
+    trajectory.add_suffix_way_point(state.clone(), 0.0).unwrap();
+    trajectory.add_suffix_way_point(state.clone(), 0.5).unwrap();
+    trajectory.add_suffix_way_point(state, 0.5).unwrap();
+
+    trajectory.remove_way_point(0).unwrap();
+    assert_eq!(trajectory.way_point_duration_from_previous(0), 0.0);
+}
+
+#[test]
+fn remove_way_point_at_zero_keeps_average_segment_duration_correct() {
+    // Concrete wrong-output demonstration for the same gap:
+    // `average_segment_duration` (`:381`) hardcodes upstream's
+    // `duration_from_previous[0] == 0` branch as the only reachable one
+    // (relying on the invariant above), dividing by `way_point_count() - 1`.
+    // If `remove_way_point(0)` leaves a nonzero value at index 0, that
+    // divisor is wrong: 4 waypoints with real per-segment duration `DT`
+    // between each of the 3 remaining gaps should average to exactly `DT`,
+    // not `duration() / 3` computed over a `duration()` that still includes
+    // the stale, no-longer-meaningful index-0 entry.
+    let model = panda();
+    let mut trajectory = init_test_trajectory(&model); // 5 waypoints, dt = [0.0, DT, DT, DT, DT]
+
+    trajectory.remove_way_point(0).unwrap();
+    assert_eq!(trajectory.way_point_count(), WAYPOINT_COUNT - 1);
+    // Not `assert_eq!`: `duration()` sums 4 `f64` entries, so the result
+    // isn't bit-identical to `DT` (measured `0.10000000000000002`); the bug
+    // this test guards against was off by a factor of ~4/3 (`0.1333...`),
+    // far outside ordinary float summation noise.
+    assert!(
+        (trajectory.average_segment_duration() - DT).abs() < 1e-12,
+        "{}",
+        trajectory.average_segment_duration()
+    );
+}
+
+#[test]
 fn insert_way_point_at_zero_rejects_a_nonzero_dt() {
     // `insert_way_point` has 2 `Error::other` sites (out-of-range index,
     // nonzero dt at index 0); a bare `.is_err()` cannot say which fired
