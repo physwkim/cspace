@@ -22191,7 +22191,10 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
   로 병합 전후 파일의 `equal` 구간을 잡아 옛 줄 → 새 줄 사상을 만들고,
   옮긴 뒤 `./tools/ci/verify-orphan-enumeration.sh`가 고아 0 / 미해결 인용
   0을 낼 때까지 확인한다. 게이트 자체가 적어둔 대로 고아 스냅샷을
-  재생성해 흡수시키면 안 된다.
+  재생성해 흡수시키면 안 된다. **거짓 → 닫힘 (§316.2)** — 이 라운드가
+  `git merge main`을 마친 뒤 `reconcile-assertion-ledgers.py --verify`를
+  이 트리에서 직접 돌렸고 고아 0/0으로 나왔다. 예측된 충돌은 실측에서
+  나타나지 않았다.
 
 ## §248 Phase 7 게이트가 못 보던 것 — 조건별로 세고, 닫을 것은 게이트 안에서 닫았다 (2026-08-06)
 
@@ -36308,3 +36311,35 @@ gitignore됨)이라 이 worktree에는 없지만 이 기계의 형제 체크아�
 
 §233.4의 세 번째 불릿("`geometric_shapes`의 예외 거동을 확인하지
 않았다")에 `거짓 → 닫힘 (§316.1)`을 붙인다.
+
+### §316.2 인용 원장 재조정을 이 트리에서 다시 돌렸다 — 병합 후에도 고아 0
+
+§247.6의 마지막 불릿은 `doc/assertion-discrimination-ledger-p1-fixtures.md`의
+`main.rs` 인용 11개가 이 브랜치 기점(`ceb496a`) 기준 `+247` 오프셋으로
+재도출됐고, main이 그 뒤 174커밋 나아가며 같은 파일을 5개 커밋이 건드려
+그 오프셋이 병합 시 충돌하리라 예측했다 — 병합 후 내용 기반으로 다시
+도출해 `verify-orphan-enumeration.sh`가 고아 0을 낼 때까지 확인하라는
+지시와 함께.
+
+이 라운드 시작에 이미 `git merge main`을 마쳤다(충돌 없음, fast-forward).
+그 상태에서 그 불릿이 요구한 검증을 그대로 실행했다:
+
+```console
+$ python3 tools/ci/reconcile-assertion-ledgers.py --verify
+scanner sites (excl. helper_body), live: 841
+orphans, live: 0  |  orphans, committed file: 0
+OK doc/assertion-discrimination-orphans.txt matches the live orphan set exactly (0 sites, commit 69bfc3d63261)
+second population (half_plane/cmp_compound), live orphans: 320  |  baseline: 320 (backlog; COMPARISON_HARD_FAIL=False)
+```
+
+`tools/ci/verify-orphan-enumeration.sh`는 이 호출의 얇은 래퍼일 뿐이라
+(주석 자체가 그렇게 적는다) 별도로 실행할 것이 없다. 예측된 실패는
+일어나지 않았다 — main과의 병합이 정확히 이 불릿이 걱정한 그 파일에
+충돌을 내지 않았고(git의 줄 기반 병합이 5개 커밋의 변경분과 겹치지
+않았거나, 이미 다른 라운드가 재도출해 두었을 수 있다 — 이 절은 그
+이유까지는 가르지 않았다), 그 결과가 지금 이 라이브 트리에서 고아
+0건으로 확인된다.
+
+§247.6의 마지막 불릿("병합하면 이 문서는 충돌하며 ... 다시 도출해야
+한다")에 `거짓 → 닫힘 (§316.2)`을 붙인다 — 예측된 충돌이 실측 결과
+나타나지 않았다.
