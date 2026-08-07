@@ -115,8 +115,14 @@ impl PlanningRequestAdapter for CheckStartStateBounds {
         request: &mut PlanningRequest,
     ) -> Result<(), RequestAdapterError> {
         let model = scene.robot_model();
+        // `joint_indices()`, not `active_joint_indices()`: upstream's
+        // `getJointModelGroup(...)->getJointModels()` includes mimic (and
+        // fixed) joints, matching the model-wide fallback below, which
+        // also iterates every joint unfiltered. Using the active-only set
+        // here silently skipped the bounds check for any mimic joint in
+        // the group.
         let joint_indices: Vec<usize> = match model.joint_model_group(&request.group_name) {
-            Ok(group) => group.active_joint_indices().to_vec(),
+            Ok(group) => group.joint_indices().to_vec(),
             Err(_) => (0..model.joint_models().count()).collect(),
         };
 
@@ -266,6 +272,54 @@ mod tests {
         (model, srdf)
     }
 
+    /// Purpose-built so `mimic_group` (below) has exactly one member and it
+    /// is a mimic joint: `active_joint_indices` excludes mimic joints, so
+    /// for this group it is empty, while `joint_indices` (every joint,
+    /// mimic ones included) has the one entry. This adapter's found-group
+    /// branch reads one of these two sets (see this module's doc comment
+    /// and `adapt`'s implementation) -- reading the wrong one skips this
+    /// group's bounds check entirely, not just one joint of several.
+    /// `drive_joint` is not itself a group member: including it would let
+    /// its own per-joint write-back inside `adapt`'s loop re-propagate
+    /// `mimic_joint`'s mimicked value and overwrite whatever this test set
+    /// on `mimic_joint` directly, before the loop ever reaches checking it
+    /// -- neither `panda` nor `pr2`'s groups isolate a mimic joint this
+    /// cleanly.
+    fn mimic_robot() -> (RobotModel, SrdfModel) {
+        let urdf_xml = r#"<robot name="test">
+            <link name="base"/>
+            <link name="mid"/>
+            <link name="tip"/>
+            <joint name="drive_joint" type="revolute">
+                <parent link="base"/>
+                <child link="mid"/>
+                <axis xyz="0 0 1"/>
+                <limit lower="-1" upper="1" effort="1" velocity="1"/>
+            </joint>
+            <joint name="mimic_joint" type="revolute">
+                <parent link="mid"/>
+                <child link="tip"/>
+                <axis xyz="0 0 1"/>
+                <limit lower="-1" upper="1" effort="1" velocity="1"/>
+                <mimic joint="drive_joint" multiplier="1.0" offset="0.0"/>
+            </joint>
+        </robot>"#;
+        let urdf = urdf_rs::read_from_string(urdf_xml).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_str(
+            r#"<robot name="test">
+                <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+                <group name="mimic_group">
+                    <joint name="mimic_joint"/>
+                </group>
+            </robot>"#,
+        )
+        .unwrap();
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("fixture model must build");
+        (model, srdf)
+    }
+
     /// `group_name` is `panda`'s own `panda_arm` group. [`pr2`] has no group
     /// by that name, so a test that reuses this request against a [`pr2`]
     /// model deliberately falls back to
@@ -388,6 +442,36 @@ mod tests {
                 })
             );
         }
+    }
+
+    /// The found-group branch (`request.group_name` resolves) must check
+    /// every joint in the group, mimic joints included -- upstream's
+    /// `getJointModelGroup(...)->getJointModels()` does not exclude them,
+    /// matching the model-wide fallback branch, which iterates
+    /// `model.joint_models()` (also unfiltered). A mimic joint set outside
+    /// its own limits must still be rejected.
+    #[test]
+    fn a_mimic_joint_placed_outside_its_limits_is_rejected() {
+        let (model, srdf) = mimic_robot();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let bounds = model.joint_model("mimic_joint").unwrap().variable_bounds()[0];
+        scene
+            .current_state_mut()
+            .set_joint_positions("mimic_joint", &[bounds.max_position + 1.0])
+            .unwrap();
+
+        let mut req = PlanningRequest {
+            group_name: "mimic_group".to_string(),
+            ..request()
+        };
+        let adapter = CheckStartStateBounds::new(false);
+        assert_eq!(
+            adapter.adapt(&mut scene, &env, &mut req),
+            Err(RequestAdapterError::StartStateInvalid {
+                adapter: "CheckStartStateBounds"
+            })
+        );
     }
 
     #[test]
