@@ -37,6 +37,14 @@
 //! This test pins the *current* behaviour rather than asserting a fix --
 //! whether to change `accumulate_collision` to cover mesh pairs the way it
 //! already covers every other pair is a decision this file does not make.
+//!
+//! `tools/fcl-mesh-orientation-probe` measured this exact pose (`box`, mesh
+//! attached, `axis=z, angle=5deg`) against `fcl::BVHModel<fcl::OBBRSSd>`:
+//! `true` in both argument orders. Unlike `mesh x cone`
+//! (`exact_tangency_is_decided_per_shape_pair.rs`'s module doc), this is not
+//! a case where fcl disagrees with itself -- there is a single stable
+//! upstream answer this pose diverges from, not merely a `false` this side
+//! of the wire.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;

@@ -77,6 +77,15 @@
 //! underneath it, by the same reasoning that makes the axis-aligned
 //! `TANGENT` cells a direct read of it.
 //!
+//! Every *systematic* (not random) config also prints a `CSV,...` line --
+//! `other,role,axis=..,angle=..deg,collision` -- true or false, not just the
+//! misses: this is the row-per-config grid an fcl-side probe over the same
+//! 497 orientations needs to join against, to answer whether this backend's
+//! own tilt-dependent misses are a divergence from fcl or a case where fcl
+//! is itself unstable under tilt (`c04d5640`, sibling branch
+//! `evidence-retention-1e69c0a3-1`, already measured that instability for
+//! fcl's own generic MPR at cone and cylinder).
+//!
 //! # Coverage and result
 //!
 //! 497 systematic rotations (7 axes: `x`, `y`, `z`, the three face
@@ -108,7 +117,15 @@
 //! reproducer found (`box`, mesh attached, 5 degrees about `z`) is pinned as
 //! a regression fixture in
 //! `tests/mesh_orientation_tangency_can_miss.rs`. Whether to extend
-//! `accumulate_collision`'s rescue to cover mesh pairs is not decided here.
+//! `accumulate_collision`'s rescue to cover mesh pairs is not decided here --
+//! that requires an fcl target to converge to, not just a `false` this side.
+//!
+//! `tools/fcl-mesh-orientation-probe` answers that for the 497 systematic
+//! (non-random) orientations above: fcl has no single stable answer for most
+//! `mesh x cone` tilts (82.1% of the 497 poses), a partial answer for `mesh x
+//! mesh`, and a clean, orientation-independent `true` for every `mesh x
+//! sphere` tilt this port misses (29.2% of the 497, zero exceptions) -- see
+//! that tool's own README for the full per-kind pose-level table.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -443,6 +460,14 @@ fn main() {
                 configs += 1;
                 let pose = rotated_mesh_pose(*rot, role, 0.0);
                 let collided = check(&posed, &acm, other, role, pose);
+                // One row per *systematic* config (not random -- see
+                // `main`'s own doc), true or false: the raw grid this port
+                // measured, joinable against an fcl-side probe run over the
+                // identical 497 orientations to build a confusion matrix
+                // rather than re-deriving it from the miss list alone.
+                if label.starts_with("axis=") {
+                    println!("CSV,{other:?},{role_name},{label},{collided}");
+                }
                 if collided {
                     continue;
                 }
