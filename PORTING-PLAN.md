@@ -34543,9 +34543,10 @@ STOMP 행은 포트 팔과 cpp 팔이 서로 다른 디렉터리에 있어 한 �
 |---|---|---|---|
 | `doc/phase8-condition2-stomp/` | 재현됨 | 없음 | 추적 18파일. `rederive.py`의 출력이 커밋된 `rederive.txt`와 바이트 동일하다 |
 | `doc/phase8-seedbase-stomp/` | 깨짐 | `doc/phase8-seedbase-stomp/port.stomp.floor_wall.ndjson`, `doc/phase8-seedbase-stomp/port.stomp.cage.ndjson` | 씨앗 베이스 424242의 포트 STOMP 팔. 그 README의 파일 표는 이 둘과 `rederive.txt`를 싣지만 셋 다 어느 커밋에도 없다 |
+| `doc/phase8-baseline-500/` | 재현됨 | 없음 | §304가 커밋한 세 번째 자리. 추적 19파일(§304.8이 세는 17 + §304.9가 옮겨 실었다고 적은 `seed.*.ndjson` 둘). `rederive.py`의 출력이 커밋된 `rederive.txt`와 바이트 동일하다(이 라운드가 다시 확인했다). §295·§307과 같은 병합 라운드에 들어왔고 이 표에 없어 게이트가 실패했다 |
 
 가족은 **데이터에서** 온다 — 추적된 `doc/**/*.ndjson`의 부모 디렉터리 집합
-이고, 오늘 그것이 위 둘이다. 스크립트가 있는 자리에서 가족을 잡으면
+이고, 오늘 그것이 위 **셋**이다. 스크립트가 있는 자리에서 가족을 잡으면
 `rederive.py`를 지우는 것이 게이트를 끄는 방법이 된다. 데이터에서 잡으면
 지우는 것이 **실패**다.
 
