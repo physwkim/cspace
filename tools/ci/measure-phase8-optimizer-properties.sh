@@ -868,10 +868,35 @@ done
 
 checks_json="$WORKDIR/checks.json"
 jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
+     --argjson cppclock "$CPP_CLOCK_BOUND" \
      --arg mode "$MODE" '
   def r3($x): if $x == null then null else (($x)*1000|round)/1000 end;
   def pct($x): (($x//0)*10000|round)/100;
   def ratio($n; $d): (if ($d//0) > 0 then ($n//0)/$d else null end);
+
+  # Condition 1 compares two success RATES, and that is a statement about the
+  # port only when both arms had the same chance to finish. The two arms run
+  # at different clocks by design ($tmo and $cppclock), which is harmless while
+  # neither binds -- and stops being harmless the moment the port arm records a
+  # timeout, because then its rate is partly a property of its budget.
+  #
+  # The verdict is deliberately NOT changed, in either direction. A timeout can
+  # only lower the port rate, so a PASS carrying timeouts is conservative and
+  # needs no caveat; a FAIL carrying them is the ambiguous one, and what is
+  # wrong there is not the boolean but reading the number as a quality finding.
+  # This note is what stops that reading. It exists because I made exactly that
+  # mistake from this files own output: STOMP 185/250 against C++ 217/250 was
+  # relayed as "the port is too slow" when every one of the 65 missing problems
+  # was a timeout and the C++ arm had 30x the budget.
+  def budget_note($s; $c):
+    if ($s.timeouts//0) == 0 then ""
+    else " -- NOT a clean rate comparison: the port arm timed out on "
+         + "\($s.timeouts) of \($s.problems) calls at its \($tmo)s bound while "
+         + "the C++ arm ran at \($cppclock)s and its slowest call was "
+         + (if ($c.cpp_slowest_seconds // null) == null then "not recorded"
+            else "\(r3($c.cpp_slowest_seconds))s" end)
+         + ", so the port rate here is a lower bound"
+    end;
 
   # Every check that transfers from Phase 7 unchanged, plus the two the
   # optimizer shape replaces. `$label` is "<planner>/<population>" so no two
@@ -950,7 +975,7 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
   def cpp_stratum($s; $c; $label):
     [
       { name: "\($label)/condition1",
-        detail: "port \($s.solved)/\($s.problems) = \(pct($c.port_rate))% >= 0.9 x C++ \($c.cpp_solved)/\($c.cpp_problems) = \(pct(($c.cpp_rate//0)*0.9))%",
+        detail: "port \($s.solved)/\($s.problems) = \(pct($c.port_rate))% >= 0.9 x C++ \($c.cpp_solved)/\($c.cpp_problems) = \(pct(($c.cpp_rate//0)*0.9))%\(budget_note($s; $c))",
         # `cpp_problems > 0` is not decoration: without it an empty baseline
         # reads 0 >= 0 and passes, which is how a stage that measured nothing
         # reports success.
@@ -974,7 +999,7 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
   def cpp_set($s; $c; $label):
     [
       { name: "\($label)/condition1",
-        detail: "port \($s.solved)/\($s.problems) = \(pct($c.port_rate))% >= 0.9 x C++ \($c.cpp_solved)/\($c.cpp_problems) = \(pct(($c.cpp_rate//0)*0.9))%",
+        detail: "port \($s.solved)/\($s.problems) = \(pct($c.port_rate))% >= 0.9 x C++ \($c.cpp_solved)/\($c.cpp_problems) = \(pct(($c.cpp_rate//0)*0.9))%\(budget_note($s; $c))",
         ok: (($c.cpp_problems//0) > 0 and ($c.port_rate//0) >= (($c.cpp_rate//0)*0.9)) },
       { name: "\($label)/condition3",
         detail: "port median \(r3($c.port_median_length)) vs limit \(r3(($c.cpp_median_length//0)*1.3)) (ratio \(r3(ratio($c.port_median_length; $c.cpp_median_length)))x)",
