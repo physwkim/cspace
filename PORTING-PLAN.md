@@ -37944,3 +37944,31 @@ falsifier 불발 — OPEN, 그리고
 설계상 이 falsifier로는 앞으로도 결코 참으로 뒤집을 수 없다(확률적
 완전성만 있는 샘플링 플래너의 실패는 정의상 실행 불가능의 증명이
 아니다, §219.8 본문).
+
+### §324.4 §219.8 ④ — PRM/RRT\*/KPIECE를 이 하네스가 돌리지 않는다는 것
+
+불릿: "PRM / RRT\* / KPIECE. §5 Phase 7의 항목이지만 완료 조건은
+성공률·경로 길이를 RRTConnect 대비로만 말한다. 이 하네스는
+`RrtConnectManager`만 구동한다."
+
+falsifier: `moveit-planners-sbp`에 PRM/RRT\*/KPIECE를 구동하는
+`PlannerManager` 구현이 새로 생겼다면 거짓.
+
+```
+$ rg -n 'struct.*Prm|struct.*RrtStar|struct.*Kpiece' crates/ --type rust
+(0 hits)
+$ rg -n 'impl PlannerManager for' crates/ --type rust
+crates/moveit-planning/src/pipeline.rs:613:    impl PlannerManager for FixedGoalPlanner {
+crates/moveit-planning/src/pipeline.rs:653:    impl PlannerManager for FailingPlanner {
+crates/moveit-planning/src/pipeline.rs:677:    impl PlannerManager for UnbuildablePlanner {
+crates/moveit-planning/src/pipeline.rs:704:    impl PlannerManager for RecordingPlanner {
+crates/moveit-planning/src/pipeline.rs:742:    impl PlannerManager for SideEffectPlanner {
+crates/moveit-planners-sbp/src/registry.rs:597:impl PlannerManager for RrtConnectManager {
+```
+
+`moveit-planning`의 다섯 구현은 전부 그 크레이트 자신의 테스트용
+더미(파이프라인 단위 테스트 안의 지역 타입)다. 실제 플래너 구현은
+`moveit-planners-sbp::RrtConnectManager` 하나뿐이고, Phase 7 하네스도
+그것만 돈다(`tools/ci/verify-phase7-benchmark.sh:541`의
+`echo "=== port (moveit-planners-sbp rrt_connect) ..."`). falsifier
+불발 — OPEN.
