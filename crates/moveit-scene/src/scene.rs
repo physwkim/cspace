@@ -219,8 +219,14 @@ pub struct PathValidity {
 ///   construction and copy assignment are already absent by default: this
 ///   type derives neither, so both are already unavailable without any
 ///   explicit deletion to port.
-/// - `OCTOMAP_NS`, `DEFAULT_SCENE_NAME` — D1 (octomap/message-round-trip
-///   naming constants, unused without message handling).
+/// - `OCTOMAP_NS` — D1 (the reserved world-object id used only by
+///   `processOctomapMsg`/message-round-trip world serialization).
+/// - `DEFAULT_SCENE_NAME` — despite being introduced alongside `OCTOMAP_NS`
+///   above, this one is *not* message-related: `initialize()`
+///   (`planning_scene.cpp:190`) sets `name_ = DEFAULT_SCENE_NAME` for every
+///   root-scene constructor, unconditionally. Reproduced as the private
+///   [`DEFAULT_SCENE_NAME`] constant, used by
+///   [`PlanningScene::with_world`] and [`PlanningScene::diff`].
 /// - `~PlanningScene` — not a portable symbol; nothing here needs a
 ///   user-visible destructor.
 /// - `getName`/`setName` — ported as [`PlanningScene::name`]/[`PlanningScene::set_name`].
@@ -703,6 +709,12 @@ pub struct PlanningScene<'m> {
     attached_bodies: BTreeMap<String, AttachedBody>,
 }
 
+/// The default name given to a root scene. Upstream
+/// `PlanningScene::DEFAULT_SCENE_NAME` (`planning_scene.cpp:67`), set by
+/// `initialize()` (`planning_scene.cpp:190`) for every root-scene
+/// constructor.
+const DEFAULT_SCENE_NAME: &str = "(noname)";
+
 impl<'m> PlanningScene<'m> {
     /// A root scene over an empty [`World`], with a [`RobotState`] at its
     /// default values and an ACM built from `srdf`. Upstream's
@@ -720,7 +732,7 @@ impl<'m> PlanningScene<'m> {
         let transforms = Transforms::new(robot_model.model_frame())
             .expect("RobotModel::model_frame is non-empty by construction");
         Self {
-            name: String::new(),
+            name: DEFAULT_SCENE_NAME.to_owned(),
             parent: None,
             robot_model,
             robot_state: Layered::Own(robot_state),
@@ -732,7 +744,8 @@ impl<'m> PlanningScene<'m> {
         }
     }
 
-    /// This scene's name. Empty by default. Upstream `getName`.
+    /// This scene's name. `"(noname)"` by default (upstream
+    /// `DEFAULT_SCENE_NAME`, `planning_scene.cpp:67`). Upstream `getName`.
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -1947,9 +1960,23 @@ impl<'m> PlanningScene<'m> {
     /// [`World`]'s own copy-on-write `Clone`), inherited
     /// transforms/state/ACM, and a cloned attached-body set. Upstream
     /// `diff()`.
+    ///
+    /// Named `self.name() + "+"` if `self` has a non-empty name, else left
+    /// empty — upstream's `PlanningScene(parent)` constructor
+    /// (`planning_scene.cpp:203-227`): `if (!parent_->getName().empty())
+    /// name_ = parent_->getName() + "+";`. The guard matters: a scene
+    /// constructed via [`PlanningScene::new`]/[`PlanningScene::with_world`]
+    /// always has a non-empty name (`DEFAULT_SCENE_NAME`), but
+    /// [`PlanningScene::set_name`] can still put a scene into the empty
+    /// state this guard exists for.
     pub fn diff(self: &Arc<Self>) -> PlanningScene<'m> {
+        let name = if self.name.is_empty() {
+            String::new()
+        } else {
+            format!("{}+", self.name)
+        };
         PlanningScene {
-            name: String::new(),
+            name,
             parent: Some(Arc::clone(self)),
             robot_model: self.robot_model,
             robot_state: Layered::Inherited,
@@ -2224,6 +2251,52 @@ mod tests {
 
         let diff = child.world_diff.as_ref().unwrap();
         assert_eq!(diff.get("box").unwrap(), Action::MOVE_SHAPE);
+    }
+
+    // ---- naming: default name and diff-child "+" append --------------------
+
+    #[test]
+    fn new_scene_has_the_upstream_default_name() {
+        let model = build_model();
+        let scene = PlanningScene::new(&model, &srdf());
+
+        // Upstream `initialize()` sets `name_ = DEFAULT_SCENE_NAME`
+        // (`planning_scene.cpp:190`, `DEFAULT_SCENE_NAME = "(noname)"` at
+        // `planning_scene.cpp:67`), called unconditionally by every
+        // root-scene constructor (`planning_scene.cpp:159,179`) -- nothing
+        // to do with message handling.
+        assert_eq!(scene.name(), "(noname)");
+    }
+
+    #[test]
+    fn diff_appends_a_plus_to_a_named_parents_name() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.set_name("panda_scene");
+        let root = Arc::new(root);
+
+        let child = root.diff();
+
+        // Upstream `PlanningScene(parent)` (`planning_scene.cpp:203-227`):
+        // `if (!parent_->getName().empty()) name_ = parent_->getName() +
+        // "+";`
+        assert_eq!(child.name(), "panda_scene+");
+    }
+
+    #[test]
+    fn diff_of_an_unnamed_parent_stays_unnamed() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.set_name("");
+        let root = Arc::new(root);
+
+        let child = root.diff();
+
+        // The append is conditional on the parent's name being non-empty;
+        // an empty parent name leaves the child's name at its default, the
+        // empty string -- distinguishes the conditional-append fix from
+        // simply always appending "+".
+        assert_eq!(child.name(), "");
     }
 
     // ---- attach/detach: the ACM round-trips exactly, because neither touches it ----
