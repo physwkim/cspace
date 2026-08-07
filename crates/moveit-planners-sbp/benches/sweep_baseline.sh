@@ -221,9 +221,8 @@ run_config() {
   local config="$1" count="$2" seed="$3"
   "$BIN" "$config" "$count" "$seed" \
     >"$WORKDIR/$config.json" 2>"$WORKDIR/$config.stats"
-  # shellcheck disable=SC2002
-  cat "$WORKDIR/$config.json" \
-    | sg docker -c "$ORACLE --urdf $URDF --srdf $SRDF" \
+  sg docker -c "$ORACLE --urdf $URDF --srdf $SRDF" \
+    <"$WORKDIR/$config.json" \
     >"$WORKDIR/$config.response.json" 2>"$WORKDIR/$config.oracle.stderr"
 }
 
