@@ -261,9 +261,7 @@ where
 
     let params = SolverParams::default();
     let mut solver = resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
-        .ok()
-        .filter(|solver| solver.tip_frame() == req.link_name)
-        .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+        .map_err(|_| Error::Code(MoveItErrorCode::NoIkSolution))?;
 
     let blend_joint_trajectory = generate_joint_trajectory_from_cartesian(
         ctx,

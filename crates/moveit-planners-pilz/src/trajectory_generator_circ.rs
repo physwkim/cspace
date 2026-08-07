@@ -187,9 +187,7 @@ where
                 let params = SolverParams::default();
                 let mut solver =
                     resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
-                        .ok()
-                        .filter(|solver| solver.tip_frame() == link_name.as_str())
-                        .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+                        .map_err(|_| Error::Code(MoveItErrorCode::NoIkSolution))?;
 
                 compute_pose_ik(
                     ctx,
@@ -303,9 +301,7 @@ where
         let robot_model = self.base.robot_model();
         let params = SolverParams::default();
         let mut solver = resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
-            .ok()
-            .filter(|solver| solver.tip_frame() == info.link_name.as_str())
-            .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+            .map_err(|_| Error::Code(MoveItErrorCode::NoIkSolution))?;
 
         generate_joint_trajectory(
             ctx,
