@@ -25774,7 +25774,7 @@ CHOMP/STOMP 행에서 이미 쓰이고 있다), `PARTIAL`만 아직 한 번도 �
   실험은 되돌렸고(git diff 없음), 그 실험이 만든 관찰만 여기 남는다.
 - `tools/ci/check-phase-status.sh`/`check-porting-plan-sections.sh`의
   어휘나 placeholder 메커니즘을 고치지 않았다 — 둘 다 이미 있는 것을
-  썼다.
+  썼다. 거짓 → 닫힘 (§312).
 - `doc/upstream-bugs.md`를 고치지 않았다 — 이 절이 쓰는 네 항목
   (`fcl-distance-sentinel-survives-zero-contacts`,
   `shape-intersect-tangency-follows-libccd-dispatch`,
@@ -35798,3 +35798,22 @@ images`, 저장소 `moveit-rs/oracle`)는 §130.3이 쓴 것과 같고, 바뀐 �
 넷 다 있고, 넷 다 §262.5/§265.8이 이름 댄 절(§229/§247/§251) 안에서 실제로
 인용된다. `doc/upstream-bugs.md`를 고치지 않은 것은 빠뜨린 것이 아니라
 고칠 것이 없었기 때문이라는 두 절의 주장은 오늘 다시 확인해도 참이다.
+
+## §312 §262.5가 "게이트 둘을 고치지 않았다"고 적은 것도 확인했다 — 둘 다 이미 있는 메커니즘을 썼다
+
+§262.5는 `check-phase-status.sh`와 `check-porting-plan-sections.sh`를 고칠
+필요가 없었다고 적었다. 절반은 §262.4가 이미 직접 읽어 확인한 것이다:
+허용 판정어가 이미 `{MET, UNMET, PARTIAL, UNMEASURED}`였다. 나머지 절반—
+`check-porting-plan-sections.sh`—은 §262 어디에서도 다시 읽지 않았으므로
+오늘 직접 읽었다.
+
+그 게이트는 미배정 번호 자리표(섹션 기호 뒤에 `NEW`를 붙인 토큰, 이 문서가
+그 토큰의 리터럴 바이트를 갖지 않도록 여기서도 이름만 서술한다)가 트렁크에
+도달하지 않았는지를 검사한다(`tools/ci/check-porting-plan-sections.sh:150`
+근방, `placeholders` 리스트). §262가 §262.1–§262.5를 새로 붙일 때 이
+메커니즘을 바꿀 필요가 없었던 것은, 새 절이 처음부터 실번호(`§262.N`)로
+쓰였고 한 번도 그 자리표를 거치지 않았기 때문이다 — 게이트가 검사하는
+불변식과 무관한 경로였다.
+
+두 게이트 다 §262가 실제로 밟은 경로(판정어 재사용, 실번호로 직접 작성)를
+이미 지원하고 있었다는 §262.5의 주장은 오늘 다시 읽어도 참이다.
