@@ -231,6 +231,8 @@ plan() {
     echo '| `measure-beta.sh` | 없음 | 미보존 산출물 |'
     echo '| `measure-gamma.py` | 없음 | 트리에서 재실행 |'
     echo
+    echo '부류별 수는 오늘 `추적 산출물` **1**, `트리에서 재실행` **1**, `미보존 산출물` **1**, `입력이 증거` **0**이다.'
+    echo
     echo '### 900.2 출판 행'
     echo
     echo '| 계측기 | 절 | 증거 | 행 출처 | 비고 |'
@@ -789,6 +791,35 @@ expect_fail reproduces_with_missing_file "$d" "빠진 파일 is not 없음"
 d="$(new no_evidence_dirs)"
 git -C "$d" rm -q --cached doc/evidence/run.ndjson doc/other-run.ndjson
 expect_fail no_evidence_dirs "$d" "this table would vouch for nothing"
+
+# --- the prose 부류 counts, moved on the prose side ---------------------------
+# isolates: the restatement under the census. This is the defect it was written
+# for -- the sentence said 넷 while the table grew to seven, because nothing
+# compared them.
+d="$(new class_count_prose_drift)"
+sed -i 's#`추적 산출물` \*\*1\*\*#`추적 산출물` **2**#' "$d/PLAN.md"
+expect_fail class_count_prose_drift "$d" 'prose says `추적 산출물` **2**, the census table has 1'
+
+# --- ... and moved on the table side -----------------------------------------
+# isolates: the same coupling in the direction a merge actually moves it, where
+# the table gains a row and the sentence is left behind.
+d="$(new class_count_table_drift)"
+sed -i 's#^| `measure-gamma.py` | 없음 | 트리에서 재실행 |#| `measure-gamma.py` | 없음 | 미보존 산출물 |#' "$d/PLAN.md"
+expect_fail class_count_table_drift "$d" 'prose says `트리에서 재실행` **1**, the census table has 0'
+
+# --- the declaration deleted instead of corrected -----------------------------
+# isolates: the escape a checker that only compared present numbers would leave
+# open -- dropping the sentence would silence the mismatch rather than fix it.
+d="$(new class_count_undeclared)"
+sed -i 's#`입력이 증거` \*\*0\*\*이다#`입력이 증거`는 없다#' "$d/PLAN.md"
+expect_fail class_count_undeclared "$d" '`입력이 증거` is declared 0 time(s)'
+
+# --- ... and declared twice ---------------------------------------------------
+# isolates: the other way one 부류 stops having one answer, where a second
+# sentence disagrees with the first and the gate could pick either.
+d="$(new class_count_twice)"
+sed -i 's#`미보존 산출물` \*\*1\*\*#`미보존 산출물` **1** (`미보존 산출물` **1**)#' "$d/PLAN.md"
+expect_fail class_count_twice "$d" '`미보존 산출물` is declared 2 time(s)'
 
 require_nonempty "$checked" "scenarios to run against check-evidence-retention.py"
 
