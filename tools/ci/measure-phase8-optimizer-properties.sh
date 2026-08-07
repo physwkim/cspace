@@ -471,7 +471,11 @@ cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
 # does; only a run that must FAIL can tell the two apart. Each instrument
 # splices a state, verified bad by direct query before planning starts, into
 # every solved path and asserts that none passed -- and asserts first that at
-# least one path was checked, because "rejected all 0 paths" is a vacuous pass.
+# least one path was checked, because zero checked paths is a vacuous pass.
+# Only solved paths can be checked, so the line each instrument prints carries
+# the injected count beside the checked one: measured over 125 problems this
+# stage checked 85 and 98 for CHOMP and 105 and 119 for STOMP, and a bare
+# "rejected all 105 paths" states a numerator as if it were the population.
 run_inject() {
   local planner="$1" binary="$2" request="$3" mode="$4" tag="$5"
   if "$binary" "$SEED_BASE" "$TIMEOUT_SECONDS" "$mode" \
