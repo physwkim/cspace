@@ -25618,7 +25618,10 @@ fanuc·pr2 결과가 나오기 전에 두 예측을 적어 두었다.
   아니다. OPEN → 만료 조건 (§260.8 자신이 관통 쪽에 네 번째 `doc/upstream-bugs.md`
   항목을 올리면).
 - 상류 결함을 재현하지 않았다. 재현은 `minimum_distance`를 최소가 아니게 만드는
-  일이고, §247.5의 3이 그 이유를 적어 두었다.
+  일이고, §247.5의 3이 그 이유를 적어 두었다. OPEN → 만료 조건
+  (`masking_the_tangent_pair_does_not_move_the_answer`
+  (`crates/moveit-collision/tests/minimum_distance_is_the_minimum.rs`)가 실패하는
+  커밋이 들어오면 — 최소-불변식을 실제로 깨는 재현이 그때 처음 생긴다).
 - prbt의 `8.9e-5`를 닫힌 형태로 확인하지 않았다. pr2의 캐스터 쌍과 달리 box 대
   cylinder의 분리 거리는 자세에 따라 변하므로 상수가 없다. 그쪽 근거는 §260.4의
   프로브(기준의 흔들림 `4.4e-4`)이며, 이것은 "포트가 옳다"가 아니라 "기준이 이
