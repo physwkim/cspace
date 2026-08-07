@@ -39,7 +39,38 @@
 # byte (`CMakeLists.txt` first). Same files, same contents, different
 # concatenation order, different digest -- which run-oracle.sh reports as a
 # stale image that rebuilding cannot fix.
-set -euo pipefail
+#
+# Deliberately no `set` line here. This file is `source`d, not executed, so
+# any `set` here would change the *caller's* shell options for the rest of
+# its own script, not just this file's. Ten of the twelve shell callers
+# already declare `set -euo pipefail` before sourcing this (`rg -n 'src-
+# digest\.sh' -g '*.sh'` plus `rg -n '^set -'` on each hit confirms it):
+# build.sh, run-oracle.sh, verify-fcl-cylinder-box-distance.sh,
+# verify-fcl-distance-tolerance.sh, verify-fcl-tangency-dispatch.sh,
+# ros/build.sh, ros/verify-move-action-interop.sh,
+# ros/verify-robot-description-interop.sh, ros/verify-joint-states-interop.sh,
+# measure-phase8-cpp-baseline.sh. `verify-phase3-tangency-subset.sh` and
+# `verify-phase3-penetration-subset.sh` deliberately choose `set -uo
+# pipefail`, no `-e`: their per-robot loop needs a comparison binary's
+# nonzero exit to reach `run_verdict` (gate-lib.sh) rather than abort the
+# script, so it can tell "disagreed" from "killed before reporting a
+# verdict" and keep scoring the rest of ROBOTS. A `set -e` sourced in from
+# here used to override that silently from this point in the caller's
+# script onward: the first nonzero-exit comparison (not a raw crash, an
+# ordinary `std::process::exit(N)`) aborted the whole script mid-loop,
+# skipping `rc=$?`, `run_verdict`, and every robot still queued, with no
+# FAIL line -- the exact shape of a robot's subset going silently
+# unmeasured. The twelfth caller, `tools/moveit-oracle/Dockerfile`'s `RUN
+# ... && source .../src-digest.sh && oracle_stamp ... > oracle-src.sha256`,
+# declares no posture of its own at all and was relying entirely on this
+# file's sourced `-e` to make a failing `oracle_stamp` fail the build.
+#
+# `oracle_file_digest`/`oracle_stamp` below do not lean on any of that: both
+# enforce their own strictness internally now (a subshelled `pipefail` in
+# `oracle_file_digest`, an explicit `|| return 1` in `oracle_stamp`) so a
+# real failure -- a missing directory, a file vanishing mid-`find` --
+# produces a nonzero return no matter what the caller's own `-e`/`-u`/
+# `pipefail` posture is, rather than depending on it.
 
 # Files only -- deliberately NOT the tag input. `oracle_stamp` is. Two
 # functions that both return a hex digest, only one of which names a real
@@ -47,9 +78,18 @@ set -euo pipefail
 # to `oracle_image_tag` yields a tag that has never been built, and the
 # failure reads as a stale image. The name is the guard; there is no way to
 # make it a type here.
+#
+# Runs in a subshell that sets its own `pipefail`, deliberately not relying
+# on the caller's. `cd "$1"` failing (or any pipeline stage after it) must
+# make this whole compound command's exit status nonzero regardless of
+# whether the caller has `-e`/`pipefail` of their own -- `oracle_stamp`
+# below turns that into a hard `return 1` no caller posture can bypass. See
+# its comment for what silently swallowing this used to produce instead.
 oracle_file_digest() {  # <tools/moveit-oracle dir>
-  cd "$1" && find . -type f -print0 |
-    LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+  ( set -o pipefail
+    cd "$1" &&
+      find . -type f -print0 |
+        LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1 )
 }
 
 # The canonical non-file build inputs. These live here, not in build.sh and
@@ -116,14 +156,51 @@ oracle_build_inputs() {
 # The intermediate `--target moveit` stage carries no stamp file at all, so
 # run-oracle.sh's `<missing or unstamped>` branch rejects it. That is relied
 # on deliberately here: the stamp is written only in the `oracle` stage.
+#
+# `oracle_file_digest`'s exit status is checked explicitly with `|| return
+# 1`, not left to the caller's `-e`. It used to be `{ oracle_file_digest
+# "$1"; oracle_build_inputs; } | sha256sum | cut ...`: a brace group returns
+# only its LAST command's status, so a failing `oracle_file_digest` (a
+# nonexistent or unreadable directory, a file vanishing mid-`find`) was
+# discarded by the always-succeeding `oracle_build_inputs` printf that ran
+# right after it, and `sha256sum` still hashed whatever partial bytes
+# `oracle_file_digest` had managed to emit before failing (nothing, for a
+# `cd` failure) -- producing a well-formed 64-hex-char digest for a
+# directory that was never actually read, silently. Under a caller's own
+# `set -e` that command substitution's nonzero status (from `pipefail`,
+# since the brace-group pipeline's last real failure was the killed
+# subshell) aborted the script before this ever reached `oracle_stamp_verdict`.
+# Under `verify-phase3-tangency-subset.sh` and
+# `verify-phase3-penetration-subset.sh`'s own `set -uo pipefail` (deliberately
+# no `-e`, see below this file's header) it did not: `want` came out as a
+# plausible stamp for a directory `oracle_file_digest` never read, matching
+# whichever built image happened to share that coincidence -- exactly the
+# "well-formed stamp that was never built" failure this file's own header
+# says the stamp exists to prevent. `local files` is declared on its own
+# line and assigned after: `local files=$(...)` would return `local`'s own
+# status, not the substitution's, and silently reopen the same swallow.
 oracle_stamp() {  # <tools/moveit-oracle dir>
-  { oracle_file_digest "$1"; oracle_build_inputs; } | sha256sum | cut -d' ' -f1
+  local files
+  files="$(oracle_file_digest "$1")" || return 1
+  { printf '%s\n' "$files"; oracle_build_inputs; } | sha256sum | cut -d' ' -f1
 }
 
 # The tag carries the stamp so that two worktrees with different oracle
 # sources build two different images instead of overwriting one shared
 # `:latest`. Seven concurrent worktrees share this docker daemon; a single
 # mutable tag makes whoever builds last silently the oracle for everyone.
+#
+# Not the same swallow shape as `oracle_stamp` above, checked: this is pure
+# string slicing with nothing fallible to swallow, and a caller that ignores
+# `oracle_stamp`'s `return 1` and passes it an empty `$1` anyway gets
+# `moveit-rs/oracle:` -- `oracle_stamp_verdict` (gate-lib.sh)'s `docker image
+# inspect` on that tag fails (no such tag has ever been built) and reports
+# `image-absent`, a loud SKIP, not a silent `ok`. It stays a two-function
+# split rather than folding this into `oracle_stamp`: one always returns a
+# hex digest, the other always returns a tag string, and merging them would
+# put the empty-stamp guard behind the one caller (`oracle_image_tag`) that
+# cannot itself detect a stamp is empty without also being handed the
+# reason, which only `oracle_stamp`'s own `return 1` already carries.
 oracle_image_tag() {  # <stamp>
   echo "moveit-rs/oracle:${1:0:16}"
 }
