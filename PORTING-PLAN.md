@@ -11104,7 +11104,8 @@ libplanning_context_loader_circ.so    libtrajectory_generation_common.so
 
 ### 130.3 남는 것
 
-- **정리 대상 이미지가 하나 늘었다(현재 89개, 정리는 사용자 승인 필요).**
+- **정리 대상 이미지가 하나 늘었다(현재 89개, 정리는 사용자 승인 필요).
+  거짓 → 닫힘 (§312) — 오늘 같은 계측기로 다시 세면 133개다.**
   이 변종 이미지는 요청서가 확정되면 버린다 — `oracle.cpp`에 pilz op를
   더하면 파일 다이제스트가 바뀌어 어차피 또 다른 스탬프가 된다. 지금 값은
   **"빌드가 되는가"에 대한 답**이지 보관할 산출물이 아니다.
@@ -23646,7 +23647,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 것이다. 문서가 나중에 리플로우되면 blame은 엉뚱한 리비전을 가리킨다. 이 표에서
 실제로 그렇게 어긋난 다섯 건(`PORTING-PLAN.md:11391` 둘,
 `oracle-request-collision-max-contacts-per-pair.md:73`/`:85`, 그리고
-`PORTING-PLAN.md:11777`)은 blame 사상이 인용 문장의 주장과 모순되는 것으로
+`PORTING-PLAN.md:11778`)은 blame 사상이 인용 문장의 주장과 모순되는 것으로
 드러났고, 내용으로 손수 다시 잡았다. 표의 `손:` 행이 그것이다.
 
 72개 끝점 중 61개가 기계적으로 유일하게 사상되고, 나머지는 주변 텍스트까지
@@ -23676,7 +23677,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
   없어진 줄이다. 두 인용 모두 `c0838b4^`에서 정확히 일치하는 것을 확인했다
   (`{ "planning_time_s", elapsed },` / `res.planning_time`). 오늘 줄로 옮기면
   기록이 가리키던 결함 자체가 지워진다. `applyJointValues` 호출자 10곳을 적은
-  `PORTING-PLAN.md:11777-11779`도 같다 — `oracle.cpp@367c07a^:2016`과
+  `PORTING-PLAN.md:11778-11780`도 같다 — `oracle.cpp@367c07a^:2016`과
   `oracle.cpp@367c07a^:2214`가 `state_->clearAttachedBodies();`이고 열 개 번호
   `oracle.cpp@367c07a^:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`가
   전부 그대로 맞는다.
@@ -23686,7 +23687,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
   달라는 요청 문서다. 그 교체는 이미 되어 있다(이 절을 쓴
   `oracle.cpp@3241bbab:2484`와 `oracle.cpp@3241bbab:2488`). 번호만
   갈아끼우면 끝난 변경을 미결로 서술하게 된다.
-- **인용된 코드 자체가 사라진 것.** `PORTING-PLAN.md:17644`이 인용하는
+- **인용된 코드 자체가 사라진 것.** `PORTING-PLAN.md:17645`이 인용하는
   `ik_rng_{ 42 }`는 더는 없다. 이 절을 쓴 리비전에서는
   `ik_rng_(ik_rng_seed)`(`oracle.cpp@3241bbab:858-859`)에 기본값 42이고 CLI
   오버라이드(`oracle.cpp@3241bbab:6571`, `oracle.cpp@3241bbab:6584`)가 붙었다.
@@ -23722,10 +23723,10 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 | `PORTING-PLAN.md:4582` | `:1524` | `2457` |
 | `PORTING-PLAN.md:11391` | `:4752` | 손: `c0838b4^`에서 `{ "planning_time_s", elapsed },`. `c0838b4`가 그 필드를 지웠으므로 오늘 대응하는 줄이 없다 |
 | `PORTING-PLAN.md:11391` | `:5135` | 손: `c0838b4^`에서 `res.planning_time`. 같은 커밋이 지웠고 남은 것은 주석 `oracle.cpp@3241bbab:6166`뿐 |
-| `PORTING-PLAN.md:11777` | `:2016` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 (수정으로 삭제) |
-| `PORTING-PLAN.md:17644` | `:6065` | 손: `ik_rng_{ 42 }` 자체가 사라졌다 — `oracle.cpp@3241bbab:858-859`가 `ik_rng_(ik_rng_seed)`, 멤버 선언은 `oracle.cpp@3241bbab:6547` |
+| `PORTING-PLAN.md:11778` | `:2016` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 (수정으로 삭제) |
+| `PORTING-PLAN.md:17645` | `:6065` | 손: `ik_rng_{ 42 }` 자체가 사라졌다 — `oracle.cpp@3241bbab:858-859`가 `ik_rng_(ik_rng_seed)`, 멤버 선언은 `oracle.cpp@3241bbab:6547` |
 | `PORTING-PLAN.md:17732` | `:1772` | `2015` |
-| `PORTING-PLAN.md:19499` | `:2191` | `2417` |
+| `PORTING-PLAN.md:19500` | `:2191` | `2417` |
 | `PORTING-PLAN.md:20264` | `:1537` | `1546` |
 | `PORTING-PLAN.md:21397` | `:1547` | `1549` |
 | `PORTING-PLAN.md:21398` | `:2235` | `2306` |
@@ -23764,7 +23765,7 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 | `doc/claim-audit/moveit-smoothing.md:25` | `:4365-4368,4496-4499` | `4944-4947,5075-5078` |
 | `doc/folded-operand-guards.md:89` | `:2421` | `2674` |
 | `doc/upstream-bugs.md:633` | `:1302-1314` | `1311-1323` |
-| `PORTING-PLAN.md:11777` | 바로 `:2214` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 |
+| `PORTING-PLAN.md:11778` | 바로 `:2214` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 |
 | `.../oracle-request-collision-max-contacts-per-pair.md:73` | 바로 `:3605-3606` | 손: `4134` (위 `:3391-3392`와 같은 이유) |
 | `.../oracle-request-collision-max-contacts-per-pair.md:85` | 바로 `:3575-3582` | 손: `4085-4090` (위 `:3361-3368`과 같은 이유) |
 | `.../oracle-request-collision-max-contacts-per-pair.md:125` | 바로 `:2206` | `2459` |
@@ -25779,17 +25780,20 @@ CHOMP/STOMP 행에서 이미 쓰이고 있다), `PARTIAL`만 아직 한 번도 �
   실험은 되돌렸고(git diff 없음), 그 실험이 만든 관찰만 여기 남는다.
 - `tools/ci/check-phase-status.sh`/`check-porting-plan-sections.sh`의
   어휘나 placeholder 메커니즘을 고치지 않았다 — 둘 다 이미 있는 것을
-  썼다.
+  썼다. 거짓 → 닫힘 (§314).
 - `doc/upstream-bugs.md`를 고치지 않았다 — 이 절이 쓰는 네 항목
   (`fcl-distance-sentinel-survives-zero-contacts`,
   `shape-intersect-tangency-follows-libccd-dispatch`,
   `distance-callback-max-contact-depth`,
   `distance-callback-threshold-suppresses-deeper-pairs`)은 모두 이미
-  §229/§247/§251이 채워 두었다.
+  §229/§247/§251이 채워 두었다. 거짓 → 닫힘 (§313).
 - 오라클로 조건 재정의 이후의 10,000×5로봇 `bool` 스윕을 직접 다시
   돌리지 못했다 — `third_party/moveit_resources`가 이 워크트리에
   없다(§262.2). §218.3의 기존 실측을 새 조건 문구로 다시 읽은 것이지,
-  새로 실행한 스윕이 아니다.
+  새로 실행한 스윕이 아니다. 거짓 → 닫힘 (§288) — §288이 이 재스윕
+  자체를 대신하지 않고, §262.2가 제안한 조건 문구를 더 좁고 목적에 맞게
+  지은 조건으로 대체해 4로봇 2,478표본을 직접 재도출했다. §5 표의
+  `collision: bool` 행은 오늘 §262.2가 아니라 §288을 근거로 든다.
 - `distance` 행의 원인 두 가지(panda의 §229.3, fanuc·pr2의 §247)를
   하나로 합치지 않았다 — 서로 다른 상류 결함이고, 이 절은 그 구분을
   유지한 채 근거 열만 옮긴다.
@@ -26698,15 +26702,26 @@ box`가 아니라서 §251의 깨진 셀을 건드리지 않는다.
   되돌린 `contact.dist >= 0.0` 게이트를 다시 만들지 않았다.
 - panda/fanuc/dual_arm_panda/pr2의 5로봇 전체 재스윕(약 80분)을 이번
   병합 위에서 다시 돌리지 않았다(§265.7) — prbt 단독(약 15~18초)만
-  다시 쟀다.
+  다시 쟀다. 거짓 → 닫힘 (§288) — §288이 §265.7의 제안 문구 대신 겹치는
+  파견표 쌍이라는 더 좁은 조건으로 4로봇(prbt·prbt_pg70·one_robot·pr2)을
+  실제로 재스윕했고, 메시로 된 panda·fanuc·dual_arm_panda는 그 새 조건
+  자신의 문구에서 이름으로 제외된다(§288.9) — 80분 전체 재스윕이 검증할
+  대상이 더는 §5 행의 주장 범위 안에 없다.
 - §265.5의 "다른 쌍이 이긴다"는 오라클·포트 각각의 사례별 원시 불리언을
   직접 뽑아 확정하지 않았다 — 패턴과 부합한다고만 적었다.
+  OPEN → 만료 조건 (`moveit-diff`가 사례별 원시 불리언 덤프 옵션을 갖출
+  때 — §265.5가 이미 적었듯 이 도구에는 그 옵션이 없어서, 지금은 로그의
+  요약 통계만으로 패턴 일치를 주장할 수 있을 뿐 개별 쌍의 불리언을 직접
+  뽑아 확정할 수 없다).
 - `doc/upstream-bugs.md`를 고치지 않았다 — `shape-intersect-tangency-
   follows-libccd-dispatch`는 이미 §251이 채웠고, 이 절은 그 항목이 잡는
   셀 하나(`cylinder × box`, offset 0)의 실제 발생 빈도를 정량화했을
-  뿐이다.
+  뿐이다. 거짓 → 닫힘 (§313).
 - §5 표를 고치지 않았다 — §262.2가 제안한 문구를 그대로 확인했을 뿐,
-  적용은 병합자의 몫이다(지시 사항).
+  적용은 병합자의 몫이다(지시 사항). 거짓 → 닫힘 (§288) — §5 표의
+  `collision: bool` 행은 오늘 MET, 근거 §288, 날짜 2026-08-06이다.
+  §262.2/§265.7이 제안한 문구 그대로는 아니지만(§288이 더 좁은 조건으로
+  대체했다), 병합자의 몫이던 표 갱신은 이미 이뤄졌다.
 
 ---
 
@@ -30744,7 +30759,7 @@ bounds-only 54건을 게이트 자신의 사유로 나누면: 이름이 앞 60�
 | --- | --- | --- | --- |
 | `oracle-request-pilz-blend-geometry.md:650` | `6734-6756` | `6791-6813` | `static json serializePilzWaypoints(const robot_traject...` |
 | `oracle-request-pilz-blend-geometry.md:654` | `6747-6748` | `6804-6805` | `velocities[variable] = waypoint.getVariableVelocity(va...` |
-| `PORTING-PLAN.md:17688` | `7035-7040` | `7092-7097` | `else if (arg == "--ik-rng-seed" && i + 1 < argc)` |
+| `PORTING-PLAN.md:17689` | `7035-7040` | `7092-7097` | `else if (arg == "--ik-rng-seed" && i + 1 < argc)` |
 | §287.5(`--ik-rng-seed`) | `7035-7040` | `7092-7097` | 같음 |
 | §287.7(pilz 재지정) | `6747-6748` | `6804-6805` | 같음 |
 
@@ -31637,7 +31652,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27024`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27039`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -33088,8 +33103,11 @@ sphere x {sphere, box, cylinder}에 ACM 허용 쌍 하나로 모집단을 **제�
   게이트는 짓지 않았다 — 그쪽은 p12-plannerparams가 task #37로 짓고 있으며,
   같은 계열의 나머지(shipped sbp 소스 안의 `// PORTING-PLAN.md:1152:` 주석
   셋과 `tools/ci/verify-upstream-citations.sh`가 고정 SHA의 출처로 드는
-  `PORTING-PLAN.md:12829-12831`)도 그쪽이 가져갔다. 이 절은 계열의 한
-  표본이지 전부가 아니다.
+  `PORTING-PLAN.md:12830-12832`)도 그쪽이 가져갔다. 이 절은 계열의 한
+  표본이지 전부가 아니다. 거짓 → 닫힘 (§299) — task #37이 이미 병합됐다:
+  `check-citation-drift.py`는 오늘 이 둘을 각각 SECOND POPULATION으로
+  독립 선언해 잡는다(대상 확장자가 `.rs`가 아닌 것, citer 확장자가 `.md`가
+  아닌 것), §299.7이 실제로 한 건을 잡아 확인했다.
 
 ### §297.6 fcl 인용 24건은 면제로 선언돼 있고, 그 면제가 드는 근거 두 줄은 드리프트했다
 
@@ -33147,7 +33165,7 @@ sphere x {sphere, box, cylinder}에 ACM 허용 쌍 하나로 모집단을 **제�
 |---|---|---|---|
 | `tools/ci/upstream-citation-exemptions.json:56` (fcl `checkout`) | `PORTING-PLAN.md:11255` | §134.1 CHOMP `num_vars_free` 표의 `\| 15 \| 3 \| 3×3 \| \|` 행 | **§135**의 sha 표 `fcl` 행 |
 | `tools/ci/upstream-citation-exemptions.json:57` (fcl `why`) | `PORTING-PLAN.md:11254` | §134.2 스탬프 이력의 `` `230e92be6fa5cc3a`(pilz+IK) → `6797447ac4dc46e9`(+chomp) `` 줄 | **§135**의 "그래서 fcl은 `0.7.0` 태그에서 읽어야 한다" 문단, 그리고 **§283.7** |
-| `tools/ci/upstream-citation-exemptions.json:99` (libccd `checkout`) | `PORTING-PLAN.md:11243` | §134.1 같은 표의 `\| 16 \| 4 \| 4×4 \| \|` 행 | **§135**의 sha 표 `libccd` 행 |
+| `tools/ci/upstream-citation-exemptions.json:99` (libccd `checkout`) | `PORTING-PLAN.md:11244` | §134.1 같은 표의 `\| 16 \| 4 \| 4×4 \| \|` 행 | **§135**의 sha 표 `libccd` 행 |
 
 세 좌표가 `11242`·`11243`·`11254`로 나란한 것이 원인을 말해 준다 — 원래는
 §135의 sha 표 두 행과 그 아래 태그 문단을 가리키던 연속 좌표였고, §135 위쪽에
@@ -34689,31 +34707,70 @@ STOMP 행은 포트 팔과 cpp 팔이 서로 다른 디렉터리에 있어 한 �
   만든 것이고, 빠진 절이 있는지는 어떤 명령으로도 확인되지 않는다. 이 절이
   나온 날 그 목록에서 3행이 빠져 있던 것이 측정으로 드러났다(§269.3·§269.4·
   §269.6의 port STOMP 쪽) — 명령이 아니라 발표값을 하나씩 다시 재다가 나왔다.
+  OPEN → 만료 조건 (`check-evidence-retention.py`가 `PORTING-PLAN.md`의
+  절 축을 스캔해 `tools/ci/` 생산자를 인용하면서 §305.2류 증거 행이 없는
+  절을 이름으로 잡는 능력을 가질 때 — 오늘 이 게이트는 존재하는 행의
+  내부 정합만 검사하고, 목록 자체가 전수인지는 층이 아직 없어 검사
+  대상이 아니다. §153.1이 이미 쓴 것과 같은 모양의 부재다).
 - **`tools/ci/verify-*` 9개.** `mktemp -d`를 열지만 이 게이트의 가족이
   아니다. 그중 `verify-phase8-benchmark.sh`는 §293·§300이 인용하는 상수를
   쥐고 있으므로 같은 질문이 붙을 자리이고, 이 절은 열어 보지 않았다.
+  거짓 → 닫힘 (§315) — 열었다. `verify-phase8-benchmark.sh`는 §305.2·
+  §305.3의 미보존 산출물과 같은 `mktemp -d`+`trap rm -rf` 모양이지만
+  집계 값 자체는 핀+매 실행 등호 비교로 더 강하게 보존되고, `chomp` 계층
+  다섯 핀은 오늘 다시 재현했다. 나머지 8개 스크립트는 같은 패턴만
+  확인했고 하나씩 재실행하지는 않았다.
 - **사라진 35행의 복구.** 다른 패널의 스크래치 출력을 지어내지 않았다. 없는
   것은 행이 `없음`이라고 적는다. §269의 네 팔은 이 라운드에 p10-phase13이
   다시 돌리고 있고, 그 결과가 병합되면 §305.2의 해당 행들의 증거 열이
-  바뀌어야 한다 — 이 절은 그 재실행을 중복하지 않았다.
+  바뀌어야 한다 — 이 절은 그 재실행을 중복하지 않았다. 거짓 → 닫힘 (§304)
+  — p10-phase13의 재실행이 병합됐다. §304가 여덟 팔을 다시 재 커밋했고
+  §304.8의 게이트로 재도출 가능함을 확인했다 — 이 절이 "중복하지 않겠다"고
+  미룬 재실행은 더 이상 미결이 아니다.
 - **`doc/phase8-seedbase-stomp/`의 빠진 두 파일.** 씨앗 베이스 424242의 포트
   STOMP 팔이고, 그것이 없어 그 디렉터리의 `rederive.py`가 돌지 않는다
   (§305.3 넷째 항목). 이 절은 그 스윕을 돌리지 않았고 스크립트도 고치지
   않았다 — 그 디렉터리는 다른 패널의 것이고, 지금 계산할 수 있는 것만 남기려면
   E·F 절의 분석을 지워야 한다. 그 결정은 그 절을 쓸 패널의 것이다.
+  거짓 → 닫힘 (§305.6) — 바로 위 §305.6의 표가 이미 적었다: 두 파일과
+  `rederive.txt`가 다른 병합으로 커밋됐고, `rederive.py`의 출력이 그
+  `rederive.txt`와 바이트 동일함을 이 라운드가 재확인했다. 이 절이 쓰인
+  뒤, 같은 절 안에서 §305.6이 먼저 닫은 것을 이 불릿만 못 따라갔다.
 - **§269.6의 41과 36 중 어느 쪽이 옳은지.** 어긋남은 쟀지만 가리지 못했다.
   발표값을 낸 실행의 cpp 길이 열이 커밋되지 않았고, 지금 트리에 있는 것은
   같은 씨앗 베이스의 **다른** 실행이다(§305.3 셋째 항목). 이 절은 어느 쪽을
-  고치지도, 어느 쪽을 옳다고 적지도 않았다.
+  고치지도, 어느 쪽을 옳다고 적지도 않았다. 거짓 → 닫힘 (§305.3, §304.2)
+  — "어느 쪽이 옳은가"라는 질문 자체가 성립하지 않는다. §304.2가 같은
+  씨앗 베이스의 독립된 두 cpp 실행(`doc/phase8-baseline-500/cpp.stomp.*`
+  대 `doc/phase8-seedbase-stomp/cpp700001.*`)을 대조해 `length`가 446 중
+  300건에서 다름을 쟀다(최대 상대차 1.577e-15) — cpp STOMP는 같은 씨앗
+  베이스에서도 실행마다 다른 길이를 낸다. 41과 36은 둘 다 "정답"이 아니라
+  서로 다른 실행에서 나온 서로 다른 표본이고, 이 절이 가리지 못한 것은
+  가릴 대상이 없었기 때문이다.
 - **C++ STOMP의 `length`가 같은 씨앗 베이스에서 실행 간 재현되는지.** 위
   어긋남의 원인 후보이고, 확인에는 `cpp700001.*`를 한 번 더 돌려 자기 자신과
   비교하는 것이 필요하다 — 오라클 컨테이너의 500문제 실행이고 이 절은 하지
-  않았다.
+  않았다. 거짓 → 닫힘 (§304.2) — §304.2가 정확히 그 비교를 500문제
+  전량에서 했다: 두 독립 cpp 실행 간 `length`가 446 중 300건 다르다(최대
+  상대차 1.577e-15). 재현되지 않는다는 것이 답이다. 작은 규모 반복실험도
+  같은 결론이다(STOMP 21문제 중 15건 변동, CHOMP 22문제 중 0건).
 - **`doc/phase8-optimizer-properties.json`을 만드는 것.** `MODE=full`을 돌리면
   §264의 13행이 증거를 갖게 되지만, 그 실행의 비용은 §264.13이 쟀듯 게이트
   전체 1326초이고 이 절은 돌리지 않았다.
+  OPEN → 만료 조건 (누군가 `sg docker -c 'tools/ci/measure-phase8-
+  optimizer-properties.sh full'`을 실제로 돌려 `doc/phase8-optimizer-
+  properties.json`을 커밋할 때 — §264.13의 1326초는 `PILOT_COUNT=8`의
+  비용이고, `MODE=full`은 `FULL_COUNT=125`×4구성=문제당 500개로 STOMP
+  전량을 포함해 훨씬 비싸다(같은 파일의 주석: STOMP 전량 500문제가
+  `verify-phase8-benchmark.sh full`에서 ~3시간). 이 라운드의 예산 안에서
+  돌릴 수 없었다).
 - **§300.2의 벽시계 표.** `wall_secs`를 NDJSON에 싣게 하는 것은 하네스
   변경이고, 이 절은 그 필드가 없다는 사실만 쟀다.
+  OPEN → 만료 조건 (`crates/moveit-planners-stomp/examples/
+  stomp_benchmark_port.rs`류 벤치마크 하네스가 문제별 NDJSON에 `wall_secs`
+  필드를 싣도록 바뀌고, 그 출력이 `doc/phase8-*` 증거 디렉터리 중 하나에
+  커밋될 때 — 오늘 이 저장소의 어떤 `.rs` 소스에도 `wall_secs` 필드가
+  없다).
 
 
 ## §304 §269·§286의 네 표가 기대던 파일이 없었다 — 여덟 팔을 다시 재서 커밋했고, 짝지은 중앙값을 처음 발표한다 (2026-08-07)
@@ -35015,7 +35072,7 @@ unresolvable이다.
 
 | 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30582` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
+| `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
 | `PORTING-PLAN.md:31630` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
 | `doc/claim-audit/upstream-bugs.md:37` | `!PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
 
@@ -35698,8 +35755,8 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30582` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21734-21735` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
-| `PORTING-PLAN.md:31630` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27024` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21734-21735` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
+| `PORTING-PLAN.md:31630` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27039` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
 `section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도
@@ -36107,3 +36164,96 @@ round)"라고 명시한다. §291.4 이후 어느 절도 §289.7 소유권을 �
   문맥(다른 수치 서술)이었다 — 전수화 작업은 없다.
 
 다섯 다 OPEN으로 남긴다.
+
+## §312 §130.3의 "정리 대상 이미지 89개"는 오늘 133개다 — 계측기는 그대로, 숫자만 컸다 (2026-08-07)
+
+§130.3이 2026-08-04에 잰 "정리 대상 이미지" 수(89개)는 그날의 스냅샷이지
+고정값이 아니다. 그 수는 `docker images`로 직접 셀 수 있는 계측기이고,
+정리가 없는 한(사용자 승인 필요, §130.3이 이미 적었다) 매 오라클 변종
+빌드마다 하나씩 는다. 오늘 같은 계측기로 다시 셌다:
+
+```
+$ sg docker -c 'docker images --format "{{.Repository}}"' | sort | uniq -c
+    133 moveit-rs/oracle
+```
+
+89 → 133, +44. 맨 `docker`가 아니라 `sg docker -c`로 감쌌다 — 이 저장소에서
+래핑하지 않은 `docker`는 실패를 성공으로 보고한다. 계측기 자체(`docker
+images`, 저장소 `moveit-rs/oracle`)는 §130.3이 쓴 것과 같고, 바뀐 것은
+시점과 그사이 쌓인 변종 빌드 수뿐이다. 정리는 이 절도 대신 하지 않는다 —
+사용자 승인이 여전히 먼저다.
+
+## §313 §262.5·§265.8이 "`doc/upstream-bugs.md`를 고치지 않았다"고 적은 네 항목, 오늘도 전부 있다
+
+§262.5와 §265.8은 각각 자신이 쓰는 상류 결함 식별자가 `doc/upstream-bugs.md`에
+이미 있으므로 그 문서를 고칠 필요가 없었다고 적었다. 그 전제 자체를
+`doc/upstream-bugs.md`와 `PORTING-PLAN.md` 양쪽에서 직접 확인했다 — 이름을
+안다고 존재를 안다는 뜻은 아니라서, 넷 다 `grep`으로 다시 찾았다.
+
+| 식별자 | `doc/upstream-bugs.md` 항목 | `PORTING-PLAN.md`에서 채우는 절 |
+|---|---|---|
+| `fcl-distance-sentinel-survives-zero-contacts` | 1282행, `not-reproduced` | §229.1(19252행), §251.4(23162행) |
+| `shape-intersect-tangency-follows-libccd-dispatch` | 2551행, `not-reproduced` | §251.4(23271행) |
+| `distance-callback-max-contact-depth` | 2105행, `not-reproduced` | §229.3 |
+| `distance-callback-threshold-suppresses-deeper-pairs` | 2461행, `not-reproduced` | §247.1 |
+
+넷 다 있고, 넷 다 §262.5/§265.8이 이름 댄 절(§229/§247/§251) 안에서 실제로
+인용된다. `doc/upstream-bugs.md`를 고치지 않은 것은 빠뜨린 것이 아니라
+고칠 것이 없었기 때문이라는 두 절의 주장은 오늘 다시 확인해도 참이다.
+
+## §314 §262.5가 "게이트 둘을 고치지 않았다"고 적은 것도 확인했다 — 둘 다 이미 있는 메커니즘을 썼다
+
+§262.5는 `check-phase-status.sh`와 `check-porting-plan-sections.sh`를 고칠
+필요가 없었다고 적었다. 절반은 §262.4가 이미 직접 읽어 확인한 것이다:
+허용 판정어가 이미 `{MET, UNMET, PARTIAL, UNMEASURED}`였다. 나머지 절반—
+`check-porting-plan-sections.sh`—은 §262 어디에서도 다시 읽지 않았으므로
+오늘 직접 읽었다.
+
+그 게이트는 미배정 번호 자리표(섹션 기호 뒤에 `NEW`를 붙인 토큰, 이 문서가
+그 토큰의 리터럴 바이트를 갖지 않도록 여기서도 이름만 서술한다)가 트렁크에
+도달하지 않았는지를 검사한다(`tools/ci/check-porting-plan-sections.sh:150`
+근방, `placeholders` 리스트). §262가 §262.1–§262.5를 새로 붙일 때 이
+메커니즘을 바꿀 필요가 없었던 것은, 새 절이 처음부터 실번호(`§262.N`)로
+쓰였고 한 번도 그 자리표를 거치지 않았기 때문이다 — 게이트가 검사하는
+불변식과 무관한 경로였다.
+
+두 게이트 다 §262가 실제로 밟은 경로(판정어 재사용, 실번호로 직접 작성)를
+이미 지원하고 있었다는 §262.5의 주장은 오늘 다시 읽어도 참이다.
+
+## §315 §305.7이 열지 않았던 `verify-phase8-benchmark.sh` — 같은 미보존 산출물 모양이고, `chomp` 계층은 오늘 다시 재현됐다
+
+§305.4는 `verify-*`/`check-*`를 게이트로 분류해 계측기 전수에서 뺀 것이
+측정이 아니라 판단이라고 이미 적었고, `verify-phase8-benchmark.sh`가
+§293·§300이 인용하는 상수를 쥐고 있다는 것도 이름으로 짚었다. §305.7은 그
+파일을 열어 보지 않았다고 남겼다. 이번에 열었다.
+
+**구조.** `verify-phase8-benchmark.sh`는 매 실행마다 `WORKDIR="$(mktemp
+-d)"`를 열고 `trap 'rm -rf "$WORKDIR"' EXIT`를 건다(164-165행). 세
+계층(`chomp`/`1`/`full`) 전부, 성공이든 실패든 상관없이 `cpp.all.json`·
+`chomp.all.ndjson`·`stomp.all.ndjson` 같은 문제별 원시 응답을 실행이 끝나면
+지운다. 이것은 §305.2·§305.3이 "미보존 산출물"이라 부른 `measure-*` 계열과
+**같은 모양**이다 — 산출물이 한 실행 안에서만 살고, 다음에 확인하려면 다시
+돌려야 한다.
+
+**다른 점.** `measure-*`는 발표값을 한 번 내고 그 값이 그대로 문서에
+박힌다. `verify-phase8-benchmark.sh`는 `EXPECTED_*` 상수 10개를 자기
+소스(추적됨)에 핀으로 박고, 실행할 때마다 그 값과 신선한 재실행을 정확히
+등호로 비교한다 — 어긋나면 실패한다. 그래서 이 파일의 **집계** 수는
+§305.2의 다른 미보존 산출물보다 강하게 보존된다(수동 재검증이 아니라 CI가
+매번 다시 검증한다). 약한 것은 그 집계를 이루는 **문제별 구성**이다 —
+441건 중 어느 문제가 풀렸는지는 어느 실행에서도 남지 않는다.
+
+**오늘 다시 쟀다.** `MOVEIT_RS_PHASE8_BENCHMARK=chomp sg docker -c
+tools/ci/verify-phase8-benchmark.sh` (릴리스 빌드 포함 벽시계 171초,
+계측기 124초) — CHOMP 쪽 다섯 핀(`cpp solved`, `cpp median length`,
+`chomp solved`, `chomp cond2 valid`, `chomp median length`) 전부 오늘의
+신선한 실행과 정확히 일치했다. `1`/`full` 계층의 STOMP 다섯 핀은 각각
+~110분·~3시간이 들어 이번 라운드는 재현하지 않았다 — 재현 못 함이지 어긋남을
+뜻하지 않는다.
+
+**나머지 8개.** `verify-clean-checkout.sh`는 수치 핀이 없다(성격이 다르다).
+`verify-fcl-*`(3개)·`verify-phase3-*`(3개)·`verify-phase7-benchmark.sh`도
+같은 핀-후-재실행 모양을 쓰고 같은 `mktemp -d`+`trap rm -rf` 패턴을 갖는다
+— 하나씩 다시 돌려 확인하지는 않았다. `verify-phase8-benchmark.sh`가
+집계-보존/구성-미보존이라는 결론이 이 9개 전체로 일반화되는지는 이 절이
+확인한 범위 밖이다.

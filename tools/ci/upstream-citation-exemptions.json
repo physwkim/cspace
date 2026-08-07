@@ -96,7 +96,7 @@
     },
     {
       "project": "libccd",
-      "checkout": "~/work/libccd at 7931e76 / v2.1 (PORTING-PLAN.md:11243, tools/mpr-vs-epa/build.sh)",
+      "checkout": "~/work/libccd at 7931e76 / v2.1 (PORTING-PLAN.md:11244, tools/mpr-vs-epa/build.sh)",
       "why": "Not vendored and not indexed. Reached only through `tools/mpr-vs-epa/`, which builds it out of tree; nothing in the workspace consumes its headers.",
       "paths": [
         "vec3.h"

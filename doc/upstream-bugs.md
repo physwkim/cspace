@@ -2167,12 +2167,12 @@ layer, so the selection rule that produces the artifact does not exist here.
 the 10,715 rows behind the `distance: f64` clause `PORTING-PLAN.md` §5
 records `UNMET` (`PORTING-PLAN.md:807`, which carries the verdict and
 delegates the diagnosis to §229.3) — a majority of that miss, not the whole
-of it. §218.4's per-robot table (`PORTING-PLAN.md:17150-17154`) splits panda
+of it. §218.4's per-robot table (`PORTING-PLAN.md:17151-17155`) splits panda
 into `self 1,225 / robot 9,490`, and the robot column again into 6,364
 same-pair value divergence — all of it the single pair `floor/panda_link0`
 — against 3,126 pair-flips (row at `:17010`). Only the 6,364 are this
 entry. The 3,126 flips are the near-tie mechanism §218.4's own "다른 쌍
-(pair-flip)" bullet (`PORTING-PLAN.md:17003-17005`) uses to rule fanuc out
+(pair-flip)" bullet (`PORTING-PLAN.md:17004-17006`) uses to rule fanuc out
 three paragraphs below, so counting them here would re-make inside panda
 the over-generalization §229.3 already corrected across robots; the 1,225
 self-side rows are a column this world-object defect cannot reach at all.
