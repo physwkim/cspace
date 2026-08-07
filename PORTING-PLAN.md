@@ -38069,3 +38069,29 @@ $ grep -n 'found_invalid_state = costs' crates/moveit-planners-stomp/src/cost_fu
 줄이 없다(`rg -n '제약.*거리|distance.*constraint.*cost' doc/upstream-bugs.md`
 0건) — 상류 결함으로도, 포트 결함으로도 등재되지 않은 채 그대로다.
 falsifier 불발 — OPEN.
+
+### §324.9 §269.10 — `max_iterations = 200`에서의 성공률이 양쪽 다 미측정이라는 것
+
+불릿: "`max_iterations = 200`(`CHOMPInterface::loadParams`의 값)에서의
+성공률 — 양쪽 다 미측정(§269.8)."
+
+falsifier: 포트 벤치마크 하네스가 `max_iterations`를 CLI 인자로
+받게 됐거나, C++ 스윕이 `CHOMP_MAX_ITERATIONS=200`으로 돈 기록이
+새로 생겼다면 거짓.
+
+```
+$ sed -n '692,699p' crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs
+692:fn main() {
+693:    let args: Vec<String> = env::args().collect();
+694:    let seed_base: u64 = args
+695:        .get(1)
+696:        .unwrap_or_else(|| panic!("usage: <seed_base> [planning_time_limit_secs]; got {args:?}"))
+```
+
+인자 파싱은 여전히 `<seed_base> [planning_time_limit_secs]`뿐이고
+`max_iterations`는 CLI로 닿지 않는다. C++ 쪽도 §295.1이 실측한
+`CHOMP_MAX_ITERATIONS=50`(반복 상한 정지 조건)이지 200이 아니다 —
+양쪽 다 200에서 돈 기록이 없다. §291.2도 같은 날 독립적으로 같은
+결론을 적었다("§269.10 ① `max_iterations = 200` | 성립 |
+`chomp_benchmark_port.rs:694-706`의 인자 파싱은 아직 `<seed_base>
+[planning_time_limit_secs]`뿐이다"). falsifier 불발 — OPEN.
