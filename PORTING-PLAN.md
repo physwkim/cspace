@@ -34746,6 +34746,13 @@ STOMP 행은 포트 팔과 cpp 팔이 서로 다른 디렉터리에 있어 한 �
 - **`doc/phase8-optimizer-properties.json`을 만드는 것.** `MODE=full`을 돌리면
   §264의 13행이 증거를 갖게 되지만, 그 실행의 비용은 §264.13이 쟀듯 게이트
   전체 1326초이고 이 절은 돌리지 않았다.
+  OPEN → 만료 조건 (누군가 `sg docker -c 'tools/ci/measure-phase8-
+  optimizer-properties.sh full'`을 실제로 돌려 `doc/phase8-optimizer-
+  properties.json`을 커밋할 때 — §264.13의 1326초는 `PILOT_COUNT=8`의
+  비용이고, `MODE=full`은 `FULL_COUNT=125`×4구성=문제당 500개로 STOMP
+  전량을 포함해 훨씬 비싸다(같은 파일의 주석: STOMP 전량 500문제가
+  `verify-phase8-benchmark.sh full`에서 ~3시간). 이 라운드의 예산 안에서
+  돌릴 수 없었다).
 - **§300.2의 벽시계 표.** `wall_secs`를 NDJSON에 싣게 하는 것은 하네스
   변경이고, 이 절은 그 필드가 없다는 사실만 쟀다.
 
