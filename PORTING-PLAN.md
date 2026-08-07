@@ -36990,10 +36990,10 @@ still exclude the exact tie`). falsifier 불발 — OPEN.
 자신). falsifier 불발 — OPEN.
 
 **`distance` 열은 건드리지 않았다.** falsifier: `mesh × mesh` 접선의 `-1.0`이 §251.2
-말고 다른 절에서도 다뤄졌다면 거짓. `rg -n 'mesh × mesh' PORTING-PLAN.md`는 오늘도
-정확히 두 히트(§251.2 자신의 23283행과 이 불릿 23438행)뿐이다. `distance_robot`
-경로도 §251.6 이후 `parry.rs` 미변경(위 항목과 같은 diff 증거)이므로 값 자체도
-안 바뀌었다. falsifier 불발 — OPEN.
+말고 다른 절에서도 다뤄졌다면 거짓. **정정(2026-08-07):** `rg -n 'mesh × mesh'
+PORTING-PLAN.md`는 오늘 7히트이지 "정확히 두 히트"가 아니다 — 온-토픽은 여전히
+둘(§251.2 자신의 23311행, 이 불릿 23466행)뿐이고, 나머지 다섯은 §265.6의 26836행
+(다른 열 — `collision: bool` 디스패치이지 `distance` 값이 아니다) 하나와 이 절·§323.10 자신이 이 수를 설명하며 인용한 넷(자기 인용)이다. 세 번째 온-토픽 절은 아직 없다. `distance_robot` 경로도 §251.6 이후 `parry.rs` 미변경(위 항목과 같은 diff 증거)이므로 값 자체도 안 바뀌었다. falsifier 불발 — OPEN.
 
 **Phase 3 완료 조건 현황표의 `collision: bool` 행 근거 열 — 거짓 → 닫힘 (§317.2).**
 불릿 본문은 스스로 "처리됨(`17d62b6`) — 이제 `§251.4`"라고 이미 한 번 고쳐 적었지만,
