@@ -1131,8 +1131,8 @@ impl<'m> PlanningScene<'m> {
     /// still reports the octomap as touched even though nothing observably
     /// changed. `world_diff.rs` is out of this round's scope, so that one
     /// bookkeeping detail is not reproduced here; every other branch's
-    /// diff tracking already flows through the normal
-    /// [`PlanningScene::track`] funnel via `self.world`'s own mutators.
+    /// diff tracking already flows through the normal private `track`
+    /// funnel via `self.world`'s own mutators.
     pub fn process_octomap_ptr(&mut self, octree: OcTree, pose: Isometry3) {
         const ISAPPROX_PRECISION: f64 = f64::EPSILON * 100.0;
 
