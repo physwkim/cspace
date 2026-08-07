@@ -1344,3 +1344,23 @@ nothing.
 **1 site added, 1 in-family, 0 not-this-family, 0 needle collisions, 0
 fixes owed.** The table has one row and it is in-family, so 1 = 1 and
 1+0 = 1.
+
+## Round: the penetration-branch round's own two orphans, closed against the tree
+
+`aa59deca` landed with `verify-orphan-enumeration.sh` already red at its own
+tip and was merged anyway. Two of its assertions were never given a ledger
+row: `prbt_flange_floor_clearance_matches_the_closed_form_when_penetrating`
+(the penetrating twin of the round just above this one) and
+`prbt_penetration_branch_undominated_19_are_all_a_near_margin_oracle_lean`
+(PORTING-PLAN.md §302.6). Both rows below are measured against the tree at
+this commit, not asserted from reading the source.
+
+| Site | Kind | Test fn | In-family | Evidence |
+|---|---|---|---|---|
+| `crates/moveit-collision/tests/collision_parity.rs:2705` | contains | `prbt_flange_floor_clearance_matches_the_closed_form_when_penetrating` | yes | Same pair-identity shape as `:2551` above, measured independently rather than assumed from that sibling. Bite: flipping this test's own `acm.set_entry("floor", "prbt_flange", false)` to `true` (line 2648) fails `:2705` alone in this file's 25-test suite (24 passed / 1 failed) -- `["", ""]` is the reported pair, since the flip leaves no pair checked at all. With `:2705` disabled (`assert!(true, ..)` in place of the `.contains` check) the same mutation still fails, but **not** at the `deviation <= CLOSED_FORM_TOL` line the non-penetrating sibling falls back to -- it fails one assertion earlier, at line 2711's `result.minimum_distance.distance < 0.0` check, because an ACM that checks no pair at all returns the "nothing evaluated" sentinel (`f64::MAX`), which is positive and trips the penetration-sign guard before the closed form is ever compared. `:2711` is this row's opposite-way sibling: `:2705` names *which* pair, `:2711` catches *that a pair exists at all*, and for this specific mutation the second one is what actually stops the closed-form line below from silently comparing against a sentinel. |
+| `crates/moveit-collision/tests/collision_parity.rs:5589` | contains | `prbt_penetration_branch_undominated_19_are_all_a_near_margin_oracle_lean` | yes | Bite: this test computes its bracket via `min_signed_distance_over(&bodies, TOL)` with `TOL = 1e-9`; substituting a tighter constant at that one call site changes only the bracket precision, nothing else in the test. At `5e-10` (2x tighter) the test fails **at `:5589` alone**: `case 6135: oracle_off/width = 9.553 left the measured (10x, 100x) band` -- the published `undominated.len() == 19` count (line 5566) and every other case's `port_off`/`oracle_off` sign both still hold at this magnitude, so this is not the count assertion firing early. Its opposite-way sibling is `:5566`, one step further in the same direction: at `4e-10` the count itself moves (20, then 24 at `3e-10`, 38 at `2e-10`, 76 at `1e-12`) and `:5566` fires first, before the per-case loop containing `:5589` is ever reached -- confirmed by re-running at each of `9e-10` (still green), `5e-10`, `4e-10`, `3e-10`, `2.5e-10`, `2e-10` and `1e-12` in sequence. So `:5589` is the more sensitive of the two: it catches a bracket-precision defect one order below the size `:5566` needs to notice the same defect. Both mutations were reverted (`git checkout --` on the test file) and the unmutated test re-confirmed green before this row was written. |
+
+### Totals
+
+**2 sites added, 2 in-family, 0 not-this-family, 0 needle collisions, 0
+fixes owed.**

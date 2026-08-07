@@ -69,6 +69,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import baseline_header
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCANNER = REPO_ROOT / "tools" / "ci" / "count-coarse-assertions.py"
 # The corpus, named once. Both the scanner invocation and the citation
@@ -827,11 +829,21 @@ def main(argv):
             print(f"FAIL {COMPARISON_BASELINE.relative_to(REPO_ROOT)} does not exist -- run "
                   "--write-comparison-baseline first")
             return 1
+        # The first population's header is re-derived above; this one's was
+        # read into `comparison_header` and never compared. Same gap, same
+        # fix -- see tools/ci/baseline_header.py.
+        comparison_header_failed = baseline_header.report(
+            str(COMPARISON_BASELINE.relative_to(REPO_ROOT)),
+            COMPARISON_BASELINE.read_text(encoding="utf-8"),
+            write_comparison_header(result, "-"),
+            "python3 tools/ci/reconcile-assertion-ledgers.py --write-comparison-baseline",
+            sys.stdout)
         comparison_live = set(orphan_lines(result, "orphans_second"))
         comparison_committed_set = set(comparison_committed)
         comparison_added = sorted(comparison_live - comparison_committed_set)
         comparison_removed = sorted(comparison_committed_set - comparison_live)
-        second_failed = bool(comparison_added or comparison_removed)
+        second_failed = bool(comparison_added or comparison_removed
+                             or comparison_header_failed)
         stream_note = " (backlog; COMPARISON_HARD_FAIL=False)" if not second_failed else ""
         print(f"second population (half_plane/cmp_compound), live orphans: {len(comparison_live)}"
               f"  |  baseline: {len(comparison_committed_set)}{stream_note}")
