@@ -53,7 +53,7 @@
   "unresolvable": [
     {
       "project": "fcl",
-      "checkout": "~/work/fcl at 0.7.0-17-ge5efcc4 (PORTING-PLAN.md:11242)",
+      "checkout": "~/work/fcl at 0.7.0-17-ge5efcc4 (PORTING-PLAN.md:11255)",
       "why": "Not vendored and not indexed. PORTING-PLAN.md:11254 records that these line numbers are relative to tag 0.7.0, which is 17 commits behind that checkout's HEAD -- so pointing the gate at the checkout on disk would check them against a revision nobody cited, the failure mode this gate's own header calls worse than not checking. Indexing fcl needs the tag pinned first.",
       "paths": [
         "BVH_model-inl.h",

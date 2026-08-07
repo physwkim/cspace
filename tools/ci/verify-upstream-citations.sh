@@ -119,12 +119,12 @@ declare -A THIRD_PARTY_PINS=(
   # shift leaves something checkable behind rather than a bare number, which is
   # how all four of these came to point at §160's prose at once.
   #
-  # geometric_shapes 2.3.3 -- the pin row in §160.3, PORTING-PLAN.md:12869;
+  # geometric_shapes 2.3.3 -- the pin row in §160.3, PORTING-PLAN.md:12957;
   # the header quoting the same commit is crates/moveit-geometry/src/shapes.rs:15.
   [geometric_shapes]=192801cebacc07d0e9f719576cdd1c9b36d0bc28
-  # srdfdom 2.0.8 -- the pin row in §160.3, PORTING-PLAN.md:12870.
+  # srdfdom 2.0.8 -- the pin row in §160.3, PORTING-PLAN.md:12958.
   [srdfdom]=58ee1eccd1c34498f67022eb2080daec5e8bc162
-  # octomap v1.9.7 -- the pin row in §160.3, PORTING-PLAN.md:12871; the
+  # octomap v1.9.7 -- the pin row in §160.3, PORTING-PLAN.md:12959; the
   # claim-audit quoting the same tag is doc/claim-audit/moveit-octomap.md:8.
   [octomap]=aa6372b87eaf7e89bb1c9421f61d58bd634477cb
   # orocos_kinematics_dynamics v1.5.1 -- doc/upstream-bugs.md:225, which records

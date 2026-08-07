@@ -1168,7 +1168,7 @@ _IN_REPO_BODY = (
 # is usually not a citation, so requiring them is what keeps the corpus clean.
 # In a `.rs`, `.py`, `.sh` or `.json` citer there are no backticks to require --
 # a source comment writes `// !PORTING-PLAN.md:1152 records that ...` bare, and
-# a JSON provenance string writes `(PORTING-PLAN.md:11242)`. Requiring
+# a JSON provenance string writes `(PORTING-PLAN.md:11255)`. Requiring
 # backticks there misses exactly the population hole 2 exists to close: five
 # real citations, three of them in moveit-planners-sbp comments citing a line
 # that is blank today.
