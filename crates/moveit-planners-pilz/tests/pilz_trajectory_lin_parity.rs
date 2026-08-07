@@ -275,6 +275,9 @@ fn lin_panda_arm_matches_the_oracle() {
     let [x, y, z, w] = request.goal.orientation;
     let goal = Goal::Cartesian {
         link_name: request.goal.link_name,
+        // The oracle's request fixture has no `frame_id` field -- always the
+        // model frame.
+        frame: None,
         position: Vector3::new(
             request.goal.position[0],
             request.goal.position[1],
@@ -403,6 +406,9 @@ fn lin_panda_arm_rejects_the_same_request_the_oracle_rejects() {
     let [x, y, z, w] = request.goal.orientation;
     let goal = Goal::Cartesian {
         link_name: request.goal.link_name,
+        // The oracle's request fixture has no `frame_id` field -- always the
+        // model frame.
+        frame: None,
         position: Vector3::new(
             request.goal.position[0],
             request.goal.position[1],

@@ -224,6 +224,7 @@ fn panda_polyline_request(
         },
         goal: Goal::Cartesian {
             link_name: request.goal.link_name.clone(),
+            frame: None,
             position: goal_pose.translation.vector,
             orientation: UnitQuaternion::from_rotation_matrix(
                 &goal_pose.rotation.to_rotation_matrix(),
@@ -518,6 +519,7 @@ fn polyline_plans_a_polyline_constraint_and_rejects_the_same_request_carrying_a_
     rejected.path_constraints = Some(PathConstraints::Circ(CircPathConstraint {
         kind: CircPathConstraintKind::Center,
         link_name: request.goal.link_name.clone(),
+        frame: None,
         point: waypoints[0].translation.vector,
     }));
     let response = generator.generate(&ctx, &rejected, request.sampling_time);

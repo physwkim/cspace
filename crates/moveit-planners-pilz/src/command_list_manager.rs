@@ -619,6 +619,7 @@ mod tests {
         let mut request = unplanned_request("panda_arm");
         request.goal = Goal::Cartesian {
             link_name: "panda_link8".to_string(),
+            frame: None,
             position: Vector3::new(goal_pos[0], goal_pos[1], goal_pos[2]),
             orientation: ready_orientation(),
             target_point_offset: Vector3::new(0.0, 0.0, 0.0),

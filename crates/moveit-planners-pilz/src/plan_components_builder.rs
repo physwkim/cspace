@@ -405,6 +405,7 @@ mod tests {
             },
             goal: Goal::Cartesian {
                 link_name: "panda_link8".to_string(),
+                frame: None,
                 position: Vector3::new(goal_pos[0], goal_pos[1], goal_pos[2]),
                 orientation: UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
                     3.2004117663522442e-12,

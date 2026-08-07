@@ -179,6 +179,20 @@ pub enum Goal {
         /// The link this pose targets. Upstream's (matching)
         /// `PositionConstraint::link_name`/`OrientationConstraint::link_name`.
         link_name: String,
+        /// The frame `position`/`orientation` are expressed in; [`None`] is
+        /// the planning frame. Upstream's (matching)
+        /// `PositionConstraint::header.frame_id`/
+        /// `OrientationConstraint::header.frame_id`, fused into one field the
+        /// same way `link_name` above already fuses the two message's own
+        /// `link_name`s — upstream's actual rule is "either empty -> use the
+        /// planning frame, else use the position constraint's", never a
+        /// mismatch check between the two, so there is no third case this
+        /// fusion could lose. Resolved once, by
+        /// [`crate::trajectory_functions::resolve_goal_frame`], during
+        /// `extract_motion_plan_info` — see that function's own doc for
+        /// where, mirroring upstream's own `scene->getFrameTransform(frame_id)
+        /// * getConstraintPose(...)`.
+        frame: Option<String>,
         /// Target position. Upstream
         /// `position_constraints[0].constraint_region.primitive_poses[0].position`.
         position: Vector3,
@@ -225,6 +239,16 @@ pub struct CircPathConstraint {
     /// constraint. Upstream
     /// `req.path_constraints.position_constraints[0].link_name`.
     pub link_name: String,
+    /// The frame `point` is expressed in; [`None`] is the planning frame.
+    /// Upstream
+    /// `req.path_constraints.position_constraints[0].header.frame_id`. This
+    /// is deliberately its own field, not shared with
+    /// [`Goal::Cartesian::frame`]: upstream resolves
+    /// `center_point_frame_id` completely independently of the goal's own
+    /// `frame_id` (`extractMotionPlanInfo` reads and transforms by each
+    /// separately), and a request naming a different frame for each is not
+    /// malformed there.
+    pub frame: Option<String>,
     /// The interim or center point. Upstream
     /// `req.path_constraints.position_constraints[0].constraint_region.primitive_poses[0].position`.
     pub point: Vector3,
@@ -446,8 +470,12 @@ pub struct MotionPlanInfo<'m> {
     /// and with `req.start_state` applied. Upstream `start_scene`.
     pub start_scene: Arc<PlanningScene<'m>>,
     /// `CIRC`'s resolved auxiliary point (kind plus its final position, after
-    /// a Cartesian goal's `target_point_offset` is applied — see
+    /// [`CircPathConstraint::frame`]'s transform and a Cartesian goal's
+    /// `target_point_offset` are both applied — see
     /// [`crate::trajectory_generator_circ`]'s own doc for that adjustment).
+    /// This reuses [`CircPathConstraint`] for a *resolved* point, unlike
+    /// [`MotionPlanRequest::path_constraints`]'s raw one — `frame` is always
+    /// [`None`] here, meaning "already resolved", not "no frame was given".
     /// `None` for `PTP`/`LIN`, whose `extract_motion_plan_info` never writes
     /// it. Upstream `circ_path_point`.
     pub circ_aux_point: Option<CircPathConstraint>,

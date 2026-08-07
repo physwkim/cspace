@@ -791,6 +791,40 @@ pub fn constraint_pose(
     pose
 }
 
+/// Resolve `frame`'s transform into `ctx.scene`'s planning frame — [`None`]
+/// (upstream's default when a constraint's `header.frame_id` is empty) is
+/// [`Isometry3::identity`]. Upstream `scene->getFrameTransform(frame_id)`,
+/// called once per Cartesian goal (and, for `CIRC`, once more for its own
+/// auxiliary point) inside each generator's own `extractMotionPlanInfo`,
+/// immediately before composing with [`constraint_pose`]'s result — e.g.
+/// `scene->getFrameTransform(frame_id) * getConstraintPose(...)`.
+///
+/// Reached through [`PlanningScene::diff`] rather than `ctx.scene` directly:
+/// [`PlanningScene::frame_transform`] needs `&mut self` (it lazily updates
+/// the scene's current state), and `ctx.scene` is a shared `&Arc`. This is
+/// the same "diff a scratch copy to get mutable access without disturbing
+/// the caller's scene" idiom `MotionPlanInfo::new` already uses for
+/// `start_scene`.
+///
+/// # Errors
+///
+/// [`MoveItErrorCode::InvalidGoalConstraints`] if `frame` names a frame
+/// [`PlanningScene::frame_transform`] cannot resolve — upstream instead
+/// falls back to an identity transform there; see that method's own
+/// `# Errors` for why this port does not reproduce that silent fallback.
+pub fn resolve_goal_frame<'m, E>(
+    ctx: &IkContext<'_, 'm, E>,
+    frame: Option<&str>,
+) -> Result<Isometry3> {
+    let Some(frame_id) = frame else {
+        return Ok(Isometry3::identity());
+    };
+    ctx.scene
+        .diff()
+        .frame_transform(frame_id)
+        .map_err(|_| Error::Code(MoveItErrorCode::InvalidGoalConstraints))
+}
+
 /// Resolve `group_name`'s solver tip frame. Upstream `getSolverTipFrame`
 /// (`tip_frame_getter.hpp`), minus the "more than one tip frame" case — see
 /// [`crate::trajectory_generator_lin`]'s `# Deviations` for why that case is
@@ -1111,6 +1145,76 @@ mod tests {
             Vector3::new(0.0, -1.0, 0.0),
             epsilon = 1e-9
         );
+    }
+
+    // -- resolve_goal_frame: None is identity, Some(link) is that link's
+    // current pose, an unresolvable name errors rather than silently
+    // falling back to identity (upstream's own behavior) --
+
+    #[test]
+    fn resolve_goal_frame_none_is_identity() {
+        let (model, srdf) = load_panda();
+        let scene = Arc::new(PlanningScene::new(&model, &srdf));
+        let env =
+            ParryCollisionEnv::new(moveit_collision::World::new(), LinkPaddingScale::default());
+        let ctx = IkContext {
+            scene: &scene,
+            env: &env,
+            check_self_collision: false,
+        };
+        let resolved = resolve_goal_frame(&ctx, None).unwrap();
+        assert_relative_eq!(resolved.translation.vector, Vector3::zeros());
+        assert_relative_eq!(resolved.rotation.coords, UnitQuaternion::identity().coords);
+    }
+
+    #[test]
+    fn resolve_goal_frame_named_link_is_that_links_current_pose() {
+        let (model, srdf) = load_panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        scene
+            .current_state_mut()
+            .set_variable_positions_by_name(&ready_positions())
+            .unwrap();
+        let scene = Arc::new(scene);
+        let env =
+            ParryCollisionEnv::new(moveit_collision::World::new(), LinkPaddingScale::default());
+        let ctx = IkContext {
+            scene: &scene,
+            env: &env,
+            check_self_collision: false,
+        };
+
+        let mut fk_state = scene.current_state().clone();
+        let link8_pose = compute_link_fk(&mut fk_state, "panda_link8", &ready_positions()).unwrap();
+
+        let resolved = resolve_goal_frame(&ctx, Some("panda_link8")).unwrap();
+        assert_relative_eq!(
+            resolved.translation.vector,
+            link8_pose.translation.vector,
+            epsilon = 1e-9
+        );
+        assert_relative_eq!(
+            resolved.rotation.coords,
+            link8_pose.rotation.coords,
+            epsilon = 1e-9
+        );
+    }
+
+    #[test]
+    fn resolve_goal_frame_rejects_an_unresolvable_frame_name() {
+        let (model, srdf) = load_panda();
+        let scene = Arc::new(PlanningScene::new(&model, &srdf));
+        let env =
+            ParryCollisionEnv::new(moveit_collision::World::new(), LinkPaddingScale::default());
+        let ctx = IkContext {
+            scene: &scene,
+            env: &env,
+            check_self_collision: false,
+        };
+        assert!(matches!(
+            resolve_goal_frame(&ctx, Some("no_such_frame")),
+            Err(Error::Code(MoveItErrorCode::InvalidGoalConstraints))
+        ));
     }
 
     // -- compute_link_fk: known link resolves, unknown link does not --
