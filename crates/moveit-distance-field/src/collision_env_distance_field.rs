@@ -1625,17 +1625,26 @@ impl<'m> DistanceFieldCollisionCache<'m> {
 ///
 /// # Deviation from upstream
 ///
-/// None functionally. Upstream's loop bound is `link_names_.size() +
+/// Upstream's loop bound is `link_names_.size() +
 /// attached_body_names_.size()` (`:278`), with an `is_link` branch (`:279`)
 /// selecting `link_body_decompositions_`/`link_names_` or
 /// `attached_body_decompositions_`/`attached_body_names_` per index
 /// (`:284-295`) and reporting attached-body self-collisions with
 /// `body_type_1 = BodyTypes::ROBOT_ATTACHED` instead of `ROBOT_LINK`
 /// (`:312-320`) -- ported as the `is_link` `if`/`else` below, matching that
-/// indexing exactly (round 23; the attached-body half was omitted through
-/// round 22 on the mistaken belief `attached_body_names_` stayed
-/// permanently empty in this port, corrected once round 22 itself falsified
-/// that premise).
+/// indexing exactly (the attached-body half was omitted for a while on the
+/// mistaken belief `attached_body_names_` stayed permanently empty in this
+/// port, corrected once that premise was falsified).
+///
+/// The final line *does* need `res.contacts.as_ref().map_or(0,
+/// ContactData::count)`, not `is_some_and`: upstream's bottom-of-function
+/// `return (res.contact_count >= req.max_contacts);` (`:352`) runs
+/// unconditionally, reading `res.contact_count` -- a plain counter, `0` by
+/// default and incremented only inside the `if (req.contacts)` branch, but
+/// always readable -- regardless of `req.contacts`. `is_some_and` on
+/// `res.contacts: Option<ContactData>` (`Some` only when `req.contacts` is
+/// set) collapses to `false` whenever `req.contacts` is unset, silently
+/// dropping upstream's `req.max_contacts == 0` short-circuit for that case.
 ///
 /// # Panics
 ///
@@ -1737,9 +1746,7 @@ fn get_self_collisions(
             }
         }
     }
-    res.contacts
-        .as_ref()
-        .is_some_and(|c| c.count() >= req.max_contacts)
+    res.contacts.as_ref().map_or(0, ContactData::count) >= req.max_contacts
 }
 
 /// Upstream `CollisionEnvDistanceField::getSelfProximityGradients`
@@ -2117,16 +2124,21 @@ fn get_intra_group_proximity_gradients(gsr: &mut GroupStateRepresentation<'_, '_
 ///
 /// # Deviation from upstream
 ///
-/// None functionally, same shape as [`get_self_collisions`]'s own (round
-/// 23) deviation note: upstream's loop bound is `link_names_.size() +
-/// attached_body_names_.size()` (`:1565`) with an `is_link` branch
-/// (`:1567`) selecting `link_body_decompositions_`/`attached_body_decompositions_`
-/// per index (`:1576-1587`) and reporting attached-body environment
-/// collisions with `body_type_1 = BodyTypes::ROBOT_ATTACHED` (`:1599-1607`)
-/// -- ported below. Upstream also declares a `link_name` local
-/// (`:1568`, `"attached"` placeholder for non-link indices) that is never
-/// read anywhere in the function body; not ported, matching this crate's
-/// standing practice of not carrying forward genuinely dead upstream state.
+/// Same shape as [`get_self_collisions`]'s own deviation note: upstream's
+/// loop bound is `link_names_.size() + attached_body_names_.size()`
+/// (`:1565`) with an `is_link` branch (`:1567`) selecting
+/// `link_body_decompositions_`/`attached_body_decompositions_` per index
+/// (`:1576-1587`) and reporting attached-body environment collisions with
+/// `body_type_1 = BodyTypes::ROBOT_ATTACHED` (`:1599-1607`) -- ported below.
+/// Upstream also declares a `link_name` local (`:1568`, `"attached"`
+/// placeholder for non-link indices) that is never read anywhere in the
+/// function body; not ported, matching this crate's standing practice of
+/// not carrying forward genuinely dead upstream state.
+///
+/// The final line has the same `map_or(0, ContactData::count)` vs.
+/// `is_some_and` correction as [`get_self_collisions`]'s own final line --
+/// see that function's doc for why: upstream's `return (res.contact_count
+/// >= req.max_contacts);` (`:1642`) runs regardless of `req.contacts`.
 fn get_environment_collisions(
     req: &CollisionRequest,
     res: &mut CollisionResult,
@@ -2214,9 +2226,7 @@ fn get_environment_collisions(
             }
         }
     }
-    res.contacts
-        .as_ref()
-        .is_some_and(|c| c.count() >= req.max_contacts)
+    res.contacts.as_ref().map_or(0, ContactData::count) >= req.max_contacts
 }
 
 /// Upstream `CollisionEnvDistanceField::getEnvironmentProximityGradients`
@@ -4128,6 +4138,50 @@ mod tests {
     }
 
     #[test]
+    fn check_self_collision_max_contacts_zero_skips_the_intra_group_phase_even_with_contacts_unset()
+    {
+        // Same fixture as the sibling test above: mid/tip exactly
+        // coincident, each link's own self_collision_enabled bit disabled so
+        // only get_intra_group_collisions (not get_self_collisions) can
+        // report the mid/tip overlap. Upstream `getSelfCollisions`'s
+        // bottom-of-function `return (res.contact_count >= req.max_contacts);`
+        // (`collision_env_distance_field.cpp:352`) runs regardless of
+        // `req.contacts`: `res.contact_count` stays `0` when contacts aren't
+        // being recorded, so `req.max_contacts == 0` makes this always
+        // `true`, and `checkSelfCollisionHelper`'s `if (!done)` guard skips
+        // `getIntraGroupCollisions` entirely. Unlike the sibling test above
+        // (default `max_contacts`), the real intra-group collision here is
+        // never reported -- matching upstream's own short-circuit, not the
+        // `is_some_and`-based behavior this test guards against regressing
+        // to.
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let mut acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        acm.set_entry("mid", "mid", true);
+        acm.set_entry("tip", "tip", true);
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: false,
+            max_contacts: 0,
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_self_collision(&req, &posed, Some(&acm), &[])
+            .unwrap();
+        assert!(
+            !res.collision,
+            "max_contacts == 0 must short-circuit before the intra-group phase runs, matching \
+             upstream's unconditional bottom-of-function contact_count >= max_contacts check -- \
+             even though mid/tip are exactly coincident"
+        );
+    }
+
+    #[test]
     fn check_self_collision_max_contacts_caps_the_total_recorded_across_pairs() {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
@@ -4286,6 +4340,58 @@ mod tests {
             res.collision,
             "an environment point placed exactly at the coincident mid/tip origin must \
              register as an environment collision"
+        );
+    }
+
+    #[test]
+    fn get_environment_collisions_max_contacts_zero_short_circuits_regardless_of_contacts_flag() {
+        // Same defect as get_self_collisions's own bottom line (see that
+        // function's doc comment for the full upstream citation). Every one
+        // of upstream's own call sites discards getEnvironmentCollisions's
+        // return value (`getEnvironmentCollisions(...)` as a bare statement,
+        // not `bool done = ...`), so unlike get_self_collisions's sibling
+        // test above, this is source-level parity with a defect family
+        // upstream itself never observes through any call path -- exercised
+        // directly here rather than through check_robot_collision, which
+        // also discards this return value.
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let mut gsr = cache
+            .generate_collision_checking_structures("chain", &posed, Some(&acm), &[], false)
+            .unwrap();
+        let config = small_distance_field_config();
+        let empty_env = PropagationDistanceField::new(
+            config.geometry,
+            config.max_propagation_distance,
+            config.use_signed_distance_field,
+        )
+        .unwrap();
+
+        let request = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: false,
+            max_contacts: 0,
+            ..CollisionRequest::default()
+        };
+        let mut res = CollisionResult::default();
+        let done = get_environment_collisions(
+            &request,
+            &mut res,
+            &empty_env,
+            &mut gsr,
+            config.max_propagation_distance,
+            0.0,
+        );
+
+        assert!(!res.collision, "empty_env has no points to collide with");
+        assert!(
+            done,
+            "max_contacts == 0 must short-circuit regardless of req.contacts, matching \
+             upstream's always-readable res.contact_count"
         );
     }
 
