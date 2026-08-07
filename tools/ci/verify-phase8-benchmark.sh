@@ -267,23 +267,24 @@ jq -s -c '[.[0].result.problems[], .[1].result.problems[]]' \
   "$WORKDIR/${CONFIGS[0]}.response.json" "$WORKDIR/${CONFIGS[1]}.response.json" \
   >"$WORKDIR/cpp.all.json"
 
+rc=0
 python3 - \
   "$WORKDIR/cpp.all.json" "$WORKDIR/chomp.all.ndjson" "$WORKDIR/stomp.all.ndjson" \
-  "$TIER" \
+  "$TIER" "$QUALIFIED" \
   "$EXPECTED_CPP_SOLVED" "$EXPECTED_CPP_MEDIAN" \
   "$EXPECTED_CHOMP_SOLVED" "$EXPECTED_CHOMP_COND2" "$EXPECTED_CHOMP_MEDIAN" \
   "$EXPECTED_STOMP_SOLVED" "$EXPECTED_STOMP_COND2" "$EXPECTED_STOMP_MEDIAN" \
   "$EXPECTED_STOMP50_SOLVED" "$EXPECTED_STOMP50_COND2" "$EXPECTED_STOMP50_MEDIAN" \
-  <<'PY'
+  <<'PY' || rc=$?
 import json
 import statistics
 import sys
 
-(cpp_path, chomp_path, stomp_path, tier,
+(cpp_path, chomp_path, stomp_path, tier, qualified_code,
  e_cpp_solved, e_cpp_median,
  e_chomp_solved, e_chomp_cond2, e_chomp_median,
  e_stomp_solved, e_stomp_cond2, e_stomp_median,
- e_stomp50_solved, e_stomp50_cond2, e_stomp50_median) = sys.argv[1:16]
+ e_stomp50_solved, e_stomp50_cond2, e_stomp50_median) = sys.argv[1:17]
 
 fails = []
 # Every condition verdict this run produced, as (name, index, met). The
@@ -367,6 +368,22 @@ unmet = [f"{n} condition {i}" for n, i, met in conditions if not met]
 print(f"CONDITIONS {len(conditions) - len(unmet)} MET, {len(unmet)} UNMET"
       + (f" ({', '.join(unmet)}) -- see this script's header for why each "
          "UNMET is not by itself a porting defect" if unmet else ""))
+# A blanket exit 0 here is the same code a run with nothing UNMET uses --
+# exactly the ambiguity `verify-all.sh`'s summary folded silently into
+# "passed" until this script's own QUALIFIED exit gave it something to
+# branch on instead of grepping this print.
+if unmet:
+    sys.exit(int(qualified_code))
 PY
 
-echo "OK phase 8 pinned values reproduce (tier=$TIER, shards=$SHARDS, wall=$(( $(date +%s) - started ))s) -- see the CONDITIONS line above for what is MET"
+case "$rc" in
+  0)
+    echo "OK phase 8 pinned values reproduce (tier=$TIER, shards=$SHARDS, wall=$(( $(date +%s) - started ))s) -- see the CONDITIONS line above for what is MET"
+    ;;
+  "$QUALIFIED")
+    report_qualified "phase 8 pinned values reproduce (tier=$TIER, shards=$SHARDS, wall=$(( $(date +%s) - started ))s), but not every condition is MET -- see the CONDITIONS line above for which, and this script's header for why an UNMET condition here is not by itself a porting defect"
+    ;;
+  *)
+    exit "$rc"
+    ;;
+esac
