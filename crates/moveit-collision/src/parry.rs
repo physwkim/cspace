@@ -1217,7 +1217,7 @@ use parry3d_f64::math::{Pose, Vector as ParryVector};
 use parry3d_f64::query::{self, Contact as ParryContact};
 use parry3d_f64::shape::{
     Ball, Cone as ParryCone, Cuboid as ParryCuboid, Cylinder as ParryCylinder, HalfSpace,
-    Shape as ParryShape, SharedShape, TriMesh, Triangle as ParryTriangle,
+    Shape as ParryShape, ShapeType, SharedShape, TriMesh, Triangle as ParryTriangle,
 };
 
 use crate::common::{
@@ -2112,6 +2112,70 @@ fn pair_key(a: &str, b: &str) -> (String, String) {
     }
 }
 
+/// The workspace-buildable shape kinds fcl's tangency dispatch splits on
+/// (`fcl_tangency_table`'s own module doc: "Shape intersect algorithms not
+/// using libccd"). `Mesh` is deliberately absent — fcl maps it to a
+/// `BVHModel` traversal, a third path that is neither a libccd
+/// specialisation nor generic libccd MPR, so [`is_mesh_pair`] carries its
+/// rule separately rather than through this table.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TangencyKind {
+    Box = 0,
+    Sphere = 1,
+    Cylinder = 2,
+    Cone = 3,
+}
+
+/// Classifies a `parry` shape into the [`TangencyKind`]
+/// `fcl_tangency_table::SPECIALISED` is indexed by. `None` for a kind the
+/// table has no measurement for (`HalfSpace`/`Compound`, i.e. this crate's
+/// `Plane` and `OcTree`) — [`fcl_tangency_verdict`]'s callers keep their own
+/// pre-existing behaviour for those rather than guessing at one.
+fn tangency_kind(shape: &dyn parry3d_f64::shape::Shape) -> Option<TangencyKind> {
+    match shape.shape_type() {
+        ShapeType::Cuboid => Some(TangencyKind::Box),
+        ShapeType::Ball => Some(TangencyKind::Sphere),
+        ShapeType::Cylinder => Some(TangencyKind::Cylinder),
+        ShapeType::Cone => Some(TangencyKind::Cone),
+        _ => None,
+    }
+}
+
+/// Whether either shape in the pair is a mesh. Consulted only where
+/// [`fcl_tangency_verdict`] is used at `dist == 0.0` in [`accumulate_collision`]
+/// — not in that function's `None`-but-touching branch, whose
+/// [`query::intersection_test`] fallback exists specifically for a
+/// *specialised closed-form* routine excluding a boundary its own geometric
+/// test admits (`contact_ball_ball`'s strict `<`; see
+/// `parry_boolean_queries_disagree_in_both_directions_at_the_tie`). Mesh
+/// pairs go through `contact_composite_shape_shape`/
+/// `contact_shape_composite_shape` — the same generic per-triangle traversal
+/// as any other non-ball pair, not a closed-form specialisation — and
+/// already return `Some` at exact tangency today
+/// (`exact_tangency_is_decided_per_shape_pair.rs`'s `mesh` row), so
+/// extending the `None` branch to mesh would add an `intersection_test` call
+/// to every non-touching mesh pair in a scene for a case that, unlike
+/// `sphere x sphere`, has no measurement showing it is ever reached.
+fn is_mesh_pair(a: &dyn parry3d_f64::shape::Shape, b: &dyn parry3d_f64::shape::Shape) -> bool {
+    a.shape_type() == ShapeType::TriMesh || b.shape_type() == ShapeType::TriMesh
+}
+
+/// fcl's tangency-dispatch table (`fcl_tangency_table`, generated from the
+/// pinned oracle image's own registration macros — see
+/// `tools/ci/verify-fcl-tangency-dispatch.sh`), for a shape pair that
+/// classifies into [`TangencyKind`] on both sides. `None` when either shape
+/// doesn't — the caller falls back to its own pre-existing behaviour, mesh
+/// included ([`is_mesh_pair`] is checked separately, ahead of this).
+fn fcl_tangency_verdict(
+    a: &dyn parry3d_f64::shape::Shape,
+    b: &dyn parry3d_f64::shape::Shape,
+) -> Option<bool> {
+    Some(
+        crate::fcl_tangency_table::SPECIALISED[tangency_kind(a)? as usize]
+            [tangency_kind(b)? as usize],
+    )
+}
+
 /// `collisionCallback`'s per-pair algorithm (see the module doc, deviations
 /// 4 and 5, and "Attached-body geometry"), folded over every candidate pair:
 ///
@@ -2121,15 +2185,22 @@ fn pair_key(a: &str, b: &str) -> (String, String) {
 ///   after it — it can override any other ACM outcome, including `Never` or
 ///   no entry, matching upstream's own evaluation order.
 /// - Real contact found (`parry3d_f64::query::contact`, prediction `0.0`,
-///   so only touching/penetrating pairs yield `Some`) and
-///   [`AllowedCollision::Conditional`]: the predicate decides — rejected
-///   (`false`) is a collision, accepted (`true`) is silently not.
-/// - Real contact found and [`AllowedCollision::Never`] or no entry:
-///   unconditionally a collision.
-/// - `Err`/`None` from the query (no contact, or an unsupported shape-pair
-///   combination — unreachable for the `Ball`/`Cuboid`/`Cylinder`/`Cone`/
-///   `HalfSpace`/`TriMesh` compounds this backend builds, all pairwise-
-///   supported by `parry`'s default query dispatcher): not a collision.
+///   so only touching/penetrating pairs yield `Some`), off the exact tie
+///   (`contact.dist != 0.0`), and [`AllowedCollision::Conditional`]: the
+///   predicate decides — rejected (`false`) is a collision, accepted
+///   (`true`) is silently not.
+/// - Real contact found off the exact tie, and [`AllowedCollision::Never`]
+///   or no entry: unconditionally a collision.
+/// - Real contact found exactly at the tie (`contact.dist == 0.0`):
+///   [`fcl_tangency_verdict`]/[`is_mesh_pair`] decide whether the pair
+///   touches at all before the two rules above ever run — see their own
+///   docs and [`TangencyKind`].
+/// - No contact, but the pair classifies into [`TangencyKind`] as one the
+///   table says collides, is not [`AllowedCollision::Conditional`], and
+///   [`query::intersection_test`] independently confirms they touch:
+///   unconditionally a collision, with no `Contact` recorded — see the
+///   branch's own comment below for why.
+/// - `Err`/`None` from the query and none of the above: not a collision.
 ///
 /// The `collision` flag is set independent of the storage budget
 /// (`request.max_contacts`, `request.max_contacts_per_pair`) for every pair,
@@ -2180,18 +2251,22 @@ fn accumulate_collision<'a>(
                 // and a `1e-7 m` gap yields `None`, so the effective boundary sits
                 // near `5e-8 m` of clear air rather than at zero.
                 //
-                // Adding the sign check was tried and reverted, because upstream
+                // A blanket sign check was tried and reverted, because upstream
                 // is not uniform at exact contact and the margin is what absorbs
-                // the difference. `fcl::collide` dispatches per shape pair:
-                // `octree_world_collision_response.json` case 4 -- an octree leaf
-                // whose `-x` face lands exactly on the robot box's `+x` face --
-                // comes back `robot_collision: true, robot_distance: -0.0`, while
-                // prbt's cylinder resting exactly on a box comes back `false` with
-                // the `-1.0` sentinel (`doc/upstream-bugs.md`,
+                // the difference away from it. `fcl::collide` dispatches per
+                // shape pair: `octree_world_collision_response.json` case 4 --
+                // an octree leaf whose `-x` face lands exactly on the robot
+                // box's `+x` face -- comes back `robot_collision: true,
+                // robot_distance: -0.0`, while prbt's cylinder resting exactly
+                // on a box comes back `false` with the `-1.0` sentinel
+                // (`doc/upstream-bugs.md`,
                 // `fcl-distance-sentinel-survives-zero-contacts`). `parry` puts
                 // that octree pair a hair *above* zero, so a strict `dist > 0.0`
-                // guard turns case 4 into a parity failure while changing nothing
-                // about prbt, whose tie already lands at `-2.775558e-17`.
+                // guard turns case 4 into a parity failure while changing
+                // nothing about prbt, whose tie already lands at
+                // `-2.775558e-17`, not exactly `0.0` -- which is why the exact
+                // dispatch table below leaves both of those cases alone: it is
+                // reached only at `dist == 0.0` exactly.
                 // `crates/moveit-collision/tests/exact_tangency_boundary.rs` pins
                 // both ends of this as measurements rather than intentions.
                 // Independent of `is_collision`, below: `collision_common.cpp`
@@ -2208,11 +2283,25 @@ fn accumulate_collision<'a>(
                     }
                 }
                 let mut c = to_contact(&contact, &a.name, a.body_type, &b.name, b.body_type);
-                let is_collision = match allowed {
-                    Some(AllowedCollision::Conditional(ref predicate)) => !predicate(&mut c),
-                    Some(AllowedCollision::Never) | None => true,
-                    Some(AllowedCollision::Always) => unreachable!("filtered out above"),
+                // Off the exact tie (either sign) a `Some` is unconditionally a
+                // touch, unchanged from above `contact.dist == 0.0` did not
+                // exist as a case: §229.2's positive margin and octree case 4
+                // both depend on that staying true. Only an exact-zero gap asks
+                // what shape pair this is -- fcl's own dispatch decides there,
+                // via `fcl_tangency_verdict`, mesh via `is_mesh_pair` ahead of
+                // it since mesh is not in that table (see its doc).
+                let touches = if contact.dist == 0.0 {
+                    is_mesh_pair(a_shape, b_shape)
+                        || fcl_tangency_verdict(a_shape, b_shape).unwrap_or(true)
+                } else {
+                    true
                 };
+                let is_collision = touches
+                    && match allowed {
+                        Some(AllowedCollision::Conditional(ref predicate)) => !predicate(&mut c),
+                        Some(AllowedCollision::Never) | None => true,
+                        Some(AllowedCollision::Always) => unreachable!("filtered out above"),
+                    };
                 if is_collision {
                     collision = true;
                     if request.contacts && stored_total < request.max_contacts {
@@ -2223,6 +2312,31 @@ fn accumulate_collision<'a>(
                         }
                     }
                 }
+            } else if !matches!(allowed, Some(AllowedCollision::Conditional(_)))
+                && fcl_tangency_verdict(a_shape, b_shape) == Some(true)
+                && query::intersection_test(a_pose, a_shape, b_pose, b_shape).unwrap_or(false)
+            {
+                // `query::contact` missed this pair (`None`) even though they
+                // are geometrically touching or overlapping
+                // (`query::intersection_test` is `true`): the only way that
+                // happens is a specialised closed-form routine excluding a
+                // boundary its own geometric test admits --
+                // `contact_ball_ball`'s strict `<` vs
+                // `intersection_test_ball_ball`'s `<=` is the one this crate
+                // has measured
+                // (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`).
+                // `fcl_tangency_verdict` gates this to the pairs the table
+                // says collide, so a pair it says does *not* (e.g. `box x
+                // cone`) never reaches `intersection_test` here at all --
+                // this branch cannot make one of those `true`.
+                //
+                // There is no `Contact` to build for this pair, so unlike
+                // every other branch this sets `collision` alone: no
+                // `by_pair` entry, no cost sources, and
+                // `AllowedCollision::Conditional` pairs are excluded above
+                // rather than guessed at, since its predicate needs a
+                // `Contact` this branch cannot produce.
+                collision = true;
             }
             // Reached whether or not the query found anything, exactly as
             // upstream's termination block is: `fcl::collide` returning zero
@@ -5094,54 +5208,68 @@ mod tests {
         assert_eq!(closest_distance(&result), 0.0);
     }
 
-    /// Why [`accumulate_collision`]'s `sphere × sphere` tangency cell cannot be
-    /// closed by swapping its query, measured on the two configurations that
-    /// pull in opposite directions.
+    /// Why [`accumulate_collision`]'s `None`-but-touching branch is gated the
+    /// way it is, measured on the two configurations that pull in opposite
+    /// directions.
     ///
     /// `parry` answers "do these two touch?" with two different queries, and
     /// they disagree in *both* directions -- each one is the only correct
     /// answer for a case this crate already pins, so neither can replace the
-    /// other and neither is right for both:
+    /// other outright:
     ///
     /// | pair | gap | `contact(_, 0.0)` | `intersection_test` |
     /// |---|---|---|---|
     /// | `sphere × sphere`, exact tangency | exactly `0` | `None` | `true` |
     /// | octree leaf face on the robot box | `+4.129349354679189e-17` | `Some` | `false` |
     ///
-    /// Row 1 is the cell §251.3 records: `contact_ball_ball` takes the boundary
-    /// with a strict `<`, so the port's `sphere × sphere` alone answers `false`
-    /// at exact tangency where its other 24 pairs answer `true`.
-    /// [`query::intersection_test`] has no such gap -- it is `true` for all 25
-    /// pairs at exact tangency, because `intersection_test_ball_ball` takes the
-    /// same boundary with `<=`.
+    /// Row 1: `contact_ball_ball` takes the boundary with a strict `<`, so
+    /// `query::contact` alone answers `false` for `sphere × sphere` at exact
+    /// tangency. [`query::intersection_test`] has no such gap -- it is `true`
+    /// for all 25 pairs [`crate`]'s own tangency table covers, because
+    /// `intersection_test_ball_ball` takes the same boundary with `<=`.
+    /// `accumulate_collision`'s `None` branch is exactly this row's fix:
+    /// gated on [`fcl_tangency_verdict`] saying the pair's [`TangencyKind`]
+    /// collides (`sphere`/`sphere` does) and on `intersection_test`
+    /// confirming the tie, it sets `collision = true` with no `Contact`
+    /// recorded (see that branch's own comment for why none exists to
+    /// record).
     ///
-    /// Row 2 is why it still cannot be substituted. The octree leaf's `-x` face
-    /// and the box's `+x` face are one leaf-quantisation ulp apart rather than
-    /// exactly equal, so the pair sits in strictly positive air.
+    /// Row 2 is why that branch is gated rather than a blanket
+    /// `contact(_, 0.0).is_some() || intersection_test`. The octree leaf's
+    /// `-x` face and the box's `+x` face are one leaf-quantisation ulp apart
+    /// rather than exactly equal, so the pair sits in strictly positive air.
     /// [`query::intersection_test`] is exactly "gap `<= 0`" and rejects it;
     /// only the positive margin `query::contact` carries at prediction `0.0`
     /// admits it, and upstream calls that pair a collision
     /// (`octree_world_collision_response.json` case 4, `robot_collision: true`).
-    /// Substituting `intersection_test` was run: it fails that fixture with
-    /// `id 4: robot_collision mismatch`, alongside
+    /// A blanket union would still answer this row correctly (`Some`, so the
+    /// union takes the `Some` branch and never even evaluates
+    /// `intersection_test`) -- row 2 is not why the union is *wrong*; it is
+    /// why substituting `intersection_test` for `query::contact` everywhere
+    /// is: that substitution fails this fixture with `id 4: robot_collision
+    /// mismatch`, alongside
     /// `check_robot_collision_touching_exactly_on_an_octree_leaf_face_is_detected`
     /// and `exact_tangency_boundary`'s `the_collision_boundary_sits_in_a_positive_gap`
     /// -- the same case §229.2's `contact.dist <= 0.0` gate broke, and for the
     /// same reason: both remove the margin.
     ///
-    /// Taking the union instead (`contact(_, 0.0).is_some() || intersection_test`)
-    /// keeps the margin and does turn row 1's cell `true`, but it can only
-    /// report that collision with no `Contact` to describe it, and upstream
-    /// never does: `res_->collision = true` sits inside `if (num_contacts > 0)`
+    /// The real reason the `None` branch is *gated* rather than an
+    /// unconditional union: upstream can never report a collision with zero
+    /// contacts (`res_->collision = true` sits inside `if (num_contacts > 0)`
     /// in all three branches of `collisionCallback`
     /// (`moveit_core/collision_detection_fcl/src/collision_common.cpp:269`,
     /// `moveit_core/collision_detection_fcl/src/collision_common.cpp:332`,
     /// `moveit_core/collision_detection_fcl/src/collision_common.cpp:367`),
-    /// and the first of those reaches it only through a `DecideContactFn` call
-    /// made once per contact
+    /// and the first of those reaches it only through a `DecideContactFn`
+    /// call made once per contact
     /// (`moveit_core/collision_detection_fcl/src/collision_common.cpp:243-247`)
-    /// that a contactless branch would
-    /// bypass.
+    /// -- so an unconditional union would bypass
+    /// `AllowedCollision::Conditional` wholesale, turning any predicate's
+    /// `true` (allowed) into an unreviewable `true` (collision) the moment a
+    /// pair's own boolean queries happened to disagree this way. Restricting
+    /// the branch to kind pairs [`fcl_tangency_verdict`] says collide, and
+    /// excluding `Conditional` outright, keeps that bypass from reaching any
+    /// pair this table has no measurement calling a collision.
     #[test]
     fn parry_boolean_queries_disagree_in_both_directions_at_the_tie() {
         let cache = OctreeCache::default();

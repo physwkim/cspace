@@ -135,3 +135,104 @@ run_verdict() {
   fi
   echo "disagreed"
 }
+
+# Names why the oracle image's stamp could not be confirmed to match the tree.
+#
+# Six gates each carried their own copy of
+#
+#   have="$(docker run --rm --entrypoint cat "$IMAGE" .../oracle-src.sha256 2>/dev/null || true)"
+#   if [[ "$have" != "$want" ]]; then ... "image: ${have:-<missing or unstamped>}"
+#
+# in which `2>/dev/null || true` collapses four different causes into one empty
+# string: the docker daemon was unreachable, the image was never built, the
+# image predates the stamp, or the stamp is present and different. All four
+# then printed `<missing or unstamped>` and the same remediation, "rebuild with
+# build.sh" -- which is the right advice for exactly one of them. Observed:
+# running the sweeps outside the `docker` group printed
+# `image: <missing or unstamped>` and `exited 2 before reporting a verdict`,
+# reading as a crashed comparison; the same gate under `sg docker` was RC=0
+# with `failed: 0`. Two readers diagnosed that as a missing fixture tree.
+#
+# Each cause is decided by a command whose whole purpose is that question --
+# `command -v docker`, `docker version`, `docker image inspect` -- rather than
+# by grepping docker's prose, so a reworded error message cannot silently
+# reclassify a run.
+#
+#   oracle_stamp_verdict <image> <want-stamp>
+#
+# echoes exactly one of:
+#
+#   ok                        stamp present and equal to the tree's
+#   mismatch <have>           stamp present and different -- rebuild
+#   unstamped                 image exists, was built before the stamp existed
+#   image-absent              nothing built this tag yet -- rebuild
+#   docker-absent             no docker on this machine at all
+#   docker-unreachable <why>  docker is installed but refused us
+#
+# and returns 0 for all of them: the caller decides which are a skip and which
+# are a failure. The two that callers must not treat alike are the last two.
+# `docker-absent` is a legitimate environment (a tarball on a build box has no
+# daemon to ask), so skipping is honest. `docker-unreachable` is never that --
+# it means this shell is outside the `docker` group and the gate measured
+# nothing, so a gate that exits 0 there reports a pass for a run that never
+# happened.
+oracle_stamp_verdict() {
+  local image="$1" want="$2" have err
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "docker-absent"
+    return 0
+  fi
+  # `docker version` is the probe rather than `docker info`, which exits 0 even
+  # when it could not reach the daemon. Its `{{.Server.Version}}` still prints
+  # an empty stdout line before the error lands on stderr, so the diagnosis is
+  # the first *non-empty* line, not the first one.
+  if ! err="$(docker version --format '{{.Server.Version}}' 2>&1)"; then
+    echo "docker-unreachable $(printf '%s\n' "$err" | grep -m1 . || echo 'no diagnostic')"
+    return 0
+  fi
+  if ! docker image inspect "$image" >/dev/null 2>&1; then
+    echo "image-absent"
+    return 0
+  fi
+  if ! have="$(docker run --rm --entrypoint cat "$image" /usr/local/share/oracle-src.sha256 2>/dev/null)"; then
+    echo "unstamped"
+    return 0
+  fi
+  if [ "$have" = "$want" ]; then
+    echo "ok"
+  else
+    echo "mismatch $have"
+  fi
+}
+
+# The shared wording for every `oracle_stamp_verdict` outcome that is not `ok`,
+# so six gates cannot drift into six explanations of the same state.
+#
+#   oracle_stamp_explain <verdict> <image> <want-stamp> [prefix]
+#
+# prints the diagnosis on stderr under an optional per-gate prefix (the SKIP
+# gates pass `SKIP ` so their output stays greppable), and returns 0 when the
+# caller may legitimately skip, 1 when it must fail. Only `docker-unreachable`
+# returns 1: see `oracle_stamp_verdict` for why that one is not a skip.
+oracle_stamp_explain() {
+  local verdict="$1" image="$2" want="$3" prefix="${4-}" cause="${1%% *}" detail="${1#* }"
+  case "$cause" in
+    docker-unreachable)
+      # Deliberately not under `prefix`: the callers pass `SKIP ` so their skips
+      # stay greppable, and this outcome is the one that must not read as one.
+      echo "FAIL docker is installed but refused this shell: $detail" >&2
+      echo "FAIL nothing was measured. Re-run under the docker group: sg docker -c '<this script>'." >&2
+      echo "FAIL do not wrap a \${PIPESTATUS[0]} in that string -- sg runs it under sh." >&2
+      return 1
+      ;;
+    docker-absent)  echo "${prefix}this machine has no docker; the oracle cannot be consulted here" >&2 ;;
+    image-absent)   echo "${prefix}$image has never been built on this machine" >&2 ;;
+    unstamped)      echo "${prefix}$image predates /usr/local/share/oracle-src.sha256 and cannot be identified" >&2 ;;
+    mismatch)       echo "${prefix}$image was built from different oracle sources than the working tree" >&2
+                    echo "${prefix}  image: $detail" >&2
+                    echo "${prefix}  tree:  $want" >&2 ;;
+    *)              echo "${prefix}FAIL unknown oracle stamp verdict '$verdict'" >&2; return 1 ;;
+  esac
+  echo "${prefix}rebuild with tools/moveit-oracle/build.sh" >&2
+  return 0
+}

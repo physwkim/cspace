@@ -39,7 +39,6 @@ use std::sync::Arc;
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Shape};
 use moveit_scene::PlanningScene;
-use r2r::geometry_msgs::msg as geometry_msgs;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::collision_object::{
@@ -110,34 +109,9 @@ fn apply_attach(
     }
 
     let id = object.id.clone();
-    let header_frame_id = object.header.frame_id.clone();
-    let moveit_msgs::CollisionObject {
-        pose,
-        primitives,
-        primitive_poses,
-        meshes,
-        mesh_poses,
-        planes,
-        plane_poses,
-        subframe_names,
-        subframe_poses,
-        ..
-    } = object;
 
-    let (mut shapes, mut shape_poses, mut subframes) = shapes_from_message_geometry(
-        scene,
-        &link_name,
-        &header_frame_id,
-        pose,
-        primitives,
-        primitive_poses,
-        meshes,
-        mesh_poses,
-        planes,
-        plane_poses,
-        subframe_names,
-        subframe_poses,
-    )?;
+    let (mut shapes, mut shape_poses, mut subframes) =
+        shapes_from_message_geometry(scene, &link_name, object)?;
 
     if shapes.is_empty() {
         return Err(Error::other(format!(
@@ -190,28 +164,39 @@ type LinkRelativeGeometry = (Vec<Arc<Shape>>, Vec<Isometry3>, BTreeMap<String, I
 /// `PlanningScene::attach`'s own `link_transform.inverse() * object_pose *
 /// s.pose()` (`scene.rs:1180`).
 ///
-/// `header_frame_id` is resolved via [`super::header_frame_transform`], not
+/// `header.frame_id` is resolved via [`super::header_frame_transform`], not
 /// [`moveit_scene::PlanningScene::frame_transform`] directly: upstream's
 /// `getFrameTransform(object.object.header.frame_id)` call here
 /// (`planning_scene.cpp:1606`) has no `knowsFrameTransform` guard in front
 /// of it, so an empty `header.frame_id` resolves to identity through
 /// `getFrameTransform`'s own silent fallback rather than being rejected
 /// (PORTING-PLAN.md §183).
-#[allow(clippy::too_many_arguments)]
+///
+/// The whole `CollisionObject` is taken rather than its nine geometry fields
+/// and its header frame spread across the signature: four of those nine are
+/// `Vec<geometry_msgs::Pose>`, so any two of the four could be transposed at
+/// the call site and still compile. The destructure below binds them by field
+/// name, which is the same check the caller was performing by hand before
+/// handing all nine straight back in positional order.
 fn shapes_from_message_geometry(
     scene: &mut PlanningScene<'_>,
     link_name: &str,
-    header_frame_id: &str,
-    pose: geometry_msgs::Pose,
-    primitives: Vec<r2r::shape_msgs::msg::SolidPrimitive>,
-    primitive_poses: Vec<geometry_msgs::Pose>,
-    meshes: Vec<r2r::shape_msgs::msg::Mesh>,
-    mesh_poses: Vec<geometry_msgs::Pose>,
-    planes: Vec<r2r::shape_msgs::msg::Plane>,
-    plane_poses: Vec<geometry_msgs::Pose>,
-    subframe_names: Vec<String>,
-    subframe_poses: Vec<geometry_msgs::Pose>,
+    object: moveit_msgs::CollisionObject,
 ) -> Result<LinkRelativeGeometry> {
+    let moveit_msgs::CollisionObject {
+        header,
+        pose,
+        primitives,
+        primitive_poses,
+        meshes,
+        mesh_poses,
+        planes,
+        plane_poses,
+        subframe_names,
+        subframe_poses,
+        ..
+    } = object;
+
     let (local_object_pose, shapes, local_shape_poses) = shapes_and_poses_from_collision_object(
         pose,
         primitives,
@@ -227,7 +212,7 @@ fn shapes_from_message_geometry(
         subframe_poses,
     )?;
 
-    let world_to_header = header_frame_transform(scene, header_frame_id)?;
+    let world_to_header = header_frame_transform(scene, &header.frame_id)?;
     let link_transform = {
         let posed = scene.current_state_mut().update();
         posed.global_link_transform(link_name)?
@@ -312,6 +297,9 @@ mod tests {
     use super::*;
     use moveit_model::{MeshSearchPaths, RobotModel};
     use moveit_srdf::SrdfModel;
+    // Only the fixtures below name this alias now: the non-test code reaches
+    // every pose through `moveit_msgs::CollisionObject`'s own fields.
+    use r2r::geometry_msgs::msg as geometry_msgs;
 
     /// Asserts the call was rejected *for the reason named*, not merely
     /// that it was rejected. `apply_attach` has two independent

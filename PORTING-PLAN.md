@@ -5548,7 +5548,7 @@ upstream 결함)이 self-collision뿐 아니라 world-object 쌍에서도 같은
 
 **구성.** 원점 중심, 축 정렬된 두 상자 껍질 — `outer` 반폭 `1.0`, `inner`
 반폭 `0.1` — 을 12개 삼각형(면당 2개)으로 손으로 지었다
-(`box_shell_mesh`, `crates/moveit-collision/src/parry.rs:4049`). `inner`는
+(`box_shell_mesh`, `crates/moveit-collision/src/parry.rs:4163`). `inner`는
 `outer`의 경계 어디에도 닿지 않는다 — 두 메시의 평행한 면 사이 거리가
 축마다 `1.0 - 0.1 = 0.9`이고, 그것이 임의의 두 삼각형 쌍 사이 최소
 거리이기도 하다(꼭짓점이든 면이든, 같은 축 방향으로 내린 최근접점이 항상
@@ -5563,7 +5563,7 @@ upstream 결함)이 self-collision뿐 아니라 world-object 쌍에서도 같은
 (`p` 자신의 기본 `1x1x1` 박스 충돌은 `translation(100,0,0)`로 치워
 간섭하지 않게 했다), 새 시험
 `mesh_engulfment_is_reported_as_no_collision_and_a_positive_gap_not_penetration`
-(`crates/moveit-collision/src/parry.rs:4079`)으로 쟀다:
+(`crates/moveit-collision/src/parry.rs:4193`)으로 쟀다:
 
 | 호출 | 실측 |
 |---|---|
@@ -17786,7 +17786,7 @@ false`만 쓰고 받은 입력을 하나도 읽지 않는다. 어려운 쪽은 "
 `CollisionResult`의 세 `Option` 필드는 요청을 따라간다 — 상류가
 기본 생성된 결과를 그대로 두는 것이 이 포트에서는 "물어봤으니 `Some`,
 안 물어봤으니 `None`"이다. 여기서 인접 결함 하나가 드러났다:
-`ParryCollisionEnv`의 `accumulate_collision`(`parry.rs:2195-2150`)은
+`ParryCollisionEnv`의 `accumulate_collision`(`parry.rs:2270-2221`)은
 `distance: None`을 무조건 쓰므로 `CollisionRequest::distance`를 켠
 호출자에게도 `None`을 준다. `CollisionResult::distance`의 doc이 적어 둔
 "요청했을 때 정확히 존재한다"를 어기는 쪽은 그쪽이다. 이번 라운드 범위가
@@ -30476,8 +30476,8 @@ single-branch — 빈 맵에서는 두 조회의 조건이 모두 불만족이�
   first"를 `query_planners_service_capability.cpp:139`, "merge in
   group-specific params"를 `query_planners_service_capability.cpp:146`으로
   인용하는데,
-  고정된 체크아웃에서 그 두 줄은 각각 135와 141이다. §274에서 들어온 것이고
-  이 라운드가 건드린 코드가 아니라서 그대로 두었다.
+  고정된 체크아웃(`e017c91e`)에서 그 두 줄은 각각 135와 142다 — **정정
+  (2026-08-07):** 원래 적힌 "141"은 오프바이원. §274에서 들어와 그대로 두었다.
 
 ---
 
@@ -36086,7 +36086,7 @@ half_plane이고(초과 판정), `parry.rs:5191`의 `gap > 0.0 && gap < 1e-15`�
 
 | 파일:줄 | 모양(요약) | 판정 | 근거 |
 |---|---|---|---|
-| `parry.rs:4568` | 4개 OR, AABB 포함 위반 | coarse | 무경계 반평면 4개 OR |
+| `parry.rs:4682` | 4개 OR, AABB 포함 위반 | coarse | 무경계 반평면 4개 OR |
 | `parry.rs:4643` | `.abs() >` OR (브리프 예시) | coarse | "초과 판정", `.abs()`가 있어도 half_plane |
 | `parry.rs:5191` | `gap>0.0 && gap<1e-15` (브리프 예시) | precise | `.abs()` 없는 양측 밴드, 폭이 수치 잡음 |
 | `collision_parity.rs:958` | `.abs()<` AND `.abs()<` | precise | 두 abs 톨러런스 AND |
@@ -37005,7 +37005,7 @@ crates/moveit-planners-sbp/examples/plan_benchmark_port.rs` 종료 코드 1). fa
 
 ### §317.2 §251.6 — 셋은 참이다, 넷째는 §229.1에서 이미 두 번 더 옮겨가 있어 거짓이다
 
-**`sphere × sphere` 셀.** falsifier: `accumulate_collision`(`parry.rs:2140`)의
+**`sphere × sphere` 셀.** falsifier: `accumulate_collision`(`parry.rs:2211`)의
 `contact_ball_ball` 호출이나 그 판정 경계가 바뀌었다면 거짓. §251.6이 쓰인 커밋
 (`c5fa6985`, 07:36) 이후 `parry.rs`를 건드린 커밋은 셋뿐이다(`2abc8d0a`·`f1d4ea22`·
 `a1c1ecb7`) — `git diff c5fa6985 HEAD -- crates/moveit-collision/src/parry.rs`의 훅
@@ -37021,10 +37021,10 @@ still exclude the exact tie`). falsifier 불발 — OPEN.
 자신). falsifier 불발 — OPEN.
 
 **`distance` 열은 건드리지 않았다.** falsifier: `mesh × mesh` 접선의 `-1.0`이 §251.2
-말고 다른 절에서도 다뤄졌다면 거짓. `rg -n 'mesh × mesh' PORTING-PLAN.md`는 오늘도
-정확히 두 히트(§251.2 자신의 23283행과 이 불릿 23438행)뿐이다. `distance_robot`
-경로도 §251.6 이후 `parry.rs` 미변경(위 항목과 같은 diff 증거)이므로 값 자체도
-안 바뀌었다. falsifier 불발 — OPEN.
+말고 다른 절에서도 다뤄졌다면 거짓. **정정(2026-08-07):** `rg -n 'mesh × mesh'
+PORTING-PLAN.md`는 오늘 7히트이지 "정확히 두 히트"가 아니다 — 온-토픽은 여전히
+둘(§251.2 자신의 23311행, 이 불릿 23466행)뿐이고, 나머지 다섯은 §265.6의 26836행
+(다른 열 — `collision: bool` 디스패치이지 `distance` 값이 아니다) 하나와 이 절·§323.10 자신이 이 수를 설명하며 인용한 넷(자기 인용)이다. 세 번째 온-토픽 절은 아직 없다. `distance_robot` 경로도 §251.6 이후 `parry.rs` 미변경(위 항목과 같은 diff 증거)이므로 값 자체도 안 바뀌었다. falsifier 불발 — OPEN.
 
 **Phase 3 완료 조건 현황표의 `collision: bool` 행 근거 열 — 거짓 → 닫힘 (§317.2).**
 불릿 본문은 스스로 "처리됨(`17d62b6`) — 이제 `§251.4`"라고 이미 한 번 고쳐 적었지만,
@@ -37363,7 +37363,7 @@ Display")도 이 지역 사본을 건드리지 않는다. falsifier 불발 — O
 falsifier 발화 — **거짓 → 닫힘 (§323.5).**
 
 **접선 자체를 고치지 않았다.** falsifier: `accumulate_collision`
-(`parry.rs:2140`)의 `contact_ball_ball` 호출이나 그 판정 경계가 바뀌었다면
+(`parry.rs:2211`)의 `contact_ball_ball` 호출이나 그 판정 경계가 바뀌었다면
 거짓. §251.6이 쓰인 커밋(`c5fa6985`) 이후 `parry.rs`를 건드린 커밋 셋
 (§317.2가 이미 확인)에 더해 오늘 다시 `git diff c5fa6985 HEAD --
 crates/moveit-collision/src/parry.rs`를 돌려도 `accumulate_collision` 본문은
@@ -38144,3 +38144,188 @@ $ rg -n "42,010" PORTING-PLAN.md
 패치 파일 전수 대조로 확인한 독립 사실이다. L(§270.2)은 §302.10까지
 이어지는 6개 절의 일관된 재확인이며, 이번 라운드가 새로 판정한 42,010건은
 0건이다.
+
+## §326 A3 — planner-benchmark-parity 나머지(§285.9·§296.8·§304.9) 13건을 병합 후 트리에 다시 쟀다 (2026-08-07)
+
+세 lead-in을 배정받았다 — planner-benchmark-parity 테마의 P2 서브라운드
+(§285.9·§296.8) 더하기 이전 라운드 분할표가 못 덮던 §304.9. 먼저
+main(`afdeb968`)을 병합했다(충돌 없음, `d55dd6c6`) — 병합 전 이 브랜치의
+OPEN은 154, 병합 후 145다.
+
+방법은 §316·§317·§320·§323과 같다: 불릿마다 falsifier를 세워 오늘의 트리에
+대고 돌린다. 발화하면 그 불릿 안에 `**거짓 → 닫힘 (§326.N).**`을 박고 근거를
+여기 적는다. 불발하면 OPEN으로 남기고 무엇을 쟀는지 적는다.
+
+배정된 세 절의 오늘자 OPEN 불릿 수는 **13**이다(§285.9 4 + §296.8 5 + §304.9
+4, 병합 후 `doc/residual-claims-triage.md --emit`의 재발행). 브리프가 적은
+12와 1건 어긋난다 — §304.9의 넷째 불릿(`repeat.cpp.*`는 팔이 아니다)까지
+포함해 다시 세었다. 브리프의 12를 따르지 않고 실측 13을 근거로 한다.
+
+13건 전부가 오늘도 참이다. 이 라운드가 새로 닫는 것은 없다.
+
+### §326.1 §285.9 — 넷 다 오늘도 참이다, 넷째는 자기 인용에 오프바이원이 있었다
+
+**① `range` 말고 다른 키는 묶지 않았다.** falsifier: 포트가 `RRTConnect`에
+대해 `range` 말고 다른 이름을 상류와 공유하는 키로 노출했다면 거짓.
+
+```
+$ rg -n '"range"|"resolution"|"seed"' crates/moveit-planning/src/*.rs crates/moveit-planners-sbp/src/*.rs
+registry.rs:573:pub const RANGE_KEY: &str = "range";
+registry.rs:581:            .field("resolution", &self.resolution)
+registry.rs:582:            .field("seed", &self.seed)
+```
+
+세 히트 중 상류 `planner_config` 맵의 문자열 키는 `RANGE_KEY` 하나뿐이다 —
+581/582행은 수동 `Debug` 구현의 필드 라벨(`f.debug_struct(...).field(...)`)
+이지 맵 키가 아니다(같은 파일 565-572행: `goal_bias`도 상류에서
+`RRTConnect`가 아니라 `RRT`/`EST` 키라 묶지 않았다고 스스로 적는다).
+falsifier 불발 — OPEN.
+
+**② `getPlannerConfigurations`는 포팅하지 않았다.** falsifier:
+`fn get_planner_configurations`류의 실제 구현이 있다면 거짓.
+
+```
+$ rg -n 'getPlannerConfigurations|get_planner_configurations' crates/ --type-not md
+crates/moveit-planning/src/planner.rs:153://! - `const PlannerConfigurationMap& getPlannerConfigurations() const`
+```
+
+유일한 히트가 "포팅하지 않은 것" 목록에 있는 doc 주석 자신이다. 실제 구현은
+0건. falsifier 불발 — OPEN.
+
+**③ group 없는 `set`의 도달 불가능성은 그대로 두었다.** falsifier: 그
+경로를 고정한 테스트가 사라졌거나 통과하지 못한다면 거짓.
+
+```
+$ rg -n 'fn a_global_configuration_does_not_govern_a_grouped_query' crates/moveit-planning/src/planner.rs
+440:    fn a_global_configuration_does_not_govern_a_grouped_query() {
+$ cargo nextest run -p moveit-planning a_global_configuration_does_not_govern_a_grouped_query
+PASS [   0.004s] (1/1) moveit-planning planner::tests::a_global_configuration_does_not_govern_a_grouped_query
+```
+
+테스트가 여전히 있고 통과한다. falsifier 불발 — OPEN.
+
+**④ §274.6의 나머지 인용 표류는 이 절의 것이 아니다.** falsifier:
+`planner_params.rs`가 인용하는 `query_planners_service_capability.cpp:139`/
+`:146`이 고정된 체크아웃(`e017c91e`, `/home/stevek/work/moveit2`)에서 그
+줄이 맞다면(드리프트가 없다면) 거짓.
+
+```
+$ rg -n ':139|:146' ros/moveit-ros/src/planner_params.rs
+236:        // "fetch default params first" (`:139`).
+241:            // "merge in group-specific params" (`:146`) -- but the call is
+$ sed -n '130,148p' /home/stevek/work/moveit2/moveit_ros/move_group/src/default_capabilities/query_planners_service_capability.cpp | cat -n
+     6	      configs.find(req->planner_config);  // fetch default params first
+    13	  {  // merge in group-specific params
+```
+
+드리프트는 실재한다(포트의 주석은 139/146을 가리키지만 실제는 135/142) —
+falsifier 불발, OPEN은 맞다. 다만 이 불릿 **자신**이 "고정된 체크아웃에서 그
+두 줄은 각각 135와 **141**이다"라고 적어, 두 번째 수를 하나 틀리게 재정정하고
+있었다 — 위 `cat -n` 6행이 보이듯 실제는 142행이다(135+7, `if
+(!req->group.empty())` 다음의 여는 `{` 줄). §317.2와 같은 성격의 자기 인용
+오류라 이 라운드가 직접 고친다 — 결론(§274.6의 것이지 이 절의 것이 아니다)은
+바뀌지 않는다.
+
+### §326.2 §296.8 — 다섯 다 오늘도 참이다
+
+**① `isCurrentTrajectoryMeshToMeshCollisionFree`의 이름이 몸통과
+어긋난다.** falsifier: `doc/upstream-bugs.md`에 이 항목이 이미 실려 있다면
+거짓.
+
+```
+$ rg -n 'isCurrentTrajectoryMeshToMeshCollisionFree' doc/upstream-bugs.md
+$ rg -n 'never reads' crates/moveit-planners-chomp/src/optimizer.rs
+296://!    name, `isCurrentTrajectoryMeshToMeshCollisionFree` never reads
+```
+
+`upstream-bugs.md` 히트 0건, 소스 자신의 doc 주석은 오늘도 같은 어긋남을
+적는다. falsifier 불발 — OPEN.
+
+**② 유효 반복 예산은 50이 아니라 40이다.** falsifier: 메시 검사 주기가
+10 아닌 값으로 바뀌었다면 거짓.
+
+```
+$ rg -n 'iteration % 10 == 0' crates/moveit-planners-chomp/src/optimizer.rs
+1926:            if self.iteration % 10 == 0
+```
+
+여전히 10 배수에서만 돈다 — 41~49 pass는 오늘도 검사받을 기회가 없다.
+falsifier 불발 — OPEN.
+
+**③ 20건(대조군에서 살아남는 층)의 원인.** falsifier: 이후 절이 그 원인을
+쟀다면 거짓.
+
+```
+$ rg -n 'accepted == 0' PORTING-PLAN.md
+```
+
+다섯 히트 전부 §296 자신(§296.3·§296.6 둘·이 불릿)과 §304.6의 재인용이고,
+"대조군에서 살아남는 20건 자체의 원인"을 새로 재는 곳은 없다(§296.5는 그
+20건이 `evaluations 11, accepted 0`이라는 것만 적는다). falsifier 불발 —
+OPEN.
+
+**④ STOMP 쪽 30/25가 정말 씨앗반환인지.** falsifier: waypoint 단위 비교나
+`ChompLoopTrace` 상당물이 STOMP 쪽에 생겼다면 거짓.
+
+```
+$ rg -n 'ChompLoopTrace' crates/moveit-planners-stomp/src/*.rs
+```
+
+0건. STOMP 쪽은 오늘도 길이 동일성만 잰다. falsifier 불발 — OPEN.
+
+**⑤ 유효씨앗 층 안의 20.3%/24.8%가 STOMP의 어느 종료 조건에서 나오는지.**
+falsifier: 이후 절이 STOMP 종료 조건별로 그 비율을 갈랐다면 거짓.
+
+```
+$ rg -n '20\.3%|24\.8%' PORTING-PLAN.md
+```
+
+두 수의 유일한 등장이 §296.8 자신의 표(§296.6 재인용)와 이 불릿뿐이다 —
+후속 절 없음. falsifier 불발 — OPEN.
+
+### §326.3 §304.9 — 넷 다 오늘도 참이다
+
+**① 비용은 기계의 성질이다.** falsifier: 이후 절이 port STOMP 팔을
+동시 부하 없이 격리해 다시 쟀다면 거짓.
+
+```
+$ rg -n '7505 s|5737 s|격리' PORTING-PLAN.md
+```
+
+두 수의 유일한 등장이 §304.9 자신뿐 — 격리 재측정 없음. falsifier 불발 —
+OPEN.
+
+**② 다른 씨앗 베이스는 이 라운드가 다시 재지 않았다.** falsifier: §286.5의
+CHOMP 424242 표의 NDJSON이 이제 커밋돼 있다면 거짓.
+
+```
+$ find doc -iname '*chomp*424242*' -o -iname '*424242*chomp*'
+$ find doc -maxdepth 1 -iname 'phase8-*chomp*'
+```
+
+0건. `doc/phase8-seedbase-stomp/`는 커밋돼 있지만 이름 그대로 STOMP
+전용이다(`README.md`: `port.stomp.<config>.ndjson` = "this port's STOMP,
+seed base 424242") — CHOMP 424242의 NDJSON은 오늘도 없다. falsifier 불발 —
+OPEN.
+
+**③ `seed.<config>.ndjson`은 다시 재지 않고 옮겨 실었다.** falsifier: 그
+md5가 인용된 값과 다르다면(다시 재유도됐다는 뜻이므로) 거짓.
+
+```
+$ md5sum doc/phase8-baseline-500/seed.floor_wall.ndjson doc/phase8-baseline-500/seed.cage.ndjson
+33bad700bcb05af4f80961be875c9ef0  doc/phase8-baseline-500/seed.floor_wall.ndjson
+88800c09bcb3604d9b99f261ef6f18a3  doc/phase8-baseline-500/seed.cage.ndjson
+```
+
+인용된 두 md5와 바이트 단위로 일치. falsifier 불발 — OPEN.
+
+**④ `repeat.cpp.*`는 팔이 아니다.** falsifier: `cage`용 `repeat.cpp.*`가
+생겼다면(또는 §304.2의 자릿수가 이 파일들에서 다시 났다면) 거짓.
+
+```
+$ find doc/phase8-baseline-500 -iname 'repeat.cpp.*'
+doc/phase8-baseline-500/repeat.cpp.chomp.floor_wall.ndjson
+doc/phase8-baseline-500/repeat.cpp.stomp.floor_wall.ndjson
+```
+
+오늘도 `floor_wall` 둘뿐, `cage`는 없다. falsifier 불발 — OPEN.
