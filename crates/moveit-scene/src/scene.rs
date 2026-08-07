@@ -1200,6 +1200,16 @@ impl<'m> PlanningScene<'m> {
     /// `processAttachedCollisionObjectMsg`'s ADD branch, message-shapes
     /// case. `shape_poses`/`subframes` are relative to `link_name`'s own
     /// frame (see [`AttachedBody`]'s module doc).
+    ///
+    /// If `id` also names an existing world object, that object is
+    /// removed from the world first. Upstream's STEP 2
+    /// (`planning_scene.cpp:1630-1645`) removes any world object sharing
+    /// this id *unconditionally*, regardless of which STEP 1 branch
+    /// supplied the geometry -- so a message-supplied attach onto a
+    /// colliding id reconciles the two exactly like
+    /// [`PlanningScene::attach`]'s world-object case does. Without this,
+    /// `id` could name both a world object and an attached body at once,
+    /// and every collision query folds both in as independent geometry.
     pub fn attach_new(
         &mut self,
         id: &str,
@@ -1217,6 +1227,9 @@ impl<'m> PlanningScene<'m> {
                 "attach_new requires at least one shape, with one pose per shape",
             ));
         }
+        let notification = self.world.remove_object(id);
+        self.track(notification);
+
         self.attached_bodies.insert(
             id.to_owned(),
             AttachedBody::new(
@@ -2263,6 +2276,39 @@ mod tests {
         assert_eq!(
             body.subframe_pose("tip"),
             Some(Isometry3::translation(0.0, 0.0, -0.5))
+        );
+    }
+
+    #[test]
+    fn attach_new_onto_an_existing_world_object_id_removes_it_from_the_world() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("box", cuboid_shape(), Isometry3::identity());
+        assert!(scene.world().has_object("box"));
+
+        scene
+            .attach_new(
+                "box",
+                "hand",
+                vec![cuboid_shape()],
+                vec![Isometry3::identity()],
+                BTreeSet::new(),
+                BTreeMap::new(),
+            )
+            .unwrap();
+
+        // Upstream `processAttachedCollisionObjectMsg`'s STEP 2
+        // (`planning_scene.cpp:1630-1645`) removes any world object
+        // sharing this id unconditionally, regardless of which STEP 1
+        // branch supplied the geometry -- an id must never simultaneously
+        // name both a world object and an attached body, or every
+        // collision query (`world` + `attached_bodies` are both folded
+        // in separately) double-counts it as two independent pieces of
+        // geometry.
+        assert!(scene.has_attached_body("box"));
+        assert!(
+            !scene.world().has_object("box"),
+            "attach_new must remove a same-id world object, like attach does"
         );
     }
 
