@@ -349,5 +349,7 @@ pub use cost::ChompCost;
 pub use moveit_sampling::MultivariateGaussian;
 pub use optimizer::{ChompExit, ChompLoopTrace, ChompObjective, ChompObjectiveProgress};
 pub use parameters::ChompParameters;
-pub use planner::{ChompGoal, ChompRequest, ChompSolution, GoalJointConstraint, solve};
+pub use planner::{
+    ChompGoal, ChompRequest, ChompSolution, GoalJointConstraint, solve, solve_with_trace,
+};
 pub use trajectory::ChompTrajectory;
