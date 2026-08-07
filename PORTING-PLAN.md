@@ -38122,3 +38122,31 @@ $ rg -n 'ORACLE_MOVEIT2_PACKAGES=' tools/moveit-oracle/src-digest.sh
 **사실**(플러그인 껍데기는 비교되지 않았다)을 바꾸지 않는다, 그
 사실을 "의도된 범위"로 재해석할 뿐이다. 사실 자체에 대한 falsifier는
 불발 — OPEN.
+
+### §324.11 §269.10 — `COL_CHECK_DISTANCE`를 바꿔 돌리는 직접 실험이 없다는 것
+
+불릿: "STOMP의 조건 2 실패에 대한 상류 C++ 쪽 `COL_CHECK_DISTANCE`
+기여도를 상수를 바꿔 돌려 직접 확인하는 실험. §263.4가 포트 쪽 3건을
+그 상수로 설명했고 C++ 쪽 2건도 같은 모양이지만, 상수 자체를 바꿔
+돌려 인과를 확인한 실험은 그 형태로는 지금도 없다 — §286.3도 §303도
+`COL_CHECK_DISTANCE`를 고쳐 컴파일한 적은 없다."
+
+falsifier: 오라클 빌드 파이프라인에 upstream `cost_functions.hpp`의
+`COL_CHECK_DISTANCE` 상수를 패치하고 재컴파일하는 단계가 생겼다면
+거짓.
+
+```
+$ grep -rn 'COL_CHECK_DISTANCE' tools/moveit-oracle/
+(0 hits)
+$ grep -n 'patch\|sed -i' tools/moveit-oracle/Dockerfile tools/moveit-oracle/build.sh
+(0 hits)
+```
+
+오라클은 `STOMP_MOVEIT_SRC`(`/ws/src/moveit2/moveit_planners/stomp`)의
+upstream 소스를 무수정 그대로 컴파일한다(§269.1) — 상수를 바꿀
+패치·`sed` 단계 자체가 빌드 파이프라인 어디에도 없다. §291.2도 같은
+날 이 항목을 "절반"으로 적었다 — "그 실험은 지금도 없지만 물음은
+§286.3이 다른 방법으로 답했다"(해상도 그리드로 §286.3이 이미 반증한
+것은 이 불릿과 짝을 이루는 다른 불릿이고, 그 불릿은 이미 §286.3
+인용으로 닫혀 있다 — 이 불릿 자신이 요구하는 "상수를 바꿔 컴파일"
+형태의 직접 실험은 별개로 여전히 없다). falsifier 불발 — OPEN.
