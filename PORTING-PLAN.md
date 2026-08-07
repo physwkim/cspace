@@ -35744,7 +35744,7 @@ Phase 0–9의 것만 나온다(`PORTING-PLAN.md:618`, "각 단계는 **검증 �
 | 항목 | 조건 | 판정 | 측정한 § | 날짜 |
 |---|---|---|---|---|
 | A1 게이트 건전성 | `tools/ci/check-*` 와 `verify-*` 전부가 main tip에서 판정까지 도달하고 — 크래시·전제 미비·조용한 건너뜀 없이 — `not a pass` 출력이 0건. opt-in 게이트(`PHASE3_SWEEP`, `MOVEIT_RS_PHASE8_BENCHMARK`)는 무장한 실행으로 잰다. §5의 Phase 완료 조건을 그대로 단언하는 게이트는 rc에서 제외한다: 오늘 그것은 `verify-phase3-collision-sweep.sh` 하나이고, 그 rc는 §5 Phase 3 행이 이미 싣고 있다 | UNMEASURED | §308 | 2026-08-07 |
-| A2 주장 커버리지 | 세 인용 baseline(`doc/citation-classes.txt`, `doc/citation-classes-in-repo.txt`, `doc/upstream-citation-classes.txt`)에 unresolvable·out-of-bounds·blank-line·anchor-mismatch·span-mismatch·section-mismatch 등급의 행이 0 | MET | §309.5 | 2026-08-07 |
+| A2 주장 커버리지 | 세 인용 baseline(`doc/citation-classes.txt`, `doc/citation-classes-in-repo.txt`, `doc/upstream-citation-classes.txt`)에 unresolvable·out-of-bounds·blank-line·anchor-mismatch·span-mismatch·section-mismatch 등급의 행이 0 | UNMET | §309.5 | 2026-08-07 |
 | A3 잔여 주장 | `doc/residual-claims-census.md`의 OPEN 항목이 0 — 각 항목이 닫히거나, 발화 시점을 적은 만료 조건으로 전환 | UNMET | §308 | 2026-08-07 |
 | A4 수렴 | A1–A3이 충족된 tip에서, 연속 2개 감사 라운드가 게이트 층의 새 결함을 0건 보고 | UNMEASURED | §308 | 2026-08-07 |
 
