@@ -26,18 +26,30 @@
 //   `initialize`, factored out the same way), matching `ButterworthFilter`'s
 //   existing precedent of taking its coefficient as a plain constructor
 //   argument.
-// - **`RuckigFilter::new` is infallible.** Upstream's `initialize()` can
-//   fail only via `getVelAccelJerkBounds` returning `false`; that fallible
-//   half is [`joint_vel_accel_jerk_bounds`] here, called separately by the
-//   caller before constructing a [`RuckigFilter`]. The constructor itself
-//   never fails, matching `rsruckig::InputParameter::new`/`Ruckig::new`,
-//   neither of which is fallible either. It is a caller bug (not validated
-//   here, matching the "trust internal callers" convention this crate's
-//   `ButterworthFilter::new` does not extend to constructor arguments beyond
-//   its own four documented checks) to pass `velocity_bounds`,
-//   `acceleration_bounds`, and `jerk_bounds` of different lengths; the
-//   natural caller is [`joint_vel_accel_jerk_bounds`]'s output, which always
-//   returns three equal-length vectors.
+// - **`RuckigFilter::new` fails only on a non-finite or non-positive
+//   `update_period`.** Upstream's `initialize()` can also fail via
+//   `getVelAccelJerkBounds` returning `false`; that fallible half is
+//   [`joint_vel_accel_jerk_bounds`] here, called separately by the caller
+//   before constructing a [`RuckigFilter`]. `rsruckig::InputParameter::new`/
+//   `Ruckig::new` are not fallible either, matching upstream's own
+//   `ruckig::InputParameter`/`ruckig::Ruckig` constructors -- but
+//   `Ruckig`'s internal `delta_time <= 0.0` check
+//   (`rsruckig::ruckig::Ruckig::validate_input`) is silently discarded by
+//   this filter's `IgnoreErrorHandler`, and upstream's own enforcement is
+//   `ruckig_filter_parameters.yaml`'s `update_period: { validation: { gt<>:
+//   0.0 } }`, checked by ROS parameter-loading tooling before
+//   `RuckigFilterPlugin::initialize` is ever called -- neither the C++
+//   constructor body nor `rsruckig` itself rejects it. Without this port's
+//   own check, a zero or negative `update_period` reaches
+//   `Ruckig::update`'s `output.time += self.delta_time` (never advancing)
+//   and freezes [`Self::do_smoothing`]'s output at the `reset` state
+//   forever, silently returning `Ok` every tick instead of an error. It is
+//   a caller bug (not validated here, matching the "trust internal callers"
+//   convention this crate's `ButterworthFilter::new` does not extend to
+//   constructor arguments beyond its own four documented checks) to pass
+//   `velocity_bounds`, `acceleration_bounds`, and `jerk_bounds` of different
+//   lengths; the natural caller is [`joint_vel_accel_jerk_bounds`]'s output,
+//   which always returns three equal-length vectors.
 // - **`do_smoothing`/`reset` validate slice lengths against the filter's
 //   joint count and return [`Error`] rather than silently mismatching.**
 //   Upstream's `doSmoothing`/`reset` do not validate `positions`/
@@ -172,6 +184,7 @@ pub fn joint_vel_accel_jerk_bounds(
 /// A `Synchronization::Phase`-mode Ruckig instance, run one control-cycle
 /// tick at a time (upstream `RuckigFilterPlugin`, minus the `SmoothingBaseClass`/
 /// pluginlib/ROS-parameter layer — see the module doc).
+#[derive(Debug)]
 pub struct RuckigFilter {
     ruckig: Ruckig<0, IgnoreErrorHandler>,
     input: InputParameter<0>,
@@ -186,12 +199,25 @@ impl RuckigFilter {
     /// per joint, e.g. from [`joint_vel_accel_jerk_bounds`]; `update_period`
     /// is the control-cycle duration in seconds (upstream
     /// `params_.update_period`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Construct`] if `update_period` is not finite and
+    /// positive -- see the module doc's "Deviations from upstream" note on
+    /// why neither upstream's C++ constructor nor `rsruckig` itself rejects
+    /// this.
     pub fn new(
         velocity_bounds: &[f64],
         acceleration_bounds: &[f64],
         jerk_bounds: &[f64],
         update_period: f64,
-    ) -> Self {
+    ) -> Result<Self> {
+        if !update_period.is_finite() || update_period <= 0.0 {
+            return Err(Error::construct(format!(
+                "online_signal_smoothing::RuckigFilter: update_period must be finite and \
+                 positive, got {update_period}"
+            )));
+        }
         let num_joints = velocity_bounds.len();
         let mut input = InputParameter::<0>::new(Some(num_joints));
         for i in 0..num_joints {
@@ -204,12 +230,12 @@ impl RuckigFilter {
         }
         input.synchronization = Synchronization::Phase;
 
-        Self {
+        Ok(Self {
             ruckig: Ruckig::<0, IgnoreErrorHandler>::new(Some(num_joints), update_period),
             input,
             output: OutputParameter::<0>::new(Some(num_joints)),
             have_initial_output: false,
-        }
+        })
     }
 
     /// The number of joints this filter was constructed for.
@@ -544,7 +570,7 @@ mod tests {
     /// this test asserts bound compliance throughout, not convergence).
     #[test]
     fn do_smoothing_respects_velocity_and_acceleration_bounds_throughout() {
-        let mut filter = RuckigFilter::new(&[1.0], &[2.0], &[20.0], 0.01);
+        let mut filter = RuckigFilter::new(&[1.0], &[2.0], &[20.0], 0.01).unwrap();
         filter.reset(&[0.0], &[0.0], &[0.0]).unwrap();
 
         let mut positions = [0.05];
@@ -573,7 +599,7 @@ mod tests {
     /// long-run steady-state behaviour the test above documents.
     #[test]
     fn first_tick_from_rest_moves_toward_a_nearby_target() {
-        let mut filter = RuckigFilter::new(&[1.0], &[2.0], &[20.0], 0.01);
+        let mut filter = RuckigFilter::new(&[1.0], &[2.0], &[20.0], 0.01).unwrap();
         filter.reset(&[0.0], &[0.0], &[0.0]).unwrap();
 
         let mut positions = [0.02];
@@ -602,7 +628,7 @@ mod tests {
         // `Err` in this configuration, so no message-swap bite against
         // it was ever possible, despite what an earlier version of this
         // comment claimed.
-        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01).unwrap();
         filter.reset(&[0.0, 0.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap();
         let mut positions = [0.5];
         let mut velocities = [0.0];
@@ -615,7 +641,7 @@ mod tests {
 
     #[test]
     fn do_smoothing_rejects_a_positions_only_mismatch() {
-        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01).unwrap();
         filter.reset(&[0.0, 0.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap();
         let mut positions = [0.5];
         let mut velocities = [0.0, 0.0];
@@ -628,7 +654,7 @@ mod tests {
 
     #[test]
     fn do_smoothing_rejects_a_velocities_only_mismatch() {
-        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01).unwrap();
         filter.reset(&[0.0, 0.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap();
         let mut positions = [0.5, 0.5];
         let mut velocities = [0.0];
@@ -641,7 +667,7 @@ mod tests {
 
     #[test]
     fn do_smoothing_rejects_an_accelerations_only_mismatch() {
-        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01).unwrap();
         filter.reset(&[0.0, 0.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap();
         let mut positions = [0.5, 0.5];
         let mut velocities = [0.0, 0.0];
@@ -654,29 +680,54 @@ mod tests {
 
     #[test]
     fn reset_rejects_a_mismatched_length() {
-        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01).unwrap();
         let err = filter.reset(&[0.0], &[0.0], &[0.0]).unwrap_err();
         assert!(matches!(err, Error::Other(_)), "{err:?}");
     }
 
     #[test]
     fn reset_rejects_a_positions_only_mismatch() {
-        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01).unwrap();
         let err = filter.reset(&[0.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap_err();
         assert!(matches!(err, Error::Other(_)), "{err:?}");
     }
 
     #[test]
     fn reset_rejects_a_velocities_only_mismatch() {
-        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01).unwrap();
         let err = filter.reset(&[0.0, 0.0], &[0.0], &[0.0, 0.0]).unwrap_err();
         assert!(matches!(err, Error::Other(_)), "{err:?}");
     }
 
     #[test]
     fn reset_rejects_an_accelerations_only_mismatch() {
-        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01).unwrap();
         let err = filter.reset(&[0.0, 0.0], &[0.0, 0.0], &[0.0]).unwrap_err();
         assert!(matches!(err, Error::Other(_)), "{err:?}");
+    }
+
+    // Before this check existed, `update_period = 0.0` reached
+    // `Ruckig::new` unchecked: `Ruckig::validate_input`'s own `delta_time <=
+    // 0.0` check (rsruckig `ruckig.rs`) fired but was silently swallowed by
+    // `IgnoreErrorHandler`, and `Ruckig::update`'s `output.time +=
+    // self.delta_time` never advanced -- every tick resampled the
+    // just-recalculated trajectory at its own t=0, i.e. exactly the current
+    // state, freezing the filter's output at the `reset` position forever
+    // while still returning `Ok` every tick. See [`RuckigFilter::new`]'s
+    // `# Errors`.
+    #[test]
+    fn new_rejects_a_non_positive_update_period() {
+        let err = RuckigFilter::new(&[1.0], &[2.0], &[20.0], 0.0).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "{err:?}");
+        let err = RuckigFilter::new(&[1.0], &[2.0], &[20.0], -0.01).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "{err:?}");
+    }
+
+    #[test]
+    fn new_rejects_a_non_finite_update_period() {
+        let err = RuckigFilter::new(&[1.0], &[2.0], &[20.0], f64::NAN).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "{err:?}");
+        let err = RuckigFilter::new(&[1.0], &[2.0], &[20.0], f64::INFINITY).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "{err:?}");
     }
 }
