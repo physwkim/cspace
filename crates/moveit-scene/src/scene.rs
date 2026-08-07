@@ -41,6 +41,36 @@ pub struct PathValidity {
     pub invalid_waypoints: Vec<usize>,
 }
 
+/// A world object's display color, set with [`PlanningScene::set_object_color`].
+/// Upstream `std_msgs::msg::ColorRGBA`'s four fields — a message-free port
+/// of the value, not the message type: see [`PlanningScene`]'s own doc,
+/// "Object colors and types," for why the `moveit_msgs`/`std_msgs`
+/// namespace this value's upstream type lives in does not make it part of
+/// this crate's message round-trip exclusion.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ObjectColor {
+    /// Red, `0.0..=1.0`.
+    pub r: f32,
+    /// Green, `0.0..=1.0`.
+    pub g: f32,
+    /// Blue, `0.0..=1.0`.
+    pub b: f32,
+    /// Alpha (opacity), `0.0..=1.0`.
+    pub a: f32,
+}
+
+/// A world object's semantic label, set with [`PlanningScene::set_object_type`].
+/// Upstream `object_recognition_msgs::msg::ObjectType`: `key` names the
+/// object category, `db` names the database it was recognized against.
+/// Same message-free reasoning as [`ObjectColor`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ObjectType {
+    /// The object category, e.g. `"cup"`.
+    pub key: String,
+    /// The database the category came from.
+    pub db: String,
+}
+
 /// The environment a planning instance reasons about: the world, the ACM,
 /// the current [`RobotState`], attached bodies, and (for a diff scene) a
 /// parent to fall back on. Upstream `planning_scene::PlanningScene`.
@@ -490,10 +520,48 @@ pub struct PathValidity {
 /// ## Object colors and types
 ///
 /// - `hasObjectColor`/`getObjectColor`/`getOriginalObjectColor`/
-///   `setObjectColor`/`removeObjectColor`/`getKnownObjectColors` — D1
-///   (`std_msgs::msg::ColorRGBA`).
+///   `setObjectColor`/`removeObjectColor`/`getKnownObjectColors` —
+///   **not D1**: `std_msgs::msg::ColorRGBA` is the value type stored, not a
+///   round-tripped message. Three message-free upstream callers reach this
+///   family: `removeAllCollisionObjects` (`planning_scene.cpp:1471-1472`)
+///   and `processCollisionObjectRemove` (`:1946-1947`) both call
+///   `removeObjectColor` right alongside the world-object removal they are
+///   already ported natively as; `decoupleParent` (`:1281-1291`)
+///   `getKnownObjectColors`-merges a parent's colors into its own map
+///   before severing the parent link; `pushDiffs` (`:354-357`, `:375`,
+///   `:388-389`) pushes colors for attached objects and world-diff
+///   ADD/MOVE/DESTROY entries. Ported as
+///   [`PlanningScene::has_object_color`]/[`PlanningScene::object_color`]/
+///   [`PlanningScene::original_object_color`]/
+///   [`PlanningScene::set_object_color`]/
+///   [`PlanningScene::remove_object_color`]/
+///   [`PlanningScene::known_object_colors`], backed by the new
+///   [`ObjectColor`] type instead of a dependency on a ROS message crate
+///   for one 4-field struct.
 /// - `hasObjectType`/`getObjectType`/`setObjectType`/`removeObjectType`/
-///   `getKnownObjectTypes` — D1 (`object_recognition_msgs::msg::ObjectType`).
+///   `getKnownObjectTypes` — **not D1** either, same reasoning:
+///   `removeAllCollisionObjects`/`processCollisionObjectRemove` call
+///   `removeObjectType` alongside `removeObjectColor` at the same two
+///   sites, and `decoupleParent`/`pushDiffs` merge/push
+///   `getKnownObjectTypes`/type entries the same way. Ported as
+///   [`PlanningScene::has_object_type`]/[`PlanningScene::object_type`]/
+///   [`PlanningScene::set_object_type`]/[`PlanningScene::remove_object_type`]/
+///   [`PlanningScene::known_object_types`], backed by the new
+///   [`ObjectType`] type.
+///
+/// Both bullets read "D1 (octomap/message-round-trip naming constants,
+/// unused without message handling)"-shaped classifications until this
+/// round, disproved the same way `OCTOMAP_NS`/`DEFAULT_SCENE_NAME` were
+/// above: the message type named in the old bullet was the *value* type
+/// inside a message-free accessor API, not evidence the API itself needed
+/// a message. The gap this left was live, not theoretical:
+/// `removeAllCollisionObjects` (already ported) removed only 2 of
+/// upstream's 4 per-id cleanups (world object, ACM entry) because the
+/// other 2 (color, type) had nowhere to go — the state to prune did not
+/// exist. See [`PlanningScene::remove_object`]/
+/// [`PlanningScene::remove_all_objects`]/[`PlanningScene::decouple_parent`]/
+/// [`PlanningScene::clear_diffs`]/[`PlanningScene::push_diffs`]/
+/// [`PlanningScene::detach`] for where the fix landed.
 ///
 /// ## Feasibility predicates
 ///
@@ -718,6 +786,31 @@ pub struct PlanningScene<'m> {
     /// `world_` itself. See [`AttachedBody`]'s module doc for why this
     /// state lives here at all instead of on [`RobotState`].
     attached_bodies: BTreeMap<String, AttachedBody>,
+    /// This scene's own object-color overrides. Upstream `object_colors_`
+    /// (`std::unique_ptr<ObjectColorMap>`, null-or-present). Represented
+    /// here as an always-present (possibly empty) map rather than
+    /// `Layered<BTreeMap<..>>`: unlike `robot_state`/`acm`/`transforms`,
+    /// upstream's own semantics is a per-key merge, not a whole-value
+    /// override — every reader (`hasObjectColor`, `getObjectColor`) checks
+    /// its own map for the key first and only falls through to `parent_`
+    /// when the key itself is absent, so a scene with *some* of its own
+    /// colors set still transparently sees the parent's colors for every
+    /// other id. Nothing upstream distinguishes a null map from an empty
+    /// one on read, so "always present" costs nothing.
+    object_colors: BTreeMap<String, ObjectColor>,
+    /// The color first ever set for each id, kept even after
+    /// [`PlanningScene::remove_object_color`]. Upstream
+    /// `original_object_colors_` — deliberately asymmetric with
+    /// `object_colors` above: upstream's `getOriginalObjectColor` has no
+    /// parent fallthrough of its own, and neither `decoupleParent` nor
+    /// `clearDiffs` ever touches it, so this map is never merged from a
+    /// parent and never reset; only [`PlanningScene::set_object_color`]
+    /// writes it, once per id.
+    original_object_colors: BTreeMap<String, ObjectColor>,
+    /// This scene's own object-type overrides. Upstream `object_types_`
+    /// (`std::optional<ObjectTypeMap>`); same always-present-map
+    /// representation as `object_colors`, for the same reason.
+    object_types: BTreeMap<String, ObjectType>,
 }
 
 /// The default name given to a root scene. Upstream
@@ -762,6 +855,9 @@ impl<'m> PlanningScene<'m> {
             acm: Layered::Own(AllowedCollisionMatrix::from_srdf(srdf)),
             transforms: Layered::Own(transforms),
             attached_bodies: BTreeMap::new(),
+            object_colors: BTreeMap::new(),
+            original_object_colors: BTreeMap::new(),
+            object_types: BTreeMap::new(),
         }
     }
 
@@ -1042,23 +1138,26 @@ impl<'m> PlanningScene<'m> {
         outcome
     }
 
-    /// Remove a world object entirely. Upstream `processCollisionObjectRemove`:
-    /// removes the object and — unlike attach, which never touches the
-    /// ACM (see [`PlanningScene::attach`]'s doc) — prunes the ACM entry for
-    /// `id` too, since this really is the object leaving the scene for
-    /// good. Returns whether an object was actually removed.
+    /// Remove a world object entirely. Upstream `processCollisionObjectRemove`
+    /// (`planning_scene.cpp:1931-1949`): removes the object and — unlike
+    /// attach, which never touches the ACM (see [`PlanningScene::attach`]'s
+    /// doc) — prunes its color, its type, and the ACM entry for `id` too,
+    /// since this really is the object leaving the scene for good. Returns
+    /// whether an object was actually removed.
     pub fn remove_object(&mut self, id: &str) -> bool {
         let Some(notification) = self.world.remove_object(id) else {
             return false;
         };
         self.track(Some(notification));
+        self.remove_object_color(id);
+        self.remove_object_type(id);
         self.allowed_collision_matrix_mut().remove_entries_for(id);
         true
     }
 
     /// Remove every world object except [`PlanningScene::OCTOMAP_NS`].
     /// Upstream `removeAllCollisionObjects` (`planning_scene.cpp:1463-1477`),
-    /// pruning each removed id's ACM entry the same way
+    /// pruning each removed id's color, type, and ACM entry the same way
     /// [`PlanningScene::remove_object`] does.
     ///
     /// The octomap is excluded by upstream's own loop (`if (object_id !=
@@ -1079,6 +1178,10 @@ impl<'m> PlanningScene<'m> {
         for id in &ids {
             let notification = self.world.remove_object(id);
             self.track(notification);
+        }
+        for id in &ids {
+            self.remove_object_color(id);
+            self.remove_object_type(id);
         }
         let acm = self.allowed_collision_matrix_mut();
         for id in &ids {
@@ -1130,6 +1233,115 @@ impl<'m> PlanningScene<'m> {
         subframe_poses: BTreeMap<String, Isometry3>,
     ) -> bool {
         self.world.set_subframes_of_object(id, subframe_poses)
+    }
+
+    // ---- object colors and types ---------------------------------------------
+
+    /// Whether `id` has a color set, on this scene or (recursively) any
+    /// ancestor. Upstream `hasObjectColor` (`planning_scene.cpp:2124-2133`).
+    pub fn has_object_color(&self, id: &str) -> bool {
+        self.object_colors.contains_key(id)
+            || self
+                .parent
+                .as_deref()
+                .is_some_and(|p| p.has_object_color(id))
+    }
+
+    /// `id`'s color, checking this scene then (recursively) its ancestors.
+    /// Upstream `getObjectColor` (`:2136-2147`) always returns a reference
+    /// (a static empty color when nothing is found); this returns `None`
+    /// instead of manufacturing a fake color for a caller to compare
+    /// against.
+    pub fn object_color(&self, id: &str) -> Option<ObjectColor> {
+        self.object_colors
+            .get(id)
+            .copied()
+            .or_else(|| self.parent.as_deref()?.object_color(id))
+    }
+
+    /// The color first ever set for `id` on this exact scene — never the
+    /// parent's. Upstream `getOriginalObjectColor` (`:2150-2159`), which
+    /// has no parent fallthrough of its own (see `original_object_colors`'s
+    /// field doc for why).
+    pub fn original_object_color(&self, id: &str) -> Option<ObjectColor> {
+        self.original_object_colors.get(id).copied()
+    }
+
+    /// Set `id`'s color on this scene. Upstream `setObjectColor`
+    /// (`:2173-2189`): also records `color` into `original_object_colors`
+    /// the first time `id` gets a color at all (never overwritten after).
+    pub fn set_object_color(&mut self, id: &str, color: ObjectColor) {
+        self.object_colors.insert(id.to_owned(), color);
+        self.original_object_colors
+            .entry(id.to_owned())
+            .or_insert(color);
+    }
+
+    /// Remove `id`'s color override on this scene (an ancestor's color, if
+    /// any, becomes visible again through [`PlanningScene::object_color`]).
+    /// Upstream `removeObjectColor` (`:2191-2195`).
+    pub fn remove_object_color(&mut self, id: &str) {
+        self.object_colors.remove(id);
+    }
+
+    /// Every color visible from this scene: the parent chain's, overridden
+    /// by this scene's own. Upstream `getKnownObjectColors`
+    /// (`:2161-2171`).
+    pub fn known_object_colors(&self) -> BTreeMap<String, ObjectColor> {
+        let mut known = match &self.parent {
+            Some(parent) => parent.known_object_colors(),
+            None => BTreeMap::new(),
+        };
+        known.extend(self.object_colors.iter().map(|(id, c)| (id.clone(), *c)));
+        known
+    }
+
+    /// Whether `id` has a type set, on this scene or (recursively) any
+    /// ancestor. Upstream `hasObjectType` (`planning_scene.cpp:2073-2082`).
+    pub fn has_object_type(&self, id: &str) -> bool {
+        self.object_types.contains_key(id)
+            || self
+                .parent
+                .as_deref()
+                .is_some_and(|p| p.has_object_type(id))
+    }
+
+    /// `id`'s type, checking this scene then (recursively) its ancestors.
+    /// Upstream `getObjectType` (`:2085-2096`) always returns a reference
+    /// (a static empty type when nothing is found); this returns `None`
+    /// instead.
+    pub fn object_type(&self, id: &str) -> Option<&ObjectType> {
+        self.object_types
+            .get(id)
+            .or_else(|| self.parent.as_deref()?.object_type(id))
+    }
+
+    /// Set `id`'s type on this scene. Upstream `setObjectType`
+    /// (`:2099-2104`).
+    pub fn set_object_type(&mut self, id: &str, object_type: ObjectType) {
+        self.object_types.insert(id.to_owned(), object_type);
+    }
+
+    /// Remove `id`'s type override on this scene. Upstream
+    /// `removeObjectType` (`:2106-2110`).
+    pub fn remove_object_type(&mut self, id: &str) {
+        self.object_types.remove(id);
+    }
+
+    /// Every type visible from this scene: the parent chain's, overridden
+    /// by this scene's own. Upstream `getKnownObjectTypes`
+    /// (`:2112-2121`).
+    pub fn known_object_types(&self) -> BTreeMap<String, ObjectType> {
+        let mut known = match &self.parent {
+            Some(parent) => parent.known_object_types(),
+            None => BTreeMap::new(),
+        };
+        known.extend(
+            self.object_types
+                .iter()
+                .map(|(id, t)| (id.clone(), t.clone())),
+        );
+        known
     }
 
     // ---- attached bodies ----------------------------------------------------
@@ -1290,9 +1502,10 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// Detach `id`, adding its geometry back to the world at its current
-    /// global pose. Upstream `processAttachedCollisionObjectMsg`'s REMOVE
-    /// (detach) branch. See [`PlanningScene::attach`]'s doc for why this
-    /// does not touch the ACM.
+    /// global pose, and reverting its color to whatever was first set for
+    /// it (if anything was). Upstream `processAttachedCollisionObjectMsg`'s
+    /// REMOVE (detach) branch. See [`PlanningScene::attach`]'s doc for why
+    /// this does not touch the ACM.
     ///
     /// Errors, leaving the body still attached, if the world already has an
     /// object named `id` — upstream instead warns and silently drops the
@@ -1338,6 +1551,12 @@ impl<'m> PlanningScene<'m> {
             })
             .collect();
         self.world.set_subframes_of_object(id, subframes);
+        // Try to set the object's color to its original color when first
+        // created, so a color changed while attached reverts on detach.
+        // Upstream `planning_scene.cpp:1745-1751`.
+        if let Some(original_color) = self.original_object_color(id) {
+            self.set_object_color(id, original_color);
+        }
         Ok(body)
     }
 
@@ -2017,6 +2236,9 @@ impl<'m> PlanningScene<'m> {
             acm: Layered::Inherited,
             transforms: Layered::Inherited,
             attached_bodies: self.attached_bodies.clone(),
+            object_colors: BTreeMap::new(),
+            original_object_colors: BTreeMap::new(),
+            object_types: BTreeMap::new(),
         }
     }
 
@@ -2030,8 +2252,9 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// If this scene has a parent, apply what changed here — the
-    /// extra-fixed-frame map, current state, ACM, and world changes — onto
-    /// `target`. A no-op if this scene has no parent. Upstream `pushDiffs`.
+    /// extra-fixed-frame map, current state, ACM, object colors/types, and
+    /// world changes — onto `target`. A no-op if this scene has no parent.
+    /// Upstream `pushDiffs` (`planning_scene.cpp:329-386`).
     ///
     /// The world-change replay preserves the one ACM subtlety upstream is
     /// careful about: an id whose only recorded action here is a *pure*
@@ -2042,7 +2265,15 @@ impl<'m> PlanningScene<'m> {
     /// its `target` ACM entry pruned too — *unless* `target` already
     /// considers that id an attached body, exactly mirroring upstream's
     /// `if (!scene->getCurrentState().hasAttachedBody(it.first))` guard via
-    /// [`PlanningScene::has_attached_body`].
+    /// [`PlanningScene::has_attached_body`]. Colors/types have no such
+    /// guard: a `DESTROY` entry strips `target`'s color/type for `id`
+    /// unconditionally (`:375-376`), same as upstream, even when `id` is
+    /// simultaneously becoming an attached body this round — the two
+    /// don't collide in practice because [`PlanningScene::attach`]/
+    /// [`PlanningScene::attach_new`] never set a color/type of their own,
+    /// so there is nothing on `target` for the `DESTROY` entry to strip
+    /// that this method's earlier attached-object push didn't already
+    /// place there for an id attached in an *earlier* diff generation.
     pub fn push_diffs(&self, target: &mut PlanningScene<'m>) {
         if self.parent.is_none() {
             return;
@@ -2053,6 +2284,20 @@ impl<'m> PlanningScene<'m> {
         }
         if let Layered::Own(state) = &self.robot_state {
             target.set_current_state(state.clone());
+            // Push colors and types for attached objects
+            // (`planning_scene.cpp:346-358`) -- gated on the same
+            // condition upstream's `robot_state_.has_value()` is, since
+            // this port's `attach`/`detach` materialize `robot_state`
+            // (via `current_state_mut`) exactly when upstream's touch
+            // `robot_state_` too.
+            for body in self.attached_bodies.values() {
+                if let Some(object_type) = self.object_type(body.id()) {
+                    target.set_object_type(body.id(), object_type.clone());
+                }
+                if let Some(color) = self.object_color(body.id()) {
+                    target.set_object_color(body.id(), color);
+                }
+            }
         }
         if let Layered::Own(acm) = &self.acm {
             target.set_allowed_collision_matrix(acm.clone());
@@ -2064,6 +2309,8 @@ impl<'m> PlanningScene<'m> {
             if *action == Action::DESTROY {
                 let notification = target.world.remove_object(id);
                 target.track(notification);
+                target.remove_object_color(id);
+                target.remove_object_type(id);
                 if !target.has_attached_body(id) {
                     target.allowed_collision_matrix_mut().remove_entries_for(id);
                 }
@@ -2094,21 +2341,33 @@ impl<'m> PlanningScene<'m> {
                     })
                     .collect();
                 target.world.set_subframes_of_object(id, subframes);
+                if let Some(color) = self.object_color(id) {
+                    target.set_object_color(id, color);
+                }
+                if let Some(object_type) = self.object_type(id) {
+                    target.set_object_type(id, object_type.clone());
+                }
             }
         }
     }
 
     /// Materialize every inherited field locally, discard the world diff
     /// (nothing left to diff against), and drop the parent. A no-op if this
-    /// scene has no parent. Upstream `decoupleParent`, scoped to the fields
-    /// this port carries (`object_colors_`/`object_types_` are not ported —
-    /// see the type's scope doc; `scene_transforms_` is layered like
-    /// `robot_state_`/`acm_` and is materialized here alongside them,
-    /// matching upstream `planning_scene.cpp:1260-1264`).
+    /// scene has no parent. Upstream `decoupleParent`
+    /// (`planning_scene.cpp:1255-1310`): `scene_transforms_` is layered
+    /// like `robot_state_`/`acm_` and is materialized here alongside them
+    /// (`:1260-1264`); `object_colors_`/`object_types_` are merged from the
+    /// parent's known colors/types without overwriting any this scene
+    /// already set of its own (`:1278-1291`, `:1295-1308`) — upstream
+    /// branches on "is my map null" to pick `make_unique`-from-parent vs.
+    /// merge-into-existing, which collapses to the same unconditional
+    /// merge here since [`PlanningScene::known_object_colors`]/
+    /// [`PlanningScene::known_object_types`] on an empty map is just the
+    /// parent's own map back.
     pub fn decouple_parent(&mut self) {
-        if self.parent.is_none() {
+        let Some(parent) = self.parent.clone() else {
             return;
-        }
+        };
         if !self.transforms.is_own() {
             let cloned = self.transforms().clone();
             self.transforms = Layered::Own(cloned);
@@ -2120,6 +2379,12 @@ impl<'m> PlanningScene<'m> {
         if !self.acm.is_own() {
             let cloned = self.allowed_collision_matrix().clone();
             self.acm = Layered::Own(cloned);
+        }
+        for (id, color) in parent.known_object_colors() {
+            self.object_colors.entry(id).or_insert(color);
+        }
+        for (id, object_type) in parent.known_object_types() {
+            self.object_types.entry(id).or_insert(object_type);
         }
         self.world_diff = None;
         self.parent = None;
@@ -2149,6 +2414,11 @@ impl<'m> PlanningScene<'m> {
         self.robot_state = Layered::Inherited;
         self.acm = Layered::Inherited;
         self.attached_bodies = parent.attached_bodies.clone();
+        // Upstream resets `object_colors_`/`object_types_` here
+        // (`planning_scene.cpp:334-335`) but not `original_object_colors_`
+        // — see that field's own doc for why it never resets.
+        self.object_colors.clear();
+        self.object_types.clear();
     }
 }
 
@@ -2443,6 +2713,27 @@ mod tests {
         );
     }
 
+    /// "Try to set the object's color to its original color when first
+    /// created. This ensures that the original color is reverted, e.g.,
+    /// when an object is attached and then unattached."
+    /// (`planning_scene.cpp:1745-1746`.)
+    #[test]
+    fn detach_reverts_the_objects_color_to_its_original_on_unattach() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("box", cuboid_shape(), Isometry3::identity());
+        scene.set_object_color("box", red());
+
+        scene.attach("box", "hand", BTreeSet::new()).unwrap();
+        // Changing the color while attached must not become the new
+        // "original" -- only the *first* color ever set for an id does.
+        scene.set_object_color("box", blue());
+
+        scene.detach("box").unwrap();
+
+        assert_eq!(scene.object_color("box"), Some(red()));
+    }
+
     #[test]
     fn remove_object_prunes_the_acm_entry_but_attach_leaves_it_alone() {
         let model = build_model();
@@ -2480,6 +2771,112 @@ mod tests {
              remove_all_objects must too"
         );
         assert!(!scene.world().has_object("box"));
+    }
+
+    // ---- object colors and types ---------------------------------------------
+
+    fn red() -> ObjectColor {
+        ObjectColor {
+            r: 1.0,
+            g: 0.0,
+            b: 0.0,
+            a: 1.0,
+        }
+    }
+
+    fn blue() -> ObjectColor {
+        ObjectColor {
+            r: 0.0,
+            g: 0.0,
+            b: 1.0,
+            a: 1.0,
+        }
+    }
+
+    fn cup() -> ObjectType {
+        ObjectType {
+            key: "cup".to_owned(),
+            db: "household_db".to_owned(),
+        }
+    }
+
+    #[test]
+    fn object_color_and_type_fall_through_to_the_parent_scene() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.set_object_color("box", red());
+        root.set_object_type("box", cup());
+        let root = Arc::new(root);
+        let child = root.diff();
+
+        assert!(child.has_object_color("box"));
+        assert_eq!(child.object_color("box"), Some(red()));
+        assert!(child.has_object_type("box"));
+        assert_eq!(child.object_type("box"), Some(&cup()));
+        assert_eq!(child.known_object_colors().get("box").copied(), Some(red()));
+    }
+
+    #[test]
+    fn set_object_color_records_the_first_color_as_original_but_not_later_ones() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+
+        scene.set_object_color("box", red());
+        scene.set_object_color("box", blue());
+
+        assert_eq!(scene.object_color("box"), Some(blue()));
+        assert_eq!(
+            scene.original_object_color("box"),
+            Some(red()),
+            "upstream setObjectColor only records original_object_colors_ \
+             the first time an id gets a color (planning_scene.cpp:2185-2188)"
+        );
+    }
+
+    /// Upstream `processCollisionObjectRemove` removes 4 things per id: the
+    /// world object, its color, its type, and its ACM entry
+    /// (`planning_scene.cpp:1931-1949`).
+    #[test]
+    fn remove_object_also_removes_its_color_and_type() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("box", cuboid_shape(), Isometry3::identity());
+        scene.set_object_color("box", red());
+        scene.set_object_type("box", cup());
+
+        scene.remove_object("box");
+
+        assert!(!scene.has_object_color("box"));
+        assert!(!scene.has_object_type("box"));
+    }
+
+    /// Upstream `removeAllCollisionObjects` removes 4 things per id too
+    /// (`planning_scene.cpp:1463-1477`), same as `processCollisionObjectRemove`,
+    /// and also spares `OCTOMAP_NS`'s color/type the same way it spares the
+    /// object itself.
+    #[test]
+    fn remove_all_objects_also_removes_colors_and_types_but_spares_the_octomap_object() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape(
+            PlanningScene::OCTOMAP_NS,
+            cuboid_shape(),
+            Isometry3::identity(),
+        );
+        scene.set_object_color(PlanningScene::OCTOMAP_NS, red());
+        scene.add_shape("box", cuboid_shape(), Isometry3::identity());
+        scene.set_object_color("box", red());
+        scene.set_object_type("box", cup());
+
+        scene.remove_all_objects();
+
+        assert!(!scene.has_object_color("box"));
+        assert!(!scene.has_object_type("box"));
+        assert!(
+            scene.has_object_color(PlanningScene::OCTOMAP_NS),
+            "removeAllCollisionObjects skips OCTOMAP_NS for colors/types too, \
+             same loop as the object itself (planning_scene.cpp:1468)"
+        );
     }
 
     // ---- move_shapes_in_object / set_subframes_of_object ---------------------
@@ -2661,6 +3058,71 @@ mod tests {
         child.push_diffs(&mut target);
 
         assert!(target.allowed_collision_matrix().has_entry("box"));
+    }
+
+    #[test]
+    fn push_diffs_propagates_color_and_type_for_a_newly_added_object() {
+        let model = build_model();
+        let root = PlanningScene::new(&model, &srdf());
+        let root = Arc::new(root);
+        let mut child = root.diff();
+        child.add_shape("box", cuboid_shape(), Isometry3::identity());
+        child.set_object_color("box", red());
+        child.set_object_type("box", cup());
+
+        let mut target = PlanningScene::new(&model, &srdf());
+        child.push_diffs(&mut target);
+
+        assert_eq!(target.object_color("box"), Some(red()));
+        assert_eq!(target.object_type("box"), Some(&cup()));
+    }
+
+    #[test]
+    fn push_diffs_strips_the_targets_color_and_type_for_a_genuinely_destroyed_object() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("box", cuboid_shape(), Isometry3::identity());
+        let root = Arc::new(root);
+        let mut child = root.diff();
+        child.remove_object("box");
+
+        let mut target = PlanningScene::new(&model, &srdf());
+        target.add_shape("box", cuboid_shape(), Isometry3::identity());
+        target.set_object_color("box", red());
+        target.set_object_type("box", cup());
+
+        child.push_diffs(&mut target);
+
+        assert!(!target.has_object_color("box"));
+        assert!(!target.has_object_type("box"));
+    }
+
+    /// A color set for an object attached in an *earlier* diff generation
+    /// (so this round's `world_diff` has no entry for it at all) still
+    /// pushes, gated on `robot_state` having locally diverged for some
+    /// unrelated reason — the same indirection upstream's
+    /// `robot_state_.has_value()` gate has, since attached bodies live on
+    /// `robot_state_` there.
+    #[test]
+    fn push_diffs_propagates_a_previously_attached_objects_new_color() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("box", cuboid_shape(), Isometry3::identity());
+        root.set_object_color("box", red());
+        root.attach("box", "hand", BTreeSet::new()).unwrap();
+        let root = Arc::new(root);
+
+        let mut child = root.diff();
+        // Materialize `robot_state` locally without otherwise touching
+        // "box" -- matches `robot_state_.has_value()` being true for an
+        // unrelated reason upstream.
+        child.current_state_mut();
+        child.set_object_color("box", blue());
+
+        let mut target = PlanningScene::new(&model, &srdf());
+        child.push_diffs(&mut target);
+
+        assert_eq!(target.object_color("box"), Some(blue()));
     }
 
     #[test]
@@ -2863,6 +3325,31 @@ mod tests {
         assert!(child.knows_frame_transform("crate"));
     }
 
+    /// Upstream `decoupleParent` (`planning_scene.cpp:1278-1308`) merges
+    /// the parent's known colors/types into the child's own map, without
+    /// overwriting anything the child already set for itself.
+    #[test]
+    fn decouple_parent_merges_the_parents_known_colors_and_types_without_overwriting_its_own() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.set_object_color("inherited_only", red());
+        root.set_object_type("inherited_only", cup());
+        root.set_object_color("overridden", red());
+        let root = Arc::new(root);
+        let mut child = root.diff();
+        child.set_object_color("overridden", blue());
+
+        child.decouple_parent();
+
+        assert_eq!(child.object_color("inherited_only"), Some(red()));
+        assert_eq!(child.object_type("inherited_only"), Some(&cup()));
+        assert_eq!(
+            child.object_color("overridden"),
+            Some(blue()),
+            "the child's own override must survive the merge"
+        );
+    }
+
     #[test]
     fn clear_diffs_on_a_root_scene_is_a_no_op() {
         let model = build_model();
@@ -2936,6 +3423,34 @@ mod tests {
             .as_ref()
             .expect("child scene must track a diff");
         assert!(diff.is_empty());
+    }
+
+    /// Upstream `clearDiffs` resets `object_colors_`/`object_types_`
+    /// (`planning_scene.cpp:334-335`) but never touches
+    /// `original_object_colors_` — see that field's own doc.
+    #[test]
+    fn clear_diffs_resets_object_colors_and_types_but_keeps_original_object_colors() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.set_object_color("box", red());
+        let root = Arc::new(root);
+        let mut child = root.diff();
+        child.set_object_color("box", blue());
+        child.set_object_type("box", cup());
+
+        child.clear_diffs();
+
+        assert_eq!(
+            child.object_color("box"),
+            Some(red()),
+            "the child's own override is gone, so this falls back to the parent's"
+        );
+        assert!(!child.has_object_type("box"));
+        assert_eq!(
+            child.original_object_color("box"),
+            Some(blue()),
+            "original_object_colors_ is never reset by clearDiffs"
+        );
     }
 
     // ---- frames: the six-tier ladder ----------------------------------------

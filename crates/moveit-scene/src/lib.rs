@@ -23,9 +23,14 @@
 //! [`PlanningScene::is_state_valid`]). See [`PlanningScene`]'s own doc for
 //! the full scope audit, and the "Completion statement" below for the one
 //! remaining blocked symbol (`getCostSources`) and what D1 permanently
-//! excludes instead of merely deferring (message round-tripping, object
-//! colors/types — `std_msgs`/`moveit_msgs` types this crate has no reason
-//! to carry).
+//! excludes: message round-tripping. Object colors/types looked D1-shaped
+//! (their value types, `std_msgs::msg::ColorRGBA`/
+//! `object_recognition_msgs::msg::ObjectType`, live in a ROS message
+//! namespace) but were not — [`ObjectColor`]/[`ObjectType`] port the
+//! values message-free, the same way [`PlanningScene::OCTOMAP_NS`]/the
+//! private `DEFAULT_SCENE_NAME` constant turned out not to need a message
+//! either; see [`PlanningScene`]'s own doc, "Object colors and types," for
+//! the message-free upstream callers that gave it away.
 //!
 //! See [`PlanningScene`]'s doc for the parent/child design — deliberately
 //! reasoned through rather than transcribed from upstream's
@@ -116,5 +121,5 @@ mod scene;
 mod world_diff;
 
 pub use attached_body::AttachedBody;
-pub use scene::{PathValidity, PlanningScene};
+pub use scene::{ObjectColor, ObjectType, PathValidity, PlanningScene};
 pub use world_diff::WorldDiff;
