@@ -30,6 +30,10 @@ moveit-geometry.workspace = true
 # in, so the two sides of Phase 7 condition 3 are the same instrument.
 moveit-planners-sbp.workspace = true
 moveit-srdf.workspace = true
+# `stomp_benchmark_port.rs`'s pose decoding only -- see
+# `moveit-test-support`'s own module doc for why a shared crate closes this
+# kind of duplication.
+moveit-test-support.workspace = true
 rand_chacha.workspace = true
 # `examples/optimize_benchmark_stomp.rs` reads the benchmark problem set and
 # writes its per-problem NDJSON; the library half needs neither.

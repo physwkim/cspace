@@ -182,7 +182,7 @@ use std::time::{Duration, Instant};
 use moveit_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
 use moveit_constraints::utils::construct_goal_joint_constraints;
 use moveit_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
-use moveit_geometry::{Cuboid, Isometry3, Shape};
+use moveit_geometry::{Cuboid, Shape};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planners_sbp::{
     CompoundValue, JointModelGroupSpace, PlanError, PlanningFailure, RrtConnectManager,
@@ -192,6 +192,7 @@ use moveit_planning::{PlannerConfigurationMap, PlannerManager, PlanningRequest};
 use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
+use moveit_test_support::isometry_from_row_major;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -277,19 +278,6 @@ fn parse_joint_constraint(
     let mut set = KinematicConstraintSet::new();
     set.push(Constraint::Joint(constraint));
     (set, parts[0].to_string(), position, tolerance)
-}
-
-/// The translation column of a row-major 4x4 (`fromRowMajor4x4`'s own
-/// encoding, `tools/moveit-oracle/src/oracle.cpp`; indices 3/7/11 for
-/// x/y/z). Every obstacle `plan_benchmark_problem_set.rs` emits is an
-/// axis-aligned, unrotated box (`Isometry3::translation`, no rotation
-/// component), so recovering only the translation is exact for every
-/// object this binary is ever fed -- it does not attempt to reconstruct a
-/// general rotation, because nothing in this workspace's Phase 7 benchmark
-/// set produces one.
-fn translation_from_row_major_4x4(flat: &[f64]) -> Isometry3 {
-    assert_eq!(flat.len(), 16, "expected a flat 4x4 matrix, got {flat:?}");
-    Isometry3::translation(flat[3], flat[7], flat[11])
 }
 
 /// The tolerance the concrete-state goal is expressed with.
@@ -587,13 +575,17 @@ fn main() {
             size[1].as_f64().unwrap(),
             size[2].as_f64().unwrap(),
         );
-        let pose_flat: Vec<f64> = object["pose"]
+        let pose_flat: [f64; 16] = object["pose"]
             .as_array()
             .expect("object.pose must be an array")
             .iter()
             .map(|v| v.as_f64().unwrap())
-            .collect();
-        let pose = translation_from_row_major_4x4(&pose_flat);
+            .collect::<Vec<f64>>()
+            .try_into()
+            .unwrap_or_else(|v: Vec<f64>| {
+                panic!("object.pose must have 16 elements, got {}", v.len())
+            });
+        let pose = isometry_from_row_major(&pose_flat);
         world.add_shape(
             id,
             Arc::new(Shape::Cuboid(
