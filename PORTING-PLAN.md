@@ -35883,9 +35883,9 @@ batch로 돌릴 경우다." `tools/moveit-oracle/src/oracle.cpp`를 읽으면
   ExecuteTrajectory::Action>("execute_trajectory")`(§277),
   `compute_cartesian_path`는 `create_service::<GetCartesianPath::
   Service>("compute_cartesian_path", ...)`(§282),
-  `query_planner_interface`/`get_planner_params`/
-  `set_planner_params`는 `moveit_ros::planner_params::spawn`이 셋 다
-  등록하고(`planner_params.rs:333-343`) `move_group.rs:866`이
+  `query_planner_interface`/`get_planner_params`/`set_planner_params`는
+  `moveit_ros::planner_params::spawn`이 셋 다 등록하고
+  (`planner_params.rs:333-343`) `ros/moveit-ros/src/bin/move_group.rs:866`이
   실제로 호출한다(§274) — 전부 `rg`로 콜사이트를 직접 확인했다.
 
 §266은 §259보다 뒤(§266.6이 §255/§259 이후 병합 라운드의 성공
