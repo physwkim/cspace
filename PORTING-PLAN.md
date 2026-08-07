@@ -35018,7 +35018,7 @@ Phase 0–9의 것만 나온다(`PORTING-PLAN.md:618`, "각 단계는 **검증 �
 | 항목 | 조건 | 판정 | 측정한 § | 날짜 |
 |---|---|---|---|---|
 | A1 게이트 커버리지 | `tools/ci/check-*` 와 `verify-*` 전부가 main tip에서 rc=0이고, opt-in 게이트(`PHASE3_SWEEP`, `MOVEIT_RS_PHASE8_BENCHMARK`)를 무장한 실행을 포함해 `not a pass` 출력이 0건 | UNMEASURED | §308 | 2026-08-07 |
-| A2 주장 커버리지 | 세 인용 baseline(`doc/citation-classes.txt`, `doc/citation-classes-in-repo.txt`, `doc/upstream-citation-classes.txt`)에 unresolvable·out-of-bounds·blank-line·anchor-mismatch·span-mismatch·section-mismatch 등급의 행이 0 | UNMET | §308 | 2026-08-07 |
+| A2 주장 커버리지 | 세 인용 baseline(`doc/citation-classes.txt`, `doc/citation-classes-in-repo.txt`, `doc/upstream-citation-classes.txt`)에 unresolvable·out-of-bounds·blank-line·anchor-mismatch·span-mismatch·section-mismatch 등급의 행이 0 | MET | §309.5 | 2026-08-07 |
 | A3 잔여 주장 | `doc/residual-claims-census.md`의 OPEN 항목이 0 — 각 항목이 닫히거나, 발화 시점을 적은 만료 조건으로 전환 | UNMET | §308 | 2026-08-07 |
 | A4 수렴 | A1–A3이 충족된 tip에서, 연속 2개 감사 라운드가 게이트 층의 새 결함을 0건 보고 | UNMEASURED | §308 | 2026-08-07 |
 
@@ -35579,3 +35579,24 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 0이므로 22건은 이미 해소된 것이 base 탓에 다시 보인 것이고, 실제 신규
 3건은 전부 `robot_description.rs` 안이었다 — 병합하지 않으므로 그 셋도
 들어오지 않는다.
+
+### §309.5 A2를 닫았다 — §306.4가 판단으로 남긴 셋은 셋 다 드리프트였다
+
+§306.4는 세 건을 "줄이 틀린 것인지 절 번호가 틀린 것인지 정해야 갈리고,
+그것은 재도출이 아니라 판단"이라며 남겼다. 셋 다 재도출로 갈렸다. 갈린
+근거는 각 문장이 **지금도 재현되는 주장**인지, **지난 회차의 기록**인지다.
+
+| 인용 위치 | 인용 | 판정 | 근거 |
+|---|---|---|---|
+| `PORTING-PLAN.md:30579` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21645-21646` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `oracle.cpp:2296`을 인용한다 |
+| `PORTING-PLAN.md:31531` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:26919` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
+
+`section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도
+전체 경로로 폈다 — §306.5가 "어떤 코퍼스에도 없다"고 적은 형태라, 그 넷은
+누구도 검사하지 않은 채 +49줄씩 썩어 있었다.
+
+한 가지가 남는다: `!PORTING-PLAN.md:807`은 `resolved` 등급으로 **통과하면서**
+틀려 있었다. 등급 사다리의 아래 두 칸(`resolved`/`unanchored`)은 줄이
+경계 안에 있고 비어 있지 않다는 것만 말하므로, 내용이 바뀐 인용을 통과시킨다.
+A2의 조건은 실패 등급이 0인 것이지 통과 등급이 옳은 것이 아니다.
