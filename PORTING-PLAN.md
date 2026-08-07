@@ -37985,3 +37985,36 @@ $ rg -n "fn main" -A 12 crates/moveit-planners-chomp/examples/chomp_benchmark_po
 두 결과 모두 §325.2·§325.3과 동일(panda 고정, `max_iterations` CLI 없음) —
 §300.9는 이 두 축을 건드리는 별도 코드를 갖고 있지 않다. **판정: 참, OPEN
 유지.**
+
+### §325.7 §303.8 G — "세 번째 씨앗 베이스"(35999)는 존재하지 않는다
+
+불릿 원문: "세 번째 씨앗 베이스. `r*` = 0.05의 안정성도, id가 겹치지 않는다는
+것도 표본이 둘이다."
+
+**Falsifier.** phase8 조건 2 벤치마크 계열에서 실제로 쓰인 씨앗 베이스
+숫자를 전부 나열하고, `700001`·`424242` 외 세 번째가 있는지.
+
+```
+$ rg -n "SEED_BASE|seed_base" tools/ci/*.sh crates/moveit-planners-stomp/examples/*.rs 2>/dev/null | rg -o "[0-9]{6}" | sort -u
+202608
+424242
+525252
+700001
+999983
+```
+
+다섯 숫자 중 `202608`·`525252`·`999983`이 조건 2 벤치마크 계열의 씨앗
+베이스인지 확인:
+
+```
+$ rg -n "202608|525252|999983" tools/ci/verify-phase7-benchmark.sh tools/ci/measure-phase8-optimizer-properties.sh crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs
+tools/ci/verify-phase7-benchmark.sh:153,156,158,160 -- Phase 7 RNG 스트림 seed, 다른 축
+tools/ci/measure-phase8-optimizer-properties.sh:62,149,169,355,990 -- SEED_BASE=525252, optimizer-properties 계측(조건 2 벤치마크 아님)
+crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs:45 -- 같은 계측
+```
+
+세 숫자 전부 조건 2 벤치마크(§286/§300/§303 계열)와 무관한 다른 축이다.
+`doc/phase8-seedbase-stomp/`(§303의 둘째 씨앗 베이스 데이터)도
+`700001`·`900001`·`900002`(문제 집합 씨앗)만 갖고, `424242`나 세 번째
+씨앗 베이스는 없다. 조건 2 벤치마크가 실제로 쓴 씨앗 베이스는
+`700001`(기본)과 `424242`(§303의 둘째) 둘뿐이다. **판정: 참, OPEN 유지.**
