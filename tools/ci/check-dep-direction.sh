@@ -55,7 +55,7 @@ while read -r pkg; do
   hits="$(awk '{print $1}' <<<"$tree" | sort -u | grep -E "$BANNED_RE" || true)"
   if [[ -n "$hits" ]]; then
     echo "FAIL $pkg depends on a ROS client library:" >&2
-    sed 's/^/    /' <<<"$hits" >&2
+    printf '%s\n' "    ${hits//$'\n'/$'\n'    }" >&2
     status=1
   fi
 done <<<"$packages"

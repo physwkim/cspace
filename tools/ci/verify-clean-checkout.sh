@@ -82,7 +82,7 @@ IFS=':' read -ra path_dirs <<<"$PATH"
 for dir in "${path_dirs[@]}"; do
   [ -d "$dir" ] || continue
   for entry in "$dir"/*; do
-    [ -f "$entry" ] && [ -x "$entry" ] || continue
+    if [ ! -f "$entry" ] || [ ! -x "$entry" ]; then continue; fi
     name="$(basename "$entry")"
     [ -n "${linked[$name]:-}" ] && continue
     linked[$name]=1

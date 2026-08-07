@@ -76,7 +76,7 @@ for f in "${scripts[@]}"; do
     echo "  \$? on the very next non-blank, non-comment line. A failure inside the" >&2
     echo "  substitution aborts the script at the assignment under set -e, so this" >&2
     echo "  capture -- and anything it guards -- is dead code (48ef7ce's shape):" >&2
-    echo "$hits" | sed 's/^/    /' >&2
+    printf '%s\n' "    ${hits//$'\n'/$'\n'    }" >&2
     status=1
   fi
 done

@@ -248,7 +248,7 @@ print(json.dumps(m.get("ignore_result_fields_by_id", {})))
     fi
 
     result="$(python3 "$REPLAY_ONE" "$RUN_ORACLE" "$urdf" "$srdf" "$request" "$response" "$ignore_json")" || {
-      echo "$result" | sed "s|^|$crate/$stem: |" >&2
+      printf '%s\n' "$crate/$stem: ${result//$'\n'/$'\n'$crate/$stem: }" >&2
       status=1
       continue
     }
