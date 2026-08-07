@@ -33094,7 +33094,10 @@ sphere x {sphere, box, cylinder}에 ACM 허용 쌍 하나로 모집단을 **제�
   같은 계열의 나머지(shipped sbp 소스 안의 `// PORTING-PLAN.md:1152:` 주석
   셋과 `tools/ci/verify-upstream-citations.sh`가 고정 SHA의 출처로 드는
   `PORTING-PLAN.md:12828-12830`)도 그쪽이 가져갔다. 이 절은 계열의 한
-  표본이지 전부가 아니다.
+  표본이지 전부가 아니다. 거짓 → 닫힘 (§299) — task #37이 이미 병합됐다:
+  `check-citation-drift.py`는 오늘 이 둘을 각각 SECOND POPULATION으로
+  독립 선언해 잡는다(대상 확장자가 `.rs`가 아닌 것, citer 확장자가 `.md`가
+  아닌 것), §299.7이 실제로 한 건을 잡아 확인했다.
 
 ### §297.6 fcl 인용 24건은 면제로 선언돼 있고, 그 면제가 드는 근거 두 줄은 드리프트했다
 
