@@ -7,7 +7,7 @@
 
 PORTING-PLAN.md §301(및 그 이전 §291)이 만든 문서. 헤딩이든 평문이든, 이 절이/회차가 하지/닫지/재지/... 않은 것 계열의 lead-in 줄 바로 아래 최상위 불릿을 전부 모은다 — 본문 어휘(무엇을 안 쟀는지)가 아니라 lead-in 어휘(안 쟀다는 것 자체)로 찾으므로, 이 절이 잰 것을 부르는 단어가 무엇이든 걸린다. **닫힘 여부는 `거짓 → 닫힘 (§N)`이 그 불릿 자신의 텍스트 안에 있는지만 본다** — 한 불릿에 여러 절이 섞여 있고 그중 일부만 닫힌 경우(예: PORTING-PLAN.md §284.3), 그 표식이 있으면 전체가 CLOSED로 잡힌다. 부분 닫힘은 이 표가 못 보고, 여는 사람이 본문을 읽어야 한다. **EXPIRY는 다른 질문에 답한다** — PORTING-PLAN.md §308.4(A3)가 허용하는 두 번째 출구로, 측정이 참/거짓을 가려서 닫힌 것이 아니라 발화 시점을 적은 만료 조건으로 전환된 것이다. `OPEN → 만료 조건 (<발화 시점 문장>)` 마커로 표시하고, 괄호 안 문장이 비어 있으면(발화 시점 없는 '영구' 선언은 A3가 허용하는 출구가 아니다) 이 스크립트는 census를 만들지 않고 FAIL한다.
 
-lead-in 64건, 최상위 불릿 229건 (CLOSED 56 / EXPIRY 4 / OPEN 169).
+lead-in 64건, 최상위 불릿 229건 (CLOSED 57 / EXPIRY 4 / OPEN 168).
 
 | 절 | lead-in (줄) | 불릿 | 상태 |
 |---|---|---|---|
@@ -92,7 +92,7 @@ lead-in 64건, 최상위 불릿 229건 (CLOSED 56 / EXPIRY 4 / OPEN 169).
 | §251.6 | PORTING-PLAN.md:23429 §251.6 이 절이 하지 않은 것 | PORTING-PLAN.md:23431 - `sphere × sphere` 셀을 상류에 맞추지 않았다. §251.4에 적은 대안 넷이 모두 받아들일 수 없어서이고(셋째·넷째는 재서 죽었다), 고정... | OPEN |
 | §251.6 | PORTING-PLAN.md:23429 §251.6 이 절이 하지 않은 것 | PORTING-PLAN.md:23434 - `Plane`/`Halfspace`(무한)와 `OcTree`(이미 `box`가 덮는 직육면체 합성)는 25쌍에서 뺐다. 상류 49셀 쪽에서는 `plane... | OPEN |
 | §251.6 | PORTING-PLAN.md:23429 §251.6 이 절이 하지 않은 것 | PORTING-PLAN.md:23438 - `distance` 열은 건드리지 않았다. `mesh × mesh` 접선의 `-1.0`을 §251.2에 적어만 두었다. | OPEN |
-| §251.6 | PORTING-PLAN.md:23429 §251.6 이 절이 하지 않은 것 | PORTING-PLAN.md:23440 - Phase 3 완료 조건 현황표의 `collision: bool` 행 근거 열은 `§229.1` 그대로 두었다. 판정이 바뀌지 않았고, 그 열은 `che... | OPEN |
+| §251.6 | PORTING-PLAN.md:23429 §251.6 이 절이 하지 않은 것 | PORTING-PLAN.md:23440 - Phase 3 완료 조건 현황표의 `collision: bool` 행 근거 열은 `§229.1` 그대로 두었다. 판정이 바뀌지 않았고, 그 열은 `che... | CLOSED (§317.2) |
 | §254.6 | PORTING-PLAN.md:24014 §254.6 이 라운드가 닫지 못한 것 | PORTING-PLAN.md:24016 - **`/plan_kinematic_path`의 `PLANNING_FAILED`.** §250.3이 적은 파리티 결함이 그대로다. 이제는 `ros/veri... | CLOSED (§255) |
 | §254.6 | PORTING-PLAN.md:24014 §254.6 이 라운드가 닫지 못한 것 | PORTING-PLAN.md:24023 - **바이너리 이름.** `plan_kinematic_path_server`가 여전히 두 엔드포인트를 서비스한다. 이름을 바꾸려면 `ros/verify-r... | CLOSED (§255) |
 | §254.6 | PORTING-PLAN.md:24014 §254.6 이 라운드가 닫지 못한 것 | PORTING-PLAN.md:24029 - **`crates/moveit-planning`의 start-state 필드.** 여전히 첫 거부다. 게이트는 지금 그 거부를 **고정**한다 — 필드가... | CLOSED (§256) |
