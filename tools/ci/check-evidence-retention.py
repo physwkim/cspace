@@ -156,7 +156,7 @@ INSTRUMENT_DIR = "tools/ci"
 # because of its name. A prefix guess is not a family; a declared partition is.
 ROLE_PRODUCER = "producer"      # measures something; belongs in the census
 ROLE_GATE = "gate"              # CI runs it every time, so its verdict is live
-ROLE_LIBRARY = "library"        # sourced by other scripts, measures nothing
+ROLE_LIBRARY = "library"        # measures nothing, so owes the census no rows
 PREFIX_ROLES = {
     "analyse-": ROLE_PRODUCER,
     "classify-": ROLE_PRODUCER,
@@ -169,6 +169,7 @@ PREFIX_ROLES = {
     "check-": ROLE_GATE,
     "verify-": ROLE_GATE,
     "gate-": ROLE_LIBRARY,
+    "repoint-": ROLE_LIBRARY,
 }
 # Inputs the scripts read, not scripts. Checked by extension first so a data
 # file never has to claim a prefix role.
