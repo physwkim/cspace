@@ -107,6 +107,17 @@ docker run --rm -v "$work:$work" -w "$work" --entrypoint bash "$IMAGE" -c '
   grep -v "^#define" /usr/include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h |
     grep -oE "FCL_GJK_LIBCCD_SHAPE(_SHAPE)?_INTERSECT\([A-Za-z]+(, *[A-Za-z]+)?," \
     > registrations.txt
+  # The macros above are ONE of fcl'"'"'s two non-libccd registration mechanisms, not
+  # the only one: gjk_solver_libccd-inl.h also hand-writes
+  # `ShapeIntersectLibccdImpl<S, Shape1<S>, Shape2<S>>` partial specializations
+  # (Halfspace/Plane today) entirely outside these macros. Every line opening a
+  # `struct ShapeIntersectLibccdImpl` declaration -- specialized or not -- goes to
+  # specializations.txt so the parser below can tell the primary template (no `<...>`
+  # argument list) from a partial specialization (has one) by C++ grammar, not by
+  # which shapes happen to be specialized today.
+  grep -nE "^struct ShapeIntersectLibccdImpl" \
+    /usr/include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h \
+    > specializations.txt
   dpkg-query -W libfcl-dev > fclver.txt 2>/dev/null || echo "libfcl-dev <unknown>" > fclver.txt
 ' >"$work/build.log" 2>&1 || { echo "FAIL probe build/run failed inside $IMAGE:"; sed 's/^/  | /' "$work/build.log"; exit 1; }
 elapsed=$((SECONDS - start))
@@ -114,10 +125,10 @@ elapsed=$((SECONDS - start))
 echo "== $(cat "$work/fclver.txt") in $IMAGE, ${elapsed}s"
 
 if [[ -n "$EMIT_PATH" ]]; then
-  EMIT_PATH="$EMIT_PATH" python3 - "$work/registrations.txt" <<'PY'
+  EMIT_PATH="$EMIT_PATH" python3 - "$work/registrations.txt" "$work/specializations.txt" <<'PY'
 import os, re, sys
 
-regs_path = sys.argv[1]
+regs_path, specs_path = sys.argv[1], sys.argv[2]
 emit_path = os.environ["EMIT_PATH"]
 
 # Same parse as check 2 below -- kept in sync by hand since this runs in a
@@ -132,6 +143,34 @@ for a, b in re.findall(r"FCL_GJK_LIBCCD_SHAPE_SHAPE_INTERSECT\((\w+), *(\w+),", 
     spec.add((b.lower(), a.lower()))
 if not spec:
     sys.exit("FAIL parsed no registrations out of gjk_solver_libccd-inl.h -- the macro names moved")
+
+# Second registration mechanism: hand-written `ShapeIntersectLibccdImpl<S, Shape1<S>,
+# Shape2<S>>` partial specializations (Halfspace/Plane today), invisible to the macro
+# regexes above. `struct_lines` is every `struct ShapeIntersectLibccdImpl` declaration
+# found by the loosest possible anchor -- the class name alone, no assumption about
+# which shapes are specialized -- so a future specialization this parse can't read
+# still shows up as "found but unexplained" instead of silently missing `spec`.
+struct_lines = open(specs_path).read().splitlines()
+# The primary (unspecialised) template names the class with no explicit `<...>`
+# argument list -- that C++ grammar distinction, not gjk_solver_libccd-inl.h:112's line
+# number, is what excludes it here.
+specialization_lines = [ln for ln in struct_lines if re.match(r"^\d+:struct ShapeIntersectLibccdImpl<", ln)]
+SPEC_ARGS_RE = re.compile(r"^\d+:struct ShapeIntersectLibccdImpl<S,\s*(\w+)<S>,\s*(\w+)<S>>\s*$")
+unexplained = []
+for ln in specialization_lines:
+    m = SPEC_ARGS_RE.match(ln)
+    if not m:
+        unexplained.append(ln)
+        continue
+    a, b = m.group(1).lower(), m.group(2).lower()
+    spec.add((a, b))
+    spec.add((b, a))
+if unexplained:
+    sys.exit(
+        f"FAIL {len(unexplained)} hand-written ShapeIntersectLibccdImpl specialization(s) "
+        "in gjk_solver_libccd-inl.h are not explained by the parsed specialised set:\n"
+        + "\n".join(f"  {ln}" for ln in unexplained)
+    )
 
 # Only the four kinds `crates/moveit-collision/src/parry.rs`'s `TangencyKind`
 # classifies a shape into -- `capsule`/`ellipsoid`/`convex` have no
@@ -179,10 +218,10 @@ PY
   exit 0
 fi
 
-EXPECTED="$EXPECTED" python3 - "$work/cells.csv" "$work/registrations.txt" "$GENERATED" <<'PY'
+EXPECTED="$EXPECTED" python3 - "$work/cells.csv" "$work/registrations.txt" "$work/specializations.txt" "$GENERATED" <<'PY'
 import csv, os, re, sys
 
-cells_path, regs_path, generated_path = sys.argv[1], sys.argv[2], sys.argv[3]
+cells_path, regs_path, specs_path, generated_path = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 
 expected = {}
 order = []
@@ -209,6 +248,36 @@ for a, b in re.findall(r"FCL_GJK_LIBCCD_SHAPE_SHAPE_INTERSECT\((\w+), *(\w+),", 
     spec.add((b.lower(), a.lower()))
 if not spec:
     sys.exit("FAIL parsed no registrations out of gjk_solver_libccd-inl.h -- the macro names moved")
+
+# Second registration mechanism: hand-written `ShapeIntersectLibccdImpl<S, Shape1<S>,
+# Shape2<S>>` partial specializations (Halfspace/Plane today), invisible to the macro
+# regexes above -- same parse as --emit's, kept in sync by hand for the same reason
+# the macro parse above is. `struct_lines` is every `struct ShapeIntersectLibccdImpl`
+# declaration found by the loosest possible anchor -- the class name alone, no
+# assumption about which shapes are specialized -- so a future specialization this
+# parse can't read still shows up as "found but unexplained" instead of silently
+# missing `spec`.
+struct_lines = open(specs_path).read().splitlines()
+# The primary (unspecialised) template names the class with no explicit `<...>`
+# argument list -- that C++ grammar distinction, not gjk_solver_libccd-inl.h:112's line
+# number, is what excludes it here.
+specialization_lines = [ln for ln in struct_lines if re.match(r"^\d+:struct ShapeIntersectLibccdImpl<", ln)]
+SPEC_ARGS_RE = re.compile(r"^\d+:struct ShapeIntersectLibccdImpl<S,\s*(\w+)<S>,\s*(\w+)<S>>\s*$")
+unexplained = []
+for ln in specialization_lines:
+    m = SPEC_ARGS_RE.match(ln)
+    if not m:
+        unexplained.append(ln)
+        continue
+    a, b = m.group(1).lower(), m.group(2).lower()
+    spec.add((a, b))
+    spec.add((b, a))
+if unexplained:
+    sys.exit(
+        f"FAIL {len(unexplained)} hand-written ShapeIntersectLibccdImpl specialization(s) "
+        "in gjk_solver_libccd-inl.h are not explained by the parsed specialised set:\n"
+        + "\n".join(f"  {ln}" for ln in unexplained)
+    )
 
 drift, mechanism = [], []
 for r in rows:
