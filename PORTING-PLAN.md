@@ -37994,3 +37994,23 @@ seed_validity_problem_set.rs:9-11`)이 이 바이너리가 하는 일을 "매
 같은 물음을 독립적으로 재확인한 표도 있다(`### §291.2 범위 안 24건의
 판정`의 "§264.12 ① 씨앗이 주어진 문제 모집단" 행: "남은 것은 씨앗
 난이도를 *고르는* 쪽뿐"). falsifier 불발 — OPEN.
+
+### §324.6 §264.12 — `full` 모드에 핀이 없다는 것
+
+불릿: "`full` 모드에 핀이 없다는 것. §264.9가 지목한 핀 자체는 여전히
+없다 — §295.11이 잰 것은 `full`을 "돌렸다"는 사실이지 그 산출값에
+대한 판정 기준(핀)이 아니다."
+
+falsifier: `tools/ci/measure-phase8-optimizer-properties.sh`의
+`PINS_ALL.full`이 `null`이 아닌 실제 핀 값을 갖게 됐다면 거짓.
+
+```
+$ rg -n '"full":' tools/ci/measure-phase8-optimizer-properties.sh
+255:  "full": null,
+```
+
+오늘도 `null`이다. 이 핀이 없으면 `pins-unmeasured`가 stratum마다
+실패로 나가고 `pinned_cpp`가 돌지 않아 `no-regression-cpp-solved`가
+`full` 모드에서 판정을 내지 못한다는 사실도 §295.3이 같은 날
+(2026-08-07) 독립적으로 측정해 적어 두고 있다. falsifier 불발 —
+OPEN.
