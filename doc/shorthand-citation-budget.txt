@@ -38,7 +38,7 @@
 38	doc/claim-audit/moveit-scene.md
 4	doc/claim-audit/moveit-srdf.md
 12	doc/claim-audit/moveit-trajectory.md
-53	doc/claim-audit/upstream-bugs.md
+49	doc/claim-audit/upstream-bugs.md
 2	doc/d12-solver-none-structural-measurement.md
 1	doc/folded-operand-guards.md
 4	doc/handoff-2026-08-06.md
