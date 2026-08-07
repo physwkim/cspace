@@ -33908,7 +33908,7 @@ gapaudit은 이미 main에 병합돼 있다(`a4d5db85`). 그 트리에서 예측
 적용되지 않으므로, 그 자리를 절(`§NNN`) 포함 검사가 대신한다. 인용문이
 인용에 바짝 붙여 절 번호를 이름 대면, 인용된 줄이 그 절의 범위 안에
 있어야 한다. 6건이 걸렸고 손으로 열어 확인했다: 예컨대
-`doc/assertion-discrimination-census.md:466`은 `PORTING-PLAN.md:10896`을
+`doc/assertion-discrimination-census.md:466`은 `!PORTING-PLAN.md:10896`을
 §129.3으로 인용하며 그 절의 제목을 그대로 따옴표로 옮겨 적는데, 그 제목은
 `PORTING-PLAN.md:11156`에 있고 10883은 p1-fixtures의 크레이트 이야기다.
 **비어 있지 않은 살아 있는 줄로 착지한 이동**이고, 빈 줄 술어로는 구조적으로
