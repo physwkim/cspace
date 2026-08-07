@@ -98,31 +98,54 @@
 //!
 //! # What this backend picks today
 //!
-//! Measured by the tests below: **exact tangency collides, for 24 of the
-//! 25 pairs this workspace can build. `sphere x sphere` is the exception and
-//! does not collide.** That is not a chosen convention; it is
-//! `contact_ball_ball`'s `<` showing through `parry.rs`'s rule that any `Some`
-//! from `query::contact` with a prediction of `0.0` is a collision. Before
-//! this file it was written down nowhere -- `parry.rs`'s module doc and
-//! `exact_tangency_boundary.rs` both describe the margin on the *other* side
-//! of the boundary (a `Some` across a small positive gap) and neither
-//! mentions the pair that does the opposite.
+//! `accumulate_collision` now ports fcl's own dispatch table
+//! (`crates/moveit-collision/src/fcl_tangency_table.rs`, generated from the
+//! oracle image's `gjk_solver_libccd-inl.h` by
+//! `tools/ci/verify-fcl-tangency-dispatch.sh --emit`) and consults it,
+//! per shape pair, whenever `query::contact`'s `dist` lands at exactly
+//! `0.0` -- mesh decided separately as an unconditional `true`, since fcl's
+//! `BVHModel` path is a third dispatch the table has no registration for.
+//! Off that exact tie, the pre-existing rule is unchanged: any `Some` is a
+//! touch. `sphere x sphere`'s own tie is a `None` from `query::contact`
+//! (`contact_ball_ball`'s strict `<`) that `query::intersection_test`
+//! (`intersection_test_ball_ball`'s `<=`) still confirms is touching; see
+//! `parry.rs`'s `parry_boolean_queries_disagree_in_both_directions_at_the_tie`
+//! for why that recovery is gated to table-true, non-`Conditional` pairs
+//! rather than a blanket substitution.
 //!
-//! The port is therefore closer to upstream than upstream is to itself here:
-//! 24 of 25 cells uniform, against fcl's 13-of-16 split. Of the 16 cells both
-//! sides can build, 6 of 48 measured (pair, offset) cells disagree:
-//! `box x cylinder` and `cylinder x box` at both `+1e-9` and `0`,
-//! `cylinder x cylinder` at `0` (this backend `true`, upstream `false` --
-//! generic libccd), and `sphere x sphere` at `0` (this backend `false`,
-//! upstream `true` -- `sphereSphereIntersect`).
+//! Measured by the tests below, not the naive "restrict fcl's table to this
+//! crate's five kinds" prediction: **19 of 25 pairs collide at exact
+//! tangency, not 24.** `box x cylinder`/`cylinder x box` and `box x
+//! cone`/`cone x box` are the four pairs the table *cannot* reach: their
+//! measured `dist` at this exact construction is a tiny nonzero value
+//! (`3.661568089044567e-33` for `box x cylinder`, `-1.1102230246251565e-16`
+//! for `cylinder x box`, `7.850462293418875e-17` for `box x cone`,
+//! `-1.1102230246251565e-16` for `cone x box` -- opposite signs for the same
+//! pair in opposite argument order), not binary `0.0`, even though every
+//! input length here is exactly representable in binary. That is GJK's own
+//! rounding during iteration, not the geometry, and it is the same
+//! phenomenon `accumulate_collision`'s own comment already documents for
+//! prbt's cylinder-on-box tie (`-2.775558e-17`) -- this file independently
+//! confirms it is not particular to that one fixture, nor to one shape-kind
+//! pair.
 //!
-//! Making the port uniform is not free and is not attempted here. Forcing
-//! `sphere x sphere` inclusive needs either a positive prediction -- an
-//! epsilon with no upstream to size it against, on top of the positive margin
-//! `exact_tangency_boundary.rs` already measures -- or a per-pair branch,
-//! which is the exact structure that produced the defect in both libraries.
-//! Gating on `contact.dist <= 0.0` instead was tried and reverted; see
-//! `exact_tangency_boundary.rs`'s module doc.
+//! Restricted to the four kinds upstream's own wrapper measurement
+//! (`box`/`sphere`/`cylinder`/`mesh`, PORTING-PLAN.md §251.2 as of the tree
+//! this table was generated from -- `cone` was never measured through the
+//! wrapper, only through fcl directly) actually covers, at all three
+//! offsets `a_nanometre_either_side_of_the_tie_brackets_it` sweeps: 4 of 48
+//! (pair, offset) cells disagree now, down from 6. `cylinder x cylinder` at
+//! `0` and `sphere x sphere` at `0` are both fixed by the table port; the
+//! remaining 4 are `box x cylinder` and `cylinder x box` at both `0` and
+//! `+1e-9`, all one cause -- this backend's positive margin (§229.2) plus
+//! the nonzero-tie rounding above, which puts this one pair's `dist` on the
+//! same side of `0.0` at both offsets regardless of which nominal gap was
+//! asked for.
+//!
+//! Making the port uniform (closing those last 4) is not attempted here: the
+//! nonzero tie is not a boundary this table -- or any table keyed on shape
+//! kind alone -- can decide, since fcl's own dispatch is reached at `dist ==
+//! 0.0` exactly and this pair's measured `dist` never is one.
 //!
 //! # Cost
 //!
@@ -158,14 +181,28 @@ const KINDS: [Kind; 5] = [
 
 /// The pinned answer at a gap of exactly zero, rows indexed by the upper
 /// (attached) shape and columns by the lower (world) shape, both in [`KINDS`]
-/// order. Measured, not predicted.
+/// order. Measured, not predicted -- and not simply fcl's table transcribed:
+/// `accumulate_collision` only consults fcl's dispatch table when
+/// `contact.dist == 0.0` exactly, and four of the twenty-five pairs built
+/// here -- `box x cylinder`, `cylinder x box`, `box x cone`, `cone x box`
+/// -- land at a nonzero-but-tiny `dist` instead (measured
+/// `3.661568089044567e-33` for `box x cylinder`, `-1.1102230246251565e-16`
+/// for `cylinder x box`, `7.850462293418875e-17` for `box x cone`,
+/// `-1.1102230246251565e-16` for `cone x box` -- opposite signs for the
+/// same pair in opposite argument order, GJK's own rounding rather than
+/// anything about the input geometry, which is exactly representable in
+/// binary on both sides) and so keep the pre-existing unconditional-`Some`
+/// answer no matter what the table says for that kind pair. `parry.rs`'s
+/// own module doc has the accounting; the short version is 7 of 25 cells
+/// moved here, not the naive "restrict fcl's table to this crate's five
+/// kinds" count.
 const TANGENT: [[bool; 5]; 5] = [
     //        box   sphere  cyl    cone   mesh
-    [true, true, true, true, true],  // box
-    [true, false, true, true, true], // sphere  <- the exception
-    [true, true, true, true, true],  // cylinder
-    [true, true, true, true, true],  // cone
-    [true, true, true, true, true],  // mesh
+    [true, true, true, true, true],    // box
+    [true, true, true, false, true],   // sphere
+    [true, true, false, false, true],  // cylinder
+    [true, false, false, false, true], // cone
+    [true, true, true, true, true],    // mesh
 ];
 
 /// The pinned answer across a `1e-9` gap of clear air. Upstream answers
@@ -399,12 +436,14 @@ fn only_the_pair_under_test_is_in_contact() {
     }
 }
 
-/// The subject. A gap of exactly zero collides for every pair but `sphere x
-/// sphere`, which is `contact_ball_ball`'s strict `<` and nothing else. A
-/// `parry` upgrade that changes either the comparison or the dispatch for any
-/// pair reddens this and names the cell.
+/// The subject. A gap of exactly zero is decided per shape pair -- by
+/// `fcl_tangency_table` where `dist` lands at exactly `0.0`, unconditionally
+/// for `box x cylinder`/`cylinder x box` and `box x cone`/`cone x box` where
+/// it never does (see the module doc). A `parry` upgrade that changes a
+/// comparison or a dispatch for any pair, or an `accumulate_collision`
+/// change to the table lookup itself, reddens this and names the cell.
 #[test]
-fn exact_tangency_collides_for_every_pair_but_sphere_on_sphere() {
+fn exact_tangency_is_decided_by_fcls_dispatch_table() {
     report(&sweep(0.0), &TANGENT, "the exact-tangency table");
 }
 
