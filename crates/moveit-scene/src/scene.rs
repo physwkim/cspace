@@ -219,14 +219,25 @@ pub struct PathValidity {
 ///   construction and copy assignment are already absent by default: this
 ///   type derives neither, so both are already unavailable without any
 ///   explicit deletion to port.
-/// - `OCTOMAP_NS` — D1 (the reserved world-object id used only by
-///   `processOctomapMsg`/message-round-trip world serialization).
-/// - `DEFAULT_SCENE_NAME` — despite being introduced alongside `OCTOMAP_NS`
-///   above, this one is *not* message-related: `initialize()`
+/// - `OCTOMAP_NS` — **not D1**: a core, message-free constant
+///   (`planning_scene.cpp:66`, a `static const std::string` member init with
+///   no message type anywhere near it), used by
+///   [`PlanningScene::remove_all_objects`] with no message involved — see
+///   [`PlanningScene::OCTOMAP_NS`] and that method's own doc.
+/// - `DEFAULT_SCENE_NAME` — **not D1** either: `initialize()`
 ///   (`planning_scene.cpp:190`) sets `name_ = DEFAULT_SCENE_NAME` for every
 ///   root-scene constructor, unconditionally. Reproduced as the private
 ///   [`DEFAULT_SCENE_NAME`] constant, used by
 ///   [`PlanningScene::with_world`] and [`PlanningScene::diff`].
+///
+/// Both bullets read "D1 (octomap/message-round-trip naming constants,
+/// unused without message handling)" until this round, and each half was
+/// disproved independently — `OCTOMAP_NS` by the octomap object surviving
+/// `remove_all_objects`, `DEFAULT_SCENE_NAME` by root scenes coming back
+/// unnamed. Two for two on one bullet is the reason to distrust the rest of
+/// this classification rather than just correcting these: a D1 entry records
+/// that someone found a message-shaped caller, not that they ruled out a
+/// message-free one.
 /// - `~PlanningScene` — not a portable symbol; nothing here needs a
 ///   user-visible destructor.
 /// - `getName`/`setName` — ported as [`PlanningScene::name`]/[`PlanningScene::set_name`].
@@ -716,6 +727,16 @@ pub struct PlanningScene<'m> {
 const DEFAULT_SCENE_NAME: &str = "(noname)";
 
 impl<'m> PlanningScene<'m> {
+    /// The reserved world-object id the octomap occupies. Upstream
+    /// `PlanningScene::OCTOMAP_NS` (`planning_scene.hpp:113`,
+    /// `planning_scene.cpp:66`: `static const std::string OCTOMAP_NS =
+    /// "<octomap>";`) -- a core, message-free constant despite this crate's
+    /// own doc previously filing it under "unused without message
+    /// handling": it gates [`PlanningScene::remove_all_objects`] below with
+    /// no message type involved, so it belongs here, not only in
+    /// `moveit-ros`'s identical local copy (`ros/moveit-ros/src/scene/collision_object.rs`).
+    pub const OCTOMAP_NS: &'static str = "<octomap>";
+
     /// A root scene over an empty [`World`], with a [`RobotState`] at its
     /// default values and an ACM built from `srdf`. Upstream's
     /// `PlanningScene(robot_model, world)` constructor with `world`
@@ -1003,12 +1024,6 @@ impl<'m> PlanningScene<'m> {
         }
     }
 
-    fn track_all(&mut self, notifications: &[Notification]) {
-        if let Some(diff) = &mut self.world_diff {
-            diff.record_all(notifications);
-        }
-    }
-
     /// Add a single shape as a new (or augmented) world object. Upstream
     /// `World::addToObject`, reached through the scene so the change is
     /// tracked.
@@ -1041,13 +1056,30 @@ impl<'m> PlanningScene<'m> {
         true
     }
 
-    /// Remove every world object. Upstream `removeAllCollisionObjects`,
+    /// Remove every world object except [`PlanningScene::OCTOMAP_NS`].
+    /// Upstream `removeAllCollisionObjects` (`planning_scene.cpp:1463-1477`),
     /// pruning each removed id's ACM entry the same way
     /// [`PlanningScene::remove_object`] does.
+    ///
+    /// The octomap is excluded by upstream's own loop (`if (object_id !=
+    /// OCTOMAP_NS) { ... }`) -- a bulk "clear the world" call must not also
+    /// discard the map, which has its own dedicated add/remove path
+    /// (`processOctomapMsg`). [`World::clear_objects`] has no such
+    /// exception (it is `World::clear`'s own unconditional bulk primitive,
+    /// matching upstream `World::clearObjects`, which upstream's
+    /// `PlanningScene` never calls directly), so this loops and removes
+    /// each surviving id individually instead of delegating to it.
     pub fn remove_all_objects(&mut self) {
-        let ids = self.world.object_ids();
-        let notifications = self.world.clear_objects();
-        self.track_all(&notifications);
+        let ids: Vec<String> = self
+            .world
+            .object_ids()
+            .into_iter()
+            .filter(|id| id != Self::OCTOMAP_NS)
+            .collect();
+        for id in &ids {
+            let notification = self.world.remove_object(id);
+            self.track(notification);
+        }
         let acm = self.allowed_collision_matrix_mut();
         for id in &ids {
             acm.remove_entries_for(id);
@@ -2424,6 +2456,30 @@ mod tests {
         scene.remove_object("box");
 
         assert!(!scene.allowed_collision_matrix().has_entry("box"));
+    }
+
+    /// Upstream `removeAllCollisionObjects` skips `OCTOMAP_NS` in its loop
+    /// (`planning_scene.cpp:1463-1477`: `if (object_id != OCTOMAP_NS) { ... }`)
+    /// -- a bulk "clear the world" must not also discard the map.
+    #[test]
+    fn remove_all_objects_spares_the_reserved_octomap_object() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape(
+            PlanningScene::OCTOMAP_NS,
+            cuboid_shape(),
+            Isometry3::identity(),
+        );
+        scene.add_shape("box", cuboid_shape(), Isometry3::identity());
+
+        scene.remove_all_objects();
+
+        assert!(
+            scene.world().has_object(PlanningScene::OCTOMAP_NS),
+            "removeAllCollisionObjects skips OCTOMAP_NS (planning_scene.cpp:1468); \
+             remove_all_objects must too"
+        );
+        assert!(!scene.world().has_object("box"));
     }
 
     // ---- move_shapes_in_object / set_subframes_of_object ---------------------
