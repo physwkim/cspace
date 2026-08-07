@@ -86,13 +86,14 @@ source "$REPO_ROOT/tools/moveit-oracle/src-digest.sh"
 want="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")"
 IMAGE="${IMAGE:-$(oracle_image_tag "$want")}"
 
-have="$(docker run --rm --entrypoint cat "$IMAGE" /usr/local/share/oracle-src.sha256 2>/dev/null || true)"
-if [[ "$have" != "$want" ]]; then
-  echo "SKIP $IMAGE is missing or built from different oracle sources"
-  echo "SKIP   image: ${have:-<missing or unstamped>}"
-  echo "SKIP   tree:  $want"
-  echo "SKIP this is not a pass; rebuild with tools/moveit-oracle/build.sh, and remember"
-  echo "SKIP that an unwrapped docker call here reports failure as success -- use sg docker."
+stamp="$(oracle_stamp_verdict "$IMAGE" "$want")"
+if [ "$stamp" != ok ]; then
+  # A docker this shell cannot reach is not a skip -- nothing was measured.
+  # `oracle_stamp_explain` returns nonzero for exactly that cause, because
+  # `verify-all.sh` reads each gate's exit status and not these lines, so
+  # exiting 0 would report it as a pass.
+  oracle_stamp_explain "$stamp" "$IMAGE" "$want" "SKIP " || exit 1
+  echo "SKIP this is not a pass -- the oracle was never consulted."
   exit 0
 fi
 
