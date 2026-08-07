@@ -126,17 +126,40 @@
 //! oracle image's `gjk_solver_libccd-inl.h` by
 //! `tools/ci/verify-fcl-tangency-dispatch.sh --emit`) and consults it,
 //! per shape pair, whenever `query::contact`'s `dist` lands at exactly
-//! `0.0` -- mesh decided separately as an unconditional `true`. That choice
-//! was reasoned from the same wrong premise the corrected section above used
-//! to state ("`BVHModel` is a third dispatch, exempt from libccd MPR"): it
-//! is not, for three of the four non-mesh-mesh pairs. `mesh x sphere`'s
-//! `true` here matches upstream's own closed form; `mesh x box`, `mesh x
-//! cylinder` and `mesh x cone`'s `true` here do not -- upstream measures
-//! `false` for those at exact tangency, by the same generic-libccd mechanism
-//! as `box x cylinder` above. This is a known, currently undecided
-//! divergence from upstream on those six cells (both argument orders),
-//! carried by `is_mesh_pair`'s unconditional `true`; it is not fixed by this
-//! file. Off that exact tie, the pre-existing rule is unchanged: any `Some` is a
+//! `0.0` -- mesh decided separately as an unconditional `true`. An earlier
+//! revision of this section reasoned from the code path alone (mesh falls to
+//! the same generic `GJKCollide`/libccd-MPR fallback as `box x cylinder`, so
+//! it predicted the same `false`) and never ran it; that inference was
+//! wrong. Measured instead, against a mesh built bit-for-bit like this
+//! file's own `unit_cube_mesh` (same 8 vertices, same 12 triangles, same
+//! indices) via `tools/fcl-tangency-probe`'s own build recipe inside the
+//! pinned oracle image (`libfcl-dev 0.7.0-3build2`): `mesh x box`, `box x
+//! mesh`, `mesh x cylinder` and `cylinder x mesh` are all `true` in fcl too,
+//! at this exact construction -- they agree with this port's unconditional
+//! `true`, not the predicted `false`.
+//!
+//! `mesh x cone` has no single fcl answer to agree or disagree with:
+//! `fcl::collide(&mesh_obj, &cone_obj, req, res)` reports `false` and
+//! `fcl::collide(&cone_obj, &mesh_obj, req, res)` reports `true`, for the
+//! identical exact-zero construction just swapped, deterministically over 5
+//! repeat runs. Fcl's own generic-MPR fallback is not stable at an
+//! exact-zero gap: `discoverPortal`'s three reject tests
+//! (`/home/stevek/work/libccd` v2.1/`7931e76`, `src/mpr.c:189,209,232`,
+//! `ccdIsZero(dot) || dot < CCD_ZERO`) read a dot product built from each
+//! shape's own support function, and which shape's support function gets
+//! queried first depends on argument order -- a floating-point path
+//! difference, not a geometry difference. No committed fixture in this
+//! workspace builds a `Cone` collision primitive at all (every tracked
+//! `.urdf` and fixture `.json` searched, zero hits), so this cell is
+//! unreached, not merely undecided. Left as `is_mesh_pair`'s unconditional
+//! `true` -- which matches fcl's `cone x mesh` answer and not its `mesh x
+//! cone` answer, and no other fixed choice does better: upstream disagrees
+//! with itself here, so a single port-side value can match at most one of
+//! its two answers. `sphere x sphere`'s own tie, two paragraphs below, is
+//! left open for the same shape of reason: not every disagreement this port
+//! measures is one a policy choice on this side can close.
+//!
+//! Off that exact tie, the pre-existing rule is unchanged: any `Some` is a
 //! touch. `sphere x sphere`'s own tie is a `None` from `query::contact`
 //! (`contact_ball_ball`'s strict `<`) that `query::intersection_test`
 //! (`intersection_test_ball_ball`'s `<=`) still confirms is touching; see
@@ -166,13 +189,14 @@
 //! `TIE_ROUNDING_MARGIN * f64::EPSILON * scale` of zero as this same
 //! rounding, not a real answer, and consults the dispatch table there
 //! instead of trusting the sign. All 25 cells below are decided by the
-//! table now, matching upstream exactly for the 20 non-mesh cells and for
-//! `mesh x mesh`: the naive "restrict fcl's table to this crate's five
-//! kinds" prediction was correct there, and the rounding above no longer
-//! keeps four pairs from reaching it. The remaining 6 cells -- `mesh x
-//! {box, cylinder, cone}`, both orders -- do not match upstream (see above);
-//! this file pins the port's own current, undecided answer for them, not
-//! upstream's.
+//! table now. 24 of them match upstream exactly, measured rather than
+//! predicted for every mesh cell (see above): the 16 non-mesh cells, `mesh x
+//! mesh`, `mesh x sphere`/`sphere x mesh`, `mesh x box`/`box x mesh`, `mesh x
+//! cylinder`/`cylinder x mesh`, and `cone x mesh`. Only `mesh x cone` -- one
+//! cell, one argument order -- does not: fcl's own answer for that exact
+//! configuration depends on which argument order `fcl::collide` is called
+//! with, so this port's single fixed `true` can match at most one of fcl's
+//! two answers, and it matches the other order (`cone x mesh`) instead.
 //!
 //! # Cost
 //!
