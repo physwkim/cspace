@@ -261,8 +261,21 @@ pub fn mesh_from_bytes(bytes: &[u8], scale: Vector3) -> Result<Mesh> {
 
 /// Every triangle's three vertices, in file order, with no vertex sharing —
 /// the raw shape both the binary and ASCII STL formats store data in.
+///
+/// A format-valid binary STL that declares zero triangles is rejected here,
+/// matching upstream `createMeshFromAsset`'s `vertices.empty() ||
+/// triangles.empty()` guard (`mesh_operations.cpp:364-373`) on the extracted
+/// mesh data -- the same guard [`parse_ascii_triangles`] already applies via
+/// its own `flat_vertices.is_empty()` check. Without this, a well-formed but
+/// empty binary STL would carry no `vertex` tokens to make that check fire,
+/// and [`Mesh::new`] does not reject an empty vertex/triangle list on its
+/// own (upstream's `createMeshFromVertices(vertices, triangles)` doesn't
+/// either -- see its own doc comment).
 fn parse_triangles(bytes: &[u8]) -> Result<Vec<[Vector3; 3]>> {
     match parse_binary_triangles(bytes) {
+        Some(triangles) if triangles.is_empty() => Err(Error::construct(
+            "binary STL declares zero triangles; a mesh needs at least one",
+        )),
         Some(triangles) => Ok(triangles),
         None => parse_ascii_triangles(bytes),
     }
@@ -454,5 +467,35 @@ mod tests {
     #[test]
     fn empty_input_is_rejected() {
         assert!(mesh_from_bytes(&[], Vector3::new(1.0, 1.0, 1.0)).is_err());
+    }
+
+    // Discriminated from `empty_input_is_rejected` above: a 0-byte buffer is
+    // `< BINARY_HEADER_LEN` and falls straight to the ASCII path's own
+    // `flat_vertices.is_empty()` guard. This input is a *format-valid*
+    // binary STL (its length matches `84 + 50 * triangle_count` exactly,
+    // with `triangle_count == 0`), so `parse_binary_triangles` used to
+    // return `Some(vec![])` rather than falling through to ASCII at all --
+    // exercising a different, previously-unguarded path.
+    #[test]
+    fn binary_stl_with_zero_triangles_is_rejected() {
+        let bytes = binary_stl(b"solid empty", &[]);
+        assert_eq!(
+            bytes.len(),
+            BINARY_HEADER_LEN,
+            "sanity: this must be exactly the empty-binary-STL length, not caught by the < BINARY_HEADER_LEN check"
+        );
+
+        // Upstream `createMeshFromAsset` (mesh_operations.cpp:364-373) checks
+        // `vertices.empty()`/`triangles.empty()` on the extracted mesh data
+        // and logs+returns `nullptr` -- the caller (`RobotModel::constructShape`)
+        // then just skips that shape. A zero-triangle binary STL must fail
+        // the same way here, not silently produce a real, geometry-less
+        // `Shape::Mesh` that the model keeps.
+        let err = mesh_from_bytes(&bytes, Vector3::new(1.0, 1.0, 1.0))
+            .expect_err("a zero-triangle binary STL must be rejected");
+        assert!(
+            err.to_string().contains("zero triangles"),
+            "expected the binary-STL zero-triangle guard to fire, got: {err}"
+        );
     }
 }
