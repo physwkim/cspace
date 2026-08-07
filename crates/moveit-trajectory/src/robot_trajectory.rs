@@ -48,7 +48,9 @@
 //!   ([`RobotTrajectory::add_suffix_way_point`] on an empty trajectory,
 //!   [`RobotTrajectory::insert_way_point`] at index 0,
 //!   [`RobotTrajectory::set_way_point_duration_from_previous`] at index 0,
-//!   [`RobotTrajectory::append`] onto an empty trajectory).
+//!   [`RobotTrajectory::append`] onto an empty trajectory), or resets the new
+//!   index 0 to `0.0` itself ([`RobotTrajectory::remove_way_point`] on
+//!   waypoint 0).
 //! - **Panicking index access becomes `Result`.** Upstream indexes
 //!   `waypoints_`/`duration_from_previous_` directly in several places
 //!   (`getWayPoint`, `getWayPointPtr`, `getFirstWayPoint`/`getLastWayPoint`,
@@ -311,12 +313,24 @@ impl<'m> RobotTrajectory<'m> {
     }
 
     /// `removeWayPoint`.
+    ///
+    /// Removing waypoint 0 makes the former waypoint 1 the new waypoint 0,
+    /// which by the module-level "Deviations from upstream" note has no
+    /// previous waypoint of its own -- so its `duration_from_previous` is
+    /// reset to `0.0`, the same value every other route to becoming waypoint
+    /// 0 produces, rather than keeping the real (but now meaningless) gap
+    /// that used to separate it from the just-removed waypoint.
     pub fn remove_way_point(&mut self, index: usize) -> Result<&mut Self> {
         if index >= self.waypoints.len() {
             return Err(Self::index_error(index, self.waypoints.len()));
         }
         self.waypoints.remove(index);
         self.duration_from_previous.remove(index);
+        if index == 0 {
+            if let Some(new_first) = self.duration_from_previous.front_mut() {
+                *new_first = 0.0;
+            }
+        }
         Ok(self)
     }
 
