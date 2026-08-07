@@ -18643,8 +18643,13 @@ seed·훅의 쓰기·채택된 해의 쓰기가 공통으로 인덱싱하는 유
 ### §220.7 아직 포팅하지 않은 것
 
 - **`RobotState::interpolate`와 `RobotState::distance`의 지역 사본은
-  그대로 두었다.** `setFromIK`은 둘 중 어느 것도 쓰지 않으므로, 진짜
-  메서드를 포팅하는 것은 이번 작업을 닫는 일부가 아니다.
+  그대로 두었다. 절반 닫혔다(§318.4).** `setFromIK`은 둘 중 어느 것도
+  쓰지 않으므로, 진짜 메서드를 포팅하는 것은 이번 작업을 닫는 일부가
+  아니다. `interpolate` 쪽은 §244.2가 세 오버로드를 실제로 포팅해
+  오라클과 허용오차 `0.0`으로 대조했다(6,392케이스) — 다만
+  `cartesian_interpolator.rs`의 지역 사본은 그 real method를 호출하도록
+  바뀌지 않아 그대로 남아 있다. `distance` 쪽은 오늘도 `RobotState`에
+  없다 — `group_distance`/`joint_distance` 지역 사본이 유일한 구현이다.
 
 ---
 
