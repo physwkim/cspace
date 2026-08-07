@@ -17,6 +17,7 @@
 //! `world_joint`, PR2's planar virtual joint) covers the planar case at the
 //! public-API level.
 
+use std::collections::HashMap;
 use std::fs;
 
 use approx::assert_relative_eq;
@@ -51,6 +52,14 @@ fn panda() -> RobotModel {
 
 fn pr2() -> RobotModel {
     build_model("pr2.urdf", "pr2.srdf")
+}
+
+fn full_variable_map(model: &RobotModel, value: f64) -> HashMap<String, f64> {
+    model
+        .variable_names()
+        .iter()
+        .map(|name| (name.clone(), value))
+        .collect()
 }
 
 // ---- setToDefaultValues(group, name) -----------------------------------
@@ -94,6 +103,34 @@ fn set_to_default_values_group_errors_on_unknown_group() {
             .set_to_default_values_group("no_such_group", "ready")
             .is_err()
     );
+}
+
+// ---- getMissingKeys -----------------------------------------------------
+
+/// `panda_finger_joint2` (the `hand` group's mimic follower) must never be
+/// reported missing, even when it is absent from the map; the active
+/// `panda_finger_joint1` must be, when it is absent too.
+#[test]
+fn missing_keys_excludes_the_mimic_but_lists_the_active_gap() {
+    let model = panda();
+    let state = RobotState::new(&model);
+
+    let mut values = full_variable_map(&model, 0.0);
+    values.remove("panda_finger_joint1");
+    values.remove("panda_finger_joint2");
+
+    assert_eq!(
+        state.missing_keys(&values),
+        vec!["panda_finger_joint1".to_string()]
+    );
+}
+
+#[test]
+fn missing_keys_is_empty_when_every_non_mimic_variable_is_present() {
+    let model = panda();
+    let state = RobotState::new(&model);
+    let values = full_variable_map(&model, 0.0);
+    assert!(state.missing_keys(&values).is_empty());
 }
 
 // ---- setToRandomPositionsNearBy -----------------------------------------
