@@ -73,6 +73,25 @@
 #      stays bounds-only rather than being judged against something this
 #      script cannot compute.
 #
+#      The name is searched for on the citation's own physical line first
+#      (`span-verified`), and, only when that finds nothing, again across the
+#      citation's whole `citing_context` paragraph (`symbol-verified`,
+#      `cross_line_anchors`) -- this corpus's own idiom for introducing a
+#      ported function puts the bare symbol name alone on one line and the
+#      citation alone on the next, which a single-line search can never see.
+#      Measured 2026-08-07: every citation in this exact two-line shape that
+#      was hand-checked against the pinned checkout was wrong, and none of
+#      them reached step 3 at all before this widening, because the name was
+#      never in view of the search that was supposed to check it.
+#
+#      Both symbol searches run before step 5's content-quotation check, not
+#      after: two of the citations that motivated this widening (`getParams`,
+#      `initialize` in `query_planners_service_capability.cpp`) already had a
+#      quoted word from their own sentence landing inside their (wrong) cited
+#      range, so a content check tried first would keep classifying them
+#      content-verified forever -- clearing a weaker bar first and never
+#      trying the stronger one the sentence's own symbol name makes available.
+#
 #   4. SPAN EXACTNESS for ranges. A range whose FIRST line is exactly some
 #      span's first line is a claim about that whole definition, so its last
 #      line must be exactly that definition's last line -- or the last line
@@ -569,11 +588,18 @@ BRACE_SLACK = 5
 
 # ------------------------------------------------- content verification (rule 4)
 #
-# The third class, ranked between span-verified and bounds-only: the citing
-# text's OWN backticked quotation of the code is at the cited line. This is
-# `check-citation-drift.py`'s rule 4, ported rather than reinvented, because a
-# second dialect of "what counts as a quotation" would make the two gates
-# disagree about the same sentence.
+# The third of four ranked classes, between symbol-verified and bounds-only:
+# the citing text's OWN backticked quotation of the code is at the cited line.
+# This is `check-citation-drift.py`'s rule 4, ported rather than reinvented,
+# because a second dialect of "what counts as a quotation" would make the two
+# gates disagree about the same sentence.
+#
+# Tried only after both symbol checks (same-line span-verified, cross-line
+# symbol-verified) have already failed to place this citation: content's
+# charity -- one quoted word anywhere in the cited range, not the range's
+# boundaries -- is weaker than a span match, and CLASS_RANK says so. Trying
+# it first would let that charity satisfy citations a symbol check would have
+# caught as wrong; see the comment at the call site in `classify_citation`.
 #
 # It exists because bounds-only is silence. §287.8 measured that directly: a
 # 57-line insertion in `oracle.cpp` invalidated five citations, and the four
@@ -613,14 +639,15 @@ BRACE_SLACK = 5
 # the quotation out of the citing sentence while leaving the pin alone demotes
 # it content-verified -> bounds-only (1 failure).
 SPAN_VERIFIED = "span-verified"
+SYMBOL_VERIFIED = "symbol-verified"
 CONTENT_VERIFIED = "content-verified"
 BOUNDS_ONLY = "bounds-only"
-CLASS_RANK = {SPAN_VERIFIED: 3, CONTENT_VERIFIED: 2, BOUNDS_ONLY: 1}
+CLASS_RANK = {SPAN_VERIFIED: 4, SYMBOL_VERIFIED: 3, CONTENT_VERIFIED: 2, BOUNDS_ONLY: 1}
 UPSTREAM_CLASS_BASELINE = "doc/upstream-citation-classes.txt"
 
 
-def upstream_class_header(head_sha, live, anchor_verified, content_verified,
-                          bounds_only):
+def upstream_class_header(head_sha, live, anchor_verified, symbol_verified,
+                          content_verified, bounds_only):
     """The `#` header `doc/upstream-citation-classes.txt` carries for this
     tree. A function rather than a literal at the write site because the read
     path calls it too -- see tools/ci/baseline_header.py."""
@@ -628,17 +655,24 @@ def upstream_class_header(head_sha, live, anchor_verified, content_verified,
         "# Per-citation verification class for every upstream `path.cpp:NNN`",
         "# citation in every tracked .md/.rs file. The class says WHAT WAS",
         "# CHECKED, and the classes are ranked: span-verified (the cited lines",
-        "# are inside the definition of the symbol the citing text names) >",
-        "# content-verified (the citing text's own quotation of the code is at a",
-        "# cited line) > bounds-only (only that the line number is inside the",
-        "# file). Drift moves a citation DOWN that ladder, and without this file",
-        "# a demotion is invisible -- two totals move by one and the run passes.",
+        "# are inside the definition of the symbol the citing text names,",
+        "# found on the citation's own physical line) > symbol-verified (same",
+        "# check, but the name was only found by widening the search to the",
+        "# citation's whole citing_context -- this corpus's own two-line idiom,",
+        "# `` `Name`\\n(`file:NNN-MMM`). ``, puts the name and the citation on",
+        "# adjacent physical lines, which span-verified's single-line window",
+        "# cannot see) > content-verified (the citing text's own quotation of",
+        "# the code is at a cited line) > bounds-only (only that the line",
+        "# number is inside the file). Drift moves a citation DOWN that ladder,",
+        "# and without this file a demotion is invisible -- two totals move by",
+        "# one and the run passes.",
         "#",
         "# Generated by: tools/ci/verify-upstream-citations.sh --write-classes",
         f"# Source commit: {head_sha}",
         f"# Citations: {sum(len(v) for v in live.values())} in {len(live)} distinct "
         "(document, citation) keys",
         f"#   span-verified: {anchor_verified}",
+        f"#   symbol-verified: {symbol_verified}",
         f"#   content-verified: {content_verified}",
         f"#   bounds-only: {bounds_only}",
         "#",
@@ -684,15 +718,18 @@ def parse_parts(spec):
     return parts
 
 
-def citing_context(doc_lines, index):
-    """The text a citation's claim is made in, 0-based `index` being its own
-    line. `check-citation-drift.py`'s rule, unchanged: a table row is its own
-    context, because a neighbouring row is a different claim about a different
-    site; prose is the whole blank-line-delimited paragraph, because these
-    documents wrap at ~72 columns and a citation's subject lands on the line
-    above as readily as on its own."""
+def _context_bounds(doc_lines, index):
+    """The [start, end] 0-based line-index range (inclusive) of the prose
+    paragraph or table row containing `doc_lines[index]`. Split out of
+    `citing_context` so that function and `cross_line_anchors` (this
+    module's symbol-anchor search, widened the same way) share one
+    definition of "the unit this citation's claim is made in" -- two
+    functions independently walking blank-line/table-row boundaries is how
+    a citation could pass rule 4's content check against one paragraph and
+    `cross_line_anchors` against a different one, which is not a citation
+    check any more, it is two of them disagreeing about the same sentence."""
     if doc_lines[index].lstrip().startswith("|"):
-        return doc_lines[index]
+        return index, index
     start = index
     while (
         start > 0
@@ -707,6 +744,17 @@ def citing_context(doc_lines, index):
         and not doc_lines[end + 1].lstrip().startswith("|")
     ):
         end += 1
+    return start, end
+
+
+def citing_context(doc_lines, index):
+    """The text a citation's claim is made in, 0-based `index` being its own
+    line. `check-citation-drift.py`'s rule, unchanged: a table row is its own
+    context, because a neighbouring row is a different claim about a different
+    site; prose is the whole blank-line-delimited paragraph, because these
+    documents wrap at ~72 columns and a citation's subject lands on the line
+    above as readily as on its own."""
+    start, end = _context_bounds(doc_lines, index)
     return "\n".join(doc_lines[start : end + 1])
 
 
@@ -880,9 +928,15 @@ def why_bounds_only(line, start, end, spans, window_floor, parts, anchors):
     if anchors:
         return "anchored, but the range is not exactly a definition span"
     window = line[max(window_floor, start - LOCAL_WINDOW) : start]
+    # Same cut, same exception, as `find_anchors` -- this recomputes the
+    # identical window to explain why a citation landed bounds-only, and
+    # without the exception a `` `Name()` `` anchor immediately before the
+    # citation reads as a previous citation's closed parenthetical, moving
+    # the citation from the "no span" reason (below) into the "no name"
+    # reason it does not belong in.
     for sep in "|)":
         cut = window.rfind(sep)
-        if cut != -1:
+        if cut != -1 and not (sep == ")" and window[cut + 1 : cut + 2] == "`"):
             window = window[cut + 1 :]
     names = [m.group(1) for m in IDENT_IN_BACKTICKS_RE.finditer(window)]
     if not names:
@@ -933,9 +987,19 @@ def find_anchors(line, start, end, spans, window_floor):
     #   one: "`acceleration_filter.cpp:309-310` (... in `doSmoothing`),
     #   `:397-398` (... in `reset`)". `prev_citation_end` does not stop this,
     #   because the parenthetical opens AFTER the previous citation ends.
+    #
+    #   Exception: a `)` immediately followed by a backtick is not a closed
+    #   parenthetical at all, it is the call-parens of THIS anchor's own
+    #   name -- `` `initialize()` `` -- written in the niladic-call spelling
+    #   this corpus uses as often as the bare name. Cutting there discards
+    #   the very name the citation is tightly paired with. Measured
+    #   2026-08-07: `initialize()` in this exact shape sat unverified next
+    #   to the same `query_planners_service_capability.cpp:56-73` mismatch
+    #   `cross_line_anchors` was added to catch, for this reason alone --
+    #   the anchor was found and then discarded by this cut.
     for sep in "|)":
         cut = window.rfind(sep)
-        if cut != -1:
+        if cut != -1 and not (sep == ")" and window[cut + 1 : cut + 2] == "`"):
             window = window[cut + 1 :]
     for m in IDENT_IN_BACKTICKS_RE.finditer(window):
         # The gap between the name and the citation must be punctuation only.
@@ -949,6 +1013,47 @@ def find_anchors(line, start, end, spans, window_floor):
         if TIGHT_GAP_RE.match(window[m.end() :]):
             add(m.group(1))
     return found
+
+
+def cross_line_anchors(doc_lines, line_no, start, end, spans):
+    """`find_anchors`, widened from the citation's own physical line to its
+    whole `citing_context` -- the identical paragraph/table-row unit rule 4's
+    content verification already searches (`_context_bounds`).
+
+    Why this is needed at all: this corpus's most common way to introduce a
+    ported function cites the WHOLE upstream definition across two physical
+    lines, the bare symbol name alone on one and the citation alone on the
+    next --
+
+        /// `MoveGroupQueryPlannersService::queryInterface`
+        /// (`query_planners_service_capability.cpp:78-107`).
+
+    -- and `find_anchors` called with a single physical `line` can never see
+    across that break. Not because the adjacency rule forbids it --
+    `TIGHT_GAP_RE`'s `\\s` already matches the newline between them -- but
+    because no caller had ever given it more than one line to search. Every
+    citation in `ros/moveit-ros/src/planner_params.rs` written in this exact
+    shape was independently hand-checked against the pinned checkout and
+    found wrong (measured 2026-08-07); nothing upstream of `symbol-verified`
+    could have caught any of them, because they never reach `find_anchors`
+    with the name in view.
+
+    Only called for citations `classify_citation` could not anchor on their
+    own line -- see the call site for why `len(parts) == 1` is also
+    required. `window_floor` is passed as 0 rather than tracking a prior
+    citation's end within the context (the way `classify_citation`'s
+    per-line loop tracks it within a line): every citation this is called
+    for is already `bounds-only` under the same-line rule, so the promotion
+    below only ever adds coverage that did not exist, and the 60-character
+    `LOCAL_WINDOW` plus the `|`/`)` cut `find_anchors` already applies bound
+    how far a wrong attribution could reach. Measured against the full
+    corpus (2026-08-07): 33 cross-line anchors found, all 33 hand-verified
+    against the pinned checkout, zero attributed to the wrong symbol."""
+    index = line_no - 1
+    ctx_start, ctx_end = _context_bounds(doc_lines, index)
+    context = "\n".join(doc_lines[ctx_start : ctx_end + 1])
+    prefix_len = sum(len(doc_lines[i]) + 1 for i in range(ctx_start, index))
+    return find_anchors(context, prefix_len + start, prefix_len + end, spans, 0)
 
 
 # Nouns with which the citing text asserts, in prose, that a range IS a whole
@@ -1374,6 +1479,7 @@ def main():
     historical = 0
     historical_bad = []
     anchor_verified = 0
+    symbol_verified = 0
     content_verified = 0
     # ONE record per classified citation. Every count below is derived from
     # this list, so a class and the number reporting it cannot drift apart.
@@ -1424,7 +1530,7 @@ def main():
 
         Returns a `span_mismatch` tuple for the caller to record, or `None`
         when the citation was classified (and already recorded)."""
-        nonlocal anchor_verified, content_verified, bounds_only
+        nonlocal anchor_verified, symbol_verified, content_verified, bounds_only
 
         anchors = find_anchors(line, start, end, spans, window_floor)
         # A comma list enumerates SITES, not a span: the four lines of
@@ -1485,6 +1591,39 @@ def main():
                 classify(doc, token, SPAN_VERIFIED)
                 return None
         if not anchors or len(parts) > 1:
+            # Still no anchor on this citation's own physical line -- but a
+            # comma list (`len(parts) > 1`) is excluded here too, same as the
+            # same-line check above: a multi-part spec enumerates SITES, not
+            # a span, so widening the search would not give it a containment
+            # claim to check, only a wrongly-confident one (see the comment
+            # on the same-line check for `getCurvature`/`asyncExecute`).
+            #
+            # Tried before the content check below, not after: CLASS_RANK
+            # puts symbol-verified above content-verified because a span
+            # match against the named symbol is the stronger claim, and a
+            # citation that can clear the stronger check must be routed
+            # there even when it would also clear the weaker one. Trying
+            # content first would let its charity (one quoted word anywhere
+            # in the cited range) satisfy citations the symbol span would
+            # have caught as wrong -- exactly the mask `getParams` and
+            # `initialize` (query_planners_service_capability.cpp) were
+            # found sitting behind before this was reordered.
+            if len(parts) == 1:
+                cross = cross_line_anchors(doc_lines, line_no, start, end, spans)
+                if cross:
+                    cross_span_list = all_spans(spans, cross)
+                    every_span = {(s, e) for v in spans.values() for (s, e, _k) in v}
+                    lo, hi = parts[0]
+                    r = part_verdict(lo, hi, cross_span_list, file_lines, cross, every_span)
+                    if r is not None:
+                        return (
+                            doc, line_no, resolved, spec, cross,
+                            [f"{lo}-{hi}: {r}" if lo != hi else f"{lo}: {r}"],
+                            cross_span_list,
+                        )
+                    symbol_verified += 1
+                    classify(doc, token, SYMBOL_VERIFIED)
+                    return None
             # No symbol to check containment against -- but the sentence
             # may already quote the code, which is a claim about the
             # cited lines that needs no anchor and no rewrite.
@@ -1671,13 +1810,16 @@ def main():
         return 1
 
     live = {k: sorted(v, key=lambda c: (-CLASS_RANK[c], c)) for k, v in classes.items()}
-    if anchor_verified + content_verified + bounds_only != sum(len(v) for v in live.values()):
+    if (
+        anchor_verified + symbol_verified + content_verified + bounds_only
+        != sum(len(v) for v in live.values())
+    ):
         # A classified citation that never reached `classify` would sit outside
         # the baseline for ever, unwatched, while the totals still looked right.
         print(
-            f"FAIL {anchor_verified + content_verified + bounds_only} citations were "
-            f"classified but {sum(len(v) for v in live.values())} were recorded -- a "
-            f"classification path does not write its class",
+            f"FAIL {anchor_verified + symbol_verified + content_verified + bounds_only} "
+            f"citations were classified but {sum(len(v) for v in live.values())} were "
+            f"recorded -- a classification path does not write its class",
             file=sys.stderr,
         )
         return 1
@@ -1686,7 +1828,7 @@ def main():
         head_sha = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True
         ).stdout.strip()
-        header = upstream_class_header(head_sha, live, anchor_verified,
+        header = upstream_class_header(head_sha, live, anchor_verified, symbol_verified,
                                        content_verified, bounds_only)
         (REPO_ROOT / UPSTREAM_CLASS_BASELINE).write_text(
             "\n".join(header + render_classes(live)) + "\n"
@@ -1857,8 +1999,8 @@ def main():
     # describing them was checked by nothing until this line.
     header_failed = baseline_header.report(
         UPSTREAM_CLASS_BASELINE, baseline_text,
-        upstream_class_header("-", live, anchor_verified, content_verified,
-                              bounds_only),
+        upstream_class_header("-", live, anchor_verified, symbol_verified,
+                              content_verified, bounds_only),
         "tools/ci/verify-upstream-citations.sh --write-classes", sys.stderr)
     baseline, malformed = parse_classes(baseline_text)
     if malformed:
@@ -2025,10 +2167,14 @@ def main():
     print(
         f"OK {total} upstream citations across {len(corpus)} tracked .md/.rs files "
         f"against {roots}: {anchor_verified} span-verified (cited lines inside "
-        f"the named symbol's definition), {content_verified} content-verified "
+        f"the named symbol's definition, found on the citation's own line), "
+        f"{symbol_verified} symbol-verified (same check, but the name was only "
+        f"found by widening the search to the citation's whole citing_context), "
+        f"{content_verified} content-verified "
         f"(the citing text's own quotation of the code is at a cited line), "
         f"{bounds_only} bounds-checked only (no "
-        f"tightly-paired symbol with a definition span, and no quotation "
+        f"tightly-paired symbol with a definition span even across a line break, "
+        f"and no quotation "
         f"either), {exempted} exempted "
         f"(tools/ci/upstream-citation-exemptions.json), {inherited_checked} of the "
         f"total reached through a bare `:NNN` continuation on a line that named "

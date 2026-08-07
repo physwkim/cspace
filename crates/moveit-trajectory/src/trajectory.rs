@@ -1136,7 +1136,7 @@ mod tests {
     /// `totg_path_parity.rs`'s fixture). So these two irregular steps are
     /// not that. [`Trajectory::next_velocity_switching_point`] (this
     /// file, upstream `getNextVelocitySwitchingPoint`,
-    /// `time_optimal_trajectory_generation.cpp:830-873`) is a live root-
+    /// `time_optimal_trajectory_generation.cpp:518-561`) is a live root-
     /// find instead: a `VELOCITY_SWITCHING_SCAN_STEP` scan for where
     /// `min_max_phase_slope(...) ≥ velocity_max_path_velocity_deriv(...)`
     /// flips, refined by bisection down to `EPS`. `velocity_max_path_

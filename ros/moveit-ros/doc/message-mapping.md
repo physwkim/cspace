@@ -765,7 +765,7 @@ guard-checked-only.**
 §16's existing `header dropped (metadata, same treatment as §1)` row for
 `WorkspaceParameters.header` was re-verified against upstream this round
 (not previously checked at the call-site level, only asserted by analogy
-to §1): `ompl_interface/src/model_based_planning_context.cpp:433-449`
+to §1): `ompl_interface/src/model_based_planning_context.cpp:433-450`
 (`setPlanningVolume`) uses only `min_corner`/`max_corner`, never
 `wparams.header` — confirmed genuinely inert upstream too, not a live
 drift risk. Included here to show the check was run, not skipped, given

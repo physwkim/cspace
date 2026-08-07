@@ -499,7 +499,7 @@ outside the chain's own group (per the same doc comment).
 
 ### `check-consistency-index-space-mismatch` — `checkConsistency` loops full-space `dimension_` while indexing a reduced-space (mimic-filtered) `consistency_limits` vector — out-of-bounds — not-reproduced
 
-**Upstream:** `moveit_kinematics/kdl_kinematics_plugin/src/kdl_kinematics_plugin.cpp:84-93`
+**Upstream:** `moveit_kinematics/kdl_kinematics_plugin/src/kdl_kinematics_plugin.cpp:84-94`
 (`checkConsistency`'s `for (i = 0; i < dimension_; ++i) ... consistency_limits[i]`)
 called at `:392` with `consistency_limits_mimic` — built at `:326-340` by
 filtering the caller's full-space `consistency_limits` down to one entry
@@ -1849,7 +1849,7 @@ is 320x this crate's own FK parity tolerance
 
 ### `set-from-ik-leaves-a-rejected-candidate-in-the-state` — a failed `setFromIK`/`setFromIKSubgroups` leaves the last rejected IK candidate written into the `RobotState` it was called on — not-reproduced
 
-**Upstream:** `moveit_core/robot_state/src/robot_state.cpp:1746-1762`
+**Upstream:** `moveit_core/robot_state/src/robot_state.cpp:1746-1763`
 (`ikCallbackFnAdapter`), `:2036-2047` (`setFromIK`'s solve-and-apply tail),
 and `:2226-2254` (`setFromIKSubgroups`' sweep, `break` and final `return
 false`), all verified at the pinned `e017c91e`. The two callbacks that
@@ -2978,7 +2978,7 @@ before that it built `prbt_link_4`'s *other* `<collision>`
               response. It is reachable from an ordinary client, not only from
               a hand-built message —
               `MoveGroupInterface::setEndEffectorLink`
-              (`moveit_ros/planning_interface/move_group_interface/src/move_group_interface.cpp:1712-1718`)
+              (`moveit_ros/planning_interface/move_group_interface/src/move_group_interface.cpp:1712-1719`)
               rejects only the empty string and forwards anything else to
               `MoveGroupInterfaceImpl::setEndEffectorLink`
               (`move_group_interface.cpp:503-506`), which
