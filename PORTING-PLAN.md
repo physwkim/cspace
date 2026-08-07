@@ -19409,7 +19409,7 @@ fanuc의 2,897배를 설명하지 않는다. pr2의 mesh-vs-box 최악값
 - fanuc의 2,897배를 이 기전으로 설명하지 않는다 (§218.4 자신이 "이탈
   6이 아니다"라 적은 pair-flip 사례다) — 위 "적용 범위" 문단 참고. pr2의
   3.218e-1(§21.4)도 같은 쌍/다른 쌍 구분을 시행한 적이 없어 미확인이다.
-  **둘 다 §247가 닫았다** — 원인은 임계값 게이트의 억압이고, pr2는
+  **둘 다 거짓 → 닫힘 (§247).** 원인은 임계값 게이트의 억압이고, pr2는
   이 절의 기전과 그것이 겹친 경우다.
 
 ---
@@ -22439,7 +22439,7 @@ M3와 M4는 이 게이트에서 서로 다른 것이 필요한 이유를 보여�
 - **`motion_resolution` 아래의 충돌 간극.** 양쪽이 같은 해상도로 검사한다. 이미
   `plan_benchmark_port.rs`의 `# Condition 2's collision-check resolution`이 기록한
   한계이고 이 라운드에서 바뀌지 않았다.
-- **C++ 경로의 끝점. 닫혔다(§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에
+- **C++ 경로의 끝점. 거짓 → 닫힘 (§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에
   대응하는 C++ 쪽 검사가 없었고, 여는 값이 500문제 재실행 한 번이라고 적었다.
   같은 날 `a7d1b9a0`(`test(sbp): hold the C++ baseline to the same endpoint
   requirement as the port`)이 stratum마다 `cpp-endpoints`를 넣었고, 기록된
@@ -25982,7 +25982,7 @@ a pass"를 명시해 두 줄로 외친다. 매 병합 라운드에 돌릴 만한
 
 ### §263.7 이 절이 재지 않은 것
 
-- **CHOMP/STOMP를 각자의 상류 C++ 구현과 비교하는 읽기. 닫혔다(§269).** 이 절
+- **CHOMP/STOMP를 각자의 상류 C++ 구현과 비교하는 읽기. 거짓 → 닫힘 (§269).** 이 절
   시점에는 §263.1의 이유로 구조적으로 불가능했다 — 오라클에 CHOMP 플래닝 op이
   없었고 STOMP는 op 자체가 없었다. `b146a109`가 `chomp_plan`과 `stomp_plan`을
   넣어 그 자리를 열었고, §269가 그 두 op으로 같은 500문제를 다시 재서 C++
@@ -26427,7 +26427,7 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
   게이트가 그것을 이 기계의 모든 워크트리에 대한 이미지 재빌드로 만든다.
 - **`full` 모드의 핀.** 한 번도 돌리지 않았다(§264.9). 250문제 × 2로봇 ×
   2플래너에 STOMP의 실측 문제당 비용을 곱하면 이 라운드에 들어가지 않는다.
-- **CHOMP의 목적함수가 관측되지 않는다 — §293에서 닫았다.** 닫는 방법은
+- **CHOMP의 목적함수가 관측되지 않는다. 거짓 → 닫힘 (§293).** 닫는 방법은
   여기 적힌 "한 필드"가 아니었다. upstream은 이 값을 폐기하지 않고
   `best_group_trajectory_cost_`(`chomp_optimizer.hpp:150`)에 들고 있되
   `private:`(`chomp_optimizer.hpp:83`) 아래에 두고, 유일하게 밖으로 내보내는 곳
@@ -28077,7 +28077,7 @@ crates/moveit-planners-sbp/src/registry.rs:903:#[linkme::distributed_slice(PLANN
 
 ### §274.6 닫지 않은 것
 
-- **저장된 설정은 어떤 플래너에도 닿지 않았다. 닫혔다(§285).** 상류의
+- **저장된 설정은 어떤 플래너에도 닿지 않았다. 거짓 → 닫힘 (§285).** 상류의
   `setParams`는 `setPlannerConfigurations`로 끝나면서 파이프라인이 계획에 쓰는
   인스턴스에 맵을 넘기는데, 이 절 시점에는 대응하는 호출이 없었고 이
   워크스페이스의 어떤 구성 경로도 `PlannerConfigurationMap`을 입력으로 받지
@@ -28088,7 +28088,7 @@ crates/moveit-planners-sbp/src/registry.rs:903:#[linkme::distributed_slice(PLANN
   (`crates/moveit-planner-registry/src/lib.rs:80`) setter가 아니라 **생성자
   인자**로 만들었고, `resolve_planner`가 유일한 통로이므로 레지스트리로 만든
   매니저는 자기가 계획할 설정을 반드시 갖는다.
-- **머지 시점의 import. 이미 해소되었다(§285.1).** 이 절이 쓰인 브랜치의
+- **머지 시점의 import. 거짓 → 닫힘 (§285.1).** 이 절이 쓰인 브랜치의
   base에서 `PLANNER_MANAGERS`는 `moveit-planners-sbp`에 있었고 `main`에서는
   `moveit-planner-registry` 크레이트로 옮겨져 있었으므로, 새 파일인
   `planner_params.rs`는 충돌 없이 머지되고 그 다음 컴파일에서 깨질 것이라고

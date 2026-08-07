@@ -60,6 +60,52 @@ TABLE_ROW_RE = re.compile(r"^\s*\|")
 SECTION_ID_RE = re.compile(r"^#{1,6}\s*§?(\d+(?:\.\d+)?)")
 CLOSURE_RE = re.compile(r"거짓\s*→\s*닫힘\s*\(([^)]+)\)")
 
+# A second, deliberately different marker for PORTING-PLAN.md §308.4's A3 row
+# (line 35022) other legitimate exit. A3's condition is not "0 OPEN" alone --
+# it is "OPEN items are 0: each item either closes, or converts to an expiry
+# condition with a stated trigger time" -- so a residual claim that is not
+# false (nothing measured it and turned it CLOSED) but has a genuine,
+# falsifiable future trigger is not left OPEN either. §153.1 already
+# established the shape doc-wide ("무엇이 생기면 만료되는지 같이 적는다"; 45+
+# freeform `**만료 조건**: <trigger>` sites, catalogued at §294.4) -- this is
+# the same idea, narrowed to a fixed arrow phrase so it cannot collide with
+# those freeform sites (or with `거짓 → 닫힘`, which shares no token with it).
+#
+# The captured group is NOT a `§N` citation like CLOSURE_RE's -- it is the
+# trigger-time SENTENCE itself, and per A3's own wording it is required
+# content, not decoration: a marker whose captured text is blank means "no
+# trigger was actually stated," which is indistinguishable from the
+# unconditional "permanent, no trigger" carve-out A3's condition does NOT
+# accept as an OPEN exit. `find_blank_expiry_triggers` is the gate for that.
+EXPIRY_RE = re.compile(r"OPEN\s*→\s*만료\s*조건\s*\(([^)]*)\)")
+
+
+def find_blank_expiry_triggers(entries):
+    """Every `EXPIRY_RE` match whose captured trigger-time sentence is empty
+    or whitespace-only -- a marker with the shape of an expiry condition but
+    no actual condition inside it, which is the disallowed permanent
+    carve-out wearing the expiry marker's clothes."""
+    blanks = []
+    for _leadin_line, _section_id, _leadin_text, bullets in entries:
+        for bline, btext in bullets:
+            m = EXPIRY_RE.search(btext)
+            if m and not m.group(1).strip():
+                blanks.append((bline, btext))
+    return blanks
+
+
+def bullet_status(btext):
+    """CLOSED takes priority over EXPIRY if a bullet somehow carried both --
+    `거짓 → 닫힘` asserts a measurement actually happened, which is strictly
+    more informative than "here is when to re-measure"."""
+    m = CLOSURE_RE.search(btext)
+    if m:
+        return f"CLOSED ({m.group(1)})"
+    if EXPIRY_RE.search(btext):
+        return "EXPIRY"
+    return "OPEN"
+
+
 # The closed lead-in vocabulary. Every list in the corpus today -- heading or
 # plain prose -- ends its lead-in line on one of these, optionally followed
 # by a parenthetical annotation and/or a colon (`이 절이 하지 않은 것 (첫째는
@@ -228,7 +274,12 @@ def render(entries, unbulleted, doc_label):
         "자신의 텍스트 안에 있는지만 본다** — 한 불릿에 여러 절이 섞여 있고 "
         "그중 일부만 닫힌 경우(예: PORTING-PLAN.md §284.3), 그 표식이 있으면 "
         "전체가 CLOSED로 잡힌다. 부분 닫힘은 이 표가 못 보고, 여는 사람이 "
-        "본문을 읽어야 한다."
+        "본문을 읽어야 한다. **EXPIRY는 다른 질문에 답한다** — "
+        "PORTING-PLAN.md §308.4(A3)가 허용하는 두 번째 출구로, 측정이 참/거짓을 "
+        "가려서 닫힌 것이 아니라 발화 시점을 적은 만료 조건으로 전환된 것이다. "
+        "`OPEN → 만료 조건 (<발화 시점 문장>)` 마커로 표시하고, 괄호 안 문장이 "
+        "비어 있으면(발화 시점 없는 '영구' 선언은 A3가 허용하는 출구가 아니다) "
+        "이 스크립트는 census를 만들지 않고 FAIL한다."
     )
     lines.append("")
 
@@ -236,9 +287,15 @@ def render(entries, unbulleted, doc_label):
     closed = sum(
         1 for _, _, _, bullets in entries for _, t in bullets if CLOSURE_RE.search(t)
     )
+    expiry = sum(
+        1
+        for _, _, _, bullets in entries
+        for _, t in bullets
+        if EXPIRY_RE.search(t) and not CLOSURE_RE.search(t)
+    )
     lines.append(
         f"lead-in {len(entries)}건, 최상위 불릿 {total}건 "
-        f"(CLOSED {closed} / OPEN {total - closed})."
+        f"(CLOSED {closed} / EXPIRY {expiry} / OPEN {total - closed - expiry})."
     )
     lines.append("")
     lines.append("| 절 | lead-in (줄) | 불릿 | 상태 |")
@@ -249,8 +306,7 @@ def render(entries, unbulleted, doc_label):
         if len(leadin_short) > 60:
             leadin_short = leadin_short[:57] + "..."
         for bline, btext in bullets:
-            m = CLOSURE_RE.search(btext)
-            status = f"CLOSED ({m.group(1)})" if m else "OPEN"
+            status = bullet_status(btext)
             claim = re.sub(r"\s+", " ", btext).strip()
             if len(claim) > 90:
                 claim = claim[:87] + "..."
@@ -321,6 +377,23 @@ def main():
         )
         return 1
 
+    blanks = find_blank_expiry_triggers(entries)
+    if blanks:
+        print(
+            f"FAIL {len(blanks)} `OPEN → 만료 조건 ()` marker(s) have no "
+            f"trigger-time sentence inside the parens -- PORTING-PLAN.md "
+            f"§308.4 (A3) only accepts an expiry conversion that states WHEN it "
+            f"expires; an empty trigger is the disallowed unconditional "
+            f"'permanent' exit wearing this marker's shape:",
+            file=sys.stderr,
+        )
+        for bline, btext in blanks:
+            claim = re.sub(r"\s+", " ", btext).strip()
+            if len(claim) > 120:
+                claim = claim[:117] + "..."
+            print(f"       {doc_path.name}:{bline} {claim}", file=sys.stderr)
+        return 1
+
     try:
         doc_label = str(doc_path.resolve().relative_to(REPO_ROOT))
     except ValueError:
@@ -356,10 +429,16 @@ def main():
     closed = sum(
         1 for _, _, _, bullets in entries for _, t in bullets if CLOSURE_RE.search(t)
     )
+    expiry = sum(
+        1
+        for _, _, _, bullets in entries
+        for _, t in bullets
+        if EXPIRY_RE.search(t) and not CLOSURE_RE.search(t)
+    )
     print(
         f"OK {check_path}: {len(entries)} lead-ins, {total} top-level bullets "
-        f"(CLOSED {closed} / OPEN {total - closed}), matches a fresh derivation "
-        f"from {doc_path}"
+        f"(CLOSED {closed} / EXPIRY {expiry} / OPEN {total - closed - expiry}), "
+        f"matches a fresh derivation from {doc_path}"
     )
     return 0
 

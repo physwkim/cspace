@@ -5,9 +5,9 @@
 
 # 잔여-주장("이 절/회차가 하지 않은 것") 전수 — 어느 것이 열려 있나
 
-PORTING-PLAN.md §301(및 그 이전 §291)이 만든 문서. 헤딩이든 평문이든, 이 절이/회차가 하지/닫지/재지/... 않은 것 계열의 lead-in 줄 바로 아래 최상위 불릿을 전부 모은다 — 본문 어휘(무엇을 안 쟀는지)가 아니라 lead-in 어휘(안 쟀다는 것 자체)로 찾으므로, 이 절이 잰 것을 부르는 단어가 무엇이든 걸린다. **닫힘 여부는 `거짓 → 닫힘 (§N)`이 그 불릿 자신의 텍스트 안에 있는지만 본다** — 한 불릿에 여러 절이 섞여 있고 그중 일부만 닫힌 경우(예: PORTING-PLAN.md §284.3), 그 표식이 있으면 전체가 CLOSED로 잡힌다. 부분 닫힘은 이 표가 못 보고, 여는 사람이 본문을 읽어야 한다.
+PORTING-PLAN.md §301(및 그 이전 §291)이 만든 문서. 헤딩이든 평문이든, 이 절이/회차가 하지/닫지/재지/... 않은 것 계열의 lead-in 줄 바로 아래 최상위 불릿을 전부 모은다 — 본문 어휘(무엇을 안 쟀는지)가 아니라 lead-in 어휘(안 쟀다는 것 자체)로 찾으므로, 이 절이 잰 것을 부르는 단어가 무엇이든 걸린다. **닫힘 여부는 `거짓 → 닫힘 (§N)`이 그 불릿 자신의 텍스트 안에 있는지만 본다** — 한 불릿에 여러 절이 섞여 있고 그중 일부만 닫힌 경우(예: PORTING-PLAN.md §284.3), 그 표식이 있으면 전체가 CLOSED로 잡힌다. 부분 닫힘은 이 표가 못 보고, 여는 사람이 본문을 읽어야 한다. **EXPIRY는 다른 질문에 답한다** — PORTING-PLAN.md §308.4(A3)가 허용하는 두 번째 출구로, 측정이 참/거짓을 가려서 닫힌 것이 아니라 발화 시점을 적은 만료 조건으로 전환된 것이다. `OPEN → 만료 조건 (<발화 시점 문장>)` 마커로 표시하고, 괄호 안 문장이 비어 있으면(발화 시점 없는 '영구' 선언은 A3가 허용하는 출구가 아니다) 이 스크립트는 census를 만들지 않고 FAIL한다.
 
-lead-in 64건, 최상위 불릿 229건 (CLOSED 13 / OPEN 216).
+lead-in 64건, 최상위 불릿 229건 (CLOSED 19 / EXPIRY 0 / OPEN 210).
 
 | 절 | lead-in (줄) | 불릿 | 상태 |
 |---|---|---|---|
@@ -52,7 +52,7 @@ lead-in 64건, 최상위 불릿 229건 (CLOSED 13 / OPEN 216).
 | §229.4 | PORTING-PLAN.md:19310 §229.4 이 절이 하지 않은 것 | PORTING-PLAN.md:19314 - §229.2의 `5e-8 m` 여유를 없애지 않았다. **UNFIXED**이며 사유는 측정으로 적었다. | OPEN |
 | §229.4 | PORTING-PLAN.md:19310 §229.4 이 절이 하지 않은 것 | PORTING-PLAN.md:19316 - `distance` 절을 초록으로 만들지 않았다. 상류 수치와의 일치는 상류의 결함을 재현해야만 얻어지고, 그러면 §229.3의 두 불변량 시험이 함께 ... | OPEN |
 | §229.4 | PORTING-PLAN.md:19310 §229.4 이 절이 하지 않은 것 | PORTING-PLAN.md:19319 - 10,000 상태 스윕을 다시 돌리지 않았다. §218이 잰 수치를 그대로 쓰며, 이 절이 더한 것은 그 수치의 **원인**이지 새 스윕이 아니다. | OPEN |
-| §229.4 | PORTING-PLAN.md:19310 §229.4 이 절이 하지 않은 것 | PORTING-PLAN.md:19321 - fanuc의 2,897배를 이 기전으로 설명하지 않는다 (§218.4 자신이 "이탈 6이 아니다"라 적은 pair-flip 사례다) — 위 "적용 범위"... | OPEN |
+| §229.4 | PORTING-PLAN.md:19310 §229.4 이 절이 하지 않은 것 | PORTING-PLAN.md:19321 - fanuc의 2,897배를 이 기전으로 설명하지 않는다 (§218.4 자신이 "이탈 6이 아니다"라 적은 pair-flip 사례다) — 위 "적용 범위"... | CLOSED (§247) |
 | §230.5 | PORTING-PLAN.md:19381 §230.5 이 절이 하지 않은 것 | PORTING-PLAN.md:19383 - `HybridCollisionEnv::new`가 fallible이 됐다(생성 시점에 `env_field`를 짓는다). 호출자 쪽 파급은 그 커밋에서 이미... | OPEN |
 | §230.5 | PORTING-PLAN.md:19381 §230.5 이 절이 하지 않은 것 | PORTING-PLAN.md:19386 - `Clone`은 여전히 derive하지 않는다. 상류의 복사 생성자가 답하는 "공유냐 깊은 복사냐" 질문(상류는 깊은 복사)은 이 타입에 아직 적용되지 ... | OPEN |
 | §230.5 | PORTING-PLAN.md:19381 §230.5 이 절이 하지 않은 것 | PORTING-PLAN.md:19389 - 이 절은 `a3822fb`의 기록이지 재측정이 아니다. 그 커밋이 추가한 `env_field_after_incremental_churn_matches_a... | OPEN |
@@ -82,7 +82,7 @@ lead-in 64건, 최상위 불릿 229건 (CLOSED 13 / OPEN 216).
 | §248.9 | PORTING-PLAN.md:22343 §248.9 닫지 않은 것 | PORTING-PLAN.md:22345 - **게이트에 둘째 RNG 스트림.** 측정 결과 섭동이 마진의 1/50이고 비용은 두 배다(§248.2). 같은 여유를 비용 0인 핀으로 닫았다. | OPEN |
 | §248.9 | PORTING-PLAN.md:22343 §248.9 닫지 않은 것 | PORTING-PLAN.md:22347 - **양쪽이 같은 `objects` 배열에서 장면을 만든다.** 오라클의 world도 포트가 읽는 그 요청 JSON에서 만들어지므로, 생성기가 잘못된 장애... | OPEN |
 | §248.9 | PORTING-PLAN.md:22343 §248.9 닫지 않은 것 | PORTING-PLAN.md:22351 - **`motion_resolution` 아래의 충돌 간극.** 양쪽이 같은 해상도로 검사한다. 이미 `plan_benchmark_port.rs`의 `# ... | OPEN |
-| §248.9 | PORTING-PLAN.md:22343 §248.9 닫지 않은 것 | PORTING-PLAN.md:22354 - **C++ 경로의 끝점. 닫혔다(§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에 대응하는 C++ 쪽 검사가 없었고, 여는 값이 5... | OPEN |
+| §248.9 | PORTING-PLAN.md:22343 §248.9 닫지 않은 것 | PORTING-PLAN.md:22354 - **C++ 경로의 끝점. 거짓 → 닫힘 (§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에 대응하는 C++ 쪽 검사가 없었고, 여는... | CLOSED (§264) |
 | §248.9 | PORTING-PLAN.md:22343 §248.9 닫지 않은 것 | PORTING-PLAN.md:22362 - **paired median 집단의 크기.** `paired_problems_pooled > 0`만 요구하고 그 크기에 바닥이 없다. 양쪽 해결 집합이 ... | OPEN |
 | §250.6 | PORTING-PLAN.md:22955 §250.6 이 라운드가 닫지 못한 것 | PORTING-PLAN.md:22957 - **`moveit_planning::PlanningRequest`의 start-state 필드. 거짓 → 닫힘 (§301).** §250.4가 찾은 첫 ... | CLOSED (§301) |
 | §250.6 | PORTING-PLAN.md:22955 §250.6 이 라운드가 닫지 못한 것 | PORTING-PLAN.md:22964 - **planning scene 토픽 구독.** §226.4 항목 3 그대로 부재. | OPEN |
@@ -127,13 +127,13 @@ lead-in 64건, 최상위 불릿 229건 (CLOSED 13 / OPEN 216).
 | §262.5 | PORTING-PLAN.md:25671 §262.5 이 절이 하지 않은 것 | PORTING-PLAN.md:25678 - `doc/upstream-bugs.md`를 고치지 않았다 — 이 절이 쓰는 네 항목 (`fcl-distance-sentinel-survives-zero-... | OPEN |
 | §262.5 | PORTING-PLAN.md:25671 §262.5 이 절이 하지 않은 것 | PORTING-PLAN.md:25684 - 오라클로 조건 재정의 이후의 10,000×5로봇 `bool` 스윕을 직접 다시 돌리지 못했다 — `third_party/moveit_resources`가... | OPEN |
 | §262.5 | PORTING-PLAN.md:25671 §262.5 이 절이 하지 않은 것 | PORTING-PLAN.md:25688 - `distance` 행의 원인 두 가지(panda의 §229.3, fanuc·pr2의 §247)를 하나로 합치지 않았다 — 서로 다른 상류 결함이고, 이... | OPEN |
-| §263.7 | PORTING-PLAN.md:25884 §263.7 이 절이 재지 않은 것 | PORTING-PLAN.md:25886 - **CHOMP/STOMP를 각자의 상류 C++ 구현과 비교하는 읽기. 닫혔다(§269).** 이 절 시점에는 §263.1의 이유로 구조적으로 불가능했다 ... | OPEN |
+| §263.7 | PORTING-PLAN.md:25884 §263.7 이 절이 재지 않은 것 | PORTING-PLAN.md:25886 - **CHOMP/STOMP를 각자의 상류 C++ 구현과 비교하는 읽기. 거짓 → 닫힘 (§269).** 이 절 시점에는 §263.1의 이유로 구조적으로 불... | CLOSED (§269) |
 | §263.7 | PORTING-PLAN.md:25884 §263.7 이 절이 재지 않은 것 | PORTING-PLAN.md:25892 - **Phase 8의 pilz 항목.** §217.3이 MET으로 측정했고 이 절은 손대지 않았다. | OPEN |
 | §263.7 | PORTING-PLAN.md:25884 §263.7 이 절이 재지 않은 것 | PORTING-PLAN.md:25893 - **상류 기본 벽시계 구성의 재현 가능한 수치.** §263.3의 표는 기록이지 게이트가 아니다 — 그 구성에서는 재현 가능한 숫자가 존재하지 않는다는 ... | OPEN |
 | §264.12 | PORTING-PLAN.md:26287 §264.12 닫지 않은 것 | PORTING-PLAN.md:26289 - **씨앗이 주어진 문제 모집단. 절반 닫혔다(§286.9).** 이 절은 "Phase 8의 줄을 정직하게 닫으려면 균일 무작위 끝점 쌍이 아니라 씨앗 궤... | OPEN |
 | §264.12 | PORTING-PLAN.md:26287 §264.12 닫지 않은 것 | PORTING-PLAN.md:26299 - **C++ CHOMP 기준선. 거짓 → 닫힘 (§304).** 만들어졌다 — CHOMP과 STOMP 양쪽으로. 오라클은 `chomp_plan`과 `sto... | CLOSED (§304) |
 | §264.12 | PORTING-PLAN.md:26287 §264.12 닫지 않은 것 | PORTING-PLAN.md:26329 - **`full` 모드의 핀.** 한 번도 돌리지 않았다(§264.9). 250문제 × 2로봇 × 2플래너에 STOMP의 실측 문제당 비용을 곱하면 이 라... | OPEN |
-| §264.12 | PORTING-PLAN.md:26287 §264.12 닫지 않은 것 | PORTING-PLAN.md:26331 - **CHOMP의 목적함수가 관측되지 않는다 — §293에서 닫았다.** 닫는 방법은 여기 적힌 "한 필드"가 아니었다. upstream은 이 값을 폐기하... | OPEN |
+| §264.12 | PORTING-PLAN.md:26287 §264.12 닫지 않은 것 | PORTING-PLAN.md:26331 - **CHOMP의 목적함수가 관측되지 않는다. 거짓 → 닫힘 (§293).** 닫는 방법은 여기 적힌 "한 필드"가 아니었다. upstream은 이 값을 ... | CLOSED (§293) |
 | §264.12 | PORTING-PLAN.md:26287 §264.12 닫지 않은 것 | PORTING-PLAN.md:26343 - **STOMP의 끝점 밀림 자체.** §264.4는 상한을 핀으로 걸었을 뿐이고, 밀림을 없애지 않았다. upstream 동작이므로 포트가 임의로 다시 ... | OPEN |
 | §264.12 | PORTING-PLAN.md:26287 §264.12 닫지 않은 것 | PORTING-PLAN.md:26345 - **제약 비용이 위반량이 아니라 거리라는 것.** §264.6의 원인도 upstream 동작이다. 포트를 바꾸는 것이 아니라 upstream 쪽 문제로 ... | OPEN |
 | §265.8 | PORTING-PLAN.md:26590 §265.8 이 절이 하지 않은 것 | PORTING-PLAN.md:26592 - `crates/moveit-collision`을 고치지 않았다 — §262.1이 이미 시도하고 되돌린 `contact.dist >= 0.0` 게이트를 다... | OPEN |
@@ -157,8 +157,8 @@ lead-in 64건, 최상위 불릿 229건 (CLOSED 13 / OPEN 216).
 | §270.2 | PORTING-PLAN.md:27477 §270.2 이 절이 하지 않은 것 | PORTING-PLAN.md:27479 - 시드를 바꿔 돌리지 않았다. 시드 1 한 벌이고, §260.2와 같은 시드다 — 그래서 25셀 일치가 강한 증거인 동시에 시드 독립성에 대해서는 아무 말... | OPEN |
 | §270.2 | PORTING-PLAN.md:27477 §270.2 이 절이 하지 않은 것 | PORTING-PLAN.md:27482 - 관통 분기의 42,259건을 다시 판정하지 않았다. §260이 그 분기를 상류 결함 3건으로 비교 불가로 분류했고 이 절은 그 분류를 인용만 했다. **... | OPEN |
 | §270.2 | PORTING-PLAN.md:27477 §270.2 이 절이 하지 않은 것 | PORTING-PLAN.md:27503 - `distance: f64` 행(PARTIAL, 근거 §260)을 건드리지 않았다. | OPEN |
-| §274.6 | PORTING-PLAN.md:27979 §274.6 닫지 않은 것 | PORTING-PLAN.md:27981 - **저장된 설정은 어떤 플래너에도 닿지 않았다. 닫혔다(§285).** 상류의 `setParams`는 `setPlannerConfigurations`로 ... | OPEN |
-| §274.6 | PORTING-PLAN.md:27979 §274.6 닫지 않은 것 | PORTING-PLAN.md:27992 - **머지 시점의 import. 이미 해소되었다(§285.1).** 이 절이 쓰인 브랜치의 base에서 `PLANNER_MANAGERS`는 `moveit-... | OPEN |
+| §274.6 | PORTING-PLAN.md:27979 §274.6 닫지 않은 것 | PORTING-PLAN.md:27981 - **저장된 설정은 어떤 플래너에도 닿지 않았다. 거짓 → 닫힘 (§285).** 상류의 `setParams`는 `setPlannerConfiguratio... | CLOSED (§285) |
+| §274.6 | PORTING-PLAN.md:27979 §274.6 닫지 않은 것 | PORTING-PLAN.md:27992 - **머지 시점의 import. 거짓 → 닫힘 (§285.1).** 이 절이 쓰인 브랜치의 base에서 `PLANNER_MANAGERS`는 `moveit-... | CLOSED (§285.1) |
 | §275.4 | PORTING-PLAN.md:28106 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28108 - **다른 4로봇은 다시 재지 않았다. 거짓 → 닫힘 (§284.1·§284.3).** panda/fanuc/dual_arm_panda/pr2는 기본 바닥... | CLOSED (§284.1·§284.3) |
 | §275.4 | PORTING-PLAN.md:28106 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28115 - **case 8148을 닫지 않았다.** §275.3의 1건은 열린 항목이다. | OPEN |
 | §275.4 | PORTING-PLAN.md:28106 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28116 - **접선 자체를 고치지 않았다.** `sphere × sphere`의 비균일성(#16)과 같은 부류이고, §251.4가 적은 두 대안(양의 엡실론 / 쌍... | OPEN |
