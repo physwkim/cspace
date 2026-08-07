@@ -60,6 +60,25 @@ pub struct DiscreteMotionValidator<'c, S, C> {
     _space: std::marker::PhantomData<S>,
 }
 
+/// `None` if `resolution` is finite and positive; otherwise `Some(reason)`
+/// describing why not.
+///
+/// Shared between [`DiscreteMotionValidator::new`]'s panic (a direct
+/// construction is a programming error, per [`crate::error`]'s module doc)
+/// and [`crate::registry::RrtConnectManager::get_planning_context`]'s
+/// `Result`-returning check of the same field reached through the
+/// [`moveit_planning::PlannerManager`] trait boundary instead, where a
+/// caller-supplied value must not be able to panic.
+pub(crate) fn invalid_resolution_reason(resolution: f64) -> Option<String> {
+    if resolution.is_finite() && resolution > 0.0 {
+        None
+    } else {
+        Some(format!(
+            "DiscreteMotionValidator resolution must be finite and positive, got {resolution}"
+        ))
+    }
+}
+
 impl<'c, S, C> DiscreteMotionValidator<'c, S, C>
 where
     S: StateSpace,
@@ -72,10 +91,9 @@ where
     /// # Panics
     /// If `resolution` is not finite and positive.
     pub fn new(checker: &'c C, resolution: f64) -> Self {
-        assert!(
-            resolution.is_finite() && resolution > 0.0,
-            "DiscreteMotionValidator resolution must be finite and positive, got {resolution}"
-        );
+        if let Some(reason) = invalid_resolution_reason(resolution) {
+            panic!("{reason}");
+        }
         Self {
             checker,
             resolution,

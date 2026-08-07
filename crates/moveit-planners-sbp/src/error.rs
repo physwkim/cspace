@@ -10,10 +10,19 @@
 //! [`crate::joint_model_group_space::JointModelGroupSpace::new`], whose
 //! group name is a caller-supplied string looked up against a
 //! [`moveit_model::RobotModel`] built at runtime.
-//! [`crate::rrt_connect::RrtConnectParams`] is validated by `assert!`
-//! instead — passing it a negative step size is a programming error, not
-//! external input, so panicking immediately with a clear message is
-//! preferable to plumbing a `Result` through the planner's success path.
+//! [`crate::rrt_connect::RrtConnectParams`] is validated by `assert!` when a
+//! caller constructs one directly — passing it a negative step size that
+//! way is a programming error, not external input, so panicking immediately
+//! with a clear message is preferable to plumbing a `Result` through the
+//! planner's success path. [`crate::registry::RrtConnectManager`]'s public
+//! `resolution`/`params` fields are a second, distinct entry point onto the
+//! same values, reachable through the [`moveit_planning::PlannerManager`]
+//! trait boundary rather than direct construction — there, an invalid value
+//! must not be able to panic deep inside `solve()`, so
+//! [`InvalidPlannerConfiguration`](SbpError::InvalidPlannerConfiguration) is
+//! this crate's `Result`-returning report of the exact same check, shared
+//! with the `assert!` path via `RrtConnectParams::invalid_reason` rather
+//! than duplicated.
 
 /// An error constructing a planning type in this crate from caller-supplied
 /// data.
@@ -67,4 +76,12 @@ pub enum SbpError {
         /// The group name that was not found.
         name: String,
     },
+
+    /// A planner's tuning, reached through the
+    /// [`moveit_planning::PlannerManager`] trait boundary rather than
+    /// direct construction, was out of range — see this module's doc
+    /// comment for why this is a distinct report from the `assert!` a
+    /// direct construction gets for the same invalid value.
+    #[error("invalid planner configuration: {0}")]
+    InvalidPlannerConfiguration(String),
 }

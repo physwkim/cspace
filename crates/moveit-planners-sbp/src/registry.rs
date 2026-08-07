@@ -607,6 +607,29 @@ impl PlannerManager for RrtConnectManager {
     ) -> Result<Box<dyn PlanningContext<'m> + 'a>, moveit_planning::PlanError> {
         let space = JointModelGroupSpace::new(scene.robot_model(), &request.group_name)
             .map_err(|err| Box::new(PlanError::Sbp(err)) as moveit_planning::PlanError)?;
+        // `resolution` and `params` are both `pub`, reachable by any caller
+        // through direct field assignment -- unlike `RANGE_KEY`'s
+        // `/set_planner_params` path (`params_for`, below), nothing has
+        // validated them yet at this point. Left unchecked, an invalid
+        // value would reach `DiscreteMotionValidator::new`'s or
+        // `RrtConnectParams::assert_valid`'s own `assert!` deep inside
+        // `solve()` and panic instead of returning the `Err` this trait
+        // boundary exists to give a caller.
+        if let Some(reason) = crate::validity::invalid_resolution_reason(self.resolution) {
+            return Err(
+                Box::new(PlanError::Sbp(SbpError::InvalidPlannerConfiguration(
+                    reason,
+                ))) as moveit_planning::PlanError,
+            );
+        }
+        let params = self.params_for(request);
+        if let Some(reason) = params.invalid_reason() {
+            return Err(
+                Box::new(PlanError::Sbp(SbpError::InvalidPlannerConfiguration(
+                    reason,
+                ))) as moveit_planning::PlanError,
+            );
+        }
         Ok(Box::new(RrtConnectContext {
             scene,
             env,
@@ -618,7 +641,7 @@ impl PlannerManager for RrtConnectManager {
             request: request.clone(),
             resolution: self.resolution,
             seed: self.seed,
-            params: self.params_for(request),
+            params,
             solver: self.solver.clone(),
         }))
     }
@@ -1247,6 +1270,68 @@ mod tests {
         assert!(
             matches!(concrete, PlanError::Sbp(SbpError::UnknownGroup { .. })),
             "expected PlanError::Sbp(UnknownGroup), got {concrete:?}"
+        );
+    }
+
+    /// [`RrtConnectManager::params`] is `pub`, reachable by any caller
+    /// through direct field assignment -- not just the wire-settable
+    /// `RANGE_KEY` path `a_range_that_rrt_connect_cannot_use_is_ignored_rather_than_applied`
+    /// (above) already proves is guarded. An invalid value set this way
+    /// must be rejected at this same trait boundary, not reach `solve()`'s
+    /// `RrtConnectParams::assert_valid` and panic.
+    #[test]
+    fn an_invalid_step_size_is_rejected_before_any_search_runs() {
+        let (model, srdf) = load_panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let mut manager = default_manager(0);
+        manager.params.step_size = -1.0;
+
+        let request = request("panda_arm", KinematicConstraintSet::new());
+
+        let Err(err) = manager.get_planning_context(&mut scene, &env, &request) else {
+            panic!("an out-of-range step_size must be rejected, not reach solve()'s panic");
+        };
+        let concrete = err
+            .downcast_ref::<PlanError>()
+            .expect("this crate boxes its own PlanError");
+        assert!(
+            matches!(
+                concrete,
+                PlanError::Sbp(SbpError::InvalidPlannerConfiguration(_))
+            ),
+            "expected PlanError::Sbp(InvalidPlannerConfiguration), got {concrete:?}"
+        );
+    }
+
+    /// [`RrtConnectManager::resolution`] is the other `pub` field this
+    /// manager builds a [`crate::validity::DiscreteMotionValidator`] from
+    /// deep inside `solve()` (`DiscreteMotionValidator::new` panics on a
+    /// non-finite/non-positive value) -- the same boundary-validation gap
+    /// as `params`, checked separately since it is a distinct field with a
+    /// distinct panic site.
+    #[test]
+    fn an_invalid_resolution_is_rejected_before_any_search_runs() {
+        let (model, srdf) = load_panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let mut manager = default_manager(0);
+        manager.resolution = 0.0;
+
+        let request = request("panda_arm", KinematicConstraintSet::new());
+
+        let Err(err) = manager.get_planning_context(&mut scene, &env, &request) else {
+            panic!("a non-positive resolution must be rejected, not reach solve()'s panic");
+        };
+        let concrete = err
+            .downcast_ref::<PlanError>()
+            .expect("this crate boxes its own PlanError");
+        assert!(
+            matches!(
+                concrete,
+                PlanError::Sbp(SbpError::InvalidPlannerConfiguration(_))
+            ),
+            "expected PlanError::Sbp(InvalidPlannerConfiguration), got {concrete:?}"
         );
     }
 

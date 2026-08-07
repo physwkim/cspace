@@ -96,21 +96,42 @@ pub struct RrtConnectParams {
 }
 
 impl RrtConnectParams {
+    /// `None` if every field is valid; otherwise `Some(reason)` describing
+    /// the first invalid field, in the same order [`Self::assert_valid`]
+    /// checks them.
+    ///
+    /// Shared by two call sites that need the same check reported two
+    /// different ways: [`Self::assert_valid`] panics with `reason` for a
+    /// direct construction (a programming error, per this module's own doc
+    /// comment), and
+    /// [`crate::registry::RrtConnectManager::get_planning_context`] turns
+    /// `reason` into `Err(SbpError::InvalidPlannerConfiguration(reason))`
+    /// for the same fields reached through the
+    /// [`moveit_planning::PlannerManager`] trait boundary instead, where a
+    /// caller-supplied value must not be able to panic.
+    pub(crate) fn invalid_reason(&self) -> Option<String> {
+        if !(self.step_size.is_finite() && self.step_size > 0.0) {
+            return Some(format!(
+                "RrtConnectParams::step_size must be finite and positive, got {}",
+                self.step_size
+            ));
+        }
+        if !(0.0..=1.0).contains(&self.goal_bias) {
+            return Some(format!(
+                "RrtConnectParams::goal_bias must be within [0.0, 1.0], got {}",
+                self.goal_bias
+            ));
+        }
+        if self.nn_degree == 0 {
+            return Some("RrtConnectParams::nn_degree must be at least 1, got 0".to_string());
+        }
+        None
+    }
+
     fn assert_valid(&self) {
-        assert!(
-            self.step_size.is_finite() && self.step_size > 0.0,
-            "RrtConnectParams::step_size must be finite and positive, got {}",
-            self.step_size
-        );
-        assert!(
-            (0.0..=1.0).contains(&self.goal_bias),
-            "RrtConnectParams::goal_bias must be within [0.0, 1.0], got {}",
-            self.goal_bias
-        );
-        assert!(
-            self.nn_degree > 0,
-            "RrtConnectParams::nn_degree must be at least 1, got 0"
-        );
+        if let Some(reason) = self.invalid_reason() {
+            panic!("{reason}");
+        }
     }
 }
 
