@@ -57,8 +57,23 @@ for group in rust clippy; do
   fi
 done
 
-mapfile -t manifests < <(git ls-files --deduplicate -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort)
-require_nonempty "${#manifests[@]}" "crate manifest under crates/ or tools/"
+# Every tracked package manifest, not the `crates/*` + `tools/*` roots this
+# used to name. `ros/moveit-ros` is a package that matches neither glob -- it
+# is its own workspace root (D5), so it cannot inherit and is precisely the
+# case this check exists for, and it was the one manifest never read. It had
+# in fact dropped `missing_docs`, which is the exact scenario the header
+# above describes. A crate outside the enumerated roots is the one most
+# likely to have diverged, so enumerated roots are the wrong instrument.
+#
+# `[package]` is the filter rather than a path shape: the root manifest holds
+# the `[workspace.lints]` tables being compared against and has no `[lints]`
+# of its own to check, and a future virtual manifest would be the same.
+manifests=()
+while IFS= read -r manifest; do
+  grep -q '^\[package\]' "$manifest" || continue
+  manifests+=("$manifest")
+done < <(git ls-files --deduplicate -- '*/Cargo.toml' | sort)
+require_nonempty "${#manifests[@]}" "tracked package manifest"
 
 for manifest in "${manifests[@]}"; do
   # The inheriting form: `[lints]` followed by `workspace = true`.
@@ -99,4 +114,4 @@ if [ "$status" -ne 0 ]; then
   exit 1
 fi
 
-echo "OK: no crate silently drops a workspace lint"
+echo "OK: none of the ${#manifests[@]} tracked package manifests silently drops a workspace lint"
