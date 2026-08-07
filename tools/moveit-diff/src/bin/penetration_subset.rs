@@ -294,7 +294,7 @@ impl Oracle {
 impl Drop for Oracle {
     fn drop(&mut self) {
         drop(self.stdin.take());
-        let _ = self.child.wait();
+        moveit_diff::wait_or_kill(&mut self.child, moveit_diff::ORACLE_SHUTDOWN_TIMEOUT);
     }
 }
 
