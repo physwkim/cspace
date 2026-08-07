@@ -34191,8 +34191,13 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 | `measure-upstream-citations.py` | `doc/citation-classes.txt`, `doc/upstream-citation-classes.txt` | 추적 산출물 |
 | `triage-residual-claims-census.py` | `doc/residual-claims-triage.md` | 추적 산출물 |
 
-`추적 산출물` 넷은 브리프가 말한 그대로다 — 각자 커밋된 파일과 그 파일에 대고
-재는 모드를 갖는다. 하나만 다르다:
+부류별 수는 오늘 `추적 산출물` **7**, `트리에서 재실행` **7**, `미보존 산출물`
+**4**, `입력이 증거` **3**이다. 이 네 수는 게이트가 표에서 다시 세어 이 문장과
+맞춰 본다 — 처음 쓸 때 `추적 산출물`은 넷이었고, 병합으로 셋
+(`classify-unported.py`, `reconcile-assertion-ledgers.py`,
+`triage-residual-claims-census.py`)이 들어오는 동안 문장만 넷에 머물렀다.
+`추적 산출물`은 전부 커밋된 파일과 그 파일에 대고 재는 모드를 갖는다.
+하나만 다르다:
 `measure-upstream-citations.py`는 **두 개**를 다시 만든다
 (`doc/citation-classes.txt`와 `doc/upstream-citation-classes.txt`). 산출물 열이
 한 경로만 담았으면 그 둘째 파일은 이 전수에서 보이지 않았을 것이라, 열은

@@ -647,6 +647,31 @@ def run(doc, root, want_derived):
             "pass having checked nothing"
         )
 
+    # The prose under the census restates the per-부류 counts, and an unchecked
+    # restatement is a second source of truth: it said 넷 while `추적 산출물`
+    # grew to seven across three merges, because nothing compared the sentence
+    # to the table it summarises. Every one of the four must be declared, so
+    # deleting the one that stopped matching is a failure and not a fix, and
+    # exactly once, so there is no second sentence to disagree with.
+    body = "\n".join(lines)
+    for klass_name in ALL_CLASSES:
+        want = sum(1 for i in seen if klass[i] == klass_name)
+        found = re.findall(
+            "`" + re.escape(klass_name) + r"`\s*\*\*(\d+)\*\*", body
+        )
+        if len(found) != 1:
+            raise Fail(
+                f"{doc.name}: `{klass_name}` is declared {len(found)} time(s) as "
+                f"`` `{klass_name}` **N** ``; the census prose must state each "
+                f"부류's count exactly once so this gate can check it against "
+                f"the table (the table says {want})"
+            )
+        if int(found[0]) != want:
+            raise Fail(
+                f"{doc.name}: prose says `{klass_name}` **{found[0]}**, the "
+                f"census table has {want}"
+            )
+
     # --- rows ----------------------------------------------------------------
     section_numbers = {num for _ln, num, _t in marks}
     excluded = top_span(marks, c_start, len(lines))
