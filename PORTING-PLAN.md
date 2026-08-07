@@ -30476,8 +30476,8 @@ single-branch — 빈 맵에서는 두 조회의 조건이 모두 불만족이�
   first"를 `query_planners_service_capability.cpp:139`, "merge in
   group-specific params"를 `query_planners_service_capability.cpp:146`으로
   인용하는데,
-  고정된 체크아웃에서 그 두 줄은 각각 135와 141이다. §274에서 들어온 것이고
-  이 라운드가 건드린 코드가 아니라서 그대로 두었다.
+  고정된 체크아웃(`e017c91e`)에서 그 두 줄은 각각 135와 142다 — **정정
+  (2026-08-07):** 원래 적힌 "141"은 오프바이원. §274에서 들어와 그대로 두었다.
 
 ---
 
