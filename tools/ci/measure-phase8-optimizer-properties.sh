@@ -118,6 +118,22 @@ RESULTS="$REPO_ROOT/doc/phase8-optimizer-properties.json"
 # be, at `ChompParameters::default()`'s 6.0.
 TIMEOUT_SECONDS=120
 
+# The C++ arm's clock, named here rather than left to
+# `measure-phase8-cpp-baseline.sh`'s own default, so that both arms' stop
+# conditions are set in one place and can be compared without reading two
+# files. Both are written into `$RESULTS` for the same reason: the run that
+# published `chomp/panda/condition1: FAIL` had a 6.0s port arm and a 3600s C++
+# arm, and nothing in its own artifact said so.
+#
+# The two need not be equal, and are not: what matters is that neither is what
+# stops a call, so that both arms terminate on their iteration bound. If one
+# binds while the other does not, the rate difference is this instrument's
+# artifact rather than a fact about the port. `no-timeouts` is the port arm's
+# check for exactly that -- and it currently FAILS for STOMP (65/250 panda,
+# 80/250 fanuc), so STOMP's condition-1 rates are not yet clean under this
+# rule. CHOMP's `no-timeouts` passes.
+CPP_CLOCK_BOUND=3600
+
 # 125 per config x 4 configs = 500 problems per planner, the same population
 # size §5 names for Phase 7. Phase 8's row names no count of its own, so this
 # is this gate's declaration, and `pin-population` holds every run to it.
@@ -617,6 +633,7 @@ for planner in $PLANNERS; do
     [[ -s "$WORKDIR/$tag.request.json" ]] || continue
     dir="$WORKDIR/cpp.$planner.$tag"
     if ! SET_FILE="$WORKDIR/$tag.request.json" PLANNER_SEED_BASE="$SEED_BASE" \
+         CHOMP_CLOCK_BOUND="$CPP_CLOCK_BOUND" STOMP_CLOCK_BOUND="$CPP_CLOCK_BOUND" \
          JOBS="$SHARDS" "$CPP_BASELINE" "$planner" "$config" "$count" "$seed" "$dir" \
          >"$WORKDIR/cpp.$planner.$tag.log" 2>&1; then
       echo "  FAIL C++ baseline $planner/$tag:" >&2
@@ -1109,6 +1126,8 @@ if [[ "$MODE" == "full" ]]; then
      '{measured_at:$ts, commit:$stamp, working_tree_dirty:$dirty,
        dirty_paths:$dirty_paths, measured_sources:$sources,
        mode:"full", planners:"chomp stomp", seed_base:'"$SEED_BASE"', timeout_seconds:'"$TIMEOUT_SECONDS"',
+       clock_bounds:{port_seconds:'"$TIMEOUT_SECONDS"', cpp_seconds:'"$CPP_CLOCK_BOUND"',
+                     note:"neither bound may be what stops a call -- both arms are meant to terminate on their iteration bound. These two need not be equal, but if one binds and the other does not, the rate difference is an instrument artifact and not a finding about the port. no-timeouts is the check for that on the port arm; the cpp arm reports a clock stop as its own error code."},
        instrument_wall_clock_seconds:$seconds,
        cpp_baseline_wall_clock_seconds:$cpp_seconds,
        regression_pins:$pins, rows:$rows,
