@@ -35116,7 +35116,7 @@ Phase 0–9의 것만 나온다(`PORTING-PLAN.md:618`, "각 단계는 **검증 �
 
 | 항목 | 조건 | 판정 | 측정한 § | 날짜 |
 |---|---|---|---|---|
-| A1 게이트 커버리지 | `tools/ci/check-*` 와 `verify-*` 전부가 main tip에서 rc=0이고, opt-in 게이트(`PHASE3_SWEEP`, `MOVEIT_RS_PHASE8_BENCHMARK`)를 무장한 실행을 포함해 `not a pass` 출력이 0건 | UNMEASURED | §308 | 2026-08-07 |
+| A1 게이트 건전성 | `tools/ci/check-*` 와 `verify-*` 전부가 main tip에서 판정까지 도달하고 — 크래시·전제 미비·조용한 건너뜀 없이 — `not a pass` 출력이 0건. opt-in 게이트(`PHASE3_SWEEP`, `MOVEIT_RS_PHASE8_BENCHMARK`)는 무장한 실행으로 잰다. §5의 Phase 완료 조건을 그대로 단언하는 게이트는 rc에서 제외한다: 오늘 그것은 `verify-phase3-collision-sweep.sh` 하나이고, 그 rc는 §5 Phase 3 행이 이미 싣고 있다 | UNMEASURED | §308 | 2026-08-07 |
 | A2 주장 커버리지 | 세 인용 baseline(`doc/citation-classes.txt`, `doc/citation-classes-in-repo.txt`, `doc/upstream-citation-classes.txt`)에 unresolvable·out-of-bounds·blank-line·anchor-mismatch·span-mismatch·section-mismatch 등급의 행이 0 | MET | §309.5 | 2026-08-07 |
 | A3 잔여 주장 | `doc/residual-claims-census.md`의 OPEN 항목이 0 — 각 항목이 닫히거나, 발화 시점을 적은 만료 조건으로 전환 | UNMET | §308 | 2026-08-07 |
 | A4 수렴 | A1–A3이 충족된 tip에서, 연속 2개 감사 라운드가 게이트 층의 새 결함을 0건 보고 | UNMEASURED | §308 | 2026-08-07 |
@@ -35699,3 +35699,65 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 틀려 있었다. 등급 사다리의 아래 두 칸(`resolved`/`unanchored`)은 줄이
 경계 안에 있고 비어 있지 않다는 것만 말하므로, 내용이 바뀐 인용을 통과시킨다.
 A2의 조건은 실패 등급이 0인 것이지 통과 등급이 옳은 것이 아니다.
+
+---
+
+## §309.6 A1을 다시 썼다 — 원래 문언은 §5가 일부러 열어 둔 행을 닫으라는 요구였다 (2026-08-07)
+
+A1은 "`tools/ci/check-*` 와 `verify-*` 전부가 main tip에서 rc=0"을
+요구했다. 그 문언은 도달 불가능하다. `PHASE3_SWEEP`을 무장한
+`verify-phase3-collision-sweep.sh`는 로봇 하나라도 §5 Phase 3의 완료
+조건을 못 넘기면 `§5 Phase 3's completion condition is NOT met`
+(`tools/ci/verify-phase3-collision-sweep.sh:265`)을 찍고 `exit 1`
+(`tools/ci/verify-phase3-collision-sweep.sh:271`)한다. prbt의
+`collision: bool`은 6,854/10,000이고, §247.5는 그 원인을 "포트의 오차가
+아니라 상류가 다른 값을 발표한다"로 확정하면서 두 행 다 **미충족**으로
+남긴다고 적었다. 따라서 옛 A1은 "감사가 끝났는가"가 아니라 "Phase 3이
+닫혔는가"를 물었고, 그 답은 §5 표가 이미 싣고 있다.
+
+새 문언이 재는 것은 **게이트의 건전성**이다: 모든 게이트가 판정까지
+도달하는가 — 크래시하지 않고, 전제가 없어 조용히 건너뛰지 않고,
+`not a pass`를 찍고서 통과로 집계되지 않는가. 그것이 §308.3이 A1을 쓴
+이유였다("26/26 verify scripts passed"에 자기 출력으로 "this is not a
+pass"를 찍은 스크립트 둘이 들어간 경로). 그 목적은 그대로 서고, Phase
+완료 조건의 판정은 그것을 싣는 §5 표 한 곳에만 남는다.
+
+제외는 이름으로 적는다. 오늘 §5의 Phase 완료 조건을 그대로 단언하는
+게이트는 `verify-phase3-collision-sweep.sh` 하나다. 새로 그런 게이트가
+생기면 이 목록에 이름을 올려야 하고, 올리지 않은 채 A1을 MET로 적으면
+그것은 옛 A1이 잡으려던 바로 그 집계다.
+
+### §309.6.1 무장한 두 opt-in 게이트의 실측
+
+`MOVEIT_RS_PHASE8_BENCHMARK=full bash tools/ci/verify-phase8-benchmark.sh`
+— **rc=0**, 벽시계 8,726초(shards=25). 핀된 여덟 값이 전부 그대로다:
+
+| 계기 | 실측 | 핀 |
+|---|---|---|
+| cpp solved | 498 | 498 |
+| cpp median length | 2.6597767032746464 | 2.6597767032746464 |
+| chomp solved | 380 | 380 |
+| chomp cond2 valid | 379 | 379 |
+| chomp median length | 2.163978163668814 | 2.163978163668814 |
+| stomp solved | 441 | 441 |
+| stomp cond2 valid | 438 | 438 |
+| stomp median length | 2.210362452483207 | 2.210362452483207 |
+
+이 게이트는 조건 1·2를 `UNMET`으로 **찍지만** 판정에 쓰지 않는다 —
+`c1`/`c2`/`c3`는 `print`에만 들어가고(`tools/ci/verify-phase8-benchmark.sh:320-328`),
+`exit 1`은 `check()`가 핀과 어긋날 때만 난다. 즉 핀된 값 회귀 게이트이지
+완료 조건 게이트가 아니다. 그래서 A1의 제외 목록에 들어가지 않는다.
+
+`PHASE3_SWEEP=1 sg docker -c tools/ci/verify-phase3-collision-sweep.sh`
+— **rc=1**, 벽시계 4,206초(로봇 다섯의 합). 로봇별 판정:
+
+| 로봇 | `collision: bool` | 분리 dis/tot | 분리 최악 | wall | 판정 |
+|---|---|---|---|---|---|
+| panda | 0/10000 | 0/8734 | 5.134781e-16 | 404s | met |
+| prbt | 6854/10000 | 0/9611 | 8.892585e-05 | 16s | **UNMET** |
+| fanuc | 0/10000 | 0/5053 | 1.744264e-15 | 2358s | met |
+| dual_arm_panda | 0/10000 | 0/7703 | 8.396062e-16 | 476s | met |
+| pr2 | 0/10000 | 0/9958 | 6.056201e-07 | 952s | met |
+
+`not a pass` 출력은 두 실행 다 0건이다. prbt 한 행이 rc를 1로 만들고,
+그 행의 사유는 §247.5가 이미 적은 것 그대로다.
