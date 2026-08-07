@@ -91,6 +91,7 @@
 mod all_valid;
 mod common;
 mod env;
+mod fcl_tangency_table;
 mod matrix;
 mod octomap_filter;
 mod parry;
