@@ -36720,3 +36720,162 @@ tools/ci/verify-phase8-benchmark.sh` (릴리스 빌드 포함 벽시계 171초,
 — 하나씩 다시 돌려 확인하지는 않았다. `verify-phase8-benchmark.sh`가
 집계-보존/구성-미보존이라는 결론이 이 9개 전체로 일반화되는지는 이 절이
 확인한 범위 밖이다.
+
+---
+
+## §316 A3 — pilz-pipeline 테마(PZ) 20건을 재쟀다, 전부 오늘도 참이다 (2026-08-07)
+
+`doc/residual-claims-triage.md`의 `pilz-pipeline` 테마(20건, 8개 절 —
+§130.3, §227.4, §227.6, §227.7, §234.5, §240.7, §263.7, §266.7)를 절
+단위로 열어 각 불릿마다 falsifier를 정하고 실행했다. 20건 모두 falsifier
+불발 — OPEN으로 남는다. 시작 전에 `git merge main`으로 20개 이상 커밋을
+받았다(fast-forward, 충돌 없음).
+
+### §316.1 §130.3 — 정리 대상 오라클 이미지는 89개가 아니라 133개다, 정리는 여전히 사용자 승인 대기
+
+불릿: "정리 대상 이미지가 하나 늘었다(현재 89개, 정리는 사용자 승인
+필요). 이 변종 이미지는 요청서가 확정되면 버린다." falsifier: 사용자가
+정리를 승인해 이미지가 실제로 지워졌거나, 다른 근거로 이 잔여가
+없어졌다면 거짓.
+
+`sg docker -c 'docker images "moveit-rs/oracle"'`로 태그를 직접 세면 오늘
+**133개**다(`ce29f1718ca74fda` 변종 포함, 여전히 살아 있다). "요청서가
+확정되면 버린다"던 예측 중 앞쪽 절반은 맞아떨어졌다 —
+`pilz_industrial_motion_planner`가 `tools/moveit-oracle/src-digest.sh:95`의
+`ORACLE_MOVEIT2_PACKAGES` 기본값에 이미 들어가 정본이 됐고, `oracle.cpp`도
+`pilz_trajectory` op을 영구히 갖고 있다(`oracle.cpp:1061-1062`). 그러나
+예측의 술어는 "버린다" — 이미지 삭제였고, 그 삭제는 일어나지 않았다.
+`tools/moveit-oracle/` 전체에 `cleanup`/`prune`/`정리` 어휘가 0건이라
+정리 스크립트 자체가 없다. 잔여의 핵심 — "쌓인 이미지를 사용자 승인 없이
+지우지 않는다" — 는 오늘도 그대로이고, 숫자는 89에서 133으로 더 늘었을
+뿐이다. falsifier 불발 — OPEN.
+
+### §316.2 §227.4 — `PlanningContext`는 오늘도 이 크레이트에 없다
+
+두 불릿(`PlanningContext` 자체 미도입 / 그래서 구현 타입 없음)을 함께
+잰다. falsifier: `moveit-planners-pilz`가 `moveit-planning`이나
+`moveit-planners-sbp`에 의존 간선을 얻었거나, `PlanningContext`를 구현하는
+타입이 그 크레이트에 생겼다면 거짓.
+
+`crates/moveit-planners-pilz/Cargo.toml`의 `[dependencies]`를 읽으면
+`moveit-planning`도 `moveit-planners-sbp`도 없다. `rg -n 'PlanningContext'
+crates/moveit-planners-pilz/src/`는 `lib.rs`의 부재를 설명하는 산문 한
+줄뿐, 구현이 없다. `rg -rln pilz crates/moveit-planners-sbp/src/`도 0건 —
+sbp 레지스트리가 pilz를 등록하지 않는다. falsifier 불발 — 둘 다 OPEN.
+
+### §316.3 §227.6 — #41/#11 두 실제 누락은 오늘도 열려 있다
+
+**#41 `JointNumberMismatch`.** falsifier: `trajectory_generator_lin.rs`의
+`Goal::Joint` 분기나 `check_joint_goal`
+(`crates/moveit-planners-pilz/src/trajectory_generator.rs:746-764`)이
+목표 관절 개수와 그룹의 활성 관절 개수를 비교하는 코드를 얻었다면 거짓.
+두 함수를 다시 읽으면 `check_joint_goal`은 이름의 소속(`has_joint_model`)과
+한계만 보고 개수는 세지 않는다 — 비교가 여전히 없다.
+
+**#11 `MoreThanOneTipFrameException`.** falsifier: `solver_tip_frame`
+(`crates/moveit-planners-pilz/src/trajectory_functions.rs:803-809`)이나
+그 호출자가 복수 tip frame을 분기하는 코드를 얻었다면 거짓. 함수는
+오늘도 `resolve_solver`의 결과 하나를 그대로 감쌀 뿐이고,
+`doc/port-coverage.md:207`도 오늘 "multi-tip 분기"를 여전히 잔여로
+적는다.
+
+falsifier 둘 다 불발 — OPEN.
+
+### §316.4 §227.7 — 46행 실행 미확인, 상류 doc 결함 둘 다 오늘도 참이다
+
+**46행 실행 미확인.** falsifier: 이후 어느 라운드가 46행 전체를 테스트로
+실행 확인했다면 거짓. `grep -n "46개.*실행\|46행" PORTING-PLAN.md`는
+§227.7 자신의 문장 밖에 후속이 없고,
+`crates/moveit-planners-pilz/tests/`의 여섯 파일 어디에도 46개 에러
+코드를 전수로 발생시키는 테스트가 없다.
+
+**상류 doc 넷 중 셋의 `@throw` 불일치.** falsifier: 핀(`e017c91e`)이
+바뀌었거나 상류가 그 문서를 고쳤다면 거짓. 이 세션 내내 핀은
+`e017c91ee12984393a28ba246075c65f69cde3bf`로 고정이고,
+`/home/stevek/work/moveit2`를 그 SHA에서 직접 읽으면
+`trajectory_generator_{circ,lin,polyline}.hpp` 셋 다 `@throw
+TrajectoryGeneratorInvalidLimitsException`을 여전히 적고 그 `.cpp`
+생성자 본문은 `printCartesianLimits()` 한 줄뿐이다(PTP만 실제로
+던진다) — 상류 자체가 안 바뀌었으므로 이 문서 결함은 핀이 고정인 한
+falsifier가 정의상 불발한다.
+
+falsifier 둘 다 불발 — OPEN.
+
+### §316.5 §234.5 — 네 불릿 모두 오늘도 참이다
+
+- **`ChompSolution`을 벡터로 넓히지 않았다.** falsifier:
+  `ChompSolution::trajectory`가 `Vec`로 바뀌었다면 거짓.
+  `crates/moveit-planners-chomp/src/planner.rs:213`은 오늘도 `pub
+  trajectory: RobotTrajectory<'m>` — bare 타입 그대로다. OPEN.
+- **`ros/moveit-ros/Cargo.toml`을 안 건드렸다.** falsifier: 그 파일이
+  `moveit-planners-pilz`나 `moveit-planners-chomp`에 의존 간선을 얻었다면
+  거짓. 오늘 그 파일은 `moveit-planners-sbp` 하나만 플래너 크레이트로
+  갖는다(`Cargo.toml:74`) — pilz/chomp 간선은 여전히 없다. OPEN.
+- **`planning_time` 잔여를 안 닫았다.** falsifier: `PlanningResponse`
+  (`crates/moveit-planning/src/response.rs:129-148`)에 `planning_time`
+  필드가 생겼다면 거짓. 구조체는 오늘도 `trajectory`/`planner_id`/
+  `start_state` 셋뿐이다. D8 감사 자신이 §153.1의 만료 조건이
+  "발화했다"고 적어 두었지만(`response.rs:59`), 그 발화는 이 필드가
+  이제 *제외*가 아니라 *공백*이라는 분류 변경일 뿐 필드를 채우는 것과
+  다르다 — 채워지지 않았으므로 OPEN.
+- **`pilz-detailed-response-pushes-null-trajectory`의 등급을 안
+  바꿨다.** falsifier: `doc/upstream-bugs.md`에서 그 항목의 등급이
+  `not-reproduced`가 아니게 됐다면 거짓. 오늘도 `not-reproduced`다
+  (`doc/upstream-bugs.md:121`). OPEN.
+
+### §316.6 §240.7 — 미감사 분포와 `moveit-test-support`의 공백 둘 다 오늘도 그대로다
+
+**미감사 분포.** falsifier: `doc/declaration-audit-coverage.md`가
+`moveit-planners-pilz`/`moveit-model`/`robot_state.hpp,.cpp`를 더 이상
+39/20/2로 적지 않는다면 거짓. `tools/ci/verify-declaration-audits.sh`를
+다시 돌리면 오늘도 "159 rows == 159 ported files; 74 audited, 85
+none"이고, 그 문서의 크레이트별 요약표(`declaration-audit-coverage.md:107-114`)는
+여전히 pilz 39 / model(+geometry) 20 / robot_state 2를 적는다 — §240.7이 쓰인
+시점과 숫자가 하나도 안 바뀌었다. (불릿 자신의 "81건" 표기는 이 표의
+합계 85와도, pilz+model+robot_state의 합 61과도 안 맞는 것을 재확인했다
+— 어느 산식으로도 81이 안 나온다. 이 산술은 불릿이 쓰인 시점부터 이미
+안 맞았던 것으로 보이고, 그 자체가 명명한 세 수치를 거짓으로 만들지는
+않는다 — 별개의 결함으로만 적어 둔다.) falsifier 불발 — OPEN.
+
+**`moveit-test-support`의 `doc/claim-audit/` 공백.** falsifier:
+`doc/claim-audit/moveit-test-support.md`가 생겼다면 거짓. `doc/claim-audit/`
+목록에 오늘도 그 파일이 없다(19개 크레이트 파일뿐, `moveit-test-support`
+제외). OPEN.
+
+### §316.7 §263.7 — Phase 8 pilz 항목은 손대지 않았고, 상류 기본 벽시계 구성은 구조적으로 비재현이다
+
+**Phase 8의 pilz 항목.** falsifier: §5의 Phase 8 pilz 행이 §217.3 아닌
+다른 절을 인용하거나 등급이 바뀌었다면 거짓. `PORTING-PLAN.md:821`은
+오늘도 "Phase 8 | pilz LIN/PTP/CIRC 궤적이 오라클과 `1e-6` 이내 일치 |
+MET | §217.3 | 2026-08-05"다 — §263 이후 어느 절도 이 행을 다시 열지
+않았다. OPEN.
+
+**상류 기본 벽시계 구성의 재현 가능한 수치.** 이 불릿은 "그 구성에서는
+재현 가능한 숫자가 존재하지 않는다"는 구조적 주장이지, 미래에 누가 재면
+바뀔 수치 주장이 아니다 — §263.3이 같은 시드·같은 바이너리로 CHOMP를
+두 번 돌려 12문제가 갈리는 것을 직접 관측했다(공유 기계의 벽시계 정지
+조건이 원인). 하네스는 오늘도 §263.3의 수정(반복 횟수 상한, `1e9`
+벽시계) 그대로다 — falsifier가 성립하려면 공유 기계에서도 결정론적인
+벽시계 측정 방법이 있어야 하는데, 그런 방법이 없다는 것 자체가 불릿의
+내용이다. 구조가 안 바뀐 한 falsifier는 정의상 불발한다. OPEN.
+
+### §316.8 §266.7 — 다섯 불릿 모두 오늘도 참이다
+
+- **어댑터 체인이 비어 있다.** falsifier: `plan_only`
+  (`ros/moveit-ros/src/move_group.rs:160-174`)가 `generate_plan`에 빈
+  슬라이스가 아닌 실제 체인을 넘긴다면 거짓. 오늘도 `&[]`,
+  `&[planner]`, `&[]` 그대로다. OPEN.
+- **`planning_time`.** §316.5와 같은 필드, 같은 결과 — 오늘도 없다.
+  OPEN.
+- **goal의 `planning_scene_diff`가 무시된다.** falsifier:
+  `move_group.rs` bin이 `goal.planning_options.planning_scene_diff`를
+  읽어 씬에 반영한다면 거짓. `ros/moveit-ros/src/bin/move_group.rs:141`은
+  오늘도 스스로 "`planning_options.planning_scene_diff` is ignored"라고
+  적는다. OPEN.
+- **chomp/stomp/pilz는 `PlannerManager`가 아니다.** falsifier: 셋 중
+  하나라도 `PlannerManager`를 구현했다면 거짓. `rg -l
+  'impl.*PlannerManager'`를 `moveit-planners-{chomp,stomp,pilz}/src`에
+  돌리면 오늘도 0건 — `moveit-planners-sbp`만 구현한다. OPEN.
+- **`DEFAULT_PIPELINE_ID`가 소스에 박혀 있다.** falsifier: 그 상수가
+  설정/파라미터에서 읽힌다면 거짓. `ros/moveit-ros/src/move_group.rs:67`은
+  오늘도 `pub const DEFAULT_PIPELINE_ID: &str = "rrt_connect"`다. OPEN.
