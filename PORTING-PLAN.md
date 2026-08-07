@@ -22830,14 +22830,20 @@ M3와 M4는 이 게이트에서 서로 다른 것이 필요한 이유를 보여�
 ### §248.9 닫지 않은 것
 
 - **게이트에 둘째 RNG 스트림.** 측정 결과 섭동이 마진의 1/50이고 비용은 두
-  배다(§248.2). 같은 여유를 비용 0인 핀으로 닫았다.
+  배다(§248.2). 같은 여유를 비용 0인 핀으로 닫았다. OPEN → 만료 조건
+  (`tools/ci/verify-phase7-benchmark.sh`가 `SEED_BASE` 외의 둘째
+  시드/RNG 스트림을 얻는 순간, §329.1)
 - **양쪽이 같은 `objects` 배열에서 장면을 만든다.** 오라클의 world도 포트가 읽는
   그 요청 JSON에서 만들어지므로, 생성기가 잘못된 장애물을 냈다면 두 체커가 똑같이
   틀리고 §248.3의 교차검증은 침묵한다. 닫으려면 독립적인 둘째 장면 기술이 필요하고,
-  그것은 생성기의 검증이지 이 게이트의 검사가 아니다.
+  그것은 생성기의 검증이지 이 게이트의 검사가 아니다. OPEN → 만료 조건 (오라클 쪽
+  world 생성이 포트가 푼 요청과 다른 JSON에서 만들어지도록 바뀌어 §248.3의
+  교차검증이 더 이상 침묵하지 않게 되는 순간, §329.1)
 - **`motion_resolution` 아래의 충돌 간극.** 양쪽이 같은 해상도로 검사한다. 이미
   `plan_benchmark_port.rs`의 `# Condition 2's collision-check resolution`이 기록한
-  한계이고 이 라운드에서 바뀌지 않았다.
+  한계이고 이 라운드에서 바뀌지 않았다. OPEN → 만료 조건 (`plan_benchmark_port.rs`/
+  `verify-phase7-benchmark.sh`가 `condition2_resolutions` 같은 다중 해상도 그리드를
+  받아 조건 2를 재게 되는 순간, §329.1)
 - **C++ 경로의 끝점. 거짓 → 닫힘 (§264).** 이 절을 쓸 때는 포트 쪽 `endpoints` 검사에
   대응하는 C++ 쪽 검사가 없었고, 여는 값이 500문제 재실행 한 번이라고 적었다.
   같은 날 `a7d1b9a0`(`test(sbp): hold the C++ baseline to the same endpoint
@@ -22848,7 +22854,9 @@ M3와 M4는 이 게이트에서 서로 다른 것이 필요한 이유를 보여�
   판이어서 병합이 충돌했기 때문이고, 그 미룬 고침이 이 항목이다.
 - **paired median 집단의 크기.** `paired_problems_pooled > 0`만 요구하고 그 크기에
   바닥이 없다. 양쪽 해결 집합이 크게 어긋나면 paired 비율은 작은 집단에서 계산된다.
-  실측에서는 panda 496, fanuc 405로 각 진영 해결 집합과 거의 같다.
+  실측에서는 panda 496, fanuc 405로 각 진영 해결 집합과 거의 같다. OPEN → 만료 조건
+  (`verify-phase7-benchmark.sh`의 판정식이 `paired_problems_pooled`에 0보다 큰
+  바닥값을 추가하는 순간, §329.1)
 
 ### §248.10 실측 — 게이트가 지금 무엇을 재고 얼마가 드는가
 
@@ -23719,13 +23727,21 @@ MoveIt은 이 분기를 고르지 않는다: 고정된 `e017c91ee` 체크아웃 
 
 - `sphere × sphere` 셀을 상류에 맞추지 않았다. §251.4에 적은 대안 넷이
   모두 받아들일 수 없어서이고(셋째·넷째는 재서 죽었다), 고정 테스트가
-  오늘의 답을 잡고 있다.
+  오늘의 답을 잡고 있다. OPEN → 만료 조건 (parry의 `contact_ball_ball`이
+  정확한 접선에서 `Some`을 보고해
+  `an_exact_tie_is_decided_by_the_dispatch_table_however_far_from_the_origin`
+  `crates/moveit-collision/src/parry.rs:5752-5758`의 `is_none()` 단언이
+  깨지는 순간, §329.2)
 - `Plane`/`Halfspace`(무한)와 `OcTree`(이미 `box`가 덮는 직육면체 합성)는
   25쌍에서 뺐다. 상류 49셀 쪽에서는 `plane`/`halfspace`/`triangle` 행을
   빼고 7종만 쟀다 — fcl 표의 나머지 세 행은 전부 특수화가 채워져 있어
-  가설을 가르지 못한다.
+  가설을 가르지 못한다. OPEN → 만료 조건 (`Plane`/`Halfspace`가 parry에서
+  유한 표현을 얻거나 `OcTree`가 `box` 합성이 아닌 실제 옥트리 형상으로
+  25쌍 코퍼스에 들어오는 순간, §329.2)
 - `distance` 열은 건드리지 않았다. `mesh × mesh` 접선의 `-1.0`을 §251.2에
-  적어만 두었다.
+  적어만 두었다. OPEN → 만료 조건 (`mesh × mesh` 접선의 `distance` 값을
+  §251.2·이 절 외의 셋째 절이 다루거나, `accumulate_distance`의
+  `data.distance` 계산 경로가 바뀌는 순간, §329.2)
 - Phase 3 완료 조건 현황표의 `collision: bool` 행 근거 열은 `§229.1` 그대로
   두었다. 판정이 바뀌지 않았고, 그 열은 `check-phase-status.sh`가 실재하는
   heading으로 해석하는 단일 토큰이라 번호 없는 절을 넣으면 게이트가 빨개진다.
@@ -24328,7 +24344,9 @@ URDF/SRDF는 `ros/fixtures/`로 옮겼다. 두 다리가 서로 다른 이미지
 - **게이트는 CI에서 돌지 않는다.** `tools/ci/verify-all.sh`의 glob이
   닿지만, 그 glob을 도는 러너에 도커가 없다(§129.4). 사람이
   `sg docker -c ./tools/ci/verify-all.sh`를 쳐야 돈다는 점은 §241 이후로
-  변하지 않았다.
+  변하지 않았다. OPEN → 만료 조건 (`.github/workflows/ci.yml`에 도커/
+  오라클 기반 job이 추가되어 `sg docker -c ./tools/ci/verify-all.sh`
+  없이 이 게이트가 CI에서 도는 순간, §329.3)
 
 ## §255 `/plan_kinematic_path`의 오류 코드를 상류에 맞추고, 바이너리 이름을 그것이 하는 일에 맞춘다 (2026-08-06)
 
@@ -24659,11 +24677,21 @@ M1·M2와 G1·G2의 분업이 이 라운드에서 확인된 사실 하나를 그
   답한다. `MoveItErrorCodes`에는 `START_STATE_INVALID`(-26)가 있고, 지금
   -16으로 답하는 다섯 거부 중 넷은 start-state 거부다. 닫으려면
   `moveit-ros`에 타입 있는 오류 enum이 필요하다 — 문자열이 아니라 종류로
-  분기해야 코드를 고를 수 있다. 바이너리 모듈 doc에 적어 뒀다.
+  분기해야 코드를 고를 수 있다. 바이너리 모듈 doc에 적어 뒀다. OPEN → 만료
+  조건 (`moveit-ros`에 타입 있는 오류 enum이 생겨 변환 실패 종류별로
+  `MoveItErrorCodes`를 고를 수 있게 되는 순간, §329.4)
 - **시작 상태의 값이 착지했는지는 게이트가 보지 못한다.** §256.6이 실측한
   대로다. 플래너가 생겨 궤적이 돌아오기 전에는 다리 쪽에서 닫을 방법이
-  없다. 만료 조건: `moveit_planning::pipeline::Planner`가 이 워크스페이스에
-  등록되는 순간, leg B가 첫 점의 관절 값을 단언할 수 있게 된다.
+  없다. **정정(§329.4):** 그 발화 조건은 이미 발화했다 — `a55483c6`
+  (2026-08-06 09:53:56)이 `moveit_planning::generate_plan`을 두 엔드포인트에
+  wiring했고, 오늘 leg B는 이미 `PROBE points=0`이 아니고
+  `all_in_bounds=true`/`goal_satisfied=true`까지 통과한다. 그런데도 이
+  관측이 참인 이유는 `move_group_interface_probe.cpp`의 `explicit_start`
+  분기가 `setToDefaultValues()`로 **모델 기본값**만 보내기 때문이다 —
+  기본값과 구별되는 시작값을 보낸 적이 없으므로 "착지했는지"를 애초에
+  가를 수 없다. OPEN → 만료 조건 (`move_group_interface_probe.cpp`의
+  `explicit_start` 분기가 모델 기본값과 구별되는 관절값을 `setStartState`에
+  실어 보내고 `PROBE`가 궤적 첫 점의 관절값을 출력하는 순간, §329.4)
 - **상류 `setVariableVelocities`의 `assert`-만 짝짓기 가드
   (`robot_state.cpp:422-429`). 거짓 → 닫힘 (§320.7).**
   `doc/upstream-bugs.md`가 이 라운드의 펜스 밖이라 기록하지 못했다. 이
@@ -24677,7 +24705,9 @@ M1·M2와 G1·G2의 분업이 이 라운드에서 확인된 사실 하나를 그
 - **`attached_collision_objects`와 `multi_dof_joint_state`는 여전히 거부**
   한다. 각각 `PlanningScene`의 attached body와 다중 DOF 관절 표현이
   필요하고, 둘 다 이 라운드의 과제가 아니다. `state.rs`와
-  `doc/message-mapping.md` §9가 같은 공백을 이미 기록한다.
+  `doc/message-mapping.md` §9가 같은 공백을 이미 기록한다. OPEN → 만료
+  조건 (`PlanningScene`의 attached body와 다중 DOF 관절 표현이 이
+  크레이트에 생겨 `state.rs`의 거부가 풀리는 순간, §329.4)
 - **`/plan_kinematic_path`의 `PLANNING_FAILED`. 거짓 → 닫힘 (§320.6).**
   §250.3, §254.6이 적은 파리티 결함 그대로였다. §255.1이 소스와 게이트를
   같이 고쳤다 — §320.2와 같은 증거(`rg` 0건, 라이브 게이트 `val=99999`)
@@ -24952,31 +24982,42 @@ C의 첫 시도(`Ok(()) => drop(next)`)는 컴파일에 실패했다(`unused_mut
 
 - **`ros/fixtures/one_joint.urdf`에 `<collision>`이 없다.** 다리 C가
   로봇을 인라인으로 들고 있는 이유이고, 픽스처가 이 라운드의 펜스
-  밖이라서 고치지 못했다. 고치면 인라인 heredoc 두 벌이 사라진다.
+  밖이라서 고치지 못했다. 고치면 인라인 heredoc 두 벌이 사라진다. OPEN →
+  만료 조건 (그 URDF에 `<collision>` 요소가 추가되어 다리 C의 인라인
+  heredoc 두 벌이 픽스처 참조로 대체되는 순간, §329.5)
 - **§226.3 표의 근거 칸 둘이 틀린 채로 남아 있다** — 구독 행의 "이미
   순수 `TryFrom`으로 포팅" 서술(§257.2)과 `create_subscription` 앵커
   (§257.7). 역사 기록이라 본문을 고쳐 쓰지 않고 여기에 정정을 적는다.
-  §250.1의 같은 앵커도 같다.
+  §250.1의 같은 앵커도 같다. OPEN → 만료 조건 (병합자가 이 정정을 §226.3의
+  표에 실제로 반영하는 순간, §329.5)
 - **`/check_state_validity`의 `robot_state` 변환 실패가 `valid: false`로
   뭉개진다.** 응답 타입에 오류 필드가 없다. D6에 대한 의도적 이탈이고
-  소스가 그렇게 표시한다.
+  소스가 그렇게 표시한다. OPEN → 만료 조건 (`CheckStateValidity` 응답
+  타입에 오류 필드가 생기거나 D6 이탈이 철회되는 순간, §329.5)
 - **다리 C가 바이너리 이름을 두 곳에 박아 두고 있다** — `cargo build
   --bin ...`과 `./target/debug/...`. §254.6이 적은 "바이너리 이름" 항목이
   움직이는 중이므로(상류 `add_executable(move_group ...)`), 그 이름이
   바뀌면 기존 `run "live"` 다리의 같은 두 줄과 **함께** 움직여야 한다.
   다리 C는 `/plan_kinematic_path`의 응답 코드를 읽지 않으므로
   `PLANNING_FAILED` → `FAILURE` 변경에는 걸리지 않는다 —
-  `/check_state_validity`의 `valid=`와 `contact_body_2=`만 본다.
+  `/check_state_validity`의 `valid=`와 `contact_body_2=`만 본다. OPEN →
+  만료 조건 (바이너리 이름이 다시 바뀌면서 `ros/verify-move-action-interop.sh`와
+  `ros/verify-ros-interop.sh`의 `cargo build --bin`/`target/debug/` 줄이
+  하나의 상수/변수로 통합되는 순간, §329.5)
 - **`contact_to_msg`와 `cost_source_to_msg`는 자유 함수라
   `conversion_coverage.rs`의 간선 스캔에 잡히지 않는다.** 그 스캔은
   `impl (TryFrom|From)` 블록만 본다(`src/bin`도 걷으므로 위치 문제가
   아니라 형태 문제다). 둘 다 진짜 core→msg 변환이므로 `impl`로 바꾸면
   스캔이 보게 되고 단방향 면제를 요구하게 된다. 이 라운드가 하지 않았다.
+  OPEN → 만료 조건 (둘이 `impl TryFrom` 또는 `impl From` 블록으로 바뀌어
+  `conversion_coverage.rs`의 간선 스캔이 잡는 순간, §329.5)
 - **`/plan_kinematic_path`의 `PLANNING_FAILED` 파리티 결함**(§254.6)은
   그대로다. 이 라운드가 받은 과제가 아니다. **거짓 → 닫힘 (§255).**
   §255.1이 소스와 게이트를 같이 고쳤다 — §254.6의 같은 항목 참고.
 - **게이트는 CI에서 돌지 않는다.** §129.4/§254.6 그대로 — 사람이
-  `sg docker -c ...`를 쳐야 돈다.
+  `sg docker -c ...`를 쳐야 돈다. OPEN → 만료 조건 (§329.3과 같음 —
+  `.github/workflows/ci.yml`에 도커/오라클 기반 job이 추가되는 순간,
+  §329.5)
 
 **이 라운드가 자기 자신에게서 잡은 측정 오류 둘**(둘 다 초록을 보고할
 뻔했다):
@@ -25319,7 +25360,9 @@ $ tools/ci/classify-unported.py
   이 문서와 바이트 단위로 일치하고, 86행 중 UNVERIFIED는 0건이다.
 - **크레이트 doc 문장만 있는 40건에 절 번호를 붙이지 않았다.** §249.4가
   35건으로 남긴 같은 작업이고, 이 라운드의 계기로는 40건이다(두 숫자가
-  다른 이유까지는 재도출하지 않았다).
+  다른 이유까지는 재도출하지 않았다). OPEN → 만료 조건
+  (`doc/unported-classification.md`의 crate-doc 행 중 최소 1건이 결정
+  근거 열에 `§`를 얻는 순간, §329.6)
 
 ## §259 무변경 C++ `MoveGroupInterface`의 공개 선언 126개를 전수로 세고, 각 선언이 무엇을 부르는지 확정했다 (2026-08-06)
 
@@ -34773,7 +34816,10 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 
 - **§270.2의 42,259건.** 이 절의 모집단은 여전히 prbt 한 실행의 self 면
   389건이다. §270.2의 처분(389건이 그 안의 부분집합이라는 것)은 그대로이고,
-  42,010건은 이 절 뒤에도 미판정이다.
+  42,010건은 이 절 뒤에도 미판정이다. OPEN → 만료 조건 (`WorldConvex`의
+  지지함수가 메시 지오메트리의 볼록包 위에서 정의되어
+  pr2·panda·fanuc·dual_arm_panda에도 적용 가능해지거나, 42,010건 중 최소
+  1건이 다른 계측기로 판정되는 순간, §329.7)
 - **나머지 네 로봇. 거짓 → 닫힘 (§302.10).** panda·fanuc·dual_arm_panda는
   링크가 전부 메시라 `WorldConvex`가 성립하지 않고, pr2는 성립하지만
   걸지 않았다. 메시까지 덮으려면 지지함수를 볼록包 위에서 정의해야 하고,
@@ -35217,6 +35263,7 @@ SRDF라면 `reason="Default"`류로 비활성화될 자리로 보이지만, 이 
 | `count-coarse-assertions.py` | 307.5 | `tools/ci/count-coarse-assertions.py` | 자동 | 수를 싣지 않는다 — 새 고아를 `--write-orphans`로 흡수하지 않고 둘째 모집단 장치를 이식했다는 진술이고, 이 계기는 그 분리를 diff로 얻는 쪽으로만 이름이 나온다 |
 | `count-coarse-assertions.py` | 309.3 | 없음 | 자동 | 수를 싣지 않는다 — §305 게이트가 병합 후 붉어진 9건을 옮겨 적으면서 계측기 이름이 나올 뿐이다 |
 | `count-coarse-assertions.py` | 310.9 | `tools/ci/count-coarse-assertions.py` | 자동 | 새로 재지 않는다 — 바로 위 307.6 행이 실은 재현값(`3613 = 195 + 3418`)을 인용해 §307.6의 세 불릿 중 무엇이 닫히는지 판정하고, 셋 다 열린 채라고 적는다 |
+| `count-coarse-assertions.py` | 329.8 | `tools/ci/count-coarse-assertions.py` | 자동 | §307.6(`3610=195+3415`)·§310.9(`3613=195+3418`)에 이어 이 커밋에서 재현하면 `3639=198+3441`이다 — 병합마다 `other`가 계속 늘어난다는 사실만 다시 확인했고, §307.6의 세 불릿은 오늘도 전부 OPEN이다 |
 | `count-narrowing-sweep.sh` | 189 | `tools/ci/count-narrowing-sweep.sh` | 자동 | 상류 8파일 **140**과 파일별 내역(`planning_scene.cpp` 24 · `planning_scene.hpp` 4 · `robot_state.cpp` 76 · `attached_body.hpp` 0 · `attached_body.cpp` 1 · `world.cpp` 10 · `world.hpp` 4 · `kinematic_constraint.cpp` 21). 코퍼스가 고정 상류 체크아웃이므로 다시 돌리는 것이 증거다 |
 | `count-narrowing-sweep.sh` | 189.1 | `tools/ci/count-narrowing-sweep.sh` | 자동 | 스크립트가 자기 오탐 두 형태를 헤더에 적는다는 사실과 그에 해당하는 두 줄. 수가 아니라 스크립트 본문에 대한 진술이다 |
 | `count-public-declarations.sh` | 119.4 | `tools/ci/count-public-declarations.sh` | 자동 | 수를 싣지 않는다 — 계수 관례를 문장에서 명령으로 옮겼다는 진술뿐이다 |
@@ -36458,12 +36505,19 @@ stderr 요약이 매 실행마다 이 수를 출력하므로, 다음에 코퍼�
 재지 않은 것:
 
 - **3415건의 "other" 잔여.** 이 절은 이들을 세었을 뿐 하나도 읽지 않았다.
-  그 안에 또 다른 coarse 모양이 있는지는 다음 라운드의 물음이다.
+  그 안에 또 다른 coarse 모양이 있는지는 다음 라운드의 물음이다. OPEN →
+  만료 조건 (`count-coarse-assertions.py`의 `other` 잔여(오늘 3441건)에
+  새 kind가 추가되어 그 수가 어느 실행에서든 이전 실행보다 줄어드는
+  순간, §329.8)
 - **둘째 모집단 320건을 로저로 흡수하는 일.** `COMPARISON_BASELINE`은
   드리프트만 잠근다 — 320건 각각을 census §9의 in-family/subject 판정으로
-  로저 행에 적어 넣는 일은 이 절이 하지 않았다.
+  로저 행에 적어 넣는 일은 이 절이 하지 않았다. OPEN → 만료 조건 (320건
+  각각이 census §9의 in-family/subject 판정을 얻어 로저 행에 적히는 순간,
+  §329.8)
 - **연쇄 via 37건의 완전한 목록화.** §307.5에서 존재와 개수(37)만 확인했고,
   그 37건이 이미 로저에 있는 다른 사이트와 어떤 관계인지는 손대지 않았다.
+  OPEN → 만료 조건 (37건 각각과 로저에 이미 있는 다른 사이트 사이의
+  관계가 표로 확정되는 순간, §329.8)
 
 ## §309 여섯 브랜치를 한 번에 병합했다 — 세 결함은 어느 브랜치 tip에서도 볼 수 없었고, 한 건은 같은 기능의 중복 구현이었다 (2026-08-07)
 
@@ -39634,3 +39688,450 @@ crates/moveit-distance-field/src/collision_env_hybrid.rs:854,908,974,996 (#[cfg(
 이유가 없어졌다. §5 표의 `collision: bool` 행(`PORTING-PLAN.md:810-811`
 바로 위 행) 근거 열도 같은 방식으로 직접 인용이다. **거짓 → 닫힘
 (§328.4)**.
+
+## §329 A3 — §248.9/§251.6/§254.6/§256.8/§257.9/§258.6/§302.6/§307.6의 22건에 falsifier를 돌렸다, 전부 오늘도 참이다 (2026-08-07)
+
+`doc/residual-claims-triage.md`가 여러 테마에 흩어 놓은 여덟 절(collision-
+distance-accuracy의 §248.9·§251.6, move-group-service-parity/ci-not-wired의
+§254.6·§256.8·§257.9, citation-audit-hygiene의 §258.6, unclassified의
+§302.6·§307.6, 합 22건)을 절 단위로 열어 각 불릿마다 falsifier를 정하고
+직접 실행했다. `git merge --no-edit main`으로 시작했다. 22건 중 20건은
+§317/§320/§310/§311이 같은 날 이미 같은 방법으로 재쟀고, 이 절은 그
+결과를 그대로 옮기지 않고 각각 최소 한 개의 독립 명령으로 다시 확인했다
+— 그 과정에서 §251.6과 §256.8 둘은 선행 라운드의 근거 자체가 이미
+낡아 있었다(각각 아래 §329.2·§329.4). 전부 falsifier 불발 — OPEN이었고,
+아래 각 항목에 `OPEN → 만료 조건 (...)`을 적었다.
+
+### §329.1 §248.9 — 넷 다 오늘도 참이다
+
+§317.1이 같은 날 이 넷을 이미 쟀다. 이 절이 새로 한 것은 §317.1이 읽은
+그 두 파일이 §317 이후에도 움직이지 않았는지 확인하는 것이다.
+
+```
+$ git log --oneline -5 -- tools/ci/verify-phase7-benchmark.sh \
+    crates/moveit-planners-sbp/examples/plan_benchmark_port.rs
+47e43a05 fix(ci): split the three `local x="$(...)"` declarations from their assignment
+e7dd0db7 fix(ci): exit when cd "$REPO_ROOT" fails in the three gates without set -e
+86b391c3 phase8: close the injection gate's accounting against the injected population
+72bc9941 phase8: print the injected count beside the checked one in every inject run
+6953bafe Merge branch 'main' into caucus/H8F9NKVWVW/p12-goaltol-be3e2e8f-1
+```
+
+다섯 커밋 중 `verify-phase7-benchmark.sh`를 건드린 것은 셋뿐이고 전부
+shellcheck류 정정(`local`/`cd` 관용구)이지 판정식이나 시드 로직이 아니다
+— `phase8:` 둘은 이름 그대로 Phase 8이라 이 게이트 밖이다. 오늘 다시
+읽으면:
+
+```
+$ rg -n 'SEED_BASE=|paired_problems_pooled' tools/ci/verify-phase7-benchmark.sh
+137:SEED_BASE=424242
+905:      paired_problems_pooled: ($both|length),
+1024:        detail: "over \($s.paired_problems_pooled) problems both sides solved: ...",
+1025:        ok: (($s.paired_problems_pooled//0) > 0 and ($s.cpp_paired_median_pooled//0) > 0 and ...) }
+```
+
+§317.1이 인용한 그대로다 — 둘째 RNG 스트림 없음, 오라클 world는 여전히
+포트가 푼 `$req[0].objects`에서 만들어짐(§317.1의 `oracle_path_check`
+인용), `condition2_resolutions`는 여전히 Phase 8 하네스에만 있음, 판정식
+바닥값 없음. 넷 다 falsifier 불발 — OPEN.
+
+- **둘째 RNG 스트림.** OPEN → 만료 조건 (`tools/ci/verify-phase7-benchmark.sh`가
+  `SEED_BASE` 외의 둘째 시드/RNG 스트림을 얻는 순간)
+- **같은 `objects` 배열로 장면을 만든다.** OPEN → 만료 조건 (오라클 쪽
+  world 생성이 포트가 푼 요청과 다른 JSON에서 만들어지도록 바뀌어
+  §248.3의 교차검증이 더 이상 침묵하지 않게 되는 순간)
+- **`motion_resolution` 아래의 충돌 간극.** OPEN → 만료 조건
+  (`plan_benchmark_port.rs`/`verify-phase7-benchmark.sh`가
+  `condition2_resolutions` 같은 다중 해상도 그리드를 받아 조건 2를 재게
+  되는 순간)
+- **paired median 집단의 크기.** OPEN → 만료 조건
+  (`verify-phase7-benchmark.sh`의 판정식이 `paired_problems_pooled`에
+  0보다 큰 바닥값을 추가하는 순간)
+
+### §329.2 §251.6 — 셋 다 오늘도 참이다, 다만 밑바닥 메커니즘이 §317.2 이후 세 커밋만큼 바뀌었다
+
+§317.2가 같은 날 이 넷(넷째는 그 자리에서 닫힘)을 이미 쟀지만, 그 근거
+커밋(`c5fa6985` 이후 `2abc8d0a`·`f1d4ea22`·`a1c1ecb7` 셋뿐)은 이 절이
+`parry.rs`를 다시 읽었을 때 이미 낡아 있었다:
+
+```
+$ git log --oneline -5 -- crates/moveit-collision/src/parry.rs
+71490970 fix(collision): fold the pair's world position into tie_scale
+cc351321 fix(collision): unify the tie verdict behind touches_at_tie
+73c44a25 fix(collision): gate exact-tangency ties on fcl's own dispatch table
+a1c1ecb7 doc(plan): close §56.4's thin-triangle mesh underestimate bullet (§56.6)
+f1d4ea22 doc: re-derive every live oracle.cpp citation against today's file
+```
+
+`73c44a25`·`cc351321`·`71490970` 셋은 §317.2 이후에 들어왔고 셋 다
+`accumulate_collision`/`accumulate_distance`의 접선 판정 자체를 다시
+썼다 — `cc351321`의 커밋 메시지가 스스로 "**5 of the 6** disagreeing
+cells ... (all but sphere x sphere ...)"라고 적어, 다섯 셀은 새 메커니즘
+(`fcl_tangency_table`/`touches_at_tie`)으로 닫혔고 `sphere × sphere`만
+남았다고 말한다. §251.6의 첫 불릿이 바로 이 셀이므로 낡은 근거를 그대로
+옮기지 않고 오늘의 코드로 다시 쟀다.
+
+**`sphere × sphere` 셀.** falsifier: parry의 `contact_ball_ball`이 정확한
+접선에서 이제 `Some`을 보고한다면 거짓 — 그 사실을 그대로 지키는 회귀
+테스트가 있다(`crates/moveit-collision/src/parry.rs:5747-5758`,
+`an_exact_tie_is_decided_by_the_dispatch_table_however_far_from_the_origin`
+안).
+
+```
+$ cargo nextest run -p moveit-collision --release \
+    -E 'test(an_exact_tie_is_decided_by_the_dispatch_table_however_far_from_the_origin)'
+PASS [   0.007s] (1/1) moveit-collision parry::tests::an_exact_tie_is_decided_by_the_dispatch_table_however_far_from_the_origin
+Summary [   0.008s] 1 test run: 1 passed, 272 skipped
+```
+
+통과 — `query::contact`가 정확한 `sphere × sphere` 접선에서 오늘도
+`None`을 보고한다. `crates/moveit-collision/src/parry.rs:2166`와
+`crates/moveit-collision/src/parry.rs:2175`의 doc-comment도 "sphere x
+sphere, has no measurement showing it is ever reached"라고 오늘도
+적혀 있다. falsifier 불발 — OPEN.
+
+**`Plane`/`Halfspace`/`OcTree`를 25쌍에서 뺐다.** falsifier:
+`exact_tangency_is_decided_per_shape_pair.rs`가 그 세 타입을 25쌍
+코퍼스에 넣었다면 거짓.
+
+```
+$ rg -n 'Plane|Halfspace|OcTree' crates/moveit-collision/tests/exact_tangency_is_decided_per_shape_pair.rs
+163:/// to a `parry` shape *and* place at an exact tangency. `Plane` and
+164:/// `Halfspace` are unbounded and `OcTree` is a compound of cuboids already
+```
+
+같은 이유(무한/이미 덮인 합성)로 여전히 빠져 있다 — 오늘도 §329.2가
+새로 인용한 `73c44a25`/`cc351321`이 이 파일을 대폭 고쳤음에도 이 제외
+자체는 건드리지 않았다. falsifier 불발 — OPEN.
+
+**`distance` 열은 건드리지 않았다.** falsifier: `accumulate_distance`가
+반환하는 `distance` 값의 계산 경로가 바뀌었다면(즉 `touches_at_tie`가
+그 값 자체에 관여한다면) 거짓.
+
+```
+$ rg -n 'touches_at_tie' crates/moveit-collision/src/parry.rs | rg 26|2622
+2622:            if touches_at_tie(contact.dist, a_pose, a_shape, b_pose, b_shape) {
+```
+
+`accumulate_distance`(2536행)를 읽으면 `touches_at_tie`는 2622행에서
+`result.collision`(부울 동반 필드)만 세팅하고, `data.distance`는 그
+위 2589-2593행의 `contact.dist`/`contact.dist.max(0.0)`을 오늘도
+그대로 쓴다 — `cc351321`의 메시지가 "accumulate_distance had no tie
+case at all. touches_at_tie replaces both"라고 적은 것은 `collision`
+플래그 쪽 이야기이지 `distance` 값 자체가 아니다. `mesh × mesh` 접선의
+`-1.0`을 다루는 셋째 절도 여전히 없다(§251.2·이 불릿 둘뿐, §317.2가
+이미 확인한 7히트 중 온-토픽 둘 그대로). falsifier 불발 — OPEN.
+
+- **`sphere × sphere` 셀.** OPEN → 만료 조건 (parry의 `contact_ball_ball`이
+  정확한 접선에서 `Some`을 보고해
+  `an_exact_tie_is_decided_by_the_dispatch_table_however_far_from_the_origin`
+  `crates/moveit-collision/src/parry.rs:5752-5758`의 `is_none()` 단언이
+  깨지는 순간)
+- **`Plane`/`Halfspace`/`OcTree`를 25쌍에서 뺐다.** OPEN → 만료 조건
+  (`Plane`/`Halfspace`가 parry에서 유한 표현을 얻거나 `OcTree`가 `box`
+  합성이 아닌 실제 옥트리 형상으로 25쌍 코퍼스에 들어오는 순간)
+- **`distance` 열은 건드리지 않았다.** OPEN → 만료 조건 (`mesh × mesh`
+  접선의 `distance` 값(§251.2의 `-1.0`)을 §251.2·이 절 외의 셋째 절이
+  다루거나, `accumulate_distance`의 `data.distance` 계산 경로
+  (`contact.dist`/`contact.dist.max(0.0)`) 자체가 바뀌는 순간)
+
+### §329.3 §254.6 — 하나 남은 것도 오늘도 참이다
+
+**게이트는 CI에서 돌지 않는다.** falsifier: `.github/workflows/ci.yml`에
+도커/오라클 기반 job이 생겼다면 거짓.
+
+```
+$ 135-139행, .github/workflows/ci.yml:
+  # The differential harness needs the C++ oracle image, which takes long enough
+  # to build that it is not run on every push. `workflow_dispatch` and the
+  # nightly schedule are added once the image is published to a registry.
+  # Until then: tools/moveit-oracle/build.sh, then
+  # cargo run -p moveit-diff -- --urdf ... --srdf ...
+```
+
+파일 전체(139줄)를 읽으면 job은 `rust` 하나뿐이고, 도커/오라클을 쓰는
+job은 주석으로만 존재한다. falsifier 불발 — OPEN.
+
+- **게이트는 CI에서 돌지 않는다.** OPEN → 만료 조건 (`.github/workflows/ci.yml`에
+  도커/오라클 기반 job이 추가되어 `sg docker -c ./tools/ci/verify-all.sh`
+  없이 이 게이트가 CI에서 도는 순간)
+
+### §329.4 §256.8 — 셋 다 오늘도 참이다, 그중 하나는 이미 적힌 발화 조건 자체가 이미 발화했는데도 참이다
+
+**변환 실패 전부가 오류 코드 하나다.** falsifier: `MoveItErrorCodes`의
+`START_STATE_INVALID`가 실제로 쓰인다면 거짓.
+
+```
+$ rg -n 'INVALID_GOAL_CONSTRAINTS|START_STATE_INVALID' ros/moveit-ros/src ros/moveit-ros/src/bin
+ros/moveit-ros/src/bin/move_group.rs:149: (doc) `MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS`, whatever the conversion
+ros/moveit-ros/src/bin/move_group.rs:156: (doc) `MoveItErrorCodes` does carry `START_STATE_INVALID`, so the code is
+ros/moveit-ros/src/bin/move_group.rs:297:        val: MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS as i32,
+```
+
+`START_STATE_INVALID`는 doc 주석에서만 언급되고 실제 대입은 오늘도
+`INVALID_GOAL_CONSTRAINTS` 한 곳(297행)뿐. falsifier 불발 — OPEN.
+
+**시작 상태의 값이 착지했는지는 게이트가 보지 못한다.** 이 불릿은 이미
+"만료 조건: `moveit_planning::pipeline::Planner`가 이 워크스페이스에
+등록되는 순간, leg B가 첫 점의 관절 값을 단언할 수 있게 된다"고 적혀
+있었다 — 그런데 그 조건은 이미 발화했다:
+
+```
+$ git log --diff-filter=A --format='%H %ai' -- ros/moveit-ros/src/bin/move_group.rs
+9836a1b5 2026-08-06 08:28:47 +0900   (plan_only을 부르는 bin 첫 커밋)
+$ git log --format='%H %ai %s' -S'moveit_planning::generate_plan(scene, env, &[], &[planner]' \
+    -- ros/moveit-ros/src/move_group.rs
+a55483c6 2026-08-06 09:53:56 +0900 move_group: let both endpoints reach a real planner
+```
+
+`§256.8`이 쓰인 커밋(`10f571f5`, 08:53:56)보다 정확히 한 시간 뒤인
+`a55483c6`(09:53:56)이 "let both endpoints reach a real planner"를
+지었다 — `moveit_planning::generate_plan`이 실제로 wiring됐다. 오늘
+`ros/verify-move-action-interop.sh`를 읽으면 leg B가 이미
+`assert_lacks ... "PROBE points=0 "`(466행), `assert_has ... "PROBE
+all_in_bounds=true"`(480행), `assert_has ... "PROBE goal_satisfied=true"`
+(481행)까지 통과시킨다 — 궤적이 빈 것도 아니고 목표도 만족한다.
+그런데도 이 불릿이 참인 이유는 더 깊다:
+`ros/move_group_interface_probe/src/move_group_interface_probe.cpp:203-208`를 읽으면
+
+```
+if (explicit_start)
+{
+  moveit::core::RobotState start(group.getRobotModel());
+  start.setToDefaultValues();
+  group.setStartState(start);
+}
+```
+
+`explicit_start` 분기가 **모델 기본값**을 그대로 `setStartState`에
+싣는다 — 기본값과 구별되는 값을 보낸 적이 없다. `goal_constraints`도
+`getTargetRobotState()`(클라이언트 로컬 기본 상태)에서 채워지므로
+(451-465행 주석), "goal_satisfied=true"는 서버가 받은 시작값이
+착지했다는 증거가 아니라 클라이언트가 로컬로 계산한 기본 목표에
+도달했다는 증거일 뿐이다. 즉 이전 라운드가 적어 둔 발화 조건
+("플래너 등록")은 이미 발화했는데도 원래 관측(시작값이 착지했는지 볼
+수 없다)은 여전히 참이다 — 발화 조건 자체가 틀렸던 것이지 관측이
+틀린 게 아니다. falsifier 불발 — OPEN, 발화 조건을 다시 쓴다.
+
+**`attached_collision_objects`와 `multi_dof_joint_state`는 여전히
+거부한다.** falsifier: `state.rs`의 거부가 풀렸다면 거짓.
+
+```
+$ rg -n 'attached_collision_objects|multi_dof_joint_state' ros/moveit-ros/src/state.rs
+105:        if !msg.attached_collision_objects.is_empty() {
+107:                "RobotState.attached_collision_objects is not \
+113:        let mdjs = &msg.multi_dof_joint_state;
+120:                "RobotState.multi_dof_joint_state has no core \
+```
+
+오늘도 거부 코드 그대로. falsifier 불발 — OPEN.
+
+- **변환 실패 전부가 오류 코드 하나다.** OPEN → 만료 조건 (`moveit-ros`에
+  타입 있는 오류 enum이 생겨 변환 실패 종류별로 `MoveItErrorCodes`를
+  고를 수 있게 되는 순간)
+- **시작 상태의 값이 착지했는지는 게이트가 보지 못한다.** OPEN → 만료 조건
+  (`move_group_interface_probe.cpp`의 `explicit_start` 분기가
+  `setToDefaultValues()`가 아닌, 모델 기본값과 구별되는 관절값을
+  `setStartState`에 실어 보내고 `PROBE`가 궤적 첫 점의 관절값을
+  출력하는 순간 — "플래너가 등록되는 순간"이 아니다: 그 조건은
+  `a55483c6`에서 이미 발화했는데도 이 관측은 오늘도 참이다)
+- **`attached_collision_objects`와 `multi_dof_joint_state`는 여전히
+  거부한다.** OPEN → 만료 조건 (`PlanningScene`의 attached body와
+  다중 DOF 관절 표현이 이 크레이트에 생겨 `state.rs`의 거부가 풀리는
+  순간)
+
+### §329.5 §257.9 — 여섯 다 오늘도 참이다
+
+**`ros/fixtures/one_joint.urdf`에 `<collision>`이 없다.**
+
+```
+$ grep -c '<collision' ros/fixtures/one_joint.urdf
+0
+```
+
+falsifier 불발 — OPEN.
+
+**§226.3 표의 근거 칸 둘이 틀린 채로 남아 있다.** falsifier: 그 표 자신이
+정정됐다면 거짓.
+
+```
+$ 18797행, §226.3의 표:
+| planning scene 토픽 구독 | **부재** | ... `scene/planning_scene.rs`는
+    `usePlanningSceneMsg`/... 이미 손에 든 메시지 값에 대한 순수
+    `TryFrom` 변환으로 포팅한 것이지, 살아있는 토픽을 구독해 상태를
+    갱신하는 코드가 아니다 |
+```
+
+오늘도 §257.4가 실제로 지은 `create_subscription` 이전 서술 그대로다
+— "역사 기록이라 고쳐 쓰지 않는다"는 §257.9 자신의 설계대로 표는
+갱신되지 않았다. falsifier 불발 — OPEN.
+
+**`/check_state_validity`의 `robot_state` 변환 실패가 `valid: false`로
+뭉개진다.**
+
+```
+$ rg -n 'valid: false' ros/moveit-ros/src/bin/move_group.rs
+497:                valid: false,
+```
+
+falsifier 불발 — OPEN.
+
+**다리 C가 바이너리 이름을 두 곳에 박아 두고 있다.**
+
+```
+$ grep -n 'cargo build --bin\|target/debug/' ros/verify-move-action-interop.sh
+183:  bash -c "cargo build --bin move_group" >&2
+211:  ./target/debug/move_group '"$URDF $SRDF"' 2>/tmp/node.stderr &
+400:  ./target/debug/move_group "$URDF" "$SRDF" >/dev/null
+```
+
+세 줄 다 `move_group`을 문자 그대로 반복해 박고 있다. falsifier 불발
+— OPEN.
+
+**`contact_to_msg`와 `cost_source_to_msg`는 자유 함수라 간선 스캔에
+잡히지 않는다.**
+
+```
+$ rg -n 'contact_to_msg|cost_source_to_msg' ros/moveit-ros/src/bin/move_group.rs
+404:fn contact_to_msg(
+437:fn cost_source_to_msg(source: &moveit_collision::CostSource) -> r2r::moveit_msgs::msg::CostSource {
+$ rg -n 'starts_with\("impl"\)' ros/moveit-ros/src/conversion_coverage.rs
+216:    line.starts_with("impl") && (line.contains("TryFrom<") || line.contains(" From<"))
+```
+
+스캔은 `impl`로 시작하는 줄만 인식한다 — 둘 다 오늘도 `fn`이다.
+falsifier 불발 — OPEN.
+
+**게이트는 CI에서 돌지 않는다.** §329.3과 같은 근거(`.github/workflows/ci.yml`,
+job은 `rust` 하나뿐). falsifier 불발 — OPEN.
+
+- **`ros/fixtures/one_joint.urdf`에 `<collision>`이 없다.** OPEN → 만료 조건
+  (그 URDF에 `<collision>` 요소가 추가되어 다리 C의 인라인 heredoc
+  두 벌이 픽스처 참조로 대체되는 순간)
+- **§226.3 표의 근거 칸 둘이 틀린 채로 남아 있다.** OPEN → 만료 조건
+  (병합자가 §257.9가 요청한 정정을 §226.3의 표에 실제로 반영하는
+  순간)
+- **`/check_state_validity`의 `robot_state` 변환 실패가 `valid: false`로
+  뭉개진다.** OPEN → 만료 조건 (`CheckStateValidity` 응답 타입에 오류
+  필드가 생기거나 D6 이탈이 철회되는 순간)
+- **다리 C가 바이너리 이름을 두 곳에 박아 두고 있다.** OPEN → 만료 조건
+  (바이너리 이름이 다시 바뀌면서 `ros/verify-move-action-interop.sh`와
+  `ros/verify-ros-interop.sh`의 `cargo build --bin`/`target/debug/`
+  줄이 하나의 상수/변수로 통합되는 순간)
+- **`contact_to_msg`와 `cost_source_to_msg`는 자유 함수라 간선 스캔에
+  잡히지 않는다.** OPEN → 만료 조건 (둘이 `impl TryFrom` 또는
+  `impl From` 블록으로 바뀌어 `conversion_coverage.rs`의 간선 스캔이
+  잡는 순간)
+- **게이트는 CI에서 돌지 않는다.** OPEN → 만료 조건 (§329.3과 같음 —
+  `.github/workflows/ci.yml`에 도커/오라클 기반 job이 추가되는 순간)
+
+### §329.6 §258.6 — 크레이트 doc뿐인 항목, 40건이 오늘은 38건이지만 조건은 그대로다
+
+**크레이트 doc 문장만 있는 40건에 절 번호를 붙이지 않았다.** falsifier:
+`doc/unported-classification.md`의 crate-doc 행 중 하나라도 결정 근거
+열에 `§`를 얻었다면 거짓.
+
+```
+$ python3 tools/ci/classify-unported.py --check doc/unported-classification.md
+unported files classified                 86
+  decision locus:
+      crate-doc    38  (33 decided-non-port, 5 ported-elsewhere)
+      §            33  (28 decided-non-port, 5 ported-elsewhere)
+      D            15  (10 decided-non-port, 5 ported-elsewhere)
+OK doc/unported-classification.md: 86 rows == 86 unported files, all 6 columns match a fresh derivation
+```
+
+`--check`가 트리와 바이트 단위로 일치(OK)하는 신선한 재유도를 스스로
+증명한다. 코퍼스는 §258.6이 쓰인 시점의 40건에서 오늘 38건으로
+줄었지만(§311.1이 같은 축소를 이미 관측했다), 줄어든 이유(어느 2건이
+빠졌는지)는 이 절도 §311.1도 재도출하지 않았다 — 이 절이 새로 확인한
+것은 "38건 전부 여전히 `§` locus가 0건"이라는 사실이다. falsifier
+불발 — OPEN.
+
+- **크레이트 doc 문장만 있는 40(오늘 38)건에 절 번호를 붙이지 않았다.**
+  OPEN → 만료 조건 (`doc/unported-classification.md`의 crate-doc 행
+  중 최소 1건이 결정 근거 열에 `§`를 얻는 순간)
+
+### §329.7 §302.6 — prbt 389건은 오늘도 그대로다, pr2·panda·fanuc·dual_arm_panda 42,010건은 §302.10을 그대로 잇는다
+
+**§270.2의 42,259건.** falsifier: prbt 389건의 판정(277/0/19/93)이 오늘
+다른 값을 낸다면, 또는 §302.10 이후 어느 절이 42,010건 중 하나라도
+새로 판정했다면 거짓.
+
+```
+$ cargo nextest run -p moveit-collision --release \
+    -E 'test(prbt_penetration_branch_full_389_population_matches_the_published_totals)'
+PASS [   2.718s] (1/1) ...
+Summary [   2.72s] 1 test run: 1 passed
+```
+
+커밋된 고정물(`fixtures/prbt_self_penetration_389.json`) 위에서
+277/0/19/93이 오늘도 그대로 재유도된다. pr2·panda·fanuc·dual_arm_panda
+쪽은 §302.10이 이미 같은 날 실측했다 — panda·fanuc·dual_arm_panda는
+`WorldConvex`가 성립할 프리미티브가 0개(정의역 공집합), pr2는
+프리미티브가 17개 있지만 실제 self-penetration 불일치 10,000건 중
+계측기가 판정 가능한 행이 0건(불일치가 프리미티브×메시 쌍에서만
+난다). §302.10 자신의 결론(34787-34789행)이 "§270.2의 42,010건은 이
+절 뒤에도 그대로 미판정이다"라고 이미 적어 뒀다. 이 계측(pr2 10,000건
+스윕)은 §302.7의 prbt 389건과 달리 **고정물로 커밋되지 않았다** —
+
+```
+$ find . -iname '*self_penetration*' -not -path '*/target/*'
+./crates/moveit-collision/tests/fixtures/prbt_self_penetration_389.json
+```
+
+pr2/panda/fanuc/dual_arm_panda용 고정물은 하나도 없다 — §302.10의 결과는
+이 트리에서 독립적으로 재확인할 수 없고, 그 절 자신의 산문만 있다. 이
+절은 §302.10을 다시 실행하지 않았다(오라클 도커 재빌드와 4개 로봇×
+10,000건 스윕이 필요해, 22건의 잔여 falsifier 전체를 재는 이 라운드의
+비용과 맞지 않는다는 판단이다 — 이것은 검증되지 않은 것으로 남긴다).
+falsifier 불발 — OPEN.
+
+- **§270.2의 42,259(42,010)건.** OPEN → 만료 조건 (`WorldConvex`의
+  지지함수가 메시 지오메트리의 볼록包 위에서 정의되어
+  pr2·panda·fanuc·dual_arm_panda에도 적용 가능해지거나, 42,010건 중
+  최소 1건이 다른 계측기로 판정되는 순간)
+
+### §329.8 §307.6 — 셋 다 오늘도 참이다, "other" 잔여는 3415건에서 3441건으로 더 늘었다
+
+```
+$ python3 tools/ci/count-coarse-assertions.py 2>&1 >/dev/null
+--- 3639 macro invocation(s) matched no kind and are not above, of which 198
+    are `.abs() <`/`.abs() <=` (approximate equality, correctly excluded)
+    and 3441 recognize no shape at all here ---
+```
+
+§307.6이 쓰인 시점 `dropped = 3610 = 195 + 3415`, §310.9가 같은 날
+`3613 = 195 + 3418`로 다시 쟀고, 이 절은 오늘 `3639 = 198 + 3441`을
+얻는다 — 이 라운드 사이 병합만으로도 계속 늘었다(코퍼스가 넓어질수록
+"other"도 같이 늘어난다는 §307.6 자신의 관찰과 일치). 3415건은 오늘도
+하나도 안 읽혔다. falsifier 불발 — OPEN.
+
+**둘째 모집단 320건을 로저로 흡수하는 일 / 연쇄 via 37건의 완전한
+목록화.** falsifier: 후속 절이 그 수를 다시 인용하며 처리했다고
+적었다면 거짓.
+
+```
+$ rg -n '320건' PORTING-PLAN.md | tail -3
+36228:- **둘째 모집단 320건을 로저로 흡수하는 일.** ...
+36601:- **"둘째 모집단 320건을 로저로 흡수하는 일은 하지 않았다."**
+36603:  `grep -n "320건" PORTING-PLAN.md`는 §307 자신 밖에 후속이 없다 —
+$ rg -n 'via 37건|37건' PORTING-PLAN.md | tail -3
+36231:- **연쇄 via 37건의 완전한 목록화.** ...
+36605:- **"연쇄 via 37건의 완전한 목록화는 하지 않았다."** ...
+36606:  대한 불릿이다. `grep -n "via 37\|37건" PORTING-PLAN.md`도 §307
+```
+
+§310.9(36601-36606행)가 같은 날 이미 이 둘을 재쟀고 후속 없음을
+확인했다 — 이 절이 오늘 같은 `rg`를 다시 돌려도 §310.9 이후 새 히트가
+없다(§310.9 자신의 인용 두 줄이 마지막 히트다). falsifier 불발 —
+OPEN.
+
+- **3415(오늘 3441)건의 "other" 잔여.** OPEN → 만료 조건
+  (`count-coarse-assertions.py`의 `other` 잔여에 새 kind가 추가되어
+  그 수가 어느 실행에서든 이전 실행보다 줄어드는 순간)
+- **둘째 모집단 320건을 로저로 흡수하는 일.** OPEN → 만료 조건 (320건
+  각각이 census §9의 in-family/subject 판정을 얻어 로저 행에 적히는
+  순간)
+- **연쇄 via 37건의 완전한 목록화.** OPEN → 만료 조건 (37건 각각과
+  로저에 이미 있는 다른 사이트 사이의 관계가 표로 확정되는 순간)
