@@ -36,16 +36,16 @@ EXPECTED_EPA='-0.020869698793459224'
 REL_TOL='1e-9'
 
 if [[ ! -d "$LIBCCD_SRC" ]]; then
-  echo "SKIP LIBCCD_SRC=$LIBCCD_SRC not present -- the MPR side of deviation 6(b) is not re-derived."
-  echo "SKIP this is not a pass; check out https://github.com/danfis/libccd at tag v2.1 to cover it."
-  exit 0
+  skip_not_measured blocked \
+    "LIBCCD_SRC=$LIBCCD_SRC not present -- the MPR side of deviation 6(b) is not re-derived." \
+    "this is not a pass; check out https://github.com/danfis/libccd at tag v2.1 to cover it."
 fi
 
 tag="$(git -C "$LIBCCD_SRC" describe --tags --exact-match 2>/dev/null || true)"
 if [[ "$tag" != "v2.1" ]]; then
-  echo "SKIP $LIBCCD_SRC is at '${tag:-<none>}', not tag v2.1 -- the harness is pinned to v2.1."
-  echo "SKIP this is not a pass; check out v2.1 to cover deviation 6(b)'s MPR side."
-  exit 0
+  skip_not_measured blocked \
+    "$LIBCCD_SRC is at '${tag:-<none>}', not tag v2.1 -- the harness is pinned to v2.1." \
+    "this is not a pass; check out v2.1 to cover deviation 6(b)'s MPR side."
 fi
 
 LIBCCD_SRC="$LIBCCD_SRC" ./tools/mpr-vs-epa/build.sh >/dev/null

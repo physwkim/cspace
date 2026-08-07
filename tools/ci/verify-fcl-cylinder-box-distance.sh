@@ -82,9 +82,9 @@ MAX_INDEP_ERROR="5e-11"
 CASE_8148_ORACLE="3.11769210552093334e-1"
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "SKIP docker not on PATH -- fcl's cylinder/box distance is not re-measured."
-  echo "SKIP this is not a pass."
-  exit 0
+  skip_not_measured blocked \
+    "docker not on PATH -- fcl's cylinder/box distance is not re-measured." \
+    "this is not a pass."
 fi
 
 # shellcheck source=tools/moveit-oracle/src-digest.sh
@@ -99,8 +99,7 @@ if [ "$stamp" != ok ]; then
   # `verify-all.sh` reads each gate's exit status and not these lines, so
   # exiting 0 would report it as a pass.
   oracle_stamp_explain "$stamp" "$IMAGE" "$want" "SKIP " || exit 1
-  echo "SKIP this is not a pass -- the oracle was never consulted."
-  exit 0
+  skip_not_measured blocked "this is not a pass -- the oracle was never consulted."
 fi
 
 work="$(mktemp -d)"

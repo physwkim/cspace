@@ -122,9 +122,9 @@ declare -A DEFAULT_STATES=(
 ROBOTS=(prbt prbt_pg70 pr2)
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "SKIP docker is not on PATH -- §5 Phase 3's collision clause is not measured by this run."
-  echo "SKIP this is not a pass."
-  exit 0
+  skip_not_measured blocked \
+    "docker is not on PATH -- §5 Phase 3's collision clause is not measured by this run." \
+    "this is not a pass."
 fi
 
 # shellcheck source=tools/moveit-oracle/src-digest.sh
@@ -138,8 +138,7 @@ if [ "$stamp" != ok ]; then
   # `verify-all.sh` reads each gate's exit status and not these lines, so
   # exiting 0 would report it as a pass.
   oracle_stamp_explain "$stamp" "$IMAGE" "$want" "SKIP " || exit 1
-  echo "SKIP this is not a pass -- the oracle was never consulted."
-  exit 0
+  skip_not_measured blocked "this is not a pass -- the oracle was never consulted."
 fi
 
 # Release, not debug: the Rust side builds a fresh `ParryCollisionEnv` per
