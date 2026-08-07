@@ -1959,12 +1959,31 @@ impl<'m> ChompOptimizer<'m> {
 
             if should_break_out {
                 self.collision_free_iteration += 1;
-                // Both upstream arms are a bare `break;` (the second also guards
-                // dead, commented-out logging) -- one condition reaches the same
-                // outcome without an empty branch for clippy::if_same_then_else.
-                if self.num_collision_free_iterations == 0
-                    || self.collision_free_iteration > self.num_collision_free_iterations
-                {
+                if self.num_collision_free_iterations == 0 {
+                    exit = ChompExit::BreakOut;
+                    break;
+                } else if self.collision_free_iteration > self.num_collision_free_iterations {
+                    // Upstream's own check for exactly this moment, commented out and
+                    // never run (`chomp_optimizer.cpp:486-490`: a `checkCurrentIterValidity()`
+                    // re-check guarding a `ROS_WARN("Apparently regressed")`). The grace
+                    // period just expired without ever re-confirming mesh safety on
+                    // whatever `best_group_trajectory` landed on -- accepts are driven by
+                    // *total* cost (smoothness + collision, the `cost < progress.best.total()`
+                    // arm above), not mesh safety, so a pass during the grace window can
+                    // replace it with something the mesh check below would reject. A
+                    // printed warning does not stop the caller from receiving a
+                    // trajectory it was told is collision-free when it is not, so this
+                    // re-runs the same predicate the mesh branch above already trusts, on
+                    // the trajectory that is about to be returned, and corrects
+                    // `is_collision_free` instead of merely noting the discrepancy. The
+                    // `num_collision_free_iterations == 0` arm above needs no equivalent
+                    // check: it only ever fires on the same pass the mesh branch already
+                    // verified `best_group_trajectory` directly, with no write to it in
+                    // between.
+                    if !mesh_to_mesh_collision_free(&self.start_state, &self.best_group_trajectory)
+                    {
+                        self.is_collision_free = false;
+                    }
                     exit = ChompExit::BreakOut;
                     break;
                 }
@@ -3188,6 +3207,80 @@ mod tests {
             "the increments for the pass that broke out were still computed and applied; what \
              never happened is a second `perform_forward_kinematics` to cost them"
         );
+    }
+
+    /// `chomp_optimizer.cpp:486-490`'s dead detector, alive: the
+    /// collision-threshold branch trusts `c_cost` (the sphere/distance-field
+    /// term), not a real mesh check, and `best_group_trajectory` can still
+    /// be replaced *during* the grace period by a later accept, since
+    /// accepts are driven by total cost (smoothness + collision), not mesh
+    /// safety. Pass 0 trips the threshold branch on an empty env field
+    /// (`c_cost == 0.0`), seeding `best_group_trajectory` unconditionally
+    /// (upstream's `iteration_ == 0` arm always does, cost or no cost); the
+    /// seed's kink gives pass 1 a nonzero smoothness gradient, so its lower
+    /// total cost is an accept that replaces `best_group_trajectory` before
+    /// the grace period (`max_iterations_after_collision_free: 1`) expires
+    /// on that same pass. The injected mesh closure reports every
+    /// trajectory unsafe -- `optimize`'s grace-period-expiry re-check must
+    /// correct `is_collision_free` to `false`, not return the threshold
+    /// branch's optimistic `true` from two passes back unexamined.
+    #[test]
+    fn optimize_corrects_is_collision_free_when_the_grace_period_expires_on_a_mesh_unsafe_trajectory()
+     {
+        let model = chomp_collision_model();
+        let mut source = chomp_full_trajectory(&model, 10);
+        // Same device as `loop_trace_says_one_evaluation_when_the_seed_already_passes_mesh_to_mesh`:
+        // a kink so the smoothness gradient is not identically zero, or
+        // pass 1 has nothing to descend and cannot be an accept.
+        let kink = vec![0.3; source.num_joints()];
+        source.set_trajectory_point(4, &kink);
+        let start_state = RobotState::new(&model);
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 2,
+            max_iterations_after_collision_free: 1,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        let result = optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+
+        let trace = optimizer.loop_trace().expect("optimize records a trace");
+        assert_eq!(
+            trace.below_threshold_passes, 2,
+            "an empty env field keeps c_cost at 0.0, below the default collision_threshold, on \
+             both passes"
+        );
+        assert_eq!(
+            trace.accepted, 1,
+            "pass 1's lower smoothness cost (from the seed's kink) must be an accept -- that is \
+             what replaces best_group_trajectory during the still-open grace period"
+        );
+        assert_eq!(trace.exit, ChompExit::BreakOut);
+        assert!(
+            !result,
+            "the injected mesh closure reports every trajectory unsafe; the grace-period-expiry \
+             re-check must correct is_collision_free to false instead of returning the threshold \
+             branch's stale true"
+        );
+        assert!(!optimizer.is_collision_free());
     }
 
     /// The other end of `evaluations`: with nothing ever breaking out, the
