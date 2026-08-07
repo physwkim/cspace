@@ -51,7 +51,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 . "$REPO_ROOT/tools/ci/gate-lib.sh"
 
 require_caller_tree "$REPO_ROOT"
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1  # no `set -e` here: a failed cd would
+                           # otherwise run this gate in the caller's tree
 
 ORACLE="$REPO_ROOT/tools/moveit-oracle/run-oracle.sh"
 GEN="$REPO_ROOT/target/release/examples/plan_benchmark_problem_set"
