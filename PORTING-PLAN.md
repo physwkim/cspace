@@ -35631,8 +35631,8 @@ unresolvable이다.
 
 | 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30990` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
-| `PORTING-PLAN.md:31942` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
+| `PORTING-PLAN.md:31015` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
+| `PORTING-PLAN.md:31967` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
 | `doc/claim-audit/upstream-bugs.md:37` | `!PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
 
 세 건 다 baseline에 findings로 선언돼 있고 passing 등급으로 얼려지지
