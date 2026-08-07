@@ -18,20 +18,43 @@
 #
 # Recognized shapes, one `kind` each:
 #
-#   matches    assert!(matches!(...))            -- variant match
-#   is_err     .is_err()                         -- Result failed
-#   is_none    .is_none()                        -- Option absent
-#   is_some    .is_some()                        -- Option present
-#   is_empty   .is_empty()                       -- collection empty
-#   contains   .contains(..)                      -- substring OR membership
-#   eq_none    assert_eq!(x, None)               -- Option absent
-#   eq_err     assert_eq!(x, Err(...))           -- Result failed
+#   matches       assert!(matches!(...))            -- variant match
+#   is_err        .is_err()                         -- Result failed
+#   is_none       .is_none()                        -- Option absent
+#   is_some       .is_some()                        -- Option present
+#   is_empty      .is_empty()                       -- collection empty
+#   contains      .contains(..)                      -- substring OR membership
+#   eq_none       assert_eq!(x, None)               -- Option absent
+#   eq_err        assert_eq!(x, Err(...))           -- Result failed
+#   half_plane    a > b / a < b / a >= b / a <= b   -- one-sided, unbounded
+#   cmp_compound  more than one comparison in arg 1  -- band OR multi-branch
 #
 # `is_some` and a non-empty `.is_empty()` assertion are included because
 # the negated forms (`assert!(x.is_some())`, `assert!(!x.is_empty())`)
 # are the same coarse signal pointed the other way; census §9 clause 1
 # (mechanism) is what decides whether a given hit is in-family, and that
 # is a judgment call made in prose, not by this script.
+#
+# `half_plane` and `cmp_compound` (task #43, doc/plan §307) are read from
+# argument 1's top-level comparison operators only -- one operator is
+# `half_plane`, more than one is `cmp_compound`. A single comparison of the
+# shape `.abs() < TOL` / `.abs() <= TOL` is deliberately EXCLUDED from
+# both: that shape is approximate EQUALITY (the precise form for floating
+# point), and scoring it coarse would invert what this instrument means.
+# It is counted only in the dropped-residue summary main() prints, tagged
+# `abs_tol`, so excluding it is visible and not silent.
+#
+# `cmp_compound` is the one kind this script cannot resolve further by
+# itself, same as `contains` above: §307's hand read of the corpus found
+# both a coarse shape (`a > x || b > y`, several unbounded half-planes
+# OR'd) and a precise one (`gap > 0.0 && gap < 1e-15`, a tight two-sided
+# band; `translation_error(...) <= TOL && rotation_error(...) <= TOL`, two
+# ANDed magnitude bounds) at the SAME two-operator shape, and telling them
+# apart requires knowing whether a bare operand is already a non-negative
+# magnitude upstream (`.norm()`, `.angle_to()`) -- a dataflow fact, not a
+# token pattern. Emitting one kind keeps the miscall out of the output
+# entirely, same as `contains`; §307's table is the by-hand reading that
+# resolves it for the sites measured this round.
 #
 # Comments (`//`, `///`, `/* */` including nested) and string-literal
 # contents are blanked before matching, preserving line numbering, the
@@ -81,11 +104,23 @@
 # directory, and `src` otherwise. With no PATH given, walks crates/, ros/
 # and tools/, skipping target/ directories.
 
+import os
 import re
 import sys
 from pathlib import Path
 
 MACROS = ("assert", "assert_eq", "assert_ne", "debug_assert", "debug_assert_eq")
+
+# Set by tools/ci/reconcile-assertion-ledgers.py to recompute the sweep as it
+# stood before half_plane/cmp_compound existed -- not a user-facing flag, so
+# an env var rather than a CLI arg that would collide with PATH parsing in
+# main(). This is what lets that gate draw an exact, non-heuristic line
+# between "sites the corpus always had" and "sites this round's widening
+# made visible", including a helper fn's call sites that only became visible
+# because the helper's OWN internal assertion just became classifiable (see
+# `helpers` in scan() below) -- a `kind in (...)` string filter cannot see
+# that cascade, but re-running with this set can.
+LEGACY_KINDS_ONLY = bool(os.environ.get("CCA_LEGACY_KINDS_ONLY"))
 
 
 def blank_comments_and_strings(text):
@@ -221,6 +256,73 @@ def top_level_args(body):
     return args
 
 
+def mask_turbofish(text):
+    """Blank the contents of every `::<...>` generic argument list so its
+    `<`/`>` are never mistaken for comparison operators. Depth-tracked on
+    raw `<`/`>` only, starting at the `::<` that opens one -- e.g.
+    `.collect::<Vec<_>>()` has no comparison in it at all, but a naive scan
+    reads four (`<`, `<`, `>`, `>`)."""
+    out = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        if text[i : i + 3] == "::<":
+            depth, j = 0, i + 2
+            while j < n:
+                if text[j] == "<":
+                    depth += 1
+                elif text[j] == ">":
+                    depth -= 1
+                    if depth == 0:
+                        j += 1
+                        break
+                j += 1
+            for k in range(i + 2, min(j, n)):
+                out[k] = " "
+            i = j
+            continue
+        i += 1
+    return "".join(out)
+
+
+def top_level_comparisons(arg):
+    """Comparison operators (`<`, `<=`, `>`, `>=`) at paren/bracket depth 0
+    in `arg`, left to right. Excludes `->` (return-arrow `<` is never one),
+    `<<`/`>>` (bit shift, not two comparisons), and turbofish generics."""
+    masked = mask_turbofish(arg)
+    ops, depth, i, n = [], 0, 0, len(masked)
+    while i < n:
+        c = masked[i]
+        if c in "([{":
+            depth += 1
+            i += 1
+            continue
+        if c in ")]}":
+            depth -= 1
+            i += 1
+            continue
+        if depth == 0:
+            two = masked[i : i + 2]
+            if two in ("<<", ">>"):
+                i += 2
+                continue
+            if two in ("<=", ">="):
+                ops.append(two)
+                i += 2
+                continue
+            if c in ("<", ">"):
+                if c == "<" and i > 0 and masked[i - 1] == "-":
+                    i += 1
+                    continue
+                ops.append(c)
+                i += 1
+                continue
+        i += 1
+    return ops
+
+
+ABS_TOL_RE = re.compile(r"\.\s*abs\s*\(\s*\)\s*(<=|<)(?!=)")
+
+
 def classify(macro, body):
     kinds = []
     if re.search(r"\bmatches!\s*\(", body):
@@ -242,6 +344,16 @@ def classify(macro, body):
                 kinds.append("eq_none")
             elif re.match(r"\s*Err\s*\(", arg.strip()):
                 kinds.append("eq_err")
+    args = top_level_args(body)
+    if args and not LEGACY_KINDS_ONLY:
+        ops = top_level_comparisons(args[0])
+        if len(ops) == 1:
+            if not ABS_TOL_RE.search(args[0]):
+                kinds.append("half_plane")
+            # else: `.abs() <`/`.abs() <=` -- approximate equality, the
+            # precise form for floating point. See this file's header.
+        elif len(ops) > 1:
+            kinds.append("cmp_compound")
     return kinds
 
 
@@ -279,6 +391,7 @@ def scan(path):
 
     hits = []
     seen = set()
+    residue = {"abs_tol": 0, "other": 0}
     helpers = {}  # name -> (kinds, def_start, def_end)
     for m in re.finditer(r"\b(" + "|".join(MACROS) + r")\s*!\s*\(", masked):
         if m.start() in seen:
@@ -289,6 +402,15 @@ def scan(path):
         body = masked[open_paren : end + 1]
         kinds = classify(m.group(1), body)
         if not kinds:
+            # Not a reported hit -- but still accounted for, so the corpus
+            # can never again grow silently the way it did before task #43
+            # (doc/plan §307): 509 comparison assertions sat in this branch
+            # with nothing counting them at all.
+            dargs = top_level_args(body)
+            if dargs and len(top_level_comparisons(dargs[0])) == 1 and ABS_TOL_RE.search(dargs[0]):
+                residue["abs_tol"] += 1
+            else:
+                residue["other"] += 1
             continue
         line = masked.count("\n", 0, m.start()) + 1
         shown = " ".join(text[m.start() : end + 1].split())
@@ -327,7 +449,7 @@ def scan(path):
             if len(shown) > 120:
                 shown = shown[:117] + "..."
             hits.append((line, "via:" + name, scope_at(c.start()), shown))
-    return sorted(hits)
+    return sorted(hits), residue
 
 
 def main(argv):
@@ -338,9 +460,23 @@ def main(argv):
             files.append(r)
         else:
             files += [p for p in r.rglob("*.rs") if "target" not in p.parts]
+    total_residue = {"abs_tol": 0, "other": 0}
     for path in sorted(files):
-        for line, kinds, scope, shown in scan(path):
+        hits, residue = scan(path)
+        for line, kinds, scope, shown in hits:
             print(f"{path}:{line}:{kinds}:{scope}:{shown}")
+        for k in total_residue:
+            total_residue[k] += residue[k]
+    # stderr, not stdout: callers that parse this script's stdout
+    # (tools/ci/reconcile-assertion-ledgers.py) expect only hit lines.
+    dropped = total_residue["abs_tol"] + total_residue["other"]
+    print(
+        f"--- {dropped} macro invocation(s) matched no kind and are not "
+        f"above, of which {total_residue['abs_tol']} are `.abs() <`/`.abs() "
+        f"<=` (approximate equality, correctly excluded -- see header) and "
+        f"{total_residue['other']} recognize no shape at all here ---",
+        file=sys.stderr,
+    )
     return 0
 
 
