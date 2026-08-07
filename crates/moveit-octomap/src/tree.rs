@@ -175,8 +175,12 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// - `OcTree(double resolution)` -- ported as [`OcTree::new`].
 /// - `OcTree(std::string filename)` -- distinct (binary-file-backed
 ///   constructor; this crate ports no file/stream IO at all, see `IO`
-///   below -- octrees enter this workspace only via ROS messages, itself
-///   D1-excluded).
+///   below). Not D1: a prior version of this bullet claimed octrees enter
+///   this workspace "only via ROS messages", but `moveit-scene`'s
+///   `PlanningScene::process_octomap_ptr` (`crates/moveit-scene/src/scene.rs`)
+///   takes a plain, message-free [`OcTree`] parameter directly -- the real
+///   reason this constructor is unported is narrower and unrelated to D1:
+///   no file/stream IO at all, full stop.
 /// - `~OcTree()` -- distinct (upstream's own body is `{}`; nothing here
 ///   needs a user-visible destructor beyond Rust's implicit `Drop` over the
 ///   owned `Box<Node>` tree).
@@ -195,15 +199,28 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 ///   -- distinct: this workspace's octrees are shared via `Arc`, never
 ///   deep-cloned.
 /// - `insertPointCloud(const Pointcloud&, const point3d&, double, bool,
-///   bool)` -- distinct, D1 (every caller is a `moveit_ros/perception`
-///   depth-camera updater converting a ROS `sensor_msgs` cloud into
-///   `octomap::Pointcloud` first).
+///   bool)` -- distinct: zero consumer, not D1. A prior version of this
+///   bullet classified all four overloads below as D1 on the strength of
+///   `octomap::Pointcloud`'s name alone; that was wrong on two counts.
+///   First, `Pointcloud`/`point3d`/`pose6d`/`ScanNode` are octomap's own
+///   message-free types (`third_party/octomap/octomap/include/octomap/Pointcloud.h`
+///   depends only on `<vector>`/`<list>`, no ROS/msg include), so calling
+///   this overload never requires touching a ROS message. Second, and
+///   dispositive on its own: `rg -rn insertPointCloud
+///   /home/stevek/work/moveit2` (pinned `e017c91e`) returns zero hits —
+///   not "every caller is a ROS depth-camera updater", there is no caller
+///   at all. `moveit_ros/perception`'s two octomap updaters
+///   (`pointcloud_octomap_updater.cpp:336-418`,
+///   `depth_image_octomap_updater.cpp:554-619`) both populate their trees
+///   by calling `updateNode` directly, one key at a time, via
+///   `computeRayKeys` — never this overload or the three below. Same
+///   zero-consumer reasoning as `castRay`/`getRayIntersection` below.
 /// - `insertPointCloud(const Pointcloud&, const point3d&, const pose6d&,
-///   double, bool, bool)` -- distinct, same D1 reasoning.
-/// - `insertPointCloud(const ScanNode&, double, bool, bool)` -- distinct,
-///   same D1 reasoning.
+///   double, bool, bool)` -- distinct: zero consumer, same reasoning.
+/// - `insertPointCloud(const ScanNode&, double, bool, bool)` -- distinct:
+///   zero consumer, same reasoning.
 /// - `insertPointCloudRays(const Pointcloud&, const point3d&, double,
-///   bool)` -- distinct, same D1 reasoning.
+///   bool)` -- distinct: zero consumer, same reasoning.
 /// - `setNodeValue(const OcTreeKey&, float, bool)` -- unported, in scope
 ///   (PORTING-PLAN.md §13; this crate's "What this port does not carry
 ///   over" section above names the one upstream call site that
@@ -243,8 +260,8 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// - `getNormals(const point3d&, std::vector<point3d>&, bool) const` --
 ///   distinct, zero consumer (marching-cubes surface reconstruction).
 /// - `useBBXLimit(bool)` -- distinct: zero consumer, only meaningful
-///   alongside the already-D1-excluded BBX-limited `insertPointCloud`
-///   path.
+///   alongside the already-zero-consumer BBX-limited `insertPointCloud`
+///   path above.
 /// - `bbxSet() const` -- distinct, same reasoning.
 /// - `setBBXMin(point3d&)` -- distinct, same reasoning.
 /// - `setBBXMax(point3d&)` -- distinct, same reasoning.

@@ -28,7 +28,11 @@
 //!   reports it the same way `plan_benchmark_port` does -- densified, over
 //!   every solved problem, with the invalid-waypoint *indices* so an
 //!   independent checker can be compared index by index rather than count by
-//!   count.
+//!   count. It also reports [`returned_waypoints`]'s undensified verdict
+//!   alongside the densified one, as `condition2_valid_at_returned_waypoints`
+//!   -- the same attribution field `stomp_benchmark_port`/`chomp_benchmark_port`
+//!   already carry, missing here until now. This adds an attribution field;
+//!   the densified verdict stays the official condition-2 number.
 //! * **The quality condition does NOT become "output cost <= seed cost".**
 //!   That was this binary's first design, and it is unfalsifiable. `seed_cost`
 //!   and `output_cost` below are the same `CostFn` evaluated on the
@@ -266,6 +270,31 @@ fn densify<'m>(
         }
     }
     out
+}
+
+/// `path` as [`RobotState`]s with no interpolation at all -- exactly the
+/// waypoints STOMP returned.
+///
+/// Feeding these to [`PlanningScene::is_path_valid`] reproduces what
+/// upstream's own `isPathValid(trajectory, group)` would report for this
+/// planner's output, and nothing finer. Reported alongside the densified
+/// verdict as `condition2_valid_at_returned_waypoints`, purely to attribute a
+/// condition-2 failure: a path that is valid here and invalid after
+/// [`densify`] failed *between* the planner's own waypoints, at a resolution
+/// neither the planner nor upstream ever evaluates. The official condition-2
+/// number stays the densified one -- this adds an attribution field, it does
+/// not move the bar. Same construction, same reason, as
+/// `stomp_benchmark_port`'s and `chomp_benchmark_port`'s own
+/// `returned_waypoints` (both benchmark infrastructure, not a port -- see
+/// this file's header -- so there is no upstream citation for either).
+fn returned_waypoints<'m>(
+    template: &RobotState<'m>,
+    group: &JointModelGroup,
+    path: &[DVector<f64>],
+) -> Vec<RobotState<'m>> {
+    path.iter()
+        .map(|column| state_from_column(template, group, column))
+        .collect()
 }
 
 /// Which kind of deliberately-bad waypoint an injection run splices into every
@@ -810,6 +839,14 @@ fn main() {
             path.insert(mid, bad.clone());
         }
 
+        let raw = returned_waypoints(&template, group, &path);
+        let raw_validity = cell.borrow_mut().is_path_valid(
+            &env,
+            &CollisionRequest::default(),
+            &raw,
+            check_constraints.as_ref(),
+            &[],
+        );
         let dense = densify(&template, group, &path, resolution);
         let validity = cell.borrow_mut().is_path_valid(
             &env,
@@ -831,6 +868,7 @@ fn main() {
             "outcome": "solved",
             "plan_seconds": elapsed,
             "condition2_valid": validity.valid,
+            "condition2_valid_at_returned_waypoints": raw_validity.valid,
             "waypoints_checked": dense.len(),
             "raw_waypoints": raw_waypoints,
             "start_gap": start_gap,
@@ -965,6 +1003,142 @@ fn main() {
             "inject={mode} rejected all {condition2_checked} checked paths of {total} injected, \
              as required; {not_checked} not checked ({timeout_count} timeout, \
              {failure_count} failure)"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn returned_waypoints_emits_exactly_one_state_per_column_with_no_interpolation() {
+        // The property that distinguishes `returned_waypoints` from `densify`:
+        // same input, but `densify` inserts extra points between every pair
+        // (`out.push` runs `steps` times per `windows(2)` pair, `steps >= 1`),
+        // while `returned_waypoints` must produce exactly `path.len()` states,
+        // each one a direct round-trip of its input column -- otherwise the
+        // "no interpolation at all" claim in its own doc is untested.
+        let (model, _srdf) = load_robot("panda");
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut template = RobotState::new(&model);
+        template.set_to_default_values();
+        let path = vec![
+            DVector::from_vec(vec![0.0, -0.5, 0.0, -1.5, 0.0, 1.0, 0.5]),
+            DVector::from_vec(vec![0.3, -0.4, 0.1, -1.4, 0.05, 1.05, 0.55]),
+            DVector::from_vec(vec![0.6, -0.3, 0.2, -1.3, 0.1, 1.1, 0.6]),
+        ];
+
+        let raw = returned_waypoints(&template, group, &path);
+
+        assert_eq!(raw.len(), path.len());
+        for (state, column) in raw.iter().zip(path.iter()) {
+            let got = positions(state, group).expect("panda_arm positions");
+            assert_eq!(got, *column);
+        }
+
+        // Contrast: the same path through `densify` at a resolution finer
+        // than any consecutive-column delta produces MORE than `path.len()`
+        // states -- confirming the two functions actually differ, not just
+        // that this test only exercises the trivial resolution=infinity case.
+        let dense = densify(&template, group, &path, 0.05);
+        assert!(
+            dense.len() > path.len(),
+            "densify at resolution 0.05 produced {} states from {} raw waypoints -- expected \
+             interpolation to add some",
+            dense.len(),
+            path.len()
+        );
+    }
+
+    #[test]
+    fn condition2_valid_at_returned_waypoints_is_true_when_densified_is_false() {
+        // The scenario `condition2_valid_at_returned_waypoints` exists to
+        // attribute: two raw waypoints that do not themselves collide, but
+        // whose straight-line interpolation sweeps the arm through an
+        // obstacle strictly between them. `is_path_valid` on
+        // `returned_waypoints`'s output must stay `true` while the same call
+        // on `densify`'s output goes `false` -- if both moved together, the
+        // new field would just restate `condition2_valid` under a second
+        // name.
+        let (model, srdf) = load_robot("panda");
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut template = RobotState::new(&model);
+        template.set_to_default_values();
+
+        // A real problem's start/goal (`doc/phase8-baseline-500/
+        // floor_wall.250.900001.set.json`, problem id 1), not a synthetic
+        // all-other-joints-at-default pose: panda's zero configuration is
+        // itself self-colliding (measured -- every waypoint of an all-default
+        // sweep was invalid even against an empty world), so a fabricated
+        // two-point path risks testing self-collision instead of the wall.
+        // Problem id 1 specifically, not id 0: this instrument's own
+        // `seed_valid` field (computed the same way, over the same set)
+        // already measured id 0's straight-line seed as collision-free and
+        // id 1's as colliding, so id 1 is the one whose densified
+        // interpolation is known to cross an obstacle somewhere between two
+        // otherwise-valid endpoints.
+        let start = state_from_map(
+            &model,
+            &BTreeMap::from([
+                ("panda_joint1".to_string(), -0.12569973212653407),
+                ("panda_joint2".to_string(), 0.8539681979683693),
+                ("panda_joint3".to_string(), 2.784858631146275),
+                ("panda_joint4".to_string(), -2.829531705878982),
+                ("panda_joint5".to_string(), 0.7209874782302768),
+                ("panda_joint6".to_string(), 0.9767144543011761),
+                ("panda_joint7".to_string(), -2.63052329696014),
+            ]),
+        );
+        let goal = state_from_map(
+            &model,
+            &BTreeMap::from([
+                ("panda_joint1".to_string(), -1.0206841738437522),
+                ("panda_joint2".to_string(), -1.507401901709096),
+                ("panda_joint3".to_string(), -1.3901007965446428),
+                ("panda_joint4".to_string(), -0.8806967682840048),
+                ("panda_joint5".to_string(), -1.2343998073850808),
+                ("panda_joint6".to_string(), 2.111189573531795),
+                ("panda_joint7".to_string(), 2.0759920810853454),
+            ]),
+        );
+        let start_column = positions(&start, group).expect("start positions");
+        let goal_column = positions(&goal, group).expect("goal positions");
+        let path = vec![start_column, goal_column];
+
+        // The same floor + wall obstacles `doc/phase8-baseline-500/
+        // floor_wall.250.900001.set.json` places for this problem.
+        let mut world = World::new();
+        world.add_shape(
+            "floor",
+            Arc::new(Shape::Cuboid(Cuboid::new(2.0, 2.0, 0.5).unwrap())),
+            Isometry3::translation(0.0, 0.0, -0.28),
+        );
+        world.add_shape(
+            "wall",
+            Arc::new(Shape::Cuboid(Cuboid::new(0.05, 1.6, 1.6).unwrap())),
+            Isometry3::translation(0.45, 0.0, 0.8),
+        );
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let mut scene = PlanningScene::new(&model, &srdf);
+
+        let raw = returned_waypoints(&template, group, &path);
+        let raw_validity = scene.is_path_valid(&env, &CollisionRequest::default(), &raw, None, &[]);
+        let dense = densify(&template, group, &path, 0.05);
+        let dense_validity =
+            scene.is_path_valid(&env, &CollisionRequest::default(), &dense, None, &[]);
+
+        assert!(
+            raw_validity.valid,
+            "problem id 1's own start and goal must not collide with floor_wall on their own -- \
+             got invalid_waypoints={:?}",
+            raw_validity.invalid_waypoints
+        );
+        assert!(
+            !dense_validity.valid,
+            "problem id 1's straight-line interpolation is already known invalid (this \
+             instrument's own seed_valid measured it colliding), so the densified path must \
+             disagree with the raw one -- got both valid"
         );
     }
 }

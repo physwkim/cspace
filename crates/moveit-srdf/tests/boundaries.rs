@@ -222,6 +222,28 @@ fn a_group_with_a_dangling_subgroup_is_dropped_transitively() {
     );
 }
 
+/// Resolvability is tracked by *name*, in a `std::set<std::string>` upstream
+/// and a `BTreeSet<String>` here (`model.cpp:267,274`, `parse.rs:221,226`),
+/// not by which `<group>` element earned it. Two groups sharing one name
+/// therefore share one fate: the moment either instance resolves, the name
+/// is in the resolved set, so a second element with the same name is skipped
+/// by the `already resolvable` guard before its own subgroups are ever
+/// looked at — even a dangling one. Upstream's final filter
+/// (`groups_.swap(correct)`, `model.cpp:296-306`) and this port's `retain`
+/// (`parse.rs:236-246`) both key on the same name, so both instances survive
+/// and no `UnsatisfiedSubgroups` is raised for the second.
+#[test]
+fn a_second_group_with_a_duplicate_name_inherits_the_firsts_resolvability() {
+    let model = parse(
+        r#"<robot name="r">
+             <group name="dup"><group name="nope"/></group>
+             <group name="dup"><joint name="j"/></group>
+           </robot>"#,
+    );
+    assert_eq!(group_names(&model), ["dup", "dup"]);
+    assert_eq!(model.diagnostics(), &[]);
+}
+
 #[test]
 fn a_subgroup_cycle_drops_every_group_in_it() {
     let model = parse(
