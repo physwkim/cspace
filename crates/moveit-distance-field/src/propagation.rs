@@ -198,13 +198,14 @@ pub struct PropagationDistanceField {
 
 /// Upstream: `max_distance_sq_ = ceil(max_distance_ / resolution_) *
 /// ceil(max_distance_ / resolution_)`, assigned into an `int` field -- the
-/// same narrowing-conversion shape as `DistanceField::distance_gradient`'s
-/// `inv_twice_resolution_` (see that method's own doc), but reached by an
+/// same narrowing-conversion shape upstream's `inv_twice_resolution_` has
+/// (which this port no longer reproduces at all — see
+/// `DistanceField::distance_gradient`'s own doc), but reached by an
 /// ordinary `max_distance`/`resolution` ratio rather than a pathologically
 /// tiny resolution, so this one is guarded rather than just documented:
 /// past `n > 46340` (`n * n > i32::MAX`), C++'s `double`-to-`int` narrowing
-/// is undefined behaviour with no upstream value to match, and unlike
-/// `inv_twice_resolution_`'s read-only multiplier,
+/// is undefined behaviour with no upstream value to match, and unlike a
+/// read-only gradient multiplier,
 /// [`PropagationDistanceField::new`] sizes `bucket_queue`/
 /// `negative_bucket_queue`/`sqrt_table` from this value -- an unguarded
 /// `as i32` saturating to `i32::MAX` here would try to allocate three
