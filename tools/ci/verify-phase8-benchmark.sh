@@ -103,9 +103,9 @@ cd "$REPO_ROOT"
 
 TIER="${MOVEIT_RS_PHASE8_BENCHMARK:-}"
 if [[ -z "$TIER" ]]; then
-  echo "SKIP MOVEIT_RS_PHASE8_BENCHMARK is unset -- Phase 8's CHOMP/STOMP property conditions are not re-derived."
-  echo "SKIP this is not a pass; set MOVEIT_RS_PHASE8_BENCHMARK=chomp (~165s), =1 (adds STOMP's 50-problem prefix, ~110min) or =full (adds STOMP's 500, ~3h) to cover them."
-  exit 0
+  skip_not_measured opt-in \
+    "MOVEIT_RS_PHASE8_BENCHMARK is unset -- Phase 8's CHOMP/STOMP property conditions are not re-derived." \
+    "this is not a pass; set MOVEIT_RS_PHASE8_BENCHMARK=chomp (~165s), =1 (adds STOMP's 50-problem prefix, ~110min) or =full (adds STOMP's 500, ~3h) to cover them."
 fi
 if [[ "$TIER" != "chomp" && "$TIER" != "1" && "$TIER" != "full" ]]; then
   echo "FAIL MOVEIT_RS_PHASE8_BENCHMARK=$TIER is not one of chomp, 1, full." >&2
