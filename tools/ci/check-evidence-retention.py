@@ -139,6 +139,7 @@ and `git ls-files`. No docker, no cargo, no upstream checkout.
 """
 
 import argparse
+import bisect
 import re
 import subprocess
 import sys
@@ -409,20 +410,38 @@ def derive_pairs(lines, marks, untracked_instruments, excluded):
     in a reproduction recipe publishes from the instrument exactly as a prose
     sentence does, and a rule that skipped fences would be silenced by moving
     the sentence into one.
+
+    A mention wrapped across a markdown line break counts too. The line-at-a-
+    time substring search this used to be could not see
+    `measure-phase8-optimizer-\\nproperties.sh`, and that is not a rare shape:
+    §295 and §309.3 wrap that one name, and §307.3/§307.4/§307.5 wrap
+    `count-coarse-\\nassertions.py`. Four sections escaped the census through
+    a soft wrap the author never chose deliberately -- a checker that fails
+    toward silence. Tolerating `\\n` between any two characters of the name
+    keeps this exact rather than loose: the whole name still has to appear, in
+    order, so nothing matches that a reader would not call a mention. The
+    section is the one owning the line the match STARTS on.
     """
+    text = "\n".join(lines)
+    starts, off = [], 0
+    for line in lines:
+        starts.append(off)
+        off += len(line) + 1
+
     pairs = set()
-    for i, line in enumerate(lines, 1):
-        if excluded and excluded[0] <= i <= excluded[1]:
-            continue
-        for inst in untracked_instruments:
-            if inst in line:
-                sec = owning_section(marks, i)
-                if sec is None:
-                    raise Fail(
-                        f"line {i} names {inst} before any numbered heading -- "
-                        f"it belongs to no section"
-                    )
-                pairs.add((inst, sec))
+    for inst in untracked_instruments:
+        pattern = re.compile(r"(?:\n[ \t]*)?".join(re.escape(c) for c in inst))
+        for m in pattern.finditer(text):
+            i = bisect.bisect_right(starts, m.start())
+            if excluded and excluded[0] <= i <= excluded[1]:
+                continue
+            sec = owning_section(marks, i)
+            if sec is None:
+                raise Fail(
+                    f"line {i} names {inst} before any numbered heading -- "
+                    f"it belongs to no section"
+                )
+            pairs.add((inst, sec))
     return pairs
 
 
