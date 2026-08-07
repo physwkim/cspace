@@ -290,3 +290,39 @@ skip_not_measured() {
   done
   exit "$NOT_MEASURED"
 }
+
+# Reserved exit status meaning "this gate ran its measurement and its own
+# hard checks held, but the run carries a qualification a plain pass would
+# hide" -- distinct from 0 (ran, held, nothing to qualify), 1 (a hard check
+# did not hold) and $NOT_MEASURED (no measurement happened at all). Nothing
+# else in this directory used this exit before it was reserved (same
+# `rg -n 'exit [0-9]+' tools/ci/*.sh` sweep `NOT_MEASURED`'s own comment
+# describes, re-run at the time this was written).
+#
+# `verify-phase8-benchmark.sh` is the motivating case: its three CHOMP/STOMP
+# property conditions compare an optimiser against a sampling planner, so an
+# UNMET condition is not by itself a porting defect (see that script's
+# header) -- the gate is right to exit 0 rather than fail. But a blanket 0
+# is exactly the code a plain pass uses, so `verify-all.sh`'s summary folded
+# a run that printed UNMET conditions into "passed" with no trace, the same
+# shape `NOT_MEASURED` exists to close one level down. A gate that has this
+# shape reports it through `report_qualified` instead of a bare `exit 0`.
+QUALIFIED=4
+
+# Prints each line prefixed `QUALIFIED ` and exits $QUALIFIED.
+#
+#   report_qualified "phase 8 condition 1 UNMET for chomp -- see the" \
+#                    "CONDITIONS line above and this script's header"
+#
+# Like `skip_not_measured`, this does not invent the explanation -- every
+# call site already printed its own qualified verdict in its own words
+# before calling this; the only job here is the exit status, kept in one
+# place so it cannot drift from what a gate that qualifies a pass ought to
+# use.
+report_qualified() {
+  local line
+  for line in "$@"; do
+    echo "QUALIFIED $line"
+  done
+  exit "$QUALIFIED"
+}

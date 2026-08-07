@@ -36,6 +36,14 @@
 # a real pass, which is exactly what let `OK all $ran verify script(s)
 # passed` be true while one of them had, by its own printed SKIP lines,
 # measured nothing.
+#
+# The same fold happens one level up from a missing measurement: a gate that
+# measured fine and held every one of its own hard checks can still carry a
+# qualification worth surfacing (`verify-phase8-benchmark.sh`'s CHOMP/STOMP
+# property conditions, deliberately allowed to go UNMET against a baseline
+# that is a different algorithm class -- see that script's header). Such a
+# gate exits `$QUALIFIED` (see `gate-lib.sh`'s `report_qualified`), also not
+# 0, and is counted separately below too -- neither "passed" nor "failed".
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -66,6 +74,7 @@ done
 
 failed=()
 not_measured=()
+qualified=()
 passed=0
 ran=0
 for script in "${scripts[@]}"; do
@@ -78,6 +87,8 @@ for script in "${scripts[@]}"; do
     passed=$((passed + 1))
   elif [[ "$rc" -eq "$NOT_MEASURED" ]]; then
     not_measured+=("$script")
+  elif [[ "$rc" -eq "$QUALIFIED" ]]; then
+    qualified+=("$script")
   else
     failed+=("$script")
   fi
@@ -94,9 +105,15 @@ if [[ ${#not_measured[@]} -gt 0 ]]; then
     "(see their own SKIP lines above) -- not counted as passed:"
   printf '  %s\n' "${not_measured[@]}"
 fi
+if [[ ${#qualified[@]} -gt 0 ]]; then
+  echo "${#qualified[@]} of $ran verify script(s) measured and held their own hard checks," \
+    "but carry a qualification (see their own QUALIFIED lines above) -- not counted as a" \
+    "plain pass:"
+  printf '  %s\n' "${qualified[@]}"
+fi
 if [[ ${#failed[@]} -gt 0 ]]; then
   echo "FAIL ${#failed[@]} of $ran verify script(s) failed:" >&2
   printf '  %s\n' "${failed[@]}" >&2
   exit 1
 fi
-echo "OK $passed of $ran verify script(s) passed, ${#not_measured[@]} not measured"
+echo "OK $passed of $ran verify script(s) passed, ${#not_measured[@]} not measured, ${#qualified[@]} qualified"
