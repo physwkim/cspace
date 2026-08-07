@@ -218,8 +218,17 @@ struct PrbtOracleResult {
 
 #[derive(Deserialize)]
 struct PrbtOracleResponse {
-    top_z: f64,
+    id: u64,
     result: PrbtOracleResult,
+}
+
+/// `top_z` is an oracle *input*, so it is carried by the request fixture; a
+/// response fixture holds only what the oracle emitted. Joining the two on
+/// `id` is what `octree_world_collision`'s reader above already does.
+#[derive(Deserialize)]
+struct PrbtOracleRequest {
+    id: u64,
+    top_z: f64,
 }
 
 /// Ground truth for `top_z`, read from the freshly-captured fixture rather
@@ -227,14 +236,24 @@ struct PrbtOracleResponse {
 /// the two happen to agree (both are the same live oracle), but this reads
 /// its own independently-captured JSON, not that file's prose.
 fn prbt_boundary_oracle_robot_collision(top_z: f64) -> bool {
+    let requests: Vec<PrbtOracleRequest> =
+        serde_json::from_str(&read_fixture("tangency_boundary_bside_request.json"))
+            .unwrap_or_else(|e| panic!("parse tangency boundary request fixture: {e}"));
+    let id = requests
+        .into_iter()
+        .find(|r| r.top_z == top_z)
+        .unwrap_or_else(|| {
+            panic!("tangency_boundary_bside_request.json must contain top_z {top_z}")
+        })
+        .id;
     let responses: Vec<PrbtOracleResponse> =
         serde_json::from_str(&read_fixture("tangency_boundary_bside_response.json"))
             .unwrap_or_else(|e| panic!("parse tangency boundary response fixture: {e}"));
     responses
         .into_iter()
-        .find(|r| r.top_z == top_z)
+        .find(|r| r.id == id)
         .unwrap_or_else(|| {
-            panic!("tangency_boundary_bside_response.json must contain top_z {top_z}")
+            panic!("tangency_boundary_bside_response.json must contain id {id} (top_z {top_z})")
         })
         .result
         .robot_collision
