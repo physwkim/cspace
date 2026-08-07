@@ -453,32 +453,37 @@ fn link_pose(
 // Measurement 1: two or more simultaneously penetrating pairs.
 // ---------------------------------------------------------------------
 
+/// One probe of `multi_pair_port_distance`'s two -- the target link it must
+/// stay unmasked against, its shape and its world pose. Bundled so the
+/// function takes one of these per probe instead of three loose parameters,
+/// which is what made it `too_many_arguments` in the first place.
+struct PairProbe<'a> {
+    target: &'a str,
+    shape: &'a Shape,
+    pose: Isometry3,
+}
+
 /// This side's answer for a scene with two probes, each unmasked against
 /// its own target only -- the port's own multi-pair minimum, exercised with
 /// more than one pair visible at once for the first time in this corpus.
-#[allow(clippy::too_many_arguments)]
 fn multi_pair_port_distance(
     model: &RobotModel,
     link_names: &[String],
     joint_values: &Value,
-    target_a: &str,
-    probe_a: &Shape,
-    pose_a: Isometry3,
-    target_b: &str,
-    probe_b: &Shape,
-    pose_b: Isometry3,
+    pair_a: PairProbe,
+    pair_b: PairProbe,
 ) -> Result<f64, String> {
     let mut world = World::new();
-    world.add_shape("probe_a", Arc::new(probe_a.clone()), pose_a);
-    world.add_shape("probe_b", Arc::new(probe_b.clone()), pose_b);
+    world.add_shape("probe_a", Arc::new(pair_a.shape.clone()), pair_a.pose);
+    world.add_shape("probe_b", Arc::new(pair_b.shape.clone()), pair_b.pose);
     let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
 
     let mut names: Vec<String> = link_names.to_vec();
     names.push("probe_a".to_owned());
     names.push("probe_b".to_owned());
     let mut acm = AllowedCollisionMatrix::from_names(&names, true);
-    acm.set_entry("probe_a", target_a, false);
-    acm.set_entry("probe_b", target_b, false);
+    acm.set_entry("probe_a", pair_a.target, false);
+    acm.set_entry("probe_b", pair_b.target, false);
 
     let mut state = RobotState::new(model);
     state.set_to_default_values();
@@ -595,12 +600,16 @@ fn measure_multi_pair(
                 model,
                 link_names,
                 joint_values,
-                &target_a.link,
-                &shape_a,
-                pose_a,
-                &target_b.link,
-                &shape_b,
-                pose_b,
+                PairProbe {
+                    target: &target_a.link,
+                    shape: &shape_a,
+                    pose: pose_a,
+                },
+                PairProbe {
+                    target: &target_b.link,
+                    shape: &shape_b,
+                    pose: pose_b,
+                },
             )?;
 
             let deviation = (true_min - port_answer).abs();
