@@ -337,15 +337,15 @@ Rust 크레이트 확인(crates.io, 직접 조회):
   `.cpp`/`.hpp`/`.h` 줄수가 재검산되는 라운드가 실행되는 시점, §327.1).**
 - `moveit_ros/visualization` (13,346) — RViz 디스플레이 플러그인. **OPEN →
   만료 조건 (같은 SHA 갱신 시 `moveit_ros/visualization`이 재검산되는
-  시점, §327.2).**
+  시점, §327.1).**
 - `moveit_ros/perception` (7,877) — mesh_filter가 OpenGL/GLUT 의존. **OPEN
   → 만료 조건 (같은 SHA 갱신 시 `moveit_ros/perception`이 재검산되는 시점,
-  §327.3).**
+  §327.1).**
 - `moveit_plugins` (2,990) — ros2_control 컨트롤러 인터페이스. **OPEN →
   만료 조건 (같은 SHA 갱신 시 `moveit_plugins`가 재검산되는 시점,
-  §327.4).**
+  §327.1).**
 - `moveit_py` (5,368) — 필요 시 PyO3로 별도 재작성. **OPEN → 만료 조건
-  (같은 SHA 갱신 시 `moveit_py`가 재검산되는 시점, §327.5).**
+  (같은 SHA 갱신 시 `moveit_py`가 재검산되는 시점, §327.1).**
 
 ### 4.8 OcTree 충돌 도형 — parry에 다중 해상도 옥트리가 없다 (결정 완료)
 
@@ -19092,7 +19092,7 @@ public:
   결정이고, 이 절은 그것을 하지 않는다. 오늘 재확인:
   `rg -n 'impl PlanningContext for' crates/ --type rust` 워크스페이스
   전체 0건. **OPEN → 만료 조건 (워크스페이스 어딘가에 `impl
-  PlanningContext for`가 처음 나타나는 시점, §327.16).**
+  PlanningContext for`가 처음 나타나는 시점, §327.15).**
 
 ### §227.5 `trajectory_generation_exceptions.hpp` — 46개 예외 클래스가 8개 코드로 접힌다
 
