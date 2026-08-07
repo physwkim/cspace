@@ -1515,23 +1515,26 @@ mod tests {
         assert!(has_mixed_joint_types(&pr2_trajectory, pr2_group));
     }
 
-    /// `!raw_sample_count.is_finite()` is not redundant with `>
-    /// MAX_RESAMPLE_SAMPLE_COUNT`: a moving joint with a custom `0.0`
-    /// velocity limit reproduces upstream's unguarded `0/0` division in the
-    /// timing loop (`time_optimal_trajectory_generation.cpp:405`; see
-    /// `doc/upstream-bugs.md`) as a NaN `duration()` at this path scale —
-    /// not `+inf` (see `trajectory.rs`'s
-    /// `a_max_velocity_component_of_zero_crawls_rather_than_invalidating`
-    /// for the same mechanism; whether it lands on NaN or `+inf` is
-    /// scale-sensitive, both are observed in this crate's tests). `NaN >
-    /// MAX_RESAMPLE_SAMPLE_COUNT` is always `false`, so only
-    /// `!is_finite()` catches this. Bite-confirmed: neutralizing
-    /// `!is_finite()` alone turns this into a silent `Ok(())` with a
-    /// NaN-derived `sample_count` (saturates to `0` under `as usize`)
-    /// instead of the resample-bound error every other case in this
-    /// guard's family gets.
+    /// A moving joint with a custom `0.0` velocity limit is reachable
+    /// through this public group-driven API too, not just direct
+    /// `Trajectory::create`/`Path::create` calls (see `trajectory.rs`'s
+    /// `a_max_velocity_component_of_zero_is_rejected_rather_than_crawling_to_infinity`
+    /// for the same mechanism and the deliberate deviation from upstream
+    /// `time_optimal_trajectory_generation.cpp:405` it documents).
+    /// `Trajectory::create` now rejects this construction directly, via
+    /// `compute_time_stamps_with_limits`'s `Trajectory::create(...)?`, so
+    /// this no longer reaches `raw_sample_count.is_finite()`'s downstream
+    /// net at all — this test used to be that net's load-bearing case
+    /// (bite-confirmed: neutralizing `!is_finite()` alone used to turn this
+    /// into a silent `Ok(())` with a NaN-derived `sample_count`, saturating
+    /// to `0` under `as usize`); the `!is_finite()` clause's remaining
+    /// coverage, if any, is not re-derived here since covering it was never
+    /// the point of this deviation. `resample_dt_producing_an_
+    /// unreasonable_sample_count_is_rejected`/`resample_dt_targeting_the_
+    /// usize_max_boundary_is_rejected` keep the `> MAX_RESAMPLE_SAMPLE_
+    /// COUNT` half covered.
     #[test]
-    fn resample_dt_over_a_nan_duration_is_rejected() {
+    fn resample_dt_over_an_infinite_time_construction_is_rejected() {
         let model = panda();
         let group = model.joint_model_group("panda_arm").unwrap();
         let mut trajectory = RobotTrajectory::for_group(&model, Some(group));
@@ -1564,10 +1567,11 @@ mod tests {
         // See `resample_dt_producing_an_unreasonable_sample_count_is_rejected`
         // for why this checks the message rather than just `.is_err()`.
         assert!(
-            result
-                .as_ref()
-                .is_err_and(|e| e.to_string().contains("exceeding the")),
-            "a NaN duration must be rejected the same way an over-large one is: {result:?}"
+            result.as_ref().is_err_and(|e| e
+                .to_string()
+                .contains("bridging the gap would require infinite time")),
+            "a zero relative velocity across a nonzero position change must \
+             be rejected by Trajectory::create itself: {result:?}"
         );
     }
 

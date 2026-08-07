@@ -107,11 +107,13 @@ impl Trajectory {
     ///
     /// # Errors
     ///
-    /// [`Error::Construct`] when `time_step <= 0.0`, or when the forward/
+    /// [`Error::Construct`] when `time_step <= 0.0`, when the forward/
     /// backward integration cannot produce a valid trajectory (for example,
     /// a `max_acceleration` component that is `0.0` along a path direction
     /// that needs it — see this crate's `testRelevantZeroMaxAccelerationsInvalidateTrajectory`
-    /// test).
+    /// test), or when the timing pass finds two adjacent steps with a zero
+    /// relative path velocity and a nonzero position change between them —
+    /// see the deviation from upstream documented on the timing loop below.
     pub fn create(
         path: Path,
         max_velocity: &DVector<f64>,
@@ -176,12 +178,41 @@ impl Trajectory {
         }
 
         // Calculate timing.
+        //
+        // Deliberate deviation from upstream
+        // `time_optimal_trajectory_generation.cpp:405`:
+        // `it->time_ = previous->time_ + (it->path_pos_ - previous->path_pos_)
+        // / ((it->path_vel_ + previous->path_vel_) / 2.0);` has no guard
+        // against the denominator being `0.0`. When the position delta is
+        // *also* exactly `0.0` (e.g. a zero-length path), that is a
+        // harmless `0.0 / 0.0`, and upstream's own NaN is oracle-verified,
+        // required behaviour here — see
+        // `a_zero_length_path_produces_a_nan_duration_trajectory` below and
+        // `totg_parity.rs` case 2 (`duration: null` in the fixture) — so it
+        // is left untouched. But when the position delta is *nonzero* while
+        // the relative velocity is exactly `0.0` (e.g. a `max_velocity`
+        // component of `0.0` on an axis the path still moves along — see
+        // `a_max_velocity_component_of_zero_is_rejected_rather_than_crawling_to_infinity`
+        // below), the division is `x / 0.0 == +inf`: not NaN, but still a
+        // breakdown, since bridging a real position change at zero average
+        // velocity needs infinite time, not a number this type can hold.
+        // That case is reported as an `Err` here instead of silently
+        // producing `+inf` and relying on
+        // `do_time_parameterization_calculations`'s downstream
+        // `raw_sample_count.is_finite()` check to catch it one call later.
         for i in 1..traj.trajectory.len() {
             let previous = traj.trajectory[i - 1];
             let current = &mut traj.trajectory[i];
-            current.time = previous.time
-                + (current.path_pos - previous.path_pos)
-                    / ((current.path_vel + previous.path_vel) / 2.0);
+            let avg_vel = (current.path_vel + previous.path_vel) / 2.0;
+            let delta_pos = current.path_pos - previous.path_pos;
+            if avg_vel == 0.0 && delta_pos != 0.0 {
+                return Err(Error::construct(
+                    "zero relative path velocity between trajectory steps \
+                     with a nonzero position change: bridging the gap \
+                     would require infinite time",
+                ));
+            }
+            current.time = previous.time + delta_pos / avg_vel;
         }
 
         Ok(traj)
@@ -1491,7 +1522,7 @@ mod tests {
     /// **acceleration** limit on a dimension the path needs (see
     /// `upstream_test_relevant_zero_max_accelerations_invalidate_trajectory`,
     /// which does invalidate), a `0.0` **velocity** limit on such a
-    /// dimension does *not* invalidate the trajectory.
+    /// dimension does not deadlock [`Trajectory::integrate_forward`].
     ///
     /// [`Trajectory::velocity_max_path_velocity`] pins the path-velocity
     /// ceiling to `0.0` everywhere the zero-limited joint has a nonzero
@@ -1502,36 +1533,30 @@ mod tests {
     /// integration step overshoots the `0.0` ceiling and gets pulled back
     /// by the overshoot-correction bisection to within `EPS` (`1e-6`) of
     /// the ceiling — advancing `path_pos` by one `EPS`-scale increment per
-    /// step, forever, since the ceiling is `0.0` at every subsequent
-    /// `path_pos` too. The trajectory is technically still constructed
-    /// (`valid` never becomes `false`, so this is `Ok`, not the
+    /// step, with `path_vel` staying exactly `0.0` throughout (`valid`
+    /// never becomes `false`, so integration itself is not the
     /// `testRelevantZeroMaxAccelerationsInvalidateTrajectory`-style
-    /// failure), but each step's `path_vel` stays exactly `0.0`, so the
-    /// timing pass divides a position delta by `(0.0 + 0.0) / 2.0 = 0.0` —
-    /// landing on `+inf` when the delta is a nonzero float, or on NaN when
-    /// floating-point cancellation at the path's particular scale rounds
-    /// the terminal delta itself to exactly `0.0` (both were observed —
-    /// see the test body).
+    /// failure).
     ///
-    /// This crawl needs on the order of `path.length() / EPS` steps, so
-    /// this test uses a `1e-5`-scale path rather than the `1.0`-scale one
-    /// used elsewhere in this module — the same crawl over a `1.0`-scale
-    /// path is real, verified behaviour (traced by hand and confirmed by
-    /// running it), but takes on the order of two million steps and tens
-    /// of seconds, which does not belong in a unit test suite.
+    /// The timing pass is a different matter: two adjacent crawl steps have
+    /// `avg_vel == 0.0` and a genuinely nonzero position delta (the
+    /// `EPS`-scale advance itself), which is exactly the deliberate
+    /// deviation documented on the timing loop in [`Trajectory::create`] —
+    /// bridging a real position change at zero average velocity needs
+    /// infinite time, so construction now fails fast with an `Err` at the
+    /// very first crawl step, rather than (pre-deviation) continuing to
+    /// silently accumulate a non-finite `time_` for the rest of the crawl.
     #[test]
-    fn a_max_velocity_component_of_zero_crawls_rather_than_invalidating() {
+    fn a_max_velocity_component_of_zero_is_rejected_rather_than_crawling_to_infinity() {
         let path =
             Path::create(&[v(&[0.0, 0.0]), v(&[1e-5, 1e-5])], DEFAULT_PATH_TOLERANCE).unwrap();
-        let trajectory = Trajectory::create(path, &v(&[0.0, 1.0]), &v(&[1.0, 1.0]), 0.001).unwrap();
-        // Not a sane finite duration: whether the terminal 0.0/0.0-scale
-        // cancellation lands on NaN or on +inf is sensitive to the path's
-        // absolute scale (a 1.0-scale path lands on +inf; this 1e-5-scale
-        // one lands on NaN) — both were observed, and neither is "more
-        // correct" than the other, so this only asserts the shared,
-        // scale-independent property: the crawl never produces a normal
-        // finite answer.
-        assert!(!trajectory.duration().is_finite());
+        let err = Trajectory::create(path, &v(&[0.0, 1.0]), &v(&[1.0, 1.0]), 0.001)
+            .expect_err("a zero relative velocity across a nonzero position change must fail");
+        assert!(
+            err.to_string()
+                .contains("bridging the gap would require infinite time"),
+            "unexpected error: {err}"
+        );
     }
 
     /// A path of two identical waypoints has `length() == 0.0`, and its
