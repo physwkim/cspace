@@ -28,13 +28,13 @@ IMAGE="${IMAGE:-$(oracle_image_tag "$want")}"
 
 # The tag alone would be enough if tags were immutable; they are not, so the
 # stamp inside the image is still what is trusted. This also catches an image
-# predating the stamp entirely.
-have="$(docker run --rm --entrypoint cat "$IMAGE" /usr/local/share/oracle-src.sha256 2>/dev/null || true)"
-if [[ "$have" != "$want" ]]; then
-  echo "$IMAGE was built from different oracle sources than the working tree" >&2
-  echo "  image: ${have:-<missing or unstamped>}" >&2
-  echo "  tree:  $want" >&2
-  echo "rebuild with tools/moveit-oracle/build.sh" >&2
+# predating the stamp entirely -- and, unlike the single `have` string this
+# used to compare, it says which of those it was: every caller here has to
+# rebuild for some of the causes and join the `docker` group for another, and
+# one message cannot prescribe both.
+stamp="$(oracle_stamp_verdict "$IMAGE" "$want")"
+if [ "$stamp" != ok ]; then
+  oracle_stamp_explain "$stamp" "$IMAGE" "$want"
   exit 1
 fi
 
