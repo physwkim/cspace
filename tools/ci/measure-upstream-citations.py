@@ -928,9 +928,15 @@ def why_bounds_only(line, start, end, spans, window_floor, parts, anchors):
     if anchors:
         return "anchored, but the range is not exactly a definition span"
     window = line[max(window_floor, start - LOCAL_WINDOW) : start]
+    # Same cut, same exception, as `find_anchors` -- this recomputes the
+    # identical window to explain why a citation landed bounds-only, and
+    # without the exception a `` `Name()` `` anchor immediately before the
+    # citation reads as a previous citation's closed parenthetical, moving
+    # the citation from the "no span" reason (below) into the "no name"
+    # reason it does not belong in.
     for sep in "|)":
         cut = window.rfind(sep)
-        if cut != -1:
+        if cut != -1 and not (sep == ")" and window[cut + 1 : cut + 2] == "`"):
             window = window[cut + 1 :]
     names = [m.group(1) for m in IDENT_IN_BACKTICKS_RE.finditer(window)]
     if not names:
