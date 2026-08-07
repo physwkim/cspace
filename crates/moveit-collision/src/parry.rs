@@ -2301,6 +2301,98 @@ fn touches_at_tie(
     }
 }
 
+/// The outcome of asking whether a part pair touches, keeping "parry has no
+/// dispatch algorithm for this shape-kind pair" ([`query::contact`]'s own
+/// `Err(Unsupported)`) distinct from "parry computed a definite answer: they
+/// do not touch" (`Ok(None)`). Every call site used to collapse the two --
+/// `if let Ok(Some(_)) = query::contact(...)` (and, in `accumulate_distance`,
+/// the equivalent `let Ok(Some(_)) = ... else { continue }`) treats a query
+/// parry could not even attempt exactly like one it ran and found nothing,
+/// silently reporting "not colliding" for a pair whose verdict was never
+/// computed.
+///
+/// `default_query_dispatcher.rs:305-359` (`parry3d-f64` 0.30.0) has no arm
+/// at all for `HalfSpace` paired with `HalfSpace`: neither side implements
+/// `as_support_map` or `as_composite_shape`, so every arm (ball, halfspace x
+/// support-map, ball x convex, support-map x support-map, composite x
+/// anything) falls through to `Err(Unsupported)`. That is the only pair
+/// among this crate's seven constructible `ShapeType`s (`Ball`, `Cuboid`,
+/// `Cylinder`, `Cone`, `HalfSpace`, `TriMesh`, `Compound`) with no dispatch
+/// arm at all -- verified by reading every arm each of the 49 ordered pairs
+/// over those seven kinds can reach, not assumed from the one cited pair.
+#[derive(Debug)]
+enum PartContactOutcome {
+    /// A real contact, at or within the query's `prediction` distance.
+    Touching(ParryContact),
+    /// parry computed a definite answer: this pair does not touch.
+    NotTouching,
+    /// parry has no dispatch arm for this shape-kind pair. Every caller
+    /// must name this arm explicitly -- seeing this type's own doc for why
+    /// an `Option`/`bool` collapse is exactly the defect this replaces.
+    Unsupported,
+}
+
+/// [`query::intersection_test`]'s equivalent of [`PartContactOutcome`], for
+/// [`accumulate_collision`]'s `query::contact`-missed rescue branch. See
+/// [`part_intersects`]'s own doc for why that call site is the only one.
+enum PartIntersectOutcome {
+    Touching,
+    NotTouching,
+    Unsupported,
+}
+
+/// The one place [`query::contact`] is called from this file's collision and
+/// distance accumulation ([`accumulate_collision`], [`accumulate_distance`])
+/// -- collapsing `Result<Option<Contact>, Unsupported>` into
+/// [`PartContactOutcome`] here, once, so a new call site cannot reintroduce
+/// the silent swallow that type's own doc describes.
+///
+/// `mesh_mesh_cost_sources`'s own `query::intersection_test` call is
+/// deliberately not routed through the equivalent [`part_intersects`]: it
+/// only gates whether a `CostSource` is appended for the optional
+/// `request.cost` diagnostic, never `collision`, and its own pair (`Triangle`
+/// x `Triangle`, always support-mapped on both sides) cannot itself return
+/// `Err` (`default_query_dispatcher.rs:218-221`, the generic
+/// support-map-support-map arm) -- confirmed, not assumed exempt because it
+/// looked unrelated.
+fn part_contact(
+    a_pose: &Pose,
+    a_shape: &dyn ParryShape,
+    b_pose: &Pose,
+    b_shape: &dyn ParryShape,
+    prediction: f64,
+) -> PartContactOutcome {
+    match query::contact(a_pose, a_shape, b_pose, b_shape, prediction) {
+        Ok(Some(contact)) => PartContactOutcome::Touching(contact),
+        Ok(None) => PartContactOutcome::NotTouching,
+        Err(_) => PartContactOutcome::Unsupported,
+    }
+}
+
+/// [`part_contact`]'s equivalent for [`query::intersection_test`]. Only ever
+/// called from [`accumulate_collision`]'s rescue branch, and only after
+/// [`fcl_tangency_verdict`] has already restricted the pair to `{Box,
+/// Sphere, Cylinder, Cone}` on both sides (`Some(true)` is impossible
+/// otherwise) -- none of which can return `Err` there
+/// (`default_query_dispatcher.rs:177-244`, every arm those four kinds reach
+/// is `Ok`). Routed through the same three-way outcome anyway: that
+/// restriction holds only as long as [`tangency_kind`] classifies exactly
+/// those four kinds, and a `.unwrap_or(false)` here would silently swallow
+/// the day that stops being true -- exactly as it did for `HalfSpace` x
+/// `HalfSpace` before [`PartContactOutcome`] existed.
+fn part_intersects(
+    a_pose: &Pose,
+    a_shape: &dyn ParryShape,
+    b_pose: &Pose,
+    b_shape: &dyn ParryShape,
+) -> PartIntersectOutcome {
+    match query::intersection_test(a_pose, a_shape, b_pose, b_shape) {
+        Ok(true) => PartIntersectOutcome::Touching,
+        Ok(false) => PartIntersectOutcome::NotTouching,
+        Err(_) => PartIntersectOutcome::Unsupported,
+    }
+}
+
 /// `collisionCallback`'s per-pair algorithm (see the module doc, deviations
 /// 4 and 5, and "Attached-body geometry"), folded over every candidate pair:
 ///
@@ -2325,7 +2417,14 @@ fn touches_at_tie(
 ///   [`query::intersection_test`] independently confirms they touch:
 ///   unconditionally a collision, with no `Contact` recorded — see the
 ///   branch's own comment below for why.
-/// - `Err`/`None` from the query and none of the above: not a collision.
+/// - No contact, and none of the above: not a collision.
+/// - [`PartContactOutcome::Unsupported`] (parry has no dispatch arm for this
+///   shape-kind pair at all — today, only `HalfSpace` x `HalfSpace`, see that
+///   type's own doc): a collision, unless [`AllowedCollision::Conditional`]
+///   (same exclusion as the rescue branch above, and for the same reason —
+///   its predicate needs a `Contact` this outcome cannot produce either).
+///   This is a fail-safe for a verdict that was never computed, not a
+///   computed answer — see [`PartContactOutcome`]'s own doc.
 ///
 /// The `collision` flag is set independent of the storage budget
 /// (`request.max_contacts`, `request.max_contacts_per_pair`) for every pair,
@@ -2367,89 +2466,121 @@ fn accumulate_collision<'a>(
             if done {
                 break;
             }
-            if let Ok(Some(contact)) = query::contact(a_pose, a_shape, b_pose, b_shape, 0.0) {
-                // NOT gated on `contact.dist <= 0.0`, though the wording above
-                // ("prediction `0.0`, so only touching/penetrating pairs yield
-                // `Some`") reads as though it were. `parry` returns a contact
-                // across a small positive gap too: measured on prbt's base
-                // cylinder against a `4x4x0.1` box, a `3e-8 m` gap yields `Some`
-                // and a `1e-7 m` gap yields `None`, so the effective boundary sits
-                // near `5e-8 m` of clear air rather than at zero -- far above
-                // `touches_at_tie`'s own band, so this margin is untouched by it.
-                //
-                // Independent of `is_collision`, below: `collision_common.cpp`
-                // computes cost sources unconditionally once a real contact is
-                // found, whether or not `AllowedCollision::Conditional`'s own
-                // predicate goes on to accept it (see `cost_sources_for_part_pair`'s
-                // own doc).
-                if request.cost {
-                    for source in cost_sources_for_part_pair(a_pose, a_shape, b_pose, b_shape) {
-                        cost_sources.insert(source);
-                        while cost_sources.len() > request.max_cost_sources {
-                            cost_sources.pop_last();
+            match part_contact(a_pose, a_shape, b_pose, b_shape, 0.0) {
+                PartContactOutcome::Touching(contact) => {
+                    // NOT gated on `contact.dist <= 0.0`, though the wording
+                    // above ("prediction `0.0`, so only touching/penetrating
+                    // pairs yield `Some`") reads as though it were. `parry`
+                    // returns a contact across a small positive gap too:
+                    // measured on prbt's base cylinder against a `4x4x0.1`
+                    // box, a `3e-8 m` gap yields `Some` and a `1e-7 m` gap
+                    // yields `None`, so the effective boundary sits near
+                    // `5e-8 m` of clear air rather than at zero -- far above
+                    // `touches_at_tie`'s own band, so this margin is
+                    // untouched by it.
+                    //
+                    // Independent of `is_collision`, below: `collision_common.cpp`
+                    // computes cost sources unconditionally once a real contact is
+                    // found, whether or not `AllowedCollision::Conditional`'s own
+                    // predicate goes on to accept it (see `cost_sources_for_part_pair`'s
+                    // own doc).
+                    if request.cost {
+                        for source in cost_sources_for_part_pair(a_pose, a_shape, b_pose, b_shape) {
+                            cost_sources.insert(source);
+                            while cost_sources.len() > request.max_cost_sources {
+                                cost_sources.pop_last();
+                            }
+                        }
+                    }
+                    let mut c = to_contact(&contact, &a.name, a.body_type, &b.name, b.body_type);
+                    // `touches_at_tie` decides this, not a literal `dist == 0.0`
+                    // check: `fcl::collide` dispatches per shape pair --
+                    // `octree_world_collision_response.json` case 4 (an octree
+                    // leaf whose `-x` face lands exactly on the robot box's `+x`
+                    // face) comes back `robot_collision: true, robot_distance:
+                    // -0.0`, while prbt's cylinder resting exactly on a box comes
+                    // back `false` with the `-1.0` sentinel (`doc/upstream-bugs.md`,
+                    // `fcl-distance-sentinel-survives-zero-contacts`) -- and
+                    // `parry` does not land on `0.0` exactly for most of these
+                    // ties either (`crate::TIE_ROUNDING_MARGIN`'s own doc has the
+                    // measurement); `parry` puts the octree pair a hair *above*
+                    // zero and prbt's at `-2.775558e-17`, both well inside
+                    // `touches_at_tie`'s rounding band, so both still reach the
+                    // table rather than falling through to a raw sign check that
+                    // would get one of them wrong.
+                    // `crates/moveit-collision/tests/exact_tangency_boundary.rs` pins
+                    // both ends of this as measurements rather than intentions.
+                    let touches = touches_at_tie(contact.dist, a_pose, a_shape, b_pose, b_shape);
+                    let is_collision = touches
+                        && match allowed {
+                            Some(AllowedCollision::Conditional(ref predicate)) => {
+                                !predicate(&mut c)
+                            }
+                            Some(AllowedCollision::Never) | None => true,
+                            Some(AllowedCollision::Always) => unreachable!("filtered out above"),
+                        };
+                    if is_collision {
+                        collision = true;
+                        if request.contacts && stored_total < request.max_contacts {
+                            let bucket = by_pair.entry(pair_key(&a.name, &b.name)).or_default();
+                            if bucket.len() < request.max_contacts_per_pair {
+                                bucket.push(c);
+                                stored_total += 1;
+                            }
                         }
                     }
                 }
-                let mut c = to_contact(&contact, &a.name, a.body_type, &b.name, b.body_type);
-                // `touches_at_tie` decides this, not a literal `dist == 0.0`
-                // check: `fcl::collide` dispatches per shape pair --
-                // `octree_world_collision_response.json` case 4 (an octree
-                // leaf whose `-x` face lands exactly on the robot box's `+x`
-                // face) comes back `robot_collision: true, robot_distance:
-                // -0.0`, while prbt's cylinder resting exactly on a box comes
-                // back `false` with the `-1.0` sentinel (`doc/upstream-bugs.md`,
-                // `fcl-distance-sentinel-survives-zero-contacts`) -- and
-                // `parry` does not land on `0.0` exactly for most of these
-                // ties either (`crate::TIE_ROUNDING_MARGIN`'s own doc has the
-                // measurement); `parry` puts the octree pair a hair *above*
-                // zero and prbt's at `-2.775558e-17`, both well inside
-                // `touches_at_tie`'s rounding band, so both still reach the
-                // table rather than falling through to a raw sign check that
-                // would get one of them wrong.
-                // `crates/moveit-collision/tests/exact_tangency_boundary.rs` pins
-                // both ends of this as measurements rather than intentions.
-                let touches = touches_at_tie(contact.dist, a_pose, a_shape, b_pose, b_shape);
-                let is_collision = touches
-                    && match allowed {
-                        Some(AllowedCollision::Conditional(ref predicate)) => !predicate(&mut c),
-                        Some(AllowedCollision::Never) | None => true,
-                        Some(AllowedCollision::Always) => unreachable!("filtered out above"),
-                    };
-                if is_collision {
-                    collision = true;
-                    if request.contacts && stored_total < request.max_contacts {
-                        let bucket = by_pair.entry(pair_key(&a.name, &b.name)).or_default();
-                        if bucket.len() < request.max_contacts_per_pair {
-                            bucket.push(c);
-                            stored_total += 1;
+                PartContactOutcome::NotTouching => {
+                    if !matches!(allowed, Some(AllowedCollision::Conditional(_)))
+                        && fcl_tangency_verdict(a_shape, b_shape) == Some(true)
+                    {
+                        // `query::contact` missed this pair (`None`) even
+                        // though they may be geometrically touching or
+                        // overlapping: the only way that happens is a
+                        // specialised closed-form routine excluding a
+                        // boundary its own geometric test admits --
+                        // `contact_ball_ball`'s strict `<` vs
+                        // `intersection_test_ball_ball`'s `<=` is the one
+                        // this crate has measured
+                        // (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`).
+                        // `fcl_tangency_verdict` gates this to the pairs the
+                        // table says collide, so a pair it says does *not*
+                        // (e.g. `box x cone`) never reaches
+                        // `part_intersects` here at all -- this branch
+                        // cannot make one of those `true`.
+                        let intersects = match part_intersects(a_pose, a_shape, b_pose, b_shape) {
+                            PartIntersectOutcome::Touching => true,
+                            PartIntersectOutcome::NotTouching => false,
+                            // Unreachable today (see `part_intersects`'s own
+                            // doc) but still named explicitly rather than
+                            // folded into `false` by a wildcard or
+                            // `.unwrap_or` -- the whole point of this type.
+                            PartIntersectOutcome::Unsupported => true,
+                        };
+                        if intersects {
+                            // There is no `Contact` to build for this pair,
+                            // so unlike every other branch this sets
+                            // `collision` alone: no `by_pair` entry, no cost
+                            // sources, and `AllowedCollision::Conditional`
+                            // pairs are excluded above rather than guessed
+                            // at, since its predicate needs a `Contact` this
+                            // branch cannot produce.
+                            collision = true;
                         }
                     }
                 }
-            } else if !matches!(allowed, Some(AllowedCollision::Conditional(_)))
-                && fcl_tangency_verdict(a_shape, b_shape) == Some(true)
-                && query::intersection_test(a_pose, a_shape, b_pose, b_shape).unwrap_or(false)
-            {
-                // `query::contact` missed this pair (`None`) even though they
-                // are geometrically touching or overlapping
-                // (`query::intersection_test` is `true`): the only way that
-                // happens is a specialised closed-form routine excluding a
-                // boundary its own geometric test admits --
-                // `contact_ball_ball`'s strict `<` vs
-                // `intersection_test_ball_ball`'s `<=` is the one this crate
-                // has measured
-                // (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`).
-                // `fcl_tangency_verdict` gates this to the pairs the table
-                // says collide, so a pair it says does *not* (e.g. `box x
-                // cone`) never reaches `intersection_test` here at all --
-                // this branch cannot make one of those `true`.
-                //
-                // There is no `Contact` to build for this pair, so unlike
-                // every other branch this sets `collision` alone: no
-                // `by_pair` entry, no cost sources, and
-                // `AllowedCollision::Conditional` pairs are excluded above
-                // rather than guessed at, since its predicate needs a
-                // `Contact` this branch cannot produce.
-                collision = true;
+                PartContactOutcome::Unsupported => {
+                    // Fail-safe, not a computed verdict: parry has no
+                    // dispatch arm for this shape-kind pair (today, only
+                    // `HalfSpace` x `HalfSpace` -- see `PartContactOutcome`'s
+                    // own doc). Same `Conditional` exclusion as the branch
+                    // above and for the same reason: its predicate needs a
+                    // `Contact` this outcome cannot produce either. No
+                    // `Contact` to build or store either way.
+                    if !matches!(allowed, Some(AllowedCollision::Conditional(_))) {
+                        collision = true;
+                    }
+                }
             }
             // Reached whether or not the query found anything, exactly as
             // upstream's termination block is: `fcl::collide` returning zero
@@ -2533,6 +2664,13 @@ fn sweep_is_done(
 /// the pair's distance is computed and folded into `minimum_distance` and
 /// (for every [`DistanceRequestType`] but `Global`) `distances`, per
 /// upstream's exact accumulation rule for that type.
+///
+/// [`PartContactOutcome::Unsupported`] (parry has no dispatch arm for this
+/// shape-kind pair at all) sets `result.collision` alone, with no distance or
+/// nearest points recorded — there is no `Contact` to compute them from, and
+/// unlike `accumulate_collision`, upstream's `distanceCallback` does not
+/// special-case `AllowedCollision::Conditional` at all, so this fail-safe
+/// applies unconditionally rather than excluding it.
 fn accumulate_distance<'a>(
     pairs: impl Iterator<Item = (&'a PosedBody, &'a PosedBody)>,
     request: &DistanceRequest<'_>,
@@ -2574,14 +2712,25 @@ fn accumulate_distance<'a>(
                     .map_or(request.distance_threshold, |existing| existing[0].distance),
                 DistanceRequestType::All => request.distance_threshold,
             };
-            let Ok(Some(contact)) = query::contact(
+            let contact = match part_contact(
                 a_pose,
                 a_shape,
                 b_pose,
                 b_shape,
                 bounded_prediction(threshold),
-            ) else {
-                continue;
+            ) {
+                PartContactOutcome::Touching(contact) => contact,
+                PartContactOutcome::NotTouching => continue,
+                PartContactOutcome::Unsupported => {
+                    // Fail-safe, not a computed verdict -- see
+                    // `PartContactOutcome`'s own doc (today, only `HalfSpace`
+                    // x `HalfSpace`). No `Contact` to derive a distance or
+                    // nearest points from, but `result.collision` must not
+                    // silently stay `false` for a pair whose verdict was
+                    // never computed.
+                    result.collision = true;
+                    continue;
+                }
             };
             if contact.dist >= threshold {
                 continue;
@@ -4378,6 +4527,63 @@ mod tests {
             "boundary-only narrow phase must report the parallel-face gap (~0.9), not the \
              solids' true overlap: got {}",
             distance.minimum_distance.distance
+        );
+    }
+
+    #[test]
+    fn check_robot_collision_halfspace_pair_fails_safe_to_collision() {
+        // `HalfSpace` x `HalfSpace` has no dispatch arm at all in
+        // `default_query_dispatcher.rs`, for any pose (`PartContactOutcome`'s
+        // own doc) -- `query::contact` returns `Err(Unsupported)` for any two
+        // planes. Reachability: ordinary URDF parsing can never produce
+        // `Shape::Plane` for a robot link (`urdf-rs`'s `Geometry` enum has no
+        // `Plane` variant), and `cross_pairs`/`self_pairs` never pair
+        // world-vs-world -- so the only way two `HalfSpace`s reach
+        // `accumulate_collision` together is one on the robot side (via
+        // `AttachedBodyGeometry`, used here) and one on the world side (via
+        // `World::add_shape`), through `check_robot_collision`'s own
+        // `cross_pairs`.
+        //
+        // This test makes no claim about these two planes' true geometric
+        // relationship -- the closed-form `HalfSpace` x `HalfSpace` predicate
+        // is a separate, unresolved question. It pins only that parry cannot
+        // compute *any* verdict for this pair, and that "never computed" must
+        // read as a collision, not silently as "computed: no". Before
+        // `PartContactOutcome` existed, `if let Ok(Some(contact)) =
+        // query::contact(...)` collapsed that `Err` into the same `false` a
+        // real negative would have produced.
+        let model = build_model(&["p"]);
+        // `p` itself carries its own default `1x1x1` box collision
+        // (`box_link`) -- parked far from the origin so only the attached
+        // plane can reach the world plane.
+        let mut state =
+            state_with_links_at(&model, &[("p", Isometry3::translation(100.0, 0.0, 0.0))]);
+        let posed = state.update();
+        let mut world = World::new();
+        world.add_shape(
+            "world_plane",
+            Arc::new(Shape::Plane(Plane::new(0.0, 0.0, -1.0, -10.0))),
+            Isometry3::identity(),
+        );
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+
+        let shapes = vec![Arc::new(Shape::Plane(Plane::new(0.0, 0.0, 1.0, 0.0)))];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "attached_plane",
+            link_name: "p",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let result =
+            env.check_robot_collision(&CollisionRequest::default(), &posed, &[attached], None);
+        assert!(
+            result.collision,
+            "HalfSpace x HalfSpace has no query::contact dispatch arm at all -- the fail-safe \
+             must report a collision rather than silently swallow the Err as \"not colliding\""
         );
     }
 
