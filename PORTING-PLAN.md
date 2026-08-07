@@ -15141,7 +15141,7 @@ raw hit을 그대로 가족 크기로 쓸 뻔했다. 세는 도구는 자기가 
 
 p9-ros가 §183을 결함군 규칙대로 처리했다. 앵커
 `rg -n "frame_transform\(" ros/moveit-ros/src`, 사이트 4개 열거, 3개는 같은
-결함으로 수정, 1개(`collision_object.rs:361`)는 상류가 `:1889`에서
+결함으로 수정, 1개(`collision_object.rs:361`)는 상류가 `planning_scene.cpp:1889`에서
 `knowsFrameTransform`으로 가드하므로 distinct — 그 판정을
 `RobotState::knowsFrameTransform`/`World::knowsTransform`/
 `Transforms::canTransform` 셋을 다 추적해 빈 문자열에서 전부 false임을 확인해
@@ -22881,7 +22881,7 @@ says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 �
 | 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:414` (`PlanningRequestAdapter`) | 0 |
 | 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:195` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
 | 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:430` (`PlanningResponseAdapter`) | 0 |
-| 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:455-472` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:63-71` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
+| 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:455-472` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`planning_response.cpp:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:63-71` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
 | 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-6`, `:56` | 2 |
 | 11 | `moveit_core/robot_state/src/attached_body.cpp` | `crates/moveit-scene/src/attached_body.rs:191` (`set_scale`), `:205` (`set_padding`), `:122` (`subframe_pose`), `:67` (`new`); `crates/moveit-scene/src/scene.rs:1129` (`attach`), `:1200` (`attach_new`), `:1352-1355` (`frame_transform`'s on-demand recompute); `crates/moveit-kinematics/src/set_from_ik.rs:150` | —(.cpp) |
 | 12 | `moveit_core/utils/include/moveit/utils/message_checks.hpp` | `ros/moveit-ros/src/scene/collision_object.rs:11` | 3 |
@@ -37227,15 +37227,15 @@ gitignore됨)이라 이 worktree에는 없지만 이 기계의 형제 체크아�
 
 | 도형 | 상류 (`shapes.cpp`) | 포트 (`crates/moveit-geometry/src/shapes.rs`) |
 |---|---|---|
-| `Sphere` | `:287-293` 음수 반지름이면 `throw std::runtime_error("Sphere radius must be non-negative.")` | `:625-632` 같은 조건에서 `Err(Error::construct("Sphere radius must be non-negative."))` — 메시지 문자열까지 동일 |
-| `Cylinder` | `:295-303` 반지름·길이 중 하나라도 음수면 `throw ... "Cylinder dimensions must be non-negative."` | `:705-722` 동일 조건, 동일 메시지 |
-| `Cone` | `:320-328` 동일 모양, `"Cone dimensions must be non-negative."` | `:814-829` 동일 |
-| `Box` | `:345-355` x/y/z 중 하나라도 음수면 `"Box dimensions must be non-negative."` | `:917-934` (`Cuboid`) 동일 |
-| `Plane` | `:272-275` `CONSOLE_BRIDGE_logWarn`만 찍고 아무 것도 안 함(no-op) | `:1014-1022` `const fn`, no-op — 이 포트는 로그 프레임워크가 없어 경고만 뺐다(기존 §233 범위 밖의 별개 기록된 차이) |
-| `OcTree` | `:267-270` 위와 동일한 no-op 규약 | `:1061-1073` 동일 no-op |
-| `Mesh` | `:372-406` **검사가 아예 없다** — `scaleX/Y/Z`·`paddX/Y/Z`를 정점마다 무조건 적용 | `:1159-1190` **마찬가지로 치수 검사가 없다** — 유일한 실패 조건은 `vertex_normals: None`(§233.3가 이미 이 포트 자신의 것으로 기록한, 무관한 별개 갈래) |
+| `Sphere` | `shapes.cpp:287-293` 음수 반지름이면 `throw std::runtime_error("Sphere radius must be non-negative.")` | `crates/moveit-geometry/src/shapes.rs:625-632` 같은 조건에서 `Err(Error::construct("Sphere radius must be non-negative."))` — 메시지 문자열까지 동일 |
+| `Cylinder` | `shapes.cpp:295-303` 반지름·길이 중 하나라도 음수면 `throw ... "Cylinder dimensions must be non-negative."` | `crates/moveit-geometry/src/shapes.rs:705-722` 동일 조건, 동일 메시지 |
+| `Cone` | `shapes.cpp:320-328` 동일 모양, `"Cone dimensions must be non-negative."` | `crates/moveit-geometry/src/shapes.rs:814-829` 동일 |
+| `Box` | `shapes.cpp:345-355` x/y/z 중 하나라도 음수면 `"Box dimensions must be non-negative."` | `crates/moveit-geometry/src/shapes.rs:917-934` (`Cuboid`) 동일 |
+| `Plane` | `shapes.cpp:272-275` `CONSOLE_BRIDGE_logWarn`만 찍고 아무 것도 안 함(no-op) | `crates/moveit-geometry/src/shapes.rs:1014-1022` `const fn`, no-op — 이 포트는 로그 프레임워크가 없어 경고만 뺐다(기존 §233 범위 밖의 별개 기록된 차이) |
+| `OcTree` | `shapes.cpp:267-270` 위와 동일한 no-op 규약 | `crates/moveit-geometry/src/shapes.rs:1061-1073` 동일 no-op |
+| `Mesh` | `shapes.cpp:372-406` **검사가 아예 없다** — `scaleX/Y/Z`·`paddX/Y/Z`를 정점마다 무조건 적용 | `crates/moveit-geometry/src/shapes.rs:1159-1190` **마찬가지로 치수 검사가 없다** — 유일한 실패 조건은 `vertex_normals: None`(§233.3가 이미 이 포트 자신의 것으로 기록한, 무관한 별개 갈래) |
 
-포트의 `Shape::scale_and_padd`(`:1473-1489`)는 이 여섯 구현체로
+포트의 `Shape::scale_and_padd`(`crates/moveit-geometry/src/shapes.rs:1473-1489`)는 이 여섯 구현체로
 그대로 위임하는 다형 디스패처일 뿐 자기 검사를 추가하지 않으므로, 위
 표는 실제로 호출되는 경로 그대로다.
 
@@ -37515,7 +37515,7 @@ append-only라 새 섹션끼리는 실질 충돌이 아니었지만(둘 다 파�
   `crates/moveit-trajectory/src/robot_trajectory.rs:585`의
   `interpolate_into`는 오늘도 활성 조인트를 순회하며
   `joint.interpolate(...)`(:604)를 직접 부른다 — `RobotState::interpolate`
-  (`crates/moveit-state/src/state.rs:717`)로 위임하지 않는다. `:613`의 `distance`도 같다.
+  (`crates/moveit-state/src/state.rs:717`)로 위임하지 않는다. `crates/moveit-trajectory/src/robot_trajectory.rs:613`의 `distance`도 같다.
   `RobotState::interpolate`가 §244.2로 실제 포팅되고 오라클과 허용오차
   `0.0`으로 대조된 것은 참이지만(§323이 기록하지 않은 사실이라
   관찰로만 남긴다), 이 불릿이 묻는 지역 사본은 둘 다 대체되지 않았다
@@ -37573,7 +37573,7 @@ collision_parity -E 'test(pr2_collision_matches_the_oracle)'` 1/1).
 `RobotState`의 진짜 메서드로 위임하도록 바뀌었으면 거짓.
 `crates/moveit-trajectory/src/robot_trajectory.rs:585`의
 `interpolate_into`는 오늘도 활성 조인트를 순회하며 `joint.interpolate`
-(:604)를 직접 부른다. `:613`의 `distance`도 조인트별
+(:604)를 직접 부른다. `crates/moveit-trajectory/src/robot_trajectory.rs:613`의 `distance`도 조인트별
 `joint.distance`(:626)를 직접 합산한다. 어느 쪽도
 `RobotState::interpolate`/`distance`를 부르지 않는다. falsifier
 불발 — **OPEN**(§323.4와 일치, 반쪽 닫힘 아님).
@@ -38650,7 +38650,7 @@ PASS [   0.004s] (1/1) moveit-planning planner::tests::a_global_configuration_do
 
 **④ §274.6의 나머지 인용 표류는 이 절의 것이 아니다.** falsifier:
 `planner_params.rs`가 인용하는 `query_planners_service_capability.cpp:139`/
-`:146`이 고정된 체크아웃(`e017c91e`, `/home/stevek/work/moveit2`)에서 그
+`query_planners_service_capability.cpp:146`이 고정된 체크아웃(`e017c91e`, `/home/stevek/work/moveit2`)에서 그
 줄이 맞다면(드리프트가 없다면) 거짓.
 
 ```
