@@ -16,7 +16,7 @@ use moveit_collision::{
 };
 use moveit_constraints::KinematicConstraintSet;
 use moveit_error::{Error, Result};
-use moveit_geometry::{Isometry3, Shape, Transforms};
+use moveit_geometry::{Isometry3, OcTree, Shape, Transforms};
 use moveit_model::RobotModel;
 use moveit_srdf::SrdfModel;
 use moveit_state::{Posed, RobotState};
@@ -447,10 +447,17 @@ pub struct PathValidity {
 /// - `processPlanningSceneWorldMsg` — D1 (`moveit_msgs::msg::PlanningSceneWorld`).
 /// - `processOctomapMsg` (2 overloads) — D1
 ///   (`octomap_msgs::msg::OctomapWithPose`, `octomap_msgs::msg::Octomap`).
-/// - `processOctomapPtr` — D1-adjacent: takes a raw `octomap::OcTree`
-///   pointer rather than a message directly, but exists solely to serve the
-///   octomap message-processing path above; no octomap handling exists
-///   anywhere in this port.
+/// - `processOctomapPtr` — **not D1**: an earlier round of this doc filed
+///   it "D1-adjacent" as existing solely to serve the octomap
+///   message-processing path above, without checking that claim. Its own
+///   signature (`std::shared_ptr<const octomap::OcTree>` +
+///   `Eigen::Isometry3d`) carries no message type at all, and upstream's
+///   one real caller (`planning_scene_monitor.cpp:1441`, searched with `rg
+///   processOctomapPtr` across the whole `moveit2` tree) feeds it straight
+///   from `OccupancyMapMonitor::getOcTreePtr()` — an octree built from live
+///   sensor fusion via octomap's own C++ API, with no
+///   `octomap_msgs::msg::Octomap`/`OctomapWithPose` ever constructed. This
+///   round found and ported it — see [`PlanningScene::process_octomap_ptr`].
 ///
 /// ## World-change callbacks
 ///
@@ -1068,6 +1075,56 @@ impl<'m> PlanningScene<'m> {
         for id in &ids {
             acm.remove_entries_for(id);
         }
+    }
+
+    /// Insert or update the reserved octomap object directly from an
+    /// octree, bypassing any octomap message entirely. Upstream
+    /// `processOctomapPtr` (`planning_scene.cpp:1501-1534`) — see that
+    /// method's own doc bullet above ("Message round-tripping") for why
+    /// this is message-free despite living next to `processOctomapMsg`.
+    ///
+    /// Three cases, matching upstream's pointer-identity check exactly
+    /// (upstream compares the wrapped `octomap::OcTree` raw pointer with
+    /// `==`; [`OcTree`]'s own [`PartialEq`] is the same `Arc`-identity
+    /// comparison):
+    /// - No octomap object yet, or its stored tree is a different `OcTree`:
+    ///   replace it wholesale (remove, then re-add as a single shape).
+    /// - Same tree, and `pose` matches the stored pose within upstream's
+    ///   own `std::numeric_limits<double>::epsilon() * 100.0` tolerance:
+    ///   a true no-op — nothing is re-mutated, unlike calling
+    ///   [`PlanningScene::move_shapes_in_object`] with an unchanged pose,
+    ///   which would still touch the object.
+    /// - Same tree, different pose: move the existing shape in place
+    ///   (upstream `World::moveShapeInObject`).
+    ///
+    /// Upstream additionally forces a `world_diff_` entry
+    /// (`DESTROY|CREATE|ADD_SHAPE`) on the no-op branch, so a diff scene
+    /// still reports the octomap as touched even though nothing observably
+    /// changed. `world_diff.rs` is out of this round's scope, so that one
+    /// bookkeeping detail is not reproduced here; every other branch's
+    /// diff tracking already flows through the normal
+    /// [`PlanningScene::track`] funnel via `self.world`'s own mutators.
+    pub fn process_octomap_ptr(&mut self, octree: OcTree, pose: Isometry3) {
+        const ISAPPROX_PRECISION: f64 = f64::EPSILON * 100.0;
+
+        if let Some(object) = self.world.get_object(Self::OCTOMAP_NS) {
+            if let [entry] = object.shapes() {
+                if let Shape::OcTree(existing) = entry.shape().as_ref() {
+                    if *existing == octree {
+                        if !isometry_is_approx(entry.pose(), pose, ISAPPROX_PRECISION) {
+                            let shape = Arc::clone(entry.shape());
+                            let notification =
+                                self.world
+                                    .move_shape_in_object(Self::OCTOMAP_NS, &shape, pose);
+                            self.track(notification);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+        self.remove_object(Self::OCTOMAP_NS);
+        self.add_shape(Self::OCTOMAP_NS, Arc::new(Shape::OcTree(octree)), pose);
     }
 
     /// Replace the poses of an existing object's shapes, leaving the
@@ -2160,6 +2217,24 @@ fn insert_object_frame(snapshot: &mut Transforms, name: &str, pose: Isometry3) {
     let _ = snapshot.set_transform(pose, format!("/{name}"));
 }
 
+/// Eigen's `Transform::isApprox(other, precision)`: relative precision
+/// against the smaller of the two transforms' squared Frobenius norms.
+/// Verified against `Eigen/src/Core/Fuzzy.h` — the same formula
+/// `moveit_collision::World` uses internally for its own `isApprox` calls,
+/// duplicated here (rather than reused) because
+/// [`PlanningScene::process_octomap_ptr`] needs upstream's call-site
+/// precision (`std::numeric_limits<double>::epsilon() * 100.0`), not
+/// `moveit-collision`'s hardcoded dummy-precision default, and that
+/// crate's own helper is private.
+fn isometry_is_approx(a: Isometry3, b: Isometry3, precision: f64) -> bool {
+    let ma = a.to_homogeneous();
+    let mb = b.to_homogeneous();
+    let diff_sq: f64 = (ma - mb).iter().map(|x| x * x).sum();
+    let norm_a: f64 = ma.iter().map(|x| x * x).sum();
+    let norm_b: f64 = mb.iter().map(|x| x * x).sum();
+    diff_sq <= precision * precision * norm_a.min(norm_b)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -2404,6 +2479,112 @@ mod tests {
              remove_all_objects must too"
         );
         assert!(!scene.world().has_object("box"));
+    }
+
+    fn octree_shape(resolution: f64) -> OcTree {
+        OcTree::from_tree(Arc::new(moveit_octomap::OcTree::new(resolution)))
+    }
+
+    #[test]
+    fn process_octomap_ptr_creates_the_octomap_object_when_absent() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let pose = Isometry3::translation(1.0, 2.0, 3.0);
+
+        scene.process_octomap_ptr(octree_shape(0.1), pose);
+
+        let object = scene.world().get_object(PlanningScene::OCTOMAP_NS).unwrap();
+        let [entry] = object.shapes() else {
+            panic!("expected exactly one shape");
+        };
+        assert!(matches!(entry.shape().as_ref(), Shape::OcTree(_)));
+        // Upstream's 3-arg `addToObject(id, shape, shape_pose)` forwards to
+        // `addToObject(id, Identity, {shape}, {shape_pose})`
+        // (`world.hpp:209-212`): the octomap object's own pose stays
+        // identity and `pose` becomes the shape's relative (here, since
+        // the object pose is identity, also global) pose -- matching
+        // `getOctomapMsg`'s own read of `map->shape_poses_[0]`, not
+        // `map->pose_`.
+        assert_eq!(entry.pose(), pose);
+    }
+
+    #[test]
+    fn process_octomap_ptr_replaces_a_different_octree() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let first = octree_shape(0.1);
+        scene.process_octomap_ptr(first.clone(), Isometry3::identity());
+
+        let second = octree_shape(0.2);
+        scene.process_octomap_ptr(second.clone(), Isometry3::identity());
+
+        let object = scene.world().get_object(PlanningScene::OCTOMAP_NS).unwrap();
+        let [entry] = object.shapes() else {
+            panic!("expected exactly one shape");
+        };
+        let Shape::OcTree(stored) = entry.shape().as_ref() else {
+            panic!("expected an OcTree shape");
+        };
+        assert_ne!(
+            *stored, first,
+            "a different octree pointer must replace the object wholesale"
+        );
+        assert_eq!(*stored, second);
+    }
+
+    #[test]
+    fn process_octomap_ptr_moves_the_same_octree_in_place_on_pose_change() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let tree = octree_shape(0.1);
+        scene.process_octomap_ptr(tree.clone(), Isometry3::identity());
+
+        let new_pose = Isometry3::translation(5.0, 0.0, 0.0);
+        scene.process_octomap_ptr(tree.clone(), new_pose);
+
+        let object = scene.world().get_object(PlanningScene::OCTOMAP_NS).unwrap();
+        let [entry] = object.shapes() else {
+            panic!("expected exactly one shape");
+        };
+        assert_eq!(
+            entry.pose(),
+            new_pose,
+            "upstream World::moveShapeInObject moves the shape's own pose in place"
+        );
+        let Shape::OcTree(stored) = entry.shape().as_ref() else {
+            panic!("expected an OcTree shape");
+        };
+        assert_eq!(
+            *stored, tree,
+            "the same octree pointer must be moved, not replaced"
+        );
+    }
+
+    /// Upstream's `if (o->octree == octree) { if (isApprox(t)) { ... } }`
+    /// (`planning_scene.cpp:1510-1520`) branch is a true no-op when the
+    /// pointer and pose both match -- unlike moving to an unchanged pose,
+    /// it must not touch the object at all. Distinguishing that from "moved
+    /// to the same value" needs an observable that only a real mutation
+    /// flips: `World`'s copy-on-write `ensure_unique` clones the object's
+    /// `Arc` on any mutating call while an outside snapshot (like `before`
+    /// below) is still alive, so a genuine no-op leaves the `Arc` identity
+    /// unchanged and a mutation does not.
+    #[test]
+    fn process_octomap_ptr_same_tree_same_pose_is_a_true_noop() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let tree = octree_shape(0.1);
+        let pose = Isometry3::translation(1.0, 0.0, 0.0);
+        scene.process_octomap_ptr(tree.clone(), pose);
+
+        let before = scene.world().get_object(PlanningScene::OCTOMAP_NS).unwrap();
+        scene.process_octomap_ptr(tree, pose);
+        let after = scene.world().get_object(PlanningScene::OCTOMAP_NS).unwrap();
+
+        assert!(
+            Arc::ptr_eq(&before, &after),
+            "same tree, same pose must be a true no-op, not a move-to-the-same-pose"
+        );
     }
 
     // ---- move_shapes_in_object / set_subframes_of_object ---------------------
