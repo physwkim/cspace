@@ -34189,6 +34189,7 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 | `measure-port-coverage.py` | `doc/port-coverage.md` | 추적 산출물 |
 | `measure-requirement-closure.py` | 없음 | 트리에서 재실행 |
 | `measure-upstream-citations.py` | `doc/citation-classes.txt`, `doc/upstream-citation-classes.txt` | 추적 산출물 |
+| `triage-residual-claims-census.py` | `doc/residual-claims-triage.md` | 추적 산출물 |
 
 `추적 산출물` 넷은 브리프가 말한 그대로다 — 각자 커밋된 파일과 그 파일에 대고
 재는 모드를 갖는다. 하나만 다르다:

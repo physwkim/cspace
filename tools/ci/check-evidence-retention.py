@@ -164,6 +164,7 @@ PREFIX_ROLES = {
     "measure-": ROLE_PRODUCER,
     "reconcile-": ROLE_PRODUCER,
     "requirement-": ROLE_PRODUCER,
+    "triage-": ROLE_PRODUCER,
     "check-": ROLE_GATE,
     "verify-": ROLE_GATE,
     "gate-": ROLE_LIBRARY,
