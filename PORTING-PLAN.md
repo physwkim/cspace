@@ -38095,3 +38095,30 @@ $ sed -n '692,699p' crates/moveit-planners-chomp/examples/chomp_benchmark_port.r
 결론을 적었다("§269.10 ① `max_iterations = 200` | 성립 |
 `chomp_benchmark_port.rs:694-706`의 인자 파싱은 아직 `<seed_base>
 [planning_time_limit_secs]`뿐이다"). falsifier 불발 — OPEN.
+
+### §324.10 §269.10 — 플러그인 껍데기의 파리티가 비교 대상이 아니었다는 것
+
+불릿: "`moveit_planners_chomp` / `moveit_planners_stomp` 플러그인
+**껍데기**의 파리티. 이 절은 `ChompPlanner::solve`와
+`StompPlanningContext::solve`를 비교했고, 그 위의 pluginlib 등록·ROS
+파라미터 읽기·`PlanningContext` 수명 관리는 비교 대상이 아니었다."
+
+falsifier: 오라클 이미지가 `moveit_planners_chomp`/
+`moveit_planners_stomp` 플러그인 패키지 자체를 빌드하게 됐다면(즉
+pluginlib 등록과 ROS 파라미터 읽기 경로까지 오라클에 들어왔다면)
+거짓.
+
+```
+$ rg -n 'ORACLE_MOVEIT2_PACKAGES=' tools/moveit-oracle/src-digest.sh
+95:ORACLE_MOVEIT2_PACKAGES="${ORACLE_MOVEIT2_PACKAGES:-moveit_core moveit_resources_fanuc_description pilz_industrial_motion_planner moveit_kinematics chomp_motion_planner}"
+```
+
+`moveit_planners_chomp`/`moveit_planners_stomp`는 오늘도 이 목록에
+없다 — 있는 것은 핵심 솔버 `chomp_motion_planner`와 베이스 이미지의
+`libstomp.so`뿐이다(§269.1). §291.2도 이 항목을 같은 날 "성립"으로
+재확인했지만, "결정으로 닫힌 것"이라는 단서를 붙인다(`097aca77`이
+`chomp_interface/*`·`stomp_moveit_planner_plugin.cpp`를 결정-비이식으로
+분류했고 그것이 §269보다 앞선다) — 그 단서는 이 불릿이 가리키는
+**사실**(플러그인 껍데기는 비교되지 않았다)을 바꾸지 않는다, 그
+사실을 "의도된 범위"로 재해석할 뿐이다. 사실 자체에 대한 falsifier는
+불발 — OPEN.
