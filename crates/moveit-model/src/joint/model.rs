@@ -845,7 +845,12 @@ impl JointModel {
     /// `getMaximumExtent`, with explicit `other_bounds`.
     pub fn maximum_extent_with(&self, bounds: &[VariableBounds]) -> f64 {
         match &self.kind {
-            JointKind::Revolute(_) => RevoluteJoint::maximum_extent(&bounds[0]),
+            // Upstream's `other_bounds` parameter is unused here
+            // (`RevoluteJointModel::getMaximumExtent(const Bounds&
+            // /*other_bounds*/)`, revolute_joint_model.cpp:98-101) -- this
+            // always reports the joint's own installed bounds, not the
+            // caller-supplied `bounds`.
+            JointKind::Revolute(_) => RevoluteJoint::maximum_extent(&self.variable_bounds[0]),
             JointKind::Prismatic(_) => {
                 PrismaticJoint::maximum_extent(&self.variable_bounds[0], &bounds[0])
             }
@@ -1136,6 +1141,27 @@ mod tests {
         assert_eq!(transform.translation.vector.norm(), 0.0);
         assert_eq!(joint.distance(&[], &[]), 0.0);
         assert_eq!(joint.maximum_extent(), 0.0);
+    }
+
+    #[test]
+    fn revolute_maximum_extent_uses_its_own_bounds_not_the_callers() {
+        // Upstream `RevoluteJointModel::getMaximumExtent` explicitly ignores
+        // its `other_bounds` parameter (revolute_joint_model.cpp:98-101,
+        // literally `getMaximumExtent(const Bounds& /*other_bounds*/)`) and
+        // always reports its own installed bounds' extent -- unlike
+        // Prismatic/Planar/Floating, whose siblings all read `other_bounds`
+        // in some form. `other_bounds` here is deliberately far from the
+        // joint's own default `[-PI, PI]` so a dispatch bug reading the
+        // wrong side is unmistakable.
+        let joint = JointModel::new_revolute("j");
+        let other_bounds = [VariableBounds {
+            min_position: -100.0,
+            max_position: 100.0,
+            position_bounded: true,
+            ..Default::default()
+        }];
+
+        assert_eq!(joint.maximum_extent_with(&other_bounds), 2.0 * PI);
     }
 
     #[test]
