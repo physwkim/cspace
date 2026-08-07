@@ -199,6 +199,14 @@ use crate::utils::{
 const MIN_COST_DIFFERENCE: f64 = 1e-8;
 /// Minimum control cost weight allowed before it is treated as "off".
 const MIN_CONTROL_COST_WEIGHT: f64 = 1e-8;
+/// `Eigen::NumTraits<double>::dummy_precision()` -- the default tolerance
+/// `Eigen::MatrixBase::isZero()` (and friends: `isApprox`, `isConstant`,
+/// `isOnes`) uses when the caller does not pass an explicit precision.
+/// `Stomp::solve` relies on this via `parameters_optimized_.isZero()`; see
+/// that function's own doc for why an exact `== 0.0` check is not
+/// equivalent. Verified against `Eigen/src/Core/NumTraits.h`'s
+/// `NumTraits<double>::dummy_precision()`.
+const EIGEN_DUMMY_PRECISION_F64: f64 = 1e-12;
 
 /// A thread-safe handle to cancel an in-flight [`Stomp::solve`]. See this
 /// module's own doc, "`Stomp::cancel()`'s thread-safety".
@@ -534,19 +542,36 @@ impl<'a> Stomp<'a> {
     /// `solve(initial_parameters, parameters_optimized)`.
     ///
     /// # Upstream quirk, preserved: `initial_parameters` only seeds the
-    /// optimizer when `parameters_optimized` is exactly zero
+    /// optimizer when `parameters_optimized` is (Eigen-)zero
     ///
     /// Upstream: `if (parameters_optimized_.isZero()) { parameters_optimized_
-    /// = initial_parameters; }`. On a freshly constructed (or just-`clear`ed)
-    /// [`Stomp`], `parameters_optimized` starts at all-zero, so
+    /// = initial_parameters; }`. `Eigen::MatrixBase::isZero()` is a
+    /// per-element tolerance check, not exact equality --
+    /// `Eigen/src/Core/CwiseNullaryOp.h`'s `isZero(prec)` requires
+    /// `isMuchSmallerThan(coeff, 1, prec)` for every coefficient, which
+    /// `Eigen/src/Core/MathFunctions.h`'s real-scalar `isMuchSmallerThan`
+    /// defines as `abs(coeff) <= prec`, at the default `prec =
+    /// EIGEN_DUMMY_PRECISION_F64` (`NumTraits<double>::dummy_precision()`,
+    /// `1e-12`). This port previously translated it as `.iter().all(|&v| v
+    /// == 0.0)` -- exact bitwise equality -- which is not equivalent: a
+    /// `parameters_optimized` that has drifted to within `1e-12` of zero in
+    /// every entry (plausible after real optimizer arithmetic converges
+    /// toward an all-zero optimum) but is not bitwise `0.0` anywhere would
+    /// read as "already seeded" here while upstream's `isZero()` would
+    /// still treat it as unseeded and reseed from `initial_parameters`.
+    /// Reproduced directly (not just read): `stomp::tests::
+    /// solve_reseeds_from_near_zero_but_not_exactly_zero_state`.
+    ///
+    /// On a freshly constructed (or just-`clear`ed) [`Stomp`],
+    /// `parameters_optimized` starts at all-zero either way, so
     /// `initial_parameters` does seed it. Calling `solve` a *second* time on
     /// the same `Stomp` without resetting leaves `parameters_optimized`
-    /// non-zero from the first call, so `initial_parameters` is silently
-    /// **not** used to seed the second run -- the previous run's result is
-    /// reused as the starting point instead, though `initial_parameters`'s
-    /// shape is still validated below either way. Preserved exactly, not
-    /// "fixed": this is a real, if surprising, documented-by-observation
-    /// upstream behavior, not a translation bug.
+    /// non-(Eigen-)zero from the first call in the ordinary case, so
+    /// `initial_parameters` is silently **not** used to seed the second run
+    /// -- the previous run's result is reused as the starting point instead,
+    /// though `initial_parameters`'s shape is still validated below either
+    /// way. Preserved exactly, not "fixed": this is a real, if surprising,
+    /// documented-by-observation upstream behavior, not a translation bug.
     ///
     /// Also preserved: upstream's dimension check is written as an outer
     /// `if`/`else` whose `else` branch re-checks a condition the outer `if`'s
@@ -555,7 +580,11 @@ impl<'a> Stomp<'a> {
     /// num_timesteps`) -- provably unreachable, so this port collapses it to
     /// the one reachable check rather than translating dead code.
     pub fn solve(&mut self, initial_parameters: &DMatrix<f64>) -> (bool, DMatrix<f64>) {
-        if self.parameters_optimized.iter().all(|&v| v == 0.0) {
+        if self
+            .parameters_optimized
+            .iter()
+            .all(|&v| v.abs() <= EIGEN_DUMMY_PRECISION_F64)
+        {
             self.parameters_optimized = initial_parameters.clone();
         }
 
@@ -1903,5 +1932,41 @@ mod tests {
             DMatrix::from_element(NUM_DIMENSIONS, NUM_TIMESTEPS, 100.0)
         );
         let _ = first;
+    }
+
+    /// Regression test for the `Stomp::solve` seeding-check finding: upstream's
+    /// `parameters_optimized_.isZero()` is a per-element `<= 1e-12` tolerance
+    /// check (`Eigen::NumTraits<double>::dummy_precision()`, see
+    /// [`EIGEN_DUMMY_PRECISION_F64`]'s own doc), not exact equality. Before
+    /// the fix this round, `Stomp::solve` used `.iter().all(|&v| v ==
+    /// 0.0)`, which failed exactly this case: `num_iterations: 0` isolates
+    /// the seeding decision from any real iteration (the `while` loop body
+    /// never runs, so `parameters_optimized` after `solve` returns is
+    /// exactly whatever the seeding check produced), and `parameters_optimized`
+    /// is set directly to an all-`1e-13` matrix -- within Eigen's `1e-12`
+    /// tolerance of zero in every entry, but not bitwise `0.0` anywhere.
+    #[test]
+    fn solve_reseeds_from_near_zero_but_not_exactly_zero_state() {
+        let trajectory_bias = interpolate(&START_POS, &END_POS, NUM_TIMESTEPS);
+        let task = Box::new(DummyTask::new(
+            trajectory_bias,
+            &BIAS_THRESHOLD,
+            &STD_DEV,
+            1,
+        ));
+        let mut config = create_3dof_configuration(NUM_TIMESTEPS);
+        config.num_iterations = 0;
+        let mut stomp = Stomp::new(config, task);
+        stomp.parameters_optimized = DMatrix::from_element(NUM_DIMENSIONS, NUM_TIMESTEPS, 1e-13);
+
+        let seed = DMatrix::from_element(NUM_DIMENSIONS, NUM_TIMESTEPS, 100.0);
+        let (_, optimized) = stomp.solve(&seed);
+
+        assert_eq!(
+            optimized, seed,
+            "a parameters_optimized within Eigen's isZero() tolerance of zero (every entry \
+             1e-13) but not bitwise 0.0 should still be treated as unseeded and reseeded from \
+             initial_parameters, matching upstream's parameters_optimized_.isZero() check"
+        );
     }
 }
