@@ -74,10 +74,33 @@
 //! x 3 offsets through `collision_detection::CollisionEnvFCL` on prbt, exact
 //! tangency: `box x cylinder`, `cylinder x box` and `cylinder x cylinder` are
 //! `false` and the other 13 are `true`. Those are exactly the generic-libccd
-//! cells. `mesh` is `true` against everything because MoveIt maps
-//! `shapes::MESH` to `fcl::BVHModel` (`moveit_core/collision_detection_fcl/
-//! src/collision_common.cpp:900-923`), a third traversal that is neither
-//! specialisation nor libccd MPR.
+//! cells. `mesh` was not part of that 4x4 sweep, and the sentence that used to
+//! stand here in its place -- "`mesh` is `true` against everything because
+//! MoveIt maps `shapes::MESH` to `fcl::BVHModel`
+//! (`collision_common.cpp:900-923`), a third traversal that is neither
+//! specialisation nor libccd MPR" -- was an inference, not a measurement, and
+//! it is wrong: `fcl::BVHModel` is only the broad-phase. Its leaf test against
+//! a candidate triangle still calls `nsolver->shapeTriangleIntersect(shape,
+//! ...)` (`mesh_shape_collision_traversal_node-inl.h:85,98,117,226,239,258`;
+//! `shape_mesh_collision_traversal_node-inl.h:89,102,121`, both symmetric),
+//! and that function has closed-form specialisations for exactly `Sphere<S>`
+//! (`gjk_solver_libccd-inl.h:403-419`, `:480-498`), `Halfspace<S>`
+//! (`:502-520`) and `Plane<S>` (`:524-542`) -- the complete list, confirmed by
+//! grepping every `ShapeTriangleIntersectLibccdImpl<S, _>`/
+//! `ShapeTransformedTriangleIntersectLibccdImpl<S, _>` specialisation in the
+//! file, four total. `Box<S>`, `Cylinder<S>`, `Cone<S>` have none, so they
+//! fall to the same generic template (`:349-383`, `:423-458`) every non-mesh
+//! generic pair uses, which calls `detail::GJKCollide<S>` -- libccd MPR, whose
+//! `discoverPortal` (`/home/stevek/work/libccd` v2.1/`7931e76`,
+//! `src/mpr.c:189,209,232`) rejects an exact-zero support-direction dot as
+//! outside the portal, and `ccdMPRIntersect`/`ccdMPRPenetration` (`:99-115`,
+//! `:117-148`) both read that rejection as no collision -- the same mechanism
+//! as the `box x cylinder` cell already measured above, not a fourth kind
+//! exempt from it. Measured (not inferred): `mesh` is `true` at exact
+//! tangency only against `sphere` (`sphere_triangle-inl.h:146,156`'s
+//! `radius_with_threshold = radius + epsilon` pads the boundary inclusive,
+//! the same admitting convention as the specialised cells above), and `false`
+//! against `box`, `cylinder`, `cone`.
 //!
 //! # This backend: the pair decides here too, and one cell disagrees
 //!
@@ -103,9 +126,17 @@
 //! oracle image's `gjk_solver_libccd-inl.h` by
 //! `tools/ci/verify-fcl-tangency-dispatch.sh --emit`) and consults it,
 //! per shape pair, whenever `query::contact`'s `dist` lands at exactly
-//! `0.0` -- mesh decided separately as an unconditional `true`, since fcl's
-//! `BVHModel` path is a third dispatch the table has no registration for.
-//! Off that exact tie, the pre-existing rule is unchanged: any `Some` is a
+//! `0.0` -- mesh decided separately as an unconditional `true`. That choice
+//! was reasoned from the same wrong premise the corrected section above used
+//! to state ("`BVHModel` is a third dispatch, exempt from libccd MPR"): it
+//! is not, for three of the four non-mesh-mesh pairs. `mesh x sphere`'s
+//! `true` here matches upstream's own closed form; `mesh x box`, `mesh x
+//! cylinder` and `mesh x cone`'s `true` here do not -- upstream measures
+//! `false` for those at exact tangency, by the same generic-libccd mechanism
+//! as `box x cylinder` above. This is a known, currently undecided
+//! divergence from upstream on those six cells (both argument orders),
+//! carried by `is_mesh_pair`'s unconditional `true`; it is not fixed by this
+//! file. Off that exact tie, the pre-existing rule is unchanged: any `Some` is a
 //! touch. `sphere x sphere`'s own tie is a `None` from `query::contact`
 //! (`contact_ball_ball`'s strict `<`) that `query::intersection_test`
 //! (`intersection_test_ball_ball`'s `<=`) still confirms is touching; see
@@ -135,9 +166,13 @@
 //! `TIE_ROUNDING_MARGIN * f64::EPSILON * scale` of zero as this same
 //! rounding, not a real answer, and consults the dispatch table there
 //! instead of trusting the sign. All 25 cells below are decided by the
-//! table now, matching upstream exactly: the naive "restrict fcl's table to
-//! this crate's five kinds" prediction was correct all along, and the
-//! rounding above no longer keeps four pairs from reaching it.
+//! table now, matching upstream exactly for the 20 non-mesh cells and for
+//! `mesh x mesh`: the naive "restrict fcl's table to this crate's five
+//! kinds" prediction was correct there, and the rounding above no longer
+//! keeps four pairs from reaching it. The remaining 6 cells -- `mesh x
+//! {box, cylinder, cone}`, both orders -- do not match upstream (see above);
+//! this file pins the port's own current, undecided answer for them, not
+//! upstream's.
 //!
 //! # Cost
 //!
