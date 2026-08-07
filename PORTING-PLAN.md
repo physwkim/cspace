@@ -31654,7 +31654,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27024`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27035`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -35038,7 +35038,7 @@ unresolvable이다.
 
 | 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30582` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
+| `PORTING-PLAN.md:30705` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
 | `PORTING-PLAN.md:31630` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
 | `doc/claim-audit/upstream-bugs.md:37` | `!PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
 
@@ -35721,7 +35721,7 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30582` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21734-21735` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
+| `PORTING-PLAN.md:30705` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21734-21735` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
 | `PORTING-PLAN.md:31630` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27024` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
