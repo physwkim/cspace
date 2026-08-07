@@ -32714,7 +32714,7 @@ CHOMP은 이 영역 어디서도 예산에 닿지 않았다(가장 느린 호출
 
 **같은 모양의 일에 CHOMP 두 다리가 983.2초, STOMP 두 다리가 6,572.5초** — 6.7배.
 이 단계는 한 프로세스이고(`SHARDS`는
-`tools/ci/measure-phase8-optimizer-properties.sh:547`의 계측 실행에만 붙는다)
+`tools/ci/measure-phase8-optimizer-properties.sh:549`의 계측 실행에만 붙는다)
 120초 예산은 문제당 감시 스레드로 강제되므로, 다리 하나의 상한은
 `주입 문제 수 × 120초`다. STOMP `inject=collision`의 3,947초 계획 시간 중
 **2,402초(61%)가 경로를 하나도 내놓지 않은 20문제**에 들어갔다.
@@ -36338,7 +36338,7 @@ A1은 "`tools/ci/check-*` 와 `verify-*` 전부가 main tip에서 rc=0"을
 `verify-phase3-collision-sweep.sh`는 로봇 하나라도 §5 Phase 3의 완료
 조건을 못 넘기면 `§5 Phase 3's completion condition is NOT met`
 (`tools/ci/verify-phase3-collision-sweep.sh:265`)을 찍고 `exit 1`
-(`tools/ci/verify-phase3-collision-sweep.sh:271`)한다. prbt의
+(`tools/ci/verify-phase3-collision-sweep.sh:279`)한다. prbt의
 `collision: bool`은 6,854/10,000이고, §247.5는 그 원인을 "포트의 오차가
 아니라 상류가 다른 값을 발표한다"로 확정하면서 두 행 다 **미충족**으로
 남긴다고 적었다. 따라서 옛 A1은 "감사가 끝났는가"가 아니라 "Phase 3이
@@ -38130,7 +38130,7 @@ crates/moveit-planners-sbp/src/registry.rs:597:impl PlannerManager for RrtConnec
 `moveit-planning`의 다섯 구현은 전부 그 크레이트 자신의 테스트용
 더미(파이프라인 단위 테스트 안의 지역 타입)다. 실제 플래너 구현은
 `moveit-planners-sbp::RrtConnectManager` 하나뿐이고, Phase 7 하네스도
-그것만 돈다(`tools/ci/verify-phase7-benchmark.sh:541`의
+그것만 돈다(`tools/ci/verify-phase7-benchmark.sh:543`의
 `echo "=== port (moveit-planners-sbp rrt_connect) ..."`). falsifier
 불발 — OPEN.
 
