@@ -36,6 +36,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
 
+      # `check-shellcheck.sh` treats a missing shellcheck as a FAIL rather
+      # than a skip, so it needs the tool present, not merely likely to be.
+      # `ubuntu-latest` currently ships one preinstalled, but that is an
+      # image detail with no compatibility promise, and the gate is reached
+      # through the `tools/ci/check-*` glob below rather than by name -- so
+      # the day the image drops it, CI fails with the gate's own message and
+      # nothing here would say why. Installing it explicitly is what makes
+      # that a decision instead of an accident.
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
       # Asserted once here rather than by adding `--locked` to each of the four
       # steps below. `Cargo.lock` is tracked, so the intent is that CI builds
       # exactly what is committed -- but without this, a manifest edit that left
