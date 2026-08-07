@@ -1,0 +1,80 @@
+[
+  {
+    "id": 0,
+    "ok": true,
+    "result": {
+      "robot_collision": false,
+      "robot_contacts": [],
+      "robot_distance": 2.999999999808711e-08,
+      "robot_distance_pair": {
+        "body_name_1": "floor",
+        "body_name_2": "prbt_base_link",
+        "body_type_1": "world_object",
+        "body_type_2": "robot_link",
+        "shape_kinds_1": [
+          "box"
+        ],
+        "shape_kinds_2": [
+          "cylinder"
+        ]
+      },
+      "self_collision": false,
+      "self_contacts": [],
+      "self_distance": 0.1389191830051537,
+      "self_distance_pair": {
+        "body_name_1": "prbt_link_2",
+        "body_name_2": "prbt_link_4",
+        "body_type_1": "robot_link",
+        "body_type_2": "robot_link",
+        "shape_kinds_1": [
+          "box",
+          "box"
+        ],
+        "shape_kinds_2": [
+          "box",
+          "box"
+        ]
+      }
+    },
+    "top_z": -3e-08
+  },
+  {
+    "id": 1,
+    "ok": true,
+    "result": {
+      "robot_collision": false,
+      "robot_contacts": [],
+      "robot_distance": -1.0,
+      "robot_distance_pair": {
+        "body_name_1": "floor",
+        "body_name_2": "prbt_base_link",
+        "body_type_1": "world_object",
+        "body_type_2": "robot_link",
+        "shape_kinds_1": [
+          "box"
+        ],
+        "shape_kinds_2": [
+          "cylinder"
+        ]
+      },
+      "self_collision": false,
+      "self_contacts": [],
+      "self_distance": 0.1389191830051537,
+      "self_distance_pair": {
+        "body_name_1": "prbt_link_2",
+        "body_name_2": "prbt_link_4",
+        "body_type_1": "robot_link",
+        "body_type_2": "robot_link",
+        "shape_kinds_1": [
+          "box",
+          "box"
+        ],
+        "shape_kinds_2": [
+          "box",
+          "box"
+        ]
+      }
+    },
+    "top_z": 0.0
+  }
+]
