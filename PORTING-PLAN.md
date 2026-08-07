@@ -1,4 +1,4 @@
-# moveit-rs — MoveIt 2 Rust 포팅 계획 CANARY-TEST-MARKER-999
+# moveit-rs — MoveIt 2 Rust 포팅 계획
 
 - **상류 기준점:** `/home/stevek/work/moveit2` @ `e017c91ee12984393a28ba246075c65f69cde3bf`
   (2026-08-02, `main` = ROS 2 rolling 타깃)
