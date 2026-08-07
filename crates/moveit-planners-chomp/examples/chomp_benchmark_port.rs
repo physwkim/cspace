@@ -135,7 +135,7 @@
 //!          "accepted": k, "mesh_checks": mc, "mesh_free_passes": m,
 //!          "threshold_checks": tc, "below_threshold_passes": b,
 //!          "seed_points_within_clearance": w, "seed_points_in_collision": c,
-//!          "first_pass_max_update": u}
+//!          "first_pass_max_update": u, "collision_costs": [c_cost, ...]}
 //! ```
 //!
 //! `evaluations` is the one to read first: the objective is evaluated at the
@@ -154,6 +154,12 @@
 //! check at all, regardless of outcome -- `m == 0` with `mc > 0` is the
 //! former; `mc == 0` is the latter. Same relation between `tc` and `b`, where
 //! `tc == 0` specifically means `filter_mode` disabled the comparison.
+//! `collision_costs` is `c_cost` (upstream's own name, `chomp_optimizer.cpp:306`)
+//! at every evaluated pass in order, length `evaluations`: the trend `m`/`b`
+//! cannot show. A line whose last entry sits just above `collision_threshold`
+//! (`0.07`, `ChompParameters::default`) is one iteration-budget short; one
+//! whose last entry is orders of magnitude above it is not converging on the
+//! same scale the threshold assumes.
 //!
 //! A request carrying `condition2_resolutions: [r, ...]` additionally gets
 //! `condition2_by_resolution`, one condition-2 verdict per `r` over the same
@@ -520,6 +526,7 @@ fn loop_json(trace: &ChompLoopTrace) -> serde_json::Value {
         "seed_points_within_clearance": trace.seed_points_within_clearance,
         "seed_points_in_collision": trace.seed_points_in_collision,
         "first_pass_max_update": trace.first_pass_max_update,
+        "collision_costs": trace.collision_costs,
     })
 }
 

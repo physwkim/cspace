@@ -782,7 +782,7 @@ pub enum ChompExit {
 /// `ChompPlanner::solve` can read any of it, so carrying it out is the same
 /// class of deviation as [`ChompObjective`] and is recorded the same way, on
 /// [`crate::planner::ChompSolution::loop_trace`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ChompLoopTrace {
     /// How many times the loop body ran, i.e. how many times the objective
     /// was evaluated. `1` means the loop left before any updated iterate was
@@ -858,6 +858,17 @@ pub struct ChompLoopTrace {
     /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:643-661`).
     /// This is the update the next evaluation would have costed.
     pub first_pass_max_update: f64,
+    /// [`ChompObjective::collision`] (upstream's `c_cost`,
+    /// `moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:306`)
+    /// at every evaluated pass, in pass order. `collision_costs.len() ==
+    /// evaluations as usize` always. Upstream computes this same value every
+    /// pass and only ever lets it out at `RCLCPP_DEBUG` (`:310`); this is
+    /// that log line, structured, for the same reason
+    /// [`ChompObjective`] carries the value out at all -- no caller of
+    /// `ChompPlanner::solve` can otherwise tell "still descending" apart
+    /// from "plateaued above `collision_threshold_`" without re-running the
+    /// optimizer under a debug logger.
+    pub collision_costs: Vec<f64>,
 }
 
 /// Borrows the two pieces of collision-checking state `ChompOptimizer`
@@ -1781,7 +1792,7 @@ impl<'m> ChompOptimizer<'m> {
     /// gives.
     #[must_use]
     pub fn loop_trace(&self) -> Option<ChompLoopTrace> {
-        self.loop_trace
+        self.loop_trace.clone()
     }
 
     /// The objective at the seed trajectory and at the trajectory
@@ -1876,6 +1887,7 @@ impl<'m> ChompOptimizer<'m> {
         let mut seed_points_within_clearance: u32 = 0;
         let mut seed_points_in_collision: u32 = 0;
         let mut first_pass_max_update = 0.0f64;
+        let mut collision_costs: Vec<f64> = Vec::new();
         let mut exit = ChompExit::IterationBound;
         // Declared once, outside the loop, matching upstream
         // (`chomp_optimizer.cpp:300`): once any pass sets it, it stays
@@ -1891,6 +1903,7 @@ impl<'m> ChompOptimizer<'m> {
             self.perform_forward_kinematics(collision)?;
             evaluations += 1;
             let c_cost = self.get_collision_cost();
+            collision_costs.push(c_cost);
             let s_cost = get_smoothness_cost(
                 &self.joint_costs,
                 &self.group_trajectory,
@@ -2014,6 +2027,7 @@ impl<'m> ChompOptimizer<'m> {
             seed_points_within_clearance,
             seed_points_in_collision,
             first_pass_max_update,
+            collision_costs,
         });
 
         let optimization_result = self.is_collision_free;
@@ -3364,6 +3378,96 @@ mod tests {
             twelve.seed_points_in_collision, last_points_in_collision,
             "the twelfth pass left a different count behind, so the seed reading is not just \
              whatever the loop last wrote"
+        );
+    }
+
+    /// `collision_costs` must be the loop's actual per-pass `c_cost`
+    /// sequence, not a placeholder: one entry per evaluated pass, its first
+    /// entry matching the independently-read seed objective's collision
+    /// term and its last entry matching the independently-read last
+    /// objective's collision term. Reusing
+    /// `loop_trace_seed_point_counts_are_the_first_passs_not_the_last`'s
+    /// obstacle-on-a-collision-sphere fixture so the seed cost is
+    /// genuinely nonzero, not a vacuous all-zero pass.
+    #[test]
+    fn loop_trace_collision_costs_has_one_entry_per_evaluated_pass() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+
+        let obstacle_point = {
+            let mut cache = chomp_collision_cache(&model);
+            let field = env_field_with_points(&[]);
+            let mut collision = ChompCollisionContext {
+                cache: &mut cache,
+                env_distance_field: &field,
+            };
+            let mut optimizer = ChompOptimizer::new(
+                &source,
+                CHOMP_COLLISION_GROUP,
+                &ChompParameters::default(),
+                &start_state,
+                &mut collision,
+                None,
+            )
+            .unwrap();
+            optimizer
+                .perform_forward_kinematics(&mut collision)
+                .unwrap();
+            optimizer.collision_point_pos_eigen[optimizer.free_vars_start][0]
+        };
+
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[obstacle_point]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 5,
+            filter_mode: true,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+
+        let trace = optimizer.loop_trace().expect("optimize records a trace");
+        let progress = optimizer
+            .objective()
+            .expect("a completed loop always has an objective");
+
+        assert_eq!(
+            trace.collision_costs.len(),
+            trace.evaluations as usize,
+            "one collision_costs entry per evaluated pass"
+        );
+        assert!(
+            trace.collision_costs[0] > 0.0,
+            "the obstacle sits on a collision sphere's center, so the seed pass must be in \
+             collision"
+        );
+        assert_eq!(
+            trace.collision_costs[0], progress.seed.collision,
+            "the first recorded pass must be the same seed collision cost the objective reports"
+        );
+        assert_eq!(
+            *trace.collision_costs.last().unwrap(),
+            progress.last.collision,
+            "the last recorded pass must be the same last-evaluated collision cost the \
+             objective reports"
         );
     }
 
