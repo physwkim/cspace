@@ -1265,13 +1265,30 @@ IN_REPO_SECTION_MISMATCH = "section-mismatch"
 # citer-location cells whose own claim had drifted away from the paragraph
 # it once pointed at) -- `resolved` cannot see a wrong-but-plausible line,
 # so it passed all four silently. IN_REPO_CONTEXT_VERIFIED/_MISMATCH and
-# IN_REPO_POINTER_VERIFIED/_MISMATCH close that: whenever the citing text
+# IN_REPO_POINTER_VERIFIED/_MISMATCH narrow that: whenever the citing text
 # DOES name its target -- a `§N.M` anywhere in the citing paragraph, or a
 # table row pairing this citation against another one -- containment is
 # checked and a mismatch is a hard failure, not a demotion back to
 # `resolved`. `resolved` still exists for the citations that make no such
 # claim at all; that residual is bounds-only by nature, same as `unanchored`
 # on the `.rs` side, not a class this population can strengthen further.
+#
+# Narrow, not close: the granularity is the SECTION, so a wrong line inside
+# the right section still reads as verified. Measured on this tree by taking
+# the context-verified citation in doc/upstream-bugs.md's panda contact-set
+# entry -- the one whose paragraph names §5 as recording `UNMET` -- and moving
+# it twice: to a real non-blank line outside §5, which fails as
+# context-mismatch naming the site; and to a real non-blank line inside §5,
+# which stays context-verified. (Coordinates are deliberately not written
+# here: a line number in a comment about drift is the thing that drifts.)
+# What caught the second was the committed baseline, on the separate rule
+# that any changed line number retires its old key. So the two
+# instruments cover different halves: containment sees a citation that leaves
+# its claimed section whenever it moves, the baseline sees any move at all
+# from a pinned value. Neither sees a citation that was wrong inside its own
+# section from the day it was written and got baselined that way -- closing
+# THAT needs a line-level claim (a quotation, an anchor) the citing prose
+# does not currently make.
 IN_REPO_CONTEXT_VERIFIED = "context-verified"
 IN_REPO_CONTEXT_MISMATCH = "context-mismatch"
 IN_REPO_POINTER_VERIFIED = "pointer-verified"
