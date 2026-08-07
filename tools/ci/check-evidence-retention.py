@@ -157,6 +157,12 @@ INSTRUMENT_DIR = "tools/ci"
 ROLE_PRODUCER = "producer"      # measures something; belongs in the census
 ROLE_GATE = "gate"              # CI runs it every time, so its verdict is live
 ROLE_LIBRARY = "library"        # measures nothing, so owes the census no rows
+# Prefixes for hyphenated entry-point scripts only. A shared module cannot be
+# hyphenated -- Python's import system forbids it -- so every importable
+# helper under tools/ci/ is already, by construction, a hyphen-free `.py`
+# stem. That equivalence is enforced in role_of() below rather than by
+# registering each such module's exact name here: a dict entry per module
+# recreates the same undeclared-name Fail the next time one is added.
 PREFIX_ROLES = {
     "analyse-": ROLE_PRODUCER,
     "classify-": ROLE_PRODUCER,
@@ -174,6 +180,16 @@ PREFIX_ROLES = {
 # Inputs the scripts read, not scripts. Checked by extension first so a data
 # file never has to claim a prefix role.
 DATA_SUFFIXES = (".json", ".txt")
+
+
+def role_of(name):
+    """PREFIX_ROLES for hyphenated entry-point scripts; hyphen-free `.py`
+    stems are shared modules by construction (see PREFIX_ROLES's comment)
+    and are always ROLE_LIBRARY, with no per-module registration needed."""
+    stem, dot, ext = name.rpartition(".")
+    if dot and ext == "py" and "-" not in stem:
+        return ROLE_LIBRARY
+    return next((r for p, r in PREFIX_ROLES.items() if name.startswith(p)), None)
 
 CENSUS_HEADER = ["계측기", "산출물", "부류"]
 ROWS_HEADER = ["계측기", "절", "증거", "행 출처", "비고"]
@@ -385,7 +401,7 @@ def instruments_on_disk(root, tracked):
     for name in here:
         if name.endswith(DATA_SUFFIXES):
             continue
-        role = next((r for p, r in PREFIX_ROLES.items() if name.startswith(p)), None)
+        role = role_of(name)
         if role is None:
             raise Fail(
                 f"{INSTRUMENT_DIR}/{name}: no declared role for its prefix -- add it "
