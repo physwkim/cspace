@@ -243,6 +243,20 @@ geometry_msgs::msg::Pose isometryToPoseMsg(const Eigen::Isometry3d& t)
 /// here since a `SolidPrimitive` has no mesh case; the caller routes a mesh
 /// region into `BoundingVolume::meshes`/`mesh_poses` instead (see
 /// `positionConstraintFromJson`).
+///
+/// `"cone"` is a real `SolidPrimitive` type (`CONE`/`CONE_HEIGHT`/
+/// `CONE_RADIUS` all exist on this build's `shape_msgs`) and
+/// `shapes::constructShapeFromMsg` builds a genuine `shapes::Cone` from one
+/// (`shape_operations.cpp:101-106`), so this function accepts it -- but its
+/// only caller, `positionConstraintFromJson`, rejects a `"cone"` region
+/// before it reaches here: `kinematic_constraints::PositionConstraint::
+/// configure` feeds every `constraint_region.primitives[i]` straight to
+/// `bodies::createEmptyBodyFromShapeType` with no null check
+/// (`kinematic_constraint.cpp:411-412`), and `bodies::` has no `CONE` case,
+/// so a cone constraint region crashes real upstream MoveIt exactly as it
+/// would crash this oracle -- there is no ground truth this could be
+/// compared against. See `requireBodySupport`'s doc for the `bodies::` gap
+/// this is the constraint-region side of.
 shape_msgs::msg::SolidPrimitive solidPrimitiveFromJson(const json& shape_json)
 {
   shape_msgs::msg::SolidPrimitive primitive;
@@ -265,6 +279,15 @@ shape_msgs::msg::SolidPrimitive solidPrimitiveFromJson(const json& shape_json)
     primitive.dimensions[shape_msgs::msg::SolidPrimitive::CYLINDER_HEIGHT] =
         shape_json.at("length").get<double>();
     primitive.dimensions[shape_msgs::msg::SolidPrimitive::CYLINDER_RADIUS] =
+        shape_json.at("radius").get<double>();
+  }
+  else if (type == "cone")
+  {
+    primitive.type = shape_msgs::msg::SolidPrimitive::CONE;
+    primitive.dimensions.resize(2);
+    primitive.dimensions[shape_msgs::msg::SolidPrimitive::CONE_HEIGHT] =
+        shape_json.at("length").get<double>();
+    primitive.dimensions[shape_msgs::msg::SolidPrimitive::CONE_RADIUS] =
         shape_json.at("radius").get<double>();
   }
   else
@@ -334,9 +357,23 @@ std::string bodyTypeName(collision_detection::BodyType type)
 }
 
 /// Builds the `shapes::Shape` named by `request["shape"]["type"]` --
-/// `"sphere"`, `"box"`, `"cylinder"` or `"mesh"`, the four `bodies::` has a
-/// case for. Shared by `shapePoints` and `collisionDistanceFieldTypes`,
-/// which both need a shape built from the same wire format.
+/// `"sphere"`, `"box"`, `"cylinder"`, `"cone"` or `"mesh"`. Shared by every op
+/// that takes a shape over the wire, including `addRequestObjects` (so both
+/// FCL-based ops -- `collision`, `pair_signed_distance`, `scene_diff_collision`
+/// -- and `bodies::`-based ones -- `shapePoints`, `bodyQuery`,
+/// `collisionDistanceFieldTypes`, `collisionObjectPointDecomposition`,
+/// `distanceFieldCacheEntry`, `groupStateRepresentation` -- reach it) and
+/// `shapePoints`/`collisionDistanceFieldTypes` directly.
+///
+/// `"cone"` is real FCL geometry (`collision_common.cpp:894-897` builds
+/// `fcl::Coned(radius, length)` for `shapes::CONE`) but `bodies::` has no
+/// case for it -- `body_operations.cpp`'s `createEmptyBodyFromShapeType`
+/// switches on `BOX`/`SPHERE`/`CYLINDER`/`MESH` only and returns `nullptr`
+/// otherwise, which every caller of it (oracle and upstream alike)
+/// dereferences without checking. Every `bodies::`-based op above therefore
+/// guards its own shape(s) with `requireBodySupport` before this function's
+/// wider result can reach that dereference; see that function's doc for the
+/// full call-site list this was audited against.
 std::shared_ptr<shapes::Shape> parseShape(const std::string& type, const json& shape_json)
 {
   if (type == "sphere")
@@ -352,6 +389,11 @@ std::shared_ptr<shapes::Shape> parseShape(const std::string& type, const json& s
   {
     return std::make_shared<shapes::Cylinder>(shape_json.at("radius").get<double>(),
                                                shape_json.at("length").get<double>());
+  }
+  if (type == "cone")
+  {
+    return std::make_shared<shapes::Cone>(shape_json.at("radius").get<double>(),
+                                           shape_json.at("length").get<double>());
   }
   if (type == "mesh")
   {
@@ -375,6 +417,75 @@ std::shared_ptr<shapes::Shape> parseShape(const std::string& type, const json& s
     return mesh;
   }
   throw std::runtime_error("unsupported shape type " + type);
+}
+
+/// Throws unless `bodies::createEmptyBodyFromShapeType` can actually build a
+/// body for `type`. Calls that exact factory -- the same one every direct
+/// caller below reaches, and the same one upstream's own
+/// `BodyDecomposition`/`CollisionEnvDistanceField`/`PositionConstraint`
+/// reach internally -- and checks its real answer rather than re-deriving
+/// which types it supports in a second switch that could drift from it.
+///
+/// `parseShape` now accepts `"cone"` for the FCL-based ops that genuinely
+/// support it, but `bodies::` does not, and every caller of
+/// `createEmptyBodyFromShapeType` (oracle code and upstream code alike)
+/// dereferences its result without a null check -- so a `Cone` reaching one
+/// unguarded would be a process-ending null-pointer dereference instead of a
+/// clean per-request error. Audited call sites, each guarded with this
+/// before it can build or feed a `bodies::Body`:
+///   - `shapePoints`, `bodyQuery` -- call `createEmptyBodyFromShapeType`
+///     directly.
+///   - `collisionDistanceFieldTypes` -- via its `BodyDecomposition`
+///     constructor.
+///   - `collisionObjectPointDecomposition` -- via upstream's
+///     `getCollisionObjectPointDecomposition` -> `BodyDecomposition::init`
+///     -> `bodies::BodyVector::addBody` -> `bodies::createBodyFromShape`.
+///   - `distanceFieldCacheEntry`, `groupStateRepresentation` -- via
+///     `CollisionEnvDistanceField`'s constructor, which unconditionally
+///     calls `generateDistanceFieldCacheEntryWorld` ->
+///     `updateDistanceObject` -> `getBodyDecompositionCacheEntry` for every
+///     non-octree shape in the request's world objects.
+/// `positionConstraintFromJson`'s constraint-region primitives reach the
+/// same class of crash a different way -- `PositionConstraint::configure`
+/// (`kinematic_constraint.cpp:411`) -- and are guarded separately there,
+/// since `solidPrimitiveFromJson` has exactly the one call site.
+void requireBodySupport(shapes::ShapeType type, const std::string& op)
+{
+  bodies::Body* probe = bodies::createEmptyBodyFromShapeType(type);
+  if (!probe)
+    throw std::runtime_error(op + ": bodies:: has no case for shape type " + shapeTypeName(type));
+  delete probe;
+}
+
+/// `requireBodySupport` over every shape of every object already in `world`
+/// -- for `distanceFieldCacheEntry`/`groupStateRepresentation`, whose
+/// `CollisionEnvDistanceField` constructor walks the same set
+/// unconditionally (`generateDistanceFieldCacheEntryWorld`) before either op
+/// gets to do anything else with it.
+void requireBodySupportForWorld(const collision_detection::World& world, const std::string& op)
+{
+  for (const auto& [id, object] : world)
+  {
+    (void)id;
+    for (const shapes::ShapeConstPtr& shape : object->shapes_)
+      requireBodySupport(shape->type, op);
+  }
+}
+
+/// `requireBodySupport` over every shape of every attached body already on
+/// `state` -- the same two ops `requireBodySupportForWorld` covers also
+/// attach bodies (`applyAttachedBodies`, shared with the FCL-based ops that
+/// legitimately want `cone`), and `CollisionEnvDistanceField`'s attached-body
+/// decomposition (`getAttachedBodyPointDecomposition`/
+/// `getAttachedBodySphereDecomposition`, `collision_env_distance_field.cpp:
+/// 928,1239`) reaches `bodies::` the same unguarded way a world object does.
+void requireBodySupportForAttachedBodies(const moveit::core::RobotState& state, const std::string& op)
+{
+  std::vector<const moveit::core::AttachedBody*> attached;
+  state.getAttachedBodies(attached);
+  for (const moveit::core::AttachedBody* body : attached)
+    for (const shapes::ShapeConstPtr& shape : body->getShapes())
+      requireBodySupport(shape->type, op);
 }
 
 /// `KDLKinematicsPlugin::clipToJointLimits`, transcribed directly (see
@@ -476,6 +587,14 @@ moveit_msgs::msg::PositionConstraint positionConstraintFromJson(const json& j)
     }
     else
     {
+      // `solidPrimitiveFromJson`'s own doc: a `"cone"` region reaches
+      // `PositionConstraint::configure`'s unchecked `bodies::` dereference --
+      // an upstream crash, not a comparable answer -- so it is rejected here
+      // rather than built and handed to it.
+      if (shape_json.at("type").get<std::string>() == "cone")
+        throw std::runtime_error("position_constraints: cone region would crash upstream's "
+                                  "PositionConstraint::configure (bodies:: has no CONE case) -- "
+                                  "not a comparable request");
       pc.constraint_region.primitives.push_back(solidPrimitiveFromJson(shape_json));
       pc.constraint_region.primitive_poses.push_back(isometryToPoseMsg(pose));
     }
@@ -3632,6 +3751,7 @@ private:
     const double resolution = request.at("resolution").get<double>();
 
     std::shared_ptr<shapes::Shape> shape = parseShape(type, shape_json);
+    requireBodySupport(shape->type, "shape_points");
 
     bodies::Body* body = bodies::createEmptyBodyFromShapeType(shape->type);
     body->setDimensionsDirty(shape.get());
@@ -3729,6 +3849,7 @@ private:
     const double padding = request.at("padding").get<double>();
 
     shapes::ShapeConstPtr shape = parseShape(type, shape_json);
+    requireBodySupport(shape->type, "collision_distance_field_types");
     std::vector<shapes::ShapeConstPtr> shapes_vec{ shape };
     EigenSTL::vector_Isometry3d poses_vec{ shape_pose };
     collision_detection::BodyDecomposition body_decomp(shapes_vec, poses_vec, resolution, padding);
@@ -4023,6 +4144,7 @@ private:
   {
     applyJointValues(request);
     applyAttachedBodies(*state_, request);
+    requireBodySupportForAttachedBodies(*state_, "distance_field_cache_entry");
 
     const std::string group_name = request.at("group").get<std::string>();
     if (!model_->hasJointModelGroup(group_name))
@@ -4033,6 +4155,7 @@ private:
 
     collision_detection::WorldPtr world = std::make_shared<collision_detection::World>();
     addRequestObjects(*world, request);
+    requireBodySupportForWorld(*world, "distance_field_cache_entry");
     collision_detection::CollisionEnvDistanceField env(model_, world);
 
     collision_detection::CollisionRequest req;
@@ -4255,6 +4378,7 @@ private:
   {
     applyJointValues(request);
     applyAttachedBodies(*state_, request);
+    requireBodySupportForAttachedBodies(*state_, "group_state_representation");
 
     const std::string group_name = request.at("group").get<std::string>();
     if (!model_->hasJointModelGroup(group_name))
@@ -4265,6 +4389,7 @@ private:
 
     collision_detection::WorldPtr world = std::make_shared<collision_detection::World>();
     addRequestObjects(*world, request);
+    requireBodySupportForWorld(*world, "group_state_representation");
     collision_detection::CollisionEnvDistanceField env(model_, world);
 
     collision_detection::CollisionRequest req;
@@ -4421,7 +4546,9 @@ private:
     for (std::size_t i = 0; i < shapes_json.size(); ++i)
     {
       const json& shape_json = shapes_json[i];
-      shape_ptrs.push_back(parseShape(shape_json.at("type").get<std::string>(), shape_json));
+      shapes::ShapeConstPtr shape = parseShape(shape_json.at("type").get<std::string>(), shape_json);
+      requireBodySupport(shape->type, "collision_object_point_decomposition");
+      shape_ptrs.push_back(shape);
       shape_poses.push_back(fromRowMajor4x4(shape_poses_json[i]));
     }
 
@@ -5709,6 +5836,7 @@ private:
     const double padding = request.value("padding", 0.0);
 
     std::shared_ptr<shapes::Shape> shape = parseShape(type, shape_json);
+    requireBodySupport(shape->type, "body_query");
 
     bodies::Body* body = bodies::createEmptyBodyFromShapeType(shape->type);
     body->setDimensionsDirty(shape.get());
