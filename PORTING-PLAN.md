@@ -31966,7 +31966,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
 §267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27232`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
-(`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
+(`PORTING-PLAN.md:19403`·`PORTING-PLAN.md:21004`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
 결과다: 인용은 선언일 수 없다.
 
@@ -33908,7 +33908,7 @@ gapaudit은 이미 main에 병합돼 있다(`a4d5db85`). 그 트리에서 예측
 적용되지 않으므로, 그 자리를 절(`§NNN`) 포함 검사가 대신한다. 인용문이
 인용에 바짝 붙여 절 번호를 이름 대면, 인용된 줄이 그 절의 범위 안에
 있어야 한다. 6건이 걸렸고 손으로 열어 확인했다: 예컨대
-`doc/assertion-discrimination-census.md:466`은 `PORTING-PLAN.md:10896`을
+`doc/assertion-discrimination-census.md:466`은 `!PORTING-PLAN.md:10896`을
 §129.3으로 인용하며 그 절의 제목을 그대로 따옴표로 옮겨 적는데, 그 제목은
 `PORTING-PLAN.md:11156`에 있고 10883은 p1-fixtures의 크레이트 이야기다.
 **비어 있지 않은 살아 있는 줄로 착지한 이동**이고, 빈 줄 술어로는 구조적으로
@@ -35633,8 +35633,8 @@ unresolvable이다.
 
 | 인용 위치 | 인용 | 이름 댄 절 | 인용된 줄이 실제로 속한 절 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30990` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
-| `PORTING-PLAN.md:31942` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
+| `PORTING-PLAN.md:31015` | `!PORTING-PLAN.md:21628` | §245.3 (21641-21666) | §245.2 |
+| `PORTING-PLAN.md:31967` | `!PORTING-PLAN.md:26879` | §267.1 (26917-26939) | §266.8 |
 | `doc/claim-audit/upstream-bugs.md:37` | `!PORTING-PLAN.md:16973` | §218.4 (17023-17092) | §218.3 |
 
 세 건 다 baseline에 findings로 선언돼 있고 passing 등급으로 얼려지지
@@ -35648,7 +35648,7 @@ unresolvable이다.
   보지 못했다. 두 핀은 재도출하지 않고 없앴다. 조용히 썩는 예시는 자기가
   설명하는 규칙에 대해 틀린 것을 가르친다.
 - `!PORTING-PLAN.md:807`은 §5 범위 안이라 포함 검사로 구별되지 않는다.
-- sbp 주석 셋은 인용은 고쳐졌지만 **문장이 낡았다**: `PORTING-PLAN.md:1269`는
+- sbp 주석 셋은 인용은 고쳐졌지만 **문장이 낡았다**: `!PORTING-PLAN.md:1269`는
   trait 모양이 §61에서 경계값으로 검증됐다고 적는데, 주석들은 "지금까지
   주석의 주장일 뿐 검증된 적 없다"고 말한다. 인용 수정이 아니라 sbp
   소유자의 판단이므로 고치지 않고 적어 둔다.
@@ -36316,8 +36316,8 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21888-21889` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
-| `PORTING-PLAN.md:31886` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27232` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `PORTING-PLAN.md:31015` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21888-21889` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
+| `PORTING-PLAN.md:31967` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27232` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
 `section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도

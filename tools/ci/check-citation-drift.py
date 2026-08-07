@@ -1256,7 +1256,34 @@ IN_REPO_EXTERNAL = "external"
 IN_REPO_OOB = "out-of-bounds"
 IN_REPO_BLANK = "blank-line"
 IN_REPO_SECTION_MISMATCH = "section-mismatch"
-IN_REPO_FAILING = (IN_REPO_UNRESOLVED, IN_REPO_OOB, IN_REPO_BLANK, IN_REPO_SECTION_MISMATCH)
+# `resolved` used to be the floor under every citation the tight, same-line
+# checks above could not reach: target exists, cited line in bounds,
+# non-blank -- nothing about whether the line is the RIGHT one. Four
+# self-citations in PORTING-PLAN.md sat there for a full round pointing at
+# real, unrelated content (`§229.1`'s and `§239.3`'s declaration sentences
+# named two lines above the citation instead of on it; two remap-table
+# citer-location cells whose own claim had drifted away from the paragraph
+# it once pointed at) -- `resolved` cannot see a wrong-but-plausible line,
+# so it passed all four silently. IN_REPO_CONTEXT_VERIFIED/_MISMATCH and
+# IN_REPO_POINTER_VERIFIED/_MISMATCH close that: whenever the citing text
+# DOES name its target -- a `§N.M` anywhere in the citing paragraph, or a
+# table row pairing this citation against another one -- containment is
+# checked and a mismatch is a hard failure, not a demotion back to
+# `resolved`. `resolved` still exists for the citations that make no such
+# claim at all; that residual is bounds-only by nature, same as `unanchored`
+# on the `.rs` side, not a class this population can strengthen further.
+IN_REPO_CONTEXT_VERIFIED = "context-verified"
+IN_REPO_CONTEXT_MISMATCH = "context-mismatch"
+IN_REPO_POINTER_VERIFIED = "pointer-verified"
+IN_REPO_POINTER_MISMATCH = "pointer-mismatch"
+IN_REPO_FAILING = (
+    IN_REPO_UNRESOLVED,
+    IN_REPO_OOB,
+    IN_REPO_BLANK,
+    IN_REPO_SECTION_MISMATCH,
+    IN_REPO_CONTEXT_MISMATCH,
+    IN_REPO_POINTER_MISMATCH,
+)
 # Which verdicts fail the run. The flip is GRADED rather than all-or-nothing:
 # a class goes hard the moment its backlog is closed, instead of waiting for
 # the slowest class and leaving the closed ones unprotected in the meantime.
@@ -1268,9 +1295,21 @@ IN_REPO_FAILING = (IN_REPO_UNRESOLVED, IN_REPO_OOB, IN_REPO_BLANK, IN_REPO_SECTI
 # meant. They are listed in PORTING-PLAN.md §306 by file:line rather than
 # frozen as passing.
 #
+# context-mismatch and pointer-mismatch are hard from the moment they exist:
+# unlike section-mismatch's three backlogged judgement calls, nothing has
+# ever been declared against these two classes, so there is no ambiguous
+# case to grade -- every instance is a first-ever finding and closes the same
+# round it is found.
+#
 # Regardless of this set, a NEW failure in ANY class fails the run: it arrives
 # as a row absent from the baseline, which the delta check reports on its own.
-IN_REPO_HARD_FAIL = (IN_REPO_BLANK, IN_REPO_OOB, IN_REPO_UNRESOLVED)
+IN_REPO_HARD_FAIL = (
+    IN_REPO_BLANK,
+    IN_REPO_OOB,
+    IN_REPO_UNRESOLVED,
+    IN_REPO_CONTEXT_MISMATCH,
+    IN_REPO_POINTER_MISMATCH,
+)
 
 
 def in_repo_section_spans(lines):
@@ -1309,6 +1348,153 @@ def in_repo_section_claim(line, start, end):
         return before.group(1)
     after = IN_REPO_SECTION_AFTER_RE.match(line[end:])
     return after.group(1) if after else None
+
+
+# Unanchored, unlike IN_REPO_SECTION_BEFORE_RE/_AFTER_RE: this one is only
+# reached once the tight same-line check above has already found nothing.
+# Korean prose in this document wraps at ~72 columns, which is exactly how
+# `§229.1`/`§239.3` ended up on the physical line ABOVE the citations naming
+# them (`!PORTING-PLAN.md:31968-31969`) -- the tight window cannot cross that
+# line break, and that gap is what let both self-citations sit on a real but
+# wrong line for a full round under `resolved`.
+IN_REPO_SECTION_ANY_RE = re.compile(r"§(\d+(?:\.\d+)*)")
+# A bullet item boundary, same purpose as the `|` check for a table row: a
+# list in this document is a series of INDEPENDENT claims sharing one visual
+# block with no blank line between them, and reusing `citing_context`
+# (blank-line-delimited only) here was tried and measured wrong -- a
+# `§138.3의 ...` bullet going on to also discuss an unrelated self-citation
+# later in the SAME bullet (`!PORTING-PLAN.md:23850-23858`) had `§138.3`
+# wrongly vouch for it. `- `/`* `/`1. ` all start a new item; a wrapped
+# continuation line of the same item never does.
+IN_REPO_LIST_ITEM_RE = re.compile(r"^\s*(?:[-*]|\d+\.)\s")
+# A Korean declarative sentence ending, immediately before terminal
+# punctuation -- `셌다.`, `않는다.`, `것이다!`. Crossing a line break still
+# crosses INTO the same clause when the wrapped text has no sentence
+# boundary between the `§N.M` and the break; `!PORTING-PLAN.md:30941`'s
+# neighbour, `§253.2는 7건으로 셌다. 경로가 해소되면 ...`, closes its own
+# sentence about §253.2 with `셌다.` and opens an unrelated one before the
+# line even ends, and that second sentence is the one actually adjacent to
+# the citation below it -- treating the whole line as one clause wrongly
+# let §253.2 vouch for a citation two sentences away. `§229.1`/`§239.3`'s
+# own neighbour line has no such boundary between the section names and the
+# line break: it is one wrapped clause, not two full sentences.
+IN_REPO_SENTENCE_END_RE = re.compile(r"다[.!?]")
+
+
+def in_repo_context_claims(lines, index):
+    """Every section number named on the citation's own physical line or the
+    ONE line immediately above or below it, 0-based `index` being the
+    citation's own line -- the cross-line counterpart to
+    `in_repo_section_claim`.
+
+    Deliberately narrower than a full paragraph. A paragraph-wide version
+    was built first and swept the corpus before this one: it found `§138.3`
+    (opening a bullet) vouching for an unrelated self-citation eight lines
+    later in the same bullet, and similar false attributions in three other
+    multi-topic bullets. One physical line either side is exactly the gap
+    `§229.1`/`§239.3` fell into -- named two lines away was too far to see,
+    named one line away, immediately above the citation, was not -- and
+    going wider than that trades a real defect for several false ones. The
+    neighbour is skipped if it is blank, a table row, or itself the start of
+    a DIFFERENT list item, for the same reason `citing_context` stops at a
+    table row: crossing into a sibling claim's own line is not "this
+    citation's own paragraph" merely because there is no blank line drawn
+    between them.
+
+    A SET rather than a single value, checked by union: a clause naming two
+    sections for two citations (`같은 행을 §229.1·§239.3으로 돌리면 두
+    코드 다 진짜 선언 (`19403`·`21004`)에서 실패하고`) reads as an ordered
+    pairing, but parsing that ordering generally (arbitrary separators,
+    arbitrary counts) is exactly the kind of per-sentence special case this
+    population's tight rule was built to avoid -- see the "wide scan"
+    comment on IN_REPO_SECTION_BEFORE_RE. Union and positional pairing agree
+    on this corpus's actual remap paragraphs, where a cited line never sits
+    in more than one of the sections its own line-pair names.
+    """
+    claims = set(IN_REPO_SECTION_ANY_RE.findall(lines[index]))
+    own_start = IN_REPO_LIST_ITEM_RE.match(lines[index]) is not None
+    prev = index - 1
+    # Walking to the line ABOVE crosses into a different claim only if this
+    # citation's OWN line already opens an item: the top of the bullet has
+    # then been reached, and whatever sits above it belongs to some earlier
+    # claim, not to this one. If this line has no marker of its own, it is
+    # a wrapped continuation, and the line above it -- marker or not -- is
+    # guaranteed to be more of the SAME bullet, since nothing else could sit
+    # directly above an unmarked continuation without a blank line between.
+    if prev >= 0 and not own_start:
+        pline = lines[prev]
+        if pline.strip() and not pline.lstrip().startswith("|"):
+            # Only a `§N.M` whose OWN sentence is still open when the line
+            # ends carries into the citation below -- one closed by `다.`
+            # before the line break is a claim about something else that
+            # merely happens to share the line.
+            claims.update(
+                m.group(1)
+                for m in IN_REPO_SECTION_ANY_RE.finditer(pline)
+                if not IN_REPO_SENTENCE_END_RE.search(pline[m.end() :])
+            )
+    nxt = index + 1
+    # Walking to the line BELOW crosses into a different claim exactly when
+    # THAT line opens a new item -- the mirror image of the check above.
+    if nxt < len(lines):
+        nline = lines[nxt]
+        if nline.strip() and not nline.lstrip().startswith("|") and not IN_REPO_LIST_ITEM_RE.match(nline):
+            # Mirror image: a `§N.M` on the next line only reaches back to
+            # this citation if no sentence closed between the line's start
+            # and the section name.
+            claims.update(
+                m.group(1)
+                for m in IN_REPO_SECTION_ANY_RE.finditer(nline)
+                if not IN_REPO_SENTENCE_END_RE.search(nline[: m.start()])
+            )
+    return sorted(claims)
+
+
+def in_repo_row_cell(line, start, end):
+    """The `|`-delimited table cell containing this citation's match, or None
+    if the line is not a table row. `start`/`end` are the match's own
+    bounds."""
+    pipes = [i for i, ch in enumerate(line) if ch == "|"]
+    for lo, hi in zip(pipes, pipes[1:]):
+        if lo < start and end <= hi:
+            return line[lo + 1 : hi].strip()
+    return None
+
+
+def in_repo_row_pointer(line, start, end, full):
+    """True if this citation is a bare LOCATION POINTER inside a table row
+    that also names another, different citation -- the citer-location column
+    of a remap table (`인용 위치 | 인용 | 판정 | 근거`), never the column
+    carrying the remap itself.
+
+    Three conditions, all required. First, the cell holding THIS citation
+    contains nothing else: stripped of whitespace it is exactly this one
+    backticked citation, no arrow, no second value, no prose. That is what
+    tells a location cell (`` `!PORTING-PLAN.md:31015` ``) apart from a remap
+    cell (`` `!PORTING-PLAN.md:21628` → `!PORTING-PLAN.md:21888-21889` ``) --
+    the remap cell also matches the citation grammar on its second half, and
+    a rule that fired on it would wrongly demand oracle.cpp-shaped content at
+    a line describing an EPICS oracle call, which no in-repo line has. Second,
+    the row carries at least one OTHER citation naming a different spec, live
+    or `!`-quoted, AND NAMING THE SAME FILE -- the pointer's own claim ("here
+    is where this finding lives") only exists in relation to another value
+    the row tracks about the SAME document, never an incidental citation to
+    an unrelated file sharing the row for its own reason. Dropping the
+    same-file requirement was tried and measured wrong on
+    `!PORTING-PLAN.md:33478-33480`'s exemption-drift table: its citer column
+    cites `tools/ci/upstream-citation-exemptions.json`, an unrelated file,
+    and the rule wrongly demanded a citation-shaped fragment at the line the
+    OTHER column names, which is prose describing a CHOMP table row, not a
+    remap.
+    """
+    cell = in_repo_row_cell(line, start, end)
+    if cell is None or cell != f"`{full}`":
+        return False
+    name = full.split(":", 1)[0]
+    quoted = [q.strip("`!") for q in IN_REPO_QUOTED_RE.findall(line)]
+    others = [f"{n}:{s}" for n, s in IN_REPO_CITATION_RE.findall(line) if n == name]
+    others += [q for q in quoted if q.split(":", 1)[0] == name]
+    return any(o != full for o in others)
 
 
 def scan_in_repo(tracked):
@@ -1406,6 +1592,44 @@ def scan_in_repo(tracked):
                     else:
                         out.append((citer, line_no, full, target, IN_REPO_SECTION_VERIFIED, claim))
                     continue
+                # Fallback 1: the tight same-line rule above found no `§N.M`
+                # touching this citation, but the citing PARAGRAPH may still
+                # name one -- see in_repo_context_claims. Restricted to
+                # non-table lines: a table row's cells are independent claims
+                # crammed onto one physical line (a citer-location column, a
+                # remap column, an evidence column each saying something
+                # different), so scanning the whole row would attribute one
+                # cell's `§N.M` to a citation in an unrelated cell. Prose is a
+                # single thought wrapped across lines, which is exactly what
+                # citing_context's paragraph boundary is for.
+                if not line.lstrip().startswith("|"):
+                    candidates = [c for c in in_repo_context_claims(lines, line_no - 1) if c in sp]
+                    if candidates:
+                        spans_here = [sp[c] for c in candidates]
+                        if any(all(lo <= n <= hi for n in cited) for (lo, hi) in spans_here):
+                            out.append((citer, line_no, full, target, IN_REPO_CONTEXT_VERIFIED, candidates))
+                            continue
+                        out.append(
+                            (citer, line_no, full, target, IN_REPO_CONTEXT_MISMATCH, (candidates, spans_here, cited))
+                        )
+                        continue
+                # Fallback 2: a table row's citer-location cell, a bare
+                # pointer with no section claim of its own -- see
+                # in_repo_row_pointer. Its claim is not "inside a section",
+                # it is "a citation-shaped fragment actually lives at the
+                # line this cell names", which is what corroborates the
+                # remap this same row records.
+                elif in_repo_row_pointer(line, m.start(), m.end(), full):
+                    hit = any(
+                        1 <= n <= len(tl)
+                        and (IN_REPO_CITATION_RE.search(tl[n - 1]) or IN_REPO_QUOTED_RE.search(tl[n - 1]))
+                        for n in cited
+                    )
+                    if hit:
+                        out.append((citer, line_no, full, target, IN_REPO_POINTER_VERIFIED, None))
+                    else:
+                        out.append((citer, line_no, full, target, IN_REPO_POINTER_MISMATCH, cited))
+                    continue
                 out.append((citer, line_no, full, target, IN_REPO_RESOLVED, None))
     return out
 
@@ -1425,13 +1649,18 @@ def in_repo_header(head_sha, rows):
         "# count. The set difference between the two files IS that separation.",
         "#",
         "# Verdicts. resolved = the target exists here and every named line is in",
-        "# bounds and non-blank. section-verified = the citing text names a section",
-        "# tightly against the citation and every named line is inside that",
-        "# section's span. external = the path names a file this repository does",
-        "# not contain, which is measure-upstream-citations.py's domain, not this",
-        "# one's. The rest are findings: blank-line, out-of-bounds,",
-        "# section-mismatch, and unresolvable (a path matching several tracked",
-        "# files, which names none of them).",
+        "# bounds and non-blank, and the citing text makes no further claim about",
+        "# WHICH line. section-verified/context-verified = the citing text names a",
+        "# section -- tightly against the citation, or anywhere in its citing",
+        "# paragraph -- and every named line is inside that section's span.",
+        "# pointer-verified = the citation is a table row's bare citer-location",
+        "# cell, paired in that row with another citation, and the line it names",
+        "# itself carries a citation-shaped fragment. external = the path names a",
+        "# file this repository does not contain, which is",
+        "# measure-upstream-citations.py's domain, not this one's. The rest are",
+        "# findings: blank-line, out-of-bounds, section-mismatch,",
+        "# context-mismatch, pointer-mismatch, and unresolvable (a path matching",
+        "# several tracked files, which names none of them).",
         "#",
         "# Generated by: tools/ci/check-citation-drift.py --write-classes",
         f"# Source commit: {head_sha}",

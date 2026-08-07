@@ -310,7 +310,7 @@ and all 4 are false positives under the naive form of this check --
   document's **own** independent local numbering scheme, not
   `PORTING-PLAN.md`'s;
 - `doc/claim-audit/moveit-kinematics.md:13` cites `§177.1`, a real and
-  currently-valid citation -- `PORTING-PLAN.md:14058` has
+  currently-valid citation -- `!PORTING-PLAN.md:14058` has
   `**§177.1 두 번째 사실 ...**` as a bold-text pseudo-subsection, which
   `check-porting-plan-sections.sh`'s own heading-only regex
   (`^(#{2,4}) `) never captures into `all_ids` in the first place.
