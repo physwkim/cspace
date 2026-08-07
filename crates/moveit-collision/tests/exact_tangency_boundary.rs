@@ -1,9 +1,10 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! The exact-tangency boundary, which is where PORTING-PLAN.md §5 Phase 3's
-//! `collision: bool` clause fails on prbt (6,854/10,000 states) -- and the
-//! measurements that settle what kind of failure it is.
+//! The exact-tangency boundary, where PORTING-PLAN.md §5 Phase 3's
+//! `collision: bool` clause used to fail on prbt (6,854/10,000 states,
+//! §218.3) and no longer does (0/10,000, re-measured below) -- and the
+//! measurements that settle why both numbers are what they are.
 //!
 //! # The configuration
 //!
@@ -58,33 +59,51 @@
 //! upstream answer at exact contact to match -- there is a per-narrowphase
 //! outcome.
 //!
-//! # What this backend does, and why its margin was not simply removed
+//! # What this backend does now, and why a bare sign check was not enough
 //!
-//! This backend answers `collision` from `parry3d_f64::query::contact` with a
-//! prediction of `0.0`, treating any `Some` as a contact. That is *not*
-//! `dist <= 0`: `Some` still comes back across a small positive gap, which
-//! [`the_collision_boundary_sits_in_a_positive_gap`] measures and which
-//! contradicts `parry.rs`'s own module doc ("prediction `0.0`, so only
+//! This backend used to answer `collision` from `parry3d_f64::query::contact`
+//! with a prediction of `0.0` by treating any `Some` as a contact. That is
+//! *not* `dist <= 0`: `Some` still comes back across a small positive gap
+//! ([`a_positive_gap_never_reports_as_a_collision`] measures how far), which
+//! contradicted `parry.rs`'s own module doc ("prediction `0.0`, so only
 //! touching/penetrating pairs yield `Some`"). At `3e-8` of clear air the
-//! oracle says `false` (table above) and this backend says `true`.
+//! oracle said `false` and this backend said `true`.
 //!
-//! Gating the flag on `contact.dist <= 0.0` was tried and reverted. It does
-//! nothing for the clause under repair -- prbt's tie lands at `-2.775558e-17`,
-//! on the colliding side of any sign test -- and it breaks octree case 4, where
-//! `parry` puts the exactly-touching pair a hair *above* zero while the oracle
-//! reports `true`. So the margin is what currently absorbs upstream's
-//! per-shape-pair inconsistency; removing it trades an oracle-backed parity
-//! case away and closes nothing. That is recorded here rather than in a commit
-//! message because the next reader will have the same idea.
+//! Gating the flag on a bare `contact.dist <= 0.0` sign check was tried and
+//! reverted before the fix below existed (recorded here rather than in a
+//! commit message because the next reader will have the same idea): it does
+//! nothing for prbt's tie -- `-2.775558e-17` is already on the colliding side
+//! of any sign test -- and it breaks octree case 4, where `parry` puts the
+//! exactly-touching pair a hair *above* zero while the oracle reports `true`.
+//!
+//! `touches_at_tie` (`crates/moveit-collision/src/parry.rs`) is not a sign
+//! test. Within `TIE_ROUNDING_MARGIN * f64::EPSILON *` (the pair's AABB
+//! scale) of zero it defers to `fcl_tangency_verdict`, the ported
+//! `fcl_tangency_table::SPECIALISED` dispatch; outside that band it falls
+//! back to `dist <= 0.0`. Octree case 4's shape converts to a `Compound`,
+//! which `fcl_tangency_verdict` does not classify, so it falls back to
+//! `true` there -- the same answer the old unconditional-`Some` code gave,
+//! unaffected. prbt's pair is `cylinder x box`, one of `SPECIALISED`'s
+//! `false` cells, so its tie (well inside the band) now answers `false`,
+//! matching the oracle. Outside the band -- `-3e-8`, `-1e-7` -- the fallback
+//! `dist <= 0.0` also now matches the oracle, which is the defect
+//! [`a_positive_gap_never_reports_as_a_collision`] used to pin.
 //!
 //! # Consequence for Phase 3
 //!
-//! No tolerance closes the prbt `bool` clause: `bool` has no tolerance. Nor
-//! does adopting a convention, since upstream has none here and this backend's
-//! answer at the tie is set by its own rounding
-//! ([`the_tie_is_decided_below_one_ulp`]). Moving `fixtures/prbt.urdf` or the
-//! floor would turn the clause green by deleting the configuration that
-//! measures it.
+//! Re-measured with `tools/ci/verify-phase3-collision-sweep.sh`'s own
+//! invocation (`moveit-diff --collision --cases 10000 --seed 1`, prbt only,
+//! 2026-08-07): `bool_disagrees: 0` of `10000` (was `6,854/10,000`, §218.3).
+//! Not a tolerance and not a fixture move -- the pair genuinely decides as
+//! `false` now, the same way upstream's own dispatch decides it
+//! ([`the_tie_is_decided_below_one_ulp`]). The separately-tracked `distance:
+//! f64` clause is untouched by this: still `10,000/10,000` disagreeing,
+//! because that failure fires inside the oracle's own `fcl::collide`
+//! zero-contact branch (`fcl-distance-sentinel-survives-zero-contacts`), not
+//! on anything `touches_at_tie` reads or writes. PORTING-PLAN.md §218.3's
+//! table and prose still read the pre-fix numbers as of this writing and are
+//! due an update; this file and the re-measurement above are the evidence
+//! for it.
 
 use std::fs;
 use std::sync::Arc;
@@ -212,17 +231,19 @@ fn a_millimetre_either_side_matches_the_oracle() {
     );
 }
 
-/// The `collision` flag flips somewhere inside a *positive* gap, contradicting
-/// `parry.rs`'s "prediction `0.0`, so only touching/penetrating pairs yield
-/// `Some`" -- and diverging from the oracle, which answers `false` at both
-/// offsets below.
+/// The `collision` flag used to flip somewhere inside a *positive* gap
+/// (module doc: any `query::contact` `Some` counted as a touch, regardless of
+/// `dist`'s sign), contradicting `parry.rs`'s "prediction `0.0`, so only
+/// touching/penetrating pairs yield `Some`" and diverging from the oracle,
+/// which answers `false` at both offsets below. `touches_at_tie` closed it:
+/// outside its rounding band the verdict is `dist <= 0.0`, not "any `Some`",
+/// so a real positive gap this far from the tie now agrees with the oracle.
 ///
-/// Brackets the crossover instead of pinning it. Where exactly `parry`'s
-/// internal margin falls for this shape pair is not a contract; that it lies
-/// strictly between two *clear-air* gaps is the fact, and it is what makes "the
-/// boundary is at zero" false.
+/// Both offsets are clear air on this backend's own distance query too, so a
+/// regression back to "any `Some` is a touch" would flip `collides` without
+/// moving `distance` -- the two are asserted separately for that reason.
 #[test]
-fn the_collision_boundary_sits_in_a_positive_gap() {
+fn a_positive_gap_never_reports_as_a_collision() {
     // Far enough out that no margin reaches it. Oracle: false, +1.000000000028756e-7.
     let (wide_collides, wide_distance) = measure(-1e-7);
     assert!(
@@ -234,20 +255,20 @@ fn the_collision_boundary_sits_in_a_positive_gap() {
         "a 1e-7 gap must not be reported as a collision"
     );
 
-    // Also clear air -- this backend's own distance query agrees it is a gap,
-    // and the oracle reports false, +2.999999999808711e-8 -- yet the flag says
-    // otherwise.
+    // Closer in -- within `query::contact`'s own `Some`-returning reach, per
+    // the module doc, but still ~4e6 `TIE_ROUNDING_MARGIN` units out from the
+    // tie band at this pair's scale, so `touches_at_tie` falls back to
+    // `dist <= 0.0` rather than the table. Oracle: false, +2.999999999808711e-8.
     let (narrow_collides, narrow_distance) = measure(-3e-8);
     assert!(
         narrow_distance > 0.0,
         "a 3e-8 gap must measure as a positive distance, got {narrow_distance}"
     );
     assert!(
-        narrow_collides,
-        "a 3e-8 gap is currently reported as a collision, diverging from the oracle's false. If \
-         this backend has gained a sign check on `contact.dist`, re-measure octree case 4 before \
-         accepting the change: that pair is exactly touching, the oracle reports true, and parry \
-         puts it just above zero, so a strict sign test breaks it (module doc)"
+        !narrow_collides,
+        "a 3e-8 gap must not be reported as a collision, matching the oracle's false -- if this \
+         flips back to true, touches_at_tie's out-of-band fallback has regressed to treating any \
+         `Some` as a touch, the defect this test exists to catch"
     );
 }
 
@@ -272,8 +293,9 @@ fn no_sentinel_escapes_at_the_tie() {
 }
 
 /// The magnitude behind "the tie is decided below one ulp", measured rather
-/// than asserted, so §218's claim that no tolerance closes the prbt `bool`
-/// clause rests on a number.
+/// than asserted -- and, separately, which side of it `touches_at_tie`
+/// decides, which is a per-shape-pair table lookup and not a function of that
+/// magnitude at all.
 ///
 /// The true gap at offset `0.0` is exactly zero. Whatever this backend reports
 /// there is its own rounding in composing the link pose; pinning that it is
@@ -285,12 +307,16 @@ fn the_tie_is_decided_below_one_ulp() {
     assert!(
         distance != 0.0 && distance.abs() < 1e-15,
         "at the exact tie this backend reports {distance}; the claim that the prbt bool \
-         disagreement is a sub-ulp tie rather than a modelling error needs it nonzero and far \
-         below any tolerance either backend could agree on"
+         disagreement used to be a sub-ulp tie rather than a modelling error needs it nonzero \
+         and far below any tolerance either backend could agree on"
     );
     assert!(
-        collides,
-        "the tie falls on the colliding side, which is *why* prbt's bool clause disagrees with \
-         the oracle's false -- if this flips, §218's 6,854/10,000 is stale"
+        !collides,
+        "the tie now falls on the non-colliding side: `cylinder x box` is one of \
+         fcl_tangency_table::SPECIALISED's false cells, and touches_at_tie routes this pair's \
+         sub-ulp dist through that table rather than through a sign test. This is why §218.3's \
+         6,854/10,000 prbt `collision: bool` mismatch re-measures at 0/10,000 \
+         (tools/ci/verify-phase3-collision-sweep.sh, 2026-08-07, seed 1) -- if this flips back to \
+         true, that re-measurement is stale"
     );
 }

@@ -113,39 +113,31 @@
 //! for why that recovery is gated to table-true, non-`Conditional` pairs
 //! rather than a blanket substitution.
 //!
-//! Measured by the tests below, not the naive "restrict fcl's table to this
-//! crate's five kinds" prediction: **19 of 25 pairs collide at exact
-//! tangency, not 24.** `box x cylinder`/`cylinder x box` and `box x
-//! cone`/`cone x box` are the four pairs the table *cannot* reach: their
-//! measured `dist` at this exact construction is a tiny nonzero value
-//! (`3.661568089044567e-33` for `box x cylinder`, `-1.1102230246251565e-16`
-//! for `cylinder x box`, `7.850462293418875e-17` for `box x cone`,
-//! `-1.1102230246251565e-16` for `cone x box` -- opposite signs for the same
-//! pair in opposite argument order), not binary `0.0`, even though every
-//! input length here is exactly representable in binary. That is GJK's own
-//! rounding during iteration, not the geometry, and it is the same
-//! phenomenon `accumulate_collision`'s own comment already documents for
-//! prbt's cylinder-on-box tie (`-2.775558e-17`) -- this file independently
-//! confirms it is not particular to that one fixture, nor to one shape-kind
-//! pair.
+//! Measured before `touches_at_tie` existed, and still true of the raw
+//! `query::contact` output it now sits in front of: `box x cylinder`/
+//! `cylinder x box` and `box x cone`/`cone x box` measure a tiny nonzero
+//! `dist` at this exact construction (`3.661568089044567e-33` for `box x
+//! cylinder`, `-1.1102230246251565e-16` for `cylinder x box`,
+//! `7.850462293418875e-17` for `box x cone`, `-1.1102230246251565e-16` for
+//! `cone x box` -- opposite signs for the same pair in opposite argument
+//! order), not binary `0.0`, even though every input length here is exactly
+//! representable in binary. That is GJK's own rounding during iteration, not
+//! the geometry, and it is the same phenomenon `accumulate_collision`'s own
+//! comment already documents for prbt's cylinder-on-box tie
+//! (`-2.775558e-17`) -- this file independently confirms it is not
+//! particular to that one fixture, nor to one shape-kind pair, nor even to
+//! these four: `parry.rs`'s `TIE_ROUNDING_MARGIN` doc has the full sweep,
+//! including a `cylinder x cylinder` tie that rounds nonzero too.
 //!
-//! Restricted to the four kinds upstream's own wrapper measurement
-//! (`box`/`sphere`/`cylinder`/`mesh`, PORTING-PLAN.md §251.2 as of the tree
-//! this table was generated from -- `cone` was never measured through the
-//! wrapper, only through fcl directly) actually covers, at all three
-//! offsets `a_nanometre_either_side_of_the_tie_brackets_it` sweeps: 4 of 48
-//! (pair, offset) cells disagree now, down from 6. `cylinder x cylinder` at
-//! `0` and `sphere x sphere` at `0` are both fixed by the table port; the
-//! remaining 4 are `box x cylinder` and `cylinder x box` at both `0` and
-//! `+1e-9`, all one cause -- this backend's positive margin (§229.2) plus
-//! the nonzero-tie rounding above, which puts this one pair's `dist` on the
-//! same side of `0.0` at both offsets regardless of which nominal gap was
-//! asked for.
-//!
-//! Making the port uniform (closing those last 4) is not attempted here: the
-//! nonzero tie is not a boundary this table -- or any table keyed on shape
-//! kind alone -- can decide, since fcl's own dispatch is reached at `dist ==
-//! 0.0` exactly and this pair's measured `dist` never is one.
+//! `accumulate_collision`/`accumulate_distance` no longer key this decision
+//! on the literal bit pattern `dist == 0.0` -- `touches_at_tie`
+//! (`crates/moveit-collision/src/parry.rs`) treats any `dist` within
+//! `TIE_ROUNDING_MARGIN * f64::EPSILON * scale` of zero as this same
+//! rounding, not a real answer, and consults the dispatch table there
+//! instead of trusting the sign. All 25 cells below are decided by the
+//! table now, matching upstream exactly: the naive "restrict fcl's table to
+//! this crate's five kinds" prediction was correct all along, and the
+//! rounding above no longer keeps four pairs from reaching it.
 //!
 //! # Cost
 //!
@@ -181,44 +173,41 @@ const KINDS: [Kind; 5] = [
 
 /// The pinned answer at a gap of exactly zero, rows indexed by the upper
 /// (attached) shape and columns by the lower (world) shape, both in [`KINDS`]
-/// order. Measured, not predicted -- and not simply fcl's table transcribed:
-/// `accumulate_collision` only consults fcl's dispatch table when
-/// `contact.dist == 0.0` exactly, and four of the twenty-five pairs built
-/// here -- `box x cylinder`, `cylinder x box`, `box x cone`, `cone x box`
-/// -- land at a nonzero-but-tiny `dist` instead (measured
-/// `3.661568089044567e-33` for `box x cylinder`, `-1.1102230246251565e-16`
-/// for `cylinder x box`, `7.850462293418875e-17` for `box x cone`,
-/// `-1.1102230246251565e-16` for `cone x box` -- opposite signs for the
-/// same pair in opposite argument order, GJK's own rounding rather than
-/// anything about the input geometry, which is exactly representable in
-/// binary on both sides) and so keep the pre-existing unconditional-`Some`
-/// answer no matter what the table says for that kind pair. `parry.rs`'s
-/// own module doc has the accounting; the short version is 7 of 25 cells
-/// moved here, not the naive "restrict fcl's table to this crate's five
-/// kinds" count.
+/// order. Measured, not predicted, but now equal to fcl's table transcribed
+/// (`fcl_tangency_table::SPECIALISED`, extended with mesh's own unconditional
+/// `true` row/column): `accumulate_collision`/`accumulate_distance` no longer
+/// key the dispatch-table lookup on the literal bit pattern `dist == 0.0`.
+/// Four of the twenty-five pairs built here -- `box x cylinder`, `cylinder x
+/// box`, `box x cone`, `cone x box` -- land at a nonzero-but-tiny `dist`
+/// instead of exact `0.0` (measured `3.661568089044567e-33` for `box x
+/// cylinder`, `-1.1102230246251565e-16` for `cylinder x box`,
+/// `7.850462293418875e-17` for `box x cone`, `-1.1102230246251565e-16` for
+/// `cone x box` -- opposite signs for the same pair in opposite argument
+/// order, GJK's own rounding rather than anything about the input geometry,
+/// which is exactly representable in binary on both sides), but
+/// `touches_at_tie`'s rounding band (`parry.rs`, `TIE_ROUNDING_MARGIN`)
+/// reaches all four, so every cell here is decided by the table now.
 const TANGENT: [[bool; 5]; 5] = [
     //        box   sphere  cyl    cone   mesh
-    [true, true, true, true, true],    // box
-    [true, true, true, false, true],   // sphere
-    [true, true, false, false, true],  // cylinder
-    [true, false, false, false, true], // cone
-    [true, true, true, true, true],    // mesh
+    [true, true, false, false, true],   // box
+    [true, true, true, false, true],    // sphere
+    [false, true, false, false, true],  // cylinder
+    [false, false, false, false, true], // cone
+    [true, true, true, true, true],     // mesh
 ];
 
-/// The pinned answer across a `1e-9` gap of clear air. Upstream answers
-/// `false` for all 25; the three `true` cells are this backend's positive
-/// margin (`exact_tangency_boundary.rs`, `the_collision_boundary_sits_in_a_
-/// positive_gap`) showing that it too is per-shape-pair, and that it is not
-/// even symmetric in the pair's order -- `cone x box` is `true` where `box x
-/// cone` is `false`.
-const CLEARANCE: [[bool; 5]; 5] = [
-    //        box   sphere  cyl    cone   mesh
-    [false, false, true, false, false],  // box
-    [false, false, false, false, false], // sphere
-    [true, false, false, false, false],  // cylinder
-    [true, false, false, false, false],  // cone
-    [false, false, false, false, false], // mesh
-];
+/// The pinned answer across a `1e-9` gap of clear air: `false` for all 25,
+/// matching upstream exactly. It was not always -- `box x cylinder`,
+/// `cylinder x box` and `cone x box` used to read `true` here, this
+/// backend's positive margin (`exact_tangency_boundary.rs`,
+/// `the_collision_boundary_sits_in_a_positive_gap`) reaching a `Some`
+/// `query::contact` result that the pre-`touches_at_tie` code took as an
+/// unconditional touch. `touches_at_tie` still lets that `Some` through
+/// (`1e-9` is many orders of magnitude past `TIE_ROUNDING_MARGIN * EPS *
+/// scale`, so `dist`'s own sign decides, not the table), but the measured
+/// `dist` at a real `1e-9` gap is itself positive for all three, so the sign
+/// now agrees with upstream instead of being discarded.
+const CLEARANCE: [[bool; 5]; 5] = [[false; 5]; 5];
 
 /// Half the extent of every shape below, along every axis. Exactly
 /// representable in binary, so `LOWER_CENTRE_Z + HALF` and `HALF` are exact
