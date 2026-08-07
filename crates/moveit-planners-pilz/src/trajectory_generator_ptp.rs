@@ -44,7 +44,9 @@ use moveit_state::Posed;
 use moveit_trajectory::RobotTrajectory;
 
 use crate::limits::JointLimit;
-use crate::trajectory_functions::{IkContext, compute_pose_ik, constraint_pose, push_way_point};
+use crate::trajectory_functions::{
+    IkContext, compute_pose_ik, constraint_pose, push_way_point, resolve_goal_frame,
+};
 use crate::trajectory_generator::{
     Goal, MotionPlanInfo, MotionPlanRequest, PilzGenerator, TrajectoryGenerator,
 };
@@ -148,13 +150,15 @@ where
             }
             Goal::Cartesian {
                 link_name,
+                frame,
                 position,
                 orientation,
                 target_point_offset,
             } => {
                 info.link_name = link_name.clone();
                 let robot_model = self.base.robot_model();
-                info.goal_pose = constraint_pose(position, orientation, target_point_offset);
+                let local_pose = constraint_pose(position, orientation, target_point_offset);
+                info.goal_pose = resolve_goal_frame(ctx, frame.as_deref())? * local_pose;
 
                 let params = SolverParams::default();
                 let mut solver =

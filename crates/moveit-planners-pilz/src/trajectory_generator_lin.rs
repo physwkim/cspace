@@ -68,7 +68,7 @@ use moveit_trajectory::RobotTrajectory;
 use crate::path_line::PathLine;
 use crate::trajectory_functions::{
     CartesianPath, IkContext, compute_link_fk, compute_pose_ik, constraint_pose,
-    generate_joint_trajectory, solver_tip_frame,
+    generate_joint_trajectory, resolve_goal_frame, solver_tip_frame,
 };
 use crate::trajectory_generator::{
     Goal, MotionPlanInfo, MotionPlanRequest, PilzGenerator, TrajectoryGenerator,
@@ -146,12 +146,14 @@ where
             }
             Goal::Cartesian {
                 link_name,
+                frame,
                 position,
                 orientation,
                 target_point_offset,
             } => {
                 info.link_name = link_name.clone();
-                info.goal_pose = constraint_pose(position, orientation, target_point_offset);
+                let local_pose = constraint_pose(position, orientation, target_point_offset);
+                info.goal_pose = resolve_goal_frame(ctx, frame.as_deref())? * local_pose;
 
                 let params = SolverParams::default();
                 let mut solver =
@@ -257,5 +259,127 @@ impl CartesianPath for LinSegment {
 
     fn pos(&self, t: f64) -> Isometry3 {
         self.path.pos(self.velocity_profile.pos(t))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::fs;
+    use std::sync::Arc;
+
+    use approx::assert_relative_eq;
+    use moveit_collision::{LinkPaddingScale, ParryCollisionEnv};
+    use moveit_geometry::{UnitQuaternion, Vector3};
+    use moveit_model::{MeshSearchPaths, RobotModel};
+    use moveit_scene::PlanningScene;
+    use moveit_srdf::SrdfModel;
+
+    use super::*;
+    use crate::limits::LimitsContainer;
+    use crate::trajectory_generator::StartState;
+
+    fn fixture_mesh_search_paths() -> MeshSearchPaths {
+        let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
+        MeshSearchPaths::new([(
+            "moveit_resources_panda_description",
+            format!("{meshes_root}/panda_description"),
+        )])
+    }
+
+    fn load_panda() -> (RobotModel, SrdfModel) {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+        let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
+        let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &fixture_mesh_search_paths())
+                .expect("fixture model must build");
+        (model, srdf)
+    }
+
+    /// panda.srdf's `"ready"` named state for `panda_arm`.
+    fn ready_positions() -> HashMap<String, f64> {
+        [
+            ("panda_joint1", 0.0),
+            ("panda_joint2", -0.785),
+            ("panda_joint3", 0.0),
+            ("panda_joint4", -2.356),
+            ("panda_joint5", 0.0),
+            ("panda_joint6", 1.571),
+            ("panda_joint7", 0.785),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect()
+    }
+
+    /// Upstream: `PositionConstraint::header.frame_id = "panda_link8"`,
+    /// `position = (0, 0, 0.1)` -- 10cm along local Z off the flange, not off
+    /// the world origin. `extractMotionPlanInfo` resolves this via
+    /// `scene->getFrameTransform("panda_link8") * getConstraintPose(...)`
+    /// before any IK is attempted -- see `trajectory_generator.rs`'s own
+    /// module doc for the full upstream citation.
+    ///
+    /// [`Goal::Cartesian`] had no field to carry `"panda_link8"` at all
+    /// before this fix: this exact test (`goal: Goal::Cartesian { frame:
+    /// Some("panda_link8".to_string()), .. }`) does not compile against the
+    /// pre-fix type -- "cannot be represented", not merely "computed wrong".
+    #[test]
+    fn cartesian_goal_in_a_named_frame_resolves_relative_to_that_frames_current_pose() {
+        let (model, srdf) = load_panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        scene
+            .current_state_mut()
+            .set_variable_positions_by_name(&ready_positions())
+            .unwrap();
+        let scene = Arc::new(scene);
+        let env =
+            ParryCollisionEnv::new(moveit_collision::World::new(), LinkPaddingScale::default());
+        let ctx = IkContext {
+            scene: &scene,
+            env: &env,
+            check_self_collision: false,
+        };
+
+        // panda_link8's own pose at "ready", computed independently of the
+        // code under test.
+        let mut fk_state = scene.current_state().clone();
+        let link8_pose = compute_link_fk(&mut fk_state, "panda_link8", &ready_positions()).unwrap();
+
+        let base = TrajectoryGenerator::new(&model, LimitsContainer::new());
+        let generator = TrajectoryGeneratorLin::new(base, "panda_arm");
+        let req = MotionPlanRequest {
+            group_name: "panda_arm".to_string(),
+            start_state: StartState {
+                position: ready_positions(),
+                velocity: HashMap::new(),
+            },
+            goal: Goal::Cartesian {
+                link_name: "panda_link8".to_string(),
+                frame: Some("panda_link8".to_string()),
+                position: Vector3::new(0.0, 0.0, 0.1),
+                orientation: UnitQuaternion::identity(),
+                target_point_offset: Vector3::zeros(),
+            },
+            max_velocity_scaling_factor: 1.0,
+            max_acceleration_scaling_factor: 1.0,
+            path_constraints: None,
+        };
+        let mut info = MotionPlanInfo::new(&scene, &req).unwrap();
+        generator
+            .extract_motion_plan_info(&ctx, &req, &mut info)
+            .expect("panda_link8 is reachable from itself with a pure-Z offset");
+
+        let expected = link8_pose * nalgebra::Translation3::new(0.0, 0.0, 0.1);
+        assert_relative_eq!(
+            info.goal_pose.translation.vector,
+            expected.translation.vector,
+            epsilon = 1e-9
+        );
+        // Not 10cm off the world origin, which is what today's un-transformed
+        // `constraint_pose(position, orientation, target_point_offset)` alone
+        // would compute.
+        assert!(info.goal_pose.translation.vector.z - 0.1 > 1e-3);
     }
 }

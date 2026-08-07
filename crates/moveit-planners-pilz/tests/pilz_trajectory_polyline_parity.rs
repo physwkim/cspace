@@ -265,6 +265,7 @@ fn cartesian_goal(f: &GoalFixture) -> Goal {
     let [x, y, z, w] = f.orientation;
     Goal::Cartesian {
         link_name: f.link_name.clone(),
+        frame: None,
         position: Vector3::new(f.position[0], f.position[1], f.position[2]),
         orientation: UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(w, x, y, z)),
         target_point_offset: Vector3::new(0.0, 0.0, 0.0),
@@ -526,6 +527,7 @@ fn polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has() {
     }));
     corrected.goal = Goal::Cartesian {
         link_name: request.goal.link_name.clone(),
+        frame: None,
         position: w[2].translation.vector,
         orientation: UnitQuaternion::from_rotation_matrix(&w[2].rotation.to_rotation_matrix()),
         target_point_offset: Vector3::new(0.0, 0.0, 0.0),

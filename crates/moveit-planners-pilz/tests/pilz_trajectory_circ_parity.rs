@@ -255,6 +255,9 @@ fn path_constraint(f: PathConstraintFixture) -> PathConstraints {
     PathConstraints::Circ(CircPathConstraint {
         kind,
         link_name: f.link_name,
+        // The oracle's fixture has no `frame_id` field for the path
+        // constraint either -- always the model frame.
+        frame: None,
         point: Vector3::new(f.position[0], f.position[1], f.position[2]),
     })
 }
@@ -264,6 +267,7 @@ fn cartesian_goal(f: GoalFixture) -> Goal {
     let [x, y, z, w] = f.orientation;
     Goal::Cartesian {
         link_name: f.link_name,
+        frame: None,
         position: Vector3::new(f.position[0], f.position[1], f.position[2]),
         orientation: UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(w, x, y, z)),
         target_point_offset: Vector3::new(0.0, 0.0, 0.0),

@@ -170,6 +170,10 @@ fn goal_from_fixture(g: &GoalFixture) -> Goal {
     let [x, y, z, w] = g.orientation;
     Goal::Cartesian {
         link_name: g.link_name.clone(),
+        // The oracle's own request fixtures never vary `header.frame_id`
+        // (its JSON schema has no such field) -- every fixture goal is
+        // already in the model frame.
+        frame: None,
         position: Vector3::new(g.position[0], g.position[1], g.position[2]),
         orientation: UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(w, x, y, z)),
         target_point_offset: Vector3::new(0.0, 0.0, 0.0),
