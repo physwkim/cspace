@@ -15,9 +15,10 @@ use nalgebra::DMatrix;
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Vector3};
-use moveit_model::RobotModel;
-use moveit_model::joint::{JointKind, JointModel};
+use moveit_model::joint::{JointKind, JointModel, PlanarJoint};
+use moveit_model::{JointModelGroup, RobotModel};
 use rand::{Rng, RngExt};
+use rand_distr::StandardNormal;
 
 /// An index into [`RobotModel::joint_models`](moveit_model::RobotModel::joint_models).
 ///
@@ -411,6 +412,79 @@ impl<'m> RobotState<'m> {
         self.has_velocity = true;
     }
 
+    /// `setVariableVelocities(const std::map<std::string, double>&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any key is not a variable in this model.
+    /// Upstream throws partway through the map on the first unknown key,
+    /// leaving earlier entries already applied; this port does the same —
+    /// see [`RobotState::set_variable_positions_by_name`]'s doc comment for
+    /// why the differing iteration order is immaterial.
+    pub fn set_variable_velocities_by_name(&mut self, values: &HashMap<String, f64>) -> Result<()> {
+        for (name, &value) in values {
+            self.set_variable_velocity(name, value)?;
+        }
+        Ok(())
+    }
+
+    /// `setVariableVelocities(const std::map<std::string, double>&,
+    /// std::vector<std::string>&)`: as
+    /// [`RobotState::set_variable_velocities_by_name`], plus every model
+    /// variable absent from `values` (see [`RobotState::missing_keys`]).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any key is not a variable in this model.
+    pub fn set_variable_velocities_by_name_and_missing(
+        &mut self,
+        values: &HashMap<String, f64>,
+    ) -> Result<Vec<String>> {
+        self.set_variable_velocities_by_name(values)?;
+        Ok(self.missing_keys(values))
+    }
+
+    /// `setVariableVelocities(const std::vector<std::string>&, const
+    /// std::vector<double>&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any name is not a variable in this model.
+    pub fn set_variable_velocities_named(&mut self, names: &[&str], values: &[f64]) -> Result<()> {
+        debug_assert_eq!(names.len(), values.len());
+        for (&name, &value) in names.iter().zip(values) {
+            self.set_variable_velocity(name, value)?;
+        }
+        Ok(())
+    }
+
+    /// `setJointVelocities(const JointModel*, const double*)`: one joint's
+    /// own variables. Unlike [`RobotState::set_joint_positions`], upstream's
+    /// `setJointVelocities` does not mark anything dirty and does not
+    /// propagate to mimic joints — it only writes `velocity_` and
+    /// `has_velocity_`, so this port matches that (no
+    /// [`RobotState::mark_dirty`] / [`RobotState::update_mimic_joint`]
+    /// calls here).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no joint is named `name`.
+    ///
+    /// # Panics
+    ///
+    /// If `values.len()` does not equal the joint's own variable count.
+    pub fn set_joint_velocities(&mut self, name: &str, values: &[f64]) -> Result<()> {
+        let joint_index = self.joint_index(name)?;
+        let joint = self.model.joint_model_at(joint_index);
+        if joint.variable_count() == 0 {
+            return Ok(());
+        }
+        let first = self.first_variable_index[joint_index];
+        self.velocity[first..first + joint.variable_count()].copy_from_slice(values);
+        self.has_velocity = true;
+        Ok(())
+    }
+
     /// `invertVelocity`: negate every velocity in place, a no-op when no
     /// velocity has been set. Upstream's `invertVelocity` negates only
     /// velocity, not acceleration, despite what a "reversing a trajectory"
@@ -455,6 +529,57 @@ impl<'m> RobotState<'m> {
     pub fn set_variable_acceleration_at(&mut self, index: usize, value: f64) {
         self.acceleration[index] = value;
         self.has_acceleration = true;
+    }
+
+    /// `setVariableAccelerations(const std::map<std::string, double>&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any key is not a variable in this model.
+    /// See [`RobotState::set_variable_velocities_by_name`]'s doc comment for
+    /// the error-partway-through-the-map behavior this matches.
+    pub fn set_variable_accelerations_by_name(
+        &mut self,
+        values: &HashMap<String, f64>,
+    ) -> Result<()> {
+        for (name, &value) in values {
+            self.set_variable_acceleration(name, value)?;
+        }
+        Ok(())
+    }
+
+    /// `setVariableAccelerations(const std::map<std::string, double>&,
+    /// std::vector<std::string>&)`: as
+    /// [`RobotState::set_variable_accelerations_by_name`], plus every model
+    /// variable absent from `values` (see [`RobotState::missing_keys`]).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any key is not a variable in this model.
+    pub fn set_variable_accelerations_by_name_and_missing(
+        &mut self,
+        values: &HashMap<String, f64>,
+    ) -> Result<Vec<String>> {
+        self.set_variable_accelerations_by_name(values)?;
+        Ok(self.missing_keys(values))
+    }
+
+    /// `setVariableAccelerations(const std::vector<std::string>&, const
+    /// std::vector<double>&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if any name is not a variable in this model.
+    pub fn set_variable_accelerations_named(
+        &mut self,
+        names: &[&str],
+        values: &[f64],
+    ) -> Result<()> {
+        debug_assert_eq!(names.len(), values.len());
+        for (&name, &value) in names.iter().zip(values) {
+            self.set_variable_acceleration(name, value)?;
+        }
+        Ok(())
     }
 
     /// `getVariableEffort(const std::string&)`
@@ -595,6 +720,26 @@ impl<'m> RobotState<'m> {
         Ok(())
     }
 
+    /// `getMissingKeys`: every model variable name absent from
+    /// `variable_map`, excluding variables whose owning joint mimics
+    /// another — a mimic's value is derived from its master rather than
+    /// independently settable, so upstream does not count it as missing.
+    /// Returned in [`RobotModel::variable_names`] order, matching upstream's
+    /// iteration order over the same list.
+    pub fn missing_keys(&self, variable_map: &HashMap<String, f64>) -> Vec<String> {
+        self.model
+            .variable_names()
+            .iter()
+            .enumerate()
+            .filter(|(_, name)| !variable_map.contains_key(name.as_str()))
+            .filter(|&(index, _)| {
+                let joint_index = self.joint_of_variable[index];
+                self.model.joint_model_at(joint_index).mimic().is_none()
+            })
+            .map(|(_, name)| name.clone())
+            .collect()
+    }
+
     /// `setJointPositions(const JointModel*, const double*)`: one joint's
     /// own variables. Propagates to any joint that mimics this one.
     ///
@@ -663,6 +808,31 @@ impl<'m> RobotState<'m> {
         self.dirty = Some(self.root_joint_index);
     }
 
+    /// `setToDefaultValues(group, name)`: `group`'s SRDF `<group_state>`
+    /// named `name`, via [`JointModelGroup::variable_default_positions`].
+    /// Returns whether such a state was found.
+    ///
+    /// Upstream builds a `std::map` from
+    /// `JointModelGroup::getVariableDefaultPositions` and always forwards it
+    /// to `setVariablePositions(map)`, even when the lookup failed and the
+    /// map is empty — an empty map makes that call a no-op, so this port
+    /// short-circuits instead of building and applying an empty map; the
+    /// observable behavior (state unchanged, `false` returned) is the same.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    pub fn set_to_default_values_group(&mut self, group_name: &str, name: &str) -> Result<bool> {
+        let group = self.model.joint_model_group(group_name)?;
+        let Some(defaults) = group.variable_default_positions(name) else {
+            return Ok(false);
+        };
+        for (variable_name, &value) in defaults {
+            self.set_variable_position(variable_name, value)?;
+        }
+        Ok(true)
+    }
+
     /// `setToRandomPositions()`, sampling with a caller-supplied RNG.
     ///
     /// Upstream owns a lazily-seeded `random_numbers::RandomNumberGenerator`
@@ -684,6 +854,85 @@ impl<'m> RobotState<'m> {
         }
         self.propagate_all_mimics();
         self.dirty = Some(self.root_joint_index);
+    }
+
+    /// `setToRandomPositionsNearBy(group, seed, distance, rng)`: every
+    /// active joint in `group` sampled near its value in `seed`, all with
+    /// the same `distance`, via [`sample_random_positions_near_by`].
+    ///
+    /// Upstream exposes this both with and without an explicit RNG
+    /// parameter; this port only ever takes one explicit RNG, matching
+    /// [`RobotState::set_to_random_positions_with`]'s own deviation (see its
+    /// doc comment).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    pub fn set_to_random_positions_near_by_group(
+        &mut self,
+        group_name: &str,
+        seed: &Self,
+        distance: f64,
+        rng: &mut impl Rng,
+    ) -> Result<()> {
+        let model = self.model;
+        let group = model.joint_model_group(group_name)?;
+        for &joint_index in group.active_joint_indices() {
+            let joint = model.joint_model_at(joint_index);
+            let first = self.first_variable_index[joint_index];
+            let count = joint.variable_count();
+            sample_random_positions_near_by(
+                joint,
+                rng,
+                &seed.positions[first..first + count],
+                distance,
+                &mut self.positions[first..first + count],
+            );
+        }
+        self.update_mimic_joints_group(group);
+        Ok(())
+    }
+
+    /// `setToRandomPositionsNearBy(group, seed, distances, rng)`: as
+    /// [`RobotState::set_to_random_positions_near_by_group`], but with a
+    /// per-joint distance instead of one shared by every joint.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group_name`.
+    ///
+    /// # Panics
+    ///
+    /// If `distances.len()` is less than `group_name`'s active joint count.
+    /// Upstream reads this unchecked past a debug-only `assert(distances.size()
+    /// == joints.size())` — indexing `distances[i]` here fails the same way
+    /// a release build's out-of-bounds read would, rather than silently
+    /// truncating (which a `zip` over the two slices would do instead). A
+    /// `distances` longer than the active joint count is not an error,
+    /// matching upstream: the extra entries are simply never read.
+    pub fn set_to_random_positions_near_by_group_with_distances(
+        &mut self,
+        group_name: &str,
+        seed: &Self,
+        distances: &[f64],
+        rng: &mut impl Rng,
+    ) -> Result<()> {
+        let model = self.model;
+        let group = model.joint_model_group(group_name)?;
+        for (i, &joint_index) in group.active_joint_indices().iter().enumerate() {
+            let joint = model.joint_model_at(joint_index);
+            let first = self.first_variable_index[joint_index];
+            let count = joint.variable_count();
+            sample_random_positions_near_by(
+                joint,
+                rng,
+                &seed.positions[first..first + count],
+                distances[i],
+                &mut self.positions[first..first + count],
+            );
+        }
+        self.update_mimic_joints_group(group);
+        Ok(())
     }
 
     // ---- Interpolation --------------------------------------------------
@@ -1034,6 +1283,32 @@ impl<'m> RobotState<'m> {
         }
         for follower_index in self.mimic_requests[joint_index].clone() {
             self.write_mimic(follower_index);
+        }
+    }
+
+    /// `RobotState::updateMimicJoints(const JointModelGroup*)`: every mimic
+    /// joint in `group`, derived from its master's *current* value, plus a
+    /// dirty mark on every one of `group`'s own active joints. Used by
+    /// [`RobotState::set_to_random_positions_near_by_group`] and
+    /// [`RobotState::set_to_random_positions_near_by_group_with_distances`]
+    /// after they have already written every active joint's value.
+    ///
+    /// Upstream's version marks each mimic joint dirty individually (which
+    /// [`RobotState::write_mimic`] already does here) and then marks the
+    /// group's *own* active joints dirty too, expanding the tracked dirty
+    /// region to their common root
+    /// (`markDirtyJointTransforms(const JointModelGroup*)`,
+    /// `robot_state.hpp:1686`). This port has no per-joint dirty-transform
+    /// array to set — [`RobotState::dirty`] already collapses to a single
+    /// common-root marker — so folding every active joint through
+    /// [`RobotState::mark_dirty`] is the literal translation of that
+    /// expansion, not an approximation of it.
+    fn update_mimic_joints_group(&mut self, group: &JointModelGroup) {
+        for &mimic_index in group.mimic_joint_indices() {
+            self.write_mimic(mimic_index);
+        }
+        for &joint_index in group.active_joint_indices() {
+            self.mark_dirty(joint_index);
         }
     }
 

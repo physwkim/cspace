@@ -14,6 +14,7 @@ moveit-geometry.workspace = true
 moveit-model.workspace = true
 nalgebra.workspace = true
 rand.workspace = true
+rand_distr.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
