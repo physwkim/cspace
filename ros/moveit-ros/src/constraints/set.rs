@@ -26,7 +26,9 @@ use super::visibility::{VisibilityConstraintMsg, VisibilityConstraintMsgOut};
 /// Wraps the wire message with the `&RobotModel` needed by every element
 /// conversion (§3).
 pub struct ConstraintsMsg<'m> {
+    /// Passed through to every element conversion.
     pub model: &'m RobotModel,
+    /// The wire message, unmodified.
     pub msg: moveit_msgs::Constraints,
 }
 

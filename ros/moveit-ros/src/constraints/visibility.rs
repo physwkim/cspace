@@ -76,7 +76,9 @@ impl TryFrom<SensorViewDirection> for SensorViewDirectionMsg {
 /// Wraps the wire message with the `&RobotModel` needed to resolve
 /// `sensor_pose`/`target_pose`'s `header.frame_id` (§7).
 pub struct VisibilityConstraintMsg<'m> {
+    /// Resolves `msg.sensor_pose`'s and `msg.target_pose`'s `header.frame_id`.
     pub model: &'m RobotModel,
+    /// The wire message, unmodified.
     pub msg: moveit_msgs::VisibilityConstraint,
 }
 
