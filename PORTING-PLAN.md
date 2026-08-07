@@ -27131,7 +27131,9 @@ DDS 위에서 실제로 잰 것(`sg docker -c ./tools/ci/verify-ros-interop.sh`,
   상류 `copyPlanningScene(planning_options.planning_scene_diff)`
   (`move_action_capability.cpp:216-217`)의 **인자**다: goal 안에 세계를 실어
   보내는 클라이언트는 자기가 요청한 것보다 빈 씬을 상대로 계획하고, 그
-  사실은 wire 위 어디에도 적히지 않는다.
+  사실은 wire 위 어디에도 적히지 않는다. OPEN → 만료 조건
+  (`ros/moveit-ros/src/bin/move_group.rs`의 액션 핸들러가
+  `goal.planning_options.planning_scene_diff`를 읽어 씬에 반영하게 되면).
 - **chomp/stomp/pilz는 `PlannerManager`가 아니다.** §266.2에서 distinct로
   분류한 부재다. 셋 다 자유 함수 입구를 갖고 어느 레지스트리에도 없으므로
   `pipeline_id`로 고를 수 없다. 이름 충돌 결함이 아니라 별도의 이식 작업이다.
