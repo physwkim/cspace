@@ -526,6 +526,7 @@ pub trait DistanceField {
 /// mutation was reverted after confirming.
 #[cfg(test)]
 mod tests {
+    use moveit_test_support::KnownOracleDeviation;
     use serde::Deserialize;
 
     use super::*;
@@ -1244,5 +1245,54 @@ mod tests {
             "2.0 * (1.0 / (2.0 * 0.51)) = 2.0 * 0.980392... ; upstream's int field narrows \
              that multiplier to 0 and zeroes the gradient entirely"
         );
+    }
+
+    /// `inv-twice-resolution-int-truncation`
+    /// (`distance_field.hpp:614`, `distance_field.cpp:67,91-93`, fixed at
+    /// `a16e048f`): the four pins above hand-compute their expected literal
+    /// once and freeze it, which catches a silent revert to truncating (the
+    /// literal stops matching) but never re-derives what upstream's cast
+    /// would actually produce, and never states out loud that this is the
+    /// one deviation in this file no oracle fixture can reach (see this
+    /// module's own doc comment on `distance_gradient` for why -- every
+    /// fixture resolution happens to make the truncation a no-op).
+    ///
+    /// This reproduces upstream's exact narrowing conversion --
+    /// `inv_twice_resolution_(1.0 / (2.0 * resolution_))` into a field
+    /// declared `int` -- as `(1.0 / (2.0 * resolution)) as i32 as f64` at
+    /// `resolution = 0.015`, the smallest-magnitude case in this file:
+    /// `1.0 / (2.0 * 0.015) = 33.333...` here, `33` under upstream's
+    /// truncation. Routing the comparison through [`KnownOracleDeviation`]
+    /// instead of one more bare literal means the gate itself, not just a
+    /// human rereading four separate numbers, is what answers "does this
+    /// still diverge" -- see that type's own doc comment
+    /// (`crates/moveit-test-support/src/lib.rs`).
+    #[test]
+    fn distance_gradient_multiplier_diverges_from_upstreams_truncated_int_field() {
+        let mut deviation = KnownOracleDeviation::new(
+            "distance_gradient's inv_twice_resolution multiplier",
+            "moveit_core/distance_field/include/moveit/distance_field/distance_field.hpp:614, \
+             moveit_core/distance_field/src/distance_field.cpp:67,91-93 \
+             (inv-twice-resolution-int-truncation)",
+            "a16e048f",
+        );
+
+        let resolution = 0.015;
+        let field = FixedXGradientField { resolution };
+        let gradient = field.distance_gradient(1.5, 1.5, 1.5);
+        assert!(gradient.in_bounds);
+
+        // Upstream's own narrowing conversion, reproduced exactly -- not
+        // derived from this port's own (unfixed) code path, which no
+        // longer performs this cast at all.
+        #[allow(clippy::cast_possible_truncation)]
+        let upstream_gradient_x = 2.0 * ((1.0 / (2.0 * resolution)) as i32 as f64);
+
+        deviation.observe(
+            &format!("resolution={resolution}"),
+            &upstream_gradient_x,
+            &gradient.gradient.x,
+        );
+        deviation.finish();
     }
 }
