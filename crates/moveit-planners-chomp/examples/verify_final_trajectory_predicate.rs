@@ -103,94 +103,15 @@ const PORT_SEED_BASE: u64 = 700_001;
 /// 50) and is reproducible regardless of machine load.
 const NO_CLOCK_BOUND: f64 = 1e9;
 
-const DISTANCE_FIELD_RESOLUTION: f64 = 0.02;
-
-fn distance_field_config() -> DistanceFieldConfig {
-    let size = Vector3::new(3.0, 3.0, 4.0);
-    let origin_center = Vector3::new(0.0, 0.0, 0.0);
-    DistanceFieldConfig {
-        geometry: GridGeometry::new(size, origin_center - 0.5 * size, DISTANCE_FIELD_RESOLUTION)
-            .expect("upstream's own default grid geometry must be constructible"),
-        max_propagation_distance: 0.25,
-        use_signed_distance_field: false,
-    }
-}
-
-fn fixture_mesh_search_paths() -> MeshSearchPaths {
-    let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
-    MeshSearchPaths::new([(
-        "moveit_resources_panda_description",
-        format!("{meshes_root}/panda_description"),
-    )])
-}
-
-fn load_panda() -> (RobotModel, SrdfModel) {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
-    let urdf_xml = std::fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
-    let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
-    let srdf = SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
-    let model =
-        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &fixture_mesh_search_paths())
-            .expect("fixture model must build");
-    (model, srdf)
-}
-
-struct Obstacle {
-    id: String,
-    shape: Arc<Shape>,
-    pose: Isometry3,
-}
-
-fn parse_obstacles(objects: &[serde_json::Value]) -> Vec<Obstacle> {
-    objects
-        .iter()
-        .map(|object| {
-            let id = object["id"]
-                .as_str()
-                .expect("object.id must be a string")
-                .to_string();
-            let size = object["shape"]["size"]
-                .as_array()
-                .expect("object.shape.size must be an array");
-            let (sx, sy, sz) = (
-                size[0].as_f64().unwrap(),
-                size[1].as_f64().unwrap(),
-                size[2].as_f64().unwrap(),
-            );
-            let pose_flat: [f64; 16] = object["pose"]
-                .as_array()
-                .expect("object.pose must be an array")
-                .iter()
-                .map(|v| v.as_f64().unwrap())
-                .collect::<Vec<f64>>()
-                .try_into()
-                .unwrap_or_else(|v: Vec<f64>| {
-                    panic!("object.pose must have 16 elements, got {}", v.len())
-                });
-            Obstacle {
-                id,
-                shape: Arc::new(Shape::Cuboid(
-                    Cuboid::new(sx, sy, sz).unwrap_or_else(|e| panic!("Cuboid::new: {e}")),
-                )),
-                pose: isometry_from_row_major(&pose_flat),
-            }
-        })
-        .collect()
-}
-
-fn joint_map_to_robot_state<'m>(
-    model: &'m RobotModel,
-    map: &BTreeMap<String, f64>,
-) -> RobotState<'m> {
-    let mut state = RobotState::new(model);
-    state.set_to_default_values();
-    for (name, value) in map {
-        state
-            .set_variable_position(name, *value)
-            .unwrap_or_else(|e| panic!("set_variable_position({name}): {e}"));
-    }
-    state
-}
+// `DISTANCE_FIELD_RESOLUTION`, `distance_field_config`,
+// `fixture_mesh_search_paths`, `load_panda`, `Obstacle`, `parse_obstacles`,
+// `joint_map_to_robot_state`, `build_collision_world` and
+// `mesh_to_mesh_collision_free_check` all live in `support/chomp_bench_world.rs`
+// now -- shared with `chomp_benchmark_port.rs` so this file's duplicate of
+// its construction cannot silently diverge from the binary it is verifying.
+// See that file's own header for why `include!` and not a `src/` module or
+// a second copy.
+include!("support/chomp_bench_world.rs");
 
 /// Everything one request's problems share, built once by [`main`]. Named
 /// lifetime for the same reason `chomp_benchmark_port.rs`'s own `Bench` has
@@ -243,23 +164,14 @@ impl<'m> Bench<'m> {
         let env = &self.env;
         let active_joint_names = &self.active_joint_names;
         let mesh_scene = &mut self.mesh_scene;
-        // Byte-for-byte `chomp_benchmark_port.rs`'s own `mesh_to_mesh` -- see
-        // this file's header for why duplicating it here is not a second
-        // implementation of the predicate.
+        // The same `mesh_to_mesh_collision_free_check` (`support/chomp_bench_world.rs`)
+        // `chomp_benchmark_port.rs` wires up -- one definition, so this file's
+        // in-loop check and its post-loop re-check below are provably the
+        // same predicate applied twice, not two implementations that happen
+        // to agree today. See this file's header for why the re-check is not
+        // a second implementation of the predicate.
         let mut mesh_to_mesh = move |start: &RobotState<'m>, best: &DMatrix<f64>| -> bool {
-            let mut waypoints = Vec::with_capacity(best.nrows());
-            for row in 0..best.nrows() {
-                let mut state = start.clone();
-                for (column, name) in active_joint_names.iter().enumerate() {
-                    state
-                        .set_variable_position(name, best[(row, column)])
-                        .expect("group joint names come from this model");
-                }
-                waypoints.push(state);
-            }
-            mesh_scene
-                .is_path_valid(env, &CollisionRequest::default(), &waypoints, None, &[])
-                .valid
+            mesh_to_mesh_collision_free_check(mesh_scene, env, active_joint_names, start, best)
         };
 
         let mut rng = ChaCha8Rng::seed_from_u64(PORT_SEED_BASE.wrapping_add(id));
@@ -393,37 +305,7 @@ fn main() {
             .expect("request.objects must be an array"),
     );
 
-    let mut world = World::new();
-    for obstacle in &obstacles {
-        world.add_shape(&obstacle.id, Arc::clone(&obstacle.shape), obstacle.pose);
-    }
-    let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
-
-    let field_config = distance_field_config();
-    let mut env_distance_field = PropagationDistanceField::new(
-        field_config.geometry,
-        field_config.max_propagation_distance,
-        field_config.use_signed_distance_field,
-    )
-    .expect("PropagationDistanceField::new with upstream's own defaults");
-    for obstacle in &obstacles {
-        env_distance_field
-            .add_shape_to_field(&obstacle.shape, &obstacle.pose)
-            .unwrap_or_else(|e| panic!("add_shape_to_field({}): {e}", obstacle.id));
-    }
-
-    let decompositions = add_link_body_decompositions(
-        &model,
-        DISTANCE_FIELD_RESOLUTION,
-        &LinkPaddingScale::new(),
-        None,
-    )
-    .expect("add_link_body_decompositions");
-    let cache = DistanceFieldCollisionCache::new(
-        decompositions,
-        distance_field_config(),
-        /* collision_tolerance, upstream DEFAULT_COLLISION_TOLERANCE */ 0.0,
-    );
+    let (env, env_distance_field, cache) = build_collision_world(&model, &obstacles);
 
     let acm = AllowedCollisionMatrix::from_srdf(&srdf);
     let params = ChompParameters {
