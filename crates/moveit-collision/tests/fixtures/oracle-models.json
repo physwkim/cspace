@@ -19,6 +19,10 @@
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
   },
+  "tangency_boundary_bside": {
+    "srdf": "prbt.srdf",
+    "urdf": "prbt.urdf"
+  },
   "world": {
     "srdf": "octree_world_robot.srdf",
     "urdf": "octree_world_robot.urdf"
