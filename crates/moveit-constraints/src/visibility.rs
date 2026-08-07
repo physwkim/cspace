@@ -759,3 +759,143 @@ fn allow_sensor_or_target_contact(sensor_frame: String, target_frame: String) ->
         false
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::fs;
+
+    use moveit_collision::AttachedBodyGeometry;
+    use moveit_geometry::Cuboid;
+    use moveit_model::MeshSearchPaths;
+    use moveit_srdf::SrdfModel;
+    use moveit_state::RobotState;
+
+    use super::*;
+
+    fn pr2_model() -> RobotModel {
+        let urdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/pr2.urdf");
+        let srdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/pr2.srdf");
+        let urdf_xml = fs::read_to_string(urdf_path).expect("read pr2.urdf");
+        let urdf = urdf_rs::read_file(urdf_path).expect("parse pr2.urdf");
+        let srdf = SrdfModel::parse_file(srdf_path).expect("parse pr2.srdf");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("build pr2 model")
+    }
+
+    /// Settles, empirically rather than only by reading the C++, whether
+    /// threading attached-body geometry through
+    /// [`VisibilityConstraint::cone_collision_result`] (currently hardcoded
+    /// `&[]`, see that fn's own doc comment) would change `decide()`'s
+    /// verdict for a cone an attached body occludes. Bypasses the hardcoded
+    /// `&[]` by calling `check_robot_collision` directly with a real
+    /// [`AttachedBodyGeometry`], reusing this module's own
+    /// `cone_mesh`/`allow_sensor_or_target_contact` -- the exact primitives
+    /// `cone_collision_result` itself assembles.
+    ///
+    /// Upstream `decideContact` (`kinematic_constraint.cpp:1185-1189`)
+    /// returns `true` (allowed, not a violation) for *any* contact where
+    /// either body is `ROBOT_ATTACHED`, unconditionally -- no frame-name
+    /// check, unlike the `ROBOT_LINK` branches right below it. So an
+    /// attached body touching the visibility cone can never make upstream's
+    /// `res.collision` true either: threading attached bodies through
+    /// `cone_collision_result` would be a no-op for `decide()`'s output,
+    /// not a fix for a live divergence.
+    #[test]
+    fn attached_body_touching_the_cone_is_not_an_occlusion() {
+        let model = pr2_model();
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let link_transform = posed.global_link_transform("base_bellow_link").unwrap();
+        let link_pos = link_transform.translation.vector;
+        let transforms = Transforms::new(model.model_frame()).unwrap();
+
+        // Same 10m-away placement as `cone_far_from_the_robot_is_satisfied`
+        // in tests/decide.rs, radius widened to 0.5 to match
+        // `cone_through_a_robot_link_is_violated`'s cap-disc-through-a-box
+        // geometry -- guaranteed clear of any real pr2 link.
+        let world_to_sensor =
+            Isometry3::translation(link_pos.x + 10.0, link_pos.y, link_pos.z + 1.0);
+        let world_to_target = Isometry3::translation(link_pos.x + 10.0, link_pos.y, link_pos.z);
+        let c = VisibilityConstraint::new(
+            &model,
+            &transforms,
+            SensorSpec {
+                frame_id: model.model_frame(),
+                pose: world_to_sensor,
+                view_direction: SensorViewDirection::SensorZ,
+            },
+            TargetSpec {
+                frame_id: model.model_frame(),
+                pose: world_to_target,
+            },
+            8,
+            VisibilityCriteria {
+                target_radius: Some(0.5),
+                ..Default::default()
+            },
+            1.0,
+        )
+        .unwrap();
+
+        // Sanity: with no attached body, this placement is satisfied --
+        // nothing real already touches the cone at this location.
+        assert_eq!(c.decide(&posed), ConstraintEvaluationResult::new(true, 0.0));
+
+        // An attached body on `base_bellow_link`, positioned (in that
+        // link's own frame) at the target's world point, so its box sits
+        // inside the cone's filled base cap -- the same cap-through-a-box
+        // geometry `cone_through_a_robot_link_is_violated` uses for a real
+        // link.
+        let shape_pose_in_link_frame = link_transform.inverse() * world_to_target;
+        let shapes = vec![Arc::new(Shape::Cuboid(Cuboid::new(0.3, 0.3, 0.3).unwrap()))];
+        let shape_poses = vec![shape_pose_in_link_frame];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "occluder",
+            link_name: "base_bellow_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        // Reproduce `cone_collision_result`'s own env/ACM construction
+        // exactly, but with a real attached body instead of its hardcoded
+        // `&[]`.
+        let cone = c.cone_mesh(world_to_sensor, world_to_target);
+        let mut world = World::new();
+        world.add_shape("cone", Arc::new(Shape::Mesh(cone)), Isometry3::identity());
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::new());
+        let mut acm = AllowedCollisionMatrix::new();
+        acm.set_default_conditional_entry(
+            "cone",
+            allow_sensor_or_target_contact(
+                c.sensor_frame().to_owned(),
+                c.target_frame().to_owned(),
+            ),
+        );
+        let request = CollisionRequest {
+            contacts: true,
+            max_contacts: 1,
+            ..Default::default()
+        };
+
+        // Confirm the attached body really does touch the cone once
+        // included -- otherwise this test would pass for the wrong reason
+        // (no contact at all, rather than an allowed one).
+        let without_acm = env.check_robot_collision(&request, &posed, &[attached], None);
+        assert!(
+            without_acm.collision,
+            "the attached body must actually overlap the cone for this test to mean anything"
+        );
+
+        let result = env.check_robot_collision(&request, &posed, &[attached], Some(&acm));
+        assert!(
+            !result.collision,
+            "an attached body touching the cone must not be treated as an occlusion: \
+             upstream decideContact (kinematic_constraint.cpp:1185-1189) allows any \
+             ROBOT_ATTACHED contact unconditionally"
+        );
+    }
+}
