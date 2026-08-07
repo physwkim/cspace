@@ -119,6 +119,17 @@
 //! [`ChompSolution::loop_trace`](moveit_planners_chomp::ChompSolution::loop_trace)
 //! -- the loop's own account of what it did -- and it separates them.
 //!
+//! Unlike `objective`, `loop` is not absent on a failed line: this binary
+//! reads it off
+//! [`solve_with_trace`](moveit_planners_chomp::solve_with_trace) rather than
+//! [`solve`](moveit_planners_chomp::solve), so a failed line carries the
+//! trace of whichever attempt's optimizer last completed a loop -- the
+//! *why* behind `INVALID_MOTION_PLAN` and `GOAL_CONSTRAINTS_VIOLATED`, both
+//! of which can only fire after an optimizer has run. `loop` is still
+//! absent on the failures that precede any optimizer attempt (bounds and
+//! goal-constraint validation, trajectory initialization, optimizer
+//! construction).
+//!
 //! ```text
 //! "loop": {"evaluations": n, "exit": "iteration_bound"|"clock_limit"|"break_out",
 //!          "accepted": k, "mesh_free_passes": m, "below_threshold_passes": b,
@@ -207,7 +218,7 @@ use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planners_chomp::optimizer::ChompCollisionContext;
 use moveit_planners_chomp::{
     ChompExit, ChompGoal, ChompLoopTrace, ChompObjective, ChompObjectiveProgress, ChompParameters,
-    ChompRequest, GoalJointConstraint, solve,
+    ChompRequest, GoalJointConstraint, solve_with_trace,
 };
 use moveit_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use moveit_scene::PlanningScene;
@@ -606,13 +617,14 @@ impl<'m> Bench<'m> {
             seed_trajectory: None,
         };
 
-        match solve(
+        let (outcome, trace) = solve_with_trace(
             &chomp_request,
             &mut collision,
             Some(&self.acm),
             &mut mesh_to_mesh,
             &mut rng,
-        ) {
+        );
+        match outcome {
             Ok(solution) => {
                 let path: Vec<Vec<CompoundValue>> = (0..solution.trajectory.way_point_count())
                     .map(|i| {
@@ -678,14 +690,24 @@ impl<'m> Bench<'m> {
                 }
                 (true, record)
             }
-            Err(e) => (
-                false,
-                serde_json::json!({
+            Err(e) => {
+                let mut record = serde_json::json!({
                     "id": id,
                     "solved": false,
                     "failure": e.to_string(),
-                }),
-            ),
+                });
+                // Same field, same reason as the `Ok` arm above: `loop_trace`
+                // exists on exactly the runs `solve_with_trace` reports it
+                // for, so a failed run with a completed optimizer attempt
+                // gets its `loop` object too -- see this file's header,
+                // "loop, and why improvement == 0 needs it", and
+                // `solve_with_trace`'s own doc for why this was previously
+                // unreachable on this branch.
+                if let Some(trace) = trace {
+                    record["loop"] = loop_json(&trace);
+                }
+                (false, record)
+            }
         }
     }
 }
