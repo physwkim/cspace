@@ -59,12 +59,19 @@
 //!   pathlength`, dividing by `dist` even when both `oalpha` and `dist` are
 //!   zero, so upstream's `scalerot` is `NaN` there. [`PathCircle::new`] adds
 //!   the arm `Path_Line` already has, with that arm's own placeholder values,
-//!   rather than reproducing a `NaN` into the constructed path. Both
-//!   [`circle_from_center`] and [`circle_from_interim`] reject a coincident
-//!   start/goal at their colinearity guard before `alpha` can reach zero, but
-//!   [`CircleGeometry`]'s fields and [`PathCircle::new`] are `pub`, so an
-//!   out-of-crate caller reaches the division directly; pinned by
-//!   `coincident_sweep_and_rotation_does_not_divide_zero_by_zero`.
+//!   rather than reproducing a `NaN` into the constructed path. That arm is
+//!   reached through the ordinary CIRC path, not merely by an out-of-crate
+//!   caller poking [`CircleGeometry`]'s `pub` fields:
+//!   [`circle_from_interim`] does refuse a coincident start/goal — `goal -
+//!   start` is then zero, so the triangle normal cannot clear
+//!   [`MAX_COLINEAR_NORM`] — but [`circle_from_center`] has no colinearity
+//!   guard at all. Its only geometry check is [`MAX_RADIUS_DIFF`] against
+//!   `|a - b|`, which a coincident start/goal at a real radius passes,
+//!   returning `alpha == 0.0`; `trajectory_generator_circ::build_path`'s
+//!   `Center` arm hands that straight to [`PathCircle::new`]. Pinned by
+//!   `coincident_sweep_and_rotation_does_not_divide_zero_by_zero` together
+//!   with `a_zero_side_is_rejected_even_when_the_radius_check_passes`, whose
+//!   control case asserts that `alpha == 0.0` return.
 //!
 //! # Why this file stays BSD-3-Clause
 //!
