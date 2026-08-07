@@ -23181,10 +23181,13 @@ PHASE9 verdict=NO_VALID_TRAJECTORY
   `grep -q "val=-1"` 한 줄을 같이 고쳐야 하고, 후자가 펜스 밖이었다.
   §255.1이 이미 둘 다 고쳤다 — §254.6의 사본은 그때 정식 마커로 닫혔지만
   이 사본은 반영되지 않은 채로 남아 있었다(§320.2).
-- **`/move_action`에는 회귀 게이트가 없다.** §241이 `/plan_kinematic_path`에
-  붙인 `run "live"` 단계와 같은 모양의 `ros2 action send_goal` 한 단계를
-  `ros/verify-ros-interop.sh`에 더하면 되지만, 그 파일이 펜스 밖이다.
-  지금은 이 절의 실측이 유일한 근거이고, 게이트로 고정돼 있지 않다.
+- **`/move_action`에는 회귀 게이트가 없다. 거짓 → 닫힘 (§320.3).** §241이
+  `/plan_kinematic_path`에 붙인 `run "live"` 단계와 같은 모양의 `ros2
+  action send_goal` 한 단계를 `ros/verify-ros-interop.sh`에 더하면
+  되지만, 그 파일이 펜스 밖이었다. §254가 그 파일을 펜스 안으로 들여
+  `ros/verify-move-action-interop.sh`(leg A/B/C)를 붙였고, 오늘도
+  `ros/verify-ros-interop.sh`의 마지막 단계로 매 게이트 실행마다
+  돈다(§320.3).
 - **종단 시도를 게이트로 옮기지 못했다.** §250.4의 두 컨테이너 구성은
   오라클 이미지 위에 3개 패키지를 더 빌드해서 만든 임시 이미지에
   기댄다. 이미지를 커밋하거나 게이트에 싣는 것은 `ros/Dockerfile`과
@@ -31902,7 +31905,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27174`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27177`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -36247,7 +36250,7 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
 | `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21855-21856` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
-| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27174` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `PORTING-PLAN.md:31858` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27177` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
 `section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도
@@ -36971,5 +36974,52 @@ error_code=moveit_msgs.msg.MoveItErrorCodes(val=99999, message="planning failed:
 `val=99999`는 `FAILURE`고, `PLANNING_FAILED`(-1)가 아니다. §255.1이
 소스와 게이트를 같이 고친 것을 §254.6의 사본은 정식 마커로 닫았지만,
 §250.6의 사본은 §255 도입 이후로도 마커 없이 남아 있었다.
+
+falsifier 성립 — 거짓, §250.6의 사본을 닫는다.
+
+### §320.3 §250.6 "`/move_action`에는 회귀 게이트가 없다" — §254가 이미 지었다
+
+불릿: "`/move_action`에는 회귀 게이트가 없다. §241이 `/plan_kinematic_
+path`에 붙인 `run "live"` 단계와 같은 모양의 `ros2 action send_goal` 한
+단계를 `ros/verify-ros-interop.sh`에 더하면 되지만, 그 파일이 펜스
+밖이다." falsifier: `ros/verify-move-action-interop.sh`가 트리에 있고,
+`ros/verify-ros-interop.sh`가 그것을 매 실행마다 부르고, 라이브
+실행에서 실제로 통과한다면 거짓.
+
+```
+$ ls -la ros/verify-move-action-interop.sh
+-rwxrwxr-x 1 stevek stevek 29525 Aug  7 11:05 ros/verify-move-action-interop.sh
+$ rg -n 'move_action' ros/verify-ros-interop.sh | tail -3
+619:# `/move_action` last, because it is the most expensive and the least likely to
+621:run_oracle_gate ros/verify-move-action-interop.sh "/move_action leg B"
+```
+
+§320.1·§320.2와 같은 `sg docker -c ./ros/verify-ros-interop.sh` 실행의
+꼬리:
+
+```
+=== move_action (leg A: ros2 action send_goal) ===
+OK leg A: /move_action accepted goals over DDS, published PLANNING feedback,
+OK leg A: planned one to SUCCEEDED, answered three converted start_state shapes
+OK leg A: with 99999/planner ''rrt_connect'' failed: unknown joint model group, and rejected two with
+OK leg A: -16/has 2 name(s) but 1 position(s) and -16/start_state.multi_dof_joint_state has no core representation
+=== move_action (leg B: upstream C++ MoveGroupInterface) ===
+OK leg B: upstream's unmodified MoveGroupInterface::plan() reached /move_action over
+OK leg B: DDS in both start-state spellings and got a real trajectory back from
+OK leg B: this node, with source=moveit-ros/move_action naming the endpoint that built it
+OK leg B: and upstream's own moveit_core graded every waypoint inside j1's limits
+OK leg B: and the last one satisfying the goal_constraints the client itself sent.
+=== move_action (leg C: upstream C++ MoveGroupInterface computeCartesianPath) ===
+OK leg C: upstream's unmodified MoveGroupInterface::computeCartesianPath() reached
+OK leg C: /compute_cartesian_path over DDS and got fraction=1 back from this node,
+OK leg C: with source=moveit-ros/compute_cartesian_path naming the endpoint that built it,
+OK leg C: every waypoint inside j1's limits and the last one placing tip at the
+OK leg C: pose the client sent, both graded by upstream's own moveit_core.
+OK move_action: all three legs passed
+```
+
+§250.6이 이 불릿을 적은 시점 이후 §254가 정확히 이 모양의 회귀 게이트를
+지었고, 그 사본은 §254.6에서 정식으로 닫혔지만 §250.6의 사본은 그
+사실을 반영하지 않은 채로 남아 있었다.
 
 falsifier 성립 — 거짓, §250.6의 사본을 닫는다.
