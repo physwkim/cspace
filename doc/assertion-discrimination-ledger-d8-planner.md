@@ -54,7 +54,7 @@ argument from the source, stated so it can be checked).
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `ros/moveit-ros/src/move_group.rs:387` | `resolve_planning_pipeline`'s non-empty-`pipeline_id` branch (`move_group_capability.cpp:230-245`: look the name up, return null on a miss) | `a_named_pipeline_id_is_looked_up_verbatim` | discriminating | bite B7 below: making the lookup fall back to `DEFAULT_PIPELINE_ID` on a miss — upstream's null return replaced by a silent substitution — failed this line and `an_unregistered_pipeline_id_fails_before_any_planning_runs`, while `an_empty_pipeline_id_resolves_to_the_named_default` and both `plan_only` tests stayed green. Two tests, not one: the fallback is a single guard both observe, from opposite sides |
+| `ros/moveit-ros/src/move_group.rs:391` | `resolve_planning_pipeline`'s non-empty-`pipeline_id` branch (`move_group_capability.cpp:230-245`: look the name up, return null on a miss) | `a_named_pipeline_id_is_looked_up_verbatim` | discriminating | bite B7 below: making the lookup fall back to `DEFAULT_PIPELINE_ID` on a miss — upstream's null return replaced by a silent substitution — failed this line and `an_unregistered_pipeline_id_fails_before_any_planning_runs`, while `an_empty_pipeline_id_resolves_to_the_named_default` and both `plan_only` tests stayed green. Two tests, not one: the fallback is a single guard both observe, from opposite sides |
 
 ## Bites
 

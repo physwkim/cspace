@@ -19,20 +19,21 @@
 #
 #   1. Exact match -- the row's first-column `file:line` is exactly a
 #      scanner site.
-#   2. Unique nearby match -- the row's citation is within
-#      NEARBY_WINDOW lines of exactly one scanner site in the same file.
-#      Small, silent line drift (a comment added a line above, say) is
-#      common enough that treating every one of these as a human question
-#      would bury the real gaps. A window match against MULTIPLE
-#      candidate sites is deliberately NOT auto-resolved -- see
-#      `ambiguous_window` below.
+#   2. Unique containing match -- the row's citation falls inside exactly
+#      one scanner site's own span in the same file. A multi-line assert
+#      is one site, and a row is entitled to cite the clause that carries
+#      the discrimination rather than the macro's opening line. This
+#      replaced a +/- 5 line proximity window, which resolved drift as
+#      though it were that convention; resolve() carries the measurement.
+#      A citation contained by MULTIPLE candidate spans is deliberately
+#      NOT auto-resolved -- see `ambiguous-span` below.
 #   3. A vetted equivalence in `assertion-ledger-equivalences.json` --
-#      for the two shapes a window can't cover: (a) a ledger that cites a
-#      guard's own production line instead of the assert that exercises
+#      for the two shapes containment can't cover: (a) a ledger that cites
+#      a guard's own production line instead of the assert that exercises
 #      it (moveit-collision's `tools.rs:68 (x)/(y)/(z)` vs `tools.rs:259,
 #      271,283`), confirmed by reading that ledger's own prose explaining
-#      the correspondence; (b) line drift larger than the window,
-#      confirmed by matching the row's own named test function to its
+#      the correspondence; (b) drift that lands outside the assertion's
+#      span, confirmed by matching the row's own named test function to its
 #      current line in the source, not by nearest-line proximity (nearest-
 #      line proximity picked the WRONG site at least once while this
 #      instrument's equivalences were being derived -- see the JSON
@@ -81,7 +82,6 @@ SCANNER = REPO_ROOT / "tools" / "ci" / "count-coarse-assertions.py"
 SCAN_ROOTS = ("crates", "ros", "tools")
 EQUIVALENCES_FILE = REPO_ROOT / "tools" / "ci" / "assertion-ledger-equivalences.json"
 ORPHANS_FILE = REPO_ROOT / "doc" / "assertion-discrimination-orphans.txt"
-NEARBY_WINDOW = 5
 
 # SECOND POPULATION: sites the scanner only finds because half_plane/
 # cmp_compound exist now (PORTING-PLAN.md §307), INCLUDING an assertion-helper
@@ -148,8 +148,18 @@ def run_scanner(legacy=False):
     (count-coarse-assertions.py's own flag, not this script's). Diffing that
     set against the live one is how the two populations below are told
     apart -- see COMPARISON_KINDS' comment for why a kind-string filter
-    alone cannot do it."""
+    alone cannot do it.
+
+    Returns `(sites, basenames, spans)`, where spans is
+    `{(path, first_line): (first_line, last_line)}` for every site in THIS
+    call's population -- returned, not parked in a module global, because
+    reconcile() runs this twice and the legacy run is second. A global would
+    leave every later resolve() doing containment against the pre-half_plane
+    corpus, silently unresolving any citation that lands inside a
+    `half_plane` site's span."""
     env = dict(os.environ)
+    # Spans, not just opening lines: see resolve().
+    env["CCA_EMIT_SPAN"] = "1"
     if legacy:
         env["CCA_LEGACY_KINDS_ONLY"] = "1"
     else:
@@ -164,17 +174,20 @@ def run_scanner(legacy=False):
     ).stdout
     sites = {}
     basenames = {}
+    spans = {}
     for line in out.splitlines():
         if not line.strip():
             continue
-        path, lineno, kind, rest = line.split(":", 3)
+        path, span, kind, rest = line.split(":", 3)
         scope = rest.split(":", 1)[0]
         if scope == "helper_body":
             continue
-        lineno = int(lineno)
+        first, _, last = span.partition("-")
+        lineno = int(first)
         sites[(path, lineno)] = kind
+        spans[(path, lineno)] = (lineno, int(last or first))
         basenames.setdefault((path.rsplit("/", 1)[-1], lineno), []).append(path)
-    return sites, basenames
+    return sites, basenames, spans
 
 
 def parse_ledger_citations(ledger_rel):
@@ -218,10 +231,46 @@ def path_matches(full_path, fname_part):
     return all(part in it for part in want[:-1])
 
 
-def resolve(fname_part, lineno, sites, basenames):
-    """Exact match, else a UNIQUE match within +/- NEARBY_WINDOW lines in the
-    same file. Returns (resolved_site_or_None, status) where status is one
-    of "exact", "window", "ambiguous-exact", "ambiguous-window", "none"."""
+def resolve(fname_part, lineno, sites, basenames, spans):
+    """Exact match, else the UNIQUE scanner site whose span CONTAINS the cited
+    line. Returns (resolved_site_or_None, status) where status is one of
+    "exact", "ambiguous-exact", "inside-span", "ambiguous-span", "none".
+
+    Containment, not proximity. A ledger row is allowed to cite any line of
+    the assertion it accounts for, not only the macro's opening line --
+    several ledgers deliberately cite the discriminating clause two lines in
+    (`err.to_string().contains("panda_joint1"),`). That names the site
+    exactly. This used to be approximated by accepting a unique site within
+    +/- 5 lines, on the reasoning that small silent drift is common and
+    treating each one as a human question would bury the real gaps.
+
+    Measured at 478d6ff6, that window resolved 27 citations non-exactly. 16
+    are the convention above -- the row cites a clause inside the very
+    assertion it accounts for. The other 11 were line drift, reported as
+    matched. Containment rejects 10 of them, which is how
+    `repoint-ledger-citations.py` got to see them at all: at that commit the
+    gate goes from 4 orphans / 1 unresolved to 14 / 11.
+
+    Those 10 had drifted 1-4 lines and proximity happened to land on the
+    right assertion anyway. The 11th is both why proximity is the wrong rule
+    and where containment stops: `collision_parity.rs:1636` had drifted 142
+    lines, so BOTH rules hand it `:1633` -- an assertion whose span is
+    1633-1638, inside `pr2_world_object_pair_flip_case_122_both_sides_are_
+    real_vertices` -- while the row reads `pr2_self_wheel_same_pair_oracle_
+    magnitude_is_implausible`, whose own assertion sat in the orphan list.
+    Nearness to a stale line number cannot tell "this row's assertion moved
+    three lines" from "a different test's assertion happens to sit three
+    lines away", and containment cannot either once the drift lands inside a
+    neighbour's span; under either reading the row vouches for an assertion
+    nobody measured. This file's header already warned that nearest-line
+    proximity picked the wrong site while the equivalences were being derived
+    by hand; the automatic path had the same defect and no reviewer.
+
+    Only the row's subject column separates those two, which is the key
+    `repoint-ledger-citations.py` relocates by. For a row whose subject
+    column is a phrase rather than a test name, no rule here can, and such a
+    row is repaired by hand against the source text of the commit that last
+    held the assertion."""
     if "/" in fname_part:
         exact = [p for (p, ln) in sites if ln == lineno and path_matches(p, fname_part)]
     else:
@@ -232,20 +281,199 @@ def resolve(fname_part, lineno, sites, basenames):
     if len(exact) > 1:
         return None, "ambiguous-exact"
 
-    candidates = set()
-    for dl in range(1, NEARBY_WINDOW + 1):
-        for cand_line in (lineno - dl, lineno + dl):
-            if "/" in fname_part:
-                hits = [p for (p, ln) in sites if ln == cand_line and path_matches(p, fname_part)]
-            else:
-                hits = basenames.get((fname_part, cand_line), [])
-            for h in hits:
-                candidates.add((h, cand_line))
-    if len(candidates) == 1:
-        return next(iter(candidates)), "window"
-    if len(candidates) > 1:
-        return None, "ambiguous-window"
+    containing = {
+        (p, first)
+        for (p, first), (lo, hi) in spans.items()
+        if lo <= lineno <= hi
+        and (path_matches(p, fname_part) if "/" in fname_part
+             else p.rsplit("/", 1)[-1] == fname_part)
+    }
+    if len(containing) == 1:
+        return next(iter(containing)), "inside-span"
+    if len(containing) > 1:
+        return None, "ambiguous-span"
     return None, "none"
+
+
+# ---- the row's own subject, and checking a resolution against it -----------
+# A line number says WHERE; only the row's subject column says WHAT. Every
+# rule above resolves by position, and position alone cannot tell "this row's
+# assertion moved" from "a different test's assertion is now at that number"
+# -- see resolve()'s two worked cases. So a resolution is additionally
+# checked against the test the row itself names, whenever this file can
+# establish what that is. Measured at 478d6ff6: 449 of the 1122 resolved
+# citations carry a name this can check, and two disagreed with the site they
+# had resolved to -- one citation pointing into a neighbour's assertion, one
+# row naming the wrong test for a citation that was correct.
+#
+# This machinery started in repoint-ledger-citations.py, which needs the same
+# notion to relocate a drifted citation by content. It lives here because the
+# gate is what has to reject a mis-attribution; the repair tool imports it.
+
+# A whole cell that is one snake_case identifier, optionally backticked.
+# Anything else -- `(same test)`, a prose phrase, two names -- yields no
+# subject key, which is the intended outcome: there is nothing
+# content-grounded to check that row against.
+IDENT_CELL_RE = re.compile(r"^`?([a-z_][a-z0-9_]{5,})`?$")
+FN_DEF_RE = re.compile(r"^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)")
+
+_fn_cache = {}
+
+
+def fn_defs(rel_path):
+    """[(line, name)] for every `fn` in a source file, in file order."""
+    if rel_path not in _fn_cache:
+        lines = (REPO_ROOT / rel_path).read_text(encoding="utf-8").splitlines()
+        _fn_cache[rel_path] = [
+            (i + 1, m.group(1))
+            for i, line in enumerate(lines)
+            if (m := FN_DEF_RE.match(line))
+        ]
+    return _fn_cache[rel_path]
+
+
+def fn_span(rel_path, name):
+    """[(first_line, last_line)] for each definition of `name`. The span ends
+    at the next `fn` rather than at a matching brace: a nested `fn` inside a
+    test body would end the span early, and no ledger's subject function has
+    one. Two definitions of the same name (two `mod tests` in one file) make
+    the key ambiguous and the row is skipped."""
+    defs = fn_defs(rel_path)
+    out = []
+    for i, (line, n) in enumerate(defs):
+        if n == name:
+            end = defs[i + 1][0] - 1 if i + 1 < len(defs) else 10**9
+            out.append((line, end))
+    return out
+
+
+def enclosing_fn(rel_path, line):
+    best = None
+    for ln, name in fn_defs(rel_path):
+        if ln <= line:
+            best = name
+        else:
+            break
+    return best
+
+
+def row_cells(raw_row):
+    return raw_row.split("|")
+
+
+def column_key(index):
+    """The whole of column `index` is one snake_case identifier."""
+    def key(raw_row, _cited_line):
+        cells = row_cells(raw_row)
+        if len(cells) <= index:
+            return None
+        m = IDENT_CELL_RE.match(cells[index].strip())
+        return m.group(1) if m else None
+    key.name = f"column {index}"
+    return key
+
+
+def adjacent_key(raw_row, cited_line):
+    """``:914 (`allowed_planning_time_boundaries_are_not_observable...`)`` --
+    a multi-site row that names each site's own test right after that site's
+    line number. Anchored on the cited line, so a row listing several sites
+    yields the right name for each."""
+    m = re.search(
+        r":" + str(cited_line) + r"`?\s*\(`([a-z_][a-z0-9_]{5,})`\)", raw_row
+    )
+    return m.group(1) if m else None
+
+
+adjacent_key.name = "`:NNN (`fn`)` adjacency"
+
+CANDIDATE_KEYS = [column_key(i) for i in range(2, 7)] + [adjacent_key]
+# 100% agreement on a handful of rows is still thin evidence; below this many
+# validating samples in one ledger a key is not adopted at all.
+MIN_SAMPLE = 3
+
+
+def full_rows(ledger):
+    """{(fname_part, cited_line): the WHOLE row}. parse_ledger_citations()
+    truncates the row it reports to 160 characters, which is right for a
+    human-facing report and wrong here: pilz's subject column is column 4 and
+    sits past that cut, so keying off the reported text silently sees no
+    subject at all on exactly the rows that need one."""
+    out = {}
+    for line in (REPO_ROOT / ledger).read_text(encoding="utf-8").split("\n"):
+        m = FIRST_COL_RE.match(line)
+        if not m:
+            continue
+        for n in m.group(2).split(","):
+            out[(m.group(1), int(n.strip()))] = line
+    return out
+
+
+def learn_keys(sites, basenames, spans):
+    """{ledger: [key, ...]} -- for each ledger, the candidate keys that named
+    the site's true enclosing function every time they named anything at all,
+    over that ledger's EXACTLY-resolving citations. Ordered by sample size, so
+    the best-evidenced key is tried first.
+
+    Learned per ledger rather than fixed, because the ledgers do not share a
+    column layout: p3-acm's subject is column 3, pilz's is column 4, and
+    p9-ros names each site's test inline. A key is adopted only at zero
+    misses -- a key that is right most of the time would launder exactly the
+    mis-attributions this exists to catch. Exact resolutions are the training
+    set precisely because they are the ones position already settles."""
+    learned = {}
+    for ledger in discover_ledgers():
+        rows = full_rows(ledger)
+        scored = []
+        for key in CANDIDATE_KEYS:
+            hits = misses = 0
+            for fname_part, lineno, _short in parse_ledger_citations(ledger):
+                raw = rows.get((fname_part, lineno))
+                if raw is None:
+                    continue
+                resolved, status = resolve(fname_part, lineno, sites, basenames, spans)
+                if status != "exact":
+                    continue
+                path, site_line = resolved
+                name = key(raw, lineno)
+                if name is None or name not in {n for _, n in fn_defs(path)}:
+                    continue
+                if name == enclosing_fn(path, site_line):
+                    hits += 1
+                else:
+                    misses += 1
+            if misses == 0 and hits >= MIN_SAMPLE:
+                scored.append((hits, key))
+        learned[ledger] = [k for _, k in sorted(scored, key=lambda x: -x[0])]
+    return learned
+
+
+def subject_mismatch(ledger, raw_row, cited_line, resolved, keys):
+    """The reason this row cannot be credited with `resolved`, or None.
+
+    Silent on every row this file cannot check: no validated key for the
+    ledger, no identifier in the row, or a name that is not a function in the
+    resolved file (a row naming an upstream C++ symbol, say). Only a name
+    that IS defined in that file and IS a different function than the site
+    sits in is a mismatch -- the row and the citation then disagree about
+    which assertion is being accounted for, and one of them is wrong."""
+    if raw_row is None:
+        return None
+    name = next(
+        (n for k in keys if (n := k(raw_row, cited_line)) is not None), None
+    )
+    if name is None:
+        return None
+    path, site_line = resolved
+    if name not in {n for _, n in fn_defs(path)}:
+        return None
+    enclosing = enclosing_fn(path, site_line)
+    if enclosing == name:
+        return None
+    return (
+        f"resolved to {path}:{site_line}, which is inside `{enclosing}`, but "
+        f"this row names `{name}`. Position resolved it; the row's own "
+        f"subject says it is a different assertion."
+    )
 
 
 TEST_ATTR_OR_SIG_RE = re.compile(r"^(#\[test\]|#\[.*\]|fn\s+\w+|let\s|\}\s*$|\{\s*$)")
@@ -302,11 +530,12 @@ def reconcile():
     Returns a dict so every mode (default report, --emit-orphans,
     --emit-unresolved, --write-orphans, --verify) computes the partition
     exactly once, the same way."""
-    sites, basenames = run_scanner()
-    legacy_sites, _ = run_scanner(legacy=True)
+    sites, basenames, spans = run_scanner()
+    legacy_sites, _, _ = run_scanner(legacy=True)
     comparison_sites = set(sites) - set(legacy_sites)
     equivalences = load_equivalences()
     ledgers = discover_ledgers()
+    keys = learn_keys(sites, basenames, spans)
 
     matched_sites = set()
     match_notes = []  # (ledger, cited_file, cited_line, resolved_site, how)
@@ -314,12 +543,23 @@ def reconcile():
     non_scope = []  # (ledger, cited_file, cited_line, reason)
 
     for ledger in ledgers:
+        rows = full_rows(ledger)
         for fname_part, lineno, raw in parse_ledger_citations(ledger):
-            resolved, status = resolve(fname_part, lineno, sites, basenames)
+            resolved, status = resolve(fname_part, lineno, sites, basenames, spans)
+            why = None
             if resolved is not None:
-                matched_sites.add(resolved)
-                match_notes.append((ledger, fname_part, lineno, resolved, status))
-                continue
+                why = subject_mismatch(
+                    ledger, rows.get((fname_part, lineno)), lineno, resolved,
+                    keys.get(ledger, []),
+                )
+                if why is None:
+                    matched_sites.add(resolved)
+                    match_notes.append((ledger, fname_part, lineno, resolved, status))
+                    continue
+                # Deliberately NOT matched: an equivalence entry can still
+                # vouch for it below, naming the evidence, which is the one
+                # way a row and its citation are allowed to disagree.
+                status = "subject-mismatch"
 
             eq = equivalences.get((ledger, fname_part, lineno))
             if eq is not None:
@@ -341,7 +581,13 @@ def reconcile():
                     raise ValueError(f"unknown equivalence resolution {eq['resolution']!r}")
                 continue
 
-            category, detail = classify_citation(fname_part, lineno)
+            if why is not None:
+                # The row's own subject already says what is wrong; the
+                # positional heuristic below would replace that with a guess
+                # about the line's shape.
+                category, detail = "subject-mismatch", why
+            else:
+                category, detail = classify_citation(fname_part, lineno)
             unresolved.append((ledger, fname_part, lineno, raw, status, category, detail))
 
     all_scanner_sites = set(sites)
@@ -351,6 +597,12 @@ def reconcile():
 
     return {
         "sites": sites,
+        # Both derived from the same scanner run as `sites`, so a caller
+        # that wants to re-run resolve() (repoint-ledger-citations.py does)
+        # cannot reconstruct a basenames/spans pair that disagrees with the
+        # partition below.
+        "basenames": basenames,
+        "spans": spans,
         "ledgers": ledgers,
         "total": len(all_scanner_sites),
         "matched_count": len(matched_sites),
