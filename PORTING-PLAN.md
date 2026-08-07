@@ -38072,3 +38072,20 @@ doc/phase8-condition2-stomp/mutation-collision-penalty-zero.patch
 유일한 패치는 `COLLISION_PENALTY` 1.0→0.0(no-op화)이고, 최적화기 종료
 조건이나 반복 횟수를 바꾸는 변이가 아니다. §300.9/§303.8이 말하는
 "계속 돌게 두는" 변이 실험은 없다. **판정: 참, OPEN 유지.**
+
+### §325.11 §303.8 K — "길이가 아니라 궤적의 일치"(36012)는 §325.5와 같은 문항이다
+
+불릿 원문: "길이가 아니라 궤적의 일치. §300.6 그대로다. 하네스가 waypoint
+행렬을 내보내지 않으므로, 두 구현이 같은 문제에서 같은 경로를 내는지는
+여전히 길이로만 본다."
+
+**Falsifier.** §325.5와 동일한 falsifier(`waypoint_hash`/`trajectory_hash`
+계열 rg)를 재적용.
+
+```
+$ rg -n "waypoint_hash|trajectory_hash|waypoints_hash" crates/moveit-planners-stomp/examples/*.rs crates/moveit-planners-chomp/examples/*.rs
+(no output)
+```
+
+결과는 §325.5와 동일(무히트) — §303.8이 쓰는 하네스도 §300.9와 같은
+소스이므로 별도 실행 없이 같은 결론이 성립한다. **판정: 참, OPEN 유지.**
