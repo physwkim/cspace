@@ -93,7 +93,76 @@ esac
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-. "$REPO_ROOT/tools/ci/gate-lib.sh"
+# This run's own code -- this file, the library it sources, the oracle digest
+# helper -- copies itself into a private directory and re-execs from there,
+# once, before doing anything else. Measured hazard, not a hypothetical one: a
+# 95-minute run of this script survived a ten-commit `git merge` into the same
+# worktree it was reading from only because the merge happened not to touch
+# this file's bytes or a function this run had already sourced. Three distinct
+# ways it could have gone wrong instead:
+#   - corruption: an in-place rewrite of the file bash is still reading
+#     mid-script (bash reads a script incrementally through one fd and byte
+#     offset, so a rewrite under it is not atomic the way a `mv` would be)
+#   - version split: `gate-lib.sh` sourced once at start, then edited on disk
+#     mid-run -- the run keeps computing with the definitions it already read
+#     while a later check validates against what the file holds now
+#   - late swap: a helper this run has not reached yet (`measure-phase8-cpp-
+#     baseline.sh`, invoked well into the run) or the `target/release/examples`
+#     binaries, replaced before their turn, so one measurement is produced by
+#     two versions of the instrument while the artifact names only one
+#
+# $REPO_ROOT itself is NOT redirected by this -- it keeps meaning the live
+# tree for everything that measures or builds FROM it: `git status`/`git rev-
+# parse`, `cargo build`, `fixtures/`, `doc/`, and every `measured_source_digest`
+# call in $SOURCES_JSON below. Those have to describe and compile the real
+# tree; only the CODE THAT RUNS has to stop reading it after this point. The
+# built binaries are handled differently, by copy rather than by re-exec --
+# see where `cargo build` finishes, below.
+#
+# `measure-phase8-cpp-baseline.sh` is not copied here. It carries the exact
+# same hazard on its own invocation (a fresh `bash` reading it from
+# $REPO_ROOT) and protects itself the same way, independently, at its own
+# top, so it stays safe whether this script calls it or a person runs it
+# directly -- see that file. `run-oracle.sh`, which both scripts invoke, is
+# NOT snapshotted by either: it derives its own $REPO_ROOT from its own
+# `$BASH_SOURCE[0]` and would need the same override this block adds, in a
+# third file, to run from a copy correctly. That is out of this change's
+# scope; a mid-run edit to run-oracle.sh's own dispatch logic (which image
+# tag it resolves, which paths it mounts) is a real, named, NOT-covered
+# exposure, distinct from the oracle image/source pin itself, which
+# `oracle_stamp` already covers content-addressed and unaffected by this gap.
+#
+# `_PHASE8_OPT_REPO_ROOT` unset is how this code tells "reading from the live
+# tree, first time" apart from "already running from the private copy" --
+# not a caller-facing mode, nothing about how this script is invoked changes;
+# it is the value that has to cross the `exec` boundary, because `exec`
+# replaces this process's entire state and only the environment survives it.
+if [[ -z "${_PHASE8_OPT_REPO_ROOT:-}" ]]; then
+  WORKDIR="$(mktemp -d)"
+  trap 'rm -rf "$WORKDIR"' EXIT
+  SELF="$WORKDIR/self"
+  # This file's own name, not a literal, so a rename cannot silently desync
+  # the copy source from what this process was actually invoked as.
+  SELF_NAME="$(basename "${BASH_SOURCE[0]}")"
+  mkdir -p "$SELF/tools/ci" "$SELF/tools/moveit-oracle" || exit 1
+  cp "$REPO_ROOT/tools/ci/$SELF_NAME" "$SELF/tools/ci/" || exit 1
+  cp "$REPO_ROOT/tools/ci/gate-lib.sh" "$SELF/tools/ci/" || exit 1
+  cp "$REPO_ROOT/tools/moveit-oracle/src-digest.sh" "$SELF/tools/moveit-oracle/" || exit 1
+  export _PHASE8_OPT_REPO_ROOT="$REPO_ROOT"
+  export _PHASE8_OPT_WORKDIR="$WORKDIR"
+  exec "$SELF/tools/ci/$SELF_NAME" "$MODE"
+fi
+
+# Second execution, from the private copy. $REPO_ROOT is read back from the
+# environment rather than re-derived from `$BASH_SOURCE[0]` here on purpose --
+# re-deriving it would resolve to $SELF, the copy, and every git/cargo/
+# fixtures/doc path below would silently point at a directory that does not
+# hold them.
+REPO_ROOT="$_PHASE8_OPT_REPO_ROOT"
+WORKDIR="$_PHASE8_OPT_WORKDIR"
+trap 'rm -rf "$WORKDIR"' EXIT
+
+. "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
 
 require_caller_tree "$REPO_ROOT"
 cd "$REPO_ROOT" || exit 1  # no `set -e` here: a failed cd would
@@ -318,8 +387,9 @@ done
 # watchdog thread sleeps), so each shard is one core.
 SHARDS="${SHARDS:-16}"
 
-WORKDIR="$(mktemp -d)"
-trap 'rm -rf "$WORKDIR"' EXIT
+# $WORKDIR was created before this script re-exec'd itself into its own copy
+# (see the top of this file) -- not created here, so its cleanup trap is not
+# reset here either.
 
 failed=()
 
@@ -522,8 +592,12 @@ if [[ -n "$DIRTY_LIST" ]]; then TREE_DIRTY=true; else TREE_DIRTY=false; fi
 # is recoverable from the stamp and not the reverse -- recording the stamp is
 # strictly more informative, and `oracle_image_tag "$ORACLE_STAMP"` recovers
 # the tag whenever something needs to `docker image inspect` it.
+# The function comes from the private copy (so its own definition cannot
+# version-split mid-run, same as gate-lib.sh above); the directory it hashes
+# stays $REPO_ROOT (so the digest describes the real oracle sources, not a
+# copy that was never meant to hold them).
 # shellcheck source=tools/moveit-oracle/src-digest.sh
-source "$REPO_ROOT/tools/moveit-oracle/src-digest.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../moveit-oracle/src-digest.sh"
 ORACLE_STAMP="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")" || exit 1
 
 # The list below is the two arms' own algorithm crates plus the validity/cost
@@ -556,6 +630,24 @@ echo "=== building instruments (release) ==="
 cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
   -p moveit-planners-sbp -p moveit-planners-chomp -p moveit-planners-stomp \
   --examples || exit 1
+
+# Copied into $WORKDIR the moment the build finishes, and every call below
+# uses the copy. Unlike the script/library files above, these are not
+# re-exec'd -- a compiled binary is not read incrementally through one fd the
+# way bash reads a script, so there is no offset for a rewrite to corrupt
+# mid-call, and each call is a fresh, complete `execve` regardless. What a
+# copy protects against here is different: `$REPO_ROOT/target/release` is
+# shared with every other build in this worktree, and a concurrent `cargo
+# build` replacing these paths between two calls this run makes would answer
+# some of this run's problems with one version of the instrument and the rest
+# with another, while $SOURCES_JSON above named only the one it read at start.
+mkdir -p "$WORKDIR/bin" || exit 1
+for b in "$GEN" "$CHOMP" "$STOMP"; do
+  cp "$b" "$WORKDIR/bin/" || exit 1
+done
+GEN="$WORKDIR/bin/$(basename "$GEN")"
+CHOMP="$WORKDIR/bin/$(basename "$CHOMP")"
+STOMP="$WORKDIR/bin/$(basename "$STOMP")"
 
 # --- the discrimination gate ------------------------------------------------
 #
