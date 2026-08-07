@@ -5477,6 +5477,7 @@ EPA 잡음이 아니다. 워커가 든 "상수를 유지하지 못한다"는 근
 - parry의 TriMesh 접촉은 삼각형별 최대이고, 삼각형 단위 MTD는 메시 전체
   MTD보다 얕을 수 있다(얇은 삼각형 문제). 위 일치는 이 구간에서 그 과소평가가
   일어나지 않았음을 보이지만, 일반적으로 일어나지 않는다는 뜻은 아니다.
+  거짓 → 닫힘 (§56.6).
 - **§53.3이 찾은 world object 쪽 불일치(`l_gripper_r_finger_link`/`floor`,
   포트가 더 깊게 답함)는 이 설명으로 덮이지 않는다. 방향이 반대다.
   거짓 → 닫힘 (§56.5).** §56.3의 min(candidate_x, candidate_z) 공식
@@ -5532,6 +5533,67 @@ upstream 결함)이 self-collision뿐 아니라 world-object 쌍에서도 같은
 
 `cargo fmt --all` 적용, clippy `-p moveit-collision --all-targets -- -D warnings` 0건,
 `cargo nextest run -p moveit-collision --release` **262/262**(이 시험 포함).
+
+### 56.6 §56.4 넷째 잔차 — 메시 포함이 실제로 미탐지를 낸다, 프로덕션 경로에서 재현했다
+
+§56.4의 잔차는 "삼각형 단위 MTD가 메시 전체 MTD보다 얕을 수 있다는 것이
+일반적으로 일어나는지는 안 재봤다"였다. `WorldConvex`(§302.1)는 메시를
+거부하므로(그 절 자신의 주석: 메시도 지지함수/투영은 있지만 자신의
+삼각분할까지만이라, 그것을 제3의 답이라 부르면 순환이 된다) 이 계측기로는
+이 잔차를 잴 수 없다 — 재려면 이 크레이트의 실제 프로덕션 경로
+(`ParryCollisionEnv::check_robot_collision`/`distance_robot`, `Shape::Mesh`가
+`convert_shape`(`crates/moveit-collision/src/parry.rs:1454-1463`)를 거쳐
+진짜 `parry3d_f64::shape::TriMesh`가 되는 그 경로) 자체에 합성 메시를
+직접 걸어야 한다.
+
+**구성.** 원점 중심, 축 정렬된 두 상자 껍질 — `outer` 반폭 `1.0`, `inner`
+반폭 `0.1` — 을 12개 삼각형(면당 2개)으로 손으로 지었다
+(`box_shell_mesh`, `crates/moveit-collision/src/parry.rs:4049`). `inner`는
+`outer`의 경계 어디에도 닿지 않는다 — 두 메시의 평행한 면 사이 거리가
+축마다 `1.0 - 0.1 = 0.9`이고, 그것이 임의의 두 삼각형 쌍 사이 최소
+거리이기도 하다(꼭짓점이든 면이든, 같은 축 방향으로 내린 최근접점이 항상
+가장 가깝다). 그런데 이 두 메시가 나타내는 **입체**로 보면 `inner`는
+`outer` 안에 완전히 들어 있어 겹침이 100%이고, 그 상태를 풀기 위한 진짜
+최소이동거리(MTD)는 `1.0 + 0.1 = 1.1`이다(`inner`를 한 축으로
+`outer`의 반대쪽 면 밖으로 밀어낼 때까지) — 경계면 간극 `0.9`와는 부호도
+크기도 다르다.
+
+`outer`는 world 오브젝트로, `inner`는 `AttachedBodyGeometry`로(§56.4가
+읽은 프로덕션 API 그대로) 원점에 겹쳐 놓고
+(`p` 자신의 기본 `1x1x1` 박스 충돌은 `translation(100,0,0)`로 치워
+간섭하지 않게 했다), 새 시험
+`mesh_engulfment_is_reported_as_no_collision_and_a_positive_gap_not_penetration`
+(`crates/moveit-collision/src/parry.rs:4079`)으로 쟀다:
+
+| 호출 | 실측 |
+|---|---|
+| `check_robot_collision` | `collision: false` |
+| `distance_robot` | `collision: false`, `minimum_distance.distance` = `0.8999999999999999` |
+
+닫힌 형식 `0.9`와 `1e-12` 안에서 같다(`distance_robot`이 벡터 최근접점
+계산을 거치므로 스칼라 뺄셈 `1.0 - 0.1`과 한 ULP 다르다). 즉 이 포트는
+완전히 포함된 메시를 **충돌 없음**으로, 참 침투(`-1.1`)가 아니라 **양의
+간극**(`0.9`)으로 보고한다 — §56.4가 걱정한 "삼각형 단위 답이 메시 전체
+답보다 얕다"보다 더 나쁜 결과다(얕은 게 아니라 아예 없다). 이것이 메시
+전용 결함이지 이 충돌 엔진 일반의 결함이 아님을 확인하려고, 같은 두
+반폭의 **`Cuboid`**(진짜 solid, 지지함수 기반 GJK/EPA)로 같은 시험을
+돌연변이해 돌렸다 — `check_robot_collision`이 `collision: true`를 내며
+`!collision.collision` 단언에서 실패했다(원래대로 되돌렸다). 같은 기하,
+같은 API 호출인데 도형 표현만 메시에서 solid로 바꾸자 판정이 뒤집힌 것이
+이 결함을 메시의 경계-전용 표현 탓으로 좁힌다.
+
+**정직한 한계.** 이 구성은 §56.4가 문자 그대로 이름 붙인 "얇은 삼각형"
+(둘이 실제로 교차하는데 국소적으로만 얕게 답하는 경우)이 아니라 그
+메커니즘의 가장 극단적인 사례(완전 포함, 어느 삼각형 쌍도 교차하지 않는
+경우)다 — 배경 조사가 이미 지적했듯, 국소적으로 얕은 교차 사례는 손으로
+닫힌 형식을 미리 유도하기가 이만큼 쉽지 않고 시험을 돌려 값을 보는 쪽이
+더 현실적이다. 그래도 §56.4가 실제로 묻는 질문 — "이 메커니즘이 이
+코드베이스의 실제 충돌 경로에서 진짜로 일어나는가" — 에는 이 구성으로도
+확정적으로 답한다: **일어난다.**
+
+`cargo fmt --all` 적용, clippy `-p moveit-collision --all-targets -- -D warnings`
+0건, `cargo nextest run -p moveit-collision --release`
+**266/266**(이 시험 포함, 이전 265건에서 하나 늘었다).
 
 ## 57. §40이 닫혔다 — 22/22. 그리고 pr2 메시는 한 번도 대조된 적이 없다 (2026-08-04)
 
@@ -33169,7 +33231,7 @@ sphere x {sphere, box, cylinder}에 ACM 허용 쌍 하나로 모집단을 **제�
   게이트는 짓지 않았다 — 그쪽은 p12-plannerparams가 task #37로 짓고 있으며,
   같은 계열의 나머지(shipped sbp 소스 안의 `// PORTING-PLAN.md:1152:` 주석
   셋과 `tools/ci/verify-upstream-citations.sh`가 고정 SHA의 출처로 드는
-  `PORTING-PLAN.md:12828-12830`)도 그쪽이 가져갔다. 이 절은 계열의 한
+  `PORTING-PLAN.md:12890-12892`)도 그쪽이 가져갔다. 이 절은 계열의 한
   표본이지 전부가 아니다.
 
 ### §297.6 fcl 인용 24건은 면제로 선언돼 있고, 그 면제가 드는 근거 두 줄은 드리프트했다
@@ -35685,8 +35747,8 @@ task #43은 "`>` 비교와 `assert_ne!`로 코퍼스를 넓히라"고 적혀 있
 않은 이유인 **타입 사실**이 아니다 — 그래서 여기서는 가르고 거기서는 안 가른다.
 
 `cmp_compound`는 하나의 kind로 남긴다. 이유는 §307.4에서 손으로 읽은 36건
-자체가 증거다: `parry.rs:4537`의 `.abs() > 0.1`은 `.abs()`가 있어도
-half_plane이고(초과 판정), `parry.rs:5085`의 `gap > 0.0 && gap < 1e-15`는
+자체가 증거다: `parry.rs:4643`의 `.abs() > 0.1`은 `.abs()`가 있어도
+half_plane이고(초과 판정), `parry.rs:5191`의 `gap > 0.0 && gap < 1e-15`는
 `.abs()` 없이도 정밀 톨러런스다. 가르는 기준은 바깥 피연산자가 이미
 `.norm()`/`.angle_to()`로 음이 아닌 값인지, 상수의 폭이 부동소수점 잡음인지
 실제 정의역인지 — 둘 다 정규식이 볼 수 없는 데이터플로/의미 사실이다.
@@ -35701,9 +35763,9 @@ half_plane이고(초과 판정), `parry.rs:5085`의 `gap > 0.0 && gap < 1e-15`�
 
 | 파일:줄 | 모양(요약) | 판정 | 근거 |
 |---|---|---|---|
-| `parry.rs:4462` | 4개 OR, AABB 포함 위반 | coarse | 무경계 반평면 4개 OR |
-| `parry.rs:4537` | `.abs() >` OR (브리프 예시) | coarse | "초과 판정", `.abs()`가 있어도 half_plane |
-| `parry.rs:5085` | `gap>0.0 && gap<1e-15` (브리프 예시) | precise | `.abs()` 없는 양측 밴드, 폭이 수치 잡음 |
+| `parry.rs:4568` | 4개 OR, AABB 포함 위반 | coarse | 무경계 반평면 4개 OR |
+| `parry.rs:4643` | `.abs() >` OR (브리프 예시) | coarse | "초과 판정", `.abs()`가 있어도 half_plane |
+| `parry.rs:5191` | `gap>0.0 && gap<1e-15` (브리프 예시) | precise | `.abs()` 없는 양측 밴드, 폭이 수치 잡음 |
 | `collision_parity.rs:958` | `.abs()<` AND `.abs()<` | precise | 두 abs 톨러런스 AND |
 | `collision_parity.rs:1414` | `.abs()<` AND `.abs()<` | precise | 위와 동일 모양 |
 | `collision_parity.rs:2388` | `.abs()+reach<BOUND` ×2 AND `축>TOP_Z` | coarse | FLOOR_HALF_EXTENT/TOP_Z는 씬의 실제 공간 경계, 잡음 아님 |

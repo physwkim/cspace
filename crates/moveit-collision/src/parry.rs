@@ -4041,6 +4041,112 @@ mod tests {
         assert_eq!(result.minimum_distance.distance, 1.0);
     }
 
+    /// An axis-aligned box's boundary as 12 triangles (2 per face). None of
+    /// `moveit_geometry`'s mesh loaders emit a bare box like this (they
+    /// parse STL/OBJ files), so a test that wants a `Shape::Mesh` sized
+    /// differently from [`box_link`]'s hardcoded `1x1x1` collision box has
+    /// to build one by hand.
+    fn box_shell_mesh(half_extent: f64) -> Mesh {
+        let h = half_extent;
+        let vertices = vec![
+            Vector3::new(-h, -h, -h), // 0
+            Vector3::new(h, -h, -h),  // 1
+            Vector3::new(h, h, -h),   // 2
+            Vector3::new(-h, h, -h),  // 3
+            Vector3::new(-h, -h, h),  // 4
+            Vector3::new(h, -h, h),   // 5
+            Vector3::new(h, h, h),    // 6
+            Vector3::new(-h, h, h),   // 7
+        ];
+        let triangles = vec![
+            [0, 1, 2],
+            [0, 2, 3], // z = -h
+            [4, 6, 5],
+            [4, 7, 6], // z = h
+            [0, 5, 1],
+            [0, 4, 5], // y = -h
+            [3, 2, 6],
+            [3, 6, 7], // y = h
+            [0, 3, 7],
+            [0, 7, 4], // x = -h
+            [1, 5, 6],
+            [1, 6, 2], // x = h
+        ];
+        Mesh::new(vertices, triangles).unwrap()
+    }
+
+    #[test]
+    fn mesh_engulfment_is_reported_as_no_collision_and_a_positive_gap_not_penetration() {
+        // §56.4's residual: parry's `TriMesh` contact is a per-triangle
+        // max (module doc, "Composite shapes"), so a mesh's boundary-only
+        // representation can miss a real overlap that never shows up as
+        // any single triangle pair intersecting. The sharpest instance of
+        // that is not a shallow crossing -- it is full containment, where
+        // no triangle pair from either mesh ever comes closer than the two
+        // meshes' nearest parallel faces, even though the two *solids* the
+        // meshes represent overlap completely.
+        //
+        // Two concentric, axis-aligned box shells centered on the origin:
+        // `outer` half-extent `1.0`, `inner` half-extent `0.1`. `inner`
+        // never crosses `outer`'s boundary anywhere -- the closest any
+        // pair of triangles gets is the two meshes' parallel faces,
+        // `1.0 - 0.1 = 0.9` apart on every axis -- so a purely
+        // surface-vs-surface narrow phase (min `dist` over every candidate
+        // triangle pair) has nothing closer than `0.9` to report. The true
+        // minimum-translation distance to separate the two *solids* the
+        // shells represent is `1.0 + 0.1 = 1.1` (translate `inner` until
+        // its near face clears `outer`'s far face on the same axis) -- the
+        // opposite sign and a different number entirely from the `0.9` a
+        // boundary-only narrow phase can see.
+        let outer = box_shell_mesh(1.0);
+        let inner = box_shell_mesh(0.1);
+
+        let model = build_model(&["p"]);
+        // `p` itself carries its own default `1x1x1` box collision
+        // (`box_link`) -- parked far from the origin so only the attached
+        // `inner` mesh (translated back to the origin by its own
+        // `shape_pose`) can reach `outer`.
+        let mut state =
+            state_with_links_at(&model, &[("p", Isometry3::translation(100.0, 0.0, 0.0))]);
+        let posed = state.update();
+        let mut world = World::new();
+        world.add_shape("outer", Arc::new(Shape::Mesh(outer)), Isometry3::identity());
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+
+        let shapes = vec![Arc::new(Shape::Mesh(inner))];
+        let shape_poses = vec![Isometry3::translation(-100.0, 0.0, 0.0)];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "inner",
+            link_name: "p",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let collision =
+            env.check_robot_collision(&CollisionRequest::default(), &posed, &[attached], None);
+        assert!(
+            !collision.collision,
+            "a fully-engulfed mesh must read as no collision under a per-triangle narrow \
+             phase, or this test no longer demonstrates §56.4's mechanism"
+        );
+
+        let distance = env.distance_robot(&DistanceRequest::default(), &posed, &[attached]);
+        assert!(!distance.collision);
+        // The closed-form gap is `1.0 - 0.1 = 0.9`; parry's actual answer
+        // comes from a vector closest-points computation, not a scalar
+        // subtraction, and lands one ULP below that (`0.8999999999999999`)
+        // -- `1e-12` absorbs that rounding path without absorbing the
+        // `0.9`-scale mechanism this test exists to pin.
+        assert!(
+            (distance.minimum_distance.distance - 0.9).abs() < 1e-12,
+            "boundary-only narrow phase must report the parallel-face gap (~0.9), not the \
+             solids' true overlap: got {}",
+            distance.minimum_distance.distance
+        );
+    }
+
     #[test]
     fn check_self_collision_two_attached_bodies_on_the_same_link_never_collide() {
         // `p` itself sits clear of both attached bodies; `a`/`b` are attached
