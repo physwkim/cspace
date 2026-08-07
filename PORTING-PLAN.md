@@ -36879,3 +36879,181 @@ MET | §217.3 | 2026-08-05"다 — §263 이후 어느 절도 이 행을 다시 
 - **`DEFAULT_PIPELINE_ID`가 소스에 박혀 있다.** falsifier: 그 상수가
   설정/파라미터에서 읽힌다면 거짓. `ros/moveit-ros/src/move_group.rs:67`은
   오늘도 `pub const DEFAULT_PIPELINE_ID: &str = "rrt_connect"`다. OPEN.
+
+---
+
+## §317 A3 round C2 — collision-distance-accuracy 테마 §248.9/§251.6/§260.8/§262.5/§265.8의 18건을 재쟀다, 2건은 이미 다른 절이 닫혔다 (2026-08-07)
+
+`doc/residual-claims-triage.md`의 `collision-distance-accuracy` 테마 아래 C2로 묶인 다섯 절
+(§248.9(4)·§251.6(4)·§260.8(7)·§262.5(2)·§265.8(1), 합 18건)을 절 단위로 열어 각 불릿마다
+falsifier를 정하고 실행했다. 16건은 falsifier 불발 — OPEN으로 남는다. 2건은 falsifier가
+발화했다 — 두 경우 다 이 라운드가 새로 잰 것이 아니라, 이미 merge된 다른 절(§288·§284)이
+각각 다른 목적으로 먼저 답해 둔 것을 이 라운드가 발견하고 원래 불릿에 마커를 옮겨 적는다.
+시작 전 `git merge --no-edit main`으로 fast-forward 60커밋을 받았다(충돌 없음).
+
+### §317.1 §248.9 — 넷 다 오늘도 참이다
+
+**둘째 RNG 스트림.** falsifier: 이 게이트가 `SEED_BASE` 말고 다른 시드/RNG 스트림을
+얻었다면 거짓. `tools/ci/verify-phase7-benchmark.sh`를 전수 grep하면 `SEED_BASE=424242`
+(136행) 하나뿐이고 모든 호출부(200·242·436·455·475·490·732행)가 그 값을 그대로 읽는다.
+falsifier 불발 — OPEN.
+
+**같은 `objects` 배열로 장면을 만든다.** falsifier: 오라클 쪽 world가 포트가 푼 요청과
+다른 JSON에서 만들어진다면 거짓. `oracle_path_check`(`verify-phase7-benchmark.sh:338-354`)를
+읽으면 354행이 `objects: $req[0].objects`로 만들며, `$req`는 포트가 실제로 푼 그 요청
+JSON이다. falsifier 불발 — OPEN.
+
+**`motion_resolution` 아래의 충돌 간극.** falsifier: Phase 7 게이트나
+`plan_benchmark_port.rs`가 여러 해상도 그리드(`condition2_resolutions`)를 받아 조건 2를
+재게 됐다면 거짓. 주석 `# Condition 2's collision-check resolution`은
+`plan_benchmark_port.rs:71`에 그대로 있고, `condition2_resolutions` 식별자는 저장소
+전체에서 Phase 8 하네스(`chomp_benchmark_port.rs`·`stomp_benchmark_port.rs`·
+`seed_validity_problem_set.rs`)와 오라클에만 있다 — `plan_benchmark_port.rs`와
+`verify-phase7-benchmark.sh`에는 0건(`rg -c condition2_resolutions
+crates/moveit-planners-sbp/examples/plan_benchmark_port.rs` 종료 코드 1). falsifier
+불발 — OPEN.
+
+**paired median 집단의 크기.** falsifier: `verify-phase7-benchmark.sh`의 판정식이
+`paired_problems_pooled`에 바닥값을 추가했다면 거짓. 1023행은 오늘도
+`(($s.paired_problems_pooled//0) > 0 and ...)`뿐이다. falsifier 불발 — OPEN.
+
+이 네 건은 §291.2("§248.9 ①~⑤" 행)가 같은 날 독립적으로 측정한 결론과 일치한다 — 다만
+§291은 여덟 절의 정규식-매치 코퍼스를 다룬 것이고 이 라운드는 그 결과를 그대로 옮기지
+않고 위 falsifier로 직접 재확인했다.
+
+### §317.2 §251.6 — 셋은 참이다, 넷째는 §229.1에서 이미 두 번 더 옮겨가 있어 거짓이다
+
+**`sphere × sphere` 셀.** falsifier: `accumulate_collision`(`parry.rs:2140`)의
+`contact_ball_ball` 호출이나 그 판정 경계가 바뀌었다면 거짓. §251.6이 쓰인 커밋
+(`c5fa6985`, 07:36) 이후 `parry.rs`를 건드린 커밋은 셋뿐이다(`2abc8d0a`·`f1d4ea22`·
+`a1c1ecb7`) — `git diff c5fa6985 HEAD -- crates/moveit-collision/src/parry.rs`의 훅
+셋은 각각 `mod tests` 안의 테스트 추가 둘과 483행 부근 doc-comment 인용 줄번호 정정
+하나뿐, `accumulate_collision` 본문은 한 글자도 안 바뀌었다. `2abc8d0a`가 새로 편
+`sphere × sphere` 접선 테스트가 오늘도 통과한다(`contact_ball_ball's strict '<' must
+still exclude the exact tie`). falsifier 불발 — OPEN.
+
+**`Plane`/`Halfspace`/`OcTree`를 25쌍에서 뺐다.** falsifier:
+`crates/moveit-collision/tests/exact_tangency_is_decided_per_shape_pair.rs`의 25쌍
+목록이 그 세 타입을 포함하게 바뀌었다면 거짓. 그 파일은 §251.6과 같은 커밋
+(`c5fa6985`) 이후 한 번도 수정되지 않았다(`git log --follow` 마지막 히트가 `c5fa6985`
+자신). falsifier 불발 — OPEN.
+
+**`distance` 열은 건드리지 않았다.** falsifier: `mesh × mesh` 접선의 `-1.0`이 §251.2
+말고 다른 절에서도 다뤄졌다면 거짓. `rg -n 'mesh × mesh' PORTING-PLAN.md`는 오늘도
+정확히 두 히트(§251.2 자신의 23283행과 이 불릿 23438행)뿐이다. `distance_robot`
+경로도 §251.6 이후 `parry.rs` 미변경(위 항목과 같은 diff 증거)이므로 값 자체도
+안 바뀌었다. falsifier 불발 — OPEN.
+
+**Phase 3 완료 조건 현황표의 `collision: bool` 행 근거 열 — 거짓 → 닫힘 (§317.2).**
+불릿 본문은 스스로 "처리됨(`17d62b6`) — 이제 `§251.4`"라고 이미 한 번 고쳐 적었지만,
+그 문단 자체가 §251.6이 **쓰인 시점**의 상태라고 명시한다. 오늘의 §5 표
+(PORTING-PLAN.md:809)는 "MET | §288 | 2026-08-06"이다 — `§251.4`도 아니다. 근거 열이
+그 자리로 옮겨간 것은 `e0afcc0c`(`phase3: measure the collision clause where both
+dispatch tables agree`, 2026-08-06T22:57:17)이고, §251.6이 쓰인 07:30과 "처리됨" 메모가
+붙은 13:34 둘 다보다 뒤다 — 즉 근거 열은 §229.1에서 §251.4로 한 번(`17d62b6`), 그 뒤
+다시 §288로 또 한 번(`e0afcc0c`, 그 사이 §275.2를 거쳤다 — `git log -G'^\| Phase 3 \|
+\`collision: bool\`'`이 그 행을 다섯 번 고친 커밋을 전부 보여준다) 옮겨갔다.
+"§229.1 그대로 두었다"는 원래 주장도, 그것을 스스로 고친 "이제 `§251.4`"도 오늘은 둘
+다 거짓이다. 판정이 바뀐 것은 아니다(오늘도 MET) — 근거 열의 목적지가 문서화된 것보다
+한 홉 더 옮겨갔을 뿐이다.
+
+### §317.3 §260.8 — 여섯은 참이다, prbt `8.892585e-5`는 §284의 지지함수 괄호로 이미 닫혔다
+
+**`collision: bool` 행을 건드리지 않았다.** falsifier: §229.1이 잰 prbt
+6,854/10,000이 오늘 다른 값을 낸다면(원래 조건 문구 그대로 재실행했을 때) 거짓.
+`accumulate_collision`은 §260.8이 쓰인 시점(`7cc69f0ec`, 09:44) 이후로도 논리가
+안 바뀌었고(§317.2와 같은 diff 증거), 같은 6,854라는 수는 그날 늦게 §265
+(26629행 이하, `--stats-json`의 `collision_clauses.bool_disagrees: 6854`)가 별도
+계측기로 다시 확인했다. §288이 §5 행의 **조건 문구**를 겹치는 파견표 쌍으로 좁혀 그
+행을 MET으로 바꾼 것이지, prbt의 원래-조건 결과 자체를 고친 것이 아니다 — §262.4가
+직접 "판정 어휘를 바꾸는 대신 조건문 자체를 고쳤다"고 적어 둔 그 구분이다. falsifier
+불발 — OPEN.
+
+**허용오차를 넓히지 않았다.** falsifier: `verify-phase3-collision-sweep.sh`의
+`--tol-distance`가 `1e-4`보다 커졌거나 "모집단도 좁히지 말 것" 문구가 지워졌다면
+거짓. 192행은 오늘도 `--tol-distance 1e-4`이고, 266-270행은 오늘도 "The tolerance is
+the condition's own 1e-4 and is not to be widened... Neither is the judged
+population to be narrowed further"를 그대로 찍는다. falsifier 불발 — OPEN.
+
+**`doc/upstream-bugs.md`에 항목을 올리지 않았다(관통 쪽 셋의 경계만).** falsifier:
+§260.8이 이름 댄 관통 쪽 세 항목(`fcl-distance-sentinel-survives-zero-contacts`·
+`distance-callback-max-contact-depth`·`distance-callback-threshold-suppresses-deeper-pairs`)
+말고 §260.8 **자신이** 새 항목을 올렸다면 거짓. 세 항목은 오늘도 그 셋뿐이고, §260.8은
+그중 어느 것도 고치지 않았다. `86be07b0`(§284.7, 17:26)이 이후
+`distance-callback-default-tolerance-makes-distance-order-dependent`에 문단을
+추가한 것은 사실이지만, 그것은 **분리** 분기의 별개 항목이고(§260.8이 말하는 "관통 쪽
+셋"이 아니다), §260.8 자신이 한 일도 아니다 — 이 불릿의 주장 범위(이 절이 무엇을
+했는가)는 안 바뀐다. falsifier 불발 — OPEN.
+
+**상류 결함을 재현하지 않았다.** falsifier: 이후 어느 커밋이든 `minimum_distance`를
+최소가 아니게 만드는 재현을 이 포트에 실제로 넣었다면 거짓. `rg -n
+'minimum_distance.*재현|재현.*minimum_distance'`는 오늘도 이 불릿(25555행)과
+§248.10 근처의 같은 문구(22283행) 둘뿐 — 재현을 완료했다고 적은 곳이 없다. falsifier
+불발 — OPEN.
+
+**prbt의 `8.892585e-5`를 닫힌 형태로 확인하지 않았다 — 거짓 → 닫힘 (§317.3).**
+falsifier: 이후 어느 절이 이 잔차를 상수(닫힌 형태 또는 그와 동등한 방법)로 확인했다면
+거짓. `86be07b0`(§284.4-.5, 17:26)이 정확히 그것을 했다: `cylinder`-`box` 쌍엔 짧은
+닫힌 형태가 없지만(교점이 실린더 아랫면 테두리 원과 상자 모서리 선분의 내부이고,
+최근접 조건이 원의 매개변수에 대한 4차식), 두 볼록체의 지지함수로 만든 괄호는
+witness 탐색의 질과 무관하게 참값을 반드시 포함한다는 것을 §284.5가 증명하고
+`convex_distance_bracket`으로 구현했다. 테스트
+`prbt_link_4_base_link_clearance_brackets_the_separated_residual`
+(`crates/moveit-collision/tests/collision_parity.rs:3780`, 자기 doc-comment
+3734행에서 스스로 "§260.8's open item"이라 이름 붙인다)이 case 4697에서 괄호
+`[3.27873837944664820e-2, 3.27873837944665236e-2]`(폭 `4.163336e-17`)를 재고, 이
+포트는 그 괄호에서 `2.558970e-11`, 오라클은 `8.892588e-5` 떨어져 있다는 것을 실측
+핀으로 고정한다. 오늘 재실행:
+
+```
+$ cargo nextest run -p moveit-collision prbt_link_4_base_link_clearance_brackets_the_separated_residual
+PASS [0.008s] moveit-collision::collision_parity prbt_link_4_base_link_clearance_brackets_the_separated_residual
+```
+
+잔차는 포트의 것이 아니라 기준의 것이라는 결론까지 닫힌 형태로 확인됐다. §260.4가
+잔차가 앉는 상자를 잘못 짚었던 것도 §284.4가 같은 case에서 두 상자를 직접 재
+정정했다(§260.4에 표시 완료).
+
+**분리 분기의 잔차를 0으로 만들지 않았다.** falsifier: `8.892585e-5`(prbt)나
+`6.056201e-7`(pr2)이 이후 0이 됐거나 게이트가 더 이상 그 값을 찍지 않는다면 거짓.
+둘 다 오늘도 §284.4·§284.6에서 같은 자릿수로 반복 인용되고, 게이트
+(`verify-phase3-collision-sweep.sh`)는 실행마다 `sep_worst`를 여전히 출력한다.
+§284.5-.6이 두 값 모두 **기준 자신의 오차**(prbt는 fcl의 `distance_tolerance` 기본값
+`1e-6`이 낳는 드리프트, pr2는 `fixtures/pr2.urdf`의 roll 절단이 낳는
+`8.324097e-14`)임을 지지함수 괄호로 증명했지만, 그것은 "왜 0이 될 수 없는가"를 닫힌
+형태로 답한 것이지 값을 0으로 만든 것이 아니다 — 상류(fcl)를 패치하지 않는 한 이
+포트 쪽에서 손댈 자유도가 없다. falsifier 불발, 다만 구조상 0으로 만들 방법이
+없다는 것까지 §284가 이미 답했다는 것을 덧붙인다 — OPEN.
+
+**§5 표의 근거 열은 번호 배정 뒤에 옮겼다, `verify-phase3-collision-sweep.sh`는 절
+번호가 아니라 행 참조로 그대로 둔다.** falsifier: 그 스크립트가 이후 `§260`을
+리터럴로 박았거나, §5의 분리-분기 행이 §260 아닌 다른 절을 인용한다면 거짓.
+`verify-phase3-collision-sweep.sh:34-40`은 오늘도 "PORTING-PLAN.md §5's `distance:
+f64` row" 식으로 행을 참조하며 그 이유("워커가 병합 시점 번호를 미리 알 수 없다")를
+그대로 적고 있고, PORTING-PLAN.md:809의 분리-분기 행은 오늘도 근거 §260이다.
+falsifier 불발 — OPEN.
+
+### §317.4 §262.5 — 둘 다 참이다
+
+**`crates/moveit-collision/src/parry.rs`를 고치지 않았다.** falsifier: §262.5가
+쓰인 커밋(`cb1ae178`, 10:00) 이후 그 파일의 비-테스트 로직이 바뀌었다면 거짓. §317.2와
+같은 diff 증거 — `git diff cb1ae178 HEAD -- crates/moveit-collision/src/parry.rs`의
+세 훅 전부 `mod tests` 안이거나 doc-comment 인용 정정이다. `contact.dist >= 0.0`
+게이트도 오늘 0건(`rg -c 'contact\.dist\s*>=\s*0\.0' parry.rs`). falsifier 불발 —
+OPEN.
+
+**`distance` 행의 원인 두 가지(panda의 §229.3, fanuc·pr2의 §247)를 하나로 합치지
+않았다.** falsifier: 이후 어느 절이 두 원인을 같은 결함으로 재분류했다면 거짓.
+같은 날 인접 §262.3이 이미 "panda는 최대 침투깊이(escaping-artifact)를 재고
+(§229.3), fanuc·pr2는 distanceCallback이 부호 있는 값과 침투깊이를 같은 변수로
+착각한다(§247.3)"로 구분을 재확인했고, §284/§297/§298 어디에서도 이 둘을 합치는
+문장이 없다(`rg -n '§229\.3.*§247|§247.*§229\.3'`가 이 불릿과 §262.3 둘만 히트).
+falsifier 불발 — OPEN.
+
+### §317.5 §265.8 — 하나 남은 항목도 참이다
+
+**`crates/moveit-collision`을 고치지 않았다 — `contact.dist >= 0.0` 게이트를 다시
+만들지 않았다.** falsifier: 그 게이트가 이후 어디에서든 재도입됐다면 거짓. §265.8이
+쓰인 커밋(`e6652fdb`, 11:23) 이후로도 `crates/moveit-collision/src/parry.rs`의
+비-테스트 로직은 안 바뀌었고(§317.4와 같은 diff 증거), `contact.dist >= 0.0` 패턴은
+오늘 저장소 전체에서 0건이다. falsifier 불발 — OPEN.
