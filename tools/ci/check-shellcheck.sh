@@ -68,10 +68,30 @@ require_nonempty "${#sh_files[@]}" "tracked .sh files to search"
 # under this codebase's near-universal `set -u`. Fixing the SC1091 cause
 # fixes this one too; they are one structural cause, not two.
 #
+# SC2016 (expressions don't expand in single quotes) -- 41 sites, 40 of them
+# in `check-evidence-retention-discriminates.sh` and one in
+# `check-document-sections-discriminates.sh`. In every one the single quotes
+# are REQUIRED rather than merely chosen: a `sed -i 's#...#...#'` script, or
+# a string of Korean prose and Markdown holding backticks and a literal `$`
+# (shell-transcript fixture text like `$ tools/ci/measure-beta.sh out`).
+# Double quotes there would change what the script does. Restructuring is
+# not available for the remainder either -- 1c598517 already converted the
+# one run of `echo` lines that could become a quoted heredoc, and a sed
+# expression has to stay a sed expression. This is the code being right and
+# the check unable to tell.
+#
+# SC2317 (command appears to be unreachable) -- 6 sites, all inside
+# `ros/verify-move-action-interop.sh`'s cleanup function, which runs from a
+# `trap`. shellcheck's own message names this case ("or ignore if invoked
+# indirectly"): it does not model a trap as a call, so the whole handler
+# reads as dead code.
+#
 # Everything else stays enabled and unmodified.
 EXCLUDE=(
   --exclude=SC1091
   --exclude=SC2154
+  --exclude=SC2016
+  --exclude=SC2317
 )
 
 if ! shellcheck "${EXCLUDE[@]}" -- "${sh_files[@]}"; then
