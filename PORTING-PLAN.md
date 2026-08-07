@@ -37947,3 +37947,19 @@ $ rg -n "500문제 전체" PORTING-PLAN.md
 
 두 히트뿐이고, 34125행 자체(§300.8 본문)가 "500문제 전체에 대한 것이
 아니다"라고 적어 불릿의 주장을 재확인한다. **판정: 참, OPEN 유지.**
+
+### §325.5 §300.9 E — "길이 일치를 궤적 일치로 올리는 것"(34172)은 하네스가 아직 못 낸다
+
+불릿 원문: "길이 일치를 궤적 일치로 올리는 것. §300.6. 하네스가 waypoint
+행렬이나 그 해시를 내보내야 한다."
+
+**Falsifier.** STOMP/CHOMP 벤치마크 하네스가 waypoint 행렬이나 해시를 내는
+출력 경로가 있는지.
+
+```
+$ rg -n "waypoint_hash|trajectory_hash|waypoints_hash" crates/moveit-planners-stomp/examples/*.rs crates/moveit-planners-chomp/examples/*.rs
+(no output)
+```
+
+궤적 자체나 그 해시를 내보내는 필드가 없다 — 길이 일치보다 강한 비교는 아직
+불가능하다. **판정: 참, OPEN 유지.**
