@@ -35539,8 +35539,9 @@ panda 250 + fanuc 250(구성당 125문제 × 넷), §304는 panda 500(floor_wall
 
 강등 세탁이 없었음은 따로 쟀다: premerge 대비 `.rs` 모집단 2168 → 2199
 키에 강등 0·소실 0, in-repo 269 → 287에 강등 0, 소실 7은 전부 후계 키가
-확인된 재지정이다(`:810` → `:1036`은 p12-tangency가 옮긴 것이고 그 줄이
-실제로 `pins-unmeasured`다).
+확인된 재지정이다(`!tools/ci/measure-phase8-optimizer-properties.sh:810` →
+`tools/ci/measure-phase8-optimizer-properties.sh:1036`은 p12-tangency가 옮긴
+것이고 그 줄이 실제로 `pins-unmeasured`다).
 
 ### §309.3 §305의 게이트는 형제 절이 들어오자 붉어졌다
 
