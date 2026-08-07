@@ -1259,7 +1259,28 @@ def main():
         "checking against it; read the diff, because a demotion accepted there "
         "is a citation nobody is checking any more",
     )
+    ap.add_argument(
+        "--missing-source",
+        action="append",
+        default=[],
+        metavar="PREFIX",
+        help="a pinned root the wrapper knows about but did not pass via "
+        "--source because the tree is absent (repeatable). Declares this "
+        "run's source set incomplete: an unresolvable citation is then "
+        "reported but not required to be declared in "
+        f"{EXEMPTIONS_PATH.name}, since this run cannot tell a genuinely bad "
+        "citation from one that only needed the missing root",
+    )
     args = ap.parse_args()
+    if args.write_classes and args.missing_source:
+        print(
+            "FAIL --write-classes and --missing-source were both given -- a "
+            "freeze taken with a known-missing root is exactly the freeze "
+            "`refuse_freeze` exists to refuse; the wrapper must not reach "
+            "here with both set.",
+            file=sys.stderr,
+        )
+        return 1
     upstream = Path(args.upstream)
 
     index, origins = source_index([("", upstream)] + args.source)
@@ -1333,6 +1354,20 @@ def main():
     span_mismatch = []
     unresolved = {}
     exempted = 0
+    # Every (doc, key) this run SAW but could not resolve to a class, keyed
+    # exactly like `classify()` -- same (doc, token-with-backticks-stripped)
+    # pair. This is what tells "the citation is gone from the document" (a
+    # real retirement: the token is never seen at all, so it never reaches
+    # `mark_unresolved` either) apart from "the citation is still there but
+    # this run's source set could not resolve it" (it lands here instead of
+    # in `classes`). Without this a resolution failure and a deleted
+    # citation are the same shape at the baseline-comparison step below --
+    # both are simply absent from `classes` -- which is the read-path half
+    # of the defect `refuse_freeze` above closes on the write path.
+    unresolved_citations = collections.Counter()
+
+    def mark_unresolved(doc, token):
+        unresolved_citations[(doc, token.strip("`"))] += 1
 
     def classify_citation(
         doc, doc_lines, line, line_no, start, end, window_floor, resolved, spec, token,
@@ -1466,6 +1501,7 @@ def main():
                             g["hist"],
                             "no upstream file matches" if not cands else f"ambiguous: {cands}",
                         )
+                        mark_unresolved(doc, m.group(0))
                         continue
                     resolved, rev = cands[0], g["hrev"]
                     hist_lines = historical_lines(resolved, rev)
@@ -1530,6 +1566,7 @@ def main():
                             "no upstream file matches" if not cands else f"ambiguous: {cands}",
                         )
                         base = None
+                        mark_unresolved(doc, m.group(0))
                         continue
                     resolved = base = cands[0]
                 elif g["rebase"] is not None:
@@ -1540,10 +1577,20 @@ def main():
                         else None
                     )
                     if resolved is None:
+                        # `base` itself is unresolved (the file this rebase
+                        # switches from never resolved), or no sibling
+                        # translation unit exists for it. Either way this
+                        # citation is unverifiable this run, not gone --
+                        # see `mark_unresolved`.
+                        mark_unresolved(doc, m.group(0))
                         continue
                 else:
                     spec = g["bare"]
                     if base is None:
+                        # Inherits a file that never resolved this run
+                        # (`g["file"]`/`g["path"]` above already fell
+                        # through). Same "unverifiable, not gone" case.
+                        mark_unresolved(doc, m.group(0))
                         continue
                     if switch_at is not None and switch_at < start:
                         ambiguous_base.append((doc, line_no, m.group(0), base))
@@ -1746,7 +1793,21 @@ def main():
             for p in sorted(by_project[project]):
                 print(f"    `{p}` -- {unresolved[p]}", file=sys.stderr)
 
-    if undeclared:
+    source_incomplete = bool(args.missing_source)
+    if undeclared and source_incomplete:
+        print(
+            f"--- {len(undeclared)} unresolvable cited path(s) NOT checked "
+            f"against {EXEMPTIONS_PATH.name} -- this run is missing "
+            f"{', '.join(sorted(args.missing_source))}, so an unresolved path "
+            f"may only be unreachable this run, not genuinely undeclared. "
+            f"Declaring it here would be a lie the next full-source run "
+            f"believes; rerun with the full pinned source set to check "
+            f"these ---",
+            file=sys.stderr,
+        )
+        for p in undeclared:
+            print(f"  `{p}` -- {unresolved[p]}", file=sys.stderr)
+    elif undeclared:
         print(
             f"--- {len(undeclared)} undeclared unresolvable cited path(s) ---",
             file=sys.stderr,
@@ -1791,9 +1852,25 @@ def main():
     def rank(cs):
         return sorted((CLASS_RANK[c] for c in cs), reverse=True)
 
-    demoted, promoted, recounted = [], [], []
-    for key in sorted(set(live) & set(baseline)):
-        was, now = baseline[key], live[key]
+    # A key this run could not resolve at all MUST NOT be compared against
+    # the baseline: `live` has no entry for it (see `mark_unresolved`), so it
+    # reads exactly like a citation the document deleted, and demanding a
+    # `--write-classes` refreeze on that basis is how an absent
+    # `third_party/<pkg>` checkout turns into a drift-shaped failure. A key
+    # whose (doc, token) never reached `classify` OR `mark_unresolved` this
+    # run is the genuine case -- the document no longer contains the token at
+    # all -- and that one still fails below, unchanged.
+    unresolved_keys = set(unresolved_citations)
+
+    demoted, promoted, recounted, excluded_baseline = [], [], [], []
+    for key in sorted(set(baseline) & (set(live) | unresolved_keys)):
+        was = baseline[key]
+        if key in unresolved_keys:
+            now = live.get(key)
+            if now is None or now != was:
+                excluded_baseline.append((key, was, now))
+            continue
+        now = live[key]
         if was == now:
             continue
         if len(was) != len(now):
@@ -1803,14 +1880,26 @@ def main():
         else:
             promoted.append((key, was, now))
     undeclared_cls = sorted(set(live) - set(baseline))
-    retired_cls = sorted(set(baseline) - set(live))
+    retired_cls = sorted(set(baseline) - set(live) - unresolved_keys)
 
     print(
         f"--- {len(demoted)} demoted, {len(recounted)} recounted, "
         f"{len(undeclared_cls)} undeclared, {len(retired_cls)} retired, "
-        f"{len(promoted)} promoted vs {UPSTREAM_CLASS_BASELINE} ---",
+        f"{len(promoted)} promoted, {len(excluded_baseline)} excluded (source "
+        f"absent this run) vs {UPSTREAM_CLASS_BASELINE} ---",
         file=sys.stderr,
     )
+    if excluded_baseline:
+        print(
+            f"--- {len(excluded_baseline)} citation(s) NOT compared against "
+            f"{UPSTREAM_CLASS_BASELINE}: at least one occurrence failed to "
+            f"resolve this run, which absence and drift both look like from "
+            f"here -- rerun with the full pinned source set to check them ---",
+            file=sys.stderr,
+        )
+        for (doc, spec), was, now in sorted(excluded_baseline):
+            now_desc = f"now {' '.join(now)}" if now else "now unresolved"
+            print(f"  {doc}: `{spec}` was {' '.join(was)}, {now_desc}", file=sys.stderr)
     for (doc, spec), was, now in demoted:
         print(
             f"FAIL {doc}: `{spec}` was {' '.join(was)}, now {' '.join(now)} -- the "
@@ -1848,11 +1937,19 @@ def main():
             file=sys.stderr,
         )
 
+    # `undeclared` is only a hard failure with the full pinned source set --
+    # see the `source_incomplete` block above. `n_source_absent_unresolved`
+    # is the paths that clause excused, reported here so the FAIL summary's
+    # own total accounts for every unresolved path, not just the ones it
+    # chose to fail on.
+    n_undeclared_fail = 0 if source_incomplete else len(undeclared)
+    n_source_absent_unresolved = len(undeclared) if source_incomplete else 0
+
     if (
         out_of_bounds
         or span_mismatch
         or obsolete_header
-        or undeclared
+        or (undeclared and not source_incomplete)
         or stale
         or historical_bad
         or class_drift
@@ -1861,13 +1958,15 @@ def main():
         print(
             f"FAIL {len(out_of_bounds)} out-of-bounds + {len(obsolete_header)} "
             f"obsolete-header + {len(span_mismatch)} span-mismatch + "
-            f"{len(undeclared)} undeclared-unresolvable + {len(stale)} "
+            f"{n_undeclared_fail} undeclared-unresolvable + {len(stale)} "
             f"stale-declaration + {len(historical_bad)} unreadable-historical + "
             f"{len(demoted)} demoted + {len(recounted)} recounted + "
             f"{len(undeclared_cls)} undeclared-class + {len(retired_cls)} retired-class "
             f"+ {len(ambiguous_base)} ambiguous-base "
             f"(of {total} upstream citations resolved across "
-            f"{len(corpus)} tracked .md/.rs files)",
+            f"{len(corpus)} tracked .md/.rs files; {len(excluded_baseline)} citation(s) "
+            f"and {n_source_absent_unresolved} unresolvable path(s) excluded from "
+            f"comparison, source absent this run)",
             file=sys.stderr,
         )
         return 1
@@ -1881,6 +1980,26 @@ def main():
         if args.source
         else " (no extra root passed)"
     )
+    n_declared_cited = len(unresolved) - len(undeclared)
+    unresolved_desc = (
+        f"{len(unresolved)} distinct unresolvable paths all declared in "
+        f"{EXEMPTIONS_PATH.name} (reported above, and unverified -- a "
+        f"declaration says no tree covers them, not that they are right)"
+        if not source_incomplete
+        else (
+            f"{len(unresolved)} distinct unresolvable paths -- {n_declared_cited} "
+            f"declared in {EXEMPTIONS_PATH.name}, {len(undeclared)} excused because "
+            f"{', '.join(sorted(args.missing_source))} (absent this run) could "
+            f"cover them (reported above, and unverified either way)"
+        )
+    )
+    excluded_desc = (
+        f", {len(excluded_baseline)} citation(s) excluded from the "
+        f"{UPSTREAM_CLASS_BASELINE} comparison because source absent this run left "
+        f"them unresolvable (reported above)"
+        if excluded_baseline
+        else ""
+    )
     print(
         f"OK {total} upstream citations across {len(corpus)} tracked .md/.rs files "
         f"against {roots}: {anchor_verified} span-verified (cited lines inside "
@@ -1892,14 +2011,11 @@ def main():
         f"(tools/ci/upstream-citation-exemptions.json), {inherited_checked} of the "
         f"total reached through a bare `:NNN` continuation on a line that named "
         f"one coordinate system (a continuation across a switch is a hard failure, "
-        f"not an inference -- see `foreign_switch`), {len(unresolved)} "
-        f"distinct unresolvable paths all declared in "
-        f"{EXEMPTIONS_PATH.name} (reported above, and unverified -- a "
-        f"declaration says no tree covers them, not that they are right), "
+        f"not an inference -- see `foreign_switch`), {unresolved_desc}, "
         f"{historical} of the total are historical `path@rev:NNN` citation(s), "
         f"put on the same ladder against their own pinned revision instead of "
         f"against HEAD, "
-        f"0 out-of-bounds, 0 obsolete-header, 0 span-mismatch"
+        f"0 out-of-bounds, 0 obsolete-header, 0 span-mismatch{excluded_desc}"
     )
     return 0
 
