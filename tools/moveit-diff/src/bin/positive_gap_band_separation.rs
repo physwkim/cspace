@@ -30,7 +30,7 @@
 //!   result.collision = true }` (`:2502`).
 //!
 //! `bounded_prediction`'s own doc (`parry.rs:1243-1257`) says clamping to
-//! `0.0` "match[es] `accumulate_collision`'s own prediction-`0.0` convention
+//! `0.0` "match\[es\] `accumulate_collision`'s own prediction-`0.0` convention
 //! for a touching-or-penetrating-only query" -- but `accumulate_collision`'s
 //! *own* doc, two functions down, says the opposite of that convention holds
 //! ("NOT gated on `contact.dist <= 0.0`... `parry` returns a contact across a
