@@ -5470,3 +5470,115 @@ fn prbt_penetration_branch_full_389_population_matches_the_published_totals() {
         sides
     );
 }
+
+/// PORTING-PLAN.md §302.6's third residual bullet: the 19 undominated cases
+/// "could be" both solvers erring by the same amount at the same spot, and
+/// that was never opened. It measures each undominated row's
+/// `(oracle_off, port_off)` rather than reading the aggregate `Undominated`
+/// label back, so it stands even if the published 19 ever moves.
+#[test]
+fn prbt_penetration_branch_undominated_19_are_all_a_near_margin_oracle_lean() {
+    const DOMINANCE: f64 = 100.0;
+    const WIDTH_FRACTION: f64 = 0.1;
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let acm = build_acm("prbt.srdf");
+    let with_shapes: Vec<&str> = model
+        .link_names()
+        .iter()
+        .filter(|n| model.link_model(n).is_ok_and(|l| !l.shapes().is_empty()))
+        .map(String::as_str)
+        .collect();
+    let mut checked: Vec<(&str, &str)> = Vec::new();
+    for (i, a) in with_shapes.iter().enumerate() {
+        for b in &with_shapes[i + 1..] {
+            let allowed = acm
+                .allowed_collision(a, b)
+                .is_some_and(|e| e.kind() == moveit_collision::AllowedCollisionType::Always);
+            if !allowed {
+                checked.push((a, b));
+            }
+        }
+    }
+
+    // (case, oracle_off, port_off, oracle_off / width) per undominated row.
+    let mut undominated: Vec<(u32, f64, f64, f64)> = Vec::new();
+    let rows = load_prbt_self_penetration_389();
+    for row in &rows {
+        let mut state = build_state(&model, &row.joint_values);
+        let posed = state.update();
+        let mut bodies: Vec<(WorldConvex, WorldConvex)> = Vec::new();
+        for (a, b) in &checked {
+            let shapes = |link: &str| -> Vec<WorldConvex> {
+                let pose = posed
+                    .global_link_transform(link)
+                    .unwrap_or_else(|e| panic!("case {}: prbt has a {link} link: {e}", row.case));
+                model
+                    .link_model(link)
+                    .unwrap_or_else(|e| panic!("case {}: prbt has a {link} model: {e}", row.case))
+                    .shapes()
+                    .iter()
+                    .map(|s| WorldConvex::from_link_shape(&pose, s))
+                    .collect()
+            };
+            let (sa, sb) = (shapes(a), shapes(b));
+            for x in &sa {
+                for y in &sb {
+                    bodies.push((x.clone(), y.clone()));
+                }
+            }
+        }
+        let (lo, hi, _win) = min_signed_distance_over(&bodies);
+        let (low, high) = (lo.min(hi), lo.max(hi));
+        let offset = |v: f64| {
+            if v < low {
+                low - v
+            } else if v > high {
+                v - high
+            } else {
+                0.0
+            }
+        };
+        let (port_off, oracle_off) = (offset(row.rust), offset(row.oracle));
+        let deviation = (row.oracle - row.rust).abs();
+        let width = high - low;
+        if width > WIDTH_FRACTION * deviation {
+            continue;
+        }
+        let slack = width.max(f64::MIN_POSITIVE);
+        let oracle_dominates = oracle_off > DOMINANCE * port_off.max(slack);
+        let port_dominates = port_off > DOMINANCE * oracle_off.max(slack);
+        if !oracle_dominates && !port_dominates {
+            undominated.push((row.case, oracle_off, port_off, oracle_off / width));
+        }
+    }
+
+    assert_eq!(
+        undominated.len(),
+        19,
+        "the undominated count moved from §302.3's published 19: got {undominated:?}"
+    );
+
+    // MEASURED: in every one of the 19, port_off is exactly 0.0 -- the
+    // port's own value sits *inside* the geometric bracket, not offset from
+    // it at all -- while oracle_off is strictly positive and, scaled by the
+    // bracket width, sits strictly between 10x and 100x. This is the
+    // opposite of "both solvers err by the same amount": these are cases
+    // where only the oracle sits outside the bracket, by a margin under the
+    // 100x DOMINANCE bar rather than over it.
+    for &(case, oracle_off, port_off, ratio) in &undominated {
+        assert_eq!(
+            port_off, 0.0,
+            "case {case}: port_off is nonzero ({port_off:e}) -- the 19 are no longer all \
+             a within-bracket port value against an outside-bracket oracle value"
+        );
+        assert!(
+            oracle_off > 0.0,
+            "case {case}: oracle_off is zero -- this row should not have been undominated"
+        );
+        assert!(
+            (10.0..100.0).contains(&ratio),
+            "case {case}: oracle_off/width = {ratio:.3} left the measured (10x, 100x) band"
+        );
+    }
+}
