@@ -36879,3 +36879,291 @@ MET | §217.3 | 2026-08-05"다 — §263 이후 어느 절도 이 행을 다시 
 - **`DEFAULT_PIPELINE_ID`가 소스에 박혀 있다.** falsifier: 그 상수가
   설정/파라미터에서 읽힌다면 거짓. `ros/moveit-ros/src/move_group.rs:67`은
   오늘도 `pub const DEFAULT_PIPELINE_ID: &str = "rrt_connect"`다. OPEN.
+
+## §318 A3 — collision-distance-accuracy 테마(C3) 20건을 재쟀다, 4건이 닫혔고 1건은 절반만 닫혔다 (2026-08-07)
+
+`doc/residual-claims-triage.md`의 C3 군집(`collision-distance-accuracy` 테마의
+9개 절 — §70.3, §102.3, §216.4, §220.7, §275.4, §284.3, §288.9, §297.5,
+§298.6, 20건)을 절 단위로 열어 각 불릿마다 falsifier를 정하고 실제로
+돌렸다. 시작 전 `git merge --no-edit main`으로 ~60커밋을 받았다
+(fast-forward, 충돌 없음) — 이전 라운드의 §312가 merge에서 §316으로
+재번호됐으므로 다시 추가하지 않는다.
+
+4건이 거짓으로 드러나 닫혔다(§318.1의 둘째, §318.2, §318.3의 첫째,
+§318.5의 둘째). 1건은 절반만 닫혔다(§318.4 — `interpolate`는 닫히고
+`distance`는 남는다). 나머지 15건은 falsifier 불발로 OPEN이다.
+
+### §318.1 §70.3 — `isFixedFrame`은 오늘도 프로덕션 호출자가 없다, `getCostSources`는 실제 포팅됐다
+
+**첫째 (OPEN).** 불릿: "`isFixedFrame`의 world object frame 위임은 여전히
+살아 있는 호출자가 없다 ... 다리가 생기면 닫힌다." falsifier: 이 포트의
+`PositionConstraint::new`/`OrientationConstraint::new`/`VisibilityConstraint::new`
+중 하나라도 **프로덕션 코드**에서 `PlanningScene::transforms()` 대신
+`transforms_with_world_objects()`를 받는 호출부가 생기면 거짓이 된다.
+
+다리(`PlanningScene::transforms_with_world_objects`, `crates/moveit-scene/src/scene.rs:951`)는
+있고, `a_position_constraint_against_a_world_object_only_resolves_through_transforms_with_world_objects`
+(`crates/moveit-planners-sbp/src/planning_scene_validity.rs`)가 그 다리를
+통해 값이 정확히 흐른다는 것도 오늘 통과로 확인된다. 그러나 그것은
+**테스트** 호출이지 프로덕션 호출이 아니다. `rg -n
+'transforms_with_world_objects' crates/ --glob '!*/tests/*'`는 정의·doc
+바깥에 프로덕션 콜사이트를 0건 낸다 — `crates/moveit-constraints/src/utils.rs`
+자신의 module doc이 그 셋(정의 1 + doc 3)까지 전부 세어 같은 결론을
+적는다. 이 절이 스스로 적은 닫는 조건("다리가 생기면 닫힌다")은 문자
+그대로 "다리"가 아니라 **프로덕션 소비자**를 뜻했고, 그것은 아직
+없다. `moveit-constraints/src/utils.rs`는 이것이 결함이 아니라 상류
+자신의 구조라는 논증도 편다 — `constructGoalConstraints`의 7개
+오버로드 전부가 `PlanningScene`/`Transforms` 인자를 받지 않으므로
+상류도 이 둘을 짝짓는 콜사이트가 없다 — 그러나 그 논증은 falsifier를
+바꾸는 것이지 발화시키는 것이 아니다. falsifier 불발 — **OPEN**.
+(같은 세션 안에서 §310.2가 §66.4의 같은 사실을 독립적으로 재확인했다 —
+falsifier는 다르게 표현했지만("소비자가 생기면") 결론은 같다:
+프로덕션 콜사이트 0건.)
+
+**둘째 (닫힘, §318.1).** 불릿: "새로 표면화된 것: `getCostSources`가
+막혀 있다. `ParryCollisionEnv`가 `cost_sources: None`을 하드코딩한다."
+falsifier: `ParryCollisionEnv`가 실제 cost source를 계산하고 오라클과
+대조하는 테스트가 생기면 거짓이 된다.
+
+**거짓 → 닫힘 (§318.1).** `crates/moveit-scene/src/scene.rs:523-539`의
+module doc이 직접 적는다 — cost sources는 이전에 `blocked`였고
+`6890fdd`(moveit-collision: implement cost_sources instead of
+documenting it as blocked, 2026-08-04)가 `ParryCollisionEnv`의
+하드코딩된 `cost_sources: None`을 실제 계산으로 교체했다(round 21에서
+재분류함). (그 doc 주석이 병합 커밋으로 함께 인용하는 해시 044a788f는
+이 워크스페이스 히스토리 어디에도 없다 — git cat-file -e로 확인하면
+실패한다. 인용 대상이 아닌 `6890fdd`만 여기 담고, 그 드리프트된
+해시는 별도 관찰로 보고에 남긴다.)
+`PlanningScene::cost_sources`/`path_cost_sources`
+(`scene.rs:1835`,`:1896`)가 그 실제 계산이고,
+`crates/moveit-scene/tests/cost_sources_parity.rs`가 panda로 오라클과
+대조한다 — 오늘 `cargo nextest run -p moveit-scene -E 'test(/cost_sources/)'`
+11/11 통과(단위 테스트 7 + 오라클 패리티 4, mesh-shape 차단 케이스
+2건 포함).
+
+### §318.2 §102.3 — `octree_points` fixture는 이미 캡처됐다
+
+불릿: "이 op으로 fixture를 캡처하는 것은 아직 안 했다." falsifier:
+`tests/fixtures/octree_points_{request,response}.json`이 커밋되고 그것을
+오라클과 대조하는 테스트가 통과하면 거짓이 된다.
+
+**거짓 → 닫힘 (§318.2).** `git log --follow --oneline -- crates/moveit-distance-field/tests/fixtures/octree_points_request.json`가
+`d529de80`(test(distance-field): capture the octree_points oracle
+fixture) 한 건을 낸다 — 커밋 메시지가 "pin all three boundary cases
+against the real moveit2 C++ oracle, compared bit-for-bit and in
+emission order, not just count"라고 적는다.
+`distance_field.rs:90-98`의 module doc이 그 세 사례를 "two concrete,
+deterministic instances, plus a third power-of-two case in
+`octree_points_subdivision_le_boundary_keeps_the_last_face_that_lt_would_drop`"로
+구체적으로 이름 붙이고 "It no longer is [an open question]"이라고
+적으며, PORTING-PLAN.md §102.2 자신도 "`distance_field.rs`의
+'unverified' 표시는 이제 근거를 갖고 지울 수 있다"고 결론짓는다. 오늘
+`cargo nextest run -p moveit-distance-field octree_points_matches_the_oracle_for_all_three_pinned_boundary_cases`
+1/1 통과.
+
+### §318.3 §216.4 — pr2 self-collision 제외는 메시 로더가 생겨 닫혔고, `push_diffs` 계열은 오늘도 열려 있다
+
+**첫째 (닫힘, §318.3).** 불릿: "pr2의 `self_collision`/`self_distance`는
+이 비교에서 제외했다. 이 포트가 메시를 싣지 않아 pr2 자기충돌면
+대부분이 없고 ..." falsifier: 이 포트가 메시 충돌 형상을 실제로
+로드하고, pr2의 `self_collision`/`self_distance`를 오라클과 전체
+패리티로 대조하는 테스트가 통과하면 거짓이 된다.
+
+**거짓 → 닫힘 (§318.3).** STL 로더(`crates/moveit-geometry/src/stl.rs`,
+`947f3e67`)가 `LinkModel`에 결선됐고,
+`crates/moveit-collision/tests/collision_parity.rs`의 module doc이
+직접 "pr2's mesh gap was a fixture gap, not a feature gap"이라고
+적는다 — `fixture_mesh_search_paths`가 `fixtures/meshes/pr2_description/`을
+가리키도록 확장됐다(`1ff4d3b8`, 2026-08-04). `pr2_collision_matches_the_oracle`이
+`assert_full_parity_matches_oracle`을 통해 `self_collision`/`self_distance`를
+포함한 전체 패리티를 오라클과 bool 단위로 정확히 대조하고(`self_result.collision
+== case.self_collision`), 오늘 통과한다. 이 절 자신의 비교
+(`crates/moveit-scene/tests/scene_diff_collision_parity.rs`)는 여전히
+`robot_collision`/`robot_distance`만 보고 그 module doc도 "no mesh
+loader"라는 옛 근거를 그대로 인용하고 있어 그 파일 자체는 갱신되지
+않은 채지만, 이 불릿이 잔여로 지목한 실체 — "이 포트가 메시를 싣지
+않아 pr2 self-collision을 오라클과 대조할 수 없다" — 는 다른 비교가
+이미 닫았다. (참고: `scene_diff_collision_parity.rs`의 module doc이
+드리프트 상태인 것은 별개 관찰이며, 이 라운드는 PORTING-PLAN.md
+불릿만 다룬다 — 코드/doc 수정은 범위 밖이다.)
+
+**둘째 (OPEN).** 불릿: "씬 diff는 `push_diffs`/`decouple_parent`/`clear_diffs`까지
+있는데 이번 비교는 `diff()` 적용 후의 충돌 결과만 덮는다. 부모로
+되밀어 넣는 경로는 오라클 op으로 열려 있지 않다." 이 불릿이 실제로
+가리키는 것은 세 메서드의 **포팅 여부**가 아니라 **오라클 비교의
+커버리지**다 — falsifier: 부모로 되밀어 넣는 경로(`push_diffs`
+적용 후 부모 씬에서 충돌을 재는 것)를 재는 오라클 op이 생기고 그
+비교가 통과하면 거짓이 된다.
+
+세 메서드 자신은 오늘 이미 포팅돼 있다 — `PlanningScene::push_diffs`/
+`decouple_parent`/`clear_diffs`(`crates/moveit-scene/src/scene.rs:231-233`의
+doc이 각각을 upstream `pushDiffs`/`decoupleParent`/`clearDiffs`의
+포트로 인용한다) — 그러나 이것이 이 불릿의 falsifier는 아니다(불릿은
+"있는데(=있다는 것은 이미 알고 있는데) ... 이번 비교는 덮지 않는다"고
+적어, 메서드 존재가 아니라 비교 범위를 지목한다). `tools/moveit-oracle/src/oracle.cpp`가
+제공하는 씬 diff 관련 op은 `scene_diff_collision`(`:1005`) 하나뿐이고,
+그 구현(`applySceneDiff`, `:3039`)은 `diff` 배열을 자식 씬에 적용해
+그 자식에서 충돌을 재는 것만 한다 — 부모로 되밀어 넣거나
+`decouple_parent`/`clear_diffs`를 거치는 op은 없다.
+`crates/moveit-scene/tests/scene_diff_collision_parity.rs`의 module
+doc(`:10`)도 이 파일이 "the oracle's `scene_diff_collision` op"만
+대조한다고 그대로 적는다. falsifier 불발 — **OPEN**.
+
+### §318.4 §220.7 — `interpolate`는 §244.2가 실제로 포팅했다, `distance`는 오늘도 지역 사본뿐이다
+
+불릿: "`RobotState::interpolate`와 `RobotState::distance`의 지역 사본은
+그대로 두었다. `setFromIK`은 둘 중 어느 것도 쓰지 않으므로, 진짜
+메서드를 포팅하는 것은 이번 작업을 닫는 일부가 아니다." 두 메서드를
+따로 falsify한다: (a) `RobotState::interpolate`가 실제 프로덕션
+메서드로 포팅되고 오라클과 대조되면 거짓, (b) `RobotState::distance`도
+같으면 거짓.
+
+**(a) 거짓.** `crates/moveit-state/src/state.rs:717`의 `pub fn
+interpolate(&self, to: &Self, t: f64, state: &mut Self)`가 upstream의
+group-less 오버로드(`robot_state.cpp:1138`, `cartesian_interpolator.rs`의
+지역 사본 `interpolate_states`가 문서화하는 바로 그 오버로드)를 그대로
+포팅한 것이다 — `§244.2`(`3e37bb11`, "state: port RobotState::interpolate's
+three overloads and compare them")가 세 오버로드
+(`interpolate`/`interpolate_group`/`interpolate_joint`) 전부를 오라클의
+`state_interpolate` op과 대조했다: 7개 로봇, 허용오차 `0.0`(비트 단위
+일치), `state_interpolation` 절만 1,572케이스, 네 절 합계 6,392.
+그러나 `crates/moveit-kinematics/src/cartesian_interpolator.rs`의 지역
+사본(`interpolate_states`/`interpolate_pose`)은 이 real method를 호출하도록
+바뀌지 않았다 — 오늘도 자기 루프를 그대로 돈다. 이 불릿이 지목한
+실체(진짜 `interpolate`가 포팅되지 않았다)는 닫혔지만, 지역 사본 자체가
+지워지거나 real method로 치환된 것은 아니다.
+
+**(b) 참, 오늘도.** `rg -n 'fn distance\b' crates/moveit-state/src/state.rs`는
+0건 — `RobotState::distance`는 오늘도 없다. `cartesian_interpolator.rs`의
+`group_distance`/`joint_distance`(§220.7이 쓰인 시점과 동일한 지역 사본)가
+여전히 유일한 구현이다.
+
+불릿 전체는 두 메서드를 한 문장에 묶었고 (a)/(b)가 서로 다른 답을
+내므로 `거짓 → 닫힘`으로 통째로 닫지 않는다 — 원문에는 "닫혔다"가
+아니라 "§244.2가 실제로 포팅했다"는 산문으로만 (a)를 표시했다(§318.4).
+`distance` 쪽 falsifier는 오늘도 불발이므로 불릿은 **OPEN**으로
+남는다.
+
+### §318.5 §275.4 — case 8148은 §281이 닫았고, 접선 자체는 오늘도 고치지 않았다
+
+§275.4는 불릿 3개다. 첫째("다른 4로봇은 다시 재지 않았다")는 이미
+자기 텍스트 안에 `거짓 → 닫힘 (§284.1·§284.3)`을 갖고 있어 census가
+CLOSED로 정확히 센다 — 내 라운드의 대상이 아니다. 아래 둘이 오늘
+남은 OPEN 불릿이다.
+
+**둘째 (닫힘, §318.5).** 불릿: "case 8148을 닫지 않았다. §275.3의 1건은
+열린 항목이다." falsifier: case 8148(prbt `floor`/`prbt_flange`
+분리-분기 편차 `1.683122e-3`)이 어느 쪽(오라클/포트) 오차인지 판정되면
+거짓이 된다.
+
+**거짓 → 닫힘 (§318.5).** §281("case 8148은 이 포트의 오차가 아니다")이
+실린더-평면 닫힌 형태로 판정했다.
+`prbt_flange_floor_clearance_matches_the_closed_form`
+(`crates/moveit-collision/tests/collision_parity.rs`)이 이 포트를 닫힌
+형태에서 `7.834950e-10` 안(허용 `1e-8`)으로, 오라클의 발표값
+(`0.311_769_210_552_093_33`)은 닫힌 형태에서 `1.683122e-3` 떨어져
+절의 `1e-4` 허용오차보다 크게 벗어남을 각각 확인한다 — 오라클의
+오차이지 이 포트의 것이 아니다. 오늘
+`cargo nextest run -p moveit-collision prbt_flange_floor_clearance_matches_the_closed_form`
+통과.
+
+**셋째 (OPEN).** 불릿: "접선 자체를 고치지 않았다. `sphere × sphere`의
+비균일성(#16)과 같은 부류이고, §251.4가 적은 두 대안(양의 엡실론/쌍별
+분기) 중 어느 쪽도 여기서 택하지 않았다." falsifier:
+`crates/moveit-collision/src/parry.rs`의 `accumulate_collision`이 접선
+셀 판정을 바꿔 25쌍 표에서 `sphere × sphere`도 다른 24쌍과 같은 방향
+(충돌)으로 답하게 되면 거짓이 된다.
+`exact_tangency_collides_for_every_pair_but_sphere_on_sphere`
+(`crates/moveit-collision/tests/exact_tangency_is_decided_per_shape_pair.rs`)가
+오늘도 통과한다 — 이름 그대로 `sphere × sphere` 하나만 예외로 통과하는
+비대칭이 그대로다. §251.4가 검토했던 넷째 대안(합집합 쿼리)까지 포함해
+어느 것도 프로덕션 코드에 반영되지 않았다. falsifier 불발 — **OPEN**.
+
+### §318.6 §284.3 — 바닥 높이·시드 확장 둘 다 오늘도 재지 않았다; 이 절 자체는 "혼합 불릿" 사례가 아니다
+
+이 절의 OPEN 불릿은 census상 정확히 둘이다(`doc/residual-claims-census.md`
+172-173행) — census 자신의 docstring이 §284.3을 "한 불릿에 여러 절이
+섞여 있고 그중 일부만 닫힌" 사례의 **원조 예시**로 인용하지만, 그
+사례(§284.3의 셋째 불릿, "관통 분기는 판정하지 않았다")는 세 하위
+주장 모두 이미 `거짓 → 닫힘` 마커를 자기 텍스트 안에 갖고 있어
+census가 이미 CLOSED로 정확히 분류했다 — 내가 새로 열 것이 없다.
+`doc/residual-claims-triage.md`가 실제로 "혼합 불릿 2건"으로 나열하는
+것은 §264.12·§269.10이고, 둘 다 `planner-benchmark-parity` 테마
+(P1/P2 라운드 소관)라 이 라운드(C3, `collision-distance-accuracy`)
+범위 밖이다. 브리핑의 "§284.3은 혼합 불릿 중 하나" 메모는 이 원조
+예시를 가리킨 것으로 읽었고, 그 예시는 이미 과거 라운드(§297.4,
+§302)가 닫아 두었다 — 아래 둘은 그것과 무관한, 여전히 단순-잔여인
+불릿이다.
+
+**첫째 (OPEN).** 불릿: "바닥 높이는 두 개만 쟀다. `0.0`과 `-0.5`뿐이고,
+그 사이나 아래에서 다른 로봇의 초과가 나타나는지는 재지 않았다."
+falsifier: 5로봇 `bool` 스윕이 세 번째 바닥 높이에서 돌았다면 거짓이
+된다. `rg -n 'floor.top.z|floor-top-z|FLOOR_TOP_Z'`를 전체 워크스페이스에
+돌리면 `0.0`/`-0.5`에 더해 `collision_parity.rs`의
+`prbt_flange_floor_clearance_matches_the_closed_form_when_penetrating`이
+쓰는 `-0.16` 하나가 새로 나오지만, 이것은 **prbt 하나**의 닫힌-형태
+검증(§318.5)이지 5로봇 `bool` 초과 스윕이 아니다 — 다른 네 로봇은 그
+높이에서 전혀 측정되지 않는다. falsifier 불발 — **OPEN**.
+
+**둘째 (OPEN).** 불릿: "시드는 1 하나다. 다섯 로봇 전부 같은
+10,000상태 풀이고, 다른 시드에서 넷 중 하나가 초과를 내는지는 이 절의
+코퍼스 밖이다." falsifier: `--floor-top-z -0.5`에서 seed 1이 아닌
+다른 시드로 panda/fanuc/dual_arm_panda/pr2를 스윕한 기록이 생기면
+거짓이 된다. `grep -n '다른 시드'`가 PORTING-PLAN.md 안에서 이 불릿
+자신의 문장 밖에 후속을 내지 않는다. falsifier 불발 — **OPEN**.
+
+### §318.7 §288.9 — 다섯 제외 전부 오늘도 그대로다
+
+§288의 부분모집단(fcl/parry 파견표가 겹치는 쌍)이 스스로 이름 붙인 다섯
+제외 목록. 각각의 falsifier와 결과:
+
+- **`cylinder × box`(libccd 빈칸).** falsifier: `parry.rs`가 이 쌍에서
+  fcl과 같은 판정을 내도록 바뀌면 거짓. §275.4 셋째(§318.5)가 오늘
+  같은 소스를 다시 확인했다 — 안 바뀌었다. **OPEN**.
+- **`box × box`/`sphere × sphere`(이 포트 GJK 허용오차 /
+  `contact_ball_ball`의 엄격 `<`).** falsifier: §251.4의 네 대안 중
+  하나가 채택되면 거짓. 같은 확인(§318.5 셋째) — 넷 다 죽어 있다.
+  **OPEN**.
+- **간극이 정확히 0인 배치(§288.7).** falsifier 자체가 구조적
+  한계("이 rung에서는 잴 수 있는 것이 없다") 서술이라 재측정으로
+  뒤집을 관측이 없다 — 반증 대상이 아니다. **OPEN**(불변).
+- **메시, 그리고 충돌 요소가 여럿인 링크.** falsifier: §288의 파견표
+  유도(§288.1/§288.2, source 직접 읽기)가 `shapes::MESH`→`fcl::BVHModel`
+  경로까지 확장되면 거짓. 메시 **충돌 자체**는 §318.3이 확인했듯 이제
+  동작하지만(오라클과 bool 패리티), 그것은 무작위-표본 스윕이지 §288의
+  방법론(정밀 FK로 통제한 gap, source 레벨 파견표 유도)이 아니다 —
+  이 절은 여전히 그 유도를 하지 않았다. `rg -n 'BVHModel'`가
+  `crates/`/`tools/` 어디에도 0건. **OPEN**.
+- **`self_collision` 열.** falsifier: `tangency_subset.rs`나
+  `verify-phase3-tangency-subset.sh`가 self-collision 쌍을 다루면
+  거짓. `rg -n 'self_collision' tools/moveit-diff/src/bin/tangency_subset.rs
+  tools/ci/verify-phase3-tangency-subset.sh` 0건. **OPEN**.
+
+### §318.8 §297.5 — 세 OPEN 불릿 모두 오늘도 참이다
+
+- **9,611건 교차표를 다시 내는 커밋된 계측기.** falsifier: 스윕과
+  괄호를 한 번에 도는 커밋된 바이너리가 생기면 거짓. 커밋된 것은
+  여전히 `prbt_separated_tail_splits_on_the_curved_generic_gjk_cell`의
+  16행 축소판뿐이고, 8,489건 전체를 재세는 바이너리는 `tools/`
+  어디에도 없다. **OPEN**.
+- **나머지 네 로봇.** falsifier: pr2가 "빈칸 셀 ∧ 굽은 지지집합" 앵커로
+  재분류되면 거짓. `rg -n '굽은 지지집합'`이 §297/§302 밖에 후속을
+  내지 않고, pr2는 §302 이후로도 측정되지 않았다. **OPEN**.
+- **44건의 "우세하지 않음".** §297.3의 244건(분리-거리 모집단) 중
+  "어느 쪽도 100배 우세하지 않음" 44건. falsifier: 이 44건이 후속으로
+  열려 판정되면 거짓 — 주의: §302.8이 닫은 "우세하지 않음 19건"은
+  **다른 모집단**(§302의 389건 관통-분기 전체)이라 이 44건과 다르다.
+  `grep -n '어느 쪽도 100배'`가 §297.3 자신 밖에 후속이 없다. **OPEN**.
+
+### §318.9 §298.6 — 두 불릿 모두 오늘도 참이다
+
+- **다른 시드·다른 픽스처.** falsifier: `tools/fcl-distance-tolerance-probe/probe.cpp`가
+  xorshift64 고정 시드를 벗어나거나 prbt 외 다른 로봇/쌍을 재면 거짓.
+  probe.cpp는 오늘도 고정 시드 하나, prbt 한 쌍만 잰다(§298.2의 `rg`
+  서베이 이후 갱신 없음). **OPEN**.
+- **`MIN_DRIFT=1e-5`를 실측 기반 수식으로 다시 유도할지.** falsifier:
+  `tools/ci/verify-fcl-distance-tolerance.sh`의 `MIN_DRIFT`가 이 상자의
+  실측값에서 유도된 수식으로 바뀌면 거짓. 오늘도
+  `MIN_DRIFT="1e-5"`(`verify-fcl-distance-tolerance.sh:74`)로 고정,
+  주석("its claim is 'the default is imprecise at the ...'")도 절의
+  `1e-4` 허용오차에 묶인 근거 그대로다. **OPEN**.
