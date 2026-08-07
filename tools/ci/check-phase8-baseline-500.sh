@@ -115,7 +115,18 @@ DIRS=(
 total_missing=0
 for entry in "${DIRS[@]}"; do
   dir="${entry%%:*}"
-  declare -n want="${entry#*:}"
+  # A literal case arm per array, not `declare -n want="${entry#*:}"`: a
+  # nameref built from a runtime string is exactly what shellcheck cannot
+  # trace, so it reported all three WANT_phase8_* arrays above as unused
+  # even though this loop reads every one of them. Naming each array
+  # literally here is both what shellcheck can verify and what a reader
+  # tracing "who reads WANT_phase8_baseline_500" can grep for.
+  want=()
+  case "${entry#*:}" in
+    WANT_phase8_baseline_500) want=("${WANT_phase8_baseline_500[@]}") ;;
+    WANT_phase8_condition2_stomp) want=("${WANT_phase8_condition2_stomp[@]}") ;;
+    WANT_phase8_seedbase_stomp) want=("${WANT_phase8_seedbase_stomp[@]}") ;;
+  esac
   dir_missing=0
   for f in "${want[@]}"; do
     if ! git ls-files --deduplicate --error-unmatch "$dir/$f" >/dev/null 2>&1; then
@@ -127,7 +138,6 @@ for entry in "${DIRS[@]}"; do
     echo "FAIL $dir_missing of ${#want[@]} $dir files are untracked" >&2
   fi
   total_missing=$((total_missing + dir_missing))
-  unset -n want
 done
 if [ "$total_missing" -ne 0 ]; then
   exit 1
