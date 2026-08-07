@@ -95,17 +95,19 @@
 //!
 //! # Deviations from upstream
 //!
-//! - **`validateRequest`'s link-name check drops the attached-body
-//!   fallback.** Upstream accepts `link_name` if it names either a robot
-//!   model link or an attached body on `first_trajectory`'s last waypoint
-//!   (`hasAttachedBody`). This port keeps attached bodies on
-//!   [`moveit_scene::PlanningScene`], not on [`moveit_state::RobotState`]
-//!   (see `moveit-scene`'s `attached_body` module doc) — a bare
-//!   [`RobotTrajectory`] here carries no scene to check against, matching
-//!   [`moveit_state::Posed::frame_transform`]'s own documented
-//!   inability to see attached bodies from a state alone. A link name that
-//!   only resolves via an attached body is rejected here where upstream
-//!   would accept it.
+//! - **`link_name` naming an attached body resolves through `scene`, not
+//!   through `first_trajectory`'s own waypoints.** Upstream's
+//!   `hasAttachedBody`/`getFrameTransform` reach an attached body through
+//!   `RobotState`'s own `attached_body_map_`; this port's states carry no
+//!   attached bodies at all (see `moveit-scene`'s `attached_body` module
+//!   doc — they live on [`moveit_scene::PlanningScene`] instead), so
+//!   `validate_request`, `search_intersection_points` and
+//!   `blend_trajectory_cartesian` each take an explicit
+//!   `scene: &PlanningScene` parameter (matching [`blend`]'s own
+//!   `ctx.scene`) and resolve `link_name` through
+//!   `crate::trajectory_functions::resolve_link_or_attached_body_transform`
+//!   rather than a bare [`moveit_state::Posed::frame_transform`] on a
+//!   trajectory waypoint alone.
 //! - **`TrajectoryBlendRequest`/`TrajectoryBlendResponse` own their
 //!   trajectories instead of sharing them.** Upstream's
 //!   `robot_trajectory::RobotTrajectoryPtr` is a `std::shared_ptr`;
@@ -153,6 +155,7 @@ use moveit_collision::CollisionEnv;
 use moveit_error::{Error, MoveItErrorCode, Result};
 use moveit_geometry::{Isometry3, quaternion};
 use moveit_kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
+use moveit_scene::PlanningScene;
 use moveit_state::Posed;
 use moveit_trajectory::RobotTrajectory;
 
@@ -161,6 +164,7 @@ use crate::limits::LimitsContainer;
 use crate::trajectory_functions::{
     IkContext, determine_and_check_sampling_time, generate_joint_trajectory_from_cartesian,
     is_robot_state_equal, is_robot_state_stationary, linear_search_intersection_point,
+    resolve_link_or_attached_body_transform,
 };
 
 /// Constant to check for equality of values. Upstream
@@ -229,14 +233,16 @@ pub fn blend<'m, E>(
 where
     E: for<'s> CollisionEnv<Posed<'s, 'm>>,
 {
-    let sampling_time = validate_request(req)?;
+    let sampling_time = validate_request(ctx.scene, req)?;
 
-    let (first_intersection_index, second_intersection_index) = search_intersection_points(req)?;
+    let (first_intersection_index, second_intersection_index) =
+        search_intersection_points(ctx.scene, req)?;
 
     let blend_align_index =
         determine_trajectory_alignment(req, first_intersection_index, second_intersection_index);
 
     let blend_trajectory_cartesian = blend_trajectory_cartesian(
+        ctx.scene,
         req,
         first_intersection_index,
         second_intersection_index,
@@ -313,27 +319,28 @@ where
 }
 
 /// Validate `req` before blending, returning the sampling time shared by
-/// both trajectories on success. Upstream `validateRequest`. See this
-/// module's `# Deviations` for the dropped attached-body fallback.
+/// both trajectories on success. Upstream `validateRequest`.
 ///
 /// # Errors
 ///
 /// [`MoveItErrorCode::InvalidGroupName`] if `req.group_name` names no group.
-/// [`MoveItErrorCode::InvalidLinkName`] if `req.link_name` names no link.
+/// [`MoveItErrorCode::InvalidLinkName`] if `req.link_name` names neither a
+/// link nor an attached body in `scene` (upstream's `hasAttachedBody`
+/// fallback — see [`PlanningScene::has_attached_body`]).
 /// [`MoveItErrorCode::InvalidMotionPlan`] if `req.blend_radius` is not
 /// positive, the trajectories' shared boundary state does not match within
 /// `EPSILON` (see [`is_robot_state_equal`]), no consistent sampling time
 /// can be determined (see [`determine_and_check_sampling_time`]), or that
 /// boundary state has nonzero velocity/acceleration (see
 /// [`is_robot_state_stationary`]).
-fn validate_request(req: &TrajectoryBlendRequest<'_>) -> Result<f64> {
+fn validate_request(scene: &PlanningScene<'_>, req: &TrajectoryBlendRequest<'_>) -> Result<f64> {
     let robot_model = req.first_trajectory.robot_model();
 
     if !robot_model.has_joint_model_group(&req.group_name) {
         return Err(Error::Code(MoveItErrorCode::InvalidGroupName));
     }
 
-    if !robot_model.has_link_model(&req.link_name) {
+    if !robot_model.has_link_model(&req.link_name) && !scene.has_attached_body(&req.link_name) {
         return Err(Error::Code(MoveItErrorCode::InvalidLinkName));
     }
 
@@ -381,16 +388,22 @@ fn validate_request(req: &TrajectoryBlendRequest<'_>) -> Result<f64> {
 /// "Blend radius too large" — both linear searches share this one error
 /// code, matching upstream: `searchIntersectionPoints` itself returns only
 /// a `bool`, and `blend` assigns `INVALID_MOTION_PLAN` for either cause).
-fn search_intersection_points<'m>(req: &mut TrajectoryBlendRequest<'m>) -> Result<(usize, usize)> {
-    let circ_pose = req
-        .first_trajectory
-        .last_way_point_mut()
-        .expect("validate_request already confirmed first_trajectory is non-empty")
-        .update()
-        .frame_transform(&req.link_name)
-        .expect("validate_request already confirmed link_name resolves");
+fn search_intersection_points<'m>(
+    scene: &PlanningScene<'m>,
+    req: &mut TrajectoryBlendRequest<'m>,
+) -> Result<(usize, usize)> {
+    let circ_pose = {
+        let state = req
+            .first_trajectory
+            .last_way_point_mut()
+            .expect("validate_request already confirmed first_trajectory is non-empty");
+        let posed = state.update();
+        resolve_link_or_attached_body_transform(scene, &posed, &req.link_name)
+            .expect("validate_request already confirmed link_name resolves")
+    };
 
     let first_index = linear_search_intersection_point(
+        scene,
         &req.link_name,
         &circ_pose.translation.vector,
         req.blend_radius,
@@ -400,6 +413,7 @@ fn search_intersection_points<'m>(req: &mut TrajectoryBlendRequest<'m>) -> Resul
     .ok_or(Error::Code(MoveItErrorCode::InvalidMotionPlan))?;
 
     let second_index = linear_search_intersection_point(
+        scene,
         &req.link_name,
         &circ_pose.translation.vector,
         req.blend_radius,
@@ -438,6 +452,7 @@ fn determine_trajectory_alignment(
 /// `blendTrajectoryCartesian`. See this module's `# Deviations` for the
 /// upstream dead reassignment this skips.
 fn blend_trajectory_cartesian<'m>(
+    scene: &PlanningScene<'m>,
     req: &mut TrajectoryBlendRequest<'m>,
     first_intersection_index: usize,
     second_intersection_index: usize,
@@ -446,10 +461,11 @@ fn blend_trajectory_cartesian<'m>(
 ) -> CartesianTrajectory {
     let frame_transform_at =
         |traj: &mut RobotTrajectory<'m>, index: usize, link_name: &str| -> Isometry3 {
-            traj.way_point_mut(index)
-                .expect("index within way_point_count")
-                .update()
-                .frame_transform(link_name)
+            let state = traj
+                .way_point_mut(index)
+                .expect("index within way_point_count");
+            let posed = state.update();
+            resolve_link_or_attached_body_transform(scene, &posed, link_name)
                 .expect("link_name resolves for every waypoint of the same trajectory")
         };
 
@@ -520,6 +536,7 @@ fn blend_trajectory_cartesian<'m>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
     use std::sync::Arc;
 
@@ -530,7 +547,7 @@ mod tests {
     use moveit_srdf::SrdfModel;
     use moveit_state::RobotState;
 
-    use moveit_geometry::{UnitQuaternion, Vector3};
+    use moveit_geometry::{Cuboid, Isometry3, Shape, UnitQuaternion, Vector3};
 
     use super::*;
     use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer};
@@ -719,7 +736,8 @@ mod tests {
 
     #[test]
     fn validate_request_rejects_an_unknown_group_name() {
-        let (model, _) = load_panda();
+        let (model, srdf) = load_panda();
+        let scene = PlanningScene::new(&model, &srdf);
         let traj = panda_joint1_sweep(&model, 0.0, 0.2, 4, 0.1);
         let req = TrajectoryBlendRequest {
             group_name: "no_such_group".to_string(),
@@ -728,7 +746,7 @@ mod tests {
             second_trajectory: traj,
             blend_radius: 0.05,
         };
-        match validate_request(&req) {
+        match validate_request(&scene, &req) {
             Err(Error::Code(MoveItErrorCode::InvalidGroupName)) => {}
             other => panic!("expected InvalidGroupName, got {other:?}"),
         }
@@ -736,7 +754,8 @@ mod tests {
 
     #[test]
     fn validate_request_rejects_an_unknown_link_name() {
-        let (model, _) = load_panda();
+        let (model, srdf) = load_panda();
+        let scene = PlanningScene::new(&model, &srdf);
         let req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "no_such_link".to_string(),
@@ -744,7 +763,7 @@ mod tests {
             second_trajectory: panda_joint1_sweep(&model, 0.0, 0.2, 4, 0.1),
             blend_radius: 0.05,
         };
-        match validate_request(&req) {
+        match validate_request(&scene, &req) {
             Err(Error::Code(MoveItErrorCode::InvalidLinkName)) => {}
             other => panic!("expected InvalidLinkName, got {other:?}"),
         }
@@ -752,7 +771,8 @@ mod tests {
 
     #[test]
     fn validate_request_rejects_blend_radius_at_or_below_zero() {
-        let (model, _) = load_panda();
+        let (model, srdf) = load_panda();
+        let scene = PlanningScene::new(&model, &srdf);
         // A chained pair (unlike an earlier version of this test, which
         // paired a sweep with an independent, non-chained copy of itself):
         // first_trajectory's last waypoint must equal second_trajectory's
@@ -771,19 +791,20 @@ mod tests {
             blend_radius: 0.0,
         };
         assert!(matches!(
-            validate_request(&req),
+            validate_request(&scene, &req),
             Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
         ));
         req.blend_radius = -0.01;
         assert!(matches!(
-            validate_request(&req),
+            validate_request(&scene, &req),
             Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
         ));
     }
 
     #[test]
     fn validate_request_rejects_a_boundary_state_mismatch() {
-        let (model, _) = load_panda();
+        let (model, srdf) = load_panda();
+        let scene = PlanningScene::new(&model, &srdf);
         let mut second = panda_joint1_sweep(&model, 0.2, 0.4, 4, 0.1);
         // Perturb second_trajectory's first waypoint so it no longer matches
         // first_trajectory's last waypoint.
@@ -800,14 +821,15 @@ mod tests {
             blend_radius: 0.05,
         };
         assert!(matches!(
-            validate_request(&req),
+            validate_request(&scene, &req),
             Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
         ));
     }
 
     #[test]
     fn validate_request_rejects_a_mismatched_sampling_time() {
-        let (model, _) = load_panda();
+        let (model, srdf) = load_panda();
+        let scene = PlanningScene::new(&model, &srdf);
         let req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
@@ -816,14 +838,15 @@ mod tests {
             blend_radius: 0.05,
         };
         assert!(matches!(
-            validate_request(&req),
+            validate_request(&scene, &req),
             Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
         ));
     }
 
     #[test]
     fn validate_request_rejects_non_stationary_boundary_waypoints() {
-        let (model, _) = load_panda();
+        let (model, srdf) = load_panda();
+        let scene = PlanningScene::new(&model, &srdf);
         let mut first = panda_joint1_sweep(&model, 0.0, 0.2, 4, 0.1);
         let mut second = panda_joint1_sweep(&model, 0.2, 0.4, 4, 0.1);
         // Give both boundary waypoints the SAME nonzero velocity, not just
@@ -851,14 +874,15 @@ mod tests {
             blend_radius: 0.05,
         };
         assert!(matches!(
-            validate_request(&req),
+            validate_request(&scene, &req),
             Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
         ));
     }
 
     #[test]
     fn validate_request_accepts_a_well_formed_request() {
-        let (model, _) = load_panda();
+        let (model, srdf) = load_panda();
+        let scene = PlanningScene::new(&model, &srdf);
         let req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
@@ -866,7 +890,7 @@ mod tests {
             second_trajectory: panda_joint1_sweep(&model, 0.2, 0.4, 4, 0.1),
             blend_radius: 0.05,
         };
-        assert_relative_eq!(validate_request(&req).unwrap(), 0.1);
+        assert_relative_eq!(validate_request(&scene, &req).unwrap(), 0.1);
     }
 
     // -- determine_trajectory_alignment: way_point_count_1 > way_point_count_2
@@ -916,7 +940,8 @@ mod tests {
 
     #[test]
     fn search_intersection_points_finds_both_crossings_within_radius() {
-        let (model, _) = load_panda();
+        let (model, srdf) = load_panda();
+        let scene = PlanningScene::new(&model, &srdf);
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
@@ -924,7 +949,7 @@ mod tests {
             second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
             blend_radius: 0.05,
         };
-        let (first_index, second_index) = search_intersection_points(&mut req).unwrap();
+        let (first_index, second_index) = search_intersection_points(&scene, &mut req).unwrap();
         // The center is first_trajectory's own last waypoint, so the first
         // trajectory's crossing must be strictly before its own end.
         assert!(first_index < req.first_trajectory.way_point_count() - 1);
@@ -944,7 +969,8 @@ mod tests {
 
     #[test]
     fn search_intersection_points_rejects_when_first_trajectory_never_reaches_the_blend_radius() {
-        let (model, _) = load_panda();
+        let (model, srdf) = load_panda();
+        let scene = PlanningScene::new(&model, &srdf);
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
@@ -953,14 +979,15 @@ mod tests {
             blend_radius: 0.05,
         };
         assert!(matches!(
-            search_intersection_points(&mut req),
+            search_intersection_points(&scene, &mut req),
             Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
         ));
     }
 
     #[test]
     fn search_intersection_points_rejects_when_second_trajectory_never_reaches_the_blend_radius() {
-        let (model, _) = load_panda();
+        let (model, srdf) = load_panda();
+        let scene = PlanningScene::new(&model, &srdf);
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
@@ -969,7 +996,7 @@ mod tests {
             blend_radius: 0.05,
         };
         assert!(matches!(
-            search_intersection_points(&mut req),
+            search_intersection_points(&scene, &mut req),
             Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
         ));
     }
@@ -1029,7 +1056,7 @@ mod tests {
             ),
             blend_radius: 0.05,
         };
-        let baseline = search_intersection_points(&mut baseline_req).unwrap();
+        let baseline = search_intersection_points(&scene, &mut baseline_req).unwrap();
         assert_eq!(
             baseline,
             (8, 7),
@@ -1061,7 +1088,7 @@ mod tests {
                 second_trajectory: gen_lin_segment(&model, &limits, &ctx, &chained, goal, 0.1, 0.1),
                 blend_radius: 0.05,
             };
-            let indices = search_intersection_points(&mut req).unwrap();
+            let indices = search_intersection_points(&scene, &mut req).unwrap();
             assert_eq!(
                 indices, baseline,
                 "corner angle {angle_deg} degrees must not move the indices \
@@ -1131,7 +1158,7 @@ mod tests {
                 second_trajectory: seg2.clone(),
                 blend_radius: radius,
             };
-            let indices = search_intersection_points(&mut req).unwrap();
+            let indices = search_intersection_points(&scene, &mut req).unwrap();
             assert_eq!(indices, expected, "blend_radius {radius}");
 
             let (first_index, second_index) = indices;
@@ -1208,7 +1235,7 @@ mod tests {
             blend_radius: 0.12,
         };
         assert!(matches!(
-            search_intersection_points(&mut req),
+            search_intersection_points(&scene, &mut req),
             Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
         ));
     }
@@ -1218,7 +1245,8 @@ mod tests {
 
     #[test]
     fn blend_trajectory_cartesian_first_sample_stays_near_pose1_last_sample_reaches_pose2() {
-        let (model, _) = load_panda();
+        let (model, srdf) = load_panda();
+        let scene = PlanningScene::new(&model, &srdf);
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
@@ -1226,7 +1254,7 @@ mod tests {
             second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
             blend_radius: 0.05,
         };
-        let (first_index, second_index) = search_intersection_points(&mut req).unwrap();
+        let (first_index, second_index) = search_intersection_points(&scene, &mut req).unwrap();
         let blend_align_index = determine_trajectory_alignment(&req, first_index, second_index);
 
         let pose1 = req
@@ -1260,6 +1288,7 @@ mod tests {
             .unwrap();
 
         let cartesian = blend_trajectory_cartesian(
+            &scene,
             &mut req,
             first_index,
             second_index,
@@ -1339,7 +1368,7 @@ mod tests {
             blend_radius: 0.05,
         };
         let (first_intersection_index, second_intersection_index) =
-            search_intersection_points(&mut probe_req).expect("same geometry as req below");
+            search_intersection_points(&scene, &mut probe_req).expect("same geometry as req below");
 
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
@@ -1362,5 +1391,99 @@ mod tests {
             response.second_trajectory.way_point_count(),
             second_count - (second_intersection_index + 1)
         );
+    }
+
+    /// Upstream `validateRequest` accepts `req.link_name` if it names either
+    /// a robot model link or an attached body on `first_trajectory`'s last
+    /// waypoint (`hasAttachedBody`, `trajectory_blender_transition_window.cpp:160-161`).
+    /// `"grasped_box"` here is neither `panda_arm`'s solver tip nor any
+    /// other model link -- only [`PlanningScene::has_attached_body`] can
+    /// accept it, matching this module's (now-closed) `# Deviations` entry.
+    ///
+    /// `"grasped_box"` is attached to `"panda_link8"` with an identity
+    /// local pose (matching every other attached body in this crate: see
+    /// `moveit_scene::AttachedBody`'s module doc on why the local pose is
+    /// always identity here), so its world pose equals `"panda_link8"`'s at
+    /// every waypoint exactly. The control request below blends the same
+    /// two trajectories by `"panda_link8"` directly and asserts the two
+    /// responses match waypoint-for-waypoint -- proving the attached-body
+    /// path resolves to the *same* geometry its underlying link would, not
+    /// merely that it fails to error.
+    #[test]
+    fn blend_reaches_a_link_name_naming_an_attached_body() {
+        let (model, srdf) = load_panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        scene
+            .attach_new(
+                "grasped_box",
+                "panda_link8",
+                vec![Arc::new(Shape::Cuboid(
+                    Cuboid::new(0.02, 0.02, 0.02).expect("extents are non-negative"),
+                ))],
+                vec![Isometry3::identity()],
+                BTreeSet::new(),
+                BTreeMap::new(),
+            )
+            .expect("panda_link8 is a real link");
+        let scene = Arc::new(scene);
+        let env =
+            ParryCollisionEnv::new(moveit_collision::World::new(), LinkPaddingScale::default());
+        let ctx = IkContext {
+            scene: &scene,
+            env: &env,
+            check_self_collision: false,
+        };
+
+        let mut planner_limits = LimitsContainer::new();
+        planner_limits.set_joint_limits(panda_joint_limits());
+        planner_limits.set_cartesian_limits(CartesianLimits {
+            max_trans_vel: 1.0,
+            max_trans_acc: 2.0,
+            max_trans_dec: -2.0,
+            max_rot_vel: 1.0,
+        });
+
+        let mut attached_req = TrajectoryBlendRequest {
+            group_name: "panda_arm".to_string(),
+            link_name: "grasped_box".to_string(),
+            first_trajectory: panda_joint1_sweep(&model, -0.3, 0.0, 20, 0.05),
+            second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
+            blend_radius: 0.05,
+        };
+        let attached_response = blend(&ctx, &planner_limits, &mut attached_req).expect(
+            "upstream accepts link_name naming an attached body (validateRequest's \
+             hasAttachedBody fallback)",
+        );
+
+        let mut link_req = TrajectoryBlendRequest {
+            group_name: "panda_arm".to_string(),
+            link_name: "panda_link8".to_string(),
+            first_trajectory: panda_joint1_sweep(&model, -0.3, 0.0, 20, 0.05),
+            second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
+            blend_radius: 0.05,
+        };
+        let link_response = blend(&ctx, &planner_limits, &mut link_req)
+            .expect("the control request, naming the attached body's own link, must also blend");
+
+        assert_eq!(
+            attached_response.blend_trajectory.way_point_count(),
+            link_response.blend_trajectory.way_point_count(),
+            "an identity-offset attached body must blend identically to its own link"
+        );
+        for i in 0..attached_response.blend_trajectory.way_point_count() {
+            let attached_point = attached_response.blend_trajectory.way_point(i).unwrap();
+            let link_point = link_response.blend_trajectory.way_point(i).unwrap();
+            for name in model
+                .joint_model_group("panda_arm")
+                .unwrap()
+                .active_joint_names()
+            {
+                assert_relative_eq!(
+                    attached_point.variable_position(name).unwrap(),
+                    link_point.variable_position(name).unwrap(),
+                    epsilon = 1e-9
+                );
+            }
+        }
     }
 }

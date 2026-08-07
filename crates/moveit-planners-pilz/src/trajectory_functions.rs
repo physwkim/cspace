@@ -102,7 +102,8 @@ use moveit_collision::{CollisionEnv, CollisionRequest};
 use moveit_error::{Error, MoveItErrorCode, Result};
 use moveit_geometry::{Isometry3, UnitQuaternion, Vector3};
 use moveit_kinematics::{
-    DEFAULT_SOLVER_NAME, KinematicsSolver, SolveOptions, SolverParams, resolve_solver,
+    AttachedFrames, DEFAULT_SOLVER_NAME, KinematicsSolver, SolveOptions, SolverParams,
+    resolve_solver,
 };
 use moveit_model::RobotModel;
 use moveit_scene::PlanningScene;
@@ -167,13 +168,49 @@ pub(crate) fn is_rigidly_connected(model: &RobotModel, a: &str, b: &str) -> bool
         == model.rigidly_connected_parent_link(b_index, None)
 }
 
+/// Resolve `frame_id` against `posed` first (the model frame or a link),
+/// and if that fails, `scene`'s attached bodies via
+/// [`AttachedFrames::attached_frame`] — the same seam
+/// [`moveit_kinematics::set_from_ik`] uses to reach the identical tier.
+///
+/// Upstream `RobotState::getFrameTransform` performs both tiers itself
+/// (the state carries its own attached bodies); this port's states cannot
+/// (see `moveit-scene`'s `attached_body` module doc), so any caller
+/// needing that combined resolution for a state other than the scene's
+/// own current one — a trajectory waypoint, as in
+/// `trajectory_blender_transition_window`'s `# Deviations` — must pass its
+/// scene explicitly, as this does. [`PlanningScene::frame_transform`]
+/// already performs this same two-tier resolution for `scene`'s own
+/// current state (its tiers 1-3); this function is that same resolution
+/// applied to an arbitrary `posed` instead.
+///
+/// # Errors
+///
+/// [`Error::UnknownName`] if `frame_id` names neither the model frame, a
+/// link, nor an attached body in `scene`.
+pub fn resolve_link_or_attached_body_transform<'m>(
+    scene: &PlanningScene<'m>,
+    posed: &Posed<'_, 'm>,
+    frame_id: &str,
+) -> Result<Isometry3> {
+    if let Ok(transform) = posed.frame_transform(frame_id) {
+        return Ok(transform);
+    }
+    let attached = scene
+        .attached_frame(frame_id)
+        .ok_or_else(|| Error::unknown_name("link", frame_id))?;
+    Ok(posed.global_link_transform(attached.link_name)? * attached.link_pose_frame)
+}
+
 /// Compute the inverse kinematics of `pose`, optionally rejecting a
 /// self-colliding solution.
 ///
 /// `solver` must already be built for the group this call targets (see this
 /// module's `# Deviations`, item 1). `link_name` need not literally be
-/// `solver.tip_frame()` — `is_rigidly_connected` first, and if the two are
-/// only fixed-joint-connected rather than equal, `pose` (a target for
+/// `solver.tip_frame()` — `is_rigidly_connected` first (substituting an
+/// attached body's own attach link for this check, if `link_name` names
+/// one — see this function's own body comment), and if the two are only
+/// fixed-joint-connected rather than equal, `pose` (a target for
 /// `link_name`) is re-targeted to `solver.tip_frame()` by the constant
 /// offset between them before solving; upstream `setFromIK`'s
 /// `pose_parent_to_frame`/`tip_parent_to_tip` transform, folded in here
@@ -212,9 +249,32 @@ where
     }
 
     let solver_tip = solver.tip_frame().to_string();
+    // `link_name` reaches here as-is from `generate_joint_trajectory_from_cartesian`,
+    // whose own caller (`trajectory_blender_transition_window::blend`) is the
+    // one path in this crate that lets `link_name` name an attached body
+    // rather than a robot model link (see that module's `# Deviations`).
+    // `is_rigidly_connected` needs a real model link on both sides -- an
+    // attached body has no entry in `robot_model` at all -- so its own
+    // attach link substitutes for the check here, once, rather than
+    // teaching `is_rigidly_connected` itself about attached bodies: it is
+    // also `check_cartesian_goal`'s check (LIN/PTP/CIRC), and upstream's
+    // `checkCartesianGoalConstraint` never gains that fallback (only
+    // `TrajectoryBlenderTransitionWindow::validateRequest` does). The
+    // offset-retargeting two lines below needs no equivalent substitution:
+    // `offset_probe` is a [`PlanningScene`], and its own
+    // [`PlanningScene::frame_transform`] already resolves an attached
+    // body's bare id through its own tier 3, unlike
+    // [`moveit_state::Posed::frame_transform`].
+    let rigid_check_name = if robot_model.has_link_model(link_name) {
+        link_name
+    } else if let Some(attached) = ctx.scene.attached_frame(link_name) {
+        attached.link_name
+    } else {
+        link_name
+    };
     let target_pose = if link_name == solver_tip {
         *pose
-    } else if is_rigidly_connected(robot_model, link_name, &solver_tip) {
+    } else if is_rigidly_connected(robot_model, rigid_check_name, &solver_tip) {
         let mut offset_probe = ctx.scene.diff();
         let link_transform = offset_probe.frame_transform(link_name).ok()?;
         let tip_transform = offset_probe.frame_transform(&solver_tip).ok()?;
@@ -700,12 +760,18 @@ pub fn is_robot_state_stationary<'m>(state: &RobotState<'m>, group: &str, epsilo
 /// Linear search for the waypoint index at which `link_name`'s trajectory
 /// crosses the blending sphere centred at `center_position` with radius `r`.
 ///
+/// `link_name` is resolved against `scene` as well as each waypoint (see
+/// [`resolve_link_or_attached_body_transform`]), so it may name an attached
+/// body — needed by `trajectory_blender_transition_window`'s own
+/// `validateRequest` fallback; see that module's `# Deviations`.
+///
 /// `inverse_order`: scan from the last waypoint backward (farthest from the
 /// sphere's center sits at the smallest index) instead of forward.
 ///
 /// Upstream `linearSearchIntersectionPoint`. Returns `None` where upstream
 /// returns `false` (no crossing found).
 pub fn linear_search_intersection_point<'m>(
+    scene: &PlanningScene<'m>,
     link_name: &str,
     center_position: &Vector3,
     r: f64,
@@ -718,10 +784,9 @@ pub fn linear_search_intersection_point<'m>(
     }
 
     let translation_at = |traj: &mut RobotTrajectory<'m>, i: usize| -> Vector3 {
-        traj.way_point_mut(i)
-            .expect("index within way_point_count")
-            .update()
-            .frame_transform(link_name)
+        let state = traj.way_point_mut(i).expect("index within way_point_count");
+        let posed = state.update();
+        resolve_link_or_attached_body_transform(scene, &posed, link_name)
             .expect("link_name resolves for every waypoint of the same trajectory")
             .translation
             .vector
