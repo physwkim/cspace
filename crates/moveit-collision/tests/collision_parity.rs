@@ -3160,6 +3160,14 @@ const FULL_BUDGET: usize = 200_000;
 /// enough on prbt's population to pick the winning pair in every case.
 const SCOUT_BUDGET: usize = 512;
 
+/// Default absolute bracket width [`minkowski_depth_bracket`] stops at. Five
+/// orders below the `1e-4` the §5 Phase 3 clause is written at, so a bracket
+/// that reaches it can arbitrate any disagreement that clause would call a
+/// failure. A caller measuring what a tighter bracket would resolve (see
+/// §302.9) passes a narrower value directly rather than through this
+/// constant.
+const TOL: f64 = 1e-9;
+
 /// The smallest signed distance over `pairs`, as a certified bracket, with the
 /// pair that realises it.
 ///
@@ -3177,7 +3185,7 @@ const SCOUT_BUDGET: usize = 512;
 /// of the lower bounds and at most the `min` of the upper bounds, so the
 /// interval is still a proof after aggregation, even though it can be wider
 /// than any single pair's.
-fn min_signed_distance_over(pairs: &[(WorldConvex, WorldConvex)]) -> (f64, f64, usize) {
+fn min_signed_distance_over(pairs: &[(WorldConvex, WorldConvex)], tol: f64) -> (f64, f64, usize) {
     // Deepest-looking first, by the free floor, so the scout certifies a large
     // depth early and the rest drop against it.
     let mut order: Vec<usize> = (0..pairs.len()).collect();
@@ -3194,7 +3202,13 @@ fn min_signed_distance_over(pairs: &[(WorldConvex, WorldConvex)]) -> (f64, f64, 
         if -signed_distance_floor(&pairs[i].0, &pairs[i].1) < certified_depth {
             continue;
         }
-        let d = minkowski_depth_bracket(&pairs[i].0, &pairs[i].1, f64::NEG_INFINITY, SCOUT_BUDGET);
+        let d = minkowski_depth_bracket(
+            &pairs[i].0,
+            &pairs[i].1,
+            f64::NEG_INFINITY,
+            SCOUT_BUDGET,
+            TOL,
+        );
         certified_depth = certified_depth.max(d.lower);
         scouted.push((i, d.upper));
     }
@@ -3208,7 +3222,7 @@ fn min_signed_distance_over(pairs: &[(WorldConvex, WorldConvex)]) -> (f64, f64, 
         if upper < certified_depth {
             continue;
         }
-        let d = minkowski_depth_bracket(&pairs[i].0, &pairs[i].1, -hi, FULL_BUDGET);
+        let d = minkowski_depth_bracket(&pairs[i].0, &pairs[i].1, -hi, FULL_BUDGET, tol);
         let (slo, shi) = d.signed();
         if shi < hi {
             hi = shi;
@@ -3248,12 +3262,8 @@ fn minkowski_depth_bracket(
     b: &WorldConvex,
     cutoff: f64,
     max_evals: usize,
+    tol: f64,
 ) -> DepthBracket {
-    /// Absolute bracket width to stop at. Five orders below the `1e-4` the
-    /// §5 Phase 3 clause is written at, so a bracket that reaches it can
-    /// arbitrate any disagreement that clause would call a failure.
-    const TOL: f64 = 1e-9;
-
     type V3 = moveit_geometry::Vector3;
 
     // `h_D` and its witness, the only two places the geometry enters.
@@ -3418,7 +3428,7 @@ fn minkowski_depth_bracket(
             break;
         }
         let Some(front) = heap.peek() else { break };
-        if best_upper - front.lower <= TOL {
+        if best_upper - front.lower <= tol {
             break;
         }
         // Best-first: split only the patch that currently certifies the least,
@@ -3585,7 +3595,7 @@ fn minkowski_depth_bracket_matches_the_closed_forms_it_has() {
     const CLOSED_FORM_SLACK: f64 = 16.0 * f64::EPSILON;
 
     let check = |name: &str, a: &WorldConvex, b: &WorldConvex, want: f64| {
-        let bracket = minkowski_depth_bracket(a, b, f64::NEG_INFINITY, FULL_BUDGET);
+        let bracket = minkowski_depth_bracket(a, b, f64::NEG_INFINITY, FULL_BUDGET, TOL);
         let slack = CLOSED_FORM_SLACK * want.abs();
         let overshoot = (bracket.lower - want).max(want - bracket.upper).max(0.0);
         println!(
@@ -3642,7 +3652,7 @@ fn minkowski_depth_bracket_matches_the_closed_forms_it_has() {
     // `n = (c2 - c1)/|c2 - c1|` -- pointing from the first body toward the
     // second, which is the direction the first has to be pushed back along.
     let want_axis = (c2 - c1).normalize();
-    let got_axis = minkowski_depth_bracket(&sa, &sb, f64::NEG_INFINITY, FULL_BUDGET).axis;
+    let got_axis = minkowski_depth_bracket(&sa, &sb, f64::NEG_INFINITY, FULL_BUDGET, TOL).axis;
     assert!(
         (got_axis - want_axis).norm() <= 1e-4,
         "sphere x sphere: minimum-translation axis {got_axis:?}, closed form {want_axis:?} -- \
@@ -3702,7 +3712,7 @@ fn minkowski_depth_bracket_matches_the_closed_forms_it_has() {
     };
     let near = aligned(v(0.0, 0.0, 0.0), half_a);
     let separated = convex_distance_bracket(&near, &far);
-    let depth = minkowski_depth_bracket(&near, &far, f64::NEG_INFINITY, FULL_BUDGET);
+    let depth = minkowski_depth_bracket(&near, &far, f64::NEG_INFINITY, FULL_BUDGET, TOL);
     let (signed_low, signed_high) = depth.signed();
     assert!(
         signed_low <= separated.upper && separated.lower <= signed_high,
@@ -5207,7 +5217,7 @@ fn prbt_penetration_branch_is_bracketed_by_the_minkowski_instrument() {
             }
         }
 
-        let (lo, hi, win) = min_signed_distance_over(&bodies);
+        let (lo, hi, win) = min_signed_distance_over(&bodies, TOL);
         assert_eq!(
             owner[win], row.pair,
             "case {case}: the minimum signed distance is realised by {}, not the recorded {} -- \
@@ -5427,7 +5437,7 @@ fn prbt_penetration_branch_full_389_population_matches_the_published_totals() {
             }
         }
 
-        let (lo, hi, _win) = min_signed_distance_over(&bodies);
+        let (lo, hi, _win) = min_signed_distance_over(&bodies, TOL);
         let (low, high) = (lo.min(hi), lo.max(hi));
         let offset = |v: f64| {
             if v < low {
@@ -5528,7 +5538,7 @@ fn prbt_penetration_branch_undominated_19_are_all_a_near_margin_oracle_lean() {
                 }
             }
         }
-        let (lo, hi, _win) = min_signed_distance_over(&bodies);
+        let (lo, hi, _win) = min_signed_distance_over(&bodies, TOL);
         let (low, high) = (lo.min(hi), lo.max(hi));
         let offset = |v: f64| {
             if v < low {
@@ -5581,4 +5591,122 @@ fn prbt_penetration_branch_undominated_19_are_all_a_near_margin_oracle_lean() {
             "case {case}: oracle_off/width = {ratio:.3} left the measured (10x, 100x) band"
         );
     }
+}
+
+/// PORTING-PLAN.md §302.6's fourth residual bullet: how many of the 93
+/// too-wide-to-judge rows become judgeable if the bracket narrows from the
+/// published `TOL = 1e-9` to `1e-12` -- three orders tighter, not measured
+/// before. Re-runs the same verdict rule
+/// [`prbt_penetration_branch_full_389_population_matches_the_published_totals`]
+/// applies, over the whole 389-row population again rather than just the 93,
+/// since narrowing the bracket can also move a currently-judged row.
+#[test]
+fn prbt_penetration_branch_at_a_thousandfold_tighter_tolerance() {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+    enum Side {
+        Oracle,
+        Port,
+        Undominated,
+        TooWide,
+    }
+    use Side::{Oracle, Port, TooWide, Undominated};
+
+    const DOMINANCE: f64 = 100.0;
+    const WIDTH_FRACTION: f64 = 0.1;
+    /// Three orders below the published [`TOL`] -- the narrowing this
+    /// bullet asks about.
+    const TIGHT_TOL: f64 = 1e-12;
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let acm = build_acm("prbt.srdf");
+    let with_shapes: Vec<&str> = model
+        .link_names()
+        .iter()
+        .filter(|n| model.link_model(n).is_ok_and(|l| !l.shapes().is_empty()))
+        .map(String::as_str)
+        .collect();
+    let mut checked: Vec<(&str, &str)> = Vec::new();
+    for (i, a) in with_shapes.iter().enumerate() {
+        for b in &with_shapes[i + 1..] {
+            let allowed = acm
+                .allowed_collision(a, b)
+                .is_some_and(|e| e.kind() == moveit_collision::AllowedCollisionType::Always);
+            if !allowed {
+                checked.push((a, b));
+            }
+        }
+    }
+
+    let rows = load_prbt_self_penetration_389();
+    let mut sides: BTreeMap<Side, usize> = BTreeMap::new();
+    for row in &rows {
+        let mut state = build_state(&model, &row.joint_values);
+        let posed = state.update();
+        let mut bodies: Vec<(WorldConvex, WorldConvex)> = Vec::new();
+        for (a, b) in &checked {
+            let shapes = |link: &str| -> Vec<WorldConvex> {
+                let pose = posed
+                    .global_link_transform(link)
+                    .unwrap_or_else(|e| panic!("case {}: prbt has a {link} link: {e}", row.case));
+                model
+                    .link_model(link)
+                    .unwrap_or_else(|e| panic!("case {}: prbt has a {link} model: {e}", row.case))
+                    .shapes()
+                    .iter()
+                    .map(|s| WorldConvex::from_link_shape(&pose, s))
+                    .collect()
+            };
+            let (sa, sb) = (shapes(a), shapes(b));
+            for x in &sa {
+                for y in &sb {
+                    bodies.push((x.clone(), y.clone()));
+                }
+            }
+        }
+        let (lo, hi, _win) = min_signed_distance_over(&bodies, TIGHT_TOL);
+        let (low, high) = (lo.min(hi), lo.max(hi));
+        let offset = |v: f64| {
+            if v < low {
+                low - v
+            } else if v > high {
+                v - high
+            } else {
+                0.0
+            }
+        };
+        let (port_off, oracle_off) = (offset(row.rust), offset(row.oracle));
+        let deviation = (row.oracle - row.rust).abs();
+        let width = high - low;
+        let side = if width > WIDTH_FRACTION * deviation {
+            TooWide
+        } else {
+            let slack = width.max(f64::MIN_POSITIVE);
+            let oracle_dominates = oracle_off > DOMINANCE * port_off.max(slack);
+            let port_dominates = port_off > DOMINANCE * oracle_off.max(slack);
+            match (oracle_dominates, port_dominates) {
+                (true, false) => Oracle,
+                (false, true) => Port,
+                _ => Undominated,
+            }
+        };
+        *sides.entry(side).or_default() += 1;
+    }
+
+    // MEASURED: narrowing to TIGHT_TOL resolves 58 of the 93 -- but 57 of
+    // those 58 land Undominated, not a clean winner. Only 1 flips to a
+    // clear Oracle win. Tightening the bracket mostly reveals rows where
+    // oracle and port are close to *each other*, not rows with a hidden
+    // clear winner.
+    assert_eq!(
+        (
+            sides.get(&Oracle).copied().unwrap_or(0),
+            sides.get(&Port).copied().unwrap_or(0),
+            sides.get(&Undominated).copied().unwrap_or(0),
+            sides.get(&TooWide).copied().unwrap_or(0),
+        ),
+        (278, 0, 76, 35),
+        "the thousandfold-tighter verdict moved from the measured (fcl, port, undominated, \
+         too-wide) = (278, 0, 76, 35): got {:?}",
+        sides
+    );
 }
