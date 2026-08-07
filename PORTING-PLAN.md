@@ -38045,3 +38045,27 @@ $ sed -n '374,399p' crates/moveit-stomp-core/src/utils.rs
 불릿 자신이 금지하는 일이므로, 이 항목은 falsifier가 원리상
 "고쳐졌는가"가 아니라 "아직 upstream과 같은가"를 묻는다 — 답은
 그렇다다. falsifier 불발 — OPEN.
+
+### §324.8 §264.12 — 제약 비용이 위반량이 아니라 거리라는 것
+
+불릿: "제약 비용이 위반량이 아니라 거리라는 것. §264.6의 원인도
+upstream 동작이다. 포트를 바꾸는 것이 아니라 upstream 쪽 문제로
+다뤄야 한다."
+
+falsifier: 포트의 상태 검증기 비용 함수가 위반 여부(불리언)로
+바뀌어 `costs[timestep] > 0.0`이 더 이상 "거리가 0보다 큼"이 아니게
+됐다면 거짓.
+
+```
+$ grep -n 'found_invalid_state = costs' crates/moveit-planners-stomp/src/cost_functions.rs
+174:            let mut found_invalid_state = costs[timestep] > 0.0;
+```
+
+`costs[timestep]`는 `state_validator_fn`이 반환한 거리 기반 비용을
+그대로 누적한 값이고(§264.6이 인용하는 upstream
+`JointConstraint::decide`의 `constraint_weight_ * fabs(dif)`와 같은
+모양), 그 비교는 여전히 "0보다 큰가"이지 "위반했는가"를 별도로 묻지
+않는다. `doc/upstream-bugs.md`의 색인에도 이 항목을 이름으로 부르는
+줄이 없다(`rg -n '제약.*거리|distance.*constraint.*cost' doc/upstream-bugs.md`
+0건) — 상류 결함으로도, 포트 결함으로도 등재되지 않은 채 그대로다.
+falsifier 불발 — OPEN.
