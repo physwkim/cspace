@@ -227,7 +227,7 @@ pub struct PathValidity {
 /// - `DEFAULT_SCENE_NAME` — **not D1** either: `initialize()`
 ///   (`planning_scene.cpp:190`) sets `name_ = DEFAULT_SCENE_NAME` for every
 ///   root-scene constructor, unconditionally. Reproduced as the private
-///   [`DEFAULT_SCENE_NAME`] constant, used by
+///   `DEFAULT_SCENE_NAME` constant, used by
 ///   [`PlanningScene::with_world`] and [`PlanningScene::diff`].
 ///
 /// Both bullets read "D1 (octomap/message-round-trip naming constants,
@@ -2048,16 +2048,16 @@ impl<'m> PlanningScene<'m> {
     /// world changes — onto `target`. A no-op if this scene has no parent.
     /// Upstream `pushDiffs`.
     ///
-    /// Attached-body ids present now but absent from
-    /// [`PlanningScene::attached_bodies_baseline`] are newly attached and
+    /// Attached-body ids present now but absent from the private
+    /// `attached_bodies_baseline` snapshot are newly attached and
     /// pushed onto `target`; ids present in the baseline but no longer
     /// attached are pushed as detached (removed from `target`); ids in
     /// neither set are left alone, so an id `target` independently
     /// diverged on is not clobbered. Upstream reaches the same effect for
     /// free by pushing the whole `robot_state_` (`planning_scene.cpp:348`,
     /// only if locally materialized) — attached bodies are part of that
-    /// object there; see [`PlanningScene::attached_bodies_baseline`]'s doc
-    /// for why this port needs its own comparison instead.
+    /// object there; that field's own doc says why this port needs its
+    /// own comparison instead.
     ///
     /// **Known narrower gap.** Upstream's guard is coarser than this: once
     /// `robot_state_` has been materialized at all (any attach, detach, or
