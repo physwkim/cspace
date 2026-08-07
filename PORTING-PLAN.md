@@ -35949,11 +35949,12 @@ section-mismatch)(\*\d+)?$' doc/citation-classes-in-repo.txt`는
 
 **둘째 (OPEN).** 불릿: "`doc/handoff-2026-08-06.md:112`의 §5 표 행
 수(쓰일 때 19행, 지금 20행)와 `!PORTING-PLAN.md:807`도 그대로다."
-falsifier: 그 핸드오프 문서가 수정되었거나 `:807`이 고쳐졌다면 거짓.
+falsifier: 그 핸드오프 문서가 수정되었거나 `!PORTING-PLAN.md:807`이
+고쳐졌다면 거짓.
 `doc/handoff-2026-08-06.md`는 오늘도 "The table is 19 rows"라고
 적고, `PORTING-PLAN.md:802-823`(헤더+구분선+데이터 20행)을 직접 세면
 오늘 20행이다 — 핸드오프 문서의 19행 주장은 오늘도 안 고쳐진 채다.
-`:807`도 §309.5가 방금 독립적으로 확인했다: "`!PORTING-PLAN.md:807`은
+그 인용도 §309.5가 방금 독립적으로 확인했다: "`!PORTING-PLAN.md:807`은
 `resolved` 등급으로 통과하면서 틀려 있었다." 이 절이 쓰인 시점부터
 A2 종결 시점까지 아무도 손대지 않은 것으로 두 계기(내 재측정,
 §309.5)가 일치한다 — OPEN.
