@@ -435,6 +435,7 @@ PORTING-PLAN.md	scene/planning_scene.rs:148	unanchored
 PORTING-PLAN.md	space.rs:366	anchor-verified
 PORTING-PLAN.md	src/bin/move_group.rs:781	unanchored
 PORTING-PLAN.md	stl.rs:60	unanchored
+PORTING-PLAN.md	stomp_benchmark_port.rs:133	content-verified*2
 PORTING-PLAN.md	target/.../moveit_msgs.rs:8031	exempt
 PORTING-PLAN.md	time_optimal_trajectory_generation.rs:1105	unanchored
 PORTING-PLAN.md	tools/moveit-diff/src/main.rs:3592	content-verified
@@ -1098,6 +1099,8 @@ doc/assertion-discrimination-ledger-p3-acm.md	bodies.rs:4384	unanchored
 doc/assertion-discrimination-ledger-p3-acm.md	collision_env_distance_field.rs:3276	unanchored
 doc/assertion-discrimination-ledger-p3-acm.md	common.rs:585-599	anchor-verified
 doc/assertion-discrimination-ledger-p3-acm.md	crates/moveit-collision/tests/collision_parity.rs:2551	unanchored*3
+doc/assertion-discrimination-ledger-p3-acm.md	crates/moveit-collision/tests/collision_parity.rs:2705	unanchored
+doc/assertion-discrimination-ledger-p3-acm.md	crates/moveit-collision/tests/collision_parity.rs:5589	unanchored
 doc/assertion-discrimination-ledger-p3-acm.md	crates/moveit-constraints/src/position.rs:165	unanchored
 doc/assertion-discrimination-ledger-p3-acm.md	crates/moveit-constraints/tests/sampler.rs:220	unanchored
 doc/assertion-discrimination-ledger-p3-acm.md	crates/moveit-constraints/tests/sampler.rs:83	anchor-verified

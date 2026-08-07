@@ -326,7 +326,7 @@ tools/ci/check-porting-plan-sections.sh	PORTING-PLAN.md:1	resolved
 tools/ci/check-residual-claims-census-discriminates.sh	PORTING-PLAN.md:35229	resolved
 tools/ci/measure-declaration-audits.py	doc/port-coverage.md:211	resolved
 tools/ci/measure-upstream-citations.py	fixtures/panda.srdf:80	resolved
-tools/ci/triage-residual-claims-census.py	PORTING-PLAN.md:31598-31600	resolved
+tools/ci/triage-residual-claims-census.py	PORTING-PLAN.md:31931	resolved
 tools/ci/triage-residual-claims-census.py	PORTING-PLAN.md:918	resolved
 tools/ci/upstream-citation-exemptions.json	Cargo.toml:17	resolved
 tools/ci/upstream-citation-exemptions.json	PORTING-PLAN.md:11244	resolved
