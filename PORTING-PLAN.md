@@ -19079,9 +19079,9 @@ found" 절)이 그대로 적용된다. 비-로깅 잔여분은 0이다.
 | 37 | `PositionOrientationConstraintNameMismatch` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator.cpp:203` | 표현 불가 — 같은 이유 (`trajectory_generator.rs:767-772`) | — |
 | 38 | `NoIKSolverAvailable` | NO_IK_SOLUTION | `trajectory_generator.cpp:211` | `check_cartesian_goal`의 솔버 탐색 (`trajectory_generator.rs:794`) | NoIkSolution |
 | 39 | `NoPrimitivePoseGiven` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator.cpp:216` | 표현 불가 — `trajectory_generator.rs:24-42` | — |
-| 40 | `LinTrajectoryConversionFailure` | FAILURE | `trajectory_generator_lin.cpp:172`, `trajectory_generator_polyline.cpp:185` | `generate_joint_trajectory`의 반환을 전파 (`trajectory_generator_lin.rs:218`, `trajectory_generator_polyline.rs:250`) | 그 함수가 낸 코드 — 상류도 `error_code.val`을 명시 인자로 넘긴다 |
+| 40 | `LinTrajectoryConversionFailure` | FAILURE | `trajectory_generator_lin.cpp:172`, `trajectory_generator_polyline.cpp:185` | `generate_joint_trajectory`의 반환을 전파 (`trajectory_generator_lin.rs:231`, `trajectory_generator_polyline.rs:250`) | 그 함수가 낸 코드 — 상류도 `error_code.val`을 명시 인자로 넘긴다 |
 | 41 | `JointNumberMismatch` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator_lin.cpp:97` | **대응 없음 — §227.6** | — |
-| 42 | `LinInverseForGoalIncalculable` | NO_IK_SOLUTION | `trajectory_generator_lin.cpp:136`, `trajectory_generator_polyline.cpp:122` | `trajectory_generator_lin.rs:148`,`:158`; `trajectory_generator_polyline.rs:172`,`:182` | NoIkSolution |
+| 42 | `LinInverseForGoalIncalculable` | NO_IK_SOLUTION | `trajectory_generator_lin.cpp:136`, `trajectory_generator_polyline.cpp:122` | `trajectory_generator_lin.rs:161`,`:171`; `trajectory_generator_polyline.rs:172`,`:182` | NoIkSolution |
 | 43 | `NoWaypointsSpecified` | INVALID_MOTION_PLAN | `trajectory_generator_polyline.cpp:221` | `cmd_specific_request_validation` (`trajectory_generator_polyline.rs:130`) | InvalidMotionPlan |
 | 44 | `ConsicutiveColinearWaypoints` | INVALID_MOTION_PLAN | `trajectory_generator_polyline.cpp:164` | `plan`의 `polyline_from_waypoints` 실패 (`trajectory_generator_polyline.rs:226`) | InvalidMotionPlan |
 | 45 | `PtpVelocityProfileSyncFailed` | FAILURE | `trajectory_generator_ptp.cpp:183` | `plan_ptp`의 동기화 실패 (`trajectory_generator_ptp.rs:301`, `Error::construct`; doc `:221`) | Failure (`_` 팔) |
@@ -19102,7 +19102,7 @@ INVALID_GROUP_NAME, INVALID_LINK_NAME, NO_IK_SOLUTION, 그리고 명시 인자�
    LIN의 관절 공간 목표에 대해
    `goal_constraints.front().joint_constraints.size() !=
    group->getActiveJointModelNames().size()`를 검사하고 어긋나면
-   `INVALID_GOAL_CONSTRAINTS`로 거부한다. `trajectory_generator_lin.rs:122-133`의
+   `INVALID_GOAL_CONSTRAINTS`로 거부한다. `trajectory_generator_lin.rs:127-146`의
    `Goal::Joint(positions)` 분기에는 그 비교가 없고, `check_joint_goal`
    (`trajectory_generator.rs:748-764`)도 이름의 소속과 한계만 볼 뿐 개수는 세지
    않는다. 그러므로 그룹의 활성 관절 6개 중 3개만 지정한 LIN 요청은 상류에서
