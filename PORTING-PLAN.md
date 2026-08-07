@@ -26328,7 +26328,7 @@ m6은 `nontrivial-population`과의 결합도 보여준다. fanuc stratum에는 
   게이트가 그것을 이 기계의 모든 워크트리에 대한 이미지 재빌드로 만든다.
 - **`full` 모드의 핀.** 한 번도 돌리지 않았다(§264.9). 250문제 × 2로봇 ×
   2플래너에 STOMP의 실측 문제당 비용을 곱하면 이 라운드에 들어가지 않는다.
-- **CHOMP의 목적함수가 관측되지 않는다 — §293에서 닫았다.** 닫는 방법은
+- **CHOMP의 목적함수가 관측되지 않는다. 거짓 → 닫힘 (§293).** 닫는 방법은
   여기 적힌 "한 필드"가 아니었다. upstream은 이 값을 폐기하지 않고
   `best_group_trajectory_cost_`(`chomp_optimizer.hpp:150`)에 들고 있되
   `private:`(`chomp_optimizer.hpp:83`) 아래에 두고, 유일하게 밖으로 내보내는 곳
