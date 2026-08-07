@@ -2144,13 +2144,24 @@ enum TangencyKind {
 }
 
 /// Classifies a `parry` shape into the [`TangencyKind`]
-/// `fcl_tangency_table::SPECIALISED` is indexed by. `None` for a kind the
-/// table has no measurement for (`HalfSpace`/`Compound`, i.e. this crate's
-/// `Plane` and `OcTree`) — [`fcl_tangency_verdict`]'s callers keep their own
-/// pre-existing behaviour for those rather than guessing at one.
+/// `fcl_tangency_table::SPECIALISED` is indexed by. `Compound` classifies as
+/// `Box`, not `None`: this crate's only producer of a `Compound` is
+/// [`compound_from_octree`] ("builds one `Cuboid` per occupied leaf", its own
+/// doc, echoed at the module doc's point 11), and `OcTree::scale_and_padd` is
+/// a no-op (`moveit-geometry`'s `shapes.rs`), so a `Compound` reaching this
+/// function is never anything but a union of plain `Cuboid`s. Upstream's own
+/// `OcTreeSolver::OcTreeShapeIntersectRecurse`
+/// (`fcl/narrowphase/detail/traversal/octree/octree_solver-inl.h:332-354` at
+/// the pinned tag) resolves every occupied-leaf-vs-shape test to a literal
+/// `Box`-vs-shape `solver->shapeIntersect` call, so a `Compound` pair's
+/// exact-zero-gap verdict is governed by the same dispatch a literal `Cuboid`
+/// pair's is, not a separate octree rule. `None` remains for a kind the
+/// table genuinely has no measurement for (`HalfSpace`, i.e. this crate's
+/// `Plane`) — [`fcl_tangency_verdict`]'s callers keep their own pre-existing
+/// behaviour for that one rather than guessing at it.
 fn tangency_kind(shape: &dyn parry3d_f64::shape::Shape) -> Option<TangencyKind> {
     match shape.shape_type() {
-        ShapeType::Cuboid => Some(TangencyKind::Box),
+        ShapeType::Cuboid | ShapeType::Compound => Some(TangencyKind::Box),
         ShapeType::Ball => Some(TangencyKind::Sphere),
         ShapeType::Cylinder => Some(TangencyKind::Cylinder),
         ShapeType::Cone => Some(TangencyKind::Cone),
@@ -2171,8 +2182,20 @@ fn tangency_kind(shape: &dyn parry3d_f64::shape::Shape) -> Option<TangencyKind> 
 /// already return `Some` at exact tangency today
 /// (`exact_tangency_is_decided_per_shape_pair.rs`'s `mesh` row), so
 /// extending the `None` branch to mesh would add an `intersection_test` call
-/// to every non-touching mesh pair in a scene for a case that, unlike
-/// `sphere x sphere`, has no measurement showing it is ever reached.
+/// to every non-touching mesh pair in a scene. This branch's own `true`
+/// answer is reached on constructible input (measured directly: a bool-ladder
+/// fixture lands its `delta = 0.0` rung inside `touches_at_tie`'s band with
+/// `is_mesh_pair` the branch that decides it), and it matches upstream:
+/// `MeshCollisionTraversalNode` dispatches every mesh leaf-triangle pair to
+/// `Intersect<S>::intersect_Triangle`
+/// (`fcl/narrowphase/detail/traversal/collision/mesh_collision_traversal_node-inl.h`,
+/// unchanged since tag `0.7.0`), whose separating-axis test `project6`
+/// (`.../intersect-inl.h:1099,1104`) uses strict `>` — `if (mn1 > mx2) return
+/// 0;` / `if (mn2 > mx1) return 0;` — so an exact boundary touch (equal
+/// projections on every one of the 14 SAT axes) is never classified as
+/// separated, and `intersect_Triangle` returns `true`. `unwrap_or`-style
+/// hedging isn't needed here the way it is for [`fcl_tangency_verdict`]'s
+/// `None`: this is upstream's own answer, not a guess standing in for one.
 fn is_mesh_pair(a: &dyn parry3d_f64::shape::Shape, b: &dyn parry3d_f64::shape::Shape) -> bool {
     a.shape_type() == ShapeType::TriMesh || b.shape_type() == ShapeType::TriMesh
 }
@@ -5756,5 +5779,100 @@ mod tests {
             "parry now reports the sphere x sphere tangency -- drop the exclusion in this \
              test and let the pair be asserted like every other"
         );
+    }
+
+    /// Regression for `tangency_kind` classifying `Compound` as `None`:
+    /// [`touches_at_tie`] then fell through to `fcl_tangency_verdict(...)
+    /// .unwrap_or(true)`, which assumed touching for every `Compound` pair
+    /// inside the tie band regardless of partner shape. Wrong for exactly
+    /// two of the six reachable `Compound` pairings -- upstream's own
+    /// `OcTreeShapeIntersectRecurse` resolves every occupied-leaf-vs-shape
+    /// test to a literal `Box`-vs-shape call, and this crate's own pinned,
+    /// oracle-derived `fcl_tangency_table::SPECIALISED` already records that
+    /// `box x cylinder` and `box x cone` are *not* colliding at an exact
+    /// zero gap (the two cells are not registered as fcl "specialised"
+    /// closed-form routines, so the generic libccd MPR path answers, and it
+    /// was measured to answer `false` there -- see
+    /// `tools/ci/verify-fcl-tangency-dispatch.sh`'s own `EXPECTED` table).
+    /// `unwrap_or(true)` said `true` for both; `tangency_kind`'s fix routes
+    /// `Compound` through `Box`'s row instead of guessing.
+    ///
+    /// Boundary coverage, one case per axis rather than one narrative
+    /// scenario: every reachable `Compound` partner (`Box`/`Sphere` where the
+    /// verdict was already right, `Cylinder`/`Cone` where it was not), both
+    /// operand orders (the table is symmetric, and so must the dispatch be),
+    /// and both signs of `dist` just inside the tie band (a positive-gap
+    /// rounding artefact and a negative-penetration one must read the same
+    /// verdict -- that is the entire point of treating both as a tie).
+    #[test]
+    fn compound_at_a_tie_reads_the_box_row_not_unwrap_or_true() {
+        let cache = OctreeCache::default();
+        let mut tree = moveit_octomap::OcTree::new(0.1);
+        tree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
+        let (compound, compound_fix) =
+            convert_shape(&Shape::OcTree(OcTree::from_tree(Arc::new(tree))), &cache)
+                .expect("an occupied leaf converts to a real Compound");
+        let compound_pose = to_pose(compound_fix);
+        assert_eq!(
+            compound.shape_type(),
+            ShapeType::Compound,
+            "this test must exercise the real Compound shape_type the bug was in, not a stand-in"
+        );
+
+        struct Partner {
+            name: &'static str,
+            shape: Shape,
+            kind: TangencyKind,
+        }
+        let partners = [
+            Partner {
+                name: "cuboid",
+                shape: Shape::Cuboid(Cuboid::new(0.1, 0.1, 0.1).expect("cuboid")),
+                kind: TangencyKind::Box,
+            },
+            Partner {
+                name: "sphere",
+                shape: Shape::Sphere(Sphere::new(0.05).expect("sphere")),
+                kind: TangencyKind::Sphere,
+            },
+            Partner {
+                name: "cylinder",
+                shape: Shape::Cylinder(
+                    moveit_geometry::Cylinder::new(0.05, 0.1).expect("cylinder"),
+                ),
+                kind: TangencyKind::Cylinder,
+            },
+            Partner {
+                name: "cone",
+                shape: Shape::Cone(moveit_geometry::Cone::new(0.05, 0.1).expect("cone")),
+                kind: TangencyKind::Cone,
+            },
+        ];
+
+        for p in partners {
+            let expected =
+                crate::fcl_tangency_table::SPECIALISED[TangencyKind::Box as usize][p.kind as usize];
+            let (other, other_fix) = convert_shape(&p.shape, &cache).expect("converts");
+            let other_pose = to_pose(other_fix);
+            let scale = tie_scale(&compound_pose, &*compound, &other_pose, &*other);
+            let inside = 0.5 * TIE_ROUNDING_MARGIN * f64::EPSILON * scale;
+
+            for (dist, sign) in [(inside, "positive"), (-inside, "negative")] {
+                assert_eq!(
+                    touches_at_tie(dist, &compound_pose, &*compound, &other_pose, &*other),
+                    expected,
+                    "compound x {} must read the box row ({expected}) at a {sign} tie, not \
+                     unwrap_or(true)",
+                    p.name,
+                );
+                assert_eq!(
+                    touches_at_tie(dist, &other_pose, &*other, &compound_pose, &*compound),
+                    expected,
+                    "{} x compound (operand order swapped) must read the box row ({expected}) \
+                     at a {sign} tie",
+                    p.name,
+                );
+            }
+        }
     }
 }
