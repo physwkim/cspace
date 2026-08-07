@@ -930,8 +930,17 @@
 //!
 //! ## `distance_field.hpp`
 //!
-//! - `PlaneVisualizationType` (enum) — D-decision excludes it: D1 (used
-//!   only by `getPlaneMarkers`, see the marker methods below).
+//! - `PlaneVisualizationType` (enum) — unported, but not itself D1: the
+//!   three variants (`XY_PLANE`/`XZ_PLANE`/`YZ_PLANE`,
+//!   `distance_field.hpp:67-72`) are a plain value with no ROS type in
+//!   sight, exactly the kind GOALS.md's D1 rule says gets redefined in pure
+//!   Rust rather than excluded. It stays unported for a narrower reason:
+//!   `rg -n PlaneVisualizationType` against the pinned moveit2 tree turns
+//!   up only its declaration and its one use as `getPlaneMarkers`'s
+//!   parameter (itself genuinely D1 below) — zero consumer, the same
+//!   reasoning `moveit-octomap/src/tree.rs` now gives for `insertPointCloud`.
+//!   Porting the enum with no caller in this crate to pass it to would be
+//!   dead code.
 //! - `DistanceField` constructor / destructor — N/A: see [`DistanceField`]'s
 //!   own doc comment, "The rest is not ported", last bullet.
 //! - `addPointsToField`/`removePointsFromField`/`updatePointsInField`/
