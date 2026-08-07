@@ -844,12 +844,40 @@ fn do_time_parameterization_calculations(
     // set it, so there is no remaining path that reaches this point with an
     // invalid value; no re-check needed. What upstream's unchecked
     // `static_cast<size_t>` does not do, and this port still must, is bound
-    // the resulting sample count — see this module's "Deviations from
-    // upstream" note (§172/§153.1) for why this check is independently
-    // load-bearing (confirmed by mutation) and not redundant with the
-    // constructor's validation.
+    // the resulting sample count.
+    //
+    // `raw_sample_count > MAX_RESAMPLE_SAMPLE_COUNT as f64` alone (no
+    // `!raw_sample_count.is_finite()` alongside it) is enough, and that is
+    // not an oversight: `+inf > (any finite bound)` is `true`, so the `>`
+    // comparison already catches `+inf` on its own; a `!is_finite()` guard
+    // would only still be pulling weight against a NaN `raw_sample_count`,
+    // and that can no longer happen here. `raw_sample_count` is
+    // `parameterized.duration() / options.resample_dt`; `resample_dt` is
+    // always finite and positive (above), and a finite value divided by a
+    // finite positive one is never NaN (it can overflow to `+inf`, which
+    // the `>` comparison already catches, but 0/0 or inf-inf is the only
+    // route to NaN and neither operand can be `0.0`/non-finite here) —
+    // so this is NaN only if `duration()` itself is. `duration()` can only
+    // be NaN via `Trajectory::create`'s timing loop (the sole production
+    // site that assigns `TrajectoryStep::time`; see `trajectory.rs`), and
+    // that loop's only remaining NaN-producing case (`totg-timing-zero-
+    // velocity-division`'s zero-length-segment `0.0 / 0.0`, left
+    // deliberately unguarded — see the deviation documented on that loop)
+    // requires two adjacent steps at an identical, unmoving position,
+    // which in turn requires the whole path to be zero-length — and
+    // `points.len() == 1` above already returns before `Trajectory::create`
+    // is ever called for that case (independently pinned, both by
+    // reasoning and by a direct reproduction, in
+    // `resample_dt_is_unreachable_when_waypoints_collapse_to_one_point`'s
+    // doc comment). Bite-confirmed: removing
+    // `!raw_sample_count.is_finite() ||` here does not turn any test in
+    // this crate's suite red (`cargo nextest run -p moveit-trajectory`,
+    // 115/115 still pass) — the clause it used to need
+    // (`resample_dt_over_a_nan_duration_is_rejected`, since renamed to
+    // `resample_dt_over_an_infinite_time_construction_is_rejected`) is now
+    // caught earlier, by `Trajectory::create` itself.
     let raw_sample_count = (parameterized.duration() / options.resample_dt).ceil();
-    if !raw_sample_count.is_finite() || raw_sample_count > MAX_RESAMPLE_SAMPLE_COUNT as f64 {
+    if raw_sample_count > MAX_RESAMPLE_SAMPLE_COUNT as f64 {
         return Err(Error::other(format!(
             "resample_dt {} over duration {} would require {raw_sample_count} samples, \
              exceeding the {MAX_RESAMPLE_SAMPLE_COUNT} limit",
