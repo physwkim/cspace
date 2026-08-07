@@ -24388,9 +24388,12 @@ M1·M2와 G1·G2의 분업이 이 라운드에서 확인된 사실 하나를 그
   대로다. 플래너가 생겨 궤적이 돌아오기 전에는 다리 쪽에서 닫을 방법이
   없다. 만료 조건: `moveit_planning::pipeline::Planner`가 이 워크스페이스에
   등록되는 순간, leg B가 첫 점의 관절 값을 단언할 수 있게 된다.
-- **상류 `setVariableVelocities`의 `assert`-만 짝짓기 가드**
-  (`robot_state.cpp:422-429`). `doc/upstream-bugs.md`가 이 라운드의 펜스
-  밖이라 기록하지 못했다. 이 포트에서는 구성 불가로 막혀 있다(§256.2).
+- **상류 `setVariableVelocities`의 `assert`-만 짝짓기 가드
+  (`robot_state.cpp:422-429`). 거짓 → 닫힘 (§320.7).**
+  `doc/upstream-bugs.md`가 이 라운드의 펜스 밖이라 기록하지 못했다. 이
+  포트에서는 구성 불가로 막혀 있다(§256.2). `doc/upstream-bugs.md`의
+  `set-variable-velocities-named-assert-only-pairing` 항목이 이제
+  기록한다(§320.7).
 - **`ros/move_group_interface_probe/src/move_group_interface_probe.cpp`의
   낡은 주석. 거짓 → 닫힘 (§320.5).** 이제 존재하지 않는
   `robot_state_msg_is_default`를 이름으로 가리켰다. 펜스 밖이라 이
@@ -30984,7 +30987,7 @@ undeclared-unresolvable **0건**으로 통과한다.
 - `oracle-request-pilz-blend-geometry.md:654`의 `` `5777`-`5778` `` →
   `` `oracle.cpp:6804-6805` ``
 
-일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27922`는
+일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27925`는
 `$ rg ...` 실행 결과를 코드 펜스 안에 그대로 옮긴 것이고, 그 실행은 실제로
 5688을 찍었다. 전사를 고치면 기록이 아니라 위조가 된다. (이 인용은 쓰인
 커밋 `580f1995` 당시 `!PORTING-PLAN.md:27486`이었고, 그 뒤 두 번 밀렸다.
@@ -31913,7 +31916,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27185`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27188`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -35611,7 +35614,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
 `oracle.cpp:5688` 전사 줄이다. §287.7의 문장이 "그 실행은 실제로 5688을
 찍었다"고 말하는 것과 정확히 맞고, 그 문장이 이 인용을 고치면 위조가 된다고
 한 이유이기도 하다 — 5688은 살아 있는 `oracle.cpp` 인용이 아니라 실행
-출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27922`에 있다(§271.3
+출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27925`에 있다(§271.3
 안, 펜스 27720–27726).
 
 §299.7은 이것을 `$ rg -l -w 'NearestNeighbors' .` 출력으로 읽고 27499(+13)로
@@ -35631,7 +35634,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
   자리가 남는다.
 
 그래서 번호만 고치지 않고 **검사 가능한 형태로 바꿨다**: §287.7의 문장이
-이제 `§271.3의 PORTING-PLAN.md:27922`로 절을 이름 댄다. 다음에 §271.3의
+이제 `§271.3의 PORTING-PLAN.md:27925`로 절을 이름 댄다. 다음에 §271.3의
 내용이 밀리면 인용이 절 범위 밖으로 나가고, 그때는 게이트가 말한다. 손으로
 고친 번호는 다시 밀린다 — 이 인용은 이미 두 번 밀렸다. 남길 것은 번호가
 아니라 그것을 붙잡는 규칙이다.
@@ -36198,7 +36201,7 @@ panda 250 + fanuc 250(구성당 125문제 × 넷), §304는 panda 500(floor_wall
 
 `!PORTING-PLAN.md:27602`를 p12-tangency는 27603으로, p10-phase13은
 27609로 밀었다. 병합된 트리에서는 **어느 쪽도 맞지 않는다** — 실제 값은
-`PORTING-PLAN.md:27922`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
+`PORTING-PLAN.md:27925`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
 꽂았고 `check-citation-drift.py`가 blank-line 3건으로 잡았다. 여덟 개를
 게이트가 찍은 citer 위치와 대상 재독으로 다시 유도했다.
 
@@ -36258,7 +36261,7 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
 | `PORTING-PLAN.md:30602` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21855-21856` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
-| `PORTING-PLAN.md:31859` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27185` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `PORTING-PLAN.md:31859` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27188` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
 `section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도
@@ -37111,5 +37114,46 @@ ros/moveit-ros/src/bin/move_group.rs`는 주석 두 줄뿐 코드 방출 0건,
 라이브 게이트는 `val=99999`(`FAILURE`)를 낸다. 별도 재실행은 하지
 않는다: 같은 소스 파일, 같은 §255.1의 고침, 같은 오늘 트리에 대한 같은
 질문이라 §320.2의 실행이 이 불릿에도 그대로 적용된다.
+
+falsifier 성립 — 거짓, §256.8의 사본을 닫는다.
+
+### §320.7 §256.8 "상류 `setVariableVelocities`의 `assert`-만 짝짓기 가드" — `doc/upstream-bugs.md`에 기록했다
+
+불릿: "상류 `setVariableVelocities`의 `assert`-만 짝짓기 가드
+(`robot_state.cpp:422-429`). `doc/upstream-bugs.md`가 이 라운드의 펜스
+밖이라 기록하지 못했다. 이 포트에서는 구성 불가로 막혀 있다(§256.2)."
+falsifier: `doc/upstream-bugs.md`에 이 결함을 이름 댄 항목이 있으면
+거짓 — 이 불릿이 닫히지 못한 이유는 "기록하지 못했다"뿐이고, 결함
+자체의 재현 여부(참/거짓)는 애초에 다투지 않았다.
+
+상류 확인, 핀된 체크아웃에서 직접:
+
+```
+$ sed -n '422,429p' /home/stevek/work/moveit2/moveit_core/robot_state/src/robot_state.cpp
+void RobotState::setVariableVelocities(const std::vector<std::string>& variable_names,
+                                       const std::vector<double>& variable_velocity)
+{
+  markVelocity();
+  assert(variable_names.size() == variable_velocity.size());
+  for (std::size_t i = 0; i < variable_names.size(); ++i)
+    velocity_[robot_model_->getVariableIndex(variable_names[i])] = variable_velocity[i];
+}
+```
+
+`assert`는 `NDEBUG` 릴리스 빌드에서 빠지고, 짧은 `variable_velocity`는
+`robot_state.cpp:428`에서 OOB 읽기가 된다. 포트 쪽 부재 확인:
+
+```
+$ rg -n 'fn set_variable' crates/moveit-state/src/state.rs
+(names+values 짝짓기 오버로드는 positions에만 있다 -- set_variable_positions_named,
+:590. velocities용은 없다.)
+```
+
+`doc/upstream-bugs.md`에 `set-variable-velocities-named-assert-only-
+pairing` 항목을 새로 냈다(Index 표 + 본문, `not-reproduced`) — 상류
+인용, 포트 쪽 부재, `set_variable_positions_named`의 `.zip()`이 같은
+모양의 함수를 만들어도 OOB가 아니라 조용한 절단이 될 것이라는 대조,
+`crates/moveit-planning/src/start_state.rs:84`가 이미 "assumed"로만
+남겨 뒀던 것을 정식 항목으로 옮긴 사실을 담았다.
 
 falsifier 성립 — 거짓, §256.8의 사본을 닫는다.

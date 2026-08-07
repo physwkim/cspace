@@ -133,6 +133,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `distance-callback-default-tolerance-makes-distance-order-dependent` | not-reproduced |
 | `cartesian-path-capability-accepts-jump-thresholds-it-never-applies` | not-reproduced |
 | `cartesian-path-capability-throws-on-an-unknown-link-name` | not-reproduced |
+| `set-variable-velocities-named-assert-only-pairing` | not-reproduced |
 
 ---
 
@@ -2993,3 +2994,46 @@ before that it built `prbt_link_4`'s *other* `<collision>`
               here; the request answers `FAILURE` with the link name in
               `error_code.message`. No oracle comparison covers the throwing
               input, because the oracle cannot produce a value for it.
+
+### `set-variable-velocities-named-assert-only-pairing` — `setVariableVelocities(names, values)` trusts a debug-only assert to pair its two arguments — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/robot_state.cpp:422-429`
+              (`void RobotState::setVariableVelocities(const std::vector<std::string>&
+              variable_names, const std::vector<double>& variable_velocity)`).
+**Port:**     absent. `crates/moveit-state/src/state.rs` has no
+              `set_variable_velocities_named` — contrast
+              `set_variable_positions_named` (`crates/moveit-state/src/state.rs:590-595`), the same
+              shape for positions, which does exist.
+**Symptom:**  the only length check between the two parallel arrays is
+              `assert(variable_names.size() == variable_velocity.size())`
+              (`robot_state.cpp:426`), which `NDEBUG` release builds compile
+              out entirely. With the assert gone, a caller passing a shorter
+              `variable_velocity` than `variable_names` hits
+              `variable_velocity[i]` (`robot_state.cpp:428`) for
+              `i >= variable_velocity.size()`
+              — an out-of-bounds read on `std::vector::operator[]`, undefined
+              behaviour, not a caught error.
+**Evidence:** read of the pinned upstream checkout
+              (`/home/stevek/work/moveit2` @ `e017c91`), confirmed line-for-line
+              against `robot_state.cpp:422-429` with `sed -n '415,435p'`.
+              Not oracle-confirmed — no oracle fixture in this workspace drives
+              a mismatched-length names/velocities pair, so the OOB read has
+              never actually been triggered here, upstream or in the port.
+              `crates/moveit-planning/src/start_state.rs`'s module doc already
+              names this exact upstream site as an "assumed" issue without a
+              ledger entry; this entry is that assumption made concrete and
+              checked against the source.
+**Status:**   `not-reproduced`
+**Cost of not reproducing:** none measurable. The port's nearest positions
+              analogue, `set_variable_positions_named` (`crates/moveit-state/src/state.rs:590-595`),
+              pairs its two slices with `.iter().zip(values)`, which stops at
+              the shorter of the two rather than reading past it — so even a
+              hypothetical `set_variable_velocities_named` built the same way
+              the rest of this crate builds pairing functions would not
+              reproduce the OOB read, it would silently drop trailing names
+              instead. No test in `crates/moveit-state` currently exercises a
+              mismatched-length pairing call of any kind (positions or
+              velocities), so this cost is unmeasured rather than proven zero
+              for the silent-drop shape; it is proven zero for the OOB-read
+              shape specifically, because the vulnerable code path does not
+              exist in this workspace.
