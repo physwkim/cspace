@@ -34262,6 +34262,7 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 | `measure-phase8-cpp-baseline.sh` | 286.9 | 없음 | 수동 | cpp 1/121 사건율 |
 | `measure-phase8-cpp-baseline.sh` | 296.7 | 없음 | 수동 | C++ 기준선 벽시계 52초·54초, 문제당 2.5~3.1초 |
 | `measure-phase8-cpp-baseline.sh` | 295.1 | 없음 | 자동 | `CHOMP_MAX_ITERATIONS`·`CHOMP_CLOCK_BOUND` 기본값(50·3600초)과 `--planner-rng-seed` 문제별 시딩은 지금 소스와 일치하지만 스크립트를 읽어 아는 사실이지 산출물이 아니다. "여덟 번의 C++ 실행 전부 `timed_out 0`"은 이 라운드가 처음 돌린 `full` 스윕의 실측이고 그 출력은 종료 시 지운 `mktemp -d`로 갔다 — 커밋된 것은 없다 |
+| `measure-phase8-cpp-baseline.sh` | 309.3 | 없음 | 자동 | 수를 싣지 않는다 — 병합 후 붉어진 9건의 목록에 이름으로만 나온다 |
 | `measure-phase8-optimizer-properties.sh` | 264 | 없음 | 자동 | 절 머리글이 계기를 이름으로 든다 |
 | `measure-phase8-optimizer-properties.sh` | 264.9 | 없음 | 자동 | 계기 구조 절. `full`이 `doc/phase8-optimizer-properties.json`에 blob id를 쓴다고 적지만 `full`은 돈 적이 없다 |
 | `measure-phase8-optimizer-properties.sh` | 264.12 | 없음 | 자동 | 닫지 않은 것 목록 |
@@ -34280,9 +34281,13 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
 | `measure-phase8-optimizer-properties.sh` | 295.3 | 없음 | 자동 | stratum별 `condition1`/`condition3-pooled`/`condition3-paired` 통과·실패 판정 16칸 전부 이 `full` 실행 하나의 실측이다. 출력은 커밋되지 않았다 |
 | `measure-phase8-optimizer-properties.sh` | 295.5 | 없음 | 자동 | 판별 게이트 다리별 벽시계·검사한 문제 수·시한 초과 수는 이 실행 하나의 실측이다. 이 절이 찾은 결함(분모 미표시)의 고침은 세 이진의 회계 항등식 단언으로 들어갔으나 그 이진들은 이 계기가 아니라 각자의 크레이트 파일이라 이 행이 가리키지 않는다 — 벽시계·카운트는 커밋된 것이 없다 |
 | `measure-phase8-optimizer-properties.sh` | 295.9 | 없음 | 자동 | 변이 m1-m4 넷의 통과/실패 결과는 이 pilot 실행들의 실측이다. 넷 다 편집으로 되돌려 소스에는 남지 않는다 — 커밋된 것은 없다 |
+| `measure-phase8-optimizer-properties.sh` | 309.3 | 없음 | 자동 | 수를 싣지 않는다 — 병합 후 붉어진 9건의 목록에 이름으로만 나온다. 그 절이 이 이름을 줄바꿈해 적었고, 그래서 이 행은 랩을 견디게 고친 뒤에야 요구됐다 |
 | `count-coarse-assertions.py` | 307.1 | `tools/ci/count-coarse-assertions.py` | 자동 | `MACROS` 튜플과 `classify()`의 `eq_none`/`eq_err` 분기가 지금도 `assert_ne`를 잡는다 — 이 절이 정정하는 전제 자체가 이 계기의 지금 소스로 확인된다. 수를 싣지 않는다 |
 | `count-coarse-assertions.py` | 307.2 | `tools/ci/count-coarse-assertions.py` | 자동 | 재실행이 이 부류의 증거이나 코퍼스가 `count-narrowing-sweep.sh`처럼 고정 상류 체크아웃이 아니라 이 저장소 자신의 살아 있는 `crates/`·`ros/`·`tools/`다. 이 커밋에서 재실행하면 기본 모드 4800(1187 kept·3613 dropped), `CCA_LEGACY_KINDS_ONLY=1` 모드 4763(852 kept·3911 dropped)이라, 이 절이 실은 4708/1098/3610과 4708/800/3908 어느 쪽도 다시 나오지 않는다 — 이 절 이후 병합된 커밋들이 매크로 호출을 늘렸다 |
 | `count-coarse-assertions.py` | 307.6 | `tools/ci/count-coarse-assertions.py` | 자동 | 이 절의 `dropped = 3610 = 195(abs_tol) + 3415(other)`을 이 커밋에서 재현하면 `3613 = 195 + 3418`이다 — `abs_tol`은 정확히 재현되고 `other`만 어긋난다. §307.2와 같은 원인(코퍼스가 고정 상류 체크아웃이 아니라 이 저장소 자체라 이 절 이후의 병합이 수를 움직인다) |
+| `count-coarse-assertions.py` | 307.3 | `tools/ci/count-coarse-assertions.py` | 자동 | 수를 싣지 않는다 — `top_level_comparisons()`를 어디에 넣었는지(`count-coarse-assertions.py:335-344`)와 `.abs() <` 하나짜리를 kind에서 뺀 근거를 적는다. 그 인용은 추적된 소스에 대고 확인된다 |
+| `count-coarse-assertions.py` | 307.5 | `tools/ci/count-coarse-assertions.py` | 자동 | 수를 싣지 않는다 — 새 고아를 `--write-orphans`로 흡수하지 않고 둘째 모집단 장치를 이식했다는 진술이고, 이 계기는 그 분리를 diff로 얻는 쪽으로만 이름이 나온다 |
+| `count-coarse-assertions.py` | 309.3 | 없음 | 자동 | 수를 싣지 않는다 — §305 게이트가 병합 후 붉어진 9건을 옮겨 적으면서 계측기 이름이 나올 뿐이다 |
 | `count-narrowing-sweep.sh` | 189 | `tools/ci/count-narrowing-sweep.sh` | 자동 | 상류 8파일 **140**과 파일별 내역(`planning_scene.cpp` 24 · `planning_scene.hpp` 4 · `robot_state.cpp` 76 · `attached_body.hpp` 0 · `attached_body.cpp` 1 · `world.cpp` 10 · `world.hpp` 4 · `kinematic_constraint.cpp` 21). 코퍼스가 고정 상류 체크아웃이므로 다시 돌리는 것이 증거다 |
 | `count-narrowing-sweep.sh` | 189.1 | `tools/ci/count-narrowing-sweep.sh` | 자동 | 스크립트가 자기 오탐 두 형태를 헤더에 적는다는 사실과 그에 해당하는 두 줄. 수가 아니라 스크립트 본문에 대한 진술이다 |
 | `count-public-declarations.sh` | 119.4 | `tools/ci/count-public-declarations.sh` | 자동 | 수를 싣지 않는다 — 계수 관례를 문장에서 명령으로 옮겼다는 진술뿐이다 |
