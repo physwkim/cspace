@@ -718,6 +718,18 @@ pub struct PlanningScene<'m> {
     /// `world_` itself. See [`AttachedBody`]'s module doc for why this
     /// state lives here at all instead of on [`RobotState`].
     attached_bodies: BTreeMap<String, AttachedBody>,
+    /// `Some(ids)` only for a diff (child) scene: the id set
+    /// [`PlanningScene::attached_bodies`] held at [`PlanningScene::diff`]
+    /// (or [`PlanningScene::clear_diffs`]) time, `None` for a root scene.
+    /// Upstream has no matching field — attached bodies live on
+    /// `RobotState` there, so `pushDiffs`' `robot_state_.has_value()` guard
+    /// (`planning_scene.cpp:344-357`) also gates whether attach/detach
+    /// changes get pushed, for free. This port moved attached bodies onto
+    /// [`PlanningScene`] itself (see [`AttachedBody`]'s module doc), which
+    /// decoupled that guard, so [`PlanningScene::push_diffs`] needs its own
+    /// way to tell "attached since diff time" apart from "inherited from
+    /// the parent, never touched" — this baseline is it.
+    attached_bodies_baseline: Option<BTreeSet<String>>,
 }
 
 /// The default name given to a root scene. Upstream
@@ -762,6 +774,7 @@ impl<'m> PlanningScene<'m> {
             acm: Layered::Own(AllowedCollisionMatrix::from_srdf(srdf)),
             transforms: Layered::Own(transforms),
             attached_bodies: BTreeMap::new(),
+            attached_bodies_baseline: None,
         }
     }
 
@@ -2017,6 +2030,7 @@ impl<'m> PlanningScene<'m> {
             acm: Layered::Inherited,
             transforms: Layered::Inherited,
             attached_bodies: self.attached_bodies.clone(),
+            attached_bodies_baseline: Some(self.attached_bodies.keys().cloned().collect()),
         }
     }
 
@@ -2030,8 +2044,33 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// If this scene has a parent, apply what changed here — the
-    /// extra-fixed-frame map, current state, ACM, and world changes — onto
-    /// `target`. A no-op if this scene has no parent. Upstream `pushDiffs`.
+    /// extra-fixed-frame map, current state, ACM, attached bodies, and
+    /// world changes — onto `target`. A no-op if this scene has no parent.
+    /// Upstream `pushDiffs`.
+    ///
+    /// Attached-body ids present now but absent from
+    /// [`PlanningScene::attached_bodies_baseline`] are newly attached and
+    /// pushed onto `target`; ids present in the baseline but no longer
+    /// attached are pushed as detached (removed from `target`); ids in
+    /// neither set are left alone, so an id `target` independently
+    /// diverged on is not clobbered. Upstream reaches the same effect for
+    /// free by pushing the whole `robot_state_` (`planning_scene.cpp:348`,
+    /// only if locally materialized) — attached bodies are part of that
+    /// object there; see [`PlanningScene::attached_bodies_baseline`]'s doc
+    /// for why this port needs its own comparison instead.
+    ///
+    /// **Known narrower gap.** Upstream's guard is coarser than this: once
+    /// `robot_state_` has been materialized at all (any attach, detach, or
+    /// `setCurrentState`), the *entire* bundle is pushed, unconditionally,
+    /// on every subsequent `pushDiffs` call — there is no un-materializing
+    /// it back to "untouched". An id attached and then detached again
+    /// within the same diff, before `push_diffs` ever runs, nets back to
+    /// exactly its baseline value here and is (by design) treated as
+    /// untouched, left off the push. Reproducing upstream's sticky,
+    /// whole-bundle granularity exactly would need a mutation-time flag
+    /// set from [`PlanningScene::attach`]/[`PlanningScene::attach_new`]/
+    /// [`PlanningScene::detach`] themselves, which this change does not
+    /// touch.
     ///
     /// The world-change replay preserves the one ACM subtlety upstream is
     /// careful about: an id whose only recorded action here is a *pure*
@@ -2042,7 +2081,9 @@ impl<'m> PlanningScene<'m> {
     /// its `target` ACM entry pruned too — *unless* `target` already
     /// considers that id an attached body, exactly mirroring upstream's
     /// `if (!scene->getCurrentState().hasAttachedBody(it.first))` guard via
-    /// [`PlanningScene::has_attached_body`].
+    /// [`PlanningScene::has_attached_body`]. The attached-body push above
+    /// runs first so an id attached in this diff already reads as attached
+    /// on `target` by the time this guard checks it.
     pub fn push_diffs(&self, target: &mut PlanningScene<'m>) {
         if self.parent.is_none() {
             return;
@@ -2056,6 +2097,18 @@ impl<'m> PlanningScene<'m> {
         }
         if let Layered::Own(acm) = &self.acm {
             target.set_allowed_collision_matrix(acm.clone());
+        }
+        if let Some(baseline) = &self.attached_bodies_baseline {
+            for (id, body) in &self.attached_bodies {
+                if !baseline.contains(id) {
+                    target.attached_bodies.insert(id.clone(), body.clone());
+                }
+            }
+            for id in baseline {
+                if !self.attached_bodies.contains_key(id) {
+                    target.attached_bodies.remove(id);
+                }
+            }
         }
         let Some(diff) = &self.world_diff else {
             return;
@@ -2122,6 +2175,7 @@ impl<'m> PlanningScene<'m> {
             self.acm = Layered::Own(cloned);
         }
         self.world_diff = None;
+        self.attached_bodies_baseline = None;
         self.parent = None;
     }
 
@@ -2149,6 +2203,7 @@ impl<'m> PlanningScene<'m> {
         self.robot_state = Layered::Inherited;
         self.acm = Layered::Inherited;
         self.attached_bodies = parent.attached_bodies.clone();
+        self.attached_bodies_baseline = Some(parent.attached_bodies.keys().cloned().collect());
     }
 }
 
@@ -2661,6 +2716,103 @@ mod tests {
         child.push_diffs(&mut target);
 
         assert!(target.allowed_collision_matrix().has_entry("box"));
+    }
+
+    #[test]
+    fn push_diffs_propagates_an_attach_made_on_the_child_onto_the_target() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("box", cuboid_shape(), Isometry3::identity());
+        let root = Arc::new(root);
+        let mut child = root.diff();
+
+        child.attach("box", "hand", BTreeSet::new()).unwrap();
+        assert!(child.has_attached_body("box"));
+
+        // `target` has NOT independently attached "box" — this is the
+        // ordinary case pushDiffs exists for: the child did the attaching,
+        // and the target (typically the parent) should end up with it too.
+        // Upstream: attached bodies live on `RobotState`, so `pushDiffs`'
+        // `scene->getCurrentStateNonConst() = robot_state_.value();`
+        // (`planning_scene.cpp:348`) carries the attach along for free.
+        // This port moved attached bodies onto `PlanningScene` itself, so
+        // that push no longer touches them.
+        let mut target = PlanningScene::cloned(&root);
+        child.push_diffs(&mut target);
+
+        assert!(
+            target.has_attached_body("box"),
+            "push_diffs must propagate an attach made on the child onto the target, \
+             the way pushing robot_state_ does upstream"
+        );
+    }
+
+    #[test]
+    fn push_diffs_propagates_a_detach_made_on_the_child_onto_the_target() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("box", cuboid_shape(), Isometry3::identity());
+        root.attach("box", "hand", BTreeSet::new()).unwrap();
+        let root = Arc::new(root);
+        // The child inherits "box" already attached, from the parent.
+        let mut child = root.diff();
+        assert!(child.has_attached_body("box"));
+
+        child.detach("box").unwrap();
+        assert!(!child.has_attached_body("box"));
+
+        // The target also starts with "box" attached (cloned from the same
+        // root), matching what a real push target would look like.
+        let mut target = PlanningScene::cloned(&root);
+        assert!(target.has_attached_body("box"));
+
+        child.push_diffs(&mut target);
+
+        assert!(
+            !target.has_attached_body("box"),
+            "push_diffs must propagate a detach made on the child onto the target"
+        );
+    }
+
+    #[test]
+    fn push_diffs_does_not_clobber_a_same_id_attached_body_the_child_never_touched() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("widget", cuboid_shape(), Isometry3::identity());
+        root.attach("widget", "hand", BTreeSet::new()).unwrap();
+        let root = Arc::new(root);
+        // The child inherits "widget" already attached, from the parent,
+        // and never touches it itself.
+        let child = root.diff();
+        assert!(child.has_attached_body("widget"));
+
+        // The target independently diverged on the same id: detached and
+        // re-attached fresh geometry with a distinct `touch_links` set.
+        // What matters here is only that this survives untouched -- the
+        // child's baseline for "widget" was never invalidated, so it must
+        // not be re-pushed over the target's own divergent value.
+        let mut target = PlanningScene::cloned(&root);
+        target.detach("widget").unwrap();
+        let mut touch = BTreeSet::new();
+        touch.insert("hand".to_owned());
+        target
+            .attach_new(
+                "widget",
+                "hand",
+                vec![cuboid_shape()],
+                vec![Isometry3::identity()],
+                touch.clone(),
+                BTreeMap::new(),
+            )
+            .unwrap();
+
+        child.push_diffs(&mut target);
+
+        assert_eq!(
+            target.attached_body("widget").unwrap().touch_links(),
+            &touch,
+            "push_diffs must not clobber a same-id attached body the child never touched"
+        );
     }
 
     #[test]
