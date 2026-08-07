@@ -37972,3 +37972,25 @@ crates/moveit-planners-sbp/src/registry.rs:597:impl PlannerManager for RrtConnec
 그것만 돈다(`tools/ci/verify-phase7-benchmark.sh:541`의
 `echo "=== port (moveit-planners-sbp rrt_connect) ..."`). falsifier
 불발 — OPEN.
+
+### §324.5 §264.12 — 일부러 어려운 씨앗으로 조건 2 사건율을 올리는 실험이 없다는 것
+
+불릿: "일부러 어려운 씨앗이 조건 2 사건율을 올려 §286.4의 검정력
+부족을 푸는가."
+
+falsifier: `seed_validity_problem_set.rs`(또는 그 진입점인
+`ChompRequest::seed_trajectory`/포트 STOMP의 씨앗 생성 경로)가 씨앗
+난이도를 고르는 파라미터를 갖게 됐다면 거짓.
+
+```
+$ rg -n 'fn ' crates/moveit-planners-sbp/examples/seed_validity_problem_set.rs
+(직선 씨앗 유효성 분류 함수들뿐 — 난이도 파라미터 없음)
+```
+
+파일 자신의 독스트링(`crates/moveit-planners-sbp/examples/
+seed_validity_problem_set.rs:9-11`)이 이 바이너리가 하는 일을 "매
+문제의 두 끝점 사이 직선 구간이 이미 충돌 없는가"로 못박는다 —
+난이도를 고르는 게 아니라 이미 뽑힌 문제를 분류만 한다. §291.2가
+같은 물음을 독립적으로 재확인한 표도 있다(`### §291.2 범위 안 24건의
+판정`의 "§264.12 ① 씨앗이 주어진 문제 모집단" 행: "남은 것은 씨앗
+난이도를 *고르는* 쪽뿐"). falsifier 불발 — OPEN.
