@@ -118,11 +118,18 @@ By kind:
   majority of this probe's own 497. Only 23 poses (4.6%) even reach a
   stable-agree comparison at all.
 - **mesh x mesh**: the most mixed cell. 94/497 (18.9%) fcl-unstable, a real
-  but smaller stable divergence in both directions (21 miss, 8 over-report),
-  and the largest port-side role-split of any kind (109/497, 21.9%) -- the
-  port's own mesh-vs-mesh answer depends on which side is attached
-  independent of fcl, which this probe did not set out to explain and does
-  not.
+  but smaller stable divergence in both directions (21 miss, 8 over-report).
+  The port's own mesh-vs-mesh answer splits by role at 151/497 (30.4%) poses
+  in total -- the largest of any kind, and not the 109 an earlier draft of
+  this paragraph reported. That 109 is real (it is this same 151 restricted
+  to poses where fcl is itself stable, computed by intersecting the two
+  per-pose split sets directly rather than re-derived from the table above)
+  and, for exactly those 109, "independent of fcl" holds. It does not hold
+  for the other 42: those are poses where *both* libraries split by role at
+  once -- 44.7% of fcl's own 94 unstable poses, 27.8% of the port's own 151
+  -- which is not independence, it is the same near-degenerate configuration
+  destabilising both implementations' argument-order handling at once.
+  Union of either library splitting: 203/497 (40.8%) poses.
 
 ## What this does *not* settle
 
