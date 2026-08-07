@@ -72,25 +72,42 @@
 //! this the same way upstream's constructor loop does; production
 //! `moveit-state` code carries no `urdf-rs` dependency for it.
 //!
-//! # Deviation from upstream: `getMaxPayload`'s indexing bug is replicated
+//! # Deviation from upstream: `getMaxPayload`'s indexing bug is corrected
 //!
 //! Upstream's `getMaxPayload` saturation check reads `max_torques_[i]` for
-//! `i` in the *active*-joint index space, even though `max_torques_` was
-//! built over the *full* (fixed-joint-inclusive) space — for a chain with
-//! a fixed joint before its last active joint, this compares a real joint's
-//! torque against a different (often always-`0.0`) joint's limit. See
-//! `capture-dynamics-fixtures.py`'s module doc comment and
-//! `oracle.cpp`'s `dynamics()` doc comment for the confirmed mechanism on
-//! `pr2`'s `right_arm` group. This port's [`DynamicsSolver::max_payload`]
-//! reproduces the bug rather than fixing it: the only ground truth
-//! available to verify against (`pr2_dynamics.json`, captured from the real
-//! oracle) reflects the buggy behavior, and there is no ground truth to
-//! verify a "fixed" version against. A caller building `max_torques` from
+//! `i` in the *active*-joint index space (`dynamics_solver.cpp:246-254`,
+//! `:271-284`), even though `max_torques_` was built over the *full*
+//! (fixed-joint-inclusive) space (`:132-144`), indexed by `num_joints_`
+//! (`:126`, the *active*-joint count) — for a chain with a fixed joint
+//! before its last active joint, this compares a real joint's torque
+//! against a different (often always-`0.0`) joint's limit. See
+//! `capture-dynamics-fixtures.py`'s module doc comment and `oracle.cpp`'s
+//! `dynamics()` doc comment for the confirmed mechanism on `pr2`'s
+//! `right_arm` group (`r_upper_arm_joint`, fixed, precedes
+//! `r_elbow_flex_joint`, active). Upstream's own author left this
+//! unexamined; this port does not — [`DynamicsSolver::new`] additionally
+//! stores `max_torques` filtered down to one entry per *active* joint
+//! (`active_max_torques`, [`DynamicsSolver::max_payload`]'s own doc
+//! comment), and `max_payload` compares each active joint's torque against
+//! *that* joint's own limit, not a full-space index that happens to fall
+//! on a different joint.
+//!
+//! The only ground truth available to verify against
+//! (`tests/fixtures/pr2_dynamics.json`, captured from the real, buggy
+//! oracle) reflects the *unfixed* behavior for every `right_arm` case, so
+//! this fix necessarily diverges from that fixture rather than matching
+//! it — `tests/dynamics_parity.rs`'s `assert_dynamics_matches_oracle`
+//! documents and isolates that expected divergence at its call site rather
+//! than comparing `right_arm`'s `max_payload` field to the fixture at all;
+//! see that test file for the reasoning and
+//! `max_payload_does_not_index_max_torques_by_the_full_joint_space` for a
+//! synthetic, oracle-independent regression test of the fix itself. A
+//! caller building `max_torques` from
 //! [`JointModelGroup::active_joint_indices`] instead of
-//! [`JointModelGroup::joint_indices`] sidesteps the bug entirely (no fixed
-//! joints in the index space to misalign against); this port does not
-//! force that choice on a caller, matching upstream's own constructor
-//! signature exactly.
+//! [`JointModelGroup::joint_indices`] was already unaffected either way (no
+//! fixed joints in the index space to misalign against); this port still
+//! does not force that choice on a caller, matching upstream's own
+//! constructor signature exactly.
 //!
 //! # Omitted: the joint's own scalar reflected inertia
 //!
@@ -422,6 +439,12 @@ pub struct DynamicsSolver<'m> {
     gravity: Vector3,
     gravity_norm: f64,
     max_torques: Vec<f64>,
+    /// `max_torques`, filtered down to one entry per *active* joint (fixed
+    /// joints dropped), in the same relative order `sweep`'s `torques`
+    /// output uses. See [`DynamicsSolver::max_payload`]'s doc comment for
+    /// why `max_payload` must compare against this instead of `max_torques`
+    /// directly.
+    active_max_torques: Vec<f64>,
 }
 
 impl<'m> DynamicsSolver<'m> {
@@ -473,12 +496,23 @@ impl<'m> DynamicsSolver<'m> {
                 group.joint_indices().len()
             )));
         }
+        let active_max_torques = group
+            .joint_indices()
+            .iter()
+            .zip(max_torques.iter())
+            .filter_map(|(&joint_index, &max_torque)| {
+                let is_active = model.joint_model_at(joint_index).joint_type()
+                    != moveit_model::joint::JointType::Fixed;
+                is_active.then_some(max_torque)
+            })
+            .collect();
         Ok(Self {
             model,
             group,
             gravity,
             gravity_norm: gravity.norm(),
             max_torques,
+            active_max_torques,
         })
     }
 
@@ -514,7 +548,8 @@ impl<'m> DynamicsSolver<'m> {
     /// `getMaxPayload`: the heaviest tip payload this configuration can
     /// carry (aligned with gravity, applied at the last segment's tip)
     /// before some joint's torque limit is exceeded. See this module's doc
-    /// comment for the upstream indexing bug this reproduces.
+    /// comment for the upstream indexing bug this port corrects rather than
+    /// replicates.
     pub fn max_payload(&self, angles: &[f64]) -> Result<MaxPayload> {
         let num_active = self.num_active();
         let ns = self.num_segments();
@@ -522,8 +557,10 @@ impl<'m> DynamicsSolver<'m> {
         let zero_wrenches = vec![Wrench::zero(); ns];
         let (zero_torques, base_to_tip) = self.sweep(angles, &zeros, &zeros, &zero_wrenches)?;
 
-        for (i, (&zero_torque, &max_torque)) in
-            zero_torques.iter().zip(self.max_torques.iter()).enumerate()
+        for (i, (&zero_torque, &max_torque)) in zero_torques
+            .iter()
+            .zip(self.active_max_torques.iter())
+            .enumerate()
         {
             if zero_torque.abs() >= max_torque {
                 return Ok(MaxPayload {
@@ -546,7 +583,7 @@ impl<'m> DynamicsSolver<'m> {
         for (i, ((&zero_torque, &probe_torque), &max_torque)) in zero_torques
             .iter()
             .zip(probe_torques.iter())
-            .zip(self.max_torques.iter())
+            .zip(self.active_max_torques.iter())
             .enumerate()
         {
             let delta = probe_torque - zero_torque;
