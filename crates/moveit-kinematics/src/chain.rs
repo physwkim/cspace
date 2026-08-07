@@ -323,10 +323,51 @@ impl ChainInfo {
     /// `KDLKinematicsPlugin::getJointWeights`: every active joint defaults
     /// to weight `1.0`, then [`crate::SolverParams::joint_weights`]
     /// overrides by joint name.
-    pub(crate) fn resolve_joint_weights(&self, params: &crate::params::SolverParams) -> Vec<f64> {
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Other`] if [`crate::SolverParams::joint_weights`] gives one
+    /// of this chain's active joints a weight of exactly `0.0`. Upstream's
+    /// `kdl_kinematics_parameters.yaml` declares `weight`'s validation as
+    /// `gt<>: [0.0]`, enforced by the generated `ParamListener::get_params()`
+    /// call inside `initialize` (`kdl_kinematics_plugin.cpp:134`) strictly
+    /// before `getJointWeights` (`:195`) ever reads `params_.joints_map` --
+    /// so upstream's `getJointWeights` itself can never observe a
+    /// non-positive weight, and does not check for one. This port has no
+    /// parameter-server load step to reject it at that point, so the check
+    /// has to live here, at the one place every [`SolverParams::joint_weights`]
+    /// entry is actually consumed. A weight of `0.0` is not a milder version
+    /// of a small positive one: [`crate::solve_velocity`]'s weighted
+    /// least-squares fold multiplies a joint's Jacobian column by its weight
+    /// and divides the result by that same weight on the way out, so `0.0`
+    /// zeroes the column outright and locks the joint at its seed value on
+    /// every solve, permanently -- not "de-prioritized", which is what a
+    /// caller reading "weight" would reasonably expect, but unusable. A
+    /// negative weight has no such effect (the sign cancels exactly through
+    /// the same fold-then-unfold, so `-w` and `w` reach the identical
+    /// solution) and is not rejected here; only the exact value this port
+    /// cannot silently absorb is.
+    ///
+    /// [`SolverParams::joint_weights`]: crate::params::SolverParams::joint_weights
+    pub(crate) fn resolve_joint_weights(
+        &self,
+        params: &crate::params::SolverParams,
+    ) -> Result<Vec<f64>> {
         self.active_joint_names
             .iter()
-            .map(|name| *params.joint_weights.get(name).unwrap_or(&1.0))
+            .map(|name| {
+                let weight = *params.joint_weights.get(name).unwrap_or(&1.0);
+                if weight == 0.0 {
+                    return Err(Error::other(format!(
+                        "joint '{name}' has weight 0.0 in SolverParams::joint_weights, which \
+                         locks it at its seed value on every solve; upstream rejects this at \
+                         parameter load (kdl_kinematics_parameters.yaml's weight > 0.0 \
+                         validation) -- use a small positive weight to de-prioritize the joint \
+                         instead"
+                    )));
+                }
+                Ok(weight)
+            })
             .collect()
     }
 
@@ -598,10 +639,63 @@ mod tests {
 
         let mut params = crate::params::SolverParams::default();
         params.joint_weights.insert("j2".to_owned(), 0.25);
-        let weights = chain.resolve_joint_weights(&params);
+        let weights = chain
+            .resolve_joint_weights(&params)
+            .expect("0.25 is a valid weight");
 
         assert_eq!(chain.active_joint_names, vec!["j1", "j2"]);
         assert_eq!(weights, vec![1.0, 0.25]);
+    }
+
+    /// `resolve_joint_weights` must reject a `0.0` weight for one of this
+    /// chain's own active joints, matching upstream's
+    /// `kdl_kinematics_parameters.yaml` `weight > 0.0` validation (enforced
+    /// there before `getJointWeights` ever runs, so upstream's own function
+    /// never has to check). Without this rejection, `j2`'s Jacobian column
+    /// would be multiplied by exactly `0.0` in `solve_velocity` and divided
+    /// by the same `0.0` on the way back out, freezing `j2` at its seed
+    /// value on every solve rather than merely de-prioritizing it -- see
+    /// this method's own doc comment.
+    #[test]
+    fn resolve_joint_weights_rejects_a_zero_weight_on_an_active_joint() {
+        let urdf = r#"<?xml version="1.0"?>
+<robot name="two_joint">
+  <link name="root"/>
+  <link name="mid"/>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="root"/>
+    <child link="mid"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j2" type="revolute">
+    <parent link="mid"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+"#;
+        let srdf = r#"<?xml version="1.0"?>
+<robot name="two_joint">
+  <group name="chain">
+    <chain base_link="root" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let model = build_model_from_str(urdf, srdf);
+        let chain = ChainInfo::build(&model, "chain").expect("valid two-joint chain");
+
+        let mut params = crate::params::SolverParams::default();
+        params.joint_weights.insert("j2".to_owned(), 0.0);
+        let err = chain
+            .resolve_joint_weights(&params)
+            .expect_err("a 0.0 joint weight must be rejected, not silently applied");
+        assert!(
+            err.to_string().contains("j2") && err.to_string().contains("0.0"),
+            "got: {err}"
+        );
     }
 
     /// The ordinary case: the chain's root joint's parent link is a real,
