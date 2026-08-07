@@ -7,7 +7,7 @@
 
 PORTING-PLAN.md §301(및 그 이전 §291)이 만든 문서. 헤딩이든 평문이든, 이 절이/회차가 하지/닫지/재지/... 않은 것 계열의 lead-in 줄 바로 아래 최상위 불릿을 전부 모은다 — 본문 어휘(무엇을 안 쟀는지)가 아니라 lead-in 어휘(안 쟀다는 것 자체)로 찾으므로, 이 절이 잰 것을 부르는 단어가 무엇이든 걸린다. **닫힘 여부는 `거짓 → 닫힘 (§N)`이 그 불릿 자신의 텍스트 안에 있는지만 본다** — 한 불릿에 여러 절이 섞여 있고 그중 일부만 닫힌 경우(예: PORTING-PLAN.md §284.3), 그 표식이 있으면 전체가 CLOSED로 잡힌다. 부분 닫힘은 이 표가 못 보고, 여는 사람이 본문을 읽어야 한다. **EXPIRY는 다른 질문에 답한다** — PORTING-PLAN.md §308.4(A3)가 허용하는 두 번째 출구로, 측정이 참/거짓을 가려서 닫힌 것이 아니라 발화 시점을 적은 만료 조건으로 전환된 것이다. `OPEN → 만료 조건 (<발화 시점 문장>)` 마커로 표시하고, 괄호 안 문장이 비어 있으면(발화 시점 없는 '영구' 선언은 A3가 허용하는 출구가 아니다) 이 스크립트는 census를 만들지 않고 FAIL한다.
 
-lead-in 64건, 최상위 불릿 233건 (CLOSED 70 / EXPIRY 5 / OPEN 158).
+lead-in 64건, 최상위 불릿 233건 (CLOSED 73 / EXPIRY 6 / OPEN 154).
 
 | 절 | lead-in (줄) | 불릿 | 상태 |
 |---|---|---|---|
@@ -24,9 +24,9 @@ lead-in 64건, 최상위 불릿 233건 (CLOSED 70 / EXPIRY 5 / OPEN 158).
 | §56.4 | PORTING-PLAN.md:5467 56.4 남는 것 | PORTING-PLAN.md:5477 - parry의 TriMesh 접촉은 삼각형별 최대이고, 삼각형 단위 MTD는 메시 전체 MTD보다 얕을 수 있다(얇은 삼각형 문제). 위 일치는 이 구간에... | CLOSED (§56.6) |
 | §56.4 | PORTING-PLAN.md:5467 56.4 남는 것 | PORTING-PLAN.md:5481 - **§53.3이 찾은 world object 쪽 불일치(`l_gripper_r_finger_link`/`floor`, 포트가 더 깊게 답함)는 이 설명으... | CLOSED (§56.5) |
 | §66.4 | PORTING-PLAN.md:6269 66.4 남은 것 | PORTING-PLAN.md:6271 - **`SceneTransforms::isFixedFrame`의 선행 `/` 처리와 object frame 위임은 재현되지 않았다.** 유예 근거는 fal... | OPEN |
-| §70.3 | PORTING-PLAN.md:6500 70.3 남은 것 | PORTING-PLAN.md:6502 - **`isFixedFrame`의 world object frame 위임은 여전히 살아 있는 호출자가 없다.** 다만 falsifier의 전제는 바뀌었다 ... | OPEN |
-| §70.3 | PORTING-PLAN.md:6500 70.3 남은 것 | PORTING-PLAN.md:6509 - **새로 표면화된 것: `getCostSources`가 막혀 있다.** `ParryCollisionEnv`가 `cost_sources: None`을 하드... | OPEN |
-| §102.3 | PORTING-PLAN.md:9045 102.3 남은 것 | PORTING-PLAN.md:9047 - **이 op으로 fixture를 캡처하는 것은 아직 안 했다.** 소유자가 p3-distance-field이고 라운드 17에서 세 사례의 입력을 확정해 ... | OPEN |
+| §70.3 | PORTING-PLAN.md:6500 70.3 남은 것 | PORTING-PLAN.md:6502 - **`isFixedFrame`의 world object frame 위임은 여전히 살아 있는 호출자가 없다.** 다만 falsifier의 전제는 바뀌었다 ... | EXPIRY |
+| §70.3 | PORTING-PLAN.md:6500 70.3 남은 것 | PORTING-PLAN.md:6509 - **새로 표면화된 것: `getCostSources`가 막혀 있다.** `ParryCollisionEnv`가 `cost_sources: None`을 하드... | CLOSED (§323.1) |
+| §102.3 | PORTING-PLAN.md:9045 102.3 남은 것 | PORTING-PLAN.md:9047 - **이 op으로 fixture를 캡처하는 것은 아직 안 했다.** 소유자가 p3-distance-field이고 라운드 17에서 세 사례의 입력을 확정해 ... | CLOSED (§323.2) |
 | §130.3 | PORTING-PLAN.md:11226 130.3 남는 것 | PORTING-PLAN.md:11228 - **정리 대상 이미지가 하나 늘었다(현재 89개, 정리는 사용자 승인 필요). 거짓 → 닫힘 (§312) — 오늘 같은 계측기로 다시 세면 133개다.*... | CLOSED (§312) |
 | §136.1 | PORTING-PLAN.md:11459 136.1 이 실험이 증명하지 못한 것 | PORTING-PLAN.md:11461 - **Actions 자체는 여전히 미검증.** `actions/checkout@v4`, `dtolnay/rust-toolchain@stable`, `Swa... | CLOSED (§136.3) |
 | §136.1 | PORTING-PLAN.md:11459 136.1 이 실험이 증명하지 못한 것 | PORTING-PLAN.md:11466 - **crates.io 신규 해석은 미검증.** 드라이런은 호스트의 `~/.cargo` 레지스트리 캐시를 재사용했다. `--locked`가 통과했으니 락 ... | CLOSED (§136.3) |
@@ -163,7 +163,7 @@ lead-in 64건, 최상위 불릿 233건 (CLOSED 70 / EXPIRY 5 / OPEN 158).
 | §274.6 | PORTING-PLAN.md:28344 §274.6 닫지 않은 것 | PORTING-PLAN.md:28346 - **저장된 설정은 어떤 플래너에도 닿지 않았다. 거짓 → 닫힘 (§285).** 상류의 `setParams`는 `setPlannerConfiguratio... | CLOSED (§285) |
 | §274.6 | PORTING-PLAN.md:28344 §274.6 닫지 않은 것 | PORTING-PLAN.md:28357 - **머지 시점의 import. 거짓 → 닫힘 (§285.1).** 이 절이 쓰인 브랜치의 base에서 `PLANNER_MANAGERS`는 `moveit-... | CLOSED (§285.1) |
 | §275.4 | PORTING-PLAN.md:28471 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28473 - **다른 4로봇은 다시 재지 않았다. 거짓 → 닫힘 (§284.1·§284.3).** panda/fanuc/dual_arm_panda/pr2는 기본 바닥... | CLOSED (§284.1·§284.3) |
-| §275.4 | PORTING-PLAN.md:28471 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28480 - **case 8148을 닫지 않았다.** §275.3의 1건은 열린 항목이다. | OPEN |
+| §275.4 | PORTING-PLAN.md:28471 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28480 - **case 8148을 닫지 않았다.** §275.3의 1건은 열린 항목이다. **거짓 → 닫힘 (§323.5).** | CLOSED (§323.5) |
 | §275.4 | PORTING-PLAN.md:28471 §275.4 이 절이 하지 않은 것 | PORTING-PLAN.md:28481 - **접선 자체를 고치지 않았다.** `sphere × sphere`의 비균일성(#16)과 같은 부류이고, §251.4가 적은 두 대안(양의 엡실론 / 쌍... | OPEN |
 | §280.4 | PORTING-PLAN.md:29267 §280.4 이 절이 하지 않은 것 | PORTING-PLAN.md:29269 - 조건 (b)는 손대지 않았다. 그 행(`성공한 해의 FK가 SolverParams::epsilon 이내`)은 동작점 문제가 없다 — 성공한 해에 대한 진... | OPEN |
 | §280.4 | PORTING-PLAN.md:29267 §280.4 이 절이 하지 않은 것 | PORTING-PLAN.md:29272 - 다른 어떤 Phase의 조건문도 고치지 않았다. §267.4가 남긴 결정은 이 하나뿐이다. | OPEN |
