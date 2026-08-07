@@ -2006,3 +2006,374 @@ fn sample_unit_quaternion(rng: &mut impl Rng) -> (f64, f64, f64, f64) {
     let w = sqrt_u1 * (2.0 * PI * u3).cos();
     (x, y, z, w)
 }
+
+/// `JointModel::getVariableRandomPositionsNearBy`, dispatched per joint
+/// kind (upstream splits this across `RevoluteJointModel`,
+/// `PrismaticJointModel`, `PlanarJointModel`, `FloatingJointModel`,
+/// `FixedJointModel`, each overriding the base class's pure-virtual
+/// method). Mirrors [`sample_random_positions`]'s per-kind dispatch shape;
+/// unlike that function, every non-fixed kind's sample here is drawn from
+/// `[near - distance, near + distance]` (clamped to bounds, or wrapped for
+/// a continuous revolute), not from the joint's full range.
+///
+/// - Revolute, continuous: unclamped uniform in `[near - distance, near +
+///   distance]`, then wrapped into `(-pi, pi]` via
+///   [`JointModel::enforce_position_bounds`] on the joint's own bounds —
+///   matching `crates/moveit-kinematics/src/cart_to_jnt.rs`'s
+///   `near_by_configuration`, which ports this same case for the KDL path.
+/// - Revolute (non-continuous) and prismatic: uniform in `[near -
+///   distance, near + distance]`, clamped to bounds.
+/// - Planar/floating translation: as above, or `0.0` if that axis's
+///   bounds are non-finite (see [`sample_random_positions`]'s doc comment
+///   for why "bounded" cannot be used as the finiteness check here).
+/// - Planar rotation: uniform in `[near - da, near + da]` where `da =
+///   angular_distance_weight * distance` clamped to `pi`, then wrapped
+///   into `[-pi, pi]` via [`PlanarJoint::normalize_rotation`] — *not*
+///   clamped to bounds, matching upstream (which calls `normalizeRotation`,
+///   not `enforcePositionBounds`, here).
+/// - Floating rotation: a small rotation composed onto `near`'s
+///   quaternion. When `da = angular_distance_weight * distance >= pi/4`,
+///   upstream gives up on "near" and draws a fully random unit quaternion
+///   instead (matched here via [`sample_unit_quaternion`]). Otherwise it
+///   draws a random axis and an angle via OMPL's rejection-free
+///   ball-sampling (see [`sample_near_axis_angle_quaternion`]) and
+///   left-multiplies `near`'s quaternion by the resulting small rotation,
+///   using upstream's exact component-wise Hamilton product rather than
+///   going through a quaternion type — `values[3..7]` is `(x, y, z, w)`,
+///   matching [`sample_unit_quaternion`]'s own component order, and `near`
+///   is assumed to already be in that order (as every caller's `position_`
+///   slice for a floating joint is).
+///
+/// # Panics
+///
+/// Upstream reads `distance` (and, for planar/floating,
+/// `angular_distance_weight * distance`) unchecked into `uniformReal(low,
+/// high)`, whose `low <= high` precondition a negative `distance` can
+/// violate. This port matches that: a negative `distance` can make `near -
+/// distance > near + distance`, and [`RngExt::random_range`] panics on an
+/// empty range rather than silently swapping the bounds.
+fn sample_random_positions_near_by(
+    joint: &JointModel,
+    rng: &mut impl Rng,
+    near: &[f64],
+    distance: f64,
+    out: &mut [f64],
+) {
+    let bounds = joint.variable_bounds();
+    match joint.kind() {
+        JointKind::Revolute(r) => {
+            if r.is_continuous() {
+                out[0] = rng.random_range((near[0] - distance)..=(near[0] + distance));
+                joint.enforce_position_bounds(out);
+            } else {
+                out[0] = sample_uniform_near_by(
+                    rng,
+                    bounds[0].min_position,
+                    bounds[0].max_position,
+                    near[0],
+                    distance,
+                );
+            }
+        }
+        JointKind::Prismatic(_) => {
+            out[0] = sample_uniform_near_by(
+                rng,
+                bounds[0].min_position,
+                bounds[0].max_position,
+                near[0],
+                distance,
+            );
+        }
+        JointKind::Planar(p) => {
+            out[0] = sample_uniform_or_zero_near_by(
+                rng,
+                bounds[0].min_position,
+                bounds[0].max_position,
+                near[0],
+                distance,
+            );
+            out[1] = sample_uniform_or_zero_near_by(
+                rng,
+                bounds[1].min_position,
+                bounds[1].max_position,
+                near[1],
+                distance,
+            );
+            let da = (p.angular_distance_weight() * distance).min(PI);
+            out[2] = rng.random_range((near[2] - da)..=(near[2] + da));
+            let out3: &mut [f64; 3] = (&mut out[..3])
+                .try_into()
+                .expect("planar joint has 3 variables");
+            PlanarJoint::normalize_rotation(out3);
+        }
+        JointKind::Floating(f) => {
+            out[0] = sample_uniform_or_zero_near_by(
+                rng,
+                bounds[0].min_position,
+                bounds[0].max_position,
+                near[0],
+                distance,
+            );
+            out[1] = sample_uniform_or_zero_near_by(
+                rng,
+                bounds[1].min_position,
+                bounds[1].max_position,
+                near[1],
+                distance,
+            );
+            out[2] = sample_uniform_or_zero_near_by(
+                rng,
+                bounds[2].min_position,
+                bounds[2].max_position,
+                near[2],
+                distance,
+            );
+            let da = f.angular_distance_weight() * distance;
+            if da >= 0.25 * PI {
+                let (x, y, z, w) = sample_unit_quaternion(rng);
+                out[3] = x;
+                out[4] = y;
+                out[5] = z;
+                out[6] = w;
+            } else {
+                let (qx, qy, qz, qw) = sample_near_axis_angle_quaternion(rng, da);
+                // Hamilton product `near * q`, upstream's exact formula
+                // (`floating_joint_model.cpp`): near = (near[3..7]) =
+                // (x, y, z, w), q = (qx, qy, qz, qw).
+                out[3] = near[6] * qx + near[3] * qw + near[4] * qz - near[5] * qy;
+                out[4] = near[6] * qy + near[4] * qw + near[5] * qx - near[3] * qz;
+                out[5] = near[6] * qz + near[5] * qw + near[3] * qy - near[4] * qx;
+                out[6] = near[6] * qw - near[3] * qx - near[4] * qy - near[5] * qz;
+            }
+        }
+        JointKind::Fixed => {}
+    }
+}
+
+/// Uniform in `[near - distance, near + distance]`, clamped to `[min,
+/// max]`. `FloatingJointModel`/`PlanarJointModel`/`PrismaticJointModel`/
+/// `RevoluteJointModel::getVariableRandomPositionsNearBy`'s common
+/// `uniformReal(std::max(min, near - distance), std::min(max, near +
+/// distance))` shape.
+fn sample_uniform_near_by(rng: &mut impl Rng, min: f64, max: f64, near: f64, distance: f64) -> f64 {
+    sample_uniform(rng, min.max(near - distance), max.min(near + distance))
+}
+
+/// As [`sample_uniform_near_by`], or `0.0` if `min`/`max` are not both
+/// finite — see [`sample_random_positions_near_by`]'s doc comment.
+fn sample_uniform_or_zero_near_by(
+    rng: &mut impl Rng,
+    min: f64,
+    max: f64,
+    near: f64,
+    distance: f64,
+) -> f64 {
+    if min.is_finite() && max.is_finite() {
+        sample_uniform_near_by(rng, min, max, near, distance)
+    } else {
+        0.0
+    }
+}
+
+/// A small rotation as `(x, y, z, w)`, for `FloatingJointModel`'s
+/// near-by sampling when `da < pi/4`. Upstream (comment: "taken from
+/// OMPL"): draw a random axis from 3 iid standard-normal components
+/// (normalized; the identity quaternion if the draw norm is under
+/// `1e-6`), and an angle `2 * cbrt(u) * da` for `u` uniform in `[0, 1)` —
+/// rejection-free sampling of a ball of radius `da` in the tangent space,
+/// then wrapped onto `SO(3)` via the half-angle. This port uses
+/// [`f64::cbrt`] where upstream writes `pow(u, 1.0/3.0)`; the two agree
+/// for `u >= 0` (guaranteed here) and `cbrt` is the more direct
+/// translation of "cube root", not a behavior change.
+fn sample_near_axis_angle_quaternion(rng: &mut impl Rng, da: f64) -> (f64, f64, f64, f64) {
+    let ax: f64 = rng.sample(StandardNormal);
+    let ay: f64 = rng.sample(StandardNormal);
+    let az: f64 = rng.sample(StandardNormal);
+    let angle = 2.0 * rng.random::<f64>().cbrt() * da;
+    let norm = (ax * ax + ay * ay + az * az).sqrt();
+    if norm < 1e-6 {
+        (0.0, 0.0, 0.0, 1.0)
+    } else {
+        let s = (angle / 2.0).sin();
+        (
+            s * ax / norm,
+            s * ay / norm,
+            s * az / norm,
+            (angle / 2.0).cos(),
+        )
+    }
+}
+
+// This crate's other tests all live in `tests/*.rs`, exercising the public
+// `RobotState` API through URDF/SRDF fixtures (see e.g.
+// `tests/group_joint_values.rs`). `sample_random_positions_near_by`'s
+// per-joint-kind branches are boundary-tested directly here instead,
+// matching how `moveit_model::joint::{RevoluteJoint, PlanarJoint,
+// FloatingJoint}` test their own analogous per-kind logic: no fixture in
+// this crate's `tests/fixtures/` puts a floating or a continuous-revolute
+// joint inside an SRDF group, so a fixture-only test could not reach two
+// of the five kinds at all, and even where a fixture exists, an RNG-driven
+// integration test could only check post-hoc properties (bounds
+// satisfied), not pin the exact branch (continuous wrap vs. clamp,
+// infinite-bounds-zero, small-vs-large `da`) a given input takes.
+#[cfg(test)]
+mod near_by_sampling_tests {
+    use approx::assert_relative_eq;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    use moveit_model::joint::VariableBounds;
+
+    use super::*;
+
+    #[test]
+    fn revolute_continuous_near_by_wraps_past_pi_instead_of_clamping() {
+        let mut joint = JointModel::new_revolute("j");
+        joint.set_continuous(true).unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0];
+        // distance = 0.0 collapses the near-by window to the single point
+        // `near`, so the sampled value before wrapping is deterministic
+        // regardless of the RNG draw.
+        sample_random_positions_near_by(&joint, &mut rng, &[PI + 0.5], 0.0, &mut out);
+        assert_relative_eq!(out[0], -PI + 0.5, epsilon = 1e-12);
+    }
+
+    #[test]
+    #[should_panic]
+    fn near_by_panics_on_a_negative_distance_for_a_continuous_revolute() {
+        let mut joint = JointModel::new_revolute("j");
+        joint.set_continuous(true).unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0];
+        // A negative distance makes `near - distance > near + distance`,
+        // an empty range -- upstream reads this unchecked into
+        // `uniformReal`'s `low <= high` precondition (see this function's
+        // `# Panics` doc comment); this port's `random_range` panics
+        // instead of silently swapping the bounds.
+        sample_random_positions_near_by(&joint, &mut rng, &[0.0], -1.0, &mut out);
+    }
+
+    #[test]
+    fn revolute_non_continuous_near_by_clamps_to_the_joint_bounds() {
+        let joint = JointModel::new_revolute("j"); // bounds [-pi, pi], not continuous
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0];
+        // near - distance = pi (inside), near + distance = pi + 2.0
+        // (outside) -- the clamp collapses the window to the single point
+        // `pi`, the upper bound itself.
+        sample_random_positions_near_by(&joint, &mut rng, &[PI + 1.0], 1.0, &mut out);
+        assert_eq!(out[0], PI);
+    }
+
+    #[test]
+    fn prismatic_near_by_clamps_to_bounds() {
+        let mut joint = JointModel::new_prismatic("j");
+        joint
+            .set_variable_bounds(
+                "j",
+                VariableBounds {
+                    min_position: -1.0,
+                    max_position: 1.0,
+                    position_bounded: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0];
+        // near - distance = 1.0 (== the upper bound), near + distance =
+        // 3.0 (outside) -- the clamp collapses the window to the single
+        // point `1.0`.
+        sample_random_positions_near_by(&joint, &mut rng, &[2.0], 1.0, &mut out);
+        assert_eq!(out[0], 1.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn near_by_panics_on_a_negative_distance_that_empties_the_range() {
+        let joint = JointModel::new_prismatic("j");
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0];
+        sample_random_positions_near_by(&joint, &mut rng, &[0.0], -1.0, &mut out);
+    }
+
+    #[test]
+    fn planar_translation_near_by_is_zero_when_bounds_are_infinite() {
+        let joint = JointModel::new_planar("j"); // x/y bounds default to +/-inf
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0; 3];
+        sample_random_positions_near_by(&joint, &mut rng, &[5.0, -3.0, 0.0], 1.0, &mut out);
+        assert_eq!(out[0], 0.0);
+        assert_eq!(out[1], 0.0);
+    }
+
+    #[test]
+    fn planar_rotation_near_by_wraps_via_normalize_rotation() {
+        let joint = JointModel::new_planar("j");
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0; 3];
+        // distance = 0.0 collapses `da` to 0.0 too, so `out[2]` is `near[2]`
+        // itself before `normalize_rotation` wraps it back into [-pi, pi].
+        sample_random_positions_near_by(&joint, &mut rng, &[0.0, 0.0, PI + 0.1], 0.0, &mut out);
+        assert_relative_eq!(out[2], -PI + 0.1, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn floating_translation_near_by_is_zero_when_bounds_are_infinite() {
+        let joint = JointModel::new_floating("j"); // translation bounds default to +/-inf
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0; 7];
+        let near = [5.0, -3.0, 2.0, 0.0, 0.0, 0.0, 1.0];
+        sample_random_positions_near_by(&joint, &mut rng, &near, 1.0, &mut out);
+        assert_eq!(out[0], 0.0);
+        assert_eq!(out[1], 0.0);
+        assert_eq!(out[2], 0.0);
+    }
+
+    #[test]
+    fn floating_rotation_near_by_produces_a_unit_quaternion_when_da_is_large() {
+        let mut joint = JointModel::new_floating("j");
+        joint
+            .as_floating_mut()
+            .unwrap()
+            .set_angular_distance_weight(1.0);
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0; 7];
+        let near = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        // da = angular_distance_weight * distance = 1.0 >= pi/4, so upstream
+        // gives up on "near" and draws a fully random unit quaternion.
+        sample_random_positions_near_by(&joint, &mut rng, &near, 1.0, &mut out);
+        let norm_squared = out[3] * out[3] + out[4] * out[4] + out[5] * out[5] + out[6] * out[6];
+        assert_relative_eq!(norm_squared, 1.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn floating_rotation_near_by_is_the_identity_perturbation_when_distance_is_zero() {
+        let joint = JointModel::new_floating("j");
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out = [0.0; 7];
+        // A non-identity, already-normalized "near" quaternion.
+        let near = [0.0, 0.0, 0.0, 0.6, 0.0, 0.0, 0.8];
+        // distance = 0.0 forces da = 0.0, so the composed small rotation's
+        // half-angle is exactly 0 regardless of the sampled axis -- the
+        // small-rotation branch's `sin(angle/2)` term zeroes out `qx, qy,
+        // qz` and `near`'s quaternion passes through the Hamilton product
+        // unchanged (`near * identity == near`), landing on the exact
+        // input rather than merely something close to it.
+        sample_random_positions_near_by(&joint, &mut rng, &near, 0.0, &mut out);
+        assert_eq!(out[3], near[3]);
+        assert_eq!(out[4], near[4]);
+        assert_eq!(out[5], near[5]);
+        assert_eq!(out[6], near[6]);
+    }
+
+    #[test]
+    fn fixed_near_by_is_a_no_op() {
+        let joint = JointModel::new_fixed("j");
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut out: [f64; 0] = [];
+        // Must not panic on the empty `near`/`out` slices.
+        sample_random_positions_near_by(&joint, &mut rng, &[], 1.0, &mut out);
+    }
+}
