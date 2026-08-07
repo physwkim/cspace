@@ -1137,16 +1137,36 @@ if [[ "$MODE" == "full" ]]; then
   dirty_list="$(cd "$REPO_ROOT" && git status --porcelain)"
   if [[ -n "$dirty_list" ]]; then tree_dirty=true; else tree_dirty=false; fi
   # By content, not by revision: `commit` can only name this run's *parent*
-  # when the run produces the artifact being committed. Check with
-  #   git hash-object crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs
-  sources_json="$(cd "$REPO_ROOT" && for f in \
+  # when the run produces the artifact being committed. Check one entry with
+  #   tools/ci/gate-lib.sh's measured_source_digest <path>
+  #
+  # The planner `src` subtrees are here because the harnesses alone are not what
+  # produces these rates. This list held only the five harness and CI files, and
+  # two behavioural CHOMP fixes landed after the committed artifact was measured
+  # without `check-measured-sources-current.sh` being able to see either. A
+  # directory entry digests every tracked file beneath it, so a new module
+  # cannot slip past the way a new file would past a per-file list.
+  #
+  # `|| exit 1` on the digest, not `$(...)` inline: this script runs under
+  # `set -uo pipefail` with no `-e`, so a failed digest inlined into `printf`
+  # would record an empty value and the record would then disagree with the
+  # tree for a reason that has nothing to do with drift.
+  if ! sources_json="$(cd "$REPO_ROOT" && for f in \
       tools/ci/measure-phase8-optimizer-properties.sh \
       tools/ci/measure-phase8-cpp-baseline.sh \
       crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
       crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs \
-      crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs; do
-    printf '%s %s\n' "$f" "$(git hash-object "$f")"
-  done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"
+      crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs \
+      crates/moveit-planners-chomp/src \
+      crates/moveit-planners-stomp/src \
+      tools/moveit-oracle/src; do
+    d="$(measured_source_digest "$f")" || exit 1
+    printf '%s %s\n' "$f" "$d"
+  done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"; then
+    echo "FAIL could not digest this run's measured sources -- refusing to write" >&2
+    echo "  $RESULTS with a source map that does not describe the code that ran" >&2
+    exit 1
+  fi
 
   jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --arg stamp "$(cd "$REPO_ROOT" && git rev-parse HEAD)" \

@@ -1115,20 +1115,39 @@ if [[ "$MODE" == "full" ]]; then
   # the code that made these numbers -- and a note saying "the commit that
   # adds this harness" names a sha a later reader cannot resolve.
   #
-  # `measured_sources` closes that by content instead of by revision: the git
-  # blob id of each file that determines a number here. Checkable in one
-  # command against any tree, tracked or not, with no sha to look up:
+  # `measured_sources` closes that by content instead of by revision: the
+  # content digest of each source that determines a number here -- a file's own
+  # git blob id, a directory's hash over every tracked file beneath it.
+  # Checkable in one command against any tree, tracked or not, with no sha to
+  # look up:
   #
   #   git hash-object crates/moveit-planners-sbp/examples/plan_benchmark_port.rs
   #
   # If that differs from the value recorded here, the committed code is not
   # the code that ran and these figures need re-measuring.
-  sources_json="$(cd "$REPO_ROOT" && for f in \
+  #
+  # `crates/moveit-planners-sbp/src` and the oracle are listed alongside the
+  # harnesses because the harnesses are not what solves these problems. The
+  # list used to name three harness files, which left every planner and oracle
+  # change invisible to `check-measured-sources-current.sh` -- the record read
+  # as current while the code that produced it had moved.
+  #
+  # `|| exit 1` on the digest rather than inlining it into `printf`: a failed
+  # digest must abort the write, not land in the record as an empty value that
+  # a later reader would see as drift.
+  if ! sources_json="$(cd "$REPO_ROOT" && for f in \
       tools/ci/verify-phase7-benchmark.sh \
       crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
-      crates/moveit-planners-sbp/examples/plan_benchmark_port.rs; do
-    printf '%s %s\n' "$f" "$(git hash-object "$f")"
-  done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"
+      crates/moveit-planners-sbp/examples/plan_benchmark_port.rs \
+      crates/moveit-planners-sbp/src \
+      tools/moveit-oracle/src; do
+    d="$(measured_source_digest "$f")" || exit 1
+    printf '%s %s\n' "$f" "$d"
+  done | jq -R -s 'split("\n")|map(select(length>0)|split(" "))|map({key:.[0],value:.[1]})|from_entries')"; then
+    echo "FAIL could not digest this run's measured sources -- refusing to write" >&2
+    echo "  a result file whose source map does not describe the code that ran" >&2
+    exit 1
+  fi
 
   jq --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
      --arg stamp "$(cd "$REPO_ROOT" && git rev-parse HEAD)" \

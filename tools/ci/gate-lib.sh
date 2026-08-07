@@ -290,3 +290,72 @@ skip_not_measured() {
   done
   exit "$NOT_MEASURED"
 }
+
+# Content digest of one entry in a `measured_sources` map -- the maps the two
+# benchmark instruments write and `check-measured-sources-current.sh` enforces.
+#
+# A FILE digests to its own git blob id, unchanged from what those maps already
+# hold, so records written before this function existed keep reading correctly.
+# A DIRECTORY digests to a hash over `path blob` for every tracked file beneath
+# it, sorted, so adding, deleting or editing any file under that subtree moves
+# the value.
+#
+# Directories are why this exists. Both instruments listed only their own
+# harness files, which left the code being measured outside the record they
+# claim closes over it: Phase 8 named `optimize_benchmark_chomp.rs` but not
+# `crates/moveit-planners-chomp/src`, and two behavioural CHOMP fixes
+# (`112ec645` mapping goal-constraint construction failure, `823d771e`
+# persisting `should_break_out`) landed after
+# `doc/phase8-optimizer-properties.json` was measured with the gate structurally
+# unable to see either. Extending the list file by file cannot close that -- it
+# goes stale the next time a module is added -- so the unit is the subtree.
+#
+# The closure is the code under measurement, not its transitive dependencies:
+# the planner crates whose binaries run, the harnesses that drive them, and the
+# oracle that produces the C++ side. A change to `moveit-collision` can move
+# these numbers and will not be caught here. That boundary is a deliberate
+# tradeoff -- digesting all of `crates` would invalidate an 85-minute
+# measurement on any unrelated commit, and a gate that is always red is a gate
+# nobody reads -- but it is a real limit and callers should not read a passing
+# record as proof that nothing relevant moved.
+#
+# One more limit, measured rather than assumed: `git ls-files` is index-scoped,
+# so an UNTRACKED new file under a subtree does not move its digest, while a
+# tracked one does (both checked by mutation when this was written). That case
+# is covered by a different field -- both instruments record `working_tree_dirty`
+# and `dirty_paths` from `git status --porcelain`, which lists untracked files --
+# so a run against a tree carrying an unstaged module is identifiable there and
+# not here.
+measured_source_digest() {
+  local path="$1"
+  if [ -f "$path" ]; then
+    git hash-object "$path"
+    return
+  fi
+  if [ ! -d "$path" ]; then
+    echo "FAIL measured_source_digest: '$path' is neither a file nor a directory" >&2
+    return 1
+  fi
+  local files
+  files="$(git ls-files --deduplicate -- "$path")"
+  if [ -z "$files" ]; then
+    echo "FAIL measured_source_digest: no tracked files under '$path' -- a subtree" >&2
+    echo "  that digests to nothing would record as unchanged forever" >&2
+    return 1
+  fi
+  # `git hash-object` per file rather than the index's or HEAD's blob ids: the
+  # digest has to describe the worktree the run actually compiled, which for a
+  # dirty tree is neither of those. `|| exit 1` inside the subshell so a file
+  # that is tracked but missing fails the digest instead of silently dropping a
+  # line from it.
+  local listing
+  if ! listing="$(printf '%s\n' "$files" | LC_ALL=C sort | while IFS= read -r f; do
+    local blob
+    blob="$(git hash-object "$f")" || exit 1
+    printf '%s %s\n' "$f" "$blob"
+  done)"; then
+    echo "FAIL measured_source_digest: hashing a tracked file under '$path' failed" >&2
+    return 1
+  fi
+  printf '%s\n' "$listing" | sha256sum | cut -d' ' -f1
+}
