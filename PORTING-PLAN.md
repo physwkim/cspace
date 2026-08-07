@@ -37865,3 +37865,35 @@ falsifier 불발 — OPEN.
 11건 중 falsifier가 있는 10건은 전부 불발했고, 1건(B)은 정의상
 falsifier가 없다. 이번 라운드가 새로 닫은 것은 없다 — §320.1–§320.7의
 7건이 이 라운드의 전부다.
+
+## §325 A3 — planner-benchmark-parity(§286.11/§300.9/§303.8) + penetration-branch(§270.2) 12건에 falsifier를 돌렸다 (2026-08-07)
+
+`afdeb968` 기준 트리에서 §286.11·§300.9·§303.8·§270.2의 OPEN 불릿 12건 각각에
+오늘 실행 가능한 falsifier(rg / 파일 열기 / 표 대조)를 정해 돌렸다. 아래는
+불릿마다: falsifier, 실행 결과, 판정. 참으로 버틴 불릿은 본문을 건드리지
+않는다 — 판정 근거만 여기 적는다.
+
+### §325.1 §286.11 A — "일부러 어려운 씨앗에서의 조건 2 사건율"(30831)은 여전히 재지 않았다
+
+불릿 원문: "일부러 어려운 씨앗에서의 조건 2 사건율. §286.9. 검정력 부족이
+모집단 크기의 문제인지 난이도의 문제인지는 이 절이 가르지 못한다."
+
+**Falsifier.** 씨앗 난이도를 실제로 고르는 하네스가 존재하는지: 유일한 씨앗
+유효성 하네스인 `crates/moveit-planners-sbp/examples/seed_validity_problem_set.rs`
+의 헤더 doc-comment를 읽고, "어려운/난이도" 계열 키워드를 그 파일과
+PORTING-PLAN.md 전체에서 rg했다.
+
+```
+$ rg -n "difficult|hard|난이도" crates/moveit-planners-sbp/examples/seed_validity_problem_set.rs
+(no output)
+$ rg -n "일부러 어려운 씨앗" PORTING-PLAN.md
+26570:...
+30831:- **일부러 어려운 씨앗에서의 조건 2 사건율.** §286.9. 검정력 부족이
+36006:  일부러 어려운 씨앗에서의 사건율, fanuc과 나머지 로봇, `max_iterations = 200`은
+```
+
+`seed_validity_problem_set.rs`는 "시작점-끝점을 잇는 직선 구간이 충돌
+없는가"라는 이진 유효성만 판정한다(CHOMP·STOMP 둘 다 그 직선 구간에서
+출발하므로) — 난이도 등급이나 그래디언트를 만들지 않는다. rg 결과의 세
+히트 전부 이 불릿 자신과 그 재인용이고, 난이도로 씨앗을 고르거나 사건율을
+난이도별로 쪼갠 계측은 어디에도 없다. **판정: 참, OPEN 유지.**
