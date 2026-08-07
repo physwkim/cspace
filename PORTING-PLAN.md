@@ -1,4 +1,4 @@
-# moveit-rs — MoveIt 2 Rust 포팅 계획
+# moveit-rs — MoveIt 2 Rust 포팅 계획 CANARY-TEST-MARKER-999
 
 - **상류 기준점:** `/home/stevek/work/moveit2` @ `e017c91ee12984393a28ba246075c65f69cde3bf`
   (2026-08-02, `main` = ROS 2 rolling 타깃)
@@ -916,9 +916,22 @@ fanuc(9 links, 9 joints, 1 group)로도 51/51 동일하게 동작.
 ### 7.4 남은 것
 
 - `moveit-error`(에러 코드 + 예외), `moveit-geometry`(Transforms) 착수 완료.
-  워크스페이스 테스트 14/14 통과.
-- prbt 픽스처는 xacro라 확장이 필요하다 (컨테이너에 xacro 있음). Phase 1 준비물.
+  워크스페이스 테스트 14/14 통과. **측정 (2026-08-07):** 이 문장은 부정
+  어휘가 없는 완료 보고문이라 `거짓 → 닫힘`이 붙을 대상이 아니다 — 지금
+  워크스페이스 테스트 수가 14가 아니라고 해서 이 문장이 거짓이 되는 것도
+  아니다, 이 문장은 "오늘도 14개"가 아니라 "그 시점에 14/14였다"를
+  주장한다. 이 줄을 쓴 커밋(`36907d30`)을 별도 워크트리로 체크아웃해
+  `cargo test --workspace`를 재현했다: `moveit-error` 4 + `moveit-geometry`
+  10 = 14, 0 failed, 0 ignored — 그 시점의 주장은 참이었다. 이 불릿을 지우거나
+  '완료' 절로 옮기는 것은 편집 결정이라(`doc/residual-claims-triage.md`가
+  이미 이렇게 적어 뒀다) 여기서는 하지 않는다.
+- prbt 픽스처는 xacro라 확장이 필요하다 (컨테이너에 xacro 있음). Phase 1
+  준비물. **거짓 → 닫힘 (§218.1).** 핀된 오라클 이미지 안에서 실제 `xacro`를
+  돌려 전개한 결과를 `fixtures/prbt.{urdf,srdf}`로 벤더링했다 — 오늘 트리에
+  두 파일 다 있다.
 - `.github/workflows/ci.yml`은 작성했으나 원격이 없어 아직 실행된 적 없다.
+  **거짓 → 닫힘 (§136.3).** 원격이 생겼고, `ci.yml`이 `main`에서 실제로 두
+  번 돌았다.
 
 ### 7.5 다음 단계 — Phase 1 착수 전 사인오프 2건
 
@@ -11326,10 +11339,13 @@ CI에서도 똑같이 건너뛴다.
 - **Actions 자체는 여전히 미검증.** `actions/checkout@v4`,
    `dtolnay/rust-toolchain@stable`, `Swatinem/rust-cache@v2`,
    `taiki-e/install-action@nextest` 네 개는 실행된 적이 없다. 원격이 없으므로
-   이건 원격이 생기기 전엔 닫을 수 없다.
+   이건 원격이 생기기 전엔 닫을 수 없다. **거짓 → 닫힘 (§136.3).** 원격이
+   생겼고, 넷 다 실제로 두 번 실행돼 전부 성공했다.
 - **crates.io 신규 해석은 미검증.** 드라이런은 호스트의 `~/.cargo` 레지스트리
    캐시를 재사용했다. `--locked`가 통과했으니 락 파일 자체는 정합하지만,
-   빈 캐시에서 네트워크로 받아오는 경로는 안 돌아봤다.
+   빈 캐시에서 네트워크로 받아오는 경로는 안 돌아봤다. **거짓 → 닫힘
+   (§136.3).** 이 저장소의 첫 실제 push가 빈 캐시("No cache found.")에서
+   돌았고, 그 러너에서 `cargo fetch --locked`가 성공했다.
 - **툴체인이 떠 있다.** 드라이런은 호스트의 `rustc 1.97.0`을 썼고, CI는
    `dtolnay/rust-toolchain@stable`로 그날의 stable을 받는다.
    `rust-toolchain.toml`이 없어 고정돼 있지 않은데, `[workspace.lints.rust]`가
@@ -11349,6 +11365,78 @@ CI에서도 똑같이 건너뛴다.
 "test 스텝"이 두 곳에서 다른 것을 뜻하고 있었다: 테스트 3개를 깬 push가 CI에선
 1개만 보고하고 나머지는 다음 실행에서야 드러난다. 규칙을 한쪽에 맞추는 게
 구조적 해결이라 CI 쪽에 `--no-fail-fast`를 붙였다(`0830ce5`).
+
+### 136.3 원격이 생겼다 — (a)와 (b)를 실제 러너에서 쟀다 (2026-08-07)
+
+§136.1이 셋을 미검증으로 남겼을 때는 원격이 없었다. 지금은 있다
+(`git remote -v` → `origin  https://github.com/physwkim/moveit-rs.git`)이고,
+`main`에 `ci.yml`이 실제로 두 번 돌았다:
+
+```
+$ gh run list --limit 20
+completed failure ci main push 31135034802 10m56s 2026-08-07T00:33:01Z
+completed failure ci main push 31063307198  9m37s 2026-08-06T01:38:15Z
+```
+
+**(a) 닫는다.** 두 실행 모두 `gh run view`로 스텝별 결과를 확인했다 — 네
+`uses:` 전부, 그리고 `lockfile`/`fmt`/`clippy`/`test`/`doctests`/`docs`
+여섯 스텝 전부 ✓다:
+
+| 스텝 | `31063307198` | `31135034802` |
+|---|---|---|
+| `actions/checkout@v4` | ✓ | ✓ |
+| `dtolnay/rust-toolchain@stable` | ✓ | ✓ |
+| `Swatinem/rust-cache@v2` | ✓ | ✓ |
+| `taiki-e/install-action@nextest` | ✓ | ✓ |
+| `lockfile`/`fmt`/`clippy`/`test`/`doctests`/`docs` | ✓ (여섯 다) | ✓ (여섯 다) |
+| `ci checks` | ✗ | ✗ |
+
+두 실행 다 실패하는 것은 `ci checks`(= `tools/ci/check-*` 게이트) 한
+스텝뿐이고, 그건 (a)가 묻는 질문("네 Actions가 실제로 도는가")과는 다른
+게이트의 판정이다. 넷 다 원격에서 실행된 적이 있다.
+
+**(b) 닫는다.** `31063307198`은 이 저장소의 첫 push였다 — `gh api
+/repos/physwkim/moveit-rs/actions/jobs/92495650467/logs`로 원문 로그를
+받아 `Swatinem/rust-cache@v2` 스텝을 확인하면:
+
+```
+No cache found.
+```
+
+그 직후 `lockfile`(`cargo fetch --locked`) 스텝의 로그:
+
+```
+Updating crates.io index
+Downloading crates ...
+Downloaded stable_deref_trait v1.2.1
+... (계속)
+```
+
+빈 캐시에서 시작한 러너가 실제로 crates.io에서 새로 받았고, 그 스텝은
+✓다. §142.2가 로컬 재현(`CARGO_HOME=$D cargo fetch --locked`)으로 이미
+닫았던 것을 실제 GitHub Actions 러너 실행으로 재확인한다.
+
+지금 트리의 `Cargo.lock`에 대고도 같은 로컬 재현을 다시 돌렸다 — 워크스페이스
+멤버가 §142.2 당시 22개에서 지금 24개로 늘었으므로 다시 쟀다:
+
+```
+$ rm -rf $D && mkdir -p $D
+$ CARGO_HOME=$D cargo fetch --locked
+    Updating crates.io index
+ Downloading crates ...
+   ... (85 crates)
+$ echo $?
+0
+```
+
+`Cargo.lock`의 `name = ` 항목 109개 − `cargo metadata --no-deps`가 세는
+워크스페이스 멤버 24개 = 85, `Downloaded` 실측 85줄과 정확히 일치. yank된
+버전도, 못 받는 버전도 여전히 없다.
+
+**(c, 툴체인이 떠 있다)는 이 절이 다루지 않는다.** 이 저장소에
+`rust-toolchain.toml`은 여전히 없고, `[workspace.lints.rust]`의
+`warnings = "deny"`도 그대로다 — §142가 적은 트레이드오프가 지금도
+유효하고, 바꾸지 않았다. §136.1의 세 번째 항목은 OPEN으로 남는다.
 
 ## 137. "의존성이 안 닿는다"는 UNFIXED는 `cargo tree` 없이는 못 적는다
 
@@ -23806,15 +23894,25 @@ URDF/SRDF는 `ros/fixtures/`로 옮겼다. 두 다리가 서로 다른 이미지
   결함이 그대로다. 이제는 `ros/verify-ros-interop.sh`가 펜스 안이므로
   소스 한 줄과 게이트 한 줄을 같이 고칠 수 있지만, 그것은 이 라운드가
   받은 과제(`/move_action`을 게이트에 올리기)가 아니라 별도의 수정이다.
+  **거짓 → 닫힘 (§255).** §255.1이 소스와 게이트를 같이 고쳤다 — 지금
+  `ros/moveit-ros/src/bin/move_group.rs`는 `MoveItErrorCodes::FAILURE`를
+  낸다(`PLANNING_FAILED` 0건, `rg`로 재확인).
 - **바이너리 이름.** `plan_kinematic_path_server`가 여전히 두 엔드포인트를
   서비스한다. 이름을 바꾸려면 `ros/verify-ros-interop.sh`와
   `ros/verify-move-action-interop.sh`의 `cargo build --bin` 줄이 같이
-  움직여야 한다.
+  움직여야 한다. **거짓 → 닫힘 (§255).** §255.2가 상류 이름
+  `move_group`으로 바꿨다 — `rg -rn plan_kinematic_path_server ros/`는
+  과거 라운드 기록으로 남긴 주석 둘뿐, 실제 참조는 0건이다.
 - **`crates/moveit-planning`의 start-state 필드.** 여전히 첫 거부다.
   게이트는 지금 그 거부를 **고정**한다 — 필드가 생기면 leg A/leg B의
   `-16` 단언이 붉어지고, 그때 이 파일의 기대 문자열을 같이 옮겨야 한다.
-  그것이 의도다.
+  그것이 의도다. **거짓 → 닫힘 (§256).** `crates/moveit-planning/src/
+  start_state.rs`에 `StartState` 합타입이 생겼고, §256.5가 실측한 대로
+  거부는 "부를 플래너가 없다"로 옮겨 갔다.
 - **planning scene 토픽 구독.** 여전히 부재이고, 어느 다리도 보지 않는다.
+  **거짓 → 닫힘 (§257).** §257.4가 `node.subscribe::<r2r::moveit_msgs::
+  msg::PlanningScene>`로 지었고, §257.5의 다리 C가 발행 전후 `/check_
+  state_validity`의 답이 갈리는 것으로 관측한다.
 - **게이트는 CI에서 돌지 않는다.** `tools/ci/verify-all.sh`의 glob이
   닿지만, 그 glob을 도는 러너에 도커가 없다(§129.4). 사람이
   `sg docker -c ./tools/ci/verify-all.sh`를 쳐야 돈다는 점은 §241 이후로
@@ -24457,7 +24555,8 @@ C의 첫 시도(`Ok(()) => drop(next)`)는 컴파일에 실패했다(`unused_mut
   아니라 형태 문제다). 둘 다 진짜 core→msg 변환이므로 `impl`로 바꾸면
   스캔이 보게 되고 단방향 면제를 요구하게 된다. 이 라운드가 하지 않았다.
 - **`/plan_kinematic_path`의 `PLANNING_FAILED` 파리티 결함**(§254.6)은
-  그대로다. 이 라운드가 받은 과제가 아니다.
+  그대로다. 이 라운드가 받은 과제가 아니다. **거짓 → 닫힘 (§255).**
+  §255.1이 소스와 게이트를 같이 고쳤다 — §254.6의 같은 항목 참고.
 - **게이트는 CI에서 돌지 않는다.** §129.4/§254.6 그대로 — 사람이
   `sg docker -c ...`를 쳐야 돈다.
 
@@ -35588,7 +35687,7 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
-| `PORTING-PLAN.md:30579` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21645-21646` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `oracle.cpp:2296`을 인용한다 |
+| `PORTING-PLAN.md:30579` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21645-21646` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
 | `PORTING-PLAN.md:31531` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:26919` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
