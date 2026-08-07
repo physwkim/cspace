@@ -46,6 +46,8 @@ WANT=(
   "$DIR/cpp.stomp.cage.ndjson"
   "$DIR/repeat.cpp.chomp.floor_wall.ndjson"
   "$DIR/repeat.cpp.stomp.floor_wall.ndjson"
+  "$DIR/floor_wall.stats"
+  "$DIR/cage.stats"
   "$DIR/rederive.py"
   "$DIR/rederive.txt"
   "$DIR/README.md"
