@@ -463,7 +463,7 @@ impl<'m> RobotState<'m> {
     /// `setJointVelocities` does not mark anything dirty and does not
     /// propagate to mimic joints — it only writes `velocity_` and
     /// `has_velocity_`, so this port matches that (no
-    /// [`RobotState::mark_dirty`] / [`RobotState::update_mimic_joint`]
+    /// `RobotState::mark_dirty` / `RobotState::update_mimic_joint`
     /// calls here).
     ///
     /// # Errors
@@ -901,8 +901,8 @@ impl<'m> RobotState<'m> {
     /// `updateMimicJoints(group)` runs. A follower outside `group` that
     /// mimics an active joint written here is therefore updated too, same
     /// as upstream; that is not reachable by only calling
-    /// [`RobotState::update_mimic_joints_for_group`], which is why this
-    /// setter also calls [`RobotState::update_mimic_joint`] per active
+    /// `RobotState::update_mimic_joints_for_group`, which is why this
+    /// setter also calls `RobotState::update_mimic_joint` per active
     /// joint, matching upstream's two-layer propagation exactly.
     ///
     /// # Errors
@@ -1005,7 +1005,7 @@ impl<'m> RobotState<'m> {
     /// [`RobotState::new`] and every mutator only ever writes finite
     /// values into it, so every not-yet-written slot is already `0.0` —
     /// matching how [`RobotState::set_variable_velocity`] and its
-    /// siblings already only set [`RobotState::has_velocity`], with no
+    /// siblings already only set `RobotState::has_velocity`, with no
     /// zero-fill of their own.
     ///
     /// # Errors
@@ -1035,7 +1035,7 @@ impl<'m> RobotState<'m> {
 
     /// `copyJointGroupVelocities`: `group`'s own velocities, in
     /// [`JointModelGroup::joint_indices`] order — reads
-    /// [`RobotState::velocity`] regardless of
+    /// `RobotState::velocity` regardless of
     /// [`RobotState::has_velocities`], matching upstream (which never
     /// checks `has_velocity_` in `copyJointGroupVelocities` either).
     ///
@@ -1100,7 +1100,7 @@ impl<'m> RobotState<'m> {
 
     /// `copyJointGroupAccelerations`: `group`'s own accelerations, in
     /// [`JointModelGroup::joint_indices`] order — reads
-    /// [`RobotState::acceleration`] regardless of
+    /// `RobotState::acceleration` regardless of
     /// [`RobotState::has_accelerations`], matching upstream.
     ///
     /// # Errors
@@ -1189,7 +1189,7 @@ impl<'m> RobotState<'m> {
 
     /// `setToRandomPositionsNearBy(group, seed, distance, rng)`: every
     /// active joint in `group` sampled near its value in `seed`, all with
-    /// the same `distance`, via [`sample_random_positions_near_by`].
+    /// the same `distance`, via `sample_random_positions_near_by`.
     ///
     /// Upstream exposes this both with and without an explicit RNG
     /// parameter; this port only ever takes one explicit RNG, matching
