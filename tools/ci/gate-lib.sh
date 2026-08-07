@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared guard for the gate scripts in this directory. Source it:
 #
 #   . "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
