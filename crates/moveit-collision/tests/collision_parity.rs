@@ -5305,3 +5305,168 @@ fn prbt_penetration_branch_is_bracketed_by_the_minkowski_instrument() {
          started contributing"
     );
 }
+
+/// One row of `prbt_self_penetration_389.json` -- see
+/// [`load_prbt_self_penetration_389`] for how the fixture was produced.
+#[derive(Deserialize)]
+struct SelfPenetrationRow {
+    case: u32,
+    oracle: f64,
+    rust: f64,
+    joint_values: BTreeMap<String, f64>,
+}
+
+/// PORTING-PLAN.md §302.6's fifth residual bullet: §302.3/§302.4's
+/// 277/0/19/93-of-389 totals came from a one-off probe that section's own
+/// text says was not committed, and
+/// [`prbt_penetration_branch_is_bracketed_by_the_minkowski_instrument`]
+/// above keeps only a 31-row reduced table -- the number 389 itself was not
+/// re-derivable by any gate.
+///
+/// This fixture is every self-side case, from the same sweep §270's own
+/// table row reproduces (`--urdf fixtures/prbt.urdf --srdf
+/// fixtures/prbt.srdf --cases 10000 --seed 1 --collision --tol-distance
+/// 1e-4 --oracle tools/moveit-oracle/run-oracle.sh`), whose *oracle* value
+/// drew the penetration branch -- written by `tools/moveit-diff`'s new
+/// `--self-penetration-json` flag, added this round because no existing
+/// flag kept more than `DistanceBranchStats`'s worst-eight tail. MEASURED
+/// against a fresh `--stats-json` run on this tree right before this
+/// fixture was captured: `bool_disagrees` 6854, `self_bool_disagrees` 0,
+/// `robot_bool_disagrees` 6854, `penetrating.total` 10389 -- all four match
+/// §270's table row for prbt cell-for-cell, so this is the same run. 389
+/// rows, matching §297.4's count exactly.
+fn load_prbt_self_penetration_389() -> Vec<SelfPenetrationRow> {
+    let path = fixture_path("prbt_self_penetration_389.json");
+    let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+    serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
+}
+
+/// Re-derives
+/// [`prbt_penetration_branch_is_bracketed_by_the_minkowski_instrument`]'s
+/// verdict rule over the *whole* 389-case population in
+/// [`load_prbt_self_penetration_389`], not the 31 rows that test hand-picks,
+/// and asserts the published totals: fcl's 277, the port's 0, undominated
+/// 19, too-wide-to-judge 93. The classification is re-derived from
+/// (oracle_off, port_off, width, deviation) alone, the same closed rule that
+/// test applies per recorded verdict, rather than read off a per-row label
+/// this fixture does not carry.
+#[test]
+fn prbt_penetration_branch_full_389_population_matches_the_published_totals() {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+    enum Side {
+        Oracle,
+        Port,
+        Undominated,
+        TooWide,
+    }
+    use Side::{Oracle, Port, TooWide, Undominated};
+
+    /// §297.3's constant, unchanged -- see the reduced table's own doc.
+    const DOMINANCE: f64 = 100.0;
+    /// §302.3's constant, unchanged.
+    const WIDTH_FRACTION: f64 = 0.1;
+
+    let model = build_model("prbt.urdf", "prbt.srdf");
+    let acm = build_acm("prbt.srdf");
+
+    let with_shapes: Vec<&str> = model
+        .link_names()
+        .iter()
+        .filter(|n| model.link_model(n).is_ok_and(|l| !l.shapes().is_empty()))
+        .map(String::as_str)
+        .collect();
+    let mut checked: Vec<(&str, &str)> = Vec::new();
+    for (i, a) in with_shapes.iter().enumerate() {
+        for b in &with_shapes[i + 1..] {
+            let allowed = acm
+                .allowed_collision(a, b)
+                .is_some_and(|e| e.kind() == moveit_collision::AllowedCollisionType::Always);
+            if !allowed {
+                checked.push((a, b));
+            }
+        }
+    }
+    assert_eq!(
+        checked.len(),
+        7,
+        "prbt's SRDF-derived candidate self-pair set moved from the 7 pairs the reduced \
+         table's own assertion pins -- this population is a minimum over a different set now"
+    );
+
+    let rows = load_prbt_self_penetration_389();
+    assert_eq!(
+        rows.len(),
+        389,
+        "the fixture's own row count moved from §297.4's 389"
+    );
+
+    let mut sides: BTreeMap<Side, usize> = BTreeMap::new();
+    for row in &rows {
+        let mut state = build_state(&model, &row.joint_values);
+        let posed = state.update();
+
+        let mut bodies: Vec<(WorldConvex, WorldConvex)> = Vec::new();
+        for (a, b) in &checked {
+            let shapes = |link: &str| -> Vec<WorldConvex> {
+                let pose = posed
+                    .global_link_transform(link)
+                    .unwrap_or_else(|e| panic!("case {}: prbt has a {link} link: {e}", row.case));
+                model
+                    .link_model(link)
+                    .unwrap_or_else(|e| panic!("case {}: prbt has a {link} model: {e}", row.case))
+                    .shapes()
+                    .iter()
+                    .map(|s| WorldConvex::from_link_shape(&pose, s))
+                    .collect()
+            };
+            let (sa, sb) = (shapes(a), shapes(b));
+            for x in &sa {
+                for y in &sb {
+                    bodies.push((x.clone(), y.clone()));
+                }
+            }
+        }
+
+        let (lo, hi, _win) = min_signed_distance_over(&bodies);
+        let (low, high) = (lo.min(hi), lo.max(hi));
+        let offset = |v: f64| {
+            if v < low {
+                low - v
+            } else if v > high {
+                v - high
+            } else {
+                0.0
+            }
+        };
+        let (port_off, oracle_off) = (offset(row.rust), offset(row.oracle));
+        let deviation = (row.oracle - row.rust).abs();
+        let width = high - low;
+
+        let side = if width > WIDTH_FRACTION * deviation {
+            TooWide
+        } else {
+            let slack = width.max(f64::MIN_POSITIVE);
+            let oracle_dominates = oracle_off > DOMINANCE * port_off.max(slack);
+            let port_dominates = port_off > DOMINANCE * oracle_off.max(slack);
+            match (oracle_dominates, port_dominates) {
+                (true, false) => Oracle,
+                (false, true) => Port,
+                _ => Undominated,
+            }
+        };
+        *sides.entry(side).or_default() += 1;
+    }
+
+    assert_eq!(
+        (
+            sides.get(&Oracle).copied().unwrap_or(0),
+            sides.get(&Port).copied().unwrap_or(0),
+            sides.get(&Undominated).copied().unwrap_or(0),
+            sides.get(&TooWide).copied().unwrap_or(0),
+        ),
+        (277, 0, 19, 93),
+        "the full 389-case verdict moved from §302.3's published (fcl, port, undominated, \
+         too-wide) = (277, 0, 19, 93): got {:?}",
+        sides
+    );
+}

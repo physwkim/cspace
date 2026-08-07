@@ -8176,7 +8176,7 @@ M9는 구멍이 **아니다**. 문서가 강조하는 "`update`에 넘기는 `ne
 담당은 `IK_DEGENERATE_EPS`가 "정보용 카운터로 출력될 뿐 `Verdict`로
 들어가지 않는다"고 적었다 — 그때 오라클/러스트 각각에 있던 두 비교
 자리는 지금 공유 헬퍼 하나로 접혀 `is_degenerate_from_seed`를 두 번
-부른다(`main.rs:3429`, `main.rs:3440` (`minimum_usable_b_plus_c_matches_its_own_derivation`)). `Verdict` 부분은 맞고,
+부른다(`main.rs:3472`, `main.rs:3483` (`minimum_usable_b_plus_c_matches_its_own_derivation`)). `Verdict` 부분은 맞고,
 어떤 테스트도 이 상수나 두 필드를 참조하지 않는 것도 `rg`로 확인했다.
 
 다만 `IkStats`는 `#[derive(serde::Serialize)]`이고
@@ -9484,7 +9484,7 @@ config  최대                                      1 ulp
 목표가 이미 `FK(seed)`인 케이스는 `cart_to_jnt`의 첫 반복에서
 `q_full`을 건드리기 전에 수렴해 씨앗을 비트 그대로 돌려준다. 그것을
 `a_case_already_at_the_seed_pose_converges_to_the_seed_unmoved`로
-고정했다(`tools/moveit-diff/src/main.rs:3747`, 내가 확인했다).
+고정했다(`tools/moveit-diff/src/main.rs:3592`, 내가 확인했다).
 
 요구를 그대로 못 하면 **요구가 겨냥한 것을 다른 길로 달성한다** —
 "trait 이음매가 없어서 못 합니다"로 닫지 않은 것이 맞다.
@@ -34288,9 +34288,76 @@ TooWide→Oracle, Port→Oracle), 기록된 쌍 바꾸기, `signed()`의 부호 
   폭을 `1e-12`까지 좁히면 판정 가능해지는 것이 몇 건인지는 재지 않았다.
   현재 `TOL`은 `1e-9`이고, 그 아래로 가면 2차 수렴이 배정밀도 반올림에
   부딪히는 지점이 어디인지가 먼저 필요하다.
-- **커밋된 전수 계측기.** §302.3과 §302.4의 표는 이 라운드의 일회용 프로브가
-  낸 것이고, 게이트가 쥔 것은 31행 축소판이다. 389이라는 수 자체를 게이트가
-  다시 세지는 않는다.
+- **커밋된 전수 계측기. 거짓 → 닫힘 (§302.7).** §302.3과 §302.4의 표는 이
+  라운드의 일회용 프로브가 낸 것이었고, 그때 게이트가 쥔 것은 31행
+  축소판뿐이었다. §302.7이 389건 전부를 커밋된 고정물로 만들고, 그 위에서
+  같은 판정 규칙을 다시 돌려 389이라는 수 자체와 277/0/19/93 네 수 전부를
+  게이트가 재도록 했다.
+
+### §302.7 §302.6의 다섯째 잔차 — 389건 전부를 커밋된 고정물로 만들었다
+
+`tools/moveit-diff`에는 그때까지 이 모집단 전체를 낼 수단이 없었다.
+`--pair-probe-json`은 거리 조항이 실패하고 두 쌍이 갈린 경우만 기록하고,
+`--stats-json`의 `DistanceBranchStats::tail`은 편차 최악 8건만 남긴다. 둘 다
+389건 전부(통과/실패, 쌍 일치 여부와 무관하게 오라클 값이 관통 분기로 간
+self 쪽 모든 case)를 내지 않는다.
+
+새 플래그 `--self-penetration-json <path>`를 더했다 — `side == "self"`이고
+오라클 값이 `<= 0.0`인 모든 case를 기존 `DistanceBranchOutlier` 행 그대로
+(조인트 값 포함) JSON 배열로 쓴다. 조건 하나만 넓혔을 뿐 기존 통계 경로는
+건드리지 않았으므로 `cargo nextest run -p moveit-diff --release`(기존 42건)가
+전부 그대로 통과한다.
+
+이 플래그로 §270.1이 인용한 것과 같은 스윕을 이 워크트리에서 다시 돌렸다:
+
+```
+sg docker -c 'target/release/moveit-diff \
+  --urdf fixtures/prbt.urdf --srdf fixtures/prbt.srdf \
+  --cases 10000 --seed 1 --collision --tol-distance 1e-4 \
+  --self-penetration-json prbt_self_penetration.json \
+  --oracle tools/moveit-oracle/run-oracle.sh'
+```
+
+같은 실행에서 `--stats-json`도 함께 재 확인했다: `bool_disagrees` 6854,
+`self_bool_disagrees` 0, `robot_bool_disagrees` 6854, `penetrating.total`
+10389 — §270의 prbt 행과 칸 단위로 같다. `--self-penetration-json`은
+**389행**을 냈다 — §297.4의 수와 정확히 같다.
+
+이 389행을
+`crates/moveit-collision/tests/fixtures/prbt_self_penetration_389.json`로
+커밋하고, 새 시험
+`prbt_penetration_branch_full_389_population_matches_the_published_totals`를
+추가했다. 이 시험은 §302.5가 이미 판별을 두 mutation 10건으로 확인한 규칙 —
+폭 `WIDTH_FRACTION = 0.1`을 넘으면 판정 불가, 아니면 `DOMINANCE = 100`배
+우세 쪽 — 을 각 행의 `(oracle_off, port_off, width, deviation)`에서 다시
+계산해 낸다(사전 기록된 라벨을 읽는 것이 아니다). 결과:
+
+| 판정 | 이 시험이 낸 값 | §302.3의 값 |
+|---|---|---|
+| fcl 쪽 | 277 | 277 |
+| 포트 쪽 | 0 | 0 |
+| 우세하지 않음 | 19 | 19 |
+| 판정 불가 | 93 | 93 |
+
+네 수 전부 일치. 이 시험(`prbt_penetration_branch_full_389_population_matches_the_published_totals`)은
+`cargo nextest run -p moveit-collision --release`로 2.6초. 두 mutation으로
+시험이 실제로 판별하는지 확인했다: `WIDTH_FRACTION`을
+`0.5`로 풀면 `(277, 0, 21, 91)`로 실패(우세하지 않음/판정 불가 경계가
+움직인 것이 그대로 드러난다), 우세 판정의 `Oracle`/`Port` 분기를 서로
+바꾸면 `(0, 277, 19, 93)`로 실패. 둘 다 이름 있는 단언에서 실패했다.
+
+`cargo fmt --all` 적용, clippy `-p moveit-diff --all-targets -- -D warnings`
+및 `-p moveit-collision --all-targets -- -D warnings` 0건,
+`cargo nextest run -p moveit-collision --release` **263/263**(이 시험 포함),
+`cargo nextest run -p moveit-diff --release` **42/42**(그대로, 새 플래그는
+추가 조건 하나만 넓혔을 뿐이라 기존 42건에 회귀가 없다).
+
+닫는 것은 "389라는 수 자체와 그 위의 277/0/19/93을 게이트가 다시 세는가"
+하나뿐이다. §302.6의 나머지 넷 — §270.2의 42,010건, 나머지 네 로봇, 우세하지
+않음 19건의 정체, 판정 불가 93건을 더 좁은 폭에서 재는 것 — 은 이 절 뒤에도
+그대로 열려 있다. 이번에 커밋된 389행 고정물은 그 중 우세하지 않음/판정
+불가 두 항목을 다음에 여는 재료가 될 수 있지만, 이 절 스스로는 그 둘을 열지
+않았다.
 
 
 ## §305 발표한 수의 증거가 트리에 있는가 — 계측기 20개를 네 부류로 갈랐고, 출판 80행 중 41행은 증거가 없다 (2026-08-07)
