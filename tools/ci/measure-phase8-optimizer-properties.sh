@@ -313,7 +313,8 @@ run_sharded() {
   # in one shared $WORKDIR let a later, smaller call pick up an earlier call's
   # leftover shard files. `verify-phase7-benchmark.sh` carries the same note
   # because that was a real defect there.
-  local dir="$WORKDIR/shards.$(basename "$out")"
+  local dir
+  dir="$WORKDIR/shards.$(basename "$out")"
   rm -rf "$dir"
   mkdir -p "$dir"
   : >"$out"

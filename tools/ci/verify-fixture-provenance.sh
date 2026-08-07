@@ -327,7 +327,8 @@ declare -A SYNTHETIC=(
 
 check_crate_local() {  # <crate-local fixture path>
   local fixture="$1"
-  local root="fixtures/$(basename "$fixture")"
+  local root
+  root="fixtures/$(basename "$fixture")"
 
   if [[ -n "${SYNTHETIC[$fixture]:-}" ]]; then
     echo "synthetic  $fixture -- ${SYNTHETIC[$fixture]}"

@@ -227,7 +227,8 @@ run_port_sharded() {
   # escalation over 2 problems reported 6 solved and the unknown count went
   # negative. Per-call isolation makes that unrepresentable rather than
   # something to remember to clean up.
-  local dir="$WORKDIR/shards.$(basename "$out")"
+  local dir
+  dir="$WORKDIR/shards.$(basename "$out")"
   rm -rf "$dir"
   mkdir -p "$dir"
   : >"$out"
