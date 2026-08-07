@@ -608,6 +608,50 @@ impl CollisionResult {
             }
         };
     }
+
+    /// Trim `cost_sources` (if requested) down to the `max_cost_sources`
+    /// most costly, discarding an `Ord`-`Equal` duplicate the same way a
+    /// re-insert into upstream's shared set would.
+    ///
+    /// [`merge`](Self::merge) above concatenates two phases' `cost_sources`
+    /// without re-selecting: fine for `distance` and `contacts`, which have
+    /// no ranked "best N" to preserve, but not for `cost_sources`. Upstream
+    /// inserts every phase's cost sources into the *same*
+    /// `std::set<CostSource>`, trimmed to `req.max_cost_sources` on every
+    /// single insertion across both the self- and robot-collision phases
+    /// (`collision_detection_fcl/collision_common.cpp:285-287`, `:351-353`,
+    /// `:388-390`), so the final set is the global top-`max_cost_sources` by
+    /// `cost * getVolume()` over candidates from *both* phases compared
+    /// against each other. This port's two phases return independent
+    /// `Vec`s, each already trimmed to its own local budget by its own
+    /// backend (e.g. `parry.rs`'s `accumulate_collision`) before either
+    /// phase has seen the other's candidates — so a more costly source
+    /// found by the second phase can never displace a less costly one the
+    /// first phase already kept. Rebuilding a `BTreeSet` from the merged
+    /// union and trimming it once, with [`CollisionRequest::max_cost_sources`],
+    /// reproduces the shared set exactly: same final count, same
+    /// globally-most-costly selection, same most-costly-first order on
+    /// re-collection, and the same silent drop of an `Ord`-`Equal`
+    /// duplicate `std::set::insert` performs upstream (see [`CostSource`]'s
+    /// deviation note) — closing all three at the one site that produces
+    /// them, rather than patching each symptom separately.
+    ///
+    /// [`crate::env::CollisionEnv::check_collision`]'s default
+    /// implementation calls this once, unconditionally, on its way out —
+    /// giving both phases the *full*, never-rebudgeted
+    /// `max_cost_sources` up front and re-selecting after the merge, instead
+    /// of rebudgeting the second phase's request the way it still does for
+    /// `max_contacts` (see that method's doc for why the two fields need
+    /// different treatment here).
+    pub fn cap_cost_sources(&mut self, max_cost_sources: usize) {
+        if let Some(sources) = self.cost_sources.take() {
+            let mut set: BTreeSet<CostSource> = sources.into_iter().collect();
+            while set.len() > max_cost_sources {
+                set.pop_last();
+            }
+            self.cost_sources = Some(set.into_iter().collect());
+        }
+    }
 }
 
 #[cfg(test)]

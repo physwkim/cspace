@@ -262,19 +262,26 @@ pub trait CollisionEnv<State> {
     /// `max_contacts` against its own request cannot then store more than
     /// `request.max_contacts` contacts in total across both calls.
     ///
-    /// The same budgeting applies to `cost_sources`: upstream's shared
-    /// `res_->cost_sources` (a `std::set`) is trimmed to `req.max_cost_sources`
-    /// on every single insertion, in both `checkSelfCollision`'s and
-    /// `checkRobotCollision`'s callback
+    /// `cost_sources` is deliberately *not* rebudgeted like `max_contacts`
+    /// above, even though upstream's `res_->cost_sources` is the same kind
+    /// of shared, per-insertion-trimmed container as `res_->contacts`
     /// (`collision_detection_fcl/collision_common.cpp:285-287`, `:351-353`,
-    /// `:388-390`), so the shared set never exceeds `max_cost_sources` at any
-    /// point across either phase. This default implementation passes the
-    /// remaining `max_cost_sources` budget (less however many
-    /// [`check_self_collision`](CollisionEnv::check_self_collision) already
-    /// returned) into the second call for the same reason it does so for
-    /// `max_contacts` above — merging two results each independently capped
-    /// at the *full* budget could otherwise hold up to twice
-    /// `request.max_cost_sources` entries.
+    /// `:388-390`). The difference is what the trim *selects*: `contacts`
+    /// stops accumulating once a running count is reached (first-found,
+    /// first-kept — no reordering, `collision_common.cpp:250-254`), so
+    /// rebudgeting the second call's `max_contacts` down by however many the
+    /// first call already found reproduces it exactly. `cost_sources` is a
+    /// `std::set` insert-and-trim, i.e. a global top-`max_cost_sources`
+    /// selection by `cost * getVolume()` — rebudgeting the second call the
+    /// same way would let a more costly source the second phase finds lose
+    /// to a less costly one the first phase already spent its (now-shrunk)
+    /// budget keeping, since neither phase's own local trim ever compares
+    /// its candidates against the other phase's. Both phases get the full,
+    /// unmodified `request.max_cost_sources` instead, and
+    /// [`CollisionResult::cap_cost_sources`] re-selects the global top-N
+    /// once over the merged union below — see that method's doc for why
+    /// this also reproduces the shared set's dedup and ordering, not just
+    /// its count.
     fn check_collision(
         &self,
         request: &CollisionRequest,
@@ -289,12 +296,8 @@ pub trait CollisionEnv<State> {
             .is_some_and(|c| c.pair_count() < request.max_contacts);
         if !result.collision || contacts_have_room {
             let already_found = result.contacts.as_ref().map_or(0, ContactData::count);
-            let already_found_cost_sources = result.cost_sources.as_ref().map_or(0, Vec::len);
             let remaining_request = CollisionRequest {
                 max_contacts: request.max_contacts.saturating_sub(already_found),
-                max_cost_sources: request
-                    .max_cost_sources
-                    .saturating_sub(already_found_cost_sources),
                 ..request.clone()
             };
             result.merge(self.check_robot_collision(
@@ -304,6 +307,7 @@ pub trait CollisionEnv<State> {
                 acm,
             ));
         }
+        result.cap_cost_sources(request.max_cost_sources);
         result
     }
 }
@@ -517,7 +521,7 @@ mod tests {
     use super::*;
     use crate::common::{CollisionDistance, CostSource};
     use std::cell::Cell;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     struct FakeRobotState;
 
@@ -533,6 +537,15 @@ mod tests {
         /// was actually called with — the `cost_sources` analogue of
         /// `robot_seen_max_contacts` above.
         robot_seen_max_cost_sources: Cell<usize>,
+        /// When non-empty, `check_robot_collision`'s mock draws from this
+        /// pool instead of returning `robot_result` verbatim, trimming it to
+        /// `request.max_cost_sources` via the same `BTreeSet` insert +
+        /// pop-least-costly-while-over-budget mechanism a real backend
+        /// (`parry.rs`'s `accumulate_collision`) already uses. `robot_result`
+        /// above is a canned return value that ignores the budget it was
+        /// asked for; tests that need to tell "budget respected" from
+        /// "budget ignored" apart need a mock that actually respects it.
+        robot_cost_source_candidates: Vec<CostSource>,
     }
 
     impl CollisionEnv<FakeRobotState> for StubEnv {
@@ -556,7 +569,18 @@ mod tests {
             self.robot_seen_max_contacts.set(request.max_contacts);
             self.robot_seen_max_cost_sources
                 .set(request.max_cost_sources);
-            self.robot_result.clone()
+            if self.robot_cost_source_candidates.is_empty() {
+                return self.robot_result.clone();
+            }
+            let mut set: BTreeSet<CostSource> =
+                self.robot_cost_source_candidates.iter().copied().collect();
+            while set.len() > request.max_cost_sources {
+                set.pop_last();
+            }
+            CollisionResult {
+                cost_sources: Some(set.into_iter().collect()),
+                ..self.robot_result.clone()
+            }
         }
 
         fn check_robot_collision_continuous(
@@ -732,20 +756,16 @@ mod tests {
     }
 
     #[test]
-    fn check_collision_passes_the_remaining_cost_source_budget_not_the_full_one() {
-        // Same defect shape as
-        // check_collision_passes_the_remaining_contact_budget_not_the_full_one,
-        // for cost_sources instead of contacts. Upstream's shared
-        // `res_->cost_sources` set is trimmed to `req.max_cost_sources` on
-        // every insertion (`collision_detection_fcl/collision_common.cpp:285-287`,
-        // `:351-353`, `:388-390`) across *both* the self- and robot-collision
-        // phases of `CollisionEnv::checkCollision` (`collision_env.cpp:310-316`),
-        // which pass one `CollisionResult&` by reference into both calls. This
-        // port's `check_self_collision`/`check_robot_collision` each return
-        // their own owned `CollisionResult`, so `check_collision` must budget
-        // the second call's `max_cost_sources` down by however many the first
-        // call already found -- the unmodified request would let the merged
-        // total exceed `max_cost_sources`.
+    fn check_collision_passes_the_full_cost_source_budget_to_both_phases() {
+        // Unlike max_contacts (see
+        // check_collision_passes_the_remaining_contact_budget_not_the_full_one),
+        // max_cost_sources is deliberately *not* rebudgeted down by however
+        // many the self-collision phase already found: see
+        // `check_collision`'s doc for why a per-phase rebudget breaks
+        // cost_sources' global top-N selection (proven by
+        // check_collision_keeps_the_globally_most_costly_source_not_whichever_phase_found_it_first
+        // below). Both phases must see the same, full, unmodified
+        // `request.max_cost_sources`.
         //
         // `self_result.collision` is `false` (rather than mirroring the
         // contacts test's `true`) so the robot check actually runs: the
@@ -770,7 +790,128 @@ mod tests {
             ..Default::default()
         };
         env.check_collision(&request, &FakeRobotState, &[], None);
-        assert_eq!(env.robot_seen_max_cost_sources.get(), 2);
+        assert_eq!(env.robot_seen_max_cost_sources.get(), 3);
+    }
+
+    #[test]
+    fn check_collision_keeps_the_globally_most_costly_source_not_whichever_phase_found_it_first() {
+        // Upstream shares ONE std::set<CostSource> across both phases,
+        // trimmed to max_cost_sources on every insertion
+        // (collision_detection_fcl/collision_common.cpp:285-287, :351-353,
+        // :388-390): the final set is the GLOBAL top-max_cost_sources by
+        // `cost * getVolume()` across self- and robot-collision combined,
+        // not whichever phase happens to run first. Self-collision here
+        // yields a low-cost source (0.1); a compliant robot-collision
+        // backend -- see `robot_cost_source_candidates`, which (unlike
+        // `robot_result`) actually trims to the budget it is given, the way
+        // a real backend does -- would yield a more costly one (1.0) if
+        // given room. With max_cost_sources: 1, the merged result must keep
+        // the 1.0 source and drop the 0.1 one, not the reverse: rebudgeting
+        // the robot phase down by however many the self phase already found
+        // (this crate's prior fix, before this test) leaves the robot phase
+        // a budget of 1 - 1 = 0, so a compliant backend returns nothing for
+        // it and the more costly source is lost outright.
+        let env = StubEnv {
+            self_result: CollisionResult {
+                collision: false,
+                cost_sources: Some(vec![cost_source(0.1)]),
+                ..Default::default()
+            },
+            robot_result: CollisionResult {
+                collision: true,
+                ..Default::default()
+            },
+            robot_cost_source_candidates: vec![cost_source(1.0)],
+            ..Default::default()
+        };
+        let request = CollisionRequest {
+            cost: true,
+            max_cost_sources: 1,
+            ..Default::default()
+        };
+
+        let result = env.check_collision(&request, &FakeRobotState, &[], None);
+
+        let sources = result.cost_sources.expect("cost was requested");
+        assert_eq!(
+            sources,
+            vec![cost_source(1.0)],
+            "the globally most costly source (1.0, found by the robot-collision phase) \
+             must survive, not the less costly one (0.1) found first by the self-collision phase"
+        );
+    }
+
+    #[test]
+    fn check_collision_does_not_duplicate_a_cost_source_both_phases_report() {
+        // Secondary consequence of the same defect: upstream's shared
+        // std::set silently drops an Ord-Equal re-insert
+        // (CostSource's deviation note), so a cost source both phases
+        // report collapses to one entry, not two. `Vec::extend` (this
+        // crate's prior merge) has no such dedup.
+        let source = cost_source(1.0);
+        let env = StubEnv {
+            self_result: CollisionResult {
+                collision: false,
+                cost_sources: Some(vec![source]),
+                ..Default::default()
+            },
+            robot_result: CollisionResult {
+                collision: true,
+                ..Default::default()
+            },
+            robot_cost_source_candidates: vec![source],
+            ..Default::default()
+        };
+        let request = CollisionRequest {
+            cost: true,
+            max_cost_sources: 5,
+            ..Default::default()
+        };
+
+        let result = env.check_collision(&request, &FakeRobotState, &[], None);
+
+        assert_eq!(
+            result.cost_sources.expect("cost was requested"),
+            vec![source],
+            "a cost source both phases report must collapse to one entry, matching \
+             std::set::insert's silent drop of an Ord-Equal duplicate upstream"
+        );
+    }
+
+    #[test]
+    fn check_collision_sorts_the_merged_cost_sources_most_costly_first() {
+        // Third consequence of the same defect: upstream's shared std::set
+        // iterates most-costly-first as a whole, not self-phase-block then
+        // robot-phase-block. Deliberately interleaved here (self finds the
+        // middle-costliest, robot finds both the highest- and lowest-cost)
+        // so a merge that is merely "each phase's own sorted run,
+        // concatenated" would not happen to look sorted by accident.
+        let env = StubEnv {
+            self_result: CollisionResult {
+                collision: false,
+                cost_sources: Some(vec![cost_source(2.0)]),
+                ..Default::default()
+            },
+            robot_result: CollisionResult {
+                collision: true,
+                ..Default::default()
+            },
+            robot_cost_source_candidates: vec![cost_source(3.0), cost_source(1.0)],
+            ..Default::default()
+        };
+        let request = CollisionRequest {
+            cost: true,
+            max_cost_sources: 3,
+            ..Default::default()
+        };
+
+        let result = env.check_collision(&request, &FakeRobotState, &[], None);
+
+        assert_eq!(
+            result.cost_sources.expect("cost was requested"),
+            vec![cost_source(3.0), cost_source(2.0), cost_source(1.0)],
+            "the merged cost_sources must be globally most-costly-first"
+        );
     }
 
     #[test]
