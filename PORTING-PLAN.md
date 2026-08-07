@@ -23200,18 +23200,31 @@ PHASE9 verdict=NO_VALID_TRAJECTORY
   붙였고, `ros/moveit-ros/src/planning.rs`의 모듈 doc이 "`start_state` **is**
   representable as of this round ... and is mapped, not rejected"라고 스스로
   적어 §250.4/§254의 그 첫 거부가 사라졌다고 말한다.
-- **planning scene 토픽 구독.** §226.4 항목 3 그대로 부재.
-- **`/plan_kinematic_path`의 `PLANNING_FAILED`.** §250.3이 적은 파리티
-  결함. 소스 한 줄과 `ros/verify-ros-interop.sh`의 `grep -q "val=-1"`
-  한 줄을 같이 고쳐야 하고, 후자가 펜스 밖이다.
-- **`/move_action`에는 회귀 게이트가 없다.** §241이 `/plan_kinematic_path`에
-  붙인 `run "live"` 단계와 같은 모양의 `ros2 action send_goal` 한 단계를
-  `ros/verify-ros-interop.sh`에 더하면 되지만, 그 파일이 펜스 밖이다.
-  지금은 이 절의 실측이 유일한 근거이고, 게이트로 고정돼 있지 않다.
-- **종단 시도를 게이트로 옮기지 못했다.** §250.4의 두 컨테이너 구성은
-  오라클 이미지 위에 3개 패키지를 더 빌드해서 만든 임시 이미지에
-  기댄다. 이미지를 커밋하거나 게이트에 싣는 것은 `ros/Dockerfile`과
-  `tools/moveit-oracle`을 건드리는 일이고 둘 다 펜스 밖이다.
+- **planning scene 토픽 구독. 거짓 → 닫힘 (§320.1).** §226.4 항목 3 그대로
+  부재였다. §257.4가 `ros/moveit-ros/src/bin/move_group.rs`에
+  `node.subscribe::<r2r::moveit_msgs::msg::PlanningScene>`로 구독을 지었고,
+  오늘 트리에서도 그 줄이 그대로 있다(§320.1).
+- **`/plan_kinematic_path`의 `PLANNING_FAILED`. 거짓 → 닫힘 (§320.2).**
+  §250.3이 적은 파리티 결함. 소스 한 줄과 `ros/verify-ros-interop.sh`의
+  `grep -q "val=-1"` 한 줄을 같이 고쳐야 하고, 후자가 펜스 밖이었다.
+  §255.1이 이미 둘 다 고쳤다 — §254.6의 사본은 그때 정식 마커로 닫혔지만
+  이 사본은 반영되지 않은 채로 남아 있었다(§320.2).
+- **`/move_action`에는 회귀 게이트가 없다. 거짓 → 닫힘 (§320.3).** §241이
+  `/plan_kinematic_path`에 붙인 `run "live"` 단계와 같은 모양의 `ros2
+  action send_goal` 한 단계를 `ros/verify-ros-interop.sh`에 더하면
+  되지만, 그 파일이 펜스 밖이었다. §254가 그 파일을 펜스 안으로 들여
+  `ros/verify-move-action-interop.sh`(leg A/B/C)를 붙였고, 오늘도
+  `ros/verify-ros-interop.sh`의 마지막 단계로 매 게이트 실행마다
+  돈다(§320.3).
+- **종단 시도를 게이트로 옮기지 못했다. 거짓 → 닫힘 (§320.4).** §250.4의
+  두 컨테이너 구성은 오라클 이미지 위에 3개 패키지를 더 빌드해서 만든
+  임시 이미지에 기댄다. 이미지를 커밋하거나 게이트에 싣는 것은
+  `ros/Dockerfile`과 `tools/moveit-oracle`을 건드리는 일이고 둘 다 펜스
+  밖이었다. §254가 그 둘을 건드리지 않는 별도 경로로 풀었다 —
+  `ros/move_group_interface_probe/Dockerfile`이 오라클 이미지 위에
+  레이어(`FROM ${ORACLE_IMAGE}`)로 커밋돼 있고,
+  `ros/verify-move-action-interop.sh`가 매 실행마다 `docker build`로
+  그 이미지를 짓는다(§320.4).
 
 ## §251 `collision: bool` 절의 접선 답은 도형 쌍의 성질이다 — 원인은 fcl의 협면 등록표이고, 이 포트도 균일하지 않다 (2026-08-06)
 
@@ -24403,18 +24416,24 @@ M1·M2와 G1·G2의 분업이 이 라운드에서 확인된 사실 하나를 그
   대로다. 플래너가 생겨 궤적이 돌아오기 전에는 다리 쪽에서 닫을 방법이
   없다. 만료 조건: `moveit_planning::pipeline::Planner`가 이 워크스페이스에
   등록되는 순간, leg B가 첫 점의 관절 값을 단언할 수 있게 된다.
-- **상류 `setVariableVelocities`의 `assert`-만 짝짓기 가드**
-  (`robot_state.cpp:422-429`). `doc/upstream-bugs.md`가 이 라운드의 펜스
-  밖이라 기록하지 못했다. 이 포트에서는 구성 불가로 막혀 있다(§256.2).
+- **상류 `setVariableVelocities`의 `assert`-만 짝짓기 가드
+  (`robot_state.cpp:422-429`). 거짓 → 닫힘 (§320.7).**
+  `doc/upstream-bugs.md`가 이 라운드의 펜스 밖이라 기록하지 못했다. 이
+  포트에서는 구성 불가로 막혀 있다(§256.2). `doc/upstream-bugs.md`의
+  `set-variable-velocities-named-assert-only-pairing` 항목이 이제
+  기록한다(§320.7).
 - **`ros/move_group_interface_probe/src/move_group_interface_probe.cpp`의
-  낡은 주석.** 이제 존재하지 않는 `robot_state_msg_is_default`를 이름으로
-  가리킨다. 펜스 밖이라 손대지 않았다.
+  낡은 주석. 거짓 → 닫힘 (§320.5).** 이제 존재하지 않는
+  `robot_state_msg_is_default`를 이름으로 가리켰다. 펜스 밖이라 이
+  라운드는 손대지 않았지만, `f573d9ef`가 그 뒤에 고쳤다(§320.5).
 - **`attached_collision_objects`와 `multi_dof_joint_state`는 여전히 거부**
   한다. 각각 `PlanningScene`의 attached body와 다중 DOF 관절 표현이
   필요하고, 둘 다 이 라운드의 과제가 아니다. `state.rs`와
   `doc/message-mapping.md` §9가 같은 공백을 이미 기록한다.
-- **`/plan_kinematic_path`의 `PLANNING_FAILED`.** §250.3, §254.6이 적은
-  파리티 결함 그대로다.
+- **`/plan_kinematic_path`의 `PLANNING_FAILED`. 거짓 → 닫힘 (§320.6).**
+  §250.3, §254.6이 적은 파리티 결함 그대로였다. §255.1이 소스와 게이트를
+  같이 고쳤다 — §320.2와 같은 증거(`rg` 0건, 라이브 게이트 `val=99999`)
+  다(§320.6).
 
 ## §257 planning scene 토픽 구독을 지었다 — 그리고 그 구독이 먹일 변환 셋도 없었다 (2026-08-06)
 
@@ -30827,6 +30846,12 @@ stratum의 씨앗은 "직선이 우연히 무효인 것"이지 난이도를 지�
   더 찾아낸 것은 두 설정 모두 0건이다(§300.4). 원본 팔에서 0.01 바가 잡고
   0.05가 놓치는 세 건은 §286.5의 뽑기 대역 안이라 어느 바가 나은지를 가르지
   못한다(§300.5). 답을 낼 변이는 최적화기를 계속 돌게 두는 쪽이다.
+  OPEN → 만료 조건 (STOMP을 무동작 최적화기로 만들지 않으면서 충돌 비용의
+  여유 간격이나 유한차분 폭을 흔드는 새 변이가 작성되어, 0.05·0.01 두 바에서
+  조건 2를 함께 재는 별도 라운드가 돌 때 — 지금 있는 유일한 변이인
+  `COLLISION_PENALTY` = 0(`stomp_benchmark_port.rs:133`)은 STOMP을 무동작으로
+  만들어 버려 바가 아니라 씨앗 집합을 채점하므로(§300.4) 이 물음에 쓸 수
+  없다).
 - **`max_iterations = 200`.** §269.8이 연 자리 그대로다.
 
 ---
@@ -30996,7 +31021,7 @@ undeclared-unresolvable **0건**으로 통과한다.
 - `oracle-request-pilz-blend-geometry.md:654`의 `` `5777`-`5778` `` →
   `` `oracle.cpp:6804-6805` ``
 
-일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27948`는
+일부러 되짚지 **않은** 것도 하나 있다. §271.3의 `PORTING-PLAN.md:27967`는
 `$ rg ...` 실행 결과를 코드 펜스 안에 그대로 옮긴 것이고, 그 실행은 실제로
 5688을 찍었다. 전사를 고치면 기록이 아니라 위조가 된다. (이 인용은 쓰인
 커밋 `580f1995` 당시 `!PORTING-PLAN.md:27486`이었고, 그 뒤 두 번 밀렸다.
@@ -31925,7 +31950,7 @@ backtick 안에 **인용**하는데, 스캔이 fenced 블록만 걷어내고 인
 걷어내지 않아 그 인용이 세 번째 일치가 됐다. 오늘 §267을 인용하는 §5 행이 없어
 잠복이었을 뿐, 인용이 하나 생기는 회차에 거짓 실패가 된다. `80a86d78`이 스캔
 직전에 인라인 span을 지운다. 네 변이로 확인했다 — Phase 3의 `distance` 행을
-§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27199`에서 실패하고 지금은
+§267.1로 돌리면 이전 코드는 `PORTING-PLAN.md:27218`에서 실패하고 지금은
 통과하며, 같은 행을 §229.1·§239.3으로 돌리면 두 코드 다 진짜 선언
 (`PORTING-PLAN.md:19178`·`PORTING-PLAN.md:20760`)에서 실패하고,
 §283으로 돌리면 둘 다 통과한다. 주석이 근거로 대던 "두 번"이 이제 우연이 아니라
@@ -34122,6 +34147,12 @@ id에서 나온다.
   바에서 함께 재는 것. 0.05가 그것을 잡으면 바에 검정력이 있고, 0.01만
   잡으면 그 차이도 §286.5의 뽑기 대역 안이라 같은 논증이 적용된다. 별도
   라운드가 필요하다.
+  OPEN → 만료 조건 (STOMP을 무동작 최적화기로 만들지 않으면서 충돌 비용의
+  여유 간격이나 유한차분 폭을 흔드는 새 변이가 작성되어, 0.05·0.01 두 바에서
+  조건 2를 함께 재는 별도 라운드가 돌 때 — §286.11이 연 것과 같은 미결이고,
+  지금 있는 유일한 변이인 `COLLISION_PENALTY` = 0(`stomp_benchmark_port.rs:133`)은
+  STOMP을 무동작으로 만들어 버려 바가 아니라 씨앗 집합을 채점하므로(§300.4)
+  이 물음에 쓸 수 없다).
 - **`floor_wall` 77 · `cage` 133 · `cage` 159의 성격. 거짓 → 닫힘 (§286.3).**
   이 항목이 요구한 비교 — C++ STOMP 팔을 같은 씨앗·같은 집합으로 돌려 같은
   세 id를 보는 것 — 은 §286.3이 이미 한 것이다. 집합이 같다는 것은 추정이
@@ -35623,7 +35654,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
 `oracle.cpp:5688` 전사 줄이다. §287.7의 문장이 "그 실행은 실제로 5688을
 찍었다"고 말하는 것과 정확히 맞고, 그 문장이 이 인용을 고치면 위조가 된다고
 한 이유이기도 하다 — 5688은 살아 있는 `oracle.cpp` 인용이 아니라 실행
-출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27948`에 있다(§271.3
+출력이다. 같은 내용은 오늘 트리에서 `PORTING-PLAN.md:27967`에 있다(§271.3
 안, 펜스 27720–27726).
 
 §299.7은 이것을 `$ rg -l -w 'NearestNeighbors' .` 출력으로 읽고 27499(+13)로
@@ -35643,7 +35674,7 @@ tools/moveit-oracle/src/oracle.cpp:5688:  /// one iteration. RRTConnect's ...
   자리가 남는다.
 
 그래서 번호만 고치지 않고 **검사 가능한 형태로 바꿨다**: §287.7의 문장이
-이제 `§271.3의 PORTING-PLAN.md:27948`로 절을 이름 댄다. 다음에 §271.3의
+이제 `§271.3의 PORTING-PLAN.md:27967`로 절을 이름 댄다. 다음에 §271.3의
 내용이 밀리면 인용이 절 범위 밖으로 나가고, 그때는 게이트가 말한다. 손으로
 고친 번호는 다시 밀린다 — 이 인용은 이미 두 번 밀렸다. 남길 것은 번호가
 아니라 그것을 붙잡는 규칙이다.
@@ -36210,7 +36241,7 @@ panda 250 + fanuc 250(구성당 125문제 × 넷), §304는 panda 500(floor_wall
 
 `!PORTING-PLAN.md:27602`를 p12-tangency는 27603으로, p10-phase13은
 27609로 밀었다. 병합된 트리에서는 **어느 쪽도 맞지 않는다** — 실제 값은
-`PORTING-PLAN.md:27948`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
+`PORTING-PLAN.md:27967`다. 한쪽을 고르는 충돌 해결은 셋을 빈 줄에, 하나를 코드 펜스 줄에
 꽂았고 `check-citation-drift.py`가 blank-line 3건으로 잡았다. 여덟 개를
 게이트가 찍은 citer 위치와 대상 재독으로 다시 유도했다.
 
@@ -36270,7 +36301,7 @@ description 발행 순서, 리터럴을 상수로 빼지 않은 근거(엔드포
 | 인용 위치 | 인용 | 판정 | 근거 |
 |---|---|---|---|
 | `PORTING-PLAN.md:30597` | `!PORTING-PLAN.md:21628` → `PORTING-PLAN.md:21874-21875` | 드리프트 | 그 문장이 §245.3 안에 있고 오늘 `delta_q.data.setRandom();`(`oracle.cpp:2296`)을 인용한다 |
-| `PORTING-PLAN.md:31886` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27199` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
+| `PORTING-PLAN.md:31886` | `!PORTING-PLAN.md:26879` → `PORTING-PLAN.md:27218` | 드리프트 | 변이는 오늘도 재현되고, 실패하는 줄은 §267.1의 인라인 span이다 |
 | `doc/claim-audit/upstream-bugs.md:37` | 넷을 `!` sigil로 | 기록 | 지난 회차 감사의 서술이고, `!PORTING-PLAN.md:807`은 §5가 20/20 MET이라 가리킬 UNMET 행 자체가 없다 |
 
 `section-mismatch`는 3 → **0**이다. 같은 셀에서 축약형 `` `:NNN` `` 넷도
@@ -37437,3 +37468,400 @@ OPEN.
    `transforms_with_world_objects`의 실제 정의는 `scene.rs:951`이다.
    이 docstring의 결론(28줄 중 프로덕션 호출 0건) 자체는 오늘도 참이지만,
    그 결론을 뒷받침하는 줄 번호 하나가 드리프트했다.
+
+## §320 A3 — move-group-service-parity(§250.6/§256.8) 10건 + ci-not-wired(§136.1/§254.6/§257.9) 8건을 재쟀다, 7건이 드리프트로 닫혔다 (2026-08-07)
+
+`doc/residual-claims-triage.md`의 두 테마를 절 단위로 열어 각 불릿마다
+falsifier를 정하고 실행했다. 시작 전에 `git merge --no-edit main`으로
+받았다(fast-forward, `0da2ba42`, 충돌 없음). §250.6(4)·§256.8(6)은
+move-group-service-parity, §136.1(1)·§254.6(1)·§257.9(6)은 ci-not-wired다.
+
+§250.6과 §256.8은 같은 `/move_action`·`/plan_kinematic_path` 라운드
+계열(§254~§257)이 닫지 못했다고 적은 목록인데, 그 계열 자신이 이미
+일부를 닫아 놓고도 §250.6·§256.8 두 절의 인용은 그 사실을 반영하지 않은
+채로 있었다 — §254.6·§257.9는 같은 항목을 정식 마커로 닫았지만 §250.6과
+§256.8의 사본은 그러지 않았다. §320.1–§320.6이 그 사본 6건을 마저
+닫고, §320.7이 `doc/upstream-bugs.md`에 새 항목을 내는 조치로 1건을
+더 닫는다. §320.8이 falsifier 불발로 OPEN인 채 남는 나머지 11건(§256.8
+3건, ci-not-wired 8건)의 실측을 담아 이 절을 마무리한다 — 18건 중 7건
+닫힘, 11건 OPEN.
+
+### §320.1 §250.6 "planning scene 토픽 구독" — §257.4가 이미 지었다
+
+불릿: "planning scene 토픽 구독. §226.4 항목 3 그대로 부재." falsifier:
+`ros/moveit-ros/src/` 안에 `moveit_msgs::msg::PlanningScene`을 구독하는
+코드가 있다면 거짓.
+
+`rg -n '\.subscribe::<' ros/moveit-ros/src/ -t rust`:
+
+```
+ros/moveit-ros/src/bin/move_group.rs:701:    let scene_updates = match node.subscribe::<r2r::moveit_msgs::msg::PlanningScene>(
+```
+
+§257.4가 §254 이후 이 라운드에서 지은 구독이다. 오늘 트리에 그대로
+있고, 라이브 게이트로도 재확인했다 — `sg docker -c
+./ros/verify-ros-interop.sh`의 `scene-topic` 다리:
+
+```
+=== scene-topic (ROS_DOMAIN_ID=25) ===
+OK scene-topic: /planning_scene reached the node over DDS, and /check_state_validity
+OK scene-topic: answered True/False/False/True across an empty world, a full scene, a diff, and a full scene
+```
+
+falsifier 성립 — 거짓, §250.6의 사본을 닫는다.
+
+### §320.2 §250.6 "`/plan_kinematic_path`의 `PLANNING_FAILED`" — §255.1이 이미 고쳤다
+
+불릿: "`/plan_kinematic_path`의 `PLANNING_FAILED`. §250.3이 적은 파리티
+결함. 소스 한 줄과 `ros/verify-ros-interop.sh`의 `grep -q "val=-1"` 한
+줄을 같이 고쳐야 하고, 후자가 펜스 밖이다." falsifier:
+`ros/moveit-ros/src/bin/move_group.rs`가 실패를 `PLANNING_FAILED`가
+아니라 `FAILURE`로 낸다면, 그리고 게이트가 그 값을 실제로 확인한다면
+거짓.
+
+`rg -n 'PLANNING_FAILED' ros/moveit-ros/src/bin/move_group.rs`는 주석
+두 줄(168-169행, 이 파리티 결함의 역사를 적은 모듈 doc)만 남기고 코드
+방출은 0건이다. `rg -n 'MoveItErrorCodes::FAILURE' ros/moveit-ros/src/
+bin/move_group.rs`는 두 실제 방출 지점을 낸다(318행, 326행).
+
+`sg docker -c ./ros/verify-ros-interop.sh`의 라이브 출력(오늘 재실행,
+§320.1과 같은 실행)에서 `/plan_kinematic_path`의 실패 응답:
+
+```
+error_code=moveit_msgs.msg.MoveItErrorCodes(val=99999, message="planning failed: planner 'rrt_connect' failed: unknown joint model group ''", source='moveit-ros/plan_kinematic_path')
+```
+
+`val=99999`는 `FAILURE`고, `PLANNING_FAILED`(-1)가 아니다. §255.1이
+소스와 게이트를 같이 고친 것을 §254.6의 사본은 정식 마커로 닫았지만,
+§250.6의 사본은 §255 도입 이후로도 마커 없이 남아 있었다.
+
+falsifier 성립 — 거짓, §250.6의 사본을 닫는다.
+
+### §320.3 §250.6 "`/move_action`에는 회귀 게이트가 없다" — §254가 이미 지었다
+
+불릿: "`/move_action`에는 회귀 게이트가 없다. §241이 `/plan_kinematic_
+path`에 붙인 `run "live"` 단계와 같은 모양의 `ros2 action send_goal` 한
+단계를 `ros/verify-ros-interop.sh`에 더하면 되지만, 그 파일이 펜스
+밖이다." falsifier: `ros/verify-move-action-interop.sh`가 트리에 있고,
+`ros/verify-ros-interop.sh`가 그것을 매 실행마다 부르고, 라이브
+실행에서 실제로 통과한다면 거짓.
+
+```
+$ ls -la ros/verify-move-action-interop.sh
+-rwxrwxr-x 1 stevek stevek 29525 Aug  7 11:05 ros/verify-move-action-interop.sh
+$ rg -n 'move_action' ros/verify-ros-interop.sh | tail -3
+619:# `/move_action` last, because it is the most expensive and the least likely to
+621:run_oracle_gate ros/verify-move-action-interop.sh "/move_action leg B"
+```
+
+§320.1·§320.2와 같은 `sg docker -c ./ros/verify-ros-interop.sh` 실행의
+꼬리:
+
+```
+=== move_action (leg A: ros2 action send_goal) ===
+OK leg A: /move_action accepted goals over DDS, published PLANNING feedback,
+OK leg A: planned one to SUCCEEDED, answered three converted start_state shapes
+OK leg A: with 99999/planner ''rrt_connect'' failed: unknown joint model group, and rejected two with
+OK leg A: -16/has 2 name(s) but 1 position(s) and -16/start_state.multi_dof_joint_state has no core representation
+=== move_action (leg B: upstream C++ MoveGroupInterface) ===
+OK leg B: upstream's unmodified MoveGroupInterface::plan() reached /move_action over
+OK leg B: DDS in both start-state spellings and got a real trajectory back from
+OK leg B: this node, with source=moveit-ros/move_action naming the endpoint that built it
+OK leg B: and upstream's own moveit_core graded every waypoint inside j1's limits
+OK leg B: and the last one satisfying the goal_constraints the client itself sent.
+=== move_action (leg C: upstream C++ MoveGroupInterface computeCartesianPath) ===
+OK leg C: upstream's unmodified MoveGroupInterface::computeCartesianPath() reached
+OK leg C: /compute_cartesian_path over DDS and got fraction=1 back from this node,
+OK leg C: with source=moveit-ros/compute_cartesian_path naming the endpoint that built it,
+OK leg C: every waypoint inside j1's limits and the last one placing tip at the
+OK leg C: pose the client sent, both graded by upstream's own moveit_core.
+OK move_action: all three legs passed
+```
+
+§250.6이 이 불릿을 적은 시점 이후 §254가 정확히 이 모양의 회귀 게이트를
+지었고, 그 사본은 §254.6에서 정식으로 닫혔지만 §250.6의 사본은 그
+사실을 반영하지 않은 채로 남아 있었다.
+
+falsifier 성립 — 거짓, §250.6의 사본을 닫는다.
+
+### §320.4 §250.6 "종단 시도를 게이트로 옮기지 못했다" — 별도 Dockerfile로 우회했다
+
+불릿: "종단 시도를 게이트로 옮기지 못했다. §250.4의 두 컨테이너 구성은
+오라클 이미지 위에 3개 패키지를 더 빌드해서 만든 임시 이미지에 기댄다.
+이미지를 커밋하거나 게이트에 싣는 것은 `ros/Dockerfile`과
+`tools/moveit-oracle`을 건드리는 일이고 둘 다 펜스 밖이다." falsifier:
+그 종단 이미지가 `ros/Dockerfile`이나 `tools/moveit-oracle`을 건드리지
+않는 별도 경로로 커밋돼 있고 매 게이트 실행마다 실제로 지어진다면
+거짓.
+
+```
+$ head -32 ros/move_group_interface_probe/Dockerfile | tail -2
+ARG ORACLE_IMAGE
+FROM ${ORACLE_IMAGE}
+```
+
+오라클 이미지 위에 얹는 레이어다. 이 Dockerfile을 도입한 커밋이
+`ros/Dockerfile`이나 `tools/moveit-oracle`을 건드렸는지:
+
+```
+$ git show 1366632a --stat | rg 'ros/Dockerfile|tools/moveit-oracle'
+(0건)
+```
+
+건드리지 않았다. 게이트가 매 실행마다 짓는지:
+
+```
+$ rg -n 'move_group_interface_probe|docker build' ros/verify-move-action-interop.sh
+365:cp -R "$REPO_ROOT/ros/move_group_interface_probe" "$CTX/move_group_interface_probe"
+366:cp "$REPO_ROOT/ros/move_group_interface_probe/Dockerfile" "$CTX/Dockerfile"
+367:docker build \
+```
+
+§320.1–§320.3과 같은 라이브 실행이 이 이미지로 실제 `/move_action` leg
+B/C를 통과시킨 것이 §320.3의 증거다 — 별도 재실행 없이 그 결과를
+재사용한다.
+
+falsifier 성립 — 거짓, §250.6의 사본을 닫는다.
+
+### §320.5 §256.8 "낡은 `robot_state_msg_is_default` 주석" — `f573d9ef`가 고쳤다
+
+불릿: "`ros/move_group_interface_probe/src/move_group_interface_probe.cpp`의
+낡은 주석. 이제 존재하지 않는 `robot_state_msg_is_default`를 이름으로
+가리킨다. 펜스 밖이라 손대지 않았다." falsifier: 그 파일에 지금
+`robot_state_msg_is_default`를 현재형으로 가리키는 주석이 없다면 거짓.
+
+```
+$ rg -n 'robot_state_msg_is_default' ros/move_group_interface_probe/src/move_group_interface_probe.cpp
+201:  // `robot_state_msg_is_default` accepted neither; that predicate is what
+```
+
+201행 전체 문장: "This comment used to say the port's
+`robot_state_msg_is_default` accepted neither; that predicate is what
+answered -16 to both, and it no longer exists anywhere in the tree." —
+과거형으로 스스로 정정한 문장이다. `git log`가 그 정정 커밋을 낸다:
+
+```
+$ git log --oneline --follow -- ros/move_group_interface_probe/src/move_group_interface_probe.cpp | rg drop
+f573d9ef probe: drop the claim that the port rejects both start-state spellings
+```
+
+`rg -n 'robot_state_msg_is_default' ros/ crates/`는 이 한 줄(주석 안,
+과거형 서술)만 내고, 함수/식별자로 남은 자리는 0건이다.
+
+falsifier 성립 — 거짓, §256.8의 사본을 닫는다.
+
+### §320.6 §256.8 "`/plan_kinematic_path`의 `PLANNING_FAILED`" — §320.2와 같은 결함, §255.1이 이미 고쳤다
+
+불릿: "`/plan_kinematic_path`의 `PLANNING_FAILED`. §250.3, §254.6이 적은
+파리티 결함 그대로다." falsifier: §320.2와 동일 — `move_group.rs`가
+`PLANNING_FAILED`를 방출하지 않고 `FAILURE`를 낸다면 거짓.
+
+§256.8의 이 불릿은 §250.6의 것과 문면만 다를 뿐 가리키는 결함이
+같다(둘 다 §250.3이 원 출처, §254.6이 정식으로 닫은 그 파리티 결함).
+§320.2가 이미 낸 증거를 그대로 재사용한다 — `rg -n 'PLANNING_FAILED'
+ros/moveit-ros/src/bin/move_group.rs`는 주석 두 줄뿐 코드 방출 0건,
+라이브 게이트는 `val=99999`(`FAILURE`)를 낸다. 별도 재실행은 하지
+않는다: 같은 소스 파일, 같은 §255.1의 고침, 같은 오늘 트리에 대한 같은
+질문이라 §320.2의 실행이 이 불릿에도 그대로 적용된다.
+
+falsifier 성립 — 거짓, §256.8의 사본을 닫는다.
+
+### §320.7 §256.8 "상류 `setVariableVelocities`의 `assert`-만 짝짓기 가드" — `doc/upstream-bugs.md`에 기록했다
+
+불릿: "상류 `setVariableVelocities`의 `assert`-만 짝짓기 가드
+(`robot_state.cpp:422-429`). `doc/upstream-bugs.md`가 이 라운드의 펜스
+밖이라 기록하지 못했다. 이 포트에서는 구성 불가로 막혀 있다(§256.2)."
+falsifier: `doc/upstream-bugs.md`에 이 결함을 이름 댄 항목이 있으면
+거짓 — 이 불릿이 닫히지 못한 이유는 "기록하지 못했다"뿐이고, 결함
+자체의 재현 여부(참/거짓)는 애초에 다투지 않았다.
+
+상류 확인, 핀된 체크아웃에서 직접:
+
+```
+$ sed -n '422,429p' /home/stevek/work/moveit2/moveit_core/robot_state/src/robot_state.cpp
+void RobotState::setVariableVelocities(const std::vector<std::string>& variable_names,
+                                       const std::vector<double>& variable_velocity)
+{
+  markVelocity();
+  assert(variable_names.size() == variable_velocity.size());
+  for (std::size_t i = 0; i < variable_names.size(); ++i)
+    velocity_[robot_model_->getVariableIndex(variable_names[i])] = variable_velocity[i];
+}
+```
+
+`assert`는 `NDEBUG` 릴리스 빌드에서 빠지고, 짧은 `variable_velocity`는
+`robot_state.cpp:428`에서 OOB 읽기가 된다. 포트 쪽 부재 확인:
+
+```
+$ rg -n 'fn set_variable' crates/moveit-state/src/state.rs
+(names+values 짝짓기 오버로드는 positions에만 있다 -- set_variable_positions_named,
+:590. velocities용은 없다.)
+```
+
+`doc/upstream-bugs.md`에 `set-variable-velocities-named-assert-only-
+pairing` 항목을 새로 냈다(Index 표 + 본문, `not-reproduced`) — 상류
+인용, 포트 쪽 부재, `set_variable_positions_named`의 `.zip()`이 같은
+모양의 함수를 만들어도 OOB가 아니라 조용한 절단이 될 것이라는 대조,
+`crates/moveit-planning/src/start_state.rs:84`가 이미 "assumed"로만
+남겨 뒀던 것을 정식 항목으로 옮긴 사실을 담았다.
+
+falsifier 성립 — 거짓, §256.8의 사본을 닫는다.
+
+### §320.8 남은 11건 — 재고, 전부 아직 참이다
+
+§320.1–§320.7이 두 테마의 18건 중 7건을 닫았다. 나머지 11건은
+`triage-residual-claims-census.py`가 오늘 트리에서 다시 뽑아도 여전히
+`measurement`로 남는다 — §256.8의 3건, ci-not-wired 8건(§136.1(1),
+§254.6(1), §257.9(6)). 각각의 falsifier를 실행했고, 전부 불발했다.
+
+**§256.8 ① 변환 실패 전부가 오류 코드 하나다.** falsifier:
+`move_group.rs`가 `INVALID_GOAL_CONSTRAINTS` 외의 다른
+`MoveItErrorCodes` 변형으로도 변환 실패를 답한다면 거짓.
+
+```
+$ rg -n 'INVALID_GOAL_CONSTRAINTS' ros/moveit-ros/src/bin/move_group.rs
+149://! `MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS`, whatever the conversion
+297:        val: MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS as i32,
+```
+
+방출 지점 1건, 여전히 하나다. falsifier 불발 — OPEN.
+
+**§256.8 ② 시작 상태의 값이 착지했는지는 게이트가 보지 못한다.**
+불릿 자신이 만료 조건을 적어 뒀다: "`moveit_planning::pipeline::Planner`가
+이 워크스페이스에 등록되는 순간." falsifier: 그 타입이 지금 존재한다면
+거짓.
+
+```
+$ rg -n '^pub (struct|trait|fn)' crates/moveit-planning/src/pipeline.rs
+423:pub fn generate_plan<'m>(
+```
+
+`Planner`라는 이름의 타입은 없다 — `pipeline.rs`에 `pub fn
+generate_plan`만 있다. 만료 조건 미충족. falsifier 불발 — OPEN.
+
+**§256.8 ⑤ `attached_collision_objects`/`multi_dof_joint_state` 거부.**
+falsifier: `ros/moveit-ros/src/state.rs`가 둘 중 하나라도 받아들인다면
+거짓.
+
+```
+$ rg -n 'attached_collision_objects|multi_dof_joint_state' ros/moveit-ros/src/state.rs
+103:        if !msg.attached_collision_objects.is_empty() {
+105:                "RobotState.attached_collision_objects is not \
+111:        let mdjs = &msg.multi_dof_joint_state;
+118:                "RobotState.multi_dof_joint_state has no core \
+```
+
+103-118행, 둘 다 여전히 거부 경로다. falsifier 불발 — OPEN.
+
+**ci-not-wired: §136.1 툴체인이 떠 있다.** falsifier:
+`rust-toolchain.toml`이 트리에 있다면 거짓.
+
+```
+$ ls rust-toolchain.toml rust-toolchain
+ls: cannot access 'rust-toolchain.toml': No such file or directory
+ls: cannot access 'rust-toolchain': No such file or directory
+$ rg -n 'dtolnay/rust-toolchain' .github/workflows/ci.yml
+33:      - uses: dtolnay/rust-toolchain@stable
+```
+
+둘 다 없다 — 고정 파일도 없고, CI는 여전히 `@stable`을 뜬다.
+`Cargo.toml`의 `warnings = "deny"`(90행)도 그대로다. falsifier 불발 —
+OPEN.
+
+**ci-not-wired: §254.6/§257.9 게이트는 CI에서 돌지 않는다** (같은
+결함, 두 절에 각자 적혀 있다). falsifier: `.github/workflows/ci.yml`에
+docker를 쓰는 job이나 `verify-*` 실행 단계가 있다면 거짓.
+
+```
+$ rg -n 'docker|verify-' .github/workflows/ci.yml
+70:      # Globbed, not enumerated. `tools/ci/verify-fixture-provenance.sh`'s header
+72:      # named that script `verify-*` specifically to stay out of it. That
+81:      # -- no docker, no cargo, no upstream", yet never once run by CI in its
+86:      # reported together at the end, the same shape `tools/ci/verify-all.sh`
+87:      # already uses for the `verify-*` glob. Under the default `for s in
+$ rg -n 'jobs:' .github/workflows/ci.yml
+15:jobs:
+```
+
+`docker`/`verify-`의 실제 매치는 전부 주석 안이다 — job은 여전히
+`rust` 하나뿐이고, 마지막 단계가 `tools/ci/check-*`만 글롭한다. `gh
+run list`로 재확인한 것도 아직 유효하다(§136.3 — 그때 확인한 CI 실행
+2건 모두 "ci checks" 단계에서만 실패했고, 그 단계는 `check-*`다). 사람이
+`sg docker -c ...`를 쳐야 도는 상태는 변하지 않았다. falsifier 불발 —
+OPEN. (§254.6과 §257.9 두 사본 모두 같은 측정이 적용된다.)
+
+**§257.9 A: `ros/fixtures/one_joint.urdf`에 `<collision>`이 없다.**
+falsifier: 그 파일에 `<collision>` 요소가 있다면 거짓.
+
+```
+$ rg -c '<collision' ros/fixtures/one_joint.urdf
+0
+```
+
+falsifier 불발 — OPEN.
+
+**§257.9 B: §226.3 표의 근거 칸 둘이 틀린 채로 남아 있다.** 이 불릿은
+스스로 "역사 기록이라 본문을 고쳐 쓰지 않는다"고 적었다 — 참/거짓을
+다투는 게 아니라 "고치지 않았다"는 정책 선언이므로, 이 표 두 칸이
+여전히 §257.2/§257.7을 그대로 가리키는지만 확인했다.
+
+```
+$ rg -n '이미 순수 .TryFrom.으로 포팅|create_subscription' PORTING-PLAN.md | rg '226\.3|22[0-9][0-9][0-9]:'
+```
+
+§226.3 표 자체를 다시 열어 두 칸이 고쳐지지 않았음을 확인했다(§257.2·
+§257.7이 여전히 정정으로만 남아 있고, 표 본문은 편집되지 않았다). 표를
+고쳐 쓰지 않는 것이 이 불릿의 정의이므로, "닫힘"이라는 낱말 자체가
+이 불릿에는 적용되지 않는다 — falsifier 불발이 아니라 falsifier가
+없는 항목이다. OPEN으로 남긴다.
+
+**§257.9 C: `/check_state_validity`의 변환 실패가 `valid: false`로
+뭉개진다.** falsifier: `handle_state_validity`가 오류 필드를 채우는
+응답을 낸다면 거짓.
+
+```
+$ rg -n 'fn handle_state_validity' -A 25 ros/moveit-ros/src/bin/move_group.rs | rg -A3 'Err\(e\)'
+            Err(e) => {
+                eprintln!(
+                    "check_state_validity: GetStateValidity.robot_state is not representable, \
+                     answering valid=false: {e}"
+```
+
+`GetStateValidity::Response { valid: false, ..Default::default() }` —
+오류 필드 없이 여전히 뭉갠다. D6 이탈로 소스가 스스로 표시한다.
+falsifier 불발 — OPEN.
+
+**§257.9 D: 다리 C가 바이너리 이름을 두 곳에 박아 뒀다.** falsifier:
+`ros/verify-ros-interop.sh`가 바이너리 이름을 변수에서 읽는다면 거짓.
+
+```
+$ rg -n 'cargo build --bin|target/debug/' ros/verify-ros-interop.sh
+224:cargo build --bin move_group
+225:./target/debug/move_group \
+364:  cargo build --bin move_group
+365:  ./target/debug/move_group /tmp/boxed.urdf /tmp/boxed.srdf 2>/tmp/node.stderr &
+495:  cargo build --bin move_group
+496:  ./target/debug/move_group /tmp/boxed.urdf /tmp/boxed.srdf 2>/tmp/node.stderr &
+```
+
+3곳 다 하드코드, 변수 인용 0건. falsifier 불발 — OPEN.
+
+**§257.9 E: `contact_to_msg`/`cost_source_to_msg`가 자유 함수라
+`conversion_coverage.rs`의 간선 스캔에 안 잡힌다.** falsifier: 둘 중
+하나가 `impl (TryFrom|From)` 블록이 됐거나, 스캔이 자유 함수도
+본다면 거짓.
+
+```
+$ rg -n 'fn contact_to_msg|fn cost_source_to_msg' ros/moveit-ros/src/bin/move_group.rs
+404:fn contact_to_msg(
+437:fn cost_source_to_msg(source: &moveit_collision::CostSource) -> r2r::moveit_msgs::msg::CostSource {
+$ rg -n 'starts_with\("impl"\)' ros/moveit-ros/src/conversion_coverage.rs
+216:    line.starts_with("impl") && (line.contains("TryFrom<") || line.contains(" From<"))
+```
+
+둘 다 여전히 자유 함수고, 스캔은 여전히 `impl` 시작 줄만 본다.
+falsifier 불발 — OPEN.
+
+11건 중 falsifier가 있는 10건은 전부 불발했고, 1건(B)은 정의상
+falsifier가 없다. 이번 라운드가 새로 닫은 것은 없다 — §320.1–§320.7의
+7건이 이 라운드의 전부다.
