@@ -33487,10 +33487,10 @@ gapaudit은 이미 main에 병합돼 있다(`a4d5db85`). 그 트리에서 예측
 
 ### §299.10 아직 고치지 않은 것
 
-- **30건의 findings 자체는 이 회차에 고치지 않았다** — 세 부류(blank-line 17,
-  section-mismatch 6, unresolvable 7)이고 부류마다 한 커밋이 맞는 단위다.
-  baseline이 이미 그것들을 깨진 것으로 선언하고 있으므로 아무것도 세탁되지
-  않는다. 셋을 고친 뒤 `IN_REPO_HARD_FAIL`을 뒤집는 것이 남은 일이다.
+- **30건의 findings 자체는 이 회차에 고치지 않았다. 거짓 → 닫힘 (§310.8).** 세 부류(blank-line 17,
+  section-mismatch 6, unresolvable 7) 전부 그 뒤 두 라운드에 걸쳐 닫혔다 — §306이
+  blank-line/unresolvable을 0으로, section-mismatch 6→8을 판단 필요 3으로 줄였고,
+  §309.5(A2)가 그 3도 드리프트로 재도출해 `IN_REPO_HARD_FAIL`이 오늘 0/0/0이다.
 
 - **`doc/handoff-2026-08-06.md:112`의 §5 표 행 수(쓰일 때 19행, 지금 20행)와
   `PORTING-PLAN.md:807`도 그대로다.** 후자는 §5의 범위 안에 있어서 포함
