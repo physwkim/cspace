@@ -14,10 +14,12 @@
 //! for what the captured numbers do and do not mean: panda/fanuc/
 //! dual_arm_panda's fixture URDFs have no `<inertial>` on any link (so
 //! `torques` is exactly zero in every case for those three), and pr2's
-//! `max_payload.payload` is `0.0` in every case because of
-//! `DynamicsSolver::getMaxPayload`'s own indexing bug — see
-//! `crates/moveit-state/src/dynamics.rs`'s module doc comment for why this
-//! port reproduces that bug rather than fixing it.
+//! `max_payload.payload` is `0.0` in every case because it was captured
+//! from real upstream, which still carries `DynamicsSolver::getMaxPayload`'s
+//! own indexing bug — see `crates/moveit-state/src/dynamics.rs`'s module doc
+//! comment for why this port corrects that bug rather than reproducing it,
+//! and `assert_dynamics_matches_oracle`'s own doc comment below for how this
+//! fixture's now-uncomparable `max_payload` field is handled.
 //!
 //! `max_torques` is not read from `RobotModel` (upstream's own
 //! `DynamicsSolver` bypasses it too — see `dynamics.rs`), so this test
@@ -34,6 +36,7 @@ use moveit_geometry::Vector3;
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::DynamicsSolver;
+use moveit_test_support::KnownOracleDeviation;
 
 fn fixture_path(file_name: &str) -> String {
     format!(
@@ -129,27 +132,28 @@ fn assert_close(actual: f64, expected: f64, context: &str) {
     );
 }
 
-/// `max_payload_is_known_deviation`: `true` for a fixture whose group has a
+/// `max_payload_known_deviation`: `Some` for a fixture whose group has a
 /// fixed joint strictly before its last active joint (`pr2`'s `right_arm`
 /// only, so far) -- every such case's oracle-captured `max_payload` was
 /// measured against real moveit2, which still carries
 /// `get-max-payload-index-space` (`dynamics.rs`'s module doc), while this
 /// port's `DynamicsSolver::max_payload` corrects it. `max_payload` is then
-/// not compared to `case.max_payload` at all: there is no ground truth to
-/// verify a corrected value against, and asserting equality would just
-/// re-encode the bug into this test. What *is* asserted -- across the whole
-/// fixture, after the loop -- is that the fix has a real, observed effect on
-/// at least one case, so this skip cannot silently launder an
-/// already-vacuous comparison.
+/// not compared to `case.max_payload` with a plain equality assertion at
+/// all: there is no ground truth to verify a corrected value against, and
+/// asserting equality would just re-encode the bug into this test. Instead
+/// each case is routed through [`KnownOracleDeviation::observe`], and
+/// [`KnownOracleDeviation::finish`] closes the fixture by panicking unless
+/// at least one case actually diverged -- see that type's own doc comment
+/// (`crates/moveit-test-support/src/lib.rs`) for why a skip alone cannot be
+/// trusted to stay meaningful.
 fn assert_dynamics_matches_oracle(
     model: &RobotModel,
     urdf: &urdf_rs::Robot,
     fixture_name: &str,
-    max_payload_is_known_deviation: bool,
+    mut max_payload_known_deviation: Option<KnownOracleDeviation>,
 ) {
     let fixture = load_fixture(fixture_name);
     let max_torques = max_torques_from_urdf(model, urdf, &fixture.group);
-    let mut max_payload_diverged_from_the_oracle = false;
 
     for case in &fixture.cases {
         let gravity = Vector3::new(case.gravity[0], case.gravity[1], case.gravity[2]);
@@ -191,62 +195,57 @@ fn assert_dynamics_matches_oracle(
         let max_payload = solver
             .max_payload(&angles)
             .unwrap_or_else(|e| panic!("{fixture_name} case {}: max_payload: {e}", case.name));
-        if max_payload_is_known_deviation {
-            if max_payload.joint_saturated != case.max_payload.joint_saturated
-                || case.max_payload.payload != Some(max_payload.payload)
-            {
-                max_payload_diverged_from_the_oracle = true;
-            }
-        } else {
-            assert_eq!(
-                max_payload.joint_saturated, case.max_payload.joint_saturated,
-                "{fixture_name} case {} max_payload.joint_saturated",
-                case.name
-            );
-            match case.max_payload.payload {
-                Some(expected) => assert_close(
-                    max_payload.payload,
-                    expected,
-                    &format!("{fixture_name} case {} max_payload.payload", case.name),
-                ),
-                None => assert!(
-                    !max_payload.payload.is_finite(),
-                    "{fixture_name} case {}: oracle's max_payload.payload is null (division by \
-                     zero gravity norm), expected a non-finite payload, got {}",
-                    case.name,
-                    max_payload.payload
-                ),
+        match &mut max_payload_known_deviation {
+            Some(deviation) => deviation.observe(
+                &case.name,
+                &(case.max_payload.joint_saturated, case.max_payload.payload),
+                &(max_payload.joint_saturated, Some(max_payload.payload)),
+            ),
+            None => {
+                assert_eq!(
+                    max_payload.joint_saturated, case.max_payload.joint_saturated,
+                    "{fixture_name} case {} max_payload.joint_saturated",
+                    case.name
+                );
+                match case.max_payload.payload {
+                    Some(expected) => assert_close(
+                        max_payload.payload,
+                        expected,
+                        &format!("{fixture_name} case {} max_payload.payload", case.name),
+                    ),
+                    None => assert!(
+                        !max_payload.payload.is_finite(),
+                        "{fixture_name} case {}: oracle's max_payload.payload is null \
+                         (division by zero gravity norm), expected a non-finite payload, got {}",
+                        case.name,
+                        max_payload.payload
+                    ),
+                }
             }
         }
     }
 
-    if max_payload_is_known_deviation {
-        assert!(
-            max_payload_diverged_from_the_oracle,
-            "{fixture_name}: expected at least one case's max_payload to diverge from the \
-             oracle-captured (buggy) value -- if none did, this fixture no longer exercises \
-             get-max-payload-index-space's precondition and max_payload_is_known_deviation \
-             should be reconsidered"
-        );
+    if let Some(deviation) = max_payload_known_deviation {
+        deviation.finish();
     }
 }
 
 #[test]
 fn panda_dynamics_matches_the_oracle() {
     let (model, urdf) = build_model("panda.urdf", "panda.srdf");
-    assert_dynamics_matches_oracle(&model, &urdf, "panda_dynamics.json", false);
+    assert_dynamics_matches_oracle(&model, &urdf, "panda_dynamics.json", None);
 }
 
 #[test]
 fn fanuc_dynamics_matches_the_oracle() {
     let (model, urdf) = build_model("fanuc.urdf", "fanuc.srdf");
-    assert_dynamics_matches_oracle(&model, &urdf, "fanuc_dynamics.json", false);
+    assert_dynamics_matches_oracle(&model, &urdf, "fanuc_dynamics.json", None);
 }
 
 #[test]
 fn dual_arm_panda_dynamics_matches_the_oracle() {
     let (model, urdf) = build_model("dual_arm_panda.urdf", "dual_arm_panda.srdf");
-    assert_dynamics_matches_oracle(&model, &urdf, "dual_arm_panda_dynamics.json", false);
+    assert_dynamics_matches_oracle(&model, &urdf, "dual_arm_panda_dynamics.json", None);
 }
 
 #[test]
@@ -256,7 +255,17 @@ fn pr2_dynamics_matches_the_oracle() {
     // (active) -- exactly get-max-payload-index-space's precondition, so
     // every case's oracle-captured max_payload reflects upstream's bug. See
     // assert_dynamics_matches_oracle's own doc comment.
-    assert_dynamics_matches_oracle(&model, &urdf, "pr2_dynamics.json", true);
+    assert_dynamics_matches_oracle(
+        &model,
+        &urdf,
+        "pr2_dynamics.json",
+        Some(KnownOracleDeviation::new(
+            "max_payload (joint_saturated, payload)",
+            "moveit_core/dynamics_solver/src/dynamics_solver.cpp:126,132-144,246-254,271-284 \
+             (get-max-payload-index-space)",
+            "feaa8b79",
+        )),
+    );
 }
 
 /// Regression test for `get-max-payload-index-space` (upstream

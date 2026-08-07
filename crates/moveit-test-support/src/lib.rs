@@ -96,6 +96,91 @@ pub fn assert_group_has_updated_links(model: &RobotModel, group_name: &str) {
     );
 }
 
+/// A single point where a fixture-vs-oracle parity test deliberately does
+/// *not* assert equality on one field, because the fixture was captured from
+/// a real upstream run that still carries a bug this port has since fixed
+/// (or upstream fixed independently -- either way, the port's output can no
+/// longer agree with the captured value on that field).
+///
+/// A bare `if known_deviation { skip the equality assert }` -- the shape
+/// every such deviation in this port's parity tests used before this type
+/// existed, e.g. `crates/moveit-state/tests/dynamics_parity.rs`'s
+/// `max_payload_is_known_deviation` -- absorbs every future regression on
+/// that field too, silently: once the assertion is skipped, nothing
+/// distinguishes "still correctly diverging from the buggy oracle value"
+/// from "the fix regressed and the port's output now silently matches
+/// something else entirely (including the oracle's original buggy value),"
+/// or "the fixture no longer exercises the case that made the deviation
+/// necessary." [`KnownOracleDeviation::finish`] closes that gap: it panics
+/// unless at least one observed case actually differed from its oracle
+/// value, so any of those three failure modes turns this gate red instead
+/// of silently doing nothing.
+///
+/// Construct one per deviating field per fixture, call [`Self::observe`]
+/// once per case in place of the normal equality assertion, then
+/// [`Self::finish`] once after the last case. The field name, upstream
+/// citation, and fix commit sha passed to [`Self::new`] all appear in
+/// [`Self::finish`]'s panic message, so a failure names its own evidence
+/// without a reader needing to find the call site first.
+pub struct KnownOracleDeviation {
+    field: &'static str,
+    upstream_citation: &'static str,
+    fix_commit: &'static str,
+    diverged_on: Option<String>,
+}
+
+impl KnownOracleDeviation {
+    /// `field` names the quantity being deviated (e.g. `"max_payload
+    /// (joint_saturated, payload)"`); `upstream_citation` is the exact
+    /// upstream `file:line` the deviation is measured against;
+    /// `fix_commit` is the sha of the commit that decided to diverge. All
+    /// three are echoed by [`Self::finish`]'s panic message.
+    pub fn new(
+        field: &'static str,
+        upstream_citation: &'static str,
+        fix_commit: &'static str,
+    ) -> Self {
+        Self {
+            field,
+            upstream_citation,
+            fix_commit,
+            diverged_on: None,
+        }
+    }
+
+    /// Records one case's comparison in place of the normal equality
+    /// assertion `field` would otherwise get. `oracle` is the fixture's own
+    /// captured value; `actual` is the port's current output. Asserts
+    /// nothing by itself -- call [`Self::finish`] once every case in the
+    /// fixture has been observed.
+    pub fn observe<T: PartialEq>(&mut self, case: &str, oracle: &T, actual: &T) {
+        if self.diverged_on.is_none() && oracle != actual {
+            self.diverged_on = Some(case.to_string());
+        }
+    }
+
+    /// Call once, after every case has been passed to [`Self::observe`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if no observed case actually diverged from its oracle value --
+    /// the one condition every call site's skipped equality assertion is
+    /// conditioned on.
+    pub fn finish(self) {
+        assert!(
+            self.diverged_on.is_some(),
+            "known deviation {:?} ({}, fixed at {}) never diverged from the oracle-captured \
+             value on any observed case in this fixture -- either the fix regressed and the \
+             port's output now silently matches the oracle again, or the fixture no longer \
+             exercises the case this deviation exists for. Either way this call site must be \
+             reconsidered, not kept as-is.",
+            self.field,
+            self.upstream_citation,
+            self.fix_commit
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use moveit_model::MeshSearchPaths;
@@ -153,5 +238,28 @@ mod tests {
     fn rejects_an_unresolvable_group_name() {
         let model = build(&two_link_urdf("revolute"), SRDF);
         assert_group_has_updated_links(&model, "no_such_group");
+    }
+
+    #[test]
+    fn known_oracle_deviation_finishes_once_a_case_diverges() {
+        let mut deviation = KnownOracleDeviation::new("field", "upstream.cpp:1", "deadbeef");
+        deviation.observe("case_a", &1, &1);
+        deviation.observe("case_b", &1, &2);
+        deviation.finish();
+    }
+
+    #[test]
+    #[should_panic(expected = "never diverged from the oracle-captured value")]
+    fn known_oracle_deviation_panics_when_every_case_matches_the_oracle() {
+        let mut deviation = KnownOracleDeviation::new("field", "upstream.cpp:1", "deadbeef");
+        deviation.observe("case_a", &1, &1);
+        deviation.observe("case_b", &2, &2);
+        deviation.finish();
+    }
+
+    #[test]
+    #[should_panic(expected = "never diverged from the oracle-captured value")]
+    fn known_oracle_deviation_panics_with_no_cases_observed() {
+        KnownOracleDeviation::new("field", "upstream.cpp:1", "deadbeef").finish();
     }
 }

@@ -606,6 +606,7 @@ dependencies = [
  "moveit-geometry",
  "moveit-model",
  "moveit-srdf",
+ "moveit-test-support",
  "nalgebra",
  "rand",
  "rand_chacha",
