@@ -134,6 +134,21 @@ PORT_SEED_BASE=700001
 # The port-side harnesses' non-binding clock argument. See the header.
 NO_CLOCK_BOUND=1e9
 
+# Bound for the C++ OMPL RRTConnect baseline oracle call below: one process
+# solves a whole config's problem set (up to 250, see COUNTS), each problem
+# individually capped at plan_benchmark_problem_set.rs's own
+# `max_iterations: 2000`, so the call is iteration-bounded per problem but
+# carries no request-level wall-clock stop of its own. No wall clock for
+# this specific call has been separately measured and pinned (only the
+# whole script's has, via the "baseline wall=" line below); this is
+# deliberately far above CHOMP's comparable 500-problem/170s run and far
+# below the escalation-sized bound `verify-phase7-benchmark.sh` needs for
+# its own retry stage, which is a structurally different (iteration count
+# 50000 vs 2000, and retried problems are the ones that already failed to
+# converge once) call. Same value as that script's own
+# ORACLE_BASELINE_TIMEOUT, for the same call shape.
+ORACLE_BASELINE_TIMEOUT="${ORACLE_BASELINE_TIMEOUT:-1800}"
+
 # STOMP tier 1's subset: the first 25 problems of each config. A prefix, not
 # a sample: it has to be reproducible from the same request JSON with no
 # selection step of its own, and the ids are the sharding unit already.
@@ -185,8 +200,13 @@ for i in "${!CONFIGS[@]}"; do
     >"$WORKDIR/$c.json" 2>"$WORKDIR/$c.stats"
   # One oracle process per config: OMPL's RNG is seeded at most once per
   # process, so a shared process would make config 2 depend on config 1.
-  sg docker -c "$ORACLE --urdf $URDF --srdf $SRDF" \
-    <"$WORKDIR/$c.json" >"$WORKDIR/$c.response.json" 2>"$WORKDIR/$c.oracle.stderr"
+  if ! oracle_call "$ORACLE_BASELINE_TIMEOUT" -- \
+       sg docker -c "$ORACLE --urdf $URDF --srdf $SRDF" \
+       <"$WORKDIR/$c.json" >"$WORKDIR/$c.response.json" 2>"$WORKDIR/$c.oracle.stderr"; then
+    oracle_call_explain "$ORACLE_CALL_STATUS" "C++ OMPL baseline for $c: "
+    tail -5 "$WORKDIR/$c.oracle.stderr" >&2
+    exit 1
+  fi
 done
 echo "baseline wall=$(( $(date +%s) - t0 ))s" >&2
 
