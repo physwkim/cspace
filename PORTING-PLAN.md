@@ -37912,3 +37912,21 @@ $ rg -n "URDF=|SRDF=" tools/ci/verify-phase8-benchmark.sh
 
 다른 로봇(fanuc, prbt, ur5, panda_two_finger 등) 경로 분기가 없다. **판정:
 참, OPEN 유지.**
+
+### §325.3 §286.11 C — "`max_iterations = 200`"(30855)은 CLI에 없다
+
+불릿 원문: "`max_iterations = 200`. §269.8이 연 자리 그대로다."
+
+**Falsifier.** `chomp_benchmark_port.rs`의 `main()`이 `max_iterations`를 CLI
+인자로 받는지.
+
+```
+$ rg -n "fn main" -A 25 crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs
+693:fn main() {
+...
+(usage/parsing block: <seed_base> [planning_time_limit_secs] only)
+```
+
+`main()`은 여전히 `<seed_base> [planning_time_limit_secs]` 두 인자만
+파싱한다(693-712행) — `max_iterations`를 바꿔 재실행할 진입점이 없다.
+**판정: 참, OPEN 유지.**
