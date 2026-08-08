@@ -726,18 +726,30 @@ pub use visibility::{
 ///
 /// Unlike the four constraint types themselves, this struct needed no
 /// `Option`/enum redesign: both fields always hold one meaning regardless of
-/// context (`satisfied` is never conditionally overloaded, and `distance` is
-/// always "how far from satisfied, in the constraint's own units" —
-/// `0.0` both when perfectly satisfied and, degenerately, for a disabled
-/// constraint that always reports satisfied). It is ported as a direct
-/// transcription.
+/// context (`satisfied` is never conditionally overloaded). But `distance`
+/// is NOT "how far from satisfied" — every `decide()` implementation
+/// (`JointConstraint`, `PositionConstraint`, `OrientationConstraint`)
+/// computes it as the raw displacement from the constraint's nominal
+/// target/center, weighted by the constraint's own weight, entirely
+/// independent of tolerance. It is `0.0` only when the state sits exactly
+/// on that nominal target — not merely whenever `satisfied` is `true`: a
+/// state anywhere inside the tolerance window is `satisfied` yet can still
+/// carry nonzero `distance`. A consumer that needs "amount by which
+/// tolerance was exceeded" (zero throughout the tolerance window, growing
+/// only past it) must gate on `satisfied` itself rather than reading
+/// `distance` directly — see `get_constraints_cost_function` in
+/// `moveit-planners-stomp` for the fix this port needed once one consumer
+/// was found treating the two meanings as interchangeable. It is ported as
+/// a direct transcription.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ConstraintEvaluationResult {
     /// Whether the constraint was satisfied by the state it was evaluated
     /// against.
     pub satisfied: bool,
-    /// The distance from being satisfied, weighted by the constraint's own
-    /// weight. `0.0` when satisfied.
+    /// The distance from the constraint's exact nominal target, weighted by
+    /// the constraint's own weight. `0.0` only when the state sits exactly
+    /// on that target — NOT `0.0` throughout the tolerance window. Do not
+    /// read this as "amount of violation"; see the struct-level doc.
     pub distance: f64,
 }
 

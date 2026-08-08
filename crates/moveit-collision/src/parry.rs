@@ -1209,7 +1209,7 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Shape, Vector3, compound_from_octree};
-use moveit_model::LinkModel;
+use moveit_model::{LinkModel, RobotModel};
 use moveit_state::Posed;
 
 use parry3d_f64::bounding_volume::Aabb;
@@ -1406,6 +1406,220 @@ impl OctreeCache {
     }
 }
 
+/// Cache of [`Shape`] → `parry` shape conversions for attached-body and
+/// world-object geometry — the two populations whose shapes live behind an
+/// [`Arc`], the same identity [`OctreeCache`] above already keys on, extended
+/// here from `Shape::OcTree` alone to every variant [`convert_shape`]
+/// produces (additive to [`convert_shape`] itself — its match arms are
+/// unchanged; this wraps the call from outside). See [`link_body`]/
+/// [`LinkShapeCache`] for why robot links need a different mechanism: their
+/// shapes are not behind an `Arc` at all.
+///
+/// Keyed by `Arc::as_ptr(shape)` plus the scale/padding the entry was built
+/// at — [`Shape::Mesh`]/etc. depend only on the shape's own data, but the
+/// converted-and-scaled-and-padded result also depends on
+/// [`LinkPaddingScale::link_scale`]/[`LinkPaddingScale::link_padding`] of the
+/// attached link (module doc, "Attached-body geometry"; world objects always
+/// query at `(1.0, 0.0)` — deviation 2 — so their entries never collide with
+/// a scaled/padded attached-body entry even if the same `Arc` were somehow
+/// shared between the two).
+///
+/// The stored [`Weak`] is not just the pruning bookkeeping it is for
+/// [`OctreeCache`] — for attached bodies it is load-bearing. Once this cache
+/// has looked at a shape, it holds a `Weak` to it forever (until pruned), and
+/// [`Arc::make_mut`] clones onto a fresh allocation whenever *any* `Weak` is
+/// outstanding, not only when the strong count exceeds one. That is exactly
+/// the branch [`moveit_scene::AttachedBody::set_scale`]/`set_padding` would
+/// otherwise take when the body is the shape's sole strong owner: mutate the
+/// existing allocation *in place, at the same address*, which a plain
+/// address-keyed cache with no pin would silently keep serving. Holding the
+/// `Weak` here forces that mutation onto a new address instead, turning what
+/// would be a stale hit into an ordinary miss. World-object shapes have no
+/// in-place-mutation path at all — every mutator in `world.rs` that can
+/// change what a shape *is* (`add_to_object`'s `Object::push_shape`,
+/// `remove_shape_from_object`'s `obj.shapes.remove`) installs or drops a
+/// whole `Arc<Shape>`, never mutates one in place — so for that population
+/// the `Weak` does only the pruning job it already does for [`OctreeCache`].
+/// `move_shape_in_object`/`move_shapes_in_object`/`move_object`/
+/// `set_object_pose` change only [`ShapeEntry::pose`]/`Object::pose`, never
+/// the `Arc<Shape>` itself, so they need no invalidation here at all — the
+/// pose composition already happens after this cache returns, in
+/// [`pose_parts`].
+#[derive(Clone, Default)]
+struct ShapeCache(Arc<Mutex<HashMap<ShapeCacheKey, ShapeCacheEntry>>>);
+
+/// [`ShapeCache`]'s key: a shape's `Arc` identity plus the scale/padding its
+/// cached conversion was built at. Not a bare pointer used as identity on its
+/// own — see [`ShapeCache`]'s own doc for why the stored [`Weak`] is what
+/// makes keying on the address safe (a lookup can only ever hit while that
+/// exact allocation is still reachable through this cache's own pin).
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct ShapeCacheKey {
+    shape_ptr: usize,
+    scale_bits: u64,
+    padding_bits: u64,
+}
+
+/// The pin plus the cached conversion — same shape as [`OctreeCacheEntry`].
+type ShapeCacheEntry = (Weak<Shape>, Option<(SharedShape, Isometry3)>);
+
+impl std::fmt::Debug for ShapeCache {
+    /// See [`OctreeCache`]'s own [`std::fmt::Debug`] impl for why this
+    /// reports size, not contents.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let len = self.0.lock().map_or(0, |cache| cache.len());
+        f.debug_struct("ShapeCache").field("entries", &len).finish()
+    }
+}
+
+impl ShapeCache {
+    /// Returns the cached `(parry shape, extra transform)` for `shape` at
+    /// `scale`/`padding`, or computes it with `build` and stores the result.
+    /// Prunes every entry whose `Weak` has gone dead first, same reasoning as
+    /// [`OctreeCache::get_or_compute`].
+    fn get_or_compute(
+        &self,
+        shape: &Arc<Shape>,
+        scale: f64,
+        padding: f64,
+        build: impl FnOnce() -> Option<(SharedShape, Isometry3)>,
+    ) -> Option<(SharedShape, Isometry3)> {
+        let key = ShapeCacheKey {
+            shape_ptr: Arc::as_ptr(shape) as *const () as usize,
+            scale_bits: scale.to_bits(),
+            padding_bits: padding.to_bits(),
+        };
+        let mut cache = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        cache.retain(|_, (weak, _)| weak.strong_count() > 0);
+        if let Some((_, cached)) = cache.get(&key) {
+            return cached.clone();
+        }
+        let value = build();
+        cache.insert(key, (Arc::downgrade(shape), value.clone()));
+        value
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).len()
+    }
+}
+
+/// Cache of [`LinkModel`] shape conversions — [`ShapeCache`]'s counterpart
+/// for robot links, which need a different mechanism because
+/// [`moveit_model::link_model::LinkShape::shape`] is a plain [`Shape`], never
+/// behind an [`Arc`]: [`moveit_state::RobotState::model`] hands out a bare
+/// `&'m RobotModel` reference (`moveit-state/src/state.rs`), so there is no
+/// [`Weak`] this cache could pin the way [`ShapeCache`] pins an attached-body
+/// or world-object shape.
+///
+/// Entries are keyed by `(link_index, shape_index, scale_bits, padding_bits)`
+/// — a [`LinkModel`]'s shape list is fixed at [`RobotModel`] construction
+/// (`LinkModel::set_geometry` is `pub(crate)`, called only from
+/// `RobotModel::apply_link_geometry`; there is no public API to mutate a
+/// built model's link shapes), so that part of the key needs no invalidation
+/// at all, only the scale/padding half does.
+///
+/// What that key *cannot* see is which [`RobotModel`] *value* it was built
+/// against. Every [`Self::get_or_compute`] call also takes the calling
+/// model's identity (its address plus [`RobotModel::name`]) and compares it
+/// against what the cache last saw; a mismatch clears every entry before any
+/// lookup, so a second, different model can never read a first model's
+/// cached geometry through a matching `(link_index, shape_index, ...)` key.
+/// This is deliberately *not* claimed to be as airtight as [`ShapeCache`]'s
+/// `Weak`-pinned address: without an `Arc`, nothing stops a dropped model's
+/// address being reused by an unrelated later model that also happens to
+/// share its declared name — the same failure shape [`OctreeCache`]'s doc
+/// records, not fully closed here for the one population with no `Arc` to
+/// pin. No caller in this tree queries one long-lived [`ParryCollisionEnv`]
+/// against more than one [`RobotModel`] value today (checked every
+/// `ParryCollisionEnv::new` call site with `rg -n 'ParryCollisionEnv::new'
+/// --type rust -A3`: each builds one `env` against one `model`/`RobotState`
+/// pair and never repoints it at a second model), so this is a documented
+/// residual, not a reproduced defect.
+///
+/// Shared, not reset, across [`ParryCollisionEnv::clone`] — same reasoning
+/// as [`OctreeCache`]'s own doc on that. A clone still checked against the
+/// same model identity keeps benefiting from this cache's entries; a clone
+/// that then gets queried against a different model pays the same one-time
+/// clear [`Self::get_or_compute`] would apply on any other model change.
+#[derive(Clone, Default)]
+struct LinkShapeCache(Arc<Mutex<LinkShapeCacheInner>>);
+
+#[derive(Default)]
+struct LinkShapeCacheInner {
+    /// The `(&RobotModel` address, `RobotModel::name())` pair observed on
+    /// the call that populated `entries` — see [`LinkShapeCache`]'s own doc.
+    model: Option<(usize, String)>,
+    entries: HashMap<LinkShapeKey, Option<(SharedShape, Isometry3)>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct LinkShapeKey {
+    link_index: usize,
+    shape_index: usize,
+    scale_bits: u64,
+    padding_bits: u64,
+}
+
+/// The `(pointer-identity, name)` pair [`LinkShapeCache::get_or_compute`]
+/// gates on — one value, not two independent arguments, because the two
+/// halves are never meaningful apart: see [`LinkShapeCache`]'s own doc for
+/// why both are needed together.
+#[derive(Clone, Copy)]
+struct ModelIdentity<'a> {
+    ptr: usize,
+    name: &'a str,
+}
+
+impl std::fmt::Debug for LinkShapeCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let len = self.0.lock().map_or(0, |cache| cache.entries.len());
+        f.debug_struct("LinkShapeCache")
+            .field("entries", &len)
+            .finish()
+    }
+}
+
+impl LinkShapeCache {
+    /// Returns the cached `(parry shape, extra transform)` for
+    /// `(link_index, shape_index)` at `scale`/`padding` under the
+    /// `RobotModel` identified by `model`, or computes it with `build`. A
+    /// model identity that does not match the previous call clears every
+    /// entry first — see [`LinkShapeCache`]'s own doc.
+    fn get_or_compute(
+        &self,
+        model: ModelIdentity<'_>,
+        key: LinkShapeKey,
+        build: impl FnOnce() -> Option<(SharedShape, Isometry3)>,
+    ) -> Option<(SharedShape, Isometry3)> {
+        let mut guard = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let same_model = guard
+            .model
+            .as_ref()
+            .is_some_and(|(ptr, name)| *ptr == model.ptr && name == model.name);
+        if !same_model {
+            guard.entries.clear();
+            guard.model = Some((model.ptr, model.name.to_owned()));
+        }
+        if let Some(cached) = guard.entries.get(&key) {
+            return cached.clone();
+        }
+        let value = build();
+        guard.entries.insert(key, value.clone());
+        value
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entries
+            .len()
+    }
+}
+
 /// Convert one [`Shape`] into a `parry` shape, plus the extra local
 /// transform (identity, [`axis_fix`], or a plane offset) needed to align
 /// `parry`'s axis convention with upstream's.
@@ -1577,20 +1791,34 @@ fn pose_parts(
 /// matching upstream's `getLinkModelsWithCollisionGeometry()` filter, which
 /// this crate's [`LinkPaddingScale`] doc already reproduces for the
 /// padding/scale bookkeeping itself.
+///
+/// `model` identifies the [`RobotModel`] `link` came from — see
+/// [`LinkShapeCache`]'s own doc for why it is needed.
 fn link_body(
     link: &LinkModel,
     pose: Isometry3,
+    model: ModelIdentity<'_>,
     padding_scale: &LinkPaddingScale,
     octree_cache: &OctreeCache,
+    link_cache: &LinkShapeCache,
 ) -> Option<PosedBody> {
     let scale = padding_scale.link_scale(link.name());
     let padding = padding_scale.link_padding(link.name());
     let parts: Vec<(Pose, SharedShape)> = link
         .shapes()
         .iter()
-        .filter_map(|link_shape| {
-            let shape = scaled_padded_shape(&link_shape.shape, scale, padding);
-            let (parry_shape, extra) = convert_shape(&shape, octree_cache)?;
+        .enumerate()
+        .filter_map(|(shape_index, link_shape)| {
+            let key = LinkShapeKey {
+                link_index: link.link_index(),
+                shape_index,
+                scale_bits: scale.to_bits(),
+                padding_bits: padding.to_bits(),
+            };
+            let (parry_shape, extra) = link_cache.get_or_compute(model, key, || {
+                let shape = scaled_padded_shape(&link_shape.shape, scale, padding);
+                convert_shape(&shape, octree_cache)
+            })?;
             Some((to_pose(link_shape.origin_transform * extra), parry_shape))
         })
         .collect();
@@ -1613,6 +1841,7 @@ fn attached_body_body(
     link_pose: Isometry3,
     padding_scale: &LinkPaddingScale,
     octree_cache: &OctreeCache,
+    shape_cache: &ShapeCache,
 ) -> Option<PosedBody> {
     let scale = padding_scale.link_scale(geometry.link_name);
     let padding = padding_scale.link_padding(geometry.link_name);
@@ -1621,8 +1850,10 @@ fn attached_body_body(
         .iter()
         .zip(geometry.shape_poses)
         .filter_map(|(shape, shape_pose)| {
-            let scaled = scaled_padded_shape(shape, scale, padding);
-            let (parry_shape, extra) = convert_shape(&scaled, octree_cache)?;
+            let (parry_shape, extra) = shape_cache.get_or_compute(shape, scale, padding, || {
+                let scaled = scaled_padded_shape(shape, scale, padding);
+                convert_shape(&scaled, octree_cache)
+            })?;
             Some((to_pose(*shape_pose * extra), parry_shape))
         })
         .collect();
@@ -1637,12 +1868,25 @@ fn attached_body_body(
 
 /// One world object's [`PosedBody`], unscaled and unpadded (module doc,
 /// deviation 2). `None` if the object has no (convertible) shapes.
-fn object_body(id: &str, object: &Object, octree_cache: &OctreeCache) -> Option<PosedBody> {
+fn object_body(
+    id: &str,
+    object: &Object,
+    octree_cache: &OctreeCache,
+    shape_cache: &ShapeCache,
+) -> Option<PosedBody> {
     let parts: Vec<(Pose, SharedShape)> = object
         .shapes()
         .iter()
         .filter_map(|entry| {
-            let (parry_shape, extra) = convert_shape(entry.shape(), octree_cache)?;
+            // World objects are never scaled/padded (deviation 2), so every
+            // entry here queries `shape_cache` at the same fixed (1.0, 0.0)
+            // -- distinct from an attached body's entry for the very same
+            // `Arc<Shape>`, should the two ever coincide (see `ShapeCache`'s
+            // own doc).
+            let (parry_shape, extra) =
+                shape_cache.get_or_compute(entry.shape(), 1.0, 0.0, || {
+                    convert_shape(entry.shape(), octree_cache)
+                })?;
             Some((to_pose(entry.pose() * extra), parry_shape))
         })
         .collect();
@@ -1660,10 +1904,24 @@ fn robot_bodies(
     attached_bodies: &[AttachedBodyGeometry<'_>],
     padding_scale: &LinkPaddingScale,
     octree_cache: &OctreeCache,
+    link_cache: &LinkShapeCache,
+    shape_cache: &ShapeCache,
 ) -> Vec<PosedBody> {
-    let links = state.model().link_models().iter().filter_map(|link| {
+    let model = state.model();
+    let model_identity = ModelIdentity {
+        ptr: model as *const RobotModel as usize,
+        name: model.name(),
+    };
+    let links = model.link_models().iter().filter_map(|link| {
         let pose = state.global_link_transform_at(link.link_index());
-        link_body(link, pose, padding_scale, octree_cache)
+        link_body(
+            link,
+            pose,
+            model_identity,
+            padding_scale,
+            octree_cache,
+            link_cache,
+        )
     });
     // `global_link_transform` only fails for a link name absent from
     // `state`'s own model; a caller building `AttachedBodyGeometry` from a
@@ -1674,15 +1932,25 @@ fn robot_bodies(
     // treated above: dropped, not fatal.
     let attached = attached_bodies.iter().filter_map(|geometry| {
         let link_pose = state.global_link_transform(geometry.link_name).ok()?;
-        attached_body_body(geometry, link_pose, padding_scale, octree_cache)
+        attached_body_body(
+            geometry,
+            link_pose,
+            padding_scale,
+            octree_cache,
+            shape_cache,
+        )
     });
     links.chain(attached).collect()
 }
 
-fn world_bodies(world: &World, octree_cache: &OctreeCache) -> Vec<PosedBody> {
+fn world_bodies(
+    world: &World,
+    octree_cache: &OctreeCache,
+    shape_cache: &ShapeCache,
+) -> Vec<PosedBody> {
     world
         .iter()
-        .filter_map(|(id, object)| object_body(id, object, octree_cache))
+        .filter_map(|(id, object)| object_body(id, object, octree_cache, shape_cache))
         .collect()
 }
 
@@ -2800,6 +3068,14 @@ pub struct ParryCollisionEnv {
     /// See [`OctreeCache`]'s own doc: avoids re-running
     /// [`compound_from_octree`] for the same octree on every call.
     octree_cache: OctreeCache,
+    /// See [`ShapeCache`]'s own doc: avoids reconverting attached-body and
+    /// world-object geometry (every [`Shape`] variant, not just
+    /// [`Shape::OcTree`]) on every call.
+    shape_cache: ShapeCache,
+    /// See [`LinkShapeCache`]'s own doc: the same memoization for robot-link
+    /// geometry, keyed differently because a link's [`Shape`] is never
+    /// behind an [`Arc`].
+    link_cache: LinkShapeCache,
 }
 
 impl ParryCollisionEnv {
@@ -2810,6 +3086,8 @@ impl ParryCollisionEnv {
             world,
             padding_scale,
             octree_cache: OctreeCache::default(),
+            shape_cache: ShapeCache::default(),
+            link_cache: LinkShapeCache::default(),
         }
     }
 
@@ -2887,6 +3165,8 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
             attached_bodies,
             &self.padding_scale,
             &self.octree_cache,
+            &self.link_cache,
+            &self.shape_cache,
         );
         let active = active_group_links(state, request.group_name.as_deref());
         let pairs = self_pairs(&bodies).filter(|(a, b)| {
@@ -2913,8 +3193,10 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
             attached_bodies,
             &self.padding_scale,
             &self.octree_cache,
+            &self.link_cache,
+            &self.shape_cache,
         );
-        let world = world_bodies(&self.world, &self.octree_cache);
+        let world = world_bodies(&self.world, &self.octree_cache, &self.shape_cache);
         let active = active_group_links(state, request.group_name.as_deref());
         let pairs = cross_pairs(&robot, &world).filter(|(a, b)| {
             active
@@ -2955,6 +3237,8 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
             attached_bodies,
             &self.padding_scale,
             &self.octree_cache,
+            &self.link_cache,
+            &self.shape_cache,
         );
         let active = active_group_links(state, request.group_name);
         let pairs = self_pairs(&bodies).filter(|(a, b)| {
@@ -2976,8 +3260,10 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
             attached_bodies,
             &self.padding_scale,
             &self.octree_cache,
+            &self.link_cache,
+            &self.shape_cache,
         );
-        let world = world_bodies(&self.world, &self.octree_cache);
+        let world = world_bodies(&self.world, &self.octree_cache, &self.shape_cache);
         let active = active_group_links(state, request.group_name);
         let pairs = cross_pairs(&robot, &world).filter(|(a, b)| {
             active
@@ -3206,6 +3492,374 @@ mod tests {
         );
     }
 
+    // ---- `ShapeCache` (attached bodies / world objects) ----
+
+    #[test]
+    fn shape_cache_get_or_compute_invokes_build_only_once_per_key() {
+        let cache = ShapeCache::default();
+        let shape = Arc::new(Shape::Sphere(Sphere::new(1.0).unwrap()));
+        let calls = std::cell::Cell::new(0);
+        let build = || {
+            calls.set(calls.get() + 1);
+            Some((SharedShape::new(Ball::new(1.0)), Isometry3::identity()))
+        };
+
+        assert!(cache.get_or_compute(&shape, 1.0, 0.0, build).is_some());
+        assert!(cache.get_or_compute(&shape, 1.0, 0.0, build).is_some());
+
+        assert_eq!(
+            calls.get(),
+            1,
+            "the second call for the same shape and scale/padding must hit the cache"
+        );
+    }
+
+    #[test]
+    fn shape_cache_distinguishes_scale_and_padding_for_the_same_shape() {
+        let cache = ShapeCache::default();
+        let shape = Arc::new(Shape::Sphere(Sphere::new(1.0).unwrap()));
+        let calls = std::cell::Cell::new(0);
+        let build = || {
+            calls.set(calls.get() + 1);
+            Some((SharedShape::new(Ball::new(1.0)), Isometry3::identity()))
+        };
+
+        assert!(cache.get_or_compute(&shape, 1.0, 0.0, build).is_some());
+        assert!(
+            cache.get_or_compute(&shape, 2.0, 0.0, build).is_some(),
+            "a different scale for the same shape must not read the scale=1.0 entry"
+        );
+        assert!(
+            cache.get_or_compute(&shape, 1.0, 0.5, build).is_some(),
+            "a different padding for the same shape must not read the padding=0.0 entry"
+        );
+
+        assert_eq!(
+            calls.get(),
+            3,
+            "each distinct (shape, scale, padding) key must build once"
+        );
+    }
+
+    #[test]
+    fn shape_cache_prunes_an_entry_once_nothing_holds_its_shape() {
+        let cache = ShapeCache::default();
+
+        {
+            let shape = Arc::new(Shape::Sphere(Sphere::new(1.0).unwrap()));
+            assert!(cache.get_or_compute(&shape, 1.0, 0.0, || None).is_none());
+            assert_eq!(cache.len(), 1);
+        }
+        // `shape` just went out of scope: nothing holds it anymore, matching
+        // `World::remove_shape_from_object`/`remove_object` dropping the
+        // `Arc<Shape>`, or an `AttachedBody` being detached.
+
+        let other = Arc::new(Shape::Sphere(Sphere::new(1.0).unwrap()));
+        assert!(cache.get_or_compute(&other, 1.0, 0.0, || None).is_none());
+
+        assert_eq!(
+            cache.len(),
+            1,
+            "the dead shape's entry must be pruned, not accumulated alongside the live one"
+        );
+    }
+
+    /// The regression case [`ShapeCache`]'s own doc names: without a stored
+    /// `Weak`, `Arc::make_mut` on a sole-owned shape mutates it *in place at
+    /// the same address*, exactly what `AttachedBody::set_scale`/
+    /// `set_padding` do (`moveit-scene/src/attached_body.rs`) when the body
+    /// is the shape's only strong owner. A cache keyed on the address alone
+    /// would then silently keep serving the pre-mutation geometry. Holding a
+    /// `Weak` here must force that same `make_mut` call onto a fresh
+    /// allocation instead -- checked directly, the same way
+    /// `attached_body.rs`'s own
+    /// `an_outstanding_weak_forces_a_clone_upstreams_use_count_would_not`
+    /// checks it for that crate's `Weak`.
+    #[test]
+    fn shape_cache_get_or_compute_pins_a_weak_that_forces_a_later_make_mut_to_relocate() {
+        let cache = ShapeCache::default();
+        let mut shape = Arc::new(Shape::Sphere(Sphere::new(0.25).unwrap()));
+        assert_eq!(
+            Arc::strong_count(&shape),
+            1,
+            "the fixture must start as the sole strong owner, matching an attached body \
+             nothing else has decomposed or cloned"
+        );
+        let before = Arc::as_ptr(&shape);
+
+        cache
+            .get_or_compute(&shape, 1.0, 0.0, || {
+                Some((SharedShape::new(Ball::new(0.25)), Isometry3::identity()))
+            })
+            .expect("sphere converts");
+
+        // Simulate `AttachedBody::set_scale`'s in-place branch: `Arc::make_mut`
+        // on the exact `Arc` the cache just looked at.
+        if let Shape::Sphere(sphere) = Arc::make_mut(&mut shape) {
+            sphere.radius = 0.5;
+        }
+
+        assert_ne!(
+            Arc::as_ptr(&shape),
+            before,
+            "the cache's own Weak must force make_mut to relocate, not mutate in place -- \
+             without it this assertion would fail, and a same-address cache lookup after this \
+             mutation would silently return the pre-scale geometry"
+        );
+    }
+
+    /// End-to-end version of the `Weak`-forces-relocation test above, through
+    /// the actual `attached_body_body`/`ShapeCache` path rather than the
+    /// bare cache API: a shape cached once, then rescaled the way
+    /// `AttachedBody::set_scale`'s sole-owner branch does, must report its
+    /// *new* dimensions on the next query, not the cached pre-scale ones.
+    #[test]
+    fn attached_body_body_reflects_a_rescaled_shape_not_a_stale_conversion() {
+        let shape_cache = ShapeCache::default();
+        let octree_cache = OctreeCache::default();
+        let padding_scale = LinkPaddingScale::default();
+        let mut shapes = vec![Arc::new(Shape::Sphere(Sphere::new(0.25).unwrap()))];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+
+        let before = attached_body_body(
+            &AttachedBodyGeometry {
+                id: "ab",
+                link_name: "p",
+                shapes: &shapes,
+                shape_poses: &shape_poses,
+                touch_links: &touch_links,
+            },
+            Isometry3::identity(),
+            &padding_scale,
+            &octree_cache,
+            &shape_cache,
+        )
+        .expect("sphere converts");
+        assert_eq!(
+            before.parts[0]
+                .1
+                .as_ball()
+                .expect("sphere converts to a Ball")
+                .radius,
+            0.25
+        );
+
+        // `AttachedBody::set_scale(2.0)`'s sole-owner branch: `Arc::make_mut`
+        // on the same `Vec` entry the query above already fed to the cache.
+        if let Shape::Sphere(sphere) = Arc::make_mut(&mut shapes[0]) {
+            sphere.radius = 0.5;
+        }
+
+        let after = attached_body_body(
+            &AttachedBodyGeometry {
+                id: "ab",
+                link_name: "p",
+                shapes: &shapes,
+                shape_poses: &shape_poses,
+                touch_links: &touch_links,
+            },
+            Isometry3::identity(),
+            &padding_scale,
+            &octree_cache,
+            &shape_cache,
+        )
+        .expect("sphere converts");
+        assert_eq!(
+            after.parts[0]
+                .1
+                .as_ball()
+                .expect("sphere converts to a Ball")
+                .radius,
+            0.5,
+            "a cache blind to the forced relocation would still report the pre-scale radius 0.25"
+        );
+    }
+
+    /// The world-object counterpart: `World`'s own mutators never mutate a
+    /// shape in place (module doc for [`ShapeCache`]) -- a shape is only ever
+    /// replaced (new `Arc`, new key) or removed (pruned, see
+    /// [`shape_cache_prunes_an_entry_once_nothing_holds_its_shape`]) -- so
+    /// this checks the replace path end to end, through `object_body`.
+    #[test]
+    fn object_body_reflects_a_replaced_world_object_shape_not_a_stale_conversion() {
+        let shape_cache = ShapeCache::default();
+        let octree_cache = OctreeCache::default();
+        let mut world = World::new();
+        world.add_shape(
+            "obj",
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::identity(),
+        );
+
+        let object = world.get_object("obj").unwrap();
+        let before =
+            object_body("obj", &object, &octree_cache, &shape_cache).expect("cuboid converts");
+        assert_eq!(
+            before.parts[0]
+                .1
+                .as_cuboid()
+                .expect("cuboid converts to a Cuboid")
+                .half_extents
+                .x,
+            0.5
+        );
+
+        world.remove_object("obj");
+        world.add_shape(
+            "obj",
+            Arc::new(Shape::Cuboid(Cuboid::new(2.0, 2.0, 2.0).unwrap())),
+            Isometry3::identity(),
+        );
+        let object = world.get_object("obj").unwrap();
+        let after =
+            object_body("obj", &object, &octree_cache, &shape_cache).expect("cuboid converts");
+        assert_eq!(
+            after.parts[0]
+                .1
+                .as_cuboid()
+                .expect("cuboid converts to a Cuboid")
+                .half_extents
+                .x,
+            1.0,
+            "the replaced object's own geometry must be returned, not the removed object's \
+             cached conversion"
+        );
+    }
+
+    // ---- `LinkShapeCache` (robot links) ----
+
+    #[test]
+    fn link_shape_cache_get_or_compute_invokes_build_only_once_per_key() {
+        let cache = LinkShapeCache::default();
+        let key = LinkShapeKey {
+            link_index: 0,
+            shape_index: 0,
+            scale_bits: 1.0_f64.to_bits(),
+            padding_bits: 0.0_f64.to_bits(),
+        };
+        let calls = std::cell::Cell::new(0);
+        let build = || {
+            calls.set(calls.get() + 1);
+            Some((SharedShape::new(Ball::new(1.0)), Isometry3::identity()))
+        };
+        let model = ModelIdentity { ptr: 1, name: "m" };
+
+        assert!(cache.get_or_compute(model, key, build).is_some());
+        assert!(cache.get_or_compute(model, key, build).is_some());
+
+        assert_eq!(
+            calls.get(),
+            1,
+            "the second call for the same key must hit the cache"
+        );
+    }
+
+    /// The regression case [`LinkShapeCache`]'s own doc names: a second,
+    /// different `RobotModel` value queried against a `ParryCollisionEnv`
+    /// that already cached the first must get *its own* geometry at the
+    /// same `link_index`, not the first model's.
+    #[test]
+    fn robot_bodies_does_not_serve_one_robot_models_geometry_for_a_different_model_at_the_same_link_index()
+     {
+        let model_a = build_model(&["p"]);
+        let model_b = build_model_with_box_size(&["p"], "2 2 2");
+        let mut state_a = state_with_links_at(&model_a, &[("p", Isometry3::identity())]);
+        let mut state_b = state_with_links_at(&model_b, &[("p", Isometry3::identity())]);
+        let posed_a = state_a.update();
+        let posed_b = state_b.update();
+        let padding_scale = LinkPaddingScale::default();
+        let octree_cache = OctreeCache::default();
+        let link_cache = LinkShapeCache::default();
+        let shape_cache = ShapeCache::default();
+
+        let bodies_a = robot_bodies(
+            &posed_a,
+            &[],
+            &padding_scale,
+            &octree_cache,
+            &link_cache,
+            &shape_cache,
+        );
+        assert_eq!(link_cache.len(), 1, "model A's single link, single shape");
+        let bodies_b = robot_bodies(
+            &posed_b,
+            &[],
+            &padding_scale,
+            &octree_cache,
+            &link_cache,
+            &shape_cache,
+        );
+        assert_eq!(
+            link_cache.len(),
+            1,
+            "querying model B must clear model A's entry, not accumulate alongside it -- a \
+             lingering count of 2 here would mean the two models' link_index=0 shapes are \
+             coexisting under keys that could later be confused"
+        );
+
+        let half_extent_x = |bodies: &[PosedBody]| {
+            bodies[0].parts[0]
+                .1
+                .as_cuboid()
+                .expect("box_link converts to a Cuboid")
+                .half_extents
+                .x
+        };
+        assert_eq!(half_extent_x(&bodies_a), 0.5, "model A's own 1x1x1 box");
+        assert_eq!(
+            half_extent_x(&bodies_b),
+            1.0,
+            "model B's own 2x2x2 box must be returned, not model A's cached 1x1x1 one, even \
+             though both models name their link \"p\" at link_index 0"
+        );
+    }
+
+    #[test]
+    fn link_shape_cache_recomputes_when_link_padding_changes() {
+        let model = build_model(&["p"]);
+        let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let posed = state.update();
+        let octree_cache = OctreeCache::default();
+        let link_cache = LinkShapeCache::default();
+        let shape_cache = ShapeCache::default();
+
+        let mut padding_scale = LinkPaddingScale::default();
+        let unpadded = robot_bodies(
+            &posed,
+            &[],
+            &padding_scale,
+            &octree_cache,
+            &link_cache,
+            &shape_cache,
+        );
+        padding_scale.set_link_padding("p", 0.5);
+        let padded = robot_bodies(
+            &posed,
+            &[],
+            &padding_scale,
+            &octree_cache,
+            &link_cache,
+            &shape_cache,
+        );
+
+        let half_extent_x = |bodies: &[PosedBody]| {
+            bodies[0].parts[0]
+                .1
+                .as_cuboid()
+                .expect("box_link converts to a Cuboid")
+                .half_extents
+                .x
+        };
+        assert_eq!(half_extent_x(&unpadded), 0.5);
+        assert_eq!(
+            half_extent_x(&padded),
+            1.0,
+            "padding 0.5 on each face must grow the cached half-extent by 0.5, not read the \
+             unpadded entry back"
+        );
+    }
+
     #[test]
     fn axis_fix_maps_parry_y_up_onto_moveit_z_up() {
         let fixed = axis_fix() * Vector3::new(0.0, 1.0, 0.0);
@@ -3322,6 +3976,28 @@ mod tests {
                 format!(
                     "{}{}",
                     box_link(name),
+                    floating_joint(&format!("joint_{name}"), "base", name)
+                )
+            })
+            .collect();
+        let urdf_xml =
+            format!(r#"<robot name="test"><link name="base"/>{links_and_joints}</robot>"#);
+        let urdf = urdf_rs::read_from_string(&urdf_xml).expect("test URDF must parse");
+        let srdf = SrdfModel::parse_str(FIXED_BASE_SRDF).expect("test SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("test fixture model must build")
+    }
+
+    /// [`build_model`], with each link's box a caller-chosen `size` instead
+    /// of [`box_link`]'s fixed `"1 1 1"` — for building two distinct
+    /// [`RobotModel`] values that share every link *name* but not their
+    /// geometry, to exercise [`LinkShapeCache`]'s model-identity gate.
+    fn build_model_with_box_size(link_names: &[&str], size: &str) -> RobotModel {
+        let links_and_joints: String = link_names
+            .iter()
+            .map(|name| {
+                format!(
+                    r#"<link name="{name}"><collision><geometry><box size="{size}"/></geometry></collision></link>{}"#,
                     floating_joint(&format!("joint_{name}"), "base", name)
                 )
             })

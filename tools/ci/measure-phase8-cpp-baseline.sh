@@ -95,7 +95,48 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-. "$REPO_ROOT/tools/ci/gate-lib.sh"
+# Same self-copy-and-re-exec this file's own caller does, at its own top --
+# see measure-phase8-optimizer-properties.sh's copy of this comment for the
+# three hazards (corruption, version split, late swap). Independent of that
+# caller rather than snapshotted BY it: this file is `usage`-documented and
+# runnable standalone, and it is a fresh `bash` reading this file from
+# $REPO_ROOT either way, invoked by a person directly or as this run's own
+# "helper not yet reached" -- so it has to protect itself regardless of who
+# starts it, not rely on a caller that may not have.
+#
+# `run-oracle.sh` ($ORACLE below) is NOT snapshotted here either, for the
+# same reason and the same named exposure as the other script: it derives its
+# own $REPO_ROOT from its own `$BASH_SOURCE[0]` and would need this same
+# treatment, in a third file, to be safe to copy.
+#
+# $REPO_ROOT is not redirected -- everything that reads or builds from the
+# real tree (fixtures/, `$BIN`'s `cargo build` fallback, git commands) still
+# has to name it, not this file's own private copy.
+if [[ -z "${_PHASE8_CPPBASE_REPO_ROOT:-}" ]]; then
+  SNAP_ROOT="$(mktemp -d)"
+  trap 'rm -rf "$SNAP_ROOT"' EXIT
+  SELF="$SNAP_ROOT/self"
+  # This file's own name, not a literal, so a rename cannot silently desync
+  # the copy source from what this process was actually invoked as.
+  SELF_NAME="$(basename "${BASH_SOURCE[0]}")"
+  mkdir -p "$SELF/tools/ci" "$SELF/tools/moveit-oracle" || exit 1
+  cp "$REPO_ROOT/tools/ci/$SELF_NAME" "$SELF/tools/ci/" || exit 1
+  cp "$REPO_ROOT/tools/ci/gate-lib.sh" "$SELF/tools/ci/" || exit 1
+  cp "$REPO_ROOT/tools/moveit-oracle/src-digest.sh" "$SELF/tools/moveit-oracle/" || exit 1
+  export _PHASE8_CPPBASE_REPO_ROOT="$REPO_ROOT"
+  export _PHASE8_CPPBASE_SNAPDIR="$SNAP_ROOT"
+  exec "$SELF/tools/ci/$SELF_NAME" "$@"
+fi
+
+# Second execution, from the private copy. $REPO_ROOT comes back from the
+# environment, not from `$BASH_SOURCE[0]` here -- re-deriving it would name
+# $SELF, the copy, instead of the tree fixtures/ and the oracle actually live
+# under.
+REPO_ROOT="$_PHASE8_CPPBASE_REPO_ROOT"
+SNAP_ROOT="$_PHASE8_CPPBASE_SNAPDIR"
+trap 'rm -rf "$SNAP_ROOT"' EXIT
+
+. "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
 
 require_caller_tree "$REPO_ROOT"
 
@@ -182,6 +223,15 @@ if [ ! -x "$BIN" ]; then
   cargo build --release --example plan_benchmark_problem_set -p moveit-planners-sbp \
     --manifest-path "$REPO_ROOT/Cargo.toml" >&2
 fi
+# Copied for the same reason $GEN/$CHOMP/$STOMP are copied after the build in
+# measure-phase8-optimizer-properties.sh: a concurrent `cargo build` replacing
+# $REPO_ROOT/target between here and the call below would swap the binary out
+# from under this run. Only reached (this copy, and the call it protects) when
+# SET_FILE is unset -- the caller that always sets it hands over a $BIN this
+# copy never has to answer for.
+mkdir -p "$SNAP_ROOT/bin" || exit 1
+cp "$BIN" "$SNAP_ROOT/bin/" || exit 1
+BIN="$SNAP_ROOT/bin/$(basename "$BIN")"
 
 # The problem set is generated once and reused for every problem's request, so
 # every shard is provably looking at the same 500 problems as the port run and
@@ -233,9 +283,12 @@ done
 # The three inputs a request's own bytes cannot carry: the two fixture files
 # named in the oracle's argv, and the oracle itself. `oracle_stamp` is the
 # same digest run-oracle.sh insists the image carries, so it names the binary
-# that will actually answer rather than a tag that could have moved.
+# that will actually answer rather than a tag that could have moved. The
+# function comes from the private copy, the directory it hashes stays
+# $REPO_ROOT -- see the same split where this file's own bootstrap sources
+# gate-lib.sh, above.
 # shellcheck source=tools/moveit-oracle/src-digest.sh
-source "$REPO_ROOT/tools/moveit-oracle/src-digest.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../moveit-oracle/src-digest.sh"
 ORACLE_STAMP="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")"
 URDF_SHA="$(sha256sum <"$URDF" | cut -d' ' -f1)"
 SRDF_SHA="$(sha256sum <"$SRDF" | cut -d' ' -f1)"
@@ -247,6 +300,10 @@ SRDF_SHA="$(sha256sum <"$SRDF" | cut -d' ' -f1)"
 REQ_DIR="$(mktemp -d "$OUT_DIR/req.XXXXXXXX")"
 cleanup_requests() {
   local rc=$?
+  # $SNAP_ROOT (the self-copy made at the top of this file) is unconditional,
+  # unlike $REQ_DIR below: nothing about a failure makes the copy worth
+  # keeping to read.
+  rm -rf "$SNAP_ROOT"
   if [ "$rc" -eq 0 ]; then
     rm -rf "$REQ_DIR"
   else

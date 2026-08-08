@@ -201,6 +201,7 @@
 //!   against" in the sense `70a6b31` warns about; nothing to re-measure.
 
 pub mod bodies;
+mod numeric;
 mod octree_collision;
 pub mod quaternion;
 pub mod shapes;

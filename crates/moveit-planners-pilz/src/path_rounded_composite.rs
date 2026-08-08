@@ -138,13 +138,29 @@ impl Segment {
 /// zero, and interior angles within it of `0` or `PI` as doubling back or
 /// running straight through.
 ///
-/// It is deliberately three orders of magnitude coarser than [`KDL_EPSILON`],
-/// which this file uses only for the direction-vector normalization: a corner
-/// this close to degenerate has a tangency point that no longer lands
-/// meaningfully on either leg, well before the vector arithmetic itself loses
-/// precision. The value matches the one upstream tests the same conditions
-/// against, so this type accepts exactly the corner set upstream accepts —
-/// see this module's `# Why this file stays BSD-3-Clause`.
+/// # Not coarser than `KDL_EPSILON` — measured, corrected from an earlier draft
+///
+/// An earlier version of this comment claimed this constant was "three
+/// orders of magnitude coarser" than [`KDL_EPSILON`] (`1e-6`), i.e. around
+/// `1e-3`, on the theory that a corner within `ADD_EPSILON` of straight is
+/// already too degenerate for [`PathRoundedComposite::add_corner`]'s inward
+/// normal to matter. That claim was never true of the actual value below:
+/// `1e-7` is one order of magnitude *finer* than `KDL_EPSILON`, not three
+/// orders coarser. Had the claim been true, `add_corner`'s
+/// `inward.norm() < KDL_EPSILON` branch would be unreachable dead code; being
+/// false, that branch is live — confirmed by construction, not just by this
+/// arithmetic: a corner with `theta = PI - 5e-7` passes this threshold
+/// (`PI - theta = 5e-7 > ADD_EPSILON`) while `inward.norm() = theta.sin() ≈
+/// 5e-7 < KDL_EPSILON`. See `add_corner`'s own comment for what that costs
+/// pre-fix and how it's handled now.
+///
+/// This value is not raised to close that branch, because it is doing a
+/// second job the branch's threshold has nothing to do with: it matches
+/// upstream's own `eps = 1E-7` (`path_roundedcomposite.cpp:71`) for whether a
+/// corner is accepted at all, so this type accepts exactly the corner set
+/// upstream accepts (see this module's `# Why this file stays
+/// BSD-3-Clause`). Raising it to close the normalize branch would silently
+/// narrow that corner set below upstream's.
 const ADD_EPSILON: f64 = 1e-7;
 
 /// A polyline through a sequence of via poses whose interior corners are
@@ -303,15 +319,61 @@ impl PathRoundedComposite {
         // component along the leg projected out. It is perpendicular to the
         // leg, lies in the corner's plane, and points into the turn, so
         // stepping `radius` along it from the tangency point lands on the
-        // center. Its norm is `sin(theta)`, non-zero for the same reason
-        // `tan` above is.
+        // center. Its norm is `sin(theta)` — mathematically non-zero for the
+        // same reason `tan` above is (`theta` strictly inside `(0, PI)`), but
+        // "non-zero" is not "not tiny": `ADD_EPSILON`'s doc comment works out
+        // a concrete `theta` where `sin(theta) < KDL_EPSILON` despite passing
+        // every guard above.
+        //
+        // # Deviation: reject rather than substitute KDL's `(1,0,0)`
+        //
+        // Upstream's analogous vector (`V_base_t` in
+        // `path_roundedcomposite.cpp`) faces the identical gap and closes it
+        // with `Vector::Normalize()`'s documented fallback: substitute the
+        // base-frame unit X axis (`frames.cpp:147-156`). This file is not a
+        // transcription of that function (see this module's `# Why this file
+        // stays BSD-3-Clause` — corner rounding here is derived from the
+        // interior angle directly, reusing only named "interface facts", and
+        // this substitution value is not one of them), so matching that
+        // fallback exactly is a choice, not a fidelity obligation, and it was
+        // measured to be the wrong one: silently reusing `(1,0,0)` would
+        // still build a `Circle` segment, just one whose center sits `radius`
+        // away in an arbitrary world-frame direction unrelated to this
+        // corner's actual geometry — a plausible-looking wrong answer, not a
+        // failure a caller could detect.
+        //
+        // Before this fix, the branch left `inward` un-normalized instead
+        // (neither upstream's substitution nor a real unit vector), which
+        // measured out *worse* than either principled choice: for
+        // `self.radius` small enough that `self.radius * inward.norm() <
+        // KDL_EPSILON`, `PathCircle::new`'s own `radius < eps` guard happens
+        // to catch it, but with a message about "circle radius" that
+        // misnames the actual cause. For `self.radius` large enough that
+        // product clears `KDL_EPSILON` — measured at `self.radius = 1e5`,
+        // `theta = PI - 5e-7` — `PathCircle::new` raised no error at all and
+        // silently returned a circle of radius `self.radius * inward.norm()
+        // ≈ 0.05`, six orders of magnitude off the requested `1e5` and never
+        // surfaced to the caller. An explicit rejection here, before `inward`
+        // ever reaches `center`, replaces both outcomes with one named error
+        // regardless of `self.radius`.
+        //
+        // # This crate now has three substitutions for one KDL contract
+        //
+        // Not resolved by this fix, named so it's on the record: this file
+        // rejects; [`crate::path_line::kdl_normalize`] substitutes
+        // `Vector3::zeros()` (its own doc argues, per call site, that no
+        // current caller can observe the difference from KDL's `(1,0,0)`);
+        // upstream substitutes `(1,0,0)`. Three spellings of one contract in
+        // one crate.
         let along = -back;
         let inward = forth - along * along.dot(&forth);
-        let inward = if inward.norm() < KDL_EPSILON {
-            inward
-        } else {
-            inward.normalize()
-        };
+        if inward.norm() < KDL_EPSILON {
+            return Err(Error::construct(
+                "rounding direction is underdetermined: this corner is too \
+                 close to straight to determine which side to round toward",
+            ));
+        }
+        let inward = inward.normalize();
         let center = arc_start.translation.vector + inward * self.radius;
 
         self.push(Segment::Line(PathLine::new(
@@ -502,6 +564,52 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("would end past"), "{err}");
+    }
+
+    /// `theta = PI - 5e-7` clears `ADD_EPSILON` (`1e-7`) so it is not
+    /// rejected as straight-through, but `inward.norm() = theta.sin() ≈
+    /// 5e-7` is still under `KDL_EPSILON` (`1e-6`) — the live window
+    /// `ADD_EPSILON`'s doc comment works out. `radius = 1e5` is chosen to
+    /// demonstrate the worse of the two pre-fix outcomes: at this radius,
+    /// `self.radius * inward.norm() ≈ 0.05` clears `PathCircle::new`'s own
+    /// `eps` guard, so pre-fix this returned `Ok` with a circle whose actual
+    /// radius was `~0.05`, six orders of magnitude off the requested `1e5`,
+    /// rather than any error at all. See `add_corner`'s comment.
+    #[test]
+    fn add_rejects_a_near_straight_corner_whose_inward_normal_underflows() {
+        let theta = std::f64::consts::PI - 5e-7;
+        let err = build(
+            1e5,
+            &[
+                pose(1.0, 0.0, 0.0),
+                pose(0.0, 0.0, 0.0),
+                pose(theta.cos(), theta.sin(), 0.0),
+            ],
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("rounding direction is underdetermined"),
+            "{err}"
+        );
+    }
+
+    /// Demonstrated opposite: an ordinary near-straight corner just outside
+    /// the underflow window (`theta` a full radian short of `PI`, nowhere
+    /// near either epsilon) still rounds normally at the same radius.
+    #[test]
+    fn add_still_rounds_an_ordinary_near_straight_corner() {
+        let theta = std::f64::consts::PI - 1.0;
+        let path = build(
+            0.1,
+            &[
+                pose(1.0, 0.0, 0.0),
+                pose(0.0, 0.0, 0.0),
+                pose(theta.cos(), theta.sin(), 0.0),
+            ],
+        )
+        .unwrap();
+        assert_eq!(path.segment_count(), 3);
     }
 
     // -- the two shapes `add` can take when it accepts --

@@ -441,6 +441,80 @@ fn median(mut values: Vec<f64>) -> Option<f64> {
     })
 }
 
+/// One problem's emitted JSON record.
+///
+/// Every emission site in this file's main loop builds one of these and
+/// prints [`ProblemRecord::to_json`] rather than assembling its own
+/// `serde_json::json!` object, so a field cannot exist on one exit path and
+/// not another. That was exactly the bug this replaces: `seed_valid`,
+/// `seed_length`, `seed_cost` and `seed_cost_fn_valid` are all functions of
+/// `start_column`/`goal_column`/`config` alone -- available before `plan` is
+/// even called -- but were only added to the record inside the
+/// `solved_count += 1` arm, so a failed or timed-out problem's line carried
+/// none of them, though none of the four depended on the outcome at all.
+///
+/// Fields that genuinely cannot exist on a given path -- everything
+/// downstream of the returned trajectory -- are `Option` here and reach the
+/// line as an explicit JSON `null`, never an absent key: an absent key on
+/// one branch of a two-way `jq` select silently drops that record from
+/// *both* buckets a partition builds from it, where a keyed `null` does
+/// not.
+struct ProblemRecord {
+    id: u64,
+    solved: bool,
+    outcome: &'static str,
+    plan_seconds: f64,
+    /// `Some` only on a failed or timed-out outcome.
+    failure: Option<String>,
+    /// `Some` only when `plan` returned `Ok(Some(_))` and the run did not
+    /// time out -- everything below this point needs the returned
+    /// trajectory.
+    condition2_valid: Option<bool>,
+    condition2_valid_at_returned_waypoints: Option<bool>,
+    waypoints_checked: Option<usize>,
+    raw_waypoints: Option<usize>,
+    start_gap: Option<f64>,
+    goal_gap: Option<f64>,
+    invalid_waypoint_count: Option<usize>,
+    invalid_waypoints: Option<Vec<usize>>,
+    length: Option<f64>,
+    output_cost: Option<f64>,
+    output_cost_fn_valid: Option<bool>,
+    /// Computed from `start_column`/`goal_column`/`config` alone; present on
+    /// every outcome, `plan` is never consulted for any of these four.
+    seed_length: f64,
+    seed_valid: bool,
+    seed_cost: f64,
+    seed_cost_fn_valid: bool,
+}
+
+impl ProblemRecord {
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "solved": self.solved,
+            "outcome": self.outcome,
+            "plan_seconds": self.plan_seconds,
+            "failure": self.failure,
+            "condition2_valid": self.condition2_valid,
+            "condition2_valid_at_returned_waypoints": self.condition2_valid_at_returned_waypoints,
+            "waypoints_checked": self.waypoints_checked,
+            "raw_waypoints": self.raw_waypoints,
+            "start_gap": self.start_gap,
+            "goal_gap": self.goal_gap,
+            "invalid_waypoint_count": self.invalid_waypoint_count,
+            "invalid_waypoints": self.invalid_waypoints,
+            "length": self.length,
+            "seed_cost": self.seed_cost,
+            "output_cost": self.output_cost,
+            "seed_valid": self.seed_valid,
+            "seed_cost_fn_valid": self.seed_cost_fn_valid,
+            "output_cost_fn_valid": self.output_cost_fn_valid,
+            "seed_length": self.seed_length,
+        })
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let usage = "usage: <seed_base> [timeout_seconds] [inject] [dense]";
@@ -663,6 +737,50 @@ fn main() {
             }
         };
 
+        // Both pure functions of start_column/goal_column (plus `config`,
+        // fixed above and never touched by `plan`), computed here -- before
+        // `plan` runs at all -- rather than after a successful outcome: see
+        // `ProblemRecord`'s own doc. The same functional is called again
+        // below on `output_matrix` once `plan` has returned: a `CostFn` is
+        // `FnMut`, so the seed and the output are each evaluated through
+        // their own instance rather than one shared across both.
+        let seed_matrix =
+            linear_interpolation_seed(&start_column, &goal_column, config.num_timesteps);
+        let (seed_cost_columns, seed_cost_fn_valid) =
+            build_cost_fn()(&seed_matrix).expect("cost of the seed trajectory");
+        let seed_cost: f64 = seed_cost_columns.sum();
+        let seed_columns: Vec<DVector<f64>> = (0..seed_matrix.ncols())
+            .map(|t| seed_matrix.column(t).clone_owned())
+            .collect();
+        let seed_length = plan_space_length(&space, &mut length_scratch, group, &seed_columns);
+
+        // `seed_valid` must mean the SAME thing here as in
+        // `optimize_benchmark_chomp.rs`, because one gate check
+        // (`nontrivial-population`) aggregates the field across both
+        // instruments. It is the independent collision checker on the
+        // densified seed -- not `seed_cost_fn_valid`, which is STOMP's own
+        // cost functional and disagrees with the checker in both directions:
+        // the cost carries a clearance margin the checker does not, and a
+        // ported distance field could miss a collision the checker sees.
+        // Fresh scene so the seed check cannot leave state in the one the cost
+        // function closes over.
+        let seed_dense = densify(
+            &template,
+            group,
+            &[start_column.clone(), goal_column.clone()],
+            resolution,
+        );
+        let mut seed_scene = PlanningScene::new(&model, &srdf);
+        let seed_valid = seed_scene
+            .is_path_valid(
+                &env,
+                &CollisionRequest::default(),
+                &seed_dense,
+                check_constraints.as_ref(),
+                &[],
+            )
+            .valid;
+
         // Upstream's timeout watcher (`stomp_moveit_planning_context.cpp:247-257`):
         // cancel from outside after the allowed time, then classify the run as
         // timed out if the watcher is what ended it. The barrier makes the
@@ -735,10 +853,29 @@ fn main() {
                 };
                 println!(
                     "{}",
-                    serde_json::json!({
-                        "id": id, "solved": false, "outcome": outcome_name,
-                        "plan_seconds": elapsed, "failure": detail,
-                    })
+                    ProblemRecord {
+                        id,
+                        solved: false,
+                        outcome: outcome_name,
+                        plan_seconds: elapsed,
+                        failure: Some(detail),
+                        condition2_valid: None,
+                        condition2_valid_at_returned_waypoints: None,
+                        waypoints_checked: None,
+                        raw_waypoints: None,
+                        start_gap: None,
+                        goal_gap: None,
+                        invalid_waypoint_count: None,
+                        invalid_waypoints: None,
+                        length: None,
+                        output_cost: None,
+                        output_cost_fn_valid: None,
+                        seed_cost,
+                        seed_length,
+                        seed_valid,
+                        seed_cost_fn_valid,
+                    }
+                    .to_json()
                 );
                 continue;
             }
@@ -750,18 +887,14 @@ fn main() {
             .expect("uniform timing of a returned trajectory");
         let output_matrix =
             robot_trajectory_to_matrix(&timed, group).expect("returned trajectory to matrix");
-        let seed_matrix =
-            linear_interpolation_seed(&start_column, &goal_column, config.num_timesteps);
 
-        // The same functional on both, built twice because a `CostFn` is
-        // `FnMut`: evaluating the seed through the instance `plan` consumed is
-        // not possible, and reusing one instance across the two evaluations
-        // would let any internal state carry from one into the other.
-        let (seed_cost_columns, seed_cost_fn_valid) =
-            build_cost_fn()(&seed_matrix).expect("cost of the seed trajectory");
+        // The same functional the seed was evaluated through above, built
+        // fresh because a `CostFn` is `FnMut`: evaluating the output through
+        // the seed's own instance is not possible, and reusing one instance
+        // across the two evaluations would let any internal state carry from
+        // one into the other.
         let (output_cost_columns, output_cost_fn_valid) =
             build_cost_fn()(&output_matrix).expect("cost of the returned trajectory");
-        let seed_cost: f64 = seed_cost_columns.sum();
         let output_cost: f64 = output_cost_columns.sum();
         if output_cost < seed_cost {
             cost_improved += 1;
@@ -774,32 +907,6 @@ fn main() {
         seed_costs.push(seed_cost);
         output_costs.push(output_cost);
 
-        // `seed_valid` must mean the SAME thing here as in
-        // `optimize_benchmark_chomp.rs`, because one gate check
-        // (`nontrivial-population`) aggregates the field across both
-        // instruments. It is the independent collision checker on the
-        // densified seed -- not `seed_cost_fn_valid`, which is STOMP's own
-        // cost functional and disagrees with the checker in both directions:
-        // the cost carries a clearance margin the checker does not, and a
-        // ported distance field could miss a collision the checker sees.
-        // Fresh scene so the seed check cannot leave state in the one the cost
-        // function closes over.
-        let seed_dense = densify(
-            &template,
-            group,
-            &[start_column.clone(), goal_column.clone()],
-            resolution,
-        );
-        let mut seed_scene = PlanningScene::new(&model, &srdf);
-        let seed_valid = seed_scene
-            .is_path_valid(
-                &env,
-                &CollisionRequest::default(),
-                &seed_dense,
-                check_constraints.as_ref(),
-                &[],
-            )
-            .valid;
         if !seed_valid {
             seed_invalid += 1;
             // The falsifiable half of the seed-versus-output pairing: a
@@ -827,10 +934,6 @@ fn main() {
         let goal_gap = endpoint_gap(&path[raw_waypoints - 1], &goal_column);
         max_endpoint_gap = max_endpoint_gap.max(start_gap).max(goal_gap);
         let length = plan_space_length(&space, &mut length_scratch, group, &path);
-        let seed_columns: Vec<DVector<f64>> = (0..seed_matrix.ncols())
-            .map(|t| seed_matrix.column(t).clone_owned())
-            .collect();
-        let seed_length = plan_space_length(&space, &mut length_scratch, group, &seed_columns);
 
         // After the length and the endpoint gaps, so both still describe what
         // the planner actually returned.
@@ -862,27 +965,29 @@ fn main() {
             condition2_pass += 1;
         }
 
-        let mut line = serde_json::json!({
-            "id": id,
-            "solved": true,
-            "outcome": "solved",
-            "plan_seconds": elapsed,
-            "condition2_valid": validity.valid,
-            "condition2_valid_at_returned_waypoints": raw_validity.valid,
-            "waypoints_checked": dense.len(),
-            "raw_waypoints": raw_waypoints,
-            "start_gap": start_gap,
-            "goal_gap": goal_gap,
-            "invalid_waypoint_count": validity.invalid_waypoints.len(),
-            "invalid_waypoints": validity.invalid_waypoints,
-            "seed_cost": seed_cost,
-            "output_cost": output_cost,
-            "seed_valid": seed_valid,
-            "seed_cost_fn_valid": seed_cost_fn_valid,
-            "output_cost_fn_valid": output_cost_fn_valid,
-            "length": length,
-            "seed_length": seed_length,
-        });
+        let mut line = ProblemRecord {
+            id,
+            solved: true,
+            outcome: "solved",
+            plan_seconds: elapsed,
+            failure: None,
+            condition2_valid: Some(validity.valid),
+            condition2_valid_at_returned_waypoints: Some(raw_validity.valid),
+            waypoints_checked: Some(dense.len()),
+            raw_waypoints: Some(raw_waypoints),
+            start_gap: Some(start_gap),
+            goal_gap: Some(goal_gap),
+            invalid_waypoint_count: Some(validity.invalid_waypoints.len()),
+            invalid_waypoints: Some(validity.invalid_waypoints.clone()),
+            length: Some(length),
+            output_cost: Some(output_cost),
+            output_cost_fn_valid: Some(output_cost_fn_valid),
+            seed_cost,
+            seed_length,
+            seed_valid,
+            seed_cost_fn_valid,
+        }
+        .to_json();
         if emit_dense {
             let waypoints: Vec<serde_json::Value> = dense
                 .iter()

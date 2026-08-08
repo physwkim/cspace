@@ -81,25 +81,10 @@ use crate::velocity_profile::KDL_EPSILON;
 ///   this direction by a coefficient that is itself provably `0.0`
 ///   whenever the norm-`0.0` branch fires here (see that function's own
 ///   doc comment).
-/// - [`get_rot_angle`]'s own internal call never actually reaches this
-///   branch: the vector it normalizes has a norm that is provably at
-///   least `eps` by the time that call executes, given the singularity
-///   check earlier in the same function already excluded the case where
-///   it would not be.
-/// - [`crate::path_circle::PathCircle::new`]'s `radius`-producing call
-///   returns an error immediately upon seeing `norm < eps`, before its
-///   direction is ever read.
-/// - The one caller that does not gate on the norm before reading the
-///   direction back out — `PathCircle::new`'s auxiliary-point
-///   normalization, whose result feeds a subsequent cross product before
-///   *that* result's own norm is checked — collapses deterministically to
-///   `z_norm == 0.0 < eps` (an immediate rejection) with a zero-vector
-///   direction here, a defensible degenerate answer for a construction
-///   request whose auxiliary point coincides with its own center. It does
-///   not reproduce `Vector::Normalize`'s own value-dependent behavior for
-///   that specific malformed input (which depends on the incidental
-///   alignment between the caller's other axis and the arbitrary unit-X
-///   fallback), but no fixture in this crate exercises that input.
+/// - [`crate::path_circle::PathCircle::new`]'s `radius`-producing call and
+///   its auxiliary-point-normalizing call both return an error immediately
+///   upon seeing `norm < eps`, before either direction is ever read (own
+///   doc comment).
 ///
 /// `pub(crate)`: also used by [`crate::path_circle::PathCircle`] as
 /// itemized above.
@@ -466,6 +451,32 @@ mod tests {
             pose.translation.vector,
             epsilon = 1e-12
         );
+    }
+
+    /// The test above only checks `pos(0.0)`. `PathLine::new`'s own doc
+    /// comment argues `scale_lin`'s zero-length placeholder is unobservable
+    /// "for any `s`", not just within `TrajectoryGeneratorLIN`'s bounded
+    /// `s in [0, f64::EPSILON]` fallback -- because `v_start_end` is exactly
+    /// `Vector3::zeros()` in this branch, so `v_start_end * s * scale_lin`
+    /// is exactly zero regardless of `s`. `PathLine::new`/[`PathLine::pos`]
+    /// are both `pub fn`, so an external caller can reach an arbitrarily
+    /// large `s` directly, bypassing that one caller's bound entirely --
+    /// measured here up to `s = 1000.0`. This does not change behavior; it
+    /// closes a coverage gap the "for any `s`" claim already had.
+    #[test]
+    fn zero_length_path_stays_at_start_for_any_s_not_just_zero() {
+        let pose = Isometry3::from_parts(
+            Vector3::new(1.0, 1.0, 1.0).into(),
+            UnitQuaternion::identity(),
+        );
+        let path = PathLine::new(&pose, &pose, 1.0);
+        for s in [1e-16, 1e-6, 1.0, 1000.0] {
+            assert_relative_eq!(
+                path.pos(s).translation.vector,
+                pose.translation.vector,
+                epsilon = 1e-12
+            );
+        }
     }
 
     // -- get_rot_angle: round-trips through the boundaries the old

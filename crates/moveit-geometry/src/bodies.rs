@@ -788,6 +788,7 @@
 
 use moveit_error::{Error, Result};
 
+use crate::numeric::{cxx_max, cxx_min};
 use crate::shapes::{Mesh as ShapeMesh, Shape};
 use crate::{BoundingSphere, Isometry3, Vector3};
 
@@ -843,10 +844,21 @@ struct Intersc {
 }
 
 /// Sort `candidates` by ray parameter, drop near-duplicates (within `ZERO`
-/// of the previous kept point — the case where a ray grazes exactly the
-/// shared boundary between two primitives, e.g. a cylinder's side and base,
-/// and is reported once per primitive), and cap the result at `count` points
-/// (`None` keeps them all). Upstream `detail::filterIntersections`.
+/// of the previous kept point, in [`Vector3d::isApprox`]'s sense — the case
+/// where a ray grazes exactly the shared boundary between two primitives,
+/// e.g. a cylinder's side and base, and is reported once per primitive),
+/// and cap the result at `count` points (`None` keeps them all). Upstream
+/// `detail::filterIntersections` (`bodies.cpp:105`): `p.pt.isApprox(
+/// intersections->back(), ZERO)`.
+///
+/// [`Vector3d::isApprox`]: Eigen `Fuzzy.h:27` —
+/// `(this-other).squaredNorm() <= prec*prec *
+/// numext::mini(this.squaredNorm(), other.squaredNorm())` —
+/// `numext::mini` is `std::min` under another name, and the scale is the
+/// **smaller** of the two squared norms, not the larger: use [`cxx_min`],
+/// not `f64::min`, to reproduce it exactly (`f64::min` differs from
+/// `std::min` only on NaN, but `cxx_min`'s name is the one that documents
+/// which upstream function this is standing in for).
 fn filter_intersections(mut candidates: Vec<Intersc>, count: Option<usize>) -> Vec<Vector3> {
     candidates.sort_by(|a, b| a.time.total_cmp(&b.time));
     let n = match count {
@@ -859,7 +871,9 @@ fn filter_intersections(mut candidates: Vec<Intersc>, count: Option<usize>) -> V
             break;
         }
         if let Some(last) = out.last() {
-            if (c.pt - last).norm() <= ZERO * last.norm().max(c.pt.norm()).max(1.0) {
+            let diff_norm_sqr = (c.pt - last).norm_squared();
+            let scale = cxx_min(last.norm_squared(), c.pt.norm_squared());
+            if diff_norm_sqr <= ZERO * ZERO * scale {
                 continue;
             }
         }
@@ -1167,16 +1181,24 @@ impl OBB {
         // on how far apart the two boxes' centers are. See the module
         // docs, deviation 3, and the provenance comment at the top of this
         // file for where the FCL source came from.
-        let max_extent = self
-            .half_extents
-            .x
-            .max(self.half_extents.y)
-            .max(self.half_extents.z);
-        let other_max_extent = other
-            .half_extents
-            .x
-            .max(other.half_extents.y)
-            .max(other.half_extents.z);
+        //
+        // `max_extent`/`other_max_extent` use `cxx_max`, not `.max()`:
+        // upstream is `std::max(std::max(extent[0], extent[1]), extent[2])`
+        // (`OBB-inl.h:164-165`), which propagates a NaN `extent[0]`
+        // (`.x`) out through both calls but silently discards a NaN
+        // `extent[1]`/`extent[2]`. `.x.max(y).max(z)` discards NaN
+        // regardless of position, so it can pick a different
+        // `merge_largedist`/`merge_smalldist` branch than upstream's
+        // NaN-forced `merge_smalldist` for the same input — see
+        // `crate::numeric`.
+        let max_extent = cxx_max(
+            cxx_max(self.half_extents.x, self.half_extents.y),
+            self.half_extents.z,
+        );
+        let other_max_extent = cxx_max(
+            cxx_max(other.half_extents.x, other.half_extents.y),
+            other.half_extents.z,
+        );
         let center_diff = self.pose.translation.vector - other.pose.translation.vector;
         *self = if center_diff.norm() > 2.0 * (max_extent + other_max_extent) {
             merge_largedist(self, other)
@@ -1241,6 +1263,28 @@ fn merge_smalldist(a: &OBB, b: &OBB) -> OBB {
     }
 }
 
+/// `Vector3::normalize()`, guarded against a zero-norm input to match
+/// Eigen. Upstream `OBB-inl.h:263-264` is `b.axis.col(0) = b1.To - b2.To;
+/// b.axis.col(0).normalize();` — Eigen's in-place `normalize()` (and its
+/// `normalized()`) are guarded: `if (z > 0) *this /= sqrt(z); ` else the
+/// vector is left unchanged. nalgebra's `.normalize()` is
+/// `self.unscale(self.norm())`, unguarded, and gives `[NaN, NaN, NaN]` for
+/// a zero vector (confirmed empirically: `Vector3::zeros().normalize() ==
+/// [NaN, NaN, NaN]`, since `0.0 / 0.0` is NaN).
+///
+/// `v.try_normalize(0.0)` returns `None` exactly when `v.norm() <= 0.0`
+/// (i.e. `v` is the zero vector) and `Some(unit vector)` otherwise;
+/// `.unwrap_or(v)` on `None` reproduces Eigen's "leave unchanged" branch
+/// precisely. `.unwrap_or_else(Vector3::zeros)` would NOT reproduce it: it
+/// assumes `v` itself is the zero vector whenever normalization fails, but
+/// the only failure case here *is* `v` already being the zero vector, so
+/// the two spellings coincide today — the distinction matters the moment
+/// this helper gains a second caller whose input can be zero for a
+/// different reason.
+fn guarded_normalize(v: Vector3) -> Vector3 {
+    v.try_normalize(0.0).unwrap_or(v)
+}
+
 /// FCL's `OBB::operator+`, `center_diff.norm() > 2*(max_extent +
 /// max_extent2)` branch: a PCA-fit box over both boxes' 16 vertices
 /// projected onto the plane perpendicular to the center-to-center axis.
@@ -1253,7 +1297,16 @@ fn merge_largedist(a: &OBB, b: &OBB) -> OBB {
         .chain(b.compute_vertices())
         .collect();
 
-    let axis0 = (a.pose.translation.vector - b.pose.translation.vector).normalize();
+    // `guarded_normalize`, not `.normalize()`: nothing in this crate's
+    // public API rejects a negative `half_extents` component
+    // (`OBB::new`/`set_pose_and_extents` just multiply by 0.5), and a box
+    // built with all-negative half-extents has a negative `max_extent`
+    // (see `OBB::extend_approx`) — negative enough that
+    // `center_diff.norm() > 2*(max_extent+other_max_extent)` can hold even
+    // when the two centers are identical, forcing this branch with a
+    // genuinely zero `a.To - b.To`. See `guarded_normalize`'s doc for why
+    // upstream doesn't produce NaN there and this port, unguarded, did.
+    let axis0 = guarded_normalize(a.pose.translation.vector - b.pose.translation.vector);
     let projected: Vec<Vector3> = vertices.iter().map(|v| v - axis0 * v.dot(&axis0)).collect();
 
     let cov = fcl_covariance(&projected);
@@ -2930,6 +2983,56 @@ impl ConvexMesh {
     /// this body, ordered along the ray and capped at `count` points
     /// (`None` for unlimited). Upstream `intersectsRay`; see the module
     /// docs, deviations 1 and 2.
+    ///
+    /// # Deviation: `tmp`/`t`'s guards were negated into a NaN-unsafe form
+    ///
+    /// Upstream (`bodies.cpp:1260-1266`) gates the per-triangle work with
+    /// two *positive* conditions: `fabs(tmp) > detail::ZERO`, then `t >
+    /// 0.0`. Both read `false` for a NaN `tmp`/`t`, so a NaN correctly
+    /// skips the triangle. This method used to spell the same gate as an
+    /// early `continue` on the naively negated condition — `if tmp.abs()
+    /// <= ZERO { continue; }` — which is not upstream's true negation:
+    /// `<=` is *also* false for NaN, so a NaN `tmp`/`t` fell through into
+    /// `p = orig + dr * t`, carrying the NaN into a returned intersection
+    /// point. The explicit `is_nan()` checks below are the true negation
+    /// of upstream's positive condition, correct for NaN where the naive
+    /// `<=`/`<=` flip was not (`clippy::neg_cmp_op_on_partial_ord` also
+    /// rejects spelling this as `!(tmp.abs() > ZERO)`, for the same
+    /// reason: it reads as `<=`).
+    ///
+    /// # Corrected: a non-finite ray poisons every triangle, it is not "zeroed out"
+    ///
+    /// An earlier draft of this comment justified the above by a NaN
+    /// confined to one axis of `origin`/`dir` reaching `tmp`/`t` as a
+    /// *finite* value whenever a triangle's axis-aligned `normal` happens
+    /// to be zero on that axis — e.g. `normal = (0, 0, 1)` "zeroing out" a
+    /// NaN-x ray's x-component in `normal.dot(&dr)`. That is false: IEEE
+    /// 754 gives `0.0 * NaN == NaN`, not `0.0`, so the NaN survives the
+    /// multiply and then the sum — `Vector3::new(0.0, 1.0,
+    /// 0.0).dot(&Vector3::new(f64::NAN, 1.0, 0.0))` is `NaN`, not the `1.0`
+    /// the "zeroed out" claim implied. The dot product is NaN on *every*
+    /// triangle a non-finite ray touches, regardless of which normal
+    /// component is zero; the `is_nan()` checks below are not narrowly
+    /// catching a value that escaped a coincidental zeroing, a non-finite
+    /// input poisons them unconditionally.
+    ///
+    /// That also settles whether `origin`/`dir` need an up-front finite
+    /// check ahead of the per-triangle loop, rather than relying on the
+    /// per-triangle `is_nan()` guards alone: they do not. `±inf` reaches
+    /// this method through two paths, and both are already intercepted
+    /// before `tmp`/`t` by the same `0.0 * x == NaN` fact, one step
+    /// removed. An infinite `dir` makes `dir_norm` (`dir / dir.norm()`, an
+    /// `inf / inf` division) carry a NaN before it is ever dotted with a
+    /// normal. An infinite `origin` survives [`transform_point`]'s
+    /// quaternion-based rotation as a clean infinity on at most one axis,
+    /// while the cross-product terms mixing in the *other* axes each hit a
+    /// `0.0 * inf` and turn to NaN — at the identity pose, `origin = (0.0,
+    /// 0.0, f64::INFINITY)` transforms to `(NaN, NaN, NaN)`, not `(0.0,
+    /// 0.0, f64::INFINITY)` unchanged. Once any axis of the transformed
+    /// origin is NaN, `normal.dot(&orig)` is NaN regardless of which axis
+    /// a given triangle's normal is nonzero on, by the same fact above.
+    /// See `convex_mesh_ray_rejects_positive_infinity_in_origin` and its
+    /// siblings below for the regression coverage.
     pub fn ray_intersections(
         &self,
         origin: &Vector3,
@@ -2956,11 +3059,11 @@ impl ConvexMesh {
             .zip(self.plane_offsets.iter())
         {
             let tmp = normal.dot(&dr);
-            if tmp.abs() <= ZERO {
+            if tmp.is_nan() || tmp.abs() <= ZERO {
                 continue;
             }
             let t = -(normal.dot(&orig) + offset) / tmp;
-            if t <= 0.0 {
+            if t.is_nan() || t <= 0.0 {
                 continue;
             }
 
@@ -3380,6 +3483,14 @@ mod tests {
     /// dependency was added and upstream's exact
     /// `RandomNumberGenerator`/iteration-count sequences are not
     /// reproduced.
+    /// `{:?}`-based equality: unlike `assert_eq!`, two NaN fields compare
+    /// equal here (both print `NaN`), which a couple of tests below need --
+    /// see their own comments for why a genuinely-NaN field is expected on
+    /// both sides of the comparison, not a bug being masked.
+    fn debug_string(obb: &OBB) -> String {
+        format!("{obb:?}")
+    }
+
     fn uniform_test_rng(seed: u64) -> impl FnMut(f64, f64) -> f64 {
         let mut state = seed | 1;
         move |lo: f64, hi: f64| {
@@ -3571,6 +3682,74 @@ mod tests {
         norms.sort_by(f64::total_cmp);
         assert_eq!(norms[0], -1.0);
         assert_eq!(norms[1], 1.0);
+    }
+
+    /// `filter_intersections`' dedup threshold must be Eigen's *relative*
+    /// `prec*prec * min(|a|^2, |b|^2)`, not an *absolute* one.
+    ///
+    /// A sphere's own two-root path can't exercise this: its half-chord
+    /// `x = radius_scaled_sqr - w.norm_squared()` snaps to a single-point
+    /// tangent hit whenever `x.abs() < ZERO`, so any two points it *does*
+    /// return are already at least `2*sqrt(ZERO) ~ 6.3e-5` apart — always
+    /// past the old code's worst-case (`.max(1.0)`-floored) `ZERO` = `1e-9`
+    /// threshold. Same shape in `Cuboid`'s `tmax - tmin > ZERO` slab test.
+    /// A cylinder's two *cap* hits don't share that coupling: `d1`'s `t1`
+    /// and `d2`'s `t2` (`Cylinder::recompute`) are each validated only
+    /// against their own disk, with no joint tangent check between them —
+    /// the side quadratic that has one only runs at all when `ipts.len() <
+    /// 2`, i.e. once both caps already matched.
+    ///
+    /// A wafer-thin cylinder (`length == 1e-12`, `half_length == 5e-13`)
+    /// centered at `(0, 0, 1.5e-12)`, hit head-on along its own axis, has
+    /// its two cap intersections at exactly `(0, 0, 1e-12)` and `(0, 0,
+    /// 2e-12)` — 1e-12 apart, both well inside the unit ball. Eigen's
+    /// threshold there is `(1e-9)^2 * min((1e-12)^2, (2e-12)^2) = 1e-42`,
+    /// and `1e-12 > 1e-42`, so upstream keeps both. The version this
+    /// replaces used `ZERO * max(|a|, |b|).max(1.0)` — the `.max(1.0)`
+    /// floor turns that into an absolute `1e-9` threshold whenever both
+    /// points are within the unit ball, and `1e-12 <= 1e-9` wrongly deduped
+    /// the second point away.
+    #[test]
+    fn ray_intersections_keeps_two_cap_hits_within_the_unit_ball_that_the_old_absolute_floor_deduped()
+     {
+        let mut cylinder = Cylinder::new(1.0, 1e-12).unwrap();
+        cylinder.set_pose(Isometry3::translation(0.0, 0.0, 1.5e-12));
+        let hits = cylinder.ray_intersections(
+            &Vector3::new(0.0, 0.0, 0.0),
+            &Vector3::new(0.0, 0.0, 1.0),
+            None,
+        );
+        assert_eq!(
+            hits.len(),
+            2,
+            "both cap hits are within Eigen's relative tolerance of being distinct: {hits:?}"
+        );
+        assert_relative_eq!(hits[0], Vector3::new(0.0, 0.0, 1e-12), epsilon = 1e-19);
+        assert_relative_eq!(hits[1], Vector3::new(0.0, 0.0, 2e-12), epsilon = 1e-19);
+    }
+
+    /// The demonstrated opposite of the test above: the same two-independent-
+    /// cap-hits mechanism, but scaled up so both points sit at `|z| ~ 10`,
+    /// `1e-9` apart. There `min(|a|^2, |b|^2) ~ 100` is far above the old
+    /// code's `.max(1.0)` floor, so both the old and new formulas agree —
+    /// this is not the case the fix changes behavior on, and that is the
+    /// point: it proves `filter_intersections` still dedups a real
+    /// near-duplicate rather than the fix having turned it into "keep every
+    /// candidate, always."
+    #[test]
+    fn ray_intersections_still_dedups_a_genuine_near_duplicate_at_ordinary_scale() {
+        let mut cylinder = Cylinder::new(1.0, 1e-9).unwrap();
+        cylinder.set_pose(Isometry3::translation(0.0, 0.0, 10.0));
+        let hits = cylinder.ray_intersections(
+            &Vector3::new(0.0, 0.0, 0.0),
+            &Vector3::new(0.0, 0.0, 1.0),
+            None,
+        );
+        assert_eq!(
+            hits.len(),
+            1,
+            "a 1e-9 separation at |z| ~ 10 is a near-duplicate under both formulas: {hits:?}"
+        );
     }
 
     /// Boundary: a ray tangent to the sphere's surface — hits exactly once,
@@ -3937,6 +4116,107 @@ mod tests {
         assert_eq!(hits.len(), 2);
     }
 
+    /// A NaN confined to `origin`'s y-component, against every face
+    /// (including the top/bottom, z-normal faces, whose `normal` is zero
+    /// on the y-axis): `normal.dot(&orig)` is NaN on all of them —
+    /// `0.0 * NaN == NaN`, so a zero normal component does not zero the
+    /// NaN out — and the per-triangle `t.is_nan()` guard rejects every
+    /// triangle before any `p = orig + dr * t` is computed. See
+    /// `ConvexMesh::ray_intersections`'s doc comment, "a non-finite ray
+    /// poisons every triangle".
+    #[test]
+    fn convex_mesh_ray_rejects_a_nan_confined_to_one_axis() {
+        let mesh = ConvexMesh::new(&box_mesh(2.0, 2.0, 2.0)).unwrap();
+        let hits = mesh.ray_intersections(
+            &Vector3::new(0.0, f64::NAN, -2.0),
+            &Vector3::new(0.0, 0.0, 1.0),
+            None,
+        );
+        assert_eq!(
+            hits,
+            Vec::<Vector3>::new(),
+            "a non-finite ray must yield no intersections, not a NaN-carrying point: {hits:?}"
+        );
+    }
+
+    /// Demonstrated opposite for this test and the three infinity
+    /// regressions below: the same ray with only one component replaced
+    /// still hits the top and bottom faces normally, so none of the four
+    /// can pass by rejecting everything.
+    #[test]
+    fn convex_mesh_ray_still_hits_the_same_axis_when_finite() {
+        let mesh = ConvexMesh::new(&box_mesh(2.0, 2.0, 2.0)).unwrap();
+        let hits = mesh.ray_intersections(
+            &Vector3::new(0.0, 0.0, -2.0),
+            &Vector3::new(0.0, 0.0, 1.0),
+            None,
+        );
+        assert_eq!(hits.len(), 2, "{hits:?}");
+    }
+
+    /// `origin` at `+inf` on the axis `dir` travels along (a hit face's
+    /// normal is nonzero there) — the infinite mirror of
+    /// `convex_mesh_ray_still_hits_the_same_axis_when_finite`'s finite
+    /// `origin.z`, `dir` sign flipped so the ray still points at the box.
+    /// [`transform_point`] turns this into an all-NaN local origin (see
+    /// `ConvexMesh::ray_intersections`'s doc comment), so `t.is_nan()`
+    /// rejects every triangle; no up-front finite check is needed to close
+    /// this.
+    #[test]
+    fn convex_mesh_ray_rejects_positive_infinity_in_origin() {
+        let mesh = ConvexMesh::new(&box_mesh(2.0, 2.0, 2.0)).unwrap();
+        let hits = mesh.ray_intersections(
+            &Vector3::new(0.0, 0.0, f64::INFINITY),
+            &Vector3::new(0.0, 0.0, -1.0),
+            None,
+        );
+        assert_eq!(
+            hits,
+            Vec::<Vector3>::new(),
+            "a non-finite ray must yield no intersections: {hits:?}"
+        );
+    }
+
+    /// `-inf`, mirrored: same baseline as
+    /// `convex_mesh_ray_still_hits_the_same_axis_when_finite`, `origin.z`
+    /// replaced by `-inf` instead of the finite `-2.0`.
+    #[test]
+    fn convex_mesh_ray_rejects_negative_infinity_in_origin() {
+        let mesh = ConvexMesh::new(&box_mesh(2.0, 2.0, 2.0)).unwrap();
+        let hits = mesh.ray_intersections(
+            &Vector3::new(0.0, 0.0, f64::NEG_INFINITY),
+            &Vector3::new(0.0, 0.0, 1.0),
+            None,
+        );
+        assert_eq!(
+            hits,
+            Vec::<Vector3>::new(),
+            "a non-finite ray must yield no intersections: {hits:?}"
+        );
+    }
+
+    /// `dir.z` at `+inf` instead of `origin.z` — same baseline as
+    /// `convex_mesh_ray_still_hits_the_same_axis_when_finite`, `dir`'s
+    /// finite `1.0` replaced by `+inf`. A different mechanism than the two
+    /// `origin` cases above: `normalize_dir`'s `dir / dir.norm()` is an
+    /// `inf / inf` division, so `dir_norm` (and then `dr`) is already NaN
+    /// before any triangle's `tmp = normal.dot(&dr)`, and `tmp.is_nan()`
+    /// rejects every triangle before `t` is even computed.
+    #[test]
+    fn convex_mesh_ray_rejects_positive_infinity_in_dir() {
+        let mesh = ConvexMesh::new(&box_mesh(2.0, 2.0, 2.0)).unwrap();
+        let hits = mesh.ray_intersections(
+            &Vector3::new(0.0, 0.0, -2.0),
+            &Vector3::new(0.0, 0.0, f64::INFINITY),
+            None,
+        );
+        assert_eq!(
+            hits,
+            Vec::<Vector3>::new(),
+            "a non-finite ray must yield no intersections: {hits:?}"
+        );
+    }
+
     #[test]
     fn convex_mesh_contains_point_basic() {
         // MeshPointContainment::Basic — box.dae is a half-extent-1 cube
@@ -4299,6 +4579,186 @@ mod tests {
         assert!(merged.contains_point(&boxes[1].pose().translation.vector));
         assert!(merged.overlaps(&boxes[0]));
         assert!(merged.overlaps(&boxes[1]));
+    }
+
+    /// Upstream `OBB::operator+`'s `max_extent = std::max(std::max(extent[0],
+    /// extent[1]), extent[2])` propagates a NaN `extent[0]` (`.x`) out
+    /// through both nested calls (it is the first operand of each), which
+    /// then makes `center_diff.norm() > 2*(max_extent+max_extent2)` false --
+    /// every comparison against NaN is false -- so upstream always takes
+    /// `merge_smalldist` once `.x` is NaN, regardless of how far apart the
+    /// centers actually are. `b1`/`b2`'s centers below are 1.0 apart, well
+    /// past `2*(0.1+0.1) = 0.4`: far enough that a correctly-propagated NaN
+    /// forces `merge_smalldist`, but a *silently discarded* one (the
+    /// pre-fix `.x.max(y).max(z)`, which picks `max(0.1, 0.1) = 0.1` instead
+    /// of NaN) clears that threshold and takes `merge_largedist` instead --
+    /// asserting the chosen branch, not just `max_extent`'s value, is what
+    /// this test is for.
+    #[test]
+    fn extend_approx_takes_merge_smalldist_when_a_half_extent_x_is_nan() {
+        let b1 = OBB::new(
+            Isometry3::translation(0.0, 0.0, 0.0),
+            Vector3::new(f64::NAN, 0.2, 0.2),
+        );
+        let b2 = OBB::new(
+            Isometry3::translation(1.0, 0.0, 0.0),
+            Vector3::new(0.2, 0.2, 0.2),
+        );
+
+        let mut merged = b1;
+        merged.extend_approx(&b2);
+
+        let smalldist = merge_smalldist(&b1, &b2);
+        let largedist = merge_largedist(&b1, &b2);
+        assert_ne!(
+            smalldist, largedist,
+            "the two branches must be distinguishable for this test to mean anything"
+        );
+        assert_eq!(merged, smalldist);
+    }
+
+    /// The demonstrated opposite of
+    /// `extend_approx_takes_merge_smalldist_when_a_half_extent_x_is_nan`:
+    /// the same NaN moved to `.y` (or `.z`) is the position upstream's
+    /// chained `std::max` *discards* (`std::max(a, b) = a<b?b:a`; NaN as
+    /// the second operand makes the comparison false and returns `a`), so
+    /// upstream and the port agree here even before the fix -- without this
+    /// case, the test above would also pass on a port that propagated NaN
+    /// through every position, which is not the bug that was fixed.
+    #[test]
+    fn extend_approx_agrees_with_upstream_when_the_nan_is_at_a_discarded_position() {
+        let b1 = OBB::new(
+            Isometry3::translation(0.0, 0.0, 0.0),
+            Vector3::new(0.2, f64::NAN, 0.2),
+        );
+        let b2 = OBB::new(
+            Isometry3::translation(1.0, 0.0, 0.0),
+            Vector3::new(0.2, 0.2, 0.2),
+        );
+
+        let mut merged = b1;
+        merged.extend_approx(&b2);
+
+        // Upstream's max_extent = std::max(std::max(NaN, 0.1), 0.1):
+        // NaN discarded at the first (inner) call since it's the *second*
+        // operand there, leaving std::max(0.1, 0.1) = 0.1 -- a finite
+        // max_extent, same as `.x.max(y).max(z)` computes. Both sides take
+        // merge_largedist: center_diff.norm() = 1.0 > 2*(0.1+0.1) = 0.4.
+        let largedist = merge_largedist(&b1, &b2);
+        let smalldist = merge_smalldist(&b1, &b2);
+        assert_ne!(
+            debug_string(&smalldist),
+            debug_string(&largedist),
+            "the two branches must be distinguishable for this test to mean anything"
+        );
+        // `b1.half_extents.y` being NaN also feeds `compute_vertices`
+        // directly (every corner has a `+-e.y` component), which poisons
+        // `merge_largedist`'s covariance/PCA sum into an all-NaN pose --
+        // unrelated to the branch-selection bug this test is for, and NaN
+        // != NaN under plain `assert_eq!`, so this compares the `Debug`
+        // strings instead: both sides genuinely agree here, NaNs and all.
+        assert_eq!(debug_string(&merged), debug_string(&largedist));
+    }
+
+    /// `guarded_normalize` unit tests: the zero case `merge_largedist`
+    /// exists for, and its demonstrated opposite (a nonzero input, where
+    /// `try_normalize` and the unguarded `.normalize()` agree).
+    #[test]
+    fn guarded_normalize_leaves_a_zero_vector_unchanged_instead_of_producing_nan() {
+        assert_eq!(guarded_normalize(Vector3::zeros()), Vector3::zeros());
+    }
+
+    #[test]
+    fn guarded_normalize_still_normalizes_a_nonzero_vector() {
+        let v = guarded_normalize(Vector3::new(3.0, 0.0, 4.0));
+        assert!((v.norm() - 1.0).abs() < 1e-12);
+        assert_eq!(v, Vector3::new(3.0, 0.0, 4.0).normalize());
+    }
+
+    /// Nothing in this crate's public API rejects a negative half-extent:
+    /// `OBB::new`/`set_pose_and_extents` just multiply the given extents by
+    /// 0.5 (see both). A box built with `Vector3::new(-2.0, -2.0, -2.0)`
+    /// has `half_extents == (-1.0, -1.0, -1.0)`, so `max_extent ==
+    /// cxx_max(cxx_max(-1.0, -1.0), -1.0) == -1.0` (finite values fold
+    /// exactly like `f64::max` there -- only NaN makes `cxx_max` diverge
+    /// from it). Two such boxes give `max_extent + other_max_extent ==
+    /// -2.0`, and `center_diff.norm() > 2.0 * -2.0` is `0.0 > -4.0`: true
+    /// even for identical centers. `contains_obb` doesn't screen this
+    /// first: `contains_point`'s `local.x.abs() <= self.half_extents.x` is
+    /// `<= a negative number`, which is false for every point, so both
+    /// `self.contains_obb(other)` and `other.contains_obb(self)` are false
+    /// and execution reaches the merge dispatch. This is the reachable
+    /// case `guarded_normalize` exists for: `a.To - b.To` is the genuine
+    /// zero vector here, not merely a very small one.
+    #[test]
+    fn extend_approx_avoids_a_nan_axis_when_negative_extents_zero_the_merge_largedist_threshold() {
+        let b1 = OBB::new(
+            Isometry3::translation(0.0, 0.0, 0.0),
+            Vector3::new(-2.0, -2.0, -2.0),
+        );
+        let b2 = OBB::new(
+            Isometry3::translation(0.0, 0.0, 0.0),
+            Vector3::new(-2.0, -2.0, -2.0),
+        );
+
+        let smalldist = merge_smalldist(&b1, &b2);
+        let largedist = merge_largedist(&b1, &b2);
+        assert_ne!(
+            debug_string(&smalldist),
+            debug_string(&largedist),
+            "the two branches must be distinguishable for this test to mean anything"
+        );
+
+        let mut merged = b1;
+        merged.extend_approx(&b2);
+
+        assert_eq!(
+            debug_string(&merged),
+            debug_string(&largedist),
+            "must actually take merge_largedist for this test to exercise the fix"
+        );
+        assert!(
+            !merged.pose().translation.vector.iter().any(|c| c.is_nan()),
+            "a zero-norm axis0 must not leak NaN into the merged pose: {merged:?}"
+        );
+        assert!(
+            !merged.extents().iter().any(|c| c.is_nan()),
+            "a zero-norm axis0 must not leak NaN into the merged extents: {merged:?}"
+        );
+    }
+
+    /// The demonstrated opposite of the test above: distinct centers give
+    /// `guarded_normalize` a nonzero input, where it behaves exactly like
+    /// the unguarded `.normalize()` (both produce a proper unit vector) --
+    /// so this scenario's result is unaffected by the fix. Without this
+    /// case, the test above would also pass on a `guarded_normalize` that
+    /// always returned the zero vector regardless of input, which is not
+    /// what the fix does.
+    #[test]
+    fn extend_approx_still_takes_a_unit_axis0_when_centers_are_genuinely_distinct() {
+        let b1 = OBB::new(
+            Isometry3::translation(0.0, 0.0, 0.0),
+            Vector3::new(0.2, 0.2, 0.2),
+        );
+        let b2 = OBB::new(
+            Isometry3::translation(10.0, 0.0, 0.0),
+            Vector3::new(0.2, 0.2, 0.2),
+        );
+
+        let smalldist = merge_smalldist(&b1, &b2);
+        let largedist = merge_largedist(&b1, &b2);
+        assert_ne!(
+            debug_string(&smalldist),
+            debug_string(&largedist),
+            "the two branches must be distinguishable for this test to mean anything"
+        );
+
+        let mut merged = b1;
+        merged.extend_approx(&b2);
+
+        assert_eq!(debug_string(&merged), debug_string(&largedist));
+        assert!(!merged.pose().translation.vector.iter().any(|c| c.is_nan()));
+        assert!(!merged.extents().iter().any(|c| c.is_nan()));
     }
 
     #[test]

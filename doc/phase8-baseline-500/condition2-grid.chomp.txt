@@ -1,0 +1,44 @@
+=== phase 8 condition 2, chomp: n=500 problems ===
+port solved 380/500   cpp solved 370/500   both solved 363
+
+population: which problems already had a collision-free straight seed
+  floor_wall   seed-valid 148/250
+  cage         seed-valid 101/250
+  TOTAL        seed-valid 249/500 (49.8%)
+  port solved: 249/249 of the seed-valid stratum, 131/251 of the seed-invalid stratum
+  cpp solved: 249/249 of the seed-valid stratum, 121/251 of the seed-invalid stratum
+
+  port: returned path length equals its seed's to 1e-09 relative on 249/249 of the seed-valid problems it solved
+  cpp: returned path length equals its seed's to 1e-09 relative on 249/249 of the seed-valid problems it solved
+
+--- full population, n=500 ---
+level                 port valid     cpp valid  b(port-)  c(cpp-)   b+c    |z|  power
+returned-waypoints       380/380       370/370         0        0     0   0.00  underpowered
+0.2                      380/380       370/370         0        0     0   0.00  underpowered
+0.1                      380/380       370/370         0        0     0   0.00  underpowered
+0.05                     380/380       370/370         0        0     0   0.00  underpowered
+0.02                     379/380       370/370         1        0     1   1.00  underpowered
+0.01                     379/380       369/370         1        1     2   0.00  underpowered
+0.005                    379/380       369/370         1        1     2   0.00  underpowered
+0.002                    379/380       369/370         1        1     2   0.00  underpowered
+0.001                    379/380       369/370         1        1     2   0.00  underpowered
+
+--- seed-invalid stratum only, n=251 (port solved 131, cpp solved 121, both 114) ---
+level                 port valid     cpp valid  b(port-)  c(cpp-)   b+c    |z|  power
+returned-waypoints       131/131       121/121         0        0     0   0.00  underpowered
+0.2                      131/131       121/121         0        0     0   0.00  underpowered
+0.1                      131/131       121/121         0        0     0   0.00  underpowered
+0.05                     131/131       121/121         0        0     0   0.00  underpowered
+0.02                     130/131       121/121         1        0     1   1.00  underpowered
+0.01                     130/131       120/121         1        1     2   0.00  underpowered
+0.005                    130/131       120/121         1        1     2   0.00  underpowered
+0.002                    130/131       120/121         1        1     2   0.00  underpowered
+0.001                    130/131       120/121         1        1     2   0.00  underpowered
+
+seed-valid stratum: port and cpp disagree at 0 of 2241 level-verdicts over the 249 problems both solved. This stratum cannot discriminate the two implementations.
+
+r* = 0.02: the finest level at which C++ chomp is 370/370 = 100%.
+     one level finer (0.01) C++ chomp is 369/370, so the bar cannot be set there.
+condition 2 at r*: port chomp 379/380 -> UNMET
+paired gate: UNDERPOWERED at every level in this grid -- the largest b + c is 2 at 0.01, against MINIMUM_USABLE_B_PLUS_C = 61.
+             at that level's disagreement rate (2/363 of the problems both sides solved), reaching b + c = 61 needs about 11,072 solved-by-both problems.

@@ -74,7 +74,10 @@ use moveit_distance_field::{
 use moveit_geometry::{Cuboid, Isometry3, Shape, Vector3};
 use moveit_model::{JointModelGroup, MeshSearchPaths, RobotModel};
 use moveit_planners_chomp::optimizer::ChompCollisionContext;
-use moveit_planners_chomp::{ChompGoal, ChompParameters, ChompRequest, GoalJointConstraint, solve};
+use moveit_planners_chomp::{
+    ChompExit, ChompGoal, ChompLoopTrace, ChompParameters, ChompRequest, GoalJointConstraint,
+    solve_with_trace,
+};
 use moveit_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
@@ -429,6 +432,110 @@ fn median(mut values: Vec<f64>) -> Option<f64> {
     })
 }
 
+/// Same shape as `chomp_benchmark_port.rs`'s own `loop_json` -- duplicated
+/// rather than shared, matching this repo's existing convention of
+/// independently duplicating example-local helpers (`densify`,
+/// `returned_waypoints`, `plan_space_length`, `median`) across sibling
+/// benchmark binaries rather than factoring them into a shared module.
+fn loop_json(trace: &ChompLoopTrace) -> serde_json::Value {
+    serde_json::json!({
+        "evaluations": trace.evaluations,
+        "exit": match trace.exit {
+            ChompExit::IterationBound => "iteration_bound",
+            ChompExit::ClockLimit => "clock_limit",
+            ChompExit::BreakOut => "break_out",
+        },
+        "accepted": trace.accepted,
+        "mesh_free_passes": trace.mesh_free_passes,
+        "below_threshold_passes": trace.below_threshold_passes,
+        "seed_points_within_clearance": trace.seed_points_within_clearance,
+        "seed_points_in_collision": trace.seed_points_in_collision,
+        "first_pass_max_update": trace.first_pass_max_update,
+    })
+}
+
+/// One problem's emitted JSON record.
+///
+/// Every emission site in this file's main loop builds one of these and
+/// prints [`ProblemRecord::to_json`] rather than assembling its own
+/// `serde_json::json!` object, so a field cannot exist on one exit path and
+/// not another. That was exactly the bug this replaces: `seed_valid` and
+/// `seed_length` are pure functions of `start_column`/`goal_column` --
+/// available before `solve` is even called -- but were only added to the
+/// record inside the `solved_count += 1` arm, so a failed or timed-out
+/// problem's line carried neither, though neither value depended on the
+/// outcome at all. `mesh_check_true` had the same bug one field over:
+/// `mesh_to_mesh`'s closure updates it during `solve`'s own run regardless
+/// of what `solve` returns -- `mesh_check_calls` already escaped both
+/// branches, `mesh_check_true` did not.
+///
+/// Fields that genuinely cannot exist on a given path -- everything
+/// downstream of the returned trajectory -- are `Option` here and reach the
+/// line as an explicit JSON `null`, never an absent key: an absent key on
+/// one branch of a two-way `jq` select silently drops that record from
+/// *both* buckets a partition builds from it, where a keyed `null` does
+/// not.
+struct ProblemRecord {
+    id: u64,
+    solved: bool,
+    outcome: &'static str,
+    plan_seconds: f64,
+    /// `Some` only on a failed or timed-out outcome.
+    failure: Option<String>,
+    /// `Some` only when `solve` returned `Ok` and the run did not time out
+    /// -- everything below this point needs the returned trajectory.
+    condition2_valid: Option<bool>,
+    condition2_valid_at_returned_waypoints: Option<bool>,
+    waypoints_checked: Option<usize>,
+    raw_waypoints: Option<usize>,
+    start_gap: Option<f64>,
+    goal_gap: Option<f64>,
+    invalid_waypoint_count: Option<usize>,
+    invalid_waypoints: Option<Vec<usize>>,
+    length: Option<f64>,
+    /// The most recently completed optimizer attempt's trace, straight from
+    /// `solve_with_trace`. `None` only when no attempt ever completed a
+    /// loop -- failure before the recovery loop's first `optimize()` call
+    /// returns -- which can happen on either the solved or the failure path
+    /// (a solved path always has one, a failure may or may not).
+    loop_trace: Option<ChompLoopTrace>,
+    /// Computed from `start_column`/`goal_column` alone; present on every
+    /// outcome, `solve_with_trace` is never consulted for either of these
+    /// two.
+    seed_length: f64,
+    seed_valid: bool,
+    /// Updated inside `mesh_to_mesh` during `solve_with_trace`'s own run, so
+    /// both are real regardless of what it returns.
+    mesh_check_calls: usize,
+    mesh_check_true: usize,
+}
+
+impl ProblemRecord {
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "solved": self.solved,
+            "outcome": self.outcome,
+            "plan_seconds": self.plan_seconds,
+            "failure": self.failure,
+            "condition2_valid": self.condition2_valid,
+            "condition2_valid_at_returned_waypoints": self.condition2_valid_at_returned_waypoints,
+            "waypoints_checked": self.waypoints_checked,
+            "raw_waypoints": self.raw_waypoints,
+            "start_gap": self.start_gap,
+            "goal_gap": self.goal_gap,
+            "invalid_waypoint_count": self.invalid_waypoint_count,
+            "invalid_waypoints": self.invalid_waypoints,
+            "length": self.length,
+            "loop": self.loop_trace.as_ref().map(loop_json),
+            "seed_length": self.seed_length,
+            "seed_valid": self.seed_valid,
+            "mesh_check_calls": self.mesh_check_calls,
+            "mesh_check_true": self.mesh_check_true,
+        })
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let usage = "usage: <seed_base> [timeout_seconds] [inject] [dense]";
@@ -598,11 +705,19 @@ fn main() {
     // That is not survivable here, because this binary is compared against a
     // C++ baseline `measure-phase8-cpp-baseline.sh` deliberately runs at a
     // 3600s clock so its ITERATION bound is what terminates. The two sides
-    // were stopped by different rules, and the port's clock stops were
+    // were stopped by different rules, and the port's clock stops used to be
     // recorded as convergence failures with nothing to tell them apart:
     // `solve` returns `Err` when the trajectory is still in collision, and
     // `ChompLoopTrace` -- which names `ChompExit::ClockLimit` -- rides on
-    // `ChompSolution`, so it is unreachable on exactly the runs that need it.
+    // `ChompSolution`, unreachable through `solve` on exactly the runs that
+    // need it. This binary now calls `solve_with_trace` instead, which
+    // returns the same `Result` plus the most recently completed attempt's
+    // `ChompLoopTrace` on *both* the success and the failure path -- so that
+    // gap is closed; the trace is emitted below as the `loop` field. It does
+    // not reopen the double-budget problem this comment is really about:
+    // `solve_with_trace` is a pure wrapper around the same inner
+    // implementation `solve` calls, with `params.planning_time_limit` still
+    // the only clock either one obeys.
     //
     // Binding the inner clock to this harness's outer bound leaves one budget
     // in the binary instead of two, and it is the one the run reports its
@@ -644,6 +759,48 @@ fn main() {
         let start_column = columns_of(&start_state, group);
         let goal_column = columns_of(&goal_state, group);
 
+        // Both pure functions of start_column/goal_column, computed here --
+        // before `solve` runs at all -- rather than after a successful
+        // outcome: see `ProblemRecord`'s own doc. CHOMP's own seed under the
+        // default `quintic-spline` initialization is not a straight line, so
+        // the seed length is measured as the straight line between the two
+        // endpoints: the shortest path any trajectory between them can have
+        // in this metric, i.e. the strongest baseline the output can be held
+        // against without re-deriving `fill_in_min_jerk`. `seed_lengths`
+        // still only accumulates on the solved arm below: `output_lengths`
+        // is its paired half, and pairing by index breaks if one side gets
+        // an entry the other does not.
+        let seed_length = plan_space_length(
+            &space,
+            &mut length_scratch,
+            group,
+            &[start_column.clone(), goal_column.clone()],
+        );
+        // Is the straight line between the two endpoints ALREADY
+        // collision-free? Without this the gate cannot tell an optimizer
+        // that moved a colliding seed out of collision from one that
+        // returned its seed untouched because the seed was already free --
+        // and on this population the median solved problem is the second
+        // kind, so the difference decides whether any of the numbers above
+        // measure the optimizer at all. Densified with the same rule as the
+        // output so the two answers are comparable.
+        let seed_dense = densify(
+            &template,
+            group,
+            &[start_column.clone(), goal_column.clone()],
+            resolution,
+        );
+        let mut seed_scene = PlanningScene::new(&model, &srdf);
+        let seed_valid = seed_scene
+            .is_path_valid(
+                &env,
+                &CollisionRequest::default(),
+                &seed_dense,
+                check_constraints.as_ref(),
+                &[],
+            )
+            .valid;
+
         let goal = ChompGoal {
             joint_constraints: group
                 .active_joint_names()
@@ -674,7 +831,7 @@ fn main() {
         let mut trues = 0usize;
         // Scoped so the closure's `&mut calls`/`&mut trues` borrows end before
         // the counters are read; the block yields what the run produced.
-        let (outcome, elapsed) = {
+        let (outcome, trace, elapsed) = {
             // Upstream's `isCurrentTrajectoryMeshToMeshCollisionFree`, supplied for
             // real: `isPathValid` over the matrix rows, in the same
             // `(point, joint)` order upstream reads `best_group_trajectory_(i, j)`.
@@ -707,14 +864,14 @@ fn main() {
             };
             let mut rng = ChaCha8Rng::seed_from_u64(seed_base.wrapping_add(id));
             let t0 = Instant::now();
-            let outcome = solve(
+            let (outcome, trace) = solve_with_trace(
                 &chomp_request,
                 &mut collision,
                 None,
                 &mut mesh_to_mesh,
                 &mut rng,
             );
-            (outcome, t0.elapsed().as_secs_f64())
+            (outcome, trace, t0.elapsed().as_secs_f64())
         };
         mesh_check_calls += calls;
         mesh_check_true += trues;
@@ -725,9 +882,10 @@ fn main() {
         // this firing means CHOMP's own clock break did not return control
         // within the budget it was given. Counted as a failure, never as a
         // solve -- see `DEFAULT_TIMEOUT_SECONDS`. It is checked after the fact
-        // rather than enforced by cancellation because `solve` exposes no
-        // cancel handle: a call that hangs forever would hang this binary, and
-        // that is a failure the gate reports as a stalled run, not a pass.
+        // rather than enforced by cancellation because `solve_with_trace`
+        // exposes no cancel handle: a call that hangs forever would hang this
+        // binary, and that is a failure the gate reports as a stalled run,
+        // not a pass.
         let timed_out = elapsed > timeout_seconds;
 
         let solution = match outcome {
@@ -740,23 +898,50 @@ fn main() {
                     failure_count += 1;
                     "error"
                 };
-                let detail = match other {
-                    Err(e) => e.to_string(),
-                    Ok(_) => format!("solved in {elapsed}s, over the {timeout_seconds}s bound"),
+                // On `Ok` (a solve that finished but too late to count), the
+                // trace belongs to the solution that was actually produced,
+                // so it is read from `solution.loop_trace`, not the outer
+                // `trace` -- matching `chomp_benchmark_port.rs`'s own rule.
+                // `trace` is the right source only on `Err`, where there is
+                // no `ChompSolution` to read it from.
+                let (detail, loop_trace) = match other {
+                    Err(e) => (e.to_string(), trace),
+                    Ok(solution) => (
+                        format!("solved in {elapsed}s, over the {timeout_seconds}s bound"),
+                        solution.loop_trace,
+                    ),
                 };
                 println!(
                     "{}",
-                    serde_json::json!({
-                        "id": id, "solved": false, "outcome": outcome_name,
-                        "plan_seconds": elapsed, "failure": detail,
-                        "mesh_check_calls": calls,
-                    })
+                    ProblemRecord {
+                        id,
+                        solved: false,
+                        outcome: outcome_name,
+                        plan_seconds: elapsed,
+                        failure: Some(detail),
+                        condition2_valid: None,
+                        condition2_valid_at_returned_waypoints: None,
+                        waypoints_checked: None,
+                        raw_waypoints: None,
+                        start_gap: None,
+                        goal_gap: None,
+                        invalid_waypoint_count: None,
+                        invalid_waypoints: None,
+                        length: None,
+                        loop_trace,
+                        seed_length,
+                        seed_valid,
+                        mesh_check_calls: calls,
+                        mesh_check_true: trues,
+                    }
+                    .to_json()
                 );
                 continue;
             }
         };
 
         solved_count += 1;
+        let loop_trace = solution.loop_trace;
         let trajectory = solution.trajectory;
         let mut path: Vec<Vec<f64>> = (0..trajectory.way_point_count())
             .map(|i| {
@@ -773,17 +958,6 @@ fn main() {
         let goal_gap = max_abs_gap(&path[raw_waypoints - 1], &goal_column);
         max_endpoint_gap = max_endpoint_gap.max(start_gap).max(goal_gap);
         let length = plan_space_length(&space, &mut length_scratch, group, &path);
-        // CHOMP's own seed under the default `quintic-spline` initialization is
-        // not a straight line, so the seed length is measured as the straight
-        // line between the two endpoints: the shortest path any trajectory
-        // between them can have in this metric, i.e. the strongest baseline the
-        // output can be held against without re-deriving `fill_in_min_jerk`.
-        let seed_length = plan_space_length(
-            &space,
-            &mut length_scratch,
-            group,
-            &[start_column.clone(), goal_column.clone()],
-        );
         // No improved/worsened counters here, unlike the STOMP instrument:
         // CHOMP's own objective (smoothness + obstacle cost) is not returned by
         // `solve`, and path length is not it. On a problem CHOMP breaks out of
@@ -793,29 +967,6 @@ fn main() {
         seed_lengths.push(seed_length);
         output_lengths.push(length);
 
-        // Is the straight line between the two endpoints ALREADY collision-free?
-        // Without this the gate cannot tell an optimizer that moved a colliding
-        // seed out of collision from one that returned its seed untouched
-        // because the seed was already free -- and on this population the median
-        // solved problem is the second kind, so the difference decides whether
-        // any of the numbers above measure the optimizer at all. Densified with
-        // the same rule as the output so the two answers are comparable.
-        let seed_dense = densify(
-            &template,
-            group,
-            &[start_column.clone(), goal_column.clone()],
-            resolution,
-        );
-        let mut seed_scene = PlanningScene::new(&model, &srdf);
-        let seed_valid = seed_scene
-            .is_path_valid(
-                &env,
-                &CollisionRequest::default(),
-                &seed_dense,
-                check_constraints.as_ref(),
-                &[],
-            )
-            .valid;
         if !seed_valid {
             seed_invalid_count += 1;
         }
@@ -849,25 +1000,28 @@ fn main() {
             condition2_pass += 1;
         }
 
-        let mut line = serde_json::json!({
-            "id": id,
-            "solved": true,
-            "outcome": "solved",
-            "plan_seconds": elapsed,
-            "condition2_valid": validity.valid,
-            "condition2_valid_at_returned_waypoints": raw_validity.valid,
-            "waypoints_checked": dense.len(),
-            "raw_waypoints": raw_waypoints,
-            "start_gap": start_gap,
-            "goal_gap": goal_gap,
-            "invalid_waypoint_count": validity.invalid_waypoints.len(),
-            "invalid_waypoints": validity.invalid_waypoints,
-            "length": length,
-            "seed_length": seed_length,
-            "seed_valid": seed_valid,
-            "mesh_check_calls": calls,
-            "mesh_check_true": trues,
-        });
+        let mut line = ProblemRecord {
+            id,
+            solved: true,
+            outcome: "solved",
+            plan_seconds: elapsed,
+            failure: None,
+            condition2_valid: Some(validity.valid),
+            condition2_valid_at_returned_waypoints: Some(raw_validity.valid),
+            waypoints_checked: Some(dense.len()),
+            raw_waypoints: Some(raw_waypoints),
+            start_gap: Some(start_gap),
+            goal_gap: Some(goal_gap),
+            invalid_waypoint_count: Some(validity.invalid_waypoints.len()),
+            invalid_waypoints: Some(validity.invalid_waypoints.clone()),
+            length: Some(length),
+            loop_trace,
+            seed_length,
+            seed_valid,
+            mesh_check_calls: calls,
+            mesh_check_true: trues,
+        }
+        .to_json();
         if emit_dense {
             let waypoints: Vec<serde_json::Value> = dense
                 .iter()

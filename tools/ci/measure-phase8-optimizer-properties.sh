@@ -93,7 +93,76 @@ esac
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-. "$REPO_ROOT/tools/ci/gate-lib.sh"
+# This run's own code -- this file, the library it sources, the oracle digest
+# helper -- copies itself into a private directory and re-execs from there,
+# once, before doing anything else. Measured hazard, not a hypothetical one: a
+# 95-minute run of this script survived a ten-commit `git merge` into the same
+# worktree it was reading from only because the merge happened not to touch
+# this file's bytes or a function this run had already sourced. Three distinct
+# ways it could have gone wrong instead:
+#   - corruption: an in-place rewrite of the file bash is still reading
+#     mid-script (bash reads a script incrementally through one fd and byte
+#     offset, so a rewrite under it is not atomic the way a `mv` would be)
+#   - version split: `gate-lib.sh` sourced once at start, then edited on disk
+#     mid-run -- the run keeps computing with the definitions it already read
+#     while a later check validates against what the file holds now
+#   - late swap: a helper this run has not reached yet (`measure-phase8-cpp-
+#     baseline.sh`, invoked well into the run) or the `target/release/examples`
+#     binaries, replaced before their turn, so one measurement is produced by
+#     two versions of the instrument while the artifact names only one
+#
+# $REPO_ROOT itself is NOT redirected by this -- it keeps meaning the live
+# tree for everything that measures or builds FROM it: `git status`/`git rev-
+# parse`, `cargo build`, `fixtures/`, `doc/`, and every `measured_source_digest`
+# call in $SOURCES_JSON below. Those have to describe and compile the real
+# tree; only the CODE THAT RUNS has to stop reading it after this point. The
+# built binaries are handled differently, by copy rather than by re-exec --
+# see where `cargo build` finishes, below.
+#
+# `measure-phase8-cpp-baseline.sh` is not copied here. It carries the exact
+# same hazard on its own invocation (a fresh `bash` reading it from
+# $REPO_ROOT) and protects itself the same way, independently, at its own
+# top, so it stays safe whether this script calls it or a person runs it
+# directly -- see that file. `run-oracle.sh`, which both scripts invoke, is
+# NOT snapshotted by either: it derives its own $REPO_ROOT from its own
+# `$BASH_SOURCE[0]` and would need the same override this block adds, in a
+# third file, to run from a copy correctly. That is out of this change's
+# scope; a mid-run edit to run-oracle.sh's own dispatch logic (which image
+# tag it resolves, which paths it mounts) is a real, named, NOT-covered
+# exposure, distinct from the oracle image/source pin itself, which
+# `oracle_stamp` already covers content-addressed and unaffected by this gap.
+#
+# `_PHASE8_OPT_REPO_ROOT` unset is how this code tells "reading from the live
+# tree, first time" apart from "already running from the private copy" --
+# not a caller-facing mode, nothing about how this script is invoked changes;
+# it is the value that has to cross the `exec` boundary, because `exec`
+# replaces this process's entire state and only the environment survives it.
+if [[ -z "${_PHASE8_OPT_REPO_ROOT:-}" ]]; then
+  WORKDIR="$(mktemp -d)"
+  trap 'rm -rf "$WORKDIR"' EXIT
+  SELF="$WORKDIR/self"
+  # This file's own name, not a literal, so a rename cannot silently desync
+  # the copy source from what this process was actually invoked as.
+  SELF_NAME="$(basename "${BASH_SOURCE[0]}")"
+  mkdir -p "$SELF/tools/ci" "$SELF/tools/moveit-oracle" || exit 1
+  cp "$REPO_ROOT/tools/ci/$SELF_NAME" "$SELF/tools/ci/" || exit 1
+  cp "$REPO_ROOT/tools/ci/gate-lib.sh" "$SELF/tools/ci/" || exit 1
+  cp "$REPO_ROOT/tools/moveit-oracle/src-digest.sh" "$SELF/tools/moveit-oracle/" || exit 1
+  export _PHASE8_OPT_REPO_ROOT="$REPO_ROOT"
+  export _PHASE8_OPT_WORKDIR="$WORKDIR"
+  exec "$SELF/tools/ci/$SELF_NAME" "$MODE"
+fi
+
+# Second execution, from the private copy. $REPO_ROOT is read back from the
+# environment rather than re-derived from `$BASH_SOURCE[0]` here on purpose --
+# re-deriving it would resolve to $SELF, the copy, and every git/cargo/
+# fixtures/doc path below would silently point at a directory that does not
+# hold them.
+REPO_ROOT="$_PHASE8_OPT_REPO_ROOT"
+WORKDIR="$_PHASE8_OPT_WORKDIR"
+trap 'rm -rf "$WORKDIR"' EXIT
+
+. "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
 
 require_caller_tree "$REPO_ROOT"
 cd "$REPO_ROOT" || exit 1  # no `set -e` here: a failed cd would
@@ -295,6 +364,66 @@ PINS_ALL='{
 }'
 PINS_JSON="$(jq -c --arg m "$MODE" '.[$m] // {}' <<<"$PINS_ALL")"
 
+# `pinned()` above is keyed `planner.robot` and only reached from the
+# `.stratum != null` branch below, so `constrained`/`inject_constrained` --
+# which are TAGS, not robots, and have no stratum row at all -- never got a
+# `solved_floor`. A full revert of the fix that makes them solvable is caught
+# anyway (every `common()` check fails at 0 solved), but erosion is not:
+# `> 0` guards pass just as well at 1 solved as at every problem solved, so a
+# regression that leaves a few problems solving would pass every row that
+# existed before this variable.
+#
+# This is a SIBLING to $PINS_ALL, not a new case folded into it, because
+# $PINS_ALL's shape IS the robot keying -- adding a tag underneath it would
+# make one variable answer two different questions ("floor for this robot"
+# and "floor for this tag") by context, which is the dual-meaning shape that
+# grows a special case per future tag. Keyed `mode -> planner -> tag` instead,
+# it answers only the tag question, and reuses `pinned()` unchanged: the
+# function only ever read `.problems`/`.solved_floor` off whatever pin object
+# it was handed.
+#
+# `full`'s tags are listed with a null pin, not omitted, unlike $PINS_ALL's
+# flatly-null `full`. $PINS_ALL can be flat because `.stratum` rows are
+# unconditional -- every planner/robot combination always produces one, so
+# `$pins[$p][.robot] == null` alone means "unmeasured" with no ambiguity. A
+# `.set` row is not unconditional: most tags (`panda_floor_wall` and so on)
+# are never meant to carry a tag-level floor at all, so the check below has to
+# tell "this tag carries no floor, ever" apart from "this tag needs a floor
+# and none is measured for this mode" -- and a bare `$tag_pins[$p][.tag] //
+# null` cannot make that distinction, only `has()` against an entry that is
+# actually present can. Listing the tag with a null pin in `full` is what
+# lets `has()` see it there too, so `full` fails loud the same way an
+# unmeasured stratum does instead of silently skipping the check.
+#
+# Pinned exactly at the measurement, not two below it the way $PINS_ALL's
+# `solved_floor`s are: that margin there is real movement Phase 7 measured
+# for STOMP at its own scale, not a blanket rule, and this population showed
+# none of it -- three consecutive runs, same tree, same CONSTRAINED_SET tuple
+# (panda floor_wall seed 810011 panda_joint1:0.0:0.5) at PILOT_COUNT=8,
+# SEED_BASE=525252, TIMEOUT_SECONDS=120, gave the identical count each time
+# with zero timeouts on every run: chomp 6/8 solved on both `constrained` and
+# `inject_constrained` (identical because CHOMP never plans with
+# `joint_constraint` at all -- `optimize_benchmark_chomp.rs:596-608` -- so the
+# two tags plan and score identically by construction, not by coincidence),
+# stomp 8/8 solved on both (the `7f561e20` fix above). An exact pin on a
+# stable measurement has precedent in this same file: `endpoint_ceiling 0.0`
+# for CHOMP is pinned at exactly its measurement for the same reason -- "a
+# ceiling above 0 here would accept a regression this tree does not have." If
+# this population turns out to be noisy on a machine this was never run on,
+# that is new evidence for a margin, measured the same way the existing ones
+# were -- not a reason to invent one now that nothing here shows.
+TAG_PINS_ALL='{
+  "full": {"chomp": {"constrained": null, "inject_constrained": null},
+           "stomp": {"constrained": null, "inject_constrained": null}},
+  "pilot": {
+    "chomp": {"constrained": {"problems": 8, "solved_floor": 6},
+              "inject_constrained": {"problems": 8, "solved_floor": 6}},
+    "stomp": {"constrained": {"problems": 8, "solved_floor": 8},
+              "inject_constrained": {"problems": 8, "solved_floor": 8}}
+  }
+}'
+TAG_PINS_JSON="$(jq -c --arg m "$MODE" '.[$m] // {}' <<<"$TAG_PINS_ALL")"
+
 # Which planners this run measures. An override exists for one reason: proving a
 # check discriminates means breaking what it watches and showing it fail, and a
 # both-planner pilot costs minutes of STOMP wall clock per proof (see the
@@ -318,8 +447,9 @@ done
 # watchdog thread sleeps), so each shard is one core.
 SHARDS="${SHARDS:-16}"
 
-WORKDIR="$(mktemp -d)"
-trap 'rm -rf "$WORKDIR"' EXIT
+# $WORKDIR was created before this script re-exec'd itself into its own copy
+# (see the top of this file) -- not created here, so its cleanup trap is not
+# reset here either.
 
 failed=()
 
@@ -505,6 +635,35 @@ merge_rows() {
 DIRTY_LIST="$(cd "$REPO_ROOT" && git status --porcelain)"
 if [[ -n "$DIRTY_LIST" ]]; then TREE_DIRTY=true; else TREE_DIRTY=false; fi
 
+# Same snapshot moment, for a fact the source digest cannot see. `oracle_stamp`
+# (tools/moveit-oracle/src-digest.sh) hashes the oracle's files together with
+# its resolved, env-overridable ORACLE_BASE_IMAGE/ORACLE_MOVEIT2_PACKAGES/
+# ORACLE_MOVEIT2_SHA build inputs. `measured_source_digest("tools/moveit-oracle/src")`
+# below is index-scoped to `src/`; the Dockerfile, build.sh, entrypoint.sh and
+# the pinned MOVEIT2_SHA all live outside that directory, so repinning the
+# oracle's moveit2 checkout changes which C++ numbers this run produces
+# without moving that digest at all. run-oracle.sh checks the running image's
+# stamp against this same value on every call, but that only catches a STALE
+# image -- it never writes what it checked into anything the artifact keeps,
+# so two runs made under two different pins each pass their own check and
+# leave artifacts whose measured_sources cannot tell them apart. The image
+# TAG is not recorded separately: `oracle_image_tag` (src-digest.sh) derives
+# it from the stamp by truncating to the first 16 hex characters, so the tag
+# is recoverable from the stamp and not the reverse -- recording the stamp is
+# strictly more informative, and `oracle_image_tag "$ORACLE_STAMP"` recovers
+# the tag whenever something needs to `docker image inspect` it.
+# The function comes from the private copy (so its own definition cannot
+# version-split mid-run, same as gate-lib.sh above); the directory it hashes
+# stays $REPO_ROOT (so the digest describes the real oracle sources, not a
+# copy that was never meant to hold them).
+# shellcheck source=tools/moveit-oracle/src-digest.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../moveit-oracle/src-digest.sh"
+ORACLE_STAMP="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")" || exit 1
+
+# The list below is the two arms' own algorithm crates plus the validity/cost
+# code both arms call to decide what they report -- see the closure argument
+# on `measured_source_digest` in gate-lib.sh for how this list was derived
+# and what was deliberately left out.
 if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
     tools/ci/measure-phase8-optimizer-properties.sh \
     tools/ci/measure-phase8-cpp-baseline.sh \
@@ -513,6 +672,11 @@ if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
     crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs \
     crates/moveit-planners-chomp/src \
     crates/moveit-planners-stomp/src \
+    crates/moveit-stomp-core/src \
+    crates/moveit-distance-field/src \
+    crates/moveit-collision/src \
+    crates/moveit-scene/src \
+    crates/moveit-constraints/src \
     tools/moveit-oracle/src; do
   d="$(measured_source_digest "$f")" || exit 1
   printf '%s %s\n' "$f" "$d"
@@ -526,6 +690,24 @@ echo "=== building instruments (release) ==="
 cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
   -p moveit-planners-sbp -p moveit-planners-chomp -p moveit-planners-stomp \
   --examples || exit 1
+
+# Copied into $WORKDIR the moment the build finishes, and every call below
+# uses the copy. Unlike the script/library files above, these are not
+# re-exec'd -- a compiled binary is not read incrementally through one fd the
+# way bash reads a script, so there is no offset for a rewrite to corrupt
+# mid-call, and each call is a fresh, complete `execve` regardless. What a
+# copy protects against here is different: `$REPO_ROOT/target/release` is
+# shared with every other build in this worktree, and a concurrent `cargo
+# build` replacing these paths between two calls this run makes would answer
+# some of this run's problems with one version of the instrument and the rest
+# with another, while $SOURCES_JSON above named only the one it read at start.
+mkdir -p "$WORKDIR/bin" || exit 1
+for b in "$GEN" "$CHOMP" "$STOMP"; do
+  cp "$b" "$WORKDIR/bin/" || exit 1
+done
+GEN="$WORKDIR/bin/$(basename "$GEN")"
+CHOMP="$WORKDIR/bin/$(basename "$CHOMP")"
+STOMP="$WORKDIR/bin/$(basename "$STOMP")"
 
 # --- the discrimination gate ------------------------------------------------
 #
@@ -580,26 +762,50 @@ for planner in $PLANNERS; do
   [[ -s "$WORKDIR/panda_floor_wall.request.json" ]] || continue
   run_inject "$planner" "$binary" "$WORKDIR/panda_floor_wall.request.json" \
              collision panda_floor_wall
-  # `constraint` cannot use the constrained set as generated. STOMP solves none
-  # of it -- measured 0 solved / 16 timeouts over three constrained sets (seed
-  # 810011 floor_wall tolerance 0.5, 8 problems; seed 810012 floor_wall
-  # tolerance 1.5, 4; seed 810013 cage tolerance 0.5, 4), and one of those
-  # problems given 600s instead of 120s was still not solved when it was killed
-  # at 730s -- because `getConstraintsCostFunction` costs a state by
-  # `decide().distance`, the distance to the constraint TARGET rather than the
-  # amount by which the tolerance is exceeded, and
-  # `cost_function_from_state_validator` marks any timestep with cost > 0
-  # invalid. A group that moves the constrained joint at all therefore has no
-  # valid timestep, at any budget. With no solved path there is nothing to
-  # splice a bad waypoint into, and the stage reports "checked nothing".
+  # `constraint` USED TO be unable to use the constrained set as generated:
+  # STOMP solved none of it -- measured 0 solved / 16 timeouts over three
+  # constrained sets (seed 810011 floor_wall tolerance 0.5, 8 problems; seed
+  # 810012 floor_wall tolerance 1.5, 4; seed 810013 cage tolerance 0.5, 4), and
+  # one of those problems given 600s instead of 120s was still not solved when
+  # it was killed at 730s -- because `getConstraintsCostFunction` costs a state
+  # by `decide().distance`, the distance to the constraint TARGET rather than
+  # the amount by which the tolerance is exceeded, and
+  # `cost_function_from_state_validator` marked any timestep with cost > 0
+  # invalid. A group that moved the constrained joint at all therefore had no
+  # valid timestep, at any budget. With no solved path there was nothing to
+  # splice a bad waypoint into, and the stage reported "checked nothing".
   #
-  # So the constraint moves from the planner to the checker: the same problems,
-  # the same endpoints (sampled to satisfy it, so a path between them can too),
-  # planned WITHOUT it and checked WITH it. That is the pairing the check needs
-  # anyway -- `<planner>/inject_constrained` in the run list below is this exact
-  # request without the injection, and it has to come out 100% valid for the
-  # rejection here to mean the waypoint was rejected rather than the path.
+  # That premise is now false: `7f561e20` (fix(stomp): gate constraint cost on
+  # satisfied, not raw distance) removed the cause. Measured on this exact
+  # `CONSTRAINED_SET` tuple (panda floor_wall seed 810011
+  # panda_joint1:0.0:0.5), 16 problems, PLANNER_SEED_BASE 525252, control
+  # `ff045455` vs treatment `ff045455`+`7f561e20` cherry-picked: solved 0/16 ->
+  # 16/16, timeouts 16/16 -> 0/16, condition2_pass 0/16 -> 16/16, median
+  # plan_seconds 120.07 -> 3.98. Full design and caveats (this is 16/16 at
+  # PILOT_COUNT, not a `full`-mode measurement) in
+  # `scratchpad/stompmeas/RESULT.md` (2026-08-08, run in a throwaway
+  # integration worktree, not this tree).
+  #
+  # So `constrained.request.json` as generated is now a real population to
+  # inject against, and gets its own arm below using the SAME constraint field
+  # for both planning and checking -- the common-case configuration, unmeasured
+  # by this gate until now because there was nothing solved to measure it on.
+  #
+  # That does not retire the split-field arm beneath it. `check_joint_constraint`
+  # exists as its own field precisely for "check against a constraint the
+  # planner did not necessarily see" -- a distinct, real configuration this
+  # binary supports -- so `inject_constrained` (constraint moved from
+  # `joint_constraint` to `check_joint_constraint`, planned WITHOUT it and
+  # checked WITH it) keeps running alongside `constrained`, not in place of it.
+  # `<planner>/inject_constrained` in the run list below is that exact request
+  # without the injection, and it has to come out 100% valid for the rejection
+  # here to mean the waypoint was rejected rather than the path.
   [[ -s "$WORKDIR/constrained.request.json" ]] || continue
+  # The single-field arm: `joint_constraint` alone, unmodified, driving both
+  # planning and (via `check_joint_constraint`'s `or_else` fallback in
+  # `optimize_benchmark_stomp.rs`) checking.
+  run_inject "$planner" "$binary" "$WORKDIR/constrained.request.json" \
+             constraint constrained
   jq '(.check_joint_constraint = .joint_constraint) | .joint_constraint = null' \
     "$WORKDIR/constrained.request.json" >"$WORKDIR/inject_constrained.request.json"
   run_inject "$planner" "$binary" "$WORKDIR/inject_constrained.request.json" \
@@ -906,7 +1112,8 @@ for planner in $PLANNERS; do
 done
 
 checks_json="$WORKDIR/checks.json"
-jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
+jq -s -c --argjson pins "$PINS_JSON" --argjson tag_pins "$TAG_PINS_JSON" \
+     --argjson tmo "$TIMEOUT_SECONDS" \
      --argjson cppclock "$CPP_CLOCK_BOUND" \
      --arg mode "$MODE" '
   def r3($x): if $x == null then null else (($x)*1000|round)/1000 end;
@@ -1139,7 +1346,7 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
            [endpoints($s; $label; $pin)] + pinned($s; $label; $pin)
            + quality($p; $s; $label; $pin) end) ]
   + [ .[] | select(.set != null)
-      | "\(.planner)/\(.tag)" as $label | .set as $s | .cpp as $c
+      | .planner as $p | .tag as $t | "\($p)/\($t)" as $label | .set as $s | .cpp as $c
       | common($s; $label)
         # The two constrained populations carry no `cpp` at all, by the
         # decision in the C++ baseline stage above: `chomp_plan`/`stomp_plan`
@@ -1147,7 +1354,24 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
         # different question. Their absence is a property of the population,
         # not of a stage that failed, which is why it is not a failure row the
         # way `cpp-baseline-missing` is on a stratum.
-        + (if $c == null then [] else cpp_set($s; $c; $label) end) ]
+        + (if $c == null then [] else cpp_set($s; $c; $label) end)
+        # `has()` membership, not `// null` coalescing: most tags here
+        # (`panda_floor_wall` and so on) are never meant to carry a
+        # tag-level floor at all -- they are already pinned via their own
+        # `.stratum` row above -- so they must fall through this untouched,
+        # not gain a spurious new check. Only a tag `$tag_pins[.planner]`
+        # actually lists (`constrained`, `inject_constrained`) is a member
+        # of the tag-pinned population; `full`s tags are listed with a null
+        # pin for exactly this reason -- see `$TAG_PINS_ALL`.
+        + (($tag_pins[$p] // {}) as $tp
+           | if ($tp | has($t)) then
+               ($tp[$t]) as $pin
+               | if $pin == null then
+                   [{ name: "\($label)/pins-unmeasured",
+                      detail: "mode=\($mode) has no measured tag pin for \($label), so pin-population and no-regression-solved did not run",
+                      ok: false }]
+                 else pinned($s; $label; $pin) end
+             else [] end) ]
   | flatten
 ' "$verdict_json" >"$checks_json"
 
@@ -1182,6 +1406,7 @@ if [[ "$MODE" == "full" ]]; then
   # because the harnesses alone are not what produces these rates.
   jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --arg stamp "$(cd "$REPO_ROOT" && git rev-parse HEAD)" \
+        --arg oracle_stamp "$ORACLE_STAMP" \
         --argjson dirty "$TREE_DIRTY" \
         --argjson dirty_paths "$(printf '%s' "$DIRTY_LIST" | jq -R -s 'split("\n")|map(select(length>0))')" \
         --argjson sources "$SOURCES_JSON" \
@@ -1190,7 +1415,7 @@ if [[ "$MODE" == "full" ]]; then
         --argjson cpp_seconds "$cpp_seconds" \
         --slurpfile rows "$verdict_json" \
         --slurpfile checks "$checks_json" \
-     '{measured_at:$ts, commit:$stamp, working_tree_dirty:$dirty,
+     '{measured_at:$ts, commit:$stamp, oracle_stamp:$oracle_stamp, working_tree_dirty:$dirty,
        dirty_paths:$dirty_paths, measured_sources:$sources,
        mode:"full", planners:"chomp stomp", seed_base:'"$SEED_BASE"', timeout_seconds:'"$TIMEOUT_SECONDS"',
        clock_bounds:{port_seconds:'"$TIMEOUT_SECONDS"', cpp_seconds:'"$CPP_CLOCK_BOUND"',
