@@ -631,9 +631,10 @@ impl<'a> Stomp<'a> {
     /// On this path the returned matrix is the caller's own
     /// `initial_parameters`, not the poisoned one, so a caller that ignores
     /// the flag still gets a finite trajectory. A `delta_t` past roughly
-    /// `f64::MAX.sqrt()` is *not* covered here: it panics earlier, in
-    /// `Stomp::reset_variables`'s `expect` on an inverse that a
-    /// caller-supplied config can legitimately make singular.
+    /// `f64::MAX.sqrt()` reaches this same check: it makes
+    /// `Stomp::reset_variables`' control-cost matrix singular, and that
+    /// function returns a `NaN` inverse (Eigen's own behaviour) rather than
+    /// aborting, so the rejection happens here too.
     pub fn solve(&mut self, initial_parameters: &DMatrix<f64>) -> (bool, DMatrix<f64>) {
         if self
             .parameters_optimized
@@ -773,11 +774,28 @@ impl<'a> Stomp<'a> {
             .control_cost_matrix_r_padded
             .view((self.start_index_padded, self.start_index_padded), (t, t))
             .into_owned();
-        self.inv_control_cost_matrix_r =
-            full_piv_lu_try_inverse_or_empty(self.control_cost_matrix_r.clone()).expect(
-                "control_cost_matrix_R is invertible by STOMP's own algorithmic premise -- see \
-                 generate_smoothing_matrix's own doc for the same reasoning",
-            );
+        // Upstream is `inv_control_cost_matrix_R_ =
+        // control_cost_matrix_R_.fullPivLu().inverse()`, and Eigen's
+        // `inverse()` on a singular matrix returns a non-finite matrix
+        // rather than throwing -- so panicking here would be a
+        // port-introduced divergence, not a preserved one. The premise the
+        // old `expect` asserted is falsifiable from public API: a
+        // `config.delta_t` past roughly `f64::MAX.sqrt()` underflows
+        // `delta_t * A^T * A` to the zero matrix, which has no inverse.
+        // `NaN` is what "no inverse" means numerically and is what the rest
+        // of this function would compute from a non-finite Eigen result
+        // anyway; `Stomp::solve`'s finiteness check then turns it into a
+        // `false` return instead of an abort.
+        self.inv_control_cost_matrix_r = full_piv_lu_try_inverse_or_empty(
+            self.control_cost_matrix_r.clone(),
+        )
+        .unwrap_or_else(|| {
+            DMatrix::from_element(
+                self.control_cost_matrix_r.nrows(),
+                self.control_cost_matrix_r.ncols(),
+                f64::NAN,
+            )
+        });
 
         // "Applying scale factor to ensure that max(R^-1)==1": upstream
         // takes std::abs(maxCoeff()) -- the absolute value of the single
@@ -1599,6 +1617,23 @@ mod tests {
         let (ok, optimized) = solve_with_delta_t(DELTA_T);
         assert!(ok, "solve rejected the usable delta_t {DELTA_T}");
         assert!(optimized.iter().all(|v| v.is_finite()));
+    }
+
+    /// `Stomp::new` must not panic on a `StompConfiguration` a caller can
+    /// legally build. Past roughly `f64::MAX.sqrt()`, `delta_t * A^T * A`
+    /// underflows to the zero matrix, which has no inverse -- upstream's
+    /// `fullPivLu().inverse()` returns a non-finite matrix there rather
+    /// than throwing, so a panic is a port-introduced divergence.
+    #[test]
+    fn a_delta_t_that_makes_the_control_cost_matrix_singular_is_rejected_not_a_panic() {
+        for dt in [1e150, 1e200, f64::MAX] {
+            let (ok, optimized) = solve_with_delta_t(dt);
+            assert!(!ok, "solve reported success for delta_t = {dt}");
+            assert!(
+                optimized.iter().all(|v| v.is_finite()),
+                "solve rejected delta_t = {dt} but handed back a non-finite trajectory"
+            );
+        }
     }
 
     fn solve_with_delta_t(delta_t: f64) -> (bool, DMatrix<f64>) {
