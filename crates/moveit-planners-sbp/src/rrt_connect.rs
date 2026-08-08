@@ -60,9 +60,9 @@ pub enum Termination {
 /// Why [`rrt_connect`] returned without a path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum PlanningFailure {
-    /// `start` or `goal` itself failed [`StateValidityChecker::is_valid`]:
-    /// an invalid endpoint can never appear on a valid path, so nothing was
-    /// searched for.
+    /// `start` or `goal` itself failed [`StateSpace::satisfies_bounds`] or
+    /// [`StateValidityChecker::is_valid`]: an invalid endpoint can never
+    /// appear on a valid path, so nothing was searched for.
     #[error("start or goal state is itself invalid")]
     InvalidEndpoint,
     /// The `max_iterations` bound in `params.termination` was reached
@@ -395,7 +395,18 @@ where
 {
     params.assert_valid();
 
-    if !checker.is_valid(&start) || !checker.is_valid(&goal) {
+    // Bounds-check each endpoint before validity-checking it, mirroring
+    // upstream `PlannerInputStates::nextStart`/`nextGoal`'s `bool bounds =
+    // si_->satisfiesBounds(st); bool valid = bounds ? si_->isValid(st) :
+    // false;` (`ompl/base/src/Planner.cpp:243-244,298-299`): an
+    // out-of-bounds state's own validity is never asked about. This crate's
+    // `satisfies_bounds` rejects a NaN component on every `StateSpace` impl
+    // (`RealVectorSpace`: `v >= min && v <= max`; the others delegate to it
+    // or check `is_finite()` directly), so a `checker`/`motion_validator`
+    // that does not itself special-case NaN can no longer be handed one.
+    let start_ok = space.satisfies_bounds(&start) && checker.is_valid(&start);
+    let goal_ok = space.satisfies_bounds(&goal) && checker.is_valid(&goal);
+    if !start_ok || !goal_ok {
         return Err(PlanningFailure::InvalidEndpoint);
     }
 
@@ -710,6 +721,40 @@ mod tests {
             &short_deadline,
         );
         assert_eq!(result, Err(PlanningFailure::DeadlineExhausted));
+    }
+
+    #[test]
+    fn nan_start_is_rejected_as_an_invalid_endpoint() {
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0)]).unwrap();
+        let always_valid = |_: &Vec<f64>| true;
+        let mv = DiscreteMotionValidator::new(&always_valid, 0.1);
+        let result = rrt_connect(
+            &space,
+            &always_valid,
+            &mv,
+            vec![f64::NAN],
+            vec![5.0],
+            Sampler::unconstrained(&mut rng(6)),
+            &params(),
+        );
+        assert_eq!(result, Err(PlanningFailure::InvalidEndpoint));
+    }
+
+    #[test]
+    fn nan_goal_is_rejected_as_an_invalid_endpoint() {
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0)]).unwrap();
+        let always_valid = |_: &Vec<f64>| true;
+        let mv = DiscreteMotionValidator::new(&always_valid, 0.1);
+        let result = rrt_connect(
+            &space,
+            &always_valid,
+            &mv,
+            vec![-5.0],
+            vec![f64::NAN],
+            Sampler::unconstrained(&mut rng(6)),
+            &params(),
+        );
+        assert_eq!(result, Err(PlanningFailure::InvalidEndpoint));
     }
 
     #[test]
