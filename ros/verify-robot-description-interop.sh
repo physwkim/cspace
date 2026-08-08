@@ -95,7 +95,7 @@ assert_line() { # <what> <exact line> <file>
   fi
 }
 
-docker run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
+docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
   bash -c "cargo build --bin move_group" >&2
 
 ###############################################################################
@@ -104,10 +104,10 @@ docker run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
 out_dir="$(mktemp -d)"
 trap 'rm -rf "$out_dir"' EXIT
 
-docker run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
+docker_cargo_run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   -v "$REPO_ROOT:/repo" -v "$out_dir:/out" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
   set -e
-  ./target/debug/move_group '"$URDF $SRDF"' 2>/tmp/node.stderr &
+  "$CARGO_TARGET_DIR/debug/move_group" '"$URDF $SRDF"' 2>/tmp/node.stderr &
   server_pid=$!
   trap "kill $server_pid 2>/dev/null || true" EXIT
 
@@ -202,10 +202,10 @@ trap teardown EXIT
 
 docker network create "$NET" >/dev/null
 
-docker run -d --rm --name "$NODE_CTR" --network "$NET" \
+docker_cargo_run -d --rm --name "$NODE_CTR" --network "$NET" \
   -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
-  ./target/debug/move_group "$URDF" "$SRDF" >/dev/null
+  "$DOCKER_CARGO_TARGET_MOUNT/debug/move_group" "$URDF" "$SRDF" >/dev/null
 sleep 3
 
 # `description-from-topic`: the probe sets no `robot_description` parameter at

@@ -76,7 +76,7 @@ assert_line() { # <what> <exact line> <file>
   fi
 }
 
-docker run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
+docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
   bash -c "cargo build --bin move_group" >&2
 
 ###############################################################################
@@ -85,10 +85,10 @@ docker run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
 out_dir="$(mktemp -d)"
 trap 'rm -rf "$out_dir"' EXIT
 
-docker run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
+docker_cargo_run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   -v "$REPO_ROOT:/repo" -v "$out_dir:/out" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
   set -e
-  ./target/debug/move_group '"$URDF $SRDF"' 2>/tmp/node.stderr &
+  "$CARGO_TARGET_DIR/debug/move_group" '"$URDF $SRDF"' 2>/tmp/node.stderr &
   server_pid=$!
   trap "kill $server_pid 2>/dev/null || true" EXIT
   sleep 3
@@ -217,16 +217,16 @@ trap teardown EXIT
 
 docker network create "$NET" >/dev/null
 
-docker run -d --rm --name "$NODE_CTR" --network "$NET" \
+docker_cargo_run -d --rm --name "$NODE_CTR" --network "$NET" \
   -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
-  ./target/debug/move_group "$URDF" "$SRDF" >/dev/null
+  "$DOCKER_CARGO_TARGET_MOUNT/debug/move_group" "$URDF" "$SRDF" >/dev/null
 sleep 3
 
 # Push the distinctive value into the node's monitored scene first. A full
 # scene (`is_diff: false`) rather than a diff, so the state that comes back is
 # unambiguously this message's and not a default the node happened to hold.
-docker run --rm --network "$NET" -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
+docker_cargo_run --rm --network "$NET" -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c "
     timeout 20 ros2 topic pub --once --qos-reliability reliable /planning_scene \
       moveit_msgs/msg/PlanningScene \

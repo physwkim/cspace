@@ -88,6 +88,84 @@ require_caller_tree() {
   exit 1
 }
 
+# `docker run` with the container's cargo output redirected OFF the
+# bind-mounted worktree. Use it for every container that runs cargo, or runs
+# something cargo built, against a mounted repo:
+#
+#   docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros ...
+#
+# taking everything `docker run` itself would take. Never spell a built
+# binary `./target/debug/...`; which of the two names below to use depends on
+# WHICH SHELL expands it, not on taste:
+#
+#   - inside the container's own command (a `bash -c '...'` single-quoted
+#     word, or a `<<'EOS'` heredoc): `"$CARGO_TARGET_DIR/debug/move_group"`.
+#   - as argv the host shell builds (`... "$IMAGE" <binary> "$URDF"`, the
+#     shape the detached `-d` node containers use):
+#     `"$DOCKER_CARGO_TARGET_MOUNT/debug/move_group"`. `CARGO_TARGET_DIR` is
+#     set in the container and NOT on the host, so the first spelling dies
+#     there under `set -u` -- measured, as `ros/verify-robot-description-
+#     interop.sh: line 205: CARGO_TARGET_DIR: unbound variable`.
+#
+# A function rather than an argument array so that a call site cannot get
+# half of it: the mount and the env var have to travel together (the volume
+# alone leaves cargo writing to the tree; the variable alone points cargo at
+# a path no volume backs), and a `"${ARGS[@]}"` a caller forgets to paste is
+# exactly the omission this whole block exists to stop. An array here would
+# also read as unused to the linter, whose only uses are in other files.
+#
+# The `ros/` gates run as root -- that is the ros-dev image's only user, and
+# its `CARGO_HOME=/usr/local/cargo` is root-owned, so `--user` leaves cargo
+# unable to write its registry. With the repo bind-mounted, cargo's default
+# `ros/moveit-ros/target` therefore writes root-owned files into the *host's*
+# tree. Measured on 2026-08-08: ~242k of them across this repo and its caucus
+# worktrees, accumulated over earlier gate runs. `git status` stays clean the
+# whole time (it is all gitignored build output), and the cost lands on
+# somebody else -- the host user's next `cargo` fails with `Permission
+# denied`, and they cannot `chown` it back without another container.
+#
+# A docker-managed named volume removes the shared writable path rather than
+# guarding it: there is no longer a host directory for the container to own.
+# One volume shared across a gate's containers preserves exactly the `target/`
+# reuse the bind mount used to provide, so `fmt`/`clippy`/`test`/`doc` still
+# do not each rebuild the dependency graph. It is not a durable cache --
+# `CARGO_HOME` is container-local and `--rm`, so the registry is re-fetched
+# every run either way.
+#
+# Here rather than per script for the reason `require_nonempty` is: six
+# `ros/verify-*-interop.sh` scripts made 20 `docker run` calls between them,
+# and every one of the 17 that runs the ros-dev image had this defect. A fix
+# applied to the one call that was noticed would have left the other five
+# scripts writing into the tree.
+#
+# The remaining 3 run `$PROBE_IMAGE` (upstream's C++ `MoveGroupInterface`
+# probe, built into its own image at /ws) and take no cargo argument: they
+# never invoke cargo, so they have nothing to redirect.
+#
+# One volume per worktree, not one global volume. Seven caucus worktrees share
+# this docker daemon -- the live legs already derive a per-run
+# `ROS_DOMAIN_ID` for that reason -- and a single shared target directory
+# would let one worktree's `cargo build` replace the `move_group` binary
+# another worktree's live leg is about to launch. `require_caller_tree` above
+# exists because a green measurement of the wrong subject is worse than a red
+# one; a build cache shared across worktrees is that same failure one level
+# down, and the bind mount it replaces did not have it. The name is derived
+# from the tree holding THIS copy of gate-lib.sh, so each worktree gets its
+# own without any caller passing anything, and `docker volume prune` reclaims
+# them all -- which is more than could be said for the root-owned `target/`
+# directories they replace.
+_gate_lib_tree="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+DOCKER_CARGO_TARGET_VOLUME="${DOCKER_CARGO_TARGET_VOLUME:-moveit-rs-cargo-$(basename "$_gate_lib_tree")-$(printf '%s' "$_gate_lib_tree" | sha256sum | cut -c1-8)}"
+unset _gate_lib_tree
+DOCKER_CARGO_TARGET_MOUNT=/cargo-target
+
+docker_cargo_run() {  # <everything `docker run` takes...>
+  docker run \
+    -v "$DOCKER_CARGO_TARGET_VOLUME:$DOCKER_CARGO_TARGET_MOUNT" \
+    -e "CARGO_TARGET_DIR=$DOCKER_CARGO_TARGET_MOUNT" \
+    "$@"
+}
+
 # Names what a nonzero `moveit-diff` status actually was: a comparison that ran
 # and disagreed, or a run that never reached a verdict.
 #

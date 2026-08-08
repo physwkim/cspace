@@ -177,9 +177,9 @@ assert_line() { # <what> <exact line> <file>
 echo "=== move_action (leg A: ros2 action send_goal) ==="
 
 # `cargo build` here and not in the container command below: leg B reuses the
-# binary this produces, out of the same bind-mounted target/ directory, so it
-# is built once for both legs.
-docker run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
+# binary this produces, out of the cargo volume every container here shares
+# (gate-lib.sh's `docker_cargo_run`), so it is built once for both legs.
+docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
   bash -c "cargo build --bin move_group" >&2
 
 # One file per goal, mounted at /out, rather than one merged stream. The six
@@ -205,10 +205,10 @@ trap 'rm -rf "$leg_a_dir"' EXIT
 # a different reason -- without it a regression there would abort this
 # container script before the other five goals ran, and the assertions below
 # would report five missing replies instead of the one that actually changed.
-docker run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
+docker_cargo_run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   -v "$REPO_ROOT:/repo" -v "$leg_a_dir:/out" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
   set -e
-  ./target/debug/move_group '"$URDF $SRDF"' 2>/tmp/node.stderr &
+  "$CARGO_TARGET_DIR/debug/move_group" '"$URDF $SRDF"' 2>/tmp/node.stderr &
   server_pid=$!
   trap "kill $server_pid 2>/dev/null || true" EXIT
   sleep 3
@@ -394,10 +394,10 @@ docker network create "$NET" >/dev/null
 # Detached, not backgrounded: the probe runs in a second container and both
 # have to be up at once. `--rm` plus the trap above means neither survives a
 # failing assertion below.
-docker run -d --rm --name "$NODE_CTR" --network "$NET" \
+docker_cargo_run -d --rm --name "$NODE_CTR" --network "$NET" \
   -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
-  ./target/debug/move_group "$URDF" "$SRDF" >/dev/null
+  "$DOCKER_CARGO_TARGET_MOUNT/debug/move_group" "$URDF" "$SRDF" >/dev/null
 sleep 3
 
 leg_b_out="$(mktemp)"

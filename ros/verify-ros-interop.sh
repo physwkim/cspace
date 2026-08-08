@@ -120,7 +120,8 @@ run() {  # <label> <command...>
   local label="$1"
   shift
   echo "=== $label ==="
-  docker run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" "$@"
+  docker_cargo_run --rm \
+    -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" "$@"
 }
 
 run "fmt" bash -c "cargo fmt --check"
@@ -146,7 +147,8 @@ echo "=== test ==="
 # printed on the line after the one that aborts, so a failing `cargo test`
 # here produced no output at all beyond this `=== test ===` header.
 test_status=0
-test_output="$(docker run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c "cargo test" 2>&1)" ||
+test_output="$(docker_cargo_run --rm \
+  -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c "cargo test" 2>&1)" ||
   test_status=$?
 printf '%s\n' "$test_output"
 if [[ $test_status -ne 0 ]]; then
@@ -235,7 +237,7 @@ run "doc (private items)" bash -c 'RUSTDOCFLAGS="--document-private-items" cargo
 LIVE_SCRIPT=$(cat <<'EOS'
 set -e
 cargo build --bin move_group
-./target/debug/move_group \
+"$CARGO_TARGET_DIR/debug/move_group" \
   /repo/ros/fixtures/one_joint.urdf /repo/ros/fixtures/one_joint.srdf &
 server_pid=$!
 trap "kill $server_pid 2>/dev/null || true" EXIT
@@ -345,7 +347,7 @@ echo "OK live round-trip: reported the unplannable one as FAILURE naming rrt_con
 # cross-container agreement here.
 SCENE_DOMAIN_ID="${ROS_DOMAIN_ID:-$((($$ % 100) + 1))}"
 echo "=== scene-topic (ROS_DOMAIN_ID=$SCENE_DOMAIN_ID) ==="
-docker run --rm -e "ROS_DOMAIN_ID=$SCENE_DOMAIN_ID" \
+docker_cargo_run --rm -e "ROS_DOMAIN_ID=$SCENE_DOMAIN_ID" \
   -e OP_ADD -e OP_REMOVE \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
   set -e
@@ -375,7 +377,7 @@ URDF
 SRDF
 
   cargo build --bin move_group
-  ./target/debug/move_group /tmp/boxed.urdf /tmp/boxed.srdf 2>/tmp/node.stderr &
+  "$CARGO_TARGET_DIR/debug/move_group" /tmp/boxed.urdf /tmp/boxed.srdf 2>/tmp/node.stderr &
   server_pid=$!
   trap "kill $server_pid 2>/dev/null || true" EXIT
   sleep 3
@@ -476,7 +478,7 @@ echo "OK scene-topic: answered True/False/False/True across an empty world, a fu
 # the unknown-event line naming `wobble`.
 SCENE_DOMAIN_ID="${ROS_DOMAIN_ID:-$((($$ % 100) + 2))}"
 echo "=== inbound-topics (ROS_DOMAIN_ID=$SCENE_DOMAIN_ID) ==="
-docker run --rm -e "ROS_DOMAIN_ID=$SCENE_DOMAIN_ID" \
+docker_cargo_run --rm -e "ROS_DOMAIN_ID=$SCENE_DOMAIN_ID" \
   -e OP_ADD -e OP_REMOVE \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
   set -e
@@ -506,7 +508,7 @@ URDF
 SRDF
 
   cargo build --bin move_group
-  ./target/debug/move_group /tmp/boxed.urdf /tmp/boxed.srdf 2>/tmp/node.stderr &
+  "$CARGO_TARGET_DIR/debug/move_group" /tmp/boxed.urdf /tmp/boxed.srdf 2>/tmp/node.stderr &
   server_pid=$!
   trap "kill $server_pid 2>/dev/null || true" EXIT
   sleep 3

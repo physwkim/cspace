@@ -109,7 +109,7 @@ assert_line() { # <what> <exact line> <file>
   fi
 }
 
-docker run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
+docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
   bash -c "cargo build --bin move_group" >&2
 
 # One file per goal, as in ros/verify-move-action-interop.sh: the two replies
@@ -120,10 +120,10 @@ trap 'rm -rf "$out_dir"' EXIT
 
 # `|| true` on each send: a goal that ends ABORTED is a non-zero exit for the
 # CLI, and here that is the expected outcome for both goals, not a failure.
-docker run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
+docker_cargo_run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   -v "$REPO_ROOT:/repo" -v "$out_dir:/out" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
   set -e
-  ./target/debug/move_group '"$URDF $SRDF"' 2>/tmp/node.stderr &
+  "$CARGO_TARGET_DIR/debug/move_group" '"$URDF $SRDF"' 2>/tmp/node.stderr &
   server_pid=$!
   trap "kill $server_pid 2>/dev/null || true" EXIT
   sleep 3

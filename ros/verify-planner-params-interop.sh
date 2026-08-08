@@ -38,6 +38,12 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The five sibling `verify-*-interop.sh` legs all source this; this one did
+# not, which is why its container was the last one still writing cargo output
+# into the bind-mounted tree. `docker_cargo_run` below comes from here.
+. "$REPO_ROOT/tools/ci/gate-lib.sh"
+
 IMAGE="${IMAGE:-moveit-rs/ros-dev:latest}"
 URDF=/repo/ros/fixtures/one_joint.urdf
 SRDF=/repo/ros/fixtures/one_joint.srdf
@@ -138,11 +144,11 @@ echo "=== planner_params (query / get / set over DDS) ==="
 # One container, one node, all four calls in sequence: the set->get round trip
 # only means anything against a single node process, since the store lives in
 # that process.
-docker run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
+docker_cargo_run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
   set -e
   cargo build --bin move_group
-  ./target/debug/move_group '"$URDF $SRDF"' 2>/tmp/node.stderr &
+  "$CARGO_TARGET_DIR/debug/move_group" '"$URDF $SRDF"' 2>/tmp/node.stderr &
   server_pid=$!
   trap "kill $server_pid 2>/dev/null || true" EXIT
   sleep 3
