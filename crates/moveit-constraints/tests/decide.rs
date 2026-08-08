@@ -879,6 +879,91 @@ mod visibility {
         assert_eq!(c.decide(&posed), ConstraintEvaluationResult::new(true, 0.0));
     }
 
+    /// Sensor and target at the same point, so the range direction is the
+    /// zero vector.
+    ///
+    /// Upstream `VisibilityConstraint::decide` normalizes it with Eigen's
+    /// `.normalized()`, which returns the input unchanged when
+    /// `squaredNorm()` is zero rather than dividing — measured inside this
+    /// repo's oracle image (Eigen 3.4.0, the version moveit2 builds
+    /// against): `Vector3d::Zero().normalized()` is `[0, 0, 0]`, so `dp` is
+    /// `0`, `acos(dp)` is `pi/2`, and `max_range_angle_ < pi/2` fires for any
+    /// ordinary criterion.
+    ///
+    /// nalgebra's `.normalize()` has no such guard — it is
+    /// `unscale(self.norm())`, so a zero vector gives `0.0 / 0.0`. The whole
+    /// check then evaporated: `dp` was NaN, `dp < 0.0` was false, `acos(dp)`
+    /// was NaN, and `max_range_angle < NaN` was false too, so a degenerate
+    /// pose was reported *satisfied* where upstream reports it violated.
+    #[test]
+    fn a_zero_length_range_direction_is_violated_not_satisfied() {
+        let model = panda_model();
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let transforms = tf(&model);
+        let c = VisibilityConstraint::new(
+            &model,
+            &transforms,
+            SensorSpec {
+                frame_id: model.model_frame(),
+                pose: Isometry3::identity(),
+                view_direction: SensorViewDirection::SensorZ,
+            },
+            TargetSpec {
+                frame_id: model.model_frame(),
+                pose: Isometry3::identity(),
+            },
+            8,
+            VisibilityCriteria {
+                max_range_angle: Some(0.1),
+                ..Default::default()
+            },
+            1.0,
+        )
+        .unwrap();
+        assert!(c.enabled());
+        assert!(!c.decide(&posed).satisfied);
+    }
+
+    /// The demonstrated opposite: the same constraint with the sensor moved
+    /// off the target along its own view axis has a well-defined direction,
+    /// `acos(dp)` is `0`, and `0.1 < 0` is false — so it stays satisfied.
+    /// Without this, the test above would also pass on a port that simply
+    /// reported every range check violated.
+    #[test]
+    fn a_range_direction_along_the_view_axis_is_still_satisfied() {
+        let model = panda_model();
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let transforms = tf(&model);
+        let c = VisibilityConstraint::new(
+            &model,
+            &transforms,
+            SensorSpec {
+                frame_id: model.model_frame(),
+                pose: Isometry3::translation(0.0, 0.0, -1.0),
+                view_direction: SensorViewDirection::SensorZ,
+            },
+            TargetSpec {
+                frame_id: model.model_frame(),
+                pose: Isometry3::identity(),
+            },
+            8,
+            VisibilityCriteria {
+                max_range_angle: Some(0.1),
+                ..Default::default()
+            },
+            1.0,
+        )
+        .unwrap();
+        assert!(c.enabled());
+        assert!(c.decide(&posed).satisfied);
+    }
+
     #[test]
     fn view_angle_violation_is_decided_without_a_collision_check() {
         let model = panda_model();

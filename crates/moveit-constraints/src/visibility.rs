@@ -398,8 +398,16 @@ impl VisibilityConstraint {
         }
 
         if let Some(max_range_angle) = self.max_range_angle {
-            let dir = (world_to_target.translation.vector - world_to_sensor.translation.vector)
-                .normalize();
+            // Eigen's `.normalized()` returns the input unchanged when
+            // `squaredNorm()` is zero instead of dividing; nalgebra's
+            // `.normalize()` is `unscale(self.norm())` with no such guard,
+            // so a sensor sitting exactly on the target gave `0.0 / 0.0`.
+            // Every comparison below is then false against the resulting
+            // NaN and the range check passes vacuously, where upstream gets
+            // `dp == 0`, `ang == pi/2` and violates. Measured in this
+            // repo's oracle image at Eigen 3.4.0.
+            let offset = world_to_target.translation.vector - world_to_sensor.translation.vector;
+            let dir = offset.try_normalize(0.0).unwrap_or(offset);
             let dp = sensor_view_axis.dot(&dir);
             if dp < 0.0 {
                 return Some(ConstraintEvaluationResult::new(false, 0.0));
