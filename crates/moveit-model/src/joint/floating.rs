@@ -153,10 +153,12 @@ impl FloatingJoint {
 
     /// Upstream normalizes both quaternions before comparing (even though
     /// `satisfies_position_bounds` elsewhere treats a
-    /// non-unit quaternion as out of bounds) — reproduced as-is.
+    /// non-unit quaternion as out of bounds) — reproduced as-is. See
+    /// `normalize_quaternion_or_identity`'s doc comment for the zero-input
+    /// divergence this guards against.
     pub fn distance_rotation(values1: &[f64; 7], values2: &[f64; 7]) -> f64 {
-        let q1 = UnitQuaternion::new_normalize(quaternion_from_xyzw(values1));
-        let q2 = UnitQuaternion::new_normalize(quaternion_from_xyzw(values2));
+        let q1 = normalize_quaternion_or_identity(quaternion_from_xyzw(values1));
+        let q2 = normalize_quaternion_or_identity(quaternion_from_xyzw(values2));
         q1.angle_to(&q2)
     }
 
@@ -190,10 +192,12 @@ impl FloatingJoint {
         state
     }
 
+    /// See `normalize_quaternion_or_identity`'s doc comment for the
+    /// zero-quaternion divergence this guards against.
     pub(super) fn compute_transform(values: &[f64; 7]) -> Isometry3 {
         Isometry3::from_parts(
             nalgebra::Translation3::new(values[0], values[1], values[2]),
-            UnitQuaternion::new_normalize(quaternion_from_xyzw(values)),
+            normalize_quaternion_or_identity(quaternion_from_xyzw(values)),
         )
     }
 
@@ -210,6 +214,42 @@ impl FloatingJoint {
 
 fn quaternion_from_xyzw(values: &[f64; 7]) -> Quaternion<f64> {
     Quaternion::new(values[6], values[3], values[4], values[5])
+}
+
+/// `Eigen::QuaternionBase::normalized()` routes through
+/// `MatrixBase::normalized()`, which guards its zero-norm case (`if (z > 0)
+/// ... else return n;`, `Dot.h`) and returns the coefficients unchanged
+/// rather than dividing by zero. `UnitQuaternion::new_normalize` has no such
+/// guard and divides unconditionally, turning a zero quaternion into `[NaN;
+/// 4]`.
+///
+/// A zero quaternion is reachable here as an everyday input, not a
+/// contrivance: a zeroed `[f64; 7]` floating-joint state has `rot_w == 0.0`
+/// along with `rot_x/y/z`. Upstream's own `normalizeRotation`
+/// (`floating_joint_model.cpp:179-205`) has an explicit arm logging
+/// "Quaternion is zero in RobotState representation. Setting to identity"
+/// for exactly this case — but `distance_rotation`/`compute_transform`
+/// (`distanceRotation`/`computeTransform`, `:131-132`/`:235`) never call it;
+/// they use the bare `.normalized()`, so upstream lands on the identity
+/// rotation by Eigen's guard alone, not by that logged check.
+///
+/// Measured directly against this repo's Eigen 3.4.0 oracle image, not
+/// inferred: `Quaterniond(0,0,0,0).normalized()` keeps the coefficients
+/// `(0,0,0,0)`, and `.toRotationMatrix()` on that is exactly the 3x3
+/// identity (every off-diagonal term has an `x`/`y`/`z` factor and vanishes;
+/// every diagonal term is `1 - 2*(a^2+b^2)` with `a=b=0`) — so
+/// `angularDistance` between two zero quaternions is exactly `0`.
+/// `nalgebra`'s `UnitQuaternion` has no zero representation at all (it
+/// always carries a unit-norm invariant), so storing the identity here is
+/// the closest faithful choice: it reproduces the observable rotation and
+/// `angularDistance`/`angle_to` exactly, but not upstream's raw zero
+/// coefficients, which this type cannot represent.
+fn normalize_quaternion_or_identity(q: Quaternion<f64>) -> UnitQuaternion {
+    if q.norm() == 0.0 {
+        UnitQuaternion::identity()
+    } else {
+        UnitQuaternion::new_normalize(q)
+    }
 }
 
 #[cfg(test)]
@@ -327,6 +367,42 @@ mod tests {
             let state = FloatingJoint::interpolate(&from, &to, t);
             assert_eq!(&state[3..7], &from[3..7], "t = {t}");
         }
+    }
+
+    /// A zeroed `[f64; 7]` state has a zero quaternion (`rot_w == 0.0`
+    /// along with `rot_x/y/z`), reachable as an everyday default, not a
+    /// contrivance. `UnitQuaternion::new_normalize` alone would divide by a
+    /// zero norm and give `[NaN; 4]`; upstream's `.normalized()` guard keeps
+    /// the coefficients and renders as the identity rotation instead. Fails
+    /// before `normalize_quaternion_or_identity`'s fix (rotation is NaN),
+    /// passes after (exactly the identity).
+    #[test]
+    fn compute_transform_on_a_zero_quaternion_gives_identity_not_nan() {
+        let values = [0.0; 7];
+        let transform = FloatingJoint::compute_transform(&values);
+        let q = transform.rotation.quaternion();
+        assert_eq!((q.i, q.j, q.k, q.w), (0.0, 0.0, 0.0, 1.0));
+    }
+
+    /// Same divergence as `compute_transform_on_a_zero_quaternion_gives_identity_not_nan`,
+    /// through `distance_rotation` instead: both inputs' zero quaternions
+    /// resolve to the identity rotation, so their angular distance is
+    /// exactly `0.0`, not NaN.
+    #[test]
+    fn distance_rotation_between_two_zero_quaternions_is_zero_not_nan() {
+        let zero = [0.0; 7];
+        assert_eq!(FloatingJoint::distance_rotation(&zero, &zero), 0.0);
+    }
+
+    /// Demonstrated opposite: an ordinary non-unit quaternion (`rot_w ==
+    /// 2.0`, norm 2.0, not zero) still normalizes to the same rotation it
+    /// did before this fix -- `new_normalize` divides by the exact norm 2.0,
+    /// landing on the identity exactly under IEEE 754 -- so the zero-norm
+    /// guard does not turn every input into a no-op identity.
+    #[test]
+    fn distance_rotation_still_normalizes_an_ordinary_non_unit_quaternion() {
+        let non_unit = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0];
+        assert_eq!(FloatingJoint::distance_rotation(&non_unit, &IDENTITY), 0.0);
     }
 
     #[test]
