@@ -65,6 +65,17 @@
 //! `std::min`/`std::max`) is already correctly ported as a plain
 //! `.min()`/`.max()`, and converting it to [`cxx_min`]/[`cxx_max`] would
 //! itself be the divergence.
+//!
+//! [`cxx_clamp`] is the same idea applied to `std::clamp(v, lo, hi)`:
+//! `v < lo ? lo : (hi < v ? hi : v)`, three plain `<` comparisons, none of
+//! which trip on a NaN bound (a NaN comparison is just always false, so the
+//! branch is skipped, not asserted). [`f64::clamp`] instead panics if
+//! either bound is NaN. `ruckig_smoothing.rs` clamps six current/target
+//! velocity and acceleration values against model-sourced
+//! `max_velocity`/`max_acceleration` bounds (`ruckig_traj_smoothing.cpp`'s
+//! `initializeRuckigState`/`getNextRuckigInput`, both `std::clamp`) — a
+//! runtime bound, not a constant, so a NaN one used to panic instead of the
+//! value passing through unclamped the way upstream's `std::clamp` does.
 
 /// `std::min(a, b)`: `if b < a { b } else { a }`.
 pub(crate) fn cxx_min(a: f64, b: f64) -> f64 {
@@ -74,6 +85,19 @@ pub(crate) fn cxx_min(a: f64, b: f64) -> f64 {
 /// `std::max(a, b)`: `if a < b { b } else { a }`.
 pub(crate) fn cxx_max(a: f64, b: f64) -> f64 {
     if a < b { b } else { a }
+}
+
+/// `std::clamp(v, lo, hi)`: `if v < lo { lo } else if hi < v { hi } else { v }`.
+/// Unlike [`f64::clamp`], never panics on a NaN `lo`/`hi` — both comparisons
+/// are simply false, so `v` passes through, matching upstream.
+pub(crate) fn cxx_clamp(v: f64, lo: f64, hi: f64) -> f64 {
+    if v < lo {
+        lo
+    } else if hi < v {
+        hi
+    } else {
+        v
+    }
 }
 
 #[cfg(test)]
@@ -106,5 +130,24 @@ mod tests {
         assert_eq!(cxx_min(2.0, 1.0), 1.0);
         assert_eq!(cxx_max(1.0, 2.0), 2.0);
         assert_eq!(cxx_max(2.0, 1.0), 2.0);
+    }
+
+    #[test]
+    fn a_nan_bound_does_not_panic_and_the_value_passes_through() {
+        assert_eq!(cxx_clamp(5.0, f64::NAN, 10.0), 5.0);
+        assert_eq!(cxx_clamp(5.0, 0.0, f64::NAN), 5.0);
+        assert_eq!(cxx_clamp(5.0, f64::NAN, f64::NAN), 5.0);
+    }
+
+    #[test]
+    fn a_nan_value_returns_nan() {
+        assert!(cxx_clamp(f64::NAN, 0.0, 10.0).is_nan());
+    }
+
+    #[test]
+    fn ordinary_values_match_normal_clamp() {
+        assert_eq!(cxx_clamp(-5.0, 0.0, 10.0), 0.0);
+        assert_eq!(cxx_clamp(15.0, 0.0, 10.0), 10.0);
+        assert_eq!(cxx_clamp(5.0, 0.0, 10.0), 5.0);
     }
 }

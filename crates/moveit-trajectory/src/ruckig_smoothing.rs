@@ -106,6 +106,7 @@ use moveit_error::{Error, Result};
 use moveit_model::{JointModelGroup, RobotModel};
 use moveit_state::RobotState;
 
+use crate::numeric::cxx_clamp;
 use crate::robot_trajectory::RobotTrajectory;
 
 /// `DEFAULT_MAX_VELOCITY`, rad/s: used for a DOF whose `VariableBounds`
@@ -433,11 +434,18 @@ fn initialize_ruckig_state(
             .expect("group variable of this trajectory's own robot model");
 
         // Clamp velocities/accelerations in case they exceed the limit due to small numerical
-        // errors.
+        // errors. `std::clamp` (`ruckig_traj_smoothing.cpp`'s
+        // `initializeRuckigState`) — `cxx_clamp`, not `.clamp()`: the bound
+        // is model-sourced, not a constant, and `f64::clamp` panics on a
+        // NaN bound where `std::clamp` does not.
         input.current_position[i] = position;
-        input.current_velocity[i] = velocity.clamp(-input.max_velocity[i], input.max_velocity[i]);
-        input.current_acceleration[i] =
-            acceleration.clamp(-input.max_acceleration[i], input.max_acceleration[i]);
+        input.current_velocity[i] =
+            cxx_clamp(velocity, -input.max_velocity[i], input.max_velocity[i]);
+        input.current_acceleration[i] = cxx_clamp(
+            acceleration,
+            -input.max_acceleration[i],
+            input.max_acceleration[i],
+        );
     }
 }
 
@@ -474,17 +482,31 @@ fn get_next_ruckig_input(
 
         input.current_position[i] = current_position;
         // Clamp velocities/accelerations in case they exceed the limit due to small numerical
-        // errors.
-        input.current_velocity[i] =
-            current_velocity.clamp(-input.max_velocity[i], input.max_velocity[i]);
-        input.current_acceleration[i] =
-            current_acceleration.clamp(-input.max_acceleration[i], input.max_acceleration[i]);
+        // errors. `std::clamp` (`ruckig_traj_smoothing.cpp`'s
+        // `getNextRuckigInput`) — `cxx_clamp`, same reason as
+        // `initialize_ruckig_state` above.
+        input.current_velocity[i] = cxx_clamp(
+            current_velocity,
+            -input.max_velocity[i],
+            input.max_velocity[i],
+        );
+        input.current_acceleration[i] = cxx_clamp(
+            current_acceleration,
+            -input.max_acceleration[i],
+            input.max_acceleration[i],
+        );
 
         input.target_position[i] = target_position;
-        input.target_velocity[i] =
-            target_velocity.clamp(-input.max_velocity[i], input.max_velocity[i]);
-        input.target_acceleration[i] =
-            target_acceleration.clamp(-input.max_acceleration[i], input.max_acceleration[i]);
+        input.target_velocity[i] = cxx_clamp(
+            target_velocity,
+            -input.max_velocity[i],
+            input.max_velocity[i],
+        );
+        input.target_acceleration[i] = cxx_clamp(
+            target_acceleration,
+            -input.max_acceleration[i],
+            input.max_acceleration[i],
+        );
     }
 
     Ok(())
