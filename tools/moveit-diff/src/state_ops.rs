@@ -125,7 +125,15 @@ impl ClauseResult {
     /// Record one case's deviation, and its failure text when it disagreed.
     fn record(&mut self, label: &str, deviation: f64, failure: Option<String>) {
         self.cases += 1;
-        if deviation > self.worst_deviation || self.worst_label.is_empty() {
+        // NaN must win here the same way it wins the pass/fail decision
+        // callers already made before calling this (see `worst_abs_diff`'s
+        // doc comment): plain `deviation > self.worst_deviation` is always
+        // false once `deviation` is NaN, so a NaN case reached after the
+        // first one used to leave the printed "worst |Δ|" line pointing at
+        // a smaller, stale finite deviation instead of the actual worst
+        // (unmeasurable) case -- `disagreements`/`failures` still counted it
+        // correctly, only this summary line was wrong.
+        if deviation.is_nan() || deviation > self.worst_deviation || self.worst_label.is_empty() {
             self.worst_deviation = deviation;
             self.worst_label = label.to_owned();
         }
@@ -1431,6 +1439,39 @@ fn next_down(v: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The defect: a NaN deviation recorded after an earlier, ordinary one
+    /// used to leave `worst_deviation` pinned at the earlier finite value
+    /// (`NaN > finite` is always false), so the printed "worst |Δ|" line
+    /// named the wrong case and the wrong number even though `disagreements`
+    /// still counted the NaN case correctly.
+    #[test]
+    fn clause_result_record_lets_a_later_nan_win_worst_deviation() {
+        let mut result = ClauseResult::new("test");
+        result.record("case-0", 0.5, Some("ordinary mismatch".to_owned()));
+        result.record("case-1", f64::NAN, Some("nan mismatch".to_owned()));
+        assert!(
+            result.worst_deviation.is_nan(),
+            "got worst_deviation={}, worst_label={:?}",
+            result.worst_deviation,
+            result.worst_label
+        );
+        assert_eq!(result.worst_label, "case-1");
+        assert_eq!(result.disagreements, 2);
+    }
+
+    /// The demonstrated opposite: ordinary cases still track the largest
+    /// deviation and its label correctly, with no NaN in play.
+    #[test]
+    fn clause_result_record_ordinary_cases_are_unchanged() {
+        let mut result = ClauseResult::new("test");
+        result.record("case-0", 0.5, Some("small".to_owned()));
+        result.record("case-1", 2.5, Some("big".to_owned()));
+        result.record("case-2", 1.0, Some("medium".to_owned()));
+        assert_eq!(result.worst_deviation, 2.5);
+        assert_eq!(result.worst_label, "case-1");
+        assert_eq!(result.disagreements, 3);
+    }
 
     /// The defect: a NaN component used to be silently outranked by an
     /// ordinary `0.0` (the fold's seed) instead of winning outright.
