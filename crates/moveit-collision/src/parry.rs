@@ -2156,10 +2156,31 @@ enum TangencyKind {
 /// the pinned tag) resolves every occupied-leaf-vs-shape test to a literal
 /// `Box`-vs-shape `solver->shapeIntersect` call, so a `Compound` pair's
 /// exact-zero-gap verdict is governed by the same dispatch a literal `Cuboid`
-/// pair's is, not a separate octree rule. `None` remains for a kind the
-/// table genuinely has no measurement for (`HalfSpace`, i.e. this crate's
-/// `Plane`) — [`fcl_tangency_verdict`]'s callers keep their own pre-existing
-/// behaviour for that one rather than guessing at it.
+/// pair's is, not a separate octree rule. `None` remains for `HalfSpace`
+/// (this crate's `Plane`): `fcl_tangency_table::SPECIALISED` only indexes
+/// `Box`/`Sphere`/`Cylinder`/`Cone`, so there is no row/column to route
+/// `HalfSpace` through the way `Compound` now is above. That is not the same
+/// as [`fcl_tangency_verdict`]'s `None` being an unknown for `HalfSpace`:
+/// every pairing this crate can construct — `Sphere`, `Box`, `Cylinder`,
+/// `Cone`, `HalfSpace` itself, and (transitively, via the `Compound` rule
+/// above) `Compound` — is registered as a *specialised*, non-generic-libccd
+/// closed-form routine (`gjk_solver_libccd-inl.h:254,256,258,259` for the
+/// four primitives × `Halfspace`; `:270`'s explicit
+/// `ShapeIntersectLibccdImpl<S, Halfspace<S>, Halfspace<S>>` for
+/// `Halfspace`×`Halfspace`), and every one of those routines answers
+/// unconditionally `true` at an exact-zero gap: `sphereHalfspaceIntersect`
+/// `halfspace-inl.h:163` (`if (depth >= 0)`), `boxHalfspaceIntersect` `:239`
+/// (`return (depth >= 0);`) and its contact-emitting overload `:264-309`,
+/// `cylinderHalfspaceIntersect` `:384` (`if(depth < 0) return false;`, else
+/// `true`), `coneHalfspaceIntersect` `:448,:481` (same shape, two branches),
+/// `halfspaceIntersect` `:726` (`if(new_s1.d + new_s2.d > 0) return false;`,
+/// else `true`) — checkout `0.7.0-17-ge5efcc4`; this file has exactly one
+/// post-`0.7.0` commit (`355919e`), entirely inside `convexHalfspaceIntersect`,
+/// a function this crate never reaches (no `Shape::Convex` variant exists).
+/// So [`fcl_tangency_verdict`]'s callers keeping `unwrap_or(true)` for
+/// `HalfSpace` is upstream's own determinate answer at every reachable
+/// pairing, not a guess — there is nothing left to route it through, not
+/// because the answer is unknown.
 fn tangency_kind(shape: &dyn parry3d_f64::shape::Shape) -> Option<TangencyKind> {
     match shape.shape_type() {
         ShapeType::Cuboid | ShapeType::Compound => Some(TangencyKind::Box),
@@ -6348,6 +6369,82 @@ mod tests {
                     "{} x compound (operand order swapped) must read the box row ({expected}) \
                      at a {sign} tie",
                     p.name,
+                );
+            }
+        }
+    }
+
+    /// Pin for `HalfSpace`'s `unwrap_or(true)` fallback: unlike `Compound`
+    /// (fixed above), `HalfSpace` is not misclassified -- `tangency_kind`
+    /// correctly returns `None` for it, because `fcl_tangency_table`'s
+    /// `SPECIALISED` table has no `HalfSpace` row to route it through at
+    /// all. What this pins is that the `None` is harmless: every `HalfSpace`
+    /// pairing this crate can construct is a *specialised* fcl closed-form
+    /// registration (`gjk_solver_libccd-inl.h:254,256,258,259,270` --
+    /// checked against a live `/home/stevek/work/fcl` checkout at
+    /// `0.7.0-17-ge5efcc4`), and every one of those routines answers `true`
+    /// unconditionally at an exact-zero gap
+    /// (`halfspace-inl.h:163,239,384,448,481,726`), so `unwrap_or(true)` is
+    /// upstream's own determinate answer here, not a guess. This is a
+    /// regression pin, not a fix -- if it ever fails, `tangency_kind`'s
+    /// `HalfSpace` doc above is the thing to re-derive, not this test.
+    ///
+    /// Boundary coverage: every reachable `HalfSpace` partner (`Sphere`,
+    /// `Box`, `Cylinder`, `Cone`, `HalfSpace` itself, `Compound`), both
+    /// operand orders, both signs of `dist` just inside the tie band.
+    #[test]
+    fn halfspace_at_a_tie_reads_true_and_the_none_stays_harmless() {
+        let cache = OctreeCache::default();
+        let (halfspace, halfspace_fix) =
+            convert_shape(&Shape::Plane(Plane::new(0.0, 0.0, 1.0, 0.0)), &cache)
+                .expect("plane converts");
+        let halfspace_pose = to_pose(halfspace_fix);
+        assert_eq!(halfspace.shape_type(), ShapeType::HalfSpace);
+
+        let mut octree = moveit_octomap::OcTree::new(0.1);
+        octree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
+
+        let partners: [(&str, Shape); 6] = [
+            ("sphere", Shape::Sphere(Sphere::new(0.05).expect("sphere"))),
+            (
+                "box",
+                Shape::Cuboid(Cuboid::new(0.1, 0.1, 0.1).expect("cuboid")),
+            ),
+            (
+                "cylinder",
+                Shape::Cylinder(moveit_geometry::Cylinder::new(0.05, 0.1).expect("cylinder")),
+            ),
+            (
+                "cone",
+                Shape::Cone(moveit_geometry::Cone::new(0.05, 0.1).expect("cone")),
+            ),
+            ("halfspace", Shape::Plane(Plane::new(1.0, 0.0, 0.0, -3.0))),
+            (
+                "compound",
+                Shape::OcTree(OcTree::from_tree(Arc::new(octree))),
+            ),
+        ];
+
+        for (name, shape) in partners {
+            assert_eq!(
+                fcl_tangency_verdict(&*halfspace, &*convert_shape(&shape, &cache).unwrap().0),
+                None,
+                "halfspace x {name} must still classify as None -- SPECIALISED has no row for it"
+            );
+
+            let (other, other_fix) = convert_shape(&shape, &cache).expect("converts");
+            let other_pose = to_pose(other_fix);
+            let scale = tie_scale(&halfspace_pose, &*halfspace, &other_pose, &*other);
+            let inside = 0.5 * TIE_ROUNDING_MARGIN * f64::EPSILON * scale;
+
+            for (dist, sign) in [(inside, "positive"), (-inside, "negative")] {
+                assert!(
+                    touches_at_tie(dist, &halfspace_pose, &*halfspace, &other_pose, &*other),
+                    "halfspace x {name} must read true at a {sign} tie"
+                );
+                assert!(
+                    touches_at_tie(dist, &other_pose, &*other, &halfspace_pose, &*halfspace),
+                    "{name} x halfspace (operand order swapped) must read true at a {sign} tie"
                 );
             }
         }
