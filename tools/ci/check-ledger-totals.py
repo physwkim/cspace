@@ -68,9 +68,22 @@ nothing but python3 and the tracked files -- no docker, no cargo, no
 upstream checkout.
 """
 
+import os
 import re
 import subprocess
 import sys
+
+# The corpus is the tree holding THIS script, never the caller's cwd.
+# `git ls-files` is path-scoped: run from `crates/moveit-octomap/` it returns
+# the `.md` files under that directory alone -- none -- and "0 documents
+# declare a Totals paragraph" is also this gate's pass condition once no
+# document carries one, so a wrong-directory caller and a clean tree print the
+# same line and exit the same way. Deriving the root from `__file__` makes the
+# subject the repository by construction, which is what `require_caller_tree`
+# buys the shell gates: a green measurement of the wrong subject is worse than
+# a red one. The emptiness check in `main` is then left to catch a genuinely
+# broken producer rather than a caller who ran the gate from the wrong place.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 MARKER = "**Totals:"
 INT = re.compile(r"(?<![\w.:+-])(\d+)(?![\w.])")
@@ -84,6 +97,7 @@ def tracked_markdown():
         capture_output=True,
         text=True,
         check=True,
+        cwd=REPO_ROOT,
     ).stdout
     return [p for p in out.split("\n") if p]
 
@@ -261,9 +275,27 @@ def main():
     failures, prose_total, checks_total = [], 0, 0
     declared, ledgers, unchecked = [], [], []
     quoted_total = 0
-    for path in tracked_markdown():
+    # `0 document(s) declare` is this gate's pass condition once no document
+    # carries a `**Totals:` paragraph, so it cannot also be allowed to mean
+    # "the scan found no documents". Those two readings print the same line and
+    # exit the same way, and only one of them means anything was checked. With
+    # `REPO_ROOT` pinning the scope, cwd can no longer empty this list, so what
+    # is left for it to catch is the producer itself changing under the gate --
+    # a `git ls-files` output shape this parser stops splitting, or a checkout
+    # with no tracked markdown at all.
+    corpus = tracked_markdown()
+    if not corpus:
+        print(
+            f"FAIL `git ls-files --deduplicate '*.md'` returned no tracked "
+            f"markdown under {REPO_ROOT}. This gate reads that list as its "
+            f"whole corpus, so an empty one checks nothing while still "
+            f"exiting 0.",
+            file=sys.stderr,
+        )
+        return 1
+    for path in corpus:
         try:
-            body = open(path, encoding="utf-8").read()
+            body = open(os.path.join(REPO_ROOT, path), encoding="utf-8").read()
         except (OSError, UnicodeDecodeError) as exc:
             print(f"FAIL {path}: unreadable ({exc})", file=sys.stderr)
             return 1
@@ -290,7 +322,8 @@ def main():
 
     silent = [p for p in ledgers if p not in declared]
     print(
-        f"{len(declared)} document(s) declare a `**Totals:` paragraph; "
+        f"{len(declared)} of {len(corpus)} tracked markdown document(s) "
+        f"declare a `**Totals:` paragraph; "
         f"{checks_total} arithmetic claim(s) checked, "
         f"{prose_total} parenthetical(s) were prose and not summed; "
         f"{quoted_total} marker(s) were quotations inside a code span and "
