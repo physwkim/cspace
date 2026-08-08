@@ -4115,8 +4115,10 @@ mod tests {
         );
     }
 
-    /// Demonstrated opposite: the same ray with the NaN replaced by an
-    /// ordinary finite value still hits the top and bottom faces normally.
+    /// Demonstrated opposite for this test and the three infinity
+    /// regressions below: the same ray with only one component replaced
+    /// still hits the top and bottom faces normally, so none of the four
+    /// can pass by rejecting everything.
     #[test]
     fn convex_mesh_ray_still_hits_the_same_axis_when_finite() {
         let mesh = ConvexMesh::new(&box_mesh(2.0, 2.0, 2.0)).unwrap();
@@ -4126,6 +4128,69 @@ mod tests {
             None,
         );
         assert_eq!(hits.len(), 2, "{hits:?}");
+    }
+
+    /// `origin` at `+inf` on the axis `dir` travels along (a hit face's
+    /// normal is nonzero there) — the infinite mirror of
+    /// `convex_mesh_ray_still_hits_the_same_axis_when_finite`'s finite
+    /// `origin.z`, `dir` sign flipped so the ray still points at the box.
+    /// [`transform_point`] turns this into an all-NaN local origin (see
+    /// `ConvexMesh::ray_intersections`'s doc comment), so `t.is_nan()`
+    /// rejects every triangle; no up-front finite check is needed to close
+    /// this.
+    #[test]
+    fn convex_mesh_ray_rejects_positive_infinity_in_origin() {
+        let mesh = ConvexMesh::new(&box_mesh(2.0, 2.0, 2.0)).unwrap();
+        let hits = mesh.ray_intersections(
+            &Vector3::new(0.0, 0.0, f64::INFINITY),
+            &Vector3::new(0.0, 0.0, -1.0),
+            None,
+        );
+        assert_eq!(
+            hits,
+            Vec::<Vector3>::new(),
+            "a non-finite ray must yield no intersections: {hits:?}"
+        );
+    }
+
+    /// `-inf`, mirrored: same baseline as
+    /// `convex_mesh_ray_still_hits_the_same_axis_when_finite`, `origin.z`
+    /// replaced by `-inf` instead of the finite `-2.0`.
+    #[test]
+    fn convex_mesh_ray_rejects_negative_infinity_in_origin() {
+        let mesh = ConvexMesh::new(&box_mesh(2.0, 2.0, 2.0)).unwrap();
+        let hits = mesh.ray_intersections(
+            &Vector3::new(0.0, 0.0, f64::NEG_INFINITY),
+            &Vector3::new(0.0, 0.0, 1.0),
+            None,
+        );
+        assert_eq!(
+            hits,
+            Vec::<Vector3>::new(),
+            "a non-finite ray must yield no intersections: {hits:?}"
+        );
+    }
+
+    /// `dir.z` at `+inf` instead of `origin.z` — same baseline as
+    /// `convex_mesh_ray_still_hits_the_same_axis_when_finite`, `dir`'s
+    /// finite `1.0` replaced by `+inf`. A different mechanism than the two
+    /// `origin` cases above: `normalize_dir`'s `dir / dir.norm()` is an
+    /// `inf / inf` division, so `dir_norm` (and then `dr`) is already NaN
+    /// before any triangle's `tmp = normal.dot(&dr)`, and `tmp.is_nan()`
+    /// rejects every triangle before `t` is even computed.
+    #[test]
+    fn convex_mesh_ray_rejects_positive_infinity_in_dir() {
+        let mesh = ConvexMesh::new(&box_mesh(2.0, 2.0, 2.0)).unwrap();
+        let hits = mesh.ray_intersections(
+            &Vector3::new(0.0, 0.0, -2.0),
+            &Vector3::new(0.0, 0.0, f64::INFINITY),
+            None,
+        );
+        assert_eq!(
+            hits,
+            Vec::<Vector3>::new(),
+            "a non-finite ray must yield no intersections: {hits:?}"
+        );
     }
 
     #[test]
