@@ -20,7 +20,7 @@ use moveit_model::{JointModelGroup, RobotModel};
 use rand::{Rng, RngExt};
 use rand_distr::StandardNormal;
 
-use crate::numeric::cxx_min;
+use crate::numeric::{cxx_max, cxx_min};
 
 /// An index into [`RobotModel::joint_models`](moveit_model::RobotModel::joint_models).
 ///
@@ -2209,8 +2209,21 @@ fn sample_random_positions_near_by(
 /// `RevoluteJointModel::getVariableRandomPositionsNearBy`'s common
 /// `uniformReal(std::max(min, near - distance), std::min(max, near +
 /// distance))` shape.
+///
+/// `cxx_max`/`cxx_min`, not `f64::max`/`f64::min`: upstream keeps a NaN
+/// `min`/`max` bound as NaN (`std::max`/`std::min`'s first argument), while
+/// `f64::max`/`f64::min` would silently discard it in favor of `near ±
+/// distance`. Reachable for the Revolute (non-continuous) and Prismatic
+/// callers, which pass a joint's `min_position`/`max_position` here
+/// directly with no `is_finite` screen — unlike the Planar/Floating
+/// callers, which route through `sample_uniform_or_zero_near_by`'s
+/// `is_finite` check first.
 fn sample_uniform_near_by(rng: &mut impl Rng, min: f64, max: f64, near: f64, distance: f64) -> f64 {
-    sample_uniform(rng, min.max(near - distance), max.min(near + distance))
+    sample_uniform(
+        rng,
+        cxx_max(min, near - distance),
+        cxx_min(max, near + distance),
+    )
 }
 
 /// As [`sample_uniform_near_by`], or `0.0` if `min`/`max` are not both
@@ -2413,6 +2426,47 @@ mod near_by_sampling_tests {
         };
         let da = cxx_min(p.angular_distance_weight() * 1.0, PI);
         assert_eq!(da, PI);
+    }
+
+    /// A NaN `min`/`max` bound (the `cxx_max`/`cxx_min` receiver, matching
+    /// upstream's `std::max`/`std::min` first argument) must survive into
+    /// `sample_uniform`'s range, not be silently discarded in favor of
+    /// `near ± distance`. Observed as a panic from `rng.random_range` on
+    /// the resulting NaN-bounded range (an empty range by `PartialOrd`),
+    /// not as a returned value: whatever upstream's own
+    /// `uniform_real_distribution<double>(NaN, finite)` does with a NaN
+    /// parameter is undefined behavior and out of scope for this fix,
+    /// which is about whether the NaN reaches the range constructor at
+    /// all. `f64::max` would have discarded it, producing a plausible
+    /// finite draw with no panic; this fails (does not panic) before the
+    /// `cxx_max` fix and panics after.
+    #[test]
+    #[should_panic(expected = "cannot sample empty range")]
+    fn sample_uniform_near_by_propagates_nan_from_the_min_bound() {
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        sample_uniform_near_by(&mut rng, f64::NAN, 10.0, 5.0, 1.0);
+    }
+
+    /// As above, for the `max` bound reaching `cxx_min`.
+    #[test]
+    #[should_panic(expected = "cannot sample empty range")]
+    fn sample_uniform_near_by_propagates_nan_from_the_max_bound() {
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        sample_uniform_near_by(&mut rng, 0.0, f64::NAN, 5.0, 1.0);
+    }
+
+    /// Demonstrated opposite: a NaN `distance` (poisoning `near ±
+    /// distance`, the `cxx_max`/`cxx_min` non-receiver) is discarded in
+    /// favor of the finite `min`/`max` bounds on both sides of the fix, so
+    /// a normal in-bounds draw still comes out — no panic. Without this, a
+    /// fix that made the clamp unconditionally NaN-propagating regardless
+    /// of which operand carried the NaN would also "pass" the two tests
+    /// above (by panicking on everything).
+    #[test]
+    fn sample_uniform_near_by_discards_nan_from_distance() {
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let result = sample_uniform_near_by(&mut rng, 0.0, 10.0, 5.0, f64::NAN);
+        assert!((0.0..=10.0).contains(&result));
     }
 
     #[test]
