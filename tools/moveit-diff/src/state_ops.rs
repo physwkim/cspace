@@ -1307,6 +1307,22 @@ fn is_antipodal(a: &[f64], b: &[f64], tol: f64) -> bool {
 /// The angle between the rotations two quaternion blocks represent, in
 /// radians, insensitive to sign. `NaN`-free for a zero-norm block: that
 /// returns `0.0`, since neither side then represents a rotation at all.
+///
+/// This is `2 * acos(|a . b|)` in exact arithmetic (Eigen's
+/// `Quaterniond::angularDistance`), but computed as `4 * atan2(chord(a -
+/// near), chord(a + near))` instead — same shape and derivation as
+/// `moveit-planners-sbp/src/se3.rs`'s `rotation_distance`, generalized from
+/// a fixed 4-element `Quat` to an arbitrary-length quaternion block. `acos`
+/// has an infinite derivative at `1.0`, so a dot product one ULP below it
+/// (already as good as a normalized quaternion pair can agree) rounds
+/// `acos` to an angle around `1e-8` rather than the true, much smaller
+/// difference — below `~3e-8` true angle, the `acos` form saturates to
+/// exactly `0.0` regardless of the real (nonzero) angle. The `atan2` form
+/// reads the same angle off a chord length that shrinks smoothly with it
+/// instead, so it never saturates. `a`/`b` are explicitly renormalized
+/// before the chord (rather than assumed unit, unlike `se3.rs`'s `Quat`):
+/// this function's own inputs are raw state-vector slices, not
+/// already-normalized quaternions.
 fn rotation_angle(a: &[f64], b: &[f64]) -> f64 {
     let norm = |q: &[f64]| q.iter().map(|v| v * v).sum::<f64>().sqrt();
     let (na, nb) = (norm(a), norm(b));
@@ -1314,7 +1330,18 @@ fn rotation_angle(a: &[f64], b: &[f64]) -> f64 {
         return 0.0;
     }
     let dot: f64 = a.iter().zip(b).map(|(x, y)| x * y).sum::<f64>() / (na * nb);
-    2.0 * dot.abs().min(1.0).acos()
+    // The near representative: with a non-negative dot product, `a - near`
+    // is the short chord and `a + near` the long one (same double-cover
+    // handling as `se3.rs::rotation_distance`).
+    let sign = if dot < 0.0 { -1.0 } else { 1.0 };
+    let chord = |f: fn(f64, f64) -> f64| {
+        a.iter()
+            .zip(b)
+            .map(|(&x, &y)| f(x / na, sign * y / nb).powi(2))
+            .sum::<f64>()
+            .sqrt()
+    };
+    4.0 * chord(|x, y| x - y).atan2(chord(|x, y| x + y))
 }
 
 /// The base variable vector every clamping case is a one-joint edit of:
@@ -1471,5 +1498,96 @@ mod tests {
         let (deviation, mismatch) = compare_named(&actual, &expected);
         assert_eq!(deviation, 0.5);
         assert!(mismatch.unwrap().contains('b'));
+    }
+
+    /// `[cos(theta/2), sin(theta/2), 0, 0]`: a unit quaternion for a
+    /// rotation of `theta` radians about the x-axis.
+    fn quat_about_x(theta: f64) -> [f64; 4] {
+        let half = theta / 2.0;
+        [half.cos(), half.sin(), 0.0, 0.0]
+    }
+
+    const IDENTITY: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
+
+    /// The defect: `2 * acos(|dot|)` has an infinite derivative at `dot ==
+    /// 1.0`, so it saturates to exactly `0.0` for any true angle below
+    /// `~3e-8` radians -- reported as "no rotation difference" when the two
+    /// blocks disagree by a real, nonzero amount. Reference values (`old`
+    /// column) measured against this crate's own pre-fix formula, matching
+    /// the user-supplied Eigen `atan2` reference table exactly.
+    #[test]
+    fn rotation_angle_does_not_saturate_to_zero_near_identity() {
+        for (true_angle, old_saturates) in [
+            (1e-5, false),
+            (1e-7, false), // old is *wrong* here too (9.88e-8 vs 1e-7), just not exactly 0
+            (1e-8, true),
+            (1e-10, true),
+        ] {
+            let q = quat_about_x(true_angle);
+            let angle = rotation_angle(&IDENTITY, &q);
+            let rel_err = (angle - true_angle).abs() / true_angle;
+            assert!(
+                rel_err < 1e-6,
+                "true_angle={true_angle:e}: got {angle:e}, relative error {rel_err:e}"
+            );
+            if old_saturates {
+                // The specific failure this fix closes: the pre-fix acos
+                // form returns exactly 0.0 here, which the assertion above
+                // already rules out for the fixed code.
+                assert_ne!(
+                    angle, 0.0,
+                    "true_angle={true_angle:e} must not read as zero"
+                );
+            }
+        }
+    }
+
+    /// The demonstrated opposite: an ordinary, non-degenerate rotation
+    /// (90 degrees, far from the `acos` precision cliff) must produce the
+    /// same answer as before -- the fix must not be a neutered no-op that
+    /// happens to also change ordinary answers.
+    #[test]
+    fn rotation_angle_matches_the_textbook_value_away_from_the_precision_cliff() {
+        let q = quat_about_x(std::f64::consts::FRAC_PI_2);
+        let angle = rotation_angle(&IDENTITY, &q);
+        assert!(
+            (angle - std::f64::consts::FRAC_PI_2).abs() < 1e-12,
+            "got {angle}, expected {}",
+            std::f64::consts::FRAC_PI_2
+        );
+    }
+
+    /// Sign-insensitive: `q` and `-q` represent the same rotation (the
+    /// double cover), and the doc comment on `rotation_angle` promises this
+    /// explicitly.
+    #[test]
+    fn rotation_angle_is_insensitive_to_the_sign_of_either_input() {
+        let q = quat_about_x(std::f64::consts::FRAC_PI_2);
+        let neg_q: Vec<f64> = q.iter().map(|v| -v).collect();
+        assert_eq!(
+            rotation_angle(&IDENTITY, &q),
+            rotation_angle(&IDENTITY, &neg_q)
+        );
+    }
+
+    /// Scale-insensitive: the function must renormalize its inputs rather
+    /// than assume unit-norm quaternion blocks, since callers pass raw
+    /// state-vector slices, not necessarily exactly normalized.
+    #[test]
+    fn rotation_angle_is_insensitive_to_non_unit_input_norm() {
+        let q = quat_about_x(std::f64::consts::FRAC_PI_2);
+        let scaled: Vec<f64> = q.iter().map(|v| v * 2.5).collect();
+        let angle = rotation_angle(&IDENTITY, &scaled);
+        assert!(
+            (angle - std::f64::consts::FRAC_PI_2).abs() < 1e-12,
+            "got {angle}"
+        );
+    }
+
+    /// The zero-norm early return this fix was explicitly told to keep.
+    #[test]
+    fn rotation_angle_zero_norm_block_returns_zero() {
+        assert_eq!(rotation_angle(&[0.0, 0.0, 0.0, 0.0], &IDENTITY), 0.0);
+        assert_eq!(rotation_angle(&IDENTITY, &[0.0, 0.0, 0.0, 0.0]), 0.0);
     }
 }
