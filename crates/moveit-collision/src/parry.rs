@@ -2676,6 +2676,94 @@ fn accumulate_collision<'a>(
                         // (e.g. `box x cone`) never reaches
                         // `tangent_pair_touches` here at all -- this branch
                         // cannot make one of those `true`.
+                        //
+                        // Upstream fcl verdict for every pair class this
+                        // gate can actually open for, checked against a live
+                        // `/home/stevek/work/fcl` checkout at
+                        // `0.7.0-17-ge5efcc4`. On this branch that is five
+                        // classes, not four: the non-mesh
+                        // `SPECIALISED[tangency_kind(a)][tangency_kind(b)]`
+                        // lookup's four `true` cells (`box x box`, `box x
+                        // sphere`, `sphere x sphere`, `sphere x cylinder`),
+                        // plus `mesh x sphere` -- `MESH_TANGENCY`'s one
+                        // `AlwaysTouching` cell
+                        // (`crate::mesh_tangency_table`'s own doc), reached
+                        // through this same function's `mesh_tangency_verdict`
+                        // dispatch above. `Halfspace x {box, sphere,
+                        // cylinder, cone}` never reaches any of them --
+                        // `tangency_kind` has no arm for it (see
+                        // `HalfSpace`'s own doc) -- and neither does any
+                        // other mesh pairing (`box`/`cylinder`/`cone`/`mesh`
+                        // on the non-mesh side): `MESH_TANGENCY`'s other four
+                        // cells are `Undiagnosed`/`NoStableTarget`, both
+                        // `None` (`MeshVerdict::as_tangency_bool`).
+                        //
+                        // The four non-mesh reachable classes are each a
+                        // single closed-form routine that rejects with a
+                        // strict `>` and fills `contacts` unconditionally in
+                        // the same call once past it, so an exact-zero gap
+                        // is never classified separated and fcl cannot
+                        // itself report no-contact for a true touch in any
+                        // of them -- this branch's `true` matches upstream
+                        // whenever it fires:
+                        // - `box x box` (the `Compound`-as-boxes case):
+                        //   `boxBoxIntersect`/`boxBox2`
+                        //   (`box_box-inl.h:858-875,248-567`), 15 SAT axes,
+                        //   each `if(s2 > 0) { *return_code = 0; return 0; }`
+                        //   (`:302,314,326,339,351,363` face,
+                        //   `:406,424,442,461,479,497,516,534,552`
+                        //   edge-edge), contacts filled at `:568-616`.
+                        // - `box x sphere` (also reached by `Compound x
+                        //   Sphere`): `sphereBoxIntersect`
+                        //   (`sphere_box-inl.h:98-178`), `if
+                        //   (squared_distance > r * r) return false;` at
+                        //   `:119`, contacts filled at `:124-176`.
+                        // - `sphere x sphere`: `sphereSphereIntersect`
+                        //   (`sphere_sphere-inl.h:66-86`), `if(len >
+                        //   s1.radius + s2.radius) return false;` at `:72`,
+                        //   contacts filled at `:75-83`. This is the
+                        //   *opposite* boundary convention from parry's own
+                        //   `contact_ball_ball`, whose strict `<` is what
+                        //   motivates this branch in the first place
+                        //   (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`)
+                        //   -- fcl's own routine does not share parry's gap
+                        //   here, so this is not the branch's strongest
+                        //   justification, it is simply another case fcl
+                        //   always agrees with.
+                        // - `sphere x cylinder`: `sphereCylinderIntersect`
+                        //   (`sphere_cylinder-inl.h:114-221`), `if
+                        //   (p_SN_squared_dist > r_s * r_s) return false;`
+                        //   at `:136`, contacts filled at `:141-219`.
+                        //
+                        // The fifth reachable class, `mesh x sphere`, is not
+                        // verified the same way fcl routes it to
+                        // `ShapeTriangleIntersectLibccdImpl<S, Sphere<S>>`
+                        // (`gjk_solver_libccd-inl.h:403-419`,
+                        // `sphereTriangleIntersect`), a *different*
+                        // closed-form routine than the four above, while
+                        // `Mesh x {Box, Cylinder, Cone}` -- none of which
+                        // this gate opens for -- routes to generic libccd
+                        // MPR instead (`:422-458`, `detail::GJKCollide`),
+                        // whose own `discoverPortal` rejects an exact-zero
+                        // support-direction dot product as *separated*
+                        // (`/home/stevek/work/libccd`, checkout `7931e76`,
+                        // `mpr.c:189,209,232`) -- the opposite boundary
+                        // convention from every closed-form routine above.
+                        // That routing split matters here, unlike on a
+                        // branch where mesh never reaches this gate at all:
+                        // `mesh x sphere`'s own justification is measured
+                        // from 497 tilted-orientation probe poses, not read
+                        // off fcl source the way the four classes above are
+                        // -- `MeshVerdict::AlwaysTouching`'s own doc has that
+                        // measurement, and `tangent_pair_touches`'s own doc
+                        // has why only `TriMesh` gets the widened
+                        // `query::contact` fallback this branch relies on to
+                        // confirm it.
+                        //
+                        // No masking case found in any of the five: fcl
+                        // either always reports the touch this branch also
+                        // reports, or never lets this branch answer for that
+                        // pair at all.
                         let touches = match tangent_pair_touches(a_pose, a_shape, b_pose, b_shape) {
                             TangentPairOutcome::Touching => true,
                             TangentPairOutcome::NotTouching => false,
@@ -6448,5 +6536,93 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Pin for the "no contact, but geometrically touching" safety net in
+    /// `accumulate_collision` (the `PartContactOutcome::NotTouching` arm's
+    /// `fcl_tangency_verdict(...) == Some(true) && tangent_pair_touches(...)`
+    /// branch, just above `touches_at_tie` in this module): five
+    /// `TangencyKind`/`MeshVerdict` classes open that gate on this branch
+    /// (`box x box`, `box x sphere`, `sphere x sphere`, `sphere x cylinder`,
+    /// and `mesh x sphere` -- the branch's own doc comment has the fcl-side
+    /// verdict for all five). This pins that every *other* mesh pairing
+    /// stays closed: `tangency_kind` has no `TriMesh` arm, so a non-sphere
+    /// mesh pair falls to `MESH_TANGENCY`'s `Undiagnosed`/`NoStableTarget`
+    /// cells, both `None` (`MeshVerdict::as_tangency_bool`) -- the same
+    /// outcome `HalfSpace` gets (pinned above), for a different reason.
+    /// `mesh x sphere` is deliberately excluded from this list, not an
+    /// oversight: it is the one mesh pairing this table answers `Some(true)`
+    /// for (`MeshVerdict::AlwaysTouching`'s own doc has the 497-orientation
+    /// measurement), asserted separately below rather than folded into the
+    /// "stays closed" loop.
+    ///
+    /// Boundary coverage: every reachable non-sphere `TriMesh` partner
+    /// (`Box`, `Cylinder`, `Cone`, `HalfSpace`, `Compound`, `TriMesh`
+    /// itself), both operand orders, plus the `Sphere` exception confirmed
+    /// open in both orders.
+    #[test]
+    fn mesh_pair_never_opens_the_none_but_touching_safety_net_except_for_sphere() {
+        let cache = OctreeCache::default();
+        let mesh = big_flat_triangle();
+
+        let mut octree = moveit_octomap::OcTree::new(0.1);
+        octree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
+
+        let closed_partners: [(&str, Shape); 5] = [
+            (
+                "box",
+                Shape::Cuboid(Cuboid::new(0.1, 0.1, 0.1).expect("cuboid")),
+            ),
+            (
+                "cylinder",
+                Shape::Cylinder(moveit_geometry::Cylinder::new(0.05, 0.1).expect("cylinder")),
+            ),
+            (
+                "cone",
+                Shape::Cone(moveit_geometry::Cone::new(0.05, 0.1).expect("cone")),
+            ),
+            ("halfspace", Shape::Plane(Plane::new(0.0, 0.0, 1.0, 0.0))),
+            (
+                "compound",
+                Shape::OcTree(OcTree::from_tree(Arc::new(octree))),
+            ),
+        ];
+
+        for (name, shape) in closed_partners {
+            let (other, _fix) = convert_shape(&shape, &cache).expect("converts");
+            assert_eq!(
+                fcl_tangency_verdict(&mesh, &*other),
+                None,
+                "mesh x {name} must classify as None -- MESH_TANGENCY has no AlwaysTouching cell \
+                 for it"
+            );
+            assert_eq!(
+                fcl_tangency_verdict(&*other, &mesh),
+                None,
+                "{name} x mesh (operand order swapped) must classify as None"
+            );
+        }
+
+        let other_mesh = big_flat_triangle();
+        assert_eq!(
+            fcl_tangency_verdict(&mesh, &other_mesh),
+            None,
+            "mesh x mesh must classify as None -- Mesh is MESH_TANGENCY's Undiagnosed cell"
+        );
+
+        let (sphere, _fix) =
+            convert_shape(&Shape::Sphere(Sphere::new(0.05).expect("sphere")), &cache)
+                .expect("converts");
+        assert_eq!(
+            fcl_tangency_verdict(&mesh, &*sphere),
+            Some(true),
+            "mesh x sphere is the one mesh pairing this gate opens for -- \
+             MeshVerdict::AlwaysTouching"
+        );
+        assert_eq!(
+            fcl_tangency_verdict(&*sphere, &mesh),
+            Some(true),
+            "sphere x mesh (operand order swapped) must also read Some(true)"
+        );
     }
 }
