@@ -213,17 +213,43 @@ impl RevoluteJoint {
     /// transform produced by [`RevoluteJoint::compute_transform`].
     ///
     /// Upstream picks the axis component with the largest absolute value to
-    /// avoid dividing by a near-zero component; ties are broken by whichever
-    /// component `Iterator::max_by` keeps (upstream's `Eigen::maxCoeff` does
-    /// not document its tie-break either). Every axis in the panda and
-    /// fanuc fixtures is a single unit basis vector, so no tie is possible
-    /// there.
+    /// avoid dividing by a near-zero component
+    /// (`axis_.array().abs().maxCoeff(&max_idx)`,
+    /// `revolute_joint_model.cpp:295`). At length 3 `Eigen::maxCoeff` does
+    /// not vectorize, so — unlike the general no-argument-reduction family,
+    /// whose NaN behavior *is* build-dependent at larger lengths — it has
+    /// one exact, build-stable rule here (measured across `-O0`, `-O2`, and
+    /// `-O2 -DEIGEN_DONT_VECTORIZE` against this repo's Eigen 3.4.0 oracle
+    /// image): a left fold from index 0, `res = coeff(0)`, then `if (x >
+    /// res) { res = x; idx = i }` per following index. A NaN component
+    /// never displaces the incumbent (`x > res` is false when `x` is NaN),
+    /// and a *leading* NaN is never displaced either (every later `x >
+    /// NaN` is also false too) — so the fold returns a value rather than
+    /// panicking on a NaN axis component, and a tie keeps the *first*
+    /// index, not the last.
+    ///
+    /// `Iterator::reduce`'s `if cur.0.abs() > best.0.abs() { cur } else {
+    /// best }` reproduces both measured properties; `Iterator::max_by`
+    /// (the previous spelling here) does not: its `partial_cmp(...)
+    /// .unwrap()` panics outright on a NaN component (reachable through
+    /// [`RevoluteJoint::set_axis`] on a NaN input, which propagates rather
+    /// than guards, unlike the zero-axis case — see `set_axis`'s doc
+    /// comment), and even setting the panic aside, `max_by` keeps the
+    /// *last* tied element, the opposite of Eigen's first-index rule.
+    /// Every axis in the panda and fanuc fixtures is a single unit basis
+    /// vector, so no tie is exercised by either oracle-backed fixture.
     pub(super) fn compute_variable_position(&self, transform: &Isometry3) -> f64 {
         let q = transform.rotation.quaternion();
         let components = [(self.axis.x, q.i), (self.axis.y, q.j), (self.axis.z, q.k)];
         let (axis_val, q_val) = components
             .into_iter()
-            .max_by(|a, b| a.0.abs().partial_cmp(&b.0.abs()).unwrap())
+            .reduce(|best, cur| {
+                if cur.0.abs() > best.0.abs() {
+                    cur
+                } else {
+                    best
+                }
+            })
             .expect("axis has three components");
         2.0 * (q_val / axis_val).atan2(q.w)
     }
@@ -415,5 +441,39 @@ mod tests {
             // property of the round trip.
             assert_eq!(recovered, value);
         }
+    }
+
+    /// `set_axis` on a NaN input propagates the NaN (unlike the zero-axis
+    /// case, which `try_normalize` guards -- see `set_axis`'s doc comment),
+    /// so a NaN axis is reachable here. `partial_cmp(...).unwrap()` (the
+    /// old `max_by`-based spelling) panics outright when comparing any NaN
+    /// component; `reduce`'s explicit `>` comparison does not, matching
+    /// Eigen's measured `maxCoeff` rule of never displacing the incumbent
+    /// on a NaN challenger. Written as a normal call, not `#[should_panic]`,
+    /// so it fails before this fix (the old code panics) and passes after.
+    #[test]
+    fn compute_variable_position_on_a_nan_axis_returns_rather_than_panics() {
+        let joint = RevoluteJoint {
+            axis: Vector3::new(f64::NAN, 1.0, 0.0),
+            continuous: false,
+        };
+        let transform = Isometry3::from_parts(
+            nalgebra::Translation3::identity(),
+            UnitQuaternion::identity(),
+        );
+        // Eigen's fold never displaces the incumbent on a NaN challenger, so
+        // the leading NaN component (index 0) is kept, and the returned
+        // angle is NaN, not a panic.
+        assert!(joint.compute_variable_position(&transform).is_nan());
+    }
+
+    /// Demonstrated opposite of the above: an ordinary unit axis (no NaN
+    /// component) still recovers the same angle after the `reduce` rewrite
+    /// that `max_by` gave before it.
+    #[test]
+    fn compute_variable_position_still_recovers_the_angle_for_an_ordinary_axis() {
+        let (joint, _bounds) = bounded(); // axis (0, 0, 1), no tie possible
+        let transform = joint.compute_transform(0.9);
+        assert_eq!(joint.compute_variable_position(&transform), 0.9);
     }
 }
