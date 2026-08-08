@@ -258,7 +258,20 @@ impl Default for CancelHandle {
 /// divide-by-`-1.0` from "well-defined but discarded" to "well-defined but
 /// discarded", matching upstream's own dead computation exactly rather than
 /// panicking on it.
-fn compute_linear_interpolation(first: &[f64], last: &[f64], num_timesteps: usize) -> DMatrix<f64> {
+///
+/// `None` when `num_timesteps < 2`, which would make `dtheta`'s denominator
+/// zero and every column `NaN`. Upstream `computeLinearInterpolation`
+/// (`stomp.cpp:47-60`) divides by the same `num_timesteps - 1` unguarded and
+/// reports success. Signalled through the same `Option` channel
+/// [`compute_min_cost_trajectory`] already uses.
+fn compute_linear_interpolation(
+    first: &[f64],
+    last: &[f64],
+    num_timesteps: usize,
+) -> Option<DMatrix<f64>> {
+    if num_timesteps < 2 {
+        return None;
+    }
     let mut trajectory_joints = DMatrix::zeros(first.len(), num_timesteps);
     for i in 0..first.len() {
         let dtheta = (last[i] - first[i]) / (num_timesteps as f64 - 1.0);
@@ -266,7 +279,7 @@ fn compute_linear_interpolation(first: &[f64], last: &[f64], num_timesteps: usiz
             trajectory_joints[(i, j)] = first[i] + j as f64 * dtheta;
         }
     }
-    trajectory_joints
+    Some(trajectory_joints)
 }
 
 /// `computeCubicInterpolation`. Returns the trajectory rather than writing
@@ -278,14 +291,24 @@ fn compute_linear_interpolation(first: &[f64], last: &[f64], num_timesteps: usiz
 /// Converting to a return value sidesteps that asymmetry entirely: this
 /// port always allocates fresh at `(first.len(), num_points)`, the same
 /// dimensions either function produces.
+///
+/// `None` when `total_time` is not positive and finite -- `num_points < 2` or
+/// a non-positive `dt` -- which would make every `c2`/`c3` coefficient
+/// infinite and the whole trajectory `NaN`. Upstream
+/// `computeCubicInterpolation` divides by the same `total_time` unguarded and
+/// reports success. Same `Option` channel as
+/// [`compute_linear_interpolation`].
 fn compute_cubic_interpolation(
     first: &[f64],
     last: &[f64],
     num_points: usize,
     dt: f64,
-) -> DMatrix<f64> {
-    let mut trajectory_joints = DMatrix::zeros(first.len(), num_points);
+) -> Option<DMatrix<f64>> {
     let total_time = (num_points as f64 - 1.0) * dt;
+    if !total_time.is_finite() || total_time <= 0.0 {
+        return None;
+    }
+    let mut trajectory_joints = DMatrix::zeros(first.len(), num_points);
     for i in 0..first.len() {
         let c0 = first[i];
         let c2 = (3.0 / total_time.powi(2)) * (last[i] - first[i]);
@@ -295,7 +318,7 @@ fn compute_cubic_interpolation(
             trajectory_joints[(i, j)] = c0 + c2 * t.powi(2) + c3 * t.powi(3);
         }
     }
-    trajectory_joints
+    Some(trajectory_joints)
 }
 
 /// `computeMinCostTrajectory`. `None` where upstream returns `false` (a
@@ -716,18 +739,27 @@ impl<'a> Stomp<'a> {
     fn compute_initial_trajectory(&mut self, first: &[f64], last: &[f64]) -> bool {
         match self.config.initialization_method {
             TrajectoryInitialization::CubicPolynomialInterpolation => {
-                self.parameters_optimized = compute_cubic_interpolation(
+                match compute_cubic_interpolation(
                     first,
                     last,
                     self.config.num_timesteps,
                     self.config.delta_t,
-                );
-                true
+                ) {
+                    Some(trajectory) => {
+                        self.parameters_optimized = trajectory;
+                        true
+                    }
+                    None => false,
+                }
             }
             TrajectoryInitialization::LinearInterpolation => {
-                self.parameters_optimized =
-                    compute_linear_interpolation(first, last, self.config.num_timesteps);
-                true
+                match compute_linear_interpolation(first, last, self.config.num_timesteps) {
+                    Some(trajectory) => {
+                        self.parameters_optimized = trajectory;
+                        true
+                    }
+                    None => false,
+                }
             }
             TrajectoryInitialization::MinimumControlCost => {
                 match compute_min_cost_trajectory(
@@ -1145,6 +1177,31 @@ mod tests {
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
     use std::sync::atomic::AtomicUsize;
+
+    /// Both initial-trajectory interpolators divide by `num_timesteps - 1`
+    /// (cubic by way of `total_time = (num_timesteps - 1) * delta_t`), so a
+    /// single-timestep config produced an all-`NaN` trajectory while
+    /// `compute_initial_trajectory` still reported success. Boundaries, not
+    /// scenarios: one case per way the divisor reaches zero, plus the
+    /// smallest accepted value on each axis.
+    #[test]
+    fn a_degenerate_initial_trajectory_is_rejected_not_returned_as_nan() {
+        let first = [0.0, 1.0];
+        let last = [1.0, 1.0];
+
+        assert!(compute_linear_interpolation(&first, &last, 1).is_none());
+        assert!(compute_linear_interpolation(&first, &last, 0).is_none());
+        assert!(compute_cubic_interpolation(&first, &last, 1, 0.1).is_none());
+        assert!(compute_cubic_interpolation(&first, &last, 10, 0.0).is_none());
+        assert!(compute_cubic_interpolation(&first, &last, 10, -0.1).is_none());
+
+        let linear =
+            compute_linear_interpolation(&first, &last, 2).expect("two timesteps is valid");
+        assert!(linear.iter().all(|v| v.is_finite()));
+        let cubic =
+            compute_cubic_interpolation(&first, &last, 2, 0.1).expect("two timesteps is valid");
+        assert!(cubic.iter().all(|v| v.is_finite()));
+    }
 
     const NUM_DIMENSIONS: usize = 3;
     const NUM_TIMESTEPS: usize = 20;

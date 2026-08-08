@@ -18,8 +18,29 @@ fn quat_dot(a: &Quat, b: &Quat) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]
 }
 
+/// Scale `q` to unit length, falling back to the identity rotation for any
+/// `q` that has no direction to preserve.
+///
+/// The fallback is not defensive padding: `Se3State::rotation` is a public
+/// field and [`StateSpace::enforce_bounds`]'s contract is to make *any*
+/// state satisfy [`StateSpace::satisfies_bounds`], which requires finite
+/// components. Without it, `[0.0; 4]` — or a quaternion whose squared norm
+/// underflows to zero, or one carrying a `NaN`/infinity — normalizes to
+/// all-`NaN`, and since every `NaN` comparison is false the poisoned state
+/// then propagates silently through `distance` and `slerp` rather than
+/// being rejected. `norm` covers all three cases at once: it is `NaN` for a
+/// `NaN` component, infinite for an infinite one, and exactly `0.0` only
+/// when no direction survives.
+///
+/// Resetting to identity rather than erroring matches this port's existing
+/// rule for the same input, `FloatingJointModel::normalizeRotation`
+/// (`moveit-model`'s `joint::floating::normalize_rotation`), which upstream
+/// also resets to identity below its own near-zero threshold.
 fn quat_normalize(q: Quat) -> Quat {
     let norm = quat_dot(&q, &q).sqrt();
+    if !norm.is_finite() || norm == 0.0 {
+        return [1.0, 0.0, 0.0, 0.0];
+    }
     [q[0] / norm, q[1] / norm, q[2] / norm, q[3] / norm]
 }
 
@@ -433,6 +454,32 @@ mod tests {
         };
         s.enforce_bounds(&mut state);
         assert!((quat_dot(&state.rotation, &state.rotation) - 1.0).abs() < 1e-9);
+    }
+
+    /// `enforce_bounds` must leave `satisfies_bounds` true for *every* input,
+    /// including rotations no scaling can turn into a unit quaternion.
+    /// `Se3State`'s fields are public, and `sample_near` with a non-positive
+    /// radius hands its caller's `center` straight to `enforce_bounds`, so
+    /// these are reachable without any unsafe or private access.
+    #[test]
+    fn enforce_bounds_on_an_unnormalizable_rotation_still_satisfies_bounds() {
+        let s = space();
+        for rotation in [
+            [0.0, 0.0, 0.0, 0.0],
+            [f64::NAN, 0.0, 0.0, 0.0],
+            [f64::INFINITY, 0.0, 0.0, 0.0],
+        ] {
+            let mut state = Se3State {
+                translation: [0.0, 0.0, 0.0],
+                rotation,
+            };
+            s.enforce_bounds(&mut state);
+            assert!(
+                s.satisfies_bounds(&state),
+                "enforce_bounds({rotation:?}) left {:?}, which satisfies_bounds rejects",
+                state.rotation
+            );
+        }
     }
 
     #[test]
