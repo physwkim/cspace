@@ -20,6 +20,8 @@ use moveit_model::{JointModelGroup, RobotModel};
 use rand::{Rng, RngExt};
 use rand_distr::StandardNormal;
 
+use crate::numeric::cxx_min;
+
 /// An index into [`RobotModel::joint_models`](moveit_model::RobotModel::joint_models).
 ///
 /// Upstream identifies a joint by `const JointModel*`; this port uses its
@@ -2148,7 +2150,10 @@ fn sample_random_positions_near_by(
                 near[1],
                 distance,
             );
-            let da = (p.angular_distance_weight() * distance).min(PI);
+            // `cxx_min`, not `f64::min`: upstream's `if (da > M_PI) da = M_PI;`
+            // keeps a NaN `da` as NaN (the comparison is false, so the
+            // assignment never runs) — see `crate::numeric`.
+            let da = cxx_min(p.angular_distance_weight() * distance, PI);
             out[2] = rng.random_range((near[2] - da)..=(near[2] + da));
             let out3: &mut [f64; 3] = (&mut out[..3])
                 .try_into()
@@ -2366,6 +2371,48 @@ mod near_by_sampling_tests {
         // itself before `normalize_rotation` wraps it back into [-pi, pi].
         sample_random_positions_near_by(&joint, &mut rng, &[0.0, 0.0, PI + 0.1], 0.0, &mut out);
         assert_relative_eq!(out[2], -PI + 0.1, epsilon = 1e-12);
+    }
+
+    /// A NaN `angular_distance_weight` (the `cxx_min` receiver, matching
+    /// upstream's `if (da > M_PI) da = M_PI;` leaving a NaN `da` untouched)
+    /// must keep `da` as NaN, not be silently clamped to `PI`. Tested on
+    /// the exact production expression rather than through
+    /// `sample_random_positions_near_by`'s full draw: a NaN `da` there
+    /// widens `rng.random_range` to a NaN-bounded range, which panics
+    /// downstream regardless of which side of this fix produced it, so
+    /// `da` itself — not a value two calls further down — is what this
+    /// fix is about. `f64::min` discards the NaN; this fails before the
+    /// `cxx_min` fix and passes after.
+    #[test]
+    fn planar_rotation_clamp_propagates_nan_from_angular_distance_weight() {
+        let mut joint = JointModel::new_planar("j");
+        joint
+            .as_planar_mut()
+            .unwrap()
+            .set_angular_distance_weight(f64::NAN);
+        let JointKind::Planar(p) = *joint.kind() else {
+            panic!("just constructed as planar")
+        };
+        let da = cxx_min(p.angular_distance_weight() * 1.0, PI);
+        assert!(da.is_nan());
+    }
+
+    /// Demonstrated opposite: a finite `angular_distance_weight` that
+    /// overshoots `PI` is still clamped to `PI`, on both sides of the fix.
+    /// Without this, a fix that made `da` unconditionally NaN would also
+    /// pass the test above.
+    #[test]
+    fn planar_rotation_clamp_still_clamps_a_finite_overshoot_to_pi() {
+        let mut joint = JointModel::new_planar("j");
+        joint
+            .as_planar_mut()
+            .unwrap()
+            .set_angular_distance_weight(10.0);
+        let JointKind::Planar(p) = *joint.kind() else {
+            panic!("just constructed as planar")
+        };
+        let da = cxx_min(p.angular_distance_weight() * 1.0, PI);
+        assert_eq!(da, PI);
     }
 
     #[test]
