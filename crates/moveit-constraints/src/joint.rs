@@ -14,6 +14,7 @@ use moveit_model::joint::JointType;
 use moveit_state::Posed;
 
 use crate::ConstraintEvaluationResult;
+use crate::numeric::{cxx_max, cxx_min};
 
 const EPS: f64 = f64::EPSILON;
 
@@ -278,20 +279,34 @@ impl JointConstraint {
     /// windows don't overlap at all (upstream: `low > high`, discarded with
     /// an error log instead of a merged result).
     pub(crate) fn merged(&self, other: &Self) -> Option<Self> {
-        let low =
-            (self.position - self.tolerance_below).max(other.position - other.tolerance_below);
-        let high =
-            (self.position + self.tolerance_above).min(other.position + other.tolerance_above);
+        let low = cxx_max(
+            self.position - self.tolerance_below,
+            other.position - other.tolerance_below,
+        );
+        let high = cxx_min(
+            self.position + self.tolerance_above,
+            other.position + other.tolerance_above,
+        );
         if low > high {
             return None;
         }
         let weight = self.weight + other.weight;
-        let position = ((self.position * self.weight + other.position * other.weight) / weight)
-            .clamp(low, high);
+        // Upstream spells this `std::max(low, std::min(weighted, high))`.
+        // `f64::clamp` is not that: it asserts `min <= max` and panics when
+        // either bound is NaN, which `low > high` above does not screen out
+        // (`NaN > NaN` is false), so a NaN tolerance on both sides aborted
+        // the process here. See this crate's `numeric` module.
+        let position = cxx_max(
+            low,
+            cxx_min(
+                (self.position * self.weight + other.position * other.weight) / weight,
+                high,
+            ),
+        );
         Some(Self {
             position,
-            tolerance_above: (high - position).max(0.0),
-            tolerance_below: (position - low).max(0.0),
+            tolerance_above: cxx_max(0.0, high - position),
+            tolerance_below: cxx_max(0.0, position - low),
             weight: weight / 2.0,
             ..self.clone()
         })

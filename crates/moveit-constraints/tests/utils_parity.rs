@@ -786,6 +786,104 @@ mod merge_constraints_boundary {
         assert!(merged.is_empty());
     }
 
+    /// A `NaN` reaches `merged` through `tolerance_below`, not `position`:
+    /// `JointConstraint::new`'s only numeric screen is `tolerance_above <
+    /// 0.0 || tolerance_below < 0.0`, and every comparison against `NaN` is
+    /// false, so a `NaN` tolerance is constructible here exactly as
+    /// `JointConstraint::configure`'s identical `jc.tolerance_above < 0.0 ||
+    /// jc.tolerance_below < 0.0` leaves it constructible upstream.
+    ///
+    /// Upstream then computes `low = std::max(a.position -
+    /// a.tolerance_below, ...)` = `std::max(NaN, ...)`. `std::max(a, b)` is
+    /// `a < b ? b : a`, so a `NaN` *first* operand comes back out as `NaN`;
+    /// `low > high` is false for it, and the `NaN` reaches `m.position` via
+    /// `std::max(low, std::min(...))`. The merged constraint is therefore
+    /// unsatisfiable-by-`NaN`, which is what makes it detectable downstream.
+    ///
+    /// Rust's `f64::max` is IEEE `maxNum` and *discards* `NaN`, so the
+    /// pre-fix port silently substituted the other constraint's window and
+    /// returned a finite, plausible-looking merge — the `NaN` disappeared.
+    #[test]
+    fn a_nan_tolerance_keeps_upstreams_nan_merge_instead_of_a_finite_window() {
+        let model = panda_model();
+        let mut first = KinematicConstraintSet::new();
+        first.push(Constraint::Joint(
+            JointConstraint::new(&model, "panda_joint1", 0.0, 0.2, f64::NAN, 1.0).unwrap(),
+        ));
+        let second = joint_set(&model, 0.1, 0.2, 1.0);
+
+        let merged = merge_constraints(&first, &second);
+        assert_eq!(merged.len(), 1);
+        let Constraint::Joint(m) = &merged.constraints()[0] else {
+            panic!("expected a joint constraint");
+        };
+        assert!(
+            m.desired_joint_position().is_nan(),
+            "expected upstream's NaN position, got {}",
+            m.desired_joint_position()
+        );
+        // `std::max(0.0, high - m.position)` with a `NaN` right operand
+        // returns the `0.0`: upstream's tolerances collapse, they do not
+        // become `NaN`.
+        assert_eq!(m.joint_tolerance_above(), 0.0);
+        assert_eq!(m.joint_tolerance_below(), 0.0);
+    }
+
+    /// The demonstrated opposite of the case above: with the same `NaN` on
+    /// the *second* constraint instead of the first, upstream's `std::max(a,
+    /// b)` sees the `NaN` as its right operand and returns `a`, so the merge
+    /// is finite. Without this the test above would also pass on a port that
+    /// simply propagated `NaN` from either side.
+    #[test]
+    fn a_nan_tolerance_on_the_second_side_still_merges_finitely() {
+        let model = panda_model();
+        let first = joint_set(&model, 0.0, 0.2, 1.0);
+        let mut second = KinematicConstraintSet::new();
+        second.push(Constraint::Joint(
+            JointConstraint::new(&model, "panda_joint1", 0.1, 0.2, f64::NAN, 1.0).unwrap(),
+        ));
+
+        let merged = merge_constraints(&first, &second);
+        assert_eq!(merged.len(), 1);
+        let Constraint::Joint(m) = &merged.constraints()[0] else {
+            panic!("expected a joint constraint");
+        };
+        // low = max(0.0 - 0.2, NaN) = -0.2, high = min(0.2, 0.3) = 0.2,
+        // position = clamp(0.05, -0.2, 0.2) = 0.05.
+        assert!((m.desired_joint_position() - 0.05).abs() < TOLERANCE);
+        assert!((m.joint_tolerance_above() - 0.15).abs() < TOLERANCE);
+        assert!((m.joint_tolerance_below() - 0.25).abs() < TOLERANCE);
+    }
+
+    /// `f64::clamp` asserts `min <= max` and so **panics** when either bound
+    /// is `NaN`. With `NaN` on both sides' `tolerance_below` the pre-fix
+    /// `low`/`high` were both `NaN`, `low > high` was false so the
+    /// non-overlap early return did not fire, and `merge_constraints` — a
+    /// public entry point reached straight from a request message — aborted
+    /// the process. Upstream has no assertion here at all: it computes a
+    /// `NaN` merge and carries on.
+    #[test]
+    fn a_nan_tolerance_on_both_sides_merges_instead_of_panicking() {
+        let model = panda_model();
+        let mut first = KinematicConstraintSet::new();
+        first.push(Constraint::Joint(
+            JointConstraint::new(&model, "panda_joint1", 0.0, f64::NAN, f64::NAN, 1.0).unwrap(),
+        ));
+        let mut second = KinematicConstraintSet::new();
+        second.push(Constraint::Joint(
+            JointConstraint::new(&model, "panda_joint1", 0.1, f64::NAN, f64::NAN, 1.0).unwrap(),
+        ));
+
+        let merged = merge_constraints(&first, &second);
+        assert_eq!(merged.len(), 1);
+        let Constraint::Joint(m) = &merged.constraints()[0] else {
+            panic!("expected a joint constraint");
+        };
+        assert!(m.desired_joint_position().is_nan());
+        assert_eq!(m.joint_tolerance_above(), 0.0);
+        assert_eq!(m.joint_tolerance_below(), 0.0);
+    }
+
     #[test]
     fn constraint_present_in_only_one_side_is_kept() {
         let model = panda_model();

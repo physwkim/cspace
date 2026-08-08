@@ -124,6 +124,7 @@ use rand::{Rng, RngExt};
 pub const DEFAULT_MAX_SAMPLING_ATTEMPTS: u32 = 2;
 
 use crate::JointConstraint;
+use crate::numeric::{cxx_max, cxx_min};
 
 /// Upstream `constraint_samplers::ConstraintSampler`, the abstract base
 /// every concrete sampler implements. See this module's doc comment for how
@@ -236,18 +237,25 @@ impl JointConstraintSampler {
 
             let joint_model = model.joint_model(joint_name)?;
             let joint_bounds = joint_model.variable_bounds_for(constraint.joint_variable_name())?;
-            let min = joint_bounds
-                .min_position
-                .max(constraint.desired_joint_position() - constraint.joint_tolerance_below());
-            let max = joint_bounds
-                .max_position
-                .min(constraint.desired_joint_position() + constraint.joint_tolerance_above());
+            let min = cxx_max(
+                joint_bounds.min_position,
+                constraint.desired_joint_position() - constraint.joint_tolerance_below(),
+            );
+            let max = cxx_min(
+                joint_bounds.max_position,
+                constraint.desired_joint_position() + constraint.joint_tolerance_above(),
+            );
 
             let entry = bound_data
                 .entry(constraint.joint_variable_name().to_string())
                 .or_insert((f64::MIN, f64::MAX));
-            entry.0 = entry.0.max(min);
-            entry.1 = entry.1.min(max);
+            // `potentiallyAdjustMinMaxBounds` puts the *incoming* bound
+            // first — `std::max(min, min_bound_)` — so a NaN `min` survives
+            // into the running bound. The accumulator-first spelling this
+            // replaces put the NaN second, where both C++ and Rust discard
+            // it.
+            entry.0 = cxx_max(min, entry.0);
+            entry.1 = cxx_min(max, entry.1);
             if entry.0 > entry.1 + f64::EPSILON {
                 return Err(Error::other(format!(
                     "JointConstraintSampler: no possible values for joint variable '{}': \
