@@ -1601,4 +1601,85 @@ mod tests {
         let trajectory = Trajectory::create(path, &v(&[1.0, 1.0]), &v(&[1.0, 1.0]), 0.001).unwrap();
         assert!(trajectory.duration().is_nan());
     }
+
+    /// [`Trajectory::min_max_phase_slope`] divides
+    /// `min_max_path_acceleration(..) / path_vel` with no zero guard, and
+    /// `path_vel` is reachable at exactly `0.0` (see
+    /// [`a_max_velocity_component_of_zero_is_rejected_rather_than_crawling_to_infinity`],
+    /// via [`Trajectory::velocity_max_path_velocity`] pinning to `0.0` on
+    /// any axis whose `max_velocity[i] == 0.0` with a nonzero tangent
+    /// there). Two questions follow: does the resulting `+-inf` change any
+    /// comparison outcome, and can the same reachability instead produce
+    /// `NaN`?
+    ///
+    /// It does, and it can, and neither is a defect:
+    ///
+    /// - Every comparison against `min_max_phase_slope` in the reachable
+    ///   `path_vel == 0.0` region has `0.0` on the other side --
+    ///   [`Trajectory::velocity_max_path_velocity_deriv`]'s
+    ///   `active_constraint` is, by construction, the same zero-`max_velocity`
+    ///   axis (it is the unique minimizer of a sum of non-negative terms),
+    ///   so its numerator is `max_velocity[active] * curvature[active] ==
+    ///   0.0 * curvature == 0.0` exactly. Forcing `min_max_phase_slope` to
+    ///   the *opposite* sign of its natural `+-inf` (an adversarial
+    ///   mutation, not shipped) changes `Trajectory::create`'s outcome for
+    ///   the crawl case above from `Err("bridging the gap would require
+    ///   infinite time")` to a different failure,
+    ///   `Err("trajectory not valid after the second integrateBackward
+    ///   pass")` -- so the value is genuinely load-bearing, not dead code.
+    ///   But the *natural* sign is provably always on the correct side of
+    ///   that `0.0` threshold: `min_max_path_acceleration`'s numerator at
+    ///   `path_vel == 0.0` reduces to `factor * min_i(max_acceleration[i] /
+    ///   |tangent[i]|)`, non-negative for `factor == 1.0` and non-positive
+    ///   for `factor == -1.0` given `max_acceleration[i] >= 0.0` -- a
+    ///   physical-bound invariant every formula in this file already
+    ///   assumes (`Trajectory::create` validates neither `max_velocity` nor
+    ///   `max_acceleration` for sign, matching upstream). So the natural
+    ///   `+-inf` always resolves every comparison the same way the
+    ///   provably-correct sign would.
+    /// - If `max_acceleration[i] == 0.0` too, on the same axis, the
+    ///   numerator itself lands on exactly `0.0`, making the division a
+    ///   genuine `0.0 / 0.0 == NaN` rather than a signed infinity --
+    ///   constructed below. `NaN` compares `false` against everything
+    ///   (including that same `0.0` threshold), so the crawl-prevention
+    ///   snap this file relies on elsewhere never fires. That does not
+    ///   produce a silently-wrong answer either: `Trajectory::create` still
+    ///   returns `Err`, just via a different internal path (`integrate_backward`
+    ///   never finding an intersection) than the crawl case above. Upstream
+    ///   shares the identical unguarded division and identical IEEE-754
+    ///   `NaN` comparison semantics, so this is parity, not port drift.
+    #[test]
+    fn min_max_phase_slope_reaches_nan_at_compound_zero_limits_without_a_wrong_answer() {
+        let path =
+            Path::create(&[v(&[0.0, 0.0]), v(&[1e-5, 1e-5])], DEFAULT_PATH_TOLERANCE).unwrap();
+        let probe = Trajectory {
+            path: path.clone(),
+            max_velocity: v(&[0.0, 1.0]),
+            max_acceleration: v(&[0.0, 1.0]),
+            joint_num: 2,
+            time_step: 0.001,
+            trajectory: Vec::new(),
+            valid: true,
+        };
+        let path_pos = 1e-7;
+        let path_vel = probe.velocity_max_path_velocity(path_pos);
+        assert_eq!(
+            path_vel, 0.0,
+            "precondition: the zero axis must pin path_vel to 0.0"
+        );
+        assert!(
+            probe
+                .min_max_phase_slope(path_pos, path_vel, false)
+                .is_nan(),
+            "expected a genuine 0.0 / 0.0 at the compound-zero axis"
+        );
+        assert!(probe.min_max_phase_slope(path_pos, path_vel, true).is_nan());
+
+        let err = Trajectory::create(path, &v(&[0.0, 1.0]), &v(&[0.0, 1.0]), 0.001)
+            .expect_err("an axis that can never move must still fail construction, not succeed");
+        assert!(
+            err.to_string().contains("trajectory not valid"),
+            "unexpected error: {err}"
+        );
+    }
 }
