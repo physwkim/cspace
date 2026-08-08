@@ -331,7 +331,22 @@ impl PathCircle {
             ));
         }
 
-        let (tmpv, _) = kdl_normalize(geometry.aux_point - center, eps);
+        // Gated on its own norm immediately, like `radius` above: relying
+        // instead on `x_axis.cross(&tmpv)` to collapse to the zero vector
+        // and trip the colinear guard below is not a checked invariant, it
+        // is a coincidence of kdl_normalize's own Vector3::zeros()
+        // substitution (cross(_, 0) == 0 exactly). Swap that substitution
+        // for KDL's own Vector(1,0,0) fallback (`frames.cpp:147-156`) and
+        // the outcome becomes value-dependent on x_axis's direction instead
+        // of a guaranteed rejection -- measured: x_axis == (0,1,0) then
+        // *succeeds*, building a geometrically arbitrary circle. See
+        // `kdl_normalize`'s own doc comment for the substitution choice.
+        let (tmpv, aux_norm) = kdl_normalize(geometry.aux_point - center, eps);
+        if aux_norm < eps {
+            return Err(Error::construct(
+                "auxiliary point coincides with the circle center; a circle cannot be created",
+            ));
+        }
         let (z_axis, z_norm) = kdl_normalize(x_axis.cross(&tmpv), eps);
         if z_norm < eps {
             return Err(Error::construct(
@@ -584,15 +599,17 @@ mod tests {
     /// `circle_from_center`/`circle_from_interim`, since neither solver can
     /// itself produce a zero-radius geometry from non-degenerate inputs.
     ///
-    /// `PathCircle::new` has two `Error::construct` sites (`rg -c
-    /// 'Error::' path_circle.rs` restricted to the function body: 2), so a
+    /// `PathCircle::new` has three `Error::construct` sites (`rg -c
+    /// 'Error::' path_circle.rs` restricted to the function body: 3), so a
     /// bare `.is_err()` cannot say which fired -- worse, here it would not
     /// even prove *this* guard fired at all: with `x_axis` zeroed by the
-    /// zero-radius guard, the colinear-plane guard below it would also see
-    /// a zero cross product and independently error too, so no-opping the
-    /// radius guard alone does not flip `.is_err()` to `false` (checked
-    /// directly: it stays `true`, driven by the other guard). Only the
-    /// message discriminates -- checked below.
+    /// zero-radius guard, the colinear-plane guard two guards below it
+    /// would also see a zero cross product and independently error too
+    /// (the auxiliary-point guard between them does not fire here: this
+    /// fixture's `aux_point` is far from `center`), so no-opping the radius
+    /// guard alone does not flip `.is_err()` to `false` (checked directly:
+    /// it stays `true`, driven by the colinear guard). Only the message
+    /// discriminates -- checked below.
     #[test]
     fn zero_radius_is_rejected() {
         let start = identity_pose(Vector3::new(0.0, 0.0, 0.0));
@@ -611,6 +628,45 @@ mod tests {
         );
     }
 
+    /// Boundary: `aux_point == center` leaves the auxiliary-point
+    /// normalization with nothing to normalize. `CircleGeometry`'s fields
+    /// are all `pub` and so is `PathCircle::new`, so this is reachable from
+    /// outside this crate directly (neither `circle_from_center` nor
+    /// `circle_from_interim`, this file's own in-crate callers, can
+    /// themselves produce a coincident `aux_point`/`center`).
+    ///
+    /// Before this guard existed, this input was still rejected -- but only
+    /// because `kdl_normalize`'s zero-vector substitution for `tmpv` made
+    /// `x_axis.cross(&tmpv)` collapse to the zero vector, which the
+    /// colinear-plane guard below then caught by coincidence, not by a
+    /// check on this input's own degeneracy. Measured directly (temporarily
+    /// swapping that substitution for KDL's own `Vector(1,0,0)` fallback,
+    /// `frames.cpp:147-156`): with `x_axis == (0.0, 1.0, 0.0)`, the same
+    /// input instead *succeeded*, building a geometrically arbitrary circle
+    /// (`radius: 1.0`, `path_length: 1.5707963267948966`) rather than being
+    /// rejected. This guard makes the rejection hold by construction
+    /// instead of by that coincidence -- checked on the message, not a bare
+    /// `.is_err()`, so a future change that removes this guard cannot pass
+    /// silently by falling through to the colinear guard the way the old
+    /// code did.
+    #[test]
+    fn auxiliary_point_coincident_with_center_is_rejected_by_its_own_guard() {
+        let start = identity_pose(Vector3::new(0.0, 1.0, 0.0));
+        let goal = identity_pose(Vector3::new(0.0, 0.0, 1.0));
+        let geom = CircleGeometry {
+            center: Vector3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+            alpha: FRAC_PI_2,
+            aux_point: Vector3::new(0.0, 0.0, 0.0), // == center
+        };
+        let result = PathCircle::new(&start, &goal, &geom, 1.0, MAX_COLINEAR_NORM);
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("coincides"),
+            "expected the coincident-auxiliary-point message, got {err}"
+        );
+    }
+
     /// Boundary: a half circle solved via [`circle_from_center`] succeeds at
     /// the geometry layer (`start`/`goal` are equidistant from `center`), but
     /// its auxiliary point (upstream convention: `goal` itself) is exactly
@@ -618,13 +674,16 @@ mod tests {
     /// plane undetermined (`Error_MotionPlanning_Circle_No_Plane`) -- the
     /// documented reason [`circle_from_center`] cannot express a half circle.
     ///
-    /// `PathCircle::new`'s other `Error::construct` site is the zero-radius
-    /// guard (see [`zero_radius_is_rejected`]'s own doc comment); `radius`
-    /// here is `1.0`, so that guard cannot fire and there is no sibling-guard
-    /// ambiguity in the other direction the way there is there. Checked on
-    /// the message anyway, for the same reason every site in this family
-    /// is: a future change to guard order or a shared early return should
-    /// not let this test start passing for the wrong guard silently.
+    /// `PathCircle::new`'s other two `Error::construct` sites are the
+    /// zero-radius guard (see [`zero_radius_is_rejected`]'s own doc comment)
+    /// and the auxiliary-point-coincides-with-center guard; `radius` here is
+    /// `1.0` and `aux_point` (`goal`, via [`circle_from_center`]) is a unit
+    /// distance from `center`, so neither guard can fire and there is no
+    /// sibling-guard ambiguity in the other direction the way there is
+    /// there. Checked on the message anyway, for the same reason every site
+    /// in this family is: a future change to guard order or a shared early
+    /// return should not let this test start passing for the wrong guard
+    /// silently.
     #[test]
     fn half_circle_from_center_has_no_determinable_plane() {
         let start = identity_pose(Vector3::new(1.0, 0.0, 0.0));

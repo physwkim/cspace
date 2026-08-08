@@ -80,20 +80,10 @@ use crate::velocity_profile::KDL_EPSILON;
 ///   this direction by a coefficient that is itself provably `0.0`
 ///   whenever the norm-`0.0` branch fires here (see that function's own
 ///   doc comment).
-/// - [`crate::path_circle::PathCircle::new`]'s `radius`-producing call
-///   returns an error immediately upon seeing `norm < eps`, before its
-///   direction is ever read.
-/// - The one caller that does not gate on the norm before reading the
-///   direction back out — `PathCircle::new`'s auxiliary-point
-///   normalization, whose result feeds a subsequent cross product before
-///   *that* result's own norm is checked — collapses deterministically to
-///   `z_norm == 0.0 < eps` (an immediate rejection) with a zero-vector
-///   direction here, a defensible degenerate answer for a construction
-///   request whose auxiliary point coincides with its own center. It does
-///   not reproduce `Vector::Normalize`'s own value-dependent behavior for
-///   that specific malformed input (which depends on the incidental
-///   alignment between the caller's other axis and the arbitrary unit-X
-///   fallback), but no fixture in this crate exercises that input.
+/// - [`crate::path_circle::PathCircle::new`]'s `radius`-producing call and
+///   its auxiliary-point-normalizing call both return an error immediately
+///   upon seeing `norm < eps`, before either direction is ever read (own
+///   doc comment).
 ///
 /// `pub(crate)`: also used by [`crate::path_circle::PathCircle`] as
 /// itemized above.
