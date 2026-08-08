@@ -60,6 +60,8 @@ use std::fmt;
 
 use moveit_error::{Error, Result};
 
+use crate::numeric::{cxx_max, cxx_min};
+
 /// A single joint's position/velocity/acceleration/deceleration/jerk/effort
 /// limits.
 ///
@@ -265,17 +267,23 @@ impl JointLimitsContainer {
 }
 
 /// Upstream `JointLimitsContainer::updateCommonLimit`.
+///
+/// The fusion arms use [`cxx_max`]/[`cxx_min`], not [`f64::max`]/[`f64::min`]:
+/// upstream's `std::max(common_limit.X, X)`/`std::min(common_limit.X, X)`
+/// return a NaN `common_limit.X` (the running fusion, already in the first
+/// argument position) rather than discarding it in favor of the next
+/// joint's finite bound — see this crate's `numeric` module.
 fn update_common_limit(joint_limit: &JointLimit, common_limit: &mut JointLimit) {
     if joint_limit.has_position_limits {
         common_limit.min_position = if !common_limit.has_position_limits {
             joint_limit.min_position
         } else {
-            common_limit.min_position.max(joint_limit.min_position)
+            cxx_max(common_limit.min_position, joint_limit.min_position)
         };
         common_limit.max_position = if !common_limit.has_position_limits {
             joint_limit.max_position
         } else {
-            common_limit.max_position.min(joint_limit.max_position)
+            cxx_min(common_limit.max_position, joint_limit.max_position)
         };
         common_limit.has_position_limits = true;
     }
@@ -284,7 +292,7 @@ fn update_common_limit(joint_limit: &JointLimit, common_limit: &mut JointLimit) 
         common_limit.max_velocity = if !common_limit.has_velocity_limits {
             joint_limit.max_velocity
         } else {
-            common_limit.max_velocity.min(joint_limit.max_velocity)
+            cxx_min(common_limit.max_velocity, joint_limit.max_velocity)
         };
         common_limit.has_velocity_limits = true;
     }
@@ -293,9 +301,7 @@ fn update_common_limit(joint_limit: &JointLimit, common_limit: &mut JointLimit) 
         common_limit.max_acceleration = if !common_limit.has_acceleration_limits {
             joint_limit.max_acceleration
         } else {
-            common_limit
-                .max_acceleration
-                .min(joint_limit.max_acceleration)
+            cxx_min(common_limit.max_acceleration, joint_limit.max_acceleration)
         };
         common_limit.has_acceleration_limits = true;
     }
@@ -304,9 +310,7 @@ fn update_common_limit(joint_limit: &JointLimit, common_limit: &mut JointLimit) 
         common_limit.max_deceleration = if !common_limit.has_deceleration_limits {
             joint_limit.max_deceleration
         } else {
-            common_limit
-                .max_deceleration
-                .max(joint_limit.max_deceleration)
+            cxx_max(common_limit.max_deceleration, joint_limit.max_deceleration)
         };
         common_limit.has_deceleration_limits = true;
     }
@@ -486,6 +490,179 @@ mod tests {
     #[test]
     fn common_limit_deceleration_is_the_smallest_magnitude() {
         assert_eq!(fixture().common_limit().max_deceleration, -5.0);
+    }
+
+    // -- update_common_limit's std::min/std::max NaN semantics --
+    //
+    // BTreeMap iteration is by joint name, so "a"/"b" fixes which limit is
+    // already in `common_limit` (upstream's std::min/std::max first
+    // argument) when the second joint is fused: "a" is always processed
+    // first, seeding `common_limit` directly (the `if
+    // !common_limit.has_*_limits` branch); "b" is fused against it via the
+    // `.min()`/`.max()` call under test. Upstream's std::min(a, b) / std::max
+    // (a, b) return a NaN `a` and discard a NaN `b` -- see this crate's
+    // `numeric` module.
+
+    #[test]
+    fn common_limit_min_position_keeps_a_nan_first_bound_not_the_second_joints_finite_one() {
+        let mut container = JointLimitsContainer::default();
+        container.add_limit(
+            "a",
+            JointLimit {
+                has_position_limits: true,
+                min_position: f64::NAN,
+                max_position: 1.0,
+                ..Default::default()
+            },
+        );
+        container.add_limit(
+            "b",
+            JointLimit {
+                has_position_limits: true,
+                min_position: -1.0,
+                max_position: 1.0,
+                ..Default::default()
+            },
+        );
+        assert!(
+            container.common_limit().min_position.is_nan(),
+            "a NaN min_position on the first-fused joint must survive the fusion, not be \
+             silently replaced by the second joint's finite bound"
+        );
+    }
+
+    #[test]
+    fn common_limit_max_position_keeps_a_nan_first_bound_not_the_second_joints_finite_one() {
+        let mut container = JointLimitsContainer::default();
+        container.add_limit(
+            "a",
+            JointLimit {
+                has_position_limits: true,
+                min_position: -1.0,
+                max_position: f64::NAN,
+                ..Default::default()
+            },
+        );
+        container.add_limit(
+            "b",
+            JointLimit {
+                has_position_limits: true,
+                min_position: -1.0,
+                max_position: 1.0,
+                ..Default::default()
+            },
+        );
+        assert!(
+            container.common_limit().max_position.is_nan(),
+            "a NaN max_position on the first-fused joint must survive the fusion"
+        );
+    }
+
+    #[test]
+    fn common_limit_max_velocity_keeps_a_nan_first_bound_not_the_second_joints_finite_one() {
+        let mut container = JointLimitsContainer::default();
+        container.add_limit(
+            "a",
+            JointLimit {
+                has_velocity_limits: true,
+                max_velocity: f64::NAN,
+                ..Default::default()
+            },
+        );
+        container.add_limit(
+            "b",
+            JointLimit {
+                has_velocity_limits: true,
+                max_velocity: 2.0,
+                ..Default::default()
+            },
+        );
+        assert!(
+            container.common_limit().max_velocity.is_nan(),
+            "a NaN max_velocity on the first-fused joint must survive the fusion"
+        );
+    }
+
+    /// The demonstrated opposite for [`common_limit_max_velocity_keeps_a_nan_first_bound_not_the_second_joints_finite_one`]:
+    /// the same NaN on the *non-diverging* (second-fused) joint must still
+    /// be discarded, so the finite answer comes out -- a fix that always
+    /// propagates NaN regardless of which argument carries it would fail
+    /// this test.
+    #[test]
+    fn common_limit_max_velocity_discards_a_nan_second_bound() {
+        let mut container = JointLimitsContainer::default();
+        container.add_limit(
+            "a",
+            JointLimit {
+                has_velocity_limits: true,
+                max_velocity: 2.0,
+                ..Default::default()
+            },
+        );
+        container.add_limit(
+            "b",
+            JointLimit {
+                has_velocity_limits: true,
+                max_velocity: f64::NAN,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            container.common_limit().max_velocity,
+            2.0,
+            "a NaN max_velocity on the second-fused joint must be discarded, matching \
+             std::min(2.0, NaN) == 2.0"
+        );
+    }
+
+    #[test]
+    fn common_limit_max_acceleration_keeps_a_nan_first_bound_not_the_second_joints_finite_one() {
+        let mut container = JointLimitsContainer::default();
+        container.add_limit(
+            "a",
+            JointLimit {
+                has_acceleration_limits: true,
+                max_acceleration: f64::NAN,
+                ..Default::default()
+            },
+        );
+        container.add_limit(
+            "b",
+            JointLimit {
+                has_acceleration_limits: true,
+                max_acceleration: 3.0,
+                ..Default::default()
+            },
+        );
+        assert!(
+            container.common_limit().max_acceleration.is_nan(),
+            "a NaN max_acceleration on the first-fused joint must survive the fusion"
+        );
+    }
+
+    #[test]
+    fn common_limit_max_deceleration_keeps_a_nan_first_bound_not_the_second_joints_finite_one() {
+        let mut container = JointLimitsContainer::default();
+        container.add_limit(
+            "a",
+            JointLimit {
+                has_deceleration_limits: true,
+                max_deceleration: f64::NAN,
+                ..Default::default()
+            },
+        );
+        container.add_limit(
+            "b",
+            JointLimit {
+                has_deceleration_limits: true,
+                max_deceleration: -5.0,
+                ..Default::default()
+            },
+        );
+        assert!(
+            container.common_limit().max_deceleration.is_nan(),
+            "a NaN max_deceleration on the first-fused joint must survive the fusion"
+        );
     }
 
     /// Boundary: zero and positive deceleration are both rejected; only a

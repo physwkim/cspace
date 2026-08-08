@@ -31,6 +31,11 @@
 //!   `[MIN_SMOOTHNESS, MAX_SMOOTHNESS]` with no diagnostic, so a request
 //!   asking for `2.0` silently gets `0.99`. Reproduced rather than turned
 //!   into a rejection.
+//! - **[`filter_waypoints`] compares against the last kept pose, not a stale
+//!   input index.** Upstream's `last_added_point_indx` counts kept waypoints
+//!   but indexes into the input list, so it drifts after any drop and the
+//!   filter can keep a waypoint it was written to remove. Fixed here rather
+//!   than reproduced — see [`filter_waypoints`]'s own doc.
 
 use moveit_error::{Error, Result};
 use moveit_geometry::Isometry3;
@@ -94,39 +99,41 @@ pub fn polyline_from_waypoints(
 /// Upstream `filterWaypoints`. The returned vector always starts with
 /// `start_pose`, which is never dropped.
 ///
-/// # Upstream bug reproduced verbatim
+/// # Deviation: compares against the last *kept* pose, not a stale input index
 ///
-/// Upstream compares each waypoint against `last_point()`, which reads
-/// `waypoints[last_added_point_indx]` — an index into the *input* list that
-/// is incremented once per *kept* waypoint. While nothing has been dropped
-/// the two coincide, but each drop shifts them apart by one, so from the
-/// first kept waypoint *after* a drop onwards the comparison is against an
-/// earlier input waypoint — including against a waypoint the filter itself
-/// dropped. The filter then keeps waypoints it was written to remove. This
-/// port reproduces the divergence rather than fixing it: the C++
-/// implementation is `POLYLINE`'s only available ground truth, and a
-/// corrected filter would keep a different set of waypoints — so every case
-/// containing a drop would diverge from an oracle comparison by
-/// construction, leaving `POLYLINE` with no parity surface at all. That was
-/// decided ahead of an oracle op; the op has since landed, and
+/// Upstream tracks `last_added_point_indx` (`path_polyline_generator.cpp:66`),
+/// incremented once per *kept* waypoint (`:82`), and reads
+/// `waypoints[last_added_point_indx]` (`:71`) — an index into the *input*
+/// list. While nothing has been dropped the two coincide; each drop shifts
+/// them apart by one, so from the first kept waypoint *after* a drop onward
+/// upstream compares against an earlier input waypoint — including one this
+/// same filter already dropped — and keeps waypoints it was written to
+/// remove. The filter's purpose is to guarantee every surviving segment
+/// exceeds `MIN_SEGMENT_LENGTH` before `Path_RoundedComposite::Add` sees it;
+/// upstream's version stops doing that past the first drop, so `Add`'s own
+/// `Not_Feasible` codes 2/3 can still fire on input the filter was supposed
+/// to have cleaned — a rejected plan, not merely a different waypoint list.
+///
+/// This port reads `filtered.last()` instead: the actual last kept pose, no
+/// separate counter to drift from it. A valid plan being rejected is worse
+/// than the parity surface this costs — see
 /// `pilz_trajectory_polyline_parity.rs`'s
-/// `polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has`
-/// measures the divergence it predicted — the oracle rejects the
-/// drop-containing case that a corrected filter would plan. Recorded in
+/// `polyline_panda_arm_diverges_from_the_oracles_stale_filter_index_rejection`,
+/// which now measures the divergence directly: the captured oracle fixture
+/// still rejects with `INVALID_MOTION_PLAN` (`-2`), this port now returns
+/// `SUCCESS`. Previously reproduced verbatim and recorded in the now-deleted
 /// `doc/upstream-bugs.md` as `polyline-filter-waypoints-stale-index`.
 pub fn filter_waypoints(start_pose: &Isometry3, waypoints: &[Isometry3]) -> Vec<Isometry3> {
     let mut filtered = vec![*start_pose];
-    // Upstream's `last_added_point_indx`, `-1` meaning "still the start pose".
-    let mut last_added_point_indx: Option<usize> = None;
 
     for waypoint in waypoints {
-        let last_point = match last_added_point_indx {
-            Some(i) => waypoints[i].translation.vector,
-            None => start_pose.translation.vector,
-        };
+        let last_point = filtered
+            .last()
+            .expect("filtered always holds at least start_pose")
+            .translation
+            .vector;
         if (last_point - waypoint.translation.vector).norm() > MIN_SEGMENT_LENGTH {
             filtered.push(*waypoint);
-            last_added_point_indx = Some(last_added_point_indx.map_or(0, |i| i + 1));
         }
     }
     filtered
@@ -276,14 +283,16 @@ mod tests {
     }
 
     #[test]
-    fn filter_waypoints_compares_against_an_input_index_not_the_last_kept_pose() {
-        // The upstream bug this port reproduces (see `filter_waypoints`'s own
-        // doc). Input 1 is dropped, which leaves `last_added_point_indx` one
-        // behind: input 3 is then compared against input 1 -- the waypoint
-        // the filter itself just dropped -- a full 1.0 away, so it survives.
-        // Compared against input 2, the last pose actually kept, it is 1e-5
-        // away and would be dropped. Asserting the buggy outcome (4 kept, not
-        // 3) is what makes a silent "fix" of the filter fail this test.
+    fn filter_waypoints_compares_against_the_last_kept_pose_not_a_stale_input_index() {
+        // Deviation pin for `polyline-filter-waypoints-stale-index` (see
+        // `filter_waypoints`'s own doc). Input 1 is dropped; upstream's
+        // `last_added_point_indx` would then be one behind and compare input
+        // 3 against input 1 -- the waypoint the filter itself just dropped --
+        // a full 1.0 away, so upstream keeps it (4 kept). This port compares
+        // against `filtered.last()`, the pose actually kept (input 2), which
+        // is 1e-5 away and is dropped (3 kept). Asserting 3 here is what
+        // makes a regression back to upstream's stale-index rule fail this
+        // test.
         let filtered = filter_waypoints(
             &pose(0.0, 0.0, 0.0),
             &[
@@ -293,7 +302,7 @@ mod tests {
                 pose(2.0 + 1e-5, 0.0, 0.0),
             ],
         );
-        assert_eq!(filtered.len(), 4);
+        assert_eq!(filtered.len(), 3);
     }
 
     // -- compute_blend_radius --
@@ -367,6 +376,33 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("3104"), "{err}");
+    }
+
+    /// A NaN waypoint component reaching `dist1`/`dist2` reaches `theta` too
+    /// (`segment_angle`'s `v1`/`v2` are the exact same difference vectors),
+    /// so `local_max_radius` is NaN and the aggregation `if local_max_radius
+    /// < max_allowed_radius` discards it exactly as it would discard any
+    /// other NaN — leaving the return at the untouched initial `INFINITY`,
+    /// not at some value shaped by `(dist1 / 2.0).min(dist2 / 2.0)`. This is
+    /// why that call is left as `f64::min` rather than [`crate::numeric`]'s
+    /// `cxx_min` despite porting the same `std::min` upstream: the spelling
+    /// is unreachable from this function's observable output. See
+    /// `crate::numeric`'s module doc.
+    #[test]
+    fn compute_blend_radius_masks_a_nan_corner_at_the_aggregation_comparison() {
+        let radius = compute_blend_radius(
+            &[
+                pose(0.0, 0.0, 0.0),
+                pose(1.0, 1.0, 0.0),
+                pose(f64::NAN, 2.0, 0.0),
+            ],
+            0.5,
+        )
+        .unwrap();
+        assert!(
+            radius.is_infinite() && radius.is_sign_positive(),
+            "{radius}"
+        );
     }
 
     // -- polyline_from_waypoints --

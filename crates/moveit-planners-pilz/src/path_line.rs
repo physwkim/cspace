@@ -59,6 +59,7 @@
 use moveit_geometry::{Isometry3, UnitQuaternion, Vector3};
 use nalgebra::Unit;
 
+use crate::numeric::cxx_max;
 use crate::velocity_profile::KDL_EPSILON;
 
 /// Normalizes `v`, returning `(unit direction, original norm)`.
@@ -208,7 +209,15 @@ impl PathLine {
     /// solves by synchronizing every joint to its slowest one — here there
     /// are only two "joints" (translation and rotation, already reduced to
     /// one comparable unit by `eqradius`), so `path_length` is simply
-    /// whichever of the two is longer, `dist.max(angle * eqradius)`, and
+    /// whichever of the two is longer, `cxx_max(dist, angle * eqradius)` —
+    /// not plain [`f64::max`]: the constructor's three-way
+    /// `if (alpha != 0 && alpha*eqradius > dist) ... else if (dist != 0) ...
+    /// else` (`orocos_kdl/src/path_line.cpp`) returns a NaN `dist` and
+    /// discards a NaN `angle * eqradius`, the same asymmetry this crate's
+    /// (private) `numeric` module doc derives for literal `std::max` calls,
+    /// even though this branch never spells the name `std::max` — see this
+    /// crate's `path_line::tests::path_length_keeps_a_nan_distance_not_the_finite_rotation_length`
+    /// for the derivation traced through each arm of the branch — and
     /// each part's rate (`scale_lin`, `scale_rot`) is that part's own
     /// extent divided by `path_length`, so it reaches its full extent
     /// exactly when `s` reaches `path_length`. When both extents are zero
@@ -243,7 +252,7 @@ impl PathLine {
         let r_start_end = start.rotation.inverse() * goal.rotation;
         let (angle, rot_axis) = get_rot_angle(&r_start_end, KDL_EPSILON);
 
-        let path_length = dist.max(angle * eqradius);
+        let path_length = cxx_max(dist, angle * eqradius);
         let (scale_lin, scale_rot) = if path_length > 0.0 {
             (dist / path_length, angle / path_length)
         } else {
@@ -397,6 +406,48 @@ mod tests {
             goal.rotation.quaternion().coords,
             epsilon = 1e-9
         );
+    }
+
+    // -- new: `path_length`'s `dist.max(angle * eqradius)` must reproduce
+    // `Path_Line`'s constructor's NaN behavior (`std::max`-shaped: a NaN
+    // `dist` propagates, a NaN `angle * eqradius` is discarded), not IEEE
+    // `f64::max`'s (discards NaN wherever it sits) -- see `crate::numeric`'s
+    // module doc for the derivation from the constructor's three-way
+    // `if (alpha != 0 && alpha*eqradius > dist) ... else if (dist != 0) ...
+    // else` in `orocos_kdl/src/path_line.cpp`. --
+
+    #[test]
+    fn path_length_keeps_a_nan_distance_not_the_finite_rotation_length() {
+        let start = Isometry3::from_parts(
+            Vector3::new(0.0, 0.0, 0.0).into(),
+            UnitQuaternion::identity(),
+        );
+        let goal = Isometry3::from_parts(
+            Vector3::new(f64::NAN, 0.0, 0.0).into(),
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2),
+        );
+        let path = PathLine::new(&start, &goal, 1.0);
+        assert!(path.path_length().is_nan(), "{}", path.path_length());
+    }
+
+    #[test]
+    fn path_length_discards_a_nan_rotation_length_and_keeps_the_finite_distance() {
+        let start = Isometry3::from_parts(
+            Vector3::new(0.0, 0.0, 0.0).into(),
+            UnitQuaternion::identity(),
+        );
+        let goal = Isometry3::from_parts(
+            Vector3::new(3.0, 4.0, 0.0).into(),
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2),
+        );
+        // Demonstrated opposite of the case above: a NaN `eqradius` makes
+        // `angle * eqradius` NaN while `dist` (5.0, the 3-4-5 translation
+        // above) stays finite. The NaN operand is second here, not first, so
+        // it must be discarded rather than propagated -- this already passes
+        // on plain `f64::max` too, which is what makes it the case that
+        // catches a fix that over-corrects into always propagating NaN.
+        let path = PathLine::new(&start, &goal, f64::NAN);
+        assert_relative_eq!(path.path_length(), 5.0, epsilon = 1e-12);
     }
 
     // -- pos: identical start/goal is a zero-length, well-defined path (no

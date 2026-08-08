@@ -449,7 +449,14 @@ impl<'m> HybridCollisionEnv<'m> {
         for notification in result.as_notifications() {
             self.apply_notification(&notification);
         }
-        if let Some(id) = self.desynced_objects.iter().next() {
+        // `.min()`, not `.iter().next()`: `desynced_objects` is a `HashSet`,
+        // whose iteration order depends on process-lifetime hash-seed
+        // randomization, not insertion order -- `.next()` named a different
+        // object across otherwise-identical runs whenever two or more were
+        // desynced. `check_env_field_synced` below already sorts for the
+        // same reason; `.min()` is the one-object equivalent of that same
+        // fix.
+        if let Some(id) = self.desynced_objects.iter().min() {
             return Err(Error::construct(format!(
                 "HybridCollisionEnv::mutate_world: object '{id}' could not be decomposed into \
                  collision points; env_field no longer reflects it (see \
@@ -1008,6 +1015,47 @@ mod tests {
             "env_field after incremental add/move/remove churn must equal a fresh rebuild over \
              the same final World -- a mismatch here means apply_notification's per-object \
              remove-then-add bookkeeping left env_field in a state no clean rebuild could reach"
+        );
+    }
+
+    /// `desynced_objects` is a `HashSet<String>`; its iteration order
+    /// depends on the process's randomized hash seed, not on id order or
+    /// insertion order. Seeds four ids whose insertion order does not
+    /// match their lexicographic order, calls `mutate_world` with a
+    /// no-op mutation (`None::<Notification>` contributes nothing, so the
+    /// pre-seeded set is exactly what `mutate_world` reports on), and pins
+    /// that the named object is always `"alpha"`, the lexicographic
+    /// minimum -- the invariant `.min()` guarantees regardless of hash
+    /// seed. Before this fix (`.iter().next()`), which id got named
+    /// depended on that seed: reverting to `.next()` and rerunning this
+    /// exact test across repeated `cargo test` invocations (a fresh
+    /// process, and so a fresh hash seed, each time) surfaced `"mango"`,
+    /// `"zeta"`, `"delta"` and `"alpha"` itself as the reported id across
+    /// different runs, confirming the message really does vary run to run
+    /// rather than merely being theoretically capable of it.
+    #[test]
+    fn mutate_world_names_the_lexicographically_smallest_desynced_object() {
+        let (model, _gap) = two_link_gap_model();
+        let padding = LinkPaddingScale::new();
+        let link_body_decompositions =
+            add_link_body_decompositions(&model, 0.02, &padding, None).unwrap();
+        let mut env = HybridCollisionEnv::new(
+            World::new(),
+            padding,
+            link_body_decompositions,
+            test_distance_field_config(),
+            0.0,
+        )
+        .unwrap();
+        for id in ["zeta", "mango", "alpha", "delta"] {
+            env.desynced_objects.insert(id.to_string());
+        }
+
+        let err = env.mutate_world(|_w| None::<Notification>).unwrap_err();
+
+        assert!(
+            err.to_string().contains("object 'alpha'"),
+            "must always name the lexicographic minimum, not an arbitrary HashSet element: {err}"
         );
     }
 

@@ -115,7 +115,7 @@ use std::thread;
 use std::time::Duration;
 
 use moveit_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
-use moveit_geometry::{Cuboid, Isometry3, Shape};
+use moveit_geometry::{Cuboid, Shape};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use moveit_planners_stomp::cost_functions::get_collision_cost_function;
@@ -124,6 +124,7 @@ use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 use moveit_stomp_core::{CancelHandle, StompConfiguration, TrajectoryInitialization};
+use moveit_test_support::isometry_from_row_major;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -177,13 +178,6 @@ fn load_panda() -> (RobotModel, SrdfModel) {
         RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &fixture_mesh_search_paths())
             .expect("fixture model must build");
     (model, srdf)
-}
-
-/// The translation column of a row-major 4x4 -- see `plan_benchmark_port`'s
-/// own doc for why only the translation is recovered.
-fn translation_from_row_major_4x4(flat: &[f64]) -> Isometry3 {
-    assert_eq!(flat.len(), 16, "expected a flat 4x4 matrix, got {flat:?}");
-    Isometry3::translation(flat[3], flat[7], flat[11])
 }
 
 /// Reads a joint-name -> value map (the request JSON's
@@ -499,18 +493,22 @@ fn main() {
             size[1].as_f64().unwrap(),
             size[2].as_f64().unwrap(),
         );
-        let pose_flat: Vec<f64> = object["pose"]
+        let pose_flat: [f64; 16] = object["pose"]
             .as_array()
             .expect("object.pose must be an array")
             .iter()
             .map(|v| v.as_f64().unwrap())
-            .collect();
+            .collect::<Vec<f64>>()
+            .try_into()
+            .unwrap_or_else(|v: Vec<f64>| {
+                panic!("object.pose must have 16 elements, got {}", v.len())
+            });
         world.add_shape(
             id,
             Arc::new(Shape::Cuboid(
                 Cuboid::new(sx, sy, sz).unwrap_or_else(|e| panic!("Cuboid::new: {e}")),
             )),
-            translation_from_row_major_4x4(&pose_flat),
+            isometry_from_row_major(&pose_flat),
         );
     }
     let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());

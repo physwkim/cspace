@@ -60,6 +60,7 @@ use moveit_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
+use moveit_test_support::isometry_from_row_major;
 
 /// `plan_benchmark_port.rs`'s own `mesh_package_for`/`load_robot`, unchanged:
 /// the request's `robot` field is what ties this binary to the set the
@@ -86,13 +87,6 @@ fn load_robot(robot: &str) -> (RobotModel, SrdfModel) {
     (model, srdf)
 }
 
-/// The translation column of a row-major 4x4 -- see `plan_benchmark_port`'s
-/// own doc for why only the translation is recovered.
-fn translation_from_row_major_4x4(flat: &[f64]) -> Isometry3 {
-    assert_eq!(flat.len(), 16, "expected a flat 4x4 matrix, got {flat:?}");
-    Isometry3::translation(flat[3], flat[7], flat[11])
-}
-
 fn parse_obstacles(objects: &[serde_json::Value]) -> Vec<(String, Arc<Shape>, Isometry3)> {
     objects
         .iter()
@@ -109,16 +103,20 @@ fn parse_obstacles(objects: &[serde_json::Value]) -> Vec<(String, Arc<Shape>, Is
                 size[1].as_f64().unwrap(),
                 size[2].as_f64().unwrap(),
             );
-            let pose_flat: Vec<f64> = object["pose"]
+            let pose_flat: [f64; 16] = object["pose"]
                 .as_array()
                 .expect("object.pose must be an array")
                 .iter()
                 .map(|v| v.as_f64().unwrap())
-                .collect();
+                .collect::<Vec<f64>>()
+                .try_into()
+                .unwrap_or_else(|v: Vec<f64>| {
+                    panic!("object.pose must have 16 elements, got {}", v.len())
+                });
             let shape = Arc::new(Shape::Cuboid(
                 Cuboid::new(sx, sy, sz).unwrap_or_else(|e| panic!("Cuboid::new: {e}")),
             ));
-            (id, shape, translation_from_row_major_4x4(&pose_flat))
+            (id, shape, isometry_from_row_major(&pose_flat))
         })
         .collect()
 }

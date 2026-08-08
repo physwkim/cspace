@@ -19,6 +19,12 @@ parry3d-f64.workspace = true
 approx.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# `tests/{octree_in_world,octree_shape_query,body_query}_parity.rs`'s pose
+# decoding only. This closes a dev-dependency cycle back through
+# `moveit-model` (which depends on this crate normally); Cargo permits that
+# because the cycle exists only through a dev-dependency edge, never through
+# the crate's own `[dependencies]`.
+moveit-test-support.workspace = true
 
 [lints]
 workspace = true

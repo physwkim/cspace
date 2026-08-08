@@ -37,9 +37,10 @@
 
 use std::fs;
 
-use moveit_geometry::{Isometry3, compound_from_octree};
+use moveit_geometry::compound_from_octree;
 use moveit_octomap::OcTree;
-use nalgebra::{Matrix3, Point3, Rotation3, Translation3, UnitQuaternion};
+use moveit_test_support::isometry_from_row_major;
+use nalgebra::Point3;
 use parry3d_f64::query;
 use parry3d_f64::shape::{Ball, Cuboid as ParryCuboid, Shape as ParryShape};
 use serde::Deserialize;
@@ -113,17 +114,6 @@ fn load_responses() -> Vec<OracleResponse> {
         .unwrap_or_else(|e| panic!("parse octree_shape_query_response.json: {e}"))
 }
 
-/// `oracle.cpp`'s `fromRowMajor4x4`, reproduced here (see
-/// `octree_in_world_parity.rs`/`body_query_parity.rs` for the same helper).
-fn isometry_from_row_major4x4(m: &[f64; 16]) -> Isometry3 {
-    let rotation = Matrix3::new(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
-    let translation = nalgebra::Vector3::new(m[3], m[7], m[11]);
-    Isometry3::from_parts(
-        Translation3::from(translation),
-        UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(rotation)),
-    )
-}
-
 #[test]
 fn leaf_cuboid_compound_matches_the_oracles_real_fcl_octree_query() {
     let requests = load_requests();
@@ -157,8 +147,8 @@ fn leaf_cuboid_compound_matches_the_oracles_real_fcl_octree_query() {
             }
         }
 
-        let octree_pose = isometry_from_row_major4x4(&request.octree_pose);
-        let shape_pose = isometry_from_row_major4x4(&request.shape_pose);
+        let octree_pose = isometry_from_row_major(&request.octree_pose);
+        let shape_pose = isometry_from_row_major(&request.shape_pose);
 
         let Some(compound) = compound_from_octree(&tree) else {
             assert!(

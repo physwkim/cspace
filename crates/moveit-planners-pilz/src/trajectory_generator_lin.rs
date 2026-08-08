@@ -57,6 +57,13 @@
 //!   "no solver" case left to handle, via the same scan-`KINEMATICS_SOLVERS`
 //!   pattern [`crate::trajectory_generator::check_cartesian_goal`] already
 //!   uses.
+//! - **`cmd_specific_request_validation` is added; upstream's `LIN` has no
+//!   override at all.** `plan` divides by `cartesian_limits.max_rot_vel`
+//!   unguarded, same as upstream — but upstream's own reachability of a
+//!   zero there is gated by `cartesian_limits_parameters.yaml`'s mandatory
+//!   (no-default) parameter declaration, a boundary this port has no
+//!   equivalent of. See
+//!   [`crate::trajectory_generator::check_cartesian_limits`]'s own doc.
 
 use moveit_collision::CollisionEnv;
 use moveit_error::{Error, MoveItErrorCode, Result};
@@ -72,6 +79,7 @@ use crate::trajectory_functions::{
 };
 use crate::trajectory_generator::{
     Goal, MotionPlanInfo, MotionPlanRequest, PilzGenerator, TrajectoryGenerator,
+    check_cartesian_limits,
 };
 use crate::velocity_profile_trap::VelocityProfileTrap;
 
@@ -99,6 +107,21 @@ where
 {
     fn base(&self) -> &TrajectoryGenerator<'m> {
         &self.base
+    }
+
+    /// Upstream has no `cmdSpecificRequestValidation` override for `LIN` —
+    /// this port adds one anyway. See
+    /// [`crate::trajectory_generator::check_cartesian_limits`]'s own doc for
+    /// why: `plan` below divides by `cartesian_limits.max_rot_vel`
+    /// unguarded, and nothing upstream's own `validateRequest` runs would
+    /// catch a `LimitsContainer` that never set it either — this port has no
+    /// equivalent to upstream's config-loading-time enforcement.
+    ///
+    /// # Errors
+    ///
+    /// See [`crate::trajectory_generator::check_cartesian_limits`].
+    fn cmd_specific_request_validation(&self, _req: &MotionPlanRequest) -> Result<()> {
+        check_cartesian_limits(self.base.planner_limits())
     }
 
     /// Upstream `TrajectoryGeneratorLIN::extractMotionPlanInfo`.
@@ -516,5 +539,52 @@ mod tests {
             target_position,
             epsilon = 1e-4
         );
+    }
+
+    /// A `LimitsContainer` that never had `set_cartesian_limits` called
+    /// leaves `cartesian_limits().max_rot_vel == 0.0` (its `Default`) --
+    /// `plan` divides by it unguarded (line 207). Boundary-tested once for
+    /// every non-positive/non-finite `max_rot_vel` in
+    /// `check_cartesian_limits`'s own tests
+    /// (`crate::trajectory_generator::tests`); this test only confirms LIN's
+    /// `cmd_specific_request_validation` actually calls it, which a passing
+    /// `check_cartesian_limits` alone would not prove.
+    #[test]
+    fn cmd_specific_request_validation_rejects_missing_cartesian_limits() {
+        let (model, _srdf) = load_panda();
+        let mut limits = LimitsContainer::new();
+        limits.set_joint_limits(panda_joint_limits());
+        // Deliberately never call `set_cartesian_limits`.
+        let base = TrajectoryGenerator::new(&model, limits);
+        let generator = TrajectoryGeneratorLin::new(base, "panda_arm");
+
+        let req = MotionPlanRequest {
+            group_name: "panda_arm".to_string(),
+            start_state: StartState {
+                position: ready_positions(),
+                velocity: HashMap::new(),
+            },
+            goal: Goal::Joint(ready_positions()),
+            max_velocity_scaling_factor: 0.5,
+            max_acceleration_scaling_factor: 0.5,
+            path_constraints: None,
+        };
+
+        // `PilzGenerator` is generic over the collision backend `E`, which
+        // nothing below actually needs -- `ParryCollisionEnv` pins it so
+        // `.base()`/`.cmd_specific_request_validation()` resolve.
+        type G<'m> = TrajectoryGeneratorLin<'m>;
+        assert!(
+            <G as PilzGenerator<ParryCollisionEnv>>::base(&generator)
+                .validate_request(&req)
+                .is_ok(),
+            "the shared base validation has no reason to reject this well-formed request"
+        );
+        match <G as PilzGenerator<ParryCollisionEnv>>::cmd_specific_request_validation(
+            &generator, &req,
+        ) {
+            Err(Error::Code(MoveItErrorCode::InvalidMotionPlan)) => {}
+            other => panic!("expected Error::Code(InvalidMotionPlan), got {other:?}"),
+        }
     }
 }

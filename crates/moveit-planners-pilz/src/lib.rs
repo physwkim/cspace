@@ -258,6 +258,7 @@ pub mod command_list_manager;
 pub mod joint_limits_aggregator;
 pub mod joint_limits_validator;
 pub mod limits;
+mod numeric;
 pub mod path_circle;
 pub mod path_line;
 pub mod path_polyline_generator;

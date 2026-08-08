@@ -27,6 +27,10 @@ moveit-trajectory.workspace = true
 
 [dev-dependencies]
 moveit-srdf.workspace = true
+# `plan_benchmark_port.rs`/`seed_validity_problem_set.rs`'s pose decoding
+# only -- see `moveit-test-support`'s own module doc for why a shared crate
+# closes this kind of duplication.
+moveit-test-support.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 urdf-rs.workspace = true

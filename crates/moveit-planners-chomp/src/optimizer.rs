@@ -782,7 +782,7 @@ pub enum ChompExit {
 /// `ChompPlanner::solve` can read any of it, so carrying it out is the same
 /// class of deviation as [`ChompObjective`] and is recorded the same way, on
 /// [`crate::planner::ChompSolution::loop_trace`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ChompLoopTrace {
     /// How many times the loop body ran, i.e. how many times the objective
     /// was evaluated. `1` means the loop left before any updated iterate was
@@ -797,11 +797,37 @@ pub struct ChompLoopTrace {
     /// The iteration-0 seeding is not counted: `0` means the seed was never
     /// beaten.
     pub accepted: u32,
+    /// How many passes actually *ran* the mesh-to-mesh check at all --
+    /// `iteration_ % 10 == 0`
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:368`)
+    /// -- regardless of what it found. [`Self::mesh_free_passes`] is a
+    /// subset of this count, and the two must be read together:
+    /// `mesh_free_passes == 0` with `mesh_checks > 0` means the check ran
+    /// and never found the trajectory free; `mesh_checks == 0` means the
+    /// check never ran (`max_iterations` too small to hit a multiple of 10,
+    /// or the loop broke out before iteration 0's check), and
+    /// `mesh_free_passes` alone cannot tell those two apart.
+    pub mesh_checks: u32,
     /// How many passes found the mesh-to-mesh check collision free
     /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:371`).
+    /// A subset of [`Self::mesh_checks`]; see that field's doc for why
+    /// `mesh_checks` has to accompany it.
     pub mesh_free_passes: u32,
+    /// How many passes actually *ran* the collision-threshold comparison at
+    /// all -- `!filter_mode_`
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:406`)
+    /// -- regardless of the comparison's outcome. [`Self::below_threshold_passes`]
+    /// is a subset of this count, and the two must be read together:
+    /// `below_threshold_passes == 0` with `threshold_checks > 0` means
+    /// `c_cost` was compared every pass and never fell under
+    /// `collision_threshold_`; `threshold_checks == 0` means `filter_mode`
+    /// disabled the comparison entirely, and `below_threshold_passes` alone
+    /// cannot tell those two apart.
+    pub threshold_checks: u32,
     /// How many passes had `c_cost < collision_threshold_`
     /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:408`).
+    /// A subset of [`Self::threshold_checks`]; see that field's doc for why
+    /// `threshold_checks` has to accompany it.
     pub below_threshold_passes: u32,
     /// Collision points inside their own clearance band on the seed --
     /// `get_potential` non-zero, i.e. the points the collision term is a
@@ -832,6 +858,17 @@ pub struct ChompLoopTrace {
     /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:643-661`).
     /// This is the update the next evaluation would have costed.
     pub first_pass_max_update: f64,
+    /// [`ChompObjective::collision`] (upstream's `c_cost`,
+    /// `moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:306`)
+    /// at every evaluated pass, in pass order. `collision_costs.len() ==
+    /// evaluations as usize` always. Upstream computes this same value every
+    /// pass and only ever lets it out at `RCLCPP_DEBUG` (`:310`); this is
+    /// that log line, structured, for the same reason
+    /// [`ChompObjective`] carries the value out at all -- no caller of
+    /// `ChompPlanner::solve` can otherwise tell "still descending" apart
+    /// from "plateaued above `collision_threshold_`" without re-running the
+    /// optimizer under a debug logger.
+    pub collision_costs: Vec<f64>,
 }
 
 /// Borrows the two pieces of collision-checking state `ChompOptimizer`
@@ -1128,14 +1165,32 @@ fn resolve_collision_point_joint_index(
 ///   conditions in `optimize` (the `iteration_ % 10 == 0` mesh-to-mesh
 ///   check and the `!filter_mode_` collision-threshold check) are kept as
 ///   two separate, unconditionally-evaluated `if` blocks, not collapsed
-///   into `if / else if`.** Both can fire in the same pass
-///   (`chomp_optimizer.cpp:367-410`): if the first increments `iteration_`
-///   and sets `num_collision_free_iterations_ = 0`, the second can
-///   still fire afterward, incrementing `iteration_` a second time in one
-///   loop pass and overwriting `num_collision_free_iterations_` with
-///   `max_iterations_after_collision_free_`. This looks like it could be
-///   an upstream bug, but the brief for this port is to transcribe the
-///   numerics as written, not to "fix" behavior no test here contradicts.
+///   into `if / else if`.** Both can still fire in the same pass
+///   (`chomp_optimizer.cpp:367-410`, reachable: `iteration % 10 == 0` and
+///   `c_cost < collision_threshold` are independent conditions, both true
+///   on pass 0 with an empty env field). Upstream writes both
+///   `num_collision_free_iterations_` unconditionally, so whichever block
+///   runs second (always the threshold block, textually) silently
+///   overwrites the mesh check's `0` with `max_iterations_after_collision_free_`,
+///   discarding a ground-truth mesh-safety confirmation
+///   (`isCurrentTrajectoryMeshToMeshCollisionFree`, `:520-537`) in favor of
+///   a sphere/distance-field cost proxy's weaker one
+///   (`getCollisionCost`, `:691-`). Fixed here, not reproduced: the
+///   threshold block's write to `num_collision_free_iterations` is now
+///   conditional on the mesh check not having already confirmed safety
+///   this same pass, so the stronger signal wins regardless of which block
+///   runs first (pinned by
+///   `optimize_collision_threshold_no_longer_discards_mesh_to_meshs_immediate_break_signal`).
+///   These same two `if` blocks used to also each call
+///   `iteration_++`/`self.iteration += 1` independently, which could
+///   double- or triple-advance the pass counter in one loop pass -- that
+///   part is also fixed, not reproduced; see `optimize`'s own doc comment.
+///   Each block's own outer gate (`iteration_ % 10 == 0`, `!filter_mode_`)
+///   now also increments a `mesh_checks`/`threshold_checks` counter
+///   independent of whether the inner condition fires, so
+///   [`ChompLoopTrace`] can distinguish "checked and never found free/below
+///   threshold" from "never checked at all" -- see
+///   [`ChompLoopTrace::mesh_checks`]/[`ChompLoopTrace::threshold_checks`].
 /// - **Dead/write-only upstream fields are not ported at all**, verified
 ///   via `rg` across the whole `chomp_motion_planner` package, not just
 ///   `chomp_optimizer.cpp`: `group_trajectory_backup_` (read only inside
@@ -1306,7 +1361,7 @@ impl<'m> ChompOptimizer<'m> {
             joint_costs.push(cost);
         }
         for cost in &mut joint_costs {
-            cost.scale(max_cost_scale);
+            cost.scale(max_cost_scale)?;
         }
 
         let best_group_trajectory = group_trajectory.trajectory_matrix().clone();
@@ -1551,6 +1606,24 @@ impl<'m> ChompOptimizer<'m> {
             for j in 0..self.num_collision_points {
                 let mut vel = Vector3::zeros();
                 let mut acc = Vector3::zeros();
+                // Division/NaN-guard audit (round: chomp/stomp sweep): `idx`'s
+                // `as usize` cannot wrap a negative value here. `offset` is
+                // bounded to `-(DIFF_RULE_LENGTH / 2)..=(DIFF_RULE_LENGTH / 2)`
+                // (`k` ranges over `DIFF_RULES`'s own `DIFF_RULE_LENGTH`-wide
+                // rows), and `i >= self.free_vars_start`, which is always
+                // exactly `DIFF_RULE_LENGTH - 1` -- `ChompOptimizer::new` is
+                // this type's only constructor, and it always derives
+                // `free_vars_start` from `ChompTrajectory::from_source_trajectory`'s
+                // own `start_index = diff_rule_length - 1`, called with this
+                // crate's fixed `DIFF_RULE_LENGTH` constant, never a
+                // caller-supplied value (the caller-facing
+                // `set_start_end_index` cannot reach this: `new` builds its
+                // own `group_trajectory` from `full_trajectory`'s data, not
+                // its start/end index). So `i + offset >= (DIFF_RULE_LENGTH -
+                // 1) - (DIFF_RULE_LENGTH / 2)`, `3` for this crate's
+                // `DIFF_RULE_LENGTH == 7`, always `>= 0`. (If `free_vars_end <
+                // free_vars_start`, the outer loop range is empty and this
+                // line never runs at all.)
                 for (k, (&d0, &d1)) in DIFF_RULES[0].iter().zip(DIFF_RULES[1].iter()).enumerate() {
                     let offset = k as i64 - (DIFF_RULE_LENGTH as i64 / 2);
                     let idx = (i as i64 + offset) as usize;
@@ -1611,6 +1684,30 @@ impl<'m> ChompOptimizer<'m> {
     /// Ported from `calculateCollisionIncrements`
     /// (`chomp_optimizer.cpp:548-623`). See this type's doc comment for the
     /// `rsl::uniform_real` -> `rng.random_range` substitution.
+    ///
+    /// # `raw as i64` cannot see a NaN/infinite `raw` (division/NaN-guard
+    /// audit, round: chomp/stomp sweep)
+    ///
+    /// `raw`'s only inputs are `rng.random_range(0.0..1.0)` and
+    /// `free_vars_start`/`free_vars_end` widened to `f64`. `random_range`'s
+    /// own implementation (`rand-0.10.2/src/distr/uniform_float.rs`,
+    /// `UniformSampler::new`/`sample_single_inclusive`) rejects a non-finite
+    /// bound before sampling and guarantees the result lands in `[low,
+    /// high)` -- with the literal bounds `0.0..1.0` here, always finite.
+    /// `free_vars_start as f64`/`free_vars_end as f64` are exact,
+    /// non-negative, finite widenings of a `usize` too small to lose
+    /// precision at `f64`'s 53-bit mantissa (a trajectory large enough to
+    /// overflow that would already have failed an earlier `DMatrix`
+    /// allocation). So every term of `raw`'s sum is finite, and finite +
+    /// finite * finite is finite: `raw as i64` never sees `NaN` or an
+    /// infinite operand, so the saturating float-to-int cast (Rust 1.45+)
+    /// never actually saturates here -- it is a plain truncation of an
+    /// in-range value. The two `if` clamps immediately below additionally
+    /// re-bound whatever it truncates to into `[free_vars_start,
+    /// free_vars_end]` regardless, so nothing downstream depends on this
+    /// unreachability holding. No fix applies: an `is_finite()` check
+    /// against an input that cannot occur would be exactly the defensive
+    /// validation this port's own conventions reject.
     fn calculate_collision_increments(&self, rng: &mut impl Rng) -> Result<DMatrix<f64>> {
         let mut collision_increments = DMatrix::<f64>::zeros(self.num_vars_free, self.num_joints);
 
@@ -1636,9 +1733,24 @@ impl<'m> ChompOptimizer<'m> {
                 if potential < 0.0001 {
                     continue;
                 }
-                let potential_gradient = -self.collision_point_potential_gradient[i][j];
                 let vel = self.collision_point_vel_eigen[i][j];
                 let vel_mag = self.collision_point_vel_mag[i][j];
+                if vel_mag == 0.0 {
+                    // Upstream's `normalized_velocity = ... / vel_mag`
+                    // (`chomp_optimizer.cpp:596`) is unguarded and produces
+                    // `NaN` here (`0.0 / 0.0`); this port's own swept-cost
+                    // semantic (see `get_collision_cost`'s doc: a
+                    // stationary trajectory contributes exactly `0.0`
+                    // regardless of penetration depth) says a zero-velocity
+                    // point must contribute exactly `0.0`, which
+                    // `cartesian_gradient`'s `vel_mag * (...)` factor
+                    // already implies for any *finite* `(...)` -- skipping
+                    // here makes that hold even when `(...)` would
+                    // otherwise be `NaN`, matching `vel_mag * finite ==
+                    // 0.0` exactly instead of `0.0 * NaN == NaN`.
+                    continue;
+                }
+                let potential_gradient = -self.collision_point_potential_gradient[i][j];
                 let vel_mag_sq = vel_mag * vel_mag;
                 let normalized_velocity = vel / vel_mag;
                 let orthogonal_projector = Matrix3::<f64>::identity()
@@ -1724,6 +1836,13 @@ impl<'m> ChompOptimizer<'m> {
             collision_cost += state_collision_cost;
             if state_collision_cost > worst_collision_cost {
                 worst_collision_cost = state_collision_cost;
+                // Division/NaN-guard audit (round: chomp/stomp sweep):
+                // `usize -> i64` widening, distinct from this file's other
+                // audited `f64 -> i*`/`i64 -> usize` casts -- there is no
+                // fractional or negative source value to lose. It can only
+                // misrepresent `i` if `i > i64::MAX`, which would require a
+                // trajectory point count `DMatrix` allocation elsewhere in
+                // this type already could not have made.
                 self.worst_collision_cost_state = i as i64;
             }
         }
@@ -1755,7 +1874,7 @@ impl<'m> ChompOptimizer<'m> {
     /// gives.
     #[must_use]
     pub fn loop_trace(&self) -> Option<ChompLoopTrace> {
-        self.loop_trace
+        self.loop_trace.clone()
     }
 
     /// The objective at the seed trajectory and at the trajectory
@@ -1785,44 +1904,43 @@ impl<'m> ChompOptimizer<'m> {
     /// replaces, and for why its two `should_break_out` conditions are kept
     /// as two independent `if` blocks rather than collapsed.
     ///
-    /// # Deviation (transcribed, not fixed): `self.iteration` can advance by
-    /// 2 in a single pass
+    /// # Deviation: `self.iteration` advances by exactly one pass, never two
     ///
     /// Upstream's `for (iteration_ = 0; iteration_ < max_iterations_;
     /// ++iteration_)` (`chomp_optimizer.cpp:303`) increments `iteration_`
-    /// unconditionally at the end of every pass, on top of the two
-    /// branch-local `iteration_++;` at `:376` (the mesh check) and `:412`
-    /// (the collision-threshold check) that each also fire when their
-    /// condition is met. `should_break_out`'s gate (`:477-486`,
-    /// `if (should_break_out) { collision_free_iteration_++; if
-    /// (num_collision_free_iterations_ == 0) break; else if
-    /// (collision_free_iteration_ > num_collision_free_iterations_) break;
-    /// }`) does not `break` on every pass where `should_break_out` was set --
+    /// unconditionally at the end of every pass, *on top of* a branch-local
+    /// `iteration_++;` at `:376` (the mesh check) and another at `:412` (the
+    /// collision-threshold check) that each also fire when their own
+    /// condition is met. Upstream's `should_break_out` gate (`:477-486`)
+    /// does not `break` on every pass where `should_break_out` was set --
     /// only once the grace period (`num_collision_free_iterations_`, from
-    /// `parameters_->max_iterations_after_collision_free_`) is exhausted.
-    /// When it doesn't break, control falls through to the `for` loop's own
-    /// `++iteration_` -- so that pass advances `iteration_` by 2, not 1. The
-    /// mesh-check branch forecloses this on its own (it hardcodes
-    /// `num_collision_free_iterations_ = 0`, which always breaks
-    /// immediately), but the collision-threshold branch sets
-    /// `num_collision_free_iterations_` to the configured grace period,
-    /// which is `5` by default (`ChompParameters::default`) -- so with
-    /// default parameters, the very first pass where `c_cost` drops below
-    /// `collision_threshold_` is exactly such a pass, transcribed here as
-    /// `self.iteration += 1` inside the `if !self.parameters.filter_mode &&
-    /// c_cost < self.parameters.collision_threshold` block (below) plus the
-    /// unconditional `self.iteration += 1` at this loop's end. This is
-    /// reachable on ordinary inputs, not a corner case requiring a crafted
-    /// fixture -- see
-    /// `optimize_reaches_iteration_two_after_one_pass_via_the_double_increment`
-    /// in this module's tests, which pins it with `max_iterations: 1` and
-    /// otherwise-default parameters: exactly one real optimization pass
-    /// runs, and `self.iteration` ends at `2`, not `1`. Left as upstream
-    /// wrote it (`PORTING-PLAN.md`: transcribe the numerics, don't rewrite
-    /// them into something cleaner) -- this changes how many grace-period
-    /// passes actually execute before `num_collision_free_iterations_` is
-    /// exhausted (each such pass consumes 2 of `max_iterations_`'s budget
-    /// instead of 1), not whether the loop terminates or what it returns.
+    /// `parameters_->max_iterations_after_collision_free_`) is exhausted --
+    /// so a pass that trips the collision-threshold branch (the common
+    /// case: its grace period defaults to `5`, not `0`) falls through to
+    /// the `for` loop's own `++iteration_` on top of its own branch-local
+    /// one, advancing `iteration_` by 2 for that single executed pass; both
+    /// branches firing on the same pass advances it by 3. Reachable on
+    /// ordinary inputs, not a corner case requiring a crafted fixture.
+    ///
+    /// This port no longer reproduces it. It was `doc/upstream-bugs.md`'s
+    /// `chomp-iteration-double-increment` (`reproduced-grandfathered`
+    /// pending a fresh decision, per that entry's own text) before that
+    /// file was deleted; `GOALS.md` records every Phase condition met as of
+    /// 2026-08-06, moving this project from "transcribe the numerics" to
+    /// fixing code defects against upstream, and this is one such fix. The
+    /// two branch-local increments below are gone; the unconditional
+    /// increment at this loop's end is now `self.iteration`'s only writer,
+    /// so every executed pass advances it by exactly one step, matching how
+    /// [`ChompLoopTrace::evaluations`] (which was never affected by this
+    /// bug) already counts passes. This does not change whether the loop
+    /// terminates or what it returns -- `is_collision_free`/
+    /// `best_group_trajectory` never read `self.iteration`'s absolute
+    /// value -- only: (a) how many optimization passes run before
+    /// `max_iterations` is exhausted, since a grace-period pass no longer
+    /// consumes 2-3 units of that budget for one executed pass; (b) which
+    /// iteration index the every-10th-pass mesh recheck
+    /// (`self.iteration % 10 == 0`) lands on during a grace period, since
+    /// it no longer drifts off a clean multiple of 10.
     pub fn optimize(
         &mut self,
         full_trajectory: &mut ChompTrajectory,
@@ -1843,11 +1961,14 @@ impl<'m> ChompOptimizer<'m> {
         // would describe the first call's loop.
         let mut evaluations: u32 = 0;
         let mut accepted: u32 = 0;
+        let mut mesh_checks: u32 = 0;
         let mut mesh_free_passes: u32 = 0;
+        let mut threshold_checks: u32 = 0;
         let mut below_threshold_passes: u32 = 0;
         let mut seed_points_within_clearance: u32 = 0;
         let mut seed_points_in_collision: u32 = 0;
         let mut first_pass_max_update = 0.0f64;
+        let mut collision_costs: Vec<f64> = Vec::new();
         let mut exit = ChompExit::IterationBound;
         // Declared once, outside the loop, matching upstream
         // (`chomp_optimizer.cpp:300`): once any pass sets it, it stays
@@ -1863,6 +1984,7 @@ impl<'m> ChompOptimizer<'m> {
             self.perform_forward_kinematics(collision)?;
             evaluations += 1;
             let c_cost = self.get_collision_cost();
+            collision_costs.push(c_cost);
             let s_cost = get_smoothness_cost(
                 &self.joint_costs,
                 &self.group_trajectory,
@@ -1931,23 +2053,55 @@ impl<'m> ChompOptimizer<'m> {
             )?;
             full_trajectory.update_from_group_trajectory(&self.group_trajectory);
 
-            if self.iteration % 10 == 0
-                && mesh_to_mesh_collision_free(&self.start_state, &self.best_group_trajectory)
-            {
-                self.num_collision_free_iterations = 0;
-                self.is_collision_free = true;
-                self.iteration += 1;
-                should_break_out = true;
-                mesh_free_passes += 1;
+            // `mesh_confirmed_this_pass` is declared outside the `iteration_ %
+            // 10 == 0` gate (not folded into one `&&` expression) so the
+            // threshold block below can read it regardless of whether this
+            // pass was even a check pass, and so `mesh_checks` can count the
+            // gate firing independent of what the inner check finds.
+            let mut mesh_confirmed_this_pass = false;
+            if self.iteration % 10 == 0 {
+                mesh_checks += 1;
+                if mesh_to_mesh_collision_free(&self.start_state, &self.best_group_trajectory) {
+                    mesh_confirmed_this_pass = true;
+                    self.num_collision_free_iterations = 0;
+                    self.is_collision_free = true;
+                    should_break_out = true;
+                    mesh_free_passes += 1;
+                }
             }
 
-            if !self.parameters.filter_mode && c_cost < self.parameters.collision_threshold {
-                self.num_collision_free_iterations =
-                    self.parameters.max_iterations_after_collision_free as u32;
-                self.is_collision_free = true;
-                self.iteration += 1;
-                should_break_out = true;
-                below_threshold_passes += 1;
+            if !self.parameters.filter_mode {
+                threshold_checks += 1;
+                if c_cost < self.parameters.collision_threshold {
+                    self.is_collision_free = true;
+                    should_break_out = true;
+                    below_threshold_passes += 1;
+                    // Deviation: `num_collision_free_iterations` is written here only
+                    // if the mesh-to-mesh check above did not already confirm safety
+                    // this same pass. Upstream (`chomp_optimizer.cpp:373`/`:410`)
+                    // writes both unconditionally, so whichever block runs second
+                    // wins when both fire in one pass -- reachable, since
+                    // `iteration % 10 == 0` and `c_cost < collision_threshold` are
+                    // independent conditions, trivially both true on pass 0 with an
+                    // empty env field. Textually the threshold block runs second, so
+                    // it always overwrites the mesh block's `0` with the (larger)
+                    // grace period, discarding the ground-truth mesh check's
+                    // "already verified, break at the next check" signal in favor of
+                    // its own weaker one. `isCurrentTrajectoryMeshToMeshCollisionFree`
+                    // (`chomp_optimizer.cpp:520-537`) directly validates the actual
+                    // trajectory via `planning_scene_->isPathValid`; `c_cost`
+                    // (`getCollisionCost`, `:691-`) is a sphere/distance-field cost
+                    // sum, a proxy for the same thing computed without ever calling
+                    // the mesh check. The mesh signal must win, and win regardless of
+                    // which block happens to run first -- not by reordering the two
+                    // (still fragile to a future reorder), but by making the write
+                    // explicitly conditional on the stronger signal not already
+                    // having fired.
+                    if !mesh_confirmed_this_pass {
+                        self.num_collision_free_iterations =
+                            self.parameters.max_iterations_after_collision_free as u32;
+                    }
+                }
             }
 
             if start_time.elapsed().as_secs_f64() > self.parameters.planning_time_limit {
@@ -1957,12 +2111,31 @@ impl<'m> ChompOptimizer<'m> {
 
             if should_break_out {
                 self.collision_free_iteration += 1;
-                // Both upstream arms are a bare `break;` (the second also guards
-                // dead, commented-out logging) -- one condition reaches the same
-                // outcome without an empty branch for clippy::if_same_then_else.
-                if self.num_collision_free_iterations == 0
-                    || self.collision_free_iteration > self.num_collision_free_iterations
-                {
+                if self.num_collision_free_iterations == 0 {
+                    exit = ChompExit::BreakOut;
+                    break;
+                } else if self.collision_free_iteration > self.num_collision_free_iterations {
+                    // Upstream's own check for exactly this moment, commented out and
+                    // never run (`chomp_optimizer.cpp:486-490`: a `checkCurrentIterValidity()`
+                    // re-check guarding a `ROS_WARN("Apparently regressed")`). The grace
+                    // period just expired without ever re-confirming mesh safety on
+                    // whatever `best_group_trajectory` landed on -- accepts are driven by
+                    // *total* cost (smoothness + collision, the `cost < progress.best.total()`
+                    // arm above), not mesh safety, so a pass during the grace window can
+                    // replace it with something the mesh check below would reject. A
+                    // printed warning does not stop the caller from receiving a
+                    // trajectory it was told is collision-free when it is not, so this
+                    // re-runs the same predicate the mesh branch above already trusts, on
+                    // the trajectory that is about to be returned, and corrects
+                    // `is_collision_free` instead of merely noting the discrepancy. The
+                    // `num_collision_free_iterations == 0` arm above needs no equivalent
+                    // check: it only ever fires on the same pass the mesh branch already
+                    // verified `best_group_trajectory` directly, with no write to it in
+                    // between.
+                    if !mesh_to_mesh_collision_free(&self.start_state, &self.best_group_trajectory)
+                    {
+                        self.is_collision_free = false;
+                    }
                     exit = ChompExit::BreakOut;
                     break;
                 }
@@ -1975,11 +2148,14 @@ impl<'m> ChompOptimizer<'m> {
             evaluations,
             exit,
             accepted,
+            mesh_checks,
             mesh_free_passes,
+            threshold_checks,
             below_threshold_passes,
             seed_points_within_clearance,
             seed_points_in_collision,
             first_pass_max_update,
+            collision_costs,
         });
 
         let optimization_result = self.is_collision_free;
@@ -2313,6 +2489,104 @@ mod tests {
         assert!(
             optimizer.collision_point_potential[optimizer.free_vars_start][0] > 0.0,
             "an obstacle placed exactly on this collision sphere's center must register nonzero potential"
+        );
+    }
+
+    /// Division/NaN-guard audit (round: chomp/stomp sweep). Upstream's
+    /// `calculateCollisionIncrements` (`chomp_optimizer.cpp:596`) divides
+    /// `collision_point_vel_eigen_[i][j]` by `vel_mag` with no zero guard --
+    /// this port transcribes the same `vel / vel_mag` unguarded. `vel_mag ==
+    /// 0.0` is not a synthetic corner case: it is exactly what every
+    /// collision point on a fully stationary trajectory has (a `solve()`
+    /// call whose `start_state` already satisfies `goal_constraints` builds
+    /// one -- `build_seed_trajectory` never checks start != goal), and
+    /// nothing stops that stationary pose from also being in collision
+    /// (`build_seed_trajectory` checks joint bounds, never collision). This
+    /// fixture constructs that exact state directly (an obstacle placed on a
+    /// real collision sphere, as `perform_forward_kinematics_flags_the_
+    /// point_an_obstacle_sits_on` above does, plus an explicit zero velocity
+    /// -- engineering the precise boundary rather than fighting
+    /// floating-point cancellation to hit it via a genuinely all-zero
+    /// trajectory) rather than inventing a scenario no real caller reaches.
+    ///
+    /// The oracle is this file's own documented semantic, not a guess:
+    /// [`ChompOptimizer::get_collision_cost`]'s doc says collision cost is
+    /// swept, so "a perfectly stationary trajectory... returns exactly `0.0`
+    /// here regardless of how deeply it penetrates an obstacle." The same
+    /// swept-by-`vel_mag` structure is what `cartesian_gradient = vel_mag *
+    /// (...)` computes for the *increment*: a zero-velocity point must
+    /// contribute exactly zero to `collision_increments`, matching that cost
+    /// semantic, not `NaN` from `0.0 / 0.0`.
+    #[test]
+    fn calculate_collision_increments_zero_velocity_point_contributes_nothing() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+        let parameters = ChompParameters {
+            // Deterministic: visit every free point, not one random one.
+            use_stochastic_descent: false,
+            ..ChompParameters::default()
+        };
+
+        let obstacle_point = {
+            let mut cache = chomp_collision_cache(&model);
+            let field = env_field_with_points(&[]);
+            let mut collision = ChompCollisionContext {
+                cache: &mut cache,
+                env_distance_field: &field,
+            };
+            let mut optimizer = ChompOptimizer::new(
+                &source,
+                CHOMP_COLLISION_GROUP,
+                &parameters,
+                &start_state,
+                &mut collision,
+                None,
+            )
+            .unwrap();
+            optimizer
+                .perform_forward_kinematics(&mut collision)
+                .unwrap();
+            optimizer.collision_point_pos_eigen[optimizer.free_vars_start][0]
+        };
+
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[obstacle_point]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        optimizer
+            .perform_forward_kinematics(&mut collision)
+            .unwrap();
+        let i = optimizer.free_vars_start;
+        assert!(
+            optimizer.collision_point_potential[i][0] > 0.0001,
+            "test setup must land this collision point past calculate_collision_increments's \
+             own 0.0001 potential threshold, or the division under test is never reached"
+        );
+
+        // The exact boundary: real potential (in collision), engineered
+        // exactly-zero swept velocity.
+        optimizer.collision_point_vel_eigen[i][0] = Vector3::zeros();
+        optimizer.collision_point_vel_mag[i][0] = 0.0;
+
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        let increments = optimizer.calculate_collision_increments(&mut rng).unwrap();
+
+        assert!(
+            increments.iter().all(|v| *v == 0.0),
+            "a collision point with exactly zero swept velocity must contribute exactly 0.0 \
+             (this file's own swept-cost semantic), not NaN from an unguarded 0.0/0.0: {increments}"
         );
     }
 
@@ -2693,8 +2967,10 @@ mod tests {
 
         assert!(result, "an empty env field never puts a point in collision");
         assert_eq!(
-            optimizer.iteration, 1,
-            "num_collision_free_iterations == 0 must break out on the very first should_break_out pass"
+            optimizer.iteration, 0,
+            "num_collision_free_iterations == 0 must break out on the very first should_break_out \
+             pass, and self.iteration's only writer is the loop's own unconditional per-pass \
+             increment, which a break skips -- exactly like a for-loop's control variable at break"
         );
         assert!(optimizer.iteration < parameters.max_iterations);
     }
@@ -2768,23 +3044,27 @@ mod tests {
         );
         assert_eq!(
             run(measured_c_cost + f64::EPSILON.max(1e-12)),
-            1,
-            "a threshold strictly above the measured c_cost must break out on the first pass"
+            0,
+            "a threshold strictly above the measured c_cost must break out on the first pass, and \
+             a zero grace period means that break is immediate -- self.iteration's only writer, \
+             the loop's own unconditional per-pass increment, never runs"
         );
     }
 
-    /// Pins `optimize`'s doc comment's "`self.iteration` can advance by 2 in
-    /// a single pass" deviation note. Unlike
+    /// Pins `optimize`'s doc comment's "`self.iteration` advances by exactly
+    /// one pass, never two" deviation note. Unlike
     /// `optimize_collision_threshold_break_is_a_strict_less_than` (which
     /// forces `max_iterations_after_collision_free: 0` to get an immediate
     /// break), this uses `ChompParameters::default`'s own grace period
     /// (`5`), so `num_collision_free_iterations` is non-zero when the
     /// collision-threshold branch trips -- `collision_free_iteration`
-    /// reaches only `1`, `1 > 5` is false, and the loop does not break: the
-    /// branch-local `self.iteration += 1` and the loop's own unconditional
-    /// `self.iteration += 1` both apply on this one pass.
+    /// reaches only `1`, `1 > 5` is false, and the loop does not break.
+    /// Upstream advances `iteration_` by 2 on exactly this pass (its own
+    /// branch-local `iteration_++` plus the `for` loop's unconditional
+    /// step); this port's `self.iteration` has exactly one writer left --
+    /// the loop's own unconditional step -- so it advances by 1.
     #[test]
-    fn optimize_reaches_iteration_two_after_one_pass_via_the_double_increment() {
+    fn optimize_iteration_advances_by_one_pass_when_the_threshold_branch_fires_without_breaking() {
         let model = chomp_collision_model();
         let source = chomp_full_trajectory(&model, 10);
         let start_state = RobotState::new(&model);
@@ -2801,9 +3081,9 @@ mod tests {
         };
         assert!(
             !parameters.filter_mode && parameters.max_iterations_after_collision_free > 0,
-            "the double increment needs the threshold branch reachable (filter_mode off) \
-             and its grace period non-zero (or the threshold branch's should_break_out \
-             breaks immediately instead of falling through to the loop's own increment)"
+            "this pins the threshold branch firing without breaking, which needs the branch \
+             reachable (filter_mode off) and its grace period non-zero -- a zero grace period \
+             breaks immediately instead of falling through to the loop's own increment"
         );
         let mut optimizer = ChompOptimizer::new(
             &source,
@@ -2821,12 +3101,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            optimizer.iteration, 2,
+            optimizer.iteration, 1,
             "an empty env field's c_cost (0.0) is below the default collision_threshold \
              (0.07) from the first pass, so the threshold branch's should_break_out fires \
              on iteration 0 without breaking (grace period 5 > collision_free_iteration 1) -- \
-             the pass's branch-local increment plus the loop's own unconditional increment \
-             put self.iteration at 2 after exactly one real optimization pass, not 1"
+             the loop's own unconditional increment is self.iteration's only writer, putting it \
+             at 1 after exactly one real optimization pass, not 2"
         );
     }
 
@@ -3062,24 +3342,24 @@ mod tests {
         );
     }
 
-    /// Item 1 family sweep (this round): `num_collision_free_iterations`
-    /// has the same two independent, non-`else` write sites as
-    /// `self.iteration` (`chomp_optimizer.cpp:373`/`410`, mesh-to-mesh and
-    /// collision-threshold respectively) -- but unlike `self.iteration`
-    /// (where both sites always agree: `+= 1`), these two sites write
-    /// *different* values (`0` vs `parameters.max_iterations_after_collision_free`),
-    /// so whichever site runs last on a pass where both fire wins outright,
-    /// silently discarding the other. This control test isolates the
-    /// mesh-to-mesh site alone (`filter_mode: true` disables the
-    /// collision-threshold site per `chomp_optimizer.cpp:406`'s
+    /// `num_collision_free_iterations` has two independent, non-`else`
+    /// write sites (`chomp_optimizer.cpp:373`/`410`, mesh-to-mesh and
+    /// collision-threshold respectively) that write *different* values
+    /// (`0` vs `parameters.max_iterations_after_collision_free`) on a pass
+    /// where both fire -- see
+    /// `optimize_collision_threshold_no_longer_discards_mesh_to_meshs_immediate_break_signal`
+    /// below for that same-pass case and the fix. This control test
+    /// isolates the mesh-to-mesh site alone (`filter_mode: true` disables
+    /// the collision-threshold site per `chomp_optimizer.cpp:406`'s
     /// `if (!parameters_->filter_mode_)` guard, matching the existing
     /// `optimize_runs_exactly_max_iterations_when_filter_mode_and_mesh_to_mesh_never_break_out`
     /// precedent), confirming its own `num_collision_free_iterations = 0`
     /// signal reaches the break check unmodified and breaks out after
     /// exactly one `should_break_out` pass. See
-    /// `optimize_collision_threshold_silently_discards_mesh_to_meshs_immediate_break_signal`
-    /// for the same mesh-to-mesh signal with the threshold site *not*
-    /// disabled, where the outcome differs.
+    /// `optimize_collision_threshold_no_longer_discards_mesh_to_meshs_immediate_break_signal`
+    /// for the same mesh-to-mesh signal with the threshold site also
+    /// firing, where the outcome now matches this one instead of differing
+    /// from it.
     #[test]
     fn optimize_mesh_to_mesh_alone_breaks_out_after_exactly_one_should_break_out_pass() {
         let model = chomp_collision_model();
@@ -3113,10 +3393,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            optimizer.iteration, 1,
+            optimizer.iteration, 0,
             "mesh-to-mesh alone sets num_collision_free_iterations = 0 on iteration 0, and \
              filter_mode disables the only other writer, so the very next should_break_out \
-             check (num_collision_free_iterations == 0) must break immediately"
+             check (num_collision_free_iterations == 0) must break immediately -- \
+             self.iteration's only writer is the loop's own increment, which a break skips"
         );
     }
 
@@ -3167,7 +3448,17 @@ mod tests {
         let trace = optimizer.loop_trace().expect("optimize records a trace");
         assert_eq!(trace.evaluations, 1);
         assert_eq!(trace.exit, ChompExit::BreakOut);
+        assert_eq!(
+            trace.mesh_checks, 1,
+            "iteration 0 is a multiple of 10, so the mesh check ran exactly once before breaking out"
+        );
         assert_eq!(trace.mesh_free_passes, 1);
+        assert_eq!(
+            trace.threshold_checks, 0,
+            "filter_mode disables the comparison itself, not just its firing -- distinct from \
+             below_threshold_passes == 0, which alone cannot tell 'never compared' apart from \
+             'compared and never fired'"
+        );
         assert_eq!(trace.below_threshold_passes, 0, "filter_mode disables it");
         assert_eq!(
             trace.accepted, 0,
@@ -3179,6 +3470,80 @@ mod tests {
             "the increments for the pass that broke out were still computed and applied; what \
              never happened is a second `perform_forward_kinematics` to cost them"
         );
+    }
+
+    /// `chomp_optimizer.cpp:486-490`'s dead detector, alive: the
+    /// collision-threshold branch trusts `c_cost` (the sphere/distance-field
+    /// term), not a real mesh check, and `best_group_trajectory` can still
+    /// be replaced *during* the grace period by a later accept, since
+    /// accepts are driven by total cost (smoothness + collision), not mesh
+    /// safety. Pass 0 trips the threshold branch on an empty env field
+    /// (`c_cost == 0.0`), seeding `best_group_trajectory` unconditionally
+    /// (upstream's `iteration_ == 0` arm always does, cost or no cost); the
+    /// seed's kink gives pass 1 a nonzero smoothness gradient, so its lower
+    /// total cost is an accept that replaces `best_group_trajectory` before
+    /// the grace period (`max_iterations_after_collision_free: 1`) expires
+    /// on that same pass. The injected mesh closure reports every
+    /// trajectory unsafe -- `optimize`'s grace-period-expiry re-check must
+    /// correct `is_collision_free` to `false`, not return the threshold
+    /// branch's optimistic `true` from two passes back unexamined.
+    #[test]
+    fn optimize_corrects_is_collision_free_when_the_grace_period_expires_on_a_mesh_unsafe_trajectory()
+     {
+        let model = chomp_collision_model();
+        let mut source = chomp_full_trajectory(&model, 10);
+        // Same device as `loop_trace_says_one_evaluation_when_the_seed_already_passes_mesh_to_mesh`:
+        // a kink so the smoothness gradient is not identically zero, or
+        // pass 1 has nothing to descend and cannot be an accept.
+        let kink = vec![0.3; source.num_joints()];
+        source.set_trajectory_point(4, &kink);
+        let start_state = RobotState::new(&model);
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 2,
+            max_iterations_after_collision_free: 1,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        let result = optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+
+        let trace = optimizer.loop_trace().expect("optimize records a trace");
+        assert_eq!(
+            trace.below_threshold_passes, 2,
+            "an empty env field keeps c_cost at 0.0, below the default collision_threshold, on \
+             both passes"
+        );
+        assert_eq!(
+            trace.accepted, 1,
+            "pass 1's lower smoothness cost (from the seed's kink) must be an accept -- that is \
+             what replaces best_group_trajectory during the still-open grace period"
+        );
+        assert_eq!(trace.exit, ChompExit::BreakOut);
+        assert!(
+            !result,
+            "the injected mesh closure reports every trajectory unsafe; the grace-period-expiry \
+             re-check must correct is_collision_free to false instead of returning the threshold \
+             branch's stale true"
+        );
+        assert!(!optimizer.is_collision_free());
     }
 
     /// The other end of `evaluations`: with nothing ever breaking out, the
@@ -3219,6 +3584,12 @@ mod tests {
         let trace = optimizer.loop_trace().expect("optimize records a trace");
         assert_eq!(trace.evaluations, 7);
         assert_eq!(trace.exit, ChompExit::IterationBound);
+        assert_eq!(
+            trace.mesh_checks, 1,
+            "iteration 0 is the only multiple of 10 in a 7-iteration run, so the check ran \
+             exactly once -- mesh_free_passes == 0 below is 'checked and never found it free', \
+             not 'never checked'"
+        );
         assert_eq!(trace.mesh_free_passes, 0);
     }
 
@@ -3317,35 +3688,138 @@ mod tests {
         );
     }
 
-    /// Item 1 family sweep (this round): the same mesh-to-mesh signal as
+    /// `collision_costs` must be the loop's actual per-pass `c_cost`
+    /// sequence, not a placeholder: one entry per evaluated pass, its first
+    /// entry matching the independently-read seed objective's collision
+    /// term and its last entry matching the independently-read last
+    /// objective's collision term. Reusing
+    /// `loop_trace_seed_point_counts_are_the_first_passs_not_the_last`'s
+    /// obstacle-on-a-collision-sphere fixture so the seed cost is
+    /// genuinely nonzero, not a vacuous all-zero pass.
+    #[test]
+    fn loop_trace_collision_costs_has_one_entry_per_evaluated_pass() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+
+        let obstacle_point = {
+            let mut cache = chomp_collision_cache(&model);
+            let field = env_field_with_points(&[]);
+            let mut collision = ChompCollisionContext {
+                cache: &mut cache,
+                env_distance_field: &field,
+            };
+            let mut optimizer = ChompOptimizer::new(
+                &source,
+                CHOMP_COLLISION_GROUP,
+                &ChompParameters::default(),
+                &start_state,
+                &mut collision,
+                None,
+            )
+            .unwrap();
+            optimizer
+                .perform_forward_kinematics(&mut collision)
+                .unwrap();
+            optimizer.collision_point_pos_eigen[optimizer.free_vars_start][0]
+        };
+
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[obstacle_point]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 5,
+            filter_mode: true,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+
+        let trace = optimizer.loop_trace().expect("optimize records a trace");
+        let progress = optimizer
+            .objective()
+            .expect("a completed loop always has an objective");
+
+        assert_eq!(
+            trace.collision_costs.len(),
+            trace.evaluations as usize,
+            "one collision_costs entry per evaluated pass"
+        );
+        assert!(
+            trace.collision_costs[0] > 0.0,
+            "the obstacle sits on a collision sphere's center, so the seed pass must be in \
+             collision"
+        );
+        assert_eq!(
+            trace.collision_costs[0], progress.seed.collision,
+            "the first recorded pass must be the same seed collision cost the objective reports"
+        );
+        assert_eq!(
+            *trace.collision_costs.last().unwrap(),
+            progress.last.collision,
+            "the last recorded pass must be the same last-evaluated collision cost the \
+             objective reports"
+        );
+    }
+
+    /// Item 1 family sweep (an earlier round): the same mesh-to-mesh signal
+    /// as
     /// [`optimize_mesh_to_mesh_alone_breaks_out_after_exactly_one_should_break_out_pass`],
     /// but with the collision-threshold site *not* disabled (`filter_mode`
     /// at its `false` default) and an empty env field, whose `c_cost ==
     /// 0.0` is below `collision_threshold` (`0.07`) on every single pass --
     /// so the threshold site also fires every pass, including the first,
     /// where mesh-to-mesh fires too (`self.iteration % 10 == 0` at
-    /// `self.iteration == 0`).
+    /// `self.iteration == 0`). This is the reachability case: both
+    /// conditions are independent (one keys off the pass count, the other
+    /// off a computed cost) and this fixture makes both true on pass 0
+    /// without needing anything contrived.
     ///
-    /// `chomp_optimizer.cpp:373` (mesh-to-mesh) runs first and sets
+    /// `chomp_optimizer.cpp:373` (mesh-to-mesh) sets
     /// `num_collision_free_iterations_ = 0`; `chomp_optimizer.cpp:410`
-    /// (collision-threshold) runs immediately after in the *same* pass and
-    /// overwrites it to `parameters_->max_iterations_after_collision_free_`
-    /// (default `5`) -- textual order, not upstream intent, decides the
-    /// winner. Mesh-to-mesh's "break out now" signal is silently discarded:
-    /// instead of breaking after 1 `should_break_out` pass (the control
-    /// test above), the loop needs `collision_free_iteration_ > 5`, i.e. 6
-    /// such passes, one more than
-    /// `parameters.max_iterations_after_collision_free`.
+    /// (collision-threshold) runs immediately after in the *same* pass.
+    /// Upstream writes both unconditionally, so whichever runs second (the
+    /// threshold site, textually) wins and overwrites the mesh site's `0`
+    /// with `parameters_->max_iterations_after_collision_free_` (default
+    /// `5`) -- discarding a ground-truth mesh-safety confirmation
+    /// (`isCurrentTrajectoryMeshToMeshCollisionFree`, `chomp_optimizer.cpp:520-537`,
+    /// a real `planning_scene_->isPathValid` check on the actual
+    /// trajectory) in favor of a sphere/distance-field cost proxy's weaker
+    /// one (`getCollisionCost`, `:691-`, which never calls the mesh check
+    /// at all). The asymmetry in what each signal actually verifies is why
+    /// mesh must win, not just a preference: deferring to the proxy after
+    /// the real check already succeeded cannot produce new information,
+    /// only more passes for `best_group_trajectory` to be replaced by an
+    /// unverified one (the same failure mode
+    /// `optimize_corrects_is_collision_free_when_the_grace_period_expires_on_a_mesh_unsafe_trajectory`
+    /// closes at the other end, on grace-period expiry).
     ///
-    /// A collapsed double-increment (this file's `optimize_reaches_iteration_two_after_one_pass_via_the_double_increment`)
-    /// is silent because the loop still terminates, just one pass later.
-    /// This is the same shape: `is_collision_free` ends up `true` either
-    /// way (both sites agree), so `optimize`'s caller-visible return value
-    /// is unaffected -- only the *termination point*, and the number of
-    /// wasted optimization passes after the optimizer already found a
-    /// mesh-to-mesh-safe trajectory, silently changes.
+    /// Fixed: the threshold site's write to `num_collision_free_iterations`
+    /// is now conditional on the mesh site not having already confirmed
+    /// safety this same pass, so the mesh signal wins independent of
+    /// execution order. `is_collision_free` was already `true` either way
+    /// (both sites agree, unaffected by this fix) -- what changes is the
+    /// *termination point*: this fixture now breaks after exactly 1
+    /// `should_break_out` pass, identical to the mesh-alone control test
+    /// above, instead of needing `collision_free_iteration_ > 5`.
     #[test]
-    fn optimize_collision_threshold_silently_discards_mesh_to_meshs_immediate_break_signal() {
+    fn optimize_collision_threshold_no_longer_discards_mesh_to_meshs_immediate_break_signal() {
         let model = chomp_collision_model();
         let source = chomp_full_trajectory(&model, 10);
         let start_state = RobotState::new(&model);
@@ -3362,9 +3836,9 @@ mod tests {
         };
         assert_eq!(
             parameters.max_iterations_after_collision_free, 5,
-            "this test's expected iteration/collision_free_iteration counts below are derived \
-             from the default grace period of 5; if the default ever changes, the derivation \
-             (not just the asserted numbers) must be re-checked"
+            "this test's doc contrasts the fixed outcome with what the (larger) default grace \
+             period would have produced; if the default ever changes, that contrast must be \
+             re-checked"
         );
         let mut optimizer = ChompOptimizer::new(
             &source,
@@ -3386,16 +3860,17 @@ mod tests {
             "mesh-to-mesh and collision-threshold both report collision-free"
         );
         assert_eq!(
-            optimizer.collision_free_iteration, 6,
-            "num_collision_free_iterations is silently overwritten from 0 to 5 on the pass \
-             where both sites fire, so breaking out needs collision_free_iteration > 5, not \
-             the > 0 mesh-to-mesh alone would have produced"
+            optimizer.collision_free_iteration, 1,
+            "the mesh site's num_collision_free_iterations = 0 must survive the threshold site \
+             also firing this same pass, so breaking out needs only collision_free_iteration > 0 \
+             -- a regression back to unconditional overwriting would need > 5 instead, like the \
+             pre-fix pin this test replaces"
         );
-        assert!(
-            optimizer.iteration > 1,
-            "had mesh-to-mesh's num_collision_free_iterations = 0 survived unmodified, this \
-             would have broken out after exactly 1 pass like the control test above; instead \
-             the collision-threshold site's overwrite keeps the loop running well past it"
+        assert_eq!(
+            optimizer.iteration, 0,
+            "mesh-to-mesh's num_collision_free_iterations = 0 surviving unmodified must break \
+             out after exactly 1 pass, identical to the mesh-alone control test above -- a \
+             regression to the old overwrite would run well past it"
         );
     }
 

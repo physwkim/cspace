@@ -53,8 +53,27 @@
 //!   This port computes the same `0`-when-inverted result directly via
 //!   `(end_index + 1).saturating_sub(start_index)`, not by relying on that
 //!   coincidence — see `num_free_points_zero_for_inverted_range` below.
-//! - **[`ChompTrajectory::from_duration`] validates `discretization` and
-//!   bounds the resulting point count (§153.1/§172), instead of the
+//! - **[`ChompTrajectory::from_num_points`] validates `discretization` is
+//!   finite and positive**, matching the same check
+//!   [`ChompTrajectory::from_duration`] already applied to its own
+//!   `discretization` parameter before delegating here. Every
+//!   `ChompTrajectory` is built through this constructor (`from_duration`
+//!   delegates to it; `from_source_trajectory` copies an already-valid
+//!   source's `discretization`), so the guard lives at the one place that
+//!   actually stores the field, not only at the one caller whose own
+//!   arithmetic happened to need it. Upstream's `(robot_model, size_t
+//!   num_points, double discretization, group_name)` constructor stores
+//!   `discretization_` unchecked; [`ChompTrajectory::joint_velocities`]'s
+//!   `1.0 / discretization_` and [`ChompTrajectory::fill_in_min_jerk`]'s
+//!   `td[1] = (end_index - start_index) * discretization_`-derived
+//!   divisions both silently produced `Infinity`/`NaN` (`0.0 * Infinity ==
+//!   NaN` for three of `DIFF_RULES`' seven zero-valued taps) for any direct
+//!   `from_num_points` caller supplying `discretization == 0.0`, with no
+//!   panic and no `Err` — this crate's own tests and fixtures always pass a
+//!   valid literal, so it went unreachable-in-practice but not
+//!   unreachable-in-API.
+//! - **[`ChompTrajectory::from_duration`] additionally bounds the
+//!   resulting point count (§153.1/§172), instead of the
 //!   unchecked `static_cast<size_t>` upstream's `(robot_model, double
 //!   duration, double discretization, group_name)` constructor uses
 //!   (cpp: delegates to the num-points constructor via
@@ -162,6 +181,11 @@ impl ChompTrajectory {
                 "ChompTrajectory needs at least 2 points, got {num_points}"
             )));
         }
+        if !discretization.is_finite() || discretization <= 0.0 {
+            return Err(Error::other(format!(
+                "discretization must be finite and positive, got {discretization}"
+            )));
+        }
         let group = robot_model.joint_model_group(group_name)?;
         let num_joints = group.active_joint_indices().len();
         Ok(Self {
@@ -184,9 +208,33 @@ impl ChompTrajectory {
     /// Ported from the `(source_traj, group_name, int diff_rule_length)`
     /// constructor. `start_extra`/`end_extra` are computed in `i64` (upstream:
     /// `int`) since they can be negative when `source`'s own margin already
-    /// exceeds `diff_rule_length - 1`; a resulting non-positive point count
-    /// or negative end index is `Err` rather than the `size_t` wraparound
+    /// exceeds `diff_rule_length - 1`; a resulting point count under 2 or a
+    /// negative end index is `Err` rather than the `size_t` wraparound
     /// upstream would produce.
+    ///
+    /// # `num_points_i < 2`, not `< 1` (`§172`)
+    ///
+    /// [`ChompTrajectory::num_points`] is a private, write-once field with
+    /// exactly two direct owners: this constructor and [`Self::from_num_points`],
+    /// whose own guard rejects `num_points < 2` (a `size_t` underflow in
+    /// `end_index_ = num_points_ - 2` below that bound). Every consumer —
+    /// [`Self::fill_in_from_trajectory`] chief among them, whose
+    /// `(i * max_input_index) as f64 / (self.num_points - 1) as f64` divides
+    /// by exactly this quantity — relies on both owners upholding the same
+    /// `>= 2` invariant, not just this one's own weaker `>= 1`.
+    ///
+    /// A `diff_rule_length` of `1` (a caller-supplied argument, not the
+    /// crate-wide `DIFF_RULE_LENGTH = 7` this file's only production caller
+    /// passes, but nothing in this `pub fn`'s signature forbids it) made
+    /// `num_points_i == 1` reachable under the old `< 1` bound: e.g.
+    /// `from_source_trajectory(&from_num_points(_, 3, ..)?, _, 1)` built
+    /// successfully with `num_points() == 1`, and a subsequent
+    /// `fill_in_from_trajectory` call then divided by `self.num_points - 1
+    /// == 0`, producing `0.0 / 0.0 = NaN` that `.trunc() as usize` silently
+    /// saturated to index `0` instead of surfacing — confirmed by
+    /// temporarily loosening this bound back to `< 1` and observing exactly
+    /// that. Matching `from_num_points`'s own threshold instead of adding a
+    /// guard at every consumer closes the family at its single owner.
     pub fn from_source_trajectory(
         source: &ChompTrajectory,
         group_name: &str,
@@ -201,9 +249,9 @@ impl ChompTrajectory {
             diff_rule_length_i - 1 - (source.num_points as i64 - 1 - source.end_index as i64);
 
         let num_points_i = source.num_points as i64 + start_extra + end_extra;
-        if num_points_i < 1 {
+        if num_points_i < 2 {
             return Err(Error::other(format!(
-                "ChompTrajectory padding produced a non-positive point count ({num_points_i})"
+                "ChompTrajectory padding produced a point count under 2 ({num_points_i})"
             )));
         }
         let num_points = num_points_i as usize;
@@ -688,6 +736,38 @@ mod tests {
         v
     }
 
+    /// Before this guard existed, `from_num_points(model, 10, 0.0, GROUP)`
+    /// built successfully and `joint_velocities(5)` silently returned NaN in
+    /// every entry (`1.0 / 0.0 == Infinity`, times three of `DIFF_RULES`'
+    /// seven zero-valued taps == NaN) — confirmed by temporarily removing
+    /// this guard and observing exactly that. `from_duration` already had
+    /// its own copy of this check (`from_duration_rejects_zero_discretization`
+    /// below); this covers the `from_num_points` entry point directly, which
+    /// every one of this file's own fixtures (and `cost.rs`'s,
+    /// `optimizer.rs`'s) reaches with a hardcoded valid literal, so the gap
+    /// was unreachable in this crate's own tests but not in its public API.
+    #[test]
+    fn from_num_points_rejects_zero_discretization() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_num_points(model, 10, 0.0, GROUP).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
+    }
+
+    /// Same boundary, negative side — mirrors
+    /// `from_duration_rejects_negative_discretization`.
+    #[test]
+    fn from_num_points_rejects_negative_discretization() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_num_points(model, 10, -0.03, GROUP).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
+    }
+
     #[test]
     fn from_num_points_rejects_fewer_than_two_points() {
         let model = panda_model();
@@ -835,6 +915,23 @@ mod tests {
                 "row {i} content"
             );
         }
+    }
+
+    /// Discriminates the `num_points_i < 2` bound from the weaker `< 1` it
+    /// replaced (`§172`): `diff_rule_length=1` against a 3-point,
+    /// zero-margin source (`start_index=1, end_index=1`) computes
+    /// `num_points_i = 1` exactly, which the old `< 1` bound let through as
+    /// `Ok`. Before this fix, this built a one-point trajectory whose
+    /// `fill_in_from_trajectory` divided by `num_points() - 1 == 0`.
+    #[test]
+    fn from_source_trajectory_rejects_diff_rule_length_that_pads_to_exactly_one_point() {
+        let model = panda_model();
+        let source = ChompTrajectory::from_num_points(model, 3, 0.1, GROUP).unwrap();
+        let err = ChompTrajectory::from_source_trajectory(&source, GROUP, 1).unwrap_err();
+        assert!(
+            err.to_string().contains("point count under 2"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

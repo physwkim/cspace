@@ -40,7 +40,8 @@ use std::sync::Arc;
 use moveit_geometry::shapes::OcTree as ShapeOcTree;
 use moveit_geometry::{Isometry3, Shape};
 use moveit_octomap::OcTree;
-use nalgebra::{Matrix3, Point3, Rotation3, Translation3, UnitQuaternion, Vector3};
+use moveit_test_support::isometry_from_row_major;
+use nalgebra::Point3;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -102,18 +103,6 @@ fn load_responses() -> Vec<OracleResponse> {
     let raw = read_fixture("octree_in_world_response.json");
     serde_json::from_str(&raw)
         .unwrap_or_else(|e| panic!("parse octree_in_world_response.json: {e}"))
-}
-
-/// `oracle.cpp`'s `fromRowMajor4x4`/`toRowMajor4x4`, reproduced here: a
-/// row-major flattened 4x4 homogeneous matrix, restricted (like
-/// `nalgebra::Isometry3`) to a pure rotation-plus-translation.
-fn isometry_from_row_major4x4(m: &[f64; 16]) -> Isometry3 {
-    let rotation = Matrix3::new(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
-    let translation = Vector3::new(m[3], m[7], m[11]);
-    Isometry3::from_parts(
-        Translation3::from(translation),
-        UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(rotation)),
-    )
 }
 
 fn row_major4x4(t: &Isometry3) -> [f64; 16] {
@@ -193,10 +182,10 @@ fn octree_shape_in_a_posed_world_object_matches_the_oracle() {
         };
         let inner = shape.octree.as_ref().expect("octree payload is Some");
 
-        let object_pose = isometry_from_row_major4x4(&request.object_pose);
+        let object_pose = isometry_from_row_major(&request.object_pose);
         let shape_pose = request
             .shape_pose
-            .map_or_else(Isometry3::identity, |m| isometry_from_row_major4x4(&m));
+            .map_or_else(Isometry3::identity, |m| isometry_from_row_major(&m));
         let global_pose = object_pose * shape_pose;
 
         let actual_global_pose = row_major4x4(&global_pose);

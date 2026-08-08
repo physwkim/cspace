@@ -753,6 +753,22 @@ impl BodyDecomposition {
     ///
     /// # Errors
     ///
+    /// [`moveit_error::Error::Construct`] if `resolution` is not finite and
+    /// positive -- [`crate::find_internal_points_convex`] (called once per
+    /// `shapes` entry, below) divides by it three times
+    /// (`find_internal_points.rs`) with no guard of its own, faithfully
+    /// matching upstream's own unguarded `findInternalPointsConvex`
+    /// (`find_internal_points.cpp`). [`crate::voxel_grid::GridGeometry::new`]
+    /// already validates this exact same class of value on the sibling path
+    /// into a distance field's own construction (see that method's doc
+    /// comment: "validating what `VoxelGrid`/`PropagationDistanceField`'s
+    /// upstream constructors do not"); this port's own
+    /// `add_link_body_decompositions`/`get_body_decomposition_cache_entry`
+    /// forward a `resolution` here that had no equivalent gate, an
+    /// inconsistency between two entry points meant to carry the same value
+    /// in practice, not a difference from upstream (upstream validates
+    /// neither path).
+    ///
     /// [`moveit_error::Error::Construct`] if any of `shapes` has no
     /// `bodies::` counterpart -- see [`moveit_geometry::bodies::Body::from_shape`].
     ///
@@ -765,6 +781,11 @@ impl BodyDecomposition {
         resolution: f64,
         padding: f64,
     ) -> Result<Self> {
+        if !(resolution.is_finite() && resolution > 0.0) {
+            return Err(Error::construct(format!(
+                "BodyDecomposition resolution must be finite and positive, got {resolution}"
+            )));
+        }
         assert_eq!(
             shapes.len(),
             poses.len(),
@@ -1468,6 +1489,32 @@ mod tests {
         ));
 
         assert_eq!(decomp.collision_points(), original_points.as_slice());
+    }
+
+    /// Before this guard existed, `resolution = 0.0` reached
+    /// `find_internal_points_convex`'s `(center.x - radius - resolution) /
+    /// resolution` as `-0.1 / 0.0 = NaN`; every comparison against NaN is
+    /// false, so the sampling loop's `x <= end_x` never held and the
+    /// function silently returned zero points instead of erroring --
+    /// confirmed directly (not assumed) before writing this test. A caller
+    /// building a `BodyDecomposition` at `resolution = 0.0` deserves an
+    /// error, not a body with no collision geometry at all.
+    #[test]
+    fn from_shapes_rejects_a_non_positive_resolution() {
+        for bad in [0.0, -1.0, f64::NAN] {
+            let result =
+                BodyDecomposition::new(&Shape::Sphere(Sphere::new(0.1).unwrap()), bad, 0.0);
+            assert!(result.is_err(), "resolution = {bad} must be rejected");
+        }
+    }
+
+    /// The fix must not reject an ordinary positive resolution -- pinned
+    /// against the same shape [`from_shapes_rejects_a_non_positive_resolution`]
+    /// uses, so the two tests bound the same boundary from both sides.
+    #[test]
+    fn from_shapes_accepts_an_ordinary_positive_resolution() {
+        BodyDecomposition::new(&Shape::Sphere(Sphere::new(0.1).unwrap()), 0.05, 0.0)
+            .expect("resolution = 0.05 is finite and positive");
     }
 
     /// Upstream `BodyDecomposition::getBody` bounds-checks and returns

@@ -55,15 +55,17 @@
 //! stale against the same tree.
 //!
 //! `panda_polyline_staleindex_{request,response}.json` is the third fixture,
-//! and the one that closes `doc/upstream-bugs.md`'s
-//! `polyline-filter-waypoints-stale-index` revisit condition — see
-//! [`polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has`]
+//! captured while `path_polyline_generator::filter_waypoints` still
+//! reproduced upstream's `last_added_point_indx` drift (the now-deleted
+//! `doc/upstream-bugs.md`'s `polyline-filter-waypoints-stale-index`) — see
+//! [`polyline_panda_arm_diverges_from_the_oracles_stale_filter_index_rejection`]
 //! for its geometry and for why the two filter rules give different *error
 //! codes* on it rather than merely different waypoint lists. The first two
 //! fixtures' waypoints are `0.15 m` apart, far above
 //! `path_polyline_generator::MIN_SEGMENT_LENGTH` (`0.2 mm`), so
-//! `filter_waypoints` drops nothing on them and that bug never fires either
-//! way; the third is built specifically so it does.
+//! `filter_waypoints` drops nothing on them and that bug never fired either
+//! way; the third is built specifically so it does, and now pins the fix
+//! diverging from the captured oracle response on purpose.
 
 use std::collections::HashMap;
 use std::fs;
@@ -444,36 +446,40 @@ fn polyline_panda_arm_rejects_the_same_request_the_oracle_rejects() {
     );
 }
 
-/// `doc/upstream-bugs.md`'s `polyline-filter-waypoints-stale-index`,
-/// compared against the oracle rather than argued from a read.
+/// The now-deleted `doc/upstream-bugs.md`'s
+/// `polyline-filter-waypoints-stale-index`, compared against the oracle
+/// rather than argued from a read.
 ///
-/// That entry is `reproduced-deliberately` and named its own revisit
-/// condition: *"Revisit if a `POLYLINE` oracle op lands and its fixtures show
-/// the divergence mattering."* This is that fixture. Its four waypoints are
-/// built so `filter_waypoints`' two counters separate and stay separated:
+/// This fixture's four waypoints are built so upstream's `last_added_point_indx`
+/// and the count of actually-kept waypoints separate and stay separated:
 ///
 /// ```text
 ///   w1  = start + 0.15 x      kept   (last_added_point_indx -> 0, i.e. w1)
 ///   w1' = w1    + 0.0001 x    dropped, 0.1 mm is under MIN_SEGMENT_LENGTH
 ///   w2  = w1    + 0.15  y     kept   (indx -> 1, i.e. w1' -- now stale)
-///   w3  = w2    + 0.0001 x    kept, because it is measured against w1'
+///   w3  = w2    + 0.0001 x    kept under upstream's rule (measured against
+///                             the stale w1', not w2); dropped under this
+///                             port's rule (measured against `filtered.last()`,
+///                             which is w2)
 /// ```
 ///
-/// Under the rule the filter was written to implement, `w3` is `0.1 mm` from
-/// the last *kept* waypoint `w2` and would be dropped, leaving a three-point
-/// polyline that plans. Under upstream's actual rule it survives, and
-/// `PathRoundedComposite::add` then rejects the `0.1 mm` outgoing leg because
-/// the blend radius overruns it.
+/// This port's `filter_waypoints` drops `w3` -- `0.1 mm` from the last
+/// *kept* waypoint `w2` -- leaving a three-point polyline that plans.
+/// Upstream keeps it, and `PathRoundedComposite::add` then rejects the
+/// `0.1 mm` outgoing leg because the blend radius overruns it: the captured
+/// oracle fixture is `INVALID_MOTION_PLAN` (`-2`), logging `rounding circle
+/// of a point is bigger than the distance with one of the neighbor points`.
 ///
-/// So the two rules give *different error codes*, not merely different
-/// waypoint lists — which is what makes this a real parity assertion rather
-/// than a restatement of the port's own code. The oracle rejects
-/// (`INVALID_MOTION_PLAN`, `-2`), and its own log for this fixture names the
-/// same cause this port reaches: `rounding circle of a point is bigger than
-/// the distance with one of the neighbor points`. A port that quietly fixed
-/// the filter would return `SUCCESS` here and fail this test.
+/// `polyline-filter-waypoints-stale-index` is fixed (see
+/// `filter_waypoints`'s own doc for why), so this port now deliberately
+/// diverges from the captured oracle response on exactly this fixture: the
+/// oracle's `-2` is upstream's bug reaching `Add`, not ground truth this port
+/// owes agreement with. A regression back to upstream's stale-index rule
+/// would make this test pass by returning `INVALID_MOTION_PLAN` again --
+/// which is what makes asserting `SUCCESS` here a real pin, not a
+/// restatement of the port's own code.
 #[test]
-fn polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has() {
+fn polyline_panda_arm_diverges_from_the_oracles_stale_filter_index_rejection() {
     let request: RequestFixture = load_json("panda_polyline_staleindex_request.json");
     let response: ResponseFixture = load_json::<OracleResponseEnvelope<ResponseFixture>>(
         "panda_polyline_staleindex_response.json",
@@ -481,11 +487,13 @@ fn polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has() {
     .result;
     assert_eq!(
         response.error_code, -2,
-        "fixture's own oracle run must have failed with INVALID_MOTION_PLAN"
+        "fixture's own captured oracle run must still show INVALID_MOTION_PLAN \
+         -- this is upstream ground truth and is not touched by the port's fix"
     );
 
-    // The near-duplicate is what makes the two counters separate; without it
-    // nothing is dropped and the stale index never forms.
+    // The near-duplicate is what makes the two counters separate under
+    // upstream's rule; without it nothing is dropped and the stale index
+    // never forms.
     assert_eq!(request.path_waypoints.len(), 4);
     let w: Vec<Isometry3> = request.path_waypoints.iter().map(Isometry3::from).collect();
     let near_duplicate = (w[1].translation.vector - w[0].translation.vector).norm();
@@ -511,15 +519,17 @@ fn polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has() {
     let response = generator.generate(&ctx, &plan_request(&request), request.sampling_time);
     assert_eq!(
         response.error_code,
-        moveit_error::MoveItErrorCode::InvalidMotionPlan,
-        "this port must reproduce the oracle's rejection; SUCCESS here would \
-         mean the stale index was silently fixed"
+        moveit_error::MoveItErrorCode::Success,
+        "this port's corrected filter must now drop w3 and plan; \
+         INVALID_MOTION_PLAN here would mean the fix regressed back to \
+         upstream's stale-index rule"
     );
 
-    // What the corrected filter would have produced, planned directly: the
-    // same request with `w3` removed. It must SUCCEED, or the rejection above
-    // is not attributable to the surviving `w3` and this test proves nothing
-    // about the filter.
+    // The same 3-point geometry the fix now produces automatically, built by
+    // hand instead of relying on the internal filter: it must also SUCCEED,
+    // corroborating that the SUCCESS above is attributable to the fixed
+    // filter dropping w3, not to some unrelated difference in how a 4- vs.
+    // 3-waypoint request is processed downstream.
     let mut corrected = plan_request(&request);
     corrected.path_constraints = Some(PathConstraints::Polyline(PolylinePathConstraint {
         waypoints: vec![w[0], w[1], w[2]],
@@ -536,7 +546,8 @@ fn polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has() {
     assert_eq!(
         response.error_code,
         moveit_error::MoveItErrorCode::Success,
-        "dropping w3 -- exactly what the corrected filter would do -- must \
-         plan, or the rejection above has some other cause"
+        "dropping w3 by hand -- the same geometry the fixed filter now \
+         produces on its own -- must plan, or the SUCCESS above has some \
+         other cause"
     );
 }
