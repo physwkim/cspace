@@ -310,8 +310,21 @@ impl IkConstraintSampler {
                     // matching upstream's comment on this exact line.
                     let rotation_vector = oc.desired_rotation_matrix_in_ref_frame().transpose()
                         * Vector3::new(angle_x, angle_y, angle_z);
+                    // Upstream is `AngleAxisd(rotation_vector.norm(),
+                    // rotation_vector.normalized())`, and Eigen's
+                    // `normalized()` returns the input unchanged when the
+                    // squared norm is zero, so a zero rotation vector gives
+                    // axis `[0,0,0]` with angle `0` -- the identity rotation.
+                    // `Unit::new_normalize` has no such guard: it divides
+                    // anyway, and the NaN axis survives `from_axis_angle`'s
+                    // `axis * sin(angle/2)` even at angle zero, turning the
+                    // whole sampled orientation into NaN. Measured against
+                    // this repo's oracle image at Eigen 3.4.0.
+                    let axis = rotation_vector
+                        .try_normalize(0.0)
+                        .unwrap_or(rotation_vector);
                     UnitQuaternion::from_axis_angle(
-                        &nalgebra::Unit::new_normalize(rotation_vector),
+                        &nalgebra::Unit::new_unchecked(axis),
                         rotation_vector.norm(),
                     )
                 }
