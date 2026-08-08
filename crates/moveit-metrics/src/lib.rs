@@ -356,9 +356,22 @@ impl<'m> KinematicsMetrics<'m> {
     /// [`Self::manipulability_index`], there is no `columns < 6` branch
     /// here — upstream always takes the SVD path for this one method.
     ///
+    /// Upstream (`kinematics_metrics.cpp`'s `getManipulability`) divides by
+    /// `singular_values.maxCoeff()` unconditionally, in both its
+    /// `translation` and non-`translation` branches; when every singular
+    /// value is exactly zero (the Jacobian block is the all-zero matrix —
+    /// reachable with `translation=true` for a chain whose tip link
+    /// coincides with its own driving joint's origin, since every column's
+    /// linear part is then `axis × 0`) that is `0.0 / 0.0`, and the `NaN` it
+    /// produces then silently defeats every downstream comparison, since
+    /// every comparison against `NaN` is `false`. This port reports it
+    /// through the same [`Error::Other`] channel this method's own
+    /// group-lookup already uses, instead of returning `Ok(NaN)`.
+    ///
     /// # Errors
     ///
-    /// Same as [`Self::manipulability_index`].
+    /// Same as [`Self::manipulability_index`], plus [`Error::Other`] if the
+    /// Jacobian block is entirely zero, making the ratio undefined.
     pub fn manipulability(&self, state: &Posed, group: &str, translation: bool) -> Result<f64> {
         let group_model = self.group(group, "manipulability")?;
         let penalty = self.joint_limits_penalty(state, group_model)?;
@@ -369,7 +382,14 @@ impl<'m> KinematicsMetrics<'m> {
             jacobian
         };
         let svd = SVD::new(target, false, false);
-        Ok(penalty * svd.singular_values.min() / svd.singular_values.max())
+        let max_singular_value = svd.singular_values.max();
+        if max_singular_value == 0.0 {
+            return Err(Error::other(format!(
+                "the group '{group}' has an all-zero Jacobian at this configuration; \
+                 manipulability is undefined"
+            )));
+        }
+        Ok(penalty * svd.singular_values.min() / max_singular_value)
     }
 }
 
@@ -1087,6 +1107,68 @@ mod tests {
             .unwrap();
 
         approx::assert_relative_eq!(penalized, unpenalized * penalty, max_relative = 1e-12);
+    }
+
+    /// `manipulability`'s `svd.singular_values.min() / svd.singular_values.max()`
+    /// (upstream `singular_values.minCoeff() / singular_values.maxCoeff()`,
+    /// identically unguarded) divides by zero whenever the Jacobian block it
+    /// takes the SVD of is the all-zero matrix, not merely rank-deficient
+    /// (`min == 0` alone is fine; `0.0 / nonzero == 0.0`). A single-joint
+    /// chain whose tip link sits at the joint's own origin (no `<origin>` on
+    /// the joint, so parent and child frames coincide) makes every column of
+    /// the linear (translation) Jacobian block exactly `axis × (tip_point -
+    /// joint_position) == axis × 0 == (0, 0, 0)` for *every* joint value, not
+    /// just a hand-picked singular pose — this is an algebraic identity, not
+    /// a floating-point coincidence, so it reproduces at `translation=true`
+    /// regardless of where `j1` is posed. `translation=false` does not
+    /// reproduce it: the angular rows are `axis_wrt_origin` itself, a
+    /// rotated unit vector, never zero.
+    #[test]
+    fn manipulability_divides_by_zero_when_the_translation_jacobian_is_all_zero() {
+        let urdf_xml = r#"<robot name="test">
+    <link name="base"/>
+    <link name="tip"/>
+    <joint name="j1" type="revolute">
+        <parent link="base"/><child link="tip"/><axis xyz="0 0 1"/>
+        <limit lower="-1" upper="1" effort="1" velocity="1"/>
+    </joint>
+</robot>"#;
+        let srdf_xml = r#"<robot name="test">
+    <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+    <group name="single_joint">
+        <chain base_link="base" tip_link="tip"/>
+    </group>
+</robot>"#;
+        let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).expect("urdf must parse");
+        let srdf = SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("model must build");
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let metrics = KinematicsMetrics::new(&model);
+
+        let jacobian = posed.jacobian("single_joint", &Vector3::zeros()).unwrap();
+        assert_eq!(
+            jacobian.rows(0, 3),
+            nalgebra::DMatrix::<f64>::zeros(3, 1),
+            "test setup must reach an all-zero translation Jacobian block, not just a \
+             rank-deficient one"
+        );
+
+        let result = metrics.manipulability(&posed, "single_joint", true);
+        match result {
+            Err(Error::Other(message)) => assert_eq!(
+                message,
+                "the group 'single_joint' has an all-zero Jacobian at this configuration; \
+                 manipulability is undefined"
+            ),
+            other => panic!(
+                "expected Error::Other for an all-zero Jacobian, got {other:?} \
+                 (0.0 / 0.0 silently propagating as NaN instead of a reported error)"
+            ),
+        }
     }
 
     /// `hand` is a joint-list group, not a chain — every method must reject
