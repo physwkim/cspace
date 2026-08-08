@@ -775,8 +775,25 @@ impl OcTree {
 
     /// Upstream `getNodeSize`: the metric size of a voxel at `depth` (0:
     /// root, [`Self::TREE_DEPTH`]: finest resolution).
+    ///
+    /// # Deviation: `debug_assert!`, not `assert!` (Task G)
+    ///
+    /// Upstream's own precondition check is `assert(depth <= tree_depth);`
+    /// (`OcTreeBaseImpl.h:113`, inline in the header), which compiles out
+    /// under `NDEBUG` -- a release build with an out-of-range `depth` falls
+    /// through to an out-of-bounds `sizeLookupTable[depth]` read. This
+    /// function is `pub`, so `depth` is caller-controlled; a literal
+    /// `assert!` here turned that release-mode no-op into a release-mode
+    /// abort for every external caller -- the opposite direction from
+    /// upstream's own release behaviour. `debug_assert!` matches upstream's
+    /// NDEBUG semantics instead: checked in debug, compiled out in release,
+    /// same as upstream's `assert()`.
     pub fn node_size(&self, depth: u32) -> f64 {
-        assert!(depth <= Self::TREE_DEPTH);
+        debug_assert!(
+            depth <= Self::TREE_DEPTH,
+            "node_size: depth {depth} exceeds TREE_DEPTH ({})",
+            Self::TREE_DEPTH
+        );
         self.resolution * f64::from(1u32 << (Self::TREE_DEPTH - depth))
     }
 
@@ -1838,6 +1855,18 @@ mod tests {
             tree.node_size(0),
             0.1 * f64::from(1u32 << OcTree::TREE_DEPTH)
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "node_size: depth")]
+    fn node_size_rejects_depth_above_tree_depth() {
+        // Pre-fix this was a bare `assert!` -- it already panicked, but with
+        // the default "assertion failed: ..." text, not this message; the
+        // custom message is what distinguishes `debug_assert!` having
+        // actually landed here rather than the check merely surviving
+        // unedited.
+        let tree = OcTree::new(0.1);
+        let _ = tree.node_size(OcTree::TREE_DEPTH + 1);
     }
 
     #[test]
