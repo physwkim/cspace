@@ -5,8 +5,6 @@
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
 //   moveit_planners/pilz_industrial_motion_planner/src/joint_limits_container.cpp
 //   (JointLimitsContainer::updateCommonLimit)
-//   moveit_planners/pilz_industrial_motion_planner/src/path_polyline_generator.cpp
-//   (PathPolylineGenerator::computeBlendRadius)
 // and, as the algebraic reformulation this file's own doc explains,
 // orocos_kdl/src/path_line.cpp's `Path_Line` constructor's `pathlength`
 // selection.
@@ -30,12 +28,20 @@
 //! spelling would silently substitute the next joint's finite limit and
 //! return a plausible-looking (and wrong) common limit instead.
 //!
-//! [`cxx_min`]/[`cxx_max`] reproduce the exact comparison upstream uses at
-//! every call site this crate ports: [`crate::limits::JointLimitsContainer`]'s
+//! `std::min`/`std::max` are not the only overload upstream uses, and the
+//! other one does *not* diverge from [`f64::min`]/[`f64::max`]:
+//! `std::fmin`/`std::fmax` (IEEE `minNum`/`maxNum`) discard NaN wherever it
+//! sits, exactly like the `f64` methods, so a call written as
+//! `std::fmin`/`std::fmax` upstream is *correctly* ported as plain
+//! [`f64::min`]/[`f64::max`] and must not be converted to
+//! [`cxx_min`]/[`cxx_max`]. Which family applies is a property of the exact
+//! call site, decided by reading it, not inferred from "this is a min/max".
+//!
+//! [`cxx_min`]/[`cxx_max`] reproduce the exact comparison upstream's
+//! `std::min`/`std::max` (never `std::fmin`/`std::fmax`) use at every call
+//! site this crate ports: [`crate::limits::JointLimitsContainer`]'s
 //! `update_common_limit` (`updateCommonLimit`'s five `std::min`/`std::max`
-//! calls fusing position/velocity/acceleration/deceleration limits),
-//! [`crate::path_polyline_generator::compute_blend_radius`]'s
-//! `std::min(dist1 / 2.0, dist2 / 2.0)`, and
+//! calls fusing position/velocity/acceleration/deceleration limits), and
 //! [`crate::path_line::PathLine::new`]'s `path_length` selection — not a
 //! transcription of a literal `std::max` call (see that function's own doc
 //! comment for why), but proven by direct derivation to be the exact
@@ -44,6 +50,12 @@
 //! `else` arm (`pathlength = dist`) whenever the comparison is false, which
 //! is every case a naive `std::max` would also return `dist` for, NaN or
 //! not.
+//!
+//! [`crate::path_polyline_generator::compute_blend_radius`] also has a
+//! `std::min(dist1 / 2.0, dist2 / 2.0)` call (not `std::fmin`, so the same
+//! family as the two sites above), but it is deliberately left as
+//! [`f64::min`] rather than converted — see that function's test module for
+//! the reachability argument and the regression test proving it.
 //!
 //! This is the third copy of these two functions in the workspace
 //! (`moveit-trajectory`'s and `moveit-constraints`' `numeric` modules are

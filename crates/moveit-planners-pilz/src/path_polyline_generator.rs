@@ -378,6 +378,33 @@ mod tests {
         assert!(err.to_string().contains("3104"), "{err}");
     }
 
+    /// A NaN waypoint component reaching `dist1`/`dist2` reaches `theta` too
+    /// (`segment_angle`'s `v1`/`v2` are the exact same difference vectors),
+    /// so `local_max_radius` is NaN and the aggregation `if local_max_radius
+    /// < max_allowed_radius` discards it exactly as it would discard any
+    /// other NaN — leaving the return at the untouched initial `INFINITY`,
+    /// not at some value shaped by `(dist1 / 2.0).min(dist2 / 2.0)`. This is
+    /// why that call is left as `f64::min` rather than [`crate::numeric`]'s
+    /// `cxx_min` despite porting the same `std::min` upstream: the spelling
+    /// is unreachable from this function's observable output. See
+    /// `crate::numeric`'s module doc.
+    #[test]
+    fn compute_blend_radius_masks_a_nan_corner_at_the_aggregation_comparison() {
+        let radius = compute_blend_radius(
+            &[
+                pose(0.0, 0.0, 0.0),
+                pose(1.0, 1.0, 0.0),
+                pose(f64::NAN, 2.0, 0.0),
+            ],
+            0.5,
+        )
+        .unwrap();
+        assert!(
+            radius.is_infinite() && radius.is_sign_positive(),
+            "{radius}"
+        );
+    }
+
     // -- polyline_from_waypoints --
 
     #[test]
