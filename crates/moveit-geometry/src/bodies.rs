@@ -1227,6 +1227,28 @@ fn merge_smalldist(a: &OBB, b: &OBB) -> OBB {
     }
 }
 
+/// `Vector3::normalize()`, guarded against a zero-norm input to match
+/// Eigen. Upstream `OBB-inl.h:263-264` is `b.axis.col(0) = b1.To - b2.To;
+/// b.axis.col(0).normalize();` — Eigen's in-place `normalize()` (and its
+/// `normalized()`) are guarded: `if (z > 0) *this /= sqrt(z); ` else the
+/// vector is left unchanged. nalgebra's `.normalize()` is
+/// `self.unscale(self.norm())`, unguarded, and gives `[NaN, NaN, NaN]` for
+/// a zero vector (confirmed empirically: `Vector3::zeros().normalize() ==
+/// [NaN, NaN, NaN]`, since `0.0 / 0.0` is NaN).
+///
+/// `v.try_normalize(0.0)` returns `None` exactly when `v.norm() <= 0.0`
+/// (i.e. `v` is the zero vector) and `Some(unit vector)` otherwise;
+/// `.unwrap_or(v)` on `None` reproduces Eigen's "leave unchanged" branch
+/// precisely. `.unwrap_or_else(Vector3::zeros)` would NOT reproduce it: it
+/// assumes `v` itself is the zero vector whenever normalization fails, but
+/// the only failure case here *is* `v` already being the zero vector, so
+/// the two spellings coincide today — the distinction matters the moment
+/// this helper gains a second caller whose input can be zero for a
+/// different reason.
+fn guarded_normalize(v: Vector3) -> Vector3 {
+    v.try_normalize(0.0).unwrap_or(v)
+}
+
 /// FCL's `OBB::operator+`, `center_diff.norm() > 2*(max_extent +
 /// max_extent2)` branch: a PCA-fit box over both boxes' 16 vertices
 /// projected onto the plane perpendicular to the center-to-center axis.
@@ -1239,7 +1261,16 @@ fn merge_largedist(a: &OBB, b: &OBB) -> OBB {
         .chain(b.compute_vertices())
         .collect();
 
-    let axis0 = (a.pose.translation.vector - b.pose.translation.vector).normalize();
+    // `guarded_normalize`, not `.normalize()`: nothing in this crate's
+    // public API rejects a negative `half_extents` component
+    // (`OBB::new`/`set_pose_and_extents` just multiply by 0.5), and a box
+    // built with all-negative half-extents has a negative `max_extent`
+    // (see `OBB::extend_approx`) — negative enough that
+    // `center_diff.norm() > 2*(max_extent+other_max_extent)` can hold even
+    // when the two centers are identical, forcing this branch with a
+    // genuinely zero `a.To - b.To`. See `guarded_normalize`'s doc for why
+    // upstream doesn't produce NaN there and this port, unguarded, did.
+    let axis0 = guarded_normalize(a.pose.translation.vector - b.pose.translation.vector);
     let projected: Vec<Vector3> = vertices.iter().map(|v| v - axis0 * v.dot(&axis0)).collect();
 
     let cov = fcl_covariance(&projected);
@@ -4371,6 +4402,107 @@ mod tests {
         // != NaN under plain `assert_eq!`, so this compares the `Debug`
         // strings instead: both sides genuinely agree here, NaNs and all.
         assert_eq!(debug_string(&merged), debug_string(&largedist));
+    }
+
+    /// `guarded_normalize` unit tests: the zero case `merge_largedist`
+    /// exists for, and its demonstrated opposite (a nonzero input, where
+    /// `try_normalize` and the unguarded `.normalize()` agree).
+    #[test]
+    fn guarded_normalize_leaves_a_zero_vector_unchanged_instead_of_producing_nan() {
+        assert_eq!(guarded_normalize(Vector3::zeros()), Vector3::zeros());
+    }
+
+    #[test]
+    fn guarded_normalize_still_normalizes_a_nonzero_vector() {
+        let v = guarded_normalize(Vector3::new(3.0, 0.0, 4.0));
+        assert!((v.norm() - 1.0).abs() < 1e-12);
+        assert_eq!(v, Vector3::new(3.0, 0.0, 4.0).normalize());
+    }
+
+    /// Nothing in this crate's public API rejects a negative half-extent:
+    /// `OBB::new`/`set_pose_and_extents` just multiply the given extents by
+    /// 0.5 (see both). A box built with `Vector3::new(-2.0, -2.0, -2.0)`
+    /// has `half_extents == (-1.0, -1.0, -1.0)`, so `max_extent ==
+    /// cxx_max(cxx_max(-1.0, -1.0), -1.0) == -1.0` (finite values fold
+    /// exactly like `f64::max` there -- only NaN makes `cxx_max` diverge
+    /// from it). Two such boxes give `max_extent + other_max_extent ==
+    /// -2.0`, and `center_diff.norm() > 2.0 * -2.0` is `0.0 > -4.0`: true
+    /// even for identical centers. `contains_obb` doesn't screen this
+    /// first: `contains_point`'s `local.x.abs() <= self.half_extents.x` is
+    /// `<= a negative number`, which is false for every point, so both
+    /// `self.contains_obb(other)` and `other.contains_obb(self)` are false
+    /// and execution reaches the merge dispatch. This is the reachable
+    /// case `guarded_normalize` exists for: `a.To - b.To` is the genuine
+    /// zero vector here, not merely a very small one.
+    #[test]
+    fn extend_approx_avoids_a_nan_axis_when_negative_extents_zero_the_merge_largedist_threshold() {
+        let b1 = OBB::new(
+            Isometry3::translation(0.0, 0.0, 0.0),
+            Vector3::new(-2.0, -2.0, -2.0),
+        );
+        let b2 = OBB::new(
+            Isometry3::translation(0.0, 0.0, 0.0),
+            Vector3::new(-2.0, -2.0, -2.0),
+        );
+
+        let smalldist = merge_smalldist(&b1, &b2);
+        let largedist = merge_largedist(&b1, &b2);
+        assert_ne!(
+            debug_string(&smalldist),
+            debug_string(&largedist),
+            "the two branches must be distinguishable for this test to mean anything"
+        );
+
+        let mut merged = b1;
+        merged.extend_approx(&b2);
+
+        assert_eq!(
+            debug_string(&merged),
+            debug_string(&largedist),
+            "must actually take merge_largedist for this test to exercise the fix"
+        );
+        assert!(
+            !merged.pose().translation.vector.iter().any(|c| c.is_nan()),
+            "a zero-norm axis0 must not leak NaN into the merged pose: {merged:?}"
+        );
+        assert!(
+            !merged.extents().iter().any(|c| c.is_nan()),
+            "a zero-norm axis0 must not leak NaN into the merged extents: {merged:?}"
+        );
+    }
+
+    /// The demonstrated opposite of the test above: distinct centers give
+    /// `guarded_normalize` a nonzero input, where it behaves exactly like
+    /// the unguarded `.normalize()` (both produce a proper unit vector) --
+    /// so this scenario's result is unaffected by the fix. Without this
+    /// case, the test above would also pass on a `guarded_normalize` that
+    /// always returned the zero vector regardless of input, which is not
+    /// what the fix does.
+    #[test]
+    fn extend_approx_still_takes_a_unit_axis0_when_centers_are_genuinely_distinct() {
+        let b1 = OBB::new(
+            Isometry3::translation(0.0, 0.0, 0.0),
+            Vector3::new(0.2, 0.2, 0.2),
+        );
+        let b2 = OBB::new(
+            Isometry3::translation(10.0, 0.0, 0.0),
+            Vector3::new(0.2, 0.2, 0.2),
+        );
+
+        let smalldist = merge_smalldist(&b1, &b2);
+        let largedist = merge_largedist(&b1, &b2);
+        assert_ne!(
+            debug_string(&smalldist),
+            debug_string(&largedist),
+            "the two branches must be distinguishable for this test to mean anything"
+        );
+
+        let mut merged = b1;
+        merged.extend_approx(&b2);
+
+        assert_eq!(debug_string(&merged), debug_string(&largedist));
+        assert!(!merged.pose().translation.vector.iter().any(|c| c.is_nan()));
+        assert!(!merged.extents().iter().any(|c| c.is_nan()));
     }
 
     #[test]
