@@ -80,11 +80,6 @@ use crate::velocity_profile::KDL_EPSILON;
 ///   this direction by a coefficient that is itself provably `0.0`
 ///   whenever the norm-`0.0` branch fires here (see that function's own
 ///   doc comment).
-/// - [`get_rot_angle`]'s own internal call never actually reaches this
-///   branch: the vector it normalizes has a norm that is provably at
-///   least `eps` by the time that call executes, given the singularity
-///   check earlier in the same function already excluded the case where
-///   it would not be.
 /// - [`crate::path_circle::PathCircle::new`]'s `radius`-producing call
 ///   returns an error immediately upon seeing `norm < eps`, before its
 ///   direction is ever read.
