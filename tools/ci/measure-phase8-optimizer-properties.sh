@@ -364,6 +364,66 @@ PINS_ALL='{
 }'
 PINS_JSON="$(jq -c --arg m "$MODE" '.[$m] // {}' <<<"$PINS_ALL")"
 
+# `pinned()` above is keyed `planner.robot` and only reached from the
+# `.stratum != null` branch below, so `constrained`/`inject_constrained` --
+# which are TAGS, not robots, and have no stratum row at all -- never got a
+# `solved_floor`. A full revert of the fix that makes them solvable is caught
+# anyway (every `common()` check fails at 0 solved), but erosion is not:
+# `> 0` guards pass just as well at 1 solved as at every problem solved, so a
+# regression that leaves a few problems solving would pass every row that
+# existed before this variable.
+#
+# This is a SIBLING to $PINS_ALL, not a new case folded into it, because
+# $PINS_ALL's shape IS the robot keying -- adding a tag underneath it would
+# make one variable answer two different questions ("floor for this robot"
+# and "floor for this tag") by context, which is the dual-meaning shape that
+# grows a special case per future tag. Keyed `mode -> planner -> tag` instead,
+# it answers only the tag question, and reuses `pinned()` unchanged: the
+# function only ever read `.problems`/`.solved_floor` off whatever pin object
+# it was handed.
+#
+# `full`'s tags are listed with a null pin, not omitted, unlike $PINS_ALL's
+# flatly-null `full`. $PINS_ALL can be flat because `.stratum` rows are
+# unconditional -- every planner/robot combination always produces one, so
+# `$pins[$p][.robot] == null` alone means "unmeasured" with no ambiguity. A
+# `.set` row is not unconditional: most tags (`panda_floor_wall` and so on)
+# are never meant to carry a tag-level floor at all, so the check below has to
+# tell "this tag carries no floor, ever" apart from "this tag needs a floor
+# and none is measured for this mode" -- and a bare `$tag_pins[$p][.tag] //
+# null` cannot make that distinction, only `has()` against an entry that is
+# actually present can. Listing the tag with a null pin in `full` is what
+# lets `has()` see it there too, so `full` fails loud the same way an
+# unmeasured stratum does instead of silently skipping the check.
+#
+# Pinned exactly at the measurement, not two below it the way $PINS_ALL's
+# `solved_floor`s are: that margin there is real movement Phase 7 measured
+# for STOMP at its own scale, not a blanket rule, and this population showed
+# none of it -- three consecutive runs, same tree, same CONSTRAINED_SET tuple
+# (panda floor_wall seed 810011 panda_joint1:0.0:0.5) at PILOT_COUNT=8,
+# SEED_BASE=525252, TIMEOUT_SECONDS=120, gave the identical count each time
+# with zero timeouts on every run: chomp 6/8 solved on both `constrained` and
+# `inject_constrained` (identical because CHOMP never plans with
+# `joint_constraint` at all -- `optimize_benchmark_chomp.rs:596-608` -- so the
+# two tags plan and score identically by construction, not by coincidence),
+# stomp 8/8 solved on both (the `7f561e20` fix above). An exact pin on a
+# stable measurement has precedent in this same file: `endpoint_ceiling 0.0`
+# for CHOMP is pinned at exactly its measurement for the same reason -- "a
+# ceiling above 0 here would accept a regression this tree does not have." If
+# this population turns out to be noisy on a machine this was never run on,
+# that is new evidence for a margin, measured the same way the existing ones
+# were -- not a reason to invent one now that nothing here shows.
+TAG_PINS_ALL='{
+  "full": {"chomp": {"constrained": null, "inject_constrained": null},
+           "stomp": {"constrained": null, "inject_constrained": null}},
+  "pilot": {
+    "chomp": {"constrained": {"problems": 8, "solved_floor": 6},
+              "inject_constrained": {"problems": 8, "solved_floor": 6}},
+    "stomp": {"constrained": {"problems": 8, "solved_floor": 8},
+              "inject_constrained": {"problems": 8, "solved_floor": 8}}
+  }
+}'
+TAG_PINS_JSON="$(jq -c --arg m "$MODE" '.[$m] // {}' <<<"$TAG_PINS_ALL")"
+
 # Which planners this run measures. An override exists for one reason: proving a
 # check discriminates means breaking what it watches and showing it fail, and a
 # both-planner pilot costs minutes of STOMP wall clock per proof (see the
@@ -1052,7 +1112,8 @@ for planner in $PLANNERS; do
 done
 
 checks_json="$WORKDIR/checks.json"
-jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
+jq -s -c --argjson pins "$PINS_JSON" --argjson tag_pins "$TAG_PINS_JSON" \
+     --argjson tmo "$TIMEOUT_SECONDS" \
      --argjson cppclock "$CPP_CLOCK_BOUND" \
      --arg mode "$MODE" '
   def r3($x): if $x == null then null else (($x)*1000|round)/1000 end;
@@ -1285,7 +1346,7 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
            [endpoints($s; $label; $pin)] + pinned($s; $label; $pin)
            + quality($p; $s; $label; $pin) end) ]
   + [ .[] | select(.set != null)
-      | "\(.planner)/\(.tag)" as $label | .set as $s | .cpp as $c
+      | .planner as $p | .tag as $t | "\($p)/\($t)" as $label | .set as $s | .cpp as $c
       | common($s; $label)
         # The two constrained populations carry no `cpp` at all, by the
         # decision in the C++ baseline stage above: `chomp_plan`/`stomp_plan`
@@ -1293,7 +1354,24 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tmo "$TIMEOUT_SECONDS" \
         # different question. Their absence is a property of the population,
         # not of a stage that failed, which is why it is not a failure row the
         # way `cpp-baseline-missing` is on a stratum.
-        + (if $c == null then [] else cpp_set($s; $c; $label) end) ]
+        + (if $c == null then [] else cpp_set($s; $c; $label) end)
+        # `has()` membership, not `// null` coalescing: most tags here
+        # (`panda_floor_wall` and so on) are never meant to carry a
+        # tag-level floor at all -- they are already pinned via their own
+        # `.stratum` row above -- so they must fall through this untouched,
+        # not gain a spurious new check. Only a tag `$tag_pins[.planner]`
+        # actually lists (`constrained`, `inject_constrained`) is a member
+        # of the tag-pinned population; `full`s tags are listed with a null
+        # pin for exactly this reason -- see `$TAG_PINS_ALL`.
+        + (($tag_pins[$p] // {}) as $tp
+           | if ($tp | has($t)) then
+               ($tp[$t]) as $pin
+               | if $pin == null then
+                   [{ name: "\($label)/pins-unmeasured",
+                      detail: "mode=\($mode) has no measured tag pin for \($label), so pin-population and no-regression-solved did not run",
+                      ok: false }]
+                 else pinned($s; $label; $pin) end
+             else [] end) ]
   | flatten
 ' "$verdict_json" >"$checks_json"
 
