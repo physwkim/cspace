@@ -1344,6 +1344,18 @@ impl OcTree {
             && r > 0.0
             && (end - origin).norm() > r
         {
+            // Upstream `point3d direction = (end - origin).normalized ();`
+            // (`OccupancyOcTreeBase.hxx:870`) is octomath-guarded (leaves a
+            // zero vector unchanged, same contract as `compute_update`'s
+            // `:1243` above) but that guard is unreachable here, not
+            // dropped: this branch's own `r > 0.0 && norm() > r` conjunction
+            // forces `norm() > 0` for every value of `r`, `NaN` included --
+            // `NaN > 0.0` is `false`, so a `NaN` `max_range` fails the first
+            // conjunct and never reaches this line at all (unlike
+            // `compute_update`'s `is_none_or` gate, whose `NAN < 0.0 ||
+            // norm() <= NAN` disjunction is false for a *different* reason
+            // and lets `NaN` through). Plain `.normalize()` stays correct
+            // by construction of this guard, not upstream's guard.
             let direction = (end - origin).normalize();
             let new_end = origin + direction * r;
             return self.integrate_miss_on_ray(origin, new_end, lazy_eval);
