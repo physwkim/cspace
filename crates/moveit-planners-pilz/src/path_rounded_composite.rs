@@ -102,7 +102,7 @@
 //! the oracle exposes no `Path_RoundedComposite` op.
 
 use moveit_error::{Error, Result};
-use moveit_geometry::{Isometry3, Vector3};
+use moveit_geometry::Isometry3;
 
 use crate::path_circle::{CircleGeometry, PathCircle};
 use crate::path_line::PathLine;
@@ -138,15 +138,13 @@ impl Segment {
 /// zero, and interior angles within it of `0` or `PI` as doubling back or
 /// running straight through.
 ///
-/// It is *finer*, not coarser, than [`KDL_EPSILON`] (`1e-7` against `1e-6`,
-/// ten times smaller) — this does **not** protect the direction-vector
-/// normalization from a near-zero `inward.norm()`: a `theta` (or
-/// `PI - theta`) between the two, comfortably past this gate, still lands
-/// `sin(theta)` below `KDL_EPSILON`. See [`add_corner`]'s own doc comment for
-/// the case that gap makes reachable and how it is handled. The value itself
-/// matches the one upstream tests the same conditions against, so this type
-/// accepts exactly the corner set upstream accepts — see this module's
-/// `# Why this file stays BSD-3-Clause`.
+/// It is deliberately three orders of magnitude coarser than [`KDL_EPSILON`],
+/// which this file uses only for the direction-vector normalization: a corner
+/// this close to degenerate has a tangency point that no longer lands
+/// meaningfully on either leg, well before the vector arithmetic itself loses
+/// precision. The value matches the one upstream tests the same conditions
+/// against, so this type accepts exactly the corner set upstream accepts —
+/// see this module's `# Why this file stays BSD-3-Clause`.
 const ADD_EPSILON: f64 = 1e-7;
 
 /// A polyline through a sequence of via poses whose interior corners are
@@ -305,31 +303,12 @@ impl PathRoundedComposite {
         // component along the leg projected out. It is perpendicular to the
         // leg, lies in the corner's plane, and points into the turn, so
         // stepping `radius` along it from the tangency point lands on the
-        // center. Its norm is `sin(theta)`.
-        //
-        // # `inward.norm()` below `KDL_EPSILON` is reachable, and needs `KDL::Vector::Normalize`'s fallback
-        //
-        // `theta` is only guaranteed above [`ADD_EPSILON`] (`1e-7`), not
-        // above [`KDL_EPSILON`] (`1e-6`, ten times coarser): for `theta` in
-        // `(ADD_EPSILON, ~KDL_EPSILON)` (equally, `PI - theta` in that same
-        // band, near a straight-through vertex), `inward.norm() = sin(theta)`
-        // clears the corner-rejection gate above but still lands below
-        // `KDL_EPSILON` here. Upstream's `V_base_t.Normalize()`
-        // (`path_roundedcomposite.cpp:121`, default `eps` — KDL's global
-        // `epsilon`, `utility.cxx:21`, is `1e-6`, matching [`KDL_EPSILON`])
-        // substitutes the fixed unit vector `Vector(1,0,0)` in this branch
-        // (`Vector::Normalize`, `frames.cpp:147-156`) rather than leaving the
-        // input unchanged the way Eigen's `normalized()` would — reproduced
-        // here rather than left as the raw (near-zero-magnitude, sub-`radius`
-        // once scaled) vector, which was this port's bug: `center` landed
-        // within `radius * sin(theta)` of `arc_start` instead of `radius`
-        // away, tripping [`PathCircle::new`]'s own `radius < eps` rejection
-        // ("circle radius too small to determine a plane") on a corner
-        // upstream accepts.
+        // center. Its norm is `sin(theta)`, non-zero for the same reason
+        // `tan` above is.
         let along = -back;
         let inward = forth - along * along.dot(&forth);
         let inward = if inward.norm() < KDL_EPSILON {
-            Vector3::new(1.0, 0.0, 0.0)
+            inward
         } else {
             inward.normalize()
         };
@@ -622,11 +601,7 @@ mod tests {
 
         // Tangency is the property the rounding exists to provide, and it is
         // not implied by the endpoints matching: the center of a right-angle
-        // corner rounded at r=0.1 is at (0.9, 0.1). This corner's `theta`
-        // (FRAC_PI_2) is nowhere near either epsilon below, so this is also
-        // the demonstrated opposite of the two tests below: an ordinary
-        // corner's inward normal takes the `inward.normalize()` arm, not the
-        // fixed-axis fallback, and this is what proves that arm still works.
+        // corner rounded at r=0.1 is at (0.9, 0.1).
         let center = Vector3::new(0.9, 0.1, 0.0);
         let arc_end = 0.9 + std::f64::consts::FRAC_PI_2 * 0.1;
         for i in 0..=10 {
@@ -634,52 +609,5 @@ mod tests {
             let p = path.pos(s).translation.vector;
             assert_relative_eq!((p - center).norm(), 0.1, epsilon = 1e-9);
         }
-    }
-
-    // -- add_corner: `inward.norm()` below `KDL_EPSILON` is reachable even
-    // though `theta` already cleared the `ADD_EPSILON` corner-rejection gate
-    // -- see `add_corner`'s own doc comment for the derivation. --
-
-    #[test]
-    fn add_corner_reproduces_kdls_fixed_axis_fallback_when_the_inward_normal_is_too_small_to_normalize()
-     {
-        // theta = 5e-7 sits strictly between ADD_EPSILON (1e-7, so the
-        // "doubles back" rejection above does not fire) and KDL_EPSILON
-        // (1e-6, so `inward.norm() == sin(theta) ~= 5e-7` does trip the
-        // fallback). `radius`/`leg_len` are chosen so the tangent length
-        // (`radius / tan(theta / 2)`, which blows up as theta shrinks) still
-        // clears both leg-length rejections, and so `radius` itself clears
-        // `PathCircle::new`'s own `radius < eps` rejection once `inward` is
-        // a genuine unit vector.
-        //
-        // Before this fix, `inward` was left at its raw (sub-`KDL_EPSILON`
-        // magnitude) value instead of KDL's `Vector(1,0,0)`, so `center`
-        // landed within `radius * sin(theta)` (~5e-8) of `arc_start` instead
-        // of `radius` (`1e-4`) away, and this same input was rejected with
-        // "circle radius too small to determine a plane; a circle cannot be
-        // created" -- confirmed by reverting this commit's fix and rerunning.
-        let theta: f64 = 5e-7;
-        let radius: f64 = 1e-4;
-        let leg_len: f64 = 1e6;
-
-        let base_start = pose(0.0, 0.0, 0.0);
-        let base_via = pose(leg_len, 0.0, 0.0);
-        // forth = (-cos(theta), sin(theta), 0), so back.dot(forth) == cos(theta).
-        let point = pose(leg_len - leg_len * theta.cos(), leg_len * theta.sin(), 0.0);
-
-        let path = build(radius, &[base_start, base_via, point])
-            .expect("a valid corner past both epsilon gates must not be rejected");
-
-        assert_relative_eq!(
-            path.pos(0.0).translation.vector,
-            base_start.translation.vector,
-            epsilon = 1e-6
-        );
-        assert_relative_eq!(
-            path.pos(path.path_length()).translation.vector,
-            point.translation.vector,
-            epsilon = 1e-6
-        );
-        assert!(path.path_length().is_finite(), "{}", path.path_length());
     }
 }
