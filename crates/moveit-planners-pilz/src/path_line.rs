@@ -412,6 +412,32 @@ mod tests {
         );
     }
 
+    /// The test above only checks `pos(0.0)`. `PathLine::new`'s own doc
+    /// comment argues `scale_lin`'s zero-length placeholder is unobservable
+    /// "for any `s`", not just within `TrajectoryGeneratorLIN`'s bounded
+    /// `s in [0, f64::EPSILON]` fallback -- because `v_start_end` is exactly
+    /// `Vector3::zeros()` in this branch, so `v_start_end * s * scale_lin`
+    /// is exactly zero regardless of `s`. `PathLine::new`/[`PathLine::pos`]
+    /// are both `pub fn`, so an external caller can reach an arbitrarily
+    /// large `s` directly, bypassing that one caller's bound entirely --
+    /// measured here up to `s = 1000.0`. This does not change behavior; it
+    /// closes a coverage gap the "for any `s`" claim already had.
+    #[test]
+    fn zero_length_path_stays_at_start_for_any_s_not_just_zero() {
+        let pose = Isometry3::from_parts(
+            Vector3::new(1.0, 1.0, 1.0).into(),
+            UnitQuaternion::identity(),
+        );
+        let path = PathLine::new(&pose, &pose, 1.0);
+        for s in [1e-16, 1e-6, 1.0, 1000.0] {
+            assert_relative_eq!(
+                path.pos(s).translation.vector,
+                pose.translation.vector,
+                epsilon = 1e-12
+            );
+        }
+    }
+
     // -- get_rot_angle: round-trips through the boundaries the old
     // matrix-based derivation special-cased (angle == 0, angle == PI along
     // several axes) and a generic non-singular rotation, verified by
