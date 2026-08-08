@@ -2969,16 +2969,47 @@ impl ConvexMesh {
     /// skips the triangle. This method used to spell the same gate as an
     /// early `continue` on the naively negated condition — `if tmp.abs()
     /// <= ZERO { continue; }` — which is not upstream's true negation:
-    /// `<=` is *also* false for NaN, so a NaN `tmp` (reachable from a NaN
-    /// origin/direction component that a triangle's own axis-aligned
-    /// `normal` zeroes out of the dot product, e.g. `normal = (0, 0, 1)`
-    /// against a NaN-x ray) fell through into computing `t`, and a NaN `t`
-    /// fell through the same way into `p = orig + dr * t`, carrying the
-    /// NaN into a returned intersection point. The explicit `is_nan()`
-    /// checks below are the true negation of upstream's positive
-    /// condition, correct for NaN where the naive `<=`/`<=` flip was not
-    /// (`clippy::neg_cmp_op_on_partial_ord` also rejects spelling this as
-    /// `!(tmp.abs() > ZERO)`, for the same reason: it reads as `<=`).
+    /// `<=` is *also* false for NaN, so a NaN `tmp`/`t` fell through into
+    /// `p = orig + dr * t`, carrying the NaN into a returned intersection
+    /// point. The explicit `is_nan()` checks below are the true negation
+    /// of upstream's positive condition, correct for NaN where the naive
+    /// `<=`/`<=` flip was not (`clippy::neg_cmp_op_on_partial_ord` also
+    /// rejects spelling this as `!(tmp.abs() > ZERO)`, for the same
+    /// reason: it reads as `<=`).
+    ///
+    /// # Corrected: a non-finite ray poisons every triangle, it is not "zeroed out"
+    ///
+    /// An earlier draft of this comment justified the above by a NaN
+    /// confined to one axis of `origin`/`dir` reaching `tmp`/`t` as a
+    /// *finite* value whenever a triangle's axis-aligned `normal` happens
+    /// to be zero on that axis — e.g. `normal = (0, 0, 1)` "zeroing out" a
+    /// NaN-x ray's x-component in `normal.dot(&dr)`. That is false: IEEE
+    /// 754 gives `0.0 * NaN == NaN`, not `0.0`, so the NaN survives the
+    /// multiply and then the sum — `Vector3::new(0.0, 1.0,
+    /// 0.0).dot(&Vector3::new(f64::NAN, 1.0, 0.0))` is `NaN`, not the `1.0`
+    /// the "zeroed out" claim implied. The dot product is NaN on *every*
+    /// triangle a non-finite ray touches, regardless of which normal
+    /// component is zero; the `is_nan()` checks below are not narrowly
+    /// catching a value that escaped a coincidental zeroing, a non-finite
+    /// input poisons them unconditionally.
+    ///
+    /// That also settles whether `origin`/`dir` need an up-front finite
+    /// check ahead of the per-triangle loop, rather than relying on the
+    /// per-triangle `is_nan()` guards alone: they do not. `±inf` reaches
+    /// this method through two paths, and both are already intercepted
+    /// before `tmp`/`t` by the same `0.0 * x == NaN` fact, one step
+    /// removed. An infinite `dir` makes `dir_norm` (`dir / dir.norm()`, an
+    /// `inf / inf` division) carry a NaN before it is ever dotted with a
+    /// normal. An infinite `origin` survives [`transform_point`]'s
+    /// quaternion-based rotation as a clean infinity on at most one axis,
+    /// while the cross-product terms mixing in the *other* axes each hit a
+    /// `0.0 * inf` and turn to NaN — at the identity pose, `origin = (0.0,
+    /// 0.0, f64::INFINITY)` transforms to `(NaN, NaN, NaN)`, not `(0.0,
+    /// 0.0, f64::INFINITY)` unchanged. Once any axis of the transformed
+    /// origin is NaN, `normal.dot(&orig)` is NaN regardless of which axis
+    /// a given triangle's normal is nonzero on, by the same fact above.
+    /// See `convex_mesh_ray_rejects_positive_infinity_in_origin` and its
+    /// siblings below for the regression coverage.
     pub fn ray_intersections(
         &self,
         origin: &Vector3,
