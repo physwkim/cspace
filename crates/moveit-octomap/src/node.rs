@@ -107,6 +107,14 @@ impl Node {
 
     /// Upstream `OcTreeBaseImpl::expandNode`: reverse of pruning, creating
     /// all 8 children with the parent's current value (`copyData`).
+    ///
+    /// Upstream's own precondition, `assert(!nodeHasChildren(node));`
+    /// (`OcTreeBaseImpl.hxx:258`), compiles out under `NDEBUG` -- a release
+    /// build calling this on an already-expanded node falls through to
+    /// `createNodeChild`'s own release-mode UB on the first already-occupied
+    /// slot ([`Self::create_child`]'s own doc has that half). `debug_assert!`
+    /// matches upstream's NDEBUG semantics: checked in debug, compiled out
+    /// in release, same as upstream's `assert()`. Task G.
     pub(crate) fn expand(&mut self) {
         debug_assert!(!self.has_children());
         let value = self.log_odds;
@@ -185,6 +193,17 @@ mod tests {
         for i in 0..8 {
             assert_eq!(n.child(i).unwrap().log_odds, 2.0);
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "assertion failed: !self.has_children()")]
+    fn expand_on_an_already_expanded_node_panics_in_debug() {
+        // Upstream `assert(!nodeHasChildren(node));` (`OcTreeBaseImpl.hxx:258`)
+        // -- pre-fix, this doc comment did not cite the precondition at all
+        // and nothing pinned the debug_assert! actually firing.
+        let mut n = Node::new();
+        n.expand();
+        n.expand(); // already has 8 children
     }
 
     #[test]
