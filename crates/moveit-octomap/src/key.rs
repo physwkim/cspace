@@ -80,15 +80,26 @@ pub fn compute_child_key(pos: u8, center_offset_key: KeyType, parent_key: OcTree
 
 /// Computes which of the 8 children `key` falls under at tree depth `depth`
 /// (bit position counted from the finest level). Upstream `computeChildIdx`.
+///
+/// # Deviation: the shift runs in `u32`, not `KeyType`
+///
+/// Upstream's `depth` is `int`, and `key.k[i]` (`uint16_t`) integer-promotes
+/// to `int` before `&` (`OcTreeKey.h:207-219`), so `1 << depth` for `depth`
+/// in `[16, 30]` is well-defined 32-bit arithmetic that only sets bits the
+/// promoted `key.k[i]` can never have -- always false, not UB. A direct
+/// `KeyType` (`u16`) shift does not have that headroom: `1u16 << depth`
+/// overflows the moment `depth >= 16` (this function is `pub`, so `depth`
+/// is caller-controlled). Shifting in `u32` instead mirrors the promotion
+/// and reproduces the always-false result through `depth = 31`.
 pub fn compute_child_idx(key: OcTreeKey, depth: u32) -> u8 {
     let mut pos = 0u8;
-    if key[0] & (1 << depth) != 0 {
+    if u32::from(key[0]) & (1u32 << depth) != 0 {
         pos += 1;
     }
-    if key[1] & (1 << depth) != 0 {
+    if u32::from(key[1]) & (1u32 << depth) != 0 {
         pos += 2;
     }
-    if key[2] & (1 << depth) != 0 {
+    if u32::from(key[2]) & (1u32 << depth) != 0 {
         pos += 4;
     }
     pos
@@ -159,5 +170,28 @@ mod tests {
             compute_index_key(2, key),
             OcTreeKey::new(0b1000, 0b1000, 0b1000)
         );
+    }
+
+    #[test]
+    fn compute_child_idx_depth_at_or_above_key_width_is_always_false() {
+        // Upstream `computeChildIdx(const OcTreeKey& key, int depth)`:
+        // `key.k[i]` (`uint16_t`) integer-promotes to `int` before `&`, so
+        // for `depth` in [16, 30] `1 << depth` only sets bits the promoted
+        // `key.k[i]` can never have -- the condition is always false,
+        // well-defined, regardless of `key`'s value (`OcTreeKey.h:207-219`).
+        // `KeyType = u16` here means a naive `1 << depth` port overflows a
+        // u16 shift the moment `depth >= 16`. Doing the shift in `u32`
+        // instead (mirroring the promotion) reproduces upstream's
+        // always-false result through `depth = 31`, one bit further than
+        // upstream's own well-defined range.
+        let key = OcTreeKey::new(u16::MAX, u16::MAX, u16::MAX);
+        for depth in 16..32 {
+            assert_eq!(
+                compute_child_idx(key, depth),
+                0,
+                "depth {depth}: upstream's int-promoted (uint16_t & (1 << depth)) is \
+                 always false once depth >= 16, regardless of key's value"
+            );
+        }
     }
 }
