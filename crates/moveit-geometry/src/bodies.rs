@@ -765,7 +765,7 @@
 
 use moveit_error::{Error, Result};
 
-use crate::numeric::cxx_max;
+use crate::numeric::{cxx_max, cxx_min};
 use crate::shapes::{Mesh as ShapeMesh, Shape};
 use crate::{BoundingSphere, Isometry3, Vector3};
 
@@ -821,10 +821,21 @@ struct Intersc {
 }
 
 /// Sort `candidates` by ray parameter, drop near-duplicates (within `ZERO`
-/// of the previous kept point — the case where a ray grazes exactly the
-/// shared boundary between two primitives, e.g. a cylinder's side and base,
-/// and is reported once per primitive), and cap the result at `count` points
-/// (`None` keeps them all). Upstream `detail::filterIntersections`.
+/// of the previous kept point, in [`Vector3d::isApprox`]'s sense — the case
+/// where a ray grazes exactly the shared boundary between two primitives,
+/// e.g. a cylinder's side and base, and is reported once per primitive),
+/// and cap the result at `count` points (`None` keeps them all). Upstream
+/// `detail::filterIntersections` (`bodies.cpp:105`): `p.pt.isApprox(
+/// intersections->back(), ZERO)`.
+///
+/// [`Vector3d::isApprox`]: Eigen `Fuzzy.h:27` —
+/// `(this-other).squaredNorm() <= prec*prec *
+/// numext::mini(this.squaredNorm(), other.squaredNorm())` —
+/// `numext::mini` is `std::min` under another name, and the scale is the
+/// **smaller** of the two squared norms, not the larger: use [`cxx_min`],
+/// not `f64::min`, to reproduce it exactly (`f64::min` differs from
+/// `std::min` only on NaN, but `cxx_min`'s name is the one that documents
+/// which upstream function this is standing in for).
 fn filter_intersections(mut candidates: Vec<Intersc>, count: Option<usize>) -> Vec<Vector3> {
     candidates.sort_by(|a, b| a.time.total_cmp(&b.time));
     let n = match count {
@@ -837,7 +848,9 @@ fn filter_intersections(mut candidates: Vec<Intersc>, count: Option<usize>) -> V
             break;
         }
         if let Some(last) = out.last() {
-            if (c.pt - last).norm() <= ZERO * last.norm().max(c.pt.norm()).max(1.0) {
+            let diff_norm_sqr = (c.pt - last).norm_squared();
+            let scale = cxx_min(last.norm_squared(), c.pt.norm_squared());
+            if diff_norm_sqr <= ZERO * ZERO * scale {
                 continue;
             }
         }
@@ -3595,6 +3608,74 @@ mod tests {
         norms.sort_by(f64::total_cmp);
         assert_eq!(norms[0], -1.0);
         assert_eq!(norms[1], 1.0);
+    }
+
+    /// `filter_intersections`' dedup threshold must be Eigen's *relative*
+    /// `prec*prec * min(|a|^2, |b|^2)`, not an *absolute* one.
+    ///
+    /// A sphere's own two-root path can't exercise this: its half-chord
+    /// `x = radius_scaled_sqr - w.norm_squared()` snaps to a single-point
+    /// tangent hit whenever `x.abs() < ZERO`, so any two points it *does*
+    /// return are already at least `2*sqrt(ZERO) ~ 6.3e-5` apart — always
+    /// past the old code's worst-case (`.max(1.0)`-floored) `ZERO` = `1e-9`
+    /// threshold. Same shape in `Cuboid`'s `tmax - tmin > ZERO` slab test.
+    /// A cylinder's two *cap* hits don't share that coupling: `d1`'s `t1`
+    /// and `d2`'s `t2` (`Cylinder::recompute`) are each validated only
+    /// against their own disk, with no joint tangent check between them —
+    /// the side quadratic that has one only runs at all when `ipts.len() <
+    /// 2`, i.e. once both caps already matched.
+    ///
+    /// A wafer-thin cylinder (`length == 1e-12`, `half_length == 5e-13`)
+    /// centered at `(0, 0, 1.5e-12)`, hit head-on along its own axis, has
+    /// its two cap intersections at exactly `(0, 0, 1e-12)` and `(0, 0,
+    /// 2e-12)` — 1e-12 apart, both well inside the unit ball. Eigen's
+    /// threshold there is `(1e-9)^2 * min((1e-12)^2, (2e-12)^2) = 1e-42`,
+    /// and `1e-12 > 1e-42`, so upstream keeps both. The version this
+    /// replaces used `ZERO * max(|a|, |b|).max(1.0)` — the `.max(1.0)`
+    /// floor turns that into an absolute `1e-9` threshold whenever both
+    /// points are within the unit ball, and `1e-12 <= 1e-9` wrongly deduped
+    /// the second point away.
+    #[test]
+    fn ray_intersections_keeps_two_cap_hits_within_the_unit_ball_that_the_old_absolute_floor_deduped()
+     {
+        let mut cylinder = Cylinder::new(1.0, 1e-12).unwrap();
+        cylinder.set_pose(Isometry3::translation(0.0, 0.0, 1.5e-12));
+        let hits = cylinder.ray_intersections(
+            &Vector3::new(0.0, 0.0, 0.0),
+            &Vector3::new(0.0, 0.0, 1.0),
+            None,
+        );
+        assert_eq!(
+            hits.len(),
+            2,
+            "both cap hits are within Eigen's relative tolerance of being distinct: {hits:?}"
+        );
+        assert_relative_eq!(hits[0], Vector3::new(0.0, 0.0, 1e-12), epsilon = 1e-19);
+        assert_relative_eq!(hits[1], Vector3::new(0.0, 0.0, 2e-12), epsilon = 1e-19);
+    }
+
+    /// The demonstrated opposite of the test above: the same two-independent-
+    /// cap-hits mechanism, but scaled up so both points sit at `|z| ~ 10`,
+    /// `1e-9` apart. There `min(|a|^2, |b|^2) ~ 100` is far above the old
+    /// code's `.max(1.0)` floor, so both the old and new formulas agree —
+    /// this is not the case the fix changes behavior on, and that is the
+    /// point: it proves `filter_intersections` still dedups a real
+    /// near-duplicate rather than the fix having turned it into "keep every
+    /// candidate, always."
+    #[test]
+    fn ray_intersections_still_dedups_a_genuine_near_duplicate_at_ordinary_scale() {
+        let mut cylinder = Cylinder::new(1.0, 1e-9).unwrap();
+        cylinder.set_pose(Isometry3::translation(0.0, 0.0, 10.0));
+        let hits = cylinder.ray_intersections(
+            &Vector3::new(0.0, 0.0, 0.0),
+            &Vector3::new(0.0, 0.0, 1.0),
+            None,
+        );
+        assert_eq!(
+            hits.len(),
+            1,
+            "a 1e-9 separation at |z| ~ 10 is a near-duplicate under both formulas: {hits:?}"
+        );
     }
 
     /// Boundary: a ray tangent to the sphere's surface — hits exactly once,
