@@ -35,10 +35,10 @@ use crate::PlanningRequestAdapter;
 use crate::error::RequestAdapterError;
 use crate::request::{PlanningRequest, WorkspaceBounds};
 
-/// If `request.workspace_bounds` is left at [`WorkspaceBounds::default`]
-/// (all-zero — "not specified", matching an unset ROS message field), fills
-/// it in with a `default_workspace_bounds`-edged cube centered on the
-/// origin.
+/// If `request.workspace_bounds` is [unspecified](WorkspaceBounds::is_unspecified)
+/// — every corner component below `DBL_EPSILON` in magnitude, which is
+/// upstream's own test and is wider than the all-zero `Default` — fills it
+/// in with a `default_workspace_bounds`-edged cube centered on the origin.
 #[derive(Debug, Clone, Copy)]
 pub struct ValidateWorkspaceBounds {
     default_workspace_bounds: f64,
@@ -65,7 +65,7 @@ impl PlanningRequestAdapter for ValidateWorkspaceBounds {
         _env: &ParryCollisionEnv,
         request: &mut PlanningRequest,
     ) -> Result<(), RequestAdapterError> {
-        if request.workspace_bounds == WorkspaceBounds::default() {
+        if request.workspace_bounds.is_unspecified() {
             let half = self.default_workspace_bounds / 2.0;
             request.workspace_bounds = WorkspaceBounds {
                 min_corner: Vector3::new(-half, -half, -half),
@@ -126,6 +126,113 @@ mod tests {
             request.workspace_bounds.max_corner,
             Vector3::new(2.0, 2.0, 2.0)
         );
+    }
+
+    /// The boundary `== WorkspaceBounds::default()` could not see: a corner
+    /// that is nonzero but under `DBL_EPSILON`. Upstream's six
+    /// `std::abs(v) < epsilon` tests all hold, so it substitutes the cube.
+    #[test]
+    fn a_sub_epsilon_corner_still_counts_as_unspecified() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let mut request = request();
+        request.workspace_bounds.min_corner = Vector3::new(1e-17, 0.0, 0.0);
+        assert_ne!(
+            request.workspace_bounds,
+            WorkspaceBounds::default(),
+            "setup must be a box the old equality test would have kept"
+        );
+
+        ValidateWorkspaceBounds::new(4.0)
+            .adapt(&mut scene, &env, &mut request)
+            .unwrap();
+
+        assert_eq!(
+            request.workspace_bounds.min_corner,
+            Vector3::new(-2.0, -2.0, -2.0)
+        );
+    }
+
+    /// The other side of the same boundary: `DBL_EPSILON` itself is not
+    /// `< DBL_EPSILON`, so this box is specified and survives.
+    #[test]
+    fn a_corner_at_exactly_epsilon_is_a_specified_box() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let mut request = request();
+        request.workspace_bounds.max_corner = Vector3::new(f64::EPSILON, 0.0, 0.0);
+        let original = request.workspace_bounds;
+
+        ValidateWorkspaceBounds::new(4.0)
+            .adapt(&mut scene, &env, &mut request)
+            .unwrap();
+
+        assert_eq!(request.workspace_bounds, original);
+    }
+
+    /// `std::abs(NaN) < epsilon` is false upstream, so a NaN corner is a
+    /// specified box there and must stay one here.
+    #[test]
+    fn a_nan_corner_is_not_unspecified() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let mut request = request();
+        request.workspace_bounds.min_corner = Vector3::new(f64::NAN, 0.0, 0.0);
+
+        ValidateWorkspaceBounds::new(4.0)
+            .adapt(&mut scene, &env, &mut request)
+            .unwrap();
+
+        assert!(request.workspace_bounds.min_corner.x.is_nan());
+        assert_eq!(request.workspace_bounds.max_corner, Vector3::zeros());
+    }
+
+    /// A negative sub-epsilon corner: upstream compares `std::abs(v)`, not
+    /// `v`, so the sign cannot make a box specified on its own.
+    #[test]
+    fn a_negative_sub_epsilon_corner_is_unspecified_too() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let mut request = request();
+        request.workspace_bounds.max_corner = Vector3::new(0.0, -1e-20, 0.0);
+
+        ValidateWorkspaceBounds::new(4.0)
+            .adapt(&mut scene, &env, &mut request)
+            .unwrap();
+
+        assert_eq!(
+            request.workspace_bounds.max_corner,
+            Vector3::new(2.0, 2.0, 2.0)
+        );
+    }
+
+    /// A box entirely on the negative side of every axis. Every component
+    /// is below `DBL_EPSILON` as a *signed* value, so a test that compared
+    /// `v` instead of `std::abs(v)` would call this unspecified and throw
+    /// the caller's box away; upstream compares magnitudes and keeps it.
+    /// The other specified-box case below has positive `max_corner`
+    /// components and so cannot tell the two apart.
+    #[test]
+    fn an_all_negative_box_is_specified_because_the_test_is_on_magnitudes() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let mut request = request();
+        request.workspace_bounds = WorkspaceBounds {
+            min_corner: Vector3::new(-5.0, -5.0, -5.0),
+            max_corner: Vector3::new(-1.0, -1.0, -1.0),
+        };
+        let original = request.workspace_bounds;
+
+        ValidateWorkspaceBounds::new(4.0)
+            .adapt(&mut scene, &env, &mut request)
+            .unwrap();
+
+        assert_eq!(request.workspace_bounds, original);
     }
 
     #[test]

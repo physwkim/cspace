@@ -173,9 +173,9 @@ use crate::start_state::StartState;
 /// Replaces `moveit_msgs::msg::WorkspaceParameters` (minus `header`, D1): the
 /// axis-aligned box a sampling-based planner should search within.
 ///
-/// `Default` is the all-zero box, matching an unset ROS message field —
-/// [`crate::request_adapters::ValidateWorkspaceBounds`] treats this exact
-/// value as "not specified" and replaces it with a centered cube.
+/// `Default` is the all-zero box, matching an unset ROS message field. What
+/// counts as unset is [`WorkspaceBounds::is_unspecified`], which is *wider*
+/// than equality with this default — see that method.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WorkspaceBounds {
     /// `min_corner`.
@@ -190,6 +190,31 @@ impl Default for WorkspaceBounds {
             min_corner: Vector3::zeros(),
             max_corner: Vector3::zeros(),
         }
+    }
+}
+
+impl WorkspaceBounds {
+    /// Upstream's "the planning volume was not specified" test
+    /// (`validate_workspace_bounds.cpp:77-82`): all six corner components
+    /// below `DBL_EPSILON` *in magnitude*, six independent `std::abs(v) <
+    /// epsilon` comparisons.
+    ///
+    /// Not `*self == Self::default()`. The two agree on the all-zero box
+    /// every real caller sends, and disagree on a box whose corners are
+    /// nonzero but under `2.22e-16`: upstream calls that unspecified and
+    /// substitutes the default cube, where exact equality would keep it and
+    /// hand a planner a degenerate sampling volume. Named here rather than
+    /// spelled at the one call site so the rule cannot be re-derived as an
+    /// equality by the next reader — the two are not interchangeable, and
+    /// the all-zero `Default` above is what makes them look it.
+    ///
+    /// `NaN` is not unspecified, on either side: `std::abs(NaN) < epsilon`
+    /// is false, and so is the `<` below.
+    pub fn is_unspecified(&self) -> bool {
+        self.min_corner
+            .iter()
+            .chain(self.max_corner.iter())
+            .all(|v| v.abs() < f64::EPSILON)
     }
 }
 
