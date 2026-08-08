@@ -150,7 +150,12 @@ impl ChompTrajectory {
     /// discretization, group_name)` constructor. `num_points < 2` is `Err`
     /// (see the module doc's "Reachable invariant violations" note):
     /// upstream computes `end_index_ = num_points_ - 2` in `size_t`
-    /// arithmetic, which underflows for `num_points_ < 2`.
+    /// arithmetic, which underflows for `num_points_ < 2`. `discretization`
+    /// must be finite and positive, the same guard [`Self::from_duration`]
+    /// already applies -- this is the constructor every other path funnels
+    /// through, and a non-finite/non-positive `discretization` reaches
+    /// [`Self::joint_velocities`]'s `1.0 / self.discretization` unguarded
+    /// otherwise (division/NaN-guard audit, round: chomp/stomp sweep).
     pub fn from_num_points(
         robot_model: &RobotModel,
         num_points: usize,
@@ -160,6 +165,11 @@ impl ChompTrajectory {
         if num_points < 2 {
             return Err(Error::other(format!(
                 "ChompTrajectory needs at least 2 points, got {num_points}"
+            )));
+        }
+        if !discretization.is_finite() || discretization <= 0.0 {
+            return Err(Error::other(format!(
+                "discretization must be finite and positive, got {discretization}"
             )));
         }
         let group = robot_model.joint_model_group(group_name)?;
@@ -695,6 +705,46 @@ mod tests {
         assert!(matches!(err, Error::Other(_)));
         let err = ChompTrajectory::from_num_points(model, 0, 0.1, GROUP).unwrap_err();
         assert!(matches!(err, Error::Other(_)));
+    }
+
+    /// Division/NaN-guard audit (round: chomp/stomp sweep). Unlike
+    /// `from_duration`, `from_num_points` never validated `discretization`
+    /// at all -- a caller-supplied `0.0` (or a negative/non-finite value)
+    /// was accepted silently. That reaches [`ChompTrajectory::joint_velocities`]'s
+    /// `1.0 / self.discretization` unguarded (upstream's `getJointVelocities`,
+    /// `chomp_trajectory.cpp`, has the identical unguarded division), turning
+    /// every returned joint velocity into `f64::INFINITY` instead of a typed
+    /// rejection at construction. `from_num_points` is the single
+    /// constructor every other path funnels through (`from_duration`
+    /// delegates to it; `from_source_trajectory` only ever copies
+    /// `discretization` from an existing, already-valid `ChompTrajectory`),
+    /// so validating here is the one place that closes every downstream
+    /// `1.0 / discretization` site at once, matching `from_duration`'s own
+    /// guard exactly.
+    #[test]
+    fn from_num_points_rejects_zero_discretization() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_num_points(model, 10, 0.0, GROUP).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
+    }
+
+    /// Same boundary, demonstrated at the point that actually returns a
+    /// wrong answer rather than just an error variant: before this
+    /// constructor validated `discretization`, this exact sequence built
+    /// successfully and returned `[f64::INFINITY; N]` from every call --
+    /// not merely "a non-finite intermediate", but the trajectory's own
+    /// public joint-velocity answer being physically wrong.
+    #[test]
+    fn from_num_points_rejects_negative_discretization() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_num_points(model, 10, -0.03, GROUP).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
     }
 
     /// §172/§153.1: `discretization == 0.0` used to saturate
