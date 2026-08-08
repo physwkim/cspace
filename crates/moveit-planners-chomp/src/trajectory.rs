@@ -53,8 +53,27 @@
 //!   This port computes the same `0`-when-inverted result directly via
 //!   `(end_index + 1).saturating_sub(start_index)`, not by relying on that
 //!   coincidence — see `num_free_points_zero_for_inverted_range` below.
-//! - **[`ChompTrajectory::from_duration`] validates `discretization` and
-//!   bounds the resulting point count (§153.1/§172), instead of the
+//! - **[`ChompTrajectory::from_num_points`] validates `discretization` is
+//!   finite and positive**, matching the same check
+//!   [`ChompTrajectory::from_duration`] already applied to its own
+//!   `discretization` parameter before delegating here. Every
+//!   `ChompTrajectory` is built through this constructor (`from_duration`
+//!   delegates to it; `from_source_trajectory` copies an already-valid
+//!   source's `discretization`), so the guard lives at the one place that
+//!   actually stores the field, not only at the one caller whose own
+//!   arithmetic happened to need it. Upstream's `(robot_model, size_t
+//!   num_points, double discretization, group_name)` constructor stores
+//!   `discretization_` unchecked; [`ChompTrajectory::joint_velocities`]'s
+//!   `1.0 / discretization_` and [`ChompTrajectory::fill_in_min_jerk`]'s
+//!   `td[1] = (end_index - start_index) * discretization_`-derived
+//!   divisions both silently produced `Infinity`/`NaN` (`0.0 * Infinity ==
+//!   NaN` for three of `DIFF_RULES`' seven zero-valued taps) for any direct
+//!   `from_num_points` caller supplying `discretization == 0.0`, with no
+//!   panic and no `Err` — this crate's own tests and fixtures always pass a
+//!   valid literal, so it went unreachable-in-practice but not
+//!   unreachable-in-API.
+//! - **[`ChompTrajectory::from_duration`] additionally bounds the
+//!   resulting point count (§153.1/§172), instead of the
 //!   unchecked `static_cast<size_t>` upstream's `(robot_model, double
 //!   duration, double discretization, group_name)` constructor uses
 //!   (cpp: delegates to the num-points constructor via
@@ -160,6 +179,11 @@ impl ChompTrajectory {
         if num_points < 2 {
             return Err(Error::other(format!(
                 "ChompTrajectory needs at least 2 points, got {num_points}"
+            )));
+        }
+        if !discretization.is_finite() || discretization <= 0.0 {
+            return Err(Error::other(format!(
+                "discretization must be finite and positive, got {discretization}"
             )));
         }
         let group = robot_model.joint_model_group(group_name)?;
@@ -686,6 +710,38 @@ mod tests {
         let mut v = vec![0.0; N];
         v[joint] = value;
         v
+    }
+
+    /// Before this guard existed, `from_num_points(model, 10, 0.0, GROUP)`
+    /// built successfully and `joint_velocities(5)` silently returned NaN in
+    /// every entry (`1.0 / 0.0 == Infinity`, times three of `DIFF_RULES`'
+    /// seven zero-valued taps == NaN) — confirmed by temporarily removing
+    /// this guard and observing exactly that. `from_duration` already had
+    /// its own copy of this check (`from_duration_rejects_zero_discretization`
+    /// below); this covers the `from_num_points` entry point directly, which
+    /// every one of this file's own fixtures (and `cost.rs`'s,
+    /// `optimizer.rs`'s) reaches with a hardcoded valid literal, so the gap
+    /// was unreachable in this crate's own tests but not in its public API.
+    #[test]
+    fn from_num_points_rejects_zero_discretization() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_num_points(model, 10, 0.0, GROUP).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
+    }
+
+    /// Same boundary, negative side — mirrors
+    /// `from_duration_rejects_negative_discretization`.
+    #[test]
+    fn from_num_points_rejects_negative_discretization() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_num_points(model, 10, -0.03, GROUP).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
     }
 
     #[test]
