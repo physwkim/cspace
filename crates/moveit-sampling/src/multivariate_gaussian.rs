@@ -144,6 +144,7 @@ impl MultivariateGaussian {
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+    use moveit_test_support::KnownOracleDeviation;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
@@ -237,6 +238,63 @@ mod tests {
         let mean = DVector::from_vec(vec![0.0]);
         let covariance = DMatrix::from_row_slice(1, 1, &[0.0]);
         assert!(MultivariateGaussian::new(mean, covariance).is_none());
+    }
+
+    /// [`KnownOracleDeviation`] proof that refusing to construct on a
+    /// non-positive-definite covariance actually prevents the `NaN` sample
+    /// the module doc's "Deviation: construction can fail" describes, not
+    /// just an `is_none()` fact disconnected from what upstream's
+    /// unconditional `llt().matrixL()` would have produced.
+    ///
+    /// The oracle side is the standard unpivoted Cholesky-Banachiewicz
+    /// recursion -- the same recursion Eigen's `LLT` (and any unpivoted
+    /// Cholesky) computes -- evaluated by hand on this test's `covariance`,
+    /// not read from this port's own (checked) `nalgebra::Cholesky`. For
+    /// `covariance = [[1,2],[2,1]]`: `L(0,0) = sqrt(1) = 1`, `L(1,0) = 2/1 =
+    /// 2`, `L(1,1) = sqrt(1 - 2^2) = sqrt(-3)`. `f64::sqrt` on a negative
+    /// argument is IEEE-754-defined as `NaN` (not UB), so `L(1,1)` is `NaN`
+    /// deterministically -- a fact about the algorithm and IEEE 754, not
+    /// about this port. Any `sample_with_covariance` output then computes
+    /// `mean + L*z`, whose second component is `2*z(0) + NaN*z(1)`; `NaN`
+    /// multiplied or added with anything (including `0.0`) is `NaN` under
+    /// IEEE 754, so that component is `NaN` for every `z`, unconditionally.
+    #[test]
+    fn indefinite_covariance_diverges_from_upstreams_unconditional_nan_sample() {
+        let mut deviation = KnownOracleDeviation::new(
+            "MultivariateGaussian::new vs upstream's unconditional llt().matrixL()",
+            "moveit_planners/stomp/include/stomp_moveit/math/multivariate_gaussian.hpp:86, \
+             moveit_planners/chomp/chomp_motion_planner/include/chomp_motion_planner/\
+             multivariate_gaussian.hpp:73 (unpivoted Cholesky-Banachiewicz recursion \
+             computed unconditionally, `LLT::info()` never checked) \
+             (multivariate-gaussian-cholesky-unchecked)",
+            "5a1e34ae",
+        );
+
+        // Eigenvalues 3 and -1: not positive-definite (same matrix as
+        // `indefinite_covariance_is_none` above).
+        let mean = DVector::from_vec(vec![0.0, 0.0]);
+        let covariance = DMatrix::from_row_slice(2, 2, &[1.0, 2.0, 2.0, 1.0]);
+
+        // Hand-evaluated oracle fact, not derived from this port's own
+        // Cholesky: upstream's unconditional recursion hits sqrt(-3) at
+        // L(1,1), so every sample it produces has a NaN second component.
+        let oracle_produces_nan_sample = true;
+
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let actual_produces_nan_sample = MultivariateGaussian::new(mean, covariance)
+            .map(|mvg| {
+                let mut output = DVector::zeros(2);
+                mvg.sample_with_covariance(&mut output, &mut rng);
+                output.iter().any(|x| x.is_nan())
+            })
+            .unwrap_or(false);
+
+        deviation.observe(
+            "indefinite 2x2 covariance, eigenvalues 3 and -1",
+            &oracle_produces_nan_sample,
+            &actual_produces_nan_sample,
+        );
+        deviation.finish();
     }
 
     #[test]

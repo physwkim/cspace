@@ -550,6 +550,7 @@ name = "moveit-sampling"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "moveit-test-support",
  "nalgebra",
  "rand",
  "rand_chacha",
