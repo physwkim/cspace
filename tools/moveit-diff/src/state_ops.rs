@@ -674,11 +674,7 @@ fn run_interpolation(
                     expected.interpolated.len()
                 ));
             }
-            let deviation = actual
-                .iter()
-                .zip(&expected.interpolated)
-                .map(|(a, b)| (a - b).abs())
-                .fold(0.0f64, f64::max);
+            let deviation = worst_abs_diff(&actual, &expected.interpolated);
 
             // NaN named rather than caught by negating the comparison: a NaN
             // deviation means one side produced a NaN coefficient, which is a
@@ -1220,6 +1216,24 @@ fn state_interp_cases(
 
 // ---- Comparison helpers ---------------------------------------------------
 
+/// The largest `|a[i] - b[i]|` over paired slices, NaN-propagating.
+///
+/// `.fold(0.0, f64::max)` looks like the obvious way to write this, but
+/// `f64::max` is IEEE `maxNum`: it *discards* a NaN operand wherever it
+/// appears rather than propagating it, so that fold can never actually
+/// return NaN -- any NaN component gets silently outranked by the fold's
+/// own `0.0` seed or by another, unrelated component's ordinary
+/// difference. Checking `d.is_nan()` explicitly instead makes a NaN
+/// component win the fold outright, and keeps it from being displaced by a
+/// later ordinary difference once found -- a NaN component means one side
+/// produced an unmeasurable answer, which is worse than any measured one.
+fn worst_abs_diff(a: &[f64], b: &[f64]) -> f64 {
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0f64, |acc, d| if d.is_nan() || d > acc { d } else { acc })
+}
+
 /// Componentwise comparison of two name-keyed vectors.
 ///
 /// Returns the largest `|actual − expected|` and, when the two disagree
@@ -1244,11 +1258,18 @@ fn compare_named(
             );
         };
         let deviation = (actual_value - expected_value).abs();
-        if deviation > worst || (deviation > 0.0 && worst_variable.is_empty()) {
+        // A NaN deviation (one side NaN, the other not) always counts as
+        // worse than anything seen so far, and must win outright rather
+        // than through `deviation > worst` -- that comparison is always
+        // false when either side is NaN, so a plain `>` can neither select
+        // a first NaN mismatch nor, once found, keep it from being
+        // silently outranked by a later ordinary difference. This used to
+        // be two separate checks (one that could update `worst_variable`
+        // without updating `worst`, so the *number* callers gate on never
+        // actually went NaN even when the *name* correctly did) -- one
+        // rule, updating both together, closes that gap.
+        if deviation.is_nan() || (deviation != 0.0 && deviation > worst) {
             worst = deviation;
-            worst_variable = name.clone();
-        }
-        if actual_value != expected_value && worst_variable.is_empty() {
             worst_variable = name.clone();
         }
     }
@@ -1377,5 +1398,78 @@ fn next_down(v: f64) -> f64 {
         f64::from_bits(v.to_bits() - 1)
     } else {
         f64::from_bits(v.to_bits() + 1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The defect: a NaN component used to be silently outranked by an
+    /// ordinary `0.0` (the fold's seed) instead of winning outright.
+    #[test]
+    fn worst_abs_diff_does_not_discard_a_lone_nan_component() {
+        let a = [0.0, 1.0, 0.0];
+        let b = [0.0, 1.0, f64::NAN];
+        assert!(
+            worst_abs_diff(&a, &b).is_nan(),
+            "a NaN in one component must make the whole aggregate NaN, not \
+             silently read as \"every component agrees\""
+        );
+    }
+
+    /// The defect, second form: a NaN found first must not be displaced by
+    /// an ordinary difference found later (the naive `d > acc` comparison
+    /// is always false once `acc` is NaN, which is what makes NaN "sticky"
+    /// here rather than "amnesic" the way `f64::max` is).
+    #[test]
+    fn worst_abs_diff_keeps_a_nan_component_found_before_an_ordinary_one() {
+        let a = [0.0, 0.0];
+        let b = [f64::NAN, 5.0];
+        assert!(worst_abs_diff(&a, &b).is_nan());
+    }
+
+    /// The demonstrated opposite: ordinary, non-degenerate deviations are
+    /// still aggregated correctly -- the fix must not be a neutered no-op
+    /// that also breaks the normal case.
+    #[test]
+    fn worst_abs_diff_matches_plain_max_when_nothing_is_nan() {
+        let a = [0.0, 1.0, 2.0];
+        let b = [0.1, 1.0, 1.5];
+        assert_eq!(worst_abs_diff(&a, &b), 0.5);
+    }
+
+    /// The same defect, `compare_named`'s form: before the fix, a NaN
+    /// mismatch on a variable could correctly set `worst_variable` (so
+    /// `mismatch` was `Some`) while leaving the returned `worst` number at
+    /// `0.0` -- and every caller of `compare_named` that gates on the
+    /// *number* (`deviation.is_nan() || deviation > tol`, not `mismatch`)
+    /// would then read a real, reported disagreement as a pass.
+    #[test]
+    fn compare_named_returns_a_nan_deviation_for_a_lone_nan_mismatch() {
+        let actual = BTreeMap::from([("a".to_owned(), 1.0), ("b".to_owned(), f64::NAN)]);
+        let expected = BTreeMap::from([("a".to_owned(), 1.0), ("b".to_owned(), 2.0)]);
+        let (deviation, mismatch) = compare_named(&actual, &expected);
+        assert!(
+            deviation.is_nan(),
+            "got deviation={deviation}, mismatch={mismatch:?} -- a caller gating on \
+             `deviation.is_nan() || deviation > tol` alone must see the NaN"
+        );
+        assert!(mismatch.is_some());
+    }
+
+    /// The demonstrated opposite for `compare_named`: identical maps still
+    /// report no mismatch, and an ordinary differing map still reports the
+    /// right worst value and variable.
+    #[test]
+    fn compare_named_ordinary_cases_are_unchanged() {
+        let same = BTreeMap::from([("a".to_owned(), 1.0)]);
+        assert_eq!(compare_named(&same, &same), (0.0, None));
+
+        let actual = BTreeMap::from([("a".to_owned(), 1.0), ("b".to_owned(), 5.0)]);
+        let expected = BTreeMap::from([("a".to_owned(), 1.0), ("b".to_owned(), 5.5)]);
+        let (deviation, mismatch) = compare_named(&actual, &expected);
+        assert_eq!(deviation, 0.5);
+        assert!(mismatch.unwrap().contains('b'));
     }
 }
