@@ -336,6 +336,7 @@ use nalgebra::DVector;
 use moveit_error::{Error, Result};
 use moveit_model::JointModelGroup;
 
+use crate::numeric::cxx_min;
 use crate::path::{DEFAULT_PATH_TOLERANCE, Path};
 use crate::robot_trajectory::RobotTrajectory;
 use crate::trajectory::Trajectory;
@@ -496,8 +497,8 @@ pub fn compute_time_stamps(
                     bounds.max_velocity
                 )));
             }
-            max_velocity[idx] =
-                bounds.max_velocity.abs().min(bounds.min_velocity.abs()) * velocity_scaling_factor;
+            max_velocity[idx] = cxx_min(bounds.max_velocity.abs(), bounds.min_velocity.abs())
+                * velocity_scaling_factor;
         } else {
             return Err(Error::other(format!(
                 "no velocity limit was defined for joint '{joint_name}'! you have to define \
@@ -513,11 +514,9 @@ pub fn compute_time_stamps(
                     bounds.max_acceleration
                 )));
             }
-            max_acceleration[idx] = bounds
-                .max_acceleration
-                .abs()
-                .min(bounds.min_acceleration.abs())
-                * acceleration_scaling_factor;
+            max_acceleration[idx] =
+                cxx_min(bounds.max_acceleration.abs(), bounds.min_acceleration.abs())
+                    * acceleration_scaling_factor;
         } else {
             return Err(Error::other(format!(
                 "no acceleration limit was defined for joint '{joint_name}'! you have to define \
@@ -578,8 +577,8 @@ pub fn compute_time_stamps_with_limits(
                     bounds.max_velocity
                 )));
             }
-            max_velocity[idx] =
-                bounds.max_velocity.abs().min(bounds.min_velocity.abs()) * velocity_scaling_factor;
+            max_velocity[idx] = cxx_min(bounds.max_velocity.abs(), bounds.min_velocity.abs())
+                * velocity_scaling_factor;
             velocity_set = true;
         }
         if !velocity_set {
@@ -602,11 +601,9 @@ pub fn compute_time_stamps_with_limits(
                     bounds.max_acceleration
                 )));
             }
-            max_acceleration[idx] = bounds
-                .max_acceleration
-                .abs()
-                .min(bounds.min_acceleration.abs())
-                * acceleration_scaling_factor;
+            max_acceleration[idx] =
+                cxx_min(bounds.max_acceleration.abs(), bounds.min_acceleration.abs())
+                    * acceleration_scaling_factor;
             acceleration_set = true;
         }
         if !acceleration_set {
@@ -892,8 +889,18 @@ fn do_time_parameterization_calculations(
     trajectory.clear();
     let mut last_t = 0.0;
     for sample in 0..=sample_count {
-        // Always sample the end of the trajectory as well.
-        let t = (sample as f64 * options.resample_dt).min(parameterized.duration());
+        // Always sample the end of the trajectory as well. `cxx_min`, not
+        // `f64::min`, matches upstream cpp:1252's `std::min(...)` (operand
+        // order swapped to match too) — for fidelity/uniformity, not
+        // because a NaN can reach here: the comment above already pins
+        // `duration()` non-NaN by this point, and `sample as f64 *
+        // options.resample_dt` is a finite non-negative product of two
+        // finite non-negative operands, so neither argument to this
+        // `cxx_min` call can be NaN in production.
+        let t = cxx_min(
+            parameterized.duration(),
+            sample as f64 * options.resample_dt,
+        );
         let position = parameterized.position(t);
         let velocity = parameterized.velocity(t);
         let acceleration = parameterized.acceleration(t);
@@ -1026,6 +1033,196 @@ mod tests {
             &TotgOptions::default(),
         );
         assert!(result.is_ok(), "failed to compute time stamps: {result:?}");
+    }
+
+    /// `max_velocity[idx] = bounds.max_velocity.abs().min(bounds.min_velocity.abs())`
+    /// used a plain `.min()` where upstream calls `std::min(fabs(max_velocity_),
+    /// fabs(min_velocity_))`. `f64::min` discards a NaN wherever it sits;
+    /// `std::min`/`cxx_min` return a NaN **first** (receiver) operand instead
+    /// of discarding it — so a corrupted `max_velocity` bound used to be
+    /// silently replaced by `min_velocity.abs()` instead of propagating.
+    ///
+    /// That substitution is invisible whenever `min_velocity == -max_velocity`
+    /// (true for every URDF-derived bound in this crate — see
+    /// `VariableBounds::max_velocity`'s own doc comment: the loader only
+    /// ever stores one magnitude and treats the range as symmetric), because
+    /// then `min_velocity.abs()` just reconstructs the original, uncorrupted
+    /// number by coincidence. This test breaks that symmetry on purpose —
+    /// `min_velocity` is set far away from `-max_velocity` — so the
+    /// substituted value is observably wrong instead of accidentally right.
+    ///
+    /// Downstream (`Trajectory::get_min_max_path_velocity`,
+    /// `trajectory.rs:841`), a genuine NaN in `self.max_velocity[i]` is
+    /// itself correctly *discarded* by that line's own (pre-existing,
+    /// already-correct) `cxx_min` call — NaN there is the accumulator's
+    /// second operand, and `cxx_min` drops a NaN second operand exactly as
+    /// `std::min` does. So the fixed behavior is not "NaN poisons the whole
+    /// trajectory"; it is "the corrupted joint stops constraining velocity
+    /// at all, matching what an absent limit would do" — which is what
+    /// upstream's own `std::min` chain does too. Demonstrate the fix by that
+    /// duration, not by `Err`/`NaN`: pin `min_velocity` to a value so tiny
+    /// that, *if* it were substituted in for the corrupted `max_velocity`,
+    /// it would dominate every other joint and balloon the duration; the
+    /// fixed code must instead produce a duration indistinguishable from an
+    /// uncorrupted baseline, because the corrupted joint drops out of the
+    /// constraint set entirely.
+    #[test]
+    fn a_nan_max_velocity_bound_is_not_silently_replaced_by_min_velocity() {
+        let model = panda();
+        let mut trajectory = two_waypoint_trajectory(&model);
+        // Explicit acceleration limits for every joint, so this exercises
+        // the velocity `bounds` fallback (no entry in `velocity_limits`)
+        // without also tripping the unrelated "no acceleration limit was
+        // defined" error panda_joint1's URDF-only bounds would otherwise
+        // hit first (the URDF loader never sets `acceleration_bounded`).
+        let acceleration_limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        let baseline_result = compute_time_stamps_with_limits(
+            &mut trajectory,
+            &HashMap::new(),
+            &acceleration_limits,
+            &TotgOptions::default(),
+        );
+        assert!(
+            baseline_result.is_ok(),
+            "uncorrupted baseline must succeed: {baseline_result:?}"
+        );
+        let baseline_duration = trajectory.duration();
+
+        let mut model = panda();
+        let name = "panda_joint1";
+        let original = model.joint_model(name).unwrap().variable_bounds()[0];
+        assert!(
+            original.velocity_bounded,
+            "{name} must have a velocity limit for this fixture to mean anything"
+        );
+        assert_eq!(
+            original.min_velocity, -original.max_velocity,
+            "fixture premise: URDF-derived bounds are symmetric, which is exactly \
+             what makes the substitution bug invisible without this test's asymmetric \
+             corruption"
+        );
+        model
+            .joint_model_mut(name)
+            .unwrap()
+            .set_variable_bounds(
+                name,
+                moveit_model::joint::VariableBounds {
+                    max_velocity: f64::NAN,
+                    // Far from `-max_velocity`: if `.min()` substitutes this
+                    // in for the corrupted `max_velocity`, panda_joint1 would
+                    // be limited to crawling at 1e-6 rad/s, dominating every
+                    // other joint's (real, ~1-3 rad/s) limit and ballooning
+                    // the duration by orders of magnitude.
+                    min_velocity: -1e-6,
+                    ..original
+                },
+            )
+            .unwrap();
+
+        let mut trajectory = two_waypoint_trajectory(&model);
+        let result = compute_time_stamps_with_limits(
+            &mut trajectory,
+            &HashMap::new(),
+            &acceleration_limits,
+            &TotgOptions::default(),
+        );
+        assert!(
+            result.is_ok(),
+            "corrupted case must still succeed: {result:?}"
+        );
+        let corrupted_duration = trajectory.duration();
+
+        assert!(
+            (corrupted_duration - baseline_duration).abs() < 1e-6,
+            "a NaN max_velocity bound must not be silently replaced by min_velocity \
+             (here, an unrelated 1e-6 rad/s crawl limit) — the corrupted joint must \
+             drop out of the velocity constraint entirely, leaving duration \
+             unchanged from the uncorrupted baseline: baseline {baseline_duration}, \
+             corrupted {corrupted_duration}"
+        );
+    }
+
+    /// Same defect, same fix, the `max_acceleration[idx]` sibling site
+    /// (`bounds.max_acceleration.abs().min(bounds.min_acceleration.abs())`,
+    /// `cxx_min` after the fix). `VariableBounds::max_acceleration`'s own
+    /// doc comment states the same URDF-derived symmetry as
+    /// `max_velocity`'s, so this test breaks it the same way, and for the
+    /// same reason: without that, `min_acceleration.abs()` would silently
+    /// reconstruct the correct value and the substitution bug would stay
+    /// invisible. Unlike the velocity test, the fallback-to-`bounds` branch
+    /// has to be forced open here — the URDF loader never sets
+    /// `acceleration_bounded` (see `upstream_test_custom_limits`'s doc
+    /// comment above), so `panda_joint1` is left out of `acceleration_limits`
+    /// and its bounds are mutated directly to `acceleration_bounded: true`.
+    #[test]
+    fn a_nan_max_acceleration_bound_is_not_silently_replaced_by_min_acceleration() {
+        let model = panda();
+        let mut trajectory = two_waypoint_trajectory(&model);
+        let acceleration_limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        let baseline_result = compute_time_stamps_with_limits(
+            &mut trajectory,
+            &HashMap::new(),
+            &acceleration_limits,
+            &TotgOptions::default(),
+        );
+        assert!(
+            baseline_result.is_ok(),
+            "uncorrupted baseline must succeed: {baseline_result:?}"
+        );
+        let baseline_duration = trajectory.duration();
+
+        let mut model = panda();
+        let name = "panda_joint1";
+        let original = model.joint_model(name).unwrap().variable_bounds()[0];
+        assert_eq!(
+            original.min_acceleration, -original.max_acceleration,
+            "fixture premise: URDF-derived bounds are symmetric, which is exactly \
+             what makes the substitution bug invisible without this test's asymmetric \
+             corruption"
+        );
+        model
+            .joint_model_mut(name)
+            .unwrap()
+            .set_variable_bounds(
+                name,
+                moveit_model::joint::VariableBounds {
+                    acceleration_bounded: true,
+                    max_acceleration: f64::NAN,
+                    // Far from `-max_acceleration`, for the same reason as
+                    // the velocity test's `-1e-6`.
+                    min_acceleration: -1e-6,
+                    ..original
+                },
+            )
+            .unwrap();
+
+        // `panda_joint1` deliberately excluded, so it falls through to the
+        // (corrupted) `bounds` instead of an override.
+        let mut acceleration_limits_without_joint1 =
+            panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        acceleration_limits_without_joint1.remove(name);
+
+        let mut trajectory = two_waypoint_trajectory(&model);
+        let result = compute_time_stamps_with_limits(
+            &mut trajectory,
+            &HashMap::new(),
+            &acceleration_limits_without_joint1,
+            &TotgOptions::default(),
+        );
+        assert!(
+            result.is_ok(),
+            "corrupted case must still succeed: {result:?}"
+        );
+        let corrupted_duration = trajectory.duration();
+
+        assert!(
+            (corrupted_duration - baseline_duration).abs() < 1e-6,
+            "a NaN max_acceleration bound must not be silently replaced by \
+             min_acceleration (here, an unrelated 1e-6 rad/s² crawl limit) — the \
+             corrupted joint must drop out of the acceleration constraint entirely, \
+             leaving duration unchanged from the uncorrupted baseline: baseline \
+             {baseline_duration}, corrupted {corrupted_duration}"
+        );
     }
 
     /// `verifyScalingFactor` (cpp:1290-1312): `(0.0, 1.0]` passes through

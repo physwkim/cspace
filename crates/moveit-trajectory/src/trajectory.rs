@@ -23,7 +23,7 @@ use nalgebra::DVector;
 
 use moveit_error::{Error, Result};
 
-use crate::numeric::cxx_min;
+use crate::numeric::{cxx_max, cxx_min};
 use crate::path::Path;
 
 /// Upstream anonymous-namespace `EPS`: the epsilon most switching-point and
@@ -757,8 +757,21 @@ impl Trajectory {
             let most_recent = *backward
                 .last()
                 .expect("first iteration always takes the if-branch above");
-            if s1.path_pos.max(path_pos) - EPS <= intersection_path_pos
-                && intersection_path_pos <= EPS + s2.path_pos.min(most_recent.path_pos)
+            // `cxx_max`/`cxx_min`, not `f64::max`/`f64::min` -- upstream
+            // cpp:730-731 calls `std::max`/`std::min` here, not `std::fmax`/
+            // `std::fmin`. Ported for fidelity/uniformity with every other
+            // `std::min`/`std::max` call in this file, not because a NaN can
+            // observably reach this comparison: `s1.path_pos`, `s2.path_pos`,
+            // `path_pos`, and `most_recent.path_pos` all also feed
+            // `intersection_path_pos` itself (via `slope`/`start_slope`
+            // above), so a NaN in any one of them poisons
+            // `intersection_path_pos` too -- the `<=` comparisons are then
+            // `false` regardless of which max/min family computed the other
+            // side. Checked exhaustively (all 8 operands feeding this
+            // expression, corrupted one at a time): `cxx_max`/`cxx_min` and
+            // `f64::max`/`f64::min` agree on every single-NaN placement here.
+            if cxx_max(s1.path_pos, path_pos) - EPS <= intersection_path_pos
+                && intersection_path_pos <= EPS + cxx_min(s2.path_pos, most_recent.path_pos)
             {
                 let intersection_path_vel =
                     s1.path_vel + start_slope * (intersection_path_pos - s1.path_pos);
