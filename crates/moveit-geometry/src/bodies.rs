@@ -4092,15 +4092,16 @@ mod tests {
         assert_eq!(hits.len(), 2);
     }
 
-    /// A NaN confined to `origin`'s y-component, with `dir`'s y-component
-    /// exactly `0.0`, reaches the top/bottom (z-normal) faces' `tmp =
-    /// normal.dot(&dr)` and `normal.dot(&orig)` dot products with its own
-    /// coefficient zeroed out — `tmp`/`t` come out finite even though the
-    /// ray is not, so no per-triangle check on `tmp`/`t` alone can catch it;
-    /// only a check on `origin`/`dir` themselves can. See
-    /// `ConvexMesh::ray_intersections`'s doc comment.
+    /// A NaN confined to `origin`'s y-component, against every face
+    /// (including the top/bottom, z-normal faces, whose `normal` is zero
+    /// on the y-axis): `normal.dot(&orig)` is NaN on all of them —
+    /// `0.0 * NaN == NaN`, so a zero normal component does not zero the
+    /// NaN out — and the per-triangle `t.is_nan()` guard rejects every
+    /// triangle before any `p = orig + dr * t` is computed. See
+    /// `ConvexMesh::ray_intersections`'s doc comment, "a non-finite ray
+    /// poisons every triangle".
     #[test]
-    fn convex_mesh_ray_rejects_a_nan_confined_to_an_axis_the_hit_faces_dot_out() {
+    fn convex_mesh_ray_rejects_a_nan_confined_to_one_axis() {
         let mesh = ConvexMesh::new(&box_mesh(2.0, 2.0, 2.0)).unwrap();
         let hits = mesh.ray_intersections(
             &Vector3::new(0.0, f64::NAN, -2.0),
