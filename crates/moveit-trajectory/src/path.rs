@@ -52,7 +52,8 @@ impl Path {
     /// # Errors
     ///
     /// [`Error::Construct`] when: fewer than 2 waypoints are given;
-    /// `max_deviation <= 0.0`; or the path would require an (unsupported)
+    /// `max_deviation` is not finite and positive; or the path would
+    /// require an (unsupported)
     /// 180° turn at some waypoint — the last case checked exactly as
     /// upstream checks it, on the *un-blended* waypoints, before any blend
     /// segment is built (see [`crate::path_segment`]'s `Circular` for the
@@ -62,11 +63,20 @@ impl Path {
         if waypoints.len() < 2 {
             return Err(Error::construct("a path needs at least 2 waypoints"));
         }
-        if max_deviation <= 0.0 {
+        if max_deviation.is_nan() || max_deviation <= 0.0 {
             return Err(Error::construct(
                 "path max_deviation must be greater than 0.0",
             ));
         }
+        // Upstream re-checks `max_deviation > 0.0` on every loop iteration
+        // below (`Path::create`'s `if (max_deviation > 0.0 &&
+        // waypoints_iterator3 != waypoints.end())`), which is redundant
+        // with the guard above for any finite value but is upstream's only
+        // defence against a NaN `max_deviation`: NaN slips the `<= 0.0`
+        // check above the same way it slips `> 0.0` there, so upstream
+        // falls back to linear-only segments for the rest of the loop
+        // instead of building blends from NaN. Rejecting NaN explicitly
+        // above makes that per-iteration re-check unnecessary here.
 
         // waypoints[i1], waypoints[i2], waypoints[i3] are three consecutive
         // waypoints of the input path: a LinearPathSegment starting at i1,
@@ -241,6 +251,23 @@ mod tests {
         );
         assert!(
             Path::create(&waypoints, -1.0)
+                .unwrap_err()
+                .to_string()
+                .contains("max_deviation must be greater than 0.0")
+        );
+    }
+
+    #[test]
+    fn nan_max_deviation_is_rejected() {
+        // `max_deviation <= 0.0` alone does not catch NaN (every
+        // comparison against NaN is false), so before the guard above also
+        // checked `is_nan()`, this returned `Ok(_)` -- a plain linear path
+        // -- instead of the `Err` every other invalid `max_deviation`
+        // produces. See `fewer_than_two_waypoints_is_rejected` for why this
+        // checks the message rather than just `.is_err()`.
+        let waypoints = [v(&[0.0, 0.0]), v(&[1.0, 0.0])];
+        assert!(
+            Path::create(&waypoints, f64::NAN)
                 .unwrap_err()
                 .to_string()
                 .contains("max_deviation must be greater than 0.0")
