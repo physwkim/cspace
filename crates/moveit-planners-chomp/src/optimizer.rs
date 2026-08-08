@@ -1343,7 +1343,7 @@ impl<'m> ChompOptimizer<'m> {
             joint_costs.push(cost);
         }
         for cost in &mut joint_costs {
-            cost.scale(max_cost_scale)?;
+            cost.scale(max_cost_scale);
         }
 
         let best_group_trajectory = group_trajectory.trajectory_matrix().clone();

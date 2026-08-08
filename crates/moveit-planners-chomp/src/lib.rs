@@ -152,16 +152,10 @@
 //! - `ChompCost` (class) — ported as [`cost::ChompCost`]. The constructor is
 //!   ported as [`cost::ChompCost::new`], with the unused `joint_number`
 //!   parameter dropped — see that method's and the module's own doc
-//!   comments for why. `getQuadraticCostInverse`/`getQuadraticCost` are
-//!   ported as [`cost::ChompCost::quadratic_cost_inverse`]/
-//!   [`cost::ChompCost::quadratic_cost`] with no behavioral change.
-//!   `scale` is ported as [`cost::ChompCost::scale`], now fallible: a
-//!   division/NaN-guard audit found upstream's `1.0 / scale` in
-//!   `chomp_cost.cpp:97-103` unguarded, so a `0.0`/non-finite `scale`
-//!   silently poisons `quad_cost_inv_` with `Infinity`/`NaN` instead of
-//!   failing — see that method's own doc comment for the guard and why
-//!   this crate's own `ChompOptimizer::new` call site can never trigger it.
-//!   `getCost`/`getDerivative`/`getMaxQuadCostInvValue`
+//!   comments for why. `getQuadraticCostInverse`/`getQuadraticCost`/`scale`
+//!   are ported as [`cost::ChompCost::quadratic_cost_inverse`]/
+//!   [`cost::ChompCost::quadratic_cost`]/[`cost::ChompCost::scale`] with no
+//!   behavioral change. `getCost`/`getDerivative`/`getMaxQuadCostInvValue`
 //!   are ported as [`cost::ChompCost::cost`]/[`cost::ChompCost::derivative`]/
 //!   [`cost::ChompCost::max_quad_cost_inv_value`], each now fallible where
 //!   upstream would assert, silently return `NaN`, or read out of bounds —
