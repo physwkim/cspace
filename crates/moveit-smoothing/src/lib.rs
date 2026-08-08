@@ -153,5 +153,6 @@ pub mod ruckig_filter;
 pub mod acceleration_filter;
 
 mod butterworth;
+mod numeric;
 
 pub use butterworth::{ButterworthFilter, EPSILON};

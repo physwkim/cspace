@@ -141,6 +141,8 @@
 use moveit_error::{Error, Result};
 use moveit_model::{JointModelGroup, RobotModel};
 
+use crate::numeric::cxx_clamp;
+
 /// The threshold below which any position or velocity difference is
 /// considered zero (rad and rad/s). `COMMAND_DIFFERENCE_THRESHOLD`.
 const COMMAND_DIFFERENCE_THRESHOLD: f64 = 1e-4;
@@ -195,6 +197,15 @@ pub fn joint_acceleration_bounds(
 /// acceleration bound: the minimum, over every joint with a nonzero target
 /// acceleration, of the ratio between that joint's bound-clamped and raw
 /// acceleration -- `1.0` (no scaling) if every target acceleration is zero.
+///
+/// The clamp is [`cxx_clamp`], not `f64::clamp`: upstream's
+/// `std::clamp(target_accel, min_acceleration_, max_acceleration_)` falls
+/// through to `target_accel` when a bound is NaN; `f64::clamp` panics on
+/// one (`assert!(min <= max)`, which a NaN bound always fails). A NaN
+/// `min_acceleration`/`max_acceleration` is reachable via
+/// [`joint_acceleration_bounds`], which reads
+/// [`moveit_model::joint::VariableBounds`]'s public fields with no
+/// validation -- see [`crate::numeric`].
 fn joint_limit_acceleration_scaling_factor(
     accelerations: &[f64],
     min_acceleration_limits: &[f64],
@@ -204,8 +215,11 @@ fn joint_limit_acceleration_scaling_factor(
     for i in 0..accelerations.len() {
         let target_accel = accelerations[i];
         if target_accel != 0.0 {
-            let bounded_accel =
-                target_accel.clamp(min_acceleration_limits[i], max_acceleration_limits[i]);
+            let bounded_accel = cxx_clamp(
+                target_accel,
+                min_acceleration_limits[i],
+                max_acceleration_limits[i],
+            );
             let joint_scaling_factor = bounded_accel / target_accel;
             min_scaling_factor = min_scaling_factor.min(joint_scaling_factor);
         }
@@ -840,5 +854,37 @@ mod tests {
         // see the module doc for the full derivation.
         let upstream_osqp_position = 0.0008294991991130152;
         assert!((positions[0] - upstream_osqp_position).abs() < 2e-3);
+    }
+
+    /// A NaN acceleration bound (the `cxx_clamp` `lo`/`hi`) must be
+    /// silently ignored, not panic. `f64::clamp` panics on a NaN bound
+    /// (`assert!(min <= max)`, which a NaN bound always fails); this fails
+    /// before the `cxx_clamp` fix (panics) and passes after.
+    #[test]
+    fn joint_limit_acceleration_scaling_factor_ignores_a_nan_min_bound() {
+        let scale = joint_limit_acceleration_scaling_factor(&[5.0], &[f64::NAN], &[2.0]);
+        // min_acceleration_ is NaN, so std::clamp(5.0, NaN, 2.0) falls
+        // through to the hi comparison alone: 2.0 < 5.0, so the clamped
+        // value is 2.0, giving a scaling factor of 2.0 / 5.0.
+        assert_eq!(scale, 2.0 / 5.0);
+    }
+
+    /// As above, for the `max` bound.
+    #[test]
+    fn joint_limit_acceleration_scaling_factor_ignores_a_nan_max_bound() {
+        let scale = joint_limit_acceleration_scaling_factor(&[-5.0], &[-2.0], &[f64::NAN]);
+        // max_acceleration_ is NaN, so std::clamp(-5.0, -2.0, NaN) falls
+        // through to the lo comparison alone: -5.0 < -2.0, so the clamped
+        // value is -2.0, giving a scaling factor of -2.0 / -5.0.
+        assert_eq!(scale, (-2.0) / (-5.0));
+    }
+
+    /// Demonstrated opposite: an ordinary finite bound still clamps and
+    /// scales normally, so the NaN handling above is not a blanket
+    /// "ignore every bound" change.
+    #[test]
+    fn joint_limit_acceleration_scaling_factor_still_clamps_finite_bounds() {
+        let scale = joint_limit_acceleration_scaling_factor(&[5.0], &[-2.0], &[2.0]);
+        assert_eq!(scale, 2.0 / 5.0);
     }
 }
