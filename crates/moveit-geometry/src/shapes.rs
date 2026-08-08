@@ -132,15 +132,7 @@
 //!    read in upstream is a null-pointer dereference on a fresh mesh, not
 //!    merely a logic bug. [`Mesh::scale_and_padd_axes`] turns that into
 //!    [`Error::Construct`].
-//! 5. **Degenerate triangles get a zero normal, not `NaN`.** `Eigen`'s
-//!    `Vector3d::normalize()` on a zero-length cross product (a triangle
-//!    with two coincident or colinear vertices) divides by zero, producing
-//!    `NaN` in each component; that `NaN` would silently spread into
-//!    [`Mesh::compute_vertex_normals`]'s angle-weighted average for every
-//!    vertex the degenerate triangle touches. [`Mesh::compute_triangle_normals`]
-//!    uses `try_normalize(0.0)`, which is `None` for exactly this case, and
-//!    substitutes the zero vector.
-//! 6. **The `OcTree` payload is `Arc<moveit_octomap::OcTree>`, not
+//! 5. **The `OcTree` payload is `Arc<moveit_octomap::OcTree>`, not
 //!    `Rc`/an owned value.** Round 1 left [`OcTree`] a unit struct
 //!    (PORTING-PLAN.md §2's "성숙도 미달" gap); `moveit-octomap` (this
 //!    crate's sibling, also this round) closes it. Upstream's field is
@@ -152,6 +144,18 @@
 //!    (matching upstream's shallow `clone()`), and nothing in this crate ever
 //!    calls `Arc::get_mut` (matching upstream's `const`). See [`OcTree`]'s
 //!    own doc comment for the corresponding [`PartialEq`] deviation.
+//!
+//!    A former item 5 here claimed degenerate triangles were a deviation —
+//!    "`Eigen`'s `Vector3d::normalize()` on a zero-length cross product
+//!    divides by zero, producing `NaN`" — measured false against real Eigen
+//!    3.4.0 (`moveit-rs/oracle:ccc22ff0287a603f`, `/usr/include/eigen3`):
+//!    an in-place `.normalize()` call on a zero vector, unguarded at the
+//!    call site exactly as `Mesh::computeTriangleNormals` (`shapes.cpp:503-504`)
+//!    writes it, itself stays `[0, 0, 0]`, not `NaN` — `normalize()`'s own
+//!    internal guard leaves a zero-norm input unchanged, same as its
+//!    documented `normalized()` counterpart. [`Mesh::compute_triangle_normals`]'s
+//!    `try_normalize(0.0)` was never deviating from upstream; both sides
+//!    agree. See that function's doc comment for the corrected citation.
 //!
 //! # `shapes.h` / `shape_operations.h` symbol audit (round 8)
 //!
@@ -276,7 +280,7 @@
 //!   int)` already covered above) and each concrete class's own data fields
 //!   (`Sphere::radius`, `Cylinder`/`Cone`'s `length`/`radius`, `Box::size`,
 //!   `Mesh`'s six count/pointer fields, `Plane`'s `a`/`b`/`c`/`d`, `OcTree`'s
-//!   `octree`, already named in deviation 6 above) — **ported, direct
+//!   `octree`, already named in deviation 5 above) — **ported, direct
 //!   constructor-for-constructor and field-for-field**, one Rust field or
 //!   `new`/`try_new` parameter per upstream field or constructor parameter,
 //!   per variant's own struct definition. **Addition, round 17 item 3:**
@@ -1027,7 +1031,7 @@ impl Plane {
 /// # Deviations from upstream
 ///
 /// - **`octree` is `Option<Arc<moveit_octomap::OcTree>>`, not a raw
-///   `shared_ptr`.** See the module docs, deviation 6, for why `Arc`; `Option`
+///   `shared_ptr`.** See the module docs, deviation 5, for why `Arc`; `Option`
 ///   reproduces upstream's default-constructed (`OcTree::OcTree()`) null
 ///   `shared_ptr` state, which upstream's own `OcTree::print()`
 ///   (`if (octree) ... else "OcTree[NULL]"`) explicitly handles rather than
@@ -1221,11 +1225,18 @@ impl Mesh {
     }
 
     /// Compute each triangle's unit normal from its three vertices, via
-    /// cross product. Upstream `Mesh::computeTriangleNormals`.
+    /// cross product. Upstream `Mesh::computeTriangleNormals` (`shapes.cpp:
+    /// 488-509`): `Eigen::Vector3d normal = s1.cross(s2); normal.normalize();`
+    /// — no explicit guard at the call site.
     ///
     /// A degenerate triangle (zero-length cross product — two coincident or
-    /// colinear vertices) gets the zero vector rather than upstream's `NaN`
-    /// — see the module docs, deviation 5.
+    /// colinear vertices) gets the zero vector here, matching upstream: this
+    /// is not a deviation. Measured against real Eigen 3.4.0
+    /// (`moveit-rs/oracle:ccc22ff0287a603f`): an unguarded in-place
+    /// `.normalize()` on a zero vector stays `[0, 0, 0]` — `normalize()`
+    /// carries the same internal zero-norm guard as its `normalized()`
+    /// counterpart. `try_normalize(0.0)`'s `None` branch (substituting the
+    /// zero vector) is exactly that guard, not a divergence from it.
     ///
     /// # Panics
     ///
