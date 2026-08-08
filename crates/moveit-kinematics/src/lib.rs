@@ -550,6 +550,7 @@ mod chain;
 mod ik_cache;
 mod lma;
 mod newton_raphson;
+mod numeric;
 mod params;
 mod registry;
 mod set_from_ik;
