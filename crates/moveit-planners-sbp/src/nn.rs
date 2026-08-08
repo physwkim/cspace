@@ -83,6 +83,21 @@ impl<S: StateSpace, T> Gnat<S, T> {
     }
 
     /// Inserts `state` with payload `data`.
+    ///
+    /// # Panics
+    /// If `space.distance` returns NaN for any comparison this insertion
+    /// requires (routing to the nearest existing child once a node is
+    /// full). `rrt_connect` gates every state it inserts against
+    /// `StateSpace::satisfies_bounds` before this is reached -- the
+    /// caller-supplied start/goal directly, and every `Sampler`-drawn
+    /// candidate (including a `ConstrainedStateSampler`'s output) -- so a
+    /// non-finite `state` here would have to come from `StateSpace::
+    /// interpolate` producing one from two already-valid endpoints, which
+    /// this module does not itself verify cannot happen. This panic is a
+    /// deliberate backstop (see `validity.rs`'s
+    /// `nan_distance_panics_instead_of_silently_producing_a_degenerate_range`
+    /// for the same stance applied to a different NaN source), not a sign
+    /// this index should return a `Result` instead.
     pub fn insert(&mut self, space: &S, state: S::State, data: T) {
         match &mut self.root {
             None => {
@@ -100,6 +115,14 @@ impl<S: StateSpace, T> Gnat<S, T> {
 
     /// The stored `(state, data)` closest to `query` under `space`'s metric,
     /// or `None` if the index is empty.
+    ///
+    /// # Panics
+    /// If `space.distance` returns NaN comparing `query` (or any stored
+    /// pivot) during the search. See [`Gnat::insert`]'s `# Panics` section:
+    /// the same reasoning for why `query` should already be finite/in-bounds
+    /// applies here, since every `target` `rrt_connect::extend` passes as
+    /// `query` is either a gated state or the same not-independently-verified
+    /// `interpolate` output.
     pub fn nearest(&self, space: &S, query: &S::State) -> Option<(&S::State, &T)> {
         let root = self.root.as_ref()?;
         let mut best: Option<(&Node<S::State, T>, f64)> = None;
