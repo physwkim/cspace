@@ -797,11 +797,37 @@ pub struct ChompLoopTrace {
     /// The iteration-0 seeding is not counted: `0` means the seed was never
     /// beaten.
     pub accepted: u32,
+    /// How many passes actually *ran* the mesh-to-mesh check at all --
+    /// `iteration_ % 10 == 0`
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:368`)
+    /// -- regardless of what it found. [`Self::mesh_free_passes`] is a
+    /// subset of this count, and the two must be read together:
+    /// `mesh_free_passes == 0` with `mesh_checks > 0` means the check ran
+    /// and never found the trajectory free; `mesh_checks == 0` means the
+    /// check never ran (`max_iterations` too small to hit a multiple of 10,
+    /// or the loop broke out before iteration 0's check), and
+    /// `mesh_free_passes` alone cannot tell those two apart.
+    pub mesh_checks: u32,
     /// How many passes found the mesh-to-mesh check collision free
     /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:371`).
+    /// A subset of [`Self::mesh_checks`]; see that field's doc for why
+    /// `mesh_checks` has to accompany it.
     pub mesh_free_passes: u32,
+    /// How many passes actually *ran* the collision-threshold comparison at
+    /// all -- `!filter_mode_`
+    /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:406`)
+    /// -- regardless of the comparison's outcome. [`Self::below_threshold_passes`]
+    /// is a subset of this count, and the two must be read together:
+    /// `below_threshold_passes == 0` with `threshold_checks > 0` means
+    /// `c_cost` was compared every pass and never fell under
+    /// `collision_threshold_`; `threshold_checks == 0` means `filter_mode`
+    /// disabled the comparison entirely, and `below_threshold_passes` alone
+    /// cannot tell those two apart.
+    pub threshold_checks: u32,
     /// How many passes had `c_cost < collision_threshold_`
     /// (`moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:408`).
+    /// A subset of [`Self::threshold_checks`]; see that field's doc for why
+    /// `threshold_checks` has to accompany it.
     pub below_threshold_passes: u32,
     /// Collision points inside their own clearance band on the seed --
     /// `get_potential` non-zero, i.e. the points the collision term is a
@@ -1148,6 +1174,12 @@ fn resolve_collision_point_joint_index(
 ///   `iteration_++`/`self.iteration += 1` independently, which could
 ///   double- or triple-advance the pass counter in one loop pass -- that
 ///   part is also fixed, not reproduced; see `optimize`'s own doc comment.
+///   Each block's own outer gate (`iteration_ % 10 == 0`, `!filter_mode_`)
+///   now also increments a `mesh_checks`/`threshold_checks` counter
+///   independent of whether the inner condition fires, so
+///   [`ChompLoopTrace`] can distinguish "checked and never found free/below
+///   threshold" from "never checked at all" -- see
+///   [`ChompLoopTrace::mesh_checks`]/[`ChompLoopTrace::threshold_checks`].
 /// - **Dead/write-only upstream fields are not ported at all**, verified
 ///   via `rg` across the whole `chomp_motion_planner` package, not just
 ///   `chomp_optimizer.cpp`: `group_trajectory_backup_` (read only inside
@@ -1854,7 +1886,9 @@ impl<'m> ChompOptimizer<'m> {
         // would describe the first call's loop.
         let mut evaluations: u32 = 0;
         let mut accepted: u32 = 0;
+        let mut mesh_checks: u32 = 0;
         let mut mesh_free_passes: u32 = 0;
+        let mut threshold_checks: u32 = 0;
         let mut below_threshold_passes: u32 = 0;
         let mut seed_points_within_clearance: u32 = 0;
         let mut seed_points_in_collision: u32 = 0;
@@ -1942,43 +1976,54 @@ impl<'m> ChompOptimizer<'m> {
             )?;
             full_trajectory.update_from_group_trajectory(&self.group_trajectory);
 
-            let mesh_confirmed_this_pass = self.iteration % 10 == 0
-                && mesh_to_mesh_collision_free(&self.start_state, &self.best_group_trajectory);
-            if mesh_confirmed_this_pass {
-                self.num_collision_free_iterations = 0;
-                self.is_collision_free = true;
-                should_break_out = true;
-                mesh_free_passes += 1;
+            // `mesh_confirmed_this_pass` is declared outside the `iteration_ %
+            // 10 == 0` gate (not folded into one `&&` expression) so the
+            // threshold block below can read it regardless of whether this
+            // pass was even a check pass, and so `mesh_checks` can count the
+            // gate firing independent of what the inner check finds.
+            let mut mesh_confirmed_this_pass = false;
+            if self.iteration % 10 == 0 {
+                mesh_checks += 1;
+                if mesh_to_mesh_collision_free(&self.start_state, &self.best_group_trajectory) {
+                    mesh_confirmed_this_pass = true;
+                    self.num_collision_free_iterations = 0;
+                    self.is_collision_free = true;
+                    should_break_out = true;
+                    mesh_free_passes += 1;
+                }
             }
 
-            if !self.parameters.filter_mode && c_cost < self.parameters.collision_threshold {
-                self.is_collision_free = true;
-                should_break_out = true;
-                below_threshold_passes += 1;
-                // Deviation: `num_collision_free_iterations` is written here only
-                // if the mesh-to-mesh check above did not already confirm safety
-                // this same pass. Upstream (`chomp_optimizer.cpp:373`/`:410`)
-                // writes both unconditionally, so whichever block runs second
-                // wins when both fire in one pass -- reachable, since
-                // `iteration % 10 == 0` and `c_cost < collision_threshold` are
-                // independent conditions, trivially both true on pass 0 with an
-                // empty env field. Textually the threshold block runs second, so
-                // it always overwrites the mesh block's `0` with the (larger)
-                // grace period, discarding the ground-truth mesh check's
-                // "already verified, break at the next check" signal in favor of
-                // its own weaker one. `isCurrentTrajectoryMeshToMeshCollisionFree`
-                // (`chomp_optimizer.cpp:520-537`) directly validates the actual
-                // trajectory via `planning_scene_->isPathValid`; `c_cost`
-                // (`getCollisionCost`, `:691-`) is a sphere/distance-field cost
-                // sum, a proxy for the same thing computed without ever calling
-                // the mesh check. The mesh signal must win, and win regardless of
-                // which block happens to run first -- not by reordering the two
-                // (still fragile to a future reorder), but by making the write
-                // explicitly conditional on the stronger signal not already
-                // having fired.
-                if !mesh_confirmed_this_pass {
-                    self.num_collision_free_iterations =
-                        self.parameters.max_iterations_after_collision_free as u32;
+            if !self.parameters.filter_mode {
+                threshold_checks += 1;
+                if c_cost < self.parameters.collision_threshold {
+                    self.is_collision_free = true;
+                    should_break_out = true;
+                    below_threshold_passes += 1;
+                    // Deviation: `num_collision_free_iterations` is written here only
+                    // if the mesh-to-mesh check above did not already confirm safety
+                    // this same pass. Upstream (`chomp_optimizer.cpp:373`/`:410`)
+                    // writes both unconditionally, so whichever block runs second
+                    // wins when both fire in one pass -- reachable, since
+                    // `iteration % 10 == 0` and `c_cost < collision_threshold` are
+                    // independent conditions, trivially both true on pass 0 with an
+                    // empty env field. Textually the threshold block runs second, so
+                    // it always overwrites the mesh block's `0` with the (larger)
+                    // grace period, discarding the ground-truth mesh check's
+                    // "already verified, break at the next check" signal in favor of
+                    // its own weaker one. `isCurrentTrajectoryMeshToMeshCollisionFree`
+                    // (`chomp_optimizer.cpp:520-537`) directly validates the actual
+                    // trajectory via `planning_scene_->isPathValid`; `c_cost`
+                    // (`getCollisionCost`, `:691-`) is a sphere/distance-field cost
+                    // sum, a proxy for the same thing computed without ever calling
+                    // the mesh check. The mesh signal must win, and win regardless of
+                    // which block happens to run first -- not by reordering the two
+                    // (still fragile to a future reorder), but by making the write
+                    // explicitly conditional on the stronger signal not already
+                    // having fired.
+                    if !mesh_confirmed_this_pass {
+                        self.num_collision_free_iterations =
+                            self.parameters.max_iterations_after_collision_free as u32;
+                    }
                 }
             }
 
@@ -2026,7 +2071,9 @@ impl<'m> ChompOptimizer<'m> {
             evaluations,
             exit,
             accepted,
+            mesh_checks,
             mesh_free_passes,
+            threshold_checks,
             below_threshold_passes,
             seed_points_within_clearance,
             seed_points_in_collision,
@@ -3225,7 +3272,17 @@ mod tests {
         let trace = optimizer.loop_trace().expect("optimize records a trace");
         assert_eq!(trace.evaluations, 1);
         assert_eq!(trace.exit, ChompExit::BreakOut);
+        assert_eq!(
+            trace.mesh_checks, 1,
+            "iteration 0 is a multiple of 10, so the mesh check ran exactly once before breaking out"
+        );
         assert_eq!(trace.mesh_free_passes, 1);
+        assert_eq!(
+            trace.threshold_checks, 0,
+            "filter_mode disables the comparison itself, not just its firing -- distinct from \
+             below_threshold_passes == 0, which alone cannot tell 'never compared' apart from \
+             'compared and never fired'"
+        );
         assert_eq!(trace.below_threshold_passes, 0, "filter_mode disables it");
         assert_eq!(
             trace.accepted, 0,
@@ -3351,6 +3408,12 @@ mod tests {
         let trace = optimizer.loop_trace().expect("optimize records a trace");
         assert_eq!(trace.evaluations, 7);
         assert_eq!(trace.exit, ChompExit::IterationBound);
+        assert_eq!(
+            trace.mesh_checks, 1,
+            "iteration 0 is the only multiple of 10 in a 7-iteration run, so the check ran \
+             exactly once -- mesh_free_passes == 0 below is 'checked and never found it free', \
+             not 'never checked'"
+        );
         assert_eq!(trace.mesh_free_passes, 0);
     }
 
