@@ -1606,6 +1606,24 @@ impl<'m> ChompOptimizer<'m> {
             for j in 0..self.num_collision_points {
                 let mut vel = Vector3::zeros();
                 let mut acc = Vector3::zeros();
+                // Division/NaN-guard audit (round: chomp/stomp sweep): `idx`'s
+                // `as usize` cannot wrap a negative value here. `offset` is
+                // bounded to `-(DIFF_RULE_LENGTH / 2)..=(DIFF_RULE_LENGTH / 2)`
+                // (`k` ranges over `DIFF_RULES`'s own `DIFF_RULE_LENGTH`-wide
+                // rows), and `i >= self.free_vars_start`, which is always
+                // exactly `DIFF_RULE_LENGTH - 1` -- `ChompOptimizer::new` is
+                // this type's only constructor, and it always derives
+                // `free_vars_start` from `ChompTrajectory::from_source_trajectory`'s
+                // own `start_index = diff_rule_length - 1`, called with this
+                // crate's fixed `DIFF_RULE_LENGTH` constant, never a
+                // caller-supplied value (the caller-facing
+                // `set_start_end_index` cannot reach this: `new` builds its
+                // own `group_trajectory` from `full_trajectory`'s data, not
+                // its start/end index). So `i + offset >= (DIFF_RULE_LENGTH -
+                // 1) - (DIFF_RULE_LENGTH / 2)`, `3` for this crate's
+                // `DIFF_RULE_LENGTH == 7`, always `>= 0`. (If `free_vars_end <
+                // free_vars_start`, the outer loop range is empty and this
+                // line never runs at all.)
                 for (k, (&d0, &d1)) in DIFF_RULES[0].iter().zip(DIFF_RULES[1].iter()).enumerate() {
                     let offset = k as i64 - (DIFF_RULE_LENGTH as i64 / 2);
                     let idx = (i as i64 + offset) as usize;
@@ -1666,6 +1684,30 @@ impl<'m> ChompOptimizer<'m> {
     /// Ported from `calculateCollisionIncrements`
     /// (`chomp_optimizer.cpp:548-623`). See this type's doc comment for the
     /// `rsl::uniform_real` -> `rng.random_range` substitution.
+    ///
+    /// # `raw as i64` cannot see a NaN/infinite `raw` (division/NaN-guard
+    /// audit, round: chomp/stomp sweep)
+    ///
+    /// `raw`'s only inputs are `rng.random_range(0.0..1.0)` and
+    /// `free_vars_start`/`free_vars_end` widened to `f64`. `random_range`'s
+    /// own implementation (`rand-0.10.2/src/distr/uniform_float.rs`,
+    /// `UniformSampler::new`/`sample_single_inclusive`) rejects a non-finite
+    /// bound before sampling and guarantees the result lands in `[low,
+    /// high)` -- with the literal bounds `0.0..1.0` here, always finite.
+    /// `free_vars_start as f64`/`free_vars_end as f64` are exact,
+    /// non-negative, finite widenings of a `usize` too small to lose
+    /// precision at `f64`'s 53-bit mantissa (a trajectory large enough to
+    /// overflow that would already have failed an earlier `DMatrix`
+    /// allocation). So every term of `raw`'s sum is finite, and finite +
+    /// finite * finite is finite: `raw as i64` never sees `NaN` or an
+    /// infinite operand, so the saturating float-to-int cast (Rust 1.45+)
+    /// never actually saturates here -- it is a plain truncation of an
+    /// in-range value. The two `if` clamps immediately below additionally
+    /// re-bound whatever it truncates to into `[free_vars_start,
+    /// free_vars_end]` regardless, so nothing downstream depends on this
+    /// unreachability holding. No fix applies: an `is_finite()` check
+    /// against an input that cannot occur would be exactly the defensive
+    /// validation this port's own conventions reject.
     fn calculate_collision_increments(&self, rng: &mut impl Rng) -> Result<DMatrix<f64>> {
         let mut collision_increments = DMatrix::<f64>::zeros(self.num_vars_free, self.num_joints);
 
@@ -1794,6 +1836,13 @@ impl<'m> ChompOptimizer<'m> {
             collision_cost += state_collision_cost;
             if state_collision_cost > worst_collision_cost {
                 worst_collision_cost = state_collision_cost;
+                // Division/NaN-guard audit (round: chomp/stomp sweep):
+                // `usize -> i64` widening, distinct from this file's other
+                // audited `f64 -> i*`/`i64 -> usize` casts -- there is no
+                // fractional or negative source value to lose. It can only
+                // misrepresent `i` if `i > i64::MAX`, which would require a
+                // trajectory point count `DMatrix` allocation elsewhere in
+                // this type already could not have made.
                 self.worst_collision_cost_state = i as i64;
             }
         }
