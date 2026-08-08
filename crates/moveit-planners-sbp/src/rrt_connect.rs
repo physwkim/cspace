@@ -207,7 +207,21 @@ impl<'a, S: StateSpace, R: Rng> Sampler<'a, S, R> {
     fn sample_uniform(&mut self, space: &S) -> S::State {
         if let Some(sampler) = self.constrained_sampler {
             for _ in 0..3 {
-                if let Some(state) = sampler.try_sample(self.rng) {
+                // Bounds-check `try_sample`'s output before accepting it,
+                // mirroring `sampleC`'s own
+                // `if (space_->satisfiesBounds(state)) { ...; return true; }`
+                // (`constrained_sampler.cpp:73-76`) right after copying the
+                // sampled state in: a `ConstrainedStateSampler` impl is
+                // under no obligation to bounds-check itself (this crate's
+                // own `GroupConstraintSampler` doesn't), so without this a
+                // NaN or out-of-bounds mid-search sample would bypass
+                // `rrt_connect`'s start/goal gate entirely and reach
+                // `nn.rs`'s distance comparators. A bounds-failing sample is
+                // treated the same as `None`: this attempt failed, retry or
+                // fall back.
+                if let Some(state) = sampler.try_sample(self.rng)
+                    && space.satisfies_bounds(&state)
+                {
                     return state;
                 }
             }
@@ -755,6 +769,46 @@ mod tests {
             &params(),
         );
         assert_eq!(result, Err(PlanningFailure::InvalidEndpoint));
+    }
+
+    #[test]
+    fn a_nan_producing_constrained_sampler_falls_back_instead_of_reaching_the_tree() {
+        // Mirrors upstream `ConstrainedSampler::sampleC`
+        // (`constrained_sampler.cpp:67-81`): it bounds-checks its own
+        // `constraint_sampler_->sample` output before accepting it, so a
+        // constraint sampler that can itself produce a NaN/out-of-bounds
+        // state never reaches the planner. This double always "succeeds"
+        // with a NaN state, standing in for that case.
+        struct AlwaysNan;
+        impl ConstrainedStateSampler<RealVectorSpace> for AlwaysNan {
+            fn try_sample(&self, _rng: &mut dyn Rng) -> Option<Vec<f64>> {
+                Some(vec![f64::NAN, f64::NAN])
+            }
+        }
+
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
+        let always_valid = |_: &Vec<f64>| true;
+        let mv = DiscreteMotionValidator::new(&always_valid, 0.1);
+        let start = vec![-5.0, 0.0];
+        let goal = vec![5.0, 0.0];
+        let sampler = AlwaysNan;
+
+        let path = rrt_connect(
+            &space,
+            &always_valid,
+            &mv,
+            start.clone(),
+            goal.clone(),
+            Sampler {
+                rng: &mut rng(7),
+                constrained_sampler: Some(&sampler),
+            },
+            &params(),
+        )
+        .expect("rejecting every NaN draw must still fall back to plain uniform sampling");
+
+        assert_eq!(path.first(), Some(&start));
+        assert_eq!(path.last(), Some(&goal));
     }
 
     #[test]
