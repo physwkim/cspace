@@ -126,6 +126,32 @@
 //! mesh`, and a clean, orientation-independent `true` for every `mesh x
 //! sphere` tilt this port misses (29.2% of the 497, zero exceptions) -- see
 //! that tool's own README for the full per-kind pose-level table.
+//!
+//! # Resolution -- partial
+//!
+//! `mesh x sphere` had an fcl target to converge to and nothing else did, so
+//! it is the one pair with an identified fix: `crate::mesh_tangency_table`
+//! replaces the deleted `is_mesh_pair`'s single blanket boolean with a
+//! measured, per-paired-kind verdict (`MeshVerdict::AlwaysTouching` for
+//! `Sphere` alone; `NoStableTarget` for `cone`, measured unresolvable;
+//! `Undiagnosed` for `box`/`cylinder`/`mesh`, measured but not safely
+//! reducible to one verdict per pair -- `crate::mesh_tangency_table`'s own
+//! module doc has the full accounting), and `fcl_tangency_verdict` now
+//! dispatches mesh pairs to it instead of returning `None` unconditionally.
+//!
+//! That alone does not close the 145 `mesh x sphere` misses. "The branch's
+//! `== Some(true)` guard can never pass for a mesh pair, regardless of shape
+//! or orientation" (above) is no longer true -- the guard passes for
+//! `mesh x sphere` now -- but the branch's own confirmation call,
+//! `query::intersection_test`, was measured on 10 sampled miss poses to
+//! answer `false` at every one: the same near-degenerate rounding this probe
+//! measures, one geometric query deeper (`Ball`-vs-`Triangle`'s
+//! `PointQuery::project_local_point`, not the GJK `contact` path
+//! `touches_at_tie` already knows how to round through). A widened-
+//! prediction second `query::contact` call finds `Some` at all 10 of the
+//! same poses instead, which is the fix `accumulate_collision`'s branch body
+//! still needs -- outside `crate::mesh_tangency_table`'s own confinement, not
+//! made here. `MeshVerdict::AlwaysTouching`'s own doc has the measurement.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;

@@ -2133,8 +2133,9 @@ fn pair_key(a: &str, b: &str) -> (String, String) {
 /// (`fcl_tangency_table`'s own module doc: "Shape intersect algorithms not
 /// using libccd"). `Mesh` is deliberately absent — fcl maps it to a
 /// `BVHModel` traversal, a third path that is neither a libccd
-/// specialisation nor generic libccd MPR, so [`is_mesh_pair`] carries its
-/// rule separately rather than through this table.
+/// specialisation nor generic libccd MPR, so [`fcl_tangency_verdict`]
+/// dispatches it through `crate::mesh_tangency_table` separately rather than
+/// through this table.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum TangencyKind {
     Box = 0,
@@ -2158,35 +2159,64 @@ fn tangency_kind(shape: &dyn parry3d_f64::shape::Shape) -> Option<TangencyKind> 
     }
 }
 
-/// Whether either shape in the pair is a mesh. Consulted only from
-/// [`touches_at_tie`]'s rounding band, alongside [`fcl_tangency_verdict`] —
-/// not in [`accumulate_collision`]'s `None`-but-touching branch, whose
-/// [`query::intersection_test`] fallback exists specifically for a
-/// *specialised closed-form* routine excluding a boundary its own geometric
-/// test admits (`contact_ball_ball`'s strict `<`; see
-/// `parry_boolean_queries_disagree_in_both_directions_at_the_tie`). Mesh
-/// pairs go through `contact_composite_shape_shape`/
-/// `contact_shape_composite_shape` — the same generic per-triangle traversal
-/// as any other non-ball pair, not a closed-form specialisation — and
-/// already return `Some` at exact tangency today
-/// (`exact_tangency_is_decided_per_shape_pair.rs`'s `mesh` row), so
-/// extending the `None` branch to mesh would add an `intersection_test` call
-/// to every non-touching mesh pair in a scene for a case that, unlike
-/// `sphere x sphere`, has no measurement showing it is ever reached.
-fn is_mesh_pair(a: &dyn parry3d_f64::shape::Shape, b: &dyn parry3d_f64::shape::Shape) -> bool {
-    a.shape_type() == ShapeType::TriMesh || b.shape_type() == ShapeType::TriMesh
+/// Classifies a `parry` shape into the [`crate::mesh_tangency_table::
+/// MeshOtherKind`] `crate::mesh_tangency_table::MESH_TANGENCY` is indexed by.
+/// `None` for a kind that table has no measurement for (`HalfSpace`/
+/// `Compound`) — [`mesh_tangency_verdict`] keeps its caller's pre-existing
+/// fallback for those rather than guessing at one, the same contract
+/// [`tangency_kind`] has for the non-mesh table.
+pub(crate) fn mesh_other_kind(
+    shape: &dyn parry3d_f64::shape::Shape,
+) -> Option<crate::mesh_tangency_table::MeshOtherKind> {
+    use crate::mesh_tangency_table::MeshOtherKind;
+    match shape.shape_type() {
+        ShapeType::Cuboid => Some(MeshOtherKind::Box),
+        ShapeType::Ball => Some(MeshOtherKind::Sphere),
+        ShapeType::Cylinder => Some(MeshOtherKind::Cylinder),
+        ShapeType::Cone => Some(MeshOtherKind::Cone),
+        ShapeType::TriMesh => Some(MeshOtherKind::Mesh),
+        _ => None,
+    }
 }
 
-/// fcl's tangency-dispatch table (`fcl_tangency_table`, generated from the
-/// pinned oracle image's own registration macros — see
-/// `tools/ci/verify-fcl-tangency-dispatch.sh`), for a shape pair that
-/// classifies into [`TangencyKind`] on both sides. `None` when either shape
-/// doesn't — the caller falls back to its own pre-existing behaviour, mesh
-/// included ([`is_mesh_pair`] is checked separately, ahead of this).
+/// [`fcl_tangency_verdict`]'s mesh-pair path: at least one of `a`/`b` is
+/// known `TriMesh` by the caller, so this classifies the *other* side
+/// (`mesh x mesh` classifies as [`crate::mesh_tangency_table::
+/// MeshOtherKind::Mesh`] via whichever argument the caller passes first) and
+/// looks its verdict up in `crate::mesh_tangency_table::MESH_TANGENCY` — see
+/// that module's doc for why this measured table is kept separate from
+/// `crate::fcl_tangency_table::SPECIALISED`'s generated one rather than
+/// merged into it.
+fn mesh_tangency_verdict(
+    a: &dyn parry3d_f64::shape::Shape,
+    b: &dyn parry3d_f64::shape::Shape,
+) -> Option<bool> {
+    let other = if a.shape_type() == ShapeType::TriMesh {
+        mesh_other_kind(b)
+    } else {
+        mesh_other_kind(a)
+    }?;
+    crate::mesh_tangency_table::MESH_TANGENCY[other as usize].as_tangency_bool()
+}
+
+/// fcl's tangency-dispatch verdict for a shape pair. Non-mesh pairs read
+/// `fcl_tangency_table::SPECIALISED` (generated from the pinned oracle
+/// image's own registration macros — see
+/// `tools/ci/verify-fcl-tangency-dispatch.sh`), indexed by [`TangencyKind`]
+/// on both sides; `None` when either shape doesn't classify, and the caller
+/// falls back to its own pre-existing behaviour. A pair with either side
+/// `TriMesh` dispatches to [`mesh_tangency_verdict`] instead — a measured,
+/// per-paired-kind table of its own, not a blanket rule, since a single
+/// boolean cannot represent what this crate's own tilted-orientation probes
+/// measured is a per-pair relation (`crate::mesh_tangency_table`'s module
+/// doc has the full provenance).
 fn fcl_tangency_verdict(
     a: &dyn parry3d_f64::shape::Shape,
     b: &dyn parry3d_f64::shape::Shape,
 ) -> Option<bool> {
+    if a.shape_type() == ShapeType::TriMesh || b.shape_type() == ShapeType::TriMesh {
+        return mesh_tangency_verdict(a, b);
+    }
     Some(
         crate::fcl_tangency_table::SPECIALISED[tangency_kind(a)? as usize]
             [tangency_kind(b)? as usize],
@@ -2275,8 +2305,10 @@ const TIE_ROUNDING_MARGIN: f64 = 16.0;
 /// consult for "does this pair, at this measured `dist`, count as touching":
 /// within [`TIE_ROUNDING_MARGIN`] `* f64::EPSILON * `[`tie_scale`]` of zero,
 /// `dist`'s own sign is GJK's rounding on what is geometrically an exact
-/// tie, not a real answer, so [`is_mesh_pair`]/[`fcl_tangency_verdict`]
-/// decide instead; outside that band, `dist`'s sign is trusted directly.
+/// tie, not a real answer, so [`fcl_tangency_verdict`] decides instead
+/// (mesh pairs included, via its own dispatch to
+/// `crate::mesh_tangency_table`); outside that band, `dist`'s sign is
+/// trusted directly.
 ///
 /// This replaces two independent rules that happened to agree until they
 /// did not: `accumulate_collision` special-cased literal `dist == 0.0`
@@ -2299,7 +2331,7 @@ fn touches_at_tie(
 ) -> bool {
     let scale = tie_scale(a_pose, a_shape, b_pose, b_shape);
     if dist.abs() <= TIE_ROUNDING_MARGIN * f64::EPSILON * scale {
-        is_mesh_pair(a_shape, b_shape) || fcl_tangency_verdict(a_shape, b_shape).unwrap_or(true)
+        fcl_tangency_verdict(a_shape, b_shape).unwrap_or(true)
     } else {
         dist <= 0.0
     }

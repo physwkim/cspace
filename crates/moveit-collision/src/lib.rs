@@ -93,6 +93,7 @@ mod common;
 mod env;
 mod fcl_tangency_table;
 mod matrix;
+mod mesh_tangency_table;
 mod octomap_filter;
 mod parry;
 mod tools;

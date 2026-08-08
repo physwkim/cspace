@@ -175,8 +175,10 @@ if unexplained:
 # Only the four kinds `crates/moveit-collision/src/parry.rs`'s `TangencyKind`
 # classifies a shape into -- `capsule`/`ellipsoid`/`convex` have no
 # `moveit_geometry::Shape` variant, and `mesh` is a third path (BVHModel),
-# not a libccd specialisation, so it is not in this set at all; `parry.rs`
-# hard-codes mesh's own "always true" rule instead of reading it from here.
+# not a libccd specialisation, so it is not in this set at all; its own
+# measured, per-paired-kind rule lives in
+# `crates/moveit-collision/src/mesh_tangency_table.rs` instead of reading it
+# from here, since there is no registration macro for mesh to parse.
 KINDS = ["box", "sphere", "cylinder", "cone"]
 rows = [[(a, b) in spec for b in KINDS] for a in KINDS]
 
@@ -198,11 +200,11 @@ lines = [
     "//! fcl's non-libccd (specialised) shape-intersect registrations, restricted",
     "//! to the four kinds `crates/moveit-collision/src/parry.rs`'s `TangencyKind`",
     "//! classifies a shape into (`Box`/`Sphere`/`Cylinder`/`Cone` -- `Mesh` is not",
-    "//! in this table; `parry.rs` hard-codes mesh's own \"always true\" rule",
-    "//! instead, since fcl maps it to a `BVHModel` traversal this header does not",
-    "//! register). Row/column order matches the array below; the table is",
-    "//! symmetric because `FCL_GJK_LIBCCD_SHAPE_SHAPE_INTERSECT` registers both",
-    "//! directions.",
+    "//! in this table; its own measured, per-paired-kind rule lives in",
+    "//! `crate::mesh_tangency_table` instead, since fcl maps it to a `BVHModel`",
+    "//! traversal this header does not register). Row/column order matches the",
+    "//! array below; the table is symmetric because",
+    "//! `FCL_GJK_LIBCCD_SHAPE_SHAPE_INTERSECT` registers both directions.",
     "",
     "pub(crate) const SPECIALISED: [[bool; 4]; 4] = [",
     "    //             box    sphere cylinder cone",

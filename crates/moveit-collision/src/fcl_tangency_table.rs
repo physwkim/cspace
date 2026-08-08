@@ -11,11 +11,11 @@
 //! fcl's non-libccd (specialised) shape-intersect registrations, restricted
 //! to the four kinds `crates/moveit-collision/src/parry.rs`'s `TangencyKind`
 //! classifies a shape into (`Box`/`Sphere`/`Cylinder`/`Cone` -- `Mesh` is not
-//! in this table; `parry.rs` hard-codes mesh's own "always true" rule
-//! instead, since fcl maps it to a `BVHModel` traversal this header does not
-//! register). Row/column order matches the array below; the table is
-//! symmetric because `FCL_GJK_LIBCCD_SHAPE_SHAPE_INTERSECT` registers both
-//! directions.
+//! in this table; its own measured, per-paired-kind rule lives in
+//! `crate::mesh_tangency_table` instead, since fcl maps it to a `BVHModel`
+//! traversal this header does not register). Row/column order matches the
+//! array below; the table is symmetric because
+//! `FCL_GJK_LIBCCD_SHAPE_SHAPE_INTERSECT` registers both directions.
 
 pub(crate) const SPECIALISED: [[bool; 4]; 4] = [
     //             box    sphere cylinder cone
