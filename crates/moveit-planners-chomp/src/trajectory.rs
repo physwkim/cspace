@@ -208,9 +208,33 @@ impl ChompTrajectory {
     /// Ported from the `(source_traj, group_name, int diff_rule_length)`
     /// constructor. `start_extra`/`end_extra` are computed in `i64` (upstream:
     /// `int`) since they can be negative when `source`'s own margin already
-    /// exceeds `diff_rule_length - 1`; a resulting non-positive point count
-    /// or negative end index is `Err` rather than the `size_t` wraparound
+    /// exceeds `diff_rule_length - 1`; a resulting point count under 2 or a
+    /// negative end index is `Err` rather than the `size_t` wraparound
     /// upstream would produce.
+    ///
+    /// # `num_points_i < 2`, not `< 1` (`§172`)
+    ///
+    /// [`ChompTrajectory::num_points`] is a private, write-once field with
+    /// exactly two direct owners: this constructor and [`Self::from_num_points`],
+    /// whose own guard rejects `num_points < 2` (a `size_t` underflow in
+    /// `end_index_ = num_points_ - 2` below that bound). Every consumer —
+    /// [`Self::fill_in_from_trajectory`] chief among them, whose
+    /// `(i * max_input_index) as f64 / (self.num_points - 1) as f64` divides
+    /// by exactly this quantity — relies on both owners upholding the same
+    /// `>= 2` invariant, not just this one's own weaker `>= 1`.
+    ///
+    /// A `diff_rule_length` of `1` (a caller-supplied argument, not the
+    /// crate-wide `DIFF_RULE_LENGTH = 7` this file's only production caller
+    /// passes, but nothing in this `pub fn`'s signature forbids it) made
+    /// `num_points_i == 1` reachable under the old `< 1` bound: e.g.
+    /// `from_source_trajectory(&from_num_points(_, 3, ..)?, _, 1)` built
+    /// successfully with `num_points() == 1`, and a subsequent
+    /// `fill_in_from_trajectory` call then divided by `self.num_points - 1
+    /// == 0`, producing `0.0 / 0.0 = NaN` that `.trunc() as usize` silently
+    /// saturated to index `0` instead of surfacing — confirmed by
+    /// temporarily loosening this bound back to `< 1` and observing exactly
+    /// that. Matching `from_num_points`'s own threshold instead of adding a
+    /// guard at every consumer closes the family at its single owner.
     pub fn from_source_trajectory(
         source: &ChompTrajectory,
         group_name: &str,
@@ -225,9 +249,9 @@ impl ChompTrajectory {
             diff_rule_length_i - 1 - (source.num_points as i64 - 1 - source.end_index as i64);
 
         let num_points_i = source.num_points as i64 + start_extra + end_extra;
-        if num_points_i < 1 {
+        if num_points_i < 2 {
             return Err(Error::other(format!(
-                "ChompTrajectory padding produced a non-positive point count ({num_points_i})"
+                "ChompTrajectory padding produced a point count under 2 ({num_points_i})"
             )));
         }
         let num_points = num_points_i as usize;
@@ -891,6 +915,23 @@ mod tests {
                 "row {i} content"
             );
         }
+    }
+
+    /// Discriminates the `num_points_i < 2` bound from the weaker `< 1` it
+    /// replaced (`§172`): `diff_rule_length=1` against a 3-point,
+    /// zero-margin source (`start_index=1, end_index=1`) computes
+    /// `num_points_i = 1` exactly, which the old `< 1` bound let through as
+    /// `Ok`. Before this fix, this built a one-point trajectory whose
+    /// `fill_in_from_trajectory` divided by `num_points() - 1 == 0`.
+    #[test]
+    fn from_source_trajectory_rejects_diff_rule_length_that_pads_to_exactly_one_point() {
+        let model = panda_model();
+        let source = ChompTrajectory::from_num_points(model, 3, 0.1, GROUP).unwrap();
+        let err = ChompTrajectory::from_source_trajectory(&source, GROUP, 1).unwrap_err();
+        assert!(
+            err.to_string().contains("point count under 2"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
