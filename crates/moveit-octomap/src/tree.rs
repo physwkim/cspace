@@ -914,9 +914,33 @@ impl OcTree {
     /// Upstream `search(const OcTreeKey&, depth)`. `depth == 0` means the
     /// finest resolution, matching upstream's own `0`-means-full-depth
     /// convention.
+    ///
+    /// # Deviation: explicit `debug_assert!` added for `depth <= TREE_DEPTH` (Task G)
+    ///
+    /// Upstream's own precondition, `assert(depth <= tree_depth);`
+    /// (`OcTreeBaseImpl.hxx:435`), was previously reproduced only by
+    /// accident: `TREE_DEPTH - depth`'s unsigned underflow for an
+    /// out-of-range `depth` happened to produce an empty
+    /// `(diff..TREE_DEPTH)` range below, which looks like a safe skip but is
+    /// **not** upstream's own behaviour. Upstream computes `int diff =
+    /// tree_depth - depth` in *unsigned* arithmetic first, landing a huge
+    /// value that is then reinterpreted as *negative* on assignment to the
+    /// signed `int diff` -- its loop then runs `tree_depth` extra
+    /// iterations down to a negative index and calls `computeChildIdx` with
+    /// a negative shift amount, unconditional UB, not a clean skip. The two
+    /// were never symmetric; the accidental skip here only looked safe
+    /// because every current call site happens to pass `depth == 0`.
+    /// `search` is `pub(crate)`, so a future same-crate caller could break
+    /// that accident silently; this makes the precondition explicit and
+    /// tested instead of implicit.
     pub(crate) fn search(&self, key: OcTreeKey, depth: u32) -> Option<&Node> {
         let mut cur = self.root.as_deref()?;
         let depth = if depth == 0 { Self::TREE_DEPTH } else { depth };
+        debug_assert!(
+            depth <= Self::TREE_DEPTH,
+            "search: depth {depth} exceeds TREE_DEPTH ({})",
+            Self::TREE_DEPTH
+        );
         let diff = Self::TREE_DEPTH - depth;
         for i in (diff..Self::TREE_DEPTH).rev() {
             let pos = compute_child_idx(key, i) as usize;
@@ -1867,6 +1891,22 @@ mod tests {
         // unedited.
         let tree = OcTree::new(0.1);
         let _ = tree.node_size(OcTree::TREE_DEPTH + 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "search: depth")]
+    fn search_rejects_depth_above_tree_depth() {
+        // Pre-fix this had no check at all: `TREE_DEPTH - depth` underflows
+        // and panics with "attempt to subtract with overflow" instead --
+        // Finding 2's whole point being that upstream's own out-of-range
+        // behaviour is not a clean skip either, see `search`'s doc comment.
+        // A fresh, never-updated tree has no root, and `search` returns
+        // `None` via `?` before ever reaching the debug_assert -- a real
+        // node must exist for this to reach the check at all.
+        let mut tree = OcTree::new(0.1);
+        let key = OcTree::root_key();
+        tree.update_node_by_key(key, true, false);
+        let _ = tree.search(key, OcTree::TREE_DEPTH + 1);
     }
 
     #[test]
