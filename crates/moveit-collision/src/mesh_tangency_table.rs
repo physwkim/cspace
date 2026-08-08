@@ -49,27 +49,28 @@ pub(crate) enum MeshOtherKind {
 pub(crate) enum MeshVerdict {
     /// fcl reports touching at every one of the 497 tilted orientations
     /// measured, stable across argument order every time (145/497 of them a
-    /// real `query::contact` miss). Matches the closed-form
-    /// `Sphere`-triangle specialisation (`gjk_solver_libccd-inl.h:403-419,
-    /// 480-498`), whose boundary padding (`sphere_triangle-inl.h:146,156`)
-    /// is orientation-independent by construction -- there is nothing
-    /// pose-dependent left to chase, so this is the one verdict with an
-    /// unambiguous target. It is the only variant [`Self::as_tangency_bool`]
-    /// answers `Some(true)` for, but that alone does not close the 145 --
-    /// measured on 10 sampled miss poses, `query::intersection_test`
-    /// (`accumulate_collision`'s existing confirmation call for a `None`
-    /// `query::contact`) answers `false` at all 10, the same near-degenerate
-    /// rounding this table exists to route around, one geometric query
-    /// deeper (`Ball`-vs-`Triangle`'s `PointQuery::project_local_point`, not
-    /// the GJK `contact` path). A widened-prediction second
-    /// `query::contact` call (`2.0 * TIE_ROUNDING_MARGIN * f64::EPSILON *
-    /// tie_scale(..)`) finds `Some` at all 10 of the same
-    /// poses instead, feeding a real `dist` into `touches_at_tie` the same
-    /// way every non-mesh tie already does -- but wiring that in touches
-    /// `accumulate_collision`'s branch body, outside this table's own
-    /// confinement. This verdict records the *target*; closing the 145 is a
-    /// separate, not-yet-made change -- `Some(true)` only means "this table
-    /// knows the answer", not "the answer is already delivered".
+    /// real `query::contact` miss in production, both roles). Matches the
+    /// closed-form `Sphere`-triangle specialisation
+    /// (`gjk_solver_libccd-inl.h:403-419, 480-498`), whose boundary padding
+    /// (`sphere_triangle-inl.h:146,156`) is orientation-independent by
+    /// construction -- there is nothing pose-dependent left to chase, so
+    /// this is the one verdict with an unambiguous target. It is the only
+    /// variant [`Self::as_tangency_bool`] answers `Some(true)` for, and that
+    /// alone did not originally close the 145 (2594 counting the wider
+    /// `mesh_orientation_probe.rs` sweep, systematic and random together):
+    /// measured on sampled miss poses, `query::intersection_test`
+    /// (`accumulate_collision`'s original confirmation call for a `None`
+    /// `query::contact`) answered `false` at every one, the same
+    /// near-degenerate rounding this table exists to route around, one
+    /// geometric query deeper (`Ball`-vs-`Triangle`'s `PointQuery::
+    /// project_local_point`, not the GJK `contact` path). That gap is now
+    /// closed: `crate::parry::tangent_pair_touches` gives a `TriMesh` pair
+    /// whose `intersection_test` fails a second, direct `query::contact`
+    /// call with prediction widened by `crate::parry::TIE_ROUNDING_MARGIN`'s
+    /// own tie-band margin (doubled), and `accumulate_collision`'s branch
+    /// calls it instead of `intersection_test` alone.
+    /// `mesh_orientation_probe.rs` re-measured after that change: 0 misses,
+    /// down from 2594, every other kind's count unchanged.
     AlwaysTouching,
     /// fcl itself has no single answer at a majority of the 497 orientations
     /// measured (408/497, 82.1%, argument-order-unstable) -- generalises
@@ -95,10 +96,11 @@ impl MeshVerdict {
     /// table has an unambiguous answer for. `None` for the other two, which
     /// leaves `touches_at_tie`/`accumulate_collision` exactly where they
     /// were before this table existed (`unwrap_or(true)` in the tie band,
-    /// the rescue branch's `== Some(true)` gate staying closed). Note
-    /// `Some(true)` alone changes no *observable* behaviour yet, for any
-    /// pair -- see [`Self::AlwaysTouching`]'s own doc for why `Sphere` still
-    /// needs a further change this table does not make.
+    /// the rescue branch's `== Some(true)` gate staying closed). `Some(true)`
+    /// opens the rescue branch's gate for `Sphere`; whether the branch's own
+    /// confirmation then finds a real touch is `crate::parry::
+    /// tangent_pair_touches`'s question, not this table's -- see
+    /// [`Self::AlwaysTouching`]'s own doc for that measurement.
     pub(crate) const fn as_tangency_bool(self) -> Option<bool> {
         match self {
             Self::AlwaysTouching => Some(true),

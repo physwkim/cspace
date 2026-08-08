@@ -2337,6 +2337,54 @@ fn touches_at_tie(
     }
 }
 
+/// [`accumulate_collision`]'s `None`-but-touching branch confirms a pair
+/// [`fcl_tangency_verdict`] says collides via [`query::intersection_test`],
+/// which agrees with `fcl` for every pair this crate has measured except
+/// one: `mesh x sphere`, whose only `Some(true)` mesh pairing
+/// (`crate::mesh_tangency_table::MeshVerdict::AlwaysTouching`'s own doc has
+/// the measurement) failed `intersection_test` on all 10 sampled miss poses.
+/// `TriMesh`-vs-`Ball` dispatches to `intersection_test_ball_point_query`/
+/// `intersection_test_point_query_ball`
+/// (`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs`), which rounds
+/// through `PointQuery::project_local_point` — a different computation from
+/// the GJK path `query::contact` above already uses and already knows how to
+/// round through inside [`touches_at_tie`]'s own band. So for a `TriMesh`
+/// pair only, a failed `intersection_test` gets one more chance: a second,
+/// direct `query::contact` call widened by the same
+/// [`TIE_ROUNDING_MARGIN`] `* f64::EPSILON * `[`tie_scale`] band
+/// `touches_at_tie` itself trusts (doubled, for the extra rounding step),
+/// treating a `Some` there as touching too.
+///
+/// Gated on `TriMesh` because that is where the measured defect is — every
+/// non-mesh `Some(true)` pair this crate has measured already gets a correct
+/// answer from `intersection_test` alone (`contact_ball_ball`'s strict `<`
+/// vs `intersection_test_ball_ball`'s `<=`, the branch's own comment below
+/// has the precedent), so widening those too would risk a false positive
+/// this crate has no measurement justifying. `fcl_tangency_verdict` itself
+/// already keeps every mesh pairing other than `sphere` at `None`
+/// (`crate::mesh_tangency_table::MESH_TANGENCY`), so this cannot reach
+/// `cone`/`box`/`cylinder`/`mesh x mesh` regardless of the `TriMesh` gate
+/// here — the gate is defence in depth, not the only thing stopping it.
+fn tangent_pair_touches(
+    a_pose: &Pose,
+    a_shape: &dyn ParryShape,
+    b_pose: &Pose,
+    b_shape: &dyn ParryShape,
+) -> bool {
+    if query::intersection_test(a_pose, a_shape, b_pose, b_shape).unwrap_or(false) {
+        return true;
+    }
+    if a_shape.shape_type() != ShapeType::TriMesh && b_shape.shape_type() != ShapeType::TriMesh {
+        return false;
+    }
+    let scale = tie_scale(a_pose, a_shape, b_pose, b_shape);
+    let margin = 2.0 * TIE_ROUNDING_MARGIN * f64::EPSILON * scale;
+    matches!(
+        query::contact(a_pose, a_shape, b_pose, b_shape, margin),
+        Ok(Some(_))
+    )
+}
+
 /// `collisionCallback`'s per-pair algorithm (see the module doc, deviations
 /// 4 and 5, and "Attached-body geometry"), folded over every candidate pair:
 ///
@@ -2356,11 +2404,10 @@ fn touches_at_tie(
 ///   clearance `query::contact`'s own margin still reported, or a rounding
 ///   tie the dispatch table says this shape pair does not collide at):
 ///   no collision, regardless of the ACM entry.
-/// - No contact, but the pair classifies into [`TangencyKind`] as one the
-///   table says collides, is not [`AllowedCollision::Conditional`], and
-///   [`query::intersection_test`] independently confirms they touch:
-///   unconditionally a collision, with no `Contact` recorded — see the
-///   branch's own comment below for why.
+/// - No contact, but [`fcl_tangency_verdict`] says this pair collides, is
+///   not [`AllowedCollision::Conditional`], and [`tangent_pair_touches`]
+///   independently confirms they touch: unconditionally a collision, with
+///   no `Contact` recorded — see the branch's own comment below for why.
 /// - `Err`/`None` from the query and none of the above: not a collision.
 ///
 /// The `collision` flag is set independent of the storage budget
@@ -2463,20 +2510,22 @@ fn accumulate_collision<'a>(
                 }
             } else if !matches!(allowed, Some(AllowedCollision::Conditional(_)))
                 && fcl_tangency_verdict(a_shape, b_shape) == Some(true)
-                && query::intersection_test(a_pose, a_shape, b_pose, b_shape).unwrap_or(false)
+                && tangent_pair_touches(a_pose, a_shape, b_pose, b_shape)
             {
                 // `query::contact` missed this pair (`None`) even though they
                 // are geometrically touching or overlapping
-                // (`query::intersection_test` is `true`): the only way that
+                // (`tangent_pair_touches` is `true`): the only way that
                 // happens is a specialised closed-form routine excluding a
                 // boundary its own geometric test admits --
                 // `contact_ball_ball`'s strict `<` vs
                 // `intersection_test_ball_ball`'s `<=` is the one this crate
                 // has measured
-                // (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`).
+                // (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`),
+                // plus one more for `TriMesh` specifically --
+                // `tangent_pair_touches`'s own doc has both.
                 // `fcl_tangency_verdict` gates this to the pairs the table
                 // says collide, so a pair it says does *not* (e.g. `box x
-                // cone`) never reaches `intersection_test` here at all --
+                // cone`) never reaches `tangent_pair_touches` here at all --
                 // this branch cannot make one of those `true`.
                 //
                 // There is no `Contact` to build for this pair, so unlike

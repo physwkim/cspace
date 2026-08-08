@@ -7,27 +7,33 @@
 //! target (`tools/fcl-mesh-orientation-probe` measures `mesh x sphere` as
 //! `true` at every one of 497 tilted orientations, zero exceptions, matching
 //! the closed-form `Sphere`-triangle specialisation's orientation-independent
-//! boundary padding), and this crate now has a table that knows it:
-//! `crate::mesh_tangency_table::MESH_TANGENCY[MeshOtherKind::Sphere]` is
-//! `MeshVerdict::AlwaysTouching`, and the deleted `is_mesh_pair`'s single
-//! blanket boolean is gone.
+//! boundary padding), and this crate's `crate::mesh_tangency_table::
+//! MESH_TANGENCY[MeshOtherKind::Sphere]` (`MeshVerdict::AlwaysTouching`)
+//! knows it.
 //!
-//! That is not the same as this test passing. `MeshVerdict::AlwaysTouching`'s
-//! own module doc has the measurement: `accumulate_collision`'s existing
-//! rescue branch for a `query::contact` miss confirms touching via
-//! `query::intersection_test`, and for this exact construction that call
-//! answers `false` too -- one geometric query deeper than the `contact` path
-//! (`Ball`-vs-`Triangle`'s `PointQuery::project_local_point`, not GJK), the
-//! same near-degenerate rounding `mesh_orientation_probe.rs` measures,
-//! surviving a second, independent computation. Closing this needs a
-//! widened-prediction second `query::contact` call inside
-//! `accumulate_collision`'s branch body -- a change outside
-//! `crate::mesh_tangency_table`'s own confinement, not made here.
+//! This pose used to be a genuine miss: `MeshVerdict::AlwaysTouching`'s own
+//! module doc measured that `accumulate_collision`'s rescue confirmation,
+//! `query::intersection_test`, answers `false` here too -- one geometric
+//! query deeper than the `contact` path (`Ball`-vs-`Triangle`'s `PointQuery::
+//! project_local_point`, not GJK), the same near-degenerate rounding
+//! `mesh_orientation_probe.rs` measures, surviving a second, independent
+//! computation. `crate::parry::tangent_pair_touches` closes that: a `TriMesh`
+//! pair whose plain `intersection_test` fails gets one more chance, a second
+//! `query::contact` call with prediction widened by `TIE_ROUNDING_MARGIN`'s
+//! own tie-band margin (doubled) -- which does find a real contact here, and
+//! `accumulate_collision`'s branch now reports a collision. Re-running
+//! `mesh_orientation_probe` confirms the whole `mesh x sphere` row, not just
+//! this one pose: 2594 misses (497 systematic + 2000 random orientations x 2
+//! roles) before this fix, 0 after; every other kind's miss count is
+//! unchanged (`box` 6, `cylinder` 13, `cone` 1521, `mesh x mesh` 1949) --
+//! `fcl_tangency_verdict` only reaches `Some(true)` for a mesh pair here, so
+//! nothing else could have moved.
 //!
-//! This test pins the *current* behaviour, exactly as
-//! `mesh_orientation_tangency_can_miss.rs` does for its own `box` case: it
-//! still misses, and the two controls bracket it as a genuine near-tie
-//! rather than a construction error.
+//! `mesh_sphere_tangency_has_a_target_but_is_not_yet_rescued.rs` was this
+//! file's own former name and content -- it pinned the miss as *current,
+//! unfixed* behaviour, the same way `mesh_orientation_tangency_can_miss.rs`
+//! still does for `box`. Renamed and rewritten here because that is no
+//! longer true for `sphere`.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -85,9 +91,9 @@ fn unit_cube_mesh() -> Mesh {
 
 /// Rotates the mesh 5 degrees about world `x` and translates it so its own
 /// lowest rotated vertex sits exactly on [`TOUCH`], offset by `delta` along
-/// z (negative moves it toward more overlap) -- one of the ten
-/// `mesh x sphere` miss poses `mesh_orientation_probe.rs`'s own sweep found,
-/// sampled and confirmed unrescued during this round's own investigation.
+/// z (negative moves it toward more overlap, positive opens a real gap) --
+/// one of the 2594 `mesh x sphere` miss poses `mesh_orientation_probe.rs`'s
+/// own sweep found before this fix.
 fn tilted_mesh_pose(delta: f64) -> Isometry3 {
     let axis = Unit::new_normalize(Vector3::new(1.0, 0.0, 0.0));
     let rot = UnitQuaternion::from_axis_angle(&axis, 5.0_f64.to_radians());
@@ -156,25 +162,29 @@ fn collides(delta: f64) -> bool {
     .collision
 }
 
-/// Measured by `mesh_orientation_probe`, and confirmed unrescued by this
-/// round's own investigation (`MeshVerdict::AlwaysTouching`'s own doc):
-/// `check_robot_collision` reports no collision even though `mesh x sphere`
-/// has a stable, unambiguous fcl target of `true` at this exact tangency.
-/// Pins the *current*, unfixed behaviour -- update this test (and the doc
-/// above) when `accumulate_collision`'s branch body gets the widened-
-/// prediction second `query::contact` call this pair needs.
+/// Measured by `mesh_orientation_probe` as a miss before this fix and a hit
+/// after: `check_robot_collision` now reports a collision for `mesh x
+/// sphere` at exact tangency, matching fcl's own stable target.
 #[test]
-fn a_5_degree_tilted_mesh_on_a_sphere_misses_at_exact_tangency_despite_a_known_target() {
-    assert!(
-        !collides(0.0),
-        "if this now collides, the miss this test pins has already been fixed -- \
-         update this test to assert the fix instead of deleting it silently"
-    );
+fn a_5_degree_tilted_mesh_on_a_sphere_collides_at_exact_tangency() {
+    assert!(collides(0.0));
 }
 
-/// The same pose with `1e-14` of added overlap does collide, confirming the
-/// pose above is a genuine near-tie and not a construction error.
+/// The same pose with `1e-14` of added overlap also collides -- unsurprising
+/// on its own, but confirms the pose is a real near-tie rather than a
+/// construction artefact the widened prediction happens to catch regardless
+/// of geometry.
 #[test]
 fn a_hair_more_overlap_on_the_same_pose_does_collide() {
     assert!(collides(-1e-14));
+}
+
+/// The same pose opened by `1e-9` -- roughly five orders of magnitude past
+/// `tangent_pair_touches`'s own widened margin (`2 * TIE_ROUNDING_MARGIN *
+/// f64::EPSILON * tie_scale`, on the order of `1e-14` at this pose's `TOUCH`
+/// magnitude) -- does not collide. The widened second `query::contact` call
+/// only reaches as far as that margin; it does not swallow a real clearance.
+#[test]
+fn a_real_gap_past_the_widened_margin_still_reports_no_collision() {
+    assert!(!collides(1e-9));
 }

@@ -127,31 +127,49 @@
 //! sphere` tilt this port misses (29.2% of the 497, zero exceptions) -- see
 //! that tool's own README for the full per-kind pose-level table.
 //!
-//! # Resolution -- partial
+//! # Resolution -- sphere closed, the rest deliberately not attempted
 //!
 //! `mesh x sphere` had an fcl target to converge to and nothing else did, so
-//! it is the one pair with an identified fix: `crate::mesh_tangency_table`
-//! replaces the deleted `is_mesh_pair`'s single blanket boolean with a
-//! measured, per-paired-kind verdict (`MeshVerdict::AlwaysTouching` for
-//! `Sphere` alone; `NoStableTarget` for `cone`, measured unresolvable;
-//! `Undiagnosed` for `box`/`cylinder`/`mesh`, measured but not safely
-//! reducible to one verdict per pair -- `crate::mesh_tangency_table`'s own
-//! module doc has the full accounting), and `fcl_tangency_verdict` now
-//! dispatches mesh pairs to it instead of returning `None` unconditionally.
+//! it is the one pair this crate closes. Two changes, in order:
 //!
-//! That alone does not close the 145 `mesh x sphere` misses. "The branch's
-//! `== Some(true)` guard can never pass for a mesh pair, regardless of shape
-//! or orientation" (above) is no longer true -- the guard passes for
-//! `mesh x sphere` now -- but the branch's own confirmation call,
-//! `query::intersection_test`, was measured on 10 sampled miss poses to
-//! answer `false` at every one: the same near-degenerate rounding this probe
-//! measures, one geometric query deeper (`Ball`-vs-`Triangle`'s
-//! `PointQuery::project_local_point`, not the GJK `contact` path
-//! `touches_at_tie` already knows how to round through). A widened-
-//! prediction second `query::contact` call finds `Some` at all 10 of the
-//! same poses instead, which is the fix `accumulate_collision`'s branch body
-//! still needs -- outside `crate::mesh_tangency_table`'s own confinement, not
-//! made here. `MeshVerdict::AlwaysTouching`'s own doc has the measurement.
+//! 1. `crate::mesh_tangency_table` replaces the deleted `is_mesh_pair`'s
+//!    single blanket boolean with a measured, per-paired-kind verdict
+//!    (`MeshVerdict::AlwaysTouching` for `Sphere` alone; `NoStableTarget` for
+//!    `cone`, measured unresolvable; `Undiagnosed` for `box`/`cylinder`/
+//!    `mesh`, measured but not safely reducible to one verdict per pair --
+//!    `crate::mesh_tangency_table`'s own module doc has the full accounting),
+//!    and `fcl_tangency_verdict` dispatches mesh pairs to it instead of
+//!    returning `None` unconditionally. On its own this changed no
+//!    observable behaviour: the branch's own confirmation call,
+//!    `query::intersection_test`, was measured to answer `false` on every
+//!    sampled `mesh x sphere` miss pose too -- the same near-degenerate
+//!    rounding this probe measures, one geometric query deeper
+//!    (`Ball`-vs-`Triangle`'s `PointQuery::project_local_point`, not the GJK
+//!    `contact` path `touches_at_tie` already knows how to round through).
+//! 2. `crate::parry::tangent_pair_touches` gives a `TriMesh` pair whose plain
+//!    `intersection_test` fails one more chance: a second, direct
+//!    `query::contact` call with prediction widened by
+//!    `crate::parry::TIE_ROUNDING_MARGIN`'s own tie-band margin (doubled),
+//!    gated to `TriMesh` so it cannot touch any non-mesh pair's own
+//!    behaviour. `accumulate_collision`'s rescue branch now calls this
+//!    instead of `intersection_test` alone.
+//!
+//! Re-running this probe after both changes: `mesh x sphere` goes from 2594
+//! misses (497 systematic + 2000 random orientations, both roles) to 0.
+//! Every other kind's count is unchanged -- `box` 6, `cylinder` 13, `cone`
+//! 1521, `mesh` 1949 -- because `fcl_tangency_verdict` only reaches
+//! `Some(true)` for a mesh pair on `Sphere`, so nothing else could have
+//! moved. `crates/moveit-collision/tests/
+//! mesh_sphere_tangency_is_rescued_at_exact_tangency.rs` pins one such pose
+//! as a passing regression, plus a control confirming a real `1e-9` gap past
+//! the widened margin still reports no collision.
+//!
+//! `cone`/`box`/`cylinder`/`mesh x mesh` stay exactly as measured above:
+//! `cone` has no single fcl answer to converge to, and `box`/`cylinder`/
+//! `mesh x mesh` are real, undiagnosed divergences in both directions --
+//! extending this rescue to any of them would be picking a value to shrink a
+//! count, not closing a measured target, and `fcl_tangency_verdict` already
+//! keeps all four at `None` regardless.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;

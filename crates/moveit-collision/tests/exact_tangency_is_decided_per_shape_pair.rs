@@ -213,23 +213,30 @@
 //! (497 tilted orientations x 5 kinds x 2 argument orders, exact-zero-gap by
 //! construction) and `tools/fcl-mesh-orientation-probe` (the same 497
 //! against `fcl::BVHModel<fcl::OBBRSSd>`) measured that it does not
-//! generalise: `query::contact` misses 6,083/24,970 (24.4%) of those tilted
-//! ties, and fcl's own answer is itself argument-order-unstable at 408/497
-//! (82.1%) of tilted `mesh x cone` poses and 94/497 (18.9%) of tilted
-//! `mesh x mesh` poses -- not merely the one `mesh x cone` argument-order
-//! tie this file's own axis-aligned sweep already found. `mesh x sphere` is
-//! the one pair whose tilted answer is stable regardless of orientation (fcl
-//! `true` at every one of 497 poses, matching the closed-form
-//! `Sphere`-triangle specialisation's boundary-inclusive padding), and
-//! `crate::mesh_tangency_table` -- kept deliberately separate from this
-//! file's own untilted, per-pair `fcl_tangency_table::SPECIALISED`
-//! provenance rather than merged into it -- is where that measurement now
-//! lives, the only one of the five with an unambiguous target. It is not yet
-//! the only one *rescued*: `MeshVerdict::AlwaysTouching`'s own doc measures
-//! that `accumulate_collision`'s existing confirmation call
-//! (`query::intersection_test`) does not actually confirm `mesh x sphere`
-//! touching either, so closing those 145 misses needs a further change this
-//! table alone does not make.
+//! generalise: at the time of that measurement (before this file's own
+//! `is_mesh_pair` deletion), `check_robot_collision` missed 6,083/24,970
+//! (24.4%) of those tilted ties, and fcl's own answer is itself
+//! argument-order-unstable at 408/497 (82.1%) of tilted `mesh x cone` poses
+//! and 94/497 (18.9%) of tilted `mesh x mesh` poses -- not merely the one
+//! `mesh x cone` argument-order tie this file's own axis-aligned sweep
+//! already found. `mesh x sphere` is the one pair whose tilted answer is
+//! stable regardless of orientation (fcl `true` at every one of 497 poses,
+//! matching the closed-form `Sphere`-triangle specialisation's
+//! boundary-inclusive padding), and `crate::mesh_tangency_table` -- kept
+//! deliberately separate from this file's own untilted, per-pair
+//! `fcl_tangency_table::SPECIALISED` provenance rather than merged into it --
+//! is where that measurement lives, the only one of the five with an
+//! unambiguous target, and now the only one rescued too:
+//! `crate::parry::tangent_pair_touches` gives a `TriMesh` pair a widened
+//! second `query::contact` chance when the plain confirmation
+//! (`query::intersection_test`) fails, and `mesh_orientation_probe`'s own
+//! doc has the re-measured count -- `mesh x sphere`'s 2594 misses (of the
+//! 6,083 total above) are 0 after that change, every other kind's count
+//! unchanged. `crates/moveit-collision/tests/
+//! mesh_sphere_tangency_is_rescued_at_exact_tangency.rs` pins the fix as a
+//! passing regression. `box`/`cylinder`/`mesh x mesh` stay unrescued --
+//! real, undiagnosed divergences with no single target to converge to, not
+//! merely not-yet-attempted.
 //!
 //! # Cost
 //!
