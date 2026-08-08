@@ -2960,6 +2960,25 @@ impl ConvexMesh {
     /// this body, ordered along the ray and capped at `count` points
     /// (`None` for unlimited). Upstream `intersectsRay`; see the module
     /// docs, deviations 1 and 2.
+    ///
+    /// # Deviation: `tmp`/`t`'s guards were negated into a NaN-unsafe form
+    ///
+    /// Upstream (`bodies.cpp:1260-1266`) gates the per-triangle work with
+    /// two *positive* conditions: `fabs(tmp) > detail::ZERO`, then `t >
+    /// 0.0`. Both read `false` for a NaN `tmp`/`t`, so a NaN correctly
+    /// skips the triangle. This method used to spell the same gate as an
+    /// early `continue` on the naively negated condition — `if tmp.abs()
+    /// <= ZERO { continue; }` — which is not upstream's true negation:
+    /// `<=` is *also* false for NaN, so a NaN `tmp` (reachable from a NaN
+    /// origin/direction component that a triangle's own axis-aligned
+    /// `normal` zeroes out of the dot product, e.g. `normal = (0, 0, 1)`
+    /// against a NaN-x ray) fell through into computing `t`, and a NaN `t`
+    /// fell through the same way into `p = orig + dr * t`, carrying the
+    /// NaN into a returned intersection point. The explicit `is_nan()`
+    /// checks below are the true negation of upstream's positive
+    /// condition, correct for NaN where the naive `<=`/`<=` flip was not
+    /// (`clippy::neg_cmp_op_on_partial_ord` also rejects spelling this as
+    /// `!(tmp.abs() > ZERO)`, for the same reason: it reads as `<=`).
     pub fn ray_intersections(
         &self,
         origin: &Vector3,
@@ -2986,11 +3005,11 @@ impl ConvexMesh {
             .zip(self.plane_offsets.iter())
         {
             let tmp = normal.dot(&dr);
-            if tmp.abs() <= ZERO {
+            if tmp.is_nan() || tmp.abs() <= ZERO {
                 continue;
             }
             let t = -(normal.dot(&orig) + offset) / tmp;
-            if t <= 0.0 {
+            if t.is_nan() || t <= 0.0 {
                 continue;
             }
 
@@ -4040,6 +4059,41 @@ mod tests {
             Some(2),
         );
         assert_eq!(hits.len(), 2);
+    }
+
+    /// A NaN confined to `origin`'s y-component, with `dir`'s y-component
+    /// exactly `0.0`, reaches the top/bottom (z-normal) faces' `tmp =
+    /// normal.dot(&dr)` and `normal.dot(&orig)` dot products with its own
+    /// coefficient zeroed out — `tmp`/`t` come out finite even though the
+    /// ray is not, so no per-triangle check on `tmp`/`t` alone can catch it;
+    /// only a check on `origin`/`dir` themselves can. See
+    /// `ConvexMesh::ray_intersections`'s doc comment.
+    #[test]
+    fn convex_mesh_ray_rejects_a_nan_confined_to_an_axis_the_hit_faces_dot_out() {
+        let mesh = ConvexMesh::new(&box_mesh(2.0, 2.0, 2.0)).unwrap();
+        let hits = mesh.ray_intersections(
+            &Vector3::new(0.0, f64::NAN, -2.0),
+            &Vector3::new(0.0, 0.0, 1.0),
+            None,
+        );
+        assert_eq!(
+            hits,
+            Vec::<Vector3>::new(),
+            "a non-finite ray must yield no intersections, not a NaN-carrying point: {hits:?}"
+        );
+    }
+
+    /// Demonstrated opposite: the same ray with the NaN replaced by an
+    /// ordinary finite value still hits the top and bottom faces normally.
+    #[test]
+    fn convex_mesh_ray_still_hits_the_same_axis_when_finite() {
+        let mesh = ConvexMesh::new(&box_mesh(2.0, 2.0, 2.0)).unwrap();
+        let hits = mesh.ray_intersections(
+            &Vector3::new(0.0, 0.0, -2.0),
+            &Vector3::new(0.0, 0.0, 1.0),
+            None,
+        );
+        assert_eq!(hits.len(), 2, "{hits:?}");
     }
 
     #[test]
