@@ -1264,7 +1264,10 @@ impl OcTree {
     /// `lib.rs`'s "Round 27, item 1(a)" for the full format derivation).
     /// `self` must be a freshly constructed, empty tree -- matching
     /// upstream's own refusal to decode into a tree that already has a
-    /// root, see [`DecodeError::TreeAlreadyPopulated`].
+    /// root, see [`DecodeError::TreeAlreadyPopulated`]. `self.resolution`
+    /// must also be a positive, finite value -- see
+    /// [`DecodeError::InvalidResolution`] for why that is checked here
+    /// rather than in [`Self::new`].
     ///
     /// Each node's own 2-byte record packs its 8 children 2 bits each: `10`
     /// free leaf (read back as exactly [`Self::clamping_thres_min_log`]),
@@ -1307,6 +1310,9 @@ impl OcTree {
         if self.root.is_some() {
             return Err(DecodeError::TreeAlreadyPopulated);
         }
+        if !(self.resolution.is_finite() && self.resolution > 0.0) {
+            return Err(DecodeError::InvalidResolution);
+        }
         let params = BinaryReadParams {
             clamp_min: self.clamping_thres_min,
             clamp_max: self.clamping_thres_max,
@@ -1322,8 +1328,9 @@ impl OcTree {
     /// `OcTreeDataNode::readData`: decode the full, lossless wire format
     /// `moveit_msgs::Octomap.data` carries when `msg.binary == false`
     /// (`writeData`'s exact inverse; see `lib.rs`'s "Round 27, item 1(a)").
-    /// `self` must be a freshly constructed, empty tree, for the same
-    /// reason as [`Self::read_binary_data`].
+    /// `self` must be a freshly constructed, empty tree, and `self.resolution`
+    /// must be a positive, finite value, for the same reasons as
+    /// [`Self::read_binary_data`].
     ///
     /// Each node is written depth-first as its own raw `f32` log-odds (a
     /// direct little-endian read, see the private `Cursor::read_f32_le`'s
@@ -1350,6 +1357,9 @@ impl OcTree {
     pub fn read_data(&mut self, bytes: &[u8]) -> Result<(), DecodeError> {
         if self.root.is_some() {
             return Err(DecodeError::TreeAlreadyPopulated);
+        }
+        if !(self.resolution.is_finite() && self.resolution > 0.0) {
+            return Err(DecodeError::InvalidResolution);
         }
         let mut cursor = Cursor::new(bytes);
         let mut root = Node::new();
@@ -2033,6 +2043,53 @@ mod tests {
         let mut tree = OcTree::new(0.1);
         tree.update_node(Point3::new(0.05, 0.05, 0.05), true, false);
         assert_eq!(tree.read_data(&[]), Err(DecodeError::TreeAlreadyPopulated));
+    }
+
+    // `DecodeError::InvalidResolution`: an untrusted-wire resolution never
+    // fails loudly on its own (`update_node` no-ops via the already-guarded
+    // `coord_to_key_checked` direction), but decode never touches
+    // `resolution` and would silently populate a tree whose leaves
+    // `key_to_coord_axis` then collapses to the world origin -- see the
+    // variant's own doc for the full measured chain. One boundary each side
+    // of the valid range, plus the two non-finite values a wire `f64` can
+    // carry.
+    #[test]
+    fn read_binary_data_rejects_zero_resolution() {
+        let mut tree = OcTree::new(0.0);
+        assert_eq!(
+            tree.read_binary_data(&[0x02, 0x00]),
+            Err(DecodeError::InvalidResolution)
+        );
+    }
+
+    #[test]
+    fn read_binary_data_rejects_negative_resolution() {
+        let mut tree = OcTree::new(-0.1);
+        assert_eq!(
+            tree.read_binary_data(&[0x02, 0x00]),
+            Err(DecodeError::InvalidResolution)
+        );
+    }
+
+    #[test]
+    fn read_binary_data_rejects_nan_and_infinite_resolution() {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut tree = OcTree::new(bad);
+            assert_eq!(
+                tree.read_binary_data(&[0x02, 0x00]),
+                Err(DecodeError::InvalidResolution),
+                "resolution {bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn read_data_rejects_zero_resolution() {
+        let mut tree = OcTree::new(0.0);
+        assert_eq!(
+            tree.read_data(&[0, 0, 0, 63, 0]),
+            Err(DecodeError::InvalidResolution)
+        );
     }
 
     #[test]
