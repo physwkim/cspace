@@ -765,6 +765,7 @@
 
 use moveit_error::{Error, Result};
 
+use crate::numeric::cxx_max;
 use crate::shapes::{Mesh as ShapeMesh, Shape};
 use crate::{BoundingSphere, Isometry3, Vector3};
 
@@ -1144,16 +1145,24 @@ impl OBB {
         // on how far apart the two boxes' centers are. See the module
         // docs, deviation 3, and the provenance comment at the top of this
         // file for where the FCL source came from.
-        let max_extent = self
-            .half_extents
-            .x
-            .max(self.half_extents.y)
-            .max(self.half_extents.z);
-        let other_max_extent = other
-            .half_extents
-            .x
-            .max(other.half_extents.y)
-            .max(other.half_extents.z);
+        //
+        // `max_extent`/`other_max_extent` use `cxx_max`, not `.max()`:
+        // upstream is `std::max(std::max(extent[0], extent[1]), extent[2])`
+        // (`OBB-inl.h:164-165`), which propagates a NaN `extent[0]`
+        // (`.x`) out through both calls but silently discards a NaN
+        // `extent[1]`/`extent[2]`. `.x.max(y).max(z)` discards NaN
+        // regardless of position, so it can pick a different
+        // `merge_largedist`/`merge_smalldist` branch than upstream's
+        // NaN-forced `merge_smalldist` for the same input — see
+        // `crate::numeric`.
+        let max_extent = cxx_max(
+            cxx_max(self.half_extents.x, self.half_extents.y),
+            self.half_extents.z,
+        );
+        let other_max_extent = cxx_max(
+            cxx_max(other.half_extents.x, other.half_extents.y),
+            other.half_extents.z,
+        );
         let center_diff = self.pose.translation.vector - other.pose.translation.vector;
         *self = if center_diff.norm() > 2.0 * (max_extent + other_max_extent) {
             merge_largedist(self, other)
@@ -3356,6 +3365,14 @@ mod tests {
     /// dependency was added and upstream's exact
     /// `RandomNumberGenerator`/iteration-count sequences are not
     /// reproduced.
+    /// `{:?}`-based equality: unlike `assert_eq!`, two NaN fields compare
+    /// equal here (both print `NaN`), which a couple of tests below need --
+    /// see their own comments for why a genuinely-NaN field is expected on
+    /// both sides of the comparison, not a bug being masked.
+    fn debug_string(obb: &OBB) -> String {
+        format!("{obb:?}")
+    }
+
     fn uniform_test_rng(seed: u64) -> impl FnMut(f64, f64) -> f64 {
         let mut state = seed | 1;
         move |lo: f64, hi: f64| {
@@ -4275,6 +4292,85 @@ mod tests {
         assert!(merged.contains_point(&boxes[1].pose().translation.vector));
         assert!(merged.overlaps(&boxes[0]));
         assert!(merged.overlaps(&boxes[1]));
+    }
+
+    /// Upstream `OBB::operator+`'s `max_extent = std::max(std::max(extent[0],
+    /// extent[1]), extent[2])` propagates a NaN `extent[0]` (`.x`) out
+    /// through both nested calls (it is the first operand of each), which
+    /// then makes `center_diff.norm() > 2*(max_extent+max_extent2)` false --
+    /// every comparison against NaN is false -- so upstream always takes
+    /// `merge_smalldist` once `.x` is NaN, regardless of how far apart the
+    /// centers actually are. `b1`/`b2`'s centers below are 1.0 apart, well
+    /// past `2*(0.1+0.1) = 0.4`: far enough that a correctly-propagated NaN
+    /// forces `merge_smalldist`, but a *silently discarded* one (the
+    /// pre-fix `.x.max(y).max(z)`, which picks `max(0.1, 0.1) = 0.1` instead
+    /// of NaN) clears that threshold and takes `merge_largedist` instead --
+    /// asserting the chosen branch, not just `max_extent`'s value, is what
+    /// this test is for.
+    #[test]
+    fn extend_approx_takes_merge_smalldist_when_a_half_extent_x_is_nan() {
+        let b1 = OBB::new(
+            Isometry3::translation(0.0, 0.0, 0.0),
+            Vector3::new(f64::NAN, 0.2, 0.2),
+        );
+        let b2 = OBB::new(
+            Isometry3::translation(1.0, 0.0, 0.0),
+            Vector3::new(0.2, 0.2, 0.2),
+        );
+
+        let mut merged = b1;
+        merged.extend_approx(&b2);
+
+        let smalldist = merge_smalldist(&b1, &b2);
+        let largedist = merge_largedist(&b1, &b2);
+        assert_ne!(
+            smalldist, largedist,
+            "the two branches must be distinguishable for this test to mean anything"
+        );
+        assert_eq!(merged, smalldist);
+    }
+
+    /// The demonstrated opposite of
+    /// `extend_approx_takes_merge_smalldist_when_a_half_extent_x_is_nan`:
+    /// the same NaN moved to `.y` (or `.z`) is the position upstream's
+    /// chained `std::max` *discards* (`std::max(a, b) = a<b?b:a`; NaN as
+    /// the second operand makes the comparison false and returns `a`), so
+    /// upstream and the port agree here even before the fix -- without this
+    /// case, the test above would also pass on a port that propagated NaN
+    /// through every position, which is not the bug that was fixed.
+    #[test]
+    fn extend_approx_agrees_with_upstream_when_the_nan_is_at_a_discarded_position() {
+        let b1 = OBB::new(
+            Isometry3::translation(0.0, 0.0, 0.0),
+            Vector3::new(0.2, f64::NAN, 0.2),
+        );
+        let b2 = OBB::new(
+            Isometry3::translation(1.0, 0.0, 0.0),
+            Vector3::new(0.2, 0.2, 0.2),
+        );
+
+        let mut merged = b1;
+        merged.extend_approx(&b2);
+
+        // Upstream's max_extent = std::max(std::max(NaN, 0.1), 0.1):
+        // NaN discarded at the first (inner) call since it's the *second*
+        // operand there, leaving std::max(0.1, 0.1) = 0.1 -- a finite
+        // max_extent, same as `.x.max(y).max(z)` computes. Both sides take
+        // merge_largedist: center_diff.norm() = 1.0 > 2*(0.1+0.1) = 0.4.
+        let largedist = merge_largedist(&b1, &b2);
+        let smalldist = merge_smalldist(&b1, &b2);
+        assert_ne!(
+            debug_string(&smalldist),
+            debug_string(&largedist),
+            "the two branches must be distinguishable for this test to mean anything"
+        );
+        // `b1.half_extents.y` being NaN also feeds `compute_vertices`
+        // directly (every corner has a `+-e.y` component), which poisons
+        // `merge_largedist`'s covariance/PCA sum into an all-NaN pose --
+        // unrelated to the branch-selection bug this test is for, and NaN
+        // != NaN under plain `assert_eq!`, so this compares the `Debug`
+        // strings instead: both sides genuinely agree here, NaNs and all.
+        assert_eq!(debug_string(&merged), debug_string(&largedist));
     }
 
     #[test]
