@@ -14,6 +14,8 @@ use std::f64::consts::PI;
 use moveit_error::{Error, Result};
 use moveit_geometry::Isometry3;
 
+use crate::numeric::cxx_min;
+
 use super::bounds::{JointLimits, VariableBounds};
 use super::fixed;
 use super::floating::FloatingJoint;
@@ -540,6 +542,14 @@ impl JointModel {
     /// [`JointModel::variable_bounds`] on every call has no staleness window
     /// to get wrong, at the cost of an allocation callers needing it in a
     /// hot loop can cache themselves.
+    ///
+    /// The three `.abs().min(...)` calls are `cxx_min`, not [`f64::min`]:
+    /// upstream's `std::min(fabs(min_velocity_), fabs(max_velocity_))` (and
+    /// the acceleration/jerk siblings) keeps a NaN bound as NaN, while
+    /// `f64::min` would silently discard it. A NaN bound is reachable here
+    /// since [`JointModel::set_variable_bounds_from_limits`] copies
+    /// [`JointLimits`] fields straight into [`VariableBounds`] with no
+    /// validation.
     pub fn variable_bounds_msg(&self) -> Vec<JointLimits> {
         self.variable_names
             .iter()
@@ -550,11 +560,11 @@ impl JointModel {
                 min_position: b.min_position,
                 max_position: b.max_position,
                 has_velocity_limits: b.velocity_bounded,
-                max_velocity: b.min_velocity.abs().min(b.max_velocity.abs()),
+                max_velocity: cxx_min(b.min_velocity.abs(), b.max_velocity.abs()),
                 has_acceleration_limits: b.acceleration_bounded,
-                max_acceleration: b.min_acceleration.abs().min(b.max_acceleration.abs()),
+                max_acceleration: cxx_min(b.min_acceleration.abs(), b.max_acceleration.abs()),
                 has_jerk_limits: b.jerk_bounded,
-                max_jerk: b.min_jerk.abs().min(b.max_jerk.abs()),
+                max_jerk: cxx_min(b.min_jerk.abs(), b.max_jerk.abs()),
             })
             .collect()
     }
@@ -1071,6 +1081,68 @@ mod tests {
         assert_eq!(msg.len(), 1);
         assert!(msg[0].has_position_limits);
         assert!(!msg[0].has_velocity_limits);
+    }
+
+    /// A NaN `min_*` bound (the `cxx_min` receiver, matching upstream's
+    /// `std::min` first argument) must come out of `variable_bounds_msg` as
+    /// NaN, not be silently discarded in favor of the finite `max_*` bound.
+    /// `f64::min` discards it; this fails before the `cxx_min` fix and
+    /// passes after.
+    #[test]
+    fn variable_bounds_msg_propagates_nan_from_the_min_bound() {
+        let mut joint = JointModel::new_revolute("j");
+        joint
+            .set_variable_bounds(
+                "j",
+                VariableBounds {
+                    min_velocity: f64::NAN,
+                    max_velocity: 5.0,
+                    velocity_bounded: true,
+                    min_acceleration: f64::NAN,
+                    max_acceleration: 5.0,
+                    acceleration_bounded: true,
+                    min_jerk: f64::NAN,
+                    max_jerk: 5.0,
+                    jerk_bounded: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let msg = joint.variable_bounds_msg();
+        assert!(msg[0].max_velocity.is_nan());
+        assert!(msg[0].max_acceleration.is_nan());
+        assert!(msg[0].max_jerk.is_nan());
+    }
+
+    /// Demonstrated opposite of the above: a NaN `max_*` bound (the
+    /// `cxx_min` non-receiver) is discarded in favor of the finite `min_*`
+    /// bound on both sides of the fix, so the finite answer still comes
+    /// out. Without this, a fix that merely propagated NaN unconditionally
+    /// would also pass the test above.
+    #[test]
+    fn variable_bounds_msg_discards_nan_from_the_max_bound() {
+        let mut joint = JointModel::new_revolute("j");
+        joint
+            .set_variable_bounds(
+                "j",
+                VariableBounds {
+                    min_velocity: 5.0,
+                    max_velocity: f64::NAN,
+                    velocity_bounded: true,
+                    min_acceleration: 5.0,
+                    max_acceleration: f64::NAN,
+                    acceleration_bounded: true,
+                    min_jerk: 5.0,
+                    max_jerk: f64::NAN,
+                    jerk_bounded: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let msg = joint.variable_bounds_msg();
+        assert_eq!(msg[0].max_velocity, 5.0);
+        assert_eq!(msg[0].max_acceleration, 5.0);
+        assert_eq!(msg[0].max_jerk, 5.0);
     }
 
     #[test]

@@ -31,6 +31,7 @@ pub mod joint;
 mod joint_model_group;
 mod link_model;
 mod mesh_search_paths;
+mod numeric;
 mod robot_model;
 
 pub use diagnostic::Diagnostic;
