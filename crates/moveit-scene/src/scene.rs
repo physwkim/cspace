@@ -23,6 +23,7 @@ use moveit_state::{Posed, RobotState};
 
 use crate::attached_body::AttachedBody;
 use crate::layered::Layered;
+use crate::numeric::cxx_min;
 use crate::world_diff::WorldDiff;
 
 /// The result of [`PlanningScene::is_path_valid`]: overall validity plus
@@ -2627,7 +2628,15 @@ fn isometry_is_approx(a: Isometry3, b: Isometry3, precision: f64) -> bool {
     let diff_sq: f64 = (ma - mb).iter().map(|x| x * x).sum();
     let norm_a: f64 = ma.iter().map(|x| x * x).sum();
     let norm_b: f64 = mb.iter().map(|x| x * x).sum();
-    diff_sq <= precision * precision * norm_a.min(norm_b)
+    // Eigen's `numext::mini` (`Fuzzy.h:27`) resolves to `std::min` on a
+    // non-GPU build — `cxx_min` for fidelity with that exact comparison,
+    // not because a NaN can independently discriminate here: `norm_a` and
+    // `diff_sq` both sum over `ma`'s entries (and `norm_b`/`diff_sq` both
+    // sum over `mb`'s), so any NaN that poisons a receiver also poisons
+    // `diff_sq`, and `diff_sq <= _` is already `false` before this `min`'s
+    // result is ever consulted — confirmed empirically, not by inspection
+    // (see `numeric.rs`'s doc comment for why that distinction matters).
+    diff_sq <= precision * precision * cxx_min(norm_a, norm_b)
 }
 
 #[cfg(test)]
@@ -4461,6 +4470,84 @@ mod tests {
 
         assert!(!result.valid);
         assert_eq!(result.invalid_waypoints, vec![0, 1]);
+    }
+
+    /// The "no interpolation" doc above (`# No interpolation between
+    /// waypoints`) as an executable invariant, not a comment someone could
+    /// later "fix" into a deviation: this is what makes condition 2's "100%
+    /// of returned paths pass" mean *no returned path has a colliding
+    /// waypoint*, not *no returned path collides at all*. Upstream's own
+    /// loop (`planning_scene.cpp:2376-2378`: `for (i = 0; i < n_wp; ++i) {
+    /// const RobotState& st = trajectory.getWayPoint(i); ... }`) never
+    /// builds or checks a state between two given waypoints -- case 1 below
+    /// asserts *upstream parity*, not desired behaviour. If a future change
+    /// makes case 1 fail, the fix is to re-derive whether the interpolation
+    /// gap is being closed on purpose (a real behaviour change, needing its
+    /// own sign-off), never to "restore" this test's old assertion.
+    ///
+    /// `waypoint_0`/`waypoint_1` put `joint_q` at `x = 5.0`/`x = -5.0`
+    /// (collision-free per `is_state_colliding_is_false_when_links_are_apart`,
+    /// `|d| = 5.0 >> 1.0`, the box-pair's collision threshold); the
+    /// straight-line midpoint between them is `x = 0.0`, coincident with
+    /// `p` (`|d| = 0.0 < 1.0`) -- genuinely colliding, not merely unchecked
+    /// geometry, confirmed directly below before either case runs.
+    ///
+    /// Case 2 is not optional. A single assertion that case 1's two-waypoint
+    /// path is valid cannot tell "correctly ignores the unchecked midpoint"
+    /// apart from "detects nothing at all" -- inserting the identical
+    /// colliding state *as* a waypoint must flip the same path to invalid,
+    /// proving the checker does see this exact geometry when it is actually
+    /// asked to.
+    #[test]
+    fn is_path_valid_does_not_see_a_collision_strictly_between_two_waypoints() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let mut waypoint_0 = scene.current_state().clone();
+        waypoint_0
+            .set_joint_transform("joint_q", &Isometry3::translation(5.0, 0.0, 0.0))
+            .unwrap();
+        let mut waypoint_1 = scene.current_state().clone();
+        waypoint_1
+            .set_joint_transform("joint_q", &Isometry3::translation(-5.0, 0.0, 0.0))
+            .unwrap();
+        let mut midpoint = scene.current_state().clone();
+        midpoint
+            .set_joint_transform("joint_q", &Isometry3::translation(0.0, 0.0, 0.0))
+            .unwrap();
+        let env = ParryCollisionEnv::default();
+
+        scene.set_current_state(midpoint.clone());
+        assert!(
+            scene.is_state_colliding(&env, &CollisionRequest::default()),
+            "the midpoint state itself must genuinely collide, or case 1 below proves nothing"
+        );
+
+        // Case 1: the midpoint is strictly between the two given waypoints,
+        // never itself a waypoint -- must stay invisible (upstream parity,
+        // see doc above).
+        let two_waypoint = scene.is_path_valid(
+            &env,
+            &CollisionRequest::default(),
+            &[waypoint_0.clone(), waypoint_1.clone()],
+            None,
+            &[],
+        );
+        assert!(
+            two_waypoint.valid,
+            "a collision strictly between two waypoints must not be seen, matching upstream's un-interpolated loop"
+        );
+
+        // Case 2: the discriminator -- the same colliding state inserted as
+        // an explicit waypoint must flip the same path to invalid.
+        let three_waypoint = scene.is_path_valid(
+            &env,
+            &CollisionRequest::default(),
+            &[waypoint_0, midpoint, waypoint_1],
+            None,
+            &[],
+        );
+        assert!(!three_waypoint.valid);
+        assert_eq!(three_waypoint.invalid_waypoints, vec![1]);
     }
 
     #[test]

@@ -125,7 +125,15 @@ impl ClauseResult {
     /// Record one case's deviation, and its failure text when it disagreed.
     fn record(&mut self, label: &str, deviation: f64, failure: Option<String>) {
         self.cases += 1;
-        if deviation > self.worst_deviation || self.worst_label.is_empty() {
+        // NaN must win here the same way it wins the pass/fail decision
+        // callers already made before calling this (see `worst_abs_diff`'s
+        // doc comment): plain `deviation > self.worst_deviation` is always
+        // false once `deviation` is NaN, so a NaN case reached after the
+        // first one used to leave the printed "worst |Δ|" line pointing at
+        // a smaller, stale finite deviation instead of the actual worst
+        // (unmeasurable) case -- `disagreements`/`failures` still counted it
+        // correctly, only this summary line was wrong.
+        if deviation.is_nan() || deviation > self.worst_deviation || self.worst_label.is_empty() {
             self.worst_deviation = deviation;
             self.worst_label = label.to_owned();
         }
@@ -674,11 +682,7 @@ fn run_interpolation(
                     expected.interpolated.len()
                 ));
             }
-            let deviation = actual
-                .iter()
-                .zip(&expected.interpolated)
-                .map(|(a, b)| (a - b).abs())
-                .fold(0.0f64, f64::max);
+            let deviation = worst_abs_diff(&actual, &expected.interpolated);
 
             // NaN named rather than caught by negating the comparison: a NaN
             // deviation means one side produced a NaN coefficient, which is a
@@ -1220,6 +1224,24 @@ fn state_interp_cases(
 
 // ---- Comparison helpers ---------------------------------------------------
 
+/// The largest `|a[i] - b[i]|` over paired slices, NaN-propagating.
+///
+/// `.fold(0.0, f64::max)` looks like the obvious way to write this, but
+/// `f64::max` is IEEE `maxNum`: it *discards* a NaN operand wherever it
+/// appears rather than propagating it, so that fold can never actually
+/// return NaN -- any NaN component gets silently outranked by the fold's
+/// own `0.0` seed or by another, unrelated component's ordinary
+/// difference. Checking `d.is_nan()` explicitly instead makes a NaN
+/// component win the fold outright, and keeps it from being displaced by a
+/// later ordinary difference once found -- a NaN component means one side
+/// produced an unmeasurable answer, which is worse than any measured one.
+fn worst_abs_diff(a: &[f64], b: &[f64]) -> f64 {
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0f64, |acc, d| if d.is_nan() || d > acc { d } else { acc })
+}
+
 /// Componentwise comparison of two name-keyed vectors.
 ///
 /// Returns the largest `|actual − expected|` and, when the two disagree
@@ -1244,11 +1266,18 @@ fn compare_named(
             );
         };
         let deviation = (actual_value - expected_value).abs();
-        if deviation > worst || (deviation > 0.0 && worst_variable.is_empty()) {
+        // A NaN deviation (one side NaN, the other not) always counts as
+        // worse than anything seen so far, and must win outright rather
+        // than through `deviation > worst` -- that comparison is always
+        // false when either side is NaN, so a plain `>` can neither select
+        // a first NaN mismatch nor, once found, keep it from being
+        // silently outranked by a later ordinary difference. This used to
+        // be two separate checks (one that could update `worst_variable`
+        // without updating `worst`, so the *number* callers gate on never
+        // actually went NaN even when the *name* correctly did) -- one
+        // rule, updating both together, closes that gap.
+        if deviation.is_nan() || (deviation != 0.0 && deviation > worst) {
             worst = deviation;
-            worst_variable = name.clone();
-        }
-        if actual_value != expected_value && worst_variable.is_empty() {
             worst_variable = name.clone();
         }
     }
@@ -1286,6 +1315,22 @@ fn is_antipodal(a: &[f64], b: &[f64], tol: f64) -> bool {
 /// The angle between the rotations two quaternion blocks represent, in
 /// radians, insensitive to sign. `NaN`-free for a zero-norm block: that
 /// returns `0.0`, since neither side then represents a rotation at all.
+///
+/// This is `2 * acos(|a . b|)` in exact arithmetic (Eigen's
+/// `Quaterniond::angularDistance`), but computed as `4 * atan2(chord(a -
+/// near), chord(a + near))` instead — same shape and derivation as
+/// `moveit-planners-sbp/src/se3.rs`'s `rotation_distance`, generalized from
+/// a fixed 4-element `Quat` to an arbitrary-length quaternion block. `acos`
+/// has an infinite derivative at `1.0`, so a dot product one ULP below it
+/// (already as good as a normalized quaternion pair can agree) rounds
+/// `acos` to an angle around `1e-8` rather than the true, much smaller
+/// difference — below `~3e-8` true angle, the `acos` form saturates to
+/// exactly `0.0` regardless of the real (nonzero) angle. The `atan2` form
+/// reads the same angle off a chord length that shrinks smoothly with it
+/// instead, so it never saturates. `a`/`b` are explicitly renormalized
+/// before the chord (rather than assumed unit, unlike `se3.rs`'s `Quat`):
+/// this function's own inputs are raw state-vector slices, not
+/// already-normalized quaternions.
 fn rotation_angle(a: &[f64], b: &[f64]) -> f64 {
     let norm = |q: &[f64]| q.iter().map(|v| v * v).sum::<f64>().sqrt();
     let (na, nb) = (norm(a), norm(b));
@@ -1293,7 +1338,18 @@ fn rotation_angle(a: &[f64], b: &[f64]) -> f64 {
         return 0.0;
     }
     let dot: f64 = a.iter().zip(b).map(|(x, y)| x * y).sum::<f64>() / (na * nb);
-    2.0 * dot.abs().min(1.0).acos()
+    // The near representative: with a non-negative dot product, `a - near`
+    // is the short chord and `a + near` the long one (same double-cover
+    // handling as `se3.rs::rotation_distance`).
+    let sign = if dot < 0.0 { -1.0 } else { 1.0 };
+    let chord = |f: fn(f64, f64) -> f64| {
+        a.iter()
+            .zip(b)
+            .map(|(&x, &y)| f(x / na, sign * y / nb).powi(2))
+            .sum::<f64>()
+            .sqrt()
+    };
+    4.0 * chord(|x, y| x - y).atan2(chord(|x, y| x + y))
 }
 
 /// The base variable vector every clamping case is a one-joint edit of:
@@ -1377,5 +1433,202 @@ fn next_down(v: f64) -> f64 {
         f64::from_bits(v.to_bits() - 1)
     } else {
         f64::from_bits(v.to_bits() + 1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The defect: a NaN deviation recorded after an earlier, ordinary one
+    /// used to leave `worst_deviation` pinned at the earlier finite value
+    /// (`NaN > finite` is always false), so the printed "worst |Δ|" line
+    /// named the wrong case and the wrong number even though `disagreements`
+    /// still counted the NaN case correctly.
+    #[test]
+    fn clause_result_record_lets_a_later_nan_win_worst_deviation() {
+        let mut result = ClauseResult::new("test");
+        result.record("case-0", 0.5, Some("ordinary mismatch".to_owned()));
+        result.record("case-1", f64::NAN, Some("nan mismatch".to_owned()));
+        assert!(
+            result.worst_deviation.is_nan(),
+            "got worst_deviation={}, worst_label={:?}",
+            result.worst_deviation,
+            result.worst_label
+        );
+        assert_eq!(result.worst_label, "case-1");
+        assert_eq!(result.disagreements, 2);
+    }
+
+    /// The demonstrated opposite: ordinary cases still track the largest
+    /// deviation and its label correctly, with no NaN in play.
+    #[test]
+    fn clause_result_record_ordinary_cases_are_unchanged() {
+        let mut result = ClauseResult::new("test");
+        result.record("case-0", 0.5, Some("small".to_owned()));
+        result.record("case-1", 2.5, Some("big".to_owned()));
+        result.record("case-2", 1.0, Some("medium".to_owned()));
+        assert_eq!(result.worst_deviation, 2.5);
+        assert_eq!(result.worst_label, "case-1");
+        assert_eq!(result.disagreements, 3);
+    }
+
+    /// The defect: a NaN component used to be silently outranked by an
+    /// ordinary `0.0` (the fold's seed) instead of winning outright.
+    #[test]
+    fn worst_abs_diff_does_not_discard_a_lone_nan_component() {
+        let a = [0.0, 1.0, 0.0];
+        let b = [0.0, 1.0, f64::NAN];
+        assert!(
+            worst_abs_diff(&a, &b).is_nan(),
+            "a NaN in one component must make the whole aggregate NaN, not \
+             silently read as \"every component agrees\""
+        );
+    }
+
+    /// The defect, second form: a NaN found first must not be displaced by
+    /// an ordinary difference found later (the naive `d > acc` comparison
+    /// is always false once `acc` is NaN, which is what makes NaN "sticky"
+    /// here rather than "amnesic" the way `f64::max` is).
+    #[test]
+    fn worst_abs_diff_keeps_a_nan_component_found_before_an_ordinary_one() {
+        let a = [0.0, 0.0];
+        let b = [f64::NAN, 5.0];
+        assert!(worst_abs_diff(&a, &b).is_nan());
+    }
+
+    /// The demonstrated opposite: ordinary, non-degenerate deviations are
+    /// still aggregated correctly -- the fix must not be a neutered no-op
+    /// that also breaks the normal case.
+    #[test]
+    fn worst_abs_diff_matches_plain_max_when_nothing_is_nan() {
+        let a = [0.0, 1.0, 2.0];
+        let b = [0.1, 1.0, 1.5];
+        assert_eq!(worst_abs_diff(&a, &b), 0.5);
+    }
+
+    /// The same defect, `compare_named`'s form: before the fix, a NaN
+    /// mismatch on a variable could correctly set `worst_variable` (so
+    /// `mismatch` was `Some`) while leaving the returned `worst` number at
+    /// `0.0` -- and every caller of `compare_named` that gates on the
+    /// *number* (`deviation.is_nan() || deviation > tol`, not `mismatch`)
+    /// would then read a real, reported disagreement as a pass.
+    #[test]
+    fn compare_named_returns_a_nan_deviation_for_a_lone_nan_mismatch() {
+        let actual = BTreeMap::from([("a".to_owned(), 1.0), ("b".to_owned(), f64::NAN)]);
+        let expected = BTreeMap::from([("a".to_owned(), 1.0), ("b".to_owned(), 2.0)]);
+        let (deviation, mismatch) = compare_named(&actual, &expected);
+        assert!(
+            deviation.is_nan(),
+            "got deviation={deviation}, mismatch={mismatch:?} -- a caller gating on \
+             `deviation.is_nan() || deviation > tol` alone must see the NaN"
+        );
+        assert!(mismatch.is_some());
+    }
+
+    /// The demonstrated opposite for `compare_named`: identical maps still
+    /// report no mismatch, and an ordinary differing map still reports the
+    /// right worst value and variable.
+    #[test]
+    fn compare_named_ordinary_cases_are_unchanged() {
+        let same = BTreeMap::from([("a".to_owned(), 1.0)]);
+        assert_eq!(compare_named(&same, &same), (0.0, None));
+
+        let actual = BTreeMap::from([("a".to_owned(), 1.0), ("b".to_owned(), 5.0)]);
+        let expected = BTreeMap::from([("a".to_owned(), 1.0), ("b".to_owned(), 5.5)]);
+        let (deviation, mismatch) = compare_named(&actual, &expected);
+        assert_eq!(deviation, 0.5);
+        assert!(mismatch.unwrap().contains('b'));
+    }
+
+    /// `[cos(theta/2), sin(theta/2), 0, 0]`: a unit quaternion for a
+    /// rotation of `theta` radians about the x-axis.
+    fn quat_about_x(theta: f64) -> [f64; 4] {
+        let half = theta / 2.0;
+        [half.cos(), half.sin(), 0.0, 0.0]
+    }
+
+    const IDENTITY: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
+
+    /// The defect: `2 * acos(|dot|)` has an infinite derivative at `dot ==
+    /// 1.0`, so it saturates to exactly `0.0` for any true angle below
+    /// `~3e-8` radians -- reported as "no rotation difference" when the two
+    /// blocks disagree by a real, nonzero amount. Reference values (`old`
+    /// column) measured against this crate's own pre-fix formula, matching
+    /// the user-supplied Eigen `atan2` reference table exactly.
+    #[test]
+    fn rotation_angle_does_not_saturate_to_zero_near_identity() {
+        for (true_angle, old_saturates) in [
+            (1e-5, false),
+            (1e-7, false), // old is *wrong* here too (9.88e-8 vs 1e-7), just not exactly 0
+            (1e-8, true),
+            (1e-10, true),
+        ] {
+            let q = quat_about_x(true_angle);
+            let angle = rotation_angle(&IDENTITY, &q);
+            let rel_err = (angle - true_angle).abs() / true_angle;
+            assert!(
+                rel_err < 1e-6,
+                "true_angle={true_angle:e}: got {angle:e}, relative error {rel_err:e}"
+            );
+            if old_saturates {
+                // The specific failure this fix closes: the pre-fix acos
+                // form returns exactly 0.0 here, which the assertion above
+                // already rules out for the fixed code.
+                assert_ne!(
+                    angle, 0.0,
+                    "true_angle={true_angle:e} must not read as zero"
+                );
+            }
+        }
+    }
+
+    /// The demonstrated opposite: an ordinary, non-degenerate rotation
+    /// (90 degrees, far from the `acos` precision cliff) must produce the
+    /// same answer as before -- the fix must not be a neutered no-op that
+    /// happens to also change ordinary answers.
+    #[test]
+    fn rotation_angle_matches_the_textbook_value_away_from_the_precision_cliff() {
+        let q = quat_about_x(std::f64::consts::FRAC_PI_2);
+        let angle = rotation_angle(&IDENTITY, &q);
+        assert!(
+            (angle - std::f64::consts::FRAC_PI_2).abs() < 1e-12,
+            "got {angle}, expected {}",
+            std::f64::consts::FRAC_PI_2
+        );
+    }
+
+    /// Sign-insensitive: `q` and `-q` represent the same rotation (the
+    /// double cover), and the doc comment on `rotation_angle` promises this
+    /// explicitly.
+    #[test]
+    fn rotation_angle_is_insensitive_to_the_sign_of_either_input() {
+        let q = quat_about_x(std::f64::consts::FRAC_PI_2);
+        let neg_q: Vec<f64> = q.iter().map(|v| -v).collect();
+        assert_eq!(
+            rotation_angle(&IDENTITY, &q),
+            rotation_angle(&IDENTITY, &neg_q)
+        );
+    }
+
+    /// Scale-insensitive: the function must renormalize its inputs rather
+    /// than assume unit-norm quaternion blocks, since callers pass raw
+    /// state-vector slices, not necessarily exactly normalized.
+    #[test]
+    fn rotation_angle_is_insensitive_to_non_unit_input_norm() {
+        let q = quat_about_x(std::f64::consts::FRAC_PI_2);
+        let scaled: Vec<f64> = q.iter().map(|v| v * 2.5).collect();
+        let angle = rotation_angle(&IDENTITY, &scaled);
+        assert!(
+            (angle - std::f64::consts::FRAC_PI_2).abs() < 1e-12,
+            "got {angle}"
+        );
+    }
+
+    /// The zero-norm early return this fix was explicitly told to keep.
+    #[test]
+    fn rotation_angle_zero_norm_block_returns_zero() {
+        assert_eq!(rotation_angle(&[0.0, 0.0, 0.0, 0.0], &IDENTITY), 0.0);
+        assert_eq!(rotation_angle(&IDENTITY, &[0.0, 0.0, 0.0, 0.0]), 0.0);
     }
 }

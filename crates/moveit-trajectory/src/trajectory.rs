@@ -23,7 +23,7 @@ use nalgebra::DVector;
 
 use moveit_error::{Error, Result};
 
-use crate::numeric::cxx_min;
+use crate::numeric::{cxx_max, cxx_min};
 use crate::path::Path;
 
 /// Upstream anonymous-namespace `EPS`: the epsilon most switching-point and
@@ -107,11 +107,13 @@ impl Trajectory {
     ///
     /// # Errors
     ///
-    /// [`Error::Construct`] when `time_step <= 0.0`, or when the forward/
+    /// [`Error::Construct`] when `time_step <= 0.0`, when the forward/
     /// backward integration cannot produce a valid trajectory (for example,
     /// a `max_acceleration` component that is `0.0` along a path direction
     /// that needs it — see this crate's `testRelevantZeroMaxAccelerationsInvalidateTrajectory`
-    /// test).
+    /// test), or when the timing pass finds two adjacent steps with a zero
+    /// relative path velocity and a nonzero position change between them —
+    /// see the deviation from upstream documented on the timing loop below.
     pub fn create(
         path: Path,
         max_velocity: &DVector<f64>,
@@ -176,12 +178,41 @@ impl Trajectory {
         }
 
         // Calculate timing.
+        //
+        // Deliberate deviation from upstream
+        // `time_optimal_trajectory_generation.cpp:405`:
+        // `it->time_ = previous->time_ + (it->path_pos_ - previous->path_pos_)
+        // / ((it->path_vel_ + previous->path_vel_) / 2.0);` has no guard
+        // against the denominator being `0.0`. When the position delta is
+        // *also* exactly `0.0` (e.g. a zero-length path), that is a
+        // harmless `0.0 / 0.0`, and upstream's own NaN is oracle-verified,
+        // required behaviour here — see
+        // `a_zero_length_path_produces_a_nan_duration_trajectory` below and
+        // `totg_parity.rs` case 2 (`duration: null` in the fixture) — so it
+        // is left untouched. But when the position delta is *nonzero* while
+        // the relative velocity is exactly `0.0` (e.g. a `max_velocity`
+        // component of `0.0` on an axis the path still moves along — see
+        // `a_max_velocity_component_of_zero_is_rejected_rather_than_crawling_to_infinity`
+        // below), the division is `x / 0.0 == +inf`: not NaN, but still a
+        // breakdown, since bridging a real position change at zero average
+        // velocity needs infinite time, not a number this type can hold.
+        // That case is reported as an `Err` here instead of silently
+        // producing `+inf` and relying on
+        // `do_time_parameterization_calculations`'s downstream
+        // `raw_sample_count.is_finite()` check to catch it one call later.
         for i in 1..traj.trajectory.len() {
             let previous = traj.trajectory[i - 1];
             let current = &mut traj.trajectory[i];
-            current.time = previous.time
-                + (current.path_pos - previous.path_pos)
-                    / ((current.path_vel + previous.path_vel) / 2.0);
+            let avg_vel = (current.path_vel + previous.path_vel) / 2.0;
+            let delta_pos = current.path_pos - previous.path_pos;
+            if avg_vel == 0.0 && delta_pos != 0.0 {
+                return Err(Error::construct(
+                    "zero relative path velocity between trajectory steps \
+                     with a nonzero position change: bridging the gap \
+                     would require infinite time",
+                ));
+            }
+            current.time = previous.time + delta_pos / avg_vel;
         }
 
         Ok(traj)
@@ -726,8 +757,21 @@ impl Trajectory {
             let most_recent = *backward
                 .last()
                 .expect("first iteration always takes the if-branch above");
-            if s1.path_pos.max(path_pos) - EPS <= intersection_path_pos
-                && intersection_path_pos <= EPS + s2.path_pos.min(most_recent.path_pos)
+            // `cxx_max`/`cxx_min`, not `f64::max`/`f64::min` -- upstream
+            // cpp:730-731 calls `std::max`/`std::min` here, not `std::fmax`/
+            // `std::fmin`. Ported for fidelity/uniformity with every other
+            // `std::min`/`std::max` call in this file, not because a NaN can
+            // observably reach this comparison: `s1.path_pos`, `s2.path_pos`,
+            // `path_pos`, and `most_recent.path_pos` all also feed
+            // `intersection_path_pos` itself (via `slope`/`start_slope`
+            // above), so a NaN in any one of them poisons
+            // `intersection_path_pos` too -- the `<=` comparisons are then
+            // `false` regardless of which max/min family computed the other
+            // side. Checked exhaustively (all 8 operands feeding this
+            // expression, corrupted one at a time): `cxx_max`/`cxx_min` and
+            // `f64::max`/`f64::min` agree on every single-NaN placement here.
+            if cxx_max(s1.path_pos, path_pos) - EPS <= intersection_path_pos
+                && intersection_path_pos <= EPS + cxx_min(s2.path_pos, most_recent.path_pos)
             {
                 let intersection_path_vel =
                     s1.path_vel + start_slope * (intersection_path_pos - s1.path_pos);
@@ -1491,7 +1535,7 @@ mod tests {
     /// **acceleration** limit on a dimension the path needs (see
     /// `upstream_test_relevant_zero_max_accelerations_invalidate_trajectory`,
     /// which does invalidate), a `0.0` **velocity** limit on such a
-    /// dimension does *not* invalidate the trajectory.
+    /// dimension does not deadlock [`Trajectory::integrate_forward`].
     ///
     /// [`Trajectory::velocity_max_path_velocity`] pins the path-velocity
     /// ceiling to `0.0` everywhere the zero-limited joint has a nonzero
@@ -1502,36 +1546,30 @@ mod tests {
     /// integration step overshoots the `0.0` ceiling and gets pulled back
     /// by the overshoot-correction bisection to within `EPS` (`1e-6`) of
     /// the ceiling — advancing `path_pos` by one `EPS`-scale increment per
-    /// step, forever, since the ceiling is `0.0` at every subsequent
-    /// `path_pos` too. The trajectory is technically still constructed
-    /// (`valid` never becomes `false`, so this is `Ok`, not the
+    /// step, with `path_vel` staying exactly `0.0` throughout (`valid`
+    /// never becomes `false`, so integration itself is not the
     /// `testRelevantZeroMaxAccelerationsInvalidateTrajectory`-style
-    /// failure), but each step's `path_vel` stays exactly `0.0`, so the
-    /// timing pass divides a position delta by `(0.0 + 0.0) / 2.0 = 0.0` —
-    /// landing on `+inf` when the delta is a nonzero float, or on NaN when
-    /// floating-point cancellation at the path's particular scale rounds
-    /// the terminal delta itself to exactly `0.0` (both were observed —
-    /// see the test body).
+    /// failure).
     ///
-    /// This crawl needs on the order of `path.length() / EPS` steps, so
-    /// this test uses a `1e-5`-scale path rather than the `1.0`-scale one
-    /// used elsewhere in this module — the same crawl over a `1.0`-scale
-    /// path is real, verified behaviour (traced by hand and confirmed by
-    /// running it), but takes on the order of two million steps and tens
-    /// of seconds, which does not belong in a unit test suite.
+    /// The timing pass is a different matter: two adjacent crawl steps have
+    /// `avg_vel == 0.0` and a genuinely nonzero position delta (the
+    /// `EPS`-scale advance itself), which is exactly the deliberate
+    /// deviation documented on the timing loop in [`Trajectory::create`] —
+    /// bridging a real position change at zero average velocity needs
+    /// infinite time, so construction now fails fast with an `Err` at the
+    /// very first crawl step, rather than (pre-deviation) continuing to
+    /// silently accumulate a non-finite `time_` for the rest of the crawl.
     #[test]
-    fn a_max_velocity_component_of_zero_crawls_rather_than_invalidating() {
+    fn a_max_velocity_component_of_zero_is_rejected_rather_than_crawling_to_infinity() {
         let path =
             Path::create(&[v(&[0.0, 0.0]), v(&[1e-5, 1e-5])], DEFAULT_PATH_TOLERANCE).unwrap();
-        let trajectory = Trajectory::create(path, &v(&[0.0, 1.0]), &v(&[1.0, 1.0]), 0.001).unwrap();
-        // Not a sane finite duration: whether the terminal 0.0/0.0-scale
-        // cancellation lands on NaN or on +inf is sensitive to the path's
-        // absolute scale (a 1.0-scale path lands on +inf; this 1e-5-scale
-        // one lands on NaN) — both were observed, and neither is "more
-        // correct" than the other, so this only asserts the shared,
-        // scale-independent property: the crawl never produces a normal
-        // finite answer.
-        assert!(!trajectory.duration().is_finite());
+        let err = Trajectory::create(path, &v(&[0.0, 1.0]), &v(&[1.0, 1.0]), 0.001)
+            .expect_err("a zero relative velocity across a nonzero position change must fail");
+        assert!(
+            err.to_string()
+                .contains("bridging the gap would require infinite time"),
+            "unexpected error: {err}"
+        );
     }
 
     /// A path of two identical waypoints has `length() == 0.0`, and its
@@ -1576,4 +1614,220 @@ mod tests {
         let trajectory = Trajectory::create(path, &v(&[1.0, 1.0]), &v(&[1.0, 1.0]), 0.001).unwrap();
         assert!(trajectory.duration().is_nan());
     }
+
+    /// [`Trajectory::min_max_phase_slope`] divides
+    /// `min_max_path_acceleration(..) / path_vel` with no zero guard, and
+    /// `path_vel` is reachable at exactly `0.0` (see
+    /// [`a_max_velocity_component_of_zero_is_rejected_rather_than_crawling_to_infinity`],
+    /// via [`Trajectory::velocity_max_path_velocity`] pinning to `0.0` on
+    /// any axis whose `max_velocity[i] == 0.0` with a nonzero tangent
+    /// there). Two questions follow: does the resulting `+-inf` change any
+    /// comparison outcome, and can the same reachability instead produce
+    /// `NaN`?
+    ///
+    /// It does, and it can, and neither is a defect:
+    ///
+    /// - Every comparison against `min_max_phase_slope` in the reachable
+    ///   `path_vel == 0.0` region has `0.0` on the other side --
+    ///   [`Trajectory::velocity_max_path_velocity_deriv`]'s
+    ///   `active_constraint` is, by construction, the same zero-`max_velocity`
+    ///   axis (it is the unique minimizer of a sum of non-negative terms),
+    ///   so its numerator is `max_velocity[active] * curvature[active] ==
+    ///   0.0 * curvature == 0.0` exactly. Forcing `min_max_phase_slope` to
+    ///   the *opposite* sign of its natural `+-inf` (an adversarial
+    ///   mutation, not shipped) changes `Trajectory::create`'s outcome for
+    ///   the crawl case above from `Err("bridging the gap would require
+    ///   infinite time")` to a different failure,
+    ///   `Err("trajectory not valid after the second integrateBackward
+    ///   pass")` -- so the value is genuinely load-bearing, not dead code.
+    ///   But the *natural* sign is provably always on the correct side of
+    ///   that `0.0` threshold: `min_max_path_acceleration`'s numerator at
+    ///   `path_vel == 0.0` reduces to `factor * min_i(max_acceleration[i] /
+    ///   |tangent[i]|)`, non-negative for `factor == 1.0` and non-positive
+    ///   for `factor == -1.0` given `max_acceleration[i] >= 0.0` -- a
+    ///   physical-bound invariant every formula in this file already
+    ///   assumes (`Trajectory::create` validates neither `max_velocity` nor
+    ///   `max_acceleration` for sign, matching upstream). So the natural
+    ///   `+-inf` always resolves every comparison the same way the
+    ///   provably-correct sign would.
+    /// - If `max_acceleration[i] == 0.0` too, on the same axis, the
+    ///   numerator itself lands on exactly `0.0`, making the division a
+    ///   genuine `0.0 / 0.0 == NaN` rather than a signed infinity --
+    ///   constructed below. `NaN` compares `false` against everything
+    ///   (including that same `0.0` threshold), so the crawl-prevention
+    ///   snap this file relies on elsewhere never fires. That does not
+    ///   produce a silently-wrong answer either: `Trajectory::create` still
+    ///   returns `Err`, just via a different internal path (`integrate_backward`
+    ///   never finding an intersection) than the crawl case above. Upstream
+    ///   shares the identical unguarded division and identical IEEE-754
+    ///   `NaN` comparison semantics, so this is parity, not port drift.
+    #[test]
+    fn min_max_phase_slope_reaches_nan_at_compound_zero_limits_without_a_wrong_answer() {
+        let path =
+            Path::create(&[v(&[0.0, 0.0]), v(&[1e-5, 1e-5])], DEFAULT_PATH_TOLERANCE).unwrap();
+        let probe = Trajectory {
+            path: path.clone(),
+            max_velocity: v(&[0.0, 1.0]),
+            max_acceleration: v(&[0.0, 1.0]),
+            joint_num: 2,
+            time_step: 0.001,
+            trajectory: Vec::new(),
+            valid: true,
+        };
+        let path_pos = 1e-7;
+        let path_vel = probe.velocity_max_path_velocity(path_pos);
+        assert_eq!(
+            path_vel, 0.0,
+            "precondition: the zero axis must pin path_vel to 0.0"
+        );
+        assert!(
+            probe
+                .min_max_phase_slope(path_pos, path_vel, false)
+                .is_nan(),
+            "expected a genuine 0.0 / 0.0 at the compound-zero axis"
+        );
+        assert!(probe.min_max_phase_slope(path_pos, path_vel, true).is_nan());
+
+        let err = Trajectory::create(path, &v(&[0.0, 1.0]), &v(&[0.0, 1.0]), 0.001)
+            .expect_err("an axis that can never move must still fail construction, not succeed");
+        assert!(
+            err.to_string().contains("trajectory not valid"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// Sibling sweep of [`Trajectory::min_max_phase_slope`]'s unguarded
+    /// division ([`min_max_phase_slope_reaches_nan_at_compound_zero_limits_without_a_wrong_answer`]
+    /// above): [`Trajectory::velocity_max_path_velocity`] divides
+    /// `max_velocity[i] / tangent[i].abs()` for *every* axis, with no
+    /// `tangent[i] != 0.0` guard (unlike
+    /// [`Trajectory::min_max_path_acceleration`] and
+    /// [`Trajectory::acceleration_max_path_velocity`], which both guard
+    /// every division on its exact denominator). An axis with
+    /// `tangent[i] == 0.0` (not moving at this `path_pos`) and
+    /// `max_velocity[i] == 0.0` computes a genuine `0.0 / 0.0 == NaN` here.
+    ///
+    /// It is still correct: the result feeds `cxx_min(max_path_velocity,
+    /// candidate)`, and `cxx_min`'s `if b < a { b } else { a }` shape
+    /// (verified directly in `numeric.rs`) discards a `NaN` *second*
+    /// argument unconditionally, since `NaN < a` is always `false` --
+    /// exactly the axis being irrelevant at this `path_pos` (it isn't
+    /// moving) is what a `tangent[i] != 0.0` guard would have encoded
+    /// explicitly. Proven below by construction, not by argument: an axis
+    /// whose `max_velocity` is `0.0` produces the identical answer as the
+    /// same axis set to an unrelated positive value, as long as its
+    /// tangent stays `0.0`.
+    #[test]
+    fn velocity_max_path_velocity_discards_a_non_moving_axis_zero_max_velocity() {
+        // Axis 0 never moves along this single straight segment
+        // (tangent[0] == 0.0 everywhere); axis 1 does.
+        let path = Path::create(&[v(&[0.0, 0.0]), v(&[0.0, 1.0])], DEFAULT_PATH_TOLERANCE).unwrap();
+        let path_pos = 0.05;
+        let tangent = path.tangent(path_pos);
+        assert_eq!(
+            tangent[0], 0.0,
+            "precondition: axis 0 must not be moving here"
+        );
+
+        let with_zero = Trajectory {
+            path: path.clone(),
+            max_velocity: v(&[0.0, 2.0]),
+            max_acceleration: v(&[1.0, 1.0]),
+            joint_num: 2,
+            time_step: 0.001,
+            trajectory: Vec::new(),
+            valid: true,
+        };
+        let with_unrelated_value = Trajectory {
+            path,
+            max_velocity: v(&[5.0, 2.0]),
+            max_acceleration: v(&[1.0, 1.0]),
+            joint_num: 2,
+            time_step: 0.001,
+            trajectory: Vec::new(),
+            valid: true,
+        };
+        assert_eq!(
+            with_zero.velocity_max_path_velocity(path_pos),
+            with_unrelated_value.velocity_max_path_velocity(path_pos),
+            "axis 0's max_velocity must be irrelevant while its tangent is 0.0"
+        );
+        assert_eq!(
+            with_zero.velocity_max_path_velocity(path_pos),
+            2.0 / tangent[1].abs()
+        );
+    }
+
+    /// Second sibling: [`Trajectory::acceleration_max_path_velocity`] has
+    /// no unguarded division itself (every denominator --
+    /// `config_deriv[i]`, `config_deriv2[i]`, `a_ij` -- is checked
+    /// `!= 0.0` immediately before use), but it CAN legitimately *equal*
+    /// exactly `0.0`: its pair branch computes `((max_acceleration[i] /
+    /// |tangent_i| + max_acceleration[j] / |tangent_j|) / a_ij.abs()).sqrt()`,
+    /// which is `0.0` whenever both axes' `max_acceleration` is `0.0`
+    /// (regardless of `a_ij`, since the sum inside the `sqrt` is `0.0`).
+    /// That `0.0` becomes `switching_path_vel` at
+    /// [`Trajectory::next_acceleration_switching_point`]'s discontinuity
+    /// branch (`:439-453`), feeding [`Trajectory::min_max_phase_slope`]
+    /// again -- and since `min_max_path_acceleration`'s numerator there
+    /// is *also* forced to exactly `0.0` by the same zero
+    /// `max_acceleration`, the quotient is a genuine `NaN`, not `+-inf`.
+    ///
+    /// Unlike the single-zero-axis case above, this `NaN` is not provably
+    /// on the correct side of a fixed threshold -- but it does not need to
+    /// be: every comparison the discontinuity branch's `if` performs
+    /// against it is `false` (`NaN`), collapsing `(A || false) && (C ||
+    /// false)` to `A && C`, i.e. `before_path_vel > after_path_vel &&
+    /// before_path_vel < after_path_vel` -- unsatisfiable for any real
+    /// `before_path_vel`/`after_path_vel`. The branch therefore never
+    /// reports this position as a switching point; the caller's loop just
+    /// keeps scanning, the same as it does for every other position that
+    /// isn't one. Upstream shares the identical unguarded division and
+    /// `NaN` comparison semantics, so this is parity, not port drift.
+    #[test]
+    fn acceleration_max_path_velocity_can_equal_zero_and_min_max_phase_slope_stays_inert() {
+        // An axis-aligned right-angle corner: segment 1 moves purely along
+        // axis 0, segment 2 purely along axis 1. The circular blend
+        // between them has nonzero curvature throughout.
+        let path = Path::create(
+            &[v(&[0.0, 0.0]), v(&[1.0, 0.0]), v(&[1.0, 1.0])],
+            DEFAULT_PATH_TOLERANCE,
+        )
+        .unwrap();
+
+        // Both axes' max_acceleration == 0.0: the pair branch needs no
+        // exact-tangent-alignment coincidence, unlike the single-axis
+        // branch (config_deriv[i] == 0.0 exactly on a curved segment is a
+        // measure-zero event this scan never hits).
+        let trajectory = Trajectory {
+            path: path.clone(),
+            max_velocity: v(&[1.0, 1.0]),
+            max_acceleration: v(&[0.0, 0.0]),
+            joint_num: 2,
+            time_step: 0.001,
+            trajectory: Vec::new(),
+            valid: true,
+        };
+        let steps = 2000;
+        let zero_pos = (0..=steps)
+            .map(|i| path.length() * (i as f64) / (steps as f64))
+            .find(|&s| trajectory.acceleration_max_path_velocity(s) == 0.0)
+            .expect(
+                "the circular blend must contain a genuine acceleration_max_path_velocity == 0.0",
+            );
+
+        assert_eq!(trajectory.acceleration_max_path_velocity(zero_pos), 0.0);
+        assert!(
+            trajectory
+                .min_max_phase_slope(zero_pos, 0.0, false)
+                .is_nan()
+        );
+        assert!(trajectory.min_max_phase_slope(zero_pos, 0.0, true).is_nan());
+    }
+
+    // Third sibling, distinct with a structural reason -- no construction
+    // needed: `Trajectory::acceleration_max_path_velocity_deriv`'s only
+    // division is `/ (2.0 * EPS)`, a compile-time constant (`EPS = 1e-6`,
+    // `trajectory.rs:31`), never derived from path or limit state. It
+    // cannot reach a zero denominator by any input.
 }

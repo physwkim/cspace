@@ -759,7 +759,22 @@ impl<'m> PathRun<'_, '_, 'm> {
             return Ok(true);
         }
 
-        if width < self.config.precision.max_resolution {
+        // Upstream `width < precision.max_resolution` faithfully -- but
+        // `width` only ever halves from a finite starting value (see
+        // `to_pose`), while `max_resolution` is a caller-supplied
+        // `CartesianPrecision` field with no validating constructor (its
+        // fields are `pub`, exactly like upstream's own aggregate struct).
+        // A non-finite `max_resolution` makes this comparison false for
+        // every `width`, so it never stops the recursion below on its own
+        // -- confirmed by direct call to reach a stack overflow on ordinary,
+        // reachable `panda_arm` geometry (see this crate's tests). Treating
+        // "cannot verify the configured resolution floor" as "resolution
+        // already exhausted" is the same conservative direction the
+        // deviation check above already fails toward: give up on the
+        // interval rather than recurse on a bound that cannot be evaluated.
+        if !self.config.precision.max_resolution.is_finite()
+            || width < self.config.precision.max_resolution
+        {
             return Ok(false);
         }
 
@@ -858,6 +873,21 @@ pub fn check_joint_space_jump(
 }
 
 /// Upstream `hasRelativeJointSpaceJump`.
+///
+/// `threshold > total_dist / count` was upstream's own comparison, ported
+/// faithfully — but a single NaN anywhere in `increments` (any waypoint
+/// with a non-finite joint value) makes the sum, and therefore `threshold`,
+/// NaN, and every NaN comparison is false: `increment > threshold` would
+/// silently clear *every* increment, including the increments that are
+/// themselves perfectly finite, treating a data point this function cannot
+/// even evaluate as "no jump" rather than as the one thing a jump check
+/// exists to catch. `threshold` is the single value the whole decision
+/// funnels through, so checking it once here closes the family: a
+/// non-finite `threshold` can only come from a non-finite `relative_factor`
+/// or a non-finite increment already summed into `total`, and either way
+/// the correct, conservative answer is "cannot verify this path is
+/// jump-free" — reported at the earliest waypoint, exactly like a genuine
+/// jump there would be.
 fn has_relative_joint_space_jump(
     waypoints: &[RobotState<'_>],
     group: &JointModelGroup,
@@ -871,11 +901,20 @@ fn has_relative_joint_space_jump(
     let threshold = relative_factor * (total / increments.len() as f64);
     increments
         .iter()
-        .position(|&increment| increment > threshold)
+        .position(|&increment| !threshold.is_finite() || increment > threshold)
         .map(|index| index + 1)
 }
 
 /// Upstream `hasAbsoluteJointSpaceJump`.
+///
+/// Same anchor as [`has_relative_joint_space_jump`], one level narrower:
+/// here it is `distance` — computed fresh per `(waypoint, joint)` pair,
+/// from that pair's own joint values — that can be NaN while
+/// `revolute_threshold`/`prismatic_threshold` stay perfectly ordinary
+/// (caller-supplied constants). `distance > threshold` then silently
+/// clears just that one pair rather than the whole list, but the fix is
+/// the same rule: a comparison this function cannot evaluate is not
+/// evidence of "no jump".
 fn has_absolute_joint_space_jump(
     waypoints: &[RobotState<'_>],
     group: &JointModelGroup,
@@ -891,8 +930,12 @@ fn has_absolute_joint_space_jump(
             let joint = model.joint_model_at(index);
             let distance = joint_distance(&waypoints[i], &waypoints[i - 1], joint);
             let exceeded = match joint.joint_type() {
-                JointType::Revolute => check_revolute && distance > revolute_threshold,
-                JointType::Prismatic => check_prismatic && distance > prismatic_threshold,
+                JointType::Revolute => {
+                    check_revolute && (!distance.is_finite() || distance > revolute_threshold)
+                }
+                JointType::Prismatic => {
+                    check_prismatic && (!distance.is_finite() || distance > prismatic_threshold)
+                }
                 // Upstream warns and skips; see this module's "Out of scope".
                 _ => false,
             };
@@ -1130,5 +1173,116 @@ mod tests {
             "these coordinates never separate the two blends, so the assertion above \
              would hold under either"
         );
+    }
+
+    /// Regression coverage for the `max_resolution` fix in
+    /// `validate_and_improve_interval`: needs `PathRun`/`Waypoint`
+    /// directly, which are private, so this lives here rather than in an
+    /// integration test.
+    ///
+    /// `to_pose`'s own loop always starts an interval at `width = 1.0`, and
+    /// `width` only ever halves after that -- it never independently
+    /// carries a caller-controlled non-finite value. So this calls
+    /// `validate_and_improve_interval` directly with an artificially tiny
+    /// starting `width` (`1e-15`, far below any `max_resolution` a caller
+    /// would configure) on real, reachable `panda_arm` geometry that does
+    /// need genuine bisection to resolve (confirmed separately: with
+    /// `width` at its natural `1.0`, this exact `start`/`target` pair
+    /// recurses deeply enough to leave the interval unresolved, i.e. the
+    /// bisection safety valve is load-bearing here, not decorative).
+    ///
+    /// Before this fix: on this exact `(start, target, width)`, the `NAN`
+    /// case reaches a stack overflow (verified directly against the
+    /// pre-fix branch, `width < self.config.precision.max_resolution` with
+    /// no finiteness check -- not reproduced here, since a crashing test
+    /// would abort the whole binary rather than fail it). The `1e-5` case
+    /// beside it is unaffected by the fix either way: `width(1e-15) <
+    /// max_resolution(1e-5)` was already true, so it already returned
+    /// `Ok(false)` immediately, with no recursion and no IK call. After
+    /// this fix, `NAN` takes the same immediate path, for the same
+    /// reason `1e-5` does: neither can be trusted to bound the recursion,
+    /// so neither is allowed to.
+    #[test]
+    fn a_non_finite_max_resolution_stops_the_recursion_instead_of_never_stopping_it() {
+        use crate::set_from_ik::IkContext;
+        use crate::{NewtonRaphsonSolver, SolverParams};
+        use moveit_model::{MeshSearchPaths, RobotModel};
+        use moveit_srdf::SrdfModel;
+        use moveit_state::RobotState;
+        use std::fs;
+
+        fn fixture_path(file_name: &str) -> String {
+            format!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+                file_name
+            )
+        }
+        let urdf_path = fixture_path("panda.urdf");
+        let srdf_path = fixture_path("panda.srdf");
+        let urdf_xml = fs::read_to_string(&urdf_path).expect("fixture URDF must be readable");
+        let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("fixture model must build");
+        let mut solver = NewtonRaphsonSolver::new(&model, "panda_arm", &SolverParams::default())
+            .expect("panda_arm is a chain");
+        let joint_names = solver.joint_names().to_vec();
+        let tip = solver.tip_frame().to_owned();
+
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        const START: [f64; 7] = [0.0, -0.4, 0.0, -1.9, 0.0, 1.6, 0.75];
+        for (name, value) in joint_names.iter().zip(START) {
+            state
+                .set_variable_position(name, value)
+                .expect("panda_arm joint");
+        }
+        let start_pose = state
+            .clone()
+            .update()
+            .global_link_transform(&tip)
+            .expect("tip link");
+        let mut target = start_pose;
+        target.translation.vector += Vector3::new(0.10, 0.05, 0.02);
+
+        let mut ik = IkContext::default();
+        for max_resolution in [1e-5_f64, f64::NAN] {
+            let config = CartesianInterpolator {
+                precision: CartesianPrecision {
+                    max_resolution,
+                    ..CartesianPrecision::default()
+                },
+                ..CartesianInterpolator::new("panda_arm", &tip, MaxEefStep::from_step_size(0.5))
+            };
+            let mut run = PathRun {
+                config: &config,
+                inv_offset: config.link_offset.inverse(),
+                solver: &mut solver,
+                ik: &mut ik,
+                traj: vec![],
+                achieved: 0.0,
+            };
+            let start_wp = Waypoint {
+                state: state.clone(),
+                pose: start_pose,
+            };
+            let end_wp = Waypoint {
+                state: state.clone(),
+                pose: target,
+            };
+            let result = run.validate_and_improve_interval(&start_wp, &end_wp, 1.0, 1e-15);
+
+            assert!(
+                !result.expect("no IK call is reachable past the width check"),
+                "max_resolution={max_resolution:?}: an unresolvable-in-time-to-matter width \
+                 check must reject the interval outright, not recurse"
+            );
+            assert!(
+                run.traj.is_empty(),
+                "max_resolution={max_resolution:?}: rejecting at the width check must not push \
+                 any waypoint"
+            );
+        }
     }
 }

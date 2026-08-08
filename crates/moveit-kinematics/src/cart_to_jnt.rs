@@ -17,6 +17,7 @@ use moveit_geometry::Isometry3;
 use moveit_state::RobotState;
 
 use crate::chain::ChainInfo;
+use crate::numeric::{cxx_max, cxx_min};
 use crate::params::SolverParams;
 use crate::registry::SolveOptions;
 use crate::velocity::solve_velocity;
@@ -175,7 +176,12 @@ pub(crate) fn cart_to_jnt(
         } else {
             twist.rows(3, 3).norm()
         };
-        let delta_twist_norm = position_error_norm.max(orientation_error_norm);
+        // `std::max(position_error, orientation_error)`
+        // (`kdl_kinematics_plugin.cpp:444`) — `cxx_max`, not `.max()`: both
+        // operands are runtime norms, and a NaN `position_error_norm` must
+        // propagate rather than be silently discarded in favor of
+        // `orientation_error_norm`.
+        let delta_twist_norm = cxx_max(position_error_norm, orientation_error_norm);
 
         if delta_twist_norm <= params.epsilon {
             return Some(
@@ -195,7 +201,13 @@ pub(crate) fn cart_to_jnt(
             // Close to a singularity: back off rather than trusting the
             // last velocity solve's step.
             let old_step_size = step_size;
-            step_size *= (0.2_f64).min(last_delta_twist_norm / delta_twist_norm);
+            // `std::min(0.2, ...)` (`kdl_kinematics_plugin.cpp:455`) —
+            // `cxx_min`, for fidelity/uniformity with upstream's exact
+            // comparison, not because a NaN can reach here: `0.2_f64` is a
+            // literal in the first/receiver operand, where a NaN second
+            // operand is discarded identically by `std::min` and
+            // `f64::min`, so no divergence is reachable at this site.
+            step_size *= cxx_min(0.2, last_delta_twist_norm / delta_twist_norm);
             let scale = step_size / old_step_size;
             for d in &mut delta_q {
                 *d *= scale;
@@ -232,7 +244,11 @@ pub(crate) fn cart_to_jnt(
                 break;
             }
             last_delta_twist_norm = f64::MAX;
-            let wiggle_scale = (0.1_f64).min(delta_twist_norm);
+            // `std::min(0.1, delta_twist_norm)` (`kdl_kinematics_plugin.cpp:482`)
+            // — `cxx_min` for the same fidelity/uniformity reason as the
+            // `step_size` call above: `0.1_f64` is a literal receiver, so no
+            // divergence is reachable here either.
+            let wiggle_scale = cxx_min(0.1, delta_twist_norm);
             for d in &mut delta_q {
                 *d = rng.random_range(-1.0..=1.0) * wiggle_scale;
             }
@@ -297,7 +313,15 @@ fn near_by_configuration(
                 }
                 value
             } else {
-                rng.random_range(min.max(near - limit)..=max.min(near + limit))
+                // `std::max(bounds.min_position_, near - distance)`,
+                // `std::min(bounds.max_position_, near + distance)`
+                // (`revolute_joint_model.cpp:133-134`,
+                // `prismatic_joint_model.cpp:95-96` — identical in both) —
+                // `cxx_max`/`cxx_min`, not `.max()`/`.min()`: `min`/`max` are
+                // model-sourced joint bounds, not constants, so a NaN bound
+                // must propagate rather than be silently discarded in favor
+                // of `near - limit`/`near + limit`.
+                rng.random_range(cxx_max(min, near - limit)..=cxx_min(max, near + limit))
             }
         })
         .collect()

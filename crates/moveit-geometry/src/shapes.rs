@@ -609,9 +609,12 @@ impl Sphere {
     ///
     /// # Errors
     ///
-    /// [`Error::Construct`] when `radius` is negative.
+    /// [`Error::Construct`] when `radius` is negative or non-finite — see
+    /// [`Cone::bounding_sphere`]'s doc for why a bare `< 0.0` check alone
+    /// (upstream's own form, `if (r < 0)`) is not enough: `NaN < 0.0` is
+    /// `false`, so it silently accepts a `NaN` radius as "non-negative".
     pub fn new(radius: f64) -> Result<Self> {
-        if radius < 0.0 {
+        if !radius.is_finite() || radius < 0.0 {
             return Err(Error::construct("Sphere radius must be non-negative."));
         }
         Ok(Self { radius })
@@ -621,10 +624,12 @@ impl Sphere {
     ///
     /// # Errors
     ///
-    /// [`Error::Construct`] when the resulting radius would be negative.
+    /// [`Error::Construct`] when the resulting radius would be negative or
+    /// non-finite (`scale`/`padding` themselves are not validated upstream
+    /// either — see [`Sphere::new`]).
     pub fn scale_and_padd(&mut self, scale: f64, padding: f64) -> Result<()> {
         let radius = self.radius * scale + padding;
-        if radius < 0.0 {
+        if !radius.is_finite() || radius < 0.0 {
             return Err(Error::construct("Sphere radius must be non-negative."));
         }
         self.radius = radius;
@@ -681,9 +686,10 @@ impl Cylinder {
     ///
     /// # Errors
     ///
-    /// [`Error::Construct`] when either dimension is negative.
+    /// [`Error::Construct`] when either dimension is negative or non-finite
+    /// — see [`Cone::bounding_sphere`]'s doc: `NaN < 0.0` is `false`.
     pub fn new(radius: f64, length: f64) -> Result<Self> {
-        if radius < 0.0 || length < 0.0 {
+        if !radius.is_finite() || !length.is_finite() || radius < 0.0 || length < 0.0 {
             return Err(Error::construct(
                 "Cylinder dimensions must be non-negative.",
             ));
@@ -701,7 +707,7 @@ impl Cylinder {
     /// # Errors
     ///
     /// [`Error::Construct`] when the resulting radius or length would be
-    /// negative.
+    /// negative or non-finite.
     pub fn scale_and_padd_axes(
         &mut self,
         scale_radius: f64,
@@ -711,7 +717,7 @@ impl Cylinder {
     ) -> Result<()> {
         let radius = self.radius * scale_radius + padd_radius;
         let length = self.length * scale_length + 2.0 * padd_length;
-        if radius < 0.0 || length < 0.0 {
+        if !radius.is_finite() || !length.is_finite() || radius < 0.0 || length < 0.0 {
             return Err(Error::construct(
                 "Cylinder dimensions must be non-negative.",
             ));
@@ -796,9 +802,12 @@ impl Cone {
     ///
     /// # Errors
     ///
-    /// [`Error::Construct`] when either dimension is negative.
+    /// [`Error::Construct`] when either dimension is negative or non-finite
+    /// — see [`Cone::bounding_sphere`]'s doc: `NaN < 0.0` is `false`, so a
+    /// bare `< 0.0` check (upstream's own form, `if (r < 0 || l < 0)`)
+    /// silently accepts a `NaN` dimension as "non-negative".
     pub fn new(radius: f64, length: f64) -> Result<Self> {
-        if radius < 0.0 || length < 0.0 {
+        if !radius.is_finite() || !length.is_finite() || radius < 0.0 || length < 0.0 {
             return Err(Error::construct("Cone dimensions must be non-negative."));
         }
         Ok(Self { radius, length })
@@ -810,7 +819,7 @@ impl Cone {
     /// # Errors
     ///
     /// [`Error::Construct`] when the resulting radius or length would be
-    /// negative.
+    /// negative or non-finite.
     pub fn scale_and_padd_axes(
         &mut self,
         scale_radius: f64,
@@ -820,7 +829,7 @@ impl Cone {
     ) -> Result<()> {
         let radius = self.radius * scale_radius + padd_radius;
         let length = self.length * scale_length + 2.0 * padd_length;
-        if radius < 0.0 || length < 0.0 {
+        if !radius.is_finite() || !length.is_finite() || radius < 0.0 || length < 0.0 {
             return Err(Error::construct("Cone dimensions must be non-negative."));
         }
         self.radius = radius;
@@ -869,8 +878,40 @@ impl Cone {
     /// `CONE` branch: a tall cone's bounding sphere touches the base rim and
     /// the tip; a short, wide cone's bounding sphere touches the base rim
     /// only and is centered on the base.
+    ///
+    /// # Deviation: a non-finite or non-positive `length` cannot reach the
+    /// division
+    ///
+    /// Upstream (`geometric_shapes/src/shape_operations.cpp`, `CONE` branch
+    /// of `computeShapeBoundingSphere`) has the identical `cone_height >
+    /// cone_radius` branch and `cone_radius * cone_radius / cone_height`
+    /// division, unguarded the same way. For a `Cone` built through
+    /// [`Cone::new`]/[`Cone::scale_and_padd_axes`] alone this can't divide
+    /// by zero: `length > radius >= 0` already forces `length > 0`. But
+    /// `radius`/`length` are public fields — this crate has no way to stop
+    /// a caller writing `self.length = 0.0` directly, and even with
+    /// [`Cone::new`] fixed to reject `NaN`, a `Cone` can still carry one via
+    /// direct field assignment. `self.length > self.radius` reads `false`
+    /// for any `NaN` operand (every `NaN` comparison is), which does not
+    /// route around the problem: the `else` branch below assigns
+    /// `self.radius`/`self.length` straight through too. So this method
+    /// checks both fields itself, up front, the same way [`Shape::
+    /// bounding_sphere`] already falls back to a zero-radius sphere for
+    /// [`Shape::Plane`]/[`Shape::OcTree`] when it has nothing real to
+    /// report — extending that existing convention rather than adding a
+    /// special case. The `length > 0.0` clause on the `if` (redundant for
+    /// any `Cone` [`Cone::new`] would accept, since that already forces
+    /// `length > radius >= 0`) is what actually keeps the division's
+    /// denominator off zero if `radius` itself is negative by direct field
+    /// assignment.
     pub fn bounding_sphere(&self) -> BoundingSphere {
-        if self.length > self.radius {
+        if !self.radius.is_finite() || !self.length.is_finite() {
+            return BoundingSphere {
+                center: Vector3::zeros(),
+                radius: 0.0,
+            };
+        }
+        if self.length > self.radius && self.length > 0.0 {
             let z = (self.length - (self.radius * self.radius / self.length)) * 0.5;
             BoundingSphere {
                 center: Vector3::new(0.0, 0.0, z - self.length * 0.5),
@@ -900,9 +941,10 @@ impl Cuboid {
     ///
     /// # Errors
     ///
-    /// [`Error::Construct`] when any dimension is negative.
+    /// [`Error::Construct`] when any dimension is negative or non-finite —
+    /// see [`Cone::bounding_sphere`]'s doc: `NaN < 0.0` is `false`.
     pub fn new(x: f64, y: f64, z: f64) -> Result<Self> {
-        if x < 0.0 || y < 0.0 || z < 0.0 {
+        if !x.is_finite() || !y.is_finite() || !z.is_finite() || x < 0.0 || y < 0.0 || z < 0.0 {
             return Err(Error::construct("Box dimensions must be non-negative."));
         }
         Ok(Self { size: [x, y, z] })
@@ -913,7 +955,8 @@ impl Cuboid {
     ///
     /// # Errors
     ///
-    /// [`Error::Construct`] when a resulting dimension would be negative.
+    /// [`Error::Construct`] when a resulting dimension would be negative or
+    /// non-finite.
     pub fn scale_and_padd_axes(
         &mut self,
         scale_x: f64,
@@ -926,7 +969,7 @@ impl Cuboid {
         let x = self.size[0] * scale_x + padd_x * 2.0;
         let y = self.size[1] * scale_y + padd_y * 2.0;
         let z = self.size[2] * scale_z + padd_z * 2.0;
-        if x < 0.0 || y < 0.0 || z < 0.0 {
+        if !x.is_finite() || !y.is_finite() || !z.is_finite() || x < 0.0 || y < 0.0 || z < 0.0 {
             return Err(Error::construct("Box dimensions must be non-negative."));
         }
         self.size = [x, y, z];
