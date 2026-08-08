@@ -858,6 +858,21 @@ pub fn check_joint_space_jump(
 }
 
 /// Upstream `hasRelativeJointSpaceJump`.
+///
+/// `threshold > total_dist / count` was upstream's own comparison, ported
+/// faithfully — but a single NaN anywhere in `increments` (any waypoint
+/// with a non-finite joint value) makes the sum, and therefore `threshold`,
+/// NaN, and every NaN comparison is false: `increment > threshold` would
+/// silently clear *every* increment, including the increments that are
+/// themselves perfectly finite, treating a data point this function cannot
+/// even evaluate as "no jump" rather than as the one thing a jump check
+/// exists to catch. `threshold` is the single value the whole decision
+/// funnels through, so checking it once here closes the family: a
+/// non-finite `threshold` can only come from a non-finite `relative_factor`
+/// or a non-finite increment already summed into `total`, and either way
+/// the correct, conservative answer is "cannot verify this path is
+/// jump-free" — reported at the earliest waypoint, exactly like a genuine
+/// jump there would be.
 fn has_relative_joint_space_jump(
     waypoints: &[RobotState<'_>],
     group: &JointModelGroup,
@@ -871,11 +886,20 @@ fn has_relative_joint_space_jump(
     let threshold = relative_factor * (total / increments.len() as f64);
     increments
         .iter()
-        .position(|&increment| increment > threshold)
+        .position(|&increment| !threshold.is_finite() || increment > threshold)
         .map(|index| index + 1)
 }
 
 /// Upstream `hasAbsoluteJointSpaceJump`.
+///
+/// Same anchor as [`has_relative_joint_space_jump`], one level narrower:
+/// here it is `distance` — computed fresh per `(waypoint, joint)` pair,
+/// from that pair's own joint values — that can be NaN while
+/// `revolute_threshold`/`prismatic_threshold` stay perfectly ordinary
+/// (caller-supplied constants). `distance > threshold` then silently
+/// clears just that one pair rather than the whole list, but the fix is
+/// the same rule: a comparison this function cannot evaluate is not
+/// evidence of "no jump".
 fn has_absolute_joint_space_jump(
     waypoints: &[RobotState<'_>],
     group: &JointModelGroup,
@@ -891,8 +915,12 @@ fn has_absolute_joint_space_jump(
             let joint = model.joint_model_at(index);
             let distance = joint_distance(&waypoints[i], &waypoints[i - 1], joint);
             let exceeded = match joint.joint_type() {
-                JointType::Revolute => check_revolute && distance > revolute_threshold,
-                JointType::Prismatic => check_prismatic && distance > prismatic_threshold,
+                JointType::Revolute => {
+                    check_revolute && (!distance.is_finite() || distance > revolute_threshold)
+                }
+                JointType::Prismatic => {
+                    check_prismatic && (!distance.is_finite() || distance > prismatic_threshold)
+                }
                 // Upstream warns and skips; see this module's "Out of scope".
                 _ => false,
             };
