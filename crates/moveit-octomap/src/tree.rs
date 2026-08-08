@@ -1450,8 +1450,36 @@ fn update_node_recurs(
             node.update_occupancy_from_children();
         }
     } else {
-        node.log_odds =
-            (node.log_odds + params.log_odds_update).clamp(params.clamp_min, params.clamp_max);
+        node.log_odds = clamp_log_odds(
+            node.log_odds + params.log_odds_update,
+            params.clamp_min,
+            params.clamp_max,
+        );
+    }
+}
+
+/// `updateNodeLogOdds`'s clamp
+/// (`third_party/octomap/octomap/include/octomap/OccupancyOcTreeBase.hxx:1091-1100`),
+/// as upstream writes it: two one-sided comparisons, low bound first.
+///
+/// Not `f32::clamp`. `clamp` carries a `min <= max` precondition and panics
+/// when it does not hold, or when either bound is `NaN`. Upstream carries no
+/// such precondition and cannot panic —
+/// [`OcTree::set_clamping_thres_min`](crate::OcTree::set_clamping_thres_min)
+/// and [`OcTree::set_clamping_thres_max`](crate::OcTree::set_clamping_thres_max)
+/// are public and validate nothing, exactly like the
+/// `setClampingThresMin`/`setClampingThresMax` they port, so a caller can
+/// leave `min > max` set, and `logodds(prob)` yields `NaN` for `prob` outside
+/// `[0, 1]`. On the inverted-bound input upstream's first `if` fires and
+/// returns `min`; a `NaN` value fails both comparisons and passes through
+/// unchanged. This reproduces all three.
+fn clamp_log_odds(value: f32, min: f32, max: f32) -> f32 {
+    if value < min {
+        min
+    } else if value > max {
+        max
+    } else {
+        value
     }
 }
 
@@ -1691,6 +1719,48 @@ mod tests {
         }
         assert_eq!(tree.log_odds_at(p).unwrap(), tree.clamping_thres_max_log());
         assert!(tree.is_occupied(p).unwrap());
+    }
+
+    /// `setClampingThresMin`/`setClampingThresMax` validate nothing
+    /// upstream, and neither do their ports, so `min > max` is a state a
+    /// caller can leave the tree in. Upstream's `updateNodeLogOdds`
+    /// (`OccupancyOcTreeBase.hxx:1091-1100`) tests the low bound first and
+    /// returns, so an inverted pair yields `min`; `f32::clamp` panics on
+    /// exactly this input, which is why this port does not use it.
+    #[test]
+    fn an_inverted_clamping_pair_yields_the_low_bound_rather_than_panicking() {
+        let mut tree = OcTree::new(0.1);
+        tree.set_clamping_thres_min(0.9);
+        tree.set_clamping_thres_max(0.1);
+        assert!(
+            tree.clamping_thres_min_log() > tree.clamping_thres_max_log(),
+            "setup must actually invert the pair"
+        );
+
+        let p = Point3::new(0.05, 0.05, 0.05);
+        tree.update_node(p, true, false);
+
+        assert_eq!(tree.log_odds_at(p).unwrap(), tree.clamping_thres_min_log());
+    }
+
+    /// `logodds(prob)` is `ln(prob / (1 - prob))`, so a `prob` above `1`
+    /// makes the bound `NaN`. Upstream's two comparisons are both false
+    /// against a `NaN` bound, leaving the accumulated value untouched;
+    /// `f32::clamp` panics on a `NaN` bound instead.
+    #[test]
+    fn a_nan_clamping_bound_leaves_the_value_untouched_rather_than_panicking() {
+        let mut tree = OcTree::new(0.1);
+        tree.set_clamping_thres_max(2.0);
+        assert!(
+            tree.clamping_thres_max_log().is_nan(),
+            "setup must actually produce a NaN bound"
+        );
+
+        let p = Point3::new(0.05, 0.05, 0.05);
+        tree.update_node(p, true, false);
+
+        let expected = tree.prob_hit_log();
+        assert_eq!(tree.log_odds_at(p).unwrap(), expected);
     }
 
     #[test]
