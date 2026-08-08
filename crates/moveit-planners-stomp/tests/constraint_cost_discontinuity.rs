@@ -7,17 +7,20 @@
 //! distance`) instead of leaving it a continuous `distance * cost_scale`
 //! (this branch's current, unfixed form).
 //!
-//! `crates/moveit-planners-stomp/src/cost_functions.rs` is off-limits to
-//! edit this round (a sibling panel is actively rewriting it) -- this test
-//! does not touch it. It reuses [`get_constraints_cost_function`] unmodified
-//! for the *continuous* side, and replicates `7f561e20`'s exact change
-//! (`if satisfied { 0.0 } else { distance * cost_scale }`) as a standalone
-//! closure ([`gated_constraints_cost_function`]) built only from that
-//! module's already-`pub` pieces ([`StateValidatorFn`],
+//! This test does not edit
+//! `crates/moveit-planners-stomp/src/cost_functions.rs`. It uses
+//! [`get_constraints_cost_function`] for the *gated* side -- `7f561e20`
+//! landed the `if satisfied { 0.0 } else { distance * cost_scale }` gate
+//! there -- and replicates upstream's continuous body
+//! (`distance * cost_scale` unconditionally) as a standalone closure
+//! ([`continuous_constraints_cost_function`]) built only from that module's
+//! already-`pub` pieces ([`StateValidatorFn`],
 //! [`cost_function_from_state_validator`], [`CONSTRAINT_CHECK_DISTANCE`])
 //! plus [`moveit_constraints::KinematicConstraintSet::decide`] and
 //! [`moveit_planners_stomp::conversion_functions::set_positions`] -- for the
-//! *gated* side.
+//! *continuous* side. When this file was written those two sides were the
+//! other way round; the merge that brought `7f561e20` into the same tree
+//! swapped which one production provides, not what is being compared.
 //!
 //! # What is actually measured, and the mechanism behind it
 //!
@@ -114,14 +117,22 @@ fn load_panda() -> (RobotModel, SrdfModel) {
     (model, srdf)
 }
 
-/// `7f561e20`'s exact replacement body, built only from
-/// `cost_functions`'s public pieces instead of editing that file. Mirrors
-/// [`get_constraints_cost_function`]'s own shape one-for-one, including
-/// reusing [`CONSTRAINT_CHECK_DISTANCE`] as the interpolation step size, so
-/// the only difference between this and the real (continuous, unmodified)
-/// [`get_constraints_cost_function`] call below is the one line the commit
-/// actually changes.
-fn gated_constraints_cost_function<'a, 'm>(
+/// Upstream's own body (`cost_functions.hpp:246`,
+/// `constraints.decide(state).distance * cost_scale` unconditionally),
+/// built only from `cost_functions`'s public pieces instead of editing that
+/// file. Mirrors [`get_constraints_cost_function`]'s own shape one-for-one,
+/// including reusing [`CONSTRAINT_CHECK_DISTANCE`] as the interpolation step
+/// size, so the only difference between this and the real
+/// [`get_constraints_cost_function`] below is the `result.satisfied` gate
+/// `7f561e20` added there.
+///
+/// This replica is the *continuous* arm, not the gated one: when this file
+/// was written the production function was still upstream's continuous form
+/// and the replica supplied the gate. `7f561e20` (residual-ci-wired) landed
+/// the gate in production, so the two arms swapped sides at the merge --
+/// the comparison this file measures is unchanged, but the side that has to
+/// be replicated locally is now the one production no longer offers.
+fn continuous_constraints_cost_function<'a, 'm>(
     scene: &'a RefCell<&'a mut PlanningScene<'m>>,
     group: &'a JointModelGroup,
     constraints: &'a KinematicConstraintSet,
@@ -134,12 +145,7 @@ fn gated_constraints_cost_function<'a, 'm>(
              this crate that already drives this group through this same call",
         );
         let posed = scene.current_state_mut().update();
-        let result = constraints.decide(&posed);
-        if result.satisfied {
-            0.0
-        } else {
-            result.distance * cost_scale
-        }
+        constraints.decide(&posed).distance * cost_scale
     });
     cost_function_from_state_validator(validator, CONSTRAINT_CHECK_DISTANCE)
 }
@@ -222,12 +228,12 @@ fn gated_constraint_cost_settles_farther_from_the_exact_target_than_continuous()
         let mut scene = PlanningScene::new(&model, &srdf);
         let cell = RefCell::new(&mut scene);
         let continuous_cost_fn =
-            get_constraints_cost_function(&cell, group, &set, COST_SCALE).unwrap();
+            continuous_constraints_cost_function(&cell, group, &set, COST_SCALE);
         let continuous_metric = run(seed, continuous_cost_fn, num_dimensions);
 
         let mut scene = PlanningScene::new(&model, &srdf);
         let cell = RefCell::new(&mut scene);
-        let gated_cost_fn = gated_constraints_cost_function(&cell, group, &set, COST_SCALE);
+        let gated_cost_fn = get_constraints_cost_function(&cell, group, &set, COST_SCALE).unwrap();
         let gated_metric = run(seed, gated_cost_fn, num_dimensions);
 
         println!(
@@ -272,11 +278,11 @@ fn gated_constraint_cost_settles_farther_from_the_exact_target_than_continuous()
     );
 }
 
-/// Isolates [`gated_constraints_cost_function`] itself (no `Stomp` in the
-/// loop) against a hand-picked waypoint outside tolerance, confirming the
-/// closure genuinely discriminates satisfied/violated rather than the main
-/// test's "stuck exactly at the start value" result being a silent bug in
-/// this file's own replica (e.g. always returning `0.0`).
+/// Isolates the gated [`get_constraints_cost_function`] itself (no `Stomp`
+/// in the loop) against a hand-picked waypoint outside tolerance,
+/// confirming it genuinely discriminates satisfied/violated rather than the
+/// main test's "stuck exactly at the start value" result coming from a cost
+/// function that always returns `0.0`.
 #[test]
 fn gated_constraints_cost_function_reports_nonzero_cost_past_the_tolerance_edge() {
     let (model, srdf) = load_panda();
@@ -289,7 +295,7 @@ fn gated_constraints_cost_function_reports_nonzero_cost_past_the_tolerance_edge(
 
     let mut scene = PlanningScene::new(&model, &srdf);
     let cell = RefCell::new(&mut scene);
-    let mut cost_fn = gated_constraints_cost_function(&cell, group, &set, COST_SCALE);
+    let mut cost_fn = get_constraints_cost_function(&cell, group, &set, COST_SCALE).unwrap();
 
     // 3 waypoints: inside tolerance (0.01), outside tolerance (0.05), inside (0.0).
     let mut values = DMatrix::zeros(num_dimensions, 3);
