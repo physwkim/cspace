@@ -74,10 +74,33 @@
 //! x 3 offsets through `collision_detection::CollisionEnvFCL` on prbt, exact
 //! tangency: `box x cylinder`, `cylinder x box` and `cylinder x cylinder` are
 //! `false` and the other 13 are `true`. Those are exactly the generic-libccd
-//! cells. `mesh` is `true` against everything because MoveIt maps
-//! `shapes::MESH` to `fcl::BVHModel` (`moveit_core/collision_detection_fcl/
-//! src/collision_common.cpp:900-923`), a third traversal that is neither
-//! specialisation nor libccd MPR.
+//! cells. `mesh` was not part of that 4x4 sweep, and the sentence that used to
+//! stand here in its place -- "`mesh` is `true` against everything because
+//! MoveIt maps `shapes::MESH` to `fcl::BVHModel`
+//! (`collision_common.cpp:900-923`), a third traversal that is neither
+//! specialisation nor libccd MPR" -- was an inference, not a measurement, and
+//! it is wrong: `fcl::BVHModel` is only the broad-phase. Its leaf test against
+//! a candidate triangle still calls `nsolver->shapeTriangleIntersect(shape,
+//! ...)` (`mesh_shape_collision_traversal_node-inl.h:85,98,117,226,239,258`;
+//! `shape_mesh_collision_traversal_node-inl.h:89,102,121`, both symmetric),
+//! and that function has closed-form specialisations for exactly `Sphere<S>`
+//! (`gjk_solver_libccd-inl.h:403-419`, `:480-498`), `Halfspace<S>`
+//! (`:502-520`) and `Plane<S>` (`:524-542`) -- the complete list, confirmed by
+//! grepping every `ShapeTriangleIntersectLibccdImpl<S, _>`/
+//! `ShapeTransformedTriangleIntersectLibccdImpl<S, _>` specialisation in the
+//! file, four total. `Box<S>`, `Cylinder<S>`, `Cone<S>` have none, so they
+//! fall to the same generic template (`:349-383`, `:423-458`) every non-mesh
+//! generic pair uses, which calls `detail::GJKCollide<S>` -- libccd MPR, whose
+//! `discoverPortal` (`/home/stevek/work/libccd` v2.1/`7931e76`,
+//! `src/mpr.c:189,209,232`) rejects an exact-zero support-direction dot as
+//! outside the portal, and `ccdMPRIntersect`/`ccdMPRPenetration` (`:99-115`,
+//! `:117-148`) both read that rejection as no collision -- the same mechanism
+//! as the `box x cylinder` cell already measured above, not a fourth kind
+//! exempt from it. Measured (not inferred): `mesh` is `true` at exact
+//! tangency only against `sphere` (`sphere_triangle-inl.h:146,156`'s
+//! `radius_with_threshold = radius + epsilon` pads the boundary inclusive,
+//! the same admitting convention as the specialised cells above), and `false`
+//! against `box`, `cylinder`, `cone`.
 //!
 //! # This backend: the pair decides here too, and one cell disagrees
 //!
@@ -103,8 +126,41 @@
 //! oracle image's `gjk_solver_libccd-inl.h` by
 //! `tools/ci/verify-fcl-tangency-dispatch.sh --emit`) and consults it,
 //! per shape pair, whenever `query::contact`'s `dist` lands at exactly
-//! `0.0` -- mesh decided separately as an unconditional `true`, since fcl's
-//! `BVHModel` path is a third dispatch the table has no registration for.
+//! `0.0` -- mesh decided separately as an unconditional `true`. An earlier
+//! revision of this section reasoned from the code path alone (mesh falls to
+//! the same generic `GJKCollide`/libccd-MPR fallback as `box x cylinder`, so
+//! it predicted the same `false`) and never ran it; that inference was
+//! wrong. Measured instead, against a mesh built bit-for-bit like this
+//! file's own `unit_cube_mesh` (same 8 vertices, same 12 triangles, same
+//! indices) via `tools/fcl-tangency-probe`'s own build recipe inside the
+//! pinned oracle image (`libfcl-dev 0.7.0-3build2`): `mesh x box`, `box x
+//! mesh`, `mesh x cylinder` and `cylinder x mesh` are all `true` in fcl too,
+//! at this exact construction -- they agree with this port's unconditional
+//! `true`, not the predicted `false`.
+//!
+//! `mesh x cone` has no single fcl answer to agree or disagree with:
+//! `fcl::collide(&mesh_obj, &cone_obj, req, res)` reports `false` and
+//! `fcl::collide(&cone_obj, &mesh_obj, req, res)` reports `true`, for the
+//! identical exact-zero construction just swapped, deterministically over 5
+//! repeat runs. Fcl's own generic-MPR fallback is not stable at an
+//! exact-zero gap: `discoverPortal`'s three reject tests
+//! (`/home/stevek/work/libccd` v2.1/`7931e76`, `src/mpr.c:189,209,232`,
+//! `ccdIsZero(dot) || dot < CCD_ZERO`) read a dot product built from each
+//! shape's own support function, and which shape's support function gets
+//! queried first depends on argument order -- a floating-point path
+//! difference, not a geometry difference. No committed fixture in this
+//! workspace builds a `Cone` collision primitive at all (every tracked
+//! `.urdf` and fixture `.json` searched, zero hits), so this cell is
+//! unreached, not merely undecided. Left as `fcl_tangency_verdict`'s default
+//! fallback of unconditional `true` (`crate::mesh_tangency_table`'s
+//! `NoStableTarget` maps to `None`, and `touches_at_tie` treats `None` as
+//! touching) -- which matches fcl's `cone x mesh` answer and not its `mesh x
+//! cone` answer, and no other fixed choice does better: upstream disagrees
+//! with itself here, so a single port-side value can match at most one of
+//! its two answers. `sphere x sphere`'s own tie, two paragraphs below, is
+//! left open for the same shape of reason: not every disagreement this port
+//! measures is one a policy choice on this side can close.
+//!
 //! Off that exact tie, the pre-existing rule is unchanged: any `Some` is a
 //! touch. `sphere x sphere`'s own tie is a `None` from `query::contact`
 //! (`contact_ball_ball`'s strict `<`) that `query::intersection_test`
@@ -135,9 +191,52 @@
 //! `TIE_ROUNDING_MARGIN * f64::EPSILON * scale` of zero as this same
 //! rounding, not a real answer, and consults the dispatch table there
 //! instead of trusting the sign. All 25 cells below are decided by the
-//! table now, matching upstream exactly: the naive "restrict fcl's table to
-//! this crate's five kinds" prediction was correct all along, and the
-//! rounding above no longer keeps four pairs from reaching it.
+//! table now. 24 of them match upstream exactly, measured rather than
+//! predicted for every mesh cell (see above): the 16 non-mesh cells, `mesh x
+//! mesh`, `mesh x sphere`/`sphere x mesh`, `mesh x box`/`box x mesh`, `mesh x
+//! cylinder`/`cylinder x mesh`, and `cone x mesh`. Only `mesh x cone` -- one
+//! cell, one argument order -- does not: fcl's own answer for that exact
+//! configuration depends on which argument order `fcl::collide` is called
+//! with, so this port's single fixed `true` can match at most one of fcl's
+//! two answers, and it matches the other order (`cone x mesh`) instead.
+//!
+//! # One construction is not every orientation
+//!
+//! Every "mesh is true at exact tangency" claim above, including line 99's,
+//! is measured at exactly one pose per pair: the mesh unrotated, touching
+//! along a single axis-aligned face. `TANGENT` and
+//! `exact_tangency_is_decided_by_fcls_dispatch_table` pin that one pose per
+//! pair and remain correct -- this section does not change either. What it
+//! corrects is reading "mesh is true at exact tangency" as orientation-
+//! independent, which is what the deleted `is_mesh_pair`'s unconditional
+//! `bool` did. `crates/moveit-collision/examples/mesh_orientation_probe.rs`
+//! (497 tilted orientations x 5 kinds x 2 argument orders, exact-zero-gap by
+//! construction) and `tools/fcl-mesh-orientation-probe` (the same 497
+//! against `fcl::BVHModel<fcl::OBBRSSd>`) measured that it does not
+//! generalise: at the time of that measurement (before this file's own
+//! `is_mesh_pair` deletion), `check_robot_collision` missed 6,083/24,970
+//! (24.4%) of those tilted ties, and fcl's own answer is itself
+//! argument-order-unstable at 408/497 (82.1%) of tilted `mesh x cone` poses
+//! and 94/497 (18.9%) of tilted `mesh x mesh` poses -- not merely the one
+//! `mesh x cone` argument-order tie this file's own axis-aligned sweep
+//! already found. `mesh x sphere` is the one pair whose tilted answer is
+//! stable regardless of orientation (fcl `true` at every one of 497 poses,
+//! matching the closed-form `Sphere`-triangle specialisation's
+//! boundary-inclusive padding), and `crate::mesh_tangency_table` -- kept
+//! deliberately separate from this file's own untilted, per-pair
+//! `fcl_tangency_table::SPECIALISED` provenance rather than merged into it --
+//! is where that measurement lives, the only one of the five with an
+//! unambiguous target, and now the only one rescued too:
+//! `crate::parry::tangent_pair_touches` gives a `TriMesh` pair a widened
+//! second `query::contact` chance when the plain confirmation
+//! (`query::intersection_test`) fails, and `mesh_orientation_probe`'s own
+//! doc has the re-measured count -- `mesh x sphere`'s 2594 misses (of the
+//! 6,083 total above) are 0 after that change, every other kind's count
+//! unchanged. `crates/moveit-collision/tests/
+//! mesh_sphere_tangency_is_rescued_at_exact_tangency.rs` pins the fix as a
+//! passing regression. `box`/`cylinder`/`mesh x mesh` stay unrescued --
+//! real, undiagnosed divergences with no single target to converge to, not
+//! merely not-yet-attempted.
 //!
 //! # Cost
 //!

@@ -25,6 +25,7 @@ use std::collections::BTreeSet;
 use moveit_geometry::Vector3;
 
 use crate::common::CostSource;
+use crate::numeric::{cxx_max, cxx_min};
 
 /// `getTotalCost`: the sum of each cost source's cost density times its AABB
 /// volume.
@@ -55,15 +56,20 @@ fn aabb_center(source: &CostSource) -> Vector3 {
 }
 
 fn aabb_intersection(a: &CostSource, b: &CostSource) -> Option<([f64; 3], [f64; 3])> {
+    // `std::max(source_a.aabb_min[i], source_b.aabb_min[i])` /
+    // `std::min(source_a.aabb_max[i], source_b.aabb_max[i])`
+    // (`collision_tools.cpp:170-176`) keep a NaN `a` bound as NaN; `f64::max`/
+    // `f64::min` would silently discard it in favor of `b`'s finite bound.
+    // See `crate::numeric`.
     let min = [
-        a.aabb_min[0].max(b.aabb_min[0]),
-        a.aabb_min[1].max(b.aabb_min[1]),
-        a.aabb_min[2].max(b.aabb_min[2]),
+        cxx_max(a.aabb_min[0], b.aabb_min[0]),
+        cxx_max(a.aabb_min[1], b.aabb_min[1]),
+        cxx_max(a.aabb_min[2], b.aabb_min[2]),
     ];
     let max = [
-        a.aabb_max[0].min(b.aabb_max[0]),
-        a.aabb_max[1].min(b.aabb_max[1]),
-        a.aabb_max[2].min(b.aabb_max[2]),
+        cxx_min(a.aabb_max[0], b.aabb_max[0]),
+        cxx_min(a.aabb_max[1], b.aabb_max[1]),
+        cxx_min(a.aabb_max[2], b.aabb_max[2]),
     ];
     if min[0] >= max[0] || min[1] >= max[1] || min[2] >= max[2] {
         None
@@ -94,7 +100,10 @@ pub fn intersect_cost_sources(
             result.insert(CostSource {
                 aabb_min,
                 aabb_max,
-                cost: source_a.cost.max(source_b.cost),
+                // `std::max(source_a.cost, source_b.cost)`
+                // (`collision_tools.cpp:181`); same NaN-first-operand-wins
+                // rule as `aabb_intersection` above.
+                cost: cxx_max(source_a.cost, source_b.cost),
             });
         }
     }
@@ -290,6 +299,66 @@ mod tests {
         let mut b = BTreeSet::new();
         b.insert(cost_source([5.0, 5.0, 5.0], [6.0, 6.0, 6.0], 1.0));
         assert!(intersect_cost_sources(&a, &b).is_empty());
+    }
+
+    // `std::max`/`std::min` return a NaN *first* operand and discard a NaN
+    // *second* one; `f64::max`/`f64::min` discard NaN wherever it sits. The
+    // pairs below put the NaN on `a` (the diverging position) to prove the
+    // fix, then on `b` (the non-diverging position) to prove the fix didn't
+    // just start propagating NaN everywhere.
+
+    #[test]
+    fn aabb_min_nan_on_a_is_returned_not_discarded() {
+        let a = cost_source([f64::NAN, 0.0, 0.0], [2.0, 2.0, 2.0], 1.0);
+        let b = cost_source([1.0, 1.0, 1.0], [3.0, 3.0, 3.0], 1.0);
+        let (min, _) = aabb_intersection(&a, &b).expect("boxes overlap on y/z");
+        assert!(min[0].is_nan());
+    }
+
+    #[test]
+    fn aabb_min_nan_on_b_is_discarded_in_favor_of_a() {
+        let a = cost_source([1.0, 0.0, 0.0], [2.0, 2.0, 2.0], 1.0);
+        let b = cost_source([f64::NAN, 1.0, 1.0], [3.0, 3.0, 3.0], 1.0);
+        let (min, _) = aabb_intersection(&a, &b).expect("boxes overlap on y/z");
+        assert_eq!(min[0], 1.0);
+    }
+
+    #[test]
+    fn aabb_max_nan_on_a_is_returned_not_discarded() {
+        let a = cost_source([0.0, 0.0, 0.0], [f64::NAN, 2.0, 2.0], 1.0);
+        let b = cost_source([1.0, 1.0, 1.0], [3.0, 3.0, 3.0], 1.0);
+        let (_, max) = aabb_intersection(&a, &b).expect("boxes overlap on y/z");
+        assert!(max[0].is_nan());
+    }
+
+    #[test]
+    fn aabb_max_nan_on_b_is_discarded_in_favor_of_a() {
+        let a = cost_source([0.0, 0.0, 0.0], [2.0, 2.0, 2.0], 1.0);
+        let b = cost_source([1.0, 1.0, 1.0], [f64::NAN, 3.0, 3.0], 1.0);
+        let (_, max) = aabb_intersection(&a, &b).expect("boxes overlap on y/z");
+        assert_eq!(max[0], 2.0);
+    }
+
+    #[test]
+    fn intersection_cost_nan_on_a_is_returned_not_discarded() {
+        let mut a = BTreeSet::new();
+        a.insert(cost_source([0.0, 0.0, 0.0], [2.0, 2.0, 2.0], f64::NAN));
+        let mut b = BTreeSet::new();
+        b.insert(cost_source([1.0, 1.0, 1.0], [3.0, 3.0, 3.0], 1.0));
+        let result = intersect_cost_sources(&a, &b);
+        assert_eq!(result.len(), 1);
+        assert!(result.iter().next().unwrap().cost.is_nan());
+    }
+
+    #[test]
+    fn intersection_cost_nan_on_b_is_discarded_in_favor_of_a() {
+        let mut a = BTreeSet::new();
+        a.insert(cost_source([0.0, 0.0, 0.0], [2.0, 2.0, 2.0], 5.0));
+        let mut b = BTreeSet::new();
+        b.insert(cost_source([1.0, 1.0, 1.0], [3.0, 3.0, 3.0], f64::NAN));
+        let result = intersect_cost_sources(&a, &b);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result.iter().next().unwrap().cost, 5.0);
     }
 
     #[test]

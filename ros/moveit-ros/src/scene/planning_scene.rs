@@ -578,7 +578,14 @@ fn apply_octomap(
             map.octomap.id
         )));
     }
-
+    // `map.octomap.resolution` is untrusted wire data, but it is not
+    // validated here -- `moveit_octomap::OcTree::read_binary_data`/
+    // `read_data` (called just below) reject a non-positive or non-finite
+    // resolution themselves now (`DecodeError::InvalidResolution`), the one
+    // shared choke point every caller of either function already passes
+    // through, in this crate or any other. See that error variant's own doc
+    // for why the resolution invariant belongs there and not at each
+    // untrusted-data boundary separately.
     let mut tree = moveit_octomap::OcTree::new(map.octomap.resolution);
     let bytes: Vec<u8> = map.octomap.data.iter().map(|&b| b as u8).collect();
     let decode_result = if map.octomap.binary {
@@ -1180,6 +1187,57 @@ mod tests {
             err.to_string().contains("type 'OcTree' is expected"),
             "got: {err:?}"
         );
+    }
+
+    /// A zero resolution used to reach `OcTree::new` unrejected and decode
+    /// successfully -- `read_binary_data` never touched `resolution` --
+    /// while silently corrupting every leaf's coordinate to the world
+    /// origin one level further down (`crates/moveit-octomap/src/tree.rs`'s
+    /// `key_to_coord_axis`, a multiplication by `resolution` with no NaN or
+    /// Infinity to trip a guard). `read_binary_data` now rejects it directly
+    /// (`DecodeError::InvalidResolution`), reached here through the same
+    /// `decode_result.map_err` this function already had.
+    #[test]
+    fn zero_resolution_octree_is_rejected() {
+        let model = one_joint_model();
+        let srdf = empty_srdf();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let mut world = moveit_msgs::PlanningSceneWorld {
+            collision_objects: vec![],
+            octomap: octomap_with_pose("OcTree", model.model_frame(), true, vec![1, 2]),
+        };
+        world.octomap.octomap.resolution = 0.0;
+        let err = apply_planning_scene_world(&mut scene, world).unwrap_err();
+        assert!(
+            err.to_string().contains("octomap payload decode failed")
+                && err.to_string().contains("resolution"),
+            "got: {err:?}"
+        );
+    }
+
+    /// Same boundary, the other two non-finite/non-positive values a wire
+    /// message can carry that `DecodeError::InvalidResolution`'s own guard
+    /// must also catch: a negative resolution (well-defined, not a
+    /// NaN/Infinity producer, but still not a valid voxel size) and
+    /// `f64::NAN` itself.
+    #[test]
+    fn negative_and_nan_resolution_octree_are_rejected() {
+        for bad in [-0.1, f64::NAN] {
+            let model = one_joint_model();
+            let srdf = empty_srdf();
+            let mut scene = PlanningScene::new(&model, &srdf);
+            let mut world = moveit_msgs::PlanningSceneWorld {
+                collision_objects: vec![],
+                octomap: octomap_with_pose("OcTree", model.model_frame(), true, vec![1, 2]),
+            };
+            world.octomap.octomap.resolution = bad;
+            let err = apply_planning_scene_world(&mut scene, world).unwrap_err();
+            assert!(
+                err.to_string().contains("octomap payload decode failed")
+                    && err.to_string().contains("resolution"),
+                "resolution {bad}, got: {err:?}"
+            );
+        }
     }
 
     /// Round 7's plan (`ea686a6`) named this exact byte fixture

@@ -2401,8 +2401,9 @@ fn pair_key(a: &str, b: &str) -> (String, String) {
 /// (`fcl_tangency_table`'s own module doc: "Shape intersect algorithms not
 /// using libccd"). `Mesh` is deliberately absent — fcl maps it to a
 /// `BVHModel` traversal, a third path that is neither a libccd
-/// specialisation nor generic libccd MPR, so [`is_mesh_pair`] carries its
-/// rule separately rather than through this table.
+/// specialisation nor generic libccd MPR, so [`fcl_tangency_verdict`]
+/// dispatches it through `crate::mesh_tangency_table` separately rather than
+/// through this table.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum TangencyKind {
     Box = 0,
@@ -2412,13 +2413,45 @@ enum TangencyKind {
 }
 
 /// Classifies a `parry` shape into the [`TangencyKind`]
-/// `fcl_tangency_table::SPECIALISED` is indexed by. `None` for a kind the
-/// table has no measurement for (`HalfSpace`/`Compound`, i.e. this crate's
-/// `Plane` and `OcTree`) — [`fcl_tangency_verdict`]'s callers keep their own
-/// pre-existing behaviour for those rather than guessing at one.
+/// `fcl_tangency_table::SPECIALISED` is indexed by. `Compound` classifies as
+/// `Box`, not `None`: this crate's only producer of a `Compound` is
+/// [`compound_from_octree`] ("builds one `Cuboid` per occupied leaf", its own
+/// doc, echoed at the module doc's point 11), and `OcTree::scale_and_padd` is
+/// a no-op (`moveit-geometry`'s `shapes.rs`), so a `Compound` reaching this
+/// function is never anything but a union of plain `Cuboid`s. Upstream's own
+/// `OcTreeSolver::OcTreeShapeIntersectRecurse`
+/// (`fcl/narrowphase/detail/traversal/octree/octree_solver-inl.h:332-354` at
+/// the pinned tag) resolves every occupied-leaf-vs-shape test to a literal
+/// `Box`-vs-shape `solver->shapeIntersect` call, so a `Compound` pair's
+/// exact-zero-gap verdict is governed by the same dispatch a literal `Cuboid`
+/// pair's is, not a separate octree rule. `None` remains for `HalfSpace`
+/// (this crate's `Plane`): `fcl_tangency_table::SPECIALISED` only indexes
+/// `Box`/`Sphere`/`Cylinder`/`Cone`, so there is no row/column to route
+/// `HalfSpace` through the way `Compound` now is above. That is not the same
+/// as [`fcl_tangency_verdict`]'s `None` being an unknown for `HalfSpace`:
+/// every pairing this crate can construct — `Sphere`, `Box`, `Cylinder`,
+/// `Cone`, `HalfSpace` itself, and (transitively, via the `Compound` rule
+/// above) `Compound` — is registered as a *specialised*, non-generic-libccd
+/// closed-form routine (`gjk_solver_libccd-inl.h:254,256,258,259` for the
+/// four primitives × `Halfspace`; `:270`'s explicit
+/// `ShapeIntersectLibccdImpl<S, Halfspace<S>, Halfspace<S>>` for
+/// `Halfspace`×`Halfspace`), and every one of those routines answers
+/// unconditionally `true` at an exact-zero gap: `sphereHalfspaceIntersect`
+/// `halfspace-inl.h:163` (`if (depth >= 0)`), `boxHalfspaceIntersect` `:239`
+/// (`return (depth >= 0);`) and its contact-emitting overload `:264-309`,
+/// `cylinderHalfspaceIntersect` `:384` (`if(depth < 0) return false;`, else
+/// `true`), `coneHalfspaceIntersect` `:448,:481` (same shape, two branches),
+/// `halfspaceIntersect` `:726` (`if(new_s1.d + new_s2.d > 0) return false;`,
+/// else `true`) — checkout `0.7.0-17-ge5efcc4`; this file has exactly one
+/// post-`0.7.0` commit (`355919e`), entirely inside `convexHalfspaceIntersect`,
+/// a function this crate never reaches (no `Shape::Convex` variant exists).
+/// So [`fcl_tangency_verdict`]'s callers keeping `unwrap_or(true)` for
+/// `HalfSpace` is upstream's own determinate answer at every reachable
+/// pairing, not a guess — there is nothing left to route it through, not
+/// because the answer is unknown.
 fn tangency_kind(shape: &dyn parry3d_f64::shape::Shape) -> Option<TangencyKind> {
     match shape.shape_type() {
-        ShapeType::Cuboid => Some(TangencyKind::Box),
+        ShapeType::Cuboid | ShapeType::Compound => Some(TangencyKind::Box),
         ShapeType::Ball => Some(TangencyKind::Sphere),
         ShapeType::Cylinder => Some(TangencyKind::Cylinder),
         ShapeType::Cone => Some(TangencyKind::Cone),
@@ -2426,35 +2459,70 @@ fn tangency_kind(shape: &dyn parry3d_f64::shape::Shape) -> Option<TangencyKind> 
     }
 }
 
-/// Whether either shape in the pair is a mesh. Consulted only from
-/// [`touches_at_tie`]'s rounding band, alongside [`fcl_tangency_verdict`] —
-/// not in [`accumulate_collision`]'s `None`-but-touching branch, whose
-/// [`query::intersection_test`] fallback exists specifically for a
-/// *specialised closed-form* routine excluding a boundary its own geometric
-/// test admits (`contact_ball_ball`'s strict `<`; see
-/// `parry_boolean_queries_disagree_in_both_directions_at_the_tie`). Mesh
-/// pairs go through `contact_composite_shape_shape`/
-/// `contact_shape_composite_shape` — the same generic per-triangle traversal
-/// as any other non-ball pair, not a closed-form specialisation — and
-/// already return `Some` at exact tangency today
-/// (`exact_tangency_is_decided_per_shape_pair.rs`'s `mesh` row), so
-/// extending the `None` branch to mesh would add an `intersection_test` call
-/// to every non-touching mesh pair in a scene for a case that, unlike
-/// `sphere x sphere`, has no measurement showing it is ever reached.
-fn is_mesh_pair(a: &dyn parry3d_f64::shape::Shape, b: &dyn parry3d_f64::shape::Shape) -> bool {
-    a.shape_type() == ShapeType::TriMesh || b.shape_type() == ShapeType::TriMesh
+/// Classifies a `parry` shape into the [`crate::mesh_tangency_table::
+/// MeshOtherKind`] `crate::mesh_tangency_table::MESH_TANGENCY` is indexed by.
+/// `None` for a kind that table has no measurement for (`HalfSpace`/
+/// `Compound`) — [`mesh_tangency_verdict`] keeps its caller's pre-existing
+/// fallback for those rather than guessing at one. Unlike [`tangency_kind`]
+/// (whose non-mesh table routes `Compound` through `Box`, on the evidence
+/// that upstream's own `OcTreeShapeIntersectRecurse` resolves every
+/// occupied-leaf test to a `Box`-vs-shape call), this table stays `None` for
+/// `Compound`: that argument was about `SPECIALISED`'s libccd dispatch, not
+/// about `MESH_TANGENCY`'s own tilted-orientation probe measurements, and no
+/// equivalent FCL octree-vs-mesh dispatch has been read to justify the same
+/// move here.
+pub(crate) fn mesh_other_kind(
+    shape: &dyn parry3d_f64::shape::Shape,
+) -> Option<crate::mesh_tangency_table::MeshOtherKind> {
+    use crate::mesh_tangency_table::MeshOtherKind;
+    match shape.shape_type() {
+        ShapeType::Cuboid => Some(MeshOtherKind::Box),
+        ShapeType::Ball => Some(MeshOtherKind::Sphere),
+        ShapeType::Cylinder => Some(MeshOtherKind::Cylinder),
+        ShapeType::Cone => Some(MeshOtherKind::Cone),
+        ShapeType::TriMesh => Some(MeshOtherKind::Mesh),
+        _ => None,
+    }
 }
 
-/// fcl's tangency-dispatch table (`fcl_tangency_table`, generated from the
-/// pinned oracle image's own registration macros — see
-/// `tools/ci/verify-fcl-tangency-dispatch.sh`), for a shape pair that
-/// classifies into [`TangencyKind`] on both sides. `None` when either shape
-/// doesn't — the caller falls back to its own pre-existing behaviour, mesh
-/// included ([`is_mesh_pair`] is checked separately, ahead of this).
+/// [`fcl_tangency_verdict`]'s mesh-pair path: at least one of `a`/`b` is
+/// known `TriMesh` by the caller, so this classifies the *other* side
+/// (`mesh x mesh` classifies as [`crate::mesh_tangency_table::
+/// MeshOtherKind::Mesh`] via whichever argument the caller passes first) and
+/// looks its verdict up in `crate::mesh_tangency_table::MESH_TANGENCY` — see
+/// that module's doc for why this measured table is kept separate from
+/// `crate::fcl_tangency_table::SPECIALISED`'s generated one rather than
+/// merged into it.
+fn mesh_tangency_verdict(
+    a: &dyn parry3d_f64::shape::Shape,
+    b: &dyn parry3d_f64::shape::Shape,
+) -> Option<bool> {
+    let other = if a.shape_type() == ShapeType::TriMesh {
+        mesh_other_kind(b)
+    } else {
+        mesh_other_kind(a)
+    }?;
+    crate::mesh_tangency_table::MESH_TANGENCY[other as usize].as_tangency_bool()
+}
+
+/// fcl's tangency-dispatch verdict for a shape pair. Non-mesh pairs read
+/// `fcl_tangency_table::SPECIALISED` (generated from the pinned oracle
+/// image's own registration macros — see
+/// `tools/ci/verify-fcl-tangency-dispatch.sh`), indexed by [`TangencyKind`]
+/// on both sides; `None` when either shape doesn't classify, and the caller
+/// falls back to its own pre-existing behaviour. A pair with either side
+/// `TriMesh` dispatches to [`mesh_tangency_verdict`] instead — a measured,
+/// per-paired-kind table of its own, not a blanket rule, since a single
+/// boolean cannot represent what this crate's own tilted-orientation probes
+/// measured is a per-pair relation (`crate::mesh_tangency_table`'s module
+/// doc has the full provenance).
 fn fcl_tangency_verdict(
     a: &dyn parry3d_f64::shape::Shape,
     b: &dyn parry3d_f64::shape::Shape,
 ) -> Option<bool> {
+    if a.shape_type() == ShapeType::TriMesh || b.shape_type() == ShapeType::TriMesh {
+        return mesh_tangency_verdict(a, b);
+    }
     Some(
         crate::fcl_tangency_table::SPECIALISED[tangency_kind(a)? as usize]
             [tangency_kind(b)? as usize],
@@ -2526,10 +2594,14 @@ fn tie_scale(
 /// (below) is the derivation, run fresh on every test invocation rather than
 /// trusted as a one-time reading: the largest rounding this crate has found
 /// at a genuine exact tie, across every [`TangencyKind`] pair and five
-/// orders of magnitude of scale, is `1.92` `EPS * scale` units
-/// (`cylinder x cylinder`); `16.0` sits comfortably above that without
-/// reaching anywhere close to `query::contact`'s own reach before it starts
-/// answering `None` (on the order of `1e6`-`1e7` `EPS * scale`, matching
+/// orders of magnitude of scale, is `cylinder x cylinder` at scale `50.0`,
+/// pinned in that test at `0.96 EPS * scale` units (see the test's own doc
+/// for the two assertions that pin it, and for why an earlier reading of
+/// this same pair, `1.92`, is the identical GJK measurement under
+/// [`tie_scale`]'s pre-`71490970` definition, not a rival or drifted value);
+/// `16.0` sits comfortably above it without reaching anywhere close to
+/// `query::contact`'s own reach before it starts answering `None` (on the
+/// order of `1e6`-`1e7` `EPS * scale`, matching
 /// `parry3d_f64::query::gjk::gjk::eps_tol`'s `10.0 * f64::EPSILON`
 /// convergence tolerance) — the pinning test's own doc has the two-sided
 /// reasoning and the numbers.
@@ -2539,8 +2611,10 @@ const TIE_ROUNDING_MARGIN: f64 = 16.0;
 /// consult for "does this pair, at this measured `dist`, count as touching":
 /// within [`TIE_ROUNDING_MARGIN`] `* f64::EPSILON * `[`tie_scale`]` of zero,
 /// `dist`'s own sign is GJK's rounding on what is geometrically an exact
-/// tie, not a real answer, so [`is_mesh_pair`]/[`fcl_tangency_verdict`]
-/// decide instead; outside that band, `dist`'s sign is trusted directly.
+/// tie, not a real answer, so [`fcl_tangency_verdict`] decides instead
+/// (mesh pairs included, via its own dispatch to
+/// `crate::mesh_tangency_table`); outside that band, `dist`'s sign is
+/// trusted directly.
 ///
 /// This replaces two independent rules that happened to agree until they
 /// did not: `accumulate_collision` special-cased literal `dist == 0.0`
@@ -2563,21 +2637,107 @@ fn touches_at_tie(
 ) -> bool {
     let scale = tie_scale(a_pose, a_shape, b_pose, b_shape);
     if dist.abs() <= TIE_ROUNDING_MARGIN * f64::EPSILON * scale {
-        is_mesh_pair(a_shape, b_shape) || fcl_tangency_verdict(a_shape, b_shape).unwrap_or(true)
+        fcl_tangency_verdict(a_shape, b_shape).unwrap_or(true)
     } else {
         dist <= 0.0
+    }
+}
+
+/// [`accumulate_collision`]'s `None`-but-touching branch confirms a pair
+/// [`fcl_tangency_verdict`] says collides via [`query::intersection_test`],
+/// which agrees with `fcl` for every pair this crate has measured except
+/// one: `mesh x sphere`, whose only `Some(true)` mesh pairing
+/// (`crate::mesh_tangency_table::MeshVerdict::AlwaysTouching`'s own doc has
+/// the measurement) failed `intersection_test` on all 10 sampled miss poses.
+/// `TriMesh`-vs-`Ball` dispatches to `intersection_test_ball_point_query`/
+/// `intersection_test_point_query_ball`
+/// (`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs`), which rounds
+/// through `PointQuery::project_local_point` — a different computation from
+/// the GJK path `query::contact` above already uses and already knows how to
+/// round through inside [`touches_at_tie`]'s own band. So for a `TriMesh`
+/// pair only, a failed `intersection_test` gets one more chance: a second,
+/// direct `query::contact` call widened by the same
+/// [`TIE_ROUNDING_MARGIN`] `* f64::EPSILON * `[`tie_scale`] band
+/// `touches_at_tie` itself trusts (doubled, for the extra rounding step),
+/// treating a `Some` there as touching too.
+///
+/// Gated on `TriMesh` because that is where the measured defect is — every
+/// non-mesh `Some(true)` pair this crate has measured already gets a correct
+/// answer from `intersection_test` alone (`contact_ball_ball`'s strict `<`
+/// vs `intersection_test_ball_ball`'s `<=`, the branch's own comment below
+/// has the precedent), so widening those too would risk a false positive
+/// this crate has no measurement justifying. `fcl_tangency_verdict` itself
+/// already keeps every mesh pairing other than `sphere` at `None`
+/// (`crate::mesh_tangency_table::MESH_TANGENCY`), so this cannot reach
+/// `cone`/`box`/`cylinder`/`mesh x mesh` regardless of the `TriMesh` gate
+/// here — the gate is defence in depth, not the only thing stopping it.
+/// The outcome of [`tangent_pair_touches`], keeping "parry has no dispatch
+/// arm for this shape-kind pair" ([`query::intersection_test`]'s or
+/// [`query::contact`]'s own `Err(Unsupported)`) distinct from "parry
+/// computed a definite answer: they do not touch" (`Ok(false)`/`Ok(None)`).
+/// Same defect family [`PartContactOutcome`] exists for: the pre-existing
+/// `.unwrap_or(false)` and `matches!(_, Ok(Some(_)))` both collapsed an
+/// unattempted query into the same `false` a real negative produces,
+/// silently reporting "not touching" for a pair whose verdict was never
+/// computed.
+///
+/// Reachability today: `tangent_pair_touches` is only called from
+/// [`accumulate_collision`]'s rescue branch, itself gated on
+/// `fcl_tangency_verdict(a_shape, b_shape) == Some(true)` — which restricts
+/// both operands to `{Box, Sphere, Cylinder, Cone}` (`SPECIALISED`'s `true`
+/// cells) or a `TriMesh`/`Sphere` pair (`MESH_TANGENCY`'s only `Some(true)`
+/// cell). The four primitive kinds never reach an `Err` arm in
+/// `query::intersection_test`'s dispatcher
+/// (`default_query_dispatcher.rs:177-244`, `parry3d-f64` 0.30.0 — every arm
+/// `Box`/`Sphere`/`Cylinder`/`Cone` can reach is `Ok`, read directly rather
+/// than assumed); `TriMesh` x `Ball` is not read arm-by-arm here the same
+/// way, but this crate's own `mesh_sphere_tangency_is_rescued_at_exact_tangency`
+/// and `mesh_orientation_tangency_can_miss` tests already exercise both
+/// `query::intersection_test` and `query::contact` on that exact pair and
+/// get `Ok(_)` back every time — a wrong boolean, in the case the first test
+/// is named for, but never an `Err`. So `Unsupported` is unreachable today,
+/// the same as `HalfSpace` x `HalfSpace` was unreachable from *this* call
+/// site before it was found reaching `accumulate_collision`'s primary branch
+/// instead ([`PartContactOutcome`]'s own doc) — named explicitly here for
+/// the same reason, not folded into `false` by a wildcard or `.unwrap_or`.
+enum TangentPairOutcome {
+    Touching,
+    NotTouching,
+    Unsupported,
+}
+
+fn tangent_pair_touches(
+    a_pose: &Pose,
+    a_shape: &dyn ParryShape,
+    b_pose: &Pose,
+    b_shape: &dyn ParryShape,
+) -> TangentPairOutcome {
+    match query::intersection_test(a_pose, a_shape, b_pose, b_shape) {
+        Ok(true) => return TangentPairOutcome::Touching,
+        Ok(false) => {}
+        Err(_) => return TangentPairOutcome::Unsupported,
+    }
+    if a_shape.shape_type() != ShapeType::TriMesh && b_shape.shape_type() != ShapeType::TriMesh {
+        return TangentPairOutcome::NotTouching;
+    }
+    let scale = tie_scale(a_pose, a_shape, b_pose, b_shape);
+    let margin = 2.0 * TIE_ROUNDING_MARGIN * f64::EPSILON * scale;
+    match query::contact(a_pose, a_shape, b_pose, b_shape, margin) {
+        Ok(Some(_)) => TangentPairOutcome::Touching,
+        Ok(None) => TangentPairOutcome::NotTouching,
+        Err(_) => TangentPairOutcome::Unsupported,
     }
 }
 
 /// The outcome of asking whether a part pair touches, keeping "parry has no
 /// dispatch algorithm for this shape-kind pair" ([`query::contact`]'s own
 /// `Err(Unsupported)`) distinct from "parry computed a definite answer: they
-/// do not touch" (`Ok(None)`). Every call site used to collapse the two --
-/// `if let Ok(Some(_)) = query::contact(...)` (and, in `accumulate_distance`,
-/// the equivalent `let Ok(Some(_)) = ... else { continue }`) treats a query
-/// parry could not even attempt exactly like one it ran and found nothing,
-/// silently reporting "not colliding" for a pair whose verdict was never
-/// computed.
+/// do not touch" (`Ok(None)`). Every call site used to collapse the two —
+/// `if let Ok(Some(_)) = query::contact(...)` (and, in
+/// [`accumulate_distance`], the equivalent `let Ok(Some(_)) = ... else {
+/// continue }`) treats a query parry could not even attempt exactly like one
+/// it ran and found nothing, silently reporting "not colliding" for a pair
+/// whose verdict was never computed.
 ///
 /// `default_query_dispatcher.rs:305-359` (`parry3d-f64` 0.30.0) has no arm
 /// at all for `HalfSpace` paired with `HalfSpace`: neither side implements
@@ -2586,7 +2746,7 @@ fn touches_at_tie(
 /// anything) falls through to `Err(Unsupported)`. That is the only pair
 /// among this crate's seven constructible `ShapeType`s (`Ball`, `Cuboid`,
 /// `Cylinder`, `Cone`, `HalfSpace`, `TriMesh`, `Compound`) with no dispatch
-/// arm at all -- verified by reading every arm each of the 49 ordered pairs
+/// arm at all — verified by reading every arm each of the 49 ordered pairs
 /// over those seven kinds can reach, not assumed from the one cited pair.
 #[derive(Debug)]
 enum PartContactOutcome {
@@ -2595,33 +2755,24 @@ enum PartContactOutcome {
     /// parry computed a definite answer: this pair does not touch.
     NotTouching,
     /// parry has no dispatch arm for this shape-kind pair. Every caller
-    /// must name this arm explicitly -- seeing this type's own doc for why
-    /// an `Option`/`bool` collapse is exactly the defect this replaces.
+    /// must name this arm explicitly — see this type's own doc for why an
+    /// `Option`/`bool` collapse is exactly the defect this replaces.
     Unsupported,
 }
 
-/// [`query::intersection_test`]'s equivalent of [`PartContactOutcome`], for
-/// [`accumulate_collision`]'s `query::contact`-missed rescue branch. See
-/// [`part_intersects`]'s own doc for why that call site is the only one.
-enum PartIntersectOutcome {
-    Touching,
-    NotTouching,
-    Unsupported,
-}
-
-/// The one place [`query::contact`] is called from this file's collision and
-/// distance accumulation ([`accumulate_collision`], [`accumulate_distance`])
-/// -- collapsing `Result<Option<Contact>, Unsupported>` into
-/// [`PartContactOutcome`] here, once, so a new call site cannot reintroduce
-/// the silent swallow that type's own doc describes.
+/// The one place [`query::contact`] is called from this file's collision
+/// and distance accumulation ([`accumulate_collision`],
+/// [`accumulate_distance`]) — collapsing `Result<Option<ParryContact>,
+/// Unsupported>` into [`PartContactOutcome`] here, once, so a new call site
+/// cannot reintroduce the silent swallow that type's own doc describes.
 ///
 /// `mesh_mesh_cost_sources`'s own `query::intersection_test` call is
-/// deliberately not routed through the equivalent [`part_intersects`]: it
-/// only gates whether a `CostSource` is appended for the optional
-/// `request.cost` diagnostic, never `collision`, and its own pair (`Triangle`
-/// x `Triangle`, always support-mapped on both sides) cannot itself return
-/// `Err` (`default_query_dispatcher.rs:218-221`, the generic
-/// support-map-support-map arm) -- confirmed, not assumed exempt because it
+/// deliberately not routed through this: it only gates whether a
+/// `CostSource` is appended for the optional `request.cost` diagnostic,
+/// never `collision`, and its own pair (`Triangle` x `Triangle`, always
+/// support-mapped on both sides) cannot itself return `Err`
+/// (`default_query_dispatcher.rs:218-221`, the generic
+/// support-map-support-map arm) — confirmed, not assumed exempt because it
 /// looked unrelated.
 fn part_contact(
     a_pose: &Pose,
@@ -2634,30 +2785,6 @@ fn part_contact(
         Ok(Some(contact)) => PartContactOutcome::Touching(contact),
         Ok(None) => PartContactOutcome::NotTouching,
         Err(_) => PartContactOutcome::Unsupported,
-    }
-}
-
-/// [`part_contact`]'s equivalent for [`query::intersection_test`]. Only ever
-/// called from [`accumulate_collision`]'s rescue branch, and only after
-/// [`fcl_tangency_verdict`] has already restricted the pair to `{Box,
-/// Sphere, Cylinder, Cone}` on both sides (`Some(true)` is impossible
-/// otherwise) -- none of which can return `Err` there
-/// (`default_query_dispatcher.rs:177-244`, every arm those four kinds reach
-/// is `Ok`). Routed through the same three-way outcome anyway: that
-/// restriction holds only as long as [`tangency_kind`] classifies exactly
-/// those four kinds, and a `.unwrap_or(false)` here would silently swallow
-/// the day that stops being true -- exactly as it did for `HalfSpace` x
-/// `HalfSpace` before [`PartContactOutcome`] existed.
-fn part_intersects(
-    a_pose: &Pose,
-    a_shape: &dyn ParryShape,
-    b_pose: &Pose,
-    b_shape: &dyn ParryShape,
-) -> PartIntersectOutcome {
-    match query::intersection_test(a_pose, a_shape, b_pose, b_shape) {
-        Ok(true) => PartIntersectOutcome::Touching,
-        Ok(false) => PartIntersectOutcome::NotTouching,
-        Err(_) => PartIntersectOutcome::Unsupported,
     }
 }
 
@@ -2680,11 +2807,10 @@ fn part_intersects(
 ///   clearance `query::contact`'s own margin still reported, or a rounding
 ///   tie the dispatch table says this shape pair does not collide at):
 ///   no collision, regardless of the ACM entry.
-/// - No contact, but the pair classifies into [`TangencyKind`] as one the
-///   table says collides, is not [`AllowedCollision::Conditional`], and
-///   [`query::intersection_test`] independently confirms they touch:
-///   unconditionally a collision, with no `Contact` recorded — see the
-///   branch's own comment below for why.
+/// - No contact, but [`fcl_tangency_verdict`] says this pair collides, is
+///   not [`AllowedCollision::Conditional`], and [`tangent_pair_touches`]
+///   independently confirms they touch: unconditionally a collision, with
+///   no `Contact` recorded — see the branch's own comment below for why.
 /// - No contact, and none of the above: not a collision.
 /// - [`PartContactOutcome::Unsupported`] (parry has no dispatch arm for this
 ///   shape-kind pair at all — today, only `HalfSpace` x `HalfSpace`, see that
@@ -2802,30 +2928,121 @@ fn accumulate_collision<'a>(
                     if !matches!(allowed, Some(AllowedCollision::Conditional(_)))
                         && fcl_tangency_verdict(a_shape, b_shape) == Some(true)
                     {
-                        // `query::contact` missed this pair (`None`) even
-                        // though they may be geometrically touching or
+                        // `query::contact` missed this pair (`NotTouching`)
+                        // even though they may be geometrically touching or
                         // overlapping: the only way that happens is a
                         // specialised closed-form routine excluding a
                         // boundary its own geometric test admits --
                         // `contact_ball_ball`'s strict `<` vs
                         // `intersection_test_ball_ball`'s `<=` is the one
                         // this crate has measured
-                        // (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`).
+                        // (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`),
+                        // plus one more for `TriMesh` specifically --
+                        // `tangent_pair_touches`'s own doc has both.
                         // `fcl_tangency_verdict` gates this to the pairs the
                         // table says collide, so a pair it says does *not*
                         // (e.g. `box x cone`) never reaches
-                        // `part_intersects` here at all -- this branch
+                        // `tangent_pair_touches` here at all -- this branch
                         // cannot make one of those `true`.
-                        let intersects = match part_intersects(a_pose, a_shape, b_pose, b_shape) {
-                            PartIntersectOutcome::Touching => true,
-                            PartIntersectOutcome::NotTouching => false,
-                            // Unreachable today (see `part_intersects`'s own
-                            // doc) but still named explicitly rather than
-                            // folded into `false` by a wildcard or
-                            // `.unwrap_or` -- the whole point of this type.
-                            PartIntersectOutcome::Unsupported => true,
+                        //
+                        // Upstream fcl verdict for every pair class this
+                        // gate can actually open for, checked against a live
+                        // `/home/stevek/work/fcl` checkout at
+                        // `0.7.0-17-ge5efcc4`. On this branch that is five
+                        // classes, not four: the non-mesh
+                        // `SPECIALISED[tangency_kind(a)][tangency_kind(b)]`
+                        // lookup's four `true` cells (`box x box`, `box x
+                        // sphere`, `sphere x sphere`, `sphere x cylinder`),
+                        // plus `mesh x sphere` -- `MESH_TANGENCY`'s one
+                        // `AlwaysTouching` cell
+                        // (`crate::mesh_tangency_table`'s own doc), reached
+                        // through this same function's `mesh_tangency_verdict`
+                        // dispatch above. `Halfspace x {box, sphere,
+                        // cylinder, cone}` never reaches any of them --
+                        // `tangency_kind` has no arm for it (see
+                        // `HalfSpace`'s own doc) -- and neither does any
+                        // other mesh pairing (`box`/`cylinder`/`cone`/`mesh`
+                        // on the non-mesh side): `MESH_TANGENCY`'s other four
+                        // cells are `Undiagnosed`/`NoStableTarget`, both
+                        // `None` (`MeshVerdict::as_tangency_bool`).
+                        //
+                        // The four non-mesh reachable classes are each a
+                        // single closed-form routine that rejects with a
+                        // strict `>` and fills `contacts` unconditionally in
+                        // the same call once past it, so an exact-zero gap
+                        // is never classified separated and fcl cannot
+                        // itself report no-contact for a true touch in any
+                        // of them -- this branch's `true` matches upstream
+                        // whenever it fires:
+                        // - `box x box` (the `Compound`-as-boxes case):
+                        //   `boxBoxIntersect`/`boxBox2`
+                        //   (`box_box-inl.h:858-875,248-567`), 15 SAT axes,
+                        //   each `if(s2 > 0) { *return_code = 0; return 0; }`
+                        //   (`:302,314,326,339,351,363` face,
+                        //   `:406,424,442,461,479,497,516,534,552`
+                        //   edge-edge), contacts filled at `:568-616`.
+                        // - `box x sphere` (also reached by `Compound x
+                        //   Sphere`): `sphereBoxIntersect`
+                        //   (`sphere_box-inl.h:98-178`), `if
+                        //   (squared_distance > r * r) return false;` at
+                        //   `:119`, contacts filled at `:124-176`.
+                        // - `sphere x sphere`: `sphereSphereIntersect`
+                        //   (`sphere_sphere-inl.h:66-86`), `if(len >
+                        //   s1.radius + s2.radius) return false;` at `:72`,
+                        //   contacts filled at `:75-83`. This is the
+                        //   *opposite* boundary convention from parry's own
+                        //   `contact_ball_ball`, whose strict `<` is what
+                        //   motivates this branch in the first place
+                        //   (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`)
+                        //   -- fcl's own routine does not share parry's gap
+                        //   here, so this is not the branch's strongest
+                        //   justification, it is simply another case fcl
+                        //   always agrees with.
+                        // - `sphere x cylinder`: `sphereCylinderIntersect`
+                        //   (`sphere_cylinder-inl.h:114-221`), `if
+                        //   (p_SN_squared_dist > r_s * r_s) return false;`
+                        //   at `:136`, contacts filled at `:141-219`.
+                        //
+                        // The fifth reachable class, `mesh x sphere`, is not
+                        // verified the same way fcl routes it to
+                        // `ShapeTriangleIntersectLibccdImpl<S, Sphere<S>>`
+                        // (`gjk_solver_libccd-inl.h:403-419`,
+                        // `sphereTriangleIntersect`), a *different*
+                        // closed-form routine than the four above, while
+                        // `Mesh x {Box, Cylinder, Cone}` -- none of which
+                        // this gate opens for -- routes to generic libccd
+                        // MPR instead (`:422-458`, `detail::GJKCollide`),
+                        // whose own `discoverPortal` rejects an exact-zero
+                        // support-direction dot product as *separated*
+                        // (`/home/stevek/work/libccd`, checkout `7931e76`,
+                        // `mpr.c:189,209,232`) -- the opposite boundary
+                        // convention from every closed-form routine above.
+                        // That routing split matters here, unlike on a
+                        // branch where mesh never reaches this gate at all:
+                        // `mesh x sphere`'s own justification is measured
+                        // from 497 tilted-orientation probe poses, not read
+                        // off fcl source the way the four classes above are
+                        // -- `MeshVerdict::AlwaysTouching`'s own doc has that
+                        // measurement, and `tangent_pair_touches`'s own doc
+                        // has why only `TriMesh` gets the widened
+                        // `query::contact` fallback this branch relies on to
+                        // confirm it.
+                        //
+                        // No masking case found in any of the five: fcl
+                        // either always reports the touch this branch also
+                        // reports, or never lets this branch answer for that
+                        // pair at all.
+                        let touches = match tangent_pair_touches(a_pose, a_shape, b_pose, b_shape) {
+                            TangentPairOutcome::Touching => true,
+                            TangentPairOutcome::NotTouching => false,
+                            // Unreachable today (see `TangentPairOutcome`'s
+                            // own doc) but still named explicitly rather
+                            // than folded into `false` by a wildcard --
+                            // exactly the defect `PartContactOutcome`/
+                            // `TangentPairOutcome` both exist to close.
+                            TangentPairOutcome::Unsupported => true,
                         };
-                        if intersects {
+                        if touches {
                             // There is no `Contact` to build for this pair,
                             // so unlike every other branch this sets
                             // `collision` alone: no `by_pair` entry, no cost
@@ -3022,6 +3239,36 @@ fn accumulate_distance<'a>(
                 } else {
                     let p1 = from_parry_vector(contact.point1);
                     let p2 = from_parry_vector(contact.point2);
+                    // Same octomath/Eigen-vs-nalgebra zero-vector family as
+                    // `octomap_filter.rs`'s `.try_normalize`: upstream's
+                    // `distanceCallback` (`collision_common.cpp:633`) writes
+                    // `dist_result.normal = (nearest_points[1] -
+                    // nearest_points[0]).normalized()` -- the same
+                    // subtract-then-normalize formula, just Eigen-guarded.
+                    // Upstream *does* use a genuinely different formula --
+                    // FCL's own `contact.normal`, from the separating
+                    // axis/simplex (`:636-689`) -- but only inside `distance
+                    // <= 0 && enable_signed_distance`, which is this port's
+                    // *other* branch (`distance_value <= 0.0`, above), not
+                    // this one.
+                    //
+                    // Not a defect here: value-guarded, and measured, not
+                    // just argued. This branch runs only when
+                    // `distance_value > 0.0`, and `cuboid_cuboid_positive_
+                    // dist_never_pairs_with_coincident_points` (below)
+                    // exercises parry3d_f64 0.30.0's own near-epsilon
+                    // fallback across 8 gap magnitudes down to 1e-20: every
+                    // time `contact.dist > 0.0`, `point1 != point2`. Ball-ball
+                    // contact computes `dist` independently as center
+                    // distance minus radii, which is positive only when the
+                    // surface points are genuinely apart; the cuboid-cuboid
+                    // SAT path (`contact_cuboid_cuboid.rs`) substitutes the
+                    // separating-axis value for `dist` itself whenever the
+                    // point-difference length is `<= f64::EPSILON`, so a
+                    // fragile `p2 - p1` and a reported positive `dist` never
+                    // co-occur. `p1`/`p2` cannot coincide here by
+                    // construction of parry's own contact algorithms, not
+                    // merely by this branch's guard.
                     data.normal = (p2 - p1).normalize();
                     data.nearest_points = [p1, p2];
                 }
@@ -6337,13 +6584,55 @@ mod tests {
     ///
     /// Upper margin: every one of those genuine exact ties -- GJK's own
     /// rounding on a `dist` whose true value is `0.0` -- must measure under
-    /// the constant. The largest observed here is `1.92` (`cylinder x
-    /// cylinder`, scale `50.0`); four pairs this crate has documented before
-    /// (`box x cylinder`, `cylinder x box`, `box x cone`, `cone x box`) also
-    /// show it, all under `1`. `TIE_ROUNDING_MARGIN`'s `16.0` is set above
-    /// that measurement, not equal to it, so a marginally worse rounding
-    /// case on a shape or scale this sweep does not cover still clears the
-    /// bound rather than silently reclassifying as a real distance.
+    /// the constant. The largest observed here is `cylinder x cylinder`,
+    /// scale `50.0`; four pairs this crate has documented before (`box x
+    /// cylinder`, `cylinder x box`, `box x cone`, `cone x box`) also show
+    /// it, all under `1`. `TIE_ROUNDING_MARGIN`'s `16.0` is set above that
+    /// measurement, not equal to it, so a marginally worse rounding case on
+    /// a shape or scale this sweep does not cover still clears the bound
+    /// rather than silently reclassifying as a real distance.
+    ///
+    /// That largest value is also pinned below (`PINNED_WORST_UNITS`), not
+    /// just bounded against `TIE_ROUNDING_MARGIN` -- this doc used to name
+    /// it directly (`1.92`), and that number was never itself checked: the
+    /// assertion below it only tested `< TIE_ROUNDING_MARGIN`, so a passing
+    /// run computed `worst_units`, compared it, and discarded it, leaving
+    /// `1.92` retained nowhere but this prose and cc351321's commit message.
+    /// Re-measured while adding the pin: `0.96`, not `1.92`, bit-identical
+    /// across three consecutive runs on this machine (rustc 1.97.0,
+    /// parry3d-f64 0.30.0/963d52f7).
+    ///
+    /// The gap is resolved, not unexplained: `dist` itself is the identical
+    /// GJK measurement either way (`2.1316282072803006e-14`, verified with a
+    /// throwaway instrumented run of this same pair against both `tie_scale`
+    /// definitions). What changed is the divisor. cc351321's `tie_scale`
+    /// took the shapes' half-extent alone (`5e1` for this pair); `71490970`
+    /// ("fold the pair's world position into tie_scale") added the AABB
+    /// centre magnitude, and this sweep's own `pair_at` places the upper
+    /// shape's centre at `z = 2 * half`, which for `half = 50.0` is `1e2` --
+    /// exactly double the half-extent term, so `tie_scale` doubled and
+    /// `worst_units` exactly halved (`1.92 / 2 = 0.96`, confirmed to the
+    /// last bit: `new_scale / old_scale == 1.9999999999999998e0`). `1.92`
+    /// and `0.96` are the same rounding measurement under two different
+    /// `tie_scale` definitions, not a machine, dependency, or profile
+    /// difference, and not a hand-transcription error -- the earlier guess
+    /// that `1.92` was transcribed from an unretained ad hoc run does not
+    /// survive this: it is exactly reconstructible from `cc351321`'s own
+    /// `tie_scale` applied to today's `dist`.
+    ///
+    /// `PINNED_WORST_UNITS`/`WORST_UNITS_TOLERANCE` pin only today's
+    /// `0.96` under today's `tie_scale`; they do not need to cover `1.92`,
+    /// because `1.92` is not a rival current reading -- it is what this same
+    /// quantity measures under a `tie_scale` this crate no longer has.
+    /// `MIN_PLAUSIBLE_WORST_UNITS` is a second, independent assertion, not a
+    /// wider band: a single symmetric tolerance wide enough to also catch a
+    /// collapsed sweep (every `dist` reading `0.0`, or `worst_units` never
+    /// leaving its zero-valued initialiser) would have to be so wide it
+    /// stops discriminating a real regression from noise; a floor and a
+    /// proximity check are two different questions ("did the sweep measure
+    /// something real" vs "did it measure the same thing as before") and are
+    /// kept as two assertions on purpose so a future widening of one cannot
+    /// silently disable the other.
     ///
     /// Lower margin: a delta an order of magnitude above the constant must
     /// still measure as *itself*, not get rounded away into the tie bucket.
@@ -6448,6 +6737,81 @@ mod tests {
             "{} x {} at scale {half:e} measured {worst_units:e} EPS*scale of rounding at an \
              exact tie, at or above TIE_ROUNDING_MARGIN ({TIE_ROUNDING_MARGIN:e}) -- widen the \
              margin (with a new doc citation) or investigate why rounding got worse",
+            upper.name(),
+            lower.name(),
+        );
+
+        // The measured NUMBER, not just "cleared the margin" -- see this
+        // function's own doc for how this crate had a `1.92` in two places
+        // that nothing had ever checked against a real run, what a fresh run
+        // measures instead, and why the gap between them is resolved (a
+        // `tie_scale` definition change, not drift) rather than unexplained.
+        //
+        // Two independent assertions below, each catching a different
+        // failure and neither substituting for the other:
+        //
+        // Floor (`MIN_PLAUSIBLE_WORST_UNITS`): every one of the ten worst
+        // pairs this sweep measures today sits at `0.64` or above (see the
+        // full ranking in this function's own doc history); `0.5` sits below
+        // all of them with room while staying far above the `0.0` a
+        // collapsed sweep would report -- every `dist` reading exactly
+        // `0.0`, the inner loop silently not executing, or `worst_units`
+        // never leaving a zero-valued initialiser. A collapsed sweep is
+        // report-nothing-as-something: it would still satisfy `worst_units <
+        // TIE_ROUNDING_MARGIN` above (`0.0 < 16.0`) and, without this floor,
+        // could still satisfy a wide-enough proximity band too, so it needs
+        // its own check rather than relying on the proximity check to catch
+        // it as a side effect.
+        //
+        // Proximity (`WORST_UNITS_TOLERANCE`): pinned to what this run
+        // measures today (`0.96`), not to `1.92` -- `1.92` is not a rival
+        // current reading, it is the same measurement under a `tie_scale`
+        // this crate no longer has (see the doc above), so there is nothing
+        // to arbitrate between them. The tolerance is sized from this same
+        // sweep's own data, not from the gap being explained: the two
+        // largest pairs measured here are `0.96` (`cylinder x cylinder`) and
+        // `0.9375` (`cone x box`), `0.0225` apart, while the third-largest
+        // drops to `0.716`, `0.22` away -- a plausible rebuild-to-rebuild
+        // reordering within that top cluster (a different pair narrowly
+        // becoming the worst one) should not trip this test, but the worst
+        // pair actually dropping to the next cluster down should. `0.1`
+        // covers the first gap with more than 4x room and does not reach the
+        // second. This machine has shown zero variance across three runs
+        // (bit-identical `0.96`), so `0.1` is not validated against real
+        // cross-platform or cross-parry3d-version jitter -- there is no such
+        // data yet -- and if a future legitimate rebuild trips this
+        // narrowly, that absence of prior data is why, not a wrong pin.
+        const MIN_PLAUSIBLE_WORST_UNITS: f64 = 0.5;
+        const PINNED_WORST_UNITS: f64 = 0.96;
+        const WORST_UNITS_TOLERANCE: f64 = 0.1;
+        // `eprintln!` so the number is visible on a PASSING run too, with
+        // `cargo nextest run -p moveit-collision --lib -- --no-capture` (or
+        // `cargo test -- --nocapture`) -- before this pin there was no way
+        // to see it at all without first breaking the assertion above.
+        eprintln!(
+            "tie_rounding_margin_clears_measured_ties: worst = {worst_units:e} EPS*scale \
+             ({} x {} at scale {half:e}), pinned {PINNED_WORST_UNITS:e} +/- \
+             {WORST_UNITS_TOLERANCE:e}",
+            upper.name(),
+            lower.name(),
+        );
+        assert!(
+            worst_units > MIN_PLAUSIBLE_WORST_UNITS,
+            "worst observed rounding at an exact tie measured {worst_units:e} EPS*scale \
+             ({} x {} at scale {half:e}), at or below the {MIN_PLAUSIBLE_WORST_UNITS:e} floor \
+             every real measurement in this sweep clears -- this looks like a collapsed sweep \
+             (dist stuck at 0.0, or worst_units never updated), not a genuinely quieter GJK",
+            upper.name(),
+            lower.name(),
+        );
+        assert!(
+            (worst_units - PINNED_WORST_UNITS).abs() <= WORST_UNITS_TOLERANCE,
+            "worst observed rounding at an exact tie drifted outside the pinned band: \
+             {worst_units:e} EPS*scale ({} x {} at scale {half:e}), pinned \
+             {PINNED_WORST_UNITS:e} +/- {WORST_UNITS_TOLERANCE:e} -- if this is a real shift \
+             (parry3d version, GJK tolerance, shape construction), re-measure and update this \
+             pin AND TIE_ROUNDING_MARGIN's own doc comment; if it is legitimate \
+             rebuild-to-rebuild jitter within the band, no action needed",
             upper.name(),
             lower.name(),
         );
@@ -6637,6 +7001,304 @@ mod tests {
                 .is_none(),
             "parry now reports the sphere x sphere tangency -- drop the exclusion in this \
              test and let the pair be asserted like every other"
+        );
+    }
+
+    /// Regression test for the invariant `compute_distance`'s `distance_value
+    /// > 0.0` branch (`:2700`) relies on for its Distinct verdict: measured
+    /// directly against parry3d_f64 0.30.0's cuboid-cuboid SAT near-epsilon
+    /// fallback (`contact_cuboid_cuboid.rs`'s `dist <= f64::EPSILON` branch,
+    /// which substitutes the separating-axis value for `dist` rather than a
+    /// point-difference length). If a future parry version starts returning
+    /// a positive `dist` alongside coincident `point1`/`point2` here, `:2700`
+    /// needs `try_normalize`, not a comment.
+    #[test]
+    fn cuboid_cuboid_positive_dist_never_pairs_with_coincident_points() {
+        let half = ParryVector::new(1.0, 1.0, 1.0);
+        let c1 = ParryCuboid::new(half);
+        let c2 = ParryCuboid::new(half);
+        let pos1 = to_pose(Isometry3::identity());
+        let mut exercised_a_coincident_case = false;
+        for &gap in &[1e-1_f64, 1e-8, 1e-15, 1e-16, 1e-17, 1e-20, 0.0, -1e-20] {
+            let pos2 = to_pose(Isometry3::translation(2.0 + gap, 0.0, 0.0));
+            let Some(c) = query::contact(&pos1, &c1, &pos2, &c2, 1.0).expect("dispatched") else {
+                continue;
+            };
+            if c.point1 == c.point2 {
+                exercised_a_coincident_case = true;
+            }
+            if c.dist > 0.0 {
+                assert_ne!(
+                    c.point1, c.point2,
+                    "gap {gap:e}: dist {} > 0.0 but point1 == point2 -- \
+                     :2700's (p2 - p1).normalize() would now divide by zero",
+                    c.dist
+                );
+            }
+        }
+        assert!(
+            exercised_a_coincident_case,
+            "no gap in this sweep produced a coincident-points contact -- \
+             this test would pass vacuously without exercising the case it exists to guard"
+        );
+    }
+
+    /// Regression for `tangency_kind` classifying `Compound` as `None`:
+    /// [`touches_at_tie`] then fell through to `fcl_tangency_verdict(...)
+    /// .unwrap_or(true)`, which assumed touching for every `Compound` pair
+    /// inside the tie band regardless of partner shape. Wrong for exactly
+    /// two of the six reachable `Compound` pairings -- upstream's own
+    /// `OcTreeShapeIntersectRecurse` resolves every occupied-leaf-vs-shape
+    /// test to a literal `Box`-vs-shape call, and this crate's own pinned,
+    /// oracle-derived `fcl_tangency_table::SPECIALISED` already records that
+    /// `box x cylinder` and `box x cone` are *not* colliding at an exact
+    /// zero gap (the two cells are not registered as fcl "specialised"
+    /// closed-form routines, so the generic libccd MPR path answers, and it
+    /// was measured to answer `false` there -- see
+    /// `tools/ci/verify-fcl-tangency-dispatch.sh`'s own `EXPECTED` table).
+    /// `unwrap_or(true)` said `true` for both; `tangency_kind`'s fix routes
+    /// `Compound` through `Box`'s row instead of guessing.
+    ///
+    /// Boundary coverage, one case per axis rather than one narrative
+    /// scenario: every reachable `Compound` partner (`Box`/`Sphere` where the
+    /// verdict was already right, `Cylinder`/`Cone` where it was not), both
+    /// operand orders (the table is symmetric, and so must the dispatch be),
+    /// and both signs of `dist` just inside the tie band (a positive-gap
+    /// rounding artefact and a negative-penetration one must read the same
+    /// verdict -- that is the entire point of treating both as a tie).
+    #[test]
+    fn compound_at_a_tie_reads_the_box_row_not_unwrap_or_true() {
+        let cache = OctreeCache::default();
+        let mut tree = moveit_octomap::OcTree::new(0.1);
+        tree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
+        let (compound, compound_fix) =
+            convert_shape(&Shape::OcTree(OcTree::from_tree(Arc::new(tree))), &cache)
+                .expect("an occupied leaf converts to a real Compound");
+        let compound_pose = to_pose(compound_fix);
+        assert_eq!(
+            compound.shape_type(),
+            ShapeType::Compound,
+            "this test must exercise the real Compound shape_type the bug was in, not a stand-in"
+        );
+
+        struct Partner {
+            name: &'static str,
+            shape: Shape,
+            kind: TangencyKind,
+        }
+        let partners = [
+            Partner {
+                name: "cuboid",
+                shape: Shape::Cuboid(Cuboid::new(0.1, 0.1, 0.1).expect("cuboid")),
+                kind: TangencyKind::Box,
+            },
+            Partner {
+                name: "sphere",
+                shape: Shape::Sphere(Sphere::new(0.05).expect("sphere")),
+                kind: TangencyKind::Sphere,
+            },
+            Partner {
+                name: "cylinder",
+                shape: Shape::Cylinder(
+                    moveit_geometry::Cylinder::new(0.05, 0.1).expect("cylinder"),
+                ),
+                kind: TangencyKind::Cylinder,
+            },
+            Partner {
+                name: "cone",
+                shape: Shape::Cone(moveit_geometry::Cone::new(0.05, 0.1).expect("cone")),
+                kind: TangencyKind::Cone,
+            },
+        ];
+
+        for p in partners {
+            let expected =
+                crate::fcl_tangency_table::SPECIALISED[TangencyKind::Box as usize][p.kind as usize];
+            let (other, other_fix) = convert_shape(&p.shape, &cache).expect("converts");
+            let other_pose = to_pose(other_fix);
+            let scale = tie_scale(&compound_pose, &*compound, &other_pose, &*other);
+            let inside = 0.5 * TIE_ROUNDING_MARGIN * f64::EPSILON * scale;
+
+            for (dist, sign) in [(inside, "positive"), (-inside, "negative")] {
+                assert_eq!(
+                    touches_at_tie(dist, &compound_pose, &*compound, &other_pose, &*other),
+                    expected,
+                    "compound x {} must read the box row ({expected}) at a {sign} tie, not \
+                     unwrap_or(true)",
+                    p.name,
+                );
+                assert_eq!(
+                    touches_at_tie(dist, &other_pose, &*other, &compound_pose, &*compound),
+                    expected,
+                    "{} x compound (operand order swapped) must read the box row ({expected}) \
+                     at a {sign} tie",
+                    p.name,
+                );
+            }
+        }
+    }
+
+    /// Pin for `HalfSpace`'s `unwrap_or(true)` fallback: unlike `Compound`
+    /// (fixed above), `HalfSpace` is not misclassified -- `tangency_kind`
+    /// correctly returns `None` for it, because `fcl_tangency_table`'s
+    /// `SPECIALISED` table has no `HalfSpace` row to route it through at
+    /// all. What this pins is that the `None` is harmless: every `HalfSpace`
+    /// pairing this crate can construct is a *specialised* fcl closed-form
+    /// registration (`gjk_solver_libccd-inl.h:254,256,258,259,270` --
+    /// checked against a live `/home/stevek/work/fcl` checkout at
+    /// `0.7.0-17-ge5efcc4`), and every one of those routines answers `true`
+    /// unconditionally at an exact-zero gap
+    /// (`halfspace-inl.h:163,239,384,448,481,726`), so `unwrap_or(true)` is
+    /// upstream's own determinate answer here, not a guess. This is a
+    /// regression pin, not a fix -- if it ever fails, `tangency_kind`'s
+    /// `HalfSpace` doc above is the thing to re-derive, not this test.
+    ///
+    /// Boundary coverage: every reachable `HalfSpace` partner (`Sphere`,
+    /// `Box`, `Cylinder`, `Cone`, `HalfSpace` itself, `Compound`), both
+    /// operand orders, both signs of `dist` just inside the tie band.
+    #[test]
+    fn halfspace_at_a_tie_reads_true_and_the_none_stays_harmless() {
+        let cache = OctreeCache::default();
+        let (halfspace, halfspace_fix) =
+            convert_shape(&Shape::Plane(Plane::new(0.0, 0.0, 1.0, 0.0)), &cache)
+                .expect("plane converts");
+        let halfspace_pose = to_pose(halfspace_fix);
+        assert_eq!(halfspace.shape_type(), ShapeType::HalfSpace);
+
+        let mut octree = moveit_octomap::OcTree::new(0.1);
+        octree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
+
+        let partners: [(&str, Shape); 6] = [
+            ("sphere", Shape::Sphere(Sphere::new(0.05).expect("sphere"))),
+            (
+                "box",
+                Shape::Cuboid(Cuboid::new(0.1, 0.1, 0.1).expect("cuboid")),
+            ),
+            (
+                "cylinder",
+                Shape::Cylinder(moveit_geometry::Cylinder::new(0.05, 0.1).expect("cylinder")),
+            ),
+            (
+                "cone",
+                Shape::Cone(moveit_geometry::Cone::new(0.05, 0.1).expect("cone")),
+            ),
+            ("halfspace", Shape::Plane(Plane::new(1.0, 0.0, 0.0, -3.0))),
+            (
+                "compound",
+                Shape::OcTree(OcTree::from_tree(Arc::new(octree))),
+            ),
+        ];
+
+        for (name, shape) in partners {
+            assert_eq!(
+                fcl_tangency_verdict(&*halfspace, &*convert_shape(&shape, &cache).unwrap().0),
+                None,
+                "halfspace x {name} must still classify as None -- SPECIALISED has no row for it"
+            );
+
+            let (other, other_fix) = convert_shape(&shape, &cache).expect("converts");
+            let other_pose = to_pose(other_fix);
+            let scale = tie_scale(&halfspace_pose, &*halfspace, &other_pose, &*other);
+            let inside = 0.5 * TIE_ROUNDING_MARGIN * f64::EPSILON * scale;
+
+            for (dist, sign) in [(inside, "positive"), (-inside, "negative")] {
+                assert!(
+                    touches_at_tie(dist, &halfspace_pose, &*halfspace, &other_pose, &*other),
+                    "halfspace x {name} must read true at a {sign} tie"
+                );
+                assert!(
+                    touches_at_tie(dist, &other_pose, &*other, &halfspace_pose, &*halfspace),
+                    "{name} x halfspace (operand order swapped) must read true at a {sign} tie"
+                );
+            }
+        }
+    }
+
+    /// Pin for the "no contact, but geometrically touching" safety net in
+    /// `accumulate_collision` (the `PartContactOutcome::NotTouching` arm's
+    /// `fcl_tangency_verdict(...) == Some(true) && tangent_pair_touches(...)`
+    /// branch, just above `touches_at_tie` in this module): five
+    /// `TangencyKind`/`MeshVerdict` classes open that gate on this branch
+    /// (`box x box`, `box x sphere`, `sphere x sphere`, `sphere x cylinder`,
+    /// and `mesh x sphere` -- the branch's own doc comment has the fcl-side
+    /// verdict for all five). This pins that every *other* mesh pairing
+    /// stays closed: `tangency_kind` has no `TriMesh` arm, so a non-sphere
+    /// mesh pair falls to `MESH_TANGENCY`'s `Undiagnosed`/`NoStableTarget`
+    /// cells, both `None` (`MeshVerdict::as_tangency_bool`) -- the same
+    /// outcome `HalfSpace` gets (pinned above), for a different reason.
+    /// `mesh x sphere` is deliberately excluded from this list, not an
+    /// oversight: it is the one mesh pairing this table answers `Some(true)`
+    /// for (`MeshVerdict::AlwaysTouching`'s own doc has the 497-orientation
+    /// measurement), asserted separately below rather than folded into the
+    /// "stays closed" loop.
+    ///
+    /// Boundary coverage: every reachable non-sphere `TriMesh` partner
+    /// (`Box`, `Cylinder`, `Cone`, `HalfSpace`, `Compound`, `TriMesh`
+    /// itself), both operand orders, plus the `Sphere` exception confirmed
+    /// open in both orders.
+    #[test]
+    fn mesh_pair_never_opens_the_none_but_touching_safety_net_except_for_sphere() {
+        let cache = OctreeCache::default();
+        let mesh = big_flat_triangle();
+
+        let mut octree = moveit_octomap::OcTree::new(0.1);
+        octree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
+
+        let closed_partners: [(&str, Shape); 5] = [
+            (
+                "box",
+                Shape::Cuboid(Cuboid::new(0.1, 0.1, 0.1).expect("cuboid")),
+            ),
+            (
+                "cylinder",
+                Shape::Cylinder(moveit_geometry::Cylinder::new(0.05, 0.1).expect("cylinder")),
+            ),
+            (
+                "cone",
+                Shape::Cone(moveit_geometry::Cone::new(0.05, 0.1).expect("cone")),
+            ),
+            ("halfspace", Shape::Plane(Plane::new(0.0, 0.0, 1.0, 0.0))),
+            (
+                "compound",
+                Shape::OcTree(OcTree::from_tree(Arc::new(octree))),
+            ),
+        ];
+
+        for (name, shape) in closed_partners {
+            let (other, _fix) = convert_shape(&shape, &cache).expect("converts");
+            assert_eq!(
+                fcl_tangency_verdict(&mesh, &*other),
+                None,
+                "mesh x {name} must classify as None -- MESH_TANGENCY has no AlwaysTouching cell \
+                 for it"
+            );
+            assert_eq!(
+                fcl_tangency_verdict(&*other, &mesh),
+                None,
+                "{name} x mesh (operand order swapped) must classify as None"
+            );
+        }
+
+        let other_mesh = big_flat_triangle();
+        assert_eq!(
+            fcl_tangency_verdict(&mesh, &other_mesh),
+            None,
+            "mesh x mesh must classify as None -- Mesh is MESH_TANGENCY's Undiagnosed cell"
+        );
+
+        let (sphere, _fix) =
+            convert_shape(&Shape::Sphere(Sphere::new(0.05).expect("sphere")), &cache)
+                .expect("converts");
+        assert_eq!(
+            fcl_tangency_verdict(&mesh, &*sphere),
+            Some(true),
+            "mesh x sphere is the one mesh pairing this gate opens for -- \
+             MeshVerdict::AlwaysTouching"
+        );
+        assert_eq!(
+            fcl_tangency_verdict(&*sphere, &mesh),
+            Some(true),
+            "sphere x mesh (operand order swapped) must also read Some(true)"
         );
     }
 }

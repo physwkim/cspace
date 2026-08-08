@@ -204,6 +204,21 @@ CHOMP_CLOCK_BOUND="${CHOMP_CLOCK_BOUND:-3600}"
 STOMP_CLOCK_BOUND="${STOMP_CLOCK_BOUND:-3600}"
 JOBS="${JOBS:-12}"
 
+# solve_one's oracle call (gate-lib.sh's oracle_call) has to outlive the
+# clock bound baked into its own request -- CHOMP_CLOCK_BOUND or
+# STOMP_CLOCK_BOUND above, embedded as `planning_time_limit`/
+# `allowed_planning_time`. Killing it any sooner would misreport a solve
+# that is about to hit its OWN deadline and report TIMED_OUT as an external
+# hang instead. 300s margin is for the oracle to notice its deadline and
+# flush a response, not for more work -- every teardown this repo has
+# measured is sub-second (`ORACLE_SHUTDOWN_TIMEOUT`'s doc,
+# tools/moveit-diff/src/lib.rs).
+if [ "$PLANNER" = chomp ]; then
+  SOLVE_TIMEOUT=$((CHOMP_CLOCK_BOUND + 300))
+else
+  SOLVE_TIMEOUT=$((STOMP_CLOCK_BOUND + 300))
+fi
+
 ROBOT="${ROBOT:-panda}"
 SET_FILE="${SET_FILE:-}"
 ORACLE="$REPO_ROOT/tools/moveit-oracle/run-oracle.sh"
@@ -376,9 +391,11 @@ solve_one() {
   started=$(date +%s.%N)
   # No pipe into jq here: a pipeline's status is its last stage's, so an oracle
   # that died would be recorded as a well-formed empty result.
-  if ! sg docker -c "$ORACLE --urdf $URDF --srdf $SRDF --planner-rng-seed $seed" \
+  if ! oracle_call "$SOLVE_TIMEOUT" -- \
+       sg docker -c "$ORACLE --urdf $URDF --srdf $SRDF --planner-rng-seed $seed" \
        <"$REQ_DIR/$id.json" >"$out.raw" 2>"$out.err"; then
-    echo "FAIL problem $id: oracle exited nonzero, see $out.err" >&2
+    oracle_call_explain "$ORACLE_CALL_STATUS" "problem $id: "
+    echo "  see $out.err" >&2
     return 1
   fi
   local elapsed
@@ -391,8 +408,8 @@ solve_one() {
   mv "$out.part" "$out"
   rm -f "$out.raw"
 }
-export -f cache_key solve_one
-export RES_DIR REQ_DIR ORACLE URDF SRDF PLANNER_SEED_BASE ORACLE_STAMP URDF_SHA SRDF_SHA
+export -f cache_key solve_one oracle_call oracle_call_explain
+export RES_DIR REQ_DIR ORACLE URDF SRDF PLANNER_SEED_BASE ORACLE_STAMP URDF_SHA SRDF_SHA SOLVE_TIMEOUT
 
 echo "=== $PLANNER / $SET_ROBOT / $CONFIG: $COUNT problems, $JOBS jobs, seed base $PLANNER_SEED_BASE ===" >&2
 seq 0 $((COUNT - 1)) | xargs -P "$JOBS" -I{} bash -c 'solve_one {}'

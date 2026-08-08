@@ -525,3 +525,94 @@ measured_source_digest() {
   fi
   printf '%s\n' "$listing" | sha256sum | cut -d' ' -f1
 }
+
+# Hard wall-clock bound around one oracle round trip through `sg docker -c`.
+#
+# Six call sites in tools/ci ran the oracle through `sg docker -c "$ORACLE
+# ..." <in >out 2>err` with no bound at all -- not here, not in
+# `verify-all.sh`, not in `ci.yml` (no `timeout-minutes` on its one job).
+# `oracle.cpp`'s main loop is `while (std::getline(std::cin, line))` with no
+# per-request bound, so a request that never returns from
+# `oracle->handle(request)` leaves the process blocked *inside* that call,
+# never back at `getline` to observe a closed stdin -- closing stdin cannot
+# unstick it. `tools/moveit-diff/src/lib.rs`'s `wait_or_kill` closed the same
+# defect for the Rust callers that spawn the oracle directly and tear it down
+# after their work is done; this is its shell-side twin, for the calls that
+# DO the work rather than clean up after it -- so a hang here is worse than a
+# hang there. A hang is worse than a failure: a failure is a verdict, a hang
+# consumes the caller's entire time budget and produces neither.
+#
+#   oracle_call <timeout-seconds> -- <command...>
+#
+# Runs `<command...>` (`sg docker -c "..."` at every current call site) under
+# GNU `timeout`, passing the caller's own stdin/stdout/stderr through
+# unchanged -- so redirect the CALL, exactly as any other command:
+#
+#   if ! oracle_call "$TIMEOUT" -- sg docker -c "$ORACLE ..." \
+#        <"$req" >"$out" 2>"$err"; then
+#     oracle_call_explain "$ORACLE_CALL_STATUS" "some_tag: "
+#     ...
+#   fi
+#
+# `timeout` reports a bound that fired as exit 124, the same code any process
+# that happened to exit 124 on its own would produce -- indistinguishable
+# from a plain `$?`. Worse, a caller written as `if ! oracle_call ...; then`
+# cannot even see that much: bash's `!` collapses the wrapped exit status to
+# 0 or 1 for the branch decision, discarding the original code before the
+# `then` body ever runs. `run_verdict` above already works around the same
+# loss by taking an explicit status argument rather than trusting `$?` to
+# survive a negation; `oracle_call` does the same by setting
+# `$ORACLE_CALL_STATUS` as a side effect (this function runs in the caller's
+# own shell, not a subshell), so a caller already shaped
+# `if ! sg docker -c ...; then` needs only to read that variable inside its
+# existing branch, not restructure around a captured `$?`.
+#
+# `--kill-after=10`: `timeout`'s default sends only SIGTERM, and a process
+# stuck inside a blocking syscall on a wedged daemon -- the exact case
+# `wait_or_kill`'s own doc names -- can ignore that indefinitely. 10s is
+# generous next to any process's own SIGTERM handling and small next to every
+# timeout value passed at a call site.
+#
+# What this does NOT close, same as `wait_or_kill`: `sg docker -c` runs
+# `run-oracle.sh`'s `docker run --rm -i` several processes down, and
+# `timeout`'s signal reaches that whole tree only because none of `sg`, `sh`
+# and `run-oracle.sh` move themselves to a new process group. Whether the
+# CONTAINER itself stops when its `docker run` client is killed depends on
+# the docker daemon forwarding that signal, which can itself be stuck -- the
+# same daemon-level residual risk `wait_or_kill`'s own doc accepts rather
+# than claims to solve.
+oracle_call() {
+  local secs="$1"
+  shift
+  if [ "$1" != "--" ]; then
+    echo "FAIL oracle_call: usage: oracle_call <seconds> -- <command...>" >&2
+    return 2
+  fi
+  shift
+  timeout --kill-after=10 "$secs" "$@"
+  ORACLE_CALL_STATUS=$?
+  return "$ORACLE_CALL_STATUS"
+}
+
+# The shared wording for an `oracle_call` outcome that was not 0, so six call
+# sites cannot drift into six different phrasings of "was this a timeout" --
+# the same reason `oracle_stamp_explain` above centralises the stamp-mismatch
+# wording instead of leaving it to each caller.
+#
+#   oracle_call_explain <status> [prefix]
+#
+# Prints one FAIL line to stderr, naming a bound that fired (status 124,
+# `timeout`'s own reserved code for that) as a condition distinct from any
+# other nonzero exit -- never folded into "the oracle returned an error", and
+# never silent. `prefix` matches the indentation some call sites already give
+# their own FAIL lines. Callers keep their own `failed+=(...)` bookkeeping
+# and whatever stderr tail they already print; this supplies only the one
+# sentence that must not vary by call site.
+oracle_call_explain() {
+  local status="$1" prefix="${2-}"
+  if [ "$status" -eq 124 ]; then
+    echo "${prefix}FAIL oracle call timed out and was killed -- no verdict, not a disagreement" >&2
+  else
+    echo "${prefix}FAIL oracle call exited $status" >&2
+  fi
+}

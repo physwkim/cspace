@@ -56,4 +56,41 @@ pub enum DecodeError {
         crate::OcTree::TREE_DEPTH
     )]
     MaxDepthExceeded,
+
+    /// This crate's own invariant, not an upstream port -- upstream's
+    /// `OcTreeBaseImpl` constructor and `setResolution`
+    /// (`third_party/octomap/octomap/include/octomap/OcTreeBaseImpl.hxx:
+    /// 46-59,156-158`) store `resolution` unchecked and divide `1./
+    /// resolution` unguarded, an upstream defect this port does not
+    /// inherit.
+    ///
+    /// Checked here, at decode, rather than in [`crate::OcTree::new`]
+    /// itself or at each untrusted-data boundary that calls it: a
+    /// non-positive or non-finite resolution does not fail loudly on its
+    /// own. `resolution_factor` becomes `+-Infinity` or `NaN`, but the only
+    /// function that reads it (`coord_to_key_checked_axis`) already rejects
+    /// every coordinate via its own NaN/Infinity-safe range check --
+    /// `update_node` and every other coordinate-keyed write silently
+    /// no-ops, leaving the tree empty, not corrupted. Decode is different:
+    /// [`crate::OcTree::read_binary_data`]/[`crate::OcTree::read_data`]
+    /// never touch `resolution` at all, so they succeed and populate real
+    /// leaves -- and every leaf's own coordinate and size then come from
+    /// `key_to_coord_axis`, `(key - TREE_MAX_VAL + 0.5) * self.resolution`,
+    /// a *multiplication*, not a division, with no NaN or Infinity for a
+    /// comparison guard to catch. At `resolution == 0.0` that silently
+    /// collapses every occupied leaf's coordinate and size to `0.0`
+    /// regardless of its real key -- measured (a leaf decoded at
+    /// `resolution = 0.0` reports `is_occupied == true`, `coordinate ==
+    /// (0.0, 0.0, -0.0)`, `size == 0.0`, in place of its real position),
+    /// and `crate::octree_collision::compound_from_octree`
+    /// (`crates/moveit-geometry`) turns that into a real `Some(Compound)`
+    /// of zero-volume boxes stacked at the world origin: a planning scene
+    /// that silently drops every real octomap obstacle rather than
+    /// reporting one. Decode is the one place every caller that can
+    /// populate a tree with real content already passes through, in this
+    /// crate or any other, so rejecting here closes the family at its one
+    /// shared choke point instead of patching `key_to_coord_axis` or each
+    /// downstream consumer separately.
+    #[error("octree resolution must be a positive, finite value")]
+    InvalidResolution,
 }

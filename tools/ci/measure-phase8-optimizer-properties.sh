@@ -187,6 +187,16 @@ RESULTS="$REPO_ROOT/doc/phase8-optimizer-properties.json"
 # be, at `ChompParameters::default()`'s 6.0.
 TIMEOUT_SECONDS=120
 
+# Bound for oracle_path_check's is_state_valid round trip below. No search
+# and no request-level clock bound -- a pure per-waypoint validity check has
+# none to give. verify-phase7-benchmark.sh's own analogous call is directly
+# measured at "~9s" for its small injection-gate batches; the condition-2
+# cross-check below hands the same function every solved path from a whole
+# config, up to hundreds. Sized well above either, and well below the
+# escalation-sized bound that script's own retry stage needs, which is a
+# structurally different (search, not validity-check) call.
+ORACLE_PATH_CHECK_TIMEOUT="${ORACLE_PATH_CHECK_TIMEOUT:-600}"
+
 # The C++ arm's clock, named here rather than left to
 # `measure-phase8-cpp-baseline.sh`'s own default, so that both arms' stop
 # conditions are set in one place and can be compared without reading two
@@ -1003,9 +1013,10 @@ oracle_path_check() {
     failed+=("cross-check $label (nothing compared)")
     return 1
   fi
-  if ! sg docker -c "$ORACLE --urdf $REPO_ROOT/fixtures/$robot.urdf --srdf $REPO_ROOT/fixtures/$robot.srdf" \
+  if ! oracle_call "$ORACLE_PATH_CHECK_TIMEOUT" -- \
+       sg docker -c "$ORACLE --urdf $REPO_ROOT/fixtures/$robot.urdf --srdf $REPO_ROOT/fixtures/$robot.srdf" \
        <"$isv" >"$out" 2>"$WORKDIR/isv.$label.err"; then
-    echo "  FAIL cross-check $label: oracle run failed" >&2
+    oracle_call_explain "$ORACLE_CALL_STATUS" "  cross-check $label: "
     tail -5 "$WORKDIR/isv.$label.err" >&2
     failed+=("cross-check $label (oracle run)")
     return 1

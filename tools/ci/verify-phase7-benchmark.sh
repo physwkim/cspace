@@ -64,6 +64,42 @@ RESULTS="$REPO_ROOT/doc/phase7-benchmark-results.json"
 # for how this number was sized and why erring high is the safe direction.
 TIMEOUT_SECONDS=120
 
+# Bounds for this script's own oracle round trips (gate-lib.sh's
+# `oracle_call`), one per call SHAPE rather than one constant for all three:
+# a bound generous enough for the escalation call below would be uselessly
+# loose on the cheap per-path checks, and one tuned to those would kill a
+# legitimate escalated retry early.
+#
+#   ORACLE_PATH_CHECK_TIMEOUT   oracle_path_check's is_state_valid call: no
+#     search, no request-level clock bound of its own. Directly measured
+#     below at "~9s" for the injection gate's small batches; the condition-2
+#     cross-check hands the same function every solved path from a whole
+#     config (up to 250), so this is sized well above either, not just the
+#     measured case.
+#   ORACLE_BASELINE_TIMEOUT   the C++ OMPL RRTConnect baseline over a whole
+#     config's problem set: iteration-capped per problem
+#     (plan_benchmark_problem_set.rs's `max_iterations: 2000`) but no
+#     wall-clock cap of its own. No exact wall clock for this call alone has
+#     been pinned (only the whole script's ~40 minutes, see the header); far
+#     above CHOMP's comparable 500-problem/170s run, far below the
+#     escalation bound below.
+#   ORACLE_ESCALATION_TIMEOUT   the feasibility-escalation call: up to 50000
+#     iterations (full mode) with no wall-clock cap in the request at all,
+#     retrying exactly the problems that already failed to converge once --
+#     the header below documents these as routinely running to their full
+#     iteration budget, and a comment there also names 600s in prose for
+#     that observation, not the port-side `ESCALATED_TIMEOUT` this bounds
+#     differently from (that governs `run_port_sharded`, a separate call).
+#     3600s matches this codebase's own established default for "a real but
+#     self-terminating long C++ solve" (`CHOMP_CLOCK_BOUND`/
+#     `STOMP_CLOCK_BOUND`, both default 3600 in
+#     measure-phase8-cpp-baseline.sh) -- this is the least-measured of the
+#     three and the one most worth revisiting once an actual wall clock for
+#     it is recorded.
+ORACLE_PATH_CHECK_TIMEOUT="${ORACLE_PATH_CHECK_TIMEOUT:-600}"
+ORACLE_BASELINE_TIMEOUT="${ORACLE_BASELINE_TIMEOUT:-1800}"
+ORACLE_ESCALATION_TIMEOUT="${ORACLE_ESCALATION_TIMEOUT:-3600}"
+
 # 250 per config x 2 configs = the 500 problems §5 names. The pilot count is
 # small enough to stay inside a per-round budget and large enough that a
 # harness that silently produces nothing is still caught.
@@ -428,9 +464,10 @@ oracle_path_check() {
     failed+=("cross-check $label (nothing compared)")
     return 1
   fi
-  if ! sg docker -c "$ORACLE --urdf $REPO_ROOT/fixtures/$robot.urdf --srdf $REPO_ROOT/fixtures/$robot.srdf" \
+  if ! oracle_call "$ORACLE_PATH_CHECK_TIMEOUT" -- \
+       sg docker -c "$ORACLE --urdf $REPO_ROOT/fixtures/$robot.urdf --srdf $REPO_ROOT/fixtures/$robot.srdf" \
        <"$isv" >"$out" 2>"$WORKDIR/isv.$label.err"; then
-    echo "  FAIL cross-check $label: oracle run failed" >&2
+    oracle_call_explain "$ORACLE_CALL_STATUS" "  cross-check $label: "
     tail -5 "$WORKDIR/isv.$label.err" >&2
     failed+=("cross-check $label (oracle run)")
     return 1
@@ -580,9 +617,10 @@ for entry in "${SETS[@]}"; do
   # Redirected to a file, never piped into a filter: a pipe reports the
   # filter's status, which turns an oracle failure into a silent pass
   # (`verify-oracle-sweep.sh` makes the same point).
-  if ! sg docker -c "$ORACLE --urdf $REPO_ROOT/fixtures/$robot.urdf --srdf $REPO_ROOT/fixtures/$robot.srdf" \
+  if ! oracle_call "$ORACLE_BASELINE_TIMEOUT" -- \
+       sg docker -c "$ORACLE --urdf $REPO_ROOT/fixtures/$robot.urdf --srdf $REPO_ROOT/fixtures/$robot.srdf" \
        <"$WORKDIR/$tag.request.json" >"$WORKDIR/$tag.oracle.json" 2>"$WORKDIR/$tag.oracle.stderr"; then
-    echo "FAIL oracle run for $tag" >&2
+    oracle_call_explain "$ORACLE_CALL_STATUS" "oracle $tag: "
     tail -5 "$WORKDIR/$tag.oracle.stderr" >&2
     failed+=("oracle $tag")
     continue
@@ -729,8 +767,20 @@ for entry in "${SETS[@]}"; do
      --argjson it "$ESCALATED_ITERATIONS" \
      '.max_iterations=$it | .problems = [.problems[]|select(.id as $i | $ids|index($i))]' \
      "$WORKDIR/$tag.request.json" >"$WORKDIR/$tag.escalate.json"
-  sg docker -c "$ORACLE --urdf $REPO_ROOT/fixtures/$robot.urdf --srdf $REPO_ROOT/fixtures/$robot.srdf" \
-    <"$WORKDIR/$tag.escalate.json" >"$WORKDIR/$tag.escalate.oracle.json" 2>/dev/null
+  # Previously bare with stderr discarded to /dev/null and no status check at
+  # all -- ANY failure here, not just a hang, was silently invisible: the
+  # unsolved-count accounting below just read whatever this call happened to
+  # leave in `$tag.escalate.oracle.json`, empty or not. `oracle_call` cannot
+  # surface a bound firing as a distinct, named failure into a status nothing
+  # reads, so this now checks it -- bringing this call in line with every
+  # other oracle call in this file, none of which discard their diagnosis.
+  if ! oracle_call "$ORACLE_ESCALATION_TIMEOUT" -- \
+       sg docker -c "$ORACLE --urdf $REPO_ROOT/fixtures/$robot.urdf --srdf $REPO_ROOT/fixtures/$robot.srdf" \
+       <"$WORKDIR/$tag.escalate.json" >"$WORKDIR/$tag.escalate.oracle.json" 2>"$WORKDIR/$tag.escalate.oracle.stderr"; then
+    oracle_call_explain "$ORACLE_CALL_STATUS" "escalation $tag (oracle): "
+    tail -5 "$WORKDIR/$tag.escalate.oracle.stderr" >&2
+    failed+=("escalation $tag (oracle)")
+  fi
   run_port_sharded "$WORKDIR/$tag.escalate.json" "$WORKDIR/$tag.escalate.port.ndjson" \
     "$ESCALATED_TIMEOUT" || failed+=("escalation $tag")
 done

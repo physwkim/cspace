@@ -775,8 +775,25 @@ impl OcTree {
 
     /// Upstream `getNodeSize`: the metric size of a voxel at `depth` (0:
     /// root, [`Self::TREE_DEPTH`]: finest resolution).
+    ///
+    /// # Deviation: `debug_assert!`, not `assert!` (Task G)
+    ///
+    /// Upstream's own precondition check is `assert(depth <= tree_depth);`
+    /// (`OcTreeBaseImpl.h:113`, inline in the header), which compiles out
+    /// under `NDEBUG` -- a release build with an out-of-range `depth` falls
+    /// through to an out-of-bounds `sizeLookupTable[depth]` read. This
+    /// function is `pub`, so `depth` is caller-controlled; a literal
+    /// `assert!` here turned that release-mode no-op into a release-mode
+    /// abort for every external caller -- the opposite direction from
+    /// upstream's own release behaviour. `debug_assert!` matches upstream's
+    /// NDEBUG semantics instead: checked in debug, compiled out in release,
+    /// same as upstream's `assert()`.
     pub fn node_size(&self, depth: u32) -> f64 {
-        assert!(depth <= Self::TREE_DEPTH);
+        debug_assert!(
+            depth <= Self::TREE_DEPTH,
+            "node_size: depth {depth} exceeds TREE_DEPTH ({})",
+            Self::TREE_DEPTH
+        );
         self.resolution * f64::from(1u32 << (Self::TREE_DEPTH - depth))
     }
 
@@ -811,7 +828,25 @@ impl OcTree {
     }
 
     /// Upstream `keyToCoord(key_type, depth)`.
+    ///
+    /// # Deviation: explicit `debug_assert!` added for `depth <= TREE_DEPTH` (Task G)
+    ///
+    /// Upstream's own precondition (`assert(depth <= tree_depth);`,
+    /// `OcTreeBaseImpl.hxx:395`) was previously reproduced only by
+    /// accident: an out-of-range `depth` underflows `TREE_DEPTH - depth`
+    /// (this function's `else` branch below) the same way [`Self::search`]'s
+    /// `diff` did before that call's own `debug_assert!` was added -- same
+    /// defect family, same fix; see `search`'s doc comment for the full
+    /// upstream-asymmetry argument this shares. This function is private,
+    /// reached only through [`Self::key_to_coord_at_depth`] (`pub(crate)`),
+    /// currently always called with an iterator-bounded `depth` -- safe
+    /// today, but only by caller discipline, not by construction.
     fn key_to_coord_axis_at_depth(&self, key: KeyType, depth: u32) -> f64 {
+        debug_assert!(
+            depth <= Self::TREE_DEPTH,
+            "key_to_coord_axis_at_depth: depth {depth} exceeds TREE_DEPTH ({})",
+            Self::TREE_DEPTH
+        );
         if depth == 0 {
             0.0
         } else if depth == Self::TREE_DEPTH {
@@ -897,9 +932,33 @@ impl OcTree {
     /// Upstream `search(const OcTreeKey&, depth)`. `depth == 0` means the
     /// finest resolution, matching upstream's own `0`-means-full-depth
     /// convention.
+    ///
+    /// # Deviation: explicit `debug_assert!` added for `depth <= TREE_DEPTH` (Task G)
+    ///
+    /// Upstream's own precondition, `assert(depth <= tree_depth);`
+    /// (`OcTreeBaseImpl.hxx:435`), was previously reproduced only by
+    /// accident: `TREE_DEPTH - depth`'s unsigned underflow for an
+    /// out-of-range `depth` happened to produce an empty
+    /// `(diff..TREE_DEPTH)` range below, which looks like a safe skip but is
+    /// **not** upstream's own behaviour. Upstream computes `int diff =
+    /// tree_depth - depth` in *unsigned* arithmetic first, landing a huge
+    /// value that is then reinterpreted as *negative* on assignment to the
+    /// signed `int diff` -- its loop then runs `tree_depth` extra
+    /// iterations down to a negative index and calls `computeChildIdx` with
+    /// a negative shift amount, unconditional UB, not a clean skip. The two
+    /// were never symmetric; the accidental skip here only looked safe
+    /// because every current call site happens to pass `depth == 0`.
+    /// `search` is `pub(crate)`, so a future same-crate caller could break
+    /// that accident silently; this makes the precondition explicit and
+    /// tested instead of implicit.
     pub(crate) fn search(&self, key: OcTreeKey, depth: u32) -> Option<&Node> {
         let mut cur = self.root.as_deref()?;
         let depth = if depth == 0 { Self::TREE_DEPTH } else { depth };
+        debug_assert!(
+            depth <= Self::TREE_DEPTH,
+            "search: depth {depth} exceeds TREE_DEPTH ({})",
+            Self::TREE_DEPTH
+        );
         let diff = Self::TREE_DEPTH - depth;
         for i in (diff..Self::TREE_DEPTH).rev() {
             let pos = compute_child_idx(key, i) as usize;
@@ -1191,6 +1250,32 @@ impl OcTree {
                     occupied_cells.insert(key);
                 }
             } else if let Some(r) = max_range {
+                // Upstream `point3d direction = (p - origin).normalized ();`
+                // (`OccupancyOcTreeBase.hxx:211`) -- octomath's `normalized()`
+                // (`third_party/octomap/octomap/include/octomap/math/
+                // Vector3.h:270-276`) leaves a zero vector unchanged; plain
+                // `.normalize()` divides `0.0 / 0.0` instead. This branch's
+                // own guard (`within_range` false with `r >= 0.0`) makes
+                // `(p - origin).norm() > r >= 0.0` hold for every finite
+                // `r`, but a caller-supplied `max_range = Some(f64::NAN)`
+                // slips past both disjuncts of `within_range`'s closure
+                // (`NAN < 0.0` and `norm() <= NAN` are both false) without
+                // that inequality ever holding, so `p == origin` is
+                // reachable here after all -- direction genuinely becomes
+                // `(NaN, NaN, NaN)`.
+                //
+                // Not a defect, though: `coord_to_key_checked_axis`'s own
+                // `!(scaled_f >= min && scaled_f < max)` guard independently
+                // rejects a `NaN` coordinate before a key is ever built from
+                // it, so `new_end`'s `NaN` never reaches `free_cells` or
+                // `occupied_cells` -- measured directly, not just argued: a
+                // temporary local revert to plain `.normalize()` here
+                // (`(p - origin).normalize()`, no `try_normalize`) produces
+                // byte-identical output from `compute_update_nan_max_range_
+                // at_a_coincident_point_stays_empty_not_nan_poisoned`
+                // (below) to the guarded version -- the return value cannot
+                // distinguish a `NaN` direction from a zero one here, so
+                // there is no observable divergence from upstream to fix.
                 let direction = (p - origin).normalize();
                 let new_end = origin + direction * r;
                 if let Some(ray) = self.compute_ray_keys(origin, new_end) {
@@ -1271,6 +1356,18 @@ impl OcTree {
             && r > 0.0
             && (end - origin).norm() > r
         {
+            // Upstream `point3d direction = (end - origin).normalized ();`
+            // (`OccupancyOcTreeBase.hxx:870`) is octomath-guarded (leaves a
+            // zero vector unchanged, same contract as `compute_update`'s
+            // `:1243` above) but that guard is unreachable here, not
+            // dropped: this branch's own `r > 0.0 && norm() > r` conjunction
+            // forces `norm() > 0` for every value of `r`, `NaN` included --
+            // `NaN > 0.0` is `false`, so a `NaN` `max_range` fails the first
+            // conjunct and never reaches this line at all (unlike
+            // `compute_update`'s `is_none_or` gate, whose `NAN < 0.0 ||
+            // norm() <= NAN` disjunction is false for a *different* reason
+            // and lets `NaN` through). Plain `.normalize()` stays correct
+            // by construction of this guard, not upstream's guard.
             let direction = (end - origin).normalize();
             let new_end = origin + direction * r;
             return self.integrate_miss_on_ray(origin, new_end, lazy_eval);
@@ -1288,7 +1385,10 @@ impl OcTree {
     /// `lib.rs`'s "Round 27, item 1(a)" for the full format derivation).
     /// `self` must be a freshly constructed, empty tree -- matching
     /// upstream's own refusal to decode into a tree that already has a
-    /// root, see [`DecodeError::TreeAlreadyPopulated`].
+    /// root, see [`DecodeError::TreeAlreadyPopulated`]. `self.resolution`
+    /// must also be a positive, finite value -- see
+    /// [`DecodeError::InvalidResolution`] for why that is checked here
+    /// rather than in [`Self::new`].
     ///
     /// Each node's own 2-byte record packs its 8 children 2 bits each: `10`
     /// free leaf (read back as exactly [`Self::clamping_thres_min_log`]),
@@ -1331,6 +1431,9 @@ impl OcTree {
         if self.root.is_some() {
             return Err(DecodeError::TreeAlreadyPopulated);
         }
+        if !(self.resolution.is_finite() && self.resolution > 0.0) {
+            return Err(DecodeError::InvalidResolution);
+        }
         let params = BinaryReadParams {
             clamp_min: self.clamping_thres_min,
             clamp_max: self.clamping_thres_max,
@@ -1346,8 +1449,9 @@ impl OcTree {
     /// `OcTreeDataNode::readData`: decode the full, lossless wire format
     /// `moveit_msgs::Octomap.data` carries when `msg.binary == false`
     /// (`writeData`'s exact inverse; see `lib.rs`'s "Round 27, item 1(a)").
-    /// `self` must be a freshly constructed, empty tree, for the same
-    /// reason as [`Self::read_binary_data`].
+    /// `self` must be a freshly constructed, empty tree, and `self.resolution`
+    /// must be a positive, finite value, for the same reasons as
+    /// [`Self::read_binary_data`].
     ///
     /// Each node is written depth-first as its own raw `f32` log-odds (a
     /// direct little-endian read, see the private `Cursor::read_f32_le`'s
@@ -1374,6 +1478,9 @@ impl OcTree {
     pub fn read_data(&mut self, bytes: &[u8]) -> Result<(), DecodeError> {
         if self.root.is_some() {
             return Err(DecodeError::TreeAlreadyPopulated);
+        }
+        if !(self.resolution.is_finite() && self.resolution > 0.0) {
+            return Err(DecodeError::InvalidResolution);
         }
         let mut cursor = Cursor::new(bytes);
         let mut root = Node::new();
@@ -1913,6 +2020,45 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "node_size: depth")]
+    fn node_size_rejects_depth_above_tree_depth() {
+        // Pre-fix this was a bare `assert!` -- it already panicked, but with
+        // the default "assertion failed: ..." text, not this message; the
+        // custom message is what distinguishes `debug_assert!` having
+        // actually landed here rather than the check merely surviving
+        // unedited.
+        let tree = OcTree::new(0.1);
+        let _ = tree.node_size(OcTree::TREE_DEPTH + 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "search: depth")]
+    fn search_rejects_depth_above_tree_depth() {
+        // Pre-fix this had no check at all: `TREE_DEPTH - depth` underflows
+        // and panics with "attempt to subtract with overflow" instead --
+        // Finding 2's whole point being that upstream's own out-of-range
+        // behaviour is not a clean skip either, see `search`'s doc comment.
+        // A fresh, never-updated tree has no root, and `search` returns
+        // `None` via `?` before ever reaching the debug_assert -- a real
+        // node must exist for this to reach the check at all.
+        let mut tree = OcTree::new(0.1);
+        let key = OcTree::root_key();
+        tree.update_node_by_key(key, true, false);
+        let _ = tree.search(key, OcTree::TREE_DEPTH + 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "key_to_coord_axis_at_depth: depth")]
+    fn key_to_coord_axis_at_depth_rejects_depth_above_tree_depth() {
+        // Same pre-fix gap as `search` above: `TREE_DEPTH - depth`
+        // underflows to "attempt to subtract with overflow" instead of this
+        // message.
+        let tree = OcTree::new(0.1);
+        let _ = tree
+            .key_to_coord_axis_at_depth(OcTree::TREE_MAX_VAL as KeyType, OcTree::TREE_DEPTH + 1);
+    }
+
+    #[test]
     fn insert_ray_marks_the_endpoint_occupied_and_the_path_free() {
         let mut tree = OcTree::new(0.1);
         let origin = Point3::new(0.0, 0.0, 0.0);
@@ -1959,6 +2105,9 @@ mod tests {
         let end = Point3::new(1.0, 0.0, 0.0);
         assert!(tree.insert_ray(origin, end, Some(0.0), false));
         assert!(tree.is_occupied(end).unwrap());
+        // And the ray was traced, not collapsed to a point: the midpoint is
+        // marked free rather than occupied.
+        assert!(!tree.is_occupied(Point3::new(0.5, 0.0, 0.0)).unwrap());
     }
 
     /// `computeUpdate`'s guard is `(maxrange < 0.0) || (norm <= maxrange)`,
@@ -2002,6 +2151,74 @@ mod tests {
         assert!(occupied.contains(&hit_key));
         assert!(!free.contains(&hit_key));
         assert!(!free.is_empty());
+    }
+
+    /// Upstream `computeUpdate`'s within-range gate is `(maxrange < 0.0) ||
+    /// (norm <= maxrange)` -- a negative `maxrange` means unlimited.
+    /// `Some(-1.0)` must behave exactly like `None`: the hit lands in
+    /// `occupied` at its real coordinate, not truncated toward a negative
+    /// distance.
+    #[test]
+    fn compute_update_negative_max_range_behaves_as_unlimited() {
+        let tree = OcTree::new(0.1);
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let hit = Point3::new(0.5, 0.0, 0.0);
+        let (free, occupied) = tree.compute_update(&[hit], origin, Some(-1.0));
+        let hit_key = tree.coord_to_key_checked(hit).unwrap();
+        assert!(occupied.contains(&hit_key));
+        assert!(!free.contains(&hit_key));
+        assert!(!free.is_empty());
+    }
+
+    /// Demonstrated opposite of the two tests above: a genuinely positive
+    /// `max_range` still cuts the ray short, so the far hit point is never
+    /// marked occupied at all.
+    #[test]
+    fn compute_update_positive_max_range_still_cuts() {
+        let tree = OcTree::new(0.1);
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let far_hit = Point3::new(5.0, 0.0, 0.0);
+        let (free, occupied) = tree.compute_update(&[far_hit], origin, Some(1.0));
+        assert!(!occupied.contains(&tree.coord_to_key_checked(far_hit).unwrap()));
+        // A cell short of the cut point is marked free (the ray was traced
+        // that far); a cell beyond `max_range` is not (the ray never
+        // reaches it) -- `compute_ray_keys` itself excludes its own
+        // endpoint's cell (see its `if current_key == key_end { break; }`
+        // above), matching upstream, so the cut point's own cell is not
+        // the right thing to assert on here.
+        let short_of_cut = tree
+            .coord_to_key_checked(Point3::new(0.5, 0.0, 0.0))
+            .unwrap();
+        let beyond_cut = tree
+            .coord_to_key_checked(Point3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        assert!(free.contains(&short_of_cut));
+        assert!(!free.contains(&beyond_cut));
+        assert!(!occupied.contains(&beyond_cut));
+    }
+
+    /// Regression test for the invariant `compute_update`'s `else` branch
+    /// (`:1243`) relies on for its Distinct verdict: a `NaN` `max_range`
+    /// slips past `within_range`'s `NAN < 0.0 || norm() <= NAN` disjunction
+    /// (both false) regardless of `p`, so `p == origin` reaches the
+    /// direction-normalize with a genuinely zero vector, and plain
+    /// `.normalize()` there produces `(NaN, NaN, NaN)` -- but that `NaN`
+    /// never reaches this function's return value, because
+    /// `coord_to_key_checked_axis` independently rejects it while building
+    /// `new_end`'s key. If a future change to `coord_to_key_checked_axis`
+    /// (or a refactor that reads `direction`/`new_end` before that call)
+    /// starts letting a `NaN` coordinate through, this must start failing
+    /// or `:1243` needs `try_normalize`, not a comment.
+    #[test]
+    fn compute_update_nan_max_range_at_a_coincident_point_stays_empty_not_nan_poisoned() {
+        let tree = OcTree::new(0.1);
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let (free, occupied) = tree.compute_update(&[origin], origin, Some(f64::NAN));
+        assert!(free.is_empty());
+        assert!(
+            occupied.is_empty(),
+            "origin == p never satisfies within_range with a NaN max_range"
+        );
     }
 
     #[test]
@@ -2185,6 +2402,53 @@ mod tests {
         let mut tree = OcTree::new(0.1);
         tree.update_node(Point3::new(0.05, 0.05, 0.05), true, false);
         assert_eq!(tree.read_data(&[]), Err(DecodeError::TreeAlreadyPopulated));
+    }
+
+    // `DecodeError::InvalidResolution`: an untrusted-wire resolution never
+    // fails loudly on its own (`update_node` no-ops via the already-guarded
+    // `coord_to_key_checked` direction), but decode never touches
+    // `resolution` and would silently populate a tree whose leaves
+    // `key_to_coord_axis` then collapses to the world origin -- see the
+    // variant's own doc for the full measured chain. One boundary each side
+    // of the valid range, plus the two non-finite values a wire `f64` can
+    // carry.
+    #[test]
+    fn read_binary_data_rejects_zero_resolution() {
+        let mut tree = OcTree::new(0.0);
+        assert_eq!(
+            tree.read_binary_data(&[0x02, 0x00]),
+            Err(DecodeError::InvalidResolution)
+        );
+    }
+
+    #[test]
+    fn read_binary_data_rejects_negative_resolution() {
+        let mut tree = OcTree::new(-0.1);
+        assert_eq!(
+            tree.read_binary_data(&[0x02, 0x00]),
+            Err(DecodeError::InvalidResolution)
+        );
+    }
+
+    #[test]
+    fn read_binary_data_rejects_nan_and_infinite_resolution() {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut tree = OcTree::new(bad);
+            assert_eq!(
+                tree.read_binary_data(&[0x02, 0x00]),
+                Err(DecodeError::InvalidResolution),
+                "resolution {bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn read_data_rejects_zero_resolution() {
+        let mut tree = OcTree::new(0.0);
+        assert_eq!(
+            tree.read_data(&[0, 0, 0, 63, 0]),
+            Err(DecodeError::InvalidResolution)
+        );
     }
 
     #[test]

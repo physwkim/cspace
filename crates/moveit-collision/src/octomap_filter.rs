@@ -142,7 +142,13 @@ fn metaball_surface_properties(
         Some((normal, Some(depth)))
     } else {
         let (_, gradient) = sample_cloud(cloud, spacing, r_multiple, contact_point)?;
-        Some((gradient.normalize(), None))
+        // octomath's `normalize()` (`third_party/octomap/octomap/include/
+        // octomap/math/Vector3.h:270-276`) leaves the vector unchanged when
+        // `len > 0` is false; nalgebra's `.normalize()` divides
+        // unconditionally, so a symmetric cloud whose gradient sums to
+        // exactly zero produced an all-NaN normal instead of upstream's
+        // zero one.
+        Some((gradient.try_normalize(0.0).unwrap_or(gradient), None))
     }
 }
 
@@ -165,10 +171,30 @@ fn find_surface(
     for _ in 0..ITERATIONS {
         let (intensity, gradient) = sample_cloud(cloud, spacing, r_multiple, p)?;
         let s = iso_value - intensity;
+        // `std::max(gs.dot(gs), epsilon)` upstream (`collision_octomap_filter.cpp:226`)
+        // is the same std::min/std::max-vs-f64::min/f64::max family as
+        // `crate::numeric`, but NOT a fix here: `sample_cloud`'s only
+        // reachable NaN source (`r == 0`, a query position exactly at a
+        // cloud point) sets `pos = delta / r` with `delta` the zero vector,
+        // so every component of that term -- and hence of `gradient` -- goes
+        // NaN together, never a subset. `gradient * -s` above is then NaN in
+        // every component regardless of what this `.max` evaluates to, so
+        // `dp` is `(NaN, NaN, NaN)` whether the divergent `f64::max` or a
+        // faithful `cxx_max` runs here -- measured directly: `find_surface`
+        // returns `None` identically either way for `cloud = [Vector3::
+        // zeros()], seed = Vector3::zeros()`. (A mixed NaN/non-NaN gradient
+        // is constructible in principle, through `0.0 * f64::INFINITY` in
+        // the per-point scalar/direction product, but only at a per-axis
+        // coordinate difference and query distance around 1e61 -- outside
+        // any real octree leaf's coordinate range, so not a production
+        // concern.)
         let dp = (gradient * -s) / gradient.dot(&gradient).max(EPSILON);
         p += dp;
         if dp.dot(&dp) < EPSILON {
-            return Some((p, gradient.normalize()));
+            // Same octomath-vs-nalgebra zero-vector divergence as
+            // `metaball_surface_properties` above: a symmetric cloud makes
+            // `gradient` sum to exactly zero on the converging iteration.
+            return Some((p, gradient.try_normalize(0.0).unwrap_or(gradient)));
         }
     }
     None
@@ -346,12 +372,43 @@ mod tests {
     }
 
     #[test]
+    fn find_surface_zero_gradient_seed_returns_zero_normal_not_nan() {
+        // octomath's `normalize()` leaves a zero vector unchanged; a plain
+        // `.normalize()` divides `0.0 / 0.0` instead. Same symmetric cloud
+        // as `sample_cloud_symmetric_pair_cancels_gradient`, sampled at the
+        // seed itself so `gradient` is exactly zero on iteration 1: `dp`
+        // collapses to the zero vector too (`.max(EPSILON)` guards only the
+        // division, not the numerator), so `dp.dot(&dp) < EPSILON` fires
+        // immediately and returns the zero gradient un-advanced.
+        let cloud = [Vector3::new(1.0, 0.0, 0.0), Vector3::new(-1.0, 0.0, 0.0)];
+        let seed = Vector3::zeros();
+        let (surface_point, normal) =
+            find_surface(&cloud, 1.0, 0.5, 1.5, seed).expect("non-empty cloud");
+        assert_eq!(surface_point, Vector3::zeros());
+        assert_eq!(normal, Vector3::zeros());
+    }
+
+    #[test]
     fn metaball_surface_properties_without_depth_returns_unit_normal_only() {
         let cloud = [Vector3::new(1.0, 0.0, 0.0)];
         let (normal, depth) =
             metaball_surface_properties(&cloud, 1.0, 0.5, 1.5, Vector3::new(0.5, 0.0, 0.0), false)
                 .expect("non-empty cloud");
         assert_relative_eq!(normal.norm(), 1.0, epsilon = 1e-12);
+        assert!(depth.is_none());
+    }
+
+    #[test]
+    fn metaball_surface_properties_without_depth_zero_gradient_returns_zero_normal_not_nan() {
+        // Same zero-gradient construction as `find_surface_zero_gradient_
+        // seed_returns_zero_normal_not_nan`, through the other call site
+        // (`metaball_surface_properties`'s `estimate_depth == false`
+        // branch) that shares the same `.normalize()` fix.
+        let cloud = [Vector3::new(1.0, 0.0, 0.0), Vector3::new(-1.0, 0.0, 0.0)];
+        let (normal, depth) =
+            metaball_surface_properties(&cloud, 1.0, 0.5, 1.5, Vector3::zeros(), false)
+                .expect("non-empty cloud");
+        assert_eq!(normal, Vector3::zeros());
         assert!(depth.is_none());
     }
 
