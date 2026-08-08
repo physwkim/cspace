@@ -774,6 +774,24 @@ fn mask_diff(link_names: &[String], target: &str) -> Value {
     json!(actions)
 }
 
+/// The largest `|a[i] - b[i]|` over paired slices, NaN-propagating.
+///
+/// `.fold(0.0, f64::max)` looks like the obvious way to write this, but
+/// `f64::max` is IEEE `maxNum`: it discards a NaN operand wherever it
+/// appears rather than propagating it, so seeded from a non-NaN `0.0` that
+/// fold can never actually return NaN -- a NaN transform entry (a Rust-side
+/// FK bug; the oracle's JSON answer can't produce one, `serde_json` rejects
+/// NaN as a number token) would silently read as "every element agrees"
+/// instead of failing [`fk_divergence`]'s caller's `fk > FK_FLOOR` gate.
+/// Same helper, same reason as `state_ops.rs::worst_abs_diff` in the other
+/// binary.
+fn worst_abs_diff(a: &[f64], b: &[f64]) -> f64 {
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0f64, |acc, d| if d.is_nan() || d > acc { d } else { acc })
+}
+
 /// Largest element-wise difference between this side's global transform for
 /// each target link and the oracle's, at one state.
 fn fk_divergence(
@@ -799,14 +817,20 @@ fn fk_divergence(
         if flat.len() != 16 {
             return Err(format!("fk for {} is not 4x4", target.link));
         }
+        let want: Vec<f64> = flat
+            .iter()
+            .map(|v| {
+                v.as_f64()
+                    .ok_or_else(|| format!("fk for {} is not numeric", target.link))
+            })
+            .collect::<Result<_, _>>()?;
         let m = pose.to_homogeneous();
-        for r in 0..4 {
-            for c in 0..4 {
-                let want = flat[r * 4 + c]
-                    .as_f64()
-                    .ok_or_else(|| format!("fk for {} is not numeric", target.link))?;
-                worst = worst.max((want - m[(r, c)]).abs());
-            }
+        let got: Vec<f64> = (0..4)
+            .flat_map(|r| (0..4).map(move |c| m[(r, c)]))
+            .collect();
+        let d = worst_abs_diff(&want, &got);
+        if d.is_nan() || d > worst {
+            worst = d;
         }
     }
     Ok(worst)
@@ -900,8 +924,13 @@ fn run() -> Result<i32, String> {
         // measuring FK. Checked every state, not once: a divergence that only
         // some configurations produce is exactly the one a single check misses.
         let fk = fk_divergence(&mut oracle, joint_values, &targets, &link_poses)?;
-        worst_fk = worst_fk.max(fk);
-        if fk > FK_FLOOR {
+        // NaN must win both the running worst and the gate below: plain `>`
+        // is always false against NaN, which would let a NaN transform
+        // element read as "no divergence" on both counts.
+        if fk.is_nan() || fk > worst_fk {
+            worst_fk = fk;
+        }
+        if fk.is_nan() || fk > FK_FLOOR {
             return Err(format!(
                 "state {index}: the two sides' global link transforms differ by {fk:.6e}, \
                  above the {FK_FLOOR:.0e} floor -- at that size the corpus's finest gap rung \
@@ -1104,5 +1133,40 @@ fn main() {
             eprintln!("tangency-subset: {message}");
             std::process::exit(2);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The defect: a NaN component used to be silently outranked by an
+    /// ordinary `0.0` (the fold's seed) instead of winning outright, which
+    /// would have let a Rust-side FK bug pass `fk_divergence`'s caller's
+    /// `fk > FK_FLOOR` gate unnoticed.
+    #[test]
+    fn worst_abs_diff_does_not_discard_a_lone_nan_component() {
+        let a = [0.0; 16];
+        let mut b = [0.0; 16];
+        b[9] = f64::NAN;
+        assert!(
+            worst_abs_diff(&a, &b).is_nan(),
+            "a NaN transform element must make the whole aggregate NaN, not \
+             silently read as \"every element agrees\""
+        );
+    }
+
+    /// The demonstrated opposite: ordinary, non-degenerate deviations are
+    /// still aggregated correctly -- the fix must not be a neutered no-op
+    /// that also breaks the normal case.
+    #[test]
+    fn worst_abs_diff_matches_plain_max_when_nothing_is_nan() {
+        let mut a = [0.0; 16];
+        let mut b = [0.0; 16];
+        a[3] = 1.0;
+        b[3] = 1.3;
+        a[11] = 2.0;
+        b[11] = 1.5;
+        assert_eq!(worst_abs_diff(&a, &b), 0.5);
     }
 }
