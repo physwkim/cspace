@@ -751,6 +751,11 @@ mod tests {
     /// every one of this file's own fixtures (and `cost.rs`'s,
     /// `optimizer.rs`'s) reaches with a hardcoded valid literal, so the gap
     /// was unreachable in this crate's own tests but not in its public API.
+    /// `from_num_points` is also the one constructor every other path
+    /// funnels through (`from_duration` delegates to it;
+    /// `from_source_trajectory` only copies `discretization` from an
+    /// already-valid trajectory), so the guard there closes every
+    /// downstream `1.0 / discretization` site at once.
     #[test]
     fn from_num_points_rejects_zero_discretization() {
         let model = panda_model();
@@ -780,46 +785,6 @@ mod tests {
         assert!(matches!(err, Error::Other(_)));
         let err = ChompTrajectory::from_num_points(model, 0, 0.1, GROUP).unwrap_err();
         assert!(matches!(err, Error::Other(_)));
-    }
-
-    /// Division/NaN-guard audit (round: chomp/stomp sweep). Unlike
-    /// `from_duration`, `from_num_points` never validated `discretization`
-    /// at all -- a caller-supplied `0.0` (or a negative/non-finite value)
-    /// was accepted silently. That reaches [`ChompTrajectory::joint_velocities`]'s
-    /// `1.0 / self.discretization` unguarded (upstream's `getJointVelocities`,
-    /// `chomp_trajectory.cpp`, has the identical unguarded division), turning
-    /// every returned joint velocity into `f64::INFINITY` instead of a typed
-    /// rejection at construction. `from_num_points` is the single
-    /// constructor every other path funnels through (`from_duration`
-    /// delegates to it; `from_source_trajectory` only ever copies
-    /// `discretization` from an existing, already-valid `ChompTrajectory`),
-    /// so validating here is the one place that closes every downstream
-    /// `1.0 / discretization` site at once, matching `from_duration`'s own
-    /// guard exactly.
-    #[test]
-    fn from_num_points_rejects_zero_discretization() {
-        let model = panda_model();
-        let err = ChompTrajectory::from_num_points(model, 10, 0.0, GROUP).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("discretization must be finite and positive")
-        );
-    }
-
-    /// Same boundary, demonstrated at the point that actually returns a
-    /// wrong answer rather than just an error variant: before this
-    /// constructor validated `discretization`, this exact sequence built
-    /// successfully and returned `[f64::INFINITY; N]` from every call --
-    /// not merely "a non-finite intermediate", but the trajectory's own
-    /// public joint-velocity answer being physically wrong.
-    #[test]
-    fn from_num_points_rejects_negative_discretization() {
-        let model = panda_model();
-        let err = ChompTrajectory::from_num_points(model, 10, -0.03, GROUP).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("discretization must be finite and positive")
-        );
     }
 
     /// §172/§153.1: `discretization == 0.0` used to saturate
