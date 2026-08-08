@@ -788,14 +788,6 @@ fn normalize_dir(dir: &Vector3) -> Vector3 {
     }
 }
 
-/// Every component of `v` is finite. Used by
-/// [`ConvexMesh::ray_intersections`] to reject a non-finite ray at the
-/// door — see that method's doc comment for why a per-triangle guard on
-/// the derived scalars alone cannot substitute for this.
-fn is_finite_vector(v: &Vector3) -> bool {
-    v.iter().all(|c| c.is_finite())
-}
-
 /// Transform `point` — a *position*, not a free vector — by `pose`,
 /// applying both rotation and translation.
 ///
@@ -2915,25 +2907,6 @@ impl ConvexMesh {
     /// this body, ordered along the ray and capped at `count` points
     /// (`None` for unlimited). Upstream `intersectsRay`; see the module
     /// docs, deviations 1 and 2.
-    ///
-    /// # Deviation: a non-finite `origin`/`dir` is rejected up front
-    ///
-    /// Upstream has no such check, and it needs one no more than this port
-    /// does *as long as* every per-triangle NaN can be caught downstream —
-    /// but it cannot be. `tmp`/`t` below are a *dot product* of `normal`
-    /// against `dr`/`orig`, and a dot product zeroes out any NaN sitting in
-    /// a component `normal` doesn't touch: `normal.dot(&Vector3::new(f64::
-    /// NAN, 1.0, 0.0))` is a perfectly finite number for `normal = (0, 1,
-    /// 0)`. So a NaN confined to one axis of `origin`/`dir` can leave both
-    /// `tmp` and `t` finite for a given triangle, pass every guard below,
-    /// and still reach `pt = origin + dir_norm * t` — computed from the raw
-    /// input vectors, not from `tmp`/`t` — carrying the original NaN
-    /// straight into the returned point. No per-triangle comparison can
-    /// close that path, because it never touches `tmp` or `t` at all; only
-    /// a check on `origin`/`dir` themselves can. This folds into the two
-    /// early exits already here for the same reason they exist: a ray this
-    /// method cannot make sense of gets no intersections, the same as a ray
-    /// this method has already ruled out geometrically.
     pub fn ray_intersections(
         &self,
         origin: &Vector3,
@@ -2941,9 +2914,6 @@ impl ConvexMesh {
         count: Option<usize>,
     ) -> Vec<Vector3> {
         let dir_norm = normalize_dir(dir);
-        if !is_finite_vector(origin) || !is_finite_vector(&dir_norm) {
-            return Vec::new();
-        }
         if distance_sqr(&self.center, origin, &dir_norm) > self.radius_bounding_sqr {
             return Vec::new();
         }
@@ -2962,29 +2932,12 @@ impl ConvexMesh {
             .zip(self.mesh_data.normals.iter())
             .zip(self.plane_offsets.iter())
         {
-            // Upstream `fabs(tmp) > detail::ZERO` / `t > 0.0`: both
-            // positive-condition guards a NaN correctly fails, skipping the
-            // triangle. This port had negated both into `<=`/`<= 0.0`, which
-            // is false rather than true for a NaN `tmp`/`t`, falling through
-            // into computing a fabricated intersection instead of skipping
-            // the triangle. `tmp.is_nan()` is the reachable half: `normal`
-            // is this body's own mesh data (finite by construction, not
-            // ray input), so a NaN `tmp` can only come from `dr`, and
-            // nothing upstream of this loop still guarantees `dr` finite
-            // once `origin`/`dir_norm` themselves are. `t.is_nan()` is kept
-            // for the same reason `tmp.is_nan()` is worth naming rather than
-            // leaving to `<=`'s accidental behavior -- matching upstream's
-            // own positive form exactly, in case some other path into this
-            // loop (a corrupted `self.i_pose`, say) ever makes the numerator
-            // non-finite despite a finite `tmp` -- but no such path is
-            // currently reachable through this method's own public
-            // parameters, so it has no dedicated regression test below.
             let tmp = normal.dot(&dr);
-            if tmp.is_nan() || tmp.abs() <= ZERO {
+            if tmp.abs() <= ZERO {
                 continue;
             }
             let t = -(normal.dot(&orig) + offset) / tmp;
-            if t.is_nan() || t <= 0.0 {
+            if t <= 0.0 {
                 continue;
             }
 
