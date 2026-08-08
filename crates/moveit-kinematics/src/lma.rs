@@ -54,7 +54,7 @@ impl LevenbergMarquardtSolver {
     ///
     /// # Errors
     ///
-    /// See `ChainInfo::build`'s `# Errors`.
+    /// `SolverParams::validate`, or see `ChainInfo::build`'s `# Errors`.
     pub fn new(model: &RobotModel, group_name: &str, params: &SolverParams) -> Result<Self> {
         Self::new_with_seed(model, group_name, params, DEFAULT_SEED)
     }
@@ -63,13 +63,14 @@ impl LevenbergMarquardtSolver {
     ///
     /// # Errors
     ///
-    /// See `ChainInfo::build`'s `# Errors`.
+    /// `SolverParams::validate`, or see `ChainInfo::build`'s `# Errors`.
     pub fn new_with_seed(
         model: &RobotModel,
         group_name: &str,
         params: &SolverParams,
         seed: u64,
     ) -> Result<Self> {
+        params.validate()?;
         let chain = ChainInfo::build(model, group_name)?;
         let joint_weights = chain.resolve_joint_weights(params)?;
         Ok(Self {

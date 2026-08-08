@@ -6,6 +6,8 @@
 
 use std::collections::HashMap;
 
+use moveit_error::{Error, Result};
+
 /// Search parameters for a [`crate::KinematicsSolver`].
 ///
 /// Upstream reads these from a ROS parameter server, one
@@ -82,6 +84,52 @@ impl SolverParams {
         } else {
             self.orientation_vs_position
         }
+    }
+
+    /// Reject the three numeric fields whose only guard against dividing by
+    /// an exact `0.0` (or being silently defeated by a NaN, which fails
+    /// every comparison including the one meant to catch it) is that they
+    /// stay strictly positive:
+    ///
+    /// - [`SolverParams::epsilon`] gates every convergence check in
+    ///   `cart_to_jnt::cart_to_jnt` (`delta_twist_norm <= epsilon`,
+    ///   `delta_q_norm < epsilon`, `step_size < epsilon`). Upstream itself
+    ///   requires `epsilon > 0.0` (`kdl_kinematics_parameters.yaml`'s
+    ///   `gt<>: [0.0]`); a non-positive or NaN `epsilon` makes every one of
+    ///   those checks either trivially true or -- for NaN -- permanently
+    ///   false, and `step_size`'s guard failing lets it underflow to `0.0`
+    ///   and feed `newton_raphson::NewtonRaphsonSolver`'s
+    ///   `step_size / old_step_size`.
+    /// - [`SolverParams::svd_threshold`] gates
+    ///   `NewtonRaphsonSolver`'s truncated-SVD pseudo-inverse
+    ///   (`s > svd_threshold * smax`, else `1.0 / s`). Upstream hardcodes
+    ///   this at a fixed `0.001` and never exposes it; a non-positive or
+    ///   NaN threshold lets an exact-zero singular value -- reachable on
+    ///   any chain with a kinematic redundancy, not a contrived input --
+    ///   through to `1.0 / s`.
+    /// - [`SolverParams::lma_lambda`] is this crate's own addition (see
+    ///   `LevenbergMarquardtSolver`'s doc comment), and a non-positive
+    ///   value defeats the Tikhonov damping it exists to provide: at
+    ///   `lambda <= 0.0`, the same exact-zero singular value divides
+    ///   `s / (s * s + lambda * lambda)` as `0.0 / 0.0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::other`] naming the first field found to be
+    /// non-finite or not strictly positive.
+    pub(crate) fn validate(&self) -> Result<()> {
+        for (name, value) in [
+            ("epsilon", self.epsilon),
+            ("svd_threshold", self.svd_threshold),
+            ("lma_lambda", self.lma_lambda),
+        ] {
+            if !(value.is_finite() && value > 0.0) {
+                return Err(Error::other(format!(
+                    "SolverParams::{name} must be finite and > 0.0, got {value}"
+                )));
+            }
+        }
+        Ok(())
     }
 }
 
