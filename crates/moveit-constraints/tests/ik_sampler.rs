@@ -476,6 +476,121 @@ fn sample_pose_rotation_vector_transpose_kills_dropping_the_transpose() {
     );
 }
 
+/// Builds the rotation-vector sampler used by the two degenerate-axis cases
+/// below. `tol` goes on all three axes.
+fn rotation_vector_sampler(
+    model: &RobotModel,
+    tf: &Transforms,
+    desired: UnitQuaternion,
+    tol: f64,
+) -> IkConstraintSampler {
+    let pc = PositionConstraint::new(
+        model,
+        tf,
+        "panda_link8",
+        "world",
+        Vector3::zeros(),
+        &[(
+            Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()),
+            Isometry3::identity(),
+        )],
+        1.0,
+    )
+    .unwrap();
+    let oc = OrientationConstraint::new(
+        model,
+        tf,
+        "panda_link8",
+        "world",
+        desired,
+        OrientationTolerance::RotationVector {
+            x: tol,
+            y: tol,
+            z: tol,
+        },
+        1.0,
+    )
+    .unwrap();
+    let sampler = IkSamplingPose {
+        position_constraint: Some(pc),
+        orientation_constraint: Some(oc),
+    };
+    IkConstraintSampler::new(model, &FakeTip::new("panda_link8"), sampler).unwrap()
+}
+
+/// `sample_pose` draws each angle as `2 * (u - 0.5) * (tol - f64::EPSILON)`
+/// — upstream's own formula, `default_constraint_samplers.cpp:497-504` — so a
+/// tolerance of exactly `f64::EPSILON` makes all three angles exactly zero and
+/// the rotation vector exactly `[0, 0, 0]`, whatever the RNG draws.
+///
+/// Upstream then evaluates `AngleAxisd(rotation_vector.norm(),
+/// rotation_vector.normalized())` (`:521`). Eigen's `normalized()` returns the
+/// input unchanged at zero norm, so that is `AngleAxisd(0, [0,0,0])`, which is
+/// the identity rotation — measured in this repo's oracle image at Eigen
+/// 3.4.0, where `Isometry3d(AngleAxisd(0, Vector3d::Zero())).linear()` prints
+/// exactly `[1 0 0; 0 1 0; 0 0 1]`. The sampled orientation is therefore the
+/// desired one.
+///
+/// `nalgebra::Unit::new_normalize` has no such guard: it divides by the zero
+/// norm anyway, and the resulting NaN axis survives `from_axis_angle`'s
+/// `axis * sin(angle / 2)` even at angle zero, so the port returned an
+/// all-NaN quaternion.
+#[test]
+fn a_degenerate_rotation_vector_samples_the_desired_orientation_not_nan() {
+    let model = panda_model();
+    let tf = Transforms::new("world").unwrap();
+    let desired = UnitQuaternion::from_axis_angle(&Vector3::y_axis(), 0.7);
+    let ik = rotation_vector_sampler(&model, &tf, desired, f64::EPSILON);
+
+    let mut state = RobotState::new(&model);
+    let reference = state.update();
+    let mut rng = ChaCha8Rng::seed_from_u64(102);
+
+    let (_pos, quat) = ik.sample_pose(&reference, &mut rng, 1).unwrap();
+
+    assert!(
+        quat.coords.iter().all(|c| c.is_finite()),
+        "degenerate rotation vector gave a non-finite orientation: {quat:?}"
+    );
+    assert!(
+        quat.angle_to(&desired) < 1e-12,
+        "expected upstream's identity diff, so the desired orientation \
+         {desired:?}, got {quat:?} (angle between them: {} rad)",
+        quat.angle_to(&desired)
+    );
+}
+
+/// The demonstrated opposite of
+/// [`a_degenerate_rotation_vector_samples_the_desired_orientation_not_nan`]:
+/// with an ordinary tolerance the rotation vector is non-zero, both spellings
+/// of the normalize agree, and the sample is a finite rotation genuinely away
+/// from the desired one. Without this the test above would also pass on a port
+/// that had collapsed every rotation-vector sample to the identity.
+#[test]
+fn an_ordinary_rotation_vector_tolerance_still_samples_away_from_desired() {
+    let model = panda_model();
+    let tf = Transforms::new("world").unwrap();
+    let desired = UnitQuaternion::from_axis_angle(&Vector3::y_axis(), 0.7);
+    let ik = rotation_vector_sampler(&model, &tf, desired, 0.05);
+
+    let mut state = RobotState::new(&model);
+    let reference = state.update();
+    let mut rng = ChaCha8Rng::seed_from_u64(102);
+
+    let (_pos, quat) = ik.sample_pose(&reference, &mut rng, 1).unwrap();
+
+    assert!(
+        quat.coords.iter().all(|c| c.is_finite()),
+        "ordinary rotation vector gave a non-finite orientation: {quat:?}"
+    );
+    let angle = quat.angle_to(&desired);
+    assert!(
+        angle > 1e-9,
+        "a 0.05 rad tolerance should move the sample off the desired \
+         orientation, but the angle between them was {angle} rad"
+    );
+}
+
 #[test]
 fn sample_pose_mobile_frame_composition_order_kills_a_swap() {
     let model = panda_model();

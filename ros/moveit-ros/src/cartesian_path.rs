@@ -639,15 +639,42 @@ fn finish<'m>(
 /// Eigen normalises lazily on use, so a client that sent an unnormalised
 /// quaternion gets the normalised rotation upstream would have used, not a
 /// non-isometry that `ASSERT_ISOMETRY` would reject in a debug build.
+///
+/// The zero quaternion needs its own arm, and it is the likeliest input of
+/// all: `geometry_msgs/Pose` default-constructs its orientation to all-zero,
+/// so any client that fills in a position and leaves the orientation unset
+/// sends exactly that. Upstream lands on the **identity** rotation either
+/// way -- `Eigen::Quaterniond(0,0,0,0).toRotationMatrix()` is exactly
+/// `[1 0 0; 0 1 0; 0 0 1]` (measured in this repo's oracle image at Eigen
+/// 3.4.0), and if `tf2` normalises first, Eigen's `normalize()` leaves an
+/// exact-zero quaternion unchanged and the result is the same. So the answer
+/// does not depend on which of the two `tf2` does. `new_normalize` instead
+/// divides by the zero norm and yields an all-NaN pose, which then poisons
+/// every waypoint comparison downstream.
+///
+/// The branch is written on `norm == 0.0` rather than
+/// `UnitQuaternion::try_new(q, 0.0)`, which looks equivalent and is not:
+/// `try_new` gates on `norm > min_norm`, and `NaN > 0.0` is false, so it
+/// answers `None` for a NaN quaternion too and would quietly turn a NaN
+/// waypoint into a valid identity pose. Upstream propagates that NaN, and so
+/// must this -- an unusable pose has to stay unusable. (`Vector3`'s
+/// `try_normalize` gates the other way, `norm <= min_norm`, and does
+/// propagate NaN; the two are not interchangeable.)
 fn pose_to_isometry(pose: &r2r::geometry_msgs::msg::Pose) -> Isometry3 {
+    let quaternion = nalgebra::Quaternion::new(
+        pose.orientation.w,
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z,
+    );
+    let rotation = if quaternion.norm() == 0.0 {
+        nalgebra::UnitQuaternion::identity()
+    } else {
+        nalgebra::UnitQuaternion::new_normalize(quaternion)
+    };
     Isometry3::from_parts(
         nalgebra::Translation3::new(pose.position.x, pose.position.y, pose.position.z),
-        nalgebra::UnitQuaternion::new_normalize(nalgebra::Quaternion::new(
-            pose.orientation.w,
-            pose.orientation.x,
-            pose.orientation.y,
-            pose.orientation.z,
-        )),
+        rotation,
     )
 }
 
