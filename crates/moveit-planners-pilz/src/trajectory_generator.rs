@@ -835,6 +835,46 @@ pub fn check_cartesian_goal(
     Ok(())
 }
 
+/// Reject `planner_limits` before a Cartesian-space generator (`LIN`/`CIRC`/
+/// `POLYLINE`) divides by its `max_rot_vel` — none of `check_velocity_scaling`/
+/// `check_acceleration_scaling`/`check_for_valid_group_name`/`check_start_state`/
+/// `check_goal` above do, and upstream's `validateRequest`/`cmdSpecificRequestValidation`
+/// never check it either, in any of `TrajectoryGeneratorLIN`/`CIRC`/`POLYLINE`.
+///
+/// Upstream gets away with that because `cartesian_limits_parameters.yaml`
+/// declares `max_rot_vel` with no `default_value`, so
+/// `generate_parameter_library` refuses to start the node at all unless the
+/// deployment's own YAML sets it — a config-loading-time guarantee entirely
+/// outside `TrajectoryGenerator`'s ported C++ logic. This port has no
+/// equivalent boundary ([`crate::trajectory_generator`]'s own module doc,
+/// `PORTING-PLAN.md` D1/D2): [`crate::limits::CartesianLimits`] derives `Default`
+/// (`max_rot_vel: 0.0`) and [`LimitsContainer::set_cartesian_limits`]
+/// performs no validation, so a caller that never calls it — or calls it
+/// with an explicit non-positive `max_rot_vel`, upstream's own reachable
+/// misconfiguration — reaches `TrajectoryGeneratorLin::plan`'s
+/// `max_cartesian_speed / cartesian_limits.max_rot_vel` (and `CIRC`'s,
+/// `POLYLINE`'s identical expression) unguarded, producing `inf`/`NaN` that
+/// silently poisons `path_length` and (via `VelocityProfileTrap`'s duration)
+/// the sampling loop that consumes it.
+/// [`LimitsContainer::has_cartesian_limits`] already exists for exactly this
+/// (added specifically because upstream tracks the flag but never exposes a
+/// getter — see [`crate::limits`]'s own module doc) but nothing called it.
+///
+/// # Errors
+///
+/// [`MoveItErrorCode::InvalidMotionPlan`] if [`LimitsContainer::set_cartesian_limits`]
+/// was never called, or its `max_rot_vel` is not finite and positive.
+pub fn check_cartesian_limits(planner_limits: &LimitsContainer) -> Result<()> {
+    if !planner_limits.has_cartesian_limits() {
+        return Err(Error::Code(MoveItErrorCode::InvalidMotionPlan));
+    }
+    let max_rot_vel = planner_limits.cartesian_limits().max_rot_vel;
+    if !max_rot_vel.is_finite() || max_rot_vel <= 0.0 {
+        return Err(Error::Code(MoveItErrorCode::InvalidMotionPlan));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -843,7 +883,7 @@ mod tests {
     use moveit_model::{MeshSearchPaths, RobotModel};
 
     use super::*;
-    use crate::limits::JointLimit;
+    use crate::limits::{CartesianLimits, JointLimit};
 
     fn load_panda() -> RobotModel {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
@@ -1176,5 +1216,55 @@ mod tests {
             Err(Error::Code(MoveItErrorCode::InvalidGroupName)) => {}
             other => panic!("expected Error::Code(InvalidGroupName), got {other:?}"),
         }
+    }
+
+    // -- check_cartesian_limits: never-set, zero, negative, non-finite, and
+    // valid-positive max_rot_vel -- one case per invariant boundary, not per
+    // story.
+
+    #[test]
+    fn check_cartesian_limits_rejects_limits_container_that_never_set_them() {
+        let limits = LimitsContainer::new();
+        assert!(!limits.has_cartesian_limits());
+        assert!(check_cartesian_limits(&limits).is_err());
+    }
+
+    #[test]
+    fn check_cartesian_limits_rejects_zero_max_rot_vel() {
+        let mut limits = LimitsContainer::new();
+        limits.set_cartesian_limits(CartesianLimits {
+            max_trans_vel: 1.0,
+            max_trans_acc: 1.0,
+            max_trans_dec: -1.0,
+            max_rot_vel: 0.0,
+        });
+        assert!(check_cartesian_limits(&limits).is_err());
+    }
+
+    #[test]
+    fn check_cartesian_limits_rejects_negative_and_non_finite_max_rot_vel() {
+        for max_rot_vel in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut limits = LimitsContainer::new();
+            limits.set_cartesian_limits(CartesianLimits {
+                max_rot_vel,
+                ..Default::default()
+            });
+            assert!(
+                check_cartesian_limits(&limits).is_err(),
+                "max_rot_vel = {max_rot_vel} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn check_cartesian_limits_accepts_a_valid_positive_max_rot_vel() {
+        let mut limits = LimitsContainer::new();
+        limits.set_cartesian_limits(CartesianLimits {
+            max_trans_vel: 1.0,
+            max_trans_acc: 1.0,
+            max_trans_dec: -1.0,
+            max_rot_vel: 1.57,
+        });
+        assert!(check_cartesian_limits(&limits).is_ok());
     }
 }
