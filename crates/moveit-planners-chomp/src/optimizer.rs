@@ -1673,9 +1673,24 @@ impl<'m> ChompOptimizer<'m> {
                 if potential < 0.0001 {
                     continue;
                 }
-                let potential_gradient = -self.collision_point_potential_gradient[i][j];
                 let vel = self.collision_point_vel_eigen[i][j];
                 let vel_mag = self.collision_point_vel_mag[i][j];
+                if vel_mag == 0.0 {
+                    // Upstream's `normalized_velocity = ... / vel_mag`
+                    // (`chomp_optimizer.cpp:596`) is unguarded and produces
+                    // `NaN` here (`0.0 / 0.0`); this port's own swept-cost
+                    // semantic (see `get_collision_cost`'s doc: a
+                    // stationary trajectory contributes exactly `0.0`
+                    // regardless of penetration depth) says a zero-velocity
+                    // point must contribute exactly `0.0`, which
+                    // `cartesian_gradient`'s `vel_mag * (...)` factor
+                    // already implies for any *finite* `(...)` -- skipping
+                    // here makes that hold even when `(...)` would
+                    // otherwise be `NaN`, matching `vel_mag * finite ==
+                    // 0.0` exactly instead of `0.0 * NaN == NaN`.
+                    continue;
+                }
+                let potential_gradient = -self.collision_point_potential_gradient[i][j];
                 let vel_mag_sq = vel_mag * vel_mag;
                 let normalized_velocity = vel / vel_mag;
                 let orthogonal_projector = Matrix3::<f64>::identity()
@@ -2361,6 +2376,104 @@ mod tests {
         assert!(
             optimizer.collision_point_potential[optimizer.free_vars_start][0] > 0.0,
             "an obstacle placed exactly on this collision sphere's center must register nonzero potential"
+        );
+    }
+
+    /// Division/NaN-guard audit (round: chomp/stomp sweep). Upstream's
+    /// `calculateCollisionIncrements` (`chomp_optimizer.cpp:596`) divides
+    /// `collision_point_vel_eigen_[i][j]` by `vel_mag` with no zero guard --
+    /// this port transcribes the same `vel / vel_mag` unguarded. `vel_mag ==
+    /// 0.0` is not a synthetic corner case: it is exactly what every
+    /// collision point on a fully stationary trajectory has (a `solve()`
+    /// call whose `start_state` already satisfies `goal_constraints` builds
+    /// one -- `build_seed_trajectory` never checks start != goal), and
+    /// nothing stops that stationary pose from also being in collision
+    /// (`build_seed_trajectory` checks joint bounds, never collision). This
+    /// fixture constructs that exact state directly (an obstacle placed on a
+    /// real collision sphere, as `perform_forward_kinematics_flags_the_
+    /// point_an_obstacle_sits_on` above does, plus an explicit zero velocity
+    /// -- engineering the precise boundary rather than fighting
+    /// floating-point cancellation to hit it via a genuinely all-zero
+    /// trajectory) rather than inventing a scenario no real caller reaches.
+    ///
+    /// The oracle is this file's own documented semantic, not a guess:
+    /// [`ChompOptimizer::get_collision_cost`]'s doc says collision cost is
+    /// swept, so "a perfectly stationary trajectory... returns exactly `0.0`
+    /// here regardless of how deeply it penetrates an obstacle." The same
+    /// swept-by-`vel_mag` structure is what `cartesian_gradient = vel_mag *
+    /// (...)` computes for the *increment*: a zero-velocity point must
+    /// contribute exactly zero to `collision_increments`, matching that cost
+    /// semantic, not `NaN` from `0.0 / 0.0`.
+    #[test]
+    fn calculate_collision_increments_zero_velocity_point_contributes_nothing() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+        let parameters = ChompParameters {
+            // Deterministic: visit every free point, not one random one.
+            use_stochastic_descent: false,
+            ..ChompParameters::default()
+        };
+
+        let obstacle_point = {
+            let mut cache = chomp_collision_cache(&model);
+            let field = env_field_with_points(&[]);
+            let mut collision = ChompCollisionContext {
+                cache: &mut cache,
+                env_distance_field: &field,
+            };
+            let mut optimizer = ChompOptimizer::new(
+                &source,
+                CHOMP_COLLISION_GROUP,
+                &parameters,
+                &start_state,
+                &mut collision,
+                None,
+            )
+            .unwrap();
+            optimizer
+                .perform_forward_kinematics(&mut collision)
+                .unwrap();
+            optimizer.collision_point_pos_eigen[optimizer.free_vars_start][0]
+        };
+
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[obstacle_point]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        optimizer
+            .perform_forward_kinematics(&mut collision)
+            .unwrap();
+        let i = optimizer.free_vars_start;
+        assert!(
+            optimizer.collision_point_potential[i][0] > 0.0001,
+            "test setup must land this collision point past calculate_collision_increments's \
+             own 0.0001 potential threshold, or the division under test is never reached"
+        );
+
+        // The exact boundary: real potential (in collision), engineered
+        // exactly-zero swept velocity.
+        optimizer.collision_point_vel_eigen[i][0] = Vector3::zeros();
+        optimizer.collision_point_vel_mag[i][0] = 0.0;
+
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        let increments = optimizer.calculate_collision_increments(&mut rng).unwrap();
+
+        assert!(
+            increments.iter().all(|v| *v == 0.0),
+            "a collision point with exactly zero swept velocity must contribute exactly 0.0 \
+             (this file's own swept-cost semantic), not NaN from an unguarded 0.0/0.0: {increments}"
         );
     }
 
