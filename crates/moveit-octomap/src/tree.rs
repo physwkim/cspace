@@ -1167,7 +1167,12 @@ impl OcTree {
         let mut occupied_cells = KeySet::new();
 
         for &p in points {
-            let within_range = max_range.is_none_or(|r| (p - origin).norm() <= r);
+            // Upstream: `(maxrange < 0.0) || ((p - origin).norm() <= maxrange)`
+            // -- a negative `maxrange` means unlimited, not "cut to a
+            // negative length". `r < 0.0` was missing here, so `Some(r)`
+            // with a negative `r` truncated every ray to a negative
+            // distance instead of leaving it whole.
+            let within_range = max_range.is_none_or(|r| r < 0.0 || (p - origin).norm() <= r);
             if within_range {
                 if let Some(ray) = self.compute_ray_keys(origin, p) {
                     free_cells.extend(ray);
@@ -1244,7 +1249,14 @@ impl OcTree {
         max_range: Option<f64>,
         lazy_eval: bool,
     ) -> bool {
+        // Upstream: `(maxrange > 0) && ((end - origin).norm() > maxrange)`
+        // -- strictly positive, unlike `computeUpdate`'s `< 0.0` gate above.
+        // The two upstream functions genuinely disagree at `maxrange ==
+        // 0.0`, so this stays its own predicate rather than sharing one
+        // with `compute_update`. The missing `r > 0.0` conjunct let
+        // `Some(0.0)` cut a ray upstream inserts in full.
         if let Some(r) = max_range
+            && r > 0.0
             && (end - origin).norm() > r
         {
             let direction = (end - origin).normalize();
@@ -1850,6 +1862,19 @@ mod tests {
         assert!(!tree.is_occupied(Point3::new(0.5, 0.0, 0.0)).unwrap());
     }
 
+    /// Upstream `insertRay`'s cut gate is `(maxrange > 0) && (norm >
+    /// maxrange)` -- strictly positive. `Some(0.0)` must not cut: upstream
+    /// takes the "insert complete ray" branch and marks `end` occupied.
+    #[test]
+    fn insert_ray_zero_max_range_inserts_the_complete_ray_not_a_zero_length_cut() {
+        let mut tree = OcTree::new(0.1);
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let end = Point3::new(1.0, 0.0, 0.0);
+        assert!(tree.insert_ray(origin, end, Some(0.0), false));
+        assert!(tree.is_occupied(end).unwrap());
+        assert!(!tree.is_occupied(Point3::new(0.5, 0.0, 0.0)).unwrap());
+    }
+
     #[test]
     fn compute_update_keeps_occupied_and_free_cells_disjoint() {
         let tree = OcTree::new(0.1);
@@ -1860,6 +1885,50 @@ mod tests {
         assert!(occupied.contains(&hit_key));
         assert!(!free.contains(&hit_key));
         assert!(!free.is_empty());
+    }
+
+    /// Upstream `computeUpdate`'s within-range gate is `(maxrange < 0.0) ||
+    /// (norm <= maxrange)` -- a negative `maxrange` means unlimited.
+    /// `Some(-1.0)` must behave exactly like `None`: the hit lands in
+    /// `occupied` at its real coordinate, not truncated toward a negative
+    /// distance.
+    #[test]
+    fn compute_update_negative_max_range_behaves_as_unlimited() {
+        let tree = OcTree::new(0.1);
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let hit = Point3::new(0.5, 0.0, 0.0);
+        let (free, occupied) = tree.compute_update(&[hit], origin, Some(-1.0));
+        let hit_key = tree.coord_to_key_checked(hit).unwrap();
+        assert!(occupied.contains(&hit_key));
+        assert!(!free.contains(&hit_key));
+        assert!(!free.is_empty());
+    }
+
+    /// Demonstrated opposite of the two tests above: a genuinely positive
+    /// `max_range` still cuts the ray short, so the far hit point is never
+    /// marked occupied at all.
+    #[test]
+    fn compute_update_positive_max_range_still_cuts() {
+        let tree = OcTree::new(0.1);
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let far_hit = Point3::new(5.0, 0.0, 0.0);
+        let (free, occupied) = tree.compute_update(&[far_hit], origin, Some(1.0));
+        assert!(!occupied.contains(&tree.coord_to_key_checked(far_hit).unwrap()));
+        // A cell short of the cut point is marked free (the ray was traced
+        // that far); a cell beyond `max_range` is not (the ray never
+        // reaches it) -- `compute_ray_keys` itself excludes its own
+        // endpoint's cell (see its `if current_key == key_end { break; }`
+        // above), matching upstream, so the cut point's own cell is not
+        // the right thing to assert on here.
+        let short_of_cut = tree
+            .coord_to_key_checked(Point3::new(0.5, 0.0, 0.0))
+            .unwrap();
+        let beyond_cut = tree
+            .coord_to_key_checked(Point3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        assert!(free.contains(&short_of_cut));
+        assert!(!free.contains(&beyond_cut));
+        assert!(!occupied.contains(&beyond_cut));
     }
 
     #[test]
