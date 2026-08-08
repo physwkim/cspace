@@ -699,6 +699,7 @@
 mod constraint_sampler_manager;
 mod ik_sampler;
 mod joint;
+mod numeric;
 mod orientation;
 mod position;
 mod sampler;
