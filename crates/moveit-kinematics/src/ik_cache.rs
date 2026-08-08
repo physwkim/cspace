@@ -74,6 +74,15 @@ fn pose_distance(a: &Isometry3, b: &Isometry3) -> f64 {
     (a.translation.vector - b.translation.vector).norm() + a.rotation.angle_to(&b.rotation)
 }
 
+/// [`IkCache::update`]'s finiteness gate: every translation and rotation
+/// component finite. `pose.rotation` is a `UnitQuaternion`, normalized at
+/// construction from whatever its caller passed in -- normalizing a NaN
+/// component keeps it NaN, it does not clear it.
+fn is_finite_pose(pose: &Isometry3) -> bool {
+    pose.translation.vector.iter().all(|c| c.is_finite())
+        && pose.rotation.coords.iter().all(|c| c.is_finite())
+}
+
 /// `IKCache::configDistance2`: plain squared-Euclidean distance over joint
 /// configs, no per-joint weighting.
 ///
@@ -240,6 +249,21 @@ impl IkCache {
         if self.entries.len() >= self.options.max_cache_size {
             return;
         }
+        // A non-finite pose or config must never reach `self.entries`,
+        // independent of the novelty gate below: `novel_pose`/`novel_config`
+        // decide only whether an entry is *different enough* to keep both,
+        // and a NaN `pose_distance` makes `novel_pose` false (every NaN
+        // comparison is), not "reject this entry" -- `novel_config` alone
+        // being true (the ordinary case, since a fresh solve's config
+        // rarely lands exactly on `nearest.config`) would still push a
+        // NaN-poisoned pose in. Once in, [`IkCache::nearest`]'s `total_cmp`
+        // never panics on it, but IEEE-754 `totalOrder` can still rank a
+        // NaN distance as the minimum of every future query -- pinning a
+        // wrong seed as "nearest" forever, for every pose, not just this
+        // one.
+        if !is_finite_pose(pose) || config.iter().any(|c| !c.is_finite()) {
+            return;
+        }
         let min_config_distance2 =
             self.options.min_config_distance * self.options.min_config_distance;
         let novel_pose = pose_distance(&nearest.pose, pose) > self.options.min_pose_distance;
@@ -309,6 +333,72 @@ mod tests {
 
         let nearest = cache.nearest(&pose_at(0.9));
         assert_eq!(nearest.config(), [2.0]);
+    }
+
+    /// Confirmed on the branch before `IkCache::update`'s finiteness gate
+    /// existed: `novel_pose` is `false` for a NaN `pose_distance` (every
+    /// comparison against NaN is), but `novel_config` alone -- true here,
+    /// since `[222.0]` is far from the seed's `[111.0]` -- still pushed the
+    /// NaN-translation pose into `self.entries`. With a *negative*-signed
+    /// NaN specifically, IEEE-754 `totalOrder` (what `total_cmp` uses)
+    /// ranks it below every finite distance, so `nearest`'s `min_by`
+    /// selected that entry for *every* future query pose, not just one
+    /// that happened to be close to it: querying at `5.0`, genuinely
+    /// closest to the untouched `[111.0]` entry, returned `[222.0]`
+    /// instead -- a different, wrong answer handed back through
+    /// `IkCache::nearest`'s return value, not merely a NaN observed
+    /// mid-computation. A positive-signed NaN (Rust's plain `f64::NAN`)
+    /// total-orders *above* every finite distance instead, so it is never
+    /// selected -- silently wasting a cache slot rather than hijacking
+    /// every lookup, which is why this test uses `-f64::NAN` to exercise
+    /// the sign that actually corrupts a returned answer.
+    #[test]
+    fn update_rejects_a_pose_with_a_nan_translation_component() {
+        let mut cache = IkCache::new(
+            &IkCacheOptions {
+                min_pose_distance: 0.0,
+                min_config_distance: 0.0,
+                ..IkCacheOptions::default()
+            },
+            1,
+        );
+        let seed1 = cache.nearest(&pose_at(0.0));
+        cache.update(&seed1, &pose_at(5.0), &[111.0]);
+
+        let nan_pose =
+            Isometry3::from_parts(Vector3::new(-f64::NAN, 0.0, 0.0).into(), Default::default());
+        let seed2 = cache.nearest(&pose_at(5.0));
+        cache.update(&seed2, &nan_pose, &[222.0]);
+
+        assert_eq!(
+            cache.entries.len(),
+            1,
+            "a NaN-translation pose must not be cached, novel_config or not"
+        );
+        assert_eq!(
+            cache.nearest(&pose_at(5.0)).config(),
+            [111.0],
+            "the genuinely closest entry must still win"
+        );
+    }
+
+    #[test]
+    fn update_rejects_a_nan_config_value() {
+        let mut cache = IkCache::new(
+            &IkCacheOptions {
+                min_pose_distance: 0.0,
+                min_config_distance: 0.0,
+                ..IkCacheOptions::default()
+            },
+            1,
+        );
+        let seed = cache.nearest(&pose_at(0.0));
+        cache.update(&seed, &pose_at(5.0), &[f64::NAN]);
+        assert_eq!(
+            cache.entries.len(),
+            0,
+            "a NaN config value must not be cached"
+        );
     }
 
     fn pose_with_yaw(yaw: f64) -> Isometry3 {
