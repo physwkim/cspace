@@ -2691,12 +2691,35 @@ fn accumulate_distance<'a>(
                     let p1 = from_parry_vector(contact.point1);
                     let p2 = from_parry_vector(contact.point2);
                     // Same octomath/Eigen-vs-nalgebra zero-vector family as
-                    // `octomap_filter.rs`'s `.try_normalize`, but not a
-                    // defect here: this branch is only reached when
-                    // `distance_value > 0.0` (the `<= 0.0` branch above
-                    // covers the rest), so `p1`/`p2` are strictly separated
-                    // and `p2 - p1` can never be zero. Value-guarded, not
-                    // structural.
+                    // `octomap_filter.rs`'s `.try_normalize`: upstream's
+                    // `distanceCallback` (`collision_common.cpp:630`) writes
+                    // `dist_result.normal = (nearest_points[1] -
+                    // nearest_points[0]).normalized()` -- the same
+                    // subtract-then-normalize formula, just Eigen-guarded.
+                    // Upstream *does* use a genuinely different formula --
+                    // FCL's own `contact.normal`, from the separating
+                    // axis/simplex (`:634-667`) -- but only inside `distance
+                    // <= 0 && enable_signed_distance`, which is this port's
+                    // *other* branch (`distance_value <= 0.0`, above), not
+                    // this one.
+                    //
+                    // Not a defect here: value-guarded, and measured, not
+                    // just argued. This branch runs only when
+                    // `distance_value > 0.0`, and `cuboid_cuboid_positive_
+                    // dist_never_pairs_with_coincident_points` (below)
+                    // exercises parry3d_f64 0.30.0's own near-epsilon
+                    // fallback across 8 gap magnitudes down to 1e-20: every
+                    // time `contact.dist > 0.0`, `point1 != point2`. Ball-ball
+                    // contact computes `dist` independently as center
+                    // distance minus radii, which is positive only when the
+                    // surface points are genuinely apart; the cuboid-cuboid
+                    // SAT path (`contact_cuboid_cuboid.rs`) substitutes the
+                    // separating-axis value for `dist` itself whenever the
+                    // point-difference length is `<= f64::EPSILON`, so a
+                    // fragile `p2 - p1` and a reported positive `dist` never
+                    // co-occur. `p1`/`p2` cannot coincide here by
+                    // construction of parry's own contact algorithms, not
+                    // merely by this branch's guard.
                     data.normal = (p2 - p1).normalize();
                     data.nearest_points = [p1, p2];
                 }
@@ -5964,6 +5987,45 @@ mod tests {
                 .is_none(),
             "parry now reports the sphere x sphere tangency -- drop the exclusion in this \
              test and let the pair be asserted like every other"
+        );
+    }
+
+    /// Regression test for the invariant `compute_distance`'s `distance_value
+    /// > 0.0` branch (`:2700`) relies on for its Distinct verdict: measured
+    /// directly against parry3d_f64 0.30.0's cuboid-cuboid SAT near-epsilon
+    /// fallback (`contact_cuboid_cuboid.rs`'s `dist <= f64::EPSILON` branch,
+    /// which substitutes the separating-axis value for `dist` rather than a
+    /// point-difference length). If a future parry version starts returning
+    /// a positive `dist` alongside coincident `point1`/`point2` here, `:2700`
+    /// needs `try_normalize`, not a comment.
+    #[test]
+    fn cuboid_cuboid_positive_dist_never_pairs_with_coincident_points() {
+        let half = ParryVector::new(1.0, 1.0, 1.0);
+        let c1 = ParryCuboid::new(half);
+        let c2 = ParryCuboid::new(half);
+        let pos1 = to_pose(Isometry3::identity());
+        let mut exercised_a_coincident_case = false;
+        for &gap in &[1e-1_f64, 1e-8, 1e-15, 1e-16, 1e-17, 1e-20, 0.0, -1e-20] {
+            let pos2 = to_pose(Isometry3::translation(2.0 + gap, 0.0, 0.0));
+            let Some(c) = query::contact(&pos1, &c1, &pos2, &c2, 1.0).expect("dispatched") else {
+                continue;
+            };
+            if c.point1 == c.point2 {
+                exercised_a_coincident_case = true;
+            }
+            if c.dist > 0.0 {
+                assert_ne!(
+                    c.point1, c.point2,
+                    "gap {gap:e}: dist {} > 0.0 but point1 == point2 -- \
+                     :2700's (p2 - p1).normalize() would now divide by zero",
+                    c.dist
+                );
+            }
+        }
+        assert!(
+            exercised_a_coincident_case,
+            "no gap in this sweep produced a coincident-points contact -- \
+             this test would pass vacuously without exercising the case it exists to guard"
         );
     }
 }
