@@ -2690,6 +2690,13 @@ fn accumulate_distance<'a>(
                 } else {
                     let p1 = from_parry_vector(contact.point1);
                     let p2 = from_parry_vector(contact.point2);
+                    // Same octomath/Eigen-vs-nalgebra zero-vector family as
+                    // `octomap_filter.rs`'s `.try_normalize`, but not a
+                    // defect here: this branch is only reached when
+                    // `distance_value > 0.0` (the `<= 0.0` branch above
+                    // covers the rest), so `p1`/`p2` are strictly separated
+                    // and `p2 - p1` can never be zero. Value-guarded, not
+                    // structural.
                     data.normal = (p2 - p1).normalize();
                     data.nearest_points = [p1, p2];
                 }
