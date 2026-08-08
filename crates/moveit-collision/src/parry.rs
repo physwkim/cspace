@@ -2692,13 +2692,13 @@ fn accumulate_distance<'a>(
                     let p2 = from_parry_vector(contact.point2);
                     // Same octomath/Eigen-vs-nalgebra zero-vector family as
                     // `octomap_filter.rs`'s `.try_normalize`: upstream's
-                    // `distanceCallback` (`collision_common.cpp:630`) writes
+                    // `distanceCallback` (`collision_common.cpp:633`) writes
                     // `dist_result.normal = (nearest_points[1] -
                     // nearest_points[0]).normalized()` -- the same
                     // subtract-then-normalize formula, just Eigen-guarded.
                     // Upstream *does* use a genuinely different formula --
                     // FCL's own `contact.normal`, from the separating
-                    // axis/simplex (`:634-667`) -- but only inside `distance
+                    // axis/simplex (`:636-689`) -- but only inside `distance
                     // <= 0 && enable_signed_distance`, which is this port's
                     // *other* branch (`distance_value <= 0.0`, above), not
                     // this one.
