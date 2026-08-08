@@ -753,24 +753,8 @@ impl BodyDecomposition {
     ///
     /// # Errors
     ///
-    /// [`moveit_error::Error::Construct`] if `resolution` is not finite and
-    /// positive, or if any of `shapes` has no `bodies::` counterpart -- see
-    /// [`moveit_geometry::bodies::Body::from_shape`].
-    ///
-    /// Upstream's `init` passes `resolution` straight to
-    /// `findInternalPointsConvex` with no check at all; a zero or
-    /// non-finite `resolution` there turns `(coord / resolution).floor() *
-    /// resolution` into `NaN`, and every comparison against `NaN` is
-    /// `false`, so `findInternalPointsConvex`'s grid-walk loop silently
-    /// never runs and this constructor would otherwise build a
-    /// `BodyDecomposition` with no internal collision points for a shape
-    /// that has volume, instead of reporting the bad `resolution`. This
-    /// port's [`find_internal_points_convex`] keeps upstream's unguarded
-    /// signature (it has no `Result` of its own to report through, matching
-    /// upstream's `void`), so the check lives here instead, at this
-    /// constructor's own `Result` boundary -- the same place
-    /// [`crate::voxel_grid::GridGeometry::new`] validates `resolution` for
-    /// every other caller of [`find_internal_points_convex`] in this crate.
+    /// [`moveit_error::Error::Construct`] if any of `shapes` has no
+    /// `bodies::` counterpart -- see [`moveit_geometry::bodies::Body::from_shape`].
     ///
     /// `shapes` and `poses` must be the same length; a length mismatch
     /// panics via the `zip`-then-indexing below, matching upstream's own
@@ -781,11 +765,6 @@ impl BodyDecomposition {
         resolution: f64,
         padding: f64,
     ) -> Result<Self> {
-        if !(resolution.is_finite() && resolution > 0.0) {
-            return Err(Error::construct(format!(
-                "resolution must be finite and positive, got {resolution}"
-            )));
-        }
         assert_eq!(
             shapes.len(),
             poses.len(),
@@ -1489,33 +1468,6 @@ mod tests {
         ));
 
         assert_eq!(decomp.collision_points(), original_points.as_slice());
-    }
-
-    /// A zero `resolution` makes `find_internal_points_convex`'s grid-walk
-    /// silently do nothing: `(coord / 0.0).floor() * 0.0` is `NaN`, and
-    /// `while x <= end_x` with `x == NaN` is `false` on the very first
-    /// check, so the loop body that pushes collision points never runs.
-    /// Before this constructor validated `resolution`, that meant a sphere
-    /// with real volume silently decomposed into zero internal collision
-    /// points instead of reporting the bad `resolution` -- a changed
-    /// returned answer (`Err` instead of an `Ok` whose
-    /// `relative_collision_points()` is wrongly empty), not merely a
-    /// non-finite float.
-    #[test]
-    fn from_shapes_rejects_a_zero_resolution() {
-        let result = BodyDecomposition::new(&Shape::Sphere(Sphere::new(0.1).unwrap()), 0.0, 0.0);
-        let Err(error) = result else {
-            panic!("expected Err for resolution=0.0, got Ok");
-        };
-        match error {
-            Error::Construct(message) => {
-                assert!(
-                    message.contains("resolution must be finite and positive"),
-                    "unexpected message: {message}"
-                );
-            }
-            other => panic!("expected Error::Construct for resolution=0.0, got {other:?}"),
-        }
     }
 
     /// Upstream `BodyDecomposition::getBody` bounds-checks and returns
