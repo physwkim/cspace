@@ -320,7 +320,7 @@ where
 ///
 /// Upstream returns `constraints.decide(state).distance * cost_scale`
 /// unconditionally (`cost_functions.hpp:246`) -- it never reads
-/// `.satisfied`. [`ConstraintEvaluationResult::distance`] is "distance from
+/// `.satisfied`. [`moveit_constraints::ConstraintEvaluationResult::distance`] is "distance from
 /// the exact nominal target" for every constraint kind (see e.g.
 /// `JointConstraint::decide`, `kinematic_constraint.cpp:325`:
 /// `constraint_weight_ * fabs(dif)`, nonzero for any `dif != 0` regardless
@@ -360,7 +360,7 @@ where
 /// port is the first to actually measure, not a known, accepted tradeoff.
 ///
 /// The fix: `if satisfied { 0.0 } else { distance * cost_scale }`. Uniform
-/// across every [`Constraint`] variant (all four `decide()` implementations
+/// across every [`moveit_constraints::Constraint`] variant (all four `decide()` implementations
 /// share the same "nonzero distance even when satisfied" shape --
 /// `PositionConstraint::decide`'s `finish` and
 /// `OrientationConstraint::decide` both compute a magnitude from the exact
