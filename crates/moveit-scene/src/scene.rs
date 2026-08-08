@@ -23,6 +23,7 @@ use moveit_state::{Posed, RobotState};
 
 use crate::attached_body::AttachedBody;
 use crate::layered::Layered;
+use crate::numeric::cxx_min;
 use crate::world_diff::WorldDiff;
 
 /// The result of [`PlanningScene::is_path_valid`]: overall validity plus
@@ -2627,7 +2628,15 @@ fn isometry_is_approx(a: Isometry3, b: Isometry3, precision: f64) -> bool {
     let diff_sq: f64 = (ma - mb).iter().map(|x| x * x).sum();
     let norm_a: f64 = ma.iter().map(|x| x * x).sum();
     let norm_b: f64 = mb.iter().map(|x| x * x).sum();
-    diff_sq <= precision * precision * norm_a.min(norm_b)
+    // Eigen's `numext::mini` (`Fuzzy.h:27`) resolves to `std::min` on a
+    // non-GPU build — `cxx_min` for fidelity with that exact comparison,
+    // not because a NaN can independently discriminate here: `norm_a` and
+    // `diff_sq` both sum over `ma`'s entries (and `norm_b`/`diff_sq` both
+    // sum over `mb`'s), so any NaN that poisons a receiver also poisons
+    // `diff_sq`, and `diff_sq <= _` is already `false` before this `min`'s
+    // result is ever consulted — confirmed empirically, not by inspection
+    // (see `numeric.rs`'s doc comment for why that distinction matters).
+    diff_sq <= precision * precision * cxx_min(norm_a, norm_b)
 }
 
 #[cfg(test)]

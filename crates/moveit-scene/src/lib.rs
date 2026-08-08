@@ -117,6 +117,7 @@
 
 mod attached_body;
 mod layered;
+mod numeric;
 mod scene;
 mod world_diff;
 
