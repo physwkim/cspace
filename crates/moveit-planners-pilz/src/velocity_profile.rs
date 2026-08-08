@@ -161,11 +161,23 @@ impl VelocityProfileAtrap {
     }
 
     /// Compute the fastest profile, then scale it to last exactly `duration`
-    /// (ignored if `duration` is shorter than the fastest case).
+    /// (ignored if `duration` is shorter than the fastest case, or if
+    /// `pos1 == pos2` so that there is no phase structure to scale).
+    ///
+    /// # Deviations from upstream
+    ///
+    /// Upstream `SetProfileDuration` (`velocity_profile_atrap.cpp:129-149`)
+    /// guards only the too-short case. A zero-length profile passes that
+    /// guard for every `duration >= 0`, and the `ratio` it then scales by is
+    /// `0.0 / duration` — zero, so the `t_* /= ratio` lines below evaluate
+    /// `0.0 / 0.0` and leave all three phase durations `NaN` (`ratio` is
+    /// itself `NaN` when `duration` is zero). Both boundaries are covered by
+    /// the same rule as the too-short check: a duration that scaling cannot
+    /// reach leaves the fastest profile in place.
     pub fn set_profile_duration(&mut self, pos1: f64, pos2: f64, duration: f64) {
         self.set_profile(pos1, pos2);
 
-        if self.duration() > duration {
+        if self.duration() > duration || self.duration() <= 0.0 {
             return;
         }
 
@@ -569,6 +581,28 @@ mod tests {
         vp2.set_profile_duration(3.0, 35.0, fastest_duration);
 
         assert_eq!(vp1, vp2);
+    }
+
+    /// A zero-length profile (`pos1 == pos2`) has no phase structure to
+    /// stretch, so requesting a duration for one must leave it alone. Both
+    /// boundaries of the ratio reach `0.0 / 0.0` without the guard: a
+    /// positive `duration` gives `ratio == 0.0` and then `t_a /= 0.0`, and a
+    /// zero `duration` makes `ratio` itself `NaN`.
+    #[test]
+    fn zero_length_profile_is_not_scaled_into_nan() {
+        for duration in [22.0, 0.0] {
+            let mut vp = VelocityProfileAtrap::new(4.0, 2.0, 1.0);
+            vp.set_profile_duration(3.0, 3.0, duration);
+
+            assert!(
+                vp.duration().is_finite(),
+                "zero-length profile scaled to {duration} left a non-finite \
+                 duration: {}",
+                vp.duration()
+            );
+            assert_eq!(vp.duration(), 0.0);
+            assert!(vp.pos(1.0).is_finite());
+        }
     }
 
     /// Scaling to a longer duration stretches every phase by the same ratio.

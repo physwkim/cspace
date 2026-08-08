@@ -59,12 +59,19 @@
 //!   pathlength`, dividing by `dist` even when both `oalpha` and `dist` are
 //!   zero, so upstream's `scalerot` is `NaN` there. [`PathCircle::new`] adds
 //!   the arm `Path_Line` already has, with that arm's own placeholder values,
-//!   rather than reproducing a `NaN` into the constructed path. Both
-//!   [`circle_from_center`] and [`circle_from_interim`] reject a coincident
-//!   start/goal at their colinearity guard before `alpha` can reach zero, but
-//!   [`CircleGeometry`]'s fields and [`PathCircle::new`] are `pub`, so an
-//!   out-of-crate caller reaches the division directly; pinned by
-//!   `coincident_sweep_and_rotation_does_not_divide_zero_by_zero`.
+//!   rather than reproducing a `NaN` into the constructed path. That arm is
+//!   reached through the ordinary CIRC path, not merely by an out-of-crate
+//!   caller poking [`CircleGeometry`]'s `pub` fields:
+//!   [`circle_from_interim`] does refuse a coincident start/goal — `goal -
+//!   start` is then zero, so the triangle normal cannot clear
+//!   [`MAX_COLINEAR_NORM`] — but [`circle_from_center`] has no colinearity
+//!   guard at all. Its only geometry check is [`MAX_RADIUS_DIFF`] against
+//!   `|a - b|`, which a coincident start/goal at a real radius passes,
+//!   returning `alpha == 0.0`; `trajectory_generator_circ::build_path`'s
+//!   `Center` arm hands that straight to [`PathCircle::new`]. Pinned by
+//!   `coincident_sweep_and_rotation_does_not_divide_zero_by_zero` together
+//!   with `a_zero_side_is_rejected_even_when_the_radius_check_passes`, whose
+//!   control case asserts that `alpha == 0.0` return.
 //!
 //! # Why this file stays BSD-3-Clause
 //!
@@ -135,7 +142,10 @@ pub struct CircleGeometry {
 ///
 /// [`Error::Construct`] if `start` and `goal` are not equidistant from
 /// `center` within [`MAX_RADIUS_DIFF`] (upstream:
-/// `ErrorMotionPlanningCenterPointDifferentRadius`).
+/// `ErrorMotionPlanningCenterPointDifferentRadius`), or if either distance
+/// is zero — the [`MAX_RADIUS_DIFF`] check compares `|a - b|` and so admits
+/// `a == b == 0.0`, which upstream's `cosines` divides by, returning a `NaN`
+/// sweep angle. That second error has no upstream counterpart.
 pub fn circle_from_center(
     start: Vector3,
     goal: Vector3,
@@ -151,7 +161,7 @@ pub fn circle_from_center(
         ));
     }
 
-    let alpha = cosines(a, b, c);
+    let alpha = cosines(a, b, c)?;
 
     Ok(CircleGeometry {
         center,
@@ -199,14 +209,14 @@ pub fn circle_from_interim(
     let a = t_center.norm();
     let b = v_center.norm();
     let c = u.norm();
-    let mut alpha = cosines(a, b, c);
+    let mut alpha = cosines(a, b, c)?;
 
     let mut aux_point = interim;
 
     // If the angle at the interim point is acute, the intended arc is the
     // major arc (the naive law-of-cosines angle above describes the minor
     // arc between start and goal, which does not pass through interim).
-    let interim_angle = cosines(t.norm(), v.norm(), u.norm());
+    let interim_angle = cosines(t.norm(), v.norm(), u.norm())?;
     if interim_angle < std::f64::consts::FRAC_PI_2 {
         alpha = 2.0 * std::f64::consts::PI - alpha;
 
@@ -232,8 +242,40 @@ pub fn circle_from_interim(
 /// Upstream: `PathCircleGenerator::cosines`. The argument to `acos` is
 /// clamped to `[-1, 1]` to absorb floating-point overshoot at the `0`/`π`
 /// boundaries.
-fn cosines(a: f64, b: f64, c: f64) -> f64 {
-    (((a * a + b * b - c * c) / (2.0 * a * b)).clamp(-1.0, 1.0)).acos()
+///
+/// # Deviation from upstream: the zero-denominator guard
+///
+/// Upstream divides by `2ab` unguarded
+/// (`path_circle_generator.cpp:127-129`). A degenerate triangle makes that
+/// `0.0/0.0`, and `NaN` survives both clamp forms — upstream's
+/// `std::max(std::min(x, 1.0), -1.0)` returns its first argument when a
+/// comparison against `NaN` is false, exactly as Rust's `clamp` propagates
+/// `NaN` — so `acos` yields `NaN` and a `NaN` `alpha` flows into
+/// [`CircleGeometry`] with nothing downstream rejecting it.
+///
+/// The same author guarded the same hazard in the sibling generator:
+/// `path_polyline_generator.cpp:99-100` tests `norm_product` against
+/// `MIN_SEGMENT_LENGTH²` and returns early, with the comment "avoid
+/// division by zero". That guard was never carried across to `cosines`.
+/// This is the same asymmetry KDL left between `Path_Line` and
+/// `Path_Circle`, which [`PathCircle::new`] closes for its own division.
+///
+/// Guarding here rather than at the callers is deliberate: it is the one
+/// place the division lives, so no caller can produce `NaN` regardless of
+/// which guards happen to sit above it today. Of the three call sites only
+/// [`circle_from_center`] is reachable with a zero side — its
+/// `MAX_RADIUS_DIFF` check compares `|a - b|` and so admits `a == b == 0.0`
+/// (start, goal and centre coincident) — while both [`circle_from_interim`]
+/// sites sit below the `w.norm() < MAX_COLINEAR_NORM` colinearity error.
+/// That is a reachability argument, and this guard is a structural one.
+fn cosines(a: f64, b: f64, c: f64) -> Result<f64> {
+    let denominator = 2.0 * a * b;
+    if denominator <= 0.0 {
+        return Err(Error::construct(
+            "a circle side length is zero; the angle between the points is undefined",
+        ));
+    }
+    Ok((((a * a + b * b - c * c) / denominator).clamp(-1.0, 1.0)).acos())
 }
 
 /// The interpolated position+orientation path of a circular arc, playing the
@@ -691,5 +733,42 @@ mod tests {
             &path.scale_rot.is_nan(),
         );
         deviation.finish();
+    }
+
+    #[test]
+    fn coincident_start_goal_and_center_is_rejected_not_returned_as_nan() {
+        // `MAX_RADIUS_DIFF` compares `|a - b|`, so `a == b == 0.0` clears it:
+        // the radius check cannot see this case. Upstream's `cosines` then
+        // divides `0.0 / 0.0` and hands back a `NaN` `alpha`
+        // (`path_circle_generator.cpp:127-129`), which nothing downstream
+        // rejects.
+        let coincident = Vector3::new(0.4, -0.2, 0.9);
+        let err = circle_from_center(coincident, coincident, coincident)
+            .expect_err("a circle through three coincident points is not constructible");
+        assert!(
+            matches!(err, Error::Construct(_)),
+            "must be the crate's construction error, not a NaN geometry: {err:?}"
+        );
+    }
+
+    #[test]
+    fn a_zero_side_is_rejected_even_when_the_radius_check_passes() {
+        // Start and goal both AT the centre is the reachable shape above; this
+        // is the narrower statement the guard actually makes, exercised
+        // through the same public entry point: any zero side length is
+        // refused rather than divided by.
+        let center = Vector3::new(0.0, 0.0, 0.0);
+        let on_circle = Vector3::new(1.0, 0.0, 0.0);
+        assert!(
+            circle_from_center(center, center, center).is_err(),
+            "a == b == 0.0 must be refused"
+        );
+        // The control: a genuine zero-sweep circle (start == goal, both a real
+        // radius from the centre) still succeeds, so the guard has not been
+        // widened into rejecting ordinary degenerate-but-valid input.
+        let ok = circle_from_center(on_circle, on_circle, center)
+            .expect("start == goal at a real radius is a zero sweep, not a zero side");
+        assert_eq!(ok.alpha, 0.0, "a coincident start/goal sweeps zero radians");
+        assert_eq!(ok.radius, 1.0);
     }
 }

@@ -191,6 +191,19 @@ impl PlanarJoint {
                 let drive_d = g.dx.hypot(g.dy);
                 let final_d = g.final_turn.abs() * self.angular_distance_weight;
                 let total_d = initial_d + drive_d + final_d;
+                // `total_d == 0.0` means `from` and `to` are the same
+                // configuration: no initial turn, no translation, no final
+                // turn. Every fraction below would be `0.0 / 0.0`, and since
+                // `NaN` compares false against everything, both `t` tests
+                // fall through to the final branch, which returns
+                // `final_turn * NaN` as the orientation for every `t`.
+                // Upstream `PlanarJointModel::interpolate`
+                // (`planar_joint_model.cpp:246-271`) has no such guard. With
+                // `final_turn == 0.0` that branch's value is exactly
+                // `drive_angle`, which is what this returns.
+                if total_d <= 0.0 {
+                    return [to[0], to[1], g.drive_angle];
+                }
                 let initial_frac = initial_d / total_d;
                 let drive_frac = drive_d / total_d;
 
@@ -452,6 +465,29 @@ mod tests {
             joint.min_translational_distance,
         );
         assert_eq!(g.initial_turn, 0.0);
+    }
+
+    /// Interpolating a diff-drive joint between a configuration and itself
+    /// has no turn, no drive and no final turn, so `total_d` is zero and
+    /// every fraction is `0.0 / 0.0`. All three `t` comparisons are then
+    /// false (`NaN` compares false against everything), so the final branch
+    /// runs and returns `final_turn * NaN` as the orientation.
+    #[test]
+    fn diff_drive_interpolating_a_state_with_itself_is_not_nan() {
+        let joint = PlanarJoint {
+            motion_model: PlanarMotionModel::DiffDrive,
+            ..Default::default()
+        };
+        let state = [0.4, -0.2, 1.1];
+
+        for t in [0.0, 0.25, 0.5, 1.0] {
+            let got = joint.interpolate(&state, &state, t);
+            assert!(
+                got.iter().all(|v| v.is_finite()),
+                "interpolate(s, s, {t}) returned a non-finite state: {got:?}"
+            );
+            assert_eq!(got, state);
+        }
     }
 
     #[test]
