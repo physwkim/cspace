@@ -507,52 +507,161 @@ fn invert_velocity_on_a_state_with_no_velocity_set_is_a_no_op() {
     assert!(state.velocities().iter().all(|&v| v == 0.0));
 }
 
-/// The invariant this task exists to close: upstream aliases acceleration
-/// and effort onto one buffer, so setting one clobbers the other
-/// (`hasAccelerations() == true` implies `hasEffort() == false`, always).
-/// This port gives them independent storage instead — setting acceleration
-/// then effort (or the reverse order) must leave *both* set, with *both*
-/// values intact, not just the most recently written one.
+/// One named entry point into the acceleration/effort marking, paired
+/// with the call that exercises it, for the per-site sweeps below.
+type MarkingSite = (&'static str, Box<dyn Fn(&mut RobotState<'_>)>);
+
+/// One case per acceleration write site, because the exclusivity is a
+/// property of each site, not of one narrative order: upstream marks
+/// acceleration at `robot_state.hpp:350-351` (bulk), `:389-393` (by index,
+/// via `markAcceleration()`), and `robot_state.cpp:685-687` (by group),
+/// and every one of them clears `has_effort_`. A site that forgot would
+/// leave `hasAccelerations()` and `hasEffort()` both true — a state
+/// upstream's public contract (`robot_state.hpp:320`, `:418`) says cannot
+/// exist, and one that makes `RobotTrajectory`'s dump and every
+/// `JointTrajectoryPoint` emit an acceleration *and* an effort array.
 #[test]
-fn acceleration_and_effort_do_not_alias() {
+fn every_acceleration_write_site_clears_has_effort() {
+    let model = panda();
+    let n = model.variable_count();
+    let group_n = model
+        .joint_model_group("panda_arm")
+        .unwrap()
+        .variable_names()
+        .len();
+
+    let sites: Vec<MarkingSite> = vec![
+        (
+            "set_variable_accelerations",
+            Box::new(move |s: &mut RobotState<'_>| s.set_variable_accelerations(&vec![2.0; n])),
+        ),
+        (
+            "set_variable_acceleration",
+            Box::new(|s: &mut RobotState<'_>| {
+                s.set_variable_acceleration("panda_joint1", 2.0).unwrap();
+            }),
+        ),
+        (
+            "set_variable_acceleration_at",
+            Box::new(|s: &mut RobotState<'_>| s.set_variable_acceleration_at(0, 2.0)),
+        ),
+        (
+            "set_variable_accelerations_named",
+            Box::new(|s: &mut RobotState<'_>| {
+                s.set_variable_accelerations_named(&["panda_joint1"], &[2.0])
+                    .unwrap();
+            }),
+        ),
+        (
+            "set_joint_group_accelerations",
+            Box::new(move |s: &mut RobotState<'_>| {
+                s.set_joint_group_accelerations("panda_arm", &vec![2.0; group_n])
+                    .unwrap();
+            }),
+        ),
+    ];
+
+    for (name, write) in sites {
+        let mut state = RobotState::new(&model);
+        state.set_variable_efforts(&vec![1.0; n]);
+        assert!(state.has_effort(), "{name}: effort not marked by setup");
+
+        write(&mut state);
+
+        assert!(state.has_accelerations(), "{name}: acceleration not marked");
+        assert!(
+            !state.has_effort(),
+            "{name}: left has_effort set — upstream's markAcceleration clears it"
+        );
+    }
+}
+
+/// The mirror of `every_acceleration_write_site_clears_has_effort`, one
+/// case per effort write site: upstream marks effort at
+/// `robot_state.hpp:447-448` (bulk) and `:480-484` (by index, via
+/// `markEffort()`), both clearing `has_acceleration_`. This port has no
+/// group-level effort setter, matching upstream's `setJointGroupEffort`
+/// absence (upstream's nearest, `setJointEfforts`, refuses outright when
+/// `has_acceleration_` is set — `robot_state.cpp:554-569`).
+#[test]
+fn every_effort_write_site_clears_has_accelerations() {
+    let model = panda();
+    let n = model.variable_count();
+
+    let sites: Vec<MarkingSite> = vec![
+        (
+            "set_variable_efforts",
+            Box::new(move |s: &mut RobotState<'_>| s.set_variable_efforts(&vec![7.0; n])),
+        ),
+        (
+            "set_variable_effort",
+            Box::new(|s: &mut RobotState<'_>| {
+                s.set_variable_effort("panda_joint1", 7.0).unwrap();
+            }),
+        ),
+        (
+            "set_variable_effort_at",
+            Box::new(|s: &mut RobotState<'_>| s.set_variable_effort_at(0, 7.0)),
+        ),
+        (
+            "set_variable_efforts_named",
+            Box::new(|s: &mut RobotState<'_>| {
+                s.set_variable_efforts_named(&["panda_joint1"], &[7.0])
+                    .unwrap();
+            }),
+        ),
+    ];
+
+    for (name, write) in sites {
+        let mut state = RobotState::new(&model);
+        state.set_variable_accelerations(&vec![2.0; n]);
+        assert!(
+            state.has_accelerations(),
+            "{name}: acceleration not marked by setup"
+        );
+
+        write(&mut state);
+
+        assert!(state.has_effort(), "{name}: effort not marked");
+        assert!(
+            !state.has_accelerations(),
+            "{name}: left has_accelerations set — upstream's markEffort clears it"
+        );
+    }
+}
+
+/// The one part of the aliasing this port does *not* reproduce: upstream's
+/// `markAcceleration()` zeroes the shared buffer when acceleration was not
+/// already the live quantity (`robot_state.cpp:175-183`), so after an
+/// effort detour upstream reads `0.0` at every variable the next partial
+/// acceleration write does not touch. Separate buffers give this port
+/// nothing stale to erase, so the pre-detour values survive. Pinned here
+/// because it is the whole of `RobotState`'s "Deviations from upstream"
+/// §1 that outlives the flag fix.
+#[test]
+fn an_effort_detour_does_not_zero_untouched_acceleration_values() {
     let model = panda();
     let mut state = RobotState::new(&model);
 
     state
         .set_variable_acceleration("panda_joint1", 3.0)
         .unwrap();
-    state.set_variable_effort("panda_joint1", 7.0).unwrap();
-
-    assert!(
-        state.has_accelerations(),
-        "upstream's aliasing would have cleared this when effort was set"
-    );
-    assert!(state.has_effort());
-    assert_eq!(state.variable_acceleration("panda_joint1").unwrap(), 3.0);
-    assert_eq!(state.variable_effort("panda_joint1").unwrap(), 7.0);
-}
-
-/// Same invariant, opposite write order — the aliasing upstream implements
-/// is order-dependent (whichever was set most recently wins), so both
-/// orders must be checked to confirm this port has no order dependence at
-/// all.
-#[test]
-fn effort_then_acceleration_also_do_not_alias() {
-    let model = panda();
-    let mut state = RobotState::new(&model);
-
+    state
+        .set_variable_acceleration("panda_joint2", 4.0)
+        .unwrap();
     state.set_variable_effort("panda_joint1", 7.0).unwrap();
     state
-        .set_variable_acceleration("panda_joint1", 3.0)
+        .set_variable_acceleration("panda_joint1", 5.0)
         .unwrap();
 
     assert!(state.has_accelerations());
-    assert!(
-        state.has_effort(),
-        "upstream's aliasing would have cleared this when acceleration was set"
+    assert!(!state.has_effort());
+    assert_eq!(state.variable_acceleration("panda_joint1").unwrap(), 5.0);
+    assert_eq!(
+        state.variable_acceleration("panda_joint2").unwrap(),
+        4.0,
+        "upstream would read 0.0 here; separate buffers keep the value"
     );
-    assert_eq!(state.variable_acceleration("panda_joint1").unwrap(), 3.0);
-    assert_eq!(state.variable_effort("panda_joint1").unwrap(), 7.0);
 }
 
 /// `joint_velocity`/`joint_acceleration`/`joint_effort` return a joint's

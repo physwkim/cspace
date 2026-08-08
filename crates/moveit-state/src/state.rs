@@ -92,13 +92,28 @@ fn check_interpolation_param_bounds(t: f64) -> Result<()> {
 ///
 /// 1. **Acceleration and effort get independent storage, not upstream's
 ///    aliased buffer.** Upstream stores both in one
-///    `effort_or_acceleration_` vector, switched by
-///    `has_acceleration_`/`has_effort_` (`markAcceleration`/`markEffort`
-///    each clear the other flag): a memory optimisation whose only
-///    observable consequence is that setting one silently clobbers the
-///    other. No caller in this workspace relies on that clobber, so this
-///    port gives each its own `Vec<f64>` instead of reproducing the dual
-///    meaning. [`RobotState::enforce_bounds`]/[`RobotState::satisfies_bounds`]
+///    `effort_or_acceleration_` vector (`robot_state.hpp:1730`); this port
+///    gives each its own `Vec<f64>`, so a value written to one is not
+///    overwritten by a later write to the other.
+///
+///    The *exclusivity* that aliasing enforces is not a deviation, and is
+///    reproduced here, by the private `Dynamics` sum type this port
+///    switches on in place of the two bools. It is a documented public
+///    guarantee, not a side effect of the memory layout:
+///    `robot_state.hpp:320` and `:418` both state that when one of
+///    `hasAccelerations()`/`hasEffort()` reports true the other "will
+///    certainly report false", and name serialization and state copying as
+///    what relies on it.
+///
+///    What remains deviating is the *value* upstream leaves behind on a
+///    transition: `markAcceleration`/`markEffort` (`robot_state.cpp:175`,
+///    `:185`) zero the shared buffer when the marked quantity was not
+///    already the live one, so upstream's acceleration reads back as `0.0`
+///    at every variable a partial write did not touch. With separate
+///    buffers this port has no stale sibling data to erase, and leaves the
+///    previous acceleration values in place instead.
+///
+///    [`RobotState::enforce_bounds`]/[`RobotState::satisfies_bounds`]
 ///    check velocity bounds too, when [`RobotState::has_velocities`] is
 ///    true, matching upstream's `enforceBounds(const JointModel*)`/
 ///    `satisfiesBounds(const JointModel*, double)` in full now — upstream
@@ -124,13 +139,15 @@ pub struct RobotState<'m> {
     velocity: Vec<f64>,
     /// Upstream aliases this onto the same buffer as `effort`, switched by
     /// `has_acceleration_`/`has_effort_`; this port gives it independent
-    /// storage instead (see this type's doc comment).
+    /// storage instead (see this type's doc comment). Readable only when
+    /// [`RobotState::has_accelerations`] is true.
     acceleration: Vec<f64>,
     /// See `acceleration`'s doc comment.
     effort: Vec<f64>,
     has_velocity: bool,
-    has_acceleration: bool,
-    has_effort: bool,
+    /// Which of `acceleration`/`effort` this state carries, replacing
+    /// upstream's `has_acceleration_`/`has_effort_` pair.
+    dynamics: Dynamics,
     transforms: Vec<Isometry3>,
     dirty: Option<JointIndex>,
     /// `joint.first_variable_index()` upstream — this port's `RobotModel`
@@ -151,6 +168,37 @@ pub struct RobotState<'m> {
     /// collapses mimic-of-a-mimic chains at construction.
     mimic_requests: Vec<Vec<JointIndex>>,
     root_joint_index: JointIndex,
+}
+
+/// Which dynamics quantity a [`RobotState`] carries, replacing upstream's
+/// `has_acceleration_`/`has_effort_` pair with the one field they encode.
+///
+/// Upstream keeps the two bools mutually exclusive by hand:
+/// `markAcceleration()` sets `has_acceleration_` and clears `has_effort_`,
+/// `markEffort()` does the reverse (`robot_state.cpp:175-193`), and the
+/// bulk `setVariableAccelerations(const double*)`/`setVariableEffort(const
+/// double*)` overloads write both flags inline (`robot_state.hpp:350-351`,
+/// `:447-448`). Every write site therefore has to remember to clear its
+/// sibling; this port cannot forget, because there is no sibling to clear.
+///
+/// The exclusivity is load-bearing, not incidental to upstream's aliased
+/// buffer: `robot_state.hpp:320`/`:418` promise callers that if one of
+/// `hasAccelerations()`/`hasEffort()` reports true the other "will
+/// certainly report false", and cite serializing and copying the state as
+/// the reason to care. `RobotTrajectory`'s waypoint dump
+/// (`robot_trajectory.cpp:679,687`) and every `JointTrajectoryPoint` built
+/// from a state read exactly those two predicates, so a state with both
+/// true emits a message upstream cannot produce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Dynamics {
+    /// Neither has been set — a freshly constructed state, matching
+    /// upstream's `has_acceleration_(false), has_effort_(false)`
+    /// (`robot_state.cpp:69-70`).
+    None,
+    /// `has_acceleration_ == true`.
+    Acceleration,
+    /// `has_effort_ == true`.
+    Effort,
 }
 
 /// A read-only view of a [`RobotState`] whose `transforms` are proven
@@ -237,8 +285,7 @@ impl<'m> RobotState<'m> {
             acceleration: vec![0.0; model.variable_count()],
             effort: vec![0.0; model.variable_count()],
             has_velocity: false,
-            has_acceleration: false,
-            has_effort: false,
+            dynamics: Dynamics::None,
             transforms: vec![Isometry3::identity(); n_links],
             dirty: Some(root_joint_index),
             first_variable_index,
@@ -307,7 +354,8 @@ impl<'m> RobotState<'m> {
     //
     // Upstream aliases `acceleration_`/`effort_` onto one buffer, switched
     // by `has_acceleration_`/`has_effort_`; see this type's doc comment for
-    // why this port gives them independent storage instead. None of these
+    // why this port gives them independent storage instead, and `Dynamics`
+    // for why it still reproduces the two flags' exclusivity. None of these
     // setters propagate to mimic joints — upstream's own
     // `setVariableVelocity`/`setVariableAcceleration`/`setVariableEffort`
     // do not call `updateMimicJoint` either.
@@ -318,13 +366,20 @@ impl<'m> RobotState<'m> {
     }
 
     /// `hasAccelerations`
+    ///
+    /// Upstream's own contract (`robot_state.hpp:320`): when this reports
+    /// true, [`RobotState::has_effort`] "will certainly report false".
     pub fn has_accelerations(&self) -> bool {
-        self.has_acceleration
+        self.dynamics == Dynamics::Acceleration
     }
 
     /// `hasEffort`
+    ///
+    /// Upstream's own contract (`robot_state.hpp:418`): when this reports
+    /// true, [`RobotState::has_accelerations`] "will certainly report
+    /// false".
     pub fn has_effort(&self) -> bool {
-        self.has_effort
+        self.dynamics == Dynamics::Effort
     }
 
     /// `getVariableVelocities` (const overload)
@@ -358,12 +413,16 @@ impl<'m> RobotState<'m> {
 
     /// `setVariableAccelerations(const double*)`
     ///
+    /// Clears [`RobotState::has_effort`], as upstream's own body does
+    /// (`robot_state.hpp:350-351` writes both flags inline rather than
+    /// going through `markAcceleration()`).
+    ///
     /// # Panics
     ///
     /// See [`RobotState::set_variable_velocities`].
     pub fn set_variable_accelerations(&mut self, values: &[f64]) {
         self.acceleration.copy_from_slice(values);
-        self.has_acceleration = true;
+        self.dynamics = Dynamics::Acceleration;
     }
 
     /// `setVariableEffort(const double*)`: replace every effort value at
@@ -371,12 +430,16 @@ impl<'m> RobotState<'m> {
     /// Rust cannot) to stay distinct from the per-variable
     /// [`RobotState::set_variable_effort`].
     ///
+    /// Clears [`RobotState::has_accelerations`], as upstream's own body
+    /// does (`robot_state.hpp:447-448` writes both flags inline rather than
+    /// going through `markEffort()`).
+    ///
     /// # Panics
     ///
     /// See [`RobotState::set_variable_velocities`].
     pub fn set_variable_efforts(&mut self, values: &[f64]) {
         self.effort.copy_from_slice(values);
-        self.has_effort = true;
+        self.dynamics = Dynamics::Effort;
     }
 
     /// `getVariableVelocity(const std::string&)`
@@ -515,20 +578,26 @@ impl<'m> RobotState<'m> {
 
     /// `setVariableAcceleration(const std::string&, double)`
     ///
+    /// Clears [`RobotState::has_effort`]: upstream reaches this write
+    /// through `markAcceleration()` (`robot_state.hpp:389-393`).
+    ///
     /// # Errors
     ///
     /// [`Error::UnknownName`] if `name` is not a variable in this model.
     pub fn set_variable_acceleration(&mut self, name: &str, value: f64) -> Result<()> {
         let index = self.model.variable_index(name)?;
         self.acceleration[index] = value;
-        self.has_acceleration = true;
+        self.dynamics = Dynamics::Acceleration;
         Ok(())
     }
 
     /// `setVariableAcceleration(int, double)`
+    ///
+    /// Clears [`RobotState::has_effort`]; see
+    /// [`RobotState::set_variable_acceleration`].
     pub fn set_variable_acceleration_at(&mut self, index: usize, value: f64) {
         self.acceleration[index] = value;
-        self.has_acceleration = true;
+        self.dynamics = Dynamics::Acceleration;
     }
 
     /// `setVariableAccelerations(const std::map<std::string, double>&)`
@@ -599,20 +668,26 @@ impl<'m> RobotState<'m> {
 
     /// `setVariableEffort(const std::string&, double)`
     ///
+    /// Clears [`RobotState::has_accelerations`]: upstream reaches this
+    /// write through `markEffort()` (`robot_state.hpp:480-484`).
+    ///
     /// # Errors
     ///
     /// [`Error::UnknownName`] if `name` is not a variable in this model.
     pub fn set_variable_effort(&mut self, name: &str, value: f64) -> Result<()> {
         let index = self.model.variable_index(name)?;
         self.effort[index] = value;
-        self.has_effort = true;
+        self.dynamics = Dynamics::Effort;
         Ok(())
     }
 
     /// `setVariableEffort(int, double)`
+    ///
+    /// Clears [`RobotState::has_accelerations`]; see
+    /// [`RobotState::set_variable_effort`].
     pub fn set_variable_effort_at(&mut self, index: usize, value: f64) {
         self.effort[index] = value;
-        self.has_effort = true;
+        self.dynamics = Dynamics::Effort;
     }
 
     /// `setVariableEffort(const std::map<std::string, double>&)`. Named
@@ -1060,14 +1135,15 @@ impl<'m> RobotState<'m> {
     /// own slots — same "no mimic derivation for a dynamics quantity"
     /// rule as [`RobotState::set_joint_group_velocities`].
     ///
-    /// Sets only [`RobotState::has_accelerations`]. Upstream's
-    /// `markAcceleration()` also clears `has_effort_`, because it aliases
-    /// `effort_`/`acceleration_` onto one buffer; this port gives
-    /// acceleration and effort independent storage instead (see this
-    /// type's own doc comment, "Deviations from upstream" §1), so there is
-    /// no aliased flag to clear — matching
-    /// [`RobotState::set_variable_accelerations`], which already leaves
-    /// [`RobotState::has_effort`] untouched for the same reason.
+    /// Clears [`RobotState::has_effort`]: upstream reaches this write
+    /// through `markAcceleration()` too (`robot_state.cpp:685-687`).
+    ///
+    /// Upstream's `markAcceleration()` additionally zeroes the shared
+    /// buffer on the transition, so upstream leaves `0.0` at every
+    /// variable outside `group`; this port's separate acceleration buffer
+    /// keeps whatever was there. That value-level difference is the whole
+    /// of "Deviations from upstream" §1 that survives — the flag
+    /// exclusivity itself is reproduced.
     ///
     /// # Errors
     ///
@@ -1086,7 +1162,7 @@ impl<'m> RobotState<'m> {
     ) -> Result<()> {
         let model = self.model;
         let group = model.joint_model_group(group_name)?;
-        self.has_acceleration = true;
+        self.dynamics = Dynamics::Acceleration;
         let mut i = 0;
         for &joint_index in group.joint_indices() {
             let joint = model.joint_model_at(joint_index);

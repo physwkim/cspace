@@ -316,13 +316,14 @@ fn accelerations_error_on_unknown_group_rather_than_no_op() {
     assert!(state.joint_group_accelerations("no_such_group").is_err());
 }
 
-/// This port gives acceleration and effort independent storage rather than
-/// upstream's aliased buffer (`RobotState`'s own "Deviations from
-/// upstream" §1); `set_joint_group_accelerations` must therefore leave
-/// `has_effort` untouched, unlike upstream's `markAcceleration()`, which
-/// clears the aliased `has_effort_`.
+/// Upstream's `setJointGroupAccelerations` goes through
+/// `markAcceleration()` (`robot_state.cpp:685-687`), which clears
+/// `has_effort_` — the group setter is not exempt from the exclusivity
+/// `robot_state.hpp:320`/`:418` promise callers. The
+/// every-write-site sweep lives in `invariants.rs`; this case keeps the
+/// group path pinned next to the rest of the group API.
 #[test]
-fn set_joint_group_accelerations_does_not_clear_has_effort() {
+fn set_joint_group_accelerations_clears_has_effort() {
     let model = panda();
     let mut state = RobotState::new(&model);
     state.set_to_default_values();
@@ -337,8 +338,8 @@ fn set_joint_group_accelerations_does_not_clear_has_effort() {
 
     assert!(state.has_accelerations());
     assert!(
-        state.has_effort(),
-        "independent acceleration/effort storage must not alias has_effort"
+        !state.has_effort(),
+        "upstream's markAcceleration() clears has_effort_"
     );
 }
 

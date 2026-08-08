@@ -873,7 +873,7 @@ mod display_tests {
     }
 
     #[test]
-    fn velocity_acceleration_and_effort_columns_appear_when_the_waypoint_carries_them() {
+    fn velocity_and_acceleration_columns_appear_when_the_waypoint_carries_them() {
         let model = panda();
         let mut trajectory = RobotTrajectory::new(&model);
         let mut state = RobotState::new(&model);
@@ -881,7 +881,6 @@ mod display_tests {
         let variable_count = model.variable_count();
         state.set_variable_velocities(&vec![0.1; variable_count]);
         state.set_variable_accelerations(&vec![0.2; variable_count]);
-        state.set_variable_efforts(&vec![0.3; variable_count]);
         trajectory
             .add_suffix_way_point(state, 0.0)
             .expect("add waypoint");
@@ -890,7 +889,10 @@ mod display_tests {
         assert!(printed.contains(" pos "));
         assert!(printed.contains(" vel "));
         assert!(printed.contains(" acc "));
-        assert!(printed.contains(" eff "));
+        assert!(
+            !printed.contains(" eff "),
+            "a state carrying accelerations reports hasEffort() == false"
+        );
 
         // No group set: falls back to every model variable, matching
         // upstream's `variable_indexes.resize(getVariableCount())` branch.
@@ -907,6 +909,37 @@ mod display_tests {
         assert_eq!(
             vel_segment.matches("0.100").count(),
             model.variable_names().len()
+        );
+    }
+
+    /// The effort half of the same column logic, and the reason it needs
+    /// its own waypoint rather than one state carrying both: upstream's
+    /// `hasAccelerations()`/`hasEffort()` are mutually exclusive
+    /// (`robot_state.hpp:320`, `:418`), so `operator<<`'s three
+    /// independent `if`s (`robot_trajectory.cpp:671-694`) can never print
+    /// `acc` and `eff` for one waypoint. An earlier version of this test
+    /// set accelerations *and* efforts on one state and asserted all three
+    /// columns — a state upstream cannot construct.
+    #[test]
+    fn the_effort_column_replaces_the_acceleration_column_it_excludes() {
+        let model = panda();
+        let mut trajectory = RobotTrajectory::new(&model);
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let variable_count = model.variable_count();
+        state.set_variable_velocities(&vec![0.1; variable_count]);
+        state.set_variable_accelerations(&vec![0.2; variable_count]);
+        state.set_variable_efforts(&vec![0.3; variable_count]);
+        trajectory
+            .add_suffix_way_point(state, 0.0)
+            .expect("add waypoint");
+
+        let printed = trajectory.to_string();
+        assert!(printed.contains(" vel "));
+        assert!(printed.contains(" eff "));
+        assert!(
+            !printed.contains(" acc "),
+            "setting effort clears has_accelerations, so no acc column"
         );
     }
 }
