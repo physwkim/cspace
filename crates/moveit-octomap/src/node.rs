@@ -74,10 +74,33 @@ impl Node {
     }
 
     /// Upstream `OcTreeBaseImpl::allocNodeChildren` + `createNodeChild`.
+    ///
+    /// # Deviation: explicit `debug_assert!` for "slot not already occupied"
+    ///
+    /// Upstream's `createNodeChild` guards the same precondition with
+    /// `assert (node->children[childIdx] == NULL);` (`OcTreeBaseImpl.hxx:178`)
+    /// -- in C++, calling it on an occupied slot leaks the orphaned child's
+    /// subtree (the raw pointer is overwritten, never `delete`d) in a
+    /// release (`NDEBUG`) build. This port cannot leak that way --
+    /// `children[idx] = Some(Node::new())` drops the old `Node` (and
+    /// recursively its own children) instead of leaking it -- but an
+    /// overwrite would still silently discard real occupancy data, a logic
+    /// bug upstream's assert exists to catch in debug builds. Every current
+    /// caller ([`Node::expand`], `update_node_recurs`,
+    /// `create_binary_children`) already guards this by construction, so
+    /// this is currently unreachable -- the same "safe by caller discipline,
+    /// not by construction" situation as `OcTree::search`'s `debug_assert!`
+    /// (Task G). `create_child` is `pub(crate)`, so a future same-crate
+    /// caller could still violate it silently without this check.
     pub(crate) fn create_child(&mut self, idx: usize) -> &mut Node {
         let children = self
             .children
             .get_or_insert_with(|| Box::new(std::array::from_fn(|_| None)));
+        debug_assert!(
+            children[idx].is_none(),
+            "create_child: slot {idx} is already occupied; this would silently \
+             discard its existing subtree instead of creating a fresh child"
+        );
         children[idx] = Some(Node::new());
         children[idx].as_mut().expect("just inserted")
     }
@@ -210,5 +233,17 @@ mod tests {
         }
         n.update_occupancy_from_children();
         assert_eq!(n.log_odds, 3.0); // child 7: 7 - 4 = 3
+    }
+
+    #[test]
+    #[should_panic(expected = "create_child: slot")]
+    fn create_child_on_an_already_occupied_slot_panics_in_debug() {
+        // Upstream `assert (node->children[childIdx] == NULL);`
+        // (`OcTreeBaseImpl.hxx:178`) -- pre-fix, this silently overwrote
+        // (and correctly dropped, but still discarded) the existing child
+        // instead of panicking at all.
+        let mut n = Node::new();
+        n.create_child(0);
+        n.create_child(0); // slot 0 is already occupied
     }
 }
