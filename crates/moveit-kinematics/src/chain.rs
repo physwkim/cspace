@@ -357,13 +357,19 @@ impl ChainInfo {
             .iter()
             .map(|name| {
                 let weight = *params.joint_weights.get(name).unwrap_or(&1.0);
-                if weight == 0.0 {
+                // Not `weight == 0.0`: that rejects an exact `0.0` but lets
+                // a negative weight through unweighted, and a NaN weight
+                // through silently, since every comparison against NaN
+                // (including `==`) is false. `!(weight.is_finite() && weight
+                // > 0.0)` is upstream's own `gt<>: [0.0]` validation written
+                // the way Rust must write "reject everything outside this
+                // range" to also catch NaN and infinity.
+                if !(weight.is_finite() && weight > 0.0) {
                     return Err(Error::other(format!(
-                        "joint '{name}' has weight 0.0 in SolverParams::joint_weights, which \
-                         locks it at its seed value on every solve; upstream rejects this at \
-                         parameter load (kdl_kinematics_parameters.yaml's weight > 0.0 \
-                         validation) -- use a small positive weight to de-prioritize the joint \
-                         instead"
+                        "joint '{name}' has weight {weight} in SolverParams::joint_weights, \
+                         which is not finite and > 0.0; upstream rejects this at parameter load \
+                         (kdl_kinematics_parameters.yaml's weight > 0.0 validation) -- use a \
+                         small positive weight to de-prioritize the joint instead"
                     )));
                 }
                 Ok(weight)
@@ -696,6 +702,93 @@ mod tests {
             err.to_string().contains("j2") && err.to_string().contains("0.0"),
             "got: {err}"
         );
+    }
+
+    /// `weight == 0.0` (this method's form before this test) rejects an
+    /// exact `0.0` but lets a negative weight through unrejected -- it is
+    /// never `1.0`-clamped or sign-checked anywhere downstream, so it
+    /// reaches `velocity::solve_velocity`'s `jac_weighted[(row, col)] *=
+    /// joint_weights[col]` as a column that pushes the wrong way.
+    #[test]
+    fn resolve_joint_weights_rejects_a_negative_weight_on_an_active_joint() {
+        let urdf = r#"<?xml version="1.0"?>
+<robot name="two_joint">
+  <link name="root"/>
+  <link name="mid"/>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="root"/>
+    <child link="mid"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j2" type="revolute">
+    <parent link="mid"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+"#;
+        let srdf = r#"<?xml version="1.0"?>
+<robot name="two_joint">
+  <group name="chain">
+    <chain base_link="root" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let model = build_model_from_str(urdf, srdf);
+        let chain = ChainInfo::build(&model, "chain").expect("valid two-joint chain");
+
+        let mut params = crate::params::SolverParams::default();
+        params.joint_weights.insert("j2".to_owned(), -1.0);
+        chain
+            .resolve_joint_weights(&params)
+            .expect_err("a negative joint weight must be rejected, not silently applied");
+    }
+
+    /// `weight == 0.0` is false for a NaN weight (every comparison against
+    /// NaN is false, `==` included), so the pre-fix guard let a NaN weight
+    /// through silently -- it then multiplies straight into
+    /// `velocity::solve_velocity`'s weighted Jacobian column, poisoning
+    /// every singular value the SVD produces from it, not just that one
+    /// joint's own solved value.
+    #[test]
+    fn resolve_joint_weights_rejects_a_nan_weight_on_an_active_joint() {
+        let urdf = r#"<?xml version="1.0"?>
+<robot name="two_joint">
+  <link name="root"/>
+  <link name="mid"/>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="root"/>
+    <child link="mid"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j2" type="revolute">
+    <parent link="mid"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+"#;
+        let srdf = r#"<?xml version="1.0"?>
+<robot name="two_joint">
+  <group name="chain">
+    <chain base_link="root" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let model = build_model_from_str(urdf, srdf);
+        let chain = ChainInfo::build(&model, "chain").expect("valid two-joint chain");
+
+        let mut params = crate::params::SolverParams::default();
+        params.joint_weights.insert("j2".to_owned(), f64::NAN);
+        chain
+            .resolve_joint_weights(&params)
+            .expect_err("a NaN joint weight must be rejected, not silently applied");
     }
 
     /// The ordinary case: the chain's root joint's parent link is a real,
