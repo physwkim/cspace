@@ -29,8 +29,7 @@ pub struct RevoluteJoint {
 
 impl Default for RevoluteJoint {
     /// Matches upstream's constructor: zero axis, not continuous. A zero
-    /// axis is degenerate (as it is upstream — `Eigen::Vector3d::normalized()`
-    /// on a zero vector is also NaN); callers are expected to call
+    /// axis is degenerate; callers are expected to call
     /// [`RevoluteJoint::set_axis`] before use, mirroring upstream's
     /// construct-then-`setAxis` sequence.
     fn default() -> Self {
@@ -42,16 +41,34 @@ impl Default for RevoluteJoint {
 }
 
 impl RevoluteJoint {
-    /// The axis of rotation, always unit length (or NaN if never set from a
-    /// non-degenerate vector — see [`RevoluteJoint::default`]).
+    /// The axis of rotation: unit length after a non-degenerate
+    /// [`RevoluteJoint::set_axis`], zero if never set (see
+    /// [`RevoluteJoint::default`]) or set from a zero vector.
     pub fn axis(&self) -> Vector3 {
         self.axis
     }
 
     /// Set the axis of rotation. Upstream `RevoluteJointModel::setAxis`,
     /// which normalizes.
+    ///
+    /// `Eigen::Vector3d::normalized()` guards its zero-norm case (returns
+    /// the input unchanged rather than dividing by zero — see
+    /// `MatrixBase::normalized`'s `if (z > 0) ... else return n;` in
+    /// `Dot.h`); nalgebra's `Vector3::normalize` has no such guard and
+    /// divides by zero unconditionally, turning a zero axis into
+    /// `[NaN, NaN, NaN]`. `try_normalize` with the upstream guard spelled
+    /// out reproduces the exact contract: a zero axis (reachable
+    /// unscreened from an explicit `<axis xyz="0 0 0"/>` in URDF) is left
+    /// as zero, not turned into NaN that silently propagates through
+    /// `computeTransform` into every downstream forward-kinematics
+    /// consumer.
+    ///
+    /// `try_normalize`'s `min_norm` argument is `0.0` to match Eigen's
+    /// exact `z > 0` guard, not merely "small": `if n <= min_norm { None }`
+    /// (nalgebra) versus `if (z > 0) ... else ...` (Eigen) agree bit for
+    /// bit at the zero boundary.
     pub fn set_axis(&mut self, axis: Vector3) {
-        self.axis = axis.normalize();
+        self.axis = axis.try_normalize(0.0).unwrap_or(axis);
     }
 
     /// Whether this joint wraps around (no position limit, `interpolate` and
@@ -251,6 +268,34 @@ mod tests {
         // exactly under IEEE 754 -- a structural identity, not a value
         // measured for this input alone.
         assert_eq!(joint.axis().norm(), 1.0);
+    }
+
+    /// `Eigen::Vector3d::normalized()` guards its zero-norm case and
+    /// returns the input unchanged; `Vector3::normalize` has no such guard
+    /// and turns a zero axis into `[NaN, NaN, NaN]`. A zero axis is
+    /// reachable unscreened from URDF (`<axis xyz="0 0 0"/>`), so a NaN
+    /// axis here would make `compute_transform` — and everything
+    /// downstream of forward kinematics — NaN too. Fails before the
+    /// `try_normalize` fix (axis is NaN, transform is NaN) and passes
+    /// after.
+    #[test]
+    fn set_axis_on_a_zero_vector_leaves_it_zero_not_nan() {
+        let mut joint = RevoluteJoint::default();
+        joint.set_axis(Vector3::zeros());
+        assert_eq!(joint.axis(), Vector3::zeros());
+        let transform = joint.compute_transform(0.5);
+        let q = transform.rotation.quaternion();
+        assert!(q.i.is_finite() && q.j.is_finite() && q.k.is_finite() && q.w.is_finite());
+    }
+
+    /// Demonstrated opposite of the above: an ordinary non-unit axis still
+    /// normalizes exactly, so the zero-norm guard does not turn `set_axis`
+    /// into a no-op for every input.
+    #[test]
+    fn set_axis_still_normalizes_an_ordinary_non_unit_axis() {
+        let mut joint = RevoluteJoint::default();
+        joint.set_axis(Vector3::new(0.0, 0.0, 3.0));
+        assert_eq!(joint.axis(), Vector3::new(0.0, 0.0, 1.0));
     }
 
     #[test]
