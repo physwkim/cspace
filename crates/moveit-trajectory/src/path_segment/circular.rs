@@ -14,6 +14,26 @@ use nalgebra::DVector;
 
 use crate::numeric::cxx_min;
 
+/// Eigen's `MatrixBase::normalized()` (read locally via
+/// `/home/stevek/work/ITK/Modules/ThirdParty/Eigen3/src/itkeigen/Eigen/src/Core/Dot.h:92-102`
+/// — Eigen is not vendored under this workspace's `third_party/`): divide
+/// by the norm unless the squared norm is exactly `0.0`, in which case the
+/// vector is returned unchanged. "Exactly `0.0`" includes floating-point
+/// underflow of the squaring step, not just an algebraically zero input —
+/// see [`Circular::new`]'s `x` computation for a concrete case where a
+/// nonzero vector's squared norm still underflows to `0.0`. Unlike
+/// `nalgebra`'s own `.normalize()`, this cannot produce NaN/Inf: a
+/// zero (or underflowed-to-zero) squared norm takes the `else` branch
+/// instead of dividing by it.
+fn eigen_normalized(v: DVector<f64>) -> DVector<f64> {
+    let squared_norm: f64 = v.iter().map(|c| c * c).sum();
+    if squared_norm > 0.0 {
+        v / squared_norm.sqrt()
+    } else {
+        v
+    }
+}
+
 /// A circular blend at a waypoint, joining the straight segments before and
 /// after it so the whole [`crate::Path`] is differentiable there.
 ///
@@ -71,8 +91,13 @@ impl Circular {
             return (degenerate(intersection.clone()), 0.0);
         }
 
-        let start_direction = (intersection - start).normalize();
-        let end_direction = (end - intersection).normalize();
+        // `eigen_normalized` for fidelity with upstream's `.normalized()`
+        // (Eigen-based), not because either can independently diverge here:
+        // the `< 0.000_001` guard just above bounds both receivers' norms
+        // away from zero (>= 1e-6), identically in upstream and this port,
+        // so the zero/underflow branch is unreachable at either call.
+        let start_direction = eigen_normalized(intersection - start);
+        let end_direction = eigen_normalized(end - intersection);
         let start_dot_end = start_direction.dot(&end_direction);
 
         // Catch division by 0 in the computations below: near-parallel
@@ -101,9 +126,26 @@ impl Circular {
         let radius = distance / (0.5 * angle).tan();
         let length = angle * radius;
 
+        // `eigen_normalized`, fidelity only: `too_parallel`/`too_antiparallel`
+        // above bound `start_dot_end` to (-0.999_999, 0.999_999), which
+        // bounds `end_direction - start_direction`'s norm away from zero by
+        // a fixed algebraic floor (>= ~0.0014 for unit vectors at that
+        // bound) independent of `max_deviation` — not independently
+        // reachable.
         let center = intersection
-            + (&end_direction - &start_direction).normalize() * (radius / (0.5 * angle).cos());
-        let x = (intersection - distance * &start_direction - &center).normalize();
+            + eigen_normalized(&end_direction - &start_direction) * (radius / (0.5 * angle).cos());
+        // `eigen_normalized`, LIVE: confirmed by probe (since deleted, see
+        // `x_pre_underflows_to_a_finite_vector_not_nan_inf` below) that a
+        // strictly-positive `max_deviation` far below any realistic bound —
+        // still legal per `Path::create`'s only guard, `max_deviation > 0.0`
+        // — drives `distance`/`radius` into subnormal range, and `x`'s
+        // pre-normalize components land small enough that *squaring* them
+        // for the norm underflows to exactly `0.0` even though the vector
+        // itself is nonzero. `nalgebra`'s plain `.normalize()` then divides
+        // by that exact-zero norm, producing `[NaN, -inf]`; Eigen's
+        // `squaredNorm() > 0` guard sees the same underflow and returns the
+        // (tiny but finite) vector unchanged instead.
+        let x = eigen_normalized(intersection - distance * &start_direction - &center);
         let y = start_direction;
 
         (
@@ -238,5 +280,36 @@ mod tests {
         let points = segment.switching_points(length);
         assert!(points.iter().all(|&p| p < length));
         assert!(points.windows(2).all(|w| w[0] <= w[1]));
+    }
+
+    // A strictly-positive `max_deviation` (as `Path::create`'s only guard
+    // requires, `max_deviation > 0.0`) far below any realistic bound still
+    // drives `distance`/`radius` into subnormal range. At this exact
+    // fixture, `x`'s pre-normalize vector comes out to `(0.0, -1e-323)` --
+    // nonzero, but small enough that *squaring* it for the norm underflows
+    // to exactly `0.0`. Before `eigen_normalized`, `x` came out `[NaN,
+    // -inf]` (confirmed by a since-deleted probe: nalgebra's `.normalize()`
+    // divides by that exact-zero norm unconditionally); traced by hand in
+    // Python against the same literals, the pre-normalize `x` is finite in
+    // both components, so Eigen's `squaredNorm() > 0` guard -- which sees
+    // the identical underflow -- takes its `else` branch and returns that
+    // finite (if tiny) vector unchanged. This regression test is the fixed
+    // behavior, not the bug: nothing here is NaN or infinite.
+    #[test]
+    fn a_pathologically_tiny_positive_max_deviation_does_not_produce_nan_or_inf_in_x() {
+        let start = DVector::from_vec(vec![-1.0, 0.0]);
+        let intersection = DVector::from_vec(vec![0.0, 0.0]);
+        let end = DVector::from_vec(vec![0.0, 1.0]);
+        let max_deviation = 5e-324; // smallest positive subnormal f64, still > 0.0
+        assert!(max_deviation > 0.0);
+
+        let (segment, _length) = Circular::new(&start, &intersection, &end, max_deviation);
+        assert!(
+            segment.x.iter().all(|v| v.is_finite()),
+            "x should stay finite even when its pre-normalize squared norm underflows to 0.0 \
+             (Eigen's squaredNorm() > 0 guard returns the vector unchanged instead of dividing \
+             by the underflowed zero); got {:?}",
+            segment.x.as_slice()
+        );
     }
 }
