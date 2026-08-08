@@ -1240,6 +1240,32 @@ impl OcTree {
                     occupied_cells.insert(key);
                 }
             } else if let Some(r) = max_range {
+                // Upstream `point3d direction = (p - origin).normalized ();`
+                // (`OccupancyOcTreeBase.hxx:211`) -- octomath's `normalized()`
+                // (`third_party/octomap/octomap/include/octomap/math/
+                // Vector3.h:270-276`) leaves a zero vector unchanged; plain
+                // `.normalize()` divides `0.0 / 0.0` instead. This branch's
+                // own guard (`within_range` false with `r >= 0.0`) makes
+                // `(p - origin).norm() > r >= 0.0` hold for every finite
+                // `r`, but a caller-supplied `max_range = Some(f64::NAN)`
+                // slips past both disjuncts of `within_range`'s closure
+                // (`NAN < 0.0` and `norm() <= NAN` are both false) without
+                // that inequality ever holding, so `p == origin` is
+                // reachable here after all -- direction genuinely becomes
+                // `(NaN, NaN, NaN)`.
+                //
+                // Not a defect, though: `coord_to_key_checked_axis`'s own
+                // `!(scaled_f >= min && scaled_f < max)` guard independently
+                // rejects a `NaN` coordinate before a key is ever built from
+                // it, so `new_end`'s `NaN` never reaches `free_cells` or
+                // `occupied_cells` -- measured directly, not just argued: a
+                // temporary local revert to plain `.normalize()` here
+                // (`(p - origin).normalize()`, no `try_normalize`) produces
+                // byte-identical output from `compute_update_nan_max_range_
+                // at_a_coincident_point_stays_empty_not_nan_poisoned`
+                // (below) to the guarded version -- the return value cannot
+                // distinguish a `NaN` direction from a zero one here, so
+                // there is no observable divergence from upstream to fix.
                 let direction = (p - origin).normalize();
                 let new_end = origin + direction * r;
                 if let Some(ray) = self.compute_ray_keys(origin, new_end) {
@@ -2027,6 +2053,30 @@ mod tests {
         assert!(free.contains(&short_of_cut));
         assert!(!free.contains(&beyond_cut));
         assert!(!occupied.contains(&beyond_cut));
+    }
+
+    /// Regression test for the invariant `compute_update`'s `else` branch
+    /// (`:1243`) relies on for its Distinct verdict: a `NaN` `max_range`
+    /// slips past `within_range`'s `NAN < 0.0 || norm() <= NAN` disjunction
+    /// (both false) regardless of `p`, so `p == origin` reaches the
+    /// direction-normalize with a genuinely zero vector, and plain
+    /// `.normalize()` there produces `(NaN, NaN, NaN)` -- but that `NaN`
+    /// never reaches this function's return value, because
+    /// `coord_to_key_checked_axis` independently rejects it while building
+    /// `new_end`'s key. If a future change to `coord_to_key_checked_axis`
+    /// (or a refactor that reads `direction`/`new_end` before that call)
+    /// starts letting a `NaN` coordinate through, this must start failing
+    /// or `:1243` needs `try_normalize`, not a comment.
+    #[test]
+    fn compute_update_nan_max_range_at_a_coincident_point_stays_empty_not_nan_poisoned() {
+        let tree = OcTree::new(0.1);
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let (free, occupied) = tree.compute_update(&[origin], origin, Some(f64::NAN));
+        assert!(free.is_empty());
+        assert!(
+            occupied.is_empty(),
+            "origin == p never satisfies within_range with a NaN max_range"
+        );
     }
 
     #[test]
