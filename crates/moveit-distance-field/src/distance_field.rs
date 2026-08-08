@@ -1284,9 +1284,11 @@ mod tests {
 
         // Upstream's own narrowing conversion, reproduced exactly -- not
         // derived from this port's own (unfixed) code path, which no
-        // longer performs this cast at all.
-        #[allow(clippy::cast_possible_truncation)]
-        let upstream_gradient_x = 2.0 * ((1.0 / (2.0 * resolution)) as i32 as f64);
+        // longer performs this cast at all. Spelled `.trunc()` rather than
+        // `as i32 as f64`: C++'s `(int)` truncates toward zero and so does
+        // `f64::trunc`, the value never leaves `f64`, and the round trip
+        // through `i32` was the only thing needing a lint suppression.
+        let upstream_gradient_x = 2.0 * (1.0 / (2.0 * resolution)).trunc();
 
         deviation.observe(
             &format!("resolution={resolution}"),
