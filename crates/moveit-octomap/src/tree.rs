@@ -1157,6 +1157,11 @@ impl OcTree {
     /// (occupied cells win ties -- the sets are made disjoint, occupied
     /// side). This port omits upstream's BBX-limited branch (`useBBXLimit`)
     /// since no moveit2 caller ever enables it.
+    ///
+    /// `max_range` is upstream's `double maxrange`, whose negative values
+    /// mean "unlimited". `None` says that directly; `Some(r)` with `r <
+    /// 0.0` still means it too, since a caller translating an upstream
+    /// call site keeps the sentinel it was given.
     pub fn compute_update(
         &self,
         points: &[Point3<f64>],
@@ -1167,7 +1172,17 @@ impl OcTree {
         let mut occupied_cells = KeySet::new();
 
         for &p in points {
-            let within_range = max_range.is_none_or(|r| (p - origin).norm() <= r);
+            // `(maxrange < 0.0) || ((p - origin).norm() <= maxrange)`
+            // verbatim (`OccupancyOcTreeBase.hxx:190`). The `r < 0.0`
+            // disjunct is not redundant with `None`: upstream's parameter
+            // is a plain `double` whose negative values mean "unlimited",
+            // so a caller porting `computeUpdate(..., -1.0, ...)` passes
+            // `Some(-1.0)` and must get the unlimited branch. Its
+            // counterpart in `insert_ray` is `maxrange > 0`, not the
+            // negation of this one -- upstream really does treat `0.0`
+            // and `NaN` differently between the two, so neither can be
+            // factored into a shared normalisation of `max_range`.
+            let within_range = max_range.is_none_or(|r| r < 0.0 || (p - origin).norm() <= r);
             if within_range {
                 if let Some(ray) = self.compute_ray_keys(origin, p) {
                     free_cells.extend(ray);
@@ -1237,6 +1252,11 @@ impl OcTree {
     /// the ray was not cut short by `max_range`, a hit at `end`. A ray cut
     /// short by `max_range` records only the miss up to the cut point --
     /// upstream does not guess at occupancy beyond the sensor's range.
+    ///
+    /// Only a strictly positive `max_range` cuts anything: upstream's
+    /// guard is `maxrange > 0`, so `None`, `Some(0.0)`, `Some(negative)`
+    /// and `Some(NaN)` all insert the complete ray. Note this is *not*
+    /// [`Self::compute_update`]'s rule, which cuts at `0.0` and at `NaN`.
     pub fn insert_ray(
         &mut self,
         origin: Point3<f64>,
@@ -1244,7 +1264,11 @@ impl OcTree {
         max_range: Option<f64>,
         lazy_eval: bool,
     ) -> bool {
+        // `(maxrange > 0) && ((end - origin).norm() > maxrange)` verbatim
+        // (`OccupancyOcTreeBase.hxx:868`) -- see `compute_update` for why
+        // the `r > 0.0` half cannot be folded into `max_range`'s `None`.
         if let Some(r) = max_range
+            && r > 0.0
             && (end - origin).norm() > r
         {
             let direction = (end - origin).normalize();
@@ -1908,6 +1932,64 @@ mod tests {
         // occupancy for `end`: it stays unmapped, not marked free or occupied.
         assert!(tree.log_odds_at(end).is_none());
         assert!(!tree.is_occupied(Point3::new(0.5, 0.0, 0.0)).unwrap());
+    }
+
+    /// `insertRay`'s guard is `(maxrange > 0) && ...`, so every
+    /// non-positive value is upstream's "unlimited" sentinel and inserts
+    /// the complete ray. Without the `r > 0.0` half, `Some(-1.0)` cut the
+    /// ray to `origin + direction * -1.0` -- backwards, away from `end`.
+    #[test]
+    fn insert_ray_treats_a_negative_max_range_as_unlimited() {
+        let mut tree = OcTree::new(0.1);
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let end = Point3::new(1.0, 0.0, 0.0);
+        assert!(tree.insert_ray(origin, end, Some(-1.0), false));
+        assert!(tree.is_occupied(end).unwrap());
+        assert!(!tree.is_occupied(Point3::new(0.5, 0.0, 0.0)).unwrap());
+        // Nothing was integrated on the backwards side of the origin.
+        assert!(tree.log_odds_at(Point3::new(-0.5, 0.0, 0.0)).is_none());
+    }
+
+    /// `0.0` is not `> 0`, so it is the sentinel too -- the boundary the
+    /// missing half sat on. `Some(0.0)` previously cut the ray to `origin`.
+    #[test]
+    fn insert_ray_treats_a_zero_max_range_as_unlimited() {
+        let mut tree = OcTree::new(0.1);
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let end = Point3::new(1.0, 0.0, 0.0);
+        assert!(tree.insert_ray(origin, end, Some(0.0), false));
+        assert!(tree.is_occupied(end).unwrap());
+    }
+
+    /// `computeUpdate`'s guard is `(maxrange < 0.0) || (norm <= maxrange)`,
+    /// so a negative `max_range` takes the *unlimited* branch -- free cells
+    /// along the whole ray and an occupied endpoint. Without the `r < 0.0`
+    /// disjunct this fell to the cut branch, which records no endpoint at
+    /// all and normalised the zero vector when `p == origin`.
+    #[test]
+    fn compute_update_treats_a_negative_max_range_as_unlimited() {
+        let tree = OcTree::new(0.1);
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let end = Point3::new(1.0, 0.0, 0.0);
+        let (free, occupied) = tree.compute_update(&[end], origin, Some(-1.0));
+        let end_key = tree.coord_to_key_checked(end).unwrap();
+        assert_eq!(occupied, [end_key].into_iter().collect::<KeySet>());
+        let mid_key = tree
+            .coord_to_key_checked(Point3::new(0.5, 0.0, 0.0))
+            .unwrap();
+        assert!(free.contains(&mid_key));
+    }
+
+    /// The complement of the case above, and the reason the two guards
+    /// cannot be factored into one: `0.0` is *not* `< 0.0`, so upstream's
+    /// `computeUpdate` cuts here where its `insertRay` does not.
+    #[test]
+    fn compute_update_still_cuts_at_a_zero_max_range() {
+        let tree = OcTree::new(0.1);
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let end = Point3::new(1.0, 0.0, 0.0);
+        let (_, occupied) = tree.compute_update(&[end], origin, Some(0.0));
+        assert!(occupied.is_empty());
     }
 
     #[test]
