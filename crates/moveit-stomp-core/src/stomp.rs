@@ -258,7 +258,20 @@ impl Default for CancelHandle {
 /// divide-by-`-1.0` from "well-defined but discarded" to "well-defined but
 /// discarded", matching upstream's own dead computation exactly rather than
 /// panicking on it.
-fn compute_linear_interpolation(first: &[f64], last: &[f64], num_timesteps: usize) -> DMatrix<f64> {
+///
+/// `None` when `num_timesteps < 2`, which would make `dtheta`'s denominator
+/// zero and every column `NaN`. Upstream `computeLinearInterpolation`
+/// (`stomp.cpp:47-60`) divides by the same `num_timesteps - 1` unguarded and
+/// reports success. Signalled through the same `Option` channel
+/// [`compute_min_cost_trajectory`] already uses.
+fn compute_linear_interpolation(
+    first: &[f64],
+    last: &[f64],
+    num_timesteps: usize,
+) -> Option<DMatrix<f64>> {
+    if num_timesteps < 2 {
+        return None;
+    }
     let mut trajectory_joints = DMatrix::zeros(first.len(), num_timesteps);
     for i in 0..first.len() {
         let dtheta = (last[i] - first[i]) / (num_timesteps as f64 - 1.0);
@@ -266,7 +279,7 @@ fn compute_linear_interpolation(first: &[f64], last: &[f64], num_timesteps: usiz
             trajectory_joints[(i, j)] = first[i] + j as f64 * dtheta;
         }
     }
-    trajectory_joints
+    Some(trajectory_joints)
 }
 
 /// `computeCubicInterpolation`. Returns the trajectory rather than writing
@@ -278,14 +291,24 @@ fn compute_linear_interpolation(first: &[f64], last: &[f64], num_timesteps: usiz
 /// Converting to a return value sidesteps that asymmetry entirely: this
 /// port always allocates fresh at `(first.len(), num_points)`, the same
 /// dimensions either function produces.
+///
+/// `None` when `total_time` is not positive and finite -- `num_points < 2` or
+/// a non-positive `dt` -- which would make every `c2`/`c3` coefficient
+/// infinite and the whole trajectory `NaN`. Upstream
+/// `computeCubicInterpolation` divides by the same `total_time` unguarded and
+/// reports success. Same `Option` channel as
+/// [`compute_linear_interpolation`].
 fn compute_cubic_interpolation(
     first: &[f64],
     last: &[f64],
     num_points: usize,
     dt: f64,
-) -> DMatrix<f64> {
-    let mut trajectory_joints = DMatrix::zeros(first.len(), num_points);
+) -> Option<DMatrix<f64>> {
     let total_time = (num_points as f64 - 1.0) * dt;
+    if !total_time.is_finite() || total_time <= 0.0 {
+        return None;
+    }
+    let mut trajectory_joints = DMatrix::zeros(first.len(), num_points);
     for i in 0..first.len() {
         let c0 = first[i];
         let c2 = (3.0 / total_time.powi(2)) * (last[i] - first[i]);
@@ -295,7 +318,7 @@ fn compute_cubic_interpolation(
             trajectory_joints[(i, j)] = c0 + c2 * t.powi(2) + c3 * t.powi(3);
         }
     }
-    trajectory_joints
+    Some(trajectory_joints)
 }
 
 /// `computeMinCostTrajectory`. `None` where upstream returns `false` (a
@@ -579,6 +602,39 @@ impl<'a> Stomp<'a> {
     /// inside the `else` of `rows() != num_dimensions || cols() !=
     /// num_timesteps`) -- provably unreachable, so this port collapses it to
     /// the one reachable check rather than translating dead code.
+    ///
+    /// # Deviations from upstream
+    ///
+    /// **Returns `false` when the optimized trajectory is not finite, which
+    /// upstream does not.** [`StompConfiguration`] is a plain `pub`-field
+    /// struct here exactly as upstream's is, so there is no construction
+    /// point to validate at, and neither upstream's `Stomp::solve`
+    /// (`stomp.cpp:208`) nor its `generateSmoothingMatrix` (`utils.cpp:61`)
+    /// checks `dt` before dividing by it. With `control_cost_weight`
+    /// non-zero, `delta_t == 0.0` returned a fully-`NaN` trajectory
+    /// alongside `true`, and no caller can tell that from a real solution:
+    /// `parameters_valid` comes from the task's own cost callbacks, which
+    /// screen with ordinary comparisons, and every comparison against `NaN`
+    /// is false.
+    ///
+    /// The check is on the returned answer rather than on `delta_t` because
+    /// no closed-form bound on `delta_t` is sufficient. `0.0` and `NaN`
+    /// poison the divides directly; `f64::MIN_POSITIVE` survives them
+    /// (`dt.powi(2)` merely underflows) but its reciprocal is infinite; and
+    /// `1e-150` survives *both* — reciprocal `1e300`, finite — only to
+    /// overflow later inside `delta_t * A^T * A`. Each threshold that
+    /// catches one of those admits the next, which is the shape of an edge
+    /// factory. What `solve` promises is a usable trajectory, so that is
+    /// what it verifies, and the rule then holds for numeric routes no
+    /// config field explains.
+    ///
+    /// On this path the returned matrix is the caller's own
+    /// `initial_parameters`, not the poisoned one, so a caller that ignores
+    /// the flag still gets a finite trajectory. A `delta_t` past roughly
+    /// `f64::MAX.sqrt()` reaches this same check: it makes
+    /// `Stomp::reset_variables`' control-cost matrix singular, and that
+    /// function returns a `NaN` inverse (Eigen's own behaviour) rather than
+    /// aborting, so the rejection happens here too.
     pub fn solve(&mut self, initial_parameters: &DMatrix<f64>) -> (bool, DMatrix<f64>) {
         if self
             .parameters_optimized
@@ -626,6 +682,29 @@ impl<'a> Stomp<'a> {
             self.current_lowest_cost,
             &parameters_optimized,
         );
+
+        // `parameters_valid` alone is not enough to call this a solution.
+        // It is set from the task's own cost/validity callbacks, every one
+        // of which screens with an ordinary comparison, and every
+        // comparison against `NaN` is false -- so a trajectory that is
+        // entirely `NaN` sails through them and is returned as a success.
+        // The reachable cause is `config.delta_t`: the control-cost path
+        // divides by `dt` and by `dt.powi(2)`
+        // (`generate_finite_difference_matrix`, `differentiate`,
+        // `compute_parameters_control_costs`), so `0.0` and `NaN` poison it
+        // directly, and `1e-150` does too by a longer route -- the
+        // reciprocal is finite there, but `delta_t * A^T * A` then squares
+        // entries near `1e300` into infinity. That last one is why this is
+        // a check on the answer rather than a threshold on `delta_t`: no
+        // closed-form bound on `dt` catches the cases that only overflow
+        // later, inside a matrix product. Checking what `solve` actually
+        // promises holds for every numeric route into a non-finite result,
+        // including ones no `StompConfiguration` field explains.
+        // Handing back the caller's own seed, not the poisoned matrix, so a
+        // caller that ignores the flag still gets a finite trajectory.
+        if parameters_optimized.iter().any(|v| !v.is_finite()) {
+            return (false, initial_parameters.clone());
+        }
 
         (self.parameters_valid, parameters_optimized)
     }
@@ -695,11 +774,28 @@ impl<'a> Stomp<'a> {
             .control_cost_matrix_r_padded
             .view((self.start_index_padded, self.start_index_padded), (t, t))
             .into_owned();
-        self.inv_control_cost_matrix_r =
-            full_piv_lu_try_inverse_or_empty(self.control_cost_matrix_r.clone()).expect(
-                "control_cost_matrix_R is invertible by STOMP's own algorithmic premise -- see \
-                 generate_smoothing_matrix's own doc for the same reasoning",
-            );
+        // Upstream is `inv_control_cost_matrix_R_ =
+        // control_cost_matrix_R_.fullPivLu().inverse()`, and Eigen's
+        // `inverse()` on a singular matrix returns a non-finite matrix
+        // rather than throwing -- so panicking here would be a
+        // port-introduced divergence, not a preserved one. The premise the
+        // old `expect` asserted is falsifiable from public API: a
+        // `config.delta_t` past roughly `f64::MAX.sqrt()` underflows
+        // `delta_t * A^T * A` to the zero matrix, which has no inverse.
+        // `NaN` is what "no inverse" means numerically and is what the rest
+        // of this function would compute from a non-finite Eigen result
+        // anyway; `Stomp::solve`'s finiteness check then turns it into a
+        // `false` return instead of an abort.
+        self.inv_control_cost_matrix_r = full_piv_lu_try_inverse_or_empty(
+            self.control_cost_matrix_r.clone(),
+        )
+        .unwrap_or_else(|| {
+            DMatrix::from_element(
+                self.control_cost_matrix_r.nrows(),
+                self.control_cost_matrix_r.ncols(),
+                f64::NAN,
+            )
+        });
 
         // "Applying scale factor to ensure that max(R^-1)==1": upstream
         // takes std::abs(maxCoeff()) -- the absolute value of the single
@@ -716,18 +812,27 @@ impl<'a> Stomp<'a> {
     fn compute_initial_trajectory(&mut self, first: &[f64], last: &[f64]) -> bool {
         match self.config.initialization_method {
             TrajectoryInitialization::CubicPolynomialInterpolation => {
-                self.parameters_optimized = compute_cubic_interpolation(
+                match compute_cubic_interpolation(
                     first,
                     last,
                     self.config.num_timesteps,
                     self.config.delta_t,
-                );
-                true
+                ) {
+                    Some(trajectory) => {
+                        self.parameters_optimized = trajectory;
+                        true
+                    }
+                    None => false,
+                }
             }
             TrajectoryInitialization::LinearInterpolation => {
-                self.parameters_optimized =
-                    compute_linear_interpolation(first, last, self.config.num_timesteps);
-                true
+                match compute_linear_interpolation(first, last, self.config.num_timesteps) {
+                    Some(trajectory) => {
+                        self.parameters_optimized = trajectory;
+                        true
+                    }
+                    None => false,
+                }
             }
             TrajectoryInitialization::MinimumControlCost => {
                 match compute_min_cost_trajectory(
@@ -1146,6 +1251,31 @@ mod tests {
     use rand_chacha::ChaCha8Rng;
     use std::sync::atomic::AtomicUsize;
 
+    /// Both initial-trajectory interpolators divide by `num_timesteps - 1`
+    /// (cubic by way of `total_time = (num_timesteps - 1) * delta_t`), so a
+    /// single-timestep config produced an all-`NaN` trajectory while
+    /// `compute_initial_trajectory` still reported success. Boundaries, not
+    /// scenarios: one case per way the divisor reaches zero, plus the
+    /// smallest accepted value on each axis.
+    #[test]
+    fn a_degenerate_initial_trajectory_is_rejected_not_returned_as_nan() {
+        let first = [0.0, 1.0];
+        let last = [1.0, 1.0];
+
+        assert!(compute_linear_interpolation(&first, &last, 1).is_none());
+        assert!(compute_linear_interpolation(&first, &last, 0).is_none());
+        assert!(compute_cubic_interpolation(&first, &last, 1, 0.1).is_none());
+        assert!(compute_cubic_interpolation(&first, &last, 10, 0.0).is_none());
+        assert!(compute_cubic_interpolation(&first, &last, 10, -0.1).is_none());
+
+        let linear =
+            compute_linear_interpolation(&first, &last, 2).expect("two timesteps is valid");
+        assert!(linear.iter().all(|v| v.is_finite()));
+        let cubic =
+            compute_cubic_interpolation(&first, &last, 2, 0.1).expect("two timesteps is valid");
+        assert!(cubic.iter().all(|v| v.is_finite()));
+    }
+
     const NUM_DIMENSIONS: usize = 3;
     const NUM_TIMESTEPS: usize = 20;
     const DELTA_T: f64 = 0.1;
@@ -1442,6 +1572,84 @@ mod tests {
             num_rollouts: 20,
             max_rollouts: 20,
         }
+    }
+
+    /// Each `delta_t` that drives the optimized trajectory non-finite by a
+    /// *different* numeric route, plus a demonstrated opposite.
+    ///
+    /// `control_cost_weight` must be non-zero to exercise any of this:
+    /// [`create_3dof_configuration`] leaves it `0.0`, which multiplies away
+    /// the entire path `delta_t` feeds, so `delta_t = 0.0` measured `0/60`
+    /// non-finite cells under the default config and `60/60` with the
+    /// control cost enabled.
+    ///
+    /// `-0.1` is deliberately **not** here. It returns a wholly finite
+    /// trajectory (`dt.powi(2)` is positive), so it is not a case of this
+    /// defect; whether a negative control period should be rejected on
+    /// physical grounds is a separate question, and upstream accepts it.
+    #[test]
+    fn solve_never_reports_success_with_a_non_finite_trajectory() {
+        for (dt, route) in [
+            (0.0, "1.0 / dt is infinite"),
+            (f64::NAN, "dt poisons every product it enters"),
+            (f64::INFINITY, "1.0 / dt is zero, so R is singular"),
+            (f64::NEG_INFINITY, "same, through the negative end"),
+            (f64::MIN_POSITIVE, "dt.powi(2) underflows to zero"),
+            // Reciprocal *is* finite here (1e300): the overflow happens
+            // later, inside `delta_t * A^T * A`. This is the case no
+            // closed-form threshold on `delta_t` catches, and the reason
+            // the check is on the answer rather than on the input.
+            (1e-150, "A^T * A overflows on entries near 1e300"),
+        ] {
+            let (ok, optimized) = solve_with_delta_t(dt);
+            assert!(!ok, "solve reported success for delta_t = {dt} ({route})");
+            let non_finite = optimized.iter().filter(|v| !v.is_finite()).count();
+            assert_eq!(
+                non_finite,
+                0,
+                "solve rejected delta_t = {dt} but still handed back \
+                 {non_finite}/{} non-finite cells instead of the seed",
+                optimized.len()
+            );
+        }
+        // The demonstrated opposite: a usable `delta_t` still succeeds, so
+        // the assertions above are not passing by rejecting everything.
+        let (ok, optimized) = solve_with_delta_t(DELTA_T);
+        assert!(ok, "solve rejected the usable delta_t {DELTA_T}");
+        assert!(optimized.iter().all(|v| v.is_finite()));
+    }
+
+    /// `Stomp::new` must not panic on a `StompConfiguration` a caller can
+    /// legally build. Past roughly `f64::MAX.sqrt()`, `delta_t * A^T * A`
+    /// underflows to the zero matrix, which has no inverse -- upstream's
+    /// `fullPivLu().inverse()` returns a non-finite matrix there rather
+    /// than throwing, so a panic is a port-introduced divergence.
+    #[test]
+    fn a_delta_t_that_makes_the_control_cost_matrix_singular_is_rejected_not_a_panic() {
+        for dt in [1e150, 1e200, f64::MAX] {
+            let (ok, optimized) = solve_with_delta_t(dt);
+            assert!(!ok, "solve reported success for delta_t = {dt}");
+            assert!(
+                optimized.iter().all(|v| v.is_finite()),
+                "solve rejected delta_t = {dt} but handed back a non-finite trajectory"
+            );
+        }
+    }
+
+    fn solve_with_delta_t(delta_t: f64) -> (bool, DMatrix<f64>) {
+        let mut config = create_3dof_configuration(NUM_TIMESTEPS);
+        config.delta_t = delta_t;
+        // Non-zero so the control-cost path is actually reached; see the
+        // caller's doc.
+        config.control_cost_weight = 0.1;
+        let trajectory_bias = interpolate(&START_POS, &END_POS, NUM_TIMESTEPS);
+        let task = Box::new(DummyTask::new(
+            trajectory_bias,
+            &BIAS_THRESHOLD,
+            &STD_DEV,
+            1,
+        ));
+        Stomp::new(config, task).solve_from_endpoints(&START_POS, &END_POS)
     }
 
     #[test]
