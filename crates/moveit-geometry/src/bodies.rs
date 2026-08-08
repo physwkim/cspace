@@ -3023,7 +3023,7 @@ impl ConvexMesh {
     /// before `tmp`/`t` by the same `0.0 * x == NaN` fact, one step
     /// removed. An infinite `dir` makes `dir_norm` (`dir / dir.norm()`, an
     /// `inf / inf` division) carry a NaN before it is ever dotted with a
-    /// normal. An infinite `origin` survives [`transform_point`]'s
+    /// normal. An infinite `origin` survives `transform_point`'s
     /// quaternion-based rotation as a clean infinity on at most one axis,
     /// while the cross-product terms mixing in the *other* axes each hit a
     /// `0.0 * inf` and turn to NaN — at the identity pose, `origin = (0.0,
