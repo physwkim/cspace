@@ -828,7 +828,25 @@ impl OcTree {
     }
 
     /// Upstream `keyToCoord(key_type, depth)`.
+    ///
+    /// # Deviation: explicit `debug_assert!` added for `depth <= TREE_DEPTH` (Task G)
+    ///
+    /// Upstream's own precondition (`assert(depth <= tree_depth);`,
+    /// `OcTreeBaseImpl.hxx:395`) was previously reproduced only by
+    /// accident: an out-of-range `depth` underflows `TREE_DEPTH - depth`
+    /// (this function's `else` branch below) the same way [`Self::search`]'s
+    /// `diff` did before that call's own `debug_assert!` was added -- same
+    /// defect family, same fix; see `search`'s doc comment for the full
+    /// upstream-asymmetry argument this shares. This function is private,
+    /// reached only through [`Self::key_to_coord_at_depth`] (`pub(crate)`),
+    /// currently always called with an iterator-bounded `depth` -- safe
+    /// today, but only by caller discipline, not by construction.
     fn key_to_coord_axis_at_depth(&self, key: KeyType, depth: u32) -> f64 {
+        debug_assert!(
+            depth <= Self::TREE_DEPTH,
+            "key_to_coord_axis_at_depth: depth {depth} exceeds TREE_DEPTH ({})",
+            Self::TREE_DEPTH
+        );
         if depth == 0 {
             0.0
         } else if depth == Self::TREE_DEPTH {
@@ -1907,6 +1925,17 @@ mod tests {
         let key = OcTree::root_key();
         tree.update_node_by_key(key, true, false);
         let _ = tree.search(key, OcTree::TREE_DEPTH + 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "key_to_coord_axis_at_depth: depth")]
+    fn key_to_coord_axis_at_depth_rejects_depth_above_tree_depth() {
+        // Same pre-fix gap as `search` above: `TREE_DEPTH - depth`
+        // underflows to "attempt to subtract with overflow" instead of this
+        // message.
+        let tree = OcTree::new(0.1);
+        let _ = tree
+            .key_to_coord_axis_at_depth(OcTree::TREE_MAX_VAL as KeyType, OcTree::TREE_DEPTH + 1);
     }
 
     #[test]
