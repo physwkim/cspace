@@ -171,6 +171,23 @@ fn find_surface(
     for _ in 0..ITERATIONS {
         let (intensity, gradient) = sample_cloud(cloud, spacing, r_multiple, p)?;
         let s = iso_value - intensity;
+        // `std::max(gs.dot(gs), epsilon)` upstream (`collision_octomap_filter.cpp:226`)
+        // is the same std::min/std::max-vs-f64::min/f64::max family as
+        // `crate::numeric`, but NOT a fix here: `sample_cloud`'s only
+        // reachable NaN source (`r == 0`, a query position exactly at a
+        // cloud point) sets `pos = delta / r` with `delta` the zero vector,
+        // so every component of that term -- and hence of `gradient` -- goes
+        // NaN together, never a subset. `gradient * -s` above is then NaN in
+        // every component regardless of what this `.max` evaluates to, so
+        // `dp` is `(NaN, NaN, NaN)` whether the divergent `f64::max` or a
+        // faithful `cxx_max` runs here -- measured directly: `find_surface`
+        // returns `None` identically either way for `cloud = [Vector3::
+        // zeros()], seed = Vector3::zeros()`. (A mixed NaN/non-NaN gradient
+        // is constructible in principle, through `0.0 * f64::INFINITY` in
+        // the per-point scalar/direction product, but only at a per-axis
+        // coordinate difference and query distance around 1e61 -- outside
+        // any real octree leaf's coordinate range, so not a production
+        // concern.)
         let dp = (gradient * -s) / gradient.dot(&gradient).max(EPSILON);
         p += dp;
         if dp.dot(&dp) < EPSILON {
