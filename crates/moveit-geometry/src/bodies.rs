@@ -561,17 +561,19 @@
 //!    has zero extent; one box wholly contains the other) are ported
 //!    byte-for-byte from `obb.cpp`, which spells them out before
 //!    delegating the general case to FCL's `OBB::operator+=`; that general
-//!    case is now a literal port of `OBB-inl.h`'s `operator+`, dispatching
-//!    on the two boxes' center distance to `merge_largedist` (PCA-fit over
-//!    both boxes' 16 vertices projected perpendicular to the
+//!    case dispatches on the two boxes' center distance to `merge_largedist`
+//!    (PCA-fit over both boxes' 16 vertices projected perpendicular to the
 //!    center-to-center axis; needs `geometry-inl.h`'s `eigen_old` classical
-//!    Jacobi eigendecomposition, `getCovariance` and `getExtentAndCenter`)
-//!    or `merge_smalldist` (hemisphere-corrected quaternion-average
-//!    orientation, arithmetic-mean center, then componentwise min/max of
-//!    both boxes' vertices projected onto the merged axes). A probe
-//!    (`tests/probe_parity.rs`) pins this against the shipped binary for
-//!    both branches — see deviation 7 for the one case the same probe
-//!    found where this port keeps behavior that disagrees with the binary.
+//!    Jacobi eigendecomposition, `getCovariance` and `getExtentAndCenter`) or
+//!    `merge_smalldist` (hemisphere-corrected quaternion-average orientation,
+//!    arithmetic-mean center, then componentwise min/max of both boxes'
+//!    vertices projected onto the merged axes) — a literal port of
+//!    `OBB-inl.h`'s `operator+` **except** `merge_smalldist`'s own min/max
+//!    tracking, which is not: see deviation 10. A probe (`tests/probe_parity.rs`)
+//!    pins the rest of both branches against the shipped binary; its one
+//!    `merge_smalldist` fixture does not happen to land in the input region
+//!    deviation 10 covers, which is why nothing caught that one line's gap
+//!    from "literal port" until this audit.
 //! 4. **`samplePointInside` takes a caller-supplied uniform-sampler closure,
 //!    not a `random_numbers::RandomNumberGenerator`.** That type has no Rust
 //!    port (PORTING-PLAN.md records no mature substitute was pulled in for
@@ -709,6 +711,27 @@
 //!    (`moveit-constraints/tests/decide.rs`) pins that the `Err` survives out
 //!    through `PositionConstraint::new` rather than being swallowed on the
 //!    way.
+//!
+//! 10. **`merge_smalldist`'s per-axis min/max tracking is two independent
+//!     `if`s; upstream's is `if`/`else if`, and that is an upstream bug this
+//!     port does not reproduce.** `OBB-inl.h:341-345,355-359`'s loop is
+//!     `if (dot > pmax[j]) pmax[j] = dot; else if (dot < pmin[j]) pmin[j] =
+//!     dot;` — mutually exclusive, so a vertex that raises `pmax[j]` is
+//!     never also checked against `pmin[j]`. Depending on vertex-visitation
+//!     order this can leave `pmin[j]` at its `real_max` sentinel, or
+//!     otherwise above the true minimum. `merge_smalldist` uses two
+//!     independent `if`s, which always compute the true componentwise
+//!     min/max regardless of order. Despite the surrounding claim ("a
+//!     literal port of `OBB-inl.h`'s `operator+`") and the deviation-7
+//!     cross-reference above, this one line was never a byte-for-byte port
+//!     and the round-12 probe below does not happen to exercise the input
+//!     region where the two disagree (its one `merge_smalldist` fixture is
+//!     not one of them) — so nothing previously caught or documented this.
+//!     `merge_smalldist_matches_true_min_max_not_fcls_order_dependent_replica`
+//!     (this module) pins the port's output against an independent
+//!     min/max oracle *and* confirms FCL's own `else if` shape disagrees on
+//!     the same input, so the fixture cannot silently stop exercising the
+//!     divergence.
 //!
 //! # Bounding-volume methods, checked against an external reference (round 12)
 //!
@@ -3348,6 +3371,7 @@ impl Body {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::UnitQuaternion;
     use approx::assert_relative_eq;
 
     /// A tiny deterministic xorshift64 PRNG, used only by this module's own
@@ -4275,6 +4299,138 @@ mod tests {
         assert!(merged.contains_point(&boxes[1].pose().translation.vector));
         assert!(merged.overlaps(&boxes[0]));
         assert!(merged.overlaps(&boxes[1]));
+    }
+
+    #[test]
+    fn merge_smalldist_matches_true_min_max_not_fcls_order_dependent_replica() {
+        // Module docs, deviation 10: FCL's own `merge_smalldist`
+        // (`OBB-inl.h:341-345,355-359`) tracks the per-axis running min/max
+        // with `if (dot > pmax[j]) pmax[j] = dot; else if (dot < pmin[j])
+        // pmin[j] = dot;` -- mutually exclusive, so a vertex that updates
+        // `pmax[j]` is never also considered for `pmin[j]`. Depending on
+        // vertex-visitation order this can leave `pmin[j]` at its
+        // `real_max` sentinel (never set) or otherwise too large, which is
+        // an upstream bug, not upstream's intended semantics. This port
+        // uses two independent `if`s, which always compute the true
+        // componentwise min/max regardless of order. These fixed
+        // (arbitrary but reproducible) box configurations are one case
+        // where the two disagree; found by a deterministic xorshift64
+        // search over ~200k random OBB pairs (seed 12345, first hit at
+        // trial 3) filtered to the `merge_smalldist`-selecting distance
+        // condition `OBB::extend_approx` itself uses.
+        let a = OBB {
+            pose: Isometry3::from_parts(
+                Vector3::new(
+                    -0.1777397387377112,
+                    -0.0026174820415298394,
+                    -0.07073199985140266,
+                )
+                .into(),
+                UnitQuaternion::from_euler_angles(
+                    3.195825488004906,
+                    3.524268228416687,
+                    5.145759698588444,
+                ),
+            ),
+            half_extents: Vector3::new(1.9409112600385845, 1.731226599362296, 0.42932324056205884),
+        };
+        let b = OBB {
+            pose: Isometry3::from_parts(
+                Vector3::new(
+                    0.007680239521112575,
+                    -0.0022048760613254115,
+                    0.1928448311361619,
+                )
+                .into(),
+                UnitQuaternion::from_euler_angles(
+                    4.090495798141434,
+                    3.211304474174798,
+                    3.3319936050087446,
+                ),
+            ),
+            half_extents: Vector3::new(1.7458628505727363, 1.5533248412342824, 1.9171102999768692),
+        };
+
+        let port_result = merge_smalldist(&a, &b);
+
+        // Independent oracle: the true componentwise min/max of all 16
+        // vertices' projections onto the merged axes, via `Iterator::min`/
+        // `max` -- not a replica of either `if`-shape under test, so it
+        // cannot silently agree with either one by construction.
+        let center = (a.pose.translation.vector + b.pose.translation.vector) * 0.5;
+        let axis = port_result.pose.rotation.to_rotation_matrix();
+        let axis_cols = [
+            axis.matrix().column(0).into_owned(),
+            axis.matrix().column(1).into_owned(),
+            axis.matrix().column(2).into_owned(),
+        ];
+        let all_vertices: Vec<Vector3> = a
+            .compute_vertices()
+            .into_iter()
+            .chain(b.compute_vertices())
+            .collect();
+        for (j, axis_j) in axis_cols.iter().enumerate() {
+            let projections: Vec<f64> = all_vertices
+                .iter()
+                .map(|v| (v - center).dot(axis_j))
+                .collect();
+            let true_min = projections.iter().copied().fold(f64::MAX, f64::min);
+            let true_max = projections.iter().copied().fold(f64::MIN, f64::max);
+            assert_relative_eq!(
+                port_result.half_extents[j],
+                0.5 * (true_max - true_min),
+                epsilon = 1e-9
+            );
+        }
+
+        // And confirm FCL's own `else if` shape really does disagree on
+        // this input, so this test cannot pass by both sides coincidentally
+        // producing the same answer.
+        fn fcl_merge_smalldist_replica(a: &OBB, b: &OBB) -> Vector3 {
+            let center = (a.pose.translation.vector + b.pose.translation.vector) * 0.5;
+            let q0 = a.pose.rotation;
+            let q1 = b.pose.rotation;
+            let q1_coords = if q0.coords.dot(&q1.coords) < 0.0 {
+                -q1.coords
+            } else {
+                q1.coords
+            };
+            let merged_rotation = UnitQuaternion::from_quaternion(
+                nalgebra::Quaternion::from_vector(q0.coords + q1_coords),
+            );
+            let axis = merged_rotation.to_rotation_matrix();
+            let axis_cols = [
+                axis.matrix().column(0).into_owned(),
+                axis.matrix().column(1).into_owned(),
+                axis.matrix().column(2).into_owned(),
+            ];
+            let mut pmin = Vector3::from_element(f64::MAX);
+            let mut pmax = Vector3::from_element(-f64::MAX);
+            for obb in [a, b] {
+                for v in obb.compute_vertices() {
+                    let diff = v - center;
+                    for (j, axis_j) in axis_cols.iter().enumerate() {
+                        let dot = diff.dot(axis_j);
+                        if dot > pmax[j] {
+                            pmax[j] = dot;
+                        } else if dot < pmin[j] {
+                            pmin[j] = dot;
+                        }
+                    }
+                }
+            }
+            Vector3::new(
+                0.5 * (pmax[0] - pmin[0]),
+                0.5 * (pmax[1] - pmin[1]),
+                0.5 * (pmax[2] - pmin[2]),
+            )
+        }
+        let fcl_extents = fcl_merge_smalldist_replica(&a, &b);
+        assert!(
+            (port_result.half_extents - fcl_extents).abs().max() > 1e-6,
+            "fixture no longer exercises the known FCL merge_smalldist divergence -- \
+             replace it with a new one found the same way, do not delete this test"
+        );
     }
 
     #[test]
