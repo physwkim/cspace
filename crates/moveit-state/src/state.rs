@@ -20,6 +20,8 @@ use moveit_model::{JointModelGroup, RobotModel};
 use rand::{Rng, RngExt};
 use rand_distr::StandardNormal;
 
+use crate::numeric::{cxx_max, cxx_min};
+
 /// An index into [`RobotModel::joint_models`](moveit_model::RobotModel::joint_models).
 ///
 /// Upstream identifies a joint by `const JointModel*`; this port uses its
@@ -397,21 +399,32 @@ impl<'m> RobotState<'m> {
         &self.effort
     }
 
-    /// `setVariableVelocities(const double*)`: replace every velocity at
-    /// once.
+    /// `setVariableVelocities(const double*)`/`setVariableVelocities(const
+    /// std::vector<double>&)`: replace every velocity at once.
     ///
     /// # Panics
     ///
-    /// If `values.len()` does not equal
-    /// [`RobotModel::variable_count`](moveit_model::RobotModel::variable_count),
-    /// matching upstream's own precondition (there enforced only by a
-    /// debug-only `assert`; here by the slice-copy itself).
+    /// If `values.len()` is less than
+    /// [`RobotModel::variable_count`](moveit_model::RobotModel::variable_count).
+    /// Upstream's `std::vector` overload requires only `variable_count <=
+    /// velocity.size()`, enforced by a debug-only
+    /// `assert(getVariableCount() <= velocity.size())` (`robot_state.hpp`) —
+    /// a `values` *longer* than needed is accepted silently there, since
+    /// its own `double*` primitive `memcpy`s only the first
+    /// `variable_count` entries and never reads the rest. This port matches
+    /// that truncation exactly (`&values[..variable_count]`); it does not
+    /// match upstream's debug-only rejection of a *shorter* `values`
+    /// followed by a release-mode out-of-bounds `memcpy` read — Rust has no
+    /// safe equivalent of that unchecked read, so a short `values` panics
+    /// here deterministically, in every build profile, instead.
     pub fn set_variable_velocities(&mut self, values: &[f64]) {
-        self.velocity.copy_from_slice(values);
+        let len = self.velocity.len();
+        self.velocity.copy_from_slice(&values[..len]);
         self.has_velocity = true;
     }
 
-    /// `setVariableAccelerations(const double*)`
+    /// `setVariableAccelerations(const double*)`/`setVariableAccelerations(const
+    /// std::vector<double>&)`
     ///
     /// Clears [`RobotState::has_effort`], as upstream's own body does
     /// (`robot_state.hpp:350-351` writes both flags inline rather than
@@ -421,13 +434,15 @@ impl<'m> RobotState<'m> {
     ///
     /// See [`RobotState::set_variable_velocities`].
     pub fn set_variable_accelerations(&mut self, values: &[f64]) {
-        self.acceleration.copy_from_slice(values);
+        let len = self.acceleration.len();
+        self.acceleration.copy_from_slice(&values[..len]);
         self.dynamics = Dynamics::Acceleration;
     }
 
-    /// `setVariableEffort(const double*)`: replace every effort value at
-    /// once. Named `_efforts` (upstream overloads on parameter type, which
-    /// Rust cannot) to stay distinct from the per-variable
+    /// `setVariableEffort(const double*)`/`setVariableEffort(const
+    /// std::vector<double>&)`: replace every effort value at once. Named
+    /// `_efforts` (upstream overloads on parameter type, which Rust cannot)
+    /// to stay distinct from the per-variable
     /// [`RobotState::set_variable_effort`].
     ///
     /// Clears [`RobotState::has_accelerations`], as upstream's own body
@@ -438,7 +453,8 @@ impl<'m> RobotState<'m> {
     ///
     /// See [`RobotState::set_variable_velocities`].
     pub fn set_variable_efforts(&mut self, values: &[f64]) {
-        self.effort.copy_from_slice(values);
+        let len = self.effort.len();
+        self.effort.copy_from_slice(&values[..len]);
         self.dynamics = Dynamics::Effort;
     }
 
@@ -788,12 +804,16 @@ impl<'m> RobotState<'m> {
     ///
     /// # Panics
     ///
-    /// If `positions.len()` does not equal
-    /// [`RobotModel::variable_count`](moveit_model::RobotModel::variable_count),
-    /// matching upstream's own precondition (there enforced only by a
-    /// debug-only `assert`; here by the slice-copy itself).
+    /// If `positions.len()` is less than
+    /// [`RobotModel::variable_count`](moveit_model::RobotModel::variable_count).
+    /// See [`RobotState::set_variable_velocities`]'s `# Panics` for why:
+    /// upstream's precondition here is the identical `variable_count <=
+    /// position.size()` pattern (`assert(getVariableCount() <=
+    /// position.size())`, `robot_state.hpp`), tolerant of a longer
+    /// `positions` and unchecked in release even for a shorter one.
     pub fn set_variable_positions(&mut self, positions: &[f64]) {
-        self.positions.copy_from_slice(positions);
+        let len = self.positions.len();
+        self.positions.copy_from_slice(&positions[..len]);
         self.dirty = Some(self.root_joint_index);
     }
 
@@ -2224,7 +2244,10 @@ fn sample_random_positions_near_by(
                 near[1],
                 distance,
             );
-            let da = (p.angular_distance_weight() * distance).min(PI);
+            // `cxx_min`, not `f64::min`: upstream's `if (da > M_PI) da = M_PI;`
+            // keeps a NaN `da` as NaN (the comparison is false, so the
+            // assignment never runs) — see `crate::numeric`.
+            let da = cxx_min(p.angular_distance_weight() * distance, PI);
             out[2] = rng.random_range((near[2] - da)..=(near[2] + da));
             let out3: &mut [f64; 3] = (&mut out[..3])
                 .try_into()
@@ -2280,8 +2303,21 @@ fn sample_random_positions_near_by(
 /// `RevoluteJointModel::getVariableRandomPositionsNearBy`'s common
 /// `uniformReal(std::max(min, near - distance), std::min(max, near +
 /// distance))` shape.
+///
+/// `cxx_max`/`cxx_min`, not `f64::max`/`f64::min`: upstream keeps a NaN
+/// `min`/`max` bound as NaN (`std::max`/`std::min`'s first argument), while
+/// `f64::max`/`f64::min` would silently discard it in favor of `near ±
+/// distance`. Reachable for the Revolute (non-continuous) and Prismatic
+/// callers, which pass a joint's `min_position`/`max_position` here
+/// directly with no `is_finite` screen — unlike the Planar/Floating
+/// callers, which route through `sample_uniform_or_zero_near_by`'s
+/// `is_finite` check first.
 fn sample_uniform_near_by(rng: &mut impl Rng, min: f64, max: f64, near: f64, distance: f64) -> f64 {
-    sample_uniform(rng, min.max(near - distance), max.min(near + distance))
+    sample_uniform(
+        rng,
+        cxx_max(min, near - distance),
+        cxx_min(max, near + distance),
+    )
 }
 
 /// As [`sample_uniform_near_by`], or `0.0` if `min`/`max` are not both
@@ -2442,6 +2478,89 @@ mod near_by_sampling_tests {
         // itself before `normalize_rotation` wraps it back into [-pi, pi].
         sample_random_positions_near_by(&joint, &mut rng, &[0.0, 0.0, PI + 0.1], 0.0, &mut out);
         assert_relative_eq!(out[2], -PI + 0.1, epsilon = 1e-12);
+    }
+
+    /// A NaN `angular_distance_weight` (the `cxx_min` receiver, matching
+    /// upstream's `if (da > M_PI) da = M_PI;` leaving a NaN `da` untouched)
+    /// must keep `da` as NaN, not be silently clamped to `PI`. Tested on
+    /// the exact production expression rather than through
+    /// `sample_random_positions_near_by`'s full draw: a NaN `da` there
+    /// widens `rng.random_range` to a NaN-bounded range, which panics
+    /// downstream regardless of which side of this fix produced it, so
+    /// `da` itself — not a value two calls further down — is what this
+    /// fix is about. `f64::min` discards the NaN; this fails before the
+    /// `cxx_min` fix and passes after.
+    #[test]
+    fn planar_rotation_clamp_propagates_nan_from_angular_distance_weight() {
+        let mut joint = JointModel::new_planar("j");
+        joint
+            .as_planar_mut()
+            .unwrap()
+            .set_angular_distance_weight(f64::NAN);
+        let JointKind::Planar(p) = *joint.kind() else {
+            panic!("just constructed as planar")
+        };
+        let da = cxx_min(p.angular_distance_weight() * 1.0, PI);
+        assert!(da.is_nan());
+    }
+
+    /// Demonstrated opposite: a finite `angular_distance_weight` that
+    /// overshoots `PI` is still clamped to `PI`, on both sides of the fix.
+    /// Without this, a fix that made `da` unconditionally NaN would also
+    /// pass the test above.
+    #[test]
+    fn planar_rotation_clamp_still_clamps_a_finite_overshoot_to_pi() {
+        let mut joint = JointModel::new_planar("j");
+        joint
+            .as_planar_mut()
+            .unwrap()
+            .set_angular_distance_weight(10.0);
+        let JointKind::Planar(p) = *joint.kind() else {
+            panic!("just constructed as planar")
+        };
+        let da = cxx_min(p.angular_distance_weight() * 1.0, PI);
+        assert_eq!(da, PI);
+    }
+
+    /// A NaN `min`/`max` bound (the `cxx_max`/`cxx_min` receiver, matching
+    /// upstream's `std::max`/`std::min` first argument) must survive into
+    /// `sample_uniform`'s range, not be silently discarded in favor of
+    /// `near ± distance`. Observed as a panic from `rng.random_range` on
+    /// the resulting NaN-bounded range (an empty range by `PartialOrd`),
+    /// not as a returned value: whatever upstream's own
+    /// `uniform_real_distribution<double>(NaN, finite)` does with a NaN
+    /// parameter is undefined behavior and out of scope for this fix,
+    /// which is about whether the NaN reaches the range constructor at
+    /// all. `f64::max` would have discarded it, producing a plausible
+    /// finite draw with no panic; this fails (does not panic) before the
+    /// `cxx_max` fix and panics after.
+    #[test]
+    #[should_panic(expected = "cannot sample empty range")]
+    fn sample_uniform_near_by_propagates_nan_from_the_min_bound() {
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        sample_uniform_near_by(&mut rng, f64::NAN, 10.0, 5.0, 1.0);
+    }
+
+    /// As above, for the `max` bound reaching `cxx_min`.
+    #[test]
+    #[should_panic(expected = "cannot sample empty range")]
+    fn sample_uniform_near_by_propagates_nan_from_the_max_bound() {
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        sample_uniform_near_by(&mut rng, 0.0, f64::NAN, 5.0, 1.0);
+    }
+
+    /// Demonstrated opposite: a NaN `distance` (poisoning `near ±
+    /// distance`, the `cxx_max`/`cxx_min` non-receiver) is discarded in
+    /// favor of the finite `min`/`max` bounds on both sides of the fix, so
+    /// a normal in-bounds draw still comes out — no panic. Without this, a
+    /// fix that made the clamp unconditionally NaN-propagating regardless
+    /// of which operand carried the NaN would also "pass" the two tests
+    /// above (by panicking on everything).
+    #[test]
+    fn sample_uniform_near_by_discards_nan_from_distance() {
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let result = sample_uniform_near_by(&mut rng, 0.0, 10.0, 5.0, f64::NAN);
+        assert!((0.0..=10.0).contains(&result));
     }
 
     #[test]

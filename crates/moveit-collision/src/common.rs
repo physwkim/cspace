@@ -657,6 +657,7 @@ impl CollisionResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moveit_test_support::KnownOracleDeviation;
 
     /// `CostSource::cmp`'s tie-break chain ends at `aabb_min`
     /// (`total_cmp_aabb`) and never looks at `aabb_max` — matching
@@ -716,5 +717,58 @@ mod tests {
         assert!(set.insert(a));
         assert!(set.insert(b));
         assert_eq!(set.len(), 2);
+    }
+
+    /// [`KnownOracleDeviation`] proof that `total_cmp`-based `Ord` actually
+    /// diverges from upstream's blind `<`/`>` once a `NaN` is involved, not
+    /// just for the non-`NaN` tie-break cases pinned above.
+    ///
+    /// `oracle`/`actual` are derived booleans (does this pair collapse into
+    /// one `BTreeSet` slot?), not raw orderings: `NaN`'s comparisons make a
+    /// direct `Ordering` comparison meaningless the same way a raw `NaN`
+    /// `f64` comparison would be. Upstream's bare `<`/`>` makes *every*
+    /// comparison touching a `NaN` operand `false` in both directions
+    /// (IEEE 754) -- a fact about C++'s comparison operators, not read from
+    /// this port's own `Ord` impl -- so under strict-weak-ordering a
+    /// `NaN`-cost source is equivalent to, and silently drops, whatever it
+    /// is inserted alongside in `std::set`.
+    #[test]
+    fn cost_source_nan_diverges_from_upstreams_blind_compare() {
+        let mut deviation = KnownOracleDeviation::new(
+            "CostSource::cmp vs upstream operator<'s NaN blindness",
+            "moveit_core/collision_detection/include/moveit/collision_detection/\
+             collision_common.hpp:128-141 (bare `<`/`>` tie-break chain) \
+             (cost-source-nan-blind-compare)",
+            "4b176b70",
+        );
+
+        let a = CostSource {
+            aabb_min: [0.0, 0.0, 0.0],
+            aabb_max: [1.0, 1.0, 1.0],
+            cost: f64::NAN,
+        };
+        let b = CostSource {
+            aabb_min: [0.0, 0.0, 0.0],
+            aabb_max: [1.0, 1.0, 1.0],
+            cost: 5.0,
+        };
+
+        // Upstream's own bare `<`/`>`: every comparison touching a `NaN`
+        // operand is unconditionally `false`, in both directions, so
+        // neither `a < b` nor `b < a` ever holds -- under strict-weak-
+        // ordering that makes the pair "equivalent," and `std::set::insert`
+        // silently drops the second.
+        let upstream_collapses_as_duplicate = true;
+
+        let mut set = BTreeSet::new();
+        set.insert(a);
+        let actual_collapses_as_duplicate = !set.insert(b);
+
+        deviation.observe(
+            "NaN cost vs a real cost, identical aabb",
+            &upstream_collapses_as_duplicate,
+            &actual_collapses_as_duplicate,
+        );
+        deviation.finish();
     }
 }

@@ -60,9 +60,9 @@ pub enum Termination {
 /// Why [`rrt_connect`] returned without a path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum PlanningFailure {
-    /// `start` or `goal` itself failed [`StateValidityChecker::is_valid`]:
-    /// an invalid endpoint can never appear on a valid path, so nothing was
-    /// searched for.
+    /// `start` or `goal` itself failed [`StateSpace::satisfies_bounds`] or
+    /// [`StateValidityChecker::is_valid`]: an invalid endpoint can never
+    /// appear on a valid path, so nothing was searched for.
     #[error("start or goal state is itself invalid")]
     InvalidEndpoint,
     /// The `max_iterations` bound in `params.termination` was reached
@@ -207,7 +207,21 @@ impl<'a, S: StateSpace, R: Rng> Sampler<'a, S, R> {
     fn sample_uniform(&mut self, space: &S) -> S::State {
         if let Some(sampler) = self.constrained_sampler {
             for _ in 0..3 {
-                if let Some(state) = sampler.try_sample(self.rng) {
+                // Bounds-check `try_sample`'s output before accepting it,
+                // mirroring `sampleC`'s own
+                // `if (space_->satisfiesBounds(state)) { ...; return true; }`
+                // (`constrained_sampler.cpp:73-76`) right after copying the
+                // sampled state in: a `ConstrainedStateSampler` impl is
+                // under no obligation to bounds-check itself (this crate's
+                // own `GroupConstraintSampler` doesn't), so without this a
+                // NaN or out-of-bounds mid-search sample would bypass
+                // `rrt_connect`'s start/goal gate entirely and reach
+                // `nn.rs`'s distance comparators. A bounds-failing sample is
+                // treated the same as `None`: this attempt failed, retry or
+                // fall back.
+                if let Some(state) = sampler.try_sample(self.rng)
+                    && space.satisfies_bounds(&state)
+                {
                     return state;
                 }
             }
@@ -395,7 +409,18 @@ where
 {
     params.assert_valid();
 
-    if !checker.is_valid(&start) || !checker.is_valid(&goal) {
+    // Bounds-check each endpoint before validity-checking it, mirroring
+    // upstream `PlannerInputStates::nextStart`/`nextGoal`'s `bool bounds =
+    // si_->satisfiesBounds(st); bool valid = bounds ? si_->isValid(st) :
+    // false;` (`ompl/base/src/Planner.cpp:243-244,298-299`): an
+    // out-of-bounds state's own validity is never asked about. This crate's
+    // `satisfies_bounds` rejects a NaN component on every `StateSpace` impl
+    // (`RealVectorSpace`: `v >= min && v <= max`; the others delegate to it
+    // or check `is_finite()` directly), so a `checker`/`motion_validator`
+    // that does not itself special-case NaN can no longer be handed one.
+    let start_ok = space.satisfies_bounds(&start) && checker.is_valid(&start);
+    let goal_ok = space.satisfies_bounds(&goal) && checker.is_valid(&goal);
+    if !start_ok || !goal_ok {
         return Err(PlanningFailure::InvalidEndpoint);
     }
 
@@ -710,6 +735,80 @@ mod tests {
             &short_deadline,
         );
         assert_eq!(result, Err(PlanningFailure::DeadlineExhausted));
+    }
+
+    #[test]
+    fn nan_start_is_rejected_as_an_invalid_endpoint() {
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0)]).unwrap();
+        let always_valid = |_: &Vec<f64>| true;
+        let mv = DiscreteMotionValidator::new(&always_valid, 0.1);
+        let result = rrt_connect(
+            &space,
+            &always_valid,
+            &mv,
+            vec![f64::NAN],
+            vec![5.0],
+            Sampler::unconstrained(&mut rng(6)),
+            &params(),
+        );
+        assert_eq!(result, Err(PlanningFailure::InvalidEndpoint));
+    }
+
+    #[test]
+    fn nan_goal_is_rejected_as_an_invalid_endpoint() {
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0)]).unwrap();
+        let always_valid = |_: &Vec<f64>| true;
+        let mv = DiscreteMotionValidator::new(&always_valid, 0.1);
+        let result = rrt_connect(
+            &space,
+            &always_valid,
+            &mv,
+            vec![-5.0],
+            vec![f64::NAN],
+            Sampler::unconstrained(&mut rng(6)),
+            &params(),
+        );
+        assert_eq!(result, Err(PlanningFailure::InvalidEndpoint));
+    }
+
+    #[test]
+    fn a_nan_producing_constrained_sampler_falls_back_instead_of_reaching_the_tree() {
+        // Mirrors upstream `ConstrainedSampler::sampleC`
+        // (`constrained_sampler.cpp:67-81`): it bounds-checks its own
+        // `constraint_sampler_->sample` output before accepting it, so a
+        // constraint sampler that can itself produce a NaN/out-of-bounds
+        // state never reaches the planner. This double always "succeeds"
+        // with a NaN state, standing in for that case.
+        struct AlwaysNan;
+        impl ConstrainedStateSampler<RealVectorSpace> for AlwaysNan {
+            fn try_sample(&self, _rng: &mut dyn Rng) -> Option<Vec<f64>> {
+                Some(vec![f64::NAN, f64::NAN])
+            }
+        }
+
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
+        let always_valid = |_: &Vec<f64>| true;
+        let mv = DiscreteMotionValidator::new(&always_valid, 0.1);
+        let start = vec![-5.0, 0.0];
+        let goal = vec![5.0, 0.0];
+        let sampler = AlwaysNan;
+
+        let path = rrt_connect(
+            &space,
+            &always_valid,
+            &mv,
+            start.clone(),
+            goal.clone(),
+            Sampler {
+                rng: &mut rng(7),
+                constrained_sampler: Some(&sampler),
+            },
+            &params(),
+        )
+        .expect("rejecting every NaN draw must still fall back to plain uniform sampling");
+
+        assert_eq!(path.first(), Some(&start));
+        assert_eq!(path.last(), Some(&goal));
     }
 
     #[test]

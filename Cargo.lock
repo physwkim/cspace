@@ -467,6 +467,7 @@ dependencies = [
  "moveit-scene",
  "moveit-srdf",
  "moveit-state",
+ "moveit-test-support",
  "moveit-trajectory",
  "nalgebra",
  "serde",
@@ -552,6 +553,7 @@ name = "moveit-sampling"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "moveit-test-support",
  "nalgebra",
  "rand",
  "rand_chacha",
@@ -609,6 +611,7 @@ dependencies = [
  "moveit-geometry",
  "moveit-model",
  "moveit-srdf",
+ "moveit-test-support",
  "nalgebra",
  "rand",
  "rand_chacha",

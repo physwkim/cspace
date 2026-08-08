@@ -29,8 +29,7 @@ pub struct RevoluteJoint {
 
 impl Default for RevoluteJoint {
     /// Matches upstream's constructor: zero axis, not continuous. A zero
-    /// axis is degenerate (as it is upstream — `Eigen::Vector3d::normalized()`
-    /// on a zero vector is also NaN); callers are expected to call
+    /// axis is degenerate; callers are expected to call
     /// [`RevoluteJoint::set_axis`] before use, mirroring upstream's
     /// construct-then-`setAxis` sequence.
     fn default() -> Self {
@@ -42,16 +41,34 @@ impl Default for RevoluteJoint {
 }
 
 impl RevoluteJoint {
-    /// The axis of rotation, always unit length (or NaN if never set from a
-    /// non-degenerate vector — see [`RevoluteJoint::default`]).
+    /// The axis of rotation: unit length after a non-degenerate
+    /// [`RevoluteJoint::set_axis`], zero if never set (see
+    /// [`RevoluteJoint::default`]) or set from a zero vector.
     pub fn axis(&self) -> Vector3 {
         self.axis
     }
 
     /// Set the axis of rotation. Upstream `RevoluteJointModel::setAxis`,
     /// which normalizes.
+    ///
+    /// `Eigen::Vector3d::normalized()` guards its zero-norm case (returns
+    /// the input unchanged rather than dividing by zero — see
+    /// `MatrixBase::normalized`'s `if (z > 0) ... else return n;` in
+    /// `Dot.h`); nalgebra's `Vector3::normalize` has no such guard and
+    /// divides by zero unconditionally, turning a zero axis into
+    /// `[NaN, NaN, NaN]`. `try_normalize` with the upstream guard spelled
+    /// out reproduces the exact contract: a zero axis (reachable
+    /// unscreened from an explicit `<axis xyz="0 0 0"/>` in URDF) is left
+    /// as zero, not turned into NaN that silently propagates through
+    /// `computeTransform` into every downstream forward-kinematics
+    /// consumer.
+    ///
+    /// `try_normalize`'s `min_norm` argument is `0.0` to match Eigen's
+    /// exact `z > 0` guard, not merely "small": `if n <= min_norm { None }`
+    /// (nalgebra) versus `if (z > 0) ... else ...` (Eigen) agree bit for
+    /// bit at the zero boundary.
     pub fn set_axis(&mut self, axis: Vector3) {
-        self.axis = axis.normalize();
+        self.axis = axis.try_normalize(0.0).unwrap_or(axis);
     }
 
     /// Whether this joint wraps around (no position limit, `interpolate` and
@@ -182,10 +199,59 @@ impl RevoluteJoint {
     /// Upstream hand-expands the Rodrigues rotation matrix into the
     /// isometry's raw column-major storage (with the simpler
     /// `Eigen::Isometry3d(Eigen::AngleAxisd(value, axis_))` form left in a
-    /// comment — evidently optimized away for a hot FK path). This port
-    /// uses that simpler, equivalent form: nalgebra's axis-angle
-    /// construction, not hand-rolled matrix coefficients.
+    /// comment — never compiled, `revolute_joint_model.cpp:286`). This port
+    /// uses that simpler, uncompiled form instead: nalgebra's axis-angle
+    /// construction, not hand-rolled matrix coefficients. The two forms
+    /// are equivalent *only* for a genuine unit axis — see below for the
+    /// degenerate case, where they are not.
+    ///
+    /// # Degenerate axis: a disclosed divergence, not an oversight
+    ///
+    /// Upstream's compiled `computeTransform` (`revolute_joint_model.cpp:250-287`)
+    /// is fed by `setAxis`'s precomputed products (`x2_`, `xy_`, ...,
+    /// `:73-81`) and by the constructor's own initializer (`axis_(0,0,0)`,
+    /// `:49`) — both leave `axis_ == (0,0,0)` with every product exactly
+    /// `0.0` when the axis is degenerate. With every product zero, every
+    /// off-diagonal matrix term vanishes and every diagonal term collapses
+    /// to `t*0 + c = c` (`:266/272/278`), so upstream's matrix is exactly
+    /// `cos(value)*I`. That is a rotation only at `value == 0`
+    /// (`cos(0) == 1`); for any other `value` its determinant is
+    /// `cos^3(value) != 1` and it is not orthogonal — upstream returns a
+    /// non-rotation matrix here, an accident of C++ having no unit-vector
+    /// type enforcement to stop it, not a contract this port owes
+    /// bit-for-bit.
+    ///
+    /// `nalgebra::Isometry3` is translation composed with a
+    /// [`UnitQuaternion`] and cannot represent a non-orthonormal "rotation"
+    /// at all. `UnitQuaternion::from_axis_angle(&Unit::new_unchecked(axis),
+    /// value)` on a zero `axis` does not panic and does not produce NaN —
+    /// it silently returns a `UnitQuaternion` whose own promised unit-norm
+    /// invariant is false (measured: norm `0.9553364...` at `value = 0.3`),
+    /// which every downstream consumer of that "unit" quaternion then
+    /// silently trusts.
+    ///
+    /// Since this port cannot reproduce upstream's raw non-rotation output
+    /// through this type, it substitutes the identity rotation for a
+    /// degenerate axis, regardless of `value`. "Rotate by any angle about
+    /// no axis" is physically undefined; identity is the least-wrong
+    /// finite answer a genuinely-unit-typed API can give. This agrees with
+    /// upstream exactly at `value == 0` (both sides give identity) and
+    /// diverges for `value != 0` by design. Do not "fix" this back to an
+    /// unconditional `from_axis_angle` without first solving the
+    /// representability problem above.
+    ///
+    /// [`RevoluteJoint::compute_variable_position`] needs no equivalent
+    /// guard: its `axis_val`/`q_val` fold already degrades gracefully on a
+    /// zero (or NaN) axis component via ordinary division, returning a
+    /// NaN angle rather than requiring a distinct output shape the way
+    /// this function does.
     pub(super) fn compute_transform(&self, value: f64) -> Isometry3 {
+        if self.axis == Vector3::zeros() {
+            return Isometry3::from_parts(
+                nalgebra::Translation3::identity(),
+                UnitQuaternion::identity(),
+            );
+        }
         Isometry3::from_parts(
             nalgebra::Translation3::identity(),
             UnitQuaternion::from_axis_angle(&nalgebra::Unit::new_unchecked(self.axis), value),
@@ -196,17 +262,43 @@ impl RevoluteJoint {
     /// transform produced by [`RevoluteJoint::compute_transform`].
     ///
     /// Upstream picks the axis component with the largest absolute value to
-    /// avoid dividing by a near-zero component; ties are broken by whichever
-    /// component `Iterator::max_by` keeps (upstream's `Eigen::maxCoeff` does
-    /// not document its tie-break either). Every axis in the panda and
-    /// fanuc fixtures is a single unit basis vector, so no tie is possible
-    /// there.
+    /// avoid dividing by a near-zero component
+    /// (`axis_.array().abs().maxCoeff(&max_idx)`,
+    /// `revolute_joint_model.cpp:295`). At length 3 `Eigen::maxCoeff` does
+    /// not vectorize, so — unlike the general no-argument-reduction family,
+    /// whose NaN behavior *is* build-dependent at larger lengths — it has
+    /// one exact, build-stable rule here (measured across `-O0`, `-O2`, and
+    /// `-O2 -DEIGEN_DONT_VECTORIZE` against this repo's Eigen 3.4.0 oracle
+    /// image): a left fold from index 0, `res = coeff(0)`, then `if (x >
+    /// res) { res = x; idx = i }` per following index. A NaN component
+    /// never displaces the incumbent (`x > res` is false when `x` is NaN),
+    /// and a *leading* NaN is never displaced either (every later `x >
+    /// NaN` is also false too) — so the fold returns a value rather than
+    /// panicking on a NaN axis component, and a tie keeps the *first*
+    /// index, not the last.
+    ///
+    /// `Iterator::reduce`'s `if cur.0.abs() > best.0.abs() { cur } else {
+    /// best }` reproduces both measured properties; `Iterator::max_by`
+    /// (the previous spelling here) does not: its `partial_cmp(...)
+    /// .unwrap()` panics outright on a NaN component (reachable through
+    /// [`RevoluteJoint::set_axis`] on a NaN input, which propagates rather
+    /// than guards, unlike the zero-axis case — see `set_axis`'s doc
+    /// comment), and even setting the panic aside, `max_by` keeps the
+    /// *last* tied element, the opposite of Eigen's first-index rule.
+    /// Every axis in the panda and fanuc fixtures is a single unit basis
+    /// vector, so no tie is exercised by either oracle-backed fixture.
     pub(super) fn compute_variable_position(&self, transform: &Isometry3) -> f64 {
         let q = transform.rotation.quaternion();
         let components = [(self.axis.x, q.i), (self.axis.y, q.j), (self.axis.z, q.k)];
         let (axis_val, q_val) = components
             .into_iter()
-            .max_by(|a, b| a.0.abs().partial_cmp(&b.0.abs()).unwrap())
+            .reduce(|best, cur| {
+                if cur.0.abs() > best.0.abs() {
+                    cur
+                } else {
+                    best
+                }
+            })
             .expect("axis has three components");
         2.0 * (q_val / axis_val).atan2(q.w)
     }
@@ -251,6 +343,34 @@ mod tests {
         // exactly under IEEE 754 -- a structural identity, not a value
         // measured for this input alone.
         assert_eq!(joint.axis().norm(), 1.0);
+    }
+
+    /// `Eigen::Vector3d::normalized()` guards its zero-norm case and
+    /// returns the input unchanged; `Vector3::normalize` has no such guard
+    /// and turns a zero axis into `[NaN, NaN, NaN]`. A zero axis is
+    /// reachable unscreened from URDF (`<axis xyz="0 0 0"/>`), so a NaN
+    /// axis here would make `compute_transform` — and everything
+    /// downstream of forward kinematics — NaN too. Fails before the
+    /// `try_normalize` fix (axis is NaN, transform is NaN) and passes
+    /// after.
+    #[test]
+    fn set_axis_on_a_zero_vector_leaves_it_zero_not_nan() {
+        let mut joint = RevoluteJoint::default();
+        joint.set_axis(Vector3::zeros());
+        assert_eq!(joint.axis(), Vector3::zeros());
+        let transform = joint.compute_transform(0.5);
+        let q = transform.rotation.quaternion();
+        assert!(q.i.is_finite() && q.j.is_finite() && q.k.is_finite() && q.w.is_finite());
+    }
+
+    /// Demonstrated opposite of the above: an ordinary non-unit axis still
+    /// normalizes exactly, so the zero-norm guard does not turn `set_axis`
+    /// into a no-op for every input.
+    #[test]
+    fn set_axis_still_normalizes_an_ordinary_non_unit_axis() {
+        let mut joint = RevoluteJoint::default();
+        joint.set_axis(Vector3::new(0.0, 0.0, 3.0));
+        assert_eq!(joint.axis(), Vector3::new(0.0, 0.0, 1.0));
     }
 
     #[test]
@@ -370,5 +490,120 @@ mod tests {
             // property of the round trip.
             assert_eq!(recovered, value);
         }
+    }
+
+    fn quaternion_coeffs(joint: &RevoluteJoint, value: f64) -> (f64, f64, f64, f64) {
+        let transform = joint.compute_transform(value);
+        let q = transform.rotation.quaternion();
+        (q.i, q.j, q.k, q.w)
+    }
+
+    /// `value == 0.0` is where the degenerate-axis substitute is NOT a
+    /// divergence: upstream's own `cos(0)*I` is exactly the identity,
+    /// matching this port's identity substitute exactly. Covers the
+    /// "never called `set_axis`" reachability path from
+    /// `compute_transform`'s doc comment.
+    #[test]
+    fn compute_transform_on_a_never_set_axis_agrees_with_upstream_at_zero() {
+        let joint = RevoluteJoint::default();
+        assert_eq!(quaternion_coeffs(&joint, 0.0), (0.0, 0.0, 0.0, 1.0));
+    }
+
+    /// Same as above, through the other reachability path: `set_axis`
+    /// called explicitly with a zero vector rather than never called.
+    #[test]
+    fn compute_transform_on_an_explicitly_zeroed_axis_agrees_with_upstream_at_zero() {
+        let mut joint = RevoluteJoint::default();
+        joint.set_axis(Vector3::zeros());
+        assert_eq!(quaternion_coeffs(&joint, 0.0), (0.0, 0.0, 0.0, 1.0));
+    }
+
+    /// The disclosed divergence itself: for `value != 0`, upstream's own
+    /// `cos(value)*I` is not a rotation at all (determinant
+    /// `cos^3(value) != 1`), and this port's `Isometry3` cannot represent
+    /// it -- see `compute_transform`'s doc comment. The identity
+    /// substitute numerically disagrees with upstream's raw (invalid)
+    /// output here, by design, not by bug.
+    #[test]
+    fn compute_transform_on_a_never_set_axis_returns_identity_not_upstreams_non_rotation() {
+        let joint = RevoluteJoint::default();
+        assert_eq!(quaternion_coeffs(&joint, 0.6), (0.0, 0.0, 0.0, 1.0));
+    }
+
+    /// Same disclosed divergence, through the other reachability path.
+    #[test]
+    fn compute_transform_on_an_explicitly_zeroed_axis_returns_identity_not_upstreams_non_rotation()
+    {
+        let mut joint = RevoluteJoint::default();
+        joint.set_axis(Vector3::zeros());
+        assert_eq!(quaternion_coeffs(&joint, 0.6), (0.0, 0.0, 0.0, 1.0));
+    }
+
+    /// Upstream treats "constructor, `setAxis` never called" and
+    /// "`setAxis` called on a zero vector" as the identical `axis_ ==
+    /// (0,0,0)` state (`revolute_joint_model.cpp:49` vs. `:75`); pinned
+    /// here as literally equal transforms across several `value`s, not
+    /// just individually-identity, so a future change to either
+    /// reachability path that stops agreeing with the other is caught.
+    #[test]
+    fn compute_transform_treats_never_set_and_explicitly_zeroed_axis_as_the_same_state() {
+        let never_set = RevoluteJoint::default();
+        let mut explicitly_zeroed = RevoluteJoint::default();
+        explicitly_zeroed.set_axis(Vector3::zeros());
+        for value in [0.0_f64, 0.6, -1.2] {
+            assert_eq!(
+                quaternion_coeffs(&never_set, value),
+                quaternion_coeffs(&explicitly_zeroed, value),
+                "value = {value}"
+            );
+        }
+    }
+
+    /// Demonstrated opposite: an ordinary unit axis still produces the
+    /// correct rotation -- the guard does not neuter `compute_transform`
+    /// generally, only the degenerate-axis case.
+    #[test]
+    fn compute_transform_still_rotates_correctly_for_an_ordinary_axis() {
+        let (joint, _bounds) = bounded(); // axis (0, 0, 1)
+        let (i, j, k, w) = quaternion_coeffs(&joint, 0.6);
+        // Rotation of 0.6 rad about +z: (0, 0, sin(0.3), cos(0.3)) exactly,
+        // under IEEE 754, not a value measured for this input alone.
+        assert_eq!((i, j), (0.0, 0.0));
+        assert_eq!(k, 0.3_f64.sin());
+        assert_eq!(w, 0.3_f64.cos());
+    }
+
+    /// `set_axis` on a NaN input propagates the NaN (unlike the zero-axis
+    /// case, which `try_normalize` guards -- see `set_axis`'s doc comment),
+    /// so a NaN axis is reachable here. `partial_cmp(...).unwrap()` (the
+    /// old `max_by`-based spelling) panics outright when comparing any NaN
+    /// component; `reduce`'s explicit `>` comparison does not, matching
+    /// Eigen's measured `maxCoeff` rule of never displacing the incumbent
+    /// on a NaN challenger. Written as a normal call, not `#[should_panic]`,
+    /// so it fails before this fix (the old code panics) and passes after.
+    #[test]
+    fn compute_variable_position_on_a_nan_axis_returns_rather_than_panics() {
+        let joint = RevoluteJoint {
+            axis: Vector3::new(f64::NAN, 1.0, 0.0),
+            continuous: false,
+        };
+        let transform = Isometry3::from_parts(
+            nalgebra::Translation3::identity(),
+            UnitQuaternion::identity(),
+        );
+        // Eigen's fold never displaces the incumbent on a NaN challenger, so
+        // the leading NaN component (index 0) is kept, and the returned
+        // angle is NaN, not a panic.
+        assert!(joint.compute_variable_position(&transform).is_nan());
+    }
+
+    /// Demonstrated opposite of the above: an ordinary unit axis (no NaN
+    /// component) still recovers the same angle after the `reduce` rewrite
+    /// that `max_by` gave before it.
+    #[test]
+    fn compute_variable_position_still_recovers_the_angle_for_an_ordinary_axis() {
+        let (joint, _bounds) = bounded(); // axis (0, 0, 1), no tie possible
+        let transform = joint.compute_transform(0.9);
+        assert_eq!(joint.compute_variable_position(&transform), 0.9);
     }
 }

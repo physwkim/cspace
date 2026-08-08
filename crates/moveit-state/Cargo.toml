@@ -23,6 +23,7 @@ serde.workspace = true
 serde_json.workspace = true
 urdf-rs.workspace = true
 moveit-srdf.workspace = true
+moveit-test-support.workspace = true
 
 [lints]
 workspace = true

@@ -81,17 +81,22 @@
 //   `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins`
 //   (this module's tests, below) exercises the contract against a
 //   synthetic planar joint.
-// - **`do_smoothing`'s length check reads `velocities.len()`, not
-//   `positions.len()`, transcribed as upstream's own quirk.** Upstream names
-//   its check variable `num_positions` but assigns it from
-//   `velocities.size()` (`const size_t num_positions = velocities.size();`);
-//   a `positions`/`velocities` pair that disagree in length passes or fails
-//   this check based on `velocities`' length alone, with `positions`' actual
-//   length only checked indirectly, against `last_positions_.size()`, by the
-//   very next `else if`. Transcribed here exactly as upstream computes it,
-//   including the confusing name and the checked-second `positions` failure
-//   message, rather than "fixed" into a check against `positions.len()`
-//   directly.
+// - **`do_smoothing`'s length check reads `velocities.len()`, matching its
+//   error message, unlike upstream's own misattributed one
+//   (`do-smoothing-length-check-operand`).** Upstream names its check
+//   variable `num_positions` but assigns it from `velocities.size()`
+//   (`const size_t num_positions = velocities.size();`,
+//   `acceleration_filter.cpp:312-313`) and its `RCLCPP_ERROR_THROTTLE`
+//   (`:314-319`) blames "the joint positions parameter" -- even though the
+//   operand actually checked, and the one that would go out of bounds at
+//   `velocities_offset_ = last_velocities_ - velocities` (`:351`) if left
+//   unchecked, is `velocities`. `positions`' own length is checked
+//   separately, against `last_positions_.size()`, by the very next `else
+//   if` (`:321-328`). This port keeps upstream's actual check (against
+//   `velocities.len()` -- that operand is correct; only its name and
+//   message were wrong) but names the local `num_velocities` and points the
+//   error message at "the joint velocities parameter," so the message
+//   correctly identifies which argument a caller needs to fix.
 // - **Exact closed-form solve vs. upstream's iterative `osqp` solve: verified
 //   equal to float precision away from a degenerate constraint, and
 //   documented, not silently normalized, at one.** The QP upstream hands to
@@ -135,6 +140,8 @@
 
 use moveit_error::{Error, Result};
 use moveit_model::{JointModelGroup, RobotModel};
+
+use crate::numeric::cxx_clamp;
 
 /// The threshold below which any position or velocity difference is
 /// considered zero (rad and rad/s). `COMMAND_DIFFERENCE_THRESHOLD`.
@@ -190,6 +197,15 @@ pub fn joint_acceleration_bounds(
 /// acceleration bound: the minimum, over every joint with a nonzero target
 /// acceleration, of the ratio between that joint's bound-clamped and raw
 /// acceleration -- `1.0` (no scaling) if every target acceleration is zero.
+///
+/// The clamp is [`cxx_clamp`], not `f64::clamp`: upstream's
+/// `std::clamp(target_accel, min_acceleration_, max_acceleration_)` falls
+/// through to `target_accel` when a bound is NaN; `f64::clamp` panics on
+/// one (`assert!(min <= max)`, which a NaN bound always fails). A NaN
+/// `min_acceleration`/`max_acceleration` is reachable via
+/// [`joint_acceleration_bounds`], which reads
+/// [`moveit_model::joint::VariableBounds`]'s public fields with no
+/// validation -- see [`crate::numeric`].
 fn joint_limit_acceleration_scaling_factor(
     accelerations: &[f64],
     min_acceleration_limits: &[f64],
@@ -199,8 +215,11 @@ fn joint_limit_acceleration_scaling_factor(
     for i in 0..accelerations.len() {
         let target_accel = accelerations[i];
         if target_accel != 0.0 {
-            let bounded_accel =
-                target_accel.clamp(min_acceleration_limits[i], max_acceleration_limits[i]);
+            let bounded_accel = cxx_clamp(
+                target_accel,
+                min_acceleration_limits[i],
+                max_acceleration_limits[i],
+            );
             let joint_scaling_factor = bounded_accel / target_accel;
             min_scaling_factor = min_scaling_factor.min(joint_scaling_factor);
         }
@@ -352,14 +371,14 @@ impl AccelerationLimitedFilter {
     /// [`Self::reset`] was never called (`positions.len()` then disagrees
     /// with the empty `last_positions`) -- see the module doc's "Deviations
     /// from upstream" note on why the first check reads `velocities`, not
-    /// `positions`.
+    /// `positions`, and now names it correctly in its error message.
     pub fn do_smoothing(&mut self, positions: &mut [f64], velocities: &mut [f64]) -> Result<()> {
         let num_joints = self.num_joints();
-        let num_positions = velocities.len();
-        if num_positions != num_joints {
+        let num_velocities = velocities.len();
+        if num_velocities != num_joints {
             return Err(Error::other(format!(
-                "the length of the joint positions parameter is not equal to the number of \
-                 joints, expected {num_joints} got {num_positions}"
+                "the length of the joint velocities parameter is not equal to the number of \
+                 joints, expected {num_joints} got {num_velocities}"
             )));
         }
         if self.last_positions.len() != positions.len() {
@@ -559,8 +578,19 @@ mod tests {
     }
 
     #[test]
-    fn do_smoothing_rejects_a_length_mismatch() {
-        // `:329`'s guard, previously untested anywhere in the workspace
+    fn do_smoothing_rejects_a_length_mismatch_naming_the_actual_operand() {
+        // `do-smoothing-length-check-operand` (upstream
+        // `acceleration_filter.cpp:312-313`): the guard's own variable name
+        // (`num_positions`) and error message ("the joint positions
+        // parameter") both misattribute to `positions`, even though the
+        // guard's operand -- and the only thing that would actually go out
+        // of bounds at `velocities_offset_ = last_velocities_ - velocities`
+        // (`:351`) if unchecked -- is `velocities.len()`. `positions` is
+        // correctly sized here (matches `num_joints_` and, after `new`,
+        // `last_positions_.len()`) while `velocities` is not, so this case
+        // discriminates "the message names the operand actually checked"
+        // from "the message names upstream's misleading variable name" --
+        // `:329`'s guard was previously untested anywhere in the workspace
         // (see `do_smoothing_before_reset_is_an_error`'s comment below);
         // bite-checked against that guard's sibling.
         let mut filter = AccelerationLimitedFilter::new(&[-2.0], &[2.0], 1.0).unwrap();
@@ -571,7 +601,7 @@ mod tests {
             .unwrap_err();
         assert!(
             err.to_string()
-                .contains("the length of the joint positions parameter"),
+                .contains("the length of the joint velocities parameter"),
             "{err}"
         );
     }
@@ -584,7 +614,8 @@ mod tests {
         // the workspace (its message has exactly one hit: its own
         // `format!` call) -- it was never message-swap bite-checked
         // against this one, despite what an earlier version of this
-        // comment claimed. See `do_smoothing_rejects_a_length_mismatch`
+        // comment claimed. See
+        // `do_smoothing_rejects_a_length_mismatch_naming_the_actual_operand`
         // above for the guard's own coverage and bite.
         let mut filter = AccelerationLimitedFilter::new(&[-2.0], &[2.0], 1.0).unwrap();
         let mut positions = [0.5];
@@ -823,5 +854,37 @@ mod tests {
         // see the module doc for the full derivation.
         let upstream_osqp_position = 0.0008294991991130152;
         assert!((positions[0] - upstream_osqp_position).abs() < 2e-3);
+    }
+
+    /// A NaN acceleration bound (the `cxx_clamp` `lo`/`hi`) must be
+    /// silently ignored, not panic. `f64::clamp` panics on a NaN bound
+    /// (`assert!(min <= max)`, which a NaN bound always fails); this fails
+    /// before the `cxx_clamp` fix (panics) and passes after.
+    #[test]
+    fn joint_limit_acceleration_scaling_factor_ignores_a_nan_min_bound() {
+        let scale = joint_limit_acceleration_scaling_factor(&[5.0], &[f64::NAN], &[2.0]);
+        // min_acceleration_ is NaN, so std::clamp(5.0, NaN, 2.0) falls
+        // through to the hi comparison alone: 2.0 < 5.0, so the clamped
+        // value is 2.0, giving a scaling factor of 2.0 / 5.0.
+        assert_eq!(scale, 2.0 / 5.0);
+    }
+
+    /// As above, for the `max` bound.
+    #[test]
+    fn joint_limit_acceleration_scaling_factor_ignores_a_nan_max_bound() {
+        let scale = joint_limit_acceleration_scaling_factor(&[-5.0], &[-2.0], &[f64::NAN]);
+        // max_acceleration_ is NaN, so std::clamp(-5.0, -2.0, NaN) falls
+        // through to the lo comparison alone: -5.0 < -2.0, so the clamped
+        // value is -2.0, giving a scaling factor of -2.0 / -5.0.
+        assert_eq!(scale, (-2.0) / (-5.0));
+    }
+
+    /// Demonstrated opposite: an ordinary finite bound still clamps and
+    /// scales normally, so the NaN handling above is not a blanket
+    /// "ignore every bound" change.
+    #[test]
+    fn joint_limit_acceleration_scaling_factor_still_clamps_finite_bounds() {
+        let scale = joint_limit_acceleration_scaling_factor(&[5.0], &[-2.0], &[2.0]);
+        assert_eq!(scale, 2.0 / 5.0);
     }
 }

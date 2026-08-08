@@ -49,6 +49,7 @@
 
 mod conversions;
 mod dynamics;
+mod numeric;
 mod state;
 
 pub use conversions::{csv_to_robot_state, robot_state_to_csv, robot_state_to_csv_by_groups};

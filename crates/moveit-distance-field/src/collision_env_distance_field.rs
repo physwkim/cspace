@@ -1052,11 +1052,12 @@ pub fn group_state_representation<'a, 'm>(
 /// Upstream's trailing attached-body loop (round 22) is now ported too --
 /// re-posing each attached-body decomposition's shapes and resetting its
 /// [`GradientInfo`] slot, mirroring [`group_state_representation`]'s own
-/// attached-body build. It also faithfully reproduces upstream's own
-/// suspicious count check (`collision_env_distance_field.cpp:1132-1137`,
-/// upstream's own comment: `TODO: This logic for checking attached body
-/// count might be incorrect`) rather than "fixing" it -- see this function's
-/// body for exactly what it compares.
+/// attached-body build. Its guard corrects upstream's own suspicious count
+/// check (`attached-body-count-check`,
+/// `collision_env_distance_field.cpp:1132-1137`, upstream's own comment:
+/// `TODO: This logic for checking attached body count might be incorrect`)
+/// rather than reproducing it -- see this function's body for the
+/// established correct comparison and its evidence.
 ///
 /// Unlike [`group_state_representation`]'s fresh-build path, this reset
 /// *is* upstream-deterministic: `gradients_[i].gradients.assign(n,
@@ -1118,13 +1119,34 @@ pub fn update_group_state_representation_state(
             .find(|ab| ab.id == name.as_str())
             .ok_or_else(|| Error::unknown_name("attached body", name.clone()))?;
 
-        // Upstream's own suspicious count check
-        // (`collision_env_distance_field.cpp:1132-1137`): compares the
-        // *outer* vector's length (total attached body count for this
-        // group) against *this one* attached body's shape count, not this
-        // decomposition's own shape count against itself. Faithfully
-        // reproduced, not fixed -- see this function's doc comment.
-        if gsr.attached_body_decompositions.len() != attached.shapes.len() {
+        // `attached-body-count-check`
+        // (`collision_env_distance_field.cpp:1132-1137`): upstream compares
+        // the *outer* vector's length (total attached body count for this
+        // whole group, `gsr->attached_body_decompositions_.size()`) against
+        // *this one* attached body's shape count (`att->getShapes().size()`)
+        // -- two unrelated quantities, flagged by upstream's own author as
+        // possibly wrong. The comparison this guard exists to make is
+        // established by what the loop just below actually needs:
+        // `update_pose(j, ...)` writes into *this* attached body's own
+        // sub-decomposition (`gsr.attached_body_decompositions[i]`, a
+        // `PosedBodySphereDecompositionVector` -- upstream
+        // `PosedBodySphereDecompositionVectorPtr`), whose own shape count is
+        // exactly `PosedBodySphereDecompositionVector::len()`
+        // (`collision_distance_field_types.rs:1109-1112`, upstream
+        // `getSize`, `collision_distance_field_types.hpp:407-410`) -- one
+        // entry per shape, built by
+        // `attached_body_sphere_decomposition`
+        // (`collision_common_distance_field.rs:567-580`, upstream
+        // `getAttachedBodySphereDecomposition`), which calls
+        // `add_to_vector` once per `attached.shapes` entry. `update_pose`
+        // itself already bounds-checks against that same length
+        // (`collision_distance_field_types.rs:1132-1135`, upstream
+        // `:422-428`'s `if (ind >= decomp_vector_.size())`), so this outer
+        // guard's job is to catch a stale cached decomposition -- built for
+        // a different shape count than `att` currently has -- in bulk,
+        // before writing any of its shapes, rather than silently updating
+        // some and leaving others stale.
+        if gsr.attached_body_decompositions[i].len() != attached.shapes.len() {
             continue;
         }
 
@@ -3613,8 +3635,19 @@ mod tests {
     }
 
     #[test]
-    fn update_group_state_representation_state_reproduces_upstreams_suspicious_attached_body_count_check()
-     {
+    fn update_group_state_representation_state_checks_this_attached_bodys_own_shape_count() {
+        // `attached-body-count-check`
+        // (`collision_env_distance_field.cpp:1132-1137`, upstream's own
+        // comment: "TODO: This logic for checking attached body count might
+        // be incorrect"): the outer vector's length (total attached body
+        // count for the whole group) and this one attached body's own shape
+        // count are two unrelated quantities that happen to be equal
+        // whenever a group has exactly one attached body with exactly one
+        // shape -- the case below (outer count 1, this body's shape count
+        // 2) is the discriminating one: it is exactly where "compare the
+        // outer count" and "compare this body's own decomposition size"
+        // (this port's corrected guard) disagree, so it is the only
+        // construction that can tell them apart.
         let model = pr2_model();
         let shapes = vec![sample_shape(), sample_shape()];
         let shape_poses = vec![
@@ -3633,14 +3666,6 @@ mod tests {
             touch_links: &touch_links,
         };
         let dfce = right_arm_cache_entry_with_attached(&model, &[attached]);
-        // Precondition for upstream's own bug to trip: exactly one attached
-        // body (the outer vector's length, `gsr->attached_body_decompositions_.size()`)
-        // whose own shape count (2) differs from that outer length --
-        // upstream's own suspicious check
-        // (`collision_env_distance_field.cpp:1132-1137`, upstream's own
-        // comment: "TODO: This logic for checking attached body count might
-        // be incorrect") compares those two unrelated counts, not this
-        // decomposition's own shape count against itself.
         assert_eq!(dfce.attached_body_names.len(), 1);
         assert_eq!(attached.shapes.len(), 2);
 
@@ -3696,10 +3721,16 @@ mod tests {
 
         assert_eq!(
             gsr.attached_body_decompositions[0].sphere_centers(),
+            fresh_at_moved.attached_body_decompositions[0].sphere_centers(),
+            "this attached body's own shape count (2) equals attached.shapes.len() \
+             (2), so the guard must not skip the re-pose -- 1 (the unrelated outer \
+             attached-body count) must not enter this comparison at all"
+        );
+        assert_ne!(
+            gsr.attached_body_decompositions[0].sphere_centers(),
             before.as_slice(),
-            "1 (outer attached-body count) != 2 (this attached body's own \
-             shape count) must trip upstream's suspicious `continue` and \
-             skip the re-pose entirely, even though the joint actually moved"
+            "the re-pose must actually have happened, not coincidentally matched \
+             both `before` and `fresh_at_moved`"
         );
     }
 
