@@ -272,12 +272,38 @@ impl ChompCost {
     /// Scales `quad_cost_full_`/`quad_cost_` by `scale` and `quad_cost_inv_`
     /// by `1.0 / scale`.
     ///
+    /// Returns a typed error, leaving `self` unchanged, if `scale` is `0.0`,
+    /// non-finite, or `-0.0` (division/NaN-guard audit, chomp/stomp sweep):
+    /// upstream's `chomp_cost.cpp:97-103` computes `inv_scale = 1.0 /
+    /// scale` unconditionally and multiplies it straight into
+    /// `quad_cost_inv_` -- identical unguarded form, so this is upstream's
+    /// own defect, not just a port gap. `ChompOptimizer::new`'s own call to
+    /// this method always passes `max_quad_cost_inv_value()`'s result,
+    /// which is provably `> 0.0` for any successfully-constructed
+    /// `ChompCost` with `num_vars_free > 0` (a real symmetric
+    /// positive-definite `quad_cost_` -- guaranteed by
+    /// `try_inverse().is_some()` above plus non-negative
+    /// `derivative_costs`/`ridge_factor` -- has a strictly positive
+    /// inverse diagonal, and `.max()` over the whole matrix is at least
+    /// that), so this guard is unreachable through this crate's own
+    /// `ChompOptimizer` pipeline. It is reachable through `ChompCost`
+    /// directly: both the type and this method are `pub`, `ChompCost` is
+    /// re-exported from [`crate`], and a caller building one by hand (this
+    /// crate's own top-level parity doc documents `scale` as part of its
+    /// public API surface) can pass any `f64`, including `0.0`.
+    ///
     /// Ported from `scale`.
-    pub fn scale(&mut self, scale: f64) {
+    pub fn scale(&mut self, scale: f64) -> Result<()> {
+        if !scale.is_finite() || scale == 0.0 {
+            return Err(Error::other(format!(
+                "scale must be finite and non-zero, got {scale}"
+            )));
+        }
         let inv_scale = 1.0 / scale;
         self.quad_cost_inv *= inv_scale;
         self.quad_cost *= scale;
         self.quad_cost_full *= scale;
+        Ok(())
     }
 
     /// Builds a `size x size` finite-difference matrix from a single
@@ -537,7 +563,7 @@ mod tests {
         let quad_cost_before = cost.quadratic_cost().clone();
 
         let scale = 2.5;
-        cost.scale(scale);
+        cost.scale(scale).unwrap();
 
         assert_relative_eq!(
             cost.quadratic_cost_inverse(),
@@ -551,5 +577,44 @@ mod tests {
             epsilon = EPS,
             max_relative = EPS
         );
+    }
+
+    /// Division/NaN-guard audit (round: chomp/stomp sweep). Demonstrated at
+    /// the point that actually returns a wrong answer, not just a
+    /// non-finite value: unguarded, `scale(0.0)` computes `inv_scale =
+    /// 1.0 / 0.0 = Infinity` and multiplies it into `quad_cost_inv_`,
+    /// silently replacing every entry with `Infinity` (or `NaN` where an
+    /// entry was already `0.0`) rather than failing -- a `Result`-returning
+    /// caller could otherwise read `quadratic_cost_inverse()` right after
+    /// and get a materially wrong matrix with no signal anything went
+    /// wrong.
+    #[test]
+    fn scale_rejects_zero_and_leaves_state_unchanged() {
+        let traj = trajectory(20);
+        let mut cost = ChompCost::new(&traj, &[1.0, 1.0, 1.0], 1e-3).unwrap();
+        let quad_cost_inv_before = cost.quadratic_cost_inverse().clone();
+        let quad_cost_before = cost.quadratic_cost().clone();
+
+        let err = cost.scale(0.0).unwrap_err();
+        assert!(err.to_string().contains("finite and non-zero"));
+
+        assert_eq!(cost.quadratic_cost_inverse(), &quad_cost_inv_before);
+        assert_eq!(cost.quadratic_cost(), &quad_cost_before);
+        assert!(
+            cost.quadratic_cost_inverse().iter().all(|v| v.is_finite()),
+            "rejected scale(0.0) must not have poisoned quad_cost_inv_ with Infinity/NaN"
+        );
+    }
+
+    /// Same guard, non-finite input: upstream's `1.0 / scale` for a `NaN`
+    /// `scale` is `NaN`, and `NaN * anything` stays `NaN` -- a comparison
+    /// guard (`scale == 0.0`) alone would miss this, since every `NaN`
+    /// comparison is false and the multiply would go ahead silently.
+    #[test]
+    fn scale_rejects_nan() {
+        let traj = trajectory(20);
+        let mut cost = ChompCost::new(&traj, &[1.0, 1.0, 1.0], 1e-3).unwrap();
+        let err = cost.scale(f64::NAN).unwrap_err();
+        assert!(err.to_string().contains("finite and non-zero"));
     }
 }
