@@ -702,26 +702,50 @@ for planner in $PLANNERS; do
   [[ -s "$WORKDIR/panda_floor_wall.request.json" ]] || continue
   run_inject "$planner" "$binary" "$WORKDIR/panda_floor_wall.request.json" \
              collision panda_floor_wall
-  # `constraint` cannot use the constrained set as generated. STOMP solves none
-  # of it -- measured 0 solved / 16 timeouts over three constrained sets (seed
-  # 810011 floor_wall tolerance 0.5, 8 problems; seed 810012 floor_wall
-  # tolerance 1.5, 4; seed 810013 cage tolerance 0.5, 4), and one of those
-  # problems given 600s instead of 120s was still not solved when it was killed
-  # at 730s -- because `getConstraintsCostFunction` costs a state by
-  # `decide().distance`, the distance to the constraint TARGET rather than the
-  # amount by which the tolerance is exceeded, and
-  # `cost_function_from_state_validator` marks any timestep with cost > 0
-  # invalid. A group that moves the constrained joint at all therefore has no
-  # valid timestep, at any budget. With no solved path there is nothing to
-  # splice a bad waypoint into, and the stage reports "checked nothing".
+  # `constraint` USED TO be unable to use the constrained set as generated:
+  # STOMP solved none of it -- measured 0 solved / 16 timeouts over three
+  # constrained sets (seed 810011 floor_wall tolerance 0.5, 8 problems; seed
+  # 810012 floor_wall tolerance 1.5, 4; seed 810013 cage tolerance 0.5, 4), and
+  # one of those problems given 600s instead of 120s was still not solved when
+  # it was killed at 730s -- because `getConstraintsCostFunction` costs a state
+  # by `decide().distance`, the distance to the constraint TARGET rather than
+  # the amount by which the tolerance is exceeded, and
+  # `cost_function_from_state_validator` marked any timestep with cost > 0
+  # invalid. A group that moved the constrained joint at all therefore had no
+  # valid timestep, at any budget. With no solved path there was nothing to
+  # splice a bad waypoint into, and the stage reported "checked nothing".
   #
-  # So the constraint moves from the planner to the checker: the same problems,
-  # the same endpoints (sampled to satisfy it, so a path between them can too),
-  # planned WITHOUT it and checked WITH it. That is the pairing the check needs
-  # anyway -- `<planner>/inject_constrained` in the run list below is this exact
-  # request without the injection, and it has to come out 100% valid for the
-  # rejection here to mean the waypoint was rejected rather than the path.
+  # That premise is now false: `7f561e20` (fix(stomp): gate constraint cost on
+  # satisfied, not raw distance) removed the cause. Measured on this exact
+  # `CONSTRAINED_SET` tuple (panda floor_wall seed 810011
+  # panda_joint1:0.0:0.5), 16 problems, PLANNER_SEED_BASE 525252, control
+  # `ff045455` vs treatment `ff045455`+`7f561e20` cherry-picked: solved 0/16 ->
+  # 16/16, timeouts 16/16 -> 0/16, condition2_pass 0/16 -> 16/16, median
+  # plan_seconds 120.07 -> 3.98. Full design and caveats (this is 16/16 at
+  # PILOT_COUNT, not a `full`-mode measurement) in
+  # `scratchpad/stompmeas/RESULT.md` (2026-08-08, run in a throwaway
+  # integration worktree, not this tree).
+  #
+  # So `constrained.request.json` as generated is now a real population to
+  # inject against, and gets its own arm below using the SAME constraint field
+  # for both planning and checking -- the common-case configuration, unmeasured
+  # by this gate until now because there was nothing solved to measure it on.
+  #
+  # That does not retire the split-field arm beneath it. `check_joint_constraint`
+  # exists as its own field precisely for "check against a constraint the
+  # planner did not necessarily see" -- a distinct, real configuration this
+  # binary supports -- so `inject_constrained` (constraint moved from
+  # `joint_constraint` to `check_joint_constraint`, planned WITHOUT it and
+  # checked WITH it) keeps running alongside `constrained`, not in place of it.
+  # `<planner>/inject_constrained` in the run list below is that exact request
+  # without the injection, and it has to come out 100% valid for the rejection
+  # here to mean the waypoint was rejected rather than the path.
   [[ -s "$WORKDIR/constrained.request.json" ]] || continue
+  # The single-field arm: `joint_constraint` alone, unmodified, driving both
+  # planning and (via `check_joint_constraint`'s `or_else` fallback in
+  # `optimize_benchmark_stomp.rs`) checking.
+  run_inject "$planner" "$binary" "$WORKDIR/constrained.request.json" \
+             constraint constrained
   jq '(.check_joint_constraint = .joint_constraint) | .joint_constraint = null' \
     "$WORKDIR/constrained.request.json" >"$WORKDIR/inject_constrained.request.json"
   run_inject "$planner" "$binary" "$WORKDIR/inject_constrained.request.json" \
