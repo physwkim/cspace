@@ -344,40 +344,54 @@ impl<'m> RobotState<'m> {
         &self.effort
     }
 
-    /// `setVariableVelocities(const double*)`: replace every velocity at
-    /// once.
+    /// `setVariableVelocities(const double*)`/`setVariableVelocities(const
+    /// std::vector<double>&)`: replace every velocity at once.
     ///
     /// # Panics
     ///
-    /// If `values.len()` does not equal
-    /// [`RobotModel::variable_count`](moveit_model::RobotModel::variable_count),
-    /// matching upstream's own precondition (there enforced only by a
-    /// debug-only `assert`; here by the slice-copy itself).
+    /// If `values.len()` is less than
+    /// [`RobotModel::variable_count`](moveit_model::RobotModel::variable_count).
+    /// Upstream's `std::vector` overload requires only `variable_count <=
+    /// velocity.size()`, enforced by a debug-only
+    /// `assert(getVariableCount() <= velocity.size())` (`robot_state.hpp`) —
+    /// a `values` *longer* than needed is accepted silently there, since
+    /// its own `double*` primitive `memcpy`s only the first
+    /// `variable_count` entries and never reads the rest. This port matches
+    /// that truncation exactly (`&values[..variable_count]`); it does not
+    /// match upstream's debug-only rejection of a *shorter* `values`
+    /// followed by a release-mode out-of-bounds `memcpy` read — Rust has no
+    /// safe equivalent of that unchecked read, so a short `values` panics
+    /// here deterministically, in every build profile, instead.
     pub fn set_variable_velocities(&mut self, values: &[f64]) {
-        self.velocity.copy_from_slice(values);
+        let len = self.velocity.len();
+        self.velocity.copy_from_slice(&values[..len]);
         self.has_velocity = true;
     }
 
-    /// `setVariableAccelerations(const double*)`
+    /// `setVariableAccelerations(const double*)`/`setVariableAccelerations(const
+    /// std::vector<double>&)`
     ///
     /// # Panics
     ///
     /// See [`RobotState::set_variable_velocities`].
     pub fn set_variable_accelerations(&mut self, values: &[f64]) {
-        self.acceleration.copy_from_slice(values);
+        let len = self.acceleration.len();
+        self.acceleration.copy_from_slice(&values[..len]);
         self.has_acceleration = true;
     }
 
-    /// `setVariableEffort(const double*)`: replace every effort value at
-    /// once. Named `_efforts` (upstream overloads on parameter type, which
-    /// Rust cannot) to stay distinct from the per-variable
+    /// `setVariableEffort(const double*)`/`setVariableEffort(const
+    /// std::vector<double>&)`: replace every effort value at once. Named
+    /// `_efforts` (upstream overloads on parameter type, which Rust cannot)
+    /// to stay distinct from the per-variable
     /// [`RobotState::set_variable_effort`].
     ///
     /// # Panics
     ///
     /// See [`RobotState::set_variable_velocities`].
     pub fn set_variable_efforts(&mut self, values: &[f64]) {
-        self.effort.copy_from_slice(values);
+        let len = self.effort.len();
+        self.effort.copy_from_slice(&values[..len]);
         self.has_effort = true;
     }
 
@@ -715,12 +729,16 @@ impl<'m> RobotState<'m> {
     ///
     /// # Panics
     ///
-    /// If `positions.len()` does not equal
-    /// [`RobotModel::variable_count`](moveit_model::RobotModel::variable_count),
-    /// matching upstream's own precondition (there enforced only by a
-    /// debug-only `assert`; here by the slice-copy itself).
+    /// If `positions.len()` is less than
+    /// [`RobotModel::variable_count`](moveit_model::RobotModel::variable_count).
+    /// See [`RobotState::set_variable_velocities`]'s `# Panics` for why:
+    /// upstream's precondition here is the identical `variable_count <=
+    /// position.size()` pattern (`assert(getVariableCount() <=
+    /// position.size())`, `robot_state.hpp`), tolerant of a longer
+    /// `positions` and unchecked in release even for a shorter one.
     pub fn set_variable_positions(&mut self, positions: &[f64]) {
-        self.positions.copy_from_slice(positions);
+        let len = self.positions.len();
+        self.positions.copy_from_slice(&positions[..len]);
         self.dirty = Some(self.root_joint_index);
     }
 

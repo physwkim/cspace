@@ -216,6 +216,42 @@ fn bulk_set_variable_positions_does_not_propagate_mimic() {
     );
 }
 
+/// Same `variable_count <= positions.size()` boundary as
+/// `set_variable_velocities_accepts_a_longer_than_needed_slice_and_ignores_the_tail`
+/// -- upstream's `assert(getVariableCount() <= position.size())` tolerates a
+/// longer buffer, only ever reading the leading `variable_count` entries.
+/// Before this was fixed, `copy_from_slice` required an exact-length match
+/// and panicked here instead of truncating.
+#[test]
+fn set_variable_positions_accepts_a_longer_than_needed_slice_and_ignores_the_tail() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    let n = model.variable_count();
+    let expected = vec![0.3; n];
+    let mut positions = expected.clone();
+    positions.extend([f64::NAN, f64::NAN]);
+
+    state.set_variable_positions(&positions);
+
+    assert_eq!(state.positions(), expected.as_slice());
+}
+
+/// The other side of the boundary: a `positions` shorter than
+/// `variable_count` panics deterministically rather than reproducing
+/// upstream's release-mode out-of-bounds `memcpy` read -- see
+/// `set_variable_velocities_panics_on_a_shorter_than_needed_slice` for the
+/// same pin on the sibling setter.
+#[test]
+#[should_panic]
+fn set_variable_positions_panics_on_a_shorter_than_needed_slice() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    let n = model.variable_count();
+    assert!(n > 1, "fixture must have more than one variable");
+
+    state.set_variable_positions(&vec![0.3; n - 1]);
+}
+
 /// `set_to_default_values` re-derives every mimic joint's value from its
 /// master's *new* default, even when the mimic's own slot held a stale
 /// value from a previous write. This was verified against a live oracle
@@ -468,6 +504,79 @@ fn set_variable_velocities_replaces_the_whole_array() {
 
     assert!(state.has_velocities());
     assert!(state.velocities().iter().all(|&v| v == 0.5));
+}
+
+/// Upstream's precondition for this family is `variable_count <=
+/// values.size()`, not equality (`assert(getVariableCount() <=
+/// velocity.size())`, `robot_state.hpp`) -- a caller-supplied buffer longer
+/// than `variable_count` is valid there, and only the leading
+/// `variable_count` entries are ever read. Before this was fixed,
+/// `copy_from_slice` required an exact-length match and panicked on this
+/// input instead of truncating it.
+#[test]
+fn set_variable_velocities_accepts_a_longer_than_needed_slice_and_ignores_the_tail() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    let n = model.variable_count();
+    let mut values = vec![0.5; n];
+    values.extend([f64::NAN, f64::NAN, f64::NAN]);
+
+    state.set_variable_velocities(&values);
+
+    assert!(state.velocities().iter().all(|&v| v == 0.5));
+}
+
+/// The other side of the same boundary: a `values` *shorter* than
+/// `variable_count` is upstream UB in a release build (its debug-only
+/// `assert` is compiled out, and the underlying `memcpy` over-reads). This
+/// port panics deterministically instead, in every build profile -- pinning
+/// that this fix's move to `&values[..len]` still rejects a short input
+/// rather than silently accepting it (which a naive `values.len().min(len)`
+/// truncation would have done).
+#[test]
+#[should_panic]
+fn set_variable_velocities_panics_on_a_shorter_than_needed_slice() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    let n = model.variable_count();
+    assert!(n > 1, "fixture must have more than one variable");
+
+    state.set_variable_velocities(&vec![0.5; n - 1]);
+}
+
+/// Same `variable_count <= values.size()` boundary as
+/// `set_variable_velocities_accepts_a_longer_than_needed_slice_and_ignores_the_tail`,
+/// on `set_variable_accelerations`'s own buffer -- its doc points at
+/// `set_variable_velocities`'s `# Panics` section for the same upstream
+/// `assert(getVariableCount() <= acceleration.size())` precondition.
+#[test]
+fn set_variable_accelerations_accepts_a_longer_than_needed_slice_and_ignores_the_tail() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    let n = model.variable_count();
+    let mut values = vec![0.6; n];
+    values.push(f64::NAN);
+
+    state.set_variable_accelerations(&values);
+
+    assert!(state.accelerations().iter().all(|&v| v == 0.6));
+}
+
+/// Same boundary again, on `set_variable_efforts`'s own buffer -- its doc
+/// also points at `set_variable_velocities`'s `# Panics` section for the
+/// identical upstream `assert(getVariableCount() <= effort.size())`
+/// precondition.
+#[test]
+fn set_variable_efforts_accepts_a_longer_than_needed_slice_and_ignores_the_tail() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    let n = model.variable_count();
+    let mut values = vec![0.7; n];
+    values.push(f64::NAN);
+
+    state.set_variable_efforts(&values);
+
+    assert!(state.effort().iter().all(|&v| v == 0.7));
 }
 
 /// `invertVelocity` negates every velocity in place without disturbing
