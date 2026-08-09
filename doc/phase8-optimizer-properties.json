@@ -1,6 +1,6 @@
 {
-  "measured_at": "2026-08-08T19:40:54Z",
-  "commit": "717ad5cf13c273df875a36fa78251f2f0a017908",
+  "measured_at": "2026-08-09T07:00:46Z",
+  "commit": "1af18ac91aa642fa6303e0785a41766170e440d1",
   "oracle_stamp": "ccc22ff0287a603f4b7e81301ca0c7b49e3fe1474b4fd7017ac35998124b745b",
   "working_tree_dirty": false,
   "dirty_paths": [],
@@ -14,7 +14,7 @@
     "crates/moveit-planners-stomp/src": "d1c5de6602a3e6be6f6c707e14358ad7c1cee99bff89c1ba44b8d1a600e7b28b",
     "crates/moveit-stomp-core/src": "b4ebb9d2c9490b712d884e7d8c0c013e9a92668f17a79fdafc89de125063a5b7",
     "crates/moveit-distance-field/src": "fe4460dfa905bc99a76b6541f90ec73801f7fa1cf36ad5739b6146c17c40ced8",
-    "crates/moveit-collision/src": "2e9dfa7cd718dbf6984a724aca83ab43a9dac5871ec5c53b978304c97608213e",
+    "crates/moveit-collision/src": "57e32fb3560e447bf3a3e0f089fdc711d12145bc32b777fcdada2df1175816c7",
     "crates/moveit-scene/src": "d42384487c0f9bb9d25807b88112db07df1e3f919f3e32070a754e00eeaa3c5e",
     "crates/moveit-constraints/src": "f5f24960d997dadebacf6dce574e92e7ce4c2601020ac2cc1e8ca2d746ee093f",
     "tools/moveit-oracle/src": "53f643ac6ff1044701e81d8efc3e4612c19047f739ab14e13d0900fcadbef8ec"
@@ -28,8 +28,8 @@
     "cpp_seconds": 3600,
     "note": "neither bound may be what stops a call -- both arms are meant to terminate on their iteration bound. These two need not be equal, but if one binds and the other does not, the rate difference is an instrument artifact and not a finding about the port. no-timeouts is the check for that on the port arm; the cpp arm reports a clock stop as its own error code."
   },
-  "instrument_wall_clock_seconds": 2952.339480273,
-  "cpp_baseline_wall_clock_seconds": 411.607731939,
+  "instrument_wall_clock_seconds": 2948.271211471,
+  "cpp_baseline_wall_clock_seconds": 411.866911400,
   "regression_pins": {},
   "rows": [
     {
@@ -45,7 +45,7 @@
         "waypoints_checked": 67202,
         "raw_waypoints": 17574,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 9.411080387,
+        "slowest_seconds": 11.394013622,
         "seed_invalid": 42,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 42,
@@ -74,7 +74,7 @@
         "paired_problems": 167,
         "cpp_paired_median": 2.2380534098233875,
         "port_paired_median": 2.2380534098233875,
-        "cpp_slowest_seconds": 5.179592373,
+        "cpp_slowest_seconds": 5.144289140,
         "cpp_wall_secs_recorded": 250
       }
     },
@@ -91,7 +91,7 @@
         "waypoints_checked": 65043,
         "raw_waypoints": 18079,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 23.075188171,
+        "slowest_seconds": 25.517691449,
         "seed_invalid": 20,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 20,
@@ -120,7 +120,7 @@
         "paired_problems": 176,
         "cpp_paired_median": 1.5950046377904434,
         "port_paired_median": 1.5950046377904434,
-        "cpp_slowest_seconds": 6.541003283,
+        "cpp_slowest_seconds": 6.375156258,
         "cpp_wall_secs_recorded": 250
       }
     },
@@ -137,7 +137,7 @@
         "waypoints_checked": 33925,
         "raw_waypoints": 8888,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 9.411080387,
+        "slowest_seconds": 11.394013622,
         "seed_invalid": 15,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 15,
@@ -161,7 +161,7 @@
         "paired_problems": 85,
         "cpp_paired_median": 2.239964238283189,
         "port_paired_median": 2.239964238283189,
-        "cpp_slowest_seconds": 4.689584934,
+        "cpp_slowest_seconds": 4.651544169,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -178,7 +178,7 @@
         "waypoints_checked": 33277,
         "raw_waypoints": 8686,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 8.428651547,
+        "slowest_seconds": 10.931664384,
         "seed_invalid": 27,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 27,
@@ -202,7 +202,7 @@
         "paired_problems": 82,
         "cpp_paired_median": 2.175370373797242,
         "port_paired_median": 2.1857217453162807,
-        "cpp_slowest_seconds": 5.179592373,
+        "cpp_slowest_seconds": 5.144289140,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -219,7 +219,7 @@
         "waypoints_checked": 35614,
         "raw_waypoints": 9595,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 23.075188171,
+        "slowest_seconds": 23.886871807,
         "seed_invalid": 9,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 9,
@@ -243,7 +243,7 @@
         "paired_problems": 94,
         "cpp_paired_median": 1.5629219500844116,
         "port_paired_median": 1.5629219500844116,
-        "cpp_slowest_seconds": 6.335249018,
+        "cpp_slowest_seconds": 6.134218778,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -260,7 +260,7 @@
         "waypoints_checked": 29429,
         "raw_waypoints": 8484,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 23.062047621,
+        "slowest_seconds": 25.517691449,
         "seed_invalid": 11,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 11,
@@ -284,7 +284,7 @@
         "paired_problems": 82,
         "cpp_paired_median": 1.6318478543550157,
         "port_paired_median": 1.6318478543550157,
-        "cpp_slowest_seconds": 6.541003283,
+        "cpp_slowest_seconds": 6.375156258,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -301,7 +301,7 @@
         "waypoints_checked": 36050,
         "raw_waypoints": 10100,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 10.242240077,
+        "slowest_seconds": 11.290375174,
         "seed_invalid": 17,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 17,
@@ -329,7 +329,7 @@
         "waypoints_checked": 36050,
         "raw_waypoints": 10100,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 10.330464456,
+        "slowest_seconds": 9.724765003,
         "seed_invalid": 17,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 17,
@@ -349,44 +349,44 @@
       "robot": "panda",
       "stratum": {
         "problems": 250,
-        "solved": 210,
-        "timeouts": 40,
+        "solved": 211,
+        "timeouts": 39,
         "failures": 0,
-        "condition2_checked": 210,
-        "condition2_pass": 210,
-        "waypoints_checked": 76003,
-        "raw_waypoints": 8400,
+        "condition2_checked": 211,
+        "condition2_pass": 211,
+        "waypoints_checked": 76371,
+        "raw_waypoints": 8440,
         "max_endpoint_gap": 0.027663716931232152,
-        "slowest_seconds": 120.107762946,
-        "seed_invalid": 78,
+        "slowest_seconds": 120.074534778,
+        "seed_invalid": 79,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
         "cost_fn_margin_only": 0,
-        "cost_fn_seeds_scored": 210,
+        "cost_fn_seeds_scored": 211,
         "mesh_check_calls": 0,
         "mesh_check_true": 0,
         "paired_seed_cost_median": 0.0,
-        "paired_output_cost_median": 0.0,
-        "paired_seed_length_median": 2.186185587933063,
+        "paired_output_cost_median": 0,
+        "paired_seed_length_median": 2.188023334372472,
         "paired_output_length_median": 2.3023625750513177,
         "worst_length_ratio": {
-          "tag": "panda_floor_wall",
-          "ratio": 1.0026068245908502,
-          "seed_median": 2.29637632477804,
-          "output_median": 2.3023625750513177
+          "tag": "panda_cage",
+          "ratio": 1.0068138427410602,
+          "seed_median": 2.188023334372472,
+          "output_median": 2.2029321812866565
         }
       },
       "cpp": {
         "cpp_problems": 250,
         "cpp_solved": 217,
         "cpp_rate": 0.868,
-        "port_rate": 0.84,
-        "cpp_median_length": 2.2984134921837795,
-        "port_median_length": 2.2748990447605975,
-        "paired_problems": 208,
-        "cpp_paired_median": 2.273445625441358,
-        "port_paired_median": 2.2658004251703687,
-        "cpp_slowest_seconds": 31.604689601,
+        "port_rate": 0.844,
+        "cpp_median_length": 2.298413492183779,
+        "port_median_length": 2.276790291515483,
+        "paired_problems": 209,
+        "cpp_paired_median": 2.2738834528770036,
+        "port_paired_median": 2.2730077980057124,
+        "cpp_slowest_seconds": 30.961296345,
         "cpp_wall_secs_recorded": 250
       }
     },
@@ -403,7 +403,7 @@
         "waypoints_checked": 62130,
         "raw_waypoints": 7560,
         "max_endpoint_gap": 0.017871160054542923,
-        "slowest_seconds": 120.482334715,
+        "slowest_seconds": 120.306900475,
         "seed_invalid": 30,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -430,9 +430,9 @@
         "cpp_median_length": 1.620716363431347,
         "port_median_length": 1.5990424468084217,
         "paired_problems": 188,
-        "cpp_paired_median": 1.5992098529128174,
+        "cpp_paired_median": 1.5992098529128178,
         "port_paired_median": 1.5991866791320957,
-        "cpp_slowest_seconds": 42.210784310,
+        "cpp_slowest_seconds": 46.657348040,
         "cpp_wall_secs_recorded": 250
       }
     },
@@ -449,7 +449,7 @@
         "waypoints_checked": 40334,
         "raw_waypoints": 4440,
         "max_endpoint_gap": 0.027663716931232152,
-        "slowest_seconds": 120.071163142,
+        "slowest_seconds": 120.074534778,
         "seed_invalid": 38,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -473,7 +473,7 @@
         "paired_problems": 110,
         "cpp_paired_median": 2.305855658876033,
         "port_paired_median": 2.299369449914679,
-        "cpp_slowest_seconds": 31.604689601,
+        "cpp_slowest_seconds": 30.961296345,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -482,25 +482,25 @@
       "tag": "panda_cage",
       "set": {
         "problems": 125,
-        "solved": 99,
-        "timeouts": 26,
+        "solved": 100,
+        "timeouts": 25,
         "failures": 0,
-        "condition2_checked": 99,
-        "condition2_pass": 99,
-        "waypoints_checked": 35669,
-        "raw_waypoints": 3960,
+        "condition2_checked": 100,
+        "condition2_pass": 100,
+        "waypoints_checked": 36037,
+        "raw_waypoints": 4000,
         "max_endpoint_gap": 0.013512409653679391,
-        "slowest_seconds": 120.107762946,
-        "seed_invalid": 40,
+        "slowest_seconds": 120.073236556,
+        "seed_invalid": 41,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
         "cost_fn_margin_only": 0,
-        "cost_fn_seeds_scored": 99,
-        "paired_seed_cost_median": 0.0,
-        "paired_output_cost_median": 0.0,
-        "paired_seed_length_median": 2.186185587933063,
-        "paired_output_length_median": 2.185427239148585,
-        "paired_length_ratio": 0.9996531178374499,
+        "cost_fn_seeds_scored": 100,
+        "paired_seed_cost_median": 0,
+        "paired_output_cost_median": 0,
+        "paired_seed_length_median": 2.188023334372472,
+        "paired_output_length_median": 2.2029321812866565,
+        "paired_length_ratio": 1.0068138427410602,
         "mesh_check_calls": 0,
         "mesh_check_true": 0
       },
@@ -508,13 +508,13 @@
         "cpp_problems": 125,
         "cpp_solved": 103,
         "cpp_rate": 0.824,
-        "port_rate": 0.792,
-        "cpp_median_length": 2.273007798005713,
-        "port_median_length": 2.185427239148585,
-        "paired_problems": 98,
-        "cpp_paired_median": 2.188869429500844,
-        "port_paired_median": 2.1732022110598503,
-        "cpp_slowest_seconds": 25.058547746,
+        "port_rate": 0.8,
+        "cpp_median_length": 2.2730077980057124,
+        "port_median_length": 2.2029321812866565,
+        "paired_problems": 99,
+        "cpp_paired_median": 2.1916961746138544,
+        "port_paired_median": 2.185427239148585,
+        "cpp_slowest_seconds": 27.966250370,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -531,7 +531,7 @@
         "waypoints_checked": 34417,
         "raw_waypoints": 4040,
         "max_endpoint_gap": 0.017871160054542923,
-        "slowest_seconds": 120.241319544,
+        "slowest_seconds": 120.234149312,
         "seed_invalid": 15,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -553,9 +553,9 @@
         "cpp_median_length": 1.5851310507822785,
         "port_median_length": 1.5690818433692515,
         "paired_problems": 101,
-        "cpp_paired_median": 1.5741906251267292,
+        "cpp_paired_median": 1.5741906251267288,
         "port_paired_median": 1.5690818433692515,
-        "cpp_slowest_seconds": 38.414406461,
+        "cpp_slowest_seconds": 38.820876734,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -572,7 +572,7 @@
         "waypoints_checked": 27713,
         "raw_waypoints": 3520,
         "max_endpoint_gap": 0.014326926659039785,
-        "slowest_seconds": 120.482334715,
+        "slowest_seconds": 120.306900475,
         "seed_invalid": 15,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -591,12 +591,12 @@
         "cpp_solved": 89,
         "cpp_rate": 0.712,
         "port_rate": 0.704,
-        "cpp_median_length": 1.6383703319251732,
+        "cpp_median_length": 1.638370331925174,
         "port_median_length": 1.6233839924198585,
         "paired_problems": 87,
-        "cpp_paired_median": 1.6291735669410772,
+        "cpp_paired_median": 1.629173566941077,
         "port_paired_median": 1.6253950825133572,
-        "cpp_slowest_seconds": 42.210784310,
+        "cpp_slowest_seconds": 46.657348040,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -613,7 +613,7 @@
         "waypoints_checked": 41558,
         "raw_waypoints": 4880,
         "max_endpoint_gap": 0.01757485490422339,
-        "slowest_seconds": 120.065815664,
+        "slowest_seconds": 120.037503472,
         "seed_invalid": 39,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -641,7 +641,7 @@
         "waypoints_checked": 41537,
         "raw_waypoints": 4880,
         "max_endpoint_gap": 0.016825359187164768,
-        "slowest_seconds": 120.030269236,
+        "slowest_seconds": 120.028406565,
         "seed_invalid": 39,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -675,7 +675,7 @@
     },
     {
       "name": "chomp/panda/no-timeouts",
-      "detail": "0 timeouts, slowest call 9.411s of the 120s budget",
+      "detail": "0 timeouts, slowest call 11.394s of the 120s budget",
       "ok": true
     },
     {
@@ -715,7 +715,7 @@
     },
     {
       "name": "chomp/fanuc/no-timeouts",
-      "detail": "0 timeouts, slowest call 23.075s of the 120s budget",
+      "detail": "0 timeouts, slowest call 25.518s of the 120s budget",
       "ok": true
     },
     {
@@ -740,37 +740,37 @@
     },
     {
       "name": "stomp/panda/validity",
-      "detail": "210/210 paths valid, 76003 waypoints checked",
+      "detail": "211/211 paths valid, 76371 waypoints checked",
       "ok": true
     },
     {
       "name": "stomp/panda/validity-covers-every-solved-path",
-      "detail": "checked 210 of 210 solved",
+      "detail": "checked 211 of 211 solved",
       "ok": true
     },
     {
       "name": "stomp/panda/validity-densified",
-      "detail": "76003 checked from 8400 returned",
+      "detail": "76371 checked from 8440 returned",
       "ok": true
     },
     {
       "name": "stomp/panda/no-timeouts",
-      "detail": "40 timeouts, slowest call 120.108s of the 120s budget",
+      "detail": "39 timeouts, slowest call 120.075s of the 120s budget",
       "ok": false
     },
     {
       "name": "stomp/panda/condition1",
-      "detail": "port 210/250 = 84% >= 0.9 x C++ 217/250 = 78.12% -- NOT a clean rate comparison: the port arm timed out on 40 of 250 calls at its 120s bound while the C++ arm ran at 3600s and its slowest call was 31.605s, so the port rate here is a lower bound",
+      "detail": "port 211/250 = 84.4% >= 0.9 x C++ 217/250 = 78.12% -- NOT a clean rate comparison: the port arm timed out on 39 of 250 calls at its 120s bound while the C++ arm ran at 3600s and its slowest call was 30.961s, so the port rate here is a lower bound",
       "ok": true
     },
     {
       "name": "stomp/panda/condition3-pooled",
-      "detail": "port median 2.275 vs limit 2.988 (ratio 0.99x)",
+      "detail": "port median 2.277 vs limit 2.988 (ratio 0.991x)",
       "ok": true
     },
     {
       "name": "stomp/panda/condition3-paired",
-      "detail": "over 208 problems both sides solved: port 2.266 vs limit 2.955 (ratio 0.997x)",
+      "detail": "over 209 problems both sides solved: port 2.273 vs limit 2.956 (ratio 1x)",
       "ok": true
     },
     {
@@ -795,12 +795,12 @@
     },
     {
       "name": "stomp/fanuc/no-timeouts",
-      "detail": "61 timeouts, slowest call 120.482s of the 120s budget",
+      "detail": "61 timeouts, slowest call 120.307s of the 120s budget",
       "ok": false
     },
     {
       "name": "stomp/fanuc/condition1",
-      "detail": "port 189/250 = 75.6% >= 0.9 x C++ 194/250 = 69.84% -- NOT a clean rate comparison: the port arm timed out on 61 of 250 calls at its 120s bound while the C++ arm ran at 3600s and its slowest call was 42.211s, so the port rate here is a lower bound",
+      "detail": "port 189/250 = 75.6% >= 0.9 x C++ 194/250 = 69.84% -- NOT a clean rate comparison: the port arm timed out on 61 of 250 calls at its 120s bound while the C++ arm ran at 3600s and its slowest call was 46.657s, so the port rate here is a lower bound",
       "ok": true
     },
     {
@@ -835,7 +835,7 @@
     },
     {
       "name": "chomp/panda_floor_wall/no-timeouts",
-      "detail": "0 timeouts, slowest call 9.411s of the 120s budget",
+      "detail": "0 timeouts, slowest call 11.394s of the 120s budget",
       "ok": true
     },
     {
@@ -865,7 +865,7 @@
     },
     {
       "name": "chomp/panda_cage/no-timeouts",
-      "detail": "0 timeouts, slowest call 8.429s of the 120s budget",
+      "detail": "0 timeouts, slowest call 10.932s of the 120s budget",
       "ok": true
     },
     {
@@ -895,7 +895,7 @@
     },
     {
       "name": "chomp/fanuc_floor_wall/no-timeouts",
-      "detail": "0 timeouts, slowest call 23.075s of the 120s budget",
+      "detail": "0 timeouts, slowest call 23.887s of the 120s budget",
       "ok": true
     },
     {
@@ -925,7 +925,7 @@
     },
     {
       "name": "chomp/fanuc_cage/no-timeouts",
-      "detail": "0 timeouts, slowest call 23.062s of the 120s budget",
+      "detail": "0 timeouts, slowest call 25.518s of the 120s budget",
       "ok": true
     },
     {
@@ -955,7 +955,7 @@
     },
     {
       "name": "chomp/constrained/no-timeouts",
-      "detail": "0 timeouts, slowest call 10.242s of the 120s budget",
+      "detail": "0 timeouts, slowest call 11.29s of the 120s budget",
       "ok": true
     },
     {
@@ -980,7 +980,7 @@
     },
     {
       "name": "chomp/inject_constrained/no-timeouts",
-      "detail": "0 timeouts, slowest call 10.33s of the 120s budget",
+      "detail": "0 timeouts, slowest call 9.725s of the 120s budget",
       "ok": true
     },
     {
@@ -1005,12 +1005,12 @@
     },
     {
       "name": "stomp/panda_floor_wall/no-timeouts",
-      "detail": "14 timeouts, slowest call 120.071s of the 120s budget",
+      "detail": "14 timeouts, slowest call 120.075s of the 120s budget",
       "ok": false
     },
     {
       "name": "stomp/panda_floor_wall/condition1",
-      "detail": "port 111/125 = 88.8% >= 0.9 x C++ 114/125 = 82.08% -- NOT a clean rate comparison: the port arm timed out on 14 of 125 calls at its 120s bound while the C++ arm ran at 3600s and its slowest call was 31.605s, so the port rate here is a lower bound",
+      "detail": "port 111/125 = 88.8% >= 0.9 x C++ 114/125 = 82.08% -- NOT a clean rate comparison: the port arm timed out on 14 of 125 calls at its 120s bound while the C++ arm ran at 3600s and its slowest call was 30.961s, so the port rate here is a lower bound",
       "ok": true
     },
     {
@@ -1020,32 +1020,32 @@
     },
     {
       "name": "stomp/panda_cage/validity",
-      "detail": "99/99 paths valid, 35669 waypoints checked",
+      "detail": "100/100 paths valid, 36037 waypoints checked",
       "ok": true
     },
     {
       "name": "stomp/panda_cage/validity-covers-every-solved-path",
-      "detail": "checked 99 of 99 solved",
+      "detail": "checked 100 of 100 solved",
       "ok": true
     },
     {
       "name": "stomp/panda_cage/validity-densified",
-      "detail": "35669 checked from 3960 returned",
+      "detail": "36037 checked from 4000 returned",
       "ok": true
     },
     {
       "name": "stomp/panda_cage/no-timeouts",
-      "detail": "26 timeouts, slowest call 120.108s of the 120s budget",
+      "detail": "25 timeouts, slowest call 120.073s of the 120s budget",
       "ok": false
     },
     {
       "name": "stomp/panda_cage/condition1",
-      "detail": "port 99/125 = 79.2% >= 0.9 x C++ 103/125 = 74.16% -- NOT a clean rate comparison: the port arm timed out on 26 of 125 calls at its 120s bound while the C++ arm ran at 3600s and its slowest call was 25.059s, so the port rate here is a lower bound",
+      "detail": "port 100/125 = 80% >= 0.9 x C++ 103/125 = 74.16% -- NOT a clean rate comparison: the port arm timed out on 25 of 125 calls at its 120s bound while the C++ arm ran at 3600s and its slowest call was 27.966s, so the port rate here is a lower bound",
       "ok": true
     },
     {
       "name": "stomp/panda_cage/condition3",
-      "detail": "port median 2.185 vs limit 2.955 (ratio 0.961x)",
+      "detail": "port median 2.203 vs limit 2.955 (ratio 0.969x)",
       "ok": true
     },
     {
@@ -1065,12 +1065,12 @@
     },
     {
       "name": "stomp/fanuc_floor_wall/no-timeouts",
-      "detail": "24 timeouts, slowest call 120.241s of the 120s budget",
+      "detail": "24 timeouts, slowest call 120.234s of the 120s budget",
       "ok": false
     },
     {
       "name": "stomp/fanuc_floor_wall/condition1",
-      "detail": "port 101/125 = 80.8% >= 0.9 x C++ 105/125 = 75.6% -- NOT a clean rate comparison: the port arm timed out on 24 of 125 calls at its 120s bound while the C++ arm ran at 3600s and its slowest call was 38.414s, so the port rate here is a lower bound",
+      "detail": "port 101/125 = 80.8% >= 0.9 x C++ 105/125 = 75.6% -- NOT a clean rate comparison: the port arm timed out on 24 of 125 calls at its 120s bound while the C++ arm ran at 3600s and its slowest call was 38.821s, so the port rate here is a lower bound",
       "ok": true
     },
     {
@@ -1095,12 +1095,12 @@
     },
     {
       "name": "stomp/fanuc_cage/no-timeouts",
-      "detail": "37 timeouts, slowest call 120.482s of the 120s budget",
+      "detail": "37 timeouts, slowest call 120.307s of the 120s budget",
       "ok": false
     },
     {
       "name": "stomp/fanuc_cage/condition1",
-      "detail": "port 88/125 = 70.4% >= 0.9 x C++ 89/125 = 64.08% -- NOT a clean rate comparison: the port arm timed out on 37 of 125 calls at its 120s bound while the C++ arm ran at 3600s and its slowest call was 42.211s, so the port rate here is a lower bound",
+      "detail": "port 88/125 = 70.4% >= 0.9 x C++ 89/125 = 64.08% -- NOT a clean rate comparison: the port arm timed out on 37 of 125 calls at its 120s bound while the C++ arm ran at 3600s and its slowest call was 46.657s, so the port rate here is a lower bound",
       "ok": true
     },
     {
@@ -1125,7 +1125,7 @@
     },
     {
       "name": "stomp/constrained/no-timeouts",
-      "detail": "3 timeouts, slowest call 120.066s of the 120s budget",
+      "detail": "3 timeouts, slowest call 120.038s of the 120s budget",
       "ok": false
     },
     {
@@ -1150,7 +1150,7 @@
     },
     {
       "name": "stomp/inject_constrained/no-timeouts",
-      "detail": "3 timeouts, slowest call 120.03s of the 120s budget",
+      "detail": "3 timeouts, slowest call 120.028s of the 120s budget",
       "ok": false
     },
     {
