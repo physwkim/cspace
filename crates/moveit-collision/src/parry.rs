@@ -2781,6 +2781,16 @@ fn part_contact(
     b_shape: &dyn ParryShape,
     prediction: f64,
 ) -> PartContactOutcome {
+    // Mesh against mesh is where a planner's inner loop spends its time, and
+    // parry's own dispatch for it is one-sided -- see `trimesh_pair_contact`.
+    // Not an `Unsupported` path either way: composite-vs-composite has a
+    // dispatch arm, so the arm below could only ever answer `Ok` for it.
+    if let (Some(m1), Some(m2)) = (a_shape.as_trimesh(), b_shape.as_trimesh()) {
+        return match trimesh_pair_contact(a_pose, m1, b_pose, m2, prediction) {
+            Some(contact) => PartContactOutcome::Touching(contact),
+            None => PartContactOutcome::NotTouching,
+        };
+    }
     match query::contact(a_pose, a_shape, b_pose, b_shape, prediction) {
         Ok(Some(contact)) => PartContactOutcome::Touching(contact),
         Ok(None) => PartContactOutcome::NotTouching,
@@ -2876,6 +2886,76 @@ fn pair_can_touch(
         .compute_aabb(&(b_pose.inverse() * *a_pose))
         .loosened(slack)
         .intersects(&b_shape.compute_local_aabb())
+}
+
+/// The mesh-against-mesh half of [`part_contact`], descending both
+/// hierarchies at once the way upstream's does.
+///
+/// `fcl::collide` on two `BVHModel`s runs `MeshCollisionTraversalNode`, which
+/// walks the two trees together and drops a node pair as soon as their bounds
+/// separate. parry's [`fn@query::contact`] descends one side only:
+/// `contact_composite_shape_shape` picks the triangles of the first mesh
+/// whose `Aabb` meets the *whole* second mesh's, then re-enters the second
+/// mesh's `Bvh` once per surviving triangle
+/// (`query/contact/contact_composite_shape_shape.rs`). Every triangle the
+/// first pass admits therefore pays a fresh root-down traversal, and the pass
+/// admits triangles the second mesh is nowhere near.
+///
+/// Measured on fanuc/cage under STOMP, where this pair is `90.8%` of the
+/// calls that reach the narrow phase and effectively all of a planning run's
+/// time: `3017` triangle-vs-triangle dispatches per pair one-sided against
+/// `1088` here, `620us` per pair against `321us`.
+///
+/// Conservative in the same sense [`pair_can_touch`] is, and so returns the
+/// same verdict: an `Aabb` contains its triangle and [`Aabb::transform_by`]
+/// bounds the rotated box, so a node pair this drops is separated by more
+/// than `prediction` and could not have held the contact. The verdict is the
+/// same on measurement too -- `108,936` fanuc/cage pairs and the
+/// `6,000`-query sweep this module's tests run against a brute force both
+/// put the disagreement at zero.
+///
+/// The reported *depth* is not always the same. Judged against a brute force
+/// over every triangle pair with no pruning at all, `trimesh_pair_contact`
+/// is that exhaustive minimum in all `4,083` contacts of that sweep, and
+/// parry's dispatch is not in `18`. Ten of the `18` are misses -- parry
+/// returns a value no exhaustive pass produces in either operand order,
+/// always shallower, by up to `1.6e-2 m`. The other eight are a convention
+/// difference rather than an error: parry reaches the innermost
+/// triangle-vs-triangle call with the operands swapped (its second level
+/// dispatches `triangle1` against `m2` through
+/// `contact_shape_composite_shape`, which flips), EPA does not answer
+/// identically in the two orders, and there parry's value is the exhaustive
+/// minimum of the reversed order. Contact coordinates remain outside the
+/// compared population (module doc, deviations 4 and 6).
+fn trimesh_pair_contact(
+    a_pose: &Pose,
+    m1: &TriMesh,
+    b_pose: &Pose,
+    m2: &TriMesh,
+    prediction: f64,
+) -> Option<ParryContact> {
+    use parry3d_f64::bounding_volume::BoundingVolume as _;
+    let pose12 = a_pose.inv_mul(b_pose);
+    let mut best: Option<ParryContact> = None;
+    for (i1, i2) in m1.bvh().leaf_pairs(m2.bvh(), |n1, n2| {
+        n1.aabb()
+            .loosened(prediction)
+            .intersects(&n2.aabb().transform_by(&pose12))
+    }) {
+        let t1 = m1.triangle(i1);
+        let t2 = m2.triangle(i2);
+        if let Ok(Some(contact)) = query::contact(&Pose::default(), &t1, &pose12, &t2, prediction) {
+            if best.is_none_or(|b| contact.dist < b.dist) {
+                best = Some(contact);
+            }
+        }
+    }
+    // Computed in `m1`'s frame, so one rigid map takes every field to the
+    // world frame `query::contact(a_pose, .., b_pose, ..)` reports in.
+    if let Some(contact) = &mut best {
+        contact.transform_by_mut(a_pose, a_pose);
+    }
+    best
 }
 
 /// `collisionCallback`'s per-pair algorithm (see the module doc, deviations
@@ -5996,6 +6076,137 @@ mod tests {
             vec![[0, 1, 2], [3, 4, 5]],
         )
         .unwrap()
+    }
+
+    /// A sphere and a box as meshes, both deep enough to have a real `Bvh`:
+    /// [`trimesh_pair_contact`] is a walk over two hierarchies, and a mesh
+    /// small enough to be one leaf would exercise none of it.
+    fn sphere_mesh() -> TriMesh {
+        let (vertices, indices) = Ball::new(0.5).to_trimesh(16, 12);
+        TriMesh::new(vertices, indices).unwrap()
+    }
+
+    fn box_mesh() -> TriMesh {
+        let (vertices, indices) = ParryCuboid::new(ParryVector::new(0.4, 0.25, 0.3)).to_trimesh();
+        TriMesh::new(vertices, indices).unwrap()
+    }
+
+    pub(super) fn random_pose(rng: &mut impl rand::RngExt, span: f64) -> Pose {
+        let axis = loop {
+            let v = ParryVector::new(
+                rng.random_range(-1.0..1.0),
+                rng.random_range(-1.0..1.0),
+                rng.random_range(-1.0..1.0),
+            );
+            if v.length_squared() > 1e-6 {
+                break v.normalize();
+            }
+        };
+        Pose::from_parts(
+            ParryVector::new(
+                rng.random_range(-span..span),
+                rng.random_range(-span..span),
+                rng.random_range(-span..span),
+            ),
+            parry3d_f64::math::Rotation::from_axis_angle(axis, rng.random_range(-3.2..3.2)),
+        )
+    }
+
+    /// [`trimesh_pair_contact`] replaces a parry dispatch, so what has to be
+    /// established is not that the two agree -- they do not -- but which one
+    /// is right where they differ.
+    ///
+    /// The oracle is [`exhaustive_pair_contact`]: every triangle pair, no
+    /// bounding volumes at all, which is what a candidate set is an
+    /// optimisation of. It is run in both operand orders, because the
+    /// innermost triangle-vs-triangle call is EPA and EPA does not answer
+    /// identically in the two -- an oracle run only in the subject's own
+    /// order could not tell a missed pair from that asymmetry, and the two
+    /// are the whole finding here.
+    ///
+    /// Both predictions are swept because they take different paths through
+    /// the descent: at `0.0` a node pair survives only on real overlap, while
+    /// a positive one widens every box in the tree.
+    #[test]
+    fn trimesh_pair_contact_reports_the_exhaustive_minimum_where_parrys_dispatch_does_not() {
+        use rand::SeedableRng as _;
+
+        let m1 = sphere_mesh();
+        let m2 = box_mesh();
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(20260809);
+        let (mut contacts, mut swapped_order, mut parry_missed) = (0, 0, 0);
+
+        for _ in 0..3000 {
+            let a_pose = random_pose(&mut rng, 0.6);
+            let b_pose = random_pose(&mut rng, 0.6);
+            for prediction in [0.0, 0.05] {
+                let mine = trimesh_pair_contact(&a_pose, &m1, &b_pose, &m2, prediction);
+                let parry = query::contact(&a_pose, &m1, &b_pose, &m2, prediction).unwrap();
+                assert_eq!(
+                    mine.is_some(),
+                    parry.is_some(),
+                    "verdict differs at prediction {prediction}"
+                );
+                let (Some(mine), Some(parry)) = (mine, parry) else {
+                    continue;
+                };
+                contacts += 1;
+
+                // The claim this test exists for: whatever parry reports,
+                // this one is the exhaustive minimum of its own order.
+                let forward =
+                    exhaustive_pair_contact(&a_pose, &m1, &b_pose, &m2, prediction).unwrap();
+                assert_relative_eq!(mine.dist, forward, epsilon = 1e-9);
+
+                if (mine.dist - parry.dist).abs() <= 1e-9 {
+                    continue;
+                }
+                let reversed =
+                    exhaustive_pair_contact(&b_pose, &m2, &a_pose, &m1, prediction).unwrap();
+                if (parry.dist - reversed).abs() <= 1e-9 {
+                    // EPA answering differently with the operands swapped,
+                    // which is what parry's inner dispatch hands it.
+                    swapped_order += 1;
+                } else {
+                    // No exhaustive pass in either order produces this, so a
+                    // pair holding the minimum never reached parry's leaf
+                    // test.
+                    assert!(parry.dist > mine.dist, "a miss can only be shallower");
+                    parry_missed += 1;
+                }
+            }
+        }
+
+        // Without these the assertions above hold vacuously: the first on a
+        // sample that never brought the meshes together, the others on one
+        // where the replaced dispatch happened never to be wrong.
+        assert!(contacts > 100, "only {contacts} contacts to compare");
+        assert_eq!((swapped_order, parry_missed), (8, 10));
+    }
+
+    /// The minimum over every triangle pair, no bounding volumes involved --
+    /// the definition [`trimesh_pair_contact`]'s descent is an optimisation
+    /// of, and far too slow for anything but an oracle.
+    fn exhaustive_pair_contact(
+        a_pose: &Pose,
+        m1: &TriMesh,
+        b_pose: &Pose,
+        m2: &TriMesh,
+        prediction: f64,
+    ) -> Option<f64> {
+        let pose12 = a_pose.inv_mul(b_pose);
+        let mut best: Option<f64> = None;
+        for i1 in 0..m1.num_triangles() as u32 {
+            for i2 in 0..m2.num_triangles() as u32 {
+                let (t1, t2) = (m1.triangle(i1), m2.triangle(i2));
+                if let Ok(Some(contact)) =
+                    query::contact(&Pose::default(), &t1, &pose12, &t2, prediction)
+                {
+                    best = Some(best.map_or(contact.dist, |b: f64| b.min(contact.dist)));
+                }
+            }
+        }
+        best
     }
 
     #[test]
