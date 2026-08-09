@@ -1293,18 +1293,24 @@ if [[ "$MODE" == "full" ]]; then
      --argjson sources "$SOURCES_JSON" \
      --argjson con "${con:-null}" \
      --argjson pins "$PINS_JSON" \
+     --argjson failed "$(printf '%s\n' ${failed[@]+"${failed[@]}"} \
+                         | jq -R -s 'split("\n")|map(select(length>0))')" \
      --slurpfile checks "$checks_json" \
      '{measured_at:$ts, commit:$stamp, oracle_stamp:$oracle_stamp, working_tree_dirty:$dirty,
        dirty_paths:$dirty_paths, measured_sources:$sources} + .
       + {constrained_set:$con, regression_pins:$pins,
-         # Recorded from the same list the exit code came from, so the file
-         # cannot disagree with the run that wrote it. `checks` keeps each
-         # detail string; `verdict` is the name -> PASS/FAIL map.
+         # `checks` keeps each detail string; `verdict` is the name -> PASS/FAIL
+         # map. Neither is the list the exit code comes from: generation, the
+         # port and oracle runs, the injection gate, its control, the
+         # escalation pass and the cross-check all push to `failed` and none of
+         # them is a `checks` entry. `verdict_all_pass` is taken from both, so
+         # the file cannot disagree with the run that wrote it.
          checks:$checks[0],
          verdict:($checks[0]|map({key:.name,
                                   value:(if .ok then "PASS" else "FAIL" end)})
                            |from_entries),
-         verdict_all_pass:($checks[0]|all(.ok))}' \
+         failed:$failed,
+         verdict_all_pass:(($checks[0]|all(.ok)) and ($failed|length == 0))}' \
      "$verdict_json" >"$RESULTS"
   echo
   echo "  wrote $RESULTS"

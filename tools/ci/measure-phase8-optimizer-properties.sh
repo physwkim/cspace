@@ -1666,6 +1666,8 @@ if [[ "$MODE" == "full" ]]; then
         --argjson pins "$PINS_JSON" \
         --argjson seconds "$run_seconds" \
         --argjson cpp_seconds "$cpp_seconds" \
+        --argjson failed "$(printf '%s\n' ${failed[@]+"${failed[@]}"} \
+                            | jq -R -s 'split("\n")|map(select(length>0))')" \
         --slurpfile rows "$verdict_json" \
         --slurpfile checks "$checks_json" \
      '{measured_at:$ts, commit:$stamp, oracle_stamp:$oracle_stamp, working_tree_dirty:$dirty,
@@ -1679,7 +1681,15 @@ if [[ "$MODE" == "full" ]]; then
        checks:$checks[0],
        verdict:($checks[0]|map({key:.name,
                                 value:(if .ok then "PASS" else "FAIL" end)})|from_entries),
-       verdict_all_pass:($checks[0]|all(.ok))}' >"$RESULTS"
+       # `$failed` is the array the exit code is taken from, verbatim, so the
+       # boolean below and the exit status are two readings of one list.
+       # `$checks` alone is not that list: generation, the two instrument runs,
+       # the C++ baseline, the injection gate and the cross-check all push to
+       # `failed` and none of them is a `checks` entry. Deriving the boolean
+       # from `$checks` alone recorded `verdict_all_pass:true` in a file
+       # written by a run that exited 1 on two cross-check failures.
+       failed:$failed,
+       verdict_all_pass:(($checks[0]|all(.ok)) and ($failed|length == 0))}' >"$RESULTS"
   echo "  wrote $RESULTS"
 else
   echo "  NOTE mode=pilot ran $PILOT_COUNT problems per config, not the $((FULL_COUNT * 4)) per planner this gate declares."
