@@ -2,12 +2,21 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Ported from FCL `include/fcl/math/bv/OBB-inl.h` (`OBB<S>::operator+`) and
-// geometric_shapes 2.3.3 `src/bodies.cpp` (`Box::intersectsRay`,
-// `detail::filterIntersections`) — see `bodies.rs`'s provenance comment for
-// how both sources were obtained. `cxx_min` also ports Eigen 3.4.0
-// `src/Core/Fuzzy.h:27`'s `numext::mini`, which is `std::min` under the
-// hood — see `bodies.rs`'s `filter_intersections` for the call site.
+// Ported from geometric_shapes 2.3.3 — see `bodies.rs`'s provenance comment
+// for how the source tree was obtained and matched:
+//   geometric_shapes/src/bodies.cpp (Box::intersectsRay, detail::filterIntersections)
+//
+// Also ported from FCL `include/fcl/math/bv/OBB-inl.h` (`OBB<S>::operator+`)
+// and Eigen 3.4.0 `src/Core/Fuzzy.h:27`'s `numext::mini`, which is
+// `std::min` under the hood — see `bodies.rs`'s `filter_intersections` for
+// the call site. Both are named in prose rather than cited as paths, the
+// same way `bodies.rs` names FCL and `moveit-scene/src/numeric.rs` names
+// Eigen: neither tree is reachable from this gate's roots, and a citation
+// it cannot open is a failure rather than a skip. The copyright line above
+// is geometric_shapes' own, reproduced verbatim from the file cited here;
+// FCL's `OBB-inl.h` carries `2011-2014, Willow Garage, Inc.` and
+// `2014-2016, Open Source Robotics Foundation`, which this file does not
+// assert.
 
 //! `std::min`/`std::max`-compatible comparisons.
 //!
