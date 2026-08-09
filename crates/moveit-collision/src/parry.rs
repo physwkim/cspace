@@ -2840,10 +2840,42 @@ fn pair_can_touch(
     prediction: f64,
 ) -> bool {
     use parry3d_f64::bounding_volume::BoundingVolume as _;
-    a_shape
+    let slack = prediction + BROADPHASE_MARGIN;
+    // World frame first: one `Aabb` per shape, no relative transform, and it
+    // is what rejects the far-apart majority.
+    if !a_shape
         .compute_aabb(a_pose)
-        .loosened(prediction + BROADPHASE_MARGIN)
+        .loosened(slack)
         .intersects(&b_shape.compute_aabb(b_pose))
+    {
+        return false;
+    }
+    // Then each shape's bounds in the OTHER's local frame. A world `Aabb` of a
+    // rotated, elongated link is loose in exactly the way FCL's mesh bounds are
+    // not: `moveit_core` builds every mesh as `fcl::BVHModel<fcl::OBBRSSd>`
+    // (`collision_detection_fcl/collision_common.cpp:949-1006`), so its root
+    // bound is *oriented*, while `parry3d_f64::shape::TriMesh` carries an
+    // axis-aligned `Bvh`. Re-testing in the mesh's own frame recovers that
+    // orientation without building a second bounding-volume hierarchy.
+    //
+    // Worth its own test rather than folded into the one above, but a much
+    // smaller win than its rejection rate suggests: measured on fanuc/cage
+    // under STOMP, the narrow-phase calls behind 500,000 state checks fall
+    // from `445,773` to `92,114` while the rate goes `8485` -> `8709` checks
+    // per second. What it discards is the cheap tail; the survivors are
+    // mesh-vs-mesh link pairs (`90.8%` of them) whose
+    // [`fn@query::contact`] costs `620us` each, and those are untouched.
+    if !b_shape
+        .compute_aabb(&(a_pose.inverse() * *b_pose))
+        .loosened(slack)
+        .intersects(&a_shape.compute_local_aabb())
+    {
+        return false;
+    }
+    a_shape
+        .compute_aabb(&(b_pose.inverse() * *a_pose))
+        .loosened(slack)
+        .intersects(&b_shape.compute_local_aabb())
 }
 
 /// `collisionCallback`'s per-pair algorithm (see the module doc, deviations
