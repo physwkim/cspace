@@ -2944,6 +2944,9 @@ fn trimesh_pair_contact(
     }) {
         let t1 = m1.triangle(i1);
         let t2 = m2.triangle(i2);
+        if triangles_are_separated(&t1, &t2.transformed(&pose12), prediction) {
+            continue;
+        }
         if let Ok(Some(contact)) = query::contact(&Pose::default(), &t1, &pose12, &t2, prediction) {
             if best.is_none_or(|b| contact.dist < b.dist) {
                 best = Some(contact);
@@ -2956,6 +2959,61 @@ fn trimesh_pair_contact(
         contact.transform_by_mut(a_pose, a_pose);
     }
     best
+}
+
+/// The same rejection [`pair_can_touch`] makes between two bodies, made
+/// between two triangles of them, both already in one frame.
+///
+/// [`trimesh_pair_contact`] reaches a leaf pair whenever two axis-aligned
+/// triangle bounds overlap, and on a curved link most of those triangles are
+/// still clear of each other: `1088` leaf pairs per mesh pair on the
+/// fanuc/cage measurement against the `~0.3` that hold a contact. Every one
+/// of them otherwise costs a support-mapped GJK run, which is what upstream
+/// spends a `SAT` test to avoid (`fcl::TriangleDistance`, reached from
+/// `MeshCollisionTraversalNode::leafTesting`).
+///
+/// A separating axis is proof, never a verdict: the projections of two convex
+/// sets onto one direction are disjoint only if the sets are, so `true` here
+/// means [`fn@query::contact`] at this `prediction` would have returned
+/// `None`. It is measured against [`BROADPHASE_MARGIN`] rather than `0.0` for
+/// the reason recorded there -- `query::contact` at a prediction of `0.0`
+/// still answers `Some` across a band near `5e-8 m`, and a rejection has to
+/// clear that band to leave the verdict alone. Fewer axes than the eleven
+/// below would still be sound (an untested axis simply proves nothing); all
+/// eleven are tested because they are what makes the test exact for two
+/// triangles, and the loop leaves on the first one that separates.
+fn triangles_are_separated(t1: &ParryTriangle, t2: &ParryTriangle, prediction: f64) -> bool {
+    let slack = prediction + BROADPHASE_MARGIN;
+    let a = t1.vertices();
+    let b = t2.vertices();
+    let ea = [a[1] - a[0], a[2] - a[1], a[0] - a[2]];
+    let eb = [b[1] - b[0], b[2] - b[1], b[0] - b[2]];
+
+    let mut axes = [ParryVector::ZERO; 11];
+    axes[0] = ea[0].cross(ea[1]);
+    axes[1] = eb[0].cross(eb[1]);
+    for i in 0..3 {
+        for j in 0..3 {
+            axes[2 + i * 3 + j] = ea[i].cross(eb[j]);
+        }
+    }
+
+    axes.iter().any(|axis| {
+        let len2 = axis.length_squared();
+        if len2 == 0.0 {
+            // Parallel edges or a degenerate triangle: no direction, and so
+            // no proof either way.
+            return false;
+        }
+        let pa = [a[0].dot(*axis), a[1].dot(*axis), a[2].dot(*axis)];
+        let pb = [b[0].dot(*axis), b[1].dot(*axis), b[2].dot(*axis)];
+        let (min_a, max_a) = (pa[0].min(pa[1]).min(pa[2]), pa[0].max(pa[1]).max(pa[2]));
+        let (min_b, max_b) = (pb[0].min(pb[1]).min(pb[2]), pb[0].max(pb[1]).max(pb[2]));
+        // Both projections are scaled by `|axis|`, so the gap is too; square
+        // rather than take a root per axis.
+        let gap = (min_b - max_a).max(min_a - max_b);
+        gap > 0.0 && gap * gap > slack * slack * len2
+    })
 }
 
 /// `collisionCallback`'s per-pair algorithm (see the module doc, deviations
@@ -6110,6 +6168,71 @@ mod tests {
             ),
             parry3d_f64::math::Rotation::from_axis_angle(axis, rng.random_range(-3.2..3.2)),
         )
+    }
+
+    /// [`triangles_are_separated`] is a rejection, so the only failure that
+    /// matters is a false one: a pair it drops that [`fn@query::contact`]
+    /// would have answered `Some` for is a contact
+    /// [`trimesh_pair_contact`] then never sees. This sweeps random pairs
+    /// across the range where that can happen -- touching, overlapping, and
+    /// clear by less than the prediction -- and asserts the implication in
+    /// that one direction only.
+    ///
+    /// The converse is deliberately not asserted. A separating axis proves
+    /// separation but its absence proves nothing, and the eleven axes here
+    /// are exact only up to the `BROADPHASE_MARGIN` band the rejection is
+    /// widened by, so pairs it keeps and `query::contact` rejects are
+    /// expected and counted rather than failed.
+    #[test]
+    fn triangles_are_separated_never_rejects_a_pair_query_contact_accepts() {
+        use rand::RngExt as _;
+        use rand::SeedableRng as _;
+
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(20260809);
+        let vertex = |rng: &mut rand_chacha::ChaCha8Rng, c: ParryVector| {
+            c + ParryVector::new(
+                rng.random_range(-0.5..0.5),
+                rng.random_range(-0.5..0.5),
+                rng.random_range(-0.5..0.5),
+            )
+        };
+        let (mut accepted, mut rejected) = (0, 0);
+
+        for _ in 0..20_000 {
+            let c1 = ParryVector::ZERO;
+            let c2 = ParryVector::new(
+                rng.random_range(-0.6..0.6),
+                rng.random_range(-0.6..0.6),
+                rng.random_range(-0.6..0.6),
+            );
+            let t1 = ParryTriangle::new(
+                vertex(&mut rng, c1),
+                vertex(&mut rng, c1),
+                vertex(&mut rng, c1),
+            );
+            let t2 = ParryTriangle::new(
+                vertex(&mut rng, c2),
+                vertex(&mut rng, c2),
+                vertex(&mut rng, c2),
+            );
+            for prediction in [0.0, 0.02] {
+                let touches =
+                    query::contact(&Pose::default(), &t1, &Pose::default(), &t2, prediction)
+                        .unwrap()
+                        .is_some();
+                if triangles_are_separated(&t1, &t2, prediction) {
+                    rejected += 1;
+                    assert!(!touches, "rejected a pair query::contact accepts");
+                } else if touches {
+                    accepted += 1;
+                }
+            }
+        }
+
+        // Both arms have to be reached or the assertion above is vacuous:
+        // the sweep must produce pairs that separate and pairs that touch.
+        assert!(rejected > 1000, "only {rejected} pairs were rejected");
+        assert!(accepted > 3000, "only {accepted} pairs touched");
     }
 
     /// [`trimesh_pair_contact`] replaces a parry dispatch, so what has to be
