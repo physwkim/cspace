@@ -2905,6 +2905,72 @@ fn pair_can_touch(
         .intersects(&b_shape.compute_local_aabb())
 }
 
+/// The relative pose of a mesh pair, with everything its node test needs
+/// resolved once.
+///
+/// [`trimesh_pair_contact`] asks the same rotation of the same two operations
+/// at every node of a descent, and `Aabb::transform_by` rebuilds that
+/// rotation from the quaternion on each call -- `Matrix::from_quat(m.rotation)
+/// .abs()`, in `parry3d_f64`'s `utils/isometry_ops.rs` -- twice per node
+/// pair, `1413` node pairs per mesh pair on the fanuc/cage measurement.
+/// Hoisting it is worth `1.13x` end to end there (`51,956` -> `58,916` state
+/// checks per second), which is most of what the node test costs at all.
+struct MeshPairFrame {
+    rot: parry3d_f64::math::Matrix,
+    abs_rot: parry3d_f64::math::Matrix,
+    inv_rot: parry3d_f64::math::Matrix,
+    inv_abs_rot: parry3d_f64::math::Matrix,
+    translation: ParryVector,
+    slack: ParryVector,
+}
+
+impl MeshPairFrame {
+    fn new(pose12: &Pose, prediction: f64) -> Self {
+        let rot = parry3d_f64::math::Matrix::from_quat(pose12.rotation);
+        // `Matrix::abs()` is not in the version of `glam` parry pins, so the
+        // absolute matrix is built column by column; the transposes are the
+        // inverse rotation, which is the transpose because it is orthonormal.
+        let abs_rot = parry3d_f64::math::Matrix::from_cols(
+            rot.x_axis.abs(),
+            rot.y_axis.abs(),
+            rot.z_axis.abs(),
+        );
+        Self {
+            rot,
+            abs_rot,
+            inv_rot: rot.transpose(),
+            inv_abs_rot: abs_rot.transpose(),
+            translation: pose12.translation,
+            slack: ParryVector::splat(prediction),
+        }
+    }
+
+    /// Each node's box re-bounded in the other's frame, in both directions:
+    /// `Aabb::transform_by(pose12)` then `intersects`, and the mirror of it.
+    ///
+    /// Two one-sided tests rather than one because a rotated box's `Aabb` is
+    /// loose enough that the mirror still drops `42%` of what the first one
+    /// keeps (`1035` -> `600` leaf pairs per mesh pair on fanuc/cage). Each
+    /// direction is conservative on its own, so their conjunction is too.
+    fn overlap(&self, a1: &Aabb, a2: &Aabb) -> bool {
+        let c2 = self.rot * a2.center() + self.translation;
+        let h2 = self.abs_rot * a2.half_extents();
+        if (c2 - a1.center())
+            .abs()
+            .cmpgt(a1.half_extents() + h2 + self.slack)
+            .any()
+        {
+            return false;
+        }
+        let c1 = self.inv_rot * (a1.center() - self.translation);
+        let h1 = self.inv_abs_rot * a1.half_extents();
+        !(c1 - a2.center())
+            .abs()
+            .cmpgt(a2.half_extents() + h1 + self.slack)
+            .any()
+    }
+}
+
 /// The mesh-against-mesh half of [`part_contact`], descending both
 /// hierarchies at once the way upstream's does.
 ///
@@ -2952,23 +3018,13 @@ fn trimesh_pair_contact(
     m2: &TriMesh,
     prediction: f64,
 ) -> Option<ParryContact> {
-    use parry3d_f64::bounding_volume::BoundingVolume as _;
     let pose12 = a_pose.inv_mul(b_pose);
-    let pose21 = pose12.inverse();
+    let frame = MeshPairFrame::new(&pose12, prediction);
     let mut best: Option<ParryContact> = None;
-    for (i1, i2) in m1.bvh().leaf_pairs(m2.bvh(), |n1, n2| {
-        // Each node's box re-bounded in the other's frame. Two one-sided
-        // tests rather than one: a rotated box's `Aabb` is loose enough that
-        // the mirror test still drops `42%` of what the first one keeps
-        // (`1035` -> `600` leaf pairs per mesh pair on fanuc/cage).
-        let a1 = n1.aabb();
-        let a2 = n2.aabb();
-        a1.loosened(prediction)
-            .intersects(&a2.transform_by(&pose12))
-            && a2
-                .loosened(prediction)
-                .intersects(&a1.transform_by(&pose21))
-    }) {
+    for (i1, i2) in m1
+        .bvh()
+        .leaf_pairs(m2.bvh(), |n1, n2| frame.overlap(&n1.aabb(), &n2.aabb()))
+    {
         let t1 = m1.triangle(i1);
         let t2 = m2.triangle(i2);
         if triangles_are_separated(&t1, &t2.transformed(&pose12), prediction) {
@@ -6309,6 +6365,57 @@ mod tests {
         }
 
         assert!(contacts > 100, "only {contacts} contacts to compare");
+    }
+
+    /// [`MeshPairFrame::overlap`] is a rewrite of an expression, not a new
+    /// test, so what it owes is that it answers what the expression answered:
+    /// `a1.loosened(p).intersects(&a2.transform_by(pose12))` and its mirror.
+    /// Swept over random boxes and poses, including the pairs that only just
+    /// touch, where a rewrite that reassociated the arithmetic would show up.
+    #[test]
+    fn mesh_pair_frame_overlap_answers_what_the_transform_by_pair_answered() {
+        use parry3d_f64::bounding_volume::BoundingVolume as _;
+        use rand::RngExt as _;
+        use rand::SeedableRng as _;
+
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(20260809);
+        let boxes = |rng: &mut rand_chacha::ChaCha8Rng| {
+            let c = ParryVector::new(
+                rng.random_range(-1.0..1.0),
+                rng.random_range(-1.0..1.0),
+                rng.random_range(-1.0..1.0),
+            );
+            let h = ParryVector::new(
+                rng.random_range(0.01..0.5),
+                rng.random_range(0.01..0.5),
+                rng.random_range(0.01..0.5),
+            );
+            Aabb::new(c - h, c + h)
+        };
+        let mut overlapping = 0;
+
+        for _ in 0..50_000 {
+            let a1 = boxes(&mut rng);
+            let a2 = boxes(&mut rng);
+            let pose12 = random_pose(&mut rng, 0.8);
+            let pose21 = pose12.inverse();
+            for prediction in [0.0, 0.05] {
+                let expected = a1
+                    .loosened(prediction)
+                    .intersects(&a2.transform_by(&pose12))
+                    && a2
+                        .loosened(prediction)
+                        .intersects(&a1.transform_by(&pose21));
+                overlapping += usize::from(expected);
+                assert_eq!(
+                    MeshPairFrame::new(&pose12, prediction).overlap(&a1, &a2),
+                    expected
+                );
+            }
+        }
+
+        // Otherwise the assertion holds on a sweep that only ever separated.
+        assert!(overlapping > 1000, "only {overlapping} pairs overlapped");
     }
 
     /// [`triangles_are_separated`] is a rejection, so the only failure that
