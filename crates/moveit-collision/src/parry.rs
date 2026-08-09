@@ -2788,6 +2788,64 @@ fn part_contact(
     }
 }
 
+/// Slack added to every [`pair_can_touch`] rejection on top of the query's
+/// own prediction, so the gate cannot cut a pair either narrow-phase branch
+/// below would still have called touching.
+///
+/// Two bands have to fit under it. [`fn@query::contact`] at a prediction of
+/// `0.0` returns `Some` across a small band of real clear air rather than at
+/// exactly zero -- measured near `5e-8 m` on prbt's base cylinder against a
+/// `4x4x0.1` box (see [`accumulate_collision`]'s own `Touching` arm, which
+/// records the `3e-8` / `1e-7` bracket). The `NotTouching` rescue's
+/// [`tangent_pair_touches`] re-queries at `2.0 * TIE_ROUNDING_MARGIN *
+/// f64::EPSILON * tie_scale`, about `7.1e-15` per unit of scale and so
+/// orders of magnitude narrower. `1e-6 m` clears the wider of the two by
+/// 20x, and costs nothing in rejection power: the pairs this gate actually
+/// discards are centimetres apart, not micrometres (`96.6%` of them on the
+/// fanuc/cage measurement below).
+const BROADPHASE_MARGIN: f64 = 1e-6;
+
+/// The AABB rejection upstream gets from its broad phase and this backend,
+/// until now, did not.
+///
+/// `CollisionEnvFCL` registers every collision object with a
+/// `fcl::DynamicAABBTreeCollisionManager` and lets `manager->collide(...)`
+/// drive `collisionCallback`, so a pair whose AABBs are disjoint never
+/// reaches `fcl::collide` at all. This backend has no broad phase (module
+/// doc, deviation 7: "every ACM-permitted pair is evaluated in link/object
+/// order every time"), which that deviation describes only as an ordering
+/// difference in `DistanceResult::distances`. The cost it does not mention
+/// is the one that matters in a planner's inner loop -- measured on
+/// fanuc/cage under STOMP, `96.6%` of the narrow-phase calls
+/// (`501,338` of `518,793`) were on pairs whose world AABBs do not
+/// intersect, and they burned `89.3%` of all narrow-phase time (`23.4s` of
+/// `26.2s`); the AABB test that rejects them costs `0.039us` against
+/// `~50us` for the [`fn@query::contact`] call it replaces.
+///
+/// This is a rejection, never a verdict: it returns `false` only when the
+/// two AABBs are provably separated by more than the query's own prediction
+/// plus [`BROADPHASE_MARGIN`], and an [`Aabb`] contains its shape, so a
+/// `false` here means [`fn@query::contact`] at that prediction would have
+/// returned `None`. Both callers already treat `None` as "skip this pair",
+/// so no verdict moves. The [`PartContactOutcome::Unsupported`] fail-safe
+/// survives for the same reason rather than by being special-cased:
+/// `HalfSpace` -- today's only unsupported pair -- has an AABB of
+/// `(-f64::MAX * 0.5, f64::MAX * 0.5)` (`aabb_halfspace.rs`), which cannot
+/// be proven separate from anything, so such a pair is never rejected here.
+fn pair_can_touch(
+    a_pose: &Pose,
+    a_shape: &dyn ParryShape,
+    b_pose: &Pose,
+    b_shape: &dyn ParryShape,
+    prediction: f64,
+) -> bool {
+    use parry3d_f64::bounding_volume::BoundingVolume as _;
+    a_shape
+        .compute_aabb(a_pose)
+        .loosened(prediction + BROADPHASE_MARGIN)
+        .intersects(&b_shape.compute_aabb(b_pose))
+}
+
 /// `collisionCallback`'s per-pair algorithm (see the module doc, deviations
 /// 4 and 5, and "Attached-body geometry"), folded over every candidate pair:
 ///
@@ -2860,210 +2918,225 @@ fn accumulate_collision<'a>(
             if done {
                 break;
             }
-            match part_contact(a_pose, a_shape, b_pose, b_shape, 0.0) {
-                PartContactOutcome::Touching(contact) => {
-                    // NOT gated on `contact.dist <= 0.0`, though the wording
-                    // above ("prediction `0.0`, so only touching/penetrating
-                    // pairs yield `Some`") reads as though it were. `parry`
-                    // returns a contact across a small positive gap too:
-                    // measured on prbt's base cylinder against a `4x4x0.1`
-                    // box, a `3e-8 m` gap yields `Some` and a `1e-7 m` gap
-                    // yields `None`, so the effective boundary sits near
-                    // `5e-8 m` of clear air rather than at zero -- far above
-                    // `touches_at_tie`'s own band, so this margin is
-                    // untouched by it.
-                    //
-                    // Independent of `is_collision`, below: `collision_common.cpp`
-                    // computes cost sources unconditionally once a real contact is
-                    // found, whether or not `AllowedCollision::Conditional`'s own
-                    // predicate goes on to accept it (see `cost_sources_for_part_pair`'s
-                    // own doc).
-                    if request.cost {
-                        for source in cost_sources_for_part_pair(a_pose, a_shape, b_pose, b_shape) {
-                            cost_sources.insert(source);
-                            while cost_sources.len() > request.max_cost_sources {
-                                cost_sources.pop_last();
+            // Upstream's broad phase, per pair -- see `pair_can_touch`. A
+            // rejected pair takes neither arm below: it cannot reach the
+            // contact arm, and the `NotTouching` arm's tangency rescue needs
+            // the two to touch, which this one is provably clear of. It must
+            // still fall through to the termination block, exactly as a pair
+            // `fcl::collide` cleared does.
+            if pair_can_touch(a_pose, a_shape, b_pose, b_shape, 0.0) {
+                match part_contact(a_pose, a_shape, b_pose, b_shape, 0.0) {
+                    PartContactOutcome::Touching(contact) => {
+                        // NOT gated on `contact.dist <= 0.0`, though the wording
+                        // above ("prediction `0.0`, so only touching/penetrating
+                        // pairs yield `Some`") reads as though it were. `parry`
+                        // returns a contact across a small positive gap too:
+                        // measured on prbt's base cylinder against a `4x4x0.1`
+                        // box, a `3e-8 m` gap yields `Some` and a `1e-7 m` gap
+                        // yields `None`, so the effective boundary sits near
+                        // `5e-8 m` of clear air rather than at zero -- far above
+                        // `touches_at_tie`'s own band, so this margin is
+                        // untouched by it.
+                        //
+                        // Independent of `is_collision`, below: `collision_common.cpp`
+                        // computes cost sources unconditionally once a real contact is
+                        // found, whether or not `AllowedCollision::Conditional`'s own
+                        // predicate goes on to accept it (see `cost_sources_for_part_pair`'s
+                        // own doc).
+                        if request.cost {
+                            for source in
+                                cost_sources_for_part_pair(a_pose, a_shape, b_pose, b_shape)
+                            {
+                                cost_sources.insert(source);
+                                while cost_sources.len() > request.max_cost_sources {
+                                    cost_sources.pop_last();
+                                }
+                            }
+                        }
+                        let mut c =
+                            to_contact(&contact, &a.name, a.body_type, &b.name, b.body_type);
+                        // `touches_at_tie` decides this, not a literal `dist == 0.0`
+                        // check: `fcl::collide` dispatches per shape pair --
+                        // `octree_world_collision_response.json` case 4 (an octree
+                        // leaf whose `-x` face lands exactly on the robot box's `+x`
+                        // face) comes back `robot_collision: true, robot_distance:
+                        // -0.0`, while prbt's cylinder resting exactly on a box comes
+                        // back `false` with the `-1.0` sentinel (`doc/upstream-bugs.md`,
+                        // `fcl-distance-sentinel-survives-zero-contacts`) -- and
+                        // `parry` does not land on `0.0` exactly for most of these
+                        // ties either (`crate::TIE_ROUNDING_MARGIN`'s own doc has the
+                        // measurement); `parry` puts the octree pair a hair *above*
+                        // zero and prbt's at `-2.775558e-17`, both well inside
+                        // `touches_at_tie`'s rounding band, so both still reach the
+                        // table rather than falling through to a raw sign check that
+                        // would get one of them wrong.
+                        // `crates/moveit-collision/tests/exact_tangency_boundary.rs` pins
+                        // both ends of this as measurements rather than intentions.
+                        let touches =
+                            touches_at_tie(contact.dist, a_pose, a_shape, b_pose, b_shape);
+                        let is_collision = touches
+                            && match allowed {
+                                Some(AllowedCollision::Conditional(ref predicate)) => {
+                                    !predicate(&mut c)
+                                }
+                                Some(AllowedCollision::Never) | None => true,
+                                Some(AllowedCollision::Always) => {
+                                    unreachable!("filtered out above")
+                                }
+                            };
+                        if is_collision {
+                            collision = true;
+                            if request.contacts && stored_total < request.max_contacts {
+                                let bucket = by_pair.entry(pair_key(&a.name, &b.name)).or_default();
+                                if bucket.len() < request.max_contacts_per_pair {
+                                    bucket.push(c);
+                                    stored_total += 1;
+                                }
                             }
                         }
                     }
-                    let mut c = to_contact(&contact, &a.name, a.body_type, &b.name, b.body_type);
-                    // `touches_at_tie` decides this, not a literal `dist == 0.0`
-                    // check: `fcl::collide` dispatches per shape pair --
-                    // `octree_world_collision_response.json` case 4 (an octree
-                    // leaf whose `-x` face lands exactly on the robot box's `+x`
-                    // face) comes back `robot_collision: true, robot_distance:
-                    // -0.0`, while prbt's cylinder resting exactly on a box comes
-                    // back `false` with the `-1.0` sentinel (`doc/upstream-bugs.md`,
-                    // `fcl-distance-sentinel-survives-zero-contacts`) -- and
-                    // `parry` does not land on `0.0` exactly for most of these
-                    // ties either (`crate::TIE_ROUNDING_MARGIN`'s own doc has the
-                    // measurement); `parry` puts the octree pair a hair *above*
-                    // zero and prbt's at `-2.775558e-17`, both well inside
-                    // `touches_at_tie`'s rounding band, so both still reach the
-                    // table rather than falling through to a raw sign check that
-                    // would get one of them wrong.
-                    // `crates/moveit-collision/tests/exact_tangency_boundary.rs` pins
-                    // both ends of this as measurements rather than intentions.
-                    let touches = touches_at_tie(contact.dist, a_pose, a_shape, b_pose, b_shape);
-                    let is_collision = touches
-                        && match allowed {
-                            Some(AllowedCollision::Conditional(ref predicate)) => {
-                                !predicate(&mut c)
-                            }
-                            Some(AllowedCollision::Never) | None => true,
-                            Some(AllowedCollision::Always) => unreachable!("filtered out above"),
-                        };
-                    if is_collision {
-                        collision = true;
-                        if request.contacts && stored_total < request.max_contacts {
-                            let bucket = by_pair.entry(pair_key(&a.name, &b.name)).or_default();
-                            if bucket.len() < request.max_contacts_per_pair {
-                                bucket.push(c);
-                                stored_total += 1;
+                    PartContactOutcome::NotTouching => {
+                        if !matches!(allowed, Some(AllowedCollision::Conditional(_)))
+                            && fcl_tangency_verdict(a_shape, b_shape) == Some(true)
+                        {
+                            // `query::contact` missed this pair (`NotTouching`)
+                            // even though they may be geometrically touching or
+                            // overlapping: the only way that happens is a
+                            // specialised closed-form routine excluding a
+                            // boundary its own geometric test admits --
+                            // `contact_ball_ball`'s strict `<` vs
+                            // `intersection_test_ball_ball`'s `<=` is the one
+                            // this crate has measured
+                            // (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`),
+                            // plus one more for `TriMesh` specifically --
+                            // `tangent_pair_touches`'s own doc has both.
+                            // `fcl_tangency_verdict` gates this to the pairs the
+                            // table says collide, so a pair it says does *not*
+                            // (e.g. `box x cone`) never reaches
+                            // `tangent_pair_touches` here at all -- this branch
+                            // cannot make one of those `true`.
+                            //
+                            // Upstream fcl verdict for every pair class this
+                            // gate can actually open for, checked against a live
+                            // `/home/stevek/work/fcl` checkout at
+                            // `0.7.0-17-ge5efcc4`. On this branch that is five
+                            // classes, not four: the non-mesh
+                            // `SPECIALISED[tangency_kind(a)][tangency_kind(b)]`
+                            // lookup's four `true` cells (`box x box`, `box x
+                            // sphere`, `sphere x sphere`, `sphere x cylinder`),
+                            // plus `mesh x sphere` -- `MESH_TANGENCY`'s one
+                            // `AlwaysTouching` cell
+                            // (`crate::mesh_tangency_table`'s own doc), reached
+                            // through this same function's `mesh_tangency_verdict`
+                            // dispatch above. `Halfspace x {box, sphere,
+                            // cylinder, cone}` never reaches any of them --
+                            // `tangency_kind` has no arm for it (see
+                            // `HalfSpace`'s own doc) -- and neither does any
+                            // other mesh pairing (`box`/`cylinder`/`cone`/`mesh`
+                            // on the non-mesh side): `MESH_TANGENCY`'s other four
+                            // cells are `Undiagnosed`/`NoStableTarget`, both
+                            // `None` (`MeshVerdict::as_tangency_bool`).
+                            //
+                            // The four non-mesh reachable classes are each a
+                            // single closed-form routine that rejects with a
+                            // strict `>` and fills `contacts` unconditionally in
+                            // the same call once past it, so an exact-zero gap
+                            // is never classified separated and fcl cannot
+                            // itself report no-contact for a true touch in any
+                            // of them -- this branch's `true` matches upstream
+                            // whenever it fires:
+                            // - `box x box` (the `Compound`-as-boxes case):
+                            //   `boxBoxIntersect`/`boxBox2`
+                            //   (`box_box-inl.h:858-875,248-567`), 15 SAT axes,
+                            //   each `if(s2 > 0) { *return_code = 0; return 0; }`
+                            //   (`:302,314,326,339,351,363` face,
+                            //   `:406,424,442,461,479,497,516,534,552`
+                            //   edge-edge), contacts filled at `:568-616`.
+                            // - `box x sphere` (also reached by `Compound x
+                            //   Sphere`): `sphereBoxIntersect`
+                            //   (`sphere_box-inl.h:98-178`), `if
+                            //   (squared_distance > r * r) return false;` at
+                            //   `:119`, contacts filled at `:124-176`.
+                            // - `sphere x sphere`: `sphereSphereIntersect`
+                            //   (`sphere_sphere-inl.h:66-86`), `if(len >
+                            //   s1.radius + s2.radius) return false;` at `:72`,
+                            //   contacts filled at `:75-83`. This is the
+                            //   *opposite* boundary convention from parry's own
+                            //   `contact_ball_ball`, whose strict `<` is what
+                            //   motivates this branch in the first place
+                            //   (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`)
+                            //   -- fcl's own routine does not share parry's gap
+                            //   here, so this is not the branch's strongest
+                            //   justification, it is simply another case fcl
+                            //   always agrees with.
+                            // - `sphere x cylinder`: `sphereCylinderIntersect`
+                            //   (`sphere_cylinder-inl.h:114-221`), `if
+                            //   (p_SN_squared_dist > r_s * r_s) return false;`
+                            //   at `:136`, contacts filled at `:141-219`.
+                            //
+                            // The fifth reachable class, `mesh x sphere`, is not
+                            // verified the same way fcl routes it to
+                            // `ShapeTriangleIntersectLibccdImpl<S, Sphere<S>>`
+                            // (`gjk_solver_libccd-inl.h:403-419`,
+                            // `sphereTriangleIntersect`), a *different*
+                            // closed-form routine than the four above, while
+                            // `Mesh x {Box, Cylinder, Cone}` -- none of which
+                            // this gate opens for -- routes to generic libccd
+                            // MPR instead (`:422-458`, `detail::GJKCollide`),
+                            // whose own `discoverPortal` rejects an exact-zero
+                            // support-direction dot product as *separated*
+                            // (`/home/stevek/work/libccd`, checkout `7931e76`,
+                            // `mpr.c:189,209,232`) -- the opposite boundary
+                            // convention from every closed-form routine above.
+                            // That routing split matters here, unlike on a
+                            // branch where mesh never reaches this gate at all:
+                            // `mesh x sphere`'s own justification is measured
+                            // from 497 tilted-orientation probe poses, not read
+                            // off fcl source the way the four classes above are
+                            // -- `MeshVerdict::AlwaysTouching`'s own doc has that
+                            // measurement, and `tangent_pair_touches`'s own doc
+                            // has why only `TriMesh` gets the widened
+                            // `query::contact` fallback this branch relies on to
+                            // confirm it.
+                            //
+                            // No masking case found in any of the five: fcl
+                            // either always reports the touch this branch also
+                            // reports, or never lets this branch answer for that
+                            // pair at all.
+                            let touches =
+                                match tangent_pair_touches(a_pose, a_shape, b_pose, b_shape) {
+                                    TangentPairOutcome::Touching => true,
+                                    TangentPairOutcome::NotTouching => false,
+                                    // Unreachable today (see `TangentPairOutcome`'s
+                                    // own doc) but still named explicitly rather
+                                    // than folded into `false` by a wildcard --
+                                    // exactly the defect `PartContactOutcome`/
+                                    // `TangentPairOutcome` both exist to close.
+                                    TangentPairOutcome::Unsupported => true,
+                                };
+                            if touches {
+                                // There is no `Contact` to build for this pair,
+                                // so unlike every other branch this sets
+                                // `collision` alone: no `by_pair` entry, no cost
+                                // sources, and `AllowedCollision::Conditional`
+                                // pairs are excluded above rather than guessed
+                                // at, since its predicate needs a `Contact` this
+                                // branch cannot produce.
+                                collision = true;
                             }
                         }
                     }
-                }
-                PartContactOutcome::NotTouching => {
-                    if !matches!(allowed, Some(AllowedCollision::Conditional(_)))
-                        && fcl_tangency_verdict(a_shape, b_shape) == Some(true)
-                    {
-                        // `query::contact` missed this pair (`NotTouching`)
-                        // even though they may be geometrically touching or
-                        // overlapping: the only way that happens is a
-                        // specialised closed-form routine excluding a
-                        // boundary its own geometric test admits --
-                        // `contact_ball_ball`'s strict `<` vs
-                        // `intersection_test_ball_ball`'s `<=` is the one
-                        // this crate has measured
-                        // (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`),
-                        // plus one more for `TriMesh` specifically --
-                        // `tangent_pair_touches`'s own doc has both.
-                        // `fcl_tangency_verdict` gates this to the pairs the
-                        // table says collide, so a pair it says does *not*
-                        // (e.g. `box x cone`) never reaches
-                        // `tangent_pair_touches` here at all -- this branch
-                        // cannot make one of those `true`.
-                        //
-                        // Upstream fcl verdict for every pair class this
-                        // gate can actually open for, checked against a live
-                        // `/home/stevek/work/fcl` checkout at
-                        // `0.7.0-17-ge5efcc4`. On this branch that is five
-                        // classes, not four: the non-mesh
-                        // `SPECIALISED[tangency_kind(a)][tangency_kind(b)]`
-                        // lookup's four `true` cells (`box x box`, `box x
-                        // sphere`, `sphere x sphere`, `sphere x cylinder`),
-                        // plus `mesh x sphere` -- `MESH_TANGENCY`'s one
-                        // `AlwaysTouching` cell
-                        // (`crate::mesh_tangency_table`'s own doc), reached
-                        // through this same function's `mesh_tangency_verdict`
-                        // dispatch above. `Halfspace x {box, sphere,
-                        // cylinder, cone}` never reaches any of them --
-                        // `tangency_kind` has no arm for it (see
-                        // `HalfSpace`'s own doc) -- and neither does any
-                        // other mesh pairing (`box`/`cylinder`/`cone`/`mesh`
-                        // on the non-mesh side): `MESH_TANGENCY`'s other four
-                        // cells are `Undiagnosed`/`NoStableTarget`, both
-                        // `None` (`MeshVerdict::as_tangency_bool`).
-                        //
-                        // The four non-mesh reachable classes are each a
-                        // single closed-form routine that rejects with a
-                        // strict `>` and fills `contacts` unconditionally in
-                        // the same call once past it, so an exact-zero gap
-                        // is never classified separated and fcl cannot
-                        // itself report no-contact for a true touch in any
-                        // of them -- this branch's `true` matches upstream
-                        // whenever it fires:
-                        // - `box x box` (the `Compound`-as-boxes case):
-                        //   `boxBoxIntersect`/`boxBox2`
-                        //   (`box_box-inl.h:858-875,248-567`), 15 SAT axes,
-                        //   each `if(s2 > 0) { *return_code = 0; return 0; }`
-                        //   (`:302,314,326,339,351,363` face,
-                        //   `:406,424,442,461,479,497,516,534,552`
-                        //   edge-edge), contacts filled at `:568-616`.
-                        // - `box x sphere` (also reached by `Compound x
-                        //   Sphere`): `sphereBoxIntersect`
-                        //   (`sphere_box-inl.h:98-178`), `if
-                        //   (squared_distance > r * r) return false;` at
-                        //   `:119`, contacts filled at `:124-176`.
-                        // - `sphere x sphere`: `sphereSphereIntersect`
-                        //   (`sphere_sphere-inl.h:66-86`), `if(len >
-                        //   s1.radius + s2.radius) return false;` at `:72`,
-                        //   contacts filled at `:75-83`. This is the
-                        //   *opposite* boundary convention from parry's own
-                        //   `contact_ball_ball`, whose strict `<` is what
-                        //   motivates this branch in the first place
-                        //   (`parry_boolean_queries_disagree_in_both_directions_at_the_tie`)
-                        //   -- fcl's own routine does not share parry's gap
-                        //   here, so this is not the branch's strongest
-                        //   justification, it is simply another case fcl
-                        //   always agrees with.
-                        // - `sphere x cylinder`: `sphereCylinderIntersect`
-                        //   (`sphere_cylinder-inl.h:114-221`), `if
-                        //   (p_SN_squared_dist > r_s * r_s) return false;`
-                        //   at `:136`, contacts filled at `:141-219`.
-                        //
-                        // The fifth reachable class, `mesh x sphere`, is not
-                        // verified the same way fcl routes it to
-                        // `ShapeTriangleIntersectLibccdImpl<S, Sphere<S>>`
-                        // (`gjk_solver_libccd-inl.h:403-419`,
-                        // `sphereTriangleIntersect`), a *different*
-                        // closed-form routine than the four above, while
-                        // `Mesh x {Box, Cylinder, Cone}` -- none of which
-                        // this gate opens for -- routes to generic libccd
-                        // MPR instead (`:422-458`, `detail::GJKCollide`),
-                        // whose own `discoverPortal` rejects an exact-zero
-                        // support-direction dot product as *separated*
-                        // (`/home/stevek/work/libccd`, checkout `7931e76`,
-                        // `mpr.c:189,209,232`) -- the opposite boundary
-                        // convention from every closed-form routine above.
-                        // That routing split matters here, unlike on a
-                        // branch where mesh never reaches this gate at all:
-                        // `mesh x sphere`'s own justification is measured
-                        // from 497 tilted-orientation probe poses, not read
-                        // off fcl source the way the four classes above are
-                        // -- `MeshVerdict::AlwaysTouching`'s own doc has that
-                        // measurement, and `tangent_pair_touches`'s own doc
-                        // has why only `TriMesh` gets the widened
-                        // `query::contact` fallback this branch relies on to
-                        // confirm it.
-                        //
-                        // No masking case found in any of the five: fcl
-                        // either always reports the touch this branch also
-                        // reports, or never lets this branch answer for that
-                        // pair at all.
-                        let touches = match tangent_pair_touches(a_pose, a_shape, b_pose, b_shape) {
-                            TangentPairOutcome::Touching => true,
-                            TangentPairOutcome::NotTouching => false,
-                            // Unreachable today (see `TangentPairOutcome`'s
-                            // own doc) but still named explicitly rather
-                            // than folded into `false` by a wildcard --
-                            // exactly the defect `PartContactOutcome`/
-                            // `TangentPairOutcome` both exist to close.
-                            TangentPairOutcome::Unsupported => true,
-                        };
-                        if touches {
-                            // There is no `Contact` to build for this pair,
-                            // so unlike every other branch this sets
-                            // `collision` alone: no `by_pair` entry, no cost
-                            // sources, and `AllowedCollision::Conditional`
-                            // pairs are excluded above rather than guessed
-                            // at, since its predicate needs a `Contact` this
-                            // branch cannot produce.
+                    PartContactOutcome::Unsupported => {
+                        // Fail-safe, not a computed verdict: parry has no
+                        // dispatch arm for this shape-kind pair (today, only
+                        // `HalfSpace` x `HalfSpace` -- see `PartContactOutcome`'s
+                        // own doc). Same `Conditional` exclusion as the branch
+                        // above and for the same reason: its predicate needs a
+                        // `Contact` this outcome cannot produce either. No
+                        // `Contact` to build or store either way.
+                        if !matches!(allowed, Some(AllowedCollision::Conditional(_))) {
                             collision = true;
                         }
-                    }
-                }
-                PartContactOutcome::Unsupported => {
-                    // Fail-safe, not a computed verdict: parry has no
-                    // dispatch arm for this shape-kind pair (today, only
-                    // `HalfSpace` x `HalfSpace` -- see `PartContactOutcome`'s
-                    // own doc). Same `Conditional` exclusion as the branch
-                    // above and for the same reason: its predicate needs a
-                    // `Contact` this outcome cannot produce either. No
-                    // `Contact` to build or store either way.
-                    if !matches!(allowed, Some(AllowedCollision::Conditional(_))) {
-                        collision = true;
                     }
                 }
             }
@@ -3197,6 +3270,20 @@ fn accumulate_distance<'a>(
                     .map_or(request.distance_threshold, |existing| existing[0].distance),
                 DistanceRequestType::All => request.distance_threshold,
             };
+            // Same broad phase as `accumulate_collision`, at this sweep's own
+            // running prediction rather than a literal `0.0` -- a pair beyond
+            // the current threshold contributes nothing to `distances` or to
+            // `minimum_distance`, which is what the `contact.dist >=
+            // threshold` skip below already decides for it the slow way.
+            if !pair_can_touch(
+                a_pose,
+                a_shape,
+                b_pose,
+                b_shape,
+                bounded_prediction(threshold),
+            ) {
+                continue;
+            }
             let contact = match part_contact(
                 a_pose,
                 a_shape,
