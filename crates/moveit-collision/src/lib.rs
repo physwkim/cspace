@@ -95,6 +95,8 @@ mod fcl_tangency_table;
 mod matrix;
 mod mesh_tangency_table;
 mod numeric;
+mod obb_bvh;
+mod obb_fit;
 mod octomap_filter;
 mod parry;
 mod tools;

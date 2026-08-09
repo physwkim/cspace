@@ -1227,6 +1227,7 @@ use crate::common::{
 };
 use crate::env::{CollisionEnv, LinkPaddingScale};
 use crate::matrix::{AllowedCollision, AllowedCollisionMatrix};
+use crate::obb_bvh::ObbTree;
 use crate::world::{Object, World};
 
 /// A practical, effectively-unbounded search distance for `parry`'s own
@@ -1406,6 +1407,54 @@ impl OctreeCache {
     }
 }
 
+/// One [`convert_shape`] result, plus the oriented-box hierarchy over it when
+/// it is a mesh.
+///
+/// The hierarchy is a pure function of the converted shape, so it belongs
+/// wherever that shape is built rather than in a fourth cache keyed on the
+/// shape's address: [`ShapeCache`] and [`LinkShapeCache`] already build each
+/// shape exactly once and already hold the identity that says when it has
+/// changed. Carrying the tree in their entries makes it built once too, and
+/// leaves nothing on the query path to look up -- which matters, because
+/// `check_robot_collision` rebuilds every [`PosedBody`] on every call
+/// (module doc, design section) at tens of thousands of calls a second, and
+/// a per-call map lookup and prune per part would cost more than the tree
+/// saves.
+///
+/// Additive to [`convert_shape`] itself -- its match arms are unchanged, the
+/// same way [`ShapeCache`] wraps it from outside.
+#[derive(Clone)]
+struct ConvertedShape {
+    shape: SharedShape,
+    /// The extra local transform the conversion needed (identity,
+    /// [`axis_fix`], or a plane offset), applied by the caller before the
+    /// shape is posed.
+    extra: Isometry3,
+    /// `Some` exactly when `shape` is a `TriMesh` with at least one triangle
+    /// -- see [`crate::obb_bvh`] for what the descent uses it for, and
+    /// [`ObbTree::build`] for why an empty mesh has no tree.
+    obb: Option<Arc<ObbTree>>,
+}
+
+impl ConvertedShape {
+    /// Wraps a [`convert_shape`] result, fitting the hierarchy if the shape
+    /// turned out to be a mesh.
+    ///
+    /// Every mesh gets one, including the small ones. The build is `O(n log
+    /// n)` in the triangle count and happens once per distinct
+    /// shape-and-scale-and-padding, against a query path that runs
+    /// unboundedly often; there is no size below which paying it once is the
+    /// wrong trade, and a threshold would only add a second code path to
+    /// keep correct.
+    fn new((shape, extra): (SharedShape, Isometry3)) -> Self {
+        let obb = shape
+            .as_trimesh()
+            .and_then(|mesh| ObbTree::build(mesh.vertices(), mesh.indices()))
+            .map(Arc::new);
+        Self { shape, extra, obb }
+    }
+}
+
 /// Cache of [`Shape`] → `parry` shape conversions for attached-body and
 /// world-object geometry — the two populations whose shapes live behind an
 /// [`Arc`], the same identity [`OctreeCache`] above already keys on, extended
@@ -1461,7 +1510,7 @@ struct ShapeCacheKey {
 }
 
 /// The pin plus the cached conversion — same shape as [`OctreeCacheEntry`].
-type ShapeCacheEntry = (Weak<Shape>, Option<(SharedShape, Isometry3)>);
+type ShapeCacheEntry = (Weak<Shape>, Option<ConvertedShape>);
 
 impl std::fmt::Debug for ShapeCache {
     /// See [`OctreeCache`]'s own [`std::fmt::Debug`] impl for why this
@@ -1473,8 +1522,8 @@ impl std::fmt::Debug for ShapeCache {
 }
 
 impl ShapeCache {
-    /// Returns the cached `(parry shape, extra transform)` for `shape` at
-    /// `scale`/`padding`, or computes it with `build` and stores the result.
+    /// Returns the cached [`ConvertedShape`] for `shape` at `scale`/`padding`,
+    /// or computes it with `build` and stores the result.
     /// Prunes every entry whose `Weak` has gone dead first, same reasoning as
     /// [`OctreeCache::get_or_compute`].
     fn get_or_compute(
@@ -1482,8 +1531,8 @@ impl ShapeCache {
         shape: &Arc<Shape>,
         scale: f64,
         padding: f64,
-        build: impl FnOnce() -> Option<(SharedShape, Isometry3)>,
-    ) -> Option<(SharedShape, Isometry3)> {
+        build: impl FnOnce() -> Option<ConvertedShape>,
+    ) -> Option<ConvertedShape> {
         let key = ShapeCacheKey {
             shape_ptr: Arc::as_ptr(shape) as *const () as usize,
             scale_bits: scale.to_bits(),
@@ -1551,7 +1600,7 @@ struct LinkShapeCacheInner {
     /// The `(&RobotModel` address, `RobotModel::name())` pair observed on
     /// the call that populated `entries` — see [`LinkShapeCache`]'s own doc.
     model: Option<(usize, String)>,
-    entries: HashMap<LinkShapeKey, Option<(SharedShape, Isometry3)>>,
+    entries: HashMap<LinkShapeKey, Option<ConvertedShape>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -1582,7 +1631,7 @@ impl std::fmt::Debug for LinkShapeCache {
 }
 
 impl LinkShapeCache {
-    /// Returns the cached `(parry shape, extra transform)` for
+    /// Returns the cached [`ConvertedShape`] for
     /// `(link_index, shape_index)` at `scale`/`padding` under the
     /// `RobotModel` identified by `model`, or computes it with `build`. A
     /// model identity that does not match the previous call clears every
@@ -1591,8 +1640,8 @@ impl LinkShapeCache {
         &self,
         model: ModelIdentity<'_>,
         key: LinkShapeKey,
-        build: impl FnOnce() -> Option<(SharedShape, Isometry3)>,
-    ) -> Option<(SharedShape, Isometry3)> {
+        build: impl FnOnce() -> Option<ConvertedShape>,
+    ) -> Option<ConvertedShape> {
         let mut guard = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         let same_model = guard
             .model
@@ -1744,17 +1793,29 @@ fn scaled_padded_shape(shape: &Shape, scale: f64, padding: f64) -> Shape {
     shape
 }
 
+/// One globally-posed piece of collision geometry — what [`part_pairs`]
+/// hands [`part_contact`].
+///
+/// Upstream's `global_shape_poses_[i]` / `getCollisionBodyTransform(link, i)`
+/// paired with the shape it poses, plus the oriented-box hierarchy
+/// [`ConvertedShape`] fitted to that shape when it is a mesh.
+struct Part {
+    pose: Pose,
+    shape: SharedShape,
+    /// `Some` exactly when `shape` is a non-empty `TriMesh`; see
+    /// [`ConvertedShape::obb`].
+    obb: Option<Arc<ObbTree>>,
+}
+
 /// One named collision body — a robot link, an attached body, or a world
 /// object — as the list of globally-posed shapes upstream's
 /// `FCLObject::collision_objects_` holds for it. See the module doc.
 struct PosedBody {
     name: String,
     body_type: BodyType,
-    /// One `(global pose, shape)` per shape, upstream's
-    /// `global_shape_poses_[i]` / `getCollisionBodyTransform(link, i)`.
-    /// Never empty: [`pose_parts`] returns `None` rather than build a body
-    /// with nothing to check.
-    parts: Vec<(Pose, SharedShape)>,
+    /// One [`Part`] per shape. Never empty: [`pose_parts`] returns `None`
+    /// rather than build a body with nothing to check.
+    parts: Vec<Part>,
     /// The link this body is rigidly attached to. `Some` only for
     /// [`BodyType::RobotAttached`] — needed by the touch-links same-link
     /// rule (module doc, "Attached-body geometry").
@@ -1770,10 +1831,7 @@ struct PosedBody {
 /// yielding the global poses [`PosedBody::parts`] stores. `None` if `parts`
 /// is empty, so a body with no convertible geometry is dropped rather than
 /// carried as an empty one.
-fn pose_parts(
-    parts: Vec<(Pose, SharedShape)>,
-    pose: Isometry3,
-) -> Option<Vec<(Pose, SharedShape)>> {
+fn pose_parts(parts: Vec<Part>, pose: Isometry3) -> Option<Vec<Part>> {
     if parts.is_empty() {
         return None;
     }
@@ -1781,7 +1839,10 @@ fn pose_parts(
     Some(
         parts
             .into_iter()
-            .map(|(part_pose, shape)| (body_pose * part_pose, shape))
+            .map(|part| Part {
+                pose: body_pose * part.pose,
+                ..part
+            })
             .collect(),
     )
 }
@@ -1804,7 +1865,7 @@ fn link_body(
 ) -> Option<PosedBody> {
     let scale = padding_scale.link_scale(link.name());
     let padding = padding_scale.link_padding(link.name());
-    let parts: Vec<(Pose, SharedShape)> = link
+    let parts: Vec<Part> = link
         .shapes()
         .iter()
         .enumerate()
@@ -1815,11 +1876,15 @@ fn link_body(
                 scale_bits: scale.to_bits(),
                 padding_bits: padding.to_bits(),
             };
-            let (parry_shape, extra) = link_cache.get_or_compute(model, key, || {
+            let converted = link_cache.get_or_compute(model, key, || {
                 let shape = scaled_padded_shape(&link_shape.shape, scale, padding);
-                convert_shape(&shape, octree_cache)
+                convert_shape(&shape, octree_cache).map(ConvertedShape::new)
             })?;
-            Some((to_pose(link_shape.origin_transform * extra), parry_shape))
+            Some(Part {
+                pose: to_pose(link_shape.origin_transform * converted.extra),
+                shape: converted.shape,
+                obb: converted.obb,
+            })
         })
         .collect();
     Some(PosedBody {
@@ -1845,16 +1910,20 @@ fn attached_body_body(
 ) -> Option<PosedBody> {
     let scale = padding_scale.link_scale(geometry.link_name);
     let padding = padding_scale.link_padding(geometry.link_name);
-    let parts: Vec<(Pose, SharedShape)> = geometry
+    let parts: Vec<Part> = geometry
         .shapes
         .iter()
         .zip(geometry.shape_poses)
         .filter_map(|(shape, shape_pose)| {
-            let (parry_shape, extra) = shape_cache.get_or_compute(shape, scale, padding, || {
+            let converted = shape_cache.get_or_compute(shape, scale, padding, || {
                 let scaled = scaled_padded_shape(shape, scale, padding);
-                convert_shape(&scaled, octree_cache)
+                convert_shape(&scaled, octree_cache).map(ConvertedShape::new)
             })?;
-            Some((to_pose(*shape_pose * extra), parry_shape))
+            Some(Part {
+                pose: to_pose(*shape_pose * converted.extra),
+                shape: converted.shape,
+                obb: converted.obb,
+            })
         })
         .collect();
     Some(PosedBody {
@@ -1874,7 +1943,7 @@ fn object_body(
     octree_cache: &OctreeCache,
     shape_cache: &ShapeCache,
 ) -> Option<PosedBody> {
-    let parts: Vec<(Pose, SharedShape)> = object
+    let parts: Vec<Part> = object
         .shapes()
         .iter()
         .filter_map(|entry| {
@@ -1883,11 +1952,14 @@ fn object_body(
             // -- distinct from an attached body's entry for the very same
             // `Arc<Shape>`, should the two ever coincide (see `ShapeCache`'s
             // own doc).
-            let (parry_shape, extra) =
-                shape_cache.get_or_compute(entry.shape(), 1.0, 0.0, || {
-                    convert_shape(entry.shape(), octree_cache)
-                })?;
-            Some((to_pose(entry.pose() * extra), parry_shape))
+            let converted = shape_cache.get_or_compute(entry.shape(), 1.0, 0.0, || {
+                convert_shape(entry.shape(), octree_cache).map(ConvertedShape::new)
+            })?;
+            Some(Part {
+                pose: to_pose(entry.pose() * converted.extra),
+                shape: converted.shape,
+                obb: converted.obb,
+            })
         })
         .collect();
     Some(PosedBody {
@@ -2021,19 +2093,10 @@ fn cross_pairs<'a>(
 fn part_pairs<'a>(
     a: &'a PosedBody,
     b: &'a PosedBody,
-) -> impl Iterator<
-    Item = (
-        &'a Pose,
-        &'a dyn parry3d_f64::shape::Shape,
-        &'a Pose,
-        &'a dyn parry3d_f64::shape::Shape,
-    ),
-> {
-    a.parts.iter().flat_map(move |(a_pose, a_shape)| {
-        b.parts
-            .iter()
-            .map(move |(b_pose, b_shape)| (a_pose, a_shape.as_ref(), b_pose, b_shape.as_ref()))
-    })
+) -> impl Iterator<Item = (&'a Part, &'a Part)> {
+    a.parts
+        .iter()
+        .flat_map(move |a_part| b.parts.iter().map(move |b_part| (a_part, b_part)))
 }
 
 /// `fcl2contact`, adapted from `parry3d_f64::query::Contact`'s fields:
@@ -2774,19 +2837,20 @@ enum PartContactOutcome {
 /// (`default_query_dispatcher.rs:218-221`, the generic
 /// support-map-support-map arm) — confirmed, not assumed exempt because it
 /// looked unrelated.
-fn part_contact(
-    a_pose: &Pose,
-    a_shape: &dyn ParryShape,
-    b_pose: &Pose,
-    b_shape: &dyn ParryShape,
-    prediction: f64,
-) -> PartContactOutcome {
+fn part_contact(a: &Part, b: &Part, prediction: f64) -> PartContactOutcome {
+    let (a_pose, b_pose) = (&a.pose, &b.pose);
+    let (a_shape, b_shape) = (a.shape.as_ref(), b.shape.as_ref());
     // Mesh against mesh is where a planner's inner loop spends its time, and
     // parry's own dispatch for it is one-sided -- see `trimesh_pair_contact`.
     // Not an `Unsupported` path either way: composite-vs-composite has a
     // dispatch arm, so the arm below could only ever answer `Ok` for it.
     if let (Some(m1), Some(m2)) = (a_shape.as_trimesh(), b_shape.as_trimesh()) {
-        return match trimesh_pair_contact(a_pose, m1, b_pose, m2, prediction) {
+        // `obb` is `Some` for every non-empty `TriMesh` (`ConvertedShape`),
+        // and a mesh with no triangles can produce no contact.
+        let (Some(o1), Some(o2)) = (a.obb.as_deref(), b.obb.as_deref()) else {
+            return PartContactOutcome::NotTouching;
+        };
+        return match trimesh_pair_contact(a_pose, m1, o1, b_pose, m2, o2, prediction) {
             Some(contact) => PartContactOutcome::Touching(contact),
             None => PartContactOutcome::NotTouching,
         };
@@ -2905,72 +2969,6 @@ fn pair_can_touch(
         .intersects(&b_shape.compute_local_aabb())
 }
 
-/// The relative pose of a mesh pair, with everything its node test needs
-/// resolved once.
-///
-/// [`trimesh_pair_contact`] asks the same rotation of the same two operations
-/// at every node of a descent, and `Aabb::transform_by` rebuilds that
-/// rotation from the quaternion on each call -- `Matrix::from_quat(m.rotation)
-/// .abs()`, in `parry3d_f64`'s `utils/isometry_ops.rs` -- twice per node
-/// pair, `1413` node pairs per mesh pair on the fanuc/cage measurement.
-/// Hoisting it is worth `1.13x` end to end there (`51,956` -> `58,916` state
-/// checks per second), which is most of what the node test costs at all.
-struct MeshPairFrame {
-    rot: parry3d_f64::math::Matrix,
-    abs_rot: parry3d_f64::math::Matrix,
-    inv_rot: parry3d_f64::math::Matrix,
-    inv_abs_rot: parry3d_f64::math::Matrix,
-    translation: ParryVector,
-    slack: ParryVector,
-}
-
-impl MeshPairFrame {
-    fn new(pose12: &Pose, prediction: f64) -> Self {
-        let rot = parry3d_f64::math::Matrix::from_quat(pose12.rotation);
-        // `Matrix::abs()` is not in the version of `glam` parry pins, so the
-        // absolute matrix is built column by column; the transposes are the
-        // inverse rotation, which is the transpose because it is orthonormal.
-        let abs_rot = parry3d_f64::math::Matrix::from_cols(
-            rot.x_axis.abs(),
-            rot.y_axis.abs(),
-            rot.z_axis.abs(),
-        );
-        Self {
-            rot,
-            abs_rot,
-            inv_rot: rot.transpose(),
-            inv_abs_rot: abs_rot.transpose(),
-            translation: pose12.translation,
-            slack: ParryVector::splat(prediction),
-        }
-    }
-
-    /// Each node's box re-bounded in the other's frame, in both directions:
-    /// `Aabb::transform_by(pose12)` then `intersects`, and the mirror of it.
-    ///
-    /// Two one-sided tests rather than one because a rotated box's `Aabb` is
-    /// loose enough that the mirror still drops `42%` of what the first one
-    /// keeps (`1035` -> `600` leaf pairs per mesh pair on fanuc/cage). Each
-    /// direction is conservative on its own, so their conjunction is too.
-    fn overlap(&self, a1: &Aabb, a2: &Aabb) -> bool {
-        let c2 = self.rot * a2.center() + self.translation;
-        let h2 = self.abs_rot * a2.half_extents();
-        if (c2 - a1.center())
-            .abs()
-            .cmpgt(a1.half_extents() + h2 + self.slack)
-            .any()
-        {
-            return false;
-        }
-        let c1 = self.inv_rot * (a1.center() - self.translation);
-        let h1 = self.inv_abs_rot * a1.half_extents();
-        !(c1 - a2.center())
-            .abs()
-            .cmpgt(a2.half_extents() + h1 + self.slack)
-            .any()
-    }
-}
-
 /// The mesh-against-mesh half of [`part_contact`], descending both
 /// hierarchies at once the way upstream's does.
 ///
@@ -3014,28 +3012,35 @@ impl MeshPairFrame {
 fn trimesh_pair_contact(
     a_pose: &Pose,
     m1: &TriMesh,
+    o1: &ObbTree,
     b_pose: &Pose,
     m2: &TriMesh,
+    o2: &ObbTree,
     prediction: f64,
 ) -> Option<ParryContact> {
     let pose12 = a_pose.inv_mul(b_pose);
-    let frame = MeshPairFrame::new(&pose12, prediction);
+    let rot12 = parry3d_f64::math::Matrix::from_quat(pose12.rotation);
     let mut best: Option<ParryContact> = None;
-    for (i1, i2) in m1
-        .bvh()
-        .leaf_pairs(m2.bvh(), |n1, n2| frame.overlap(&n1.aabb(), &n2.aabb()))
-    {
-        let t1 = m1.triangle(i1);
-        let t2 = m2.triangle(i2);
-        if triangles_are_separated(&t1, &t2.transformed(&pose12), prediction) {
-            continue;
-        }
-        if let Ok(Some(contact)) = query::contact(&Pose::default(), &t1, &pose12, &t2, prediction) {
-            if best.is_none_or(|b| contact.dist < b.dist) {
-                best = Some(contact);
+    o1.leaf_pairs(
+        o2,
+        &rot12,
+        &pose12.translation,
+        prediction,
+        &mut |i1, i2| {
+            let t1 = m1.triangle(i1);
+            let t2 = m2.triangle(i2);
+            if triangles_are_separated(&t1, &t2.transformed(&pose12), prediction) {
+                return;
             }
-        }
-    }
+            if let Ok(Some(contact)) =
+                query::contact(&Pose::default(), &t1, &pose12, &t2, prediction)
+            {
+                if best.is_none_or(|b| contact.dist < b.dist) {
+                    best = Some(contact);
+                }
+            }
+        },
+    );
     // Computed in `m1`'s frame, so one rigid map takes every field to the
     // world frame `query::contact(a_pose, .., b_pose, ..)` reports in.
     if let Some(contact) = &mut best {
@@ -3224,7 +3229,13 @@ fn accumulate_collision<'a>(
         if link_touches_attached(a, b) || attached_pair_allowed(a, b) {
             continue;
         }
-        for (a_pose, a_shape, b_pose, b_shape) in part_pairs(a, b) {
+        for (a_part, b_part) in part_pairs(a, b) {
+            // Named locals for the two shapes' world poses and `parry`
+            // shapes; `part_contact` itself takes the whole `Part`, because
+            // the mesh branch also needs the hierarchy fitted to it.
+            let (a_pose, b_pose) = (&a_part.pose, &b_part.pose);
+            let (a_shape, b_shape) = (a_part.shape.as_ref(), b_part.shape.as_ref());
+
             if done {
                 break;
             }
@@ -3235,7 +3246,7 @@ fn accumulate_collision<'a>(
             // still fall through to the termination block, exactly as a pair
             // `fcl::collide` cleared does.
             if pair_can_touch(a_pose, a_shape, b_pose, b_shape, 0.0) {
-                match part_contact(a_pose, a_shape, b_pose, b_shape, 0.0) {
+                match part_contact(a_part, b_part, 0.0) {
                     PartContactOutcome::Touching(contact) => {
                         // NOT gated on `contact.dist <= 0.0`, though the wording
                         // above ("prediction `0.0`, so only touching/penetrating
@@ -3561,7 +3572,13 @@ fn accumulate_distance<'a>(
         // objects reaches `distanceCallback` as its own invocation, which
         // re-reads the running `minimum_distance`/`distances` state to pick
         // its threshold. Recomputing inside the loop is what reproduces that.
-        for (a_pose, a_shape, b_pose, b_shape) in part_pairs(a, b) {
+        for (a_part, b_part) in part_pairs(a, b) {
+            // Named locals for the two shapes' world poses and `parry`
+            // shapes; `part_contact` itself takes the whole `Part`, because
+            // the mesh branch also needs the hierarchy fitted to it.
+            let (a_pose, b_pose) = (&a_part.pose, &b_part.pose);
+            let (a_shape, b_shape) = (a_part.shape.as_ref(), b_part.shape.as_ref());
+
             let threshold = match request.request_type {
                 DistanceRequestType::Global => result.minimum_distance.distance,
                 DistanceRequestType::Limited => {
@@ -3594,13 +3611,7 @@ fn accumulate_distance<'a>(
             ) {
                 continue;
             }
-            let contact = match part_contact(
-                a_pose,
-                a_shape,
-                b_pose,
-                b_shape,
-                bounded_prediction(threshold),
-            ) {
+            let contact = match part_contact(a_part, b_part, bounded_prediction(threshold)) {
                 PartContactOutcome::Touching(contact) => contact,
                 PartContactOutcome::NotTouching => continue,
                 PartContactOutcome::Unsupported => {
@@ -4145,7 +4156,10 @@ mod tests {
         let calls = std::cell::Cell::new(0);
         let build = || {
             calls.set(calls.get() + 1);
-            Some((SharedShape::new(Ball::new(1.0)), Isometry3::identity()))
+            Some(ConvertedShape::new((
+                SharedShape::new(Ball::new(1.0)),
+                Isometry3::identity(),
+            )))
         };
 
         assert!(cache.get_or_compute(&shape, 1.0, 0.0, build).is_some());
@@ -4165,7 +4179,10 @@ mod tests {
         let calls = std::cell::Cell::new(0);
         let build = || {
             calls.set(calls.get() + 1);
-            Some((SharedShape::new(Ball::new(1.0)), Isometry3::identity()))
+            Some(ConvertedShape::new((
+                SharedShape::new(Ball::new(1.0)),
+                Isometry3::identity(),
+            )))
         };
 
         assert!(cache.get_or_compute(&shape, 1.0, 0.0, build).is_some());
@@ -4233,7 +4250,10 @@ mod tests {
 
         cache
             .get_or_compute(&shape, 1.0, 0.0, || {
-                Some((SharedShape::new(Ball::new(0.25)), Isometry3::identity()))
+                Some(ConvertedShape::new((
+                    SharedShape::new(Ball::new(0.25)),
+                    Isometry3::identity(),
+                )))
             })
             .expect("sphere converts");
 
@@ -4282,7 +4302,7 @@ mod tests {
         .expect("sphere converts");
         assert_eq!(
             before.parts[0]
-                .1
+                .shape
                 .as_ball()
                 .expect("sphere converts to a Ball")
                 .radius,
@@ -4311,7 +4331,7 @@ mod tests {
         .expect("sphere converts");
         assert_eq!(
             after.parts[0]
-                .1
+                .shape
                 .as_ball()
                 .expect("sphere converts to a Ball")
                 .radius,
@@ -4341,7 +4361,7 @@ mod tests {
             object_body("obj", &object, &octree_cache, &shape_cache).expect("cuboid converts");
         assert_eq!(
             before.parts[0]
-                .1
+                .shape
                 .as_cuboid()
                 .expect("cuboid converts to a Cuboid")
                 .half_extents
@@ -4360,7 +4380,7 @@ mod tests {
             object_body("obj", &object, &octree_cache, &shape_cache).expect("cuboid converts");
         assert_eq!(
             after.parts[0]
-                .1
+                .shape
                 .as_cuboid()
                 .expect("cuboid converts to a Cuboid")
                 .half_extents
@@ -4385,7 +4405,10 @@ mod tests {
         let calls = std::cell::Cell::new(0);
         let build = || {
             calls.set(calls.get() + 1);
-            Some((SharedShape::new(Ball::new(1.0)), Isometry3::identity()))
+            Some(ConvertedShape::new((
+                SharedShape::new(Ball::new(1.0)),
+                Isometry3::identity(),
+            )))
         };
         let model = ModelIdentity { ptr: 1, name: "m" };
 
@@ -4444,7 +4467,7 @@ mod tests {
 
         let half_extent_x = |bodies: &[PosedBody]| {
             bodies[0].parts[0]
-                .1
+                .shape
                 .as_cuboid()
                 .expect("box_link converts to a Cuboid")
                 .half_extents
@@ -4489,7 +4512,7 @@ mod tests {
 
         let half_extent_x = |bodies: &[PosedBody]| {
             bodies[0].parts[0]
-                .1
+                .shape
                 .as_cuboid()
                 .expect("box_link converts to a Cuboid")
                 .half_extents
@@ -6367,57 +6390,6 @@ mod tests {
         assert!(contacts > 100, "only {contacts} contacts to compare");
     }
 
-    /// [`MeshPairFrame::overlap`] is a rewrite of an expression, not a new
-    /// test, so what it owes is that it answers what the expression answered:
-    /// `a1.loosened(p).intersects(&a2.transform_by(pose12))` and its mirror.
-    /// Swept over random boxes and poses, including the pairs that only just
-    /// touch, where a rewrite that reassociated the arithmetic would show up.
-    #[test]
-    fn mesh_pair_frame_overlap_answers_what_the_transform_by_pair_answered() {
-        use parry3d_f64::bounding_volume::BoundingVolume as _;
-        use rand::RngExt as _;
-        use rand::SeedableRng as _;
-
-        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(20260809);
-        let boxes = |rng: &mut rand_chacha::ChaCha8Rng| {
-            let c = ParryVector::new(
-                rng.random_range(-1.0..1.0),
-                rng.random_range(-1.0..1.0),
-                rng.random_range(-1.0..1.0),
-            );
-            let h = ParryVector::new(
-                rng.random_range(0.01..0.5),
-                rng.random_range(0.01..0.5),
-                rng.random_range(0.01..0.5),
-            );
-            Aabb::new(c - h, c + h)
-        };
-        let mut overlapping = 0;
-
-        for _ in 0..50_000 {
-            let a1 = boxes(&mut rng);
-            let a2 = boxes(&mut rng);
-            let pose12 = random_pose(&mut rng, 0.8);
-            let pose21 = pose12.inverse();
-            for prediction in [0.0, 0.05] {
-                let expected = a1
-                    .loosened(prediction)
-                    .intersects(&a2.transform_by(&pose12))
-                    && a2
-                        .loosened(prediction)
-                        .intersects(&a1.transform_by(&pose21));
-                overlapping += usize::from(expected);
-                assert_eq!(
-                    MeshPairFrame::new(&pose12, prediction).overlap(&a1, &a2),
-                    expected
-                );
-            }
-        }
-
-        // Otherwise the assertion holds on a sweep that only ever separated.
-        assert!(overlapping > 1000, "only {overlapping} pairs overlapped");
-    }
-
     /// [`triangles_are_separated`] is a rejection, so the only failure that
     /// matters is a false one: a pair it drops that [`fn@query::contact`]
     /// would have answered `Some` for is a contact
@@ -6504,6 +6476,8 @@ mod tests {
 
         let m1 = sphere_mesh();
         let m2 = box_mesh();
+        let o1 = ObbTree::build(m1.vertices(), m1.indices()).expect("non-empty mesh");
+        let o2 = ObbTree::build(m2.vertices(), m2.indices()).expect("non-empty mesh");
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(20260809);
         let (mut contacts, mut swapped_order, mut parry_missed) = (0, 0, 0);
 
@@ -6511,7 +6485,7 @@ mod tests {
             let a_pose = random_pose(&mut rng, 0.6);
             let b_pose = random_pose(&mut rng, 0.6);
             for prediction in [0.0, 0.05] {
-                let mine = trimesh_pair_contact(&a_pose, &m1, &b_pose, &m2, prediction);
+                let mine = trimesh_pair_contact(&a_pose, &m1, &o1, &b_pose, &m2, &o2, prediction);
                 let parry = query::contact(&a_pose, &m1, &b_pose, &m2, prediction).unwrap();
                 assert_eq!(
                     mine.is_some(),
