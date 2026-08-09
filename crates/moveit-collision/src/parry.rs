@@ -2791,6 +2791,23 @@ fn part_contact(
             None => PartContactOutcome::NotTouching,
         };
     }
+    // The same one-sided selection against a primitive -- see
+    // `mesh_shape_contact`, whose doc says why only a `SupportMap` one.
+    let mesh_vs_primitive = match (a_shape.as_trimesh(), b_shape.as_trimesh()) {
+        (Some(m1), None) if b_shape.as_support_map().is_some() => {
+            Some(mesh_shape_contact(a_pose, m1, b_pose, b_shape, prediction))
+        }
+        (None, Some(m2)) if a_shape.as_support_map().is_some() => Some(
+            mesh_shape_contact(b_pose, m2, a_pose, a_shape, prediction).map(ParryContact::flipped),
+        ),
+        _ => None,
+    };
+    if let Some(outcome) = mesh_vs_primitive {
+        return match outcome {
+            Some(contact) => PartContactOutcome::Touching(contact),
+            None => PartContactOutcome::NotTouching,
+        };
+    }
     match query::contact(a_pose, a_shape, b_pose, b_shape, prediction) {
         Ok(Some(contact)) => PartContactOutcome::Touching(contact),
         Ok(None) => PartContactOutcome::NotTouching,
@@ -2965,6 +2982,63 @@ fn trimesh_pair_contact(
     }
     // Computed in `m1`'s frame, so one rigid map takes every field to the
     // world frame `query::contact(a_pose, .., b_pose, ..)` reports in.
+    if let Some(contact) = &mut best {
+        contact.transform_by_mut(a_pose, a_pose);
+    }
+    best
+}
+
+/// The mesh-against-primitive half of [`part_contact`], descending the mesh
+/// against the primitive itself rather than against its `Aabb`.
+///
+/// Same shape of defect as [`trimesh_pair_contact`] one level down.
+/// `contact_composite_shape_shape` selects the mesh's candidate triangles
+/// with `shape2.compute_aabb(pose12)` -- the primitive re-bounded
+/// axis-aligned in the *mesh's* frame. A cage wall is a `4m` box that is
+/// axis-aligned in the world and never in a moving link's frame, so that
+/// re-bounding hands back the whole mesh: `100.0%` of the triangles were
+/// visited on the fanuc/cage measurement, each paying a support-mapped GJK
+/// run, `375us` per pair. Testing the node box against the primitive as it
+/// actually sits keeps the orientation and prunes the descent instead.
+///
+/// Restricted to a `SupportMap` primitive, which is what makes both queries
+/// below total: `Triangle` is one too, so the contact arm they land on is
+/// the generic support-map arm (`default_query_dispatcher.rs`), which has no
+/// `Unsupported` return. `HalfSpace` and the composite shapes are therefore
+/// not routed here -- they keep parry's own dispatch, and with it
+/// [`PartContactOutcome::Unsupported`]'s fail-safe.
+fn mesh_shape_contact(
+    a_pose: &Pose,
+    m1: &TriMesh,
+    b_pose: &Pose,
+    b_shape: &dyn ParryShape,
+    prediction: f64,
+) -> Option<ParryContact> {
+    let pose12 = a_pose.inv_mul(b_pose);
+    let mut best: Option<ParryContact> = None;
+    for i in m1.bvh().leaves(|node| {
+        let aabb = node.aabb();
+        // `prediction` on the box rather than on the query below: the test is
+        // "could anything in this subtree be within `prediction`", and an
+        // intersection test cannot ask that of the primitive directly.
+        let grown = ParryCuboid::new(aabb.half_extents() + ParryVector::splat(prediction));
+        query::intersection_test(
+            &Pose::from_translation(aabb.center()),
+            &grown,
+            &pose12,
+            b_shape,
+        )
+        .unwrap_or(true)
+    }) {
+        let t1 = m1.triangle(i);
+        if let Ok(Some(contact)) =
+            query::contact(&Pose::default(), &t1, &pose12, b_shape, prediction)
+        {
+            if best.is_none_or(|b| contact.dist < b.dist) {
+                best = Some(contact);
+            }
+        }
+    }
     if let Some(contact) = &mut best {
         contact.transform_by_mut(a_pose, a_pose);
     }
@@ -6178,6 +6252,63 @@ mod tests {
             ),
             parry3d_f64::math::Rotation::from_axis_angle(axis, rng.random_range(-3.2..3.2)),
         )
+    }
+
+    /// [`mesh_shape_contact`] narrows a candidate set, so the question is the
+    /// same one [`trimesh_pair_contact`] answers: does the narrowing ever
+    /// drop the triangle holding the answer.
+    ///
+    /// Simpler to settle here, because both this and the dispatch it replaces
+    /// reach the leaf as `contact(triangle, primitive)` -- no operand swap,
+    /// so one exhaustive pass is the whole oracle. Swept against every
+    /// `SupportMap` shape [`convert_shape`] can build, which is what decides
+    /// what [`part_contact`] can route here: `Ball`, `Cuboid`, `Cylinder`,
+    /// `Cone`. Its other three outputs cannot reach this function -- `TriMesh`
+    /// takes the branch above, and `HalfSpace` and the octree's `Compound`
+    /// have no support map.
+    #[test]
+    fn mesh_shape_contact_is_the_exhaustive_minimum_over_the_meshs_triangles() {
+        use rand::SeedableRng as _;
+
+        let mesh = sphere_mesh();
+        let primitives: [SharedShape; 4] = [
+            SharedShape::ball(0.35),
+            SharedShape::cuboid(0.3, 0.2, 0.45),
+            SharedShape::cylinder(0.3, 0.2),
+            SharedShape::cone(0.3, 0.25),
+        ];
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(20260809);
+        let mut contacts = 0;
+
+        for _ in 0..500 {
+            let a_pose = random_pose(&mut rng, 0.6);
+            let b_pose = random_pose(&mut rng, 0.6);
+            for primitive in &primitives {
+                for prediction in [0.0, 0.05] {
+                    let shape = &**primitive;
+                    let mine = mesh_shape_contact(&a_pose, &mesh, &b_pose, shape, prediction);
+
+                    let pose12 = a_pose.inv_mul(&b_pose);
+                    let mut brute: Option<f64> = None;
+                    for i in 0..mesh.num_triangles() as u32 {
+                        let t1 = mesh.triangle(i);
+                        if let Ok(Some(c)) =
+                            query::contact(&Pose::default(), &t1, &pose12, shape, prediction)
+                        {
+                            brute = Some(brute.map_or(c.dist, |b: f64| b.min(c.dist)));
+                        }
+                    }
+
+                    assert_eq!(mine.is_some(), brute.is_some(), "verdict differs");
+                    if let (Some(mine), Some(brute)) = (mine, brute) {
+                        contacts += 1;
+                        assert_relative_eq!(mine.dist, brute, epsilon = 1e-9);
+                    }
+                }
+            }
+        }
+
+        assert!(contacts > 100, "only {contacts} contacts to compare");
     }
 
     /// [`triangles_are_separated`] is a rejection, so the only failure that
