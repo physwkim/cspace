@@ -341,20 +341,100 @@ CONSTRAINED_SET="panda floor_wall $COUNT 810011 panda_joint1:0.0:0.5"
 #                                 (fanuc) calls over 16 problems each. A floor
 #                                 and not an equality because the count is
 #                                 wall-clock dependent: the optimizer calls the
-#                                 closure on `iteration % 10 == 0` and leaves
-#                                 the loop on `start_time.elapsed() >
-#                                 planning_time_limit` (`optimizer.rs:1582`,
-#                                 `:1598`), so two runs of the same seed differ
-#                                 by an iteration. Two consecutive runs on this
-#                                 tree gave fanuc_floor_wall 9 then 10 with
-#                                 every other per-set number identical.
+#                                 closure on `iteration % 10 == 0`
+#                                 (`optimizer.rs:2062`) and leaves the loop on
+#                                 `start_time.elapsed() > planning_time_limit`
+#                                 (`:2107`, the only wall-clock exit it has), so
+#                                 two runs of the same seed differ by an
+#                                 iteration ONCE THAT EXIT IS REACHED. Two
+#                                 consecutive runs on this tree gave
+#                                 fanuc_floor_wall 9 then 10 with every other
+#                                 per-set number identical.
 #
-# `full` is deliberately null. MODE=full has never been run, so there is no
-# measured floor for 250 problems per robot, and a floor of 0 would be a check
-# that cannot fail dressed as a check that passed. A null stratum raises
-# `pins-unmeasured` instead -- see the check list.
+#                                 It is not reached at MODE=full on this tree,
+#                                 and the counts there are consequently stable:
+#                                 `optimize_benchmark_chomp.rs:727` sets
+#                                 `planning_time_limit` to `timeout_seconds`
+#                                 (120s) and the slowest CHOMP call measured is
+#                                 25.3s, so two full runs gave byte-identical
+#                                 `mesh_check_calls` on every stratum and set.
+#                                 The floor stays a floor: the mechanism is
+#                                 still there for any run whose calls do reach
+#                                 the bound, and such a run fails `no-timeouts`
+#                                 by name at the same 120s.
+#
+# `full` was null while MODE=full had never been run. It has now, twice, on
+# `8add7963` with a clean tree: 2026-08-09T14:39:20Z and 2026-08-10T00:33:03Z,
+# 250 problems per robot, seeds above, SEED_BASE=525252, TIMEOUT_SECONDS=120,
+# 16 shards, port wall 784.0s then 790.9s, C++ 412.1s then 410.5s.
+#
+# Every COUNT the two runs produced is identical -- solved, cpp_solved,
+# condition2_checked, condition2_pass, condition2_pass_at_returned, failures,
+# timeouts, seed_invalid, waypoints_checked, raw_waypoints and mesh_check_calls
+# on all four strata and all twelve sets -- and so is every `max_endpoint_gap`
+# to its last digit. What moved: `slowest_seconds` and `cpp_slowest_seconds`,
+# which are wall clocks, and four C++ median lengths in their last bit (~2e-16
+# relative, against a 1.3x limit).
+#
+# So these are pinned EXACTLY at the measurement, not two below it. That is
+# this file`s own rule, stated at $TAG_PINS_ALL below: the two-below margin on
+# the pilot`s `solved_floor`s is real movement measured for STOMP at pilot
+# scale -- "consecutive runs of the same seed gave panda_floor_wall 6 solved /
+# 2 timeouts and then 7 solved / 1 timeout, one problem sitting on the 120s
+# boundary" -- and that cause is gone: this mode records zero timeouts on every
+# set, so no problem sits on the boundary to move across it. Inventing a margin
+# where two runs show none is what that comment refuses, and it refuses it here
+# too.
+#
+# Which axis two runs cannot test: machine speed. Both ran on one unloaded
+# host. A slower host does not change any count while `no-timeouts` passes --
+# `optimize_benchmark_chomp.rs:727` sets CHOMP`s own `planning_time_limit` to
+# `timeout_seconds`, so `ChompExit::ClockLimit` (`optimizer.rs:2107`) is the
+# same 120s bound `no-timeouts` already gates, and the slowest CHOMP call here
+# is 25.3s. A host slow enough to change an iteration count fails `no-timeouts`
+# first, by name.
+#
+# What each `full` pin is, where it differs from the transfer of the pilot rule:
+#
+#   endpoint_ceiling  chomp 0.0 exactly, measured 0.0 on both robots over 353
+#                     solved paths -- the pilot sentence transfers unchanged.
+#                     stomp 0.12: ~2x the measured maximum (0.05687 panda over
+#                     219 solved, 0.04406 fanuc over 194), which is the pilot`s
+#                     own sizing rule for this pin and the reason it is the one
+#                     pin here NOT set to its measurement -- a max over a sample
+#                     is the one quantity that grows with the sample. The
+#                     pilot`s 0.03 does NOT transfer: it is below both
+#                     full-scale measurements. One value for both robots,
+#                     unchanged reasoning: the mechanism is the smoothing
+#                     filter, not the robot.
+#   mesh_calls_floor  1, unchanged from the pilot, and deliberately NOT raised
+#                     to the measured 649/576. The pin`s documented meaning
+#                     there is anti-vacuity ("must be reached at least once");
+#                     a transcript-grade floor is a different question, and
+#                     giving one pin name two meanings across two modes is the
+#                     shape $TAG_PINS_ALL`s header refuses one level up.
+#   seed_invalid_floor 1, anti-vacuity, unchanged for the same reason.
+#                     Measured 42/20 (chomp) and 87/35 (stomp).
+#   length_ratio_ceiling 1.05, by the pilot`s own formula: worst measured ratio
+#                     1.0056 (chomp/panda) gives max(1.05, 1 + 1.1*0.0056) =
+#                     1.05.
 PINS_ALL='{
-  "full": null,
+  "full": {
+    "chomp": {"panda": {"problems": 250, "solved_floor": 174, "cpp_solved_floor": 188,
+                        "endpoint_ceiling": 0.0,
+                        "length_ratio_ceiling": 1.05, "mesh_calls_floor": 1,
+                        "seed_invalid_floor": 1},
+              "fanuc": {"problems": 250, "solved_floor": 179, "cpp_solved_floor": 182,
+                        "endpoint_ceiling": 0.0,
+                        "length_ratio_ceiling": 1.05, "mesh_calls_floor": 1,
+                        "seed_invalid_floor": 1}},
+    "stomp": {"panda": {"problems": 250, "solved_floor": 219, "cpp_solved_floor": 217,
+                        "endpoint_ceiling": 0.12,
+                        "seed_invalid_floor": 1},
+              "fanuc": {"problems": 250, "solved_floor": 194, "cpp_solved_floor": 194,
+                        "endpoint_ceiling": 0.12,
+                        "seed_invalid_floor": 1}}
+  },
   "pilot": {
     "chomp": {"panda": {"problems": 16, "solved_floor": 7, "cpp_solved_floor": 10,
                         "endpoint_ceiling": 0.0,
@@ -454,9 +534,16 @@ DENSIFIED_RATE_CEILING='{"chomp": 0.0, "stomp": 0.02}'
 # this population turns out to be noisy on a machine this was never run on,
 # that is new evidence for a margin, measured the same way the existing ones
 # were -- not a reason to invent one now that nothing here shows.
+#
+# `full` is now measured too, on the same two runs $PINS_ALL above records, and
+# pinned exactly at the measurement -- which is what this comment already asked
+# for, now with the full-scale numbers behind it: chomp 100/125 on both tags
+# (identical for the reason above, by construction), stomp 123/125 on both.
 TAG_PINS_ALL='{
-  "full": {"chomp": {"constrained": null, "inject_constrained": null},
-           "stomp": {"constrained": null, "inject_constrained": null}},
+  "full": {"chomp": {"constrained": {"problems": 125, "solved_floor": 100},
+                     "inject_constrained": {"problems": 125, "solved_floor": 100}},
+           "stomp": {"constrained": {"problems": 125, "solved_floor": 123},
+                     "inject_constrained": {"problems": 125, "solved_floor": 123}}},
   "pilot": {
     "chomp": {"constrained": {"problems": 8, "solved_floor": 6},
               "inject_constrained": {"problems": 8, "solved_floor": 6}},
