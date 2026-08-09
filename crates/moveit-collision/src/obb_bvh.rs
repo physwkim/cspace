@@ -170,7 +170,7 @@ pub(crate) struct ObbTree {
 }
 
 impl ObbTree {
-    /// `fcl::BVHModel<OBB>::buildTree` (`BVH_model-inl.h:830`) over the
+    /// `fcl::BVHModel<OBB>::buildTree` (`BVH_model-inl.h:833`) over the
     /// triangles of one mesh, in that mesh's own frame.
     ///
     /// Returns `None` for a mesh with no triangles: upstream refuses the same
