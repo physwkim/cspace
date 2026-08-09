@@ -374,6 +374,38 @@ PINS_ALL='{
 }'
 PINS_JSON="$(jq -c --arg m "$MODE" '.[$m] // {}' <<<"$PINS_ALL")"
 
+# `common()`'s densified-validity ceiling. Keyed by PLANNER and nothing else --
+# not by mode, robot or population -- because the mechanism is the planner's own
+# output resolution: STOMP returns a fixed coarse `num_timesteps` and scores
+# nothing between two of them, so the densified checker samples where neither
+# the planner nor upstream ever looked. That is the same reason
+# `endpoint_ceiling` carries one value for both robots ("the mechanism is the
+# smoothing filter, not the robot"), one level up.
+#
+#   chomp 0.0    measured exactly 0 densified-only failures on every stratum,
+#                every config and both constrained tags at MODE=full, 250
+#                problems per robot. Its returned point count is
+#                `3.0/0.03` = 101 over a 3s trajectory, dense enough that the
+#                0.01 grid finds nothing between two of them. A ceiling above 0
+#                would accept a regression this tree does not have -- the same
+#                sentence `chomp endpoint_ceiling 0.0` is pinned by.
+#   stomp 0.02   2x the largest rate measured on the PORT arm across two
+#                planner seed bases over byte-identical 500-problem sets:
+#                cage 2/202 = 0.99% at base 700001 (`doc/phase8-condition2-
+#                stomp/base.port.stomp.cage.ndjson`), 0/203 at 424242,
+#                floor_wall 1/239 at both. The "~2x the measured maximum" rule
+#                is `endpoint_ceiling`'s. The C++ arm's own largest rate on the
+#                same populations is 3/199 = 1.51%, inside this ceiling, so the
+#                bar is not looser than the behaviour upstream itself shows.
+#                At MODE=full this tree measures 1/194 = 0.52% (fanuc) and
+#                0/219 (panda).
+#
+# What it must NOT absorb: a path invalid at a waypoint the optimizer scored.
+# That is `validity-at-returned-waypoints`, exact zero, and the broken control
+# in `doc/phase8-condition2-stomp/` fails THAT row at 250/500 rather than
+# leaking into this ceiling.
+DENSIFIED_RATE_CEILING='{"chomp": 0.0, "stomp": 0.02}'
+
 # `pinned()` above is keyed `planner.robot` and only reached from the
 # `.stratum != null` branch below, so `constrained`/`inject_constrained` --
 # which are TAGS, not robots, and have no stratum row at all -- never got a
@@ -535,6 +567,13 @@ aggregate() {
       failures: (map(select(.solved != true and .outcome != "timeout"))|length),
       condition2_checked: ($s|length),
       condition2_pass: ($s|map(select(.condition2_valid == true))|length),
+      # The same verdict at the planner`s OWN waypoints, undensified. Every
+      # instrument here emits it beside `condition2_valid`; it is what separates
+      # "the optimizer returned a state it scored as free and is not" from "a
+      # sample between two returned states is not free", and only the first can
+      # be a defect of this port. See `common()`.
+      condition2_pass_at_returned:
+        ($s|map(select(.condition2_valid_at_returned_waypoints == true))|length),
       waypoints_checked: ($s|map(.waypoints_checked // 0)|add // 0),
       raw_waypoints: ($s|map(.raw_waypoints // 0)|add // 0),
       max_endpoint_gap: ($s|map([(.start_gap // 0), (.goal_gap // 0)])|flatten|max // 0),
@@ -590,6 +629,7 @@ merge_rows() {
       failures: (map(.failures)|add // 0),
       condition2_checked: (map(.condition2_checked)|add // 0),
       condition2_pass: (map(.condition2_pass)|add // 0),
+      condition2_pass_at_returned: (map(.condition2_pass_at_returned)|add // 0),
       waypoints_checked: (map(.waypoints_checked)|add // 0),
       raw_waypoints: (map(.raw_waypoints)|add // 0),
       max_endpoint_gap: (map(.max_endpoint_gap)|max // 0),
@@ -1126,6 +1166,7 @@ checks_json="$WORKDIR/checks.json"
 jq -s -c --argjson pins "$PINS_JSON" --argjson tag_pins "$TAG_PINS_JSON" \
      --argjson tmo "$TIMEOUT_SECONDS" \
      --argjson cppclock "$CPP_CLOCK_BOUND" \
+     --argjson densified_ceiling "$DENSIFIED_RATE_CEILING" \
      --arg mode "$MODE" '
   def r3($x): if $x == null then null else (($x)*1000|round)/1000 end;
   def pct($x): (($x//0)*10000|round)/100;
@@ -1159,11 +1200,45 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tag_pins "$TAG_PINS_JSON" \
   # optimizer shape replaces. `$label` is "<planner>/<population>" so no two
   # populations can ever share a check name -- the per-stratum rule, enforced
   # by construction rather than by convention.
-  def common($s; $label):
+  def common($s; $label; $densified_rate_ceiling):
     [
+      # The exact-zero half, and the only one of the two that can distinguish a
+      # port defect: a path invalid at a waypoint the optimizer ITSELF scored is
+      # one the optimizer should not have returned. Measured 0 on every stratum
+      # of both planners. Non-vacuous twice over -- the deliberately-broken
+      # control in `doc/phase8-condition2-stomp/` puts this field at `false` on
+      # all 250 of its violations, and `optimize_benchmark_stomp.rs`s
+      # `condition2_valid_at_returned_waypoints_is_true_when_densified_is_false`
+      # holds the two fields apart so this cannot become a second name for the
+      # row below.
+      #
+      # `// -1`, not `// 0`: an instrument that stopped emitting the field must
+      # FAIL here, not pass by comparing 0 to 0 on a stratum that checked none.
+      { name: "\($label)/validity-at-returned-waypoints",
+        detail: "\($s.condition2_pass_at_returned)/\($s.condition2_checked) paths valid at the waypoints the optimizer scored",
+        ok: (($s.condition2_checked//0) > 0
+             and ($s.condition2_pass_at_returned // -1) == $s.condition2_checked) },
+      # The densified half, which cannot. A path valid at every returned
+      # waypoint and invalid at an interpolated sample failed *between* two
+      # points the planner never evaluated -- STOMP returns a fixed coarse
+      # `num_timesteps` and nothing in the optimizer scores the motion between
+      # two of them. `verify-phase8-benchmark.sh`s header (lines 33-51) already
+      # states this split for the §5 benchmark and measures both sides clean at
+      # the returned-waypoint resolution; this gate is where it was missing.
+      #
+      # Upstream C++ produces these at a HIGHER rate than the port, so exact
+      # zero is a bar upstream itself does not meet. Measured over two planner
+      # seed bases on byte-identical 500-problem sets (`doc/phase8-seedbase-
+      # stomp/`, `doc/phase8-condition2-stomp/`): port 4/883 = 0.45%, C++
+      # 5/884 = 0.57%, and no violating problem id is shared by any two of the
+      # four arms -- the count moves with the seed on BOTH sides. The
+      # deliberately-broken control sits at 250/500 = 50%, two orders of
+      # magnitude away, which is what a real defect looks like here.
       { name: "\($label)/validity",
-        detail: "\($s.condition2_pass)/\($s.condition2_checked) paths valid, \($s.waypoints_checked) waypoints checked",
-        ok: (($s.condition2_checked//0) > 0 and $s.condition2_pass == $s.condition2_checked) },
+        detail: "\($s.condition2_pass)/\($s.condition2_checked) paths valid, \($s.waypoints_checked) waypoints checked; \($s.condition2_checked - $s.condition2_pass) failed only after densification, ceiling \($densified_rate_ceiling*100)%",
+        ok: (($s.condition2_checked//0) > 0
+             and (($s.condition2_checked - $s.condition2_pass)
+                  <= ($s.condition2_checked * $densified_rate_ceiling))) },
       # A solved path whose validity was never checked is invisible to the
       # validity check: `condition2_checked > 0` is satisfied by one path out
       # of five hundred.
@@ -1333,7 +1408,7 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tag_pins "$TAG_PINS_JSON" \
     | (($pins[$p][.robot]) // null) as $pin
     | .stratum as $s
     | .cpp as $c
-    | common($s; $label)
+    | common($s; $label; ($densified_ceiling[$p] // 0))
       + (if $c == null then
            # Same rule as `pins-unmeasured`: a stratum whose C++ baseline did
            # not run loses condition1, both condition3 rows and
@@ -1358,7 +1433,7 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tag_pins "$TAG_PINS_JSON" \
            + quality($p; $s; $label; $pin) end) ]
   + [ .[] | select(.set != null)
       | .planner as $p | .tag as $t | "\($p)/\($t)" as $label | .set as $s | .cpp as $c
-      | common($s; $label)
+      | common($s; $label; ($densified_ceiling[$p] // 0))
         # The two constrained populations carry no `cpp` at all, by the
         # decision in the C++ baseline stage above: `chomp_plan`/`stomp_plan`
         # never read `joint_constraint`, so a C++ run over them would answer a
