@@ -41,11 +41,20 @@
 #     `joint_constraint`, so the oracle would plan a different problem than
 #     the port did. Phase 7 treats its own constrained set as condition-2-only
 #     for the same reason.
-#   * Path validity, its densification requirement, its coverage requirement,
-#     the independent cross-check against upstream `isPathValid`, the injection
+#   * Path validity`s densification requirement, its coverage requirement, the
+#     independent cross-check against upstream `isPathValid`, the injection
 #     discrimination gate, the population pin, the per-stratum rule and the
 #     no-timeout rule all transfer unchanged, and are checked below for both
 #     planners.
+#   * The validity verdict itself does NOT transfer unchanged, and this is the
+#     one place a Phase 7 reader has to look twice. Phase 7 gets exactly 100%
+#     on every stratum, so there one boolean can carry both halves of the
+#     question. Here it cannot: a local optimizer returns a coarse waypoint
+#     list, and a sample only densification reaches can be in collision while
+#     every state the optimizer scored is free. Those are split -- see
+#     `planner_accountable` -- and `inject_constrained`, which plans without a
+#     constraint it is then checked against, is held to `injection_attributable`
+#     instead. The cross-check no longer restates either rule; see its header.
 #
 # This does NOT change Phase 8's verdict word. It is the instrument that would
 # let someone change it: `PLANNER=... MODE=full` produces the numbers, and
@@ -1125,10 +1134,29 @@ cpp_medians() {
 # the same states. That per-waypoint shape is also why many paths share one
 # invocation, and why `goal_constraints` is left empty.
 #
+# This stage adjudicates AGREEMENT, never validity. It once also asserted that
+# every produced path comes out valid, which is the verdict stage`s rule
+# (`planner_accountable`, `injection_attributable`) written a second time and
+# more crudely: it could not tell a waypoint the optimizer scored from a sample
+# only densification reaches, and it demanded `inject_constrained` honour a
+# constraint its planner never saw. Two copies of one rule means the cruder one
+# decides, so the copy is gone and the two stages partition:
+#
+#   a path invalid at a state the optimizer scored   -> verdict stage,
+#     `validity-at-returned-waypoints`, exact zero
+#   a checker that approves a state upstream rejects -> here, `disagree`
+#     (and `index_mismatch` for the same states in a different order)
+#
+# Nothing is dropped by removing it. `disagree` still forces upstream`s verdict
+# to match this port`s on every path and `index_mismatch` forces the identical
+# invalid-index set, so the backend-misses-a-contact failure this stage exists
+# for still fires here; the case the removed clause alone caught -- both
+# implementations agreeing a path is invalid -- is the verdict stage`s call.
+#
 # $1 label, $2 robot, $3 the request the paths came from, $4 NDJSON with
-# `dense`, $5 expected verdict, $6 joint-constraint spec or "".
+# `dense`, $5 joint-constraint spec or "".
 oracle_path_check() {
-  local label="$1" robot="$2" request="$3" ndjson="$4" expect="$5" spec="$6"
+  local label="$1" robot="$2" request="$3" ndjson="$4" spec="$5"
   local isv="$WORKDIR/isv.$label.ndjson" out="$WORKDIR/isv.$label.out"
   local pc='{}'
   if [[ -n "$spec" ]]; then
@@ -1160,8 +1188,7 @@ oracle_path_check() {
 
   local report
   report="$(jq -n --slurpfile o <(jq -s '.' "$out") \
-                  --slurpfile p <(jq -s 'map(select(.dense!=null))' "$ndjson") \
-                  --arg expect "$expect" '
+                  --slurpfile p <(jq -s 'map(select(.dense!=null))' "$ndjson") '
     ($p[0] | map({key:(.id|tostring), value:.}) | from_entries) as $by |
     [ $o[0][] | ($by[.id|tostring]) as $pp |
       { id,
@@ -1173,21 +1200,19 @@ oracle_path_check() {
         n_port: (($pp.invalid_waypoints // [])|length) } ] as $rows |
     { paths: ($rows|length),
       not_ok: [$rows[]|select(.ok|not)|.id],
-      wrong_verdict: [$rows[]|select(.oracle_valid != ($expect == "valid"))|.id],
       disagree: [$rows[]|select(.oracle_valid != .port_valid)|.id],
       index_mismatch: [$rows[]|select(.same_indices|not)|{id, n_oracle, n_port}] }')"
-  local paths not_ok wrong disagree mismatch
+  local paths not_ok disagree mismatch
   paths="$(jq -r '.paths' <<<"$report")"
   not_ok="$(jq -r '.not_ok|length' <<<"$report")"
-  wrong="$(jq -r '.wrong_verdict|length' <<<"$report")"
   disagree="$(jq -r '.disagree|length' <<<"$report")"
   mismatch="$(jq -r '.index_mismatch|length' <<<"$report")"
-  if [[ "$not_ok" == "0" && "$wrong" == "0" && "$disagree" == "0" && "$mismatch" == "0" ]]; then
-    echo "  PASS cross-check $label: upstream isPathValid agrees on all $paths path(s), expected=$expect, invalid-index sets identical"
+  if [[ "$not_ok" == "0" && "$disagree" == "0" && "$mismatch" == "0" ]]; then
+    echo "  PASS cross-check $label: upstream isPathValid agrees with this port on all $paths path(s), invalid-index sets identical"
     return 0
   fi
-  echo "  FAIL cross-check $label: paths=$paths not_ok=$not_ok wrong_verdict=$wrong port/oracle_disagree=$disagree index_mismatch=$mismatch" >&2
-  jq -c '{not_ok, wrong_verdict, disagree, index_mismatch}' <<<"$report" >&2
+  echo "  FAIL cross-check $label: paths=$paths not_ok=$not_ok port/oracle_disagree=$disagree index_mismatch=$mismatch" >&2
+  jq -c '{not_ok, disagree, index_mismatch}' <<<"$report" >&2
   failed+=("cross-check $label")
   return 1
 }
@@ -1200,17 +1225,19 @@ for planner in $PLANNERS; do
     tag="${robot}_${config}"
     [[ -s "$WORKDIR/$planner.$tag.ndjson" ]] || continue
     oracle_path_check "$planner.$tag" "$robot" "$WORKDIR/$tag.request.json" \
-      "$WORKDIR/$planner.$tag.ndjson" valid ""
+      "$WORKDIR/$planner.$tag.ndjson" ""
   done
   # Both constrained populations, each against the constraint it was CHECKED
   # with: `constrained` planned with it, `inject_constrained` only checked with
   # it. Upstream gets the same spec either way -- the oracle never plans here,
-  # it re-checks this port's own waypoints.
+  # it re-checks this port's own waypoints. Whether the resulting verdict is
+  # allowed to be `invalid` is not decided here; both arms only have to make
+  # the two implementations say the same thing about the same states.
   for tag in constrained inject_constrained; do
     [[ -s "$WORKDIR/$planner.$tag.ndjson" ]] || continue
     oracle_path_check "$planner.$tag" "$c_robot" \
       "$WORKDIR/$tag.request.json" \
-      "$WORKDIR/$planner.$tag.ndjson" valid "$c_spec"
+      "$WORKDIR/$planner.$tag.ndjson" "$c_spec"
   done
 done
 
