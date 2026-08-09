@@ -25,6 +25,7 @@
 //! separation-distance branch, which reaches `parry`'s own dispatch.
 
 use parry3d_f64::math::{Matrix, Vector};
+use std::ops::ControlFlow;
 
 /// One node's oriented box, in its mesh's own frame.
 ///
@@ -129,7 +130,7 @@ impl Node {
 ///
 /// Only the two node indices change from one level to the next, so the rest
 /// is threaded as one borrow rather than as six recursion parameters.
-struct Descent<'a, F: FnMut(u32, u32)> {
+struct Descent<'a, F: FnMut(u32, u32) -> ControlFlow<()>> {
     other: &'a ObbTree,
     rot12: Matrix,
     t12: Vector,
@@ -285,13 +286,20 @@ impl ObbTree {
     /// Upstream has no counterpart to this: `fcl::collide` descends at zero
     /// margin, and it is the port's distance path that reaches
     /// [`crate::parry::part_contact`] with a `prediction` above zero.
+    ///
+    /// `leaf` returning [`ControlFlow::Break`] ends the descent, which is
+    /// upstream's `canStop()`: `collisionRecurse` checks it between the two
+    /// child recursions (`traversal_recurse-inl.h:171`), and
+    /// `CollisionRequest::isSatisfied` makes it true once the caller has the
+    /// contacts it asked for (`collision_request-inl.h:77-82`). A caller that
+    /// wants every pair simply never breaks.
     pub(crate) fn leaf_pairs(
         &self,
         other: &ObbTree,
         rot12: &Matrix,
         t12: &Vector,
         prediction: f64,
-        leaf: &mut impl FnMut(u32, u32),
+        leaf: &mut impl FnMut(u32, u32) -> ControlFlow<()>,
     ) {
         let mut descent = Descent {
             other,
@@ -300,10 +308,15 @@ impl ObbTree {
             grow: Vector::splat(prediction),
             leaf,
         };
-        self.recurse(&mut descent, 0, 0);
+        let _ = self.recurse(&mut descent, 0, 0);
     }
 
-    fn recurse(&self, d: &mut Descent<'_, impl FnMut(u32, u32)>, i1: u32, i2: u32) {
+    fn recurse(
+        &self,
+        d: &mut Descent<'_, impl FnMut(u32, u32) -> ControlFlow<()>>,
+        i1: u32,
+        i2: u32,
+    ) -> ControlFlow<()> {
         let n1 = &self.nodes[i1 as usize];
         let n2 = &d.other.nodes[i2 as usize];
 
@@ -313,25 +326,24 @@ impl ObbTree {
         let delta = d.rot12 * n2.obb.center + d.t12 - n1.obb.center;
         let t = n1.obb.axis.transpose() * delta;
         if obb_disjoint(&rot, &t, &(n1.obb.extent + d.grow), &n2.obb.extent) {
-            return;
+            return ControlFlow::Continue(());
         }
 
         let (l1, l2) = (n1.is_leaf(), n2.is_leaf());
         if l1 && l2 {
-            (d.leaf)(n1.primitive, n2.primitive);
-            return;
+            return (d.leaf)(n1.primitive, n2.primitive);
         }
         // `firstOverSecond` (`bvh_collision_traversal_node-inl.h:78`):
         // descend whichever side is bigger, and never descend a leaf.
-        if l2 || (!l1 && n1.obb.size() > n2.obb.size()) {
+        let (a, b) = if l2 || (!l1 && n1.obb.size() > n2.obb.size()) {
             let (a, b) = (n1.first_child, n1.first_child + 1);
-            self.recurse(d, a, i2);
-            self.recurse(d, b, i2);
+            ((a, i2), (b, i2))
         } else {
             let (a, b) = (n2.first_child, n2.first_child + 1);
-            self.recurse(d, i1, a);
-            self.recurse(d, i1, b);
-        }
+            ((i1, a), (i1, b))
+        };
+        self.recurse(d, a.0, a.1)?;
+        self.recurse(d, b.0, b.1)
     }
 }
 
@@ -549,6 +561,7 @@ mod tests {
                 let mut emitted = std::collections::HashSet::new();
                 tree1.leaf_pairs(&tree2, &rot12, &t12, prediction, &mut |a, b| {
                     emitted.insert((a, b));
+                    ControlFlow::Continue(())
                 });
                 emitted_total += emitted.len();
 

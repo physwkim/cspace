@@ -1205,6 +1205,7 @@
 //! identity with the first for that check to ever need to catch.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use moveit_error::{Error, Result};
@@ -2823,6 +2824,100 @@ enum PartContactOutcome {
     Unsupported,
 }
 
+/// Which part of a part pair's contact its caller is going to read.
+///
+/// Upstream carries this as `fcl::CollisionRequest`'s `num_max_contacts` and
+/// `enable_contact`, and `collisionCallback` sets them from the same
+/// condition this enum is chosen by: the `req.contacts` branch asks for
+/// `(want_contact_count, /*enable_contact=*/true)`
+/// (`collision_detection_fcl/collision_common.cpp:296-303`) and the branch
+/// below it asks for `(1, /*enable_contact=*/false)` (`:361-364`). At `(1,
+/// false)`, `MeshCollisionTraversalNode::leafTesting` runs the *boolean*
+/// `Intersect::intersect_Triangle` and stores a `Contact` carrying neither
+/// point nor normal nor depth (`mesh_collision_traversal_node-inl.h:176-183`),
+/// and `canStop()` — `isSatisfied`, which `enable_cost` also disables
+/// (`collision_request-inl.h:77-82`) — ends the descent right there.
+///
+/// This port had no counterpart: both halves of [`part_contact`]'s mesh
+/// dispatch ran the full narrow phase over *every* surviving sub-shape pair
+/// to produce the exhaustive minimum-depth contact, whatever the caller
+/// wanted. Measured on fanuc/cage under STOMP, whose cost function asks
+/// `is_state_colliding` with a default [`CollisionRequest`] and reads only
+/// the boolean: of `391,811` mesh-pair queries, `55,319` touch, and those
+/// carry essentially all of the `14.7` contact calls per pair — `104` each,
+/// where the first one that answers already settles the verdict.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ContactDetail {
+    /// The caller reads the contact itself — its depth, point or normal — so
+    /// the answer has to be the exhaustive minimum over the pair.
+    Full,
+    /// The caller reads only [`touches_at_tie`]'s verdict, so the search may
+    /// stop at the first sub-shape contact that already settles it.
+    Verdict,
+}
+
+/// One side of a mesh-against-mesh query: the mesh, the oriented-box
+/// hierarchy fitted to it, and where it sits.
+///
+/// The three always travel together and are always read together --
+/// upstream's `MeshCollisionTraversalNode` holds exactly this per side
+/// (`model1`/`vertices1`/`tri_indices1` plus `tf1`).
+#[derive(Clone, Copy)]
+struct PosedMesh<'a> {
+    pose: &'a Pose,
+    mesh: &'a TriMesh,
+    tree: &'a ObbTree,
+}
+
+/// The stop rule the two mesh searches share under
+/// [`ContactDetail::Verdict`]: has some sub-shape contact already settled
+/// what [`touches_at_tie`] will say about the whole pair?
+///
+/// The verdict on a part pair is `touches_at_tie(min, ..)` over the minimum
+/// `dist` of its sub-shape contacts. Below `-band`, where `band` is that
+/// helper's own `TIE_ROUNDING_MARGIN * f64::EPSILON * `[`tie_scale`], the
+/// helper reads the sign directly — so a *single* contact at `dist < -band`
+/// already fixes the answer to `true`: the minimum is at most that `dist`,
+/// so it is below `-band` too, and both give `true`. Nothing below can
+/// change it, and under `Verdict` nothing above reads the contact itself.
+///
+/// Stated as the band rather than as some small negative constant because
+/// the band is where the rule actually lives: inside it,
+/// [`fcl_tangency_verdict`] decides instead of the sign, and it can answer
+/// `false`. Stopping at a contact inside the band would therefore trade a
+/// `false` verdict for a `true` one on an exactly-tangent mesh pair.
+///
+/// `tie_scale` is deferred to the first contact that reaches it, and kept
+/// once computed: on the fanuc/cage measurement `86%` of mesh-pair queries
+/// find no contact at all and never pay for it.
+struct SettledVerdict {
+    detail: ContactDetail,
+    band: Option<f64>,
+}
+
+impl SettledVerdict {
+    fn new(detail: ContactDetail) -> Self {
+        Self { detail, band: None }
+    }
+
+    fn by(
+        &mut self,
+        dist: f64,
+        a_pose: &Pose,
+        a_shape: &dyn ParryShape,
+        b_pose: &Pose,
+        b_shape: &dyn ParryShape,
+    ) -> bool {
+        if self.detail == ContactDetail::Full || dist >= 0.0 {
+            return false;
+        }
+        let band = *self.band.get_or_insert_with(|| {
+            TIE_ROUNDING_MARGIN * f64::EPSILON * tie_scale(a_pose, a_shape, b_pose, b_shape)
+        });
+        dist < -band
+    }
+}
+
 /// The one place [`query::contact()`] is called from this file's collision
 /// and distance accumulation ([`accumulate_collision`],
 /// [`accumulate_distance`]) — collapsing `Result<Option<ParryContact>,
@@ -2837,7 +2932,7 @@ enum PartContactOutcome {
 /// (`default_query_dispatcher.rs:218-221`, the generic
 /// support-map-support-map arm) — confirmed, not assumed exempt because it
 /// looked unrelated.
-fn part_contact(a: &Part, b: &Part, prediction: f64) -> PartContactOutcome {
+fn part_contact(a: &Part, b: &Part, prediction: f64, detail: ContactDetail) -> PartContactOutcome {
     let (a_pose, b_pose) = (&a.pose, &b.pose);
     let (a_shape, b_shape) = (a.shape.as_ref(), b.shape.as_ref());
     // Mesh against mesh is where a planner's inner loop spends its time, and
@@ -2850,7 +2945,19 @@ fn part_contact(a: &Part, b: &Part, prediction: f64) -> PartContactOutcome {
         let (Some(o1), Some(o2)) = (a.obb.as_deref(), b.obb.as_deref()) else {
             return PartContactOutcome::NotTouching;
         };
-        return match trimesh_pair_contact(a_pose, m1, o1, b_pose, m2, o2, prediction) {
+        let (a_mesh, b_mesh) = (
+            PosedMesh {
+                pose: a_pose,
+                mesh: m1,
+                tree: o1,
+            },
+            PosedMesh {
+                pose: b_pose,
+                mesh: m2,
+                tree: o2,
+            },
+        );
+        return match trimesh_pair_contact(a_mesh, b_mesh, prediction, detail) {
             Some(contact) => PartContactOutcome::Touching(contact),
             None => PartContactOutcome::NotTouching,
         };
@@ -2858,11 +2965,12 @@ fn part_contact(a: &Part, b: &Part, prediction: f64) -> PartContactOutcome {
     // The same one-sided selection against a primitive -- see
     // `mesh_shape_contact`, whose doc says why only a `SupportMap` one.
     let mesh_vs_primitive = match (a_shape.as_trimesh(), b_shape.as_trimesh()) {
-        (Some(m1), None) if b_shape.as_support_map().is_some() => {
-            Some(mesh_shape_contact(a_pose, m1, b_pose, b_shape, prediction))
-        }
+        (Some(m1), None) if b_shape.as_support_map().is_some() => Some(mesh_shape_contact(
+            a_pose, m1, b_pose, b_shape, prediction, detail,
+        )),
         (None, Some(m2)) if a_shape.as_support_map().is_some() => Some(
-            mesh_shape_contact(b_pose, m2, a_pose, a_shape, prediction).map(ParryContact::flipped),
+            mesh_shape_contact(b_pose, m2, a_pose, a_shape, prediction, detail)
+                .map(ParryContact::flipped),
         ),
         _ => None,
     };
@@ -3010,41 +3118,43 @@ fn pair_can_touch(
 /// minimum of the reversed order. Contact coordinates remain outside the
 /// compared population (module doc, deviations 4 and 6).
 fn trimesh_pair_contact(
-    a_pose: &Pose,
-    m1: &TriMesh,
-    o1: &ObbTree,
-    b_pose: &Pose,
-    m2: &TriMesh,
-    o2: &ObbTree,
+    a: PosedMesh<'_>,
+    b: PosedMesh<'_>,
     prediction: f64,
+    detail: ContactDetail,
 ) -> Option<ParryContact> {
-    let pose12 = a_pose.inv_mul(b_pose);
+    let pose12 = a.pose.inv_mul(b.pose);
     let rot12 = parry3d_f64::math::Matrix::from_quat(pose12.rotation);
     let mut best: Option<ParryContact> = None;
-    o1.leaf_pairs(
-        o2,
+    let mut settled = SettledVerdict::new(detail);
+    a.tree.leaf_pairs(
+        b.tree,
         &rot12,
         &pose12.translation,
         prediction,
         &mut |i1, i2| {
-            let t1 = m1.triangle(i1);
-            let t2 = m2.triangle(i2);
+            let t1 = a.mesh.triangle(i1);
+            let t2 = b.mesh.triangle(i2);
             if triangles_are_separated(&t1, &t2.transformed(&pose12), prediction) {
-                return;
+                return ControlFlow::Continue(());
             }
             if let Ok(Some(contact)) =
                 query::contact(&Pose::default(), &t1, &pose12, &t2, prediction)
             {
-                if best.is_none_or(|b| contact.dist < b.dist) {
+                if best.is_none_or(|c| contact.dist < c.dist) {
                     best = Some(contact);
                 }
+                if settled.by(contact.dist, a.pose, a.mesh, b.pose, b.mesh) {
+                    return ControlFlow::Break(());
+                }
             }
+            ControlFlow::Continue(())
         },
     );
-    // Computed in `m1`'s frame, so one rigid map takes every field to the
+    // Computed in `a.mesh`'s frame, so one rigid map takes every field to the
     // world frame `query::contact(a_pose, .., b_pose, ..)` reports in.
     if let Some(contact) = &mut best {
-        contact.transform_by_mut(a_pose, a_pose);
+        contact.transform_by_mut(a.pose, a.pose);
     }
     best
 }
@@ -3074,9 +3184,11 @@ fn mesh_shape_contact(
     b_pose: &Pose,
     b_shape: &dyn ParryShape,
     prediction: f64,
+    detail: ContactDetail,
 ) -> Option<ParryContact> {
     let pose12 = a_pose.inv_mul(b_pose);
     let mut best: Option<ParryContact> = None;
+    let mut settled = SettledVerdict::new(detail);
     for i in m1.bvh().leaves(|node| {
         let aabb = node.aabb();
         // `prediction` on the box rather than on the query below: the test is
@@ -3097,6 +3209,9 @@ fn mesh_shape_contact(
         {
             if best.is_none_or(|b| contact.dist < b.dist) {
                 best = Some(contact);
+            }
+            if settled.by(contact.dist, a_pose, m1, b_pose, b_shape) {
+                break;
             }
         }
     }
@@ -3213,6 +3328,16 @@ fn accumulate_collision<'a>(
     // `cdata->res_->cost_sources.insert(cs); while (... > max_cost_sources)
     // erase(--end());` does in `collision_common.cpp`.
     let mut cost_sources: BTreeSet<CostSource> = BTreeSet::new();
+    // Upstream's own condition for the cheap query, read off the same two
+    // request fields: `collisionCallback` takes the `(1, enable_contact =
+    // false)` branch when `!req.contacts`, and `enable_cost` is what
+    // `CollisionRequest::isSatisfied` checks first, so cost keeps the
+    // exhaustive descent even without contacts. See [`ContactDetail`].
+    let detail = if request.contacts || request.cost {
+        ContactDetail::Full
+    } else {
+        ContactDetail::Verdict
+    };
     let mut done = false;
     for (a, b) in pairs {
         // Upstream's `if (cdata->done_) return true;`
@@ -3246,7 +3371,7 @@ fn accumulate_collision<'a>(
             // still fall through to the termination block, exactly as a pair
             // `fcl::collide` cleared does.
             if pair_can_touch(a_pose, a_shape, b_pose, b_shape, 0.0) {
-                match part_contact(a_part, b_part, 0.0) {
+                match part_contact(a_part, b_part, 0.0, detail) {
                     PartContactOutcome::Touching(contact) => {
                         // NOT gated on `contact.dist <= 0.0`, though the wording
                         // above ("prediction `0.0`, so only touching/penetrating
@@ -3611,7 +3736,15 @@ fn accumulate_distance<'a>(
             ) {
                 continue;
             }
-            let contact = match part_contact(a_part, b_part, bounded_prediction(threshold)) {
+            // `Full`, never `Verdict`: this caller reports `contact.dist` as
+            // the pair's separation distance and reads its nearest points, so
+            // it needs the exhaustive minimum.
+            let contact = match part_contact(
+                a_part,
+                b_part,
+                bounded_prediction(threshold),
+                ContactDetail::Full,
+            ) {
                 PartContactOutcome::Touching(contact) => contact,
                 PartContactOutcome::NotTouching => continue,
                 PartContactOutcome::Unsupported => {
@@ -6365,7 +6498,14 @@ mod tests {
             for primitive in &primitives {
                 for prediction in [0.0, 0.05] {
                     let shape = &**primitive;
-                    let mine = mesh_shape_contact(&a_pose, &mesh, &b_pose, shape, prediction);
+                    let mine = mesh_shape_contact(
+                        &a_pose,
+                        &mesh,
+                        &b_pose,
+                        shape,
+                        prediction,
+                        ContactDetail::Full,
+                    );
 
                     let pose12 = a_pose.inv_mul(&b_pose);
                     let mut brute: Option<f64> = None;
@@ -6485,7 +6625,20 @@ mod tests {
             let a_pose = random_pose(&mut rng, 0.6);
             let b_pose = random_pose(&mut rng, 0.6);
             for prediction in [0.0, 0.05] {
-                let mine = trimesh_pair_contact(&a_pose, &m1, &o1, &b_pose, &m2, &o2, prediction);
+                let mine = trimesh_pair_contact(
+                    PosedMesh {
+                        pose: &a_pose,
+                        mesh: &m1,
+                        tree: &o1,
+                    },
+                    PosedMesh {
+                        pose: &b_pose,
+                        mesh: &m2,
+                        tree: &o2,
+                    },
+                    prediction,
+                    ContactDetail::Full,
+                );
                 let parry = query::contact(&a_pose, &m1, &b_pose, &m2, prediction).unwrap();
                 assert_eq!(
                     mine.is_some(),
@@ -6527,6 +6680,132 @@ mod tests {
         // where the replaced dispatch happened never to be wrong.
         assert!(contacts > 100, "only {contacts} contacts to compare");
         assert_eq!((swapped_order, parry_missed), (8, 10));
+    }
+
+    /// [`ContactDetail::Verdict`] stops the search early, so what it returns
+    /// is a *different contact* from [`ContactDetail::Full`]'s -- shallower,
+    /// at a different triangle. What must not differ is the only thing its
+    /// caller reads: [`touches_at_tie`]'s verdict.
+    ///
+    /// Both mesh branches are swept, because they are two separate searches
+    /// with two separate stop points ([`trimesh_pair_contact`]'s
+    /// `ControlFlow::Break` out of the two-tree descent, and
+    /// [`mesh_shape_contact`]'s `break` out of the one-tree loop), and the
+    /// anchor that found them (`best.is_none_or(|b| contact.dist < b.dist)`)
+    /// matches exactly these two.
+    ///
+    /// `Some`/`None` agreement is asserted too, not just the verdict: the
+    /// early stop is only ever reached *after* a contact, so a `Verdict` run
+    /// that finds nothing has run the whole search -- and
+    /// [`accumulate_collision`]'s `NotTouching` arm takes a different path
+    /// (`fcl_tangency_verdict`'s rescue) from its `Touching` one, so the two
+    /// are not interchangeable even when the verdict agrees.
+    #[test]
+    fn stopping_early_for_a_verdict_gives_the_verdict_the_exhaustive_search_gives() {
+        use rand::SeedableRng as _;
+
+        let m1 = sphere_mesh();
+        let m2 = box_mesh();
+        let o1 = ObbTree::build(m1.vertices(), m1.indices()).expect("non-empty mesh");
+        let o2 = ObbTree::build(m2.vertices(), m2.indices()).expect("non-empty mesh");
+        let primitives: [SharedShape; 4] = [
+            SharedShape::ball(0.35),
+            SharedShape::cuboid(0.3, 0.2, 0.45),
+            SharedShape::cylinder(0.3, 0.2),
+            SharedShape::cone(0.3, 0.25),
+        ];
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(20260809);
+        let (mut touching, mut clear, mut stopped_short) = (0, 0, 0);
+
+        let mut compare = |full: Option<ParryContact>,
+                           quick: Option<ParryContact>,
+                           a_pose: &Pose,
+                           a_shape: &dyn ParryShape,
+                           b_pose: &Pose,
+                           b_shape: &dyn ParryShape| {
+            assert_eq!(
+                full.is_some(),
+                quick.is_some(),
+                "one search found a contact and the other did not"
+            );
+            let (Some(full), Some(quick)) = (full, quick) else {
+                clear += 1;
+                return;
+            };
+            let verdict = |dist| touches_at_tie(dist, a_pose, a_shape, b_pose, b_shape);
+            assert_eq!(
+                verdict(full.dist),
+                verdict(quick.dist),
+                "verdicts differ: exhaustive {} vs early-stopped {}",
+                full.dist,
+                quick.dist
+            );
+            if verdict(full.dist) {
+                touching += 1;
+            }
+            // The exhaustive minimum can only be at or below the one the
+            // early stop settled for.
+            assert!(quick.dist >= full.dist - 1e-12, "early stop went deeper");
+            if quick.dist > full.dist + 1e-12 {
+                stopped_short += 1;
+            }
+        };
+
+        for _ in 0..500 {
+            let a_pose = random_pose(&mut rng, 0.6);
+            let b_pose = random_pose(&mut rng, 0.6);
+            for prediction in [0.0, 0.05] {
+                let run = |detail| {
+                    trimesh_pair_contact(
+                        PosedMesh {
+                            pose: &a_pose,
+                            mesh: &m1,
+                            tree: &o1,
+                        },
+                        PosedMesh {
+                            pose: &b_pose,
+                            mesh: &m2,
+                            tree: &o2,
+                        },
+                        prediction,
+                        detail,
+                    )
+                };
+                compare(
+                    run(ContactDetail::Full),
+                    run(ContactDetail::Verdict),
+                    &a_pose,
+                    &m1,
+                    &b_pose,
+                    &m2,
+                );
+                for primitive in &primitives {
+                    let shape = &**primitive;
+                    let run = |detail| {
+                        mesh_shape_contact(&a_pose, &m1, &b_pose, shape, prediction, detail)
+                    };
+                    compare(
+                        run(ContactDetail::Full),
+                        run(ContactDetail::Verdict),
+                        &a_pose,
+                        &m1,
+                        &b_pose,
+                        shape,
+                    );
+                }
+            }
+        }
+
+        // Without these the equality above holds on a sample where the two
+        // searches never diverged: `stopped_short` is the count of pairs
+        // where the early stop really did return a different contact, which
+        // is the only place the assertion has anything to prove.
+        assert!(
+            stopped_short > 200,
+            "the early stop fired {stopped_short} times"
+        );
+        assert!(touching > 200, "only {touching} pairs touched");
+        assert!(clear > 200, "only {clear} pairs were clear");
     }
 
     /// The minimum over every triangle pair, no bounding volumes involved --
