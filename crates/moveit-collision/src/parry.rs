@@ -2904,7 +2904,8 @@ fn pair_can_touch(
 /// Measured on fanuc/cage under STOMP, where this pair is `90.8%` of the
 /// calls that reach the narrow phase and effectively all of a planning run's
 /// time: `3017` triangle-vs-triangle dispatches per pair one-sided against
-/// `1088` here, `620us` per pair against `321us`.
+/// `600` leaf pairs here, of which `triangles_are_separated` sends on fewer
+/// still.
 ///
 /// Conservative in the same sense [`pair_can_touch`] is, and so returns the
 /// same verdict: an `Aabb` contains its triangle and [`Aabb::transform_by`]
@@ -2936,11 +2937,20 @@ fn trimesh_pair_contact(
 ) -> Option<ParryContact> {
     use parry3d_f64::bounding_volume::BoundingVolume as _;
     let pose12 = a_pose.inv_mul(b_pose);
+    let pose21 = pose12.inverse();
     let mut best: Option<ParryContact> = None;
     for (i1, i2) in m1.bvh().leaf_pairs(m2.bvh(), |n1, n2| {
-        n1.aabb()
-            .loosened(prediction)
-            .intersects(&n2.aabb().transform_by(&pose12))
+        // Each node's box re-bounded in the other's frame. Two one-sided
+        // tests rather than one: a rotated box's `Aabb` is loose enough that
+        // the mirror test still drops `42%` of what the first one keeps
+        // (`1035` -> `600` leaf pairs per mesh pair on fanuc/cage).
+        let a1 = n1.aabb();
+        let a2 = n2.aabb();
+        a1.loosened(prediction)
+            .intersects(&a2.transform_by(&pose12))
+            && a2
+                .loosened(prediction)
+                .intersects(&a1.transform_by(&pose21))
     }) {
         let t1 = m1.triangle(i1);
         let t2 = m2.triangle(i2);
@@ -2966,7 +2976,7 @@ fn trimesh_pair_contact(
 ///
 /// [`trimesh_pair_contact`] reaches a leaf pair whenever two axis-aligned
 /// triangle bounds overlap, and on a curved link most of those triangles are
-/// still clear of each other: `1088` leaf pairs per mesh pair on the
+/// still clear of each other: `600` leaf pairs per mesh pair on the
 /// fanuc/cage measurement against the `~0.3` that hold a contact. Every one
 /// of them otherwise costs a support-mapped GJK run, which is what upstream
 /// spends a `SAT` test to avoid (`fcl::TriangleDistance`, reached from
