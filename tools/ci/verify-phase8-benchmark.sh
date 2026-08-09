@@ -57,20 +57,26 @@
 # `uniform_real(0, 1)` draw, so the descent path is a function of the RNG
 # stream -- `std::mt19937` seeded once per process on the C++ side
 # (`rsl::rng(seed_seq{--planner-rng-seed})`), a per-problem `ChaCha8Rng` on
-# the port's. Re-running the committed `cage` set with only that seed base
-# changed, everything else identical and the clock non-binding:
+# the port's. Re-running BOTH committed sets -- the whole 500, not one half,
+# so the counts below are this condition's own denominator -- with only that
+# seed base changed, everything else identical and the clock non-binding:
 #
-#   jq -c '.condition2_resolutions=[0.02,0.01]' \
-#     doc/phase8-baseline-500/cage.250.900002.set.json |
-#     ./target/release/examples/chomp_benchmark_port <seed_base> 1e9
+#   for set in floor_wall.250.900001 cage.250.900002; do
+#     jq -c '.condition2_resolutions=[0.02,0.01]' \
+#       "doc/phase8-baseline-500/$set.set.json" |
+#       ./target/release/examples/chomp_benchmark_port <seed_base> 1e9
+#   done
 #
-# gives one condition-2 failure at 700001 (id 221), one at 424242 (id 33),
-# and none at 700002, 800001, 900001 or 123457 -- four of six seed bases meet
-# condition 2 outright, and the two that miss it miss on different problems.
-# C++ CHOMP at its own single seed likewise lands exactly one such path,
-# `cage` id 27. So a condition-2 miss of this size is a draw from the
-# stochastic descent both implementations run by default, not evidence of a
-# porting defect; a miss that did not move with the seed would be.
+# gives one condition-2 failure at 700001 (`cage` id 221, the committed run,
+# which reproduces that record's solved set and lengths exactly), one at
+# 424242 (`cage` id 33), and NONE at 700002, 800001, 900001 or 123457: four
+# of the six meet condition 2 outright over the full 500, and the two that
+# miss it miss on different problems. `floor_wall` contributed no violation
+# at any of the six. C++ CHOMP at its own single seed likewise lands exactly
+# one such path, `cage` id 27 -- a third problem again. So a condition-2 miss
+# of this size is a draw from the stochastic descent both implementations run
+# by default, not evidence of a porting defect; a miss that did not move with
+# the seed would be.
 #
 # # Why the bounds are set to non-binding values
 #
