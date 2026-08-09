@@ -483,11 +483,22 @@ PINS_JSON="$(jq -c --arg m "$MODE" '.[$m] // {}' <<<"$PINS_ALL")"
 #                cage 2/202 = 0.99% at base 700001 (`doc/phase8-condition2-
 #                stomp/base.port.stomp.cage.ndjson`), 0/203 at 424242,
 #                floor_wall 1/239 at both. The "~2x the measured maximum" rule
-#                is `endpoint_ceiling`'s. The C++ arm's own largest rate on the
-#                same populations is 3/199 = 1.51%, inside this ceiling, so the
-#                bar is not looser than the behaviour upstream itself shows.
-#                At MODE=full this tree measures 1/194 = 0.52% (fanuc) and
-#                0/219 (panda).
+#                is `endpoint_ceiling`'s, and the port arm is what it is
+#                derived from -- 2% is above upstream's own worst here, not
+#                calibrated to it. At MODE=full this tree measures 1/194 =
+#                0.52% (fanuc) and 0/219 (panda).
+#
+#                What the C++ arm establishes is the MECHANISM, not the
+#                number: on the byte-identical sets in `doc/phase8-baseline-
+#                500/` (the `.set.json` files there hash equal to
+#                `doc/phase8-condition2-stomp/`s), upstream C++ STOMP has
+#                0 densified-only failures over 205 solved on cage and 2
+#                over 241 = 0.83% on floor_wall, at 100% validity at its
+#                own returned waypoints both times.
+#                Upstream produces the same coarse-waypoint residue on the
+#                same problems, so a nonzero rate here is not port-specific
+#                -- but it does not license 2%, and if this ceiling ever has
+#                to rise, that is a finding to argue on its own evidence.
 #
 # What it must NOT absorb: a path invalid at a waypoint the optimizer scored.
 # That is `validity-at-returned-waypoints`, exact zero, and the broken control
