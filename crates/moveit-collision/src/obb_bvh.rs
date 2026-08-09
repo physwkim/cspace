@@ -1,3 +1,23 @@
+// Copyright (c) 2011-2014, Willow Garage, Inc.
+// Copyright (c) 2014-2016, Open Source Robotics Foundation
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// Ported from fcl @ e5efcc41b57b2d0da3bf183480f1298a6d531f44 (0.7.0-17-ge5efcc4):
+//   include/fcl/math/bv/OBB.h (OBB<S>)
+//   include/fcl/math/bv/OBB-inl.h (OBB<S>::size, overlap, obbDisjoint)
+//   include/fcl/geometry/bvh/BV_node.h (BVNode<BV>)
+//   include/fcl/geometry/bvh/BVH_model-inl.h (BVHModel<BV>::buildTree,
+//     BVHModel<BV>::recursiveBuildTree)
+//   include/fcl/geometry/bvh/detail/BV_splitter-inl.h
+//     (ComputeRuleMeanImpl<S, OBB<S>>)
+//   include/fcl/narrowphase/detail/traversal/traversal_recurse-inl.h
+//     (collisionRecurse)
+//   include/fcl/narrowphase/detail/traversal/collision/bvh_collision_traversal_node-inl.h
+//     (BVHCollisionTraversalNode<BV>::firstOverSecond)
+//   include/fcl/narrowphase/collision_request-inl.h
+//     (CollisionRequest<S>::isSatisfied)
+
 //! `fcl::BVHModel<fcl::OBBRSSd>`'s oriented-box hierarchy, and the two-tree
 //! descent `fcl::MeshCollisionTraversalNode` runs over a pair of them.
 //!
