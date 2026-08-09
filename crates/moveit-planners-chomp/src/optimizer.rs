@@ -1925,11 +1925,13 @@ impl<'m> ChompOptimizer<'m> {
     /// This port no longer reproduces it. It was `doc/upstream-bugs.md`'s
     /// `chomp-iteration-double-increment` (`reproduced-grandfathered`
     /// pending a fresh decision, per that entry's own text) before that
-    /// file was deleted; `GOALS.md` records every Phase condition met as of
-    /// 2026-08-06, moving this project from "transcribe the numerics" to
-    /// fixing code defects against upstream, and this is one such fix. The
-    /// two branch-local increments below are gone; the unconditional
-    /// increment at this loop's end is now `self.iteration`'s only writer,
+    /// file was deleted; `GOALS.md` records its own table's Phase conditions
+    /// met as of 2026-08-09 (Phase 8's other baseline, C++ OMPL RRTConnect,
+    /// is qualified there and is not what this sentence rests on), moving
+    /// this project from "transcribe the numerics" to fixing code defects
+    /// against upstream, and this is one such fix. The two branch-local
+    /// increments below are gone; the unconditional increment at this
+    /// loop's end is now `self.iteration`'s only writer,
     /// so every executed pass advances it by exactly one step, matching how
     /// [`ChompLoopTrace::evaluations`] (which was never affected by this
     /// bug) already counts passes. This does not change whether the loop

@@ -61,8 +61,21 @@ floor_wall 2/241 = 0.83%, 둘 다 자기 반환 웨이포인트에서는 100%) �
 자체는 포트 고유의 결함이 아니다. 제약 없이 계획한 경로를 그 제약과 함께
 검사하는 `inject_constrained` 대조군은 유효성이 아니라 귀속성으로 판정한다.
 
-전 Phase 조건 충족(2026-08-09 측정 기준: `doc/phase7-benchmark-results.json`
-39/39, `doc/phase8-optimizer-properties.json` 140/140). 이후 작업은 상류 대비
+Phase 8의 CHOMP/STOMP는 기준선이 둘이고, 위 표의 조건은 그중 하나다. 표가
+판정하는 것은 각 플래너의 자기 상류 C++ 구현을 기준선으로 한 쪽이고,
+`doc/phase8-optimizer-properties.json` 140/140이 그것이다. 같은 세 속성을
+§5가 줄 번호로 지목하는 C++ OMPL RRTConnect 기준선으로 재는
+`tools/ci/verify-phase8-benchmark.sh`가 따로 있으며, 핀 값은 전부 재현하되
+(cpp 498, chomp 380/379, stomp 441/438, 중앙값 셋 모두 핀과 비트 일치)
+여섯 조건 중 넷이 UNMET이라 QUALIFIED로 끝난다. 성공률이 CHOMP 380/500 =
+76.0%, STOMP 441/500 = 88.2%로 기준 89.64%에 미치지 못하고, 조밀화 유효성이
+CHOMP 379/380 · STOMP 438/441이다. 앞의 둘은 한 궤적을 다듬는 최적화기를
+트리를 키우는 표본 기반 플래너와 성공률로 비교한 값이고, 뒤의 둘은 위
+문단이 다루는 그 잔차다. 각 UNMET의 근거는 그 스크립트 헤더에 있다.
+
+위 표의 전 Phase 조건 충족(2026-08-09 측정 기준:
+`doc/phase7-benchmark-results.json` 39/39,
+`doc/phase8-optimizer-properties.json` 140/140). 이후 작업은 상류 대비
 코드 결함 수정이다.
 
 ## 크레이트
