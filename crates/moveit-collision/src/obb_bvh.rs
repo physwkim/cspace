@@ -4,7 +4,7 @@
 //! # Why a second hierarchy exists at all
 //!
 //! `parry3d_f64`'s `TriMesh` already carries a `Bvh`, and
-//! [`crate::parry::trimesh_pair_contact`] descends two of them together. What
+//! `crate::parry::trimesh_pair_contact` descends two of them together. What
 //! it cannot do is bound a triangle any tighter than an axis-aligned box,
 //! because axis-aligned boxes are what that `Bvh` stores. For a mesh whose
 //! triangles are long and diagonal -- which is most of a robot link's
@@ -285,7 +285,7 @@ impl ObbTree {
     ///
     /// Upstream has no counterpart to this: `fcl::collide` descends at zero
     /// margin, and it is the port's distance path that reaches
-    /// [`crate::parry::part_contact`] with a `prediction` above zero.
+    /// `crate::parry::part_contact` with a `prediction` above zero.
     ///
     /// `leaf` returning [`ControlFlow::Break`] ends the descent, which is
     /// upstream's `canStop()`: `collisionRecurse` checks it between the two
