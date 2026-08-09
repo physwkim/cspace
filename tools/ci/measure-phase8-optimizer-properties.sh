@@ -848,8 +848,17 @@ for planner in $PLANNERS; do
   # `joint_constraint` to `check_joint_constraint`, planned WITHOUT it and
   # checked WITH it) keeps running alongside `constrained`, not in place of it.
   # `<planner>/inject_constrained` in the run list below is that exact request
-  # without the injection, and it has to come out 100% valid for the rejection
-  # here to mean the waypoint was rejected rather than the path.
+  # without the injection, and SOME of its paths have to come out valid for the
+  # rejection here to mean the waypoint was rejected rather than the path.
+  #
+  # This used to read "100% valid", which is false and was never needed. STOMP
+  # planned without the constraint has no obligation to satisfy it: measured at
+  # MODE=full, 120 of 123 solved paths satisfy it anyway and three (ids 11, 16,
+  # 72) do not, by 217, 78 and 214 waypoints. The same three ids planned WITH
+  # the constraint are valid with zero bad waypoints, which is what says the
+  # planner honours a constraint it is given rather than that these paths are
+  # broken. Attribution needs one valid path, not all of them -- the check that
+  # states the requirement is `injection-attributable` in the verdict below.
   [[ -s "$WORKDIR/constrained.request.json" ]] || continue
   # The single-field arm: `joint_constraint` alone, unmodified, driving both
   # planning and (via `check_joint_constraint`'s `or_else` fallback in
@@ -1196,11 +1205,12 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tag_pins "$TAG_PINS_JSON" \
          + ", so the port rate here is a lower bound"
     end;
 
-  # Every check that transfers from Phase 7 unchanged, plus the two the
-  # optimizer shape replaces. `$label` is "<planner>/<population>" so no two
-  # populations can ever share a check name -- the per-stratum rule, enforced
-  # by construction rather than by convention.
-  def common($s; $label; $densified_rate_ceiling):
+  # The two verdicts that hold the planner to the path it returned, and the two
+  # the optimizer shape replaces Phase 7`s single validity check with. Split out
+  # of `common()` because ONE population must not be held to them at all -- see
+  # `injection_attributable` -- and dropping them there by listing `common()`s
+  # other rows a second time would let the two copies drift apart.
+  def planner_accountable($s; $label; $densified_rate_ceiling):
     [
       # The exact-zero half, and the only one of the two that can distinguish a
       # port defect: a path invalid at a waypoint the optimizer ITSELF scored is
@@ -1238,7 +1248,44 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tag_pins "$TAG_PINS_JSON" \
         detail: "\($s.condition2_pass)/\($s.condition2_checked) paths valid, \($s.waypoints_checked) waypoints checked; \($s.condition2_checked - $s.condition2_pass) failed only after densification, ceiling \($densified_rate_ceiling*100)%",
         ok: (($s.condition2_checked//0) > 0
              and (($s.condition2_checked - $s.condition2_pass)
-                  <= ($s.condition2_checked * $densified_rate_ceiling))) },
+                  <= ($s.condition2_checked * $densified_rate_ceiling))) }
+    ];
+
+  # `inject_constrained` is the only population here whose planner is NOT
+  # accountable for the checker it is measured against. It is built at the
+  # injection stage as `(.check_joint_constraint = .joint_constraint) |
+  # .joint_constraint = null`, so it is planned WITHOUT the constraint and
+  # checked WITH it, and a planner never given a constraint has no obligation
+  # to satisfy it. Holding it to `planner_accountable` asks the wrong question.
+  #
+  # The controlled pair is in the same run and settles it: `stomp/constrained`
+  # is the same 125 problems, the same checker constraint, the same world, and
+  # the same 123 solved ids (verified id by id, not by count), differing only
+  # in whether the planner received the constraint -- and it is 123/123 at both
+  # resolutions. The three ids `inject_constrained` fails there (11, 16, 72)
+  # are valid in `constrained` with 0 bad waypoints against 217, 78 and 214.
+  # Give STOMP the constraint and it honours it; withhold it and it does not.
+  #
+  # So this arm carries the one claim it exists for. The injection stage splices
+  # a state verified bad against `check_joint_constraint` into every solved path
+  # and requires all of them rejected; that rejection only says something about
+  # the SPLICE if some of those paths would have passed without it. The header
+  # at the injection stage used to require ALL of them to -- measured false, and
+  # never necessary: attribution needs one such path, and this run has 120.
+  def injection_attributable($s; $label):
+    [
+      { name: "\($label)/injection-attributable",
+        detail: "\($s.condition2_pass) of \($s.condition2_checked) checked paths are valid WITHOUT the injection, so the injected run rejecting every checked path is attributable to the spliced waypoint for at least those \($s.condition2_pass)",
+        ok: (($s.condition2_checked//0) > 0 and ($s.condition2_pass//0) > 0) }
+    ];
+
+  # Every check that transfers from Phase 7 unchanged, and the rows every
+  # population gets whether or not its planner is accountable for the checker.
+  # `$label` is "<planner>/<population>" so no two populations can ever share a
+  # check name -- the per-stratum rule, enforced by construction rather than by
+  # convention.
+  def common($s; $label):
+    [
       # A solved path whose validity was never checked is invisible to the
       # validity check: `condition2_checked > 0` is satisfied by one path out
       # of five hundred.
@@ -1408,7 +1455,8 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tag_pins "$TAG_PINS_JSON" \
     | (($pins[$p][.robot]) // null) as $pin
     | .stratum as $s
     | .cpp as $c
-    | common($s; $label; ($densified_ceiling[$p] // 0))
+    | common($s; $label)
+      + planner_accountable($s; $label; ($densified_ceiling[$p] // 0))
       + (if $c == null then
            # Same rule as `pins-unmeasured`: a stratum whose C++ baseline did
            # not run loses condition1, both condition3 rows and
@@ -1433,7 +1481,12 @@ jq -s -c --argjson pins "$PINS_JSON" --argjson tag_pins "$TAG_PINS_JSON" \
            + quality($p; $s; $label; $pin) end) ]
   + [ .[] | select(.set != null)
       | .planner as $p | .tag as $t | "\($p)/\($t)" as $label | .set as $s | .cpp as $c
-      | common($s; $label; ($densified_ceiling[$p] // 0))
+      | common($s; $label)
+        # Exactly one tag, named as a literal so a new population cannot join
+        # the exemption by accident: every other tag stays planner-accountable.
+        + (if $t == "inject_constrained"
+           then injection_attributable($s; $label)
+           else planner_accountable($s; $label; ($densified_ceiling[$p] // 0)) end)
         # The two constrained populations carry no `cpp` at all, by the
         # decision in the C++ baseline stage above: `chomp_plan`/`stomp_plan`
         # never read `joint_constraint`, so a C++ run over them would answer a
