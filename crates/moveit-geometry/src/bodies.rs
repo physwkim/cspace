@@ -844,14 +844,14 @@ struct Intersc {
 }
 
 /// Sort `candidates` by ray parameter, drop near-duplicates (within `ZERO`
-/// of the previous kept point, in [`Vector3d::isApprox`]'s sense — the case
+/// of the previous kept point, in `Vector3d::isApprox`'s sense — the case
 /// where a ray grazes exactly the shared boundary between two primitives,
 /// e.g. a cylinder's side and base, and is reported once per primitive),
 /// and cap the result at `count` points (`None` keeps them all). Upstream
 /// `detail::filterIntersections` (`bodies.cpp:105`): `p.pt.isApprox(
 /// intersections->back(), ZERO)`.
 ///
-/// [`Vector3d::isApprox`]: Eigen `Fuzzy.h:27` —
+/// `Vector3d::isApprox` is Eigen `Fuzzy.h:27` —
 /// `(this-other).squaredNorm() <= prec*prec *
 /// numext::mini(this.squaredNorm(), other.squaredNorm())` —
 /// `numext::mini` is `std::min` under another name, and the scale is the

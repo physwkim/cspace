@@ -1429,7 +1429,7 @@ impl OctreeCache {
 /// has looked at a shape, it holds a `Weak` to it forever (until pruned), and
 /// [`Arc::make_mut`] clones onto a fresh allocation whenever *any* `Weak` is
 /// outstanding, not only when the strong count exceeds one. That is exactly
-/// the branch [`moveit_scene::AttachedBody::set_scale`]/`set_padding` would
+/// the branch `moveit_scene::AttachedBody::set_scale`/`set_padding` would
 /// otherwise take when the body is the shape's sole strong owner: mutate the
 /// existing allocation *in place, at the same address*, which a plain
 /// address-keyed cache with no pin would silently keep serving. Holding the
@@ -1441,7 +1441,7 @@ impl OctreeCache {
 /// whole `Arc<Shape>`, never mutates one in place — so for that population
 /// the `Weak` does only the pruning job it already does for [`OctreeCache`].
 /// `move_shape_in_object`/`move_shapes_in_object`/`move_object`/
-/// `set_object_pose` change only [`ShapeEntry::pose`]/`Object::pose`, never
+/// `set_object_pose` change only [`crate::ShapeEntry::pose`]/`Object::pose`, never
 /// the `Arc<Shape>` itself, so they need no invalidation here at all — the
 /// pose composition already happens after this cache returns, in
 /// [`pose_parts`].
@@ -1507,7 +1507,7 @@ impl ShapeCache {
 
 /// Cache of [`LinkModel`] shape conversions — [`ShapeCache`]'s counterpart
 /// for robot links, which need a different mechanism because
-/// [`moveit_model::link_model::LinkShape::shape`] is a plain [`Shape`], never
+/// [`moveit_model::LinkShape::shape`] is a plain [`Shape`], never
 /// behind an [`Arc`]: [`moveit_state::RobotState::model`] hands out a bare
 /// `&'m RobotModel` reference (`moveit-state/src/state.rs`), so there is no
 /// [`Weak`] this cache could pin the way [`ShapeCache`] pins an attached-body
@@ -2673,7 +2673,7 @@ fn touches_at_tie(
 /// here — the gate is defence in depth, not the only thing stopping it.
 /// The outcome of [`tangent_pair_touches`], keeping "parry has no dispatch
 /// arm for this shape-kind pair" ([`query::intersection_test`]'s or
-/// [`query::contact`]'s own `Err(Unsupported)`) distinct from "parry
+/// [`query::contact()`]'s own `Err(Unsupported)`) distinct from "parry
 /// computed a definite answer: they do not touch" (`Ok(false)`/`Ok(None)`).
 /// Same defect family [`PartContactOutcome`] exists for: the pre-existing
 /// `.unwrap_or(false)` and `matches!(_, Ok(Some(_)))` both collapsed an
@@ -2730,7 +2730,7 @@ fn tangent_pair_touches(
 }
 
 /// The outcome of asking whether a part pair touches, keeping "parry has no
-/// dispatch algorithm for this shape-kind pair" ([`query::contact`]'s own
+/// dispatch algorithm for this shape-kind pair" ([`query::contact()`]'s own
 /// `Err(Unsupported)`) distinct from "parry computed a definite answer: they
 /// do not touch" (`Ok(None)`). Every call site used to collapse the two —
 /// `if let Ok(Some(_)) = query::contact(...)` (and, in
@@ -2760,7 +2760,7 @@ enum PartContactOutcome {
     Unsupported,
 }
 
-/// The one place [`query::contact`] is called from this file's collision
+/// The one place [`query::contact()`] is called from this file's collision
 /// and distance accumulation ([`accumulate_collision`],
 /// [`accumulate_distance`]) — collapsing `Result<Option<ParryContact>,
 /// Unsupported>` into [`PartContactOutcome`] here, once, so a new call site
