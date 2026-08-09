@@ -57,7 +57,7 @@ PAIRED_DIVERGENCE_Z_THRESHOLD = 3.0
 
 # What "no densification at all" is called in the per-problem records: the
 # planner's own returned waypoints, the only resolution at which either
-# implementation makes a claim (`chomp_planner.cpp:284` decides SUCCESS on
+# implementation makes a claim (`chomp_planner.cpp:283` decides SUCCESS on
 # `optimizer->isCollisionFree()` over its own 101 points).
 RETURNED = "returned-waypoints"
 

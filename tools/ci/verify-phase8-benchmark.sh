@@ -30,6 +30,48 @@
 # what §5 asks for: whether these two planners, as ported, clear the bar §5
 # sets in terms of the baseline §5 names.
 #
+# # Condition 2, and what a miss there means
+#
+# Condition 2 has no baseline in it at all, so the paragraph above does not
+# cover it and the closing line used to point here for a reason that was not
+# written down. It is this. Condition 2 densifies each returned path at the
+# problem set's own `motion_resolution` (0.01) and checks every interpolated
+# state -- a resolution neither planner nor upstream ever evaluates:
+# `chomp_planner.cpp:283` decides SUCCESS on `optimizer->isCollisionFree()`
+# over its own 101 returned waypoints. At *that* resolution both sides are
+# clean on both planners (port chomp 380/380, cpp chomp 370/370, port stomp
+# 441/441), and every record here carries the verdict separately as
+# `condition2_valid_at_returned_waypoints`.
+#
+# The sharper question -- condition 2 at `r*`, the finest resolution at which
+# the SAME planner's C++ reaches 100% -- is what
+# `tools/ci/analyse-phase8-condition2-grid.py` answers and
+# `tools/ci/check-phase8-condition2-grid.sh` pins. STOMP is MET there
+# (r* = 0.05, port 441/441). CHOMP is UNMET (r* = 0.02, port 379/380), and
+# that one path is `cage` id 221.
+#
+# id 221 is not a defect the port can fix, because it is not a property of
+# the problem: `use_stochastic_descent` is upstream's default `true`
+# (`chomp_parameters.cpp:62`, `chomp_interface.cpp:75`) and picks the single
+# trajectory point each of the 50 iterations descends on from one
+# `uniform_real(0, 1)` draw, so the descent path is a function of the RNG
+# stream -- `std::mt19937` seeded once per process on the C++ side
+# (`rsl::rng(seed_seq{--planner-rng-seed})`), a per-problem `ChaCha8Rng` on
+# the port's. Re-running the committed `cage` set with only that seed base
+# changed, everything else identical and the clock non-binding:
+#
+#   jq -c '.condition2_resolutions=[0.02,0.01]' \
+#     doc/phase8-baseline-500/cage.250.900002.set.json |
+#     ./target/release/examples/chomp_benchmark_port <seed_base> 1e9
+#
+# gives one condition-2 failure at 700001 (id 221), one at 424242 (id 33),
+# and none at 700002, 800001, 900001 or 123457 -- four of six seed bases meet
+# condition 2 outright, and the two that miss it miss on different problems.
+# C++ CHOMP at its own single seed likewise lands exactly one such path,
+# `cage` id 27. So a condition-2 miss of this size is a draw from the
+# stochastic descent both implementations run by default, not evidence of a
+# porting defect; a miss that did not move with the seed would be.
+#
 # # Why the bounds are set to non-binding values
 #
 # Both planners' upstream defaults contain a *wall-clock* stop --
@@ -379,11 +421,10 @@ if fails:
 
 # What this gate actually verified is that the pinned values reproduce; it
 # does not, and by design must not, fail on an UNMET condition -- the header
-# gives the reason per condition (1 and 3 compare an optimiser against a
-# sampling planner, 2 fails only between the planner's own waypoints at a
-# resolution upstream never checks). But the closing line has to say which
-# of the two it is, or the reader takes an exit-0 for the conditions
-# holding.
+# gives the reason per condition, in "Which baseline, and why this reading"
+# for 1 and 3 and in "Condition 2, and what a miss there means" for 2. But
+# the closing line has to say which of the two it is, or the reader takes an
+# exit-0 for the conditions holding.
 unmet = [f"{n} condition {i}" for n, i, met in conditions if not met]
 print(f"CONDITIONS {len(conditions) - len(unmet)} MET, {len(unmet)} UNMET"
       + (f" ({', '.join(unmet)}) -- see this script's header for why each "
