@@ -66,6 +66,7 @@
 //! for which build configuration this reproduces and why bit-exact agreement
 //! with the C++ is reachable rather than aspirational.
 
+pub mod convex_convex;
 pub mod discrete_detector;
 pub mod epa;
 pub mod gjk;
