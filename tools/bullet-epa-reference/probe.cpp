@@ -962,6 +962,36 @@ int main()
 	cc("cc_hull_cone_rot60", &hull, id, &cone, rot60_at(0.4f, 0.1f, 0.05f), 0.05f);
 	cc("cc_margin_box_sphere", &margin_box, id, &small_sphere, at(0.85f, 0.05f, 0.f), 0.f);
 
+	// The pair the continuous path is made of: a `CastHullShape` against a
+	// static shape, driven through the same dispatcher: one sweep along +x
+	// that ends 0.1 inside the box, the same sweep run backwards, one that
+	// crosses the box entirely, and the first row's pair handed over the
+	// other way round. The crossing row is there so the deep case, where the
+	// Minkowski difference's nearest face is 0.1 away and its next-nearest
+	// 1.0, is on record rather than assumed to be the clean one.
+	//
+	// The world transform is the *first* pose and `shape_transform` the
+	// delta to the second, which is the pair `setCastCollisionObjectsTransform`
+	// leaves behind (`bullet_cast_bvh_manager.cpp:88-92`).
+	{
+		CastHullShape fwd(&unit_box, at(2.1f, 0.f, 0.f));
+		cc("cc_cast_box_approach", &fwd, at(-3.f, 0.f, 0.f), &unit_box, id, 0.f);
+
+		CastHullShape rev(&unit_box, at(-2.1f, 0.f, 0.f));
+		cc("cc_cast_box_retreat", &rev, at(-0.9f, 0.f, 0.f), &unit_box, id, 0.f);
+
+		CastHullShape thru(&unit_box, at(8.f, 0.f, 0.f));
+		cc("cc_cast_box_through", &thru, at(-4.f, 0.f, 0.f), &unit_box, id, 0.f);
+
+		// The approach row with the two sides handed over the other way
+		// round, which is the order the broadphase can present the same pair
+		// in. `addCastSingleResult` finds the swept side by its filter group
+		// rather than by position, so the *contact* it files is meant to be
+		// the same one -- but the narrow phase reaching it is not symmetric,
+		// and this row is what says so.
+		cc("cc_cast_box_approach_swapped", &unit_box, id, &fwd, at(-3.f, 0.f, 0.f), 0.f);
+	}
+
 	// `btCompoundShape`. Every row uses the same three children in the same
 	// order, so the differences between rows are only the query transform,
 	// the margin, and the one `updateChildTransform` some of them perform.
