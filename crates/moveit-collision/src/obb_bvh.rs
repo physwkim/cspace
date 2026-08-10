@@ -12,7 +12,10 @@
 //   include/fcl/geometry/bvh/detail/BV_splitter-inl.h
 //     (ComputeRuleMeanImpl<S, OBB<S>>)
 //   include/fcl/narrowphase/detail/traversal/traversal_recurse-inl.h
-//     (collisionRecurse)
+//     (collisionRecurse, and its MeshCollisionTraversalNodeOBB<S> overload's
+//     carried relative frame)
+//   include/fcl/narrowphase/detail/traversal/collision/mesh_collision_traversal_node-inl.h
+//     (MeshCollisionTraversalNodeOBB<S>::BVTesting)
 //   include/fcl/narrowphase/detail/traversal/collision/bvh_collision_traversal_node-inl.h
 //     (BVHCollisionTraversalNode<BV>::firstOverSecond)
 //   include/fcl/narrowphase/collision_request-inl.h
@@ -168,6 +171,27 @@ struct Descent<'a, F: FnMut(u32, u32) -> ControlFlow<()>> {
 /// what makes that reuse possible; rebuilding them at each node, as this
 /// descent used to, recomputes a matrix product per node pair that changed
 /// only every other level.
+///
+/// # Upstream
+///
+/// Threading a relative frame down the descent rather than rebuilding it at
+/// each node pair is upstream's idea, not this port's. `collisionRecurse`'s
+/// `MeshCollisionTraversalNodeOBB<S>` overload
+/// (`traversal_recurse-inl.h:134`) takes `(R, T)` as arguments and updates
+/// them at every step -- `:164`-`:166` on a first-tree descent, `:190`-`:196`
+/// on a second-tree one. What it buys is visible in the two `BVTesting`
+/// overloads: the carried one (`mesh_collision_traversal_node-inl.h:325`)
+/// hands `(Rc, Tc)` straight to `obbDisjoint`, while the uncarried one
+/// (`:292`) calls `overlap(R, T, bv1, bv2)`, which rebuilds the frame from
+/// both boxes on every call.
+///
+/// This port carries half of it. `Carried` holds the products that depend on
+/// the second node; [`ObbTree::recurse`] still applies the first node's
+/// `axis.transpose()` itself, once per node pair, so the first tree's half of
+/// upstream's saving is still on the table. Taking it would *re-associate*
+/// the floating-point products rather than merely reuse them, and so could
+/// move an overlap verdict -- which is the difference between that step and
+/// this one, and the reason this one stopped here.
 ///
 /// The reuse is safe by construction rather than by discipline: [`Carried`]
 /// is only ever built by [`Carried::of`] from the node it describes, and the
