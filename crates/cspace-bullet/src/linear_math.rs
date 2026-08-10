@@ -98,6 +98,15 @@ pub fn bt_fsel(a: Scalar, b: Scalar, c: Scalar) -> Scalar {
     if a >= 0.0 { b } else { c }
 }
 
+/// `btFuzzyZero(x)` -- `|x| < SIMD_EPSILON` (`btScalar.h:572`). Unlike
+/// [`Vec3::fuzzy_zero`] this is not squared, so the two accept different
+/// magnitudes; `getClosestPointsNonVirtual` uses both, four lines apart.
+#[inline]
+#[must_use]
+pub fn bt_fuzzy_zero(x: Scalar) -> bool {
+    x.abs() < SIMD_EPSILON
+}
+
 /// `btVector3`, less the fourth component (see the module docs).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Vec3 {
@@ -189,6 +198,15 @@ impl Vec3 {
         } else {
             Self::new(1.0, 0.0, 0.0)
         }
+    }
+
+    /// `btVector3::fuzzyZero` (`btVector3.h:688-691`) -- a *squared* length
+    /// test, so the radius it accepts is `SIMD_EPSILON`, not `SIMD_EPSILON`
+    /// squared.
+    #[inline]
+    #[must_use]
+    pub fn fuzzy_zero(self) -> bool {
+        self.length2() < SIMD_EPSILON * SIMD_EPSILON
     }
 
     /// `btVector3::absolute`.

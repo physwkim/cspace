@@ -66,7 +66,9 @@
 //! for which build configuration this reproduces and why bit-exact agreement
 //! with the C++ is reachable rather than aspirational.
 
+pub mod discrete_detector;
 pub mod epa;
+pub mod gjk;
 pub mod linear_math;
 pub mod pen_depth;
 #[cfg(test)]
