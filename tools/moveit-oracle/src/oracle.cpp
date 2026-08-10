@@ -1121,6 +1121,8 @@ public:
       return ccd(request);
     if (op == "bullet_cast_pair")
       return bulletCastPair(request);
+    if (op == "bullet_support")
+      return bulletSupport(request);
     if (op == "pair_signed_distance")
       return pairSignedDistance(request);
     if (op == "world")
@@ -2838,6 +2840,80 @@ private:
       { "contact_count", res.contact_count },
       { "contacts", contacts },
     };
+  }
+
+  /// The support function, margin and identity-pose AABB of one shape, as
+  /// bullet sees it after `CollisionObjectWrapper`'s constructor has built it
+  /// -- including that constructor's `shape->setMargin(BULLET_MARGIN)`
+  /// (`bullet_utils.cpp:576`), which is `setMargin(0)`.
+  ///
+  /// The layer below `bullet_cast_pair`. A support function is the entire
+  /// input to GJK and EPA: if a port's `localGetSupportingVertex` differs for
+  /// one direction, every contact involving that shape is wrong, and the
+  /// resulting disagreement surfaces as a wrong depth or a wrong
+  /// `percent_interpolation` with nothing pointing at the shape. Reporting
+  /// both the with-margin and without-margin forms separates the two ways a
+  /// port can get it wrong: the vertex itself, and how the margin is added
+  /// back (`btConvexInternalShape::localGetSupportingVertex`).
+  ///
+  /// `margin` is worth reading even though the constructor zeroes it, because
+  /// zeroing it does not make it zero everywhere: `btSphereShape::getMargin`
+  /// returns the radius and ignores `m_collisionMargin` entirely
+  /// (`btSphereShape.h:63-68`), so a sphere keeps a margin equal to its
+  /// radius while every other primitive here drops to 0. A port that assumed
+  /// "the wrapper sets margin 0, so margins do not exist" would collapse
+  /// every sphere to a point.
+  ///
+  /// A non-convex result (a mesh built as a triangle compound, an octree)
+  /// reports `convex: false` and no supports rather than failing: which
+  /// shapes reach bullet as convex is itself part of what a port must match,
+  /// and `collisionObjectTypeFor` -- not this op -- is what decides it.
+  json bulletSupport(const json& request)
+  {
+    const json& shape_json = request.at("shape");
+    std::shared_ptr<shapes::Shape> shape = parseShape(shape_json.at("type").get<std::string>(), shape_json);
+
+    collision_detection_bullet::CollisionObjectWrapper cow(
+        "probe", collision_detection::BodyType::ROBOT_LINK, std::vector<shapes::ShapeConstPtr>{ shape },
+        collision_detection_bullet::AlignedVector<Eigen::Isometry3d>{ Eigen::Isometry3d::Identity() },
+        std::vector<collision_detection_bullet::CollisionObjectType>{ collisionObjectTypeFor(*shape) }, true);
+
+    const btCollisionShape* collision_shape = cow.getCollisionShape();
+    const int shape_type = collision_shape->getShapeType();
+
+    btVector3 aabb_min, aabb_max;
+    btTransform identity;
+    identity.setIdentity();
+    collision_shape->getAabb(identity, aabb_min, aabb_max);
+
+    json out{
+      { "shape_type", shape_type },
+      { "convex", static_cast<bool>(btBroadphaseProxy::isConvex(shape_type)) },
+      { "margin", static_cast<double>(collision_shape->getMargin()) },
+      { "aabb", json::array({ json::array({ aabb_min.x(), aabb_min.y(), aabb_min.z() }),
+                              json::array({ aabb_max.x(), aabb_max.y(), aabb_max.z() }) }) },
+    };
+
+    json supports = json::array();
+    if (btBroadphaseProxy::isConvex(shape_type))
+    {
+      const btConvexShape* convex = static_cast<const btConvexShape*>(collision_shape);
+      for (const auto& dir_json : request.at("directions"))
+      {
+        const btVector3 dir(static_cast<btScalar>(dir_json.at(0).get<double>()),
+                            static_cast<btScalar>(dir_json.at(1).get<double>()),
+                            static_cast<btScalar>(dir_json.at(2).get<double>()));
+        const btVector3 with_margin = convex->localGetSupportingVertex(dir);
+        const btVector3 without_margin = convex->localGetSupportingVertexWithoutMargin(dir);
+        supports.push_back(json{
+            { "dir", json::array({ dir.x(), dir.y(), dir.z() }) },
+            { "with_margin", json::array({ with_margin.x(), with_margin.y(), with_margin.z() }) },
+            { "without_margin", json::array({ without_margin.x(), without_margin.y(), without_margin.z() }) },
+        });
+      }
+    }
+    out["supports"] = supports;
+    return out;
   }
 
   /// The `CollisionObjectType` `CollisionEnvBullet` would pick for `shape`:
