@@ -1719,6 +1719,12 @@ if [[ "$MODE" == "full" ]]; then
        mode:"full", planners:"chomp stomp", seed_base:'"$SEED_BASE"', timeout_seconds:'"$TIMEOUT_SECONDS"',
        clock_bounds:{port_seconds:'"$TIMEOUT_SECONDS"', cpp_seconds:'"$CPP_CLOCK_BOUND"',
                      note:"neither bound may be what stops a call -- both arms are meant to terminate on their iteration bound. These two need not be equal, but if one binds and the other does not, the rate difference is an instrument artifact and not a finding about the port. no-timeouts is the check for that on the port arm; the cpp arm reports a clock stop as its own error code."},
+       # The two wall-clock fields below are a reading of this machine at this
+       # shard count -- `SHARDS` splits the port runs and is passed to the C++
+       # baseline as its `JOBS`. Unrecorded, a re-run at a different `SHARDS`
+       # writes a different pair of numbers with no stated cause, and the two
+       # records read as a regression in the port rather than a different split.
+       shards:'"$SHARDS"',
        instrument_wall_clock_seconds:$seconds,
        cpp_baseline_wall_clock_seconds:$cpp_seconds,
        regression_pins:$pins, rows:$rows,
