@@ -40,6 +40,16 @@
 //! its own field and [`Node::child`] is `[None; 2]` on a leaf, which is the
 //! same predicate written without the aliasing.
 //!
+//! The free slot is reached only through [`Dbvt::remove`], and the continuous
+//! path never removes: it builds each compound with `addChildShape` and then
+//! only ever calls `updateChildTransform`
+//! (`bullet_cast_bvh_manager.cpp:102`, `:115`), which goes through
+//! `remove_leaf` without freeing the leaf itself. `remove` is ported because
+//! `btCompoundShape::removeChildShapeByIndex` calls it and because it is the
+//! only caller of `delete_node`, so leaving it out would leave that half of
+//! the arena unexercised rather than unwritten -- but on the CCD path the free
+//! slot stays `None` and `create_node` always appends.
+//!
 //! # Not ported
 //!
 //! `optimizeBottomUp`, `optimizeTopDown`, `optimizeIncremental`, `write`,
