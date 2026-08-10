@@ -524,6 +524,15 @@ mod tests {
         ChaCha8Rng::seed_from_u64(seed)
     }
 
+    /// A vertical wall at `x` in `[-1, 1]` with a gap for `y` in `[3, 4]` --
+    /// the obstacle every test below that needs one plans around, so that
+    /// which obstacle they share is a fact about this function rather than
+    /// about four transcriptions agreeing.
+    fn in_wall(state: &[f64]) -> bool {
+        let (x, y) = (state[0], state[1]);
+        (-1.0..=1.0).contains(&x) && !(3.0..=4.0).contains(&y)
+    }
+
     #[test]
     #[should_panic(expected = "step_size")]
     fn zero_step_size_panics() {
@@ -613,11 +622,7 @@ mod tests {
     #[test]
     fn every_consecutive_pair_is_motion_valid() {
         let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
-        // A vertical wall at x in [-1, 1] with a gap for y in [3, 4].
-        let checker = |state: &Vec<f64>| {
-            let (x, y) = (state[0], state[1]);
-            !((-1.0..=1.0).contains(&x) && !(3.0..=4.0).contains(&y))
-        };
+        let checker = |state: &Vec<f64>| !in_wall(state);
         let mv = DiscreteMotionValidator::new(&checker, 0.05);
         let start = vec![-5.0, 0.0];
         let goal = vec![5.0, 0.0];
@@ -647,10 +652,7 @@ mod tests {
     #[test]
     fn narrow_gap_is_crossed() {
         let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
-        let checker = |state: &Vec<f64>| {
-            let (x, y) = (state[0], state[1]);
-            !((-1.0..=1.0).contains(&x) && !(3.0..=4.0).contains(&y))
-        };
+        let checker = |state: &Vec<f64>| !in_wall(state);
         let mv = DiscreteMotionValidator::new(&checker, 0.05);
         let start = vec![-5.0, 0.0];
         let goal = vec![5.0, 0.0];
@@ -831,10 +833,7 @@ mod tests {
     #[test]
     fn same_seed_gives_byte_identical_path() {
         let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
-        let checker = |state: &Vec<f64>| {
-            let (x, y) = (state[0], state[1]);
-            !((-1.0..=1.0).contains(&x) && !(3.0..=4.0).contains(&y))
-        };
+        let checker = |state: &Vec<f64>| !in_wall(state);
         let mv = DiscreteMotionValidator::new(&checker, 0.05);
         let start = vec![-5.0, 0.0];
         let goal = vec![5.0, 0.0];
@@ -866,10 +865,7 @@ mod tests {
     #[test]
     fn different_seeds_give_different_paths() {
         let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
-        let checker = |state: &Vec<f64>| {
-            let (x, y) = (state[0], state[1]);
-            !((-1.0..=1.0).contains(&x) && !(3.0..=4.0).contains(&y))
-        };
+        let checker = |state: &Vec<f64>| !in_wall(state);
         let mv = DiscreteMotionValidator::new(&checker, 0.05);
         let start = vec![-5.0, 0.0];
         let goal = vec![5.0, 0.0];
