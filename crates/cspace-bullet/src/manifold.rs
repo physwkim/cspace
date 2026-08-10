@@ -115,8 +115,6 @@ impl ManifoldPoint {
 pub struct PersistentManifold {
     /// `m_contactBreakingThreshold`.
     pub contact_breaking_threshold: Scalar,
-    /// `m_contactProcessingThreshold`.
-    pub contact_processing_threshold: Scalar,
 }
 
 impl PersistentManifold {
@@ -128,11 +126,20 @@ impl PersistentManifold {
     /// makes the breaking threshold the flat global rather than the smaller of
     /// the two shapes' own. The relative branch is not ported for the same
     /// reason the point cache is not: this path cannot reach it.
+    ///
+    /// The same line also sets `m_contactProcessingThreshold` to the smaller of
+    /// the two objects' own (`:77`). That value has no reader in
+    /// `BulletCollision`: both places that would consult it --
+    /// `btManifoldResult::addContactPoint` (`:109`) and
+    /// `btConvexConvexAlgorithm::processCollision`'s
+    /// `m_maximumDistanceSquared` (`:386`) -- are commented out upstream, and
+    /// every live read is a `BulletDynamics` constraint solver deciding whether
+    /// to build a contact constraint. Carrying it here would be a field with a
+    /// `btMin` behind it that no test in this crate could ever discriminate.
     #[must_use]
-    pub fn new(contact_processing_threshold: Scalar) -> Self {
+    pub fn new() -> Self {
         Self {
             contact_breaking_threshold: CONTACT_BREAKING_THRESHOLD,
-            contact_processing_threshold,
         }
     }
 
@@ -140,6 +147,15 @@ impl PersistentManifold {
     #[must_use]
     pub fn num_contacts(&self) -> usize {
         0
+    }
+}
+
+impl Default for PersistentManifold {
+    /// The same manifold [`PersistentManifold::new`] builds: with the relative
+    /// breaking threshold cleared there is only one manifold this path can
+    /// produce.
+    fn default() -> Self {
+        Self::new()
     }
 }
 

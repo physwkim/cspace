@@ -140,7 +140,7 @@ pub fn maximum_distance_squared(
 mod tests {
     use super::*;
     use crate::discrete_detector::Result as DetectorResult;
-    use crate::linear_math::{BT_LARGE_FLOAT, Vec3};
+    use crate::linear_math::Vec3;
     use crate::manifold::{CONTACT_BREAKING_THRESHOLD, ManifoldResultState};
     use crate::probe_fixture::{IDENTITY, at, diff, diff_vec3, probe_shapes, rot60_at, row};
 
@@ -243,10 +243,7 @@ cc_margin_box_sphere|1|-1|4.77601292e-09|4.29841158e-08|0.550000012|0.0500000007
             };
 
             let mut out = RecordingResult::new(*ta, *tb, closest_point_distance_threshold);
-            // `getNewManifold` takes the smaller of the two bodies' contact
-            // processing thresholds; `btCollisionObject` seeds that to
-            // `BT_LARGE_FLOAT` and nothing in this path lowers it.
-            let manifold = PersistentManifold::new(BT_LARGE_FLOAT);
+            let manifold = PersistentManifold::new();
             process_collision(a, ta, b, tb, manifold, &mut out);
 
             let want_count: usize = f[1]
