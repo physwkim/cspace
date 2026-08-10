@@ -18,6 +18,9 @@ authors.workspace = true
 
 [dependencies]
 cspace-bullet.workspace = true
+# For `geometry::shapes::Shape`, the `geometric_shapes` port `createShapePrimitive`
+# converts. `cspace-collision` cannot supply it: it depends on this crate.
+cspace-core.workspace = true
 
 [dev-dependencies]
 # The same `probe.cpp` shape set `cspace-bullet`'s own fixtures use. A local

@@ -84,6 +84,14 @@ pub const BULLET_MARGIN: Scalar = 0.0;
 /// traversal grows by nothing.
 pub const BULLET_DEFAULT_CONTACT_DISTANCE: Scalar = 0.0;
 
+/// `BULLET_COMPOUND_USE_DYNAMIC_AABB` (`bullet_utils.hpp:56`) -- `true`.
+///
+/// Passed as `enableDynamicAabbTree` at every `btCompoundShape` construction
+/// MoveIt makes, so on this path a compound always has a `btDbvt` and the
+/// compound traversals always take their tree branch rather than the
+/// index-order fallback.
+pub const BULLET_COMPOUND_USE_DYNAMIC_AABB: bool = true;
+
 /// A `btConvexShape*` as this crate holds one: shared, because every wrapper
 /// `CollisionObjectWrapper::clone` produced names the same shape through its
 /// copied `data_` vector of `std::shared_ptr<void>`.
