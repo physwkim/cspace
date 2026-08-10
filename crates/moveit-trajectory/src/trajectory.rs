@@ -139,11 +139,20 @@ impl Trajectory {
 
         let mut after_acceleration = traj.min_max_path_acceleration(0.0, 0.0, true);
         // Upstream's loop condition re-checks `valid_` a third time, after
-        // `integrateForward` returns, even though every path that sets
-        // `valid_ = false` also returns `true` (so the recheck can never
-        // actually differ) — ported anyway, faithfully, since it costs
-        // nothing to keep.
-        while traj.valid && !traj.integrate_forward(after_acceleration) && traj.valid {
+        // `integrateForward` returns (`time_optimal_trajectory_generation.cpp:370`:
+        // `output.valid_ && !output.integrateForward(...) && output.valid_`).
+        // That third term is dead in upstream and dead here: the only two
+        // statements that clear the flag are each immediately followed by
+        // `return true` — upstream's at `integrateForward`'s `path_vel <
+        // 0.0` and `path_vel == 0.0 && acceleration == 0.0`, this port's at
+        // the same two — so the term is only ever reached when
+        // `integrate_forward` returned `false`, which is exactly when it did
+        // not clear the flag, and the first term already established it was
+        // set. It is dropped rather than transcribed because clippy's
+        // `nonminimal_bool` rejects it, and a dead term is not worth an
+        // `allow`. Same call as `Path::create`'s dropped per-iteration
+        // `max_deviation > 0.0` re-check, for the same reason.
+        while traj.valid && !traj.integrate_forward(after_acceleration) {
             let last_pos = traj
                 .trajectory
                 .last()
