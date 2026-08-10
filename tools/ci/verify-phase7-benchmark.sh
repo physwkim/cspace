@@ -1073,6 +1073,11 @@ jq --argjson pooled_gate "${pooled_gate:-null}" \
    '.gate += ($pooled_gate // {})
     | .fanuc += ($pooled_fanuc // {})
     | .parallel_wall_clock_seconds=$wall
+    # The split that produced the line above, and every per-set `cpu_seconds`
+    # beside it. Unrecorded, a re-run at a different `SHARDS` writes different
+    # wall clocks with no stated cause, and the two records read as a
+    # regression in the port rather than a different split.
+    | .shards='"$SHARDS"'
     | .feasibility = $feas[0]
     | .feasibility_escalated_iterations = '"$ESCALATED_ITERATIONS"'
     | .feasibility_escalated_timeout_seconds = '"$ESCALATED_TIMEOUT"'
