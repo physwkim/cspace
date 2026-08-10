@@ -29,6 +29,8 @@
 #include "BulletCollision/CollisionShapes/btCylinderShape.h"
 #include "BulletCollision/CollisionShapes/btSphereShape.h"
 #include "BulletCollision/NarrowPhaseCollision/btGjkEpa2.h"
+#include "BulletCollision/NarrowPhaseCollision/btGjkEpaPenetrationDepthSolver.h"
+#include "BulletCollision/NarrowPhaseCollision/btVoronoiSimplexSolver.h"
 
 // `%.9g` round-trips a `float` exactly, so a fixture transcribed from this
 // output and parsed back as `f32` is the same bit pattern the C++ held.
@@ -62,6 +64,24 @@ static void dist(const char* name, const btConvexShape* a, const btTransform& ta
 	btGjkEpaSolver2::sResults r = {};
 	const bool ok = btGjkEpaSolver2::Distance(a, ta, b, tb, guess, r);
 	emit(name, ok, r);
+}
+
+// `calcPenDepth`'s three out-parameters. `v` is only meaningful together
+// with the return value, so all four are printed; the guess list's first
+// entry is the only part of that list a working pair can observe, since the
+// loop stops at the first guess that answers.
+static void pendepth(const char* name, const btConvexShape* a, const btTransform& ta,
+                     const btConvexShape* b, const btTransform& tb)
+{
+	btVoronoiSimplexSolver simplex;
+	btGjkEpaPenetrationDepthSolver solver;
+	btVector3 v(0, 0, 0), wa(0, 0, 0), wb(0, 0, 0);
+	const bool ok = solver.calcPenDepth(simplex, a, b, ta, tb, v, wa, wb, 0);
+	printf("%s|%d|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g\n",
+	       name, (int)ok,
+	       (double)v[0], (double)v[1], (double)v[2],
+	       (double)wa[0], (double)wa[1], (double)wa[2],
+	       (double)wb[0], (double)wb[1], (double)wb[2]);
 }
 
 static btTransform at(btScalar x, btScalar y, btScalar z)
@@ -149,6 +169,15 @@ int main()
 	dist("d_cyl_cone", &cyl, id, &cone, at(1.6f, 0.3f, 0.2f), gx);
 	dist("d_hull_sphere", &hull, id, &sphere, rot60_at(1.4f, 0.6f, 0.f), gx);
 	dist("d_box_box_touching", &unit_box, id, &unit_box, at(1.f, 0.f, 0.f), gx);
+
+	// `calcPenDepth`. `p_*_coincident` is the row that pins `safeNormalize`'s
+	// fallback: with the centres on top of each other the first two guesses
+	// are zero-length, and what the loop actually tries is `(1, 0, 0)`.
+	pendepth("p_box_box_overlap", &margin_box, id, &margin_box, at(0.95f, 0.f, 0.f));
+	pendepth("p_box_box_diagonal", &margin_box, id, &flat_box, at(0.6f, 0.35f, -0.2f));
+	pendepth("p_box_box_coincident", &margin_box, id, &flat_box, id);
+	pendepth("p_box_box_separated", &unit_box, id, &unit_box, at(3.f, 0.f, 0.f));
+	pendepth("p_cone_cyl_rot60", &cone, id, &cyl, rot60_at(0.3f, 0.1f, 0.2f));
 
 	return 0;
 }
