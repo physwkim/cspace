@@ -6,9 +6,9 @@
   "dirty_paths": [],
   "measured_sources": {
     "tools/ci/verify-phase7-benchmark.sh": "a8751c6115d02fef5c4d2944f5b65eb6761ba7ef",
-    "crates/cspace-planners-sbp/examples/plan_benchmark_problem_set.rs": "75598af6307c86cc0b65329d6480c290726ea555",
-    "crates/cspace-planners-sbp/examples/plan_benchmark_port.rs": "b8883d622142ffba1961fc05bc80be7b657eaf3d",
-    "crates/cspace-planners-sbp/src": "2db7b65d191f8412b8e6bd07da5e05dffc8fbde290e328592fede057ac873831",
+    "crates/cspace-planners/examples/plan_benchmark_problem_set.rs": "75598af6307c86cc0b65329d6480c290726ea555",
+    "crates/cspace-planners/examples/plan_benchmark_port.rs": "b8883d622142ffba1961fc05bc80be7b657eaf3d",
+    "crates/cspace-planners/src/sbp": "2db7b65d191f8412b8e6bd07da5e05dffc8fbde290e328592fede057ac873831",
     "crates/cspace-planning/src": "52c9f7f0fd66a7394436245c02e4b90173b6e4c03ab46dbd1385c6478de0113b",
     "crates/cspace-planning/src/planner_registry": "5f3564ec7293358c7700662ead103c13e8f9ef35d7a1e9f9a12648f59103d74b",
     "crates/cspace-collision/src": "569becc81f1e0306f22d4be9a7ec764b908f491d9a8dc9f22b2a5282af428048",

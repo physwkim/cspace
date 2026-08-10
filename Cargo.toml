@@ -32,7 +32,7 @@ authors = ["moveit-rs contributors"]
 [workspace.dependencies]
 cspace-collision = { path = "crates/cspace-collision", version = "0.1.0" }
 cspace-core = { path = "crates/cspace-core", version = "0.1.0" }
-cspace-planners-sbp = { path = "crates/cspace-planners-sbp", version = "0.1.0" }
+cspace-planners = { path = "crates/cspace-planners", version = "0.1.0" }
 cspace-planning = { path = "crates/cspace-planning", version = "0.1.0" }
 cspace-stomp-core = { path = "crates/cspace-stomp-core", version = "0.1.0" }
 

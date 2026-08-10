@@ -55,7 +55,7 @@
 //!
 //! So this port takes that directly, as `overrides: &JointLimitsContainer`
 //! — the same type aggregation returns, and the type
-//! [`crate::limits`] already defines. The YAML file was always the real
+//! [`crate::pilz::limits`] already defines. The YAML file was always the real
 //! input; the parameter server was its transport, and this port has no
 //! parameter server to be a transport. `overrides.has_limit(name)` is
 //! upstream's `getJointLimits(...)` returning `true`, and
@@ -110,7 +110,7 @@
 //!   `AggregationBoundsViolationException` is thrown from three sites with
 //!   three different messages (`joint_limits_aggregator.cpp:174`, `:181`,
 //!   `:192`). The variants keep the distinction the single class throws
-//!   away, following [`crate::command_list_manager::SequenceError`]'s
+//!   away, following [`crate::pilz::command_list_manager::SequenceError`]'s
 //!   precedent. `AggregationException`, the abstract base, has no
 //!   equivalent: nothing upstream throws or catches it.
 //! - **The logging is dropped.** `RCLCPP_INFO_STREAM` naming the namespace
@@ -122,7 +122,7 @@
 
 use cspace_core::model::joint::JointModel;
 
-use crate::limits::{JointLimit, JointLimitsContainer};
+use crate::pilz::limits::{JointLimit, JointLimitsContainer};
 
 /// Why a set of joint limits could not be aggregated.
 ///

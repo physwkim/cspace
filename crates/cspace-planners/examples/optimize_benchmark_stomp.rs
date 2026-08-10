@@ -7,7 +7,7 @@
 // it over a problem set.
 
 //! STOMP half of the Phase 8 property instrument: runs
-//! [`cspace_planners_stomp::planner::plan`] over the *same* problem set
+//! [`cspace_planners::stomp::planner::plan`] over the *same* problem set
 //! `cspace-planners-sbp`'s `plan_benchmark_problem_set` emits for Phase 7,
 //! and reports, per problem, exactly the quantities
 //! `tools/ci/measure-phase8-optimizer-properties.sh` gates on.
@@ -41,7 +41,7 @@
 //!   (`crates/cspace-stomp-core/src/stomp.rs:601`), and
 //!   `cost_function_from_state_validator` sets that false for any column with
 //!   `costs(t) > 0.0`
-//!   (`crates/cspace-planners-stomp/src/cost_functions.rs:174,199`).
+//!   (`crates/cspace-planners/src/stomp/cost_functions.rs:174,199`).
 //!   Every column is a sum of non-negative validator penalties, so
 //!   `solved == true` forces `output_cost == 0`, and `seed_cost >= 0` makes
 //!   `output_cost <= seed_cost` hold for every run this instrument can
@@ -109,10 +109,10 @@ use cspace_core::geometry::{Cuboid, Isometry3, Shape};
 use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
-use cspace_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
-use cspace_planners_stomp::conversion_functions::{positions, robot_trajectory_to_matrix};
-use cspace_planners_stomp::cost_functions;
-use cspace_planners_stomp::planner::{PlanRequest, plan};
+use cspace_planners::sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
+use cspace_planners::stomp::conversion_functions::{positions, robot_trajectory_to_matrix};
+use cspace_planners::stomp::cost_functions;
+use cspace_planners::stomp::planner::{PlanRequest, plan};
 use cspace_planning::constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use cspace_planning::scene::PlanningScene;
 use cspace_stomp_core::{CancelHandle, StompConfiguration, TrajectoryInitialization};

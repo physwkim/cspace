@@ -7,7 +7,7 @@
 //   moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator_ptp.cpp
 
 //! Point-to-point trajectory generation ([`TrajectoryGeneratorPtp`]): one
-//! [`crate::velocity_profile::VelocityProfileAtrap`] per active joint,
+//! [`crate::pilz::velocity_profile::VelocityProfileAtrap`] per active joint,
 //! synchronized to the slowest joint (the "leading axis").
 //!
 //! Ported from upstream `TrajectoryGeneratorPTP`.
@@ -20,7 +20,7 @@
 //!   never reads it outside the constructor — only the fused
 //!   `most_strict_limit_` drives `planPTP`. A field this port would never
 //!   read is dead code under this workspace's `deny(warnings)`, so only the
-//!   fused [`crate::limits::JointLimit`] is kept.
+//!   fused [`crate::pilz::limits::JointLimit`] is kept.
 //! - **The goal-already-reached single waypoint's `time_from_start` is `0`,
 //!   not `sampling_time`.** Upstream pushes one `JointTrajectoryPoint` with
 //!   `time_from_start = sampling_time` directly (a ROS trajectory message
@@ -43,14 +43,14 @@ use cspace_core::state::Posed;
 use cspace_core::trajectory::RobotTrajectory;
 use cspace_planning::scene::PlanningScene;
 
-use crate::limits::JointLimit;
-use crate::trajectory_functions::{
+use crate::pilz::limits::JointLimit;
+use crate::pilz::trajectory_functions::{
     IkContext, compute_pose_ik, constraint_pose, push_way_point, resolve_goal_frame,
 };
-use crate::trajectory_generator::{
+use crate::pilz::trajectory_generator::{
     Goal, MotionPlanInfo, MotionPlanRequest, PilzGenerator, TrajectoryGenerator,
 };
-use crate::velocity_profile::VelocityProfileAtrap;
+use crate::pilz::velocity_profile::VelocityProfileAtrap;
 
 /// Lower bound on per-joint movement below which the goal counts as already
 /// reached. Upstream `TrajectoryGeneratorPTP::MIN_MOVEMENT`.
@@ -353,8 +353,8 @@ mod tests {
     use cspace_planning::scene::PlanningScene;
 
     use super::*;
-    use crate::limits::{JointLimitsContainer, LimitsContainer};
-    use crate::trajectory_generator::StartState;
+    use crate::pilz::limits::{JointLimitsContainer, LimitsContainer};
+    use crate::pilz::trajectory_generator::StartState;
 
     fn fixture_mesh_search_paths() -> MeshSearchPaths {
         let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");

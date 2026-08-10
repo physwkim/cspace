@@ -638,7 +638,7 @@ impl ChompTrajectory {
     }
 
     /// Gets the joint velocities at trajectory point `traj_point`, one entry
-    /// per joint column, via the [`crate::utils::DIFF_RULES`] velocity
+    /// per joint column, via the [`crate::chomp::utils::DIFF_RULES`] velocity
     /// stencil.
     ///
     /// Ported from `getJointVelocities`. Panics (matching upstream's own
@@ -647,11 +647,11 @@ impl ChompTrajectory {
     /// `DIFF_RULE_LENGTH / 2` rows to either end of the trajectory.
     pub fn joint_velocities(&self, traj_point: usize) -> Vec<f64> {
         let inv_time = 1.0 / self.discretization;
-        let half = crate::utils::DIFF_RULE_LENGTH as i64 / 2;
+        let half = crate::chomp::utils::DIFF_RULE_LENGTH as i64 / 2;
         let mut velocities = vec![0.0; self.num_joints];
         for k in -half..=half {
             let row = (traj_point as i64 + k) as usize;
-            let coeff = inv_time * crate::utils::DIFF_RULES[0][(k + half) as usize];
+            let coeff = inv_time * crate::chomp::utils::DIFF_RULES[0][(k + half) as usize];
             for (j, velocity) in velocities.iter_mut().enumerate() {
                 *velocity += coeff * self.trajectory[(row, j)];
             }

@@ -15,10 +15,10 @@
 
 // Linked for its registration alone: `RrtConnectManager` registers itself
 // into `PLANNER_MANAGERS` through a `linkme::distributed_slice` static and
-// nothing below names a `cspace_planners_sbp` item, so without this line the
+// nothing below names a `cspace_planners::sbp` item, so without this line the
 // linker drops the object file the registration sits in and every assertion
 // here sees an empty slice.
-use cspace_planners_sbp as _;
+use cspace_planners as _;
 
 use cspace_core::error::Error;
 use cspace_planning::PlannerConfigurationMap;

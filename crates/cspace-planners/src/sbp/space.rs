@@ -5,15 +5,15 @@
 
 use rand::{Rng, RngExt};
 
-use crate::error::SbpError;
-use crate::sampling::{sample_ball_radius_fraction, sample_unit_vector};
+use crate::sbp::error::SbpError;
+use crate::sbp::sampling::{sample_ball_radius_fraction, sample_unit_vector};
 
 /// A metric space of planner states.
 ///
 /// [`distance`](StateSpace::distance) must be a true metric on `State`:
 /// non-negative, zero exactly when the two states are equal, symmetric
 /// (`distance(a, b) == distance(b, a)`), and satisfying the triangle
-/// inequality. [`crate::nn::Gnat`], this crate's nearest-neighbour index,
+/// inequality. [`crate::sbp::nn::Gnat`], this crate's nearest-neighbour index,
 /// relies on exactly those three properties for the pruning bound it uses to
 /// avoid a full scan — see its doc comment. Nothing here checks the
 /// contract; a `StateSpace` that violates it makes `Gnat::nearest` silently
@@ -22,22 +22,22 @@ use crate::sampling::{sample_ball_radius_fraction, sample_unit_vector};
 /// The trait exists so this crate is not Euclidean-by-assumption:
 /// `distance` and `interpolate` are per-space operations rather than a fixed
 /// formula, which is what lets a space compose a wraparound revolute joint
-/// (shortest arc, not linear difference, see [`crate::so2::So2Space`]) or an
+/// (shortest arc, not linear difference, see [`crate::sbp::so2::So2Space`]) or an
 /// SO(3) orientation (geodesic, not linear blend, see
-/// [`crate::se3::Se3Space`]) without changing anything in [`crate::nn`] or
+/// [`crate::sbp::se3::Se3Space`]) without changing anything in [`crate::sbp::nn`] or
 /// `rrt_connect` — both are written only against this trait.
 ///
 /// # Object safety
 ///
 /// Every method here takes `&mut dyn Rng` rather than a generic `<R: Rng>`
 /// parameter, which costs one dynamic dispatch per random draw but is what
-/// makes `StateSpace` itself object-safe: [`crate::compound::CompoundSpace`]
+/// makes `StateSpace` itself object-safe: [`crate::sbp::compound::CompoundSpace`]
 /// holds a heterogeneous list of subspaces (a revolute joint next to a
 /// floating joint next to a prismatic one) behind
 /// `Box<dyn StateSpace<State = _>>`, which is only expressible at all if the
 /// trait has no generic methods to put in a vtable. An earlier version of
 /// this trait used `<R: Rng>` and had to be changed for exactly this reason
-/// — see `crates/cspace-planners-sbp`'s commit history for the record of
+/// — see `crates/cspace-planners`'s commit history for the record of
 /// that change and why it was necessary rather than a
 /// `CompoundSpace`-only workaround.
 pub trait StateSpace {
@@ -81,9 +81,9 @@ pub trait StateSpace {
 ///
 /// The simplest [`StateSpace`] this crate ships — no wraparound, no
 /// orientation, just axis-aligned box bounds. A revolute joint's wraparound
-/// is [`crate::so2::So2Space`], `SO(3)` for a floating joint's orientation
-/// is part of [`crate::se3::Se3Space`], and a product space combining
-/// several joints of any of these kinds is [`crate::compound::CompoundSpace`];
+/// is [`crate::sbp::so2::So2Space`], `SO(3)` for a floating joint's orientation
+/// is part of [`crate::sbp::se3::Se3Space`], and a product space combining
+/// several joints of any of these kinds is [`crate::sbp::compound::CompoundSpace`];
 /// nothing here assumes `RealVectorSpace` is the only space that will ever
 /// exist.
 #[derive(Debug, Clone, PartialEq)]
@@ -175,7 +175,7 @@ impl StateSpace for RealVectorSpace {
         }
 
         let dim = self.dimension();
-        // See `crate::sampling` for why this is a direction drawn uniformly
+        // See `crate::sbp::sampling` for why this is a direction drawn uniformly
         // on the unit sphere (via `sample_unit_vector`, no rejection) rather
         // than the exponentially-expensive-in-dimension rejection sampling
         // this method used to do — see
@@ -197,7 +197,7 @@ impl StateSpace for RealVectorSpace {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::assert_metric_and_interpolation_axioms;
+    use crate::sbp::test_support::assert_metric_and_interpolation_axioms;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 

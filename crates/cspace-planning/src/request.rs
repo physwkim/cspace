@@ -101,7 +101,7 @@
 //! `allowed_planning_time <= 0.0` becomes `1.0`, `num_planning_attempts`
 //! becomes `std::max(1, n)`) has no counterpart here, by the decision in
 //! `PORTING-PLAN.md` §236. The short reason: this port's planning budget is
-//! `cspace_planners_sbp::Termination` (`Iterations(usize)` /
+//! `cspace_planners::sbp::Termination` (`Iterations(usize)` /
 //! `Deadline(Duration)` / `Both`, with no `Default` and no "unset" variant),
 //! so negative, unset and NaN are all unconstructible rather than repaired,
 //! and the upstream guard is NaN-blind in any case — `doc/upstream-bugs.md`'s
@@ -114,7 +114,7 @@
 //! # D8 delta audit: `cspace-planners-sbp::registry::PlanningRequest`/`PlanningResponse`
 //!
 //! Read-only (that file is `cspace-planners-sbp`'s, not this crate's — see
-//! `crates/cspace-planners-sbp/src/registry.rs:136-166`). Mapping each of
+//! `crates/cspace-planners/src/sbp/registry.rs:136-166`). Mapping each of
 //! its fields onto the canonical types above, in the three buckets D8 needs:
 //!
 //! **Missing from canonical, D8 must add:** none found this round beyond

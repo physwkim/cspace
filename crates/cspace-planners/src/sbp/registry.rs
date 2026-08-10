@@ -12,7 +12,7 @@
 //! One concrete planner, [`RrtConnectManager`], implementing
 //! [`cspace_planning::PlannerManager`] over a real
 //! [`cspace_planning::scene::PlanningScene`] via
-//! [`crate::planning_scene_validity::PlanningSceneValidityChecker`].
+//! [`crate::sbp::planning_scene_validity::PlanningSceneValidityChecker`].
 //!
 //! # The request type is `cspace-planning`'s, not this crate's (D8/§140)
 //!
@@ -52,9 +52,9 @@
 //!
 //! The old local request instead had a `Goal` enum whose `State` variant
 //! carried one concrete `Vec<CompoundValue>`, because
-//! [`crate::rrt_connect::rrt_connect`] takes exactly one `S::State` as its
+//! [`crate::sbp::rrt_connect::rrt_connect`] takes exactly one `S::State` as its
 //! goal and nothing existed to resolve a region down to one. That is no
-//! longer true (`Goal::Constraints` and `crate::goal_sampler::sample_goal`
+//! longer true (`Goal::Constraints` and `crate::sbp::goal_sampler::sample_goal`
 //! landed in round 21), and upstream has no counterpart to the `State`
 //! variant at all: a caller who wants to reach one specific configuration
 //! calls `constructGoalConstraints(state, jmg, tolerance)`
@@ -87,7 +87,7 @@
 //! only if the caller supplies a [`cspace_core::kinematics::KinematicsSolver`] —
 //! see [`RrtConnectManager::solver`]. With no solver, a Cartesian-only goal
 //! region builds no sampler and falls back to
-//! [`crate::space::StateSpace::sample_uniform`] every attempt: not
+//! [`crate::sbp::space::StateSpace::sample_uniform`] every attempt: not
 //! incorrect (the constraint set still gates acceptance), just practically
 //! unable to find a tight region by chance within
 //! `DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS` tries. Nothing in this crate picks
@@ -126,7 +126,7 @@
 //!   overloads are a benchmarking helper with no test or caller needing it.
 //!
 //! Porting the sampler alone did not close the *goal* half of the
-//! capability gap above by itself: [`crate::rrt_connect::rrt_connect`]'s
+//! capability gap above by itself: [`crate::sbp::rrt_connect::rrt_connect`]'s
 //! `goal` parameter is one fixed `S::State`, not a region or a
 //! re-sampleable source, so even with `IkConstraintSamplerAdapter`
 //! available, RRT-Connect's *goal* needed a second change — something to
@@ -136,9 +136,9 @@
 //! **Round 21** made that second change: a goal expressed as a
 //! [`KinematicConstraintSet`] (mirroring
 //! `ompl_interface::ConstrainedGoalSampler`,
-//! `crate::goal_sampler::sample_goal` — see that module's own doc comment
+//! `crate::sbp::goal_sampler::sample_goal` — see that module's own doc comment
 //! for exactly what is and is not ported), resolved to one concrete state
-//! before [`crate::rrt_connect::rrt_connect`] starts searching. This closes
+//! before [`crate::sbp::rrt_connect::rrt_connect`] starts searching. This closes
 //! the joint-constraint case fully: a goal set whose
 //! [`cspace_planning::constraints::JointConstraint`]s cover every one of the group's
 //! variables gets a real [`cspace_planning::constraints::JointConstraintSampler`]
@@ -150,7 +150,7 @@
 //! [`cspace_planning::constraints::PositionConstraint`]/
 //! [`cspace_planning::constraints::OrientationConstraint`]-only goal set
 //! built no sampler and fell back to
-//! [`crate::space::StateSpace::sample_uniform`] every attempt — not
+//! [`crate::sbp::space::StateSpace::sample_uniform`] every attempt — not
 //! incorrect (the set's own `decide()` still gated acceptance), just
 //! practically unable to find a tight Cartesian region by chance within
 //! `DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS` tries.
@@ -196,16 +196,16 @@
 //! `cspace_planning::PlanningRequest::path_constraints` is carried directly
 //! as a [`KinematicConstraintSet`], because path constraints are evaluated
 //! per-candidate via `decide()` — see
-//! [`crate::planning_scene_validity::PlanningSceneValidityChecker`] — so
+//! [`crate::sbp::planning_scene_validity::PlanningSceneValidityChecker`] — so
 //! correctness never depended on a sampler. **Round 20**: `path_constraints`
 //! is now also fed to `select_default_sampler` and wired into
-//! [`crate::rrt_connect::rrt_connect`]'s uniform-sampling step (not its
-//! fixed `goal` — see [`crate::rrt_connect::Sampler`] and
-//! [`crate::rrt_connect::ConstrainedStateSampler`], mirroring upstream's
+//! [`crate::sbp::rrt_connect::rrt_connect`]'s uniform-sampling step (not its
+//! fixed `goal` — see [`crate::sbp::rrt_connect::Sampler`] and
+//! [`crate::sbp::rrt_connect::ConstrainedStateSampler`], mirroring upstream's
 //! `ompl_interface::ConstrainedSampler`), a distinct seam from the goal-region
 //! sampling the paragraph above now also describes:
 //! [`cspace_planning::PlanningContext::solve`] builds the sampler through
-//! `crate::constrained_sampler::GroupConstraintSampler` whenever
+//! `crate::sbp::constrained_sampler::GroupConstraintSampler` whenever
 //! `path_constraints` is `Some`, purely as a sampling-efficiency aid —
 //! `checker` below still enforces the constraint on every candidate
 //! regardless of whether a sampler was available to help find one.
@@ -236,14 +236,14 @@ use cspace_planning::{
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-use crate::constrained_sampler::GroupConstraintSampler;
-use crate::error::SbpError;
-use crate::joint_model_group_space::JointModelGroupSpace;
-use crate::planning_scene_validity::PlanningSceneValidityChecker;
-use crate::rrt_connect::{
+use crate::sbp::constrained_sampler::GroupConstraintSampler;
+use crate::sbp::error::SbpError;
+use crate::sbp::joint_model_group_space::JointModelGroupSpace;
+use crate::sbp::planning_scene_validity::PlanningSceneValidityChecker;
+use crate::sbp::rrt_connect::{
     ConstrainedStateSampler, PlanningFailure, RrtConnectParams, Sampler, Termination, rrt_connect,
 };
-use crate::validity::DiscreteMotionValidator;
+use crate::sbp::validity::DiscreteMotionValidator;
 
 /// The `max_attempts` every live upstream call to `ConstraintSampler::sample`
 /// actually passes: `ModelBasedPlanningContext::getMaximumStateSamplingAttempts()`,
@@ -262,7 +262,7 @@ use crate::validity::DiscreteMotionValidator;
 /// correct one instead.
 const DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS: u32 = 4;
 
-/// The outer retry budget [`crate::goal_sampler::sample_goal`] draws
+/// The outer retry budget [`crate::sbp::goal_sampler::sample_goal`] draws
 /// against: upstream `ModelBasedPlanningContext::getMaximumGoalSamplingAttempts()`,
 /// configured to `1000` by `PlanningContextManager`'s constructor
 /// (`planning_context_manager.cpp:260`, `max_goal_sampling_attempts_(1000)`)
@@ -346,7 +346,7 @@ pub enum PlanError {
 }
 
 /// [`cspace_planning::PlannerManager`] for
-/// [`crate::rrt_connect::rrt_connect`].
+/// [`crate::sbp::rrt_connect::rrt_connect`].
 ///
 /// # Why the tuning lives here and not in the request
 ///
@@ -376,17 +376,17 @@ pub enum PlanError {
 /// [`RrtConnectManager::solver`], and the rest of
 /// [`RrtConnectManager::params`]) that no configuration key maps onto.
 pub struct RrtConnectManager {
-    /// [`crate::validity::DiscreteMotionValidator`]'s bisection resolution,
-    /// in the group's own [`crate::space::StateSpace::distance`] units.
+    /// [`crate::sbp::validity::DiscreteMotionValidator`]'s bisection resolution,
+    /// in the group's own [`crate::sbp::space::StateSpace::distance`] units.
     /// Upstream's nearest equivalent is OMPL's
     /// `longest_valid_segment_fraction` (`model_based_planning_context.cpp:294-315`),
     /// which is a *fraction* of the space's maximum extent rather than an
     /// absolute distance; this port validates against an absolute one
-    /// because [`crate::validity::DiscreteMotionValidator`] has no state
+    /// because [`crate::sbp::validity::DiscreteMotionValidator`] has no state
     /// space to ask for an extent.
     pub resolution: f64,
-    /// Seeds each query's RNG — see [`crate::rrt_connect::rrt_connect`]'s
-    /// determinism guarantee under [`crate::rrt_connect::Termination::Iterations`].
+    /// Seeds each query's RNG — see [`crate::sbp::rrt_connect::rrt_connect`]'s
+    /// determinism guarantee under [`crate::sbp::rrt_connect::Termination::Iterations`].
     /// Every query this manager builds a context for uses the same seed, so
     /// two identical queries against an identical scene return identical
     /// paths; a caller wanting different draws per query constructs a
@@ -518,7 +518,7 @@ impl RrtConnectManager {
     /// ignored").
     ///
     /// A value that does not parse as an `f64`, or that
-    /// [`crate::rrt_connect::RrtConnectParams`] would reject, is ignored the
+    /// [`crate::sbp::rrt_connect::RrtConnectParams`] would reject, is ignored the
     /// same way an unknown key is. Two reasons, and the second is the load
     /// bearing one: `range: 0.0` is upstream's own spelling of "let the
     /// planner pick" (`moveit_configs_utils/default_configs/ompl_defaults.yaml:40`,
@@ -549,7 +549,7 @@ impl RrtConnectManager {
 /// (`moveit_configs_utils/default_configs/ompl_defaults.yaml:38-40`, the
 /// `RRTConnect` entry of the configuration file upstream ships as its
 /// default), which is
-/// [`crate::rrt_connect::RrtConnectParams::step_size`]'s quantity exactly —
+/// [`crate::sbp::rrt_connect::RrtConnectParams::step_size`]'s quantity exactly —
 /// "maximum distance a single `extend` step advances a tree toward its
 /// target".
 ///
@@ -615,7 +615,7 @@ impl PlannerManager for RrtConnectManager {
         // `RrtConnectParams::assert_valid`'s own `assert!` deep inside
         // `solve()` and panic instead of returning the `Err` this trait
         // boundary exists to give a caller.
-        if let Some(reason) = crate::validity::invalid_resolution_reason(self.resolution) {
+        if let Some(reason) = crate::sbp::validity::invalid_resolution_reason(self.resolution) {
             return Err(
                 Box::new(PlanError::Sbp(SbpError::InvalidPlannerConfiguration(
                     reason,
@@ -869,7 +869,7 @@ impl<'m> RrtConnectContext<'_, 'm> {
         // `GoalSampleableRegionMux` and round-robins `sampleGoal` over them
         // (`detail/goal_union.cpp:83-95`). This port resolves a goal to one
         // concrete state rather than a lazily-grown region (see
-        // `crate::goal_sampler::sample_goal`'s own doc), so the same
+        // `crate::sbp::goal_sampler::sample_goal`'s own doc), so the same
         // any-of rule reduces to: try each set in declaration order, take
         // the first that yields an accepted state. Order is the request's,
         // never the linker's or a hash map's.
@@ -877,7 +877,7 @@ impl<'m> RrtConnectContext<'_, 'm> {
             .iter()
             .zip(&goal_samplers)
             .find_map(|(goal_constraints, sampler)| {
-                crate::goal_sampler::sample_goal(
+                crate::sbp::goal_sampler::sample_goal(
                     &self.space,
                     &checker,
                     goal_constraints,
@@ -944,14 +944,14 @@ mod tests {
     use rand::RngExt;
 
     use super::*;
-    use crate::compound::CompoundValue;
-    use crate::space::StateSpace;
+    use crate::sbp::compound::CompoundValue;
+    use crate::sbp::space::StateSpace;
 
     /// The tolerance every state goal below is built with.
     ///
     /// Zero, so these tests can go on asserting what they asserted while
     /// the goal was a `Goal::State`: the state that comes back *is* the
-    /// state that was asked for. `crate::goal_sampler::sample_goal`
+    /// state that was asked for. `crate::sbp::goal_sampler::sample_goal`
     /// resolves the set by drawing from it, and
     /// `cspace_planning::constraints::JointConstraintSampler`'s draw over a
     /// zero-width window is the window's one point — see
@@ -1305,7 +1305,7 @@ mod tests {
     }
 
     /// [`RrtConnectManager::resolution`] is the other `pub` field this
-    /// manager builds a [`crate::validity::DiscreteMotionValidator`] from
+    /// manager builds a [`crate::sbp::validity::DiscreteMotionValidator`] from
     /// deep inside `solve()` (`DiscreteMotionValidator::new` panics on a
     /// non-finite/non-positive value) -- the same boundary-validation gap
     /// as `params`, checked separately since it is a distinct field with a
@@ -1547,7 +1547,7 @@ mod tests {
     /// that fails if [`RrtConnectContext::solve`] silently ignored collision
     /// (e.g. wired a checker that always returns `true`): a checker that
     /// were broken that way would return the 2-waypoint straight-line path
-    /// [`crate::rrt_connect::rrt_connect`]'s `connect` step tries first,
+    /// [`crate::sbp::rrt_connect::rrt_connect`]'s `connect` step tries first,
     /// which [`cspace_planning::scene::PlanningScene::is_path_valid`] — re-run here
     /// independently of whatever checker the planner itself used — must
     /// then catch.
@@ -1651,7 +1651,7 @@ mod tests {
 
     /// Proves [`RrtConnectContext::solve`]'s constraint-sampler wiring is
     /// load-bearing, not merely invoked: `panda_joint1` is pinned to
-    /// `+/-0.005` (against its own `+/-2.9671` bound, `crates/cspace-planners-sbp/tests/fixtures/panda.urdf:37`), start
+    /// `+/-0.005` (against its own `+/-2.9671` bound, `crates/cspace-planners/tests/fixtures/sbp/sbp/panda.urdf:37`), start
     /// and goal both already satisfy it, and `goal_bias: 0.0` forces every
     /// sample through the uniform-sampling branch — [`RrtConnectParams`]'s
     /// own doc comment covers what `goal_bias` biases toward; the point here
@@ -1690,7 +1690,7 @@ mod tests {
     fn path_constraint_sampler_is_load_bearing_not_merely_invoked() {
         use cspace_planning::constraints::{Constraint, JointConstraint};
 
-        use crate::rrt_connect::Sampler;
+        use crate::sbp::rrt_connect::Sampler;
 
         let (model, srdf) = load_panda();
         let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
@@ -1800,7 +1800,7 @@ mod tests {
     /// empty-world panda_arm query whose goal is a tight (`+/-0.001`)
     /// `panda_joint1` window must produce a trajectory whose last waypoint
     /// sits inside that window — impossible for
-    /// [`crate::goal_sampler::sample_goal`]'s uniform (unwired) fallback to
+    /// [`crate::sbp::goal_sampler::sample_goal`]'s uniform (unwired) fallback to
     /// hit reliably within [`DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS`] by the
     /// same measurement `goal_sampler::tests::constrained_branch_is_load_bearing_not_merely_invoked`
     /// makes at a *looser* `+/-0.01` window and a much smaller budget, so a
@@ -2006,7 +2006,7 @@ mod tests {
     /// test, even though one now exists
     /// (`path_constraints_end_to_end_wired_vs_unwired`, below `PlanningRequest::solver`'s
     /// own uses): at the time this test was written,
-    /// `crate::constrained_sampler::GroupConstraintSampler`'s per-attempt IK
+    /// `crate::sbp::constrained_sampler::GroupConstraintSampler`'s per-attempt IK
     /// seed was not re-anchored between draws, which made a wired path
     /// sampler *not* reliably improve — and in the tightest measured
     /// scenario, actively worsen — full RRT-Connect success for
@@ -3021,7 +3021,7 @@ mod tests {
     /// # Measurement 1: global rate -- inconclusive, and that is itself the finding
     ///
     /// The fraction of independent uniform `panda_arm` joint-space draws
-    /// ([`crate::space::StateSpace::sample_uniform`] via
+    /// ([`crate::sbp::space::StateSpace::sample_uniform`] via
     /// [`JointModelGroupSpace`], the same draw RRT-Connect's own
     /// unconstrained branch takes) that satisfy each path constraint on its
     /// own, no search involved:
@@ -3044,7 +3044,7 @@ mod tests {
     ///
     /// # Measurement 2: local step acceptance -- the quantity that actually matches RRT-Connect
     ///
-    /// [`crate::rrt_connect::rrt_connect`]'s own `extend` never draws an
+    /// [`crate::sbp::rrt_connect::rrt_connect`]'s own `extend` never draws an
     /// independent global sample and asks whether *it* satisfies the
     /// corridor; it takes a `step_size`-bounded step from an *existing tree
     /// node already inside the corridor* toward a random target, and only
@@ -3267,7 +3267,7 @@ mod tests {
     /// (`joint_coverage_is_full`, `constraint_sampler_manager.rs:321`), so
     /// `select_default_sampler` returns a real `JointConstraintSampler`
     /// (Step A) rather than falling through to the uniform branch —
-    /// [`crate::goal_sampler::sample_goal`]'s constrained branch then
+    /// [`crate::sbp::goal_sampler::sample_goal`]'s constrained branch then
     /// samples *every* variable from its own `1e-9`-wide window, converging
     /// on the target to within that same tolerance. This is a direct
     /// measurement, not merely an architectural argument: **for scalar
@@ -3295,7 +3295,7 @@ mod tests {
         use rand::SeedableRng;
         use rand_chacha::ChaCha8Rng;
 
-        use crate::goal_sampler::sample_goal;
+        use crate::sbp::goal_sampler::sample_goal;
 
         let (model, srdf) = load_panda();
         let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();

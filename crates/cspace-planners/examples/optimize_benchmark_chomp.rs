@@ -7,7 +7,7 @@
 // binary that runs it over a problem set.
 
 //! CHOMP half of the Phase 8 property instrument: runs
-//! [`cspace_planners_chomp::solve`] over the *same* problem set
+//! [`cspace_planners::chomp::solve`] over the *same* problem set
 //! `cspace-planners-sbp`'s `plan_benchmark_problem_set` emits for Phase 7, and
 //! reports the quantities `tools/ci/measure-phase8-optimizer-properties.sh`
 //! gates on.
@@ -25,7 +25,7 @@
 //!
 //! # This binary supplies `mesh_to_mesh_collision_free` for the first time
 //!
-//! [`cspace_planners_chomp::solve`] takes upstream's
+//! [`cspace_planners::chomp::solve`] takes upstream's
 //! `isCurrentTrajectoryMeshToMeshCollisionFree` (`chomp_optimizer.cpp:520-537`)
 //! as an injected closure rather than a method, because wiring it inside the
 //! crate would make `cspace-planners-chomp` depend on `cspace-scene` and
@@ -74,12 +74,12 @@ use cspace_core::geometry::{Cuboid, Isometry3, Shape, Vector3};
 use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
-use cspace_planners_chomp::optimizer::ChompCollisionContext;
-use cspace_planners_chomp::{
+use cspace_planners::chomp::optimizer::ChompCollisionContext;
+use cspace_planners::chomp::{
     ChompExit, ChompGoal, ChompLoopTrace, ChompParameters, ChompRequest, GoalJointConstraint,
     solve_with_trace,
 };
-use cspace_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
+use cspace_planners::sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use cspace_planning::constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use cspace_planning::scene::PlanningScene;
 use nalgebra::DMatrix;

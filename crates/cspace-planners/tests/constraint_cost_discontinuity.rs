@@ -8,7 +8,7 @@
 //! (this branch's current, unfixed form).
 //!
 //! This test does not edit
-//! `crates/cspace-planners-stomp/src/cost_functions.rs`. It uses
+//! `crates/cspace-planners/src/stomp/cost_functions.rs`. It uses
 //! [`get_constraints_cost_function`] for the *gated* side -- `7f561e20`
 //! landed the `if satisfied { 0.0 } else { distance * cost_scale }` gate
 //! there -- and replicates upstream's continuous body
@@ -17,7 +17,7 @@
 //! already-`pub` pieces ([`StateValidatorFn`],
 //! [`cost_function_from_state_validator`], [`CONSTRAINT_CHECK_DISTANCE`])
 //! plus [`cspace_planning::constraints::KinematicConstraintSet::decide`] and
-//! [`cspace_planners_stomp::conversion_functions::set_positions`] -- for the
+//! [`cspace_planners::stomp::conversion_functions::set_positions`] -- for the
 //! *continuous* side. When this file was written those two sides were the
 //! other way round; the merge that brought `7f561e20` into the same tree
 //! swapped which one production provides, not what is being compared.
@@ -48,7 +48,7 @@
 //! `0.0` -- so every rollout gets *equal* probability, not zero, and
 //! `update_parameters` folds in the probability-weighted mean of that
 //! iteration's (zero-mean-by-construction, see
-//! [`cspace_planners_stomp::noise_generators::normal_distribution_generator`])
+//! [`cspace_planners::stomp::noise_generators::normal_distribution_generator`])
 //! noise samples, which is small enough after 1 iteration to already read
 //! as bit-identical to the unperturbed mean in this test's own instrumented
 //! run (checked directly, see this test's own history for the per-iteration
@@ -83,14 +83,14 @@ use std::fs;
 
 use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
-use cspace_planners_stomp::composable_task::{ComposableTask, CostFn};
-use cspace_planners_stomp::conversion_functions::set_positions;
-use cspace_planners_stomp::cost_functions::{
+use cspace_planners::stomp::composable_task::{ComposableTask, CostFn};
+use cspace_planners::stomp::conversion_functions::set_positions;
+use cspace_planners::stomp::cost_functions::{
     CONSTRAINT_CHECK_DISTANCE, StateValidatorFn, cost_function_from_state_validator,
     get_constraints_cost_function,
 };
-use cspace_planners_stomp::filter_functions::no_filter;
-use cspace_planners_stomp::noise_generators::normal_distribution_generator;
+use cspace_planners::stomp::filter_functions::no_filter;
+use cspace_planners::stomp::noise_generators::normal_distribution_generator;
 use cspace_planning::constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use cspace_planning::scene::PlanningScene;
 use cspace_stomp_core::{Stomp, StompConfiguration, TrajectoryInitialization};

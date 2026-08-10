@@ -1,7 +1,7 @@
 # A regression that makes a test *hang* must be reported as a failure, not
 # left to stall the suite forever.
 #
-# `crates/cspace-planners-stomp/src/planner.rs`'s
+# `crates/cspace-planners/src/stomp/planner.rs`'s
 # `cancelling_from_another_thread_stops_a_plan_call_already_in_flight` sets
 # `num_iterations = 1_000_000` deliberately, so that `proceed` going false is
 # the only exit its `solve` call can take. That is the right shape for the

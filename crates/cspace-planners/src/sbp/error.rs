@@ -4,17 +4,17 @@
 //! Error type for this crate's boundary inputs.
 //!
 //! Scoped narrowly on purpose: the fallible *constructions* in this crate
-//! are [`crate::space::RealVectorSpace::new`] and its callers (bounds that
+//! are [`crate::sbp::space::RealVectorSpace::new`] and its callers (bounds that
 //! could plausibly come from external input, a robot description in
 //! particular) and, since the `RobotModel` bridge landed,
-//! [`crate::joint_model_group_space::JointModelGroupSpace::new`], whose
+//! [`crate::sbp::joint_model_group_space::JointModelGroupSpace::new`], whose
 //! group name is a caller-supplied string looked up against a
 //! [`cspace_core::model::RobotModel`] built at runtime.
-//! [`crate::rrt_connect::RrtConnectParams`] is validated by `assert!` when a
+//! [`crate::sbp::rrt_connect::RrtConnectParams`] is validated by `assert!` when a
 //! caller constructs one directly — passing it a negative step size that
 //! way is a programming error, not external input, so panicking immediately
 //! with a clear message is preferable to plumbing a `Result` through the
-//! planner's success path. [`crate::registry::RrtConnectManager`]'s public
+//! planner's success path. [`crate::sbp::registry::RrtConnectManager`]'s public
 //! `resolution`/`params` fields are a second, distinct entry point onto the
 //! same values, reachable through the [`cspace_planning::PlannerManager`]
 //! trait boundary rather than direct construction — there, an invalid value
@@ -29,7 +29,7 @@
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum SbpError {
-    /// A [`crate::space::RealVectorSpace`] was built with no dimensions.
+    /// A [`crate::sbp::space::RealVectorSpace`] was built with no dimensions.
     #[error("a state space needs at least one dimension, got 0 bounds")]
     NoDimensions,
 
@@ -46,7 +46,7 @@ pub enum SbpError {
         max: f64,
     },
 
-    /// A subspace weight (e.g. [`crate::se3::Se3Space`]'s rotation weight)
+    /// A subspace weight (e.g. [`crate::sbp::se3::Se3Space`]'s rotation weight)
     /// was negative or non-finite.
     #[error("invalid weight {value}: must be finite and non-negative")]
     InvalidWeight {
@@ -54,22 +54,22 @@ pub enum SbpError {
         value: f64,
     },
 
-    /// A [`crate::compound::CompoundSpace`] was built with no subspaces.
+    /// A [`crate::sbp::compound::CompoundSpace`] was built with no subspaces.
     #[error("a compound state space needs at least one subspace, got 0")]
     NoSubspaces,
 
-    /// A [`crate::compound::CompoundSpace`] subspace's weight was negative
+    /// A [`crate::sbp::compound::CompoundSpace`] subspace's weight was negative
     /// or non-finite.
     #[error("invalid weight {value} for subspace {index}: must be finite and non-negative")]
     InvalidSubspaceWeight {
         /// Which subspace (in the order passed to
-        /// [`crate::compound::CompoundSpace::new`]) had the bad weight.
+        /// [`crate::sbp::compound::CompoundSpace::new`]) had the bad weight.
         index: usize,
         /// The offending weight.
         value: f64,
     },
 
-    /// [`crate::joint_model_group_space::JointModelGroupSpace::new`] was
+    /// [`crate::sbp::joint_model_group_space::JointModelGroupSpace::new`] was
     /// given a group name the [`cspace_core::model::RobotModel`] does not have.
     #[error("unknown joint model group '{name}'")]
     UnknownGroup {

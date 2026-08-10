@@ -171,7 +171,7 @@ ORACLE="$REPO_ROOT/tools/moveit-oracle/run-oracle.sh"
 # the opt-in SKIP above already has to shout about.
 
 # The Phase 7 benchmark set, unchanged: the same two configs, counts and
-# seeds `crates/cspace-planners-sbp/benches/sweep_baseline.sh` measured the
+# seeds `crates/cspace-planners/benches/sweep_baseline.sh` measured the
 # recorded C++ baseline from. Changing any of these invalidates every pinned
 # number below.
 CONFIGS=(floor_wall cage)

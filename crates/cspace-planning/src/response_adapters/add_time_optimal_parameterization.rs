@@ -45,7 +45,7 @@
 //! with every waypoint after the first at an inert `dt = 0.1`, silently
 //! wrong unless something downstream reparameterized it. That is no longer
 //! how `fill_robot_trajectory` behaves — checked directly against
-//! `crates/cspace-planners-stomp/src/conversion_functions.rs`, not assumed
+//! `crates/cspace-planners/src/stomp/conversion_functions.rs`, not assumed
 //! from the old claim: it now returns `UnparameterizedTrajectory`, a type
 //! with no duration accessor at all, and the only way to obtain a real
 //! `RobotTrajectory` from it is `UnparameterizedTrajectory::into_uniformly_timed(dt)`,

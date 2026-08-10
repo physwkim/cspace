@@ -15,10 +15,10 @@ use cspace_core::state::Posed;
 use cspace_planning::constraints::KinematicConstraintSet;
 use cspace_planning::scene::PlanningScene;
 
-use crate::compound::CompoundValue;
-use crate::joint_model_group_space::JointModelGroupSpace;
-use crate::space::StateSpace;
-use crate::validity::StateValidityChecker;
+use crate::sbp::compound::CompoundValue;
+use crate::sbp::joint_model_group_space::JointModelGroupSpace;
+use crate::sbp::space::StateSpace;
+use crate::sbp::validity::StateValidityChecker;
 
 /// Checks a [`JointModelGroupSpace`] sample against a real
 /// [`PlanningScene`]: collision (via `env`) and, if given, `constraints`.
@@ -29,8 +29,8 @@ use crate::validity::StateValidityChecker;
 /// `current_state_mut` materializes an inherited state and
 /// `check_collision` calls [`cspace_core::state::RobotState::update`], both
 /// mutating operations — but [`StateValidityChecker::is_valid`] takes
-/// `&self`: every existing implementor ([`crate::validity::DiscreteMotionValidator`]
-/// and the blanket `Fn` impl) is immutable, and [`crate::rrt_connect::rrt_connect`]
+/// `&self`: every existing implementor ([`crate::sbp::validity::DiscreteMotionValidator`]
+/// and the blanket `Fn` impl) is immutable, and [`crate::sbp::rrt_connect::rrt_connect`]
 /// holds its checker as a shared `&C` across the whole search, alongside a
 /// nearest-neighbour index it also only ever borrows immutably — there is
 /// no `&mut C` to thread through that loop without restructuring it for
@@ -40,7 +40,7 @@ use crate::validity::StateValidityChecker;
 /// re-enters it while a borrow is outstanding (a single sampling-planner
 /// search is sequential), so the runtime check `RefCell` adds never
 /// actually panics — this module's tests exercise exactly that call
-/// pattern end to end, through [`crate::rrt_connect::rrt_connect`] itself,
+/// pattern end to end, through [`crate::sbp::rrt_connect::rrt_connect`] itself,
 /// not just a single direct call.
 ///
 /// # No state pooling
@@ -174,7 +174,7 @@ mod tests {
     use cspace_planning::scene::PlanningScene;
 
     use super::*;
-    use crate::joint_model_group_space::JointModelGroupSpace;
+    use crate::sbp::joint_model_group_space::JointModelGroupSpace;
 
     /// The `moveit_resources_panda_description` package committed under
     /// `fixtures/meshes/` (see `tools/ci/verify-fixture-provenance.sh` and

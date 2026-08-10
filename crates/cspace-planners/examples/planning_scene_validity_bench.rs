@@ -1,7 +1,7 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! Measures [`cspace_planners_sbp::PlanningSceneValidityChecker::is_valid`]'s
+//! Measures [`cspace_planners::sbp::PlanningSceneValidityChecker::is_valid`]'s
 //! per-call cost on panda's real, mesh-loaded collision geometry (empty
 //! world, no constraints) -- the number
 //! `planning_scene_validity.rs`'s own "No state pooling" doc section cites.
@@ -24,7 +24,7 @@ use std::time::Instant;
 use cspace_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
-use cspace_planners_sbp::{
+use cspace_planners::sbp::{
     JointModelGroupSpace, PlanningSceneValidityChecker, StateSpace, StateValidityChecker,
 };
 use cspace_planning::scene::PlanningScene;

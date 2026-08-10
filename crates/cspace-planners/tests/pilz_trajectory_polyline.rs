@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! End-to-end tests for
-//! [`cspace_planners_pilz::trajectory_generator_polyline::TrajectoryGeneratorPolyline`]
+//! [`cspace_planners::pilz::trajectory_generator_polyline::TrajectoryGeneratorPolyline`]
 //! on `panda_arm`.
 //!
 //! # This is not the parity test
@@ -15,7 +15,7 @@
 //! of them is on. What follows asserts *properties of the produced
 //! trajectory that only a correct rounded-polyline path can satisfy* --
 //! that the tip tracks the very path
-//! [`polyline_from_waypoints`](cspace_planners_pilz::path_polyline_generator::polyline_from_waypoints)
+//! [`polyline_from_waypoints`](cspace_planners::pilz::path_polyline_generator::polyline_from_waypoints)
 //! builds, and that it rounds the corner rather than driving through it (the
 //! test a `LIN`-per-segment or a straight-to-goal implementation fails).
 //! Both would still pass a joint-value comparison against an oracle that
@@ -37,16 +37,16 @@ use cspace_core::geometry::{Isometry3, UnitQuaternion, Vector3};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
-use cspace_planners_pilz::limits::{
+use cspace_planners::pilz::limits::{
     CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer,
 };
-use cspace_planners_pilz::path_polyline_generator::polyline_from_waypoints;
-use cspace_planners_pilz::trajectory_functions::{IkContext, compute_link_fk};
-use cspace_planners_pilz::trajectory_generator::{
+use cspace_planners::pilz::path_polyline_generator::polyline_from_waypoints;
+use cspace_planners::pilz::trajectory_functions::{IkContext, compute_link_fk};
+use cspace_planners::pilz::trajectory_generator::{
     CircPathConstraint, CircPathConstraintKind, Goal, MotionPlanRequest, PathConstraints,
     PilzGenerator, PolylinePathConstraint, StartState, TrajectoryGenerator,
 };
-use cspace_planners_pilz::trajectory_generator_polyline::TrajectoryGeneratorPolyline;
+use cspace_planners::pilz::trajectory_generator_polyline::TrajectoryGeneratorPolyline;
 use cspace_planning::scene::PlanningScene;
 
 #[derive(Deserialize)]
@@ -126,7 +126,7 @@ struct RequestFixture {
 
 fn load_json<T: serde::de::DeserializeOwned>(file_name: &str) -> T {
     let path = format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/pilz/{}"),
         file_name
     );
     let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
@@ -336,7 +336,7 @@ fn plan_corner(request: &RequestFixture) -> (Planned, Isometry3, Vec<Isometry3>)
 }
 
 /// The produced trajectory's tip must stay on the very
-/// [`PathRoundedComposite`](cspace_planners_pilz::path_rounded_composite::PathRoundedComposite)
+/// [`PathRoundedComposite`](cspace_planners::pilz::path_rounded_composite::PathRoundedComposite)
 /// that `polyline_from_waypoints` builds from the same request -- start pose,
 /// waypoints, smoothness and `eqradius` all identical to what
 /// `TrajectoryGeneratorPolyline::plan` passes.

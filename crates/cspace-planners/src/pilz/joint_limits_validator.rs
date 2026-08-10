@@ -56,7 +56,7 @@
 //!   is the same IEEE-754 comparison, so transcribing it preserves that;
 //!   see `partially_specified_limits_are_never_equal_to_each_other`.
 
-use crate::limits::{JointLimit, JointLimitsContainer};
+use crate::pilz::limits::{JointLimit, JointLimitsContainer};
 
 /// Whether every joint's position limit is the same.
 ///

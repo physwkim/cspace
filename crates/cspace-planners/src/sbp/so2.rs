@@ -7,7 +7,7 @@ use std::f64::consts::PI;
 
 use rand::{Rng, RngExt};
 
-use crate::space::StateSpace;
+use crate::sbp::space::StateSpace;
 
 /// Wraps `theta` into `[-PI, PI)`.
 fn normalize_angle(theta: f64) -> f64 {
@@ -16,7 +16,7 @@ fn normalize_angle(theta: f64) -> f64 {
 
 /// A single continuous (wraparound) revolute joint: the circle `SO(2)`.
 ///
-/// Unlike [`RealVectorSpace`](crate::space::RealVectorSpace), this space has
+/// Unlike [`RealVectorSpace`](crate::sbp::space::RealVectorSpace), this space has
 /// no bounds to violate — every finite angle is reachable and every state is
 /// stored normalized into `[-PI, PI)`. [`distance`](StateSpace::distance) and
 /// [`interpolate`](StateSpace::interpolate) both go by the shorter arc: the
@@ -78,7 +78,7 @@ impl StateSpace for So2Space {
         }
         // A ball on a 1-dimensional space is just an interval: unlike
         // `RealVectorSpace::sample_near`, there's no shell-concentration
-        // effect to correct for (see `crate::sampling::sample_ball_radius_fraction`'s
+        // effect to correct for (see `crate::sbp::sampling::sample_ball_radius_fraction`'s
         // doc comment for why higher dimensions need that correction), so a
         // plain uniform draw over the interval is already volume-uniform.
         // Capping at `PI` on each side is what makes a radius that covers
@@ -93,7 +93,7 @@ impl StateSpace for So2Space {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{
+    use crate::sbp::test_support::{
         assert_metric_and_interpolation_axioms, assert_sample_near_stays_within_radius,
     };
     use rand::SeedableRng;

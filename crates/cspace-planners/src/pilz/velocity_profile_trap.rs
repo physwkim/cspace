@@ -10,7 +10,7 @@
 //! Plays the role of `KDL::VelocityProfile_Trap`, the profile
 //! `TrajectoryGenerator::cartesianTrapVelocityProfile` builds to time-
 //! parametrize a Cartesian path's arc length for `LIN`/`CIRC` — distinct from
-//! [`crate::velocity_profile::VelocityProfileAtrap`] (Pilz's own asymmetric
+//! [`crate::pilz::velocity_profile::VelocityProfileAtrap`] (Pilz's own asymmetric
 //! profile, used by `PTP`'s per-joint synchronization): this one has a single
 //! acceleration magnitude shared by both ramps, matching KDL's own type. See
 //! below for why this is *not* a line-by-line port of it.
@@ -24,7 +24,7 @@
 //!   port's only caller of this type) only ever calls `SetProfile` once and
 //!   samples `Pos`, so the rest have no reader here — see this crate's
 //!   `deny(warnings)` policy on dead code, and
-//!   [`crate::velocity_profile::VelocityProfileAtrap`]'s own doc for the same
+//!   [`crate::pilz::velocity_profile::VelocityProfileAtrap`]'s own doc for the same
 //!   "no `KDL::VelocityProfile` base class" reasoning.
 //! - **No incomplete-profile branch's `sign` ambiguity.** Upstream's
 //!   `SetProfile` computes `s = sign(endpos - startpos)`, which is `0` when

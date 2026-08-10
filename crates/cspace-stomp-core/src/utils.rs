@@ -67,7 +67,7 @@
 //! [`Rollout::new`] (upstream's `Rollout` has no constructor),
 //! [`full_piv_lu_try_inverse_or_empty`] (works around a `nalgebra`-specific
 //! 0x0-matrix panic Eigen doesn't have — `pub`, not `pub(crate)`, because
-//! `cspace_planners_stomp` needs the identical fix), and
+//! `cspace_planners::stomp` needs the identical fix), and
 //! `DEFAULT_NOISY_COST_IMPORTANCE_WEIGHT` (upstream: `stomp.cpp`-file-local;
 //! relocated here because [`Rollout::new`] is its one consumer — see that
 //! constant's own doc comment, and `stomp.rs`'s completeness-audit doc for
@@ -218,7 +218,7 @@ pub(crate) const DEFAULT_NOISY_COST_IMPORTANCE_WEIGHT: f64 = 1.0;
 /// for the full reasoning.
 ///
 /// `pub`, not `pub(crate)`: round 23 gave this a second consumer outside
-/// this crate. `cspace_planners_stomp::noise_generators::
+/// this crate. `cspace_planners::stomp::noise_generators::
 /// normal_distribution_generator` builds the exact same shape of matrix
 /// (`getNormalDistributionGenerator`'s `acceleration.transpose() *
 /// acceleration`, also `A^T * A` for a finite-difference `A`) and needs the

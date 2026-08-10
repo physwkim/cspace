@@ -25,8 +25,8 @@
 //!   parameter.
 //! - **Reachable invariant violations upstream leaves as `assert()`-free UB
 //!   are typed errors here**, matching the convention already established
-//!   in [`crate::trajectory::ChompTrajectory`]:
-//!   - `derivative_costs.len()` above [`crate::utils::DIFF_RULES`]`.len()`
+//!   in [`crate::chomp::trajectory::ChompTrajectory`]:
+//!   - `derivative_costs.len()` above [`crate::chomp::utils::DIFF_RULES`]`.len()`
 //!     (3) upstream indexes `DIFF_RULES[i]` out of bounds on a 3-row C
 //!     array with no guard at all; here it is
 //!     [`Error::other`](cspace_core::error::Error::other).
@@ -93,11 +93,11 @@
 //!   confirming a numerically sound inverse in both branches but not
 //!   *bit-identical* agreement with Eigen.
 //!
-//!   **Closed, round 18.** `crates/cspace-planners-chomp/doc/oracle-request-
+//!   **Closed, round 18.** `crates/cspace-planners/doc/oracle-request-
 //!   quad-cost-inv.md` asked for, and got, an oracle op
 //!   (`chomp_quad_cost_inverse`) that links the real upstream `ChompCost`
 //!   directly rather than a transcription, answering the actual question:
-//!   `crates/cspace-planners-chomp/tests/chomp_quad_cost_inverse_parity.rs`
+//!   `crates/cspace-planners/tests/chomp_quad_cost_inverse_parity.rs`
 //!   compares [`ChompCost::quadratic_cost_inverse`] element-by-element
 //!   against Eigen's own output for all 5 of the request document's
 //!   boundary cases (`num_vars_free` 1/2/3/4/8, covering both branches).
@@ -108,8 +108,8 @@
 //!   rounding from two differently-ordered decompositions, not a genuine
 //!   algorithm disagreement. See that test's own "Tolerance" doc section for
 //!   the full measurement and the `1e-7` bound it justifies.
-use crate::trajectory::ChompTrajectory;
-use crate::utils::{self, DIFF_RULE_LENGTH};
+use crate::chomp::trajectory::ChompTrajectory;
+use crate::chomp::utils::{self, DIFF_RULE_LENGTH};
 use cspace_core::error::{Error, Result};
 use nalgebra::{DMatrix, DVector};
 
@@ -128,7 +128,7 @@ impl ChompCost {
     /// Builds the smoothness quadratic-cost matrix as a weighted sum of
     /// squared finite-difference matrices, one per entry of
     /// `derivative_costs` (in practice always velocity, acceleration, jerk,
-    /// in that order -- matching [`crate::utils::DIFF_RULES`]'s row order),
+    /// in that order -- matching [`crate::chomp::utils::DIFF_RULES`]'s row order),
     /// plus `ridge_factor` on the diagonal.
     ///
     /// Ported from `ChompCost::ChompCost`. See the module doc for every
@@ -228,9 +228,9 @@ impl ChompCost {
     /// output view (`Eigen::MatrixBase<Derived>&`) so the result can alias
     /// an existing buffer; here it is always a fresh, owned [`DVector`],
     /// matching this crate's "owned copies, not live views" convention
-    /// (see [`crate::trajectory`]'s module doc): no call site in this crate
+    /// (see [`crate::chomp::trajectory`]'s module doc): no call site in this crate
     /// needs write-through aliasing (the only caller,
-    /// [`crate::optimizer::calculate_smoothness_increments`], only reads the
+    /// [`crate::chomp::optimizer::calculate_smoothness_increments`], only reads the
     /// returned vector).
     ///
     /// Ported from `getDerivative`.
@@ -307,7 +307,7 @@ impl ChompCost {
     }
 
     /// Builds a `size x size` finite-difference matrix from a single
-    /// [`crate::utils::DIFF_RULES`] row, truncating (not reflecting or
+    /// [`crate::chomp::utils::DIFF_RULES`] row, truncating (not reflecting or
     /// renormalizing) the stencil at both ends of the matrix so it never
     /// reads outside `[0, size)`.
     ///
@@ -331,7 +331,7 @@ impl ChompCost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::trajectory::ChompTrajectory;
+    use crate::chomp::trajectory::ChompTrajectory;
     use approx::assert_relative_eq;
     use cspace_core::model::{MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;

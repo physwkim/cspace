@@ -118,7 +118,7 @@
 //!
 //! Until PORTING-PLAN.md D8 landed there was nothing to call: no planner
 //! crate depended on `cspace-planning`, and
-//! `cspace_planners_sbp::registry`'s `PlanningRequest` shared only a *name*
+//! `cspace_planners::sbp::registry`'s `PlanningRequest` shared only a *name*
 //! with `cspace_planning`'s. D8 merged the two, so `RrtConnectManager` now
 //! implements [`cspace_planning::PlannerManager`] and reaches these
 //! endpoints through `cspace_planning::planner_registry::PLANNER_MANAGERS` -- which

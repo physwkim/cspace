@@ -75,7 +75,7 @@ pub const DIFF_RULES: [[f64; DIFF_RULE_LENGTH]; 3] = [
 /// it silently ignores any variable beyond the first on a multi-DOF active
 /// joint rather than rejecting the group — matching upstream, which has no
 /// guard at this call site either (unlike
-/// [`crate::trajectory::ChompTrajectory`]'s constructors, which do reject a
+/// [`crate::chomp::trajectory::ChompTrajectory`]'s constructors, which do reject a
 /// multi-DOF active joint; that check lives there because it is upstream's
 /// own `assert()`-guarded invariant at that specific call site, not a
 /// blanket rule this function also enforces).

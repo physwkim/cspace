@@ -2,7 +2,7 @@
 
 Written before `optimize_benchmark_chomp.rs` (owned by `residual-ci-wired` this
 round) switches to `solve_with_trace` and the number lands. Grounded against
-`crates/cspace-planners-chomp/src/optimizer.rs`'s live `optimize()` body, not
+`crates/cspace-planners/src/chomp/optimizer.rs`'s live `optimize()` body, not
 against the port's docs about it.
 
 Benchmark parameters are `ChompParameters::default()` with only

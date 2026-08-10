@@ -23,9 +23,9 @@
 //! Only [`PathCircle::path_length`]/[`PathCircle::pos`] are provided, not
 //! `Vel`/`Acc`/`Write`/`Clone`/`LengthToS`: `generate_joint_trajectory`
 //! (this crate's `trajectory_functions` module) only ever calls
-//! [`crate::trajectory_functions::CartesianPath::duration`]/`pos` on a
+//! [`crate::pilz::trajectory_functions::CartesianPath::duration`]/`pos` on a
 //! Cartesian path, the same scope limit already documented on
-//! [`crate::path_line::PathLine`].
+//! [`crate::pilz::path_line::PathLine`].
 //!
 //! # Deviations from upstream
 //!
@@ -49,11 +49,11 @@
 //!   an explicit `eps` argument instead: callers built on
 //!   [`circle_from_center`] must pass [`MAX_COLINEAR_NORM`], callers built on
 //!   [`circle_from_interim`] must pass
-//!   [`crate::velocity_profile::KDL_EPSILON`] — reproducing the same two
+//!   [`crate::pilz::velocity_profile::KDL_EPSILON`] — reproducing the same two
 //!   tolerances upstream's swap produces, without a mutable global.
 //! - **A "both zero" guard upstream lacks, closing its own asymmetry.**
 //!   `KDL::Path_Line`'s constructor has an explicit branch for
-//!   `angle == 0 && dist == 0` (see [`crate::path_line::PathLine::new`]'s own
+//!   `angle == 0 && dist == 0` (see [`crate::pilz::path_line::PathLine::new`]'s own
 //!   deviation note); `KDL::Path_Circle`'s constructor has no equivalent
 //!   branch — its `else` arm unconditionally computes `scalerot = oalpha /
 //!   pathlength`, dividing by `dist` even when both `oalpha` and `dist` are
@@ -88,7 +88,7 @@
 //! auxiliary point pinning the plane, and a start/goal rotation pair), the
 //! `eqradius` convention balancing translational against rotational arc
 //! length into one path parameter (already independently derived for
-//! [`crate::path_line::PathLine`], reused verbatim since `Path_Line` and
+//! [`crate::pilz::path_line::PathLine`], reused verbatim since `Path_Line` and
 //! `Path_Circle` share the identical balancing rule), and the
 //! `RotationalInterpolation_SingleAxis` axis-angle convention (already
 //! ported as `path_line::get_rot_angle` for `PathLine`, reused as-is here).
@@ -100,7 +100,7 @@ use cspace_core::error::{Error, Result};
 use cspace_core::geometry::{Isometry3, UnitQuaternion, Vector3};
 use nalgebra::Unit;
 
-use crate::path_line::{get_rot_angle, kdl_normalize};
+use crate::pilz::path_line::{get_rot_angle, kdl_normalize};
 
 /// Upstream `PathCircleGenerator::MAX_RADIUS_DIFF`: the largest tolerated
 /// difference between the start-to-center and goal-to-center distances in
@@ -301,12 +301,12 @@ impl PathCircle {
     ///
     /// `eqradius` is the equivalent radius balancing rotational against
     /// translational path length, the same convention
-    /// [`crate::path_line::PathLine::new`] uses. `eps` is the degeneracy
+    /// [`crate::pilz::path_line::PathLine::new`] uses. `eps` is the degeneracy
     /// tolerance for the radius and plane-normal checks below — see the
     /// [module docs](self)'s deviation note for which constant callers must
     /// pass depending on whether `geometry` came from [`circle_from_center`]
     /// ([`MAX_COLINEAR_NORM`]) or [`circle_from_interim`]
-    /// ([`crate::velocity_profile::KDL_EPSILON`]).
+    /// ([`crate::pilz::velocity_profile::KDL_EPSILON`]).
     ///
     /// # Errors
     ///

@@ -21,9 +21,9 @@ use std::time::{Duration, Instant};
 
 use rand::{Rng, RngExt};
 
-use crate::nn::Gnat;
-use crate::space::StateSpace;
-use crate::validity::{MotionValidator, StateValidityChecker};
+use crate::sbp::nn::Gnat;
+use crate::sbp::space::StateSpace;
+use crate::sbp::validity::{MotionValidator, StateValidityChecker};
 
 /// The condition(s) that stop [`rrt_connect`] from growing its trees
 /// further.
@@ -503,11 +503,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compound::{CompoundSpace, CompoundValue};
-    use crate::se3::{Se3Space, Se3State};
-    use crate::so2::So2Space;
-    use crate::space::RealVectorSpace;
-    use crate::validity::DiscreteMotionValidator;
+    use crate::sbp::compound::{CompoundSpace, CompoundValue};
+    use crate::sbp::se3::{Se3Space, Se3State};
+    use crate::sbp::so2::So2Space;
+    use crate::sbp::space::RealVectorSpace;
+    use crate::sbp::validity::DiscreteMotionValidator;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 

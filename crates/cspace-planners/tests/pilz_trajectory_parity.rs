@@ -35,12 +35,12 @@ use serde::Deserialize;
 use cspace_collision::{LinkPaddingScale, ParryCollisionEnv, World};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
-use cspace_planners_pilz::limits::{JointLimit, JointLimitsContainer, LimitsContainer};
-use cspace_planners_pilz::trajectory_functions::IkContext;
-use cspace_planners_pilz::trajectory_generator::{
+use cspace_planners::pilz::limits::{JointLimit, JointLimitsContainer, LimitsContainer};
+use cspace_planners::pilz::trajectory_functions::IkContext;
+use cspace_planners::pilz::trajectory_generator::{
     Goal, MotionPlanRequest, PilzGenerator, StartState, TrajectoryGenerator,
 };
-use cspace_planners_pilz::trajectory_generator_ptp::TrajectoryGeneratorPtp;
+use cspace_planners::pilz::trajectory_generator_ptp::TrajectoryGeneratorPtp;
 use cspace_planning::scene::PlanningScene;
 
 #[derive(Deserialize)]
@@ -126,7 +126,7 @@ struct OracleResponseEnvelope<T> {
 
 fn fixture_path(file_name: &str) -> String {
     format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/pilz/{}"),
         file_name
     )
 }

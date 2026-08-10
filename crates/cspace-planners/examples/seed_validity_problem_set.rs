@@ -59,7 +59,7 @@ use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
 use cspace_core::test_support::isometry_from_row_major;
-use cspace_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
+use cspace_planners::sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use cspace_planning::scene::PlanningScene;
 
 /// `plan_benchmark_port.rs`'s own `mesh_package_for`/`load_robot`, unchanged:

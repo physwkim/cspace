@@ -7,9 +7,9 @@
 //   moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator_lin.cpp
 
 //! Straight-line Cartesian trajectory generation ([`TrajectoryGeneratorLin`]):
-//! a [`crate::path_line::PathLine`] time-parametrized by one
-//! [`crate::velocity_profile_trap::VelocityProfileTrap`], sampled and
-//! IK-solved by [`crate::trajectory_functions::generate_joint_trajectory`].
+//! a [`crate::pilz::path_line::PathLine`] time-parametrized by one
+//! [`crate::pilz::velocity_profile_trap::VelocityProfileTrap`], sampled and
+//! IK-solved by [`crate::pilz::trajectory_functions::generate_joint_trajectory`].
 //!
 //! Ported from upstream `TrajectoryGeneratorLIN`.
 //!
@@ -19,16 +19,16 @@
 //!   reads an optional speed from `req.max_cartesian_speed` (a Pilz-specific
 //!   `moveit_msgs` extension field) and falls back to
 //!   `cartesian_limits.max_trans_vel` only if that field is unset. This port's
-//!   [`crate::trajectory_generator::MotionPlanRequest`] carries no such field
+//!   [`crate::pilz::trajectory_generator::MotionPlanRequest`] carries no such field
 //!   (`PORTING-PLAN.md` D1/D2's message-shape exclusion — see
 //!   `trajectory_generator`'s own module doc for other fields dropped the same
 //!   way), so [`TrajectoryGeneratorLin::plan`] always takes upstream's
 //!   fallback branch.
-//! - **`max_trans_dec` is read from [`crate::limits::CartesianLimits`] but
+//! - **`max_trans_dec` is read from [`crate::pilz::limits::CartesianLimits`] but
 //!   never used.** Confirmed by reading upstream `cartesianTrapVelocityProfile`
 //!   directly: `KDL::VelocityProfile_Trap` accepts only one acceleration
 //!   magnitude for both ramps, so only `max_trans_acc` is ever passed to
-//!   [`crate::velocity_profile_trap::VelocityProfileTrap::new`]. This is an
+//!   [`crate::pilz::velocity_profile_trap::VelocityProfileTrap::new`]. This is an
 //!   upstream quirk (the field exists in the Cartesian limits schema for
 //!   `CIRC`'s own use elsewhere, not because LIN secretly needs it), not a bug
 //!   this port invents an asymmetric use to "fix".
@@ -37,10 +37,10 @@
 //!   `extractMotionPlanInfo` has its `bool` return value discarded for both
 //!   the goal-pose and start-pose computations; on failure `info.goal_pose`/
 //!   `info.start_pose` keep whatever they already held (`Isometry3::identity`,
-//!   from `crate::trajectory_generator::MotionPlanInfo::new`). This is
+//!   from `crate::pilz::trajectory_generator::MotionPlanInfo::new`). This is
 //!   reproduced verbatim rather than turned into a hard error.
 //! - **A Cartesian goal's IK solution is discarded.** Unlike
-//!   [`crate::trajectory_generator_ptp::TrajectoryGeneratorPtp`], where a
+//!   [`crate::pilz::trajectory_generator_ptp::TrajectoryGeneratorPtp`], where a
 //!   Cartesian goal's IK solution directly becomes `goal_joint_position`,
 //!   upstream's LIN only calls `computePoseIK` to confirm the goal pose is
 //!   reachable at all -- the local `ik_solution` output parameter has no
@@ -55,7 +55,7 @@
 //!   (see that trait's own `# Deviations`), so "more than one tip frame" is
 //!   unrepresentable here; `solver_tip_frame` only has upstream's
 //!   "no solver" case left to handle, via the same scan-`KINEMATICS_SOLVERS`
-//!   pattern [`crate::trajectory_generator::check_cartesian_goal`] already
+//!   pattern [`crate::pilz::trajectory_generator::check_cartesian_goal`] already
 //!   uses.
 //! - **`cmd_specific_request_validation` is added; upstream's `LIN` has no
 //!   override at all.** `plan` divides by `cartesian_limits.max_rot_vel`
@@ -63,7 +63,7 @@
 //!   zero there is gated by `cartesian_limits_parameters.yaml`'s mandatory
 //!   (no-default) parameter declaration, a boundary this port has no
 //!   equivalent of. See
-//!   [`crate::trajectory_generator::check_cartesian_limits`]'s own doc.
+//!   [`crate::pilz::trajectory_generator::check_cartesian_limits`]'s own doc.
 
 use cspace_collision::CollisionEnv;
 use cspace_core::error::{Error, MoveItErrorCode, Result};
@@ -72,16 +72,16 @@ use cspace_core::kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver}
 use cspace_core::state::Posed;
 use cspace_core::trajectory::RobotTrajectory;
 
-use crate::path_line::PathLine;
-use crate::trajectory_functions::{
+use crate::pilz::path_line::PathLine;
+use crate::pilz::trajectory_functions::{
     CartesianPath, IkContext, compute_link_fk, compute_pose_ik, constraint_pose,
     generate_joint_trajectory, resolve_goal_frame, solver_tip_frame,
 };
-use crate::trajectory_generator::{
+use crate::pilz::trajectory_generator::{
     Goal, MotionPlanInfo, MotionPlanRequest, PilzGenerator, TrajectoryGenerator,
     check_cartesian_limits,
 };
-use crate::velocity_profile_trap::VelocityProfileTrap;
+use crate::pilz::velocity_profile_trap::VelocityProfileTrap;
 
 /// Straight-line Cartesian trajectory generator.
 ///
@@ -111,7 +111,7 @@ where
 
     /// Upstream has no `cmdSpecificRequestValidation` override for `LIN` —
     /// this port adds one anyway. See
-    /// [`crate::trajectory_generator::check_cartesian_limits`]'s own doc for
+    /// [`crate::pilz::trajectory_generator::check_cartesian_limits`]'s own doc for
     /// why: `plan` below divides by `cartesian_limits.max_rot_vel`
     /// unguarded, and nothing upstream's own `validateRequest` runs would
     /// catch a `LimitsContainer` that never set it either — this port has no
@@ -119,7 +119,7 @@ where
     ///
     /// # Errors
     ///
-    /// See [`crate::trajectory_generator::check_cartesian_limits`].
+    /// See [`crate::pilz::trajectory_generator::check_cartesian_limits`].
     fn cmd_specific_request_validation(&self, _req: &MotionPlanRequest) -> Result<()> {
         check_cartesian_limits(self.base.planner_limits())
     }
@@ -295,8 +295,8 @@ mod tests {
     use cspace_planning::scene::PlanningScene;
 
     use super::*;
-    use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer};
-    use crate::trajectory_generator::StartState;
+    use crate::pilz::limits::{CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer};
+    use crate::pilz::trajectory_generator::StartState;
 
     fn fixture_mesh_search_paths() -> MeshSearchPaths {
         let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
@@ -355,7 +355,7 @@ mod tests {
     /// [`VelocityProfileTrap`] needs a nonzero `max_trans_vel`/`max_trans_acc`
     /// to produce a finite-duration profile at all --
     /// [`LimitsContainer::new`] alone leaves `cartesian_limits` all-zero (see
-    /// [`crate::limits::LimitsContainer::cartesian_limits`]'s doc), which
+    /// [`crate::pilz::limits::LimitsContainer::cartesian_limits`]'s doc), which
     /// makes an unreachable (zero-velocity, zero-acceleration) profile for
     /// any nonzero path length.
     fn panda_generator(model: &RobotModel) -> TrajectoryGeneratorLin<'_> {
@@ -546,7 +546,7 @@ mod tests {
     /// `plan` divides by it unguarded (line 207). Boundary-tested once for
     /// every non-positive/non-finite `max_rot_vel` in
     /// `check_cartesian_limits`'s own tests
-    /// (`crate::trajectory_generator::tests`); this test only confirms LIN's
+    /// (`crate::pilz::trajectory_generator::tests`); this test only confirms LIN's
     /// `cmd_specific_request_validation` actually calls it, which a passing
     /// `check_cartesian_limits` alone would not prove.
     #[test]

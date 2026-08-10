@@ -76,7 +76,7 @@
 //! given -- it does not itself interpolate between them -- and this crate's
 //! own `rrt_connect` only *returns* the RRT tree's vertices (roughly
 //! [`RrtConnectParams::step_size`] apart), not the interior points
-//! [`DiscreteMotionValidator`](cspace_planners_sbp::DiscreteMotionValidator)
+//! [`DiscreteMotionValidator`](cspace_planners::sbp::DiscreteMotionValidator)
 //! already checked and discarded while building each edge. Calling
 //! `is_path_valid` on the raw returned vertices alone would therefore not
 //! independently re-verify anything: those vertices were already
@@ -185,7 +185,7 @@ use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
 use cspace_core::test_support::isometry_from_row_major;
-use cspace_planners_sbp::{
+use cspace_planners::sbp::{
     CompoundValue, JointModelGroupSpace, PlanError, PlanningFailure, RrtConnectManager,
     RrtConnectParams, StateSpace, Termination,
 };

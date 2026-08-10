@@ -79,7 +79,7 @@
 //!
 //! ```text
 //! awk '/^\/\/! What remains this crate.s own, from that header:/,0' \
-//!   crates/cspace-planners-sbp/src/lib.rs | rg -c '^//! - '
+//!   crates/cspace-planners/src/sbp/lib.rs | rg -c '^//! - '
 //! ```
 //!
 //! is **4** — `PlannerConfigurationSettings`/`PlannerConfigurationMap`,
@@ -112,7 +112,7 @@
 //! defined in `test_support.rs`, not six independent reimplementations of
 //! the same check.
 //!
-//! Round 14: `rg -c 'assert_relative_eq!' crates/cspace-planners-sbp/
+//! Round 14: `rg -c 'assert_relative_eq!' crates/cspace-planners/
 //! --glob '!lib.rs'` is **0** — this crate has no site using that macro at
 //! all, so there is nothing here to bisect for a default-`max_relative`-
 //! masking regression the way other crates in this workspace round needed
@@ -263,7 +263,7 @@
 //! `70a6b31` fixed the workspace's `serde_json` float parser because 8.1% of
 //! committed fixture literals came back one ULP off, contaminating any
 //! tolerance bisected against a value read that way. `rg -c
-//! '1e-6|1e-9|1e-12' crates/cspace-planners-sbp/src --glob '!lib.rs'` (this
+//! '1e-6|1e-9|1e-12' crates/cspace-planners/src/sbp --glob '!lib.rs'` (this
 //! doc comment itself quotes that pattern, so `lib.rs` is excluded rather
 //! than left to self-match) finds every such literal in `space.rs`,
 //! `so2.rs`, `se3.rs`, `compound.rs`, `nn.rs`, `validity.rs`,

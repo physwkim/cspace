@@ -38,7 +38,7 @@
 //!   logging this port ends up using, rather than a hard-wired `rclcpp`
 //!   macro.
 //! - **`JointLimit::to_string()`/`debug_to_string()` are not ported.** Same
-//!   reasoning as `VelocityProfileAtrap::Write` in [`crate::velocity_profile`]:
+//!   reasoning as `VelocityProfileAtrap::Write` in [`crate::pilz::velocity_profile`]:
 //!   pure formatting helpers, unexercised by any computation this crate
 //!   ports; `#[derive(Debug)]` covers the same debugging need.
 //! - **`LimitsContainer::has_cartesian_limits()` is added.** Upstream defines
@@ -60,7 +60,7 @@ use std::fmt;
 
 use cspace_core::error::{Error, Result};
 
-use crate::numeric::{cxx_max, cxx_min};
+use crate::pilz::numeric::{cxx_max, cxx_min};
 
 /// A single joint's position/velocity/acceleration/deceleration/jerk/effort
 /// limits.

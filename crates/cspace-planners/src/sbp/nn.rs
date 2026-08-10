@@ -34,7 +34,7 @@
 //! public API) is exact, so `nearest` always agrees with a brute-force
 //! scan — the property this module's tests check directly.
 
-use crate::space::StateSpace;
+use crate::sbp::space::StateSpace;
 
 /// A GNAT-family nearest-neighbour index over `S::State`, each entry
 /// carrying a caller-supplied payload `T` (in `rrt_connect`, a
@@ -223,7 +223,7 @@ impl<P: Clone, T> Node<P, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::space::RealVectorSpace;
+    use crate::sbp::space::RealVectorSpace;
     use rand::{RngExt, SeedableRng};
     use rand_chacha::ChaCha8Rng;
 

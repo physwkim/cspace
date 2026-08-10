@@ -51,7 +51,7 @@ use cspace_core::error::{Error, Result};
 pub struct PlannerRegistration {
     /// The name a caller scanning [`PLANNER_MANAGERS`] matches on, equal to
     /// the [`PlannerManager::name`] of what [`PlannerRegistration::construct`]
-    /// builds — `"rrt_connect"` for `cspace_planners_sbp::RrtConnectManager`.
+    /// builds — `"rrt_connect"` for `cspace_planners::sbp::RrtConnectManager`.
     /// `tests/registered_planners.rs`'
     /// `registration_names_match_the_managers_they_build` is what keeps the
     /// two from drifting apart.
@@ -100,7 +100,7 @@ pub struct PlannerRegistration {
 /// returns [`Error::UnknownName`] as if the planner had never been written.
 /// Measured, not reasoned about: `cspace-planning`'s crate-level doctest and
 /// this crate's `tests/registered_planners.rs` both failed exactly that way
-/// until each grew a `use cspace_planners_sbp as _;`. Any binary that
+/// until each grew a `use cspace_planners as _;`. Any binary that
 /// expects to find a planner here needs that line (see
 /// `ros/cspace-ros/src/lib.rs` for the production one).
 #[linkme::distributed_slice]

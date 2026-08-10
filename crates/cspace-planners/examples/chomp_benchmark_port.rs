@@ -7,7 +7,7 @@
 // through `chomp_interface`'s pluginlib `PlanningContext` (excluded from this
 // port by D1/D2, PORTING-PLAN.md §121.3), never through a benchmark runner.
 
-//! Runs this crate's [`chomp::solve`](cspace_planners_chomp::solve) over a
+//! Runs this crate's [`chomp::solve`](cspace_planners::chomp::solve) over a
 //! `plan`-op request JSON -- the exact format
 //! `cspace-planners-sbp`'s `examples/plan_benchmark_problem_set` emits and
 //! `cspace-planners-sbp/benches/sweep_baseline.sh` feeds to the oracle -- so
@@ -66,7 +66,7 @@
 //! [`ChompParameters::max_iterations`] and therefore be reproducible.
 //!
 //! `seed_base` seeds the per-problem `ChaCha8Rng` CHOMP's
-//! [`use_stochastic_descent`](cspace_planners_chomp::ChompParameters::use_stochastic_descent)
+//! [`use_stochastic_descent`](cspace_planners::chomp::ChompParameters::use_stochastic_descent)
 //! draws from; each problem uses `seed_base.wrapping_add(problem.id)`, so a
 //! rerun with the same `seed_base` over the same request file is
 //! reproducible. It is unrelated to the request's own `seed` field (that
@@ -85,7 +85,7 @@
 //! that lowers its smoothness+obstacle cost can raise its joint-space path
 //! length and vice versa. `objective` is the optimizer's own cost function,
 //! read off
-//! [`ChompSolution::objective`](cspace_planners_chomp::ChompSolution::objective),
+//! [`ChompSolution::objective`](cspace_planners::chomp::ChompSolution::objective),
 //! and it is present on every solved line and absent on every failed one
 //! (`solve` returns `Err`, so there is no solution to read it from).
 //!
@@ -116,13 +116,13 @@
 //! them apart: a seed at a local minimum, a collision term with no support, an
 //! update computed and rejected, and an update scaled to nothing all produce
 //! the same zero. `loop` is
-//! [`ChompSolution::loop_trace`](cspace_planners_chomp::ChompSolution::loop_trace)
+//! [`ChompSolution::loop_trace`](cspace_planners::chomp::ChompSolution::loop_trace)
 //! -- the loop's own account of what it did -- and it separates them.
 //!
 //! Unlike `objective`, `loop` is not absent on a failed line: this binary
 //! reads it off
-//! [`solve_with_trace`](cspace_planners_chomp::solve_with_trace) rather than
-//! [`solve`](cspace_planners_chomp::solve), so a failed line carries the
+//! [`solve_with_trace`](cspace_planners::chomp::solve_with_trace) rather than
+//! [`solve`](cspace_planners::chomp::solve), so a failed line carries the
 //! trace of whichever attempt's optimizer last completed a loop -- the
 //! *why* behind `INVALID_MOTION_PLAN` and `GOAL_CONSTRAINTS_VIOLATED`, both
 //! of which can only fire after an optimizer has run. `loop` is still
@@ -179,7 +179,7 @@
 //!
 //! # `mesh_to_mesh_collision_free` is really wired here
 //!
-//! [`chomp::solve`](cspace_planners_chomp::solve) takes upstream's
+//! [`chomp::solve`](cspace_planners::chomp::solve) takes upstream's
 //! `ChompOptimizer::isCurrentTrajectoryMeshToMeshCollisionFree` as an
 //! injected closure rather than a method, so this crate need not depend on
 //! `cspace-scene`/`cspace-collision`'s `ParryCollisionEnv` (see
@@ -218,12 +218,12 @@ use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
 use cspace_core::test_support::isometry_from_row_major;
-use cspace_planners_chomp::optimizer::ChompCollisionContext;
-use cspace_planners_chomp::{
+use cspace_planners::chomp::optimizer::ChompCollisionContext;
+use cspace_planners::chomp::{
     ChompExit, ChompGoal, ChompLoopTrace, ChompObjective, ChompObjectiveProgress, ChompParameters,
     ChompRequest, GoalJointConstraint, solve_with_trace,
 };
-use cspace_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
+use cspace_planners::sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use cspace_planning::scene::PlanningScene;
 use nalgebra::DMatrix;
 use rand::SeedableRng;

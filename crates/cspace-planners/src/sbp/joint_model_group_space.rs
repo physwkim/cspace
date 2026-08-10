@@ -13,11 +13,11 @@ use cspace_core::model::joint::{JointKind, VariableBounds};
 use cspace_core::state::RobotState;
 use rand::Rng;
 
-use crate::compound::{CompoundSpace, CompoundValue};
-use crate::error::SbpError;
-use crate::se3::{Se3Space, Se3State};
-use crate::so2::So2Space;
-use crate::space::{RealVectorSpace, StateSpace};
+use crate::sbp::compound::{CompoundSpace, CompoundValue};
+use crate::sbp::error::SbpError;
+use crate::sbp::se3::{Se3Space, Se3State};
+use crate::sbp::so2::So2Space;
+use crate::sbp::space::{RealVectorSpace, StateSpace};
 
 /// Half-extent (metres) substituted for a translation axis whose own
 /// `VariableBounds` are non-finite.
@@ -348,9 +348,9 @@ mod tests {
     use rand_chacha::ChaCha8Rng;
 
     use super::*;
-    use crate::rrt_connect::{RrtConnectParams, Sampler, Termination, rrt_connect};
-    use crate::test_support::assert_metric_and_interpolation_axioms;
-    use crate::validity::{DiscreteMotionValidator, MotionValidator};
+    use crate::sbp::rrt_connect::{RrtConnectParams, Sampler, Termination, rrt_connect};
+    use crate::sbp::test_support::assert_metric_and_interpolation_axioms;
+    use crate::sbp::validity::{DiscreteMotionValidator, MotionValidator};
 
     /// Every group this module's tests exercise, one per row: `(urdf file,
     /// srdf file, group name)`, all under the repo-root `fixtures/`

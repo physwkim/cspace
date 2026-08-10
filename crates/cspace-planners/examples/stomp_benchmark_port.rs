@@ -6,7 +6,7 @@
 // Upstream drives STOMP only through `StompPlanningContext`'s pluginlib
 // entry point, never through a benchmark runner.
 
-//! Runs this crate's [`plan`](cspace_planners_stomp::plan) over a `plan`-op
+//! Runs this crate's [`plan`](cspace_planners::stomp::plan) over a `plan`-op
 //! request JSON -- the exact format `cspace-planners-sbp`'s
 //! `examples/plan_benchmark_problem_set` emits and
 //! `cspace-planners-sbp/benches/sweep_baseline.sh` feeds to the oracle -- so
@@ -95,7 +95,7 @@
 //!
 //! Note what that uniform rule means *here*, because it is not the same
 //! relationship RRT-Connect had: STOMP's own validity check interpolates at
-//! [`COL_CHECK_DISTANCE`](cspace_planners_stomp::cost_functions::COL_CHECK_DISTANCE)
+//! [`COL_CHECK_DISTANCE`](cspace_planners::stomp::cost_functions::COL_CHECK_DISTANCE)
 //! `= 0.05` (upstream `cost_functions.hpp:59`), five times *coarser* than
 //! `motion_resolution`. For RRT-Connect the two resolutions were equal, so
 //! condition 2 was a cross-check between two independent code paths at one
@@ -120,9 +120,9 @@ use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
 use cspace_core::test_support::isometry_from_row_major;
-use cspace_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
-use cspace_planners_stomp::cost_functions::get_collision_cost_function;
-use cspace_planners_stomp::planner::{PlanRequest, plan};
+use cspace_planners::sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
+use cspace_planners::stomp::cost_functions::get_collision_cost_function;
+use cspace_planners::stomp::planner::{PlanRequest, plan};
 use cspace_planning::scene::PlanningScene;
 use cspace_stomp_core::{CancelHandle, StompConfiguration, TrajectoryInitialization};
 use rand::SeedableRng;

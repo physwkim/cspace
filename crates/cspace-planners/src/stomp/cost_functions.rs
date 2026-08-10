@@ -112,9 +112,9 @@ use cspace_core::state::Posed;
 use cspace_planning::constraints::KinematicConstraintSet;
 use cspace_planning::scene::PlanningScene;
 
-use crate::composable_task::CostFn;
-use crate::conversion_functions::set_positions;
-use crate::require_single_variable;
+use crate::stomp::composable_task::CostFn;
+use crate::stomp::conversion_functions::set_positions;
+use crate::stomp::require_single_variable;
 
 /// `StateValidatorFn`: upstream's `std::function<double(const
 /// Eigen::VectorXd&)>` -- a single state's positions in, a penalty out (`0.0`
@@ -257,7 +257,7 @@ fn kernel_bounds(mu: f64, sigma: f64, num_timesteps: usize) -> (usize, usize) {
 /// `costs::getCollisionCostFunction(planning_scene, group, collision_penalty)`
 /// (`cost_functions.hpp:199-216`). Builds a [`StateValidatorFn`] that writes
 /// `positions` into `scene`'s current state
-/// ([`crate::conversion_functions::set_positions`], upstream's
+/// ([`crate::stomp::conversion_functions::set_positions`], upstream's
 /// `setJointPositions`) and reports `collision_penalty` if
 /// [`PlanningScene::is_state_colliding`] then finds a collision restricted to
 /// `group`, `0.0` otherwise. See this module's doc for why `scene` is a
@@ -267,7 +267,7 @@ fn kernel_bounds(mu: f64, sigma: f64, num_timesteps: usize) -> (usize, usize) {
 /// # Errors
 ///
 /// [`cspace_core::error::Error`] if any of `group`'s active joints has more than
-/// one variable -- see [`crate::conversion_functions::set_positions`]'s own
+/// one variable -- see [`crate::stomp::conversion_functions::set_positions`]'s own
 /// "Single-variable-joint precondition", checked once here rather than on
 /// every call.
 pub fn get_collision_cost_function<'a, 'm, E>(

@@ -1,0 +1,51 @@
+[package]
+name = "cspace-planners"
+description = "Motion planners for moveit-rs: sampling-based (RRT-Connect), CHOMP, Pilz industrial LIN/PTP/CIRC and STOMP"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cspace-core.workspace = true
+cspace-collision.workspace = true
+cspace-planning.workspace = true
+# `stomp` only: the ROS-independent optimizer loop the module's `planner`
+# hands its `Task` to. Kept a separate crate rather than folded in here
+# because it is the one Apache-2.0 body in the workspace (see its own
+# manifest and the root `[workspace.dependencies]` comment).
+cspace-stomp-core.workspace = true
+linkme.workspace = true
+nalgebra.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+rand_distr.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
+cspace-core = { workspace = true, features = ["test-support"] }
+serde.workspace = true
+serde_json.workspace = true
+urdf-rs.workspace = true
+
+# Not `[lints] workspace = true`: the `sbp::registry` module's PlannerManager
+# registry uses `linkme::distributed_slice`, per PORTING-PLAN.md D4 -- the same
+# mechanism `cspace_core::kinematics::registry` uses, whose Cargo.toml explains
+# in full why `unsafe_code` (and only that lint) has to be relaxed: every
+# `distributed_slice` static expands to a `#[link_section]` item, which trips
+# the lint even though no source file here contains an actual `unsafe` block,
+# and the workspace's `unsafe_code = "forbid"` cannot be downgraded by a
+# narrower per-site `#[allow(...)]` (`forbid` refuses even that, and
+# `tools/ci/check-no-lint-suppression.sh` would reject the attempt anyway).
+# `src/lib.rs` puts `#[forbid(unsafe_code)]` back on every module except `sbp`,
+# so this relaxation covers one of the four, not all of them.
+[lints.rust]
+warnings = "deny"
+missing_docs = "warn"
+unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

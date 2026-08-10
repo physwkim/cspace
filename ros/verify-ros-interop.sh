@@ -54,7 +54,7 @@
 #
 # What this does NOT check (read this list before wiring `ros/` into CI):
 #   - No trajectory is compared against anything. Both live endpoints now
-#     plan for real -- D8 landed `cspace_planners_sbp::registry::
+#     plan for real -- D8 landed `cspace_planners::sbp::registry::
 #     RrtConnectManager` against `cspace_planning`'s own types -- and the live
 #     legs assert that a plannable request comes back SUCCESS with a
 #     non-empty trajectory. What they do not do is check that trajectory

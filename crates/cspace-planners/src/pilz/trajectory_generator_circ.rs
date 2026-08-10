@@ -7,7 +7,7 @@
 //   moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator_circ.cpp
 
 //! Circular-arc Cartesian trajectory generation
-//! ([`TrajectoryGeneratorCirc`]): a [`crate::path_circle::PathCircle`]
+//! ([`TrajectoryGeneratorCirc`]): a [`crate::pilz::path_circle::PathCircle`]
 //! time-parametrized by one [`VelocityProfileTrap`], sampled and IK-solved by
 //! [`generate_joint_trajectory`].
 //!
@@ -17,7 +17,7 @@
 //!
 //! - **No per-request Cartesian speed override, `max_trans_dec` unused.**
 //!   Same two deviations as
-//!   [`crate::trajectory_generator_lin::TrajectoryGeneratorLin`] — see that
+//!   [`crate::pilz::trajectory_generator_lin::TrajectoryGeneratorLin`] — see that
 //!   module's own doc; `plan` below takes the identical fallback branch and
 //!   builds [`VelocityProfileTrap`] with only `max_trans_acc`.
 //! - **`cmdSpecificRequestValidation`'s three checks collapse to one
@@ -32,7 +32,7 @@
 //!   point and a two-variant `kind`, so all three malformations are
 //!   unrepresentable by construction
 //!   (the same "unrepresentable, not merely not-ported" pattern
-//!   [`crate::trajectory_generator`]'s own `# What changed shape, and why`
+//!   [`crate::pilz::trajectory_generator`]'s own `# What changed shape, and why`
 //!   documents for [`Goal`]) — [`TrajectoryGeneratorCirc::cmd_specific_request_validation`]
 //!   only has the `None` case left to check -- plus the one the variant split
 //!   adds, a request carrying another command's path constraint, which
@@ -42,7 +42,7 @@
 //!   same as upstream — but upstream's own reachability of a zero there is
 //!   gated by `cartesian_limits_parameters.yaml`'s mandatory (no-default)
 //!   parameter declaration, a boundary this port has no equivalent of. See
-//!   [`crate::trajectory_generator::check_cartesian_limits`]'s own doc.
+//!   [`crate::pilz::trajectory_generator::check_cartesian_limits`]'s own doc.
 //! - **A joint-space goal's constraint-count check reads the group's active
 //!   joint count from [`cspace_core::model::JointModelGroup::active_joint_names`],
 //!   not a `size()` comparison against a message list**, since
@@ -50,7 +50,7 @@
 //!   under/over-populate independently of the map's own key set.
 //! - **A failed FK for the goal or start pose is silently ignored, matching
 //!   upstream exactly** — same as
-//!   [`crate::trajectory_generator_lin::TrajectoryGeneratorLin`]'s own
+//!   [`crate::pilz::trajectory_generator_lin::TrajectoryGeneratorLin`]'s own
 //!   identical deviation note.
 //! - **A Cartesian goal's IK solution is discarded**, same as
 //!   `TrajectoryGeneratorLin` — upstream's CIRC only calls `computePoseIK` to
@@ -74,19 +74,19 @@ use cspace_core::kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver}
 use cspace_core::state::Posed;
 use cspace_core::trajectory::RobotTrajectory;
 
-use crate::path_circle::{
+use crate::pilz::path_circle::{
     CircleGeometry, MAX_COLINEAR_NORM, PathCircle, circle_from_center, circle_from_interim,
 };
-use crate::trajectory_functions::{
+use crate::pilz::trajectory_functions::{
     CartesianPath, IkContext, compute_link_fk, compute_pose_ik, constraint_pose,
     generate_joint_trajectory, resolve_goal_frame,
 };
-use crate::trajectory_generator::{
+use crate::pilz::trajectory_generator::{
     CircPathConstraint, CircPathConstraintKind, Goal, MotionPlanInfo, MotionPlanRequest,
     PilzGenerator, TrajectoryGenerator, check_cartesian_limits,
 };
-use crate::velocity_profile::KDL_EPSILON;
-use crate::velocity_profile_trap::VelocityProfileTrap;
+use crate::pilz::velocity_profile::KDL_EPSILON;
+use crate::pilz::velocity_profile_trap::VelocityProfileTrap;
 
 /// Circular-arc Cartesian trajectory generator.
 ///
@@ -122,7 +122,7 @@ where
     ///
     /// [`MoveItErrorCode::InvalidMotionPlan`] if `req.path_constraints` is
     /// `None`, or carries another command's constraint, or the base's
-    /// planner limits fail [`crate::trajectory_generator::check_cartesian_limits`]
+    /// planner limits fail [`crate::pilz::trajectory_generator::check_cartesian_limits`]
     /// (added beyond upstream — see that function's own doc; `plan` below
     /// divides by `cartesian_limits.max_rot_vel` unguarded).
     fn cmd_specific_request_validation(&self, req: &MotionPlanRequest) -> Result<()> {
@@ -240,7 +240,7 @@ where
             }
             Goal::Joint(_) => center_point,
         };
-        info.circ_aux_point = Some(crate::trajectory_generator::CircPathConstraint {
+        info.circ_aux_point = Some(crate::pilz::trajectory_generator::CircPathConstraint {
             kind: path_constraint.kind,
             link_name: path_constraint.link_name.clone(),
             // `point` above is already resolved into the planning frame --
@@ -327,7 +327,7 @@ where
 
 /// Upstream `TrajectoryGeneratorCIRC::setPathCIRC`: solve the circle geometry
 /// from `kind`/`aux_point`, then build the interpolated
-/// [`PathCircle`] from it. See [`crate::path_circle`]'s own `eps`
+/// [`PathCircle`] from it. See [`crate::pilz::path_circle`]'s own `eps`
 /// convention note for why [`circle_from_center`]'s result is paired with
 /// [`MAX_COLINEAR_NORM`] but [`circle_from_interim`]'s is paired with
 /// [`KDL_EPSILON`].
@@ -355,8 +355,8 @@ fn build_path(
 }
 
 /// A [`PathCircle`] time-parametrized by a [`VelocityProfileTrap`] over its
-/// own arc length. Same composition [`crate::trajectory_generator_lin`]'s
-/// `LinSegment` names for [`crate::path_line::PathLine`].
+/// own arc length. Same composition [`crate::pilz::trajectory_generator_lin`]'s
+/// `LinSegment` names for [`crate::pilz::path_line::PathLine`].
 struct CircSegment {
     path: PathCircle,
     velocity_profile: VelocityProfileTrap,
@@ -375,7 +375,7 @@ impl CartesianPath for CircSegment {
 /// `req`'s `CIRC` auxiliary point.
 ///
 /// Upstream reads `req.path_constraints` directly and only checks that it is
-/// present; [`crate::trajectory_generator::PathConstraints`] can also hold
+/// present; [`crate::pilz::trajectory_generator::PathConstraints`] can also hold
 /// another command's constraint, so "absent" and "some other command's" are
 /// both rejected here, with the same error upstream gives for "absent".
 ///
@@ -398,8 +398,8 @@ mod tests {
     use cspace_core::model::{MeshSearchPaths, RobotModel};
 
     use super::*;
-    use crate::limits::{JointLimit, JointLimitsContainer, LimitsContainer};
-    use crate::trajectory_generator::{PathConstraints, StartState};
+    use crate::pilz::limits::{JointLimit, JointLimitsContainer, LimitsContainer};
+    use crate::pilz::trajectory_generator::{PathConstraints, StartState};
 
     fn load_panda() -> RobotModel {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");

@@ -7,9 +7,9 @@ use std::f64::consts::PI;
 
 use rand::{Rng, RngExt};
 
-use crate::error::SbpError;
-use crate::sampling::{sample_ball_radius_fraction, sample_unit_vector};
-use crate::space::{RealVectorSpace, StateSpace};
+use crate::sbp::error::SbpError;
+use crate::sbp::sampling::{sample_ball_radius_fraction, sample_unit_vector};
+use crate::sbp::space::{RealVectorSpace, StateSpace};
 
 /// A unit quaternion `(w, x, y, z)`.
 type Quat = [f64; 4];
@@ -253,7 +253,7 @@ impl StateSpace for Se3Space {
     fn sample_uniform(&self, rng: &mut dyn Rng) -> Se3State {
         let translation = self.translation.sample_uniform(rng);
         // Independent standard-normal coordinates on S^3, normalized, are
-        // uniform on the sphere (see `crate::sampling::sample_unit_vector`);
+        // uniform on the sphere (see `crate::sbp::sampling::sample_unit_vector`);
         // under the 2:1 covering map from S^3 to SO(3) that is exactly Haar
         // measure on SO(3), the natural notion of "uniform rotation".
         let rotation = sample_unit_vector(rng, 4);
@@ -322,7 +322,7 @@ impl StateSpace for Se3Space {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{
+    use crate::sbp::test_support::{
         assert_metric_and_interpolation_axioms, assert_sample_near_stays_within_radius,
     };
     use rand::SeedableRng;

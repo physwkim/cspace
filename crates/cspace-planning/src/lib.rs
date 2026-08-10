@@ -319,12 +319,12 @@
 //! // Linked for its side effect, not for any symbol: `RrtConnectManager`
 //! // registers itself into `PLANNER_MANAGERS` through a
 //! // `linkme::distributed_slice` static, and nothing below names a
-//! // `cspace_planners_sbp` item. Without this line the registration sits in
+//! // `cspace_planners::sbp` item. Without this line the registration sits in
 //! // an rlib object file no symbol references, the linker drops it, and
 //! // `resolve_planner("rrt_connect")` below fails with `UnknownName`
 //! // (measured — this example failed exactly that way before the line
 //! // existed).
-//! use cspace_planners_sbp as _;
+//! use cspace_planners as _;
 //!
 //! // Fixture URDF/SRDF loaded from disk, not a ROS parameter server or
 //! // `robot_description` topic — the whole point of this example.

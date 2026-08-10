@@ -9,7 +9,7 @@
 
 //! Multi-waypoint Cartesian trajectory generation
 //! ([`TrajectoryGeneratorPolyline`]): a
-//! [`crate::path_rounded_composite::PathRoundedComposite`] built by
+//! [`crate::pilz::path_rounded_composite::PathRoundedComposite`] built by
 //! [`polyline_from_waypoints`], time-parametrized by one
 //! [`VelocityProfileTrap`], sampled and IK-solved by
 //! [`generate_joint_trajectory`].
@@ -24,13 +24,13 @@
 //!
 //! - **No per-request Cartesian speed override, `max_trans_dec` unused.**
 //!   Same two deviations as
-//!   [`crate::trajectory_generator_lin::TrajectoryGeneratorLin`] — see that
+//!   [`crate::pilz::trajectory_generator_lin::TrajectoryGeneratorLin`] — see that
 //!   module's own doc. `plan` below takes the identical fallback branch.
 //! - **Waypoints arrive already in the planning frame; the goal does not.**
 //!   Upstream's `extractMotionPlanInfo` composes each `path_constraints`
 //!   position constraint into a pose and left-multiplies it by
 //!   `scene->getFrameTransform(frame_id)`, the same as it does for the goal
-//!   constraint — but [`crate::trajectory_generator::PolylinePathConstraint::waypoints`]
+//!   constraint — but [`crate::pilz::trajectory_generator::PolylinePathConstraint::waypoints`]
 //!   is `Vec<Isometry3>`, already-composed poses with no raw
 //!   position/orientation/frame components a caller could pass
 //!   unresolved, so this crate leaves resolving them to the caller
@@ -38,7 +38,7 @@
 //!   is the opposite shape — separate `position`/`orientation`/`frame`
 //!   fields that invite passing raw, unresolved numbers straight through —
 //!   so its `frame` field *is* resolved here, by
-//!   [`crate::trajectory_functions::resolve_goal_frame`], the same as
+//!   [`crate::pilz::trajectory_functions::resolve_goal_frame`], the same as
 //!   `PTP`/`LIN`/`CIRC`.
 //! - **The goal pose is the last waypoint's, not a separate goal
 //!   constraint.** Upstream reads `req.goal_constraints` for the final pose
@@ -54,7 +54,7 @@
 //!   codes its path construction can throw into six English sentences, all
 //!   raised as the same `ConsicutiveColinearWaypoints` exception carrying
 //!   [`MoveItErrorCode::InvalidMotionPlan`]. This port's
-//!   [`crate::path_rounded_composite`]/[`crate::path_polyline_generator`]
+//!   [`crate::pilz::path_rounded_composite`]/[`crate::pilz::path_polyline_generator`]
 //!   already return a message naming the geometric condition that failed, so
 //!   `plan` narrows them all to [`MoveItErrorCode::InvalidMotionPlan`]
 //!   without rewriting the text. The one behavioural difference is that
@@ -62,7 +62,7 @@
 //!   from the composite's constructor; that is unreachable here, since
 //!   [`TrajectoryGeneratorPolyline::cmd_specific_request_validation`] now
 //!   rejects the request via
-//!   [`crate::trajectory_generator::check_cartesian_limits`] before `plan`
+//!   [`crate::pilz::trajectory_generator::check_cartesian_limits`] before `plan`
 //!   ever runs.
 //! - **A `check_cartesian_limits` call is added; upstream's `cmdSpecificRequestValidation`
 //!   has none.** `plan` divides by `cartesian_limits.max_rot_vel` unguarded,
@@ -70,8 +70,8 @@
 //!   gated by `cartesian_limits_parameters.yaml`'s mandatory (no-default)
 //!   parameter declaration, a boundary this port has no equivalent of
 //!   (`CartesianLimits` derives `Default`, `max_rot_vel: 0.0`, and
-//!   [`crate::limits::LimitsContainer::set_cartesian_limits`] performs no
-//!   validation). See [`crate::trajectory_generator::check_cartesian_limits`]'s
+//!   [`crate::pilz::limits::LimitsContainer::set_cartesian_limits`] performs no
+//!   validation). See [`crate::pilz::trajectory_generator::check_cartesian_limits`]'s
 //!   own doc.
 
 use cspace_collision::CollisionEnv;
@@ -81,17 +81,17 @@ use cspace_core::kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver}
 use cspace_core::state::Posed;
 use cspace_core::trajectory::RobotTrajectory;
 
-use crate::path_polyline_generator::polyline_from_waypoints;
-use crate::path_rounded_composite::PathRoundedComposite;
-use crate::trajectory_functions::{
+use crate::pilz::path_polyline_generator::polyline_from_waypoints;
+use crate::pilz::path_rounded_composite::PathRoundedComposite;
+use crate::pilz::trajectory_functions::{
     CartesianPath, IkContext, compute_link_fk, compute_pose_ik, constraint_pose,
     generate_joint_trajectory, resolve_goal_frame,
 };
-use crate::trajectory_generator::{
+use crate::pilz::trajectory_generator::{
     Goal, MotionPlanInfo, MotionPlanRequest, PilzGenerator, PolylinePathConstraint,
     TrajectoryGenerator, check_cartesian_limits,
 };
-use crate::velocity_profile_trap::VelocityProfileTrap;
+use crate::pilz::velocity_profile_trap::VelocityProfileTrap;
 
 /// Multi-waypoint Cartesian trajectory generator.
 ///
@@ -106,7 +106,7 @@ impl<'m> TrajectoryGeneratorPolyline<'m> {
     /// `TrajectoryGeneratorPOLYLINE(robot_model, planner_limits, group_name)`.
     /// `group_name` is accepted (matching upstream's constructor signature)
     /// but unused, exactly as in
-    /// [`crate::trajectory_generator_circ::TrajectoryGeneratorCirc::new`].
+    /// [`crate::pilz::trajectory_generator_circ::TrajectoryGeneratorCirc::new`].
     pub fn new(base: TrajectoryGenerator<'m>, _group_name: &str) -> Self {
         Self { base }
     }
@@ -139,7 +139,7 @@ where
     /// # Errors
     ///
     /// [`MoveItErrorCode::InvalidMotionPlan`] if the base's planner limits
-    /// fail [`crate::trajectory_generator::check_cartesian_limits`] (added
+    /// fail [`crate::pilz::trajectory_generator::check_cartesian_limits`] (added
     /// beyond upstream — see this module's own deviation note), or
     /// `req.path_constraints` is absent, carries another command's
     /// constraint, or holds fewer than two waypoints.
@@ -306,8 +306,8 @@ mod tests {
     use cspace_core::model::{MeshSearchPaths, RobotModel};
 
     use super::*;
-    use crate::limits::{JointLimit, JointLimitsContainer, LimitsContainer};
-    use crate::trajectory_generator::{PathConstraints, StartState};
+    use crate::pilz::limits::{JointLimit, JointLimitsContainer, LimitsContainer};
+    use crate::pilz::trajectory_generator::{PathConstraints, StartState};
 
     fn load_panda() -> RobotModel {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");

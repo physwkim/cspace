@@ -9,7 +9,7 @@ use std::fmt::Debug;
 
 use rand::{Rng, RngExt};
 
-use crate::space::StateSpace;
+use crate::sbp::space::StateSpace;
 
 /// Asserts the metric axioms (non-negativity, identity, symmetry, triangle
 /// inequality) and the interpolation contract (`interpolate(a, b, 0) == a`,

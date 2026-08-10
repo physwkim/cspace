@@ -67,7 +67,7 @@
 //! has no solver field, so [`CartesianInterpolator::to_pose`] takes an
 //! already-constructed `&mut dyn KinematicsSolver` — the same deviation, for
 //! the same reason, that
-//! `cspace_planners_pilz::trajectory_functions::compute_pose_ik` already
+//! `cspace_planners::pilz::trajectory_functions::compute_pose_ik` already
 //! documents as its item 1.
 //!
 //! *Frame conversion into the solver's base, tip-frame resolution, attached

@@ -22,7 +22,7 @@
 //! The other two ([`Task::filter_noisy_parameters`],
 //! [`Task::filter_parameter_updates`]) transform a value already held by
 //! the caller *in place* -- the same shape as
-//! `cspace_planners_stomp::filter_functions::FilterFn`
+//! `cspace_planners::stomp::filter_functions::FilterFn`
 //! (`Fn(&DMatrix<f64>, &mut DMatrix<f64>) -> bool`) elsewhere in this
 //! workspace, not a fresh construction. These keep their `&mut DMatrix<f64>`
 //! parameter rather than being converted to return a new owned matrix.

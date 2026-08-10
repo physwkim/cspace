@@ -12,7 +12,7 @@
 //! `PathPolylineGenerator`.
 //!
 //! Upstream turns a start pose plus a waypoint list into a
-//! [`crate::path_rounded_composite::PathRoundedComposite`] in three steps:
+//! [`crate::pilz::path_rounded_composite::PathRoundedComposite`] in three steps:
 //! drop waypoints too close to their predecessor ([`filter_waypoints`]),
 //! choose the single corner radius that fits every corner
 //! ([`compute_blend_radius`]), then feed the surviving poses through the
@@ -25,7 +25,7 @@
 //!   colinearity check throws
 //!   `ErrorMotionPlanningColinearConsicutiveWaypoints` (numeric code `3104`);
 //!   the message here names that code, the same convention
-//!   [`crate::path_rounded_composite`] uses for
+//!   [`crate::pilz::path_rounded_composite`] uses for
 //!   `Error_MotionPlanning_Not_Feasible`.
 //! - **`smoothness` is clamped, not validated.** Upstream clamps into
 //!   `[MIN_SMOOTHNESS, MAX_SMOOTHNESS]` with no diagnostic, so a request
@@ -40,7 +40,7 @@
 use cspace_core::error::{Error, Result};
 use cspace_core::geometry::Isometry3;
 
-use crate::path_rounded_composite::PathRoundedComposite;
+use crate::pilz::path_rounded_composite::PathRoundedComposite;
 
 /// Waypoints closer than this to their predecessor are dropped.
 ///
@@ -68,7 +68,7 @@ pub const MIN_COLINEAR_NORM: f64 = 1e-9;
 /// `smoothness` scales the largest radius every corner can take (clamped into
 /// `[MIN_SMOOTHNESS, MAX_SMOOTHNESS]`); `eqradius` is the
 /// translation/rotation balance passed on to each segment, the same
-/// `eqradius` [`crate::path_line::PathLine::new`] takes.
+/// `eqradius` [`crate::pilz::path_line::PathLine::new`] takes.
 ///
 /// Upstream `polylineFromWaypoints`.
 ///
@@ -384,10 +384,10 @@ mod tests {
     /// < max_allowed_radius` discards it exactly as it would discard any
     /// other NaN — leaving the return at the untouched initial `INFINITY`,
     /// not at some value shaped by `(dist1 / 2.0).min(dist2 / 2.0)`. This is
-    /// why that call is left as `f64::min` rather than [`crate::numeric`]'s
+    /// why that call is left as `f64::min` rather than [`crate::pilz::numeric`]'s
     /// `cxx_min` despite porting the same `std::min` upstream: the spelling
     /// is unreachable from this function's observable output. See
-    /// `crate::numeric`'s module doc.
+    /// `crate::pilz::numeric`'s module doc.
     #[test]
     fn compute_blend_radius_masks_a_nan_corner_at_the_aggregation_comparison() {
         let radius = compute_blend_radius(

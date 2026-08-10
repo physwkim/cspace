@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! Parity test against the moveit2 C++ oracle's `chomp_quad_cost_inverse`
-//! op, ground truth for [`cspace_planners_chomp::ChompCost::quadratic_cost_inverse`]'s
+//! op, ground truth for [`cspace_planners::chomp::ChompCost::quadratic_cost_inverse`]'s
 //! decomposition-family gap left open by round 16 and requested from the
 //! oracle in round 17 (`doc/oracle-request-quad-cost-inv.md`).
 //!
@@ -80,14 +80,14 @@ use serde::Deserialize;
 
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
-use cspace_planners_chomp::{ChompCost, ChompTrajectory};
+use cspace_planners::chomp::{ChompCost, ChompTrajectory};
 
 const TOL: f64 = 1e-7;
 const GROUP: &str = "panda_arm";
 
 fn fixture_path(file_name: &str) -> String {
     format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/chomp/{}"),
         file_name
     )
 }

@@ -824,11 +824,11 @@ ORACLE_STAMP="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")" || exit 1
 if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
     tools/ci/measure-phase8-optimizer-properties.sh \
     tools/ci/measure-phase8-cpp-baseline.sh \
-    crates/cspace-planners-sbp/examples/plan_benchmark_problem_set.rs \
-    crates/cspace-planners-chomp/examples/optimize_benchmark_chomp.rs \
-    crates/cspace-planners-stomp/examples/optimize_benchmark_stomp.rs \
-    crates/cspace-planners-chomp/src \
-    crates/cspace-planners-stomp/src \
+    crates/cspace-planners/examples/plan_benchmark_problem_set.rs \
+    crates/cspace-planners/examples/optimize_benchmark_chomp.rs \
+    crates/cspace-planners/examples/optimize_benchmark_stomp.rs \
+    crates/cspace-planners/src/chomp \
+    crates/cspace-planners/src/stomp \
     crates/cspace-stomp-core/src \
     crates/cspace-collision/src/distance_field \
     crates/cspace-collision/src \

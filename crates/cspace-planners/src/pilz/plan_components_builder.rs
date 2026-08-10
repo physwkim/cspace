@@ -21,7 +21,7 @@
 //! - the same group with `blend_radius <= 0.0` is concatenated onto the
 //!   current element;
 //! - the same group with `blend_radius > 0.0` is blended into it by
-//!   [`crate::trajectory_blender_transition_window::blend`].
+//!   [`crate::pilz::trajectory_blender_transition_window::blend`].
 //!
 //! # Deviations from upstream
 //!
@@ -48,7 +48,7 @@
 //! - **Trajectories are owned, not shared.** Upstream passes and stores
 //!   `RobotTrajectoryPtr`, so `build`'s caller and the builder alias the same
 //!   trajectories. [`RobotTrajectory`] is moved in and out here, the same
-//!   deviation [`crate::trajectory_blender_transition_window::TrajectoryBlendRequest`]
+//!   deviation [`crate::pilz::trajectory_blender_transition_window::TrajectoryBlendRequest`]
 //!   already documents for its own two trajectories.
 //! - **`assert(other->getGroupName() == traj_tail_->getGroupName())` is
 //!   dropped.** It guards `blend`, which is private and called from exactly
@@ -62,9 +62,9 @@ use cspace_core::model::RobotModel;
 use cspace_core::state::Posed;
 use cspace_core::trajectory::RobotTrajectory;
 
-use crate::limits::LimitsContainer;
-use crate::trajectory_blender_transition_window::{TrajectoryBlendRequest, blend};
-use crate::trajectory_functions::{IkContext, is_robot_state_equal, solver_tip_frame};
+use crate::pilz::limits::LimitsContainer;
+use crate::pilz::trajectory_blender_transition_window::{TrajectoryBlendRequest, blend};
+use crate::pilz::trajectory_functions::{IkContext, is_robot_state_equal, solver_tip_frame};
 
 /// Tolerance for comparing the joining waypoints of two trajectories.
 /// Upstream `PlanComponentsBuilder::ROBOT_STATE_EQUALITY_EPSILON`.
@@ -108,7 +108,7 @@ impl<'m> PlanComponentsBuilder<'m> {
     ///
     /// # Errors
     ///
-    /// Whatever [`crate::trajectory_blender_transition_window::blend`]
+    /// Whatever [`crate::pilz::trajectory_blender_transition_window::blend`]
     /// returns when a blend is attempted and fails — upstream collapses all
     /// of them into one `BlendingFailedException` carrying
     /// [`cspace_core::error::MoveItErrorCode::Failure`], which loses the blender's
@@ -277,11 +277,11 @@ mod tests {
     use cspace_planning::scene::PlanningScene;
 
     use super::*;
-    use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer};
-    use crate::trajectory_generator::{
+    use crate::pilz::limits::{CartesianLimits, JointLimit, JointLimitsContainer};
+    use crate::pilz::trajectory_generator::{
         Goal, MotionPlanRequest, PilzGenerator, StartState, TrajectoryGenerator,
     };
-    use crate::trajectory_generator_lin::TrajectoryGeneratorLin;
+    use crate::pilz::trajectory_generator_lin::TrajectoryGeneratorLin;
 
     fn load_panda() -> (RobotModel, SrdfModel) {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");

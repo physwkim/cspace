@@ -13,7 +13,7 @@
 //   (class UnionConstraintSampler, struct OrderSamplers)
 
 //! [`ConstraintSampler`] and the two samplers `PORTING-PLAN.md`'s
-//! `registry.rs` disposition (`crates/cspace-planners-sbp/src/registry.rs`)
+//! `registry.rs` disposition (`crates/cspace-planners/src/sbp/registry.rs`)
 //! identified as needing no new dependency: [`JointConstraintSampler`] and
 //! [`UnionConstraintSampler`]. `IKConstraintSampler` is ported in
 //! `crate::constraints::ik_sampler` as [`crate::constraints::IkConstraintSampler`], not here — it needs
@@ -116,7 +116,7 @@ use rand::{Rng, RngExt};
 /// `ModelBasedPlanningContext::getMaximumStateSamplingAttempts()`, configured
 /// to `4` by `planning_context_manager.cpp:259`. Round 20 mistakenly reused
 /// this constant as that value in
-/// `cspace_planners_sbp::registry::RrtConnectContext::solve`; round 21
+/// `cspace_planners::sbp::registry::RrtConnectContext::solve`; round 21
 /// corrected it to a locally-defined `DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS = 4`
 /// there instead, so this constant remains ported (it matches upstream's
 /// named literal) but — as rounds 13/14 originally found — has no real

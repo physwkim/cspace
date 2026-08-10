@@ -82,7 +82,7 @@ pub struct ChompParameters {
     /// `ChompPlanner::solve` (`if
     /// (params.trajectory_initialization_method_.compare("quintic-spline")
     /// == 0)` / `"linear"` / `"cubic"` / `"fillTrajectory"`, plus a
-    /// `.c_str()` diagnostic), is now ported as [`crate::planner::solve`]
+    /// `.c_str()` diagnostic), is now ported as [`crate::chomp::planner::solve`]
     /// (round 20) — matched there with a plain `match ... .as_str()` over
     /// the same four string literals. An enum with illegal states
     /// unrepresentable would still be the better shape, but redesigning

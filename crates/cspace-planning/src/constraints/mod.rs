@@ -333,7 +333,7 @@
 //!   on the reasoning that every call site in this port's design already
 //!   supplied its own concrete attempt count, so there was no
 //!   omitted-argument call site for a default to ever apply to. Round 20
-//!   mistakenly added `cspace_planners_sbp::registry::RrtConnectContext::solve`
+//!   mistakenly added `cspace_planners::sbp::registry::RrtConnectContext::solve`
 //!   as a call site passing this constant's value (`2`) to
 //!   `constraint_sampler_manager::select_default_sampler`'s `max_attempts`
 //!   parameter; round 21 found that wrong — upstream's only two uses of

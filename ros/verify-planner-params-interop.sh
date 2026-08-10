@@ -211,7 +211,7 @@ assert_line "leg A query service name" "/query_planner_interface" "$out"
 assert_line "leg A get service name" "/get_planner_params" "$out"
 assert_line "leg A set service name" "/set_planner_params" "$out"
 
-# Derived from `cspace_planners_sbp::registry::PLANNER_MANAGERS`, whose only
+# Derived from `cspace_planners::sbp::registry::PLANNER_MANAGERS`, whose only
 # registration today is `RRT_CONNECT` (`registry.rs`, `name: "rrt_connect"`).
 # An empty `planner_interfaces` list -- what a `distributed_slice` that failed
 # to link produces -- fails here rather than reading as "no planners".

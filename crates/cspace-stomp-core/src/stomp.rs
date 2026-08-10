@@ -395,7 +395,7 @@ fn compute_parameters_control_costs(
 ///
 /// `stomp::TaskPtr` is a `std::shared_ptr<Task>` with no lifetime to track.
 /// A caller building a real [`Task`] from borrowed data (a `RobotModel`, a
-/// `JointModelGroup` -- see `cspace_planners_stomp::filter_functions::
+/// `JointModelGroup` -- see `cspace_planners::stomp::filter_functions::
 /// enforce_position_bounds`) cannot produce a `'static` one, so `Stomp`
 /// carries the same borrow the way [`crate::task::Task`]'s own
 /// implementations already must: `Box<dyn Task + 'a>`, not an implicit
@@ -451,7 +451,7 @@ impl<'a> Stomp<'a> {
     /// instead of minting a private one. Round 24, not upstream: gives a
     /// caller a handle *before* this `Stomp` exists, obtained via
     /// [`CancelHandle::new`] -- see that constructor's own doc for why this
-    /// is the direction `cspace_planners_stomp::planner::plan` needs
+    /// is the direction `cspace_planners::stomp::planner::plan` needs
     /// (accept an already-built handle rather than build-and-immediately-
     /// discard one internally, which was this crate's round-23 UNFIXED
     /// gap).
@@ -725,7 +725,7 @@ impl<'a> Stomp<'a> {
     /// caller-supplied flag the moment construction finishes, defeating the
     /// one thing `with_cancel_handle` exists to allow (found by mutation-
     /// testing `cancelling_before_plan_is_called_returns_the_unmodified_linear_interpolation_seed`
-    /// in `cspace_planners_stomp::planner`: even *without* any mutation,
+    /// in `cspace_planners::stomp::planner`: even *without* any mutation,
     /// cancelling before `plan()` still let a full iteration run, because
     /// this line reset the very flag the test had just cancelled). Callers
     /// that genuinely want a fresh, uncancelled `proceed` -- [`Stomp::clear`],

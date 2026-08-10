@@ -77,16 +77,16 @@ use cspace_collision::{LinkPaddingScale, ParryCollisionEnv, World};
 use cspace_core::geometry::{Isometry3, UnitQuaternion, Vector3};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
-use cspace_planners_pilz::limits::{
+use cspace_planners::pilz::limits::{
     CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer,
 };
-use cspace_planners_pilz::path_polyline_generator::MIN_SEGMENT_LENGTH;
-use cspace_planners_pilz::trajectory_functions::IkContext;
-use cspace_planners_pilz::trajectory_generator::{
+use cspace_planners::pilz::path_polyline_generator::MIN_SEGMENT_LENGTH;
+use cspace_planners::pilz::trajectory_functions::IkContext;
+use cspace_planners::pilz::trajectory_generator::{
     Goal, MotionPlanRequest, PathConstraints, PilzGenerator, PolylinePathConstraint, StartState,
     TrajectoryGenerator,
 };
-use cspace_planners_pilz::trajectory_generator_polyline::TrajectoryGeneratorPolyline;
+use cspace_planners::pilz::trajectory_generator_polyline::TrajectoryGeneratorPolyline;
 use cspace_planning::scene::PlanningScene;
 
 #[derive(Deserialize)]
@@ -212,7 +212,7 @@ struct OracleResponseEnvelope<T> {
 
 fn load_json<T: serde::de::DeserializeOwned>(file_name: &str) -> T {
     let path = format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/pilz/{}"),
         file_name
     );
     let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));

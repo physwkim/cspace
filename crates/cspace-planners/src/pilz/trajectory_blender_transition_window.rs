@@ -27,7 +27,7 @@
 //!   `tf2::toMsg(blend_sample_pose)`, converting `Eigen::Isometry3d` to
 //!   `geometry_msgs::msg::Pose` for [`CartesianTrajectoryPoint::pose`].
 //!   That field is already [`cspace_core::geometry::Isometry3`] here (see
-//!   [`crate::cartesian_trajectory`]'s own `# Deviations`), so the
+//!   [`crate::pilz::cartesian_trajectory`]'s own `# Deviations`), so the
 //!   conversion has nothing left to do — dropped as a message-shape
 //!   exclusion (`PORTING-PLAN.md` D1/D2), not a ROS dependency this port
 //!   had to work around.
@@ -75,7 +75,7 @@
 //! taking `planner_limits` as a parameter, matching this crate's
 //! established pattern of collapsing a single concrete override into a
 //! function rather than porting virtual dispatch that has exactly one
-//! implementor (see e.g. [`crate::trajectory_generator::check_cartesian_goal`],
+//! implementor (see e.g. [`crate::pilz::trajectory_generator::check_cartesian_goal`],
 //! which replaces upstream's `getSolverInstance()` virtual lookup the same
 //! way).
 //!
@@ -83,7 +83,7 @@
 //!
 //! Every helper upstream's `blend`/`validateRequest`/
 //! `searchIntersectionPoints` call was already ported by
-//! [`crate::trajectory_functions`] for `LIN`/`PTP`/`CIRC`'s own use, before
+//! [`crate::pilz::trajectory_functions`] for `LIN`/`PTP`/`CIRC`'s own use, before
 //! this module existed:
 //! [`determine_and_check_sampling_time`], [`is_robot_state_equal`],
 //! [`is_robot_state_stationary`], [`linear_search_intersection_point`] and
@@ -105,7 +105,7 @@
 //!   `blend_trajectory_cartesian` each take an explicit
 //!   `scene: &PlanningScene` parameter (matching [`blend`]'s own
 //!   `ctx.scene`) and resolve `link_name` through
-//!   `crate::trajectory_functions::resolve_link_or_attached_body_transform`
+//!   `crate::pilz::trajectory_functions::resolve_link_or_attached_body_transform`
 //!   rather than a bare [`cspace_core::state::Posed::frame_transform`] on a
 //!   trajectory waypoint alone.
 //! - **`TrajectoryBlendRequest`/`TrajectoryBlendResponse` own their
@@ -120,8 +120,8 @@
 //!   reports failure through its own `Result`, the idiom every other
 //!   function in this crate uses, rather than upstream's always-returned
 //!   response-plus-error-code pair. Contrast
-//!   [`crate::trajectory_generator::MotionPlanResponse`], which keeps its
-//!   `error_code` field: that type is [`crate::trajectory_generator::PilzGenerator::generate`]'s
+//!   [`crate::pilz::trajectory_generator::MotionPlanResponse`], which keeps its
+//!   `error_code` field: that type is [`crate::pilz::trajectory_generator::PilzGenerator::generate`]'s
 //!   own outward boundary, with no `Result` to report through instead (see
 //!   that module's `# generate, MotionPlanInfo, MotionPlanResponse`
 //!   section).
@@ -159,9 +159,9 @@ use cspace_core::state::Posed;
 use cspace_core::trajectory::RobotTrajectory;
 use cspace_planning::scene::PlanningScene;
 
-use crate::cartesian_trajectory::{CartesianTrajectory, CartesianTrajectoryPoint, Twist};
-use crate::limits::LimitsContainer;
-use crate::trajectory_functions::{
+use crate::pilz::cartesian_trajectory::{CartesianTrajectory, CartesianTrajectoryPoint, Twist};
+use crate::pilz::limits::LimitsContainer;
+use crate::pilz::trajectory_functions::{
     IkContext, determine_and_check_sampling_time, generate_joint_trajectory_from_cartesian,
     is_robot_state_equal, is_robot_state_stationary, linear_search_intersection_point,
     resolve_link_or_attached_body_transform,
@@ -550,11 +550,11 @@ mod tests {
     use cspace_core::geometry::{Cuboid, Isometry3, Shape, UnitQuaternion, Vector3};
 
     use super::*;
-    use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer};
-    use crate::trajectory_generator::{
+    use crate::pilz::limits::{CartesianLimits, JointLimit, JointLimitsContainer};
+    use crate::pilz::trajectory_generator::{
         Goal, MotionPlanRequest, PilzGenerator, StartState, TrajectoryGenerator,
     };
-    use crate::trajectory_generator_lin::TrajectoryGeneratorLin;
+    use crate::pilz::trajectory_generator_lin::TrajectoryGeneratorLin;
 
     fn load_panda() -> (RobotModel, SrdfModel) {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");

@@ -43,7 +43,7 @@
 //! to either function). Neither function's own logic touches ROS: `constraint_samplers`
 //! is `moveit_core`, not a ROS package, and its `selectSampler` fallback is
 //! already ported as [`cspace_planning::constraints::select_default_sampler`]
-//! (`crate::planner::sample_goal_state` calls it directly, see that
+//! (`crate::stomp::planner::sample_goal_state` calls it directly, see that
 //! function's own doc for the two remaining deviations); `extractSeedTrajectory`
 //! is `trajectory_constraints` message-field walking with no
 //! STOMP-or-ROS-specific computation, ported as [`extract_seed_trajectory`].
@@ -142,12 +142,12 @@ use cspace_planning::constraints::{
 };
 use cspace_stomp_core::{CancelHandle, Stomp, StompConfiguration, TrajectoryInitialization};
 
-use crate::composable_task::{ComposableTask, CostFn};
-use crate::conversion_functions::{
+use crate::stomp::composable_task::{ComposableTask, CostFn};
+use crate::stomp::conversion_functions::{
     UnparameterizedTrajectory, matrix_to_robot_trajectory, positions, robot_trajectory_to_matrix,
 };
-use crate::filter_functions;
-use crate::noise_generators::normal_distribution_generator;
+use crate::stomp::filter_functions;
+use crate::stomp::noise_generators::normal_distribution_generator;
 
 /// Upstream's own hardcoded per-joint noise standard deviation
 /// (`stomp_moveit_planning_context.cpp`: `const std::vector<double>
@@ -167,7 +167,7 @@ pub const DEFAULT_NOISE_STDDEV: f64 = 0.1;
 /// budget, an expected outcome rather than a port-level error -- the same
 /// "not found, not broken" shape as [`cspace_core::sampling::MultivariateGaussian::new`]'s
 /// `None`. `Err` is reserved for a genuine precondition violation (see
-/// [`positions`]/[`crate::conversion_functions::fill_robot_trajectory`]'s
+/// [`positions`]/[`crate::stomp::conversion_functions::fill_robot_trajectory`]'s
 /// "Single-variable-joint precondition").
 pub fn solve_with_stomp<'m>(
     stomp: &mut Stomp<'_>,
@@ -238,7 +238,7 @@ pub fn solve_with_stomp<'m>(
 /// `trajectory_constraints` is the ordinary "this seed doesn't fit this
 /// group" outcome upstream itself treats as a plain `false`, not a thrown
 /// exception, so this reserves `Err` for the case
-/// [`positions`]/[`crate::conversion_functions::fill_robot_trajectory`]'s
+/// [`positions`]/[`crate::stomp::conversion_functions::fill_robot_trajectory`]'s
 /// "Single-variable-joint precondition" already reserves it for.
 ///
 /// # `!seed->empty()` (cpp:143): true by construction, not re-checked
@@ -424,7 +424,7 @@ pub struct PlanRequest<'a, 'm> {
 /// a ready-made [`CostFn`] instead of building one: a caller with access to
 /// `cspace-scene`/`cspace-collision` builds one via
 /// `cost_functions::cost_function_from_state_validator` over their own
-/// [`crate::cost_functions::StateValidatorFn`], composing the same way
+/// [`crate::stomp::cost_functions::StateValidatorFn`], composing the same way
 /// upstream's `createStompTask` does, just with the `PlanningScene` wiring
 /// left to the caller instead of hardcoded into this function.
 pub fn plan<'m>(
@@ -622,7 +622,7 @@ mod tests {
     /// called", but "in a scene with an obstacle, the resulting trajectory
     /// has lower cost than the initial trajectory". The obstacle is a
     /// forbidden band in `panda_joint1`'s own value -- the group's active
-    /// joint-position matrix is exactly [`crate::cost_functions::StateValidatorFn`]'s
+    /// joint-position matrix is exactly [`crate::stomp::cost_functions::StateValidatorFn`]'s
     /// input space, so this needs no Cartesian collision geometry to make
     /// the point.
     #[test]
@@ -640,7 +640,7 @@ mod tests {
         let obstacle_center = 0.3;
         let obstacle_radius = 0.15;
         let obstacle_penalty = 10.0;
-        let make_validator = move || -> crate::cost_functions::StateValidatorFn<'static> {
+        let make_validator = move || -> crate::stomp::cost_functions::StateValidatorFn<'static> {
             Box::new(move |state: &DVector<f64>| {
                 if (state[0] - obstacle_center).abs() < obstacle_radius {
                     obstacle_penalty
@@ -678,7 +678,7 @@ mod tests {
             filter_functions::enforce_position_bounds(&model, group).unwrap(),
         ]);
         let plan_cost_fn =
-            crate::cost_functions::cost_function_from_state_validator(make_validator(), 0.0);
+            crate::stomp::cost_functions::cost_function_from_state_validator(make_validator(), 0.0);
         let task = ComposableTask::new(
             noise_generator_fn,
             plan_cost_fn,
@@ -705,7 +705,7 @@ mod tests {
         }
 
         let mut eval_cost_fn =
-            crate::cost_functions::cost_function_from_state_validator(make_validator(), 0.0);
+            crate::stomp::cost_functions::cost_function_from_state_validator(make_validator(), 0.0);
         let (initial_costs, initial_valid) = eval_cost_fn(&initial_matrix).unwrap();
         let (optimized_costs, _optimized_valid) = eval_cost_fn(&optimized_matrix).unwrap();
 

@@ -78,7 +78,7 @@ use cspace_core::geometry::{Cuboid, Isometry3, Shape};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
-use cspace_planners_sbp::{
+use cspace_planners::sbp::{
     CompoundValue, JointModelGroupSpace, PlanningSceneValidityChecker, StateSpace,
     StateValidityChecker,
 };

@@ -53,14 +53,14 @@ use cspace_collision::{LinkPaddingScale, ParryCollisionEnv, World};
 use cspace_core::geometry::{UnitQuaternion, Vector3};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
-use cspace_planners_pilz::limits::{
+use cspace_planners::pilz::limits::{
     CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer,
 };
-use cspace_planners_pilz::trajectory_functions::IkContext;
-use cspace_planners_pilz::trajectory_generator::{
+use cspace_planners::pilz::trajectory_functions::IkContext;
+use cspace_planners::pilz::trajectory_generator::{
     Goal, MotionPlanRequest, PilzGenerator, StartState, TrajectoryGenerator,
 };
-use cspace_planners_pilz::trajectory_generator_lin::TrajectoryGeneratorLin;
+use cspace_planners::pilz::trajectory_generator_lin::TrajectoryGeneratorLin;
 use cspace_planning::scene::PlanningScene;
 
 #[derive(Deserialize)]
@@ -168,7 +168,7 @@ struct OracleResponseEnvelope<T> {
 
 fn fixture_path(file_name: &str) -> String {
     format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/pilz/{}"),
         file_name
     )
 }
@@ -360,7 +360,7 @@ fn lin_panda_arm_matches_the_oracle() {
 /// names the cause directly: `panda_joint2`'s acceleration reaches `3.52375`
 /// against a `1.875` limit at `t=0.2s`. Upstream's `generateJointTrajectory`
 /// throws `LinTrajectoryConversionFailure` wrapping `PLANNING_FAILED` (`-1`)
-/// for this; this port's [`cspace_planners_pilz::trajectory_functions::generate_joint_trajectory`]
+/// for this; this port's [`cspace_planners::pilz::trajectory_functions::generate_joint_trajectory`]
 /// returns [`cspace_core::error::Error::Code`]`(`[`cspace_core::error::MoveItErrorCode::PlanningFailed`]`)`
 /// for the identical reason -- `crate::trajectory_functions::verify_sample_joint_limits`
 /// rejecting a backward-difference acceleration sample.

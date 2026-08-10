@@ -68,7 +68,7 @@ use cspace_stomp_core::{
 use nalgebra::{DMatrix, DVector};
 use rand::Rng;
 
-use crate::composable_task::NoiseGeneratorFn;
+use crate::stomp::composable_task::NoiseGeneratorFn;
 
 /// `getNormalDistributionGenerator(num_timesteps, stddev)`. `stddev` must
 /// have one entry per dimension (row) the returned generator will be called

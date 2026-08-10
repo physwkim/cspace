@@ -12,7 +12,7 @@
 //!
 //! Upstream declares `NoiseGeneratorFn`, `CostFn`, `FilterFn`,
 //! `PostIterationFn`, and `DoneFn` together in this one header.
-//! [`filter_functions::FilterFn`](crate::filter_functions::FilterFn) was
+//! [`filter_functions::FilterFn`](crate::stomp::filter_functions::FilterFn) was
 //! already carried into this crate in an earlier round (every filter
 //! function needs the signature); the other four are new this round and
 //! live here instead of being duplicated.
@@ -39,7 +39,7 @@
 use cspace_stomp_core::Task;
 use nalgebra::{DMatrix, DVector};
 
-use crate::filter_functions::FilterFn;
+use crate::stomp::filter_functions::FilterFn;
 
 /// `NoiseGeneratorFn`. Constructs a new noisy-parameters/noise pair each
 /// call -- this crate's "return values, not out-parameters" convention (see
@@ -47,7 +47,7 @@ use crate::filter_functions::FilterFn;
 /// follows), so `None` is upstream's `bool` return of `false` and the
 /// `Eigen::MatrixXd&` out-parameters become the `Some` payload.
 /// `FnMut`, not `Fn`: a real noise generator holds RNG state that advances
-/// on every call (see [`crate::noise_generators::normal_distribution_generator`]).
+/// on every call (see [`crate::stomp::noise_generators::normal_distribution_generator`]).
 pub type NoiseGeneratorFn<'a> =
     Box<dyn FnMut(&DMatrix<f64>) -> Option<(DMatrix<f64>, DMatrix<f64>)> + 'a>;
 

@@ -26,11 +26,11 @@
 //! of a field whose only real behavior was already portable.
 //!
 //! This round ports `ChompOptimizer` for real: the struct
-//! ([`crate::optimizer::ChompOptimizer`]), its constructor ([`crate::optimizer::ChompOptimizer::new`]),
-//! `optimize()` ([`crate::optimizer::ChompOptimizer::optimize`]), `isInitialized()`/
-//! `isCollisionFree()` ([`crate::optimizer::ChompOptimizer::is_initialized`]/
-//! [`crate::optimizer::ChompOptimizer::is_collision_free`]), and every method `optimize()`
-//! calls transitively. [`crate::optimizer::ChompOptimizer`]'s own doc comment carries the full
+//! ([`crate::chomp::optimizer::ChompOptimizer`]), its constructor ([`crate::chomp::optimizer::ChompOptimizer::new`]),
+//! `optimize()` ([`crate::chomp::optimizer::ChompOptimizer::optimize`]), `isInitialized()`/
+//! `isCollisionFree()` ([`crate::chomp::optimizer::ChompOptimizer::is_initialized`]/
+//! [`crate::chomp::optimizer::ChompOptimizer::is_collision_free`]), and every method `optimize()`
+//! calls transitively. [`crate::chomp::optimizer::ChompOptimizer`]'s own doc comment carries the full
 //! list of deviations from upstream (external-resource-as-parameter instead
 //! of stored `hy_env_`/`planning_scene_`/`full_trajectory_` fields, the
 //! mesh-to-mesh check becoming an injected closure, the ancestor-query
@@ -41,8 +41,8 @@
 //! `b0e4826`, before `ChompOptimizer` (the class itself) was ported in
 //! `77738b9`, when they were the only symbols judged portable at all (they
 //! touch only already-ported types —
-//! [`crate::trajectory::ChompTrajectory`], [`crate::cost::ChompCost`],
-//! [`crate::parameters::ChompParameters`], `cspace_core::model`'s joint tree — and
+//! [`crate::chomp::trajectory::ChompTrajectory`], [`crate::chomp::cost::ChompCost`],
+//! [`crate::chomp::parameters::ChompParameters`], `cspace_core::model`'s joint tree — and
 //! needed no collision backend). Upstream declares each as a private
 //! `ChompOptimizer` method reading `this`
 //! (`chomp_optimizer.hpp:84,200,202,204,207,209`); they stay free functions
@@ -64,7 +64,7 @@
 //! `end_index = num_points - 2`, so `num_free_points() = num_points - 2`);
 //! it is only true once the trajectory has been padded via
 //! [`ChompTrajectory::from_source_trajectory`] with
-//! `diff_rule_length = `[`crate::utils::DIFF_RULE_LENGTH`] (`start_index =
+//! `diff_rule_length = `[`crate::chomp::utils::DIFF_RULE_LENGTH`] (`start_index =
 //! DIFF_RULE_LENGTH - 1`, `end_index = num_points - 1 - (DIFF_RULE_LENGTH -
 //! 1)`, so `num_free_points() = num_points - 2*(DIFF_RULE_LENGTH - 1)` —
 //! exactly [`ChompCost::new`]'s own `num_vars_free` formula). Confirmed
@@ -72,9 +72,9 @@
 //! (`num_vars_free_ = group_trajectory_.getNumFreePoints(); free_vars_start_
 //! = group_trajectory_.getStartIndex(); free_vars_end_ =
 //! group_trajectory_.getEndIndex();`) alongside `ChompCost`'s own
-//! constructor: in this port, [`crate::optimizer::ChompOptimizer::new`]
+//! constructor: in this port, [`crate::chomp::optimizer::ChompOptimizer::new`]
 //! (below) is the sole place `group_trajectory` is ever produced for
-//! [`crate::optimizer::ChompOptimizer`] to hold — it always builds it via the padding
+//! [`crate::chomp::optimizer::ChompOptimizer`] to hold — it always builds it via the padding
 //! constructor ([`ChompTrajectory::from_source_trajectory`]) from the
 //! caller's `full_trajectory` argument, regardless of whether that argument
 //! was itself already padded, which is the only reason these two
@@ -83,10 +83,10 @@
 //! always constructs its `group_trajectory_` via the padding constructor
 //! before handing it to `ChompOptimizer`'s constructor, which then trusts
 //! it rather than re-padding. This port's sole production call site,
-//! [`crate::planner::solve`] (`chomp_planner.cpp:63-306`, ported), actually
+//! [`crate::chomp::planner::solve`] (`chomp_planner.cpp:63-306`, ported), actually
 //! passes an *unpadded* seed trajectory -- see `planner::build_seed_trajectory`
 //! (private) -- relying on
-//! [`crate::optimizer::ChompOptimizer::new`]'s own padding rather than reproducing upstream's
+//! [`crate::chomp::optimizer::ChompOptimizer::new`]'s own padding rather than reproducing upstream's
 //! pre-padded-caller invariant. Should a future caller ever construct
 //! `ChompOptimizer` by hand with a pre-padded `full_trajectory`, this still
 //! holds: `from_source_trajectory` shrinks back to a no-op padding when the
@@ -100,20 +100,20 @@
 //!
 //! ## Ported (this module)
 //!
-//! - `getPotential` (inline in the header) → [`crate::optimizer::get_potential`]. Pure
+//! - `getPotential` (inline in the header) → [`crate::chomp::optimizer::get_potential`]. Pure
 //!   3-branch scalar formula; no `ChompOptimizer` state at all.
-//! - `calculateSmoothnessIncrements` → [`crate::optimizer::calculate_smoothness_increments`].
-//!   Built entirely from [`crate::cost::ChompCost::derivative`] (already
-//!   ported) and [`crate::trajectory::ChompTrajectory`] accessors.
-//! - `calculateTotalIncrements` → [`crate::optimizer::calculate_total_increments`]. **This is
+//! - `calculateSmoothnessIncrements` → [`crate::chomp::optimizer::calculate_smoothness_increments`].
+//!   Built entirely from [`crate::chomp::cost::ChompCost::derivative`] (already
+//!   ported) and [`crate::chomp::trajectory::ChompTrajectory`] accessors.
+//! - `calculateTotalIncrements` → [`crate::chomp::optimizer::calculate_total_increments`]. **This is
 //!   the round's weighted-combination callout.** Upstream:
 //!   `final_increments_.col(i) = learning_rate_ * (quad_cost_inv *
 //!   (smoothness_cost_weight_ * smoothness_increments_.col(i) +
 //!   obstacle_cost_weight_ * collision_increments_.col(i)))`. The three
 //!   coefficients are, by name, exactly
-//!   [`crate::parameters::ChompParameters::learning_rate`],
-//!   [`crate::parameters::ChompParameters::smoothness_cost_weight`], and
-//!   [`crate::parameters::ChompParameters::obstacle_cost_weight`] — all
+//!   [`crate::chomp::parameters::ChompParameters::learning_rate`],
+//!   [`crate::chomp::parameters::ChompParameters::smoothness_cost_weight`], and
+//!   [`crate::chomp::parameters::ChompParameters::obstacle_cost_weight`] — all
 //!   already-ported fields, confirmed against `chomp_optimizer.cpp`'s
 //!   `calculateTotalIncrements` body directly (not inferred from the field
 //!   names alone). This function takes `collision_increments` as a plain
@@ -121,19 +121,19 @@
 //!   exactly what makes it portable: the formula does not care whether the
 //!   caller's collision increments came from a real collision environment
 //!   or a test fixture.
-//! - `addIncrementsToTrajectory` → [`crate::optimizer::add_increments_to_trajectory`]. Pure
+//! - `addIncrementsToTrajectory` → [`crate::chomp::optimizer::add_increments_to_trajectory`]. Pure
 //!   per-joint scale-and-clamp against
-//!   [`crate::parameters::ChompParameters::joint_update_limit`], writing
-//!   through [`crate::trajectory::ChompTrajectory::free_trajectory_block_mut`].
-//! - `getSmoothnessCost` → [`crate::optimizer::get_smoothness_cost`]. Sum of
-//!   [`crate::cost::ChompCost::cost`] per joint, weighted by
-//!   [`crate::parameters::ChompParameters::smoothness_cost_weight`] — the
+//!   [`crate::chomp::parameters::ChompParameters::joint_update_limit`], writing
+//!   through [`crate::chomp::trajectory::ChompTrajectory::free_trajectory_block_mut`].
+//! - `getSmoothnessCost` → [`crate::chomp::optimizer::get_smoothness_cost`]. Sum of
+//!   [`crate::chomp::cost::ChompCost::cost`] per joint, weighted by
+//!   [`crate::chomp::parameters::ChompParameters::smoothness_cost_weight`] — the
 //!   other half of the round's weight-mapping callout (the collision half,
 //!   `getCollisionCost`'s `obstacle_cost_weight_`, is named in
-//!   [`crate::optimizer::calculate_total_increments`]'s doc above since `getCollisionCost`
+//!   [`crate::chomp::optimizer::calculate_total_increments`]'s doc above since `getCollisionCost`
 //!   itself is not portable — see below).
-//! - `handleJointLimits` → [`crate::optimizer::handle_joint_limits`]. Needs only
-//!   [`crate::trajectory::ChompTrajectory`], [`crate::cost::ChompCost`], and
+//! - `handleJointLimits` → [`crate::chomp::optimizer::handle_joint_limits`]. Needs only
+//!   [`crate::chomp::trajectory::ChompTrajectory`], [`crate::chomp::cost::ChompCost`], and
 //!   `cspace_core::model`'s joint bounds (`JointModel::variable_bounds`,
 //!   `RevoluteJoint::is_continuous`) — all already dependencies of this
 //!   crate, no collision environment involved.
@@ -141,24 +141,24 @@
 //! ## Ported as `ChompOptimizer` methods (`77738b9`)
 //!
 //! - `ChompOptimizer` (the class itself) and its constructor →
-//!   [`crate::optimizer::ChompOptimizer`]/[`crate::optimizer::ChompOptimizer::new`]. `initialize()` upstream is
+//!   [`crate::chomp::optimizer::ChompOptimizer`]/[`crate::chomp::optimizer::ChompOptimizer::new`]. `initialize()` upstream is
 //!   not a separate step — folded into `new` the way
-//!   [`crate::trajectory::ChompTrajectory`]'s own constructors already
+//!   [`crate::chomp::trajectory::ChompTrajectory`]'s own constructors already
 //!   fold in upstream's private `init`.
-//! - `optimize()` → [`crate::optimizer::ChompOptimizer::optimize`] — see the "termination
+//! - `optimize()` → [`crate::chomp::optimizer::ChompOptimizer::optimize`] — see the "termination
 //!   condition" section below for the exact early-exit logic, now real,
 //!   executed code rather than a specification.
 //! - `isInitialized()`, `isCollisionFree()` →
-//!   [`crate::optimizer::ChompOptimizer::is_initialized`]/[`crate::optimizer::ChompOptimizer::is_collision_free`].
-//! - `performForwardKinematics` → [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`]
+//!   [`crate::chomp::optimizer::ChompOptimizer::is_initialized`]/[`crate::chomp::optimizer::ChompOptimizer::is_collision_free`].
+//! - `performForwardKinematics` → [`crate::chomp::optimizer::ChompOptimizer::perform_forward_kinematics`]
 //!   — populates every `collision_point_*` field via
 //!   [`cspace_collision::distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
 //!   (upstream: `hy_env_->getCollisionGradients(...)`); the only caller of
-//!   [`crate::optimizer::get_potential`]. See the "closed API gap" section
+//!   [`crate::chomp::optimizer::get_potential`]. See the "closed API gap" section
 //!   below for the `GradientInfo::sphere_locations` history this function's
 //!   doc comment used to carry as a live deviation.
 //! - `getCollisionCost`, `getTrajectoryCost` → private `get_collision_cost`/
-//!   [`crate::optimizer::ChompOptimizer::get_trajectory_cost`] — read `collision_point_*`
+//!   [`crate::chomp::optimizer::ChompOptimizer::get_trajectory_cost`] — read `collision_point_*`
 //!   populated by `perform_forward_kinematics`.
 //! - `calculateCollisionIncrements`, `calculatePseudoInverse`, `getJacobian`
 //!   → private `calculate_collision_increments`/`calculate_pseudo_inverse`/
@@ -169,12 +169,12 @@
 //!   `get_jacobian`.
 //! - `registerParents`, the private `isParent` (inline) and
 //!   `joint_parent_map_` → collapsed into one stateless helper,
-//!   [`crate::optimizer::ChompOptimizer`]'s private `is_ancestor_or_self` — see
-//!   [`crate::optimizer::ChompOptimizer`]'s own doc comment for the ancestor-resolution
+//!   [`crate::chomp::optimizer::ChompOptimizer`]'s private `is_ancestor_or_self` — see
+//!   [`crate::chomp::optimizer::ChompOptimizer`]'s own doc comment for the ancestor-resolution
 //!   subtlety this collapse must still reproduce.
 //! - `isCurrentTrajectoryMeshToMeshCollisionFree` → an injected
 //!   `mesh_to_mesh_collision_free` closure parameter on
-//!   [`crate::optimizer::ChompOptimizer::optimize`], not a method — see [`crate::optimizer::ChompOptimizer`]'s
+//!   [`crate::chomp::optimizer::ChompOptimizer::optimize`], not a method — see [`crate::chomp::optimizer::ChompOptimizer`]'s
 //!   own doc comment for why (needs sign-off).
 //!
 //! ## Genuinely not ported
@@ -184,7 +184,7 @@
 //!   makes it structurally unnecessary (PORTING-PLAN.md D1).
 //! - `debugCost` — confirmed dead: not called anywhere in
 //!   `chomp_optimizer.cpp` (a `std::cout` debug helper, same formula as
-//!   [`crate::optimizer::get_smoothness_cost`] but unweighted and unused).
+//!   [`crate::chomp::optimizer::get_smoothness_cost`] but unweighted and unused).
 //! - `perturbTrajectory`, `getRandomMomentum`, `updateMomentum`,
 //!   `updatePositionFromMomentum` (the HMC path) — confirmed dead in
 //!   upstream itself, not merely out of this crate's scope: every call site
@@ -193,7 +193,7 @@
 //!   `updatePositionFromMomentum` have **no implementation anywhere in
 //!   `chomp_optimizer.cpp`** — declared in the header (lines 212-214) and
 //!   never defined, which only compiles because nothing calls them.
-//!   [`crate::optimizer::ChompOptimizer::new`] still constructs one
+//!   [`crate::chomp::optimizer::ChompOptimizer::new`] still constructs one
 //!   [`cspace_core::sampling::MultivariateGaussian`] per joint (matching
 //!   upstream's `multivariate_gaussian_.emplace_back(...)`, which also
 //!   exists only to feed this dead path) but nothing ever samples it.
@@ -203,7 +203,7 @@
 //!   with `moveit_msgs`-typed signatures throughout, none of which this
 //!   crate depends on (see this crate's top-level module doc for the
 //!   dependency check). Its model-independent numeric core, by contrast,
-//!   *is* ported — as the free function [`crate::planner::solve`]
+//!   *is* ported — as the free function [`crate::chomp::planner::solve`]
 //!   (`eb4fa4e`); see this crate's top-level module doc's
 //!   `chomp_planner.{hpp,cpp}` symbol audit for the full field-by-field
 //!   account.
@@ -262,7 +262,7 @@
 //! `link_body_decompositions[..].sphere_centers()` instead of
 //! `sphere_locations`, and sizing per-link iteration from
 //! `gradients.len()` instead of `sphere_locations.len()`) are removed in
-//! `5293abd`: [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`]
+//! `5293abd`: [`crate::chomp::optimizer::ChompOptimizer::perform_forward_kinematics`]
 //! and the private `resolve_collision_point_joint_index` now read
 //! `sphere_locations` directly, matching upstream's own indexing with no
 //! substitution — see their own doc comments for the exact change, and
@@ -274,12 +274,12 @@
 //! ## `optimize()`'s termination condition
 //!
 //! Transcribed from `chomp_optimizer.cpp:290-518` and now real, executed
-//! code ([`crate::optimizer::ChompOptimizer::optimize`]), pinned by
+//! code ([`crate::chomp::optimizer::ChompOptimizer::optimize`]), pinned by
 //! `optimize_runs_exactly_max_iterations_when_filter_mode_and_mesh_to_mesh_never_break_out`,
 //! `optimize_breaks_out_immediately_when_max_iterations_after_collision_free_is_zero`,
 //! and `optimize_collision_threshold_break_is_a_strict_less_than` in this
 //! module's test suite. The loop runs `iteration_` from `0` to
-//! [`crate::parameters::ChompParameters::max_iterations`] (exclusive),
+//! [`crate::chomp::parameters::ChompParameters::max_iterations`] (exclusive),
 //! computing `cost = collision_cost + smoothness_cost` each iteration and
 //! tracking the minimum-cost trajectory seen (`best_group_trajectory_`,
 //! restored at the very end regardless of how the loop exits — the
@@ -289,7 +289,7 @@
 //!
 //! 1. Every 10th iteration (`iteration_ % 10 == 0`), a full mesh-to-mesh
 //!    collision check (upstream `isCurrentTrajectoryMeshToMeshCollisionFree`,
-//!    here [`crate::optimizer::ChompOptimizer::optimize`]'s injected
+//!    here [`crate::chomp::optimizer::ChompOptimizer::optimize`]'s injected
 //!    `mesh_to_mesh_collision_free` closure parameter) against
 //!    `best_group_trajectory_`'s *values* (at `group_trajectory_`'s *shape*),
 //!    not the just-`updateFullTrajectory`'d current iterate -- despite its
@@ -297,9 +297,9 @@
 //!    `group_trajectory_`'s values (`chomp_optimizer.cpp:520-537`); a pass
 //!    sets `num_collision_free_iterations_ = 0` (break on the very next
 //!    check below).
-//! 2. Unless [`crate::parameters::ChompParameters::filter_mode`] is set, the
+//! 2. Unless [`crate::chomp::parameters::ChompParameters::filter_mode`] is set, the
 //!    scalar comparison `collision_cost <
-//!    `[`crate::parameters::ChompParameters::collision_threshold`]` — an
+//!    `[`crate::chomp::parameters::ChompParameters::collision_threshold`]` — an
 //!    **absolute**, not relative, comparison against one scalar (the raw
 //!    collision cost, *not* `obstacle_cost_weight_ *` collision cost —
 //!    confirmed from `getCollisionCost`'s call site in `optimize()`, which
@@ -307,12 +307,12 @@
 //!    itself, i.e. `collision_threshold_` is compared in the *same*
 //!    already-weighted units `getCollisionCost()` returns). On first
 //!    satisfying this, `num_collision_free_iterations_` is set to
-//!    [`crate::parameters::ChompParameters::max_iterations_after_collision_free`]
+//!    [`crate::chomp::parameters::ChompParameters::max_iterations_after_collision_free`]
 //!    — the optimizer keeps refining for up to that many further
 //!    iterations rather than stopping immediately (immediately only when
 //!    that parameter is `0`).
 //! 3. A wall-clock check, `elapsed >`
-//!    [`crate::parameters::ChompParameters::planning_time_limit`] — a plain
+//!    [`crate::chomp::parameters::ChompParameters::planning_time_limit`] — a plain
 //!    `break`, no `should_break_out`/counter bookkeeping, checked
 //!    unconditionally every iteration regardless of collision state.
 //!
@@ -326,10 +326,10 @@
 //! `max_iterations_` ran out (or the wall clock did), regardless of the
 //! final smoothness cost.
 
-use crate::cost::ChompCost;
-use crate::parameters::ChompParameters;
-use crate::trajectory::ChompTrajectory;
-use crate::utils::{DIFF_RULE_LENGTH, DIFF_RULES};
+use crate::chomp::cost::ChompCost;
+use crate::chomp::parameters::ChompParameters;
+use crate::chomp::trajectory::ChompTrajectory;
+use crate::chomp::utils::{DIFF_RULE_LENGTH, DIFF_RULES};
 use cspace_collision::distance_field::{DistanceField, DistanceFieldCollisionCache, GradientInfo};
 use cspace_collision::{AllowedCollisionMatrix, CollisionRequest};
 use cspace_core::error::{Error, Result};
@@ -644,7 +644,7 @@ pub fn handle_joint_limits(
 /// logs the sum, nor the cost of the trajectory it actually returns.
 ///
 /// Carrying it out of `solve` is therefore a real deviation, recorded on
-/// [`crate::planner::ChompSolution::objective`]. What is *not* invented here
+/// [`crate::chomp::planner::ChompSolution::objective`]. What is *not* invented here
 /// is the decomposition or the word `best`: both come from the lines above.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ChompObjective {
@@ -781,7 +781,7 @@ pub enum ChompExit {
 /// (`chomp_optimizer.cpp:912`) is a member with no accessor. No caller of
 /// `ChompPlanner::solve` can read any of it, so carrying it out is the same
 /// class of deviation as [`ChompObjective`] and is recorded the same way, on
-/// [`crate::planner::ChompSolution::loop_trace`].
+/// [`crate::chomp::planner::ChompSolution::loop_trace`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChompLoopTrace {
     /// How many times the loop body ran, i.e. how many times the objective
@@ -1205,7 +1205,7 @@ fn resolve_collision_point_joint_index(
 ///   persisted field -- and a separate, genuinely dead read inside a
 ///   `/* */`-commented block (`:615`)), and the entire dead-HMC-path field
 ///   set already
-///   established in round 18's [`crate::optimizer`] work
+///   established in round 18's [`crate::chomp::optimizer`] work
 ///   (`random_state_`, `joint_state_velocities_`, `momentum_`,
 ///   `random_momentum_`, `random_joint_momentum_`, `multivariate_gaussian_`,
 ///   `stochasticity_factor_`).
@@ -1668,7 +1668,7 @@ impl<'m> ChompOptimizer<'m> {
 
     /// Ported from `calculatePseudoInverse`. `.inverse()`'s silent garbage
     /// on a singular matrix becomes a typed `Err`, matching this port's
-    /// established `try_inverse()` convention (see [`crate::cost`]'s
+    /// established `try_inverse()` convention (see [`crate::chomp::cost`]'s
     /// `calculate_pseudo_inverse` for the same substitution).
     fn calculate_pseudo_inverse(
         jacobian: &DMatrix<f64>,
@@ -1809,7 +1809,7 @@ impl<'m> ChompOptimizer<'m> {
     /// (`crates/cspace-planning/src/response_adapters/validate_path.rs`;
     /// not a dependency of this crate, hence a plain path here, not a
     /// doc-link). The gap is composition, not a missing component:
-    /// [`crate::solve`]
+    /// [`crate::chomp::solve`]
     /// is a bespoke function outside `cspace-planning`'s adapter pipeline
     /// (see this crate's `# Deviation: no cspace-scene, no cspace-planning
     /// dependency` note), so nothing currently routes its response through
@@ -1819,7 +1819,7 @@ impl<'m> ChompOptimizer<'m> {
     /// `move_group`'s pipeline. A future dispatcher wiring
     /// `cspace-planners-chomp::solve`'s output through
     /// `cspace-planning::response_adapters::ValidateSolution` (the same
-    /// missing dispatcher [`crate::planner::ChompGoal`]'s doc comment
+    /// missing dispatcher [`crate::chomp::planner::ChompGoal`]'s doc comment
     /// already names) is
     /// where this should be closed, not a change to this function.
     fn get_collision_cost(&mut self) -> f64 {
@@ -2203,8 +2203,12 @@ mod tests {
     fn trajectory(source_num_points: usize) -> ChompTrajectory {
         let source = ChompTrajectory::from_num_points(panda_model(), source_num_points, 0.1, GROUP)
             .expect("valid num_points");
-        ChompTrajectory::from_source_trajectory(&source, GROUP, crate::utils::DIFF_RULE_LENGTH)
-            .expect("valid padding")
+        ChompTrajectory::from_source_trajectory(
+            &source,
+            GROUP,
+            crate::chomp::utils::DIFF_RULE_LENGTH,
+        )
+        .expect("valid padding")
     }
 
     fn joint_costs(traj: &ChompTrajectory, ridge_factor: f64) -> Vec<ChompCost> {

@@ -330,7 +330,7 @@
 //!      built, neither has a caller left to serve. What fills the role
 //!      here is `ik_cache`'s `IkCache::nearest`, a `min_by` scan over
 //!      `pose_distance`. A GNAT-family index does exist in this
-//!      workspace — `cspace_planners_sbp::nn::Gnat` — and is *not* a port
+//!      workspace — `cspace_planners::sbp::nn::Gnat` — and is *not* a port
 //!      of either header; §271 records why.
 //!   2. *The on-disk cache format is a local choice, not a port target.*
 //!      `ik_cache.cpp`'s `saveCache`/`initializeCache` read and write a

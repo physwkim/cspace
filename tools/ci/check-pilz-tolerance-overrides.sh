@@ -40,7 +40,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 require_caller_tree "$repo_root"
 cd "$repo_root"
 
-file="crates/cspace-planners-pilz/tests/pilz_blend_parity.rs"
+file="crates/cspace-planners/tests/pilz_blend_parity.rs"
 
 if [[ ! -f "$file" ]]; then
   echo "FAIL: $file not found -- did it move?" >&2

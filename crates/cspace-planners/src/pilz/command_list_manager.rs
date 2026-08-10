@@ -77,10 +77,10 @@ use cspace_core::model::RobotModel;
 use cspace_core::state::Posed;
 use cspace_core::trajectory::RobotTrajectory;
 
-use crate::limits::LimitsContainer;
-use crate::plan_components_builder::PlanComponentsBuilder;
-use crate::trajectory_functions::{IkContext, solver_tip_frame};
-use crate::trajectory_generator::{MotionPlanRequest, MotionPlanResponse};
+use crate::pilz::limits::LimitsContainer;
+use crate::pilz::plan_components_builder::PlanComponentsBuilder;
+use crate::pilz::trajectory_functions::{IkContext, solver_tip_frame};
+use crate::pilz::trajectory_generator::{MotionPlanRequest, MotionPlanResponse};
 
 /// One command of a motion sequence.
 ///
@@ -501,11 +501,11 @@ mod tests {
     use cspace_planning::scene::PlanningScene;
 
     use super::*;
-    use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer};
-    use crate::trajectory_generator::{
+    use crate::pilz::limits::{CartesianLimits, JointLimit, JointLimitsContainer};
+    use crate::pilz::trajectory_generator::{
         Goal, PilzGenerator, StartState, TrajectoryGenerator as PilzBase,
     };
-    use crate::trajectory_generator_lin::TrajectoryGeneratorLin;
+    use crate::pilz::trajectory_generator_lin::TrajectoryGeneratorLin;
 
     fn load_panda() -> (RobotModel, SrdfModel) {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");

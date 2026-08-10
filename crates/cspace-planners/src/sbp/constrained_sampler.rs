@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! The bridge from a [`cspace_planning::constraints::ConstraintSampler`] to
-//! [`crate::rrt_connect::ConstrainedStateSampler`]: [`GroupConstraintSampler`]
+//! [`crate::sbp::rrt_connect::ConstrainedStateSampler`]: [`GroupConstraintSampler`]
 //! writes each attempt into a scratch [`RobotState`] and reads the result
 //! back out through a [`JointModelGroupSpace`], mirroring
-//! [`crate::planning_scene_validity::PlanningSceneValidityChecker`]'s own
+//! [`crate::sbp::planning_scene_validity::PlanningSceneValidityChecker`]'s own
 //! sample-to-`RobotState`-and-back shape rather than inventing a second one.
 
 use std::cell::RefCell;
@@ -14,12 +14,12 @@ use cspace_core::state::RobotState;
 use cspace_planning::constraints::ConstraintSampler;
 use rand::Rng;
 
-use crate::compound::CompoundValue;
-use crate::joint_model_group_space::JointModelGroupSpace;
-use crate::rrt_connect::ConstrainedStateSampler;
+use crate::sbp::compound::CompoundValue;
+use crate::sbp::joint_model_group_space::JointModelGroupSpace;
+use crate::sbp::rrt_connect::ConstrainedStateSampler;
 
 /// Adapts a [`cspace_planning::constraints::ConstraintSampler`] (which samples into a
-/// [`RobotState`]) to [`crate::rrt_connect::ConstrainedStateSampler`] (which
+/// [`RobotState`]) to [`crate::sbp::rrt_connect::ConstrainedStateSampler`] (which
 /// samples a [`JointModelGroupSpace`] state).
 ///
 /// # `working` persists across attempts: this is upstream's `work_state_`, not a bug
@@ -96,7 +96,7 @@ use crate::rrt_connect::ConstrainedStateSampler;
 /// `resolve_constraint_sampler`'s own wiring gap (`registry.rs`,
 /// `PORTING-PLAN.md` §163.3) is also fixed. `PORTING-PLAN.md` §153.1: this
 /// stays deferred until a measurement in the shape of
-/// `crate::registry::tests::path_constraints_end_to_end_wired_vs_unwired`
+/// `crate::sbp::registry::tests::path_constraints_end_to_end_wired_vs_unwired`
 /// — a wired path sampler, run at some budget or tolerance, where *this*
 /// persistence design itself measurably underperforms unwired, not merely
 /// fails to beat it by as much as hoped — shows the simpler persistence
@@ -109,7 +109,7 @@ use crate::rrt_connect::ConstrainedStateSampler;
 /// four-scenario sweep that first measured wired *worse* than unwired
 /// (0/5 vs 5/5, the motivation for this section) was never committed and
 /// could not be re-run. Its replacement,
-/// `crate::registry::tests::path_constraints_four_scenario_wired_vs_unwired_sweep`,
+/// `crate::sbp::registry::tests::path_constraints_four_scenario_wired_vs_unwired_sweep`,
 /// re-measures on today's code (this persistence fix *and* the wiring
 /// extension both in place) across 4 scenarios / 6 configurations,
 /// including a `Goal::Constraints` scenario that is not subject to the
@@ -130,7 +130,7 @@ use crate::rrt_connect::ConstrainedStateSampler;
 ///
 /// # What `path_constraints_end_to_end_wired_vs_unwired` actually shows
 ///
-/// `crate::registry::tests::path_constraints_end_to_end_wired_vs_unwired`
+/// `crate::sbp::registry::tests::path_constraints_end_to_end_wired_vs_unwired`
 /// measures unwired 1/5, wired 5/5 for one `panda_arm` self-motion
 /// scenario — but that 5/5 is *not* evidence this persistence fix works,
 /// even though it was added in the same round. `PORTING-PLAN.md` §181

@@ -194,7 +194,7 @@
 //! # `assert_relative_eq!` reckoning (§79 convention, applied from the start)
 //!
 //! ```text
-//! perl tools/ci/count-relative-eq.pl crates/cspace-planners-stomp/src/*.rs
+//! perl tools/ci/count-relative-eq.pl crates/cspace-planners/src/stomp/*.rs
 //! both=0 epsilon_only=0 max_relative_only=0 neither=0
 //! ```
 //!

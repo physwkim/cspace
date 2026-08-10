@@ -22,10 +22,10 @@
 //! # Scope
 //!
 //! Only `PathLength`/`Pos` are ported, the same scope limit
-//! [`crate::path_line::PathLine`] and [`crate::path_circle::PathCircle`]
-//! already document: [`crate::trajectory_functions::generate_joint_trajectory`]
+//! [`crate::pilz::path_line::PathLine`] and [`crate::pilz::path_circle::PathCircle`]
+//! already document: [`crate::pilz::trajectory_functions::generate_joint_trajectory`]
 //! samples a Cartesian path through
-//! [`crate::trajectory_functions::CartesianPath`], which has exactly those
+//! [`crate::pilz::trajectory_functions::CartesianPath`], which has exactly those
 //! two operations. `Vel`/`Acc`/`Write`/`Clone`/`GetSegment`/
 //! `GetCurrentSegmentLocation` have no caller here.
 //!
@@ -66,8 +66,8 @@
 //! `KDL::Path_RoundedComposite` (and the `Path_Composite` it derives from) is
 //! LGPL-2.1-or-later (`third_party/orocos_kinematics_dynamics/`), heavier
 //! copyleft than this workspace's BSD-3-Clause — the same situation
-//! [`crate::path_line::PathLine`], [`crate::path_circle::PathCircle`] and
-//! [`crate::velocity_profile_trap`] already resolved, and resolved the same
+//! [`crate::pilz::path_line::PathLine`], [`crate::pilz::path_circle::PathCircle`] and
+//! [`crate::pilz::velocity_profile_trap`] already resolved, and resolved the same
 //! way. [`PathRoundedComposite`] is therefore not transcribed from
 //! `orocos_kdl/src/path_roundedcomposite.cpp`: corner rounding is the
 //! elementary tangent-circle construction, derived here from the interior
@@ -104,9 +104,9 @@
 use cspace_core::error::{Error, Result};
 use cspace_core::geometry::Isometry3;
 
-use crate::path_circle::{CircleGeometry, PathCircle};
-use crate::path_line::PathLine;
-use crate::velocity_profile::KDL_EPSILON;
+use crate::pilz::path_circle::{CircleGeometry, PathCircle};
+use crate::pilz::path_line::PathLine;
+use crate::pilz::velocity_profile::KDL_EPSILON;
 
 /// One piece of a [`PathRoundedComposite`].
 ///
@@ -360,7 +360,7 @@ impl PathRoundedComposite {
         // # This crate now has three substitutions for one KDL contract
         //
         // Not resolved by this fix, named so it's on the record: this file
-        // rejects; [`crate::path_line::kdl_normalize`] substitutes
+        // rejects; [`crate::pilz::path_line::kdl_normalize`] substitutes
         // `Vector3::zeros()` (its own doc argues, per call site, that no
         // current caller can observe the difference from KDL's `(1,0,0)`);
         // upstream substitutes `(1,0,0)`. Three spellings of one contract in

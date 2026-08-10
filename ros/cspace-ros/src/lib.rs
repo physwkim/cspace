@@ -65,11 +65,11 @@
 // Linked for its side effect, not for any symbol: `RrtConnectManager`
 // registers itself into `cspace_planning::planner_registry::PLANNER_MANAGERS` through
 // a `linkme::distributed_slice` static, and nothing in this crate names a
-// `cspace_planners_sbp` item. Without this the registration sits in an rlib
+// `cspace_planners::sbp` item. Without this the registration sits in an rlib
 // object file no symbol references, which the linker is free to drop --
 // `move_group::resolve_planning_pipeline("")` would then find an empty
 // slice and every plan would fail as an unknown pipeline.
-use cspace_planners_sbp as _;
+use cspace_planners as _;
 
 #[cfg(test)]
 mod conversion_coverage;

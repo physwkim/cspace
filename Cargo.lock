@@ -105,67 +105,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "cspace-planners-chomp"
+name = "cspace-planners"
 version = "0.1.0"
 dependencies = [
  "approx",
  "cspace-collision",
  "cspace-core",
- "cspace-planners-sbp",
  "cspace-planning",
+ "cspace-stomp-core",
+ "linkme",
  "nalgebra",
  "rand",
  "rand_chacha",
  "rand_distr",
  "serde",
  "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "cspace-planners-pilz"
-version = "0.1.0"
-dependencies = [
- "approx",
- "cspace-collision",
- "cspace-core",
- "cspace-planning",
- "nalgebra",
- "serde",
- "serde_json",
  "thiserror 2.0.19",
- "urdf-rs",
-]
-
-[[package]]
-name = "cspace-planners-sbp"
-version = "0.1.0"
-dependencies = [
- "cspace-collision",
- "cspace-core",
- "cspace-planning",
- "linkme",
- "rand",
- "rand_chacha",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "urdf-rs",
-]
-
-[[package]]
-name = "cspace-planners-stomp"
-version = "0.1.0"
-dependencies = [
- "cspace-collision",
- "cspace-core",
- "cspace-planners-sbp",
- "cspace-planning",
- "cspace-stomp-core",
- "nalgebra",
- "rand",
- "rand_chacha",
- "serde_json",
  "urdf-rs",
 ]
 
@@ -176,7 +131,7 @@ dependencies = [
  "approx",
  "cspace-collision",
  "cspace-core",
- "cspace-planners-sbp",
+ "cspace-planners",
  "linkme",
  "nalgebra",
  "rand",

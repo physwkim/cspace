@@ -100,7 +100,7 @@
 //! - `virtual void solve(MotionPlanDetailedResponse& res) = 0` (`:122`) —
 //!   **unported.** The detailed response has no port on this side
 //!   (`doc/port-coverage.md`'s `planning_response.hpp` row: its only
-//!   counterpart is `cspace_planners_chomp::ChompSolution`, narrowed to what
+//!   counterpart is `cspace_planners::chomp::ChompSolution`, narrowed to what
 //!   chomp fills).
 //! - `virtual bool terminate() = 0` (`:126`) — **unported.** Asynchronous
 //!   cancellation needs a caller on another thread holding the same context;
@@ -165,7 +165,7 @@
 //!   manager built, and nothing here outlives its `solve`.
 //!
 //! The two traits' one concrete implementation is
-//! `cspace_planners_sbp::registry` (`RrtConnectManager` and its context),
+//! `cspace_planners::sbp::registry` (`RrtConnectManager` and its context),
 //! which cites this same header as the "plugin half" it stands in for; the
 //! dispositions above are what that implementation has to satisfy and are
 //! audited here rather than there, because they are properties of the
@@ -248,7 +248,7 @@ pub fn configuration_name(group: &str, planner_config: &str) -> String {
 /// parameter comes from `ompl_planning.yaml` and a manager with no
 /// configuration has nothing to plan with. Every [`PlannerManager`] in this
 /// workspace instead carries compiled-in defaults (see
-/// `cspace_planners_sbp::RrtConnectManager::default`), so a configuration is
+/// `cspace_planners::sbp::RrtConnectManager::default`), so a configuration is
 /// an *overlay* on those and `None` means "plan with your own defaults"
 /// rather than "refuse". Making the miss fatal would mean a node that plans
 /// nothing at all until some client has called `/set_planner_params`.
@@ -275,7 +275,7 @@ pub fn configuration_for<'c>(
 
 /// Opaque planner failure: a [`PlannerManager`] implementation boxes
 /// whatever error its own concrete planner produced (e.g.
-/// `cspace_planners_sbp::PlanError`) into this. This crate cannot name a
+/// `cspace_planners::sbp::PlanError`) into this. This crate cannot name a
 /// concrete planner error type — it
 /// does not, and must not, depend on any concrete planner crate; the
 /// dependency runs the other way (see this module's doc, "Why these live

@@ -129,8 +129,8 @@ fi
 # Here is the command that checks it, so the claim is not left as an assertion
 # -- `5adbed6` is the last commit before that rewrite:
 #
-#   OLD=crates/cspace-planners-sbp/examples/plan_benchmark_problem_set_pre_5adbed6.rs
-#   git show 5adbed6:crates/cspace-planners-sbp/examples/plan_benchmark_problem_set.rs >"$OLD"
+#   OLD=crates/cspace-planners/examples/plan_benchmark_problem_set_pre_5adbed6.rs
+#   git show 5adbed6:crates/cspace-planners/examples/plan_benchmark_problem_set.rs >"$OLD"
 #   cargo build --release -p cspace-planners-sbp \
 #     --example plan_benchmark_problem_set_pre_5adbed6 --example plan_benchmark_problem_set
 #   for s in "floor_wall 250 900001" "cage 250 900002"; do
@@ -387,9 +387,9 @@ ORACLE_STAMP="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")" || exit 1
 # list was derived and what was deliberately left out.
 if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
     tools/ci/verify-phase7-benchmark.sh \
-    crates/cspace-planners-sbp/examples/plan_benchmark_problem_set.rs \
-    crates/cspace-planners-sbp/examples/plan_benchmark_port.rs \
-    crates/cspace-planners-sbp/src \
+    crates/cspace-planners/examples/plan_benchmark_problem_set.rs \
+    crates/cspace-planners/examples/plan_benchmark_port.rs \
+    crates/cspace-planners/src/sbp \
     crates/cspace-planning/src \
     crates/cspace-planning/src/planner_registry \
     crates/cspace-collision/src \
@@ -1276,13 +1276,13 @@ if [[ "$MODE" == "full" ]]; then
   # Checkable in one command against any tree, tracked or not, with no sha to
   # look up:
   #
-  #   git hash-object crates/cspace-planners-sbp/examples/plan_benchmark_port.rs
+  #   git hash-object crates/cspace-planners/examples/plan_benchmark_port.rs
   #
   # If that differs from the value recorded here, the committed code is not
   # the code that ran and these figures need re-measuring.
   #
   # `$SOURCES_JSON` was taken before the build, not here -- see the snapshot
-  # site for why the timing is the point. `crates/cspace-planners-sbp/src` and
+  # site for why the timing is the point. `crates/cspace-planners/src/sbp` and
   # the oracle are in it because the harnesses are not what solves these
   # problems.
   jq --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

@@ -417,7 +417,7 @@ report_qualified() {
 # Directories are why this exists. Both instruments listed only their own
 # harness files, which left the code being measured outside the record they
 # claim closes over it: Phase 8 named `optimize_benchmark_chomp.rs` but not
-# `crates/cspace-planners-chomp/src`, and two behavioural CHOMP fixes
+# `crates/cspace-planners/src/chomp`, and two behavioural CHOMP fixes
 # (`112ec645` mapping goal-constraint construction failure, `823d771e`
 # persisting `should_break_out`) landed after
 # `doc/phase8-optimizer-properties.json` was measured with the gate structurally
@@ -433,7 +433,7 @@ report_qualified() {
 # `cspace-collision`, `cspace-scene` and `cspace-constraints` are consulted
 # by every arm and a single-consumer test would wrongly drop them.
 #
-# (a): CHOMP has no core crate of its own, so `crates/cspace-planners-chomp/src`
+# (a): CHOMP has no core crate of its own, so `crates/cspace-planners/src/chomp`
 # alone covers its algorithm, but STOMP does -- `Stomp::solve` lives in
 # `crates/cspace-stomp-core/src/stomp.rs`, and `a6a81a79` changed its seeding
 # tolerance inside Phase 8's measurement window while the old list, built by
@@ -478,7 +478,7 @@ report_qualified() {
 # benchmark binary that gets measured -- then confirmed by reading the
 # actual call sites, not by hand-listing crate names that look parallel.
 # Hand-listing is what produced the stomp-core miss above, since
-# `crates/cspace-planners-chomp/src` and `crates/cspace-planners-stomp/src`
+# `crates/cspace-planners/src/chomp` and `crates/cspace-planners/src/stomp`
 # look symmetric and are not. It is still a real limit, not a complete one:
 # digesting all of `crates` would invalidate a long-running measurement on
 # any unrelated commit, and a gate that is always red is a gate nobody

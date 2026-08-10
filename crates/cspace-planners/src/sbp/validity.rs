@@ -7,12 +7,12 @@
 //! pointer, so a space's "is this state okay" object and its "is this
 //! segment okay" object are coupled through the same interface. Keeping them
 //! separate here means a planner takes both explicitly and cannot forget
-//! one: [`crate::rrt_connect::rrt_connect`] checks a candidate state's
+//! one: [`crate::sbp::rrt_connect::rrt_connect`] checks a candidate state's
 //! validity and the motion into it as two distinct steps, and the type
 //! signature makes that visible at the call site instead of hidden inside a
 //! single checker's internals.
 
-use crate::space::StateSpace;
+use crate::sbp::space::StateSpace;
 
 /// Answers whether a single state is free of obstacles or constraint
 /// violations.
@@ -64,7 +64,7 @@ pub struct DiscreteMotionValidator<'c, S, C> {
 /// describing why not.
 ///
 /// Shared between [`DiscreteMotionValidator::new`]'s panic (a direct
-/// construction is a programming error, per [`crate::error`]'s module doc)
+/// construction is a programming error, per [`crate::sbp::error`]'s module doc)
 /// and [`RrtConnectManager::get_planning_context`](cspace_planning::PlannerManager::get_planning_context)'s
 /// `Result`-returning check of the same field reached through the
 /// [`cspace_planning::PlannerManager`] trait boundary instead, where a
@@ -179,7 +179,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::space::RealVectorSpace;
+    use crate::sbp::space::RealVectorSpace;
 
     fn space() -> RealVectorSpace {
         RealVectorSpace::new(vec![(-10.0, 10.0)]).unwrap()

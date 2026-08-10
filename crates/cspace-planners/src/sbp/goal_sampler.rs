@@ -18,7 +18,7 @@
 //! background thread keeps calling `sampleUsingConstraintSampler` while the
 //! search runs, growing a *set* of up to `getMaximumGoalSamples()` (`10`,
 //! `planning_context_manager.cpp:258`) accepted goal states that OMPL's
-//! tree can pick among. [`crate::rrt_connect::rrt_connect`] instead takes
+//! tree can pick among. [`crate::sbp::rrt_connect::rrt_connect`] instead takes
 //! one fixed `goal: S::State` and roots a single goal tree on it (see that
 //! function's own signature) — there is no multi-goal region for a second,
 //! third, ... accepted sample to go into. [`sample_goal`] therefore returns
@@ -43,7 +43,7 @@
 //! - `hasSolution()` early-exit (`:110`) — upstream's background sampling
 //!   thread checks whether the tree search already found a solution and
 //!   stops growing the goal region early. [`sample_goal`] runs once, to
-//!   completion, before [`crate::rrt_connect::rrt_connect`] starts
+//!   completion, before [`crate::sbp::rrt_connect::rrt_connect`] starts
 //!   searching at all, so there is no concurrent search progress to poll.
 //!
 //! # Deviation: one combined validity order, not two per-branch orders
@@ -61,17 +61,17 @@ use cspace_core::state::RobotState;
 use cspace_planning::constraints::{ConstraintSampler, KinematicConstraintSet};
 use rand::Rng;
 
-use crate::compound::CompoundValue;
-use crate::joint_model_group_space::JointModelGroupSpace;
-use crate::space::StateSpace;
-use crate::validity::StateValidityChecker;
+use crate::sbp::compound::CompoundValue;
+use crate::sbp::joint_model_group_space::JointModelGroupSpace;
+use crate::sbp::space::StateSpace;
+use crate::sbp::validity::StateValidityChecker;
 
 /// Draws up to `max_goal_sampling_attempts` candidate states — from
 /// `constrained_sampler` if `Some` (mirroring `:126-157`'s constrained
 /// branch, one `ConstraintSampler::sample` call per attempt, no per-attempt
 /// fallback to uniform sampling unlike
-/// [`crate::rrt_connect::Sampler::sample_uniform`]'s path-constraint
-/// sampling), or from [`crate::space::StateSpace::sample_uniform`] if `None`
+/// [`crate::sbp::rrt_connect::Sampler::sample_uniform`]'s path-constraint
+/// sampling), or from [`crate::sbp::space::StateSpace::sample_uniform`] if `None`
 /// (`:158-167`'s uniform branch) — and returns the first one that satisfies
 /// both `checker` (collision plus [`cspace_planning::PlanningRequest::path_constraints`],
 /// mirroring upstream's `si_->getStateValidityChecker()`) and
@@ -99,7 +99,7 @@ where
     // group values (`IKConstraintSampler::sampleHelper`'s `use_as_seed`),
     // so resetting to `template` every attempt -- this function's own
     // design before this fix -- threw that warm start away on every draw;
-    // see `crate::constrained_sampler::GroupConstraintSampler`'s doc
+    // see `crate::sbp::constrained_sampler::GroupConstraintSampler`'s doc
     // comment for the full measurement this shares its cause with.
     let mut state = template.clone();
     for _ in 0..max_goal_sampling_attempts {
@@ -140,7 +140,7 @@ mod tests {
     use rand_chacha::ChaCha8Rng;
 
     use super::*;
-    use crate::planning_scene_validity::PlanningSceneValidityChecker;
+    use crate::sbp::planning_scene_validity::PlanningSceneValidityChecker;
 
     fn load_panda() -> (RobotModel, SrdfModel) {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
@@ -232,7 +232,7 @@ mod tests {
 
     /// Proves [`sample_goal`]'s constrained branch is load-bearing, not
     /// merely invoked: `panda_joint1` pinned to `+/-0.01` (against its own
-    /// `+/-2.9671` bound, `crates/cspace-planners-sbp/tests/fixtures/panda.urdf:37`), empty world, no path
+    /// `+/-2.9671` bound, `crates/cspace-planners/tests/fixtures/sbp/sbp/panda.urdf:37`), empty world, no path
     /// constraints, budget 5 attempts.
     ///
     /// Window and budget were picked by a sweep, not derivation — same

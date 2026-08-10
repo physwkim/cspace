@@ -35,11 +35,11 @@ use serde::Deserialize;
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
-use cspace_planners_sbp::{JointModelGroupSpace, StateSpace};
+use cspace_planners::sbp::{JointModelGroupSpace, StateSpace};
 
 fn fixture_path(file_name: &str) -> String {
     format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/sbp/{}"),
         file_name
     )
 }

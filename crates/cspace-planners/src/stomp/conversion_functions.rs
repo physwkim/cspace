@@ -99,7 +99,7 @@ use nalgebra::{DMatrix, DVector};
 
 use cspace_core::error::Result;
 
-use crate::require_single_variable;
+use crate::stomp::require_single_variable;
 
 /// The output of [`fill_robot_trajectory`]/[`matrix_to_robot_trajectory`]: a
 /// [`RobotTrajectory`] whose waypoint positions are STOMP's solved matrix,
@@ -118,7 +118,7 @@ use crate::require_single_variable;
 /// rather than resting on prose:
 ///
 /// ```compile_fail
-/// use cspace_planners_stomp::conversion_functions::UnparameterizedTrajectory;
+/// use crate::stomp::conversion_functions::UnparameterizedTrajectory;
 /// use cspace_core::trajectory::RobotTrajectory;
 ///
 /// fn reach_around_into_uniformly_timed<'m>(

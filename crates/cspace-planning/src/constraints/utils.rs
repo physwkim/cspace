@@ -56,7 +56,7 @@
 //! # No production caller pairs a `PlanningScene` with goal-constraint
 //! construction, upstream or here
 //!
-//! `cspace_planners_sbp::planning_scene_validity`'s
+//! `cspace_planners::sbp::planning_scene_validity`'s
 //! `a_position_constraint_against_a_world_object_only_resolves_through_transforms_with_world_objects`
 //! test proves `PlanningScene::transforms_with_world_objects` flows into
 //! [`PositionConstraint::new`] correctly, but nothing in this workspace
@@ -119,7 +119,7 @@
 //!   arguments instead.
 //!
 //! In short: the production call site
-//! `cspace_planners_sbp::planning_scene_validity`'s doc comment describes as
+//! `cspace_planners::sbp::planning_scene_validity`'s doc comment describes as
 //! "not yet built" has no upstream analog inside D1's boundary to port
 //! from. It stays a gap this port carries deliberately, not one a future
 //! round should expect to close by finding more upstream code to read.

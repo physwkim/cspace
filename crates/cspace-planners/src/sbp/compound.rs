@@ -8,11 +8,11 @@
 
 use rand::Rng;
 
-use crate::error::SbpError;
-use crate::sampling::sample_simplex;
-use crate::se3::{Se3Space, Se3State};
-use crate::so2::So2Space;
-use crate::space::{RealVectorSpace, StateSpace};
+use crate::sbp::error::SbpError;
+use crate::sbp::sampling::sample_simplex;
+use crate::sbp::se3::{Se3Space, Se3State};
+use crate::sbp::so2::So2Space;
+use crate::sbp::space::{RealVectorSpace, StateSpace};
 
 /// One subspace's value inside a [`CompoundSpace`]'s state.
 ///
@@ -340,7 +340,7 @@ mod tests {
     use std::f64::consts::PI;
 
     use super::*;
-    use crate::test_support::{
+    use crate::sbp::test_support::{
         assert_metric_and_interpolation_axioms, assert_sample_near_stays_within_radius,
     };
     use rand::SeedableRng;

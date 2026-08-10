@@ -8,8 +8,8 @@
 
 //! Request validation shared by every Pilz trajectory generator
 //! (`PTP`/`LIN`/`CIRC`, all three now in this crate's scope — see
-//! [`crate::trajectory_generator_ptp`]/[`crate::trajectory_generator_lin`]/
-//! [`crate::trajectory_generator_circ`]).
+//! [`crate::pilz::trajectory_generator_ptp`]/[`crate::pilz::trajectory_generator_lin`]/
+//! [`crate::pilz::trajectory_generator_circ`]).
 //!
 //! Upstream `TrajectoryGenerator`'s body is dominated by the
 //! `validateRequest`/`checkXxx` family, validating a
@@ -72,13 +72,13 @@
 //!
 //! The fixed-transform-chain fallback itself is not open, though:
 //! [`check_cartesian_goal`] accepts the goal if any constructed solver's tip
-//! is `is_rigidly_connected` (`crate::trajectory_functions`) to the requested
+//! is `is_rigidly_connected` (`crate::pilz::trajectory_functions`) to the requested
 //! link — exact match, or connected to it by fixed joints only, mirroring
 //! `getRigidlyConnectedParentLinkModel`'s own `nullptr`-group semantics via
 //! [`cspace_core::model::RobotModel::rigidly_connected_parent_link`]. Validation
 //! accepting a rigidly-connected link only matters together with the plan
 //! path actually reaching IK for it, which is why
-//! [`crate::trajectory_functions::compute_pose_ik`] performs the same
+//! [`crate::pilz::trajectory_functions::compute_pose_ik`] performs the same
 //! rigid-connection check (plus the constant fixed-joint offset upstream's
 //! `setFromIK` folds into the IK target pose) rather than `plan` filtering
 //! solvers by an exact `solver.tip_frame() == info.link_name` beforehand —
@@ -104,7 +104,7 @@
 //! carried: this port has no `rclcpp::Clock`, and wall-clock timing is not
 //! part of what a bit-for-bit oracle comparison could ever check.
 //! [`PilzGenerator::generate`] is generic over the same `E: CollisionEnv`
-//! [`crate::trajectory_functions::IkContext`] already is, since a Cartesian
+//! [`crate::pilz::trajectory_functions::IkContext`] already is, since a Cartesian
 //! goal's IK (inside [`PilzGenerator::extract_motion_plan_info`]) needs one.
 //!
 //! # LIN/CIRC-only machinery not ported as separate functions
@@ -115,18 +115,18 @@
 //!
 //! - `cartesianTrapVelocityProfile` (`KDL::VelocityProfile_Trap`, a *KDL
 //!   library* symmetric trapezoidal profile distinct from this crate's own
-//!   [`crate::velocity_profile::VelocityProfileAtrap`]) is ported as
-//!   [`crate::velocity_profile_trap::VelocityProfileTrap`] — see that type's
+//!   [`crate::pilz::velocity_profile::VelocityProfileAtrap`]) is ported as
+//!   [`crate::pilz::velocity_profile_trap::VelocityProfileTrap`] — see that type's
 //!   own module doc — and used by both
-//!   [`crate::trajectory_generator_lin::TrajectoryGeneratorLin`] and
-//!   [`crate::trajectory_generator_circ::TrajectoryGeneratorCirc`].
+//!   [`crate::pilz::trajectory_generator_lin::TrajectoryGeneratorLin`] and
+//!   [`crate::pilz::trajectory_generator_circ::TrajectoryGeneratorCirc`].
 //! - `setMaxCartesianSpeed` reads an optional per-request Cartesian speed
 //!   override (`req.max_cartesian_speed`, a Pilz-specific `moveit_msgs`
 //!   extension field) with a fallback to `cartesian_limits.max_trans_vel`.
 //!   [`MotionPlanRequest`] carries no such field (this module's `# What
 //!   changed shape, and why` message-shape exclusion), so both `LIN` and
 //!   `CIRC` always take upstream's fallback branch directly — see
-//!   [`crate::trajectory_generator_lin`]'s own "no per-request Cartesian
+//!   [`crate::pilz::trajectory_generator_lin`]'s own "no per-request Cartesian
 //!   speed override" deviation note.
 //! - `filterGroupValues` (msg-structure-only: parallel-array zipping with no
 //!   native counterpart to zip) has no port because [`StartState::velocity`]
@@ -146,8 +146,8 @@ use cspace_core::state::Posed;
 use cspace_core::trajectory::RobotTrajectory;
 use cspace_planning::scene::PlanningScene;
 
-use crate::limits::{JointLimitsContainer, LimitsContainer};
-use crate::trajectory_functions::{IkContext, is_rigidly_connected};
+use crate::pilz::limits::{JointLimitsContainer, LimitsContainer};
+use crate::pilz::trajectory_functions::{IkContext, is_rigidly_connected};
 
 /// Lower bound (exclusive) on `max_velocity_scaling_factor`/
 /// `max_acceleration_scaling_factor`. Upstream `MIN_SCALING_FACTOR`.
@@ -188,7 +188,7 @@ pub enum Goal {
         /// planning frame, else use the position constraint's", never a
         /// mismatch check between the two, so there is no third case this
         /// fusion could lose. Resolved once, by
-        /// [`crate::trajectory_functions::resolve_goal_frame`], during
+        /// [`crate::pilz::trajectory_functions::resolve_goal_frame`], during
         /// `extract_motion_plan_info` — see that function's own doc for
         /// where, mirroring upstream's own `scene->getFrameTransform(frame_id)
         /// * getConstraintPose(...)`.
@@ -200,7 +200,7 @@ pub enum Goal {
         orientation: UnitQuaternion,
         /// Offset from `position`, in `orientation`'s frame. Upstream
         /// `position_constraints[0].target_point_offset`; see
-        /// [`crate::trajectory_functions::constraint_pose`] for how this is
+        /// [`crate::pilz::trajectory_functions::constraint_pose`] for how this is
         /// applied.
         target_point_offset: Vector3,
     },
@@ -232,7 +232,7 @@ pub struct CircPathConstraint {
     /// Upstream `req.path_constraints.name`.
     pub kind: CircPathConstraintKind,
     /// The link `point` is expressed for. Only read by
-    /// [`crate::trajectory_generator_circ::TrajectoryGeneratorCirc`]'s
+    /// [`crate::pilz::trajectory_generator_circ::TrajectoryGeneratorCirc`]'s
     /// joint-space goal branch, matching upstream's own
     /// `extractMotionPlanInfo`, which resolves `info.link_name` from here
     /// rather than from the (absent, for a joint goal) Cartesian goal
@@ -266,7 +266,7 @@ pub struct PolylinePathConstraint {
     /// The via poses, already resolved into the planning frame.
     pub waypoints: Vec<Isometry3>,
     /// Scaling factor for the corner radius. Clamped into `[0.01, 0.99]` by
-    /// [`crate::path_polyline_generator::compute_blend_radius`], not
+    /// [`crate::pilz::path_polyline_generator::compute_blend_radius`], not
     /// validated here.
     ///
     /// **Moved.** Upstream this is `MotionPlanRequest::smoothness_level`, a
@@ -472,7 +472,7 @@ pub struct MotionPlanInfo<'m> {
     /// `CIRC`'s resolved auxiliary point (kind plus its final position, after
     /// [`CircPathConstraint::frame`]'s transform and a Cartesian goal's
     /// `target_point_offset` are both applied — see
-    /// [`crate::trajectory_generator_circ`]'s own doc for that adjustment).
+    /// [`crate::pilz::trajectory_generator_circ`]'s own doc for that adjustment).
     /// This reuses [`CircPathConstraint`] for a *resolved* point, unlike
     /// [`MotionPlanRequest::path_constraints`]'s raw one — `frame` is always
     /// [`None`] here, meaning "already resolved", not "no frame was given".
@@ -574,7 +574,7 @@ impl<'m> MotionPlanResponse<'m> {
 /// dispatch — see this module's `# generate, MotionPlanInfo,
 /// MotionPlanResponse` section.
 ///
-/// `E` is the collision backend [`crate::trajectory_functions::IkContext`]
+/// `E` is the collision backend [`crate::pilz::trajectory_functions::IkContext`]
 /// checks a Cartesian goal's IK candidates against (only a Cartesian goal
 /// ever performs IK; a joint-space goal never touches `E`).
 pub trait PilzGenerator<'m, E>
@@ -813,7 +813,7 @@ pub fn check_joint_goal(
 /// [`MoveItErrorCode::InvalidGoalConstraints`] if `link_name` is empty.
 /// [`MoveItErrorCode::NoIkSolution`] if no [`static@KINEMATICS_SOLVERS`] entry can
 /// be built for `group_name` with `link_name` as its tip, or as a link
-/// `is_rigidly_connected` (`crate::trajectory_functions`) to its tip.
+/// `is_rigidly_connected` (`crate::pilz::trajectory_functions`) to its tip.
 pub fn check_cartesian_goal(
     robot_model: &RobotModel,
     group_name: &str,
@@ -849,8 +849,8 @@ pub fn check_cartesian_goal(
 /// node at all unless the deployment's own YAML sets every one of them — a
 /// config-loading-time guarantee entirely outside `TrajectoryGenerator`'s
 /// ported C++ logic. This port has no equivalent boundary
-/// ([`crate::trajectory_generator`]'s own module doc, `PORTING-PLAN.md`
-/// D1/D2): [`crate::limits::CartesianLimits`] derives `Default` (all three
+/// ([`crate::pilz::trajectory_generator`]'s own module doc, `PORTING-PLAN.md`
+/// D1/D2): [`crate::pilz::limits::CartesianLimits`] derives `Default` (all three
 /// `0.0`) and [`LimitsContainer::set_cartesian_limits`] performs no
 /// validation, so a caller that never calls it — or calls it with an
 /// explicit non-positive value, upstream's own reachable misconfiguration —
@@ -859,7 +859,7 @@ pub fn check_cartesian_goal(
 /// `POLYLINE`'s identical expression), and separately
 /// `VelocityProfileTrap::new`'s `max_velocity_scaling_factor *
 /// max_trans_vel` / `max_acceleration_scaling_factor * max_trans_acc`
-/// feeding [`crate::velocity_profile_trap::VelocityProfileTrap::set_profile`]'s
+/// feeding [`crate::pilz::velocity_profile_trap::VelocityProfileTrap::set_profile`]'s
 /// `max_vel`/`max_acc` divisors, unguarded — producing `inf`/`NaN` that
 /// silently poisons `path_length` or the profile's own duration and (either
 /// way) the sampling loop that consumes it. `max_trans_dec` is not checked
@@ -867,7 +867,7 @@ pub fn check_cartesian_goal(
 /// own module doc notes this).
 /// [`LimitsContainer::has_cartesian_limits`] already exists for exactly this
 /// (added specifically because upstream tracks the flag but never exposes a
-/// getter — see [`crate::limits`]'s own module doc) but nothing called it.
+/// getter — see [`crate::pilz::limits`]'s own module doc) but nothing called it.
 ///
 /// # Errors
 ///
@@ -900,7 +900,7 @@ mod tests {
     use cspace_core::model::{MeshSearchPaths, RobotModel};
 
     use super::*;
-    use crate::limits::{CartesianLimits, JointLimit};
+    use crate::pilz::limits::{CartesianLimits, JointLimit};
 
     fn load_panda() -> RobotModel {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");

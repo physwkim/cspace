@@ -28,7 +28,7 @@ use nalgebra::DMatrix;
 
 use cspace_core::error::{Error, Result};
 
-use crate::require_single_variable;
+use crate::stomp::require_single_variable;
 
 /// `using FilterFn = std::function<bool(const Eigen::MatrixXd&,
 /// Eigen::MatrixXd&)>`. Parametrized over a lifetime because, unlike

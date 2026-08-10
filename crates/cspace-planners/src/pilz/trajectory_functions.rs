@@ -90,7 +90,7 @@
 //!    `Point`/`Quaternion`/`Vector3` overload's actual computation (goal pose
 //!    from position + orientation, offset by `target_point_offset` expressed
 //!    in the goal's own rotated frame) is real geometry a future goal-pose
-//!    extraction (this round's [`crate::trajectory_generator`] or a later
+//!    extraction (this round's [`crate::pilz::trajectory_generator`] or a later
 //!    LIN/PTP/CIRC round) still needs, so it is ported as [`constraint_pose`]
 //!    taking [`cspace_core::geometry::Vector3`]/[`cspace_core::geometry::UnitQuaternion`]
 //!    directly instead of `geometry_msgs` fields.
@@ -110,8 +110,8 @@ use cspace_core::state::{Posed, RobotState};
 use cspace_core::trajectory::RobotTrajectory;
 use cspace_planning::scene::PlanningScene;
 
-use crate::cartesian_trajectory::CartesianTrajectory;
-use crate::limits::JointLimitsContainer;
+use crate::pilz::cartesian_trajectory::CartesianTrajectory;
+use crate::pilz::limits::JointLimitsContainer;
 
 /// A Cartesian path sampled by elapsed time. See this module's `# Deviations`,
 /// item 2, for why this trait exists instead of a concrete `KDL::Trajectory`
@@ -932,7 +932,7 @@ pub fn resolve_goal_frame<'m, E>(
 
 /// Resolve `group_name`'s solver tip frame. Upstream `getSolverTipFrame`
 /// (`tip_frame_getter.hpp`), minus the "more than one tip frame" case — see
-/// [`crate::trajectory_generator_lin`]'s `# Deviations` for why that case is
+/// [`crate::pilz::trajectory_generator_lin`]'s `# Deviations` for why that case is
 /// unrepresentable here.
 ///
 /// # Errors
@@ -960,7 +960,7 @@ mod tests {
     use cspace_planning::scene::PlanningScene;
 
     use super::*;
-    use crate::limits::{JointLimit, JointLimitsContainer};
+    use crate::pilz::limits::{JointLimit, JointLimitsContainer};
 
     fn fixture_mesh_search_paths() -> MeshSearchPaths {
         let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
@@ -1431,7 +1431,7 @@ mod tests {
     /// rejected this outright (`None`, matching what
     /// `cartesian_goal_accepts_a_link_rigidly_connected_to_the_tip`'s sibling
     /// test proved fails at the validation layer); this proves the *IK
-    /// layer* the validation layer's [`crate::trajectory_generator::check_cartesian_goal`]
+    /// layer* the validation layer's [`crate::pilz::trajectory_generator::check_cartesian_goal`]
     /// promises exists actually solves it, and does so for the constant
     /// fixed-joint offset upstream's `setFromIK` folds into the target pose
     /// -- not merely for a link name equal to the tip.

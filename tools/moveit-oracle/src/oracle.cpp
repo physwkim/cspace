@@ -6119,7 +6119,7 @@ private:
   }
 
   /// Ground truth for `ChompCost::getQuadraticCostInverse()`, requested by
-  /// p6-totg in `crates/cspace-planners-chomp/doc/oracle-request-quad-cost-
+  /// p6-totg in `crates/cspace-planners/doc/oracle-request-quad-cost-
   /// inv.md`.
   ///
   /// The full inverse matrix, element by element, not a residual. Round 16
@@ -6382,7 +6382,7 @@ private:
   ///
   /// # Why `chomp_motion_planner` and not `chomp_interface`
   ///
-  /// `cspace_planners_chomp` (the `chomp_interface` package, which carries
+  /// `cspace_planners::chomp` (the `chomp_interface` package, which carries
   /// the pluginlib entry point) is not in this image. It does not need to
   /// be: `CHOMPPlanningContext::solve` is one forwarding call --
   /// `chomp_interface_->solve(planning_scene_, request_, chomp_interface_->getParams(), res);`
@@ -6764,7 +6764,7 @@ private:
   /// intended -- it cannot manufacture a disagreement. Two independent
   /// readers of one YAML file is the arrangement that can.
   ///
-  /// `joint_limits` mirrors `cspace_planners_pilz`'s own `JointLimit`
+  /// `joint_limits` mirrors `cspace_planners::pilz`'s own `JointLimit`
   /// field-for-field (the union of `joint_limits::JointLimits` and pilz's
   /// `joint_limits_interface::JointLimits` extension), so the port's
   /// `limits::JointLimit` deserializes it without a translation table.
@@ -7094,7 +7094,7 @@ private:
   /// blender's only external measurement.
   ///
   /// Requested by p1-joints in
-  /// `crates/cspace-planners-pilz/doc/oracle-request-pilz-blend.md` after
+  /// `crates/cspace-planners/doc/oracle-request-pilz-blend.md` after
   /// they ported the 966-line blender with twelve tests, none of which
   /// compares a single number against upstream (PORTING-PLAN.md §185).
   ///

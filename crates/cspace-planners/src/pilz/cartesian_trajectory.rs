@@ -8,7 +8,7 @@
 
 //! A Cartesian-space trajectory: a named group and link plus a time-ordered
 //! sequence of poses/velocities/accelerations. Consumed by
-//! [`crate::trajectory_functions::generate_joint_trajectory_from_cartesian`].
+//! [`crate::pilz::trajectory_functions::generate_joint_trajectory_from_cartesian`].
 //!
 //! # Deviations from upstream
 //!
@@ -20,7 +20,7 @@
 //!   ported (`PORTING-PLAN.md` D1/D2).
 //! - `time_from_start` is `rclcpp::Duration` upstream; here it is a plain
 //!   `f64` in seconds, matching every other duration in this crate (see
-//!   e.g. `crate::limits::JointLimit`).
+//!   e.g. `crate::pilz::limits::JointLimit`).
 
 use cspace_core::geometry::{Isometry3, Vector3};
 

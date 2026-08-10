@@ -590,7 +590,7 @@ mod tests {
 
     /// The [`PlanningContext`] half of every double below. A real
     /// [`PlannerManager`] does work in `get_planning_context` that its
-    /// `solve` then reuses (`cspace_planners_sbp::RrtConnectManager`
+    /// `solve` then reuses (`cspace_planners::sbp::RrtConnectManager`
     /// resolves the group's state space there); none of these four doubles
     /// has any, so all four capture what they need into one closure and
     /// hand it over as this. One shared context type, rather than four

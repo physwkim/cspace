@@ -15,7 +15,7 @@
 //! (`ChompOptimizer::optimize`, `optimizer.rs:1934-1935`:
 //! `mesh_to_mesh_collision_free(&self.start_state, &self.best_group_trajectory)`)
 //! a second time, directly, on
-//! [`ChompSolution::trajectory`](cspace_planners_chomp::ChompSolution::trajectory)
+//! [`ChompSolution::trajectory`](cspace_planners::chomp::ChompSolution::trajectory)
 //! -- the value [`solve_with_trace`] actually hands back to a caller once
 //! the loop exits.
 //!
@@ -78,8 +78,8 @@ use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
 use cspace_core::test_support::isometry_from_row_major;
-use cspace_planners_chomp::optimizer::ChompCollisionContext;
-use cspace_planners_chomp::{
+use cspace_planners::chomp::optimizer::ChompCollisionContext;
+use cspace_planners::chomp::{
     ChompExit, ChompGoal, ChompParameters, ChompRequest, GoalJointConstraint, solve_with_trace,
 };
 use cspace_planning::scene::PlanningScene;

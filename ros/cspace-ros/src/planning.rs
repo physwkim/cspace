@@ -73,7 +73,7 @@
 //! D6 also names what is missing. A `TryFrom` needs a core-side source type,
 //! and this workspace's only counterpart to
 //! `planning_interface::MotionPlanDetailedResponse` is
-//! `cspace_planners_chomp::ChompSolution`, which holds one `RobotTrajectory`
+//! `cspace_planners::chomp::ChompSolution`, which holds one `RobotTrajectory`
 //! and one `description` string rather than the parallel vectors upstream
 //! iterates. Every rule the upstream function has -- the first-non-empty
 //! trajectory supplying `trajectory_start`/`group_name`, the `continue` over
@@ -409,7 +409,7 @@ impl<'m> TryFrom<PlanningResponseMsg<'m>> for PlanningResponse<'m> {
     /// upstream fill site sits inside a `PlanningContext`-equivalent's
     /// `solve()`, never the pipeline this crate talks to. That used to be an
     /// exclusion for want of any concrete planner; D8 ended that half --
-    /// `cspace_planners_sbp::registry::RrtConnectManager` implements
+    /// `cspace_planners::sbp::registry::RrtConnectManager` implements
     /// [`cspace_planning::PlannerManager`] and its context implements
     /// [`cspace_planning::PlanningContext`], so the fill site now exists and
     /// is simply unfilled. Whichever crate fills it, it is that `solve`, not

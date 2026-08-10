@@ -26,7 +26,7 @@
 //!   provided.** The `Frame`-plus-`Twist` constructor and `Vel`/`Acc`/`Write`/
 //!   `Clone`/`LengthToS` have no caller: `generate_joint_trajectory` (this
 //!   crate's `trajectory_functions` module) only ever calls
-//!   [`crate::trajectory_functions::CartesianPath::duration`]/`pos`, composed
+//!   [`crate::pilz::trajectory_functions::CartesianPath::duration`]/`pos`, composed
 //!   from [`PathLine::path_length`]/[`PathLine::pos`] by
 //!   `TrajectoryGeneratorLIN`'s own Cartesian trajectory segment — see this
 //!   crate's `deny(warnings)` policy on dead code.
@@ -41,7 +41,7 @@
 //! each derived independently (elementary vector algebra, the standard
 //! quaternion axis-angle identity, and the same multi-motion
 //! synchronization already used by
-//! [`crate::trajectory_generator_ptp::TrajectoryGeneratorPtp`], respectively
+//! [`crate::pilz::trajectory_generator_ptp::TrajectoryGeneratorPtp`], respectively
 //! — see each function's own doc comment for the derivation). What is
 //! reused from the LGPL sources is *interface facts*, not expression: the
 //! `eqradius` convention balancing translational against rotational arc
@@ -52,15 +52,15 @@
 //! algorithms that fill it in. Equivalence with upstream is proven the
 //! same way every other generator in this crate proves it: oracle parity
 //! on captured fixtures (`tests/pilz_trajectory_lin_parity.rs`,
-//! `tests/pilz_trajectory_circ_parity.rs` for [`crate::path_circle::PathCircle`]'s
+//! `tests/pilz_trajectory_circ_parity.rs` for [`crate::pilz::path_circle::PathCircle`]'s
 //! shared use of `kdl_normalize`/`get_rot_angle`), not line
 //! correspondence.
 
 use cspace_core::geometry::{Isometry3, UnitQuaternion, Vector3};
 use nalgebra::Unit;
 
-use crate::numeric::cxx_max;
-use crate::velocity_profile::KDL_EPSILON;
+use crate::pilz::numeric::cxx_max;
+use crate::pilz::velocity_profile::KDL_EPSILON;
 
 /// Normalizes `v`, returning `(unit direction, original norm)`.
 ///
@@ -81,12 +81,12 @@ use crate::velocity_profile::KDL_EPSILON;
 ///   this direction by a coefficient that is itself provably `0.0`
 ///   whenever the norm-`0.0` branch fires here (see that function's own
 ///   doc comment).
-/// - [`crate::path_circle::PathCircle::new`]'s `radius`-producing call and
+/// - [`crate::pilz::path_circle::PathCircle::new`]'s `radius`-producing call and
 ///   its auxiliary-point-normalizing call both return an error immediately
 ///   upon seeing `norm < eps`, before either direction is ever read (own
 ///   doc comment).
 ///
-/// `pub(crate)`: also used by [`crate::path_circle::PathCircle`] as
+/// `pub(crate)`: also used by [`crate::pilz::path_circle::PathCircle`] as
 /// itemized above.
 pub(crate) fn kdl_normalize(v: Vector3, eps: f64) -> (Vector3, f64) {
     let norm = v.norm();
@@ -144,7 +144,7 @@ pub(crate) fn kdl_normalize(v: Vector3, eps: f64) -> (Vector3, f64) {
 /// exactly, and see that function's own doc comment for the one caller
 /// that reaches a nonzero-but-negligible `theta` in this branch instead.
 ///
-/// `pub(crate)`: also used by [`crate::path_circle::PathCircle`], whose
+/// `pub(crate)`: also used by [`crate::pilz::path_circle::PathCircle`], whose
 /// `RotationalInterpolation_SingleAxis` component is the identical
 /// convention `PathLine` folds in — see that type's own module doc.
 pub(crate) fn get_rot_angle(rotation: &UnitQuaternion, eps: f64) -> (f64, Unit<Vector3>) {
@@ -178,7 +178,7 @@ impl PathLine {
     /// translational path length — see `Path_Line`'s own constructor doc
     /// comment in `orocos_kdl/src/path_line.hpp` for the full rationale.
     /// This is an interface fact this port reuses by name (as
-    /// [`crate::path_circle::PathCircle`] does too), not upstream
+    /// [`crate::pilz::path_circle::PathCircle`] does too), not upstream
     /// expression.
     ///
     /// # Not transcribed from `Path_Line`'s constructor /
@@ -190,7 +190,7 @@ impl PathLine {
     /// complete exactly at `s == path_length`, at whatever constant rate
     /// each needs. This is the same "pace every independent motion to the
     /// one that needs the longest run" problem
-    /// [`crate::trajectory_generator_ptp::TrajectoryGeneratorPtp`] already
+    /// [`crate::pilz::trajectory_generator_ptp::TrajectoryGeneratorPtp`] already
     /// solves by synchronizing every joint to its slowest one — here there
     /// are only two "joints" (translation and rotation, already reduced to
     /// one comparable unit by `eqradius`), so `path_length` is simply
@@ -266,7 +266,7 @@ impl PathLine {
     /// Upstream divides by `scalelin` with no guard, so a rotation-only line
     /// (`scale_lin == 0.0`) returns an infinity or a `NaN` rather than
     /// failing — reproduced rather than turned into an error, since
-    /// [`crate::path_rounded_composite::PathRoundedComposite`], its only
+    /// [`crate::pilz::path_rounded_composite::PathRoundedComposite`], its only
     /// caller here, has already rejected the zero-translation case (its
     /// `Not_Feasible` codes 2 and 3) before it can reach this.
     pub fn length_to_s(&self, length: f64) -> f64 {
@@ -396,7 +396,7 @@ mod tests {
     // -- new: `path_length`'s `dist.max(angle * eqradius)` must reproduce
     // `Path_Line`'s constructor's NaN behavior (`std::max`-shaped: a NaN
     // `dist` propagates, a NaN `angle * eqradius` is discarded), not IEEE
-    // `f64::max`'s (discards NaN wherever it sits) -- see `crate::numeric`'s
+    // `f64::max`'s (discards NaN wherever it sits) -- see `crate::pilz::numeric`'s
     // module doc for the derivation from the constructor's three-way
     // `if (alpha != 0 && alpha*eqradius > dist) ... else if (dist != 0) ...
     // else` in `orocos_kdl/src/path_line.cpp`. --

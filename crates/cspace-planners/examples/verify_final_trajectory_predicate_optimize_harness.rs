@@ -40,8 +40,10 @@ use cspace_core::geometry::{Cuboid, Isometry3, Shape, Vector3};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
-use cspace_planners_chomp::optimizer::ChompCollisionContext;
-use cspace_planners_chomp::{ChompGoal, ChompParameters, ChompRequest, GoalJointConstraint, solve};
+use cspace_planners::chomp::optimizer::ChompCollisionContext;
+use cspace_planners::chomp::{
+    ChompGoal, ChompParameters, ChompRequest, GoalJointConstraint, solve,
+};
 use cspace_planning::scene::PlanningScene;
 use nalgebra::DMatrix;
 use rand::SeedableRng;

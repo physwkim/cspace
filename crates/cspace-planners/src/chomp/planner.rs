@@ -45,8 +45,8 @@
 //! and the goal-tolerance check -- already has a direct counterpart
 //! somewhere in this workspace (`cspace-state`, `cspace-model`,
 //! `cspace-constraints`, `cspace-error`, and this crate's own already-ported
-//! [`crate::trajectory::ChompTrajectory`]/[`crate::optimizer::ChompOptimizer`]/
-//! [`crate::parameters::ChompParameters`]). Zero lines are blocked by a
+//! [`crate::chomp::trajectory::ChompTrajectory`]/[`crate::chomp::optimizer::ChompOptimizer`]/
+//! [`crate::chomp::parameters::ChompParameters`]). Zero lines are blocked by a
 //! genuinely missing type. This settles round 20 item 2's "count, don't
 //! guess" instruction: the unblocked majority dominates, so this round
 //! ports it rather than re-deferring on an unmeasured judgment.
@@ -57,14 +57,14 @@
 //! uses exactly three of its members: `getCurrentState()` (the starting
 //! point before the request's `start_state` message is overlaid onto it),
 //! `getTransforms()` (only to feed that message-overlay conversion), and
-//! `getRobotModel()`. This crate's own [`crate::optimizer::ChompOptimizer::new`]
+//! `getRobotModel()`. This crate's own [`crate::chomp::optimizer::ChompOptimizer::new`]
 //! already replaced the same `PlanningSceneConstPtr` parameter with a plain
 //! `start_state: &RobotState` (round 19) -- there is no `moveit_msgs::msg::RobotState`
 //! in this workspace (D1) for the message-overlay step to exist at all, so
 //! a caller here passes the already-resolved `start_state` directly, and
 //! `RobotModel` comes from [`cspace_core::state::RobotState::model`] instead of a
 //! scene. This keeps this crate's dependency graph exactly as narrow as
-//! [`crate::optimizer`]'s own "no `cspace-scene`" decision (see that
+//! [`crate::chomp::optimizer`]'s own "no `cspace-scene`" decision (see that
 //! module's "`isCurrentTrajectoryMeshToMeshCollisionFree` becomes an
 //! injected closure" doc) -- adding `cspace-scene` here just to immediately
 //! discard two of its three uses would reopen exactly the dependency
@@ -98,7 +98,7 @@
 //! parameter -- an implicit narrowing conversion that is undefined behaviour
 //! in C++ whenever the sum falls outside `int`'s range (or is
 //! non-finite -- `planning_time_limit_` is a free-standing `pub` `f64` on
-//! [`crate::parameters::ChompParameters`], reachable from
+//! [`crate::chomp::parameters::ChompParameters`], reachable from
 //! `cspace-planning`'s response-adapter code the same way
 //! `TotgOptions::resample_dt` is; see `cspace-trajectory`'s
 //! `time_optimal_trajectory_generation` module for that precedent). [`solve`]
@@ -108,12 +108,12 @@
 //! answer" to match here. This deviation is scoped to exactly that rejected
 //! range and expires if upstream adds its own validation to
 //! `setRecoveryParams`/`ChompParameters::planning_time_limit_`.
-use crate::optimizer::{
+use crate::chomp::optimizer::{
     ChompCollisionContext, ChompLoopTrace, ChompObjectiveProgress, ChompOptimizer,
 };
-use crate::parameters::ChompParameters;
-use crate::trajectory::ChompTrajectory;
-use crate::utils::shortest_angular_distance;
+use crate::chomp::parameters::ChompParameters;
+use crate::chomp::trajectory::ChompTrajectory;
+use crate::chomp::utils::shortest_angular_distance;
 use cspace_collision::AllowedCollisionMatrix;
 use cspace_core::error::{Error, MoveItErrorCode, Result};
 use cspace_core::model::joint::JointType;
@@ -242,7 +242,7 @@ pub struct ChompSolution<'m> {
     /// straight-line lower bound. What is mirrored rather than invented is the
     /// shape: upstream's single emission of these numbers
     /// (`chomp_optimizer.cpp:310`) logs the two terms separately, so they are
-    /// reported separately here. See [`crate::optimizer::ChompObjective`] for
+    /// reported separately here. See [`crate::chomp::optimizer::ChompObjective`] for
     /// that reading in full.
     pub objective: Option<ChompObjectiveProgress>,
     /// What the optimizer's loop did to produce `trajectory`, or `None` when
@@ -252,7 +252,7 @@ pub struct ChompSolution<'m> {
     ///
     /// Also no upstream counterpart. `improvement == 0` on this response has
     /// several possible causes and they are not distinguishable from the
-    /// objective alone -- see [`crate::optimizer::ChompLoopTrace`], which
+    /// objective alone -- see [`crate::chomp::optimizer::ChompLoopTrace`], which
     /// names each and the field that separates it. `PORTING-PLAN.md` §296
     /// is the measurement that needed them separated.
     pub loop_trace: Option<ChompLoopTrace>,
@@ -310,7 +310,7 @@ pub struct ChompRequest<'a, 'm> {
 /// `group_trajectory` `ChompOptimizer` builds from this one via
 /// `from_source_trajectory` has a different free range that does include
 /// its own copies of the start/goal rows, per
-/// [`crate::trajectory::ChompTrajectory::num_free_points`]'s doc -- but that
+/// [`crate::chomp::trajectory::ChompTrajectory::num_free_points`]'s doc -- but that
 /// range is never written back past this outer trajectory's own
 /// `start_index`/`end_index` bounds.)
 fn build_seed_trajectory<'m>(
@@ -565,7 +565,7 @@ fn solve_inner<'m>(
 /// initialize -- upstream sets `PLANNING_FAILED` explicitly on this path
 /// (`chomp_planner.cpp:211`).
 /// [`MoveItErrorCode::Failure`] if `trajectory_initialization_method` is
-/// not one of [`crate::parameters::VALID_INITIALIZATION_METHODS`], the
+/// not one of [`crate::chomp::parameters::VALID_INITIALIZATION_METHODS`], the
 /// `"fillTrajectory"` method's required seed trajectory is missing, or
 /// `fill_in_from_trajectory` reports fewer than two points -- upstream
 /// leaves `res.error_code` **unset** on all three of these paths
@@ -649,7 +649,7 @@ pub fn solve_with_trace<'m>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::optimizer::ChompExit;
+    use crate::chomp::optimizer::ChompExit;
     use approx::assert_relative_eq;
     use cspace_collision::distance_field::{
         DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,

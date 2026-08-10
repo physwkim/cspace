@@ -61,12 +61,12 @@ cspace-collision = { path = "../../crates/cspace-collision" }
 # manager is registered.
 cspace-planning = { path = "../../crates/cspace-planning" }
 
-# Exists only so its `RrtConnectManager` registration is linked into this
+# Exists only so `sbp`'s `RrtConnectManager` registration is linked into this
 # crate's binaries and test binaries at all -- a `linkme::distributed_slice`
 # entry lives in an rlib no symbol references, and `src/lib.rs`'s `use
-# cspace_planners_sbp as _;` is what keeps the linker from dropping the object
+# cspace_planners as _;` is what keeps the linker from dropping the object
 # file it sits in.
-cspace-planners-sbp = { path = "../../crates/cspace-planners-sbp" }
+cspace-planners = { path = "../../crates/cspace-planners" }
 
 # For nalgebra's own constructors (Isometry3::from_parts, Translation3::new,
 # UnitQuaternion::new_normalize): cspace-geometry re-exports nalgebra's types

@@ -39,10 +39,10 @@
 //!
 //! [`cxx_min`]/[`cxx_max`] reproduce the exact comparison upstream's
 //! `std::min`/`std::max` (never `std::fmin`/`std::fmax`) use at every call
-//! site this crate ports: [`crate::limits::JointLimitsContainer`]'s
+//! site this crate ports: [`crate::pilz::limits::JointLimitsContainer`]'s
 //! `update_common_limit` (`updateCommonLimit`'s five `std::min`/`std::max`
 //! calls fusing position/velocity/acceleration/deceleration limits), and
-//! [`crate::path_line::PathLine::new`]'s `path_length` selection — not a
+//! [`crate::pilz::path_line::PathLine::new`]'s `path_length` selection — not a
 //! transcription of a literal `std::max` call (see that function's own doc
 //! comment for why), but proven by direct derivation to be the exact
 //! `std::max(dist, angle * eqradius)` upstream's `if (angle * eqradius >
@@ -51,7 +51,7 @@
 //! is every case a naive `std::max` would also return `dist` for, NaN or
 //! not.
 //!
-//! [`crate::path_polyline_generator::compute_blend_radius`] also has a
+//! [`crate::pilz::path_polyline_generator::compute_blend_radius`] also has a
 //! `std::min(dist1 / 2.0, dist2 / 2.0)` call (not `std::fmin`, so the same
 //! family as the two sites above), but it is deliberately left as
 //! [`f64::min`] rather than converted — see that function's test module for

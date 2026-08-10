@@ -86,17 +86,17 @@ use cspace_core::geometry::{UnitQuaternion, Vector3};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::trajectory::RobotTrajectory;
-use cspace_planners_pilz::limits::{
+use cspace_planners::pilz::limits::{
     CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer,
 };
-use cspace_planners_pilz::trajectory_blender_transition_window::{
+use cspace_planners::pilz::trajectory_blender_transition_window::{
     TrajectoryBlendRequest, TrajectoryBlendResponse, blend,
 };
-use cspace_planners_pilz::trajectory_functions::IkContext;
-use cspace_planners_pilz::trajectory_generator::{
+use cspace_planners::pilz::trajectory_functions::IkContext;
+use cspace_planners::pilz::trajectory_generator::{
     Goal, MotionPlanRequest, PilzGenerator, StartState, TrajectoryGenerator,
 };
-use cspace_planners_pilz::trajectory_generator_lin::TrajectoryGeneratorLin;
+use cspace_planners::pilz::trajectory_generator_lin::TrajectoryGeneratorLin;
 use cspace_planning::scene::PlanningScene;
 
 #[derive(Deserialize)]
@@ -235,7 +235,7 @@ struct OracleResponseEnvelope<T> {
 
 fn fixture_path(file_name: &str) -> String {
     format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/pilz/{}"),
         file_name
     )
 }
