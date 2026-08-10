@@ -140,6 +140,10 @@ impl CastHullShape {
 }
 
 impl ConvexShape for CastHullShape {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     /// `m_shapeType = CUSTOM_CONVEX_SHAPE_TYPE` (`bullet_utils.hpp:251`).
     ///
     /// This is the value that keeps the whole cast layer working without

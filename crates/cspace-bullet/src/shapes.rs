@@ -81,6 +81,7 @@
 //! (`collision_env_bullet.cpp`'s `getCollisionObjectType`), so that arm is
 //! unreachable from the continuous check.
 
+use std::any::Any;
 use std::borrow::Cow;
 
 use crate::broadphase_proxy::BroadphaseNativeType;
@@ -137,7 +138,23 @@ pub const CONVEX_DISTANCE_MARGIN: Scalar = 0.04;
 /// decision. Every shape here is plain data and satisfies it; the bound is
 /// what stops an implementor reaching for interior mutability to make a shape
 /// re-poseable in place.
-pub trait ConvexShape: Send + Sync {
+/// # `Any`
+///
+/// `addCastSingleResult` recovers the swept shape by
+/// `static_cast<const CastHullShape*>(first_col_obj_wrap->getCollisionShape())`
+/// (`bullet_utils.hpp:471`) -- a downcast to a type that is not in this crate,
+/// on a pointer whose static type is the base. [`ConvexShape::as_any`] is that
+/// downcast's only possible spelling here, and it is strictly the safer one:
+/// upstream's `static_cast` reinterprets whatever it is given, while this one
+/// fails when the shape is not the type asked for.
+pub trait ConvexShape: Send + Sync + Any {
+    /// The concrete shape behind the trait object, for the one downcast the
+    /// continuous path performs; see the trait docs.
+    ///
+    /// Required rather than defaulted because a default body would need
+    /// `Self: Sized`, which is exactly what a trait object is not.
+    fn as_any(&self) -> &dyn Any;
+
     /// `btConvexShape::localGetSupportingVertexWithoutMargin`.
     fn local_get_supporting_vertex_without_margin(&self, vec: Vec3) -> Vec3;
 
@@ -327,6 +344,10 @@ impl BoxShape {
 }
 
 impl ConvexShape for BoxShape {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     /// `btBoxShape.cpp:20`.
     fn shape_type(&self) -> BroadphaseNativeType {
         BroadphaseNativeType::BOX_SHAPE
@@ -436,6 +457,10 @@ impl SphereShape {
 }
 
 impl ConvexShape for SphereShape {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     /// `btSphereShape.h:31`.
     fn shape_type(&self) -> BroadphaseNativeType {
         BroadphaseNativeType::SPHERE_SHAPE
@@ -514,6 +539,10 @@ impl CylinderShapeZ {
 }
 
 impl ConvexShape for CylinderShapeZ {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     /// `btCylinderShape.cpp:27` -- `btCylinderShapeZ`'s
     /// constructor only sets `m_upAxis` (`:36-40`), so the Z variant reports
     /// the same type as the base.
@@ -625,6 +654,10 @@ impl ConeShapeZ {
 }
 
 impl ConvexShape for ConeShapeZ {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     /// `btConeShape.cpp:22` -- `btConeShapeZ` only calls
     /// `setConeUpIndex(2)` (`:28-31`), so the Z variant reports the base's
     /// type.
@@ -781,6 +814,10 @@ impl ConvexHullShape {
 }
 
 impl ConvexShape for ConvexHullShape {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     /// `btConvexHullShape.cpp:30`.
     fn shape_type(&self) -> BroadphaseNativeType {
         BroadphaseNativeType::CONVEX_HULL_SHAPE
