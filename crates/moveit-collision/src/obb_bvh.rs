@@ -158,6 +158,41 @@ struct Descent<'a, F: FnMut(u32, u32) -> ControlFlow<()>> {
     leaf: &'a mut F,
 }
 
+/// The second tree's node box carried into the first tree's frame: the two
+/// products of `rot12`/`t12` with that node that [`ObbTree::recurse`]'s
+/// overlap test needs.
+///
+/// Both depend on the second node alone, and `firstOverSecond` moves exactly
+/// one side per level, so on every step that descends the *first* tree they
+/// are the parent's values unchanged. Threading them down the recursion is
+/// what makes that reuse possible; rebuilding them at each node, as this
+/// descent used to, recomputes a matrix product per node pair that changed
+/// only every other level.
+///
+/// The reuse is safe by construction rather than by discipline: [`Carried`]
+/// is only ever built by [`Carried::of`] from the node it describes, and the
+/// only call that passes a parent's value through is the one that leaves `i2`
+/// alone. There is no path that pairs it with a different second node.
+///
+/// Bit-for-bit the same values the per-node form computed -- same operands,
+/// same association -- so no overlap verdict moves.
+#[derive(Clone, Copy)]
+struct Carried {
+    /// `rot12 * n2.axis`.
+    axis: Matrix,
+    /// `rot12 * n2.center + t12`.
+    center: Vector,
+}
+
+impl Carried {
+    fn of(rot12: &Matrix, t12: &Vector, obb: &Obb) -> Self {
+        Self {
+            axis: *rot12 * obb.axis,
+            center: *rot12 * obb.center + *t12,
+        }
+    }
+}
+
 /// [`Descent`]'s one-tree counterpart, for a descent whose other side is a
 /// single shape rather than a second hierarchy: only the node index changes
 /// from one level to the next, so the rest is threaded as one borrow.
@@ -341,7 +376,8 @@ impl ObbTree {
             grow: Vector::splat(prediction),
             leaf,
         };
-        let _ = self.recurse(&mut descent, 0, 0);
+        let root2 = Carried::of(rot12, t12, &other.nodes[0].obb);
+        let _ = self.recurse(&mut descent, 0, 0, &root2);
     }
 
     fn recurse(
@@ -349,15 +385,18 @@ impl ObbTree {
         d: &mut Descent<'_, impl FnMut(u32, u32) -> ControlFlow<()>>,
         i1: u32,
         i2: u32,
+        c2: &Carried,
     ) -> ControlFlow<()> {
         let n1 = &self.nodes[i1 as usize];
         let n2 = &d.other.nodes[i2 as usize];
 
         // `fcl::overlap(R0, T0, b1, b2)` (`OBB-inl.h:383`), inlined: the
-        // second box's frame expressed in the first box's.
-        let rot = n1.obb.axis.transpose() * (d.rot12 * n2.obb.axis);
-        let delta = d.rot12 * n2.obb.center + d.t12 - n1.obb.center;
-        let t = n1.obb.axis.transpose() * delta;
+        // second box's frame expressed in the first box's. The half of that
+        // change of frame which depends only on the second node arrives in
+        // `c2` -- see [`Carried`].
+        let into_n1 = n1.obb.axis.transpose();
+        let rot = into_n1 * c2.axis;
+        let t = into_n1 * (c2.center - n1.obb.center);
         if obb_disjoint(&rot, &t, &(n1.obb.extent + d.grow), &n2.obb.extent) {
             return ControlFlow::Continue(());
         }
@@ -368,15 +407,23 @@ impl ObbTree {
         }
         // `firstOverSecond` (`bvh_collision_traversal_node-inl.h:78`):
         // descend whichever side is bigger, and never descend a leaf.
-        let (a, b) = if l2 || (!l1 && n1.obb.size() > n2.obb.size()) {
-            let (a, b) = (n1.first_child, n1.first_child + 1);
-            ((a, i2), (b, i2))
+        if l2 || (!l1 && n1.obb.size() > n2.obb.size()) {
+            // First tree descends, so the second node -- and with it `c2` --
+            // is the same one both children face.
+            let a = n1.first_child;
+            self.recurse(d, a, i2, c2)?;
+            self.recurse(d, a + 1, i2, c2)
         } else {
-            let (a, b) = (n2.first_child, n2.first_child + 1);
-            ((i1, a), (i1, b))
-        };
-        self.recurse(d, a.0, a.1)?;
-        self.recurse(d, b.0, b.1)
+            // Second tree descends: each child needs its own carry, and gets
+            // it from its own box.
+            let a = n2.first_child;
+            let (ca, cb) = (
+                Carried::of(&d.rot12, &d.t12, &d.other.nodes[a as usize].obb),
+                Carried::of(&d.rot12, &d.t12, &d.other.nodes[a as usize + 1].obb),
+            );
+            self.recurse(d, i1, a, &ca)?;
+            self.recurse(d, i1, a + 1, &cb)
+        }
     }
 
     /// The same descent with one tree instead of two: calls `leaf` once per
