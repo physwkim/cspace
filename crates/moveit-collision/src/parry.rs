@@ -1214,7 +1214,7 @@ use moveit_model::{LinkModel, RobotModel};
 use moveit_state::Posed;
 
 use parry3d_f64::bounding_volume::Aabb;
-use parry3d_f64::math::{Pose, Vector as ParryVector};
+use parry3d_f64::math::{Pose, Rotation as ParryRotation, Vector as ParryVector};
 use parry3d_f64::query::{self, Contact as ParryContact};
 use parry3d_f64::shape::{
     Ball, Cone as ParryCone, Cuboid as ParryCuboid, Cylinder as ParryCylinder, HalfSpace,
@@ -1228,7 +1228,7 @@ use crate::common::{
 };
 use crate::env::{CollisionEnv, LinkPaddingScale};
 use crate::matrix::{AllowedCollision, AllowedCollisionMatrix};
-use crate::obb_bvh::ObbTree;
+use crate::obb_bvh::{Obb, ObbTree};
 use crate::world::{Object, World};
 
 /// A practical, effectively-unbounded search distance for `parry`'s own
@@ -2856,17 +2856,35 @@ enum ContactDetail {
     Verdict,
 }
 
-/// One side of a mesh-against-mesh query: the mesh, the oriented-box
-/// hierarchy fitted to it, and where it sits.
+/// The mesh side of a query: the mesh, the oriented-box hierarchy fitted to
+/// it, and where it sits.
 ///
 /// The three always travel together and are always read together --
 /// upstream's `MeshCollisionTraversalNode` holds exactly this per side
-/// (`model1`/`vertices1`/`tri_indices1` plus `tf1`).
+/// (`model1`/`vertices1`/`tri_indices1` plus `tf1`), and its
+/// mesh-against-shape counterpart holds it for the one side that is a mesh.
+/// Both of this file's mesh descents ([`trimesh_pair_contact`],
+/// [`mesh_shape_contact`]) take it, so neither can be handed a mesh and the
+/// wrong tree.
 #[derive(Clone, Copy)]
 struct PosedMesh<'a> {
     pose: &'a Pose,
     mesh: &'a TriMesh,
     tree: &'a ObbTree,
+}
+
+/// The mesh side of a pair, or `None` when that mesh has no triangles.
+///
+/// [`Part::obb`] is `Some` for every non-empty `TriMesh` ([`ConvertedShape`]),
+/// so the `None` here means an empty mesh -- which can produce no contact, and
+/// so is [`PartContactOutcome::NotTouching`] at every call site rather than a
+/// case any of them has to think about separately.
+fn posed_mesh<'a>(part: &'a Part, mesh: &'a TriMesh) -> Option<PosedMesh<'a>> {
+    Some(PosedMesh {
+        pose: &part.pose,
+        mesh,
+        tree: part.obb.as_deref()?,
+    })
 }
 
 /// The stop rule the two mesh searches share under
@@ -2940,23 +2958,9 @@ fn part_contact(a: &Part, b: &Part, prediction: f64, detail: ContactDetail) -> P
     // Not an `Unsupported` path either way: composite-vs-composite has a
     // dispatch arm, so the arm below could only ever answer `Ok` for it.
     if let (Some(m1), Some(m2)) = (a_shape.as_trimesh(), b_shape.as_trimesh()) {
-        // `obb` is `Some` for every non-empty `TriMesh` (`ConvertedShape`),
-        // and a mesh with no triangles can produce no contact.
-        let (Some(o1), Some(o2)) = (a.obb.as_deref(), b.obb.as_deref()) else {
+        let (Some(a_mesh), Some(b_mesh)) = (posed_mesh(a, m1), posed_mesh(b, m2)) else {
             return PartContactOutcome::NotTouching;
         };
-        let (a_mesh, b_mesh) = (
-            PosedMesh {
-                pose: a_pose,
-                mesh: m1,
-                tree: o1,
-            },
-            PosedMesh {
-                pose: b_pose,
-                mesh: m2,
-                tree: o2,
-            },
-        );
         return match trimesh_pair_contact(a_mesh, b_mesh, prediction, detail) {
             Some(contact) => PartContactOutcome::Touching(contact),
             None => PartContactOutcome::NotTouching,
@@ -2965,11 +2969,13 @@ fn part_contact(a: &Part, b: &Part, prediction: f64, detail: ContactDetail) -> P
     // The same one-sided selection against a primitive -- see
     // `mesh_shape_contact`, whose doc says why only a `SupportMap` one.
     let mesh_vs_primitive = match (a_shape.as_trimesh(), b_shape.as_trimesh()) {
-        (Some(m1), None) if b_shape.as_support_map().is_some() => Some(mesh_shape_contact(
-            a_pose, m1, b_pose, b_shape, prediction, detail,
-        )),
+        (Some(m1), None) if b_shape.as_support_map().is_some() => Some(
+            posed_mesh(a, m1)
+                .and_then(|mesh| mesh_shape_contact(mesh, b_pose, b_shape, prediction, detail)),
+        ),
         (None, Some(m2)) if a_shape.as_support_map().is_some() => Some(
-            mesh_shape_contact(b_pose, m2, a_pose, a_shape, prediction, detail)
+            posed_mesh(b, m2)
+                .and_then(|mesh| mesh_shape_contact(mesh, a_pose, a_shape, prediction, detail))
                 .map(ParryContact::flipped),
         ),
         _ => None,
@@ -3008,8 +3014,8 @@ const BROADPHASE_MARGIN: f64 = 1e-6;
 /// prediction: [`BROADPHASE_MARGIN`] wider than the caller asked for.
 ///
 /// Every conservative gate here -- [`pair_can_touch`] between two bodies,
-/// [`ObbTree::leaf_pairs`] between two mesh nodes, [`mesh_shape_contact`]'s
-/// own descent between a mesh node and a primitive, and
+/// [`ObbTree::leaf_pairs`] between two mesh nodes,
+/// [`ObbTree::leaves_reaching`] between a mesh node and a primitive, and
 /// [`triangles_are_separated`] between two triangles -- owes the same thing:
 /// proving separation at `prediction` is not enough, because
 /// [`fn@query::contact`] at `prediction` still answers `Some` across the band
@@ -3020,8 +3026,9 @@ const BROADPHASE_MARGIN: f64 = 1e-6;
 /// the mesh-against-primitive one shipped that way for long enough to be
 /// measurable as `2,758` missed exact tangencies
 /// (`examples/mesh_orientation_probe.rs`). A gate that is tightened later --
-/// as that one was, from an `Aabb` to the primitive itself -- stops clearing
-/// the band by accident, and nothing about the tightening says so.
+/// as that one was, from an `Aabb` to the primitive itself, and again to
+/// [`ObbTree`] -- stops clearing the band by accident, and nothing about the
+/// tightening says so.
 fn rejection_slack(prediction: f64) -> f64 {
     prediction + BROADPHASE_MARGIN
 }
@@ -3183,28 +3190,59 @@ fn trimesh_pair_contact(
     best
 }
 
-/// The mesh-against-primitive half of [`part_contact`], descending the mesh
-/// against the primitive itself rather than against its `Aabb`.
+/// [`ObbTree::leaves_reaching`]'s node test for [`mesh_shape_contact`]: can
+/// the primitive reach into this node's box?
 ///
-/// Same shape of defect as [`trimesh_pair_contact`] one level down.
-/// `contact_composite_shape_shape` selects the mesh's candidate triangles
-/// with `shape2.compute_aabb(pose12)` -- the primitive re-bounded
-/// axis-aligned in the *mesh's* frame. A cage wall is a `4m` box that is
+/// `node` arrives already grown by the descent's margin and lives in the
+/// mesh's own frame, which `pose12` is the primitive's pose in; so the box
+/// needs only the pose its own fit gives it. That pose is a rigid one:
+/// `axis`'s columns are orthonormal eigenvectors and the third is their cross
+/// product ([`crate::obb_fit`]), so the matrix is a rotation, not merely a
+/// basis.
+///
+/// `unwrap_or(true)` keeps a pair parry cannot answer rather than dropping
+/// it, the same fail-safe direction as [`PartContactOutcome::Unsupported`].
+/// No such pair reaches here today -- [`part_contact`] routes only
+/// `SupportMap` primitives to [`mesh_shape_contact`] and `Cuboid` is one --
+/// so it is unreachable, not load-bearing.
+fn node_reaches_shape(node: &Obb, pose12: &Pose, shape: &dyn ParryShape) -> bool {
+    let box_pose = Pose::from_parts(node.center, ParryRotation::from_mat3(&node.axis));
+    query::intersection_test(&box_pose, &ParryCuboid::new(node.extent), pose12, shape)
+        .unwrap_or(true)
+}
+
+/// The mesh-against-primitive half of [`part_contact`], descending the mesh's
+/// oriented-box hierarchy against the primitive itself.
+///
+/// Same shape of defect as [`trimesh_pair_contact`] one level down, and now
+/// the same two fixes. parry's `contact_composite_shape_shape` selects the
+/// mesh's candidate triangles with `shape2.compute_aabb(pose12)` -- the
+/// primitive re-bounded axis-aligned in the *mesh's* frame -- and walks the
+/// mesh's own axis-aligned `Bvh` with it. A cage wall is a `4m` box that is
 /// axis-aligned in the world and never in a moving link's frame, so that
 /// re-bounding hands back the whole mesh: `100.0%` of the triangles were
 /// visited on the fanuc/cage measurement, each paying a support-mapped GJK
-/// run, `375us` per pair. Testing the node box against the primitive as it
-/// actually sits keeps the orientation and prunes the descent instead.
+/// run, `375us` per pair.
 ///
-/// That tightening is where this descent's own gate started mattering, and
-/// it is why the box is grown by [`rejection_slack`] and not by bare
-/// `prediction`. The `Aabb` this replaced was loose enough to clear
-/// [`fn@query::contact`]'s `Some`-band by accident; a test against the
-/// primitive is not, and a triangle sitting in that band was dropped before
-/// the narrow phase could round it into a touch. Measured, not reasoned:
-/// `examples/mesh_orientation_probe.rs` reported `2,758` missed exact
-/// tangencies on the tree before this line, every one of them `mesh x box`,
-/// and `0` after.
+/// Two things are wrong there and this fixes both. Testing the node box
+/// against the primitive *as it actually sits* keeps the primitive's
+/// orientation, and descending [`ObbTree`] rather than `TriMesh::bvh()` keeps
+/// the mesh's: upstream builds every mesh as `fcl::BVHModel<fcl::OBBRSSd>`
+/// (`collision_detection_fcl/collision_common.cpp:949-1006`), whose nodes are
+/// fitted to their triangles, while parry's `Bvh` bounds each one with a
+/// world-axis-aligned box that on a long diagonal triangle is far larger than
+/// the triangle in it (see the [`crate::obb_bvh`] module doc for that
+/// measurement). Only the first of the two was fixed before this; the
+/// hierarchy the descent ran on stayed axis-aligned.
+///
+/// The descent margin stays [`rejection_slack`], and this change is the
+/// second reason it has to be. The first was that a test against the
+/// primitive is tighter than one against its `Aabb`; this makes the box the
+/// test is against tighter too, so there is now nothing left in the descent
+/// that clears [`fn@query::contact`]'s `Some`-band by accident. The tangency
+/// that measured the first tightening
+/// (`tests/mesh_orientation_tangency_is_caught_at_exact_tangency.rs`) is the
+/// regression guard for this one.
 ///
 /// Restricted to a `SupportMap` primitive, which is what makes both queries
 /// below total: `Triangle` is one too, so the contact arm they land on is
@@ -3213,45 +3251,35 @@ fn trimesh_pair_contact(
 /// not routed here -- they keep parry's own dispatch, and with it
 /// [`PartContactOutcome::Unsupported`]'s fail-safe.
 fn mesh_shape_contact(
-    a_pose: &Pose,
-    m1: &TriMesh,
+    a: PosedMesh<'_>,
     b_pose: &Pose,
     b_shape: &dyn ParryShape,
     prediction: f64,
     detail: ContactDetail,
 ) -> Option<ParryContact> {
-    let pose12 = a_pose.inv_mul(b_pose);
+    let pose12 = a.pose.inv_mul(b_pose);
     let mut best: Option<ParryContact> = None;
     let mut settled = SettledVerdict::new(detail);
-    for i in m1.bvh().leaves(|node| {
-        let aabb = node.aabb();
-        // The slack goes on the box rather than on the query below: the test
-        // is "could anything in this subtree be within reach", and an
-        // intersection test cannot ask that of the primitive directly.
-        let grown =
-            ParryCuboid::new(aabb.half_extents() + ParryVector::splat(rejection_slack(prediction)));
-        query::intersection_test(
-            &Pose::from_translation(aabb.center()),
-            &grown,
-            &pose12,
-            b_shape,
-        )
-        .unwrap_or(true)
-    }) {
-        let t1 = m1.triangle(i);
-        if let Ok(Some(contact)) =
-            query::contact(&Pose::default(), &t1, &pose12, b_shape, prediction)
-        {
-            if best.is_none_or(|b| contact.dist < b.dist) {
-                best = Some(contact);
+    a.tree.leaves_reaching(
+        rejection_slack(prediction),
+        &mut |node| node_reaches_shape(node, &pose12, b_shape),
+        &mut |i| {
+            let t1 = a.mesh.triangle(i);
+            if let Ok(Some(contact)) =
+                query::contact(&Pose::default(), &t1, &pose12, b_shape, prediction)
+            {
+                if best.is_none_or(|b| contact.dist < b.dist) {
+                    best = Some(contact);
+                }
+                if settled.by(contact.dist, a.pose, a.mesh, b_pose, b_shape) {
+                    return ControlFlow::Break(());
+                }
             }
-            if settled.by(contact.dist, a_pose, m1, b_pose, b_shape) {
-                break;
-            }
-        }
-    }
+            ControlFlow::Continue(())
+        },
+    );
     if let Some(contact) = &mut best {
-        contact.transform_by_mut(a_pose, a_pose);
+        contact.transform_by_mut(a.pose, a.pose);
     }
     best
 }
@@ -6518,6 +6546,7 @@ mod tests {
         use rand::SeedableRng as _;
 
         let mesh = sphere_mesh();
+        let tree = ObbTree::build(mesh.vertices(), mesh.indices()).expect("non-empty mesh");
         let primitives: [SharedShape; 4] = [
             SharedShape::ball(0.35),
             SharedShape::cuboid(0.3, 0.2, 0.45),
@@ -6534,8 +6563,11 @@ mod tests {
                 for prediction in [0.0, 0.05] {
                     let shape = &**primitive;
                     let mine = mesh_shape_contact(
-                        &a_pose,
-                        &mesh,
+                        PosedMesh {
+                            pose: &a_pose,
+                            mesh: &mesh,
+                            tree: &tree,
+                        },
                         &b_pose,
                         shape,
                         prediction,
@@ -6563,6 +6595,90 @@ mod tests {
         }
 
         assert!(contacts > 100, "only {contacts} contacts to compare");
+    }
+
+    /// The test above settles that the candidate set is complete; this one
+    /// settles that it is small. A descent that admitted every triangle would
+    /// pass that test and buy nothing -- which is exactly what the dispatch
+    /// [`mesh_shape_contact`] replaces did (`100.0%` of the triangles on the
+    /// fanuc/cage measurement in its own doc).
+    ///
+    /// Driven through the same [`node_reaches_shape`] the function itself
+    /// passes to the descent, so a wrong node test fails here rather than
+    /// being reproduced by the test alongside it.
+    ///
+    /// The primitive is a long thin box rather than a ball because that is
+    /// the case both halves of the fix are for: a shape whose axis-aligned
+    /// re-bounding in the mesh's frame is far larger than the shape, met by a
+    /// mesh whose own axis-aligned node boxes are far larger than their
+    /// triangles.
+    ///
+    /// Measured on this sweep: `2,828` triangles admitted of `140,800`
+    /// (`2.0%`), against `3,648` for the axis-aligned hierarchy given the
+    /// same node predicate and the same slack -- `22%` fewer. The bound
+    /// below is `10%`, five times the measured figure, because what it has
+    /// to catch is a descent that stopped pruning, not a few percent of
+    /// drift. A sphere understates the gap by construction: its triangles
+    /// are small and near-isotropic, and it is the long diagonal ones on a
+    /// robot link mesh that the [`crate::obb_bvh`] module doc measures an
+    /// axis-aligned box as `40x` too loose for.
+    #[test]
+    fn the_mesh_against_primitive_descent_prunes_and_drops_no_close_triangle() {
+        use rand::SeedableRng as _;
+
+        let mesh = sphere_mesh();
+        let tree = ObbTree::build(mesh.vertices(), mesh.indices()).expect("non-empty mesh");
+        let primitive = ParryCuboid::new(ParryVector::new(2.0, 0.02, 0.02));
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(20260810);
+        let (mut emitted_total, mut close_total, mut sweeps) = (0usize, 0usize, 0usize);
+
+        for _ in 0..200 {
+            let a_pose = random_pose(&mut rng, 0.6);
+            let b_pose = random_pose(&mut rng, 0.6);
+            for prediction in [0.0, 0.05] {
+                let pose12 = a_pose.inv_mul(&b_pose);
+                let mut emitted = std::collections::HashSet::new();
+                tree.leaves_reaching(
+                    rejection_slack(prediction),
+                    &mut |node| node_reaches_shape(node, &pose12, &primitive),
+                    &mut |i| {
+                        emitted.insert(i);
+                        ControlFlow::Continue(())
+                    },
+                );
+                emitted_total += emitted.len();
+                sweeps += 1;
+
+                for i in 0..mesh.num_triangles() as u32 {
+                    let t1 = mesh.triangle(i);
+                    let d = query::distance(&Pose::default(), &t1, &pose12, &primitive)
+                        .expect("triangle-vs-cuboid distance is supported");
+                    // Strictly inside the margin, so a triangle sitting
+                    // exactly on the boundary -- where the box test and the
+                    // exact test may round opposite ways -- does not decide
+                    // the assertion.
+                    if d < prediction * 0.99 || (prediction == 0.0 && d == 0.0) {
+                        close_total += 1;
+                        assert!(
+                            emitted.contains(&i),
+                            "dropped triangle {i} at separation {d}"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Otherwise the assertion above held over a sweep with nothing close
+        // in it, and over one that emitted everything regardless.
+        assert!(
+            close_total > 200,
+            "only {close_total} close triangles swept"
+        );
+        let all = sweeps * mesh.num_triangles();
+        assert!(
+            emitted_total * 10 < all,
+            "the descent emitted {emitted_total} of {all} triangles -- it is not pruning"
+        );
     }
 
     /// [`triangles_are_separated`] is a rejection, so the only failure that
@@ -6817,7 +6933,17 @@ mod tests {
                 for primitive in &primitives {
                     let shape = &**primitive;
                     let run = |detail| {
-                        mesh_shape_contact(&a_pose, &m1, &b_pose, shape, prediction, detail)
+                        mesh_shape_contact(
+                            PosedMesh {
+                                pose: &a_pose,
+                                mesh: &m1,
+                                tree: &o1,
+                            },
+                            &b_pose,
+                            shape,
+                            prediction,
+                            detail,
+                        )
                     };
                     compare(
                         run(ContactDetail::Full),

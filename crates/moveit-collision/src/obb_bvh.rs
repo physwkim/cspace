@@ -158,6 +158,19 @@ struct Descent<'a, F: FnMut(u32, u32) -> ControlFlow<()>> {
     leaf: &'a mut F,
 }
 
+/// [`Descent`]'s one-tree counterpart, for a descent whose other side is a
+/// single shape rather than a second hierarchy: only the node index changes
+/// from one level to the next, so the rest is threaded as one borrow.
+///
+/// There is no relative pose here. The node test is the caller's
+/// (`reaches`), which already knows where its own shape sits, so this tree
+/// never has to put the two into one frame the way [`Descent`] does.
+struct ShapeDescent<'a, R: FnMut(&Obb) -> bool, F: FnMut(u32) -> ControlFlow<()>> {
+    grow: Vector,
+    reaches: &'a mut R,
+    leaf: &'a mut F,
+}
+
 /// An oriented-box hierarchy over one mesh's triangles, built once and reused
 /// for every query against that mesh.
 ///
@@ -364,6 +377,61 @@ impl ObbTree {
         };
         self.recurse(d, a.0, a.1)?;
         self.recurse(d, b.0, b.1)
+    }
+
+    /// The same descent with one tree instead of two: calls `leaf` once per
+    /// triangle whose node box `reaches` admits, and drops a whole subtree
+    /// the first time it does not.
+    ///
+    /// This is the shape the mesh-against-one-shape traversal takes -- the
+    /// second side is a leaf at every level, so the recursion only ever
+    /// descends this tree, and `firstOverSecond`'s bigger-side rule has
+    /// nothing to choose between. It is not a second algorithm; it is
+    /// [`Self::leaf_pairs`] with the second tree's descent removed.
+    ///
+    /// `reaches` is handed the node's box already grown by `prediction` on
+    /// every axis, for the reason [`Self::leaf_pairs`] grows the first box
+    /// there: a point within `prediction` of a box has `|local_k| <=
+    /// extent_k + prediction` on every axis, so the grown box contains the
+    /// whole `prediction`-neighbourhood of the original. The caller's test is
+    /// therefore an intersection question, never a distance one -- which is
+    /// what lets it test the box against a *shape* rather than against
+    /// another box.
+    ///
+    /// `leaf` returning [`ControlFlow::Break`] ends the descent, as in
+    /// [`Self::leaf_pairs`].
+    pub(crate) fn leaves_reaching(
+        &self,
+        prediction: f64,
+        reaches: &mut impl FnMut(&Obb) -> bool,
+        leaf: &mut impl FnMut(u32) -> ControlFlow<()>,
+    ) {
+        let mut descent = ShapeDescent {
+            grow: Vector::splat(prediction),
+            reaches,
+            leaf,
+        };
+        let _ = self.recurse_shape(&mut descent, 0);
+    }
+
+    fn recurse_shape(
+        &self,
+        d: &mut ShapeDescent<'_, impl FnMut(&Obb) -> bool, impl FnMut(u32) -> ControlFlow<()>>,
+        i: u32,
+    ) -> ControlFlow<()> {
+        let n = &self.nodes[i as usize];
+        let grown = Obb {
+            extent: n.obb.extent + d.grow,
+            ..n.obb
+        };
+        if !(d.reaches)(&grown) {
+            return ControlFlow::Continue(());
+        }
+        if n.is_leaf() {
+            return (d.leaf)(n.primitive);
+        }
+        self.recurse_shape(d, n.first_child)?;
+        self.recurse_shape(d, n.first_child + 1)
     }
 }
 
