@@ -26,6 +26,7 @@
 #include <cstdio>
 
 #include "BulletCollision/BroadphaseCollision/btCollisionAlgorithm.h"
+#include "BulletCollision/BroadphaseCollision/btDbvt.h"
 #include "BulletCollision/CollisionDispatch/btCollisionDispatcher.h"
 #include "BulletCollision/CollisionDispatch/btCollisionObject.h"
 #include "BulletCollision/CollisionDispatch/btCollisionObjectWrapper.h"
@@ -277,6 +278,64 @@ static btTransform rot60_at(btScalar x, btScalar y, btScalar z)
 	return t;
 }
 
+// `btDbvt`'s leaf-visit order. A `btCompoundShape` built with
+// `BULLET_COMPOUND_USE_DYNAMIC_AABB` culls its children through this tree,
+// and `collideTVNoStackAlloc` yields them in tree order rather than child
+// order -- which MoveIt's `pair_done`/`done` early-exit can observe. The
+// order is decided entirely by `Select`, so these rows pin the tree's shape
+// through the only output it has.
+struct RecordingCollide : btDbvt::ICollide
+{
+	int seen[64];
+	int count;
+
+	RecordingCollide() : count(0) {}
+
+	void Process(const btDbvtNode* n)
+	{
+		if (count < 64)
+			seen[count++] = n->dataAsInt;
+	}
+};
+
+static btDbvtVolume cube(btScalar x, btScalar y, btScalar z)
+{
+	return btDbvtVolume::FromMM(btVector3(x - 0.5f, y - 0.5f, z - 0.5f),
+	                            btVector3(x + 0.5f, y + 0.5f, z + 0.5f));
+}
+
+// `op` drives the one edit each row exercises after the inserts:
+//   0 = none, 1 = update child 0 to `cube(100,0,0)`, 2 = remove child 1.
+static void dbvt(const char* name, const btVector3* centres, int n, const btDbvtVolume& query,
+                 int op)
+{
+	btDbvt tree;
+	btDbvtNode* leaves[64];
+	for (int i = 0; i < n; ++i)
+	{
+		leaves[i] = tree.insert(cube(centres[i].x(), centres[i].y(), centres[i].z()),
+		                        reinterpret_cast<void*>(static_cast<size_t>(i)));
+	}
+	if (op == 1)
+	{
+		btDbvtVolume moved = cube(100.f, 0.f, 0.f);
+		tree.update(leaves[0], moved);
+	}
+	else if (op == 2)
+	{
+		tree.remove(leaves[1]);
+	}
+
+	RecordingCollide collide;
+	btNodeStack stack;
+	tree.collideTVNoStackAlloc(tree.m_root, query, stack, collide);
+
+	printf("%s|%d|%d", name, collide.count, tree.m_leaves);
+	for (int i = 0; i < collide.count; ++i)
+		printf("|%d", collide.seen[i]);
+	printf("\n");
+}
+
 int main()
 {
 	const btTransform id = at(0, 0, 0);
@@ -481,6 +540,65 @@ int main()
 	cc("cc_cone_cyl_deep", &cone, id, &cyl, at(0.1f, 0.f, 0.3f), 0.f);
 	cc("cc_hull_cone_rot60", &hull, id, &cone, rot60_at(0.4f, 0.1f, 0.05f), 0.05f);
 	cc("cc_margin_box_sphere", &margin_box, id, &small_sphere, at(0.85f, 0.05f, 0.f), 0.f);
+
+	// `btDbvt` leaf order. Fields: `name|visited|leaves|data...`.
+	//
+	// `dbvt_line4` and `dbvt_line8` are the plain shape test: a query volume
+	// containing everything, so the sequence is the tree's in-order walk and
+	// nothing else. `dbvt_cull` narrows the query to one cube. `dbvt_update`
+	// and `dbvt_remove` re-run `dbvt_line4`'s tree after the one edit
+	// `btCompoundShape` performs on a built tree -- `updateChildTransform`
+	// and `removeChildShapeByIndex` -- because both go through
+	// `removeleaf`/`insertleaf` and can reshape the tree above the leaf they
+	// name. `dbvt_grid` puts nine cubes on a plane so `Select`'s ties are
+	// reached rather than assumed. The remaining rows each carry their own
+	// comment below, and each exists for one comparison the rows here leave
+	// away from its boundary.
+	{
+		const btVector3 line4[] = {
+		    btVector3(0.f, 0.f, 0.f), btVector3(2.f, 0.f, 0.f),
+		    btVector3(4.f, 0.f, 0.f), btVector3(6.f, 0.f, 0.f)};
+		const btVector3 line8[] = {
+		    btVector3(0.f, 0.f, 0.f), btVector3(2.f, 0.f, 0.f),
+		    btVector3(4.f, 0.f, 0.f), btVector3(6.f, 0.f, 0.f),
+		    btVector3(8.f, 0.f, 0.f), btVector3(10.f, 0.f, 0.f),
+		    btVector3(12.f, 0.f, 0.f), btVector3(14.f, 0.f, 0.f)};
+		btVector3 grid[9];
+		for (int gx_i = 0; gx_i < 3; ++gx_i)
+			for (int gy_i = 0; gy_i < 3; ++gy_i)
+				grid[gx_i * 3 + gy_i] =
+				    btVector3(btScalar(gx_i) * 2.f, btScalar(gy_i) * 2.f, 0.f);
+
+		const btDbvtVolume all = btDbvtVolume::FromMM(btVector3(-1e6f, -1e6f, -1e6f),
+		                                              btVector3(1e6f, 1e6f, 1e6f));
+		// Eight cubes at the corners of a lattice, so `Proximity` sees a
+		// non-zero difference on all three axes at once -- every row above
+		// is planar in z, where a dropped `btFabs` on that component cannot
+		// change a comparison.
+		btVector3 cube8[8];
+		for (int cx = 0; cx < 2; ++cx)
+			for (int cy = 0; cy < 2; ++cy)
+				for (int cz = 0; cz < 2; ++cz)
+					cube8[cx * 4 + cy * 2 + cz] = btVector3(
+					    btScalar(cx) * 3.f, btScalar(cy) * 3.f, btScalar(cz) * 3.f);
+
+		dbvt("dbvt_line4", line4, 4, all, 0);
+		dbvt("dbvt_line8", line8, 8, all, 0);
+		dbvt("dbvt_cull", line4, 4, cube(2.f, 0.f, 0.f), 0);
+		// The far end of the same tree. `insertleaf`'s ascent is what grows
+		// the ancestors' volumes to reach it, so a tree that skipped the
+		// ascent culls this query and visits nothing.
+		dbvt("dbvt_cull_far", line4, 4, cube(6.f, 0.f, 0.f), 0);
+		// Queries that abut a leaf exactly, one on each side, so `Intersect`
+		// is asked its six comparisons at equality rather than only away
+		// from the boundary.
+		dbvt("dbvt_touch_lo", line4, 4, cube(-1.f, -1.f, -1.f), 0);
+		dbvt("dbvt_touch_hi", line4, 4, cube(7.f, 1.f, 1.f), 0);
+		dbvt("dbvt_update", line4, 4, all, 1);
+		dbvt("dbvt_remove", line4, 4, all, 2);
+		dbvt("dbvt_grid", grid, 9, all, 0);
+		dbvt("dbvt_cube8", cube8, 8, all, 0);
+	}
 
 	// The row that pins the solve's precision. `u,v,w,p,q,r,s,t` are C `double`
 	// inside this float build, and on the triangles above that costs nothing --

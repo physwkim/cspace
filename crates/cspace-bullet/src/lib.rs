@@ -67,6 +67,7 @@
 //! with the C++ is reachable rather than aspirational.
 
 pub mod convex_convex;
+pub mod dbvt;
 pub mod discrete_detector;
 pub mod epa;
 pub mod gjk;
