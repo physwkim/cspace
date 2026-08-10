@@ -58,6 +58,7 @@
 mod arc_probe;
 pub mod cast_contact;
 pub mod cast_hull_shape;
+pub mod cast_object;
 pub mod collision_object;
 pub mod contact_test_data;
 pub mod shape_primitive;

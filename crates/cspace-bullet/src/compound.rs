@@ -38,14 +38,13 @@
 //! builds each compound with `addChildShape` and afterwards only ever calls
 //! `updateChildTransform` (`bullet_cast_bvh_manager.cpp:102`, `:115`).
 //!
-//! `getChildShape`'s non-const overload: its one caller is
-//! `setCastCollisionObjectsTransform`, which `static_cast`s the child to
-//! `CastHullShape` and re-poses it (`bullet_cast_bvh_manager.cpp:101`,
-//! `:114`). That cast is the downcast this module's sum type exists to avoid,
-//! and the cast layer does the same re-pose through a typed handle on the
-//! shape it built -- which aliases the child here exactly as the C++ pointer
-//! does, so there is nothing for a mutable accessor to reach that the owner
-//! does not already hold.
+//! The `static_cast<CastHullShape*>` that `setCastCollisionObjectsTransform`
+//! applies to a convex child (`bullet_cast_bvh_manager.cpp:101`, `:114`) has
+//! no equivalent here, and [`CompoundShape::child_shape_mut`] does not offer
+//! one: the `Convex` arm holds an `Arc` the cast layer shares with the
+//! compound, and it re-poses the shape through that shared handle. What the
+//! mutable accessor is for is the *compound* child of a compound, whose own
+//! tree the same function refreshes.
 //!
 //! `m_updateRevision`: its only readers are the two compound algorithms'
 //! child-algorithm caches, which this crate does not carry -- see
@@ -235,6 +234,17 @@ impl CompoundShape {
     #[must_use]
     pub fn child_shape(&self, index: usize) -> &Shape {
         &self.children[index].shape
+    }
+
+    /// `getChildShape`, mutably -- what a nested compound needs, because its
+    /// own `updateChildTransform` and `recalculateLocalAabb` are called on it
+    /// through its parent (`bullet_cast_bvh_manager.cpp:106-117`).
+    ///
+    /// A *convex* child is not reachable for mutation through here: the arm
+    /// holds an `Arc` the caller shares with whoever built it, which is the
+    /// point -- see the module docs on the downcast this replaces.
+    pub fn child_shape_mut(&mut self, index: usize) -> &mut Shape {
+        &mut self.children[index].shape
     }
 
     /// `getChildTransform` (`btCompoundShape.h:100-107`).

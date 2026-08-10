@@ -252,6 +252,20 @@ impl CollisionObjectWrapper {
         &self.collision_shape
     }
 
+    /// `btCollisionObject::setCollisionShape` and the non-const
+    /// `getCollisionShape` in one, crate-visible.
+    ///
+    /// Not public: the only writers upstream has are
+    /// `makeCastCollisionObject`, which swaps the shape for a swept one, and
+    /// `setCastCollisionObjectsTransform`, which re-poses that swept shape's
+    /// children -- both of them [`crate::cast_object`], both of them inside
+    /// this crate. A wrapper whose shape a caller could replace at will would
+    /// leave the object's world transform describing geometry that is no
+    /// longer there.
+    pub(crate) fn collision_shape_mut(&mut self) -> &mut BulletShape {
+        &mut self.collision_shape
+    }
+
     /// `getAABB` (`bullet_utils.hpp:169-177`).
     ///
     /// Padded by the contact-processing threshold on every face, so a pair
