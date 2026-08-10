@@ -33,21 +33,27 @@
 //!
 //! # Why a separate crate
 //!
-//! Every other crate in this workspace ports `moveit2`, which is BSD-3-Clause.
-//! Bullet is zlib. `tools/ci/check-license-matches-upstream.sh` requires a
-//! crate's sources to agree on one SPDX identifier and the manifest to declare
-//! it, so a zlib-derived module inside `cspace-collision` would either relabel
-//! Bullet's code as BSD-3-Clause or split that crate's identifier. The root
+//! `cspace-collision` is BSD-3-Clause. Bullet is zlib.
+//! `tools/ci/check-license-matches-upstream.sh` requires a crate's sources to
+//! agree on one SPDX identifier and the manifest to declare it, so a
+//! zlib-derived module inside `cspace-collision` would either relabel Bullet's
+//! code as BSD-3-Clause or split that crate's identifier. The root
 //! `Cargo.toml` states the same rule for `cspace-stomp-core`, which is this
 //! arrangement for `ros-industrial/stomp`: one crate, one upstream, because
 //! every audit command in this repo counts a crate's symbols against exactly
 //! one upstream.
 //!
-//! The division of labour that follows from it: everything here is Bullet's,
-//! and MoveIt's own Bullet integration -- `CastHullShape`, the cast broadphase
-//! manager, `checkRobotCollisionHelperCCD` -- is BSD-3-Clause `moveit2` code
-//! and lives in `cspace-collision`, built on the [`shapes::ConvexShape`] trait
-//! this crate exposes for exactly that purpose.
+//! The division of labour that follows from it: everything here is Bullet's.
+//! MoveIt's own Bullet integration -- `CastHullShape`, `getAverageSupport`,
+//! the cast broadphase manager -- is a third licence again, BSD-2-Clause: the
+//! per-file headers on `bullet_integration/bullet_utils.{hpp,cpp}`,
+//! `bullet_bvh_manager.{hpp,cpp}`, `bullet_cast_bvh_manager.{hpp,cpp}` and
+//! `contact_checker_common.cpp` all read BSD-2-Clause, whatever
+//! `moveit_core`'s `package.xml` says for the package as a whole. So that
+//! layer is `cspace-bullet-cast`, built on the [`shapes::ConvexShape`] trait
+//! this crate exposes for exactly that purpose, and only
+//! `checkRobotCollisionHelperCCD` -- which is in the BSD-3-Clause
+//! `collision_env_bullet.cpp` -- lands in `cspace-collision`.
 //!
 //! # Scope
 //!
