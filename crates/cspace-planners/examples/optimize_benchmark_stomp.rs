@@ -88,10 +88,14 @@
 //! the same three assertions, as `plan_benchmark_port`'s own injection mode.
 //!
 //! The report carries the denominator with the count, because only solved
-//! paths can be checked and this planner times out on a real fraction of
+//! paths can be checked and this planner does not solve a real fraction of
 //! them: over one 125-problem `panda floor_wall` set at the 120s budget the
-//! run checked 105 and 20 timed out, so "rejected all 105 paths" on its own
-//! would state a numerator as if it were the injected population.
+//! run checked 115 and left 10 unsolved, so "rejected all 115 paths" on its
+//! own would state a numerator as if it were the injected population. None of
+//! those 10 is a timeout, which is why the gate carries a separate
+//! `no-timeouts` check: a timeout and a convergence failure shrink this
+//! denominator for different reasons, and only the first says the budget is
+//! what stopped the call.
 //!
 //! Usage: `optimize_benchmark_stomp <seed_base> [timeout_seconds] [inject]
 //! [dense]`, with the problem-set JSON on stdin.
@@ -1097,10 +1101,10 @@ fn main() {
              them -- the validity check is not checking what it reports on"
         );
         // `condition2_checked` is the numerator, and printing it alone reads as
-        // the population: "rejected all 105 paths" says nothing about the 125
+        // the population: "rejected all 115 paths" says nothing about the 125
         // that were injected. A problem that times out or errors never has its
         // spliced waypoint checked, so it silently leaves the set the assertion
-        // runs over -- measured at 105 of 125 for STOMP and 85 of 125 for CHOMP
+        // runs over -- measured at 115 of 125 for STOMP and 88 of 125 for CHOMP
         // on one 125-problem set. The denominator goes in the line so the gate
         // cannot narrow without saying by how much.
         let not_checked = total - condition2_checked;

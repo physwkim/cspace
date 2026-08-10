@@ -1123,10 +1123,10 @@ fn main() {
              them -- the validity check is not checking what it reports on"
         );
         // `condition2_checked` is the numerator, and printing it alone reads as
-        // the population: "rejected all 105 paths" says nothing about the 125
+        // the population: "rejected all 115 paths" says nothing about the 125
         // that were injected. A problem that times out or errors never has its
         // spliced waypoint checked, so it silently leaves the set the assertion
-        // runs over -- measured at 105 of 125 for STOMP and 85 of 125 for CHOMP
+        // runs over -- measured at 115 of 125 for STOMP and 88 of 125 for CHOMP
         // on one 125-problem set. The denominator goes in the line so the gate
         // cannot narrow without saying by how much.
         let not_checked = total - condition2_checked;

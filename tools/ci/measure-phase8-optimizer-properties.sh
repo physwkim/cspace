@@ -876,8 +876,8 @@ STOMP="$WORKDIR/bin/$(basename "$STOMP")"
 # least one path was checked, because zero checked paths is a vacuous pass.
 # Only solved paths can be checked, so the line each instrument prints carries
 # the injected count beside the checked one: measured over 125 problems this
-# stage checked 85 and 98 for CHOMP and 105 and 119 for STOMP, and a bare
-# "rejected all 105 paths" states a numerator as if it were the population.
+# stage checked 88 and 100 for CHOMP and 115 and 123 for STOMP, and a bare
+# "rejected all 115 paths" states a numerator as if it were the population.
 #
 # Every arm is its own process over its own request file writing its own output
 # pair, so they are all launched at once and collected below. This is the one
