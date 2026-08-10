@@ -799,8 +799,17 @@ int main()
 	// `min0->isPolyhedral() && min1->isPolyhedral()` is false and the query
 	// takes the GJK branch -- the only one the continuous path can reach,
 	// since a `CastHullShape` is `CUSTOM_CONVEX_SHAPE_TYPE` and sits on one
-	// side of every CCD pair. Two boxes would take the SAT/clipping branch
-	// instead and pin arithmetic the port deliberately does not carry.
+	// side of every CCD pair.
+	//
+	// Two boxes would enter that conjunction, but not the SAT/clipping
+	// arithmetic behind it. Nothing calls `initializePolyhedralFeatures` in
+	// this build: every call site in `BulletCollision` is commented out bar
+	// `btConvexConvexAlgorithm.cpp:565`, which needs both
+	// `dispatchInfo.m_enableSatConvex` -- false by default -- and a
+	// `TRIANGLE_SHAPE_PROXYTYPE` on side B. So `getConvexPolyhedron()` is null
+	// on both sides, the inner `if` and its `else` both fail, and the branch
+	// falls through to the same `gjkPairDetector.getClosestPoints` these rows
+	// take.
 	//
 	// The cone/cylinder rows straddle the cut-off with both margins at zero,
 	// which puts it at `gContactBreakingThreshold` alone: their apex-to-face

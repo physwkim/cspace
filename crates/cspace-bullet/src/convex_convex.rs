@@ -199,8 +199,14 @@ mod tests {
     ///
     /// Every pair has a non-polyhedral shape on at least one side, so each
     /// row is on the branch the module docs argue is the only reachable one.
-    /// A box-versus-box row would take the SAT/clipping branch and assert
-    /// against arithmetic this port does not carry.
+    /// A box-versus-box row would enter the polyhedral gate's condition but
+    /// not its body -- `getConvexPolyhedron()` is null in this build, since
+    /// the one live `initializePolyhedralFeatures` call
+    /// (`btConvexConvexAlgorithm.cpp:565`) needs `m_enableSatConvex` and a
+    /// triangle -- and would land on the same GJK call these rows take. It is
+    /// left out because a `CastHullShape` is on one side of every pair the
+    /// continuous path builds, not because it would assert against different
+    /// arithmetic.
     ///
     /// The three `cc_cone_cyl_*cutoff*` rows are what make the cut-off
     /// observable rather than merely computed: both shapes carry a zero
