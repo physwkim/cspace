@@ -26,6 +26,7 @@
 #include <cstdio>
 
 #include "BulletCollision/BroadphaseCollision/btCollisionAlgorithm.h"
+#include "BulletCollision/BroadphaseCollision/btBroadphaseProxy.h"
 #include "BulletCollision/BroadphaseCollision/btDbvt.h"
 #include "BulletCollision/CollisionDispatch/btCollisionDispatcher.h"
 #include "BulletCollision/CollisionDispatch/btCollisionObject.h"
@@ -336,6 +337,25 @@ static void dbvt(const char* name, const btVector3* centres, int n, const btDbvt
 	printf("\n");
 }
 
+// `BroadphaseNativeTypes` and the three ordering predicates built on it
+// (`btBroadphaseProxy.h:27-80,164-186`). The values are positions in an
+// unnumbered C enum and the predicates are `<`/`>` against its marker
+// entries, so a port that retypes them by hand is one insertion away from
+// wrong -- these rows are the enum reading itself out.
+static void proxytype(const char* name, int value)
+{
+	printf("proxytype_%s|%d|%d|%d|%d\n", name, value, btBroadphaseProxy::isConvex(value) ? 1 : 0,
+	       btBroadphaseProxy::isConcave(value) ? 1 : 0, btBroadphaseProxy::isCompound(value) ? 1 : 0);
+}
+
+// The type a built shape actually reports, which is what the dispatcher
+// switches on -- separate from the enum above, because a shape reporting the
+// wrong one of those values is a defect the enum rows cannot see.
+static void shapetype(const char* name, const btCollisionShape* shape)
+{
+	printf("shapetype_%s|%d\n", name, shape->getShapeType());
+}
+
 int main()
 {
 	const btTransform id = at(0, 0, 0);
@@ -540,6 +560,39 @@ int main()
 	cc("cc_cone_cyl_deep", &cone, id, &cyl, at(0.1f, 0.f, 0.3f), 0.f);
 	cc("cc_hull_cone_rot60", &hull, id, &cone, rot60_at(0.4f, 0.1f, 0.05f), 0.05f);
 	cc("cc_margin_box_sphere", &margin_box, id, &small_sphere, at(0.85f, 0.05f, 0.f), 0.f);
+
+	// `BroadphaseNativeTypes`. Fields: `name|value|isConvex|isConcave|isCompound`.
+	// Every entry the port carries a constant for, plus the four markers the
+	// predicates compare against, plus the neighbours on each side of a
+	// marker so an off-by-one in the port's numbering cannot sit between two
+	// emitted rows.
+	proxytype("BOX_SHAPE", BOX_SHAPE_PROXYTYPE);
+	proxytype("TRIANGLE_SHAPE", TRIANGLE_SHAPE_PROXYTYPE);
+	proxytype("CONVEX_HULL_SHAPE", CONVEX_HULL_SHAPE_PROXYTYPE);
+	proxytype("CUSTOM_POLYHEDRAL_SHAPE", CUSTOM_POLYHEDRAL_SHAPE_TYPE);
+	proxytype("IMPLICIT_CONVEX_SHAPES_START_HERE", IMPLICIT_CONVEX_SHAPES_START_HERE);
+	proxytype("SPHERE_SHAPE", SPHERE_SHAPE_PROXYTYPE);
+	proxytype("CAPSULE_SHAPE", CAPSULE_SHAPE_PROXYTYPE);
+	proxytype("CONE_SHAPE", CONE_SHAPE_PROXYTYPE);
+	proxytype("CYLINDER_SHAPE", CYLINDER_SHAPE_PROXYTYPE);
+	proxytype("CONVEX_2D_SHAPE", CONVEX_2D_SHAPE_PROXYTYPE);
+	proxytype("CUSTOM_CONVEX_SHAPE", CUSTOM_CONVEX_SHAPE_TYPE);
+	proxytype("CONCAVE_SHAPES_START_HERE", CONCAVE_SHAPES_START_HERE);
+	proxytype("TRIANGLE_MESH_SHAPE", TRIANGLE_MESH_SHAPE_PROXYTYPE);
+	proxytype("EMPTY_SHAPE", EMPTY_SHAPE_PROXYTYPE);
+	proxytype("STATIC_PLANE", STATIC_PLANE_PROXYTYPE);
+	proxytype("CUSTOM_CONCAVE_SHAPE", CUSTOM_CONCAVE_SHAPE_TYPE);
+	proxytype("CONCAVE_SHAPES_END_HERE", CONCAVE_SHAPES_END_HERE);
+	proxytype("COMPOUND_SHAPE", COMPOUND_SHAPE_PROXYTYPE);
+	proxytype("SOFTBODY_SHAPE", SOFTBODY_SHAPE_PROXYTYPE);
+	proxytype("INVALID_SHAPE", INVALID_SHAPE_PROXYTYPE);
+
+	// What each built shape reports. Fields: `name|shapeType`.
+	shapetype("unit_box", &unit_box);
+	shapetype("sphere", &sphere);
+	shapetype("cyl", &cyl);
+	shapetype("cone", &cone);
+	shapetype("hull", &hull);
 
 	// `btDbvt` leaf order. Fields: `name|visited|leaves|data...`.
 	//

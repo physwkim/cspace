@@ -81,6 +81,7 @@
 //! (`collision_env_bullet.cpp`'s `getCollisionObjectType`), so that arm is
 //! unreachable from the continuous check.
 
+use crate::broadphase_proxy::BroadphaseNativeType;
 use crate::linear_math::{
     SIMD_EPSILON, Scalar, Transform, Vec3, bt_fsel, transform_aabb, transform_aabb_half_extents,
 };
@@ -128,6 +129,17 @@ pub trait ConvexShape {
 
     /// `btCollisionShape::getMargin`.
     fn margin(&self) -> Scalar;
+
+    /// `btCollisionShape::getShapeType` -- the value each shape's constructor
+    /// writes into `m_shapeType`, and the only thing
+    /// `btCollisionDispatcher::findAlgorithm` looks at.
+    ///
+    /// On the trait rather than derived from the concrete type because that
+    /// is where upstream keeps it: a shape this crate does not define -- and
+    /// MoveIt's `CastHullShape` is one -- reports its own
+    /// `CUSTOM_CONVEX_SHAPE_TYPE`, and the dispatch has to see that value and
+    /// not a Rust type name.
+    fn shape_type(&self) -> BroadphaseNativeType;
 
     /// `btCollisionShape::setMargin` -- pure virtual upstream
     /// (`btCollisionShape.h:118`), and four of the five shapes here override
@@ -255,6 +267,11 @@ impl BoxShape {
 }
 
 impl ConvexShape for BoxShape {
+    /// `btBoxShape.cpp:20`.
+    fn shape_type(&self) -> BroadphaseNativeType {
+        BroadphaseNativeType::BOX_SHAPE
+    }
+
     /// `btBoxShape::localGetSupportingVertexWithoutMargin`
     /// (`btBoxShape.h:58-65`).
     ///
@@ -317,6 +334,11 @@ impl SphereShape {
 }
 
 impl ConvexShape for SphereShape {
+    /// `btSphereShape.h:31`.
+    fn shape_type(&self) -> BroadphaseNativeType {
+        BroadphaseNativeType::SPHERE_SHAPE
+    }
+
     /// `btSphereShape::localGetSupportingVertexWithoutMargin`
     /// (`btSphereShape.cpp:21-25`) -- the origin. A sphere is *all* margin.
     fn local_get_supporting_vertex_without_margin(&self, _vec: Vec3) -> Vec3 {
@@ -390,6 +412,13 @@ impl CylinderShapeZ {
 }
 
 impl ConvexShape for CylinderShapeZ {
+    /// `btCylinderShape.cpp:27` -- `btCylinderShapeZ`'s
+    /// constructor only sets `m_upAxis` (`:36-40`), so the Z variant reports
+    /// the same type as the base.
+    fn shape_type(&self) -> BroadphaseNativeType {
+        BroadphaseNativeType::CYLINDER_SHAPE
+    }
+
     /// `CylinderLocalSupportZ` (`btCylinderShape.cpp:183-220`).
     ///
     /// The index remapping is upstream's and is the trap in this function:
@@ -494,6 +523,13 @@ impl ConeShapeZ {
 }
 
 impl ConvexShape for ConeShapeZ {
+    /// `btConeShape.cpp:22` -- `btConeShapeZ` only calls
+    /// `setConeUpIndex(2)` (`:28-31`), so the Z variant reports the base's
+    /// type.
+    fn shape_type(&self) -> BroadphaseNativeType {
+        BroadphaseNativeType::CONE_SHAPE
+    }
+
     /// `btConeShape::coneLocalSupport` (`btConeShape.cpp:67-102`).
     ///
     /// The apex test is `v[axial] > v.length() * m_sinAngle`, i.e. a
@@ -643,6 +679,11 @@ impl ConvexHullShape {
 }
 
 impl ConvexShape for ConvexHullShape {
+    /// `btConvexHullShape.cpp:30`.
+    fn shape_type(&self) -> BroadphaseNativeType {
+        BroadphaseNativeType::CONVEX_HULL_SHAPE
+    }
+
     /// `btConvexHullShape::localGetSupportingVertexWithoutMargin`
     /// (`btConvexHullShape.cpp:57-70`).
     ///
@@ -678,6 +719,48 @@ impl ConvexShape for ConvexHullShape {
 mod tests {
     use super::*;
     use crate::linear_math::Matrix3;
+    use crate::probe_fixture::probe_shapes;
+
+    /// The `shapetype_*` rows of `tools/bullet-epa-reference/build.sh`'s
+    /// stdout -- `getShapeType()` on the shapes `probe.cpp` builds.
+    ///
+    /// Separate from `broadphase_proxy`'s rows, which read the enum: these
+    /// read what a *constructed shape* reports, and a shape wired to the
+    /// wrong entry of a correctly-numbered enum is exactly what those rows
+    /// cannot see.
+    const SHAPE_TYPE_REFERENCE: &str = "\
+shapetype_unit_box|0
+shapetype_sphere|8
+shapetype_cyl|13
+shapetype_cone|11
+shapetype_hull|4
+";
+
+    #[test]
+    fn bullet_reference_shape_type() {
+        let (unit_box, _, _, sphere, _, cyl, cone, hull) = probe_shapes();
+        let ports: [(&str, BroadphaseNativeType); 5] = [
+            ("unit_box", unit_box.shape_type()),
+            ("sphere", sphere.shape_type()),
+            ("cyl", cyl.shape_type()),
+            ("cone", cone.shape_type()),
+            ("hull", hull.shape_type()),
+        ];
+
+        let mut bad = Vec::new();
+        for (name, port) in ports {
+            let prefix = format!("shapetype_{name}|");
+            let line = SHAPE_TYPE_REFERENCE
+                .lines()
+                .find(|l| l.starts_with(&prefix))
+                .unwrap_or_else(|| panic!("{name}: no such row"));
+            let want: i32 = line.split('|').nth(1).unwrap().parse().unwrap();
+            if port.0 != want {
+                bad.push(format!("{name}: port {}, bullet {want}", port.0));
+            }
+        }
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+    }
 
     /// The identity pose, which is the one the `bullet_support` oracle op
     /// reports its AABB at.
