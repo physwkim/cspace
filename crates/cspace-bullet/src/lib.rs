@@ -73,6 +73,7 @@
 //! with the C++ is reachable rather than aspirational.
 
 pub mod broadphase_proxy;
+pub mod collision_object_wrapper;
 pub mod compound;
 pub mod compound_algorithm;
 pub mod convex_convex;

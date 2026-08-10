@@ -73,7 +73,7 @@ pub fn process_collision(
     min1: &dyn ConvexShape,
     transform_b: &Transform,
     manifold: PersistentManifold,
-    result_out: &mut dyn ManifoldResult,
+    result_out: &mut dyn ManifoldResult<'_>,
 ) {
     result_out.set_persistent_manifold(Some(manifold));
 
@@ -139,9 +139,19 @@ pub fn maximum_distance_squared(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::collision_object_wrapper::CollisionObjectWrapper;
+    use crate::compound::Shape;
     use crate::discrete_detector::Result as DetectorResult;
     use crate::linear_math::Vec3;
     use crate::manifold::{CONTACT_BREAKING_THRESHOLD, ManifoldResultState};
+    use crate::shapes::ConvexShape;
+    use std::sync::Arc;
+
+    /// One probe shape as the `Shape` a wrapper names.
+    fn convex(shape: impl ConvexShape + 'static) -> Shape {
+        Shape::Convex(Arc::new(shape))
+    }
+
     use crate::probe_fixture::{IDENTITY, at, diff, diff_vec3, probe_shapes, rot60_at, row};
 
     /// `probe.cpp`'s `RecordingResult`, and MoveIt's
@@ -149,17 +159,21 @@ mod tests {
     /// `add_contact_point` that replaces the base's rather than extending it,
     /// so no contact ever reaches a manifold. The count below is this
     /// counter, not `num_contacts`.
-    struct RecordingResult {
-        state: ManifoldResultState,
+    struct RecordingResult<'a> {
+        state: ManifoldResultState<'a>,
         count: usize,
         normal: Vec3,
         point: Vec3,
         depth: Scalar,
     }
 
-    impl RecordingResult {
-        fn new(ta: Transform, tb: Transform, closest_point_distance_threshold: Scalar) -> Self {
-            let mut state = ManifoldResultState::new(0, ta, 1, tb);
+    impl<'a> RecordingResult<'a> {
+        fn new(
+            wrap0: CollisionObjectWrapper<'a>,
+            wrap1: CollisionObjectWrapper<'a>,
+            closest_point_distance_threshold: Scalar,
+        ) -> Self {
+            let mut state = ManifoldResultState::new(wrap0, wrap1);
             state.closest_point_distance_threshold = closest_point_distance_threshold;
             Self {
                 state,
@@ -171,7 +185,7 @@ mod tests {
         }
     }
 
-    impl DetectorResult for RecordingResult {
+    impl DetectorResult for RecordingResult<'_> {
         fn add_contact_point(
             &mut self,
             normal_on_b_in_world: Vec3,
@@ -185,8 +199,8 @@ mod tests {
         }
     }
 
-    impl ManifoldResult for RecordingResult {
-        fn state(&mut self) -> &mut ManifoldResultState {
+    impl<'a> ManifoldResult<'a> for RecordingResult<'a> {
+        fn state(&mut self) -> &mut ManifoldResultState<'a> {
             &mut self.state
         }
     }
@@ -234,21 +248,40 @@ cc_margin_box_sphere|1|-1|4.77601292e-09|4.29841158e-08|0.550000012|0.0500000007
     #[test]
     fn bullet_reference_process_collision() {
         let (_, _, margin_box, sphere, small_sphere, cyl, cone, hull) = probe_shapes();
+        let margin_box = convex(margin_box);
+        let sphere = convex(sphere);
+        let small_sphere = convex(small_sphere);
+        let cyl = convex(cyl);
+        let cone = convex(cone);
+        let hull = convex(hull);
         let mut bad = Vec::new();
 
+        // The wrappers the result carries are the ones whose shapes are
+        // dispatched, exactly as upstream's `btConvexConvexAlgorithm
+        // ::processCollision` is handed `body0Wrap`/`body1Wrap` and the
+        // result's `m_body0Wrap`/`m_body1Wrap` are those same pointers.
         let mut case = |name: &str,
-                        a: &dyn ConvexShape,
+                        a: &Shape,
                         ta: &Transform,
-                        b: &dyn ConvexShape,
+                        b: &Shape,
                         tb: &Transform,
                         closest_point_distance_threshold: Scalar| {
+            let (a_shape, b_shape) = (a, b);
+            let (Shape::Convex(min_a), Shape::Convex(min_b)) = (a_shape, b_shape) else {
+                panic!("{name}: every convex-convex row is two convex shapes");
+            };
+            let (a, b) = (min_a.as_ref(), min_b.as_ref());
             let f = row(BULLET_REFERENCE, name, 10);
             let n = |k: usize| -> Scalar {
                 f[k].parse()
                     .unwrap_or_else(|e| panic!("{name}: field {k} ({:?}): {e}", f[k]))
             };
 
-            let mut out = RecordingResult::new(*ta, *tb, closest_point_distance_threshold);
+            let mut out = RecordingResult::new(
+                CollisionObjectWrapper::new(a_shape, *ta, 0),
+                CollisionObjectWrapper::new(b_shape, *tb, 1),
+                closest_point_distance_threshold,
+            );
             let manifold = PersistentManifold::new();
             process_collision(a, ta, b, tb, manifold, &mut out);
 

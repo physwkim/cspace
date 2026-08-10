@@ -96,53 +96,13 @@
 //! [`UnportedAlgorithm`] rather than silently routing into GJK.
 
 use crate::broadphase_proxy::BroadphaseNativeType;
+use crate::collision_object_wrapper::CollisionObjectWrapper;
 use crate::compound::{CompoundShape, Shape};
 use crate::convex_convex;
 use crate::dbvt::{Dbvt, DbvtVolume, intersect};
 use crate::dispatch::{Algorithm, DispatchTable, find_algorithm};
 use crate::linear_math::{Scalar, Transform, Vec3, test_aabb_against_aabb2, transform_aabb};
 use crate::manifold::{ManifoldResult, PersistentManifold};
-
-/// `btCollisionObjectWrapper` (`btCollisionObjectWrapper.h:17-46`), reduced to
-/// what the traversal and the narrow phase read; see the module docs.
-///
-/// No `Debug`: [`Shape`] holds a `dyn ConvexShape`, and a shape that a
-/// downstream crate defines -- which is the whole reason that box is a trait
-/// object -- cannot be required to implement it.
-#[derive(Clone, Copy)]
-pub struct CollisionObjectWrapper<'a> {
-    /// `m_shape`.
-    pub shape: &'a Shape,
-    /// `m_worldTransform`.
-    pub world_transform: Transform,
-    /// Identity of `m_collisionObject`. Every child wrapper a compound builds
-    /// inherits its parent's, which is what makes the swap detection in both
-    /// leaf callbacks answer the same way at every depth.
-    pub object_id: usize,
-}
-
-impl<'a> CollisionObjectWrapper<'a> {
-    /// A wrapper over a top-level collision object.
-    #[must_use]
-    pub fn new(shape: &'a Shape, world_transform: Transform, object_id: usize) -> Self {
-        Self {
-            shape,
-            world_transform,
-            object_id,
-        }
-    }
-
-    /// The `btCollisionObjectWrapper compoundWrap(...)` both leaf callbacks
-    /// build for a child: a new shape and a new world transform over the same
-    /// collision object.
-    fn child(&self, shape: &'a Shape, world_transform: Transform) -> Self {
-        Self {
-            shape,
-            world_transform,
-            object_id: self.object_id,
-        }
-    }
-}
 
 /// A pair whose create-func names an algorithm this crate does not carry.
 ///
@@ -176,11 +136,11 @@ pub struct UnportedAlgorithm {
 /// resolves to an algorithm this crate does not carry. The traversal stops at
 /// the first one -- the query has already failed, and continuing would report
 /// a contact set missing whatever that pair would have added.
-pub fn process_collision(
-    body0: &CollisionObjectWrapper<'_>,
-    body1: &CollisionObjectWrapper<'_>,
+pub fn process_collision<'a>(
+    body0: &CollisionObjectWrapper<'a>,
+    body1: &CollisionObjectWrapper<'a>,
     table: DispatchTable,
-    result_out: &mut dyn ManifoldResult,
+    result_out: &mut dyn ManifoldResult<'a>,
 ) -> Result<(), UnportedAlgorithm> {
     let proxy_type0 = body0.shape.shape_type();
     let proxy_type1 = body1.shape.shape_type();
@@ -229,7 +189,7 @@ pub fn process_collision(
 /// Which table a child pair is looked up in
 /// (`btCompoundCollisionAlgorithm.cpp:150-166`,
 /// `btCompoundCompoundCollisionAlgorithm.cpp:167-186`).
-fn child_table(result_out: &mut dyn ManifoldResult) -> DispatchTable {
+fn child_table(result_out: &mut dyn ManifoldResult<'_>) -> DispatchTable {
     if result_out.state().closest_point_distance_threshold > 0.0 {
         DispatchTable::ClosestPoints
     } else {
@@ -248,7 +208,7 @@ fn compound_process_collision<'a>(
     col_obj_wrap: &CollisionObjectWrapper<'a>,
     compound_shape: &'a CompoundShape,
     other_obj_wrap: &CollisionObjectWrapper<'a>,
-    result_out: &mut dyn ManifoldResult,
+    result_out: &mut dyn ManifoldResult<'a>,
 ) -> Result<(), UnportedAlgorithm> {
     // `if (m_childCollisionAlgorithms.size() == 0) return;` (`:248-249`).
     // That array is sized to the child count by `preallocateChildAlgorithms`
@@ -318,7 +278,7 @@ fn process_child_shape<'a>(
     compound_shape: &'a CompoundShape,
     other_obj_wrap: &CollisionObjectWrapper<'a>,
     index: usize,
-    result_out: &mut dyn ManifoldResult,
+    result_out: &mut dyn ManifoldResult<'a>,
 ) -> Result<(), UnportedAlgorithm> {
     let child_shape = compound_shape.child_shape(index);
     let org_trans = compound_col_obj_wrap.world_transform;
@@ -343,21 +303,40 @@ fn process_child_shape<'a>(
     let child_index = i32::try_from(index).expect("fewer than i32::MAX children");
 
     // `if (m_resultOut->getBody0Internal() == m_compoundColObjWrap
-    // ->getCollisionObject())` (`:174`) -- whether the compound is the
+    // ->getCollisionObject())` (`:170`) -- whether the compound is the
     // result's body 0, which is the same question as whether this algorithm
-    // was created swapped, asked of the object rather than of a flag.
-    if result_out.state().body0_id == compound_col_obj_wrap.object_id {
+    // was created swapped, asked of the object rather than of a flag. The same
+    // test decides which side the child wrapper replaces, and which side is
+    // put back afterwards (`:194-201`).
+    let compound_is_body0 =
+        result_out.state().body0_wrap.object_id == compound_col_obj_wrap.object_id;
+    let displaced = if compound_is_body0 {
         result_out.set_shape_identifiers_a(-1, child_index);
+        result_out.set_body0_wrap(compound_wrap)
     } else {
         result_out.set_shape_identifiers_b(-1, child_index);
-    }
+        result_out.set_body1_wrap(compound_wrap)
+    };
 
-    // `algo->processCollision(&compoundWrap, m_otherObjWrap, ...)` (`:190`):
+    // `algo->processCollision(&compoundWrap, m_otherObjWrap, ...)` (`:183`):
     // the child is body 0 and the other object body 1 whichever way round the
     // enclosing query was, so a swapped compound query reports its contacts
     // against the opposite operand from the one the caller passed first.
     let table = child_table(result_out);
-    process_collision(&compound_wrap, other_obj_wrap, table, result_out)
+    let outcome = process_collision(&compound_wrap, other_obj_wrap, table, result_out);
+
+    // Upstream asks the question a second time (`:194`) rather than reusing
+    // the first answer, and gets the same one: the wrapper it just installed
+    // names the same collision object as the one it displaced, so the test
+    // cannot have flipped. Hoisting it keeps the two branches from being two
+    // independent claims about which side the compound is.
+    if compound_is_body0 {
+        result_out.set_body0_wrap(displaced);
+    } else {
+        result_out.set_body1_wrap(displaced);
+    }
+
+    outcome
 }
 
 /// `btCompoundCompoundCollisionAlgorithm::processCollision` (`:285-407`).
@@ -366,7 +345,7 @@ fn compound_compound_process_collision<'a>(
     compound_shape0: &'a CompoundShape,
     col1_obj_wrap: &CollisionObjectWrapper<'a>,
     compound_shape1: &'a CompoundShape,
-    result_out: &mut dyn ManifoldResult,
+    result_out: &mut dyn ManifoldResult<'a>,
 ) -> Result<(), UnportedAlgorithm> {
     let (Some(tree0), Some(tree1)) = (
         compound_shape0.dynamic_aabb_tree(),
@@ -424,7 +403,7 @@ struct CompoundCompoundLeafCallback<'a, 'r> {
     compound_shape0: &'a CompoundShape,
     compound1_col_obj_wrap: CollisionObjectWrapper<'a>,
     compound_shape1: &'a CompoundShape,
-    result_out: &'r mut dyn ManifoldResult,
+    result_out: &'r mut dyn ManifoldResult<'a>,
 }
 
 impl CompoundCompoundLeafCallback<'_, '_> {
@@ -467,8 +446,11 @@ impl CompoundCompoundLeafCallback<'_, '_> {
             .compound1_col_obj_wrap
             .child(child_shape1, new_child_world_trans1);
 
-        // Both identifiers, unconditionally: with a compound on each side
-        // there is no swap to detect, and each child names one of them.
+        // Both wrappers and both identifiers, unconditionally (`:195-199`):
+        // with a compound on each side there is no swap to detect, and each
+        // child names one of them.
+        let displaced0 = self.result_out.set_body0_wrap(compound_wrap0);
+        let displaced1 = self.result_out.set_body1_wrap(compound_wrap1);
         self.result_out.set_shape_identifiers_a(
             -1,
             i32::try_from(child_index0).expect("fewer than i32::MAX children"),
@@ -479,7 +461,12 @@ impl CompoundCompoundLeafCallback<'_, '_> {
         );
 
         let table = child_table(self.result_out);
-        process_collision(&compound_wrap0, &compound_wrap1, table, self.result_out)
+        let outcome = process_collision(&compound_wrap0, &compound_wrap1, table, self.result_out);
+
+        self.result_out.set_body0_wrap(displaced0);
+        self.result_out.set_body1_wrap(displaced1);
+
+        outcome
     }
 }
 
@@ -571,27 +558,35 @@ mod tests {
     /// Every contact's, not just the last: a child whose composed world
     /// transform is wrong changes the contacts *that child* reported, and with
     /// one slot the last child to write vouches for all of them.
-    struct TraceResult {
-        state: ManifoldResultState,
+    struct TraceResult<'a> {
+        state: ManifoldResultState<'a>,
         dispatches: Vec<String>,
         contacts: Vec<String>,
         geometry: Vec<(Vec3, Vec3, Scalar)>,
+        /// The two body wraps' own transforms at each contact, which is what
+        /// `addCastSingleResult` reads back out of them.
+        wraps: Vec<(Transform, Transform)>,
     }
 
-    impl TraceResult {
-        fn new(ta: Transform, tb: Transform, closest_point_distance_threshold: Scalar) -> Self {
-            let mut state = ManifoldResultState::new(0, ta, 1, tb);
+    impl<'a> TraceResult<'a> {
+        fn new(
+            wrap0: CollisionObjectWrapper<'a>,
+            wrap1: CollisionObjectWrapper<'a>,
+            closest_point_distance_threshold: Scalar,
+        ) -> Self {
+            let mut state = ManifoldResultState::new(wrap0, wrap1);
             state.closest_point_distance_threshold = closest_point_distance_threshold;
             Self {
                 state,
                 dispatches: Vec::new(),
                 contacts: Vec::new(),
                 geometry: Vec::new(),
+                wraps: Vec::new(),
             }
         }
     }
 
-    impl DetectorResult for TraceResult {
+    impl DetectorResult for TraceResult<'_> {
         fn add_contact_point(
             &mut self,
             normal_on_b_in_world: Vec3,
@@ -602,11 +597,15 @@ mod tests {
                 .push(format!("{}:{}", self.state.index0, self.state.index1));
             self.geometry
                 .push((normal_on_b_in_world, point_in_world, depth));
+            self.wraps.push((
+                self.state.body0_wrap.world_transform,
+                self.state.body1_wrap.world_transform,
+            ));
         }
     }
 
-    impl ManifoldResult for TraceResult {
-        fn state(&mut self) -> &mut ManifoldResultState {
+    impl<'a> ManifoldResult<'a> for TraceResult<'a> {
+        fn state(&mut self) -> &mut ManifoldResultState<'a> {
             &mut self.state
         }
 
@@ -871,7 +870,7 @@ ccpoint_notree_cyl2_line3_0|-0.159731388|-0.982497215|-0.0958388522|1.95123732|-
             covered.push(name.to_string());
             let wrap0 = CollisionObjectWrapper::new(shape0, t0, 0);
             let wrap1 = CollisionObjectWrapper::new(shape1, t1, 1);
-            let mut out = TraceResult::new(t0, t1, closest_point_distance_threshold);
+            let mut out = TraceResult::new(wrap0, wrap1, closest_point_distance_threshold);
 
             if let Err(unported) =
                 process_collision(&wrap0, &wrap1, DispatchTable::ClosestPoints, &mut out)
@@ -1230,7 +1229,7 @@ ccpoint_notree_cyl2_line3_0|-0.159731388|-0.982497215|-0.0958388522|1.95123732|-
         let t1 = at(1.0, 0.0, 0.0);
         let wrap0 = CollisionObjectWrapper::new(&compound, IDENTITY, 0);
         let wrap1 = CollisionObjectWrapper::new(&other, t1, 1);
-        let mut out = TraceResult::new(IDENTITY, t1, 0.0);
+        let mut out = TraceResult::new(wrap0, wrap1, 0.0);
 
         let unported = process_collision(&wrap0, &wrap1, DispatchTable::ClosestPoints, &mut out)
             .expect_err("box against box has no port");
@@ -1266,10 +1265,10 @@ ccpoint_notree_cyl2_line3_0|-0.159731388|-0.982497215|-0.0958388522|1.95123732|-
         let wrap0 = CollisionObjectWrapper::new(&a, IDENTITY, 0);
         let wrap1 = CollisionObjectWrapper::new(&b, at(1.0, 0.0, 0.0), 1);
 
-        let mut out = TraceResult::new(IDENTITY, at(1.0, 0.0, 0.0), 0.0);
+        let mut out = TraceResult::new(wrap0, wrap1, 0.0);
         assert!(process_collision(&wrap0, &wrap1, DispatchTable::ClosestPoints, &mut out).is_ok());
 
-        let mut out = TraceResult::new(IDENTITY, at(1.0, 0.0, 0.0), 0.0);
+        let mut out = TraceResult::new(wrap0, wrap1, 0.0);
         assert_eq!(
             process_collision(&wrap0, &wrap1, DispatchTable::ContactPoints, &mut out)
                 .expect_err("box against box has no port in the contact-points table")
@@ -1305,6 +1304,100 @@ ccpoint_notree_cyl2_line3_0|-0.159731388|-0.982497215|-0.0958388522|1.95123732|-
         ));
     }
 
+    /// The result's body wrap is the *child's* while that child is dispatched,
+    /// and the wrapper it displaced afterwards.
+    ///
+    /// Nothing in this crate reads it: the traversal passes the child wrapper
+    /// as an argument as well, so a port that dropped `setBody0Wrap` entirely
+    /// -- as this one did -- produced identical contacts here. What reads it is
+    /// `addCastSingleResult`, which recovers the swept child's shape and pose
+    /// from `first_col_obj_wrap` (`bullet_utils.hpp:470-473`) and has no other
+    /// way to reach them.
+    #[test]
+    fn a_child_dispatch_installs_and_restores_the_body_wrap() {
+        // No tree, so the two children are visited in index order and the
+        // *last* one installed sits at `at(2, 0, 0)` -- a restore that never
+        // runs is then visible in the final state. A fixture whose last child
+        // is at the identity cannot see it: the value left behind is the one
+        // the restore would have written.
+        let mut compound = CompoundShape::new(false);
+        compound.add_child_shape(at(1.0, 0.0, 0.0), unit_box());
+        compound.add_child_shape(at(2.0, 0.0, 0.0), unit_box());
+        let compound = Shape::Compound(compound);
+        let other = sphere();
+        let t1 = at(1.5, 0.0, 0.0);
+        let wrap0 = CollisionObjectWrapper::new(&compound, IDENTITY, 0);
+        let wrap1 = CollisionObjectWrapper::new(&other, t1, 1);
+        let mut out = TraceResult::new(wrap0, wrap1, 0.0);
+
+        process_collision(&wrap0, &wrap1, DispatchTable::ClosestPoints, &mut out)
+            .expect("box children against a sphere are all convex-convex");
+
+        assert_eq!(out.dispatches, ["A-1:0", "A-1:1"]);
+        assert_eq!(out.wraps.len(), 2, "both children reach a contact");
+        for (i, (body0, body1)) in out.wraps.iter().enumerate() {
+            let child: Scalar = out.contacts[i]
+                .split(':')
+                .next()
+                .and_then(|index| index.parse().ok())
+                .expect("the contact records the child index it was dispatched under");
+            assert_eq!(
+                body0.origin,
+                at(child + 1.0, 0.0, 0.0).origin,
+                "body 0's wrap is child {child}'s world transform, not the compound's"
+            );
+            assert_eq!(*body1, t1, "the convex side is never replaced");
+        }
+
+        assert_eq!(
+            out.state.body0_wrap.world_transform, IDENTITY,
+            "the compound's own wrapper is back once the traversal returns"
+        );
+        assert_eq!(
+            out.state.body0_wrap.object_transform, IDENTITY,
+            "the object's transform is the same at every depth"
+        );
+    }
+
+    /// With a compound on each side both wraps are installed and both are put
+    /// back -- the second half of what
+    /// [`a_child_dispatch_installs_and_restores_the_body_wrap`] pins for one.
+    ///
+    /// Every child sits at a non-identity local transform on both sides, so
+    /// neither restore can be satisfied by the value a missing one would leave.
+    #[test]
+    fn a_compound_compound_child_pair_installs_and_restores_both_wraps() {
+        let mut boxes = CompoundShape::new(true);
+        boxes.add_child_shape(at(1.0, 0.0, 0.0), unit_box());
+        boxes.add_child_shape(at(2.0, 0.0, 0.0), unit_box());
+        let boxes = Shape::Compound(boxes);
+
+        let mut spheres = CompoundShape::new(true);
+        spheres.add_child_shape(at(1.0, 0.0, 0.0), sphere());
+        spheres.add_child_shape(at(2.0, 0.0, 0.0), sphere());
+        let spheres = Shape::Compound(spheres);
+
+        let t1 = at(0.0, 0.0, 0.9);
+        let wrap0 = CollisionObjectWrapper::new(&boxes, IDENTITY, 0);
+        let wrap1 = CollisionObjectWrapper::new(&spheres, t1, 1);
+        let mut out = TraceResult::new(wrap0, wrap1, 0.0);
+
+        process_collision(&wrap0, &wrap1, DispatchTable::ClosestPoints, &mut out)
+            .expect("boxes against spheres are all convex-convex");
+
+        assert!(!out.wraps.is_empty(), "the fixture must reach a contact");
+        for (i, (body0, body1)) in out.wraps.iter().enumerate() {
+            let mut indices = out.contacts[i].split(':');
+            let child0: Scalar = indices.next().and_then(|c| c.parse().ok()).expect("index0");
+            let child1: Scalar = indices.next().and_then(|c| c.parse().ok()).expect("index1");
+            assert_eq!(body0.origin, at(child0 + 1.0, 0.0, 0.0).origin);
+            assert_eq!(body1.origin, (t1 * at(child1 + 1.0, 0.0, 0.0)).origin);
+        }
+
+        assert_eq!(out.state.body0_wrap.world_transform, IDENTITY);
+        assert_eq!(out.state.body1_wrap.world_transform, t1);
+    }
+
     /// A nested compound reports `COMPOUND_SHAPE_PROXYTYPE`, so its dispatch
     /// goes back through the compound rows rather than into the narrow phase.
     #[test]
@@ -1336,7 +1429,7 @@ ccpoint_notree_cyl2_line3_0|-0.159731388|-0.982497215|-0.0958388522|1.95123732|-
         let other = sphere();
         let wrap0 = CollisionObjectWrapper::new(&compound, IDENTITY, 0);
         let wrap1 = CollisionObjectWrapper::new(&other, IDENTITY, 1);
-        let mut out = TraceResult::new(IDENTITY, IDENTITY, 0.0);
+        let mut out = TraceResult::new(wrap0, wrap1, 0.0);
         assert!(process_collision(&wrap0, &wrap1, DispatchTable::ClosestPoints, &mut out).is_ok());
         assert!(out.dispatches.is_empty());
 

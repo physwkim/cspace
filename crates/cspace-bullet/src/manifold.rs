@@ -43,8 +43,9 @@
 //! - the body/shape identifiers, which the compound traversal rewrites per
 //!   child and MoveIt's callback reads back out.
 
+use crate::collision_object_wrapper::CollisionObjectWrapper;
 use crate::discrete_detector::Result;
-use crate::linear_math::{Scalar, Transform, Vec3};
+use crate::linear_math::{Scalar, Vec3};
 
 /// `gContactBreakingThreshold` (`btPersistentManifold.cpp:26`).
 pub const CONTACT_BREAKING_THRESHOLD: Scalar = 0.02;
@@ -167,26 +168,23 @@ impl Default for PersistentManifold {
 /// and override only `addContactPoint`: an implementor of [`ManifoldResult`]
 /// owns one of these and the trait's other methods are written against it
 /// once, exactly as the C++ non-virtual accessors are.
-#[derive(Clone, Copy, Debug)]
-pub struct ManifoldResultState {
+#[derive(Clone, Copy)]
+pub struct ManifoldResultState<'a> {
     /// `m_manifoldPtr`. `None` models the null upstream sets it to between
     /// compound children (`btCompoundCollisionAlgorithm.cpp:273`).
     pub manifold: Option<PersistentManifold>,
-    /// `m_body0Wrap->getCollisionObject()->getWorldTransform()`.
+    /// `m_body0Wrap`.
     ///
-    /// Upstream holds a `btCollisionObjectWrapper*` and reaches through it for
-    /// the transform and the object identity. This port carries the two things
-    /// the continuous path actually reads -- that transform, and an identity
-    /// to compare -- because a wrapper pointer here would be a borrow of a
-    /// graph this crate does not own.
-    pub body0_transform: Transform,
-    /// `m_body1Wrap`'s world transform, as above.
-    pub body1_transform: Transform,
-    /// Identity of `m_body0Wrap->getCollisionObject()`, for the `isSwapped`
-    /// test `m_manifoldPtr->getBody0() != m_body0Wrap->getCollisionObject()`.
-    pub body0_id: usize,
-    /// Identity of `m_body1Wrap->getCollisionObject()`.
-    pub body1_id: usize,
+    /// The whole wrapper, not the transform and identity read off it, because
+    /// the compound traversal *replaces* it for each child
+    /// (`btCompoundCollisionAlgorithm.cpp:170-201`) and the two things that
+    /// replacement changes -- the shape and the wrapper's own transform -- are
+    /// what `addCastSingleResult` reads out of it (`bullet_utils.hpp:470-473`).
+    /// Storing only `getCollisionObject()->getWorldTransform()` here, as this
+    /// type first did, left a child's swept shape unreachable from the result.
+    pub body0_wrap: CollisionObjectWrapper<'a>,
+    /// `m_body1Wrap`, as above.
+    pub body1_wrap: CollisionObjectWrapper<'a>,
     /// `m_manifoldPtr->getBody0()` -- which of the two the manifold was
     /// created around, which is what decides `isSwapped`.
     pub manifold_body0_id: usize,
@@ -202,23 +200,19 @@ pub struct ManifoldResultState {
     pub closest_point_distance_threshold: Scalar,
 }
 
-impl ManifoldResultState {
+impl<'a> ManifoldResultState<'a> {
     /// `btManifoldResult(body0Wrap, body1Wrap)`
     /// (`btManifoldResult.cpp:44-52`).
     #[must_use]
     pub fn new(
-        body0_id: usize,
-        body0_transform: Transform,
-        body1_id: usize,
-        body1_transform: Transform,
+        body0_wrap: CollisionObjectWrapper<'a>,
+        body1_wrap: CollisionObjectWrapper<'a>,
     ) -> Self {
         Self {
             manifold: None,
-            body0_transform,
-            body1_transform,
-            body0_id,
-            body1_id,
-            manifold_body0_id: body0_id,
+            manifold_body0_id: body0_wrap.object_id,
+            body0_wrap,
+            body1_wrap,
             part_id0: -1,
             part_id1: -1,
             index0: -1,
@@ -230,7 +224,7 @@ impl ManifoldResultState {
     /// `m_manifoldPtr->getBody0() != m_body0Wrap->getCollisionObject()`.
     #[must_use]
     pub fn is_swapped(&self) -> bool {
-        self.manifold_body0_id != self.body0_id
+        self.manifold_body0_id != self.body0_wrap.object_id
     }
 }
 
@@ -240,13 +234,30 @@ impl ManifoldResultState {
 /// `add_contact_point` is inherited from `Result` and is the one method
 /// upstream leaves virtual for subclasses to replace outright, which is what
 /// MoveIt's bridge does.
-pub trait ManifoldResult: Result {
+pub trait ManifoldResult<'a>: Result {
     /// The state every implementor owns; see [`ManifoldResultState`].
-    fn state(&mut self) -> &mut ManifoldResultState;
+    fn state(&mut self) -> &mut ManifoldResultState<'a>;
 
     /// `setPersistentManifold`.
     fn set_persistent_manifold(&mut self, manifold: Option<PersistentManifold>) {
         self.state().manifold = manifold;
+    }
+
+    /// `setBody0Wrap` (`btManifoldResult.h:132-135`), which the compound
+    /// traversal calls with a child wrapper and again with the wrapper it
+    /// displaced.
+    ///
+    /// Returns the wrapper it replaced, because every upstream caller saves
+    /// that value first in order to restore it
+    /// (`btCompoundCollisionAlgorithm.cpp:167-201`) and a caller that read it
+    /// separately could read it after some other write.
+    fn set_body0_wrap(&mut self, wrap: CollisionObjectWrapper<'a>) -> CollisionObjectWrapper<'a> {
+        std::mem::replace(&mut self.state().body0_wrap, wrap)
+    }
+
+    /// `setBody1Wrap` (`btManifoldResult.h:137-140`), as above.
+    fn set_body1_wrap(&mut self, wrap: CollisionObjectWrapper<'a>) -> CollisionObjectWrapper<'a> {
+        std::mem::replace(&mut self.state().body1_wrap, wrap)
     }
 
     /// `setShapeIdentifiersA` (`btManifoldResult.h:90-94`).
