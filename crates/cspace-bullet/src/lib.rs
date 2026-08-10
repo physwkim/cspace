@@ -70,6 +70,7 @@ pub mod discrete_detector;
 pub mod epa;
 pub mod gjk;
 pub mod linear_math;
+pub mod manifold;
 pub mod pen_depth;
 #[cfg(test)]
 mod probe_fixture;
