@@ -45,6 +45,7 @@
 #include <moveit/collision_detection/collision_matrix.hpp>
 #include <moveit/collision_detection/world.hpp>
 #include <moveit/collision_distance_field/collision_common_distance_field.hpp>
+#include <moveit/collision_detection_bullet/collision_env_bullet.hpp>
 #include <moveit/collision_detection_fcl/collision_env_fcl.hpp>
 #include <moveit/collision_distance_field/collision_distance_field_types.hpp>
 #include <moveit/collision_distance_field/collision_env_distance_field.hpp>
@@ -1115,6 +1116,8 @@ public:
       return acm();
     if (op == "collision")
       return collision(request);
+    if (op == "ccd")
+      return ccd(request);
     if (op == "pair_signed_distance")
       return pairSignedDistance(request);
     if (op == "world")
@@ -1596,9 +1599,20 @@ private:
   /// unconditional, just reachable from a second caller now.
   void applyJointValuesTo(moveit::core::RobotState& state, const json& request)
   {
+    applyJointValuesFrom(state, request, "joint_values");
+  }
+
+  /// The body of `applyJointValuesTo`, reading an arbitrary request key.
+  ///
+  /// `ccd()` poses two states from one request and cannot name both of them
+  /// `joint_values`; every other caller reads that one key, which is why the
+  /// key is a parameter here rather than a second copy of this loop with one
+  /// string changed.
+  void applyJointValuesFrom(moveit::core::RobotState& state, const json& request, const char* key)
+  {
     state.setToDefaultValues();
     state.clearAttachedBodies();
-    const json& values = request.at("joint_values");
+    const json& values = request.at(key);
     for (auto it = values.begin(); it != values.end(); ++it)
     {
       const std::string& variable = it.key();
@@ -2645,6 +2659,109 @@ private:
       { "robot_distance_pair", distancePairToJson(robot_dres.minimum_distance, *world) },
       { "robot_contacts", allContactsToJson(robot_res.contacts, *world) },
     };
+  }
+
+  /// Ground truth for continuous (swept) robot-vs-world collision checking:
+  /// `CollisionEnvBullet::checkRobotCollision(req, res, state1, state2, acm)`
+  /// (`collision_env_bullet.cpp:171-177`, dispatching to
+  /// `checkRobotCollisionHelperCCD` at `:209-239`).
+  ///
+  /// The bullet backend, not FCL, because it is the only backend upstream
+  /// ships that implements this overload at all: `CollisionEnvFCL`'s two
+  /// two-state overloads log "Continuous collision checking not implemented"
+  /// and return with `res` untouched, which at the call site is
+  /// indistinguishable from "checked, found nothing". Reporting that as
+  /// ground truth would certify an unported feature as clear.
+  ///
+  /// # Why `percent_interpolation` is reported here and not by `collision()`
+  ///
+  /// `collision()`'s doc records `pos`/`normal`/`nearest_points`/
+  /// `percent_interpolation` as deliberately outside the parity comparison,
+  /// because for a discrete check they are witness coordinates whose exact
+  /// values are a property of the narrow phase rather than of the answer.
+  /// For a swept check `percent_interpolation` is not a witness coordinate:
+  /// it is *the* continuous answer -- where along `state1 -> state2` the
+  /// swept hull first touches -- computed by
+  /// `BroadphaseContactResultCallback::addSingleResult`
+  /// (`bullet_utils.hpp:487-514`) from the two support values, and a port
+  /// that got the boolean right and this number wrong would report a
+  /// collision at the wrong point of the motion. It is therefore part of what
+  /// this op exists to pin. `pos`/`normal`/`nearest_points` come along
+  /// because the same `addSingleResult` swaps them when the cast shape is the
+  /// first body (`:462-469`), and a swap error is invisible in the boolean.
+  ///
+  /// # Precision
+  ///
+  /// The image's `libmoveit_collision_detection_bullet.so` links the
+  /// single-precision `libBulletCollision.so.3.24` (`sizeof(btScalar) == 4`),
+  /// so every number below that came through bullet's narrow phase carries
+  /// float precision, widened to double only at `convertBtToEigen`. A port
+  /// computing the same quantities in `f64` will not reproduce them; that is
+  /// a property of the ground truth, not of the port.
+  json ccd(const json& request)
+  {
+    applyJointValuesFrom(*state_, request, "joint_values");
+    applyAttachedBodies(*state_, request);
+
+    moveit::core::RobotState state2(model_);
+    applyJointValuesFrom(state2, request, "joint_values2");
+    applyAttachedBodies(state2, request);
+
+    collision_detection::AllowedCollisionMatrix acm = buildAcm();
+
+    auto world = std::make_shared<collision_detection::World>();
+    addRequestObjects(*world, request);
+
+    collision_detection::CollisionEnvBullet env(model_, world);
+
+    // Same shape as `collision()`'s: `contacts` on so the pair behind a
+    // `true` is nameable, `max_contacts` raised off its default 1 so a second
+    // simultaneously-swept pair is not silently dropped, and
+    // `max_contacts_per_pair` a request field for the same reason it is one
+    // there.
+    const std::size_t max_contacts_per_pair =
+        request.value("max_contacts_per_pair", static_cast<std::size_t>(1));
+    if (max_contacts_per_pair == 0)
+      throw std::runtime_error("max_contacts_per_pair must be >= 1");
+
+    collision_detection::CollisionRequest req;
+    req.contacts = true;
+    req.max_contacts = 100;
+    req.max_contacts_per_pair = max_contacts_per_pair;
+    collision_detection::CollisionResult res;
+    env.checkRobotCollision(req, res, *state_, state2, acm);
+
+    json contacts = json::array();
+    for (const auto& entry : res.contacts)
+    {
+      for (const collision_detection::Contact& c : entry.second)
+        contacts.push_back(ccdContactToJson(c, *world));
+    }
+
+    return json{
+      { "collision", res.collision },
+      { "contact_count", res.contact_count },
+      { "contacts", contacts },
+    };
+  }
+
+  /// One swept `Contact` as JSON: `contactToJson`'s seven fields plus the
+  /// four `ccd()`'s doc explains this op reports and `collision()` does not.
+  ///
+  /// Built by merging into `contactToJson`'s object rather than restating its
+  /// seven fields, so the two ops cannot drift on what a contact's identity
+  /// looks like.
+  json ccdContactToJson(const collision_detection::Contact& c, const collision_detection::World& world) const
+  {
+    json out = contactToJson(c, world);
+    out["pos"] = json::array({ c.pos.x(), c.pos.y(), c.pos.z() });
+    out["normal"] = json::array({ c.normal.x(), c.normal.y(), c.normal.z() });
+    out["nearest_points"] = json::array({
+        json::array({ c.nearest_points[0].x(), c.nearest_points[0].y(), c.nearest_points[0].z() }),
+        json::array({ c.nearest_points[1].x(), c.nearest_points[1].y(), c.nearest_points[1].z() }),
+    });
+    out["percent_interpolation"] = c.percent_interpolation;
+    return out;
   }
 
   /// FCL's own signed distance for exactly one robot-link / world-object

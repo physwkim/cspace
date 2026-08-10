@@ -116,6 +116,15 @@ target_link_libraries(moveit_oracle
     moveit_core::moveit_trajectory_processing
     moveit_core::moveit_collision_detection
     moveit_core::moveit_collision_detection_fcl
+    # `CollisionEnvBullet` is the only implementation of
+    # `checkRobotCollision(req, res, state1, state2, acm)` upstream ships --
+    # the FCL backend logs an error and leaves `res` untouched -- so the `ccd`
+    # op below has to link the bullet backend to have any ground truth at all
+    # for a swept check. The library is already built in this image:
+    # `moveit_core/CMakeLists.txt:10` makes Bullet a REQUIRED dependency of
+    # moveit_core itself, so `--packages-up-to moveit_core` builds it whether
+    # or not anything links it.
+    moveit_core::moveit_collision_detection_bullet
     moveit_core::moveit_distance_field
     moveit_core::moveit_collision_distance_field
     moveit_core::moveit_dynamics_solver
