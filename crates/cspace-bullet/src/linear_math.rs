@@ -176,6 +176,21 @@ impl Vec3 {
         self * (1.0 / self.length())
     }
 
+    /// `btVector3::safeNormalize` (`btVector3.h:286-299`) -- `(1, 0, 0)` rather
+    /// than a division when the vector is too short to normalize. Note the
+    /// guard is on `length2()` against `SIMD_EPSILON * SIMD_EPSILON`, so the
+    /// shortest vector it will normalize has length `SIMD_EPSILON`.
+    #[inline]
+    #[must_use]
+    pub fn safe_normalize(self) -> Self {
+        let l2 = self.length2();
+        if l2 >= SIMD_EPSILON * SIMD_EPSILON {
+            self / l2.sqrt()
+        } else {
+            Self::new(1.0, 0.0, 0.0)
+        }
+    }
+
     /// `btVector3::absolute`.
     #[inline]
     #[must_use]

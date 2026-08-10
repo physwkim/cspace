@@ -68,5 +68,6 @@
 
 pub mod epa;
 pub mod linear_math;
+pub mod pen_depth;
 pub mod shapes;
 pub mod simplex;
