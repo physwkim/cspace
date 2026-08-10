@@ -453,6 +453,31 @@ static void avgsupport(const char* name, const btConvexShape* shape, const btVec
 	printf("avgsup_%s|%.9g|%.9g|%.9g|%.9g\n", name, (double)support, (double)pt[0], (double)pt[1], (double)pt[2]);
 }
 
+// `percent_interpolation` -- where along `state1 -> state2` the swept hull
+// first touches, which is the entire answer a continuous check adds over a
+// discrete one.
+//
+// The three arms are the three shapes of that answer: pinned to the start pose,
+// pinned to the end pose, and interpolated by the ratio of distances from the
+// contact point to the two support points. The arms are chosen by a *support*
+// difference against BULLET_SUPPORT_FUNC_TOLERANCE (0.01), then the ratio is
+// taken from *lengths* -- two different quantities, so a case that lands just
+// inside the tolerance and a case that lands just outside it exercise different
+// code with no visible boundary between them.
+//
+// Fields: `pctinterp_<name>|percent_interpolation`.
+static void pctinterp(const char* name, btConvexShape* shape, const btTransform& t01, const btTransform& world,
+                      const btVector3& normal_world_on_b, const btVector3& pos_a, const btVector3& pos_b,
+                      btScalar distance, bool cast_is_first)
+{
+	CastHullShape cast(shape, t01);
+	btManifoldPoint cp(btVector3(0, 0, 0), btVector3(0, 0, 0), normal_world_on_b, distance);
+	cp.m_positionWorldOnA = pos_a;
+	cp.m_positionWorldOnB = pos_b;
+
+	printf("pctinterp_%s|%.9g\n", name, (double)castPercentInterpolation(cp, cast_is_first, &cast, world));
+}
+
 // `btCompoundShape::getAabb` plus the leaf order of the tree it built while
 // the children were added. The AABB is the accumulated `m_localAabb*` taken
 // through `trans` -- so a row under a rotated transform is the only thing
@@ -1250,6 +1275,51 @@ int main()
 		avgsupport("cone", &cone, pxyz.normalized());
 		avgsupport("hull_face", &hull, btVector3(0.f, 0.f, 1.f));
 		avgsupport("hull_corner", &hull, pxyz.normalized());
+
+		// `percent_interpolation`. Fields: `name|percent`.
+		//
+		// `end`/`start` are the two pinned arms: a unit sweep along the contact
+		// normal separates the two poses' support values by 1.0, far past the
+		// 0.01 tolerance, and the normal's sign is what picks which end.
+		// `boundary_out` and `boundary_in` straddle that tolerance -- 0.02 and
+		// 0.005 of sweep along the normal -- so one lands on the pinned arm and
+		// the other falls through to the ratio with the two support values
+		// nearly equal. `boundary_in`'s contact point is deliberately off the
+		// first support point: sitting on it makes `l0c` zero and the ratio
+		// come out 0, which is the same number the pinned arm returns and so
+		// pins nothing.
+		//
+		// `ratio_quarter` sweeps *across* the normal, which is the only way
+		// both support values come out equal and the answer is decided by
+		// lengths rather than supports; the contact point sits a quarter of the
+		// way along, so a port that reversed `l0c`/`l1c` reports 0.75.
+		// `zero_delta` is the degenerate arm: with no sweep the two support
+		// points coincide, `l0c + l1c` is 0, and upstream returns 0.5 rather
+		// than dividing.
+		//
+		// `*_cast_first` repeat two of them with the cast object as body 0,
+		// which negates `normal_world_from_cast` *and* switches which of the
+		// manifold point's two world positions is read -- two changes upstream
+		// makes together, and a port that made only one of them still matches
+		// every row above.
+		const btVector3 nx(1.f, 0.f, 0.f);
+		const btVector3 p_mid(0.5f, 0.25f, 0.f);
+		const btVector3 p_face(0.5f, 0.f, 0.f);
+		pctinterp("end", &unit_box, at(1.f, 0.f, 0.f), id, nx, p_face, p_face, -0.01f, false);
+		pctinterp("start", &unit_box, at(1.f, 0.f, 0.f), id, -nx, p_face, p_face, -0.01f, false);
+		pctinterp("boundary_out", &unit_box, at(0.02f, 0.f, 0.f), id, nx, p_face, p_face, -0.01f, false);
+		pctinterp("boundary_in", &unit_box, at(0.005f, 0.f, 0.f), id, nx, btVector3(0.502f, 0.f, 0.f),
+		          btVector3(0.502f, 0.f, 0.f), -0.01f, false);
+		pctinterp("ratio_quarter", &unit_box, at(0.f, 1.f, 0.f), id, nx, p_mid, p_mid, -0.01f, false);
+		pctinterp("zero_delta", &unit_box, id, id, nx, p_face, p_face, -0.01f, false);
+		pctinterp("rot_delta", &unit_box, rot60_at(0.f, 1.f, 0.f), id, nx, p_mid, p_mid, -0.01f, false);
+		pctinterp("world_rot_delta", &unit_box, at(0.f, 1.f, 0.f), rot60_at(0.1f, 0.2f, -0.1f), nx, p_mid, p_mid,
+		          -0.01f, false);
+		pctinterp("sphere_ratio", &sphere, at(0.f, 1.f, 0.f), id, nx, p_mid, p_mid, -0.01f, false);
+		pctinterp("hull_ratio", &hull, at(0.f, 1.f, 0.f), id, nx, p_mid, p_mid, -0.01f, false);
+		pctinterp("end_cast_first", &unit_box, at(1.f, 0.f, 0.f), id, -nx, p_face, p_face, -0.01f, true);
+		pctinterp("ratio_quarter_cast_first", &unit_box, at(0.f, 1.f, 0.f), id, -nx, p_mid,
+		          btVector3(0.5f, 0.8f, 0.f), -0.01f, true);
 	}
 
 	// `btDbvt` leaf order. Fields: `name|visited|leaves|data...`.

@@ -26,6 +26,7 @@
 #include <stdexcept>
 
 #include "BulletCollision/BroadphaseCollision/btBroadphaseProxy.h"
+#include "BulletCollision/NarrowPhaseCollision/btManifoldPoint.h"
 #include "BulletCollision/CollisionShapes/btConvexShape.h"
 #include "BulletCollision/CollisionShapes/btPolyhedralConvexShape.h"
 #include "LinearMath/btTransform.h"
@@ -167,6 +168,74 @@ inline void getAverageSupport(const btConvexShape* shape, const btVector3& local
 	{
 		outpt = shape->localGetSupportingVertexWithoutMargin(localNormal);
 		outsupport = localNormal.dot(outpt);
+	}
+}
+
+// The tail of `addCastSingleResult` (`bullet_utils.hpp:451-514`), from the
+// `cast_shape_is_first` derivation to the last `percent_interpolation`
+// assignment, with three things removed and nothing else changed:
+//
+//   - the two `CollisionObjectWrapper` derefs the flag comes from, replaced by
+//     the flag itself as an argument;
+//   - the `col->` writes into `ContactTestData`'s stored contact -- the two
+//     `std::swap`s, the `col->normal *= -1`, and the dead
+//     `contact.pos = ...m_positionWorldOnB` at `:463`, which assigns to the
+//     *local* `contact` that `processResult` has already copied out and so
+//     never reaches the result;
+//   - the `assert` at `:451`.
+//
+// What is left is the arithmetic: `normal_world_from_cast`, the two world
+// transforms, the two `getAverageSupport` calls, and the three-way choice of
+// `percent_interpolation`. `localsup0`/`localsup1` are kept even though nothing
+// upstream reads them -- deleting them would be a judgement about which of
+// `getAverageSupport`'s two outputs matters, and the point of a transcription
+// is not to make judgements.
+inline float castPercentInterpolation(const btManifoldPoint& cp, bool cast_shape_is_first, const CastHullShape* shape,
+                                      const btTransform& first_world_transform)
+{
+	btVector3 normal_world_from_cast = (cast_shape_is_first ? -1 : 1) * cp.m_normalWorldOnB;
+
+	btTransform tf_world0, tf_world1;
+	tf_world0 = first_world_transform;
+	tf_world1 = first_world_transform * shape->shape_transform;
+
+	btVector3 normal_local0 = normal_world_from_cast * tf_world0.getBasis();
+	btVector3 normal_local1 = normal_world_from_cast * tf_world1.getBasis();
+
+	btVector3 pt_local0;
+	float localsup0;
+	getAverageSupport(shape->m_shape, normal_local0, localsup0, pt_local0);
+	btVector3 pt_world0 = tf_world0 * pt_local0;
+	btVector3 pt_local1;
+	float localsup1;
+	getAverageSupport(shape->m_shape, normal_local1, localsup1, pt_local1);
+	btVector3 pt_world1 = tf_world1 * pt_local1;
+
+	float sup0 = normal_world_from_cast.dot(pt_world0);
+	float sup1 = normal_world_from_cast.dot(pt_world1);
+
+	if (sup0 - sup1 > BULLET_SUPPORT_FUNC_TOLERANCE)
+	{
+		return 0;
+	}
+	else if (sup1 - sup0 > BULLET_SUPPORT_FUNC_TOLERANCE)
+	{
+		return 1;
+	}
+	else
+	{
+		const btVector3& pt_on_cast = cast_shape_is_first ? cp.m_positionWorldOnA : cp.m_positionWorldOnB;
+		float l0c = (pt_on_cast - pt_world0).length();
+		float l1c = (pt_on_cast - pt_world1).length();
+
+		if (l0c + l1c < BULLET_LENGTH_TOLERANCE)
+		{
+			return .5;
+		}
+		else
+		{
+			return static_cast<float>(l0c / (l0c + l1c));
+		}
 	}
 }
 

@@ -53,4 +53,5 @@
 //! `parry`, and porting a second discrete backend it would not call is work
 //! with no caller.
 
+pub mod cast_contact;
 pub mod cast_hull_shape;
