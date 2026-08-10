@@ -125,7 +125,19 @@ pub const CONVEX_DISTANCE_MARGIN: Scalar = 0.04;
 /// The equivalence also covers shapes this crate does not define: a custom
 /// shape type (MoveIt's `CastHullShape` is one) reaches `default:` and is
 /// dispatched virtually anyway.
-pub trait ConvexShape {
+///
+/// # `Send + Sync`
+///
+/// A shape is immutable data behind a shared pointer -- `btCollisionShape*` in
+/// C++, `Arc<dyn ConvexShape>` in [`crate::compound::Shape`] -- and a
+/// collision environment is the sort of thing a planner holds behind an `Arc`
+/// and queries from several threads. Without this bound `Arc<dyn ConvexShape>`
+/// is neither `Send` nor `Sync` whatever the concrete shape is, which makes
+/// every structure built over it thread-local by accident rather than by
+/// decision. Every shape here is plain data and satisfies it; the bound is
+/// what stops an implementor reaching for interior mutability to make a shape
+/// re-poseable in place.
+pub trait ConvexShape: Send + Sync {
     /// `btConvexShape::localGetSupportingVertexWithoutMargin`.
     fn local_get_supporting_vertex_without_margin(&self, vec: Vec3) -> Vec3;
 
