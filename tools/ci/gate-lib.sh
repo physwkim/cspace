@@ -60,7 +60,7 @@ require_nonempty() {
 # invoked by an absolute path from somewhere else. The gates that need docker
 # must be invoked that way -- `sg docker -c` takes a command string, not a
 # working directory -- so a worker in a worktree running
-# `sg docker -c '/home/stevek/work/moveit-rs/tools/ci/verify-ros-interop.sh'`
+# `sg docker -c '<absolute path to the session root>/tools/ci/verify-ros-interop.sh'`
 # gates the session root instead. Observed: that command printed
 # `all gates passed` with exit 0 and 174/174 tests, against a tree containing
 # none of the caller's changes. A green measurement of the wrong subject is
