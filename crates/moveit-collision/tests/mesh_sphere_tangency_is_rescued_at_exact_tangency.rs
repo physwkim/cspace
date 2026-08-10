@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! Pins one measured case from `examples/mesh_orientation_probe.rs`'s own
-//! sweep, the same way `mesh_orientation_tangency_can_miss.rs` pins its own
+//! sweep, the same way `mesh_orientation_tangency_is_caught_at_exact_tangency.rs` pins its own
 //! `box` reproducer -- except this one has a known, stable, unambiguous fcl
 //! target (`tools/fcl-mesh-orientation-probe` measures `mesh x sphere` as
 //! `true` at every one of 497 tilted orientations, zero exceptions, matching
@@ -31,9 +31,16 @@
 //!
 //! `mesh_sphere_tangency_has_a_target_but_is_not_yet_rescued.rs` was this
 //! file's own former name and content -- it pinned the miss as *current,
-//! unfixed* behaviour, the same way `mesh_orientation_tangency_can_miss.rs`
-//! still does for `box`. Renamed and rewritten here because that is no
-//! longer true for `sphere`.
+//! unfixed* behaviour. Renamed and rewritten here because that stopped being
+//! true for `sphere`.
+//!
+//! The `box`/`cylinder`/`cone`/`mesh x mesh` counts quoted above are the ones
+//! that stood when `sphere` closed, and none of them stands now:
+//! `parry::rejection_slack` later took the whole sweep to 0 misses, `sphere`
+//! included. See `mesh_orientation_tangency_is_caught_at_exact_tangency.rs`,
+//! which was the `box` pin and now asserts the fix. This file's own subject
+//! is untouched by that -- it pins the *rescue path* for `sphere`, which is
+//! reached before any of it and is what the control below still measures.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -49,13 +56,13 @@ use moveit_state::RobotState;
 use nalgebra::{Translation3, Unit};
 
 /// Half the extent of both shapes, along every axis -- matches
-/// `mesh_orientation_tangency_can_miss.rs::HALF`.
+/// `mesh_orientation_tangency_is_caught_at_exact_tangency.rs::HALF`.
 const HALF: f64 = 0.5;
 /// The point the sphere's own centre-minus-radius and the tilted mesh's own
 /// lowest rotated vertex are both translated onto.
 const TOUCH: (f64, f64, f64) = (5.0, 0.0, 0.0);
 
-/// The same 8 vertices `mesh_orientation_tangency_can_miss.rs::cube_vertices`
+/// The same 8 vertices `mesh_orientation_tangency_is_caught_at_exact_tangency.rs::cube_vertices`
 /// builds.
 fn cube_vertices() -> [Vector3; 8] {
     let mut vertices = [Vector3::zeros(); 8];

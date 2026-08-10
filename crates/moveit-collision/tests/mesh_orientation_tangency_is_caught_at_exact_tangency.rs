@@ -2,49 +2,49 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! Pins one measured case from `examples/mesh_orientation_probe.rs`'s own
-//! sweep: that probe found `check_robot_collision` reporting `false` for
-//! 6,083 of 24,970 rotated-mesh-at-exact-tangency configurations (mesh
-//! against box/sphere/cylinder/cone/mesh, mesh as both the attached and the
-//! world object, 497 systematic orientations at 5-degree resolution over 7
-//! axes plus 2,000 random orientations), every one of the 6,083 flipping to
-//! `true` with between `1e-16` and `1e-14` of added overlap -- the same
-//! order of magnitude `exact_tangency_is_decided_per_shape_pair.rs`'s own
-//! module doc already measures as GJK's own floating-point rounding at an
-//! axis-aligned tie (its `-1.1102230246251565e-16` for `cylinder x box`, for
-//! one).
-//!
-//! The difference is the rescue: that rounding is absorbed for every
-//! non-mesh pair by `touches_at_tie`'s `fcl_tangency_table` lookup, and
-//! cannot be for mesh by construction -- `fcl_tangency_verdict`
-//! (`crates/moveit-collision/src/parry.rs:2151-2158`) returns `None` for
-//! `TriMesh` regardless of the paired shape, which
-//! `triage-2429-enumeration.md` (`residual-triage`, this repository)
-//! established makes `accumulate_collision`'s rescue branch
-//! (`parry.rs:2429`) structurally inert for every mesh pair. So the same
-//! rounding that every other pair already gets forgiven for surfaces here as
-//! `collision: false` in production.
-//!
-//! This is the smallest reproducer the probe's own sweep found: a unit cube
-//! mesh rotated 5 degrees about world `z`, placed at exact tangency (by
-//! construction -- see the probe's own module doc for why the construction
-//! is exact for any rotation) above an axis-aligned unit box, with the mesh
-//! as the attached/upper body. The probe's systematic sweep found the same
-//! shape pair (`box x mesh`, tilted about `z`) failing at three separate
-//! angles (5, 285, 355 degrees) in both argument orders, so this is
-//! representative of a class the probe measured, not a singular fluke this
-//! file picked out.
-//!
-//! This test pins the *current* behaviour rather than asserting a fix --
-//! whether to change `accumulate_collision` to cover mesh pairs the way it
-//! already covers every other pair is a decision this file does not make.
+//! sweep: a unit cube mesh rotated 5 degrees about world `z`, placed at
+//! exact tangency (by construction -- see the probe's own module doc for why
+//! the construction is exact for any rotation) above an axis-aligned unit
+//! box, with the mesh as the attached/upper body.
 //!
 //! `tools/fcl-mesh-orientation-probe` measured this exact pose (`box`, mesh
 //! attached, `axis=z, angle=5deg`) against `fcl::BVHModel<fcl::OBBRSSd>`:
 //! `true` in both argument orders. Unlike `mesh x cone`
 //! (`exact_tangency_is_decided_per_shape_pair.rs`'s module doc), this is not
 //! a case where fcl disagrees with itself -- there is a single stable
-//! upstream answer this pose diverges from, not merely a `false` this side
-//! of the wire.
+//! upstream answer, and this file asserts the port now reaches it.
+//!
+//! # What this file used to pin, and what closed it
+//!
+//! It was written as `mesh_orientation_tangency_can_miss.rs`, asserting the
+//! opposite: `check_robot_collision` answered `false` here. The probe found
+//! that on 6,083 of 24,970 configurations at the time, every one flipping to
+//! `true` with between `1e-16` and `1e-14` of added overlap -- the same
+//! order of magnitude `exact_tangency_is_decided_per_shape_pair.rs`'s own
+//! module doc measures as GJK's floating-point rounding at an axis-aligned
+//! tie.
+//!
+//! Two rounds of collision work later the population had moved rather than
+//! shrunk: re-run on the tree at `cc9ec185`, the probe reported 2,758
+//! misses, all of them `mesh x box` -- the pair this file pins. What it had
+//! become was not the unrescuable rounding the original text describes but
+//! an ordinary too-tight gate. `mesh_shape_contact`'s descent admitted a
+//! triangle only if the primitive reached the node box grown by the query's
+//! own `prediction`, while `query::contact` at that same `prediction` still
+//! answers `Some` across roughly `5e-8 m` of clear air. At an exact tangency
+//! the triangle holding the contact sits inside that gap, so the descent
+//! dropped it before the narrow phase could round it into a touch.
+//!
+//! `parry::rejection_slack` closes it by giving every conservative rejection
+//! in that file the same `BROADPHASE_MARGIN`-wider bound to prove, which the
+//! two body-level gates already had and the two descents did not. Re-running
+//! the probe after that: 0 misses in 24,970 configurations, all five paired
+//! kinds and both argument orders.
+//!
+//! The rescue path the original text describes is untouched and still inert
+//! for `TriMesh` pairs other than `Sphere` -- `fcl_tangency_verdict` returns
+//! `None` for them, so nothing here rides on it. This pose is caught in the
+//! narrow phase now, not forgiven after it.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -175,24 +175,36 @@ fn collides(delta: f64) -> bool {
     .collision
 }
 
-/// Measured by `mesh_orientation_probe`: at this exact construction,
-/// `check_robot_collision` reports no collision even though the mesh and box
-/// are tangent by construction -- pins the *current*, unfixed behaviour.
+/// The mesh and the box are tangent by construction, and fcl answers `true`
+/// here in both argument orders -- so this port has to as well.
 #[test]
-fn a_5_degree_tilted_mesh_on_a_box_misses_at_exact_tangency() {
+fn a_5_degree_tilted_mesh_on_a_box_collides_at_exact_tangency() {
     assert!(
-        !collides(0.0),
-        "if this now collides, the miss this test pins has already been fixed -- \
-         update this test to assert the fix instead of deleting it silently"
+        collides(0.0),
+        "the descent has stopped reaching the tangent triangle -- see this file's \
+         module doc for the gate that used to drop it"
     );
 }
 
 /// The same pose with `1e-14` of added overlap -- two orders of magnitude
 /// past the `1e-16` depth `mesh_orientation_probe` measured for this exact
-/// case -- does collide, confirming the pose above is a genuine near-tie and
-/// not a construction error that happens to read as `false` for an
-/// unrelated reason.
+/// case -- collides too, confirming the pose above is a genuine near-tie and
+/// not a construction error that happens to read as `true` for an unrelated
+/// reason.
 #[test]
 fn a_hair_more_overlap_on_the_same_pose_does_collide() {
     assert!(collides(-1e-14));
+}
+
+/// The control the assertion above needs to not be vacuous: real clear air
+/// still reports no collision.
+///
+/// `1e-6` is the tightest gap that has to answer `false` for the widened
+/// rejection to have cost nothing -- it is `parry::BROADPHASE_MARGIN` itself,
+/// so the descent does admit this triangle, and it is `query::contact` at a
+/// prediction of `0.0` that has to reject it. A gate that answered `true`
+/// here would have bought its tangency by calling clear air a touch.
+#[test]
+fn a_real_gap_at_the_descent_margin_still_reports_no_collision() {
+    assert!(!collides(1e-6));
 }

@@ -116,7 +116,7 @@
 //! magnitude every non-mesh pair already gets forgiven for. The smallest
 //! reproducer found (`box`, mesh attached, 5 degrees about `z`) is pinned as
 //! a regression fixture in
-//! `tests/mesh_orientation_tangency_can_miss.rs`. Whether to extend
+//! `tests/mesh_orientation_tangency_is_caught_at_exact_tangency.rs`. Whether to extend
 //! `accumulate_collision`'s rescue to cover mesh pairs is not decided here --
 //! that requires an fcl target to converge to, not just a `false` this side.
 //!
@@ -170,6 +170,44 @@
 //! extending this rescue to any of them would be picking a value to shrink a
 //! count, not closing a measured target, and `fcl_tangency_verdict` already
 //! keeps all four at `None` regardless.
+//!
+//! # The rest closed too, and not through the rescue at all
+//!
+//! Everything above is the state as of the `sphere` fix. Re-run on the tree
+//! at `cc9ec185`, this probe reported **2,758** misses -- not the `6083 -
+//! 2594 = 3489` the paragraphs above would predict, and not distributed the
+//! way they describe. Every one was `mesh x box`; `cylinder`, `cone` and
+//! `mesh x mesh` had gone to zero on their own, carried there by the
+//! collision work between the two runs (`322f1cec` .. `0fc74a40`), while
+//! `box` had gone from 6 to 2,758.
+//!
+//! That rise is the tell, and it names the cause. `0ac18c33` made
+//! `mesh_shape_contact` descend against the primitive itself instead of
+//! against its `Aabb` -- a strictly tighter node test, gated on the query's
+//! own `prediction`. But `query::contact` at that same `prediction` answers
+//! `Some` across roughly `5e-8 m` of clear air, so a triangle sitting in that
+//! band was dropped by the gate before the narrow phase could round it into a
+//! touch. The looser `Aabb` had been clearing the band by accident; the
+//! tighter test stopped, and `mesh x box` -- the pair whose node boxes tighten
+//! most -- took almost all of it.
+//!
+//! `crate::parry::rejection_slack` closes it: every conservative rejection in
+//! that file now proves separation at `BROADPHASE_MARGIN` *past* the
+//! prediction, which the two body-level gates already did and the two mesh
+//! descents did not. Re-running this probe after that change:
+//!
+//! ```text
+//! RESULT: no miss found in 24970 configurations
+//! ```
+//!
+//! 0 of 24,970, all five paired kinds, both argument orders, `sanity_check`
+//! excluding none. So the `mesh x box` reproducer this probe found is now a
+//! passing regression rather than a pinned defect
+//! (`tests/mesh_orientation_tangency_is_caught_at_exact_tangency.rs`), and
+//! the "undiagnosed divergence" reading above turned out to be wrong for
+//! `box`: it was one too-tight gate, diagnosable and fixed, not a rounding
+//! difference to be forgiven. What the `sphere` rescue closed, it still
+//! closes -- that path is reached before this one and is unchanged.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;

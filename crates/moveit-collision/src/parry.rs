@@ -2756,7 +2756,7 @@ fn touches_at_tie(
 /// `Box`/`Sphere`/`Cylinder`/`Cone` can reach is `Ok`, read directly rather
 /// than assumed); `TriMesh` x `Ball` is not read arm-by-arm here the same
 /// way, but this crate's own `mesh_sphere_tangency_is_rescued_at_exact_tangency`
-/// and `mesh_orientation_tangency_can_miss` tests already exercise both
+/// and `mesh_orientation_tangency_is_caught_at_exact_tangency` tests already exercise both
 /// `query::intersection_test` and `query::contact` on that exact pair and
 /// get `Ok(_)` back every time — a wrong boolean, in the case the first test
 /// is named for, but never an `Err`. So `Unsupported` is unreachable today,
@@ -2987,9 +2987,9 @@ fn part_contact(a: &Part, b: &Part, prediction: f64, detail: ContactDetail) -> P
     }
 }
 
-/// Slack added to every [`pair_can_touch`] rejection on top of the query's
-/// own prediction, so the gate cannot cut a pair either narrow-phase branch
-/// below would still have called touching.
+/// Slack added to every conservative rejection in this file on top of the
+/// query's own prediction, so no gate can cut a pair or a triangle either
+/// narrow-phase branch below would still have called touching.
 ///
 /// Two bands have to fit under it. [`fn@query::contact`] at a prediction of
 /// `0.0` returns `Some` across a small band of real clear air rather than at
@@ -3003,6 +3003,28 @@ fn part_contact(a: &Part, b: &Part, prediction: f64, detail: ContactDetail) -> P
 /// discards are centimetres apart, not micrometres (`96.6%` of them on the
 /// fanuc/cage measurement below).
 const BROADPHASE_MARGIN: f64 = 1e-6;
+
+/// The distance a rejection in this file has to prove, given the query's own
+/// prediction: [`BROADPHASE_MARGIN`] wider than the caller asked for.
+///
+/// Every conservative gate here -- [`pair_can_touch`] between two bodies,
+/// [`ObbTree::leaf_pairs`] between two mesh nodes, [`mesh_shape_contact`]'s
+/// own descent between a mesh node and a primitive, and
+/// [`triangles_are_separated`] between two triangles -- owes the same thing:
+/// proving separation at `prediction` is not enough, because
+/// [`fn@query::contact`] at `prediction` still answers `Some` across the band
+/// above.
+///
+/// Reading it from one place is what keeps that from having to be remembered
+/// at four call sites. It was not: two of them proved only `prediction`, and
+/// the mesh-against-primitive one shipped that way for long enough to be
+/// measurable as `2,758` missed exact tangencies
+/// (`examples/mesh_orientation_probe.rs`). A gate that is tightened later --
+/// as that one was, from an `Aabb` to the primitive itself -- stops clearing
+/// the band by accident, and nothing about the tightening says so.
+fn rejection_slack(prediction: f64) -> f64 {
+    prediction + BROADPHASE_MARGIN
+}
 
 /// The AABB rejection upstream gets from its broad phase and this backend,
 /// until now, did not.
@@ -3039,7 +3061,7 @@ fn pair_can_touch(
     prediction: f64,
 ) -> bool {
     use parry3d_f64::bounding_volume::BoundingVolume as _;
-    let slack = prediction + BROADPHASE_MARGIN;
+    let slack = rejection_slack(prediction);
     // World frame first: one `Aabb` per shape, no relative transform, and it
     // is what rejects the far-apart majority.
     if !a_shape
@@ -3097,9 +3119,11 @@ fn pair_can_touch(
 /// still.
 ///
 /// Conservative in the same sense [`pair_can_touch`] is, and so returns the
-/// same verdict: an `Aabb` contains its triangle and [`Aabb::transform_by`]
-/// bounds the rotated box, so a node pair this drops is separated by more
-/// than `prediction` and could not have held the contact. The verdict is the
+/// same verdict: every node's box contains the triangles beneath it
+/// ([`crate::obb_bvh`]'s own test asserts it at every node, not only at the
+/// root), so a node pair this drops is separated by more than
+/// [`rejection_slack`] and could not have held a contact
+/// [`fn@query::contact`] would have answered `Some` for. The verdict is the
 /// same on measurement too -- `108,936` fanuc/cage pairs and the
 /// `6,000`-query sweep this module's tests run against a brute force both
 /// put the disagreement at zero.
@@ -3131,7 +3155,7 @@ fn trimesh_pair_contact(
         b.tree,
         &rot12,
         &pose12.translation,
-        prediction,
+        rejection_slack(prediction),
         &mut |i1, i2| {
             let t1 = a.mesh.triangle(i1);
             let t2 = b.mesh.triangle(i2);
@@ -3172,6 +3196,16 @@ fn trimesh_pair_contact(
 /// run, `375us` per pair. Testing the node box against the primitive as it
 /// actually sits keeps the orientation and prunes the descent instead.
 ///
+/// That tightening is where this descent's own gate started mattering, and
+/// it is why the box is grown by [`rejection_slack`] and not by bare
+/// `prediction`. The `Aabb` this replaced was loose enough to clear
+/// [`fn@query::contact`]'s `Some`-band by accident; a test against the
+/// primitive is not, and a triangle sitting in that band was dropped before
+/// the narrow phase could round it into a touch. Measured, not reasoned:
+/// `examples/mesh_orientation_probe.rs` reported `2,758` missed exact
+/// tangencies on the tree before this line, every one of them `mesh x box`,
+/// and `0` after.
+///
 /// Restricted to a `SupportMap` primitive, which is what makes both queries
 /// below total: `Triangle` is one too, so the contact arm they land on is
 /// the generic support-map arm (`default_query_dispatcher.rs`), which has no
@@ -3191,10 +3225,11 @@ fn mesh_shape_contact(
     let mut settled = SettledVerdict::new(detail);
     for i in m1.bvh().leaves(|node| {
         let aabb = node.aabb();
-        // `prediction` on the box rather than on the query below: the test is
-        // "could anything in this subtree be within `prediction`", and an
+        // The slack goes on the box rather than on the query below: the test
+        // is "could anything in this subtree be within reach", and an
         // intersection test cannot ask that of the primitive directly.
-        let grown = ParryCuboid::new(aabb.half_extents() + ParryVector::splat(prediction));
+        let grown =
+            ParryCuboid::new(aabb.half_extents() + ParryVector::splat(rejection_slack(prediction)));
         query::intersection_test(
             &Pose::from_translation(aabb.center()),
             &grown,
@@ -3243,7 +3278,7 @@ fn mesh_shape_contact(
 /// eleven are tested because they are what makes the test exact for two
 /// triangles, and the loop leaves on the first one that separates.
 fn triangles_are_separated(t1: &ParryTriangle, t2: &ParryTriangle, prediction: f64) -> bool {
-    let slack = prediction + BROADPHASE_MARGIN;
+    let slack = rejection_slack(prediction);
     let a = t1.vertices();
     let b = t2.vertices();
     let ea = [a[1] - a[0], a[2] - a[1], a[0] - a[2]];
