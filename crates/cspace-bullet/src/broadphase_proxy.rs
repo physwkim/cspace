@@ -101,6 +101,57 @@ impl BroadphaseNativeType {
     }
 }
 
+/// `btBroadphaseProxy::CollisionFilterGroups` (`btBroadphaseProxy.h:90-99`),
+/// as the two bitfields a proxy carries: `m_collisionFilterGroup` says which
+/// group an object is in, `m_collisionFilterMask` which groups it is checked
+/// against.
+///
+/// Unlike [`BroadphaseNativeType`] these are not pinned to a probe row: every
+/// entry of that enum is written `= <literal>` in the header, so there is no
+/// implicit numbering for a transcription to get wrong.
+///
+/// MoveIt uses two of the seven. `updateCollisionObjectFilters`
+/// (`bullet_utils.cpp:270-291`) puts an active link in [`Self::KINEMATIC`]
+/// checked against kinematic **and** static, and everything else in
+/// [`Self::STATIC`] checked against kinematic only -- so static-static pairs
+/// are never generated and the broadphase never offers the narrow phase two
+/// world objects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CollisionFilterGroup(pub i32);
+
+impl CollisionFilterGroup {
+    /// `DefaultFilter`.
+    pub const DEFAULT: Self = Self(1);
+    /// `StaticFilter`.
+    pub const STATIC: Self = Self(2);
+    /// `KinematicFilter`.
+    pub const KINEMATIC: Self = Self(4);
+    /// `DebrisFilter`.
+    pub const DEBRIS: Self = Self(8);
+    /// `SensorTrigger`.
+    pub const SENSOR_TRIGGER: Self = Self(16);
+    /// `CharacterFilter`.
+    pub const CHARACTER: Self = Self(32);
+    /// `AllFilter` -- `-1`, every bit, not the union of the six above.
+    pub const ALL: Self = Self(-1);
+
+    /// The `|` of two groups, as `updateCollisionObjectFilters` writes it for
+    /// an active link's mask.
+    #[must_use]
+    pub fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// `(proxy0->m_collisionFilterGroup & proxy1->m_collisionFilterMask) != 0`
+    /// -- one half of `btHashedOverlappingPairCache::needsBroadphaseCollision`
+    /// (`btOverlappingPairCache.h:113-114`), which ands it with the same test
+    /// taken the other way round.
+    #[must_use]
+    pub fn intersects(self, mask: Self) -> bool {
+        (self.0 & mask.0) != 0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,5 +282,33 @@ proxytype_INVALID_SHAPE|35|0|0|0
         assert!(!BroadphaseNativeType::IMPLICIT_CONVEX_SHAPES_START_HERE.is_polyhedral());
         assert!(!BroadphaseNativeType::SPHERE_SHAPE.is_polyhedral());
         assert!(!BroadphaseNativeType::CUSTOM_CONVEX_SHAPE.is_polyhedral());
+    }
+
+    /// The pair rule the two groups MoveIt assigns actually produce.
+    ///
+    /// `needsBroadphaseCollision` is the `&&` of both directions
+    /// (`btOverlappingPairCache.h:113-114`), so a pair survives only when each
+    /// side's group is in the other's mask. With
+    /// `updateCollisionObjectFilters`'s assignment that admits active-active
+    /// and active-static and rejects static-static -- and the rejection is the
+    /// one that matters, because it is what keeps two world objects from ever
+    /// reaching the narrow phase.
+    #[test]
+    fn two_static_objects_never_pair_while_active_pairs_both_ways() {
+        let active = CollisionFilterGroup::KINEMATIC;
+        let active_mask = CollisionFilterGroup::KINEMATIC.union(CollisionFilterGroup::STATIC);
+        let stat = CollisionFilterGroup::STATIC;
+        let static_mask = CollisionFilterGroup::KINEMATIC;
+
+        let pairs =
+            |g0: CollisionFilterGroup,
+             m0: CollisionFilterGroup,
+             g1: CollisionFilterGroup,
+             m1: CollisionFilterGroup| { g0.intersects(m1) && g1.intersects(m0) };
+
+        assert!(pairs(active, active_mask, active, active_mask));
+        assert!(pairs(active, active_mask, stat, static_mask));
+        assert!(pairs(stat, static_mask, active, active_mask));
+        assert!(!pairs(stat, static_mask, stat, static_mask));
     }
 }
