@@ -35,6 +35,7 @@
 #include "BulletCollision/CollisionDispatch/btManifoldResult.h"
 #include "BulletCollision/CollisionShapes/btBoxShape.h"
 #include "BulletCollision/CollisionShapes/btConeShape.h"
+#include "BulletCollision/CollisionShapes/btCompoundShape.h"
 #include "BulletCollision/CollisionShapes/btConvexHullShape.h"
 #include "BulletCollision/CollisionShapes/btCylinderShape.h"
 #include "BulletCollision/CollisionShapes/btSphereShape.h"
@@ -356,6 +357,37 @@ static void shapetype(const char* name, const btCollisionShape* shape)
 	printf("shapetype_%s|%d\n", name, shape->getShapeType());
 }
 
+// `btCompoundShape::getAabb` plus the leaf order of the tree it built while
+// the children were added. The AABB is the accumulated `m_localAabb*` taken
+// through `trans` -- so a row under a rotated transform is the only thing
+// that separates "margin added to the half extents" from "margin added to
+// the world box", and a row after `updateChildTransform(..., false)` is the
+// only thing that shows the *stale* local AABB MoveIt deliberately keeps
+// (`bullet_cast_bvh_manager.cpp:102`, `:115` both pass `false`).
+//
+// Fields: `name|min.xyz|max.xyz|visited|data...`.
+static void compound(const char* name, const btCompoundShape* c, const btTransform& t)
+{
+	btVector3 mn, mx;
+	c->getAabb(t, mn, mx);
+	printf("%s|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g", name, (double)mn[0], (double)mn[1], (double)mn[2],
+	       (double)mx[0], (double)mx[1], (double)mx[2]);
+
+	RecordingCollide collide;
+	const btDbvt* tree = c->getDynamicAabbTree();
+	if (tree)
+	{
+		btNodeStack stack;
+		const btDbvtVolume all =
+		    btDbvtVolume::FromMM(btVector3(-1e6f, -1e6f, -1e6f), btVector3(1e6f, 1e6f, 1e6f));
+		tree->collideTVNoStackAlloc(tree->m_root, all, stack, collide);
+	}
+
+	printf("|%d", collide.count);
+	for (int i = 0; i < collide.count; ++i) printf("|%d", collide.seen[i]);
+	printf("\n");
+}
+
 int main()
 {
 	const btTransform id = at(0, 0, 0);
@@ -560,6 +592,47 @@ int main()
 	cc("cc_cone_cyl_deep", &cone, id, &cyl, at(0.1f, 0.f, 0.3f), 0.f);
 	cc("cc_hull_cone_rot60", &hull, id, &cone, rot60_at(0.4f, 0.1f, 0.05f), 0.05f);
 	cc("cc_margin_box_sphere", &margin_box, id, &small_sphere, at(0.85f, 0.05f, 0.f), 0.f);
+
+	// `btCompoundShape`. Every row uses the same three children in the same
+	// order, so the differences between rows are only the query transform,
+	// the margin, and the one `updateChildTransform` some of them perform.
+	{
+		btCompoundShape three(true, 3);
+		three.addChildShape(at(0.f, 0.f, 0.f), &unit_box);
+		three.addChildShape(at(2.f, 0.f, 0.f), &sphere);
+		three.addChildShape(at(0.f, 3.f, 0.f), &cyl);
+
+		compound("comp_aabb_id", &three, id);
+		compound("comp_aabb_rot60", &three, rot60_at(1.f, 2.f, 3.f));
+
+		three.setMargin(0.25f);
+		compound("comp_aabb_margin_rot60", &three, rot60_at(1.f, 2.f, 3.f));
+		three.setMargin(0.f);
+
+		// `false` is what MoveIt passes: the tree moves, the local AABB does
+		// not. The following row is the same edit with `true`, so the pair
+		// isolates the recalculation from the tree update.
+		three.updateChildTransform(1, at(5.f, 0.f, 0.f), false);
+		compound("comp_update_no_recalc", &three, id);
+		three.recalculateLocalAabb();
+		compound("comp_update_recalc", &three, id);
+
+		btCompoundShape empty(true, 0);
+		compound("comp_aabb_empty", &empty, rot60_at(1.f, 2.f, 3.f));
+
+		btCompoundShape no_tree(false, 3);
+		no_tree.addChildShape(at(0.f, 0.f, 0.f), &unit_box);
+		no_tree.addChildShape(at(2.f, 0.f, 0.f), &sphere);
+		no_tree.addChildShape(at(0.f, 3.f, 0.f), &cyl);
+		compound("comp_no_tree", &no_tree, id);
+
+		// Four children in a line, so the leaf order is the one `dbvt_line4`
+		// pins -- reached here through `addChildShape` rather than through
+		// `insert` directly.
+		btCompoundShape line(true, 4);
+		for (int i = 0; i < 4; ++i) line.addChildShape(at(btScalar(i) * 2.f, 0.f, 0.f), &unit_box);
+		compound("comp_line4", &line, id);
+	}
 
 	// `BroadphaseNativeTypes`. Fields: `name|value|isConvex|isConcave|isCompound`.
 	// Every entry the port carries a constant for, plus the four markers the
