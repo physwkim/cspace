@@ -24,6 +24,7 @@
 // the algorithm's, not the setup's.
 
 #include <cstdio>
+#include <cstring>
 
 #include "BulletCollision/BroadphaseCollision/btCollisionAlgorithm.h"
 #include "BulletCollision/BroadphaseCollision/btBroadphaseProxy.h"
@@ -399,6 +400,133 @@ static void aabbtest(const char* name, const btVector3& min1, const btVector3& m
 	printf("aabb_%s|%d\n", name, TestAabbAgainstAabb2(min1, max1, min2, max2) ? 1 : 0);
 }
 
+// A `btManifoldResult` that traces what the compound traversals do to it.
+//
+// `setShapeIdentifiersA`/`B` are virtual (`btManifoldResult.h:90-99`, pure in
+// `btDiscreteCollisionDetectorInterface::Result`), and both compound
+// algorithms call them immediately before dispatching a child pair -- after
+// the tree cull and after `TestAabbAgainstAabb2`. Tracing them is therefore
+// the dispatch order itself, with the real child indices, rather than the
+// pre-cull leaf order the two `gCompound*ChildShapePairCallback` hooks would
+// give. Which of A and B a compound-vs-convex row sets is the swap detection's
+// answer, so it is recorded rather than normalised away.
+//
+// `addContactPoint` is replaced outright, exactly as MoveIt's bridge does
+// (`bullet_utils.hpp:571-630`): nothing reaches the manifold's point cache, so
+// `getNumContacts()` is zero at every level and the refresh loops both
+// algorithms run over their child caches stay no-ops.
+struct TraceResult : public btManifoldResult
+{
+	char dispatches[1024];
+	int num_dispatches;
+	char contacts[1024];
+	int num_contacts;
+	// Every contact's geometry, not just the last: a child whose transform is
+	// wrong changes only the contacts *that child* reported, and with a single
+	// slot the last child written vouches for all of them.
+	enum { MAX_CONTACTS = 64 };
+	btVector3 normal[MAX_CONTACTS];
+	btVector3 point[MAX_CONTACTS];
+	btScalar depth[MAX_CONTACTS];
+
+	TraceResult(const btCollisionObjectWrapper* a, const btCollisionObjectWrapper* b)
+		: btManifoldResult(a, b), num_dispatches(0), num_contacts(0)
+	{
+		dispatches[0] = 0;
+		contacts[0] = 0;
+	}
+
+	static void note(char* buf, size_t cap, const char* tag, int a, int b)
+	{
+		size_t n = strlen(buf);
+		snprintf(buf + n, cap - n, "|%s%d:%d", tag, a, b);
+	}
+
+	void setShapeIdentifiersA(int partId0, int index0) override
+	{
+		btManifoldResult::setShapeIdentifiersA(partId0, index0);
+		note(dispatches, sizeof(dispatches), "A", partId0, index0);
+		++num_dispatches;
+	}
+
+	void setShapeIdentifiersB(int partId1, int index1) override
+	{
+		btManifoldResult::setShapeIdentifiersB(partId1, index1);
+		note(dispatches, sizeof(dispatches), "B", partId1, index1);
+		++num_dispatches;
+	}
+
+	void addContactPoint(const btVector3& normalOnBInWorld, const btVector3& pointInWorld,
+	                     btScalar d) override
+	{
+		note(contacts, sizeof(contacts), "", m_index0, m_index1);
+		if (num_contacts >= MAX_CONTACTS)
+		{
+			printf("ccoverflow|%d\n", num_contacts);
+			abort();
+		}
+		normal[num_contacts] = normalOnBInWorld;
+		point[num_contacts] = pointInWorld;
+		depth[num_contacts] = d;
+		++num_contacts;
+	}
+};
+
+// `btCompoundCollisionAlgorithm::processCollision` and
+// `btCompoundCompoundCollisionAlgorithm::processCollision`, driven exactly as
+// `cc` above drives the convex-convex one -- same dispatcher, same cleared
+// relative-breaking flag, same `BT_CLOSEST_POINT_ALGORITHMS` at the top level.
+// Which table the *children* are then looked up in is not this call's choice
+// but the threshold's, so a row with `closestPointDistanceThreshold > 0` is
+// the only thing that exercises the fork at all.
+//
+// Two rows per case plus one per contact:
+//   `ccdispatch_<name>|n|A|B<partId>:<index>...`  -- the dispatch trace
+//   `cccontact_<name>|n|<index0>:<index1>...`     -- the identifiers each
+//                                                    contact was tagged with
+//   `ccpoint_<name>_<k>|normal xyz|point xyz|depth` -- contact k, which is what
+//                                                    pins the composed child
+//                                                    world transform of the
+//                                                    child that reported it
+static void compound_algo(const char* name, btCollisionShape* a, const btTransform& ta,
+                          btCollisionShape* b, const btTransform& tb,
+                          btScalar closestPointDistanceThreshold)
+{
+	btDefaultCollisionConfiguration config;
+	btCollisionDispatcher dispatcher(&config);
+	dispatcher.setDispatcherFlags(dispatcher.getDispatcherFlags() &
+	                              ~btCollisionDispatcher::CD_USE_RELATIVE_CONTACT_BREAKING_THRESHOLD);
+
+	btCollisionObject obj_a, obj_b;
+	obj_a.setCollisionShape(a);
+	obj_a.setWorldTransform(ta);
+	obj_b.setCollisionShape(b);
+	obj_b.setWorldTransform(tb);
+
+	btCollisionObjectWrapper wrap_a(nullptr, a, &obj_a, ta, -1, -1);
+	btCollisionObjectWrapper wrap_b(nullptr, b, &obj_b, tb, -1, -1);
+
+	TraceResult result(&wrap_a, &wrap_b);
+	result.m_closestPointDistanceThreshold = closestPointDistanceThreshold;
+
+	btCollisionAlgorithm* algo =
+	    dispatcher.findAlgorithm(&wrap_a, &wrap_b, nullptr, BT_CLOSEST_POINT_ALGORITHMS);
+
+	btDispatcherInfo info;
+	algo->processCollision(&wrap_a, &wrap_b, info, &result);
+
+	printf("ccdispatch_%s|%d%s\n", name, result.num_dispatches, result.dispatches);
+	printf("cccontact_%s|%d%s\n", name, result.num_contacts, result.contacts);
+	for (int k = 0; k < result.num_contacts; ++k)
+		printf("ccpoint_%s_%d|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g\n", name, k,
+		       (double)result.normal[k][0], (double)result.normal[k][1],
+		       (double)result.normal[k][2], (double)result.point[k][0],
+		       (double)result.point[k][1], (double)result.point[k][2], (double)result.depth[k]);
+
+	algo->~btCollisionAlgorithm();
+	dispatcher.freeCollisionAlgorithm(algo);
+}
+
 // `btDefaultCollisionConfiguration`'s two create-func tables, as a matrix.
 //
 // The tables are chains of `if`s over the proxy types
@@ -744,6 +872,151 @@ int main()
 		aabbtest("degenerate", lo, hi, btVector3(1.f, 1.f, 1.f), btVector3(1.f, 1.f, 1.f));
 		aabbtest("gap_in_one_axis_only", lo, hi, btVector3(0.5f, 0.5f, 1.0001f),
 		         btVector3(1.5f, 1.5f, 2.f));
+	}
+
+	// The two compound algorithms, driven through the same dispatcher.
+	//
+	// `line3`'s three children have exactly touching AABBs and the query
+	// shape sits over the middle one, so every child clears both culls and
+	// the order in the trace is the tree's own. `sphere_line3` is that row
+	// with the operands exchanged: the create-func table answers
+	// `SwappedCreateFunc`, the swap detection then tags the children through
+	// `B` instead of `A`, and the child dispatch still puts the *child*
+	// first -- so the contact normal is reported against the other operand
+	// than at the top level.
+	//
+	// Every child pair has a sphere, cylinder or compound on one side, which
+	// is what a `CastHullShape` guarantees on the real continuous path: two
+	// polyhedral shapes would reach `btConvexConvexAlgorithm`'s SAT branch
+	// condition, and `line3_box*` below is the only row that does.
+	//
+	// `no_tree_*` are the same shapes with the dynamic tree switched off,
+	// which is the only configuration where `TestAabbAgainstAabb2` is the
+	// sole cull: with a tree, an identity compound transform makes the leaf
+	// volume and the child's world AABB the same box, and the per-child test
+	// can only re-reject what the tree already rejected.
+	{
+		btCompoundShape line3(true, 3);
+		for (int i = 0; i < 3; ++i) line3.addChildShape(at(btScalar(i), 0.f, 0.f), &unit_box);
+
+		btCompoundShape no_tree3(false, 3);
+		for (int i = 0; i < 3; ++i) no_tree3.addChildShape(at(btScalar(i), 0.f, 0.f), &unit_box);
+
+		// The `gContactBreakingThreshold` window: `margin_box`'s AABB already
+		// carries its 0.04 margin and `sphere`'s carries its whole radius,
+		// but the GJK cut-off is both margins *plus* that 0.02. At 1.01 apart
+		// the AABBs miss by 0.01 while the cores are 0.55 apart against a
+		// 0.56 bound -- so this pair contacts if and only if the AABB cull is
+		// skipped, which no tree row can show.
+		btCompoundShape no_tree_pair(false, 2);
+		no_tree_pair.addChildShape(at(0.f, 0.f, 0.f), &margin_box);
+		no_tree_pair.addChildShape(at(3.f, 0.f, 0.f), &margin_box);
+
+		btCompoundShape no_tree_cyl2(false, 2);
+		no_tree_cyl2.addChildShape(at(0.f, 0.f, 0.f), &cyl);
+		no_tree_cyl2.addChildShape(at(2.f, 0.f, 0.f), &cyl);
+
+		btCompoundShape empty(true, 0);
+
+		btCompoundShape inner(true, 2);
+		inner.addChildShape(at(0.f, 0.f, 0.f), &unit_box);
+		inner.addChildShape(at(1.f, 0.f, 0.f), &cyl);
+
+		btCompoundShape nested(true, 2);
+		nested.addChildShape(at(0.f, 0.f, 0.f), &unit_box);
+		nested.addChildShape(at(1.5f, 0.f, 0.f), &inner);
+
+		btCompoundShape pair2(true, 2);
+		pair2.addChildShape(at(0.f, 0.f, 0.f), &cyl);
+		pair2.addChildShape(at(1.f, 0.f, 0.f), &sphere);
+
+		btCompoundShape sph3(true, 3);
+		for (int i = 0; i < 3; ++i) sph3.addChildShape(at(btScalar(i), 0.f, 0.f), &sphere);
+
+		// Four children at a different spacing, so this tree is not `line3`'s
+		// shape translated: against a symmetric pair of trees `MycollideTT`'s
+		// internal/internal push order is its own mirror image and the order it
+		// produces cannot show which of the two middle pairs was pushed first.
+		btCompoundShape sph4(true, 4);
+		for (int i = 0; i < 4; ++i)
+			sph4.addChildShape(at(btScalar(i) * 0.7f, 0.f, 0.f), &sphere);
+
+		compound_algo("line3_sphere", &line3, id, &sphere, at(1.f, 0.f, 0.f), 0.f);
+		compound_algo("sphere_line3", &sphere, at(1.f, 0.f, 0.f), &line3, id, 0.f);
+		compound_algo("line3_sphere_off", &line3, id, &sphere, at(1.f, 0.9f, 0.3f), 0.f);
+		compound_algo("line3_rot60_sphere", &line3, rot60_at(0.2f, 0.1f, 0.f), &sphere,
+		              at(1.f, 0.f, 0.f), 0.f);
+		compound_algo("line3_sphere_far", &line3, id, &sphere, at(9.f, 0.f, 0.f), 0.f);
+
+		compound_algo("no_tree3_sphere", &no_tree3, id, &sphere, at(1.f, 0.f, 0.f), 0.f);
+		compound_algo("no_tree_window", &no_tree_pair, id, &sphere, at(1.01f, 0.f, 0.f), 0.f);
+		compound_algo("empty_sphere", &empty, id, &sphere, id, 0.f);
+
+		// `m_closestPointDistanceThreshold > 0` -- the only setting under
+		// which `extendAabb`, `extraExtends` and `thresholdVec` are not
+		// additions of zero, and the only one that sends the child lookup to
+		// the closest-points table instead of the contact-points one.
+		compound_algo("line3_sphere_threshold", &line3, id, &sphere, at(1.f, 0.f, 0.f), 0.25f);
+		compound_algo("no_tree_window_threshold", &no_tree_pair, id, &sphere, at(1.01f, 0.f, 0.f),
+		              0.25f);
+		compound_algo("line3_sphere_far_threshold", &line3, id, &sphere, at(3.9f, 0.f, 0.f), 1.f);
+
+		// The one pair of rows where the two create-func tables disagree: two
+		// boxes resolve to `btBoxBoxCollisionAlgorithm` in the contact-points
+		// table and to `btConvexConvexAlgorithm` in the closest-points one,
+		// and which table a child pair is looked up in is decided by the
+		// threshold alone. The contact counts are the difference: four points
+		// per child from the box-box detector, one from GJK.
+		compound_algo("line3_box", &line3, id, &margin_box, at(1.f, 0.f, 0.f), 0.f);
+		compound_algo("line3_box_threshold", &line3, id, &margin_box, at(1.f, 0.f, 0.f), 0.25f);
+
+		// A compound as a compound's child: the outer identifiers are
+		// overwritten by the inner ones before any contact is reported.
+		compound_algo("nested_sphere", &nested, id, &sphere, at(1.75f, 0.f, 0.f), 0.f);
+		compound_algo("sphere_nested", &sphere, at(1.75f, 0.f, 0.f), &nested, id, 0.f);
+
+		// Both sides compound -- `MycollideTT`, which is a different
+		// traversal from `collideTVNoStackAlloc` and has its own push order.
+		compound_algo("line3_pair2", &line3, id, &pair2, at(1.f, 0.f, 0.f), 0.f);
+		compound_algo("line3_pair2_rot60", &line3, id, &pair2, rot60_at(1.f, 0.1f, 0.f), 0.f);
+		compound_algo("line3_pair2_threshold", &line3, id, &pair2, at(1.f, 0.f, 0.f), 0.25f);
+		compound_algo("line3_pair2_far", &line3, id, &pair2, at(9.f, 0.f, 0.f), 0.f);
+
+		// Three children on each side, which is what puts `MycollideTT` in its
+		// internal/internal arm at the root and in both internal/leaf arms
+		// below it with enough surviving pairs for the push order to show.
+		compound_algo("line3_sph3", &line3, id, &sph3, at(1.f, 0.f, 0.f), 0.f);
+		compound_algo("line3_rot60_sph3", &line3, rot60_at(0.2f, 0.1f, 0.f), &sph3,
+		              at(1.f, 0.f, 0.f), 0.f);
+
+		// `MyIntersect` re-boxes tree 1's leaf volume through `xform`, so a
+		// rotated compound 1 inflates each sphere's local cube from +/-0.5 to
+		// +/-0.8333 for the tree test while `Process` still measures the
+		// sphere's own +/-0.5 world box. Here child pair (2,2) is 1.13 apart
+		// along x -- inside the inflated bound and outside the true one -- so it
+		// is the one pair in the whole fixture that reaches `Process` and is
+		// rejected by its `TestAabbAgainstAabb2`.
+		compound_algo("line3_sph3_rot60", &line3, id, &sph3, rot60_at(1.8f, -0.3f, 0.f), 0.f);
+
+		// The same pair moved to 1.20 apart with the threshold at 0.15:
+		// `thresholdVec` grows box 0 only, which leaves the pair separated by
+		// 0.05, and growing both sides would close it.
+		compound_algo("line3_sph3_rot60_threshold", &line3, id, &sph3,
+		              rot60_at(1.87f, -0.3f, 0.f), 0.15f);
+
+		// Three against four at 0.7 spacing, offset so that seven of the twelve
+		// pairs survive and no pair sits on an exact AABB tie: two trees of
+		// different shape, which is what makes the internal/internal and
+		// leaf/internal push orders observable at all.
+		compound_algo("line3_sph4", &line3, id, &sph4, at(0.35f, 0.f, 0.f), 0.f);
+
+		// One side without a tree: `btCompoundCompoundCollisionAlgorithm`
+		// hands the whole query back to `btCompoundCollisionAlgorithm`, whose
+		// `m_isSwapped` is false either way -- so which operand is treated as
+		// "the compound" is decided by position, not by which one still has a
+		// tree.
+		compound_algo("line3_notree_cyl2", &line3, id, &no_tree_cyl2, at(1.f, 0.f, 0.f), 0.f);
+		compound_algo("notree_cyl2_line3", &no_tree_cyl2, id, &line3, at(1.f, 0.f, 0.f), 0.f);
 	}
 
 	// The two create-func tables. Fields:
