@@ -299,17 +299,11 @@ fn vec3_point_tri_dist2(
     let s = (q * r - w * pp) / (w * v - r * r);
     let t = (-s * r - q) / w;
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "the narrowing upstream performs at every btScalar-typed \
-                  parameter: btFuzzyZero, ccdEq and btVec3Scale"
-    )]
+    // The narrowing upstream performs at every `btScalar`-typed parameter:
+    // `btFuzzyZero`, `ccdEq` and `btVec3Scale`.
     let (sf, tf) = (s as Scalar, t as Scalar);
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "`ccdEq(t + s, btScalar(1))` sums in double, then narrows at \
-                  the call -- not the sum of the two narrowed halves"
-    )]
+    // `ccdEq(t + s, btScalar(1))` sums in `double` and narrows at the call --
+    // not the sum of the two halves already narrowed.
     let ts = (t + s) as Scalar;
 
     if (bt_fuzzy_zero(sf) || s > 0.0)
@@ -325,13 +319,9 @@ fn vec3_point_tri_dist2(
             (*wit - p).length2()
         } else {
             let dist = s * s * v + t * t * w + 2.0 * s * t * r + 2.0 * s * pp + 2.0 * t * q + u;
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "`btScalar btVec3PointTriDist2(...)` narrows its double \
-                          accumulator at the return"
-            )]
-            let narrowed = dist as Scalar;
-            narrowed
+            // `btScalar btVec3PointTriDist2(...)` narrows its `double`
+            // accumulator at the return.
+            dist as Scalar
         }
     } else {
         // `witness` is forwarded, not replaced by a local: see
@@ -670,11 +660,8 @@ impl<'a> GjkPairDetector<'a> {
     /// only to the contact point. That is not a tidy-up: GJK's termination
     /// tests are absolute, so a pair a long way from the origin loses the
     /// precision the tests need.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one upstream function, and its exits are only meaningful \
-                  against the state the ones above them left behind"
-    )]
+    /// Kept as one function, as upstream has it: its exits are only meaningful
+    /// against the state the ones above them left behind.
     pub fn get_closest_points_non_virtual(
         &mut self,
         input: &ClosestPointInput,
