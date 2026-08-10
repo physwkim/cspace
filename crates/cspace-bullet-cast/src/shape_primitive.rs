@@ -96,6 +96,26 @@ pub enum ShapeError {
     ConvexHullComputerNotYetPorted,
 }
 
+impl ShapeError {
+    /// Whether upstream reaches this by returning `nullptr`, rather than by
+    /// building the shape.
+    ///
+    /// The distinction has one consumer and it is not cosmetic: the
+    /// multi-shape constructor drops a null child from the compound and keeps
+    /// going (`bullet_utils.cpp:596`). Dropping a shape *this port* has not
+    /// reached yet -- [`Self::AttachedMeshUnported`],
+    /// [`Self::ConvexHullComputerNotYetPorted`] -- would silently build an
+    /// object smaller than its geometry, and the check would then report no
+    /// collision for a reason nothing in the result names.
+    #[must_use]
+    pub fn is_upstream_null(&self) -> bool {
+        match self {
+            Self::EmptyMesh | Self::UnsupportedGeometry { .. } | Self::EmptyOcTree => true,
+            Self::AttachedMeshUnported | Self::ConvexHullComputerNotYetPorted => false,
+        }
+    }
+}
+
 /// `createShapePrimitive(const shapes::Box*, ...)` (`bullet_utils.cpp:84-94`).
 fn box_primitive(geom: &Cuboid) -> BoxShape {
     let half = |i: usize| (geom.size[i] / 2.0) as Scalar;
