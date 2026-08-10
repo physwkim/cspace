@@ -212,8 +212,35 @@ struct Edge {
     to: String,
 }
 
-fn is_conversion_impl_line(line: &str) -> bool {
-    line.starts_with("impl") && (line.contains("TryFrom<") || line.contains(" From<"))
+/// The item header starting at `lines[start]`, with any rustfmt line breaks
+/// joined back into one line and the opening `{` (or a trailing `;`) dropped.
+///
+/// rustfmt wraps a header that does not fit the width -- `impl<'m>
+/// TryFrom<VisibilityConstraintMsg<'m>>` / `for
+/// cspace_planning::constraints::VisibilityConstraint` / `{` -- and a scanner
+/// that matches physical lines cannot see such an item at all, because the
+/// `for` half lands on a line that does not start with `impl`. That direction
+/// of failure is silent: a vanished edge reads as "there is no such impl", so
+/// a pair whose two headers both wrap would drop out of every check in this
+/// file rather than fail one.
+fn joined_item_header(lines: &[&str], start: usize) -> String {
+    let mut header = String::new();
+    for line in lines.iter().skip(start) {
+        let trimmed = line.trim();
+        let end = trimmed.find(['{', ';']).unwrap_or(trimmed.len());
+        if !header.is_empty() {
+            header.push(' ');
+        }
+        header.push_str(trimmed[..end].trim_end());
+        if end < trimmed.len() {
+            break;
+        }
+    }
+    header
+}
+
+fn is_conversion_impl_header(header: &str) -> bool {
+    header.starts_with("impl") && (header.contains("TryFrom<") || header.contains(" From<"))
 }
 
 /// Extracts `(from_base_type, to_base_type)` from a conversion-impl line,
@@ -276,6 +303,12 @@ fn parse_conversion_returns_none_for_empty_to_base() {
     assert_eq!(parse_conversion("impl TryFrom<X> for {"), None);
 }
 
+// Not routed through [`joined_item_header`], unlike the impl scan above: a
+// `fn` header cannot hide its own discriminating tokens on a continuation
+// line, because rustfmt has no break point before the identifier it is
+// matching -- the worst wrap of a too-long test name is `fn the_name(` / `) {`,
+// which this still reads whole. Bite-checked: a wrapped-fn fixture passes
+// against the unjoined line too, so a test for it could not fail.
 fn is_round_trip_test_line(line: &str) -> bool {
     line.starts_with("fn ") && line.contains("round_trip")
 }
@@ -359,12 +392,16 @@ fn visit_rs_files(root: &Path, dir: &Path, out: &mut Vec<(String, String)>) {
 fn all_edges(files: &[(String, String)]) -> Vec<Edge> {
     let mut edges = Vec::new();
     for (file, text) in files {
-        for line in text.lines() {
-            let trimmed = line.trim_start();
-            if !is_conversion_impl_line(trimmed) {
+        let lines: Vec<&str> = text.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            if !line.trim_start().starts_with("impl") {
                 continue;
             }
-            if let Some((from, to)) = parse_conversion(trimmed) {
+            let header = joined_item_header(&lines, i);
+            if !is_conversion_impl_header(&header) {
+                continue;
+            }
+            if let Some((from, to)) = parse_conversion(&header) {
                 edges.push(Edge {
                     file: file.clone(),
                     from,
@@ -374,6 +411,38 @@ fn all_edges(files: &[(String, String)]) -> Vec<Edge> {
         }
     }
     edges
+}
+
+// `19c53980` ran rustfmt over this crate and wrapped the msg -> core header in
+// `constraints/visibility.rs` across three lines. This scan matched physical
+// lines then, so that edge vanished and its still-single-line reverse read as
+// one-directional. Bite-checked by making `joined_item_header` return
+// `lines[start]` alone: this test then sees one edge instead of two, and
+// `every_one_directional_impl_is_registered_with_a_reason` reproduces the
+// original failure naming `VisibilityConstraint -> VisibilityConstraintMsgOut`.
+#[test]
+fn all_edges_sees_a_rustfmt_wrapped_impl_header() {
+    let text = "\
+impl<'m> TryFrom<WidgetMsg<'m>>
+    for cspace_planning::constraints::Widget
+{
+}
+
+impl TryFrom<cspace_planning::constraints::Widget> for WidgetMsgOut {
+}
+";
+    let edges = all_edges(&[("constraints/widget.rs".to_string(), text.to_string())]);
+    let pairs: Vec<(&str, &str)> = edges
+        .iter()
+        .map(|e| (e.from.as_str(), e.to.as_str()))
+        .collect();
+    assert_eq!(
+        pairs,
+        vec![
+            ("WidgetMsg", "cspace_planning::constraints::Widget"),
+            ("cspace_planning::constraints::Widget", "WidgetMsgOut"),
+        ]
+    );
 }
 
 fn has_reverse(edges: &[Edge], e: &Edge) -> bool {
