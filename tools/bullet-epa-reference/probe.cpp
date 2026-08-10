@@ -39,6 +39,7 @@
 #include "BulletCollision/CollisionShapes/btCompoundShape.h"
 #include "BulletCollision/CollisionShapes/btConvexHullShape.h"
 #include "BulletCollision/CollisionShapes/btCylinderShape.h"
+#include "BulletCollision/CollisionShapes/btPolyhedralConvexShape.h"
 #include "BulletCollision/CollisionShapes/btSphereShape.h"
 #include "BulletCollision/NarrowPhaseCollision/btDiscreteCollisionDetectorInterface.h"
 #include "BulletCollision/NarrowPhaseCollision/btGjkEpa2.h"
@@ -357,6 +358,31 @@ static void proxytype(const char* name, int value)
 static void shapetype(const char* name, const btCollisionShape* shape)
 {
 	printf("shapetype_%s|%d\n", name, shape->getShapeType());
+}
+
+// `getAverageSupport`'s `dynamic_cast<const btPolyhedralConvexShape*>`
+// (`bullet_utils.hpp:351`) and the `getNumVertices`/`getVertex` pair it reads
+// when that cast succeeds. The cast decides the whole branch -- a shape that
+// fails it is asked for one support point instead of an average over the
+// vertices tied for maximum support -- so a port that answers it wrongly for
+// one shape silently runs different arithmetic, not a different number.
+//
+// Fields: `polycast_<name>|<0|1>|<n>`, then one `polyvert_<name>_<i>` row per
+// vertex. Per vertex, not a summary: `getVertex` on a box synthesises corners
+// from the half extents *with* margin, so which vertex sits at which index is
+// itself the claim being pinned.
+static void polyverts(const char* name, const btConvexShape* shape)
+{
+	const btPolyhedralConvexShape* pshape = dynamic_cast<const btPolyhedralConvexShape*>(shape);
+	printf("polycast_%s|%d|%d\n", name, pshape ? 1 : 0, pshape ? pshape->getNumVertices() : 0);
+	if (!pshape) return;
+
+	for (int i = 0; i < pshape->getNumVertices(); ++i)
+	{
+		btVector3 v;
+		pshape->getVertex(i, v);
+		printf("polyvert_%s_%d|%.9g|%.9g|%.9g\n", name, i, (double)v[0], (double)v[1], (double)v[2]);
+	}
 }
 
 // `btCompoundShape::getAabb` plus the leaf order of the tree it built while
@@ -1068,6 +1094,19 @@ int main()
 	shapetype("cyl", &cyl);
 	shapetype("cone", &cone);
 	shapetype("hull", &hull);
+
+	// Which shapes `getAverageSupport` treats as polyhedral, and the vertices
+	// it then averages. `margin_box` is here as well as `unit_box` because
+	// `getVertex` uses the half extents *with* margin: it is the only row that
+	// separates "the corners of the box" from "the corners the support
+	// function would return".
+	polyverts("unit_box", &unit_box);
+	polyverts("flat_box", &flat_box);
+	polyverts("margin_box", &margin_box);
+	polyverts("sphere", &sphere);
+	polyverts("cyl", &cyl);
+	polyverts("cone", &cone);
+	polyverts("hull", &hull);
 
 	// `btDbvt` leaf order. Fields: `name|visited|leaves|data...`.
 	//

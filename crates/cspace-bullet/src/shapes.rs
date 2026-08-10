@@ -81,6 +81,8 @@
 //! (`collision_env_bullet.cpp`'s `getCollisionObjectType`), so that arm is
 //! unreachable from the continuous check.
 
+use std::borrow::Cow;
+
 use crate::broadphase_proxy::BroadphaseNativeType;
 use crate::linear_math::{
     SIMD_EPSILON, Scalar, Transform, Vec3, bt_fsel, transform_aabb, transform_aabb_half_extents,
@@ -151,6 +153,33 @@ pub trait ConvexShape {
 
     /// `btCollisionShape::getAabb` -- the shape's world AABB under `t`.
     fn get_aabb(&self, t: &Transform) -> (Vec3, Vec3);
+
+    /// `dynamic_cast<const btPolyhedralConvexShape*>` succeeding, together with
+    /// the `getNumVertices`/`getVertex(i, pt)` pair the caller reads when it
+    /// does (`btPolyhedralConvexShape.h:64-65`).
+    ///
+    /// One method rather than a cast test plus a count plus an indexed getter,
+    /// because upstream's sole caller in this port's scope --
+    /// `getAverageSupport` (`bullet_utils.hpp:351-377`) -- consumes all three
+    /// in one loop, and three separately answerable questions can disagree
+    /// where one cannot.
+    ///
+    /// `None` is a failed cast, and is what the sphere, the cylinder and the
+    /// cone report: `getAverageSupport` then takes its `else` arm and asks for
+    /// a single support point. `Some(&[])` is a *successful* cast onto a
+    /// polyhedron with no vertices, which is a different state -- upstream
+    /// enters the branch, loops zero times, and divides `pt_sum` by a zero
+    /// `pt_count`. The two must stay distinguishable, so this is not
+    /// `Option`-flattened into an empty slice.
+    ///
+    /// These are `getVertex`'s vertices, not the shape's support points:
+    /// `btBoxShape` synthesises its eight corners from the half extents
+    /// **with** margin (`btBoxShape.h:131-139`), so on a box whose margin is
+    /// nonzero they lie outside what
+    /// [`ConvexShape::local_get_supporting_vertex_without_margin`] returns.
+    fn polyhedral_vertices(&self) -> Option<Cow<'_, [Vec3]>> {
+        None
+    }
 
     /// `btConvexInternalShape::localGetSupportingVertex`
     /// (`btConvexInternalShape.cpp:50-67`).
@@ -264,6 +293,15 @@ impl BoxShape {
     pub fn half_extents_without_margin(&self) -> Vec3 {
         self.implicit_shape_dimensions
     }
+
+    /// `btBoxShape::getHalfExtentsWithMargin` (`btBoxShape.h:34-40`) -- the
+    /// stored dimensions re-inflated by the current margin, which is the box a
+    /// support query answers for once the margin term is added back.
+    #[must_use]
+    pub fn half_extents_with_margin(&self) -> Vec3 {
+        let margin = Vec3::new(self.margin(), self.margin(), self.margin());
+        self.half_extents_without_margin() + margin
+    }
 }
 
 impl ConvexShape for BoxShape {
@@ -308,6 +346,31 @@ impl ConvexShape for BoxShape {
     /// `btBoxShape::getAabb` (`btBoxShape.cpp:28-31`).
     fn get_aabb(&self, t: &Transform) -> (Vec3, Vec3) {
         transform_aabb_half_extents(self.half_extents_without_margin(), self.margin(), t)
+    }
+
+    /// `btBoxShape::getNumVertices` = 8 and `getVertex` (`btBoxShape.h:121-139`).
+    ///
+    /// The index's low three bits pick one sign per axis. Written as upstream
+    /// writes it -- `h * (1 - bit) - h * bit` rather than a sign flip -- because
+    /// the two differ for a zero half extent: the subtraction yields `+0`, a
+    /// negation yields `-0`.
+    fn polyhedral_vertices(&self) -> Option<Cow<'_, [Vec3]>> {
+        let half_extents = self.half_extents_with_margin();
+        let component = |extent: Scalar, bit: usize| {
+            let bit = bit as Scalar;
+            extent * (1.0 - bit) - extent * bit
+        };
+        Some(Cow::Owned(
+            (0..8)
+                .map(|i| {
+                    Vec3::new(
+                        component(half_extents.x, i & 1),
+                        component(half_extents.y, (i & 2) >> 1),
+                        component(half_extents.z, (i & 4) >> 2),
+                    )
+                })
+                .collect(),
+        ))
     }
 }
 
@@ -713,13 +776,25 @@ impl ConvexShape for ConvexHullShape {
     fn get_aabb(&self, t: &Transform) -> (Vec3, Vec3) {
         transform_aabb(self.local_aabb_min, self.local_aabb_max, self.margin(), t)
     }
+
+    /// `btConvexHullShape::getNumVertices` (`btConvexHullShape.cpp:130-133`)
+    /// and `getVertex` (`:148-151`), which is `getScaledPoint(i)`.
+    ///
+    /// No scaling term: `btConvexInternalShape`'s constructor seeds
+    /// `m_localScaling` at `(1,1,1)` (`btConvexInternalShape.cpp:19`), and
+    /// MoveIt's only `setLocalScaling` is `CastHullShape`'s no-op override
+    /// (`bullet_utils.hpp:291`), so `getScaledPoint` returns the unscaled point
+    /// and the field is not carried here.
+    fn polyhedral_vertices(&self) -> Option<Cow<'_, [Vec3]>> {
+        Some(Cow::Borrowed(&self.unscaled_points))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::linear_math::Matrix3;
-    use crate::probe_fixture::probe_shapes;
+    use crate::probe_fixture::{diff_vec3, probe_shapes, row};
 
     /// The `shapetype_*` rows of `tools/bullet-epa-reference/build.sh`'s
     /// stdout -- `getShapeType()` on the shapes `probe.cpp` builds.
@@ -760,6 +835,146 @@ shapetype_hull|4
             }
         }
         assert!(bad.is_empty(), "{}", bad.join("\n"));
+    }
+
+    /// The `polycast_*` / `polyvert_*` rows of `build.sh`'s stdout -- which
+    /// shapes `getAverageSupport`'s `dynamic_cast` accepts, and the vertices
+    /// `getVertex` then hands it.
+    ///
+    /// `margin_box` earns its rows by reporting `±0.5` while its support
+    /// function without margin returns `±0.46`: the cast's vertices are the
+    /// half extents *with* margin, and no other row here separates the two.
+    const POLYHEDRAL_REFERENCE: &str = "\
+polycast_unit_box|1|8
+polyvert_unit_box_0|0.5|0.5|0.5
+polyvert_unit_box_1|-0.5|0.5|0.5
+polyvert_unit_box_2|0.5|-0.5|0.5
+polyvert_unit_box_3|-0.5|-0.5|0.5
+polyvert_unit_box_4|0.5|0.5|-0.5
+polyvert_unit_box_5|-0.5|0.5|-0.5
+polyvert_unit_box_6|0.5|-0.5|-0.5
+polyvert_unit_box_7|-0.5|-0.5|-0.5
+polycast_flat_box|1|8
+polyvert_flat_box_0|0.400000006|0.699999988|0.25
+polyvert_flat_box_1|-0.400000006|0.699999988|0.25
+polyvert_flat_box_2|0.400000006|-0.699999988|0.25
+polyvert_flat_box_3|-0.400000006|-0.699999988|0.25
+polyvert_flat_box_4|0.400000006|0.699999988|-0.25
+polyvert_flat_box_5|-0.400000006|0.699999988|-0.25
+polyvert_flat_box_6|0.400000006|-0.699999988|-0.25
+polyvert_flat_box_7|-0.400000006|-0.699999988|-0.25
+polycast_margin_box|1|8
+polyvert_margin_box_0|0.5|0.5|0.5
+polyvert_margin_box_1|-0.5|0.5|0.5
+polyvert_margin_box_2|0.5|-0.5|0.5
+polyvert_margin_box_3|-0.5|-0.5|0.5
+polyvert_margin_box_4|0.5|0.5|-0.5
+polyvert_margin_box_5|-0.5|0.5|-0.5
+polyvert_margin_box_6|0.5|-0.5|-0.5
+polyvert_margin_box_7|-0.5|-0.5|-0.5
+polycast_sphere|0|0
+polycast_cyl|0|0
+polycast_cone|0|0
+polycast_hull|1|8
+polyvert_hull_0|0.300000012|0.200000003|0.100000001
+polyvert_hull_1|-0.300000012|0.200000003|0.100000001
+polyvert_hull_2|0.300000012|-0.200000003|0.100000001
+polyvert_hull_3|-0.300000012|-0.200000003|0.100000001
+polyvert_hull_4|0.300000012|0.200000003|-0.100000001
+polyvert_hull_5|-0.300000012|0.200000003|-0.100000001
+polyvert_hull_6|0.300000012|-0.200000003|-0.100000001
+polyvert_hull_7|-0.300000012|-0.200000003|-0.100000001
+";
+
+    #[test]
+    fn bullet_reference_polyhedral_vertices() {
+        let (unit_box, flat_box, margin_box, sphere, _, cyl, cone, hull) = probe_shapes();
+        let shapes: [(&str, &dyn ConvexShape); 7] = [
+            ("unit_box", &unit_box),
+            ("flat_box", &flat_box),
+            ("margin_box", &margin_box),
+            ("sphere", &sphere),
+            ("cyl", &cyl),
+            ("cone", &cone),
+            ("hull", &hull),
+        ];
+
+        let mut bad = Vec::new();
+        let mut covered = Vec::new();
+        for (name, shape) in shapes {
+            let vertices = shape.polyhedral_vertices();
+            covered.push(format!("polycast_{name}"));
+
+            let f = row(POLYHEDRAL_REFERENCE, &format!("polycast_{name}"), 3);
+            let want_cast = f[1] == "1";
+            let want_len: usize = f[2].parse().unwrap();
+            if vertices.is_some() != want_cast {
+                bad.push(format!(
+                    "{name}: port polyhedral {}, bullet {want_cast}",
+                    vertices.is_some()
+                ));
+                continue;
+            }
+            let Some(vertices) = vertices else { continue };
+            if vertices.len() != want_len {
+                bad.push(format!(
+                    "{name}: port {} vertices, bullet {want_len}",
+                    vertices.len()
+                ));
+                continue;
+            }
+
+            for (i, &vertex) in vertices.iter().enumerate() {
+                let vertex_row = format!("polyvert_{name}_{i}");
+                covered.push(vertex_row.clone());
+                let f = row(POLYHEDRAL_REFERENCE, &vertex_row, 4);
+                let n = |k: usize| -> Scalar { f[k].parse().unwrap() };
+                diff_vec3(
+                    &mut bad,
+                    &format!("{name}[{i}]"),
+                    "vertex",
+                    vertex,
+                    Vec3::new(n(1), n(2), n(3)),
+                );
+            }
+        }
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+
+        // A shape whose vertices this test never asked for would otherwise pass
+        // it silently; comparing the row names covered against the row names
+        // present makes the reference block check the loop back.
+        let mut want: Vec<String> = POLYHEDRAL_REFERENCE
+            .lines()
+            .filter_map(|l| l.split('|').next())
+            .map(str::to_string)
+            .collect();
+        want.sort();
+        covered.sort();
+        assert_eq!(
+            covered, want,
+            "the shapes checked and POLYHEDRAL_REFERENCE disagree on which rows exist"
+        );
+    }
+
+    /// The vertices `getVertex` reports are not the support function's:
+    /// `btBoxShape::getVertex` inflates by the margin and
+    /// `localGetSupportingVertexWithoutMargin` does not, so on `margin_box`
+    /// they differ by exactly the 0.04 default margin on each axis.
+    ///
+    /// Without this the port could route `polyhedral_vertices` through the
+    /// support function and still match every row above, because the other two
+    /// boxes and the hull all carry a zero margin.
+    #[test]
+    fn a_boxs_polyhedral_vertices_carry_the_margin_its_support_function_omits() {
+        let (_, _, margin_box, ..) = probe_shapes();
+        assert_eq!(margin_box.margin(), CONVEX_DISTANCE_MARGIN);
+
+        let vertices = margin_box.polyhedral_vertices().expect("box is polyhedral");
+        assert_eq!(vertices[0], Vec3::new(0.5, 0.5, 0.5));
+        assert_eq!(
+            margin_box.local_get_supporting_vertex_without_margin(Vec3::new(1.0, 1.0, 1.0)),
+            Vec3::new(0.46, 0.46, 0.46)
+        );
     }
 
     /// The identity pose, which is the one the `bullet_support` oracle op
