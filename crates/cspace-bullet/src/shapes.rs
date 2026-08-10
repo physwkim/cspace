@@ -184,11 +184,21 @@ pub trait ConvexShape {
     /// `btConvexInternalShape::localGetSupportingVertex`
     /// (`btConvexInternalShape.cpp:50-67`).
     ///
-    /// `btSphereShape`, `btConeShape` and `btConvexHullShape` each override
-    /// this with the same body; the sphere's drops the `margin != 0` guard,
-    /// which cannot be observed -- with a zero radius its margin is zero and
-    /// the term it adds is `0 * unit`, i.e. the vector the guard would have
-    /// skipped adding.
+    /// `btCylinderShape` (`btCylinderShape.h:68-85`), `btConeShape`
+    /// (`btConeShape.cpp:117-131`) and `btConvexHullShape`
+    /// (`btConvexHullShape.cpp:99-114`) each override this with the same body,
+    /// and `btSphereShape`'s (`btSphereShape.cpp:37-50`) differs only by
+    /// dropping the `margin != 0` guard, which cannot be observed -- with a
+    /// zero radius its margin is zero and the term it adds is `0 * unit`, i.e.
+    /// the vector the guard would have skipped adding.
+    ///
+    /// [`BoxShape`] is the one that is genuinely different and therefore the
+    /// one that overrides this here: it adds the margin to each half extent
+    /// rather than along the query direction, which lands on a box corner
+    /// instead of out along `vec`. On a zero-margin box the two agree, which is
+    /// why `createShapePrimitive`'s `setMargin(0)` hides the difference on
+    /// every shape MoveIt builds -- and why an enumeration of the overrides can
+    /// skip it and still look complete.
     fn local_get_supporting_vertex(&self, vec: Vec3) -> Vec3 {
         let sup_vertex = self.local_get_supporting_vertex_without_margin(vec);
         if self.margin() != 0.0 {
@@ -326,6 +336,23 @@ impl ConvexShape for BoxShape {
 
     fn margin(&self) -> Scalar {
         self.collision_margin
+    }
+
+    /// `btBoxShape::localGetSupportingVertex` (`btBoxShape.h:47-56`) -- the
+    /// half extents **with** margin, selected per axis by [`bt_fsel`].
+    ///
+    /// Not the base class's `without_margin + margin * unit(vec)`: this puts
+    /// the point at the corner of the inflated box, which is further out along
+    /// every axis than the direction-aligned version and is a different vector
+    /// unless `vec` happens to be an axis. The two agree only when the margin
+    /// is zero.
+    fn local_get_supporting_vertex(&self, vec: Vec3) -> Vec3 {
+        let half_extents = self.half_extents_with_margin();
+        Vec3::new(
+            bt_fsel(vec.x, half_extents.x, -half_extents.x),
+            bt_fsel(vec.y, half_extents.y, -half_extents.y),
+            bt_fsel(vec.z, half_extents.z, -half_extents.z),
+        )
     }
 
     /// `btBoxShape::setMargin` (`btBoxShape.h:82-91`) -- re-expands the stored
@@ -885,6 +912,80 @@ polyvert_hull_5|-0.300000012|0.200000003|-0.100000001
 polyvert_hull_6|0.300000012|-0.200000003|-0.100000001
 polyvert_hull_7|-0.300000012|-0.200000003|-0.100000001
 ";
+
+    /// The `support_*` rows -- the *virtual* `localGetSupportingVertex`, beside
+    /// `localGetSupportingVertexWithoutMargin` and the margin itself.
+    ///
+    /// Every other fixture in this crate goes through GJK, which calls
+    /// `localGetSupportVertexNonVirtual`; nothing reached the virtual with a
+    /// nonzero margin, and that is how the box's override stayed unported.
+    /// `unit_box_diag` sits beside `margin_box_diag` because a zero margin
+    /// makes both formulas agree -- a fixture built only from MoveIt's
+    /// zero-margin shapes cannot see the difference at all.
+    const SUPPORT_REFERENCE: &str = "\
+support_unit_box_diag|0.5|0.5|0.5|0.5|0.5|0.5|0
+support_margin_box_diag|0.5|0.5|0.5|0.460000008|0.460000008|0.460000008|0.0399999991
+support_margin_box_axis|0.5|0.5|0.5|0.460000008|0.460000008|0.460000008|0.0399999991
+support_margin_box_diag_unit|0.5|0.5|0.5|0.460000008|0.460000008|0.460000008|0.0399999991
+support_sphere_diag|0.288675129|0.288675129|0.288675129|0|0|0|0.5
+support_cyl_diag|0.212132052|0.212132052|0.5|0.212132052|0.212132052|0.5|0
+support_cone_diag|0|0|0.400000006|0|0|0.400000006|0
+support_hull_diag|0.300000012|0.200000003|0.100000001|0.300000012|0.200000003|0.100000001|0
+";
+
+    #[test]
+    fn bullet_reference_local_get_supporting_vertex() {
+        let (unit_box, _, margin_box, sphere, _, cyl, cone, hull) = probe_shapes();
+        let pxyz = Vec3::new(1.0, 1.0, 1.0);
+        let cases: [(&str, &dyn ConvexShape, Vec3); 8] = [
+            ("unit_box_diag", &unit_box, pxyz),
+            ("margin_box_diag", &margin_box, pxyz),
+            ("margin_box_axis", &margin_box, Vec3::new(1.0, 0.0, 0.0)),
+            ("margin_box_diag_unit", &margin_box, pxyz.normalize()),
+            ("sphere_diag", &sphere, pxyz),
+            ("cyl_diag", &cyl, pxyz),
+            ("cone_diag", &cone, pxyz),
+            ("hull_diag", &hull, pxyz),
+        ];
+
+        let mut bad = Vec::new();
+        let mut covered = Vec::new();
+        for (name, shape, dir) in cases {
+            let full = format!("support_{name}");
+            covered.push(full.clone());
+            let f = row(SUPPORT_REFERENCE, &full, 8);
+            let n = |i: usize| -> Scalar { f[i].parse().unwrap() };
+
+            diff_vec3(
+                &mut bad,
+                name,
+                "support",
+                shape.local_get_supporting_vertex(dir),
+                Vec3::new(n(1), n(2), n(3)),
+            );
+            diff_vec3(
+                &mut bad,
+                name,
+                "support_no_margin",
+                shape.local_get_supporting_vertex_without_margin(dir),
+                Vec3::new(n(4), n(5), n(6)),
+            );
+            crate::probe_fixture::diff(&mut bad, name, "margin", shape.margin(), n(7));
+        }
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+
+        let mut want: Vec<String> = SUPPORT_REFERENCE
+            .lines()
+            .filter_map(|l| l.split('|').next())
+            .map(str::to_string)
+            .collect();
+        want.sort();
+        covered.sort();
+        assert_eq!(
+            covered, want,
+            "the shapes checked and SUPPORT_REFERENCE disagree on which rows exist"
+        );
+    }
 
     #[test]
     fn bullet_reference_polyhedral_vertices() {

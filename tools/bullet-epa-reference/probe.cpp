@@ -385,6 +385,27 @@ static void polyverts(const char* name, const btConvexShape* shape)
 	}
 }
 
+// `localGetSupportingVertex` -- the *virtual* support query, which is not
+// `localGetSupportVertexNonVirtual` and not `localGetSupportingVertexWithoutMargin`
+// plus a margin term either.
+//
+// Three of the five shapes here add `getMargin() * vec.normalized()` to the
+// without-margin vertex, but `btBoxShape` overrides it to add the margin to
+// each half extent instead (`btBoxShape.h:47-56`), which puts the answer at a
+// box corner rather than out along the query direction. On a zero-margin shape
+// every version agrees, which is why MoveIt's `setMargin(0)` hides the
+// difference everywhere except on a sphere -- whose margin is its radius --
+// and on any shape whose margin survives.
+//
+// Fields: `support_<name>|sup.xyz|supnomargin.xyz|margin`.
+static void support(const char* name, const btConvexShape* shape, const btVector3& dir)
+{
+	const btVector3 sup = shape->localGetSupportingVertex(dir);
+	const btVector3 sup_nm = shape->localGetSupportingVertexWithoutMargin(dir);
+	printf("support_%s|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g\n", name, (double)sup[0], (double)sup[1], (double)sup[2],
+	       (double)sup_nm[0], (double)sup_nm[1], (double)sup_nm[2], (double)shape->getMargin());
+}
+
 // `btCompoundShape::getAabb` plus the leaf order of the tree it built while
 // the children were added. The AABB is the accumulated `m_localAabb*` taken
 // through `trans` -- so a row under a rotated transform is the only thing
@@ -1107,6 +1128,24 @@ int main()
 	polyverts("cyl", &cyl);
 	polyverts("cone", &cone);
 	polyverts("hull", &hull);
+
+	// The virtual support query on every shape that still carries a margin
+	// after `createShapePrimitive`. `margin_box` is the whole point of these
+	// rows -- it is the one shape whose `localGetSupportingVertex` is not the
+	// generic "without margin plus margin along the direction" -- and the
+	// zero-margin `unit_box` is beside it to show that the difference vanishes
+	// there, which is why nothing else in this repo had caught it.
+	{
+		const btVector3 pxyz(1.f, 1.f, 1.f);
+		support("unit_box_diag", &unit_box, pxyz);
+		support("margin_box_diag", &margin_box, pxyz);
+		support("margin_box_axis", &margin_box, btVector3(1.f, 0.f, 0.f));
+		support("margin_box_diag_unit", &margin_box, pxyz.normalized());
+		support("sphere_diag", &sphere, pxyz);
+		support("cyl_diag", &cyl, pxyz);
+		support("cone_diag", &cone, pxyz);
+		support("hull_diag", &hull, pxyz);
+	}
 
 	// `btDbvt` leaf order. Fields: `name|visited|leaves|data...`.
 	//
