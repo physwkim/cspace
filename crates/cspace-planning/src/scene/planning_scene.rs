@@ -699,7 +699,7 @@ pub struct ObjectType {
 /// upstream's one `move_group`-reachable unpadded caller,
 /// `PlanExecution::isRemainingPathValid` (`plan_execution.cpp:268-353`), is
 /// not ported. Both sides of the boundary are pinned in
-/// `cspace-scene/tests/padding_reaches_the_scenes_self_half.rs`. Re-open when
+/// `cspace-planning/tests/padding_reaches_the_scenes_self_half.rs`. Re-open when
 /// a caller does need upstream's unpadded self half: the fix is for that
 /// caller to pass the unpadded clone above, not for this type to take a
 /// second `E`.

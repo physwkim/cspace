@@ -61,7 +61,7 @@ fn distance_field_config() -> DistanceFieldConfig {
 
 /// The `moveit_resources_panda_description` package committed under
 /// `fixtures/meshes/`. Cross-crate duplicates of this same helper still
-/// exist (e.g. `cspace-planners-sbp/examples/plan_benchmark_port.rs`)
+/// exist (e.g. `cspace-planners/examples/plan_benchmark_port.rs`)
 /// because a cargo example cannot import another *crate's* example; this
 /// `include!` only closes the duplication possible within one crate.
 fn fixture_mesh_search_paths() -> MeshSearchPaths {

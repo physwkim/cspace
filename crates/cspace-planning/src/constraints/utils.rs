@@ -66,8 +66,8 @@
 //! `tests/` integration-test directories, and every one of these three
 //! files' `#[cfg(test)]` unit-test modules lives inside `src/`. Sorted by
 //! whether each hit falls before or after its own file's `#[cfg(test)]`
-//! line (`cspace-scene/src/scene.rs:2121`,
-//! `cspace-planners-sbp/src/planning_scene_validity.rs:149`), the 28 are:
+//! line (`cspace-planning/src/scene/planning_scene.rs:2121`,
+//! `cspace-planners/src/sbp/planning_scene_validity.rs:149`), the 28 are:
 //! 16 inside `scene.rs`'s own unit tests, 5 inside
 //! `planning_scene_validity.rs`'s, 3 in this module's own doc-comment prose
 //! (the sentence you are reading now, self-matching), and 4 in `scene.rs`

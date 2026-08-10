@@ -1559,7 +1559,7 @@ impl ShapeCache {
 /// for robot links, which need a different mechanism because
 /// [`cspace_core::model::LinkShape::shape`] is a plain [`Shape`], never
 /// behind an [`Arc`]: [`cspace_core::state::RobotState::model`] hands out a bare
-/// `&'m RobotModel` reference (`cspace-state/src/state.rs`), so there is no
+/// `&'m RobotModel` reference (`cspace-core/src/state/robot_state.rs`), so there is no
 /// [`Weak`] this cache could pin the way [`ShapeCache`] pins an attached-body
 /// or world-object shape.
 ///
@@ -2450,7 +2450,7 @@ fn mesh_mesh_cost_sources(
 /// pair before fitting, rather than calling `mesh.vertices()` directly.
 ///
 /// Measured, not assumed, against every mesh-vs-shape pair in
-/// `cspace-scene/tests/fixtures/panda_{cost_sources,path_cost_sources}_response.json`
+/// `cspace-planning/tests/fixtures/scene/panda_{cost_sources,path_cost_sources}_response.json`
 /// (oracle `moveit-rs/oracle:3537df47121b8c7f`, ids 2-6/8 state-op, ids
 /// 3-6 path-op — 22 total non-empty pairs across both fixtures, borrowing
 /// `cspace_planning::scene`'s own committed fixture read-only via a temporary,
@@ -4509,7 +4509,7 @@ mod tests {
     /// The regression case [`ShapeCache`]'s own doc names: without a stored
     /// `Weak`, `Arc::make_mut` on a sole-owned shape mutates it *in place at
     /// the same address*, exactly what `AttachedBody::set_scale`/
-    /// `set_padding` do (`cspace-scene/src/attached_body.rs`) when the body
+    /// `set_padding` do (`cspace-planning/src/scene/attached_body.rs`) when the body
     /// is the shape's only strong owner. A cache keyed on the address alone
     /// would then silently keep serving the pre-mutation geometry. Holding a
     /// `Weak` here must force that same `make_mut` call onto a fresh

@@ -9,14 +9,14 @@
 //! Runs this crate's [`plan`](cspace_planners::stomp::plan) over a `plan`-op
 //! request JSON -- the exact format `cspace_planners::sbp`'s
 //! `examples/plan_benchmark_problem_set` emits and
-//! `cspace-planners-sbp/benches/sweep_baseline.sh` feeds to the oracle -- so
+//! `cspace-planners/benches/sweep_baseline.sh` feeds to the oracle -- so
 //! Phase 8's STOMP measurement runs the *identical* 500 problems the Phase 7
 //! C++ OMPL RRTConnect baseline was measured on, not a re-sample.
 //!
 //! # Which baseline this measures against, and why
 //!
 //! Same reading, and the same reason, as
-//! `cspace-planners-chomp/examples/chomp_benchmark_port.rs`'s own
+//! `cspace-planners/examples/chomp_benchmark_port.rs`'s own
 //! "# Which baseline this measures against": §5's Phase 8 clause forwards to
 //! Phase 7's three properties (PORTING-PLAN.md lines 705-708), whose
 //! comparison side is **C++ OMPL RRTConnect**. The "no other option even in
@@ -158,7 +158,7 @@ fn upstream_default_config() -> StompConfiguration {
 
 /// The `moveit_resources_panda_description` package committed under
 /// `fixtures/meshes/` -- same pattern as
-/// `cspace-planners-sbp/examples/plan_benchmark_port.rs`, duplicated rather
+/// `cspace-planners/examples/plan_benchmark_port.rs`, duplicated rather
 /// than shared because a cargo example cannot import another crate's
 /// example.
 fn fixture_mesh_search_paths() -> MeshSearchPaths {

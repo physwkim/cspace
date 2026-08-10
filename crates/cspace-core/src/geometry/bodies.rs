@@ -203,7 +203,7 @@
 //! `PositionConstraint::getConstraintRegions()` — a real, indexed, per-body
 //! call, not a `BodyVector`-mediated one. Round 13 recorded this as a future
 //! consumer ("once ported"); it already was ported by then —
-//! `cspace-constraints/src/ik_sampler.rs:254`'s `IkSampler::sample_pose`
+//! `cspace-planning/src/constraints/ik_sampler.rs:254`'s `IkSampler::sample_pose`
 //! (p1-robotmodel round 9, merged after this crate's round-13 base, so the
 //! round-13 report was stale the moment it was written) calls exactly
 //! [`Body::sample_point_inside`] on the clone-at-pose'd constraint-region
@@ -708,7 +708,7 @@
 //!    observation of how `parry3d-f64` behaves there and does not need one.
 //!    `convex_mesh_zero_vertex_is_an_error` (this crate) pins the guard, and
 //!    `new_rejects_a_mesh_whose_body_construction_fails`
-//!    (`cspace-constraints/tests/decide.rs`) pins that the `Err` survives out
+//!    (`cspace-planning/tests/decide.rs`) pins that the `Err` survives out
 //!    through `PositionConstraint::new` rather than being swallowed on the
 //!    way.
 //!
@@ -4994,7 +4994,7 @@ mod tests {
     // they format the *caller's own copy* of `shape` into the error
     // message, not anything read back out of the `None`, so none of them
     // needs `from_shape` itself to say which of Cone/Plane/OcTree fired.
-    // `cspace-constraints/tests/decide.rs` independently confirms this
+    // `cspace-planning/tests/decide.rs` independently confirms this
     // for `PositionConstraint::new`, testing `Cone` and `Plane` as
     // interchangeable members of one `bodyless` list against the same
     // `"has no bodies:: counterpart"` message. Not a D6 finding.

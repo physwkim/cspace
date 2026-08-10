@@ -43,7 +43,7 @@
 # pair to run it against in CI: each new class ported gets a new
 # invocation the day it is audited, chosen by the person doing the audit,
 # not by this script. Self-check with no docker required (matches
-# cspace-geometry/src/lib.rs's recorded `0`, since a bash file has no
+# cspace-core/src/geometry/mod.rs's recorded `0`, since a bash file has no
 # `class` to match):
 #
 #   bash tools/ci/count-public-declarations.sh \

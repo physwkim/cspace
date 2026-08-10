@@ -250,7 +250,7 @@ fn leaves_matches_liboctomap_leaf_iterator_order_and_fields() {
 /// inclusion). This proposal was sent to the orchestrator via a
 /// `caucus signal note --kind question` mid-round and captured for real
 /// against `liboctomap.so.1.9.7` (oracle stamp `8ed8a9395b730b08`); see
-/// `cspace-octomap/src/lib.rs`'s "`LeavesInBbx` split, round 21" doc section
+/// `cspace-core/src/octomap/mod.rs`'s "`LeavesInBbx` split, round 21" doc section
 /// for the full decision record, including why the client-side-filtered
 /// self-derived alternative was rejected in favor of this real capture.
 ///

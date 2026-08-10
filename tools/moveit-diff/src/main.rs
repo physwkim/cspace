@@ -3586,7 +3586,7 @@ mod degenerate_counter_reachability_tests {
     /// single-DOF joint, active and mimic) and the solver's own reduced
     /// active-joint set name exactly the same joints.
     ///
-    /// Reads `cspace-kinematics/tests/fixtures/panda.urdf`/`.srdf` directly
+    /// Reads `cspace-core/tests/fixtures/kinematics/panda.urdf`/`.srdf` directly
     /// rather than duplicating them into this crate's own fixtures.
     #[test]
     fn a_case_already_at_the_seed_pose_converges_to_the_seed_unmoved() {
@@ -4089,7 +4089,7 @@ mod visibility_cone_ambiguity_diagnostic {
     use super::*;
 
     /// A read-only copy of `VisibilityConstraint::cone_mesh`'s triangulation
-    /// (`cspace-constraints/src/visibility.rs:311-350`, private to that
+    /// (`cspace-planning/src/constraints/visibility.rs:311-350`, private to that
     /// crate) -- reproduced here only to diagnose the scene this generator
     /// hands it, not called into cspace_planning::constraints.
     fn cone_mesh(
@@ -4119,7 +4119,7 @@ mod visibility_cone_ambiguity_diagnostic {
     }
 
     /// A read-only copy of `allow_sensor_or_target_contact`
-    /// (`cspace-constraints/src/visibility.rs:426-449`, private) -- the ACM
+    /// (`cspace-planning/src/constraints/visibility.rs:426-449`, private) -- the ACM
     /// policy that excludes the sensor/target link's own necessary touch at
     /// the cone's apex/base-center vertices, so this diagnostic counts only
     /// genuine *extra* candidates, not that expected one.

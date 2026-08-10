@@ -97,11 +97,11 @@
 //! it has been: [`crate::constraints::ConstraintSampler`]/
 //! [`crate::constraints::JointConstraintSampler`]/
 //! [`crate::constraints::UnionConstraintSampler`]
-//! (`cspace-constraints/src/sampler.rs`),
+//! (`cspace-planning/src/constraints/sampler.rs`),
 //! [`crate::constraints::IkConstraintSamplerAdapter`]
-//! (`cspace-constraints/src/ik_sampler.rs`), and
+//! (`cspace-planning/src/constraints/ik_sampler.rs`), and
 //! [`crate::constraints::select_default_sampler`]
-//! (`cspace-constraints/src/constraint_sampler_manager.rs`) all exist and
+//! (`cspace-planning/src/constraints/constraint_sampler_manager.rs`) all exist and
 //! `cspace_planning::constraints` depends on `cspace_core::kinematics` to run IK-backed
 //! sampling. Checked directly for this round (not assumed from that note
 //! still being accurate): `crates/cspace-planning/src/constraints/` does contain all
@@ -284,7 +284,7 @@
 //! neither this host nor CI has it) owns the ROS-facing half; this crate is
 //! the top-level pure-Rust one, so the "plan without ROS" entry point lives
 //! here. The capability already existed —
-//! `cspace-planners-sbp/examples/plan_benchmark_problem_set.rs` and
+//! `cspace-planners/examples/plan_benchmark_problem_set.rs` and
 //! `cspace_planners::sbp::registry`'s own
 //! `end_to_end_solve_on_panda_arm_reaches_the_requested_goal` test both run
 //! URDF/SRDF → [`cspace_core::model::RobotModel`] → [`crate::scene::PlanningScene`]

@@ -329,7 +329,7 @@ fn main() {
     // and box_half fixed at case 4's own real values (0.1, 0.5) and instead
     // vary WHICH leaf is occupied, from the one immediately adjacent to the
     // robot box out to near the octree's addressable edge
-    // (`OcTree::TREE_MAX_VAL = 32768`, `cspace-octomap/src/tree.rs:646`) --
+    // (`OcTree::TREE_MAX_VAL = 32768`, `cspace-core/src/octomap/tree.rs:646`) --
     // covering leaf coordinates from ~0.55 m out to ~3,200 m. This directly
     // tests whether the absolute magnitude of a leaf's own coordinate (as
     // opposed to the resolution/box_half scale already swept above) can push

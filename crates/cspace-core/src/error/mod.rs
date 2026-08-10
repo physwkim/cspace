@@ -31,7 +31,7 @@
 //!
 //! Asked and decided deliberately, not left undone. Tests that need to pin
 //! *which* branch of a call rejected them currently match on the rendered
-//! message (`assert_err_mentions` in `cspace-constraints/tests/decide.rs`),
+//! message (`assert_err_mentions` in `cspace-planning/tests/decide.rs`),
 //! because two sibling branches of one call can both produce
 //! [`Error::Construct`] and a bare `.is_err()` cannot tell them apart. The
 //! obvious structural answer — give each branch its own variant — is the

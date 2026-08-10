@@ -564,7 +564,7 @@ fn the_budget_sums_to_the_completion_condition() {
 /// is what `tools/ci/verify-all.sh` picks up per merge round, so this is
 /// gated rather than merely written down. (`#[ignore]` alone would not be:
 /// this repo's own rule is that a passing test left `#[ignore]`d never runs
-/// again -- see `cspace-scene/tests/cost_sources_parity.rs`.)
+/// again -- see `cspace-planning/tests/cost_sources_parity.rs`.)
 #[test]
 #[ignore = "10,000 sampled states, 10-13s; run via tools/ci/verify-sampler-self-validation.sh"]
 fn every_sampled_state_satisfies_its_own_constraints() {

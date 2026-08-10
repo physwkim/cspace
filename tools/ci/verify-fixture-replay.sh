@@ -167,7 +167,7 @@ shopt -s nullglob
 # disagree the manifest wins silently -- a pair nobody listed is simply never
 # replayed, and the run still ends with a row of `identical` lines and exit 0.
 # That is indistinguishable from coverage. It happened:
-# `cspace-metrics/panda_arm_5dof_kinematics_metrics` was committed in one
+# `metrics/panda_arm_5dof_kinematics_metrics` was committed in one
 # round and went unreplayed until a later audit counted the two sets against
 # each other (it replayed clean once registered -- the cost was the blind
 # spot, not a drift).

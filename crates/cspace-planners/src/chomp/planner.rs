@@ -80,7 +80,7 @@
 //! ported it") does not hold up under the same check:
 //! `cspace_planners::sbp`'s `registry::PlanningRequest`/`PlanningResponse`
 //! (`registry.rs`) are its own crate-local types, and
-//! `cspace-planners-sbp/Cargo.toml` has no `cspace-planning` dependency at
+//! `cspace-planners/Cargo.toml` has no `cspace-planning` dependency at
 //! all -- confirmed independently, not merely quoted from the brief. The
 //! real, reusable precedent sbp/stomp/pilz all establish is narrower than
 //! the brief implied: define a bespoke request/response shape local to the
@@ -142,7 +142,7 @@ use rand::Rng;
 /// `&[cspace_planning::constraints::KinematicConstraintSet]` for the whole goal)
 /// would lose the raw value the first use needs: resolution silently
 /// clamps an out-of-bounds position into bounds
-/// (`cspace-constraints/src/joint.rs:167-178`), which would make upstream's
+/// (`cspace-planning/src/constraints/joint.rs:167-178`), which would make upstream's
 /// `INVALID_ROBOT_STATE` goal-bounds error permanently unreachable through
 /// this path. This type exists specifically to keep both uses honest.
 #[derive(Debug, Clone, PartialEq)]

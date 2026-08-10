@@ -1319,7 +1319,7 @@ fn is_antipodal(a: &[f64], b: &[f64], tol: f64) -> bool {
 /// This is `2 * acos(|a . b|)` in exact arithmetic (Eigen's
 /// `Quaterniond::angularDistance`), but computed as `4 * atan2(chord(a -
 /// near), chord(a + near))` instead — same shape and derivation as
-/// `cspace-planners-sbp/src/se3.rs`'s `rotation_distance`, generalized from
+/// `cspace-planners/src/sbp/se3.rs`'s `rotation_distance`, generalized from
 /// a fixed 4-element `Quat` to an arbitrary-length quaternion block. `acos`
 /// has an infinite derivative at `1.0`, so a dot product one ULP below it
 /// (already as good as a normalized quaternion pair can agree) rounds

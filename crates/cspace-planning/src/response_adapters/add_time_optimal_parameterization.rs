@@ -310,7 +310,7 @@ mod tests {
     /// wraps *any* `cspace_core::error::Error` `apply_totg_time_parameterization`
     /// returns into `ResponseAdapterError::Failed` — and that function
     /// reaches more than one such site: `TotgOptions::with_resample_dt`'s
-    /// guard (`cspace-trajectory/src/time_optimal_trajectory_generation.rs:440-444`)
+    /// guard (`cspace-core/src/trajectory/time_optimal_trajectory_generation.rs:440-444`)
     /// for this test's inputs, but also `compute_time_stamps`'s own
     /// per-joint velocity/acceleration-limit checks a few lines further in
     /// the same function (`:492-526`, at least 4 more `Error::other` sites).

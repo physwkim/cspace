@@ -10,7 +10,7 @@
 // and Eigen 3.4.0 `src/Core/Fuzzy.h:27`'s `numext::mini`, which is
 // `std::min` under the hood — see `bodies.rs`'s `filter_intersections` for
 // the call site. Both are named in prose rather than cited as paths, the
-// same way `bodies.rs` names FCL and `cspace-scene/src/numeric.rs` names
+// same way `bodies.rs` names FCL and `cspace-planning/src/scene/numeric.rs` names
 // Eigen: neither tree is reachable from this gate's roots, and a citation
 // it cannot open is a failure rather than a skip. The copyright line above
 // is geometric_shapes' own, reproduced verbatim from the file cited here;

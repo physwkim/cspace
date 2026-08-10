@@ -9,7 +9,7 @@
 # on cost (10.2-13.1s across three runs, against 0.7s for that crate's
 # other 103 tests together).
 # This script is what runs it, for the reason that file's own doc comment
-# gives and `cspace-scene/tests/cost_sources_parity.rs` states as the rule:
+# gives and `cspace-planning/tests/cost_sources_parity.rs` states as the rule:
 # a test left `#[ignore]`d with nothing invoking it never runs again, which
 # reads as coverage while providing none.
 #

@@ -1258,7 +1258,7 @@ mod tests {
     }
 
     /// A solver whose `solve_with_options` never converges -- imitates
-    /// `cspace-constraints/tests/ik_sampler.rs`'s own `NoSolutionSolver`
+    /// `cspace-planning/tests/ik_sampler.rs`'s own `NoSolutionSolver`
     /// (that crate is read-only from this one; this is a local, minimal
     /// re-implementation, not an import). The only way to exercise
     /// `sample_goal_state`'s `!goal_sampler->sample(goal_state)` branch:

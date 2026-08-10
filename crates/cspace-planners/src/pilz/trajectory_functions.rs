@@ -1351,7 +1351,7 @@ mod tests {
     /// `frame_transform` too. `RobotState::knows_frame_transform`
     /// (`has_link_model` alone) and `RobotState::frame_transform`
     /// (`has_link_model` OR `frame_id == model_frame`) can only disagree in
-    /// the one case `cspace-state/src/state.rs:825` documents: a model
+    /// the one case `cspace-core/src/state/robot_state.rs:825` documents: a model
     /// whose model frame is not itself a link name. The panda fixture's
     /// model frame is `panda_link0` (a real link, via the no-virtual-joint
     /// `ASSUMED_FIXED_ROOT_JOINT` fallback), so it cannot exhibit this --

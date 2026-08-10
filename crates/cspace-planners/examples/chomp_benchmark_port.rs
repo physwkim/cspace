@@ -10,7 +10,7 @@
 //! Runs this crate's [`chomp::solve`](cspace_planners::chomp::solve) over a
 //! `plan`-op request JSON -- the exact format
 //! `cspace_planners::sbp`'s `examples/plan_benchmark_problem_set` emits and
-//! `cspace-planners-sbp/benches/sweep_baseline.sh` feeds to the oracle -- so
+//! `cspace-planners/benches/sweep_baseline.sh` feeds to the oracle -- so
 //! Phase 8's CHOMP measurement runs the *identical* 500 problems the Phase 7
 //! C++ OMPL RRTConnect baseline was measured on, not a re-sample.
 //!

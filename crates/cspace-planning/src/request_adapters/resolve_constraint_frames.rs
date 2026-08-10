@@ -42,7 +42,7 @@
 //! and [`crate::constraints::PositionConstraint::new`]/
 //! [`crate::constraints::OrientationConstraint::new`] both require
 //! `link_name` to already name a real robot link
-//! (`RobotModel::link_model(link_name)`, `cspace-constraints/src/position.rs`/
+//! (`RobotModel::link_model(link_name)`, `cspace-planning/src/constraints/position.rs`/
 //! `orientation.rs`), erroring at construction otherwise. `RobotModel::link_model`
 //! has no notion of an attached body or subframe (those live on
 //! [`crate::scene::PlanningScene`]/`AttachedBody`, a type `RobotModel` does

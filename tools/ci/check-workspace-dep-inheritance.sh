@@ -43,9 +43,9 @@ for manifest in "${manifests[@]}"; do
   # Cargo accepts two spellings for the same edge, so both are scanned:
   #
   #   [dependencies]                    <- key form
-  #   cspace-scene = { path = "..." }
+  #   cspace-planners = { path = "..." }
   #
-  #   [dependencies.cspace-scene]       <- sub-table form
+  #   [dependencies.cspace-planners]    <- sub-table form
   #   path = "..."
   #
   # awk emits one `<member> <line>` record per offending declaration. The

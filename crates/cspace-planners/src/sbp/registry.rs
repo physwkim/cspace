@@ -103,19 +103,19 @@
 //! - `ConstraintSampler` (the base trait) and `JointConstraintSampler` ->
 //!   ported as [`cspace_planning::constraints::ConstraintSampler`]/
 //!   [`cspace_planning::constraints::JointConstraintSampler`],
-//!   `cspace-constraints/src/sampler.rs`.
+//!   `cspace-planning/src/constraints/sampler.rs`.
 //! - `UnionConstraintSampler` -> ported as
 //!   [`cspace_planning::constraints::UnionConstraintSampler`],
-//!   `cspace-constraints/src/sampler.rs`, composing other samplers by
+//!   `cspace-planning/src/constraints/sampler.rs`, composing other samplers by
 //!   sorted dependency order.
 //! - `IKConstraintSampler` and `ConstraintSamplerManager::selectDefaultSampler`
 //!   -> ported as [`cspace_planning::constraints::IkConstraintSampler`]/
 //!   [`cspace_planning::constraints::IkConstraintSamplerAdapter`]
-//!   (`cspace-constraints/src/ik_sampler.rs`) and
+//!   (`cspace-planning/src/constraints/ik_sampler.rs`) and
 //!   [`cspace_planning::constraints::select_default_sampler`]
-//!   (`cspace-constraints/src/constraint_sampler_manager.rs`). The
+//!   (`cspace-planning/src/constraints/constraint_sampler_manager.rs`). The
 //!   dependency edge this needed, `cspace_planning::constraints -> cspace_core::kinematics`,
-//!   now exists (`cspace-constraints/Cargo.toml`'s
+//!   now exists (`cspace-planning/Cargo.toml`'s
 //!   `cspace_core::kinematics.workspace = true`) — no cycle resulted, matching
 //!   the no-cycle check this section originally reasoned through before the
 //!   edge was added.

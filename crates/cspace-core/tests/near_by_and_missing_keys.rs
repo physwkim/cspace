@@ -11,7 +11,7 @@
 //! active + 1 mimic) groups cover the revolute/prismatic/mimic cases; the
 //! per-joint-kind sampling boundaries (continuous wrap, infinite-bounds
 //! zero, floating small-vs-large `da`) are unit-tested directly in
-//! `cspace-state/src/state.rs` instead, since no fixture here puts a
+//! `cspace-core/src/state/robot_state.rs` instead, since no fixture here puts a
 //! floating or a continuous-revolute joint inside an SRDF group (see that
 //! module's own test-module doc comment). `pr2`'s `base` group (exactly
 //! `world_joint`, PR2's planar virtual joint) covers the planar case at the
