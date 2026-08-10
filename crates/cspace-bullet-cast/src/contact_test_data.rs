@@ -36,7 +36,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::cast_contact::CastContact;
+use cspace_bullet::linear_math::{Scalar, Vec3};
 
 /// `collision_detection::BodyType` (`collision_common.hpp:57-68`).
 ///
@@ -50,6 +50,47 @@ pub enum BodyType {
     RobotAttached,
     /// `WORLD_OBJECT` -- an object in the collision world.
     WorldObject,
+}
+
+/// `collision_detection::Contact` (`collision_common.hpp:74-112`), reduced to
+/// the fields the continuous path writes and reads.
+///
+/// This is the stored record, and every field on it is already in its final
+/// form. In particular the two bodies are the way round the result reports
+/// them: `addCastSingleResult` exchanges the names and the types in place
+/// (`bullet_utils.hpp:464-465`) so the *non*-swept object is reported first,
+/// and [`crate::cast_contact::apply_cast_result`] performs that exchange
+/// rather than recording that one is owed.
+///
+/// `nearest_points` is absent. `addDiscreteSingleResult` fills it
+/// (`bullet_utils.hpp:405-406`); the cast path never assigns it and
+/// `collision_detection::Contact` gives it no default initialiser
+/// (`collision_common.hpp:105`), so what the swap at `:462` exchanges is
+/// whatever the stack held. There is no value to reproduce.
+///
+/// `cost_density`, `subframe_1`/`subframe_2` and the two `nearest_points`
+/// members are likewise untouched by either bullet result callback.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Contact {
+    /// `body_name_1`.
+    pub body_name_1: String,
+    /// `body_name_2`.
+    pub body_name_2: String,
+    /// `body_type_1`.
+    pub body_type_1: BodyType,
+    /// `body_type_2`.
+    pub body_type_2: BodyType,
+    /// `normal` -- `-1 * cp.m_normalWorldOnB`, negated once more when the
+    /// swept object was the first of the pair.
+    pub normal: Vec3,
+    /// `pos`.
+    pub pos: Vec3,
+    /// `depth` -- `cp.m_distance1`, negative when the shapes overlap.
+    pub depth: Scalar,
+    /// `percent_interpolation` -- 0 at the start pose, 1 at the end pose.
+    /// Zero until `addCastSingleResult`'s tail computes it, which happens
+    /// only for a contact this pair actually stored.
+    pub percent_interpolation: Scalar,
 }
 
 /// The fields of `collision_detection::CollisionRequest` that `processResult`
@@ -113,7 +154,7 @@ pub struct CastResult {
     ///
     /// A [`BTreeMap`], because upstream's is a `std::map` and the iteration
     /// order of the finished result is part of what a caller sees.
-    pub contacts: BTreeMap<(String, String), Vec<CastContact>>,
+    pub contacts: BTreeMap<(String, String), Vec<Contact>>,
     /// `cdata.done` -- stop the whole traversal.
     pub done: bool,
     /// `cdata.pair_done` -- stop this pair, cleared by the traversal at the
@@ -178,7 +219,7 @@ impl CastResult {
     /// Upstream's `processResult` hands back `&(...->second.back())` and
     /// `addCastSingleResult` writes `col->percent_interpolation` and the two
     /// swaps through it; this is that pointer, re-acquired.
-    pub fn last_contact_mut(&mut self, key: &(String, String)) -> Option<&mut CastContact> {
+    pub fn last_contact_mut(&mut self, key: &(String, String)) -> Option<&mut Contact> {
         self.contacts.get_mut(key).and_then(|pair| pair.last_mut())
     }
 }
@@ -200,7 +241,7 @@ impl CastResult {
 pub fn process_result(
     result: &mut CastResult,
     request: &CastRequest,
-    contact: CastContact,
+    contact: Contact,
     key: (String, String),
 ) -> Stored {
     // add deepest penetration / smallest distance to result
@@ -260,15 +301,17 @@ pub fn process_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cspace_bullet::linear_math::{Scalar, Vec3};
 
-    fn contact(depth: Scalar) -> CastContact {
-        CastContact {
+    fn contact(depth: Scalar) -> Contact {
+        Contact {
+            body_name_1: "a".to_owned(),
+            body_name_2: "b".to_owned(),
+            body_type_1: BodyType::RobotLink,
+            body_type_2: BodyType::WorldObject,
             normal: Vec3::new(0.0, 0.0, 1.0),
             pos: Vec3::zero(),
             depth,
             percent_interpolation: 0.0,
-            swap_bodies: false,
         }
     }
 

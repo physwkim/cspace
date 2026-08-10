@@ -43,39 +43,13 @@
 //! rather than improving it, because the oracle it is checked against is
 //! upstream.
 
-use cspace_bullet::linear_math::{Scalar, Transform, Vec3};
+use cspace_bullet::linear_math::Transform;
 use cspace_bullet::manifold::ManifoldPoint;
 
 use crate::cast_hull_shape::{
     BULLET_LENGTH_TOLERANCE, BULLET_SUPPORT_FUNC_TOLERANCE, CastHullShape, get_average_support,
 };
-
-/// What `addCastSingleResult` leaves in the stored `collision_detection::Contact`.
-///
-/// Named as a return value rather than written into a caller's contact because
-/// the fields upstream writes are split across two objects -- some into the
-/// local `contact` before `processResult` copies it out, some into the stored
-/// `col` afterwards -- and one of those writes lands on the wrong one. See
-/// [`cast_single_result`].
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CastContact {
-    /// `contact.normal`, after the `col->normal *= -1` that a cast-first pair
-    /// applies.
-    pub normal: Vec3,
-    /// `contact.pos`.
-    pub pos: Vec3,
-    /// `contact.depth`.
-    pub depth: Scalar,
-    /// `col->percent_interpolation`: 0 at the start pose, 1 at the end pose.
-    pub percent_interpolation: Scalar,
-    /// Whether the two bodies' names and types are exchanged, which upstream
-    /// does with two `std::swap`s so that the non-cast object is reported
-    /// first.
-    ///
-    /// Returned rather than applied because the names and types are the
-    /// caller's, not this crate's.
-    pub swap_bodies: bool,
-}
+use crate::contact_test_data::Contact;
 
 /// `addCastSingleResult` (`bullet_utils.hpp:419-517`), less the `processResult`
 /// accumulation that decides whether a contact is stored at all.
@@ -98,8 +72,8 @@ pub struct CastContact {
 /// - `contact.pos = convertBtToEigen(cp.m_positionWorldOnB)` (`:463`) assigns
 ///   to the *local* `contact`, which `processResult` copied into the result
 ///   several lines earlier (`:444`). The stored `pos` therefore stays
-///   `m_positionWorldOnA` even for a cast-first pair, and [`CastContact::pos`]
-///   is that value on both branches.
+///   `m_positionWorldOnA` even for a cast-first pair, and [`Contact::pos`] is
+///   left alone here on both branches.
 /// - `std::swap(col->nearest_points[0], col->nearest_points[1])` (`:462`) swaps
 ///   two `Eigen::Vector3d`s that nothing on this path ever assigns.
 ///   `collision_detection::Contact::nearest_points` has no default initialiser
@@ -111,14 +85,18 @@ pub struct CastContact {
 /// `getAverageSupport` and never read -- `sup0`/`sup1` are recomputed from the
 /// world-space points -- so only the point half of each call's result is bound
 /// here.
-#[must_use]
-pub fn cast_single_result(
+pub fn apply_cast_result(
+    col: &mut Contact,
     point: &ManifoldPoint,
     cast_shape_is_first: bool,
     cast_shape: &CastHullShape,
     cast_world_transform: Transform,
-) -> CastContact {
-    let normal = -1.0 * point.normal_world_on_b;
+) {
+    if cast_shape_is_first {
+        std::mem::swap(&mut col.body_name_1, &mut col.body_name_2);
+        std::mem::swap(&mut col.body_type_1, &mut col.body_type_2);
+        col.normal = col.normal * -1.0;
+    }
 
     let normal_world_from_cast =
         if cast_shape_is_first { -1.0 } else { 1.0 } * point.normal_world_on_b;
@@ -160,17 +138,7 @@ pub fn cast_single_result(
         }
     };
 
-    CastContact {
-        normal: if cast_shape_is_first {
-            normal * -1.0
-        } else {
-            normal
-        },
-        pos: point.position_world_on_a,
-        depth: point.distance1,
-        percent_interpolation,
-        swap_bodies: cast_shape_is_first,
-    }
+    col.percent_interpolation = percent_interpolation;
 }
 
 #[cfg(test)]
@@ -178,6 +146,8 @@ mod tests {
     use super::*;
     use crate::arc_probe::arc_probe_shapes;
     use crate::cast_hull_shape::ArcConvexShape;
+    use crate::contact_test_data::BodyType;
+    use cspace_bullet::linear_math::{Scalar, Vec3};
     use cspace_bullet::probe_fixture::{IDENTITY, at, diff, rot60_at, row};
     use std::sync::Arc;
 
@@ -210,6 +180,23 @@ pctinterp_ratio_quarter_cast_first|0.25
         point.position_world_on_a = pos_a;
         point.position_world_on_b = pos_b;
         point
+    }
+
+    /// The contact `addCastSingleResult` fills in before `processResult` stores
+    /// it (`bullet_utils.hpp:434-442`), which is the state
+    /// [`apply_cast_result`] is handed: the two bodies still in the order the
+    /// broadphase presented them, and the normal negated exactly once.
+    fn pending_contact(point: &ManifoldPoint) -> Contact {
+        Contact {
+            body_name_1: "cd0".to_owned(),
+            body_name_2: "cd1".to_owned(),
+            body_type_1: BodyType::RobotLink,
+            body_type_2: BodyType::WorldObject,
+            normal: point.normal_world_on_b * -1.0,
+            pos: point.position_world_on_a,
+            depth: point.distance1,
+            percent_interpolation: 0.0,
+        }
     }
 
     #[test]
@@ -371,7 +358,8 @@ pctinterp_ratio_quarter_cast_first|0.25
         for c in cases {
             let cast = CastHullShape::new(Arc::clone(&c.shape), c.t01);
             let point = manifold_point(c.normal, c.pos_a, c.pos_b, -0.01);
-            let got = cast_single_result(&point, c.cast_first, &cast, c.world);
+            let mut got = pending_contact(&point);
+            apply_cast_result(&mut got, &point, c.cast_first, &cast, c.world);
 
             let name = c.name;
             let full = format!("pctinterp_{name}");
@@ -400,15 +388,16 @@ pctinterp_ratio_quarter_cast_first|0.25
         );
     }
 
-    /// A cast-first pair negates the reported normal, and only the reported
-    /// normal: the position stays `m_positionWorldOnA` because upstream's write
-    /// of `m_positionWorldOnB` lands on a copy the result no longer refers to.
+    /// A cast-first pair exchanges the two bodies and negates the reported
+    /// normal, and touches nothing else: the position stays
+    /// `m_positionWorldOnA` because upstream's write of `m_positionWorldOnB`
+    /// lands on a copy the result no longer refers to.
     ///
-    /// The fixture rows above cannot see either: `castPercentInterpolation` is
-    /// the *tail* of `addCastSingleResult`, and both of these are decided in
-    /// the part that writes into `ContactTestData`.
+    /// The fixture rows above cannot see any of this:
+    /// `castPercentInterpolation` is the *tail* of `addCastSingleResult`, and
+    /// these are decided in the part that writes into `ContactTestData`.
     #[test]
-    fn a_cast_first_pair_negates_the_normal_and_keeps_position_world_on_a() {
+    fn a_cast_first_pair_swaps_the_bodies_and_negates_only_the_normal() {
         let (unit_box, ..) = arc_probe_shapes();
         let cast = CastHullShape::new(unit_box, at(1.0, 0.0, 0.0));
         let normal = Vec3::new(0.0, 0.0, 1.0);
@@ -416,18 +405,29 @@ pctinterp_ratio_quarter_cast_first|0.25
         let pos_b = Vec3::new(4.0, 5.0, 6.0);
         let point = manifold_point(normal, pos_a, pos_b, -0.25);
 
-        let cast_second = cast_single_result(&point, false, &cast, IDENTITY);
-        let cast_first = cast_single_result(&point, true, &cast, IDENTITY);
+        let mut cast_second = pending_contact(&point);
+        apply_cast_result(&mut cast_second, &point, false, &cast, IDENTITY);
+        let mut cast_first = pending_contact(&point);
+        apply_cast_result(&mut cast_first, &point, true, &cast, IDENTITY);
 
         assert_eq!(cast_second.normal, -normal);
         assert_eq!(cast_first.normal, normal);
+
+        assert_eq!(cast_second.body_name_1, "cd0");
+        assert_eq!(cast_second.body_type_1, BodyType::RobotLink);
+        assert_eq!(
+            cast_first.body_name_1, "cd1",
+            "the non-swept object is reported first"
+        );
+        assert_eq!(cast_first.body_type_1, BodyType::WorldObject);
+        assert_eq!(cast_first.body_name_2, "cd0");
+        assert_eq!(cast_first.body_type_2, BodyType::RobotLink);
+
         assert_eq!(cast_second.pos, pos_a);
         assert_eq!(
             cast_first.pos, pos_a,
             "the m_positionWorldOnB write at bullet_utils.hpp:463 never reaches the result"
         );
-        assert!(cast_first.swap_bodies);
-        assert!(!cast_second.swap_bodies);
         assert_eq!(cast_second.depth, -0.25);
     }
 }
