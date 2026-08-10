@@ -25,6 +25,12 @@
 
 #include <cstdio>
 
+#include "BulletCollision/BroadphaseCollision/btCollisionAlgorithm.h"
+#include "BulletCollision/CollisionDispatch/btCollisionDispatcher.h"
+#include "BulletCollision/CollisionDispatch/btCollisionObject.h"
+#include "BulletCollision/CollisionDispatch/btCollisionObjectWrapper.h"
+#include "BulletCollision/CollisionDispatch/btDefaultCollisionConfiguration.h"
+#include "BulletCollision/CollisionDispatch/btManifoldResult.h"
 #include "BulletCollision/CollisionShapes/btBoxShape.h"
 #include "BulletCollision/CollisionShapes/btConeShape.h"
 #include "BulletCollision/CollisionShapes/btConvexHullShape.h"
@@ -86,6 +92,76 @@ static void pendepth(const char* name, const btConvexShape* a, const btTransform
 	       (double)v[0], (double)v[1], (double)v[2],
 	       (double)wa[0], (double)wa[1], (double)wa[2],
 	       (double)wb[0], (double)wb[1], (double)wb[2]);
+}
+
+// A `btManifoldResult` that replaces `addContactPoint` instead of extending
+// it, exactly as MoveIt's `TesseractBroadphaseBridgedManifoldResult` does
+// (`bullet_utils.hpp:571-630`). Nothing reaches the manifold's point cache, so
+// the count printed below is this counter and not `getNumContacts()`.
+struct RecordingResult : public btManifoldResult
+{
+	int count;
+	btVector3 normal;
+	btVector3 point;
+	btScalar depth;
+
+	RecordingResult(const btCollisionObjectWrapper* a, const btCollisionObjectWrapper* b)
+		: btManifoldResult(a, b), count(0), normal(0, 0, 0), point(0, 0, 0), depth(0)
+	{
+	}
+
+	void addContactPoint(const btVector3& normalOnBInWorld, const btVector3& pointInWorld,
+	                     btScalar d) override
+	{
+		++count;
+		normal = normalOnBInWorld;
+		point = pointInWorld;
+		depth = d;
+	}
+};
+
+// One `processCollision` through the dispatcher MoveIt configures.
+// `closestPointDistanceThreshold` is `BroadphaseContactResultCallback`'s
+// `contact_distance_`, which the caller sets per query.
+static void cc(const char* name, btConvexShape* a, const btTransform& ta, btConvexShape* b,
+               const btTransform& tb, btScalar closestPointDistanceThreshold)
+{
+	btDefaultCollisionConfiguration config;
+	btCollisionDispatcher dispatcher(&config);
+	dispatcher.setDispatcherFlags(dispatcher.getDispatcherFlags() &
+	                              ~btCollisionDispatcher::CD_USE_RELATIVE_CONTACT_BREAKING_THRESHOLD);
+
+	btCollisionObject obj_a, obj_b;
+	obj_a.setCollisionShape(a);
+	obj_a.setWorldTransform(ta);
+	obj_b.setCollisionShape(b);
+	obj_b.setWorldTransform(tb);
+
+	btCollisionObjectWrapper wrap_a(nullptr, a, &obj_a, ta, -1, -1);
+	btCollisionObjectWrapper wrap_b(nullptr, b, &obj_b, tb, -1, -1);
+
+	RecordingResult result(&wrap_a, &wrap_b);
+	result.m_closestPointDistanceThreshold = closestPointDistanceThreshold;
+
+	btCollisionAlgorithm* algo =
+	    dispatcher.findAlgorithm(&wrap_a, &wrap_b, nullptr, BT_CLOSEST_POINT_ALGORITHMS);
+
+	btDispatcherInfo info;
+	algo->processCollision(&wrap_a, &wrap_b, info, &result);
+
+	// The cut-off `processCollision` built for its GJK query, recomputed here
+	// from the same four terms so the row records it directly rather than
+	// leaving it inferable only through the contact.
+	btScalar sum = a->getMargin() + b->getMargin() + gContactBreakingThreshold +
+	               closestPointDistanceThreshold;
+
+	printf("%s|%d|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g\n", name, result.count,
+	       (double)result.normal[0], (double)result.normal[1], (double)result.normal[2],
+	       (double)result.point[0], (double)result.point[1], (double)result.point[2],
+	       (double)result.depth, (double)(sum * sum));
+
+	algo->~btCollisionAlgorithm();
+	dispatcher.freeCollisionAlgorithm(algo);
 }
 
 // `btVec3PointTriDist2` is btGjkPairDetector.cpp's own -- part of the libCCD
@@ -363,6 +439,35 @@ int main()
 	    btVector3(1.0001f, 1e-4f, 0.f), btVector3(1.0002f, 2e-4f, 1e-5f));
 	tri("t_large", btVector3(100.f, 100.f, 100.f), btVector3(-50.f, 0.f, 0.f),
 	    btVector3(50.f, 0.f, 0.f), btVector3(0.f, 70.f, 30.f));
+
+	// `btConvexConvexAlgorithm::processCollision`, driven the way MoveIt
+	// drives it: a real `btCollisionDispatcher` with the relative
+	// contact-breaking threshold cleared, `findAlgorithm` asked for
+	// `BT_CLOSEST_POINT_ALGORITHMS`, and a `btManifoldResult` subclass that
+	// overrides `addContactPoint` outright rather than letting the base cache
+	// into the manifold -- which is what makes the manifold's point array
+	// unreachable and its breaking threshold the only part that is read.
+	// Fields: `name|contacts|normalOnB xyz|pointOnB xyz|depth|maxDistSq`.
+	//
+	// Every pair below has a non-polyhedral shape on at least one side, so
+	// `min0->isPolyhedral() && min1->isPolyhedral()` is false and the query
+	// takes the GJK branch -- the only one the continuous path can reach,
+	// since a `CastHullShape` is `CUSTOM_CONVEX_SHAPE_TYPE` and sits on one
+	// side of every CCD pair. Two boxes would take the SAT/clipping branch
+	// instead and pin arithmetic the port deliberately does not carry.
+	//
+	// The cone/cylinder rows straddle the cut-off with both margins at zero,
+	// which puts it at `gContactBreakingThreshold` alone: their apex-to-face
+	// gap is 0.015 and 0.03 against a 0.02 bound, and the third row brings
+	// the 0.03 one back with `m_closestPointDistanceThreshold`.
+	cc("cc_sphere_cyl_overlap", &sphere, id, &cyl, at(0.6f, 0.1f, 0.2f), 0.f);
+	cc("cc_sphere_cyl_far", &sphere, id, &cyl, at(3.f, 0.f, 0.f), 0.f);
+	cc("cc_cone_cyl_inside_cutoff", &cone, id, &cyl, at(0.f, 0.f, 0.915f), 0.f);
+	cc("cc_cone_cyl_past_cutoff", &cone, id, &cyl, at(0.f, 0.f, 0.93f), 0.f);
+	cc("cc_cone_cyl_threshold_widens", &cone, id, &cyl, at(0.f, 0.f, 0.93f), 0.25f);
+	cc("cc_cone_cyl_deep", &cone, id, &cyl, at(0.1f, 0.f, 0.3f), 0.f);
+	cc("cc_hull_cone_rot60", &hull, id, &cone, rot60_at(0.4f, 0.1f, 0.05f), 0.05f);
+	cc("cc_margin_box_sphere", &margin_box, id, &small_sphere, at(0.85f, 0.05f, 0.f), 0.f);
 
 	// The row that pins the solve's precision. `u,v,w,p,q,r,s,t` are C `double`
 	// inside this float build, and on the triangles above that costs nothing --

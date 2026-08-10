@@ -37,11 +37,51 @@ mkdir -p "$BUILD_DIR"
 
 # btGjkEpa2.cpp reaches btConvexShape, which reaches the whole shape
 # hierarchy; btPolyhedralConvexShape reaches btConvexPolyhedron and the hull
-# computer. This is the transitive closure of that, not a chosen subset.
+# computer. btDefaultCollisionConfiguration -- which the probe builds so that
+# `findAlgorithm` picks the algorithm the way MoveIt's dispatcher does --
+# constructs every create-func it knows, so its whole algorithm set links in
+# too. This is the transitive closure of both, not a chosen subset; the
+# probe's own reachability argument for the *port* is in probe.cpp and in
+# crates/cspace-bullet/src/convex_convex.rs, and is a separate question from
+# what the linker needs.
 g++ -O2 -Wall -Wextra -std=c++11 \
     -I"$BULLET_SRC/src" \
     -o "$BUILD_DIR/probe" \
     "$HERE/probe.cpp" \
+    "$BULLET_SRC/src/BulletCollision/BroadphaseCollision/btCollisionAlgorithm.cpp" \
+    "$BULLET_SRC/src/BulletCollision/BroadphaseCollision/btDbvt.cpp" \
+    "$BULLET_SRC/src/BulletCollision/BroadphaseCollision/btDispatcher.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/SphereTriangleDetector.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btActivatingCollisionAlgorithm.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btBoxBoxCollisionAlgorithm.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btBoxBoxDetector.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btCollisionDispatcher.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btCollisionObject.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btCompoundCollisionAlgorithm.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btCompoundCompoundCollisionAlgorithm.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btConvexConcaveCollisionAlgorithm.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btConvexConvexAlgorithm.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btConvexPlaneCollisionAlgorithm.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btDefaultCollisionConfiguration.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btEmptyCollisionAlgorithm.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btHashedSimplePairCache.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btManifoldResult.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btSphereSphereCollisionAlgorithm.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btSphereTriangleCollisionAlgorithm.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionShapes/btMiniSDF.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionShapes/btCompoundShape.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionShapes/btConcaveShape.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionShapes/btSdfCollisionShape.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionShapes/btStaticPlaneShape.cpp" \
+    "$BULLET_SRC/src/BulletCollision/CollisionShapes/btTriangleCallback.cpp" \
+    "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btContinuousConvexCollision.cpp" \
+    "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btConvexCast.cpp" \
+    "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btGjkConvexCast.cpp" \
+    "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btMinkowskiPenetrationDepthSolver.cpp" \
+    "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btPersistentManifold.cpp" \
+    "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btPolyhedralContactClipping.cpp" \
+    "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btRaycastCallback.cpp" \
+    "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btSubSimplexConvexCast.cpp" \
     "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btGjkEpa2.cpp" \
     "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btGjkEpaPenetrationDepthSolver.cpp" \
     "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btGjkPairDetector.cpp" \
@@ -60,6 +100,7 @@ g++ -O2 -Wall -Wextra -std=c++11 \
     "$BULLET_SRC/src/LinearMath/btConvexHull.cpp" \
     "$BULLET_SRC/src/LinearMath/btConvexHullComputer.cpp" \
     "$BULLET_SRC/src/LinearMath/btGeometryUtil.cpp" \
+    "$BULLET_SRC/src/LinearMath/btQuickprof.cpp" \
     "$BULLET_SRC/src/LinearMath/btSerializer.cpp" \
     "$BULLET_SRC/src/LinearMath/btVector3.cpp"
 
