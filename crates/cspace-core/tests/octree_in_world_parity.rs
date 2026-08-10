@@ -1,4 +1,4 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! Parity test for wiring [`cspace_core::geometry::shapes::OcTree`] into a posed

@@ -1,4 +1,4 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! `moveit_msgs/MotionPlanRequest`/`MotionPlanResponse` <->
@@ -156,7 +156,7 @@ impl TryFrom<StartStateMsg> for StartState {
         if !msg.attached_collision_objects.is_empty() {
             return Err(Error::other(
                 "MotionPlanRequest.start_state.attached_collision_objects is not \
-                 representable: moveit-rs keeps attached bodies on PlanningScene, not on \
+                 representable: cspace keeps attached bodies on PlanningScene, not on \
                  a start state (same gap as state.rs, doc/message-mapping.md §9)",
             ));
         }

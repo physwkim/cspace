@@ -1,4 +1,4 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // No upstream file: PORTING-PLAN.md §148's decisive experiment for the

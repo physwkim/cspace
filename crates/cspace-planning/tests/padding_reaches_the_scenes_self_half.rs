@@ -1,4 +1,4 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! Pins the one place this port's single-environment collision design gives a

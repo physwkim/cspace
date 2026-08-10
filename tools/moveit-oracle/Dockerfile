@@ -1,4 +1,4 @@
-# Differential-test oracle image for moveit-rs.
+# Differential-test oracle image for cspace.
 #
 # Layer 1 (this file, stage `moveit`): moveit_core built from the pinned
 # upstream SHA. Only `--packages-up-to moveit_core` is built — the oracle links

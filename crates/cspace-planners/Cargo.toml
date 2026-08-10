@@ -1,6 +1,6 @@
 [package]
 name = "cspace-planners"
-description = "Motion planners for moveit-rs: sampling-based (RRT-Connect), CHOMP, Pilz industrial LIN/PTP/CIRC and STOMP"
+description = "Motion planners for cspace: sampling-based (RRT-Connect), CHOMP, Pilz industrial LIN/PTP/CIRC and STOMP"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

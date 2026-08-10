@@ -1,4 +1,4 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! PORTING-PLAN.md §5's third Phase 5 completion condition, as a test:

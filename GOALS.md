@@ -1,4 +1,4 @@
-# moveit-rs — 핵심 목표
+# cspace — 핵심 목표
 
 MoveIt 2를 ROS 비의존 순수 Rust 모션플래닝 라이브러리로 이식한다.
 

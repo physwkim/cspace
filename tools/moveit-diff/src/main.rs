@@ -1,7 +1,7 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! Differential test runner: drives the C++ moveit2 oracle and the moveit-rs
+//! Differential test runner: drives the C++ moveit2 oracle and the cspace
 //! implementation over the same cases and reports every disagreement.
 //!
 //! The oracle is a separate process (see `tools/moveit-oracle`), normally run
@@ -975,7 +975,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
     let rust_model = build_rust_model(cfg)?;
 
     // The oracle is the source of truth for the fixture's joint names and
-    // bounds, so cases can be sampled before moveit-rs can load a model at all.
+    // bounds, so cases can be sampled before cspace can load a model at all.
     let model = match oracle.ask(Op::ModelInfo)? {
         OracleResult::ModelInfo(m) => m,
         other => return Err(format!("expected model_info, got {other:?}")),

@@ -1,5 +1,5 @@
 // Copyright 2008 Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from geometric_shapes 2.3.3 — see `bodies.rs`'s provenance comment
@@ -69,7 +69,7 @@
 //! other two, and both still carry `cxx_min`). `cspace_core::geometry` depends on
 //! neither of those crates, and the only crate every numeric-comparison-
 //! needing crate already shares is `cspace_core::error`, whose whole doc is
-//! "Error types for moveit-rs" — these functions don't belong there either.
+//! "Error types for cspace" — these functions don't belong there either.
 //! The structural fix is one shared crate; it is deferred, not skipped,
 //! because adding a `moveit-numeric` workspace member means editing
 //! `Cargo.toml`/`Cargo.lock` while five branches are divergent, and every

@@ -1,6 +1,6 @@
 // Copyright (c) 2013, Ioan A. Sucan
 // Copyright (c) 2013, Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
@@ -11,7 +11,7 @@
 //   moveit_core/robot_model/include/moveit/robot_model/floating_joint_model.hpp
 //   moveit_core/robot_model/include/moveit/robot_model/fixed_joint_model.hpp
 
-//! The robot model layer of the moveit-rs port: joints, links, the full
+//! The robot model layer of the cspace port: joints, links, the full
 //! kinematic tree, and SRDF planning groups.
 //!
 //! # Scope

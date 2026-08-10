@@ -1,5 +1,5 @@
 // Copyright 2008, 2011, Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from geometric_shapes 2.3.3 — a separate upstream package that

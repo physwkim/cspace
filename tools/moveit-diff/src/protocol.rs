@@ -1,4 +1,4 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! Wire protocol shared with the C++ oracle (`tools/moveit-oracle`).
@@ -264,7 +264,7 @@ pub enum Op {
         /// `cspace_core::kinematics::SolverParams::max_restarts` on this side,
         /// `kMaxRestarts` on the oracle side. Sent explicitly, not defaulted
         /// on either side, because it is the knob the round-2 investigation
-        /// into moveit-rs's IK success-rate gap needs to isolate: at `0`,
+        /// into cspace's IK success-rate gap needs to isolate: at `0`,
         /// both sides run exactly one deterministic attempt from the
         /// identical bounds-midpoint seed, with no randomness anywhere on
         /// either side, so a surviving gap cannot be restart-RNG divergence

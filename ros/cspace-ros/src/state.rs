@@ -1,4 +1,4 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! `moveit_msgs/RobotState` <-> [`cspace_core::state::RobotState`] (round 2,
@@ -105,7 +105,7 @@ impl<'m> TryFrom<RobotStateMsg<'m>> for CoreRobotState<'m> {
         if !msg.attached_collision_objects.is_empty() {
             return Err(Error::other(
                 "RobotState.attached_collision_objects is not \
-                 representable here: moveit-rs keeps attached bodies on \
+                 representable here: cspace keeps attached bodies on \
                  PlanningScene, not RobotState (attached_body.rs, see \
                  doc/message-mapping.md §9)",
             ));

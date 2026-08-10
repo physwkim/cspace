@@ -1,6 +1,6 @@
 // Copyright (c) 2011-2014, Willow Garage, Inc.
 // Copyright (c) 2014-2016, Open Source Robotics Foundation
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from fcl @ e5efcc41b57b2d0da3bf183480f1298a6d531f44 (0.7.0-17-ge5efcc4):

@@ -1,5 +1,5 @@
 // Copyright (c) 2012, Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // No upstream file ported line-for-line. This is the D4 compile-time

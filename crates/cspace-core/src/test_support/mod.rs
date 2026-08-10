@@ -1,7 +1,7 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! Shared test-fixture helpers for moveit-rs crates -- assertions that guard
+//! Shared test-fixture helpers for cspace crates -- assertions that guard
 //! against a specific fixture defect, and small conversions oracle-parity
 //! fixtures need on both sides of a comparison.
 //!
@@ -62,7 +62,7 @@ pub fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3<f64> {
 
 /// Fails loudly, at fixture-construction time, if `group_name`'s
 /// `updated_link_names()` is empty -- the set every group-scoped
-/// self/robot-collision or trajectory-group-name check across moveit-rs
+/// self/robot-collision or trajectory-group-name check across cspace
 /// actually walks (e.g. `cspace_collision::distance_field`'s
 /// `generate_distance_field_cache_entry`, `cspace-collision`'s
 /// `ParryCollisionEnv::active_group_links`). A group can look fine by

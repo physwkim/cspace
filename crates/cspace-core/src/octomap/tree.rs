@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2013, K.M. Wurm and A. Hornung, University of Freiburg
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from octomap 1.9.7 (see key.rs's provenance comment for how the
@@ -96,7 +96,7 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 ///
 /// **Headers read.** `octomap` is not checked out on this host at all (see
 /// this crate's provenance note in `lib.rs`); all five headers below were
-/// read from inside the `moveit-rs` oracle container --
+/// read from inside the `cspace` oracle container --
 /// `sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:7b8463d6943edaac -c 'cat /usr/include/octomap/<header>'"`
 /// -- in this order (most-derived class first):
 ///

@@ -1,5 +1,5 @@
 // Copyright (c) 2008, Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:

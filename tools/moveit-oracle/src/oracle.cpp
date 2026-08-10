@@ -1,4 +1,4 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Differential-test oracle: loads a URDF/SRDF pair with the C++ MoveIt 2
@@ -4256,7 +4256,7 @@ private:
   ///   count here, never `0`.
   ///
   ///   This used to be the end of it: the Rust port left the field empty, so
-  ///   the two were not comparable. That is no longer true. `moveit-rs` round
+  ///   the two were not comparable. That is no longer true. `cspace` round
   ///   25 closed the gap in the other direction -- its fresh-build path reads
   ///   `link_bd.sphere_centers()` directly, reproducing the value upstream
   ///   only produces on the pregenerated branch -- so this field now *is*

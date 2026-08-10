@@ -1,6 +1,6 @@
 [package]
 name = "moveit-diff"
-description = "Differential test runner comparing moveit-rs against the C++ moveit2 oracle"
+description = "Differential test runner comparing cspace against the C++ moveit2 oracle"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

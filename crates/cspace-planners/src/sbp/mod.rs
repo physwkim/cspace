@@ -1,4 +1,4 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // No upstream C++ file to port: PORTING-PLAN.md §2 records that the Rust
@@ -9,7 +9,7 @@
 // 2000); the nearest-neighbour index is GNAT-family (Brin, 1995) for the
 // reason recorded in `nn`'s doc comment, not a port of OMPL's C++ GNAT.
 
-//! Sampling-based motion planning for moveit-rs.
+//! Sampling-based motion planning for cspace.
 //!
 //! # Scope
 //!

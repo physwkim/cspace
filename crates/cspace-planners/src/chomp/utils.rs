@@ -1,5 +1,5 @@
 // Copyright (c) 2009, Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
@@ -12,7 +12,7 @@
 //! `normalize_angle_positive`/`normalize_angle`/`shortest_angular_distance`
 //! below are transcribed fresh from `chomp_utils.hpp`'s own bodies (marked
 //! there `// copied from geometry/angles/angles.h`), not reused from any
-//! other moveit-rs crate's angle-normalization helper. Upstream itself
+//! other cspace crate's angle-normalization helper. Upstream itself
 //! keeps this as a separate local copy rather than sharing one
 //! implementation across packages (the ROS `angles` package is a distinct
 //! dependency `chomp_motion_planner` does not take), and other crates in

@@ -1,4 +1,4 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! Error type for [`crate::octomap::OcTree::read_binary_data`]/[`crate::octomap::OcTree::read_data`].

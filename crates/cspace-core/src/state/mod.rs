@@ -3,7 +3,7 @@
 // Copyright (c) 2012, Willow Garage, Inc.
 // Copyright (c) 2011-2013, Willow Garage, Inc.
 // Copyright (c) 2011, Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
@@ -14,7 +14,7 @@
 //   moveit_core/robot_state/include/moveit/robot_state/conversions.hpp
 //   moveit_core/robot_state/src/conversions.cpp
 
-//! `RobotState`, forward kinematics and inverse dynamics for moveit-rs.
+//! `RobotState`, forward kinematics and inverse dynamics for cspace.
 //!
 //! # Scope
 //!

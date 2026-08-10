@@ -1,6 +1,6 @@
 // Copyright (c) 2018, Pilz GmbH & Co. KG
 // Copyright 2020, PAL Robotics S.L.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause AND Apache-2.0
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:

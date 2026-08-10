@@ -1,5 +1,5 @@
 // Copyright (c) 2016, Southwest Research Institute
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: Apache-2.0
 //
 // Ported from ros-industrial/stomp @ b1a87c80f7338caae25a5c689b876da15492aa75:

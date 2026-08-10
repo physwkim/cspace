@@ -1,5 +1,5 @@
 // Copyright (c) 2011, Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from srdfdom 2.0.8 — the SRDF parser that moveit2 @
@@ -9,7 +9,7 @@
 //   srdfdom/include/srdfdom/model.h
 //   srdfdom/src/model.cpp
 
-//! SRDF parsing for moveit-rs.
+//! SRDF parsing for cspace.
 //!
 //! SRDF is the semantic half of a robot description: the URDF says what links
 //! and joints exist, the SRDF says which of them form a planning group, what

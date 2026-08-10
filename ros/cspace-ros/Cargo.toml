@@ -1,12 +1,12 @@
 [package]
 name = "cspace-ros"
-description = "Optional ROS 2 interop for moveit-rs: moveit_msgs <-> core-crate TryFrom conversions, plan_kinematic_path service, move_action action server (PORTING-PLAN.md Phase 9)"
+description = "Optional ROS 2 interop for cspace: moveit_msgs <-> core-crate TryFrom conversions, plan_kinematic_path service, move_action action server (PORTING-PLAN.md Phase 9)"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "BSD-3-Clause"
-repository = "https://github.com/stevek/moveit-rs"
-authors = ["moveit-rs contributors"]
+repository = "https://github.com/physwkim/cspace"
+authors = ["cspace contributors"]
 publish = false
 
 # This crate is its own workspace root (PORTING-PLAN.md D5): an empty

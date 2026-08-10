@@ -2,7 +2,7 @@
 // Copyright (c) 2010, Willow Garage, Inc.
 // Copyright (c) 2012, Willow Garage, Inc.
 // Copyright (c) 2013, Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
@@ -16,7 +16,7 @@
 //   moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_distance_field_types.hpp
 //   moveit_core/collision_distance_field/src/collision_distance_field_types.cpp
 
-//! Voxel distance fields for moveit-rs: dense 3D grids holding the distance
+//! Voxel distance fields for cspace: dense 3D grids holding the distance
 //! from every cell to the nearest obstacle.
 //!
 //! # Scope

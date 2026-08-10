@@ -1,5 +1,5 @@
 // Copyright (c) 2012, Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
@@ -10,7 +10,7 @@
 // section for orocos_kinematics_dynamics, the LGPL-2.1-or-later source
 // this file's spatial-algebra core plays the role of instead of porting.
 
-//! Inverse dynamics (`DynamicsSolver`) for moveit-rs: joint torques from a
+//! Inverse dynamics (`DynamicsSolver`) for cspace: joint torques from a
 //! chain's inertial properties, velocity and acceleration, via the
 //! Recursive Newton-Euler algorithm (`KDL::ChainIdSolver_RNE::CartToJnt`).
 //!

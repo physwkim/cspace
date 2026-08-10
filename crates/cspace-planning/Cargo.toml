@@ -1,6 +1,6 @@
 [package]
 name = "cspace-planning"
-description = "Planner-agnostic planning request/response types and the default request/response adapter chain for moveit-rs"
+description = "Planner-agnostic planning request/response types and the default request/response adapter chain for cspace"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -3,7 +3,7 @@
 // Copyright 2019 Bielefeld University
 // Copyright 2019 Open Robotics
 // Copyright 2024 Open Robotics
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from geometric_shapes 2.3.3 (tag `192801cebacc07d0e9f719576cdd1c9b36d0bc28`,

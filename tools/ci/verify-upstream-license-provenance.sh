@@ -51,7 +51,7 @@
 # LGPL path in the header to open. A human reading the file found it, which is
 # not a property of the tree.
 #
-# So every non-`moveit-rs contributors` copyright line a file asserts must be
+# So every non-`cspace contributors` copyright line a file asserts must be
 # reproduced by a copyright line in one of that file's own cited files, on both
 # year and holder. Attribution is a claim about provenance exactly like a
 # citation is, and it is checkable against the same sources already on disk.
@@ -173,7 +173,7 @@ COPYRIGHT = re.compile(
 # reading it as this file's own claim inverts what those paragraphs say.
 ASSERTION = re.compile(r"^//\s*Copyright\b", re.I)
 # This tree's own line, which by construction has no upstream to justify it.
-OURS = re.compile(r"moveit-rs contributors", re.I)
+OURS = re.compile(r"cspace contributors", re.I)
 # The two verbs a header uses to introduce citations, and the reason the
 # retention rule below can tell them apart. `Ported from` means this file is a
 # derivative work of what follows; `Used by` means the opposite direction --

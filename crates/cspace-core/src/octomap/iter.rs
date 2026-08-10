@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2013, K.M. Wurm and A. Hornung, University of Freiburg
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from octomap 1.9.7 (see key.rs's provenance comment for how the

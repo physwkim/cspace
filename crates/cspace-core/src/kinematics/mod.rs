@@ -3,7 +3,7 @@
 // Copyright (c) 2013, Ioan A. Sucan
 // Copyright (c) 2013, Willow Garage, Inc.
 // Copyright (c) 2019, PickNik Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
@@ -21,7 +21,7 @@
 // crate's velocity solve (`velocity.rs`) plays the role of instead of
 // porting.
 
-//! Numeric inverse kinematics for moveit-rs.
+//! Numeric inverse kinematics for cspace.
 //!
 //! Upstream splits this across `kinematics_base` (the plugin interface,
 //! loaded at runtime through pluginlib by class name) and

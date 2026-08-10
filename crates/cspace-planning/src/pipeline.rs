@@ -1,5 +1,5 @@
 // Copyright (c) 2012, Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
@@ -312,7 +312,7 @@ pub enum PipelineError {
     /// lookups are typed `Result`s (`cspace_core::error::Result`), and surfacing
     /// that as an error here — rather than `.expect()`-ing an upstream
     /// invariant this port cannot independently verify — is the same
-    /// "moveit-rs prefers to surface as an error" choice
+    /// "cspace prefers to surface as an error" choice
     /// [`crate::constraints::JointConstraint::new`]'s own doc already makes
     /// for a structurally analogous case.
     #[error("failed to build trajectory-constraints feedforward: {0}")]
@@ -335,7 +335,7 @@ pub enum PipelineError {
 /// whenever the incoming weight is `<= epsilon`
 /// (`kinematic_constraint.cpp:263-270`). [`JointConstraint::new`] in this
 /// port rejects a non-positive weight as an error rather than silently
-/// substituting one (see its own doc, "moveit-rs prefers to surface as an
+/// substituting one (see its own doc, "cspace prefers to surface as an
 /// error"), so passing the literal `0.0` here would make every feedforward
 /// call fail — this function passes `1.0`, the value upstream's own
 /// substitution already arrives at, so the constraint this port builds

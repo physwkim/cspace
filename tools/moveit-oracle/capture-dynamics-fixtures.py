@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026, moveit-rs contributors
+# Copyright (c) 2026, cspace contributors
 # SPDX-License-Identifier: BSD-3-Clause
 """Regenerates crates/cspace-core/tests/fixtures/state/<robot>_dynamics.json.
 

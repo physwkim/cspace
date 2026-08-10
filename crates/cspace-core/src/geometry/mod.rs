@@ -1,5 +1,5 @@
 // Copyright (c) 2011, Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
@@ -7,7 +7,7 @@
 //   moveit_core/transforms/src/transforms.cpp
 // and from geometric_shapes 2.3.3 (see shapes.rs's provenance comment).
 
-//! Frame transforms and geometric primitives for moveit-rs.
+//! Frame transforms and geometric primitives for cspace.
 //!
 //! This crate carries [`Transforms`] (`moveit_core/transforms`) and the
 //! `geometric_shapes` shape and body layers (see the [`shapes`] and

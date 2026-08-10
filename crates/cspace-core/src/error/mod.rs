@@ -1,6 +1,6 @@
 // Copyright (c) 2013, Willow Garage, Inc.
 // Copyright (c) 2021, PickNik Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
@@ -8,7 +8,7 @@
 //   moveit_core/utils/include/moveit/utils/moveit_error_code.hpp
 //   moveit_msgs/msg/MoveItErrorCodes.msg   (numeric values are wire-exact)
 
-//! Error types for moveit-rs.
+//! Error types for cspace.
 //!
 //! Two distinct things live here, matching the upstream split:
 //!
@@ -58,7 +58,7 @@
 
 use std::fmt;
 
-/// Result alias used across moveit-rs crates.
+/// Result alias used across cspace crates.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// An unrecoverable error, replacing upstream's `moveit::Exception` hierarchy.

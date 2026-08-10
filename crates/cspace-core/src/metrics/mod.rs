@@ -1,12 +1,12 @@
 // Copyright (c) 2012, Willow Garage, Inc.
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
 //   moveit_core/kinematics_metrics/include/moveit/kinematics_metrics/kinematics_metrics.hpp
 //   moveit_core/kinematics_metrics/src/kinematics_metrics.cpp
 
-//! Manipulability metrics for moveit-rs: [`KinematicsMetrics`], ported from
+//! Manipulability metrics for cspace: [`KinematicsMetrics`], ported from
 //! `moveit_core/kinematics_metrics`.
 //!
 //! # Scope

@@ -1,10 +1,10 @@
 // Copyright (c) 2009-2013, K.M. Wurm and A. Hornung, University of Freiburg
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from octomap 1.9.7 (Debian package liboctomap-dev 1.9.7+dfsg-3.1build3,
 // version confirmed by octomap-config.cmake's OCTOMAP_VERSION inside the
-// moveit-rs oracle container; see lib.rs's module docs for how this crate's
+// cspace oracle container; see lib.rs's module docs for how this crate's
 // existence was decided and what was and was not ported):
 //   include/octomap/OcTreeKey.h
 

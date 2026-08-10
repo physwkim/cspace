@@ -1,7 +1,7 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! Optional ROS 2 interop for moveit-rs (`PORTING-PLAN.md` Phase 9, D2/D5/D6).
+//! Optional ROS 2 interop for cspace (`PORTING-PLAN.md` Phase 9, D2/D5/D6).
 //!
 //! This crate is the *only* place in the workspace allowed to depend on a
 //! ROS 2 client library (r2r 0.9.5) or know that `moveit_msgs` exists (D2).

@@ -1,7 +1,7 @@
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! The moveit-rs side of the differential comparison: reshapes a built
+//! The cspace side of the differential comparison: reshapes a built
 //! `cspace_core::model::RobotModel` into the wire [`ModelInfo`] and drives
 //! `cspace_core::state::RobotState` to answer [`fk`], mirroring the oracle's own
 //! `modelInfo()`/`fk()` in `tools/moveit-oracle/src/oracle.cpp` field for
@@ -467,7 +467,7 @@ fn chain_relative_pose(
     })
 }
 
-/// Everything one [`crate::protocol::Op::Ik`] case needs on the moveit-rs
+/// Everything one [`crate::protocol::Op::Ik`] case needs on the cspace
 /// side: whether `NewtonRaphsonSolver` converged, the seed it started from
 /// (so the caller can flag a degenerate "returned its seed" pass), and --
 /// when it converged -- how far `FK(solution)` lands from the target pose

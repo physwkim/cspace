@@ -1,16 +1,16 @@
 // Copyright (c) 2009-2013, K.M. Wurm and A. Hornung, University of Freiburg
-// Copyright (c) 2026, moveit-rs contributors
+// Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from octomap 1.9.7 (Debian package liboctomap-dev 1.9.7+dfsg-3.1build3,
 // version confirmed by octomap-config.cmake's OCTOMAP_VERSION inside the
-// moveit-rs oracle container). This crate root re-exports iter/key/node/tree
+// cspace oracle container). This crate root re-exports iter/key/node/tree
 // and carries no ported logic of its own -- see each module's own provenance
 // comment for its exact octomap header citations; this one names the header
 // shared by the whole crate's addressing scheme:
 //   include/octomap/OcTreeKey.h
 
-//! A probabilistic occupancy octree, the moveit-rs counterpart of the
+//! A probabilistic occupancy octree, the cspace counterpart of the
 //! `octomap` C++ library moveit2 depends on.
 //!
 //! PORTING-PLAN.md §6.3 flags octomap as a Phase 3 risk: no crates.io crate
@@ -22,7 +22,7 @@
 //!
 //! # Version and provenance
 //!
-//! Ported from headers extracted from the `moveit-rs` oracle container's
+//! Ported from headers extracted from the `cspace` oracle container's
 //! `liboctomap-dev 1.9.7+dfsg-3.1build3` package (`octomap-config.cmake`'s
 //! `OCTOMAP_VERSION` confirms `1.9.7`; that container ships only the Debian
 //! headers, not the upstream `.cpp` sources, so every constant this crate
@@ -225,7 +225,7 @@
 //! `crates/cspace-core/tests/fixtures/octomap/octomap/`) against this crate's own
 //! [`OcTree`] and compares every result field-by-field, including
 //! [`OcTree::is_occupied`], against the real `liboctomap.so.1.9.7`'s answer
-//! captured through the `moveit-rs` oracle. Ids 1-7 predate round 15; ids
+//! captured through the `cspace` oracle. Ids 1-7 predate round 15; ids
 //! 8-12 (round 15, item 1) each isolate one of the five sensor-model setters'
 //! effect against oracle ground truth. `tools/ci/verify-fixture-replay.sh`
 //! (docker-gated, not part of this count) independently confirms the
@@ -483,7 +483,7 @@
 //! `octomap/OcTreeBaseImpl.hxx` are not in either header cache this crate
 //! has used before (`OccupancyOcTreeBase.h` only forward-declares these
 //! methods and `#include`s the `.hxx` at its own line 506 for the template
-//! body) -- originally fetched from inside the `moveit-rs` oracle container
+//! body) -- originally fetched from inside the `cspace` oracle container
 //! (`moveit-rs/oracle:a75076d8ca13d25b`,
 //! `/usr/include/octomap/{OccupancyOcTreeBase,OcTreeBaseImpl,OcTreeDataNode}.hxx`,
 //! same package already pinned by this crate: `dpkg -s liboctomap-dev` in

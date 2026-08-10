@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds the moveit-rs oracle image.
+# Builds the cspace oracle image.
 #
 # The build context is assembled from `git archive` exports rather than copies:
 # it pins each tree to its committed HEAD (a dirty working tree cannot leak into
