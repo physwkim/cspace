@@ -47,6 +47,7 @@
 #include "BulletCollision/NarrowPhaseCollision/btGjkPairDetector.h"
 #include "BulletCollision/NarrowPhaseCollision/btVoronoiSimplexSolver.h"
 #include "LinearMath/btAabbUtil2.h"
+#include "LinearMath/btConvexHullComputer.h"
 
 #include "moveit_cast.hpp"
 
@@ -536,6 +537,76 @@ static void aabbtest(const char* name, const btVector3& min1, const btVector3& m
                      const btVector3& min2, const btVector3& max2)
 {
 	printf("aabb_%s|%d\n", name, TestAabbAgainstAabb2(min1, max1, min2, max2) ? 1 : 0);
+}
+
+// `btConvexHullComputer::compute`, the whole of it: the return value, the
+// vertices in emission order with the input index each came from, both halves
+// of every edge with the vertices and offsets they link, and the face list.
+//
+// One row per output vertex and per output edge rather than a count, because
+// the order *is* the answer. MoveIt feeds the result straight into a
+// `btConvexHullShape` (`bullet_utils.cpp:140-155`), whose `maxDot` breaks a tie
+// between equally extreme vertices toward the lowest index -- so a hull with
+// the right vertex set in a different order returns a different support point,
+// and from there different witnesses and contact points. A summary row cannot
+// see that, and neither can a set comparison.
+//
+// The input points are printed too (`hullin_*`). The Rust test reads them back
+// out of the fixture rather than spelling them a second time: a point set
+// transcribed into both languages is a premise that can drift, and it would
+// drift as a coordinate mismatch blamed on the hull algorithm. `%.9g`
+// round-trips a `float` exactly, so the port is fed the identical bits.
+//
+// Fields: `chc_<name>|count|shrink|shrinkClamp|ret|nverts|nedges|nfaces`,
+// then `chcin_<name>_<i>|x|y|z`, `chcv_<name>_<i>|x|y|z|origIndex`,
+// `chce_<name>_<i>|source|target|nextOfVertex|nextOfFace|reverse` (edge
+// indices, resolved from the relative offsets the array actually stores), and
+// `chcf_<name>_<i>|edge`. The prefix is `chc`, not `hull`, because the EPA and
+// GJK rows above already own `hull_*` for their convex-hull *shape* pairs.
+static void hullcase(const char* name, const btVector3* pts, int n, btScalar shrink,
+                     btScalar shrinkClamp)
+{
+	btConvexHullComputer conv;
+	const btScalar ret = conv.compute(&pts[0].getX(), sizeof(btVector3), n, shrink, shrinkClamp);
+
+	printf("chc_%s|%d|%.9g|%.9g|%.9g|%d|%d|%d\n", name, n, (double)shrink, (double)shrinkClamp,
+	       (double)ret, conv.vertices.size(), conv.edges.size(), conv.faces.size());
+
+	for (int i = 0; i < n; ++i)
+		printf("chcin_%s_%d|%.9g|%.9g|%.9g\n", name, i, (double)pts[i][0], (double)pts[i][1],
+		       (double)pts[i][2]);
+
+	for (int i = 0; i < conv.vertices.size(); ++i)
+		printf("chcv_%s_%d|%.9g|%.9g|%.9g|%d\n", name, i, (double)conv.vertices[i][0],
+		       (double)conv.vertices[i][1], (double)conv.vertices[i][2],
+		       conv.original_vertex_index[i]);
+
+	for (int i = 0; i < conv.edges.size(); ++i)
+	{
+		const btConvexHullComputer::Edge* base = &conv.edges[0];
+		const btConvexHullComputer::Edge* e = base + i;
+		printf("chce_%s_%d|%d|%d|%d|%d|%d\n", name, i, e->getSourceVertex(), e->getTargetVertex(),
+		       (int)(e->getNextEdgeOfVertex() - base), (int)(e->getNextEdgeOfFace() - base),
+		       (int)(e->getReverseEdge() - base));
+	}
+
+	for (int i = 0; i < conv.faces.size(); ++i)
+		printf("chcf_%s_%d|%d\n", name, i, conv.faces[i]);
+}
+
+// A 32-bit LCG, used only to build point sets. `(v - 128) / 128` for a byte `v`
+// is a dyadic rational and so exact in `float`; the generator itself never
+// crosses into the Rust side, which reads the resulting points out of the
+// fixture.
+static unsigned int lcg(unsigned int& seed)
+{
+	seed = 1664525u * seed + 1013904223u;
+	return seed;
+}
+
+static btScalar lcg_coord(unsigned int& seed)
+{
+	return btScalar((int)((lcg(seed) >> 9) & 255u) - 128) / btScalar(128);
 }
 
 // A `btManifoldResult` that traces what the compound traversals do to it.
@@ -1447,6 +1518,152 @@ int main()
 	// most of all. The literals are the shortest decimals that round-trip to
 	// these floats, so `gjk.rs` can spell the same triangle with the same
 	// digits rather than a second decimal for the same value.
+	// btConvexHullComputer. See `hull` above for the row format and for why the
+	// input points are printed rather than transcribed into the Rust side.
+	{
+		btVector3 cube8[8];
+		for (int cx = 0; cx < 2; ++cx)
+			for (int cy = 0; cy < 2; ++cy)
+				for (int cz = 0; cz < 2; ++cz)
+					cube8[cx * 4 + cy * 2 + cz] =
+					    btVector3(cx ? 1.f : -1.f, cy ? 1.f : -1.f, cz ? 1.f : -1.f);
+
+		// The eight corners plus five points strictly inside. They sit off
+		// centre, off axis and off the diagonals, so a discard rule that only
+		// worked for symmetric interior points would still fail here.
+		btVector3 interior[13];
+		for (int i = 0; i < 8; ++i)
+			interior[i] = cube8[i];
+		interior[8] = btVector3(0.f, 0.f, 0.f);
+		interior[9] = btVector3(0.25f, -0.5f, 0.125f);
+		interior[10] = btVector3(-0.75f, 0.375f, -0.625f);
+		interior[11] = btVector3(0.875f, 0.875f, 0.5f);
+		interior[12] = btVector3(-0.125f, -0.9375f, 0.9375f);
+
+		// Duplicates: each corner of a square twice, then an apex three times.
+		// `computeInternal`'s split skips a whole run of equal points and its
+		// two-point case drops the second of a pair outright, so *which* copy
+		// survives is what the `origIndex` column pins.
+		const btVector3 sq[4] = {btVector3(-1.f, -1.f, 0.f), btVector3(1.f, -1.f, 0.f),
+		                         btVector3(1.f, 1.f, 0.f), btVector3(-1.f, 1.f, 0.f)};
+		btVector3 dup[11];
+		for (int i = 0; i < 4; ++i)
+		{
+			dup[2 * i] = sq[i];
+			dup[2 * i + 1] = sq[i];
+		}
+		dup[8] = btVector3(0.f, 0.f, 1.5f);
+		dup[9] = btVector3(0.f, 0.f, 1.5f);
+		dup[10] = btVector3(0.f, 0.f, 1.5f);
+
+		// Every point in one plane, so the shortest AABB extent is zero, the
+		// grid's z axis collapses to a single value and its reciprocal stays at
+		// zero rather than becoming infinite. Four corners, four edge midpoints
+		// and the centre; only the corners are hull vertices.
+		btVector3 flat[9];
+		{
+			int k = 0;
+			for (int gx = -1; gx <= 1; ++gx)
+				for (int gy = -1; gy <= 1; ++gy)
+					flat[k++] = btVector3(btScalar(gx), btScalar(gy), 0.f);
+		}
+
+		// Points strictly between two cube corners: on the hull's boundary but
+		// not vertices. Only an exact orientation predicate separates them from
+		// vertices -- a float one with any tolerance keeps some.
+		btVector3 collinear[14];
+		for (int i = 0; i < 8; ++i)
+			collinear[i] = cube8[i];
+		collinear[8] = btVector3(-1.f, -1.f, -0.5f);
+		collinear[9] = btVector3(-1.f, -1.f, 0.f);
+		collinear[10] = btVector3(-1.f, -1.f, 0.5f);
+		collinear[11] = btVector3(1.f, -0.25f, 1.f);
+		collinear[12] = btVector3(1.f, 0.5f, 1.f);
+		collinear[13] = btVector3(0.375f, 1.f, 1.f);
+
+		// Pairs of points sharing both projected coordinates and differing only
+		// in the grid's z. The sort puts each pair adjacent and the recursion
+		// splits 16 into aligned halves down to exactly these pairs, which is
+		// what reaches `computeInternal`'s `dx == 0 && dy == 0` case -- the one
+		// that leaves the second vertex out of the 2D list altogether. The two
+		// middle x planes are interior and must be discarded.
+		btVector3 vpairs[16];
+		{
+			int k = 0;
+			for (int i = 0; i < 4; ++i)
+				for (int j = 0; j < 2; ++j)
+				{
+					const btScalar x = btScalar(i) - 1.5f;
+					const btScalar y = j ? 1.f : -1.f;
+					vpairs[k++] = btVector3(x, y, -0.125f);
+					vpairs[k++] = btVector3(x, y, 0.125f);
+				}
+		}
+
+		// A few dozen points, most of them interior: the recursion goes several
+		// levels deep and `merge` runs on partial hulls that are neither points
+		// nor segments.
+		btVector3 cloud[32];
+		{
+			unsigned int seed = 20260811u;
+			for (int i = 0; i < 32; ++i)
+				cloud[i] = btVector3(lcg_coord(seed), lcg_coord(seed), lcg_coord(seed));
+		}
+
+		// The same generator projected onto the unit sphere, so *every* input
+		// point is a hull vertex -- the shape of a triangulated mesh's vertex
+		// list, and the case where nothing is discarded and every merge counts.
+		btVector3 shell[26];
+		{
+			unsigned int seed = 7u;
+			for (int i = 0; i < 26;)
+			{
+				btVector3 p(lcg_coord(seed), lcg_coord(seed), lcg_coord(seed));
+				const btScalar l2 = p.length2();
+				if (l2 < btScalar(0.01))
+					continue;
+				shell[i++] = p * (btScalar(1) / btSqrt(l2));
+			}
+		}
+
+		const btVector3 one[1] = {btVector3(0.25f, -0.5f, 0.75f)};
+		const btVector3 two[2] = {btVector3(-1.f, 0.f, 0.f), btVector3(1.f, 0.25f, -0.5f)};
+		const btVector3 three[3] = {btVector3(-1.f, -1.f, 0.f), btVector3(1.f, -0.5f, 0.f),
+		                            btVector3(0.f, 1.f, 0.f)};
+		const btVector3 four[4] = {btVector3(-1.f, -1.f, -1.f), btVector3(1.f, -1.f, -1.f),
+		                           btVector3(0.f, 1.f, -1.f), btVector3(0.f, 0.f, 1.f)};
+		btVector3 same[5];
+		for (int i = 0; i < 5; ++i)
+			same[i] = btVector3(0.5f, -0.25f, 0.125f);
+
+		hullcase("cube8", cube8, 8, 0.f, 0.f);
+		hullcase("interior", interior, 13, 0.f, 0.f);
+		hullcase("dup", dup, 11, 0.f, 0.f);
+		hullcase("flat", flat, 9, 0.f, 0.f);
+		hullcase("collinear", collinear, 14, 0.f, 0.f);
+		hullcase("vpairs", vpairs, 16, 0.f, 0.f);
+		hullcase("cloud", cloud, 32, 0.f, 0.f);
+		hullcase("shell", shell, 26, 0.f, 0.f);
+		hullcase("one", one, 1, 0.f, 0.f);
+		hullcase("two", two, 2, 0.f, 0.f);
+		hullcase("three", three, 3, 0.f, 0.f);
+		hullcase("four", four, 4, 0.f, 0.f);
+		hullcase("same", same, 5, 0.f, 0.f);
+
+		// MoveIt never asks for a shrink (`createConvexHull`'s defaults are
+		// `-1`), so these three rows are the only thing that measures
+		// `btConvexHullInternal::shrink` and `shiftFace` at all -- with them the
+		// hundreds of lines of face-shifting, the 128-bit rationals and the
+		// off-grid intersection vertices are exercised rather than merely
+		// transcribed. `clamped` takes the `shrinkClamp > 0` branch, which
+		// computes the hull's exact integer volume and centroid; `collapse`
+		// asks for more than the hull has and takes the negative return.
+		hullcase("shrunk", cube8, 8, 0.1f, 0.f);
+		hullcase("clamped", cube8, 8, 0.5f, 0.25f);
+		hullcase("collapse", cube8, 8, 2.f, 0.f);
+		hullcase("shrunk_shell", shell, 26, 0.05f, 0.f);
+	}
+
 	tri("t_wide_solve", btVector3(-0.12572217f, 0.13450241f, -0.36173308f),
 	    btVector3(-0.19358504f, -0.5220996f, 0.3660835f),
 	    btVector3(-0.40353602f, 0.53909004f, 0.7409283f),
