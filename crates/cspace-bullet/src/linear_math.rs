@@ -64,7 +64,7 @@
 //! eigen/diagonalize helpers are unused by the narrow phase and are absent
 //! rather than stubbed.
 
-use core::ops::{Add, AddAssign, Index, IndexMut, Mul, Neg, Sub, SubAssign};
+use core::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, Neg, Sub, SubAssign};
 
 /// `btScalar`, in the single-precision configuration (`btScalar.h:293`).
 ///
@@ -327,6 +327,28 @@ impl Mul for Vec3 {
     #[inline]
     fn mul(self, other: Self) -> Self {
         Self::new(self.x * other.x, self.y * other.y, self.z * other.z)
+    }
+}
+
+impl Div<Scalar> for Vec3 {
+    type Output = Self;
+
+    /// `operator/(const btVector3&, const btScalar&)` (`btVector3.h:843-856`)
+    /// and `operator/=` (`:209-224`) are both `v * (1 / s)` in this build, not
+    /// three divides. GJK and EPA divide by a length on nearly every
+    /// iteration, so the distinction is not decorative: `1/s` rounds once and
+    /// each component then rounds again, which is not the same value three
+    /// correctly-rounded divides produce.
+    #[inline]
+    fn div(self, s: Scalar) -> Self {
+        self * (1.0 / s)
+    }
+}
+
+impl DivAssign<Scalar> for Vec3 {
+    #[inline]
+    fn div_assign(&mut self, s: Scalar) {
+        *self = *self / s;
     }
 }
 

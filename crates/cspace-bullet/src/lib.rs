@@ -66,6 +66,7 @@
 //! for which build configuration this reproduces and why bit-exact agreement
 //! with the C++ is reachable rather than aspirational.
 
+pub mod epa;
 pub mod linear_math;
 pub mod shapes;
 pub mod simplex;
