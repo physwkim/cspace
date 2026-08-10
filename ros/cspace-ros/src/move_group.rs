@@ -49,10 +49,10 @@ use std::fmt;
 
 use cspace_collision::ParryCollisionEnv;
 use cspace_planning::planner_registry::resolve_planner;
+use cspace_planning::scene::PlanningScene;
 use cspace_planning::{
     PipelineError, PlannerConfigurationMap, PlannerManager, PlanningRequest, PlanningResponse,
 };
-use cspace_planning::scene::PlanningScene;
 
 /// The planner an empty `pipeline_id` resolves to.
 ///
@@ -175,10 +175,10 @@ pub fn plan_only<'m>(
 
 #[cfg(test)]
 mod tests {
-    use cspace_planning::constraints::utils::construct_goal_joint_constraints;
     use cspace_core::model::{MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
     use cspace_core::state::RobotState;
+    use cspace_planning::constraints::utils::construct_goal_joint_constraints;
 
     use super::*;
 
@@ -226,7 +226,10 @@ mod tests {
     /// than a neighbour of it (see `construct_goal_joint_constraints`' own
     /// doc). A goal a client names by joint value is a request to go there,
     /// not near there.
-    fn goal_at(model: &RobotModel, position: f64) -> cspace_planning::constraints::KinematicConstraintSet {
+    fn goal_at(
+        model: &RobotModel,
+        position: f64,
+    ) -> cspace_planning::constraints::KinematicConstraintSet {
         let mut state = RobotState::new(model);
         state.set_to_default_values();
         state

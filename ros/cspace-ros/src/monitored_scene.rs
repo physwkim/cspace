@@ -54,8 +54,8 @@ use std::sync::Arc;
 
 use cspace_core::error::Result;
 use cspace_core::model::RobotModel;
-use cspace_planning::scene::PlanningScene;
 use cspace_core::srdf::SrdfModel;
+use cspace_planning::scene::PlanningScene;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use crate::scene::attached::apply_attached_collision_object;

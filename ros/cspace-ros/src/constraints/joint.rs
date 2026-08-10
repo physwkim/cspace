@@ -4,9 +4,9 @@
 //! `moveit_msgs/JointConstraint` <-> [`cspace_planning::constraints::JointConstraint`].
 //! See `doc/message-mapping.md` §4.
 
-use cspace_planning::constraints::JointConstraint as CoreJointConstraint;
 use cspace_core::error::Error;
 use cspace_core::model::RobotModel;
+use cspace_planning::constraints::JointConstraint as CoreJointConstraint;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 /// Wraps the wire message with the `&RobotModel` needed to resolve

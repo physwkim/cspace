@@ -13,9 +13,9 @@
 //! is still exactly `{ constraints: Vec<Constraint> }`. Expires if it grows
 //! a `name` field; `cspace_planning::constraints`'s call, not this crate's.
 
-use cspace_planning::constraints::{Constraint, KinematicConstraintSet};
 use cspace_core::error::Error;
 use cspace_core::model::RobotModel;
+use cspace_planning::constraints::{Constraint, KinematicConstraintSet};
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::joint::{JointConstraintMsg, JointConstraintMsgOut};
@@ -56,25 +56,30 @@ impl<'m> TryFrom<ConstraintsMsg<'m>> for KinematicConstraintSet {
             set.push(Constraint::Joint(c));
         }
         for position_msg in msg.position_constraints {
-            let c = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
-                model,
-                msg: position_msg,
-            })?;
+            let c = cspace_planning::constraints::PositionConstraint::try_from(
+                PositionConstraintMsg {
+                    model,
+                    msg: position_msg,
+                },
+            )?;
             set.push(Constraint::Position(c));
         }
         for orientation_msg in msg.orientation_constraints {
-            let c =
-                cspace_planning::constraints::OrientationConstraint::try_from(OrientationConstraintMsg {
+            let c = cspace_planning::constraints::OrientationConstraint::try_from(
+                OrientationConstraintMsg {
                     model,
                     msg: orientation_msg,
-                })?;
+                },
+            )?;
             set.push(Constraint::Orientation(c));
         }
         for visibility_msg in msg.visibility_constraints {
-            let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
-                model,
-                msg: visibility_msg,
-            })?;
+            let c = cspace_planning::constraints::VisibilityConstraint::try_from(
+                VisibilityConstraintMsg {
+                    model,
+                    msg: visibility_msg,
+                },
+            )?;
             set.push(Constraint::Visibility(c));
         }
 

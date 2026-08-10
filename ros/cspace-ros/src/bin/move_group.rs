@@ -185,13 +185,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+use cspace_collision::{BodyType, CollisionRequest, ParryCollisionEnv};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_planning::PlanningRequest;
+use cspace_planning::constraints::KinematicConstraintSet;
 use futures::executor::LocalPool;
 use futures::stream::StreamExt;
 use futures::task::LocalSpawnExt;
-use cspace_collision::{BodyType, CollisionRequest, ParryCollisionEnv};
-use cspace_planning::constraints::KinematicConstraintSet;
-use cspace_core::model::{MeshSearchPaths, RobotModel};
-use cspace_planning::PlanningRequest;
 use moveit_ros::constraints::set::ConstraintsMsg;
 use moveit_ros::execute_trajectory;
 use moveit_ros::execution::{ExecutionEvent, ExecutionEventMsg, StopOutcome, TrajectoryExecution};
@@ -199,15 +199,15 @@ use moveit_ros::joint_states::JointSampler;
 // `use_planning_scene_msg` is no longer imported here: every scene write in
 // this binary now goes through `monitored_scene`, which is the one owner both
 // the diff path and the topic path route through.
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
+use cspace_planning::scene::PlanningScene;
 use moveit_ros::monitored_scene::{self, MonitoredScene};
 use moveit_ros::move_group::plan_only;
 use moveit_ros::planner_params::PlannerConfigurations;
 use moveit_ros::planning::{PlanningRequestMsg, PlanningResponseMsgOut};
 use moveit_ros::robot_description;
 use moveit_ros::state::RobotStateMsg;
-use cspace_planning::scene::PlanningScene;
-use cspace_core::srdf::SrdfModel;
-use cspace_core::state::RobotState;
 use r2r::QosProfile;
 use r2r::moveit_msgs::action::{ExecuteTrajectory, MoveGroup};
 use r2r::moveit_msgs::msg::MoveItErrorCodes;

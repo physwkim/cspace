@@ -18,10 +18,12 @@
 //! all present now. `TryFrom<VisibilityConstraint> for
 //! VisibilityConstraintMsgOut` below is the fix.
 
-use cspace_planning::constraints::{SensorSpec, SensorViewDirection, TargetSpec, VisibilityCriteria};
 use cspace_core::error::Error;
 use cspace_core::geometry::Isometry3;
 use cspace_core::model::RobotModel;
+use cspace_planning::constraints::{
+    SensorSpec, SensorViewDirection, TargetSpec, VisibilityCriteria,
+};
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::context::minimal_transforms;
@@ -85,7 +87,9 @@ pub struct VisibilityConstraintMsg<'m> {
 /// Plain local wrapper, for the core->msg direction.
 pub struct VisibilityConstraintMsgOut(pub moveit_msgs::VisibilityConstraint);
 
-impl<'m> TryFrom<VisibilityConstraintMsg<'m>> for cspace_planning::constraints::VisibilityConstraint {
+impl<'m> TryFrom<VisibilityConstraintMsg<'m>>
+    for cspace_planning::constraints::VisibilityConstraint
+{
     type Error = Error;
 
     fn try_from(wrapped: VisibilityConstraintMsg<'m>) -> Result<Self, Self::Error> {
@@ -147,7 +151,9 @@ impl TryFrom<cspace_planning::constraints::VisibilityConstraint> for VisibilityC
     /// `max_view_angle`/`max_range_angle` map `None` back to wire `0.0`,
     /// the reverse of msg->core's `normalize_criterion` (near-zero-or-empty
     /// treated as unconstrained on the way in).
-    fn try_from(c: cspace_planning::constraints::VisibilityConstraint) -> Result<Self, Self::Error> {
+    fn try_from(
+        c: cspace_planning::constraints::VisibilityConstraint,
+    ) -> Result<Self, Self::Error> {
         let sensor_view_direction = SensorViewDirectionMsg::try_from(c.sensor_view_direction())?.0;
         Ok(VisibilityConstraintMsgOut(
             moveit_msgs::VisibilityConstraint {
@@ -261,11 +267,12 @@ mod tests {
     #[test]
     fn converts_with_model_context() {
         let model = one_joint_model();
-        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
-            model: &model,
-            msg: valid_msg(&model),
-        })
-        .unwrap();
+        let c =
+            cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+                model: &model,
+                msg: valid_msg(&model),
+            })
+            .unwrap();
         assert_eq!(c.cone_sides(), 4);
     }
 
@@ -324,11 +331,12 @@ mod tests {
             sensor_view_direction: 1, // SENSOR_Y
             weight: 0.6,
         };
-        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
-            model: &model,
-            msg,
-        })
-        .unwrap();
+        let c =
+            cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+                model: &model,
+                msg,
+            })
+            .unwrap();
         let back = VisibilityConstraintMsgOut::try_from(c).unwrap().0;
         assert_eq!(back.target_radius, 0.2);
         assert_eq!(back.max_view_angle, 0.3);
@@ -354,11 +362,12 @@ mod tests {
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.cone_sides = -1;
-        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
-            model: &model,
-            msg,
-        })
-        .unwrap();
+        let c =
+            cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+                model: &model,
+                msg,
+            })
+            .unwrap();
         assert_eq!(c.cone_sides(), 3);
     }
 
@@ -377,11 +386,12 @@ mod tests {
         msg.target_radius = -0.5;
         msg.max_view_angle = -0.5;
         msg.max_range_angle = -0.5;
-        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
-            model: &model,
-            msg,
-        })
-        .unwrap();
+        let c =
+            cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+                model: &model,
+                msg,
+            })
+            .unwrap();
         assert_eq!(c.target_radius(), Some(0.5));
         assert_eq!(c.max_view_angle(), None);
         assert_eq!(c.max_range_angle(), None);
@@ -395,11 +405,12 @@ mod tests {
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.cone_sides = i32::MIN;
-        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
-            model: &model,
-            msg,
-        })
-        .unwrap();
+        let c =
+            cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+                model: &model,
+                msg,
+            })
+            .unwrap();
         assert_eq!(c.cone_sides(), 3);
     }
 
@@ -423,11 +434,12 @@ mod tests {
             z: 0.0,
             w: 2.0,
         };
-        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
-            model: &model,
-            msg,
-        })
-        .unwrap();
+        let c =
+            cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+                model: &model,
+                msg,
+            })
+            .unwrap();
         let sensor_norm = c.sensor().rotation.into_inner().norm();
         let target_norm = c.target().rotation.into_inner().norm();
         assert!((sensor_norm - 1.0).abs() < 1e-12, "got: {sensor_norm}");
@@ -442,11 +454,12 @@ mod tests {
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.cone_sides = 1;
-        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
-            model: &model,
-            msg,
-        })
-        .unwrap();
+        let c =
+            cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+                model: &model,
+                msg,
+            })
+            .unwrap();
         assert_eq!(c.cone_sides(), 3);
     }
 }

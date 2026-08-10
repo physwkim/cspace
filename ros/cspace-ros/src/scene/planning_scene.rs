@@ -62,8 +62,8 @@ use std::sync::Arc;
 use cspace_collision::{AllowedCollisionMatrix, AllowedCollisionType};
 use cspace_core::error::{Error, Result};
 use cspace_core::geometry::{Isometry3, OcTree as OcTreeShape, Shape, Transforms};
-use cspace_planning::scene::PlanningScene;
 use cspace_core::state::RobotState as CoreRobotState;
+use cspace_planning::scene::PlanningScene;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::attached::apply_attached_collision_object;

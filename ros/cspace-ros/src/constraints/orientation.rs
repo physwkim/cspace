@@ -4,12 +4,12 @@
 //! `moveit_msgs/OrientationConstraint` <-> [`cspace_planning::constraints::OrientationConstraint`].
 //! See `doc/message-mapping.md` §6.
 
-use cspace_planning::constraints::{
-    OrientationConstraint as CoreOrientationConstraint, OrientationTolerance,
-};
 use cspace_core::error::Error;
 use cspace_core::geometry::UnitQuaternion;
 use cspace_core::model::RobotModel;
+use cspace_planning::constraints::{
+    OrientationConstraint as CoreOrientationConstraint, OrientationTolerance,
+};
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::context::minimal_transforms;

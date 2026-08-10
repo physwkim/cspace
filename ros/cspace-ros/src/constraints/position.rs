@@ -21,7 +21,9 @@
 
 use cspace_core::error::Error;
 use cspace_core::geometry::bodies::Body;
-use cspace_core::geometry::{Cone, Cuboid, Cylinder, Isometry3, Shape, Sphere, Vector3 as CoreVector3};
+use cspace_core::geometry::{
+    Cone, Cuboid, Cylinder, Isometry3, Shape, Sphere, Vector3 as CoreVector3,
+};
 use cspace_core::model::RobotModel;
 use r2r::moveit_msgs::msg as moveit_msgs;
 use r2r::shape_msgs::msg as shape_msgs;
@@ -382,11 +384,12 @@ mod tests {
             dimensions: vec![1.0, 1.0],
             polygon: Default::default(),
         }];
-        let err = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
-            model: &model,
-            msg,
-        })
-        .unwrap_err();
+        let err =
+            cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
+                model: &model,
+                msg,
+            })
+            .unwrap_err();
         // Not just the variant: `PositionConstraint::new` (cspace_planning::constraints)
         // has three other Error::Construct sites (empty frame_id, empty
         // shapes, and this file's own primitives/poses length check) all
@@ -402,11 +405,12 @@ mod tests {
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.constraint_region.primitive_poses.push(identity_pose());
-        let err = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
-            model: &model,
-            msg,
-        })
-        .unwrap_err();
+        let err =
+            cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
+                model: &model,
+                msg,
+            })
+            .unwrap_err();
         // Sibling of `cone_constraint_region_is_rejected_end_to_end` above --
         // this one must name the primitives/poses length check, not
         // `PositionConstraint::new`'s Construct sites.
@@ -422,11 +426,12 @@ mod tests {
         let mut msg = valid_msg(&model);
         msg.constraint_region.meshes.push(Default::default());
         msg.constraint_region.mesh_poses.push(identity_pose());
-        let err = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
-            model: &model,
-            msg,
-        })
-        .unwrap_err();
+        let err =
+            cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
+                model: &model,
+                msg,
+            })
+            .unwrap_err();
         // Not just the variant: `Shape::try_from`'s PRISM branch is a
         // second Error::Other site reachable through the same
         // `TryFrom<PositionConstraintMsg>` primitives loop (for a
@@ -450,11 +455,12 @@ mod tests {
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.constraint_region.meshes.push(Default::default());
-        let err = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
-            model: &model,
-            msg,
-        })
-        .unwrap_err();
+        let err =
+            cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
+                model: &model,
+                msg,
+            })
+            .unwrap_err();
         assert!(
             err.to_string().contains("meshes is not supported"),
             "got: {err:?}"
@@ -466,11 +472,12 @@ mod tests {
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.constraint_region.mesh_poses.push(identity_pose());
-        let err = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
-            model: &model,
-            msg,
-        })
-        .unwrap_err();
+        let err =
+            cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
+                model: &model,
+                msg,
+            })
+            .unwrap_err();
         assert!(
             err.to_string().contains("meshes is not supported"),
             "got: {err:?}"

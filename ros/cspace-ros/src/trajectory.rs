@@ -43,7 +43,9 @@ fn duration_seconds(d: &r2r::builtin_interfaces::msg::Duration) -> f64 {
 /// `RobotTrajectory` spanning more than ~68 years), so those inputs are
 /// rejected here rather than silently saturated or zeroed. Expires only if
 /// a caller needs to represent a trajectory that long.
-fn seconds_to_duration(t: f64) -> cspace_core::error::Result<r2r::builtin_interfaces::msg::Duration> {
+fn seconds_to_duration(
+    t: f64,
+) -> cspace_core::error::Result<r2r::builtin_interfaces::msg::Duration> {
     if !t.is_finite() || t < 0.0 || t > i32::MAX as f64 {
         return Err(Error::construct(format!(
             "time_from_start {t}s is negative, non-finite, or exceeds \
