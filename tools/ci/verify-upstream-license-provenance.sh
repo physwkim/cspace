@@ -154,8 +154,16 @@ SPDX = re.compile(r"^//\s*SPDX-License-Identifier:\s*(.+?)\s*$")
 NOT_PORTED = re.compile(r"^//(?![!/])[^\n]*\bnot ported:\s*$", re.I)
 # Matched against the cited file's own header, not against a repo-level LICENSE.
 COPYLEFT = re.compile(r"GNU Lesser General Public|GNU General Public|LGPL|GPL-", re.I)
-# Identifiers this workspace uses that a copyleft upstream cannot support.
-PERMISSIVE = re.compile(r"^(BSD-|MIT|Apache-)", re.I)
+# The declaring file's own identifier, when it is copyleft. The rule below
+# fires on everything *else*, which is the only direction that stays correct as
+# the workspace gains upstreams: an allow-list of the identifiers in use
+# (`BSD-|MIT|Apache-`) silently stopped applying the moment cspace-bullet
+# declared `Zlib`, and a Zlib file porting from the LGPL
+# `chainiksolver_vel_mimic_svd.cpp` passed while the gate printed "no
+# permissive-SPDX file cites a copyleft upstream file". Skipping a
+# copyleft-declared file is the one exemption that is sound: there the
+# derivative work carries the licence its source demands.
+COPYLEFT_SPDX = re.compile(r"^(A?GPL|LGPL)", re.I)
 # A copyright line in either tree. The year is what anchors the match: without
 # requiring it, `@copyright Copyright (c) 2016, ...` -- how the stomp headers
 # write it -- matches at the first `Copyright` and yields the second one as the
@@ -364,7 +372,7 @@ for path in tracked:
             # motivated the exemption ended up doing.
             if citation in derivations:
                 retain |= found
-            if not reported and COPYLEFT.search(head) and PERMISSIVE.match(spdx):
+            if not reported and COPYLEFT.search(head) and not COPYLEFT_SPDX.match(spdx):
                 # One report per citation: a package directory is cited once,
                 # however many copyleft files happen to sit under it.
                 conflicts.append((path, spdx, citation))
@@ -428,7 +436,7 @@ if not tracked or checked == 0:
           "passing here would be vacuous.", file=sys.stderr)
     sys.exit(1)
 if status == 0:
-    print("OK: no permissive-SPDX file cites a copyleft upstream file, every")
+    print("OK: no non-copyleft-SPDX file cites a copyleft upstream file, every")
     print("    asserted upstream copyright is reproduced by a file that file cites,")
     print("    and every ported-from file's notice is retained")
 sys.exit(status)
