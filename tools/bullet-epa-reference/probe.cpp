@@ -29,6 +29,8 @@
 #include "BulletCollision/BroadphaseCollision/btCollisionAlgorithm.h"
 #include "BulletCollision/BroadphaseCollision/btBroadphaseProxy.h"
 #include "BulletCollision/BroadphaseCollision/btDbvt.h"
+#include "BulletCollision/BroadphaseCollision/btDbvtBroadphase.h"
+#include "BulletCollision/BroadphaseCollision/btOverlappingPairCache.h"
 #include "BulletCollision/CollisionDispatch/btCollisionDispatcher.h"
 #include "BulletCollision/CollisionDispatch/btCollisionObject.h"
 #include "BulletCollision/CollisionDispatch/btCollisionObjectWrapper.h"
@@ -817,6 +819,150 @@ static void dispatch_table(btDefaultCollisionConfiguration& config, bool closest
 		}
 		printf("\n");
 	}
+}
+
+// `crates/cspace-bullet/src/dbvt_broadphase.rs`'s fixture: one row per
+// overlapping pair, in the order `processAllOverlappingPairs` hands them to
+// the callback. That order -- not the pair set -- is the output MoveIt's
+// continuous check consumes: its callback sets `done` and its result vector
+// truncates at `max_contacts`, so which pair is visited *first* decides which
+// contacts are reported, and a port that agrees on the set while disagreeing
+// on the order is wrong in a way no set comparison can see.
+//
+// Rows per phase:
+//   bp_<phase>|<pairs>|<m_overlappingPairArray.capacity()>
+//   bp_<phase>_p<i>|<clientObject0>|<clientObject1>|<uid0>|<uid1>
+//   bp_<phase>_ht|<n>|<m_hashTable[0]>|...      (phases asking for `hash`)
+//   bp_<phase>_nx|<n>|<m_next[0]>|...
+//
+// The identifier printed per proxy is its creation index, carried in
+// `m_clientObject`, and its `m_uniqueId`. Not a pointer: the port has none to
+// print, and a pointer would not reproduce between runs.
+//
+// The capacity is a field because it is the hash mask -- `internalAddPair`
+// takes `getHash(...) & (m_overlappingPairArray.capacity() - 1)` -- and
+// `btAlignedObjectArray` grows `size ? size * 2 : 1` from a constructor-time
+// `reserve(2)`, which is not a `std::vector`'s policy and not a `Vec`'s.
+//
+// The last two rows exist because the pair order cannot see the hash at all:
+// `internalFindPair` walks a bucket chain comparing unique ids rather than
+// trusting the bucket, so any self-consistent mix yields the same array. The
+// only way to pin Thomas Wang's mix is to read the buckets it wrote, and
+// `m_hashTable`/`m_next` are protected -- hence the subclass.
+struct BpPeek : btHashedOverlappingPairCache
+{
+	const btAlignedObjectArray<int>& table() const { return m_hashTable; }
+	const btAlignedObjectArray<int>& chain() const { return m_next; }
+};
+
+struct BpRecord : btOverlapCallback
+{
+	int obj0[64], obj1[64], uid0[64], uid1[64];
+	int count;
+
+	BpRecord() : count(0) {}
+
+	// false, so the walk records the cache rather than editing it.
+	bool processOverlap(btBroadphasePair& pair)
+	{
+		if (count < 64)
+		{
+			obj0[count] = (int)(size_t)pair.m_pProxy0->m_clientObject;
+			obj1[count] = (int)(size_t)pair.m_pProxy1->m_clientObject;
+			uid0[count] = pair.m_pProxy0->m_uniqueId;
+			uid1[count] = pair.m_pProxy1->m_uniqueId;
+			++count;
+		}
+		return false;
+	}
+};
+
+static void bp(const char* phase, btDbvtBroadphase& bph, const BpPeek& cache, int hash)
+{
+	BpRecord rec;
+	bph.getOverlappingPairCache()->processAllOverlappingPairs(&rec, 0);
+	printf("bp_%s|%d|%d\n", phase, rec.count,
+	       bph.getOverlappingPairCache()->getOverlappingPairArray().capacity());
+	for (int i = 0; i < rec.count; ++i)
+		printf("bp_%s_p%d|%d|%d|%d|%d\n", phase, i, rec.obj0[i], rec.obj1[i], rec.uid0[i],
+		       rec.uid1[i]);
+	if (hash)
+	{
+		printf("bp_%s_ht|%d", phase, cache.table().size());
+		for (int i = 0; i < cache.table().size(); ++i) printf("|%d", cache.table()[i]);
+		printf("\n");
+		printf("bp_%s_nx|%d", phase, cache.chain().size());
+		for (int i = 0; i < cache.chain().size(); ++i) printf("|%d", cache.chain()[i]);
+		printf("\n");
+	}
+}
+
+// An axis-aligned cube of half-extent `h` centred at `(x,y,z)`, whose client
+// object is the creation index `i`.
+static btBroadphaseProxy* bpbox(btDbvtBroadphase& bph, int i, btScalar x, btScalar y, btScalar z,
+                                btScalar h, int group, int mask)
+{
+	return bph.createProxy(btVector3(x - h, y - h, z - h), btVector3(x + h, y + h, z + h),
+	                       BOX_SHAPE_PROXYTYPE, reinterpret_cast<void*>(static_cast<size_t>(i)),
+	                       group, mask, 0);
+}
+
+// Keeps a pair only when the two proxies share a group bit. On the
+// `bp_filtercb` scenario -- every mask `AllFilter` -- the built-in test keeps
+// every pair, so this row can only be produced by consulting the callback,
+// and it is the complement of what `bp_filter` gets from the built-in test on
+// the same geometry.
+struct BpSameGroupFilter : btOverlapFilterCallback
+{
+	bool needBroadphaseCollision(btBroadphaseProxy* a, btBroadphaseProxy* b) const
+	{
+		return (a->m_collisionFilterGroup & b->m_collisionFilterGroup) != 0;
+	}
+};
+
+// `collideTTpersistentStack` on two whole trees. The broadphase never reaches
+// it that way -- `setAabb` passes a leaf as the second argument and the
+// `m_deferedcollide` tree-vs-tree calls are dead -- so its four-way child push
+// and its `p.a == p.b` branch have no broadphase row that can see them, and
+// need their own.
+struct BpTTCollide : btDbvt::ICollide
+{
+	int a[128], b[128];
+	int count;
+
+	BpTTCollide() : count(0) {}
+
+	void Process(const btDbvtNode* na, const btDbvtNode* nb)
+	{
+		if (count < 128)
+		{
+			a[count] = na->dataAsInt;
+			b[count] = nb->dataAsInt;
+			++count;
+		}
+	}
+};
+
+static void bp_tt(const char* name, const btVector3* ca, int na, const btVector3* cb, int nb,
+                  int self)
+{
+	btDbvt ta, tb;
+	for (int i = 0; i < na; ++i)
+		ta.insert(cube(ca[i].x(), ca[i].y(), ca[i].z()),
+		          reinterpret_cast<void*>(static_cast<size_t>(i)));
+	for (int i = 0; i < nb; ++i)
+		tb.insert(cube(cb[i].x(), cb[i].y(), cb[i].z()),
+		          reinterpret_cast<void*>(static_cast<size_t>(100 + i)));
+
+	BpTTCollide rec;
+	if (self)
+		ta.collideTTpersistentStack(ta.m_root, ta.m_root, rec);
+	else
+		ta.collideTTpersistentStack(ta.m_root, tb.m_root, rec);
+
+	printf("bp_tt_%s|%d\n", name, rec.count);
+	for (int i = 0; i < rec.count; ++i)
+		printf("bp_tt_%s_p%d|%d|%d\n", name, i, rec.a[i], rec.b[i]);
 }
 
 int main()
@@ -1668,6 +1814,230 @@ int main()
 	    btVector3(-0.19358504f, -0.5220996f, 0.3660835f),
 	    btVector3(-0.40353602f, 0.53909004f, 0.7409283f),
 	    btVector3(0.7509048f, -0.42147017f, -0.16159362f));
+
+	// The broadphase rows. Every scenario emits a phase straight after the
+	// `createProxy` calls, because `createProxy` collides the new leaf against
+	// both sets itself (`btDbvtBroadphase.cpp:181-187`) -- pairs exist before
+	// the first `calculateOverlappingPairs`, and in a different order.
+	{
+		const int all = -1;
+		const int def = btBroadphaseProxy::DefaultFilter;
+		const int stat = btBroadphaseProxy::StaticFilter;
+
+		// Disjoint boxes on a 3x3 grid: no pair at any stage.
+		{
+			BpPeek cache;
+			btDbvtBroadphase bph(&cache);
+			for (int i = 0; i < 9; ++i)
+				bpbox(bph, i, (i / 3) * 5.f, (i % 3) * 5.f, 0.f, 0.4f, def, all);
+			bp("grid_new", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("grid_c1", bph, cache, 1);
+		}
+
+		// A chain, each box overlapping its two neighbours. `c2` is the second
+		// `collide`, by which `m_stageCurrent` has advanced far enough to
+		// migrate the first stage's proxies into the fixed set; `add` then
+		// creates a proxy that must collide against *both* sets to find its
+		// neighbours, which a port that only searches set 0 cannot do.
+		{
+			BpPeek cache;
+			btDbvtBroadphase bph(&cache);
+			for (int i = 0; i < 6; ++i) bpbox(bph, i, i * 1.f, 0.f, 0.f, 0.6f, def, all);
+			bp("chain_new", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("chain_c1", bph, cache, 0);
+			bph.calculateOverlappingPairs(0);
+			bp("chain_c2", bph, cache, 0);
+			bpbox(bph, 6, 2.5f, 0.f, 0.f, 0.6f, def, all);
+			bp("chain_add", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("chain_c3", bph, cache, 0);
+		}
+
+		// One proxy overlapping every other, created last: its own `collideTV`
+		// against set 0 is what emits all five pairs, in the tree's descent
+		// order rather than in creation order.
+		{
+			BpPeek cache;
+			btDbvtBroadphase bph(&cache);
+			for (int i = 0; i < 5; ++i) bpbox(bph, i, i * 2.f, 0.f, 0.f, 0.4f, def, all);
+			bpbox(bph, 5, 4.f, 0.f, 0.f, 5.f, def, all);
+			bp("hub_new", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("hub_c1", bph, cache, 0);
+		}
+
+		// Spacing 0.5 against half-extent 0.6, so every proxy overlaps the two
+		// either side of it: 13 candidate pairs, of which the built-in
+		// group/mask test admits only the ones between the two groups.
+		{
+			BpPeek cache;
+			btDbvtBroadphase bph(&cache);
+			for (int i = 0; i < 8; ++i)
+				bpbox(bph, i, i * 0.5f, 0.f, 0.f, 0.6f, (i % 2) ? stat : def,
+				      (i % 2) ? def : stat);
+			bp("filter_new", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("filter_c1", bph, cache, 0);
+		}
+
+		// The same 13 candidates with every mask `AllFilter` -- the built-in
+		// test would keep all 13 -- behind a callback that keeps exactly the
+		// complement of what `bp_filter` kept.
+		{
+			static BpSameGroupFilter filter;
+			BpPeek cache;
+			btDbvtBroadphase bph(&cache);
+			bph.getOverlappingPairCache()->setOverlapFilterCallback(&filter);
+			for (int i = 0; i < 8; ++i)
+				bpbox(bph, i, i * 0.5f, 0.f, 0.f, 0.6f, (i % 2) ? stat : def, all);
+			bp("filtercb_new", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("filtercb_c1", bph, cache, 0);
+		}
+
+		// `setAabb`, both branches of it. `tiny` moves a proxy already in the
+		// fixed set by less than the margin: the fixed-to-dynamic path runs
+		// whatever the distance, and re-finds the pairs it already has rather
+		// than appending duplicates. `far` moves one across the chain, which
+		// adds pairs at once and leaves the pairs it left behind stale --
+		// those die in `collide`'s cleanup sweep, which is what `c4` shows
+		// and `c5` shows the end of.
+		{
+			BpPeek cache;
+			btDbvtBroadphase bph(&cache);
+			btBroadphaseProxy* p[5];
+			for (int i = 0; i < 5; ++i) p[i] = bpbox(bph, i, i * 1.f, 0.f, 0.f, 0.6f, def, all);
+			bp("move_new", bph, cache, 0);
+			bph.calculateOverlappingPairs(0);
+			bp("move_c1", bph, cache, 0);
+			bph.calculateOverlappingPairs(0);
+			bp("move_c2", bph, cache, 0);
+			bph.setAabb(p[2], btVector3(1.41f, -0.6f, -0.6f), btVector3(2.61f, 0.6f, 0.6f), 0);
+			bp("move_tiny", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("move_c3", bph, cache, 0);
+			bph.setAabb(p[0], btVector3(3.4f, -0.6f, -0.6f), btVector3(4.6f, 0.6f, 0.6f), 0);
+			bp("move_far", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("move_c4", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("move_c5", bph, cache, 1);
+		}
+
+		// `destroyProxy` on a proxy in the middle of the pair array, through
+		// the consumer's own sequence: `cleanProxyFromPairs` first, then the
+		// destroy. Each of its pairs is removed by swapping the last pair into
+		// the hole, so this row is where a port that shifts instead of
+		// swapping diverges. `readd` then reuses the vacated position in the
+		// tree without reusing the unique id.
+		{
+			BpPeek cache;
+			btDbvtBroadphase bph(&cache);
+			btBroadphaseProxy* p[6];
+			for (int i = 0; i < 6; ++i) p[i] = bpbox(bph, i, i * 1.f, 0.f, 0.f, 0.6f, def, all);
+			bph.calculateOverlappingPairs(0);
+			bp("destroy_c1", bph, cache, 1);
+			bph.getOverlappingPairCache()->cleanProxyFromPairs(p[2], 0);
+			bph.destroyProxy(p[2], 0);
+			bp("destroy_gone", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("destroy_c2", bph, cache, 0);
+			bpbox(bph, 6, 2.f, 0.f, 0.f, 0.6f, def, all);
+			bp("destroy_readd", bph, cache, 1);
+		}
+
+		// 21 pairs, so the pair array's capacity walks 2, 4, 8, 16, 32 and the
+		// table is rehashed four times. Every rehash re-derives each bucket
+		// from `getHash & (capacity - 1)`, so the `_ht`/`_nx` rows here are
+		// the mix read through four different masks.
+		{
+			BpPeek cache;
+			btDbvtBroadphase bph(&cache);
+			for (int i = 0; i < 12; ++i) bpbox(bph, i, i * 0.5f, 0.f, 0.f, 0.6f, def, all);
+			bp("grow_new", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("grow_c1", bph, cache, 1);
+		}
+
+		// Removing the *last* pair in the array, which is the one case
+		// `removeOverlappingPair` answers with the early `pop_back` rather than
+		// the swap: p3's only pair is (2,3) and it is the last of three.
+		{
+			BpPeek cache;
+			btDbvtBroadphase bph(&cache);
+			btBroadphaseProxy* p[4];
+			for (int i = 0; i < 4; ++i) p[i] = bpbox(bph, i, i * 1.f, 0.f, 0.f, 0.6f, def, all);
+			bph.calculateOverlappingPairs(0);
+			bp("last_c1", bph, cache, 1);
+			bph.getOverlappingPairCache()->cleanProxyFromPairs(p[3], 0);
+			bph.destroyProxy(p[3], 0);
+			bp("last_gone", bph, cache, 1);
+		}
+
+		// A filter assignment the *second* direction decides. p0's group is in
+		// p1's mask, so the first half of `needsBroadphaseCollision` passes;
+		// p1's group is not in p0's, so only the conjunction rejects (0,1).
+		// Every other pair here passes both halves.
+		{
+			BpPeek cache;
+			btDbvtBroadphase bph(&cache);
+			bpbox(bph, 0, 0.f, 0.f, 0.f, 0.6f, def, btBroadphaseProxy::KinematicFilter);
+			bpbox(bph, 1, 1.f, 0.f, 0.f, 0.6f, stat, def);
+			bpbox(bph, 2, 2.f, 0.f, 0.f, 0.6f, def, all);
+			bpbox(bph, 3, 3.f, 0.f, 0.f, 0.6f, def, all);
+			bp("asym_new", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("asym_c1", bph, cache, 0);
+		}
+
+		// Six `collide` passes before the query, so `optimizeIncremental` has
+		// walked six `m_opath` bit patterns and removed-and-reinserted six
+		// leaves. The hub created afterwards reads the resulting tree shape
+		// out as its `collideTV` order -- which is the only way that shape
+		// becomes observable at all.
+		{
+			BpPeek cache;
+			btDbvtBroadphase bph(&cache);
+			for (int i = 0; i < 8; ++i) bpbox(bph, i, i * 1.f, 0.f, 0.f, 0.6f, def, all);
+			for (int k = 0; k < 6; ++k) bph.calculateOverlappingPairs(0);
+			bp("opath_c6", bph, cache, 1);
+			bpbox(bph, 8, 3.5f, 0.f, 0.f, 10.f, def, all);
+			bp("opath_hub", bph, cache, 1);
+		}
+
+		// `setAabb` on a proxy still in the dynamic set -- no `collide` has run,
+		// so it takes the `Intersect(leaf->volume, aabb)` "Moving" branch, the
+		// only path that reads `gDbvtMargin`. The move is 0.02, which its leaf
+		// volume does not contain, so `update` expands by the margin; p3 starts
+		// 0.03 beyond the moved box and 0.02 inside the expanded one, so the
+		// pair that appears exists only because the margin does.
+		{
+			BpPeek cache;
+			btDbvtBroadphase bph(&cache);
+			btBroadphaseProxy* p[4];
+			p[0] = bpbox(bph, 0, 0.f, 0.f, 0.f, 0.6f, def, all);
+			p[1] = bpbox(bph, 1, 1.f, 0.f, 0.f, 0.6f, def, all);
+			p[2] = bpbox(bph, 2, 2.f, 0.f, 0.f, 0.6f, def, all);
+			p[3] = bpbox(bph, 3, 3.25f, 0.f, 0.f, 0.6f, def, all);
+			bp("margin_new", bph, cache, 0);
+			bph.setAabb(p[2], btVector3(1.42f, -0.6f, -0.6f), btVector3(2.62f, 0.6f, 0.6f), 0);
+			bp("margin_set", bph, cache, 1);
+			bph.calculateOverlappingPairs(0);
+			bp("margin_c1", bph, cache, 1);
+		}
+
+		// The two `collideTTpersistentStack` shapes no broadphase row reaches:
+		// two whole trees, and one tree against itself.
+		{
+			btVector3 ta[4], tb[4];
+			for (int i = 0; i < 4; ++i) ta[i] = btVector3(i * 0.8f, 0.f, 0.f);
+			for (int i = 0; i < 4; ++i) tb[i] = btVector3(i * 0.8f, 0.4f, 0.f);
+			bp_tt("two", ta, 4, tb, 4, 0);
+			bp_tt("self", ta, 4, ta, 0, 1);
+		}
+	}
 
 	return 0;
 }

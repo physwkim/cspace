@@ -79,12 +79,14 @@ pub mod compound_algorithm;
 pub mod convex_convex;
 pub mod convex_hull_computer;
 pub mod dbvt;
+pub mod dbvt_broadphase;
 pub mod discrete_detector;
 pub mod dispatch;
 pub mod epa;
 pub mod gjk;
 pub mod linear_math;
 pub mod manifold;
+pub mod overlapping_pair_cache;
 pub mod pen_depth;
 /// Behind `probe-fixture` rather than plain `pub` because it is test
 /// scaffolding: `cspace-bullet-cast`'s tests assert against the same
