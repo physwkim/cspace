@@ -215,12 +215,19 @@ mod tests {
     /// `safeNormalize` of a zero vector, so what the loop actually tries is
     /// `(1, 0, 0)` -- and the answer comes back along z, which is why the
     /// guess cannot be inferred from the result and has to be pinned here.
+    ///
+    /// `p_sphere_cyl_deep` is the row that pins EPA's vertex budget. Its
+    /// expansion takes 126 support vertices, two short of `EPA_MAX_VERTICES`,
+    /// so it separates a budget counted over the expansion alone -- upstream's
+    /// `m_nextsv` -- from one that also charges the four seed vertices the
+    /// port's store shares an index space with.
     const BULLET_REFERENCE: &str = "\
 p_box_box_overlap|1|-1|-5.30293946e-05|5.30293946e-05|0.5|0.460000008|0.459997386|0.449999988|0.459997356|0.460000038
 p_box_box_diagonal|1|-1|6.20902201e-13|-5.03537251e-07|0.499999136|0.138829023|-0.129585564|0.200000018|0.138829023|-0.129585713
 p_box_box_coincident|1|1.87058913e-06|-1.69519637e-06|1|-0.000133827329|6.63101673e-05|-0.499996066|-0.000132424393|6.50387738e-05|0.25
 p_box_box_separated|0|-1|0|0|0.5|0.5|0.5|2.5|0.5|0.5
 p_cone_cyl_rot60|1|-0.171172246|-0.938990176|-0.298324406|0.0274838991|0.149303183|-0.0857977271|-0.00921033695|-0.0519883633|-0.149749607
+p_sphere_cyl_deep|1|-0.16625002|-0.00247252849|-0.986080468|-0.0666370764|0.000759774819|0.242639184|-0.149694443|-0.000475483481|-0.249999881
 ";
 
     fn reference(name: &str) -> (bool, PenDepth) {
@@ -242,7 +249,7 @@ p_cone_cyl_rot60|1|-0.171172246|-0.938990176|-0.298324406|0.0274838991|0.1493031
     /// Every `calcPenDepth` row, against the port.
     #[test]
     fn bullet_reference_calc_pen_depth() {
-        let (unit_box, flat_box, margin_box, _, _, cyl, cone, _) = probe_shapes();
+        let (unit_box, flat_box, margin_box, sphere, _, cyl, cone, _) = probe_shapes();
         let rot60 = rot60_at(0.3, 0.1, 0.2);
 
         let mut bad = Vec::new();
@@ -304,6 +311,13 @@ p_cone_cyl_rot60|1|-0.171172246|-0.938990176|-0.298324406|0.0274838991|0.1493031
             &at(3.0, 0.0, 0.0),
         );
         case("p_cone_cyl_rot60", &cone, &IDENTITY, &cyl, &rot60);
+        case(
+            "p_sphere_cyl_deep",
+            &sphere,
+            &at(-0.15, 0.0, -0.25),
+            &cyl,
+            &at(0.15, 0.0, 0.25),
+        );
 
         assert!(
             bad.is_empty(),

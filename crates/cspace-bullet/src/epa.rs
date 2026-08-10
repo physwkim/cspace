@@ -78,8 +78,18 @@ const GJK_DUPLICATED_EPS: Scalar = 0.0001;
 /// strict `> 0` comparisons rather than tolerances.
 const GJK_SIMPLEX_EPS: Scalar = 0.0;
 
-/// `EPA_MAX_VERTICES`.
+/// `EPA_MAX_VERTICES` -- how many support vertices the *expansion* may take.
+///
+/// Upstream's `m_sv_store` holds only those; the initial tetrahedron's faces
+/// index GJK's own store instead (`btGjkEpa2.cpp:659-676`), so `m_nextsv`
+/// starts at zero and this bounds the expansion alone. This port copies the
+/// four simplex vertices into [`Epa::sv_store`] so a single index space serves
+/// every face, which is why the budget below is spelt against
+/// [`EPA_SEED_VERTICES`] rather than against the store's length.
 const EPA_MAX_VERTICES: usize = 128;
+/// The GJK simplex vertices seeded into [`Epa::sv_store`] before the initial
+/// hull is built, which upstream's `m_nextsv` does not count.
+const EPA_SEED_VERTICES: usize = 4;
 /// `EPA_MAX_ITERATIONS`.
 const EPA_MAX_ITERATIONS: u32 = 255;
 /// `EPA_ACCURACY`, single-precision branch.
@@ -740,7 +750,7 @@ impl Epa {
             result: EpaResultSimplex::default(),
             normal: Vec3::zero(),
             depth: 0.0,
-            sv_store: Vec::with_capacity(EPA_MAX_VERTICES),
+            sv_store: Vec::with_capacity(EPA_SEED_VERTICES + EPA_MAX_VERTICES),
             faces: vec![Face::default(); EPA_MAX_FACES],
             hull: List::default(),
             stock: List::default(),
@@ -800,7 +810,7 @@ impl Epa {
             // the faces then index; upstream's faces point straight at the GJK
             // store instead, and never write through those pointers.
             let s = gjk.simplices[current];
-            let sv: Vec<Sv> = (0..4).map(|i| gjk.store[s.c[i]]).collect();
+            let sv: Vec<Sv> = (0..EPA_SEED_VERTICES).map(|i| gjk.store[s.c[i]]).collect();
             self.sv_store.extend_from_slice(&sv);
 
             // Build the initial hull.
@@ -824,7 +834,11 @@ impl Epa {
                 self.status = EpaStatus::Valid;
 
                 for _ in 0..EPA_MAX_ITERATIONS {
-                    if self.sv_store.len() >= EPA_MAX_VERTICES {
+                    // `if (m_nextsv < EPA_MAX_VERTICES)` (`btGjkEpa2.cpp:690`),
+                    // counted over the expansion's own vertices -- the seeds
+                    // this port shares an index space with are not upstream's
+                    // to spend.
+                    if self.sv_store.len() - EPA_SEED_VERTICES >= EPA_MAX_VERTICES {
                         self.status = EpaStatus::OutOfVertices;
                         break;
                     }
