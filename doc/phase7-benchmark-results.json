@@ -1,6 +1,6 @@
 {
-  "measured_at": "2026-08-09T19:16:22Z",
-  "commit": "277cecdf8f3b1216fa28e64f3446bc79a96e44b5",
+  "measured_at": "2026-08-10T07:28:43Z",
+  "commit": "411213759b439a99e25ce17468eb181a57ef0598",
   "oracle_stamp": "ccc22ff0287a603f4b7e81301ca0c7b49e3fe1474b4fd7017ac35998124b745b",
   "working_tree_dirty": false,
   "dirty_paths": [],
@@ -8,10 +8,10 @@
     "tools/ci/verify-phase7-benchmark.sh": "a8751c6115d02fef5c4d2944f5b65eb6761ba7ef",
     "crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs": "75598af6307c86cc0b65329d6480c290726ea555",
     "crates/moveit-planners-sbp/examples/plan_benchmark_port.rs": "b8883d622142ffba1961fc05bc80be7b657eaf3d",
-    "crates/moveit-planners-sbp/src": "e9c5e9d1a8b44fb836d647920cf5b11b7db671e86c7f08d697e8da8fa356782b",
+    "crates/moveit-planners-sbp/src": "2db7b65d191f8412b8e6bd07da5e05dffc8fbde290e328592fede057ac873831",
     "crates/moveit-planning/src": "52c9f7f0fd66a7394436245c02e4b90173b6e4c03ab46dbd1385c6478de0113b",
     "crates/moveit-planner-registry/src": "5f3564ec7293358c7700662ead103c13e8f9ef35d7a1e9f9a12648f59103d74b",
-    "crates/moveit-collision/src": "0db3bef3c9bd31687d5a7d6a0f38487b22d8016f5ca93f7c4c15c91cbf047521",
+    "crates/moveit-collision/src": "93b888433f0df96ba14822b8426bcf9ae74f3044ac7c160a7e1b3c1204c8c99d",
     "crates/moveit-scene/src": "d42384487c0f9bb9d25807b88112db07df1e3f919f3e32070a754e00eeaa3c5e",
     "crates/moveit-constraints/src": "f5f24960d997dadebacf6dce574e92e7ce4c2601020ac2cc1e8ca2d746ee093f",
     "tools/moveit-oracle/src": "53f643ac6ff1044701e81d8efc3e4612c19047f739ab14e13d0900fcadbef8ec"
@@ -31,7 +31,7 @@
     "raw_waypoints": 31503,
     "max_endpoint_gap": 0.0,
     "cpp_max_endpoint_gap": 0,
-    "slowest_seconds": 0.196902281,
+    "slowest_seconds": 0.184320914,
     "cpp_median_length": 2.6642661353453647,
     "port_median_length": 2.6534479453450195,
     "cpp_median_length_pooled": 2.6597767032746464,
@@ -42,7 +42,7 @@
     "feasible_witnessed": 500,
     "feasibility_unknown": 0,
     "feasibility_unknown_port_clock_bound": 0,
-    "escalate_port_slowest_seconds": 0.878201454
+    "escalate_port_slowest_seconds": 0.823160095
   },
   "fanuc": {
     "problems": 500,
@@ -58,7 +58,7 @@
     "raw_waypoints": 10265,
     "max_endpoint_gap": 0.0,
     "cpp_max_endpoint_gap": 0,
-    "slowest_seconds": 0.209160416,
+    "slowest_seconds": 0.197629704,
     "cpp_median_length": 1.8682404083563018,
     "port_median_length": 1.8547068070637471,
     "cpp_median_length_pooled": 1.873377471827347,
@@ -69,7 +69,7 @@
     "feasible_witnessed": 406,
     "feasibility_unknown": 94,
     "feasibility_unknown_port_clock_bound": 0,
-    "escalate_port_slowest_seconds": 11.503268567
+    "escalate_port_slowest_seconds": 10.260945791
   },
   "per_set": [
     {
@@ -98,8 +98,8 @@
       "waypoints_checked": 85686,
       "raw_waypoints": 16018,
       "max_endpoint_gap": 0.0,
-      "cpu_seconds": 6.047088565,
-      "slowest_seconds": 0.188818572,
+      "cpu_seconds": 5.716134658,
+      "slowest_seconds": 0.181576381,
       "slowest_problem_id": 120
     },
     {
@@ -128,8 +128,8 @@
       "waypoints_checked": 82900,
       "raw_waypoints": 15485,
       "max_endpoint_gap": 0.0,
-      "cpu_seconds": 6.213481542000001,
-      "slowest_seconds": 0.196902281,
+      "cpu_seconds": 5.747145153000004,
+      "slowest_seconds": 0.184320914,
       "slowest_problem_id": 231
     },
     {
@@ -158,9 +158,9 @@
       "waypoints_checked": 27704,
       "raw_waypoints": 5399,
       "max_endpoint_gap": 0.0,
-      "cpu_seconds": 6.321529095,
-      "slowest_seconds": 0.165368402,
-      "slowest_problem_id": 81
+      "cpu_seconds": 5.9323364459999945,
+      "slowest_seconds": 0.154351031,
+      "slowest_problem_id": 221
     },
     {
       "tag": "fanuc_cage",
@@ -188,12 +188,12 @@
       "waypoints_checked": 24919,
       "raw_waypoints": 4866,
       "max_endpoint_gap": 0.0,
-      "cpu_seconds": 7.620178786000005,
-      "slowest_seconds": 0.209160416,
+      "cpu_seconds": 7.263890834000002,
+      "slowest_seconds": 0.197629704,
       "slowest_problem_id": 7
     }
   ],
-  "parallel_wall_clock_seconds": 7.984314213,
+  "parallel_wall_clock_seconds": 7.481794978,
   "feasibility": [
     {
       "tag": "panda_floor_wall",
@@ -209,7 +209,7 @@
       "feasible_witnessed": 250,
       "feasibility_unknown": 0,
       "feasibility_unknown_port_clock_bound": 0,
-      "escalate_port_slowest_seconds": 0.878201454
+      "escalate_port_slowest_seconds": 0.823160095
     },
     {
       "tag": "fanuc_floor_wall",
@@ -217,7 +217,7 @@
       "feasible_witnessed": 206,
       "feasibility_unknown": 44,
       "feasibility_unknown_port_clock_bound": 0,
-      "escalate_port_slowest_seconds": 11.503268567
+      "escalate_port_slowest_seconds": 10.260945791
     },
     {
       "tag": "fanuc_cage",
@@ -225,7 +225,7 @@
       "feasible_witnessed": 200,
       "feasibility_unknown": 50,
       "feasibility_unknown_port_clock_bound": 0,
-      "escalate_port_slowest_seconds": 8.507373398
+      "escalate_port_slowest_seconds": 8.273792883
     }
   ],
   "feasibility_escalated_iterations": 50000,
@@ -243,9 +243,9 @@
     "waypoints_checked": 68182,
     "raw_waypoints": 12763,
     "max_endpoint_gap": 0.0,
-    "cpu_seconds": 3.3708551189999993,
-    "slowest_seconds": 0.143362186,
-    "slowest_problem_id": 229,
+    "cpu_seconds": 2.988773779999999,
+    "slowest_seconds": 0.115871551,
+    "slowest_problem_id": 185,
     "joint_constraint": "panda_joint1:0.0:0.5"
   },
   "regression_pins": {
@@ -297,7 +297,7 @@
     },
     {
       "name": "panda(gate)/no-timeouts",
-      "detail": "0 timeouts, slowest call 0.197s of the 120s budget",
+      "detail": "0 timeouts, slowest call 0.184s of the 120s budget",
       "ok": true
     },
     {
@@ -362,7 +362,7 @@
     },
     {
       "name": "fanuc/no-timeouts",
-      "detail": "0 timeouts, slowest call 0.209s of the 120s budget",
+      "detail": "0 timeouts, slowest call 0.198s of the 120s budget",
       "ok": true
     },
     {
