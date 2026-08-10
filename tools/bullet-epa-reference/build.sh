@@ -44,6 +44,7 @@ g++ -O2 -Wall -Wextra -std=c++11 \
     "$HERE/probe.cpp" \
     "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btGjkEpa2.cpp" \
     "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btGjkEpaPenetrationDepthSolver.cpp" \
+    "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btGjkPairDetector.cpp" \
     "$BULLET_SRC/src/BulletCollision/NarrowPhaseCollision/btVoronoiSimplexSolver.cpp" \
     "$BULLET_SRC/src/BulletCollision/CollisionShapes/btBoxShape.cpp" \
     "$BULLET_SRC/src/BulletCollision/CollisionShapes/btCollisionShape.cpp" \

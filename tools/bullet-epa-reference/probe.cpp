@@ -1,9 +1,11 @@
 // Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Prints `btGjkEpaSolver2::Penetration` and `::Distance` results for the
-// shape pairs `crates/cspace-bullet/src/epa.rs`'s tests assert on, so those
-// assertions carry Bullet's own answer rather than a hand-derived one.
+// Prints `btGjkEpaSolver2::Penetration`, `::Distance`,
+// `btGjkEpaPenetrationDepthSolver::calcPenDepth` and
+// `btGjkPairDetector::getClosestPointsNonVirtual` results for the shape pairs
+// `crates/cspace-bullet/src/{epa,pen_depth,gjk}.rs`'s tests assert on, so
+// those assertions carry Bullet's own answer rather than a hand-derived one.
 //
 // This exists because EPA's answer is not the geometric one. On a
 // configuration where the enclosing tetrahedron puts the origin on one of
@@ -28,8 +30,10 @@
 #include "BulletCollision/CollisionShapes/btConvexHullShape.h"
 #include "BulletCollision/CollisionShapes/btCylinderShape.h"
 #include "BulletCollision/CollisionShapes/btSphereShape.h"
+#include "BulletCollision/NarrowPhaseCollision/btDiscreteCollisionDetectorInterface.h"
 #include "BulletCollision/NarrowPhaseCollision/btGjkEpa2.h"
 #include "BulletCollision/NarrowPhaseCollision/btGjkEpaPenetrationDepthSolver.h"
+#include "BulletCollision/NarrowPhaseCollision/btGjkPairDetector.h"
 #include "BulletCollision/NarrowPhaseCollision/btVoronoiSimplexSolver.h"
 
 // `%.9g` round-trips a `float` exactly, so a fixture transcribed from this
@@ -82,6 +86,83 @@ static void pendepth(const char* name, const btConvexShape* a, const btTransform
 	       (double)v[0], (double)v[1], (double)v[2],
 	       (double)wa[0], (double)wa[1], (double)wa[2],
 	       (double)wb[0], (double)wb[1], (double)wb[2]);
+}
+
+// `btVec3PointTriDist2` is btGjkPairDetector.cpp's own -- part of the libCCD
+// GJK it carries -- and has external linkage but no header, so it is declared
+// here rather than included. It is probed directly because the pre-pass that
+// uses it feeds a single bit (`status`) into the detector, and a sweep of
+// 230,400 shape/transform cells found only 22 in which that bit changes the
+// answer: driving its arithmetic through the detector alone would leave the
+// double-precision barycentric solve inside it effectively unpinned.
+btScalar btVec3PointTriDist2(const btVector3* P, const btVector3* x0, const btVector3* B,
+                             const btVector3* C, btVector3* witness);
+
+// Both arms, because they are not the same arithmetic: with a witness the
+// distance is recomputed from the witness point, without one it is
+// accumulated in `double` (the in-triangle branch) or taken from the
+// recycling path of `btVec3PointSegmentDist2` (the nearest-edge branch).
+static void tri(const char* name, const btVector3& p, const btVector3& x0, const btVector3& b,
+                const btVector3& c)
+{
+	btVector3 w(0, 0, 0);
+	const btScalar with = btVec3PointTriDist2(&p, &x0, &b, &c, &w);
+	const btScalar without = btVec3PointTriDist2(&p, &x0, &b, &c, 0);
+	printf("%s|%.9g|%.9g|%.9g|%.9g|%.9g\n", name, (double)with, (double)without, (double)w[0],
+	       (double)w[1], (double)w[2]);
+}
+
+// `btStorageResult` is abstract -- it leaves `setShapeIdentifiersA/B` pure --
+// and its constructor initializes only `m_distance`, leaving the two vectors
+// as stack garbage on any query that emits no contact. Zeroing them is what
+// `StorageResult::new()` does on the Rust side, so a "no contact" row is a
+// fixture rather than a reading of this process's stack.
+struct ProbeResult : public btStorageResult
+{
+	ProbeResult()
+	{
+		m_normalOnSurfaceB.setValue(0, 0, 0);
+		m_closestPointInB.setValue(0, 0, 0);
+	}
+	virtual void setShapeIdentifiersA(int, int) {}
+	virtual void setShapeIdentifiersB(int, int) {}
+};
+
+// The detector's whole observable output: what it wrote into the sink, the
+// three debug counters that record which of the exits produced it, and the
+// cached axis/distance it leaves behind for the next query to seed from.
+//
+// `usePenSolver=false` covers the branch upstream guards with
+// `if (m_penetrationDepthSolver)`; `ignoreMargin=true` is the configuration
+// MoveIt's continuous check runs, where the cast hull carries the sweep and
+// the margins are zeroed.
+static void gjk(const char* name, const btConvexShape* a, const btTransform& ta,
+                const btConvexShape* b, const btTransform& tb, bool ignoreMargin,
+                btScalar maxDistanceSquared, bool usePenSolver)
+{
+	btVoronoiSimplexSolver simplex;
+	btGjkEpaPenetrationDepthSolver penSolver;
+	btGjkPairDetector detector(a, b, &simplex, usePenSolver ? &penSolver : 0);
+	detector.setIgnoreMargin(ignoreMargin);
+
+	btGjkPairDetector::ClosestPointInput input;
+	input.m_transformA = ta;
+	input.m_transformB = tb;
+	input.m_maximumDistanceSquared = maxDistanceSquared;
+
+	ProbeResult out;
+	detector.getClosestPointsNonVirtual(input, out, 0);
+
+	const btVector3 axis = detector.getCachedSeparatingAxis();
+	printf("%s|%d|%d|%d|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g\n",
+	       name, detector.m_lastUsedMethod, detector.m_degenerateSimplex, detector.m_curIter,
+	       (double)out.m_distance,
+	       (double)out.m_normalOnSurfaceB[0], (double)out.m_normalOnSurfaceB[1],
+	       (double)out.m_normalOnSurfaceB[2],
+	       (double)out.m_closestPointInB[0], (double)out.m_closestPointInB[1],
+	       (double)out.m_closestPointInB[2],
+	       (double)detector.getCachedSeparatingDistance(),
+	       (double)axis[0], (double)axis[1], (double)axis[2]);
 }
 
 static btTransform at(btScalar x, btScalar y, btScalar z)
@@ -178,6 +259,123 @@ int main()
 	pendepth("p_box_box_coincident", &margin_box, id, &flat_box, id);
 	pendepth("p_box_box_separated", &unit_box, id, &unit_box, at(3.f, 0.f, 0.f));
 	pendepth("p_cone_cyl_rot60", &cone, id, &cyl, rot60_at(0.3f, 0.1f, 0.2f));
+
+	// A sphere sunk into a cylinder's rim: EPA spends 126 support vertices on
+	// this pair before the hull goes invalid, which is the only row here that
+	// comes within two of `EPA_MAX_VERTICES`. `m_nextsv` counts the expansion's
+	// vertices alone -- the initial tetrahedron's faces index GJK's store, not
+	// `m_sv_store` -- so anything that folds those four into the same budget
+	// stops at 124 and answers off the face it had two iterations earlier.
+	pendepth("p_sphere_cyl_deep", &sphere, at(-0.15f, 0.f, -0.25f), &cyl, at(0.15f, 0.f, 0.25f));
+
+	// `btGjkPairDetector::getClosestPointsNonVirtual`. `BT_LARGE_FLOAT` as
+	// `m_maximumDistanceSquared` is what `ClosestPointInput()` defaults to, so
+	// a row passing it is the unclipped query; `g_maxdist_clipped` is the same
+	// pair with a cut-off tight enough that the contact is dropped, which is
+	// the only way to see the sink's untouched state.
+	const btScalar unclipped = btScalar(BT_LARGE_FLOAT);
+
+	gjk("g_box_box_deep", &unit_box, id, &unit_box, at(0.5f, 0.f, 0.f), false, unclipped, true);
+	gjk("g_box_box_shallow", &unit_box, id, &unit_box, at(0.9f, 0.f, 0.f), false, unclipped, true);
+	gjk("g_box_box_touching", &unit_box, id, &unit_box, at(1.f, 0.f, 0.f), false, unclipped, true);
+	gjk("g_box_box_separated", &unit_box, id, &unit_box, at(1.5f, 0.f, 0.f), false, unclipped, true);
+	gjk("g_box_box_offset", &unit_box, id, &unit_box, at(0.6f, 0.35f, -0.2f), false, unclipped, true);
+	gjk("g_box_box_rot60", &unit_box, id, &flat_box, rot60_at(0.7f, 0.2f, 0.1f), false, unclipped, true);
+
+	// Non-zero margins: the shapes are shrunk by their margin before GJK and
+	// the witness points pushed back out by it afterwards.
+	gjk("g_margin_overlap", &margin_box, id, &margin_box, at(0.95f, 0.f, 0.f), false, unclipped, true);
+	gjk("g_margin_separated", &margin_box, id, &margin_box, at(1.2f, 0.f, 0.f), false, unclipped, true);
+
+	gjk("g_sphere_sphere", &sphere, id, &sphere, at(0.7f, 0.f, 0.f), false, unclipped, true);
+	gjk("g_sphere_box", &small_sphere, id, &unit_box, at(0.6f, 0.1f, 0.f), false, unclipped, true);
+	gjk("g_cyl_box", &cyl, id, &flat_box, at(0.5f, 0.1f, 0.2f), false, unclipped, true);
+	gjk("g_cyl_cyl_rot60", &cyl, id, &cyl, rot60_at(0.4f, 0.1f, 0.f), false, unclipped, true);
+	gjk("g_cone_box", &cone, id, &unit_box, at(0.55f, 0.1f, 0.3f), false, unclipped, true);
+	gjk("g_cone_sphere", &cone, id, &small_sphere, at(0.2f, 0.f, 0.45f), false, unclipped, true);
+	gjk("g_hull_box", &hull, id, &unit_box, at(0.7f, 0.05f, 0.f), false, unclipped, true);
+	gjk("g_hull_sphere_rot60", &hull, id, &small_sphere, rot60_at(0.4f, 0.1f, 0.05f), false, unclipped, true);
+
+	// Coincident centres -- the case that drives the simplex degenerate.
+	gjk("g_coincident", &margin_box, id, &flat_box, id, false, unclipped, true);
+
+	// `setIgnoreMargin(true)`: MoveIt's continuous configuration.
+	gjk("g_ccd_margin_boxes", &margin_box, id, &margin_box, at(0.95f, 0.f, 0.f), true, unclipped, true);
+	gjk("g_ccd_sphere_box", &sphere, id, &unit_box, at(0.9f, 0.f, 0.f), true, unclipped, true);
+
+	// The `m_maximumDistanceSquared` cut-off, and the null-solver branch on a
+	// pair that would otherwise reach EPA.
+	gjk("g_maxdist_clipped", &unit_box, id, &unit_box, at(3.f, 0.f, 0.f), false, btScalar(1.f), true);
+	gjk("g_no_pen_solver", &unit_box, id, &unit_box, at(0.5f, 0.f, 0.f), false, unclipped, false);
+
+	// Far from the world origin: everything the detector computes runs on the
+	// pair recentred about `positionOffset`, and only the emitted point is
+	// shifted back.
+	gjk("g_far_from_origin", &unit_box, at(100.f, 100.f, 100.f), &unit_box,
+	    at(100.9f, 100.f, 100.f), false, unclipped, true);
+
+	// The rows above reach `m_lastUsedMethod` 1, 2 and 3 only, and none of
+	// them changes its answer when the libCCD pre-pass's verdict is
+	// discarded. These were found by sweeping 230,400 shape/transform cells
+	// and keeping the ones that do reach a further exit, so that every branch
+	// the port transcribes is pinned by at least one row rather than by the
+	// common case alone.
+	//
+	// `g_prepass_*` are cells whose result changes if `status = 0` never
+	// reaches the penetration condition -- the only evidence that the whole
+	// libCCD pass has to be ported at all.
+	gjk("g_prepass_flip", &flat_box, id, &cone, rot60_at(0.f, 0.8f, 0.6f), false, unclipped, true);
+	gjk("g_prepass_rescue", &flat_box, id, &cone, rot60_at(0.1f, 0.8f, 0.6f), false, unclipped, true);
+	gjk("g_prepass_margins", &sphere, id, &unit_box, rot60_at(0.7f, 0.1f, 0.1f), false, unclipped, true);
+	gjk("g_prepass_degen12", &sphere, id, &cyl, at(0.3f, 0.f, 0.5f), false, unclipped, true);
+
+	// `m_lastUsedMethod` 10 (normal reverted), 8 (EPA no deeper than GJK),
+	// 6 (second-GJK rescue) and 5 (that rescue rejected).
+	gjk("g_normal_reverted", &unit_box, id, &unit_box, at(0.f, 0.1f, 0.1f), false, unclipped, true);
+	gjk("g_epa_not_deeper", &sphere, id, &cyl, at(0.3f, 0.f, 0.f), false, unclipped, true);
+	gjk("g_second_gjk_rescue", &cyl, id, &unit_box, at(0.8f, 0.5f, 0.7f), false, unclipped, true);
+	gjk("g_rescue_rejected", &unit_box, id, &cyl, at(0.8f, 0.5f, 0.7f), false, unclipped, true);
+	gjk("g_rescue_rot60", &cyl, id, &cone, rot60_at(0.6f, 0.3f, 0.f), false, unclipped, true);
+
+	// `m_degenerateSimplex` 11 and 12 -- the two "not getting any closer"
+	// exits, which the rows above never take.
+	gjk("g_degen11", &unit_box, id, &unit_box, at(1.1f, 0.f, 0.1f), false, unclipped, true);
+	gjk("g_degen12", &unit_box, id, &unit_box, rot60_at(1.1f, 0.9f, 0.7f), false, unclipped, true);
+	gjk("g_degen3", &unit_box, id, &unit_box, at(1.1f, 0.f, 0.2f), false, unclipped, true);
+
+	// `btVec3PointTriDist2` inside the libCCD pass: `name|withWitness|
+	// withoutWitness|witness xyz`.
+	tri("t_inside", btVector3(0.f, 0.f, 1.f), btVector3(0.f, 0.f, 0.f), btVector3(1.f, 0.f, 0.f),
+	    btVector3(0.f, 1.f, 0.f));
+	tri("t_beyond_b", btVector3(2.f, -1.f, 0.5f), btVector3(0.f, 0.f, 0.f),
+	    btVector3(1.f, 0.f, 0.f), btVector3(0.f, 1.f, 0.f));
+	tri("t_beyond_c", btVector3(-1.f, 2.f, -0.5f), btVector3(0.f, 0.f, 0.f),
+	    btVector3(1.f, 0.f, 0.f), btVector3(0.f, 1.f, 0.f));
+	tri("t_behind_x0", btVector3(-1.f, -1.f, 0.25f), btVector3(0.f, 0.f, 0.f),
+	    btVector3(1.f, 0.f, 0.f), btVector3(0.f, 1.f, 0.f));
+	tri("t_past_bc", btVector3(1.f, 1.f, 0.1f), btVector3(0.f, 0.f, 0.f), btVector3(1.f, 0.f, 0.f),
+	    btVector3(0.f, 1.f, 0.f));
+	tri("t_on_face", btVector3(0.25f, 0.25f, 0.f), btVector3(0.f, 0.f, 0.f),
+	    btVector3(1.f, 0.f, 0.f), btVector3(0.f, 1.f, 0.f));
+	tri("t_origin_offset", btVector3(0.f, 0.f, 0.f), btVector3(-0.3f, 0.4f, 0.2f),
+	    btVector3(0.7f, -0.2f, 0.9f), btVector3(0.1f, 0.6f, -0.8f));
+	tri("t_sliver", btVector3(0.f, 0.f, 0.f), btVector3(1.f, 0.f, 0.f),
+	    btVector3(1.0001f, 1e-4f, 0.f), btVector3(1.0002f, 2e-4f, 1e-5f));
+	tri("t_large", btVector3(100.f, 100.f, 100.f), btVector3(-50.f, 0.f, 0.f),
+	    btVector3(50.f, 0.f, 0.f), btVector3(0.f, 70.f, 30.f));
+
+	// The row that pins the solve's precision. `u,v,w,p,q,r,s,t` are C `double`
+	// inside this float build, and on the triangles above that costs nothing --
+	// their barycentrics are exactly representable, so evaluating the same
+	// expression in `btScalar` lands on the same floats. This triangle was
+	// searched for: it is 40 ulps apart between the two, in the witness's y
+	// most of all. The literals are the shortest decimals that round-trip to
+	// these floats, so `gjk.rs` can spell the same triangle with the same
+	// digits rather than a second decimal for the same value.
+	tri("t_wide_solve", btVector3(-0.12572217f, 0.13450241f, -0.36173308f),
+	    btVector3(-0.19358504f, -0.5220996f, 0.3660835f),
+	    btVector3(-0.40353602f, 0.53909004f, 0.7409283f),
+	    btVector3(0.7509048f, -0.42147017f, -0.16159362f));
 
 	return 0;
 }
