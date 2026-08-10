@@ -95,7 +95,7 @@ assert_line() { # <what> <exact line> <file>
   fi
 }
 
-docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
+docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" \
   bash -c "cargo build --bin move_group" >&2
 
 ###############################################################################
@@ -105,7 +105,7 @@ out_dir="$(mktemp -d)"
 trap 'rm -rf "$out_dir"' EXIT
 
 docker_cargo_run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
-  -v "$REPO_ROOT:/repo" -v "$out_dir:/out" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
+  -v "$REPO_ROOT:/repo" -v "$out_dir:/out" -w /repo/ros/cspace-ros "$IMAGE" bash -c '
   set -e
   "$CARGO_TARGET_DIR/debug/move_group" '"$URDF $SRDF"' 2>/tmp/node.stderr &
   server_pid=$!
@@ -204,7 +204,7 @@ docker network create "$NET" >/dev/null
 
 docker_cargo_run -d --rm --name "$NODE_CTR" --network "$NET" \
   -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
-  -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
+  -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" \
   "$DOCKER_CARGO_TARGET_MOUNT/debug/move_group" "$URDF" "$SRDF" >/dev/null
 sleep 3
 
@@ -242,7 +242,7 @@ assert_has "leg B constructed" "PROBE constructed" "$leg_b_out"
 # node and coming back SUCCESS with a non-empty trajectory cannot happen
 # through a group-less model. `source` is what says the answer crossed DDS
 # rather than being built in the client (`move_group_interface.cpp:659-663`).
-assert_has "leg B round trip" "PROBE plan val=1 source='moveit-ros/move_action'" "$leg_b_out"
+assert_has "leg B round trip" "PROBE plan val=1 source='cspace-ros/move_action'" "$leg_b_out"
 assert_lacks "leg B client-local failure" "PROBE plan val=99999 source=''" "$leg_b_out"
 assert_lacks "leg B empty trajectory" "PROBE points=0 " "$leg_b_out"
 

@@ -1,6 +1,6 @@
 # mpr-cone-orientation
 
-Tests whether `crates/moveit-collision/src/fcl_tangency_table.rs`'s
+Tests whether `crates/cspace-collision/src/fcl_tangency_table.rs`'s
 `SPECIALISED[cone][*] = false` (and, as a control, the same generic-MPR
 `false` cells for cylinder) holds at every relative ORIENTATION of an
 exact tangency, or only at the one axis-aligned pose

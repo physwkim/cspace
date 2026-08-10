@@ -1,9 +1,9 @@
 # mpr-vs-epa
 
 Compares libccd's real, unmodified `ccdMPRPenetration` against this
-port's own `parry3d_f64::query::contact` (EPA) on `moveit-collision`'s
+port's own `parry3d_f64::query::contact` (EPA) on `cspace-collision`'s
 `visibility_cone` case 104 (`bl_caster_l_wheel_link` vs the cone-mesh
-triangle it touches) — the pair `crates/moveit-collision/src/parry.rs`'s
+triangle it touches) — the pair `crates/cspace-collision/src/parry.rs`'s
 deviation-6(b) doc cites as evidence that libccd's MPR is deeper than this
 backend's EPA by construction, not by a fixable defect in the port.
 
@@ -32,7 +32,7 @@ to run against a checkout that is not exactly at tag `v2.1`.
 ## Running
 
 ```sh
-cargo run --release --example case104_mpr_input -p moveit-collision \
+cargo run --release --example case104_mpr_input -p cspace-collision \
     | ./build/mpr_case104
 ```
 
@@ -50,7 +50,7 @@ number and nowhere near this backend's own.
 
 ## Generalizing past case 104: `visibility_cone_mpr_sweep`
 
-`case104_mpr_input.rs` is one case. `crates/moveit-collision/examples/
+`case104_mpr_input.rs` is one case. `crates/cspace-collision/examples/
 visibility_cone_mpr_sweep.rs` (round 27) drives the same comparison over
 every `visibility_cone` mismatch in a real oracle sweep, and found 9 of
 945 cases where MPR is *shallower* than EPA — see that file's own module
@@ -61,7 +61,7 @@ stdout, so a specific historical case can be re-fed to `mpr_case104`
 without re-running the whole sweep or the oracle:
 
 ```sh
-cargo run --release --example visibility_cone_mpr_sweep -p moveit-collision -- \
+cargo run --release --example visibility_cone_mpr_sweep -p cspace-collision -- \
     --urdf <abs>/fixtures/pr2.urdf --srdf <abs>/fixtures/pr2.srdf \
     --seed 4 --cases <idx+1> --dump-case <idx> \
     | ./build/mpr_case104
@@ -113,7 +113,7 @@ only ever return one candidate triangle per pair. Round 29 uses the
 actually found, not just the first:
 
 ```sh
-cargo run --release --example visibility_cone_mpr_sweep -p moveit-collision -- \
+cargo run --release --example visibility_cone_mpr_sweep -p cspace-collision -- \
     --urdf <abs>/fixtures/pr2.urdf --srdf <abs>/fixtures/pr2.srdf \
     --seed 4 --cases 624 --dump-contacts 623 --max-contacts-per-pair 32 \
     --oracle <abs>/tools/moveit-oracle/run-oracle.sh
@@ -124,7 +124,7 @@ op's own request field (omitted, not sent, when absent — every other
 invocation of this binary is byte-unaffected). `--dump-contacts <idx>`
 prints every contact the oracle returned for the touched pair at that
 case index and exits, instead of running the usual EPA/MPR comparison.
-See `doc/claim-audit/moveit-collision.md`'s round 29 for the result.
+See `doc/claim-audit/cspace-collision.md`'s round 29 for the result.
 
 ## Round 30: plateau histograms
 
@@ -143,6 +143,6 @@ mpr plateau histogram (n=945): axial(length/2)=9 (1.0%)  radial(radius)=153 (16.
 
 plus `(n=...)` appended to the existing Pearson-correlation line. This is a
 number to read off the run from here on, not one to recount from raw
-`println!` output by hand. See `doc/claim-audit/moveit-collision.md`'s
+`println!` output by hand. See `doc/claim-audit/cspace-collision.md`'s
 round 30 for the full population recount and the mechanism traced for the
 `radial(radius)` bucket.

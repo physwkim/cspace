@@ -11,16 +11,16 @@ MoveIt 2를 ROS 비의존 순수 Rust 모션플래닝 라이브러리로 이식�
 | # | 결정 | 선택 |
 |---|---|---|
 | D1 | 최종 형태 | ROS 독립 Rust 모션플래닝 라이브러리 |
-| D2 | ROS 2 바인딩 | r2r — 선택적 `moveit-ros` 크레이트에만 격리 |
+| D2 | ROS 2 바인딩 | r2r — 선택적 `cspace-ros` 크레이트에만 격리 |
 | D3 | OMPL | 순수 Rust 플래너 우선, cxx FFI는 후순위 |
 | D4 | 플러그인 모델 | 컴파일타임 레지스트리 (trait + `linkme`) |
 
 **코어 크레이트는 ROS 타입을 일절 참조하지 않는다.** `moveit_msgs`,
 `geometry_msgs`, `rclcpp` 대응 타입은 코어 안에서 순수 Rust로 새로 정의한다.
-ROS 2 연동은 `moveit-ros` 하나에만 존재하고, 그 크레이트만 r2r에 의존한다.
+ROS 2 연동은 `cspace-ros` 하나에만 존재하고, 그 크레이트만 r2r에 의존한다.
 코어는 ROS 2 설치 없이 `cargo test`로 전부 검증된다.
 
-**의존 방향 규칙 (CI 강제):** `moveit-ros`를 제외한 어떤 크레이트도 `r2r`,
+**의존 방향 규칙 (CI 강제):** `cspace-ros`를 제외한 어떤 크레이트도 `r2r`,
 `rclrs`, `ros2-client`에 의존하지 않는다.
 
 ## 범위
@@ -28,7 +28,7 @@ ROS 2 연동은 `moveit-ros` 하나에만 존재하고, 그 크레이트만 r2r�
 **이식 대상:** `moveit_core` (70,215 LOC), `moveit_kinematics` (6,912),
 `moveit_planners` 중 pilz / chomp / stomp, 그리고 신규 순수 Rust SBP 플래너.
 
-**범위 밖:** `moveit_ros` (선택적 `moveit-ros`가 일부만 커버),
+**범위 밖:** `moveit_ros` (선택적 `cspace-ros`가 일부만 커버),
 `moveit_setup_assistant` (Qt GUI), `moveit_py` (PyO3), `moveit_plugins`
 (ros2_control 결합), `collision_detection_bullet` (드롭),
 `collision_detection_fcl` (`parry`로 대체).
@@ -81,15 +81,15 @@ CHOMP 379/380 · STOMP 438/441이다. 앞의 둘은 한 궤적을 다듬는 최�
 ## 크레이트
 
 ```
-moveit-error          moveit-geometry       moveit-srdf
-moveit-model          moveit-state          moveit-metrics
-moveit-collision      moveit-distance-field moveit-octomap
-moveit-scene          moveit-constraints    moveit-sampling
-moveit-trajectory     moveit-smoothing      moveit-kinematics
-moveit-planning       moveit-planner-registry
-moveit-planners-sbp   moveit-planners-chomp
-moveit-planners-stomp moveit-stomp-core     moveit-planners-pilz
-moveit-test-support
+cspace-error          cspace-geometry       cspace-srdf
+cspace-model          cspace-state          cspace-metrics
+cspace-collision      cspace-distance-field cspace-octomap
+cspace-scene          cspace-constraints    cspace-sampling
+cspace-trajectory     cspace-smoothing      cspace-kinematics
+cspace-planning       cspace-planner-registry
+cspace-planners-sbp   cspace-planners-chomp
+cspace-planners-stomp cspace-stomp-core     cspace-planners-pilz
+cspace-test-support
 ```
 
 `tools/moveit-oracle` (C++ 차등 오라클, moveit2 링크) /

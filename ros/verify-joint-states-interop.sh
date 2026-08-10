@@ -76,7 +76,7 @@ assert_line() { # <what> <exact line> <file>
   fi
 }
 
-docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
+docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" \
   bash -c "cargo build --bin move_group" >&2
 
 ###############################################################################
@@ -86,7 +86,7 @@ out_dir="$(mktemp -d)"
 trap 'rm -rf "$out_dir"' EXIT
 
 docker_cargo_run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
-  -v "$REPO_ROOT:/repo" -v "$out_dir:/out" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
+  -v "$REPO_ROOT:/repo" -v "$out_dir:/out" -w /repo/ros/cspace-ros "$IMAGE" bash -c '
   set -e
   "$CARGO_TARGET_DIR/debug/move_group" '"$URDF $SRDF"' 2>/tmp/node.stderr &
   server_pid=$!
@@ -219,7 +219,7 @@ docker network create "$NET" >/dev/null
 
 docker_cargo_run -d --rm --name "$NODE_CTR" --network "$NET" \
   -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
-  -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
+  -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" \
   "$DOCKER_CARGO_TARGET_MOUNT/debug/move_group" "$URDF" "$SRDF" >/dev/null
 sleep 3
 
@@ -227,7 +227,7 @@ sleep 3
 # scene (`is_diff: false`) rather than a diff, so the state that comes back is
 # unambiguously this message's and not a default the node happened to hold.
 docker_cargo_run --rm --network "$NET" -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
-  -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c "
+  -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" bash -c "
     timeout 20 ros2 topic pub --once --qos-reliability reliable /planning_scene \
       moveit_msgs/msg/PlanningScene \
       '{is_diff: false, robot_state: {is_diff: false, joint_state: {name: [j1], position: [$CURRENT_J1]}}}'

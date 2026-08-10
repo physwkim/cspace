@@ -48,7 +48,7 @@
 # condition's own third bullet -- "접촉점 좌표는 비교 대상에서 제외 (§4.5,
 # 검증 한계로 기록)" -- recorded in §4.5 as a verification limit of this
 # port, not a convenience taken here to make a number pass. The two sides'
-# contact geometry differs by construction (`crates/moveit-collision/
+# contact geometry differs by construction (`crates/cspace-collision/
 # src/parry.rs`, deviations 4 and 6); §4.5 is where that is argued, and this
 # script is not the place it is decided.
 #

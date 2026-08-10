@@ -2,29 +2,29 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! The moveit-rs side of the differential comparison: reshapes a built
-//! `moveit_model::RobotModel` into the wire [`ModelInfo`] and drives
-//! `moveit_state::RobotState` to answer [`fk`], mirroring the oracle's own
+//! `cspace_model::RobotModel` into the wire [`ModelInfo`] and drives
+//! `cspace_state::RobotState` to answer [`fk`], mirroring the oracle's own
 //! `modelInfo()`/`fk()` in `tools/moveit-oracle/src/oracle.cpp` field for
 //! field so a disagreement here is a port defect, not a protocol mismatch.
 
 use std::collections::BTreeMap;
 
-use moveit_collision::{
+use cspace_collision::{
     AllowedCollisionMatrix, BodyType, CollisionEnv, CollisionRequest, DistanceRequest,
     DistanceResultsData, ParryCollisionEnv,
 };
-use moveit_constraints::{
+use cspace_constraints::{
     Constraint, JointConstraint, KinematicConstraintSet, OrientationConstraint,
     OrientationTolerance, PositionConstraint, SensorSpec, TargetSpec, VisibilityConstraint,
     VisibilityCriteria,
 };
-use moveit_geometry::{
+use cspace_geometry::{
     Cuboid, Cylinder, Isometry3, Mesh, Rotation3, Shape, Sphere, Transforms, UnitQuaternion,
     Vector3,
 };
-use moveit_kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolveOptions, SolverParams};
-use moveit_model::RobotModel;
-use moveit_state::{Posed, RobotState};
+use cspace_kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolveOptions, SolverParams};
+use cspace_model::RobotModel;
+use cspace_state::{Posed, RobotState};
 use nalgebra::{Matrix3, Quaternion, Translation3};
 
 use crate::protocol::{
@@ -202,11 +202,11 @@ fn shape_from_spec(spec: &ShapeSpec) -> Result<Shape, String> {
 
 fn sensor_view_direction_from_spec(
     name: &str,
-) -> Result<moveit_constraints::SensorViewDirection, String> {
+) -> Result<cspace_constraints::SensorViewDirection, String> {
     match name {
-        "sensor_x" => Ok(moveit_constraints::SensorViewDirection::SensorX),
-        "sensor_y" => Ok(moveit_constraints::SensorViewDirection::SensorY),
-        "sensor_z" => Ok(moveit_constraints::SensorViewDirection::SensorZ),
+        "sensor_x" => Ok(cspace_constraints::SensorViewDirection::SensorX),
+        "sensor_y" => Ok(cspace_constraints::SensorViewDirection::SensorY),
+        "sensor_z" => Ok(cspace_constraints::SensorViewDirection::SensorZ),
         other => Err(format!("unknown sensor_view_direction {other:?}")),
     }
 }
@@ -219,7 +219,7 @@ fn sensor_view_direction_from_spec(
 /// then-apply the same way [`fk`]/[`jacobian`] do.
 ///
 /// A `VisibilityConstraintSpec` with `target_radius` set runs the full
-/// cone-vs-robot collision check (`moveit-constraints`' own
+/// cone-vs-robot collision check (`cspace-constraints`' own
 /// `VisibilityConstraint::decide`), not just the view/range-angle checks.
 pub fn constraints(
     model: &RobotModel,
@@ -430,10 +430,10 @@ fn body_type_name(body_type: BodyType) -> &'static str {
 
 /// `group`'s tip link pose expressed in `group`'s own base-link frame --
 /// `root_pose_world.inverse() * tip_pose_world` -- the frame
-/// [`moveit_kinematics::KinematicsSolver::solve`] takes its target in.
+/// [`cspace_kinematics::KinematicsSolver::solve`] takes its target in.
 /// Rebuilt here from only public `RobotModel`/`Posed` API, exactly matching
 /// `tests/ik_fk_roundtrip.rs`'s own `chain_relative_pose` helper in
-/// `crates/moveit-kinematics`, since `moveit_kinematics::chain::ChainInfo`
+/// `crates/cspace-kinematics`, since `cspace_kinematics::chain::ChainInfo`
 /// is private to that crate.
 fn chain_relative_pose(
     model: &RobotModel,
@@ -473,7 +473,7 @@ fn chain_relative_pose(
 /// when it converged -- how far `FK(solution)` lands from the target pose
 /// it was asked to reach.
 pub struct IkOutcome {
-    /// [`moveit_kinematics::KinematicsSolver::joint_names`] order.
+    /// [`cspace_kinematics::KinematicsSolver::joint_names`] order.
     pub joint_names: Vec<String>,
     /// The deterministic, bounds-midpoint seed this side computed -- see
     /// [`crate::protocol::Op::Ik`]'s doc comment for why this never needs
@@ -514,7 +514,7 @@ pub struct IkSolver<'m> {
 
 impl<'m> IkSolver<'m> {
     /// `rng_seed` seeds the `ChaCha8Rng` the restart reseeds draw from;
-    /// `0` is `moveit_kinematics`'s own `DEFAULT_SEED`, i.e. what
+    /// `0` is `cspace_kinematics`'s own `DEFAULT_SEED`, i.e. what
     /// `NewtonRaphsonSolver::new` would have used. See
     /// `Config::ik_rng_seed` for why the caller gets to choose it, and
     /// `Config::ik_epsilon` for why `epsilon` is a parameter at all when
@@ -557,7 +557,7 @@ impl<'m> IkSolver<'m> {
 
     /// Every single-DOF (revolute/prismatic) joint in this solver's own
     /// chain -- active and mimic alike, in depth-first order.
-    /// `moveit_kinematics::chain::ChainInfo` (which already computes exactly
+    /// `cspace_kinematics::chain::ChainInfo` (which already computes exactly
     /// this) is private to that crate, so this rebuilds the same filter
     /// from only public `RobotModel`/`JointModelGroup` API. Used solely to
     /// build the full-space [`crate::protocol::Op::Ik::consistency_limits`]
@@ -585,7 +585,7 @@ impl<'m> IkSolver<'m> {
     /// `consistency_limits` is [`crate::protocol::Op::Ik::consistency_limits`]'s
     /// same full-space (active + mimic), by-name map -- this method reduces
     /// it to the active-joint-only `Vec<f64>`
-    /// [`moveit_kinematics::SolveOptions::consistency_limits`]
+    /// [`cspace_kinematics::SolveOptions::consistency_limits`]
     /// itself expects, reading each of [`IkSolver::joint_names`]'s own
     /// entries out of the full map and ignoring any mimic-joint entry the
     /// map happens to carry (mirroring the oracle's own reduction to
@@ -596,7 +596,7 @@ impl<'m> IkSolver<'m> {
     ///
     /// If `consistency_limits` is non-empty but does not have an entry for
     /// one of [`IkSolver::joint_names`]'s own names -- a caller error, the
-    /// same way [`moveit_kinematics::KinematicsSolver::solve_with_options`]'s
+    /// same way [`cspace_kinematics::KinematicsSolver::solve_with_options`]'s
     /// `# Panics` treats a mis-sized `consistency_limits` slice.
     pub fn solve_case(
         &mut self,

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds the ROS 2 Rolling + Rust image used to build/test ros/moveit-ros.
+# Builds the ROS 2 Rolling + Rust image used to build/test ros/cspace-ros.
 #
 # BASE_IMAGE is read from tools/moveit-oracle/src-digest.sh's
 # ORACLE_BASE_IMAGE rather than repeated here -- a second copy of that digest

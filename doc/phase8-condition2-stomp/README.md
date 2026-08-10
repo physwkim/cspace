@@ -17,7 +17,7 @@ how loaded the machine was.
 
 Problem sets (byte-reproducible from the seed alone):
 
-    cargo build --release -p moveit-planners-sbp --example plan_benchmark_problem_set
+    cargo build --release -p cspace-planners-sbp --example plan_benchmark_problem_set
     ./target/release/examples/plan_benchmark_problem_set floor_wall 250 900001 > floor_wall.250.900001.set.json
     ./target/release/examples/plan_benchmark_problem_set cage      250 900002 > cage.250.900002.set.json
 

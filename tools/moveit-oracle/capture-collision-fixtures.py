@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026, moveit-rs contributors
 # SPDX-License-Identifier: BSD-3-Clause
-"""Regenerates crates/moveit-collision/tests/fixtures/<robot>_collision.json.
+"""Regenerates crates/cspace-collision/tests/fixtures/<robot>_collision.json.
 
 Ground-truth capture for the oracle's `collision` op (tools/moveit-oracle/src/
 oracle.cpp): one default case (every joint at its default value) plus three
 cases at oracle-drawn random joint positions (`random_states`, seeded for
 reproducibility), each checked against a single fixed world object -- a
 4x4x0.1 floor box centered at (0, 0, -0.05), so its top face sits at z = 0 --
-matching `crates/moveit-collision/tests/collision_parity.rs`'s own
+matching `crates/cspace-collision/tests/collision_parity.rs`'s own
 `floor_env`/`build_acm`.
 
 Run after rebuilding the oracle image (tools/moveit-oracle/build.sh):
@@ -17,7 +17,7 @@ Run after rebuilding the oracle image (tools/moveit-oracle/build.sh):
 
 fanuc_collision.json and pr2_collision.json already existed; this script
 regenerates them and adds panda_collision.json, which did not exist before
-because `moveit-model` did not load `<mesh>` collision geometry at all --
+because `cspace-model` did not load `<mesh>` collision geometry at all --
 every panda link's collision geometry is exactly one `<mesh>` element, so a
 capture against the old rust-side (geometry-free) build would have compared
 nothing to nothing. The existing fanuc_collision.json was itself captured
@@ -36,7 +36,7 @@ import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 RUN_ORACLE = REPO_ROOT / "tools" / "moveit-oracle" / "run-oracle.sh"
-FIXTURES_DIR = REPO_ROOT / "crates" / "moveit-collision" / "tests" / "fixtures"
+FIXTURES_DIR = REPO_ROOT / "crates" / "cspace-collision" / "tests" / "fixtures"
 
 SEED = 20260803
 RANDOM_CASES = 3

@@ -1,0 +1,44 @@
+[package]
+name = "cspace-planners-stomp"
+description = "STOMP planner support types (matrix<->trajectory conversion, trajectory filters), ported from moveit_planners/stomp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cspace-collision.workspace = true
+cspace-constraints.workspace = true
+cspace-error.workspace = true
+cspace-kinematics.workspace = true
+cspace-model.workspace = true
+cspace-sampling.workspace = true
+cspace-scene.workspace = true
+cspace-state.workspace = true
+cspace-stomp-core.workspace = true
+cspace-trajectory.workspace = true
+nalgebra.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+cspace-geometry.workspace = true
+# examples/stomp_benchmark_port.rs only (Phase 8's property-based
+# measurement, PORTING-PLAN.md §263): `cspace-planners-sbp` supplies the
+# `JointModelGroupSpace` metric the C++ OMPL baseline's `length` is measured
+# in, so the two sides of Phase 7 condition 3 are the same instrument.
+cspace-planners-sbp.workspace = true
+cspace-srdf.workspace = true
+# `stomp_benchmark_port.rs`'s pose decoding only -- see
+# `cspace-test-support`'s own module doc for why a shared crate closes this
+# kind of duplication.
+cspace-test-support.workspace = true
+rand_chacha.workspace = true
+# `examples/optimize_benchmark_stomp.rs` reads the benchmark problem set and
+# writes its per-problem NDJSON; the library half needs neither.
+serde_json.workspace = true
+urdf-rs.workspace = true
+
+[lints]
+workspace = true

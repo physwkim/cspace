@@ -3,7 +3,7 @@
 # rather than as numbers in a report.
 #
 #   1. success rate over 500 benchmark problems >= 90% of C++ OMPL RRTConnect's
-#   2. 100% of produced paths pass moveit-scene's collision check and constraints
+#   2. 100% of produced paths pass cspace-scene's collision check and constraints
 #   3. median path length within 1.3x of C++ OMPL's
 #
 # Conditions 1 and 3 need the C++ baseline, so they need docker and the
@@ -129,9 +129,9 @@ fi
 # Here is the command that checks it, so the claim is not left as an assertion
 # -- `5adbed6` is the last commit before that rewrite:
 #
-#   OLD=crates/moveit-planners-sbp/examples/plan_benchmark_problem_set_pre_5adbed6.rs
-#   git show 5adbed6:crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs >"$OLD"
-#   cargo build --release -p moveit-planners-sbp \
+#   OLD=crates/cspace-planners-sbp/examples/plan_benchmark_problem_set_pre_5adbed6.rs
+#   git show 5adbed6:crates/cspace-planners-sbp/examples/plan_benchmark_problem_set.rs >"$OLD"
+#   cargo build --release -p cspace-planners-sbp \
 #     --example plan_benchmark_problem_set_pre_5adbed6 --example plan_benchmark_problem_set
 #   for s in "floor_wall 250 900001" "cage 250 900002"; do
 #     diff <(./target/release/examples/plan_benchmark_problem_set_pre_5adbed6 $s 2>/dev/null) \
@@ -387,14 +387,14 @@ ORACLE_STAMP="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")" || exit 1
 # list was derived and what was deliberately left out.
 if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
     tools/ci/verify-phase7-benchmark.sh \
-    crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
-    crates/moveit-planners-sbp/examples/plan_benchmark_port.rs \
-    crates/moveit-planners-sbp/src \
-    crates/moveit-planning/src \
-    crates/moveit-planner-registry/src \
-    crates/moveit-collision/src \
-    crates/moveit-scene/src \
-    crates/moveit-constraints/src \
+    crates/cspace-planners-sbp/examples/plan_benchmark_problem_set.rs \
+    crates/cspace-planners-sbp/examples/plan_benchmark_port.rs \
+    crates/cspace-planners-sbp/src \
+    crates/cspace-planning/src \
+    crates/cspace-planner-registry/src \
+    crates/cspace-collision/src \
+    crates/cspace-scene/src \
+    crates/cspace-constraints/src \
     tools/moveit-oracle/src; do
   d="$(measured_source_digest "$f")" || exit 1
   printf '%s %s\n' "$f" "$d"
@@ -406,7 +406,7 @@ fi
 
 echo "=== building benchmark binaries (release) ==="
 cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
-  -p moveit-planners-sbp --examples || exit 1
+  -p cspace-planners-sbp --examples || exit 1
 
 failed=()
 
@@ -641,7 +641,7 @@ for entry in "${SETS[@]}"; do
 done
 
 echo
-echo "=== port (moveit-planners-sbp rrt_connect), timeout=${TIMEOUT_SECONDS}s per call, ${SHARDS} shards ==="
+echo "=== port (cspace-planners-sbp rrt_connect), timeout=${TIMEOUT_SECONDS}s per call, ${SHARDS} shards ==="
 port_start=$(date +%s.%N)
 for entry in "${SETS[@]}" "constrained x x x"; do
   read -r robot config count seed <<<"$entry"
@@ -1276,13 +1276,13 @@ if [[ "$MODE" == "full" ]]; then
   # Checkable in one command against any tree, tracked or not, with no sha to
   # look up:
   #
-  #   git hash-object crates/moveit-planners-sbp/examples/plan_benchmark_port.rs
+  #   git hash-object crates/cspace-planners-sbp/examples/plan_benchmark_port.rs
   #
   # If that differs from the value recorded here, the committed code is not
   # the code that ran and these figures need re-measuring.
   #
   # `$SOURCES_JSON` was taken before the build, not here -- see the snapshot
-  # site for why the timing is the point. `crates/moveit-planners-sbp/src` and
+  # site for why the timing is the point. `crates/cspace-planners-sbp/src` and
   # the oracle are in it because the harnesses are not what solves these
   # problems.
   jq --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

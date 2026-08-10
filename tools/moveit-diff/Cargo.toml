@@ -10,15 +10,15 @@ authors.workspace = true
 publish = false
 
 [dependencies]
-moveit-collision.workspace = true
-moveit-constraints.workspace = true
-moveit-error.workspace = true
-moveit-geometry.workspace = true
-moveit-kinematics.workspace = true
-moveit-model.workspace = true
-moveit-octomap.workspace = true
-moveit-srdf.workspace = true
-moveit-state.workspace = true
+cspace-collision.workspace = true
+cspace-constraints.workspace = true
+cspace-error.workspace = true
+cspace-geometry.workspace = true
+cspace-kinematics.workspace = true
+cspace-model.workspace = true
+cspace-octomap.workspace = true
+cspace-srdf.workspace = true
+cspace-state.workspace = true
 nalgebra.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true

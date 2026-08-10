@@ -2,8 +2,8 @@
 # Fails if a crate opts out of `[lints] workspace = true` and drops a lint the
 # workspace sets, rather than restating it.
 #
-# Two crates legitimately cannot inherit wholesale: moveit-kinematics and
-# moveit-planners-sbp both use `linkme::distributed_slice` for their D4
+# Two crates legitimately cannot inherit wholesale: cspace-kinematics and
+# cspace-planners-sbp both use `linkme::distributed_slice` for their D4
 # registries, every such static expands to a `#[link_section]` item, and the
 # workspace's `unsafe_code = "forbid"` cannot be downgraded per-site (forbid
 # refuses even an `#[allow]`, and check-no-lint-suppression.sh would reject
@@ -58,7 +58,7 @@ for group in rust clippy; do
 done
 
 # Every tracked package manifest, not the `crates/*` + `tools/*` roots this
-# used to name. `ros/moveit-ros` is a package that matches neither glob -- it
+# used to name. `ros/cspace-ros` is a package that matches neither glob -- it
 # is its own workspace root (D5), so it cannot inherit and is precisely the
 # case this check exists for, and it was the one manifest never read. It had
 # in fact dropped `missing_docs`, which is the exact scenario the header

@@ -137,7 +137,7 @@ pub enum Op {
     /// `disable_collisions`/`enable_collisions`/`disable_default_collisions`,
     /// dumped entry by entry.
     Acm,
-    /// Ground truth for the `moveit-collision` `World` port. Builds a
+    /// Ground truth for the `cspace-collision` `World` port. Builds a
     /// `collision_detection::World` directly from `objects` — no `RobotModel`
     /// involved, since `World` has none — and dumps every object's pose,
     /// per-shape pose/global pose and per-subframe pose/global pose, plus
@@ -151,11 +151,11 @@ pub enum Op {
         #[serde(default)]
         queries: Vec<String>,
     },
-    /// Ground truth for the `moveit-distance-field` `PropagationDistanceField`
+    /// Ground truth for the `cspace-distance-field` `PropagationDistanceField`
     /// port. Builds a field directly from `geometry`/`max_distance`/
     /// `propagate_negative` -- no `RobotModel` involved, `distance_field` has
     /// none either -- adds `occupied_cells` (explicit integer grid
-    /// coordinates, not shapes: `moveit-geometry`'s `bodies` port is not
+    /// coordinates, not shapes: `cspace-geometry`'s `bodies` port is not
     /// merged yet), then dumps `getDistance`, `getDistanceGradient` and
     /// `getNearestCell` for every cell in `queries`.
     DistanceField {
@@ -192,7 +192,7 @@ pub enum Op {
         /// Grid spacing `findInternalPointsConvex` samples at.
         resolution: f64,
     },
-    /// Ground truth for the `moveit-constraints` `KinematicConstraintSet`
+    /// Ground truth for the `cspace-constraints` `KinematicConstraintSet`
     /// port. Builds a `moveit_msgs::msg::Constraints` from `constraints`
     /// (one message vector per constraint kind, joint/position/orientation/
     /// visibility, each filled in request order — the same order
@@ -209,7 +209,7 @@ pub enum Op {
         /// The constraints to build and evaluate.
         constraints: ConstraintsSpec,
     },
-    /// Ground truth for `moveit-collision::ParryCollisionEnv`
+    /// Ground truth for `cspace-collision::ParryCollisionEnv`
     /// (PORTING-PLAN.md §5's Phase 3 completion condition):
     /// `CollisionEnvFCL::checkSelfCollision`/`checkRobotCollision`/
     /// `distanceSelf`/`distanceRobot` at `joint_values`, filtered through the
@@ -226,8 +226,8 @@ pub enum Op {
         /// dummy spheres, which only exercise pose composition).
         objects: Vec<CollisionObjectSpec>,
         /// Bodies to attach to the state via `RobotState::attachBody` before
-        /// running any check, ground truth for `moveit_scene::AttachedBody`/
-        /// `moveit_collision::AttachedBodyGeometry`. Empty means the plain
+        /// running any check, ground truth for `cspace_scene::AttachedBody`/
+        /// `cspace_collision::AttachedBodyGeometry`. Empty means the plain
         /// [`Op::Collision`] behavior every existing fixture already
         /// exercises.
         #[serde(default)]
@@ -238,7 +238,7 @@ pub enum Op {
     /// the oracle via a hand-transcribed `KDLKinematicsPlugin::searchPositionIK`
     /// over the real, vendored `ChainIkSolverVelMimicSVD` (see
     /// `tools/moveit-oracle/src/oracle.cpp`'s `ik()`), this side's own
-    /// `moveit_kinematics::NewtonRaphsonSolver` -- the direct port of that
+    /// `cspace_kinematics::NewtonRaphsonSolver` -- the direct port of that
     /// same upstream solver, not `LevenbergMarquardtSolver`, which has no
     /// upstream counterpart to compare a success rate against.
     ///
@@ -261,7 +261,7 @@ pub enum Op {
         joint_values: BTreeMap<String, f64>,
         /// Whether to run position-only IK.
         position_only: bool,
-        /// `moveit_kinematics::SolverParams::max_restarts` on this side,
+        /// `cspace_kinematics::SolverParams::max_restarts` on this side,
         /// `kMaxRestarts` on the oracle side. Sent explicitly, not defaulted
         /// on either side, because it is the knob the round-2 investigation
         /// into moveit-rs's IK success-rate gap needs to isolate: at `0`,
@@ -280,7 +280,7 @@ pub enum Op {
         /// `joint_values` is a map: the oracle's and this side's chain
         /// traversals never have to agree on an encounter order. Empty (the
         /// default) means "no consistency limits", matching
-        /// `moveit_kinematics::registry::SolveOptions::consistency_limits`
+        /// `cspace_kinematics::registry::SolveOptions::consistency_limits`
         /// being [`None`].
         ///
         /// Both sides reduce this full-space map to their own
@@ -407,7 +407,7 @@ pub enum OrientationToleranceSpec {
 
 /// One `moveit_msgs::msg::VisibilityConstraint`. Only the criteria decidable
 /// without a collision backend are exercised by the differential test that
-/// drives this (view-angle/range-angle) — see `moveit-constraints`' own
+/// drives this (view-angle/range-angle) — see `cspace-constraints`' own
 /// module docs for why `target_radius` alone cannot be.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisibilityConstraintSpec {
@@ -455,7 +455,7 @@ pub struct CollisionObjectSpec {
 /// link_name)`. `pose` (upstream's separate object-pose level between the
 /// link and its shapes) is not a field here: the oracle side always passes
 /// `Eigen::Isometry3d::Identity()` for it, matching
-/// `moveit_scene::AttachedBody`'s own one-level design (its own module doc)
+/// `cspace_scene::AttachedBody`'s own one-level design (its own module doc)
 /// where `shape_poses` are already relative to the link frame directly.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttachedBodySpec {
@@ -729,7 +729,7 @@ pub struct JacobianResult {
 /// rather than its merged `getAllowedCollision` view: [`AcmResult::entries`]
 /// is the explicit-entry table (`entries_`) and [`AcmResult::defaults`] is the
 /// per-name default table (`default_entries_`), each dumped independently —
-/// the same tables `moveit-collision`'s `AllowedCollisionMatrix` keeps.
+/// the same tables `cspace-collision`'s `AllowedCollisionMatrix` keeps.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AcmResult {
     /// Every name known to the matrix (`getAllEntryNames`), sorted.
@@ -959,7 +959,7 @@ pub struct ConstraintsResult {
 /// same-pair depth drift: this port's self-distance search finds these two
 /// near-static pairs and apparently never gets to weigh the gripper pairs
 /// against them. Diagnostic only, handed to p3-acm (who own
-/// `moveit-collision`) rather than fixed here.
+/// `cspace-collision`) rather than fixed here.
 ///
 /// Round 9 extended this to `robot_distance` (robot vs. world object) and
 /// to whether a pair disagreement is even a defect: at 3000 cases (same
@@ -1037,7 +1037,7 @@ pub struct DistancePair {
 ///
 /// Contact/nearest-point coordinates are deliberately absent: PORTING-PLAN.md
 /// §4.5 records their exclusion from Phase 3's completion condition as a
-/// verification limit, not an oversight — see `crates/moveit-collision/src/parry.rs`'s
+/// verification limit, not an oversight — see `crates/cspace-collision/src/parry.rs`'s
 /// module doc, deviations 4 and 6, for why a coordinate-level comparison
 /// would not be meaningful here even if it were attempted.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

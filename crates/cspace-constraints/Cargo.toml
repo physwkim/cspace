@@ -1,0 +1,31 @@
+[package]
+name = "cspace-constraints"
+description = "Pure-Rust kinematic constraint types (moveit_core/kinematic_constraints): Joint/Position/Orientation/Visibility constraints and their decide()"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cspace-collision.workspace = true
+cspace-error.workspace = true
+cspace-geometry.workspace = true
+cspace-kinematics.workspace = true
+cspace-model.workspace = true
+cspace-state.workspace = true
+nalgebra.workspace = true
+rand.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
+rand_chacha.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+urdf-rs.workspace = true
+cspace-srdf.workspace = true
+
+[lints]
+workspace = true

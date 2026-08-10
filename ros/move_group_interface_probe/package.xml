@@ -5,7 +5,7 @@
   <version>0.0.0</version>
   <description>
     Drives upstream's unmodified moveit::planning_interface::MoveGroupInterface
-    against ros/moveit-ros's node, for the /move_action leg of
+    against ros/cspace-ros's node, for the /move_action leg of
     ros/verify-ros-interop.sh. Test harness: it is never installed, never
     linked by moveit-rs, and exists only inside the probe image
     ros/move-group-interface-probe/Dockerfile builds.

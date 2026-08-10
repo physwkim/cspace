@@ -41,7 +41,7 @@
 #     client? It is a service and not the action, so leg B's result says
 #     nothing about it -- this node served `/move_action` for a whole round
 #     with no Cartesian endpoint at all. Its in-process counterpart is
-#     `ros/moveit-ros/src/cartesian_path.rs`'s test module, which can drive
+#     `ros/cspace-ros/src/cartesian_path.rs`'s test module, which can drive
 #     the arms no unmodified client can reach: the three jump thresholds are
 #     not parameters of the client's signature at the pinned sha, so leg C
 #     structurally cannot set them.
@@ -63,15 +63,15 @@
 #     a conversion that dropped the values, or paired them with the wrong names,
 #     is invisible here. That is checked in-process instead, by
 #     `each_start_state_position_is_carried_against_its_own_joint_name` and
-#     `round_trip_start_state_through_msg` in ros/moveit-ros/src/planning.rs
+#     `round_trip_start_state_through_msg` in ros/cspace-ros/src/planning.rs
 #     and by `an_overlay_pairs_each_value_with_its_own_name` in
-#     crates/moveit-planning/src/start_state.rs. What leg A *can* see is the
+#     crates/cspace-planning/src/start_state.rs. What leg A *can* see is the
 #     two arrays' roles: the length-mismatch boundary asserts the exact counts,
 #     so a conversion that read `position` where `name` belongs still reddens.
 #   - The trajectory's *content*. Leg A asserts the planned goal's reply names
 #     the joint it moves; that it moves it to the requested position is checked
 #     in-process, by `the_plan_only_arm_reaches_rrt_connect_and_gets_a_trajectory`
-#     in ros/moveit-ros/src/move_group.rs.
+#     in ros/cspace-ros/src/move_group.rs.
 #
 # The strings below are pinned to what the node answers today, so the first
 # change to that answer has to come here. That has now worked twice: these legs
@@ -108,7 +108,7 @@ echo "move_action legs: ROS_DOMAIN_ID=$DOMAIN_ID"
 # is to notice when the answer changes. Deriving it from the source it checks
 # would make it assert only that the source equals itself.
 # The planner's own failure, not the node's: `plan_only` wraps whatever
-# `moveit_planning::generate_plan` returns, and that names the planner that
+# `cspace_planning::generate_plan` returns, and that names the planner that
 # ran. Asserting the planner's name here is what distinguishes "reached
 # rrt_connect and it said no" from "found no planner at all", which this port
 # reports with a different sentence entirely.
@@ -120,12 +120,12 @@ echo "move_action legs: ROS_DOMAIN_ID=$DOMAIN_ID"
 # asserts the same sentence undoubled because `ros2 service call` prints a
 # Python repr instead -- same node, same string, two renderings.
 PLANNER_FAILED_MSG="planner ''rrt_connect'' failed: unknown joint model group"
-SOURCE_STRING="moveit-ros/move_action"
+SOURCE_STRING="cspace-ros/move_action"
 # Leg C's own, from `moveit_ros::cartesian_path::SOURCE`. Pinned separately
 # from `SOURCE_STRING` on purpose: the field's whole job is to say which
 # endpoint answered, so a leg that accepted either string would be blind to
 # the one mix-up it exists to catch.
-CARTESIAN_SOURCE_STRING="moveit-ros/compute_cartesian_path"
+CARTESIAN_SOURCE_STRING="cspace-ros/compute_cartesian_path"
 # The two `start_state` shapes the conversion still rejects, now that a
 # representable one is carried instead of refused. Both are structural: they
 # name what the wire holds and no robot model is consulted, which is why they
@@ -179,7 +179,7 @@ echo "=== move_action (leg A: ros2 action send_goal) ==="
 # `cargo build` here and not in the container command below: leg B reuses the
 # binary this produces, out of the cargo volume every container here shares
 # (gate-lib.sh's `docker_cargo_run`), so it is built once for both legs.
-docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
+docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" \
   bash -c "cargo build --bin move_group" >&2
 
 # One file per goal, mounted at /out, rather than one merged stream. The six
@@ -206,7 +206,7 @@ trap 'rm -rf "$leg_a_dir"' EXIT
 # container script before the other five goals ran, and the assertions below
 # would report five missing replies instead of the one that actually changed.
 docker_cargo_run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
-  -v "$REPO_ROOT:/repo" -v "$leg_a_dir:/out" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
+  -v "$REPO_ROOT:/repo" -v "$leg_a_dir:/out" -w /repo/ros/cspace-ros "$IMAGE" bash -c '
   set -e
   "$CARGO_TARGET_DIR/debug/move_group" '"$URDF $SRDF"' 2>/tmp/node.stderr &
   server_pid=$!
@@ -396,7 +396,7 @@ docker network create "$NET" >/dev/null
 # failing assertion below.
 docker_cargo_run -d --rm --name "$NODE_CTR" --network "$NET" \
   -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
-  -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
+  -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" \
   "$DOCKER_CARGO_TARGET_MOUNT/debug/move_group" "$URDF" "$SRDF" >/dev/null
 sleep 3
 
@@ -433,7 +433,7 @@ run_probe() {  # <mode> <output-file>
 # the constructor's empty diff (`is_diff = true`) by default; `setStartState`
 # replaces it with a fully specified state (`is_diff = false`, but
 # `joint_state.name` populated). They convert to the two *different* variants of
-# `moveit_planning::StartState` -- `CurrentState` and `Overriding` -- which is
+# `cspace_planning::StartState` -- `CurrentState` and `Overriding` -- which is
 # why both modes stay on the gate: one run cannot cover both variants, and the
 # variant a real client picks is decided by whether it called `setStartState`.
 for mode in default-start explicit-start; do

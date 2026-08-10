@@ -1,0 +1,54 @@
+[package]
+name = "cspace-planners-sbp"
+description = "Sampling-based motion planning for moveit-rs: state spaces, nearest-neighbour index and RRT-Connect"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+linkme.workspace = true
+cspace-model.workspace = true
+cspace-state.workspace = true
+cspace-collision.workspace = true
+cspace-constraints.workspace = true
+cspace-error.workspace = true
+cspace-geometry.workspace = true
+cspace-kinematics.workspace = true
+cspace-planner-registry.workspace = true
+cspace-planning.workspace = true
+cspace-scene.workspace = true
+cspace-trajectory.workspace = true
+
+[dev-dependencies]
+cspace-srdf.workspace = true
+# `plan_benchmark_port.rs`/`seed_validity_problem_set.rs`'s pose decoding
+# only -- see `cspace-test-support`'s own module doc for why a shared crate
+# closes this kind of duplication.
+cspace-test-support.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+urdf-rs.workspace = true
+
+# Not `[lints] workspace = true`: this crate's PlannerManager registry
+# (`src/registry.rs`) uses `linkme::distributed_slice`, per PORTING-PLAN.md
+# D4 -- the same mechanism `cspace-kinematics::registry` already uses, whose
+# Cargo.toml explains in full why `unsafe_code` (and only that lint) has to
+# be relaxed here: every `distributed_slice` static expands to a
+# `#[link_section]` item, which trips the lint even though no source file in
+# this crate contains an actual `unsafe` block, and the workspace's
+# `unsafe_code = "forbid"` cannot be downgraded by a narrower per-site
+# `#[allow(...)]` (`forbid` refuses even that, and
+# `tools/ci/check-no-lint-suppression.sh` would reject the attempt anyway).
+[lints.rust]
+warnings = "deny"
+missing_docs = "warn"
+unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

@@ -74,7 +74,7 @@ jobs:
       # so a public doc comment linking to a private item is a hard error -- but
       # only under `cargo doc`, which none of the steps above run. Without this
       # step they accumulate silently: they reached 8 across four crates before
-      # anyone looked, and a single round of new code took moveit-model from 7
+      # anyone looked, and a single round of new code took cspace-model from 7
       # to 11 on its own.
       - name: docs
         run: cargo doc --workspace --no-deps

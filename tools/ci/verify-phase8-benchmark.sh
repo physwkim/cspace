@@ -4,11 +4,11 @@
 #
 # §5 line 719 says the CHOMP/STOMP half of Phase 8 is verified by "Phase 7과
 # 같은 속성 기반 검증" -- Phase 7's three property conditions (§5 lines
-# 704-708), re-run with `moveit-planners-chomp` and `moveit-planners-stomp`
-# in place of `moveit-planners-sbp` on the port side:
+# 704-708), re-run with `cspace-planners-chomp` and `cspace-planners-stomp`
+# in place of `cspace-planners-sbp` on the port side:
 #
 #   1. success rate >= 90% of C++ OMPL RRTConnect's, over 500 problems
-#   2. 100% of returned paths pass `moveit-scene`'s collision + constraint check
+#   2. 100% of returned paths pass `cspace-scene`'s collision + constraint check
 #   3. median path length within 1.3x of C++ OMPL's
 #
 # # Which baseline, and why this reading
@@ -171,7 +171,7 @@ ORACLE="$REPO_ROOT/tools/moveit-oracle/run-oracle.sh"
 # the opt-in SKIP above already has to shout about.
 
 # The Phase 7 benchmark set, unchanged: the same two configs, counts and
-# seeds `crates/moveit-planners-sbp/benches/sweep_baseline.sh` measured the
+# seeds `crates/cspace-planners-sbp/benches/sweep_baseline.sh` measured the
 # recorded C++ baseline from. Changing any of these invalidates every pinned
 # number below.
 CONFIGS=(floor_wall cage)
@@ -231,9 +231,9 @@ started=$(date +%s)
 
 echo "building the three example binaries (release)..." >&2
 cargo build --release \
-  --example plan_benchmark_problem_set -p moveit-planners-sbp \
-  --example chomp_benchmark_port -p moveit-planners-chomp \
-  --example stomp_benchmark_port -p moveit-planners-stomp >&2
+  --example plan_benchmark_problem_set -p cspace-planners-sbp \
+  --example chomp_benchmark_port -p cspace-planners-chomp \
+  --example stomp_benchmark_port -p cspace-planners-stomp >&2
 
 SET_BIN="$REPO_ROOT/target/release/examples/plan_benchmark_problem_set"
 CHOMP_BIN="$REPO_ROOT/target/release/examples/chomp_benchmark_port"

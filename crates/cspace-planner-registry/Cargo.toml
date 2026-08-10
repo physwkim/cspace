@@ -1,0 +1,39 @@
+[package]
+name = "cspace-planner-registry"
+description = "Compile-time name-to-implementation registry for moveit-rs PlannerManager implementations"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+linkme.workspace = true
+cspace-error.workspace = true
+cspace-planning.workspace = true
+
+[dev-dependencies]
+cspace-planners-sbp.workspace = true
+
+# Not `[lints] workspace = true`, and the whole reason this registry is its
+# own crate rather than a module of `cspace-planning` (PORTING-PLAN.md
+# §140.1): `PLANNER_MANAGERS` uses `linkme::distributed_slice`, which expands
+# to a `#[link_section]` static and so trips `unsafe_code` even though no
+# source file here contains an `unsafe` block. The workspace's
+# `unsafe_code = "forbid"` cannot be downgraded by a narrower per-site
+# `#[allow(...)]` (`forbid` refuses even that, and
+# `tools/ci/check-no-lint-suppression.sh` would reject the attempt anyway),
+# so the relaxation is necessarily crate-wide -- which is an argument for
+# the crate holding it to be as small as possible. This one is a single
+# struct, a single static and one lookup function; `cspace-planning` is
+# ~2000 lines of planning logic that would all have been covered by the same
+# blanket allow. Same reasoning `cspace-kinematics`'s own Cargo.toml gives
+# for its `KINEMATICS_SOLVERS` slice, applied one step further.
+[lints.rust]
+warnings = "deny"
+missing_docs = "warn"
+unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

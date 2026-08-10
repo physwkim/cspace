@@ -1,0 +1,48 @@
+[package]
+name = "cspace-planners-chomp"
+description = "CHOMP (Covariant Hamiltonian Optimization for Motion Planning) core numeric package for moveit-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cspace-collision.workspace = true
+cspace-constraints.workspace = true
+cspace-distance-field.workspace = true
+cspace-error.workspace = true
+cspace-geometry.workspace = true
+cspace-model.workspace = true
+cspace-sampling.workspace = true
+cspace-state.workspace = true
+nalgebra.workspace = true
+cspace-trajectory.workspace = true
+rand.workspace = true
+rand_distr.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
+# Dev-only, for `examples/` (Phase 8's property-based measurement,
+# PORTING-PLAN.md §263). `cspace-scene` supplies the
+# `PlanningScene::is_path_valid` that `solve`'s injected
+# `mesh_to_mesh_collision_free` closure needs -- upstream's
+# `PlanningScene::isPathValid` over the group trajectory -- and both
+# `chomp_benchmark_port.rs` and `optimize_benchmark_chomp.rs` use it.
+# `cspace-planners-sbp` supplies the `JointModelGroupSpace` metric the C++
+# OMPL baseline's `length` is measured in, used by `chomp_benchmark_port.rs`
+# only. Deliberately dev-only: the library half still cannot reach
+# `cspace-scene`, which is the whole reason `optimizer` takes that check as an
+# injected closure (`optimizer.rs`, PORTING-PLAN.md §154).
+cspace-planners-sbp.workspace = true
+cspace-scene.workspace = true
+cspace-srdf.workspace = true
+cspace-test-support.workspace = true
+rand_chacha.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+urdf-rs.workspace = true
+
+[lints]
+workspace = true

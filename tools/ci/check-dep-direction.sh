@@ -4,8 +4,8 @@
 # check, a single convenience dependency quietly re-couples it and the breakage
 # is only noticed when someone tries to build without ROS 2.
 #
-# There used to be an `ALLOWED_PACKAGE='moveit-ros'` skip here, from when D2's
-# ROS crate was going to be a member. §129 put it at `ros/moveit-ros/` with its
+# There used to be an `ALLOWED_PACKAGE='cspace-ros'` skip here, from when D2's
+# ROS crate was going to be a member. §129 put it at `ros/cspace-ros/` with its
 # own `[workspace]` instead, so `cargo metadata --no-deps` cannot list it and
 # the skip could never fire. Removing it rather than leaving it as a no-op is
 # the point: with no exception, the rule below is uniform, and the day someone

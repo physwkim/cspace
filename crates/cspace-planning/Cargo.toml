@@ -1,0 +1,37 @@
+[package]
+name = "cspace-planning"
+description = "Planner-agnostic planning request/response types and the default request/response adapter chain for moveit-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+cspace-collision.workspace = true
+cspace-constraints.workspace = true
+cspace-error.workspace = true
+cspace-geometry.workspace = true
+cspace-model.workspace = true
+cspace-scene.workspace = true
+cspace-state.workspace = true
+cspace-trajectory.workspace = true
+
+[dev-dependencies]
+cspace-srdf.workspace = true
+urdf-rs.workspace = true
+# Dev-only, and a dependency *cycle* by design: `cspace-planners-sbp`
+# depends on this crate for `PlanningRequest`/`PlannerManager`, and this
+# crate depends back on it only so the crate-level doctest can plan for
+# real. Cargo permits a cycle through `[dev-dependencies]` (it is a
+# separate build of this crate's test targets, not of the library other
+# crates link). Neither the library nor its public types know sbp exists.
+cspace-planner-registry.workspace = true
+cspace-planners-sbp.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+
+[lints]
+workspace = true

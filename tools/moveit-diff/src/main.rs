@@ -25,14 +25,14 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
 
-use moveit_collision::{
+use cspace_collision::{
     AllowedCollisionMatrix, CollisionEnv, DistanceRequest, LinkPaddingScale, ParryCollisionEnv,
     World,
 };
-use moveit_geometry::{Cuboid, Isometry3, Rotation3, Shape, UnitQuaternion, Vector3};
-use moveit_model::{Diagnostic, MeshSearchPaths, RobotModel};
-use moveit_srdf::SrdfModel;
-use moveit_state::Posed;
+use cspace_geometry::{Cuboid, Isometry3, Rotation3, Shape, UnitQuaternion, Vector3};
+use cspace_model::{Diagnostic, MeshSearchPaths, RobotModel};
+use cspace_srdf::SrdfModel;
+use cspace_state::Posed;
 use protocol::{
     CollisionCheckResult, CollisionObjectSpec, ConstraintRegionSpec, ConstraintsResult,
     ConstraintsSpec, DistancePair, FkResult, IkResult, JacobianResult, JointConstraintSpec,
@@ -205,7 +205,7 @@ struct Config {
     ik_epsilon: f64,
     /// Seed for the `ChaCha8Rng` this side's restart reseeds draw from
     /// (`NewtonRaphsonSolver::new_with_seed`). Defaults to `0`, which is
-    /// `moveit_kinematics`'s own `DEFAULT_SEED`, so an unqualified `--ik`
+    /// `cspace_kinematics`'s own `DEFAULT_SEED`, so an unqualified `--ik`
     /// invocation reproduces every earlier run bit for bit.
     ///
     /// It is a knob at all because of what a paired `b`/`c` disagreement
@@ -825,7 +825,7 @@ fn shape_to_wire(shape: &Shape) -> Result<ShapeSpec, String> {
 /// [`AllowedCollisionMatrix`] built independently from the same SRDF the
 /// oracle loaded (proven to agree with the oracle's own
 /// `AllowedCollisionMatrix(*model_->getSRDF())` construction by
-/// `crates/moveit-collision/tests/acm_parity.rs`, so it need not be sent over
+/// `crates/cspace-collision/tests/acm_parity.rs`, so it need not be sent over
 /// the wire), and the wire form of the scene to send with every request.
 struct CollisionFixture {
     env: ParryCollisionEnv,
@@ -1669,8 +1669,8 @@ fn compare_jacobian(
 /// injected regression on record (`7d99473`'s commit message, flipping
 /// `decide_cone`'s final `!result.collision`) was caught by the `satisfied`
 /// mismatch it produced, not by `distance`. `distance` disagreeing here is
-/// `moveit-collision`'s already-documented, already-accepted deviation 6
-/// (`crates/moveit-collision/src/parry.rs`'s module doc): FCL's non-convex
+/// `cspace-collision`'s already-documented, already-accepted deviation 6
+/// (`crates/cspace-collision/src/parry.rs`'s module doc): FCL's non-convex
 /// penetration depth is itself an approximation, `parry3d_f64` computes an
 /// independent approximation of the same ill-posed quantity, and the two
 /// need not agree even on an unambiguous single contact (this module's own
@@ -1741,17 +1741,17 @@ fn pose_row_major(translation: Vector3, rotation: UnitQuaternion) -> [f64; 16] {
     rust_impl::to_row_major_4x4(&Isometry3::from_parts(translation.into(), rotation))
 }
 
-/// Whether `moveit-collision`'s parry backend can represent this shape at
-/// all -- excludes `Mesh` (never retained by `moveit-model`'s URDF loader in
+/// Whether `cspace-collision`'s parry backend can represent this shape at
+/// all -- excludes `Mesh` (never retained by `cspace-model`'s URDF loader in
 /// the first place, so never reachable from a `RobotModel`'s links, but
 /// checked here too for robustness) and `OcTree` (this port's `OcTree`
-/// carries no tree payload, see `moveit-collision`'s `parry.rs` module doc,
+/// carries no tree payload, see `cspace-collision`'s `parry.rs` module doc,
 /// deviation 10).
 fn is_parry_representable(shape: &Shape) -> bool {
     !matches!(shape, Shape::Mesh(_) | Shape::OcTree(_))
 }
 
-/// Every link name whose collision geometry `moveit-collision`'s parry
+/// Every link name whose collision geometry `cspace-collision`'s parry
 /// backend actually represents -- see [`build_constraint_case`]'s doc
 /// comment for why the `visibility_cone` case needs this to place a
 /// genuine, oracle-comparable collision.
@@ -1764,7 +1764,7 @@ fn parry_representable_link_names(model: &RobotModel) -> Vec<&str> {
                 .iter()
                 .any(|s| is_parry_representable(&s.shape))
         })
-        .map(moveit_model::LinkModel::name)
+        .map(cspace_model::LinkModel::name)
         .collect()
 }
 
@@ -1798,8 +1798,8 @@ fn parry_representable_link_names(model: &RobotModel) -> Vec<&str> {
 /// # The `target_radius` case is fixture-aware about where it can place the cone
 ///
 /// `panda.urdf`/`fanuc.urdf`/`dual_arm_panda.urdf`'s `<collision>` geometry
-/// is entirely `<mesh>` (STL); `moveit-model`'s URDF loader does not retain
-/// mesh collision geometry at all (see `moveit-collision`'s `parry.rs`
+/// is entirely `<mesh>` (STL); `cspace-model`'s URDF loader does not retain
+/// mesh collision geometry at all (see `cspace-collision`'s `parry.rs`
 /// module doc), so a `RobotModel` built from any of them has *zero*
 /// parry-representable collision geometry -- the port can never detect a
 /// cone-vs-robot collision against these three fixtures, no matter where the
@@ -1813,7 +1813,7 @@ fn parry_representable_link_names(model: &RobotModel) -> Vec<&str> {
 ///
 /// `pr2.urdf` is different: `parry_representable_link_names` finds 17 links
 /// whose collision geometry is a primitive (5 box, 8 cylinder, 4 sphere) --
-/// `moveit-model`'s loader retains those, so both the port and the oracle's
+/// `cspace-model`'s loader retains those, so both the port and the oracle's
 /// FCL backend see the same geometry there. Whenever the model has such a
 /// link, half of this shape's occurrences (`(case / SHAPE_CYCLE) % 2 == 0`) place the
 /// target exactly at one such link's global collision-shape center (cycling
@@ -2512,7 +2512,7 @@ fn distance_pair_matches(a: &Option<DistancePair>, b: &Option<DistancePair>) -> 
 /// point coordinates are never compared -- PORTING-PLAN.md §4.5 records that
 /// exclusion as Phase 3's recorded verification limit, not an oversight; the
 /// two sides' contact geometry differs by construction (module doc,
-/// `crates/moveit-collision/src/parry.rs`, deviations 4 and 6) in ways that
+/// `crates/cspace-collision/src/parry.rs`, deviations 4 and 6) in ways that
 /// would never converge under any tolerance.
 ///
 /// Also tallies `pair_stats` (see [`DistancePairStats`]) and `clause_stats`
@@ -3586,13 +3586,13 @@ mod degenerate_counter_reachability_tests {
     /// single-DOF joint, active and mimic) and the solver's own reduced
     /// active-joint set name exactly the same joints.
     ///
-    /// Reads `moveit-kinematics/tests/fixtures/panda.urdf`/`.srdf` directly
+    /// Reads `cspace-kinematics/tests/fixtures/panda.urdf`/`.srdf` directly
     /// rather than duplicating them into this crate's own fixtures.
     #[test]
     fn a_case_already_at_the_seed_pose_converges_to_the_seed_unmoved() {
         let fixtures_dir = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../crates/moveit-kinematics/tests/fixtures"
+            "/../../crates/cspace-kinematics/tests/fixtures"
         );
         let urdf_path = format!("{fixtures_dir}/panda.urdf");
         let srdf_path = format!("{fixtures_dir}/panda.srdf");
@@ -3690,7 +3690,7 @@ mod ik_divergence_recording_tests {
     fn panda_model() -> RobotModel {
         let fixtures_dir = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../crates/moveit-kinematics/tests/fixtures"
+            "/../../crates/cspace-kinematics/tests/fixtures"
         );
         let urdf_path = format!("{fixtures_dir}/panda.urdf");
         let srdf_path = format!("{fixtures_dir}/panda.srdf");
@@ -3998,10 +3998,10 @@ mod distance_pair_tests {
 /// Round-15 Task 1: pr2's `visibility_cone` distance mismatch (115/2201,
 /// `PORTING-PLAN.md` §37/§38.3/§75.4; re-measured this round, still 115/2201
 /// against the current oracle stamp) is **neither a case-generation bug in
-/// this crate nor a `decide_cone` judgment bug in `moveit-constraints`.**
+/// this crate nor a `decide_cone` judgment bug in `cspace-constraints`.**
 /// Both were suspects; both are cleared by direct comparison below. It is
-/// `moveit-collision`'s already-documented, already-accepted "deviation 6"
-/// (`crates/moveit-collision/src/parry.rs`'s module doc, presentations
+/// `cspace-collision`'s already-documented, already-accepted "deviation 6"
+/// (`crates/cspace-collision/src/parry.rs`'s module doc, presentations
 /// (a)/(b)/(c)): FCL's non-convex penetration depth is itself an
 /// approximation, this backend (`parry3d_f64`) computes an independent
 /// approximation of the same ill-posed quantity, and the two need not agree
@@ -4011,7 +4011,7 @@ mod distance_pair_tests {
 /// Two hypotheses were tested and rejected in order:
 ///
 /// 1. **Ambiguous-scene / `BTreeMap` tie-break.** `decide_cone`'s
-///    `by_pair.values().next()` (`moveit-collision`'s
+///    `by_pair.values().next()` (`cspace-collision`'s
 ///    `BTreeMap<(String, String), Vec<Contact>>`) picks whichever colliding
 ///    link name sorts alphabetically first, not the nearest or deepest --
 ///    and upstream's own FCL manager, asked for the same `max_contacts: 1`,
@@ -4041,7 +4041,7 @@ mod distance_pair_tests {
 ///    `CollisionRequest::default()`'s `pad_environment_collisions: true`;
 ///    that field is gone from the port, and `decide`'s own `CollisionEnvFCL`
 ///    never read it.) **Rejected**: nothing in `tools/moveit-diff` or
-///    `moveit-constraints` differs from upstream anywhere in this chain.
+///    `cspace-constraints` differs from upstream anywhere in this chain.
 ///
 /// With both cleared, a live sweep (seed 4, `--cases 100 --group right_arm
 /// --constraints 2000`, matching `PORTING-PLAN.md` §37/§38.3's own
@@ -4070,28 +4070,28 @@ mod distance_pair_tests {
 /// Both presentations (a large magnitude gap tied to real shape geometry,
 /// and a sign flip at a near-zero depth) are exactly what "two independent
 /// approximations of an ill-posed quantity" produces, and neither traces to
-/// a formula this crate or `moveit-constraints` controls -- both chains were
+/// a formula this crate or `cspace-constraints` controls -- both chains were
 /// verified bit-identical to upstream above. This round's brief's premise
-/// (p3-acm excluded `moveit-collision` from scope, leaving only
+/// (p3-acm excluded `cspace-collision` from scope, leaving only
 /// case-generation or judgment as the two candidates) does not hold up
-/// under this evidence: this is `moveit-collision`'s deviation 6, not a new
+/// under this evidence: this is `cspace-collision`'s deviation 6, not a new
 /// defect in either crate this module can fix. Not touching
-/// `moveit-collision` -- reporting only, per this round's ownership rule.
+/// `cspace-collision` -- reporting only, per this round's ownership rule.
 #[cfg(test)]
 mod visibility_cone_ambiguity_diagnostic {
     use std::sync::Arc;
 
-    use moveit_collision::{BodyType, CollisionEnv, CollisionRequest, Contact, DecideContactFn};
-    use moveit_geometry::{Mesh, Transforms};
-    use moveit_state::RobotState;
+    use cspace_collision::{BodyType, CollisionEnv, CollisionRequest, Contact, DecideContactFn};
+    use cspace_geometry::{Mesh, Transforms};
+    use cspace_state::RobotState;
     use nalgebra::Point3;
 
     use super::*;
 
     /// A read-only copy of `VisibilityConstraint::cone_mesh`'s triangulation
-    /// (`moveit-constraints/src/visibility.rs:311-350`, private to that
+    /// (`cspace-constraints/src/visibility.rs:311-350`, private to that
     /// crate) -- reproduced here only to diagnose the scene this generator
-    /// hands it, not called into moveit-constraints.
+    /// hands it, not called into cspace-constraints.
     fn cone_mesh(
         world_to_sensor: Isometry3,
         world_to_target: Isometry3,
@@ -4119,7 +4119,7 @@ mod visibility_cone_ambiguity_diagnostic {
     }
 
     /// A read-only copy of `allow_sensor_or_target_contact`
-    /// (`moveit-constraints/src/visibility.rs:426-449`, private) -- the ACM
+    /// (`cspace-constraints/src/visibility.rs:426-449`, private) -- the ACM
     /// policy that excludes the sensor/target link's own necessary touch at
     /// the cone's apex/base-center vertices, so this diagnostic counts only
     /// genuine *extra* candidates, not that expected one.
@@ -4241,7 +4241,7 @@ mod visibility_cone_ambiguity_diagnostic {
             let touched = result
                 .contacts
                 .as_ref()
-                .map_or(0, moveit_collision::ContactData::pair_count);
+                .map_or(0, cspace_collision::ContactData::pair_count);
             // Asserted here, per link, rather than as a post-hoc check on the
             // collected `touched_link_counts`: this cone is built directly
             // around `link_name`'s own collision shape, so it touching

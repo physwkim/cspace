@@ -13,10 +13,10 @@ authors = ["moveit-rs contributors"]
 # Upstream reference: moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf
 # See PORTING-PLAN.md for the port's scope and phase plan.
 #
-# One crate tracks a different upstream: moveit-stomp-core ports
+# One crate tracks a different upstream: cspace-stomp-core ports
 # ros-industrial/stomp @ b1a87c80f7338caae25a5c689b876da15492aa75, the
 # optimizer that moveit2's own moveit_planners/stomp only binds to. It gets
-# its own crate rather than folding into moveit-planners-stomp because every
+# its own crate rather than folding into cspace-planners-stomp because every
 # audit command in this repo counts a crate's symbols against exactly one
 # upstream, and two upstreams in one crate would break that premise.
 #
@@ -25,33 +25,33 @@ authors = ["moveit-rs contributors"]
 # per-file header on every source including `src/utils.cpp`); every moveit2
 # package this workspace ports is BSD-3-Clause (`moveit_core`,
 # `moveit_planners/{stomp,chomp/*,pilz_industrial_motion_planner}` package.xml
-# all read BSD-3-Clause). So moveit-stomp-core sets `license` explicitly
+# all read BSD-3-Clause). So cspace-stomp-core sets `license` explicitly
 # rather than `license.workspace = true` -- inheriting here would relabel
 # Apache-2.0-derived code as BSD-3-Clause.
 
 [workspace.dependencies]
-moveit-collision = { path = "crates/moveit-collision", version = "0.1.0" }
-moveit-constraints = { path = "crates/moveit-constraints", version = "0.1.0" }
-# For moveit-planners-chomp's ChompOptimizer, whose only use of upstream's
+cspace-collision = { path = "crates/cspace-collision", version = "0.1.0" }
+cspace-constraints = { path = "crates/cspace-constraints", version = "0.1.0" }
+# For cspace-planners-chomp's ChompOptimizer, whose only use of upstream's
 # `CollisionEnvHybrid` is a getCollisionGradients call that forwards to
 # CollisionEnvDistanceField -- see PORTING-PLAN.md §139.
-moveit-distance-field = { path = "crates/moveit-distance-field", version = "0.1.0" }
-moveit-error = { path = "crates/moveit-error", version = "0.1.0" }
-moveit-geometry = { path = "crates/moveit-geometry", version = "0.1.0" }
-moveit-kinematics = { path = "crates/moveit-kinematics", version = "0.1.0" }
-moveit-model = { path = "crates/moveit-model", version = "0.1.0" }
-moveit-octomap = { path = "crates/moveit-octomap", version = "0.1.0" }
-moveit-planner-registry = { path = "crates/moveit-planner-registry", version = "0.1.0" }
-moveit-planners-sbp = { path = "crates/moveit-planners-sbp", version = "0.1.0" }
-moveit-planning = { path = "crates/moveit-planning", version = "0.1.0" }
-moveit-sampling = { path = "crates/moveit-sampling", version = "0.1.0" }
-moveit-scene = { path = "crates/moveit-scene", version = "0.1.0" }
-moveit-smoothing = { path = "crates/moveit-smoothing", version = "0.1.0" }
-moveit-srdf = { path = "crates/moveit-srdf", version = "0.1.0" }
-moveit-stomp-core = { path = "crates/moveit-stomp-core", version = "0.1.0" }
-moveit-state = { path = "crates/moveit-state", version = "0.1.0" }
-moveit-test-support = { path = "crates/moveit-test-support", version = "0.1.0" }
-moveit-trajectory = { path = "crates/moveit-trajectory", version = "0.1.0" }
+cspace-distance-field = { path = "crates/cspace-distance-field", version = "0.1.0" }
+cspace-error = { path = "crates/cspace-error", version = "0.1.0" }
+cspace-geometry = { path = "crates/cspace-geometry", version = "0.1.0" }
+cspace-kinematics = { path = "crates/cspace-kinematics", version = "0.1.0" }
+cspace-model = { path = "crates/cspace-model", version = "0.1.0" }
+cspace-octomap = { path = "crates/cspace-octomap", version = "0.1.0" }
+cspace-planner-registry = { path = "crates/cspace-planner-registry", version = "0.1.0" }
+cspace-planners-sbp = { path = "crates/cspace-planners-sbp", version = "0.1.0" }
+cspace-planning = { path = "crates/cspace-planning", version = "0.1.0" }
+cspace-sampling = { path = "crates/cspace-sampling", version = "0.1.0" }
+cspace-scene = { path = "crates/cspace-scene", version = "0.1.0" }
+cspace-smoothing = { path = "crates/cspace-smoothing", version = "0.1.0" }
+cspace-srdf = { path = "crates/cspace-srdf", version = "0.1.0" }
+cspace-stomp-core = { path = "crates/cspace-stomp-core", version = "0.1.0" }
+cspace-state = { path = "crates/cspace-state", version = "0.1.0" }
+cspace-test-support = { path = "crates/cspace-test-support", version = "0.1.0" }
+cspace-trajectory = { path = "crates/cspace-trajectory", version = "0.1.0" }
 
 nalgebra = { version = "0.35", features = ["serde-serialize"] }
 roxmltree = "0.21"
@@ -74,7 +74,7 @@ linkme = "0.3"
 approx = "0.5"
 rand = { version = "0.10", default-features = false, features = ["std"] }
 rand_chacha = "0.10"
-# For moveit-sampling's standard-normal draws. Upstream CHOMP and STOMP both
+# For cspace-sampling's standard-normal draws. Upstream CHOMP and STOMP both
 # use std::normal_distribution; rand itself carries no distributions. Pinned
 # with default-features off to match `rand` above -- verified to resolve to a
 # single rand 0.10.2 with no duplicate, and to compile against rand_chacha.

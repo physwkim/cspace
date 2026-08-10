@@ -2,7 +2,7 @@
 # Usage: tools/ci/count-relative-eq.pl <file.rs> [<file.rs> ...]
 #
 # The single copy for the whole workspace. It used to live in
-# `crates/moveit-geometry/audit/` and was copied into four more crates, which
+# `crates/cspace-geometry/audit/` and was copied into four more crates, which
 # is how the divergence this file exists to prevent actually happened: the
 # `tools/moveit-diff/` copy never picked up the block-comment and
 # string-literal fixes below, so the same command gave two different
@@ -15,7 +15,7 @@
 # not `//`-stripped) and counted a fake call written inside a `/* */` block
 # comment or a `"..."` string literal as real. Neither false positive changed
 # the geometry/octomap counts taken before the fix, nor p1-joints'
-# `moveit-kinematics`/`moveit-diff`/`invariants.rs` count, which was taken
+# `cspace-kinematics`/`moveit-diff`/`invariants.rs` count, which was taken
 # with the unfixed copy and re-run against this one at consolidation time --
 # `both=0 epsilon_only=2 max_relative_only=0 neither=0` either way.
 #
@@ -35,7 +35,7 @@
 # made the match fail at that string's opening quote. Perl then resumed at
 # the *closing* quote and paired it with the next literal's opening quote --
 # blanking the real code in between. p3-shapes hit this in
-# `moveit-stomp-core`: 6 genuine `epsilon =` call sites were reported as 0.
+# `cspace-stomp-core`: 6 genuine `epsilon =` call sites were reported as 0.
 # Reproduced here on a 3-call fixture (reported 1 before the flag, 3 after)
 # before the flag was added, and the workspace counts are unchanged by it.
 # `relative_eq!(` call by bracket-matching parens from the macro name to the
@@ -49,9 +49,9 @@
 # ratio wants `max_relative`, an absolute physical quantity wants
 # `epsilon`), which is a per-call-site judgment made in the citing crate's
 # own doc comment, not a workspace-wide invariant this script could assert
-# without inventing one. Reproduce moveit-geometry's own recorded figure:
+# without inventing one. Reproduce cspace-geometry's own recorded figure:
 #
-#   perl tools/ci/count-relative-eq.pl crates/moveit-geometry/src/*.rs
+#   perl tools/ci/count-relative-eq.pl crates/cspace-geometry/src/*.rs
 #   # both=9 epsilon_only=0 max_relative_only=0 neither=0
 use strict;
 use warnings;

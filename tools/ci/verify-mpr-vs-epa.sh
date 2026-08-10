@@ -1,6 +1,6 @@
 #!/bin/bash
 # Re-runs the libccd MPR vs. parry EPA comparison that closes deviation 6(b)
-# and checks both numbers against the values `crates/moveit-collision/src/parry.rs`
+# and checks both numbers against the values `crates/cspace-collision/src/parry.rs`
 # actually cites.
 #
 # PORTING-PLAN.md §200.1 recorded this as the open half of deviation 6: the
@@ -66,7 +66,7 @@ LIBCCD_SRC="$LIBCCD_SRC" ./tools/mpr-vs-epa/build.sh >/dev/null
 # (a real build/run failure still stops the script, with cargo's own output
 # already on screen) and lets a merely-absent "EPA depth=" line reach the
 # handler that was written for it.
-cargo run --release --example case104_mpr_input -p moveit-collision \
+cargo run --release --example case104_mpr_input -p cspace-collision \
   2>"$REPO_ROOT/tools/mpr-vs-epa/build/epa.txt" \
   >"$REPO_ROOT/tools/mpr-vs-epa/build/geometry.txt"
 epa_line="$(grep -F 'EPA depth=' "$REPO_ROOT/tools/mpr-vs-epa/build/epa.txt" || true)"
@@ -102,7 +102,7 @@ for what, (got, want) in actual.items():
         print(f"OK   {what} depth {got!r} matches the cited value (relative {drift:.3e})")
 
 if failed:
-    print("FAIL crates/moveit-collision/src/parry.rs's deviation 6(b) cites these numbers; "
+    print("FAIL crates/cspace-collision/src/parry.rs's deviation 6(b) cites these numbers; "
           "update the doc and this gate together, or find what changed.", file=sys.stderr)
     sys.exit(1)
 PY

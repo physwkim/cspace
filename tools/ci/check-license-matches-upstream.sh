@@ -4,7 +4,7 @@
 #
 # Every moveit2 package this workspace ports is BSD-3-Clause, so for a long
 # time `license.workspace = true` was right everywhere and nobody had to
-# think about it. `moveit-stomp-core` broke that: it ports
+# think about it. `cspace-stomp-core` broke that: it ports
 # ros-industrial/stomp, which is Apache-2.0 (`LICENSE`, `package.xml:9`, and
 # a per-file header on every source). Inheriting the workspace license there
 # would relabel Apache-2.0-derived code as BSD-3-Clause -- and nothing about

@@ -1,0 +1,25 @@
+[package]
+name = "cspace-stomp-core"
+description = "STOMP optimizer core, ported from ros-industrial/stomp -- a separate upstream from moveit2's own moveit_planners/stomp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# Not `license.workspace = true`: this crate's content derives entirely from
+# ros-industrial/stomp, which is Apache-2.0-licensed (package.xml, LICENSE),
+# distinct from the rest of this workspace's moveit2-derived, BSD-3-Clause
+# content. See src/lib.rs's module doc for the upstream repository and SHA.
+license = "Apache-2.0"
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+nalgebra.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
+cspace-sampling.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+
+[lints]
+workspace = true

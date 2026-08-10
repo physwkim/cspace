@@ -1,0 +1,398 @@
+// Copyright (c) 2018, Pilz GmbH & Co. KG
+// Copyright (c) 2025, Aiman Haidar
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
+//   moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/trajectory_generator_polyline.hpp
+//   moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator_polyline.cpp
+
+//! Multi-waypoint Cartesian trajectory generation
+//! ([`TrajectoryGeneratorPolyline`]): a
+//! [`crate::path_rounded_composite::PathRoundedComposite`] built by
+//! [`polyline_from_waypoints`], time-parametrized by one
+//! [`VelocityProfileTrap`], sampled and IK-solved by
+//! [`generate_joint_trajectory`].
+//!
+//! Ported from upstream `TrajectoryGeneratorPOLYLINE`.
+//!
+//! `POLYLINE` differs from `LIN` only in the path: one profile still spans
+//! the whole motion, so the arm accelerates once at the start and decelerates
+//! once at the end regardless of how many corners the path rounds.
+//!
+//! # Deviations from upstream
+//!
+//! - **No per-request Cartesian speed override, `max_trans_dec` unused.**
+//!   Same two deviations as
+//!   [`crate::trajectory_generator_lin::TrajectoryGeneratorLin`] — see that
+//!   module's own doc. `plan` below takes the identical fallback branch.
+//! - **Waypoints arrive already in the planning frame; the goal does not.**
+//!   Upstream's `extractMotionPlanInfo` composes each `path_constraints`
+//!   position constraint into a pose and left-multiplies it by
+//!   `scene->getFrameTransform(frame_id)`, the same as it does for the goal
+//!   constraint — but [`crate::trajectory_generator::PolylinePathConstraint::waypoints`]
+//!   is `Vec<Isometry3>`, already-composed poses with no raw
+//!   position/orientation/frame components a caller could pass
+//!   unresolved, so this crate leaves resolving them to the caller
+//!   (documented as this type's own contract, not a gap). [`Goal::Cartesian`]
+//!   is the opposite shape — separate `position`/`orientation`/`frame`
+//!   fields that invite passing raw, unresolved numbers straight through —
+//!   so its `frame` field *is* resolved here, by
+//!   [`crate::trajectory_functions::resolve_goal_frame`], the same as
+//!   `PTP`/`LIN`/`CIRC`.
+//! - **The goal pose is the last waypoint's, not a separate goal
+//!   constraint.** Upstream reads `req.goal_constraints` for the final pose
+//!   *and* `req.path_constraints` for the vias, so a request can name a goal
+//!   the waypoint list does not end at — upstream then plans to the vias and
+//!   silently never reaches the stated goal, because `polylineFromWaypoints`
+//!   is given only the vias. This port keeps upstream's *path* exactly
+//!   (`start_pose` then the waypoint list) and additionally requires the
+//!   Cartesian goal to be reachable, the same `computePoseIK` check upstream
+//!   runs on it — see [`TrajectoryGeneratorPolyline::extract_motion_plan_info`].
+//! - **Upstream's KDL-error-code-to-message mapping is not reproduced.**
+//!   `plan` catches `KDL::Error_MotionPlanning` and rewrites the numeric
+//!   codes its path construction can throw into six English sentences, all
+//!   raised as the same `ConsicutiveColinearWaypoints` exception carrying
+//!   [`MoveItErrorCode::InvalidMotionPlan`]. This port's
+//!   [`crate::path_rounded_composite`]/[`crate::path_polyline_generator`]
+//!   already return a message naming the geometric condition that failed, so
+//!   `plan` narrows them all to [`MoveItErrorCode::InvalidMotionPlan`]
+//!   without rewriting the text. The one behavioural difference is that
+//!   upstream's `catch` also swallows the non-positive-`eqradius` rejection
+//!   from the composite's constructor; that is unreachable here, since
+//!   [`TrajectoryGeneratorPolyline::cmd_specific_request_validation`] now
+//!   rejects the request via
+//!   [`crate::trajectory_generator::check_cartesian_limits`] before `plan`
+//!   ever runs.
+//! - **A `check_cartesian_limits` call is added; upstream's `cmdSpecificRequestValidation`
+//!   has none.** `plan` divides by `cartesian_limits.max_rot_vel` unguarded,
+//!   same as upstream — but upstream's own reachability of a zero there is
+//!   gated by `cartesian_limits_parameters.yaml`'s mandatory (no-default)
+//!   parameter declaration, a boundary this port has no equivalent of
+//!   (`CartesianLimits` derives `Default`, `max_rot_vel: 0.0`, and
+//!   [`crate::limits::LimitsContainer::set_cartesian_limits`] performs no
+//!   validation). See [`crate::trajectory_generator::check_cartesian_limits`]'s
+//!   own doc.
+
+use cspace_collision::CollisionEnv;
+use cspace_error::{Error, MoveItErrorCode, Result};
+use cspace_geometry::Isometry3;
+use cspace_kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
+use cspace_state::Posed;
+use cspace_trajectory::RobotTrajectory;
+
+use crate::path_polyline_generator::polyline_from_waypoints;
+use crate::path_rounded_composite::PathRoundedComposite;
+use crate::trajectory_functions::{
+    CartesianPath, IkContext, compute_link_fk, compute_pose_ik, constraint_pose,
+    generate_joint_trajectory, resolve_goal_frame,
+};
+use crate::trajectory_generator::{
+    Goal, MotionPlanInfo, MotionPlanRequest, PilzGenerator, PolylinePathConstraint,
+    TrajectoryGenerator, check_cartesian_limits,
+};
+use crate::velocity_profile_trap::VelocityProfileTrap;
+
+/// Multi-waypoint Cartesian trajectory generator.
+///
+/// Upstream `TrajectoryGeneratorPOLYLINE`. See the [module docs](self) for
+/// deviations.
+pub struct TrajectoryGeneratorPolyline<'m> {
+    base: TrajectoryGenerator<'m>,
+}
+
+impl<'m> TrajectoryGeneratorPolyline<'m> {
+    /// Upstream
+    /// `TrajectoryGeneratorPOLYLINE(robot_model, planner_limits, group_name)`.
+    /// `group_name` is accepted (matching upstream's constructor signature)
+    /// but unused, exactly as in
+    /// [`crate::trajectory_generator_circ::TrajectoryGeneratorCirc::new`].
+    pub fn new(base: TrajectoryGenerator<'m>, _group_name: &str) -> Self {
+        Self { base }
+    }
+}
+
+/// `req`'s `POLYLINE` waypoints.
+///
+/// # Errors
+///
+/// [`MoveItErrorCode::InvalidMotionPlan`] if `req.path_constraints` is absent
+/// or carries another command's constraint.
+fn polyline_path_constraint(req: &MotionPlanRequest) -> Result<&PolylinePathConstraint> {
+    req.path_constraints
+        .as_ref()
+        .and_then(|pc| pc.as_polyline())
+        .ok_or(Error::Code(MoveItErrorCode::InvalidMotionPlan))
+}
+
+impl<'m, E> PilzGenerator<'m, E> for TrajectoryGeneratorPolyline<'m>
+where
+    E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+{
+    fn base(&self) -> &TrajectoryGenerator<'m> {
+        &self.base
+    }
+
+    /// Upstream `TrajectoryGeneratorPOLYLINE::cmdSpecificRequestValidation`:
+    /// fewer than two waypoints is `NoWaypointsSpecified`.
+    ///
+    /// # Errors
+    ///
+    /// [`MoveItErrorCode::InvalidMotionPlan`] if the base's planner limits
+    /// fail [`crate::trajectory_generator::check_cartesian_limits`] (added
+    /// beyond upstream — see this module's own deviation note), or
+    /// `req.path_constraints` is absent, carries another command's
+    /// constraint, or holds fewer than two waypoints.
+    fn cmd_specific_request_validation(&self, req: &MotionPlanRequest) -> Result<()> {
+        check_cartesian_limits(self.base.planner_limits())?;
+        let constraint = polyline_path_constraint(req)?;
+        if constraint.waypoints.len() < 2 {
+            return Err(Error::Code(MoveItErrorCode::InvalidMotionPlan));
+        }
+        Ok(())
+    }
+
+    /// Upstream `TrajectoryGeneratorPOLYLINE::extractMotionPlanInfo`.
+    ///
+    /// # Errors
+    ///
+    /// [`MoveItErrorCode::InvalidMotionPlan`] if `req.goal` is not Cartesian:
+    /// upstream reads `goal_constraints.front().position_constraints.front()`
+    /// unconditionally, which is a `POLYLINE`-only precondition this port
+    /// states as an error rather than an out-of-bounds read.
+    /// [`MoveItErrorCode::NoIkSolution`] if the goal pose has no reachable IK
+    /// solution (upstream `LinInverseForGoalIncalculable`).
+    fn extract_motion_plan_info(
+        &self,
+        ctx: &IkContext<'_, 'm, E>,
+        req: &MotionPlanRequest,
+        info: &mut MotionPlanInfo<'m>,
+    ) -> Result<()> {
+        info.group_name = req.group_name.clone();
+        let robot_model = self.base.robot_model();
+        let mut scratch_state = ctx.scene.current_state().clone();
+
+        let Goal::Cartesian {
+            link_name,
+            frame,
+            position,
+            orientation,
+            target_point_offset,
+        } = &req.goal
+        else {
+            return Err(Error::Code(MoveItErrorCode::InvalidMotionPlan));
+        };
+
+        info.link_name = link_name.clone();
+        let local_pose = constraint_pose(position, orientation, target_point_offset);
+        info.goal_pose = resolve_goal_frame(ctx, frame.as_deref())? * local_pose;
+
+        let params = SolverParams::default();
+        let mut solver = resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
+            .map_err(|_| Error::Code(MoveItErrorCode::NoIkSolution))?;
+
+        compute_pose_ik(
+            ctx,
+            solver.as_mut(),
+            link_name,
+            &info.goal_pose,
+            robot_model.model_frame(),
+            &info.start_joint_position,
+        )
+        .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+
+        // Upstream discards this call's `bool` too -- same deviation note as
+        // `TrajectoryGeneratorLin`'s.
+        if let Some(pose) = compute_link_fk(
+            &mut scratch_state,
+            &info.link_name,
+            &info.start_joint_position,
+        ) {
+            info.start_pose = pose;
+        }
+        Ok(())
+    }
+
+    /// Upstream `TrajectoryGeneratorPOLYLINE::plan`.
+    ///
+    /// # Errors
+    ///
+    /// [`MoveItErrorCode::InvalidMotionPlan`] for every path-construction
+    /// failure (upstream's `ConsicutiveColinearWaypoints`, which carries the
+    /// same code for all six KDL error codes it rewrites).
+    /// [`MoveItErrorCode::NoIkSolution`] if no
+    /// [`static@cspace_kinematics::KINEMATICS_SOLVERS`] entry can be built
+    /// for `req.group_name` with `info.link_name` as its tip. Otherwise, see
+    /// [`generate_joint_trajectory`].
+    fn plan(
+        &self,
+        ctx: &IkContext<'_, 'm, E>,
+        req: &MotionPlanRequest,
+        info: &MotionPlanInfo<'m>,
+        sampling_time: f64,
+    ) -> Result<RobotTrajectory<'m>> {
+        let constraint = polyline_path_constraint(req)?;
+        let cartesian_limits = self.base.planner_limits().cartesian_limits();
+        // Upstream setMaxCartesianSpeed's fallback branch -- see this module's
+        // "no per-request Cartesian speed override" deviation note.
+        let max_cartesian_speed = cartesian_limits.max_trans_vel;
+
+        let path = polyline_from_waypoints(
+            &info.start_pose,
+            &constraint.waypoints,
+            constraint.smoothness_level,
+            max_cartesian_speed / cartesian_limits.max_rot_vel,
+        )
+        .map_err(|_| Error::Code(MoveItErrorCode::InvalidMotionPlan))?;
+
+        let mut velocity_profile = VelocityProfileTrap::new(
+            req.max_velocity_scaling_factor * max_cartesian_speed,
+            req.max_acceleration_scaling_factor * cartesian_limits.max_trans_acc,
+        );
+        let path_length = path.path_length();
+        if path_length > f64::EPSILON {
+            velocity_profile.set_profile(0.0, path_length);
+        } else {
+            velocity_profile.set_profile(0.0, f64::EPSILON);
+        }
+        let segment = PolylineSegment {
+            path,
+            velocity_profile,
+        };
+
+        let robot_model = self.base.robot_model();
+        let params = SolverParams::default();
+        let mut solver = resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
+            .map_err(|_| Error::Code(MoveItErrorCode::NoIkSolution))?;
+
+        generate_joint_trajectory(
+            ctx,
+            solver.as_mut(),
+            self.base.planner_limits().joint_limits(),
+            &segment,
+            &info.link_name,
+            &info.start_joint_position,
+            sampling_time,
+        )
+    }
+}
+
+/// A [`PathRoundedComposite`] time-parametrized by a [`VelocityProfileTrap`]
+/// over its own arc length — the `POLYLINE` counterpart of
+/// `trajectory_generator_lin`'s `LinSegment`, and upstream's
+/// `KDL::Trajectory_Segment(path, vp, false)`.
+struct PolylineSegment {
+    path: PathRoundedComposite,
+    velocity_profile: VelocityProfileTrap,
+}
+
+impl CartesianPath for PolylineSegment {
+    fn duration(&self) -> f64 {
+        self.velocity_profile.duration()
+    }
+
+    fn pos(&self, t: f64) -> Isometry3 {
+        self.path.pos(self.velocity_profile.pos(t))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::fs;
+
+    use cspace_collision::ParryCollisionEnv;
+    use cspace_geometry::{UnitQuaternion, Vector3};
+    use cspace_model::{MeshSearchPaths, RobotModel};
+
+    use super::*;
+    use crate::limits::{JointLimit, JointLimitsContainer, LimitsContainer};
+    use crate::trajectory_generator::{PathConstraints, StartState};
+
+    fn load_panda() -> RobotModel {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+        let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
+        let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
+        let srdf = cspace_srdf::SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
+        let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
+        let mesh_paths = MeshSearchPaths::new([(
+            "moveit_resources_panda_description",
+            format!("{meshes_root}/panda_description"),
+        )]);
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &mesh_paths)
+            .expect("fixture model must build")
+    }
+
+    fn panda_joint_limits() -> JointLimitsContainer {
+        let mut limits = JointLimitsContainer::default();
+        for joint in [
+            "panda_joint1",
+            "panda_joint2",
+            "panda_joint3",
+            "panda_joint4",
+            "panda_joint5",
+            "panda_joint6",
+            "panda_joint7",
+        ] {
+            limits.add_limit(
+                joint,
+                JointLimit {
+                    has_position_limits: true,
+                    min_position: -2.9,
+                    max_position: 2.9,
+                    ..Default::default()
+                },
+            );
+        }
+        limits
+    }
+
+    /// [`TrajectoryGeneratorPolyline::cmd_specific_request_validation`]
+    /// rejects a `LimitsContainer` that never had `set_cartesian_limits`
+    /// called, even when `req.path_constraints` otherwise carries two
+    /// well-formed waypoints -- isolating this from the sibling
+    /// "fewer than two waypoints" rejection the same function also performs,
+    /// so a regression that removed only the waypoint-count check could not
+    /// pass this test by accident.
+    #[test]
+    fn cmd_specific_request_validation_rejects_missing_cartesian_limits() {
+        let model = load_panda();
+        let mut limits = LimitsContainer::new();
+        limits.set_joint_limits(panda_joint_limits());
+        // Deliberately never call `set_cartesian_limits`.
+        let base = TrajectoryGenerator::new(&model, limits);
+        let generator = TrajectoryGeneratorPolyline::new(base, "panda_arm");
+
+        let req = MotionPlanRequest {
+            group_name: "panda_arm".to_string(),
+            start_state: StartState::default(),
+            goal: Goal::Joint(HashMap::new()),
+            max_velocity_scaling_factor: 0.5,
+            max_acceleration_scaling_factor: 0.5,
+            path_constraints: Some(PathConstraints::Polyline(PolylinePathConstraint {
+                waypoints: vec![
+                    Isometry3::from_parts(
+                        Vector3::new(0.0, 0.0, 0.0).into(),
+                        UnitQuaternion::identity(),
+                    ),
+                    Isometry3::from_parts(
+                        Vector3::new(0.1, 0.0, 0.0).into(),
+                        UnitQuaternion::identity(),
+                    ),
+                ],
+                smoothness_level: 0.5,
+            })),
+        };
+
+        // `PilzGenerator` is generic over the collision backend `E`, which
+        // nothing below actually needs -- `ParryCollisionEnv` pins it so
+        // `.cmd_specific_request_validation()` resolves.
+        type G<'m> = TrajectoryGeneratorPolyline<'m>;
+        match <G as PilzGenerator<ParryCollisionEnv>>::cmd_specific_request_validation(
+            &generator, &req,
+        ) {
+            Err(Error::Code(MoveItErrorCode::InvalidMotionPlan)) => {}
+            other => panic!("expected Error::Code(InvalidMotionPlan), got {other:?}"),
+        }
+    }
+}

@@ -23,7 +23,7 @@
 # `blend_panda_arm_<case>_needs_its_own_<channel>_tolerance` test, annotated
 # `#[should_panic]`, that drops that one channel back to the shared
 # tolerance (holding every other tolerance the case actually needs) and
-# asserts the comparison then fails. `cargo nextest run -p moveit-planners-pilz`
+# asserts the comparison then fails. `cargo nextest run -p cspace-planners-pilz`
 # running that test green is the actual audit, re-run on every test
 # invocation against today's real divergence, not a number copied into a
 # comment once. This check only verifies the companion test exists with the
@@ -40,7 +40,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 require_caller_tree "$repo_root"
 cd "$repo_root"
 
-file="crates/moveit-planners-pilz/tests/pilz_blend_parity.rs"
+file="crates/cspace-planners-pilz/tests/pilz_blend_parity.rs"
 
 if [[ ! -f "$file" ]]; then
   echo "FAIL: $file not found -- did it move?" >&2

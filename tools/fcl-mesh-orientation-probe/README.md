@@ -1,7 +1,7 @@
 # fcl-mesh-orientation-probe
 
 The fcl-side counterpart of
-`crates/moveit-collision/examples/mesh_orientation_probe.rs`. That probe
+`crates/cspace-collision/examples/mesh_orientation_probe.rs`. That probe
 measured `check_robot_collision` reporting `false` for 6,083 of 24,970
 rotated-mesh-at-exact-tangency configurations and left one question open:
 does fcl -- the library this port's dispatch decisions are supposed to track
@@ -53,7 +53,7 @@ sg docker -c "docker run --rm -v $work:$work -w $work --entrypoint bash $IMAGE -
 
 Each line is `CSV,<other>,<role>,axis=<name>,angle=<deg>deg,<true|false>,<depth|NA>`,
 directly joinable on the first five fields against the Rust probe's own
-`CSV,...` lines (`cargo run -p moveit-collision --release --example
+`CSV,...` lines (`cargo run -p cspace-collision --release --example
 mesh_orientation_probe 2>&1 | grep '^CSV,'`, filtered to the systematic rows,
 `label.starts_with("axis=")`, 4,970 of them). Takes a few seconds, almost all
 `g++`.

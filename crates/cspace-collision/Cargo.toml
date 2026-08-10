@@ -1,0 +1,38 @@
+[package]
+name = "cspace-collision"
+description = "RobotModel-independent parts of moveit_core/collision_detection: AllowedCollisionMatrix, the collision request/result types, and the World object container"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cspace-error.workspace = true
+cspace-geometry.workspace = true
+cspace-model.workspace = true
+# Not for the octree algorithms -- those stay in `cspace-geometry` -- but so
+# `parry.rs`'s `OctreeCache` can name `Weak<cspace_octomap::OcTree>`. Keying a
+# cache on an `Arc` address is only sound while something pins the
+# allocation; see `OctreeCache`'s own doc. `cspace-geometry`, already a
+# dependency here, depends on this crate too, so this adds no edge the graph
+# did not have.
+cspace-octomap.workspace = true
+cspace-srdf.workspace = true
+cspace-state.workspace = true
+glamx.workspace = true
+nalgebra.workspace = true
+parry3d-f64.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
+cspace-test-support.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+urdf-rs.workspace = true
+
+[lints]
+workspace = true

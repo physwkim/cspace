@@ -1,0 +1,30 @@
+[package]
+name = "cspace-scene"
+description = "PlanningScene for moveit-rs: world, attached bodies, ACM and current RobotState, ported from moveit_core/planning_scene"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cspace-collision.workspace = true
+cspace-constraints.workspace = true
+cspace-error.workspace = true
+cspace-geometry.workspace = true
+cspace-kinematics.workspace = true
+cspace-model.workspace = true
+cspace-srdf.workspace = true
+cspace-state.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
+cspace-octomap.workspace = true
+nalgebra.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+urdf-rs.workspace = true
+
+[lints]
+workspace = true

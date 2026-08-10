@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fails if a workspace audit command has been copied back into a crate.
 #
-# `count-relative-eq.pl` was copied from `crates/moveit-geometry/audit/` into
+# `count-relative-eq.pl` was copied from `crates/cspace-geometry/audit/` into
 # four more places, and the `tools/moveit-diff/` copy then missed the
 # block-comment and string-literal fixes -- so the same audit command returned
 # two different classifications depending on which crate a panel ran it from.

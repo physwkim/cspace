@@ -8,9 +8,9 @@
 # The port side is a *code-level* fact, not a length argument: a record whose
 # `loop.evaluations` is 1 and whose `loop.accepted` is 0 had its
 # `best_group_trajectory` snapshotted on the iteration-0 pass
-# (`crates/moveit-planners-chomp/src/optimizer.rs:1873`) and never replaced,
+# (`crates/cspace-planners-chomp/src/optimizer.rs:1873`) and never replaced,
 # and that snapshot is what `optimize` copies back before returning
-# (`crates/moveit-planners-chomp/src/optimizer.rs:1979-1983`). So the returned
+# (`crates/cspace-planners-chomp/src/optimizer.rs:1979-1983`). So the returned
 # trajectory is the seed, byte for byte, and no metric has to be trusted to
 # say so.
 #
@@ -21,10 +21,10 @@
 # `length` for the same problem rather than to an analytic seed length --
 # both harnesses sum the same plan-space metric over consecutive waypoints
 # (`tools/moveit-oracle/src/oracle.cpp:6021-6034` and
-# `crates/moveit-planners-chomp/examples/chomp_benchmark_port.rs:627-630`,
+# `crates/cspace-planners-chomp/examples/chomp_benchmark_port.rs:627-630`,
 # whose subspace weights are built by the same rule at
 # `tools/moveit-oracle/src/oracle.cpp:695` and
-# `crates/moveit-planners-sbp/src/joint_model_group_space.rs:153`), so
+# `crates/cspace-planners-sbp/src/joint_model_group_space.rs:153`), so
 # equality between the two sides is a statement about the two paths and not
 # about a metric this script re-implemented. Re-deriving the seed length from
 # the problem's endpoints and the URDF bounds would be a second

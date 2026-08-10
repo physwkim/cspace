@@ -309,7 +309,7 @@ KDL::Frame toKdlFrame(const Eigen::Isometry3d& t)
   return { KDL::Rotation::Quaternion(q.x(), q.y(), q.z(), q.w()), KDL::Vector(p.x(), p.y(), p.z()) };
 }
 
-/// Matches the `kind` strings `moveit_model::Diagnostic::UnsupportedLinkGeometry`
+/// Matches the `kind` strings `cspace_model::Diagnostic::UnsupportedLinkGeometry`
 /// and the `link_details[].shape_types` wire field use — this oracle's own
 /// naming, not upstream's (`shapes::Shape` has no built-in name accessor;
 /// `ShapeType`'s `operator<<` exists but is a debug print, not a stable wire
@@ -696,7 +696,7 @@ moveit_msgs::msg::Constraints constraintsMsgFromJson(const json& spec)
 namespace ob = ompl::base;
 namespace og = ompl::geometric;
 
-/// `UNBOUNDED_TRANSLATION_HALF_EXTENT` in `moveit-planners-sbp`'s
+/// `UNBOUNDED_TRANSLATION_HALF_EXTENT` in `cspace-planners-sbp`'s
 /// `joint_model_group_space.rs`, restated here because the two sides have to
 /// substitute the *same* half-extent for a non-finite translation bound or
 /// their spaces are not the same space. See that constant's own doc comment
@@ -731,7 +731,7 @@ struct PlanSubspaceSlot
 /// The distance `ompl::base::SO3StateSpace` reports for a rotation of known
 /// angle `PI/2` -- measured, not assumed.
 ///
-/// `moveit-planners-sbp`'s `Se3Space::distance` weights the *full* rotation
+/// `cspace-planners-sbp`'s `Se3Space::distance` weights the *full* rotation
 /// angle (its `rotation_distance` is an atan2 chord form of `2*acos(|dot|)`;
 /// see that function's own comment for the halved-angle bug that convention
 /// once caused there). An SO3 subspace mirroring it therefore needs weight
@@ -976,7 +976,7 @@ void robotStateToPlanState(const moveit::core::RobotState& robot_state,
   }
 }
 
-/// `PlanningSceneValidityChecker` in `moveit-planners-sbp`: writes the
+/// `PlanningSceneValidityChecker` in `cspace-planners-sbp`: writes the
 /// candidate into the scene's own current state and asks the scene.
 ///
 /// `group` is `""` (whole robot), matching the `is_state_valid` op's own
@@ -1250,7 +1250,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `moveit-model`'s `LinkModel` collision/visual geometry
+  /// Ground truth for `cspace-model`'s `LinkModel` collision/visual geometry
   /// (`LinkModel`'s doc comment, deviation 4, in the Rust port): one entry per
   /// link, every `<collision>` element's shape kind in file order (this
   /// oracle's own naming, see `shapeTypeName`), the centered bounding-box
@@ -1294,7 +1294,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `moveit-model`'s `JointModelGroup` end-effector fields
+  /// Ground truth for `cspace-model`'s `JointModelGroup` end-effector fields
   /// (`is_end_effector`/`end_effector_name`/`end_effector_parent`/
   /// `attached_end_effector_names`), keyed by group name. `end_effector_name`
   /// is `null` for a group that is not an end effector
@@ -1351,7 +1351,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `moveit-model`'s `JointModelGroup::is_chain`, keyed by
+  /// Ground truth for `cspace-model`'s `JointModelGroup::is_chain`, keyed by
   /// group name.
   json groupIsChain() const
   {
@@ -1361,7 +1361,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `moveit-model`'s `JointModelGroup::joint_roots`, keyed
+  /// Ground truth for `cspace-model`'s `JointModelGroup::joint_roots`, keyed
   /// by group name: the names of every joint in `joint_roots_`.
   json groupJointRoots() const
   {
@@ -1376,7 +1376,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `moveit-model`'s `RobotModel::descendant_link_indices`
+  /// Ground truth for `cspace-model`'s `RobotModel::descendant_link_indices`
   /// (upstream `JointModel::getDescendantLinkModels`), keyed by joint name:
   /// the names of every descendant link. Compared as a set on the Rust side
   /// -- upstream's own vector is DFS-insertion-ordered, not index-ordered,
@@ -1395,7 +1395,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `moveit-model`'s `JointModelGroup::updated_link_names`/
+  /// Ground truth for `cspace-model`'s `JointModelGroup::updated_link_names`/
   /// `updated_link_with_geometry_names`, keyed by group name.
   json groupUpdatedLinks() const
   {
@@ -1410,7 +1410,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `moveit-model`'s `RobotModel::get_common_root`:
+  /// Ground truth for `cspace-model`'s `RobotModel::get_common_root`:
   /// `{"pairs": [["joint_a", "joint_b"], ...]}` -> the named common-root
   /// joint for each pair, in request order.
   json commonRoot(const json& request) const
@@ -1628,7 +1628,7 @@ private:
   ///
   /// `pose` is always identity: it is the transform from the link to the
   /// attached body's own frame, upstream's separate level between the link
-  /// and its shapes, and `moveit_scene::AttachedBody`'s one-level design has
+  /// and its shapes, and `cspace_scene::AttachedBody`'s one-level design has
   /// `shape_poses` relative to the link frame directly -- see `protocol.rs`'s
   /// `AttachedBodySpec` doc.
   void applyAttachedBodies(moveit::core::RobotState& state, const json& request)
@@ -1960,7 +1960,7 @@ private:
                  { "data", data } };
   }
 
-  /// Ground truth for `moveit-metrics`' `KinematicsMetrics`: all four public
+  /// Ground truth for `cspace-metrics`' `KinematicsMetrics`: all four public
   /// values (`getManipulabilityIndex`/`getManipulability`, each at
   /// `translation` true and false, plus `getManipulabilityEllipsoid`) from
   /// `kinematics_metrics::KinematicsMetrics`, at `count` random whole-model
@@ -1971,7 +1971,7 @@ private:
   /// Eigenvalues/eigenvectors come back as `Eigen::MatrixXcd` (complex)
   /// upstream; both real and imaginary parts are dumped rather than
   /// discarding the imaginary half, so the Rust side can assert it is
-  /// negligible instead of assuming it -- see `moveit-metrics`'s own doc
+  /// negligible instead of assuming it -- see `cspace-metrics`'s own doc
   /// comment on why `nalgebra::SymmetricEigen` (real-only) is still a valid
   /// port of a matrix that upstream's own type only defensively allows to be
   /// complex.
@@ -2077,7 +2077,7 @@ private:
       // Unclamped `near +/- limit`, then wrapped into `(-pi, pi]` -- not
       // clamped to the joint's (here: reporting-only, [-pi, pi]) bounds.
       // Matches this port's own fix in `near_by_configuration`
-      // (crates/moveit-kinematics/src/cart_to_jnt.rs).
+      // (crates/cspace-kinematics/src/cart_to_jnt.rs).
       double value = ik_rng_.uniformReal(near - limit, near + limit);
       if (value <= -M_PI || value > M_PI)
       {
@@ -2108,7 +2108,7 @@ private:
   /// `searchPositionIK`'s `do { ... } while (!timedOut(start_time,
   /// timeout))` retries until wall-clock time runs out, which is not
   /// reproducible and not comparable to a fixed budget. This mirrors
-  /// `moveit_kinematics::SolverParams::max_restarts`'s own identical
+  /// `cspace_kinematics::SolverParams::max_restarts`'s own identical
   /// deviation on the Rust side. The retry count itself comes from the
   /// request (`Op::Ik::max_restarts`), not a fixed constant -- round 2 of
   /// the IK success-rate investigation needs to run both sides with
@@ -2187,7 +2187,7 @@ private:
 
     // Target pose: FK at `joint_values`, expressed in this chain's own
     // base-link frame -- the frame KDL::Chain's implicit base is (matches
-    // `moveit_kinematics::chain::ChainInfo::root_pose_world`).
+    // `cspace_kinematics::chain::ChainInfo::root_pose_world`).
     applyJointValues(request);
     const moveit::core::LinkModel* tip_link = group->getLinkModels().back();
     const moveit::core::LinkModel* root_link = group->getLinkModels().front()->getParentLinkModel();
@@ -2268,7 +2268,7 @@ private:
     // reduced-space (active-joint-only) seed becomes the full-space
     // `KDL::JntArray` this solver actually iterates on (a mimic's own
     // full-space entry is its master's value transformed by
-    // `multiplier`/`offset`, matching `moveit_state::RobotState`'s own
+    // `multiplier`/`offset`, matching `cspace_state::RobotState`'s own
     // mimic derivation the Rust side relies on via `set_variable_position`).
     auto buildQFull = [&](const std::vector<double>& active_values) {
       KDL::JntArray q_full(mimic_joints.size());
@@ -2476,7 +2476,7 @@ private:
     return json{ { "success", true }, { "solution", solution } };
   }
 
-  /// Ground truth for the `moveit-collision` differential test: builds an
+  /// Ground truth for the `cspace-collision` differential test: builds an
   /// `AllowedCollisionMatrix` the same way `PlanningScene` does, from the
   /// loaded SRDF's `disable_collisions`/`enable_collisions`/
   /// `disable_default_collisions`, and dumps every explicit entry plus every
@@ -2516,7 +2516,7 @@ private:
     return json{ { "names", names }, { "entries", entries }, { "defaults", defaults } };
   }
 
-  /// Ground truth for `moveit-collision::ParryCollisionEnv` (PORTING-PLAN.md
+  /// Ground truth for `cspace-collision::ParryCollisionEnv` (PORTING-PLAN.md
   /// §5's Phase 3 completion condition): `CollisionEnvFCL::checkSelfCollision`,
   /// `checkRobotCollision`, `distanceSelf` and `distanceRobot` at the request's
   /// joint values, filtered through the same SRDF-derived ACM `acm()` dumps
@@ -2531,13 +2531,13 @@ private:
   ///
   /// `request["attached_bodies"]` (optional, defaults to none) is applied to
   /// `*state_` via `attachBody` before any check runs, ground truth for
-  /// `moveit_scene::AttachedBody`/`moveit_collision::AttachedBodyGeometry`.
+  /// `cspace_scene::AttachedBody`/`cspace_collision::AttachedBodyGeometry`.
   /// No clearing is needed here: `applyJointValues` has already left `*state_`
   /// with nothing attached, on every path rather than only this one -- see its
   /// doc for why that moved. `attachBody`'s own `pose` parameter (the transform from the
   /// link to the attached body's own frame, upstream's separate level
   /// between the link and its shapes) is always identity here, matching
-  /// `moveit_scene::AttachedBody`'s one-level design where `shape_poses` are
+  /// `cspace_scene::AttachedBody`'s one-level design where `shape_poses` are
   /// already relative to the link frame directly -- see `protocol.rs`'s
   /// `AttachedBodySpec` doc.
   ///
@@ -2551,7 +2551,7 @@ private:
   /// alone. [`Contact`] coordinates (`pos`/`normal`/`nearest_points`/
   /// `percent_interpolation`) stay excluded from the rust/oracle comparison
   /// per §4.5's recorded verification limit -- see
-  /// `crates/moveit-collision/tests/collision_parity.rs` and
+  /// `crates/cspace-collision/tests/collision_parity.rs` and
   /// `tools/moveit-diff`'s own collision comparison for why; only the pair's
   /// identity and depth are diagnostic additions here, not a widening of
   /// what parity asserts equal. `max_contacts` is raised from the
@@ -2946,7 +2946,7 @@ private:
   }
 
   /// Ground truth for `PlanningScene::frame_transform`/`knows_frame_transform`
-  /// (`moveit-scene`). Builds a real `planning_scene::PlanningScene` from
+  /// (`cspace-scene`). Builds a real `planning_scene::PlanningScene` from
   /// `model_` so upstream's own three-tier ladder
   /// (`planning_scene.cpp:2036`/`:2061`) runs unmodified: `RobotState::
   /// getFrameInfo` (model frame, link, attached-body id/subframe --
@@ -3119,7 +3119,7 @@ private:
   }
 
   /// Ground truth for `PlanningScene::is_state_valid`/`is_state_constrained`/
-  /// `is_path_valid` (`moveit-scene`). Builds a real
+  /// `is_path_valid` (`cspace-scene`). Builds a real
   /// `planning_scene::PlanningScene` the same way `frameTransform` does, so
   /// the FCL-backed collision env its own constructor wires up by default
   /// (`planning_scene.cpp:200`, `allocateCollisionDetector
@@ -3140,12 +3140,12 @@ private:
   /// it. `group` is always `""` (whole robot, `RobotTrajectory`'s own
   /// single-argument constructor -- no `JointModelGroup` at all): this
   /// port's `ParryCollisionEnv` never reads `CollisionRequest::group_name`
-  /// (see `moveit-collision`'s `colliding_pairs` deviation doc), so
+  /// (see `cspace-collision`'s `colliding_pairs` deviation doc), so
   /// requesting anything narrower here would make the two sides check
   /// different geometry for a reason unrelated to what this op tests. The
   /// feasibility predicate (`state_feasibility_`) is never registered on
   /// `scene`, matching this port's decision not to carry a caller-supplied
-  /// predicate at all (see `moveit-scene::PlanningScene::is_state_valid`'s
+  /// predicate at all (see `cspace-scene::PlanningScene::is_state_valid`'s
   /// own doc) -- both sides therefore always take upstream's "no predicate
   /// registered -> true" branch.
   ///
@@ -3207,7 +3207,7 @@ private:
     return json{ { "valid", valid }, { "invalid_waypoints", invalid_out } };
   }
 
-  /// Ground truth for `moveit-scene`'s diff layer -- PORTING-PLAN.md §5's
+  /// Ground truth for `cspace-scene`'s diff layer -- PORTING-PLAN.md §5's
   /// third Phase 5 completion condition, "씬 diff 적용 후 충돌 결과가 오라클과
   /// 100% 일치".
   ///
@@ -3224,7 +3224,7 @@ private:
   /// `robot_state_`, `acm_`, transforms -- `planning_scene.cpp:203-227` and
   /// the `getCurrentStateNonConst`/`getAllowedCollisionMatrixNonConst`
   /// copy-on-write pair at `:625`/`:659`), and this port mirrors it with
-  /// `Layered::Inherited` (`crates/moveit-scene/src/scene.rs`'s `diff()`). A
+  /// `Layered::Inherited` (`crates/cspace-scene/src/scene.rs`'s `diff()`). A
   /// child-only response could not tell a correct diff from one that mutated
   /// its parent, which is the failure mode copy-on-write exists to prevent;
   /// `parent_before` and `parent_after` make that observable, and the two
@@ -3238,7 +3238,7 @@ private:
   /// does would bypass exactly the wiring under test.
   ///
   /// `self_*` is reported alongside `robot_*` but see
-  /// `crates/moveit-scene/tests/scene_diff_collision_parity.rs` for why only
+  /// `crates/cspace-scene/tests/scene_diff_collision_parity.rs` for why only
   /// the latter is compared against this port on pr2.
   json sceneDiffCollision(const json& request)
   {
@@ -3435,7 +3435,7 @@ private:
     };
   }
 
-  /// Ground truth for the `moveit-collision` World port. Builds a
+  /// Ground truth for the `cspace-collision` World port. Builds a
   /// `collision_detection::World` straight from the request -- World has no
   /// RobotModel dependency, so `model_`/`state_` are untouched here -- one
   /// object per `request["objects"]` entry (a dummy 0.1m sphere per shape
@@ -3520,7 +3520,7 @@ private:
     return json{ { "objects", objects_out }, { "queries", queries_out } };
   }
 
-  /// Ground truth for the `moveit-distance-field` `PropagationDistanceField`
+  /// Ground truth for the `cspace-distance-field` `PropagationDistanceField`
   /// port. Builds a field straight from `geometry`/`max_distance`/
   /// `propagate_negative` -- no `RobotModel` involved, `distance_field` has
   /// none either -- adds `occupied_cells` (explicit integer grid coordinates,
@@ -3731,7 +3731,7 @@ private:
 
   /// Ground truth for `find_internal_points_convex`
   /// (`distance_field::findInternalPointsConvex`), the piece of
-  /// `moveit-distance-field`'s shape-to-obstacle-points path that the
+  /// `cspace-distance-field`'s shape-to-obstacle-points path that the
   /// `distance_field` op above does not exercise: that op takes
   /// `occupied_cells` as an explicit input, starting only after this step.
   /// This mirrors upstream `DistanceField::getShapePoints` exactly: builds
@@ -3769,8 +3769,8 @@ private:
     return json{ { "points", points_out } };
   }
 
-  /// Ground truth for the `moveit-geometry` STL loader
-  /// (`crates/moveit-geometry/src/stl.rs`). Calls
+  /// Ground truth for the `cspace-geometry` STL loader
+  /// (`crates/cspace-geometry/src/stl.rs`). Calls
   /// `shapes::createMeshFromResource` exactly as `RobotModel::constructShape`
   /// does for a URDF `<mesh>` element -- real Assimp, real
   /// `aiProcess_JoinIdenticalVertices` merging, real `package://` resolution
@@ -4053,7 +4053,7 @@ private:
     };
   }
 
-  /// Ground truth for `moveit-distance-field`'s
+  /// Ground truth for `cspace-distance-field`'s
   /// `generate_distance_field_cache_entry` (upstream
   /// `CollisionEnvDistanceField::generateDistanceFieldCacheEntry`, a
   /// `protected` method). Rather than subclassing to expose it directly,
@@ -4211,7 +4211,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `moveit-distance-field`'s `group_state_representation`
+  /// Ground truth for `cspace-distance-field`'s `group_state_representation`
   /// (upstream `CollisionEnvDistanceField::getGroupStateRepresentation`, a
   /// `protected` method) and, indirectly, `get_distance_field_cache_entry`
   /// (upstream `getDistanceFieldCacheEntry`). Driven through a public path
@@ -4227,7 +4227,7 @@ private:
   /// `getLastGroupStateRepresentation()`.
   ///
   /// # This op does *not* isolate `getGroupStateRepresentation`'s "fresh"
-  /// branch the way `moveit-distance-field`'s `group_state_representation`
+  /// branch the way `cspace-distance-field`'s `group_state_representation`
   /// implements it -- read this before trusting a field-by-field diff
   ///
   /// `CollisionEnvDistanceField(model_)`'s constructor runs `initialize()`,
@@ -4241,7 +4241,7 @@ private:
   /// (`dfce->pregenerated_group_state_representation_ = it->second;`,
   /// `collision_env_distance_field.cpp:869`), so `getGroupStateRepresentation`
   /// here always takes the **pregenerated** `else` branch, not the fresh one
-  /// `moveit-distance-field`'s `group_state_representation` ports (that
+  /// `cspace-distance-field`'s `group_state_representation` ports (that
   /// function's own doc comment explains why the pregenerated branch is
   /// unreachable *for this port*, specifically -- this port never builds the
   /// map behind it -- not that upstream's own runtime never reaches it; this
@@ -4359,7 +4359,7 @@ private:
   ///
   /// `mode` (optional, `"collision"` by default, `"robot_only"` the only
   /// other value) selects `checkRobotCollision` instead of `checkCollision`.
-  /// Requested by `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md`:
+  /// Requested by `crates/cspace-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md`:
   /// `checkRobotCollision` had never been called through any op, so
   /// `getEnvironmentCollisions`' distance/contact-recording logic had no
   /// oracle evidence behind it at all, in either direction. Absent, the
@@ -4655,7 +4655,7 @@ private:
     return json{ { "links", names } };
   }
 
-  /// Ground truth for the `moveit-trajectory` `ruckig_smoothing` port. Builds
+  /// Ground truth for the `cspace-trajectory` `ruckig_smoothing` port. Builds
   /// a `robot_trajectory::RobotTrajectory` from each case's waypoints and
   /// runs `trajectory_processing::RuckigSmoothing::applySmoothing` on it.
   ///
@@ -4668,7 +4668,7 @@ private:
   /// (or DEFAULT_MAX_JERK), same as upstream. The
   /// `moveit_msgs::msg::JointLimits` overload is not exercised: it is a thin
   /// wrapper that unpacks into the explicit-limits overload's three maps,
-  /// and moveit-trajectory does not port it (D1).
+  /// and cspace-trajectory does not port it (D1).
   json ruckig(const json& request)
   {
     const std::string group_name = request.at("group").get<std::string>();
@@ -4769,7 +4769,7 @@ private:
     return result;
   }
 
-  /// Ground truth for the `moveit-trajectory` `Path`/`Trajectory` port (the
+  /// Ground truth for the `cspace-trajectory` `Path`/`Trajectory` port (the
   /// model-independent numeric core of
   /// `trajectory_processing::time_optimal_trajectory_generation.hpp` lines
   /// 62-192) *and*, when a request names a `"group"`, for the
@@ -4843,7 +4843,7 @@ private:
     return have_prismatic && have_revolute;
   }
 
-  /// Ground truth for the `moveit-trajectory`
+  /// Ground truth for the `cspace-trajectory`
   /// `time_optimal_trajectory_generation` module -- the
   /// `TimeOptimalTrajectoryGeneration` adapter around `Path`/`Trajectory`.
   /// Shaped exactly like `ruckigCase` above (same waypoint/duration/
@@ -5097,7 +5097,7 @@ private:
                  { "samples", samples } };
   }
 
-  /// Ground truth for the `moveit-smoothing` `AccelerationLimitedPlugin` port
+  /// Ground truth for the `cspace-smoothing` `AccelerationLimitedPlugin` port
   /// -- the online, one-step-lookahead acceleration-limiting QP in
   /// `online_signal_smoothing/acceleration_filter.cpp`. This is the only op
   /// in this file that starts a real `rclcpp::Node`:
@@ -5242,7 +5242,7 @@ private:
     return result;
   }
 
-  /// Ground truth for the `moveit-smoothing` `RuckigFilter` port -- the
+  /// Ground truth for the `cspace-smoothing` `RuckigFilter` port -- the
   /// streaming, jerk-limited command smoother in
   /// `online_signal_smoothing/ruckig_filter.cpp`. Loaded through the same
   /// `pluginlib::ClassLoader<online_signal_smoothing::SmoothingBaseClass>` +
@@ -5277,7 +5277,7 @@ private:
   /// `velocities`/`accelerations` parameters are pure outputs upstream --
   /// never read, only overwritten -- so this op passes zero-filled scratch
   /// vectors of the right size for them on every call, matching
-  /// `moveit-smoothing::ruckig_filter::RuckigFilter::do_smoothing`'s
+  /// `cspace-smoothing::ruckig_filter::RuckigFilter::do_smoothing`'s
   /// identical treatment on the Rust side (see that function's own doc
   /// comment on why the incoming `positions` is the sole per-call input).
   json ruckigFilter(const json& request)
@@ -5375,7 +5375,7 @@ private:
     return result;
   }
 
-  /// Ground truth for the `moveit-constraints` `KinematicConstraintSet` port.
+  /// Ground truth for the `cspace-constraints` `KinematicConstraintSet` port.
   /// Applies `joint_values` on top of the model defaults the same way
   /// `fk`/`jacobian` do, builds a `moveit_msgs::msg::Constraints` from
   /// `request["constraints"]` (see the free-function `*FromJson` builders
@@ -5387,7 +5387,7 @@ private:
   /// constraint failed to `configure()` -- this differential test's own case
   /// generator never produces such a constraint, so that is treated as a
   /// hard error rather than silently evaluating a partially-configured set
-  /// (see `moveit-constraints`' own `KinematicConstraintSet::decide`
+  /// (see `cspace-constraints`' own `KinematicConstraintSet::decide`
   /// deviation doc for why a partially-decidable set should never be
   /// reported as if it were fully decided).
   json constraints(const json& request)
@@ -5424,8 +5424,8 @@ private:
     return json{ { "results", results_out } };
   }
 
-  /// Ground truth for moveit-octomap's port of octomap 1.9.7 (see
-  /// crates/moveit-octomap/src/*.rs's provenance comments): builds a
+  /// Ground truth for cspace-octomap's port of octomap 1.9.7 (see
+  /// crates/cspace-octomap/src/*.rs's provenance comments): builds a
   /// throwaway `octomap::OcTree` local to this call (ignoring model_/state_,
   /// same pattern as shapePoints above), replays a request-described
   /// sequence of updates, and reports whatever the request asks to query
@@ -5437,7 +5437,7 @@ private:
   /// same actions" means: update_point, update_key, insert_ray, prune,
   /// update_inner_occupancy, set_occupancy_thres, set_prob_hit,
   /// set_prob_miss, set_clamping_thres_min, set_clamping_thres_max (the
-  /// five `{"prob": <double>}` sensor-model setters moveit-octomap's round
+  /// five `{"prob": <double>}` sensor-model setters cspace-octomap's round
   /// 15 ports -- ground truth for their effect on later hits/misses and on
   /// `isNodeOccupied`'s boundary, not merely on this port's own arithmetic).
   static void applyOctomapActions(octomap::OcTree& tree, const json& actions)
@@ -5654,7 +5654,7 @@ private:
   ///    collision_env_distance_field.cpp's
   ///    `PosedBodyPointDecomposition(octree)` each rely on their own backend
   ///    performing before an octree query means anything in world
-  ///    coordinates -- see crates/moveit-geometry/src/shapes.rs's module docs
+  ///    coordinates -- see crates/cspace-geometry/src/shapes.rs's module docs
   ///    for the full FCL/parry3d-f64/distance-field consumer analysis.
   ///
   /// Round 5's gap: everything above stops at pose composition and point
@@ -5662,7 +5662,7 @@ private:
   /// deliberately bypasses `CollisionEnvFCL`/`RobotState`/ACM entirely (see
   /// its own doc). Neither answers "does a real robot collide with a World
   /// whose only object is this octree", which is the question a
-  /// `moveit_collision::ParryCollisionEnv` wiring `Shape::OcTree` through
+  /// `cspace_collision::ParryCollisionEnv` wiring `Shape::OcTree` through
   /// `convert_shape` actually needs ground truth for. When the request
   /// carries a `"robot"` key (`{"joint_values": {...}}`, `collision`'s own
   /// vocabulary via `applyJointValues`), this additionally builds a real
@@ -5811,7 +5811,7 @@ private:
   /// Ground truth for `bodies::Body`'s posed algorithms --
   /// `containsPoint`/`intersectsRay`/`computeBoundingBox`/
   /// `computeBoundingSphere`/`computeBoundingCylinder` -- which
-  /// `moveit-geometry`'s `Body` enum ported some rounds ago but which, until
+  /// `cspace-geometry`'s `Body` enum ported some rounds ago but which, until
   /// now, only `tests/probe_parity.rs`'s standalone `libgeometric_shapes.so`
   /// probe exercised, never the oracle's own JSON-line protocol. Builds a
   /// `bodies::Body` exactly the way `shapePoints` above does
@@ -5904,7 +5904,7 @@ private:
   }
 
   /// Phase 7's C++ baseline: OMPL RRTConnect over a state space built to
-  /// mirror `moveit-planners-sbp`'s own `JointModelGroupSpace`, with validity
+  /// mirror `cspace-planners-sbp`'s own `JointModelGroupSpace`, with validity
   /// answered by a real `planning_scene::PlanningScene`.
   ///
   /// # What this baseline is, and what it is not
@@ -6119,7 +6119,7 @@ private:
   }
 
   /// Ground truth for `ChompCost::getQuadraticCostInverse()`, requested by
-  /// p6-totg in `crates/moveit-planners-chomp/doc/oracle-request-quad-cost-
+  /// p6-totg in `crates/cspace-planners-chomp/doc/oracle-request-quad-cost-
   /// inv.md`.
   ///
   /// The full inverse matrix, element by element, not a residual. Round 16
@@ -6382,7 +6382,7 @@ private:
   ///
   /// # Why `chomp_motion_planner` and not `chomp_interface`
   ///
-  /// `moveit_planners_chomp` (the `chomp_interface` package, which carries
+  /// `cspace_planners_chomp` (the `chomp_interface` package, which carries
   /// the pluginlib entry point) is not in this image. It does not need to
   /// be: `CHOMPPlanningContext::solve` is one forwarding call --
   /// `chomp_interface_->solve(planning_scene_, request_, chomp_interface_->getParams(), res);`
@@ -6649,7 +6649,7 @@ private:
   ///
   /// A consequence to carry into any LIN/CIRC comparison: the oracle's
   /// waypoints now depend on *this* KDL solver, while the port's
-  /// `compute_pose_ik` depends on `moveit-kinematics`. Whatever those two
+  /// `compute_pose_ik` depends on `cspace-kinematics`. Whatever those two
   /// disagree by is inside the `1e-6` budget before the trajectory code is
   /// reached at all, so a LIN/CIRC divergence is not attributable to the
   /// trajectory port until Phase 4's IK parity is subtracted out.
@@ -6753,7 +6753,7 @@ private:
   /// `third_party/moveit_resources/`, which is gitignored. A fixture whose
   /// meaning depends on a gitignored external checkout is precisely what
   /// `tools/ci/verify-clean-checkout.sh` exists to catch, and neither side
-  /// has a YAML reader to begin with (`moveit-planners-pilz`'s `limits.rs`
+  /// has a YAML reader to begin with (`cspace-planners-pilz`'s `limits.rs`
   /// builds `JointLimitsContainer` programmatically; this file has
   /// nlohmann_json and nothing else).
   ///
@@ -6764,7 +6764,7 @@ private:
   /// intended -- it cannot manufacture a disagreement. Two independent
   /// readers of one YAML file is the arrangement that can.
   ///
-  /// `joint_limits` mirrors `moveit_planners_pilz`'s own `JointLimit`
+  /// `joint_limits` mirrors `cspace_planners_pilz`'s own `JointLimit`
   /// field-for-field (the union of `joint_limits::JointLimits` and pilz's
   /// `joint_limits_interface::JointLimits` extension), so the port's
   /// `limits::JointLimit` deserializes it without a translation table.
@@ -7094,7 +7094,7 @@ private:
   /// blender's only external measurement.
   ///
   /// Requested by p1-joints in
-  /// `crates/moveit-planners-pilz/doc/oracle-request-pilz-blend.md` after
+  /// `crates/cspace-planners-pilz/doc/oracle-request-pilz-blend.md` after
   /// they ported the 966-line blender with twelve tests, none of which
   /// compares a single number against upstream (PORTING-PLAN.md §185).
   ///
@@ -7272,7 +7272,7 @@ private:
   // completion condition never compares a solution's exact value, only
   // whether one was found and whether FK(solution) lands on target, so
   // this need not (and structurally cannot, since it is a wholly separate
-  // RNG stream) match moveit-kinematics's own reseed draws.
+  // RNG stream) match cspace-kinematics's own reseed draws.
   //
   // The seed is a startup argument (`--ik-rng-seed`, default 42) rather than
   // a hard-coded constant, because "this port's IK success rate is at least

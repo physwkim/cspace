@@ -1,0 +1,16 @@
+[package]
+name = "cspace-srdf"
+description = "Pure-Rust SRDF (Semantic Robot Description Format) parser, written against srdfdom"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cspace-error.workspace = true
+roxmltree.workspace = true
+
+[lints]
+workspace = true

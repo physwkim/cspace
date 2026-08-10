@@ -5,7 +5,7 @@
 //! `collision: bool` carve-out -- the positive-gap band §229.2 measured
 //! (`3e-8` colliding, `1e-7` not, on prbt's cylinder against a floor box) and
 //! left `UNFIXED` -- and, per this round's follow-up brief, compares
-//! `crates/moveit-collision/src/parry.rs`'s two sibling accumulators
+//! `crates/cspace-collision/src/parry.rs`'s two sibling accumulators
 //! (`accumulate_collision` and `accumulate_distance`) on the identical
 //! configurations, since they turn out to gate the same
 //! `parry3d_f64::query::contact` result by two different rules.
@@ -71,15 +71,15 @@
 
 use std::sync::Arc;
 
-use moveit_collision::{
+use cspace_collision::{
     AllowedCollisionMatrix, AttachedBodyGeometry, CollisionEnv, CollisionRequest, DistanceRequest,
     DistanceRequestType, LinkPaddingScale, ParryCollisionEnv, World,
 };
-use moveit_geometry::{Cuboid, Cylinder, Isometry3, Shape};
-use moveit_model::{MeshSearchPaths, RobotModel};
-use moveit_octomap::OcTree;
-use moveit_srdf::SrdfModel;
-use moveit_state::RobotState;
+use cspace_geometry::{Cuboid, Cylinder, Isometry3, Shape};
+use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_octomap::OcTree;
+use cspace_srdf::SrdfModel;
+use cspace_state::RobotState;
 use nalgebra::Point3;
 
 /// `sqrt(10 * f64::EPSILON)` -- `parry3d-f64-0.30.0/src/query/gjk/gjk.rs`'s
@@ -140,13 +140,13 @@ impl Kind {
                 Cuboid::new(2.0 * half, 2.0 * half, 2.0 * half).expect("positive cuboid"),
             ),
             Self::Sphere => {
-                Shape::Sphere(moveit_geometry::Sphere::new(half).expect("positive sphere"))
+                Shape::Sphere(cspace_geometry::Sphere::new(half).expect("positive sphere"))
             }
             Self::Cylinder => {
                 Shape::Cylinder(Cylinder::new(half, 2.0 * half).expect("positive cylinder"))
             }
             Self::Cone => {
-                Shape::Cone(moveit_geometry::Cone::new(half, 2.0 * half).expect("positive cone"))
+                Shape::Cone(cspace_geometry::Cone::new(half, 2.0 * half).expect("positive cone"))
             }
         })
     }
@@ -552,11 +552,11 @@ fn prbt_anchor() {
 fn octree_anchor() {
     let urdf_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../crates/moveit-collision/tests/fixtures/octree_world_robot.urdf"
+        "/../../crates/cspace-collision/tests/fixtures/octree_world_robot.urdf"
     );
     let srdf_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../crates/moveit-collision/tests/fixtures/octree_world_robot.srdf"
+        "/../../crates/cspace-collision/tests/fixtures/octree_world_robot.srdf"
     );
     let urdf_xml = std::fs::read_to_string(urdf_path).expect("octree fixture URDF readable");
     let urdf = urdf_rs::read_from_string(&urdf_xml).expect("octree fixture URDF parses");
@@ -569,7 +569,7 @@ fn octree_anchor() {
     let mut world = World::new();
     world.add_shape(
         "octree_object",
-        Arc::new(Shape::OcTree(moveit_geometry::OcTree::from_tree(Arc::new(
+        Arc::new(Shape::OcTree(cspace_geometry::OcTree::from_tree(Arc::new(
             tree,
         )))),
         Isometry3::identity(),

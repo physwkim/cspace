@@ -1,0 +1,30 @@
+[package]
+name = "cspace-distance-field"
+description = "Voxel distance field for moveit-rs, ported from moveit_core/distance_field"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cspace-collision.workspace = true
+cspace-error.workspace = true
+cspace-geometry.workspace = true
+cspace-model.workspace = true
+cspace-octomap.workspace = true
+cspace-state.workspace = true
+nalgebra.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
+cspace-srdf.workspace = true
+cspace-test-support.workspace = true
+nalgebra.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+urdf-rs.workspace = true
+
+[lints]
+workspace = true

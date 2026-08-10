@@ -1,0 +1,1172 @@
+// Copyright (c) 2009, Willow Garage, Inc.
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
+//   moveit_planners/chomp/chomp_motion_planner/include/chomp_motion_planner/chomp_trajectory.hpp
+//   moveit_planners/chomp/chomp_motion_planner/src/chomp_trajectory.cpp
+
+//! [`ChompTrajectory`]: a discretized joint-space trajectory matrix for
+//! CHOMP, `num_points` rows by `num_joints` columns.
+//!
+//! # Deviations from upstream
+//!
+//! - **`operator()` is [`std::ops::Index`]/[`std::ops::IndexMut`] on
+//!   `(usize, usize)`**, not a named method — `traj[(traj_point, joint)]`
+//!   mirrors upstream's `traj(traj_point, joint)` directly.
+//! - **`getTrajectoryPoint`/`getJointTrajectory` return owned copies**
+//!   ([`ChompTrajectory::trajectory_point`] returns `Vec<f64>`,
+//!   [`ChompTrajectory::joint_trajectory`] likewise), not a live
+//!   `Eigen::MatrixXd::RowXpr`/`ColXpr` view. Every call site in this
+//!   crate either reads a row/column once or overwrites one wholesale
+//!   ([`ChompTrajectory::set_trajectory_point`]); nothing needs a view that
+//!   stays live across further matrix mutation.
+//! - **`getFreeTrajectoryBlock`/`getFreeJointTrajectoryBlock` are ported as
+//!   [`ChompTrajectory::free_trajectory_block_mut`]/
+//!   [`ChompTrajectory::free_joint_trajectory_block_mut`]**, returning
+//!   `nalgebra`'s mutable view type (`DMatrixViewMut`) rather than the owned
+//!   copies the accessors above return — deferred in round 16 pending real
+//!   call sites, now ported against `chomp_optimizer.cpp`'s actual usage
+//!   (`addIncrementsToTrajectory`'s `getFreeTrajectoryBlock().col(i) +=
+//!   ...`, `handleJointLimits`'s `getFreeJointTrajectoryBlock(joint_i) +=
+//!   ...`): both are read-modify-write in place via `+=`, which an owned
+//!   copy cannot express without an explicit write-back step the upstream
+//!   call sites don't have.
+//! - **Reachable invariant violations are typed errors, not `assert()`/UB.**
+//!   Upstream's `assert()`s (compiled out in release builds) and unchecked
+//!   `size_t` arithmetic on caller-supplied indices are both replaced by
+//!   `Result::Err` here, matching the convention this port already
+//!   established in `cspace-trajectory`'s
+//!   `time_optimal_trajectory_generation.rs` (see that module's
+//!   `mimic_joint_group_is_a_typed_error_not_a_panic` test): a mismatched
+//!   active-joint count or a multi-DOF active joint in
+//!   [`ChompTrajectory::assign_chomp_trajectory_point_from_robot_state`], a
+//!   too-small `num_points` in the constructors, and a missing group in
+//!   [`ChompTrajectory::fill_in_from_trajectory`] are all `Err`, not a
+//!   panic or a silently wrong write.
+//! - **[`ChompTrajectory::num_free_points`] does not rely on `size_t`
+//!   double-wraparound.** Upstream computes `getNumFreePoints()` as
+//!   `(end_index_ - start_index_) + 1` in `size_t` arithmetic; for a
+//!   2-point trajectory (`start_index_ == 1`, `end_index_ == 0`) this
+//!   underflows to `SIZE_MAX` and then overflows back to `0` — the
+//!   "correct" answer only by virtue of two wraparounds cancelling out.
+//!   This port computes the same `0`-when-inverted result directly via
+//!   `(end_index + 1).saturating_sub(start_index)`, not by relying on that
+//!   coincidence — see `num_free_points_zero_for_inverted_range` below.
+//! - **[`ChompTrajectory::from_num_points`] validates `discretization` is
+//!   finite and positive**, matching the same check
+//!   [`ChompTrajectory::from_duration`] already applied to its own
+//!   `discretization` parameter before delegating here. Every
+//!   `ChompTrajectory` is built through this constructor (`from_duration`
+//!   delegates to it; `from_source_trajectory` copies an already-valid
+//!   source's `discretization`), so the guard lives at the one place that
+//!   actually stores the field, not only at the one caller whose own
+//!   arithmetic happened to need it. Upstream's `(robot_model, size_t
+//!   num_points, double discretization, group_name)` constructor stores
+//!   `discretization_` unchecked; [`ChompTrajectory::joint_velocities`]'s
+//!   `1.0 / discretization_` and [`ChompTrajectory::fill_in_min_jerk`]'s
+//!   `td[1] = (end_index - start_index) * discretization_`-derived
+//!   divisions both silently produced `Infinity`/`NaN` (`0.0 * Infinity ==
+//!   NaN` for three of `DIFF_RULES`' seven zero-valued taps) for any direct
+//!   `from_num_points` caller supplying `discretization == 0.0`, with no
+//!   panic and no `Err` — this crate's own tests and fixtures always pass a
+//!   valid literal, so it went unreachable-in-practice but not
+//!   unreachable-in-API.
+//! - **[`ChompTrajectory::from_duration`] additionally bounds the
+//!   resulting point count (§153.1/§172), instead of the
+//!   unchecked `static_cast<size_t>` upstream's `(robot_model, double
+//!   duration, double discretization, group_name)` constructor uses
+//!   (cpp: delegates to the num-points constructor via
+//!   `static_cast<size_t>(duration / discretization) + 1`).** That cast
+//!   is undefined behaviour in C++ outside a well-behaved input range;
+//!   Rust's `as usize` is always defined (saturating) instead, which turns
+//!   the same UB into two Rust-specific failures no upstream comparison can
+//!   catch: `discretization` at or near `0.0` saturates the cast to (or
+//!   near) `usize::MAX`, so the following `+ 1` panics on overflow in a
+//!   debug build (Rust's default), or wraps to a small count that
+//!   `from_num_points`'s own `num_points < 2` check happens to catch in a
+//!   release build — an accident of wraparound, not a validated rejection.
+//!   A `discretization` merely small (not zero) instead saturates to some
+//!   large-but-not-`usize::MAX` count, past `from_num_points`'s `< 2` guard
+//!   and into a `DMatrix::zeros` allocation big enough to hang and exhaust
+//!   memory, the same shape as `cspace-trajectory`'s `resample_dt` finding
+//!   this note mirrors. `from_duration` now rejects a non-finite or
+//!   non-positive `discretization`, and separately rejects a resulting
+//!   point count above `MAX_FROM_DURATION_POINTS` (a resource bound this
+//!   port adds; upstream has none), both before the cast rather than after
+//!   it. **Expires** if upstream adds its own `discretization` validation,
+//!   at which point this note should instead record whatever bound
+//!   upstream chose.
+use cspace_error::{Error, Result};
+use cspace_model::{JointModelGroup, RobotModel};
+use cspace_state::RobotState;
+use cspace_trajectory::RobotTrajectory;
+use nalgebra::DMatrix;
+
+/// Not from upstream (which has no such bound; see this module's
+/// "Deviations from upstream" note on [`ChompTrajectory::from_duration`]'s
+/// validation, §172/§153.1). A defensive resource cap on the point count
+/// `from_duration` will build a `num_points`-row `DMatrix` from: CHOMP
+/// trajectories are ordinarily tens to low thousands of points, so this
+/// stays far above any legitimate `duration`/`discretization` combination
+/// while still catching an allocation large enough to hang and exhaust
+/// memory.
+const MAX_FROM_DURATION_POINTS: usize = 100_000_000;
+
+/// A discretized joint-space trajectory for CHOMP.
+///
+/// Ported from `chomp::ChompTrajectory`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChompTrajectory {
+    planning_group_name: String,
+    num_points: usize,
+    num_joints: usize,
+    discretization: f64,
+    duration: f64,
+    trajectory: DMatrix<f64>,
+    start_index: usize,
+    end_index: usize,
+    full_trajectory_index: Vec<usize>,
+}
+
+impl ChompTrajectory {
+    /// Constructs a trajectory for a given robot model, trajectory duration
+    /// and discretization.
+    ///
+    /// Ported from the `(robot_model, double duration, double
+    /// discretization, group_name)` constructor, which delegates to the
+    /// num-points constructor via `static_cast<size_t>(duration /
+    /// discretization) + 1`. Rust's `as usize` cast saturates instead of
+    /// invoking C++'s undefined behaviour for a negative or non-finite
+    /// `duration / discretization`; both agree on every case where upstream
+    /// itself is well-defined.
+    pub fn from_duration(
+        robot_model: &RobotModel,
+        duration: f64,
+        discretization: f64,
+        group_name: &str,
+    ) -> Result<Self> {
+        if !discretization.is_finite() || discretization <= 0.0 {
+            return Err(Error::other(format!(
+                "discretization must be finite and positive, got {discretization}"
+            )));
+        }
+        let raw_num_points = duration / discretization;
+        if !raw_num_points.is_finite() || raw_num_points > MAX_FROM_DURATION_POINTS as f64 {
+            return Err(Error::other(format!(
+                "duration {duration} over discretization {discretization} would require more \
+                 than {MAX_FROM_DURATION_POINTS} points"
+            )));
+        }
+        let num_points = raw_num_points as usize + 1;
+        Self::from_num_points(robot_model, num_points, discretization, group_name)
+    }
+
+    /// Constructs a trajectory for a given robot model, number of trajectory
+    /// points and discretization.
+    ///
+    /// Ported from the `(robot_model, size_t num_points, double
+    /// discretization, group_name)` constructor. `num_points < 2` is `Err`
+    /// (see the module doc's "Reachable invariant violations" note):
+    /// upstream computes `end_index_ = num_points_ - 2` in `size_t`
+    /// arithmetic, which underflows for `num_points_ < 2`. `discretization`
+    /// must be finite and positive, the same guard [`Self::from_duration`]
+    /// already applies -- this is the constructor every other path funnels
+    /// through, and a non-finite/non-positive `discretization` reaches
+    /// [`Self::joint_velocities`]'s `1.0 / self.discretization` unguarded
+    /// otherwise (division/NaN-guard audit, round: chomp/stomp sweep).
+    pub fn from_num_points(
+        robot_model: &RobotModel,
+        num_points: usize,
+        discretization: f64,
+        group_name: &str,
+    ) -> Result<Self> {
+        if num_points < 2 {
+            return Err(Error::other(format!(
+                "ChompTrajectory needs at least 2 points, got {num_points}"
+            )));
+        }
+        if !discretization.is_finite() || discretization <= 0.0 {
+            return Err(Error::other(format!(
+                "discretization must be finite and positive, got {discretization}"
+            )));
+        }
+        let group = robot_model.joint_model_group(group_name)?;
+        let num_joints = group.active_joint_indices().len();
+        Ok(Self {
+            planning_group_name: group_name.to_string(),
+            num_points,
+            num_joints,
+            discretization,
+            duration: (num_points - 1) as f64 * discretization,
+            trajectory: DMatrix::zeros(num_points, num_joints),
+            start_index: 1,
+            end_index: num_points - 2,
+            full_trajectory_index: Vec::new(),
+        })
+    }
+
+    /// Creates a new trajectory containing only the joints of `group_name`,
+    /// padded at the start and end (if needed) to have enough trajectory
+    /// points for `diff_rule_length`-wide differentiation rules.
+    ///
+    /// Ported from the `(source_traj, group_name, int diff_rule_length)`
+    /// constructor. `start_extra`/`end_extra` are computed in `i64` (upstream:
+    /// `int`) since they can be negative when `source`'s own margin already
+    /// exceeds `diff_rule_length - 1`; a resulting point count under 2 or a
+    /// negative end index is `Err` rather than the `size_t` wraparound
+    /// upstream would produce.
+    ///
+    /// # `num_points_i < 2`, not `< 1` (`§172`)
+    ///
+    /// [`ChompTrajectory::num_points`] is a private, write-once field with
+    /// exactly two direct owners: this constructor and [`Self::from_num_points`],
+    /// whose own guard rejects `num_points < 2` (a `size_t` underflow in
+    /// `end_index_ = num_points_ - 2` below that bound). Every consumer —
+    /// [`Self::fill_in_from_trajectory`] chief among them, whose
+    /// `(i * max_input_index) as f64 / (self.num_points - 1) as f64` divides
+    /// by exactly this quantity — relies on both owners upholding the same
+    /// `>= 2` invariant, not just this one's own weaker `>= 1`.
+    ///
+    /// A `diff_rule_length` of `1` (a caller-supplied argument, not the
+    /// crate-wide `DIFF_RULE_LENGTH = 7` this file's only production caller
+    /// passes, but nothing in this `pub fn`'s signature forbids it) made
+    /// `num_points_i == 1` reachable under the old `< 1` bound: e.g.
+    /// `from_source_trajectory(&from_num_points(_, 3, ..)?, _, 1)` built
+    /// successfully with `num_points() == 1`, and a subsequent
+    /// `fill_in_from_trajectory` call then divided by `self.num_points - 1
+    /// == 0`, producing `0.0 / 0.0 = NaN` that `.trunc() as usize` silently
+    /// saturated to index `0` instead of surfacing — confirmed by
+    /// temporarily loosening this bound back to `< 1` and observing exactly
+    /// that. Matching `from_num_points`'s own threshold instead of adding a
+    /// guard at every consumer closes the family at its single owner.
+    pub fn from_source_trajectory(
+        source: &ChompTrajectory,
+        group_name: &str,
+        diff_rule_length: usize,
+    ) -> Result<Self> {
+        let num_joints = source.num_joints;
+        let discretization = source.discretization;
+
+        let diff_rule_length_i = diff_rule_length as i64;
+        let start_extra = diff_rule_length_i - 1 - source.start_index as i64;
+        let end_extra =
+            diff_rule_length_i - 1 - (source.num_points as i64 - 1 - source.end_index as i64);
+
+        let num_points_i = source.num_points as i64 + start_extra + end_extra;
+        if num_points_i < 2 {
+            return Err(Error::other(format!(
+                "ChompTrajectory padding produced a point count under 2 ({num_points_i})"
+            )));
+        }
+        let num_points = num_points_i as usize;
+
+        let end_index_i = num_points_i - 1 - (diff_rule_length_i - 1);
+        if end_index_i < 0 {
+            return Err(Error::other(format!(
+                "ChompTrajectory padding produced a negative end index ({end_index_i})"
+            )));
+        }
+        let start_index = diff_rule_length - 1;
+        let end_index = end_index_i as usize;
+        let duration = (num_points - 1) as f64 * discretization;
+
+        let mut trajectory = Self {
+            planning_group_name: group_name.to_string(),
+            num_points,
+            num_joints,
+            discretization,
+            duration,
+            trajectory: DMatrix::zeros(num_points, num_joints),
+            start_index,
+            end_index,
+            full_trajectory_index: Vec::with_capacity(num_points),
+        };
+
+        for i in 0..num_points {
+            let mut source_traj_point = i as i64 - start_extra;
+            if source_traj_point < 0 {
+                source_traj_point = 0;
+            }
+            if source_traj_point as usize >= source.num_points {
+                source_traj_point = source.num_points as i64 - 1;
+            }
+            let source_traj_point = source_traj_point as usize;
+            trajectory.full_trajectory_index.push(source_traj_point);
+            for j in 0..num_joints {
+                trajectory.trajectory[(i, j)] = source.trajectory[(source_traj_point, j)];
+            }
+        }
+
+        Ok(trajectory)
+    }
+
+    /// Gets the number of points in the trajectory.
+    ///
+    /// Ported from `getNumPoints`.
+    pub fn num_points(&self) -> usize {
+        self.num_points
+    }
+
+    /// Gets the number of points (that are free to be optimized) in the
+    /// trajectory: `0` if `end_index < start_index` (an inverted range),
+    /// else `end_index - start_index + 1`.
+    ///
+    /// Ported from `getNumFreePoints` — see the module doc's
+    /// `num_free_points` deviation note.
+    pub fn num_free_points(&self) -> usize {
+        (self.end_index + 1).saturating_sub(self.start_index)
+    }
+
+    /// Gets the number of joints in each trajectory point.
+    ///
+    /// Ported from `getNumJoints`.
+    pub fn num_joints(&self) -> usize {
+        self.num_joints
+    }
+
+    /// Gets the discretization time interval of the trajectory.
+    ///
+    /// Ported from `getDiscretization`.
+    pub fn discretization(&self) -> f64 {
+        self.discretization
+    }
+
+    /// Gets the duration of the trajectory.
+    ///
+    /// Ported from `getDuration`.
+    pub fn duration(&self) -> f64 {
+        self.duration
+    }
+
+    /// Gets the planning group name this trajectory corresponds to.
+    ///
+    /// Ported from the private `planning_group_name_` field (upstream has
+    /// no getter for it; added here since every constructor takes it and
+    /// nothing else exposes it back).
+    pub fn planning_group_name(&self) -> &str {
+        &self.planning_group_name
+    }
+
+    /// Sets the start and end index for the modifiable part of the
+    /// trajectory. Everything before `start_index` and after `end_index` is
+    /// considered fixed.
+    ///
+    /// Ported from `setStartEndIndex`.
+    pub fn set_start_end_index(&mut self, start_index: usize, end_index: usize) {
+        self.start_index = start_index;
+        self.end_index = end_index;
+    }
+
+    /// Gets the start index.
+    ///
+    /// Ported from `getStartIndex`.
+    pub fn start_index(&self) -> usize {
+        self.start_index
+    }
+
+    /// Gets the end index.
+    ///
+    /// Ported from `getEndIndex`.
+    pub fn end_index(&self) -> usize {
+        self.end_index
+    }
+
+    /// Gets the entire trajectory matrix.
+    ///
+    /// Ported from `getTrajectory`.
+    pub fn trajectory_matrix(&self) -> &DMatrix<f64> {
+        &self.trajectory
+    }
+
+    /// Gets the index in the source trajectory that trajectory point `i` was
+    /// copied from by [`ChompTrajectory::from_source_trajectory`].
+    ///
+    /// Ported from `getFullTrajectoryIndex`.
+    pub fn full_trajectory_index(&self, i: usize) -> usize {
+        self.full_trajectory_index[i]
+    }
+
+    /// Gets trajectory point `traj_point` as an owned copy — see the module
+    /// doc's "owned copies" deviation note.
+    ///
+    /// Ported from `getTrajectoryPoint`.
+    pub fn trajectory_point(&self, traj_point: usize) -> Vec<f64> {
+        self.trajectory.row(traj_point).iter().copied().collect()
+    }
+
+    /// Overwrites trajectory point `traj_point` with `values`.
+    ///
+    /// Ported from assigning through `getTrajectoryPoint`'s mutable
+    /// `RowXpr` (e.g. `getTrajectoryPoint(i) = other.getTrajectoryPoint(j)`
+    /// in the padding constructor) — see the module doc's "owned copies"
+    /// deviation note.
+    pub fn set_trajectory_point(&mut self, traj_point: usize, values: &[f64]) {
+        for (j, &v) in values.iter().enumerate() {
+            self.trajectory[(traj_point, j)] = v;
+        }
+    }
+
+    /// Gets joint `joint`'s trajectory as an owned copy — see the module
+    /// doc's "owned copies" deviation note.
+    ///
+    /// Ported from `getJointTrajectory`.
+    pub fn joint_trajectory(&self, joint: usize) -> Vec<f64> {
+        self.trajectory.column(joint).iter().copied().collect()
+    }
+
+    /// Generates a minimum-jerk trajectory from `start_index - 1` to
+    /// `end_index + 1`. Only modifies points in `[start_index, end_index]`.
+    ///
+    /// Ported from `fillInMinJerk`. Panics if `start_index == 0` (matching
+    /// upstream's own unchecked `start_index_ - 1` in `size_t`/`double`
+    /// arithmetic — every constructor sets `start_index >= 1`;
+    /// [`ChompTrajectory::set_start_end_index`] is the only way to violate
+    /// that).
+    pub fn fill_in_min_jerk(&mut self) {
+        let start_index = self.start_index - 1;
+        let end_index = self.end_index + 1;
+        let mut td = [0.0f64; 6];
+        td[0] = 1.0;
+        td[1] = (end_index - start_index) as f64 * self.discretization;
+        for k in 2..=5 {
+            td[k] = td[k - 1] * td[1];
+        }
+
+        let mut coeff = vec![[0.0f64; 6]; self.num_joints];
+        for joint in 0..self.num_joints {
+            let x0 = self[(start_index, joint)];
+            let x1 = self[(end_index, joint)];
+            coeff[joint][0] = x0;
+            coeff[joint][1] = 0.0;
+            coeff[joint][2] = 0.0;
+            coeff[joint][3] = (-20.0 * x0 + 20.0 * x1) / (2.0 * td[3]);
+            coeff[joint][4] = (30.0 * x0 - 30.0 * x1) / (2.0 * td[4]);
+            coeff[joint][5] = (-12.0 * x0 + 12.0 * x1) / (2.0 * td[5]);
+        }
+
+        for traj_point in (start_index + 1)..end_index {
+            let mut ti = [0.0f64; 6];
+            ti[0] = 1.0;
+            ti[1] = (traj_point - start_index) as f64 * self.discretization;
+            for k in 2..=5 {
+                ti[k] = ti[k - 1] * ti[1];
+            }
+            for joint in 0..self.num_joints {
+                let mut value = 0.0;
+                for k in 0..=5 {
+                    value += ti[k] * coeff[joint][k];
+                }
+                self[(traj_point, joint)] = value;
+            }
+        }
+    }
+
+    /// Generates a linearly interpolated trajectory from `start_index - 1`
+    /// to `end_index + 1`. Only modifies points in `[start_index,
+    /// end_index]`.
+    ///
+    /// Ported from `fillInLinearInterpolation`. Same unchecked-`start_index`
+    /// precondition as [`ChompTrajectory::fill_in_min_jerk`].
+    ///
+    /// Transcribed exactly as upstream, including a numeric quirk worth
+    /// flagging rather than "fixing": the per-step slope `theta` divides by
+    /// `end_index - 1` (`end_index` being `self.end_index + 1`), not by the
+    /// true span `end_index - start_index`. The two coincide only when
+    /// `start_index == 1` (the constructors' default), i.e. when the local
+    /// `start_index` above is `0` — the common case this method is actually
+    /// exercised with. For any other `start_index` (only reachable via
+    /// [`ChompTrajectory::set_start_end_index`]), upstream's own formula
+    /// still uses this same `end_index - 1` denominator, so this is not a
+    /// deviation from upstream, just a documented surprise in what upstream
+    /// computes.
+    pub fn fill_in_linear_interpolation(&mut self) {
+        let start_index = self.start_index - 1;
+        let end_index = self.end_index + 1;
+        let end_index_f = end_index as f64;
+        for i in 0..self.num_joints {
+            let theta = (self[(end_index, i)] - self[(start_index, i)]) / (end_index_f - 1.0);
+            for j in (start_index + 1)..end_index {
+                self[(j, i)] = self[(start_index, i)] + j as f64 * theta;
+            }
+        }
+    }
+
+    /// Generates a cubic interpolation of the trajectory from `start_index -
+    /// 1` to `end_index + 1`. Only modifies points in `[start_index,
+    /// end_index]`.
+    ///
+    /// Ported from `fillInCubicInterpolation`. Same unchecked-`start_index`
+    /// precondition as [`ChompTrajectory::fill_in_min_jerk`]. Upstream's
+    /// `coeffs[1]` (the linear term) is initialized to `0` and never
+    /// written or read from again — it contributes nothing to the
+    /// evaluated polynomial, so it is not represented here at all; this
+    /// changes no computed value. `pow(x, 2)`/`pow(x, 3)` (C++'s `pow(double,
+    /// int)` overload) are ported as [`f64::powi`], the closest Rust
+    /// equivalent to a repeated-multiplication integer-exponent `pow`.
+    pub fn fill_in_cubic_interpolation(&mut self) {
+        let start_index = self.start_index - 1;
+        let end_index = self.end_index + 1;
+        let dt = 0.001;
+        let total_time = (end_index as f64 - 1.0) * dt;
+        for i in 0..self.num_joints {
+            let x0 = self[(start_index, i)];
+            let x1 = self[(end_index, i)];
+            let c0 = x0;
+            let c2 = (3.0 / total_time.powi(2)) * (x1 - x0);
+            let c3 = (-2.0 / total_time.powi(3)) * (x1 - x0);
+            for j in (start_index + 1)..end_index {
+                let t = j as f64 * dt;
+                self[(j, i)] = c0 + c2 * t.powi(2) + c3 * t.powi(3);
+            }
+        }
+    }
+
+    /// Gets a writable view over the free (non-boundary-padding) rows of the
+    /// trajectory matrix, all joint columns.
+    ///
+    /// Ported from `getFreeTrajectoryBlock` — see the module doc's deviation
+    /// note.
+    pub fn free_trajectory_block_mut(&mut self) -> nalgebra::DMatrixViewMut<'_, f64> {
+        let num_free = self.num_free_points();
+        self.trajectory
+            .view_mut((self.start_index, 0), (num_free, self.num_joints))
+    }
+
+    /// Gets a writable view over the free (non-boundary-padding) rows of a
+    /// single joint column.
+    ///
+    /// Ported from `getFreeJointTrajectoryBlock` — see the module doc's
+    /// deviation note.
+    pub fn free_joint_trajectory_block_mut(
+        &mut self,
+        joint: usize,
+    ) -> nalgebra::DMatrixViewMut<'_, f64> {
+        let num_free = self.num_free_points();
+        self.trajectory
+            .view_mut((self.start_index, joint), (num_free, 1))
+    }
+
+    /// Updates `self` (the full trajectory) from `group_trajectory`'s free
+    /// block, at `self`'s own `start_index`.
+    ///
+    /// Ported from `updateFromGroupTrajectory`.
+    pub fn update_from_group_trajectory(&mut self, group_trajectory: &ChompTrajectory) {
+        let num_vars_free = self.end_index - self.start_index + 1;
+        for r in 0..num_vars_free {
+            for c in 0..self.num_joints {
+                self.trajectory[(self.start_index + r, c)] =
+                    group_trajectory.trajectory[(group_trajectory.start_index + r, c)];
+            }
+        }
+    }
+
+    /// Receives a path (e.g. from OMPL) and puts it into the trajectory
+    /// format CHOMP requires, resampling `trajectory` to this trajectory's
+    /// `num_points` by piecewise-linear interpolation over waypoint index.
+    /// Returns `false` (matching upstream) if `trajectory` has fewer than 2
+    /// waypoints.
+    ///
+    /// Ported from `fillInFromTrajectory`. `trajectory.group()` being
+    /// `None` is `Err` — see the module doc's "Reachable invariant
+    /// violations" note; upstream instead passes a possibly-null group
+    /// pointer straight into `RobotState::interpolate`.
+    pub fn fill_in_from_trajectory(&mut self, trajectory: &RobotTrajectory) -> Result<bool> {
+        if trajectory.way_point_count() < 2 {
+            return Ok(false);
+        }
+
+        let max_output_index = self.num_points - 1;
+        let max_input_index = trajectory.way_point_count() - 1;
+        let group = trajectory.group().ok_or_else(|| {
+            Error::other("fill_in_from_trajectory requires trajectory.group() to be Some")
+        })?;
+        let mut interpolated = RobotState::new(trajectory.robot_model());
+
+        for i in 0..=max_output_index {
+            let fraction_full = (i * max_input_index) as f64 / max_output_index as f64;
+            let prev_idx = fraction_full.trunc() as usize;
+            let fraction = fraction_full - prev_idx as f64;
+            let next_idx = if prev_idx == max_input_index {
+                prev_idx
+            } else {
+                prev_idx + 1
+            };
+            let from = trajectory.way_point(prev_idx)?;
+            let to = trajectory.way_point(next_idx)?;
+            interpolate_group_into(from, to, fraction, group, &mut interpolated);
+            self.assign_chomp_trajectory_point_from_robot_state(&interpolated, i, group)?;
+        }
+        Ok(true)
+    }
+
+    /// Assigns `source`'s active-joint positions for `group` into
+    /// trajectory point `chomp_trajectory_point`.
+    ///
+    /// Ported from `assignCHOMPTrajectoryPointFromRobotState`. Upstream's
+    /// two `assert()`s (`group`'s active-joint count matches this
+    /// trajectory's joint-column count; every active joint has exactly 1
+    /// variable) are both `Err` here instead — see the module doc's
+    /// "Reachable invariant violations" note.
+    pub fn assign_chomp_trajectory_point_from_robot_state(
+        &mut self,
+        source: &RobotState,
+        chomp_trajectory_point: usize,
+        group: &JointModelGroup,
+    ) -> Result<()> {
+        if group.active_joint_indices().len() != self.num_joints {
+            return Err(Error::other(format!(
+                "group {:?} has {} active joints, but this ChompTrajectory has {} joint columns",
+                group.name(),
+                group.active_joint_indices().len(),
+                self.num_joints
+            )));
+        }
+        for (joint_index, &model_index) in group.active_joint_indices().iter().enumerate() {
+            let joint = source.model().joint_model_at(model_index);
+            if joint.variable_count() != 1 {
+                return Err(Error::other(format!(
+                    "joint {:?} has {} variables; ChompTrajectory requires every active joint in the group to have exactly 1",
+                    joint.name(),
+                    joint.variable_count()
+                )));
+            }
+            let value = source.joint_position(joint.name())?[0];
+            self.trajectory[(chomp_trajectory_point, joint_index)] = value;
+        }
+        Ok(())
+    }
+
+    /// Gets the joint velocities at trajectory point `traj_point`, one entry
+    /// per joint column, via the [`crate::utils::DIFF_RULES`] velocity
+    /// stencil.
+    ///
+    /// Ported from `getJointVelocities`. Panics (matching upstream's own
+    /// unchecked windowed read, now via an in-bounds Rust index panic
+    /// instead of undefined behaviour) if `traj_point` is closer than
+    /// `DIFF_RULE_LENGTH / 2` rows to either end of the trajectory.
+    pub fn joint_velocities(&self, traj_point: usize) -> Vec<f64> {
+        let inv_time = 1.0 / self.discretization;
+        let half = crate::utils::DIFF_RULE_LENGTH as i64 / 2;
+        let mut velocities = vec![0.0; self.num_joints];
+        for k in -half..=half {
+            let row = (traj_point as i64 + k) as usize;
+            let coeff = inv_time * crate::utils::DIFF_RULES[0][(k + half) as usize];
+            for (j, velocity) in velocities.iter_mut().enumerate() {
+                *velocity += coeff * self.trajectory[(row, j)];
+            }
+        }
+        velocities
+    }
+}
+
+impl std::ops::Index<(usize, usize)> for ChompTrajectory {
+    type Output = f64;
+
+    /// Ported from `operator()(size_t, size_t) const`.
+    fn index(&self, (traj_point, joint): (usize, usize)) -> &f64 {
+        &self.trajectory[(traj_point, joint)]
+    }
+}
+
+impl std::ops::IndexMut<(usize, usize)> for ChompTrajectory {
+    /// Ported from `operator()(size_t, size_t)`.
+    fn index_mut(&mut self, (traj_point, joint): (usize, usize)) -> &mut f64 {
+        &mut self.trajectory[(traj_point, joint)]
+    }
+}
+
+/// `RobotState::interpolate(to, t, state, group)`: linearly interpolate
+/// every active joint of `group` between `from` and `to`, writing the
+/// result into `out`. There is no group-scoped `RobotState::interpolate` in
+/// this port yet (only the whole-model interpolation
+/// `cspace-trajectory::robot_trajectory` uses privately) — this mirrors
+/// that helper's shape, restricted to `group.active_joint_indices()`.
+fn interpolate_group_into(
+    from: &RobotState,
+    to: &RobotState,
+    t: f64,
+    group: &JointModelGroup,
+    out: &mut RobotState,
+) {
+    let model = from.model();
+    for &index in group.active_joint_indices() {
+        let joint = model.joint_model_at(index);
+        if joint.variable_count() == 0 {
+            continue;
+        }
+        let from_values = from
+            .joint_position(joint.name())
+            .expect("active joint of this group's own robot model");
+        let to_values = to
+            .joint_position(joint.name())
+            .expect("active joint of this group's own robot model");
+        let mut buffer = vec![0.0; joint.variable_count()];
+        joint.interpolate(from_values, to_values, t, &mut buffer);
+        out.set_joint_positions(joint.name(), &buffer)
+            .expect("active joint of this group's own robot model");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+    use cspace_model::MeshSearchPaths;
+    use cspace_srdf::SrdfModel;
+    use std::sync::OnceLock;
+
+    const EPS: f64 = 1e-12;
+    const GROUP: &str = "panda_arm";
+    const N: usize = 7;
+
+    fn panda_model() -> &'static RobotModel {
+        static MODEL: OnceLock<RobotModel> = OnceLock::new();
+        MODEL.get_or_init(|| {
+            let urdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/panda.urdf");
+            let srdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/panda.srdf");
+            let urdf_xml = std::fs::read_to_string(urdf_path)
+                .unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
+            let urdf = urdf_rs::read_file(urdf_path).expect("panda.urdf parses");
+            let srdf = SrdfModel::parse_file(srdf_path).expect("panda.srdf parses");
+            RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("panda model builds")
+        })
+    }
+
+    /// A length-`N` row with `value` in `joint`'s column and `0.0` elsewhere.
+    fn row(joint: usize, value: f64) -> Vec<f64> {
+        let mut v = vec![0.0; N];
+        v[joint] = value;
+        v
+    }
+
+    /// Before this guard existed, `from_num_points(model, 10, 0.0, GROUP)`
+    /// built successfully and `joint_velocities(5)` silently returned NaN in
+    /// every entry (`1.0 / 0.0 == Infinity`, times three of `DIFF_RULES`'
+    /// seven zero-valued taps == NaN) — confirmed by temporarily removing
+    /// this guard and observing exactly that. `from_duration` already had
+    /// its own copy of this check (`from_duration_rejects_zero_discretization`
+    /// below); this covers the `from_num_points` entry point directly, which
+    /// every one of this file's own fixtures (and `cost.rs`'s,
+    /// `optimizer.rs`'s) reaches with a hardcoded valid literal, so the gap
+    /// was unreachable in this crate's own tests but not in its public API.
+    /// `from_num_points` is also the one constructor every other path
+    /// funnels through (`from_duration` delegates to it;
+    /// `from_source_trajectory` only copies `discretization` from an
+    /// already-valid trajectory), so the guard there closes every
+    /// downstream `1.0 / discretization` site at once.
+    #[test]
+    fn from_num_points_rejects_zero_discretization() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_num_points(model, 10, 0.0, GROUP).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
+    }
+
+    /// Same boundary, negative side — mirrors
+    /// `from_duration_rejects_negative_discretization`.
+    #[test]
+    fn from_num_points_rejects_negative_discretization() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_num_points(model, 10, -0.03, GROUP).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
+    }
+
+    #[test]
+    fn from_num_points_rejects_fewer_than_two_points() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_num_points(model, 1, 0.1, GROUP).unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
+        let err = ChompTrajectory::from_num_points(model, 0, 0.1, GROUP).unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
+    }
+
+    /// §172/§153.1: `discretization == 0.0` used to saturate
+    /// `(duration / 0.0) as usize` to `usize::MAX`, panicking (debug) or
+    /// wrapping (release) on the following `+ 1`. Now rejected up front.
+    #[test]
+    fn from_duration_rejects_zero_discretization() {
+        // `ChompTrajectory::from_duration` reaches 3 `Error::other` sites
+        // (its own discretization guard, its own point-count-bound guard,
+        // and `from_num_points`'s num_points<2 guard); a bare
+        // matches!(err, Error::Other(_)) cannot say which fired (confirmed
+        // by printing each error before converting these checks).
+        let model = panda_model();
+        let err = ChompTrajectory::from_duration(model, 3.0, 0.0, GROUP).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
+    }
+
+    /// Same boundary, negative side: `discretization < 0.0` is rejected the
+    /// same way, rather than falling through to whatever sign `duration`
+    /// happens to carry.
+    #[test]
+    fn from_duration_rejects_negative_discretization() {
+        // See `from_duration_rejects_zero_discretization` for why this
+        // checks the message rather than just the variant.
+        let model = panda_model();
+        let err = ChompTrajectory::from_duration(model, 3.0, -0.03, GROUP).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
+    }
+
+    /// A negative `discretization` paired with a negative `duration`
+    /// divides to a positive, in-range `raw_num_points`: neither the
+    /// `!raw_num_points.is_finite()` check nor
+    /// [`MAX_FROM_DURATION_POINTS`] would catch this on its own, unlike
+    /// [`from_duration_rejects_negative_discretization`] above (positive
+    /// `duration`), where `raw_num_points` is negative and saturates to a
+    /// `num_points < 2` downstream rejection regardless of the explicit
+    /// `discretization <= 0.0` guard. Only the explicit guard rejects this
+    /// case, so this is the one that actually detects its reversion.
+    #[test]
+    fn from_duration_rejects_negative_discretization_that_divides_positive() {
+        // See `from_duration_rejects_zero_discretization` for why this
+        // checks the message rather than just the variant.
+        let model = panda_model();
+        let err = ChompTrajectory::from_duration(model, -3.0, -0.03, GROUP).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
+    }
+
+    /// A `discretization` positive and finite but small enough that
+    /// `duration / discretization` would need more than
+    /// [`MAX_FROM_DURATION_POINTS`] points must still be rejected: the
+    /// `discretization > 0.0` check alone does not bound the resulting
+    /// point count.
+    #[test]
+    fn from_duration_rejects_an_unreasonable_point_count() {
+        // See `from_duration_rejects_zero_discretization` for why this
+        // checks the message rather than just the variant; this case hits
+        // the point-count bound instead of the discretization guard.
+        let model = panda_model();
+        let err = ChompTrajectory::from_duration(model, 3.0, 1e-300, GROUP).unwrap_err();
+        assert!(err.to_string().contains("would require more than"));
+    }
+
+    #[test]
+    fn from_num_points_sets_upstream_default_start_end_index() {
+        let model = panda_model();
+        let traj = ChompTrajectory::from_num_points(model, 10, 0.1, GROUP).unwrap();
+        assert_eq!(traj.num_joints(), N);
+        assert_eq!(traj.start_index(), 1);
+        assert_eq!(traj.end_index(), 8);
+        assert_eq!(traj.num_free_points(), 8);
+        assert_relative_eq!(traj.duration(), 0.9, epsilon = EPS, max_relative = EPS);
+    }
+
+    #[test]
+    fn num_free_points_zero_for_inverted_range() {
+        // A 2-point trajectory: start_index=1, end_index=0 (num_points-2).
+        // Upstream's own `(end_index_ - start_index_) + 1` in size_t
+        // arithmetic reaches 0 here only via double-wraparound; this port's
+        // direct computation must reach the same 0 without relying on that.
+        let model = panda_model();
+        let traj = ChompTrajectory::from_num_points(model, 2, 0.1, GROUP).unwrap();
+        assert_eq!(traj.start_index(), 1);
+        assert_eq!(traj.end_index(), 0);
+        assert_eq!(traj.num_free_points(), 0);
+    }
+
+    /// Neither constructor can produce `end_index + 1 < start_index` (only
+    /// `end_index + 1 == start_index`, the boundary
+    /// [`num_free_points_zero_for_inverted_range`] above covers, which
+    /// happens not to need saturation at all: `(0 + 1) - 1` does not
+    /// underflow). [`ChompTrajectory::set_start_end_index`] is ported
+    /// unchecked (`setStartEndIndex` has no guard upstream either) and lets
+    /// a caller reach the actually-underflowing case directly.
+    #[test]
+    fn num_free_points_zero_when_set_start_end_index_inverts_by_more_than_one() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 10, 0.1, GROUP).unwrap();
+        traj.set_start_end_index(5, 0);
+        assert_eq!(traj.num_free_points(), 0);
+    }
+
+    #[test]
+    fn from_source_trajectory_pads_short_source_and_pins_full_trajectory_index() {
+        let model = panda_model();
+        // start_index=1, end_index=num_points-2=3 for a 5-point source.
+        let mut source = ChompTrajectory::from_num_points(model, 5, 0.1, GROUP).unwrap();
+        for i in 0..5 {
+            source.set_trajectory_point(i, &row(0, i as f64));
+        }
+
+        // diff_rule_length=7 needs 6 points of margin on each side;
+        // source's own margin is start_index=1 and
+        // (num_points-1)-end_index=(5-1)-3=1, so start_extra = end_extra =
+        // 6-1 = 5, num_points = 5+5+5 = 15.
+        let padded = ChompTrajectory::from_source_trajectory(&source, GROUP, 7).unwrap();
+        assert_eq!(padded.num_points(), 15);
+        assert_eq!(padded.start_index(), 6);
+        assert_eq!(padded.end_index(), 8);
+
+        // source_traj_point(i) = clamp(i - start_extra, 0, source.num_points-1)
+        // = clamp(i - 5, 0, 4): rows 0..=5 clamp to source row 0, rows 6..9
+        // map 1:1 to source rows 1..4, rows 10..14 clamp to source row 4.
+        let expected_source_rows = [0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 4, 4, 4, 4, 4];
+        for (i, &expected) in expected_source_rows.iter().enumerate() {
+            assert_eq!(padded.full_trajectory_index(i), expected, "row {i}");
+            assert_eq!(
+                padded.trajectory_point(i),
+                source.trajectory_point(expected),
+                "row {i} content"
+            );
+        }
+    }
+
+    /// Discriminates the `num_points_i < 2` bound from the weaker `< 1` it
+    /// replaced (`§172`): `diff_rule_length=1` against a 3-point,
+    /// zero-margin source (`start_index=1, end_index=1`) computes
+    /// `num_points_i = 1` exactly, which the old `< 1` bound let through as
+    /// `Ok`. Before this fix, this built a one-point trajectory whose
+    /// `fill_in_from_trajectory` divided by `num_points() - 1 == 0`.
+    #[test]
+    fn from_source_trajectory_rejects_diff_rule_length_that_pads_to_exactly_one_point() {
+        let model = panda_model();
+        let source = ChompTrajectory::from_num_points(model, 3, 0.1, GROUP).unwrap();
+        let err = ChompTrajectory::from_source_trajectory(&source, GROUP, 1).unwrap_err();
+        assert!(
+            err.to_string().contains("point count under 2"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn from_source_trajectory_shrinks_when_source_already_has_enough_margin() {
+        let model = panda_model();
+        // start_index=diff_rule_length-1=2 directly, end_index=num_points-1-2.
+        let source = ChompTrajectory::from_source_trajectory(
+            &ChompTrajectory::from_num_points(model, 20, 0.1, GROUP).unwrap(),
+            GROUP,
+            3,
+        )
+        .unwrap();
+        // Re-padding with the same diff_rule_length=3 the source already
+        // satisfies exactly (start_extra = end_extra = 0) must not change
+        // the point count.
+        let repadded = ChompTrajectory::from_source_trajectory(&source, GROUP, 3).unwrap();
+        assert_eq!(repadded.num_points(), source.num_points());
+    }
+
+    #[test]
+    fn index_and_set_trajectory_point_round_trip() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 4, 0.1, GROUP).unwrap();
+        let values = row(0, 1.5);
+        traj.set_trajectory_point(2, &values);
+        assert_relative_eq!(traj[(2, 0)], 1.5, epsilon = EPS, max_relative = EPS);
+        assert_relative_eq!(traj[(2, 1)], 0.0, epsilon = EPS, max_relative = EPS);
+        assert_eq!(traj.trajectory_point(2), values);
+        traj[(2, 0)] = 9.0;
+        assert_relative_eq!(traj[(2, 0)], 9.0, epsilon = EPS, max_relative = EPS);
+    }
+
+    #[test]
+    fn fill_in_linear_interpolation_matches_upstream_end_index_minus_one_denominator() {
+        // num_points=6 -> start_index=1, end_index=4; local start=0, local
+        // end=5. theta = (5.0-0.0)/(5-1) = 1.25 (see fill_in_linear_
+        // interpolation's doc comment on why this is *not* 5.0/(5-0)).
+        // Rows 0 and 5 are the fixed anchors set below and left untouched;
+        // rows 1..=4 (the free region [start_index, end_index]) are filled.
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 6, 0.1, GROUP).unwrap();
+        traj.set_trajectory_point(0, &row(0, 0.0));
+        traj.set_trajectory_point(5, &row(0, 5.0));
+        traj.fill_in_linear_interpolation();
+        let expected = [0.0, 1.25, 2.5, 3.75, 5.0, 5.0];
+        for (i, &want) in expected.iter().enumerate() {
+            assert_relative_eq!(traj[(i, 0)], want, epsilon = EPS, max_relative = EPS);
+        }
+    }
+
+    #[test]
+    fn fill_in_min_jerk_starts_and_ends_at_boundary_values_with_zero_endpoint_velocity() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 6, 0.1, GROUP).unwrap();
+        traj.set_trajectory_point(0, &row(0, 1.0));
+        traj.set_trajectory_point(5, &row(0, 4.0));
+        traj.fill_in_min_jerk();
+        assert_relative_eq!(traj[(0, 0)], 1.0, epsilon = EPS, max_relative = EPS);
+        assert_relative_eq!(traj[(5, 0)], 4.0, epsilon = EPS, max_relative = EPS);
+    }
+
+    #[test]
+    fn fill_in_cubic_interpolation_starts_and_ends_at_boundary_values() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 6, 0.1, GROUP).unwrap();
+        traj.set_trajectory_point(0, &row(0, 1.0));
+        traj.set_trajectory_point(5, &row(0, 4.0));
+        traj.fill_in_cubic_interpolation();
+        assert_relative_eq!(traj[(0, 0)], 1.0, epsilon = EPS, max_relative = EPS);
+        assert_relative_eq!(traj[(5, 0)], 4.0, epsilon = EPS, max_relative = EPS);
+    }
+
+    #[test]
+    fn assign_chomp_trajectory_point_rejects_group_column_mismatch() {
+        // `assign_chomp_trajectory_point_from_robot_state` has 2
+        // `Error::other` sites (active-joint-count guard, multi-DOF-joint
+        // guard); a bare matches!(err, Error::Other(_)) cannot say which
+        // fired — the exact defect this brief cites
+        // (assertion-discrimination-round2.md sec. 2).
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 4, 0.1, GROUP).unwrap();
+        let other_group = model.joint_model_group("hand").unwrap();
+        assert_ne!(other_group.active_joint_indices().len(), N);
+        let state = RobotState::new(model);
+        let err = traj
+            .assign_chomp_trajectory_point_from_robot_state(&state, 1, other_group)
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("active joints, but this ChompTrajectory has")
+        );
+    }
+
+    #[test]
+    fn assign_chomp_trajectory_point_rejects_a_multi_dof_active_joint() {
+        let urdf_xml = r#"<?xml version="1.0"?>
+<robot name="planar_chomp_trajectory">
+  <link name="base"/>
+  <link name="tip"/>
+  <joint name="j1" type="planar">
+    <parent link="base"/>
+    <child link="tip"/>
+  </joint>
+</robot>
+"#;
+        let srdf_xml = r#"<?xml version="1.0"?>
+<robot name="planar_chomp_trajectory">
+  <group name="chain">
+    <chain base_link="base" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
+        let srdf = SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("planar_chomp_trajectory model must build");
+        let group = model.joint_model_group("chain").unwrap();
+        assert_eq!(
+            group.active_joint_indices().len(),
+            1,
+            "a planar joint is one active joint index despite carrying 3 variables"
+        );
+        let mut traj = ChompTrajectory::from_num_points(&model, 4, 0.1, "chain").unwrap();
+        let state = RobotState::new(&model);
+        let err = traj
+            .assign_chomp_trajectory_point_from_robot_state(&state, 1, group)
+            .unwrap_err();
+        // See `assign_chomp_trajectory_point_rejects_group_column_mismatch`
+        // for why this checks the message rather than just the variant.
+        assert!(
+            err.to_string()
+                .contains("variables; ChompTrajectory requires every active joint")
+        );
+    }
+
+    #[test]
+    fn fill_in_from_trajectory_rejects_fewer_than_two_waypoints() {
+        let model = panda_model();
+        let group = model.joint_model_group(GROUP).unwrap();
+        let mut traj = ChompTrajectory::from_num_points(model, 4, 0.1, GROUP).unwrap();
+        let mut source = RobotTrajectory::for_group(model, Some(group));
+        source
+            .add_suffix_way_point(RobotState::new(model), 0.0)
+            .unwrap();
+        assert!(!traj.fill_in_from_trajectory(&source).unwrap());
+    }
+
+    #[test]
+    fn fill_in_from_trajectory_rejects_a_trajectory_with_no_group() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 4, 0.1, GROUP).unwrap();
+        let mut source = RobotTrajectory::new(model);
+        source
+            .add_suffix_way_point(RobotState::new(model), 0.0)
+            .unwrap();
+        source
+            .add_suffix_way_point(RobotState::new(model), 0.1)
+            .unwrap();
+        assert!(source.group().is_none());
+        let err = traj.fill_in_from_trajectory(&source).unwrap_err();
+        // `fill_in_from_trajectory` reaches several `Error::other` sites:
+        // its own group guard, `RobotTrajectory::way_point`'s index guard,
+        // and `assign_chomp_trajectory_point_from_robot_state`'s two
+        // guards. A bare matches!(err, Error::Other(_)) cannot tell them
+        // apart.
+        assert!(
+            err.to_string()
+                .contains("requires trajectory.group() to be Some")
+        );
+    }
+
+    #[test]
+    fn free_trajectory_block_mut_covers_exactly_the_free_rows_all_columns() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 6, 0.1, GROUP).unwrap();
+        // start_index=1, end_index=4 -> 4 free rows, N=7 columns.
+        {
+            let mut block = traj.free_trajectory_block_mut();
+            assert_eq!(block.nrows(), 4);
+            assert_eq!(block.ncols(), N);
+            block.fill(1.0);
+        }
+        assert_relative_eq!(traj[(0, 0)], 0.0, epsilon = EPS, max_relative = EPS);
+        for r in 1..=4 {
+            assert_relative_eq!(traj[(r, 0)], 1.0, epsilon = EPS, max_relative = EPS);
+        }
+        assert_relative_eq!(traj[(5, 0)], 0.0, epsilon = EPS, max_relative = EPS);
+    }
+
+    #[test]
+    fn free_joint_trajectory_block_mut_covers_exactly_the_free_rows_one_column() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 6, 0.1, GROUP).unwrap();
+        {
+            let mut block = traj.free_joint_trajectory_block_mut(2);
+            assert_eq!(block.nrows(), 4);
+            assert_eq!(block.ncols(), 1);
+            block.fill(3.0);
+        }
+        for r in 1..=4 {
+            assert_relative_eq!(traj[(r, 2)], 3.0, epsilon = EPS, max_relative = EPS);
+        }
+        // Untouched neighboring column.
+        for r in 0..6 {
+            assert_relative_eq!(traj[(r, 1)], 0.0, epsilon = EPS, max_relative = EPS);
+        }
+    }
+
+    #[test]
+    fn fill_in_from_trajectory_resamples_across_full_output_range() {
+        let model = panda_model();
+        let group = model.joint_model_group(GROUP).unwrap();
+        let mut source = RobotTrajectory::for_group(model, Some(group));
+        let mut start = RobotState::new(model);
+        start.set_joint_positions("panda_joint1", &[0.0]).unwrap();
+        let mut end = RobotState::new(model);
+        end.set_joint_positions("panda_joint1", &[1.0]).unwrap();
+        source.add_suffix_way_point(start, 0.0).unwrap();
+        source.add_suffix_way_point(end, 1.0).unwrap();
+
+        let mut traj = ChompTrajectory::from_num_points(model, 5, 0.1, GROUP).unwrap();
+        assert!(traj.fill_in_from_trajectory(&source).unwrap());
+        assert_relative_eq!(traj[(0, 0)], 0.0, epsilon = EPS, max_relative = EPS);
+        assert_relative_eq!(traj[(4, 0)], 1.0, epsilon = EPS, max_relative = EPS);
+        assert_relative_eq!(traj[(2, 0)], 0.5, epsilon = EPS, max_relative = EPS);
+    }
+}

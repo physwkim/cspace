@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!--
   A minimal, valid URDF used only so `harness.rs` can build a real
-  `moveit_model::RobotModel` while talking to `fake-oracle.py`. It is
+  `cspace_model::RobotModel` while talking to `fake-oracle.py`. It is
   deliberately unrelated to the fake oracle's made-up "fake" model: the
   harness tests check the runner's plumbing (session completes, a
   disagreement is reported as a failed case rather than a crash), not FK

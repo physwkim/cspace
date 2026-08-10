@@ -69,6 +69,391 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "cspace-collision"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-model",
+ "cspace-octomap",
+ "cspace-srdf",
+ "cspace-state",
+ "cspace-test-support",
+ "glamx",
+ "nalgebra",
+ "parry3d-f64",
+ "rand",
+ "rand_chacha",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-constraints"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-collision",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-kinematics",
+ "cspace-model",
+ "cspace-srdf",
+ "cspace-state",
+ "nalgebra",
+ "rand",
+ "rand_chacha",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-distance-field"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-collision",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-model",
+ "cspace-octomap",
+ "cspace-srdf",
+ "cspace-state",
+ "cspace-test-support",
+ "nalgebra",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-error"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "cspace-geometry"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-error",
+ "cspace-octomap",
+ "cspace-test-support",
+ "glamx",
+ "nalgebra",
+ "parry3d-f64",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cspace-kinematics"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-model",
+ "cspace-srdf",
+ "cspace-state",
+ "linkme",
+ "nalgebra",
+ "rand",
+ "rand_chacha",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-metrics"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-error",
+ "cspace-model",
+ "cspace-srdf",
+ "cspace-state",
+ "nalgebra",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-model"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-srdf",
+ "nalgebra",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-octomap"
+version = "0.1.0"
+dependencies = [
+ "nalgebra",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "cspace-planner-registry"
+version = "0.1.0"
+dependencies = [
+ "cspace-error",
+ "cspace-planners-sbp",
+ "cspace-planning",
+ "linkme",
+]
+
+[[package]]
+name = "cspace-planners-chomp"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-collision",
+ "cspace-constraints",
+ "cspace-distance-field",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-model",
+ "cspace-planners-sbp",
+ "cspace-sampling",
+ "cspace-scene",
+ "cspace-srdf",
+ "cspace-state",
+ "cspace-test-support",
+ "cspace-trajectory",
+ "nalgebra",
+ "rand",
+ "rand_chacha",
+ "rand_distr",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-planners-pilz"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-collision",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-kinematics",
+ "cspace-model",
+ "cspace-scene",
+ "cspace-srdf",
+ "cspace-state",
+ "cspace-test-support",
+ "cspace-trajectory",
+ "nalgebra",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-planners-sbp"
+version = "0.1.0"
+dependencies = [
+ "cspace-collision",
+ "cspace-constraints",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-kinematics",
+ "cspace-model",
+ "cspace-planner-registry",
+ "cspace-planning",
+ "cspace-scene",
+ "cspace-srdf",
+ "cspace-state",
+ "cspace-test-support",
+ "cspace-trajectory",
+ "linkme",
+ "rand",
+ "rand_chacha",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-planners-stomp"
+version = "0.1.0"
+dependencies = [
+ "cspace-collision",
+ "cspace-constraints",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-kinematics",
+ "cspace-model",
+ "cspace-planners-sbp",
+ "cspace-sampling",
+ "cspace-scene",
+ "cspace-srdf",
+ "cspace-state",
+ "cspace-stomp-core",
+ "cspace-test-support",
+ "cspace-trajectory",
+ "nalgebra",
+ "rand",
+ "rand_chacha",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-planning"
+version = "0.1.0"
+dependencies = [
+ "cspace-collision",
+ "cspace-constraints",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-model",
+ "cspace-planner-registry",
+ "cspace-planners-sbp",
+ "cspace-scene",
+ "cspace-srdf",
+ "cspace-state",
+ "cspace-trajectory",
+ "rand",
+ "rand_chacha",
+ "thiserror 2.0.19",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-sampling"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-test-support",
+ "nalgebra",
+ "rand",
+ "rand_chacha",
+ "rand_distr",
+]
+
+[[package]]
+name = "cspace-scene"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-collision",
+ "cspace-constraints",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-kinematics",
+ "cspace-model",
+ "cspace-octomap",
+ "cspace-srdf",
+ "cspace-state",
+ "nalgebra",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-smoothing"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-error",
+ "cspace-model",
+ "cspace-srdf",
+ "rsruckig",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-srdf"
+version = "0.1.0"
+dependencies = [
+ "cspace-error",
+ "roxmltree",
+]
+
+[[package]]
+name = "cspace-state"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-model",
+ "cspace-srdf",
+ "cspace-test-support",
+ "nalgebra",
+ "rand",
+ "rand_chacha",
+ "rand_distr",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-stomp-core"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-sampling",
+ "nalgebra",
+ "rand",
+ "rand_chacha",
+]
+
+[[package]]
+name = "cspace-test-support"
+version = "0.1.0"
+dependencies = [
+ "cspace-model",
+ "cspace-srdf",
+ "nalgebra",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-trajectory"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-error",
+ "cspace-model",
+ "cspace-srdf",
+ "cspace-state",
+ "nalgebra",
+ "rsruckig",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -253,406 +638,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
-name = "moveit-collision"
-version = "0.1.0"
-dependencies = [
- "approx",
- "glamx",
- "moveit-error",
- "moveit-geometry",
- "moveit-model",
- "moveit-octomap",
- "moveit-srdf",
- "moveit-state",
- "moveit-test-support",
- "nalgebra",
- "parry3d-f64",
- "rand",
- "rand_chacha",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-constraints"
-version = "0.1.0"
-dependencies = [
- "approx",
- "moveit-collision",
- "moveit-error",
- "moveit-geometry",
- "moveit-kinematics",
- "moveit-model",
- "moveit-srdf",
- "moveit-state",
- "nalgebra",
- "rand",
- "rand_chacha",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "urdf-rs",
-]
-
-[[package]]
 name = "moveit-diff"
 version = "0.1.0"
 dependencies = [
- "moveit-collision",
- "moveit-constraints",
- "moveit-error",
- "moveit-geometry",
- "moveit-kinematics",
- "moveit-model",
- "moveit-octomap",
- "moveit-srdf",
- "moveit-state",
+ "cspace-collision",
+ "cspace-constraints",
+ "cspace-error",
+ "cspace-geometry",
+ "cspace-kinematics",
+ "cspace-model",
+ "cspace-octomap",
+ "cspace-srdf",
+ "cspace-state",
  "nalgebra",
  "rand",
  "rand_chacha",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-distance-field"
-version = "0.1.0"
-dependencies = [
- "approx",
- "moveit-collision",
- "moveit-error",
- "moveit-geometry",
- "moveit-model",
- "moveit-octomap",
- "moveit-srdf",
- "moveit-state",
- "moveit-test-support",
- "nalgebra",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-error"
-version = "0.1.0"
-dependencies = [
- "serde",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "moveit-geometry"
-version = "0.1.0"
-dependencies = [
- "approx",
- "glamx",
- "moveit-error",
- "moveit-octomap",
- "moveit-test-support",
- "nalgebra",
- "parry3d-f64",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "moveit-kinematics"
-version = "0.1.0"
-dependencies = [
- "approx",
- "linkme",
- "moveit-error",
- "moveit-geometry",
- "moveit-model",
- "moveit-srdf",
- "moveit-state",
- "nalgebra",
- "rand",
- "rand_chacha",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-metrics"
-version = "0.1.0"
-dependencies = [
- "approx",
- "moveit-error",
- "moveit-model",
- "moveit-srdf",
- "moveit-state",
- "nalgebra",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-model"
-version = "0.1.0"
-dependencies = [
- "approx",
- "moveit-error",
- "moveit-geometry",
- "moveit-srdf",
- "nalgebra",
- "roxmltree",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-octomap"
-version = "0.1.0"
-dependencies = [
- "nalgebra",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "moveit-planner-registry"
-version = "0.1.0"
-dependencies = [
- "linkme",
- "moveit-error",
- "moveit-planners-sbp",
- "moveit-planning",
-]
-
-[[package]]
-name = "moveit-planners-chomp"
-version = "0.1.0"
-dependencies = [
- "approx",
- "moveit-collision",
- "moveit-constraints",
- "moveit-distance-field",
- "moveit-error",
- "moveit-geometry",
- "moveit-model",
- "moveit-planners-sbp",
- "moveit-sampling",
- "moveit-scene",
- "moveit-srdf",
- "moveit-state",
- "moveit-test-support",
- "moveit-trajectory",
- "nalgebra",
- "rand",
- "rand_chacha",
- "rand_distr",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-planners-pilz"
-version = "0.1.0"
-dependencies = [
- "approx",
- "moveit-collision",
- "moveit-error",
- "moveit-geometry",
- "moveit-kinematics",
- "moveit-model",
- "moveit-scene",
- "moveit-srdf",
- "moveit-state",
- "moveit-test-support",
- "moveit-trajectory",
- "nalgebra",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-planners-sbp"
-version = "0.1.0"
-dependencies = [
- "linkme",
- "moveit-collision",
- "moveit-constraints",
- "moveit-error",
- "moveit-geometry",
- "moveit-kinematics",
- "moveit-model",
- "moveit-planner-registry",
- "moveit-planning",
- "moveit-scene",
- "moveit-srdf",
- "moveit-state",
- "moveit-test-support",
- "moveit-trajectory",
- "rand",
- "rand_chacha",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-planners-stomp"
-version = "0.1.0"
-dependencies = [
- "moveit-collision",
- "moveit-constraints",
- "moveit-error",
- "moveit-geometry",
- "moveit-kinematics",
- "moveit-model",
- "moveit-planners-sbp",
- "moveit-sampling",
- "moveit-scene",
- "moveit-srdf",
- "moveit-state",
- "moveit-stomp-core",
- "moveit-test-support",
- "moveit-trajectory",
- "nalgebra",
- "rand",
- "rand_chacha",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-planning"
-version = "0.1.0"
-dependencies = [
- "moveit-collision",
- "moveit-constraints",
- "moveit-error",
- "moveit-geometry",
- "moveit-model",
- "moveit-planner-registry",
- "moveit-planners-sbp",
- "moveit-scene",
- "moveit-srdf",
- "moveit-state",
- "moveit-trajectory",
- "rand",
- "rand_chacha",
- "thiserror 2.0.19",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-sampling"
-version = "0.1.0"
-dependencies = [
- "approx",
- "moveit-test-support",
- "nalgebra",
- "rand",
- "rand_chacha",
- "rand_distr",
-]
-
-[[package]]
-name = "moveit-scene"
-version = "0.1.0"
-dependencies = [
- "approx",
- "moveit-collision",
- "moveit-constraints",
- "moveit-error",
- "moveit-geometry",
- "moveit-kinematics",
- "moveit-model",
- "moveit-octomap",
- "moveit-srdf",
- "moveit-state",
- "nalgebra",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-smoothing"
-version = "0.1.0"
-dependencies = [
- "approx",
- "moveit-error",
- "moveit-model",
- "moveit-srdf",
- "rsruckig",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-srdf"
-version = "0.1.0"
-dependencies = [
- "moveit-error",
- "roxmltree",
-]
-
-[[package]]
-name = "moveit-state"
-version = "0.1.0"
-dependencies = [
- "approx",
- "moveit-error",
- "moveit-geometry",
- "moveit-model",
- "moveit-srdf",
- "moveit-test-support",
- "nalgebra",
- "rand",
- "rand_chacha",
- "rand_distr",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-stomp-core"
-version = "0.1.0"
-dependencies = [
- "approx",
- "moveit-sampling",
- "nalgebra",
- "rand",
- "rand_chacha",
-]
-
-[[package]]
-name = "moveit-test-support"
-version = "0.1.0"
-dependencies = [
- "moveit-model",
- "moveit-srdf",
- "nalgebra",
- "urdf-rs",
-]
-
-[[package]]
-name = "moveit-trajectory"
-version = "0.1.0"
-dependencies = [
- "approx",
- "moveit-error",
- "moveit-model",
- "moveit-srdf",
- "moveit-state",
- "nalgebra",
- "rsruckig",
  "serde",
  "serde_json",
  "urdf-rs",

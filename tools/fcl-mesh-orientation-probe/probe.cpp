@@ -1,5 +1,5 @@
 // fcl-side counterpart of
-// crates/moveit-collision/examples/mesh_orientation_probe.rs: the same 497
+// crates/cspace-collision/examples/mesh_orientation_probe.rs: the same 497
 // systematic orientations (7 axes x 71 angles, 5-degree resolution from 5 to
 // 355 degrees), the same 5 other kinds, the same 2 argument-order roles, the
 // same exact-zero-gap-by-construction geometry, run against
@@ -7,7 +7,7 @@
 // two CSVs join row-for-row into a confusion matrix.
 //
 // Construction: for a rotation (axis, angle), the mesh's own 8 vertices
-// (bit-for-bit crates/moveit-collision/tests/exact_tangency_is_decided_per_shape_pair.rs's
+// (bit-for-bit crates/cspace-collision/tests/exact_tangency_is_decided_per_shape_pair.rs's
 // unit_cube_mesh) are rotated by an Eigen::AngleAxis<S>, and the mesh is
 // translated so its own extremal rotated vertex -- the lowest for
 // `mesh=upper/attached`, the highest for `mesh=lower/world` -- lands exactly

@@ -824,16 +824,16 @@ ORACLE_STAMP="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")" || exit 1
 if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
     tools/ci/measure-phase8-optimizer-properties.sh \
     tools/ci/measure-phase8-cpp-baseline.sh \
-    crates/moveit-planners-sbp/examples/plan_benchmark_problem_set.rs \
-    crates/moveit-planners-chomp/examples/optimize_benchmark_chomp.rs \
-    crates/moveit-planners-stomp/examples/optimize_benchmark_stomp.rs \
-    crates/moveit-planners-chomp/src \
-    crates/moveit-planners-stomp/src \
-    crates/moveit-stomp-core/src \
-    crates/moveit-distance-field/src \
-    crates/moveit-collision/src \
-    crates/moveit-scene/src \
-    crates/moveit-constraints/src \
+    crates/cspace-planners-sbp/examples/plan_benchmark_problem_set.rs \
+    crates/cspace-planners-chomp/examples/optimize_benchmark_chomp.rs \
+    crates/cspace-planners-stomp/examples/optimize_benchmark_stomp.rs \
+    crates/cspace-planners-chomp/src \
+    crates/cspace-planners-stomp/src \
+    crates/cspace-stomp-core/src \
+    crates/cspace-distance-field/src \
+    crates/cspace-collision/src \
+    crates/cspace-scene/src \
+    crates/cspace-constraints/src \
     tools/moveit-oracle/src; do
   d="$(measured_source_digest "$f")" || exit 1
   printf '%s %s\n' "$f" "$d"
@@ -845,7 +845,7 @@ fi
 
 echo "=== building instruments (release) ==="
 cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
-  -p moveit-planners-sbp -p moveit-planners-chomp -p moveit-planners-stomp \
+  -p cspace-planners-sbp -p cspace-planners-chomp -p cspace-planners-stomp \
   --examples || exit 1
 
 # Copied into $WORKDIR the moment the build finishes, and every call below

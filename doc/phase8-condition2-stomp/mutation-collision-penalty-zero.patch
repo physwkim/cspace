@@ -8,15 +8,15 @@ waypoint's cost exceeds 0.0. With the penalty itself at 0.0 no waypoint
 can read invalid, so STOMP has no collision gradient to descend.
 
 Base commit: ad3a1e01. Applying this with git apply and running
-  cargo build --release -p moveit-planners-stomp --example stomp_benchmark_port
+  cargo build --release -p cspace-planners-stomp --example stomp_benchmark_port
 reproduces the mutated binary this measurement used, byte for byte;
 reverting reproduces the unmutated one, also byte for byte. Both
 equalities were checked with cmp when the patch was written.
 
-diff --git a/crates/moveit-planners-stomp/examples/stomp_benchmark_port.rs b/crates/moveit-planners-stomp/examples/stomp_benchmark_port.rs
+diff --git a/crates/cspace-planners-stomp/examples/stomp_benchmark_port.rs b/crates/cspace-planners-stomp/examples/stomp_benchmark_port.rs
 index a98c9215..e4d332f0 100644
---- a/crates/moveit-planners-stomp/examples/stomp_benchmark_port.rs
-+++ b/crates/moveit-planners-stomp/examples/stomp_benchmark_port.rs
+--- a/crates/cspace-planners-stomp/examples/stomp_benchmark_port.rs
++++ b/crates/cspace-planners-stomp/examples/stomp_benchmark_port.rs
 @@ -130,7 +130,7 @@ use rand_chacha::ChaCha8Rng;
  /// Upstream `createStompTask`'s own hardcoded collision penalty
  /// (`stomp_moveit_planning_context.cpp`, the `1.0 /* collision penalty */`

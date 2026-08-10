@@ -1,5 +1,5 @@
 /* Witness for: is `SPECIALISED[cone][*]=false`
- * (`crates/moveit-collision/src/fcl_tangency_table.rs`) an
+ * (`crates/cspace-collision/src/fcl_tangency_table.rs`) an
  * orientation-independent claim, or does it hold only at the one pose
  * `tools/fcl-tangency-probe/probe.cpp` happened to construct?
  *

@@ -65,7 +65,7 @@ echo "=== execute_trajectory (ROS_DOMAIN_ID=$DOMAIN_ID) ==="
 
 # The exact strings this port answers with, hand-kept: see the header.
 # `moveit_ros::execute_trajectory` builds them.
-SOURCE_STRING="moveit-ros/execute_trajectory"
+SOURCE_STRING="cspace-ros/execute_trajectory"
 # A distinctive fragment of NO_EXECUTION_BACKEND, not the whole sentence:
 # `ros2 action send_goal` re-wraps long YAML scalars, so a whole-sentence
 # fixed-string match would fail on line breaks the node did not put there.
@@ -109,7 +109,7 @@ assert_line() { # <what> <exact line> <file>
   fi
 }
 
-docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
+docker_cargo_run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" \
   bash -c "cargo build --bin move_group" >&2
 
 # One file per goal, as in ros/verify-move-action-interop.sh: the two replies
@@ -121,7 +121,7 @@ trap 'rm -rf "$out_dir"' EXIT
 # `|| true` on each send: a goal that ends ABORTED is a non-zero exit for the
 # CLI, and here that is the expected outcome for both goals, not a failure.
 docker_cargo_run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
-  -v "$REPO_ROOT:/repo" -v "$out_dir:/out" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
+  -v "$REPO_ROOT:/repo" -v "$out_dir:/out" -w /repo/ros/cspace-ros "$IMAGE" bash -c '
   set -e
   "$CARGO_TARGET_DIR/debug/move_group" '"$URDF $SRDF"' 2>/tmp/node.stderr &
   server_pid=$!

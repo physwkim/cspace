@@ -1,5 +1,5 @@
 #!/bin/bash
-# `crates/moveit-collision/examples/probe_octree_leaf_contact_noise_floor.rs`
+# `crates/cspace-collision/examples/probe_octree_leaf_contact_noise_floor.rs`
 # had no caller anywhere in this repository before this script: `rg -n
 # probe_octree_leaf_contact_noise_floor` outside the example's own file
 # returns nothing, and its own header names only a hand-typed `cargo run`
@@ -77,7 +77,7 @@ echo
 
 # Redirected to a file, never piped: a pipeline reports the filter's status,
 # which is how a panic becomes a silent pass.
-cargo run --release -p moveit-collision --example probe_octree_leaf_contact_noise_floor \
+cargo run --release -p cspace-collision --example probe_octree_leaf_contact_noise_floor \
   >"$out" 2>&1
 rc=$?
 

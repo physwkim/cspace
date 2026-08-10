@@ -1,15 +1,15 @@
 #!/bin/bash
 # Phase 5's second completion condition, as a command: 10,000 states drawn
-# from `moveit-constraints`' samplers, each fed back through the `decide()`
+# from `cspace-constraints`' samplers, each fed back through the `decide()`
 # of the constraints its sampler was configured from.
 #
 # The measurement itself is
-# `crates/moveit-constraints/tests/sampler_self_validation.rs`'s
+# `crates/cspace-constraints/tests/sampler_self_validation.rs`'s
 # `every_sampled_state_satisfies_its_own_constraints`, which is `#[ignore]`d
 # on cost (10.2-13.1s across three runs, against 0.7s for that crate's
 # other 103 tests together).
 # This script is what runs it, for the reason that file's own doc comment
-# gives and `moveit-scene/tests/cost_sources_parity.rs` states as the rule:
+# gives and `cspace-scene/tests/cost_sources_parity.rs` states as the rule:
 # a test left `#[ignore]`d with nothing invoking it never runs again, which
 # reads as coverage while providing none.
 #
@@ -41,7 +41,7 @@ cd "$REPO_ROOT"
 # what keeps the table interleaved with the verdict rather than buffered
 # behind it.
 exec cargo nextest run \
-  -p moveit-constraints \
+  -p cspace-constraints \
   --run-ignored all \
   --no-capture \
   -E 'test(every_sampled_state_satisfies_its_own_constraints)'

@@ -145,14 +145,14 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
 
-use moveit_collision::{
+use cspace_collision::{
     AllowedCollisionMatrix, CollisionEnv, CollisionRequest, LinkPaddingScale, ParryCollisionEnv,
     World,
 };
-use moveit_geometry::{Cuboid, Cylinder, Isometry3, Shape, Sphere, UnitQuaternion, Vector3};
-use moveit_model::{MeshSearchPaths, RobotModel};
-use moveit_srdf::SrdfModel;
-use moveit_state::RobotState;
+use cspace_geometry::{Cuboid, Cylinder, Isometry3, Shape, Sphere, UnitQuaternion, Vector3};
+use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_srdf::SrdfModel;
+use cspace_state::RobotState;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde_json::{Value, json};

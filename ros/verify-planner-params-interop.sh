@@ -2,7 +2,7 @@
 # The planner-parameter legs of ros/verify-ros-interop.sh, which calls this as
 # one of its steps. Split out rather than inlined there for the reason
 # ros/verify-move-action-interop.sh is: several panels are landing endpoints
-# into ros/moveit-ros at once, and a per-capability gate file is what keeps
+# into ros/cspace-ros at once, and a per-capability gate file is what keeps
 # their branches off each other -- the same split upstream makes between
 # capabilities.
 #
@@ -145,7 +145,7 @@ echo "=== planner_params (query / get / set over DDS) ==="
 # only means anything against a single node process, since the store lives in
 # that process.
 docker_cargo_run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
-  -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
+  -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" bash -c '
   set -e
   cargo build --bin move_group
   "$CARGO_TARGET_DIR/debug/move_group" '"$URDF $SRDF"' 2>/tmp/node.stderr &
@@ -211,7 +211,7 @@ assert_line "leg A query service name" "/query_planner_interface" "$out"
 assert_line "leg A get service name" "/get_planner_params" "$out"
 assert_line "leg A set service name" "/set_planner_params" "$out"
 
-# Derived from `moveit_planners_sbp::registry::PLANNER_MANAGERS`, whose only
+# Derived from `cspace_planners_sbp::registry::PLANNER_MANAGERS`, whose only
 # registration today is `RRT_CONNECT` (`registry.rs`, `name: "rrt_connect"`).
 # An empty `planner_interfaces` list -- what a `distributed_slice` that failed
 # to link produces -- fails here rather than reading as "no planners".

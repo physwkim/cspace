@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026, moveit-rs contributors
 # SPDX-License-Identifier: BSD-3-Clause
-"""Regenerates crates/moveit-state/tests/fixtures/<robot>_dynamics.json.
+"""Regenerates crates/cspace-state/tests/fixtures/<robot>_dynamics.json.
 
 Ground-truth capture for `dynamics_solver::DynamicsSolver` via the oracle's
-`dynamics` op (tools/moveit-oracle/src/oracle.cpp). No Rust `moveit-state`
+`dynamics` op (tools/moveit-oracle/src/oracle.cpp). No Rust `cspace-state`
 dynamics port exists yet -- `KDL::ChainIdSolver_RNE`'s own `.cpp` is not
 present anywhere local to this repo, only its compiled `.so` and header
 declaration -- so there is nothing to run a live differential comparison
@@ -37,7 +37,7 @@ moveit2 checkout and this repo's own fixture URDFs before trusting them:
     case, including the nonzero-velocity/acceleration ones: those three
     fixture URDFs (fixtures/{panda,fanuc,dual_arm_panda}.urdf) have no
     `<inertial>` element on any link at all, so every body in the chain is
-    massless to KDL. This is not a solver defect, and not a `moveit-model`
+    massless to KDL. This is not a solver defect, and not a `cspace-model`
     gap either -- `DynamicsSolver` reads mass/inertia from the raw URDF via
     `kdl_parser`, bypassing `moveit::core::RobotModel`/`LinkModel` entirely,
     which is why the oracle answers this op with no Rust-side model at all.
@@ -61,7 +61,7 @@ import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 RUN_ORACLE = REPO_ROOT / "tools" / "moveit-oracle" / "run-oracle.sh"
-FIXTURES_DIR = REPO_ROOT / "crates" / "moveit-state" / "tests" / "fixtures"
+FIXTURES_DIR = REPO_ROOT / "crates" / "cspace-state" / "tests" / "fixtures"
 
 GRAVITY = [0.0, 0.0, -9.81]
 PAYLOAD_KG = 1.0

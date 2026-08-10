@@ -1,5 +1,5 @@
 # ROS 2 Rolling + moveit_msgs + Rust image for building/testing
-# `ros/moveit-ros`.
+# `ros/cspace-ros`.
 #
 # Deliberately separate from `tools/moveit-oracle`'s image: adding Rust (or
 # moveit_msgs, which the oracle's own moveit_core build never needed) there
@@ -59,7 +59,7 @@ RUN apt-get -q update \
     && rm -rf /var/lib/apt/lists/*
 
 # rustup, stable channel -- matches .github/workflows/ci.yml's
-# `dtolnay/rust-toolchain@stable`, not a separate pin. `ros/moveit-ros` is its
+# `dtolnay/rust-toolchain@stable`, not a separate pin. `ros/cspace-ros` is its
 # own workspace (D5) with its own toolchain resolution, but there is no
 # reason for it to disagree with the root workspace's channel choice.
 ENV RUSTUP_HOME=/usr/local/rustup \

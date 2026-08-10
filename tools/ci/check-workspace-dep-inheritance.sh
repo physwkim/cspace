@@ -2,9 +2,9 @@
 # Fails if one workspace member depends on another without going through
 # `[workspace.dependencies]`.
 #
-# Three crates declared their sibling inline -- `moveit-trajectory = { path =
-# "../moveit-trajectory", version = "0.1.0" }` in moveit-planners-chomp and
-# moveit-planners-stomp, `moveit-scene` likewise in moveit-planners-sbp --
+# Three crates declared their sibling inline -- `cspace-trajectory = { path =
+# "../cspace-trajectory", version = "0.1.0" }` in cspace-planners-chomp and
+# cspace-planners-stomp, `cspace-scene` likewise in cspace-planners-sbp --
 # while every other inter-crate edge went through the root table. Both forms
 # build, so nothing surfaced the split. It matters on a version bump: the
 # table entries move in one edit, an inline `version = "0.1.0"` silently does
@@ -43,9 +43,9 @@ for manifest in "${manifests[@]}"; do
   # Cargo accepts two spellings for the same edge, so both are scanned:
   #
   #   [dependencies]                    <- key form
-  #   moveit-scene = { path = "..." }
+  #   cspace-scene = { path = "..." }
   #
-  #   [dependencies.moveit-scene]       <- sub-table form
+  #   [dependencies.cspace-scene]       <- sub-table form
   #   path = "..."
   #
   # awk emits one `<member> <line>` record per offending declaration. The

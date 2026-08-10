@@ -1,24 +1,24 @@
 #!/bin/bash
-# Builds ros/moveit-ros and runs fmt/clippy/test inside the ROS 2 Rolling +
+# Builds ros/cspace-ros and runs fmt/clippy/test inside the ROS 2 Rolling +
 # Rust image (ros/Dockerfile). Named `verify-*`, not `check-*`, on purpose:
 # it needs docker, and tools/ci/'s `check-*.sh` glob is run by CI runners
 # that don't have it (PORTING-PLAN.md §129.4).
 #
 # Run by `tools/ci/verify-ros-interop.sh`, a thin caller that puts this
 # script under `tools/ci/verify-all.sh`'s glob -- this script itself must
-# stay outside `tools/ci/` (D5: ros/moveit-ros is its own `[workspace]`,
+# stay outside `tools/ci/` (D5: ros/cspace-ros is its own `[workspace]`,
 # and this needs docker, which `check-*.sh`'s CI runners do not have), but
 # round 17's audit found it with no caller anywhere, which is the same
 # never-runs shape as a gate no glob reaches, one level up.
 #
 # What this checks (all inside ros/Dockerfile's image, against
-# ros/moveit-ros's own `[workspace]`, not the root workspace):
+# ros/cspace-ros's own `[workspace]`, not the root workspace):
 #   - `cargo fmt --check`
 #   - `cargo clippy --all-targets -- -D warnings`
-#   - `cargo test` (unit tests + doctests for ros/moveit-ros; nextest is not
+#   - `cargo test` (unit tests + doctests for ros/cspace-ros; nextest is not
 #     installed in this image -- see the `run "test"` line below), with its
 #     reported pass count checked against the `#[test]` count in
-#     ros/moveit-ros/src -- a `cargo test` that silently compiles fewer
+#     ros/cspace-ros/src -- a `cargo test` that silently compiles fewer
 #     tests than the source contains (a stray `#[cfg]`, a filter typo) still
 #     exits 0, and 0 passing is the same exit code as 0 tests existing to
 #     run. See the `expected_tests`/`unit_summary` block below.
@@ -54,8 +54,8 @@
 #
 # What this does NOT check (read this list before wiring `ros/` into CI):
 #   - No trajectory is compared against anything. Both live endpoints now
-#     plan for real -- D8 landed `moveit_planners_sbp::registry::
-#     RrtConnectManager` against `moveit_planning`'s own types -- and the live
+#     plan for real -- D8 landed `cspace_planners_sbp::registry::
+#     RrtConnectManager` against `cspace_planning`'s own types -- and the live
 #     legs assert that a plannable request comes back SUCCESS with a
 #     non-empty trajectory. What they do not do is check that trajectory
 #     against upstream: no oracle runs here, so "a plan came back" is the
@@ -70,11 +70,11 @@
 #     line calling that row UNMET was reporting a tree this script no longer
 #     runs against.
 #   - No in-process message round trip: every test in
-#     ros/moveit-ros/src/**/*.rs constructs `r2r`-generated message structs
+#     ros/cspace-ros/src/**/*.rs constructs `r2r`-generated message structs
 #     and converts them without ever crossing the middleware. The live legs
 #     cover wire-format compatibility for the two endpoints they call and for
 #     nothing else -- no topic, and no other service or action, is exercised.
-#   - No cross-workspace check against `crates/`: ros/moveit-ros is its own
+#   - No cross-workspace check against `crates/`: ros/cspace-ros is its own
 #     `[workspace]` (D5) built with its own `cargo` invocations here; this
 #     script never builds or tests the root workspace, and the root
 #     workspace's CI never builds this crate. A breaking change to a
@@ -121,7 +121,7 @@ run() {  # <label> <command...>
   shift
   echo "=== $label ==="
   docker_cargo_run --rm \
-    -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" "$@"
+    -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" "$@"
 }
 
 run "fmt" bash -c "cargo fmt --check"
@@ -132,10 +132,10 @@ run "clippy" bash -c "cargo clippy --all-targets -- -D warnings"
 #
 # Real attributes are matched on their own line (rustfmt's own layout for
 # them) to exclude the module's own prose and string literals that mention
-# `#[test]` as text -- ros/moveit-ros/src/conversion_coverage.rs, which
+# `#[test]` as text -- ros/cspace-ros/src/conversion_coverage.rs, which
 # scans `#[test]` functions by name, has five such non-attribute mentions
 # that a plain `rg -c '#\[test\]'` counts as real.
-expected_tests="$(rg -c '^\s*#\[test\]\s*$' "$REPO_ROOT/ros/moveit-ros/src" -t rust |
+expected_tests="$(rg -c '^\s*#\[test\]\s*$' "$REPO_ROOT/ros/cspace-ros/src" -t rust |
   awk -F: '{s+=$2} END{print s+0}')"
 
 echo "=== test ==="
@@ -148,7 +148,7 @@ echo "=== test ==="
 # here produced no output at all beyond this `=== test ===` header.
 test_status=0
 test_output="$(docker_cargo_run --rm \
-  -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c "cargo test" 2>&1)" ||
+  -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" bash -c "cargo test" 2>&1)" ||
   test_status=$?
 printf '%s\n' "$test_output"
 if [[ $test_status -ne 0 ]]; then
@@ -194,7 +194,7 @@ while IFS= read -r unit_line; do
   actual_tests=$((actual_tests + n))
 done <<<"$unit_lines"
 if [[ "$actual_tests" -ne "$expected_tests" ]]; then
-  echo "FAIL cargo test reported $actual_tests passing unit test(s) across all unit-test binaries but ros/moveit-ros/src has $expected_tests '#[test]' function(s)." >&2
+  echo "FAIL cargo test reported $actual_tests passing unit test(s) across all unit-test binaries but ros/cspace-ros/src has $expected_tests '#[test]' function(s)." >&2
   echo "FAIL a stray #[cfg], a filter, or a renamed module silently dropped $((expected_tests - actual_tests)) of them from the run." >&2
   exit 1
 fi
@@ -207,13 +207,13 @@ run "doc" bash -c "cargo doc --no-deps"
 # header or a private fn's `///` compiles, tests, and docs clean while being
 # broken. `tools/ci/verify-private-doc-links.sh` closes exactly this for the
 # root workspace and reaches this crate never -- it is `cargo doc
-# --workspace`, and D5 keeps moveit-ros out of that workspace. The first run
+# --workspace`, and D5 keeps cspace-ros out of that workspace. The first run
 # of this line found an ambiguous `PLANNER_MANAGERS` link (df3efa00) that the
 # public build had been passing over since the module was written.
 run "doc (private items)" bash -c 'RUSTDOCFLAGS="--document-private-items" cargo doc --no-deps'
 
 # Live round-trip (PORTING-PLAN.md §241): every check above compiles and
-# unit-tests moveit-ros in-process -- this script's own "what this does NOT
+# unit-tests cspace-ros in-process -- this script's own "what this does NOT
 # check" list at the top says so, and until this round it was true. This
 # step is the one exception: it starts the real `move_group`
 # binary against a fixture URDF/SRDF, sends it a real
@@ -266,7 +266,7 @@ echo "$out" | grep -qF "group_name='arm'" || {
 # other would leave the reply that matters most -- the one carrying a plan --
 # unattributable. `src/bin/move_group.rs`'s `plan` is where the stamp happens,
 # on both arms, so that this and the assertion below check the same thing.
-echo "$out" | grep -qE "source=.moveit-ros/plan_kinematic_path\b" || {
+echo "$out" | grep -qE "source=.cspace-ros/plan_kinematic_path\b" || {
   echo "FAIL live round-trip: the SUCCESS reply did not name the endpoint that built it" >&2
   exit 1
 }
@@ -302,8 +302,8 @@ echo "$out" | grep -qF "planner 'rrt_connect' failed: unknown joint model group"
 # `\b` and not a trailing `.`: without a right-hand word boundary this would
 # match the `source=...plan_kinematic_path_server` it replaced just as well,
 # and a check that accepts both spellings cannot tell them apart.
-echo "$out" | grep -qE "source=.moveit-ros/plan_kinematic_path\b" || {
-  echo "FAIL live round-trip: response did not carry source=moveit-ros/plan_kinematic_path" >&2
+echo "$out" | grep -qE "source=.cspace-ros/plan_kinematic_path\b" || {
+  echo "FAIL live round-trip: response did not carry source=cspace-ros/plan_kinematic_path" >&2
   exit 1
 }
 EOS
@@ -349,7 +349,7 @@ SCENE_DOMAIN_ID="${ROS_DOMAIN_ID:-$((($$ % 100) + 1))}"
 echo "=== scene-topic (ROS_DOMAIN_ID=$SCENE_DOMAIN_ID) ==="
 docker_cargo_run --rm -e "ROS_DOMAIN_ID=$SCENE_DOMAIN_ID" \
   -e OP_ADD -e OP_REMOVE \
-  -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
+  -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" bash -c '
   set -e
   cat >/tmp/boxed.urdf <<\URDF
 <?xml version="1.0"?>
@@ -480,7 +480,7 @@ SCENE_DOMAIN_ID="${ROS_DOMAIN_ID:-$((($$ % 100) + 2))}"
 echo "=== inbound-topics (ROS_DOMAIN_ID=$SCENE_DOMAIN_ID) ==="
 docker_cargo_run --rm -e "ROS_DOMAIN_ID=$SCENE_DOMAIN_ID" \
   -e OP_ADD -e OP_REMOVE \
-  -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
+  -v "$REPO_ROOT:/repo" -w /repo/ros/cspace-ros "$IMAGE" bash -c '
   set -e
   cat >/tmp/boxed.urdf <<\URDF
 <?xml version="1.0"?>

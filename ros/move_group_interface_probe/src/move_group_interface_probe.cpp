@@ -194,7 +194,7 @@ int main(int argc, char** argv)
   // `setStartState(const moveit::core::RobotState&)` overload replaces it with
   // a fully-specified state instead -- `is_diff = false`, but
   // `joint_state.name` populated. Both are non-default `RobotState` messages,
-  // and they land in *different* variants of `moveit_planning::StartState` --
+  // and they land in *different* variants of `cspace_planning::StartState` --
   // the empty diff in `CurrentState`, the fully-specified one in `Overriding`
   // -- which is the invariant boundary keeping both modes on the gate: one run
   // cannot cover both. This comment used to say the port's

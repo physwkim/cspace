@@ -1,0 +1,60 @@
+[package]
+name = "cspace-kinematics"
+description = "Numeric inverse kinematics for moveit-rs: KinematicsSolver trait, Newton-Raphson and Levenberg-Marquardt solvers over Posed::jacobian, ported from moveit_kinematics/kdl_kinematics_plugin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cspace-error.workspace = true
+cspace-geometry.workspace = true
+cspace-model.workspace = true
+cspace-state.workspace = true
+nalgebra.workspace = true
+linkme.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+# Not test-only, unlike every other crate here that names these two: they are
+# the IK cache's on-disk format (`src/ik_cache/format.rs`, which states why
+# JSON rather than upstream's `memcpy` of host-endian doubles).
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
+urdf-rs.workspace = true
+cspace-srdf.workspace = true
+
+# Not `[lints] workspace = true`: PORTING-PLAN.md decision D4 mandates
+# `linkme::distributed_slice` for this crate's solver registry (see
+# `src/registry.rs`), and every `distributed_slice` static — the slice
+# itself plus each `#[linkme::distributed_slice(...)]` entry point that
+# feeds it — expands to a `#[link_section]` static, which rustc's
+# `unsafe_code` lint flags unconditionally. The workspace sets
+# `unsafe_code = "forbid"`, and `forbid` cannot be downgraded locally (not
+# even by the crate that set it, let alone a narrower `#[allow(...)]`), so
+# inheriting it wholesale makes linkme uncompilable here.
+#
+# `tools/ci/check-no-lint-suppression.sh` forbids per-site `#[allow(...)]`
+# on principle (turn a lint off deliberately and once at the manifest
+# level, with a reason, rather than scattering source-level escapes) —
+# so the relaxation lives here, once, as an explicit lint LEVEL rather
+# than a `deny` re-opened by `#[allow(unsafe_code)]` at each of the
+# three call sites: that shape would still need a source-level allow at
+# every site (a `deny` lint requires one to pass), which is exactly what
+# the CI check exists to catch. Setting `unsafe_code = "allow"` here
+# means the lint never fires in this crate, so no source file needs to
+# suppress anything. This crate repeats every other workspace lint;
+# `unsafe_code` is the only one relaxed, and no source in this crate
+# contains an actual `unsafe` block — only the macro-generated statics
+# would trip the lint if it were left at `deny`/`forbid`.
+[lints.rust]
+warnings = "deny"
+missing_docs = "warn"
+unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

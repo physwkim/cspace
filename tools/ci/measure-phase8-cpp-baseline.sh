@@ -235,7 +235,7 @@ mkdir -p "$RES_DIR"
 
 if [ ! -x "$BIN" ]; then
   echo "building examples/plan_benchmark_problem_set (release)..." >&2
-  cargo build --release --example plan_benchmark_problem_set -p moveit-planners-sbp \
+  cargo build --release --example plan_benchmark_problem_set -p cspace-planners-sbp \
     --manifest-path "$REPO_ROOT/Cargo.toml" >&2
 fi
 # Copied for the same reason $GEN/$CHOMP/$STOMP are copied after the build in

@@ -6,7 +6,7 @@
  *
  * This does not reconstruct the triangle or cylinder itself -- both come
  * on stdin, already computed by
- * `crates/moveit-collision/examples/case104_mpr_input.rs`, which does the
+ * `crates/cspace-collision/examples/case104_mpr_input.rs`, which does the
  * one reconstruction (forward kinematics + `VisibilityConstraint::cone_mesh`'s
  * formula + parry's own deepest-triangle search) that both sides compare
  * against. Re-deriving that reconstruction here in C, from scratch, a
@@ -23,7 +23,7 @@
  *   length           (cylinder full length -- NOT half-length; libccd's
  *                      own `ccd_cyl_t.height` is halved internally, see
  *                      `testsuites/support.c`'s `cylSupport`, so this is
- *                      the same convention `moveit_geometry::Cylinder`'s
+ *                      the same convention `cspace_geometry::Cylinder`'s
  *                      own `length` field already uses)
  *
  * stdout: one line, `mpr_depth=<value>` (or `collision=0` if MPR finds no
@@ -33,10 +33,10 @@
  * # The axis_fix trap (do not re-add it here)
  *
  * `parry3d_f64::shape::Cylinder`'s own canonical axis is Y, so this port's
- * own code (`convert_shape` in `crates/moveit-collision/src/parry.rs`)
+ * own code (`convert_shape` in `crates/cspace-collision/src/parry.rs`)
  * applies a fixed +90-degree-about-X rotation (`axis_fix`) when building a
  * `parry3d_f64::shape::Cylinder` from this crate's Z-axis
- * `moveit_geometry::Shape::Cylinder`. libccd's own `ccd_cyl_t` support
+ * `cspace_geometry::Shape::Cylinder`. libccd's own `ccd_cyl_t` support
  * function (`testsuites/support.c`'s `cylSupport`, `ccdVec3Z(&dir)`
  * directly) is already Z-native -- the *same* convention this program's
  * own stdin frame uses, and the same convention URDF/FCL use. Applying
