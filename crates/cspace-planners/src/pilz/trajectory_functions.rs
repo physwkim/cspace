@@ -39,7 +39,7 @@
 //! 1. **No per-group configured solver.** Upstream resolves a `JointModelGroup`
 //!    to its one `kinematics::KinematicsBase` instance via `getSolverInstance()`
 //!    — a mapping fixed at model-load time from SRDF `kinematics.yaml`. This
-//!    port does not carry that mapping (`cspace-model`'s `JointModelGroup` has
+//!    port does not carry that mapping (`cspace_core::model`'s `JointModelGroup` has
 //!    no solver field — nothing in this workspace's `RobotModel` port loads
 //!    `kinematics.yaml`), so [`compute_pose_ik`] and
 //!    [`generate_joint_trajectory`]/[`generate_joint_trajectory_from_cartesian`]
@@ -66,7 +66,7 @@
 //!    ported at all (D1/D2), and upstream's own caller
 //!    (`TrajectoryGenerator::setSuccessResponse`) immediately converts the
 //!    `JointTrajectory` this function returns into a `RobotTrajectory` via
-//!    `setRobotTrajectoryMsg` — itself D1-excluded from `cspace-trajectory`
+//!    `setRobotTrajectoryMsg` — itself D1-excluded from `cspace_core::trajectory`
 //!    (see that crate's `robot_trajectory.hpp` symbol audit). Building the
 //!    `RobotTrajectory` directly, one `RobotState` waypoint at a time via
 //!    [`cspace_core::trajectory::RobotTrajectory::add_suffix_way_point`], skips a
@@ -175,7 +175,7 @@ pub(crate) fn is_rigidly_connected(model: &RobotModel, a: &str, b: &str) -> bool
 ///
 /// Upstream `RobotState::getFrameTransform` performs both tiers itself
 /// (the state carries its own attached bodies); this port's states cannot
-/// (see `cspace-scene`'s `attached_body` module doc), so any caller
+/// (see `cspace_planning::scene`'s `attached_body` module doc), so any caller
 /// needing that combined resolution for a state other than the scene's
 /// own current one — a trajectory waypoint, as in
 /// `trajectory_blender_transition_window`'s `# Deviations` — must pass its
@@ -1545,7 +1545,7 @@ mod tests {
 
         // All-zero is panda's known self-colliding configuration (see
         // load_panda's own fixture provenance note in
-        // `cspace-planners-sbp::planning_scene_validity`'s test module).
+        // `cspace_planners::sbp::planning_scene_validity`'s test module).
         let zero_values = vec![0.0; joint_names.len()];
         assert!(is_state_colliding(
             &mut scene,

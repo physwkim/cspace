@@ -69,8 +69,8 @@ PORT_BIN="$REPO_ROOT/target/release/examples/chomp_benchmark_port"
 
 echo "building the example binaries (release)..." >&2
 cargo build --release \
-  --example plan_benchmark_problem_set -p cspace-planners-sbp \
-  --example chomp_benchmark_port -p cspace-planners-chomp \
+  --example plan_benchmark_problem_set -p cspace-planners \
+  --example chomp_benchmark_port -p cspace-planners \
   --manifest-path "$REPO_ROOT/Cargo.toml" >&2
 
 mkdir -p "$OUT_DIR"

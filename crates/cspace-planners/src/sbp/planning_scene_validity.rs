@@ -56,7 +56,7 @@ use crate::sbp::validity::StateValidityChecker;
 /// forward-kinematics work [`PlanningScene::is_state_valid`]'s
 /// `RobotState::update` performs the first time this sample's transforms
 /// are actually read. Measured by
-/// `cargo run --example planning_scene_validity_bench -p cspace-planners-sbp`
+/// `cargo run --example planning_scene_validity_bench -p cspace-planners`
 /// (panda_arm, 7 DoF, real mesh-loaded collision geometry via
 /// `fixture_mesh_search_paths`, empty world, no constraints, 50 calls;
 /// add `--release` for the optimized figure): **dev mean 2.27 ms/call
@@ -417,13 +417,13 @@ mod tests {
     /// comment on the one `PositionConstraint::new` call this test builds
     /// itself, but there is no production call site to wire yet. Every
     /// production path that builds a `Transforms` for a goal constraint
-    /// (e.g. `construct_goal_pose_constraints` in `cspace-constraints`)
+    /// (e.g. `construct_goal_pose_constraints` in `cspace_planning::constraints`)
     /// takes `tf: &Transforms` from its own caller rather than deriving it
     /// from a `PlanningScene`; nothing in this workspace yet builds goal
-    /// constraints directly from a `PlanningScene`. `cspace-constraints`
-    /// cannot depend on `cspace-scene` itself
+    /// constraints directly from a `PlanningScene`. `cspace_planning::constraints`
+    /// cannot depend on `cspace_planning::scene` itself
     /// (`tools/ci/check-dep-direction.sh` would reject the cycle -- collision
-    /// checking already flows `cspace-scene -> cspace-constraints`), so
+    /// checking already flows `cspace_planning::scene -> cspace_planning::constraints`), so
     /// when that production path exists, its call site threading a
     /// `PlanningScene`-derived [`cspace_core::geometry::Transforms`] into
     /// [`cspace_planning::constraints::PositionConstraint::new`] has to live here, in

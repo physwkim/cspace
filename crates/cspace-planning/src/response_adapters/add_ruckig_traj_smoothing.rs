@@ -28,7 +28,7 @@
 //! `smoother_.applySmoothing(*res.trajectory,
 //! req.max_velocity_scaling_factor, req.max_acceleration_scaling_factor)`
 //! (cpp:81) becomes [`cspace_core::trajectory::ruckig_smoothing::apply_smoothing`]
-//! — already ported in `cspace-trajectory`, not re-implemented here — called
+//! — already ported in `cspace_core::trajectory`, not re-implemented here — called
 //! via [`cspace_core::trajectory::trajectory_tools::apply_ruckig_smoothing`]'s
 //! convenience wrapper. Upstream's own `add_ruckig_traj_smoothing.cpp:81`
 //! does *not* call that wrapper — it calls `smoother_.applySmoothing`

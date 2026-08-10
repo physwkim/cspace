@@ -467,7 +467,7 @@ mod tests {
     /// (`kinematics_metrics.hpp:129`) -- the sign is normalized away at the
     /// setter, unconditionally, the same shape as `kdl_kinematics_parameters.yaml`'s
     /// `weight > 0.0` validation normalizing a solver's joint weight before
-    /// `getJointWeights` ever runs (see `cspace-kinematics`'s
+    /// `getJointWeights` ever runs (see `cspace_core::kinematics`'s
     /// `resolve_joint_weights`). A negative multiplier must read back positive.
     #[test]
     fn set_penalty_multiplier_takes_the_absolute_value() {

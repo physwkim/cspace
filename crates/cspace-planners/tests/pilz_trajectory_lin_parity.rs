@@ -201,7 +201,7 @@ fn load_panda() -> (RobotModel, SrdfModel) {
 const TIME_TOLERANCE: f64 = 1e-6;
 
 /// Every LIN waypoint is an independent IK solve -- this port's
-/// `compute_pose_ik` (`cspace-kinematics`) against the oracle's
+/// `compute_pose_ik` (`cspace_core::kinematics`) against the oracle's
 /// `kdl_kinematics_plugin` -- so unlike PTP (closed-form joint interpolation,
 /// no IK in the loop) this comparison is between two solvers, not two
 /// evaluations of one formula.

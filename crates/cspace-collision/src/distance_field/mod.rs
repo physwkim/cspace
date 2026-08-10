@@ -220,7 +220,7 @@
 //! doc section for the full account. The octree-backed
 //! `PosedBodyPointDecomposition` constructor is now
 //! ported, as [`PosedBodyPointDecomposition::from_octree`], against a
-//! `cspace-octomap` dependency this crate added for it — see that method's
+//! `cspace_core::octomap` dependency this crate added for it — see that method's
 //! own doc comment for the faithfully-reproduced upstream behaviour
 //! (every tree node, not just occupied leaves). Nothing above depends on
 //! ROS message types, a renderer, or `World` in a way this crate's
@@ -484,7 +484,7 @@
 //! trapped ones behind the same `epsilon = 0.0` run.
 //!
 //! **Recounted (round 21), with the same reproducible command
-//! `cspace-geometry`'s audit script now uses**:
+//! `cspace_core::geometry`'s audit script now uses**:
 //!
 //! ```text
 //! perl tools/ci/count-relative-eq.pl \
@@ -623,7 +623,7 @@
 //!   octomap::OcTree>&)` as [`PosedBodyPointDecomposition::new`]/
 //!   [`PosedBodyPointDecomposition::with_pose`]/
 //!   [`PosedBodyPointDecomposition::from_octree`] — the last against a
-//!   `cspace-octomap` dependency added for it; see that method's own doc
+//!   `cspace_core::octomap` dependency added for it; see that method's own doc
 //!   comment for the faithfully-reproduced upstream behaviour.
 //! - `PosedBodySphereDecompositionVector` (class) — ported as
 //!   [`PosedBodySphereDecompositionVector`] (`getSize`/
@@ -1158,18 +1158,18 @@ pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 ///
 /// The gate itself moved out of this crate: it started as a
 /// `#[cfg(test)] pub(crate) mod test_support` here, then
-/// `cspace-planners-chomp` independently wrote the same check inline in two
+/// `cspace_planners::chomp` independently wrote the same check inline in two
 /// fixtures (`8e632d8`), anchored on the same `updated_link_names()` symbol.
 /// Two crates re-deriving one guard is the sign the guard belongs to
 /// neither -- both now call `cspace_core::test_support::assert_group_has_updated_links`
-/// (crate `cspace-test-support`, `[dev-dependencies]` only) instead. A
+/// (crate `cspace_core::test_support`, `[dev-dependencies]` only) instead. A
 /// `#[cfg(test)]` module cannot be imported across a crate boundary at all,
 /// so lifting it required either a small always-compiled crate or a `pub`
-/// item behind a feature flag on `cspace-model`; the feature route was
+/// item behind a feature flag on `cspace_core::model`; the feature route was
 /// rejected because a non-default feature is exactly the shape that escapes
-/// a crate-scoped `cargo clippy -p cspace-model --all-targets` / `cargo doc
-/// -p cspace-model` gate, so a regression behind it would pass every gate
-/// this repo actually runs per-crate. See `cspace-test-support`'s own crate
+/// a crate-scoped `cargo clippy -p cspace-core --all-targets` / `cargo doc
+/// -p cspace-core` gate, so a regression behind it would pass every gate
+/// this repo actually runs per-crate. See `cspace_core::test_support`'s own crate
 /// doc for the full reasoning.
 ///
 /// # §189: workspace-wide sweep behind this gate
@@ -1225,7 +1225,7 @@ pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 /// guards, run fresh rather than trusted from an earlier round) turned up
 /// exactly: this crate's own two now-gated fixtures plus
 /// `collision_env_distance_field.rs:3117`'s PR2-`"right_arm"`-based test
-/// (a real robot, non-empty); `cspace-model`'s own
+/// (a real robot, non-empty); `cspace_core::model`'s own
 /// `updated_link_names_filters_to_geometry_bearing_links` test (correct,
 /// non-vacuous, revolute joints); `cspace-model/tests/robot_model_parity.rs`
 /// (compares our `updated_link_names()` to the oracle's own value

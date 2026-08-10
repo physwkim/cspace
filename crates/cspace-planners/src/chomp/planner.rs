@@ -43,15 +43,15 @@
 //! trajectory-initialization methods, the optimizer construction/optimize
 //! recovery loop, final trajectory extraction, the collision-free check,
 //! and the goal-tolerance check -- already has a direct counterpart
-//! somewhere in this workspace (`cspace-state`, `cspace-model`,
-//! `cspace-constraints`, `cspace-error`, and this crate's own already-ported
+//! somewhere in this workspace (`cspace_core::state`, `cspace_core::model`,
+//! `cspace_planning::constraints`, `cspace_core::error`, and this crate's own already-ported
 //! [`crate::chomp::trajectory::ChompTrajectory`]/[`crate::chomp::optimizer::ChompOptimizer`]/
 //! [`crate::chomp::parameters::ChompParameters`]). Zero lines are blocked by a
 //! genuinely missing type. This settles round 20 item 2's "count, don't
 //! guess" instruction: the unblocked majority dominates, so this round
 //! ports it rather than re-deferring on an unmeasured judgment.
 //!
-//! # Deviation: no `cspace-scene`, no `cspace-planning` dependency
+//! # Deviation: no `cspace_planning::scene`, no `cspace-planning` dependency
 //!
 //! Upstream's `solve` takes a `planning_scene::PlanningSceneConstPtr` and
 //! uses exactly three of its members: `getCurrentState()` (the starting
@@ -64,9 +64,9 @@
 //! a caller here passes the already-resolved `start_state` directly, and
 //! `RobotModel` comes from [`cspace_core::state::RobotState::model`] instead of a
 //! scene. This keeps this crate's dependency graph exactly as narrow as
-//! [`crate::chomp::optimizer`]'s own "no `cspace-scene`" decision (see that
+//! [`crate::chomp::optimizer`]'s own "no `cspace_planning::scene`" decision (see that
 //! module's "`isCurrentTrajectoryMeshToMeshCollisionFree` becomes an
-//! injected closure" doc) -- adding `cspace-scene` here just to immediately
+//! injected closure" doc) -- adding `cspace_planning::scene` here just to immediately
 //! discard two of its three uses would reopen exactly the dependency
 //! question that decision already closed.
 //!
@@ -78,15 +78,15 @@
 //! this workspace today. The brief's stated precedent ("`sbp` swapped
 //! upstream's ROS response type for `cspace_planning`'s canonical type and
 //! ported it") does not hold up under the same check:
-//! `cspace-planners-sbp`'s `registry::PlanningRequest`/`PlanningResponse`
+//! `cspace_planners::sbp`'s `registry::PlanningRequest`/`PlanningResponse`
 //! (`registry.rs`) are its own crate-local types, and
 //! `cspace-planners-sbp/Cargo.toml` has no `cspace-planning` dependency at
 //! all -- confirmed independently, not merely quoted from the brief. The
 //! real, reusable precedent sbp/stomp/pilz all establish is narrower than
 //! the brief implied: define a bespoke request/response shape local to the
 //! planner crate, backed by already-ported lower-layer types
-//! (`cspace-state`, `cspace-constraints`), rather than depending on
-//! `cspace_planning`'s adapter-pipeline-shaped types or on `cspace-scene`.
+//! (`cspace_core::state`, `cspace_planning::constraints`), rather than depending on
+//! `cspace_planning`'s adapter-pipeline-shaped types or on `cspace_planning::scene`.
 //! [`ChompRequest`], [`GoalJointConstraint`] and [`ChompSolution`] below
 //! follow that same pattern.
 //!
@@ -100,7 +100,7 @@
 //! non-finite -- `planning_time_limit_` is a free-standing `pub` `f64` on
 //! [`crate::chomp::parameters::ChompParameters`], reachable from
 //! `cspace-planning`'s response-adapter code the same way
-//! `TotgOptions::resample_dt` is; see `cspace-trajectory`'s
+//! `TotgOptions::resample_dt` is; see `cspace_core::trajectory`'s
 //! `time_optimal_trajectory_generation` module for that precedent). [`solve`]
 //! rejects `planning_time_limit + 5.0` outside `[i32::MIN, i32::MAX]` (as an
 //! `f64` comparison, before any cast) with a typed [`Error`](cspace_core::error::Error) rather than
@@ -176,7 +176,7 @@ pub struct GoalJointConstraint {
 /// Rather than accept the full `cspace_planning::constraints::KinematicConstraintSet`
 /// shape and run that check at runtime, [`ChompGoal`] only has room for
 /// joint constraints in the first place -- the illegal states this crate's
-/// other planners must check for at runtime (see `cspace-planners-stomp`'s
+/// other planners must check for at runtime (see `cspace_planners::stomp`'s
 /// `Constraint::Joint`-filtering idiom) are unrepresentable here. A caller
 /// juggling a richer, `KinematicConstraintSet`-shaped goal (e.g. a future
 /// dispatcher choosing between planners) is responsible for deciding
@@ -264,13 +264,13 @@ pub struct ChompSolution<'m> {
 /// once `planning_scene` and `res`'s dual read/write role are unpacked (see
 /// this module's doc and [`ChompSolution`]'s doc), so grouping them here
 /// follows the same request-struct convention `cspace-planning`,
-/// `cspace-planners-sbp::registry`, and `cspace-planners-pilz` already use
+/// `cspace_planners::sbp::registry`, and `cspace_planners::pilz` already use
 /// for their own `solve`-equivalents, rather than a lint-suppressed
 /// long parameter list.
 #[derive(Debug, Clone, Copy)]
 pub struct ChompRequest<'a, 'm> {
     /// Upstream's `planning_scene->getCurrentState()`, already overlaid
-    /// with `req.start_state` -- see this module's "no `cspace-scene`"
+    /// with `req.start_state` -- see this module's "no `cspace_planning::scene`"
     /// deviation.
     pub start_state: &'a RobotState<'m>,
     /// `req.group_name`.
@@ -574,7 +574,7 @@ fn solve_inner<'m>(
 /// this function), an upstream gap this port does not reproduce as "leave
 /// the error unspecified": [`MoveItErrorCode::Failure`] is used instead,
 /// matching the same "no code was actually set upstream" fallback
-/// `cspace-planners-pilz::trajectory_generator`'s `failure` helper already
+/// `cspace_planners::pilz::trajectory_generator`'s `failure` helper already
 /// uses for the same situation.
 /// [`MoveItErrorCode::InvalidMotionPlan`] if the optimizer does not report
 /// the final trajectory collision-free.

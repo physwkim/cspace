@@ -81,7 +81,7 @@
 //! which requires the caller to name an explicit `dt` -- the caller is
 //! visibly asserting "a uniform discretization at this rate is acceptable
 //! for my use", instead of silently inheriting a value this port picked for
-//! an unrelated reason. (Depending on `cspace-trajectory`/`cspace-smoothing`'s
+//! an unrelated reason. (Depending on `cspace_core::trajectory`/`cspace_core::smoothing`'s
 //! TOTG to compute a real time parameterization here was considered and
 //! rejected for this round: STOMP's own upstream never calls a time-
 //! parameterization algorithm itself either, so pulling one in here would

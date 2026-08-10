@@ -2,8 +2,8 @@
 # Fails if a crate opts out of `[lints] workspace = true` and drops a lint the
 # workspace sets, rather than restating it.
 #
-# Two crates legitimately cannot inherit wholesale: cspace-kinematics and
-# cspace-planners-sbp both use `linkme::distributed_slice` for their D4
+# Two crates legitimately cannot inherit wholesale: cspace_core::kinematics and
+# cspace_planners::sbp both use `linkme::distributed_slice` for their D4
 # registries, every such static expands to a `#[link_section]` item, and the
 # workspace's `unsafe_code = "forbid"` cannot be downgraded per-site (forbid
 # refuses even an `#[allow]`, and check-no-lint-suppression.sh would reject

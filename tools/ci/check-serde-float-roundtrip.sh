@@ -16,7 +16,7 @@
 #
 # The feature is declared once, on `[workspace.dependencies] serde_json`.
 # Cargo unions features across the graph, so a member re-declaring
-# `serde_json` with its own feature list (as `cspace-distance-field` does for
+# `serde_json` with its own feature list (as `cspace_collision::distance_field` does for
 # `raw_value`) still inherits this one -- provided it goes through
 # `workspace = true`. A member that declares serde_json independently would
 # not, and that is the case this check exists to catch.

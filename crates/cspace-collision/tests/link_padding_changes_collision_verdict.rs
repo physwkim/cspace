@@ -92,7 +92,7 @@
 //!
 //! (Which environment a *`PlanningScene`* self-check runs against is a
 //! separate question, and this port answers it differently from upstream --
-//! see `PlanningScene`'s type doc in `cspace-scene`. This file is about the
+//! see `PlanningScene`'s type doc in `cspace_planning::scene`. This file is about the
 //! backend, where upstream pads both queries too.)
 
 use std::sync::Arc;

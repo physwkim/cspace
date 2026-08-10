@@ -36,7 +36,7 @@
 //!   Upstream's `assert()`s (compiled out in release builds) and unchecked
 //!   `size_t` arithmetic on caller-supplied indices are both replaced by
 //!   `Result::Err` here, matching the convention this port already
-//!   established in `cspace-trajectory`'s
+//!   established in `cspace_core::trajectory`'s
 //!   `time_optimal_trajectory_generation.rs` (see that module's
 //!   `mimic_joint_group_is_a_typed_error_not_a_panic` test): a mismatched
 //!   active-joint count or a multi-DOF active joint in
@@ -89,7 +89,7 @@
 //!   A `discretization` merely small (not zero) instead saturates to some
 //!   large-but-not-`usize::MAX` count, past `from_num_points`'s `< 2` guard
 //!   and into a `DMatrix::zeros` allocation big enough to hang and exhaust
-//!   memory, the same shape as `cspace-trajectory`'s `resample_dt` finding
+//!   memory, the same shape as `cspace_core::trajectory`'s `resample_dt` finding
 //!   this note mirrors. `from_duration` now rejects a non-finite or
 //!   non-positive `discretization`, and separately rejects a resulting
 //!   point count above `MAX_FROM_DURATION_POINTS` (a resource bound this
@@ -680,7 +680,7 @@ impl std::ops::IndexMut<(usize, usize)> for ChompTrajectory {
 /// every active joint of `group` between `from` and `to`, writing the
 /// result into `out`. There is no group-scoped `RobotState::interpolate` in
 /// this port yet (only the whole-model interpolation
-/// `cspace-trajectory::robot_trajectory` uses privately) — this mirrors
+/// `cspace_core::trajectory::robot_trajectory` uses privately) — this mirrors
 /// that helper's shape, restricted to `group.active_joint_indices()`.
 fn interpolate_group_into(
     from: &RobotState,

@@ -10,7 +10,7 @@
 //!
 //! `utils.h` has 14 top-level symbols (2 structs, 2 enums, 3 constants, 7
 //! free functions); struct fields and enum variants are not itemized as
-//! separate bullets here, matching `cspace-scene`'s precedent of not
+//! separate bullets here, matching `cspace_planning::scene`'s precedent of not
 //! itemizing private/protected data members individually (both
 //! [`Rollout`]'s 10 fields and [`StompConfiguration`]'s 10 fields are
 //! confirmed 1:1 against `include/stomp/utils.h:38-58`/`:88-106` below, just

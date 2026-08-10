@@ -77,13 +77,13 @@
 //!   does port (`compute_ray_keys`, `compute_update`, `update_node`).
 //! - **`bodies::Body`-style posed-body algorithms are not in this crate's
 //!   scope at all.** Stale as of round 15: this bullet used to say
-//!   `cspace-geometry`'s `shapes::OcTree` was still a stub deferred to
+//!   `cspace_core::geometry`'s `shapes::OcTree` was still a stub deferred to
 //!   Phase 3 collision; it is not -- `shapes::OcTree` has been fully ported
 //!   since round 3, and there is no `bodies::`-level posed counterpart for
 //!   an octree upstream at all (`bodies::createBodyFromShape` returns
 //!   `nullptr` for `shapes::OCTREE`; this crate's own `Body::from_shape`
 //!   matches that with `Shape::OcTree => None`, see `bodies.rs`). See
-//!   `cspace-geometry`'s `shapes.rs`, "Who consumes `Shape::OcTree`" for the
+//!   `cspace_core::geometry`'s `shapes.rs`, "Who consumes `Shape::OcTree`" for the
 //!   actual, current transfer boundary and consumer-by-consumer status.
 //!
 //! # Symbol-by-symbol audit against upstream's public surface (round 16, item 2)
@@ -97,7 +97,7 @@
 //! `OcTreeBaseImpl.h` -> `AbstractOccupancyOcTree.h` -> `AbstractOcTree.h`,
 //! most-derived first), each read from inside the oracle container
 //! (`octomap` is not checked out on this host) rather than guessed, in the
-//! same literal-extraction style `cspace-scene`'s `planning_scene.hpp`
+//! same literal-extraction style `cspace_planning::scene`'s `planning_scene.hpp`
 //! audit (commit `943e909`) uses. That walk also states, in one line, the
 //! rule for collapsing the five-level inheritance chain into "this crate's
 //! exposed surface" before counting, so a future round can re-verify the
@@ -170,14 +170,14 @@
 //! # Completion statement (round 16, item 2)
 //!
 //! Every number below is a command someone can re-run -- same model as
-//! `cspace-scene`'s completion statement, commit `08ab3c7`.
+//! `cspace_planning::scene`'s completion statement, commit `08ab3c7`.
 //!
 //! **Symbol audit.** Superseded round 15's "24 ported / 2 unported-in-scope
 //! / 15 distinct / 41 symbol groups" -- "symbol group" was never a defined,
 //! reproducible unit. [`OcTree`]'s own module doc now carries a full
 //! literal, one-bullet-per-declaration walk against the five headers that
 //! make up the upstream inheritance chain, in the same bullet-per-line
-//! format `cspace-scene`'s `planning_scene.hpp` audit uses --
+//! format `cspace_planning::scene`'s `planning_scene.hpp` audit uses --
 //! `rg -c '^/// - \`' crates/cspace-core/src/octomap/tree.rs` over that walk's
 //! line range reproduces **159** bullets (8 of them are non-symbols or
 //! cross-references to a declaration already tallied elsewhere in the
@@ -197,7 +197,7 @@
 //! **Tests.**
 //!
 //! ```text
-//! cargo nextest run -p cspace-octomap --no-fail-fast   # 48 tests run: 48 passed, 0 skipped
+//! cargo nextest run -p cspace-core --no-fail-fast   # 48 tests run: 48 passed, 0 skipped
 //! rg -c '#\[test\]' crates/cspace-core/src/octomap/*.rs      # sums to 44
 //! ```
 //!
@@ -239,7 +239,7 @@
 //! from sharing `push_children` with [`OcTree::tree_nodes`] (whose own order
 //! *is* oracle-measured via `tree_walk`), not measured against upstream's
 //! actual `leaf_iterator` class itself. The new `octree_points` oracle op
-//! (added this round for `cspace-distance-field`) exposes a `leaves` field
+//! (added this round for `cspace_collision::distance_field`) exposes a `leaves` field
 //! that is exactly a `tree.begin_leafs()` walk, independent of that op's own
 //! distance-field-specific purpose -- cheap ground truth this crate did not
 //! have to ask the orchestrator to add. Surveyed and found already
@@ -273,7 +273,7 @@
 //! is). Its own unit tests
 //! (`leaves_in_bbx_only_yields_leaves_overlapping_the_box`,
 //! `leaves_in_bbx_returns_none_for_an_out_of_range_corner`) are
-//! self-consistency only. `cspace-distance-field`'s own `octree_points`
+//! self-consistency only. `cspace_collision::distance_field`'s own `octree_points`
 //! function calls [`OcTree::leaves_in_bbx`] internally, and its output is
 //! oracle-verified bit-for-bit by that crate's own
 //! `octree_points_matches_the_oracle_for_all_three_pinned_boundary_cases`
@@ -340,7 +340,7 @@
 //! into the total, the exact class PORTING-PLAN.md §73.1/§83.3/§92/§104.1
 //! got bitten by four times) but confirmed two ways: `grep -n approx
 //! crates/cspace-core/Cargo.toml` has no match -- this crate never took
-//! the `approx` dependency `cspace-geometry` did -- and `cspace-geometry`'s
+//! the `approx` dependency `cspace_core::geometry` did -- and `cspace_core::geometry`'s
 //! own `//`-tail-stripped, paren-bracket-matched scanner (see that crate's
 //! completion statement) confirms it by running clean against this crate
 //! too:
@@ -356,7 +356,7 @@
 //! **Round 19, item 1.** `count_relative_eq.pl` and
 //! `tools/ci/count-public-declarations.sh` (this crate's own copy) both had a
 //! doc-comment/string-literal filtering gap this round found and fixed --
-//! see `cspace-geometry`'s completion statement for the self-count evidence
+//! see `cspace_core::geometry`'s completion statement for the self-count evidence
 //! and the fix, since the `.pl` script lives there and this crate's copy of
 //! the `.sh` script is byte-identical. Neither bug changed any count already
 //! committed in this file or in `tree.rs`.
@@ -397,7 +397,7 @@
 //!    **not done that way**: this project's own repeated position is that
 //!    reading upstream source and reasoning from it is not a substitute
 //!    for a real `liboctomap.so` execution (this round's own
-//!    `cspace-planners-stomp` citation mistake is a fresh instance of that
+//!    `cspace_planners::stomp` citation mistake is a fresh instance of that
 //!    exact failure mode), so a real capture was requested via a
 //!    `caucus signal note --kind question` instead, restating the same
 //!    optional `bbx: {min: [f64;3], max: [f64;3]}` field on `octree_points`
@@ -640,7 +640,7 @@
 //! moveit2 `e017c91e`, 318 lines) -- `cspace-collision`'s exclusion note for
 //! it cites "needs an octomap dependency and `RobotState`"
 //! (PORTING-PLAN.md §153), which §153 already found half wrong (zero
-//! `RobotState` references) and half expired (`cspace-octomap` now exists).
+//! `RobotState` references) and half expired (`cspace_core::octomap` now exists).
 //! §153.2 asks this crate's owner to check whether the octomap operations
 //! `refineContactNormals` actually calls already exist here. They do, in
 //! full -- reading the whole file (not just the entry point) turns up

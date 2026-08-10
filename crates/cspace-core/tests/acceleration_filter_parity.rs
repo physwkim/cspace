@@ -69,7 +69,7 @@
 //! item 1 of this round found `0` of `109` literals in
 //! `acceleration_filter_request.json` and `0` of `98` in
 //! `acceleration_filter_response.json` misparsed by the old default
-//! `serde_json` parser -- unlike `cspace-trajectory`'s and
+//! `serde_json` parser -- unlike `cspace_core::trajectory`'s and
 //! `ruckig_filter_response.json`'s fixtures, this pair has no corrupted
 //! literal to begin with, so the fix could not have moved either floor. The
 //! non-panicking max-diff sweep confirms this directly: re-run under the

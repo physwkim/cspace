@@ -29,9 +29,9 @@
 //! reading the call site directly rather than assumed from the name.
 //!
 //! This is the third copy of this function in the workspace
-//! (`cspace-trajectory` and `cspace-constraints` each have one, alongside
+//! (`cspace_core::trajectory` and `cspace_planning::constraints` each have one, alongside
 //! `cxx_max`). It is duplicated rather than shared because the crates have
-//! no common dependency below `cspace-error`, which is an error-type
+//! no common dependency below `cspace_core::error`, which is an error-type
 //! crate; a shared crate is out of scope this round (see the workspace's
 //! in-flight branches) but the growing duplicate count should be revisited.
 

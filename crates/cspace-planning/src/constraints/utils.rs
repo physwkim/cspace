@@ -666,7 +666,7 @@ pub fn update_position_constraint(
 /// any plain link name, identity offset), plus the one tier it cannot (an
 /// attached body or one of its subframes, supplied by `resolve_attached_frame`
 /// — see [`resolve_position_constraint_frame`]'s doc comment for why that is
-/// a closure and not a `cspace-scene` dependency). `None` if `frame_id`
+/// a closure and not a `cspace_planning::scene` dependency). `None` if `frame_id`
 /// resolves in none of them (upstream: `frame_found = false`).
 fn resolve_frame_to_link<F>(
     model: &RobotModel,
@@ -736,8 +736,8 @@ where
 /// (`crates/cspace-planning`'s `AttachedBody` module doc), so the equivalent
 /// lookup lives there instead — `PlanningScene::frame_transform`'s private
 /// `attached_frame` helper (`crates/cspace-planning/src/scene/scene.rs:545`). Taking
-/// `&PlanningScene` here would make `cspace-constraints` depend on
-/// `cspace-scene`, inverting the direction upstream actually has (its
+/// `&PlanningScene` here would make `cspace_planning::constraints` depend on
+/// `cspace_planning::scene`, inverting the direction upstream actually has (its
 /// `planning_scene` depends on `kinematic_constraints`, e.g. for goal
 /// constraint checking — not the reverse), and `tools/ci/check-dep-direction.sh`
 /// plus `PORTING-PLAN.md` §3's crate layout back that direction. So the one

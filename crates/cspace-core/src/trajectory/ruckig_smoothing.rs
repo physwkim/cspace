@@ -47,7 +47,7 @@
 //!   infallible.
 //! - **The `RCLCPP_WARN_STREAM_ONCE`/`RCLCPP_ERROR*` logging calls are not
 //!   ported.** They are diagnostics with no effect on the computed
-//!   trajectory; `cspace-trajectory` has no logging dependency to route them
+//!   trajectory; `cspace_core::trajectory` has no logging dependency to route them
 //!   through, and the "using the default N" warnings upstream logs at most
 //!   once per process are not observable behaviour this crate's tests could
 //!   assert on. `apply_smoothing`/`apply_smoothing_with_limits` still return

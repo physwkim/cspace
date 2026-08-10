@@ -3,7 +3,7 @@
 
 //! Parity test for [`OcTree::leaves`] against the real `liboctomap.so.1.9.7`
 //! `leaf_iterator`, using the oracle's `octree_points` op's `leaves` field
-//! (PORTING-PLAN.md §102, added this round for `cspace-distance-field`'s own
+//! (PORTING-PLAN.md §102, added this round for `cspace_collision::distance_field`'s own
 //! `getOcTreePoints` question; `leaves` is a plain `tree.begin_leafs()` walk,
 //! independent of that op's distance-field-specific `points`/`count`
 //! outputs, so it is equally good ground truth here).

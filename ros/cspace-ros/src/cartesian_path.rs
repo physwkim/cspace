@@ -608,7 +608,7 @@ fn finish<'m>(
     // error where upstream answers a fraction.
     //
     // Built by assignment rather than by struct-update syntax because
-    // `TotgOptions::resample_dt` is `pub(crate)` in `cspace-trajectory` (it
+    // `TotgOptions::resample_dt` is `pub(crate)` in `cspace_core::trajectory` (it
     // has a validating setter there), which makes `..Default::default()`
     // E0451 from outside that crate.
     let mut options = TotgOptions::default();

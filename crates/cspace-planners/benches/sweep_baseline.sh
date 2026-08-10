@@ -155,7 +155,7 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 echo "building examples/plan_benchmark_problem_set (release)..." >&2
-cargo build --release --example plan_benchmark_problem_set -p cspace-planners-sbp \
+cargo build --release --example plan_benchmark_problem_set -p cspace-planners \
   --manifest-path "$REPO_ROOT/Cargo.toml" >&2
 BIN="$REPO_ROOT/target/release/examples/plan_benchmark_problem_set"
 

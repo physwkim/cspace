@@ -20,7 +20,7 @@
 //! comparison against round 3's 46,978/305,989 leaf counts).
 //!
 //! Run with `cargo run --release --example octree_compound_bench -p
-//! cspace-geometry`. Debug builds are unusably slow for the 0.02m scene (on
+//! cspace_core::geometry`. Debug builds are unusably slow for the 0.02m scene (on
 //! the order of 5 million individual octree updates).
 
 use std::time::Instant;

@@ -11,7 +11,7 @@
 //! core->msg emits `String::new()`. Re-checked round 5 against
 //! `crates/cspace-planning/src/constraints/set.rs:47-49` -- `KinematicConstraintSet`
 //! is still exactly `{ constraints: Vec<Constraint> }`. Expires if it grows
-//! a `name` field; `cspace-constraints`'s call, not this crate's.
+//! a `name` field; `cspace_planning::constraints`'s call, not this crate's.
 
 use cspace_planning::constraints::{Constraint, KinematicConstraintSet};
 use cspace_core::error::Error;

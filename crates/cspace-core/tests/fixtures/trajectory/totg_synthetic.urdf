@@ -15,7 +15,7 @@
   crates/cspace-collision/tests/fixtures/octree_world_robot.urdf for the
   established precedent of this pattern.
 
-  No <limit> on planar_joint: cspace-model's URDF loader never reads
+  No <limit> on planar_joint: cspace_core::model's URDF loader never reads
   bounds for a multi-DOF joint from URDF (`JointModel::new_planar`
   always constructs unbounded velocity/acceleration, matching upstream's
   own `RobotModel::buildJointInfo`, which likewise never calls

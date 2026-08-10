@@ -116,7 +116,7 @@ const ONE_DIRECTIONAL: &[OneDirectional] = &[
                  PlanningScene.fixed_frame_transforms; the core->msg \
                  direction of that field is upstream's \
                  Transforms::copyTransforms, which only \
-                 getPlanningSceneMsg calls -- D1-deferred in cspace-scene. \
+                 getPlanningSceneMsg calls -- D1-deferred in cspace_planning::scene. \
                  The reverse core type is shared with Pose, whose own \
                  `TryFrom<Isometry3> for Pose` is round-trip tested. \
                  Expires when getPlanningSceneMsg is ported and needs \
@@ -128,7 +128,7 @@ const ONE_DIRECTIONAL: &[OneDirectional] = &[
         reason: "the reverse is upstream's \
                  AllowedCollisionMatrix::getMessage, reached only from \
                  getPlanningSceneMsg/getPlanningSceneDiffMsg -- both \
-                 D1-deferred in cspace-scene, so nothing in this crate has \
+                 D1-deferred in cspace_planning::scene, so nothing in this crate has \
                  an outgoing AllowedCollisionMatrix to build. Expires when \
                  either of those is ported.",
     },
@@ -139,7 +139,7 @@ const ONE_DIRECTIONAL: &[OneDirectional] = &[
                  wrapper types set_planning_scene_msg/\
                  set_planning_scene_diff_msg accept (scene/planning_scene.rs \
                  module doc). The reverse would be getPlanningSceneMsg, \
-                 D1-deferred in cspace-scene; and it is not this enum's \
+                 D1-deferred in cspace_planning::scene; and it is not this enum's \
                  inverse anyway, since the wrappers hold the message \
                  verbatim. Expires when getPlanningSceneMsg is ported.",
     },

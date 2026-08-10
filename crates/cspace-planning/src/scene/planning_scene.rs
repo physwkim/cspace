@@ -338,7 +338,7 @@ pub struct ObjectType {
 ///   `SceneTransforms::isFixedFrame` override, and
 ///   [`PlanningScene::transforms_with_world_objects`] (no upstream
 ///   equivalent -- an addition, not a port) for the value that reproduces
-///   it for `cspace-constraints`'s callers.
+///   it for `cspace_planning::constraints`'s callers.
 ///
 /// ## World, collision detector, ACM
 ///
@@ -434,7 +434,7 @@ pub struct ObjectType {
 /// - `saveGeometryToStream`/`loadGeometryFromStream` — **distinct, decided,
 ///   not deferred**: round 7/8 (§59.4) left this open on "no consumer has
 ///   asked for `.scene` file interop", the same unmet-falsifier shape
-///   `cspace-geometry`'s `shapes::saveAsText`/`constructShapeFromText`
+///   `cspace_core::geometry`'s `shapes::saveAsText`/`constructShapeFromText`
 ///   deferral mirrors (`planning_scene.cpp:1062`/`:1152` is this format's
 ///   shape payload). A falsifier only two panels can satisfy by each
 ///   waiting on the other's silence never closes on its own, so this round
@@ -612,7 +612,7 @@ pub struct ObjectType {
 ///   their signature — D1. The remaining message-free overload
 ///   (`robot_trajectory::RobotTrajectory` only, no constraints) is not a D1
 ///   exclusion: it depends on `robot_trajectory::RobotTrajectory`, owned by
-///   `cspace-trajectory`/p6-totg, not a message type. This port's
+///   `cspace_core::trajectory`/p6-totg, not a message type. This port's
 ///   `is_path_valid` takes `&[RobotState<'m>]` instead — a deliberate
 ///   dependency-boundary choice (avoids a dependency edge on a crate this
 ///   one does not own, for a type whose only relevant content here is its
@@ -1070,7 +1070,7 @@ impl<'m> PlanningScene<'m> {
     ///
     /// [`cspace_core::geometry::Transforms`] has no such polymorphism -- it is one
     /// concrete, non-virtual type everywhere in this workspace, and
-    /// `cspace-constraints`'s ported `PositionConstraint`/`OrientationConstraint`/
+    /// `cspace_planning::constraints`'s ported `PositionConstraint`/`OrientationConstraint`/
     /// `VisibilityConstraint` all key their fixed/mobile split on its
     /// [`cspace_core::geometry::Transforms::can_transform`], which -- being the
     /// same non-virtual method upstream's *base* `Transforms::isFixedFrame`
@@ -1082,7 +1082,7 @@ impl<'m> PlanningScene<'m> {
     /// once, at call time -- matching upstream's own timing, since
     /// `PositionConstraint::configure` (`resolve_frame`'s upstream sibling)
     /// resolves Fixed-vs-Mobile once, at construction, not on every
-    /// `decide()` (see `cspace-constraints::position::resolve_frame`'s doc).
+    /// `decide()` (see `cspace_planning::constraints::position::resolve_frame`'s doc).
     /// A later change to this scene's world does not retroactively change
     /// what an already-taken snapshot answers, which is the same staleness
     /// upstream itself accepts by resolving once.
@@ -1834,7 +1834,7 @@ impl<'m> PlanningScene<'m> {
     /// or re-resolved through robot state on every `decide()` (mobile).
     ///
     /// Round 7 called that crate wholesale-unported; it is not, as of round 9
-    /// -- `cspace-constraints::{PositionConstraint, OrientationConstraint,
+    /// -- `cspace_planning::constraints::{PositionConstraint, OrientationConstraint,
     /// VisibilityConstraint}` all exist and each reproduces this exact
     /// fixed/mobile split (`position::resolve_frame`,
     /// `orientation.rs:209`, `visibility.rs:79`), each keyed on
@@ -1850,9 +1850,9 @@ impl<'m> PlanningScene<'m> {
     /// is the value to hand `PositionConstraint::new`/etc instead of
     /// [`PlanningScene::transforms`] -- see its own doc for why a snapshot
     /// value, not `self.transforms()` as-is, is what closes the gap. The
-    /// falsifier now fires the moment `cspace-constraints`'s constructors are
+    /// falsifier now fires the moment `cspace_planning::constraints`'s constructors are
     /// called with it in place of a bare `self.transforms()`; that wiring is
-    /// `cspace-constraints`'s own call sites, not this crate's, so it stays
+    /// `cspace_planning::constraints`'s own call sites, not this crate's, so it stays
     /// on this list until that lands.
     pub fn knows_frame_transform(&self, frame_id: &str) -> bool {
         let frame_id = frame_id.strip_prefix('/').unwrap_or(frame_id);
@@ -1987,7 +1987,7 @@ impl<'m> PlanningScene<'m> {
     ///
     /// `req.max_contacts` is upstream's
     /// `getLinkModelsWithCollisionGeometry().size() + 1`; this port's
-    /// [`RobotModel`] has no such query (see `cspace-model::robot_model`'s
+    /// [`RobotModel`] has no such query (see `cspace_core::model::robot_model`'s
     /// doc), so this uses every link with a non-empty
     /// [`cspace_core::model::LinkModel::shapes`] instead — a superset of links
     /// that actually convert to collision geometry (a link could still hold
@@ -2576,7 +2576,7 @@ impl<'m> PlanningScene<'m> {
 }
 
 /// The attached-body half of `RobotState`'s frame resolution, which
-/// `cspace-kinematics` needs and cannot reach on its own.
+/// `cspace_core::kinematics` needs and cannot reach on its own.
 ///
 /// Upstream `RobotState::setFromIK` resolves a target frame through
 /// `getLinkModelIncludingAttachedBodies` (`robot_state.cpp:910-937`), reading
@@ -2584,7 +2584,7 @@ impl<'m> PlanningScene<'m> {
 /// live here instead (see [`AttachedBody`]'s module doc), and
 /// [`cspace_core::kinematics::AttachedFrames`] is the seam that puts them back
 /// within reach. The edge this closes runs scene -> kinematics, which
-/// `cspace-scene` already had transitively through `cspace-constraints`; it
+/// `cspace_planning::scene` already had transitively through `cspace_planning::constraints`; it
 /// is the reverse edge that would be a cycle, which is why the trait exists
 /// rather than a direct dependency the other way.
 ///

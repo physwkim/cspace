@@ -150,7 +150,7 @@ fn nan_t_reaches_the_single_joint_form() {
 /// itself: deleting that return leaves this test green, because
 /// `interpolate_one` on a zero-width variable range copies nothing and
 /// `update_mimic_joint` has the same guard one level down (measured — the
-/// mutation was run and the whole `cspace-state` suite stayed green). The
+/// mutation was run and the whole `cspace_core::state` suite stayed green). The
 /// return is kept because it is upstream's, and because it is what makes
 /// the ordering claim in [`RobotState::interpolate_joint`]'s doc comment
 /// true; what this test pins is the reachable half — that naming a fixed

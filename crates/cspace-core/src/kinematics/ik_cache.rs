@@ -663,7 +663,7 @@ mod tests {
     }
 
     /// A fresh, unique scratch directory per test, left for the OS to
-    /// reclaim -- the same shape `cspace-model`'s `mesh_search_paths`
+    /// reclaim -- the same shape `cspace_core::model`'s `mesh_search_paths`
     /// tests use, for the same reason.
     fn scratch_dir() -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(

@@ -14,7 +14,7 @@
 // constructor, which walks `begin_tree()`/`end_tree()` directly (occupied
 // leaves become collision points, occupied inner nodes are skipped since
 // they are represented at finer depth by their own children); that
-// constructor itself belongs to `cspace-distance-field`, not this crate.
+// constructor itself belongs to `cspace_collision::distance_field`, not this crate.
 
 use nalgebra::Point3;
 

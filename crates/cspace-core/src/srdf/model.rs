@@ -26,7 +26,7 @@ pub(crate) const SRDF: &str = "SRDF";
 /// single group may use any combination of them: directly named [`joints`],
 /// directly named [`links`], [`chains`] of links, and [`subgroups`] naming
 /// other groups. Resolving those four into a joint set needs the URDF and is
-/// therefore `cspace-model`'s job, not this crate's.
+/// therefore `cspace_core::model`'s job, not this crate's.
 ///
 /// [`joints`]: Group::joints
 /// [`links`]: Group::links
@@ -87,7 +87,7 @@ pub struct GroupState {
 /// lower-cased and normalised, so every consumer re-compares string literals
 /// and an unrecognised value is only distinguishable by having gone through the
 /// parser. Modelling the closed set as an enum removes that: the parser is the
-/// single place that maps text to a variant, and `cspace-model` matches instead
+/// single place that maps text to a variant, and `cspace_core::model` matches instead
 /// of comparing strings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VirtualJointType {
@@ -218,9 +218,9 @@ pub struct JointProperty {
 ///
 /// 1. **No URDF is consulted.** Upstream's `srdf::Model::initXml` takes a
 ///    `urdf::ModelInterface` and silently drops every element naming a link or
-///    joint the URDF does not have. This crate sits below `cspace-model` in the
+///    joint the URDF does not have. This crate sits below `cspace_core::model` in the
 ///    dependency order (PORTING-PLAN.md §3) and has no URDF to check against,
-///    so those checks move to `cspace-model`, which holds both descriptions.
+///    so those checks move to `cspace_core::model`, which holds both descriptions.
 ///    Concretely, the following are **not** validated here and every such
 ///    element is retained: link names in groups, chains, a virtual joint's
 ///    `child_link`, `disable_collisions`, `enable_collisions`,

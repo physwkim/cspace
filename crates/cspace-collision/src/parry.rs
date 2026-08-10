@@ -656,7 +656,7 @@
 //!    magnitude bias alone.
 //!
 //!    Round 21 extended this same magnitude-bias mechanism to a second,
-//!    independent mesh: `cspace-constraints`' visibility-cone check (a
+//!    independent mesh: `cspace_planning::constraints`' visibility-cone check (a
 //!    `cone_sides`-gon mesh, not `base_link`'s STL) against the identical
 //!    `bl_caster_l_wheel_link` cylinder. `tools/moveit-diff`'s own captured
 //!    mismatch (`main.rs`'s `a_real_mismatching_case_touches_exactly_one_link`,
@@ -1317,7 +1317,7 @@ fn from_parry_vector(v: ParryVector) -> Vector3 {
 /// tree's cached conversion. That is not hypothetical here; on this
 /// allocator a freed tree's address was reused by the very next allocation,
 /// so a non-empty tree silently received an empty one's cached `None` and
-/// dropped out of collision checking altogether. `cspace-distance-field`'s
+/// dropped out of collision checking altogether. `cspace_collision::distance_field`'s
 /// `get_body_decomposition_cache_entry` hit the same defect and fixed it the
 /// same way; see this file's `octree_cache_survives_shape_churn`. The `Weak`
 /// is never upgraded — the `HashMap` key stays the bare address, and holding
@@ -2321,7 +2321,7 @@ fn triangle_world_aabb(pose: &Pose, tri: &ParryTriangle) -> Aabb {
 ///   `use_approximate_cost` branch either): at most one, over both shapes'
 ///   own whole-shape AABBs from [`ParryShape::compute_aabb`] — the same
 ///   call already named as the non-mesh half of this fill-in by
-///   `cspace-scene`'s own doc audit.
+///   `cspace_planning::scene`'s own doc audit.
 ///
 /// The mesh-mesh case still does its candidate search BVH-pruned
 /// (`TriMesh::bvh`/[`parry3d_f64::partitioning::Bvh::intersect_aabb`]) and
@@ -2453,7 +2453,7 @@ fn mesh_mesh_cost_sources(
 /// `cspace-scene/tests/fixtures/panda_{cost_sources,path_cost_sources}_response.json`
 /// (oracle `moveit-rs/oracle:3537df47121b8c7f`, ids 2-6/8 state-op, ids
 /// 3-6 path-op — 22 total non-empty pairs across both fixtures, borrowing
-/// `cspace-scene`'s own committed fixture read-only via a temporary,
+/// `cspace_planning::scene`'s own committed fixture read-only via a temporary,
 /// fully-reverted debug instrumentation of its ignored parity tests, not
 /// this crate's own test data): every returned box's `aabb_min`/`aabb_max`
 /// matches its oracle counterpart to `9e-14`..`4e-13` per component — same
@@ -2577,7 +2577,7 @@ enum TangencyKind {
 /// `Box`, not `None`: this crate's only producer of a `Compound` is
 /// [`compound_from_octree`] ("builds one `Cuboid` per occupied leaf", its own
 /// doc, echoed at the module doc's point 11), and `OcTree::scale_and_padd` is
-/// a no-op (`cspace-geometry`'s `shapes.rs`), so a `Compound` reaching this
+/// a no-op (`cspace_core::geometry`'s `shapes.rs`), so a `Compound` reaching this
 /// function is never anything but a union of plain `Cuboid`s. Upstream's own
 /// `OcTreeSolver::OcTreeShapeIntersectRecurse`
 /// (`fcl/narrowphase/detail/traversal/octree/octree_solver-inl.h:332-354` at

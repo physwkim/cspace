@@ -59,7 +59,7 @@
 //! (the exclusion is this file: the sentence above names the symbol, so an
 //! unfiltered search matches its own transcript.)
 //!
-//! It belongs to `cspace-state`'s `RobotState`, not to this crate, so this
+//! It belongs to `cspace_core::state`'s `RobotState`, not to this crate, so this
 //! file records the blockage rather than working around it -- the workaround
 //! (a URDF with floating joints, as `parry.rs`'s own tests use) would be
 //! testing a different robot than the one upstream's numbers describe.
@@ -82,7 +82,7 @@
 //!
 //! Copying `kinect.dae` in is therefore not just a copy. Two things would have
 //! to land with it: a COLLADA reader (this port parses STL --
-//! `cspace-geometry`'s `stl.rs`), and a fix to the provenance gate, which
+//! `cspace_core::geometry`'s `stl.rs`), and a fix to the provenance gate, which
 //! globs STL only (`verify-fixture-provenance.sh:196`,
 //! `mesh_fixtures=(fixtures/meshes/**/*.stl)`) and would leave a `.dae`
 //! sitting unchecked by the gate that exists to check exactly that.

@@ -505,7 +505,7 @@ mod tests {
     /// two length rules through `TryFrom<StartStateMsg>`) --
     /// `matches!(err, Error::Other(_))` alone cannot tell a test that a
     /// routing bug swapped which branch fired (same shape as
-    /// `cspace-constraints`' `e3b40c6`).
+    /// `cspace_planning::constraints`' `e3b40c6`).
     #[track_caller]
     fn assert_err_mentions<T: std::fmt::Debug>(result: Result<T, Error>, needle: &str) {
         let rendered = result

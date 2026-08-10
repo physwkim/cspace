@@ -32,7 +32,7 @@
 //! else a `PlanningScene` provides (no collision checking, no attached
 //! bodies), so both take `&RobotModel` at construction instead — the same
 //! substitution [`crate::constraints::JointConstraint::new`] and friends already make,
-//! and it means this crate still needs no `cspace-scene` dependency.
+//! and it means this crate still needs no `cspace_planning::scene` dependency.
 //!
 //! # `constraint_sampler.cpp`: where its two function bodies went
 //!
@@ -346,8 +346,8 @@ impl ConstraintSampler for JointConstraintSampler {
     /// port's equivalent, [`cspace_core::state::RobotState::set_to_random_positions_with`],
     /// already implements exactly that per-joint-kind logic (verified
     /// against `{revolute,prismatic,planar,floating}_joint_model.cpp`) but
-    /// keeps it private to `cspace-state`, and this crate has no license to
-    /// reach into `cspace-state`'s internals or reimplement the same
+    /// keeps it private to `cspace_core::state`, and this crate has no license to
+    /// reach into `cspace_core::state`'s internals or reimplement the same
     /// per-joint-kind rule a second time (`PORTING-PLAN.md`'s single-source
     /// stance). Randomizing a throwaway whole-model [`RobotState`] and
     /// reading back only this sampler's unbounded variables gets the same

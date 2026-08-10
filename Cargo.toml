@@ -16,7 +16,7 @@ authors = ["moveit-rs contributors"]
 # One crate tracks a different upstream: cspace-stomp-core ports
 # ros-industrial/stomp @ b1a87c80f7338caae25a5c689b876da15492aa75, the
 # optimizer that moveit2's own moveit_planners/stomp only binds to. It gets
-# its own crate rather than folding into cspace-planners-stomp because every
+# its own crate rather than folding into cspace_planners::stomp because every
 # audit command in this repo counts a crate's symbols against exactly one
 # upstream, and two upstreams in one crate would break that premise.
 #
@@ -57,7 +57,7 @@ linkme = "0.3"
 approx = "0.5"
 rand = { version = "0.10", default-features = false, features = ["std"] }
 rand_chacha = "0.10"
-# For cspace-sampling's standard-normal draws. Upstream CHOMP and STOMP both
+# For cspace_core::sampling's standard-normal draws. Upstream CHOMP and STOMP both
 # use std::normal_distribution; rand itself carries no distributions. Pinned
 # with default-features off to match `rand` above -- verified to resolve to a
 # single rand 0.10.2 with no duplicate, and to compile against rand_chacha.

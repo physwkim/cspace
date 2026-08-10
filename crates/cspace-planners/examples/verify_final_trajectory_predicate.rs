@@ -58,7 +58,7 @@
 //! # Usage
 //!
 //! `cargo run --example verify_final_trajectory_predicate -p
-//! cspace-planners-chomp`, with the `panda cage 250 900002` request JSON
+//! cspace_planners::chomp`, with the `panda cage 250 900002` request JSON
 //! (`plan_benchmark_problem_set cage 250 900002`) on stdin. Reports one line
 //! per target id; ids not present in the input are reported missing rather
 //! than silently skipped.

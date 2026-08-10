@@ -70,7 +70,7 @@
 //! included, effort `0.0`), not per active joint. A caller with a raw URDF
 //! (as this crate's own tests do, via the `urdf-rs` dev-dependency) builds
 //! this the same way upstream's constructor loop does; production
-//! `cspace-state` code carries no `urdf-rs` dependency for it.
+//! `cspace_core::state` code carries no `urdf-rs` dependency for it.
 //!
 //! # Deviation from upstream: `getMaxPayload`'s indexing bug is corrected
 //!

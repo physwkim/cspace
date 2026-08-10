@@ -8,7 +8,7 @@
 
 //! STOMP half of the Phase 8 property instrument: runs
 //! [`cspace_planners::stomp::planner::plan`] over the *same* problem set
-//! `cspace-planners-sbp`'s `plan_benchmark_problem_set` emits for Phase 7,
+//! `cspace_planners::sbp`'s `plan_benchmark_problem_set` emits for Phase 7,
 //! and reports, per problem, exactly the quantities
 //! `tools/ci/measure-phase8-optimizer-properties.sh` gates on.
 //!
@@ -221,7 +221,7 @@ fn state_from_column<'m>(
 /// under `TrajectoryInitialization::LinearInterpolation`, which `plan` sets
 /// unconditionally. Replicated here rather than called because it is not
 /// `pub` -- the same replication, with the same reason, that
-/// `cspace-planners-stomp`'s own `plan_finds_a_lower_cost_trajectory...` test
+/// `cspace_planners::stomp`'s own `plan_finds_a_lower_cost_trajectory...` test
 /// already carries.
 fn linear_interpolation_seed(
     start: &DVector<f64>,

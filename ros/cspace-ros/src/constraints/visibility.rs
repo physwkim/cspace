@@ -364,14 +364,14 @@ mod tests {
 
     #[test]
     fn negative_target_radius_activates_but_negative_angles_stay_inactive() {
-        // `0ca8916` split cspace-constraints's own normalization: negative
+        // `0ca8916` split cspace_planning::constraints's own normalization: negative
         // target_radius activates at its magnitude (kinematic_constraint.cpp:818,
         // fabs() before the >eps gate), while a negative max_view_angle/
         // max_range_angle fails that gate and stays inactive (`:879-880`, no
         // fabs()). This crate's wire mapping passes all three straight
         // through with no `.abs()` anywhere (see `Some(msg.target_radius)`
         // etc. above) -- confirming the asymmetry survives the wire
-        // boundary, not just cspace-constraints's own unit tests.
+        // boundary, not just cspace_planning::constraints's own unit tests.
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.target_radius = -0.5;

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Phase 5's first completion condition, as a command rather than a number in
 # a report: 2,000 generated constraint *combinations* per robot, each
-# decided by `cspace-constraints`' `decide()` and by the C++ oracle's
+# decided by `cspace_planning::constraints`' `decide()` and by the C++ oracle's
 # `kinematic_constraints::KinematicConstraintSet::decide`, compared
 # constraint by constraint (`satisfied` always, `distance` at
 # `--tol-constraints`' 1e-9 default -- except `visibility_cone`'s distance,

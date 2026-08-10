@@ -14,7 +14,7 @@
 //! all use fakes or direct `sample_pose` calls that never exercise that
 //! composition together with a real solve.
 //!
-//! `panda.urdf`/`panda.srdf` (copied from `cspace-state`'s fixtures,
+//! `panda.urdf`/`panda.srdf` (copied from `cspace_core::state`'s fixtures,
 //! already oracle-verified — see
 //! `crates/cspace-core/tests/fixtures/constraints/model/panda_model_info.json`) supply a
 //! real model.

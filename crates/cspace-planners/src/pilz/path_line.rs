@@ -136,7 +136,7 @@ pub(crate) fn kdl_normalize(v: Vector3, eps: f64) -> (Vector3, f64) {
 /// is used here — the same constant upstream's own `GetRotAngle` returns in
 /// this branch (`frames.cpp`'s `Choose 0, 0, 1`) — reused as the interface
 /// fact it is (a numeric constant, not expression; this port's own
-/// `cspace-scene`-style bucket-3 classification), not a restatement of
+/// `cspace_planning::scene`-style bucket-3 classification), not a restatement of
 /// upstream's derivation. This does not change any observable output of
 /// this crate's callers at any tolerance they check: [`PathLine::new`]'s
 /// `scale_rot` is itself `0.0` whenever `angle == 0`, so [`PathLine::pos`]'s

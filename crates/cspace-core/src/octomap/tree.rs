@@ -90,7 +90,7 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// 41 symbol groups" table) classified by "symbol group", a grouping rule
 /// stated nowhere and not reproducible by inspection -- round 16's brief
 /// rejected it on exactly that ground. This section replaces it with the
-/// format `cspace-scene`'s `planning_scene.hpp` audit uses (commit
+/// format `cspace_planning::scene`'s `planning_scene.hpp` audit uses (commit
 /// `943e909`): one bullet per literal `public:` declaration pulled from the
 /// header text itself, not a paraphrase.
 ///
@@ -176,7 +176,7 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// - `OcTree(std::string filename)` -- distinct (binary-file-backed
 ///   constructor; this crate ports no file/stream IO at all, see `IO`
 ///   below). Not D1: a prior version of this bullet claimed octrees enter
-///   this workspace "only via ROS messages", but `cspace-scene`'s
+///   this workspace "only via ROS messages", but `cspace_planning::scene`'s
 ///   `PlanningScene::process_octomap_ptr` (`crates/cspace-planning/src/scene/scene.rs`)
 ///   takes a plain, message-free [`OcTree`] parameter directly -- the real
 ///   reason this constructor is unported is narrower and unrelated to D1:
@@ -597,7 +597,7 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// **Total, by `rg -c '^/// - \`' crates/cspace-core/src/octomap/tree.rs`
 /// (every such bullet in the file is inside this audit, so the plain
 /// per-file count is exact, no line range needed):** **159** bullets --
-/// the same unit `cspace-scene`'s `planning_scene.hpp` audit counts by (a
+/// the same unit `cspace_planning::scene`'s `planning_scene.hpp` audit counts by (a
 /// bullet sometimes names more than one C++ declaration when they share
 /// one classification and reason, e.g. the three finest-depth `coordToKey`
 /// overloads under one `ported, fused` bullet -- exactly how that audit's

@@ -61,7 +61,7 @@ impl ButterworthFilter {
     /// a non-finite feedback term, a non-finite scale term, a coefficient
     /// `< 1.0` (which makes the filter unstable), or a feedback term within
     /// [`EPSILON`] of zero. Upstream throws from the constructor; this port
-    /// returns `Result` instead, matching this workspace's `cspace-error`
+    /// returns `Result` instead, matching this workspace's `cspace_core::error`
     /// convention (see that crate's "Deviation from upstream" note).
     pub fn new(low_pass_filter_coeff: f64) -> Result<Self> {
         let scale_term = 1.0 / (1.0 + low_pass_filter_coeff);

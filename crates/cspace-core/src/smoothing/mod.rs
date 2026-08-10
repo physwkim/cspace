@@ -61,7 +61,7 @@
 //!
 //! This section is a check, not a claim: it names exactly what "done" means
 //! for this crate's current scope, so plan and code can be compared directly
-//! instead of re-diverging silently (the pattern `cspace-distance-field`'s
+//! instead of re-diverging silently (the pattern `cspace_collision::distance_field`'s
 //! own "Completion condition" section established, after PORTING-PLAN.md
 //! §65/§71 caught a plan claim nobody could verify against the code).
 //!
@@ -74,7 +74,7 @@
 //!   for the per-symbol table (headers and `.cpp` files audited together
 //!   there, since every class this package declares is declared in its
 //!   header and defined in the matching `.cpp`, unlike
-//!   `cspace-trajectory`'s `time_optimal_trajectory_generation.cpp`, which
+//!   `cspace_core::trajectory`'s `time_optimal_trajectory_generation.cpp`, which
 //!   has two classes with no header declaration at all).
 //!
 //! Every symbol in all four files is classified above as ported (with its

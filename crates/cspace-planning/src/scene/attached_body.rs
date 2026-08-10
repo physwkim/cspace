@@ -158,7 +158,7 @@ impl AttachedBody {
     ///
     /// That difference is reachable here, and is in fact systematic for any
     /// body that has ever been distance-field decomposed:
-    /// `cspace-distance-field`'s process-wide body-decomposition cache
+    /// `cspace_collision::distance_field`'s process-wide body-decomposition cache
     /// stores an `Arc::downgrade(shape)` beside every entry
     /// (`crates/cspace-collision/src/distance_field/collision_common_distance_field.rs:511`)
     /// and never evicts, and attached-body shapes reach it through that

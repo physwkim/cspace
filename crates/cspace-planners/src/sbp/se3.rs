@@ -34,7 +34,7 @@ fn quat_dot(a: &Quat, b: &Quat) -> f64 {
 ///
 /// Resetting to identity rather than erroring matches this port's existing
 /// rule for the same input, `FloatingJointModel::normalizeRotation`
-/// (`cspace-model`'s `joint::floating::normalize_rotation`), which upstream
+/// (`cspace_core::model`'s `joint::floating::normalize_rotation`), which upstream
 /// also resets to identity below its own near-zero threshold.
 fn quat_normalize(q: Quat) -> Quat {
     let norm = quat_dot(&q, &q).sqrt();

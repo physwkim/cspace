@@ -137,7 +137,7 @@ const GAP_NOISE_FLOOR: f64 = 1e-9;
 // already does, and for the same reason -- see that file's own module doc:
 // `moveit-diff` is a `[[bin]]`-only crate with no library target this crate
 // could depend on, and `cspace-collision` cannot depend on
-// `cspace-constraints` either, since the dependency edge runs the other
+// `cspace_planning::constraints` either, since the dependency edge runs the other
 // way). Only the ops/results this binary actually uses. ---
 
 #[derive(Serialize)]
@@ -345,7 +345,7 @@ fn cylinder_link_names(model: &RobotModel) -> Vec<String> {
 
 /// `VisibilityConstraint::cone_mesh`'s exact vertex/triangle formula --
 /// reproduced here for the same reason `case104_mpr_input.rs` reproduces
-/// it (that file's own module doc): `cspace-constraints` depends on this
+/// it (that file's own module doc): `cspace_planning::constraints` depends on this
 /// crate, not the other way around.
 fn cone_mesh_world(
     world_to_sensor: &Isometry3,

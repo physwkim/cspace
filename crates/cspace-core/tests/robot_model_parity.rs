@@ -267,7 +267,7 @@ fn build_model_with_urdf(urdf_file: &str, srdf_file: &str) -> (RobotModel, urdf_
 /// [`build_model_with_urdf`] passes [`MeshSearchPaths::none`] -- this test's
 /// job is model *structure* (names, frames, groups, ordering), which is
 /// orthogonal to whether a `<mesh>` element actually resolves to geometry;
-/// mesh resolution itself is covered by `cspace-model`'s own
+/// mesh resolution itself is covered by `cspace_core::model`'s own
 /// `mesh_search_paths` and `robot_model` unit tests and by
 /// `cspace-collision`'s parity tests, against real search paths. So every
 /// `<mesh>` element here is expected to report the fixed "no mesh search

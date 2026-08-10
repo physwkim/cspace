@@ -27,7 +27,7 @@
 //! A previous round of this file's own doc comment recorded
 //! `DistanceFieldCacheEntry::link_names_` (upstream
 //! `getUpdatedLinkModelNames`) as a blocking dependency gap in
-//! `cspace-model`. That gap is closed --
+//! `cspace_core::model`. That gap is closed --
 //! [`cspace_core::model::JointModelGroup::updated_link_names`]/
 //! [`cspace_core::model::JointModelGroup::updated_link_with_geometry_names`] now
 //! exist, oracle-verified -- which unblocks
@@ -45,11 +45,11 @@
 //! `AllowedCollisionMatrix` (already available), so both are free functions
 //! here rather than methods needing that type's cache field or
 //! construction-time state. `p1-fixtures` has since landed
-//! `cspace-scene::AttachedBody`, but it remains unreachable from here: it is
+//! `cspace_planning::scene::AttachedBody`, but it remains unreachable from here: it is
 //! tracked on `cspace_planning::scene::PlanningScene`, not on `cspace_core::state::RobotState`
 //! (that crate's own doc still lists "no attached bodies" under deferred
 //! scope, deliberately, so `PlanningScene` stays the sole owner -- see
-//! `cspace-scene`'s `attached_body` module doc), and
+//! `cspace_planning::scene`'s `attached_body` module doc), and
 //! [`generate_distance_field_cache_entry`] takes a bare `RobotState`, not a
 //! `PlanningScene`.
 //!

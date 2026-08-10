@@ -20,7 +20,7 @@
 //! [`se3::Se3Space`] (a floating joint's `R^3 x SO(3)`), and
 //! [`compound::CompoundSpace`] (a `JointModelGroup`'s heterogeneous product
 //! of any of the above, weighted). All four were first tested standalone
-//! with no dependency on `cspace-model` or `cspace-state`;
+//! with no dependency on `cspace_core::model` or `cspace_core::state`;
 //! [`joint_model_group_space::JointModelGroupSpace`] is the bridge from an
 //! actual `RobotModel`/`JointModelGroup` to a [`StateSpace`], and is what
 //! brings those two crates in as dependencies.
@@ -91,7 +91,7 @@
 //! the audit down the file, so the number it vouched for was unreproducible
 //! by its own command.
 //!
-//! **Tests.** `cargo nextest run -p cspace-planners-sbp --no-fail-fast`:
+//! **Tests.** `cargo nextest run -p cspace-planners --no-fail-fast`:
 //! **112** tests, 112 passed, `0.89s`. Re-measured here rather than carried
 //! forward: this read **110** before D8, which added two — the
 //! all-empty-goal-list rejection and the any-of ordering rule, both
@@ -154,7 +154,7 @@
 //! This is the number condition 1 (success rate ≥90% of this) and condition
 //! 3 (port median length within 1.3x of this `2.6598`) will be compared
 //! against once a port-side measurement exists. Condition 2 (100% of
-//! produced paths pass `cspace-scene`'s collision/constraint checks) needs
+//! produced paths pass `cspace_planning::scene`'s collision/constraint checks) needs
 //! no C++ baseline at all — it is scored purely against the port's own
 //! output — and is untouched by this round.
 //!
@@ -206,7 +206,7 @@
 //!
 //! ```text
 //! cargo build --release --example plan_benchmark_problem_set \
-//!   --example plan_benchmark_port -p cspace-planners-sbp
+//!   --example plan_benchmark_port -p cspace-planners
 //! ./target/release/examples/plan_benchmark_problem_set floor_wall 250 900001 \
 //!   > /tmp/floor_wall.json
 //! ./target/release/examples/plan_benchmark_problem_set cage 250 900002 \
@@ -235,7 +235,7 @@
 //! - Condition 1 (success rate ≥90% of C++'s): 90% of C++'s `99.6%` is
 //!   `89.64%`; the port's `99.8%` clears it (and exceeds C++'s own raw rate)
 //!   — **pass**.
-//! - Condition 2 (100% of produced paths pass `cspace-scene`'s checks):
+//! - Condition 2 (100% of produced paths pass `cspace_planning::scene`'s checks):
 //!   `499/499` — **pass**.
 //! - Condition 3 (median length within 1.3x of C++'s): `1.3 * 2.6598 =
 //!   3.4577`; the port's `2.7085` is a `1.018x` ratio — **pass**.
@@ -277,8 +277,8 @@
 //! `tests/plan_space_parity.rs`'s `distance_probes` check, uses bit-exact
 //! `assert_eq!`, not a tolerance, so the noisy-parser floor `70a6b31` fixed
 //! was never a floor this crate's tolerances could have been bisected
-//! against in the first place. Matching `cspace-constraints`'s own survey
-//! (`a4c6fc6`) and `cspace-geometry`/`cspace-octomap`'s (`d239666`): none
+//! against in the first place. Matching `cspace_planning::constraints`'s own survey
+//! (`a4c6fc6`) and `cspace_core::geometry`/`cspace_core::octomap`'s (`d239666`): none
 //! affected here either.
 //!
 //! # Round 6 symbol audit
@@ -355,7 +355,7 @@ pub use nn::Gnat;
 pub use planning_scene_validity::PlanningSceneValidityChecker;
 // `PlannerManager`/`PlanningContext`/`PlanningRequest`/`PlanningResponse`
 // are `cspace-planning`'s and `PlannerRegistration`/`PLANNER_MANAGERS` are
-// `cspace-planner-registry`'s; this crate implements and registers, it does
+// `cspace_planning::planner_registry`'s; this crate implements and registers, it does
 // not re-export them (D8/§140 -- the duplicate set that used to live here is
 // exactly the defect that split removed).
 pub use registry::{PlanError, RrtConnectManager};

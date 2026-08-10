@@ -18,7 +18,7 @@
 # The headroom this comment used to quote -- "a little over 10x the slowest
 # test (28.9s)" -- was measured before `e733f19` gave the workspace a
 # `[profile.dev]`; the slowest test is now
-# `cspace-distance-field::collision_env_distance_field_parity::group_state_representation_gradients_matches_the_oracle`
+# `cspace_collision::distance_field::collision_env_distance_field_parity::group_state_representation_gradients_matches_the_oracle`
 # at 1.713s, so the same 300s is ~175x. A ratio that moves 17x on a profile
 # change is not what sizes this bound and should not be read as if it were.
 # What has to hold is only the two-sided condition: 300s is far above any

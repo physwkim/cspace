@@ -24,9 +24,9 @@ use std::collections::{BTreeMap, HashMap};
 /// Upstream's type also carries `common_root_` (this group's own cached
 /// common-root joint, for `RobotState` FK optimisation) and the kinematics
 /// solver plumbing (`group_kinematics_`). Neither is read by this crate's
-/// own done-criteria; `common_root_` belongs to `cspace-state` (Phase 2, and
+/// own done-criteria; `common_root_` belongs to `cspace_core::state` (Phase 2, and
 /// even there only as a general two-joint query, not a per-group cache — see
-/// below), and the solver plumbing to `cspace-kinematics` (Phase 4).
+/// below), and the solver plumbing to `cspace_core::kinematics` (Phase 4).
 /// `PORTING-PLAN.md` Phase 1 scopes this crate to "JointModelGroup, 서브그룹,
 /// KinematicChain 해석" (subgroups, kinematic-chain resolution) — both of
 /// which this type does carry: [`JointModelGroup::subgroup_names`], the
@@ -35,8 +35,8 @@ use std::collections::{BTreeMap, HashMap};
 /// `updated_link_model_*` (`updated_link_names`/
 /// `updated_link_with_geometry_names` and their `_indices` counterparts,
 /// which links move when this group's state changes) *are* now carried too
-/// — `cspace-distance-field` (Phase 3) is where they are actually needed,
-/// see `cspace-distance-field`'s own `collision_env_distance_field` module
+/// — `cspace_collision::distance_field` (Phase 3) is where they are actually needed,
+/// see `cspace_collision::distance_field`'s own `collision_env_distance_field` module
 /// doc — computed the same way as `is_chain`, in a pass over the
 /// fully-built [`crate::model::robot_model::RobotModel`] rather than in a
 /// constructor, since both need the whole tree in place first. (The

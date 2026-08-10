@@ -1742,7 +1742,7 @@ fn pose_row_major(translation: Vector3, rotation: UnitQuaternion) -> [f64; 16] {
 }
 
 /// Whether `cspace-collision`'s parry backend can represent this shape at
-/// all -- excludes `Mesh` (never retained by `cspace-model`'s URDF loader in
+/// all -- excludes `Mesh` (never retained by `cspace_core::model`'s URDF loader in
 /// the first place, so never reachable from a `RobotModel`'s links, but
 /// checked here too for robustness) and `OcTree` (this port's `OcTree`
 /// carries no tree payload, see `cspace-collision`'s `parry.rs` module doc,
@@ -1798,7 +1798,7 @@ fn parry_representable_link_names(model: &RobotModel) -> Vec<&str> {
 /// # The `target_radius` case is fixture-aware about where it can place the cone
 ///
 /// `panda.urdf`/`fanuc.urdf`/`dual_arm_panda.urdf`'s `<collision>` geometry
-/// is entirely `<mesh>` (STL); `cspace-model`'s URDF loader does not retain
+/// is entirely `<mesh>` (STL); `cspace_core::model`'s URDF loader does not retain
 /// mesh collision geometry at all (see `cspace-collision`'s `parry.rs`
 /// module doc), so a `RobotModel` built from any of them has *zero*
 /// parry-representable collision geometry -- the port can never detect a
@@ -1813,7 +1813,7 @@ fn parry_representable_link_names(model: &RobotModel) -> Vec<&str> {
 ///
 /// `pr2.urdf` is different: `parry_representable_link_names` finds 17 links
 /// whose collision geometry is a primitive (5 box, 8 cylinder, 4 sphere) --
-/// `cspace-model`'s loader retains those, so both the port and the oracle's
+/// `cspace_core::model`'s loader retains those, so both the port and the oracle's
 /// FCL backend see the same geometry there. Whenever the model has such a
 /// link, half of this shape's occurrences (`(case / SHAPE_CYCLE) % 2 == 0`) place the
 /// target exactly at one such link's global collision-shape center (cycling
@@ -3998,7 +3998,7 @@ mod distance_pair_tests {
 /// Round-15 Task 1: pr2's `visibility_cone` distance mismatch (115/2201,
 /// `PORTING-PLAN.md` §37/§38.3/§75.4; re-measured this round, still 115/2201
 /// against the current oracle stamp) is **neither a case-generation bug in
-/// this crate nor a `decide_cone` judgment bug in `cspace-constraints`.**
+/// this crate nor a `decide_cone` judgment bug in `cspace_planning::constraints`.**
 /// Both were suspects; both are cleared by direct comparison below. It is
 /// `cspace-collision`'s already-documented, already-accepted "deviation 6"
 /// (`crates/cspace-collision/src/parry.rs`'s module doc, presentations
@@ -4041,7 +4041,7 @@ mod distance_pair_tests {
 ///    `CollisionRequest::default()`'s `pad_environment_collisions: true`;
 ///    that field is gone from the port, and `decide`'s own `CollisionEnvFCL`
 ///    never read it.) **Rejected**: nothing in `tools/moveit-diff` or
-///    `cspace-constraints` differs from upstream anywhere in this chain.
+///    `cspace_planning::constraints` differs from upstream anywhere in this chain.
 ///
 /// With both cleared, a live sweep (seed 4, `--cases 100 --group right_arm
 /// --constraints 2000`, matching `PORTING-PLAN.md` §37/§38.3's own
@@ -4070,7 +4070,7 @@ mod distance_pair_tests {
 /// Both presentations (a large magnitude gap tied to real shape geometry,
 /// and a sign flip at a near-zero depth) are exactly what "two independent
 /// approximations of an ill-posed quantity" produces, and neither traces to
-/// a formula this crate or `cspace-constraints` controls -- both chains were
+/// a formula this crate or `cspace_planning::constraints` controls -- both chains were
 /// verified bit-identical to upstream above. This round's brief's premise
 /// (p3-acm excluded `cspace-collision` from scope, leaving only
 /// case-generation or judgment as the two candidates) does not hold up
@@ -4091,7 +4091,7 @@ mod visibility_cone_ambiguity_diagnostic {
     /// A read-only copy of `VisibilityConstraint::cone_mesh`'s triangulation
     /// (`cspace-constraints/src/visibility.rs:311-350`, private to that
     /// crate) -- reproduced here only to diagnose the scene this generator
-    /// hands it, not called into cspace-constraints.
+    /// hands it, not called into cspace_planning::constraints.
     fn cone_mesh(
         world_to_sensor: Isometry3,
         world_to_target: Isometry3,

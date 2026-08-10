@@ -45,7 +45,7 @@
 //! algorithm exists independent of that ROS mechanism
 //! (`collision_plugin_cache.cpp:37-38`). `CollisionPlugin::initialize` also
 //! takes a `planning_scene::PlanningScenePtr` (`collision_plugin.hpp:93`);
-//! `PlanningScene` lives in `cspace-scene`, which already depends on
+//! `PlanningScene` lives in `cspace_planning::scene`, which already depends on
 //! `cspace-collision`, so accepting it here would be a circular crate
 //! dependency regardless of the pluginlib question. This expires only if some
 //! other worker builds a non-ROS pluggable-backend mechanism directly against
@@ -63,7 +63,7 @@
 //! `moveit_ros/{occupancy_map_monitor,perception/lazy_free_space_updater,
 //! planning/planning_scene_monitor}` — none of them collision-detection code.
 //! A thread-safe octree wrapper with no collision-detection-specific logic
-//! belongs with `cspace-octomap` (owned by p3-shapes) or `cspace-planning-
+//! belongs with `cspace_core::octomap` (owned by p3-shapes) or `cspace-planning-
 //! scene`, not here; it is out of this crate's scope by directory ownership,
 //! not by portability.
 //!

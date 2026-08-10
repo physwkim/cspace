@@ -354,7 +354,7 @@ mod tests {
 
     /// Every group this module's tests exercise, one per row: `(urdf file,
     /// srdf file, group name)`, all under the repo-root `fixtures/`
-    /// directory (the same fixtures `cspace-model`'s parity tests use).
+    /// directory (the same fixtures `cspace_core::model`'s parity tests use).
     ///
     /// Coverage by joint kind: `panda_arm`/`manipulator`/
     /// `{left,right}_panda_arm` are bounded-revolute-only; PR2's `right_arm`
@@ -492,7 +492,7 @@ mod tests {
 
         // (lower, upper) transcribed from fixtures/panda.urdf's
         // panda_joint1..7 <safety_controller soft_lower_limit=""
-        // soft_upper_limit=""> elements -- cspace-model's URDF loader
+        // soft_upper_limit=""> elements -- cspace_core::model's URDF loader
         // builds `VariableBounds` from those, not from <limit>, matching
         // upstream `RobotModel::computeVariableBoundsMsg`'s safety-limit
         // preference -- in `panda_arm`'s own joint order.

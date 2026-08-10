@@ -23,18 +23,18 @@
 //! # Where this lives, and why not next to `RobotState`
 //!
 //! Upstream `setFromIK` is a `RobotState` method. Here it cannot be: it needs
-//! [`KinematicsSolver`], and `cspace-state` -> `cspace-kinematics` is a Cargo
-//! cycle (`cspace-kinematics` already depends on `cspace-state`, see this
-//! crate's `Cargo.toml`). So it is a free function in `cspace-kinematics`
+//! [`KinematicsSolver`], and `cspace_core::state` -> `cspace_core::kinematics` is a Cargo
+//! cycle (`cspace_core::kinematics` already depends on `cspace_core::state`, see this
+//! crate's `Cargo.toml`). So it is a free function in `cspace_core::kinematics`
 //! taking `&mut RobotState`, over the edge that already exists — the same
 //! placement, and the same reason, as [`crate::kinematics::CartesianInterpolator`]. No
 //! new crate edge is added by this module.
 //!
 //! Attached bodies are the one thing that placement cannot reach directly:
-//! this workspace keeps them on `cspace-scene`'s `PlanningScene`, not on
+//! this workspace keeps them on `cspace_planning::scene`'s `PlanningScene`, not on
 //! `RobotState` (see that crate's `attached_body` module doc), and
-//! `cspace-scene` depends on `cspace-kinematics` transitively through
-//! `cspace-constraints`, so a `cspace-kinematics` -> `cspace-scene` edge
+//! `cspace_planning::scene` depends on `cspace_core::kinematics` transitively through
+//! `cspace_planning::constraints`, so a `cspace_core::kinematics` -> `cspace_planning::scene` edge
 //! would be a cycle too. [`AttachedFrames`] is how the caller injects them
 //! instead: a one-method trait this module calls, implemented by whichever
 //! crate holds both halves. [`NoAttachedFrames`] is the "the robot is
@@ -140,15 +140,15 @@ pub struct AttachedFrame<'a> {
     pub link_pose_frame: Isometry3,
 }
 
-/// The part of `RobotState`'s frame resolution that lives on `cspace-scene`
+/// The part of `RobotState`'s frame resolution that lives on `cspace_planning::scene`
 /// in this workspace, injected rather than depended on.
 ///
 /// Upstream `RobotState` answers `getLinkModelIncludingAttachedBodies` and
 /// the attached-body tiers of `getFrameTransform` from its own
 /// `attached_body_map_`. Here those live on `PlanningScene`, one layer up
-/// (see `cspace-scene`'s `attached_body` module doc), and a
-/// `cspace-kinematics` -> `cspace-scene` dependency would close a cycle
-/// through `cspace-constraints`. Implement this on whatever type does hold
+/// (see `cspace_planning::scene`'s `attached_body` module doc), and a
+/// `cspace_core::kinematics` -> `cspace_planning::scene` dependency would close a cycle
+/// through `cspace_planning::constraints`. Implement this on whatever type does hold
 /// them, or pass [`NoAttachedFrames`].
 pub trait AttachedFrames {
     /// `getAttachedBody(frame)`/`hasSubframeTransform(frame)` collapsed into
@@ -278,7 +278,7 @@ fn rigid_parent_link(
 }
 
 /// `RobotState::getFrameTransform(frame)` across both tiers: the model frame
-/// and links from `cspace-state`, attached bodies and their subframes from
+/// and links from `cspace_core::state`, attached bodies and their subframes from
 /// `attached`. Links are tried first, the same order
 /// [`rigid_parent_link`] uses, so the two cannot resolve one name to
 /// different things.

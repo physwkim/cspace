@@ -360,7 +360,7 @@ mod tests {
     /// 100s under the workspace's then-`opt-level = 0` dev profile.
     /// `e733f19` raised the workspace dev profile to `opt-level = 1`;
     /// under that profile this test's full `1..=200` contiguous body
-    /// measures `0.7s` (`cargo nextest run -p cspace-planners-stomp --
+    /// measures `0.7s` (`cargo nextest run -p cspace-planners --
     /// num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`),
     /// the single slowest test in this crate but not by a margin that
     /// matters -- the reason for sampling instead of a full sweep no

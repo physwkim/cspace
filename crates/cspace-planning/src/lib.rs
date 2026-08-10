@@ -26,12 +26,12 @@
 //! workspace should eventually speak, and the default request/response
 //! adapter chain moveit2 runs around a planner's own `solve()` call —
 //! before this round, neither existed anywhere in this workspace (only
-//! `cspace-planners-sbp`, one concrete planner with its own
+//! `cspace_planners::sbp`, one concrete planner with its own
 //! planner-specific request type, did).
 //!
 //! # These types are the only ones a planner speaks (D8)
 //!
-//! `cspace-planners-sbp::registry` used to define a second, unrelated
+//! `cspace_planners::sbp::registry` used to define a second, unrelated
 //! `PlanningRequest`/`PlanningResponse`/`PlanningContext`/`PlannerManager`
 //! set that shared only *names* with these. Architecturally that was
 //! backwards — a *planner* crate should depend on the planning-request
@@ -40,7 +40,7 @@
 //! no planner to call at all. PORTING-PLAN.md D8 removed the duplicate set;
 //! [`crate::planner::PlannerManager`]/[`crate::planner::PlanningContext`]
 //! here are the ones `RrtConnectManager` implements, and
-//! `cspace-planner-registry` is where a manager is looked up by name.
+//! `cspace_planning::planner_registry` is where a manager is looked up by name.
 //!
 //! Two shape differences from sbp's deleted types survived the merge, in
 //! this crate's favour, because each is what the adapters actually need to
@@ -90,9 +90,9 @@
 //! `RrtConnectManager` is a struct carrying `resolution`/`seed`/`params`/
 //! `solver`, and [`PlanningRequest`] carries none of them.
 //!
-//! # `cspace-constraints`'s sampler now has somewhere to hand its output
+//! # `cspace_planning::constraints`'s sampler now has somewhere to hand its output
 //!
-//! `cspace-planners-sbp::registry`'s own module doc (as of round 14) already
+//! `cspace_planners::sbp::registry`'s own module doc (as of round 14) already
 //! corrected an older claim that `constraint_samplers` was never ported —
 //! it has been: [`crate::constraints::ConstraintSampler`]/
 //! [`crate::constraints::JointConstraintSampler`]/
@@ -102,19 +102,19 @@
 //! (`cspace-constraints/src/ik_sampler.rs`), and
 //! [`crate::constraints::select_default_sampler`]
 //! (`cspace-constraints/src/constraint_sampler_manager.rs`) all exist and
-//! `cspace-constraints` depends on `cspace-kinematics` to run IK-backed
+//! `cspace_planning::constraints` depends on `cspace_core::kinematics` to run IK-backed
 //! sampling. Checked directly for this round (not assumed from that note
 //! still being accurate): `crates/cspace-planning/src/constraints/` does contain all
 //! three files, confirming the port itself is real.
 //!
-//! Rounds 20-25 wired it, inside `cspace-planners-sbp::registry`:
+//! Rounds 20-25 wired it, inside `cspace_planners::sbp::registry`:
 //! `RrtConnectContext::solve` calls
 //! [`crate::constraints::select_default_sampler`] once per goal set and once
 //! for `path_constraints`, and D8 pointed those calls at
 //! [`PlanningRequest::goal_constraints`] — this crate's own field — rather
 //! than at sbp's deleted `Goal` enum. So the answer to "can a caller of this
 //! crate express a pose (position/orientation) goal?" is now yes, through
-//! `cspace-planner-registry` to `RrtConnectManager`, with the constraint
+//! `cspace_planning::planner_registry` to `RrtConnectManager`, with the constraint
 //! sampler turning the region into candidate states.
 //!
 //! What that answer is still bounded by is `rrt_connect` itself: the goal
@@ -123,7 +123,7 @@
 //! `ConstrainedGoalSampler` keeps producing new goal states for the whole
 //! duration of the search. A goal whose sampled state is unreachable
 //! therefore fails even when another state in the same region would have
-//! been reachable. See `cspace-planners-sbp::registry`'s own module doc for
+//! been reachable. See `cspace_planners::sbp::registry`'s own module doc for
 //! that gap.
 //!
 //! # Upstream inventory: every adapter file at the pinned commit, accounted for
@@ -285,7 +285,7 @@
 //! the top-level pure-Rust one, so the "plan without ROS" entry point lives
 //! here. The capability already existed —
 //! `cspace-planners-sbp/examples/plan_benchmark_problem_set.rs` and
-//! `cspace-planners-sbp::registry`'s own
+//! `cspace_planners::sbp::registry`'s own
 //! `end_to_end_solve_on_panda_arm_reaches_the_requested_goal` test both run
 //! URDF/SRDF → [`cspace_core::model::RobotModel`] → [`crate::scene::PlanningScene`]
 //! → [`cspace_collision::ParryCollisionEnv`] → RRT-Connect with no ROS
@@ -299,8 +299,8 @@
 //! crate's own [`PlanningRequest`]/[`PlanningResponse`], selects the planner
 //! by name out of `crate::planner_registry::PLANNER_MANAGERS`, and runs it
 //! through [`crate::pipeline::generate_plan`] — the same three steps
-//! `ros/cspace-ros`'s `/move_action` takes. `cspace-planners-sbp` and
-//! `cspace-planner-registry` are dev-dependencies of this crate, for this
+//! `ros/cspace-ros`'s `/move_action` takes. `cspace_planners::sbp` and
+//! `cspace_planning::planner_registry` are dev-dependencies of this crate, for this
 //! doctest only; nothing in the library above knows either exists, and the
 //! planner is reached entirely through [`crate::planner::PlannerManager`].
 //!
@@ -459,7 +459,7 @@ pub trait PlanningResponseAdapter {
 /// (`planning_pipeline.cpp`), minus the parts of that loop D1 already
 /// excludes (publishing a `moveit_msgs::msg::MotionPlanRequest` display
 /// event) or this round's scope does not reach (the terminal call into a
-/// `cspace-planners-sbp`-style `PlannerManager` itself, which stays a
+/// `cspace_planners::sbp`-style `PlannerManager` itself, which stays a
 /// separate step a caller takes after this function returns `Ok`).
 pub fn run_request_adapters<'m>(
     chain: &[Box<dyn PlanningRequestAdapter>],

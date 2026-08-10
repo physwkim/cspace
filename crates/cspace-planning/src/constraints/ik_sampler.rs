@@ -75,10 +75,10 @@ pub struct IkSamplingPose {
 /// `loadIKSolver` falls back to `LinkModel::getAssociatedFixedTransforms()`
 /// when the constrained link is not the solver's own tip link but is
 /// rigidly attached to it, storing `eef_to_ik_tip_transform_` to bridge the
-/// two. `cspace-model`'s `LinkModel` does not carry that accessor at all
+/// two. `cspace_core::model`'s `LinkModel` does not carry that accessor at all
 /// (`link_model.rs`'s own doc comment: it "serve\[s\] the collision backend
 /// ... rather than anything this phase's done-criteria read", and
-/// `cspace-model` is out of scope this round). [`IkConstraintSampler::new`]
+/// `cspace_core::model` is out of scope this round). [`IkConstraintSampler::new`]
 /// requires an exact match between the solver's tip frame and the
 /// constrained link instead of silently falling back, and reports the
 /// narrower case as [`Error::Construct`] rather than a bridgeable gap.
@@ -86,7 +86,7 @@ pub struct IkSamplingPose {
 /// # Deviation from upstream: no `ik_timeout_`
 ///
 /// `getIKTimeout`/`setIKTimeout`/`ik_timeout_` are dropped entirely, not
-/// renamed: `cspace-kinematics::KinematicsSolver::solve_with_options` takes
+/// renamed: `cspace_core::kinematics::KinematicsSolver::solve_with_options` takes
 /// no timeout at all (see its own doc comment) — the timeout concept is
 /// fully replaced by `SolverParams::max_restarts`, which is configured once
 /// on the solver itself, outside this sampler's control.
@@ -506,7 +506,7 @@ impl IkConstraintSampler {
 /// `random_numbers.h` declares the method with no body, and no
 /// `random_numbers.cpp` exists anywhere in the image either — confirmed by
 /// searching both per this repo's mandatory "search the oracle before
-/// concluding a reference is absent" rule). `cspace-state::RobotState`'s
+/// concluding a reference is absent" rule). `cspace_core::state::RobotState`'s
 /// private `sample_unit_quaternion` (used for floating-joint random
 /// positions) already ports the identical upstream call the same way, for
 /// the same reason; this is an independent transcription of the same

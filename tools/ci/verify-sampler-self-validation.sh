@@ -1,6 +1,6 @@
 #!/bin/bash
 # Phase 5's second completion condition, as a command: 10,000 states drawn
-# from `cspace-constraints`' samplers, each fed back through the `decide()`
+# from `cspace_planning::constraints`' samplers, each fed back through the `decide()`
 # of the constraints its sampler was configured from.
 #
 # The measurement itself is
@@ -41,7 +41,7 @@ cd "$REPO_ROOT"
 # what keeps the table interleaved with the verdict rather than buffered
 # behind it.
 exec cargo nextest run \
-  -p cspace-constraints \
+  -p cspace-planning \
   --run-ignored all \
   --no-capture \
   -E 'test(every_sampled_state_satisfies_its_own_constraints)'

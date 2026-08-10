@@ -39,7 +39,7 @@
 //! [`compute_time_stamps`] (the scaling-only overload) could not succeed
 //! against any fixture in this workspace for two rounds, because:
 //!
-//! 1. `cspace-model`'s URDF loader never sets `acceleration_bounded`.
+//! 1. `cspace_core::model`'s URDF loader never sets `acceleration_bounded`.
 //!    `crates/cspace-core/src/model/joint/urdf.rs`'s `joint_bounds_from_urdf`
 //!    (the sole 1-DOF-joint bounds constructor) reads only `joint.limit.
 //!    velocity`; nothing in that crate ever touches `max_acceleration`/
@@ -49,7 +49,7 @@
 //!    an acceleration limit from a URDF `<limit>` element, because URDF's
 //!    schema has no such field. Not a defect, not this crate's — still
 //!    true today, and not what closed the gap.
-//! 2. Until it landed, nothing outside `cspace-model` could set
+//! 2. Until it landed, nothing outside `cspace_core::model` could set
 //!    `acceleration_bounded` programmatically either.
 //!    `JointModel::set_variable_bounds_from_limits` (`model.rs`, public)
 //!    could do it, but nothing handed out a `&mut JointModel` to reach it
@@ -65,7 +65,7 @@
 //! post-construction (`joint_model.hpp:356/359`), since URDF and
 //! `joint_limits.yaml` are two different bound sources upstream, merged
 //! after model load rather than in one constructor call. Landed in
-//! `cspace-model` (out of this crate's ownership); this crate's own change
+//! `cspace_core::model` (out of this crate's ownership); this crate's own change
 //! was the test, not the accessor.
 //!
 //! `totg_robot_trajectory_scaling_only_parity.rs` now exercises
@@ -83,7 +83,7 @@
 //! same overload; its own test in `trajectory_tools.rs` uses the identical
 //! setup.
 //!
-//! # `dynamics_solver`: ported, in `cspace-state`
+//! # `dynamics_solver`: ported, in `cspace_core::state`
 //!
 //! `velocity_limits`/`acceleration_limits` above (and `oracle.cpp`'s
 //! `"acceleration_bounds"` case field) are caller-supplied: nothing in this
@@ -868,7 +868,7 @@ fn do_time_parameterization_calculations(
     // `resample_dt_is_unreachable_when_waypoints_collapse_to_one_point`'s
     // doc comment). Bite-confirmed: removing
     // `!raw_sample_count.is_finite() ||` here does not turn any test in
-    // this crate's suite red (`cargo nextest run -p cspace-trajectory`,
+    // this crate's suite red (`cargo nextest run -p cspace-core`,
     // 115/115 still pass) — the clause it used to need
     // (`resample_dt_over_a_nan_duration_is_rejected`, since renamed to
     // `resample_dt_over_an_infinite_time_construction_is_rejected`) is now
@@ -1001,7 +1001,7 @@ mod tests {
     /// `JointModel` bounds after construction, rather than depending on the
     /// URDF loader ever setting `acceleration_bounded` (it never does; see
     /// this module's own doc, "`dynamics_solver`: ported, in
-    /// `cspace-state`" section, point 1). Unlike that section's history,
+    /// `cspace_core::state`" section, point 1). Unlike that section's history,
     /// this call site never needed the mutation API to close a gap: it
     /// takes explicit `max_velocity`/`max_acceleration` vectors directly
     /// (`compute_time_stamps_with_limits`) rather than reading them off the

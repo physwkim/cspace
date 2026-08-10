@@ -101,7 +101,7 @@
 //! `ruckig_filter_response.json` has 14 of 987 float literals the
 //! pre-`float_roundtrip` `serde_json` default parser misparsed by 1 ULP
 //! (found with the same standalone, non-workspace checker item 1 of this
-//! round used against `cspace-trajectory`'s fixtures). Re-running the
+//! round used against `cspace_core::trajectory`'s fixtures). Re-running the
 //! max-diff sweep above under the now-fixed parser reproduces `positions`
 //! (`5.55e-17`, case 4 step 13 `panda_joint1`) and `accelerations`
 //! (`2.22e-16`, case 4 step 14 `panda_joint1`, values

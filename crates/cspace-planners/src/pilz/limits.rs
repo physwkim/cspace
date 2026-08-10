@@ -50,7 +50,7 @@
 //!   mirroring [`LimitsContainer::has_joint_limits`]'s shape.
 //! - **`getLimit`/`getCommonLimit(joint_names)`'s `std::out_of_range` becomes
 //!   [`cspace_core::error::Error::UnknownName`].** Matches this crate's house error
-//!   convention; see `cspace-error`.
+//!   convention; see `cspace_core::error`.
 //! - **Lookups are single-pass.** Upstream's `verify*Limit` methods call
 //!   `hasLimit()` then `getLimit()`, walking the map twice; the port uses one
 //!   `BTreeMap::get`. Pure implementation detail, not a behaviour change.

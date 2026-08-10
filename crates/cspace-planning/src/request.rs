@@ -10,16 +10,16 @@
 // `std_msgs::msg::Header`).
 
 //! The canonical planning-request type. See the crate doc comment's
-//! "Deviation from `cspace-planners-sbp::registry`" section for why this
+//! "Deviation from `cspace_planners::sbp::registry`" section for why this
 //! shape, not a transcription of `moveit_msgs::msg::MotionPlanRequest`
-//! (which this crate cannot depend on, D1) nor `cspace-planners-sbp`'s
+//! (which this crate cannot depend on, D1) nor `cspace_planners::sbp`'s
 //! existing `PlanningRequest` (a concrete-state goal with RRT-Connect's own
 //! tuning fields), is the request type the adapters in this crate operate
 //! on.
 //!
 //! # D8 delta audit (round 21): every field of upstream `MotionPlanRequest`
 //!
-//! PORTING-PLAN.md §140 confirmed the deeper reason `cspace-planners-sbp`'s
+//! PORTING-PLAN.md §140 confirmed the deeper reason `cspace_planners::sbp`'s
 //! own `PlanningRequest`/`PlanningResponse` cannot simply relocate onto
 //! these types: the two pairs disagree in shape, not just name. This section
 //! is the field-by-field accounting D8 needs before that unification.
@@ -69,7 +69,7 @@
 //! - `num_planning_attempts` (`int32`) — unported, in scope: not read by
 //!   `planning_pipeline.cpp` itself (confirmed by the same `rg` above);
 //!   consumed downstream by a `PlannerManager`'s own retry loop, which is
-//!   `cspace-planner-registry`'s concern once D8 lands, not this crate's.
+//!   `cspace_planning::planner_registry`'s concern once D8 lands, not this crate's.
 //! - `allowed_planning_time` (`float64`) — unported, in scope: same —
 //!   consumed by `PlanningContext::solve`'s own timeout, not by
 //!   `planning_pipeline.cpp` or any adapter here.
@@ -111,9 +111,9 @@
 //! `*_boundaries_are_not_observable_on_the_core_request` tests in
 //! `ros/cspace-ros/src/planning.rs`.
 //!
-//! # D8 delta audit: `cspace-planners-sbp::registry::PlanningRequest`/`PlanningResponse`
+//! # D8 delta audit: `cspace_planners::sbp::registry::PlanningRequest`/`PlanningResponse`
 //!
-//! Read-only (that file is `cspace-planners-sbp`'s, not this crate's — see
+//! Read-only (that file is `cspace_planners::sbp`'s, not this crate's — see
 //! `crates/cspace-planners/src/sbp/registry.rs:136-166`). Mapping each of
 //! its fields onto the canonical types above, in the three buckets D8 needs:
 //!

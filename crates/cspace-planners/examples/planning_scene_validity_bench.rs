@@ -7,7 +7,7 @@
 //! `planning_scene_validity.rs`'s own "No state pooling" doc section cites.
 //!
 //! Run with `cargo run --example planning_scene_validity_bench -p
-//! cspace-planners-sbp` for the debug-profile figure, or add `--release` for
+//! cspace_planners::sbp` for the debug-profile figure, or add `--release` for
 //! the optimized one; the binary reports which profile it was built under so
 //! the two are never confused after the fact.
 //!

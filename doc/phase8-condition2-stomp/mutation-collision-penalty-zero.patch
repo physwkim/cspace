@@ -8,7 +8,7 @@ waypoint's cost exceeds 0.0. With the penalty itself at 0.0 no waypoint
 can read invalid, so STOMP has no collision gradient to descend.
 
 Base commit: ad3a1e01. Applying this with git apply and running
-  cargo build --release -p cspace-planners-stomp --example stomp_benchmark_port
+  cargo build --release -p cspace-planners --example stomp_benchmark_port
 reproduces the mutated binary this measurement used, byte for byte;
 reverting reproduces the unmutated one, also byte for byte. Both
 equalities were checked with cmp when the patch was written.

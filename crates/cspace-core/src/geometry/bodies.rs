@@ -143,24 +143,24 @@
 //! through its own `PosedBody`, never on this module. The real, current
 //! consumers are elsewhere:
 //!
-//! - [`Body::from_shape`]/[`Body::contains_point`] — `cspace-constraints`'s
+//! - [`Body::from_shape`]/[`Body::contains_point`] — `cspace_planning::constraints`'s
 //!   `PositionConstraint` (`position.rs`), for constraint-region membership.
-//! - [`Body::compute_bounding_sphere`] — `cspace-distance-field`'s
+//! - [`Body::compute_bounding_sphere`] — `cspace_collision::distance_field`'s
 //!   `distance_field.rs`.
-//! - [`Body::compute_bounding_cylinder`] — `cspace-distance-field`'s
+//! - [`Body::compute_bounding_cylinder`] — `cspace_collision::distance_field`'s
 //!   `collision_distance_field_types.rs`.
-//! - [`Body::contains_point`] again — `cspace-distance-field`'s
+//! - [`Body::contains_point`] again — `cspace_collision::distance_field`'s
 //!   `find_internal_points.rs`.
 //! - [`Body::intersects_ray`], [`Body::compute_volume`] — exercised only by
 //!   this module's own tests and [`crate`]'s `body_query_parity`/
-//!   `probe_parity` right now; no *Rust* caller outside `cspace-geometry`
+//!   `probe_parity` right now; no *Rust* caller outside `cspace_core::geometry`
 //!   (checked by `rg` for each method name across `crates/*/src`, excluding
 //!   this file and `shapes.rs`). Their *upstream* consumers, or absence
 //!   thereof, are decided per-method below (round 13 item 3, corrected round
 //!   14 item 0a for `intersects_ray`) rather than left as one
 //!   undifferentiated "no caller" line.
 //! - [`Body::sample_point_inside`] — **has** a caller outside this crate:
-//!   `cspace-constraints`'s `ik_sampler.rs:254` (round 14 item 0b corrects
+//!   `cspace_planning::constraints`'s `ik_sampler.rs:254` (round 14 item 0b corrects
 //!   round 13's "once ported" framing, which was already stale when
 //!   written — see below).
 //!
@@ -192,10 +192,10 @@
 //!
 //! ## [`Body::intersects_ray`] / [`Body::sample_point_inside`]: owners (round 13, item 3)
 //!
-//! "No caller outside `cspace-geometry` yet" (above, since round 10) is a
+//! "No caller outside `cspace_core::geometry` yet" (above, since round 10) is a
 //! report line, not a state — closed here per-method rather than repeated.
 //!
-//! **[`Body::sample_point_inside`] — has a consumer: `cspace-constraints`.**
+//! **[`Body::sample_point_inside`] — has a consumer: `cspace_planning::constraints`.**
 //! Upstream, `moveit_core/constraint_samplers/src/
 //! default_constraint_samplers.cpp:461`'s `IKConstraintSampler::samplePose`
 //! calls `b[(i + k) % b.size()]->samplePointInside(random_number_generator_,
@@ -250,7 +250,7 @@
 //!
 //! ## `bodies.h` `Body`-base and `ConvexMesh`-extra symbol audit (round 8)
 //!
-//! **Counting convention.** Unlike `shapes.rs`'s and `cspace-octomap`'s
+//! **Counting convention.** Unlike `shapes.rs`'s and `cspace_core::octomap`'s
 //! `tree.rs`'s single audit list, this crate documents `bodies.h` symbols
 //! at their point of definition throughout this file (one doc comment per
 //! ported method) rather than in one monolithic table; this section
@@ -303,7 +303,7 @@
 //!   `ShapeType` tag that D4 makes impossible to desync from the real type
 //!   in the first place. `collision_distance_field_types.cpp:63`'s
 //!   `if (body->getType() == shapes::ShapeType::SPHERE)` is the one in-scope
-//!   caller (`cspace-distance-field`'s port this round, not this crate's).
+//!   caller (`cspace_collision::distance_field`'s port this round, not this crate's).
 //! - `setScaleDirty`/`setPaddingDirty`/`setPoseDirty`/`setDimensionsDirty`
 //!   (the batch-then-`updateInternalData()` half of each setter pair) —
 //!   **subsumed by the "no dirty/clean setter pair" design** (see below):
@@ -392,7 +392,7 @@
 //! against the pinned tree this round (`rg -n 'BodyVector'
 //! /home/stevek/work/moveit2`) found it does have a real in-scope caller —
 //! `collision_distance_field_types.hpp:293`'s `bodies::BodyVector bodies_;`
-//! member (`moveit_core/collision_distance_field`, `cspace-distance-field`'s
+//! member (`moveit_core/collision_distance_field`, `cspace_collision::distance_field`'s
 //! port this round, not this crate's) — so "not in the requested scope" from
 //! an earlier round of this doc was an unverified guess, not a checked fact;
 //! corrected here rather than repeated. It is still not ported, but for a
@@ -404,8 +404,8 @@
 //! algorithm here beyond the loop itself.
 //!
 //! **Decided (round 11): a wrapper buys nothing concrete, checked against
-//! `cspace-distance-field`'s actual usage rather than left as that crate's
-//! call.** `cspace-distance-field`'s only composition of `Vec<Body>` is
+//! `cspace_collision::distance_field`'s actual usage rather than left as that crate's
+//! call.** `cspace_collision::distance_field`'s only composition of `Vec<Body>` is
 //! `BodyDecomposition::from_shapes` (`collision_distance_field_types.rs:711-721`),
 //! which builds the vector by a plain `Vec::with_capacity` + `push` loop, and
 //! every consumer of the resulting field is whole-vector iteration or
@@ -420,7 +420,7 @@
 //! short-circuit — every call site needs the full set. A wrapper here would
 //! duplicate `Vec<Body>` plus re-derive the loops
 //! `BodyDecomposition::from_shapes` already writes directly, for a query
-//! shape (first-hit) that has no caller. `cspace-distance-field`'s own doc
+//! shape (first-hit) that has no caller. `cspace_collision::distance_field`'s own doc
 //! independently reaches the same conclusion for the sibling
 //! `BodyDecompositionVector` (`lib.rs:155-160`: phantom upstream type,
 //! forward-declared and never defined, so "unported" there is not even a
@@ -4986,9 +4986,9 @@ mod tests {
     // 4364; OcTree: 4374). Verdict `multi-branch`, discriminating: this
     // is a real, passing test, not an unreachable assertion. D6 check,
     // from the actual call sites, not the signature, still stands:
-    // every in-tree caller (`cspace-constraints::position::
-    // PositionConstraint::new`, `cspace-distance-field::distance_field::
-    // posed_body`, `cspace-distance-field::collision_distance_field_types
+    // every in-tree caller (`cspace_planning::constraints::position::
+    // PositionConstraint::new`, `cspace_collision::distance_field::distance_field::
+    // posed_body`, `cspace_collision::distance_field::collision_distance_field_types
     // ::BodyDecomposition::from_shapes`) uses `Body::from_shape(shape)?
     // .ok_or_else(|| Error::construct(format!("... {shape:?}")))` --
     // they format the *caller's own copy* of `shape` into the error

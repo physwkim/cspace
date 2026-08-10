@@ -15,7 +15,7 @@ use cspace_core::trajectory::RobotTrajectory;
 /// A successful plan, in the shape this crate's response adapters operate
 /// on.
 ///
-/// # Deviation from `cspace-planners-sbp::registry::PlanningResponse`
+/// # Deviation from `cspace_planners::sbp::registry::PlanningResponse`
 ///
 /// sbp's own `PlanningResponse` is `trajectory: Vec<RobotState<'m>>` — bare
 /// waypoints, no per-waypoint timing. [`crate::response_adapters::AddRuckigTrajectorySmoothing`]/
@@ -56,7 +56,7 @@ use cspace_core::trajectory::RobotTrajectory;
 ///   `allowed_planning_time` bullet: a value a concrete planner owns, not
 ///   this crate's pipeline. PORTING-PLAN.md §153.1 made this exclusion
 ///   expire "the moment any crate implements a concrete planner against
-///   these types", and D8 fired that trigger: `cspace-planners-sbp`'s
+///   these types", and D8 fired that trigger: `cspace_planners::sbp`'s
 ///   `RrtConnectManager` now implements [`crate::planner::PlannerManager`]
 ///   and its context implements [`crate::planner::PlanningContext`], so
 ///   there is a fill site — `RrtConnectContext::solve`, the exact analogue
@@ -78,7 +78,7 @@ use cspace_core::trajectory::RobotTrajectory;
 ///   side effect "damaging" the scene's current state; that read the
 ///   symptom right but stopped one step short — see
 ///   `crate::pipeline::generate_plan`'s "Semantic 6" doc for the correction.
-///   `cspace-planners-sbp::planning_scene_validity::PlanningSceneValidityChecker`
+///   `cspace_planners::sbp::planning_scene_validity::PlanningSceneValidityChecker`
 ///   (`planning_scene_validity.rs:128-137`, read-only from here) documents
 ///   this as a deliberate **contract**, not a defect: "a caller that needs
 ///   the pre-planning state preserved clones it once, itself, before
@@ -119,8 +119,8 @@ use cspace_core::trajectory::RobotTrajectory;
 /// (`validate_path.cpp:86`, `add_ruckig_traj_smoothing.cpp:71`,
 /// `add_time_optimal_parameterization.cpp:73`) before ever touching it. A
 /// [`PlanningResponse`] in this crate is only ever constructed once a
-/// `cspace-planners-sbp`-style `PlanningContext::solve` has already
-/// succeeded (see `cspace-planners-sbp::registry::PlanningContext::solve`'s
+/// `cspace_planners::sbp`-style `PlanningContext::solve` has already
+/// succeeded (see `cspace_planners::sbp::registry::PlanningContext::solve`'s
 /// `Result<PlanningResponse, PlanError>` return, which this type's own
 /// eventual relocation there will keep), so `trajectory` is never absent by
 /// construction and that null check has nothing to guard here — see each

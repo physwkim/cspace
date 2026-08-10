@@ -41,7 +41,7 @@ pub enum Dimension {
 /// literal directly, skip `new`'s validation entirely, and hand
 /// `VoxelGrid::new` exactly the unchecked input its own doc comment claims
 /// cannot reach it. `rg -n 'GridGeometry\s*\{'` against this crate and its
-/// two external consumers (`cspace-planners-chomp`) turns up only this
+/// two external consumers (`cspace_planners::chomp`) turns up only this
 /// definition and `VoxelGrid::new`'s own destructuring pattern match --
 /// nothing constructs one by struct literal today -- so narrowing to
 /// `pub(crate)` (still freely readable/destructurable anywhere in this

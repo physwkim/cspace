@@ -430,7 +430,7 @@ report_qualified() {
 # what it costs. It is not "whatever the harness file imports" (a file
 # digest already covers the harness itself, not what it calls into) and it
 # is not "used by exactly one arm" -- fan-in undercounts too, since
-# `cspace-collision`, `cspace-scene` and `cspace-constraints` are consulted
+# `cspace-collision`, `cspace_planning::scene` and `cspace_planning::constraints` are consulted
 # by every arm and a single-consumer test would wrongly drop them.
 #
 # (a): CHOMP has no core crate of its own, so `crates/cspace-planners/src/chomp`
@@ -443,8 +443,8 @@ report_qualified() {
 # slice, so it is how the SBP arm gets selected and constructed, not shared
 # framework -- confirmed neither CHOMP's nor STOMP's source references it.
 #
-# (b): `cspace-collision`, `cspace-scene`, `cspace-constraints` and (CHOMP
-# only) `cspace-distance-field` answer "is this state or path valid, and
+# (b): `cspace-collision`, `cspace_planning::scene`, `cspace_planning::constraints` and (CHOMP
+# only) `cspace_collision::distance_field` answer "is this state or path valid, and
 # what does it cost" -- the question both phases report a rate or a score
 # over. `crates/cspace-planning/src` is Phase 7's case of the same role:
 # its `request_adapters/check_start_state_collision.rs` and
@@ -452,21 +452,21 @@ report_qualified() {
 # state and result actually get validated, and it is SBP-only among the
 # three arms -- CHOMP's and STOMP's own references to `cspace_planning` are
 # doc comments, not `use` imports, confirmed by reading the call sites
-# rather than trusting the dependency edge. `fc908c51` (cspace-scene,
+# rather than trusting the dependency edge. `fc908c51` (cspace_planning::scene,
 # attached-body touch tracking) and `73c44a25` (cspace-collision,
 # exact-tangency tie dispatch) both changed that verdict inside Phase 8's
 # window with the old list structurally unable to see either.
 #
 # Sharing a role does not mean sharing a dependency edge pulls a crate in.
-# `cspace-octomap` is a normal dependency of both `cspace-distance-field`
+# `cspace_core::octomap` is a normal dependency of both `cspace_collision::distance_field`
 # and `cspace-collision`, but it stays out: it is a generic occupancy-grid
 # data structure consulted BY the validity code, the same role
-# `cspace-geometry`'s shape types already play, not a place a validity or
-# cost decision is made. The same reasoning keeps out `cspace-geometry`,
-# `cspace-model`, `cspace-state`, `cspace-error`, `cspace-srdf`,
-# `cspace-sampling`, `cspace-kinematics` and `cspace-trajectory` -- each
+# `cspace_core::geometry`'s shape types already play, not a place a validity or
+# cost decision is made. The same reasoning keeps out `cspace_core::geometry`,
+# `cspace_core::model`, `cspace_core::state`, `cspace_core::error`, `cspace_core::srdf`,
+# `cspace_core::sampling`, `cspace_core::kinematics` and `cspace_core::trajectory` -- each
 # gated independently by its own `-p` clippy/nextest, none of them deciding
-# a validity or cost verdict. `cspace-planners-sbp` stays out of Phase 8's
+# a validity or cost verdict. `cspace_planners::sbp` stays out of Phase 8's
 # list for the mirror reason: CHOMP's and STOMP's examples import it only
 # for `JointModelGroupSpace`'s length metric, a reported number rather than
 # a decision.
@@ -474,7 +474,7 @@ report_qualified() {
 # Derived from `cargo metadata`'s resolved dependency graph -- both normal
 # and dev-dependency edges, since these harnesses are `[[example]]` binaries
 # that link their own package's dev-dependencies too, so a dev-only edge
-# like cspace-planners-chomp -> cspace-scene still ships inside the
+# like cspace_planners::chomp -> cspace_planning::scene still ships inside the
 # benchmark binary that gets measured -- then confirmed by reading the
 # actual call sites, not by hand-listing crate names that look parallel.
 # Hand-listing is what produced the stomp-core miss above, since
@@ -482,7 +482,7 @@ report_qualified() {
 # look symmetric and are not. It is still a real limit, not a complete one:
 # digesting all of `crates` would invalidate a long-running measurement on
 # any unrelated commit, and a gate that is always red is a gate nobody
-# reads. A change to a crate outside this list (`cspace-octomap` included)
+# reads. A change to a crate outside this list (`cspace_core::octomap` included)
 # can still move these numbers and will not be caught here.
 #
 # One more limit, measured rather than assumed: `git ls-files` is index-scoped,

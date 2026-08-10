@@ -330,7 +330,7 @@ fn apply_add(
         header,
         pose,
         id,
-        type_: _, // D1 (object_recognition_msgs::msg::ObjectType); cspace-scene has no
+        type_: _, // D1 (object_recognition_msgs::msg::ObjectType); cspace_planning::scene has no
         // object-type map to receive this either (its own `hasObjectType`/etc
         // bullets are D1), so there is nothing here to lose that a later
         // consumer would recover.
@@ -531,7 +531,7 @@ mod tests {
     /// sites (unknown object id, mismatched shape-pose count) --
     /// `matches!(err, Error::Other(_))` alone cannot tell a test that a
     /// routing bug swapped which branch fired (same shape as
-    /// `cspace-constraints`' `e3b40c6`).
+    /// `cspace_planning::constraints`' `e3b40c6`).
     #[track_caller]
     fn assert_err_mentions<T: std::fmt::Debug>(
         result: std::result::Result<T, Error>,

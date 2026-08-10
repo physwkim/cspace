@@ -36,7 +36,7 @@
 //!
 //! ```text
 //! sg docker -c 'cargo run --release --example visibility_cone_depth_sweep \
-//!   -p cspace-constraints -- \
+//!   -p cspace-planning -- \
 //!   --urdf <abs>/fixtures/pr2.urdf --srdf <abs>/fixtures/pr2.srdf \
 //!   --seed <N> --cases <N>'
 //! ```

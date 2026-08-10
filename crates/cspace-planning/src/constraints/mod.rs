@@ -76,7 +76,7 @@
 //! tags did not hold up and ported it — see
 //! [`IkConstraintSampler::sample`]/[`IkConstraintSamplerAdapter`].
 //!
-//! **Tests.** `cargo nextest run -p cspace-constraints --no-fail-fast`:
+//! **Tests.** `cargo nextest run -p cspace-planning --no-fail-fast`:
 //! **92** tests, 92 passed. Of those,
 //! `rg -c '^mod oracle_' crates/cspace-planning/tests/utils_parity.rs`
 //! is **7** — real moveit2-oracle comparison modules, not self-referential
@@ -114,7 +114,7 @@
 //! same over `cspace_collision::ParryCollisionEnv` — see
 //! [`VisibilityConstraint::decide`]'s doc for why that needs no
 //! `PlanningScene`/broader collision world, only `cspace-collision`
-//! (already a dependency of this crate, no `cspace-scene` needed).
+//! (already a dependency of this crate, no `cspace_planning::scene` needed).
 //!
 //! # Round 6 symbol audit
 //!
@@ -738,7 +738,7 @@ pub use visibility::{
 /// tolerance was exceeded" (zero throughout the tolerance window, growing
 /// only past it) must gate on `satisfied` itself rather than reading
 /// `distance` directly — see `get_constraints_cost_function` in
-/// `cspace-planners-stomp` for the fix this port needed once one consumer
+/// `cspace_planners::stomp` for the fix this port needed once one consumer
 /// was found treating the two meanings as interchangeable. It is ported as
 /// a direct transcription.
 #[derive(Debug, Clone, Copy, PartialEq)]

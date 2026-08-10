@@ -696,7 +696,7 @@ moveit_msgs::msg::Constraints constraintsMsgFromJson(const json& spec)
 namespace ob = ompl::base;
 namespace og = ompl::geometric;
 
-/// `UNBOUNDED_TRANSLATION_HALF_EXTENT` in `cspace-planners-sbp`'s
+/// `UNBOUNDED_TRANSLATION_HALF_EXTENT` in `cspace_planners::sbp`'s
 /// `joint_model_group_space.rs`, restated here because the two sides have to
 /// substitute the *same* half-extent for a non-finite translation bound or
 /// their spaces are not the same space. See that constant's own doc comment
@@ -731,7 +731,7 @@ struct PlanSubspaceSlot
 /// The distance `ompl::base::SO3StateSpace` reports for a rotation of known
 /// angle `PI/2` -- measured, not assumed.
 ///
-/// `cspace-planners-sbp`'s `Se3Space::distance` weights the *full* rotation
+/// `cspace_planners::sbp`'s `Se3Space::distance` weights the *full* rotation
 /// angle (its `rotation_distance` is an atan2 chord form of `2*acos(|dot|)`;
 /// see that function's own comment for the halved-angle bug that convention
 /// once caused there). An SO3 subspace mirroring it therefore needs weight
@@ -976,7 +976,7 @@ void robotStateToPlanState(const moveit::core::RobotState& robot_state,
   }
 }
 
-/// `PlanningSceneValidityChecker` in `cspace-planners-sbp`: writes the
+/// `PlanningSceneValidityChecker` in `cspace_planners::sbp`: writes the
 /// candidate into the scene's own current state and asks the scene.
 ///
 /// `group` is `""` (whole robot), matching the `is_state_valid` op's own
@@ -1250,7 +1250,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `cspace-model`'s `LinkModel` collision/visual geometry
+  /// Ground truth for `cspace_core::model`'s `LinkModel` collision/visual geometry
   /// (`LinkModel`'s doc comment, deviation 4, in the Rust port): one entry per
   /// link, every `<collision>` element's shape kind in file order (this
   /// oracle's own naming, see `shapeTypeName`), the centered bounding-box
@@ -1294,7 +1294,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `cspace-model`'s `JointModelGroup` end-effector fields
+  /// Ground truth for `cspace_core::model`'s `JointModelGroup` end-effector fields
   /// (`is_end_effector`/`end_effector_name`/`end_effector_parent`/
   /// `attached_end_effector_names`), keyed by group name. `end_effector_name`
   /// is `null` for a group that is not an end effector
@@ -1351,7 +1351,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `cspace-model`'s `JointModelGroup::is_chain`, keyed by
+  /// Ground truth for `cspace_core::model`'s `JointModelGroup::is_chain`, keyed by
   /// group name.
   json groupIsChain() const
   {
@@ -1361,7 +1361,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `cspace-model`'s `JointModelGroup::joint_roots`, keyed
+  /// Ground truth for `cspace_core::model`'s `JointModelGroup::joint_roots`, keyed
   /// by group name: the names of every joint in `joint_roots_`.
   json groupJointRoots() const
   {
@@ -1376,7 +1376,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `cspace-model`'s `RobotModel::descendant_link_indices`
+  /// Ground truth for `cspace_core::model`'s `RobotModel::descendant_link_indices`
   /// (upstream `JointModel::getDescendantLinkModels`), keyed by joint name:
   /// the names of every descendant link. Compared as a set on the Rust side
   /// -- upstream's own vector is DFS-insertion-ordered, not index-ordered,
@@ -1395,7 +1395,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `cspace-model`'s `JointModelGroup::updated_link_names`/
+  /// Ground truth for `cspace_core::model`'s `JointModelGroup::updated_link_names`/
   /// `updated_link_with_geometry_names`, keyed by group name.
   json groupUpdatedLinks() const
   {
@@ -1410,7 +1410,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `cspace-model`'s `RobotModel::get_common_root`:
+  /// Ground truth for `cspace_core::model`'s `RobotModel::get_common_root`:
   /// `{"pairs": [["joint_a", "joint_b"], ...]}` -> the named common-root
   /// joint for each pair, in request order.
   json commonRoot(const json& request) const
@@ -1960,7 +1960,7 @@ private:
                  { "data", data } };
   }
 
-  /// Ground truth for `cspace-metrics`' `KinematicsMetrics`: all four public
+  /// Ground truth for `cspace_core::metrics`' `KinematicsMetrics`: all four public
   /// values (`getManipulabilityIndex`/`getManipulability`, each at
   /// `translation` true and false, plus `getManipulabilityEllipsoid`) from
   /// `kinematics_metrics::KinematicsMetrics`, at `count` random whole-model
@@ -1971,7 +1971,7 @@ private:
   /// Eigenvalues/eigenvectors come back as `Eigen::MatrixXcd` (complex)
   /// upstream; both real and imaginary parts are dumped rather than
   /// discarding the imaginary half, so the Rust side can assert it is
-  /// negligible instead of assuming it -- see `cspace-metrics`'s own doc
+  /// negligible instead of assuming it -- see `cspace_core::metrics`'s own doc
   /// comment on why `nalgebra::SymmetricEigen` (real-only) is still a valid
   /// port of a matrix that upstream's own type only defensively allows to be
   /// complex.
@@ -2946,7 +2946,7 @@ private:
   }
 
   /// Ground truth for `PlanningScene::frame_transform`/`knows_frame_transform`
-  /// (`cspace-scene`). Builds a real `planning_scene::PlanningScene` from
+  /// (`cspace_planning::scene`). Builds a real `planning_scene::PlanningScene` from
   /// `model_` so upstream's own three-tier ladder
   /// (`planning_scene.cpp:2036`/`:2061`) runs unmodified: `RobotState::
   /// getFrameInfo` (model frame, link, attached-body id/subframe --
@@ -3119,7 +3119,7 @@ private:
   }
 
   /// Ground truth for `PlanningScene::is_state_valid`/`is_state_constrained`/
-  /// `is_path_valid` (`cspace-scene`). Builds a real
+  /// `is_path_valid` (`cspace_planning::scene`). Builds a real
   /// `planning_scene::PlanningScene` the same way `frameTransform` does, so
   /// the FCL-backed collision env its own constructor wires up by default
   /// (`planning_scene.cpp:200`, `allocateCollisionDetector
@@ -3145,7 +3145,7 @@ private:
   /// different geometry for a reason unrelated to what this op tests. The
   /// feasibility predicate (`state_feasibility_`) is never registered on
   /// `scene`, matching this port's decision not to carry a caller-supplied
-  /// predicate at all (see `cspace-scene::PlanningScene::is_state_valid`'s
+  /// predicate at all (see `cspace_planning::scene::PlanningScene::is_state_valid`'s
   /// own doc) -- both sides therefore always take upstream's "no predicate
   /// registered -> true" branch.
   ///
@@ -3207,7 +3207,7 @@ private:
     return json{ { "valid", valid }, { "invalid_waypoints", invalid_out } };
   }
 
-  /// Ground truth for `cspace-scene`'s diff layer -- PORTING-PLAN.md §5's
+  /// Ground truth for `cspace_planning::scene`'s diff layer -- PORTING-PLAN.md §5's
   /// third Phase 5 completion condition, "씬 diff 적용 후 충돌 결과가 오라클과
   /// 100% 일치".
   ///
@@ -3520,7 +3520,7 @@ private:
     return json{ { "objects", objects_out }, { "queries", queries_out } };
   }
 
-  /// Ground truth for the `cspace-distance-field` `PropagationDistanceField`
+  /// Ground truth for the `cspace_collision::distance_field` `PropagationDistanceField`
   /// port. Builds a field straight from `geometry`/`max_distance`/
   /// `propagate_negative` -- no `RobotModel` involved, `distance_field` has
   /// none either -- adds `occupied_cells` (explicit integer grid coordinates,
@@ -3731,7 +3731,7 @@ private:
 
   /// Ground truth for `find_internal_points_convex`
   /// (`distance_field::findInternalPointsConvex`), the piece of
-  /// `cspace-distance-field`'s shape-to-obstacle-points path that the
+  /// `cspace_collision::distance_field`'s shape-to-obstacle-points path that the
   /// `distance_field` op above does not exercise: that op takes
   /// `occupied_cells` as an explicit input, starting only after this step.
   /// This mirrors upstream `DistanceField::getShapePoints` exactly: builds
@@ -3769,7 +3769,7 @@ private:
     return json{ { "points", points_out } };
   }
 
-  /// Ground truth for the `cspace-geometry` STL loader
+  /// Ground truth for the `cspace_core::geometry` STL loader
   /// (`crates/cspace-core/src/geometry/stl.rs`). Calls
   /// `shapes::createMeshFromResource` exactly as `RobotModel::constructShape`
   /// does for a URDF `<mesh>` element -- real Assimp, real
@@ -4053,7 +4053,7 @@ private:
     };
   }
 
-  /// Ground truth for `cspace-distance-field`'s
+  /// Ground truth for `cspace_collision::distance_field`'s
   /// `generate_distance_field_cache_entry` (upstream
   /// `CollisionEnvDistanceField::generateDistanceFieldCacheEntry`, a
   /// `protected` method). Rather than subclassing to expose it directly,
@@ -4211,7 +4211,7 @@ private:
     return out;
   }
 
-  /// Ground truth for `cspace-distance-field`'s `group_state_representation`
+  /// Ground truth for `cspace_collision::distance_field`'s `group_state_representation`
   /// (upstream `CollisionEnvDistanceField::getGroupStateRepresentation`, a
   /// `protected` method) and, indirectly, `get_distance_field_cache_entry`
   /// (upstream `getDistanceFieldCacheEntry`). Driven through a public path
@@ -4227,7 +4227,7 @@ private:
   /// `getLastGroupStateRepresentation()`.
   ///
   /// # This op does *not* isolate `getGroupStateRepresentation`'s "fresh"
-  /// branch the way `cspace-distance-field`'s `group_state_representation`
+  /// branch the way `cspace_collision::distance_field`'s `group_state_representation`
   /// implements it -- read this before trusting a field-by-field diff
   ///
   /// `CollisionEnvDistanceField(model_)`'s constructor runs `initialize()`,
@@ -4241,7 +4241,7 @@ private:
   /// (`dfce->pregenerated_group_state_representation_ = it->second;`,
   /// `collision_env_distance_field.cpp:869`), so `getGroupStateRepresentation`
   /// here always takes the **pregenerated** `else` branch, not the fresh one
-  /// `cspace-distance-field`'s `group_state_representation` ports (that
+  /// `cspace_collision::distance_field`'s `group_state_representation` ports (that
   /// function's own doc comment explains why the pregenerated branch is
   /// unreachable *for this port*, specifically -- this port never builds the
   /// map behind it -- not that upstream's own runtime never reaches it; this
@@ -4655,7 +4655,7 @@ private:
     return json{ { "links", names } };
   }
 
-  /// Ground truth for the `cspace-trajectory` `ruckig_smoothing` port. Builds
+  /// Ground truth for the `cspace_core::trajectory` `ruckig_smoothing` port. Builds
   /// a `robot_trajectory::RobotTrajectory` from each case's waypoints and
   /// runs `trajectory_processing::RuckigSmoothing::applySmoothing` on it.
   ///
@@ -4668,7 +4668,7 @@ private:
   /// (or DEFAULT_MAX_JERK), same as upstream. The
   /// `moveit_msgs::msg::JointLimits` overload is not exercised: it is a thin
   /// wrapper that unpacks into the explicit-limits overload's three maps,
-  /// and cspace-trajectory does not port it (D1).
+  /// and cspace_core::trajectory does not port it (D1).
   json ruckig(const json& request)
   {
     const std::string group_name = request.at("group").get<std::string>();
@@ -4769,7 +4769,7 @@ private:
     return result;
   }
 
-  /// Ground truth for the `cspace-trajectory` `Path`/`Trajectory` port (the
+  /// Ground truth for the `cspace_core::trajectory` `Path`/`Trajectory` port (the
   /// model-independent numeric core of
   /// `trajectory_processing::time_optimal_trajectory_generation.hpp` lines
   /// 62-192) *and*, when a request names a `"group"`, for the
@@ -4843,7 +4843,7 @@ private:
     return have_prismatic && have_revolute;
   }
 
-  /// Ground truth for the `cspace-trajectory`
+  /// Ground truth for the `cspace_core::trajectory`
   /// `time_optimal_trajectory_generation` module -- the
   /// `TimeOptimalTrajectoryGeneration` adapter around `Path`/`Trajectory`.
   /// Shaped exactly like `ruckigCase` above (same waypoint/duration/
@@ -5097,7 +5097,7 @@ private:
                  { "samples", samples } };
   }
 
-  /// Ground truth for the `cspace-smoothing` `AccelerationLimitedPlugin` port
+  /// Ground truth for the `cspace_core::smoothing` `AccelerationLimitedPlugin` port
   /// -- the online, one-step-lookahead acceleration-limiting QP in
   /// `online_signal_smoothing/acceleration_filter.cpp`. This is the only op
   /// in this file that starts a real `rclcpp::Node`:
@@ -5242,7 +5242,7 @@ private:
     return result;
   }
 
-  /// Ground truth for the `cspace-smoothing` `RuckigFilter` port -- the
+  /// Ground truth for the `cspace_core::smoothing` `RuckigFilter` port -- the
   /// streaming, jerk-limited command smoother in
   /// `online_signal_smoothing/ruckig_filter.cpp`. Loaded through the same
   /// `pluginlib::ClassLoader<online_signal_smoothing::SmoothingBaseClass>` +
@@ -5277,7 +5277,7 @@ private:
   /// `velocities`/`accelerations` parameters are pure outputs upstream --
   /// never read, only overwritten -- so this op passes zero-filled scratch
   /// vectors of the right size for them on every call, matching
-  /// `cspace-smoothing::ruckig_filter::RuckigFilter::do_smoothing`'s
+  /// `cspace_core::smoothing::ruckig_filter::RuckigFilter::do_smoothing`'s
   /// identical treatment on the Rust side (see that function's own doc
   /// comment on why the incoming `positions` is the sole per-call input).
   json ruckigFilter(const json& request)
@@ -5375,7 +5375,7 @@ private:
     return result;
   }
 
-  /// Ground truth for the `cspace-constraints` `KinematicConstraintSet` port.
+  /// Ground truth for the `cspace_planning::constraints` `KinematicConstraintSet` port.
   /// Applies `joint_values` on top of the model defaults the same way
   /// `fk`/`jacobian` do, builds a `moveit_msgs::msg::Constraints` from
   /// `request["constraints"]` (see the free-function `*FromJson` builders
@@ -5387,7 +5387,7 @@ private:
   /// constraint failed to `configure()` -- this differential test's own case
   /// generator never produces such a constraint, so that is treated as a
   /// hard error rather than silently evaluating a partially-configured set
-  /// (see `cspace-constraints`' own `KinematicConstraintSet::decide`
+  /// (see `cspace_planning::constraints`' own `KinematicConstraintSet::decide`
   /// deviation doc for why a partially-decidable set should never be
   /// reported as if it were fully decided).
   json constraints(const json& request)
@@ -5424,7 +5424,7 @@ private:
     return json{ { "results", results_out } };
   }
 
-  /// Ground truth for cspace-octomap's port of octomap 1.9.7 (see
+  /// Ground truth for cspace_core::octomap's port of octomap 1.9.7 (see
   /// crates/cspace-core/src/octomap/*.rs's provenance comments): builds a
   /// throwaway `octomap::OcTree` local to this call (ignoring model_/state_,
   /// same pattern as shapePoints above), replays a request-described
@@ -5437,7 +5437,7 @@ private:
   /// same actions" means: update_point, update_key, insert_ray, prune,
   /// update_inner_occupancy, set_occupancy_thres, set_prob_hit,
   /// set_prob_miss, set_clamping_thres_min, set_clamping_thres_max (the
-  /// five `{"prob": <double>}` sensor-model setters cspace-octomap's round
+  /// five `{"prob": <double>}` sensor-model setters cspace_core::octomap's round
   /// 15 ports -- ground truth for their effect on later hits/misses and on
   /// `isNodeOccupied`'s boundary, not merely on this port's own arithmetic).
   static void applyOctomapActions(octomap::OcTree& tree, const json& actions)
@@ -5811,7 +5811,7 @@ private:
   /// Ground truth for `bodies::Body`'s posed algorithms --
   /// `containsPoint`/`intersectsRay`/`computeBoundingBox`/
   /// `computeBoundingSphere`/`computeBoundingCylinder` -- which
-  /// `cspace-geometry`'s `Body` enum ported some rounds ago but which, until
+  /// `cspace_core::geometry`'s `Body` enum ported some rounds ago but which, until
   /// now, only `tests/probe_parity.rs`'s standalone `libgeometric_shapes.so`
   /// probe exercised, never the oracle's own JSON-line protocol. Builds a
   /// `bodies::Body` exactly the way `shapePoints` above does
@@ -5904,7 +5904,7 @@ private:
   }
 
   /// Phase 7's C++ baseline: OMPL RRTConnect over a state space built to
-  /// mirror `cspace-planners-sbp`'s own `JointModelGroupSpace`, with validity
+  /// mirror `cspace_planners::sbp`'s own `JointModelGroupSpace`, with validity
   /// answered by a real `planning_scene::PlanningScene`.
   ///
   /// # What this baseline is, and what it is not
@@ -6649,7 +6649,7 @@ private:
   ///
   /// A consequence to carry into any LIN/CIRC comparison: the oracle's
   /// waypoints now depend on *this* KDL solver, while the port's
-  /// `compute_pose_ik` depends on `cspace-kinematics`. Whatever those two
+  /// `compute_pose_ik` depends on `cspace_core::kinematics`. Whatever those two
   /// disagree by is inside the `1e-6` budget before the trajectory code is
   /// reached at all, so a LIN/CIRC divergence is not attributable to the
   /// trajectory port until Phase 4's IK parity is subtracted out.
@@ -6753,7 +6753,7 @@ private:
   /// `third_party/moveit_resources/`, which is gitignored. A fixture whose
   /// meaning depends on a gitignored external checkout is precisely what
   /// `tools/ci/verify-clean-checkout.sh` exists to catch, and neither side
-  /// has a YAML reader to begin with (`cspace-planners-pilz`'s `limits.rs`
+  /// has a YAML reader to begin with (`cspace_planners::pilz`'s `limits.rs`
   /// builds `JointLimitsContainer` programmatically; this file has
   /// nlohmann_json and nothing else).
   ///
@@ -7272,7 +7272,7 @@ private:
   // completion condition never compares a solution's exact value, only
   // whether one was found and whether FK(solution) lands on target, so
   // this need not (and structurally cannot, since it is a wholly separate
-  // RNG stream) match cspace-kinematics's own reseed draws.
+  // RNG stream) match cspace_core::kinematics's own reseed draws.
   //
   // The seed is a startup argument (`--ik-rng-seed`, default 42) rather than
   // a hard-coded constant, because "this port's IK success rate is at least

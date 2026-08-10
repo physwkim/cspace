@@ -134,7 +134,7 @@
 //!    [`Error::Construct`].
 //! 5. **The `OcTree` payload is `Arc<crate::octomap::OcTree>`, not
 //!    `Rc`/an owned value.** Round 1 left [`OcTree`] a unit struct
-//!    (PORTING-PLAN.md §2's "성숙도 미달" gap); `cspace-octomap` (this
+//!    (PORTING-PLAN.md §2's "성숙도 미달" gap); `cspace_core::octomap` (this
 //!    crate's sibling, also this round) closes it. Upstream's field is
 //!    `std::shared_ptr<const octomap::OcTree>` — shared, read-only ownership
 //!    — and `OcTree::clone()` (`shapes.cpp`) returns `new OcTree(octree)`,
@@ -166,7 +166,7 @@
 //!
 //! **Counting convention (stated explicitly, round 18 item 1; the D4
 //! design section and the numbered deviations above already implied this
-//! but never named it as a counting rule the way `cspace-octomap`'s
+//! but never named it as a counting rule the way `cspace_core::octomap`'s
 //! `tree.rs` does).** One bullet per raw `public:` declaration in each of
 //! `shapes.h`'s eight classes, with the following collapses, each
 //! justified by [D4](#design-enum-not-a-trait-object-hierarchy-d4) rather
@@ -192,8 +192,8 @@
 //! `public:` declaration counts, from
 //! `tools/ci/count-public-declarations.sh <header>
 //! <ClassName>` against a fresh oracle fetch (same script and comment/
-//! brace-depth handling `cspace-octomap`'s `tree.rs` uses, copied into
-//! this crate so a `cspace-geometry`-only audit doesn't need to reach into
+//! brace-depth handling `cspace_core::octomap`'s `tree.rs` uses, copied into
+//! this crate so a `cspace_core::geometry`-only audit doesn't need to reach into
 //! a sibling crate's directory):
 //!
 //! ```text
@@ -350,8 +350,8 @@
 //!   format as the one it needs"), with `planning_scene.cpp`'s
 //!   `PlanningScene::saveGeometryToStream`/`loadGeometryFromStream`
 //!   (`:1062`/`:1152`) as the one candidate consumer — owned by
-//!   `cspace-scene`, not this crate. Two deferrals each waiting on the
-//!   other's silence never closes on its own; `cspace-scene` answered the
+//!   `cspace_planning::scene`, not this crate. Two deferrals each waiting on the
+//!   other's silence never closes on its own; `cspace_planning::scene` answered the
 //!   real question this round instead of naming the format
 //!   (`crates/cspace-planning/src/scene/scene.rs`, commit `86f102c`): does this port
 //!   intend `.scene` file interop at all? No. Every real upstream caller of
@@ -365,7 +365,7 @@
 //!   `saveAsText`/`constructShapeFromText` has no reason to exist here
 //!   beyond serving a caller that is now a positive out-of-scope decision,
 //!   not an unmet falsifier. Not ported, and not reopened by a future
-//!   `cspace-scene` round without a new, different consumer naming this
+//!   `cspace_planning::scene` round without a new, different consumer naming this
 //!   exact text format for a reason unrelated to `.scene` file interop.
 //!
 //!   The algorithm remains recorded in case that ever happens: write/read
@@ -384,7 +384,7 @@
 //! Read from `moveit2`'s two call sites (`collision_common.cpp`,
 //! `collision_env_distance_field.cpp`) so the eventual consumer does not have
 //! to re-derive this; neither is implemented here — this crate is the shape
-//! layer, not a collision backend, and `cspace-distance-field` owns the
+//! layer, not a collision backend, and `cspace_collision::distance_field` owns the
 //! second file this round.
 //!
 //! - **`collision_detection_fcl`'s conversion**
@@ -459,9 +459,9 @@
 //!   filtered by [`crate::octomap::Leaf::is_occupied`], reading
 //!   [`crate::octomap::Leaf::coordinate`] (and, if a decomposition wants to
 //!   record cell size, [`crate::octomap::Leaf::size`]) per occupied leaf.
-//!   Nothing further is needed on the `cspace-octomap` side for this
+//!   Nothing further is needed on the `cspace_core::octomap` side for this
 //!   consumer; the point-decomposition type itself belongs to
-//!   `cspace-distance-field`.
+//!   `cspace_collision::distance_field`.
 //! - Neither consumer calls anything that inserts new data into a tree
 //!   (`insertPointCloud`/`computeDiscreteUpdate`) — both only read an
 //!   already-built `OcTree` handed to them through a `World::Object`'s
@@ -487,7 +487,7 @@
 //!
 //! ## Transfer boundary, symbol by symbol (round 15, item 2)
 //!
-//! `cspace-octomap`'s own module docs used to describe `Shape::OcTree` as
+//! `cspace_core::octomap`'s own module docs used to describe `Shape::OcTree` as
 //! "already stubbed, deliberately deferred to Phase 3/5 collision" — stale,
 //! fixed this round (see that crate's `lib.rs`). Re-checked against the tree
 //! as it stands after the round-15 rebase, not assumed:
@@ -497,24 +497,24 @@
 //!   parry.rs`'s `ParryCollisionEnv::convert_shape` calls
 //!   [`crate::geometry::compound_from_octree`] directly (see "Who consumes
 //!   `Shape::OcTree`" above for the full path and its oracle coverage).
-//!   `Cargo.toml` already carries `cspace-octomap.workspace = true` for
+//!   `Cargo.toml` already carries `cspace_core::octomap.workspace = true` for
 //!   this.
-//! - **`crate::octomap::OcTree`'s raw leaf payload → `cspace-distance-field`,
+//! - **`crate::octomap::OcTree`'s raw leaf payload → `cspace_collision::distance_field`,
 //!   *not yet* receiving.** `collision_env_distance_field.cpp`'s
 //!   `PosedBodyPointDecomposition(shared_ptr<const octomap::OcTree>)`
 //!   constructor is still unported there (`crates/cspace-collision/src/distance_field/
 //!   lib.rs`'s own module docs list it, under `PosedBodyPointDecomposition`,
 //!   as the one of three constructor overloads not yet done); confirmed by
-//!   `Cargo.toml` too — `cspace-distance-field` names no `cspace-octomap`
+//!   `Cargo.toml` too — `cspace_collision::distance_field` names no `cspace_core::octomap`
 //!   dependency at all, unlike `cspace-collision`'s. What it needs to
 //!   receive this: add that workspace dependency, then implement the
 //!   constructor over [`crate::octomap::OcTree::leaves`] filtered by
 //!   [`crate::octomap::Leaf::is_occupied`] (see "Who consumes
 //!   `Shape::OcTree`" above for the exact field mapping). Nothing on this
-//!   crate's or `cspace-octomap`'s side blocks that — the API this
+//!   crate's or `cspace_core::octomap`'s side blocks that — the API this
 //!   constructor needs already exists and is public.
 //! - **`bodies::` posed-body algorithms (`containsPoint`/`intersectsRay`/
-//!   the bounding-volume methods) → stay in `cspace-geometry`, not
+//!   the bounding-volume methods) → stay in `cspace_core::geometry`, not
 //!   transferred anywhere.** The original task brief for this crate assumed
 //!   these belonged with Phase 3 collision; they do not, and re-checking
 //!   this round confirms that is still true: `cspace-collision`'s `lib.rs`/
@@ -522,11 +522,11 @@
 //!   layer as out of scope for `World`, and its `ParryCollisionEnv` backend
 //!   still builds directly on `parry3d-f64` shapes from `Shape`, never
 //!   from [`crate::geometry::bodies::Body`]. The real consumers remain
-//!   `cspace-constraints` and `cspace-distance-field`, already receiving —
+//!   `cspace_planning::constraints` and `cspace_collision::distance_field`, already receiving —
 //!   see `bodies.rs`'s own "Who actually calls this" section for the
 //!   method-by-method breakdown, which this confirmation does not
 //!   duplicate.
-//! - **[`crate::geometry::bodies::Body::intersects_ray`] → stays in `cspace-geometry`,
+//! - **[`crate::geometry::bodies::Body::intersects_ray`] → stays in `cspace_core::geometry`,
 //!   still no consumer.** `bodies.rs` already documents this (round 13-14)
 //!   with its reopening condition — `cspace-collision`'s `ParryCollisionEnv`/
 //!   `PosedBody` path needing a body-level ray test, or `BodyVector` getting

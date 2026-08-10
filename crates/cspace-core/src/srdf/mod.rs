@@ -42,8 +42,8 @@
 //!
 //! Upstream srdfdom parses an SRDF *against* a `urdf::ModelInterface` and drops
 //! every element that names a link or joint the URDF lacks. PORTING-PLAN.md §3
-//! puts `cspace-srdf` below `cspace-model`, so no URDF is available here and
-//! those checks belong to `cspace-model`, which holds both descriptions. The
+//! puts `cspace_core::srdf` below `cspace_core::model`, so no URDF is available here and
+//! those checks belong to `cspace_core::model`, which holds both descriptions. The
 //! full list of what that defers is on [`SrdfModel`]; the short version is that
 //! an [`SrdfModel`] faithfully describes a document and does not assert that
 //! any name in it exists.

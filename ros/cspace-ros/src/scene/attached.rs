@@ -29,7 +29,7 @@
 //! Re-checked round 5 against `crates/cspace-planning/src/scene/attached_body.rs:56-63`
 //! -- `AttachedBody`'s field list is still `id`/`link_name`/`shapes`/
 //! `shape_poses`/`touch_links`/`subframes`, no `weight`. `weight` expires if
-//! `AttachedBody` grows that field (`cspace-scene`'s call); `detach_posture`
+//! `AttachedBody` grows that field (`cspace_planning::scene`'s call); `detach_posture`
 //! is D1-permanent, not pending-implementation -- it expires only on a
 //! project-wide D1 revisit, same as `type_`'s `ObjectType` gap below.
 
@@ -306,7 +306,7 @@ mod tests {
     /// `Error::Other` "no geometry" sites (world-object-promotion path vs.
     /// the message-geometry path) -- `matches!(err, Error::Other(_))` alone
     /// cannot tell a test that a routing bug swapped which branch fired
-    /// (same shape as `cspace-constraints`' `e3b40c6`).
+    /// (same shape as `cspace_planning::constraints`' `e3b40c6`).
     #[track_caller]
     fn assert_err_mentions<T: std::fmt::Debug>(
         result: std::result::Result<T, Error>,

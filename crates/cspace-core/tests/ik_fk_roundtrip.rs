@@ -266,7 +266,7 @@ fn position_only_mode_converges_on_a_reachable_target_position() {
 }
 
 /// `panda`'s `hand` group fails `is_chain()` (see
-/// `cspace-state`'s own `panda_hand_group_has_one_root_but_fails_the_adjacency_check`)
+/// `cspace_core::state`'s own `panda_hand_group_has_one_root_but_fails_the_adjacency_check`)
 /// -- `ChainInfo::build`, and therefore every solver constructor, must
 /// surface that as a construction error rather than building a solver that
 /// can never converge.

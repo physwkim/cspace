@@ -62,7 +62,7 @@
 //! its tip matches the requested link, falling back to
 //! `getRigidlyConnectedParentLinkModel` if not (a fixed-transform-chain
 //! search, always called with a `nullptr` group — group-independent). This
-//! port's `cspace-model::JointModelGroup` carries no `kinematics.yaml`-derived
+//! port's `cspace_core::model::JointModelGroup` carries no `kinematics.yaml`-derived
 //! solver mapping — nothing in this workspace's `RobotModel` port loads
 //! `kinematics.yaml` — so [`check_cartesian_goal`] instead scans
 //! [`static@cspace_core::kinematics::KINEMATICS_SOLVERS`] and attempts to build

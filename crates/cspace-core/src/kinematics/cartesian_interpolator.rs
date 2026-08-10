@@ -31,16 +31,16 @@
 //! actually following the straight line rather than merely hitting the
 //! sampled waypoints on it.
 //!
-//! # Why this lives in `cspace-kinematics` and not `cspace-state`
+//! # Why this lives in `cspace_core::kinematics` and not `cspace_core::state`
 //!
 //! Upstream puts this file in `moveit_core/robot_state/` next to
 //! `RobotState`, whose `setFromIK` it is written on. This port cannot, and
 //! neither can `setFromIK`: both need a [`KinematicsSolver`], and
-//! `cspace-kinematics` already depends on
-//! `cspace-state` — so a `cspace-state -> cspace-kinematics` edge would be a
+//! `cspace_core::kinematics` already depends on
+//! `cspace_core::state` — so a `cspace_core::state -> cspace_core::kinematics` edge would be a
 //! dependency cycle cargo rejects outright, not a layering question anyone
 //! gets to sign off on. Placing it here adds **no** new dependency edge:
-//! `cspace-error`, `cspace-geometry`, `cspace-model` and `cspace-state` are
+//! `cspace_core::error`, `cspace_core::geometry`, `cspace_core::model` and `cspace_core::state` are
 //! already this crate's four dependencies, and they are all this module
 //! needs. Upstream's own header agrees the file is misplaced —
 //! `cartesian_interpolator.hpp:107` carries a

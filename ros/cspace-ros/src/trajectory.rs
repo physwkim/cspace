@@ -192,7 +192,7 @@ impl<'m> TryFrom<RobotTrajectory<'m>> for JointTrajectoryMsgOut {
 
     /// Every waypoint is a full [`RobotState`] over the same model, so
     /// `joint_names`/positions always line up -- but not total: `dt`
-    /// (`RobotTrajectory::add_suffix_way_point`'s parameter, `cspace-trajectory`)
+    /// (`RobotTrajectory::add_suffix_way_point`'s parameter, `cspace_core::trajectory`)
     /// carries no validation of its own, so a negative, non-finite, or
     /// beyond-`i32::MAX`-second cumulative time can reach `seconds_to_duration`,
     /// which now rejects it (PORTING-PLAN.md §172) rather than silently
@@ -245,7 +245,7 @@ mod tests {
     /// has a fourth (velocities/accelerations/effort length mismatch) --
     /// all the same variant, so `matches!(err, Error::Construct(_))` alone
     /// cannot tell a test that a routing bug swapped which branch fired
-    /// (same shape as `cspace-constraints`' `e3b40c6`).
+    /// (same shape as `cspace_planning::constraints`' `e3b40c6`).
     #[track_caller]
     fn assert_err_mentions<T: std::fmt::Debug>(result: Result<T, Error>, needle: &str) {
         let rendered = result
@@ -514,7 +514,7 @@ mod tests {
     #[test]
     fn negative_cumulative_duration_from_an_unvalidated_trajectory_is_rejected() {
         // `RobotTrajectory::add_suffix_way_point`'s `dt` has no validation of
-        // its own (`cspace-trajectory`) -- a trajectory built directly, not
+        // its own (`cspace_core::trajectory`) -- a trajectory built directly, not
         // through `JointTrajectoryMsg`'s own `dt < 0.0` check, can carry a
         // negative duration into this crate's msg export boundary.
         let model = one_joint_model();

@@ -5,7 +5,7 @@
 # `check-license-matches-upstream.sh` compares a crate's manifest license
 # against the SPDX identifier its own files carry. Both can agree and both be
 # wrong: the identifier is what someone typed, not what the cited upstream
-# actually permits. That gap is not hypothetical. `cspace-kinematics`'s
+# actually permits. That gap is not hypothetical. `cspace_core::kinematics`'s
 # `lib.rs`, `newton_raphson.rs` and `velocity.rs` each say BSD-3-Clause while
 # citing `moveit_kinematics/kdl_kinematics_plugin/.../
 # chainiksolver_vel_mimic_svd.{hpp,cpp}`, which is KDL vendored into moveit2
@@ -138,7 +138,7 @@ search_roots = upstream_roots + [repo_root]
 # is not required, because a few of these run onto the following line.
 CITATION = re.compile(r"^//(\s{2,})(\S+?)(?:\s+\(.*)?\s*$")
 # `.hxx` is octomap's extension for its header-inlined template bodies, which
-# is where `OcTreeIterator.hxx` -- the whole subject of `cspace-octomap`'s
+# is where `OcTreeIterator.hxx` -- the whole subject of `cspace_core::octomap`'s
 # `iter.rs` -- lives.
 FILENAME = re.compile(r"\.(?:cpp|hpp|hxx|h|cc|cxx|c|py)$")
 SPDX = re.compile(r"^//\s*SPDX-License-Identifier:\s*(.+?)\s*$")
@@ -230,8 +230,8 @@ def resolve_citation(citation):
     """Every upstream file a citation names, or `[]` if it names none.
 
     One rule for both shapes a citation takes. A path names one file. A
-    directory with no filenames indented under it -- how `cspace-planners-pilz`
-    and `cspace-planners-stomp` cite the packages they port whole -- names the
+    directory with no filenames indented under it -- how `cspace_planners::pilz`
+    and `cspace_planners::stomp` cite the packages they port whole -- names the
     sources beneath it, and dropping it silently was the same failure as any
     other unopened citation.
     """

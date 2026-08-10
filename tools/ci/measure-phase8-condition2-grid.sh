@@ -101,9 +101,9 @@ esac
 if [ ! -x "$SET_BIN" ] || [ ! -x "$PORT_BIN" ]; then
   echo "building the example binaries (release)..." >&2
   cargo build --release \
-    --example plan_benchmark_problem_set -p cspace-planners-sbp \
-    --example chomp_benchmark_port -p cspace-planners-chomp \
-    --example stomp_benchmark_port -p cspace-planners-stomp \
+    --example plan_benchmark_problem_set -p cspace-planners \
+    --example chomp_benchmark_port -p cspace-planners \
+    --example stomp_benchmark_port -p cspace-planners \
     --manifest-path "$REPO_ROOT/Cargo.toml" >&2
 fi
 

@@ -480,7 +480,7 @@ impl VisibilityConstraint {
     /// padding-`0.0`/scale-`1.0` upstream's default-constructed
     /// `CollisionEnvFCL` uses), and a fresh
     /// [`AllowedCollisionMatrix`] with one default conditional entry for
-    /// `"cone"`. None of this depends on `cspace-scene`'s `PlanningScene`
+    /// `"cone"`. None of this depends on `cspace_planning::scene`'s `PlanningScene`
     /// (not yet built by this port) or any collision state the caller
     /// might be tracking elsewhere.
     ///
@@ -495,7 +495,7 @@ impl VisibilityConstraint {
     /// *distance* mismatch; `visibility_cone: 142 satisfied, 143 violated`
     /// on both sides, 0 boolean mismatches. Unchanged from the numbers this
     /// port's own history already recorded once mesh collision geometry
-    /// landed (`cspace-model`/`cspace-collision` now retain and convert
+    /// landed (`cspace_core::model`/`cspace-collision` now retain and convert
     /// pr2's STL links) — so the mismatch is not the absence of mesh
     /// geometry.
     ///
@@ -592,7 +592,7 @@ impl VisibilityConstraint {
     /// The 10 cases above have no recorded seed (`PORTING-PLAN.md` §148),
     /// so they cannot be re-drawn directly. What can be re-measured is the
     /// *mechanism*: a fresh sweep (`cargo run --release --example
-    /// visibility_cone_depth_sweep -p cspace-constraints`, this crate's
+    /// visibility_cone_depth_sweep -p cspace-planning`, this crate's
     /// own independent oracle client, seeds 23/n=400 and 90210/n=2000,
     /// oracle stamp `c88557f4058892e9`) found **0/2400** `touching >= 2`
     /// cases — every near-placed case touches exactly one link, every

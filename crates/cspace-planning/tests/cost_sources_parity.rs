@@ -41,7 +41,7 @@
 //!
 //! - State-op id 2's nearest-match distance is now
 //!   `6.661338147750939e-16` (measured directly: `cargo nextest run -p
-//!   cspace-scene --test cost_sources_parity
+//!   cspace_planning::scene --test cost_sources_parity
 //!   panda_cost_sources_blocked_by_mesh_shape_cost_sources --run-ignored all
 //!   --no-capture` with a temporary `eprintln!`, output discarded, not
 //!   committed) -- an ULP-level gap indistinguishable from id 1's
@@ -457,7 +457,7 @@ fn panda_cost_sources_matches_the_oracle() {
 ///
 /// Id 5 (`group_name="hand"`) used to return `9` cost sources against an
 /// oracle-expected `2` -- a count mismatch, not a nearest-match distance
-/// gap either fix above could touch. It was never a `cspace-scene` defect:
+/// gap either fix above could touch. It was never a `cspace_planning::scene` defect:
 /// `group_name` filtering was entirely unimplemented in `cspace-collision`'s
 /// `check_self_collision`/`check_robot_collision`/`distance_self`/
 /// `distance_robot` (all four received the field and never read it) while
@@ -468,7 +468,7 @@ fn panda_cost_sources_matches_the_oracle() {
 /// `getUpdatedLinkModelsSet()`, and `collisionCallback`/`distanceCallback`
 /// (`collision_detection_fcl/collision_common.cpp:79-94,482-500`) drop a pair only when neither side
 /// is in the active set. Fixed in `cspace-collision` by `585a79e`. Measured
-/// directly this round with `cargo nextest run -p cspace-scene
+/// directly this round with `cargo nextest run -p cspace-planning
 /// --run-ignored all`: passes, 86/86. Isolated by reverting `585a79e`'s
 /// `parry.rs` hunk alone and rerunning this test: fails with the identical
 /// `count mismatch left: 9 right: 2`; restoring it passes again. No longer
@@ -592,7 +592,7 @@ fn panda_path_cost_sources_matches_the_oracle() {
 /// cost-source root box as an oriented OBB rather than an axis-aligned AABB
 /// (`54250b1`), per the module doc's "§171's dispatch defect is fixed" and
 /// "Oracle-verified coverage for the split branch" sections. Measured
-/// directly this round with `cargo nextest run -p cspace-scene --test
+/// directly this round with `cargo nextest run -p cspace-planning --test
 /// cost_sources_parity panda_path_cost_sources_blocked_by_mesh_shape_cost_sources
 /// --run-ignored all`: passes. No longer blocked, so the `#[ignore]` is
 /// removed -- a passing test left `#[ignore]`d never runs again, and a

@@ -27,19 +27,19 @@
 //!
 //! # Why a separate crate and a separate upstream
 //!
-//! `moveit2`'s own `moveit_planners/stomp/` (ported in `cspace-planners-stomp`)
+//! `moveit2`'s own `moveit_planners/stomp/` (ported in `cspace_planners::stomp`)
 //! only *binds to* STOMP's optimizer; it does not implement it. The actual
 //! optimization loop and its math helpers live in `ros-industrial/stomp`, a
 //! repository `moveit2` depends on but does not vendor. Every audit command
 //! in this workspace (`tools/ci/count-relative-eq.pl`,
 //! `count-public-declarations.sh`, and friends) counts a crate's symbols
 //! against exactly one upstream; folding this content into
-//! `cspace-planners-stomp` would put two upstreams (`moveit2` and
+//! `cspace_planners::stomp` would put two upstreams (`moveit2` and
 //! `ros-industrial/stomp`) in one crate and silently break that premise.
 //! `cspace-stomp-core` exists so the one-crate-one-upstream invariant keeps
-//! holding; `cspace-planners-stomp` now depends on it and calls
+//! holding; `cspace_planners::stomp` now depends on it and calls
 //! `generate_smoothing_matrix` from `filter_functions::simple_smoothing_matrix`
-//! -- see `cspace-planners-stomp`'s own module doc.
+//! -- see `cspace_planners::stomp`'s own module doc.
 //!
 //! # License: `Apache-2.0`, not this workspace's `BSD-3-Clause`
 //!
@@ -79,7 +79,7 @@
 //! shared script, not in this crate's code, and it is now fixed at the
 //! source (`c9780c7`, added the missing `/s`) rather than worked around
 //! per-crate -- the fix moved workspace `both=` from 94 to 112, correcting
-//! undercounts in `cspace-collision` (2 to 3) and `cspace-distance-field`
+//! undercounts in `cspace-collision` (2 to 3) and `cspace_collision::distance_field`
 //! (27 to 44); this crate's own `epsilon_only=6` re-counts the same either
 //! way. It was catchable at all only because `count-relative-eq.pl` has one
 //! canonical copy (`tools/ci/`, enforced by
@@ -89,7 +89,7 @@
 //!
 //! # Symbol-completeness audit (round 26)
 //!
-//! This crate had never received a `cspace-scene`-style symbol-by-symbol
+//! This crate had never received a `cspace_planning::scene`-style symbol-by-symbol
 //! audit before this round -- it is the only crate in the workspace with a
 //! different upstream and a different license, so no existing audit tool's
 //! output covered it. Reference repo re-verified exactly at the pin this

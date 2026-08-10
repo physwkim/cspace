@@ -58,9 +58,9 @@
 //! the reachability argument and the regression test proving it.
 //!
 //! This is the third copy of these two functions in the workspace
-//! (`cspace-trajectory`'s and `cspace-constraints`' `numeric` modules are
+//! (`cspace_core::trajectory`'s and `cspace_planning::constraints`' `numeric` modules are
 //! the first two). They are duplicated rather than shared because none of
-//! the three crates has a common dependency below `cspace-error`, an
+//! the three crates has a common dependency below `cspace_core::error`, an
 //! error-type crate; a fourth copy should become a shared crate instead.
 
 /// `std::min(a, b)`: `if b < a { b } else { a }`.

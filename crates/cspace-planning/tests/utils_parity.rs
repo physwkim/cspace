@@ -21,7 +21,7 @@
 //! `joint_values`/tolerances/poses live only in this file's own literals
 //! (`s0`/`s1`/`s2`/`SB`, the `construct_goal_*` call arguments above). Unlike
 //! `panda_is_state_valid.json`/`pr2_attached_collision.json`
-//! (`cspace-scene`'s hand-built "cases" fixtures, whose summary fields are
+//! (`cspace_planning::scene`'s hand-built "cases" fixtures, whose summary fields are
 //! *not* enough to reconstruct a wire request), every one of those inputs is
 //! a plain `constraints`-op field, so `tests/fixtures/panda_constraints_request.json`/
 //! `panda_constraints_response.json` reconstructs the 12 cases' wire requests

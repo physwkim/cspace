@@ -556,7 +556,7 @@ fn the_budget_sums_to_the_completion_condition() {
 /// whole crate's wall clock. Run it with
 ///
 /// ```text
-/// cargo nextest run -p cspace-constraints --run-ignored all \
+/// cargo nextest run -p cspace-planning --run-ignored all \
 ///   -E 'test(every_sampled_state_satisfies_its_own_constraints)'
 /// ```
 ///

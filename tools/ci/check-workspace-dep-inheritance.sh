@@ -3,8 +3,8 @@
 # `[workspace.dependencies]`.
 #
 # Three crates declared their sibling inline -- `cspace-trajectory = { path =
-# "../cspace-trajectory", version = "0.1.0" }` in cspace-planners-chomp and
-# cspace-planners-stomp, `cspace-scene` likewise in cspace-planners-sbp --
+# "../cspace-trajectory", version = "0.1.0" }` in cspace_planners::chomp and
+# cspace_planners::stomp, `cspace_planning::scene` likewise in cspace_planners::sbp --
 # while every other inter-crate edge went through the root table. Both forms
 # build, so nothing surfaced the split. It matters on a version bump: the
 # table entries move in one edit, an inline `version = "0.1.0"` silently does

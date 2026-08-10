@@ -1858,9 +1858,9 @@ impl<'m> RobotState<'m> {
     //
     // `is_chain`/`joint_roots` (`JointModelGroup::is_chain`/`joint_roots`)
     // and the descendant-link walk (`RobotModel::descendant_link_indices`)
-    // are now computed once, at model-build time, by `cspace-model` itself
+    // are now computed once, at model-build time, by `cspace_core::model` itself
     // (see those methods' own doc comments) -- this crate used to duplicate
-    // both traversals here on demand, before `cspace-model` carried them.
+    // both traversals here on demand, before `cspace_core::model` carried them.
     // `jacobian`, this section's only caller, uses them directly instead.
 
     /// The link a joint is attached from. Upstream
@@ -1912,7 +1912,7 @@ impl<'s, 'm> Posed<'s, 'm> {
     /// resolves to the identity transform at the root link (upstream:
     /// `robot_state.cpp:1345`), and otherwise `frame_id` must name a link.
     /// Upstream's further fallback to attached bodies and their subframes
-    /// lives one layer up, on the `cspace-scene` crate's
+    /// lives one layer up, on the `cspace_planning::scene` crate's
     /// `PlanningScene::frame_transform` — this port keeps attached bodies on
     /// the scene rather than on `RobotState` (see that crate's
     /// `attached_body` module doc), so this method structurally cannot see

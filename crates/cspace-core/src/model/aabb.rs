@@ -8,7 +8,7 @@
 //   moveit_core/robot_model/src/aabb.cpp
 //
 // This is `moveit::core::AABB`, not part of `geometric_shapes` — it lives
-// here rather than in `cspace-geometry` for the same reason it lives in
+// here rather than in `cspace_core::geometry` for the same reason it lives in
 // `moveit_core/robot_model` upstream: it exists solely to compute
 // `LinkModel::centered_bounding_box_offset_`.
 

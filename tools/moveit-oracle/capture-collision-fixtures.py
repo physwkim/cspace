@@ -17,7 +17,7 @@ Run after rebuilding the oracle image (tools/moveit-oracle/build.sh):
 
 fanuc_collision.json and pr2_collision.json already existed; this script
 regenerates them and adds panda_collision.json, which did not exist before
-because `cspace-model` did not load `<mesh>` collision geometry at all --
+because `cspace_core::model` did not load `<mesh>` collision geometry at all --
 every panda link's collision geometry is exactly one `<mesh>` element, so a
 capture against the old rust-side (geometry-free) build would have compared
 nothing to nothing. The existing fanuc_collision.json was itself captured

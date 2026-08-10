@@ -16,8 +16,8 @@
 //! keeps this as a separate local copy rather than sharing one
 //! implementation across packages (the ROS `angles` package is a distinct
 //! dependency `chomp_motion_planner` does not take), and other crates in
-//! this port (`cspace-model::joint::planar`, `cspace-planners-sbp::so2`,
-//! `cspace-constraints::joint`) each already keep their own separate
+//! this port (`cspace_core::model::joint::planar`, `cspace_planners::sbp::so2`,
+//! `cspace_planning::constraints::joint`) each already keep their own separate
 //! `normalize_angle`, matching that upstream non-sharing convention. The
 //! two formulas are algebraically equivalent at the +-pi boundary (both map
 //! `angle == +-PI` to `+PI`) but are textually different implementations,

@@ -46,7 +46,7 @@ fn normalize_angle(angle: f64) -> f64 {
 /// Upstream's `local_variable_name_` defaults to `""` to mean "this
 /// constrains a whole single-DOF joint, not one variable of a multi-DOF
 /// joint" — the same empty-string-as-absence pattern this port's
-/// `cspace-model::JointModelGroup::EndEffectorParent` already replaces with
+/// `cspace_core::model::JointModelGroup::EndEffectorParent` already replaces with
 /// `Option`. [`JointConstraint::local_variable_name`] returns `Option<&str>`
 /// here for the same reason.
 ///

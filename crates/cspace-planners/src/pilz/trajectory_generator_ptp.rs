@@ -468,7 +468,7 @@ mod tests {
     ///
     /// This guard is not locally bite-able: it is the sole gate on
     /// `cspace_core::model::RobotModel::joint_model_group`'s own `Result`, an
-    /// external, borrowed-return lookup in `cspace-model` (out of this
+    /// external, borrowed-return lookup in `cspace_core::model` (out of this
     /// crate's fence) -- there is no `&JointModelGroup` this crate can
     /// fabricate locally to fall through with, so a `if false && ...`
     /// neutralization here would not compile without editing another

@@ -3,7 +3,7 @@
 # rather than as numbers in a report.
 #
 #   1. success rate over 500 benchmark problems >= 90% of C++ OMPL RRTConnect's
-#   2. 100% of produced paths pass cspace-scene's collision check and constraints
+#   2. 100% of produced paths pass cspace_planning::scene's collision check and constraints
 #   3. median path length within 1.3x of C++ OMPL's
 #
 # Conditions 1 and 3 need the C++ baseline, so they need docker and the
@@ -131,7 +131,7 @@ fi
 #
 #   OLD=crates/cspace-planners/examples/plan_benchmark_problem_set_pre_5adbed6.rs
 #   git show 5adbed6:crates/cspace-planners/examples/plan_benchmark_problem_set.rs >"$OLD"
-#   cargo build --release -p cspace-planners-sbp \
+#   cargo build --release -p cspace-planners \
 #     --example plan_benchmark_problem_set_pre_5adbed6 --example plan_benchmark_problem_set
 #   for s in "floor_wall 250 900001" "cage 250 900002"; do
 #     diff <(./target/release/examples/plan_benchmark_problem_set_pre_5adbed6 $s 2>/dev/null) \
@@ -406,7 +406,7 @@ fi
 
 echo "=== building benchmark binaries (release) ==="
 cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
-  -p cspace-planners-sbp --examples || exit 1
+  -p cspace-planners --examples || exit 1
 
 failed=()
 
@@ -641,7 +641,7 @@ for entry in "${SETS[@]}"; do
 done
 
 echo
-echo "=== port (cspace-planners-sbp rrt_connect), timeout=${TIMEOUT_SECONDS}s per call, ${SHARDS} shards ==="
+echo "=== port (cspace_planners::sbp rrt_connect), timeout=${TIMEOUT_SECONDS}s per call, ${SHARDS} shards ==="
 port_start=$(date +%s.%N)
 for entry in "${SETS[@]}" "constrained x x x"; do
   read -r robot config count seed <<<"$entry"

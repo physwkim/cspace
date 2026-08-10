@@ -1343,7 +1343,7 @@ mod tests {
     /// prefers, not a test-only escape hatch. Run and reverted this round
     /// (`git diff` confirmed clean before committing): of the 84 tests
     /// across both crates, exactly **one** reddened --
-    /// `cspace-planners-stomp::planner::tests::plan_finds_a_lower_cost_trajectory_than_the_initial_straight_line_through_an_obstacle`.
+    /// `cspace_planners::stomp::planner::tests::plan_finds_a_lower_cost_trajectory_than_the_initial_straight_line_through_an_obstacle`.
     /// None of the six `solve_*_converges` tests here caught it. A bug that
     /// inverts the optimizer's core search preference is invisible to every
     /// one of these six -- the strongest evidence that they are smoke tests
@@ -1407,7 +1407,7 @@ mod tests {
         /// once per `compute_noisy_costs` call (one call per rollout, see
         /// `run_single_iteration`). Must be cloned off before the task is
         /// moved into `Box<dyn Task>`/`Stomp::new`, mirroring
-        /// `cspace-planners-stomp::planner`'s `call_count`/`AtomicUsize`
+        /// `cspace_planners::stomp::planner`'s `call_count`/`AtomicUsize`
         /// cancellation-detection pattern -- direct-equality assertions on
         /// solved output cannot distinguish "cancellation stopped the
         /// solver" from "the solver's own early-break logic stopped it for
@@ -2051,7 +2051,7 @@ mod tests {
     /// after exactly one valid iteration regardless of `proceed`, since this
     /// task's seed is already within `BIAS_THRESHOLD`. Both gaps are closed
     /// here the same way `cancelling_from_another_thread_stops_a_plan_call_already_in_flight`
-    /// (`cspace-planners-stomp::planner`) closes the identical pair: raise
+    /// (`cspace_planners::stomp::planner`) closes the identical pair: raise
     /// `num_iterations_after_valid` so the early-valid break cannot fire
     /// before `num_iterations` does, and assert on
     /// `DummyTask`'s per-rollout call count instead of on output shape, so
@@ -2062,7 +2062,7 @@ mod tests {
     /// This test cancels on the calling thread *before* `solve_from_endpoints`
     /// is invoked at all -- unlike its sibling
     /// `cancelling_from_another_thread_stops_a_plan_call_already_in_flight`
-    /// (`cspace-planners-stomp::planner`), there is no second thread and no
+    /// (`cspace_planners::stomp::planner`), there is no second thread and no
     /// race: `solve`'s pre-loop `compute_optimized_cost()` call
     /// (`Stomp::solve`'s own doc) always runs exactly once regardless of
     /// `proceed`, and `run_single_iteration` checks `proceed` before doing

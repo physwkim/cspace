@@ -14,7 +14,7 @@
 //! collision-coupled method) as permanently unportable, reasoning that its
 //! only collision backend, `collision_detection::CollisionEnvHybrid`
 //! (`hy_env_`), was a whole-file D-decision exclusion in
-//! `cspace-distance-field` with no path forward at all. That reasoning did
+//! `cspace_collision::distance_field` with no path forward at all. That reasoning did
 //! not survive a direct read of `hy_env_`'s real use in
 //! `chomp_motion_planner/`: it has exactly 5 references, and the only method
 //! ever called on it, `getCollisionGradients`, is `CollisionEnvHybrid`'s own
@@ -238,11 +238,11 @@
 //! `cspace_collision::distance_field::DistanceFieldCollisionCache` has no equivalent of
 //! upstream's `initialize()` pregeneration step, so it only ever runs the
 //! truly-fresh branch — and stated a falsifier: **expires once
-//! `cspace-distance-field` builds a pregenerated `GroupStateRepresentation`
+//! `cspace_collision::distance_field` builds a pregenerated `GroupStateRepresentation`
 //! per `JointModelGroup` at cache-construction time, matching upstream's
 //! `initialize()`.**
 //!
-//! **Round 26: closed, but not by that mechanism.** `cspace-distance-field`
+//! **Round 26: closed, but not by that mechanism.** `cspace_collision::distance_field`
 //! round 25 (`f5328da`) did not port the cache-reuse/pregeneration
 //! mechanism the falsifier above named — `GroupStateRepresentation` still
 //! borrows its `dfce` rather than owning/sharing it, so a self-referential
@@ -1009,7 +1009,7 @@ fn build_fixed_link_resolution_map(
 /// was empty for every link through this crate's only access path
 /// ([`cspace_collision::distance_field::DistanceFieldCollisionCache::get_collision_gradients`]'s
 /// always-fresh-build) -- gating on it would have returned a zero-length
-/// vector regardless of the real per-link sphere counts. `cspace-distance-field`
+/// vector regardless of the real per-link sphere counts. `cspace_collision::distance_field`
 /// round 25 (`f5328da`) closed that gap in `group_state_representation`
 /// itself, not by porting the cache-reuse mechanism the crate's own module
 /// doc originally predicted as the closing condition, but by reading
@@ -1053,7 +1053,7 @@ fn resolve_collision_point_joint_index(
 ///   construction. This port threads all three through as explicit
 ///   borrowed parameters to [`ChompOptimizer::new`]/
 ///   [`ChompOptimizer::optimize`] instead, following the precedent already
-///   established in `cspace-distance-field` (`env_distance_field: &dyn
+///   established in `cspace_collision::distance_field` (`env_distance_field: &dyn
 ///   DistanceField` is threaded the same way through
 ///   [`cspace_collision::distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
 ///   itself) -- this removes lifetime-parameter proliferation from the
@@ -1071,10 +1071,10 @@ fn resolve_collision_point_joint_index(
 /// - **`isCurrentTrajectoryMeshToMeshCollisionFree` becomes an injected
 ///   closure**, not a method backed by `planning_scene_->isPathValid`.
 ///   **Round 20: approved** (`PORTING-PLAN.md` §154's review) --
-///   wiring this as a method today would make `cspace-planners-chomp` --
+///   wiring this as a method today would make `cspace_planners::chomp` --
 ///   per round 20's brief, and the `hy_env_`/`getCollisionGradients`
 ///   evidence backing it -- depend on two crates it has never carried:
-///   `cspace-scene` (for `PlanningScene::is_path_valid`,
+///   `cspace_planning::scene` (for `PlanningScene::is_path_valid`,
 ///   `scene.rs:1725`) and `cspace-collision` (for `ParryCollisionEnv`,
 ///   `parry.rs:1629` -- the only existing implementer of the
 ///   `CollisionEnv<Posed>` bound `is_path_valid` requires;
@@ -1520,7 +1520,7 @@ impl<'m> ChompOptimizer<'m> {
     /// `DistanceFieldCollisionCache::get_collision_gradients` always takes
     /// the fresh-build path (no long-lived `gsr_` to reuse the way
     /// `chomp_optimizer.cpp` does), and that path left `sphere_locations`
-    /// empty for every link. `cspace-distance-field` round 25 (`f5328da`)
+    /// empty for every link. `cspace_collision::distance_field` round 25 (`f5328da`)
     /// closed the gap directly in the fresh-build branch itself -- see
     /// `resolve_collision_point_joint_index`'s doc comment (private to this
     /// module) for the same fact and why the fix landed differently than
@@ -1811,13 +1811,13 @@ impl<'m> ChompOptimizer<'m> {
     /// doc-link). The gap is composition, not a missing component:
     /// [`crate::chomp::solve`]
     /// is a bespoke function outside `cspace-planning`'s adapter pipeline
-    /// (see this crate's `# Deviation: no cspace-scene, no cspace-planning
+    /// (see this crate's `# Deviation: no cspace_planning::scene, no cspace-planning
     /// dependency` note), so nothing currently routes its response through
     /// `ValidateSolution` before a caller treats it as accepted -- matching
     /// upstream's own architecture, where `chomp_planner.cpp` alone has
     /// this exact same gap and only closes it when composed inside
     /// `move_group`'s pipeline. A future dispatcher wiring
-    /// `cspace-planners-chomp::solve`'s output through
+    /// `cspace_planners::chomp::solve`'s output through
     /// `cspace-planning::response_adapters::ValidateSolution` (the same
     /// missing dispatcher [`crate::chomp::planner::ChompGoal`]'s doc comment
     /// already names) is
@@ -2231,7 +2231,7 @@ mod tests {
 
     /// A synthetic two-joint revolute chain with primitive (`<box>`)
     /// collision geometry, matching the construction idiom
-    /// `cspace-distance-field`'s own `get_collision_gradients` tests use
+    /// `cspace_collision::distance_field`'s own `get_collision_gradients` tests use
     /// (`two_link_model_and_srdf` in
     /// `collision_env_distance_field.rs`). `panda.urdf`'s `<collision>`
     /// tags are all `<mesh>` references, which `MeshSearchPaths::none()`
@@ -2350,12 +2350,12 @@ mod tests {
 
     /// Proves the invariant [`ChompOptimizer::perform_forward_kinematics`]
     /// and [`resolve_collision_point_joint_index`] now rely on directly,
-    /// rather than working around: as of `cspace-distance-field` round 25
+    /// rather than working around: as of `cspace_collision::distance_field` round 25
     /// (`f5328da`), every [`GradientInfo`] this crate's only access path
     /// (`DistanceFieldCollisionCache::get_collision_gradients`) returns has
     /// `sphere_locations` populated, and it is element-for-element identical
     /// to `link_body_decompositions[i].sphere_centers()` -- the exact value
-    /// the pre-round-26 workaround read instead. If `cspace-distance-field`
+    /// the pre-round-26 workaround read instead. If `cspace_collision::distance_field`
     /// ever regresses `sphere_locations` back to empty (or lets it diverge
     /// from `link_body_decompositions`), this test fails first, before
     /// [`ChompOptimizer::perform_forward_kinematics`]'s own tests would

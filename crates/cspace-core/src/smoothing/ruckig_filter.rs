@@ -520,7 +520,7 @@ mod tests {
     /// variable is a dedicated [`Error`], not a lookup that happens to fail
     /// with "unknown name", and not upstream's silent last-variable-wins.
     ///
-    /// Reuses `cspace-trajectory`'s own `totg_synthetic.{urdf,srdf}` (also
+    /// Reuses `cspace_core::trajectory`'s own `totg_synthetic.{urdf,srdf}` (also
     /// this worker's crate) rather than adding a new fixture file here: a
     /// new synthetic fixture needs registering in
     /// `tools/ci/verify-fixture-provenance.sh`'s `SYNTHETIC` allowlist, which

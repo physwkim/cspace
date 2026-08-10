@@ -37,7 +37,7 @@
 //!
 //! `TrajectoryGeneratorPolyline::extract_motion_plan_info`'s Cartesian-goal
 //! branch and `plan`'s per-waypoint sampling route through the same
-//! `compute_pose_ik`/`cspace-kinematics` machinery
+//! `compute_pose_ik`/`cspace_core::kinematics` machinery
 //! `pilz_trajectory_lin_parity.rs`'s own "known IkContext-level
 //! self-collision deviation" doc section documents. This fixture's start pose
 //! is that module's, and every waypoint is a small free-space translation

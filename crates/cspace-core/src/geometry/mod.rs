@@ -16,7 +16,7 @@
 //! # Completion statement (round 15, item 3)
 //!
 //! Every number below is a command someone can re-run, not a claim to
-//! trust -- modeled on `cspace-scene`'s own completion statement (commit
+//! trust -- modeled on `cspace_planning::scene`'s own completion statement (commit
 //! `08ab3c7`), which exists for the same reason: `PORTING-PLAN.md` §65
 //! caught a crate's plan and code silently disagreeing for ten rounds
 //! because nothing forced a re-check.
@@ -49,7 +49,7 @@
 //! **Tests, and what each checks against the real oracle.**
 //!
 //! ```text
-//! cargo nextest run -p cspace-geometry --no-fail-fast   # 148 tests run: 148 passed, 0 skipped
+//! cargo nextest run -p cspace-core --no-fail-fast   # 148 tests run: 148 passed, 0 skipped
 //! rg -c '#\[test\]' crates/cspace-core/tests/*.rs
 //! ```
 //!
@@ -101,7 +101,7 @@
 //! `transforms.rs` (3, still present, accounted for above) and `stl.rs` (1,
 //! now 0: `grep -n assert_relative_eq crates/cspace-core/src/geometry/stl.rs`
 //! finds nothing, its tests are plain `assert_eq!`/`assert!`). Sibling crate
-//! `cspace-octomap`'s own reckoning is 0 calls, `approx` never being a
+//! `cspace_core::octomap`'s own reckoning is 0 calls, `approx` never being a
 //! dependency there; see that crate's completion statement.
 //!
 //! Two manual `assert!((lhs - rhs).abs() < tol)` sites in

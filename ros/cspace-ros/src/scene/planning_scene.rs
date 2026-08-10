@@ -10,7 +10,7 @@
 //! `moveit_msgs/msg::{PlanningScene, PlanningSceneWorld}` <->
 //! [`cspace_planning::scene::PlanningScene`]. See `doc/message-mapping.md` §11.
 //!
-//! # Why these live here and not in `cspace-scene`
+//! # Why these live here and not in `cspace_planning::scene`
 //!
 //! `crates/cspace-planning`'s own symbol survey marks
 //! `setPlanningSceneDiffMsg`/`setPlanningSceneMsg`/`usePlanningSceneMsg` (and
@@ -406,7 +406,7 @@ fn set_current_state_msg(
 /// port has nothing to depart from:
 ///
 /// - `object_types_.reset()` (`:1382`) has no counterpart --
-///   `hasObjectType`/`getObjectType`/... are D1 in `cspace-scene`
+///   `hasObjectType`/`getObjectType`/... are D1 in `cspace_planning::scene`
 ///   (`object_recognition_msgs::msg::ObjectType`) and no object-type map
 ///   exists to reset.
 /// - `world_->clearObjects()` (`:1392`) is
@@ -530,7 +530,7 @@ pub fn apply_planning_scene_world(
 /// (`:1483`) once the previous octomap has been cleared. A non-empty
 /// payload is decoded by [`cspace_core::octomap::OcTree::read_binary_data`] or
 /// [`cspace_core::octomap::OcTree::read_data`] (round 8: those two entry points
-/// landed in `cspace-octomap`, closing the round-5/round-7 structural gap
+/// landed in `cspace_core::octomap`, closing the round-5/round-7 structural gap
 /// this doc comment used to describe) and inserted the same way
 /// `apply_collision_object` inserts every other shape kind
 /// (`cspace_planning::scene::PlanningScene::add_shape`, `src/scene/collision_object.rs:382`)

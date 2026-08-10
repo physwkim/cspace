@@ -14,7 +14,7 @@
 //!
 //! `cspace_core::model::LinkModel` now loads `<mesh>` collision geometry (STL,
 //! resolved through [`MeshSearchPaths`] -- see that type and
-//! `cspace-geometry`'s `stl` module), so panda and fanuc (whose collision
+//! `cspace_core::geometry`'s `stl` module), so panda and fanuc (whose collision
 //! geometry is exactly one `<mesh>` element per link) and pr2's `<mesh>`
 //! links build with real collision shapes here rather than none at all.
 //! [`fixture_mesh_search_paths`] points at the three packages committed
@@ -2102,12 +2102,12 @@ fn pr2_self_wheel_same_pair_frozen_constant_is_a_plateau_not_a_global_invariant(
     );
 }
 
-/// Replicates `cspace-constraints`' `VisibilityConstraint::cone_mesh` exact
+/// Replicates `cspace_planning::constraints`' `VisibilityConstraint::cone_mesh` exact
 /// vertex/triangle formula (see that method's own doc comment: vertex `0`
 /// sensor origin, vertex `1` target center, vertices `2..cone_sides+2` the
 /// disc rim) so this crate can drive the same mesh through its own
 /// `parry3d_f64::query::contact` without a dependency on
-/// `cspace-constraints` -- that crate already depends on this one
+/// `cspace_planning::constraints` -- that crate already depends on this one
 /// (`Cargo.toml`), so the reverse edge would be a cycle.
 fn visibility_cone_mesh_world(
     world_to_sensor: &Isometry3,
@@ -2140,7 +2140,7 @@ fn visibility_cone_mesh_world(
 /// runs for a URDF mesh link's own STL, but against an in-memory cone mesh
 /// ([`visibility_cone_mesh_world`]) instead -- so a visibility-cone
 /// near-placement case can be probed the same way without going through
-/// `cspace-constraints`/`tools/moveit-diff`. Returns the winning triangle's
+/// `cspace_planning::constraints`/`tools/moveit-diff`. Returns the winning triangle's
 /// depth and indices, plus the target-center vertex (mesh vertex `1`)
 /// expressed in the cylinder's own local frame, for the caller to check it
 /// landed at the local origin.

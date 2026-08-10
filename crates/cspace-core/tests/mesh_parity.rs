@@ -109,7 +109,7 @@ fn load_cases() -> Vec<Case> {
 /// -> `fixtures/meshes/panda_description/meshes/collision/link0.stl`.
 /// Deliberately a small fixed map local to this test, not a general
 /// `package://` resolver -- that resolver (mapping arbitrary package names
-/// to arbitrary search paths) is `cspace-model`'s concern once `<mesh>`
+/// to arbitrary search paths) is `cspace_core::model`'s concern once `<mesh>`
 /// loading is wired into `LinkModel`; this test only needs the three packages
 /// its own fixture actually references.
 fn resolve_resource(resource: &str) -> std::path::PathBuf {

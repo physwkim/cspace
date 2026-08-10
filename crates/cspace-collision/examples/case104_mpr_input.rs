@@ -202,7 +202,7 @@ fn main() {
         (best - CAPTURED_REFERENCE_DEPTH).abs() < REFERENCE_TOLERANCE,
         "reconstructed depth {best} moved away from case 104's own captured reference \
          {CAPTURED_REFERENCE_DEPTH} -- the cone_mesh formula or FK reproduced here has drifted \
-         from cspace-constraints' own VisibilityConstraint::cone_mesh; re-sync both copies \
+         from cspace_planning::constraints' own VisibilityConstraint::cone_mesh; re-sync both copies \
          before trusting anything downstream of this program's stdout"
     );
 

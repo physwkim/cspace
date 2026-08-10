@@ -126,7 +126,7 @@ fn posed_body(shape: &Shape, pose: &Isometry3) -> Result<Body> {
 /// whatever order `leaves_in_bbx` gives it) — it does not check that order
 /// against upstream's `leaf_bbx_iterator`.
 ///
-/// That cross-language question is still open. `cspace-octomap`'s own
+/// That cross-language question is still open. `cspace_core::octomap`'s own
 /// `leaves_parity.rs` pins `OcTree::leaves()` (upstream `leaf_iterator`)
 /// against the real oracle, by an argument its own doc states explicitly:
 /// `tree_iterator` and `leaf_iterator` are distinct upstream classes, so
@@ -253,7 +253,7 @@ pub struct DistanceGradient {
 ///
 /// [`DistanceField::add_octree_to_field`] takes a
 /// [`cspace_core::octomap::OcTree`] directly instead, against the
-/// `cspace-octomap` dependency added for
+/// `cspace_core::octomap` dependency added for
 /// [`crate::distance_field::PosedBodyPointDecomposition::from_octree`] — a different,
 /// simpler point-collection algorithm from that method (see its own doc):
 /// occupied leaves only, bounding-box-clipped to this field's own grid

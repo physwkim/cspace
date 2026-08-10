@@ -1,12 +1,12 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! The half of `cspace-planner-registry`'s coverage that needs a real
+//! The half of `cspace_planning::planner_registry`'s coverage that needs a real
 //! registration in the slice.
 //!
 //! An integration test rather than a `#[cfg(test)] mod tests`, for a reason
 //! that is structural and not a preference: a planner crate depends on
-//! `cspace-planner-registry`, so a *unit*-test build of this crate links two
+//! `cspace_planning::planner_registry`, so a *unit*-test build of this crate links two
 //! copies of it — the `cfg(test)` one under test and the plain one the
 //! planner was compiled against — and `linkme` refuses that at startup with
 //! `duplicate #[distributed_slice] with name "PLANNER_MANAGERS"` (measured;

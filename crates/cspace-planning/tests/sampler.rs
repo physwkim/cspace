@@ -15,11 +15,11 @@
 //! whole-group goal set a concrete-state request becomes
 //! ([`a_zero_tolerance_goal_set_resolves_to_its_own_state`]).
 //!
-//! `panda.urdf`/`panda.srdf` (copied from `cspace-state`'s fixtures, already
+//! `panda.urdf`/`panda.srdf` (copied from `cspace_core::state`'s fixtures, already
 //! oracle-verified — see `crates/cspace-core/tests/fixtures/constraints/model/panda_model_info.json`)
 //! supply a real model. `panda_joint1`'s `[-2.8973, 2.8973]` bound below is
 //! from that file's own `<safety_controller soft_lower_limit=""
-//! soft_upper_limit="">` element on `panda_joint1` — `cspace-model`'s URDF
+//! soft_upper_limit="">` element on `panda_joint1` — `cspace_core::model`'s URDF
 //! loader prefers safety-controller soft limits over `<limit>` hard limits
 //! when both are present, matching upstream `RobotModel::computeVariableBoundsMsg`.
 

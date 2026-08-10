@@ -35,12 +35,12 @@
 //! req.max_velocity_scaling_factor, req.max_acceleration_scaling_factor)`
 //! (cpp:82-83) becomes
 //! [`cspace_core::trajectory::trajectory_tools::apply_totg_time_parameterization`]
-//! — already ported in `cspace-trajectory`, not re-implemented here.
+//! — already ported in `cspace_core::trajectory`, not re-implemented here.
 //!
 //! # History: this adapter no longer "closes" a STOMP gap
 //!
 //! An earlier round of this doc claimed this adapter closes a
-//! `cspace-planners-stomp::conversion_functions::fill_robot_trajectory`
+//! `cspace_planners::stomp::conversion_functions::fill_robot_trajectory`
 //! placeholder-`dt` gap: that function used to hand back a `RobotTrajectory`
 //! with every waypoint after the first at an inert `dt = 0.1`, silently
 //! wrong unless something downstream reparameterized it. That is no longer
@@ -158,7 +158,7 @@ mod tests {
     /// acceleration limits (URDF has no such element) — TOTG requires one
     /// per joint (`TimeOptimalTrajectoryGeneration` cannot compute a
     /// time-optimal profile against an unbounded axis). Fixed up the same
-    /// way `cspace-trajectory`'s own `trajectory_tools`
+    /// way `cspace_core::trajectory`'s own `trajectory_tools`
     /// `set_uniform_acceleration_bound` test helper does: read each
     /// `panda_arm` joint's [`cspace_core::model::joint::JointModel::variable_bounds_msg`],
     /// set `has_acceleration_limits`/`max_acceleration`, write back via
@@ -323,7 +323,7 @@ mod tests {
     /// it via `err.to_string()` (`ResponseAdapterError::Failed`'s `#[error]`
     /// format includes `{source}`).
     ///
-    /// `with_resample_dt`'s guard lives in `cspace-trajectory`, outside this
+    /// `with_resample_dt`'s guard lives in `cspace_core::trajectory`, outside this
     /// round's fence, so the two-mutation standard's mutation (1) (no-op the
     /// guard, confirm the test fails) cannot be run by editing it directly.
     /// `sibling_cause_does_not_read_as_a_resample_dt_rejection` below is the

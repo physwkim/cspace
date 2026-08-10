@@ -22,7 +22,7 @@
 //! half, and [`crate::request::PlanningRequest`]/
 //! [`crate::response::PlanningResponse`] are the other. Splitting them
 //! across crates is what produced the defect this module exists to close —
-//! `cspace-planners-sbp::registry` used to declare its own
+//! `cspace_planners::sbp::registry` used to declare its own
 //! `PlanningRequest`/`PlanningResponse`/`PlanningContext`/`PlannerManager`
 //! set that shared only *names* with this crate's, so
 //! [`crate::pipeline::generate_plan`] could not call the workspace's only
@@ -30,7 +30,7 @@
 //!
 //! Registration — going from a planner-id *string* to a
 //! [`PlannerManager`] instance — is deliberately *not* here: it is
-//! `cspace-planner-registry`'s job, one crate up, so that the
+//! `cspace_planning::planner_registry`'s job, one crate up, so that the
 //! `linkme::distributed_slice` it needs keeps its `unsafe_code = "allow"`
 //! confined to a crate with no other code in it (PORTING-PLAN.md §140.1).
 //! Nothing in this module or in [`crate::pipeline`] resolves a name.
@@ -317,7 +317,7 @@ pub trait PlanningContext<'m> {
 /// workspace (PORTING-PLAN.md D4.5: parry3d-f64 replaces FCL+Bullet
 /// outright, not as one plugin among several), so specializing directly to
 /// it costs nothing today and keeps this trait usable as
-/// `dyn PlannerManager` — which `cspace-planner-registry`'s slice and
+/// `dyn PlannerManager` — which `cspace_planning::planner_registry`'s slice and
 /// [`crate::pipeline::generate_plan`]'s `planners` parameter both require.
 pub trait PlannerManager {
     /// This manager's name. Plays the role of upstream's
@@ -325,7 +325,7 @@ pub trait PlannerManager {
     /// `generatePlan` logs at `planning_pipeline.cpp:311,318,324` and that
     /// [`crate::pipeline::PipelineError::Planner`] carries here), and is
     /// simultaneously the key a caller matches on when scanning
-    /// `cspace-planner-registry`'s `PLANNER_MANAGERS` — upstream keeps
+    /// `cspace_planning::planner_registry`'s `PLANNER_MANAGERS` — upstream keeps
     /// those two apart (a pluginlib class name vs. a free-form
     /// description), this port deliberately does not, so that a name found
     /// in the registry and a name reported in an error are the same string.

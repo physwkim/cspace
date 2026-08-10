@@ -15,7 +15,7 @@
 //! Both Phase 8 optimizers start from that segment.
 //!
 //! - STOMP's initialization is `fillInLinearInterpolation`
-//!   (`cspace-planners-chomp`'s ported twin is `ChompTrajectory::
+//!   (`cspace_planners::chomp`'s ported twin is `ChompTrajectory::
 //!   fill_in_linear_interpolation`), which is the segment itself.
 //! - CHOMP's default `trajectory_initialization_method` is `quintic-spline`,
 //!   i.e. `ChompTrajectory::fill_in_min_jerk`. That is *not* the same time
@@ -42,7 +42,7 @@
 //! # Usage
 //!
 //! `cargo run --release --example seed_validity_problem_set -p
-//! cspace-planners-sbp` with a `plan`-op request JSON on stdin, optionally
+//! cspace_planners::sbp` with a `plan`-op request JSON on stdin, optionally
 //! carrying `condition2_resolutions` (the same field the Phase 8 harnesses
 //! read). One NDJSON line per problem:
 //! `{"id", "seed_valid", "seed_length", "seed_invalid_count",

@@ -41,7 +41,7 @@
 //! 1. If revolute *and* continuous: wrapped into `[-pi, pi]` via
 //!    [`cspace_core::model::joint::JointModel::enforce_position_bounds`] — safe to call
 //!    unconditionally only for a continuous joint, since that variant of
-//!    `enforce_position_bounds` never clamps (see `cspace-model`'s
+//!    `enforce_position_bounds` never clamps (see `cspace_core::model`'s
 //!    `revolute.rs`, `enforce_position_bounds_wraps_when_continuous`); this
 //!    adapter must never silently clamp a genuinely out-of-bounds *bounded*
 //!    joint the way the whole-state `enforce_bounds()` would, so this port
@@ -150,7 +150,7 @@ impl PlanningRequestAdapter for CheckStartStateBounds {
             match joint.joint_type() {
                 JointType::Revolute if joint.as_revolute().unwrap().is_continuous() => {
                     // `enforce_position_bounds` always returns `true` for a
-                    // continuous joint (`cspace-model`'s `revolute.rs`),
+                    // continuous joint (`cspace_core::model`'s `revolute.rs`),
                     // whether or not it actually changed `values` -- unlike
                     // `PlanarJoint`/`FloatingJoint::normalize_rotation`
                     // below, whose return value genuinely means "changed
@@ -539,7 +539,7 @@ mod tests {
     /// joint already inside `[-PI, PI]` needs no wrap at all.
     /// `enforce_position_bounds` always returns `true` for a continuous
     /// joint, whether or not it actually changed anything (see
-    /// `cspace-model`'s `revolute.rs`, `enforce_position_bounds`'s own doc
+    /// `cspace_core::model`'s `revolute.rs`, `enforce_position_bounds`'s own doc
     /// comment) -- trusting that return value as "did this change the
     /// state" rejected every start state containing a continuous joint
     /// under `fix_start_state = false`, upstream's own default, regardless

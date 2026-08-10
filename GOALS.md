@@ -81,15 +81,12 @@ CHOMP 379/380 · STOMP 438/441이다. 앞의 둘은 한 궤적을 다듬는 최�
 ## 크레이트
 
 ```
-cspace-error          cspace-geometry       cspace-srdf
-cspace-model          cspace-state          cspace-metrics
-cspace-collision      cspace-distance-field cspace-octomap
-cspace-scene          cspace-constraints    cspace-sampling
-cspace-trajectory     cspace-smoothing      cspace-kinematics
-cspace-planning       cspace-planner-registry
-cspace-planners-sbp   cspace-planners-chomp
-cspace-planners-stomp cspace-stomp-core     cspace-planners-pilz
-cspace-test-support
+cspace-core        error geometry octomap srdf model state kinematics
+                   sampling trajectory smoothing metrics test_support
+cspace-collision   (+ distance_field)
+cspace-planning    (+ constraints scene planner_registry)
+cspace-planners    sbp chomp pilz stomp
+cspace-stomp-core
 ```
 
 `tools/moveit-oracle` (C++ 차등 오라클, moveit2 링크) /

@@ -32,7 +32,7 @@ use linear::Linear;
 /// `getCurvature`/`getSwitchingPoints` pure virtual, `clone` for the deep
 /// copy `Path`'s copy constructor needs) with exactly two subclasses. This
 /// port collapses that into a closed sum type — the same choice
-/// `cspace-model`'s `JointModel`/`JointKind` makes for an analogous
+/// `cspace_core::model`'s `JointModel`/`JointKind` makes for an analogous
 /// two-subclass-in-practice hierarchy — which also means [`PathSegment`]
 /// derives [`Clone`] for free instead of needing a hand-written deep-copy
 /// constructor.
@@ -42,7 +42,7 @@ use linear::Linear;
 /// [`PathSegment::circular`] and handed to kind-specific methods that need
 /// it (mirroring how [`crate::trajectory::path_segment`]'s kinds take bounds/length as
 /// parameters rather than storing a duplicate copy — the same pattern
-/// `cspace-model`'s joint kinds use for `VariableBounds`). `position` is
+/// `cspace_core::model`'s joint kinds use for `VariableBounds`). `position` is
 /// upstream's `PathSegment::position_` public field, set by
 /// [`crate::trajectory::Path::create`] only after every segment exists (it needs the
 /// running total length), so it starts at `0.0` and is filled in by

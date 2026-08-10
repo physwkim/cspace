@@ -25,7 +25,7 @@
 //!   `shared_ptr`, so `operator=` and the `deepcopy = false` copy
 //!   constructor alias waypoints across trajectories. This port's
 //!   [`RobotState`] is already a plain, `Clone`-able value type (that choice
-//!   was made when `cspace-state` was ported, not here), so `#[derive(Clone)]`
+//!   was made when `cspace_core::state` was ported, not here), so `#[derive(Clone)]`
 //!   on [`RobotTrajectory`] always deep-copies — there is no cheaper aliasing
 //!   mode to preserve, and no `deepcopy: bool` parameter.
 //! - **Unknown group names are a typed error, not a silent whole-robot

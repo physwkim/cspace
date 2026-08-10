@@ -36,7 +36,7 @@
 //!
 //! `TrajectoryGeneratorCirc::extract_motion_plan_info`'s Cartesian-goal
 //! branch and `plan`'s per-waypoint sampling both route through the same
-//! `compute_pose_ik`/`cspace-kinematics` machinery
+//! `compute_pose_ik`/`cspace_core::kinematics` machinery
 //! `pilz_trajectory_lin_parity.rs`'s own "known IkContext-level
 //! self-collision deviation" doc section already documents — this fixture's
 //! start/goal pose is the identical one, chosen there specifically so

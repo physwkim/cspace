@@ -22,7 +22,7 @@
 //! - [`robot_trajectory::RobotTrajectory`], upstream's `robot_trajectory::
 //!   RobotTrajectory` — a sequence of `RobotState` waypoints plus
 //!   per-waypoint durations. Unlike the two types above, this one *does*
-//!   depend on `cspace-model`/`cspace-state`; see that module's doc comment.
+//!   depend on `cspace_core::model`/`cspace_core::state`; see that module's doc comment.
 //! - [`ruckig_smoothing`], upstream's `trajectory_processing::
 //!   RuckigSmoothing` — re-parameterizes a [`robot_trajectory::RobotTrajectory`]
 //!   so it also satisfies jerk limits, via the `ruckig` online trajectory
@@ -240,7 +240,7 @@
 //!
 //! This section is a check, not a claim: it names exactly what "done" means
 //! for this crate's current scope, so plan and code can be compared directly
-//! instead of re-diverging silently (the pattern `cspace-distance-field`'s
+//! instead of re-diverging silently (the pattern `cspace_collision::distance_field`'s
 //! own "Completion condition" section established, after PORTING-PLAN.md
 //! §65/§71 caught a plan claim nobody could verify against the code).
 //!

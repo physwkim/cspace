@@ -99,7 +99,7 @@
 //!   through `first_trajectory`'s own waypoints.** Upstream's
 //!   `hasAttachedBody`/`getFrameTransform` reach an attached body through
 //!   `RobotState`'s own `attached_body_map_`; this port's states carry no
-//!   attached bodies at all (see `cspace-scene`'s `attached_body` module
+//!   attached bodies at all (see `cspace_planning::scene`'s `attached_body` module
 //!   doc — they live on [`cspace_planning::scene::PlanningScene`] instead), so
 //!   `validate_request`, `search_intersection_points` and
 //!   `blend_trajectory_cartesian` each take an explicit

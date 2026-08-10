@@ -10,7 +10,7 @@
 // (`robot_state.cpp:222-231`) don't zero storage either — they clear the
 // `has_velocity_`/`has_acceleration_` presence flags, which a freshly
 // constructed `RobotState` already starts with `false`
-// (`robot_state.cpp:68-69`; see `cspace-state`'s `RobotState::new`, which
+// (`robot_state.cpp:68-69`; see `cspace_core::state`'s `RobotState::new`, which
 // mirrors the same false-by-default flags), so calling them on a fresh
 // state is redundant upstream too, not just here.
 // `single_waypoint`'s lone waypoint is added with duration `0.0`, not

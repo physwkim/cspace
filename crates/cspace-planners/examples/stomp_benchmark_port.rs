@@ -7,7 +7,7 @@
 // entry point, never through a benchmark runner.
 
 //! Runs this crate's [`plan`](cspace_planners::stomp::plan) over a `plan`-op
-//! request JSON -- the exact format `cspace-planners-sbp`'s
+//! request JSON -- the exact format `cspace_planners::sbp`'s
 //! `examples/plan_benchmark_problem_set` emits and
 //! `cspace-planners-sbp/benches/sweep_baseline.sh` feeds to the oracle -- so
 //! Phase 8's STOMP measurement runs the *identical* 500 problems the Phase 7
@@ -33,7 +33,7 @@
 //! # Usage
 //!
 //! `cargo run --release --example stomp_benchmark_port -p
-//! cspace-planners-stomp -- <seed_base> [allowed_planning_time_secs]`, with a
+//! cspace_planners::stomp -- <seed_base> [allowed_planning_time_secs]`, with a
 //! `plan`-op request JSON on stdin.
 //!
 //! `seed_base` seeds the per-problem `ChaCha8Rng` STOMP's noisy rollouts are

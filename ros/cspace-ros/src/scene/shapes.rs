@@ -29,7 +29,7 @@ impl TryFrom<MeshMsg> for Shape {
     /// three vertices; a length other than 3 is rejected here rather than
     /// silently truncated or panicking on `Mesh::new`'s array conversion.
     /// [`Mesh::new`] itself then rejects any vertex index out of range for
-    /// `vertices` (cspace-geometry's own D6-shaped construction check), so
+    /// `vertices` (cspace_core::geometry's own D6-shaped construction check), so
     /// this conversion does not have to re-check that.
     fn try_from(msg: MeshMsg) -> Result<Self, Self::Error> {
         let shape_msgs::Mesh {
@@ -154,7 +154,7 @@ mod tests {
             }],
         };
         let err = Shape::try_from(MeshMsg(msg)).unwrap_err();
-        // Not just the variant: `Mesh::new` (cspace-geometry) has a sibling
+        // Not just the variant: `Mesh::new` (cspace_core::geometry) has a sibling
         // `Error::Construct` site (out-of-range vertex index, hit by
         // `mesh_out_of_range_vertex_index_is_rejected` below) that a bare
         // `matches!` cannot tell apart from this length check.

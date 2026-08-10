@@ -537,58 +537,58 @@ name = "cspace-collision"
 version = "0.1.0"
 dependencies = [
  "glamx",
- "cspace-error",
- "cspace-geometry",
- "cspace-model",
- "cspace-octomap",
- "cspace-srdf",
- "cspace-state",
+ "cspace_core::error",
+ "cspace_core::geometry",
+ "cspace_core::model",
+ "cspace_core::octomap",
+ "cspace_core::srdf",
+ "cspace_core::state",
  "nalgebra",
  "parry3d-f64",
 ]
 
 [[package]]
-name = "cspace-constraints"
+name = "cspace_planning::constraints"
 version = "0.1.0"
 dependencies = [
  "cspace-collision",
- "cspace-error",
- "cspace-geometry",
- "cspace-kinematics",
- "cspace-model",
- "cspace-state",
+ "cspace_core::error",
+ "cspace_core::geometry",
+ "cspace_core::kinematics",
+ "cspace_core::model",
+ "cspace_core::state",
  "nalgebra",
  "rand 0.10.2",
  "thiserror 2.0.19",
 ]
 
 [[package]]
-name = "cspace-error"
+name = "cspace_core::error"
 version = "0.1.0"
 dependencies = [
  "thiserror 2.0.19",
 ]
 
 [[package]]
-name = "cspace-geometry"
+name = "cspace_core::geometry"
 version = "0.1.0"
 dependencies = [
  "glamx",
- "cspace-error",
- "cspace-octomap",
+ "cspace_core::error",
+ "cspace_core::octomap",
  "nalgebra",
  "parry3d-f64",
 ]
 
 [[package]]
-name = "cspace-kinematics"
+name = "cspace_core::kinematics"
 version = "0.1.0"
 dependencies = [
  "linkme",
- "cspace-error",
- "cspace-geometry",
- "cspace-model",
- "cspace-state",
+ "cspace_core::error",
+ "cspace_core::geometry",
+ "cspace_core::model",
+ "cspace_core::state",
  "nalgebra",
  "rand 0.10.2",
  "rand_chacha",
@@ -597,19 +597,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "cspace-model"
+name = "cspace_core::model"
 version = "0.1.0"
 dependencies = [
- "cspace-error",
- "cspace-geometry",
- "cspace-srdf",
+ "cspace_core::error",
+ "cspace_core::geometry",
+ "cspace_core::srdf",
  "nalgebra",
  "roxmltree",
  "urdf-rs",
 ]
 
 [[package]]
-name = "cspace-octomap"
+name = "cspace_core::octomap"
 version = "0.1.0"
 dependencies = [
  "nalgebra",
@@ -617,30 +617,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "cspace-planner-registry"
+name = "cspace_planning::planner_registry"
 version = "0.1.0"
 dependencies = [
  "linkme",
- "cspace-error",
+ "cspace_core::error",
  "cspace-planning",
 ]
 
 [[package]]
-name = "cspace-planners-sbp"
+name = "cspace_planners::sbp"
 version = "0.1.0"
 dependencies = [
  "linkme",
  "cspace-collision",
- "cspace-constraints",
- "cspace-error",
- "cspace-geometry",
- "cspace-kinematics",
- "cspace-model",
- "cspace-planner-registry",
+ "cspace_planning::constraints",
+ "cspace_core::error",
+ "cspace_core::geometry",
+ "cspace_core::kinematics",
+ "cspace_core::model",
+ "cspace_planning::planner_registry",
  "cspace-planning",
- "cspace-scene",
- "cspace-state",
- "cspace-trajectory",
+ "cspace_planning::scene",
+ "cspace_core::state",
+ "cspace_core::trajectory",
  "rand 0.10.2",
  "rand_chacha",
  "thiserror 2.0.19",
@@ -651,13 +651,13 @@ name = "cspace-planning"
 version = "0.1.0"
 dependencies = [
  "cspace-collision",
- "cspace-constraints",
- "cspace-error",
- "cspace-geometry",
- "cspace-model",
- "cspace-scene",
- "cspace-state",
- "cspace-trajectory",
+ "cspace_planning::constraints",
+ "cspace_core::error",
+ "cspace_core::geometry",
+ "cspace_core::model",
+ "cspace_planning::scene",
+ "cspace_core::state",
+ "cspace_core::trajectory",
  "thiserror 2.0.19",
 ]
 
@@ -668,65 +668,65 @@ dependencies = [
  "approx",
  "futures",
  "cspace-collision",
- "cspace-constraints",
- "cspace-error",
- "cspace-geometry",
- "cspace-kinematics",
- "cspace-model",
- "cspace-octomap",
- "cspace-planner-registry",
- "cspace-planners-sbp",
+ "cspace_planning::constraints",
+ "cspace_core::error",
+ "cspace_core::geometry",
+ "cspace_core::kinematics",
+ "cspace_core::model",
+ "cspace_core::octomap",
+ "cspace_planning::planner_registry",
+ "cspace_planners::sbp",
  "cspace-planning",
- "cspace-scene",
- "cspace-srdf",
- "cspace-state",
- "cspace-trajectory",
+ "cspace_planning::scene",
+ "cspace_core::srdf",
+ "cspace_core::state",
+ "cspace_core::trajectory",
  "nalgebra",
  "r2r",
  "urdf-rs",
 ]
 
 [[package]]
-name = "cspace-scene"
+name = "cspace_planning::scene"
 version = "0.1.0"
 dependencies = [
  "cspace-collision",
- "cspace-constraints",
- "cspace-error",
- "cspace-geometry",
- "cspace-kinematics",
- "cspace-model",
- "cspace-srdf",
- "cspace-state",
+ "cspace_planning::constraints",
+ "cspace_core::error",
+ "cspace_core::geometry",
+ "cspace_core::kinematics",
+ "cspace_core::model",
+ "cspace_core::srdf",
+ "cspace_core::state",
 ]
 
 [[package]]
-name = "cspace-srdf"
+name = "cspace_core::srdf"
 version = "0.1.0"
 dependencies = [
- "cspace-error",
+ "cspace_core::error",
  "roxmltree",
 ]
 
 [[package]]
-name = "cspace-state"
+name = "cspace_core::state"
 version = "0.1.0"
 dependencies = [
- "cspace-error",
- "cspace-geometry",
- "cspace-model",
+ "cspace_core::error",
+ "cspace_core::geometry",
+ "cspace_core::model",
  "nalgebra",
  "rand 0.10.2",
  "rand_distr",
 ]
 
 [[package]]
-name = "cspace-trajectory"
+name = "cspace_core::trajectory"
 version = "0.1.0"
 dependencies = [
- "cspace-error",
- "cspace-model",
- "cspace-state",
+ "cspace_core::error",
+ "cspace_core::model",
+ "cspace_core::state",
  "nalgebra",
  "rsruckig",
 ]

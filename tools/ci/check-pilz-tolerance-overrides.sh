@@ -23,7 +23,7 @@
 # `blend_panda_arm_<case>_needs_its_own_<channel>_tolerance` test, annotated
 # `#[should_panic]`, that drops that one channel back to the shared
 # tolerance (holding every other tolerance the case actually needs) and
-# asserts the comparison then fails. `cargo nextest run -p cspace-planners-pilz`
+# asserts the comparison then fails. `cargo nextest run -p cspace-planners`
 # running that test green is the actual audit, re-run on every test
 # invocation against today's real divergence, not a number copied into a
 # comment once. This check only verifies the companion test exists with the

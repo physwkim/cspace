@@ -99,7 +99,7 @@ fn read_fixture(file_name: &str) -> String {
 /// `fixtures/meshes/pr2_description/` -- see
 /// `collision_env_distance_field_parity.rs`'s copy of this same helper for
 /// the full mapping citation (this crate's per-test-file convention
-/// duplicates helpers rather than sharing them via `cspace-test-support`,
+/// duplicates helpers rather than sharing them via `cspace_core::test_support`,
 /// since `env!("CARGO_MANIFEST_DIR")` must resolve per-crate at each file's
 /// own compile site).
 fn fixture_mesh_search_paths() -> MeshSearchPaths {

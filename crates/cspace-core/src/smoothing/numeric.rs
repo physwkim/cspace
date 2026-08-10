@@ -25,7 +25,7 @@
 //! `target_accel`, clamped by whichever bound is finite) rather than
 //! crashing the process the way `f64::clamp` would. This is the same
 //! panic-on-NaN-bound shape as `merge_constraints`'
-//! [`f64::clamp`]-vs-`cxx_max`/`cxx_min` fix in `cspace-constraints`, but
+//! [`f64::clamp`]-vs-`cxx_max`/`cxx_min` fix in `cspace_planning::constraints`, but
 //! is a genuinely different function to port: `std::max(lo,
 //! std::min(v, hi))` (that fix's upstream idiom) and `std::clamp(v, lo,
 //! hi)` (this one) disagree on a NaN `lo` — the composed form propagates

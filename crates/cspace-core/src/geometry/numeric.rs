@@ -65,16 +65,16 @@
 //! # Third copy, deferred consolidation
 //!
 //! This is the third copy of `cxx_min`/`cxx_max` in the workspace
-//! (`cspace-trajectory::numeric` and `cspace-constraints::numeric` are the
-//! other two, and both still carry `cxx_min`). `cspace-geometry` depends on
+//! (`cspace_core::trajectory::numeric` and `cspace_planning::constraints::numeric` are the
+//! other two, and both still carry `cxx_min`). `cspace_core::geometry` depends on
 //! neither of those crates, and the only crate every numeric-comparison-
-//! needing crate already shares is `cspace-error`, whose whole doc is
+//! needing crate already shares is `cspace_core::error`, whose whole doc is
 //! "Error types for moveit-rs" — these functions don't belong there either.
 //! The structural fix is one shared crate; it is deferred, not skipped,
 //! because adding a `moveit-numeric` workspace member means editing
 //! `Cargo.toml`/`Cargo.lock` while five branches are divergent, and every
 //! one of them would conflict on the lock at merge. Consolidate the three
-//! copies (`cspace-trajectory::numeric`, `cspace-constraints::numeric`, this
+//! copies (`cspace_core::trajectory::numeric`, `cspace_planning::constraints::numeric`, this
 //! module) into a shared crate once those branches land.
 
 /// `std::min(a, b)`: `if b < a { b } else { a }`. Also Eigen's

@@ -151,11 +151,11 @@ pub enum Op {
         #[serde(default)]
         queries: Vec<String>,
     },
-    /// Ground truth for the `cspace-distance-field` `PropagationDistanceField`
+    /// Ground truth for the `cspace_collision::distance_field` `PropagationDistanceField`
     /// port. Builds a field directly from `geometry`/`max_distance`/
     /// `propagate_negative` -- no `RobotModel` involved, `distance_field` has
     /// none either -- adds `occupied_cells` (explicit integer grid
-    /// coordinates, not shapes: `cspace-geometry`'s `bodies` port is not
+    /// coordinates, not shapes: `cspace_core::geometry`'s `bodies` port is not
     /// merged yet), then dumps `getDistance`, `getDistanceGradient` and
     /// `getNearestCell` for every cell in `queries`.
     DistanceField {
@@ -192,7 +192,7 @@ pub enum Op {
         /// Grid spacing `findInternalPointsConvex` samples at.
         resolution: f64,
     },
-    /// Ground truth for the `cspace-constraints` `KinematicConstraintSet`
+    /// Ground truth for the `cspace_planning::constraints` `KinematicConstraintSet`
     /// port. Builds a `moveit_msgs::msg::Constraints` from `constraints`
     /// (one message vector per constraint kind, joint/position/orientation/
     /// visibility, each filled in request order — the same order
@@ -407,7 +407,7 @@ pub enum OrientationToleranceSpec {
 
 /// One `moveit_msgs::msg::VisibilityConstraint`. Only the criteria decidable
 /// without a collision backend are exercised by the differential test that
-/// drives this (view-angle/range-angle) — see `cspace-constraints`' own
+/// drives this (view-angle/range-angle) — see `cspace_planning::constraints`' own
 /// module docs for why `target_radius` alone cannot be.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisibilityConstraintSpec {

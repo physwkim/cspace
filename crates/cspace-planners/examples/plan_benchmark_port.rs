@@ -21,7 +21,7 @@
 //!
 //! # Usage
 //!
-//! `cargo run --release --example plan_benchmark_port -p cspace-planners-sbp
+//! `cargo run --release --example plan_benchmark_port -p cspace-planners
 //! -- <seed_base> [timeout_seconds] [inject] [dense]`, with a `plan`-op
 //! request JSON on stdin (see `examples/plan_benchmark_problem_set.rs`'s own
 //! doc comment for the exact shape -- the same file
@@ -71,7 +71,7 @@
 //! # Condition 2's collision-check resolution
 //!
 //! Phase 7 condition 2 requires "100% of produced port paths pass
-//! `cspace-scene`'s collision check and constraints".
+//! `cspace_planning::scene`'s collision check and constraints".
 //! [`PlanningScene::is_path_valid`] checks exactly the waypoints it is
 //! given -- it does not itself interpolate between them -- and this crate's
 //! own `rrt_connect` only *returns* the RRT tree's vertices (roughly

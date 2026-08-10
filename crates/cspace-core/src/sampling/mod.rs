@@ -19,17 +19,17 @@
 //! `covariance_cholesky_` via `covariance.llt().matrixL()`, the same
 //! standard-normal sample loop) is the same; only the namespace, a member
 //! name, and STOMP's extra `use_covariance` parameter (see
-//! [`MultivariateGaussian`]'s module doc) differ. `cspace-planners-stomp`
-//! and (in a future round) `cspace-planners-chomp` both need this class.
+//! [`MultivariateGaussian`]'s module doc) differ. `cspace_planners::stomp`
+//! and (in a future round) `cspace_planners::chomp` both need this class.
 //! Putting it in either planner crate and having the other depend on it
 //! would make one planner depend on a sibling planner, which is not this
 //! workspace's dependency direction -- so it lives here instead, and both
-//! planner crates depend on `cspace-sampling`.
+//! planner crates depend on `cspace_core::sampling`.
 //!
 //! # `assert_relative_eq!` reckoning (round 20, ported to this crate from scratch)
 //!
 //! Per PORTING-PLAN.md's tolerance-floor mandate and the established §79
-//! counting convention (`cspace-geometry`/`cspace-octomap`), every
+//! counting convention (`cspace_core::geometry`/`cspace_core::octomap`), every
 //! `assert_relative_eq!`/`relative_eq!` call this crate's tests introduce is
 //! counted here from the start, not retrofitted later:
 //!

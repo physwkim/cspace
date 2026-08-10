@@ -36,7 +36,7 @@
 //! `manipulability_index`/`manipulability` are pinned positionally,
 //! field-by-field, per state, at both `translation` values: both Eigen's
 //! `JacobiSVD` (upstream) and `nalgebra::SVD::new` (this port) guarantee
-//! descending singular-value order (see `cspace-metrics`'s own doc comment
+//! descending singular-value order (see `cspace_core::metrics`'s own doc comment
 //! for the primary-source verification), so a positional pin is meaningful.
 //!
 //! `manipulability_ellipsoid` is different: neither Eigen's `EigenSolver`

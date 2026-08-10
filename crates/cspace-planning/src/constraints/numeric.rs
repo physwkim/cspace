@@ -35,9 +35,9 @@
 //! are computed rather than known-finite.
 //!
 //! This is the second copy of these two functions in the workspace
-//! (`cspace-trajectory`'s `numeric` module is the first). They are
+//! (`cspace_core::trajectory`'s `numeric` module is the first). They are
 //! duplicated rather than shared because the two crates have no common
-//! dependency below `cspace-error`, which is an error-type crate; a third
+//! dependency below `cspace_core::error`, which is an error-type crate; a third
 //! copy should become a shared crate instead.
 
 /// `std::min(a, b)`: `if b < a { b } else { a }`.

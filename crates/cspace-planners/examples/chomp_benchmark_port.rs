@@ -9,7 +9,7 @@
 
 //! Runs this crate's [`chomp::solve`](cspace_planners::chomp::solve) over a
 //! `plan`-op request JSON -- the exact format
-//! `cspace-planners-sbp`'s `examples/plan_benchmark_problem_set` emits and
+//! `cspace_planners::sbp`'s `examples/plan_benchmark_problem_set` emits and
 //! `cspace-planners-sbp/benches/sweep_baseline.sh` feeds to the oracle -- so
 //! Phase 8's CHOMP measurement runs the *identical* 500 problems the Phase 7
 //! C++ OMPL RRTConnect baseline was measured on, not a re-sample.
@@ -50,7 +50,7 @@
 //! # Usage
 //!
 //! `cargo run --release --example chomp_benchmark_port -p
-//! cspace-planners-chomp -- <seed_base> [planning_time_limit_secs]`, with a
+//! cspace_planners::chomp -- <seed_base> [planning_time_limit_secs]`, with a
 //! `plan`-op request JSON on stdin.
 //!
 //! `planning_time_limit_secs` defaults to upstream's own
@@ -182,7 +182,7 @@
 //! [`chomp::solve`](cspace_planners::chomp::solve) takes upstream's
 //! `ChompOptimizer::isCurrentTrajectoryMeshToMeshCollisionFree` as an
 //! injected closure rather than a method, so this crate need not depend on
-//! `cspace-scene`/`cspace-collision`'s `ParryCollisionEnv` (see
+//! `cspace_planning::scene`/`cspace-collision`'s `ParryCollisionEnv` (see
 //! `optimizer.rs`'s own "closed API gap" doc). Every caller in the tree
 //! before this file passed `|_, _| false` -- i.e. no test ever exercised
 //! upstream's every-10th-iteration mesh check doing anything. This binary

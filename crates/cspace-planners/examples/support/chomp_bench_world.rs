@@ -9,7 +9,7 @@
 // closure, `optimizer.rs:1934-1935`).
 //
 // `include!`d, not a `src/` module: this crate's library half deliberately
-// cannot depend on `cspace-scene` (see `Cargo.toml`'s `[dev-dependencies]`
+// cannot depend on `cspace_planning::scene` (see `Cargo.toml`'s `[dev-dependencies]`
 // comment), and `include!`d text is spliced into the including file's own
 // compilation unit, so it can use this crate's dev-only dependencies the way
 // a `src/` module could not.
@@ -83,7 +83,7 @@ fn load_panda() -> (RobotModel, SrdfModel) {
     (model, srdf)
 }
 
-/// One obstacle as both a world object (for `cspace-scene`'s mesh-level
+/// One obstacle as both a world object (for `cspace_planning::scene`'s mesh-level
 /// checks) and a shape/pose pair (for the distance field CHOMP's gradients
 /// read).
 struct Obstacle {

@@ -122,7 +122,7 @@ fn is_identity(transform: &Isometry3) -> bool {
 ///    does not.** `moveit::core::LinkModel` has no such field at all;
 ///    `dynamics_solver::DynamicsSolver` gets this data by bypassing
 ///    `RobotModel` entirely and re-parsing the raw URDF a second time via
-///    `kdl_parser`. This port's dynamics solver (`cspace-state`) instead
+///    `kdl_parser`. This port's dynamics solver (`cspace_core::state`) instead
 ///    reads it from here, so it needs only a `RobotModel` handle — the same
 ///    reasoning `dynamics_solver.rs`'s doc comment applies to threading
 ///    URDF `<limit effort="...">` onto [`crate::model::joint::JointModel`]. [`mass`](LinkModel::mass)

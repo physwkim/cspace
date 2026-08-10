@@ -219,7 +219,7 @@ fn sensor_view_direction_from_spec(
 /// then-apply the same way [`fk`]/[`jacobian`] do.
 ///
 /// A `VisibilityConstraintSpec` with `target_radius` set runs the full
-/// cone-vs-robot collision check (`cspace-constraints`' own
+/// cone-vs-robot collision check (`cspace_planning::constraints`' own
 /// `VisibilityConstraint::decide`), not just the view/range-angle checks.
 pub fn constraints(
     model: &RobotModel,

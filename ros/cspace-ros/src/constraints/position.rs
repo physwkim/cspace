@@ -17,7 +17,7 @@
 //! so every `CONE`-typed constraint region fails there instead. This has
 //! been true since round 2; see `doc/message-mapping.md` §5's `SolidPrimitive`
 //! table for the full citation. Expires if `cspace_core::geometry::Body` grows a
-//! `Cone` variant -- `cspace-geometry`'s call, not this crate's.
+//! `Cone` variant -- `cspace_core::geometry`'s call, not this crate's.
 
 use cspace_core::error::Error;
 use cspace_core::geometry::bodies::Body;
@@ -387,7 +387,7 @@ mod tests {
             msg,
         })
         .unwrap_err();
-        // Not just the variant: `PositionConstraint::new` (cspace-constraints)
+        // Not just the variant: `PositionConstraint::new` (cspace_planning::constraints)
         // has three other Error::Construct sites (empty frame_id, empty
         // shapes, and this file's own primitives/poses length check) all
         // reachable through the same `TryFrom<PositionConstraintMsg>`.

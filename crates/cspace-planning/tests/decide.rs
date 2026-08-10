@@ -5,7 +5,7 @@
 //! one case per invariant boundary (tolerance edge, mobile-vs-fixed frame,
 //! Euler-singularity branch, `Option`-vs-`None` criterion) rather than one
 //! per narrative scenario. `panda.urdf`/`panda.srdf` (copied from
-//! `cspace-state`'s fixtures) supply a real, already-oracle-verified model
+//! `cspace_core::state`'s fixtures) supply a real, already-oracle-verified model
 //! and FK — see `crates/cspace-core/tests/fixtures/constraints/model/panda_model_info.json`
 //! and `crates/cspace-core/tests/fixtures/constraints/state/panda_fk.json` for that
 //! verification. Oracle parity for `decide()` itself (the 2,000-combination
@@ -216,7 +216,7 @@ mod joint {
     #[test]
     fn new_clamps_a_position_outside_the_joint_bounds() {
         // panda_joint1's effective max bound is its safety-controller soft
-        // limit (2.8973), not the raw <limit> (2.9671) -- cspace-model
+        // limit (2.8973), not the raw <limit> (2.9671) -- cspace_core::model
         // already prefers the soft limit when present (see
         // crates/cspace-core/src/model/joint/urdf.rs), matching upstream. Asking
         // for 10.0 clamps to that bound with tolerance_below squeezed to EPS
@@ -476,7 +476,7 @@ mod position {
     /// instead of building a body that can never contain anything"); the
     /// vertex-count guard this test pins has no upstream counterpart at
     /// all -- a deliberate divergence, not a defect, but one with no test
-    /// at this crate's boundary before this: `cspace-geometry`'s own
+    /// at this crate's boundary before this: `cspace_core::geometry`'s own
     /// `convex_mesh_zero_vertex_is_an_error` pins `ConvexMesh::new` in
     /// isolation, not that the error actually propagates out through
     /// `PositionConstraint::new` rather than being swallowed somewhere in
@@ -523,7 +523,7 @@ mod position {
     /// is a sibling of `new_rejects_unresolvable_mobile_frame`'s frame-id
     /// guard below -- both reach `Error::UnknownName`, one with `kind:
     /// "link"`, the other `kind: "frame"`. `planning_scene_validity.rs` (in
-    /// `cspace-planners-sbp`) already had to be fixed to discriminate the
+    /// `cspace_planners::sbp`) already had to be fixed to discriminate the
     /// two downstream; this crate had no test at all for the `"link"` side
     /// before this one.
     #[test]
@@ -1033,7 +1033,7 @@ mod visibility {
     }
 
     // `panda.urdf`'s `<collision>` geometry is 100% `<mesh>` (STL) -- and
-    // `cspace-model`'s URDF loader skips mesh collision geometry entirely
+    // `cspace_core::model`'s URDF loader skips mesh collision geometry entirely
     // (see `cspace-collision`'s `parry.rs` module doc, "world objects are
     // never padded or scaled" section and `scaled_padded_shape`'s doc), so a
     // panda `RobotModel` has *zero* parry-representable collision geometry:

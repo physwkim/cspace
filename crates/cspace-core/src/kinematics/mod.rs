@@ -36,7 +36,7 @@
 //! [`SolverRegistration::name`].
 //!
 //! # What upstream reaches through KDL, and what this port reaches through
-//! `cspace-state`
+//! `cspace_core::state`
 //!
 //! `kdl_kinematics_plugin` builds a `KDL::Chain` from the URDF and gets its
 //! Jacobian and forward kinematics from KDL's own solvers

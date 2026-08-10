@@ -58,9 +58,9 @@ fn build_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
         fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
     let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
     // Unlike panda/fanuc/pr2, dual_arm_panda's SRDF names `<end_effector>`
-    // groups cspace-srdf reports as `UnknownGroup` diagnostics — a real
+    // groups cspace_core::srdf reports as `UnknownGroup` diagnostics — a real
     // quirk of that fixture's SRDF, not a parse failure, and `<end_effector>`
-    // is out of `cspace-model`/`cspace-state`'s scope either way (see
+    // is out of `cspace_core::model`/`cspace_core::state`'s scope either way (see
     // `RobotModel`'s doc comment), so this test does not assert on
     // diagnostics being empty the way `robot_model_parity.rs` does for the
     // other three fixtures.
@@ -84,7 +84,7 @@ fn to_row_major_4x4(transform: &cspace_core::geometry::Isometry3) -> [f64; 16] {
 /// The oracle's `fk` and this port's own FK disagree by more than floating
 /// point round-off (they run different code entirely: Eigen vs nalgebra).
 /// `1e-9` matches the tolerance `tests/urdf_parity.rs` already uses for
-/// bounds comparison in the sibling `cspace-model` crate.
+/// bounds comparison in the sibling `cspace_core::model` crate.
 const TOLERANCE: f64 = 1e-9;
 
 fn assert_fk_matches_oracle(model: &RobotModel, fixture_name: &str) {

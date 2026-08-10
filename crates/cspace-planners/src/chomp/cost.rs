@@ -43,7 +43,7 @@
 //!     invertibility at all and fills `quad_cost_inv_` with `NaN`/`Inf`
 //!     rather than failing. `nalgebra`'s `DMatrix::try_inverse()` returns
 //!     `Option`; `None` becomes a typed error here instead of a silently
-//!     poisoned matrix, matching the reasoning `cspace-sampling`'s
+//!     poisoned matrix, matching the reasoning `cspace_core::sampling`'s
 //!     Cholesky-based sampler already applied to the same
 //!     LLT-silently-emits-NaN failure mode (see round 16 dispatch note).
 //!   - [`ChompCost::max_quad_cost_inv_value`] on an empty (`0`

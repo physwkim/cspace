@@ -845,7 +845,7 @@ fi
 
 echo "=== building instruments (release) ==="
 cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
-  -p cspace-planners-sbp -p cspace-planners-chomp -p cspace-planners-stomp \
+  -p cspace-planners \
   --examples || exit 1
 
 # Copied into $WORKDIR the moment the build finishes, and every call below

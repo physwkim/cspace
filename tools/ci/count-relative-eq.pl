@@ -15,7 +15,7 @@
 # not `//`-stripped) and counted a fake call written inside a `/* */` block
 # comment or a `"..."` string literal as real. Neither false positive changed
 # the geometry/octomap counts taken before the fix, nor p1-joints'
-# `cspace-kinematics`/`moveit-diff`/`invariants.rs` count, which was taken
+# `cspace_core::kinematics`/`moveit-diff`/`invariants.rs` count, which was taken
 # with the unfixed copy and re-run against this one at consolidation time --
 # `both=0 epsilon_only=2 max_relative_only=0 neither=0` either way.
 #
@@ -49,7 +49,7 @@
 # ratio wants `max_relative`, an absolute physical quantity wants
 # `epsilon`), which is a per-call-site judgment made in the citing crate's
 # own doc comment, not a workspace-wide invariant this script could assert
-# without inventing one. Reproduce cspace-geometry's own recorded figure:
+# without inventing one. Reproduce cspace_core::geometry's own recorded figure:
 #
 #   perl tools/ci/count-relative-eq.pl crates/cspace-core/src/geometry/*.rs
 #   # both=9 epsilon_only=0 max_relative_only=0 neither=0

@@ -31,7 +31,7 @@ default = []
 # Inert: `serde` is an unconditional dependency of this crate because most of
 # its modules need it, so this gate only still exists to keep the `error`
 # module's `#[cfg(feature = "serde")]` impls off by default -- which is what
-# they were before the merge, when `cspace-error` declared serde optional and
+# they were before the merge, when `cspace_core::error` declared serde optional and
 # no crate in the workspace ever turned it on.
 serde = []
 # The fixture loaders `tests/` and downstream crates' tests share. Behind a
@@ -39,7 +39,7 @@ serde = []
 test-support = []
 
 # Not `[lints] workspace = true`, for the same reason the pre-merge
-# `cspace-kinematics` was not: D4 mandates `linkme::distributed_slice` for the
+# `cspace_core::kinematics` was not: D4 mandates `linkme::distributed_slice` for the
 # IK solver registry (`src/kinematics/registry.rs`), every `distributed_slice`
 # static expands to a `#[link_section]` static that rustc's `unsafe_code` lint
 # flags, and `forbid` cannot be downgraded by the crate that inherits it.

@@ -629,7 +629,7 @@ fn run_case_with_tolerances(case: &str, tol: Tolerances) {
                 // Cartesian sample's own real elapsed time is `sampling_time`
                 // (`generate_joint_trajectory_from_cartesian`'s `duration_current`
                 // for `i == 0` is `point.time_from_start`, not `0.0`), but
-                // `cspace-trajectory`'s own documented invariant --
+                // `cspace_core::trajectory`'s own documented invariant --
                 // `duration_from_previous[0]` is always `0.0`, enforced
                 // structurally, not just by convention (`robot_trajectory.rs`'s own
                 // `# Deviations`, "New invariant") -- makes it structurally

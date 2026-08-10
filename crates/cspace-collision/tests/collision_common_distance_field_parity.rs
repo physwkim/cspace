@@ -325,7 +325,7 @@ fn link_body_decomposition_matches_the_oracle() {
         !shapes.is_empty(),
         "fixture link {} has no collision geometry on this port -- pick a different link \
          (this test builds with MeshSearchPaths::none, so a mesh-only-collision link has \
-         no shape here regardless of cspace-model's own STL loading support)",
+         no shape here regardless of cspace_core::model's own STL loading support)",
         request.link
     );
 

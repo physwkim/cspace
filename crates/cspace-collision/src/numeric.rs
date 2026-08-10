@@ -30,9 +30,9 @@
 //! undefined gradient.
 //!
 //! This is the third copy of these two functions in the workspace
-//! (`cspace-trajectory` and `cspace-constraints` each have one). They are
+//! (`cspace_core::trajectory` and `cspace_planning::constraints` each have one). They are
 //! duplicated rather than shared because none of the three crates has a
-//! common dependency below `cspace-error`, an error-type crate; a fourth
+//! common dependency below `cspace_core::error`, an error-type crate; a fourth
 //! copy should become a shared crate instead.
 
 /// `std::min(a, b)`: `if b < a { b } else { a }`.

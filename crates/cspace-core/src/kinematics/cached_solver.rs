@@ -93,7 +93,7 @@ use crate::kinematics::registry::{
 /// This crate's IK correctness (`newton_raphson`/`lma`) is checked
 /// against `tools/moveit-oracle` live, through `tools/moveit-diff --ik`
 /// runs -- there are no committed `Op::Ik` request/response JSON fixtures
-/// for `cspace-kinematics` to replay (confirmed: no
+/// for `cspace_core::kinematics` to replay (confirmed: no
 /// `crates/cspace-core/tests/fixtures/kinematics/kinematics/oracle-models.json`, unlike
 /// every crate `tools/ci/verify-fixture-replay.sh` does cover). Either
 /// way, `oracle.cpp`'s `Op::Ik` handler hand-transcribes

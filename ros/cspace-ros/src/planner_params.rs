@@ -138,11 +138,11 @@ use std::rc::Rc;
 use futures::executor::LocalSpawner;
 use futures::stream::StreamExt;
 use futures::task::LocalSpawnExt;
-// The slice lives in `cspace-planner-registry`; `cspace-planners-sbp` reaches
+// The slice lives in `cspace_planning::planner_registry`; `cspace_planners::sbp` reaches
 // it only through a private `use` and re-exports it nowhere, so importing it
 // from there compiles on a branch whose base predates that crate and stops
 // resolving once the branch merges. This file was written before the merge and
-// did import it from `cspace-planners-sbp`; because the file is new, git merged
+// did import it from `cspace_planners::sbp`; because the file is new, git merged
 // it clean and the breakage surfaced only as a compile error. Two intra-doc
 // links above pointed the same way and fail the doc build rather than the
 // compile, so `cargo build` alone would not have found them.
@@ -454,7 +454,7 @@ mod tests {
     }
 
     /// The registry this node actually links, not a fixture: if
-    /// `cspace-planners-sbp`'s `distributed_slice` failed to reach this
+    /// `cspace_planners::sbp`'s `distributed_slice` failed to reach this
     /// binary, every description would silently vanish and
     /// `query_planner_interface` would answer an empty list that reads
     /// exactly like "no planners configured".

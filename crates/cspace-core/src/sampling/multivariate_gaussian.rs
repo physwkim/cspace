@@ -20,7 +20,7 @@
 //! `bool use_covariance = true` parameter that CHOMP's `sample()` does not
 //! have (CHOMP always applies the covariance). A planner depending on a
 //! sibling planner is not this workspace's dependency direction, so rather
-//! than have `cspace-planners-chomp` depend on `cspace-planners-stomp` (or
+//! than have `cspace_planners::chomp` depend on `cspace_planners::stomp` (or
 //! vice versa) for one shared class, this port gives the class its own
 //! crate that both depend on.
 //!
@@ -39,7 +39,7 @@
 //!   `sample(output, /* use_covariance = */ true)` -- STOMP's own default,
 //!   and its only call site in this tree, `noise_generators.hpp`'s
 //!   `rand_generators[i]->sample(*raw_noise)` (not ported this round -- see
-//!   `cspace-planners-stomp`'s `lib.rs`), never passes `false`. It is also
+//!   `cspace_planners::stomp`'s `lib.rs`), never passes `false`. It is also
 //!   CHOMP's *only* `sample(output)` -- CHOMP has no `use_covariance`
 //!   parameter at all, and always applies the covariance.
 //! - [`MultivariateGaussian::sample_without_covariance`] is STOMP's

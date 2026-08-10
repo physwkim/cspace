@@ -10,7 +10,7 @@
 //! file.
 //!
 //! Nearly every case here reports failed. `rust_impl` is fully wired to
-//! `cspace-model`/`cspace-state` now, but `tests/fixtures/tiny.{urdf,srdf}`
+//! `cspace_core::model`/`cspace_core::state` now, but `tests/fixtures/tiny.{urdf,srdf}`
 //! (needed so the runner can build a real `RobotModel` at all) describes a
 //! different robot than `fake-oracle.py`'s hand-rolled "fake" model, so
 //! model_info and every fk case disagree by construction. That is the

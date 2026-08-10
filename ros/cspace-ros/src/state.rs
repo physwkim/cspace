@@ -12,7 +12,7 @@
 //! drop) any message that actually uses them, per D6: a `TryFrom` that
 //! quietly ignored data the caller supplied would be exactly the "failure
 //! absorbed into a silent default" D6 exists to prevent. A caller that needs
-//! those fields has to compose with `cspace-scene`/`cspace-state` directly,
+//! those fields has to compose with `cspace_planning::scene`/`cspace_core::state` directly,
 //! one level up from what a bare `&RobotModel` conversion can see.
 //!
 //! # Expiry conditions (PORTING-PLAN.md §153.1: name what clears each gap)
@@ -25,7 +25,7 @@
 //!   `PlanningScene` already carries attached bodies and parent-diffing.
 //!   These expire if this crate adds a conversion entry point that takes
 //!   `&mut PlanningScene` alongside the message (the composed conversion
-//!   named above, not attempted this round), not if `cspace-state` changes.
+//!   named above, not attempted this round), not if `cspace_core::state` changes.
 //!
 //! Neither condition above can be turned into a tripwire (round 13:
 //! D14/§199 proved the pattern works -- checked here whether it applies).
@@ -189,7 +189,7 @@ pub(crate) mod tests {
     /// `set_parallel_array` a fourth `Error::Construct` site (called for
     /// position/velocity/effort) -- `matches!(err, Error::Other(_))` alone
     /// cannot tell a test that a routing bug swapped which branch fired
-    /// (same shape as `cspace-constraints`' `e3b40c6`).
+    /// (same shape as `cspace_planning::constraints`' `e3b40c6`).
     #[track_caller]
     fn assert_err_mentions<T: std::fmt::Debug>(result: Result<T, Error>, needle: &str) {
         let rendered = result

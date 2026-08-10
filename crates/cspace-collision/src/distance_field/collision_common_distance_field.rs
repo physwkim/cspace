@@ -19,7 +19,7 @@
 //! [`attached_body_sphere_decomposition`]/[`attached_body_point_decomposition`]
 //! (upstream `getAttachedBodySphereDecomposition`/
 //! `getAttachedBodyPointDecomposition` -- round 22, see below), and
-//! [`DistanceFieldCacheEntry`] itself, now that `cspace-model`'s
+//! [`DistanceFieldCacheEntry`] itself, now that `cspace_core::model`'s
 //! `JointModelGroup::updated_link_names`/`updated_link_with_geometry_names`
 //! close the dependency gap this file's previous doc comment recorded here
 //! (upstream `getUpdatedLinkModelNames`/`getUpdatedLinkModelsWithGeometryNames`).
@@ -235,7 +235,7 @@ use crate::distance_field::collision_distance_field_types::{
 /// grow attached-body support at all: [`crate::AttachedBodyGeometry`]
 /// is a *borrowed* view already defined in `cspace-collision` (a crate this
 /// one already depends on) specifically so a lower crate can consume
-/// attached-body data without depending back on `cspace-scene` --
+/// attached-body data without depending back on `cspace_planning::scene` --
 /// `cspace_planning::scene::AttachedBody::as_geometry` already builds one this exact
 /// way for `crate::CollisionEnv` callers. This snapshot type
 /// applies the same pattern one layer further down: an *owned* copy of

@@ -31,7 +31,7 @@
 //!   flags the group, not that the call fails.
 //!
 //! No fixture-side velocity/acceleration limit exists for either group
-//! (`planar_joint` because cspace-model never reads multi-DOF joint
+//! (`planar_joint` because cspace_core::model never reads multi-DOF joint
 //! bounds from URDF at all; `mixed_prismatic_joint`/`mixed_revolute_joint`
 //! because this test deliberately doesn't lean on URDF-sourced bounds
 //! either, for the same reason `totg_robot_trajectory_parity.rs` doesn't),

@@ -55,7 +55,7 @@
 //! and nothing between the two filters it out. A `PositionConstraint`
 //! carrying a cone region therefore dereferences null upstream. The port
 //! returns `Ok(None)` from `Body::from_shape` and the caller turns that into
-//! an error -- see `cspace-constraints`'
+//! an error -- see `cspace_planning::constraints`'
 //! `new_rejects_a_shape_with_no_body_counterpart`.
 
 use std::fs;

@@ -45,11 +45,11 @@
 //! The Pilz industrial motion planner: analytical, deterministic LIN/PTP/CIRC
 //! trajectory generation, ported from `pilz_industrial_motion_planner`.
 //!
-//! Unlike the sampling-based planners in `cspace-planners-sbp`, Pilz's
+//! Unlike the sampling-based planners in `cspace_planners::sbp`, Pilz's
 //! trajectories are closed-form, so they can be compared to the upstream
 //! oracle bit-for-bit within a tight numeric tolerance rather than only
 //! statistically. That determinism is also why this crate exists separately
-//! from `cspace-planners-sbp`: the two families have nothing in common at the
+//! from `cspace_planners::sbp`: the two families have nothing in common at the
 //! API level once you get past "both produce a `RobotTrajectory`".
 //!
 //! # Scope: analytical core only
@@ -71,7 +71,7 @@
 //! - [`cartesian_trajectory`] — `cartesian_trajectory.hpp`,
 //!   `cartesian_trajectory_point.hpp`: a Cartesian-space trajectory type.
 //! - [`trajectory_functions`] — `trajectory_functions.{hpp,cpp}`: IK/FK
-//!   round-trips (via `cspace-kinematics`), joint-limit-aware sampling, and
+//!   round-trips (via `cspace_core::kinematics`), joint-limit-aware sampling, and
 //!   the blending-sphere search shared by every generator.
 //! - [`trajectory_generator`] — `trajectory_generator.{hpp,cpp}`'s
 //!   `validateRequest` family only; see that module's doc for exactly what

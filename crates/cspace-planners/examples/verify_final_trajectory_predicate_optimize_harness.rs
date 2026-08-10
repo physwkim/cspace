@@ -22,7 +22,7 @@
 //!
 //! Usage: `cargo run --example
 //! verify_final_trajectory_predicate_optimize_harness -p
-//! cspace-planners-chomp`, with `plan_benchmark_problem_set cage 125
+//! cspace_planners::chomp`, with `plan_benchmark_problem_set cage 125
 //! 810002`'s output on stdin.
 
 use std::collections::BTreeMap;

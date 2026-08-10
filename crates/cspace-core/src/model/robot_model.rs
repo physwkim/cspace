@@ -55,7 +55,7 @@ struct JointNode {
 ///    [`LinkModel`]: no raw pointers into a sibling `Vec`.
 /// 2. **No kinematics solver plumbing.** Upstream's `RobotModel` also
 ///    carries `group_kinematics_`; `PORTING-PLAN.md` puts kinematics
-///    solvers in `cspace-kinematics`, a later phase. (Each link's own
+///    solvers in `cspace_core::kinematics`, a later phase. (Each link's own
 ///    collision/visual geometry, end-effector resolution and SRDF
 ///    `<group_state>` support *are* carried — see [`LinkModel`]'s doc
 ///    comment, [`RobotModel::get_end_effector`] and
@@ -66,11 +66,11 @@ struct JointNode {
 ///    [`RobotModel::get_common_root`],
 ///    [`JointModelGroup::is_chain`](crate::model::JointModelGroup::is_chain) and
 ///    [`JointModelGroup::joint_roots`](crate::model::JointModelGroup::joint_roots)
-///    *are* carried — `cspace-state`'s `RobotState` dirty-subtree tracking
+///    *are* carried — `cspace_core::state`'s `RobotState` dirty-subtree tracking
 ///    needs `getCommonRoot` to answer exactly what upstream's own does, not
 ///    a textbook LCA (`PORTING-PLAN.md` §8.2; see
 ///    [`RobotModel::get_common_root`]'s doc comment for a real upstream
-///    quirk this reproduces on purpose), and `cspace-distance-field` needs
+///    quirk this reproduces on purpose), and `cspace_collision::distance_field` needs
 ///    `joint_roots_` to compute `getUpdatedLinkModelNames` — but
 ///    [`RobotModel::get_common_root`] walks each joint's ancestor chain to
 ///    equal depth and then upward in lockstep (O(depth)) rather than
@@ -439,7 +439,7 @@ impl RobotModel {
     /// Round-8 §38 (p6-totg parity, `0ae431d`): without this, the already-
     /// `pub` `JointModel::set_variable_bounds_from_limits` was unreachable
     /// from outside this crate, since every other `RobotModel` accessor is
-    /// `&self` -- no fixture outside `cspace-model` itself could construct a
+    /// `&self` -- no fixture outside `cspace_core::model` itself could construct a
     /// model whose joint limits differ from its URDF's.
     ///
     /// # Errors
@@ -502,7 +502,7 @@ impl RobotModel {
     /// A pair where one side is a deeper descendant (e.g.
     /// `fl_caster_rotation_joint` / `l_shoulder_pan_joint`) correctly
     /// returns their true common ancestor (`base_footprint_joint`). Since
-    /// `cspace-state`'s dirty-subtree tracking already depends on matching
+    /// `cspace_core::state`'s dirty-subtree tracking already depends on matching
     /// upstream's actual (over-conservative, in the sibling case) marking —
     /// not a "more correct" LCA that would under-mark upstream's own
     /// behaviour — this reproduces the quirk rather than fixing it.
@@ -519,7 +519,7 @@ impl RobotModel {
     /// upstream's `getCommonRoot(nullptr, b)` returning `b` (and vice versa)
     /// exists only because C++ pointers can be null. A caller here tracking
     /// "no joint yet" represents that as `Option<usize>` at its own call
-    /// site instead (see `cspace-state`'s `mark_dirty`), so this method
+    /// site instead (see `cspace_core::state`'s `mark_dirty`), so this method
     /// never needs to.
     pub fn get_common_root(&self, a: usize, b: usize) -> usize {
         let depth = |mut joint_index: usize| -> usize {
@@ -1585,7 +1585,7 @@ impl<'a> Building<'a> {
     /// otherwise proceeds unconditionally: a group state naming a group this
     /// model does not have, a `<joint>` value naming a joint that is not
     /// part of the named group, and a joint whose supplied value count does
-    /// not match its own variable count. `cspace-srdf` already guarantees
+    /// not match its own variable count. `cspace_core::srdf` already guarantees
     /// `GroupState::group` names a group the *SRDF document* defines, but
     /// not that the group survived `RobotModel`'s own build (an SRDF group
     /// can still be dropped for being empty, a duplicate, or having
@@ -1778,7 +1778,7 @@ fn compute_subgroups(groups: &mut BTreeMap<String, JointModelGroup>) {
 /// matter: panda's `parent_group` is explicit and valid; pr2's two eefs
 /// carry no `parent_group` attribute at all and each always has at least
 /// one candidate; fanuc has no `<end_effector>`; dual_arm_panda's two are
-/// both dropped by `cspace-srdf` before reaching this function
+/// both dropped by `cspace_core::srdf` before reaching this function
 /// (`Diagnostic::UnknownGroup`, since their `component_group`s don't name
 /// real groups). This port therefore adds no `Diagnostic` for the silent
 /// fallback, matching the precedent [`RobotModel`]'s doc comment sets in
@@ -3422,7 +3422,7 @@ mod tests {
     /// `updated_link_names_filters_to_geometry_bearing_links`,
     /// `is_chain_true_across_an_unlisted_fixed_joint` and all four
     /// `robot_model_parity` oracle tests failed (`cargo nextest run -p
-    /// cspace-model --no-fail-fast`, reverted). The `arm` group below closes
+    /// cspace_core::model --no-fail-fast`, reverted). The `arm` group below closes
     /// that gap: `compute_group_topology`'s per-group closure
     /// (`:672-689,690-713`) has no group-name conditional in it or in
     /// `group_joint_roots`/`group_updated_links` (their only filters are

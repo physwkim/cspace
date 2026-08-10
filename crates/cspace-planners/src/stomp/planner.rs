@@ -7,7 +7,7 @@
 
 //! `solveWithStomp` and the STOMP-specific core of
 //! `StompPlanningContext::solve` -- the actual wiring point: this module is
-//! where `cspace-planners-stomp` calls `cspace_stomp_core::Stomp`.
+//! where `cspace_planners::stomp` calls `cspace_stomp_core::Stomp`.
 //!
 //! # What's ported, and what stays in the ROS/task-engine layer (D1/D2)
 //!
@@ -123,7 +123,7 @@
 //! `Stomp::new` itself never made this optional either.
 //!
 //! `PlanningContext` itself (a trait exposing `cancel_handle()` to a caller
-//! before `solve` runs) is *not* introduced here -- `cspace-planners-sbp`
+//! before `solve` runs) is *not* introduced here -- `cspace_planners::sbp`
 //! already owns that trait shape and its `PLANNER_MANAGERS` registry, and
 //! whether it moves is an open question for a different round
 //! (`p1-fixtures` round 20 item 2). Committing to a shape here would mean
@@ -209,7 +209,7 @@ pub fn solve_with_stomp<'m>(
 /// Upstream takes the whole `planning_interface::MotionPlanRequest` and
 /// reads `req.trajectory_constraints.constraints` out of it (cpp:94-96).
 /// This takes that field directly, as `&[KinematicConstraintSet]` --
-/// `cspace-constraints`' own equivalent of one `moveit_msgs::msg::Constraints`
+/// `cspace_planning::constraints`' own equivalent of one `moveit_msgs::msg::Constraints`
 /// per waypoint (see [`KinematicConstraintSet`]'s own doc, "one
 /// representation" vs upstream's five parallel copies). Two reasons: adding
 /// `cspace-planning` as a dependency here would be new and unjustified this
@@ -422,7 +422,7 @@ pub struct PlanRequest<'a, 'm> {
 /// (cpp:162-172), both `PlanningScene`-backed factories out of this crate's
 /// dependency reach (see `cost_functions`' own module doc). [`plan`] takes
 /// a ready-made [`CostFn`] instead of building one: a caller with access to
-/// `cspace-scene`/`cspace-collision` builds one via
+/// `cspace_planning::scene`/`cspace-collision` builds one via
 /// `cost_functions::cost_function_from_state_validator` over their own
 /// [`crate::stomp::cost_functions::StateValidatorFn`], composing the same way
 /// upstream's `createStompTask` does, just with the `PlanningScene` wiring

@@ -37,7 +37,7 @@
 //! each of those functions.
 //!
 //! Elsewhere, not here: `setFromIK` and `setFromIKSubgroups` need a
-//! kinematics solver, and `cspace-state -> cspace-kinematics` is a cycle, so
+//! kinematics solver, and `cspace_core::state -> cspace_core::kinematics` is a cycle, so
 //! they live in `crate::kinematics`'s `set_from_ik` module as free functions
 //! over `&mut RobotState`; attached bodies live on `cspace_planning::scene`, for the
 //! reason that crate's `attached_body` module doc gives.

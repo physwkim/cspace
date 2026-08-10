@@ -8,7 +8,7 @@ done by hand per finding, not by this script -- it only enumerates
 candidates so nothing is missed by search fatigue, and gives a
 reproducible total two people (or one person twice) can agree on.
 
-Built and validated against `cspace-planners-pilz` (59 sites, file-by-file
+Built and validated against `cspace_planners::pilz` (59 sites, file-by-file
 identical across two independent runs) before being generalized to the
 whole workspace; see that crate's own findings for what a triage pass
 against this script's output looks like.

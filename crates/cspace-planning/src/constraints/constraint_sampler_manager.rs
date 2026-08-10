@@ -36,7 +36,7 @@
 //! from SRDF `<group>` config plus `kinematics.yaml`'s plugin lookup — to
 //! learn whether the group (or one of its immediate subgroups) has an IK
 //! solver, and which one. `PORTING-PLAN.md` §68.4 already excludes that
-//! lookup (D4; `cspace-model` carries no such map and is not touched this
+//! lookup (D4; `cspace_core::model` carries no such map and is not touched this
 //! round). [`select_default_sampler`]'s `solver` and `subgroup_solvers`
 //! parameters are what the caller passes in its place — the same
 //! caller-supplies-the-solver decision [`crate::constraints::IkConstraintSampler::new`]

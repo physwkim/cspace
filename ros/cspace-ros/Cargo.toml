@@ -45,7 +45,7 @@ r2r = { git = "https://github.com/sequenceplanner/r2r", rev = "2d080c4dede3ec950
 # its own workspace (see above), so there is no `[workspace.dependencies]`
 # table to inherit from. Depending on the core crates directly (rather than
 # mirroring their types) is the low-coupling choice noted in each crate's own
-# doc comment -- cspace-error in particular says its MoveItErrorCode is
+# doc comment -- cspace_core::error in particular says its MoveItErrorCode is
 # wire-exact with moveit_msgs/MoveItErrorCodes specifically so a ROS interop
 # crate can reuse it without its own lookup table.
 cspace-core = { path = "../../crates/cspace-core" }
@@ -69,7 +69,7 @@ cspace-planning = { path = "../../crates/cspace-planning" }
 cspace-planners = { path = "../../crates/cspace-planners" }
 
 # For nalgebra's own constructors (Isometry3::from_parts, Translation3::new,
-# UnitQuaternion::new_normalize): cspace-geometry re-exports nalgebra's types
+# UnitQuaternion::new_normalize): cspace_core::geometry re-exports nalgebra's types
 # as plain aliases (`pub type Isometry3 = nalgebra::Isometry3<f64>`), not
 # opaque wrapper structs, so building one still means calling nalgebra's own
 # API directly.

@@ -257,7 +257,7 @@ mod tests {
         let err =
             CoreOrientationConstraint::try_from(OrientationConstraintMsg { model: &model, msg })
                 .unwrap_err();
-        // Not just the variant: `OrientationConstraint::new` (cspace-constraints)
+        // Not just the variant: `OrientationConstraint::new` (cspace_planning::constraints)
         // has a sibling `Error::UnknownName` site (`model.link_model(link_name)`,
         // kind "link") -- only the `kind` field tells this test apart from an
         // unknown `link_name` instead of an unknown `frame_id`.

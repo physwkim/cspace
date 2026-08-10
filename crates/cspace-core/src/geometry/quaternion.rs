@@ -20,12 +20,12 @@
 //!
 //! # Why one shared transcription rather than three local ones
 //!
-//! The first version of this lived privately in `cspace-model`'s
+//! The first version of this lived privately in `cspace_core::model`'s
 //! `floating.rs`. Sweeping the anchor `rg -n 'slerp' crates/` found two more
-//! sites porting the same Eigen call — `cspace-kinematics`'
-//! `cartesian_interpolator.rs` and `cspace-planners-pilz`'
+//! sites porting the same Eigen call — `cspace_core::kinematics`'
+//! `cartesian_interpolator.rs` and `cspace_planners::pilz`'
 //! `trajectory_blender_transition_window.rs` — and one that is **not** the
-//! same defect: `cspace-planners-sbp`'s `se3.rs`, which hand-writes OMPL's
+//! same defect: `cspace_planners::sbp`'s `se3.rs`, which hand-writes OMPL's
 //! own slerp because it ports OMPL's `SO3StateSpace::interpolate`, not
 //! Eigen's. A single definition here is what keeps the first three from
 //! drifting apart again.

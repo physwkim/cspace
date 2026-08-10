@@ -45,7 +45,7 @@
 //! a chain).
 //!
 //! Every PR2 arm/gripper link's collision geometry is mesh-only, and
-//! `cspace-model` can load STL `<mesh>` geometry now (`RobotModel::from_urdf_and_srdf`
+//! `cspace_core::model` can load STL `<mesh>` geometry now (`RobotModel::from_urdf_and_srdf`
 //! takes a [`MeshSearchPaths`]). pr2's 18 `<collision>` mesh files are
 //! committed under `fixtures/meshes/pr2_description/` (landed by p3-acm; see
 //! `tools/ci/verify-fixture-provenance.sh`), the same way panda's and

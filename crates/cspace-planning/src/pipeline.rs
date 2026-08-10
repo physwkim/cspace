@@ -18,7 +18,7 @@
 //! Upstream resolves `pipeline_parameters_.planning_plugins` (a list of
 //! names) against `planner_map_`, a `pluginlib`-populated
 //! `unordered_map<string, PlannerManagerPtr>` (`planning_pipeline.hpp:263`).
-//! This workspace's D4 compile-time equivalent is `cspace-planner-registry`'s
+//! This workspace's D4 compile-time equivalent is `cspace_planning::planner_registry`'s
 //! `PLANNER_MANAGERS` `distributed_slice`. [`generate_plan`] does not depend
 //! on it and takes planners as `&[Box<dyn PlannerManager>]` instead:
 //! **name-to-implementation resolution is a concern orthogonal to the
@@ -26,7 +26,7 @@
 //! substance — the adapter chains and their failure/exit rules — needs no
 //! registry at all; only a *caller* who wants to go from a planner-id string
 //! to a boxed [`PlannerManager`] does, and that caller layers
-//! `cspace-planner-registry` on top of this function (as
+//! `cspace_planning::planner_registry` on top of this function (as
 //! `ros/cspace-ros`'s `/move_action` server does).
 //!
 //! What [`generate_plan`] *does* depend on is [`crate::planner`], this
@@ -35,7 +35,7 @@
 //! `MotionPlanRequest`/`MotionPlanResponse` in, so a planner speaks this
 //! crate's [`PlanningRequest`]/[`PlanningResponse`] by construction rather
 //! than needing a conversion at the crate boundary. Before D8/§140 that was
-//! not true: `cspace-planners-sbp::registry` declared its own set of all
+//! not true: `cspace_planners::sbp::registry` declared its own set of all
 //! four names, and this function could not call the workspace's only
 //! concrete planner at all.
 //!
@@ -130,7 +130,7 @@
 //!
 //! ## 6. `start_state` is captured once, before the planner ever runs
 //!
-//! `cspace-planners-sbp::planning_scene_validity::PlanningSceneValidityChecker`
+//! `cspace_planners::sbp::planning_scene_validity::PlanningSceneValidityChecker`
 //! (a downstream crate's type — the dependency runs sbp → here, never the
 //! reverse) documents
 //! that it does not restore `scene`'s
@@ -240,7 +240,7 @@
 //! is a separate case: it returns `parameter_namespace_`, a third field
 //! this port also has no long-lived home for, so it belongs with this group
 //! for the same "not part of `generate_plan`'s scope today" reason even
-//! though it does not read either container. `cspace-planner-registry` now
+//! though it does not read either container. `cspace_planning::planner_registry` now
 //! holds the slice these would read from, but nothing in this workspace
 //! owns a *named, configured* planner chain — the object those four
 //! accessors describe — so they stay unported; they are not part of
@@ -732,7 +732,7 @@ mod tests {
     }
 
     /// Mutates `scene`'s current state as a side effect of planning, the
-    /// same way `cspace-planners-sbp::planning_scene_validity::PlanningSceneValidityChecker`
+    /// same way `cspace_planners::sbp::planning_scene_validity::PlanningSceneValidityChecker`
     /// leaves `scene` at whatever state its last validity check posed —
     /// see this module's doc, "Semantic 6". Used to prove
     /// [`PlanningResponse::start_state`] is captured *before* that

@@ -18,9 +18,9 @@
 //!
 //! An earlier round deferred both as needing a dependency this crate did
 //! not have; that was checked and found false (`cargo tree -p
-//! cspace-scene -e normal`/`cargo tree -p cspace-collision -e normal`
+//! cspace_planning::scene -e normal`/`cargo tree -p cspace-collision -e normal`
 //! neither lists `stomp` -- no cycle -- and the sibling planner crate
-//! `cspace-planners-sbp` already depends on both). Both are ported this
+//! `cspace_planners::sbp` already depends on both). Both are ported this
 //! round: [`get_collision_cost_function`] (`costs::getCollisionCostFunction`,
 //! `cost_functions.hpp:199-216`) and [`get_constraints_cost_function`]
 //! (`costs::getConstraintsCostFunction`, `cost_functions.hpp:230-250`).
@@ -33,7 +33,7 @@
 //! planning_scene->getTransforms())`, `cost_functions.hpp:236-237`). D1
 //! excludes `moveit_msgs` types; this port takes an already-built
 //! `&KinematicConstraintSet` directly instead, the same signature
-//! `cspace-planners-sbp::planning_scene_validity::PlanningSceneValidityChecker`
+//! `cspace_planners::sbp::planning_scene_validity::PlanningSceneValidityChecker`
 //! already established for the same reason.
 //!
 //! # Deviation: interior mutability, not upstream's private per-closure state clone
@@ -49,7 +49,7 @@
 //! current state (see `PlanningScene::is_state_colliding`'s own doc) --
 //! there is no explicit-state, non-mutating overload to call instead. Both
 //! functions below take `&'a RefCell<&'a mut PlanningScene<'m>>`, the same
-//! bridge `cspace-planners-sbp::planning_scene_validity::PlanningSceneValidityChecker`
+//! bridge `cspace_planners::sbp::planning_scene_validity::PlanningSceneValidityChecker`
 //! already uses to combine a collision check and a constraints check
 //! against one scene, so a caller wanting both (matching upstream's own
 //! typical `costs::sum({getCollisionCostFunction(...),
@@ -832,7 +832,7 @@ mod planning_scene_tests {
 
     /// All-zero joint positions: panda's real, mesh-loaded collision
     /// geometry self-collides at this pose -- see
-    /// `cspace-planners-sbp::planning_scene_validity`'s `ready_state` doc
+    /// `cspace_planners::sbp::planning_scene_validity`'s `ready_state` doc
     /// comment (oracle-verified `panda_collision.json`,
     /// `joint_values: {} => self_collision: true`).
     fn colliding_positions(group: &JointModelGroup) -> DVector<f64> {

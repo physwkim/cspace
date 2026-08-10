@@ -37,10 +37,10 @@
 //! `std::fmin`.
 //!
 //! This is the fourth copy of these two functions in the workspace
-//! (`cspace-trajectory`, `cspace-constraints` each have both;
-//! `cspace-model` only needed `cxx_min`). Duplicated rather than shared
+//! (`cspace_core::trajectory`, `cspace_planning::constraints` each have both;
+//! `cspace_core::model` only needed `cxx_min`). Duplicated rather than shared
 //! for the same reason as those: no common dependency below
-//! `cspace-error` to hang a shared crate off, and a new workspace member
+//! `cspace_core::error` to hang a shared crate off, and a new workspace member
 //! is out of scope this round.
 
 /// `std::min(a, b)`: `if b < a { b } else { a }`.

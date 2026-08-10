@@ -115,7 +115,7 @@ fn enforce_bounds_wraps_an_unbounded_continuous_joint_into_pi_range() {
 // ---- Wrapped vs unwrapped continuous revolute -----------------------------
 
 /// `harmonize_positions` rewraps a continuous joint's stored angle into
-/// `(-pi, pi]` (`normalize_angle`'s range, see `cspace-model`'s
+/// `(-pi, pi]` (`normalize_angle`'s range, see `cspace_core::model`'s
 /// `planar.rs`) but must not change the geometry it produces: the global
 /// link transform before and after harmonizing must match, because
 /// harmonizing is documented (`RobotState::harmonizePosition`, upstream)

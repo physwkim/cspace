@@ -52,7 +52,7 @@
 //! [`optimizer`]'s own module doc for the full account of what changed and
 //! why round 17's "collision-coupled, not portable" classification did not
 //! hold up. `multivariate_gaussian.hpp` (round 18's 6th file) is not this
-//! crate's own copy: it depends on `cspace-sampling::MultivariateGaussian`
+//! crate's own copy: it depends on `cspace_core::sampling::MultivariateGaussian`
 //! — see below. Round 17 deliberately deferred the 8th, `chomp_planner`,
 //! reasoning it should wait until the optimizer it drives was solid; round
 //! 19 re-deferred it as "ROS-message-shaped, out of scope" without
@@ -61,23 +61,23 @@
 //! review) and ported it as [`planner::solve`] — see that module's own doc
 //! for the field-by-field count.
 //!
-//! # `multivariate_gaussian.hpp`: depends on `cspace-sampling`, not a local copy
+//! # `multivariate_gaussian.hpp`: depends on `cspace_core::sampling`, not a local copy
 //!
 //! Round 18 gave this crate its own transcription of
 //! `chomp::MultivariateGaussian`, reasoning that upstream's algorithmically
 //! identical STOMP sibling class lived in `ros-industrial/stomp`
 //! (Apache-2.0) while CHOMP's upstream is BSD-3-Clause — and that porting
-//! both under one `SPDX-License-Identifier` in a shared `cspace-sampling`
+//! both under one `SPDX-License-Identifier` in a shared `cspace_core::sampling`
 //! crate would mislabel one side. **That premise was wrong.** The actual
-//! upstream path for STOMP's copy that `cspace-sampling` ports from is
+//! upstream path for STOMP's copy that `cspace_core::sampling` ports from is
 //! `moveit_planners/stomp/include/stomp_moveit/math/multivariate_gaussian.hpp`
 //! — a file inside the `moveit2` tree itself (confirmed by reading its
 //! header: `Software License Agreement (BSD License)`, `Copyright (c) 2009,
 //! Willow Garage, Inc.`), not a file from the separate `ros-industrial/stomp`
-//! Apache-2.0 repository. Both upstream headers `cspace-sampling` ports from
+//! Apache-2.0 repository. Both upstream headers `cspace_core::sampling` ports from
 //! are therefore BSD-3-Clause end to end, and a shared struct under
 //! `SPDX-License-Identifier: BSD-3-Clause` mislabels nothing. Round 19
-//! deleted this crate's local copy and switched to `cspace-sampling`'s
+//! deleted this crate's local copy and switched to `cspace_core::sampling`'s
 //! [`MultivariateGaussian`] (re-exported here), after proving byte-for-byte
 //! that `MultivariateGaussian::sample_with_covariance` consumes the RNG in
 //! the same order/count and produces the same output as the deleted local
@@ -234,12 +234,12 @@
 //!   [`optimizer::ChompCollisionContext`] and [`optimizer`]'s module doc for
 //!   the external-resource-as-parameter design and why `gsr_` is always
 //!   function-local. That last choice had one real consequence, surfaced
-//!   and documented rather than silently absorbed: `cspace-distance-field`
+//!   and documented rather than silently absorbed: `cspace_collision::distance_field`
 //!   had no way to reproduce upstream's `gsr_`-reuse pattern, which left
 //!   `GradientInfo::sphere_locations` empty through this crate's only
 //!   access path (rounds 19-25) — a genuine API gap in
-//!   `cspace-distance-field` (another worker's crate), reported and worked
-//!   around here rather than fixed. `cspace-distance-field` round 25
+//!   `cspace_collision::distance_field` (another worker's crate), reported and worked
+//!   around here rather than fixed. `cspace_collision::distance_field` round 25
 //!   (`f5328da`) closed the gap directly (not by porting the `gsr_`-reuse
 //!   mechanism itself, which stays unported — see
 //!   `cspace_collision::distance_field::DistanceFieldCollisionCache::new`'s own doc
@@ -259,12 +259,12 @@
 //!
 //! - `MultivariateGaussian` (class) — ported as
 //!   `cspace_core::sampling::`[`MultivariateGaussian`] (re-exported here), not a
-//!   symbol local to this crate — see the "depends on `cspace-sampling`"
+//!   symbol local to this crate — see the "depends on `cspace_core::sampling`"
 //!   section above for why. `sample` is ported as
 //!   [`MultivariateGaussian::sample_with_covariance`]: CHOMP's `sample` has
 //!   no `use_covariance` branch to reconcile (that is STOMP's sibling class),
-//!   so it maps onto the one of `cspace-sampling`'s two named methods that
-//!   always applies the covariance. See `cspace-sampling`'s own module doc
+//!   so it maps onto the one of `cspace_core::sampling`'s two named methods that
+//!   always applies the covariance. See `cspace_core::sampling`'s own module doc
 //!   for its full symbol mapping and deviations (fallible construction,
 //!   `size_` derived rather than stored, etc.) — not re-documented here,
 //!   since that crate owns the port.
@@ -304,7 +304,7 @@
 //! upstream (with the evidence).
 //! Phase 8's completion condition otherwise uses property-based
 //! verification (`PORTING-PLAN.md` §5), not a trajectory oracle, and CHOMP
-//! specifically is not the one Phase-8 planner (`cspace-planners-pilz`) with
+//! specifically is not the one Phase-8 planner (`cspace_planners::pilz`) with
 //! directly comparable deterministic output — one op is the exception:
 //! `chomp_quad_cost_inverse` (round 18, requested round 17 in
 //! `doc/oracle-request-quad-cost-inv.md`), backing
@@ -318,7 +318,7 @@
 //! [`optimizer`]'s weighted-combination and joint-limit-repair formulas,
 //! each checked against a hand-rolled recomputation of the same upstream
 //! formula, not merely "it runs" — and
-//! `cspace-sampling`'s own [`MultivariateGaussian`] shape/positive-definite
+//! `cspace_core::sampling`'s own [`MultivariateGaussian`] shape/positive-definite
 //! rejection and empirical mean/variance/correlation convergence (that
 //! crate's tests, not this one's — see above). [`planner::solve`] is pinned
 //! by boundary-condition unit tests (bad start/goal state, wrong goal

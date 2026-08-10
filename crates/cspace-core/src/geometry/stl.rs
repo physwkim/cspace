@@ -13,7 +13,7 @@
 
 //! STL parsing for `<mesh>` collision/visual geometry: the on-disk half of
 //! `RobotModel::constructShape`'s `MESH` case. `package://` resolution and
-//! wiring this into `LinkModel` live in `cspace-model`, which has the URDF
+//! wiring this into `LinkModel` live in `cspace_core::model`, which has the URDF
 //! and package-search-path context this crate deliberately does not.
 //!
 //! # What upstream's call chain actually does

@@ -98,7 +98,7 @@
 //! # How the sampler wiring got here
 //!
 //! **Round 14** recorded that `constraint_samplers` was unported; it since
-//! landed in `cspace-constraints`:
+//! landed in `cspace_planning::constraints`:
 //!
 //! - `ConstraintSampler` (the base trait) and `JointConstraintSampler` ->
 //!   ported as [`cspace_planning::constraints::ConstraintSampler`]/
@@ -114,9 +114,9 @@
 //!   (`cspace-constraints/src/ik_sampler.rs`) and
 //!   [`cspace_planning::constraints::select_default_sampler`]
 //!   (`cspace-constraints/src/constraint_sampler_manager.rs`). The
-//!   dependency edge this needed, `cspace-constraints -> cspace-kinematics`,
+//!   dependency edge this needed, `cspace_planning::constraints -> cspace_core::kinematics`,
 //!   now exists (`cspace-constraints/Cargo.toml`'s
-//!   `cspace-kinematics.workspace = true`) — no cycle resulted, matching
+//!   `cspace_core::kinematics.workspace = true`) — no cycle resulted, matching
 //!   the no-cycle check this section originally reasoned through before the
 //!   edge was added.
 //! - `constraint_sampler_tools.{hpp,cpp}` -> still excluded outright:
@@ -956,7 +956,7 @@ mod tests {
     /// `cspace_planning::constraints::JointConstraintSampler`'s draw over a
     /// zero-width window is the window's one point — see
     /// `construct_goal_joint_constraints`' own doc for the arithmetic and
-    /// the measurement, and `cspace-constraints`'
+    /// the measurement, and `cspace_planning::constraints`'
     /// `tests/sampler.rs::a_zero_tolerance_goal_set_resolves_to_its_own_state`
     /// for the gate that holds it.
     const STATE_GOAL_TOLERANCE: f64 = 0.0;
@@ -1477,7 +1477,7 @@ mod tests {
     /// real multi-joint fixture. Not a collision-composition test: panda's
     /// `<collision>` geometry is mesh-based and this workspace always loads
     /// fixtures with [`MeshSearchPaths::none`] (meshes are not vendored —
-    /// see `cspace-planners-sbp::planning_scene_validity`'s own tests for
+    /// see `cspace_planners::sbp::planning_scene_validity`'s own tests for
     /// the same constraint), so an empty-world panda scene has no collision
     /// shapes on either side and every state is trivially collision-valid.
     /// [`an_obstacle_blocks_the_direct_path_and_rrt_connect_routes_around_it`]
@@ -1850,7 +1850,7 @@ mod tests {
     /// `panda_arm` variable (Step A never fires).
     ///
     /// The target pose is the same reachable, off-default `panda_link8` FK
-    /// pose `cspace-constraints`' own
+    /// pose `cspace_planning::constraints`' own
     /// `constraint_sampler_manager::ik_alone_when_there_are_no_joint_constraints`
     /// measures a `NewtonRaphsonSolver` reliably reaching (0.02 position
     /// tolerance, 0.1 rad orientation tolerance) — reused rather than
@@ -3278,7 +3278,7 @@ mod tests {
     /// This does not extend to a floating joint's own local variables
     /// (`trans_x/y/z, rot_x/y/z/w`) without further work: the four rotation
     /// components jointly satisfy a unit-quaternion constraint
-    /// (`cspace-model`'s `floating.rs` doc comment) that four independent
+    /// (`cspace_core::model`'s `floating.rs` doc comment) that four independent
     /// per-component `JointConstraint` windows do not preserve at any
     /// nonzero tolerance — only in the tolerance-to-zero limit. This is
     /// reasoned, not measured: no fixture group actually contains a

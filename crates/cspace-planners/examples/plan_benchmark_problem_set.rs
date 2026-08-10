@@ -33,7 +33,7 @@
 //! # Usage
 //!
 //! `cargo run --release --example plan_benchmark_problem_set -p
-//! cspace-planners-sbp -- <config> <count> <seed> [robot] [joint_constraint]`
+//! cspace_planners::sbp -- <config> <count> <seed> [robot] [joint_constraint]`
 //!
 //! `config` is one of [`CONFIGS`]. `count` is the number of valid pairs to
 //! collect. `seed` seeds this run's `ChaCha8Rng` (both the pair sampling
@@ -48,7 +48,7 @@
 //!
 //! # Path constraints
 //!
-//! Phase 7 condition 2 is "every produced path passes `cspace-scene`'s
+//! Phase 7 condition 2 is "every produced path passes `cspace_planning::scene`'s
 //! collision check *and constraints*". With no constraint in the problem
 //! the constraint half of that condition is vacuously true -- it reports a
 //! pass having checked nothing, which is exactly the failure mode that

@@ -24,25 +24,25 @@
 //! Listed under `[dev-dependencies]` only, never `[dependencies]`: every
 //! function here exists to be called from a `#[cfg(test)]` fixture builder.
 //! Each was first written independently in more than one crate --
-//! [`assert_group_has_updated_links`] in `cspace-distance-field`'s own
+//! [`assert_group_has_updated_links`] in `cspace_collision::distance_field`'s own
 //! `#[cfg(test)] mod test_support` and inline `assert!`s in
-//! `cspace-planners-chomp`'s `optimizer.rs`/`planner.rs`;
+//! `cspace_planners::chomp`'s `optimizer.rs`/`planner.rs`;
 //! [`isometry_from_row_major`] byte-for-byte identically in five
-//! oracle-parity test files across `cspace-distance-field` and
+//! oracle-parity test files across `cspace_collision::distance_field` and
 //! `cspace-collision` -- before being lifted here so every call site routes
 //! through one definition instead of copies drifting apart.
 //!
 //! A `#[cfg(test)]`-gated module in one crate cannot be imported by another
 //! crate's tests at all, so some cross-crate boundary was unavoidable once a
 //! second crate needed the same guard. The alternative considered was a
-//! `pub` item behind a `test-support` feature on `cspace-model` itself,
+//! `pub` item behind a `test-support` feature on `cspace_core::model` itself,
 //! avoiding a new crate; rejected because a feature that is off by default
 //! is exactly the shape that escapes a crate-scoped `cargo clippy -p
-//! cspace-model --all-targets` / `cargo doc -p cspace-model` gate (neither
+//! cspace_core::model --all-targets` / `cargo doc -p cspace-core` gate (neither
 //! passes `--features test-support` or `--all-features`), so a regression in
 //! the gated code would pass every gate this repo actually runs per-crate.
 //! A small always-compiled crate has no such blind spot: its own `-p
-//! cspace-test-support` gate always sees it.
+//! cspace_core::test_support` gate always sees it.
 
 use crate::model::RobotModel;
 use nalgebra::{Isometry3, Matrix3, Translation3, UnitQuaternion};
@@ -51,7 +51,7 @@ use nalgebra::{Isometry3, Matrix3, Translation3, UnitQuaternion};
 /// `toRowMajor4x4`/`fromRowMajor4x4` (`oracle.cpp`) -- the shape every
 /// oracle-parity fixture's pose fields are dumped in. Independently
 /// reimplemented byte-for-byte identically in five oracle-parity test files
-/// across `cspace-distance-field` and `cspace-collision` before being lifted
+/// across `cspace_collision::distance_field` and `cspace-collision` before being lifted
 /// here; see this crate's module doc for why a shared crate, not a shared
 /// `#[cfg(test)]` module, is what closes that kind of duplication.
 pub fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3<f64> {
@@ -63,7 +63,7 @@ pub fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3<f64> {
 /// Fails loudly, at fixture-construction time, if `group_name`'s
 /// `updated_link_names()` is empty -- the set every group-scoped
 /// self/robot-collision or trajectory-group-name check across moveit-rs
-/// actually walks (e.g. `cspace-distance-field`'s
+/// actually walks (e.g. `cspace_collision::distance_field`'s
 /// `generate_distance_field_cache_entry`, `cspace-collision`'s
 /// `ParryCollisionEnv::active_group_links`). A group can look fine by
 /// `link_names()`/`joint_names()` (both plain topology, unfiltered by

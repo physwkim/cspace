@@ -89,7 +89,7 @@ pub struct PlannerRegistration {
 /// A registering crate needs the same relaxation (the
 /// `#[distributed_slice(PLANNER_MANAGERS)]` attribute expands to a
 /// `#[link_section]` static on the *registration* side too, not just here);
-/// `cspace-planners-sbp` already sets it for exactly this reason.
+/// `cspace_planners::sbp` already sets it for exactly this reason.
 ///
 /// # A registering crate must be *linked*, not merely depended on
 ///

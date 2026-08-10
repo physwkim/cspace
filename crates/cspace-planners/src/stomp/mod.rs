@@ -53,16 +53,16 @@
 //! # Round 24: `costs::getCollisionCostFunction`/`costs::getConstraintsCostFunction`, the `PlanningScene`-backed half
 //!
 //! Round 23 left these two factories unported, reasoning that
-//! `cspace-scene`/`cspace-collision` were out of this crate's dependency
+//! `cspace_planning::scene`/`cspace-collision` were out of this crate's dependency
 //! reach. That was checked and found false: neither was actually blocked by
 //! any rule, just not yet listed in `Cargo.toml`, and the sibling planner
-//! crate `cspace-planners-sbp` already depends on both without a cycle
-//! (`cargo tree -p cspace-scene -e normal`/`cargo tree -p cspace-collision
+//! crate `cspace_planners::sbp` already depends on both without a cycle
+//! (`cargo tree -p cspace-planning -e normal`/`cargo tree -p cspace-collision
 //! -e normal` neither lists `stomp`). Both are now `[workspace.dependencies]`
 //! entries here too, and [`cost_functions::get_collision_cost_function`]/
 //! [`cost_functions::get_constraints_cost_function`] are ported -- see that
 //! module's own doc for the `RefCell<&mut PlanningScene>` bridge pattern
-//! (reused from `cspace-planners-sbp::planning_scene_validity`'s existing
+//! (reused from `cspace_planners::sbp::planning_scene_validity`'s existing
 //! precedent) and the two documented deviations from upstream.
 //!
 //! # Round 24: cancellation lifted to the caller, and `PlanRequest`
@@ -143,9 +143,9 @@
 //! `RobotTrajectory` it is given) is unaffected by that staleness. This
 //! crate still does not depend on `cspace-planning`, nor vice versa --
 //! re-verified round 25 against the current tree, which by then also
-//! carries round 24's `cspace-scene`/`cspace-collision`/`cspace-constraints`
-//! and round 25's own `cspace-kinematics`/`cspace-geometry` (dev-only)
-//! additions: `cargo tree -p cspace-planners-stomp -e normal,dev,build
+//! carries round 24's `cspace_planning::scene`/`cspace-collision`/`cspace_planning::constraints`
+//! and round 25's own `cspace_core::kinematics`/`cspace_core::geometry` (dev-only)
+//! additions: `cargo tree -p cspace-planners -e normal,dev,build
 //! --prefix none | sort -u | grep -i planning` and `cargo tree -p
 //! cspace-planning -e normal,dev,build --prefix none --invert | grep -i
 //! stomp` both print nothing. None of this crate's dependencies (nor their
@@ -185,11 +185,11 @@
 //!
 //! `multivariate_gaussian.hpp`'s class does not live in this crate.
 //! `moveit_planners/chomp/chomp_motion_planner/`'s own
-//! `MultivariateGaussian` (a future round's `cspace-planners-chomp`) is the
+//! `MultivariateGaussian` (a future round's `cspace_planners::chomp`) is the
 //! same algorithm in a separately maintained file, diffed directly against
 //! this one this round -- see `cspace_core::sampling::multivariate_gaussian`'s
 //! module doc for the full comparison. Rather than have one planner crate
-//! depend on the other, both depend on the `cspace-sampling` crate instead.
+//! depend on the other, both depend on the `cspace_core::sampling` crate instead.
 //!
 //! # `assert_relative_eq!` reckoning (§79 convention, applied from the start)
 //!

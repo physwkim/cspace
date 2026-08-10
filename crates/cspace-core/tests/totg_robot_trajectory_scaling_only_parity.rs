@@ -7,9 +7,9 @@
 //!
 //! `totg_robot_trajectory_parity.rs` exercises `compute_time_stamps_with_limits`
 //! exclusively, because no fixture model in this workspace has
-//! `acceleration_bounded` set: `cspace-model`'s URDF loader never reads an
+//! `acceleration_bounded` set: `cspace_core::model`'s URDF loader never reads an
 //! acceleration limit (URDF has no such field), and until
-//! `RobotModel::joint_model_mut` landed, nothing outside `cspace-model`
+//! `RobotModel::joint_model_mut` landed, nothing outside `cspace_core::model`
 //! could set one programmatically either. That accessor now exists, so this
 //! file closes the gap `time_optimal_trajectory_generation.rs`'s doc comment
 //! used to record under "Known gap".
