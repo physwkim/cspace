@@ -20,7 +20,7 @@
 //! ever called on it, `getCollisionGradients`, is `CollisionEnvHybrid`'s own
 //! one-line forward to `CollisionEnvDistanceField::getCollisionGradients` —
 //! already ported as
-//! [`cspace_distance_field::DistanceFieldCollisionCache::get_collision_gradients`].
+//! [`cspace_collision::distance_field::DistanceFieldCollisionCache::get_collision_gradients`].
 //! `ChompOptimizer` never touches `CollisionEnvHybrid`'s FCL/Bullet-backed
 //! narrow-phase at all; round 17 excluded the whole struct on the strength
 //! of a field whose only real behavior was already portable.
@@ -152,7 +152,7 @@
 //!   [`crate::optimizer::ChompOptimizer::is_initialized`]/[`crate::optimizer::ChompOptimizer::is_collision_free`].
 //! - `performForwardKinematics` → [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`]
 //!   — populates every `collision_point_*` field via
-//!   [`cspace_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
+//!   [`cspace_collision::distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
 //!   (upstream: `hy_env_->getCollisionGradients(...)`); the only caller of
 //!   [`crate::optimizer::get_potential`]. See the "closed API gap" section
 //!   below for the `GradientInfo::sphere_locations` history this function's
@@ -235,7 +235,7 @@
 //! mechanism upstream doesn't actually have.
 //!
 //! Round 20 concluded the gap was real for a different reason —
-//! `cspace_distance_field::DistanceFieldCollisionCache` has no equivalent of
+//! `cspace_collision::distance_field::DistanceFieldCollisionCache` has no equivalent of
 //! upstream's `initialize()` pregeneration step, so it only ever runs the
 //! truly-fresh branch — and stated a falsifier: **expires once
 //! `cspace-distance-field` builds a pregenerated `GroupStateRepresentation`
@@ -247,7 +247,7 @@
 //! mechanism the falsifier above named — `GroupStateRepresentation` still
 //! borrows its `dfce` rather than owning/sharing it, so a self-referential
 //! pregenerated map would still need pinning/unsafe or an external crate
-//! (see `cspace_distance_field::DistanceFieldCollisionCache::new`'s own doc
+//! (see `cspace_collision::distance_field::DistanceFieldCollisionCache::new`'s own doc
 //! comment, which now carries that remaining, purely-performance gap and
 //! its own falsifier). Instead, `group_state_representation`'s fresh-build
 //! branch was changed to read `sphere_centers()` directly right after
@@ -330,13 +330,13 @@ use crate::cost::ChompCost;
 use crate::parameters::ChompParameters;
 use crate::trajectory::ChompTrajectory;
 use crate::utils::{DIFF_RULE_LENGTH, DIFF_RULES};
+use cspace_collision::distance_field::{DistanceField, DistanceFieldCollisionCache, GradientInfo};
 use cspace_collision::{AllowedCollisionMatrix, CollisionRequest};
 use cspace_core::error::{Error, Result};
 use cspace_core::geometry::Vector3;
 use cspace_core::model::joint::JointType;
 use cspace_core::model::{JointModelGroup, RobotModel};
 use cspace_core::state::RobotState;
-use cspace_distance_field::{DistanceField, DistanceFieldCollisionCache, GradientInfo};
 use nalgebra::{DMatrix, Matrix3, Point3};
 use rand::{Rng, RngExt};
 use std::collections::HashMap;
@@ -885,7 +885,7 @@ pub struct ChompCollisionContext<'a, 'm> {
     pub cache: &'a mut DistanceFieldCollisionCache<'m>,
     /// The `PropagationDistanceField`-shaped backend `cache` checks
     /// against, threaded through the same way
-    /// [`cspace_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
+    /// [`cspace_collision::distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
     /// itself requires.
     pub env_distance_field: &'a dyn DistanceField,
 }
@@ -1007,7 +1007,7 @@ fn build_fixed_link_resolution_map(
 /// `gradients.len()` instead of upstream's own `for (k = 0; k <
 /// info.sphere_locations.size(); ++k)`, because `GradientInfo::sphere_locations`
 /// was empty for every link through this crate's only access path
-/// ([`cspace_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]'s
+/// ([`cspace_collision::distance_field::DistanceFieldCollisionCache::get_collision_gradients`]'s
 /// always-fresh-build) -- gating on it would have returned a zero-length
 /// vector regardless of the real per-link sphere counts. `cspace-distance-field`
 /// round 25 (`f5328da`) closed that gap in `group_state_representation`
@@ -1055,12 +1055,12 @@ fn resolve_collision_point_joint_index(
 ///   [`ChompOptimizer::optimize`] instead, following the precedent already
 ///   established in `cspace-distance-field` (`env_distance_field: &dyn
 ///   DistanceField` is threaded the same way through
-///   [`cspace_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
+///   [`cspace_collision::distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
 ///   itself) -- this removes lifetime-parameter proliferation from the
 ///   struct (only `'m`, the robot model's lifetime, remains) at the cost
 ///   of a few more call-site arguments.
 /// - **`gsr_`/`GroupStateRepresentation` is never stored.** Its accessor,
-///   [`cspace_distance_field::DistanceFieldCollisionCache::get_collision_gradients`],
+///   [`cspace_collision::distance_field::DistanceFieldCollisionCache::get_collision_gradients`],
 ///   mutably borrows the collision cache for the `GroupStateRepresentation`'s
 ///   lifetime; storing it as a field would block every later mutable
 ///   reborrow of that same cache. Upstream's own usage never needs `gsr_`
@@ -1125,7 +1125,7 @@ fn resolve_collision_point_joint_index(
 ///   exactly would need to change for this to be attempted.
 /// - **`dynamic_cast<const CollisionEnvHybrid*>` and its null check
 ///   disappear.** [`ChompCollisionContext::cache`] is already statically
-///   typed as [`cspace_distance_field::DistanceFieldCollisionCache`]; Rust
+///   typed as [`cspace_collision::distance_field::DistanceFieldCollisionCache`]; Rust
 ///   has no equivalent of constructing a `ChompOptimizer` against a
 ///   differently-typed, incompatible collision environment for the caller
 ///   to fail at runtime.
@@ -2216,7 +2216,7 @@ mod tests {
     // --- ChompOptimizer ---
 
     use cspace_collision::LinkPaddingScale;
-    use cspace_distance_field::{
+    use cspace_collision::distance_field::{
         DistanceFieldConfig, DistanceGradient, GridGeometry, PropagationDistanceField,
         add_link_body_decompositions,
     };
@@ -3117,7 +3117,7 @@ mod tests {
     /// distance per `optimize` pass instead of a real geometric lookup --
     /// every other [`DistanceField`] method delegates to a real (empty)
     /// field, so nothing but the collision-cost-driving query is faked.
-    /// [`get_collision_sphere_gradients`](cspace_distance_field) is the only
+    /// [`get_collision_sphere_gradients`](cspace_collision::distance_field) is the only
     /// caller in the environment-proximity path, and it queries nothing but
     /// `distance_gradient` (`p.x, p.y, p.z` in, `DistanceGradient` out), so
     /// overriding that one method is sufficient to control `c_cost`.

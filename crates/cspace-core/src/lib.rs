@@ -57,11 +57,9 @@ pub mod smoothing;
 #[forbid(unsafe_code)]
 pub mod metrics;
 
-/// Fixture loaders shared by this workspace's tests.
-///
-/// `cfg(test)` covers this crate's own unit tests; the `test-support` feature
-/// is what integration tests and downstream crates enable, since they link the
-/// library built without `cfg(test)`.
+// Fixture loaders. `cfg(test)` covers this crate's own unit tests; the
+// `test-support` feature is what integration tests and downstream crates
+// enable, since they link the library built without `cfg(test)`.
 #[cfg(any(test, feature = "test-support"))]
 #[forbid(unsafe_code)]
 pub mod test_support;

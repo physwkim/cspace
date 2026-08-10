@@ -7,7 +7,7 @@
 //! `occupied_cells` grid-coordinate list, so it never exercises the
 //! shape-to-obstacle-points step at all: [`find_internal_points_convex`] --
 //! upstream `distance_field::findInternalPointsConvex`, called from
-//! [`cspace_distance_field::DistanceField::add_shape_to_field`] and its
+//! [`cspace_collision::distance_field::DistanceField::add_shape_to_field`] and its
 //! siblings -- was unverified for every shape. This test closes that gap.
 //!
 //! Both sides are driven from `tests/fixtures/shape_points_request.json`, an
@@ -58,10 +58,10 @@ use std::fs;
 
 use serde::Deserialize;
 
+use cspace_collision::distance_field::find_internal_points_convex;
 use cspace_core::geometry::bodies::Body;
 use cspace_core::geometry::{Cuboid, Cylinder, Mesh, Shape, Sphere};
 use cspace_core::test_support::isometry_from_row_major;
-use cspace_distance_field::find_internal_points_convex;
 use nalgebra::Vector3;
 
 /// Kind: a structurally-safe grid-bucket size, not a measured-margin
@@ -144,7 +144,10 @@ struct OracleResponse {
 
 fn read_fixture(name: &str) -> String {
     let path = format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/distance_field/{}"
+        ),
         name
     );
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))

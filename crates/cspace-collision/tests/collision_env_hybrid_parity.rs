@@ -10,7 +10,7 @@
 //! in as an argument. See `doc/oracle-request-hybrid-collision-env-distance-field.md`'s
 //! "How this port will use the response" section: this is what proves
 //! `build_env_distance_field`'s own reachability, not just the lower-level
-//! [`cspace_distance_field::DistanceFieldCollisionCache`] primitives it
+//! [`cspace_collision::distance_field::DistanceFieldCollisionCache`] primitives it
 //! composes (already covered by `collision_env_distance_field_parity.rs`,
 //! always against an explicit, hand-built `env_distance_field` argument).
 //!
@@ -69,20 +69,23 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 
+use cspace_collision::distance_field::{
+    DistanceFieldConfig, GridGeometry, HybridCollisionEnv, add_link_body_decompositions,
+};
 use cspace_collision::{AllowedCollisionMatrix, CollisionRequest, LinkPaddingScale, World};
 use cspace_core::geometry::{Shape, Sphere};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
 use cspace_core::test_support::isometry_from_row_major;
-use cspace_distance_field::{
-    DistanceFieldConfig, GridGeometry, HybridCollisionEnv, add_link_body_decompositions,
-};
 use nalgebra::Vector3;
 
 fn fixture_path(file_name: &str) -> String {
     format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/distance_field/{}"
+        ),
         file_name
     )
 }

@@ -65,16 +65,16 @@ use std::io::{self, Read};
 use std::sync::Arc;
 use std::time::Instant;
 
+use cspace_collision::distance_field::{
+    DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
+    PropagationDistanceField, add_link_body_decompositions, collision_object_point_decomposition,
+};
 use cspace_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
 use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use cspace_core::geometry::{Cuboid, Isometry3, Shape, Vector3};
 use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
-use cspace_distance_field::{
-    DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
-    PropagationDistanceField, add_link_body_decompositions, collision_object_point_decomposition,
-};
 use cspace_planners_chomp::optimizer::ChompCollisionContext;
 use cspace_planners_chomp::{
     ChompExit, ChompGoal, ChompLoopTrace, ChompParameters, ChompRequest, GoalJointConstraint,

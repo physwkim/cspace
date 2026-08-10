@@ -70,14 +70,14 @@ use approx::assert_relative_eq;
 use serde::Deserialize;
 
 use cspace_collision::World;
+use cspace_collision::distance_field::{
+    BodyDecomposition, PosedBodySphereDecomposition, collision_object_point_decomposition,
+};
 use cspace_core::geometry::{Isometry3, Shape};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
 use cspace_core::test_support::isometry_from_row_major;
-use cspace_distance_field::{
-    BodyDecomposition, PosedBodySphereDecomposition, collision_object_point_decomposition,
-};
 
 /// Measured-margin tolerance, not policy: this constant used to pin `1e-4`,
 /// PORTING-PLAN.md §5 Phase 3's stated distance tolerance, matching
@@ -117,7 +117,10 @@ const TOL: f64 = 1e-13;
 
 fn fixture_path(file_name: &str) -> String {
     format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/distance_field/{}"
+        ),
         file_name
     )
 }

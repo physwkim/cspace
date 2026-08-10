@@ -67,6 +67,11 @@ use approx::assert_relative_eq;
 use nalgebra::Vector3;
 use serde::Deserialize;
 
+use cspace_collision::distance_field::{
+    DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
+    PropagationDistanceField, add_link_body_decompositions, collision_object_point_decomposition,
+    generate_distance_field_cache_entry, group_state_representation,
+};
 use cspace_collision::{
     AllowedCollisionMatrix, AttachedBodyGeometry, BodyType, CollisionRequest, ContactData,
     LinkPaddingScale, World,
@@ -76,11 +81,6 @@ use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
 use cspace_core::test_support::isometry_from_row_major;
-use cspace_distance_field::{
-    DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
-    PropagationDistanceField, add_link_body_decompositions, collision_object_point_decomposition,
-    generate_distance_field_cache_entry, group_state_representation,
-};
 
 /// Measured-margin tolerance, not policy: this constant used to pin `1e-4`
 /// with no doc comment at all -- inherited from the other parity files in
@@ -132,7 +132,10 @@ const TOL: f64 = 5e-13;
 
 fn fixture_path(file_name: &str) -> String {
     format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/distance_field/{}"
+        ),
         file_name
     )
 }
@@ -539,7 +542,7 @@ fn generate_distance_field_cache_entry_matches_the_oracle() {
 /// not an alternate path the oracle happens to resemble. This test drives
 /// the same three request/response fixture cases through
 /// `check_self_collision` instead of calling `generate_distance_field_cache_entry`
-/// directly, and checks the resulting [`cspace_distance_field::GroupStateRepresentation::dfce`]
+/// directly, and checks the resulting [`cspace_collision::distance_field::GroupStateRepresentation::dfce`]
 /// against the same expected fields -- proving the fixture is evidence for
 /// the newly ported method, not merely for the free function it happens to
 /// share a name with.
@@ -1418,7 +1421,7 @@ struct GsrContactsResponseEntry {
 /// `group_state_representation`'s op (`oracle.cpp:3985-4295`) drives
 /// `CollisionEnvDistanceField::checkCollision`, not `checkSelfCollision` --
 /// unlike [`check_self_collision_matches_the_oracle_with_contacts_and_attached_bodies`]
-/// above, it also runs the environment phase ([`cspace_distance_field::get_environment_collisions`],
+/// above, it also runs the environment phase ([`cspace_collision::distance_field::get_environment_collisions`],
 /// round 23's fourth closed gap), even though neither op builds a `World`
 /// so that phase can never actually *find* an environment collision through
 /// either op (both construct `CollisionEnvDistanceField(model_)` with the
@@ -1893,7 +1896,7 @@ fn group_state_representation_gradients_matches_the_oracle() {
 /// `1.6e-14` relative, comfortably inside `TOL`'s existing margin -- see
 /// `TOL`'s own doc comment for how that margin was set).
 fn assert_gradient_matches_oracle(
-    actual: &cspace_distance_field::GradientInfo,
+    actual: &cspace_collision::distance_field::GradientInfo,
     expected: &GsrGradient,
     ctx: &str,
 ) {

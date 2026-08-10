@@ -58,7 +58,7 @@ use std::fs;
 
 use serde::Deserialize;
 
-use cspace_distance_field::{DistanceField, GridGeometry, PropagationDistanceField};
+use cspace_collision::distance_field::{DistanceField, GridGeometry, PropagationDistanceField};
 use nalgebra::Vector3;
 
 #[derive(Deserialize)]
@@ -116,7 +116,10 @@ struct OracleResponse {
 
 fn read_fixture(name: &str) -> String {
     let path = format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/distance_field/{}"
+        ),
         name
     );
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))

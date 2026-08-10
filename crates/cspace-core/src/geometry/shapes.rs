@@ -502,7 +502,7 @@
 //! - **`crate::octomap::OcTree`'s raw leaf payload → `cspace-distance-field`,
 //!   *not yet* receiving.** `collision_env_distance_field.cpp`'s
 //!   `PosedBodyPointDecomposition(shared_ptr<const octomap::OcTree>)`
-//!   constructor is still unported there (`crates/cspace-distance-field/src/
+//!   constructor is still unported there (`crates/cspace-collision/src/distance_field/
 //!   lib.rs`'s own module docs list it, under `PosedBodyPointDecomposition`,
 //!   as the one of three constructor overloads not yet done); confirmed by
 //!   `Cargo.toml` too — `cspace-distance-field` names no `cspace-octomap`

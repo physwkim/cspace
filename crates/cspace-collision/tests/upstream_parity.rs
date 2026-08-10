@@ -13,16 +13,16 @@
 //!
 //! Deliberately **not** ported, with reasons:
 //!
-//! - `TestOcTree` — [`cspace_distance_field::DistanceField::add_octree_to_field`]
+//! - `TestOcTree` — [`cspace_collision::distance_field::DistanceField::add_octree_to_field`]
 //!   itself is now ported (PORTING-PLAN.md §90.2), but this test also
 //!   exercises two things that are not: the octree-and-bounding-box-taking
 //!   `PropagationDistanceField` constructor overload
 //!   (`propagation_distance_field.hpp`, a separate item from
 //!   `addOcTreeToField` — see
-//!   [`cspace_distance_field::PropagationDistanceField`]'s "Deviations from
+//!   [`cspace_collision::distance_field::PropagationDistanceField`]'s "Deviations from
 //!   upstream"), and `addShapeToField`'s dispatch to `addOcTreeToField` for
 //!   a `shapes::OCTREE`-typed shape (this port's
-//!   [`cspace_distance_field::DistanceField::add_shape_to_field`] returns
+//!   [`cspace_collision::distance_field::DistanceField::add_shape_to_field`] returns
 //!   [`cspace_core::error::Error::Construct`] for [`cspace_core::geometry::Shape::OcTree`]
 //!   rather than dispatching — see that method's own "Deviations from
 //!   upstream").
@@ -34,7 +34,7 @@
 //! `TestSignedAddRemovePoints` and `TestShape` are ported in full, including
 //! the shape/gradient portions, using the now-ported
 //! [`DistanceField::add_shape_to_field`]/[`DistanceField::move_shape_in_field`]
-//! — see [`cspace_distance_field::DistanceField`]'s "Deviations from
+//! — see [`cspace_collision::distance_field::DistanceField`]'s "Deviations from
 //! upstream" for the shape-type restriction (sphere/cylinder/box only) that
 //! makes this possible without a full `bodies::Body` port. This file's
 //! test-only [`ConvexBody`] sphere is still used to independently compute
@@ -113,10 +113,10 @@
 use approx::assert_relative_eq;
 use nalgebra::Vector3;
 
-use cspace_core::geometry::{Isometry3, Shape, Sphere as GeomSphere};
-use cspace_distance_field::{
+use cspace_collision::distance_field::{
     ConvexBody, DistanceField, GridGeometry, PropagationDistanceField, find_internal_points_convex,
 };
+use cspace_core::geometry::{Isometry3, Shape, Sphere as GeomSphere};
 
 const WIDTH: f64 = 1.0;
 const HEIGHT: f64 = 1.0;

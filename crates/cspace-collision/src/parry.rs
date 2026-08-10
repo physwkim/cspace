@@ -2548,7 +2548,7 @@ fn attached_pair_allowed(a: &PosedBody, b: &PosedBody) -> bool {
 /// Note the distance-field backend is *not* part of this family and must not
 /// be "fixed" to match: upstream's `collision_env_distance_field.cpp:329`,
 /// `:621` and `:1618` file contacts under `(con.body_name_1, con.body_name_2)`
-/// unsorted, and `crates/cspace-distance-field` reproduces that.
+/// unsorted, and `crates/cspace-collision` reproduces that.
 fn pair_key(a: &str, b: &str) -> (String, String) {
     if a < b {
         (a.to_string(), b.to_string())

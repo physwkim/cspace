@@ -44,7 +44,7 @@
 //! and no implementation (no parry backend yet)"). That condition expired:
 //! three concrete backends now implement [`CollisionEnv`] —
 //! [`crate::ParryCollisionEnv`], [`crate::AllValidCollisionEnv`] and
-//! `cspace_distance_field::HybridCollisionEnv`. `PORTING-PLAN.md` §225.4
+//! `crate::distance_field::HybridCollisionEnv`. `PORTING-PLAN.md` §225.4
 //! re-decided it rather than carrying the deferral forward: upstream's
 //! `collision_detector_allocator.hpp` is **not ported**, and no `linkme`
 //! slice replaces it.

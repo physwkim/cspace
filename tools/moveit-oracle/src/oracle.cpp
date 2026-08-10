@@ -4359,7 +4359,7 @@ private:
   ///
   /// `mode` (optional, `"collision"` by default, `"robot_only"` the only
   /// other value) selects `checkRobotCollision` instead of `checkCollision`.
-  /// Requested by `crates/cspace-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md`:
+  /// Requested by `crates/cspace-collision/doc/oracle-request-hybrid-collision-env-distance-field.md`:
   /// `checkRobotCollision` had never been called through any op, so
   /// `getEnvironmentCollisions`' distance/contact-recording logic had no
   /// oracle evidence behind it at all, in either direction. Absent, the

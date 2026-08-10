@@ -13,7 +13,7 @@ use cspace_core::geometry::{Isometry3, Shape};
 use cspace_core::octomap::OcTree;
 use nalgebra::{Point3, Vector3};
 
-use crate::find_internal_points::{ConvexBody, find_internal_points_convex};
+use crate::distance_field::find_internal_points::{ConvexBody, find_internal_points_convex};
 
 /// Upstream `bodies::Body::computeBoundingSphere`/`containsPoint`, dispatched
 /// per body kind by [`Body`] itself.
@@ -64,7 +64,7 @@ fn posed_body(shape: &Shape, pose: &Isometry3) -> Result<Body> {
 /// `grid_to_world(num_cells_x, num_cells_y, num_cells_z)` — the latter one
 /// cell past the last valid index, matching upstream's own
 /// `gridToWorld(num_x, num_y, num_z, ...)` call, a pure extrapolation
-/// [`crate::VoxelGrid::grid_to_world`] computes with no bounds check, same
+/// [`crate::distance_field::VoxelGrid::grid_to_world`] computes with no bounds check, same
 /// as upstream's `VoxelGrid::gridToWorld`.
 ///
 /// `None` from [`OcTree::leaves_in_bbx`] (the field's own grid extent is
@@ -197,7 +197,7 @@ pub struct DistanceGradient {
 ///
 /// Upstream `distance_field::DistanceField`, an abstract base class. Per
 /// `PORTING-PLAN.md` D4, this port uses a trait instead of virtual
-/// inheritance — [`crate::PropagationDistanceField`] is the (currently only)
+/// inheritance — [`crate::distance_field::PropagationDistanceField`] is the (currently only)
 /// implementer, matching upstream's `PropagationDistanceField`.
 ///
 /// # Deviations from upstream
@@ -210,7 +210,7 @@ pub struct DistanceGradient {
 /// [`DistanceField::add_shape_to_field`], [`DistanceField::remove_shape_from_field`],
 /// [`DistanceField::move_shape_in_field`] and [`DistanceField::add_octree_to_field`]
 /// *are* ported, as default trait methods built from the required methods
-/// above plus [`crate::find_internal_points_convex`]/`octree_points` —
+/// above plus [`crate::distance_field::find_internal_points_convex`]/`octree_points` —
 /// matching upstream's own placement of
 /// `getShapePoints`/`addShapeToField`/`moveShapeInField`/`addOcTreeToField`
 /// as non-virtual methods on the `DistanceField` base class. For
@@ -254,7 +254,7 @@ pub struct DistanceGradient {
 /// [`DistanceField::add_octree_to_field`] takes a
 /// [`cspace_core::octomap::OcTree`] directly instead, against the
 /// `cspace-octomap` dependency added for
-/// [`crate::PosedBodyPointDecomposition::from_octree`] — a different,
+/// [`crate::distance_field::PosedBodyPointDecomposition::from_octree`] — a different,
 /// simpler point-collection algorithm from that method (see its own doc):
 /// occupied leaves only, bounding-box-clipped to this field's own grid
 /// extent, oversized leaves subdivided to `resolution` spacing rather than
@@ -273,15 +273,15 @@ pub struct DistanceGradient {
 /// - The octree-and-bounding-box-taking `PropagationDistanceField`
 ///   constructor overload (`propagation_distance_field.hpp`) is a separate
 ///   item from `addOcTreeToField` — see
-///   [`crate::PropagationDistanceField`]'s "Deviations from upstream" — and
+///   [`crate::distance_field::PropagationDistanceField`]'s "Deviations from upstream" — and
 ///   stays unported.
 /// - `setPoint` (protected) has no caller left once the marker methods above
 ///   are unported — upstream's only caller of it is `getProjectionPlanes`.
 /// - The base class constructor and destructor have no Rust counterpart:
 ///   this trait carries no state of its own. The seven size/origin/
 ///   resolution constructor arguments upstream's base class stores become
-///   [`crate::GridGeometry`] plus `max_distance`/`propagate_negative_distances`
-///   on [`crate::PropagationDistanceField`], the implementer that actually
+///   [`crate::distance_field::GridGeometry`] plus `max_distance`/`propagate_negative_distances`
+///   on [`crate::distance_field::PropagationDistanceField`], the implementer that actually
 ///   owns them; Rust's ownership model needs no destructor for what a trait
 ///   itself never allocates.
 pub trait DistanceField {
@@ -319,7 +319,7 @@ pub trait DistanceField {
     /// Upstream `DistanceField::getDistance(int,int,int)`. `x`, `y`, `z`
     /// must be a valid cell — implementations may panic otherwise, matching
     /// upstream's documented "must be valid or corruption occurs" contract
-    /// modulo panic-instead-of-UB (see [`crate::VoxelGrid`]'s doc comment).
+    /// modulo panic-instead-of-UB (see [`crate::distance_field::VoxelGrid`]'s doc comment).
     fn distance_cell(&self, x: i32, y: i32, z: i32) -> f64;
     /// Upstream `DistanceField::isCellValid`.
     fn is_cell_valid(&self, x: i32, y: i32, z: i32) -> bool;
@@ -521,7 +521,7 @@ pub trait DistanceField {
 /// fail (`2` instead of `1`) while leaving the fourth test
 /// (`add_octree_to_field_wires_the_fields_own_extent_through`) passing --
 /// confirming that test alone would not have caught a missing bbox clip,
-/// since [`crate::propagation::PropagationDistanceField::add_points_to_field`]'s
+/// since [`crate::distance_field::propagation::PropagationDistanceField::add_points_to_field`]'s
 /// own out-of-grid check silently absorbs the difference at that level. Each
 /// mutation was reverted after confirming.
 #[cfg(test)]
@@ -530,8 +530,8 @@ mod tests {
     use serde::Deserialize;
 
     use super::*;
-    use crate::propagation::PropagationDistanceField;
-    use crate::voxel_grid::GridGeometry;
+    use crate::distance_field::propagation::PropagationDistanceField;
+    use crate::distance_field::voxel_grid::GridGeometry;
 
     const RESOLUTION: f64 = 0.1;
     const BBX_MIN: Vector3<f64> = Vector3::new(0.0, 0.0, 0.0);
@@ -613,7 +613,7 @@ mod tests {
     /// entirely outside `[bbx_min, bbx_max]` must not contribute a point,
     /// even though it is occupied. Checked at the `octree_points` level
     /// specifically (not through [`DistanceField::add_octree_to_field`]),
-    /// since [`crate::propagation::PropagationDistanceField::add_points_to_field`]
+    /// since [`crate::distance_field::propagation::PropagationDistanceField::add_points_to_field`]
     /// has its own redundant out-of-grid check that would mask a missing
     /// bbox clip here.
     #[test]
@@ -991,7 +991,10 @@ mod tests {
     }
 
     fn load_fixture<T: for<'de> Deserialize<'de>>(name: &str) -> T {
-        let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+        let path = format!(
+            "{}/tests/fixtures/distance_field/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        );
         let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
         serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
     }

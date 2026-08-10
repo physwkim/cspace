@@ -207,6 +207,10 @@ use std::env;
 use std::io::{self, Read};
 use std::sync::Arc;
 
+use cspace_collision::distance_field::{
+    DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
+    PropagationDistanceField, add_link_body_decompositions,
+};
 use cspace_collision::{AllowedCollisionMatrix, CollisionRequest, LinkPaddingScale};
 use cspace_collision::{ParryCollisionEnv, World};
 use cspace_core::geometry::{Cuboid, Isometry3, Shape, Vector3};
@@ -214,10 +218,6 @@ use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
 use cspace_core::test_support::isometry_from_row_major;
-use cspace_distance_field::{
-    DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
-    PropagationDistanceField, add_link_body_decompositions,
-};
 use cspace_planners_chomp::optimizer::ChompCollisionContext;
 use cspace_planners_chomp::{
     ChompExit, ChompGoal, ChompLoopTrace, ChompObjective, ChompObjectiveProgress, ChompParameters,

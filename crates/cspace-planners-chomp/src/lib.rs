@@ -228,7 +228,7 @@
 //!   called on it, `getCollisionGradients`, is `CollisionEnvHybrid`'s own
 //!   one-line forward to `CollisionEnvDistanceField::getCollisionGradients`,
 //!   already ported as
-//!   [`cspace_distance_field::DistanceFieldCollisionCache::get_collision_gradients`].
+//!   [`cspace_collision::distance_field::DistanceFieldCollisionCache::get_collision_gradients`].
 //!   `hy_env_`/`planning_scene_`/`full_trajectory_`/`gsr_` are not stored as
 //!   struct fields at all in this port — see
 //!   [`optimizer::ChompCollisionContext`] and [`optimizer`]'s module doc for
@@ -242,7 +242,7 @@
 //!   around here rather than fixed. `cspace-distance-field` round 25
 //!   (`f5328da`) closed the gap directly (not by porting the `gsr_`-reuse
 //!   mechanism itself, which stays unported — see
-//!   `cspace_distance_field::DistanceFieldCollisionCache::new`'s own doc
+//!   `cspace_collision::distance_field::DistanceFieldCollisionCache::new`'s own doc
 //!   comment for that remaining, purely-performance gap); this crate's
 //!   workaround was removed the same round (`5293abd`). See [`optimizer`]'s
 //!   module doc, "Closed API gap: `GradientInfo::sphere_locations` (rounds

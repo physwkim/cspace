@@ -830,7 +830,7 @@ if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
     crates/cspace-planners-chomp/src \
     crates/cspace-planners-stomp/src \
     crates/cspace-stomp-core/src \
-    crates/cspace-distance-field/src \
+    crates/cspace-collision/src/distance_field \
     crates/cspace-collision/src \
     crates/cspace-scene/src \
     crates/cspace-constraints/src \

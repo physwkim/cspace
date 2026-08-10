@@ -11,8 +11,8 @@ use std::collections::BTreeSet;
 use cspace_core::error::{Error, Result};
 use nalgebra::Vector3;
 
-use crate::distance_field::DistanceField;
-use crate::voxel_grid::{Dimension, GridGeometry, VoxelGrid};
+use crate::distance_field::field::DistanceField;
+use crate::distance_field::voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 
 /// Per-voxel bookkeeping for [`PropagationDistanceField`]: distances (stored
 /// squared, in cells — see the field docs) plus enough state to resume
@@ -34,7 +34,7 @@ use crate::voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PropDistanceFieldVoxel {
     /// `distance_square_`: squared distance in cells to the closest obstacle.
-    /// Squared and in cells, not meters — see [`crate::PropagationDistanceField`]'s
+    /// Squared and in cells, not meters — see [`crate::distance_field::PropagationDistanceField`]'s
     /// module doc for why this is never silently normalised to a `f64`
     /// meters value except at read time ([`DistanceField::distance`] /
     /// [`DistanceField::distance_cell`]).
@@ -292,7 +292,7 @@ impl PropagationDistanceField {
 
     /// Upstream `PropagationDistanceField::getCell`. Panics if the cell is
     /// invalid, matching upstream's documented contract (see
-    /// [`crate::VoxelGrid`]'s doc comment for the panic-instead-of-UB
+    /// [`crate::distance_field::VoxelGrid`]'s doc comment for the panic-instead-of-UB
     /// rationale).
     pub fn cell(&self, x: i32, y: i32, z: i32) -> &PropDistanceFieldVoxel {
         self.voxel_grid.get_cell(x, y, z)

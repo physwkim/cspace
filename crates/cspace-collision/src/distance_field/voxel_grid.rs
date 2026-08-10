@@ -22,7 +22,7 @@ pub enum Dimension {
 }
 
 /// The size, origin and resolution of a [`VoxelGrid`] or
-/// [`crate::PropagationDistanceField`], bundled into one type.
+/// [`crate::distance_field::PropagationDistanceField`], bundled into one type.
 ///
 /// Upstream spells these as six separate `size_x`/`size_y`/`size_z`/
 /// `origin_x`/`origin_y`/`origin_z` `f64` constructor arguments (plus
@@ -130,13 +130,13 @@ impl GridGeometry {
 ///
 /// - Upstream's default constructor plus `resize()` exists so a `VoxelGrid`
 ///   can be built before its size is known; nothing in this crate's only
-///   consumer ([`crate::PropagationDistanceField`]) ever does that, so this
+///   consumer ([`crate::distance_field::PropagationDistanceField`]) ever does that, so this
 ///   port carries only the sized constructor ([`VoxelGrid::new`]) and drops
 ///   `resize`/the default constructor as unused surface.
 /// - Upstream's constructor allocates `new T[n]` and leaves every cell
 ///   default-constructed (for `PropDistanceFieldVoxel`, explicitly
 ///   *uninitialized* — see that type's doc comment); the sole real caller
-///   ([`crate::PropagationDistanceField::new`]) immediately overwrites every
+///   ([`crate::distance_field::PropagationDistanceField::new`]) immediately overwrites every
 ///   cell via `reset()` regardless. Safe Rust has no uninitialized-memory
 ///   escape hatch without `unsafe` (forbidden workspace-wide), so this port
 ///   fills every cell with `default_object.clone()` at construction. This is

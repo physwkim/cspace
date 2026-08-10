@@ -7,8 +7,8 @@
 //   moveit_core/collision_distance_field/src/collision_common_distance_field.cpp
 
 //! The `RobotState`/`RobotModel`-dependent slice of `collision_common_distance_field`:
-//! turning a [`Shape`] or a [`cspace_collision::Object`] into the posed
-//! sphere/point decompositions [`crate::collision_distance_field_types`]
+//! turning a [`Shape`] or a [`crate::Object`] into the posed
+//! sphere/point decompositions [`crate::distance_field::collision_distance_field_types`]
 //! defines, with the same identity-keyed shape cache upstream uses.
 //!
 //! # Scope
@@ -23,7 +23,7 @@
 //! `JointModelGroup::updated_link_names`/`updated_link_with_geometry_names`
 //! close the dependency gap this file's previous doc comment recorded here
 //! (upstream `getUpdatedLinkModelNames`/`getUpdatedLinkModelsWithGeometryNames`).
-//! [`crate::generate_distance_field_cache_entry`], the function that
+//! [`crate::distance_field::generate_distance_field_cache_entry`], the function that
 //! populates it, lives in `collision_env_distance_field.rs` — see its own
 //! doc comment for the construction logic and for
 //! `compareCacheEntryToState`'s cache-key semantics (read but not ported;
@@ -46,7 +46,7 @@
 //! restated blocker.
 //!
 //! This round also closes a real correctness gap
-//! [`crate::compare_cache_entry_to_state`] had left open: see
+//! [`crate::distance_field::compare_cache_entry_to_state`] had left open: see
 //! [`AttachedBodySnapshot`]'s doc comment.
 //!
 //! # Round 22: `getAttachedBodySphereDecomposition`/`getAttachedBodyPointDecomposition`
@@ -67,7 +67,7 @@
 //! upstream `getAttachedBodySphereDecomposition`'s only caller is
 //! `CollisionEnvDistanceField::getGroupStateRepresentation`
 //! (`collision_env_distance_field.cpp:1239`), ported as
-//! [`crate::group_state_representation`], which now calls
+//! [`crate::distance_field::group_state_representation`], which now calls
 //! [`attached_body_sphere_decomposition`] for real (see that function's own
 //! doc comment). `getAttachedBodyPointDecomposition`'s only caller is
 //! `generateDistanceFieldCacheEntry`'s non-group-link loop
@@ -107,7 +107,7 @@
 //! [`get_body_decomposition_cache_entry`] preserves a genuine, upstream-
 //! acknowledged defect: the cache is keyed *solely* on shape identity, but
 //! the cached [`BodyDecomposition`] value also depends on `resolution` (it
-//! is threaded into [`crate::find_internal_points::find_internal_points_convex`] via
+//! is threaded into [`crate::distance_field::find_internal_points::find_internal_points_convex`] via
 //! [`BodyDecomposition::from_shapes`], which changes the interior point
 //! sampling). Upstream's own comment in `getBodyDecompositionCacheEntry`
 //! is literally `// TODO - deal with changing resolution?` -- the gap is
@@ -121,7 +121,7 @@
 //! This is exactly the "a cache whose key omits something the value depends
 //! on" defect class this file's task description flagged. It is preserved
 //! rather than fixed for the same reason
-//! [`crate::do_bounding_spheres_intersect`]'s squared-vs-unsquared defect
+//! [`crate::distance_field::do_bounding_spheres_intersect`]'s squared-vs-unsquared defect
 //! is preserved: this task's mandate is matching upstream's actual
 //! behaviour, not upstream's intent, and "fixing" a cache key is a
 //! behaviour change that needs its own sign-off, not a silent parity
@@ -193,20 +193,20 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use cspace_collision::{AllowedCollisionMatrix, AttachedBodyGeometry, Object};
+use crate::{AllowedCollisionMatrix, AttachedBodyGeometry, Object};
 use cspace_core::error::Result;
 use cspace_core::geometry::{Isometry3, Shape};
 use cspace_core::state::RobotState;
 
-use crate::PropagationDistanceField;
-use crate::collision_distance_field_types::{
+use crate::distance_field::PropagationDistanceField;
+use crate::distance_field::collision_distance_field_types::{
     BodyDecomposition, GradientInfo, PosedBodyPointDecomposition,
     PosedBodyPointDecompositionVector, PosedBodySphereDecomposition,
     PosedBodySphereDecompositionVector, PosedDistanceField,
 };
 
-/// An owned snapshot of one [`cspace_collision::AttachedBodyGeometry`],
-/// captured by [`crate::generate_distance_field_cache_entry`] at generation
+/// An owned snapshot of one [`crate::AttachedBodyGeometry`],
+/// captured by [`crate::distance_field::generate_distance_field_cache_entry`] at generation
 /// time and stored on [`DistanceFieldCacheEntry::attached_bodies`].
 ///
 /// # Closes a real gap left open through round 5
@@ -222,8 +222,8 @@ use crate::collision_distance_field_types::{
 /// same query -- there is nothing to re-derive from. Round 5 (see this
 /// module's earlier doc revisions in `PORTING-PLAN.md` §27.2) reported this
 /// as a permanent, vacuously-true deviation in both
-/// [`crate::compare_cache_entry_to_state`] and
-/// [`crate::compare_cache_entry_to_allowed_collision_matrix`] and moved on.
+/// [`crate::distance_field::compare_cache_entry_to_state`] and
+/// [`crate::distance_field::compare_cache_entry_to_allowed_collision_matrix`] and moved on.
 ///
 /// Re-reading upstream's actual comparison this round (see
 /// `collision_env_distance_field.cpp:1280-1310`) found only
@@ -232,22 +232,22 @@ use crate::collision_distance_field_types::{
 /// is dead code upstream, assigned and never read (still correctly
 /// documented as omitted on that function, not fixed here). And the fix for
 /// `compareCacheEntryToState` does not need `cspace_core::state::RobotState` to
-/// grow attached-body support at all: [`cspace_collision::AttachedBodyGeometry`]
+/// grow attached-body support at all: [`crate::AttachedBodyGeometry`]
 /// is a *borrowed* view already defined in `cspace-collision` (a crate this
 /// one already depends on) specifically so a lower crate can consume
 /// attached-body data without depending back on `cspace-scene` --
 /// `cspace_scene::AttachedBody::as_geometry` already builds one this exact
-/// way for `cspace_collision::CollisionEnv` callers. This snapshot type
+/// way for `crate::CollisionEnv` callers. This snapshot type
 /// applies the same pattern one layer further down: an *owned* copy of
 /// exactly the fields upstream's comparison reads (`getName`/
 /// `getTouchLinks`/`getShapes`), since a [`DistanceFieldCacheEntry`] outlives
 /// the single call that captures it, unlike a borrowed
-/// [`cspace_collision::AttachedBodyGeometry`].
+/// [`crate::AttachedBodyGeometry`].
 ///
 /// `shapes` clones the `Arc<Shape>` pointers, not the shape values: upstream
 /// compares `getShapes()[j] != getShapes()[j]`, a `shared_ptr` `operator!=`
 /// -- pointer identity, not shape equality -- so
-/// [`crate::compare_cache_entry_to_state`] compares via `Arc::ptr_eq` too,
+/// [`crate::distance_field::compare_cache_entry_to_state`] compares via `Arc::ptr_eq` too,
 /// matching [`get_body_decomposition_cache_entry`]'s own identity-not-value
 /// cache-key rationale.
 #[derive(Debug, Clone)]
@@ -281,21 +281,21 @@ impl AttachedBodySnapshot {
 /// Upstream `DistanceFieldCacheEntry`: a group-, ACM-, and robot-state-
 /// specific cache entry pairing a static distance field of "the rest of the
 /// robot" with the bookkeeping needed to check the group's own links against
-/// it. Populated by [`crate::generate_distance_field_cache_entry`] (upstream
+/// it. Populated by [`crate::distance_field::generate_distance_field_cache_entry`] (upstream
 /// `CollisionEnvDistanceField::generateDistanceFieldCacheEntry`); see this
 /// module's doc comment for what stays deferred.
 ///
 /// # Deviations from upstream
 ///
 /// - `pregenerated_group_state_representation_` does not exist here: no
-///   [`crate::group_state_representation`] call this port can reach ever
+///   [`crate::distance_field::group_state_representation`] call this port can reach ever
 ///   populates it (see that function's own "Deviations from upstream" for
 ///   why upstream's pregenerated-reuse branch is provably unreachable), so
 ///   there is nothing for this field to ever hold.
 /// - `attached_body_names_`/`attached_body_link_state_indices_` are plain
 ///   `Vec`s, not an `Option`/sentinel encoding "no attached bodies in the
 ///   group": empty [`Vec`]s already represent that case exactly. As of round
-///   22, [`crate::generate_distance_field_cache_entry`] populates both
+///   22, [`crate::distance_field::generate_distance_field_cache_entry`] populates both
 ///   fields for real, one entry per attached body found on a geometry-
 ///   bearing, ACM-tracked link (see this function's own doc comment) --
 ///   they are no longer permanently empty. Distinct from
@@ -308,12 +308,12 @@ impl AttachedBodySnapshot {
 ///   default-constructed (i.e. empty, permit-nothing-restricted-yet) one
 ///   upstream's `acm_` member is left at when `generateDistanceFieldCacheEntry`'s
 ///   `acm` parameter is null. [`AllowedCollisionMatrix::default`] gives the
-///   exact same "no entries, no defaults" value, so [`generate_distance_field_cache_entry`](crate::generate_distance_field_cache_entry)
+///   exact same "no entries, no defaults" value, so [`generate_distance_field_cache_entry`](crate::distance_field::generate_distance_field_cache_entry)
 ///   uses it directly rather than wrapping this field in an `Option` that
 ///   would only ever disagree with upstream's actual (always-present, just
 ///   possibly-empty) member.
 ///
-/// [`generate_distance_field_cache_entry`]: crate::generate_distance_field_cache_entry
+/// [`generate_distance_field_cache_entry`]: crate::distance_field::generate_distance_field_cache_entry
 pub struct DistanceFieldCacheEntry<'m> {
     /// `group_name_`.
     pub group_name: String,
@@ -337,7 +337,7 @@ pub struct DistanceFieldCacheEntry<'m> {
     /// such a link -- see `build_non_group_distance_field`'s own (module-
     /// private, `collision_env_distance_field.rs`) "Deviation from upstream"
     /// for the geometry-bearing-link precondition this inherits. `None` when
-    /// [`generate_distance_field_cache_entry`](crate::generate_distance_field_cache_entry)
+    /// [`generate_distance_field_cache_entry`](crate::distance_field::generate_distance_field_cache_entry)
     /// was called with `generate_distance_field: None`, matching upstream's
     /// null `distance_field_` in that case.
     pub distance_field: Option<PropagationDistanceField>,
@@ -349,13 +349,13 @@ pub struct DistanceFieldCacheEntry<'m> {
     pub link_has_geometry: Vec<bool>,
     /// `link_body_indices_`, one entry per [`DistanceFieldCacheEntry::link_names`]
     /// -- an index into the caller's link-body-decomposition table (see
-    /// [`crate::add_link_body_decompositions`]) for links with geometry, `0`
+    /// [`crate::distance_field::add_link_body_decompositions`]) for links with geometry, `0`
     /// (matching upstream's own placeholder) for links without.
     pub link_body_indices: Vec<usize>,
     /// `link_state_indices_`, one entry per [`DistanceFieldCacheEntry::link_names`].
     /// Upstream searches `state.getJointModelGroup(group_name)->getUpdatedLinkModels()`
     /// for the matching link and stores its position there; see
-    /// [`crate::generate_distance_field_cache_entry`]'s doc comment for why
+    /// [`crate::distance_field::generate_distance_field_cache_entry`]'s doc comment for why
     /// that search always lands on `link_state_indices[i] == i` and this
     /// port computes it directly instead of re-deriving it with a search
     /// that can never disagree.
@@ -370,7 +370,7 @@ pub struct DistanceFieldCacheEntry<'m> {
     /// doc comment for what this closes and why it exists as a field here
     /// rather than being re-derived from [`DistanceFieldCacheEntry::state`]
     /// the way upstream re-derives it from `state_`. Every attached body on
-    /// the `RobotState` [`crate::generate_distance_field_cache_entry`] was
+    /// the `RobotState` [`crate::distance_field::generate_distance_field_cache_entry`] was
     /// called with, regardless of group membership -- see this type's
     /// "Deviations from upstream" for how this differs from
     /// [`DistanceFieldCacheEntry::attached_body_names`].
@@ -394,9 +394,9 @@ pub struct DistanceFieldCacheEntry<'m> {
 /// (`collision_common_distance_field.hpp:56-103`): a [`DistanceFieldCacheEntry`]
 /// paired with one posed sphere decomposition and one small per-link
 /// [`PosedDistanceField`] per group link, plus a [`GradientInfo`] slot per
-/// link and attached body. Built by [`crate::group_state_representation`]
+/// link and attached body. Built by [`crate::distance_field::group_state_representation`]
 /// (upstream `getGroupStateRepresentation`), refreshed in place for a new
-/// pose by [`crate::update_group_state_representation_state`] (upstream
+/// pose by [`crate::distance_field::update_group_state_representation_state`] (upstream
 /// `updateGroupStateRepresentationState`).
 ///
 /// # Deviations from upstream
@@ -411,11 +411,11 @@ pub struct DistanceFieldCacheEntry<'m> {
 ///   [`DistanceFieldCacheEntry`] across multiple `GroupStateRepresentation`s
 ///   -- so this port borrows it instead (`&'a DistanceFieldCacheEntry<'m>`),
 ///   matching the same "no in-scope aliasing need" reasoning
-///   [`crate::PosedBodySphereDecompositionVector`]'s own doc comment already
+///   [`crate::distance_field::PosedBodySphereDecompositionVector`]'s own doc comment already
 ///   applies to its elements.
 /// - `attached_body_decompositions_`: as of round 22, populated by
-///   [`crate::group_state_representation`] via
-///   [`crate::attached_body_sphere_decomposition`] (ported
+///   [`crate::distance_field::group_state_representation`] via
+///   [`crate::distance_field::attached_body_sphere_decomposition`] (ported
 ///   `getAttachedBodySphereDecomposition`) -- one entry per
 ///   `dfce.attached_body_names`, distinct from [`AttachedBodySnapshot`],
 ///   which only identifies an attached body for cache invalidation, not its
@@ -425,7 +425,7 @@ pub struct DistanceFieldCacheEntry<'m> {
 ///   copying `link_distance_fields_` via `assign`) exists only to support the
 ///   "pregenerated" reuse path in `getGroupStateRepresentation`
 ///   (`dfce->pregenerated_group_state_representation_`), which this port
-///   proves unreachable -- see [`crate::group_state_representation`]'s own
+///   proves unreachable -- see [`crate::distance_field::group_state_representation`]'s own
 ///   doc comment -- so there is nothing here that needs that copy behaviour.
 pub struct GroupStateRepresentation<'a, 'm> {
     /// `dfce_`. See this type's "Deviations from upstream" for why this is
@@ -444,8 +444,8 @@ pub struct GroupStateRepresentation<'a, 'm> {
     pub link_distance_fields: Vec<Option<PosedDistanceField>>,
     /// `gradients_`, one entry per `dfce.link_names` followed by one per
     /// `dfce.attached_body_names`. Note: the attached-body slots are
-    /// allocated and kept in sync by [`crate::group_state_representation`]/
-    /// [`crate::update_group_state_representation_state`], but as of round
+    /// allocated and kept in sync by [`crate::distance_field::group_state_representation`]/
+    /// [`crate::distance_field::update_group_state_representation_state`], but as of round
     /// 22 are not yet written to by the collision-checking functions in
     /// `collision_env_distance_field.rs` -- see that module's doc comment
     /// for the known gap.
@@ -729,7 +729,7 @@ mod tests {
 
     #[test]
     fn collision_object_point_decomposition_poses_every_shape_by_its_global_pose() {
-        let mut world = cspace_collision::World::new();
+        let mut world = crate::World::new();
         let object_pose = Isometry3::from_parts(
             Translation3::new(1.0, 0.0, 0.0),
             nalgebra::UnitQuaternion::identity(),

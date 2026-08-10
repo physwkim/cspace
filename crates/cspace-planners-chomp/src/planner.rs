@@ -651,14 +651,14 @@ mod tests {
     use super::*;
     use crate::optimizer::ChompExit;
     use approx::assert_relative_eq;
+    use cspace_collision::distance_field::{
+        DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
+        PropagationDistanceField, add_link_body_decompositions,
+    };
     use cspace_core::geometry::Vector3;
     use cspace_core::model::MeshSearchPaths;
     use cspace_core::model::RobotModel;
     use cspace_core::srdf::SrdfModel;
-    use cspace_distance_field::{
-        DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
-        PropagationDistanceField, add_link_body_decompositions,
-    };
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 

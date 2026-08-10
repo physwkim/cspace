@@ -8,7 +8,7 @@
 
 //! [`HybridCollisionEnv`]: upstream `CollisionEnvHybrid`, which combines a
 //! general-purpose world-collision backend (upstream: FCL; this port:
-//! [`cspace_collision::ParryCollisionEnv`]) with a distance-field
+//! [`crate::ParryCollisionEnv`]) with a distance-field
 //! self-collision cache ([`DistanceFieldCollisionCache`], this crate's own
 //! `CollisionEnvDistanceField` port) behind one type.
 //!
@@ -67,7 +67,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use cspace_collision::{
+use crate::{
     Action, AllowedCollisionMatrix, AttachedBodyGeometry, CollisionEnv, CollisionRequest,
     CollisionResult, DistanceRequest, DistanceResult, LinkPaddingScale, MoveObjectOutcome,
     Notification, ParryCollisionEnv, World,
@@ -76,8 +76,8 @@ use cspace_core::error::{Error, Result};
 use cspace_core::state::Posed;
 use nalgebra::Vector3;
 
-use crate::collision_env_distance_field::LinkBodyDecompositions;
-use crate::{
+use crate::distance_field::collision_env_distance_field::LinkBodyDecompositions;
+use crate::distance_field::{
     DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GroupStateRepresentation,
     PropagationDistanceField, collision_object_point_decomposition,
 };
@@ -164,7 +164,7 @@ pub struct HybridCollisionEnv<'m> {
     /// [`Self::world`].
     env_field: PropagationDistanceField,
     /// The points last synced into `env_field` for each object id, keyed by
-    /// [`cspace_collision::World`] object id. Upstream
+    /// [`crate::World`] object id. Upstream
     /// `posed_body_point_decompositions_`, minus the intermediate
     /// `PosedBodyPointDecomposition` wrapper -- this port only ever needs
     /// the flat point list back out of it, never the wrapper's own methods.
@@ -293,13 +293,13 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// A previous round of this doc argued `env_field`'s predecessor
     /// (`build_env_distance_field`) had to rebuild from scratch every call
-    /// because [`cspace_collision::World`] "deliberately has no
+    /// because [`crate::World`] "deliberately has no
     /// observer/notify mechanism." That argument was measured false: `World`
     /// genuinely has no *callback* registration (that type's own module doc,
     /// deviation 4), but every mutator returns the
-    /// [`cspace_collision::Notification`] describing what changed instead of
+    /// [`crate::Notification`] describing what changed instead of
     /// pushing it to a registered observer, and
-    /// [`cspace_collision::World::all_objects_as_notifications`] exists
+    /// [`crate::World::all_objects_as_notifications`] exists
     /// specifically to replay every current object to a newly-attached
     /// consumer -- the return-value equivalent of upstream's
     /// `notifyObserverAllObjects`. [`Self::mutate_world`] is that consumer:
@@ -367,7 +367,7 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// ```no_run
     /// # use cspace_collision::{CollisionRequest, LinkPaddingScale, World};
-    /// # use cspace_distance_field::{DistanceFieldConfig, GridGeometry, HybridCollisionEnv, add_link_body_decompositions};
+    /// # use cspace_collision::distance_field::{DistanceFieldConfig, GridGeometry, HybridCollisionEnv, add_link_body_decompositions};
     /// # use cspace_core::model::{MeshSearchPaths, RobotModel};
     /// # use nalgebra::Vector3;
     /// # let urdf: urdf_rs::Robot =
@@ -404,7 +404,7 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// ```compile_fail,E0499
     /// # use cspace_collision::{CollisionRequest, LinkPaddingScale, World};
-    /// # use cspace_distance_field::{DistanceFieldConfig, GridGeometry, HybridCollisionEnv, add_link_body_decompositions};
+    /// # use cspace_collision::distance_field::{DistanceFieldConfig, GridGeometry, HybridCollisionEnv, add_link_body_decompositions};
     /// # use cspace_core::model::{MeshSearchPaths, RobotModel};
     /// # use nalgebra::Vector3;
     /// # let urdf: urdf_rs::Robot =
@@ -762,7 +762,7 @@ mod tests {
     use nalgebra::Vector3;
 
     use super::*;
-    use crate::{GridGeometry, add_link_body_decompositions};
+    use crate::distance_field::{GridGeometry, add_link_body_decompositions};
 
     /// A two-link robot, `mid` and `tip`, both 0.1 cubes, joined by a
     /// revolute joint whose origin places `tip`'s box `gap` away from
@@ -837,7 +837,7 @@ mod tests {
     /// [`two_link_gap_model`]): [`ParryCollisionEnv`]'s self-check does
     /// exact cuboid-cuboid intersection, so it must report clear.
     /// [`DistanceFieldCollisionCache::check_self_collision`]'s underlying
-    /// [`get_collision_sphere_collisions`](crate::collision_distance_field_types::get_collision_sphere_collisions)
+    /// [`get_collision_sphere_collisions`](crate::distance_field::collision_distance_field_types::get_collision_sphere_collisions)
     /// flags a sphere as colliding when `sphere.radius - result.distance >
     /// collision_tolerance`; a *negative* `collision_tolerance` therefore
     /// flags a near miss up to `|collision_tolerance|` away as a collision

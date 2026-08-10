@@ -68,12 +68,12 @@ use std::sync::Arc;
 use approx::assert_relative_eq;
 use serde::Deserialize;
 
-use cspace_core::geometry::{Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere};
-use cspace_core::test_support::isometry_from_row_major;
-use cspace_distance_field::BodyDecomposition;
-use cspace_distance_field::{
+use cspace_collision::distance_field::BodyDecomposition;
+use cspace_collision::distance_field::{
     CollisionType, DistanceField, GradientInfo, PosedDistanceField, SphereGradientQuery,
 };
+use cspace_core::geometry::{Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere};
+use cspace_core::test_support::isometry_from_row_major;
 use nalgebra::{Point3, Vector3};
 
 /// Measured-margin tolerance (~4 orders above the bisected binding point,
@@ -195,7 +195,10 @@ struct OracleResponse {
 
 fn read_fixture(name: &str) -> String {
     let path = format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/distance_field/{}"
+        ),
         name
     );
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))

@@ -121,19 +121,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cspace-distance-field"
-version = "0.1.0"
-dependencies = [
- "approx",
- "cspace-collision",
- "cspace-core",
- "nalgebra",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
 name = "cspace-planner-registry"
 version = "0.1.0"
 dependencies = [
@@ -151,7 +138,6 @@ dependencies = [
  "cspace-collision",
  "cspace-constraints",
  "cspace-core",
- "cspace-distance-field",
  "cspace-planners-sbp",
  "cspace-scene",
  "nalgebra",

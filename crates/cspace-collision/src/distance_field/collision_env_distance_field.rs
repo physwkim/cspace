@@ -12,7 +12,7 @@
 //! collision geometry, unposed, ready for a `RobotState` to pose later;
 //! [`generate_distance_field_cache_entry`] (upstream
 //! `generateDistanceFieldCacheEntry`), which builds a
-//! [`crate::DistanceFieldCacheEntry`] for one group;
+//! [`crate::distance_field::DistanceFieldCacheEntry`] for one group;
 //! [`DistanceFieldCollisionCache`], the persistent cache-owner
 //! [`DistanceFieldCollisionCache::generate_collision_checking_structures`]
 //! (upstream `generateCollisionCheckingStructures`) needs; and that same
@@ -32,7 +32,7 @@
 //! [`cspace_core::model::JointModelGroup::updated_link_with_geometry_names`] now
 //! exist, oracle-verified -- which unblocks
 //! [`generate_distance_field_cache_entry`] and the
-//! [`crate::DistanceFieldCacheEntry`] struct itself (in
+//! [`crate::distance_field::DistanceFieldCacheEntry`] struct itself (in
 //! `collision_common_distance_field.rs`; see its module doc for the type).
 //!
 //! This round additionally lands [`compare_cache_entry_to_state`]/
@@ -41,7 +41,7 @@
 //! a previous round grouped these with `getDistanceFieldCacheEntry` as all
 //! alike blocked on the not-ported `CollisionEnvDistanceField` cache member,
 //! but neither actually touches it -- both take only a
-//! [`crate::DistanceFieldCacheEntry`] (already ported) plus a `RobotState`/
+//! [`crate::distance_field::DistanceFieldCacheEntry`] (already ported) plus a `RobotState`/
 //! `AllowedCollisionMatrix` (already available), so both are free functions
 //! here rather than methods needing that type's cache field or
 //! construction-time state. `p1-fixtures` has since landed
@@ -56,7 +56,7 @@
 //! **Stale as of a later round, corrected here:** the paragraph above used
 //! to end by claiming upstream's attached-body comparison stays "vacuously
 //! true" in this port, since a bare `RobotState` has no attached bodies to
-//! compare. That was true only as long as [`crate::DistanceFieldCacheEntry`]'s
+//! compare. That was true only as long as [`crate::distance_field::DistanceFieldCacheEntry`]'s
 //! own attached-body fields stayed permanently empty. They no longer do:
 //! [`compare_cache_entry_to_state`]'s own signature grew a
 //! `current_attached_bodies: &[AttachedBodyGeometry<'_>]` parameter (see its
@@ -336,7 +336,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use cspace_collision::{
+use crate::{
     AllowedCollisionMatrix, AllowedCollisionType, AttachedBodyGeometry, BodyType, CollisionRequest,
     CollisionResult, Contact, ContactData, LinkPaddingScale,
 };
@@ -346,23 +346,23 @@ use cspace_core::model::RobotModel;
 use cspace_core::state::Posed;
 use nalgebra::Vector3;
 
-use crate::collision_common_distance_field::{
+use crate::distance_field::collision_common_distance_field::{
     AttachedBodySnapshot, DistanceFieldCacheEntry, GroupStateRepresentation,
     attached_body_point_decomposition, attached_body_sphere_decomposition,
 };
-use crate::collision_distance_field_types::{
+use crate::distance_field::collision_distance_field_types::{
     BodyDecomposition, CollisionSphere, CollisionType, GradientInfo, PosedBodyPointDecomposition,
     PosedBodySphereDecomposition, PosedDistanceField, SphereGradientQuery,
     do_bounding_spheres_intersect, get_collision_sphere_collision, get_collision_sphere_collisions,
     get_collision_sphere_gradients,
 };
-use crate::{DistanceField, GridGeometry, PropagationDistanceField};
+use crate::distance_field::{DistanceField, GridGeometry, PropagationDistanceField};
 
 /// Upstream's `link_body_decomposition_vector_` paired with
 /// `link_body_decomposition_index_map_`: every link's [`BodyDecomposition`],
 /// in `RobotModel::link_models()` order, and a name-to-index lookup into it.
 ///
-/// `pub(crate)`, not private: [`crate::HybridCollisionEnv::new`] takes this
+/// `pub(crate)`, not private: [`crate::distance_field::HybridCollisionEnv::new`] takes this
 /// same type as a constructor parameter, matching upstream
 /// `CollisionEnvHybrid`'s constructor, which takes the identical
 /// `link_body_decompositions` map upstream `CollisionEnvDistanceField`'s own
@@ -373,7 +373,7 @@ pub(crate) type LinkBodyDecompositions = (Vec<Arc<BodyDecomposition>>, HashMap<S
 /// overloads (see this module's doc comment for why they are one function
 /// here). Builds one [`BodyDecomposition`] per link in `robot_model` that
 /// has collision geometry, from *all* of that link's shapes together (not
-/// per-shape, unlike [`crate::get_body_decomposition_cache_entry`]), padded
+/// per-shape, unlike [`crate::distance_field::get_body_decomposition_cache_entry`]), padded
 /// per [`LinkPaddingScale::link_padding`] (`0.0` for an untracked link,
 /// matching upstream's `getLinkPadding` default) rather than
 /// [`BodyDecomposition::DEFAULT_PADDING`].
@@ -1418,7 +1418,7 @@ impl<'m> DistanceFieldCollisionCache<'m> {
     /// `distance_field_cache_entry_world_->distance_field_` -- a `World`-
     /// sourced field this crate does not own (see this module's doc
     /// comment). `env_distance_field` below is an explicit caller-supplied
-    /// parameter instead, the same way [`crate::PropagationDistanceField`]
+    /// parameter instead, the same way [`crate::distance_field::PropagationDistanceField`]
     /// is threaded through this crate wherever upstream reads it off a
     /// `World` this port has no type for.
     ///
@@ -1477,7 +1477,7 @@ impl<'m> DistanceFieldCollisionCache<'m> {
     /// upstream itself stubs both to `RCLCPP_ERROR(logger_, "Continuous
     /// collision checking not implemented")` and returns without checking
     /// anything, matching
-    /// `cspace_collision::CollisionEnv::check_robot_collision_continuous`'s
+    /// `crate::CollisionEnv::check_robot_collision_continuous`'s
     /// `Err`-returning convention rather than silently reporting "no
     /// collision" for a query that was never actually run.
     ///
@@ -2378,8 +2378,14 @@ mod tests {
     use super::*;
 
     fn pr2_model() -> RobotModel {
-        let urdf_path = format!("{}/tests/fixtures/pr2.urdf", env!("CARGO_MANIFEST_DIR"));
-        let srdf_path = format!("{}/tests/fixtures/pr2.srdf", env!("CARGO_MANIFEST_DIR"));
+        let urdf_path = format!(
+            "{}/tests/fixtures/distance_field/pr2.urdf",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let srdf_path = format!(
+            "{}/tests/fixtures/distance_field/pr2.srdf",
+            env!("CARGO_MANIFEST_DIR")
+        );
         let urdf_xml =
             std::fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
         let urdf = urdf_rs::read_file(&urdf_path).expect("pr2.urdf must parse");
@@ -2450,7 +2456,10 @@ mod tests {
     }
 
     fn pr2_srdf() -> cspace_core::srdf::SrdfModel {
-        let srdf_path = format!("{}/tests/fixtures/pr2.srdf", env!("CARGO_MANIFEST_DIR"));
+        let srdf_path = format!(
+            "{}/tests/fixtures/distance_field/pr2.srdf",
+            env!("CARGO_MANIFEST_DIR")
+        );
         cspace_core::srdf::SrdfModel::parse_file(&srdf_path).expect("pr2.srdf must parse")
     }
 
@@ -4951,7 +4960,7 @@ mod tests {
     /// port never stores `env_distance_field` as a struct field anywhere
     /// (see [`DistanceFieldCollisionCache::check_collision`]'s own doc: it
     /// is threaded through as an explicit `&dyn DistanceField` parameter on
-    /// every call, "the same way [`crate::PropagationDistanceField`] is
+    /// every call, "the same way [`crate::distance_field::PropagationDistanceField`] is
     /// threaded through this crate wherever upstream reads it off a `World`
     /// this port has no type for"), so [`DistanceFieldCollisionCache`]'s own
     /// cache-key comparison (`get_distance_field_cache_entry`) never

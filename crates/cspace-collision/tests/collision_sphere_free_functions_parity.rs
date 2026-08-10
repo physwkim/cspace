@@ -94,7 +94,7 @@ use std::fs;
 
 use serde::Deserialize;
 
-use cspace_distance_field::{
+use cspace_collision::distance_field::{
     CollisionSphere, CollisionType, DistanceField, GradientInfo, GridGeometry,
     PropagationDistanceField, SphereGradientQuery, get_collision_sphere_collision,
     get_collision_sphere_collisions, get_collision_sphere_gradients,
@@ -158,7 +158,10 @@ struct OracleResponse {
 
 fn read_fixture(name: &str) -> String {
     let path = format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/distance_field/{}"
+        ),
         name
     );
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))

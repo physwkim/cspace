@@ -24,7 +24,7 @@
 //!   is enabled at construction; positive distances are identical either
 //!   way.
 
-use cspace_distance_field::{DistanceField, GridGeometry, PropagationDistanceField};
+use cspace_collision::distance_field::{DistanceField, GridGeometry, PropagationDistanceField};
 use nalgebra::Vector3;
 
 const WIDTH: f64 = 1.0;

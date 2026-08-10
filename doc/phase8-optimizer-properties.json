@@ -15,7 +15,7 @@
     "crates/cspace-planners-chomp/src": "7609424aa25b99152bfab3c50c30b348b66b0648d3b550919aed133d0aa475ad",
     "crates/cspace-planners-stomp/src": "d1c5de6602a3e6be6f6c707e14358ad7c1cee99bff89c1ba44b8d1a600e7b28b",
     "crates/cspace-stomp-core/src": "b4ebb9d2c9490b712d884e7d8c0c013e9a92668f17a79fdafc89de125063a5b7",
-    "crates/cspace-distance-field/src": "fe4460dfa905bc99a76b6541f90ec73801f7fa1cf36ad5739b6146c17c40ced8",
+    "crates/cspace-collision/src/distance_field": "fe4460dfa905bc99a76b6541f90ec73801f7fa1cf36ad5739b6146c17c40ced8",
     "crates/cspace-collision/src": "569becc81f1e0306f22d4be9a7ec764b908f491d9a8dc9f22b2a5282af428048",
     "crates/cspace-scene/src": "d42384487c0f9bb9d25807b88112db07df1e3f919f3e32070a754e00eeaa3c5e",
     "crates/cspace-constraints/src": "f5f24960d997dadebacf6dce574e92e7ce4c2601020ac2cc1e8ca2d746ee093f",

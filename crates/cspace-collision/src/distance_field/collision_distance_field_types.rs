@@ -75,10 +75,10 @@ use cspace_core::geometry::{BoundingSphere, Isometry3, Shape};
 use cspace_core::octomap::OcTree;
 use nalgebra::{Point3, Vector3};
 
-use crate::distance_field::{DistanceField, DistanceGradient};
-use crate::find_internal_points::find_internal_points_convex;
-use crate::propagation::PropagationDistanceField;
-use crate::voxel_grid::GridGeometry;
+use crate::distance_field::field::{DistanceField, DistanceGradient};
+use crate::distance_field::find_internal_points::find_internal_points_convex;
+use crate::distance_field::propagation::PropagationDistanceField;
+use crate::distance_field::voxel_grid::GridGeometry;
 
 /// Apply `pose` to `v` as if `v` were a point: `pose.rotation * v +
 /// pose.translation`.
@@ -754,11 +754,11 @@ impl BodyDecomposition {
     /// # Errors
     ///
     /// [`cspace_core::error::Error::Construct`] if `resolution` is not finite and
-    /// positive -- [`crate::find_internal_points_convex`] (called once per
+    /// positive -- [`crate::distance_field::find_internal_points_convex`] (called once per
     /// `shapes` entry, below) divides by it three times
     /// (`find_internal_points.rs`) with no guard of its own, faithfully
     /// matching upstream's own unguarded `findInternalPointsConvex`
-    /// (`find_internal_points.cpp`). [`crate::voxel_grid::GridGeometry::new`]
+    /// (`find_internal_points.cpp`). [`crate::distance_field::voxel_grid::GridGeometry::new`]
     /// already validates this exact same class of value on the sibling path
     /// into a distance field's own construction (see that method's doc
     /// comment: "validating what `VoxelGrid`/`PropagationDistanceField`'s

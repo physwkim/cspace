@@ -239,7 +239,7 @@
 //!
 //! **Argued-only-claim sweep (round 19): 0 found, with the anchor and
 //! method so "0" does not have to be re-derived from scratch next round.**
-//! Anchor: every `.rs` file under `crates/cspace-distance-field/`
+//! Anchor: every `.rs` file under `crates/cspace-collision/`
 //! (`src/*.rs` and `tests/*.rs`), grepped case-insensitively for hedge and
 //! open-question language in both English and Korean —
 //! `unverified|not verified|presumably|likely|assumed|assume[ds]?|no
@@ -301,7 +301,7 @@
 //! deliberately unported. One bullet per name below, so a re-count can diff
 //! against this list directly rather than this section's prose summary of
 //! it — `awk '/## `distance_field.hpp` \(by name\)/,/## `collision_distance_field_types.hpp` \(by name\)/'
-//! crates/cspace-distance-field/src/lib.rs | rg -c '^//! - '` gives **42**
+//! crates/cspace-collision/src/distance_field/lib.rs | rg -c '^//! - '` gives **42**
 //! (= 32 + 2 + 8), heading-anchored so the command stays correct across
 //! future edits instead of hardcoding line numbers that would drift:
 //! ## `distance_field.hpp` (by name)
@@ -376,7 +376,7 @@
 //! `collision_distance_field_types.rs`'s `pub fn` list (`grep -n
 //! "pub fn "`). One bullet per name below; `awk '/## `collision_distance_field_types.hpp`
 //! \(by name\)/,/## The `max_relative` trap/'
-//! crates/cspace-distance-field/src/lib.rs | rg -c '^//! - '` gives **53**
+//! crates/cspace-collision/src/distance_field/lib.rs | rg -c '^//! - '` gives **53**
 //! (= 34 + 11 + 5 + 3), heading-anchored for the same reason as above:
 //!
 //! ## `collision_distance_field_types.hpp` (by name)
@@ -488,7 +488,7 @@
 //!
 //! ```text
 //! perl tools/ci/count-relative-eq.pl \
-//!   $(find crates/cspace-distance-field -name '*.rs' | sort)
+//!   $(find crates/cspace-collision -name '*.rs' | sort)
 //! both=45 epsilon_only=3 max_relative_only=0 neither=0
 //! ```
 //!
@@ -1113,7 +1113,7 @@ mod collision_common_distance_field;
 mod collision_distance_field_types;
 mod collision_env_distance_field;
 mod collision_env_hybrid;
-mod distance_field;
+mod field;
 mod find_internal_points;
 mod propagation;
 mod voxel_grid;
@@ -1137,7 +1137,7 @@ pub use collision_env_distance_field::{
     group_state_representation, update_group_state_representation_state,
 };
 pub use collision_env_hybrid::HybridCollisionEnv;
-pub use distance_field::{DistanceField, DistanceGradient};
+pub use field::{DistanceField, DistanceGradient};
 pub use find_internal_points::{ConvexBody, find_internal_points_convex};
 pub use propagation::{NearestCell, PropDistanceFieldVoxel, PropagationDistanceField};
 pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};

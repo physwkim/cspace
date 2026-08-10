@@ -88,6 +88,8 @@
 //! The `bodies::` posed-geometry layer is likewise owned by other workers and
 //! out of scope for [`World`] — see `world`'s module docs.
 
+pub mod distance_field;
+
 mod all_valid;
 mod common;
 mod env;
