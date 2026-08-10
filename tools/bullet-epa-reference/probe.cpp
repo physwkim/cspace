@@ -388,6 +388,89 @@ static void compound(const char* name, const btCompoundShape* c, const btTransfo
 	printf("\n");
 }
 
+// `btDefaultCollisionConfiguration`'s two create-func tables, as a matrix.
+//
+// The tables are chains of `if`s over the proxy types
+// (`btDefaultCollisionConfiguration.cpp:193-266` for closest points,
+// `:267-343` for contact points), and every entry returns one of thirteen
+// create-func members. Those members are `protected`, so a row cannot print
+// the name directly; instead ANCHORS below fixes one pair per create-func by
+// reading the table top-down, and every other pair is then labelled by
+// pointer identity against those anchors. A pointer that matches no anchor
+// prints `??`, which is a failure of this labelling and not a Bullet result.
+struct Anchor
+{
+	int t0;
+	int t1;
+	const char* code;
+};
+
+static const Anchor ANCHORS[] = {
+    {SPHERE_SHAPE_PROXYTYPE, SPHERE_SHAPE_PROXYTYPE, "ss"},
+    {SPHERE_SHAPE_PROXYTYPE, TRIANGLE_SHAPE_PROXYTYPE, "st"},
+    {TRIANGLE_SHAPE_PROXYTYPE, SPHERE_SHAPE_PROXYTYPE, "ts"},
+    {BOX_SHAPE_PROXYTYPE, STATIC_PLANE_PROXYTYPE, "cp"},
+    {STATIC_PLANE_PROXYTYPE, BOX_SHAPE_PROXYTYPE, "pc"},
+    {BOX_SHAPE_PROXYTYPE, SPHERE_SHAPE_PROXYTYPE, "cx"},
+    {BOX_SHAPE_PROXYTYPE, TRIANGLE_MESH_SHAPE_PROXYTYPE, "cv"},
+    {TRIANGLE_MESH_SHAPE_PROXYTYPE, BOX_SHAPE_PROXYTYPE, "vc"},
+    {COMPOUND_SHAPE_PROXYTYPE, COMPOUND_SHAPE_PROXYTYPE, "kk"},
+    {COMPOUND_SHAPE_PROXYTYPE, BOX_SHAPE_PROXYTYPE, "kx"},
+    {BOX_SHAPE_PROXYTYPE, COMPOUND_SHAPE_PROXYTYPE, "xk"},
+    {TRIANGLE_MESH_SHAPE_PROXYTYPE, TRIANGLE_MESH_SHAPE_PROXYTYPE, "--"},
+};
+
+// The box-box entry exists only in the contact-point table, so its anchor is
+// resolved there and reused as a label when scanning the closest-points one.
+static const Anchor BOX_BOX_ANCHOR = {BOX_SHAPE_PROXYTYPE, BOX_SHAPE_PROXYTYPE, "bb"};
+
+static const int DISPATCH_TYPES[] = {
+    BOX_SHAPE_PROXYTYPE,       TRIANGLE_SHAPE_PROXYTYPE, CONVEX_HULL_SHAPE_PROXYTYPE,
+    SPHERE_SHAPE_PROXYTYPE,    CONE_SHAPE_PROXYTYPE,     CYLINDER_SHAPE_PROXYTYPE,
+    CUSTOM_CONVEX_SHAPE_TYPE,  TRIANGLE_MESH_SHAPE_PROXYTYPE, STATIC_PLANE_PROXYTYPE,
+    EMPTY_SHAPE_PROXYTYPE,     COMPOUND_SHAPE_PROXYTYPE};
+static const int NUM_DISPATCH_TYPES = 11;
+
+static void dispatch_table(btDefaultCollisionConfiguration& config, bool closest, const char* tag)
+{
+	btCollisionAlgorithmCreateFunc* known[16];
+	const char* codes[16];
+	int num_known = 0;
+
+	for (int i = 0; i < 12; ++i)
+	{
+		known[num_known] = closest ? config.getClosestPointsAlgorithmCreateFunc(ANCHORS[i].t0, ANCHORS[i].t1)
+		                           : config.getCollisionAlgorithmCreateFunc(ANCHORS[i].t0, ANCHORS[i].t1);
+		codes[num_known] = ANCHORS[i].code;
+		++num_known;
+	}
+	known[num_known] = config.getCollisionAlgorithmCreateFunc(BOX_BOX_ANCHOR.t0, BOX_BOX_ANCHOR.t1);
+	codes[num_known] = BOX_BOX_ANCHOR.code;
+	++num_known;
+
+	for (int a = 0; a < NUM_DISPATCH_TYPES; ++a)
+	{
+		printf("dispatch_%s_%d", tag, DISPATCH_TYPES[a]);
+		for (int b = 0; b < NUM_DISPATCH_TYPES; ++b)
+		{
+			btCollisionAlgorithmCreateFunc* got =
+			    closest ? config.getClosestPointsAlgorithmCreateFunc(DISPATCH_TYPES[a], DISPATCH_TYPES[b])
+			            : config.getCollisionAlgorithmCreateFunc(DISPATCH_TYPES[a], DISPATCH_TYPES[b]);
+			const char* code = "??";
+			for (int k = 0; k < num_known; ++k)
+			{
+				if (known[k] == got)
+				{
+					code = codes[k];
+					break;
+				}
+			}
+			printf("|%s", code);
+		}
+		printf("\n");
+	}
+}
+
 int main()
 {
 	const btTransform id = at(0, 0, 0);
@@ -632,6 +715,14 @@ int main()
 		btCompoundShape line(true, 4);
 		for (int i = 0; i < 4; ++i) line.addChildShape(at(btScalar(i) * 2.f, 0.f, 0.f), &unit_box);
 		compound("comp_line4", &line, id);
+	}
+
+	// The two create-func tables. Fields:
+	// `dispatch_<table>_<type0>|code(type0, t)` for each `t` in the type list.
+	{
+		btDefaultCollisionConfiguration dispatch_config;
+		dispatch_table(dispatch_config, true, "closest");
+		dispatch_table(dispatch_config, false, "contact");
 	}
 
 	// `BroadphaseNativeTypes`. Fields: `name|value|isConvex|isConcave|isCompound`.

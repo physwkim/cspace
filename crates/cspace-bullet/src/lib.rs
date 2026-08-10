@@ -71,6 +71,7 @@ pub mod compound;
 pub mod convex_convex;
 pub mod dbvt;
 pub mod discrete_detector;
+pub mod dispatch;
 pub mod epa;
 pub mod gjk;
 pub mod linear_math;
