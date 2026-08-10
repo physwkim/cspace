@@ -89,7 +89,7 @@ pub struct CastContact {
 /// `cast_world_transform` is `first_col_obj_wrap->getWorldTransform()` (`:472`)
 /// -- the *cast* object's world transform, which is `tf1`, the first of the two
 /// poses. The second pose is not passed in because it is not stored anywhere:
-/// it exists only as `cast_shape.shape_transform`, the delta.
+/// it exists only as `cast_shape.shape_transform()`, the delta.
 ///
 /// # Two writes upstream makes that do not reach the result
 ///
@@ -124,7 +124,7 @@ pub fn cast_single_result(
         if cast_shape_is_first { -1.0 } else { 1.0 } * point.normal_world_on_b;
 
     let tf_world0 = cast_world_transform;
-    let tf_world1 = cast_world_transform * cast_shape.shape_transform;
+    let tf_world1 = cast_world_transform * cast_shape.shape_transform();
 
     // `normal_world_from_cast * tf_worldN.getBasis()` -- `btVector3 *
     // btMatrix3x3` is the transpose product (`btMatrix3x3.h:1275-1280`), i.e.

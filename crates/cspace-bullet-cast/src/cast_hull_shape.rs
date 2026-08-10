@@ -39,6 +39,7 @@
 //! arbitrary corner would make that fraction depend on the simplex's history
 //! rather than on the motion.
 
+use std::cell::Cell;
 use std::sync::Arc;
 
 use cspace_bullet::broadphase_proxy::BroadphaseNativeType;
@@ -118,7 +119,16 @@ pub struct CastHullShape {
     /// `tf1.inverseTimes(tf2)` and leaves the object's own world transform at
     /// `tf1`, so this is the delta the second placement sits at *relative to
     /// the first*.
-    pub shape_transform: Transform,
+    ///
+    /// In a [`Cell`] because upstream writes it through an alias: the compound
+    /// holds the `CastHullShape*` as a child while
+    /// `setCastCollisionObjectsTransform` reaches the same object by
+    /// `static_cast` and calls `updateCastTransform` on it
+    /// (`bullet_cast_bvh_manager.cpp:101`). Sharing the shape and mutating one
+    /// field through the share is exactly what a `Cell` is; the alternative --
+    /// storing the delta a second time beside the compound -- gives the same
+    /// value two homes that can disagree.
+    shape_transform: Cell<Transform>,
 }
 
 impl CastHullShape {
@@ -127,8 +137,14 @@ impl CastHullShape {
     pub fn new(shape: ArcConvexShape, t01: Transform) -> Self {
         Self {
             shape,
-            shape_transform: t01,
+            shape_transform: Cell::new(t01),
         }
+    }
+
+    /// `shape_transform`, read.
+    #[must_use]
+    pub fn shape_transform(&self) -> Transform {
+        self.shape_transform.get()
     }
 
     /// `updateCastTransform` (`bullet_utils.hpp:254-257`).
@@ -136,8 +152,12 @@ impl CastHullShape {
     /// The cast object is built once with an identity delta and re-pointed at
     /// each new pose pair through here; that is why the delta is mutable state
     /// on the shape rather than an argument to the query.
-    pub fn update_cast_transform(&mut self, cast_transform: Transform) {
-        self.shape_transform = cast_transform;
+    /// Takes `&self`, not `&mut self`: by the time the manager re-poses a cast
+    /// object the shape is already a compound's child, so the only handle onto
+    /// it is a shared one -- as it is upstream, where the compound's
+    /// `btCollisionShape*` and the manager's `static_cast` name one object.
+    pub fn update_cast_transform(&self, cast_transform: Transform) {
+        self.shape_transform.set(cast_transform);
     }
 }
 
@@ -160,9 +180,9 @@ impl ConvexShape for CastHullShape {
     /// the state a stationary link stays in.
     fn local_get_supporting_vertex(&self, vec: Vec3) -> Vec3 {
         let support_vector_0 = self.shape.local_get_supporting_vertex(vec);
-        let support_vector_1 = self.shape_transform.transform_point(
+        let support_vector_1 = self.shape_transform().transform_point(
             self.shape
-                .local_get_supporting_vertex(self.shape_transform.basis.transposed_mul_vec(vec)),
+                .local_get_supporting_vertex(self.shape_transform().basis.transposed_mul_vec(vec)),
         );
         if vec.dot(support_vector_0) > vec.dot(support_vector_1) {
             support_vector_0
@@ -200,7 +220,7 @@ impl ConvexShape for CastHullShape {
     /// body those differ, and the looser one is what the broadphase gets.
     fn get_aabb(&self, t: &Transform) -> (Vec3, Vec3) {
         let (mut aabb_min, mut aabb_max) = self.shape.get_aabb(t);
-        let (min1, max1) = self.shape.get_aabb(&(*t * self.shape_transform));
+        let (min1, max1) = self.shape.get_aabb(&(*t * self.shape_transform()));
 
         // `btVector3::setMin`/`setMax`, which are `btSetMin`/`btSetMax` per
         // component (`btMinMax.h:26-38`): `if (b < a) a = b`, not `a.min(b)`.
