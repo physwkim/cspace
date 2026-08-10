@@ -24,9 +24,8 @@
 //! 0.7.0. §283.7 measured what the distinction costs -- `gjk_libccd-inl.h` is
 //! 95 lines apart between the two revisions.
 //!
-//! fcl headers are cited by basename, the spelling
-//! `tools/ci/upstream-citation-exemptions.json` declares them under; their
-//! directories, all under `include/fcl`, are
+//! fcl headers are cited by basename; their directories, all under
+//! `include/fcl`, are
 //! `narrowphase/detail/gjk_solver_libccd-inl.h`,
 //! `narrowphase/collision_request.h` and
 //! `narrowphase/detail/primitive_shape_algorithm/{sphere_sphere,sphere_box,sphere_cylinder,box_box}-inl.h`.

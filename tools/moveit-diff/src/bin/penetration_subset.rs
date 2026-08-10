@@ -29,9 +29,8 @@
 //! `-CCD_ONE` return is `:2256` at the tag and `:2351` at HEAD. Both were
 //! checked against the image's own `/usr/include/fcl` with `cmp`, not assumed.
 //!
-//! fcl headers are cited by basename, the spelling
-//! `tools/ci/upstream-citation-exemptions.json` declares them under; their
-//! directories, all under `include/fcl`, are:
+//! fcl headers are cited by basename; their directories, all under
+//! `include/fcl`, are:
 //! `narrowphase/distance_request-inl.h`,
 //! `narrowphase/collision_request.h`,
 //! `narrowphase/detail/distance_func_matrix-inl.h`,
