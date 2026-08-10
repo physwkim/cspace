@@ -209,12 +209,15 @@ use std::sync::Arc;
 
 use cspace_collision::{AllowedCollisionMatrix, CollisionRequest, LinkPaddingScale};
 use cspace_collision::{ParryCollisionEnv, World};
+use cspace_core::geometry::{Cuboid, Isometry3, Shape, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
+use cspace_core::test_support::isometry_from_row_major;
 use cspace_distance_field::{
     DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
     PropagationDistanceField, add_link_body_decompositions,
 };
-use cspace_geometry::{Cuboid, Isometry3, Shape, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
 use cspace_planners_chomp::optimizer::ChompCollisionContext;
 use cspace_planners_chomp::{
     ChompExit, ChompGoal, ChompLoopTrace, ChompObjective, ChompObjectiveProgress, ChompParameters,
@@ -222,9 +225,6 @@ use cspace_planners_chomp::{
 };
 use cspace_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
-use cspace_test_support::isometry_from_row_major;
 use nalgebra::DMatrix;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;

@@ -156,7 +156,7 @@
 //!
 //! **Resolution**: [`planner::plan`] returns an
 //! [`conversion_functions::UnparameterizedTrajectory`], never a
-//! [`cspace_trajectory::RobotTrajectory`] directly. The only way to obtain
+//! [`cspace_core::trajectory::RobotTrajectory`] directly. The only way to obtain
 //! a real, timed `RobotTrajectory` -- the type
 //! `cspace_planning::response::PlanningResponse::trajectory` actually
 //! requires, confirmed by reading that field's type directly rather than
@@ -187,7 +187,7 @@
 //! `moveit_planners/chomp/chomp_motion_planner/`'s own
 //! `MultivariateGaussian` (a future round's `cspace-planners-chomp`) is the
 //! same algorithm in a separately maintained file, diffed directly against
-//! this one this round -- see `cspace_sampling::multivariate_gaussian`'s
+//! this one this round -- see `cspace_core::sampling::multivariate_gaussian`'s
 //! module doc for the full comparison. Rather than have one planner crate
 //! depend on the other, both depend on the `cspace-sampling` crate instead.
 //!
@@ -208,7 +208,7 @@
 //! float comparison. Nothing to classify, nothing to bisect, no tolerance
 //! floor to re-measure.
 
-use cspace_error::{Error, Result};
+use cspace_core::error::{Error, Result};
 
 pub mod composable_task;
 pub mod conversion_functions;

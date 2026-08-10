@@ -69,10 +69,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use cspace_error::{Error, Result};
-use cspace_geometry::bodies::{Body, merge_bounding_spheres};
-use cspace_geometry::{BoundingSphere, Isometry3, Shape};
-use cspace_octomap::OcTree;
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::bodies::{Body, merge_bounding_spheres};
+use cspace_core::geometry::{BoundingSphere, Isometry3, Shape};
+use cspace_core::octomap::OcTree;
 use nalgebra::{Point3, Vector3};
 
 use crate::distance_field::{DistanceField, DistanceGradient};
@@ -688,7 +688,7 @@ pub fn get_collision_sphere_collisions(
 ///
 /// Upstream's `bodies::BodyVector` member is a thin
 /// `Vec<Body>`-plus-first-hit-query wrapper this workspace already declined
-/// to port (see `cspace_geometry::bodies`'s module doc); `BodyDecomposition`
+/// to port (see `cspace_core::geometry::bodies`'s module doc); `BodyDecomposition`
 /// itself never uses the query, only iteration and count, so this port
 /// holds a plain `Vec<Body>` directly.
 ///
@@ -753,7 +753,7 @@ impl BodyDecomposition {
     ///
     /// # Errors
     ///
-    /// [`cspace_error::Error::Construct`] if `resolution` is not finite and
+    /// [`cspace_core::error::Error::Construct`] if `resolution` is not finite and
     /// positive -- [`crate::find_internal_points_convex`] (called once per
     /// `shapes` entry, below) divides by it three times
     /// (`find_internal_points.rs`) with no guard of its own, faithfully
@@ -769,8 +769,8 @@ impl BodyDecomposition {
     /// in practice, not a difference from upstream (upstream validates
     /// neither path).
     ///
-    /// [`cspace_error::Error::Construct`] if any of `shapes` has no
-    /// `bodies::` counterpart -- see [`cspace_geometry::bodies::Body::from_shape`].
+    /// [`cspace_core::error::Error::Construct`] if any of `shapes` has no
+    /// `bodies::` counterpart -- see [`cspace_core::geometry::bodies::Body::from_shape`].
     ///
     /// `shapes` and `poses` must be the same length; a length mismatch
     /// panics via the `zip`-then-indexing below, matching upstream's own
@@ -1281,7 +1281,7 @@ mod tests {
     use nalgebra::{Translation3, UnitQuaternion};
 
     use super::*;
-    use cspace_geometry::{Cuboid, Cylinder, Sphere};
+    use cspace_core::geometry::{Cuboid, Cylinder, Sphere};
 
     fn sphere_body(radius: f64, translation: Vector3<f64>) -> Body {
         let mut body = Body::from_shape(&Shape::Sphere(Sphere::new(radius).unwrap()))

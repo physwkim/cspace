@@ -23,7 +23,7 @@ use nalgebra::Point3;
 
 use crate::common::CollisionResult;
 use crate::world::Object;
-use cspace_geometry::{Shape, Vector3};
+use cspace_core::geometry::{Shape, Vector3};
 
 /// Upstream `refineContactNormals`. Walks every contact already recorded in
 /// `result` whose pair name mentions `"octomap"` (upstream's own
@@ -89,7 +89,7 @@ pub fn refine_contact_normals(
 
             let node_centers: Vec<Vector3> = match octree.leaves_in_bbx(bbx_min, bbx_max) {
                 Some(leaves) => leaves
-                    .filter(cspace_octomap::Leaf::is_occupied)
+                    .filter(cspace_core::octomap::Leaf::is_occupied)
                     .map(|leaf| leaf.coordinate().coords)
                     .collect(),
                 None => Vec::new(),
@@ -272,7 +272,7 @@ mod tests {
     use std::sync::Arc;
 
     use approx::assert_relative_eq;
-    use cspace_geometry::{Isometry3, OcTree as OcTreeShape, Shape, Sphere};
+    use cspace_core::geometry::{Isometry3, OcTree as OcTreeShape, Shape, Sphere};
     use nalgebra::Point3;
 
     use super::*;
@@ -285,18 +285,18 @@ mod tests {
     // fixture to differentially test against. These are self-contained
     // property tests of the ported algorithm instead.
 
-    fn octree_with_cells(cells: &[Point3<f64>]) -> cspace_octomap::OcTree {
-        let mut tree = cspace_octomap::OcTree::new(0.5);
+    fn octree_with_cells(cells: &[Point3<f64>]) -> cspace_core::octomap::OcTree {
+        let mut tree = cspace_core::octomap::OcTree::new(0.5);
         for cell in cells {
             tree.update_node(*cell, true, false);
         }
         tree
     }
 
-    fn object_with_octree(tree: Option<cspace_octomap::OcTree>) -> Arc<crate::world::Object> {
+    fn object_with_octree(tree: Option<cspace_core::octomap::OcTree>) -> Arc<crate::world::Object> {
         let mut world = World::new();
         let shape = Shape::OcTree(OcTreeShape::from_tree(Arc::new(
-            tree.unwrap_or_else(|| cspace_octomap::OcTree::new(0.5)),
+            tree.unwrap_or_else(|| cspace_core::octomap::OcTree::new(0.5)),
         )));
         world
             .add_shape("octomap", Arc::new(shape), Isometry3::identity())

@@ -9,7 +9,7 @@
 //   moveit_core/collision_detection/src/world_diff.cpp
 
 //! `PlanningScene` for moveit-rs: the world, attached bodies, the allowed
-//! collision matrix, and the current [`cspace_state::RobotState`], plus the
+//! collision matrix, and the current [`cspace_core::state::RobotState`], plus the
 //! parent/child *diff scene* relationship layered on top of all four.
 //!
 //! # Scope

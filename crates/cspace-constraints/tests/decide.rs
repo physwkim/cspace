@@ -6,19 +6,19 @@
 //! Euler-singularity branch, `Option`-vs-`None` criterion) rather than one
 //! per narrative scenario. `panda.urdf`/`panda.srdf` (copied from
 //! `cspace-state`'s fixtures) supply a real, already-oracle-verified model
-//! and FK — see `crates/cspace-model/tests/fixtures/panda_model_info.json`
-//! and `crates/cspace-state/tests/fixtures/panda_fk.json` for that
+//! and FK — see `crates/cspace-core/tests/fixtures/model/panda_model_info.json`
+//! and `crates/cspace-core/tests/fixtures/state/panda_fk.json` for that
 //! verification. Oracle parity for `decide()` itself (the 2,000-combination
 //! check `PORTING-PLAN.md` §5 Phase 5 requires) lives in a separate
 //! integration test once the oracle gains a `constraints` op.
 
 use std::fs;
 
-use cspace_error::Error;
-use cspace_geometry::{Isometry3, Mesh, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::error::Error;
+use cspace_core::geometry::{Isometry3, Mesh, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 
 use cspace_constraints::{
     Constraint, ConstraintEvaluationResult, JointConstraint, KinematicConstraintSet,
@@ -218,7 +218,7 @@ mod joint {
         // panda_joint1's effective max bound is its safety-controller soft
         // limit (2.8973), not the raw <limit> (2.9671) -- cspace-model
         // already prefers the soft limit when present (see
-        // crates/cspace-model/src/joint/urdf.rs), matching upstream. Asking
+        // crates/cspace-core/src/model/joint/urdf.rs), matching upstream. Asking
         // for 10.0 clamps to that bound with tolerance_below squeezed to EPS
         // (upstream: "bounds.max_position_ < joint_position_ -
         // joint_tolerance_below_" clamps and zeroes tolerance_below, not
@@ -422,8 +422,8 @@ mod position {
         let model = panda_model();
         let transforms = tf(&model);
         let bodyless = [
-            Shape::Cone(cspace_geometry::Cone::new(0.1, 0.2).unwrap()),
-            Shape::Plane(cspace_geometry::Plane {
+            Shape::Cone(cspace_core::geometry::Cone::new(0.1, 0.2).unwrap()),
+            Shape::Plane(cspace_core::geometry::Plane {
                 a: 0.0,
                 b: 0.0,
                 c: 1.0,

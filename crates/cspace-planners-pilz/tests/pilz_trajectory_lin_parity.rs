@@ -50,8 +50,9 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use cspace_collision::{LinkPaddingScale, ParryCollisionEnv, World};
-use cspace_geometry::{UnitQuaternion, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::geometry::{UnitQuaternion, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use cspace_planners_pilz::limits::{
     CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer,
 };
@@ -61,7 +62,6 @@ use cspace_planners_pilz::trajectory_generator::{
 };
 use cspace_planners_pilz::trajectory_generator_lin::TrajectoryGeneratorLin;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
 
 #[derive(Deserialize)]
 struct FixtureJointLimit {
@@ -361,7 +361,7 @@ fn lin_panda_arm_matches_the_oracle() {
 /// against a `1.875` limit at `t=0.2s`. Upstream's `generateJointTrajectory`
 /// throws `LinTrajectoryConversionFailure` wrapping `PLANNING_FAILED` (`-1`)
 /// for this; this port's [`cspace_planners_pilz::trajectory_functions::generate_joint_trajectory`]
-/// returns [`cspace_error::Error::Code`]`(`[`cspace_error::MoveItErrorCode::PlanningFailed`]`)`
+/// returns [`cspace_core::error::Error::Code`]`(`[`cspace_core::error::MoveItErrorCode::PlanningFailed`]`)`
 /// for the identical reason -- `crate::trajectory_functions::verify_sample_joint_limits`
 /// rejecting a backward-difference acceleration sample.
 #[test]
@@ -456,7 +456,7 @@ fn lin_panda_arm_rejects_the_same_request_the_oracle_rejects() {
     );
     assert_eq!(
         response.error_code,
-        cspace_error::MoveItErrorCode::PlanningFailed,
+        cspace_core::error::MoveItErrorCode::PlanningFailed,
         "rejection reason must match the oracle's PLANNING_FAILED"
     );
 }
@@ -533,7 +533,7 @@ fn lin_panda_arm_rejects_a_joint_goal_with_the_wrong_position_count() {
     );
     assert_eq!(
         response.error_code,
-        cspace_error::MoveItErrorCode::InvalidGoalConstraints,
+        cspace_core::error::MoveItErrorCode::InvalidGoalConstraints,
         "must match TrajectoryGeneratorCirc's identical check and upstream's JointNumberMismatch"
     );
 }

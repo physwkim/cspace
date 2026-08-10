@@ -8,10 +8,10 @@
 //   moveit_core/kinematic_constraints/src/kinematic_constraint.cpp
 //   (JointConstraint::configure, JointConstraint::decide, normalizeAngle)
 
-use cspace_error::{Error, Result};
-use cspace_model::RobotModel;
-use cspace_model::joint::JointType;
-use cspace_state::Posed;
+use cspace_core::error::{Error, Result};
+use cspace_core::model::RobotModel;
+use cspace_core::model::joint::JointType;
+use cspace_core::state::Posed;
 
 use crate::ConstraintEvaluationResult;
 use crate::numeric::{cxx_max, cxx_min};
@@ -21,7 +21,7 @@ const EPS: f64 = f64::EPSILON;
 /// `normalizeAngle`, a `static` helper private to upstream's
 /// `kinematic_constraint.cpp` — distinct from the `angles` package function
 /// of the same name already ported at
-/// [`cspace_model::joint::PlanarJoint`]'s call site. Ported verbatim from the
+/// [`cspace_core::model::joint::PlanarJoint`]'s call site. Ported verbatim from the
 /// lines this port actually read (`kinematic_constraint.cpp:67-79`), not
 /// reused from that other site, because upstream itself keeps two separate
 /// implementations rather than sharing one.
@@ -77,7 +77,7 @@ impl JointConstraint {
     /// variable of a multi-DOF joint, e.g. a planar joint's `theta`). This is
     /// not the `bool has_x` pattern under repair elsewhere in this crate —
     /// it is a single string naming one thing, matching how
-    /// [`cspace_model::RobotModel::variable_names`] itself names multi-DOF
+    /// [`cspace_core::model::RobotModel::variable_names`] itself names multi-DOF
     /// variables.
     ///
     /// # Weight normalization

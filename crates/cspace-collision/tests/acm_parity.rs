@@ -10,7 +10,7 @@
 //! fixture, rather than hand-transcribed Rust literals, means a transcription
 //! typo can't make this test assert the wrong thing and a future oracle
 //! change shows up as a fixture diff instead of silent drift — the same
-//! pattern `crates/cspace-model/tests/urdf_parity.rs` uses.
+//! pattern `crates/cspace-core/tests/urdf_parity.rs` uses.
 //!
 //! `fixtures/pr2.srdf` is a deliberately truncated excerpt (see its own
 //! `<!-- and many more disable_collisions tags -->` comment): only one real
@@ -28,7 +28,7 @@ use std::fs;
 use serde::Deserialize;
 
 use cspace_collision::{AllowedCollisionMatrix, AllowedCollisionType};
-use cspace_srdf::SrdfModel;
+use cspace_core::srdf::SrdfModel;
 
 #[derive(Deserialize)]
 struct OracleAcmEntry {

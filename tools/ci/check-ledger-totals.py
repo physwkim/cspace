@@ -74,7 +74,7 @@ import subprocess
 import sys
 
 # The corpus is the tree holding THIS script, never the caller's cwd.
-# `git ls-files` is path-scoped: run from `crates/cspace-octomap/` it returns
+# `git ls-files` is path-scoped: run from `crates/cspace-core/` it returns
 # the `.md` files under that directory alone -- none -- and "0 documents
 # declare a Totals paragraph" is also this gate's pass condition once no
 # document carries one, so a wrong-directory caller and a clean tree print the

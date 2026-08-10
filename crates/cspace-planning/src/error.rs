@@ -58,13 +58,13 @@ pub enum ResponseAdapterError {
     },
     /// `add_ruckig_traj_smoothing::AddRuckigTrajectorySmoothing` /
     /// `add_time_optimal_parameterization::AddTimeOptimalParameterization`:
-    /// the underlying `cspace_trajectory` call returned [`cspace_error::Error`].
+    /// the underlying `cspace_core::trajectory` call returned [`cspace_core::error::Error`].
     #[error("{adapter}: failed to compute a trajectory: {source}")]
     Failed {
         /// The rejecting adapter's [`crate::PlanningResponseAdapter::description`].
         adapter: &'static str,
-        /// The underlying `cspace_trajectory` failure.
+        /// The underlying `cspace_core::trajectory` failure.
         #[source]
-        source: cspace_error::Error,
+        source: cspace_core::error::Error,
     },
 }

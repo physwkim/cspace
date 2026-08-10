@@ -10,20 +10,14 @@ authors.workspace = true
 
 [dependencies]
 cspace-collision.workspace = true
-cspace-error.workspace = true
-cspace-geometry.workspace = true
-cspace-kinematics.workspace = true
-cspace-model.workspace = true
+cspace-core.workspace = true
 cspace-scene.workspace = true
-cspace-state.workspace = true
-cspace-trajectory.workspace = true
 nalgebra.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
-cspace-srdf.workspace = true
-cspace-test-support.workspace = true
+cspace-core = { workspace = true, features = ["test-support"] }
 serde.workspace = true
 serde_json.workspace = true
 urdf-rs.workspace = true

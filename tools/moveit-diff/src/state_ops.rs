@@ -73,8 +73,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::f64::consts::PI;
 
-use cspace_model::RobotModel;
-use cspace_state::RobotState;
+use cspace_core::model::RobotModel;
+use cspace_core::state::RobotState;
 
 use crate::Oracle;
 use crate::protocol::{JointDetail, ModelInfo, Op, OracleResult};

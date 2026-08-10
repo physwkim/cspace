@@ -29,10 +29,10 @@ use cspace_collision::{
     AllowedCollisionMatrix, CollisionEnv, DistanceRequest, LinkPaddingScale, ParryCollisionEnv,
     World,
 };
-use cspace_geometry::{Cuboid, Isometry3, Rotation3, Shape, UnitQuaternion, Vector3};
-use cspace_model::{Diagnostic, MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::Posed;
+use cspace_core::geometry::{Cuboid, Isometry3, Rotation3, Shape, UnitQuaternion, Vector3};
+use cspace_core::model::{Diagnostic, MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::Posed;
 use protocol::{
     CollisionCheckResult, CollisionObjectSpec, ConstraintRegionSpec, ConstraintsResult,
     ConstraintsSpec, DistancePair, FkResult, IkResult, JacobianResult, JointConstraintSpec,
@@ -205,7 +205,7 @@ struct Config {
     ik_epsilon: f64,
     /// Seed for the `ChaCha8Rng` this side's restart reseeds draw from
     /// (`NewtonRaphsonSolver::new_with_seed`). Defaults to `0`, which is
-    /// `cspace_kinematics`'s own `DEFAULT_SEED`, so an unqualified `--ik`
+    /// `cspace_core::kinematics`'s own `DEFAULT_SEED`, so an unqualified `--ik`
     /// invocation reproduces every earlier run bit for bit.
     ///
     /// It is a knob at all because of what a paired `b`/`c` disagreement
@@ -1764,7 +1764,7 @@ fn parry_representable_link_names(model: &RobotModel) -> Vec<&str> {
                 .iter()
                 .any(|s| is_parry_representable(&s.shape))
         })
-        .map(cspace_model::LinkModel::name)
+        .map(cspace_core::model::LinkModel::name)
         .collect()
 }
 
@@ -3592,7 +3592,7 @@ mod degenerate_counter_reachability_tests {
     fn a_case_already_at_the_seed_pose_converges_to_the_seed_unmoved() {
         let fixtures_dir = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../crates/cspace-kinematics/tests/fixtures"
+            "/../../crates/cspace-core/tests/fixtures/kinematics"
         );
         let urdf_path = format!("{fixtures_dir}/panda.urdf");
         let srdf_path = format!("{fixtures_dir}/panda.srdf");
@@ -3690,7 +3690,7 @@ mod ik_divergence_recording_tests {
     fn panda_model() -> RobotModel {
         let fixtures_dir = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../crates/cspace-kinematics/tests/fixtures"
+            "/../../crates/cspace-core/tests/fixtures/kinematics"
         );
         let urdf_path = format!("{fixtures_dir}/panda.urdf");
         let srdf_path = format!("{fixtures_dir}/panda.srdf");
@@ -4082,8 +4082,8 @@ mod visibility_cone_ambiguity_diagnostic {
     use std::sync::Arc;
 
     use cspace_collision::{BodyType, CollisionEnv, CollisionRequest, Contact, DecideContactFn};
-    use cspace_geometry::{Mesh, Transforms};
-    use cspace_state::RobotState;
+    use cspace_core::geometry::{Mesh, Transforms};
+    use cspace_core::state::RobotState;
     use nalgebra::Point3;
 
     use super::*;

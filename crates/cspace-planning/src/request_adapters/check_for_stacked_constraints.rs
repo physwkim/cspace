@@ -10,7 +10,7 @@
 //! # Symbol audit: every `rclcpp`/`moveit_msgs` occurrence (cpp:40-96)
 //!
 //! `rclcpp` — 5 occurrences, all logging, all discarded (this crate has no
-//! logging dependency, matching `cspace_trajectory::time_optimal_trajectory_generation`'s
+//! logging dependency, matching `cspace_core::trajectory::time_optimal_trajectory_generation`'s
 //! precedent — see that module's "Out of scope" section):
 //!
 //! - `rclcpp/logging.hpp`/`rclcpp/node.hpp` includes (cpp:42-43) — no Rust
@@ -76,8 +76,8 @@ impl PlanningRequestAdapter for CheckForStackedConstraints {
 #[cfg(test)]
 mod tests {
     use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use std::fs;
 
     use super::*;

@@ -107,10 +107,10 @@ use nalgebra::{DMatrix, DVector};
 
 use cspace_collision::{CollisionEnv, CollisionRequest};
 use cspace_constraints::KinematicConstraintSet;
-use cspace_error::Result;
-use cspace_model::JointModelGroup;
+use cspace_core::error::Result;
+use cspace_core::model::JointModelGroup;
+use cspace_core::state::Posed;
 use cspace_scene::PlanningScene;
-use cspace_state::Posed;
 
 use crate::composable_task::CostFn;
 use crate::conversion_functions::set_positions;
@@ -266,7 +266,7 @@ fn kernel_bounds(mu: f64, sigma: f64, num_timesteps: usize) -> (usize, usize) {
 ///
 /// # Errors
 ///
-/// [`cspace_error::Error`] if any of `group`'s active joints has more than
+/// [`cspace_core::error::Error`] if any of `group`'s active joints has more than
 /// one variable -- see [`crate::conversion_functions::set_positions`]'s own
 /// "Single-variable-joint precondition", checked once here rather than on
 /// every call.
@@ -805,9 +805,9 @@ mod planning_scene_tests {
 
     use cspace_collision::{LinkPaddingScale, ParryCollisionEnv, World};
     use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
-    use cspace_model::{JointModelGroup, MeshSearchPaths, RobotModel};
+    use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use cspace_scene::PlanningScene;
-    use cspace_srdf::SrdfModel;
 
     use super::*;
 

@@ -28,7 +28,7 @@
 //! small).
 
 use cspace_collision::ParryCollisionEnv;
-use cspace_geometry::Vector3;
+use cspace_core::geometry::Vector3;
 use cspace_scene::PlanningScene;
 
 use crate::PlanningRequestAdapter;
@@ -78,8 +78,8 @@ impl PlanningRequestAdapter for ValidateWorkspaceBounds {
 
 #[cfg(test)]
 mod tests {
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use std::fs;
 
     use super::*;

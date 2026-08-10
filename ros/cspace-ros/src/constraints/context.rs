@@ -25,9 +25,9 @@
 //! `RobotState`/TF tree, not just a message) -- this is a deliberate,
 //! documented scope boundary for a message-only conversion, not an
 //! oversight; see `doc/message-mapping.md` §5/§6/§7.
-use cspace_error::Error;
-use cspace_geometry::Transforms;
-use cspace_model::RobotModel;
+use cspace_core::error::Error;
+use cspace_core::geometry::Transforms;
+use cspace_core::model::RobotModel;
 
 pub(crate) fn minimal_transforms(model: &RobotModel) -> Result<Transforms, Error> {
     Transforms::new(model.model_frame())

@@ -13,24 +13,18 @@ thiserror.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 linkme.workspace = true
-cspace-model.workspace = true
-cspace-state.workspace = true
+cspace-core.workspace = true
 cspace-collision.workspace = true
 cspace-constraints.workspace = true
-cspace-error.workspace = true
-cspace-geometry.workspace = true
-cspace-kinematics.workspace = true
 cspace-planner-registry.workspace = true
 cspace-planning.workspace = true
 cspace-scene.workspace = true
-cspace-trajectory.workspace = true
 
 [dev-dependencies]
-cspace-srdf.workspace = true
+cspace-core = { workspace = true, features = ["test-support"] }
 # `plan_benchmark_port.rs`/`seed_validity_problem_set.rs`'s pose decoding
 # only -- see `cspace-test-support`'s own module doc for why a shared crate
 # closes this kind of duplication.
-cspace-test-support.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 urdf-rs.workspace = true

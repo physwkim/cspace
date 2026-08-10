@@ -10,7 +10,7 @@
 
 //! `std::min`-compatible comparison.
 //!
-//! Same contract as `cspace_trajectory::numeric`'s [`cxx_min`] — see that
+//! Same contract as `cspace_core::trajectory::numeric`'s [`cxx_min`] — see that
 //! module's doc comment for the full NaN-asymmetry argument. Duplicated
 //! here rather than shared: promoting either copy to a common crate is a
 //! cross-crate API change out of scope for this pass.
@@ -26,7 +26,7 @@
 //! NaN that would poison a receiver here also poisons `diff_sq`, and
 //! `diff_sq <= _` is already `false` before this `min`'s result is ever
 //! consulted. Confirmed empirically with a scratch probe (since deleted),
-//! not by inspection — see `cspace_trajectory::numeric`'s own doc comment
+//! not by inspection — see `cspace_core::trajectory::numeric`'s own doc comment
 //! for why that distinction matters.
 
 /// `std::min(a, b)`: `if b < a { b } else { a }`.

@@ -54,13 +54,13 @@ use std::io::{self, Read};
 use std::sync::Arc;
 
 use cspace_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
-use cspace_geometry::{Cuboid, Isometry3, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::geometry::{Cuboid, Isometry3, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
+use cspace_core::test_support::isometry_from_row_major;
 use cspace_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
-use cspace_test_support::isometry_from_row_major;
 
 /// `plan_benchmark_port.rs`'s own `mesh_package_for`/`load_robot`, unchanged:
 /// the request's `robot` field is what ties this binary to the set the

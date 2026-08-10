@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026, moveit-rs contributors
 # SPDX-License-Identifier: BSD-3-Clause
-"""Regenerates crates/cspace-state/tests/fixtures/<robot>_dynamics.json.
+"""Regenerates crates/cspace-core/tests/fixtures/state/<robot>_dynamics.json.
 
 Ground-truth capture for `dynamics_solver::DynamicsSolver` via the oracle's
 `dynamics` op (tools/moveit-oracle/src/oracle.cpp). No Rust `cspace-state`

@@ -17,7 +17,7 @@ nalgebra.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
-cspace-sampling.workspace = true
+cspace-core = { workspace = true, features = ["test-support"] }
 rand.workspace = true
 rand_chacha.workspace = true
 

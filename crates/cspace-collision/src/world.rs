@@ -63,11 +63,11 @@
 //!    non-isometry at all — the runtime check upstream needs has no Rust
 //!    counterpart because the illegal state is unrepresentable by
 //!    construction, the same move `crate::transforms` — see
-//!    `cspace_geometry::Transforms` — already made for the same reason.
+//!    `cspace_core::geometry::Transforms` — already made for the same reason.
 //! 6. **`getTransform`'s two overloads become [`World::get_transform`] /
 //!    [`World::try_get_transform`].** Same split as
-//!    `cspace_geometry::Transforms::transform`/`try_transform`: the
-//!    `Result`-returning form uses [`cspace_error::Error::UnknownName`] where
+//!    `cspace_core::geometry::Transforms::transform`/`try_transform`: the
+//!    `Result`-returning form uses [`cspace_core::error::Error::UnknownName`] where
 //!    upstream throws `std::runtime_error`, and the `Option`-returning form
 //!    replaces the `bool& frame_found` out-parameter.
 //! 7. **Unknown object/out-of-range shape index return `None`, not identity
@@ -266,8 +266,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use cspace_error::{Error, Result};
-use cspace_geometry::{Isometry3, Shape};
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::{Isometry3, Shape};
 
 /// Bits describing what happened to an [`Object`] in one [`Notification`].
 /// Upstream `World::ActionBits`/`World::Action`.
@@ -956,7 +956,9 @@ mod tests {
     use super::*;
 
     fn sphere(radius: f64) -> Arc<Shape> {
-        Arc::new(Shape::Sphere(cspace_geometry::Sphere::new(radius).unwrap()))
+        Arc::new(Shape::Sphere(
+            cspace_core::geometry::Sphere::new(radius).unwrap(),
+        ))
     }
 
     fn translation(x: f64, y: f64, z: f64) -> Isometry3 {

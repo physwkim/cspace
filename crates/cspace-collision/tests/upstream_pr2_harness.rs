@@ -69,7 +69,7 @@
 //! `third_party/moveit_resources/pr2_description/urdf/meshes/sensors/kinect_v0/kinect.dae`
 //! (164,201 bytes), but `third_party/` is a gitignored external checkout, and
 //! this repository's convention -- stated at
-//! `crates/cspace-geometry/tests/mesh_parity.rs:19-23` -- is that tests read
+//! `crates/cspace-core/tests/mesh_parity.rs:19-23` -- is that tests read
 //! copies under `fixtures/meshes/`, "not from `third_party/` directly, so this
 //! test runs under a plain `cargo nextest run --workspace` with no vendored
 //! checkout required". That tree holds 18 files for `pr2_description`, all
@@ -106,10 +106,10 @@ use cspace_collision::{
     AllowedCollisionMatrix, CollisionEnv, CollisionRequest, LinkPaddingScale, ParryCollisionEnv,
     World,
 };
-use cspace_geometry::{Cuboid, Isometry3, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Cuboid, Isometry3, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 
 fn fixture_mesh_search_paths() -> MeshSearchPaths {
     let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");

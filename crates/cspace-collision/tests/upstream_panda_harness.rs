@@ -73,10 +73,10 @@ use cspace_collision::{
     AllowedCollisionMatrix, CollisionEnv, CollisionRequest, DistanceRequest, DistanceRequestType,
     LinkPaddingScale, ParryCollisionEnv, World,
 };
-use cspace_geometry::{Cuboid, Cylinder, Isometry3, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Cuboid, Cylinder, Isometry3, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 
 fn fixture_mesh_search_paths() -> MeshSearchPaths {
     let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");

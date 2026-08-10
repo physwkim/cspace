@@ -15,11 +15,11 @@ use cspace_collision::{
     remove_cost_sources, remove_overlapping,
 };
 use cspace_constraints::KinematicConstraintSet;
-use cspace_error::{Error, Result};
-use cspace_geometry::{Isometry3, OcTree, Shape, Transforms};
-use cspace_model::RobotModel;
-use cspace_srdf::SrdfModel;
-use cspace_state::{Posed, RobotState};
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::{Isometry3, OcTree, Shape, Transforms};
+use cspace_core::model::RobotModel;
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::{Posed, RobotState};
 
 use crate::attached_body::AttachedBody;
 use crate::layered::Layered;
@@ -295,9 +295,9 @@ pub struct ObjectType {
 /// - `getPlanningFrame` — ported as [`PlanningScene::planning_frame`].
 /// - `getTransforms`/`getTransformsNonConst` — ported as
 ///   [`PlanningScene::transforms`]/[`PlanningScene::transforms_mut`],
-///   returning `&`/`&mut` [`cspace_geometry::Transforms`]. That type is a
+///   returning `&`/`&mut` [`cspace_core::geometry::Transforms`]. That type is a
 ///   pre-existing, already-tested port of the ROS-free core of upstream
-///   `moveit_core/transforms` (`crates/cspace-geometry/src/transforms.rs`,
+///   `moveit_core/transforms` (`crates/cspace-core/src/geometry/transforms.rs`,
 ///   present since this workspace's first commits) -- an earlier revision
 ///   of this doc claimed no such crate existed anywhere in this workspace;
 ///   that claim was wrong, and this round found and corrected it rather
@@ -309,16 +309,16 @@ pub struct ObjectType {
 ///   The middle one collapses into [`PlanningScene::transforms`] here, not
 ///   a second `&mut self` method: its state-refresh exists so a caller
 ///   holding the polymorphic `SceneTransforms&` gets fresh link/attached-
-///   body transforms before querying it, and `cspace_geometry::Transforms`
+///   body transforms before querying it, and `cspace_core::geometry::Transforms`
 ///   as returned here never reads robot-state link transforms at all (see
 ///   [`PlanningScene::frame_transform`]'s tier split) -- so there is
 ///   nothing for a state refresh to keep fresh.
 ///   `setTransform(const Eigen::Isometry3d&, const std::string&)` (the
 ///   message-free overload -- `transforms.hpp:113`) and
 ///   `setAllTransforms`/`getAllTransforms` are ported as
-///   [`cspace_geometry::Transforms::set_transform`]/
-///   [`set_all_transforms`](cspace_geometry::Transforms::set_all_transforms)/
-///   [`all_transforms`](cspace_geometry::Transforms::all_transforms) on that
+///   [`cspace_core::geometry::Transforms::set_transform`]/
+///   [`set_all_transforms`](cspace_core::geometry::Transforms::set_all_transforms)/
+///   [`all_transforms`](cspace_core::geometry::Transforms::all_transforms) on that
 ///   type directly, reachable here via `getTransformsNonConst`'s mutable
 ///   accessor. `setTransform(TransformStamped)` and `copyTransforms` — D1
 ///   (`geometry_msgs::msg::TransformStamped`).
@@ -628,7 +628,7 @@ pub struct ObjectType {
 ///   same way [`PlanningScene::is_state_valid`]/[`PlanningScene::is_path_valid`]
 ///   already do (`group_name: Option<&str>`, `None` for upstream's default
 ///   `std::string()`). The `trajectory`-taking overloads take
-///   `&[RobotState<'m>]`, not a `cspace_trajectory::RobotTrajectory` —
+///   `&[RobotState<'m>]`, not a `cspace_core::trajectory::RobotTrajectory` —
 ///   [`PlanningScene::is_path_valid`]'s own already-documented
 ///   dependency-boundary choice, not a new one. See both methods' own doc
 ///   comments for the per-line body citation and the load-bearing
@@ -1046,7 +1046,7 @@ impl<'m> PlanningScene<'m> {
         self.transforms().target_frame()
     }
 
-    /// A one-time [`cspace_geometry::Transforms`] snapshot: this scene's own
+    /// A one-time [`cspace_core::geometry::Transforms`] snapshot: this scene's own
     /// [`PlanningScene::transforms`] map, plus an entry for every current
     /// world object and object subframe. The value a caller building a
     /// constraint against this scene (`cspace_constraints::PositionConstraint::new`
@@ -1068,11 +1068,11 @@ impl<'m> PlanningScene<'m> {
     /// `SceneTransforms&` underneath, so `tf.isFixedFrame(...)` dispatches
     /// polymorphically to the override.
     ///
-    /// [`cspace_geometry::Transforms`] has no such polymorphism -- it is one
+    /// [`cspace_core::geometry::Transforms`] has no such polymorphism -- it is one
     /// concrete, non-virtual type everywhere in this workspace, and
     /// `cspace-constraints`'s ported `PositionConstraint`/`OrientationConstraint`/
     /// `VisibilityConstraint` all key their fixed/mobile split on its
-    /// [`cspace_geometry::Transforms::can_transform`], which -- being the
+    /// [`cspace_core::geometry::Transforms::can_transform`], which -- being the
     /// same non-virtual method upstream's *base* `Transforms::isFixedFrame`
     /// is (see [`PlanningScene::knows_frame_transform`]'s doc) -- can only
     /// agree with the *scene-backed* override if the value handed to it
@@ -1092,7 +1092,7 @@ impl<'m> PlanningScene<'m> {
     /// against the base map first and only strips **one leading `/`** before
     /// the object check (`planning_scene.cpp:127-134`), so for a name `N`
     /// that does not itself start with `/`, `isFixedFrame(N)` and
-    /// `isFixedFrame("/" + N)` are both `true`. [`cspace_geometry::Transforms::can_transform`]
+    /// `isFixedFrame("/" + N)` are both `true`. [`cspace_core::geometry::Transforms::can_transform`]
     /// is one flat map lookup on the literal string it is given -- it cannot
     /// strip anything itself -- so matching both call shapes needs both keys
     /// present, which is what the bare-plus-`/`-prefixed insert below does.
@@ -1723,7 +1723,7 @@ impl<'m> PlanningScene<'m> {
     /// 2. the model frame, or a link name -- [`Posed::frame_transform`]
     ///    (upstream folds this and tiers 3-4 into one `RobotState::getFrameInfo`
     ///    call; this port's attached bodies live on [`PlanningScene`], not
-    ///    [`cspace_state::RobotState`] — see [`AttachedBody`]'s module doc —
+    ///    [`cspace_core::state::RobotState`] — see [`AttachedBody`]'s module doc —
     ///    so tiers 3-4 are this method's own work instead)
     /// 3. an attached-body id -- that body's global pose (its attach link's
     ///    global transform; see the private `attached_frame` helper for why
@@ -1732,20 +1732,20 @@ impl<'m> PlanningScene<'m> {
     ///    global pose
     /// 5. a world object id or object subframe -- [`World::get_transform`]
     /// 6. the extra-fixed-frame map -- [`PlanningScene::transforms`],
-    ///    [`cspace_geometry::Transforms::transform`]
+    ///    [`cspace_core::geometry::Transforms::transform`]
     ///
     /// Tier 6 closes the "no extra-fixed-frame tier" deviation §59.1/§59.2
     /// found: upstream falls through to `Transforms::getTransform`
     /// (`planning_scene.cpp:2053`, the base class -- not the
     /// `SceneTransforms::getTransform` override tiers 3-4 above delegate to)
-    /// as a final resort, and [`cspace_geometry::Transforms`] already ported
-    /// that exact base class (`crates/cspace-geometry/src/transforms.rs`,
+    /// as a final resort, and [`cspace_core::geometry::Transforms`] already ported
+    /// that exact base class (`crates/cspace-core/src/geometry/transforms.rs`,
     /// present since this workspace's very first commits -- §59's "no crate
     /// exists" claim was wrong, missed by both the brief and this audit; see
     /// [`PlanningScene::transforms`]'s doc). No polymorphism is needed to
     /// call it non-recursively the way upstream's explicit `Transforms::`
     /// qualification is: this method's own tier 6 call is a plain field
-    /// method call on [`cspace_geometry::Transforms`], which has no path
+    /// method call on [`cspace_core::geometry::Transforms`], which has no path
     /// back into [`PlanningScene::frame_transform`] to recurse through --
     /// the non-recursion upstream enforces with a qualifier is structural
     /// here, by construction, not by convention.
@@ -1784,7 +1784,7 @@ impl<'m> PlanningScene<'m> {
     ///
     /// # The model frame is checked directly, not through tier 1's `RobotState`
     ///
-    /// [`cspace_state::RobotState::knows_frame_transform`] does not
+    /// [`cspace_core::state::RobotState::knows_frame_transform`] does not
     /// special-case the model frame (see its own doc) -- confirmed against
     /// upstream `RobotState::knowsFrameTransform`
     /// (`robot_state.cpp:1386-1405`), which really only checks
@@ -1794,7 +1794,7 @@ impl<'m> PlanningScene<'m> {
     /// is not itself a link name (true for panda's floating virtual joint --
     /// `model_frame() == "world"`, not `"panda_link0"`) even though
     /// [`PlanningScene::frame_transform`] resolves the same name via
-    /// [`cspace_state::Posed::frame_transform`]'s own model-frame check.
+    /// [`cspace_core::state::Posed::frame_transform`]'s own model-frame check.
     ///
     /// Upstream does not have that gap: its `PlanningScene::
     /// knowsFrameTransform` reaches `true` for the model frame anyway, but
@@ -1810,7 +1810,7 @@ impl<'m> PlanningScene<'m> {
     /// without this tier returned `false` for the same request.
     ///
     /// [`PlanningScene::transforms`] closes this gap for real: its
-    /// [`cspace_geometry::Transforms::new`] seeds the identity entry for the
+    /// [`cspace_core::geometry::Transforms::new`] seeds the identity entry for the
     /// model frame exactly as `SceneTransforms`'s constructor does, so
     /// `self.transforms().can_transform(frame_id)` reaches `true` for the
     /// model frame through the same mechanism upstream uses, not a
@@ -1839,10 +1839,10 @@ impl<'m> PlanningScene<'m> {
     /// fixed/mobile split (`position::resolve_frame`,
     /// `orientation.rs:209`, `visibility.rs:79`), each keyed on
     /// `tf.can_transform(frame_id)` -- the base-class half of `isFixedFrame`
-    /// this crate's [`cspace_geometry::Transforms`] already carries. So the
+    /// this crate's [`cspace_core::geometry::Transforms`] already carries. So the
     /// falsifier's premise updated, but as of round 9 its answer had not
     /// flipped: no call site anywhere in this workspace threaded a
-    /// [`PlanningScene`]-derived [`cspace_geometry::Transforms`] into any of
+    /// [`PlanningScene`]-derived [`cspace_core::geometry::Transforms`] into any of
     /// the three constructors, so the world-object half of `isFixedFrame`
     /// had no live caller to diverge from upstream on.
     ///
@@ -1989,7 +1989,7 @@ impl<'m> PlanningScene<'m> {
     /// `getLinkModelsWithCollisionGeometry().size() + 1`; this port's
     /// [`RobotModel`] has no such query (see `cspace-model::robot_model`'s
     /// doc), so this uses every link with a non-empty
-    /// [`cspace_model::LinkModel::shapes`] instead — a superset of links
+    /// [`cspace_core::model::LinkModel::shapes`] instead — a superset of links
     /// that actually convert to collision geometry (a link could still hold
     /// only [`Shape::OcTree`]/a degenerate [`Shape::Plane`], see `parry`'s
     /// module doc deviations 9–10), so this can only make the budget larger
@@ -2582,7 +2582,7 @@ impl<'m> PlanningScene<'m> {
 /// `getLinkModelIncludingAttachedBodies` (`robot_state.cpp:910-937`), reading
 /// the state's own `attached_body_map_`. In this workspace attached bodies
 /// live here instead (see [`AttachedBody`]'s module doc), and
-/// [`cspace_kinematics::AttachedFrames`] is the seam that puts them back
+/// [`cspace_core::kinematics::AttachedFrames`] is the seam that puts them back
 /// within reach. The edge this closes runs scene -> kinematics, which
 /// `cspace-scene` already had transitively through `cspace-constraints`; it
 /// is the reverse edge that would be a cycle, which is why the trait exists
@@ -2592,10 +2592,10 @@ impl<'m> PlanningScene<'m> {
 /// uses is the point, not a convenience: an IK target and a frame transform
 /// naming the same string must not resolve to two different places, and one
 /// lookup is how that is guaranteed rather than asserted.
-impl cspace_kinematics::AttachedFrames for PlanningScene<'_> {
-    fn attached_frame(&self, frame: &str) -> Option<cspace_kinematics::AttachedFrame<'_>> {
+impl cspace_core::kinematics::AttachedFrames for PlanningScene<'_> {
+    fn attached_frame(&self, frame: &str) -> Option<cspace_core::kinematics::AttachedFrame<'_>> {
         let (link_name, link_pose_frame) = PlanningScene::attached_frame(self, frame)?;
-        Some(cspace_kinematics::AttachedFrame {
+        Some(cspace_core::kinematics::AttachedFrame {
             link_name,
             link_pose_frame,
         })
@@ -2645,9 +2645,9 @@ mod tests {
 
     use cspace_collision::{AllowedCollisionType, LinkPaddingScale, ParryCollisionEnv};
     use cspace_constraints::{Constraint, JointConstraint};
-    use cspace_geometry::Cuboid;
-    use cspace_model::MeshSearchPaths;
-    use cspace_srdf::SrdfModel;
+    use cspace_core::geometry::Cuboid;
+    use cspace_core::model::MeshSearchPaths;
+    use cspace_core::srdf::SrdfModel;
 
     use super::*;
 
@@ -3075,7 +3075,7 @@ mod tests {
     }
 
     fn octree_shape(resolution: f64) -> OcTree {
-        OcTree::from_tree(Arc::new(cspace_octomap::OcTree::new(resolution)))
+        OcTree::from_tree(Arc::new(cspace_core::octomap::OcTree::new(resolution)))
     }
 
     #[test]

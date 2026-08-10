@@ -1,7 +1,7 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! Parity test for the *wired* [`cspace_geometry::Shape::OcTree`] path --
+//! Parity test for the *wired* [`cspace_core::geometry::Shape::OcTree`] path --
 //! `cspace_collision::ParryCollisionEnv::check_robot_collision`/
 //! `distance_robot` against a [`World`] whose only object is an octree --
 //! versus the real moveit2 oracle's `octree_in_world` op, extended this
@@ -10,7 +10,7 @@
 //! builds for the pose/occupancy fields `octree_in_world_parity.rs` checks.
 //!
 //! This is deliberately not `octree_shape_query_parity.rs`: that file
-//! verifies [`cspace_geometry::compound_from_octree`] in isolation, bypassing
+//! verifies [`cspace_core::geometry::compound_from_octree`] in isolation, bypassing
 //! `CollisionEnvFCL`/`RobotState`/ACM by design (its own doc comment). This
 //! file is the level above it -- a real robot, a real `World`, and this
 //! crate's actual `ParryCollisionEnv::check_robot_collision`/`distance_robot`
@@ -61,11 +61,11 @@ use serde_json::Value;
 
 use cspace_collision::{CollisionEnv, World};
 use cspace_collision::{CollisionRequest, DistanceRequest, LinkPaddingScale, ParryCollisionEnv};
-use cspace_geometry::{OcTree as ShapeOcTree, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_octomap::OcTree;
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{OcTree as ShapeOcTree, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::octomap::OcTree;
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use nalgebra::Point3;
 
 #[derive(Deserialize)]
@@ -174,7 +174,7 @@ fn octree_world_object_collision_matches_the_oracle() {
         world.add_shape(
             "octree_object",
             Arc::new(Shape::OcTree(ShapeOcTree::from_tree(Arc::new(tree)))),
-            cspace_geometry::Isometry3::identity(),
+            cspace_core::geometry::Isometry3::identity(),
         );
         let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
 

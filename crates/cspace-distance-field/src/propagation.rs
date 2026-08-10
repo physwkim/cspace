@@ -8,7 +8,7 @@
 
 use std::collections::BTreeSet;
 
-use cspace_error::{Error, Result};
+use cspace_core::error::{Error, Result};
 use nalgebra::Vector3;
 
 use crate::distance_field::DistanceField;
@@ -181,7 +181,7 @@ pub struct NearestCell<'a> {
 ///   `resolution_` without checking either is finite or positive, which for
 ///   `resolution <= 0` produces `inf`/`NaN` cell counts that are then
 ///   silently truncated into the `int` fields. [`PropagationDistanceField::new`]
-///   returns [`cspace_error::Error::Construct`] instead. Round 26: the same
+///   returns [`cspace_core::error::Error::Construct`] instead. Round 26: the same
 ///   guard also rejects a finite, positive `max_distance_sq` once it exceeds
 ///   `i32::MAX` -- see the private `checked_max_distance_sq` helper's own doc.
 pub struct PropagationDistanceField {

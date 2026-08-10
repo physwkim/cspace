@@ -194,9 +194,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use cspace_collision::{AllowedCollisionMatrix, AttachedBodyGeometry, Object};
-use cspace_error::Result;
-use cspace_geometry::{Isometry3, Shape};
-use cspace_state::RobotState;
+use cspace_core::error::Result;
+use cspace_core::geometry::{Isometry3, Shape};
+use cspace_core::state::RobotState;
 
 use crate::PropagationDistanceField;
 use crate::collision_distance_field_types::{
@@ -215,7 +215,7 @@ use crate::collision_distance_field_types::{
 /// `RobotStatePtr` snapshot) and re-derives its attached bodies on demand
 /// via `dfce->state_->getAttachedBodies()` at comparison time --
 /// `moveit::core::RobotState` owns that concept upstream, so the snapshot
-/// alone is enough. `cspace_state::RobotState` does not carry attached
+/// alone is enough. `cspace_core::state::RobotState` does not carry attached
 /// bodies at all in this port (see `cspace_scene::AttachedBody`'s own
 /// module doc for why that concept lives on `PlanningScene` here instead),
 /// so [`DistanceFieldCacheEntry::state`] structurally *cannot* answer the
@@ -231,7 +231,7 @@ use crate::collision_distance_field_types::{
 /// `compareCacheEntryToAllowedCollisionMatrix`'s own `attached_bodies` fetch
 /// is dead code upstream, assigned and never read (still correctly
 /// documented as omitted on that function, not fixed here). And the fix for
-/// `compareCacheEntryToState` does not need `cspace_state::RobotState` to
+/// `compareCacheEntryToState` does not need `cspace_core::state::RobotState` to
 /// grow attached-body support at all: [`cspace_collision::AttachedBodyGeometry`]
 /// is a *borrowed* view already defined in `cspace-collision` (a crate this
 /// one already depends on) specifically so a lower crate can consume
@@ -343,7 +343,7 @@ pub struct DistanceFieldCacheEntry<'m> {
     pub distance_field: Option<PropagationDistanceField>,
     /// `link_names_`: every link that moves if any joint in the group
     /// moves, index-ordered (upstream `getUpdatedLinkModelNames`, now
-    /// [`cspace_model::JointModelGroup::updated_link_names`]).
+    /// [`cspace_core::model::JointModelGroup::updated_link_names`]).
     pub link_names: Vec<String>,
     /// `link_has_geometry_`, one entry per [`DistanceFieldCacheEntry::link_names`].
     pub link_has_geometry: Vec<bool>,
@@ -527,7 +527,7 @@ pub fn get_body_decomposition_cache_entry(
 ///
 /// # Errors
 ///
-/// [`cspace_error::Error::Construct`] if any of `obj`'s shapes has no
+/// [`cspace_core::error::Error::Construct`] if any of `obj`'s shapes has no
 /// `bodies::` counterpart -- see [`get_body_decomposition_cache_entry`]/
 /// [`BodyDecomposition::new`].
 pub fn collision_object_point_decomposition(
@@ -561,7 +561,7 @@ pub fn collision_object_point_decomposition(
 ///
 /// # Errors
 ///
-/// [`cspace_error::Error::Construct`] if any of `attached.shapes` has no
+/// [`cspace_core::error::Error::Construct`] if any of `attached.shapes` has no
 /// `bodies::` counterpart -- see [`get_body_decomposition_cache_entry`]/
 /// [`BodyDecomposition::new`].
 pub fn attached_body_sphere_decomposition(
@@ -606,7 +606,7 @@ pub fn attached_body_point_decomposition(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cspace_geometry::{Isometry3, Sphere};
+    use cspace_core::geometry::{Isometry3, Sphere};
     use nalgebra::Translation3;
 
     fn sphere_shape(radius: f64) -> Arc<Shape> {

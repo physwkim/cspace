@@ -248,8 +248,8 @@
 
 use cspace_collision::ParryCollisionEnv;
 use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
+use cspace_core::trajectory::RobotTrajectory;
 use cspace_scene::PlanningScene;
-use cspace_trajectory::RobotTrajectory;
 
 use crate::error::{RequestAdapterError, ResponseAdapterError};
 use crate::planner::{PlanError, PlannerManager};
@@ -293,30 +293,30 @@ pub enum PipelineError {
     NoPlanners,
     /// [`crate::PlanningRequest::start_state`] could not be written onto
     /// `scene`'s current state — it names a variable this scene's
-    /// [`cspace_model::RobotModel`] does not have. Upstream reaches the same
+    /// [`cspace_core::model::RobotModel`] does not have. Upstream reaches the same
     /// condition as a `moveit::Exception` thrown out of
     /// `RobotModel::getVariableIndex` inside `setVariablePositions`
     /// (`robot_state.cpp:395-406`), which `generatePlan`'s own
     /// `catch (std::exception&)` (`planning_pipeline.cpp:353-359`) turns into
     /// a failed `res`. Separate from [`PipelineError::Feedforward`] despite
-    /// both wrapping a [`cspace_error::Error`]: they are two different steps,
+    /// both wrapping a [`cspace_core::error::Error`]: they are two different steps,
     /// and a shared variant could not say which one rejected.
     #[error("failed to apply the requested start state: {0}")]
-    StartState(#[source] cspace_error::Error),
+    StartState(#[source] cspace_core::error::Error),
     /// The private `trajectory_constraints_for` helper (the "Semantic 1"
     /// feedforward step) failed to look up the previous planner's
     /// group/joints/waypoint positions. Upstream's `getTrajectoryConstraints`
     /// has no failure path
     /// at all (`cpp:57-79`) because the C++ object graph it reads
     /// guarantees those lookups always succeed; this port's equivalent
-    /// lookups are typed `Result`s (`cspace_error::Result`), and surfacing
+    /// lookups are typed `Result`s (`cspace_core::error::Result`), and surfacing
     /// that as an error here — rather than `.expect()`-ing an upstream
     /// invariant this port cannot independently verify — is the same
     /// "moveit-rs prefers to surface as an error" choice
     /// [`cspace_constraints::JointConstraint::new`]'s own doc already makes
     /// for a structurally analogous case.
     #[error("failed to build trajectory-constraints feedforward: {0}")]
-    Feedforward(#[from] cspace_error::Error),
+    Feedforward(#[from] cspace_core::error::Error),
 }
 
 /// Ports `getTrajectoryConstraints` (`planning_pipeline.cpp:57-79`): one
@@ -356,7 +356,7 @@ pub enum PipelineError {
 fn trajectory_constraints_for(
     scene: &PlanningScene<'_>,
     trajectory: &RobotTrajectory<'_>,
-) -> Result<Vec<KinematicConstraintSet>, cspace_error::Error> {
+) -> Result<Vec<KinematicConstraintSet>, cspace_core::error::Error> {
     let model = scene.robot_model();
     let group = model.joint_model_group(trajectory.group_name())?;
     let joint_names = group.active_joint_names().to_vec();
@@ -464,10 +464,10 @@ pub fn generate_plan<'m>(
 mod tests {
     use std::fs;
 
-    use cspace_error::Error as MoveitError;
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
-    use cspace_state::RobotState;
+    use cspace_core::error::Error as MoveitError;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::state::RobotState;
 
     use super::*;
     use crate::PlanningRequestAdapter;

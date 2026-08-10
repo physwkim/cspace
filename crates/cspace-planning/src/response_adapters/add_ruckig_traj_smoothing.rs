@@ -27,9 +27,9 @@
 //!
 //! `smoother_.applySmoothing(*res.trajectory,
 //! req.max_velocity_scaling_factor, req.max_acceleration_scaling_factor)`
-//! (cpp:81) becomes [`cspace_trajectory::ruckig_smoothing::apply_smoothing`]
+//! (cpp:81) becomes [`cspace_core::trajectory::ruckig_smoothing::apply_smoothing`]
 //! — already ported in `cspace-trajectory`, not re-implemented here — called
-//! via [`cspace_trajectory::trajectory_tools::apply_ruckig_smoothing`]'s
+//! via [`cspace_core::trajectory::trajectory_tools::apply_ruckig_smoothing`]'s
 //! convenience wrapper. Upstream's own `add_ruckig_traj_smoothing.cpp:81`
 //! does *not* call that wrapper — it calls `smoother_.applySmoothing`
 //! directly on its own long-lived `RuckigSmoothing smoother_` member;
@@ -38,23 +38,23 @@
 //! separate convenience entry point upstream offers other callers, not one
 //! this adapter itself uses. This port reuses `apply_ruckig_smoothing` here
 //! purely for its own convenience (one call instead of constructing
-//! [`cspace_trajectory::ruckig_smoothing::SmoothingOptions`] by hand), not
+//! [`cspace_core::trajectory::ruckig_smoothing::SmoothingOptions`] by hand), not
 //! to reproduce this specific upstream file's call shape,
-//! with [`cspace_trajectory::ruckig_smoothing::SmoothingOptions::mitigate_overshoot`]/
+//! with [`cspace_core::trajectory::ruckig_smoothing::SmoothingOptions::mitigate_overshoot`]/
 //! `overshoot_threshold` left at upstream's own defaults (`false`/`0.01`,
 //! `RuckigSmoothing`'s two-argument constructor upstream's
 //! `AddRuckigTrajectorySmoothing::smoother_` field default-constructs from,
 //! `ruckig_traj_smoothing.hpp`), since neither is a
 //! [`crate::request::PlanningRequest`] field this adapter has anything else
 //! to source them from. `applySmoothing`'s `bool` return (cpp:81) is ported
-//! as `apply_ruckig_smoothing`'s existing `Result<(), cspace_error::Error>`
+//! as `apply_ruckig_smoothing`'s existing `Result<(), cspace_core::error::Error>`
 //! (`false` here is always paired with an upstream `RCLCPP_ERROR`, discarded
 //! per the audit above — same "logging-only, no separate signal" shape as
 //! `Result::Err`'s already-ported message).
 
 use cspace_collision::ParryCollisionEnv;
+use cspace_core::trajectory::trajectory_tools::apply_ruckig_smoothing;
 use cspace_scene::PlanningScene;
-use cspace_trajectory::trajectory_tools::apply_ruckig_smoothing;
 
 use crate::PlanningResponseAdapter;
 use crate::error::ResponseAdapterError;
@@ -100,10 +100,10 @@ impl PlanningResponseAdapter for AddRuckigTrajectorySmoothing {
 
 #[cfg(test)]
 mod tests {
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
-    use cspace_state::RobotState;
-    use cspace_trajectory::RobotTrajectory;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::state::RobotState;
+    use cspace_core::trajectory::RobotTrajectory;
     use std::fs;
 
     use super::*;

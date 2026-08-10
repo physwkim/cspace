@@ -32,10 +32,10 @@ use std::fs;
 
 use serde::Deserialize;
 
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use cspace_planners_sbp::{JointModelGroupSpace, StateSpace};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
 
 fn fixture_path(file_name: &str) -> String {
     format!(

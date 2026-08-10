@@ -78,10 +78,10 @@ use cspace_collision::{
     AllowedCollisionMatrix, CollisionEnv, DistanceRequest, LinkPaddingScale, ParryCollisionEnv,
     World,
 };
-use cspace_geometry::{Cuboid, Isometry3, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::{Posed, RobotState};
+use cspace_core::geometry::{Cuboid, Isometry3, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::{Posed, RobotState};
 
 /// Seed-1 state 9651 of Phase 3's fanuc sweep -- the state `PORTING-PLAN.md`
 /// §218.4 named as fanuc's worst `distance` deviation, so the numbers here are

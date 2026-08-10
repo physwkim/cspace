@@ -146,7 +146,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
-use cspace_srdf::SrdfModel;
+use cspace_core::srdf::SrdfModel;
 
 use crate::common::Contact;
 

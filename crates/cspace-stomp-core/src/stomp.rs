@@ -41,7 +41,7 @@
 //! `stomp_3dof.cpp`'s *structure* -- a `DummyTask` that scores a trajectory
 //! against a bias with a threshold, `compareDiff`'s threshold check, the
 //! 3-DOF linear-interpolation scenario -- but generate noise via
-//! `cspace_sampling::MultivariateGaussian::sample_with_covariance` (per
+//! `cspace_core::sampling::MultivariateGaussian::sample_with_covariance` (per
 //! this round's brief: STOMP is the covariance-using caller of that class)
 //! seeded by a fixed `rand_chacha::ChaCha8Rng`, so the test is
 //! deterministic without claiming to reproduce upstream's specific libc
@@ -1245,7 +1245,7 @@ impl<'a> Stomp<'a> {
 mod tests {
     use super::*;
     use crate::utils::generate_smoothing_matrix;
-    use cspace_sampling::MultivariateGaussian;
+    use cspace_core::sampling::MultivariateGaussian;
     use nalgebra::DVector;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;

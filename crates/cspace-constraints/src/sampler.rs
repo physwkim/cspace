@@ -17,7 +17,7 @@
 //! identified as needing no new dependency: [`JointConstraintSampler`] and
 //! [`UnionConstraintSampler`]. `IKConstraintSampler` is ported in
 //! `crate::ik_sampler` as [`crate::IkConstraintSampler`], not here — it needs
-//! `cspace_kinematics::KinematicsSolver`, a real new dependency edge this
+//! `cspace_core::kinematics::KinematicsSolver`, a real new dependency edge this
 //! module's two samplers still do not, and — per this module's own doc
 //! comment below on [`ConstraintSampler::sample`]'s collapsed signature —
 //! it does not implement this trait at all.
@@ -101,9 +101,9 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
-use cspace_error::{Error, Result};
-use cspace_model::{JointModelGroup, RobotModel};
-use cspace_state::RobotState;
+use cspace_core::error::{Error, Result};
+use cspace_core::model::{JointModelGroup, RobotModel};
+use cspace_core::state::RobotState;
 use rand::{Rng, RngExt};
 
 /// Upstream `ConstraintSampler::DEFAULT_MAX_SAMPLING_ATTEMPTS`
@@ -343,7 +343,7 @@ impl ConstraintSampler for JointConstraintSampler {
     /// `JointModel::getVariableRandomPositions`, which knows each joint
     /// kind's own sampling rule (uniform per bounded axis, a uniformly
     /// random unit quaternion for a floating joint's rotation, etc.). This
-    /// port's equivalent, [`cspace_state::RobotState::set_to_random_positions_with`],
+    /// port's equivalent, [`cspace_core::state::RobotState::set_to_random_positions_with`],
     /// already implements exactly that per-joint-kind logic (verified
     /// against `{revolute,prismatic,planar,floating}_joint_model.cpp`) but
     /// keeps it private to `cspace-state`, and this crate has no license to

@@ -101,8 +101,8 @@
 //! this type's own `pos`/`path_length` against upstream's directly, since
 //! the oracle exposes no `Path_RoundedComposite` op.
 
-use cspace_error::{Error, Result};
-use cspace_geometry::Isometry3;
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::Isometry3;
 
 use crate::path_circle::{CircleGeometry, PathCircle};
 use crate::path_line::PathLine;
@@ -453,7 +453,7 @@ impl PathRoundedComposite {
 #[cfg(test)]
 mod tests {
     use approx::assert_relative_eq;
-    use cspace_geometry::{UnitQuaternion, Vector3};
+    use cspace_core::geometry::{UnitQuaternion, Vector3};
 
     use super::*;
 

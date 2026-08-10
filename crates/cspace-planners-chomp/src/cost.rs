@@ -29,7 +29,7 @@
 //!   - `derivative_costs.len()` above [`crate::utils::DIFF_RULES`]`.len()`
 //!     (3) upstream indexes `DIFF_RULES[i]` out of bounds on a 3-row C
 //!     array with no guard at all; here it is
-//!     [`Error::other`](cspace_error::Error::other).
+//!     [`Error::other`](cspace_core::error::Error::other).
 //!   - `trajectory.num_points()` below `2 * (DIFF_RULE_LENGTH - 1)` (12)
 //!     upstream computes `num_vars_free = num_vars_all - 2 *
 //!     (DIFF_RULE_LENGTH - 1)` in a plain `int`, then passes it as a
@@ -110,7 +110,7 @@
 //!   the full measurement and the `1e-7` bound it justifies.
 use crate::trajectory::ChompTrajectory;
 use crate::utils::{self, DIFF_RULE_LENGTH};
-use cspace_error::{Error, Result};
+use cspace_core::error::{Error, Result};
 use nalgebra::{DMatrix, DVector};
 
 /// The smoothness quadratic-cost matrix for a single joint, and its inverse
@@ -333,8 +333,8 @@ mod tests {
     use super::*;
     use crate::trajectory::ChompTrajectory;
     use approx::assert_relative_eq;
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use std::sync::OnceLock;
 
     const EPS: f64 = 1e-12;

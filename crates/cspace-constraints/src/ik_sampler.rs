@@ -14,11 +14,11 @@ use std::cell::RefCell;
 use std::f64::consts::PI;
 use std::rc::Rc;
 
-use cspace_error::{Error, Result};
-use cspace_geometry::{Isometry3, Transforms, UnitQuaternion, Vector3};
-use cspace_kinematics::{KinematicsSolver, SolutionCallback, SolveOptions};
-use cspace_model::{JointModelGroup, RobotModel};
-use cspace_state::{Posed, RobotState};
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::{Isometry3, Transforms, UnitQuaternion, Vector3};
+use cspace_core::kinematics::{KinematicsSolver, SolutionCallback, SolveOptions};
+use cspace_core::model::{JointModelGroup, RobotModel};
+use cspace_core::state::{Posed, RobotState};
 use rand::{Rng, RngExt};
 
 use crate::{ConstraintSampler, OrientationConstraint, OrientationTolerance, PositionConstraint};
@@ -389,7 +389,7 @@ impl IkConstraintSampler {
     /// (`getGroupStateValidityCallback`/`setGroupStateValidityCallback`),
     /// threaded through `samplingIkCallbackFnAdapter` into the IK solve
     /// itself so a converged-but-rejected candidate is retried rather than
-    /// accepted — this port reuses [`cspace_kinematics::SolveOptions::solution_callback`]
+    /// accepted — this port reuses [`cspace_core::kinematics::SolveOptions::solution_callback`]
     /// directly instead of reimplementing the adapter, since it is the same
     /// accept/reject hook (its own doc comment already names "collision-checking
     /// a candidate before accepting it" as the intended use). Upstream's
@@ -530,7 +530,7 @@ fn sample_unit_quaternion(rng: &mut dyn Rng) -> (f64, f64, f64, f64) {
 /// element type, named so that field and
 /// [`IkConstraintSamplerAdapter::set_group_state_validity_callback`] do not
 /// trip clippy's `type_complexity` lint — matching
-/// `cspace_kinematics::SolutionCallback`'s own reason for existing.
+/// `cspace_core::kinematics::SolutionCallback`'s own reason for existing.
 type GroupStateValidityCallback = dyn FnMut(&[f64]) -> bool;
 
 /// Round 10's composition decision: wraps an [`IkConstraintSampler`] plus

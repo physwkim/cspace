@@ -7,10 +7,10 @@
 //   moveit_core/distance_field/include/moveit/distance_field/distance_field.hpp
 //   moveit_core/distance_field/src/distance_field.cpp
 
-use cspace_error::{Error, Result};
-use cspace_geometry::bodies::Body;
-use cspace_geometry::{Isometry3, Shape};
-use cspace_octomap::OcTree;
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::bodies::Body;
+use cspace_core::geometry::{Isometry3, Shape};
+use cspace_core::octomap::OcTree;
 use nalgebra::{Point3, Vector3};
 
 use crate::find_internal_points::{ConvexBody, find_internal_points_convex};
@@ -104,12 +104,12 @@ fn posed_body(shape: &Shape, pose: &Isometry3) -> Result<Body> {
 ///
 /// # Exactly what this function reads from a leaf, and what "in emission order" above actually pins
 ///
-/// This function reads exactly 3 of [`cspace_octomap::Leaf`]'s 8 accessors —
+/// This function reads exactly 3 of [`cspace_core::octomap::Leaf`]'s 8 accessors —
 /// `is_occupied()`, `coordinate()`, `size()` — and never `key()`,
 /// `index_key()`, `depth()`, `log_odds()`, or `occupancy()`. Those five have
 /// no consumer anywhere in this crate, so no fixture here could pin them
 /// without inventing a reader with no real call site — that is
-/// [`cspace_octomap`]'s question to answer, not this crate's.
+/// [`cspace_core::octomap`]'s question to answer, not this crate's.
 ///
 /// The "matched, bit-for-bit and in emission order" claim two paragraphs up
 /// is narrower than it reads. Every one of the three oracle-pinned cases in
@@ -215,13 +215,13 @@ pub struct DistanceGradient {
 /// `getShapePoints`/`addShapeToField`/`moveShapeInField`/`addOcTreeToField`
 /// as non-virtual methods on the `DistanceField` base class. For
 /// [`Shape::Sphere`]/[`Shape::Cylinder`]/[`Shape::Cuboid`]/[`Shape::Mesh`],
-/// all three go through [`cspace_geometry::bodies::Body::from_shape`], the
+/// all three go through [`cspace_core::geometry::bodies::Body::from_shape`], the
 /// same as upstream's `createEmptyBodyFromShapeType`.
 ///
 /// Upstream does *not* treat [`Shape::Cone`], [`Shape::Plane`] and
 /// [`Shape::OcTree`] uniformly, so this port does not either (round 26: the
 /// exhaustive upstream-absence audit found the prior blanket claim here —
-/// that all three get [`cspace_error::Error::Construct`] "matching
+/// that all three get [`cspace_core::error::Error::Construct`] "matching
 /// upstream's own null-deref" — was only true for `Cone`/`Plane`, and false
 /// for two of `OcTree`'s three call sites):
 ///
@@ -233,7 +233,7 @@ pub struct DistanceGradient {
 ///   `getOcTreePoints` (this port's `octree_points`) never reads it either.
 ///   This port's `add_shape_to_field` does the same, delegating to
 ///   [`DistanceField::add_octree_to_field`]. Only a [`Shape::OcTree`] whose
-///   own `octree` payload is `None` gets [`cspace_error::Error::Construct`]
+///   own `octree` payload is `None` gets [`cspace_core::error::Error::Construct`]
 ///   — upstream's equivalent (a null `octree_->octree` shared_ptr fed into
 ///   `getOcTreePoints` as a bare `nullptr`) is a null-pointer dereference,
 ///   not a case this port can reproduce in safe Rust.
@@ -247,12 +247,12 @@ pub struct DistanceGradient {
 ///   `createEmptyBodyFromShapeType`), so [`Shape::OcTree`] genuinely does
 ///   null-deref there in upstream, same as [`Shape::Cone`]/[`Shape::Plane`]
 ///   everywhere — this port keeps returning
-///   [`cspace_error::Error::Construct`] for all three in this one function,
-///   via [`cspace_geometry::bodies::Body::from_shape`] returning `None` for
+///   [`cspace_core::error::Error::Construct`] for all three in this one function,
+///   via [`cspace_core::geometry::bodies::Body::from_shape`] returning `None` for
 ///   them unconditionally.
 ///
 /// [`DistanceField::add_octree_to_field`] takes a
-/// [`cspace_octomap::OcTree`] directly instead, against the
+/// [`cspace_core::octomap::OcTree`] directly instead, against the
 /// `cspace-octomap` dependency added for
 /// [`crate::PosedBodyPointDecomposition::from_octree`] — a different,
 /// simpler point-collection algorithm from that method (see its own doc):
@@ -526,7 +526,7 @@ pub trait DistanceField {
 /// mutation was reverted after confirming.
 #[cfg(test)]
 mod tests {
-    use cspace_test_support::KnownOracleDeviation;
+    use cspace_core::test_support::KnownOracleDeviation;
     use serde::Deserialize;
 
     use super::*;
@@ -721,7 +721,7 @@ mod tests {
     fn add_shape_to_field_with_an_octree_shape_delegates_to_add_octree_to_field() {
         use std::sync::Arc;
 
-        use cspace_geometry::shapes::OcTree as OcTreeShape;
+        use cspace_core::geometry::shapes::OcTree as OcTreeShape;
 
         let mut df = field();
         let mut tree = OcTree::new(RESOLUTION);
@@ -746,7 +746,7 @@ mod tests {
     /// "Deviations from upstream").
     #[test]
     fn add_shape_to_field_with_an_octree_shape_missing_its_payload_errors() {
-        use cspace_geometry::shapes::OcTree as OcTreeShape;
+        use cspace_core::geometry::shapes::OcTree as OcTreeShape;
 
         let mut df = field();
         let shape = Shape::OcTree(OcTreeShape::default());
@@ -774,7 +774,7 @@ mod tests {
     fn move_shape_in_field_with_an_octree_shape_is_a_no_op() {
         use std::sync::Arc;
 
-        use cspace_geometry::shapes::OcTree as OcTreeShape;
+        use cspace_core::geometry::shapes::OcTree as OcTreeShape;
 
         let mut df = field();
         df.add_points_to_field(&[Vector3::new(0.35, 0.35, 0.35)]);
@@ -1266,7 +1266,7 @@ mod tests {
     /// instead of one more bare literal means the gate itself, not just a
     /// human rereading four separate numbers, is what answers "does this
     /// still diverge" -- see that type's own doc comment
-    /// (`crates/cspace-test-support/src/lib.rs`).
+    /// (`crates/cspace-core/src/test_support/lib.rs`).
     #[test]
     fn distance_gradient_multiplier_diverges_from_upstreams_truncated_int_field() {
         let mut deviation = KnownOracleDeviation::new(

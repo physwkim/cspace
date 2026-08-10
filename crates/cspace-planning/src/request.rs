@@ -166,7 +166,7 @@
 //!   conversion needed, direct reuse.
 
 use cspace_constraints::KinematicConstraintSet;
-use cspace_geometry::Vector3;
+use cspace_core::geometry::Vector3;
 
 use crate::start_state::StartState;
 
@@ -234,7 +234,7 @@ impl WorkspaceBounds {
 /// already documents for [`PlanningRequest::workspace_bounds`].
 #[derive(Debug, Clone, Default)]
 pub struct PlanningRequest {
-    /// The [`cspace_model::JointModelGroup`] to plan for.
+    /// The [`cspace_core::model::JointModelGroup`] to plan for.
     pub group_name: String,
     /// The state to plan *from*, as an overlay on the scene's current state —
     /// see [`StartState`] for why an overlay and not a complete state, and

@@ -90,8 +90,8 @@
 //! of this type always has one position per name, and either no velocities or
 //! one per name.
 
-use cspace_error::{Error, Result};
-use cspace_state::RobotState;
+use cspace_core::error::{Error, Result};
+use cspace_core::state::RobotState;
 
 /// The state a [`crate::PlanningRequest`] is planned from — replaces
 /// `moveit_msgs::msg::MotionPlanRequest::start_state`.
@@ -166,7 +166,7 @@ impl StartState {
     ///
     /// # Errors
     ///
-    /// [`cspace_error::Error::UnknownName`] if the overlay names a variable
+    /// [`cspace_core::error::Error::UnknownName`] if the overlay names a variable
     /// `state`'s model does not have. Upstream reaches the same condition
     /// through `RobotModel::getVariableIndex` throwing inside
     /// `setVariablePositions` (`robot_state.cpp:395-406`).
@@ -221,7 +221,7 @@ impl StartStateOverride {
     ///
     /// # Errors
     ///
-    /// [`cspace_error::Error::Construct`] if `names` is empty, if `positions`
+    /// [`cspace_core::error::Error::Construct`] if `names` is empty, if `positions`
     /// does not have one entry per name, or if `velocities` is neither empty
     /// nor one entry per name.
     pub fn new(names: Vec<String>, positions: Vec<f64>, velocities: Vec<f64>) -> Result<Self> {
@@ -279,8 +279,8 @@ impl StartStateOverride {
 mod tests {
     use std::fs;
 
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
 
     use super::*;
 

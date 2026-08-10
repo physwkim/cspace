@@ -26,14 +26,14 @@
 //! - `<tf2_eigen/tf2_eigen.hpp>` is used for exactly one call,
 //!   `tf2::toMsg(blend_sample_pose)`, converting `Eigen::Isometry3d` to
 //!   `geometry_msgs::msg::Pose` for [`CartesianTrajectoryPoint::pose`].
-//!   That field is already [`cspace_geometry::Isometry3`] here (see
+//!   That field is already [`cspace_core::geometry::Isometry3`] here (see
 //!   [`crate::cartesian_trajectory`]'s own `# Deviations`), so the
 //!   conversion has nothing left to do — dropped as a message-shape
 //!   exclusion (`PORTING-PLAN.md` D1/D2), not a ROS dependency this port
 //!   had to work around.
 //! - `moveit_msgs::msg::MoveItErrorCodes` (in `TrajectoryBlendResponse`
 //!   and `validateRequest`'s out-parameter) is replaced by
-//!   [`cspace_error::MoveItErrorCode`], via [`blend`]'s `Result` — see
+//!   [`cspace_core::error::MoveItErrorCode`], via [`blend`]'s `Result` — see
 //!   [`TrajectoryBlendResponse`]'s own doc for why the field itself is
 //!   dropped rather than carried.
 //! - `trajectory_msgs::msg::JointTrajectory` (the `blend_joint_trajectory`
@@ -106,7 +106,7 @@
 //!   `scene: &PlanningScene` parameter (matching [`blend`]'s own
 //!   `ctx.scene`) and resolve `link_name` through
 //!   `crate::trajectory_functions::resolve_link_or_attached_body_transform`
-//!   rather than a bare [`cspace_state::Posed::frame_transform`] on a
+//!   rather than a bare [`cspace_core::state::Posed::frame_transform`] on a
 //!   trajectory waypoint alone.
 //! - **`TrajectoryBlendRequest`/`TrajectoryBlendResponse` own their
 //!   trajectories instead of sharing them.** Upstream's
@@ -152,12 +152,12 @@
 use std::collections::HashMap;
 
 use cspace_collision::CollisionEnv;
-use cspace_error::{Error, MoveItErrorCode, Result};
-use cspace_geometry::{Isometry3, quaternion};
-use cspace_kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
+use cspace_core::error::{Error, MoveItErrorCode, Result};
+use cspace_core::geometry::{Isometry3, quaternion};
+use cspace_core::kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
+use cspace_core::state::Posed;
+use cspace_core::trajectory::RobotTrajectory;
 use cspace_scene::PlanningScene;
-use cspace_state::Posed;
-use cspace_trajectory::RobotTrajectory;
 
 use crate::cartesian_trajectory::{CartesianTrajectory, CartesianTrajectoryPoint, Twist};
 use crate::limits::LimitsContainer;
@@ -220,7 +220,7 @@ pub struct TrajectoryBlendResponse<'m> {
 /// [`MoveItErrorCode::InvalidMotionPlan`] if `req.blend_radius` is too
 /// large for either trajectory to have a crossing point (upstream's
 /// "Blend radius too large"). [`MoveItErrorCode::NoIkSolution`] if no
-/// [`static@cspace_kinematics::KINEMATICS_SOLVERS`] entry can be built for
+/// [`static@cspace_core::kinematics::KINEMATICS_SOLVERS`] entry can be built for
 /// `req.group_name` with `req.link_name` as its tip, or the blended
 /// Cartesian path is not reachable from it.
 /// [`MoveItErrorCode::PlanningFailed`] if a blended sample violates a
@@ -542,12 +542,12 @@ mod tests {
 
     use approx::assert_relative_eq;
     use cspace_collision::{LinkPaddingScale, ParryCollisionEnv};
-    use cspace_model::{MeshSearchPaths, RobotModel};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::state::RobotState;
     use cspace_scene::PlanningScene;
-    use cspace_srdf::SrdfModel;
-    use cspace_state::RobotState;
 
-    use cspace_geometry::{Cuboid, Isometry3, Shape, UnitQuaternion, Vector3};
+    use cspace_core::geometry::{Cuboid, Isometry3, Shape, UnitQuaternion, Vector3};
 
     use super::*;
     use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer};

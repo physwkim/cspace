@@ -38,10 +38,10 @@
 use std::collections::BTreeMap;
 use std::fs;
 
-use cspace_geometry::{Isometry3, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Isometry3, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 
 const TOUCHED_LINK: &str = "bl_caster_l_wheel_link";
 const CAPTURED_REFERENCE_DEPTH: f64 = -2.086_969_879_345_937e-2;

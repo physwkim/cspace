@@ -176,9 +176,9 @@ pub fn plan_only<'m>(
 #[cfg(test)]
 mod tests {
     use cspace_constraints::utils::construct_goal_joint_constraints;
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
-    use cspace_state::RobotState;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::state::RobotState;
 
     use super::*;
 

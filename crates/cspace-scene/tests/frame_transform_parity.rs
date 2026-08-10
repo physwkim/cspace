@@ -31,7 +31,7 @@
 //! "return identity when no transform is available, use
 //! `knowsFrameTransform` to tell the two apart" (`planning_scene.hpp:204`).
 //! [`PlanningScene::frame_transform`] instead returns
-//! [`cspace_error::Error::UnknownName`] for a name resolving in no tier, the
+//! [`cspace_core::error::Error::UnknownName`] for a name resolving in no tier, the
 //! idiomatic `Result` shape every other lookup in this port already uses
 //! (see e.g. [`cspace_collision::World::get_transform`], upstream's own
 //! *throwing* single-arg `getTransform` overload) -- a deliberate deviation
@@ -46,10 +46,10 @@ use approx::assert_relative_eq;
 use serde::Deserialize;
 
 use cspace_collision::World;
-use cspace_geometry::{Cuboid, Isometry3, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::geometry::{Cuboid, Isometry3, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
 use nalgebra::{Matrix3, Translation3, UnitQuaternion};
 
 #[derive(Deserialize)]

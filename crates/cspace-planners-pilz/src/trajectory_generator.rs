@@ -65,7 +65,7 @@
 //! port's `cspace-model::JointModelGroup` carries no `kinematics.yaml`-derived
 //! solver mapping — nothing in this workspace's `RobotModel` port loads
 //! `kinematics.yaml` — so [`check_cartesian_goal`] instead scans
-//! [`static@cspace_kinematics::KINEMATICS_SOLVERS`] and attempts to build
+//! [`static@cspace_core::kinematics::KINEMATICS_SOLVERS`] and attempts to build
 //! each registered solver for `(robot_model, group_name)`; that per-group
 //! solver-selection deviation stays open, since there is no
 //! `kinematics.yaml` data here to close it with.
@@ -75,7 +75,7 @@
 //! is `is_rigidly_connected` (`crate::trajectory_functions`) to the requested
 //! link — exact match, or connected to it by fixed joints only, mirroring
 //! `getRigidlyConnectedParentLinkModel`'s own `nullptr`-group semantics via
-//! [`cspace_model::RobotModel::rigidly_connected_parent_link`]. Validation
+//! [`cspace_core::model::RobotModel::rigidly_connected_parent_link`]. Validation
 //! accepting a rigidly-connected link only matters together with the plan
 //! path actually reaching IK for it, which is why
 //! [`crate::trajectory_functions::compute_pose_ik`] performs the same
@@ -138,13 +138,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use cspace_collision::CollisionEnv;
-use cspace_error::{Error, MoveItErrorCode, Result};
-use cspace_geometry::{Isometry3, UnitQuaternion, Vector3};
-use cspace_kinematics::{KINEMATICS_SOLVERS, SolverParams};
-use cspace_model::RobotModel;
+use cspace_core::error::{Error, MoveItErrorCode, Result};
+use cspace_core::geometry::{Isometry3, UnitQuaternion, Vector3};
+use cspace_core::kinematics::{KINEMATICS_SOLVERS, SolverParams};
+use cspace_core::model::RobotModel;
+use cspace_core::state::Posed;
+use cspace_core::trajectory::RobotTrajectory;
 use cspace_scene::PlanningScene;
-use cspace_state::Posed;
-use cspace_trajectory::RobotTrajectory;
 
 use crate::limits::{JointLimitsContainer, LimitsContainer};
 use crate::trajectory_functions::{IkContext, is_rigidly_connected};
@@ -896,8 +896,8 @@ pub fn check_cartesian_limits(planner_limits: &LimitsContainer) -> Result<()> {
 mod tests {
     use std::fs;
 
-    use cspace_kinematics::{DEFAULT_SOLVER_NAME, resolve_solver};
-    use cspace_model::{MeshSearchPaths, RobotModel};
+    use cspace_core::kinematics::{DEFAULT_SOLVER_NAME, resolve_solver};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
 
     use super::*;
     use crate::limits::{CartesianLimits, JointLimit};
@@ -906,7 +906,7 @@ mod tests {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
         let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
         let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
-        let srdf = cspace_srdf::SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
+        let srdf = cspace_core::srdf::SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
         let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
         let mesh_paths = MeshSearchPaths::new([(
             "moveit_resources_panda_description",

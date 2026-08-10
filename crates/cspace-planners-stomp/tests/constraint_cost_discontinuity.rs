@@ -82,7 +82,8 @@ use std::cell::RefCell;
 use std::fs;
 
 use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
-use cspace_model::{JointModelGroup, MeshSearchPaths, RobotModel};
+use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use cspace_planners_stomp::composable_task::{ComposableTask, CostFn};
 use cspace_planners_stomp::conversion_functions::set_positions;
 use cspace_planners_stomp::cost_functions::{
@@ -92,7 +93,6 @@ use cspace_planners_stomp::cost_functions::{
 use cspace_planners_stomp::filter_functions::no_filter;
 use cspace_planners_stomp::noise_generators::normal_distribution_generator;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
 use cspace_stomp_core::{Stomp, StompConfiguration, TrajectoryInitialization};
 use nalgebra::DMatrix;
 use rand::SeedableRng;

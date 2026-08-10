@@ -49,7 +49,7 @@
 //!   under this workspace's `deny(warnings)`, so the accessor is added,
 //!   mirroring [`LimitsContainer::has_joint_limits`]'s shape.
 //! - **`getLimit`/`getCommonLimit(joint_names)`'s `std::out_of_range` becomes
-//!   [`cspace_error::Error::UnknownName`].** Matches this crate's house error
+//!   [`cspace_core::error::Error::UnknownName`].** Matches this crate's house error
 //!   convention; see `cspace-error`.
 //! - **Lookups are single-pass.** Upstream's `verify*Limit` methods call
 //!   `hasLimit()` then `getLimit()`, walking the map twice; the port uses one
@@ -58,7 +58,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use cspace_error::{Error, Result};
+use cspace_core::error::{Error, Result};
 
 use crate::numeric::{cxx_max, cxx_min};
 
@@ -132,7 +132,7 @@ impl Default for JointLimit {
 /// envelope) and per-dimension boundary checks.
 ///
 /// Upstream: `JointLimitsContainer`. Backed by a [`BTreeMap`] rather than
-/// `std::map` for the same reason as `cspace_geometry::Transforms`: matching
+/// `std::map` for the same reason as `cspace_core::geometry::Transforms`: matching
 /// ordering.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct JointLimitsContainer {

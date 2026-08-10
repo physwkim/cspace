@@ -74,8 +74,9 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use cspace_collision::{LinkPaddingScale, ParryCollisionEnv, World};
-use cspace_geometry::{Isometry3, UnitQuaternion, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::geometry::{Isometry3, UnitQuaternion, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use cspace_planners_pilz::limits::{
     CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer,
 };
@@ -87,7 +88,6 @@ use cspace_planners_pilz::trajectory_generator::{
 };
 use cspace_planners_pilz::trajectory_generator_polyline::TrajectoryGeneratorPolyline;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
 
 #[derive(Deserialize)]
 struct FixtureJointLimit {
@@ -423,7 +423,7 @@ fn polyline_panda_arm_rejects_the_same_request_the_oracle_rejects() {
     );
     assert_eq!(
         response.error_code,
-        cspace_error::MoveItErrorCode::InvalidMotionPlan,
+        cspace_core::error::MoveItErrorCode::InvalidMotionPlan,
         "rejection reason must match the oracle's INVALID_MOTION_PLAN"
     );
 
@@ -440,7 +440,7 @@ fn polyline_panda_arm_rejects_the_same_request_the_oracle_rejects() {
     let response = generator.generate(&ctx, &plan, request.sampling_time);
     assert_eq!(
         response.error_code,
-        cspace_error::MoveItErrorCode::Success,
+        cspace_core::error::MoveItErrorCode::Success,
         "restoring the second waypoint must plan, or the rejection above is \
          not attributable to the count"
     );
@@ -519,7 +519,7 @@ fn polyline_panda_arm_diverges_from_the_oracles_stale_filter_index_rejection() {
     let response = generator.generate(&ctx, &plan_request(&request), request.sampling_time);
     assert_eq!(
         response.error_code,
-        cspace_error::MoveItErrorCode::Success,
+        cspace_core::error::MoveItErrorCode::Success,
         "this port's corrected filter must now drop w3 and plan; \
          INVALID_MOTION_PLAN here would mean the fix regressed back to \
          upstream's stale-index rule"
@@ -545,7 +545,7 @@ fn polyline_panda_arm_diverges_from_the_oracles_stale_filter_index_rejection() {
     let response = generator.generate(&ctx, &corrected, request.sampling_time);
     assert_eq!(
         response.error_code,
-        cspace_error::MoveItErrorCode::Success,
+        cspace_core::error::MoveItErrorCode::Success,
         "dropping w3 by hand -- the same geometry the fixed filter now \
          produces on its own -- must plan, or the SUCCESS above has some \
          other cause"

@@ -28,8 +28,8 @@
 //! `DistanceFieldCacheEntry::link_names_` (upstream
 //! `getUpdatedLinkModelNames`) as a blocking dependency gap in
 //! `cspace-model`. That gap is closed --
-//! [`cspace_model::JointModelGroup::updated_link_names`]/
-//! [`cspace_model::JointModelGroup::updated_link_with_geometry_names`] now
+//! [`cspace_core::model::JointModelGroup::updated_link_names`]/
+//! [`cspace_core::model::JointModelGroup::updated_link_with_geometry_names`] now
 //! exist, oracle-verified -- which unblocks
 //! [`generate_distance_field_cache_entry`] and the
 //! [`crate::DistanceFieldCacheEntry`] struct itself (in
@@ -46,7 +46,7 @@
 //! here rather than methods needing that type's cache field or
 //! construction-time state. `p1-fixtures` has since landed
 //! `cspace-scene::AttachedBody`, but it remains unreachable from here: it is
-//! tracked on `cspace_scene::PlanningScene`, not on `cspace_state::RobotState`
+//! tracked on `cspace_scene::PlanningScene`, not on `cspace_core::state::RobotState`
 //! (that crate's own doc still lists "no attached bodies" under deferred
 //! scope, deliberately, so `PlanningScene` stays the sole owner -- see
 //! `cspace-scene`'s `attached_body` module doc), and
@@ -323,7 +323,7 @@
 //! this round and has been removed rather than left to go stale again.
 //!
 //! This file's own `pr2_model()` test helper below still builds with
-//! [`cspace_model::MeshSearchPaths::none`], but for an unrelated reason, not
+//! [`cspace_core::model::MeshSearchPaths::none`], but for an unrelated reason, not
 //! a residual fixture gap: every test that uses it
 //! (`only_links_with_shapes_get_a_decomposition`,
 //! `link_spheres_override_replaces_the_computed_spheres_for_that_link_only`)
@@ -340,10 +340,10 @@ use cspace_collision::{
     AllowedCollisionMatrix, AllowedCollisionType, AttachedBodyGeometry, BodyType, CollisionRequest,
     CollisionResult, Contact, ContactData, LinkPaddingScale,
 };
-use cspace_error::{Error, Result};
-use cspace_geometry::Isometry3;
-use cspace_model::RobotModel;
-use cspace_state::Posed;
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::Isometry3;
+use cspace_core::model::RobotModel;
+use cspace_core::state::Posed;
 use nalgebra::Vector3;
 
 use crate::collision_common_distance_field::{
@@ -530,7 +530,7 @@ pub struct DistanceFieldConfig {
 ///
 /// # Errors
 ///
-/// [`cspace_error::Error::UnknownName`] if `group_name` does not name a
+/// [`cspace_core::error::Error::UnknownName`] if `group_name` does not name a
 /// group in `state`'s model. See [`PropagationDistanceField::new`] for
 /// errors from building the distance field.
 pub fn generate_distance_field_cache_entry<'m>(
@@ -933,7 +933,7 @@ pub fn get_distance_field_cache_entry<'e, 'm>(
 ///
 /// # Errors
 ///
-/// [`cspace_error::Error::UnknownName`] if `state`'s model has no link named
+/// [`cspace_core::error::Error::UnknownName`] if `state`'s model has no link named
 /// by some entry of `dfce.link_names` (propagated from
 /// [`Posed::global_link_transform`]), or if `attached_bodies` has no entry
 /// matching some name in `dfce.attached_body_names`. Upstream's own
@@ -1067,7 +1067,7 @@ pub fn group_state_representation<'a, 'm>(
 ///
 /// # Errors
 ///
-/// [`cspace_error::Error::UnknownName`] if `state`'s model has no link named
+/// [`cspace_core::error::Error::UnknownName`] if `state`'s model has no link named
 /// by some entry of `gsr.dfce.link_names` (propagated from
 /// [`Posed::global_link_transform`]), or if `attached_bodies` has no entry
 /// matching some name in `gsr.dfce.attached_body_names` -- unlike upstream,
@@ -2372,8 +2372,8 @@ fn build_non_group_distance_field<'a>(
 mod tests {
     use std::collections::BTreeSet;
 
-    use cspace_geometry::{Shape, Sphere};
-    use cspace_model::MeshSearchPaths;
+    use cspace_core::geometry::{Shape, Sphere};
+    use cspace_core::model::MeshSearchPaths;
 
     use super::*;
 
@@ -2383,7 +2383,8 @@ mod tests {
         let urdf_xml =
             std::fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
         let urdf = urdf_rs::read_file(&urdf_path).expect("pr2.urdf must parse");
-        let srdf = cspace_srdf::SrdfModel::parse_file(&srdf_path).expect("pr2.srdf must parse");
+        let srdf =
+            cspace_core::srdf::SrdfModel::parse_file(&srdf_path).expect("pr2.srdf must parse");
         RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
             .expect("pr2 model must build")
     }
@@ -2448,9 +2449,9 @@ mod tests {
         }
     }
 
-    fn pr2_srdf() -> cspace_srdf::SrdfModel {
+    fn pr2_srdf() -> cspace_core::srdf::SrdfModel {
         let srdf_path = format!("{}/tests/fixtures/pr2.srdf", env!("CARGO_MANIFEST_DIR"));
-        cspace_srdf::SrdfModel::parse_file(&srdf_path).expect("pr2.srdf must parse")
+        cspace_core::srdf::SrdfModel::parse_file(&srdf_path).expect("pr2.srdf must parse")
     }
 
     /// One in-group variable name (moving it must never affect
@@ -2490,7 +2491,7 @@ mod tests {
             add_link_body_decompositions(model, 0.05, &padding, None).unwrap();
         let srdf = pr2_srdf();
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(model);
+        let mut state = cspace_core::state::RobotState::new(model);
         state.set_to_default_values();
         let posed = state.update();
         generate_distance_field_cache_entry(
@@ -2511,7 +2512,7 @@ mod tests {
         let (in_group_var, _out_of_group_var) =
             one_in_group_and_one_out_of_group_variable(&model, "right_arm");
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         state.set_variable_position(&in_group_var, 1.0).unwrap();
         let posed = state.update();
@@ -2529,7 +2530,7 @@ mod tests {
         let (_in_group_var, out_of_group_var) =
             one_in_group_and_one_out_of_group_variable(&model, "right_arm");
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         state.set_variable_position(&out_of_group_var, 1.0).unwrap();
         let posed = state.update();
@@ -2551,7 +2552,7 @@ mod tests {
             .variable_position(&out_of_group_var)
             .expect("variable exists");
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         state
             .set_variable_position(&out_of_group_var, baseline + STATE_CHECK_EPSILON * 0.5)
@@ -2586,11 +2587,11 @@ mod tests {
 </robot>
 "#;
         let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
-        let srdf = cspace_srdf::SrdfModel::default();
+        let srdf = cspace_core::srdf::SrdfModel::default();
         let other_model =
             RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
                 .unwrap();
-        let mut other_state = cspace_state::RobotState::new(&other_model);
+        let mut other_state = cspace_core::state::RobotState::new(&other_model);
         other_state.set_to_default_values();
         let other_posed = other_state.update();
 
@@ -2636,7 +2637,7 @@ mod tests {
     /// updated-link set has only one geometry-bearing link under
     /// [`MeshSearchPaths::none`] -- see this module's doc comment -- so it
     /// cannot exercise the intra-group-pair branch at all).
-    fn two_link_model_and_srdf() -> (RobotModel, cspace_srdf::SrdfModel) {
+    fn two_link_model_and_srdf() -> (RobotModel, cspace_core::srdf::SrdfModel) {
         let urdf_xml = r#"<?xml version="1.0"?>
 <robot name="two_link">
   <link name="base">
@@ -2670,11 +2671,11 @@ mod tests {
 </robot>
 "#;
         let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
-        let srdf = cspace_srdf::SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
+        let srdf = cspace_core::srdf::SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
         let model =
             RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
                 .expect("two_link model must build");
-        cspace_test_support::assert_group_has_updated_links(&model, "chain");
+        cspace_core::test_support::assert_group_has_updated_links(&model, "chain");
         (model, srdf)
     }
 
@@ -2685,7 +2686,7 @@ mod tests {
         let link_body_decompositions =
             add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let dfce = generate_distance_field_cache_entry(
@@ -2765,7 +2766,7 @@ mod tests {
     #[test]
     fn get_distance_field_cache_entry_returns_none_when_current_is_none() {
         let model = pr2_model();
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -2776,7 +2777,7 @@ mod tests {
     fn get_distance_field_cache_entry_returns_none_on_group_name_mismatch() {
         let model = pr2_model();
         let dfce = right_arm_cache_entry(&model);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -2793,7 +2794,7 @@ mod tests {
         let (_in_group_var, out_of_group_var) =
             one_in_group_and_one_out_of_group_variable(&model, "right_arm");
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         state.set_variable_position(&out_of_group_var, 1.0).unwrap();
         let posed = state.update();
@@ -2818,7 +2819,7 @@ mod tests {
         let mut acm = AllowedCollisionMatrix::from_srdf(&pr2_srdf());
         acm.set_entry(&link, &link, true);
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -2833,7 +2834,7 @@ mod tests {
     fn get_distance_field_cache_entry_accepts_with_no_acm_check() {
         let model = pr2_model();
         let dfce = right_arm_cache_entry(&model);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -2849,7 +2850,7 @@ mod tests {
         let model = pr2_model();
         let dfce = right_arm_cache_entry(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&pr2_srdf());
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -2876,7 +2877,7 @@ mod tests {
             add_link_body_decompositions(model, 0.05, &padding, None).unwrap();
         let srdf = pr2_srdf();
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(model);
+        let mut state = cspace_core::state::RobotState::new(model);
         state.set_to_default_values();
         let posed = state.update();
         generate_distance_field_cache_entry(
@@ -2905,7 +2906,7 @@ mod tests {
         };
         let dfce = right_arm_cache_entry_with_attached(&model, &[attached]);
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -2930,7 +2931,7 @@ mod tests {
         };
         let dfce = right_arm_cache_entry_with_attached(&model, &[attached]);
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -2959,7 +2960,7 @@ mod tests {
             ..generating
         };
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -2991,7 +2992,7 @@ mod tests {
             ..generating
         };
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -3025,7 +3026,7 @@ mod tests {
             ..generating
         };
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -3073,7 +3074,7 @@ mod tests {
         let padding = LinkPaddingScale::new();
         let link_body_decompositions =
             add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let shapes = vec![sample_shape()];
@@ -3127,7 +3128,7 @@ mod tests {
             add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
         let srdf = pr2_srdf();
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let shapes = vec![sample_shape()];
@@ -3171,7 +3172,7 @@ mod tests {
         let padding = LinkPaddingScale::new();
         let (link_body_decomposition_vector, link_body_decomposition_index_map) =
             add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let group = model.joint_model_group("right_arm").unwrap();
@@ -3286,7 +3287,7 @@ mod tests {
         let (link_body_decomposition_vector, _) =
             add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -3337,7 +3338,7 @@ mod tests {
         let (in_group_var, _out_of_group_var) =
             one_in_group_and_one_out_of_group_variable(&model, "right_arm");
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let default_posed = state.update();
 
@@ -3359,7 +3360,7 @@ mod tests {
         // recomputes every sphere center from the link-relative geometry on
         // each call rather than accumulating a delta (see
         // `PosedBodySphereDecomposition::update_pose`).
-        let mut moved = cspace_state::RobotState::new(&model);
+        let mut moved = cspace_core::state::RobotState::new(&model);
         moved.set_to_default_values();
         moved.set_variable_position(&in_group_var, 0.3).unwrap();
         let moved_posed = moved.update();
@@ -3420,7 +3421,7 @@ mod tests {
         let padding = LinkPaddingScale::new();
         let (link_body_decomposition_vector, _) =
             add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -3479,7 +3480,7 @@ mod tests {
         let padding = LinkPaddingScale::new();
         let (link_body_decomposition_vector, _) =
             add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -3536,7 +3537,7 @@ mod tests {
         let padding = LinkPaddingScale::new();
         let (link_body_decomposition_vector, _) =
             add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -3593,7 +3594,7 @@ mod tests {
         let (in_group_var, _out_of_group_var) =
             one_in_group_and_one_out_of_group_variable(&model, "right_arm");
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let default_posed = state.update();
 
@@ -3608,7 +3609,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut moved = cspace_state::RobotState::new(&model);
+        let mut moved = cspace_core::state::RobotState::new(&model);
         moved.set_to_default_values();
         moved.set_variable_position(&in_group_var, 0.3).unwrap();
         let moved_posed = moved.update();
@@ -3675,7 +3676,7 @@ mod tests {
         let (in_group_var, _out_of_group_var) =
             one_in_group_and_one_out_of_group_variable(&model, "right_arm");
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let default_posed = state.update();
 
@@ -3693,7 +3694,7 @@ mod tests {
             .sphere_centers()
             .to_vec();
 
-        let mut moved = cspace_state::RobotState::new(&model);
+        let mut moved = cspace_core::state::RobotState::new(&model);
         moved.set_to_default_values();
         moved.set_variable_position(&in_group_var, 0.5).unwrap();
         let moved_posed = moved.update();
@@ -3767,7 +3768,7 @@ mod tests {
         let mut cache = right_arm_collision_cache(&model);
         let srdf = pr2_srdf();
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -3797,7 +3798,7 @@ mod tests {
         let mut cache = right_arm_collision_cache(&model);
         let srdf = pr2_srdf();
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -3825,7 +3826,7 @@ mod tests {
         let mut cache = right_arm_collision_cache(&model);
         let srdf = pr2_srdf();
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -3852,7 +3853,7 @@ mod tests {
         let model = pr2_model();
         let mut cache = right_arm_collision_cache(&model);
         let srdf = pr2_srdf();
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -3914,7 +3915,7 @@ mod tests {
             add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
         let srdf = pr2_srdf();
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let config = small_distance_field_config();
@@ -3981,7 +3982,7 @@ mod tests {
         let (_in_group_var, out_of_group_var) =
             one_in_group_and_one_out_of_group_variable(&model, "right_arm");
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let baseline = state.update();
         let baseline_gsr = cache
@@ -3989,7 +3990,7 @@ mod tests {
             .unwrap();
         let baseline_state_values = baseline_gsr.dfce.state_values.clone();
 
-        let mut moved = cspace_state::RobotState::new(&model);
+        let mut moved = cspace_core::state::RobotState::new(&model);
         moved.set_to_default_values();
         moved
             .set_variable_position(&out_of_group_var, STATE_CHECK_EPSILON * 2.0)
@@ -4066,7 +4067,7 @@ mod tests {
     /// under real geometry (measured directly, 230/230 samples; see
     /// `doc/claim-audit/cspace-distance-field.md`'s `fixtures/pr2.srdf`
     /// row), so no pr2 configuration exists to make that claim true.
-    fn well_separated_two_link_model_and_srdf() -> (RobotModel, cspace_srdf::SrdfModel) {
+    fn well_separated_two_link_model_and_srdf() -> (RobotModel, cspace_core::srdf::SrdfModel) {
         let urdf_xml = r#"<?xml version="1.0"?>
 <robot name="well_separated_two_link">
   <link name="base">
@@ -4102,11 +4103,11 @@ mod tests {
 </robot>
 "#;
         let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
-        let srdf = cspace_srdf::SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
+        let srdf = cspace_core::srdf::SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
         let model =
             RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
                 .expect("well_separated_two_link model must build");
-        cspace_test_support::assert_group_has_updated_links(&model, "chain");
+        cspace_core::test_support::assert_group_has_updated_links(&model, "chain");
         (model, srdf)
     }
 
@@ -4115,7 +4116,7 @@ mod tests {
         let (model, srdf) = well_separated_two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -4149,7 +4150,7 @@ mod tests {
         acm.set_entry("mid", "mid", true);
         acm.set_entry("tip", "tip", true);
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let req = CollisionRequest {
@@ -4191,7 +4192,7 @@ mod tests {
         acm.set_entry("mid", "mid", true);
         acm.set_entry("tip", "tip", true);
 
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let req = CollisionRequest {
@@ -4217,7 +4218,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -4247,7 +4248,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let env = point_environment_distance_field(Vector3::new(0.0, 0.0, 0.0));
@@ -4291,7 +4292,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let env = point_environment_distance_field(Vector3::new(0.0, 0.0, 0.0));
@@ -4322,7 +4323,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let config = small_distance_field_config();
@@ -4354,7 +4355,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let env = point_environment_distance_field(Vector3::new(0.0, 0.0, 0.0));
@@ -4388,7 +4389,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let mut gsr = cache
@@ -4431,7 +4432,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let env = point_environment_distance_field(Vector3::new(0.0, 0.0, 0.0));
@@ -4470,7 +4471,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -4514,7 +4515,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -4556,7 +4557,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -4608,7 +4609,7 @@ mod tests {
     fn attached_body_is_invisible_when_acm_is_none() {
         let (model, _srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -4658,7 +4659,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -4703,7 +4704,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -4758,7 +4759,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -4809,7 +4810,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -4853,7 +4854,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let env = point_environment_distance_field(Vector3::new(0.0, 0.0, 0.0));
@@ -4903,7 +4904,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let config = small_distance_field_config();
@@ -4961,7 +4962,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -5023,7 +5024,7 @@ mod tests {
         let (model, srdf) = two_link_model_and_srdf();
         let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let env = point_environment_distance_field(Vector3::new(0.0, 0.0, 0.0));

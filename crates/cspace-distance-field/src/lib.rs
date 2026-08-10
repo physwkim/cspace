@@ -201,7 +201,7 @@
 //! (`getAttachedBodySphereDecomposition`/`getAttachedBodyPointDecomposition`)
 //! are now ported too, as of round 22, as
 //! [`attached_body_sphere_decomposition`]/[`attached_body_point_decomposition`]
-//! — the premise this bullet used to state (a bare `cspace_state::State`
+//! — the premise this bullet used to state (a bare `cspace_core::state::State`
 //! structurally cannot see attached bodies, since they live on
 //! `cspace_scene::PlanningScene`, which this crate does not depend on) is
 //! still true, but it turned out irrelevant: this crate had already solved
@@ -1151,7 +1151,7 @@ pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 /// consumer) and `collision_env_hybrid.rs`'s doc comments for where that
 /// bit this crate (§196). Every fixture builder in this crate's test
 /// modules that constructs a model meant to exercise self/robot-collision
-/// checking calls `cspace_test_support::assert_group_has_updated_links`
+/// checking calls `cspace_core::test_support::assert_group_has_updated_links`
 /// right after construction, so a future edit that collapses a fixture's
 /// group to zero active joints fails loudly here instead of downstream as a
 /// silently-passing `assert!(!result.collision)`.
@@ -1161,7 +1161,7 @@ pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 /// `cspace-planners-chomp` independently wrote the same check inline in two
 /// fixtures (`8e632d8`), anchored on the same `updated_link_names()` symbol.
 /// Two crates re-deriving one guard is the sign the guard belongs to
-/// neither -- both now call `cspace_test_support::assert_group_has_updated_links`
+/// neither -- both now call `cspace_core::test_support::assert_group_has_updated_links`
 /// (crate `cspace-test-support`, `[dev-dependencies]` only) instead. A
 /// `#[cfg(test)]` module cannot be imported across a crate boundary at all,
 /// so lifting it required either a small always-compiled crate or a `pub`

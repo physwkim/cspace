@@ -1,10 +1,10 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! `geometry_msgs` <-> [`cspace_geometry`] primitive conversions.
+//! `geometry_msgs` <-> [`cspace_core::geometry`] primitive conversions.
 //!
-//! `cspace_geometry::{Isometry3, Vector3, UnitQuaternion}` are plain type
-//! aliases to `nalgebra` types (`crates/cspace-geometry/src/lib.rs:216-223`),
+//! `cspace_core::geometry::{Isometry3, Vector3, UnitQuaternion}` are plain type
+//! aliases to `nalgebra` types (`crates/cspace-core/src/geometry/lib.rs:216-223`),
 //! not opaque local structs -- so on the core side, as on the `r2r` side,
 //! every type this module converts is foreign to `cspace-ros`. Each `Msg*`
 //! wrapper below exists solely so `impl TryFrom` has a locally-defined type
@@ -13,13 +13,13 @@
 //!
 //! `geometry_msgs::msg::Point` and `geometry_msgs::msg::Vector3` are
 //! distinct wire types (position vs. direction) that both map onto the same
-//! core type, `cspace_geometry::Vector3` -- the core crate has no separate
+//! core type, `cspace_core::geometry::Vector3` -- the core crate has no separate
 //! `Point`. This mirrors upstream: `moveit_core`'s own conversions go through
 //! `tf2_eigen`, which likewise treats both as `Eigen::Vector3d`. Not a
 //! narrowing introduced by this port.
 
-use cspace_error::Error;
-use cspace_geometry::{Isometry3, UnitQuaternion, Vector3 as CoreVector3};
+use cspace_core::error::Error;
+use cspace_core::geometry::{Isometry3, UnitQuaternion, Vector3 as CoreVector3};
 use nalgebra::Translation3;
 use r2r::geometry_msgs::msg as geometry_msgs;
 

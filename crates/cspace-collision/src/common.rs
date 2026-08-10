@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
-use cspace_geometry::{Isometry3, Shape, Vector3};
+use cspace_core::geometry::{Isometry3, Shape, Vector3};
 
 /// Upstream `collision_detection::BodyTypes::Type` (aliased there as `BodyType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -657,7 +657,7 @@ impl CollisionResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cspace_test_support::KnownOracleDeviation;
+    use cspace_core::test_support::KnownOracleDeviation;
 
     /// `CostSource::cmp`'s tie-break chain ends at `aabb_min`
     /// (`total_cmp_aabb`) and never looks at `aabb_max` — matching

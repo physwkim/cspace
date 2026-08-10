@@ -78,11 +78,11 @@ use cspace_constraints::{
     JointConstraint, JointConstraintSampler, OrientationConstraint, OrientationTolerance,
     PositionConstraint, UnionConstraintSampler, select_default_sampler,
 };
-use cspace_geometry::{Isometry3, Shape, Sphere, Transforms, Vector3};
-use cspace_kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolverParams};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Isometry3, Shape, Sphere, Transforms, Vector3};
+use cspace_core::kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolverParams};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 

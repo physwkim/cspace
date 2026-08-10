@@ -14,8 +14,8 @@
 //! a `name` field; `cspace-constraints`'s call, not this crate's.
 
 use cspace_constraints::{Constraint, KinematicConstraintSet};
-use cspace_error::Error;
-use cspace_model::RobotModel;
+use cspace_core::error::Error;
+use cspace_core::model::RobotModel;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::joint::{JointConstraintMsg, JointConstraintMsgOut};

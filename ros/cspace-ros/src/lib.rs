@@ -27,7 +27,7 @@
 //! # The orphan-rule finding
 //!
 //! D6 says compatibility is `TryFrom`, both directions. Read literally as
-//! `impl TryFrom<moveit_msgs::msg::X> for cspace_model::Y` (or the reverse),
+//! `impl TryFrom<moveit_msgs::msg::X> for cspace_core::model::Y` (or the reverse),
 //! this does not compile for *any* pair of types, from any round: `X` is
 //! defined in the `r2r` crate (r2r generates message bindings into its own
 //! crate, not the consuming crate -- confirmed by reading
@@ -36,7 +36,7 @@
 //! both. Rust's orphan rule forbids a third crate from implementing a
 //! foreign trait (`std::convert::TryFrom`) between two foreign types,
 //! unconditionally, regardless of which crate defines which side. This is
-//! not specific to `nalgebra`-aliased types like [`cspace_geometry::Isometry3`]
+//! not specific to `nalgebra`-aliased types like [`cspace_core::geometry::Isometry3`]
 //! -- it would block a `moveit_msgs::msg::JointConstraint` <->
 //! `cspace_constraints::JointConstraint` `TryFrom` exactly the same way, in
 //! whichever round implements that.
@@ -90,4 +90,4 @@ pub mod scene;
 pub mod state;
 pub mod trajectory;
 
-pub use cspace_error::{Error, Result};
+pub use cspace_core::error::{Error, Result};

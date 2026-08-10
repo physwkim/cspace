@@ -253,12 +253,12 @@ use cspace_collision::{
     AllowedCollisionMatrix, AttachedBodyGeometry, CollisionEnv, CollisionRequest, LinkPaddingScale,
     ParryCollisionEnv, World,
 };
-use cspace_geometry::{Cone, Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Cone, Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 
-/// Every kind whose `cspace_geometry::Shape` variant this backend can convert
+/// Every kind whose `cspace_core::geometry::Shape` variant this backend can convert
 /// to a `parry` shape *and* place at an exact tangency. `Plane` and
 /// `Halfspace` are unbounded and `OcTree` is a compound of cuboids already
 /// covered by `Box`, so the constructible-and-tangent set is these five.

@@ -27,7 +27,7 @@
 //!
 //! And upstream's `@note`, which still holds: acceleration and deceleration
 //! can *only* come from the override set. A URDF has no place to put them,
-//! so `cspace_model::joint::VariableBounds`'s `acceleration_bounded` /
+//! so `cspace_core::model::joint::VariableBounds`'s `acceleration_bounded` /
 //! `max_acceleration` are never read here — same as upstream, which reads
 //! only `position_bounded_`/`min_position_`/`max_position_` and
 //! `velocity_bounded_`/`max_velocity_`.
@@ -120,7 +120,7 @@
 //!   the return value does not: the warnings narrate branches whose effect
 //!   on `joint_limit` the caller can read directly.
 
-use cspace_model::joint::JointModel;
+use cspace_core::model::joint::JointModel;
 
 use crate::limits::{JointLimit, JointLimitsContainer};
 
@@ -356,13 +356,13 @@ fn update_velocity_limit_from_joint_model(joint_model: &JointModel, joint_limit:
 
 #[cfg(test)]
 mod tests {
-    use cspace_model::joint::VariableBounds;
+    use cspace_core::model::joint::VariableBounds;
 
     use super::*;
 
     /// A revolute joint bounded to `[-2, 2]` in position and `[-3, 3]` in
     /// velocity — the shape a URDF `<limit lower= upper= velocity=>` tag
-    /// produces (see `cspace_model::joint::joint_model_from_urdf`, which
+    /// produces (see `cspace_core::model::joint::joint_model_from_urdf`, which
     /// sets `min_velocity = -max_velocity`).
     fn bounded_joint(name: &str) -> JointModel {
         let mut joint = JointModel::new_revolute(name);

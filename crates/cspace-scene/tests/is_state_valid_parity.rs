@@ -14,7 +14,7 @@
 //!
 //! # Every case is a genuine two-sided comparison
 //!
-//! `cspace_model::LinkModel` loads real `<mesh>` collision geometry (see
+//! `cspace_core::model::LinkModel` loads real `<mesh>` collision geometry (see
 //! `collision_parity.rs`'s module doc), so panda builds here with real STL
 //! shapes on both sides, not none at all. Every case below is deliberately
 //! either genuinely invalid for a real reason or genuinely valid *despite*
@@ -63,11 +63,11 @@ use serde::Deserialize;
 
 use cspace_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
 use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
-use cspace_geometry::{Cuboid, Isometry3, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::geometry::{Cuboid, Isometry3, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
 use nalgebra::{Matrix3, Translation3, UnitQuaternion};
 
 #[derive(Deserialize)]

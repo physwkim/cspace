@@ -71,16 +71,16 @@ use cspace_collision::{
     AllowedCollisionMatrix, AttachedBodyGeometry, BodyType, CollisionRequest, ContactData,
     LinkPaddingScale, World,
 };
+use cspace_core::geometry::{Isometry3, Shape, Sphere};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
+use cspace_core::test_support::isometry_from_row_major;
 use cspace_distance_field::{
     DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
     PropagationDistanceField, add_link_body_decompositions, collision_object_point_decomposition,
     generate_distance_field_cache_entry, group_state_representation,
 };
-use cspace_geometry::{Isometry3, Shape, Sphere};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
-use cspace_test_support::isometry_from_row_major;
 
 /// Measured-margin tolerance, not policy: this constant used to pin `1e-4`
 /// with no doc comment at all -- inherited from the other parity files in
@@ -393,7 +393,7 @@ fn oracle_default_distance_field_config() -> DistanceFieldConfig {
 /// (`torso_lift_joint`: `(0.0115, 0.325)` -> `0.16825`), and
 /// [`RobotState::new`] alone leaves every variable at raw `0.0`. This port
 /// computes the same five defaults --
-/// `cspace_model`'s URDF joint-bounds builder prefers `<safety_controller>`
+/// `cspace_core::model`'s URDF joint-bounds builder prefers `<safety_controller>`
 /// soft limits and narrows them by `<limit>` only where the hard bound is
 /// tighter, exactly as `robot_model.cpp`'s `jointBoundsFromURDF` does -- so
 /// the two sides agree here and nothing needs pinning to make them.

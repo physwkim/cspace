@@ -40,8 +40,8 @@ use approx::assert_relative_eq;
 use serde::Deserialize;
 
 use cspace_collision::World;
-use cspace_geometry::{Isometry3, Shape, Sphere};
-use cspace_test_support::isometry_from_row_major;
+use cspace_core::geometry::{Isometry3, Shape, Sphere};
+use cspace_core::test_support::isometry_from_row_major;
 
 #[derive(Deserialize)]
 struct RequestObject {

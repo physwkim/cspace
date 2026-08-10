@@ -69,8 +69,8 @@
 //! client reads back is what it (or another publisher) put there, not
 //! motion. Nothing here integrates or simulates.
 
-use cspace_model::RobotModel;
-use cspace_state::RobotState;
+use cspace_core::model::RobotModel;
+use cspace_core::state::RobotState;
 use r2r::builtin_interfaces::msg::Time;
 use r2r::sensor_msgs::msg::JointState;
 use r2r::std_msgs::msg::Header;
@@ -192,8 +192,8 @@ impl JointSampler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cspace_model::MeshSearchPaths;
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::MeshSearchPaths;
+    use cspace_core::srdf::SrdfModel;
 
     const ONE_JOINT_URDF: &str = r#"<?xml version="1.0"?>
 <robot name="one_joint">

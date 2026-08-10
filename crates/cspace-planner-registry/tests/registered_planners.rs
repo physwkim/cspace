@@ -20,7 +20,7 @@
 // here sees an empty slice.
 use cspace_planners_sbp as _;
 
-use cspace_error::Error;
+use cspace_core::error::Error;
 use cspace_planner_registry::{PLANNER_MANAGERS, resolve_planner};
 use cspace_planning::PlannerConfigurationMap;
 

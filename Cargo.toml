@@ -31,27 +31,17 @@ authors = ["moveit-rs contributors"]
 
 [workspace.dependencies]
 cspace-collision = { path = "crates/cspace-collision", version = "0.1.0" }
+cspace-core = { path = "crates/cspace-core", version = "0.1.0" }
 cspace-constraints = { path = "crates/cspace-constraints", version = "0.1.0" }
 # For cspace-planners-chomp's ChompOptimizer, whose only use of upstream's
 # `CollisionEnvHybrid` is a getCollisionGradients call that forwards to
 # CollisionEnvDistanceField -- see PORTING-PLAN.md §139.
 cspace-distance-field = { path = "crates/cspace-distance-field", version = "0.1.0" }
-cspace-error = { path = "crates/cspace-error", version = "0.1.0" }
-cspace-geometry = { path = "crates/cspace-geometry", version = "0.1.0" }
-cspace-kinematics = { path = "crates/cspace-kinematics", version = "0.1.0" }
-cspace-model = { path = "crates/cspace-model", version = "0.1.0" }
-cspace-octomap = { path = "crates/cspace-octomap", version = "0.1.0" }
 cspace-planner-registry = { path = "crates/cspace-planner-registry", version = "0.1.0" }
 cspace-planners-sbp = { path = "crates/cspace-planners-sbp", version = "0.1.0" }
 cspace-planning = { path = "crates/cspace-planning", version = "0.1.0" }
-cspace-sampling = { path = "crates/cspace-sampling", version = "0.1.0" }
 cspace-scene = { path = "crates/cspace-scene", version = "0.1.0" }
-cspace-smoothing = { path = "crates/cspace-smoothing", version = "0.1.0" }
-cspace-srdf = { path = "crates/cspace-srdf", version = "0.1.0" }
 cspace-stomp-core = { path = "crates/cspace-stomp-core", version = "0.1.0" }
-cspace-state = { path = "crates/cspace-state", version = "0.1.0" }
-cspace-test-support = { path = "crates/cspace-test-support", version = "0.1.0" }
-cspace-trajectory = { path = "crates/cspace-trajectory", version = "0.1.0" }
 
 nalgebra = { version = "0.35", features = ["serde-serialize"] }
 roxmltree = "0.21"

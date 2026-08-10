@@ -60,10 +60,10 @@
 use std::sync::Arc;
 
 use cspace_collision::{AllowedCollisionMatrix, AllowedCollisionType};
-use cspace_error::{Error, Result};
-use cspace_geometry::{Isometry3, OcTree as OcTreeShape, Shape, Transforms};
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::{Isometry3, OcTree as OcTreeShape, Shape, Transforms};
 use cspace_scene::PlanningScene;
-use cspace_state::RobotState as CoreRobotState;
+use cspace_core::state::RobotState as CoreRobotState;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::attached::apply_attached_collision_object;
@@ -200,7 +200,7 @@ fn reject_unrepresentable_fields(msg: &moveit_msgs::PlanningScene) -> Result<()>
 ///
 /// It **merges**, it does not replace -- upstream's own body has no clear,
 /// so a full scene message carrying two transforms on a scene that already
-/// held a third keeps all three. `cspace_geometry::Transforms::set_all_transforms`
+/// held a third keeps all three. `cspace_core::geometry::Transforms::set_all_transforms`
 /// is the replacing variant and is deliberately not what this calls.
 ///
 /// Deviation (D6): upstream logs `RCLCPP_ERROR` and silently skips an entry
@@ -528,8 +528,8 @@ pub fn apply_planning_scene_world(
 ///
 /// An empty `octomap.data` is a no-op -- upstream's own early return
 /// (`:1483`) once the previous octomap has been cleared. A non-empty
-/// payload is decoded by [`cspace_octomap::OcTree::read_binary_data`] or
-/// [`cspace_octomap::OcTree::read_data`] (round 8: those two entry points
+/// payload is decoded by [`cspace_core::octomap::OcTree::read_binary_data`] or
+/// [`cspace_core::octomap::OcTree::read_data`] (round 8: those two entry points
 /// landed in `cspace-octomap`, closing the round-5/round-7 structural gap
 /// this doc comment used to describe) and inserted the same way
 /// `apply_collision_object` inserts every other shape kind
@@ -579,14 +579,14 @@ fn apply_octomap(
         )));
     }
     // `map.octomap.resolution` is untrusted wire data, but it is not
-    // validated here -- `cspace_octomap::OcTree::read_binary_data`/
+    // validated here -- `cspace_core::octomap::OcTree::read_binary_data`/
     // `read_data` (called just below) reject a non-positive or non-finite
     // resolution themselves now (`DecodeError::InvalidResolution`), the one
     // shared choke point every caller of either function already passes
     // through, in this crate or any other. See that error variant's own doc
     // for why the resolution invariant belongs there and not at each
     // untrusted-data boundary separately.
-    let mut tree = cspace_octomap::OcTree::new(map.octomap.resolution);
+    let mut tree = cspace_core::octomap::OcTree::new(map.octomap.resolution);
     let bytes: Vec<u8> = map.octomap.data.iter().map(|&b| b as u8).collect();
     let decode_result = if map.octomap.binary {
         tree.read_binary_data(&bytes)
@@ -608,7 +608,7 @@ mod tests {
 
     use super::*;
     use crate::state::tests::one_joint_model;
-    use cspace_srdf::SrdfModel;
+    use cspace_core::srdf::SrdfModel;
 
     fn empty_srdf() -> SrdfModel {
         SrdfModel::parse_str("<?xml version=\"1.0\"?><robot name=\"one_joint\"></robot>")
@@ -1192,7 +1192,7 @@ mod tests {
     /// A zero resolution used to reach `OcTree::new` unrejected and decode
     /// successfully -- `read_binary_data` never touched `resolution` --
     /// while silently corrupting every leaf's coordinate to the world
-    /// origin one level further down (`crates/cspace-octomap/src/tree.rs`'s
+    /// origin one level further down (`crates/cspace-core/src/octomap/tree.rs`'s
     /// `key_to_coord_axis`, a multiplication by `resolution` with no NaN or
     /// Infinity to trip a guard). `read_binary_data` now rejects it directly
     /// (`DecodeError::InvalidResolution`), reached here through the same

@@ -32,10 +32,10 @@ use std::sync::Arc;
 use cspace_collision::{
     AllValidCollisionEnv, CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World,
 };
-use cspace_geometry::{Isometry3, Shape, Sphere};
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::geometry::{Isometry3, Shape, Sphere};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
 
 /// pr2 with no mesh search paths, the same fixture recipe
 /// `cspace-collision`'s `tests/multi_shape_object.rs` uses and for the same

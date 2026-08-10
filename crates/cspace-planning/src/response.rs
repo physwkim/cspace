@@ -9,8 +9,8 @@
 
 //! The canonical planning-response type.
 
-use cspace_state::RobotState;
-use cspace_trajectory::RobotTrajectory;
+use cspace_core::state::RobotState;
+use cspace_core::trajectory::RobotTrajectory;
 
 /// A successful plan, in the shape this crate's response adapters operate
 /// on.
@@ -21,9 +21,9 @@ use cspace_trajectory::RobotTrajectory;
 /// waypoints, no per-waypoint timing. [`crate::response_adapters::AddRuckigTrajectorySmoothing`]/
 /// [`crate::response_adapters::AddTimeOptimalParameterization`] both exist
 /// to *compute* that timing (`RuckigSmoothing`/`TimeOptimalTrajectoryGeneration`,
-/// both already ported in `cspace_trajectory`), so a response type without
+/// both already ported in `cspace_core::trajectory`), so a response type without
 /// anywhere to put a duration cannot carry what these two adapters produce.
-/// [`cspace_trajectory::RobotTrajectory`] already stores one
+/// [`cspace_core::trajectory::RobotTrajectory`] already stores one
 /// `duration_from_previous` per waypoint (`way_point_duration_from_previous`)
 /// for exactly this reason, so [`PlanningResponse::trajectory`] uses it
 /// directly instead of re-deriving a parallel `Vec<f64>` of durations here.

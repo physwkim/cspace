@@ -137,7 +137,7 @@ impl WorldDiff {
 mod tests {
     use std::sync::Arc;
 
-    use cspace_geometry::{Isometry3, Shape, Sphere};
+    use cspace_core::geometry::{Isometry3, Shape, Sphere};
 
     use super::*;
 

@@ -49,10 +49,10 @@ use cspace_collision::{
     AllowedCollisionMatrix, AttachedBodyGeometry, CollisionEnv, CollisionRequest, LinkPaddingScale,
     ParryCollisionEnv, World,
 };
-use cspace_geometry::{Isometry3, Mesh, Shape, Sphere, UnitQuaternion, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Isometry3, Mesh, Shape, Sphere, UnitQuaternion, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use nalgebra::{Translation3, Unit};
 
 /// Half the extent of both shapes, along every axis -- matches

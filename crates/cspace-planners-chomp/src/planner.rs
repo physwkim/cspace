@@ -62,7 +62,7 @@
 //! `start_state: &RobotState` (round 19) -- there is no `moveit_msgs::msg::RobotState`
 //! in this workspace (D1) for the message-overlay step to exist at all, so
 //! a caller here passes the already-resolved `start_state` directly, and
-//! `RobotModel` comes from [`cspace_state::RobotState::model`] instead of a
+//! `RobotModel` comes from [`cspace_core::state::RobotState::model`] instead of a
 //! scene. This keeps this crate's dependency graph exactly as narrow as
 //! [`crate::optimizer`]'s own "no `cspace-scene`" decision (see that
 //! module's "`isCurrentTrajectoryMeshToMeshCollisionFree` becomes an
@@ -103,7 +103,7 @@
 //! `TotgOptions::resample_dt` is; see `cspace-trajectory`'s
 //! `time_optimal_trajectory_generation` module for that precedent). [`solve`]
 //! rejects `planning_time_limit + 5.0` outside `[i32::MIN, i32::MAX]` (as an
-//! `f64` comparison, before any cast) with a typed [`Error`](cspace_error::Error) rather than
+//! `f64` comparison, before any cast) with a typed [`Error`](cspace_core::error::Error) rather than
 //! reproducing C++'s UB via Rust's saturating `as`, which has no "right
 //! answer" to match here. This deviation is scoped to exactly that rejected
 //! range and expires if upstream adds its own validation to
@@ -116,16 +116,16 @@ use crate::trajectory::ChompTrajectory;
 use crate::utils::shortest_angular_distance;
 use cspace_collision::AllowedCollisionMatrix;
 use cspace_constraints::JointConstraint;
-use cspace_error::{Error, MoveItErrorCode, Result};
-use cspace_model::joint::JointType;
-use cspace_state::RobotState;
-use cspace_trajectory::RobotTrajectory;
+use cspace_core::error::{Error, MoveItErrorCode, Result};
+use cspace_core::model::joint::JointType;
+use cspace_core::state::RobotState;
+use cspace_core::trajectory::RobotTrajectory;
 use nalgebra::DMatrix;
 use rand::Rng;
 
 /// One entry of `req.goal_constraints[0].joint_constraints`: a raw
 /// `moveit_msgs::msg::JointConstraint` (name, desired position, asymmetric
-/// tolerance, weight), unresolved against any [`cspace_model::RobotModel`].
+/// tolerance, weight), unresolved against any [`cspace_core::model::RobotModel`].
 ///
 /// # Deviation: not `cspace_constraints::JointConstraint`
 ///
@@ -514,7 +514,7 @@ fn solve_inner<'m>(
     // converges *both* halves to the same `GOAL_CONSTRAINTS_VIOLATED` code
     // (`chomp_planner.cpp:294-299`) -- a plain `?` on `JointConstraint::new`
     // would instead let the construct half escape as whatever typed
-    // `cspace_error::Error` variant construction failed with (e.g.
+    // `cspace_core::error::Error` variant construction failed with (e.g.
     // `Error::Construct` for a negative tolerance), so it is mapped
     // explicitly here instead.
     let last_state = result.last_way_point_mut()?;
@@ -651,14 +651,14 @@ mod tests {
     use super::*;
     use crate::optimizer::ChompExit;
     use approx::assert_relative_eq;
+    use cspace_core::geometry::Vector3;
+    use cspace_core::model::MeshSearchPaths;
+    use cspace_core::model::RobotModel;
+    use cspace_core::srdf::SrdfModel;
     use cspace_distance_field::{
         DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
         PropagationDistanceField, add_link_body_decompositions,
     };
-    use cspace_geometry::Vector3;
-    use cspace_model::MeshSearchPaths;
-    use cspace_model::RobotModel;
-    use cspace_srdf::SrdfModel;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
@@ -720,7 +720,7 @@ mod tests {
         // `ParryCollisionEnv::active_group_links`). Both `j1` and `j2`
         // above are active joints, not `fixed`, but assert the group
         // actually has updated links rather than trusting that stays true.
-        cspace_test_support::assert_group_has_updated_links(&model, GROUP);
+        cspace_core::test_support::assert_group_has_updated_links(&model, GROUP);
         model
     }
 

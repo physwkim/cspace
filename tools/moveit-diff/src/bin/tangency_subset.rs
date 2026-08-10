@@ -149,10 +149,10 @@ use cspace_collision::{
     AllowedCollisionMatrix, CollisionEnv, CollisionRequest, LinkPaddingScale, ParryCollisionEnv,
     World,
 };
-use cspace_geometry::{Cuboid, Cylinder, Isometry3, Shape, Sphere, UnitQuaternion, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Cuboid, Cylinder, Isometry3, Shape, Sphere, UnitQuaternion, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde_json::{Value, json};

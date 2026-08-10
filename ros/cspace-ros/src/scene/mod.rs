@@ -10,8 +10,8 @@ pub mod collision_object;
 pub mod planning_scene;
 pub mod shapes;
 
-use cspace_error::Result;
-use cspace_geometry::Isometry3;
+use cspace_core::error::Result;
+use cspace_core::geometry::Isometry3;
 use cspace_scene::PlanningScene;
 
 /// Resolves a message `header.frame_id` the way the upstream call sites that
@@ -51,9 +51,9 @@ pub(crate) fn header_frame_transform(
 mod tests {
     use super::*;
     use crate::state::tests::one_joint_model;
-    use cspace_error::Error;
-    use cspace_model::RobotModel;
-    use cspace_srdf::SrdfModel;
+    use cspace_core::error::Error;
+    use cspace_core::model::RobotModel;
+    use cspace_core::srdf::SrdfModel;
 
     fn scene(model: &RobotModel) -> PlanningScene<'_> {
         let srdf =

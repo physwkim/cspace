@@ -11,16 +11,11 @@ authors.workspace = true
 [dependencies]
 cspace-collision.workspace = true
 cspace-constraints.workspace = true
-cspace-error.workspace = true
-cspace-geometry.workspace = true
-cspace-kinematics.workspace = true
-cspace-model.workspace = true
-cspace-srdf.workspace = true
-cspace-state.workspace = true
+cspace-core.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
-cspace-octomap.workspace = true
+cspace-core = { workspace = true, features = ["test-support"] }
 nalgebra.workspace = true
 serde.workspace = true
 serde_json.workspace = true

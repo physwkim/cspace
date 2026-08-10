@@ -2,7 +2,7 @@
 # Usage: tools/ci/count-relative-eq.pl <file.rs> [<file.rs> ...]
 #
 # The single copy for the whole workspace. It used to live in
-# `crates/cspace-geometry/audit/` and was copied into four more crates, which
+# `crates/cspace-core/audit/` and was copied into four more crates, which
 # is how the divergence this file exists to prevent actually happened: the
 # `tools/moveit-diff/` copy never picked up the block-comment and
 # string-literal fixes below, so the same command gave two different
@@ -51,7 +51,7 @@
 # own doc comment, not a workspace-wide invariant this script could assert
 # without inventing one. Reproduce cspace-geometry's own recorded figure:
 #
-#   perl tools/ci/count-relative-eq.pl crates/cspace-geometry/src/*.rs
+#   perl tools/ci/count-relative-eq.pl crates/cspace-core/src/geometry/*.rs
 #   # both=9 epsilon_only=0 max_relative_only=0 neither=0
 use strict;
 use warnings;

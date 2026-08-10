@@ -111,9 +111,9 @@ use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
-use cspace_geometry::{Isometry3, Shape, UnitQuaternion, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
+use cspace_core::geometry::{Isometry3, Shape, UnitQuaternion, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use nalgebra::{Matrix3, Rotation3, Translation3};
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -384,7 +384,7 @@ fn cone_mesh_world(
 /// three vertices to `mpr_case104` without a second coordinate transform.
 fn deepest_triangle_vs_cylinder(
     cyl_frame: &Isometry3,
-    cylinder: &cspace_geometry::Cylinder,
+    cylinder: &cspace_core::geometry::Cylinder,
     vertices: &[Vector3],
     triangles: &[[u32; 3]],
 ) -> (f64, [u32; 3], Vec<parry3d_f64::math::Vector>) {

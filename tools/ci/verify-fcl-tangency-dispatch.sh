@@ -174,7 +174,7 @@ if unexplained:
 
 # Only the four kinds `crates/cspace-collision/src/parry.rs`'s `TangencyKind`
 # classifies a shape into -- `capsule`/`ellipsoid`/`convex` have no
-# `cspace_geometry::Shape` variant, and `mesh` is a third path (BVHModel),
+# `cspace_core::geometry::Shape` variant, and `mesh` is a third path (BVHModel),
 # not a libccd specialisation, so it is not in this set at all; its own
 # measured, per-paired-kind rule lives in
 # `crates/cspace-collision/src/mesh_tangency_table.rs` instead of reading it

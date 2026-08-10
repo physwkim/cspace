@@ -16,7 +16,7 @@
 //!
 //! `panda.urdf`/`panda.srdf` (copied from `cspace-state`'s fixtures,
 //! already oracle-verified — see
-//! `crates/cspace-model/tests/fixtures/panda_model_info.json`) supply a
+//! `crates/cspace-core/tests/fixtures/model/panda_model_info.json`) supply a
 //! real model.
 
 use std::cell::{Cell, RefCell};
@@ -28,13 +28,13 @@ use cspace_constraints::{
     ConstraintSampler, IkConstraintSampler, IkConstraintSamplerAdapter, IkSamplingPose,
     OrientationConstraint, OrientationTolerance, PositionConstraint,
 };
-use cspace_geometry::{
+use cspace_core::geometry::{
     Cuboid, Isometry3, Rotation3, Shape, Sphere, Transforms, UnitQuaternion, Vector3,
 };
-use cspace_kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolveOptions, SolverParams};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolveOptions, SolverParams};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 

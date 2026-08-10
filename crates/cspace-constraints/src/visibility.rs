@@ -15,10 +15,10 @@ use cspace_collision::{
     AllowedCollisionMatrix, BodyType, CollisionEnv, CollisionRequest, Contact, DecideContactFn,
     LinkPaddingScale, ParryCollisionEnv, World,
 };
-use cspace_error::{Error, Result};
-use cspace_geometry::{Isometry3, Mesh, Shape, Transforms, Vector3};
-use cspace_model::RobotModel;
-use cspace_state::Posed;
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::{Isometry3, Mesh, Shape, Transforms, Vector3};
+use cspace_core::model::RobotModel;
+use cspace_core::state::Posed;
 use nalgebra::Point3;
 
 use crate::ConstraintEvaluationResult;
@@ -774,10 +774,10 @@ mod tests {
     use std::fs;
 
     use cspace_collision::AttachedBodyGeometry;
-    use cspace_geometry::Cuboid;
-    use cspace_model::MeshSearchPaths;
-    use cspace_srdf::SrdfModel;
-    use cspace_state::RobotState;
+    use cspace_core::geometry::Cuboid;
+    use cspace_core::model::MeshSearchPaths;
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::state::RobotState;
 
     use super::*;
 

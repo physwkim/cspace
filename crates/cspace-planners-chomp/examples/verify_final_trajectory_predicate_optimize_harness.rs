@@ -32,17 +32,17 @@ use std::time::Instant;
 
 use cspace_collision::{CollisionRequest, LinkPaddingScale};
 use cspace_collision::{ParryCollisionEnv, World};
+use cspace_core::geometry::{Cuboid, Isometry3, Shape, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use cspace_distance_field::{
     DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
     PropagationDistanceField, add_link_body_decompositions, collision_object_point_decomposition,
 };
-use cspace_geometry::{Cuboid, Isometry3, Shape, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
 use cspace_planners_chomp::optimizer::ChompCollisionContext;
 use cspace_planners_chomp::{ChompGoal, ChompParameters, ChompRequest, GoalJointConstraint, solve};
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
 use nalgebra::DMatrix;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;

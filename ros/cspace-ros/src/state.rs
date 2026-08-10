@@ -1,7 +1,7 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! `moveit_msgs/RobotState` <-> [`cspace_state::RobotState`] (round 2,
+//! `moveit_msgs/RobotState` <-> [`cspace_core::state::RobotState`] (round 2,
 //! PORTING-PLAN.md Phase 9). See `doc/message-mapping.md` §9 for the full
 //! survey this module codes against.
 //!
@@ -17,9 +17,9 @@
 //!
 //! # Expiry conditions (PORTING-PLAN.md §153.1: name what clears each gap)
 //!
-//! - `multi_dof_joint_state`: expires if `cspace_state::RobotState` (or a
+//! - `multi_dof_joint_state`: expires if `cspace_core::state::RobotState` (or a
 //!   sibling type) gains a way to represent multi-DOF joint values --
-//!   today its variable space comes entirely from `cspace_model::RobotModel`'s
+//!   today its variable space comes entirely from `cspace_core::model::RobotModel`'s
 //!   single-DOF variables.
 //! - `attached_collision_objects`/`is_diff`: **not** a missing core type --
 //!   `PlanningScene` already carries attached bodies and parent-diffing.
@@ -32,9 +32,9 @@
 //! A tripwire needs an *existing* call path whose current answer would
 //! change; both of these name the *arrival* of a capability that has no
 //! call path yet to assert anything about:
-//! `cspace_model`/`cspace_state` have no multi-DOF-joint symbol at all
+//! `cspace_core::model`/`cspace_core::state` have no multi-DOF-joint symbol at all
 //! today (checked: no `multi_dof`/`MultiDof` hit anywhere in
-//! `crates/cspace-model/src`), and this crate itself has no
+//! `crates/cspace-core/src/model`), and this crate itself has no
 //! `&mut PlanningScene`-aware conversion function to call into yet. A
 //! runtime assertion cannot test for the absence of an API that does not
 //! exist -- there is nothing to invoke and watch fail. Contrast
@@ -42,9 +42,9 @@
 //! because `add_suffix_way_point` already exists and already enforces
 //! the invariant today.
 
-use cspace_error::Error;
-use cspace_model::RobotModel;
-use cspace_state::RobotState as CoreRobotState;
+use cspace_core::error::Error;
+use cspace_core::model::RobotModel;
+use cspace_core::state::RobotState as CoreRobotState;
 use r2r::moveit_msgs::msg as moveit_msgs;
 use r2r::sensor_msgs::msg as sensor_msgs;
 
@@ -70,8 +70,8 @@ fn set_parallel_array(
     names: &[String],
     values: &[f64],
     field: &'static str,
-    set_by_name: impl Fn(&mut CoreRobotState, &str, f64) -> cspace_error::Result<()>,
-) -> cspace_error::Result<()> {
+    set_by_name: impl Fn(&mut CoreRobotState, &str, f64) -> cspace_core::error::Result<()>,
+) -> cspace_core::error::Result<()> {
     if !values.is_empty() && values.len() != names.len() {
         return Err(Error::construct(format!(
             "JointState.{field} has length {} but name has length {} \
@@ -179,8 +179,8 @@ impl<'m> TryFrom<CoreRobotState<'m>> for RobotStateMsgOut {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use cspace_model::MeshSearchPaths;
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::MeshSearchPaths;
+    use cspace_core::srdf::SrdfModel;
 
     /// Asserts the call was rejected *for the reason named*, not merely
     /// that it was rejected. `TryFrom<RobotStateMsg>::try_from` has three

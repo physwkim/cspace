@@ -1,7 +1,7 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! Invariant-boundary tests for `impl cspace_kinematics::AttachedFrames for
+//! Invariant-boundary tests for `impl cspace_core::kinematics::AttachedFrames for
 //! cspace_scene::PlanningScene`, the seam that lets `setFromIK` name a frame
 //! this crate owns.
 //!
@@ -44,15 +44,15 @@ use std::f64::consts::FRAC_PI_6;
 use std::fs;
 use std::sync::Arc;
 
-use cspace_error::Error;
-use cspace_geometry::{Cuboid, Isometry3, Shape};
-use cspace_kinematics::{
+use cspace_core::error::Error;
+use cspace_core::geometry::{Cuboid, Isometry3, Shape};
+use cspace_core::kinematics::{
     AttachedFrame, AttachedFrames, IkContext, IkTarget, KinematicsSolver, NewtonRaphsonSolver,
     SolverParams, set_from_ik,
 };
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
 use nalgebra::{Translation3, UnitQuaternion, Vector3};
 
 /// Error allowed when a pose this impl reports is compared against the pose

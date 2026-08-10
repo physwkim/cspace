@@ -11,7 +11,7 @@
 use std::cell::RefCell;
 
 use cspace_constraints::ConstraintSampler;
-use cspace_state::RobotState;
+use cspace_core::state::RobotState;
 use rand::Rng;
 
 use crate::compound::CompoundValue;
@@ -157,7 +157,7 @@ pub struct GroupConstraintSampler<'a, 'm> {
 
 impl<'a, 'm> GroupConstraintSampler<'a, 'm> {
     /// `template` seeds `working` once, at construction: [`ConstraintSampler::sample`]
-    /// draws every variable of *its own* [`cspace_model::JointModelGroup`]
+    /// draws every variable of *its own* [`cspace_core::model::JointModelGroup`]
     /// (constrained ones from their tolerance window or IK, unconstrained
     /// ones from the joint's own bounds or a random restart), so only a
     /// variable entirely outside that group keeps `template`'s value for the
@@ -190,8 +190,8 @@ impl ConstrainedStateSampler<JointModelGroupSpace> for GroupConstraintSampler<'_
 #[cfg(test)]
 mod tests {
     use cspace_constraints::{JointConstraint, JointConstraintSampler};
-    use cspace_model::{JointModelGroup, MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 

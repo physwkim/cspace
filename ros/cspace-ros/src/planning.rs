@@ -85,11 +85,11 @@
 //! and the three conditions that re-open the decision.
 
 use cspace_constraints::KinematicConstraintSet;
-use cspace_error::Error;
-use cspace_geometry::Vector3 as CoreVector3;
-use cspace_model::RobotModel;
+use cspace_core::error::Error;
+use cspace_core::geometry::Vector3 as CoreVector3;
+use cspace_core::model::RobotModel;
 use cspace_planning::{PlanningRequest, PlanningResponse, StartState, WorkspaceBounds};
-use cspace_trajectory::RobotTrajectory;
+use cspace_core::trajectory::RobotTrajectory;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use crate::constraints::set::{ConstraintsMsg, ConstraintsMsgOut};
@@ -440,7 +440,7 @@ impl<'m> TryFrom<PlanningResponseMsg<'m>> for PlanningResponse<'m> {
             model,
             msg: msg.trajectory,
         })?;
-        let start_state = cspace_state::RobotState::try_from(RobotStateMsg {
+        let start_state = cspace_core::state::RobotState::try_from(RobotStateMsg {
             model,
             msg: msg.trajectory_start,
         })?;
@@ -458,7 +458,7 @@ impl<'m> TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut {
     fn try_from(res: PlanningResponse<'m>) -> Result<Self, Self::Error> {
         // `moveit_core/planning_interface/src/planning_response.cpp:48`:
         // `msg.group_name = trajectory->getGroupName()`. This side can derive
-        // it -- [`cspace_trajectory::RobotTrajectory::group_name`] is the same
+        // it -- [`cspace_core::trajectory::RobotTrajectory::group_name`] is the same
         // accessor with the same empty-group answer as upstream's
         // `getGroupName` (`robot_trajectory.cpp:88-94`: the group's name, or
         // `""` when `group_` is null) -- so leaving the wire field empty was
@@ -974,13 +974,13 @@ mod tests {
         let model = crate::state::tests::one_joint_model_with_arm_group();
 
         let mut traj = RobotTrajectory::for_group_name(&model, "arm").unwrap();
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_variable_position("j1", 0.4).unwrap();
         traj.add_suffix_way_point(state, 0.0).unwrap();
         let filled = PlanningResponseMsgOut::try_from(PlanningResponse {
             trajectory: traj,
             planner_id: String::new(),
-            start_state: cspace_state::RobotState::new(&model),
+            start_state: cspace_core::state::RobotState::new(&model),
         })
         .unwrap()
         .0;
@@ -989,7 +989,7 @@ mod tests {
         let empty = PlanningResponseMsgOut::try_from(PlanningResponse {
             trajectory: RobotTrajectory::for_group_name(&model, "arm").unwrap(),
             planner_id: String::new(),
-            start_state: cspace_state::RobotState::new(&model),
+            start_state: cspace_core::state::RobotState::new(&model),
         })
         .unwrap()
         .0;
@@ -1021,7 +1021,7 @@ mod tests {
     fn converts_response_trajectory() {
         let model = one_joint_model();
         let mut traj = RobotTrajectory::new(&model);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_variable_position("j1", 0.2).unwrap();
         traj.add_suffix_way_point(state, 0.0).unwrap();
         let traj_msg = crate::trajectory::JointTrajectoryMsgOut::try_from(traj)
@@ -1065,13 +1065,13 @@ mod tests {
     fn round_trip_response_through_msg() {
         let model = one_joint_model();
         let mut traj = RobotTrajectory::new(&model);
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_variable_position("j1", 0.3).unwrap();
         traj.add_suffix_way_point(state, 0.0).unwrap();
         // Deliberately not the trajectory's own first waypoint: a conversion
         // that reconstructed `start_state` from the trajectory instead of from
         // `trajectory_start` would pass with the two equal.
-        let mut start = cspace_state::RobotState::new(&model);
+        let mut start = cspace_core::state::RobotState::new(&model);
         start.set_variable_position("j1", -0.7).unwrap();
         let res = PlanningResponse {
             trajectory: traj,

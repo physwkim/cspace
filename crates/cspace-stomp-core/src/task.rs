@@ -39,7 +39,7 @@
 //!
 //! - `class Task` — ported as [`Task`] (trait, not the D4 shape-enum
 //!   pattern: `Task` is a customization point implemented by external
-//!   callers, the same reason `cspace_kinematics`'s solver interface is a
+//!   callers, the same reason `cspace_core::kinematics`'s solver interface is a
 //!   trait too — D4 targets closed, upstream-enumerated sets like
 //!   `geometric_shapes::Shape`, not open extension points like this one).
 //! - `TaskPtr` (`typedef std::shared_ptr<Task> TaskPtr`) — distinct: Rust has

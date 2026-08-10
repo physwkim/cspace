@@ -15,19 +15,19 @@
 //! to be meaningful, and `nextest` swallows stdout on a passing `#[test]`
 //! anyway, so a number asserted only there is invisible in a normal run
 //! while still costing every suite run its 50 real-mesh collision checks --
-//! see `crates/cspace-geometry/examples/octree_compound_bench.rs` for the
+//! see `crates/cspace-core/examples/octree_compound_bench.rs` for the
 //! established precedent of moving a printing-only measurement here instead.
 
 use std::fs;
 use std::time::Instant;
 
 use cspace_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv};
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use cspace_planners_sbp::{
     JointModelGroupSpace, PlanningSceneValidityChecker, StateSpace, StateValidityChecker,
 };
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 

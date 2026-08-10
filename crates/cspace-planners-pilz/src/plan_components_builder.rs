@@ -57,10 +57,10 @@
 //!   assertion restates its caller's own condition.
 
 use cspace_collision::CollisionEnv;
-use cspace_error::Result;
-use cspace_model::RobotModel;
-use cspace_state::Posed;
-use cspace_trajectory::RobotTrajectory;
+use cspace_core::error::Result;
+use cspace_core::model::RobotModel;
+use cspace_core::state::Posed;
+use cspace_core::trajectory::RobotTrajectory;
 
 use crate::limits::LimitsContainer;
 use crate::trajectory_blender_transition_window::{TrajectoryBlendRequest, blend};
@@ -111,7 +111,7 @@ impl<'m> PlanComponentsBuilder<'m> {
     /// Whatever [`crate::trajectory_blender_transition_window::blend`]
     /// returns when a blend is attempted and fails — upstream collapses all
     /// of them into one `BlendingFailedException` carrying
-    /// [`cspace_error::MoveItErrorCode::Failure`], which loses the blender's
+    /// [`cspace_core::error::MoveItErrorCode::Failure`], which loses the blender's
     /// own reason; this port propagates it. Also whatever
     /// [`RobotTrajectory::append`] returns.
     pub fn append<E>(
@@ -270,11 +270,11 @@ mod tests {
     use std::sync::Arc;
 
     use cspace_collision::{LinkPaddingScale, ParryCollisionEnv, World};
-    use cspace_geometry::{UnitQuaternion, Vector3};
-    use cspace_model::{MeshSearchPaths, RobotModel};
+    use cspace_core::geometry::{UnitQuaternion, Vector3};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::state::RobotState;
     use cspace_scene::PlanningScene;
-    use cspace_srdf::SrdfModel;
-    use cspace_state::RobotState;
 
     use super::*;
     use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer};

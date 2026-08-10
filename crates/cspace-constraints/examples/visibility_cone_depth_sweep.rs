@@ -74,10 +74,10 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use cspace_constraints::{
     SensorSpec, SensorViewDirection, TargetSpec, VisibilityConstraint, VisibilityCriteria,
 };
-use cspace_geometry::{Isometry3, Shape, Transforms, UnitQuaternion, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Isometry3, Shape, Transforms, UnitQuaternion, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use nalgebra::{Matrix3, Rotation3, Translation3};
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;

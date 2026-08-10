@@ -97,10 +97,10 @@
 //!   it. **Expires** if upstream adds its own `discretization` validation,
 //!   at which point this note should instead record whatever bound
 //!   upstream chose.
-use cspace_error::{Error, Result};
-use cspace_model::{JointModelGroup, RobotModel};
-use cspace_state::RobotState;
-use cspace_trajectory::RobotTrajectory;
+use cspace_core::error::{Error, Result};
+use cspace_core::model::{JointModelGroup, RobotModel};
+use cspace_core::state::RobotState;
+use cspace_core::trajectory::RobotTrajectory;
 use nalgebra::DMatrix;
 
 /// Not from upstream (which has no such bound; see this module's
@@ -712,8 +712,8 @@ fn interpolate_group_into(
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
-    use cspace_model::MeshSearchPaths;
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::MeshSearchPaths;
+    use cspace_core::srdf::SrdfModel;
     use std::sync::OnceLock;
 
     const EPS: f64 = 1e-12;

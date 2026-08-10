@@ -73,13 +73,7 @@ name = "cspace-collision"
 version = "0.1.0"
 dependencies = [
  "approx",
- "cspace-error",
- "cspace-geometry",
- "cspace-model",
- "cspace-octomap",
- "cspace-srdf",
- "cspace-state",
- "cspace-test-support",
+ "cspace-core",
  "glamx",
  "nalgebra",
  "parry3d-f64",
@@ -96,15 +90,30 @@ version = "0.1.0"
 dependencies = [
  "approx",
  "cspace-collision",
- "cspace-error",
- "cspace-geometry",
- "cspace-kinematics",
- "cspace-model",
- "cspace-srdf",
- "cspace-state",
+ "cspace-core",
  "nalgebra",
  "rand",
  "rand_chacha",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-core"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "glamx",
+ "linkme",
+ "nalgebra",
+ "parry3d-f64",
+ "rand",
+ "rand_chacha",
+ "rand_distr",
+ "roxmltree",
+ "rsruckig",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
@@ -117,106 +126,18 @@ version = "0.1.0"
 dependencies = [
  "approx",
  "cspace-collision",
- "cspace-error",
- "cspace-geometry",
- "cspace-model",
- "cspace-octomap",
- "cspace-srdf",
- "cspace-state",
- "cspace-test-support",
+ "cspace-core",
  "nalgebra",
  "serde",
  "serde_json",
  "urdf-rs",
-]
-
-[[package]]
-name = "cspace-error"
-version = "0.1.0"
-dependencies = [
- "serde",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "cspace-geometry"
-version = "0.1.0"
-dependencies = [
- "approx",
- "cspace-error",
- "cspace-octomap",
- "cspace-test-support",
- "glamx",
- "nalgebra",
- "parry3d-f64",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "cspace-kinematics"
-version = "0.1.0"
-dependencies = [
- "approx",
- "cspace-error",
- "cspace-geometry",
- "cspace-model",
- "cspace-srdf",
- "cspace-state",
- "linkme",
- "nalgebra",
- "rand",
- "rand_chacha",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "cspace-metrics"
-version = "0.1.0"
-dependencies = [
- "approx",
- "cspace-error",
- "cspace-model",
- "cspace-srdf",
- "cspace-state",
- "nalgebra",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "cspace-model"
-version = "0.1.0"
-dependencies = [
- "approx",
- "cspace-error",
- "cspace-geometry",
- "cspace-srdf",
- "nalgebra",
- "roxmltree",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "cspace-octomap"
-version = "0.1.0"
-dependencies = [
- "nalgebra",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
 ]
 
 [[package]]
 name = "cspace-planner-registry"
 version = "0.1.0"
 dependencies = [
- "cspace-error",
+ "cspace-core",
  "cspace-planners-sbp",
  "cspace-planning",
  "linkme",
@@ -229,17 +150,10 @@ dependencies = [
  "approx",
  "cspace-collision",
  "cspace-constraints",
+ "cspace-core",
  "cspace-distance-field",
- "cspace-error",
- "cspace-geometry",
- "cspace-model",
  "cspace-planners-sbp",
- "cspace-sampling",
  "cspace-scene",
- "cspace-srdf",
- "cspace-state",
- "cspace-test-support",
- "cspace-trajectory",
  "nalgebra",
  "rand",
  "rand_chacha",
@@ -255,15 +169,8 @@ version = "0.1.0"
 dependencies = [
  "approx",
  "cspace-collision",
- "cspace-error",
- "cspace-geometry",
- "cspace-kinematics",
- "cspace-model",
+ "cspace-core",
  "cspace-scene",
- "cspace-srdf",
- "cspace-state",
- "cspace-test-support",
- "cspace-trajectory",
  "nalgebra",
  "serde",
  "serde_json",
@@ -277,17 +184,10 @@ version = "0.1.0"
 dependencies = [
  "cspace-collision",
  "cspace-constraints",
- "cspace-error",
- "cspace-geometry",
- "cspace-kinematics",
- "cspace-model",
+ "cspace-core",
  "cspace-planner-registry",
  "cspace-planning",
  "cspace-scene",
- "cspace-srdf",
- "cspace-state",
- "cspace-test-support",
- "cspace-trajectory",
  "linkme",
  "rand",
  "rand_chacha",
@@ -303,18 +203,10 @@ version = "0.1.0"
 dependencies = [
  "cspace-collision",
  "cspace-constraints",
- "cspace-error",
- "cspace-geometry",
- "cspace-kinematics",
- "cspace-model",
+ "cspace-core",
  "cspace-planners-sbp",
- "cspace-sampling",
  "cspace-scene",
- "cspace-srdf",
- "cspace-state",
  "cspace-stomp-core",
- "cspace-test-support",
- "cspace-trajectory",
  "nalgebra",
  "rand",
  "rand_chacha",
@@ -328,31 +220,14 @@ version = "0.1.0"
 dependencies = [
  "cspace-collision",
  "cspace-constraints",
- "cspace-error",
- "cspace-geometry",
- "cspace-model",
+ "cspace-core",
  "cspace-planner-registry",
  "cspace-planners-sbp",
  "cspace-scene",
- "cspace-srdf",
- "cspace-state",
- "cspace-trajectory",
  "rand",
  "rand_chacha",
  "thiserror 2.0.19",
  "urdf-rs",
-]
-
-[[package]]
-name = "cspace-sampling"
-version = "0.1.0"
-dependencies = [
- "approx",
- "cspace-test-support",
- "nalgebra",
- "rand",
- "rand_chacha",
- "rand_distr",
 ]
 
 [[package]]
@@ -362,55 +237,8 @@ dependencies = [
  "approx",
  "cspace-collision",
  "cspace-constraints",
- "cspace-error",
- "cspace-geometry",
- "cspace-kinematics",
- "cspace-model",
- "cspace-octomap",
- "cspace-srdf",
- "cspace-state",
+ "cspace-core",
  "nalgebra",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "cspace-smoothing"
-version = "0.1.0"
-dependencies = [
- "approx",
- "cspace-error",
- "cspace-model",
- "cspace-srdf",
- "rsruckig",
- "serde",
- "serde_json",
- "urdf-rs",
-]
-
-[[package]]
-name = "cspace-srdf"
-version = "0.1.0"
-dependencies = [
- "cspace-error",
- "roxmltree",
-]
-
-[[package]]
-name = "cspace-state"
-version = "0.1.0"
-dependencies = [
- "approx",
- "cspace-error",
- "cspace-geometry",
- "cspace-model",
- "cspace-srdf",
- "cspace-test-support",
- "nalgebra",
- "rand",
- "rand_chacha",
- "rand_distr",
  "serde",
  "serde_json",
  "urdf-rs",
@@ -421,36 +249,10 @@ name = "cspace-stomp-core"
 version = "0.1.0"
 dependencies = [
  "approx",
- "cspace-sampling",
+ "cspace-core",
  "nalgebra",
  "rand",
  "rand_chacha",
-]
-
-[[package]]
-name = "cspace-test-support"
-version = "0.1.0"
-dependencies = [
- "cspace-model",
- "cspace-srdf",
- "nalgebra",
- "urdf-rs",
-]
-
-[[package]]
-name = "cspace-trajectory"
-version = "0.1.0"
-dependencies = [
- "approx",
- "cspace-error",
- "cspace-model",
- "cspace-srdf",
- "cspace-state",
- "nalgebra",
- "rsruckig",
- "serde",
- "serde_json",
- "urdf-rs",
 ]
 
 [[package]]
@@ -643,13 +445,7 @@ version = "0.1.0"
 dependencies = [
  "cspace-collision",
  "cspace-constraints",
- "cspace-error",
- "cspace-geometry",
- "cspace-kinematics",
- "cspace-model",
- "cspace-octomap",
- "cspace-srdf",
- "cspace-state",
+ "cspace-core",
  "nalgebra",
  "rand",
  "rand_chacha",

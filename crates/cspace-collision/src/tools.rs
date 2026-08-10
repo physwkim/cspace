@@ -22,7 +22,7 @@
 
 use std::collections::BTreeSet;
 
-use cspace_geometry::Vector3;
+use cspace_core::geometry::Vector3;
 
 use crate::common::CostSource;
 use crate::numeric::{cxx_max, cxx_min};

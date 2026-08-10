@@ -33,7 +33,8 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use cspace_collision::{LinkPaddingScale, ParryCollisionEnv, World};
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use cspace_planners_pilz::limits::{JointLimit, JointLimitsContainer, LimitsContainer};
 use cspace_planners_pilz::trajectory_functions::IkContext;
 use cspace_planners_pilz::trajectory_generator::{
@@ -41,7 +42,6 @@ use cspace_planners_pilz::trajectory_generator::{
 };
 use cspace_planners_pilz::trajectory_generator_ptp::TrajectoryGeneratorPtp;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
 
 #[derive(Deserialize)]
 struct FixtureJointLimit {

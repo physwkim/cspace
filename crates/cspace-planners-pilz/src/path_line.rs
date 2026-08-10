@@ -56,7 +56,7 @@
 //! shared use of `kdl_normalize`/`get_rot_angle`), not line
 //! correspondence.
 
-use cspace_geometry::{Isometry3, UnitQuaternion, Vector3};
+use cspace_core::geometry::{Isometry3, UnitQuaternion, Vector3};
 use nalgebra::Unit;
 
 use crate::numeric::cxx_max;

@@ -52,10 +52,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use cspace_error::Result;
-use cspace_model::RobotModel;
+use cspace_core::error::Result;
+use cspace_core::model::RobotModel;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
+use cspace_core::srdf::SrdfModel;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use crate::scene::attached::apply_attached_collision_object;
@@ -134,7 +134,7 @@ pub fn apply_attached_collision_object_msg(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cspace_model::MeshSearchPaths;
+    use cspace_core::model::MeshSearchPaths;
     use r2r::geometry_msgs::msg as geometry_msgs;
 
     const URDF: &str = r#"<?xml version="1.0"?>
@@ -224,7 +224,7 @@ mod tests {
         let cell = cell();
         apply(&cell, |s| {
             s.set_name("halfway");
-            Err(cspace_error::Error::other("rejected"))
+            Err(cspace_core::error::Error::other("rejected"))
         })
         .unwrap_err();
         // Not merely "the error propagated": the closure *did* mutate its

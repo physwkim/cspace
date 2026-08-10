@@ -37,11 +37,11 @@ use std::fs;
 
 use serde::Deserialize;
 
-use cspace_error::Error;
-use cspace_geometry::{Isometry3, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::error::Error;
+use cspace_core::geometry::{Isometry3, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 
 use cspace_constraints::utils::{
     construct_goal_joint_constraints, construct_goal_orientation_constraints,

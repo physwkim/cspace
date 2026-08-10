@@ -9,7 +9,7 @@
 //! particular) and, since the `RobotModel` bridge landed,
 //! [`crate::joint_model_group_space::JointModelGroupSpace::new`], whose
 //! group name is a caller-supplied string looked up against a
-//! [`cspace_model::RobotModel`] built at runtime.
+//! [`cspace_core::model::RobotModel`] built at runtime.
 //! [`crate::rrt_connect::RrtConnectParams`] is validated by `assert!` when a
 //! caller constructs one directly — passing it a negative step size that
 //! way is a programming error, not external input, so panicking immediately
@@ -70,7 +70,7 @@ pub enum SbpError {
     },
 
     /// [`crate::joint_model_group_space::JointModelGroupSpace::new`] was
-    /// given a group name the [`cspace_model::RobotModel`] does not have.
+    /// given a group name the [`cspace_core::model::RobotModel`] does not have.
     #[error("unknown joint model group '{name}'")]
     UnknownGroup {
         /// The group name that was not found.

@@ -133,7 +133,7 @@
 //! The fourth is not upstream's to blame and is a divergence, not a fix. A
 //! `link_name` that *is* a link but is not rigidly connected to any tip the
 //! group's solver reports -- `base_link` for the `arm` group of
-//! `ros/fixtures/one_joint.urdf` -- makes `cspace_kinematics::set_from_ik`
+//! `ros/fixtures/one_joint.urdf` -- makes `cspace_core::kinematics::set_from_ik`
 //! return `Err`, where upstream's `setFromIK` returns `false` and leaves
 //! `computeCartesianPath` to report `SUCCESS` with `fraction == 0.0`. This
 //! module answers `FAILURE` rather than manufacturing the `0.0`: it is the
@@ -164,17 +164,17 @@ use std::sync::Arc;
 
 use cspace_collision::{CollisionRequest, ParryCollisionEnv};
 use cspace_constraints::KinematicConstraintSet;
-use cspace_geometry::{Isometry3, Transforms};
-use cspace_kinematics::{
+use cspace_core::geometry::{Isometry3, Transforms};
+use cspace_core::kinematics::{
     CartesianInterpolator, DEFAULT_SOLVER_NAME, IkContext, MaxEefStep, NoAttachedFrames,
     SolverParams, resolve_solver,
 };
-use cspace_model::JointModelGroup;
+use cspace_core::model::JointModelGroup;
 use cspace_planning::StartState;
 use cspace_scene::PlanningScene;
-use cspace_state::RobotState;
-use cspace_trajectory::robot_trajectory::RobotTrajectory;
-use cspace_trajectory::time_optimal_trajectory_generation::{TotgOptions, compute_time_stamps};
+use cspace_core::state::RobotState;
+use cspace_core::trajectory::robot_trajectory::RobotTrajectory;
+use cspace_core::trajectory::time_optimal_trajectory_generation::{TotgOptions, compute_time_stamps};
 use r2r::moveit_msgs::msg::MoveItErrorCodes;
 use r2r::moveit_msgs::srv::GetCartesianPath;
 
@@ -577,7 +577,7 @@ fn compute<'m>(snapshot: &Arc<PlanningScene<'m>>, request: GetCartesianPath::Req
 /// solved nothing — that shape being the whole reason [`Computed::Path`] and
 /// [`Computed::NothingRequested`] are separate variants.
 fn finish<'m>(
-    model: &'m cspace_model::RobotModel,
+    model: &'m cspace_core::model::RobotModel,
     request: &GetCartesianPath::Request,
     start_state: RobotState<'m>,
     traj: Vec<RobotState<'m>>,
@@ -691,8 +691,8 @@ fn constraints_are_empty(constraints: &r2r::moveit_msgs::msg::Constraints) -> bo
 
 #[cfg(test)]
 mod tests {
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use r2r::moveit_msgs::msg::{Constraints, JointConstraint, RobotState as RobotStateMsgWire};
 
     use super::*;

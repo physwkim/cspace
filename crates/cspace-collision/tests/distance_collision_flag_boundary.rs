@@ -75,11 +75,11 @@ use cspace_collision::{
     AllowedCollisionMatrix, CollisionEnv, CollisionRequest, DistanceRequest, LinkPaddingScale,
     ParryCollisionEnv, World,
 };
-use cspace_geometry::{Cuboid, Isometry3, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_octomap::OcTree;
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Cuboid, Isometry3, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::octomap::OcTree;
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use nalgebra::Point3;
 
 fn read_fixture(name: &str) -> String {
@@ -156,10 +156,10 @@ fn octree_case_4() -> (ParryCollisionEnv, RobotModel) {
     let mut world = World::new();
     world.add_shape(
         "octree_object",
-        Arc::new(Shape::OcTree(cspace_geometry::OcTree::from_tree(Arc::new(
-            tree,
-        )))),
-        cspace_geometry::Isometry3::identity(),
+        Arc::new(Shape::OcTree(cspace_core::geometry::OcTree::from_tree(
+            Arc::new(tree),
+        ))),
+        cspace_core::geometry::Isometry3::identity(),
     );
     let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
     (env, model)

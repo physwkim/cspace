@@ -62,7 +62,7 @@
 //! (`DistanceResultsData::distance`'s own doc: "If two objects are in
 //! collision, distance <= 0").
 
-use cspace_error::Result;
+use cspace_core::error::Result;
 
 use crate::common::{
     AttachedBodyGeometry, CollisionDistance, CollisionRequest, CollisionResult, ContactData,

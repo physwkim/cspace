@@ -34,7 +34,7 @@
 //! resolved planners, because name resolution is orthogonal to what a
 //! pipeline does.
 
-use cspace_error::{Error, Result};
+use cspace_core::error::{Error, Result};
 use cspace_planning::{PlannerConfigurationMap, PlannerManager};
 
 /// One [`PlannerManager`] implementation's compile-time registration.
@@ -46,7 +46,7 @@ use cspace_planning::{PlannerConfigurationMap, PlannerManager};
 /// `dlopen` lookup is not ported: every planner this workspace ships is
 /// linked in at compile time and simply appears in [`PLANNER_MANAGERS`], a
 /// `linkme::distributed_slice` scanned once rather than resolved per plugin
-/// request. Mirrors `cspace_kinematics::registry::SolverRegistration`
+/// request. Mirrors `cspace_core::kinematics::registry::SolverRegistration`
 /// exactly, for the same reason.
 pub struct PlannerRegistration {
     /// The name a caller scanning [`PLANNER_MANAGERS`] matches on, equal to
@@ -124,7 +124,7 @@ pub static PLANNER_MANAGERS: [PlannerRegistration];
 ///
 /// [`Error::UnknownName`] if no [`PLANNER_MANAGERS`] entry is registered
 /// under `name`. Construction itself is infallible — unlike
-/// `cspace_kinematics::registry::resolve_solver`, whose registrations are
+/// `cspace_core::kinematics::registry::resolve_solver`, whose registrations are
 /// per-`(model, group)` and can legitimately fail to build, a
 /// [`PlannerManager`] is model-independent: everything that can fail about
 /// a particular query surfaces from

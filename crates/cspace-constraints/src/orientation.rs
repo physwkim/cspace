@@ -11,10 +11,10 @@
 
 use std::f64::consts::PI;
 
-use cspace_error::{Error, Result};
-use cspace_geometry::{Rotation3, Transforms, UnitQuaternion, Vector3};
-use cspace_model::RobotModel;
-use cspace_state::Posed;
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::{Rotation3, Transforms, UnitQuaternion, Vector3};
+use cspace_core::model::RobotModel;
+use cspace_core::state::Posed;
 
 use crate::ConstraintEvaluationResult;
 

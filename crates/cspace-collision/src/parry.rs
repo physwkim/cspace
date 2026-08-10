@@ -13,7 +13,7 @@
 // algorithms, and which upstream request fields those two functions actually
 // read) on top of `parry3d-f64` instead of FCL's own narrow phase.
 
-//! A [`CollisionEnv`] backend for `cspace_state::RobotState`, built on
+//! A [`CollisionEnv`] backend for `cspace_core::state::RobotState`, built on
 //! `parry3d-f64`.
 //!
 //! # Design: one globally-posed part per shape
@@ -42,14 +42,14 @@
 //!
 //! # Deviations from upstream
 //!
-//! 1. **`group_name` restricts a pair to links [`cspace_model::JointModelGroup`] updates,
+//! 1. **`group_name` restricts a pair to links [`cspace_core::model::JointModelGroup`] updates,
 //!    OR'd across the pair, not ANDed.** `checkSelfCollisionHelper`/
 //!    `checkRobotCollisionHelper` (`collision_env_fcl.cpp:274-298`/
 //!    `328-355`) both call `cd.enableGroup(getRobotModel())` unconditionally,
 //!    which resolves `req_->group_name` to
 //!    `JointModelGroup::getUpdatedLinkModelsSet()` (every link a joint in
 //!    that group moves, including fixed-joint descendants —
-//!    [`cspace_model::JointModelGroup::updated_link_names`] is the same set, already
+//!    [`cspace_core::model::JointModelGroup::updated_link_names`] is the same set, already
 //!    ported) and `collisionCallback` (`collision_detection_fcl/collision_common.cpp:79-94`) then
 //!    skips a pair only when *neither* side resolves to an active link — a
 //!    world object never resolves to one on its own, so a robot-vs-world
@@ -71,7 +71,7 @@
 //!    `createCollisionGeometry(shape, obj)` overload, no scale/padding) versus
 //!    `constructFCLObjectRobot` (uses the padding/scale-taking overload via
 //!    the cached `robot_geoms_`). [`LinkPaddingScale`] is consulted only when
-//!    converting a [`cspace_model::LinkModel`]'s shapes, never a
+//!    converting a [`cspace_core::model::LinkModel`]'s shapes, never a
 //!    [`crate::World`] object's.
 //! 3. **This backend always applies the [`LinkPaddingScale`] it was built
 //!    with, to the self check and the robot-vs-world check alike** — as
@@ -1135,15 +1135,15 @@
 //!    can be a superset of what a given upstream run would report, but
 //!    `minimum_distance` and `collision` — the two fields every real caller
 //!    actually reads — are order-independent and match either way.
-//! 8. **Cylinder/Cone axis convention.** `cspace_geometry::Cylinder`/`Cone`
+//! 8. **Cylinder/Cone axis convention.** `cspace_core::geometry::Cylinder`/`Cone`
 //!    are z-aligned (a cone's tip at `+z`); `parry3d_f64::shape::Cylinder`/
 //!    `Cone` are always y-aligned (a cone's apex at `+y`, verified by reading
 //!    `parry3d-f64`'s own `cone.rs`). [`axis_fix`] is the fixed +90°
 //!    rotation about x that maps parry's `+y` onto moveit's `+z`, correcting
-//!    both the axis and (for [`cspace_geometry::Cone`]) the apex direction in
+//!    both the axis and (for [`cspace_core::geometry::Cone`]) the apex direction in
 //!    one rotation.
-//! 9. **A degenerate [`cspace_geometry::Plane`] (`a = b = c = 0`) converts to
-//!    no shape at all.** [`cspace_geometry::Plane::new`] does not validate
+//! 9. **A degenerate [`cspace_core::geometry::Plane`] (`a = b = c = 0`) converts to
+//!    no shape at all.** [`cspace_core::geometry::Plane::new`] does not validate
 //!    its coefficients (an infinite plane has no notion of a negative
 //!    dimension to reject), so this case is reachable; a plane with no normal
 //!    has no well-defined half-space to build, so [`convert_shape`] excludes
@@ -1208,10 +1208,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
-use cspace_error::{Error, Result};
-use cspace_geometry::{Isometry3, Shape, Vector3, compound_from_octree};
-use cspace_model::{LinkModel, RobotModel};
-use cspace_state::Posed;
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::{Isometry3, Shape, Vector3, compound_from_octree};
+use cspace_core::model::{LinkModel, RobotModel};
+use cspace_core::state::Posed;
 
 use parry3d_f64::bounding_volume::Aabb;
 use parry3d_f64::math::{Pose, Rotation as ParryRotation, Vector as ParryVector};
@@ -1279,7 +1279,7 @@ fn bounded_prediction(threshold: f64) -> f64 {
 }
 
 /// The fixed rotation that maps `parry3d_f64`'s y-aligned `Cylinder`/`Cone`
-/// convention onto `cspace_geometry`'s z-aligned one: +90° about x sends
+/// convention onto `cspace_core::geometry`'s z-aligned one: +90° about x sends
 /// local `(0, 1, 0)` to `(0, 0, 1)`, fixing the axis for both shapes and (for
 /// `Cone`) the apex direction (parry: apex at `+y`; moveit: tip at `+z`) in
 /// the same rotation. See the module doc, deviation 8.
@@ -1297,7 +1297,7 @@ fn from_parry_vector(v: ParryVector) -> Vector3 {
 
 /// Cache of [`Shape::OcTree`] → [`SharedShape`] conversions, keyed by the
 /// wrapped tree's `Arc` pointer identity — the same identity
-/// [`cspace_geometry::OcTree`]'s own [`PartialEq`] compares by, per its type
+/// [`cspace_core::geometry::OcTree`]'s own [`PartialEq`] compares by, per its type
 /// doc's deviation note.
 ///
 /// [`convert_shape`] is called fresh for every shape of every body on every
@@ -1351,7 +1351,7 @@ struct OctreeCache(Arc<Mutex<HashMap<usize, OctreeCacheEntry>>>);
 
 /// The pin plus the cached conversion. The [`Weak`] is dead weight by design
 /// — see [`OctreeCache`] for why it has to exist anyway.
-type OctreeCacheEntry = (Weak<cspace_octomap::OcTree>, Option<SharedShape>);
+type OctreeCacheEntry = (Weak<cspace_core::octomap::OcTree>, Option<SharedShape>);
 
 impl std::fmt::Debug for OctreeCache {
     /// `SharedShape` (`Arc<dyn parry3d_f64::shape::Shape>`) has no `Debug`
@@ -1381,7 +1381,7 @@ impl OctreeCache {
     /// cache slot past the next call.
     fn get_or_compute(
         &self,
-        tree: &Arc<cspace_octomap::OcTree>,
+        tree: &Arc<cspace_core::octomap::OcTree>,
         build: impl FnOnce() -> Option<SharedShape>,
     ) -> Option<SharedShape> {
         let key = Arc::as_ptr(tree) as *const () as usize;
@@ -1557,8 +1557,8 @@ impl ShapeCache {
 
 /// Cache of [`LinkModel`] shape conversions — [`ShapeCache`]'s counterpart
 /// for robot links, which need a different mechanism because
-/// [`cspace_model::LinkShape::shape`] is a plain [`Shape`], never
-/// behind an [`Arc`]: [`cspace_state::RobotState::model`] hands out a bare
+/// [`cspace_core::model::LinkShape::shape`] is a plain [`Shape`], never
+/// behind an [`Arc`]: [`cspace_core::state::RobotState::model`] hands out a bare
 /// `&'m RobotModel` reference (`cspace-state/src/state.rs`), so there is no
 /// [`Weak`] this cache could pin the way [`ShapeCache`] pins an attached-body
 /// or world-object shape.
@@ -1765,9 +1765,9 @@ fn convert_shape(shape: &Shape, octree_cache: &OctreeCache) -> Option<(SharedSha
 /// `:436-437`, and `shape_operations.cpp:534-535`), so a mesh that came from a
 /// `shape_msgs::Mesh` — which is how an attached body's geometry arrives —
 /// already has them. This port computes them in
-/// `cspace_geometry::stl::mesh_from_bytes` alone, which covers
+/// `cspace_core::geometry::stl::mesh_from_bytes` alone, which covers
 /// [`LinkModel::shapes`] and nothing else; an [`AttachedBodyGeometry`] carrying
-/// a mesh the caller built with `cspace_geometry::Mesh::new` is a supported
+/// a mesh the caller built with `cspace_core::geometry::Mesh::new` is a supported
 /// public input that arrives here with `None`. Computing them here is what
 /// makes the `expect` below true for *both* callers rather than only the link
 /// one.
@@ -3994,7 +3994,7 @@ fn accumulate_distance<'a>(
     result
 }
 
-/// A [`CollisionEnv`] backend for `cspace_state::RobotState`
+/// A [`CollisionEnv`] backend for `cspace_core::state::RobotState`
 /// (`Posed<'s, 'm>`), over `parry3d-f64`. See the module doc for scope and
 /// deviations from upstream's FCL backend.
 #[derive(Debug, Clone, Default)]
@@ -4215,10 +4215,10 @@ mod tests {
     use std::sync::Arc;
 
     use approx::assert_relative_eq;
-    use cspace_geometry::{Cuboid, Mesh, OcTree, Plane, Shape, Sphere};
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
-    use cspace_state::RobotState;
+    use cspace_core::geometry::{Cuboid, Mesh, OcTree, Plane, Shape, Sphere};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::state::RobotState;
 
     use super::*;
     use crate::common::IsDoneFn;
@@ -4269,7 +4269,7 @@ mod tests {
         // A tree *is* attached here -- this is the data-dependent "empty"
         // case, not the structural "absent" case above -- but it still has
         // no occupied leaves, so it still converts to nothing.
-        let tree = Arc::new(cspace_octomap::OcTree::new(0.1));
+        let tree = Arc::new(cspace_core::octomap::OcTree::new(0.1));
         let shape = Shape::OcTree(OcTree::from_tree(tree));
         assert!(convert_shape(&shape, &OctreeCache::default()).is_none());
     }
@@ -4296,7 +4296,7 @@ mod tests {
 
         for i in 0..200 {
             let occupied = i % 2 == 0;
-            let mut t = cspace_octomap::OcTree::new(0.1);
+            let mut t = cspace_core::octomap::OcTree::new(0.1);
             if occupied {
                 t.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
             }
@@ -4324,7 +4324,7 @@ mod tests {
 
     #[test]
     fn convert_shape_octree_with_an_occupied_leaf_converts_to_a_compound() {
-        let mut tree = cspace_octomap::OcTree::new(0.1);
+        let mut tree = cspace_core::octomap::OcTree::new(0.1);
         tree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
         let shape = Shape::OcTree(OcTree::from_tree(Arc::new(tree)));
 
@@ -4344,7 +4344,7 @@ mod tests {
         // free: octomap cannot prune them into a shared parent (their
         // occupancy differs), so the Compound must carry two Cuboids, not
         // one coarse box straddling the boundary.
-        let mut tree = cspace_octomap::OcTree::new(0.1);
+        let mut tree = cspace_core::octomap::OcTree::new(0.1);
         tree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, true);
         tree.update_node(nalgebra::Point3::new(0.15, 0.05, 0.05), false, true);
         tree.update_inner_occupancy();
@@ -4364,7 +4364,7 @@ mod tests {
 
     #[test]
     fn convert_shape_octree_caches_and_does_not_rebuild_on_a_second_call() {
-        let mut tree = cspace_octomap::OcTree::new(0.1);
+        let mut tree = cspace_core::octomap::OcTree::new(0.1);
         tree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
         let shape = Shape::OcTree(OcTree::from_tree(Arc::new(tree)));
         let cache = OctreeCache::default();
@@ -4382,7 +4382,7 @@ mod tests {
     #[test]
     fn octree_cache_get_or_compute_invokes_build_only_once_per_key() {
         let cache = OctreeCache::default();
-        let tree = Arc::new(cspace_octomap::OcTree::new(0.1));
+        let tree = Arc::new(cspace_core::octomap::OcTree::new(0.1));
         let calls = std::cell::Cell::new(0);
         let build = || {
             calls.set(calls.get() + 1);
@@ -4411,14 +4411,14 @@ mod tests {
         let cache = OctreeCache::default();
 
         {
-            let tree = Arc::new(cspace_octomap::OcTree::new(0.1));
+            let tree = Arc::new(cspace_core::octomap::OcTree::new(0.1));
             assert!(cache.get_or_compute(&tree, || None).is_none());
             assert_eq!(cache.len(), 1);
         }
         // `tree` just went out of scope: nothing holds that octree anymore,
         // matching a World object's octree being removed/replaced.
 
-        let other = Arc::new(cspace_octomap::OcTree::new(0.1));
+        let other = Arc::new(cspace_core::octomap::OcTree::new(0.1));
         assert!(cache.get_or_compute(&other, || None).is_none());
 
         assert_eq!(
@@ -4863,7 +4863,7 @@ mod tests {
     fn scaled_padded_shape_pads_a_mesh_that_arrived_without_vertex_normals() {
         // `Mesh::new` is public and leaves `vertex_normals: None`, and it is
         // how an `AttachedBodyGeometry`'s mesh is built on this side; only
-        // `cspace_geometry::stl::mesh_from_bytes` computes them. Upstream
+        // `cspace_core::geometry::stl::mesh_from_bytes` computes them. Upstream
         // cannot reach this state at all -- every `geometric_shapes`
         // creation entry point ends with `computeVertexNormals()` -- so it
         // has no equivalent guard to port. `Mesh::scale_and_padd` reads the
@@ -4894,7 +4894,7 @@ mod tests {
     // independent floating-joint children `p`/`q`, each a 1x1x1 box, so each
     // can be posed to an arbitrary independent global transform via
     // `RobotState::set_joint_transform`. Mirrors the fixture pattern already
-    // established in `cspace_model::robot_model`'s own test module.
+    // established in `cspace_core::model::robot_model`'s own test module.
 
     const FIXED_BASE_SRDF: &str = r#"<robot name="test">
         <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
@@ -5648,7 +5648,7 @@ mod tests {
     /// One occupied leaf, wrapped as a [`Shape::OcTree`] world object, at
     /// `leaf_center` in a tree of `resolution`.
     fn octree_world_with_one_leaf(resolution: f64, leaf_center: nalgebra::Point3<f64>) -> World {
-        let mut tree = cspace_octomap::OcTree::new(resolution);
+        let mut tree = cspace_core::octomap::OcTree::new(resolution);
         tree.update_node(leaf_center, true, false);
         let mut world = World::new();
         world.add_shape(
@@ -5729,7 +5729,7 @@ mod tests {
         let mut env = ParryCollisionEnv::new(World::new(), LinkPaddingScale::default());
 
         for i in 0..50 {
-            let mut tree = cspace_octomap::OcTree::new(0.1);
+            let mut tree = cspace_core::octomap::OcTree::new(0.1);
             // Far from "p": the collision result itself is not what this
             // test checks, only the cache's entry count.
             tree.update_node(
@@ -6049,7 +6049,7 @@ mod tests {
     }
 
     /// An axis-aligned box's boundary as 12 triangles (2 per face). None of
-    /// `cspace_geometry`'s mesh loaders emit a bare box like this (they
+    /// `cspace_core::geometry`'s mesh loaders emit a bare box like this (they
     /// parse STL/OBJ files), so a test that wants a `Shape::Mesh` sized
     /// differently from [`box_link`]'s hardcoded `1x1x1` collision box has
     /// to build one by hand.
@@ -7765,7 +7765,7 @@ mod tests {
         // `check_robot_collision_touching_exactly_on_an_octree_leaf_face_is_detected`,
         // read one level down: a 0.1 leaf centred at x=0.55 against the 1x1x1
         // box at the origin.
-        let mut tree = cspace_octomap::OcTree::new(0.1);
+        let mut tree = cspace_core::octomap::OcTree::new(0.1);
         tree.update_node(nalgebra::Point3::new(0.55, 0.0, 0.0), true, false);
         let leaf = Shape::OcTree(OcTree::from_tree(Arc::new(tree)));
         let (leaf_shape, leaf_fix) = convert_shape(&leaf, &cache).expect("leaf converts");
@@ -7901,10 +7901,12 @@ mod tests {
                         Shape::Cuboid(Cuboid::new(2.0 * half, 2.0 * half, 2.0 * half).unwrap())
                     }
                     K::Sphere => Shape::Sphere(Sphere::new(half).unwrap()),
-                    K::Cylinder => {
-                        Shape::Cylinder(cspace_geometry::Cylinder::new(half, 2.0 * half).unwrap())
+                    K::Cylinder => Shape::Cylinder(
+                        cspace_core::geometry::Cylinder::new(half, 2.0 * half).unwrap(),
+                    ),
+                    K::Cone => {
+                        Shape::Cone(cspace_core::geometry::Cone::new(half, 2.0 * half).unwrap())
                     }
-                    K::Cone => Shape::Cone(cspace_geometry::Cone::new(half, 2.0 * half).unwrap()),
                 }
             }
             fn name(self) -> &'static str {
@@ -8102,10 +8104,12 @@ mod tests {
                         Shape::Cuboid(Cuboid::new(2.0 * half, 2.0 * half, 2.0 * half).unwrap())
                     }
                     K::Sphere => Shape::Sphere(Sphere::new(half).unwrap()),
-                    K::Cylinder => {
-                        Shape::Cylinder(cspace_geometry::Cylinder::new(half, 2.0 * half).unwrap())
+                    K::Cylinder => Shape::Cylinder(
+                        cspace_core::geometry::Cylinder::new(half, 2.0 * half).unwrap(),
+                    ),
+                    K::Cone => {
+                        Shape::Cone(cspace_core::geometry::Cone::new(half, 2.0 * half).unwrap())
                     }
-                    K::Cone => Shape::Cone(cspace_geometry::Cone::new(half, 2.0 * half).unwrap()),
                 }
             }
             fn name(self) -> &'static str {
@@ -8285,7 +8289,7 @@ mod tests {
     #[test]
     fn compound_at_a_tie_reads_the_box_row_not_unwrap_or_true() {
         let cache = OctreeCache::default();
-        let mut tree = cspace_octomap::OcTree::new(0.1);
+        let mut tree = cspace_core::octomap::OcTree::new(0.1);
         tree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
         let (compound, compound_fix) =
             convert_shape(&Shape::OcTree(OcTree::from_tree(Arc::new(tree))), &cache)
@@ -8316,13 +8320,13 @@ mod tests {
             Partner {
                 name: "cylinder",
                 shape: Shape::Cylinder(
-                    cspace_geometry::Cylinder::new(0.05, 0.1).expect("cylinder"),
+                    cspace_core::geometry::Cylinder::new(0.05, 0.1).expect("cylinder"),
                 ),
                 kind: TangencyKind::Cylinder,
             },
             Partner {
                 name: "cone",
-                shape: Shape::Cone(cspace_geometry::Cone::new(0.05, 0.1).expect("cone")),
+                shape: Shape::Cone(cspace_core::geometry::Cone::new(0.05, 0.1).expect("cone")),
                 kind: TangencyKind::Cone,
             },
         ];
@@ -8381,7 +8385,7 @@ mod tests {
         let halfspace_pose = to_pose(halfspace_fix);
         assert_eq!(halfspace.shape_type(), ShapeType::HalfSpace);
 
-        let mut octree = cspace_octomap::OcTree::new(0.1);
+        let mut octree = cspace_core::octomap::OcTree::new(0.1);
         octree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
 
         let partners: [(&str, Shape); 6] = [
@@ -8392,11 +8396,11 @@ mod tests {
             ),
             (
                 "cylinder",
-                Shape::Cylinder(cspace_geometry::Cylinder::new(0.05, 0.1).expect("cylinder")),
+                Shape::Cylinder(cspace_core::geometry::Cylinder::new(0.05, 0.1).expect("cylinder")),
             ),
             (
                 "cone",
-                Shape::Cone(cspace_geometry::Cone::new(0.05, 0.1).expect("cone")),
+                Shape::Cone(cspace_core::geometry::Cone::new(0.05, 0.1).expect("cone")),
             ),
             ("halfspace", Shape::Plane(Plane::new(1.0, 0.0, 0.0, -3.0))),
             (
@@ -8457,7 +8461,7 @@ mod tests {
         let cache = OctreeCache::default();
         let mesh = big_flat_triangle();
 
-        let mut octree = cspace_octomap::OcTree::new(0.1);
+        let mut octree = cspace_core::octomap::OcTree::new(0.1);
         octree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
 
         let closed_partners: [(&str, Shape); 5] = [
@@ -8467,11 +8471,11 @@ mod tests {
             ),
             (
                 "cylinder",
-                Shape::Cylinder(cspace_geometry::Cylinder::new(0.05, 0.1).expect("cylinder")),
+                Shape::Cylinder(cspace_core::geometry::Cylinder::new(0.05, 0.1).expect("cylinder")),
             ),
             (
                 "cone",
-                Shape::Cone(cspace_geometry::Cone::new(0.05, 0.1).expect("cone")),
+                Shape::Cone(cspace_core::geometry::Cone::new(0.05, 0.1).expect("cone")),
             ),
             ("halfspace", Shape::Plane(Plane::new(0.0, 0.0, 1.0, 0.0))),
             (

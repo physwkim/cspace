@@ -57,7 +57,7 @@
 //!   away. A caller that means one concrete state writes it the way upstream
 //!   does, `constructGoalConstraints(state, jmg, tolerance)`
 //!   ([`cspace_constraints::utils::construct_goal_joint_constraints`]).
-//! - [`PlanningResponse::trajectory`] is a [`cspace_trajectory::RobotTrajectory`]
+//! - [`PlanningResponse::trajectory`] is a [`cspace_core::trajectory::RobotTrajectory`]
 //!   (one `duration_from_previous` per waypoint), not sbp's old
 //!   `Vec<RobotState<'m>>` (bare waypoints, no timing).
 //!   [`crate::response_adapters::AddRuckigTrajectorySmoothing`]/
@@ -191,7 +191,7 @@
 //!
 //! ```
 //! use cspace_collision::ParryCollisionEnv;
-//! use cspace_model::{MeshSearchPaths, RobotModel};
+//! use cspace_core::model::{MeshSearchPaths, RobotModel};
 //! use cspace_planning::request_adapters::{
 //!     CheckForStackedConstraints, CheckStartStateBounds, CheckStartStateCollision,
 //!     ResolveConstraintFrames, ValidateWorkspaceBounds,
@@ -202,9 +202,9 @@
 //!     PlanningResponse, PlanningResponseAdapter, WorkspaceBounds,
 //! };
 //! use cspace_scene::PlanningScene;
-//! use cspace_srdf::SrdfModel;
-//! use cspace_state::RobotState;
-//! use cspace_trajectory::RobotTrajectory;
+//! use cspace_core::srdf::SrdfModel;
+//! use cspace_core::state::RobotState;
+//! use cspace_core::trajectory::RobotTrajectory;
 //! use std::fs;
 //!
 //! let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
@@ -287,7 +287,7 @@
 //! `cspace-planners-sbp/examples/plan_benchmark_problem_set.rs` and
 //! `cspace-planners-sbp::registry`'s own
 //! `end_to_end_solve_on_panda_arm_reaches_the_requested_goal` test both run
-//! URDF/SRDF → [`cspace_model::RobotModel`] → [`cspace_scene::PlanningScene`]
+//! URDF/SRDF → [`cspace_core::model::RobotModel`] → [`cspace_scene::PlanningScene`]
 //! → [`cspace_collision::ParryCollisionEnv`] → RRT-Connect with no ROS
 //! anywhere — but buried inside a benchmark generator and a private test,
 //! neither reachable as a documented entry point. This is that entry point,
@@ -309,12 +309,12 @@
 //!
 //! use cspace_collision::ParryCollisionEnv;
 //! use cspace_constraints::utils::construct_goal_joint_constraints;
-//! use cspace_model::{MeshSearchPaths, RobotModel};
+//! use cspace_core::model::{MeshSearchPaths, RobotModel};
 //! use cspace_planner_registry::resolve_planner;
 //! use cspace_planning::{PlannerConfigurationMap, PlanningRequest, generate_plan};
 //! use cspace_scene::PlanningScene;
-//! use cspace_srdf::SrdfModel;
-//! use cspace_state::RobotState;
+//! use cspace_core::srdf::SrdfModel;
+//! use cspace_core::state::RobotState;
 //!
 //! // Linked for its side effect, not for any symbol: `RrtConnectManager`
 //! // registers itself into `PLANNER_MANAGERS` through a

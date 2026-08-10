@@ -1,17 +1,17 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! `trajectory_msgs/JointTrajectory` <-> [`cspace_trajectory::RobotTrajectory`]
+//! `trajectory_msgs/JointTrajectory` <-> [`cspace_core::trajectory::RobotTrajectory`]
 //! (round 2, PORTING-PLAN.md Phase 9). See `doc/message-mapping.md` §10 for
 //! the full survey this module codes against (`moveit_msgs/RobotTrajectory`'s
 //! `multi_dof_joint_trajectory` field is a separate, not-yet-coded gap, same
 //! shape as `RobotState`'s -- this module only handles the single
 //! `joint_trajectory` field, matching this round's brief).
 
-use cspace_error::Error;
-use cspace_model::RobotModel;
-use cspace_state::RobotState;
-use cspace_trajectory::RobotTrajectory;
+use cspace_core::error::Error;
+use cspace_core::model::RobotModel;
+use cspace_core::state::RobotState;
+use cspace_core::trajectory::RobotTrajectory;
 use r2r::trajectory_msgs::msg as trajectory_msgs;
 
 /// Wraps `trajectory_msgs::msg::JointTrajectory` with the `&RobotModel`
@@ -43,7 +43,7 @@ fn duration_seconds(d: &r2r::builtin_interfaces::msg::Duration) -> f64 {
 /// `RobotTrajectory` spanning more than ~68 years), so those inputs are
 /// rejected here rather than silently saturated or zeroed. Expires only if
 /// a caller needs to represent a trajectory that long.
-fn seconds_to_duration(t: f64) -> cspace_error::Result<r2r::builtin_interfaces::msg::Duration> {
+fn seconds_to_duration(t: f64) -> cspace_core::error::Result<r2r::builtin_interfaces::msg::Duration> {
     if !t.is_finite() || t < 0.0 || t > i32::MAX as f64 {
         return Err(Error::construct(format!(
             "time_from_start {t}s is negative, non-finite, or exceeds \
@@ -76,8 +76,8 @@ fn set_point_array(
     joint_names: &[String],
     values: &[f64],
     field: &'static str,
-    set_by_name: impl Fn(&mut RobotState, &str, f64) -> cspace_error::Result<()>,
-) -> cspace_error::Result<()> {
+    set_by_name: impl Fn(&mut RobotState, &str, f64) -> cspace_core::error::Result<()>,
+) -> cspace_core::error::Result<()> {
     if !values.is_empty() && values.len() != joint_names.len() {
         return Err(Error::construct(format!(
             "JointTrajectoryPoint.{field} has length {} but joint_names has \
@@ -146,7 +146,7 @@ impl<'m> TryFrom<JointTrajectoryMsg<'m>> for RobotTrajectory<'m> {
             // see doc/message-mapping.md §10.
             //
             // Expiry (PORTING-PLAN.md §153.1, round 13 correction): not a
-            // missing field, so a new `cspace_trajectory::RobotTrajectory`
+            // missing field, so a new `cspace_core::trajectory::RobotTrajectory`
             // field cannot clear this -- it expires only if that crate's own
             // `add_suffix_way_point` invariant relaxes to allow a nonzero
             // start-time offset. Unlike D14's `weight` case, this rejection
@@ -365,13 +365,13 @@ mod tests {
         );
     }
 
-    /// Tripwire (PORTING-PLAN.md §153.1/§205) on `cspace_trajectory::
+    /// Tripwire (PORTING-PLAN.md §153.1/§205) on `cspace_core::trajectory::
     /// RobotTrajectory::add_suffix_way_point`'s own invariant, bypassing
     /// this crate's `TryFrom` entirely -- see the expiry comment on the
     /// `i == 0 && t != 0.0` check above for why the wire-level
     /// `nonzero_start_time_is_rejected` test above cannot serve as this
     /// tripwire (it short-circuits before ever reaching
-    /// `add_suffix_way_point`). If this goes red, `cspace_trajectory`'s
+    /// `add_suffix_way_point`). If this goes red, `cspace_core::trajectory`'s
     /// invariant relaxed to allow a nonzero first `dt` -- go update or
     /// remove `trajectory.rs`'s own `i == 0 && t != 0.0` check to match,
     /// since that check no longer describes a core limitation once this

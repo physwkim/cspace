@@ -12,8 +12,8 @@ use std::cell::RefCell;
 
 use cspace_collision::{CollisionEnv, CollisionRequest};
 use cspace_constraints::KinematicConstraintSet;
+use cspace_core::state::Posed;
 use cspace_scene::PlanningScene;
-use cspace_state::Posed;
 
 use crate::compound::CompoundValue;
 use crate::joint_model_group_space::JointModelGroupSpace;
@@ -27,7 +27,7 @@ use crate::validity::StateValidityChecker;
 ///
 /// [`PlanningScene::is_state_valid`] takes `&mut self` —
 /// `current_state_mut` materializes an inherited state and
-/// `check_collision` calls [`cspace_state::RobotState::update`], both
+/// `check_collision` calls [`cspace_core::state::RobotState::update`], both
 /// mutating operations — but [`StateValidityChecker::is_valid`] takes
 /// `&self`: every existing implementor ([`crate::validity::DiscreteMotionValidator`]
 /// and the blanket `Fn` impl) is immutable, and [`crate::rrt_connect::rrt_connect`]
@@ -46,11 +46,11 @@ use crate::validity::StateValidityChecker;
 /// # No state pooling
 ///
 /// Every [`PlanningSceneValidityChecker::is_valid`] call writes into the
-/// scene's *existing* current [`cspace_state::RobotState`]
+/// scene's *existing* current [`cspace_core::state::RobotState`]
 /// ([`JointModelGroupSpace::write_robot_state`]) rather than constructing a
 /// new one — there is no `RobotState::new` anywhere in this type's hot
 /// path. The cost this type does *not* avoid is
-/// [`cspace_state::RobotState::set_variable_positions`]'s own
+/// [`cspace_core::state::RobotState::set_variable_positions`]'s own
 /// `positions().to_vec()` (one `Vec<f64>` clone of the model's full
 /// variable count, not just this group's, on every call) plus whatever
 /// forward-kinematics work [`PlanningScene::is_state_valid`]'s
@@ -166,12 +166,12 @@ mod tests {
     use cspace_constraints::{
         Constraint, JointConstraint, KinematicConstraintSet, PositionConstraint,
     };
-    use cspace_geometry::Shape;
-    use cspace_geometry::shapes::Sphere;
-    use cspace_geometry::{Isometry3, Vector3};
-    use cspace_model::{MeshSearchPaths, RobotModel};
+    use cspace_core::geometry::Shape;
+    use cspace_core::geometry::shapes::Sphere;
+    use cspace_core::geometry::{Isometry3, Vector3};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use cspace_scene::PlanningScene;
-    use cspace_srdf::SrdfModel;
 
     use super::*;
     use crate::joint_model_group_space::JointModelGroupSpace;
@@ -209,8 +209,8 @@ mod tests {
     /// case records `self_collision: true`), `"ready"` is moveit's own
     /// designed non-self-colliding demo pose, so it isolates
     /// environment-collision behaviour from self-collision.
-    fn ready_state(model: &RobotModel) -> cspace_state::RobotState<'_> {
-        let mut state = cspace_state::RobotState::new(model);
+    fn ready_state(model: &RobotModel) -> cspace_core::state::RobotState<'_> {
+        let mut state = cspace_core::state::RobotState::new(model);
         state.set_to_default_values();
         for (name, value) in [
             ("panda_joint1", 0.0),
@@ -233,7 +233,7 @@ mod tests {
     /// while a large `offset` places it nowhere near the robot.
     fn world_with_obstacle_at_ready_link4_pose(
         model: &RobotModel,
-        offset: cspace_geometry::Isometry3,
+        offset: cspace_core::geometry::Isometry3,
     ) -> cspace_collision::World {
         let mut state = ready_state(model);
         let pose = offset * state.update().global_link_transform("panda_link4").unwrap();
@@ -255,8 +255,10 @@ mod tests {
         // "ready" must collide with a sphere centered on its own
         // panda_link4 pose.
         let mut colliding_scene = PlanningScene::new(&model, &srdf);
-        let colliding_world =
-            world_with_obstacle_at_ready_link4_pose(&model, cspace_geometry::Isometry3::identity());
+        let colliding_world = world_with_obstacle_at_ready_link4_pose(
+            &model,
+            cspace_core::geometry::Isometry3::identity(),
+        );
         let colliding_env = ParryCollisionEnv::new(colliding_world, LinkPaddingScale::default());
         let colliding_checker = PlanningSceneValidityChecker::new(
             &mut colliding_scene,
@@ -275,7 +277,7 @@ mod tests {
         let mut clear_scene = PlanningScene::new(&model, &srdf);
         let clear_world = world_with_obstacle_at_ready_link4_pose(
             &model,
-            cspace_geometry::Isometry3::translation(10.0, 0.0, 0.0),
+            cspace_core::geometry::Isometry3::translation(10.0, 0.0, 0.0),
         );
         let clear_env = ParryCollisionEnv::new(clear_world, LinkPaddingScale::default());
         let clear_checker = PlanningSceneValidityChecker::new(
@@ -423,7 +425,7 @@ mod tests {
     /// (`tools/ci/check-dep-direction.sh` would reject the cycle -- collision
     /// checking already flows `cspace-scene -> cspace-constraints`), so
     /// when that production path exists, its call site threading a
-    /// `PlanningScene`-derived [`cspace_geometry::Transforms`] into
+    /// `PlanningScene`-derived [`cspace_core::geometry::Transforms`] into
     /// [`cspace_constraints::PositionConstraint::new`] has to live here, in
     /// this crate, the one place that depends on both. Until then, this
     /// test is the only evidence in the tree that `scene.transforms()`
@@ -466,7 +468,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                cspace_error::Error::UnknownName {
+                cspace_core::error::Error::UnknownName {
                     kind: "frame",
                     ref name
                 } if name == "table"

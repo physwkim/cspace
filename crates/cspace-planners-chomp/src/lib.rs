@@ -258,7 +258,7 @@
 //! # Symbol audit: `multivariate_gaussian.hpp`
 //!
 //! - `MultivariateGaussian` (class) — ported as
-//!   `cspace_sampling::`[`MultivariateGaussian`] (re-exported here), not a
+//!   `cspace_core::sampling::`[`MultivariateGaussian`] (re-exported here), not a
 //!   symbol local to this crate — see the "depends on `cspace-sampling`"
 //!   section above for why. `sample` is ported as
 //!   [`MultivariateGaussian::sample_with_covariance`]: CHOMP's `sample` has
@@ -352,7 +352,7 @@ pub mod optimizer;
 pub mod planner;
 
 pub use cost::ChompCost;
-pub use cspace_sampling::MultivariateGaussian;
+pub use cspace_core::sampling::MultivariateGaussian;
 pub use optimizer::{ChompExit, ChompLoopTrace, ChompObjective, ChompObjectiveProgress};
 pub use parameters::ChompParameters;
 pub use planner::{

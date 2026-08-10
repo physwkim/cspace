@@ -90,9 +90,9 @@ use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::rc::Rc;
 
-use cspace_error::Result;
-use cspace_kinematics::KinematicsSolver;
-use cspace_model::{JointModelGroup, RobotModel};
+use cspace_core::error::Result;
+use cspace_core::kinematics::KinematicsSolver;
+use cspace_core::model::{JointModelGroup, RobotModel};
 
 use crate::{
     Constraint, ConstraintSampler, IkConstraintSamplerAdapter, IkSamplingPose, JointConstraint,
@@ -259,7 +259,10 @@ fn select_default_sampler_inner(
                 subgroup_solvers: nested_subgroup_solvers,
             } = entry;
             let Ok(subgroup) = model.joint_model_group(&subgroup_name) else {
-                return Err(cspace_error::Error::unknown_name("group", &subgroup_name));
+                return Err(cspace_core::error::Error::unknown_name(
+                    "group",
+                    &subgroup_name,
+                ));
             };
 
             let mut sub_positions: Vec<&PositionConstraint> = Vec::new();

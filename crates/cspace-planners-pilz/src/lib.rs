@@ -157,7 +157,7 @@
 //!   here carries a `MoveItErrorCodes` value.
 //!
 //! `trajectory_generation_exceptions.hpp` is *not* on this list either: its
-//! taxonomy is realized as [`cspace_error::Error::Code`] plus
+//! taxonomy is realized as [`cspace_core::error::Error::Code`] plus
 //! [`trajectory_generator::MotionPlanResponse`]'s private `failure`
 //! constructor, which is what the
 //! four `catch (const MoveItErrorCodeException&)` blocks in
@@ -226,16 +226,16 @@
 //!   `tf2::toMsg(blend_sample_pose)`, converting `Eigen::Isometry3d` to
 //!   `geometry_msgs::msg::Pose` for `CartesianTrajectoryPoint::pose` — a
 //!   message-shape conversion with nothing left to do, since that field is
-//!   already [`cspace_geometry::Isometry3`] here (see
+//!   already [`cspace_core::geometry::Isometry3`] here (see
 //!   [`cartesian_trajectory`]'s own `# Deviations`).
 //! - `moveit_msgs::msg::MoveItErrorCodes` (`TrajectoryBlendResponse`'s field,
 //!   and `validateRequest`'s out-parameter) is replaced by
-//!   [`cspace_error::MoveItErrorCode`] via a `Result` return — see
+//!   [`cspace_core::error::MoveItErrorCode`] via a `Result` return — see
 //!   [`trajectory_blender_transition_window::blend`]'s own doc.
 //! - `trajectory_msgs::msg::JointTrajectory` (the message-shaped
 //!   intermediate `blend()` builds before `setRobotTrajectoryMsg`) has no
 //!   counterpart: [`trajectory_functions::generate_joint_trajectory_from_cartesian`]
-//!   already returns a [`cspace_trajectory::RobotTrajectory`] directly.
+//!   already returns a [`cspace_core::trajectory::RobotTrajectory`] directly.
 //! - `rclcpp::Duration::from_seconds(...)` has no counterpart:
 //!   [`cartesian_trajectory::CartesianTrajectoryPoint::time_from_start`] is
 //!   already a plain `f64` in seconds.

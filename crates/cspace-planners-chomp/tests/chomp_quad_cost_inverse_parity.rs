@@ -78,9 +78,9 @@ use std::fs;
 use nalgebra::DMatrix;
 use serde::Deserialize;
 
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use cspace_planners_chomp::{ChompCost, ChompTrajectory};
-use cspace_srdf::SrdfModel;
 
 const TOL: f64 = 1e-7;
 const GROUP: &str = "panda_arm";

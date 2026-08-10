@@ -77,7 +77,7 @@
 //! with `OccMapTree(map.resolution)` and then calls only `readTree`/
 //! `readData` (`createOctomap`, `:1417-1435`) — plain `octomap::OcTree`,
 //! which `ros/cspace-ros/src/scene/planning_scene.rs:137-143` already does
-//! with `cspace_octomap::OcTree::new` plus `read_binary_data`/`read_data`.
+//! with `cspace_core::octomap::OcTree::new` plus `read_binary_data`/`read_data`.
 //! Every user of the added API is under `moveit_ros/*`, outside the corpus.
 //! The two mechanisms it adds are also the two this port expresses
 //! differently by construction: shared mutability lives at the use site

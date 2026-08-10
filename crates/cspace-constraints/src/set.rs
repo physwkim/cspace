@@ -8,7 +8,7 @@
 //   moveit_core/kinematic_constraints/src/kinematic_constraint.cpp
 //   (KinematicConstraintSet::decide)
 
-use cspace_state::Posed;
+use cspace_core::state::Posed;
 
 use crate::{
     ConstraintEvaluationResult, JointConstraint, OrientationConstraint, PositionConstraint,

@@ -51,7 +51,7 @@
 //!   goal's `link_name` via `JointModelGroup::getSolverInstance()->getTipFrame()`,
 //!   throwing `NoSolverException`/`MoreThanOneTipFrameException` (mapped to
 //!   [`MoveItErrorCode::Failure`]) if that fails. This port's
-//!   [`cspace_kinematics::KinematicsSolver::tip_frame`] is already singular
+//!   [`cspace_core::kinematics::KinematicsSolver::tip_frame`] is already singular
 //!   (see that trait's own `# Deviations`), so "more than one tip frame" is
 //!   unrepresentable here; `solver_tip_frame` only has upstream's
 //!   "no solver" case left to handle, via the same scan-`KINEMATICS_SOLVERS`
@@ -66,11 +66,11 @@
 //!   [`crate::trajectory_generator::check_cartesian_limits`]'s own doc.
 
 use cspace_collision::CollisionEnv;
-use cspace_error::{Error, MoveItErrorCode, Result};
-use cspace_geometry::Isometry3;
-use cspace_kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
-use cspace_state::Posed;
-use cspace_trajectory::RobotTrajectory;
+use cspace_core::error::{Error, MoveItErrorCode, Result};
+use cspace_core::geometry::Isometry3;
+use cspace_core::kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
+use cspace_core::state::Posed;
+use cspace_core::trajectory::RobotTrajectory;
 
 use crate::path_line::PathLine;
 use crate::trajectory_functions::{
@@ -129,7 +129,7 @@ where
     /// # Errors
     ///
     /// [`MoveItErrorCode::Failure`] if `req.goal` is a joint-space target and
-    /// no [`static@cspace_kinematics::KINEMATICS_SOLVERS`] entry can be built for
+    /// no [`static@cspace_core::kinematics::KINEMATICS_SOLVERS`] entry can be built for
     /// `req.group_name` (upstream's `getSolverTipFrame` failure).
     /// [`MoveItErrorCode::InvalidGroupName`] if `req.group_name` names no
     /// joint model group. [`MoveItErrorCode::InvalidGoalConstraints`] if
@@ -209,7 +209,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`MoveItErrorCode::NoIkSolution`] if no [`static@cspace_kinematics::KINEMATICS_SOLVERS`]
+    /// [`MoveItErrorCode::NoIkSolution`] if no [`static@cspace_core::kinematics::KINEMATICS_SOLVERS`]
     /// entry can be built for `req.group_name` with `info.link_name` as its tip.
     /// Otherwise, see [`generate_joint_trajectory`].
     fn plan(
@@ -289,10 +289,10 @@ mod tests {
 
     use approx::assert_relative_eq;
     use cspace_collision::{LinkPaddingScale, ParryCollisionEnv};
-    use cspace_geometry::{UnitQuaternion, Vector3};
-    use cspace_model::{MeshSearchPaths, RobotModel};
+    use cspace_core::geometry::{UnitQuaternion, Vector3};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use cspace_scene::PlanningScene;
-    use cspace_srdf::SrdfModel;
 
     use super::*;
     use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer};

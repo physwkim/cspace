@@ -216,10 +216,12 @@ use cspace_collision::{
     AllowedCollisionMatrix, AttachedBodyGeometry, CollisionEnv, CollisionRequest, LinkPaddingScale,
     ParryCollisionEnv, World,
 };
-use cspace_geometry::{Cone, Cuboid, Cylinder, Isometry3, Mesh, Shape, UnitQuaternion, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::{Posed, RobotState};
+use cspace_core::geometry::{
+    Cone, Cuboid, Cylinder, Isometry3, Mesh, Shape, UnitQuaternion, Vector3,
+};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::{Posed, RobotState};
 use nalgebra::{Quaternion, Translation3, Unit};
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -248,7 +250,7 @@ const MISS_DEPTH_PROBES: [f64; 11] = [
     -1e-17, -1e-16, -1e-15, -1e-14, -1e-13, -1e-12, -1e-9, -1e-6, -1e-3, -1e-1, -1.0,
 ];
 
-/// Every kind whose `cspace_geometry::Shape` variant this backend can convert
+/// Every kind whose `cspace_core::geometry::Shape` variant this backend can convert
 /// to a `parry` shape *and* place at an exact tangency -- same set as
 /// `exact_tangency_is_decided_per_shape_pair.rs::KINDS`, mesh included: the
 /// mesh-vs-mesh cell keeps the *other* mesh unrotated, so it is still one
@@ -277,7 +279,7 @@ impl Kind {
                 Cuboid::new(2.0 * HALF, 2.0 * HALF, 2.0 * HALF).expect("positive cuboid"),
             ),
             Self::Sphere => {
-                Shape::Sphere(cspace_geometry::Sphere::new(HALF).expect("positive sphere"))
+                Shape::Sphere(cspace_core::geometry::Sphere::new(HALF).expect("positive sphere"))
             }
             Self::Cylinder => {
                 Shape::Cylinder(Cylinder::new(HALF, 2.0 * HALF).expect("positive cylinder"))

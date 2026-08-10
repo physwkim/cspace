@@ -375,7 +375,7 @@
 //!   acceptance, not diagnostics — `ompl_interface/src/detail/`
 //!   `constrained_goal_sampler.cpp:135` is a real production caller. Ported
 //!   as `IkConstraintSampler::sample`'s `group_state_validity_callback`
-//!   parameter (reusing `cspace_kinematics::SolveOptions::solution_callback`,
+//!   parameter (reusing `cspace_core::kinematics::SolveOptions::solution_callback`,
 //!   the same accept/reject hook, rather than inventing a new type) and
 //!   `IkConstraintSamplerAdapter::set_group_state_validity_callback`, baked
 //!   in at construction like `max_attempts` since `ConstraintSampler::sample`

@@ -20,7 +20,7 @@
 //! Upstream builds the `bodies::Body` for `findInternalPointsConvex` via
 //! `createEmptyBodyFromShapeType` + `setDimensionsDirty` + `setPoseDirty` +
 //! `updateInternalData` (see `oracle.cpp`'s `shapePoints`); this test builds
-//! the equivalent [`cspace_geometry::bodies::Body`] the same way this
+//! the equivalent [`cspace_core::geometry::bodies::Body`] the same way this
 //! crate's own `posed_body` (in `distance_field.rs`) does --
 //! `Body::from_shape` + `set_pose` -- so what is under test is this crate's
 //! actual production construction path, not a parallel reimplementation of
@@ -33,7 +33,7 @@
 //! `Eigen::Isometry3d::matrix() = m` (nalgebra stores rotation as a
 //! [`nalgebra::UnitQuaternion`], so a general rotation matrix is
 //! reconstructed through a quaternion round-trip -- see
-//! `cspace_test_support::isometry_from_row_major`), which can perturb a
+//! `cspace_core::test_support::isometry_from_row_major`), which can perturb a
 //! coordinate by a few ULPs relative to the oracle's direct matrix
 //! assignment. Comparing the coordinates gridded onto [`POINT_EPS`] absorbs
 //! that expected noise while still catching a real disagreement: a genuine
@@ -58,10 +58,10 @@ use std::fs;
 
 use serde::Deserialize;
 
+use cspace_core::geometry::bodies::Body;
+use cspace_core::geometry::{Cuboid, Cylinder, Mesh, Shape, Sphere};
+use cspace_core::test_support::isometry_from_row_major;
 use cspace_distance_field::find_internal_points_convex;
-use cspace_geometry::bodies::Body;
-use cspace_geometry::{Cuboid, Cylinder, Mesh, Shape, Sphere};
-use cspace_test_support::isometry_from_row_major;
 use nalgebra::Vector3;
 
 /// Kind: a structurally-safe grid-bucket size, not a measured-margin

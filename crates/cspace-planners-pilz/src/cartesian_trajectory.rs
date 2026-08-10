@@ -13,16 +13,16 @@
 //! # Deviations from upstream
 //!
 //! - `CartesianTrajectoryPoint::pose` is `geometry_msgs::msg::Pose` upstream;
-//!   here it is [`cspace_geometry::Isometry3`], this port's pose type
+//!   here it is [`cspace_core::geometry::Isometry3`], this port's pose type
 //!   everywhere else. `velocity`/`acceleration` are `geometry_msgs::msg::Twist`
 //!   upstream; [`Twist`] below replaces it with the same two
-//!   [`cspace_geometry::Vector3`] fields, since no ROS message types are
+//!   [`cspace_core::geometry::Vector3`] fields, since no ROS message types are
 //!   ported (`PORTING-PLAN.md` D1/D2).
 //! - `time_from_start` is `rclcpp::Duration` upstream; here it is a plain
 //!   `f64` in seconds, matching every other duration in this crate (see
 //!   e.g. `crate::limits::JointLimit`).
 
-use cspace_geometry::{Isometry3, Vector3};
+use cspace_core::geometry::{Isometry3, Vector3};
 
 /// A linear + angular velocity (or acceleration) pair.
 ///

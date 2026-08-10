@@ -26,7 +26,7 @@
 //!   `time_from_start = sampling_time` directly (a ROS trajectory message
 //!   point carries an absolute `time_from_start`, independent of any
 //!   "previous waypoint" arithmetic). This port's
-//!   [`cspace_trajectory::RobotTrajectory::add_suffix_way_point`] structurally
+//!   [`cspace_core::trajectory::RobotTrajectory::add_suffix_way_point`] structurally
 //!   forbids a nonzero duration for waypoint 0 (`Err` if the trajectory is
 //!   empty and `dt != 0.0` — see that method's own doc comment), so the
 //!   single point this degenerate case produces can only be at `dt = 0`.
@@ -37,11 +37,11 @@
 use std::collections::HashMap;
 
 use cspace_collision::CollisionEnv;
-use cspace_error::{Error, MoveItErrorCode, Result};
-use cspace_kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
+use cspace_core::error::{Error, MoveItErrorCode, Result};
+use cspace_core::kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
+use cspace_core::state::Posed;
+use cspace_core::trajectory::RobotTrajectory;
 use cspace_scene::PlanningScene;
-use cspace_state::Posed;
-use cspace_trajectory::RobotTrajectory;
 
 use crate::limits::JointLimit;
 use crate::trajectory_functions::{
@@ -133,7 +133,7 @@ where
     /// # Errors
     ///
     /// [`MoveItErrorCode::NoIkSolution`] if `req.goal` is a Cartesian target
-    /// and either no [`static@cspace_kinematics::KINEMATICS_SOLVERS`] entry can be
+    /// and either no [`static@cspace_core::kinematics::KINEMATICS_SOLVERS`] entry can be
     /// built for `req.group_name` with `link_name` as its tip, or IK does not
     /// converge for the resolved goal pose.
     fn extract_motion_plan_info(
@@ -348,9 +348,9 @@ mod tests {
 
     use approx::assert_relative_eq;
     use cspace_collision::{LinkPaddingScale, ParryCollisionEnv};
-    use cspace_model::{MeshSearchPaths, RobotModel};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use cspace_scene::PlanningScene;
-    use cspace_srdf::SrdfModel;
 
     use super::*;
     use crate::limits::{JointLimitsContainer, LimitsContainer};
@@ -467,7 +467,7 @@ mod tests {
     /// Same six-site function as above; see that test's doc comment.
     ///
     /// This guard is not locally bite-able: it is the sole gate on
-    /// `cspace_model::RobotModel::joint_model_group`'s own `Result`, an
+    /// `cspace_core::model::RobotModel::joint_model_group`'s own `Result`, an
     /// external, borrowed-return lookup in `cspace-model` (out of this
     /// crate's fence) -- there is no `&JointModelGroup` this crate can
     /// fabricate locally to fall through with, so a `if false && ...`

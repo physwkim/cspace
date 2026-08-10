@@ -15,9 +15,9 @@ use std::f64::consts::PI;
 use std::fs;
 
 use cspace_constraints::{OrientationConstraint, OrientationTolerance};
-use cspace_geometry::{Isometry3, Rotation3, Transforms, UnitQuaternion, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
+use cspace_core::geometry::{Isometry3, Rotation3, Transforms, UnitQuaternion, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use nalgebra::Translation3;
 
 fn fixture_path(file_name: &str) -> String {

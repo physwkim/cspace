@@ -12,13 +12,8 @@ authors.workspace = true
 cspace-collision.workspace = true
 cspace-constraints.workspace = true
 cspace-distance-field.workspace = true
-cspace-error.workspace = true
-cspace-geometry.workspace = true
-cspace-model.workspace = true
-cspace-sampling.workspace = true
-cspace-state.workspace = true
+cspace-core.workspace = true
 nalgebra.workspace = true
-cspace-trajectory.workspace = true
 rand.workspace = true
 rand_distr.workspace = true
 
@@ -37,8 +32,7 @@ approx.workspace = true
 # injected closure (`optimizer.rs`, PORTING-PLAN.md §154).
 cspace-planners-sbp.workspace = true
 cspace-scene.workspace = true
-cspace-srdf.workspace = true
-cspace-test-support.workspace = true
+cspace-core = { workspace = true, features = ["test-support"] }
 rand_chacha.workspace = true
 serde.workspace = true
 serde_json.workspace = true

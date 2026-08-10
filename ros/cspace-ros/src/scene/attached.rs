@@ -36,8 +36,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use cspace_error::{Error, Result};
-use cspace_geometry::{Isometry3, Shape};
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::{Isometry3, Shape};
 use cspace_scene::PlanningScene;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
@@ -295,8 +295,8 @@ fn apply_detach(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     // Only the fixtures below name this alias now: the non-test code reaches
     // every pose through `moveit_msgs::CollisionObject`'s own fields.
     use r2r::geometry_msgs::msg as geometry_msgs;

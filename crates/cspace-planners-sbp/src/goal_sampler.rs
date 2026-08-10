@@ -58,7 +58,7 @@
 //! before `goal_constraints.decide` in both branches, uniformly.
 
 use cspace_constraints::{ConstraintSampler, KinematicConstraintSet};
-use cspace_state::RobotState;
+use cspace_core::state::RobotState;
 use rand::Rng;
 
 use crate::compound::CompoundValue;
@@ -133,9 +133,9 @@ mod tests {
 
     use cspace_collision::ParryCollisionEnv;
     use cspace_constraints::{Constraint, JointConstraint, select_default_sampler};
-    use cspace_model::{JointModelGroup, MeshSearchPaths, RobotModel};
+    use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use cspace_scene::PlanningScene;
-    use cspace_srdf::SrdfModel;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 

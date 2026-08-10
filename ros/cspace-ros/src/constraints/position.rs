@@ -13,16 +13,16 @@
 //! undocumented): [`TryFrom<SolidPrimitiveMsg> for Shape`] below happily
 //! builds a [`Shape::Cone`], but `cspace_constraints::PositionConstraint::new`
 //! then calls `Body::from_shape`, which returns `Ok(None)` for
-//! [`Shape::Cone`] (`cspace_geometry::bodies::Body` has no `Cone` variant),
+//! [`Shape::Cone`] (`cspace_core::geometry::bodies::Body` has no `Cone` variant),
 //! so every `CONE`-typed constraint region fails there instead. This has
 //! been true since round 2; see `doc/message-mapping.md` §5's `SolidPrimitive`
-//! table for the full citation. Expires if `cspace_geometry::Body` grows a
+//! table for the full citation. Expires if `cspace_core::geometry::Body` grows a
 //! `Cone` variant -- `cspace-geometry`'s call, not this crate's.
 
-use cspace_error::Error;
-use cspace_geometry::bodies::Body;
-use cspace_geometry::{Cone, Cuboid, Cylinder, Isometry3, Shape, Sphere, Vector3 as CoreVector3};
-use cspace_model::RobotModel;
+use cspace_core::error::Error;
+use cspace_core::geometry::bodies::Body;
+use cspace_core::geometry::{Cone, Cuboid, Cylinder, Isometry3, Shape, Sphere, Vector3 as CoreVector3};
+use cspace_core::model::RobotModel;
 use r2r::moveit_msgs::msg as moveit_msgs;
 use r2r::shape_msgs::msg as shape_msgs;
 
@@ -89,7 +89,7 @@ impl TryFrom<SolidPrimitiveMsg> for Shape {
                 dim(d, CONE_HEIGHT, "CONE_HEIGHT")?,
             )?)),
             PRISM => Err(Error::other(
-                "SolidPrimitive.type=PRISM(5) has no cspace_geometry::Shape \
+                "SolidPrimitive.type=PRISM(5) has no cspace_core::geometry::Shape \
                  counterpart",
             )),
             other => Err(Error::construct(format!(
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn cone_constraint_region_is_rejected_end_to_end() {
         // Shape::try_from succeeds for CONE (see the dimension-order test
-        // above), but cspace_geometry::Body has no Cone variant --
+        // above), but cspace_core::geometry::Body has no Cone variant --
         // Body::from_shape returns Ok(None), which PositionConstraint::new
         // turns into an error. This is the previously-undocumented gap
         // named in this module's doc comment, not a regression.

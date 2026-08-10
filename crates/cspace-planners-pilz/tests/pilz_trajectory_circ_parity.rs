@@ -58,8 +58,9 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use cspace_collision::{LinkPaddingScale, ParryCollisionEnv, World};
-use cspace_geometry::{UnitQuaternion, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::geometry::{UnitQuaternion, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use cspace_planners_pilz::limits::{
     CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer,
 };
@@ -70,7 +71,6 @@ use cspace_planners_pilz::trajectory_generator::{
 };
 use cspace_planners_pilz::trajectory_generator_circ::TrajectoryGeneratorCirc;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
 
 #[derive(Deserialize)]
 struct FixtureJointLimit {
@@ -451,7 +451,7 @@ fn circ_panda_arm_rejects_the_same_request_the_oracle_rejects() {
     );
     assert_eq!(
         response.error_code,
-        cspace_error::MoveItErrorCode::InvalidMotionPlan,
+        cspace_core::error::MoveItErrorCode::InvalidMotionPlan,
         "rejection reason must match the oracle's INVALID_MOTION_PLAN"
     );
 }

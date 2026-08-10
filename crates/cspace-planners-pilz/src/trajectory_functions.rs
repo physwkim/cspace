@@ -17,17 +17,17 @@
 //! workspace already ports:
 //!
 //! - [`compute_pose_ik`] delegates the actual Newton iteration to a
-//!   [`cspace_kinematics::KinematicsSolver`] the caller constructs (e.g.
-//!   [`cspace_kinematics::NewtonRaphsonSolver`]). Upstream's self-collision
+//!   [`cspace_core::kinematics::KinematicsSolver`] the caller constructs (e.g.
+//!   [`cspace_core::kinematics::NewtonRaphsonSolver`]). Upstream's self-collision
 //!   check (`ik_constraint_function`, upstream's
 //!   `GroupStateValidityCallbackFn`, wired into `RobotState::setFromIK`) maps
-//!   exactly onto [`cspace_kinematics::SolveOptions::solution_callback`] —
+//!   exactly onto [`cspace_core::kinematics::SolveOptions::solution_callback`] —
 //!   "called on every attempt that converges numerically, reject to retry"
 //!   is precisely upstream's `IKCallbackFn` contract, so [`compute_pose_ik`]
 //!   passes [`is_state_colliding`] through that hook rather than
 //!   re-implementing IK's retry loop around a collision check of its own.
-//! - [`compute_link_fk`] delegates to [`cspace_state::Posed::frame_transform`]
-//!   (reached through [`cspace_state::RobotState::update`]) — this crate adds
+//! - [`compute_link_fk`] delegates to [`cspace_core::state::Posed::frame_transform`]
+//!   (reached through [`cspace_core::state::RobotState::update`]) — this crate adds
 //!   no forward-kinematics math of its own.
 //! - [`is_state_colliding`] delegates to
 //!   [`cspace_scene::PlanningScene::check_self_collision`], generic over the
@@ -61,7 +61,7 @@
 //!    `generateJointTrajectory`'s body actually calls on its `trajectory`
 //!    parameter (`Duration()`, `Pos(t)`), so a future Cartesian path type can
 //!    implement it without this function's signature changing.
-//! 3. **Output is a [`cspace_trajectory::RobotTrajectory`], not a
+//! 3. **Output is a [`cspace_core::trajectory::RobotTrajectory`], not a
 //!    `trajectory_msgs::msg::JointTrajectory`.** No ROS message types are
 //!    ported at all (D1/D2), and upstream's own caller
 //!    (`TrajectoryGenerator::setSuccessResponse`) immediately converts the
@@ -69,18 +69,18 @@
 //!    `setRobotTrajectoryMsg` — itself D1-excluded from `cspace-trajectory`
 //!    (see that crate's `robot_trajectory.hpp` symbol audit). Building the
 //!    `RobotTrajectory` directly, one `RobotState` waypoint at a time via
-//!    [`cspace_trajectory::RobotTrajectory::add_suffix_way_point`], skips a
+//!    [`cspace_core::trajectory::RobotTrajectory::add_suffix_way_point`], skips a
 //!    message-shaped intermediate this port has no reason to reconstruct —
 //!    the `moveit_msgs::msg::MoveItErrorCodes` two-value failure classification
 //!    (`NO_IK_SOLUTION` / `PLANNING_FAILED`) survives as
-//!    [`cspace_error::MoveItErrorCode::NoIkSolution`] /
-//!    [`cspace_error::MoveItErrorCode::PlanningFailed`], wrapped in
-//!    [`cspace_error::Error::Code`].
+//!    [`cspace_core::error::MoveItErrorCode::NoIkSolution`] /
+//!    [`cspace_core::error::MoveItErrorCode::PlanningFailed`], wrapped in
+//!    [`cspace_core::error::Error::Code`].
 //! 4. **`normalizeQuaternion` is not ported.** It exists upstream to
 //!    re-normalize a `geometry_msgs::msg::Quaternion` after a `tf2::fromMsg`
 //!    round-trip, because that message type carries no normalization
 //!    invariant of its own. This port's quaternions are always
-//!    [`cspace_geometry::UnitQuaternion`] (`nalgebra::UnitQuaternion`), which
+//!    [`cspace_core::geometry::UnitQuaternion`] (`nalgebra::UnitQuaternion`), which
 //!    is normalized by construction — there is no un-normalized
 //!    representation for this function to ever be called on.
 //! 5. **`getConstraintPose`'s message-decoding overload is not ported; its
@@ -92,23 +92,23 @@
 //!    in the goal's own rotated frame) is real geometry a future goal-pose
 //!    extraction (this round's [`crate::trajectory_generator`] or a later
 //!    LIN/PTP/CIRC round) still needs, so it is ported as [`constraint_pose`]
-//!    taking [`cspace_geometry::Vector3`]/[`cspace_geometry::UnitQuaternion`]
+//!    taking [`cspace_core::geometry::Vector3`]/[`cspace_core::geometry::UnitQuaternion`]
 //!    directly instead of `geometry_msgs` fields.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use cspace_collision::{CollisionEnv, CollisionRequest};
-use cspace_error::{Error, MoveItErrorCode, Result};
-use cspace_geometry::{Isometry3, UnitQuaternion, Vector3};
-use cspace_kinematics::{
+use cspace_core::error::{Error, MoveItErrorCode, Result};
+use cspace_core::geometry::{Isometry3, UnitQuaternion, Vector3};
+use cspace_core::kinematics::{
     AttachedFrames, DEFAULT_SOLVER_NAME, KinematicsSolver, SolveOptions, SolverParams,
     resolve_solver,
 };
-use cspace_model::RobotModel;
+use cspace_core::model::RobotModel;
+use cspace_core::state::{Posed, RobotState};
+use cspace_core::trajectory::RobotTrajectory;
 use cspace_scene::PlanningScene;
-use cspace_state::{Posed, RobotState};
-use cspace_trajectory::RobotTrajectory;
 
 use crate::cartesian_trajectory::CartesianTrajectory;
 use crate::limits::JointLimitsContainer;
@@ -151,7 +151,7 @@ pub struct IkContext<'a, 'm, E> {
 /// `RobotState::getRigidlyConnectedParentLinkModel(frame)`, called with its
 /// default `jmg = nullptr` at every one of its own call sites this crate
 /// mirrors (`checkCartesianGoalConstraint`'s and `setFromIK`'s), so this
-/// wraps [`cspace_model::RobotModel::rigidly_connected_parent_link`] with
+/// wraps [`cspace_core::model::RobotModel::rigidly_connected_parent_link`] with
 /// `group: None` rather than taking a group parameter of its own. `false`
 /// if either name is not a link in `model` at all.
 pub(crate) fn is_rigidly_connected(model: &RobotModel, a: &str, b: &str) -> bool {
@@ -171,7 +171,7 @@ pub(crate) fn is_rigidly_connected(model: &RobotModel, a: &str, b: &str) -> bool
 /// Resolve `frame_id` against `posed` first (the model frame or a link),
 /// and if that fails, `scene`'s attached bodies via
 /// [`AttachedFrames::attached_frame`] — the same seam
-/// [`cspace_kinematics::set_from_ik`] uses to reach the identical tier.
+/// [`cspace_core::kinematics::set_from_ik`] uses to reach the identical tier.
 ///
 /// Upstream `RobotState::getFrameTransform` performs both tiers itself
 /// (the state carries its own attached bodies); this port's states cannot
@@ -264,7 +264,7 @@ where
     // `offset_probe` is a [`PlanningScene`], and its own
     // [`PlanningScene::frame_transform`] already resolves an attached
     // body's bare id through its own tier 3, unlike
-    // [`cspace_state::Posed::frame_transform`].
+    // [`cspace_core::state::Posed::frame_transform`].
     let rigid_check_name = if robot_model.has_link_model(link_name) {
         link_name
     } else if let Some(attached) = ctx.scene.attached_frame(link_name) {
@@ -844,7 +844,7 @@ pub fn intersection_found(
 ///    counterpart), whose contract is "`true` means accept". This port's
 ///    [`compute_pose_ik`] instead negates at the call site
 ///    (`!is_state_colliding(...)` feeding
-///    [`cspace_kinematics::SolveOptions::solution_callback`], whose contract
+///    [`cspace_core::kinematics::SolveOptions::solution_callback`], whose contract
 ///    is the same "`true` accepts") — so [`is_state_colliding`] itself
 ///    returns the un-inverted, name-matching boolean: `true` iff the state
 ///    actually collides.
@@ -937,7 +937,7 @@ pub fn resolve_goal_frame<'m, E>(
 ///
 /// # Errors
 ///
-/// [`MoveItErrorCode::Failure`] if no [`static@cspace_kinematics::KINEMATICS_SOLVERS`]
+/// [`MoveItErrorCode::Failure`] if no [`static@cspace_core::kinematics::KINEMATICS_SOLVERS`]
 /// entry can be built for `group_name` (upstream's `NoSolverException`).
 pub fn solver_tip_frame(robot_model: &RobotModel, group_name: &str) -> Result<String> {
     let params = SolverParams::default();
@@ -953,11 +953,11 @@ mod tests {
 
     use approx::assert_relative_eq;
     use cspace_collision::{LinkPaddingScale, ParryCollisionEnv};
-    use cspace_kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolverParams};
-    use cspace_model::{MeshSearchPaths, RobotModel};
+    use cspace_core::kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolverParams};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::state::RobotState;
     use cspace_scene::PlanningScene;
-    use cspace_srdf::SrdfModel;
-    use cspace_state::RobotState;
 
     use super::*;
     use crate::limits::{JointLimit, JointLimitsContainer};

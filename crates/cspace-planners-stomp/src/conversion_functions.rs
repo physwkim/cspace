@@ -24,7 +24,7 @@
 //! crate's `lib.rs`) only ever plans for arm-like single-DOF-joint groups,
 //! so this has never been observed to matter upstream. This port does not
 //! reproduce the UB: [`positions`] and [`set_positions`] return
-//! [`cspace_error::Error::Other`] up front for any active joint whose
+//! [`cspace_core::error::Error::Other`] up front for any active joint whose
 //! variable count is not `1`, naming the offending joint, instead of
 //! silently reading or writing the first variable and discarding the rest.
 //!
@@ -92,12 +92,12 @@
 //! value before [`UnparameterizedTrajectory::into_uniformly_timed`]
 //! overwrites it, so there is nothing for it to faithfully reproduce.
 
-use cspace_model::{JointModelGroup, RobotModel};
-use cspace_state::RobotState;
-use cspace_trajectory::RobotTrajectory;
+use cspace_core::model::{JointModelGroup, RobotModel};
+use cspace_core::state::RobotState;
+use cspace_core::trajectory::RobotTrajectory;
 use nalgebra::{DMatrix, DVector};
 
-use cspace_error::Result;
+use cspace_core::error::Result;
 
 use crate::require_single_variable;
 
@@ -119,7 +119,7 @@ use crate::require_single_variable;
 ///
 /// ```compile_fail
 /// use cspace_planners_stomp::conversion_functions::UnparameterizedTrajectory;
-/// use cspace_trajectory::RobotTrajectory;
+/// use cspace_core::trajectory::RobotTrajectory;
 ///
 /// fn reach_around_into_uniformly_timed<'m>(
 ///     trajectory: UnparameterizedTrajectory<'m>,
@@ -267,8 +267,8 @@ pub fn robot_trajectory_to_matrix(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use std::fs;
 
     fn fixture_path(file_name: &str) -> String {

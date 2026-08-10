@@ -13,7 +13,7 @@ use nalgebra::Vector3;
 /// Upstream takes a `const bodies::Body&` from `geometric_shapes` directly.
 /// This port narrows the dependency to exactly the two operations
 /// `findInternalPointsConvex` actually calls on a body: `computeBoundingSphere`
-/// and `containsPoint` — implemented for [`cspace_geometry::bodies::Body`] in
+/// and `containsPoint` — implemented for [`cspace_core::geometry::bodies::Body`] in
 /// [`crate::DistanceField`]'s module (see that module for which shape
 /// variants are supported). Convex correctness is the caller's
 /// responsibility, as upstream documents ("If the body is not convex then

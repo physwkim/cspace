@@ -22,8 +22,8 @@
 //! two formulas are algebraically equivalent at the +-pi boundary (both map
 //! `angle == +-PI` to `+PI`) but are textually different implementations,
 //! so this is a fresh transcription, not a reuse.
-use cspace_error::Result;
-use cspace_state::RobotState;
+use cspace_core::error::Result;
+use cspace_core::state::RobotState;
 
 /// The number of terms in a [`DIFF_RULES`] finite-difference stencil.
 ///
@@ -83,7 +83,7 @@ pub const DIFF_RULES: [[f64; DIFF_RULE_LENGTH]; 3] = [
 /// Upstream dereferences `state.getJointModelGroup(planning_group_name)`
 /// without a null check, a latent null-pointer dereference on an unknown
 /// group name; here the lookup is a typed error instead
-/// (`cspace_error::Error::UnknownName`, via `RobotModel::joint_model_group`).
+/// (`cspace_core::error::Error::UnknownName`, via `RobotModel::joint_model_group`).
 pub fn robot_state_to_array(
     state: &RobotState,
     planning_group_name: &str,
@@ -134,10 +134,10 @@ pub fn shortest_angular_distance(start: f64, end: f64) -> f64 {
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
-    use cspace_error::Error;
-    use cspace_model::MeshSearchPaths;
-    use cspace_model::RobotModel;
-    use cspace_srdf::SrdfModel;
+    use cspace_core::error::Error;
+    use cspace_core::model::MeshSearchPaths;
+    use cspace_core::model::RobotModel;
+    use cspace_core::srdf::SrdfModel;
     use std::f64::consts::PI;
 
     const EPS: f64 = 1e-12;

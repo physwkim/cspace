@@ -314,15 +314,15 @@ done
 # anything. A file that is neither identical nor listed fails, so a new
 # crate-local description cannot escape by being forgotten.
 declare -A DIVERGENT=(
-  [crates/cspace-kinematics/tests/fixtures/pr2.srdf]="adds an l_gripper_finger_chain group (one active + one mimic joint in a single is_chain() group) that none of PR2's own upstream groups isolate; the joint types and l_gripper_l_finger_tip_joint's mimic multiplier/offset are the real PR2 URDF's, only the group boundary is new -- reason is restated in the file itself"
-  [crates/cspace-metrics/tests/fixtures/panda.srdf]="adds panda_base (isolates virtual_joint, type=floating, for joint_limits_penalty's floating-joint skip) and panda_arm_5dof (panda_link0 to panda_link5, 5 active revolute joints, for manipulability_index/manipulability's columns < 6 SVD-product branch); every joint and link is the real panda URDF's, only the two group boundaries are new -- reason is restated in the file itself"
+  [crates/cspace-core/tests/fixtures/kinematics/pr2.srdf]="adds an l_gripper_finger_chain group (one active + one mimic joint in a single is_chain() group) that none of PR2's own upstream groups isolate; the joint types and l_gripper_l_finger_tip_joint's mimic multiplier/offset are the real PR2 URDF's, only the group boundary is new -- reason is restated in the file itself"
+  [crates/cspace-core/tests/fixtures/metrics/panda.srdf]="adds panda_base (isolates virtual_joint, type=floating, for joint_limits_penalty's floating-joint skip) and panda_arm_5dof (panda_link0 to panda_link5, 5 active revolute joints, for manipulability_index/manipulability's columns < 6 SVD-product branch); every joint and link is the real panda URDF's, only the two group boundaries are new -- reason is restated in the file itself"
 )
 
 declare -A SYNTHETIC=(
   [crates/cspace-collision/tests/fixtures/octree_world_robot.urdf]="hand-written single-link robot for octree world-collision tests; not a copy of any vendored description"
   [crates/cspace-collision/tests/fixtures/octree_world_robot.srdf]="companion srdf for octree_world_robot.urdf"
-  [crates/cspace-trajectory/tests/fixtures/totg_synthetic.urdf]="hand-written robot for the synthetic TOTG case; not a copy of any vendored description"
-  [crates/cspace-trajectory/tests/fixtures/totg_synthetic.srdf]="companion srdf for totg_synthetic.urdf"
+  [crates/cspace-core/tests/fixtures/trajectory/totg_synthetic.urdf]="hand-written robot for the synthetic TOTG case; not a copy of any vendored description"
+  [crates/cspace-core/tests/fixtures/trajectory/totg_synthetic.srdf]="companion srdf for totg_synthetic.urdf"
 )
 
 check_crate_local() {  # <crate-local fixture path>

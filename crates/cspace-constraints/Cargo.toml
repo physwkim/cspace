@@ -10,11 +10,7 @@ authors.workspace = true
 
 [dependencies]
 cspace-collision.workspace = true
-cspace-error.workspace = true
-cspace-geometry.workspace = true
-cspace-kinematics.workspace = true
-cspace-model.workspace = true
-cspace-state.workspace = true
+cspace-core.workspace = true
 nalgebra.workspace = true
 rand.workspace = true
 thiserror.workspace = true
@@ -25,7 +21,7 @@ rand_chacha.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 urdf-rs.workspace = true
-cspace-srdf.workspace = true
+cspace-core = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

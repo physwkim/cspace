@@ -25,8 +25,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use cspace_error::{Error, Result};
-use cspace_geometry::{Isometry3, Plane, Shape};
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::{Isometry3, Plane, Shape};
 use cspace_scene::PlanningScene;
 use r2r::geometry_msgs::msg as geometry_msgs;
 use r2r::moveit_msgs::msg as moveit_msgs;
@@ -473,7 +473,7 @@ fn apply_move(scene: &mut PlanningScene<'_>, msg: moveit_msgs::CollisionObject) 
 
     // Geometry is ignored on MOVE (upstream logs a warning and proceeds,
     // `:1958-1962`); this crate has no logging framework wired up (see
-    // `cspace_geometry::Plane::scale_and_padd`'s own no-op precedent), so it
+    // `cspace_core::geometry::Plane::scale_and_padd`'s own no-op precedent), so it
     // is silently ignored the same way.
     let _ = (primitives, meshes, planes);
 
@@ -524,7 +524,7 @@ fn apply_move(scene: &mut PlanningScene<'_>, msg: moveit_msgs::CollisionObject) 
 mod tests {
     use super::*;
     use crate::state::tests::one_joint_model;
-    use cspace_srdf::SrdfModel;
+    use cspace_core::srdf::SrdfModel;
 
     /// Asserts the call was rejected *for the reason named*, not merely
     /// that it was rejected. `apply_move` has two independent `Error::Other`
@@ -546,7 +546,7 @@ mod tests {
         );
     }
 
-    fn scene(model: &cspace_model::RobotModel) -> PlanningScene<'_> {
+    fn scene(model: &cspace_core::model::RobotModel) -> PlanningScene<'_> {
         let srdf =
             SrdfModel::parse_str("<?xml version=\"1.0\"?><robot name=\"one_joint\"></robot>")
                 .expect("empty SRDF must parse");

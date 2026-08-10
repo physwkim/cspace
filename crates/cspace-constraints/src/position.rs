@@ -8,11 +8,11 @@
 //   moveit_core/kinematic_constraints/src/kinematic_constraint.cpp
 //   (PositionConstraint::configure, PositionConstraint::decide)
 
-use cspace_error::{Error, Result};
-use cspace_geometry::bodies::Body;
-use cspace_geometry::{Isometry3, Shape, Transforms, Vector3};
-use cspace_model::RobotModel;
-use cspace_state::Posed;
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::bodies::Body;
+use cspace_core::geometry::{Isometry3, Shape, Transforms, Vector3};
+use cspace_core::model::RobotModel;
+use cspace_core::state::Posed;
 
 use crate::ConstraintEvaluationResult;
 
@@ -34,7 +34,7 @@ const EPS: f64 = f64::EPSILON;
 /// drifting apart (upstream's own `configure()` has to defend against
 /// exactly that with an `if (primitive_poses.size() <= i) { warn; continue; }`
 /// guard per loop). [`ConstraintRegion`] pairs one [`Body`] (itself already a
-/// sum type over sphere/cylinder/cuboid/mesh — see `cspace_geometry::bodies`)
+/// sum type over sphere/cylinder/cuboid/mesh — see `cspace_core::geometry::bodies`)
 /// with its one pose, so [`PositionConstraint`]'s regions are a single
 /// `Vec<ConstraintRegion>` and the length-agreement invariant does not need
 /// to be checked because it cannot fail to hold.
@@ -296,7 +296,7 @@ impl PositionConstraint {
         // (rotation only, no translation), unlike upstream's
         // `Eigen::Isometry3d * Eigen::Vector3d`, which treats a plain vector
         // as a point and applies the full transform. Going through
-        // `nalgebra::Point3` is the same fix `cspace_geometry::bodies`'
+        // `nalgebra::Point3` is the same fix `cspace_core::geometry::bodies`'
         // private `transform_point` helper already applies for this exact
         // defect shape.
         let pt = (state.global_link_transform_at(self.link_index)

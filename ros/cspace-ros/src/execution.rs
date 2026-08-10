@@ -71,7 +71,7 @@
 //! nothing is running. [`TrajectoryExecution::begin`] exists so the preempting
 //! arm is reachable to a test rather than being an arm nothing can enter.
 
-use cspace_error::{Error, Result};
+use cspace_core::error::{Error, Result};
 use r2r::std_msgs::msg as std_msgs;
 
 /// The one event upstream's `processEvent` recognises

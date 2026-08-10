@@ -90,8 +90,8 @@ impl PlanningRequestAdapter for ResolveConstraintFrames {
 #[cfg(test)]
 mod tests {
     use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use std::fs;
 
     use super::*;

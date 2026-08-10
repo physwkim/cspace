@@ -19,9 +19,9 @@
 //! VisibilityConstraintMsgOut` below is the fix.
 
 use cspace_constraints::{SensorSpec, SensorViewDirection, TargetSpec, VisibilityCriteria};
-use cspace_error::Error;
-use cspace_geometry::Isometry3;
-use cspace_model::RobotModel;
+use cspace_core::error::Error;
+use cspace_core::geometry::Isometry3;
+use cspace_core::model::RobotModel;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::context::minimal_transforms;

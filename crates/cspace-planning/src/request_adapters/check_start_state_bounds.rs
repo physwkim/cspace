@@ -39,7 +39,7 @@
 //! order:
 //!
 //! 1. If revolute *and* continuous: wrapped into `[-pi, pi]` via
-//!    [`cspace_model::joint::JointModel::enforce_position_bounds`] — safe to call
+//!    [`cspace_core::model::joint::JointModel::enforce_position_bounds`] — safe to call
 //!    unconditionally only for a continuous joint, since that variant of
 //!    `enforce_position_bounds` never clamps (see `cspace-model`'s
 //!    `revolute.rs`, `enforce_position_bounds_wraps_when_continuous`); this
@@ -56,11 +56,11 @@
 //!    anything" rejected every start state with a continuous joint under
 //!    `fix_start_state = false`, wrap needed or not. Fixed.
 //! 2. If planar: `values[2]` (yaw) renormalized via
-//!    [`cspace_model::joint::PlanarJoint::normalize_rotation`] (cpp:129).
+//!    [`cspace_core::model::joint::PlanarJoint::normalize_rotation`] (cpp:129).
 //! 3. If floating: the quaternion renormalized via
-//!    [`cspace_model::joint::FloatingJoint::normalize_rotation`] (cpp:141).
+//!    [`cspace_core::model::joint::FloatingJoint::normalize_rotation`] (cpp:141).
 //! 4. Regardless of type: checked against its own bounds via
-//!    [`cspace_model::joint::JointModel::satisfies_position_bounds`] with
+//!    [`cspace_core::model::joint::JointModel::satisfies_position_bounds`] with
 //!    `margin = 0.0`. Upstream's own default here is not
 //!    `satisfiesPositionBounds` in isolation but
 //!    `RobotState::satisfiesBounds(jmodel, margin)`
@@ -69,12 +69,12 @@
 //!    satisfiesVelocityBounds(joint, margin))`. A prior version of this
 //!    port called only the position half, silently accepting a start state
 //!    whose velocities were set and out of bounds. Fixed: step 4 now also
-//!    checks [`cspace_model::joint::JointModel::satisfies_velocity_bounds`]
-//!    against [`cspace_state::RobotState::joint_velocity`] whenever
-//!    [`cspace_state::RobotState::has_velocities`] is true, mirroring the
-//!    `has_velocity_` conditional exactly — [`cspace_state::RobotState`]
+//!    checks [`cspace_core::model::joint::JointModel::satisfies_velocity_bounds`]
+//!    against [`cspace_core::state::RobotState::joint_velocity`] whenever
+//!    [`cspace_core::state::RobotState::has_velocities`] is true, mirroring the
+//!    `has_velocity_` conditional exactly — [`cspace_core::state::RobotState`]
 //!    already carries a `has_velocity`/`velocity` pair for this (ported
-//!    separately, `crates/cspace-state/src/state.rs`), so there is no
+//!    separately, `crates/cspace-core/src/state/state.rs`), so there is no
 //!    "does this port even have the concept" question to answer: the
 //!    input this adapter was missing was already there to read.
 //!
@@ -87,7 +87,7 @@
 //! only when `fix_start_state` allows it.
 
 use cspace_collision::ParryCollisionEnv;
-use cspace_model::joint::{FloatingJoint, JointType, PlanarJoint};
+use cspace_core::model::joint::{FloatingJoint, JointType, PlanarJoint};
 use cspace_scene::PlanningScene;
 
 use crate::PlanningRequestAdapter;
@@ -201,8 +201,8 @@ impl PlanningRequestAdapter for CheckStartStateBounds {
 
 #[cfg(test)]
 mod tests {
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use std::f64::consts::PI;
     use std::fs;
 
@@ -365,7 +365,7 @@ mod tests {
         assert!(adapter.adapt(&mut scene, &env, &mut request()).is_ok());
     }
 
-    /// Boundary: [`cspace_state::RobotState::has_velocities`] false (no
+    /// Boundary: [`cspace_core::state::RobotState::has_velocities`] false (no
     /// velocity ever set) must not spuriously fail the velocity half of
     /// step 4 -- covered implicitly by every other test here too, since
     /// none of them call `set_variable_velocity`, but stated as its own

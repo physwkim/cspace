@@ -75,10 +75,10 @@ use cspace_collision::{
     AllowedCollisionMatrix, AttachedBodyGeometry, CollisionEnv, CollisionRequest, DistanceRequest,
     LinkPaddingScale, ParryCollisionEnv, World,
 };
-use cspace_geometry::{Cone, Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Cone, Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use serde_json::{Value, json};
 
 /// Half the extent of every shape below, along every axis. Exactly

@@ -81,9 +81,11 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use cspace_collision::{LinkPaddingScale, ParryCollisionEnv, World};
-use cspace_error::{Error, MoveItErrorCode, Result};
-use cspace_geometry::{UnitQuaternion, Vector3};
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::error::{Error, MoveItErrorCode, Result};
+use cspace_core::geometry::{UnitQuaternion, Vector3};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::trajectory::RobotTrajectory;
 use cspace_planners_pilz::limits::{
     CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer,
 };
@@ -96,8 +98,6 @@ use cspace_planners_pilz::trajectory_generator::{
 };
 use cspace_planners_pilz::trajectory_generator_lin::TrajectoryGeneratorLin;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
-use cspace_trajectory::RobotTrajectory;
 
 #[derive(Deserialize)]
 struct FixtureJointLimit {
@@ -326,7 +326,7 @@ const ACCELERATION_TOLERANCE: f64 = 1.2e-6;
 
 // No per-case `*_TOLERANCE` override exists any more, and that is a
 // measured state, not an omission. Ten of them did until
-// `cspace_geometry::quaternion::slerp` replaced nalgebra's inside
+// `cspace_core::geometry::quaternion::slerp` replaced nalgebra's inside
 // `blend_trajectory_cartesian`: every case whose divergence exceeded a
 // shared constant did so because the port's blend samples were rotated by a
 // different function than upstream's `Eigen::Quaterniond::slerp`. Measured
@@ -359,7 +359,7 @@ const ACCELERATION_TOLERANCE: f64 = 1.2e-6;
 // wherever `|dot| >= 1 - eps` while nalgebra returns `from` unchanged there,
 // so a sharper corner moves more of the blend's samples across that
 // threshold at once -- a whole-window bias, not an outlier. See
-// `cspace_geometry::quaternion::slerp_coefficients` for the three
+// `cspace_core::geometry::quaternion::slerp_coefficients` for the three
 // differences and `doc/oracle-request-pilz-blend-geometry.md`'s "Case F"
 // section for the sweep table the old attribution was built on.
 

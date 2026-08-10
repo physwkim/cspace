@@ -309,7 +309,7 @@ KDL::Frame toKdlFrame(const Eigen::Isometry3d& t)
   return { KDL::Rotation::Quaternion(q.x(), q.y(), q.z(), q.w()), KDL::Vector(p.x(), p.y(), p.z()) };
 }
 
-/// Matches the `kind` strings `cspace_model::Diagnostic::UnsupportedLinkGeometry`
+/// Matches the `kind` strings `cspace_core::model::Diagnostic::UnsupportedLinkGeometry`
 /// and the `link_details[].shape_types` wire field use — this oracle's own
 /// naming, not upstream's (`shapes::Shape` has no built-in name accessor;
 /// `ShapeType`'s `operator<<` exists but is a debug print, not a stable wire
@@ -2077,7 +2077,7 @@ private:
       // Unclamped `near +/- limit`, then wrapped into `(-pi, pi]` -- not
       // clamped to the joint's (here: reporting-only, [-pi, pi]) bounds.
       // Matches this port's own fix in `near_by_configuration`
-      // (crates/cspace-kinematics/src/cart_to_jnt.rs).
+      // (crates/cspace-core/src/kinematics/cart_to_jnt.rs).
       double value = ik_rng_.uniformReal(near - limit, near + limit);
       if (value <= -M_PI || value > M_PI)
       {
@@ -2108,7 +2108,7 @@ private:
   /// `searchPositionIK`'s `do { ... } while (!timedOut(start_time,
   /// timeout))` retries until wall-clock time runs out, which is not
   /// reproducible and not comparable to a fixed budget. This mirrors
-  /// `cspace_kinematics::SolverParams::max_restarts`'s own identical
+  /// `cspace_core::kinematics::SolverParams::max_restarts`'s own identical
   /// deviation on the Rust side. The retry count itself comes from the
   /// request (`Op::Ik::max_restarts`), not a fixed constant -- round 2 of
   /// the IK success-rate investigation needs to run both sides with
@@ -2187,7 +2187,7 @@ private:
 
     // Target pose: FK at `joint_values`, expressed in this chain's own
     // base-link frame -- the frame KDL::Chain's implicit base is (matches
-    // `cspace_kinematics::chain::ChainInfo::root_pose_world`).
+    // `cspace_core::kinematics::chain::ChainInfo::root_pose_world`).
     applyJointValues(request);
     const moveit::core::LinkModel* tip_link = group->getLinkModels().back();
     const moveit::core::LinkModel* root_link = group->getLinkModels().front()->getParentLinkModel();
@@ -2268,7 +2268,7 @@ private:
     // reduced-space (active-joint-only) seed becomes the full-space
     // `KDL::JntArray` this solver actually iterates on (a mimic's own
     // full-space entry is its master's value transformed by
-    // `multiplier`/`offset`, matching `cspace_state::RobotState`'s own
+    // `multiplier`/`offset`, matching `cspace_core::state::RobotState`'s own
     // mimic derivation the Rust side relies on via `set_variable_position`).
     auto buildQFull = [&](const std::vector<double>& active_values) {
       KDL::JntArray q_full(mimic_joints.size());
@@ -3770,7 +3770,7 @@ private:
   }
 
   /// Ground truth for the `cspace-geometry` STL loader
-  /// (`crates/cspace-geometry/src/stl.rs`). Calls
+  /// (`crates/cspace-core/src/geometry/stl.rs`). Calls
   /// `shapes::createMeshFromResource` exactly as `RobotModel::constructShape`
   /// does for a URDF `<mesh>` element -- real Assimp, real
   /// `aiProcess_JoinIdenticalVertices` merging, real `package://` resolution
@@ -5425,7 +5425,7 @@ private:
   }
 
   /// Ground truth for cspace-octomap's port of octomap 1.9.7 (see
-  /// crates/cspace-octomap/src/*.rs's provenance comments): builds a
+  /// crates/cspace-core/src/octomap/*.rs's provenance comments): builds a
   /// throwaway `octomap::OcTree` local to this call (ignoring model_/state_,
   /// same pattern as shapePoints above), replays a request-described
   /// sequence of updates, and reports whatever the request asks to query
@@ -5654,7 +5654,7 @@ private:
   ///    collision_env_distance_field.cpp's
   ///    `PosedBodyPointDecomposition(octree)` each rely on their own backend
   ///    performing before an octree query means anything in world
-  ///    coordinates -- see crates/cspace-geometry/src/shapes.rs's module docs
+  ///    coordinates -- see crates/cspace-core/src/geometry/shapes.rs's module docs
   ///    for the full FCL/parry3d-f64/distance-field consumer analysis.
   ///
   /// Round 5's gap: everything above stops at pose composition and point

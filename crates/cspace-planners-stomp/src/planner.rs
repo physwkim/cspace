@@ -135,12 +135,12 @@ use rand::Rng;
 use cspace_constraints::{
     Constraint, JointConstraint, KinematicConstraintSet, SubgroupSolver, select_default_sampler,
 };
-use cspace_error::Result;
-use cspace_kinematics::KinematicsSolver;
-use cspace_model::JointModelGroup;
-use cspace_state::RobotState;
+use cspace_core::error::Result;
+use cspace_core::kinematics::KinematicsSolver;
+use cspace_core::model::JointModelGroup;
+use cspace_core::state::RobotState;
+use cspace_core::trajectory::RobotTrajectory;
 use cspace_stomp_core::{CancelHandle, Stomp, StompConfiguration, TrajectoryInitialization};
-use cspace_trajectory::RobotTrajectory;
 
 use crate::composable_task::{ComposableTask, CostFn};
 use crate::conversion_functions::{
@@ -165,7 +165,7 @@ pub const DEFAULT_NOISE_STDDEV: f64 = 0.1;
 /// `Ok(None)` where upstream returns `false` (`success`, cpp:74): STOMP
 /// simply did not find a valid solution within its configured iteration
 /// budget, an expected outcome rather than a port-level error -- the same
-/// "not found, not broken" shape as [`cspace_sampling::MultivariateGaussian::new`]'s
+/// "not found, not broken" shape as [`cspace_core::sampling::MultivariateGaussian::new`]'s
 /// `None`. `Err` is reserved for a genuine precondition violation (see
 /// [`positions`]/[`crate::conversion_functions::fill_robot_trajectory`]'s
 /// "Single-variable-joint precondition").
@@ -470,8 +470,8 @@ pub fn plan<'m>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
     use cspace_stomp_core::TrajectoryInitialization as Init;
     use nalgebra::{DMatrix, DVector};
     use rand::SeedableRng;
@@ -1285,8 +1285,8 @@ mod tests {
         fn solve_with_options(
             &mut self,
             _seed: &[f64],
-            _target: &cspace_geometry::Isometry3,
-            _options: &mut cspace_kinematics::SolveOptions,
+            _target: &cspace_core::geometry::Isometry3,
+            _options: &mut cspace_core::kinematics::SolveOptions,
         ) -> Option<Vec<f64>> {
             None
         }
@@ -1298,7 +1298,7 @@ mod tests {
         let group = model.joint_model_group("panda_arm").unwrap();
         let mut start = RobotState::new(&model);
         start.set_to_default_values();
-        let tf = cspace_geometry::Transforms::new("world").unwrap();
+        let tf = cspace_core::geometry::Transforms::new("world").unwrap();
 
         // Huge relative to panda's ~0.85 m reach: sampling a point inside
         // this region must always succeed, so every attempt reaches
@@ -1308,10 +1308,12 @@ mod tests {
             &tf,
             "panda_link8",
             "world",
-            cspace_geometry::Vector3::zeros(),
+            cspace_core::geometry::Vector3::zeros(),
             &[(
-                cspace_geometry::Shape::Sphere(cspace_geometry::Sphere::new(10.0).unwrap()),
-                cspace_geometry::Isometry3::identity(),
+                cspace_core::geometry::Shape::Sphere(
+                    cspace_core::geometry::Sphere::new(10.0).unwrap(),
+                ),
+                cspace_core::geometry::Isometry3::identity(),
             )],
             1.0,
         )

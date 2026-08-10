@@ -35,7 +35,7 @@
 //! being unique. Panda's and fanuc's own collision geometry is mesh-only,
 //! which is why the fixture is a PR2 link at all.
 //!
-//! `build_pr2_model` below passes [`cspace_model::MeshSearchPaths::none`]
+//! `build_pr2_model` below passes [`cspace_core::model::MeshSearchPaths::none`]
 //! deliberately: this test's subject is a primitive shape, so mesh loading
 //! cannot change its result, and passing no search paths keeps it from
 //! depending on the mesh pipeline at all. That is a choice, not a
@@ -70,14 +70,14 @@ use approx::assert_relative_eq;
 use serde::Deserialize;
 
 use cspace_collision::World;
+use cspace_core::geometry::{Isometry3, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
+use cspace_core::test_support::isometry_from_row_major;
 use cspace_distance_field::{
     BodyDecomposition, PosedBodySphereDecomposition, collision_object_point_decomposition,
 };
-use cspace_geometry::{Isometry3, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
-use cspace_test_support::isometry_from_row_major;
 
 /// Measured-margin tolerance, not policy: this constant used to pin `1e-4`,
 /// PORTING-PLAN.md §5 Phase 3's stated distance tolerance, matching
@@ -153,10 +153,10 @@ impl ShapeSpecWire {
     fn to_shape(&self) -> Arc<Shape> {
         Arc::new(match self.kind.as_str() {
             "sphere" => Shape::Sphere(
-                cspace_geometry::Sphere::new(self.radius.expect("sphere radius")).unwrap(),
+                cspace_core::geometry::Sphere::new(self.radius.expect("sphere radius")).unwrap(),
             ),
             "cylinder" => Shape::Cylinder(
-                cspace_geometry::Cylinder::new(
+                cspace_core::geometry::Cylinder::new(
                     self.radius.expect("cylinder radius"),
                     self.length.expect("cylinder length"),
                 )
@@ -164,7 +164,9 @@ impl ShapeSpecWire {
             ),
             "box" => {
                 let size = self.size.expect("box size");
-                Shape::Cuboid(cspace_geometry::Cuboid::new(size[0], size[1], size[2]).unwrap())
+                Shape::Cuboid(
+                    cspace_core::geometry::Cuboid::new(size[0], size[1], size[2]).unwrap(),
+                )
             }
             other => panic!("unsupported shape type in fixture: {other}"),
         })

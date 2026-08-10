@@ -48,17 +48,11 @@ r2r = { git = "https://github.com/sequenceplanner/r2r", rev = "2d080c4dede3ec950
 # doc comment -- cspace-error in particular says its MoveItErrorCode is
 # wire-exact with moveit_msgs/MoveItErrorCodes specifically so a ROS interop
 # crate can reuse it without its own lookup table.
-cspace-error = { path = "../../crates/cspace-error" }
-cspace-geometry = { path = "../../crates/cspace-geometry" }
-cspace-model = { path = "../../crates/cspace-model" }
-cspace-state = { path = "../../crates/cspace-state" }
-cspace-trajectory = { path = "../../crates/cspace-trajectory" }
+cspace-core = { path = "../../crates/cspace-core" }
 cspace-constraints = { path = "../../crates/cspace-constraints" }
 cspace-planning = { path = "../../crates/cspace-planning" }
 cspace-scene = { path = "../../crates/cspace-scene" }
 cspace-collision = { path = "../../crates/cspace-collision" }
-cspace-kinematics = { path = "../../crates/cspace-kinematics" }
-cspace-octomap = { path = "../../crates/cspace-octomap" }
 
 # The planner side of `/move_action`'s plan-only arm (PORTING-PLAN.md D8).
 # `cspace-planner-registry` is what `src/move_group.rs` calls, and what
@@ -86,7 +80,6 @@ nalgebra = "0.35"
 # Version pinned to match the root workspace's own `urdf-rs = "0.9"` (root
 # Cargo.toml's `[workspace.dependencies]`) by hand, since this manifest is
 # its own workspace (see above) and cannot `workspace = true`.
-cspace-srdf = { path = "../../crates/cspace-srdf" }
 urdf-rs = "0.9"
 
 # r2r's own service/action API is executor-agnostic (README: "the library

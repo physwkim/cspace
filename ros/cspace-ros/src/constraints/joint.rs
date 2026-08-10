@@ -5,8 +5,8 @@
 //! See `doc/message-mapping.md` §4.
 
 use cspace_constraints::JointConstraint as CoreJointConstraint;
-use cspace_error::Error;
-use cspace_model::RobotModel;
+use cspace_core::error::Error;
+use cspace_core::model::RobotModel;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 /// Wraps the wire message with the `&RobotModel` needed to resolve

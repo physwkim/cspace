@@ -1,11 +1,11 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! `moveit_msgs/JointLimits` <-> [`cspace_model::joint::JointLimits`].
+//! `moveit_msgs/JointLimits` <-> [`cspace_core::model::joint::JointLimits`].
 //! See `doc/message-mapping.md` §3.
 
-use cspace_error::Error;
-use cspace_model::joint::JointLimits as CoreJointLimits;
+use cspace_core::error::Error;
+use cspace_core::model::joint::JointLimits as CoreJointLimits;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 /// Orphan-rule wrapper for the msg->core direction (`src/lib.rs`'s doc

@@ -84,7 +84,7 @@
 //! # What a caller still cannot express
 //!
 //! A pose (position/orientation) goal reaches a real `IKConstraintSampler`
-//! only if the caller supplies a [`cspace_kinematics::KinematicsSolver`] —
+//! only if the caller supplies a [`cspace_core::kinematics::KinematicsSolver`] —
 //! see [`RrtConnectManager::solver`]. With no solver, a Cartesian-only goal
 //! region builds no sampler and falls back to
 //! [`crate::space::StateSpace::sample_uniform`] every attempt: not
@@ -158,8 +158,8 @@
 //! **Round 23** (`PORTING-PLAN.md` §163.3, closing the D12-rejection
 //! follow-up §163 left open) added the solver field: a caller
 //! who explicitly constructs a
-//! [`cspace_kinematics::KinematicsSolver`] (e.g. from
-//! `cspace_kinematics::KINEMATICS_SOLVERS`) and sets it
+//! [`cspace_core::kinematics::KinematicsSolver`] (e.g. from
+//! `cspace_core::kinematics::KINEMATICS_SOLVERS`) and sets it
 //! now gets a real `IKConstraintSampler` for a Cartesian-pose
 //! goal, the same way a full joint-constraint goal already
 //! did. `None` is unchanged: identical fallback to uniform sampling.
@@ -224,15 +224,15 @@ use cspace_collision::{CollisionRequest, ParryCollisionEnv};
 use cspace_constraints::{
     Constraint, ConstraintSampler, KinematicConstraintSet, select_default_sampler,
 };
-use cspace_geometry::Isometry3;
-use cspace_kinematics::{KinematicsSolver, SolveOptions};
-use cspace_model::RobotModel;
+use cspace_core::geometry::Isometry3;
+use cspace_core::kinematics::{KinematicsSolver, SolveOptions};
+use cspace_core::model::RobotModel;
+use cspace_core::trajectory::RobotTrajectory;
 use cspace_planner_registry::{PLANNER_MANAGERS, PlannerRegistration};
 use cspace_planning::{
     PlannerConfigurationMap, PlannerManager, PlanningContext, PlanningRequest, PlanningResponse,
 };
 use cspace_scene::PlanningScene;
-use cspace_trajectory::RobotTrajectory;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -334,15 +334,15 @@ pub enum PlanError {
     #[error("the request carried no non-empty goal constraint set")]
     NoGoalConstraints,
     /// Assembling the solved path into a
-    /// [`cspace_trajectory::RobotTrajectory`] failed. Structurally
+    /// [`cspace_core::trajectory::RobotTrajectory`] failed. Structurally
     /// unreachable today — the group name was already resolved by
     /// [`RrtConnectManager::get_planning_context`] and every waypoint is a
     /// clone of the scene's own current state — but
-    /// [`cspace_trajectory::RobotTrajectory`]'s API is fallible and this
+    /// [`cspace_core::trajectory::RobotTrajectory`]'s API is fallible and this
     /// port surfaces that rather than `.expect()`-ing an invariant it holds
     /// only by construction elsewhere.
     #[error("assembling the planned trajectory failed: {0}")]
-    Trajectory(#[from] cspace_error::Error),
+    Trajectory(#[from] cspace_core::error::Error),
 }
 
 /// [`cspace_planning::PlannerManager`] for
@@ -406,7 +406,7 @@ pub struct RrtConnectManager {
     /// §163.3/§164.5 for why this is caller-supplied wiring, not automatic
     /// resolution: **nothing in this crate picks a solver by name.** A
     /// caller wanting one must construct it themselves, e.g. from
-    /// `cspace_kinematics::KINEMATICS_SOLVERS`, exactly as D4 already
+    /// `cspace_core::kinematics::KINEMATICS_SOLVERS`, exactly as D4 already
     /// requires everywhere else in this workspace. `None` (every call
     /// site's behavior before this field existed) remains fully valid and
     /// keeps producing identical results.
@@ -438,10 +438,10 @@ pub struct RrtConnectManager {
     /// without giving it up — and it must be able to build a context more
     /// than once. `Rc` clones a handle instead. `Arc<Mutex<..>>` would work
     /// too, at the cost of a `Send + Sync` bound
-    /// [`cspace_kinematics::KinematicsSolver`] does not declare and mutex
+    /// [`cspace_core::kinematics::KinematicsSolver`] does not declare and mutex
     /// overhead for a caller this crate documents as single-threaded
     /// throughout. `RefCell`, not a bare `Rc`, because
-    /// [`cspace_kinematics::KinematicsSolver::solve_with_options`] takes
+    /// [`cspace_core::kinematics::KinematicsSolver::solve_with_options`] takes
     /// `&mut self`. A private `SharedKinematicsSolver` adapter (this
     /// module) is what actually crosses into `select_default_sampler`,
     /// since that call wants an owned `Box<dyn KinematicsSolver>`.
@@ -573,7 +573,7 @@ impl RrtConnectManager {
 pub const RANGE_KEY: &str = "range";
 
 impl std::fmt::Debug for RrtConnectManager {
-    /// Manual, not derived: [`cspace_kinematics::KinematicsSolver`] has no
+    /// Manual, not derived: [`cspace_core::kinematics::KinematicsSolver`] has no
     /// `Debug` bound (nothing here needs one), so `solver` cannot go
     /// through `#[derive(Debug)]` — printed as presence only.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -937,10 +937,10 @@ mod tests {
 
     use cspace_collision::LinkPaddingScale;
     use cspace_constraints::utils::construct_goal_joint_constraints;
-    use cspace_geometry::{Cuboid, Isometry3, Shape};
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
-    use cspace_state::RobotState;
+    use cspace_core::geometry::{Cuboid, Isometry3, Shape};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::state::RobotState;
     use rand::RngExt;
 
     use super::*;
@@ -1877,8 +1877,8 @@ mod tests {
         use cspace_constraints::{
             Constraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
         };
-        use cspace_geometry::{Sphere, Transforms, Vector3};
-        use cspace_kinematics::{NewtonRaphsonSolver, SolverParams};
+        use cspace_core::geometry::{Sphere, Transforms, Vector3};
+        use cspace_core::kinematics::{NewtonRaphsonSolver, SolverParams};
 
         const PANDA_ARM_JOINTS: [&str; 7] = [
             "panda_joint1",
@@ -2044,8 +2044,8 @@ mod tests {
     #[test]
     fn path_constraints_solver_wiring_matches_the_call_site() {
         use cspace_constraints::{OrientationConstraint, OrientationTolerance, PositionConstraint};
-        use cspace_geometry::{Sphere, Transforms, Vector3};
-        use cspace_kinematics::{NewtonRaphsonSolver, SolverParams};
+        use cspace_core::geometry::{Sphere, Transforms, Vector3};
+        use cspace_core::kinematics::{NewtonRaphsonSolver, SolverParams};
 
         const PANDA_ARM_JOINTS: [&str; 7] = [
             "panda_joint1",
@@ -2230,8 +2230,8 @@ mod tests {
         use cspace_constraints::{
             Constraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
         };
-        use cspace_geometry::{Sphere, Transforms, Vector3};
-        use cspace_kinematics::{NewtonRaphsonSolver, SolveOptions, SolverParams};
+        use cspace_core::geometry::{Sphere, Transforms, Vector3};
+        use cspace_core::kinematics::{NewtonRaphsonSolver, SolveOptions, SolverParams};
 
         const PANDA_ARM_JOINTS: [&str; 7] = [
             "panda_joint1",
@@ -2546,8 +2546,8 @@ mod tests {
         use cspace_constraints::{
             Constraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
         };
-        use cspace_geometry::{Sphere, Transforms, Vector3};
-        use cspace_kinematics::{NewtonRaphsonSolver, SolveOptions, SolverParams};
+        use cspace_core::geometry::{Sphere, Transforms, Vector3};
+        use cspace_core::kinematics::{NewtonRaphsonSolver, SolveOptions, SolverParams};
 
         const PANDA_ARM_JOINTS: [&str; 7] = [
             "panda_joint1",
@@ -3080,8 +3080,8 @@ mod tests {
     #[test]
     fn scenario3_orientation_only_corridor_sample_level_satisfaction_rate() {
         use cspace_constraints::{OrientationConstraint, OrientationTolerance, PositionConstraint};
-        use cspace_geometry::{Sphere, Transforms, Vector3};
-        use cspace_state::Posed;
+        use cspace_core::geometry::{Sphere, Transforms, Vector3};
+        use cspace_core::state::Posed;
 
         const PANDA_ARM_JOINTS: [&str; 7] = [
             "panda_joint1",

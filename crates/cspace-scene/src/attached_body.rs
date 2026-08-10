@@ -11,7 +11,7 @@
 //!
 //! Upstream stores attached bodies inside `moveit::core::RobotState` itself
 //! (`RobotState::attachBody`/`getAttachedBody`/`hasAttachedBody`/...).
-//! `cspace_state::RobotState` does not carry that concept yet — its own
+//! `cspace_core::state::RobotState` does not carry that concept yet — its own
 //! crate doc lists "no attached bodies" under deferred scope. Rather than
 //! let [`crate::PlanningScene`] shadow a second, parallel notion of
 //! "attached" next to a `RobotState` that has none, this crate is the sole
@@ -48,8 +48,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use cspace_collision::AttachedBodyGeometry;
-use cspace_error::Result;
-use cspace_geometry::{Isometry3, Shape};
+use cspace_core::error::Result;
+use cspace_core::geometry::{Isometry3, Shape};
 
 /// Geometry rigidly attached to a robot link. See the module doc for how
 /// this differs from upstream `moveit::core::AttachedBody`.
@@ -174,7 +174,7 @@ impl AttachedBody {
     /// # Errors
     ///
     /// Upstream's `setScale` is `void` and its loop has no failure path.
-    /// This one propagates [`cspace_geometry::Shape::scale`]'s error, which
+    /// This one propagates [`cspace_core::geometry::Shape::scale`]'s error, which
     /// this port has because a scale driving a dimension below zero is
     /// rejected there. Whether the `geometric_shapes` original can fail at
     /// the same point is not established here -- that package is not under
@@ -198,12 +198,12 @@ impl AttachedBody {
     ///
     /// # Errors
     ///
-    /// [`cspace_geometry::Shape::padd`]'s error, under exactly the sharing,
+    /// [`cspace_core::geometry::Shape::padd`]'s error, under exactly the sharing,
     /// cloning and partial-application rules documented on
     /// [`AttachedBody::set_scale`]. Two inputs reach it: a padding more
     /// negative than a shape's smallest dimension, and a
-    /// [`cspace_geometry::Shape::Mesh`] still carrying `vertex_normals: None`,
-    /// which is what a mesh built by `cspace_geometry::Mesh::new` has until
+    /// [`cspace_core::geometry::Shape::Mesh`] still carrying `vertex_normals: None`,
+    /// which is what a mesh built by `cspace_core::geometry::Mesh::new` has until
     /// `compute_vertex_normals` runs. Upstream cannot see the second one --
     /// every `geometric_shapes` creation entry point computes the normals
     /// before the mesh escapes -- so it is this port's own reachable path, and
@@ -226,7 +226,7 @@ impl AttachedBody {
 
 #[cfg(test)]
 mod tests {
-    use cspace_geometry::Sphere;
+    use cspace_core::geometry::Sphere;
 
     use super::*;
 
@@ -403,7 +403,7 @@ mod tests {
             "the error must be the shape layer's own dimension rejection, \
              rendered whole rather than substring-matched -- `Error::Construct` \
              is a shared catch-all and only the message says which check fired \
-             (see `cspace_error::Error`'s own doc on that)"
+             (see `cspace_core::error::Error`'s own doc on that)"
         );
 
         assert_eq!(

@@ -1,7 +1,7 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! `shape_msgs/{Mesh,Plane}` <-> [`cspace_geometry::Shape`]'s `Mesh`/`Plane`
+//! `shape_msgs/{Mesh,Plane}` <-> [`cspace_core::geometry::Shape`]'s `Mesh`/`Plane`
 //! variants. Split out from `collision_object.rs` because
 //! `moveit_msgs::msg::CollisionObject.{meshes,planes}` and
 //! `moveit_msgs::msg::PositionConstraint`'s `BoundingVolume` (see
@@ -9,8 +9,8 @@
 //! are two different consumers of the same wire shapes -- §11 needs the
 //! conversion `constraints::position` chose not to build.
 
-use cspace_error::Error;
-use cspace_geometry::{Mesh, Plane, Shape, Vector3 as CoreVector3};
+use cspace_core::error::Error;
+use cspace_core::geometry::{Mesh, Plane, Shape, Vector3 as CoreVector3};
 use r2r::shape_msgs::msg as shape_msgs;
 
 use crate::geometry::Point;

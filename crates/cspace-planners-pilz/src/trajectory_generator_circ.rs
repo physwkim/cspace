@@ -44,7 +44,7 @@
 //!   parameter declaration, a boundary this port has no equivalent of. See
 //!   [`crate::trajectory_generator::check_cartesian_limits`]'s own doc.
 //! - **A joint-space goal's constraint-count check reads the group's active
-//!   joint count from [`cspace_model::JointModelGroup::active_joint_names`],
+//!   joint count from [`cspace_core::model::JointModelGroup::active_joint_names`],
 //!   not a `size()` comparison against a message list**, since
 //!   [`Goal::Joint`] is already a `HashMap` rather than a `Vec` that could
 //!   under/over-populate independently of the map's own key set.
@@ -68,11 +68,11 @@
 //!   for oracle parity rather than falling through to the generic code.
 
 use cspace_collision::CollisionEnv;
-use cspace_error::{Error, MoveItErrorCode, Result};
-use cspace_geometry::{Isometry3, Vector3};
-use cspace_kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
-use cspace_state::Posed;
-use cspace_trajectory::RobotTrajectory;
+use cspace_core::error::{Error, MoveItErrorCode, Result};
+use cspace_core::geometry::{Isometry3, Vector3};
+use cspace_core::kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
+use cspace_core::state::Posed;
+use cspace_core::trajectory::RobotTrajectory;
 
 use crate::path_circle::{
     CircleGeometry, MAX_COLINEAR_NORM, PathCircle, circle_from_center, circle_from_interim,
@@ -264,7 +264,7 @@ where
     /// `info.circ_aux_point` cannot be constructed (upstream
     /// `CircleNoPlane`/`CircleToSmall`/`CenterPointDifferentRadius` — see the
     /// [module docs](self)'s `Error::Construct` narrowing note).
-    /// [`MoveItErrorCode::NoIkSolution`] if no [`static@cspace_kinematics::KINEMATICS_SOLVERS`]
+    /// [`MoveItErrorCode::NoIkSolution`] if no [`static@cspace_core::kinematics::KINEMATICS_SOLVERS`]
     /// entry can be built for `req.group_name` with `info.link_name` as its tip.
     /// Otherwise, see [`generate_joint_trajectory`].
     fn plan(
@@ -395,7 +395,7 @@ mod tests {
     use std::fs;
 
     use cspace_collision::ParryCollisionEnv;
-    use cspace_model::{MeshSearchPaths, RobotModel};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
 
     use super::*;
     use crate::limits::{JointLimit, JointLimitsContainer, LimitsContainer};
@@ -405,7 +405,7 @@ mod tests {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
         let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
         let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
-        let srdf = cspace_srdf::SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
+        let srdf = cspace_core::srdf::SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
         let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
         let mesh_paths = MeshSearchPaths::new([(
             "moveit_resources_panda_description",

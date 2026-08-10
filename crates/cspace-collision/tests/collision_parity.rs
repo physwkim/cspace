@@ -12,7 +12,7 @@
 //! [`ParryCollisionEnv::check_self_collision`]/[`check_robot_collision`]/
 //! [`distance_self`]/[`distance_robot`] with `enable_signed_distance: true`.
 //!
-//! `cspace_model::LinkModel` now loads `<mesh>` collision geometry (STL,
+//! `cspace_core::model::LinkModel` now loads `<mesh>` collision geometry (STL,
 //! resolved through [`MeshSearchPaths`] -- see that type and
 //! `cspace-geometry`'s `stl` module), so panda and fanuc (whose collision
 //! geometry is exactly one `<mesh>` element per link) and pr2's `<mesh>`
@@ -172,10 +172,10 @@ use cspace_collision::{
     AllowedCollisionMatrix, CollisionEnv, CollisionRequest, DistanceRequest, DistanceResultsData,
     LinkPaddingScale, ParryCollisionEnv, World,
 };
-use cspace_geometry::{Cuboid, Isometry3, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Cuboid, Isometry3, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 
 #[derive(Deserialize)]
 struct CollisionCase {
@@ -1386,7 +1386,7 @@ fn load_world_same_pair_oracle_points() -> Vec<WorldSamePairOraclePoint> {
 /// minimum translation distance for that vertex.
 fn deepest_vertex_under_floor(
     model: &RobotModel,
-    posed: &cspace_state::Posed<'_, '_>,
+    posed: &cspace_core::state::Posed<'_, '_>,
     link_name: &str,
 ) -> f64 {
     let link = model
@@ -1842,7 +1842,7 @@ fn pr2_self_wheel_same_pair_oracle_magnitude_is_implausible() {
 /// convex cylinder.)
 fn native_deepest_triangle_vs_cylinder(
     model: &RobotModel,
-    posed: &cspace_state::Posed<'_, '_>,
+    posed: &cspace_core::state::Posed<'_, '_>,
     mesh_link_name: &str,
     cylinder_link_name: &str,
 ) -> (f64, [u32; 3]) {
@@ -2146,7 +2146,7 @@ fn visibility_cone_mesh_world(
 /// landed at the local origin.
 fn deepest_cone_triangle_vs_cylinder(
     cyl_frame: &Isometry3,
-    cylinder: &cspace_geometry::Cylinder,
+    cylinder: &cspace_core::geometry::Cylinder,
     vertices: &[nalgebra::Vector3<f64>],
     triangles: &[[u32; 3]],
 ) -> (f64, [u32; 3], nalgebra::Point3<f64>) {
@@ -2519,7 +2519,7 @@ fn prbt_flange_floor_clearance_matches_the_closed_form() {
         let centre = (flange * Isometry3::translation(0.0, 0.0, CYL_ORIGIN_Z))
             .translation
             .vector;
-        let axis = flange.rotation * cspace_geometry::Vector3::new(0.0, 0.0, 1.0);
+        let axis = flange.rotation * cspace_core::geometry::Vector3::new(0.0, 0.0, 1.0);
 
         // The closed form is the distance to the *plane* the top face lies in,
         // so it is the distance to the box only while no cylinder point is
@@ -2678,7 +2678,7 @@ fn prbt_flange_floor_clearance_matches_the_closed_form_when_penetrating() {
         let centre = (flange * Isometry3::translation(0.0, 0.0, CYL_ORIGIN_Z))
             .translation
             .vector;
-        let axis = flange.rotation * cspace_geometry::Vector3::new(0.0, 0.0, 1.0);
+        let axis = flange.rotation * cspace_core::geometry::Vector3::new(0.0, 0.0, 1.0);
 
         let reach = CYL_HALF_LENGTH * axis[0].hypot(axis[1]) + CYL_RADIUS;
         let expected = centre[2]
@@ -2758,21 +2758,21 @@ fn prbt_flange_floor_clearance_matches_the_closed_form_when_penetrating() {
 #[derive(Clone)]
 enum WorldConvex {
     Box {
-        centre: cspace_geometry::Vector3,
+        centre: cspace_core::geometry::Vector3,
         /// World directions of the box's own three axes, unit length.
-        axes: [cspace_geometry::Vector3; 3],
+        axes: [cspace_core::geometry::Vector3; 3],
         /// Half-extents along `axes`, i.e. `Cuboid::size` halved.
         half: [f64; 3],
     },
     Cylinder {
-        centre: cspace_geometry::Vector3,
+        centre: cspace_core::geometry::Vector3,
         /// World direction of the cylinder's local `+z`, unit length.
-        axis: cspace_geometry::Vector3,
+        axis: cspace_core::geometry::Vector3,
         half_length: f64,
         radius: f64,
     },
     Sphere {
-        centre: cspace_geometry::Vector3,
+        centre: cspace_core::geometry::Vector3,
         radius: f64,
     },
 }
@@ -2784,10 +2784,10 @@ impl WorldConvex {
     /// unsupported shape would compute the bracket over a *subset* of a
     /// link's geometry and report it as the link's distance, which is the one
     /// failure mode that would look like a pass.
-    fn from_link_shape(link_pose: &Isometry3, link_shape: &cspace_model::LinkShape) -> Self {
+    fn from_link_shape(link_pose: &Isometry3, link_shape: &cspace_core::model::LinkShape) -> Self {
         let pose = link_pose * link_shape.origin_transform;
         let centre = pose.translation.vector;
-        let dir = |x, y, z| pose.rotation * cspace_geometry::Vector3::new(x, y, z);
+        let dir = |x, y, z| pose.rotation * cspace_core::geometry::Vector3::new(x, y, z);
         match &link_shape.shape {
             Shape::Cuboid(b) => Self::Box {
                 centre,
@@ -2812,7 +2812,7 @@ impl WorldConvex {
     }
 
     /// `max_{x in S} x . n`, exact for both variants.
-    fn support_max(&self, n: &cspace_geometry::Vector3) -> f64 {
+    fn support_max(&self, n: &cspace_core::geometry::Vector3) -> f64 {
         match self {
             Self::Box { centre, axes, half } => {
                 centre.dot(n) + (0..3).map(|k| half[k] * axes[k].dot(n).abs()).sum::<f64>()
@@ -2833,13 +2833,13 @@ impl WorldConvex {
     }
 
     /// `min_{x in S} x . n`, by the same closed form on `-n`.
-    fn support_min(&self, n: &cspace_geometry::Vector3) -> f64 {
+    fn support_min(&self, n: &cspace_core::geometry::Vector3) -> f64 {
         -self.support_max(&(-n))
     }
 
     /// The point of `S` nearest `p` -- exact for both variants (clamp in the
     /// box's own frame; clamp radially and axially in the cylinder's).
-    fn project(&self, p: &cspace_geometry::Vector3) -> cspace_geometry::Vector3 {
+    fn project(&self, p: &cspace_core::geometry::Vector3) -> cspace_core::geometry::Vector3 {
         match self {
             Self::Box { centre, axes, half } => {
                 let d = p - centre;
@@ -2878,7 +2878,7 @@ impl WorldConvex {
         }
     }
 
-    fn centre(&self) -> cspace_geometry::Vector3 {
+    fn centre(&self) -> cspace_core::geometry::Vector3 {
         match self {
             Self::Box { centre, .. }
             | Self::Cylinder { centre, .. }
@@ -2900,7 +2900,7 @@ impl WorldConvex {
     /// gives the same `x . n`, and a non-extreme choice (a cylinder's axis
     /// point when `n` is along its axis) is still a point of the body, so the
     /// bound it certifies stays valid.
-    fn support_point(&self, n: &cspace_geometry::Vector3) -> cspace_geometry::Vector3 {
+    fn support_point(&self, n: &cspace_core::geometry::Vector3) -> cspace_core::geometry::Vector3 {
         match self {
             Self::Box { centre, axes, half } => {
                 let mut out = *centre;
@@ -2930,9 +2930,9 @@ impl WorldConvex {
                 // (bounded by `radius * m`, itself at rounding scale) instead
                 // of soundness.
                 let seed = if axis[0].abs() < 0.9 {
-                    cspace_geometry::Vector3::new(1.0, 0.0, 0.0)
+                    cspace_core::geometry::Vector3::new(1.0, 0.0, 0.0)
                 } else {
-                    cspace_geometry::Vector3::new(0.0, 1.0, 0.0)
+                    cspace_core::geometry::Vector3::new(0.0, 1.0, 0.0)
                 };
                 let e1 = (seed - axis * axis.dot(&seed)).normalize();
                 let e2 = axis.cross(&e1);
@@ -2941,7 +2941,7 @@ impl WorldConvex {
                 let radial = if m > 0.0 {
                     (e1 * c1 + e2 * c2) * (*radius / m)
                 } else {
-                    cspace_geometry::Vector3::zeros()
+                    cspace_core::geometry::Vector3::zeros()
                 };
                 centre + axis * (half_length * s) + radial
             }
@@ -3057,9 +3057,9 @@ struct DistanceBracket {
     lower: f64,
     upper: f64,
     /// The witness point on the first body, in world coordinates.
-    on_a: cspace_geometry::Vector3,
+    on_a: cspace_core::geometry::Vector3,
     /// The witness point on the second body, in world coordinates.
-    on_b: cspace_geometry::Vector3,
+    on_b: cspace_core::geometry::Vector3,
 }
 
 /// A certified `[lower, upper]` bracket on the **signed** distance between two
@@ -3109,7 +3109,7 @@ struct DepthBracket {
     upper: f64,
     /// The unit direction attaining `upper`. For an overlapping pair this is
     /// the minimum-translation axis.
-    axis: cspace_geometry::Vector3,
+    axis: cspace_core::geometry::Vector3,
     /// Support evaluations spent. Carried so a caller can tell a bracket that
     /// converged from one that hit the budget.
     evals: usize,
@@ -3264,7 +3264,7 @@ fn minkowski_depth_bracket(
     max_evals: usize,
     tol: f64,
 ) -> DepthBracket {
-    type V3 = cspace_geometry::Vector3;
+    type V3 = cspace_core::geometry::Vector3;
 
     // `h_D` and its witness, the only two places the geometry enters.
     let h = |n: &V3| a.support_max(n) + b.support_max(&(-n));
@@ -3492,7 +3492,7 @@ fn minkowski_depth_bracket(
 /// axis) where the maximiser stops being unique.
 #[test]
 fn world_convex_support_point_attains_the_support_value() {
-    let v = cspace_geometry::Vector3::new;
+    let v = cspace_core::geometry::Vector3::new;
     let axis = |x: f64, y: f64, z: f64| v(x, y, z).normalize();
     let bodies = [
         WorldConvex::Box {
@@ -3576,7 +3576,7 @@ fn world_convex_support_point_attains_the_support_value() {
 /// depth verdicts and the separated verdicts are on one scale.
 #[test]
 fn minkowski_depth_bracket_matches_the_closed_forms_it_has() {
-    let v = cspace_geometry::Vector3::new;
+    let v = cspace_core::geometry::Vector3::new;
 
     /// How far outside the bracket a closed form may fall before the search is
     /// held responsible for it.
@@ -4603,11 +4603,11 @@ fn pr2_caster_wheel_clearance_bracket_agrees_with_260_3s_closed_form() {
     // constant this bracket is checked against is derived from the top face
     // being the plane `z = 0`.
     let floor = WorldConvex::Box {
-        centre: cspace_geometry::Vector3::new(0.0, 0.0, -0.05),
+        centre: cspace_core::geometry::Vector3::new(0.0, 0.0, -0.05),
         axes: [
-            cspace_geometry::Vector3::new(1.0, 0.0, 0.0),
-            cspace_geometry::Vector3::new(0.0, 1.0, 0.0),
-            cspace_geometry::Vector3::new(0.0, 0.0, 1.0),
+            cspace_core::geometry::Vector3::new(1.0, 0.0, 0.0),
+            cspace_core::geometry::Vector3::new(0.0, 1.0, 0.0),
+            cspace_core::geometry::Vector3::new(0.0, 0.0, 1.0),
         ],
         half: [2.0, 2.0, 0.05],
     };

@@ -50,11 +50,11 @@ use serde_json::Value;
 
 use cspace_collision::{CollisionEnv, World};
 use cspace_collision::{CollisionRequest, DistanceRequest, LinkPaddingScale, ParryCollisionEnv};
-use cspace_geometry::{OcTree as ShapeOcTree, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_octomap::OcTree;
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{OcTree as ShapeOcTree, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::octomap::OcTree;
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use nalgebra::Point3;
 
 #[derive(Deserialize)]
@@ -170,7 +170,7 @@ fn robot_distance_does_not_diverge_from_the_oracle_as_leaf_count_grows() {
         world.add_shape(
             "octree_object",
             Arc::new(Shape::OcTree(ShapeOcTree::from_tree(Arc::new(tree)))),
-            cspace_geometry::Isometry3::identity(),
+            cspace_core::geometry::Isometry3::identity(),
         );
         let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
 

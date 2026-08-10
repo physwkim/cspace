@@ -238,7 +238,7 @@ pub enum Op {
     /// the oracle via a hand-transcribed `KDLKinematicsPlugin::searchPositionIK`
     /// over the real, vendored `ChainIkSolverVelMimicSVD` (see
     /// `tools/moveit-oracle/src/oracle.cpp`'s `ik()`), this side's own
-    /// `cspace_kinematics::NewtonRaphsonSolver` -- the direct port of that
+    /// `cspace_core::kinematics::NewtonRaphsonSolver` -- the direct port of that
     /// same upstream solver, not `LevenbergMarquardtSolver`, which has no
     /// upstream counterpart to compare a success rate against.
     ///
@@ -261,7 +261,7 @@ pub enum Op {
         joint_values: BTreeMap<String, f64>,
         /// Whether to run position-only IK.
         position_only: bool,
-        /// `cspace_kinematics::SolverParams::max_restarts` on this side,
+        /// `cspace_core::kinematics::SolverParams::max_restarts` on this side,
         /// `kMaxRestarts` on the oracle side. Sent explicitly, not defaulted
         /// on either side, because it is the knob the round-2 investigation
         /// into moveit-rs's IK success-rate gap needs to isolate: at `0`,
@@ -280,7 +280,7 @@ pub enum Op {
         /// `joint_values` is a map: the oracle's and this side's chain
         /// traversals never have to agree on an encounter order. Empty (the
         /// default) means "no consistency limits", matching
-        /// `cspace_kinematics::registry::SolveOptions::consistency_limits`
+        /// `cspace_core::kinematics::registry::SolveOptions::consistency_limits`
         /// being [`None`].
         ///
         /// Both sides reduce this full-space map to their own

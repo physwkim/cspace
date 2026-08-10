@@ -53,7 +53,7 @@
 //!   by construction rather than by the caller's guard.
 //! - **`check_radii_for_overlap` takes `&mut`.** It reads a waypoint's tip
 //!   frame, and this port's forward kinematics are computed through
-//!   [`cspace_state::RobotState::update`], which needs `&mut`. Upstream is
+//!   [`cspace_core::state::RobotState::update`], which needs `&mut`. Upstream is
 //!   `const` because its `RobotState` caches transforms behind `mutable`
 //!   members.
 //! - **`hasSolver`'s two failure shapes collapse.** Upstream's
@@ -72,10 +72,10 @@
 use std::collections::HashMap;
 
 use cspace_collision::CollisionEnv;
-use cspace_error::{Error, MoveItErrorCode};
-use cspace_model::RobotModel;
-use cspace_state::Posed;
-use cspace_trajectory::RobotTrajectory;
+use cspace_core::error::{Error, MoveItErrorCode};
+use cspace_core::model::RobotModel;
+use cspace_core::state::Posed;
+use cspace_core::trajectory::RobotTrajectory;
 
 use crate::limits::LimitsContainer;
 use crate::plan_components_builder::PlanComponentsBuilder;
@@ -494,11 +494,11 @@ mod tests {
     use std::sync::Arc;
 
     use cspace_collision::{LinkPaddingScale, ParryCollisionEnv, World};
-    use cspace_geometry::{UnitQuaternion, Vector3};
-    use cspace_model::MeshSearchPaths;
+    use cspace_core::geometry::{UnitQuaternion, Vector3};
+    use cspace_core::model::MeshSearchPaths;
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::state::RobotState;
     use cspace_scene::PlanningScene;
-    use cspace_srdf::SrdfModel;
-    use cspace_state::RobotState;
 
     use super::*;
     use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer};

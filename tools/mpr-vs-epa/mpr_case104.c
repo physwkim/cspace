@@ -23,7 +23,7 @@
  *   length           (cylinder full length -- NOT half-length; libccd's
  *                      own `ccd_cyl_t.height` is halved internally, see
  *                      `testsuites/support.c`'s `cylSupport`, so this is
- *                      the same convention `cspace_geometry::Cylinder`'s
+ *                      the same convention `cspace_core::geometry::Cylinder`'s
  *                      own `length` field already uses)
  *
  * stdout: one line, `mpr_depth=<value>` (or `collision=0` if MPR finds no
@@ -36,7 +36,7 @@
  * own code (`convert_shape` in `crates/cspace-collision/src/parry.rs`)
  * applies a fixed +90-degree-about-X rotation (`axis_fix`) when building a
  * `parry3d_f64::shape::Cylinder` from this crate's Z-axis
- * `cspace_geometry::Shape::Cylinder`. libccd's own `ccd_cyl_t` support
+ * `cspace_core::geometry::Shape::Cylinder`. libccd's own `ccd_cyl_t` support
  * function (`testsuites/support.c`'s `cylSupport`, `ccdVec3Z(&dir)`
  * directly) is already Z-native -- the *same* convention this program's
  * own stdin frame uses, and the same convention URDF/FCL use. Applying

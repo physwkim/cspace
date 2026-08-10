@@ -87,8 +87,8 @@ PYEOF
 # on the failure path) and replayed only when the run fails.
 status=0
 "$REPO_ROOT/tools/moveit-oracle/run-oracle.sh" \
-  --urdf "$REPO_ROOT/crates/cspace-kinematics/tests/fixtures/pr2.urdf" \
-  --srdf "$REPO_ROOT/crates/cspace-kinematics/tests/fixtures/pr2.srdf" \
+  --urdf "$REPO_ROOT/crates/cspace-core/tests/fixtures/kinematics/pr2.urdf" \
+  --srdf "$REPO_ROOT/crates/cspace-core/tests/fixtures/kinematics/pr2.srdf" \
   < "$REQUEST_FILE" > "$RAW_FILE" 2> "$STDERR_FILE" || status=$?
 
 if [[ $status -ne 0 ]]; then

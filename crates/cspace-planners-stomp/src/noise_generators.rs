@@ -46,7 +46,7 @@
 //! `(Eigen::VectorXd::Zero(num_timesteps), covariance)` arguments. In C++
 //! this matters only because each carries its own RNG-adjacent state
 //! indirectly through Eigen's global RNG; in this port,
-//! [`cspace_sampling::MultivariateGaussian`] is itself stateless --
+//! [`cspace_core::sampling::MultivariateGaussian`] is itself stateless --
 //! `sample_with_covariance` takes the `Rng` externally (see that crate's
 //! own module doc) -- so `num_dimensions` separately constructed but
 //! identical objects would be functionally interchangeable with one shared
@@ -60,8 +60,8 @@
 //! and the last waypoint at exactly zero noise, keeping trajectory
 //! endpoints fixed against perturbation. Reproduced exactly below.
 
-use cspace_error::{Error, Result};
-use cspace_sampling::MultivariateGaussian;
+use cspace_core::error::{Error, Result};
+use cspace_core::sampling::MultivariateGaussian;
 use cspace_stomp_core::{
     DerivativeOrder, full_piv_lu_try_inverse_or_empty, generate_finite_difference_matrix,
 };

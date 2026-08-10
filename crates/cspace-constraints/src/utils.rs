@@ -124,10 +124,12 @@
 //! from. It stays a gap this port carries deliberately, not one a future
 //! round should expect to close by finding more upstream code to read.
 
-use cspace_error::{Error, Result};
-use cspace_geometry::{Cuboid, Isometry3, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
-use cspace_model::RobotModel;
-use cspace_state::Posed;
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::{
+    Cuboid, Isometry3, Shape, Sphere, Transforms, UnitQuaternion, Vector3,
+};
+use cspace_core::model::RobotModel;
+use cspace_core::state::Posed;
 
 use crate::orientation::OrientationTolerance;
 use crate::{
@@ -214,7 +216,7 @@ pub fn count_individual_constraints(constraints: &KinematicConstraintSet) -> usi
 /// `tolerance_below == tolerance_above` for that form.
 ///
 /// One [`JointConstraint`] per variable of `group_name`, in
-/// [`cspace_model::JointModelGroup::variable_names`] order, at `state`'s
+/// [`cspace_core::model::JointModelGroup::variable_names`] order, at `state`'s
 /// current position for that variable — matching upstream's
 /// `state.copyJointGroupPositions(jmg, vals)` plus `jmg->getVariableNames()`.
 ///
@@ -303,7 +305,7 @@ pub fn construct_goal_joint_constraints(
 /// (`kinematic_constraints/utils.cpp:172-192`): it compares the constraint's full name (here,
 /// [`JointConstraint::joint_variable_name`], which may carry a
 /// `/local_variable` suffix for one variable of a multi-DOF joint) against
-/// [`cspace_model::JointModelGroup::active_joint_names`] (plain joint
+/// [`cspace_core::model::JointModelGroup::active_joint_names`] (plain joint
 /// names, one per joint model). For a single-DOF joint the two forms
 /// coincide and the check behaves as intended; for a per-variable
 /// constraint on a multi-DOF joint the suffixed name can never string-match

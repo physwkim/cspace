@@ -30,11 +30,11 @@
 //! # Why the trait is generic, not tied to a robot-state type
 //!
 //! Every upstream method here takes a `const moveit::core::RobotState&`.
-//! `crates/cspace-model` (owned by another worker) has not ported
+//! `crates/cspace-core` (owned by another worker) has not ported
 //! `RobotState` yet, and this crate must not take on that dependency mid-port
 //! — so [`CollisionEnv`] is generic over `State`, an entirely opaque type as
 //! far as this trait is concerned. Once `RobotState` exists, a concrete
-//! backend implements `CollisionEnv<cspace_model::RobotState>`; this trait's
+//! backend implements `CollisionEnv<cspace_core::model::RobotState>`; this trait's
 //! shape does not need to change for that to happen.
 //!
 //! # No `CollisionDetectorAllocator`, and no `linkme` registry
@@ -90,7 +90,7 @@
 
 use std::collections::BTreeMap;
 
-use cspace_error::Result;
+use cspace_core::error::Result;
 
 use crate::common::{
     AttachedBodyGeometry, CollisionRequest, CollisionResult, ContactData, DistanceRequest,
@@ -149,9 +149,9 @@ use crate::matrix::AllowedCollisionMatrix;
 /// "the robot at this state" means, upstream-side.
 ///
 /// This crate's `State` is generic and opaque (see this module's doc,
-/// above) precisely so it does not have to depend on `cspace_state`; that
+/// above) precisely so it does not have to depend on `cspace_core::state`; that
 /// same genericity is why it cannot be the thing attached bodies live on
-/// here — `cspace_state::RobotState` itself carries no attached-body concept
+/// here — `cspace_core::state::RobotState` itself carries no attached-body concept
 /// yet (`cspace_scene::AttachedBody`'s own doc: `PlanningScene` is the sole
 /// owner of that data for now, precisely because `RobotState` has nowhere to
 /// put it). Each method below therefore takes `attached_bodies: &[AttachedBodyGeometry<'_>]`

@@ -19,11 +19,11 @@ use std::sync::Arc;
 use cspace_collision::{
     CollisionEnv, CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World,
 };
-use cspace_geometry::Isometry3;
-use cspace_geometry::shapes::{Mesh, Shape, Sphere};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::Isometry3;
+use cspace_core::geometry::shapes::{Mesh, Shape, Sphere};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 
 /// A unit tetrahedron at the origin — the smallest closed `Shape::Mesh` that
 /// converts to a `parry` `TriMesh`, which is what makes a part composite.

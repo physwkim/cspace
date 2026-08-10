@@ -148,7 +148,7 @@
 //! Both handlers below answer a failed `TryFrom<PlanningRequestMsg>` with
 //! `MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS`, whatever the conversion
 //! actually rejected. That conversion has one entry point and one
-//! `cspace_error::Error` return, so the handler cannot tell a malformed goal
+//! `cspace_core::error::Error` return, so the handler cannot tell a malformed goal
 //! constraint from an unrepresentable `start_state.multi_dof_joint_state`
 //! from a `reference_trajectories` this port has nowhere to put; the
 //! `message` string names the reason and the code does not. Upstream has no
@@ -190,7 +190,7 @@ use futures::stream::StreamExt;
 use futures::task::LocalSpawnExt;
 use cspace_collision::{BodyType, CollisionRequest, ParryCollisionEnv};
 use cspace_constraints::KinematicConstraintSet;
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_planning::PlanningRequest;
 use moveit_ros::constraints::set::ConstraintsMsg;
 use moveit_ros::execute_trajectory;
@@ -206,8 +206,8 @@ use moveit_ros::planning::{PlanningRequestMsg, PlanningResponseMsgOut};
 use moveit_ros::robot_description;
 use moveit_ros::state::RobotStateMsg;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use r2r::QosProfile;
 use r2r::moveit_msgs::action::{ExecuteTrajectory, MoveGroup};
 use r2r::moveit_msgs::msg::MoveItErrorCodes;

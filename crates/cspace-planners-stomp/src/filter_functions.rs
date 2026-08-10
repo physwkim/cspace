@@ -23,10 +23,10 @@
 //! `CostFn`. This module carries the one piece of that header every filter
 //! function here actually needs: the `FilterFn` signature itself.
 
-use cspace_model::{JointModelGroup, RobotModel};
+use cspace_core::model::{JointModelGroup, RobotModel};
 use nalgebra::DMatrix;
 
-use cspace_error::{Error, Result};
+use cspace_core::error::{Error, Result};
 
 use crate::require_single_variable;
 
@@ -90,7 +90,7 @@ pub fn simple_smoothing_matrix(num_timesteps: usize) -> Result<FilterFn<'static>
 ///
 /// # Errors
 ///
-/// [`cspace_error::Error::Other`] up front if any of `group`'s active joints
+/// [`cspace_core::error::Error::Other`] up front if any of `group`'s active joints
 /// is not single-variable -- see `conversion_functions`' module doc,
 /// "Single-variable-joint precondition"; the same precondition applies here,
 /// since row `i` of the filtered matrix is assumed to be joint `i`'s one
@@ -135,8 +135,8 @@ pub fn chain<'a>(filter_functions: Vec<FilterFn<'a>>) -> FilterFn<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cspace_model::MeshSearchPaths;
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::MeshSearchPaths;
+    use cspace_core::srdf::SrdfModel;
     use std::fs;
 
     // `R` (the control cost matrix `generate_smoothing_matrix` inverts) is

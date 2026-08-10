@@ -75,11 +75,11 @@ use cspace_collision::{
     AllowedCollisionMatrix, AttachedBodyGeometry, CollisionEnv, CollisionRequest, DistanceRequest,
     DistanceRequestType, LinkPaddingScale, ParryCollisionEnv, World,
 };
-use cspace_geometry::{Cuboid, Cylinder, Isometry3, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_octomap::OcTree;
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Cuboid, Cylinder, Isometry3, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::octomap::OcTree;
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use nalgebra::Point3;
 
 /// `sqrt(10 * f64::EPSILON)` -- `parry3d-f64-0.30.0/src/query/gjk/gjk.rs`'s
@@ -140,14 +140,14 @@ impl Kind {
                 Cuboid::new(2.0 * half, 2.0 * half, 2.0 * half).expect("positive cuboid"),
             ),
             Self::Sphere => {
-                Shape::Sphere(cspace_geometry::Sphere::new(half).expect("positive sphere"))
+                Shape::Sphere(cspace_core::geometry::Sphere::new(half).expect("positive sphere"))
             }
             Self::Cylinder => {
                 Shape::Cylinder(Cylinder::new(half, 2.0 * half).expect("positive cylinder"))
             }
-            Self::Cone => {
-                Shape::Cone(cspace_geometry::Cone::new(half, 2.0 * half).expect("positive cone"))
-            }
+            Self::Cone => Shape::Cone(
+                cspace_core::geometry::Cone::new(half, 2.0 * half).expect("positive cone"),
+            ),
         })
     }
 }
@@ -569,9 +569,9 @@ fn octree_anchor() {
     let mut world = World::new();
     world.add_shape(
         "octree_object",
-        Arc::new(Shape::OcTree(cspace_geometry::OcTree::from_tree(Arc::new(
-            tree,
-        )))),
+        Arc::new(Shape::OcTree(cspace_core::geometry::OcTree::from_tree(
+            Arc::new(tree),
+        ))),
         Isometry3::identity(),
     );
     let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());

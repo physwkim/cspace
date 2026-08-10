@@ -72,8 +72,8 @@ use cspace_collision::{
     CollisionResult, DistanceRequest, DistanceResult, LinkPaddingScale, MoveObjectOutcome,
     Notification, ParryCollisionEnv, World,
 };
-use cspace_error::{Error, Result};
-use cspace_state::Posed;
+use cspace_core::error::{Error, Result};
+use cspace_core::state::Posed;
 use nalgebra::Vector3;
 
 use crate::collision_env_distance_field::LinkBodyDecompositions;
@@ -368,11 +368,11 @@ impl<'m> HybridCollisionEnv<'m> {
     /// ```no_run
     /// # use cspace_collision::{CollisionRequest, LinkPaddingScale, World};
     /// # use cspace_distance_field::{DistanceFieldConfig, GridGeometry, HybridCollisionEnv, add_link_body_decompositions};
-    /// # use cspace_model::{MeshSearchPaths, RobotModel};
+    /// # use cspace_core::model::{MeshSearchPaths, RobotModel};
     /// # use nalgebra::Vector3;
     /// # let urdf: urdf_rs::Robot =
     /// #     urdf_rs::read_from_string(r#"<robot name="r"><link name="l"/></robot>"#).unwrap();
-    /// # let srdf = cspace_srdf::SrdfModel::parse_str(r#"<robot name="r"/>"#).unwrap();
+    /// # let srdf = cspace_core::srdf::SrdfModel::parse_str(r#"<robot name="r"/>"#).unwrap();
     /// # let model =
     /// #     RobotModel::from_urdf_and_srdf(&urdf, "", &srdf, &MeshSearchPaths::none()).unwrap();
     /// # let padding = LinkPaddingScale::new();
@@ -384,7 +384,7 @@ impl<'m> HybridCollisionEnv<'m> {
     /// #     use_signed_distance_field: false,
     /// # };
     /// # let mut env = HybridCollisionEnv::new(World::new(), padding, decompositions, config, 0.0).unwrap();
-    /// # let mut state = cspace_state::RobotState::new(&model);
+    /// # let mut state = cspace_core::state::RobotState::new(&model);
     /// # state.set_to_default_values();
     /// # let posed = state.update();
     /// {
@@ -405,11 +405,11 @@ impl<'m> HybridCollisionEnv<'m> {
     /// ```compile_fail,E0499
     /// # use cspace_collision::{CollisionRequest, LinkPaddingScale, World};
     /// # use cspace_distance_field::{DistanceFieldConfig, GridGeometry, HybridCollisionEnv, add_link_body_decompositions};
-    /// # use cspace_model::{MeshSearchPaths, RobotModel};
+    /// # use cspace_core::model::{MeshSearchPaths, RobotModel};
     /// # use nalgebra::Vector3;
     /// # let urdf: urdf_rs::Robot =
     /// #     urdf_rs::read_from_string(r#"<robot name="r"><link name="l"/></robot>"#).unwrap();
-    /// # let srdf = cspace_srdf::SrdfModel::parse_str(r#"<robot name="r"/>"#).unwrap();
+    /// # let srdf = cspace_core::srdf::SrdfModel::parse_str(r#"<robot name="r"/>"#).unwrap();
     /// # let model =
     /// #     RobotModel::from_urdf_and_srdf(&urdf, "", &srdf, &MeshSearchPaths::none()).unwrap();
     /// # let padding = LinkPaddingScale::new();
@@ -421,7 +421,7 @@ impl<'m> HybridCollisionEnv<'m> {
     /// #     use_signed_distance_field: false,
     /// # };
     /// # let mut env = HybridCollisionEnv::new(World::new(), padding, decompositions, config, 0.0).unwrap();
-    /// # let mut state = cspace_state::RobotState::new(&model);
+    /// # let mut state = cspace_core::state::RobotState::new(&model);
     /// # state.set_to_default_values();
     /// # let posed = state.update();
     /// let (result, gsr) = env
@@ -757,8 +757,8 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for HybridCollisionEnv<'m> {
 mod tests {
     use std::sync::Arc;
 
-    use cspace_geometry::{Cuboid, Isometry3, Shape};
-    use cspace_model::{MeshSearchPaths, RobotModel};
+    use cspace_core::geometry::{Cuboid, Isometry3, Shape};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
     use nalgebra::Vector3;
 
     use super::*;
@@ -773,10 +773,10 @@ mod tests {
     /// (measured: switching this joint's `type` from `revolute` to `fixed`
     /// collapses `DistanceFieldCacheEntry::link_names` to `[]` and both
     /// tests below started passing vacuously, before the
-    /// `cspace_test_support::assert_group_has_updated_links` call just below
+    /// `cspace_core::test_support::assert_group_has_updated_links` call just below
     /// existed to catch it at construction time instead, §196). The joint's
     /// one variable defaults to 0, under which rotation about its own z axis
-    /// is the identity, so [`cspace_state::RobotState::set_to_default_values`]
+    /// is the identity, so [`cspace_core::state::RobotState::set_to_default_values`]
     /// alone still fully determines the state -- this is a fixed pose, not
     /// a swept one.
     fn two_link_gap_model() -> (RobotModel, f64) {
@@ -809,11 +809,11 @@ mod tests {
 </robot>
 "#;
         let urdf: urdf_rs::Robot = urdf_rs::read_from_string(&urdf_xml).unwrap();
-        let srdf = cspace_srdf::SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
+        let srdf = cspace_core::srdf::SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
         let model =
             RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
                 .expect("two_link_gap model must build");
-        cspace_test_support::assert_group_has_updated_links(&model, "chain");
+        cspace_core::test_support::assert_group_has_updated_links(&model, "chain");
         (model, GAP)
     }
 
@@ -866,7 +866,7 @@ mod tests {
             -0.1,
         )
         .unwrap();
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
@@ -920,7 +920,7 @@ mod tests {
             0.0,
         )
         .unwrap();
-        let mut state = cspace_state::RobotState::new(&model);
+        let mut state = cspace_core::state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
         let req = CollisionRequest {

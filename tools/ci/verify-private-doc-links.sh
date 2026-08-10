@@ -12,7 +12,7 @@
 # The `#[cfg(test)]` half of §198 stays open and is NOT closed by this
 # script. Adding `--cfg test` to RUSTDOCFLAGS makes rustdoc see those
 # modules but the build then fails on unresolved dev-dependency imports
-# (`approx`, `rand_chacha`, `cspace_sampling`, ...), because a doc build
+# (`approx`, `rand_chacha`, `cspace_core::sampling`, ...), because a doc build
 # does not link dev-dependencies. Do not "fix" that by deleting the flag
 # and calling the gap closed.
 #

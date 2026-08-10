@@ -70,14 +70,14 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use cspace_collision::{AllowedCollisionMatrix, CollisionRequest, LinkPaddingScale, World};
+use cspace_core::geometry::{Shape, Sphere};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
+use cspace_core::test_support::isometry_from_row_major;
 use cspace_distance_field::{
     DistanceFieldConfig, GridGeometry, HybridCollisionEnv, add_link_body_decompositions,
 };
-use cspace_geometry::{Shape, Sphere};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
-use cspace_test_support::isometry_from_row_major;
 use nalgebra::Vector3;
 
 fn fixture_path(file_name: &str) -> String {

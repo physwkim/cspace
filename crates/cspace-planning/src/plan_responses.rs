@@ -52,7 +52,7 @@
 //! exactly: a successful [`PlanOutcome`] always beats a failed one
 //! regardless of path length (`solution_a && solution_b` false-branches of
 //! the C++ comparator), and among two successes the shorter
-//! [`cspace_trajectory::robot_trajectory::path_length`] wins. On a tie --
+//! [`cspace_core::trajectory::robot_trajectory::path_length`] wins. On a tie --
 //! equal path length, or an input containing only failures -- the *first*
 //! candidate wins: `std::min_element`'s comparator only replaces the
 //! running best on a *strict* improvement, so an equal or non-improving
@@ -63,7 +63,7 @@
 
 use std::sync::{Mutex, MutexGuard};
 
-use cspace_trajectory::robot_trajectory::path_length;
+use cspace_core::trajectory::robot_trajectory::path_length;
 
 use crate::pipeline::PipelineError;
 use crate::request::PlanningRequest;
@@ -149,10 +149,10 @@ pub fn stop_at_first_solution<'m>(
 
 #[cfg(test)]
 mod tests {
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
-    use cspace_state::RobotState;
-    use cspace_trajectory::RobotTrajectory;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::state::RobotState;
+    use cspace_core::trajectory::RobotTrajectory;
     use std::fs;
 
     use super::*;

@@ -10,7 +10,7 @@ authors.workspace = true
 
 [dependencies]
 linkme.workspace = true
-cspace-error.workspace = true
+cspace-core.workspace = true
 cspace-planning.workspace = true
 
 [dev-dependencies]

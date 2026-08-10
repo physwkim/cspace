@@ -17,11 +17,11 @@ use cspace_constraints::{
     Constraint, JointConstraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
     SubgroupSolver, select_default_sampler,
 };
-use cspace_geometry::{Isometry3, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
-use cspace_kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolveOptions, SolverParams};
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::geometry::{Isometry3, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
+use cspace_core::kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolveOptions, SolverParams};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -154,7 +154,7 @@ fn unresolvable_subgroup_name_is_an_error() {
         1,
     );
     match result {
-        Err(cspace_error::Error::UnknownName { kind, name }) => {
+        Err(cspace_core::error::Error::UnknownName { kind, name }) => {
             assert_eq!(kind, "group");
             assert_eq!(name, "no_such_subgroup");
         }

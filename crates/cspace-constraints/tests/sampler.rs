@@ -16,7 +16,7 @@
 //! ([`a_zero_tolerance_goal_set_resolves_to_its_own_state`]).
 //!
 //! `panda.urdf`/`panda.srdf` (copied from `cspace-state`'s fixtures, already
-//! oracle-verified — see `crates/cspace-model/tests/fixtures/panda_model_info.json`)
+//! oracle-verified — see `crates/cspace-core/tests/fixtures/model/panda_model_info.json`)
 //! supply a real model. `panda_joint1`'s `[-2.8973, 2.8973]` bound below is
 //! from that file's own `<safety_controller soft_lower_limit=""
 //! soft_upper_limit="">` element on `panda_joint1` — `cspace-model`'s URDF
@@ -30,9 +30,9 @@ use cspace_constraints::{
     ConstraintSampler, JointConstraint, JointConstraintSampler, UnionConstraintSampler,
     select_default_sampler,
 };
-use cspace_model::{MeshSearchPaths, RobotModel};
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -144,37 +144,38 @@ fn a_zero_tolerance_goal_set_resolves_to_its_own_state() {
 
     // Resolves `tolerance`-wide goal constraints built from `posed` and
     // returns each `panda_arm` variable's (requested, resolved) pair.
-    let resolve = |posed: &cspace_state::Posed<'_, '_>, tolerance: f64, rng: &mut ChaCha8Rng| {
-        let set =
-            construct_goal_joint_constraints(&model, posed, "panda_arm", tolerance, tolerance)
-                .expect("panda_arm is real and every variable of it is set");
-        let sampler =
-            select_default_sampler(&model, "panda_arm", set.constraints(), None, vec![], 4)
-                .expect("no subgroup solvers are named, so the only Err arm is unreachable")
-                .expect("an all-joint-constraint set resolves to a JointConstraintSampler");
+    let resolve =
+        |posed: &cspace_core::state::Posed<'_, '_>, tolerance: f64, rng: &mut ChaCha8Rng| {
+            let set =
+                construct_goal_joint_constraints(&model, posed, "panda_arm", tolerance, tolerance)
+                    .expect("panda_arm is real and every variable of it is set");
+            let sampler =
+                select_default_sampler(&model, "panda_arm", set.constraints(), None, vec![], 4)
+                    .expect("no subgroup solvers are named, so the only Err arm is unreachable")
+                    .expect("an all-joint-constraint set resolves to a JointConstraintSampler");
 
-        let mut state = RobotState::new(&model);
-        state.set_to_default_values();
-        assert!(
-            sampler.sample(&mut state, rng),
-            "JointConstraintSampler::sample is infallible"
-        );
-        let resolved = state.update();
-        assert!(
-            set.decide(&resolved).satisfied,
-            "tolerance {tolerance:e}: the resolved state must satisfy the set it was drawn from"
-        );
-        PANDA_ARM_BOUNDS
-            .iter()
-            .map(|(name, _, _)| {
-                (
-                    *name,
-                    posed.variable_position(name).unwrap(),
-                    resolved.variable_position(name).unwrap(),
-                )
-            })
-            .collect::<Vec<_>>()
-    };
+            let mut state = RobotState::new(&model);
+            state.set_to_default_values();
+            assert!(
+                sampler.sample(&mut state, rng),
+                "JointConstraintSampler::sample is infallible"
+            );
+            let resolved = state.update();
+            assert!(
+                set.decide(&resolved).satisfied,
+                "tolerance {tolerance:e}: the resolved state must satisfy the set it was drawn from"
+            );
+            PANDA_ARM_BOUNDS
+                .iter()
+                .map(|(name, _, _)| {
+                    (
+                        *name,
+                        posed.variable_position(name).unwrap(),
+                        resolved.variable_position(name).unwrap(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
 
     let mut epsilon_misses = 0usize;
     for _ in 0..64 {

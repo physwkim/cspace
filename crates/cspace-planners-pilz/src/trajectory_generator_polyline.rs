@@ -75,11 +75,11 @@
 //!   own doc.
 
 use cspace_collision::CollisionEnv;
-use cspace_error::{Error, MoveItErrorCode, Result};
-use cspace_geometry::Isometry3;
-use cspace_kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
-use cspace_state::Posed;
-use cspace_trajectory::RobotTrajectory;
+use cspace_core::error::{Error, MoveItErrorCode, Result};
+use cspace_core::geometry::Isometry3;
+use cspace_core::kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
+use cspace_core::state::Posed;
+use cspace_core::trajectory::RobotTrajectory;
 
 use crate::path_polyline_generator::polyline_from_waypoints;
 use crate::path_rounded_composite::PathRoundedComposite;
@@ -221,7 +221,7 @@ where
     /// failure (upstream's `ConsicutiveColinearWaypoints`, which carries the
     /// same code for all six KDL error codes it rewrites).
     /// [`MoveItErrorCode::NoIkSolution`] if no
-    /// [`static@cspace_kinematics::KINEMATICS_SOLVERS`] entry can be built
+    /// [`static@cspace_core::kinematics::KINEMATICS_SOLVERS`] entry can be built
     /// for `req.group_name` with `info.link_name` as its tip. Otherwise, see
     /// [`generate_joint_trajectory`].
     fn plan(
@@ -302,8 +302,8 @@ mod tests {
     use std::fs;
 
     use cspace_collision::ParryCollisionEnv;
-    use cspace_geometry::{UnitQuaternion, Vector3};
-    use cspace_model::{MeshSearchPaths, RobotModel};
+    use cspace_core::geometry::{UnitQuaternion, Vector3};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
 
     use super::*;
     use crate::limits::{JointLimit, JointLimitsContainer, LimitsContainer};
@@ -313,7 +313,7 @@ mod tests {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
         let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
         let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
-        let srdf = cspace_srdf::SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
+        let srdf = cspace_core::srdf::SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
         let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
         let mesh_paths = MeshSearchPaths::new([(
             "moveit_resources_panda_description",

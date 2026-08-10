@@ -42,7 +42,7 @@
 //! `77738b9`, when they were the only symbols judged portable at all (they
 //! touch only already-ported types —
 //! [`crate::trajectory::ChompTrajectory`], [`crate::cost::ChompCost`],
-//! [`crate::parameters::ChompParameters`], `cspace_model`'s joint tree — and
+//! [`crate::parameters::ChompParameters`], `cspace_core::model`'s joint tree — and
 //! needed no collision backend). Upstream declares each as a private
 //! `ChompOptimizer` method reading `this`
 //! (`chomp_optimizer.hpp:84,200,202,204,207,209`); they stay free functions
@@ -134,7 +134,7 @@
 //!   itself is not portable — see below).
 //! - `handleJointLimits` → [`crate::optimizer::handle_joint_limits`]. Needs only
 //!   [`crate::trajectory::ChompTrajectory`], [`crate::cost::ChompCost`], and
-//!   `cspace_model`'s joint bounds (`JointModel::variable_bounds`,
+//!   `cspace_core::model`'s joint bounds (`JointModel::variable_bounds`,
 //!   `RevoluteJoint::is_continuous`) — all already dependencies of this
 //!   crate, no collision environment involved.
 //!
@@ -165,7 +165,7 @@
 //!   `get_jacobian` — collision-point Jacobian computation.
 //! - `computeJointProperties`, `setRobotStateFromPoint` → private
 //!   `compute_joint_properties`/`set_robot_state_from_point` — forward
-//!   kinematics against [`cspace_state::RobotState`], feeding
+//!   kinematics against [`cspace_core::state::RobotState`], feeding
 //!   `get_jacobian`.
 //! - `registerParents`, the private `isParent` (inline) and
 //!   `joint_parent_map_` → collapsed into one stateless helper,
@@ -194,7 +194,7 @@
 //!   `chomp_optimizer.cpp`** — declared in the header (lines 212-214) and
 //!   never defined, which only compiles because nothing calls them.
 //!   [`crate::optimizer::ChompOptimizer::new`] still constructs one
-//!   [`cspace_sampling::MultivariateGaussian`] per joint (matching
+//!   [`cspace_core::sampling::MultivariateGaussian`] per joint (matching
 //!   upstream's `multivariate_gaussian_.emplace_back(...)`, which also
 //!   exists only to feed this dead path) but nothing ever samples it.
 //! - `ChompPlanner` (the class itself, its ROS-typed
@@ -331,12 +331,12 @@ use crate::parameters::ChompParameters;
 use crate::trajectory::ChompTrajectory;
 use crate::utils::{DIFF_RULE_LENGTH, DIFF_RULES};
 use cspace_collision::{AllowedCollisionMatrix, CollisionRequest};
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::Vector3;
+use cspace_core::model::joint::JointType;
+use cspace_core::model::{JointModelGroup, RobotModel};
+use cspace_core::state::RobotState;
 use cspace_distance_field::{DistanceField, DistanceFieldCollisionCache, GradientInfo};
-use cspace_error::{Error, Result};
-use cspace_geometry::Vector3;
-use cspace_model::joint::JointType;
-use cspace_model::{JointModelGroup, RobotModel};
-use cspace_state::RobotState;
 use nalgebra::{DMatrix, Matrix3, Point3};
 use rand::{Rng, RngExt};
 use std::collections::HashMap;
@@ -529,7 +529,7 @@ pub fn get_smoothness_cost(
 /// `violation / quad_cost_inv[(free_var_index, free_var_index)]` along
 /// `quad_cost_inv`'s corresponding column (a smoothness-respecting
 /// correction, not a hard clamp). Continuous revolute joints
-/// ([`cspace_model::joint::RevoluteJoint::is_continuous`]) are skipped
+/// ([`cspace_core::model::joint::RevoluteJoint::is_continuous`]) are skipped
 /// entirely, matching upstream (a continuous joint has no bound to
 /// violate).
 ///
@@ -892,12 +892,12 @@ pub struct ChompCollisionContext<'a, 'm> {
 
 /// Builds, once per [`ChompOptimizer::new`] call, the reverse joint/link
 /// lookups upstream reads directly off `JointModel::getParentLinkModel`/
-/// `getChildLinkModel` -- neither is exposed by [`cspace_model::joint::JointModel`]
+/// `getChildLinkModel` -- neither is exposed by [`cspace_core::model::joint::JointModel`]
 /// (it only carries a `parent_link_index` internally), so this port derives
 /// both by scanning [`RobotModel::link_models`] once: a link's
-/// [`cspace_model::LinkModel::parent_joint_index`] is that joint's *child*
+/// [`cspace_core::model::LinkModel::parent_joint_index`] is that joint's *child*
 /// link, and every entry of the link's own
-/// [`cspace_model::LinkModel::child_joint_indices`] has that link as its
+/// [`cspace_core::model::LinkModel::child_joint_indices`] has that link as its
 /// *parent* link.
 ///
 /// Sized to `robot_model.joint_names().len()`; entries for joints outside
@@ -1159,7 +1159,7 @@ fn resolve_collision_point_joint_index(
 ///   `chomp_motion_planner/src/chomp_optimizer.cpp:567`) becomes
 ///   `rng.random_range(0.0..1.0)`** on a caller-supplied `impl Rng`, the
 ///   same injected-RNG convention already established for
-///   `cspace_sampling::MultivariateGaussian` in this crate; `rsl` itself is
+///   `cspace_core::sampling::MultivariateGaussian` in this crate; `rsl` itself is
 ///   not ported (D1: not a numeric-core dependency).
 /// - **`calculateCollisionIncrements`'s two independent `should_break_out`
 ///   conditions in `optimize` (the `iteration_ % 10 == 0` mesh-to-mesh
@@ -1455,7 +1455,7 @@ impl<'m> ChompOptimizer<'m> {
 
     /// Ported from `setRobotStateFromPoint`. Sets each active joint's
     /// single variable individually via
-    /// [`cspace_state::RobotState::set_joint_positions`] rather than
+    /// [`cspace_core::state::RobotState::set_joint_positions`] rather than
     /// upstream's one batched `setJointGroupActivePositions` call -- this
     /// port's `RobotState` has no group-batched setter, and setting the
     /// same variables to the same values one joint at a time reaches the
@@ -2176,8 +2176,8 @@ impl<'m> ChompOptimizer<'m> {
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
-    use cspace_model::MeshSearchPaths;
-    use cspace_srdf::SrdfModel;
+    use cspace_core::model::MeshSearchPaths;
+    use cspace_core::srdf::SrdfModel;
     use std::sync::OnceLock;
 
     const EPS: f64 = 1e-12;
@@ -2232,7 +2232,7 @@ mod tests {
     /// `collision_env_distance_field.rs`). `panda.urdf`'s `<collision>`
     /// tags are all `<mesh>` references, which `MeshSearchPaths::none()`
     /// (this crate's own test setup) skips entirely per
-    /// `cspace_model::MeshSearchPaths::none`'s own doc comment -- so
+    /// `cspace_core::model::MeshSearchPaths::none`'s own doc comment -- so
     /// `panda_model()` has zero collision spheres for every link, and the
     /// tests below need real spheres. Unlike `two_link_model_and_srdf`
     /// (whose `mid`/`tip` are deliberately coincident, for *self*-collision
@@ -2297,7 +2297,7 @@ mod tests {
         // (see `ParryCollisionEnv::active_group_links`). Both `j1` and `j2`
         // above are `revolute`, not `fixed`, but assert the group actually
         // has updated links rather than trusting that stays true.
-        cspace_test_support::assert_group_has_updated_links(&model, CHOMP_COLLISION_GROUP);
+        cspace_core::test_support::assert_group_has_updated_links(&model, CHOMP_COLLISION_GROUP);
         model
     }
 

@@ -46,7 +46,7 @@
 //! req.group_name, false, &indices)` (cpp:101) becomes
 //! [`cspace_scene::PlanningScene::is_path_valid`], fed the response
 //! trajectory's waypoints (cloned out of
-//! [`cspace_trajectory::RobotTrajectory`] — `is_path_valid` takes
+//! [`cspace_core::trajectory::RobotTrajectory`] — `is_path_valid` takes
 //! `&[RobotState]`, not a `RobotTrajectory`) and `request.path_constraints`.
 //! `request.goal_constraints` (this crate's `Vec<KinematicConstraintSet>`,
 //! see the crate doc comment) is passed through as `is_path_valid`'s own
@@ -108,10 +108,10 @@ impl PlanningResponseAdapter for ValidateSolution {
 
 #[cfg(test)]
 mod tests {
-    use cspace_geometry::{Cuboid, Isometry3, Shape};
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
-    use cspace_trajectory::RobotTrajectory;
+    use cspace_core::geometry::{Cuboid, Isometry3, Shape};
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::trajectory::RobotTrajectory;
     use std::fs;
     use std::sync::Arc;
 

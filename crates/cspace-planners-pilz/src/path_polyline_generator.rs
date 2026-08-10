@@ -37,8 +37,8 @@
 //!   filter can keep a waypoint it was written to remove. Fixed here rather
 //!   than reproduced — see [`filter_waypoints`]'s own doc.
 
-use cspace_error::{Error, Result};
-use cspace_geometry::Isometry3;
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::Isometry3;
 
 use crate::path_rounded_composite::PathRoundedComposite;
 
@@ -193,9 +193,9 @@ pub fn compute_blend_radius(waypoints: &[Isometry3], smoothness: f64) -> Result<
 /// Upstream's `segment_angle` lambda. Returns `0.0` for a degenerate corner
 /// rather than dividing by zero.
 fn segment_angle(
-    p1: cspace_geometry::Vector3,
-    p2: cspace_geometry::Vector3,
-    p3: cspace_geometry::Vector3,
+    p1: cspace_core::geometry::Vector3,
+    p2: cspace_core::geometry::Vector3,
+    p3: cspace_core::geometry::Vector3,
 ) -> f64 {
     let v1 = p2 - p1;
     let v2 = p2 - p3;
@@ -236,7 +236,7 @@ pub fn check_consecutive_colinear_waypoints(
 #[cfg(test)]
 mod tests {
     use approx::assert_relative_eq;
-    use cspace_geometry::{UnitQuaternion, Vector3};
+    use cspace_core::geometry::{UnitQuaternion, Vector3};
 
     use super::*;
 

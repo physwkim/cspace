@@ -5,7 +5,7 @@
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
 //   moveit_core/distance_field/include/moveit/distance_field/voxel_grid.hpp
 
-use cspace_error::{Error, Result};
+use cspace_core::error::{Error, Result};
 use nalgebra::Vector3;
 
 /// Which axis a [`VoxelGrid`] query or dimension refers to.

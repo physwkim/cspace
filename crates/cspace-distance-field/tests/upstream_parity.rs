@@ -23,7 +23,7 @@
 //!   upstream"), and `addShapeToField`'s dispatch to `addOcTreeToField` for
 //!   a `shapes::OCTREE`-typed shape (this port's
 //!   [`cspace_distance_field::DistanceField::add_shape_to_field`] returns
-//!   [`cspace_error::Error::Construct`] for [`cspace_geometry::Shape::OcTree`]
+//!   [`cspace_core::error::Error::Construct`] for [`cspace_core::geometry::Shape::OcTree`]
 //!   rather than dispatching — see that method's own "Deviations from
 //!   upstream").
 //! - `TestPerformance` — a benchmark (timing printed to stdout), not a
@@ -113,10 +113,10 @@
 use approx::assert_relative_eq;
 use nalgebra::Vector3;
 
+use cspace_core::geometry::{Isometry3, Shape, Sphere as GeomSphere};
 use cspace_distance_field::{
     ConvexBody, DistanceField, GridGeometry, PropagationDistanceField, find_internal_points_convex,
 };
-use cspace_geometry::{Isometry3, Shape, Sphere as GeomSphere};
 
 const WIDTH: f64 = 1.0;
 const HEIGHT: f64 = 1.0;

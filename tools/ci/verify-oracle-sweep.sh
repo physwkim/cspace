@@ -6,7 +6,7 @@
 #
 # Not a `check-*.sh` step and not a `cargo test`: it needs docker and the
 # `moveit-rs/oracle` image, neither of which a CI runner or the workspace
-# test run has. `crates/cspace-state/tests/fk_parity.rs` and
+# test run has. `crates/cspace-core/tests/fk_parity.rs` and
 # `tests/jacobian.rs` are the committed regressions that do run everywhere
 # -- they hold a handful of captured cases per robot, which catches a port
 # that breaks outright but not one that drifts only on configurations

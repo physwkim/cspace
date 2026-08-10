@@ -29,7 +29,7 @@
 //!
 //! # Deviations from upstream
 //!
-//! - **Errors are [`cspace_error::Error::Construct`], not KDL exceptions.**
+//! - **Errors are [`cspace_core::error::Error::Construct`], not KDL exceptions.**
 //!   Upstream throws `ErrorMotionPlanningCenterPointDifferentRadius` (a
 //!   `KDL::Error_MotionPlanning` subclass, numeric code `3006`) from
 //!   [`circle_from_center`], `KDL::Error_MotionPlanning_Circle_No_Plane` from
@@ -96,8 +96,8 @@
 //! generator in this crate proves it: oracle parity on captured fixtures
 //! (`tests/pilz_trajectory_circ_parity.rs`), not line correspondence.
 
-use cspace_error::{Error, Result};
-use cspace_geometry::{Isometry3, UnitQuaternion, Vector3};
+use cspace_core::error::{Error, Result};
+use cspace_core::geometry::{Isometry3, UnitQuaternion, Vector3};
 use nalgebra::Unit;
 
 use crate::path_line::{get_rot_angle, kdl_normalize};
@@ -411,7 +411,7 @@ impl PathCircle {
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
-    use cspace_test_support::KnownOracleDeviation;
+    use cspace_core::test_support::KnownOracleDeviation;
     use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
     /// A quarter circle solved from its explicit center.

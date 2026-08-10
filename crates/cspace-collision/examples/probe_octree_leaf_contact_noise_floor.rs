@@ -4,7 +4,7 @@
 // No upstream file: a follow-up investigation to
 // `probe_gjk_positive_gap_boundary.rs`. Does NOT touch
 // `crates/cspace-collision/src/parry.rs` -- this calls
-// `cspace_geometry::compound_from_octree` and `parry3d_f64::query::contact`
+// `cspace_core::geometry::compound_from_octree` and `parry3d_f64::query::contact`
 // directly, exercising the real octree-leaf-to-`Compound` conversion
 // production code uses, without going through `accumulate_collision`.
 
@@ -36,11 +36,11 @@
 //!
 //! # Method
 //!
-//! Builds a real [`cspace_octomap::OcTree`] at each swept `resolution`,
-//! occupies one leaf via [`cspace_octomap::OcTree::update_node`] (so the
+//! Builds a real [`cspace_core::octomap::OcTree`] at each swept `resolution`,
+//! occupies one leaf via [`cspace_core::octomap::OcTree::update_node`] (so the
 //! leaf's `coordinate()`/`size()` come from the tree's own
 //! `key_to_coord_axis`/`node_size`, not a hand-approximation), converts it
-//! through the real [`cspace_geometry::compound_from_octree`], and places a
+//! through the real [`cspace_core::geometry::compound_from_octree`], and places a
 //! robot [`Cuboid`] so its face is exactly flush (by construction, using the
 //! leaf's own reported center/size) against the leaf's face along the swept
 //! `axis`. Calls `parry3d_f64::query::contact` directly on the resulting
@@ -95,8 +95,8 @@
 //!
 //! Run: `cargo run -p cspace-collision --example probe_octree_leaf_contact_noise_floor --release`
 
-use cspace_geometry::compound_from_octree;
-use cspace_octomap::OcTree;
+use cspace_core::geometry::compound_from_octree;
+use cspace_core::octomap::OcTree;
 use nalgebra::Point3;
 use parry3d_f64::math::Pose;
 use parry3d_f64::query;
@@ -180,7 +180,7 @@ fn touching_dist_at_leaf_offset(
 
     let leaf = tree
         .leaves()
-        .find(cspace_octomap::Leaf::is_occupied)
+        .find(cspace_core::octomap::Leaf::is_occupied)
         .expect("update_node just occupied one leaf");
     let leaf_center = axis.coordinate(leaf.coordinate());
     let leaf_half = leaf.size() / 2.0;

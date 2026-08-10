@@ -115,16 +115,16 @@ use std::thread;
 use std::time::Duration;
 
 use cspace_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
-use cspace_geometry::{Cuboid, Shape};
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::geometry::{Cuboid, Shape};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
+use cspace_core::state::RobotState;
+use cspace_core::test_support::isometry_from_row_major;
 use cspace_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use cspace_planners_stomp::cost_functions::get_collision_cost_function;
 use cspace_planners_stomp::planner::{PlanRequest, plan};
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
-use cspace_state::RobotState;
 use cspace_stomp_core::{CancelHandle, StompConfiguration, TrajectoryInitialization};
-use cspace_test_support::isometry_from_row_major;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 

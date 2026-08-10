@@ -34,7 +34,7 @@
 //! min_angle_change); totg.computeTimeStamps(*res.trajectory,
 //! req.max_velocity_scaling_factor, req.max_acceleration_scaling_factor)`
 //! (cpp:82-83) becomes
-//! [`cspace_trajectory::trajectory_tools::apply_totg_time_parameterization`]
+//! [`cspace_core::trajectory::trajectory_tools::apply_totg_time_parameterization`]
 //! — already ported in `cspace-trajectory`, not re-implemented here.
 //!
 //! # History: this adapter no longer "closes" a STOMP gap
@@ -64,8 +64,8 @@
 //! (removed) placeholder shape.
 
 use cspace_collision::ParryCollisionEnv;
+use cspace_core::trajectory::trajectory_tools::apply_totg_time_parameterization;
 use cspace_scene::PlanningScene;
-use cspace_trajectory::trajectory_tools::apply_totg_time_parameterization;
 
 use crate::PlanningResponseAdapter;
 use crate::error::ResponseAdapterError;
@@ -85,7 +85,7 @@ pub struct AddTimeOptimalParameterization {
 }
 
 impl AddTimeOptimalParameterization {
-    /// See [`cspace_trajectory::time_optimal_trajectory_generation::TotgOptions`]
+    /// See [`cspace_core::trajectory::time_optimal_trajectory_generation::TotgOptions`]
     /// for what each argument means; `TotgOptions::default()`'s values match
     /// upstream's own defaults.
     ///
@@ -99,7 +99,7 @@ impl AddTimeOptimalParameterization {
     /// own body stores it unchecked (`time_optimal_trajectory_generation.cpp:918-920`).
     /// There is no upstream call site, at any layer, where an invalid
     /// `resample_dt` is rejected before use. `TotgOptions::with_resample_dt`
-    /// (see [`cspace_trajectory::trajectory_tools::apply_totg_time_parameterization`]'s
+    /// (see [`cspace_core::trajectory::trajectory_tools::apply_totg_time_parameterization`]'s
     /// `# Errors` section) is a deviation *forward* of upstream, not a gap:
     /// it turns upstream's silent size_t-saturating cast into a real
     /// `Result` at the point the value is actually consumed. Rejecting here
@@ -145,11 +145,11 @@ impl PlanningResponseAdapter for AddTimeOptimalParameterization {
 
 #[cfg(test)]
 mod tests {
-    use cspace_model::{MeshSearchPaths, RobotModel};
-    use cspace_srdf::SrdfModel;
-    use cspace_state::RobotState;
-    use cspace_trajectory::RobotTrajectory;
-    use cspace_trajectory::time_optimal_trajectory_generation::TotgOptions;
+    use cspace_core::model::{MeshSearchPaths, RobotModel};
+    use cspace_core::srdf::SrdfModel;
+    use cspace_core::state::RobotState;
+    use cspace_core::trajectory::RobotTrajectory;
+    use cspace_core::trajectory::time_optimal_trajectory_generation::TotgOptions;
     use std::fs;
 
     use super::*;
@@ -160,9 +160,9 @@ mod tests {
     /// time-optimal profile against an unbounded axis). Fixed up the same
     /// way `cspace-trajectory`'s own `trajectory_tools`
     /// `set_uniform_acceleration_bound` test helper does: read each
-    /// `panda_arm` joint's [`cspace_model::joint::JointModel::variable_bounds_msg`],
+    /// `panda_arm` joint's [`cspace_core::model::joint::JointModel::variable_bounds_msg`],
     /// set `has_acceleration_limits`/`max_acceleration`, write back via
-    /// [`cspace_model::joint::JointModel::set_variable_bounds_from_limits`].
+    /// [`cspace_core::model::joint::JointModel::set_variable_bounds_from_limits`].
     fn panda() -> (RobotModel, SrdfModel) {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
         let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
@@ -307,7 +307,7 @@ mod tests {
     ///
     /// `adapt`'s single `.map_err` site (this file, `impl
     /// PlanningResponseAdapter for AddTimeOptimalParameterization::adapt`)
-    /// wraps *any* `cspace_error::Error` `apply_totg_time_parameterization`
+    /// wraps *any* `cspace_core::error::Error` `apply_totg_time_parameterization`
     /// returns into `ResponseAdapterError::Failed` — and that function
     /// reaches more than one such site: `TotgOptions::with_resample_dt`'s
     /// guard (`cspace-trajectory/src/time_optimal_trajectory_generation.rs:440-444`)

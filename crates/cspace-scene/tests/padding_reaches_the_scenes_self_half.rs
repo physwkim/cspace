@@ -77,9 +77,9 @@
 //! `check_collision` applies it to.
 
 use cspace_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
-use cspace_model::{MeshSearchPaths, RobotModel};
+use cspace_core::model::{MeshSearchPaths, RobotModel};
+use cspace_core::srdf::SrdfModel;
 use cspace_scene::PlanningScene;
-use cspace_srdf::SrdfModel;
 
 const PANDA_URDF: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/panda.urdf");
 const PANDA_SRDF: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/panda.srdf");
