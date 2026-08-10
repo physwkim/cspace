@@ -1,0 +1,20 @@
+[package]
+name = "cspace-bullet"
+description = "Bullet's convex narrow phase (support functions, Voronoi simplex, GJK/EPA) in single precision, ported from bullet3 -- a separate upstream from moveit2"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# Not `license.workspace = true`: this crate's content derives entirely from
+# bulletphysics/bullet3, which is zlib-licensed (LICENSE.txt, and a per-file
+# notice on every source), distinct from the rest of this workspace's
+# moveit2-derived, BSD-3-Clause content. `cspace-stomp-core` is the same
+# arrangement for ros-industrial/stomp. See src/lib.rs's module doc for the
+# upstream repository and SHA.
+license = "Zlib"
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
