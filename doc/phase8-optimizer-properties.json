@@ -1,15 +1,15 @@
 {
-  "measured_at": "2026-08-10T11:39:52Z",
-  "commit": "b5c1f9a3d369c3cf5aaf1e78ba4248608b7f9a87",
+  "measured_at": "2026-08-10T12:30:51Z",
+  "commit": "63b1a0489b51ff3db9d3ff1a1c734b4f77b5095b",
   "oracle_stamp": "4c8df3f83521e8e1fcd4d08698569f9a7ae376e85cf44fa1752b2a3f780914cc",
   "working_tree_dirty": false,
   "dirty_paths": [],
   "measured_sources": {
-    "tools/ci/measure-phase8-optimizer-properties.sh": "914cac1f81dd1cc37fee15b3882e30c6b96215a5",
+    "tools/ci/measure-phase8-optimizer-properties.sh": "40d8fc93d5f02bcaffd0444eac0d26f8023edb13",
     "tools/ci/measure-phase8-cpp-baseline.sh": "2ce1e58a4c71690594fa8df5e6f56dd265816f6d",
     "crates/cspace-planners/examples/plan_benchmark_problem_set.rs": "d0ca8415bc580a749ca5782be9f8a1566f6fe9e7",
-    "crates/cspace-planners/examples/optimize_benchmark_chomp.rs": "647ec177b4c3145dbf9bbe21b8d2751b3f28a9f0",
-    "crates/cspace-planners/examples/optimize_benchmark_stomp.rs": "f96c3d1c3d8c7217ebdbbd0b481b6de2ba116486",
+    "crates/cspace-planners/examples/optimize_benchmark_chomp.rs": "8aaea7d3556acccdfe4dd3d13c72704a712e8111",
+    "crates/cspace-planners/examples/optimize_benchmark_stomp.rs": "ffffc981a9e03788b56e54cf596570035c5d5a07",
     "crates/cspace-planners/src/chomp": "f65be0c879324e6452f87647eb76092960d1506ce68e35ebb1382f2def157e5b",
     "crates/cspace-planners/src/stomp": "3982e0690fd45973b9139c0e97a32cd209487b6a5e0cf1e51c5c3e56040a00b3",
     "crates/cspace-stomp-core/src": "d97f27b87fdcd75cabbc7ceea995e142560c6d03fc765b22b0dfacc863fd126b",
@@ -29,8 +29,8 @@
     "note": "neither bound may be what stops a call -- both arms are meant to terminate on their iteration bound. These two need not be equal, but if one binds and the other does not, the rate difference is an instrument artifact and not a finding about the port. no-timeouts is the check for that on the port arm; the cpp arm reports a clock stop as its own error code."
   },
   "shards": 48,
-  "instrument_wall_clock_seconds": 517.916708964,
-  "cpp_baseline_wall_clock_seconds": 317.601892347,
+  "instrument_wall_clock_seconds": 548.636951818,
+  "cpp_baseline_wall_clock_seconds": 315.064227660,
   "regression_pins": {
     "chomp": {
       "panda": {
@@ -84,7 +84,7 @@
         "waypoints_checked": 67202,
         "raw_waypoints": 17574,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 10.044874842,
+        "slowest_seconds": 9.292671612,
         "seed_invalid": 42,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 42,
@@ -113,7 +113,7 @@
         "paired_problems": 167,
         "cpp_paired_median": 2.2380534098233875,
         "port_paired_median": 2.2380534098233875,
-        "cpp_slowest_seconds": 11.117025210,
+        "cpp_slowest_seconds": 11.054769270,
         "cpp_wall_secs_recorded": 250
       }
     },
@@ -131,7 +131,7 @@
         "waypoints_checked": 65043,
         "raw_waypoints": 18079,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 24.799455127,
+        "slowest_seconds": 21.920432658,
         "seed_invalid": 20,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 20,
@@ -160,7 +160,7 @@
         "paired_problems": 176,
         "cpp_paired_median": 1.5950046377904434,
         "port_paired_median": 1.5950046377904434,
-        "cpp_slowest_seconds": 12.548020841,
+        "cpp_slowest_seconds": 12.258063586,
         "cpp_wall_secs_recorded": 250
       }
     },
@@ -178,7 +178,7 @@
         "waypoints_checked": 33925,
         "raw_waypoints": 8888,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 9.74108417,
+        "slowest_seconds": 9.292671612,
         "seed_invalid": 15,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 15,
@@ -202,7 +202,7 @@
         "paired_problems": 85,
         "cpp_paired_median": 2.239964238283189,
         "port_paired_median": 2.239964238283189,
-        "cpp_slowest_seconds": 9.673691630,
+        "cpp_slowest_seconds": 9.511074748,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -220,7 +220,7 @@
         "waypoints_checked": 33277,
         "raw_waypoints": 8686,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 10.044874842,
+        "slowest_seconds": 8.578166404,
         "seed_invalid": 27,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 27,
@@ -244,7 +244,7 @@
         "paired_problems": 82,
         "cpp_paired_median": 2.175370373797242,
         "port_paired_median": 2.1857217453162807,
-        "cpp_slowest_seconds": 11.117025210,
+        "cpp_slowest_seconds": 11.054769270,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -262,7 +262,7 @@
         "waypoints_checked": 35614,
         "raw_waypoints": 9595,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 21.577882488,
+        "slowest_seconds": 21.210910551,
         "seed_invalid": 9,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 9,
@@ -286,7 +286,7 @@
         "paired_problems": 94,
         "cpp_paired_median": 1.5629219500844116,
         "port_paired_median": 1.5629219500844116,
-        "cpp_slowest_seconds": 12.391786705,
+        "cpp_slowest_seconds": 12.209232676,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -304,7 +304,7 @@
         "waypoints_checked": 29429,
         "raw_waypoints": 8484,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 24.799455127,
+        "slowest_seconds": 21.920432658,
         "seed_invalid": 11,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 11,
@@ -328,7 +328,7 @@
         "paired_problems": 82,
         "cpp_paired_median": 1.6318478543550157,
         "port_paired_median": 1.6318478543550157,
-        "cpp_slowest_seconds": 12.548020841,
+        "cpp_slowest_seconds": 12.258063586,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -346,7 +346,7 @@
         "waypoints_checked": 36050,
         "raw_waypoints": 10100,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 9.467510502,
+        "slowest_seconds": 8.71849748,
         "seed_invalid": 17,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 17,
@@ -375,7 +375,7 @@
         "waypoints_checked": 36050,
         "raw_waypoints": 10100,
         "max_endpoint_gap": 0.0,
-        "slowest_seconds": 9.256421696,
+        "slowest_seconds": 9.051955789,
         "seed_invalid": 17,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 17,
@@ -404,7 +404,7 @@
         "waypoints_checked": 79833,
         "raw_waypoints": 8760,
         "max_endpoint_gap": 0.05686589228963124,
-        "slowest_seconds": 40.147216709,
+        "slowest_seconds": 39.686412989,
         "seed_invalid": 87,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -433,7 +433,7 @@
         "paired_problems": 216,
         "cpp_paired_median": 2.2973949084809098,
         "port_paired_median": 2.295635112400535,
-        "cpp_slowest_seconds": 35.597341369,
+        "cpp_slowest_seconds": 34.141386920,
         "cpp_wall_secs_recorded": 250
       }
     },
@@ -451,7 +451,7 @@
         "waypoints_checked": 64281,
         "raw_waypoints": 7760,
         "max_endpoint_gap": 0.044062814458182054,
-        "slowest_seconds": 33.585958641,
+        "slowest_seconds": 44.301871032,
         "seed_invalid": 35,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -475,12 +475,12 @@
         "cpp_solved": 194,
         "cpp_rate": 0.776,
         "port_rate": 0.776,
-        "cpp_median_length": 1.620716363431347,
+        "cpp_median_length": 1.6207163634313468,
         "port_median_length": 1.6033149525979444,
         "paired_problems": 193,
-        "cpp_paired_median": 1.6201329752687401,
+        "cpp_paired_median": 1.62013297526874,
         "port_paired_median": 1.6064926308671605,
-        "cpp_slowest_seconds": 49.292211180,
+        "cpp_slowest_seconds": 47.039831582,
         "cpp_wall_secs_recorded": 250
       }
     },
@@ -498,7 +498,7 @@
         "waypoints_checked": 42277,
         "raw_waypoints": 4600,
         "max_endpoint_gap": 0.05686589228963124,
-        "slowest_seconds": 38.380835577,
+        "slowest_seconds": 38.201722964,
         "seed_invalid": 42,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -522,7 +522,7 @@
         "paired_problems": 113,
         "cpp_paired_median": 2.3117033991213924,
         "port_paired_median": 2.3094750305885454,
-        "cpp_slowest_seconds": 35.597341369,
+        "cpp_slowest_seconds": 34.141386920,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -540,7 +540,7 @@
         "waypoints_checked": 37556,
         "raw_waypoints": 4160,
         "max_endpoint_gap": 0.020456568013329735,
-        "slowest_seconds": 40.147216709,
+        "slowest_seconds": 39.686412989,
         "seed_invalid": 45,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -564,7 +564,7 @@
         "paired_problems": 103,
         "cpp_paired_median": 2.2730077980057124,
         "port_paired_median": 2.2730077980057124,
-        "cpp_slowest_seconds": 33.330496608,
+        "cpp_slowest_seconds": 31.977721601,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -582,7 +582,7 @@
         "waypoints_checked": 35552,
         "raw_waypoints": 4160,
         "max_endpoint_gap": 0.044062814458182054,
-        "slowest_seconds": 26.745448738,
+        "slowest_seconds": 26.703357793,
         "seed_invalid": 18,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -604,9 +604,9 @@
         "cpp_median_length": 1.5851310507822785,
         "port_median_length": 1.57519559661965,
         "paired_problems": 104,
-        "cpp_paired_median": 1.5806658094474249,
+        "cpp_paired_median": 1.5806658094474253,
         "port_paired_median": 1.57519559661965,
-        "cpp_slowest_seconds": 41.581784025,
+        "cpp_slowest_seconds": 41.636558093,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -624,7 +624,7 @@
         "waypoints_checked": 28729,
         "raw_waypoints": 3600,
         "max_endpoint_gap": 0.014326926659039785,
-        "slowest_seconds": 33.585958641,
+        "slowest_seconds": 44.301871032,
         "seed_invalid": 17,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -643,12 +643,12 @@
         "cpp_solved": 89,
         "cpp_rate": 0.712,
         "port_rate": 0.72,
-        "cpp_median_length": 1.6383703319251735,
+        "cpp_median_length": 1.6383703319251737,
         "port_median_length": 1.6318827072192654,
         "paired_problems": 89,
-        "cpp_paired_median": 1.6383703319251735,
+        "cpp_paired_median": 1.6383703319251737,
         "port_paired_median": 1.6383703319251735,
-        "cpp_slowest_seconds": 49.292211180,
+        "cpp_slowest_seconds": 47.039831582,
         "cpp_wall_secs_recorded": 125
       }
     },
@@ -666,7 +666,7 @@
         "waypoints_checked": 41896,
         "raw_waypoints": 4920,
         "max_endpoint_gap": 0.01757485490422339,
-        "slowest_seconds": 28.9652951,
+        "slowest_seconds": 29.303457203,
         "seed_invalid": 40,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -695,7 +695,7 @@
         "waypoints_checked": 41876,
         "raw_waypoints": 4920,
         "max_endpoint_gap": 0.016825359187164768,
-        "slowest_seconds": 30.001036899,
+        "slowest_seconds": 30.124225183,
         "seed_invalid": 40,
         "cost_worsened": 0,
         "cost_fn_missed_seed_collision": 0,
@@ -724,7 +724,7 @@
     },
     {
       "name": "chomp/panda/no-timeouts",
-      "detail": "0 timeouts, slowest call 10.045s of the 120s budget",
+      "detail": "0 timeouts, slowest call 9.293s of the 120s budget",
       "ok": true
     },
     {
@@ -799,7 +799,7 @@
     },
     {
       "name": "chomp/fanuc/no-timeouts",
-      "detail": "0 timeouts, slowest call 24.799s of the 120s budget",
+      "detail": "0 timeouts, slowest call 21.92s of the 120s budget",
       "ok": true
     },
     {
@@ -874,7 +874,7 @@
     },
     {
       "name": "stomp/panda/no-timeouts",
-      "detail": "0 timeouts, slowest call 40.147s of the 120s budget",
+      "detail": "0 timeouts, slowest call 39.686s of the 120s budget",
       "ok": true
     },
     {
@@ -944,7 +944,7 @@
     },
     {
       "name": "stomp/fanuc/no-timeouts",
-      "detail": "0 timeouts, slowest call 33.586s of the 120s budget",
+      "detail": "0 timeouts, slowest call 44.302s of the 120s budget",
       "ok": true
     },
     {
@@ -1014,7 +1014,7 @@
     },
     {
       "name": "chomp/panda_floor_wall/no-timeouts",
-      "detail": "0 timeouts, slowest call 9.741s of the 120s budget",
+      "detail": "0 timeouts, slowest call 9.293s of the 120s budget",
       "ok": true
     },
     {
@@ -1049,7 +1049,7 @@
     },
     {
       "name": "chomp/panda_cage/no-timeouts",
-      "detail": "0 timeouts, slowest call 10.045s of the 120s budget",
+      "detail": "0 timeouts, slowest call 8.578s of the 120s budget",
       "ok": true
     },
     {
@@ -1084,7 +1084,7 @@
     },
     {
       "name": "chomp/fanuc_floor_wall/no-timeouts",
-      "detail": "0 timeouts, slowest call 21.578s of the 120s budget",
+      "detail": "0 timeouts, slowest call 21.211s of the 120s budget",
       "ok": true
     },
     {
@@ -1119,7 +1119,7 @@
     },
     {
       "name": "chomp/fanuc_cage/no-timeouts",
-      "detail": "0 timeouts, slowest call 24.799s of the 120s budget",
+      "detail": "0 timeouts, slowest call 21.92s of the 120s budget",
       "ok": true
     },
     {
@@ -1154,7 +1154,7 @@
     },
     {
       "name": "chomp/constrained/no-timeouts",
-      "detail": "0 timeouts, slowest call 9.468s of the 120s budget",
+      "detail": "0 timeouts, slowest call 8.718s of the 120s budget",
       "ok": true
     },
     {
@@ -1189,7 +1189,7 @@
     },
     {
       "name": "chomp/inject_constrained/no-timeouts",
-      "detail": "0 timeouts, slowest call 9.256s of the 120s budget",
+      "detail": "0 timeouts, slowest call 9.052s of the 120s budget",
       "ok": true
     },
     {
@@ -1219,7 +1219,7 @@
     },
     {
       "name": "stomp/panda_floor_wall/no-timeouts",
-      "detail": "0 timeouts, slowest call 38.381s of the 120s budget",
+      "detail": "0 timeouts, slowest call 38.202s of the 120s budget",
       "ok": true
     },
     {
@@ -1254,7 +1254,7 @@
     },
     {
       "name": "stomp/panda_cage/no-timeouts",
-      "detail": "0 timeouts, slowest call 40.147s of the 120s budget",
+      "detail": "0 timeouts, slowest call 39.686s of the 120s budget",
       "ok": true
     },
     {
@@ -1289,7 +1289,7 @@
     },
     {
       "name": "stomp/fanuc_floor_wall/no-timeouts",
-      "detail": "0 timeouts, slowest call 26.745s of the 120s budget",
+      "detail": "0 timeouts, slowest call 26.703s of the 120s budget",
       "ok": true
     },
     {
@@ -1324,7 +1324,7 @@
     },
     {
       "name": "stomp/fanuc_cage/no-timeouts",
-      "detail": "0 timeouts, slowest call 33.586s of the 120s budget",
+      "detail": "0 timeouts, slowest call 44.302s of the 120s budget",
       "ok": true
     },
     {
@@ -1359,7 +1359,7 @@
     },
     {
       "name": "stomp/constrained/no-timeouts",
-      "detail": "0 timeouts, slowest call 28.965s of the 120s budget",
+      "detail": "0 timeouts, slowest call 29.303s of the 120s budget",
       "ok": true
     },
     {
@@ -1394,7 +1394,7 @@
     },
     {
       "name": "stomp/inject_constrained/no-timeouts",
-      "detail": "0 timeouts, slowest call 30.001s of the 120s budget",
+      "detail": "0 timeouts, slowest call 30.124s of the 120s budget",
       "ok": true
     },
     {
