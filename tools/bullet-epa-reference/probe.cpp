@@ -387,6 +387,25 @@ static void polyverts(const char* name, const btConvexShape* shape)
 	}
 }
 
+// `btTransform::invXform` (`btTransform.h:215-220`) next to the route it is
+// not: `inverse()` and then `operator*`.
+//
+// The two are the same map -- B^T(x - o) against B^T x + B^T(-o) -- and are
+// not the same float arithmetic, so a port that reached for the second would
+// differ in the last bits of every contact point.
+// `TesseractBroadphaseBridgedManifoldResult::addContactPoint` puts both of a
+// contact's points through the first (`bullet_utils.hpp:594-604`), which is
+// what makes the difference reachable rather than academic.
+//
+// Fields: `invxform_<name>|invXform.xyz|inverseThenMul.xyz`.
+static void invxform(const char* name, const btTransform& t, const btVector3& p)
+{
+	const btVector3 a = t.invXform(p);
+	const btVector3 b = t.inverse() * p;
+	printf("invxform_%s|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g\n", name, (double)a[0], (double)a[1],
+	       (double)a[2], (double)b[0], (double)b[1], (double)b[2]);
+}
+
 // `localGetSupportingVertex` -- the *virtual* support query, which is not
 // `localGetSupportVertexNonVirtual` and not `localGetSupportingVertexWithoutMargin`
 // plus a margin term either.
@@ -1200,6 +1219,15 @@ int main()
 	polyverts("cyl", &cyl);
 	polyverts("cone", &cone);
 	polyverts("hull", &hull);
+
+	// `invXform` against `inverse()` then `operator*`. The identity row is
+	// there because the two agree exactly when the basis is the identity and
+	// the origin is zero: without it, a port that took the wrong route would
+	// still pass a fixture built only from rotated frames if the tolerance
+	// were ever widened.
+	invxform("id", id, btVector3(-10.f, -20.f, 7.f));
+	invxform("rot60", rot60_at(0.3f, -0.4f, 0.2f), btVector3(-10.f, -20.f, 7.f));
+	invxform("rot60_near", rot60_at(0.3f, -0.4f, 0.2f), btVector3(0.31f, -0.39f, 0.21f));
 
 	// The virtual support query on every shape that still carries a margin
 	// after `createShapePrimitive`. `margin_box` is the whole point of these

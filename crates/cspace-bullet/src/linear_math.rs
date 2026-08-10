@@ -569,6 +569,19 @@ impl Transform {
         Self::new(inv, inv * -self.origin)
     }
 
+    /// `btTransform::invXform` (`btTransform.h:215-220`) -- a point brought
+    /// into this frame.
+    ///
+    /// Not `self.inverse().transform_point(x)`: upstream subtracts the origin
+    /// first and applies the transposed basis to the difference, which is one
+    /// rotation of a translated point rather than a rotation of the origin
+    /// followed by an addition.
+    #[inline]
+    #[must_use]
+    pub fn inv_xform(&self, in_vec: Vec3) -> Vec3 {
+        self.basis.transposed_mul_vec(in_vec - self.origin)
+    }
+
     /// `btTransform::inverseTimes` -- `self.inverse() * t`
     /// (`btTransform.h:222-228`).
     #[inline]
@@ -935,6 +948,67 @@ aabb_gap_in_one_axis_only|0
             BULLET_REFERENCE.lines().count(),
             cases.len(),
             "BULLET_REFERENCE lost or gained a row"
+        );
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+    }
+
+    /// The `invxform_*` rows of `tools/bullet-epa-reference/build.sh`'s stdout.
+    ///
+    /// Each row carries both routes: `invXform` and `inverse()` then
+    /// `operator*`. They are the same map, so what the row pins is that
+    /// bullet's own two spellings disagree in `f32` and by how much -- which
+    /// is why the port cannot substitute one for the other.
+    ///
+    /// The identity row is the control: with no rotation and no translation
+    /// the two agree exactly, so a fixture built only from rotated frames
+    /// would not say which route the port took if it ever gained a tolerance.
+    ///
+    /// Fields: `name|invXform xyz|inverseThenMul xyz`.
+    const BULLET_REFERENCE_INV_XFORM: &str = "\
+invxform_id|-10|-20|7|-10|-20|7
+invxform_rot60|-22.2000008|-5.10000038|4.20000076|-22.2000008|-5.0999999|4.20000029
+invxform_rot60_near|0.010000011|0.010000011|0.00999998022|0.0100000128|0.00999999046|0.00999999046
+";
+
+    #[test]
+    fn bullet_reference_inv_xform() {
+        let rot60 = crate::probe_fixture::rot60_at(0.3, -0.4, 0.2);
+        let far = Vec3::new(-10.0, -20.0, 7.0);
+        let cases: [(&str, Transform, Vec3); 3] = [
+            ("id", crate::probe_fixture::IDENTITY, far),
+            ("rot60", rot60, far),
+            ("rot60_near", rot60, Vec3::new(0.31, -0.39, 0.21)),
+        ];
+
+        let mut bad = Vec::new();
+        for (name, t, p) in cases {
+            let f: Vec<&str> = BULLET_REFERENCE_INV_XFORM
+                .lines()
+                .find(|l| l.starts_with(&format!("invxform_{name}|")))
+                .unwrap_or_else(|| panic!("invxform_{name}: no such row"))
+                .split('|')
+                .collect();
+            let n = |k: usize| -> Scalar { f[k].parse().expect("a float field") };
+
+            let got = t.inv_xform(p);
+            let want = Vec3::new(n(1), n(2), n(3));
+            if got != want {
+                bad.push(format!("invxform_{name}: port {got:?}, bullet {want:?}"));
+            }
+            let other = Vec3::new(n(4), n(5), n(6));
+            if name == "id" {
+                assert_eq!(want, other, "the control row's two routes agree");
+            } else {
+                assert_ne!(
+                    want, other,
+                    "invxform_{name} was chosen because the two routes disagree"
+                );
+            }
+        }
+        assert_eq!(
+            BULLET_REFERENCE_INV_XFORM.lines().count(),
+            cases.len(),
+            "BULLET_REFERENCE_INV_XFORM lost or gained a row"
         );
         assert!(bad.is_empty(), "{}", bad.join("\n"));
     }
