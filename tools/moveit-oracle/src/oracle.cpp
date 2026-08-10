@@ -45,6 +45,7 @@
 #include <moveit/collision_detection/collision_matrix.hpp>
 #include <moveit/collision_detection/world.hpp>
 #include <moveit/collision_distance_field/collision_common_distance_field.hpp>
+#include <moveit/collision_detection_bullet/bullet_integration/bullet_cast_bvh_manager.hpp>
 #include <moveit/collision_detection_bullet/collision_env_bullet.hpp>
 #include <moveit/collision_detection_fcl/collision_env_fcl.hpp>
 #include <moveit/collision_distance_field/collision_distance_field_types.hpp>
@@ -1118,6 +1119,8 @@ public:
       return collision(request);
     if (op == "ccd")
       return ccd(request);
+    if (op == "bullet_cast_pair")
+      return bulletCastPair(request);
     if (op == "pair_signed_distance")
       return pairSignedDistance(request);
     if (op == "world")
@@ -2743,6 +2746,114 @@ private:
       { "contact_count", res.contact_count },
       { "contacts", contacts },
     };
+  }
+
+  /// `ccd()`'s narrow phase for exactly one (moving shape, static shape)
+  /// pair, with no robot model in the way: `BulletCastBVHManager` driven
+  /// directly, one `CollisionObjectWrapper` per side, built by the same
+  /// constructor and with the same `active` flag
+  /// `CollisionEnvBullet::addLinkAsCollisionObject` (`true`) and
+  /// `addToManager` (`false`) pass -- which is what decides KinematicFilter
+  /// versus StaticFilter, and therefore which side gets wrapped in a
+  /// `CastHullShape` by `BulletCastBVHManager::addCollisionObject`
+  /// (`bullet_cast_bvh_manager.cpp:151-160`).
+  ///
+  /// This exists because `ccd()` alone cannot localize a disagreement. A
+  /// swept panda check runs every active link against every world object
+  /// through bullet's broadphase, its convex-convex dispatch, GJK, EPA and
+  /// `btPersistentManifold`'s contact reduction; when the port's answer
+  /// differs there, the difference could have entered at any of those. Here
+  /// the pair is the input, so a port's support function, simplex solver or
+  /// penetration-depth solver can each be compared against the same code
+  /// path bullet actually takes, one shape pair at a time.
+  ///
+  /// `setActiveCollisionObjects` is deliberately not called: the env never
+  /// calls it either -- both its managers get their filter groups from the
+  /// `active` constructor argument alone -- and calling it after
+  /// `addCollisionObject` would re-derive the groups *after* the cast
+  /// wrapping decision was already made from them.
+  ///
+  /// `cast_pose2` defaults to `cast_pose1`, giving a zero cast delta: the
+  /// swept hull collapses onto the shape's own pose, which is how a caller
+  /// asks this op for a plain discrete narrow-phase answer through the very
+  /// same path.
+  json bulletCastPair(const json& request)
+  {
+    const json& cast_json = request.at("cast");
+    const json& static_json = request.at("static");
+
+    const json& cast_shape_json = cast_json.at("shape");
+    std::shared_ptr<shapes::Shape> cast_shape =
+        parseShape(cast_shape_json.at("type").get<std::string>(), cast_shape_json);
+    const Eigen::Isometry3d cast_pose1 = fromRowMajor4x4(cast_json.at("pose"));
+    const Eigen::Isometry3d cast_pose2 =
+        cast_json.contains("pose2") ? fromRowMajor4x4(cast_json.at("pose2")) : cast_pose1;
+
+    const json& static_shape_json = static_json.at("shape");
+    std::shared_ptr<shapes::Shape> static_shape =
+        parseShape(static_shape_json.at("type").get<std::string>(), static_shape_json);
+    const Eigen::Isometry3d static_pose = fromRowMajor4x4(static_json.at("pose"));
+
+    collision_detection_bullet::BulletCastBVHManager manager;
+    manager.setContactDistanceThreshold(request.value("contact_distance", 0.0));
+
+    manager.addCollisionObject(std::make_shared<collision_detection_bullet::CollisionObjectWrapper>(
+        "cast", collision_detection::BodyType::ROBOT_LINK,
+        std::vector<shapes::ShapeConstPtr>{ cast_shape },
+        collision_detection_bullet::AlignedVector<Eigen::Isometry3d>{ cast_pose1 },
+        std::vector<collision_detection_bullet::CollisionObjectType>{ collisionObjectTypeFor(*cast_shape) }, true));
+
+    manager.addCollisionObject(std::make_shared<collision_detection_bullet::CollisionObjectWrapper>(
+        "static", collision_detection::BodyType::WORLD_OBJECT,
+        std::vector<shapes::ShapeConstPtr>{ static_shape },
+        collision_detection_bullet::AlignedVector<Eigen::Isometry3d>{ static_pose },
+        std::vector<collision_detection_bullet::CollisionObjectType>{ collisionObjectTypeFor(*static_shape) }, false));
+
+    manager.setCastCollisionObjectsTransform("cast", cast_pose1, cast_pose2);
+
+    collision_detection::CollisionRequest req;
+    req.contacts = true;
+    req.max_contacts = 100;
+    req.max_contacts_per_pair = request.value("max_contacts_per_pair", static_cast<std::size_t>(1));
+    if (req.max_contacts_per_pair == 0)
+      throw std::runtime_error("max_contacts_per_pair must be >= 1");
+
+    collision_detection::CollisionResult res;
+    manager.contactTest(res, req, nullptr, false);
+
+    // No `World` to resolve shape kinds against -- both shapes came in on the
+    // request, so `contactToJson`'s `shapeKindsFor` lookup would find
+    // nothing. An empty one keeps that field's shape (an empty array) rather
+    // than making this op's contact objects a different type from `ccd()`'s.
+    const collision_detection::World empty_world;
+    json contacts = json::array();
+    for (const auto& entry : res.contacts)
+    {
+      for (const collision_detection::Contact& c : entry.second)
+        contacts.push_back(ccdContactToJson(c, empty_world));
+    }
+
+    return json{
+      { "collision", res.collision },
+      { "contact_count", res.contact_count },
+      { "contacts", contacts },
+    };
+  }
+
+  /// The `CollisionObjectType` `CollisionEnvBullet` would pick for `shape`:
+  /// `CONVEX_HULL` for a mesh, `USE_SHAPE_TYPE` otherwise.
+  ///
+  /// One rule, stated once, because both of the env's own call sites
+  /// (`addToManager:257-265` for world objects, `addLinkAsCollisionObject:
+  /// 418-425` for links) spell exactly this and a probe that picked
+  /// differently would be probing a shape bullet never builds. Note the
+  /// consequence: no mesh ever reaches bullet as a triangle soup here, so the
+  /// per-triangle compound branch of `createShapePrimitive` is unreachable
+  /// from this env for anything but an attached body.
+  static collision_detection_bullet::CollisionObjectType collisionObjectTypeFor(const shapes::Shape& shape)
+  {
+    return shape.type == shapes::MESH ? collision_detection_bullet::CollisionObjectType::CONVEX_HULL :
+                                        collision_detection_bullet::CollisionObjectType::USE_SHAPE_TYPE;
   }
 
   /// One swept `Contact` as JSON: `contactToJson`'s seven fields plus the
