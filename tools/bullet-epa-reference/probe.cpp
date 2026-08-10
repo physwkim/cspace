@@ -44,6 +44,7 @@
 #include "BulletCollision/NarrowPhaseCollision/btGjkEpaPenetrationDepthSolver.h"
 #include "BulletCollision/NarrowPhaseCollision/btGjkPairDetector.h"
 #include "BulletCollision/NarrowPhaseCollision/btVoronoiSimplexSolver.h"
+#include "LinearMath/btAabbUtil2.h"
 
 // `%.9g` round-trips a `float` exactly, so a fixture transcribed from this
 // output and parsed back as `f32` is the same bit pattern the C++ held.
@@ -388,6 +389,16 @@ static void compound(const char* name, const btCompoundShape* c, const btTransfo
 	printf("\n");
 }
 
+// `TestAabbAgainstAabb2` on its own, at each boundary. Both compound
+// algorithms cull child pairs with it, and a cull is only visible in a
+// traversal row as a pair that did not appear -- indistinguishable there from
+// a pair the tree never reached. These rows separate the two.
+static void aabbtest(const char* name, const btVector3& min1, const btVector3& max1,
+                     const btVector3& min2, const btVector3& max2)
+{
+	printf("aabb_%s|%d\n", name, TestAabbAgainstAabb2(min1, max1, min2, max2) ? 1 : 0);
+}
+
 // `btDefaultCollisionConfiguration`'s two create-func tables, as a matrix.
 //
 // The tables are chains of `if`s over the proxy types
@@ -715,6 +726,24 @@ int main()
 		btCompoundShape line(true, 4);
 		for (int i = 0; i < 4; ++i) line.addChildShape(at(btScalar(i) * 2.f, 0.f, 0.f), &unit_box);
 		compound("comp_line4", &line, id);
+	}
+
+	// `TestAabbAgainstAabb2` at each boundary. Fields: `aabb_<name>|overlap`.
+	{
+		const btVector3 lo(0.f, 0.f, 0.f), hi(1.f, 1.f, 1.f);
+		aabbtest("overlap", lo, hi, btVector3(0.5f, 0.5f, 0.5f), btVector3(1.5f, 1.5f, 1.5f));
+		aabbtest("touch_x", lo, hi, btVector3(1.f, 0.f, 0.f), btVector3(2.f, 1.f, 1.f));
+		aabbtest("gap_x", lo, hi, btVector3(1.0001f, 0.f, 0.f), btVector3(2.f, 1.f, 1.f));
+		aabbtest("touch_y", lo, hi, btVector3(0.f, 1.f, 0.f), btVector3(1.f, 2.f, 1.f));
+		aabbtest("gap_y", lo, hi, btVector3(0.f, 1.0001f, 0.f), btVector3(1.f, 2.f, 1.f));
+		aabbtest("touch_z", lo, hi, btVector3(0.f, 0.f, 1.f), btVector3(1.f, 1.f, 2.f));
+		aabbtest("gap_z", lo, hi, btVector3(0.f, 0.f, 1.0001f), btVector3(1.f, 1.f, 2.f));
+		aabbtest("touch_neg_x", lo, hi, btVector3(-1.f, 0.f, 0.f), btVector3(0.f, 1.f, 1.f));
+		aabbtest("gap_neg_x", lo, hi, btVector3(-1.f, 0.f, 0.f), btVector3(-0.0001f, 1.f, 1.f));
+		aabbtest("contained", lo, hi, btVector3(0.25f, 0.25f, 0.25f), btVector3(0.75f, .75f, .75f));
+		aabbtest("degenerate", lo, hi, btVector3(1.f, 1.f, 1.f), btVector3(1.f, 1.f, 1.f));
+		aabbtest("gap_in_one_axis_only", lo, hi, btVector3(0.5f, 0.5f, 1.0001f),
+		         btVector3(1.5f, 1.5f, 2.f));
 	}
 
 	// The two create-func tables. Fields:

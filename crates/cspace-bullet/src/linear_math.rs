@@ -9,6 +9,7 @@
 //   bullet3/src/LinearMath/btVector3.h
 //   bullet3/src/LinearMath/btMatrix3x3.h
 //   bullet3/src/LinearMath/btTransform.h
+//   bullet3/src/LinearMath/btAabbUtil2.h
 
 //! `btScalar`, `btVector3`, `btMatrix3x3` and `btTransform`, in the
 //! single-precision scalar configuration the oracle image's Bullet is built
@@ -625,6 +626,34 @@ pub fn transform_aabb(
     (center - extent, center + extent)
 }
 
+/// `TestAabbAgainstAabb2(aabbMin1, aabbMax1, aabbMin2, aabbMax2)`
+/// (`btAabbUtil2.h:43-51`).
+///
+/// Touching counts as overlapping: the comparisons that reject are strict, so
+/// two boxes that share a face plane pass. Both compound algorithms cull child
+/// pairs with this after growing box 1 by the closest-point distance
+/// threshold, which is why the sense of each comparison is worth pinning
+/// rather than re-deriving -- an inclusive/exclusive slip only shows on the
+/// exact-touch row.
+///
+/// Upstream tests x, then z, then y. The order is unobservable in the result
+/// -- three `&&`-equivalent terms over a `bool` with no short-circuit -- so it
+/// is not reproduced.
+#[must_use]
+pub fn test_aabb_against_aabb2(
+    aabb_min1: Vec3,
+    aabb_max1: Vec3,
+    aabb_min2: Vec3,
+    aabb_max2: Vec3,
+) -> bool {
+    aabb_min1.x <= aabb_max2.x
+        && aabb_max1.x >= aabb_min2.x
+        && aabb_min1.y <= aabb_max2.y
+        && aabb_max1.y >= aabb_min2.y
+        && aabb_min1.z <= aabb_max2.z
+        && aabb_max1.z >= aabb_min2.z
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -798,5 +827,115 @@ mod tests {
         );
         assert_eq!(min, Vec3::new(0.0, -2.0, -3.0));
         assert_eq!(max, Vec3::new(4.0, 2.0, 1.0));
+    }
+
+    /// The `aabb_*` rows of `tools/bullet-epa-reference/build.sh`'s stdout.
+    ///
+    /// The unit cube against a second box placed at each boundary in turn:
+    /// touching on a face, and clear of it by one part in ten thousand. The
+    /// `touch_*` rows are the ones that matter -- they are what says the
+    /// comparisons that reject are strict -- and `gap_in_one_axis_only` is
+    /// what says all three axes are tested rather than the first that
+    /// separates.
+    const BULLET_REFERENCE: &str = "\
+aabb_overlap|1
+aabb_touch_x|1
+aabb_gap_x|0
+aabb_touch_y|1
+aabb_gap_y|0
+aabb_touch_z|1
+aabb_gap_z|0
+aabb_touch_neg_x|1
+aabb_gap_neg_x|0
+aabb_contained|1
+aabb_degenerate|1
+aabb_gap_in_one_axis_only|0
+";
+
+    #[test]
+    fn bullet_reference_test_aabb_against_aabb2() {
+        let lo = Vec3::zero();
+        let hi = Vec3::new(1.0, 1.0, 1.0);
+        let cases: [(&str, Vec3, Vec3); 12] = [
+            (
+                "overlap",
+                Vec3::new(0.5, 0.5, 0.5),
+                Vec3::new(1.5, 1.5, 1.5),
+            ),
+            (
+                "touch_x",
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(2.0, 1.0, 1.0),
+            ),
+            (
+                "gap_x",
+                Vec3::new(1.0001, 0.0, 0.0),
+                Vec3::new(2.0, 1.0, 1.0),
+            ),
+            (
+                "touch_y",
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(1.0, 2.0, 1.0),
+            ),
+            (
+                "gap_y",
+                Vec3::new(0.0, 1.0001, 0.0),
+                Vec3::new(1.0, 2.0, 1.0),
+            ),
+            (
+                "touch_z",
+                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(1.0, 1.0, 2.0),
+            ),
+            (
+                "gap_z",
+                Vec3::new(0.0, 0.0, 1.0001),
+                Vec3::new(1.0, 1.0, 2.0),
+            ),
+            (
+                "touch_neg_x",
+                Vec3::new(-1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 1.0),
+            ),
+            (
+                "gap_neg_x",
+                Vec3::new(-1.0, 0.0, 0.0),
+                Vec3::new(-0.0001, 1.0, 1.0),
+            ),
+            (
+                "contained",
+                Vec3::new(0.25, 0.25, 0.25),
+                Vec3::new(0.75, 0.75, 0.75),
+            ),
+            (
+                "degenerate",
+                Vec3::new(1.0, 1.0, 1.0),
+                Vec3::new(1.0, 1.0, 1.0),
+            ),
+            (
+                "gap_in_one_axis_only",
+                Vec3::new(0.5, 0.5, 1.0001),
+                Vec3::new(1.5, 1.5, 2.0),
+            ),
+        ];
+
+        let mut bad = Vec::new();
+        for (name, min2, max2) in cases {
+            let want = BULLET_REFERENCE
+                .lines()
+                .find(|l| l.starts_with(&format!("aabb_{name}|")))
+                .unwrap_or_else(|| panic!("aabb_{name}: no such row in BULLET_REFERENCE"))
+                .ends_with('1');
+            let got = test_aabb_against_aabb2(lo, hi, min2, max2);
+            if got != want {
+                bad.push(format!("aabb_{name}: port {got}, bullet {want}"));
+            }
+        }
+        assert_eq!(
+            BULLET_REFERENCE.lines().count(),
+            cases.len(),
+            "BULLET_REFERENCE lost or gained a row"
+        );
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
     }
 }
