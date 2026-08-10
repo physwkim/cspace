@@ -25,7 +25,7 @@
 //! `planning_interface::PlannerManager` plugin loaded by pluginlib from the
 //! pipeline's own `planning_plugin` parameter, plus that pipeline's adapter
 //! chains. This port has no plugin loader and no parameter server; the
-//! equivalent lookup is [`cspace_planner_registry::resolve_planner`], keyed
+//! equivalent lookup is [`cspace_planning::planner_registry::resolve_planner`], keyed
 //! by [`cspace_planning::PlannerManager::name`] (PORTING-PLAN.md D8/§140).
 //! So `pipeline_id` selects a *planner manager* here, not a pipeline object,
 //! and the two coincide only because every registered manager in this
@@ -48,11 +48,11 @@
 use std::fmt;
 
 use cspace_collision::ParryCollisionEnv;
-use cspace_planner_registry::resolve_planner;
+use cspace_planning::planner_registry::resolve_planner;
 use cspace_planning::{
     PipelineError, PlannerConfigurationMap, PlannerManager, PlanningRequest, PlanningResponse,
 };
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 
 /// The planner an empty `pipeline_id` resolves to.
 ///
@@ -60,7 +60,7 @@ use cspace_scene::PlanningScene;
 /// (`move_group_capability.cpp:225-229`), the pipeline `move_group` was
 /// launched with — a value from configuration, not a name in the source.
 /// This crate has no configuration to read it from, and
-/// `cspace_planner_registry::PLANNER_MANAGERS` is deliberately unordered
+/// `cspace_planning::planner_registry::PLANNER_MANAGERS` is deliberately unordered
 /// (PORTING-PLAN.md §177: link-section order is not a contract), so "the
 /// first registration" is not a definition either. Naming the default
 /// explicitly is the only remaining option that gives the same answer twice.
@@ -152,7 +152,7 @@ impl std::error::Error for PlanOnlyError {
 /// (`planning_scene_monitor_->copyPlanningScene(diff)`, `:216-217`), so a
 /// planner that moves the current state cannot affect the next goal. The
 /// isolation is the caller's to provide here, and `src/bin/move_group.rs`
-/// provides it the way upstream does — [`cspace_scene::PlanningScene::diff`]
+/// provides it the way upstream does — [`cspace_planning::scene::PlanningScene::diff`]
 /// off the monitored snapshot, so what this function mutates is the child.
 /// A caller that hands over the monitored scene itself gets no such
 /// separation, which is why the parameter is `&mut` rather than `&`: the
@@ -175,7 +175,7 @@ pub fn plan_only<'m>(
 
 #[cfg(test)]
 mod tests {
-    use cspace_constraints::utils::construct_goal_joint_constraints;
+    use cspace_planning::constraints::utils::construct_goal_joint_constraints;
     use cspace_core::model::{MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
     use cspace_core::state::RobotState;
@@ -226,7 +226,7 @@ mod tests {
     /// than a neighbour of it (see `construct_goal_joint_constraints`' own
     /// doc). A goal a client names by joint value is a request to go there,
     /// not near there.
-    fn goal_at(model: &RobotModel, position: f64) -> cspace_constraints::KinematicConstraintSet {
+    fn goal_at(model: &RobotModel, position: f64) -> cspace_planning::constraints::KinematicConstraintSet {
         let mut state = RobotState::new(model);
         state.set_to_default_values();
         state

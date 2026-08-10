@@ -106,11 +106,11 @@ use std::cell::RefCell;
 use nalgebra::{DMatrix, DVector};
 
 use cspace_collision::{CollisionEnv, CollisionRequest};
-use cspace_constraints::KinematicConstraintSet;
 use cspace_core::error::Result;
 use cspace_core::model::JointModelGroup;
 use cspace_core::state::Posed;
-use cspace_scene::PlanningScene;
+use cspace_planning::constraints::KinematicConstraintSet;
+use cspace_planning::scene::PlanningScene;
 
 use crate::composable_task::CostFn;
 use crate::conversion_functions::set_positions;
@@ -320,7 +320,7 @@ where
 ///
 /// Upstream returns `constraints.decide(state).distance * cost_scale`
 /// unconditionally (`cost_functions.hpp:246`) -- it never reads
-/// `.satisfied`. [`cspace_constraints::ConstraintEvaluationResult::distance`] is "distance from
+/// `.satisfied`. [`cspace_planning::constraints::ConstraintEvaluationResult::distance`] is "distance from
 /// the exact nominal target" for every constraint kind (see e.g.
 /// `JointConstraint::decide`, `kinematic_constraint.cpp:325`:
 /// `constraint_weight_ * fabs(dif)`, nonzero for any `dif != 0` regardless
@@ -360,7 +360,7 @@ where
 /// port is the first to actually measure, not a known, accepted tradeoff.
 ///
 /// The fix: `if satisfied { 0.0 } else { distance * cost_scale }`. Uniform
-/// across every [`cspace_constraints::Constraint`] variant (all four `decide()` implementations
+/// across every [`cspace_planning::constraints::Constraint`] variant (all four `decide()` implementations
 /// share the same "nonzero distance even when satisfied" shape --
 /// `PositionConstraint::decide`'s `finish` and
 /// `OrientationConstraint::decide` both compute a magnitude from the exact
@@ -804,10 +804,10 @@ mod planning_scene_tests {
     use std::fs;
 
     use cspace_collision::{LinkPaddingScale, ParryCollisionEnv, World};
-    use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
     use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
-    use cspace_scene::PlanningScene;
+    use cspace_planning::constraints::{Constraint, JointConstraint, KinematicConstraintSet};
+    use cspace_planning::scene::PlanningScene;
 
     use super::*;
 

@@ -11,7 +11,7 @@
 //   moveit_core/utils/src/message_checks.cpp (isEmpty(Pose):77)
 
 //! `moveit_msgs/msg::CollisionObject` <-> world objects on
-//! [`cspace_scene::PlanningScene`]. See `doc/message-mapping.md` §11.
+//! [`cspace_planning::scene::PlanningScene`]. See `doc/message-mapping.md` §11.
 //!
 //! Unlike every other conversion in this crate, this is not a `TryFrom` in
 //! both directions (D6's usual shape): `CollisionObject` is an imperative
@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use cspace_core::error::{Error, Result};
 use cspace_core::geometry::{Isometry3, Plane, Shape};
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 use r2r::geometry_msgs::msg as geometry_msgs;
 use r2r::moveit_msgs::msg as moveit_msgs;
 use r2r::shape_msgs::msg as shape_msgs;

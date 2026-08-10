@@ -1,24 +1,24 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! `moveit_msgs/VisibilityConstraint` <-> [`cspace_constraints::VisibilityConstraint`].
+//! `moveit_msgs/VisibilityConstraint` <-> [`cspace_planning::constraints::VisibilityConstraint`].
 //! See `doc/message-mapping.md` §7 -- including the `sensor_view_direction`
 //! landmine this module exists specifically to close (mandatory this round).
 //!
 //! # core->msg, round 5: EXPIRED, now implemented
 //!
 //! Through round 4 this module's doc comment said core->msg could not be
-//! written because `cspace_constraints::VisibilityConstraint` exposed only
+//! written because `cspace_planning::constraints::VisibilityConstraint` exposed only
 //! `sensor_frame()`, `target_frame()`, `cone_sides()`, `enabled()`. Round 5's
 //! 72-commit-drift re-audit (`doc/message-mapping.md`'s top note) re-checked
-//! that claim against current `crates/cspace-constraints/src/visibility.rs`
+//! that claim against current `crates/cspace-planning/src/constraints/visibility.rs`
 //! instead of trusting it: the accessor list requested from that crate's
 //! owner already landed -- `sensor()`, `target()`, `sensor_view_direction()`,
 //! `target_radius()`, `max_view_angle()`, `max_range_angle()`, `weight()` are
 //! all present now. `TryFrom<VisibilityConstraint> for
 //! VisibilityConstraintMsgOut` below is the fix.
 
-use cspace_constraints::{SensorSpec, SensorViewDirection, TargetSpec, VisibilityCriteria};
+use cspace_planning::constraints::{SensorSpec, SensorViewDirection, TargetSpec, VisibilityCriteria};
 use cspace_core::error::Error;
 use cspace_core::geometry::Isometry3;
 use cspace_core::model::RobotModel;
@@ -33,7 +33,7 @@ use crate::geometry::Pose;
 /// *declared* variant order is `SensorX, SensorY, SensorZ`, but the *wire*
 /// encoding is the reverse (`SENSOR_Z=0, SENSOR_Y=1, SENSOR_X=2`,
 /// confirmed against `moveit_msgs/msg/VisibilityConstraint.msg`'s own
-/// constants and `cspace_constraints::visibility`'s own `axis_column()` doc
+/// constants and `cspace_planning::constraints::visibility`'s own `axis_column()` doc
 /// comment, "upstream indexes this as `col(2 - sensor_view_direction_)`").
 /// A conversion written by positional/derived-discriminant cast (e.g.
 /// `[SensorX, SensorY, SensorZ][val as usize]`, or `unsafe { transmute }`)
@@ -85,7 +85,7 @@ pub struct VisibilityConstraintMsg<'m> {
 /// Plain local wrapper, for the core->msg direction.
 pub struct VisibilityConstraintMsgOut(pub moveit_msgs::VisibilityConstraint);
 
-impl<'m> TryFrom<VisibilityConstraintMsg<'m>> for cspace_constraints::VisibilityConstraint {
+impl<'m> TryFrom<VisibilityConstraintMsg<'m>> for cspace_planning::constraints::VisibilityConstraint {
     type Error = Error;
 
     fn try_from(wrapped: VisibilityConstraintMsg<'m>) -> Result<Self, Self::Error> {
@@ -116,7 +116,7 @@ impl<'m> TryFrom<VisibilityConstraintMsg<'m>> for cspace_constraints::Visibility
         let sensor_pose = Isometry3::try_from(Pose(msg.sensor_pose.pose))?;
         let target_pose = Isometry3::try_from(Pose(msg.target_pose.pose))?;
 
-        cspace_constraints::VisibilityConstraint::new(
+        cspace_planning::constraints::VisibilityConstraint::new(
             model,
             &tf,
             SensorSpec {
@@ -139,7 +139,7 @@ impl<'m> TryFrom<VisibilityConstraintMsg<'m>> for cspace_constraints::Visibility
     }
 }
 
-impl TryFrom<cspace_constraints::VisibilityConstraint> for VisibilityConstraintMsgOut {
+impl TryFrom<cspace_planning::constraints::VisibilityConstraint> for VisibilityConstraintMsgOut {
     type Error = Error;
 
     /// Total: every accessor this needs is infallible, and `Pose`'s
@@ -147,7 +147,7 @@ impl TryFrom<cspace_constraints::VisibilityConstraint> for VisibilityConstraintM
     /// `max_view_angle`/`max_range_angle` map `None` back to wire `0.0`,
     /// the reverse of msg->core's `normalize_criterion` (near-zero-or-empty
     /// treated as unconstrained on the way in).
-    fn try_from(c: cspace_constraints::VisibilityConstraint) -> Result<Self, Self::Error> {
+    fn try_from(c: cspace_planning::constraints::VisibilityConstraint) -> Result<Self, Self::Error> {
         let sensor_view_direction = SensorViewDirectionMsg::try_from(c.sensor_view_direction())?.0;
         Ok(VisibilityConstraintMsgOut(
             moveit_msgs::VisibilityConstraint {
@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn converts_with_model_context() {
         let model = one_joint_model();
-        let c = cspace_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
             model: &model,
             msg: valid_msg(&model),
         })
@@ -324,7 +324,7 @@ mod tests {
             sensor_view_direction: 1, // SENSOR_Y
             weight: 0.6,
         };
-        let c = cspace_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
             model: &model,
             msg,
         })
@@ -354,7 +354,7 @@ mod tests {
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.cone_sides = -1;
-        let c = cspace_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
             model: &model,
             msg,
         })
@@ -377,7 +377,7 @@ mod tests {
         msg.target_radius = -0.5;
         msg.max_view_angle = -0.5;
         msg.max_range_angle = -0.5;
-        let c = cspace_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
             model: &model,
             msg,
         })
@@ -395,7 +395,7 @@ mod tests {
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.cone_sides = i32::MIN;
-        let c = cspace_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
             model: &model,
             msg,
         })
@@ -423,7 +423,7 @@ mod tests {
             z: 0.0,
             w: 2.0,
         };
-        let c = cspace_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
             model: &model,
             msg,
         })
@@ -436,13 +436,13 @@ mod tests {
 
     #[test]
     fn cone_sides_below_3_is_clamped_not_rejected() {
-        // Confirms cspace_constraints::VisibilityConstraint::new's own
+        // Confirms cspace_planning::constraints::VisibilityConstraint::new's own
         // clamp-to-3 behavior, not an error -- see this module's doc
         // comment correcting round 1's stale assumption.
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.cone_sides = 1;
-        let c = cspace_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+        let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
             model: &model,
             msg,
         })

@@ -55,7 +55,7 @@
 //! `PlanningScene::allocateCollisionDetector` can key a `collision_detector_`
 //! map by that name and `getCollisionEnv(name)` can look one up
 //! (`planning_scene.cpp:255-311`). This port made that decision once and
-//! permanently, in the other direction: `cspace_scene::PlanningScene`'s
+//! permanently, in the other direction: `cspace_planning::scene::PlanningScene`'s
 //! collision methods are generic over a caller-supplied
 //! `E: CollisionEnv<Posed<'_, 'm>>`, so the backend is named as a *type* at
 //! the call site (see `scene.rs`'s own "Collision checking" section and its
@@ -152,7 +152,7 @@ use crate::matrix::AllowedCollisionMatrix;
 /// above) precisely so it does not have to depend on `cspace_core::state`; that
 /// same genericity is why it cannot be the thing attached bodies live on
 /// here — `cspace_core::state::RobotState` itself carries no attached-body concept
-/// yet (`cspace_scene::AttachedBody`'s own doc: `PlanningScene` is the sole
+/// yet (`cspace_planning::scene::AttachedBody`'s own doc: `PlanningScene` is the sole
 /// owner of that data for now, precisely because `RobotState` has nowhere to
 /// put it). Each method below therefore takes `attached_bodies: &[AttachedBodyGeometry<'_>]`
 /// as an explicit parameter standing in for what `state.getAttachedBodies()`

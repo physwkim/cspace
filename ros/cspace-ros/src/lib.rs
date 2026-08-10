@@ -38,7 +38,7 @@
 //! unconditionally, regardless of which crate defines which side. This is
 //! not specific to `nalgebra`-aliased types like [`cspace_core::geometry::Isometry3`]
 //! -- it would block a `moveit_msgs::msg::JointConstraint` <->
-//! `cspace_constraints::JointConstraint` `TryFrom` exactly the same way, in
+//! `cspace_planning::constraints::JointConstraint` `TryFrom` exactly the same way, in
 //! whichever round implements that.
 //!
 //! The fix that keeps the letter of D6 (the actual `std::convert::TryFrom`
@@ -63,7 +63,7 @@
 //! container -- see this round's report for the exact command and output.
 
 // Linked for its side effect, not for any symbol: `RrtConnectManager`
-// registers itself into `cspace_planner_registry::PLANNER_MANAGERS` through
+// registers itself into `cspace_planning::planner_registry::PLANNER_MANAGERS` through
 // a `linkme::distributed_slice` static, and nothing in this crate names a
 // `cspace_planners_sbp` item. Without this the registration sits in an rlib
 // object file no symbol references, which the linker is free to drop --

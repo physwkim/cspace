@@ -832,8 +832,8 @@ if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
     crates/cspace-stomp-core/src \
     crates/cspace-collision/src/distance_field \
     crates/cspace-collision/src \
-    crates/cspace-scene/src \
-    crates/cspace-constraints/src \
+    crates/cspace-planning/src/scene \
+    crates/cspace-planning/src/constraints \
     tools/moveit-oracle/src; do
   d="$(measured_source_digest "$f")" || exit 1
   printf '%s %s\n' "$f" "$d"

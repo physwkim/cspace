@@ -47,13 +47,13 @@ pub enum RequestAdapterError {
 /// `FAILURE`) — `SUCCESS` is `Ok(())`.
 #[derive(Debug, Error)]
 pub enum ResponseAdapterError {
-    /// `validate_path::ValidateSolution`: [`cspace_scene::PlanningScene::is_path_valid`]
+    /// `validate_path::ValidateSolution`: [`crate::scene::PlanningScene::is_path_valid`]
     /// found at least one invalid waypoint.
     #[error("{adapter}: computed path is not valid; invalid waypoints: {invalid_waypoints:?}")]
     InvalidMotionPlan {
         /// The rejecting adapter's [`crate::PlanningResponseAdapter::description`].
         adapter: &'static str,
-        /// [`cspace_scene::PathValidity::invalid_waypoints`], unchanged.
+        /// [`crate::scene::PathValidity::invalid_waypoints`], unchanged.
         invalid_waypoints: Vec<usize>,
     },
     /// `add_ruckig_traj_smoothing::AddRuckigTrajectorySmoothing` /

@@ -115,11 +115,11 @@ use crate::parameters::ChompParameters;
 use crate::trajectory::ChompTrajectory;
 use crate::utils::shortest_angular_distance;
 use cspace_collision::AllowedCollisionMatrix;
-use cspace_constraints::JointConstraint;
 use cspace_core::error::{Error, MoveItErrorCode, Result};
 use cspace_core::model::joint::JointType;
 use cspace_core::state::RobotState;
 use cspace_core::trajectory::RobotTrajectory;
+use cspace_planning::constraints::JointConstraint;
 use nalgebra::DMatrix;
 use rand::Rng;
 
@@ -127,19 +127,19 @@ use rand::Rng;
 /// `moveit_msgs::msg::JointConstraint` (name, desired position, asymmetric
 /// tolerance, weight), unresolved against any [`cspace_core::model::RobotModel`].
 ///
-/// # Deviation: not `cspace_constraints::JointConstraint`
+/// # Deviation: not `cspace_planning::constraints::JointConstraint`
 ///
-/// [`cspace_constraints::JointConstraint::new`] is the resolved,
+/// [`cspace_planning::constraints::JointConstraint::new`] is the resolved,
 /// bounds-clamped, continuous-angle-normalized form -- and [`solve`] needs
 /// *both* forms upstream uses, for two different purposes, from the same
 /// input data: the unresolved raw position to set `goal_state`'s variable
 /// directly (`chomp_planner.cpp:108`, so that an out-of-bounds goal is
 /// still caught by the immediately-following `goal_state.satisfiesBounds()`
-/// check), and a freshly resolved `cspace_constraints::JointConstraint`
+/// check), and a freshly resolved `cspace_planning::constraints::JointConstraint`
 /// built from the *same* raw fields for the final tolerance-satisfaction
 /// check (`chomp_planner.cpp:292-301`, mirrored in [`solve`] below). Storing
 /// only the resolved form (e.g. by taking
-/// `&[cspace_constraints::KinematicConstraintSet]` for the whole goal)
+/// `&[cspace_planning::constraints::KinematicConstraintSet]` for the whole goal)
 /// would lose the raw value the first use needs: resolution silently
 /// clamps an out-of-bounds position into bounds
 /// (`cspace-constraints/src/joint.rs:167-178`), which would make upstream's
@@ -148,7 +148,7 @@ use rand::Rng;
 #[derive(Debug, Clone, PartialEq)]
 pub struct GoalJointConstraint {
     /// `joint_name` (or `"joint/local_variable"` for one variable of a
-    /// multi-DOF joint, matching `cspace_constraints::JointConstraint::new`'s
+    /// multi-DOF joint, matching `cspace_planning::constraints::JointConstraint::new`'s
     /// own convention).
     pub joint_name: String,
     /// The desired position, unresolved -- may be outside the joint's
@@ -173,7 +173,7 @@ pub struct GoalJointConstraint {
 /// goal candidate with a non-empty `position_constraints` or
 /// `orientation_constraints` (`chomp_planner.cpp:97-103`,
 /// [`Error::Code`]`(`[`MoveItErrorCode::InvalidGoalConstraints`]`)`).
-/// Rather than accept the full `cspace_constraints::KinematicConstraintSet`
+/// Rather than accept the full `cspace_planning::constraints::KinematicConstraintSet`
 /// shape and run that check at runtime, [`ChompGoal`] only has room for
 /// joint constraints in the first place -- the illegal states this crate's
 /// other planners must check for at runtime (see `cspace-planners-stomp`'s
@@ -506,7 +506,7 @@ fn solve_inner<'m>(
 
     // Check that the final state is within goal tolerances. Ported from
     // `chomp_planner.cpp:292-302`, resolving a fresh
-    // `cspace_constraints::JointConstraint` per goal joint constraint from
+    // `cspace_planning::constraints::JointConstraint` per goal joint constraint from
     // the same raw fields [`GoalJointConstraint`] carries -- see that
     // type's doc comment for why the raw form, not a pre-resolved
     // `KinematicConstraintSet`, is what this function accepts. Upstream's

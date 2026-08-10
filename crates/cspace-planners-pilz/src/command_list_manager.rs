@@ -498,7 +498,7 @@ mod tests {
     use cspace_core::model::MeshSearchPaths;
     use cspace_core::srdf::SrdfModel;
     use cspace_core::state::RobotState;
-    use cspace_scene::PlanningScene;
+    use cspace_planning::scene::PlanningScene;
 
     use super::*;
     use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer};

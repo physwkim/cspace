@@ -7,7 +7,7 @@
 //     (processAttachedCollisionObjectMsg:1536-1760)
 
 //! `moveit_msgs/msg::AttachedCollisionObject` <-> attached bodies on
-//! [`cspace_scene::PlanningScene`]. See `doc/message-mapping.md` §11.
+//! [`cspace_planning::scene::PlanningScene`]. See `doc/message-mapping.md` §11.
 //!
 //! Like [`crate::scene::collision_object`], this is an imperative command,
 //! not a `TryFrom` in both directions.
@@ -17,7 +17,7 @@
 //! `AttachedCollisionObject.weight` ("The weight of the attached object, if
 //! known") and `.detach_posture` (a `trajectory_msgs/JointTrajectory` for
 //! whatever mechanism releases the object) have no field on
-//! [`cspace_scene::AttachedBody`] to receive them -- confirmed absent from
+//! [`cspace_planning::scene::AttachedBody`] to receive them -- confirmed absent from
 //! that type's full public surface, not merely unused by this module. Both
 //! are documentation/orchestration metadata upstream itself only stores and
 //! never reads back inside `planning_scene.cpp`'s own processing (no
@@ -26,7 +26,7 @@
 //! own `type_` field, dropped the same way) -- so these are dropped rather
 //! than rejected.
 //!
-//! Re-checked round 5 against `crates/cspace-scene/src/attached_body.rs:56-63`
+//! Re-checked round 5 against `crates/cspace-planning/src/scene/attached_body.rs:56-63`
 //! -- `AttachedBody`'s field list is still `id`/`link_name`/`shapes`/
 //! `shape_poses`/`touch_links`/`subframes`, no `weight`. `weight` expires if
 //! `AttachedBody` grows that field (`cspace-scene`'s call); `detach_posture`
@@ -38,7 +38,7 @@ use std::sync::Arc;
 
 use cspace_core::error::{Error, Result};
 use cspace_core::geometry::{Isometry3, Shape};
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::collision_object::{
@@ -153,7 +153,7 @@ fn apply_attach(
 }
 
 /// Link-relative `(shapes, shape_poses, subframes)`, ready for
-/// [`cspace_scene::PlanningScene::attach_new`].
+/// [`cspace_planning::scene::PlanningScene::attach_new`].
 type LinkRelativeGeometry = (Vec<Arc<Shape>>, Vec<Isometry3>, BTreeMap<String, Isometry3>);
 
 /// The message-geometry path shared by ADD (with geometry) and APPEND:
@@ -165,7 +165,7 @@ type LinkRelativeGeometry = (Vec<Arc<Shape>>, Vec<Isometry3>, BTreeMap<String, I
 /// s.pose()` (`scene.rs:1180`).
 ///
 /// `header.frame_id` is resolved via [`super::header_frame_transform`], not
-/// [`cspace_scene::PlanningScene::frame_transform`] directly: upstream's
+/// [`cspace_planning::scene::PlanningScene::frame_transform`] directly: upstream's
 /// `getFrameTransform(object.object.header.frame_id)` call here
 /// (`planning_scene.cpp:1606`) has no `knowsFrameTransform` guard in front
 /// of it, so an empty `header.frame_id` resolves to identity through

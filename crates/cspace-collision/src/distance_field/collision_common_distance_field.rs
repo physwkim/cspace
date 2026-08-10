@@ -216,7 +216,7 @@ use crate::distance_field::collision_distance_field_types::{
 /// via `dfce->state_->getAttachedBodies()` at comparison time --
 /// `moveit::core::RobotState` owns that concept upstream, so the snapshot
 /// alone is enough. `cspace_core::state::RobotState` does not carry attached
-/// bodies at all in this port (see `cspace_scene::AttachedBody`'s own
+/// bodies at all in this port (see `cspace_planning::scene::AttachedBody`'s own
 /// module doc for why that concept lives on `PlanningScene` here instead),
 /// so [`DistanceFieldCacheEntry::state`] structurally *cannot* answer the
 /// same query -- there is nothing to re-derive from. Round 5 (see this
@@ -236,7 +236,7 @@ use crate::distance_field::collision_distance_field_types::{
 /// is a *borrowed* view already defined in `cspace-collision` (a crate this
 /// one already depends on) specifically so a lower crate can consume
 /// attached-body data without depending back on `cspace-scene` --
-/// `cspace_scene::AttachedBody::as_geometry` already builds one this exact
+/// `cspace_planning::scene::AttachedBody::as_geometry` already builds one this exact
 /// way for `crate::CollisionEnv` callers. This snapshot type
 /// applies the same pattern one layer further down: an *owned* copy of
 /// exactly the fields upstream's comparison reads (`getName`/

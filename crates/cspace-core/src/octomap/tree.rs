@@ -177,7 +177,7 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 ///   constructor; this crate ports no file/stream IO at all, see `IO`
 ///   below). Not D1: a prior version of this bullet claimed octrees enter
 ///   this workspace "only via ROS messages", but `cspace-scene`'s
-///   `PlanningScene::process_octomap_ptr` (`crates/cspace-scene/src/scene.rs`)
+///   `PlanningScene::process_octomap_ptr` (`crates/cspace-planning/src/scene/scene.rs`)
 ///   takes a plain, message-free [`OcTree`] parameter directly -- the real
 ///   reason this constructor is unported is narrower and unrelated to D1:
 ///   no file/stream IO at all, full stop.

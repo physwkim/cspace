@@ -57,8 +57,8 @@
 //! side-effect-free `A`/`B`). [`sample_goal`] checks `checker.is_valid`
 //! before `goal_constraints.decide` in both branches, uniformly.
 
-use cspace_constraints::{ConstraintSampler, KinematicConstraintSet};
 use cspace_core::state::RobotState;
+use cspace_planning::constraints::{ConstraintSampler, KinematicConstraintSet};
 use rand::Rng;
 
 use crate::compound::CompoundValue;
@@ -132,10 +132,10 @@ mod tests {
     use std::fs;
 
     use cspace_collision::ParryCollisionEnv;
-    use cspace_constraints::{Constraint, JointConstraint, select_default_sampler};
     use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
-    use cspace_scene::PlanningScene;
+    use cspace_planning::constraints::{Constraint, JointConstraint, select_default_sampler};
+    use cspace_planning::scene::PlanningScene;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 

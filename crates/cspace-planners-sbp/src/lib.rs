@@ -38,12 +38,12 @@
 //! - [`planning_scene_validity`] —
 //!   [`planning_scene_validity::PlanningSceneValidityChecker`], the bridge
 //!   from a [`joint_model_group_space::JointModelGroupSpace`] sample to a
-//!   real `cspace_scene::PlanningScene` collision/constraint check.
+//!   real `cspace_planning::scene::PlanningScene` collision/constraint check.
 //! - [`nn`] — [`Gnat`], the nearest-neighbour index.
 //! - `rrt_connect` — bidirectional RRT-Connect.
 //! - [`registry`] — [`registry::RrtConnectManager`], this crate's
 //!   [`cspace_planning::PlannerManager`] implementation, and its
-//!   registration into `cspace_planner_registry::PLANNER_MANAGERS`, the
+//!   registration into `cspace_planning::planner_registry::PLANNER_MANAGERS`, the
 //!   compile-time registry D4 puts in place of pluginlib.
 //!
 //! # Why properties, not an oracle
@@ -317,14 +317,14 @@
 //!   binds exactly one key ([`registry::RANGE_KEY`]). PORTING-PLAN.md §285.
 //! - `getDescription()` -> [`cspace_planning::PlannerManager::name`], which
 //!   this crate answers with `"rrt_connect"` -- the same string
-//!   `cspace_planner_registry::PLANNER_MANAGERS`'s registration is keyed by,
+//!   `cspace_planning::planner_registry::PLANNER_MANAGERS`'s registration is keyed by,
 //!   so an error
 //!   naming a planner and a lookup finding one cannot disagree.
 //! - `getPlanningAlgorithms(algs)` -> unported: this crate registers one
 //!   algorithm per manager (1:1, not upstream's
 //!   one-plugin-hosts-many-algorithms model), so there is no
 //!   within-manager list to enumerate;
-//!   `cspace_planner_registry::PLANNER_MANAGERS` is the cross-manager one.
+//!   `cspace_planning::planner_registry::PLANNER_MANAGERS` is the cross-manager one.
 //! - `canServiceRequest(req)` -> unported:
 //!   [`cspace_planning::PlannerManager::get_planning_context`] is the only
 //!   admission check (it fails with e.g. `SbpError::UnknownGroup`); there

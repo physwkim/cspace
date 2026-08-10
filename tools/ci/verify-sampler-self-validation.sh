@@ -4,7 +4,7 @@
 # of the constraints its sampler was configured from.
 #
 # The measurement itself is
-# `crates/cspace-constraints/tests/sampler_self_validation.rs`'s
+# `crates/cspace-planning/tests/sampler_self_validation.rs`'s
 # `every_sampled_state_satisfies_its_own_constraints`, which is `#[ignore]`d
 # on cost (10.2-13.1s across three runs, against 0.7s for that crate's
 # other 103 tests together).

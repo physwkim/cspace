@@ -18,12 +18,12 @@
 //! (`collision_env_allvalid.cpp:53`) — a plugin `PlanningScene` looks up by
 //! that string. This port has no allocator and no name lookup (see `env`'s
 //! module doc and `PORTING-PLAN.md` §225.4): every
-//! `cspace_scene::PlanningScene` collision method is generic over a
+//! `cspace_planning::scene::PlanningScene` collision method is generic over a
 //! caller-supplied `E: CollisionEnv<Posed<'_, 'm>>`, so selecting this
 //! backend means passing [`AllValidCollisionEnv`] where
 //! [`crate::ParryCollisionEnv`] would otherwise go. That is the *whole*
 //! selection path, and it is the one
-//! `crates/cspace-scene/tests/all_valid_selection.rs` exercises — the same
+//! `crates/cspace-planning/tests/all_valid_selection.rs` exercises — the same
 //! scene, state and request answered two different ways depending only on
 //! which `E` the caller named.
 //!

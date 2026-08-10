@@ -86,9 +86,9 @@
 //! continuous-wrap/quaternion-renormalization representation change, and
 //! only when `fix_start_state` allows it.
 
+use crate::scene::PlanningScene;
 use cspace_collision::ParryCollisionEnv;
 use cspace_core::model::joint::{FloatingJoint, JointType, PlanarJoint};
-use cspace_scene::PlanningScene;
 
 use crate::PlanningRequestAdapter;
 use crate::error::RequestAdapterError;

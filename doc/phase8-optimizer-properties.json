@@ -17,8 +17,8 @@
     "crates/cspace-stomp-core/src": "b4ebb9d2c9490b712d884e7d8c0c013e9a92668f17a79fdafc89de125063a5b7",
     "crates/cspace-collision/src/distance_field": "fe4460dfa905bc99a76b6541f90ec73801f7fa1cf36ad5739b6146c17c40ced8",
     "crates/cspace-collision/src": "569becc81f1e0306f22d4be9a7ec764b908f491d9a8dc9f22b2a5282af428048",
-    "crates/cspace-scene/src": "d42384487c0f9bb9d25807b88112db07df1e3f919f3e32070a754e00eeaa3c5e",
-    "crates/cspace-constraints/src": "f5f24960d997dadebacf6dce574e92e7ce4c2601020ac2cc1e8ca2d746ee093f",
+    "crates/cspace-planning/src/scene": "d42384487c0f9bb9d25807b88112db07df1e3f919f3e32070a754e00eeaa3c5e",
+    "crates/cspace-planning/src/constraints": "f5f24960d997dadebacf6dce574e92e7ce4c2601020ac2cc1e8ca2d746ee093f",
     "tools/moveit-oracle/src": "53f643ac6ff1044701e81d8efc3e4612c19047f739ab14e13d0900fcadbef8ec"
   },
   "mode": "full",

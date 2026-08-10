@@ -105,7 +105,6 @@ use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
 
 use cspace_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
-use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use cspace_core::geometry::{Cuboid, Isometry3, Shape};
 use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
@@ -114,7 +113,8 @@ use cspace_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use cspace_planners_stomp::conversion_functions::{positions, robot_trajectory_to_matrix};
 use cspace_planners_stomp::cost_functions;
 use cspace_planners_stomp::planner::{PlanRequest, plan};
-use cspace_scene::PlanningScene;
+use cspace_planning::constraints::{Constraint, JointConstraint, KinematicConstraintSet};
+use cspace_planning::scene::PlanningScene;
 use cspace_stomp_core::{CancelHandle, StompConfiguration, TrajectoryInitialization};
 use nalgebra::{DMatrix, DVector};
 use rand::{RngExt, SeedableRng};

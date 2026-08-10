@@ -292,7 +292,7 @@ mod tests {
     use cspace_core::geometry::{UnitQuaternion, Vector3};
     use cspace_core::model::{MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
-    use cspace_scene::PlanningScene;
+    use cspace_planning::scene::PlanningScene;
 
     use super::*;
     use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer};

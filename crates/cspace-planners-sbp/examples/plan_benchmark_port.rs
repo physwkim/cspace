@@ -180,8 +180,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cspace_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
-use cspace_constraints::utils::construct_goal_joint_constraints;
-use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use cspace_core::geometry::{Cuboid, Shape};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
@@ -191,8 +189,10 @@ use cspace_planners_sbp::{
     CompoundValue, JointModelGroupSpace, PlanError, PlanningFailure, RrtConnectManager,
     RrtConnectParams, StateSpace, Termination,
 };
+use cspace_planning::constraints::utils::construct_goal_joint_constraints;
+use cspace_planning::constraints::{Constraint, JointConstraint, KinematicConstraintSet};
+use cspace_planning::scene::PlanningScene;
 use cspace_planning::{PlannerConfigurationMap, PlannerManager, PlanningRequest};
-use cspace_scene::PlanningScene;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 

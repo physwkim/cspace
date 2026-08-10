@@ -11,9 +11,9 @@
 use std::cell::RefCell;
 
 use cspace_collision::{CollisionEnv, CollisionRequest};
-use cspace_constraints::KinematicConstraintSet;
 use cspace_core::state::Posed;
-use cspace_scene::PlanningScene;
+use cspace_planning::constraints::KinematicConstraintSet;
+use cspace_planning::scene::PlanningScene;
 
 use crate::compound::CompoundValue;
 use crate::joint_model_group_space::JointModelGroupSpace;
@@ -163,15 +163,15 @@ mod tests {
     use std::fs;
 
     use cspace_collision::{LinkPaddingScale, ParryCollisionEnv};
-    use cspace_constraints::{
-        Constraint, JointConstraint, KinematicConstraintSet, PositionConstraint,
-    };
     use cspace_core::geometry::Shape;
     use cspace_core::geometry::shapes::Sphere;
     use cspace_core::geometry::{Isometry3, Vector3};
     use cspace_core::model::{MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
-    use cspace_scene::PlanningScene;
+    use cspace_planning::constraints::{
+        Constraint, JointConstraint, KinematicConstraintSet, PositionConstraint,
+    };
+    use cspace_planning::scene::PlanningScene;
 
     use super::*;
     use crate::joint_model_group_space::JointModelGroupSpace;
@@ -426,7 +426,7 @@ mod tests {
     /// checking already flows `cspace-scene -> cspace-constraints`), so
     /// when that production path exists, its call site threading a
     /// `PlanningScene`-derived [`cspace_core::geometry::Transforms`] into
-    /// [`cspace_constraints::PositionConstraint::new`] has to live here, in
+    /// [`cspace_planning::constraints::PositionConstraint::new`] has to live here, in
     /// this crate, the one place that depends on both. Until then, this
     /// test is the only evidence in the tree that `scene.transforms()`
     /// alone fails to resolve a world-object reference frame (upstream's

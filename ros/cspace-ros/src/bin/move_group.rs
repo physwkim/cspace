@@ -121,10 +121,10 @@
 //! `cspace_planners_sbp::registry`'s `PlanningRequest` shared only a *name*
 //! with `cspace_planning`'s. D8 merged the two, so `RrtConnectManager` now
 //! implements [`cspace_planning::PlannerManager`] and reaches these
-//! endpoints through `cspace_planner_registry::PLANNER_MANAGERS` -- which
+//! endpoints through `cspace_planning::planner_registry::PLANNER_MANAGERS` -- which
 //! this binary sees only because `moveit_ros`'s own `lib.rs` names the
 //! planner crate, `linkme` registrations being link-time, not
-//! dependency-time (`cspace_planner_registry::PLANNER_MANAGERS`' doc).
+//! dependency-time (`cspace_planning::planner_registry::PLANNER_MANAGERS`' doc).
 //!
 //! Both plan against the monitored scene rather than a fresh one: `plan`
 //! below takes the same `Arc` snapshot `handle_state_validity` takes and
@@ -189,7 +189,7 @@ use futures::executor::LocalPool;
 use futures::stream::StreamExt;
 use futures::task::LocalSpawnExt;
 use cspace_collision::{BodyType, CollisionRequest, ParryCollisionEnv};
-use cspace_constraints::KinematicConstraintSet;
+use cspace_planning::constraints::KinematicConstraintSet;
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_planning::PlanningRequest;
 use moveit_ros::constraints::set::ConstraintsMsg;
@@ -205,7 +205,7 @@ use moveit_ros::planner_params::PlannerConfigurations;
 use moveit_ros::planning::{PlanningRequestMsg, PlanningResponseMsgOut};
 use moveit_ros::robot_description;
 use moveit_ros::state::RobotStateMsg;
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
 use r2r::QosProfile;

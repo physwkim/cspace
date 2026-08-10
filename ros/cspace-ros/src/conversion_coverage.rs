@@ -218,7 +218,7 @@ fn is_conversion_impl_line(line: &str) -> bool {
 
 /// Extracts `(from_base_type, to_base_type)` from a conversion-impl line,
 /// stripping lifetime/generic parameters from each side (`RobotTrajectoryMsg<'m>`
-/// -> `RobotTrajectoryMsg`) and path qualifiers are kept as-is (`cspace_constraints::VisibilityConstraint`
+/// -> `RobotTrajectoryMsg`) and path qualifiers are kept as-is (`cspace_planning::constraints::VisibilityConstraint`
 /// stays whole, since both directions of that pair use the same qualified name).
 fn parse_conversion(line: &str) -> Option<(String, String)> {
     let marker_len = if let Some(i) = line.find("TryFrom<") {

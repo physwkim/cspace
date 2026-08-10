@@ -674,7 +674,7 @@
 //!    cylinder's own local origin — the visibility-cone generator anchors a
 //!    "near" case's target pose exactly at the touched link's own shape
 //!    center (`tools/moveit-diff`'s `build_constraint_case`/
-//!    `crates/cspace-constraints/examples/visibility_cone_depth_sweep.rs`'s
+//!    `crates/cspace-planning/examples/visibility_cone_depth_sweep.rs`'s
 //!    `build_case`, `Some(link_name)` arm), so every such case interpenetrates
 //!    through the link's own centroid by construction, not a coincidence of
 //!    this one case.
@@ -1479,7 +1479,7 @@ impl ConvertedShape {
 /// has looked at a shape, it holds a `Weak` to it forever (until pruned), and
 /// [`Arc::make_mut`] clones onto a fresh allocation whenever *any* `Weak` is
 /// outstanding, not only when the strong count exceeds one. That is exactly
-/// the branch `cspace_scene::AttachedBody::set_scale`/`set_padding` would
+/// the branch `cspace_planning::scene::AttachedBody::set_scale`/`set_padding` would
 /// otherwise take when the body is the shape's sole strong owner: mutate the
 /// existing allocation *in place, at the same address*, which a plain
 /// address-keyed cache with no pin would silently keep serving. Holding the

@@ -4,7 +4,7 @@
 //! Shared `&RobotModel`+[`Transforms`] context for `PositionConstraint`/
 //! `OrientationConstraint`/`VisibilityConstraint` conversions (§5/§6/§7).
 //!
-//! `cspace_constraints`' own constructors decide fixed-vs-mobile per
+//! `cspace_planning::constraints`' own constructors decide fixed-vs-mobile per
 //! `Transforms::can_transform(frame_id)`: true iff `frame_id` is already a
 //! key in the `Transforms` map (confirmed from `transforms.rs`'s own doc
 //! comment -- a plain map-membership check, not "is this a robot link").

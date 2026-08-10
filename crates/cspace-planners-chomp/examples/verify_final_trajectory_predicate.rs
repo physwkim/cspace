@@ -82,7 +82,7 @@ use cspace_planners_chomp::optimizer::ChompCollisionContext;
 use cspace_planners_chomp::{
     ChompExit, ChompGoal, ChompParameters, ChompRequest, GoalJointConstraint, solve_with_trace,
 };
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 use nalgebra::DMatrix;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;

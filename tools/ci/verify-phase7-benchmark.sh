@@ -391,10 +391,10 @@ if ! SOURCES_JSON="$(cd "$REPO_ROOT" && for f in \
     crates/cspace-planners-sbp/examples/plan_benchmark_port.rs \
     crates/cspace-planners-sbp/src \
     crates/cspace-planning/src \
-    crates/cspace-planner-registry/src \
+    crates/cspace-planning/src/planner_registry \
     crates/cspace-collision/src \
-    crates/cspace-scene/src \
-    crates/cspace-constraints/src \
+    crates/cspace-planning/src/scene \
+    crates/cspace-planning/src/constraints \
     tools/moveit-oracle/src; do
   d="$(measured_source_digest "$f")" || exit 1
   printf '%s %s\n' "$f" "$d"

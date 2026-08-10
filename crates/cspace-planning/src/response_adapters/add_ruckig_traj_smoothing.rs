@@ -52,9 +52,9 @@
 //! per the audit above — same "logging-only, no separate signal" shape as
 //! `Result::Err`'s already-ported message).
 
+use crate::scene::PlanningScene;
 use cspace_collision::ParryCollisionEnv;
 use cspace_core::trajectory::trajectory_tools::apply_ruckig_smoothing;
-use cspace_scene::PlanningScene;
 
 use crate::PlanningResponseAdapter;
 use crate::error::ResponseAdapterError;

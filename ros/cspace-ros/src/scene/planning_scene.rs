@@ -8,11 +8,11 @@
 //      usePlanningSceneMsg:1405, setPlanningSceneMsg:1367, setPlanningSceneDiffMsg:1314)
 
 //! `moveit_msgs/msg::{PlanningScene, PlanningSceneWorld}` <->
-//! [`cspace_scene::PlanningScene`]. See `doc/message-mapping.md` §11.
+//! [`cspace_planning::scene::PlanningScene`]. See `doc/message-mapping.md` §11.
 //!
 //! # Why these live here and not in `cspace-scene`
 //!
-//! `crates/cspace-scene`'s own symbol survey marks
+//! `crates/cspace-planning`'s own symbol survey marks
 //! `setPlanningSceneDiffMsg`/`setPlanningSceneMsg`/`usePlanningSceneMsg` (and
 //! `processPlanningSceneWorldMsg` alongside them) as **D1**
 //! (`scene.rs`, the "Message conversions" list). D1 is a *placement*
@@ -62,7 +62,7 @@ use std::sync::Arc;
 use cspace_collision::{AllowedCollisionMatrix, AllowedCollisionType};
 use cspace_core::error::{Error, Result};
 use cspace_core::geometry::{Isometry3, OcTree as OcTreeShape, Shape, Transforms};
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 use cspace_core::state::RobotState as CoreRobotState;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
@@ -157,19 +157,19 @@ pub fn use_planning_scene_msg<'m>(
 ///   *collision environment* (`collision_detector_->cenv_->setPadding`,
 ///   `planning_scene.cpp:1348-1349` in the diff arm, `:1386-1387` in the
 ///   full arm). This port's
-///   `cspace_scene::PlanningScene` owns no collision environment at all --
+///   `cspace_planning::scene::PlanningScene` owns no collision environment at all --
 ///   `check_collision` takes one as an argument -- and the padding/scale
 ///   state lives on `cspace_collision::ParryCollisionEnv` as its
 ///   `LinkPaddingScale`. Expires when a scene owns its environment, or when
 ///   this conversion is given one to write through to.
 /// - `object_colors`: `object_colors_` is not ported at all
-///   (`crates/cspace-scene/src/scene.rs` records that in
-///   `decouple_parent`'s own doc). Expires when `cspace_scene::PlanningScene`
+///   (`crates/cspace-planning/src/scene/scene.rs` records that in
+///   `decouple_parent`'s own doc). Expires when `cspace_planning::scene::PlanningScene`
 ///   gains an object-color map.
 fn reject_unrepresentable_fields(msg: &moveit_msgs::PlanningScene) -> Result<()> {
     if !msg.link_padding.is_empty() {
         return Err(Error::other(format!(
-            "PlanningScene.link_padding has {} entr(ies) but cspace_scene::PlanningScene \
+            "PlanningScene.link_padding has {} entr(ies) but cspace_planning::scene::PlanningScene \
              owns no collision environment to apply them to (see \
              cspace_collision::LinkPaddingScale)",
             msg.link_padding.len()
@@ -177,7 +177,7 @@ fn reject_unrepresentable_fields(msg: &moveit_msgs::PlanningScene) -> Result<()>
     }
     if !msg.link_scale.is_empty() {
         return Err(Error::other(format!(
-            "PlanningScene.link_scale has {} entr(ies) but cspace_scene::PlanningScene \
+            "PlanningScene.link_scale has {} entr(ies) but cspace_planning::scene::PlanningScene \
              owns no collision environment to apply them to (see \
              cspace_collision::LinkPaddingScale)",
             msg.link_scale.len()
@@ -185,7 +185,7 @@ fn reject_unrepresentable_fields(msg: &moveit_msgs::PlanningScene) -> Result<()>
     }
     if !msg.object_colors.is_empty() {
         return Err(Error::other(format!(
-            "PlanningScene.object_colors has {} entr(ies) but cspace_scene::PlanningScene \
+            "PlanningScene.object_colors has {} entr(ies) but cspace_planning::scene::PlanningScene \
              has no object-color map (object_colors_ is not ported)",
             msg.object_colors.len()
         )));
@@ -533,7 +533,7 @@ pub fn apply_planning_scene_world(
 /// landed in `cspace-octomap`, closing the round-5/round-7 structural gap
 /// this doc comment used to describe) and inserted the same way
 /// `apply_collision_object` inserts every other shape kind
-/// (`cspace_scene::PlanningScene::add_shape`, `src/scene/collision_object.rs:382`)
+/// (`cspace_planning::scene::PlanningScene::add_shape`, `src/scene/collision_object.rs:382`)
 /// -- octomap is not a new insertion mechanism, just a new [`Shape`]
 /// variant.
 ///

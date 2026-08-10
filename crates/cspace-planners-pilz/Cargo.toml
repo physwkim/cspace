@@ -11,7 +11,7 @@ authors.workspace = true
 [dependencies]
 cspace-collision.workspace = true
 cspace-core.workspace = true
-cspace-scene.workspace = true
+cspace-planning.workspace = true
 nalgebra.workspace = true
 thiserror.workspace = true
 

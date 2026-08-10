@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! `moveit_msgs::msg::{PlanningScene, PlanningSceneWorld, CollisionObject,
-//! AttachedCollisionObject}` <-> `cspace_scene`/`cspace_collision`.
+//! AttachedCollisionObject}` <-> `cspace_planning::scene`/`cspace_collision`.
 //! See `doc/message-mapping.md` §11.
 
 pub mod attached;
@@ -12,7 +12,7 @@ pub mod shapes;
 
 use cspace_core::error::Result;
 use cspace_core::geometry::Isometry3;
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 
 /// Resolves a message `header.frame_id` the way the upstream call sites that
 /// call `getFrameTransform` *without* a preceding `knowsFrameTransform`

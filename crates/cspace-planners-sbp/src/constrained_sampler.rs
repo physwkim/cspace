@@ -1,7 +1,7 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! The bridge from a [`cspace_constraints::ConstraintSampler`] to
+//! The bridge from a [`cspace_planning::constraints::ConstraintSampler`] to
 //! [`crate::rrt_connect::ConstrainedStateSampler`]: [`GroupConstraintSampler`]
 //! writes each attempt into a scratch [`RobotState`] and reads the result
 //! back out through a [`JointModelGroupSpace`], mirroring
@@ -10,15 +10,15 @@
 
 use std::cell::RefCell;
 
-use cspace_constraints::ConstraintSampler;
 use cspace_core::state::RobotState;
+use cspace_planning::constraints::ConstraintSampler;
 use rand::Rng;
 
 use crate::compound::CompoundValue;
 use crate::joint_model_group_space::JointModelGroupSpace;
 use crate::rrt_connect::ConstrainedStateSampler;
 
-/// Adapts a [`cspace_constraints::ConstraintSampler`] (which samples into a
+/// Adapts a [`cspace_planning::constraints::ConstraintSampler`] (which samples into a
 /// [`RobotState`]) to [`crate::rrt_connect::ConstrainedStateSampler`] (which
 /// samples a [`JointModelGroupSpace`] state).
 ///
@@ -49,7 +49,7 @@ use crate::rrt_connect::ConstrainedStateSampler;
 /// [`try_sample`](Self::try_sample) call, so attempt *N*'s IK seed is
 /// attempt *N-1*'s result. [`RefCell`] supplies the interior mutability
 /// [`ConstrainedStateSampler::try_sample`]'s `&self` needs — matching
-/// [`cspace_constraints::IkConstraintSamplerAdapter`]'s own `RefCell` use
+/// [`cspace_planning::constraints::IkConstraintSamplerAdapter`]'s own `RefCell` use
 /// for exactly the same "shared reference, mutable scratch" shape. A failed
 /// attempt is *not* reverted before the next one: upstream's `callIK`
 /// writes via `setJointGroupPositions` before `validate()` and never undoes
@@ -61,14 +61,14 @@ use crate::rrt_connect::ConstrainedStateSampler;
 /// # What this does not change: `template` was, and remains, the source for out-of-group variables
 ///
 /// [`ConstraintSampler::sample`] only ever writes its own group's variables
-/// (`cspace_constraints`' `JointConstraintSampler`/`IkConstraintSampler`
+/// (`cspace_planning::constraints`' `JointConstraintSampler`/`IkConstraintSampler`
 /// both confirmed by reading their `sample` bodies) — `working`'s
 /// out-of-group variables are set once, from `template`, at construction,
 /// and no call ever touches them again. `template` itself is *not* kept as
 /// a separate field: after seeding `working`, upstream's own reference role
 /// for `template` (the value `IKConstraintSampler::sample`'s pose-sampling
 /// step reads mobile reference frames against) is what upstream's own
-/// second parameter, `reference_state`, is for — `cspace_constraints::ik_sampler`'s
+/// second parameter, `reference_state`, is for — `cspace_planning::constraints::ik_sampler`'s
 /// module doc comment already records this port's `ConstraintSampler::sample`
 /// deliberately collapses `state`/`reference_state` into one parameter, and
 /// that a position or orientation constraint whose *reference* frame is a
@@ -189,9 +189,9 @@ impl ConstrainedStateSampler<JointModelGroupSpace> for GroupConstraintSampler<'_
 
 #[cfg(test)]
 mod tests {
-    use cspace_constraints::{JointConstraint, JointConstraintSampler};
     use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
+    use cspace_planning::constraints::{JointConstraint, JointConstraintSampler};
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 

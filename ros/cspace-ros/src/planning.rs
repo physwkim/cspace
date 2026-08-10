@@ -84,7 +84,7 @@
 //! `.srv`/`.action`/`.msg` embeds the `MotionPlanDetailedResponse` wire type)
 //! and the three conditions that re-open the decision.
 
-use cspace_constraints::KinematicConstraintSet;
+use cspace_planning::constraints::KinematicConstraintSet;
 use cspace_core::error::Error;
 use cspace_core::geometry::Vector3 as CoreVector3;
 use cspace_core::model::RobotModel;

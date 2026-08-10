@@ -13,11 +13,6 @@ use cspace_collision::{
     AllowedCollisionMatrix, BodyType, CollisionEnv, CollisionRequest, DistanceRequest,
     DistanceResultsData, ParryCollisionEnv,
 };
-use cspace_constraints::{
-    Constraint, JointConstraint, KinematicConstraintSet, OrientationConstraint,
-    OrientationTolerance, PositionConstraint, SensorSpec, TargetSpec, VisibilityConstraint,
-    VisibilityCriteria,
-};
 use cspace_core::geometry::{
     Cuboid, Cylinder, Isometry3, Mesh, Rotation3, Shape, Sphere, Transforms, UnitQuaternion,
     Vector3,
@@ -25,6 +20,11 @@ use cspace_core::geometry::{
 use cspace_core::kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolveOptions, SolverParams};
 use cspace_core::model::RobotModel;
 use cspace_core::state::{Posed, RobotState};
+use cspace_planning::constraints::{
+    Constraint, JointConstraint, KinematicConstraintSet, OrientationConstraint,
+    OrientationTolerance, PositionConstraint, SensorSpec, TargetSpec, VisibilityConstraint,
+    VisibilityCriteria,
+};
 use nalgebra::{Matrix3, Quaternion, Translation3};
 
 use crate::protocol::{
@@ -202,11 +202,11 @@ fn shape_from_spec(spec: &ShapeSpec) -> Result<Shape, String> {
 
 fn sensor_view_direction_from_spec(
     name: &str,
-) -> Result<cspace_constraints::SensorViewDirection, String> {
+) -> Result<cspace_planning::constraints::SensorViewDirection, String> {
     match name {
-        "sensor_x" => Ok(cspace_constraints::SensorViewDirection::SensorX),
-        "sensor_y" => Ok(cspace_constraints::SensorViewDirection::SensorY),
-        "sensor_z" => Ok(cspace_constraints::SensorViewDirection::SensorZ),
+        "sensor_x" => Ok(cspace_planning::constraints::SensorViewDirection::SensorX),
+        "sensor_y" => Ok(cspace_planning::constraints::SensorViewDirection::SensorY),
+        "sensor_z" => Ok(cspace_planning::constraints::SensorViewDirection::SensorZ),
         other => Err(format!("unknown sensor_view_direction {other:?}")),
     }
 }

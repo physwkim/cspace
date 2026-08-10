@@ -438,7 +438,7 @@ report_qualified() {
 # `crates/cspace-stomp-core/src/stomp.rs`, and `a6a81a79` changed its seeding
 # tolerance inside Phase 8's measurement window while the old list, built by
 # treating the two arms as symmetric, was structurally unable to see it.
-# Phase 7's analogue is `crates/cspace-planner-registry/src`:
+# Phase 7's analogue is `crates/cspace-planning/src/planner_registry`:
 # `cspace-planners-sbp/src/registry.rs` registers into its `PLANNER_MANAGERS`
 # slice, so it is how the SBP arm gets selected and constructed, not shared
 # framework -- confirmed neither CHOMP's nor STOMP's source references it.

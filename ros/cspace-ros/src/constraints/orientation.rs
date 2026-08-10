@@ -1,10 +1,10 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! `moveit_msgs/OrientationConstraint` <-> [`cspace_constraints::OrientationConstraint`].
+//! `moveit_msgs/OrientationConstraint` <-> [`cspace_planning::constraints::OrientationConstraint`].
 //! See `doc/message-mapping.md` §6.
 
-use cspace_constraints::{
+use cspace_planning::constraints::{
     OrientationConstraint as CoreOrientationConstraint, OrientationTolerance,
 };
 use cspace_core::error::Error;

@@ -41,7 +41,7 @@ use cspace_planners_pilz::trajectory_generator::{
     Goal, MotionPlanRequest, PilzGenerator, StartState, TrajectoryGenerator,
 };
 use cspace_planners_pilz::trajectory_generator_ptp::TrajectoryGeneratorPtp;
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 
 #[derive(Deserialize)]
 struct FixtureJointLimit {

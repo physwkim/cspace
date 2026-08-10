@@ -15,10 +15,7 @@ rand_chacha.workspace = true
 linkme.workspace = true
 cspace-core.workspace = true
 cspace-collision.workspace = true
-cspace-constraints.workspace = true
-cspace-planner-registry.workspace = true
 cspace-planning.workspace = true
-cspace-scene.workspace = true
 
 [dev-dependencies]
 cspace-core = { workspace = true, features = ["test-support"] }

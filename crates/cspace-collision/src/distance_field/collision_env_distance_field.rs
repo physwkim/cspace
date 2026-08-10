@@ -46,7 +46,7 @@
 //! here rather than methods needing that type's cache field or
 //! construction-time state. `p1-fixtures` has since landed
 //! `cspace-scene::AttachedBody`, but it remains unreachable from here: it is
-//! tracked on `cspace_scene::PlanningScene`, not on `cspace_core::state::RobotState`
+//! tracked on `cspace_planning::scene::PlanningScene`, not on `cspace_core::state::RobotState`
 //! (that crate's own doc still lists "no attached bodies" under deferred
 //! scope, deliberately, so `PlanningScene` stays the sole owner -- see
 //! `cspace-scene`'s `attached_body` module doc), and
@@ -259,7 +259,7 @@
 //! omission) -- remains out of scope regardless. Round 26: the
 //! upstream-absence audit found the prior text here also claimed a
 //! `planning_scene::PlanningScene` counterpart didn't exist in this
-//! workspace either; `cspace_scene::PlanningScene` (referenced two
+//! workspace either; `cspace_planning::scene::PlanningScene` (referenced two
 //! paragraphs up) landed before this file's own round-22 commits and does
 //! exist -- `CollisionEnvDistanceField` staying unported is a real,
 //! separate gap (the `CollisionEnv`/`World`-observer wiring, not

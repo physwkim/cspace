@@ -45,7 +45,7 @@
 //!
 //! This workspace has no planning-pipeline registry at all -- there is one
 //! *planner manager* registry,
-//! [`static@cspace_planner_registry::PLANNER_MANAGERS`],
+//! [`static@cspace_planning::planner_registry::PLANNER_MANAGERS`],
 //! which corresponds to upstream's planner-plugin level (`pluginlib`'s
 //! `planning_interface::PlannerManager`), not to its pipeline level. So the
 //! rule here is upstream's with an empty pipeline map: the empty id resolves
@@ -114,7 +114,7 @@
 //! `planner_interface->setPlannerConfigurations(configs)`
 //! (`query_planners_service_capability.cpp:205`), handing the map to the
 //! instance the pipeline plans with. The equivalent here is not a call at
-//! all: [`cspace_planner_registry::resolve_planner`] takes the store as an
+//! all: [`cspace_planning::planner_registry::resolve_planner`] takes the store as an
 //! argument, so the manager the next plan runs on is *built from* whatever
 //! `set` last wrote (PORTING-PLAN.md §285). [`spawn`] therefore returns the
 //! store rather than keeping it private -- the binary hands the same
@@ -146,7 +146,7 @@ use futures::task::LocalSpawnExt;
 // it clean and the breakage surfaced only as a compile error. Two intra-doc
 // links above pointed the same way and fail the doc build rather than the
 // compile, so `cargo build` alone would not have found them.
-use cspace_planner_registry::PLANNER_MANAGERS;
+use cspace_planning::planner_registry::PLANNER_MANAGERS;
 use cspace_planning::{PlannerConfigurationMap, configuration_name};
 use r2r::QosProfile;
 use r2r::moveit_msgs::msg::{PlannerInterfaceDescription, PlannerParams};

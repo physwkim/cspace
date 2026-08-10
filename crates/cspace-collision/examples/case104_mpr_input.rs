@@ -17,7 +17,7 @@
 //! `tools/mpr-vs-epa/mpr_case104.c` both depend on -- see that C file's
 //! own header comment for why it does not re-derive the triangle itself.
 //! `VisibilityConstraint::cone_mesh`'s vertex/triangle formula
-//! (`crates/cspace-constraints/src/visibility.rs`) is reproduced here
+//! (`crates/cspace-planning/src/constraints/visibility.rs`) is reproduced here
 //! rather than called, because that crate already depends on this one
 //! (`Cargo.toml`) -- the reverse edge would be a cycle; this crate's own
 //! `tests/collision_parity.rs` reproduces the identical formula for the

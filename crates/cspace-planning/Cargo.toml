@@ -10,13 +10,17 @@ authors.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+linkme.workspace = true
+nalgebra.workspace = true
+rand.workspace = true
 cspace-collision.workspace = true
-cspace-constraints.workspace = true
 cspace-core.workspace = true
-cspace-scene.workspace = true
 
 [dev-dependencies]
+approx.workspace = true
 cspace-core = { workspace = true, features = ["test-support"] }
+serde.workspace = true
+serde_json.workspace = true
 urdf-rs.workspace = true
 # Dev-only, and a dependency *cycle* by design: `cspace-planners-sbp`
 # depends on this crate for `PlanningRequest`/`PlannerManager`, and this
@@ -24,10 +28,20 @@ urdf-rs.workspace = true
 # real. Cargo permits a cycle through `[dev-dependencies]` (it is a
 # separate build of this crate's test targets, not of the library other
 # crates link). Neither the library nor its public types know sbp exists.
-cspace-planner-registry.workspace = true
 cspace-planners-sbp.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 
-[lints]
-workspace = true
+# Not `[lints] workspace = true`: the `planner_registry` module declares the
+# `PLANNER_MANAGERS` `linkme::distributed_slice` (D4), which expands to a
+# `#[link_section]` static that rustc's `unsafe_code` lint flags, and `forbid`
+# cannot be downgraded by the crate that inherits it. `src/lib.rs` puts
+# `#[forbid(unsafe_code)]` on every other module so the exemption covers only
+# the registry, exactly as it did when that was its own crate.
+[lints.rust]
+warnings = "deny"
+missing_docs = "warn"
+unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

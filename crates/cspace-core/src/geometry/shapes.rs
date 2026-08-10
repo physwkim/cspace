@@ -353,7 +353,7 @@
 //!   `cspace-scene`, not this crate. Two deferrals each waiting on the
 //!   other's silence never closes on its own; `cspace-scene` answered the
 //!   real question this round instead of naming the format
-//!   (`crates/cspace-scene/src/scene.rs`, commit `86f102c`): does this port
+//!   (`crates/cspace-planning/src/scene/scene.rs`, commit `86f102c`): does this port
 //!   intend `.scene` file interop at all? No. Every real upstream caller of
 //!   `saveGeometryToStream`/`loadGeometryFromStream` — `move_group`'s
 //!   `{load,save}_geometry_to_file_service_capability.cpp`, warehouse

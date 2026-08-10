@@ -42,7 +42,7 @@
 //! (`rclcpp::Publisher` in `setPathPublisher`/`getPathPublisher`, unrelated
 //! to either function). Neither function's own logic touches ROS: `constraint_samplers`
 //! is `moveit_core`, not a ROS package, and its `selectSampler` fallback is
-//! already ported as [`cspace_constraints::select_default_sampler`]
+//! already ported as [`cspace_planning::constraints::select_default_sampler`]
 //! (`crate::planner::sample_goal_state` calls it directly, see that
 //! function's own doc for the two remaining deviations); `extractSeedTrajectory`
 //! is `trajectory_constraints` message-field walking with no
@@ -132,14 +132,14 @@
 use nalgebra::DMatrix;
 use rand::Rng;
 
-use cspace_constraints::{
-    Constraint, JointConstraint, KinematicConstraintSet, SubgroupSolver, select_default_sampler,
-};
 use cspace_core::error::Result;
 use cspace_core::kinematics::KinematicsSolver;
 use cspace_core::model::JointModelGroup;
 use cspace_core::state::RobotState;
 use cspace_core::trajectory::RobotTrajectory;
+use cspace_planning::constraints::{
+    Constraint, JointConstraint, KinematicConstraintSet, SubgroupSolver, select_default_sampler,
+};
 use cspace_stomp_core::{CancelHandle, Stomp, StompConfiguration, TrajectoryInitialization};
 
 use crate::composable_task::{ComposableTask, CostFn};
@@ -1262,7 +1262,7 @@ mod tests {
     /// (that crate is read-only from this one; this is a local, minimal
     /// re-implementation, not an import). The only way to exercise
     /// `sample_goal_state`'s `!goal_sampler->sample(goal_state)` branch:
-    /// [`cspace_constraints::JointConstraintSampler::sample`]'s own doc
+    /// [`cspace_planning::constraints::JointConstraintSampler::sample`]'s own doc
     /// notes it cannot fail with the constraint set this crate can build
     /// without an IK-backed sampler.
     struct NoSolutionSolver {
@@ -1303,7 +1303,7 @@ mod tests {
         // Huge relative to panda's ~0.85 m reach: sampling a point inside
         // this region must always succeed, so every attempt reaches
         // `solve_with_options` rather than failing sampling-position first.
-        let pc = cspace_constraints::PositionConstraint::new(
+        let pc = cspace_planning::constraints::PositionConstraint::new(
             &model,
             &tf,
             "panda_link8",

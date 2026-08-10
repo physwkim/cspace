@@ -1,7 +1,7 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! `moveit_msgs/PositionConstraint` <-> [`cspace_constraints::PositionConstraint`].
+//! `moveit_msgs/PositionConstraint` <-> [`cspace_planning::constraints::PositionConstraint`].
 //! See `doc/message-mapping.md` §5.
 //!
 //! Scope this round: `shape_msgs/SolidPrimitive` only (BOX/SPHERE/CYLINDER/
@@ -11,7 +11,7 @@
 //!
 //! **CONE is parseable but not usable end-to-end** (round 5, previously
 //! undocumented): [`TryFrom<SolidPrimitiveMsg> for Shape`] below happily
-//! builds a [`Shape::Cone`], but `cspace_constraints::PositionConstraint::new`
+//! builds a [`Shape::Cone`], but `cspace_planning::constraints::PositionConstraint::new`
 //! then calls `Body::from_shape`, which returns `Ok(None)` for
 //! [`Shape::Cone`] (`cspace_core::geometry::bodies::Body` has no `Cone` variant),
 //! so every `CONE`-typed constraint region fails there instead. This has
@@ -134,7 +134,7 @@ pub struct PositionConstraintMsg<'m> {
 /// Plain local wrapper, for the core->msg direction.
 pub struct PositionConstraintMsgOut(pub moveit_msgs::PositionConstraint);
 
-impl<'m> TryFrom<PositionConstraintMsg<'m>> for cspace_constraints::PositionConstraint {
+impl<'m> TryFrom<PositionConstraintMsg<'m>> for cspace_planning::constraints::PositionConstraint {
     type Error = Error;
 
     fn try_from(wrapped: PositionConstraintMsg<'m>) -> Result<Self, Self::Error> {
@@ -165,7 +165,7 @@ impl<'m> TryFrom<PositionConstraintMsg<'m>> for cspace_constraints::PositionCons
         }
 
         let offset = CoreVector3::try_from(Vector3(msg.target_point_offset))?;
-        cspace_constraints::PositionConstraint::new(
+        cspace_planning::constraints::PositionConstraint::new(
             model,
             &tf,
             &msg.link_name,
@@ -177,7 +177,7 @@ impl<'m> TryFrom<PositionConstraintMsg<'m>> for cspace_constraints::PositionCons
     }
 }
 
-impl TryFrom<cspace_constraints::PositionConstraint> for PositionConstraintMsgOut {
+impl TryFrom<cspace_planning::constraints::PositionConstraint> for PositionConstraintMsgOut {
     type Error = Error;
 
     /// Fails only if a region's [`Body`] is a [`Body::ConvexMesh`] (never
@@ -185,7 +185,7 @@ impl TryFrom<cspace_constraints::PositionConstraint> for PositionConstraintMsgOu
     /// only ever builds `Sphere`/`Cylinder`/`Cuboid` bodies from
     /// `SolidPrimitive`s -- but a `PositionConstraint` built directly by
     /// other core code, not from a message, could still carry one).
-    fn try_from(c: cspace_constraints::PositionConstraint) -> Result<Self, Self::Error> {
+    fn try_from(c: cspace_planning::constraints::PositionConstraint) -> Result<Self, Self::Error> {
         let mut primitives = Vec::with_capacity(c.constraint_regions().len());
         let mut primitive_poses = Vec::with_capacity(c.constraint_regions().len());
         for region in c.constraint_regions() {
@@ -348,7 +348,7 @@ mod tests {
                 z: 0.0,
                 w: 2.0,
             };
-        let c = cspace_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+        let c = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
             model: &model,
             msg,
         })
@@ -360,7 +360,7 @@ mod tests {
     #[test]
     fn converts_with_model_context() {
         let model = one_joint_model();
-        let c = cspace_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+        let c = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
             model: &model,
             msg: valid_msg(&model),
         })
@@ -382,7 +382,7 @@ mod tests {
             dimensions: vec![1.0, 1.0],
             polygon: Default::default(),
         }];
-        let err = cspace_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+        let err = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
             model: &model,
             msg,
         })
@@ -402,7 +402,7 @@ mod tests {
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.constraint_region.primitive_poses.push(identity_pose());
-        let err = cspace_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+        let err = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
             model: &model,
             msg,
         })
@@ -422,7 +422,7 @@ mod tests {
         let mut msg = valid_msg(&model);
         msg.constraint_region.meshes.push(Default::default());
         msg.constraint_region.mesh_poses.push(identity_pose());
-        let err = cspace_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+        let err = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
             model: &model,
             msg,
         })
@@ -450,7 +450,7 @@ mod tests {
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.constraint_region.meshes.push(Default::default());
-        let err = cspace_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+        let err = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
             model: &model,
             msg,
         })
@@ -466,7 +466,7 @@ mod tests {
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.constraint_region.mesh_poses.push(identity_pose());
-        let err = cspace_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+        let err = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
             model: &model,
             msg,
         })
@@ -480,7 +480,7 @@ mod tests {
     #[test]
     fn round_trip_through_msg() {
         let model = one_joint_model();
-        let c = cspace_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+        let c = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
             model: &model,
             msg: valid_msg(&model),
         })

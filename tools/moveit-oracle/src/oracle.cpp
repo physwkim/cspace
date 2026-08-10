@@ -1628,7 +1628,7 @@ private:
   ///
   /// `pose` is always identity: it is the transform from the link to the
   /// attached body's own frame, upstream's separate level between the link
-  /// and its shapes, and `cspace_scene::AttachedBody`'s one-level design has
+  /// and its shapes, and `cspace_planning::scene::AttachedBody`'s one-level design has
   /// `shape_poses` relative to the link frame directly -- see `protocol.rs`'s
   /// `AttachedBodySpec` doc.
   void applyAttachedBodies(moveit::core::RobotState& state, const json& request)
@@ -2531,13 +2531,13 @@ private:
   ///
   /// `request["attached_bodies"]` (optional, defaults to none) is applied to
   /// `*state_` via `attachBody` before any check runs, ground truth for
-  /// `cspace_scene::AttachedBody`/`cspace_collision::AttachedBodyGeometry`.
+  /// `cspace_planning::scene::AttachedBody`/`cspace_collision::AttachedBodyGeometry`.
   /// No clearing is needed here: `applyJointValues` has already left `*state_`
   /// with nothing attached, on every path rather than only this one -- see its
   /// doc for why that moved. `attachBody`'s own `pose` parameter (the transform from the
   /// link to the attached body's own frame, upstream's separate level
   /// between the link and its shapes) is always identity here, matching
-  /// `cspace_scene::AttachedBody`'s one-level design where `shape_poses` are
+  /// `cspace_planning::scene::AttachedBody`'s one-level design where `shape_poses` are
   /// already relative to the link frame directly -- see `protocol.rs`'s
   /// `AttachedBodySpec` doc.
   ///
@@ -3224,7 +3224,7 @@ private:
   /// `robot_state_`, `acm_`, transforms -- `planning_scene.cpp:203-227` and
   /// the `getCurrentStateNonConst`/`getAllowedCollisionMatrixNonConst`
   /// copy-on-write pair at `:625`/`:659`), and this port mirrors it with
-  /// `Layered::Inherited` (`crates/cspace-scene/src/scene.rs`'s `diff()`). A
+  /// `Layered::Inherited` (`crates/cspace-planning/src/scene/scene.rs`'s `diff()`). A
   /// child-only response could not tell a correct diff from one that mutated
   /// its parent, which is the failure mode copy-on-write exists to prevent;
   /// `parent_before` and `parent_after` make that observable, and the two
@@ -3238,7 +3238,7 @@ private:
   /// does would bypass exactly the wiring under test.
   ///
   /// `self_*` is reported alongside `robot_*` but see
-  /// `crates/cspace-scene/tests/scene_diff_collision_parity.rs` for why only
+  /// `crates/cspace-planning/tests/scene_diff_collision_parity.rs` for why only
   /// the latter is compared against this port on pr2.
   json sceneDiffCollision(const json& request)
   {

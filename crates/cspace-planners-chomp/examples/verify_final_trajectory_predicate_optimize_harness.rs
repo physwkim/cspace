@@ -42,7 +42,7 @@ use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
 use cspace_planners_chomp::optimizer::ChompCollisionContext;
 use cspace_planners_chomp::{ChompGoal, ChompParameters, ChompRequest, GoalJointConstraint, solve};
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 use nalgebra::DMatrix;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;

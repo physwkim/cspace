@@ -32,7 +32,7 @@
 //! - `start_state` (`RobotState`) — ported as
 //!   [`PlanningRequest::start_state`] ([`StartState`]). Round 21 called this
 //!   one "distinct: expressed by mutating
-//!   [`cspace_scene::PlanningScene::current_state_mut`] before the adapter
+//!   [`crate::scene::PlanningScene::current_state_mut`] before the adapter
 //!   chain runs". That relocation is real and still how the value reaches
 //!   every reader — [`crate::pipeline::generate_plan`] is the single owner
 //!   that performs it — but it is not a *substitute* for the field, because
@@ -140,8 +140,8 @@
 //!   `registry.rs`'s own module doc already records that closing it needs
 //!   two things, of which only the first exists today: (1) a constraint
 //!   sampler turning a region into candidate concrete states — ported, as
-//!   [`cspace_constraints::JointConstraintSampler`]/[`cspace_constraints::IkConstraintSamplerAdapter`]/
-//!   [`cspace_constraints::UnionConstraintSampler`] — and (2)
+//!   [`crate::constraints::JointConstraintSampler`]/[`crate::constraints::IkConstraintSamplerAdapter`]/
+//!   [`crate::constraints::UnionConstraintSampler`] — and (2)
 //!   `crate::rrt_connect::rrt_connect` itself accepting something
 //!   `GoalSampleableRegion`-shaped instead of one fixed `S::State` — not
 //!   done. D8 depends on p1-robotmodel's in-flight `ConstraintSamplerManager`
@@ -165,7 +165,7 @@
 //!   String` are already byte-for-byte the same type on both sides — no
 //!   conversion needed, direct reuse.
 
-use cspace_constraints::KinematicConstraintSet;
+use crate::constraints::KinematicConstraintSet;
 use cspace_core::geometry::Vector3;
 
 use crate::start_state::StartState;
@@ -246,7 +246,7 @@ pub struct PlanningRequest {
     /// `MotionPlanRequest::goal_constraints: Vec<Constraints>`'s
     /// any-of-these-sets contract exactly (`planning_scene.cpp`'s own
     /// `isPathValid` reads it the same way — see
-    /// [`cspace_scene::PlanningScene::is_path_valid`]'s `goal_constraints`
+    /// [`crate::scene::PlanningScene::is_path_valid`]'s `goal_constraints`
     /// parameter).
     pub goal_constraints: Vec<KinematicConstraintSet>,
     /// Constraints every waypoint (not just the goal) must satisfy. `None`

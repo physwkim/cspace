@@ -203,7 +203,7 @@
 //! [`attached_body_sphere_decomposition`]/[`attached_body_point_decomposition`]
 //! — the premise this bullet used to state (a bare `cspace_core::state::State`
 //! structurally cannot see attached bodies, since they live on
-//! `cspace_scene::PlanningScene`, which this crate does not depend on) is
+//! `cspace_planning::scene::PlanningScene`, which this crate does not depend on) is
 //! still true, but it turned out irrelevant: this crate had already solved
 //! the same problem a different way for a different symbol
 //! ([`AttachedBodySnapshot`]'s explicit `AttachedBodyGeometry` parameter,

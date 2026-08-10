@@ -282,7 +282,7 @@
 //!   porting it (`eb4fa4e`), and its own doc comment for the exact
 //!   `chomp_planner.cpp` line ported at each step, every `MoveItErrorCode`
 //!   mapping, and the two named deviations
-//!   ([`planner::GoalJointConstraint`]'s "not `cspace_constraints::JointConstraint`",
+//!   ([`planner::GoalJointConstraint`]'s "not `cspace_planning::constraints::JointConstraint`",
 //!   [`planner::ChompGoal`]'s "joint-only by construction").
 //! - The anonymous-namespace `getLogger()` helper and every `RCLCPP_*` call
 //!   site — not ported: no logging framework exists anywhere in this

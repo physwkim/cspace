@@ -30,7 +30,7 @@
 //!   (reached through [`cspace_core::state::RobotState::update`]) — this crate adds
 //!   no forward-kinematics math of its own.
 //! - [`is_state_colliding`] delegates to
-//!   [`cspace_scene::PlanningScene::check_self_collision`], generic over the
+//!   [`cspace_planning::scene::PlanningScene::check_self_collision`], generic over the
 //!   same `E: CollisionEnv` the caller already has (a
 //!   [`cspace_collision::ParryCollisionEnv`], typically).
 //!
@@ -108,7 +108,7 @@ use cspace_core::kinematics::{
 use cspace_core::model::RobotModel;
 use cspace_core::state::{Posed, RobotState};
 use cspace_core::trajectory::RobotTrajectory;
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 
 use crate::cartesian_trajectory::CartesianTrajectory;
 use crate::limits::JointLimitsContainer;
@@ -957,7 +957,7 @@ mod tests {
     use cspace_core::model::{MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
     use cspace_core::state::RobotState;
-    use cspace_scene::PlanningScene;
+    use cspace_planning::scene::PlanningScene;
 
     use super::*;
     use crate::limits::{JointLimit, JointLimitsContainer};

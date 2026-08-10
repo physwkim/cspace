@@ -38,22 +38,22 @@
 //! constraint stays geometrically equivalent.
 //!
 //! This crate's [`PlanningRequest::goal_constraints`]/`path_constraints`
-//! carry [`cspace_constraints::KinematicConstraintSet`], not a raw message —
-//! and [`cspace_constraints::PositionConstraint::new`]/
-//! [`cspace_constraints::OrientationConstraint::new`] both require
+//! carry [`crate::constraints::KinematicConstraintSet`], not a raw message —
+//! and [`crate::constraints::PositionConstraint::new`]/
+//! [`crate::constraints::OrientationConstraint::new`] both require
 //! `link_name` to already name a real robot link
 //! (`RobotModel::link_model(link_name)`, `cspace-constraints/src/position.rs`/
 //! `orientation.rs`), erroring at construction otherwise. `RobotModel::link_model`
 //! has no notion of an attached body or subframe (those live on
-//! [`cspace_scene::PlanningScene`]/`AttachedBody`, a type `RobotModel` does
+//! [`crate::scene::PlanningScene`]/`AttachedBody`, a type `RobotModel` does
 //! not reference) — so a subframe-named `link_name` can never exist in an
-//! already-constructed [`cspace_constraints::PositionConstraint`]/
-//! [`cspace_constraints::OrientationConstraint`] in this workspace at all.
+//! already-constructed [`crate::constraints::PositionConstraint`]/
+//! [`crate::constraints::OrientationConstraint`] in this workspace at all.
 //! By the time a constraint reaches this adapter, upstream's resolution
 //! problem has already been forced to not exist, at construction time, by a
 //! stricter constructor than upstream's raw-message path ever enforced.
-//! Verified, not assumed: `rg -n 'pub fn new' crates/cspace-constraints/src/position.rs
-//! crates/cspace-constraints/src/orientation.rs` shows both taking
+//! Verified, not assumed: `rg -n 'pub fn new' crates/cspace-planning/src/constraints/position.rs
+//! crates/cspace-planning/src/constraints/orientation.rs` shows both taking
 //! `link_name: &str` and both calling `model.link_model(link_name)?` before
 //! anything else.
 //!
@@ -61,8 +61,8 @@
 //! exactly matching upstream's unconditional `SUCCESS`, with nothing left to
 //! rewrite.
 
+use crate::scene::PlanningScene;
 use cspace_collision::ParryCollisionEnv;
-use cspace_scene::PlanningScene;
 
 use crate::PlanningRequestAdapter;
 use crate::error::RequestAdapterError;
@@ -89,7 +89,7 @@ impl PlanningRequestAdapter for ResolveConstraintFrames {
 
 #[cfg(test)]
 mod tests {
-    use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
+    use crate::constraints::{Constraint, JointConstraint, KinematicConstraintSet};
     use cspace_core::model::{MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
     use std::fs;

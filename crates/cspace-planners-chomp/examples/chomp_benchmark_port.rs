@@ -224,7 +224,7 @@ use cspace_planners_chomp::{
     ChompRequest, GoalJointConstraint, solve_with_trace,
 };
 use cspace_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 use nalgebra::DMatrix;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;

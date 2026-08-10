@@ -41,7 +41,7 @@ use cspace_core::error::{Error, MoveItErrorCode, Result};
 use cspace_core::kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
 use cspace_core::state::Posed;
 use cspace_core::trajectory::RobotTrajectory;
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 
 use crate::limits::JointLimit;
 use crate::trajectory_functions::{
@@ -350,7 +350,7 @@ mod tests {
     use cspace_collision::{LinkPaddingScale, ParryCollisionEnv};
     use cspace_core::model::{MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
-    use cspace_scene::PlanningScene;
+    use cspace_planning::scene::PlanningScene;
 
     use super::*;
     use crate::limits::{JointLimitsContainer, LimitsContainer};

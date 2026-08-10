@@ -27,7 +27,7 @@ use cspace_core::srdf::SrdfModel;
 use cspace_planners_sbp::{
     JointModelGroupSpace, PlanningSceneValidityChecker, StateSpace, StateValidityChecker,
 };
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 

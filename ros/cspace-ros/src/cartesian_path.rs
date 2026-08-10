@@ -163,7 +163,7 @@
 use std::sync::Arc;
 
 use cspace_collision::{CollisionRequest, ParryCollisionEnv};
-use cspace_constraints::KinematicConstraintSet;
+use cspace_planning::constraints::KinematicConstraintSet;
 use cspace_core::geometry::{Isometry3, Transforms};
 use cspace_core::kinematics::{
     CartesianInterpolator, DEFAULT_SOLVER_NAME, IkContext, MaxEefStep, NoAttachedFrames,
@@ -171,7 +171,7 @@ use cspace_core::kinematics::{
 };
 use cspace_core::model::JointModelGroup;
 use cspace_planning::StartState;
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 use cspace_core::state::RobotState;
 use cspace_core::trajectory::robot_trajectory::RobotTrajectory;
 use cspace_core::trajectory::time_optimal_trajectory_generation::{TotgOptions, compute_time_stamps};

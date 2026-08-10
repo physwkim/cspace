@@ -1,10 +1,10 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! `moveit_msgs/JointConstraint` <-> [`cspace_constraints::JointConstraint`].
+//! `moveit_msgs/JointConstraint` <-> [`cspace_planning::constraints::JointConstraint`].
 //! See `doc/message-mapping.md` §4.
 
-use cspace_constraints::JointConstraint as CoreJointConstraint;
+use cspace_planning::constraints::JointConstraint as CoreJointConstraint;
 use cspace_core::error::Error;
 use cspace_core::model::RobotModel;
 use r2r::moveit_msgs::msg as moveit_msgs;
@@ -44,7 +44,7 @@ impl TryFrom<CoreJointConstraint> for JointConstraintMsgOut {
     /// Total: every field on a constructed [`CoreJointConstraint`] is
     /// already valid by construction. `joint_variable_name()` is the exact
     /// wire-form string (`"joint"` or `"joint/local"`) upstream's own
-    /// convention expects -- confirmed in `cspace_constraints::joint`'s own
+    /// convention expects -- confirmed in `cspace_planning::constraints::joint`'s own
     /// doc comment, not rebuilt from `local_variable_name()` separately.
     fn try_from(c: CoreJointConstraint) -> Result<Self, Self::Error> {
         Ok(JointConstraintMsgOut(moveit_msgs::JointConstraint {

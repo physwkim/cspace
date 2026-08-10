@@ -31,7 +31,7 @@
 //! `req.path_constraints.position_constraints.size() > 1 || ...
 //! orientation_constraints.size() > 1` and the equivalent per-`goal_constraints`-entry
 //! check (cpp:71, cpp:80) are real computation — counting
-//! [`cspace_constraints::Constraint::Position`]/[`cspace_constraints::Constraint::Orientation`]
+//! [`crate::constraints::Constraint::Position`]/[`crate::constraints::Constraint::Orientation`]
 //! entries. But in upstream's own `adapt`, that count feeds *only* the two
 //! `RCLCPP_WARN` calls above; `adapt` returns `SUCCESS` unconditionally
 //! either way (cpp:90), with no field of `req` ever mutated. With the warn
@@ -43,8 +43,8 @@
 //! matching upstream's unconditional `SUCCESS`, without recomputing a count
 //! that has no observer.
 
+use crate::scene::PlanningScene;
 use cspace_collision::ParryCollisionEnv;
-use cspace_scene::PlanningScene;
 
 use crate::PlanningRequestAdapter;
 use crate::error::RequestAdapterError;
@@ -75,7 +75,7 @@ impl PlanningRequestAdapter for CheckForStackedConstraints {
 
 #[cfg(test)]
 mod tests {
-    use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
+    use crate::constraints::{Constraint, JointConstraint, KinematicConstraintSet};
     use cspace_core::model::{MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
     use std::fs;

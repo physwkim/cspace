@@ -144,7 +144,7 @@ use cspace_core::kinematics::{KINEMATICS_SOLVERS, SolverParams};
 use cspace_core::model::RobotModel;
 use cspace_core::state::Posed;
 use cspace_core::trajectory::RobotTrajectory;
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 
 use crate::limits::{JointLimitsContainer, LimitsContainer};
 use crate::trajectory_functions::{IkContext, is_rigidly_connected};

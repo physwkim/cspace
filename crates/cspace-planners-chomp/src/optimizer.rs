@@ -1108,7 +1108,7 @@ fn resolve_collision_point_joint_index(
 ///
 ///   **(b) What would need to exist for this to become a method.** The
 ///   underlying capability already exists elsewhere in this workspace --
-///   `cspace_scene::PlanningScene::is_path_valid` is ported and generic over
+///   `cspace_planning::scene::PlanningScene::is_path_valid` is ported and generic over
 ///   `E: CollisionEnv<Posed>`, and `cspace_collision::ParryCollisionEnv`
 ///   already implements that bound. What is missing is specifically this
 ///   crate depending on both of them and threading a

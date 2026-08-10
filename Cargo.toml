@@ -32,14 +32,11 @@ authors = ["moveit-rs contributors"]
 [workspace.dependencies]
 cspace-collision = { path = "crates/cspace-collision", version = "0.1.0" }
 cspace-core = { path = "crates/cspace-core", version = "0.1.0" }
-cspace-constraints = { path = "crates/cspace-constraints", version = "0.1.0" }
 # For cspace-planners-chomp's ChompOptimizer, whose only use of upstream's
 # `CollisionEnvHybrid` is a getCollisionGradients call that forwards to
 # CollisionEnvDistanceField -- see PORTING-PLAN.md §139.
-cspace-planner-registry = { path = "crates/cspace-planner-registry", version = "0.1.0" }
 cspace-planners-sbp = { path = "crates/cspace-planners-sbp", version = "0.1.0" }
 cspace-planning = { path = "crates/cspace-planning", version = "0.1.0" }
-cspace-scene = { path = "crates/cspace-scene", version = "0.1.0" }
 cspace-stomp-core = { path = "crates/cspace-stomp-core", version = "0.1.0" }
 
 nalgebra = { version = "0.35", features = ["serde-serialize"] }

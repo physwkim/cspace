@@ -22,17 +22,17 @@
 //! # Ported computation
 //!
 //! `planning_scene->checkCollision(creq, cres, start_state)` (cpp:81)
-//! becomes [`cspace_scene::PlanningScene::check_collision`] against the
+//! becomes [`crate::scene::PlanningScene::check_collision`] against the
 //! scene's own current state (this crate carries no separate
 //! `req.start_state` field — see the crate doc comment's "Deviation"
 //! section). `creq.group_name = req.group_name` (cpp:78) is ported as
 //! [`cspace_collision::CollisionRequest::group_name`]. The contact-pair
 //! message-building loop (cpp:90-98) is ported as
-//! [`cspace_scene::PlanningScene::colliding_pairs`], joined into the same
+//! [`crate::scene::PlanningScene::colliding_pairs`], joined into the same
 //! `"<n> contact(s) detected : <a> - <b>, ..."` format cpp:93/97 builds.
 
+use crate::scene::PlanningScene;
 use cspace_collision::{CollisionRequest, ParryCollisionEnv};
-use cspace_scene::PlanningScene;
 
 use crate::PlanningRequestAdapter;
 use crate::error::RequestAdapterError;

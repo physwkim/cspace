@@ -11,7 +11,7 @@
 
 //! One concrete planner, [`RrtConnectManager`], implementing
 //! [`cspace_planning::PlannerManager`] over a real
-//! [`cspace_scene::PlanningScene`] via
+//! [`cspace_planning::scene::PlanningScene`] via
 //! [`crate::planning_scene_validity::PlanningSceneValidityChecker`].
 //!
 //! # The request type is `cspace-planning`'s, not this crate's (D8/§140)
@@ -61,7 +61,7 @@
 //! (`kinematic_constraints/utils.hpp:99`), which builds one
 //! `JointConstraint` per group variable at that state's positions. This
 //! port has that function as
-//! [`cspace_constraints::utils::construct_goal_joint_constraints`], and every
+//! [`cspace_planning::constraints::utils::construct_goal_joint_constraints`], and every
 //! former `Goal::State` caller now goes through it. The behavioural
 //! consequence is real and worth stating plainly: a state goal is now
 //! reached to within the tolerance the caller passes, not bit-exactly,
@@ -101,18 +101,18 @@
 //! landed in `cspace-constraints`:
 //!
 //! - `ConstraintSampler` (the base trait) and `JointConstraintSampler` ->
-//!   ported as [`cspace_constraints::ConstraintSampler`]/
-//!   [`cspace_constraints::JointConstraintSampler`],
+//!   ported as [`cspace_planning::constraints::ConstraintSampler`]/
+//!   [`cspace_planning::constraints::JointConstraintSampler`],
 //!   `cspace-constraints/src/sampler.rs`.
 //! - `UnionConstraintSampler` -> ported as
-//!   [`cspace_constraints::UnionConstraintSampler`],
+//!   [`cspace_planning::constraints::UnionConstraintSampler`],
 //!   `cspace-constraints/src/sampler.rs`, composing other samplers by
 //!   sorted dependency order.
 //! - `IKConstraintSampler` and `ConstraintSamplerManager::selectDefaultSampler`
-//!   -> ported as [`cspace_constraints::IkConstraintSampler`]/
-//!   [`cspace_constraints::IkConstraintSamplerAdapter`]
+//!   -> ported as [`cspace_planning::constraints::IkConstraintSampler`]/
+//!   [`cspace_planning::constraints::IkConstraintSamplerAdapter`]
 //!   (`cspace-constraints/src/ik_sampler.rs`) and
-//!   [`cspace_constraints::select_default_sampler`]
+//!   [`cspace_planning::constraints::select_default_sampler`]
 //!   (`cspace-constraints/src/constraint_sampler_manager.rs`). The
 //!   dependency edge this needed, `cspace-constraints -> cspace-kinematics`,
 //!   now exists (`cspace-constraints/Cargo.toml`'s
@@ -140,15 +140,15 @@
 //! for exactly what is and is not ported), resolved to one concrete state
 //! before [`crate::rrt_connect::rrt_connect`] starts searching. This closes
 //! the joint-constraint case fully: a goal set whose
-//! [`cspace_constraints::JointConstraint`]s cover every one of the group's
-//! variables gets a real [`cspace_constraints::JointConstraintSampler`]
+//! [`cspace_planning::constraints::JointConstraint`]s cover every one of the group's
+//! variables gets a real [`cspace_planning::constraints::JointConstraintSampler`]
 //! (`select_default_sampler`'s Step A) — which is also why a
-//! [`cspace_constraints::utils::construct_goal_joint_constraints`] state goal
+//! [`cspace_planning::constraints::utils::construct_goal_joint_constraints`] state goal
 //! resolves accurately rather than by luck. Through round 22 it did not
 //! close the Cartesian-pose case at all: `RrtConnectContext::solve` always
 //! passed `solver: None` to `select_default_sampler`, so a
-//! [`cspace_constraints::PositionConstraint`]/
-//! [`cspace_constraints::OrientationConstraint`]-only goal set
+//! [`cspace_planning::constraints::PositionConstraint`]/
+//! [`cspace_planning::constraints::OrientationConstraint`]-only goal set
 //! built no sampler and fell back to
 //! [`crate::space::StateSpace::sample_uniform`] every attempt — not
 //! incorrect (the set's own `decide()` still gated acceptance), just
@@ -211,7 +211,7 @@
 //! regardless of whether a sampler was available to help find one.
 //!
 //! `start` is not a request field: [`RrtConnectManager::get_planning_context`]
-//! reads it from the [`cspace_scene::PlanningScene`] it is given
+//! reads it from the [`cspace_planning::scene::PlanningScene`] it is given
 //! (`scene.current_state()`), matching how upstream planning normally seeds
 //! from the scene's current state rather than duplicating it into the
 //! request. `cspace_planning::PlanningResponse::start_state` records what
@@ -221,18 +221,18 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use cspace_collision::{CollisionRequest, ParryCollisionEnv};
-use cspace_constraints::{
-    Constraint, ConstraintSampler, KinematicConstraintSet, select_default_sampler,
-};
 use cspace_core::geometry::Isometry3;
 use cspace_core::kinematics::{KinematicsSolver, SolveOptions};
 use cspace_core::model::RobotModel;
 use cspace_core::trajectory::RobotTrajectory;
-use cspace_planner_registry::{PLANNER_MANAGERS, PlannerRegistration};
+use cspace_planning::constraints::{
+    Constraint, ConstraintSampler, KinematicConstraintSet, select_default_sampler,
+};
+use cspace_planning::planner_registry::{PLANNER_MANAGERS, PlannerRegistration};
+use cspace_planning::scene::PlanningScene;
 use cspace_planning::{
     PlannerConfigurationMap, PlannerManager, PlanningContext, PlanningRequest, PlanningResponse,
 };
-use cspace_scene::PlanningScene;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -253,11 +253,11 @@ use crate::validity::DiscreteMotionValidator;
 /// (`detail/constrained_sampler.cpp:69-70`,
 /// `constraint_sampler_->sample(work_state_, ..., getMaximumStateSamplingAttempts())`)
 /// and by goal-constraint sampling (`detail/constrained_goal_sampler.cpp:137`).
-/// Round 20 used [`cspace_constraints::DEFAULT_MAX_SAMPLING_ATTEMPTS`] (`2`)
+/// Round 20 used [`cspace_planning::constraints::DEFAULT_MAX_SAMPLING_ATTEMPTS`] (`2`)
 /// here instead — that constant is upstream `ConstraintSampler::DEFAULT_MAX_SAMPLING_ATTEMPTS`
 /// (`constraint_sampler.hpp:64`), a default-argument fallback for two
 /// `sample()` overloads this port's own trait design already collapses away
-/// (see `cspace_constraints::sampler`'s doc comment); no live production
+/// (see `cspace_planning::constraints::sampler`'s doc comment); no live production
 /// call site upstream ever actually receives `2`. This constant is the
 /// correct one instead.
 const DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS: u32 = 4;
@@ -362,7 +362,7 @@ pub enum PlanError {
 ///
 /// [`RrtConnectManager::configurations`] is the wire-settable half: the
 /// [`cspace_planning::PlannerConfigurationMap`]
-/// `cspace_planner_registry::PlannerRegistration::construct` hands over,
+/// `cspace_planning::planner_registry::PlannerRegistration::construct` hands over,
 /// which for a node is whatever `/set_planner_params` has written. It is
 /// consulted per query, and the one key it carries here is
 /// [`RANGE_KEY`]. The typed fields are the compiled-in defaults it overlays
@@ -398,8 +398,8 @@ pub struct RrtConnectManager {
     /// [`cspace_planning::PlanningContext::solve`] makes on the context
     /// this manager builds — the goal's own and
     /// `path_constraints`' own — with one real IK solver,
-    /// so a [`cspace_constraints::PositionConstraint`]/
-    /// [`cspace_constraints::OrientationConstraint`] region gets a real
+    /// so a [`cspace_planning::constraints::PositionConstraint`]/
+    /// [`cspace_planning::constraints::OrientationConstraint`] region gets a real
     /// `IKConstraintSampler` instead of always falling back to uniform
     /// sampling. See this module's own doc comment ("Round 21"/"Round 24"
     /// paragraphs) for the gap this closes, and `PORTING-PLAN.md`
@@ -450,7 +450,7 @@ pub struct RrtConnectManager {
     /// `PlannerManager::config_settings_` (`planning_interface.hpp:210`),
     /// except that it arrives as a constructor argument rather than through
     /// a setter (see
-    /// `cspace_planner_registry::PlannerRegistration::construct`).
+    /// `cspace_planning::planner_registry::PlannerRegistration::construct`).
     ///
     /// Consulted once per query, in
     /// [`RrtConnectManager::get_planning_context`], through
@@ -466,7 +466,7 @@ impl Default for RrtConnectManager {
     /// The configuration a query runs under when no
     /// [`cspace_planning::PlannerConfigurationSettings`] governs it — the
     /// floor [`RrtConnectManager::configurations`] overlays, and what
-    /// `cspace_planner_registry::PLANNER_MANAGERS`' `"rrt_connect"` entry
+    /// `cspace_planning::planner_registry::PLANNER_MANAGERS`' `"rrt_connect"` entry
     /// constructs from an empty map.
     ///
     /// The values are this repository's own measured ones, not an upstream
@@ -495,7 +495,7 @@ impl Default for RrtConnectManager {
 }
 
 impl RrtConnectManager {
-    /// The manager `cspace_planner_registry::PlannerRegistration::construct`
+    /// The manager `cspace_planning::planner_registry::PlannerRegistration::construct`
     /// builds: [`RrtConnectManager::default`]'s tuning, planning under
     /// `configs`.
     pub fn with_planner_configurations(configs: &PlannerConfigurationMap) -> Self {
@@ -936,11 +936,11 @@ mod tests {
     use std::sync::Arc;
 
     use cspace_collision::LinkPaddingScale;
-    use cspace_constraints::utils::construct_goal_joint_constraints;
     use cspace_core::geometry::{Cuboid, Isometry3, Shape};
     use cspace_core::model::{MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
     use cspace_core::state::RobotState;
+    use cspace_planning::constraints::utils::construct_goal_joint_constraints;
     use rand::RngExt;
 
     use super::*;
@@ -953,7 +953,7 @@ mod tests {
     /// the goal was a `Goal::State`: the state that comes back *is* the
     /// state that was asked for. `crate::goal_sampler::sample_goal`
     /// resolves the set by drawing from it, and
-    /// `cspace_constraints::JointConstraintSampler`'s draw over a
+    /// `cspace_planning::constraints::JointConstraintSampler`'s draw over a
     /// zero-width window is the window's one point — see
     /// `construct_goal_joint_constraints`' own doc for the arithmetic and
     /// the measurement, and `cspace-constraints`'
@@ -976,9 +976,9 @@ mod tests {
     /// shape upstream expresses a concrete-state goal:
     /// `constructGoalConstraints(state, jmg, tolerance)`
     /// (`kinematic_constraints/utils.hpp:99`) — one
-    /// [`cspace_constraints::JointConstraint`] per group variable at that
+    /// [`cspace_planning::constraints::JointConstraint`] per group variable at that
     /// state's position, ported as
-    /// [`cspace_constraints::utils::construct_goal_joint_constraints`].
+    /// [`cspace_planning::constraints::utils::construct_goal_joint_constraints`].
     fn state_goal(
         model: &RobotModel,
         space: &JointModelGroupSpace,
@@ -1405,7 +1405,7 @@ mod tests {
         let mut unreachable = KinematicConstraintSet::new();
         for position in [-2.0, 2.0] {
             unreachable.push(Constraint::Joint(
-                cspace_constraints::JointConstraint::new(
+                cspace_planning::constraints::JointConstraint::new(
                     &model,
                     "panda_joint1",
                     position,
@@ -1548,7 +1548,7 @@ mod tests {
     /// (e.g. wired a checker that always returns `true`): a checker that
     /// were broken that way would return the 2-waypoint straight-line path
     /// [`crate::rrt_connect::rrt_connect`]'s `connect` step tries first,
-    /// which [`cspace_scene::PlanningScene::is_path_valid`] — re-run here
+    /// which [`cspace_planning::scene::PlanningScene::is_path_valid`] — re-run here
     /// independently of whatever checker the planner itself used — must
     /// then catch.
     #[test]
@@ -1688,7 +1688,7 @@ mod tests {
     ///   within.
     #[test]
     fn path_constraint_sampler_is_load_bearing_not_merely_invoked() {
-        use cspace_constraints::{Constraint, JointConstraint};
+        use cspace_planning::constraints::{Constraint, JointConstraint};
 
         use crate::rrt_connect::Sampler;
 
@@ -1808,7 +1808,7 @@ mod tests {
     /// constrained branch actually running.
     #[test]
     fn goal_constraint_is_resolved_and_the_trajectory_ends_inside_the_goal_region() {
-        use cspace_constraints::{Constraint, JointConstraint};
+        use cspace_planning::constraints::{Constraint, JointConstraint};
 
         let (model, srdf) = load_panda();
         let mut scene = PlanningScene::new(&model, &srdf);
@@ -1874,11 +1874,11 @@ mod tests {
     /// value this call site could pass.
     #[test]
     fn solver_wiring_changes_whether_a_cartesian_pose_goal_is_reachable() {
-        use cspace_constraints::{
-            Constraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
-        };
         use cspace_core::geometry::{Sphere, Transforms, Vector3};
         use cspace_core::kinematics::{NewtonRaphsonSolver, SolverParams};
+        use cspace_planning::constraints::{
+            Constraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
+        };
 
         const PANDA_ARM_JOINTS: [&str; 7] = [
             "panda_joint1",
@@ -2043,9 +2043,11 @@ mod tests {
     /// gap noted above for why that is a separate, open question.
     #[test]
     fn path_constraints_solver_wiring_matches_the_call_site() {
-        use cspace_constraints::{OrientationConstraint, OrientationTolerance, PositionConstraint};
         use cspace_core::geometry::{Sphere, Transforms, Vector3};
         use cspace_core::kinematics::{NewtonRaphsonSolver, SolverParams};
+        use cspace_planning::constraints::{
+            OrientationConstraint, OrientationTolerance, PositionConstraint,
+        };
 
         const PANDA_ARM_JOINTS: [&str; 7] = [
             "panda_joint1",
@@ -2227,11 +2229,11 @@ mod tests {
     /// back to a near-identical, easy pair.
     #[test]
     fn path_constraints_end_to_end_wired_vs_unwired() {
-        use cspace_constraints::{
-            Constraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
-        };
         use cspace_core::geometry::{Sphere, Transforms, Vector3};
         use cspace_core::kinematics::{NewtonRaphsonSolver, SolveOptions, SolverParams};
+        use cspace_planning::constraints::{
+            Constraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
+        };
 
         const PANDA_ARM_JOINTS: [&str; 7] = [
             "panda_joint1",
@@ -2543,11 +2545,11 @@ mod tests {
     ///   in the commit that added this sweep.
     #[test]
     fn path_constraints_four_scenario_wired_vs_unwired_sweep() {
-        use cspace_constraints::{
-            Constraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
-        };
         use cspace_core::geometry::{Sphere, Transforms, Vector3};
         use cspace_core::kinematics::{NewtonRaphsonSolver, SolveOptions, SolverParams};
+        use cspace_planning::constraints::{
+            Constraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
+        };
 
         const PANDA_ARM_JOINTS: [&str; 7] = [
             "panda_joint1",
@@ -3079,9 +3081,11 @@ mod tests {
     /// region.
     #[test]
     fn scenario3_orientation_only_corridor_sample_level_satisfaction_rate() {
-        use cspace_constraints::{OrientationConstraint, OrientationTolerance, PositionConstraint};
         use cspace_core::geometry::{Sphere, Transforms, Vector3};
         use cspace_core::state::Posed;
+        use cspace_planning::constraints::{
+            OrientationConstraint, OrientationTolerance, PositionConstraint,
+        };
 
         const PANDA_ARM_JOINTS: [&str; 7] = [
             "panda_joint1",
@@ -3287,7 +3291,7 @@ mod tests {
     /// unverified, not one it silently assumed away.
     #[test]
     fn full_joint_constraint_coverage_reconstructs_a_concrete_scalar_state() {
-        use cspace_constraints::{Constraint, JointConstraint, select_default_sampler};
+        use cspace_planning::constraints::{Constraint, JointConstraint, select_default_sampler};
         use rand::SeedableRng;
         use rand_chacha::ChaCha8Rng;
 

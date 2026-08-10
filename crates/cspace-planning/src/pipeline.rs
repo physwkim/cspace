@@ -246,10 +246,10 @@
 //! accessors describe — so they stay unported; they are not part of
 //! [`generate_plan`]'s own scope.
 
+use crate::constraints::{Constraint, JointConstraint, KinematicConstraintSet};
+use crate::scene::PlanningScene;
 use cspace_collision::ParryCollisionEnv;
-use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use cspace_core::trajectory::RobotTrajectory;
-use cspace_scene::PlanningScene;
 
 use crate::error::{RequestAdapterError, ResponseAdapterError};
 use crate::planner::{PlanError, PlannerManager};
@@ -313,7 +313,7 @@ pub enum PipelineError {
     /// that as an error here — rather than `.expect()`-ing an upstream
     /// invariant this port cannot independently verify — is the same
     /// "moveit-rs prefers to surface as an error" choice
-    /// [`cspace_constraints::JointConstraint::new`]'s own doc already makes
+    /// [`crate::constraints::JointConstraint::new`]'s own doc already makes
     /// for a structurally analogous case.
     #[error("failed to build trajectory-constraints feedforward: {0}")]
     Feedforward(#[from] cspace_core::error::Error),

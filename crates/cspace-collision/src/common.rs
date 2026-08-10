@@ -34,7 +34,7 @@ pub enum BodyType {
 /// carry that yet, and why every [`crate::CollisionEnv`] method takes a
 /// slice of these explicitly instead. Every field borrows rather than owns,
 /// so a caller building the slice per call (in practice
-/// `cspace_scene::PlanningScene`, converting its own `AttachedBody` records)
+/// `cspace_planning::scene::PlanningScene`, converting its own `AttachedBody` records)
 /// pays no allocation to do it.
 #[derive(Debug, Clone, Copy)]
 pub struct AttachedBodyGeometry<'a> {
@@ -55,7 +55,7 @@ pub struct AttachedBodyGeometry<'a> {
     pub shapes: &'a [Arc<Shape>],
     /// Each shape's pose relative to [`AttachedBodyGeometry::link_name`]'s
     /// own frame — one level, not upstream's `pose_`-then-`shape_poses_`
-    /// two (see `cspace_scene::AttachedBody`'s own doc for why the owning
+    /// two (see `cspace_planning::scene::AttachedBody`'s own doc for why the owning
     /// crate stores it this way).
     pub shape_poses: &'a [Isometry3],
     /// Links this body is allowed to touch without that counting as a

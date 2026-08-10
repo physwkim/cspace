@@ -63,9 +63,9 @@
 //! duration profile with a real one; it no longer references STOMP's own
 //! (removed) placeholder shape.
 
+use crate::scene::PlanningScene;
 use cspace_collision::ParryCollisionEnv;
 use cspace_core::trajectory::trajectory_tools::apply_totg_time_parameterization;
-use cspace_scene::PlanningScene;
 
 use crate::PlanningResponseAdapter;
 use crate::error::ResponseAdapterError;

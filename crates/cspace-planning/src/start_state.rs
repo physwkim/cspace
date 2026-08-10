@@ -59,7 +59,7 @@
 //!   and bail on a message that is neither a diff nor names anything, and to
 //!   `clearAttachedBodies()` before re-applying `attached_collision_objects`.
 //!   Both are attached-body concerns, and this port keeps attached bodies on
-//!   [`cspace_scene::PlanningScene`], not on a state — so the msg->core
+//!   [`crate::scene::PlanningScene`], not on a state — so the msg->core
 //!   conversion in `cspace-ros` rejects `attached_collision_objects` on its
 //!   own and there is nothing left for `is_diff` to select.
 //!
@@ -101,7 +101,7 @@ use cspace_core::state::RobotState;
 /// overlay is upstream's own "plan from wherever the robot is".
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum StartState {
-    /// Plan from [`cspace_scene::PlanningScene::current_state`] exactly, with
+    /// Plan from [`crate::scene::PlanningScene::current_state`] exactly, with
     /// nothing written over it.
     ///
     /// This is `moveit::core::isEmpty(req.start_state)`

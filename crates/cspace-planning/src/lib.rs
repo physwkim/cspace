@@ -56,7 +56,7 @@
 //!   concrete state, which by definition has already thrown that structure
 //!   away. A caller that means one concrete state writes it the way upstream
 //!   does, `constructGoalConstraints(state, jmg, tolerance)`
-//!   ([`cspace_constraints::utils::construct_goal_joint_constraints`]).
+//!   ([`crate::constraints::utils::construct_goal_joint_constraints`]).
 //! - [`PlanningResponse::trajectory`] is a [`cspace_core::trajectory::RobotTrajectory`]
 //!   (one `duration_from_previous` per waypoint), not sbp's old
 //!   `Vec<RobotState<'m>>` (bare waypoints, no timing).
@@ -94,22 +94,22 @@
 //!
 //! `cspace-planners-sbp::registry`'s own module doc (as of round 14) already
 //! corrected an older claim that `constraint_samplers` was never ported —
-//! it has been: [`cspace_constraints::ConstraintSampler`]/
-//! [`cspace_constraints::JointConstraintSampler`]/
-//! [`cspace_constraints::UnionConstraintSampler`]
+//! it has been: [`crate::constraints::ConstraintSampler`]/
+//! [`crate::constraints::JointConstraintSampler`]/
+//! [`crate::constraints::UnionConstraintSampler`]
 //! (`cspace-constraints/src/sampler.rs`),
-//! [`cspace_constraints::IkConstraintSamplerAdapter`]
+//! [`crate::constraints::IkConstraintSamplerAdapter`]
 //! (`cspace-constraints/src/ik_sampler.rs`), and
-//! [`cspace_constraints::select_default_sampler`]
+//! [`crate::constraints::select_default_sampler`]
 //! (`cspace-constraints/src/constraint_sampler_manager.rs`) all exist and
 //! `cspace-constraints` depends on `cspace-kinematics` to run IK-backed
 //! sampling. Checked directly for this round (not assumed from that note
-//! still being accurate): `crates/cspace-constraints/src/` does contain all
+//! still being accurate): `crates/cspace-planning/src/constraints/` does contain all
 //! three files, confirming the port itself is real.
 //!
 //! Rounds 20-25 wired it, inside `cspace-planners-sbp::registry`:
 //! `RrtConnectContext::solve` calls
-//! [`cspace_constraints::select_default_sampler`] once per goal set and once
+//! [`crate::constraints::select_default_sampler`] once per goal set and once
 //! for `path_constraints`, and D8 pointed those calls at
 //! [`PlanningRequest::goal_constraints`] — this crate's own field — rather
 //! than at sbp's deleted `Goal` enum. So the answer to "can a caller of this
@@ -201,7 +201,7 @@
 //!     run_request_adapters, run_response_adapters, PlanningRequest, PlanningRequestAdapter,
 //!     PlanningResponse, PlanningResponseAdapter, WorkspaceBounds,
 //! };
-//! use cspace_scene::PlanningScene;
+//! use cspace_planning::scene::PlanningScene;
 //! use cspace_core::srdf::SrdfModel;
 //! use cspace_core::state::RobotState;
 //! use cspace_core::trajectory::RobotTrajectory;
@@ -287,7 +287,7 @@
 //! `cspace-planners-sbp/examples/plan_benchmark_problem_set.rs` and
 //! `cspace-planners-sbp::registry`'s own
 //! `end_to_end_solve_on_panda_arm_reaches_the_requested_goal` test both run
-//! URDF/SRDF → [`cspace_core::model::RobotModel`] → [`cspace_scene::PlanningScene`]
+//! URDF/SRDF → [`cspace_core::model::RobotModel`] → [`crate::scene::PlanningScene`]
 //! → [`cspace_collision::ParryCollisionEnv`] → RRT-Connect with no ROS
 //! anywhere — but buried inside a benchmark generator and a private test,
 //! neither reachable as a documented entry point. This is that entry point,
@@ -297,7 +297,7 @@
 //!
 //! **No type boundary any more (D8):** the example below plans through this
 //! crate's own [`PlanningRequest`]/[`PlanningResponse`], selects the planner
-//! by name out of `cspace_planner_registry::PLANNER_MANAGERS`, and runs it
+//! by name out of `crate::planner_registry::PLANNER_MANAGERS`, and runs it
 //! through [`crate::pipeline::generate_plan`] — the same three steps
 //! `ros/cspace-ros`'s `/move_action` takes. `cspace-planners-sbp` and
 //! `cspace-planner-registry` are dev-dependencies of this crate, for this
@@ -308,11 +308,11 @@
 //! use std::fs;
 //!
 //! use cspace_collision::ParryCollisionEnv;
-//! use cspace_constraints::utils::construct_goal_joint_constraints;
+//! use cspace_planning::constraints::utils::construct_goal_joint_constraints;
 //! use cspace_core::model::{MeshSearchPaths, RobotModel};
-//! use cspace_planner_registry::resolve_planner;
+//! use cspace_planning::planner_registry::resolve_planner;
 //! use cspace_planning::{PlannerConfigurationMap, PlanningRequest, generate_plan};
-//! use cspace_scene::PlanningScene;
+//! use cspace_planning::scene::PlanningScene;
 //! use cspace_core::srdf::SrdfModel;
 //! use cspace_core::state::RobotState;
 //!
@@ -376,14 +376,31 @@
 //! assert!((last.variable_position("panda_joint1").unwrap() - 0.4).abs() < 1e-6);
 //! ```
 
+#[forbid(unsafe_code)]
 pub mod error;
+
+#[forbid(unsafe_code)]
 pub mod pipeline;
+
+#[forbid(unsafe_code)]
 pub mod plan_responses;
+
+#[forbid(unsafe_code)]
 pub mod planner;
+
+#[forbid(unsafe_code)]
 pub mod request;
+
+#[forbid(unsafe_code)]
 pub mod request_adapters;
+
+#[forbid(unsafe_code)]
 pub mod response;
+
+#[forbid(unsafe_code)]
 pub mod response_adapters;
+
+#[forbid(unsafe_code)]
 pub mod start_state;
 
 pub use error::{RequestAdapterError, ResponseAdapterError};
@@ -399,8 +416,8 @@ pub use request::{PlanningRequest, WorkspaceBounds};
 pub use response::PlanningResponse;
 pub use start_state::{StartState, StartStateOverride};
 
+use crate::scene::PlanningScene;
 use cspace_collision::ParryCollisionEnv;
-use cspace_scene::PlanningScene;
 
 /// Replaces `planning_interface::PlanningRequestAdapter`.
 pub trait PlanningRequestAdapter {
@@ -471,3 +488,13 @@ pub fn run_response_adapters<'m>(
     }
     Ok(())
 }
+
+#[forbid(unsafe_code)]
+pub mod constraints;
+
+#[forbid(unsafe_code)]
+pub mod scene;
+
+// The one module the crate-level `unsafe_code = "allow"` exists for: it
+// declares the `PLANNER_MANAGERS` distributed slice.
+pub mod planner_registry;

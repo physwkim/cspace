@@ -16,7 +16,7 @@
 //! ([`continuous_constraints_cost_function`]) built only from that module's
 //! already-`pub` pieces ([`StateValidatorFn`],
 //! [`cost_function_from_state_validator`], [`CONSTRAINT_CHECK_DISTANCE`])
-//! plus [`cspace_constraints::KinematicConstraintSet::decide`] and
+//! plus [`cspace_planning::constraints::KinematicConstraintSet::decide`] and
 //! [`cspace_planners_stomp::conversion_functions::set_positions`] -- for the
 //! *continuous* side. When this file was written those two sides were the
 //! other way round; the merge that brought `7f561e20` into the same tree
@@ -81,7 +81,6 @@
 use std::cell::RefCell;
 use std::fs;
 
-use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_planners_stomp::composable_task::{ComposableTask, CostFn};
@@ -92,7 +91,8 @@ use cspace_planners_stomp::cost_functions::{
 };
 use cspace_planners_stomp::filter_functions::no_filter;
 use cspace_planners_stomp::noise_generators::normal_distribution_generator;
-use cspace_scene::PlanningScene;
+use cspace_planning::constraints::{Constraint, JointConstraint, KinematicConstraintSet};
+use cspace_planning::scene::PlanningScene;
 use cspace_stomp_core::{Stomp, StompConfiguration, TrajectoryInitialization};
 use nalgebra::DMatrix;
 use rand::SeedableRng;

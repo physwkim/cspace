@@ -226,7 +226,7 @@ pub enum Op {
         /// dummy spheres, which only exercise pose composition).
         objects: Vec<CollisionObjectSpec>,
         /// Bodies to attach to the state via `RobotState::attachBody` before
-        /// running any check, ground truth for `cspace_scene::AttachedBody`/
+        /// running any check, ground truth for `cspace_planning::scene::AttachedBody`/
         /// `cspace_collision::AttachedBodyGeometry`. Empty means the plain
         /// [`Op::Collision`] behavior every existing fixture already
         /// exercises.
@@ -455,7 +455,7 @@ pub struct CollisionObjectSpec {
 /// link_name)`. `pose` (upstream's separate object-pose level between the
 /// link and its shapes) is not a field here: the oracle side always passes
 /// `Eigen::Isometry3d::Identity()` for it, matching
-/// `cspace_scene::AttachedBody`'s own one-level design (its own module doc)
+/// `cspace_planning::scene::AttachedBody`'s own one-level design (its own module doc)
 /// where `shape_poses` are already relative to the link frame directly.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttachedBodySpec {

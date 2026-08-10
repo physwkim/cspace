@@ -47,7 +47,7 @@
 //! four namespace-level ones bring the walk to 27. Protected data
 //! (`name_`/`group_`/`planning_scene_`/`request_`, `config_settings_`) is
 //! implementation detail and is not audited, matching
-//! `crates/cspace-scene/src/scene.rs`'s convention for the same reason.
+//! `crates/cspace-planning/src/scene/scene.rs`'s convention for the same reason.
 //!
 //! Three of the 23 are ported. That ratio is the point of the file rather
 //! than an omission: upstream's two classes carry a plugin lifecycle (ROS
@@ -146,7 +146,7 @@
 //! - `virtual void setPlannerConfigurations(const PlannerConfigurationMap&)`
 //!   (`:193`) — **unported, replaced by construction.** Upstream needs a
 //!   setter because pluginlib hands it an already-built plugin;
-//!   `cspace_planner_registry::PlannerRegistration::construct` takes the
+//!   `crate::planner_registry::PlannerRegistration::construct` takes the
 //!   [`PlannerConfigurationMap`] as its argument instead, so a manager
 //!   cannot exist without the configuration it plans under and no caller
 //!   can forget to install one (PORTING-PLAN.md §285).
@@ -173,8 +173,8 @@
 
 use std::collections::BTreeMap;
 
+use crate::scene::PlanningScene;
 use cspace_collision::ParryCollisionEnv;
-use cspace_scene::PlanningScene;
 
 use crate::request::PlanningRequest;
 use crate::response::PlanningResponse;
@@ -209,7 +209,7 @@ pub struct PlannerConfigurationSettings {
 /// (`planning_interface.hpp:72`): map from
 /// [`PlannerConfigurationSettings::name`] to the settings.
 ///
-/// This is the type `cspace_planner_registry::PlannerRegistration::construct`
+/// This is the type `crate::planner_registry::PlannerRegistration::construct`
 /// takes, so every [`PlannerManager`] the registry builds is built from one.
 pub type PlannerConfigurationMap = BTreeMap<String, PlannerConfigurationSettings>;
 
@@ -307,7 +307,7 @@ pub trait PlanningContext<'m> {
 ///
 /// Upstream's `PlannerManager` is not itself generic over the collision
 /// checker — the scene it is given already owns one.
-/// [`cspace_scene::PlanningScene`] is generic over `E: CollisionEnv<..>`
+/// [`crate::scene::PlanningScene`] is generic over `E: CollisionEnv<..>`
 /// instead of owning one (see that type's own doc comment), which would
 /// force [`PlannerManager::get_planning_context`] to be generic over `E`
 /// too — and a generic *type* parameter on a trait method breaks `dyn`

@@ -1,7 +1,7 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! `moveit_msgs/Constraints` <-> [`cspace_constraints::KinematicConstraintSet`].
+//! `moveit_msgs/Constraints` <-> [`cspace_planning::constraints::KinematicConstraintSet`].
 //! See `doc/message-mapping.md` §3.
 //!
 //! `Constraints.name` has no [`KinematicConstraintSet`] counterpart (the
@@ -9,11 +9,11 @@
 //! on why it dropped upstream's parallel-vector/name bookkeeping) -- msg->core
 //! drops it (documented, not silently: see the `name` field handling below),
 //! core->msg emits `String::new()`. Re-checked round 5 against
-//! `crates/cspace-constraints/src/set.rs:47-49` -- `KinematicConstraintSet`
+//! `crates/cspace-planning/src/constraints/set.rs:47-49` -- `KinematicConstraintSet`
 //! is still exactly `{ constraints: Vec<Constraint> }`. Expires if it grows
 //! a `name` field; `cspace-constraints`'s call, not this crate's.
 
-use cspace_constraints::{Constraint, KinematicConstraintSet};
+use cspace_planning::constraints::{Constraint, KinematicConstraintSet};
 use cspace_core::error::Error;
 use cspace_core::model::RobotModel;
 use r2r::moveit_msgs::msg as moveit_msgs;
@@ -49,14 +49,14 @@ impl<'m> TryFrom<ConstraintsMsg<'m>> for KinematicConstraintSet {
         let mut set = KinematicConstraintSet::new();
 
         for joint_msg in msg.joint_constraints {
-            let c = cspace_constraints::JointConstraint::try_from(JointConstraintMsg {
+            let c = cspace_planning::constraints::JointConstraint::try_from(JointConstraintMsg {
                 model,
                 msg: joint_msg,
             })?;
             set.push(Constraint::Joint(c));
         }
         for position_msg in msg.position_constraints {
-            let c = cspace_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+            let c = cspace_planning::constraints::PositionConstraint::try_from(PositionConstraintMsg {
                 model,
                 msg: position_msg,
             })?;
@@ -64,14 +64,14 @@ impl<'m> TryFrom<ConstraintsMsg<'m>> for KinematicConstraintSet {
         }
         for orientation_msg in msg.orientation_constraints {
             let c =
-                cspace_constraints::OrientationConstraint::try_from(OrientationConstraintMsg {
+                cspace_planning::constraints::OrientationConstraint::try_from(OrientationConstraintMsg {
                     model,
                     msg: orientation_msg,
                 })?;
             set.push(Constraint::Orientation(c));
         }
         for visibility_msg in msg.visibility_constraints {
-            let c = cspace_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+            let c = cspace_planning::constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
                 model,
                 msg: visibility_msg,
             })?;
@@ -211,7 +211,7 @@ mod tests {
     // (`JointConstraint`) and the matching `PositionConstraint`/
     // `OrientationConstraint`/`VisibilityConstraint` lines the coordinator
     // cited (`:450`/`:641`/`:871`) all warn and substitute `1.0` instead of
-    // failing. `crates/cspace-constraints`'s four constructors currently
+    // failing. `crates/cspace-planning`'s four constructors currently
     // reject it with `Err` instead (`weight <= EPS`, one site per type,
     // confirmed present in all four by reading each source file this
     // round, not just `JointConstraint`) -- that crate owns the D14 fix,
@@ -224,7 +224,7 @@ mod tests {
     // landed in `551b719`; all four went red on the first merge gate, and
     // each `Ok` value carried `weight: 1.0`. They now assert that value --
     // which is what makes them a wire-path check and not a duplicate of
-    // `crates/cspace-constraints`'s own boundary tests: nothing else covers
+    // `crates/cspace-planning`'s own boundary tests: nothing else covers
     // a `weight` field that arrives `0.0` because a publisher never set it,
     // travelling the whole `TryFrom` chain into the constructor.
     #[test]

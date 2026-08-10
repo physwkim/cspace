@@ -49,22 +49,23 @@ r2r = { git = "https://github.com/sequenceplanner/r2r", rev = "2d080c4dede3ec950
 # wire-exact with moveit_msgs/MoveItErrorCodes specifically so a ROS interop
 # crate can reuse it without its own lookup table.
 cspace-core = { path = "../../crates/cspace-core" }
-cspace-constraints = { path = "../../crates/cspace-constraints" }
-cspace-planning = { path = "../../crates/cspace-planning" }
-cspace-scene = { path = "../../crates/cspace-scene" }
 cspace-collision = { path = "../../crates/cspace-collision" }
 
-# The planner side of `/move_action`'s plan-only arm (PORTING-PLAN.md D8).
-# `cspace-planner-registry` is what `src/move_group.rs` calls, and what
-# `src/planner_params.rs` derives `query_planner_interface`'s answer from --
-# upstream builds that answer by walking its `pluginlib`-loaded planner
-# managers, and a hand-written list here would go stale the moment a manager
-# is registered. The `cspace-planners-sbp` dependency exists only so its
-# `RrtConnectManager` registration is linked into this crate's binaries and
-# test binaries at all -- a `linkme::distributed_slice` entry lives in an
-# rlib no symbol references, and `src/lib.rs`'s `use cspace_planners_sbp as
-# _;` is what keeps the linker from dropping the object file it sits in.
-cspace-planner-registry = { path = "../../crates/cspace-planner-registry" }
+# Also carries the constraints, scene and planner_registry modules, which were
+# separate crates until they were folded in. The planner side of
+# `/move_action`'s plan-only arm (PORTING-PLAN.md D8) is
+# `cspace_planning::planner_registry`: it is what `src/move_group.rs` calls,
+# and what `src/planner_params.rs` derives `query_planner_interface`'s answer
+# from -- upstream builds that answer by walking its `pluginlib`-loaded
+# planner managers, and a hand-written list here would go stale the moment a
+# manager is registered.
+cspace-planning = { path = "../../crates/cspace-planning" }
+
+# Exists only so its `RrtConnectManager` registration is linked into this
+# crate's binaries and test binaries at all -- a `linkme::distributed_slice`
+# entry lives in an rlib no symbol references, and `src/lib.rs`'s `use
+# cspace_planners_sbp as _;` is what keeps the linker from dropping the object
+# file it sits in.
 cspace-planners-sbp = { path = "../../crates/cspace-planners-sbp" }
 
 # For nalgebra's own constructors (Isometry3::from_parts, Translation3::new,

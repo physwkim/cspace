@@ -27,9 +27,9 @@
 //! default; it never rejects a caller-specified box, however large or
 //! small).
 
+use crate::scene::PlanningScene;
 use cspace_collision::ParryCollisionEnv;
 use cspace_core::geometry::Vector3;
-use cspace_scene::PlanningScene;
 
 use crate::PlanningRequestAdapter;
 use crate::error::RequestAdapterError;

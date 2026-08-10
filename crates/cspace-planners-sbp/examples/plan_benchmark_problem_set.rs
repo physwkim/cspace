@@ -74,7 +74,6 @@ use std::fs;
 use std::sync::Arc;
 
 use cspace_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
-use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use cspace_core::geometry::{Cuboid, Isometry3, Shape};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
@@ -83,7 +82,8 @@ use cspace_planners_sbp::{
     CompoundValue, JointModelGroupSpace, PlanningSceneValidityChecker, StateSpace,
     StateValidityChecker,
 };
-use cspace_scene::PlanningScene;
+use cspace_planning::constraints::{Constraint, JointConstraint, KinematicConstraintSet};
+use cspace_planning::scene::PlanningScene;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 

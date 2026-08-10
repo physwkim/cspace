@@ -70,7 +70,6 @@ use cspace_collision::distance_field::{
     PropagationDistanceField, add_link_body_decompositions, collision_object_point_decomposition,
 };
 use cspace_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
-use cspace_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use cspace_core::geometry::{Cuboid, Isometry3, Shape, Vector3};
 use cspace_core::model::{JointModelGroup, MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
@@ -81,7 +80,8 @@ use cspace_planners_chomp::{
     solve_with_trace,
 };
 use cspace_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
-use cspace_scene::PlanningScene;
+use cspace_planning::constraints::{Constraint, JointConstraint, KinematicConstraintSet};
+use cspace_planning::scene::PlanningScene;
 use nalgebra::DMatrix;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;

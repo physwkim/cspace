@@ -123,7 +123,7 @@ use cspace_core::test_support::isometry_from_row_major;
 use cspace_planners_sbp::{CompoundValue, JointModelGroupSpace, StateSpace};
 use cspace_planners_stomp::cost_functions::get_collision_cost_function;
 use cspace_planners_stomp::planner::{PlanRequest, plan};
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 use cspace_stomp_core::{CancelHandle, StompConfiguration, TrajectoryInitialization};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;

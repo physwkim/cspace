@@ -85,22 +85,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cspace-constraints"
-version = "0.1.0"
-dependencies = [
- "approx",
- "cspace-collision",
- "cspace-core",
- "nalgebra",
- "rand",
- "rand_chacha",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "urdf-rs",
-]
-
-[[package]]
 name = "cspace-core"
 version = "0.1.0"
 dependencies = [
@@ -121,25 +105,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "cspace-planner-registry"
-version = "0.1.0"
-dependencies = [
- "cspace-core",
- "cspace-planners-sbp",
- "cspace-planning",
- "linkme",
-]
-
-[[package]]
 name = "cspace-planners-chomp"
 version = "0.1.0"
 dependencies = [
  "approx",
  "cspace-collision",
- "cspace-constraints",
  "cspace-core",
  "cspace-planners-sbp",
- "cspace-scene",
+ "cspace-planning",
  "nalgebra",
  "rand",
  "rand_chacha",
@@ -156,7 +129,7 @@ dependencies = [
  "approx",
  "cspace-collision",
  "cspace-core",
- "cspace-scene",
+ "cspace-planning",
  "nalgebra",
  "serde",
  "serde_json",
@@ -169,11 +142,8 @@ name = "cspace-planners-sbp"
 version = "0.1.0"
 dependencies = [
  "cspace-collision",
- "cspace-constraints",
  "cspace-core",
- "cspace-planner-registry",
  "cspace-planning",
- "cspace-scene",
  "linkme",
  "rand",
  "rand_chacha",
@@ -188,10 +158,9 @@ name = "cspace-planners-stomp"
 version = "0.1.0"
 dependencies = [
  "cspace-collision",
- "cspace-constraints",
  "cspace-core",
  "cspace-planners-sbp",
- "cspace-scene",
+ "cspace-planning",
  "cspace-stomp-core",
  "nalgebra",
  "rand",
@@ -204,29 +173,17 @@ dependencies = [
 name = "cspace-planning"
 version = "0.1.0"
 dependencies = [
- "cspace-collision",
- "cspace-constraints",
- "cspace-core",
- "cspace-planner-registry",
- "cspace-planners-sbp",
- "cspace-scene",
- "rand",
- "rand_chacha",
- "thiserror 2.0.19",
- "urdf-rs",
-]
-
-[[package]]
-name = "cspace-scene"
-version = "0.1.0"
-dependencies = [
  "approx",
  "cspace-collision",
- "cspace-constraints",
  "cspace-core",
+ "cspace-planners-sbp",
+ "linkme",
  "nalgebra",
+ "rand",
+ "rand_chacha",
  "serde",
  "serde_json",
+ "thiserror 2.0.19",
  "urdf-rs",
 ]
 
@@ -430,8 +387,8 @@ name = "moveit-diff"
 version = "0.1.0"
 dependencies = [
  "cspace-collision",
- "cspace-constraints",
  "cspace-core",
+ "cspace-planning",
  "nalgebra",
  "rand",
  "rand_chacha",

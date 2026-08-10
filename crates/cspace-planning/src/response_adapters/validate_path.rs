@@ -24,7 +24,7 @@
 //! markers (`isStateValid(..., true)`, `checkCollision`,
 //! `getCollisionMarkersFromContacts`, cpp:121-142) has no remaining
 //! consumer and is not ported either — it recomputes no information
-//! [`cspace_scene::PlanningScene::is_path_valid`]'s own `invalid_waypoints`
+//! [`crate::scene::PlanningScene::is_path_valid`]'s own `invalid_waypoints`
 //! did not already report.
 //!
 //! `moveit_msgs` — 1 occurrence, computation, ported:
@@ -44,7 +44,7 @@
 //!
 //! `planning_scene->isPathValid(*res.trajectory, req.path_constraints,
 //! req.group_name, false, &indices)` (cpp:101) becomes
-//! [`cspace_scene::PlanningScene::is_path_valid`], fed the response
+//! [`crate::scene::PlanningScene::is_path_valid`], fed the response
 //! trajectory's waypoints (cloned out of
 //! [`cspace_core::trajectory::RobotTrajectory`] — `is_path_valid` takes
 //! `&[RobotState]`, not a `RobotTrajectory`) and `request.path_constraints`.
@@ -58,8 +58,8 @@
 //! upstream's overload never passes any) makes the goal check a no-op by
 //! `is_path_valid`'s own contract ("empty means no goal check").
 
+use crate::scene::PlanningScene;
 use cspace_collision::{CollisionRequest, ParryCollisionEnv};
-use cspace_scene::PlanningScene;
 
 use crate::PlanningResponseAdapter;
 use crate::error::ResponseAdapterError;

@@ -10,7 +10,7 @@ authors.workspace = true
 
 [dependencies]
 cspace-collision.workspace = true
-cspace-constraints.workspace = true
+cspace-planning.workspace = true
 cspace-core.workspace = true
 nalgebra.workspace = true
 rand.workspace = true
@@ -30,7 +30,7 @@ approx.workspace = true
 # `cspace-scene`, which is the whole reason `optimizer` takes that check as an
 # injected closure (`optimizer.rs`, PORTING-PLAN.md §154).
 cspace-planners-sbp.workspace = true
-cspace-scene.workspace = true
+cspace-planning.workspace = true
 cspace-core = { workspace = true, features = ["test-support"] }
 rand_chacha.workspace = true
 serde.workspace = true

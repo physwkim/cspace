@@ -100,7 +100,7 @@
 //!   `hasAttachedBody`/`getFrameTransform` reach an attached body through
 //!   `RobotState`'s own `attached_body_map_`; this port's states carry no
 //!   attached bodies at all (see `cspace-scene`'s `attached_body` module
-//!   doc — they live on [`cspace_scene::PlanningScene`] instead), so
+//!   doc — they live on [`cspace_planning::scene::PlanningScene`] instead), so
 //!   `validate_request`, `search_intersection_points` and
 //!   `blend_trajectory_cartesian` each take an explicit
 //!   `scene: &PlanningScene` parameter (matching [`blend`]'s own
@@ -157,7 +157,7 @@ use cspace_core::geometry::{Isometry3, quaternion};
 use cspace_core::kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
 use cspace_core::state::Posed;
 use cspace_core::trajectory::RobotTrajectory;
-use cspace_scene::PlanningScene;
+use cspace_planning::scene::PlanningScene;
 
 use crate::cartesian_trajectory::{CartesianTrajectory, CartesianTrajectoryPoint, Twist};
 use crate::limits::LimitsContainer;
@@ -545,7 +545,7 @@ mod tests {
     use cspace_core::model::{MeshSearchPaths, RobotModel};
     use cspace_core::srdf::SrdfModel;
     use cspace_core::state::RobotState;
-    use cspace_scene::PlanningScene;
+    use cspace_planning::scene::PlanningScene;
 
     use cspace_core::geometry::{Cuboid, Isometry3, Shape, UnitQuaternion, Vector3};
 
@@ -1402,7 +1402,7 @@ mod tests {
     ///
     /// `"grasped_box"` is attached to `"panda_link8"` with an identity
     /// local pose (matching every other attached body in this crate: see
-    /// `cspace_scene::AttachedBody`'s module doc on why the local pose is
+    /// `cspace_planning::scene::AttachedBody`'s module doc on why the local pose is
     /// always identity here), so its world pose equals `"panda_link8"`'s at
     /// every waypoint exactly. The control request below blends the same
     /// two trajectories by `"panda_link8"` directly and asserts the two
