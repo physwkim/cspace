@@ -50,6 +50,8 @@ g++ -O2 -Wall -Wextra -std=c++11 \
     "$HERE/probe.cpp" \
     "$BULLET_SRC/src/BulletCollision/BroadphaseCollision/btCollisionAlgorithm.cpp" \
     "$BULLET_SRC/src/BulletCollision/BroadphaseCollision/btDbvt.cpp" \
+    "$BULLET_SRC/src/BulletCollision/BroadphaseCollision/btDbvtBroadphase.cpp" \
+    "$BULLET_SRC/src/BulletCollision/BroadphaseCollision/btOverlappingPairCache.cpp" \
     "$BULLET_SRC/src/BulletCollision/BroadphaseCollision/btDispatcher.cpp" \
     "$BULLET_SRC/src/BulletCollision/CollisionDispatch/SphereTriangleDetector.cpp" \
     "$BULLET_SRC/src/BulletCollision/CollisionDispatch/btActivatingCollisionAlgorithm.cpp" \
