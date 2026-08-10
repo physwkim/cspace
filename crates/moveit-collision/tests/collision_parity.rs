@@ -3781,8 +3781,30 @@ fn prbt_link_4_base_link_clearance_brackets_the_separated_residual() {
     /// Case 4697's oracle value, as `--stats-json` recorded it for that state.
     const CASE_4697_ORACLE: f64 = 0.032_876_309_670_400_866;
     /// The same run's value for this port, so this test reproduces the sweep
-    /// row rather than measuring some other state that resembles it.
+    /// row rather than measuring some other state that resembles it. Recorded
+    /// on the host that ran the sweep, which is not necessarily the host
+    /// running this test -- see [`SWEEP_ROW_TOL`].
     const CASE_4697_RUST: f64 = 0.032_787_383_820_056_18;
+    /// How far this port's answer may sit from [`CASE_4697_RUST`] before the
+    /// row stops being identifiable.
+    ///
+    /// It is not zero because [`CASE_4697_RUST`] is not portable.
+    /// `tools/ci/verify-phase3-collision-sweep.sh` needs docker for the
+    /// oracle, so the sweep runs where docker runs, and the pair's minimum
+    /// comes out of an iterative descent that does not land on the same `f64`
+    /// on a different target. Measured `1.298454e-11` between the recorded
+    /// value and an `aarch64-apple-darwin` one -- at identical sources and an
+    /// identical `Cargo.lock` (checked out at `f069e050`, the commit that
+    /// recorded the pin, which reproduces the divergence rather than being
+    /// free of it), and identically in debug and release, so it is the target
+    /// and not this port's history that moves it.
+    ///
+    /// Pinned 77x above that spread, and 8.9e4 times below the `8.9e-5`
+    /// residual the row is attributed for -- the distance this assertion
+    /// exists to tell apart. The claim that this port is the *near* side of
+    /// that residual is [`PORT_TOL`]'s, and that one is bracket-relative and
+    /// so holds on both hosts.
+    const SWEEP_ROW_TOL: f64 = 1e-9;
     /// How far apart the two bounds may be before the bracket stops being a
     /// third answer. Measured `-1.387779e-17` for link_4's first box and
     /// `4.163336e-17` for its second -- signed, because two closed forms that
@@ -3791,7 +3813,11 @@ fn prbt_link_4_base_link_clearance_brackets_the_separated_residual() {
     /// the upper one. Pinned 24x above the larger magnitude, still eight
     /// orders below the residual being attributed.
     const MAX_BRACKET_WIDTH: f64 = 1e-15;
-    /// Measured `2.558970e-11` for this port, with a 4x margin.
+    /// Measured `2.558970e-11` for this port on the host that recorded
+    /// [`CASE_4697_RUST`] and `3.857419e-11` on `aarch64-apple-darwin`, so
+    /// the margin is 4x on the first and 2.6x on the second. Unlike
+    /// [`SWEEP_ROW_TOL`] this bound is against a bracket the test derives
+    /// from the model it loaded, so it is the same claim on either host.
     const PORT_TOL: f64 = 1e-10;
     /// Measured `8.892588e-5` for the oracle. Pinned as a *floor*: the claim
     /// is that the reference is far, so the assertion has to fail if it ever
@@ -3930,7 +3956,7 @@ fn prbt_link_4_base_link_clearance_brackets_the_separated_residual() {
         .minimum_distance
         .distance;
     assert!(
-        (port - CASE_4697_RUST).abs() <= 1e-15,
+        (port - CASE_4697_RUST).abs() <= SWEEP_ROW_TOL,
         "this port now answers {port} for prbt_link_4/prbt_base_link at case 4697, not the \
          {CASE_4697_RUST} the sweep row this test attributes was measured from"
     );
