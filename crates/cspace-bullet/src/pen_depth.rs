@@ -118,14 +118,9 @@ pub fn calc_pen_depth(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::linear_math::{Matrix3, Scalar};
-    use crate::shapes::{BoxShape, ConeShapeZ, CylinderShapeZ};
-
-    const IDENTITY: Transform = Transform::new(Matrix3::identity(), Vec3::zero());
-
-    fn at(x: Scalar, y: Scalar, z: Scalar) -> Transform {
-        Transform::new(Matrix3::identity(), Vec3::new(x, y, z))
-    }
+    use crate::linear_math::Scalar;
+    use crate::probe_fixture::{IDENTITY, at, diff_vec3 as diff, probe_shapes, rot60_at, row};
+    use crate::shapes::BoxShape;
 
     /// Two boxes overlapping along x answer on the *first* guess, which for
     /// this pair normalizes to `(1, 0, 0)`. Asserted against `Penetration`
@@ -229,12 +224,7 @@ p_cone_cyl_rot60|1|-0.171172246|-0.938990176|-0.298324406|0.0274838991|0.1493031
 ";
 
     fn reference(name: &str) -> (bool, PenDepth) {
-        let line = BULLET_REFERENCE
-            .lines()
-            .find(|l| l.split('|').next() == Some(name))
-            .unwrap_or_else(|| panic!("{name}: no such row in BULLET_REFERENCE"));
-        let f: Vec<&str> = line.split('|').collect();
-        assert_eq!(f.len(), 11, "{name}: {} fields, expected 11", f.len());
+        let f = row(BULLET_REFERENCE, name, 11);
         let n = |i: usize| -> Scalar {
             f[i].parse()
                 .unwrap_or_else(|e| panic!("{name}: field {i} ({:?}): {e}", f[i]))
@@ -249,44 +239,11 @@ p_cone_cyl_rot60|1|-0.171172246|-0.938990176|-0.298324406|0.0274838991|0.1493031
         )
     }
 
-    /// Bit-exact, with `+0.0 == -0.0` the one admitted difference: the sign of
-    /// a zero survives `printf` but says nothing about the arithmetic.
-    fn diff(into: &mut Vec<String>, name: &str, field: &str, got: Vec3, want: Vec3) {
-        for (axis, (g, w)) in [
-            ("x", (got.x, want.x)),
-            ("y", (got.y, want.y)),
-            ("z", (got.z, want.z)),
-        ] {
-            if g.to_bits() != w.to_bits() && g != w {
-                into.push(format!(
-                    "{name}.{field}.{axis}: port {g:e} ({:#010x}), bullet {w:e} ({:#010x})",
-                    g.to_bits(),
-                    w.to_bits()
-                ));
-            }
-        }
-    }
-
     /// Every `calcPenDepth` row, against the port.
     #[test]
     fn bullet_reference_calc_pen_depth() {
-        let margin_box = BoxShape::new(Vec3::new(0.5, 0.5, 0.5));
-        let mut flat_box = BoxShape::new(Vec3::new(0.4, 0.7, 0.25));
-        flat_box.set_margin(0.0);
-        let mut unit_box = BoxShape::new(Vec3::new(0.5, 0.5, 0.5));
-        unit_box.set_margin(0.0);
-        let mut cyl = CylinderShapeZ::new(Vec3::new(0.3, 0.3, 0.5));
-        cyl.set_margin(0.0);
-        let mut cone = ConeShapeZ::new(0.25, 0.8);
-        cone.set_margin(0.0);
-        let rot60 = Transform::new(
-            Matrix3::from_rows(
-                Vec3::new(2.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0),
-                Vec3::new(2.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0),
-                Vec3::new(-1.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0),
-            ),
-            Vec3::new(0.3, 0.1, 0.2),
-        );
+        let (unit_box, flat_box, margin_box, _, _, cyl, cone, _) = probe_shapes();
+        let rot60 = rot60_at(0.3, 0.1, 0.2);
 
         let mut bad = Vec::new();
         let mut case = |name: &str,

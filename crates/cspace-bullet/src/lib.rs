@@ -69,5 +69,7 @@
 pub mod epa;
 pub mod linear_math;
 pub mod pen_depth;
+#[cfg(test)]
+mod probe_fixture;
 pub mod shapes;
 pub mod simplex;

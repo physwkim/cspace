@@ -1226,14 +1226,8 @@ pub fn penetration(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::linear_math::Matrix3;
-    use crate::shapes::{BoxShape, ConeShapeZ, ConvexHullShape, CylinderShapeZ, SphereShape};
-
-    const IDENTITY: Transform = Transform::new(Matrix3::identity(), Vec3::zero());
-
-    fn at(x: Scalar, y: Scalar, z: Scalar) -> Transform {
-        Transform::new(Matrix3::identity(), Vec3::new(x, y, z))
-    }
+    use crate::probe_fixture::{IDENTITY, at, diff, diff_vec3, probe_shapes, rot60_at, row};
+    use crate::shapes::{BoxShape, SphereShape};
 
     /// Two unit boxes 3 m apart: the separation is the gap between the faces,
     /// not between the centres, and the witnesses sit on the facing faces.
@@ -1448,12 +1442,7 @@ d_box_box_touching|0|1|0|0|0|0|0|0|0|0|0|0
     }
 
     fn reference(name: &str) -> Reference {
-        let line = BULLET_REFERENCE
-            .lines()
-            .find(|l| l.split('|').next() == Some(name))
-            .unwrap_or_else(|| panic!("{name}: no such row in BULLET_REFERENCE"));
-        let f: Vec<&str> = line.split('|').collect();
-        assert_eq!(f.len(), 13, "{name}: {} fields, expected 13", f.len());
+        let f = row(BULLET_REFERENCE, name, 13);
         let n = |i: usize| -> Scalar {
             f[i].parse()
                 .unwrap_or_else(|e| panic!("{name}: field {i} ({:?}): {e}", f[i]))
@@ -1473,19 +1462,6 @@ d_box_box_touching|0|1|0|0|0|0|0|0|0|0|0|0
         }
     }
 
-    /// Bit-exact, with `+0.0 == -0.0` the one admitted difference: the sign
-    /// of a zero component survives `printf` but says nothing about the
-    /// arithmetic, and `f32::to_bits` alone would fail on it.
-    fn diff(into: &mut Vec<String>, name: &str, field: &str, got: Scalar, want: Scalar) {
-        if got.to_bits() != want.to_bits() && got != want {
-            into.push(format!(
-                "{name}.{field}: port {got:e} ({:#010x}), bullet {want:e} ({:#010x})",
-                got.to_bits(),
-                want.to_bits()
-            ));
-        }
-    }
-
     fn compare(into: &mut Vec<String>, name: &str, ok: bool, got: &Results) {
         let want = reference(name);
         if ok != want.ok {
@@ -1498,87 +1474,10 @@ d_box_box_touching|0|1|0|0|0|0|0|0|0|0|0|0
             ));
         }
         diff(into, name, "distance", got.distance, want.distance);
-        for (axis, (g, w)) in [
-            (got.normal.x, want.normal.x),
-            (got.normal.y, want.normal.y),
-            (got.normal.z, want.normal.z),
-        ]
-        .into_iter()
-        .enumerate()
-        .map(|(i, gw)| (["x", "y", "z"][i], gw))
-        {
-            diff(into, name, &format!("normal.{axis}"), g, w);
-        }
+        diff_vec3(into, name, "normal", got.normal, want.normal);
         for (i, (g, w)) in got.witnesses.iter().zip(want.witnesses.iter()).enumerate() {
-            diff(into, name, &format!("witness{i}.x"), g.x, w.x);
-            diff(into, name, &format!("witness{i}.y"), g.y, w.y);
-            diff(into, name, &format!("witness{i}.z"), g.z, w.z);
+            diff_vec3(into, name, &format!("witness{i}"), *g, *w);
         }
-    }
-
-    /// 60 degrees about `(1,1,1)/sqrt(3)`. Every entry is the quotient of two
-    /// small integers, so this is the same basis `probe.cpp` builds without
-    /// either side going through a quaternion.
-    fn rot60_at(x: Scalar, y: Scalar, z: Scalar) -> Transform {
-        let p = 2.0 / 3.0;
-        let m = -1.0 / 3.0;
-        Transform::new(
-            Matrix3::from_rows(Vec3::new(p, m, p), Vec3::new(p, p, m), Vec3::new(m, p, p)),
-            Vec3::new(x, y, z),
-        )
-    }
-
-    /// The shapes `probe.cpp` builds, in its order. MoveIt's hull order --
-    /// every vertex added first, `setMargin(0)` after -- is reproduced
-    /// because `addPoint` order decides which of several equally-extreme
-    /// vertices `maxDot` returns.
-    fn probe_shapes() -> (
-        BoxShape,
-        BoxShape,
-        BoxShape,
-        SphereShape,
-        SphereShape,
-        CylinderShapeZ,
-        ConeShapeZ,
-        ConvexHullShape,
-    ) {
-        let mut unit_box = BoxShape::new(Vec3::new(0.5, 0.5, 0.5));
-        unit_box.set_margin(0.0);
-        let mut flat_box = BoxShape::new(Vec3::new(0.4, 0.7, 0.25));
-        flat_box.set_margin(0.0);
-        let margin_box = BoxShape::new(Vec3::new(0.5, 0.5, 0.5));
-        let sphere = SphereShape::new(0.5);
-        let small_sphere = SphereShape::new(0.3);
-        let mut cyl = CylinderShapeZ::new(Vec3::new(0.3, 0.3, 0.5));
-        cyl.set_margin(0.0);
-        let mut cone = ConeShapeZ::new(0.25, 0.8);
-        cone.set_margin(0.0);
-
-        let mut hull = ConvexHullShape::new();
-        for p in [
-            Vec3::new(0.3, 0.2, 0.1),
-            Vec3::new(-0.3, 0.2, 0.1),
-            Vec3::new(0.3, -0.2, 0.1),
-            Vec3::new(-0.3, -0.2, 0.1),
-            Vec3::new(0.3, 0.2, -0.1),
-            Vec3::new(-0.3, 0.2, -0.1),
-            Vec3::new(0.3, -0.2, -0.1),
-            Vec3::new(-0.3, -0.2, -0.1),
-        ] {
-            hull.add_point(p);
-        }
-        hull.set_margin(0.0);
-
-        (
-            unit_box,
-            flat_box,
-            margin_box,
-            sphere,
-            small_sphere,
-            cyl,
-            cone,
-            hull,
-        )
     }
 
     /// Every `Penetration` row of [`BULLET_REFERENCE`], against the port.
