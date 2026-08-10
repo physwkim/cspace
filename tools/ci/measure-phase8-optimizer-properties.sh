@@ -878,17 +878,41 @@ STOMP="$WORKDIR/bin/$(basename "$STOMP")"
 # the injected count beside the checked one: measured over 125 problems this
 # stage checked 85 and 98 for CHOMP and 105 and 119 for STOMP, and a bare
 # "rejected all 105 paths" states a numerator as if it were the population.
-run_inject() {
+#
+# Every arm is its own process over its own request file writing its own output
+# pair, so they are all launched at once and collected below. This is the one
+# stage that does not shard, and run one after another it is a single core for
+# as long as the whole gate takes -- six arms over 125 problems each, at a
+# ${TIMEOUT_SECONDS}s per-problem budget. The launch and the verdict are split
+# across two functions rather than backgrounding one: `failed+=` inside a
+# backgrounded function body appends in a subshell, where the array dies with
+# it and a FAIL leaves no trace in the parent's exit status.
+inject_planner=() inject_tag=() inject_mode=() inject_pid=()
+start_inject() {
   local planner="$1" binary="$2" request="$3" mode="$4" tag="$5"
-  if "$binary" "$SEED_BASE" "$TIMEOUT_SECONDS" "$mode" \
-       <"$request" >"$WORKDIR/inject.$planner.$tag.json" \
-       2>"$WORKDIR/inject.$planner.$tag.err"; then
-    echo "  PASS inject=$mode $planner/$tag -- $(tail -1 "$WORKDIR/inject.$planner.$tag.err")"
-  else
-    echo "  FAIL inject=$mode $planner/$tag did not reject every injected path:" >&2
-    tail -6 "$WORKDIR/inject.$planner.$tag.err" >&2
-    failed+=("inject=$mode $planner/$tag")
-  fi
+  "$binary" "$SEED_BASE" "$TIMEOUT_SECONDS" "$mode" \
+    <"$request" >"$WORKDIR/inject.$planner.$tag.json" \
+    2>"$WORKDIR/inject.$planner.$tag.err" &
+  inject_pid+=("$!")
+  inject_planner+=("$planner")
+  inject_tag+=("$tag")
+  inject_mode+=("$mode")
+}
+
+wait_inject() {
+  local i planner tag mode
+  for i in "${!inject_pid[@]}"; do
+    planner="${inject_planner[$i]}"
+    tag="${inject_tag[$i]}"
+    mode="${inject_mode[$i]}"
+    if wait "${inject_pid[$i]}"; then
+      echo "  PASS inject=$mode $planner/$tag -- $(tail -1 "$WORKDIR/inject.$planner.$tag.err")"
+    else
+      echo "  FAIL inject=$mode $planner/$tag did not reject every injected path:" >&2
+      tail -6 "$WORKDIR/inject.$planner.$tag.err" >&2
+      failed+=("inject=$mode $planner/$tag")
+    fi
+  done
 }
 
 echo
@@ -907,6 +931,16 @@ read -r c_robot c_config c_count c_seed c_spec <<<"$CONSTRAINED_SET"
   || { echo "FAIL generating constrained set" >&2; failed+=("gen constrained"); }
 echo "  $(cat "$WORKDIR/constrained.gen.stderr")"
 
+# The constrained set with its constraint moved from the planner to the checker
+# -- see the `inject_constrained` arm below for what that arm is for. Written
+# here, once, rather than per planner inside the gate loop: both planners' arms
+# now read this file at the same time, and a per-planner rewrite would truncate
+# it under a live reader. Its content does not depend on the planner.
+if [[ -s "$WORKDIR/constrained.request.json" ]]; then
+  jq '(.check_joint_constraint = .joint_constraint) | .joint_constraint = null' \
+    "$WORKDIR/constrained.request.json" >"$WORKDIR/inject_constrained.request.json"
+fi
+
 echo
 echo "=== validity discrimination gate (injected bad waypoints must be rejected) ==="
 for planner in $PLANNERS; do
@@ -917,8 +951,8 @@ for planner in $PLANNERS; do
   # `collision` needs obstacles for the spliced state to hit; `constraint` needs
   # a constraint for it to violate.
   [[ -s "$WORKDIR/panda_floor_wall.request.json" ]] || continue
-  run_inject "$planner" "$binary" "$WORKDIR/panda_floor_wall.request.json" \
-             collision panda_floor_wall
+  start_inject "$planner" "$binary" "$WORKDIR/panda_floor_wall.request.json" \
+               collision panda_floor_wall
   # `constraint` USED TO be unable to use the constrained set as generated:
   # STOMP solved none of it -- measured 0 solved / 16 timeouts over three
   # constrained sets (seed 810011 floor_wall tolerance 0.5, 8 problems; seed
@@ -970,13 +1004,12 @@ for planner in $PLANNERS; do
   # The single-field arm: `joint_constraint` alone, unmodified, driving both
   # planning and (via `check_joint_constraint`'s `or_else` fallback in
   # `optimize_benchmark_stomp.rs`) checking.
-  run_inject "$planner" "$binary" "$WORKDIR/constrained.request.json" \
-             constraint constrained
-  jq '(.check_joint_constraint = .joint_constraint) | .joint_constraint = null' \
-    "$WORKDIR/constrained.request.json" >"$WORKDIR/inject_constrained.request.json"
-  run_inject "$planner" "$binary" "$WORKDIR/inject_constrained.request.json" \
-             constraint inject_constrained
+  start_inject "$planner" "$binary" "$WORKDIR/constrained.request.json" \
+               constraint constrained
+  start_inject "$planner" "$binary" "$WORKDIR/inject_constrained.request.json" \
+               constraint inject_constrained
 done
+wait_inject
 
 echo
 echo "=== instrument runs, planners=[$PLANNERS], timeout=${TIMEOUT_SECONDS}s per call, ${SHARDS} shards ==="
