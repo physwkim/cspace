@@ -36,6 +36,8 @@ authors = ["cspace contributors"]
 # zlib-derived code as BSD-3-Clause.
 
 [workspace.dependencies]
+cspace-bullet = { path = "crates/cspace-bullet", version = "0.1.0" }
+cspace-bullet-cast = { path = "crates/cspace-bullet-cast", version = "0.1.0" }
 cspace-collision = { path = "crates/cspace-collision", version = "0.1.0" }
 cspace-core = { path = "crates/cspace-core", version = "0.1.0" }
 cspace-planners = { path = "crates/cspace-planners", version = "0.1.0" }

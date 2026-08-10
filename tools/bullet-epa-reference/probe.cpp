@@ -48,6 +48,8 @@
 #include "BulletCollision/NarrowPhaseCollision/btVoronoiSimplexSolver.h"
 #include "LinearMath/btAabbUtil2.h"
 
+#include "moveit_cast.hpp"
+
 // `%.9g` round-trips a `float` exactly, so a fixture transcribed from this
 // output and parsed back as `f32` is the same bit pattern the C++ held.
 static void emit(const char* name, bool ok, const btGjkEpaSolver2::sResults& r)
@@ -404,6 +406,51 @@ static void support(const char* name, const btConvexShape* shape, const btVector
 	const btVector3 sup_nm = shape->localGetSupportingVertexWithoutMargin(dir);
 	printf("support_%s|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g\n", name, (double)sup[0], (double)sup[1], (double)sup[2],
 	       (double)sup_nm[0], (double)sup_nm[1], (double)sup_nm[2], (double)shape->getMargin());
+}
+
+// MoveIt's `CastHullShape` (`moveit_cast.hpp`), which is the shape the whole
+// continuous path is about: the swept volume between two poses, represented
+// implicitly by one shape plus the delta transform between them.
+//
+// Its support function is the larger of the two poses' support points *by the
+// query direction*, not by any geometric criterion, so the tie and the
+// crossover between the two poses are the interesting inputs. Its `getAabb` is
+// the union of the shape's AABB at both poses.
+//
+// Fields: `cast_<name>|sup.xyz|supnomargin.xyz|min.xyz|max.xyz`. The
+// with-margin and without-margin support rows are separate because
+// `CastHullShape` routes the second to the first while its `getMargin()`
+// returns 0, so a port that forgot either the routing or the zero margin still
+// matches one of them.
+static void casthull(const char* name, btConvexShape* shape, const btTransform& t01, const btVector3& dir,
+                     const btTransform& world)
+{
+	CastHullShape cast(shape, t01);
+	const btVector3 sup = cast.localGetSupportingVertex(dir);
+	const btVector3 sup_nm = cast.localGetSupportingVertexWithoutMargin(dir);
+
+	btVector3 mn, mx;
+	cast.getAabb(world, mn, mx);
+
+	printf("cast_%s|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g\n", name, (double)sup[0],
+	       (double)sup[1], (double)sup[2], (double)sup_nm[0], (double)sup_nm[1], (double)sup_nm[2], (double)mn[0],
+	       (double)mn[1], (double)mn[2], (double)mx[0], (double)mx[1], (double)mx[2]);
+}
+
+// `getAverageSupport` (`moveit_cast.hpp`), the function that decides where
+// along the sweep a contact happened. Its polyhedral branch averages every
+// vertex within `BULLET_EPSILON` of the maximum, so a face-on direction
+// returns a face centre and an edge-on direction an edge midpoint -- values no
+// support function returns, and the reason `percent_interpolation` is
+// computable at all.
+//
+// Fields: `avgsup_<name>|support|pt.xyz`.
+static void avgsupport(const char* name, const btConvexShape* shape, const btVector3& local_normal)
+{
+	float support = 0;
+	btVector3 pt;
+	getAverageSupport(shape, local_normal, support, pt);
+	printf("avgsup_%s|%.9g|%.9g|%.9g|%.9g\n", name, (double)support, (double)pt[0], (double)pt[1], (double)pt[2]);
 }
 
 // `btCompoundShape::getAabb` plus the leaf order of the tree it built while
@@ -1145,6 +1192,64 @@ int main()
 		support("cyl_diag", &cyl, pxyz);
 		support("cone_diag", &cone, pxyz);
 		support("hull_diag", &hull, pxyz);
+	}
+
+	// `CastHullShape`. Fields: `name|sup.xyz|supnomargin.xyz|min.xyz|max.xyz`.
+	//
+	// `zero_delta` is the tie: with an identity delta the two support points
+	// are equal, `>` is false, and upstream returns the *second* -- the one it
+	// pushed through `shape_transform`. `pos_delta`/`neg_delta` take the same
+	// delta in the two directions that pick opposite branches. `rot_delta` is
+	// the only case that can see `vec * shape_transform.getBasis()` being the
+	// transpose product rather than the plain one, and `sphere_delta`,
+	// `cyl_delta`, `cone_delta` and `hull_delta` run the branch on the four
+	// inner support functions a box cannot stand in for.
+	//
+	// The AABB argument is a rotated world pose on the `*_world` rows so the
+	// union is taken over two boxes that are not axis-aligned to each other.
+	{
+		const btVector3 px(1.f, 0.f, 0.f);
+		const btVector3 pxyz(1.f, 1.f, 1.f);
+		casthull("zero_delta", &unit_box, id, px, id);
+		casthull("pos_delta", &unit_box, at(1.f, 0.f, 0.f), px, id);
+		casthull("neg_delta", &unit_box, at(1.f, 0.f, 0.f), -px, id);
+		casthull("diag_delta", &unit_box, at(0.3f, -0.4f, 0.2f), pxyz, id);
+		casthull("rot_delta", &unit_box, rot60_at(0.3f, -0.4f, 0.2f), pxyz, id);
+		casthull("rot_delta_world", &unit_box, rot60_at(0.3f, -0.4f, 0.2f), pxyz, rot60_at(0.1f, 0.2f, -0.1f));
+		casthull("flat_rot_delta", &flat_box, rot60_at(0.3f, -0.4f, 0.2f), px, rot60_at(0.1f, 0.2f, -0.1f));
+		casthull("margin_delta", &margin_box, at(1.f, 0.f, 0.f), pxyz, id);
+		casthull("sphere_delta", &sphere, at(0.7f, 0.1f, 0.f), pxyz, id);
+		casthull("cyl_delta", &cyl, rot60_at(0.3f, -0.4f, 0.2f), pxyz, id);
+		casthull("cone_delta", &cone, rot60_at(0.3f, -0.4f, 0.2f), pxyz, id);
+		casthull("hull_delta", &hull, rot60_at(0.3f, -0.4f, 0.2f), pxyz, id);
+
+		// `getAverageSupport`. Fields: `name|support|pt.xyz`.
+		//
+		// The three box rows are the three tie multiplicities the epsilon band
+		// produces: four vertices on a face normal, two on an edge normal, one
+		// on a corner. `box_in_band` and `box_out_of_band` are the pair that
+		// separates "averages exact ties" from "averages within BULLET_EPSILON"
+		// -- tilting the face normal by 0.0005 leaves the far pair 0.0005 below
+		// the max, inside the 1e-3 band, so all four average and y comes back
+		// 0; tilting by 0.002 puts them 0.002 below it and only the near pair
+		// survives, so y comes back 0.5. A port that compared for equality
+		// matches the second row and not the first.
+		//
+		// `sphere`, `cyl` and `cone` take the `else` arm, whose answer is one
+		// support point and its own dot product; `hull` takes the polyhedral
+		// arm through a different vertex list than any box.
+		avgsupport("box_face", &unit_box, px);
+		avgsupport("box_edge", &unit_box, btVector3(1.f, 1.f, 0.f).normalized());
+		avgsupport("box_corner", &unit_box, pxyz.normalized());
+		avgsupport("box_in_band", &unit_box, btVector3(1.f, 0.0005f, 0.f).normalized());
+		avgsupport("box_out_of_band", &unit_box, btVector3(1.f, 0.002f, 0.f).normalized());
+		avgsupport("flat_box_face", &flat_box, btVector3(0.f, 1.f, 0.f));
+		avgsupport("margin_box_face", &margin_box, px);
+		avgsupport("sphere", &sphere, pxyz.normalized());
+		avgsupport("cyl", &cyl, pxyz.normalized());
+		avgsupport("cone", &cone, pxyz.normalized());
+		avgsupport("hull_face", &hull, btVector3(0.f, 0.f, 1.f));
+		avgsupport("hull_corner", &hull, pxyz.normalized());
 	}
 
 	// `btDbvt` leaf order. Fields: `name|visited|leaves|data...`.

@@ -1,0 +1,29 @@
+[package]
+name = "cspace-bullet-cast"
+description = "MoveIt's Bullet continuous-collision layer -- CastHullShape, the cast broadphase manager and the cast contact conversion -- ported from moveit_core's BSD-2-Clause bullet_integration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# Not `license.workspace = true`. The workspace declares BSD-3-Clause because
+# `moveit_core`'s `package.xml` does, but the per-file headers on every source
+# this crate ports -- `bullet_integration/bullet_utils.{hpp,cpp}`,
+# `bullet_bvh_manager.{hpp,cpp}`, `bullet_cast_bvh_manager.{hpp,cpp}`,
+# `contact_checker_common.cpp` -- read BSD-2-Clause, and a repository being BSD
+# does not make every file in it the same BSD. Inheriting here would relabel
+# BSD-2-Clause code as BSD-3-Clause, which is what
+# `tools/ci/check-license-matches-upstream.sh` exists to catch.
+license = "BSD-2-Clause"
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cspace-bullet.workspace = true
+
+[dev-dependencies]
+# The same `probe.cpp` shape set `cspace-bullet`'s own fixtures use. A local
+# copy would diverge silently: a mismatched shape shows up as a wrong number in
+# a support row, not as a missing fixture.
+cspace-bullet = { workspace = true, features = ["probe-fixture"] }
+
+[lints]
+workspace = true

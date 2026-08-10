@@ -73,6 +73,13 @@ name = "cspace-bullet"
 version = "0.1.0"
 
 [[package]]
+name = "cspace-bullet-cast"
+version = "0.1.0"
+dependencies = [
+ "cspace-bullet",
+]
+
+[[package]]
 name = "cspace-collision"
 version = "0.1.0"
 dependencies = [

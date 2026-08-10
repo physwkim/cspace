@@ -84,7 +84,13 @@ pub mod gjk;
 pub mod linear_math;
 pub mod manifold;
 pub mod pen_depth;
-#[cfg(test)]
-mod probe_fixture;
+/// Behind `probe-fixture` rather than plain `pub` because it is test
+/// scaffolding: `cspace-bullet-cast`'s tests assert against the same
+/// `probe.cpp` run and must feed it the same shapes, and a second copy of that
+/// shape set would not fail as a mismatch -- it would fail as a bit difference
+/// somewhere in the result, blamed on the algorithm. A release build of a
+/// downstream crate has no use for it.
+#[cfg(any(test, feature = "probe-fixture"))]
+pub mod probe_fixture;
 pub mod shapes;
 pub mod simplex;

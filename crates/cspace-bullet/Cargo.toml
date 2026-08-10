@@ -16,5 +16,13 @@ authors.workspace = true
 
 [dependencies]
 
+[features]
+# Makes `probe_fixture` -- the shape set and fixture helpers
+# `tools/bullet-epa-reference/probe.cpp` builds, and the comparison helpers its
+# rows are read with -- visible outside this crate. `cspace-bullet-cast` pins
+# `CastHullShape` against the same probe run and must sweep the same shapes;
+# one definition, shared, is why that module exists at all.
+probe-fixture = []
+
 [lints]
 workspace = true
