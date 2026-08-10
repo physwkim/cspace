@@ -153,7 +153,7 @@ fn cone_primitive(geom: &Cone) -> ConeShapeZ {
 ///
 /// Upstream compares probabilities: `it->getOccupancy() >=
 /// geom->octree->getOccupancyThres()`. This port compares log-odds, which is
-/// what [`cspace_core::octomap::iter::Leaf::is_occupied`] does. The two agree
+/// what [`cspace_core::octomap::Leaf::is_occupied`] does. The two agree
 /// exactly, not approximately: `probability` is `1 - 1/(1 + exp(l))`, a
 /// composition of IEEE-monotone steps, so `p(a) >= p(b)` and `a >= b` are the
 /// same predicate -- distinct log-odds may collapse onto one probability, but
