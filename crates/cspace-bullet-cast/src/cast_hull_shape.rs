@@ -39,6 +39,8 @@
 //! arbitrary corner would make that fraction depend on the simplex's history
 //! rather than on the motion.
 
+use std::sync::Arc;
+
 use cspace_bullet::broadphase_proxy::BroadphaseNativeType;
 use cspace_bullet::linear_math::{Scalar, Transform, Vec3};
 use cspace_bullet::shapes::ConvexShape;
@@ -82,16 +84,26 @@ pub const BULLET_MARGIN: Scalar = 0.0;
 /// traversal grows by nothing.
 pub const BULLET_DEFAULT_CONTACT_DISTANCE: Scalar = 0.0;
 
+/// A `btConvexShape*` as this crate holds one: shared, because every wrapper
+/// `CollisionObjectWrapper::clone` produced names the same shape through its
+/// copied `data_` vector of `std::shared_ptr<void>`.
+pub type ArcConvexShape = Arc<dyn ConvexShape>;
+
 /// `CastHullShape` (`bullet_utils.hpp:240-334`) -- the convex hull of one shape
 /// at two poses, represented by the shape and the delta between them.
 ///
-/// Upstream owns a `btConvexShape*` and is handed to Bullet through a
-/// `btCollisionObject`; here the shape is borrowed, because the cast shape's
-/// lifetime is one continuous check and the shape it sweeps outlives it.
-#[derive(Clone, Copy)]
-pub struct CastHullShape<'a> {
+/// Upstream's `m_shape` is a bare `btConvexShape*` into a shape the *cloned*
+/// collision object keeps alive: `makeCastCollisionObject` clones the wrapper
+/// first, and the clone's `data_` is a `std::vector<std::shared_ptr<void>>`
+/// copied from the original, so the swept shape is shared-owned by every
+/// wrapper that names it. [`std::sync::Arc`] is that ownership; a borrow would
+/// be a stronger claim than upstream makes, and would put a lifetime on every
+/// type above this one -- the collision object, the compound it goes into, and
+/// the manager's map.
+#[derive(Clone)]
+pub struct CastHullShape {
     /// `m_shape` -- the shape being swept, in its own local frame.
-    pub shape: &'a dyn ConvexShape,
+    pub shape: ArcConvexShape,
     /// `shape_transform` -- the transform from the first pose to the second.
     ///
     /// Not a world transform: `setCastCollisionObjectsTransform` computes it as
@@ -101,10 +113,10 @@ pub struct CastHullShape<'a> {
     pub shape_transform: Transform,
 }
 
-impl<'a> CastHullShape<'a> {
+impl CastHullShape {
     /// `CastHullShape(shape, t01)` (`bullet_utils.hpp:249-252`).
     #[must_use]
-    pub fn new(shape: &'a dyn ConvexShape, t01: Transform) -> Self {
+    pub fn new(shape: ArcConvexShape, t01: Transform) -> Self {
         Self {
             shape,
             shape_transform: t01,
@@ -121,7 +133,7 @@ impl<'a> CastHullShape<'a> {
     }
 }
 
-impl ConvexShape for CastHullShape<'_> {
+impl ConvexShape for CastHullShape {
     /// `m_shapeType = CUSTOM_CONVEX_SHAPE_TYPE` (`bullet_utils.hpp:251`).
     ///
     /// This is the value that keeps the whole cast layer working without
@@ -260,9 +272,8 @@ pub fn get_average_support(shape: &dyn ConvexShape, local_normal: Vec3) -> (Scal
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cspace_bullet::probe_fixture::{
-        IDENTITY, at, diff, diff_vec3, probe_shapes, rot60_at, row,
-    };
+    use crate::arc_probe::arc_probe_shapes;
+    use cspace_bullet::probe_fixture::{IDENTITY, at, diff, diff_vec3, rot60_at, row};
 
     /// The `cast_*` and `avgsup_*` rows of
     /// `tools/bullet-epa-reference/build.sh`'s stdout.
@@ -300,31 +311,55 @@ avgsup_hull_corner|0.346410155|0.300000012|0.200000003|0.100000001
 
     #[test]
     fn bullet_reference_cast_hull_shape() {
-        let (unit_box, flat_box, margin_box, sphere, _, cyl, cone, hull) = probe_shapes();
+        let (unit_box, flat_box, margin_box, sphere, cyl, cone, hull) = arc_probe_shapes();
         let px = Vec3::new(1.0, 0.0, 0.0);
         let pxyz = Vec3::new(1.0, 1.0, 1.0);
         let rot = rot60_at(0.3, -0.4, 0.2);
         let world = rot60_at(0.1, 0.2, -0.1);
 
-        let cases: [(&str, &dyn ConvexShape, Transform, Vec3, Transform); 12] = [
-            ("zero_delta", &unit_box, IDENTITY, px, IDENTITY),
-            ("pos_delta", &unit_box, at(1.0, 0.0, 0.0), px, IDENTITY),
-            ("neg_delta", &unit_box, at(1.0, 0.0, 0.0), -px, IDENTITY),
-            ("diag_delta", &unit_box, at(0.3, -0.4, 0.2), pxyz, IDENTITY),
-            ("rot_delta", &unit_box, rot, pxyz, IDENTITY),
-            ("rot_delta_world", &unit_box, rot, pxyz, world),
-            ("flat_rot_delta", &flat_box, rot, px, world),
+        let cases: [(&str, ArcConvexShape, Transform, Vec3, Transform); 12] = [
+            ("zero_delta", unit_box.clone(), IDENTITY, px, IDENTITY),
+            (
+                "pos_delta",
+                unit_box.clone(),
+                at(1.0, 0.0, 0.0),
+                px,
+                IDENTITY,
+            ),
+            (
+                "neg_delta",
+                unit_box.clone(),
+                at(1.0, 0.0, 0.0),
+                -px,
+                IDENTITY,
+            ),
+            (
+                "diag_delta",
+                unit_box.clone(),
+                at(0.3, -0.4, 0.2),
+                pxyz,
+                IDENTITY,
+            ),
+            ("rot_delta", unit_box.clone(), rot, pxyz, IDENTITY),
+            ("rot_delta_world", unit_box.clone(), rot, pxyz, world),
+            ("flat_rot_delta", flat_box.clone(), rot, px, world),
             (
                 "margin_delta",
-                &margin_box,
+                margin_box.clone(),
                 at(1.0, 0.0, 0.0),
                 pxyz,
                 IDENTITY,
             ),
-            ("sphere_delta", &sphere, at(0.7, 0.1, 0.0), pxyz, IDENTITY),
-            ("cyl_delta", &cyl, rot, pxyz, IDENTITY),
-            ("cone_delta", &cone, rot, pxyz, IDENTITY),
-            ("hull_delta", &hull, rot, pxyz, IDENTITY),
+            (
+                "sphere_delta",
+                sphere.clone(),
+                at(0.7, 0.1, 0.0),
+                pxyz,
+                IDENTITY,
+            ),
+            ("cyl_delta", cyl.clone(), rot, pxyz, IDENTITY),
+            ("cone_delta", cone.clone(), rot, pxyz, IDENTITY),
+            ("hull_delta", hull.clone(), rot, pxyz, IDENTITY),
         ];
 
         let mut bad = Vec::new();
@@ -366,31 +401,35 @@ avgsup_hull_corner|0.346410155|0.300000012|0.200000003|0.100000001
         }
 
         let normalized = |v: Vec3| v.normalize();
-        let average_cases: [(&str, &dyn ConvexShape, Vec3); 12] = [
-            ("box_face", &unit_box, px),
-            ("box_edge", &unit_box, normalized(Vec3::new(1.0, 1.0, 0.0))),
-            ("box_corner", &unit_box, normalized(pxyz)),
+        let average_cases: [(&str, ArcConvexShape, Vec3); 12] = [
+            ("box_face", unit_box.clone(), px),
+            (
+                "box_edge",
+                unit_box.clone(),
+                normalized(Vec3::new(1.0, 1.0, 0.0)),
+            ),
+            ("box_corner", unit_box.clone(), normalized(pxyz)),
             (
                 "box_in_band",
-                &unit_box,
+                unit_box.clone(),
                 normalized(Vec3::new(1.0, 0.0005, 0.0)),
             ),
             (
                 "box_out_of_band",
-                &unit_box,
+                unit_box.clone(),
                 normalized(Vec3::new(1.0, 0.002, 0.0)),
             ),
-            ("flat_box_face", &flat_box, Vec3::new(0.0, 1.0, 0.0)),
-            ("margin_box_face", &margin_box, px),
-            ("sphere", &sphere, normalized(pxyz)),
-            ("cyl", &cyl, normalized(pxyz)),
-            ("cone", &cone, normalized(pxyz)),
-            ("hull_face", &hull, Vec3::new(0.0, 0.0, 1.0)),
-            ("hull_corner", &hull, normalized(pxyz)),
+            ("flat_box_face", flat_box.clone(), Vec3::new(0.0, 1.0, 0.0)),
+            ("margin_box_face", margin_box.clone(), px),
+            ("sphere", sphere.clone(), normalized(pxyz)),
+            ("cyl", cyl.clone(), normalized(pxyz)),
+            ("cone", cone.clone(), normalized(pxyz)),
+            ("hull_face", hull.clone(), Vec3::new(0.0, 0.0, 1.0)),
+            ("hull_corner", hull.clone(), normalized(pxyz)),
         ];
 
         for (name, shape, local_normal) in average_cases {
-            let (support, pt) = get_average_support(shape, local_normal);
+            let (support, pt) = get_average_support(shape.as_ref(), local_normal);
 
             let full = format!("avgsup_{name}");
             covered.push(full.clone());
@@ -430,7 +469,7 @@ avgsup_hull_corner|0.346410155|0.300000012|0.200000003|0.100000001
     /// different vectors, so which branch ran is visible.
     #[test]
     fn a_tie_in_support_value_returns_the_transformed_point() {
-        let (unit_box, ..) = probe_shapes();
+        let (unit_box, ..) = arc_probe_shapes();
         // 90 degrees about z: (0.5, 0.5, 0.5) maps to (-0.5, 0.5, 0.5), and
         // both have support 0.5 along +z.
         let spin = Transform::new(
@@ -441,7 +480,7 @@ avgsup_hull_corner|0.346410155|0.300000012|0.200000003|0.100000001
             ),
             Vec3::zero(),
         );
-        let cast = CastHullShape::new(&unit_box, spin);
+        let cast = CastHullShape::new(unit_box.clone(), spin);
         let up = Vec3::new(0.0, 0.0, 1.0);
 
         let untransformed = unit_box.local_get_supporting_vertex(up);
@@ -460,10 +499,10 @@ avgsup_hull_corner|0.346410155|0.300000012|0.200000003|0.100000001
     /// shape's margin, so the row is identical to the zero-margin box's.
     #[test]
     fn the_cast_shape_reports_no_margin_of_its_own() {
-        let (_, _, margin_box, ..) = probe_shapes();
+        let (_, _, margin_box, ..) = arc_probe_shapes();
         assert_ne!(margin_box.margin(), 0.0);
 
-        let mut cast = CastHullShape::new(&margin_box, IDENTITY);
+        let mut cast = CastHullShape::new(margin_box, IDENTITY);
         assert_eq!(cast.margin(), 0.0);
         cast.set_margin(0.25);
         assert_eq!(cast.margin(), 0.0, "setMargin is a no-op upstream");
@@ -473,8 +512,8 @@ avgsup_hull_corner|0.346410155|0.300000012|0.200000003|0.100000001
     #[test]
     #[should_panic(expected = "shouldn't happen")]
     fn get_aabb_slow_aborts_as_upstream_throws() {
-        let (unit_box, ..) = probe_shapes();
-        let cast = CastHullShape::new(&unit_box, IDENTITY);
+        let (unit_box, ..) = arc_probe_shapes();
+        let cast = CastHullShape::new(unit_box, IDENTITY);
         let _ = cast.get_aabb_slow(&IDENTITY);
     }
 }

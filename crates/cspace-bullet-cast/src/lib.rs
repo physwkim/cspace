@@ -53,5 +53,8 @@
 //! `parry`, and porting a second discrete backend it would not call is work
 //! with no caller.
 
+/// Test-only: `probe_shapes` behind the `Arc` this crate's shapes are held by.
+#[cfg(test)]
+mod arc_probe;
 pub mod cast_contact;
 pub mod cast_hull_shape;

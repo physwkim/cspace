@@ -115,7 +115,7 @@ pub struct CastContact {
 pub fn cast_single_result(
     point: &ManifoldPoint,
     cast_shape_is_first: bool,
-    cast_shape: &CastHullShape<'_>,
+    cast_shape: &CastHullShape,
     cast_world_transform: Transform,
 ) -> CastContact {
     let normal = -1.0 * point.normal_world_on_b;
@@ -132,9 +132,9 @@ pub fn cast_single_result(
     let normal_local0 = tf_world0.basis.transposed_mul_vec(normal_world_from_cast);
     let normal_local1 = tf_world1.basis.transposed_mul_vec(normal_world_from_cast);
 
-    let (_localsup0, pt_local0) = get_average_support(cast_shape.shape, normal_local0);
+    let (_localsup0, pt_local0) = get_average_support(cast_shape.shape.as_ref(), normal_local0);
     let pt_world0 = tf_world0.transform_point(pt_local0);
-    let (_localsup1, pt_local1) = get_average_support(cast_shape.shape, normal_local1);
+    let (_localsup1, pt_local1) = get_average_support(cast_shape.shape.as_ref(), normal_local1);
     let pt_world1 = tf_world1.transform_point(pt_local1);
 
     let sup0 = normal_world_from_cast.dot(pt_world0);
@@ -176,8 +176,10 @@ pub fn cast_single_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cspace_bullet::probe_fixture::{IDENTITY, at, diff, probe_shapes, rot60_at, row};
-    use cspace_bullet::shapes::ConvexShape;
+    use crate::arc_probe::arc_probe_shapes;
+    use crate::cast_hull_shape::ArcConvexShape;
+    use cspace_bullet::probe_fixture::{IDENTITY, at, diff, rot60_at, row};
+    use std::sync::Arc;
 
     /// The `pctinterp_*` rows of `tools/bullet-epa-reference/build.sh`'s
     /// stdout, produced by `moveit_cast.hpp`'s `castPercentInterpolation` --
@@ -212,7 +214,7 @@ pctinterp_ratio_quarter_cast_first|0.25
 
     #[test]
     fn bullet_reference_percent_interpolation() {
-        let (unit_box, _, _, sphere, _, _, _, hull) = probe_shapes();
+        let (unit_box, _, _, sphere, _, _, hull) = arc_probe_shapes();
         let nx = Vec3::new(1.0, 0.0, 0.0);
         let p_mid = Vec3::new(0.5, 0.25, 0.0);
         let p_face = Vec3::new(0.5, 0.0, 0.0);
@@ -222,7 +224,7 @@ pctinterp_ratio_quarter_cast_first|0.25
         /// One `pctinterp` call site of `probe.cpp`, field for field.
         struct Case<'a> {
             name: &'a str,
-            shape: &'a dyn ConvexShape,
+            shape: ArcConvexShape,
             t01: Transform,
             world: Transform,
             normal: Vec3,
@@ -244,7 +246,7 @@ pctinterp_ratio_quarter_cast_first|0.25
         let cases = [
             case(
                 "end",
-                &unit_box as &dyn ConvexShape,
+                unit_box.clone(),
                 at(1.0, 0.0, 0.0),
                 IDENTITY,
                 nx,
@@ -254,7 +256,7 @@ pctinterp_ratio_quarter_cast_first|0.25
             ),
             case(
                 "start",
-                &unit_box,
+                unit_box.clone(),
                 at(1.0, 0.0, 0.0),
                 IDENTITY,
                 -nx,
@@ -264,7 +266,7 @@ pctinterp_ratio_quarter_cast_first|0.25
             ),
             case(
                 "boundary_out",
-                &unit_box,
+                unit_box.clone(),
                 at(0.02, 0.0, 0.0),
                 IDENTITY,
                 nx,
@@ -274,7 +276,7 @@ pctinterp_ratio_quarter_cast_first|0.25
             ),
             case(
                 "boundary_in",
-                &unit_box,
+                unit_box.clone(),
                 at(0.005, 0.0, 0.0),
                 IDENTITY,
                 nx,
@@ -284,7 +286,7 @@ pctinterp_ratio_quarter_cast_first|0.25
             ),
             case(
                 "ratio_quarter",
-                &unit_box,
+                unit_box.clone(),
                 across,
                 IDENTITY,
                 nx,
@@ -294,7 +296,7 @@ pctinterp_ratio_quarter_cast_first|0.25
             ),
             case(
                 "zero_delta",
-                &unit_box,
+                unit_box.clone(),
                 IDENTITY,
                 IDENTITY,
                 nx,
@@ -304,7 +306,7 @@ pctinterp_ratio_quarter_cast_first|0.25
             ),
             case(
                 "rot_delta",
-                &unit_box,
+                unit_box.clone(),
                 rot60_at(0.0, 1.0, 0.0),
                 IDENTITY,
                 nx,
@@ -314,7 +316,7 @@ pctinterp_ratio_quarter_cast_first|0.25
             ),
             case(
                 "world_rot_delta",
-                &unit_box,
+                unit_box.clone(),
                 across,
                 world_rot,
                 nx,
@@ -324,7 +326,7 @@ pctinterp_ratio_quarter_cast_first|0.25
             ),
             case(
                 "sphere_ratio",
-                &sphere,
+                sphere.clone(),
                 across,
                 IDENTITY,
                 nx,
@@ -334,7 +336,7 @@ pctinterp_ratio_quarter_cast_first|0.25
             ),
             case(
                 "hull_ratio",
-                &hull,
+                hull.clone(),
                 across,
                 IDENTITY,
                 nx,
@@ -344,7 +346,7 @@ pctinterp_ratio_quarter_cast_first|0.25
             ),
             case(
                 "end_cast_first",
-                &unit_box,
+                unit_box.clone(),
                 at(1.0, 0.0, 0.0),
                 IDENTITY,
                 -nx,
@@ -354,7 +356,7 @@ pctinterp_ratio_quarter_cast_first|0.25
             ),
             case(
                 "ratio_quarter_cast_first",
-                &unit_box,
+                unit_box.clone(),
                 across,
                 IDENTITY,
                 -nx,
@@ -367,7 +369,7 @@ pctinterp_ratio_quarter_cast_first|0.25
         let mut bad = Vec::new();
         let mut covered = Vec::new();
         for c in cases {
-            let cast = CastHullShape::new(c.shape, c.t01);
+            let cast = CastHullShape::new(Arc::clone(&c.shape), c.t01);
             let point = manifold_point(c.normal, c.pos_a, c.pos_b, -0.01);
             let got = cast_single_result(&point, c.cast_first, &cast, c.world);
 
@@ -407,8 +409,8 @@ pctinterp_ratio_quarter_cast_first|0.25
     /// the part that writes into `ContactTestData`.
     #[test]
     fn a_cast_first_pair_negates_the_normal_and_keeps_position_world_on_a() {
-        let (unit_box, ..) = probe_shapes();
-        let cast = CastHullShape::new(&unit_box, at(1.0, 0.0, 0.0));
+        let (unit_box, ..) = arc_probe_shapes();
+        let cast = CastHullShape::new(unit_box, at(1.0, 0.0, 0.0));
         let normal = Vec3::new(0.0, 0.0, 1.0);
         let pos_a = Vec3::new(1.0, 2.0, 3.0);
         let pos_b = Vec3::new(4.0, 5.0, 6.0);
