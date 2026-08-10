@@ -113,6 +113,14 @@ pub fn process_collision(
 /// *with* their margins, so the cut-off is deliberately looser than the
 /// distance it is compared against.
 ///
+/// `closest_point_distance_threshold` is zero on every continuous query:
+/// `BulletBVHManager`'s constructor seeds `contact_distance_` to
+/// `BULLET_DEFAULT_CONTACT_DISTANCE` (`bullet_bvh_manager.cpp:55`, `0.00f`) and
+/// `checkRobotCollisionHelperCCD` never raises it -- the two
+/// `MAX_DISTANCE_MARGIN` assignments are both on the discrete manager
+/// (`collision_env_bullet.cpp:127,187`). It is a parameter rather than a
+/// constant because that is what makes the term visible to a test at all.
+///
 /// Upstream writes this inline; it is a function here so that the one number
 /// this module contributes to the result can be asserted directly, rather than
 /// only through a contact -- which would be pinning GJK a second time instead
@@ -200,7 +208,9 @@ mod tests {
     /// apex-to-face gaps of 0.015 and 0.03 fall either side of it. The third
     /// re-runs the 0.03 pair with `m_closestPointDistanceThreshold = 0.25`
     /// and gets its contact back, which is the only row here that could fail
-    /// if that term were dropped from the sum.
+    /// if that term were dropped from the sum. That threshold is zero on
+    /// every real continuous query -- see [`maximum_distance_squared`] -- so
+    /// the two non-zero rows pin the formula rather than a reachable pose.
     ///
     /// Fields: `name|contacts|normalOnB xyz|pointOnB xyz|depth|maxDistSq`.
     const BULLET_REFERENCE: &str = "\

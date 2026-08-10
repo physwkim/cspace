@@ -120,9 +120,22 @@ struct RecordingResult : public btManifoldResult
 	}
 };
 
-// One `processCollision` through the dispatcher MoveIt configures.
-// `closestPointDistanceThreshold` is `BroadphaseContactResultCallback`'s
-// `contact_distance_`, which the caller sets per query.
+// One `processCollision` through the dispatcher MoveIt configures, driven
+// exactly as `TesseractCollisionPairCallback::processOverlap` drives it
+// (`bullet_utils.cpp:517-533`): both wrappers built from the world
+// transforms, `findAlgorithm` asked once, the threshold assigned onto the
+// result before the call.
+//
+// `closestPointDistanceThreshold` is that callback's `contact_distance_`.
+// On the *continuous* path it is always zero: `BulletBVHManager`'s
+// constructor seeds `contact_distance_` to `BULLET_DEFAULT_CONTACT_DISTANCE`
+// (`bullet_bvh_manager.cpp:55`, `= 0.00f`), and
+// `checkRobotCollisionHelperCCD` never calls `setContactDistanceThreshold`
+// -- the two `MAX_DISTANCE_MARGIN` assignments are both on the discrete
+// `manager_` (`collision_env_bullet.cpp:127,187`). The non-zero rows below
+// are therefore not reachable configurations; they are there so the term
+// can be seen entering the sum at all, which a row that always passes zero
+// cannot show.
 static void cc(const char* name, btConvexShape* a, const btTransform& ta, btConvexShape* b,
                const btTransform& tb, btScalar closestPointDistanceThreshold)
 {
