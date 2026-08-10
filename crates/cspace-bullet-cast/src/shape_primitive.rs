@@ -31,6 +31,8 @@
 //! is why a sphere is the one primitive whose support function still moves after
 //! the margin is cleared.
 
+use std::sync::Arc;
+
 use cspace_bullet::compound::{CompoundShape, Shape as BulletShape};
 use cspace_bullet::linear_math::{Scalar, Transform, Vec3};
 use cspace_bullet::shapes::{BoxShape, ConeShapeZ, ConvexShape, CylinderShapeZ, SphereShape};
@@ -153,7 +155,7 @@ fn octree_primitive(geom: &OcTree) -> Result<CompoundShape, ShapeError> {
         let mut childshape = BoxShape::new(Vec3::new(l, l, l));
         childshape.set_margin(BULLET_MARGIN);
 
-        subshape.add_child_shape(geom_trans, BulletShape::Convex(Box::new(childshape)));
+        subshape.add_child_shape(geom_trans, BulletShape::Convex(Arc::new(childshape)));
     }
     Ok(subshape)
 }
@@ -174,12 +176,12 @@ pub fn create_shape_primitive(
     collision_object_type: CollisionObjectType,
 ) -> Result<BulletShape, ShapeError> {
     match geom {
-        Shape::Cuboid(cuboid) => Ok(BulletShape::Convex(Box::new(box_primitive(cuboid)))),
-        Shape::Sphere(sphere) => Ok(BulletShape::Convex(Box::new(sphere_primitive(sphere)))),
+        Shape::Cuboid(cuboid) => Ok(BulletShape::Convex(Arc::new(box_primitive(cuboid)))),
+        Shape::Sphere(sphere) => Ok(BulletShape::Convex(Arc::new(sphere_primitive(sphere)))),
         Shape::Cylinder(cylinder) => {
-            Ok(BulletShape::Convex(Box::new(cylinder_primitive(cylinder))))
+            Ok(BulletShape::Convex(Arc::new(cylinder_primitive(cylinder))))
         }
-        Shape::Cone(cone) => Ok(BulletShape::Convex(Box::new(cone_primitive(cone)))),
+        Shape::Cone(cone) => Ok(BulletShape::Convex(Arc::new(cone_primitive(cone)))),
         Shape::Mesh(mesh) => mesh_primitive(mesh, collision_object_type),
         Shape::OcTree(octree) => Ok(BulletShape::Compound(octree_primitive(octree)?)),
         Shape::Plane(_) => Err(ShapeError::UnsupportedGeometry {
@@ -225,10 +227,7 @@ mod tests {
     /// `createShapePrimitive` applies (`bullet_utils.cpp:577`, `:599`). Without
     /// it a box keeps `setSafeMargin`'s margin and every read is inset by it.
     fn zero_margin(mut shape: BulletShape) -> BulletShape {
-        match &mut shape {
-            BulletShape::Convex(convex) => convex.set_margin(BULLET_MARGIN),
-            BulletShape::Compound(compound) => compound.set_margin(BULLET_MARGIN),
-        }
+        shape.set_margin(BULLET_MARGIN);
         shape
     }
 
@@ -314,15 +313,13 @@ mod tests {
     /// even after the caller clears margins.
     #[test]
     fn a_sphere_keeps_its_radius_as_its_margin() {
-        let built = create_shape_primitive(
-            &Shape::Sphere(Sphere { radius: 0.25 }),
-            CollisionObjectType::UseShapeType,
-        )
-        .unwrap();
-        let mut shape = built;
-        if let BulletShape::Convex(convex) = &mut shape {
-            convex.set_margin(BULLET_MARGIN);
-        }
+        let shape = zero_margin(
+            create_shape_primitive(
+                &Shape::Sphere(Sphere { radius: 0.25 }),
+                CollisionObjectType::UseShapeType,
+            )
+            .unwrap(),
+        );
         assert_eq!(convex(&shape).margin(), 0.25);
     }
 

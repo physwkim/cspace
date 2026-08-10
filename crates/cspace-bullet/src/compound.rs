@@ -38,6 +38,15 @@
 //! builds each compound with `addChildShape` and afterwards only ever calls
 //! `updateChildTransform` (`bullet_cast_bvh_manager.cpp:102`, `:115`).
 //!
+//! `getChildShape`'s non-const overload: its one caller is
+//! `setCastCollisionObjectsTransform`, which `static_cast`s the child to
+//! `CastHullShape` and re-poses it (`bullet_cast_bvh_manager.cpp:101`,
+//! `:114`). That cast is the downcast this module's sum type exists to avoid,
+//! and the cast layer does the same re-pose through a typed handle on the
+//! shape it built -- which aliases the child here exactly as the C++ pointer
+//! does, so there is nothing for a mutable accessor to reach that the owner
+//! does not already hold.
+//!
 //! `m_updateRevision`: its only readers are the two compound algorithms'
 //! child-algorithm caches, which this crate does not carry -- see
 //! `crate::compound_algorithm` for why those caches have no observable effect
@@ -50,6 +59,8 @@
 //! neither of which exists here. `m_localScaling` holds its constructed
 //! `(1,1,1)` for the whole life of every compound MoveIt builds, so the
 //! multiplications it would take part in are all by one.
+
+use std::sync::Arc;
 
 use crate::broadphase_proxy::BroadphaseNativeType;
 use crate::dbvt::{Dbvt, DbvtVolume};
@@ -66,7 +77,17 @@ pub enum Shape {
     /// Anything reaching the narrow phase, including shapes defined outside
     /// this crate -- MoveIt's `CastHullShape` is the one the continuous path
     /// actually puts here.
-    Convex(Box<dyn ConvexShape>),
+    ///
+    /// Shared, not owned, because upstream shares it: a child is a
+    /// `btCollisionShape*` whose lifetime hangs off the collision object's
+    /// `data_` vector of `std::shared_ptr<void>`, and
+    /// `makeCastCollisionObject` builds a second compound whose children are
+    /// `CastHullShape`s **wrapping these same pointers**
+    /// (`bullet_utils.cpp:323-332`). A uniquely-owned child would force that
+    /// rebuild to copy a shape it is documented not to copy --
+    /// `CollisionObjectWrapper::clone` says "clones the collision objects but
+    /// not the collision shape which is const".
+    Convex(Arc<dyn ConvexShape>),
     /// `btCompoundShape`.
     Compound(CompoundShape),
 }
@@ -96,6 +117,27 @@ impl Shape {
         match self {
             Self::Convex(shape) => shape.margin(),
             Self::Compound(compound) => compound.margin(),
+        }
+    }
+
+    /// `btCollisionShape::setMargin`, on a shape that is not yet shared.
+    ///
+    /// Every `setMargin` call on this path is the `BULLET_MARGIN` one a
+    /// freshly-built shape takes from its builder -- `bullet_utils.cpp:577`,
+    /// `:587`, `:599`, and the three in `makeCastCollisionObject` -- and at
+    /// each of them the shape has exactly one owner, so the `Arc` is unique.
+    /// A shape already handed to a compound is const from then on: nothing on
+    /// the continuous path re-margins one.
+    ///
+    /// # Panics
+    ///
+    /// If the shape is already shared, which would silently margin nothing.
+    pub fn set_margin(&mut self, margin: Scalar) {
+        match self {
+            Self::Convex(shape) => Arc::get_mut(shape)
+                .expect("a shape is margined by its builder, before it is shared")
+                .set_margin(margin),
+            Self::Compound(compound) => compound.set_margin(margin),
         }
     }
 }
@@ -193,13 +235,6 @@ impl CompoundShape {
     #[must_use]
     pub fn child_shape(&self, index: usize) -> &Shape {
         &self.children[index].shape
-    }
-
-    /// `getChildShape`, mutably -- what `updateCastTransform` needs to reach
-    /// the `CastHullShape` it is about to re-pose
-    /// (`bullet_cast_bvh_manager.cpp:101`, `:114`).
-    pub fn child_shape_mut(&mut self, index: usize) -> &mut Shape {
-        &mut self.children[index].shape
     }
 
     /// `getChildTransform` (`btCompoundShape.h:100-107`).
@@ -338,9 +373,9 @@ comp_line4|-0.5|-0.5|-0.5|6.5|0.5|0.5|4|3|2|1|0
     fn three(enable_tree: bool) -> CompoundShape {
         let (unit_box, _, _, sphere, _, cyl, _, _) = probe_shapes();
         let mut c = CompoundShape::new(enable_tree);
-        c.add_child_shape(at(0.0, 0.0, 0.0), Shape::Convex(Box::new(unit_box)));
-        c.add_child_shape(at(2.0, 0.0, 0.0), Shape::Convex(Box::new(sphere)));
-        c.add_child_shape(at(0.0, 3.0, 0.0), Shape::Convex(Box::new(cyl)));
+        c.add_child_shape(at(0.0, 0.0, 0.0), Shape::Convex(Arc::new(unit_box)));
+        c.add_child_shape(at(2.0, 0.0, 0.0), Shape::Convex(Arc::new(sphere)));
+        c.add_child_shape(at(0.0, 3.0, 0.0), Shape::Convex(Arc::new(cyl)));
         c
     }
 
@@ -421,7 +456,7 @@ comp_line4|-0.5|-0.5|-0.5|6.5|0.5|0.5|4|3|2|1|0
         for i in 0..4 {
             line.add_child_shape(
                 at(f64::from(i) as Scalar * 2.0, 0.0, 0.0),
-                Shape::Convex(Box::new(unit_box)),
+                Shape::Convex(Arc::new(unit_box)),
             );
         }
         check(&mut bad, "comp_line4", &line, &Transform::identity());

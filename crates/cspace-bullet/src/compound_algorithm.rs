@@ -554,6 +554,8 @@ fn my_intersect(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::discrete_detector::Result as DetectorResult;
     use crate::linear_math::Matrix3;
@@ -622,7 +624,7 @@ mod tests {
     }
 
     fn convex(shape: impl ConvexShape + 'static) -> Shape {
-        Shape::Convex(Box::new(shape))
+        Shape::Convex(Arc::new(shape))
     }
 
     fn unit_box() -> Shape {
