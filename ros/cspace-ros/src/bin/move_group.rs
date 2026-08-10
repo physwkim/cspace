@@ -29,7 +29,7 @@
 //!   executes anything, and its absence costs that constructor one silent
 //!   `wait_for_servers` timeout. Everything the server answers, and which of
 //!   the two possible servers it is, lives in
-//!   [`moveit_ros::execute_trajectory`].
+//!   [`cspace_ros::execute_trajectory`].
 //! * `planning_scene` (`moveit_msgs/msg/PlanningScene`, subscription) --
 //!   upstream `PlanningSceneMonitor::startSceneMonitor`
 //!   (`planning_scene_monitor.cpp:1197`). See "The monitored scene" below.
@@ -46,7 +46,7 @@
 //!   unmodified `MoveGroupInterface` calls in its own right:
 //!   `computeCartesianPath` sends here and returns the reply's `fraction`
 //!   verbatim (`move_group_interface.cpp:873-911`). Its body lives in
-//!   [`moveit_ros::cartesian_path`], which documents what that fraction means
+//!   [`cspace_ros::cartesian_path`], which documents what that fraction means
 //!   and which request fields this port refuses rather than ignores.
 //!
 //! Three more topics are published here that upstream's `move_group` does
@@ -58,12 +58,12 @@
 //!   `MoveGroupInterface` falls back to when its own node has no such
 //!   parameter, and therefore what its constructor blocks 10 s per
 //!   description without. Upstream publishes these only when told to;
-//!   [`moveit_ros::robot_description`] has the derivation and the
+//!   [`cspace_ros::robot_description`] has the derivation and the
 //!   both-or-neither invariant.
 //! * `joint_states` (`sensor_msgs/msg/JointState`, 10 Hz) -- the robot
 //!   driver's topic, which upstream's `move_group` only ever subscribes to.
 //!   It is what a client's `getCurrentState()` waits on, and `plan()` does
-//!   not need it; [`moveit_ros::joint_states`] has both halves of that.
+//!   not need it; [`cspace_ros::joint_states`] has both halves of that.
 //!
 //! The name is upstream's own for the executable that loads exactly these
 //! capabilities: `add_executable(move_group src/move_group.cpp)`
@@ -108,7 +108,7 @@
 //! Each converts its incoming `moveit_msgs/MotionPlanRequest` into a
 //! [`cspace_planning::PlanningRequest`] (the existing
 //! `TryFrom<PlanningRequestMsg>` impl), hands it to
-//! [`moveit_ros::move_group::plan_only`], and encodes whatever comes back.
+//! [`cspace_ros::move_group::plan_only`], and encodes whatever comes back.
 //! That function is upstream's own two steps --
 //! `MoveGroupCapability::resolvePlanningPipeline` followed by
 //! `PlanningPipeline::generatePlan` -- and both capabilities call them in
@@ -122,7 +122,7 @@
 //! with `cspace_planning`'s. D8 merged the two, so `RrtConnectManager` now
 //! implements [`cspace_planning::PlannerManager`] and reaches these
 //! endpoints through `cspace_planning::planner_registry::PLANNER_MANAGERS` -- which
-//! this binary sees only because `moveit_ros`'s own `lib.rs` names the
+//! this binary sees only because `cspace_ros`'s own `lib.rs` names the
 //! planner crate, `linkme` registrations being link-time, not
 //! dependency-time (`cspace_planning::planner_registry::PLANNER_MANAGERS`' doc).
 //!
@@ -172,7 +172,7 @@
 //!
 //! What §255 could say and this round cannot is that `FAILURE` is the *only*
 //! reachable answer. The null-pipeline branch it stood in is still reachable
-//! -- [`moveit_ros::move_group::PlanOnlyError::UnknownPipeline`] is what a
+//! -- [`cspace_ros::move_group::PlanOnlyError::UnknownPipeline`] is what a
 //! `pipeline_id` naming no registered planner produces, and what *every*
 //! request would produce if `PLANNER_MANAGERS` were empty, which is the state
 //! §255 was written in. It is no longer the only outcome: a request naming a
@@ -189,25 +189,25 @@ use cspace_collision::{BodyType, CollisionRequest, ParryCollisionEnv};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_planning::PlanningRequest;
 use cspace_planning::constraints::KinematicConstraintSet;
+use cspace_ros::constraints::set::ConstraintsMsg;
+use cspace_ros::execute_trajectory;
+use cspace_ros::execution::{ExecutionEvent, ExecutionEventMsg, StopOutcome, TrajectoryExecution};
+use cspace_ros::joint_states::JointSampler;
 use futures::executor::LocalPool;
 use futures::stream::StreamExt;
 use futures::task::LocalSpawnExt;
-use moveit_ros::constraints::set::ConstraintsMsg;
-use moveit_ros::execute_trajectory;
-use moveit_ros::execution::{ExecutionEvent, ExecutionEventMsg, StopOutcome, TrajectoryExecution};
-use moveit_ros::joint_states::JointSampler;
 // `use_planning_scene_msg` is no longer imported here: every scene write in
 // this binary now goes through `monitored_scene`, which is the one owner both
 // the diff path and the topic path route through.
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
 use cspace_planning::scene::PlanningScene;
-use moveit_ros::monitored_scene::{self, MonitoredScene};
-use moveit_ros::move_group::plan_only;
-use moveit_ros::planner_params::PlannerConfigurations;
-use moveit_ros::planning::{PlanningRequestMsg, PlanningResponseMsgOut};
-use moveit_ros::robot_description;
-use moveit_ros::state::RobotStateMsg;
+use cspace_ros::monitored_scene::{self, MonitoredScene};
+use cspace_ros::move_group::plan_only;
+use cspace_ros::planner_params::PlannerConfigurations;
+use cspace_ros::planning::{PlanningRequestMsg, PlanningResponseMsgOut};
+use cspace_ros::robot_description;
+use cspace_ros::state::RobotStateMsg;
 use r2r::QosProfile;
 use r2r::moveit_msgs::action::{ExecuteTrajectory, MoveGroup};
 use r2r::moveit_msgs::msg::MoveItErrorCodes;
@@ -758,7 +758,7 @@ fn main() -> ExitCode {
     // (`moveit_ros/move_group/include/moveit/move_group/capability_names.hpp:45`),
     // verbatim and unqualified for the reason `move_action` above is. The
     // literal is written here rather than referenced from a constant in
-    // [`moveit_ros::execute_trajectory`] on purpose:
+    // [`cspace_ros::execute_trajectory`] on purpose:
     // `tools/ci/measure-client-endpoint-surface.py`'s `PORT_OPENER` matches a
     // string literal inside the factory call, so a named constant would leave
     // this endpoint reading `absent` in `doc/client-endpoint-surface.md` with
@@ -775,7 +775,7 @@ fn main() -> ExitCode {
     // The two descriptions the client's own constructor blocks on. Both or
     // neither, and fatal on failure -- the invariant and the reason a half
     // latch is worse than none are in
-    // [`moveit_ros::robot_description`]. Held for the process's life: the
+    // [`cspace_ros::robot_description`]. Held for the process's life: the
     // samples are transient-local, so dropping this would leave the client
     // subscribing to a topic that answers nothing.
     let _descriptions = match robot_description::latch(&mut node, &urdf_xml, &srdf_xml) {
@@ -832,7 +832,7 @@ fn main() -> ExitCode {
     // (`moveit_ros/move_group/include/moveit/move_group/capability_names.hpp:59-60`
     // -- the basename alone is ambiguous, pilz ships one too).
     // Spelled as a literal rather than as
-    // `moveit_ros::cartesian_path::SERVICE_NAME`, which holds the same string:
+    // `cspace_ros::cartesian_path::SERVICE_NAME`, which holds the same string:
     // `tools/ci/measure-client-endpoint-surface.py`'s `PORT_OPENER` matches a
     // string literal in the factory call, so a constant here would leave the
     // endpoint reading `absent` in `doc/client-endpoint-surface.md` while the
@@ -858,12 +858,12 @@ fn main() -> ExitCode {
 
     // Upstream's `MoveGroupQueryPlannersService` is one capability serving
     // three services off one configuration map, so it registers as one thing
-    // here too -- see `moveit_ros::planner_params`.
+    // here too -- see `cspace_ros::planner_params`.
     // The returned store is the one the three services share, and the same
     // handle every plan below is built from -- upstream hands its map to the
     // planner instance from inside `setParams`; here the node holds it and
     // the planner is constructed from it (PORTING-PLAN.md §285).
-    let planner_configs = match moveit_ros::planner_params::spawn(&mut node, &spawner) {
+    let planner_configs = match cspace_ros::planner_params::spawn(&mut node, &spawner) {
         Ok(configs) => configs,
         Err(e) => {
             eprintln!("{e}");
@@ -1002,7 +1002,7 @@ fn main() -> ExitCode {
     // `TrajectoryExecutionManager::receiveEvent`
     // (`trajectory_execution_manager.cpp:355`), which logs the payload and
     // hands it to `processEvent` (`:343`). The state this transitions lives
-    // in `moveit_ros::execution`; the task owns the one instance so nothing
+    // in `cspace_ros::execution`; the task owns the one instance so nothing
     // else can reach the transition.
     let spawned = spawner.spawn_local(async move {
         let mut events = execution_events;
@@ -1034,7 +1034,7 @@ fn main() -> ExitCode {
     }
 
     // The whole registration: this capability owns its goals end to end in
-    // [`moveit_ros::execute_trajectory::serve`], so no goal handle, no result
+    // [`cspace_ros::execute_trajectory::serve`], so no goal handle, no result
     // and no terminal transition is visible here. See that module for which of
     // the two possible servers this is -- it is the no-execution-backend one,
     // answering upstream's own `CONTROL_FAILED`, not a server reporting
@@ -1049,7 +1049,7 @@ fn main() -> ExitCode {
     // to this topic and never publishes it; what this node publishes is the
     // monitored scene's own current state, so a client's `getCurrentState()`
     // reads back the state this node plans from. See
-    // [`moveit_ros::joint_states`] for that deviation and for why a latched
+    // [`cspace_ros::joint_states`] for that deviation and for why a latched
     // message could not serve this endpoint.
     let scene_for_joint_states = Rc::clone(&scene);
     let spawned = spawner.spawn_local(async move {
@@ -1117,7 +1117,7 @@ fn main() -> ExitCode {
         while let Some(req) = service.next().await {
             let response = {
                 let snapshot = Arc::clone(&scene_for_cartesian.borrow());
-                moveit_ros::cartesian_path::handle(&snapshot, req.message.clone())
+                cspace_ros::cartesian_path::handle(&snapshot, req.message.clone())
             };
             if let Err(e) = req.respond(response) {
                 eprintln!("responding to compute_cartesian_path request: {e}");

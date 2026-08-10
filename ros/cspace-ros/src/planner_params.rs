@@ -118,7 +118,7 @@
 //! argument, so the manager the next plan runs on is *built from* whatever
 //! `set` last wrote (PORTING-PLAN.md §285). [`spawn`] therefore returns the
 //! store rather than keeping it private -- the binary hands the same
-//! [`PlannerConfigurations`] to `moveit_ros::move_group::plan_only`, and
+//! [`PlannerConfigurations`] to `cspace_ros::move_group::plan_only`, and
 //! that sharing is what makes a `set` reach a plan.
 //!
 //! Which entry of the map a given plan runs under is the planner's lookup,

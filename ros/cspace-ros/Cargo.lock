@@ -168,6 +168,85 @@ dependencies = [
 ]
 
 [[package]]
+name = "cspace-collision"
+version = "0.1.0"
+dependencies = [
+ "cspace-core",
+ "glamx",
+ "nalgebra",
+ "parry3d-f64",
+]
+
+[[package]]
+name = "cspace-core"
+version = "0.1.0"
+dependencies = [
+ "glamx",
+ "linkme",
+ "nalgebra",
+ "parry3d-f64",
+ "rand 0.10.2",
+ "rand_chacha",
+ "rand_distr",
+ "roxmltree",
+ "rsruckig",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-planners"
+version = "0.1.0"
+dependencies = [
+ "cspace-collision",
+ "cspace-core",
+ "cspace-planning",
+ "cspace-stomp-core",
+ "linkme",
+ "nalgebra",
+ "rand 0.10.2",
+ "rand_chacha",
+ "rand_distr",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "cspace-planning"
+version = "0.1.0"
+dependencies = [
+ "cspace-collision",
+ "cspace-core",
+ "linkme",
+ "nalgebra",
+ "rand 0.10.2",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "cspace-ros"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "cspace-collision",
+ "cspace-core",
+ "cspace-planners",
+ "cspace-planning",
+ "futures",
+ "nalgebra",
+ "r2r",
+ "urdf-rs",
+]
+
+[[package]]
+name = "cspace-stomp-core"
+version = "0.1.0"
+dependencies = [
+ "nalgebra",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -531,205 +610,6 @@ name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
-
-[[package]]
-name = "cspace-collision"
-version = "0.1.0"
-dependencies = [
- "glamx",
- "cspace_core::error",
- "cspace_core::geometry",
- "cspace_core::model",
- "cspace_core::octomap",
- "cspace_core::srdf",
- "cspace_core::state",
- "nalgebra",
- "parry3d-f64",
-]
-
-[[package]]
-name = "cspace_planning::constraints"
-version = "0.1.0"
-dependencies = [
- "cspace-collision",
- "cspace_core::error",
- "cspace_core::geometry",
- "cspace_core::kinematics",
- "cspace_core::model",
- "cspace_core::state",
- "nalgebra",
- "rand 0.10.2",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "cspace_core::error"
-version = "0.1.0"
-dependencies = [
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "cspace_core::geometry"
-version = "0.1.0"
-dependencies = [
- "glamx",
- "cspace_core::error",
- "cspace_core::octomap",
- "nalgebra",
- "parry3d-f64",
-]
-
-[[package]]
-name = "cspace_core::kinematics"
-version = "0.1.0"
-dependencies = [
- "linkme",
- "cspace_core::error",
- "cspace_core::geometry",
- "cspace_core::model",
- "cspace_core::state",
- "nalgebra",
- "rand 0.10.2",
- "rand_chacha",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "cspace_core::model"
-version = "0.1.0"
-dependencies = [
- "cspace_core::error",
- "cspace_core::geometry",
- "cspace_core::srdf",
- "nalgebra",
- "roxmltree",
- "urdf-rs",
-]
-
-[[package]]
-name = "cspace_core::octomap"
-version = "0.1.0"
-dependencies = [
- "nalgebra",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "cspace_planning::planner_registry"
-version = "0.1.0"
-dependencies = [
- "linkme",
- "cspace_core::error",
- "cspace-planning",
-]
-
-[[package]]
-name = "cspace_planners::sbp"
-version = "0.1.0"
-dependencies = [
- "linkme",
- "cspace-collision",
- "cspace_planning::constraints",
- "cspace_core::error",
- "cspace_core::geometry",
- "cspace_core::kinematics",
- "cspace_core::model",
- "cspace_planning::planner_registry",
- "cspace-planning",
- "cspace_planning::scene",
- "cspace_core::state",
- "cspace_core::trajectory",
- "rand 0.10.2",
- "rand_chacha",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "cspace-planning"
-version = "0.1.0"
-dependencies = [
- "cspace-collision",
- "cspace_planning::constraints",
- "cspace_core::error",
- "cspace_core::geometry",
- "cspace_core::model",
- "cspace_planning::scene",
- "cspace_core::state",
- "cspace_core::trajectory",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "cspace-ros"
-version = "0.1.0"
-dependencies = [
- "approx",
- "futures",
- "cspace-collision",
- "cspace_planning::constraints",
- "cspace_core::error",
- "cspace_core::geometry",
- "cspace_core::kinematics",
- "cspace_core::model",
- "cspace_core::octomap",
- "cspace_planning::planner_registry",
- "cspace_planners::sbp",
- "cspace-planning",
- "cspace_planning::scene",
- "cspace_core::srdf",
- "cspace_core::state",
- "cspace_core::trajectory",
- "nalgebra",
- "r2r",
- "urdf-rs",
-]
-
-[[package]]
-name = "cspace_planning::scene"
-version = "0.1.0"
-dependencies = [
- "cspace-collision",
- "cspace_planning::constraints",
- "cspace_core::error",
- "cspace_core::geometry",
- "cspace_core::kinematics",
- "cspace_core::model",
- "cspace_core::srdf",
- "cspace_core::state",
-]
-
-[[package]]
-name = "cspace_core::srdf"
-version = "0.1.0"
-dependencies = [
- "cspace_core::error",
- "roxmltree",
-]
-
-[[package]]
-name = "cspace_core::state"
-version = "0.1.0"
-dependencies = [
- "cspace_core::error",
- "cspace_core::geometry",
- "cspace_core::model",
- "nalgebra",
- "rand 0.10.2",
- "rand_distr",
-]
-
-[[package]]
-name = "cspace_core::trajectory"
-version = "0.1.0"
-dependencies = [
- "cspace_core::error",
- "cspace_core::model",
- "cspace_core::state",
- "nalgebra",
- "rsruckig",
-]
 
 [[package]]
 name = "nalgebra"

@@ -22,7 +22,7 @@
 //! was published with, which is by construction older than any later
 //! `now()`. The publisher therefore has to keep publishing, with a fresh
 //! stamp each time; hence the timer in `src/bin/move_group.rs` rather than
-//! `moveit_ros::robot_description`'s single latched send.
+//! `cspace_ros::robot_description`'s single latched send.
 //!
 //! # What goes in the message
 //!

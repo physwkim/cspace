@@ -64,7 +64,7 @@ DOMAIN_ID="${ROS_DOMAIN_ID:-$((($$ % 100) + 1))}"
 echo "=== execute_trajectory (ROS_DOMAIN_ID=$DOMAIN_ID) ==="
 
 # The exact strings this port answers with, hand-kept: see the header.
-# `moveit_ros::execute_trajectory` builds them.
+# `cspace_ros::execute_trajectory` builds them.
 SOURCE_STRING="cspace-ros/execute_trajectory"
 # A distinctive fragment of NO_EXECUTION_BACKEND, not the whole sentence:
 # `ros2 action send_goal` re-wraps long YAML scalars, so a whole-sentence

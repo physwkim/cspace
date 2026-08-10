@@ -121,7 +121,7 @@ echo "move_action legs: ROS_DOMAIN_ID=$DOMAIN_ID"
 # Python repr instead -- same node, same string, two renderings.
 PLANNER_FAILED_MSG="planner ''rrt_connect'' failed: unknown joint model group"
 SOURCE_STRING="cspace-ros/move_action"
-# Leg C's own, from `moveit_ros::cartesian_path::SOURCE`. Pinned separately
+# Leg C's own, from `cspace_ros::cartesian_path::SOURCE`. Pinned separately
 # from `SOURCE_STRING` on purpose: the field's whole job is to say which
 # endpoint answered, so a leg that accepted either string would be blind to
 # the one mix-up it exists to catch.
