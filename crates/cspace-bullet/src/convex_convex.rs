@@ -282,7 +282,7 @@ cc_margin_box_sphere|1|-1|4.77601292e-09|4.29841158e-08|0.550000012|0.0500000007
                 CollisionObjectWrapper::new(b_shape, *tb, 1),
                 closest_point_distance_threshold,
             );
-            let manifold = PersistentManifold::new();
+            let manifold = PersistentManifold::new(0, 1);
             process_collision(a, ta, b, tb, manifold, &mut out);
 
             let want_count: usize = f[1]

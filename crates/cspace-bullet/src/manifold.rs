@@ -116,6 +116,14 @@ impl ManifoldPoint {
 pub struct PersistentManifold {
     /// `m_contactBreakingThreshold`.
     pub contact_breaking_threshold: Scalar,
+    /// `m_body0` -- the identity of the object the manifold was created
+    /// *around*, which is not always the result's body 0. A compound arm that
+    /// was created swapped dispatches its child as body 0 of the child query
+    /// while the result's body 0 stays the caller's first operand, and the
+    /// difference between the two is `isSwapped`.
+    pub body0_id: usize,
+    /// `m_body1`, as above.
+    pub body1_id: usize,
 }
 
 impl PersistentManifold {
@@ -138,9 +146,11 @@ impl PersistentManifold {
     /// to build a contact constraint. Carrying it here would be a field with a
     /// `btMin` behind it that no test in this crate could ever discriminate.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(body0_id: usize, body1_id: usize) -> Self {
         Self {
             contact_breaking_threshold: CONTACT_BREAKING_THRESHOLD,
+            body0_id,
+            body1_id,
         }
     }
 
@@ -148,15 +158,6 @@ impl PersistentManifold {
     #[must_use]
     pub fn num_contacts(&self) -> usize {
         0
-    }
-}
-
-impl Default for PersistentManifold {
-    /// The same manifold [`PersistentManifold::new`] builds: with the relative
-    /// breaking threshold cleared there is only one manifold this path can
-    /// produce.
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -185,9 +186,6 @@ pub struct ManifoldResultState<'a> {
     pub body0_wrap: CollisionObjectWrapper<'a>,
     /// `m_body1Wrap`, as above.
     pub body1_wrap: CollisionObjectWrapper<'a>,
-    /// `m_manifoldPtr->getBody0()` -- which of the two the manifold was
-    /// created around, which is what decides `isSwapped`.
-    pub manifold_body0_id: usize,
     /// `m_partId0`.
     pub part_id0: i32,
     /// `m_partId1`.
@@ -210,7 +208,6 @@ impl<'a> ManifoldResultState<'a> {
     ) -> Self {
         Self {
             manifold: None,
-            manifold_body0_id: body0_wrap.object_id,
             body0_wrap,
             body1_wrap,
             part_id0: -1,
@@ -222,9 +219,23 @@ impl<'a> ManifoldResultState<'a> {
     }
 
     /// `m_manifoldPtr->getBody0() != m_body0Wrap->getCollisionObject()`.
+    ///
+    /// Read off the manifold rather than off a copy taken when one was
+    /// installed: upstream dereferences `m_manifoldPtr` at the moment the
+    /// contact arrives, and a cached identity would answer for whichever
+    /// manifold was set first.
+    ///
+    /// # Panics
+    ///
+    /// If no manifold is set. Upstream dereferences the pointer unguarded, and
+    /// every caller is inside an `addContactPoint` that the narrow phase
+    /// reached only after `setPersistentManifold`.
     #[must_use]
     pub fn is_swapped(&self) -> bool {
-        self.manifold_body0_id != self.body0_wrap.object_id
+        self.manifold
+            .expect("a contact arrives only after the algorithm set its manifold")
+            .body0_id
+            != self.body0_wrap.object_id
     }
 }
 

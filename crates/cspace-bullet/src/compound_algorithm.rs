@@ -161,7 +161,11 @@ pub fn process_collision<'a>(
                     proxy_type1,
                 });
             }
-            let manifold = PersistentManifold::new();
+            // `getNewManifold(body0Wrap->getCollisionObject(),
+            // body1Wrap->getCollisionObject())` (`btConvexConvexAlgorithm.cpp:278`)
+            // -- the two objects *this* dispatch was given, which for a swapped
+            // compound arm are not the two the enclosing query named.
+            let manifold = PersistentManifold::new(body0.object_id, body1.object_id);
             convex_convex::process_collision(
                 min0.as_ref(),
                 &body0.world_transform,
@@ -566,6 +570,9 @@ mod tests {
         /// The two body wraps' own transforms at each contact, which is what
         /// `addCastSingleResult` reads back out of them.
         wraps: Vec<(Transform, Transform)>,
+        /// `isSwapped` at each contact -- which operand the manifold was
+        /// created around, against which one the result calls body 0.
+        swapped: Vec<bool>,
     }
 
     impl<'a> TraceResult<'a> {
@@ -582,6 +589,7 @@ mod tests {
                 contacts: Vec::new(),
                 geometry: Vec::new(),
                 wraps: Vec::new(),
+                swapped: Vec::new(),
             }
         }
     }
@@ -601,6 +609,7 @@ mod tests {
                 self.state.body0_wrap.world_transform,
                 self.state.body1_wrap.world_transform,
             ));
+            self.swapped.push(self.state.is_swapped());
         }
     }
 
@@ -1356,6 +1365,54 @@ ccpoint_notree_cyl2_line3_0|-0.159731388|-0.982497215|-0.0958388522|1.95123732|-
         assert_eq!(
             out.state.body0_wrap.object_transform, IDENTITY,
             "the object's transform is the same at every depth"
+        );
+    }
+
+    /// `isSwapped` is the manifold's body 0 against the result's, and the
+    /// swapped compound arm is what makes them differ: the child is dispatched
+    /// as body 0 of its own query while the result's body 0 stays the convex
+    /// operand the caller passed first.
+    ///
+    /// `addContactPoint` reads it to decide which world position is the cast
+    /// object's (`bullet_utils.hpp:588-601`), so a manifold that could not
+    /// answer -- as this port's could not, having no bodies at all -- reports
+    /// every pair unswapped and reads the wrong point for half of them.
+    #[test]
+    fn a_swapped_compound_arm_reports_its_contacts_as_swapped() {
+        let compound = line3(true, unit_box);
+        let other = sphere();
+        let t = at(1.0, 0.0, 0.6);
+
+        let compound_first = CollisionObjectWrapper::new(&compound, IDENTITY, 0);
+        let convex_second = CollisionObjectWrapper::new(&other, t, 1);
+        let mut out = TraceResult::new(compound_first, convex_second, 0.0);
+        process_collision(
+            &compound_first,
+            &convex_second,
+            DispatchTable::ClosestPoints,
+            &mut out,
+        )
+        .expect("boxes against a sphere are convex-convex");
+        assert!(!out.swapped.is_empty(), "the fixture must reach a contact");
+        assert!(
+            out.swapped.iter().all(|s| !s),
+            "the compound is the result's body 0 and its child's query's body 0"
+        );
+
+        let convex_first = CollisionObjectWrapper::new(&other, t, 0);
+        let compound_second = CollisionObjectWrapper::new(&compound, IDENTITY, 1);
+        let mut out = TraceResult::new(convex_first, compound_second, 0.0);
+        process_collision(
+            &convex_first,
+            &compound_second,
+            DispatchTable::ClosestPoints,
+            &mut out,
+        )
+        .expect("boxes against a sphere are convex-convex");
+        assert!(!out.swapped.is_empty(), "the fixture must reach a contact");
+        assert!(
+            out.swapped.iter().all(|s| *s),
+            "`SwappedCreateFunc` dispatches the child first, the result still calls the sphere body 0"
         );
     }
 
