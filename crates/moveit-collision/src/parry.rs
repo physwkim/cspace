@@ -6829,8 +6829,24 @@ mod tests {
         // Without these the assertions above hold vacuously: the first on a
         // sample that never brought the meshes together, the others on one
         // where the replaced dispatch happened never to be wrong.
+        //
+        // Floors rather than exact counts, because neither counter is
+        // portable: both bucket an EPA result against a `1e-9` threshold, and
+        // EPA does not land on the same `f64` on every target. `(8, 10)` was
+        // recorded on one; `aarch64-apple-darwin` measures `(10, 10)` out of
+        // 4083 contacts, including at `24a27537`, the commit that recorded
+        // the pin. Non-vacuity is the whole claim here -- that each arm was
+        // reached at all -- and it is the per-pair assertions above, not a
+        // count, that say what the arm found is right.
         assert!(contacts > 100, "only {contacts} contacts to compare");
-        assert_eq!((swapped_order, parry_missed), (8, 10));
+        assert!(
+            swapped_order > 4,
+            "only {swapped_order} pairs differed by operand order alone"
+        );
+        assert!(
+            parry_missed > 4,
+            "only {parry_missed} minima never reached parry's leaf test"
+        );
     }
 
     /// [`ContactDetail::Verdict`] stops the search early, so what it returns
