@@ -97,6 +97,13 @@ for manifest in "${manifests[@]}"; do
         sub(/=.*$/, "", key)
         gsub(/[[:space:]]/, "", key)
         if (key ~ /\.workspace$/) next   # `foo.workspace = true` -- the wanted form
+        # `foo = { workspace = true, features = [...] }` inherits too: it adds
+        # features on top of the [workspace.dependencies] entry rather than
+        # restating path/version, which is what this gate exists to catch. The
+        # merged crates need it -- `cspace-core = { workspace = true, features
+        # = ["test-support"] }` is how a dev-dependency asks for the fixture
+        # loaders that the normal dependency edge must not carry.
+        if (key in member && $0 ~ /\{[^}]*workspace[[:space:]]*=[[:space:]]*true/) next
         if (key in member) print key " " $0
       }
 
