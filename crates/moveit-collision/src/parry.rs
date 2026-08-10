@@ -1794,13 +1794,112 @@ fn scaled_padded_shape(shape: &Shape, scale: f64, padding: f64) -> Shape {
     shape
 }
 
-/// One globally-posed piece of collision geometry — what [`part_pairs`]
-/// hands [`part_contact`].
+/// [`Part`], in its own module so that its fields are private to it.
 ///
-/// Upstream's `global_shape_poses_[i]` / `getCollisionBodyTransform(link, i)`
-/// paired with the shape it poses, plus the oriented-box hierarchy
-/// [`ConvertedShape`] fitted to that shape when it is a mesh.
-struct Part {
+/// [`Part::world_aabb`] is a function of the other two fields, so it is only
+/// trustworthy if nothing can set one without the other. Making [`Part::new`]
+/// the only way to build one is what gives that, rather than a rule to
+/// remember at the four sites that make parts — one of which re-poses an
+/// existing part with struct-update syntax (`..part`), the form under which
+/// a derived field silently keeps the old value.
+mod part {
+    use std::sync::Arc;
+
+    use parry3d_f64::bounding_volume::Aabb;
+    use parry3d_f64::math::Pose;
+    use parry3d_f64::shape::{Shape as ParryShape, SharedShape};
+
+    use crate::obb_bvh::ObbTree;
+
+    /// One globally-posed piece of collision geometry — what
+    /// [`super::part_pairs`] hands [`super::part_contact`].
+    ///
+    /// Upstream's `global_shape_poses_[i]` /
+    /// `getCollisionBodyTransform(link, i)` paired with the shape it poses,
+    /// plus the oriented-box hierarchy [`super::ConvertedShape`] fitted to
+    /// that shape when it is a mesh, plus the world bound of the two.
+    pub(super) struct Part {
+        pose: Pose,
+        shape: SharedShape,
+        obb: Option<Arc<ObbTree>>,
+        world_aabb: Aabb,
+    }
+
+    impl Part {
+        /// The only constructor, and so the only place `world_aabb` is
+        /// computed.
+        pub(super) fn new(pose: Pose, shape: SharedShape, obb: Option<Arc<ObbTree>>) -> Self {
+            let world_aabb = shape.compute_aabb(&pose);
+            Self {
+                pose,
+                shape,
+                obb,
+                world_aabb,
+            }
+        }
+
+        pub(super) fn pose(&self) -> &Pose {
+            &self.pose
+        }
+
+        pub(super) fn shape(&self) -> &dyn ParryShape {
+            self.shape.as_ref()
+        }
+
+        /// `Some` exactly when `shape` is a non-empty `TriMesh`; see
+        /// [`super::ConvertedShape::obb`].
+        pub(super) fn obb(&self) -> Option<&ObbTree> {
+            self.obb.as_deref()
+        }
+
+        /// `shape`'s bound at `pose`, in the world frame — equal to
+        /// `shape.compute_aabb(pose)` by construction, which is the whole
+        /// reason for this module.
+        ///
+        /// [`super::pair_can_touch`] reads it once per *pair*, and a body of
+        /// `m` parts meets a body of `n` in `m * n` pairs, so computing it
+        /// there made an `O(m + n)` quantity cost `O(m * n)`. Median
+        /// collision-free check from `examples/broadphase_profile.rs`, six
+        /// alternating runs a side with each side's first (cold) one dropped,
+        /// computed per pair -> carried per part:
+        ///
+        /// ```text
+        /// prbt          10.98us -> 4.43us      prbt_pg70   18.39us -> 6.73us
+        /// dual_arm      14.56us -> 11.66us     pr2       1245.14us -> 1143.27us
+        /// panda          3.81us -> 3.68us      fanuc       unresolved, bimodal
+        /// ```
+        ///
+        /// fanuc alternates between a `1.8us` and a `2.5us` mode on both
+        /// sides, so this measurement does not separate them there; it is the
+        /// smallest robot with any permitted pairs at all.
+        ///
+        /// Attributed, not inferred from the diff: putting the two calls back
+        /// as discarded `black_box` work restores each row (prbt `12.85us`,
+        /// prbt_pg70 `19.98us`), so it is the calls and not the reshaped
+        /// signature.
+        ///
+        /// The same treatment for the two *local* bounds and two pose
+        /// inverses further down `pair_can_touch` was measured the same way
+        /// and is not worth a field: `+4%` on prbt_pg70, `+2%` on
+        /// dual_arm_panda, within noise on the other five. Only pairs that
+        /// survive the world-frame test reach them, and there are few.
+        pub(super) fn world_aabb(&self) -> &Aabb {
+            &self.world_aabb
+        }
+    }
+}
+
+use part::Part;
+
+/// One [`Part`]'s geometry before its body's own pose is composed in: what
+/// the three body builders produce and [`pose_parts`] finishes.
+///
+/// Separate from [`Part`] because a `Part` computes its world bound on
+/// construction, and a body-relative pose is not the one that bound belongs
+/// to. Building the intermediate as a `Part` too would compute a bound per
+/// part and immediately throw it away.
+struct PartGeometry {
+    /// Body-relative, with [`ConvertedShape::extra`] already applied.
     pose: Pose,
     shape: SharedShape,
     /// `Some` exactly when `shape` is a non-empty `TriMesh`; see
@@ -1832,7 +1931,7 @@ struct PosedBody {
 /// yielding the global poses [`PosedBody::parts`] stores. `None` if `parts`
 /// is empty, so a body with no convertible geometry is dropped rather than
 /// carried as an empty one.
-fn pose_parts(parts: Vec<Part>, pose: Isometry3) -> Option<Vec<Part>> {
+fn pose_parts(parts: Vec<PartGeometry>, pose: Isometry3) -> Option<Vec<Part>> {
     if parts.is_empty() {
         return None;
     }
@@ -1840,10 +1939,7 @@ fn pose_parts(parts: Vec<Part>, pose: Isometry3) -> Option<Vec<Part>> {
     Some(
         parts
             .into_iter()
-            .map(|part| Part {
-                pose: body_pose * part.pose,
-                ..part
-            })
+            .map(|part| Part::new(body_pose * part.pose, part.shape, part.obb))
             .collect(),
     )
 }
@@ -1866,7 +1962,7 @@ fn link_body(
 ) -> Option<PosedBody> {
     let scale = padding_scale.link_scale(link.name());
     let padding = padding_scale.link_padding(link.name());
-    let parts: Vec<Part> = link
+    let parts: Vec<PartGeometry> = link
         .shapes()
         .iter()
         .enumerate()
@@ -1881,7 +1977,7 @@ fn link_body(
                 let shape = scaled_padded_shape(&link_shape.shape, scale, padding);
                 convert_shape(&shape, octree_cache).map(ConvertedShape::new)
             })?;
-            Some(Part {
+            Some(PartGeometry {
                 pose: to_pose(link_shape.origin_transform * converted.extra),
                 shape: converted.shape,
                 obb: converted.obb,
@@ -1911,7 +2007,7 @@ fn attached_body_body(
 ) -> Option<PosedBody> {
     let scale = padding_scale.link_scale(geometry.link_name);
     let padding = padding_scale.link_padding(geometry.link_name);
-    let parts: Vec<Part> = geometry
+    let parts: Vec<PartGeometry> = geometry
         .shapes
         .iter()
         .zip(geometry.shape_poses)
@@ -1920,7 +2016,7 @@ fn attached_body_body(
                 let scaled = scaled_padded_shape(shape, scale, padding);
                 convert_shape(&scaled, octree_cache).map(ConvertedShape::new)
             })?;
-            Some(Part {
+            Some(PartGeometry {
                 pose: to_pose(*shape_pose * converted.extra),
                 shape: converted.shape,
                 obb: converted.obb,
@@ -1944,7 +2040,7 @@ fn object_body(
     octree_cache: &OctreeCache,
     shape_cache: &ShapeCache,
 ) -> Option<PosedBody> {
-    let parts: Vec<Part> = object
+    let parts: Vec<PartGeometry> = object
         .shapes()
         .iter()
         .filter_map(|entry| {
@@ -1956,7 +2052,7 @@ fn object_body(
             let converted = shape_cache.get_or_compute(entry.shape(), 1.0, 0.0, || {
                 convert_shape(entry.shape(), octree_cache).map(ConvertedShape::new)
             })?;
-            Some(Part {
+            Some(PartGeometry {
                 pose: to_pose(entry.pose() * converted.extra),
                 shape: converted.shape,
                 obb: converted.obb,
@@ -2881,9 +2977,9 @@ struct PosedMesh<'a> {
 /// case any of them has to think about separately.
 fn posed_mesh<'a>(part: &'a Part, mesh: &'a TriMesh) -> Option<PosedMesh<'a>> {
     Some(PosedMesh {
-        pose: &part.pose,
+        pose: part.pose(),
         mesh,
-        tree: part.obb.as_deref()?,
+        tree: part.obb()?,
     })
 }
 
@@ -2951,8 +3047,8 @@ impl SettledVerdict {
 /// support-map-support-map arm) — confirmed, not assumed exempt because it
 /// looked unrelated.
 fn part_contact(a: &Part, b: &Part, prediction: f64, detail: ContactDetail) -> PartContactOutcome {
-    let (a_pose, b_pose) = (&a.pose, &b.pose);
-    let (a_shape, b_shape) = (a.shape.as_ref(), b.shape.as_ref());
+    let (a_pose, b_pose) = (a.pose(), b.pose());
+    let (a_shape, b_shape) = (a.shape(), b.shape());
     // Mesh against mesh is where a planner's inner loop spends its time, and
     // parry's own dispatch for it is one-sided -- see `trimesh_pair_contact`.
     // Not an `Unsupported` path either way: composite-vs-composite has a
@@ -3060,24 +3156,19 @@ fn rejection_slack(prediction: f64) -> f64 {
 /// `HalfSpace` -- today's only unsupported pair -- has an AABB of
 /// `(-f64::MAX * 0.5, f64::MAX * 0.5)` (`aabb_halfspace.rs`), which cannot
 /// be proven separate from anything, so such a pair is never rejected here.
-fn pair_can_touch(
-    a_pose: &Pose,
-    a_shape: &dyn ParryShape,
-    b_pose: &Pose,
-    b_shape: &dyn ParryShape,
-    prediction: f64,
-) -> bool {
+fn pair_can_touch(a: &Part, b: &Part, prediction: f64) -> bool {
     use parry3d_f64::bounding_volume::BoundingVolume as _;
     let slack = rejection_slack(prediction);
     // World frame first: one `Aabb` per shape, no relative transform, and it
-    // is what rejects the far-apart majority.
-    if !a_shape
-        .compute_aabb(a_pose)
-        .loosened(slack)
-        .intersects(&b_shape.compute_aabb(b_pose))
-    {
+    // is what rejects the far-apart majority. Each part carries its own, so
+    // this reads two bounds rather than building them -- see
+    // [`Part::world_aabb`] for why that is a change of order and not just of
+    // constant.
+    if !a.world_aabb().loosened(slack).intersects(b.world_aabb()) {
         return false;
     }
+    let (a_pose, b_pose) = (a.pose(), b.pose());
+    let (a_shape, b_shape) = (a.shape(), b.shape());
     // Then each shape's bounds in the OTHER's local frame. A world `Aabb` of a
     // rotated, elongated link is loose in exactly the way FCL's mesh bounds are
     // not: `moveit_core` builds every mesh as `fcl::BVHModel<fcl::OBBRSSd>`
@@ -3421,8 +3512,8 @@ fn accumulate_collision<'a>(
             // Named locals for the two shapes' world poses and `parry`
             // shapes; `part_contact` itself takes the whole `Part`, because
             // the mesh branch also needs the hierarchy fitted to it.
-            let (a_pose, b_pose) = (&a_part.pose, &b_part.pose);
-            let (a_shape, b_shape) = (a_part.shape.as_ref(), b_part.shape.as_ref());
+            let (a_pose, b_pose) = (a_part.pose(), b_part.pose());
+            let (a_shape, b_shape) = (a_part.shape(), b_part.shape());
 
             if done {
                 break;
@@ -3433,7 +3524,7 @@ fn accumulate_collision<'a>(
             // the two to touch, which this one is provably clear of. It must
             // still fall through to the termination block, exactly as a pair
             // `fcl::collide` cleared does.
-            if pair_can_touch(a_pose, a_shape, b_pose, b_shape, 0.0) {
+            if pair_can_touch(a_part, b_part, 0.0) {
                 match part_contact(a_part, b_part, 0.0, detail) {
                     PartContactOutcome::Touching(contact) => {
                         // NOT gated on `contact.dist <= 0.0`, though the wording
@@ -3764,8 +3855,8 @@ fn accumulate_distance<'a>(
             // Named locals for the two shapes' world poses and `parry`
             // shapes; `part_contact` itself takes the whole `Part`, because
             // the mesh branch also needs the hierarchy fitted to it.
-            let (a_pose, b_pose) = (&a_part.pose, &b_part.pose);
-            let (a_shape, b_shape) = (a_part.shape.as_ref(), b_part.shape.as_ref());
+            let (a_pose, b_pose) = (a_part.pose(), b_part.pose());
+            let (a_shape, b_shape) = (a_part.shape(), b_part.shape());
 
             let threshold = match request.request_type {
                 DistanceRequestType::Global => result.minimum_distance.distance,
@@ -3790,13 +3881,7 @@ fn accumulate_distance<'a>(
             // the current threshold contributes nothing to `distances` or to
             // `minimum_distance`, which is what the `contact.dist >=
             // threshold` skip below already decides for it the slow way.
-            if !pair_can_touch(
-                a_pose,
-                a_shape,
-                b_pose,
-                b_shape,
-                bounded_prediction(threshold),
-            ) {
+            if !pair_can_touch(a_part, b_part, bounded_prediction(threshold)) {
                 continue;
             }
             // `Full`, never `Verdict`: this caller reports `contact.dist` as
@@ -4498,7 +4583,7 @@ mod tests {
         .expect("sphere converts");
         assert_eq!(
             before.parts[0]
-                .shape
+                .shape()
                 .as_ball()
                 .expect("sphere converts to a Ball")
                 .radius,
@@ -4527,7 +4612,7 @@ mod tests {
         .expect("sphere converts");
         assert_eq!(
             after.parts[0]
-                .shape
+                .shape()
                 .as_ball()
                 .expect("sphere converts to a Ball")
                 .radius,
@@ -4557,7 +4642,7 @@ mod tests {
             object_body("obj", &object, &octree_cache, &shape_cache).expect("cuboid converts");
         assert_eq!(
             before.parts[0]
-                .shape
+                .shape()
                 .as_cuboid()
                 .expect("cuboid converts to a Cuboid")
                 .half_extents
@@ -4576,7 +4661,7 @@ mod tests {
             object_body("obj", &object, &octree_cache, &shape_cache).expect("cuboid converts");
         assert_eq!(
             after.parts[0]
-                .shape
+                .shape()
                 .as_cuboid()
                 .expect("cuboid converts to a Cuboid")
                 .half_extents
@@ -4663,7 +4748,7 @@ mod tests {
 
         let half_extent_x = |bodies: &[PosedBody]| {
             bodies[0].parts[0]
-                .shape
+                .shape()
                 .as_cuboid()
                 .expect("box_link converts to a Cuboid")
                 .half_extents
@@ -4708,7 +4793,7 @@ mod tests {
 
         let half_extent_x = |bodies: &[PosedBody]| {
             bodies[0].parts[0]
-                .shape
+                .shape()
                 .as_cuboid()
                 .expect("box_link converts to a Cuboid")
                 .half_extents
