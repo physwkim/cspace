@@ -76,6 +76,7 @@ pub mod broadphase_proxy;
 pub mod compound;
 pub mod compound_algorithm;
 pub mod convex_convex;
+pub mod convex_hull_computer;
 pub mod dbvt;
 pub mod discrete_detector;
 pub mod dispatch;
