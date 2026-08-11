@@ -271,7 +271,7 @@ pub trait ManifoldResult<'a>: Result {
         std::mem::replace(&mut self.state().body1_wrap, wrap)
     }
 
-    /// `setShapeIdentifiersA` (`btManifoldResult.h:90-94`).
+    /// `setShapeIdentifiersA` (`btManifoldResult.h:91-95`).
     ///
     /// Declared pure virtual on `btDiscreteCollisionDetectorInterface::Result`
     /// and overridden here; it sits on this trait rather than on
@@ -283,14 +283,14 @@ pub trait ManifoldResult<'a>: Result {
         state.index0 = index0;
     }
 
-    /// `setShapeIdentifiersB` (`btManifoldResult.h:95-99`).
+    /// `setShapeIdentifiersB` (`btManifoldResult.h:97-101`).
     fn set_shape_identifiers_b(&mut self, part_id1: i32, index1: i32) {
         let state = self.state();
         state.part_id1 = part_id1;
         state.index1 = index1;
     }
 
-    /// `refreshContactPoints` (`btManifoldResult.h:104-119`).
+    /// `refreshContactPoints` (`btManifoldResult.h:105-119`).
     ///
     /// The first line is `if (!m_manifoldPtr->getNumContacts()) return;`, and
     /// in this path the count is always zero -- see the module docs. The body

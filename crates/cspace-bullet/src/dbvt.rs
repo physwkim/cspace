@@ -69,7 +69,7 @@
 
 use crate::linear_math::{Scalar, Vec3};
 
-/// `btDbvtAabbMm` (`btDbvt.h:129-172`), the tree's bounding volume.
+/// `btDbvtAabbMm` (`btDbvt.h:131-172`), the tree's bounding volume.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DbvtVolume {
     /// `mi`.
@@ -115,7 +115,7 @@ impl DbvtVolume {
     }
 }
 
-/// `Intersect(a, b)` (`btDbvt.h:619-641`), the generic arm.
+/// `Intersect(a, b)` (`btDbvt.h:621-641`), the generic arm.
 ///
 /// The SSE arm above it is compiled only under `BT_USE_SSE`, which
 /// `btScalar.h:216-244` leaves undefined on non-Apple Linux -- the
@@ -331,7 +331,7 @@ impl Dbvt {
         }
     }
 
-    /// `removeleaf(pdbvt, leaf)` (`btDbvt.cpp:186-224`).
+    /// `removeleaf(pdbvt, leaf)` (`btDbvt.cpp:188-224`).
     ///
     /// Returns the node the caller should reinsert from, which is `None` only
     /// when the removed leaf was the whole tree.

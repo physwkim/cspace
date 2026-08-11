@@ -43,7 +43,7 @@
 //!
 //! - **The two trailing "remove non-overlapping child pairs" loops**
 //!   (`btCompoundCollisionAlgorithm.cpp:302-341`,
-//!   `btCompoundCompoundCollisionAlgorithm.cpp:348-405`) free entries out of
+//!   `btCompoundCompoundCollisionAlgorithm.cpp:349-405`) free entries out of
 //!   those same caches. With no caches there is nothing to free, and neither
 //!   loop touches `resultOut`.
 //!

@@ -53,7 +53,7 @@
 //!
 //! The consequence worth stating out loud, because it survives into the
 //! broadphase: a hull's cached local AABB is computed by `recalcLocalAabb()`
-//! at `addPoint` time (`btConvexHullShape.cpp:50-55`) using the margin *as it
+//! at `addPoint` time (`btConvexHullShape.cpp:51-55`) using the margin *as it
 //! then stands*, and `btConvexInternalShape::setMargin` does not invalidate it
 //! (`btConvexInternalShape.h:102-105`). So a MoveIt convex hull carries an
 //! AABB inflated by `CONVEX_DISTANCE_MARGIN` per side forever, even though its
@@ -761,7 +761,7 @@ impl ConvexHullShape {
     }
 
     /// `btConvexHullShape::addPoint(point, recalculateLocalAabb = true)`
-    /// (`btConvexHullShape.cpp:50-55`).
+    /// (`btConvexHullShape.cpp:51-55`).
     ///
     /// The recalculation uses the margin *as it stands now*, and nothing
     /// recomputes it later: `btConvexInternalShape::setMargin` writes
@@ -830,7 +830,7 @@ impl ConvexShape for ConvexHullShape {
     }
 
     /// `btConvexHullShape::localGetSupportingVertexWithoutMargin`
-    /// (`btConvexHullShape.cpp:57-70`).
+    /// (`btConvexHullShape.cpp:58-69`).
     ///
     /// Upstream returns `(0, 0, 0)` for an empty hull, which is what
     /// `maxDot`'s `None` maps to here.
@@ -903,7 +903,7 @@ pub struct TriangleShapeEx {
 
 impl TriangleShapeEx {
     /// `btTriangleShapeEx(p0, p1, p2)` (`btTriangleShapeEx.h:133-135`),
-    /// forwarding to `btTriangleShape(p0, p1, p2)` (`btTriangleShape.h:86-92`).
+    /// forwarding to `btTriangleShape(p0, p1, p2)` (`btTriangleShape.h:87-92`).
     #[must_use]
     pub const fn new(p0: Vec3, p1: Vec3, p2: Vec3) -> Self {
         Self {
@@ -953,7 +953,7 @@ impl ConvexShape for TriangleShapeEx {
         self.collision_margin = margin;
     }
 
-    /// `btTriangleShapeEx::getAabb` (`btTriangleShapeEx.h:140-149`) --
+    /// `btTriangleShapeEx::getAabb` (`btTriangleShapeEx.h:141-149`) --
     /// `btAABB(tv0, tv1, tv2, m_collisionMargin)`
     /// (`btBoxCollision.h:238-257`).
     ///

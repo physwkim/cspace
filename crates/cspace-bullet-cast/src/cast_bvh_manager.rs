@@ -110,7 +110,7 @@ pub enum AddObjectError {
     /// overwrites the entry and drops the last `shared_ptr` to the object that
     /// was there, while the broadphase keeps a proxy whose `m_clientObject`
     /// still points at it -- `addCollisionObject`
-    /// (`bullet_cast_bvh_manager.cpp:150-172`) never removes what it
+    /// (`bullet_cast_bvh_manager.cpp:151-171`) never removes what it
     /// displaces. Every pair that proxy takes part in afterwards reads freed
     /// memory.
     ///
@@ -243,7 +243,7 @@ impl BulletCastBvhManager {
     }
 
     /// `BulletCastBVHManager::addCollisionObject`
-    /// (`bullet_cast_bvh_manager.cpp:150-172`), with
+    /// (`bullet_cast_bvh_manager.cpp:151-171`), with
     /// `addCollisionObjectToBroadphase` (`bullet_utils.cpp:387-398`) inlined
     /// as upstream's is.
     ///
@@ -329,7 +329,7 @@ impl BulletCastBvhManager {
     }
 
     /// `BulletCastBVHManager::setCastCollisionObjectsTransform`
-    /// (`bullet_cast_bvh_manager.cpp:65-133`), less the shape walk, which is
+    /// (`bullet_cast_bvh_manager.cpp:66-133`), less the shape walk, which is
     /// [`CastCollisionObject::set_cast_transforms`].
     ///
     /// A name the manager does not hold is ignored, as upstream's `find`
@@ -375,7 +375,7 @@ impl BulletCastBvhManager {
     }
 
     /// `BulletCastBVHManager::contactTest`
-    /// (`bullet_cast_bvh_manager.cpp:135-148`).
+    /// (`bullet_cast_bvh_manager.cpp:136-148`).
     ///
     /// `contact_distance_` is [`BULLET_DEFAULT_CONTACT_DISTANCE`]; see the
     /// module docs for why it is a constant here. The trailing `self` argument
