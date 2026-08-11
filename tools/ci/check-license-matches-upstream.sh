@@ -16,15 +16,31 @@
 #
 #   1. every tracked `.rs` file under a crate carries an
 #      `SPDX-License-Identifier:`,
-#   2. all of a crate's files agree on one identifier, and
-#   3. the crate's effective manifest license equals that identifier
-#      (explicit `license = "..."`, else the inherited
-#      `[workspace.package] license`).
+#   2. the crate's licence is the set of terms its files impose -- the union
+#      of the `AND`-separated atoms across every header, and
+#   3. the crate's effective manifest license names that same set (explicit
+#      `license = "..."`, else the inherited `[workspace.package] license`).
 #
 # A new crate whose sources are attributed to a differently-licensed upstream
 # therefore fails here until its manifest says so, whichever way the mistake
 # was made: right header + inherited manifest, or explicit manifest + copied
 # header.
+#
+# Comparing sets, rather than requiring one identifier per crate, is what makes
+# a mixed crate expressible instead of merely unreported. `cspace-planners`
+# ports pilz_industrial_motion_planner, which vendors PAL Robotics'
+# Apache-2.0 `joint_limits.hpp`; `pilz/limits.rs` and `pilz/mod.rs` say
+# `BSD-3-Clause AND Apache-2.0` and the rest of the crate says `BSD-3-Clause`.
+# That is not two crates fighting over one label -- it is one crate under both
+# sets of terms, which is what SPDX `AND` means and what crates.io stores. The
+# earlier rule could not say so, and the `\([^[:space:]]*\)` it extracted with
+# stopped at the first space, so `BSD-3-Clause AND Apache-2.0` read back as
+# `BSD-3-Clause` and the gate vouched for a manifest that dropped half its
+# obligations. Atoms are compared as an unordered set so no header has to be
+# rewritten into a canonical order to pass.
+#
+# `OR` is rejected outright rather than parsed: a disjunction is a choice a
+# person makes and records, and nothing in the tree says which arm was taken.
 #
 # Run by CI via the `tools/ci/check-*.sh` glob. Needs no docker.
 set -euo pipefail
@@ -84,9 +100,18 @@ for manifest in "${manifests[@]}"; do
   ids=()
   missing=0
   for f in "${sources[@]}"; do
-    id="$(sed -n 's/.*SPDX-License-Identifier:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$f" | head -1)"
+    # The whole expression, not its first token: truncating here is what let a
+    # dual-licensed header pass as its permissive half (see the note above).
+    id="$(sed -n 's/.*SPDX-License-Identifier:[[:space:]]*\(.*[^[:space:]]\)[[:space:]]*$/\1/p' "$f" | head -1)"
     if [ -z "$id" ]; then
       echo "$f: no SPDX-License-Identifier" >&2
+      status=1
+      missing=1
+      continue
+    fi
+    if [[ " $id " == *" OR "* ]]; then
+      echo "$f: SPDX expression uses OR ($id) -- this gate cannot derive which" >&2
+      echo "  arm was taken; record the choice in the header instead." >&2
       status=1
       missing=1
       continue
@@ -101,18 +126,24 @@ for manifest in "${manifests[@]}"; do
     continue
   fi
 
-  mapfile -t distinct < <(printf '%s\n' "${ids[@]}" | sort -u)
-  if [ "${#distinct[@]}" -gt 1 ]; then
-    echo "$crate_dir: sources carry more than one SPDX identifier: ${distinct[*]}" >&2
-    echo "  A crate counts against exactly one upstream; split it or fix the headers." >&2
+  # `AND` is associative and commutative, so a crate's obligations are the
+  # union of its files' atoms and the manifest must name that same set. Sorted
+  # only to compare; neither side is required to be written in this order.
+  mapfile -t atoms < <(printf '%s\n' "${ids[@]}" | sed 's/[[:space:]]\+AND[[:space:]]\+/\n/g' | sort -u)
+  if [[ " $declared " == *" OR "* ]]; then
+    echo "$manifest: declares $declared -- this gate cannot derive which arm of" >&2
+    echo "  an OR was taken; name the terms that actually apply." >&2
     status=1
     continue
   fi
+  mapfile -t declared_atoms < <(printf '%s\n' "$declared" | sed 's/[[:space:]]\+AND[[:space:]]\+/\n/g' | sort -u)
 
-  if [ "${distinct[0]}" != "$declared" ]; then
-    echo "$manifest: declares $declared but its sources are ${distinct[0]}" >&2
-    echo "  Set 'license = \"${distinct[0]}\"' explicitly, or fix the source headers" >&2
-    echo "  -- whichever matches the upstream this crate actually ports." >&2
+  if [ "${atoms[*]}" != "${declared_atoms[*]}" ]; then
+    effective="$(printf '%s AND ' "${atoms[@]}")"
+    effective="${effective% AND }"
+    echo "$manifest: declares $declared but its sources impose ${atoms[*]}" >&2
+    echo "  Set 'license = \"$effective\"' explicitly, or fix the source headers" >&2
+    echo "  -- whichever matches the upstreams this crate actually ports." >&2
     status=1
   fi
 done
@@ -121,4 +152,4 @@ if [ "$status" -ne 0 ]; then
   exit 1
 fi
 
-echo "OK: every crate's license matches the SPDX identifier in its own sources"
+echo "OK: every crate's license names the same terms its own sources impose"

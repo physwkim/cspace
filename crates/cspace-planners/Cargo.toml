@@ -4,7 +4,11 @@ description = "Motion planners for cspace: sampling-based (RRT-Connect), CHOMP, 
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+# Not the workspace's plain BSD-3-Clause: the Pilz port carries
+# pilz_industrial_motion_planner's vendored `joint_limits_copy/joint_limits.hpp`,
+# which is PAL Robotics' and Apache-2.0, so `pilz/limits.rs` and `pilz/mod.rs`
+# are under both sets of terms and so is anything built from this crate.
+license = "BSD-3-Clause AND Apache-2.0"
 repository.workspace = true
 authors.workspace = true
 
