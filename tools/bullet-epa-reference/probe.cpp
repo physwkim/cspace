@@ -43,6 +43,8 @@
 #include "BulletCollision/CollisionShapes/btCylinderShape.h"
 #include "BulletCollision/CollisionShapes/btPolyhedralConvexShape.h"
 #include "BulletCollision/CollisionShapes/btSphereShape.h"
+#include "BulletCollision/CollisionShapes/btTriangleShape.h"
+#include "BulletCollision/Gimpact/btTriangleShapeEx.h"
 #include "BulletCollision/NarrowPhaseCollision/btDiscreteCollisionDetectorInterface.h"
 #include "BulletCollision/NarrowPhaseCollision/btGjkEpa2.h"
 #include "BulletCollision/NarrowPhaseCollision/btGjkEpaPenetrationDepthSolver.h"
@@ -388,6 +390,31 @@ static void polyverts(const char* name, const btConvexShape* shape)
 		pshape->getVertex(i, v);
 		printf("polyvert_%s_%d|%.9g|%.9g|%.9g\n", name, i, (double)v[0], (double)v[1], (double)v[2]);
 	}
+}
+
+// `getAabb` on one convex shape, which is where `btTriangleShapeEx` parts
+// company with the `btTriangleShape` it derives from: the subclass boxes the
+// three transformed corners and grows by the margin
+// (`btTriangleShapeEx.h:140-149`), the base pays `getAabbSlow`'s six support
+// queries (`btTriangleShape.h:60-64`).
+//
+// The `tri_*` and `tribase_*` pairs below are here to say exactly how far
+// apart they are, because the answer is not obvious in either direction. At
+// margin zero they agree bit for bit: `getAabbSlow`'s support query on a
+// polytope returns the extreme corner, which is the corner the subclass boxes.
+// At the constructed 0.04 they differ by the margin itself -- the base adds it
+// twice, once inside `localGetSupportingVertex` and once in `getAabbSlow`'s
+// own `+ margin`. `createShapePrimitive` calls `setMargin(BULLET_MARGIN)` and
+// `BULLET_MARGIN` is zero, so on MoveIt's path the override cannot be seen;
+// the rows are what makes that a measurement rather than an assumption.
+//
+// Fields: `shapeaabb_<name>|min.xyz|max.xyz`.
+static void shapeaabb(const char* name, const btCollisionShape* shape, const btTransform& t)
+{
+	btVector3 mn, mx;
+	shape->getAabb(t, mn, mx);
+	printf("shapeaabb_%s|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g\n", name, (double)mn[0], (double)mn[1],
+	       (double)mn[2], (double)mx[0], (double)mx[1], (double)mx[2]);
 }
 
 // `btTransform::invXform` (`btTransform.h:215-220`) next to the route it is
@@ -1031,6 +1058,21 @@ int main()
 	btConeShapeZ cone(0.25f, 0.8f);
 	cone.setMargin(0.f);
 
+	// One face of a mesh, the way `createShapePrimitive` builds it: a
+	// `btTriangleShapeEx` from three vertices, then `setMargin(BULLET_MARGIN)`
+	// (`bullet_utils.cpp:175-181`). `tri_margin` keeps the constructed 0.04 and
+	// `tri_base` is the same corners as the plain base class, so the rows can
+	// say which of the two `getAabb`s is on the path.
+	const btVector3 tv0(0.f, 0.f, 0.f);
+	const btVector3 tv1(1.f, 0.f, 0.f);
+	const btVector3 tv2(0.f, 1.f, 0.f);
+	btTriangleShapeEx mesh_tri(tv0, tv1, tv2);
+	mesh_tri.setMargin(0.f);
+	btTriangleShapeEx mesh_tri_margin(tv0, tv1, tv2);  // keeps the 0.04 default
+	btTriangleShape mesh_tri_base(tv0, tv1, tv2);
+	mesh_tri_base.setMargin(0.f);
+	btTriangleShape mesh_tri_base_margin(tv0, tv1, tv2);  // keeps the 0.04 default
+
 	// MoveIt's hull order: every vertex added first, `setMargin(0)` after
 	// (`bullet_utils.cpp:145-152,577`). Reproduced, because `addPoint`
 	// order decides which of several equally-extreme vertices `maxDot`
@@ -1502,6 +1544,7 @@ int main()
 	shapetype("cyl", &cyl);
 	shapetype("cone", &cone);
 	shapetype("hull", &hull);
+	shapetype("tri", &mesh_tri);
 
 	// Which shapes `getAverageSupport` treats as polyhedral, and the vertices
 	// it then averages. `margin_box` is here as well as `unit_box` because
@@ -1515,6 +1558,16 @@ int main()
 	polyverts("cyl", &cyl);
 	polyverts("cone", &cone);
 	polyverts("hull", &hull);
+	polyverts("tri", &mesh_tri);
+
+	// `btTriangleShapeEx::getAabb` against the `btTriangleShape::getAabb` it
+	// overrides, on the same corners under the same rotation, plus the margin
+	// row that shows where `m_collisionMargin` enters.
+	shapeaabb("tri_id", &mesh_tri, id);
+	shapeaabb("tri_rot60", &mesh_tri, rot60_at(0.3f, -0.4f, 0.2f));
+	shapeaabb("tri_margin_rot60", &mesh_tri_margin, rot60_at(0.3f, -0.4f, 0.2f));
+	shapeaabb("tribase_rot60", &mesh_tri_base, rot60_at(0.3f, -0.4f, 0.2f));
+	shapeaabb("tribase_margin_rot60", &mesh_tri_base_margin, rot60_at(0.3f, -0.4f, 0.2f));
 
 	// `invXform` against `inverse()` then `operator*`. The identity row is
 	// there because the two agree exactly when the basis is the identity and
@@ -1541,6 +1594,15 @@ int main()
 		support("cyl_diag", &cyl, pxyz);
 		support("cone_diag", &cone, pxyz);
 		support("hull_diag", &hull, pxyz);
+		// `maxAxis` compares with `<` and so keeps the lower index when two
+		// corners tie. `(1, 1, 0)` puts `tv1` and `tv2` at the same dot, and
+		// `(-1, -1, 0)` puts all three at 0 and -1 and -1, which is the same
+		// tie one place along. A port using a `>=` scan returns the other
+		// corner on both rows and neither shape's own geometry says so.
+		support("tri_diag", &mesh_tri, pxyz);
+		support("tri_tie_hi", &mesh_tri, btVector3(1.f, 1.f, 0.f));
+		support("tri_tie_lo", &mesh_tri, btVector3(-1.f, -1.f, 0.f));
+		support("tri_margin_diag", &mesh_tri_margin, pxyz);
 	}
 
 	// `CastHullShape`. Fields: `name|sup.xyz|supnomargin.xyz|min.xyz|max.xyz`.

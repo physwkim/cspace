@@ -183,14 +183,14 @@ impl CollisionObjectWrapper {
             for j in 0..shapes.len() {
                 // `if (subshape != nullptr)` (`bullet_utils.cpp:596`): a shape
                 // upstream refuses is dropped from the compound rather than
-                // failing the object. A shape *this port* has not reached yet
-                // is not the same thing and is propagated -- dropping it would
-                // silently under-report collisions with nothing to read.
+                // failing the object, and every `ShapeError` is a shape
+                // upstream refuses by returning null. The single-shape branch
+                // above cannot do the same -- upstream dereferences the null
+                // there -- which is why it propagates.
                 let mut subshape =
                     match create_shape_primitive(&shapes[j], collision_object_types[j]) {
                         Ok(subshape) => subshape,
-                        Err(error) if error.is_upstream_null() => continue,
-                        Err(error) => return Err(error.into()),
+                        Err(_) => continue,
                     };
                 subshape.set_margin(BULLET_MARGIN);
                 compound

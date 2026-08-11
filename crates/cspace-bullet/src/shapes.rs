@@ -26,10 +26,10 @@
 //! functions.
 //!
 //! `createShapePrimitive` (`bullet_utils.cpp:84-210`) maps every MoveIt
-//! geometry onto one of five convex shapes -- `btBoxShape`, `btSphereShape`,
-//! `btCylinderShapeZ`, `btConeShapeZ`, `btConvexHullShape` -- or onto a
-//! compound of them. Those five are here; nothing else in Bullet's shape
-//! library is.
+//! geometry onto one of six convex shapes -- `btBoxShape`, `btSphereShape`,
+//! `btCylinderShapeZ`, `btConeShapeZ`, `btConvexHullShape`,
+//! `btTriangleShapeEx` -- or onto a compound of them. Those six are here;
+//! nothing else in Bullet's shape library is.
 //!
 //! # Margins are not what the constructor was given
 //!
@@ -72,14 +72,17 @@
 //!
 //! # Not ported
 //!
-//! `btCapsuleShape`, `btTriangleShape`, `btConvexPointCloudShape` and the
+//! `btCapsuleShape`, `btConvexPointCloudShape` and the
 //! `btConvexInternalAabbCachingShape` family: `createShapePrimitive` builds
 //! none of them for the collision-object types `CollisionEnvBullet` requests.
-//! `btTriangleShapeEx` is the near miss -- `createShapePrimitive` does build a
-//! compound of them, but only for `CollisionObjectType::USE_SHAPE_TYPE` on a
-//! mesh, and `CollisionEnvBullet` asks for `CONVEX_HULL` on every mesh
-//! (`collision_env_bullet.cpp`'s `getCollisionObjectType`), so that arm is
-//! unreachable from the continuous check.
+//!
+//! [`TriangleShapeEx`] is here because that arm *is* requested.
+//! `addAttachedObjects` fills its whole `collision_object_types` vector with
+//! `USE_SHAPE_TYPE` (`collision_env_bullet.cpp:345-346`) rather than choosing
+//! per shape the way `addToManager` (`:257-267`) and `addLinkAsCollisionObject`
+//! (`:417-425`) do, so an attached body whose shape is a mesh reaches
+//! `createShapePrimitive`'s triangle-soup branch and comes back as a compound
+//! of `btTriangleShapeEx`.
 
 use std::any::Any;
 use std::borrow::Cow;
@@ -173,11 +176,14 @@ pub trait ConvexShape: Send + Sync + Any {
     fn shape_type(&self) -> BroadphaseNativeType;
 
     /// `btCollisionShape::setMargin` -- pure virtual upstream
-    /// (`btCollisionShape.h:118`), and four of the five shapes here override
-    /// it differently. It belongs on the trait for the same reason it is
-    /// virtual there: `createShapePrimitive` calls it through the base pointer
-    /// on whatever shape it has just built (`bullet_utils.cpp:577`, `:587`,
-    /// `:599`), and the shape decides what that means.
+    /// (`btCollisionShape.h:118`), and three of the six shapes here override it
+    /// differently: `btBoxShape`, `btSphereShape` and `btCylinderShape` each
+    /// declare their own, while the cone, the hull and the triangle inherit
+    /// `btConvexInternalShape`'s plain assignment. It belongs on the trait for
+    /// the same reason it is virtual there: `createShapePrimitive` calls it
+    /// through the base pointer on whatever shape it has just built
+    /// (`bullet_utils.cpp:577`, `:587`, `:599`), and the shape decides what
+    /// that means.
     fn set_margin(&mut self, margin: Scalar);
 
     /// `btCollisionShape::getAabb` -- the shape's world AABB under `t`.
@@ -266,7 +272,7 @@ pub trait ConvexShape: Send + Sync + Any {
     /// axis direction, taken into the shape's frame by `vec * trans.getBasis()`.
     ///
     /// This is the base-class `getAabb` for any shape that does not override
-    /// it, which among the five here is [`ConeShapeZ`] alone.
+    /// it, which among the six here is [`ConeShapeZ`] alone.
     fn get_aabb_slow(&self, trans: &Transform) -> (Vec3, Vec3) {
         let margin = self.margin();
         let mut min_aabb = Vec3::zero();
@@ -866,11 +872,129 @@ impl ConvexShape for ConvexHullShape {
     }
 }
 
+/// `btTriangleShapeEx` (`btTriangleShapeEx.h:126-167`) over its
+/// `btTriangleShape` base (`btTriangleShape.h:23-173`).
+///
+/// The subclass, not the base, because the subclass is what
+/// `createShapePrimitive` builds (`bullet_utils.cpp:175`) and it overrides
+/// `getAabb`: `btTriangleShapeEx::getAabb` (`:140-149`) boxes the three
+/// transformed corners, where `btTriangleShape::getAabb` (`btTriangleShape.h:
+/// 60-64`) calls `getAabbSlow` and pays six support queries for it. Everything
+/// else the narrow phase touches -- the support function, the margin, the
+/// shape type, the polyhedral vertices -- is the base's, inherited unchanged.
+///
+/// The two `getAabb`s agree bit for bit at margin zero, which is the only
+/// margin MoveIt runs: `getAabbSlow`'s support query on a polytope returns the
+/// corner the subclass boxes. They part at a nonzero margin, where the base
+/// adds it twice -- once inside `localGetSupportingVertex`, once in
+/// `getAabbSlow`'s own `+ margin`. `shapeaabb_tri_*` against
+/// `shapeaabb_tribase_*` in this module's `TRIANGLE_AABB_REFERENCE` is where
+/// that is measured rather than assumed. This port carries the subclass's form because
+/// that is the one on the path, not because a fixture here could tell.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TriangleShapeEx {
+    /// `m_vertices1`.
+    vertices: [Vec3; 3],
+    /// `btConvexInternalShape::m_collisionMargin`, which the base constructor
+    /// seeds at [`CONVEX_DISTANCE_MARGIN`] and `createShapePrimitive`
+    /// immediately overwrites with `BULLET_MARGIN`.
+    collision_margin: Scalar,
+}
+
+impl TriangleShapeEx {
+    /// `btTriangleShapeEx(p0, p1, p2)` (`btTriangleShapeEx.h:133-135`),
+    /// forwarding to `btTriangleShape(p0, p1, p2)` (`btTriangleShape.h:86-92`).
+    #[must_use]
+    pub const fn new(p0: Vec3, p1: Vec3, p2: Vec3) -> Self {
+        Self {
+            vertices: [p0, p1, p2],
+            collision_margin: CONVEX_DISTANCE_MARGIN,
+        }
+    }
+
+    /// `m_vertices1` -- the three corners, in construction order.
+    #[must_use]
+    pub const fn vertices(&self) -> &[Vec3; 3] {
+        &self.vertices
+    }
+}
+
+impl ConvexShape for TriangleShapeEx {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    /// `btTriangleShape.h:89` -- the subclass sets no type of its own.
+    fn shape_type(&self) -> BroadphaseNativeType {
+        BroadphaseNativeType::TRIANGLE_SHAPE
+    }
+
+    /// `btTriangleShape::localGetSupportingVertexWithoutMargin`
+    /// (`btTriangleShape.h:66-70`).
+    ///
+    /// `maxAxis` breaks a tie toward the *lower* index (`btVector3.h:477-480`
+    /// compares with `<`), so two corners at the same dot product resolve to
+    /// the one the triangle was built from first. Not decoration: a mesh face
+    /// seen edge-on has two corners at the same dot, and which one comes back
+    /// is the witness point.
+    fn local_get_supporting_vertex_without_margin(&self, vec: Vec3) -> Vec3 {
+        let dots = vec.dot3(self.vertices[0], self.vertices[1], self.vertices[2]);
+        self.vertices[dots.max_axis()]
+    }
+
+    fn margin(&self) -> Scalar {
+        self.collision_margin
+    }
+
+    /// `btConvexInternalShape::setMargin` (`btConvexInternalShape.h:102-105`) --
+    /// assignment, inherited unchanged. Unlike [`BoxShape`]'s there is no
+    /// implicit dimension to re-derive: the corners are stored as given.
+    fn set_margin(&mut self, margin: Scalar) {
+        self.collision_margin = margin;
+    }
+
+    /// `btTriangleShapeEx::getAabb` (`btTriangleShapeEx.h:140-149`) --
+    /// `btAABB(tv0, tv1, tv2, m_collisionMargin)`
+    /// (`btBoxCollision.h:238-257`).
+    ///
+    /// `BT_MIN`/`BT_MAX` (`btBoxCollision.h:37-38`) are ternaries on `<` and
+    /// `>`, which is not [`Scalar::min`]/[`Scalar::max`]: those return the
+    /// non-`NaN` operand, where a ternary propagates whichever side the
+    /// comparison lands on. A mesh with a `NaN` vertex is the case that tells
+    /// them apart, so the comparisons are written out.
+    fn get_aabb(&self, t: &Transform) -> (Vec3, Vec3) {
+        // `BT_MAX(a, b)` is `(a < b ? b : a)` and `BT_MIN(a, b)` is
+        // `(a > b ? b : a)`, nested as `BT_MAX3(a, b, c) = BT_MAX(a, BT_MAX(b, c))`.
+        let bt_max = |a: Scalar, b: Scalar| if a < b { b } else { a };
+        let bt_min = |a: Scalar, b: Scalar| if a > b { b } else { a };
+
+        let tv = self.vertices.map(|v| t.transform_point(v));
+        let mut min = Vec3::zero();
+        let mut max = Vec3::zero();
+        for i in 0..3 {
+            min[i] = bt_min(tv[0][i], bt_min(tv[1][i], tv[2][i])) - self.collision_margin;
+            max[i] = bt_max(tv[0][i], bt_max(tv[1][i], tv[2][i])) + self.collision_margin;
+        }
+        (min, max)
+    }
+
+    /// `btTriangleShape::getNumVertices` (`:30-33`) and `getVertex` (`:44-47`).
+    ///
+    /// A successful `dynamic_cast<const btPolyhedralConvexShape*>`, so
+    /// `getAverageSupport` averages the corners that tie on the support value
+    /// rather than taking a single support point -- which for a triangle lying
+    /// flat against a face is two of them, and is what puts the swept contact
+    /// mid-edge instead of on a corner.
+    fn polyhedral_vertices(&self) -> Option<Cow<'_, [Vec3]>> {
+        Some(Cow::Borrowed(&self.vertices))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::linear_math::Matrix3;
-    use crate::probe_fixture::{diff_vec3, probe_shapes, row};
+    use crate::probe_fixture::{diff_vec3, probe_shapes, probe_triangles, row};
 
     /// The `shapetype_*` rows of `tools/bullet-epa-reference/build.sh`'s
     /// stdout -- `getShapeType()` on the shapes `probe.cpp` builds.
@@ -885,17 +1009,20 @@ shapetype_sphere|8
 shapetype_cyl|13
 shapetype_cone|11
 shapetype_hull|4
+shapetype_tri|1
 ";
 
     #[test]
     fn bullet_reference_shape_type() {
         let (unit_box, _, _, sphere, _, cyl, cone, hull) = probe_shapes();
-        let ports: [(&str, BroadphaseNativeType); 5] = [
+        let (tri, _) = probe_triangles();
+        let ports: [(&str, BroadphaseNativeType); 6] = [
             ("unit_box", unit_box.shape_type()),
             ("sphere", sphere.shape_type()),
             ("cyl", cyl.shape_type()),
             ("cone", cone.shape_type()),
             ("hull", hull.shape_type()),
+            ("tri", tri.shape_type()),
         ];
 
         let mut bad = Vec::new();
@@ -960,6 +1087,10 @@ polyvert_hull_4|0.300000012|0.200000003|-0.100000001
 polyvert_hull_5|-0.300000012|0.200000003|-0.100000001
 polyvert_hull_6|0.300000012|-0.200000003|-0.100000001
 polyvert_hull_7|-0.300000012|-0.200000003|-0.100000001
+polycast_tri|1|3
+polyvert_tri_0|0|0|0
+polyvert_tri_1|1|0|0
+polyvert_tri_2|0|1|0
 ";
 
     /// The `support_*` rows -- the *virtual* `localGetSupportingVertex`, beside
@@ -980,13 +1111,18 @@ support_sphere_diag|0.288675129|0.288675129|0.288675129|0|0|0|0.5
 support_cyl_diag|0.212132052|0.212132052|0.5|0.212132052|0.212132052|0.5|0
 support_cone_diag|0|0|0.400000006|0|0|0.400000006|0
 support_hull_diag|0.300000012|0.200000003|0.100000001|0.300000012|0.200000003|0.100000001|0
+support_tri_diag|1|0|0|1|0|0|0
+support_tri_tie_hi|1|0|0|1|0|0|0
+support_tri_tie_lo|0|0|0|0|0|0|0
+support_tri_margin_diag|1.02309406|0.0230940096|0.0230940096|1|0|0|0.0399999991
 ";
 
     #[test]
     fn bullet_reference_local_get_supporting_vertex() {
         let (unit_box, _, margin_box, sphere, _, cyl, cone, hull) = probe_shapes();
+        let (tri, tri_margin) = probe_triangles();
         let pxyz = Vec3::new(1.0, 1.0, 1.0);
-        let cases: [(&str, &dyn ConvexShape, Vec3); 8] = [
+        let cases: [(&str, &dyn ConvexShape, Vec3); 12] = [
             ("unit_box_diag", &unit_box, pxyz),
             ("margin_box_diag", &margin_box, pxyz),
             ("margin_box_axis", &margin_box, Vec3::new(1.0, 0.0, 0.0)),
@@ -995,6 +1131,10 @@ support_hull_diag|0.300000012|0.200000003|0.100000001|0.300000012|0.200000003|0.
             ("cyl_diag", &cyl, pxyz),
             ("cone_diag", &cone, pxyz),
             ("hull_diag", &hull, pxyz),
+            ("tri_diag", &tri, pxyz),
+            ("tri_tie_hi", &tri, Vec3::new(1.0, 1.0, 0.0)),
+            ("tri_tie_lo", &tri, Vec3::new(-1.0, -1.0, 0.0)),
+            ("tri_margin_diag", &tri_margin, pxyz),
         ];
 
         let mut bad = Vec::new();
@@ -1039,7 +1179,8 @@ support_hull_diag|0.300000012|0.200000003|0.100000001|0.300000012|0.200000003|0.
     #[test]
     fn bullet_reference_polyhedral_vertices() {
         let (unit_box, flat_box, margin_box, sphere, _, cyl, cone, hull) = probe_shapes();
-        let shapes: [(&str, &dyn ConvexShape); 7] = [
+        let (tri, _) = probe_triangles();
+        let shapes: [(&str, &dyn ConvexShape); 8] = [
             ("unit_box", &unit_box),
             ("flat_box", &flat_box),
             ("margin_box", &margin_box),
@@ -1047,6 +1188,7 @@ support_hull_diag|0.300000012|0.200000003|0.100000001|0.300000012|0.200000003|0.
             ("cyl", &cyl),
             ("cone", &cone),
             ("hull", &hull),
+            ("tri", &tri),
         ];
 
         let mut bad = Vec::new();
@@ -1104,6 +1246,74 @@ support_hull_diag|0.300000012|0.200000003|0.100000001|0.300000012|0.200000003|0.
             covered, want,
             "the shapes checked and POLYHEDRAL_REFERENCE disagree on which rows exist"
         );
+    }
+
+    /// The `shapeaabb_*` rows -- `getAabb` on the triangle, at three poses,
+    /// beside the same three poses run through a plain `btTriangleShape`.
+    ///
+    /// The `tribase_*` rows are the base class's inherited `getAabbSlow`, which
+    /// the port does not carry: they are here as the *control* for the claim
+    /// that overriding `getAabb` was necessary. Without them "the subclass
+    /// boxes the corners" and "the base pays six support queries" are two
+    /// descriptions of one number, and either implementation would pass.
+    const TRIANGLE_AABB_REFERENCE: &str = "\
+shapeaabb_tri_id|0|0|0|1|1|0
+shapeaabb_tri_rot60|-0.0333333313|-0.400000006|-0.13333334|0.966666698|0.266666681|0.866666675
+shapeaabb_tri_margin_rot60|-0.0733333305|-0.439999998|-0.173333347|1.00666666|0.306666672|0.906666696
+shapeaabb_tribase_rot60|-0.0333333313|-0.400000006|-0.13333334|0.966666698|0.266666681|0.866666675
+shapeaabb_tribase_margin_rot60|-0.113333322|-0.479999989|-0.213333338|1.04666662|0.346666634|0.946666658
+";
+
+    /// One `shapeaabb_*` row as `(min, max)`.
+    fn aabb_row(name: &str) -> (Vec3, Vec3) {
+        let f = row(TRIANGLE_AABB_REFERENCE, name, 7);
+        let n = |i: usize| -> Scalar { f[i].parse().unwrap() };
+        (Vec3::new(n(1), n(2), n(3)), Vec3::new(n(4), n(5), n(6)))
+    }
+
+    #[test]
+    fn bullet_reference_triangle_aabb() {
+        let (tri, tri_margin) = probe_triangles();
+        let rot60 = crate::probe_fixture::rot60_at(0.3, -0.4, 0.2);
+        let cases: [(&str, &TriangleShapeEx, Transform); 3] = [
+            ("tri_id", &tri, IDENTITY),
+            ("tri_rot60", &tri, rot60),
+            ("tri_margin_rot60", &tri_margin, rot60),
+        ];
+
+        let mut bad = Vec::new();
+        for (name, shape, pose) in cases {
+            let (got_min, got_max) = shape.get_aabb(&pose);
+            let (want_min, want_max) = aabb_row(&format!("shapeaabb_{name}"));
+            diff_vec3(&mut bad, name, "min", got_min, want_min);
+            diff_vec3(&mut bad, name, "max", got_max, want_max);
+        }
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+    }
+
+    /// The override earns itself only at a nonzero margin: at margin zero the
+    /// subclass's corner box and the base's `getAabbSlow` are the same bits, and
+    /// at 0.04 the base is wider by exactly the margin on every face because it
+    /// adds it once inside `localGetSupportingVertex` and once again itself.
+    ///
+    /// This is the row pair that makes `get_aabb`'s body a decision rather than
+    /// a restatement: delegate to `get_aabb_slow`, as an earlier draft of this
+    /// port did, and `shapeaabb_tri_margin_rot60` fails while every other
+    /// triangle row still passes.
+    #[test]
+    fn the_triangle_subclasss_aabb_differs_from_its_bases_only_at_a_nonzero_margin() {
+        assert_eq!(
+            aabb_row("shapeaabb_tri_rot60"),
+            aabb_row("shapeaabb_tribase_rot60")
+        );
+
+        let (ex_min, ex_max) = aabb_row("shapeaabb_tri_margin_rot60");
+        let (base_min, base_max) = aabb_row("shapeaabb_tribase_margin_rot60");
+        assert_ne!((ex_min, ex_max), (base_min, base_max));
+        for i in 0..3 {
+            assert!((base_min[i] - (ex_min[i] - CONVEX_DISTANCE_MARGIN)).abs() < 1e-6);
+            assert!((base_max[i] - (ex_max[i] + CONVEX_DISTANCE_MARGIN)).abs() < 1e-6);
+        }
     }
 
     /// The vertices `getVertex` reports are not the support function's:

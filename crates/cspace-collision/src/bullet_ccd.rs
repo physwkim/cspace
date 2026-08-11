@@ -102,9 +102,10 @@ use crate::world::World;
 ///
 /// [`Error`] when any body cannot be built or any pair cannot be checked --
 /// see [`check_robot_collision_continuous`]'s own callers for why that is not
-/// reported as "no collision". A mesh-shaped *attached* body is the one such
-/// case reachable from well-formed input: it needs `btTriangleShapeEx`, which
-/// this port does not carry.
+/// reported as "no collision". Every shape MoveIt's own `createShapePrimitive`
+/// builds is built here, so what remains is what upstream returns null for --
+/// a plane, a mesh with no vertices or no faces, a null octree -- plus a name
+/// collision between a link, a world object and an attached body.
 pub fn check_robot_collision_continuous(
     world: &World,
     padding_scale: &LinkPaddingScale,
@@ -321,10 +322,11 @@ fn add(
 /// (`collision_env_bullet.cpp:257-267`, `:389-425`).
 ///
 /// `addAttachedObjects` is the exception and picks `USE_SHAPE_TYPE` for every
-/// shape including a mesh (`:345-346`) -- which is the branch that needs
-/// `btTriangleShapeEx`. Reproduced rather than smoothed over: choosing the hull
-/// there would make a mesh-shaped attached body check against a *different*
-/// solid than upstream's, which is worse than not checking it.
+/// shape including a mesh (`:345-346`), which builds a compound of one
+/// `btTriangleShapeEx` per face instead of a hull. Reproduced rather than
+/// smoothed over: choosing the hull there would make a mesh-shaped attached
+/// body sweep a *different* solid than upstream's -- convex where the mesh is
+/// not -- and every contact on a concavity would go the other way.
 fn collision_object_type(shape: &Shape) -> CollisionObjectType {
     match shape {
         Shape::Mesh(_) => CollisionObjectType::ConvexHull,

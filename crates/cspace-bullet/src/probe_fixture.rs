@@ -14,6 +14,7 @@
 use crate::linear_math::{Matrix3, Scalar, Transform, Vec3};
 use crate::shapes::{
     BoxShape, ConeShapeZ, ConvexHullShape, ConvexShape, CylinderShapeZ, SphereShape,
+    TriangleShapeEx,
 };
 
 /// `const btTransform id = at(0, 0, 0);`
@@ -95,6 +96,29 @@ pub fn probe_shapes() -> (
         cone,
         hull,
     )
+}
+
+/// The two triangles `probe.cpp` builds, in its order: `(tri, tri_margin)`.
+///
+/// The same three corners twice, differing only in margin. `tri` is what
+/// `createShapePrimitive` produces -- `setMargin(BULLET_MARGIN)`, which is zero
+/// -- and `tri_margin` keeps the constructed 0.04, which is the only setting
+/// under which the shape's `getAabb` and the `getAabbSlow` it overrides give
+/// different answers.
+///
+/// Separate from [`probe_shapes`] rather than a ninth and tenth element of its
+/// tuple: nothing that consumes that tuple wants a triangle, and widening it
+/// would edit every destructuring in this crate to add two holes.
+pub fn probe_triangles() -> (TriangleShapeEx, TriangleShapeEx) {
+    let corners = [
+        Vec3::new(0.0, 0.0, 0.0),
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+    ];
+    let mut tri = TriangleShapeEx::new(corners[0], corners[1], corners[2]);
+    tri.set_margin(0.0);
+    let tri_margin = TriangleShapeEx::new(corners[0], corners[1], corners[2]);
+    (tri, tri_margin)
 }
 
 /// Bit-exact comparison against a probe field, with `+0.0 == -0.0` the one

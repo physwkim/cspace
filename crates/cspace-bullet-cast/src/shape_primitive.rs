@@ -40,6 +40,7 @@ use cspace_bullet::convex_hull_computer::ConvexHullComputer;
 use cspace_bullet::linear_math::{Scalar, Transform, Vec3};
 use cspace_bullet::shapes::{
     BoxShape, ConeShapeZ, ConvexHullShape, ConvexShape, CylinderShapeZ, SphereShape,
+    TriangleShapeEx,
 };
 use cspace_core::geometry::shapes::{Cone, Cuboid, Cylinder, Mesh, OcTree, Shape, Sphere};
 
@@ -80,15 +81,6 @@ pub enum ShapeError {
     /// upstream's default-constructed state, which `createShapePrimitive`
     /// dereferences without checking (`bullet_utils.cpp:206`).
     EmptyOcTree,
-    /// A mesh under [`CollisionObjectType::UseShapeType`], which builds a
-    /// compound of `btTriangleShapeEx` (`bullet_utils.cpp:175`).
-    ///
-    /// Not ported: `cspace_bullet`'s scope is the convex narrow phase, and
-    /// `btTriangleShapeEx` reaches `btConvexConvexAlgorithm` only through the
-    /// GIMPACT concave machinery. The one producer is an attached body whose
-    /// shape is a mesh (`collision_env_bullet.cpp:346`), so a robot carrying a
-    /// mesh-shaped attached body cannot be continuous-checked by this port.
-    AttachedMeshUnported,
     /// `"Failed to create convex hull"` (`contact_checker_common.cpp:141`) --
     /// `btConvexHullComputer::compute` answered negative, which it does when
     /// `shrink` was large enough to leave the hull empty.
@@ -99,28 +91,6 @@ pub enum ShapeError {
     /// upstream carries the branch, and because the argument is a parameter
     /// rather than a constant one function down.
     ConvexHullFailed,
-}
-
-impl ShapeError {
-    /// Whether upstream reaches this by returning `nullptr`, rather than by
-    /// building the shape.
-    ///
-    /// The distinction has one consumer and it is not cosmetic: the
-    /// multi-shape constructor drops a null child from the compound and keeps
-    /// going (`bullet_utils.cpp:596`). Dropping a shape *this port* has not
-    /// reached yet -- [`Self::AttachedMeshUnported`] -- would silently build an
-    /// object smaller than its geometry, and the check would then report no
-    /// collision for a reason nothing in the result names.
-    #[must_use]
-    pub fn is_upstream_null(&self) -> bool {
-        match self {
-            Self::EmptyMesh
-            | Self::UnsupportedGeometry { .. }
-            | Self::EmptyOcTree
-            | Self::ConvexHullFailed => true,
-            Self::AttachedMeshUnported => false,
-        }
-    }
 }
 
 /// `createShapePrimitive(const shapes::Box*, ...)` (`bullet_utils.cpp:84-94`).
@@ -222,9 +192,11 @@ pub fn create_shape_primitive(
 ///
 /// # Errors
 ///
-/// [`ShapeError::EmptyMesh`] for a mesh with no vertices or no triangles,
+/// [`ShapeError::EmptyMesh`] for a mesh with no vertices or no triangles, and
 /// [`ShapeError::ConvexHullFailed`] when the hull computer refuses the point
-/// set, and [`ShapeError::AttachedMeshUnported`] for the triangle-soup branch.
+/// set. The triangle-soup branch returns no error of its own; a triangle whose
+/// index runs past the vertex array panics here, where upstream reads out of
+/// bounds and returns a shape built from whatever was there.
 fn mesh_primitive(
     geom: &Mesh,
     collision_object_type: CollisionObjectType,
@@ -256,7 +228,27 @@ fn mesh_primitive(
             }
             Ok(BulletShape::Convex(Arc::new(subshape)))
         }
-        CollisionObjectType::UseShapeType => Err(ShapeError::AttachedMeshUnported),
+        CollisionObjectType::UseShapeType => {
+            // One `btTriangleShapeEx` per face at an identity child transform,
+            // the vertices read through the triangle's own indices. Upstream's
+            // `if (subshape != nullptr)` guard around `addChildShape` is not
+            // reproduced: `new` cannot return null there, and the guard is the
+            // shape of the null checks the other branches genuinely need.
+            let mut compound = CompoundShape::new(BULLET_COMPOUND_USE_DYNAMIC_AABB);
+            for triangle in &geom.triangles {
+                let corner = |i: usize| {
+                    let v = geom.vertices[triangle[i] as usize];
+                    Vec3::new(v[0] as Scalar, v[1] as Scalar, v[2] as Scalar)
+                };
+                let mut subshape = TriangleShapeEx::new(corner(0), corner(1), corner(2));
+                subshape.set_margin(BULLET_MARGIN);
+                compound.add_child_shape(
+                    Transform::identity(),
+                    BulletShape::Convex(Arc::new(subshape)),
+                );
+            }
+            Ok(BulletShape::Compound(compound))
+        }
     }
 }
 
@@ -429,25 +421,64 @@ mod tests {
         );
     }
 
-    /// The triangle-soup branch, which is the one this port does not carry.
-    /// Its sibling under [`CollisionObjectType::ConvexHull`] builds a shape;
-    /// see `bullet_reference_mesh_hull`.
+    /// The triangle-soup branch: one child per *face*, not per vertex, at an
+    /// identity child transform, with the face's own vertices.
+    ///
+    /// The two faces share vertices 0 and 2 and list them in different
+    /// positions, which is what separates "read the triangle's indices" from
+    /// "take three vertices in file order": the second child's corners are
+    /// `v0, v2, v3`, and a port that walked the vertex array would put `v3`
+    /// first.
     #[test]
-    fn a_mesh_under_use_shape_type_is_the_unported_branch() {
+    fn a_mesh_under_use_shape_type_is_a_compound_of_one_triangle_per_face() {
         let mesh = Mesh::new(
             vec![
                 Vector3::new(0.0, 0.0, 0.0),
                 Vector3::new(1.0, 0.0, 0.0),
                 Vector3::new(0.0, 1.0, 0.0),
+                Vector3::new(0.0, 0.0, 1.0),
             ],
-            vec![[0, 1, 2]],
+            vec![[0, 1, 2], [0, 2, 3]],
         )
         .unwrap();
 
+        let shape = create_shape_primitive(&Shape::Mesh(mesh), CollisionObjectType::UseShapeType)
+            .expect("a mesh with two faces builds");
+        let BulletShape::Compound(compound) = shape else {
+            panic!("the triangle-soup branch returns a compound");
+        };
+        assert_eq!(compound.num_child_shapes(), 2);
+
+        let triangle = |i: usize| {
+            let BulletShape::Convex(shape) = compound.child_shape(i) else {
+                panic!("every child of the triangle soup is convex");
+            };
+            *shape
+                .as_any()
+                .downcast_ref::<TriangleShapeEx>()
+                .expect("every child of the triangle soup is a triangle")
+        };
+        let corners = |i: usize| *triangle(i).vertices();
         assert_eq!(
-            create_shape_primitive(&Shape::Mesh(mesh), CollisionObjectType::UseShapeType).err(),
-            Some(ShapeError::AttachedMeshUnported)
+            corners(0),
+            [
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ]
         );
+        assert_eq!(
+            corners(1),
+            [
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(0.0, 0.0, 1.0),
+            ]
+        );
+        for i in 0..2 {
+            assert_eq!(*compound.child_transform(i), Transform::identity());
+            assert_eq!(triangle(i).margin(), BULLET_MARGIN);
+        }
     }
 
     /// `probe.cpp`'s `meshhull` rows: `createConvexHull` over a point set, the
