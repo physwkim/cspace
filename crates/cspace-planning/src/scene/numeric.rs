@@ -1,10 +1,10 @@
 // Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Ported from Eigen (MPL2), read locally via
-// /home/stevek/work/ITK/Modules/ThirdParty/Eigen3/src/itkeigen/Eigen —
-// not one of this workspace's four listed upstreams (moveit2, stomp, ompl,
-// fcl); Eigen is not vendored under third_party/ here. See `scene.rs`'s
+// Ported from Eigen 3.4.0 (MPL2) — not one of this workspace's four listed
+// upstreams (moveit2, stomp, ompl, fcl), but its text is in-tree all the
+// same, as the copy bullet3 bundles under
+// third_party/bullet3/examples/ThirdPartyLibs/Eigen. See `scene.rs`'s
 // `isometry_is_approx` for why this formula is duplicated from Eigen rather
 // than reused from `cspace-collision`.
 
@@ -17,9 +17,14 @@
 //!
 //! One site in this crate needed the fix, `scene.rs`'s
 //! `isometry_is_approx`: `norm_a.min(norm_b)`, matching Eigen's
-//! `Fuzzy.h:27` (`numext::mini(nested.cwiseAbs2().sum(),
-//! otherNested.cwiseAbs2().sum())`), which on a non-GPU build resolves
-//! (`MathFunctions.h:1026`) to plain `std::min`. `norm_a`/`norm_b` are
+//! `Eigen/src/Core/Fuzzy.h:27` (`numext::mini(nested.cwiseAbs2().sum(),
+//! otherNested.cwiseAbs2().sum())`), which on a non-GPU build resolves to
+//! plain `std::min` (`Eigen/src/Core/MathFunctions.h:1083`). Both spans are
+//! 3.4.0's, the release bullet3 bundles under
+//! `third_party/bullet3/examples/ThirdPartyLibs/Eigen` and the one every
+//! other Eigen citation in this workspace already reads; the reformatted
+//! copy inside ITK that these two were first taken from wraps the same
+//! statements onto different lines. `norm_a`/`norm_b` are
 //! runtime sums of squares, not constants — but this is
 //! fidelity/uniformity only, not independently reachable: `isometry_is_approx`'s
 //! `diff_sq` sums over the same matrix entries as `norm_a`/`norm_b`, so any

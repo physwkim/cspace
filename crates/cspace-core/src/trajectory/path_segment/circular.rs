@@ -14,9 +14,9 @@ use nalgebra::DVector;
 
 use crate::trajectory::numeric::cxx_min;
 
-/// Eigen's `MatrixBase::normalized()` (read locally via
-/// `/home/stevek/work/ITK/Modules/ThirdParty/Eigen3/src/itkeigen/Eigen/src/Core/Dot.h:92-102`
-/// — Eigen is not vendored under this workspace's `third_party/`): divide
+/// Eigen's `MatrixBase::normalized()` (`Eigen/src/Core/Dot.h:123-134`, the
+/// 3.4.0 release bullet3 bundles under
+/// `third_party/bullet3/examples/ThirdPartyLibs/Eigen`): divide
 /// by the norm unless the squared norm is exactly `0.0`, in which case the
 /// vector is returned unchanged. "Exactly `0.0`" includes floating-point
 /// underflow of the squaring step, not just an algebraically zero input —
