@@ -143,6 +143,16 @@ def ccd_case(oracle, joint_values, joint_values2, budget):
         objects=[FLOOR_OBJECT, PILLAR_OBJECT],
         **budget,
     )
+    # `nearest_points` is dropped rather than stored. `addCastSingleResult`
+    # never assigns it and `collision_detection::Contact` gives it no
+    # initialiser, so every swept contact carries whatever the stack held --
+    # values like `2.07e-312` and `-1.60e+268` that differ between two runs of
+    # this script over the same states. Storing them would make a re-capture
+    # print a diff on every case whether or not anything about the geometry
+    # moved, which is exactly the signal these fixtures exist to carry.
+    for contact in result.get("contacts", []):
+        contact.pop("nearest_points", None)
+
     # The budget travels with the case rather than being a constant the reader
     # restates: a case answered at one budget and replayed at another compares
     # two different questions, and nothing in the response says which was
