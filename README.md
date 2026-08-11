@@ -95,7 +95,7 @@ let response = generate_plan(&mut scene, &env, &[], &[planner], &[], request)?;
 ## Status
 
 Every condition in the phase table in [`GOALS.md`](GOALS.md) is met as of the
-2026-08-09 measurement: `doc/phase7-benchmark-results.json` 39/39 and
+2026-08-11 measurement: `doc/phase7-benchmark-results.json` 39/39 and
 `doc/phase8-optimizer-properties.json` 140/140. Those record the CHOMP and
 STOMP optimizers measured against their own upstream C++ implementations.
 

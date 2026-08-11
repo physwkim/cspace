@@ -1926,7 +1926,7 @@ impl<'m> ChompOptimizer<'m> {
     /// `chomp-iteration-double-increment` (`reproduced-grandfathered`
     /// pending a fresh decision, per that entry's own text) before that
     /// file was deleted; `GOALS.md` records its own table's Phase conditions
-    /// met as of 2026-08-09 (Phase 8's other baseline, C++ OMPL RRTConnect,
+    /// met as of 2026-08-11 (Phase 8's other baseline, C++ OMPL RRTConnect,
     /// is qualified there and is not what this sentence rests on), moving
     /// this project from "transcribe the numerics" to fixing code defects
     /// against upstream, and this is one such fix. The two branch-local
