@@ -2720,7 +2720,7 @@ private:
     collision_detection::CollisionEnvBullet env(model_, world);
 
     // Same shape as `collision()`'s: `contacts` on so the pair behind a
-    // `true` is nameable, `max_contacts` raised off its default 1 so a second
+    // `true` is nameable, `max_contacts` defaulting well above 1 so a second
     // simultaneously-swept pair is not silently dropped, and
     // `max_contacts_per_pair` a request field for the same reason it is one
     // there.
@@ -2729,9 +2729,23 @@ private:
     if (max_contacts_per_pair == 0)
       throw std::runtime_error("max_contacts_per_pair must be >= 1");
 
+    // `max_contacts` is a request field too, and not only for symmetry. It is
+    // the *only* input that makes the traversal order observable: while the
+    // budget is never spent, every pair the broadphase finds is stored and the
+    // result is a `std::map` keyed by the sorted name pair, so the order the
+    // objects went into the manager cannot be read off the answer. Set it
+    // below what a scene actually produces and `processResult` stops at
+    // whichever contacts came first -- which is the order `createProxy`
+    // announced the overlaps in, which is insertion order. A port that added
+    // its objects in a different order agrees with this op at a loose budget
+    // and disagrees at a tight one.
+    const std::size_t max_contacts = request.value("max_contacts", static_cast<std::size_t>(100));
+    if (max_contacts == 0)
+      throw std::runtime_error("max_contacts must be >= 1");
+
     collision_detection::CollisionRequest req;
     req.contacts = true;
-    req.max_contacts = 100;
+    req.max_contacts = max_contacts;
     req.max_contacts_per_pair = max_contacts_per_pair;
     collision_detection::CollisionResult res;
     env.checkRobotCollision(req, res, *state_, state2, acm);
