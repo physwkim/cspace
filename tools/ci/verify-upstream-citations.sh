@@ -9,10 +9,14 @@
 #
 # The port documents itself by citing upstream: a doc comment names a C++
 # symbol and gives the file and line span its behaviour was read off. 465 of
-# them, and until this gate nothing in this repository resolved a single one.
-# 46 were wrong when it was written -- 26 opening on a blank line, 20 pointing
-# at a neighbouring function or the wrong branch of one -- and all 46 survived
-# review, `cargo doc`, clippy at `-D warnings`, and
+# them, and until this gate nothing resolved one. The nearest thing,
+# `verify-upstream-license-provenance.sh`, reads the `Ported from` header
+# block at the top of each file -- whole paths, no line numbers -- so the two
+# cover disjoint text and neither subsumes the other.
+#
+# 46 of the 465 were wrong when the port was written -- 26 opening on a blank
+# line, 20 pointing at a neighbouring function or the wrong branch of one --
+# and all 46 survived review, `cargo doc`, clippy at `-D warnings`, and
 # `verify-private-doc-links.sh`, none of which can see outside the crate.
 #
 # # Why the revision check is not decoration
@@ -28,7 +32,8 @@
 # and absent from every worktree, which is exactly the condition under which a
 # silent skip would read as a pass.
 #
-# Runs in about two seconds, needs no docker and no oracle image.
+# 0.39s warm, three runs on an idle machine; needs no docker and no oracle
+# image. Cold it pays for one `rglob` over both trees.
 #
 #   tools/ci/verify-upstream-citations.sh
 #
