@@ -3748,7 +3748,7 @@ fn accumulate_collision<'a>(
             }
             // Reached whether or not the query found anything, exactly as
             // upstream's termination block is: `fcl::collide` returning zero
-            // contacts still falls through to `collision_detection_fcl/collision_common.cpp:395`. Only
+            // contacts still falls through to `collision_detection_fcl/collision_common.cpp:396`. Only
             // the skip rules above bypass it, and upstream's counterparts
             // `return false` at `:184-185` before ever reaching it.
             done = sweep_is_done(request, collision, stored_total, &by_pair, &cost_sources);
@@ -3785,9 +3785,9 @@ fn sweep_result(
 }
 
 /// Upstream's two termination sources, evaluated once per part pair at
-/// `collision_detection_fcl/collision_common.cpp:395-424` and answering its `done_`:
+/// `collision_detection_fcl/collision_common.cpp:396-424` and answering its `done_`:
 ///
-/// - implicit (`:395-407`) — a collision is on record, the contact budget is
+/// - implicit (`:396-409`) — a collision is on record, the contact budget is
 ///   either unwanted or already full, and no cost is being accumulated. Every
 ///   field is therefore already at its final value, so this one only decides
 ///   how much work the sweep still does; the one way it shows is that an
