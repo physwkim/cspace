@@ -138,14 +138,23 @@ pub fn check_robot_collision_continuous(
         let mut poses = Vec::with_capacity(link.shapes().len());
         for link_shape in link.shapes() {
             shapes.push(scaled_padded(&link_shape.shape, scale, padding));
-            poses.push(state1.global_link_transform_at(index) * link_shape.origin_transform);
+            poses.push(link_shape.origin_transform);
         }
 
-        // The poses upstream passes are the link-*local* collision origins,
-        // and `setCastCollisionObjectsTransform` then overwrites the world
-        // transform with the global one. Global poses here reach the same
-        // compound: a child is stored relative to pose 0 either way, and a
-        // link is rigid, so the relative poses are the same in both frames.
+        // `shape_poses.push_back(urdfPose2Eigen(i->origin))` (`:417`): the
+        // link-*local* collision origins, unposed. The link is placed later,
+        // by the `setCastCollisionObjectsTransform` loop below.
+        //
+        // Posing them here would build the same compound -- a child is stored
+        // relative to pose 0, and a link is rigid, so the global prefix
+        // cancels -- but not the same *world* transform, which the constructor
+        // takes from pose 0 and `createProxy` reads as the AABB before any
+        // cast transform is set. Add the links already posed and each proxy
+        // enters the tree where the robot stands, overlapping almost nothing;
+        // upstream's enter piled around the origin, overlapping each other.
+        // The two broadphases then announce their overlaps in different
+        // orders, and that order is the pair cache's -- which is what a
+        // bounded `max_contacts` keeps a prefix of.
         add(
             &mut manager,
             link.name(),
@@ -157,7 +166,7 @@ pub fn check_robot_collision_continuous(
         )?;
         active.push((
             link.name().to_owned(),
-            poses[0],
+            state1.global_link_transform_at(index) * link.shapes()[0].origin_transform,
             state2.global_link_transform_at(index) * link.shapes()[0].origin_transform,
         ));
     }
