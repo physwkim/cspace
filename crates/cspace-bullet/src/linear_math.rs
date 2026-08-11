@@ -64,6 +64,9 @@
 //! conversions, serialization, `rotate`, `angle`, `lerp` and the `btMatrix3x3`
 //! eigen/diagonalize helpers are unused by the narrow phase and are absent
 //! rather than stubbed.
+//!
+//! Unqualified citations in this file are lines in
+//! `btVector3.h`; a citation of any other file names that file.
 
 use core::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, Neg, Sub, SubAssign};
 
@@ -453,7 +456,7 @@ impl Matrix3 {
 
     /// `btMatrix3x3::tdotx`/`tdoty`/`tdotz` as one call: `self^T * v`, which
     /// is also what `operator*(const btVector3&, const btMatrix3x3&)` computes
-    /// (`btMatrix3x3.h:669-680`, `:1225`).
+    /// (`btMatrix3x3.h:669-680`, `btMatrix3x3.h:1225`).
     ///
     /// The narrow phase uses this to take a world-space direction into a
     /// shape's local frame without materializing an inverse.

@@ -46,6 +46,10 @@
 //!
 //! What is left is the manifold hand-off, the `ClosestPointInput`, and one
 //! call to [`crate::gjk`].
+//!
+//! Unqualified citations in this file are lines in
+//! `btConvexConvexAlgorithm.cpp`; a citation of any other file names
+//! that file.
 
 use crate::discrete_detector::ClosestPointInput;
 use crate::gjk::{GjkPairDetector, PenetrationDepthSolver};

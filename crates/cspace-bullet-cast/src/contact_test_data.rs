@@ -33,6 +33,9 @@
 //! depends on the order pairs are visited in, not only on which pairs collide.
 //! That is why the broadphase's pair order is reproduced rather than
 //! approximated -- see `cspace_bullet::dbvt_broadphase`.
+//!
+//! Unqualified citations in this file are lines in
+//! `bullet_utils.hpp`; a citation of any other file names that file.
 
 use std::collections::BTreeMap;
 

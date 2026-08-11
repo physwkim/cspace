@@ -52,11 +52,11 @@
 //! `false` regardless of MoveIt's separately-scoped
 //! `cdata->req->enable_signed_distance`, and FCL's native signed-distance
 //! path (`ShapeDistanceTraversalNode::leafTesting` dispatching to
-//! `nsolver->shapeSignedDistance`, `shape_distance_traversal_node-inl.h:
-//! 85-92`) is never reached. That native path -- fcl's own docs call the
-//! combination "SD_1", exact signed distance via GJK/EPA
-//! (`distance_request.h:68`) -- is real for any primitive pair under
-//! `GST_LIBCCD`, `box x box` included: `box_box-inl.h` registers no
+//! `nsolver->shapeSignedDistance`,
+//! `shape_distance_traversal_node-inl.h:85-92`) is never reached. That native
+//! path -- fcl's own docs call the combination "SD_1", exact signed distance
+//! via GJK/EPA (`distance_request.h:68`) -- is real for any primitive pair
+//! under `GST_LIBCCD`, `box x box` included: `box_box-inl.h` registers no
 //! closed-form *distance* routine, only the `boxBoxIntersect` collision
 //! test, so `box x box` distance already falls through to the generic GJK
 //! dispatch both with and without this measurement's op.

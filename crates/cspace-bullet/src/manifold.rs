@@ -137,14 +137,15 @@ impl PersistentManifold {
     /// reason the point cache is not: this path cannot reach it.
     ///
     /// The same line also sets `m_contactProcessingThreshold` to the smaller of
-    /// the two objects' own (`:77`). That value has no reader in
-    /// `BulletCollision`: both places that would consult it --
-    /// `btManifoldResult::addContactPoint` (`:109`) and
+    /// the two objects' own (`btCollisionDispatcher.cpp:77`). That value has no
+    /// reader in `BulletCollision`: both places that would consult it --
+    /// `btManifoldResult::addContactPoint` (`btManifoldResult.cpp:109`) and
     /// `btConvexConvexAlgorithm::processCollision`'s
-    /// `m_maximumDistanceSquared` (`:386`) -- are commented out upstream, and
-    /// every live read is a `BulletDynamics` constraint solver deciding whether
-    /// to build a contact constraint. Carrying it here would be a field with a
-    /// `btMin` behind it that no test in this crate could ever discriminate.
+    /// `m_maximumDistanceSquared` (`btConvexConvexAlgorithm.cpp:386`) -- are
+    /// commented out upstream, and every live read is a `BulletDynamics`
+    /// constraint solver deciding whether to build a contact constraint.
+    /// Carrying it here would be a field with a `btMin` behind it that no test
+    /// in this crate could ever discriminate.
     #[must_use]
     pub fn new(body0_id: usize, body1_id: usize) -> Self {
         Self {

@@ -36,15 +36,16 @@
 //!
 //! `removeChildShapeByIndex` and `removeChildShape`: the continuous path
 //! builds each compound with `addChildShape` and afterwards only ever calls
-//! `updateChildTransform` (`bullet_cast_bvh_manager.cpp:102`, `:115`).
+//! `updateChildTransform` (`bullet_cast_bvh_manager.cpp:102`,
+//! `bullet_cast_bvh_manager.cpp:115`).
 //!
 //! The `static_cast<CastHullShape*>` that `setCastCollisionObjectsTransform`
-//! applies to a convex child (`bullet_cast_bvh_manager.cpp:101`, `:114`) has
-//! no equivalent here, and [`CompoundShape::child_shape_mut`] does not offer
-//! one: the `Convex` arm holds an `Arc` the cast layer shares with the
-//! compound, and it re-poses the shape through that shared handle. What the
-//! mutable accessor is for is the *compound* child of a compound, whose own
-//! tree the same function refreshes.
+//! applies to a convex child (`bullet_cast_bvh_manager.cpp:101`,
+//! `bullet_cast_bvh_manager.cpp:114`) has no equivalent here, and
+//! [`CompoundShape::child_shape_mut`] does not offer one: the `Convex` arm
+//! holds an `Arc` the cast layer shares with the compound, and it re-poses the
+//! shape through that shared handle. What the mutable accessor is for is the
+//! *compound* child of a compound, whose own tree the same function refreshes.
 //!
 //! `m_updateRevision`: its only readers are the two compound algorithms'
 //! child-algorithm caches, which this crate does not carry -- see
@@ -123,10 +124,10 @@ impl Shape {
     ///
     /// Every `setMargin` call on this path is the `BULLET_MARGIN` one a
     /// freshly-built shape takes from its builder -- `bullet_utils.cpp:577`,
-    /// `:587`, `:599`, and the three in `makeCastCollisionObject` -- and at
-    /// each of them the shape has exactly one owner, so the `Arc` is unique.
-    /// A shape already handed to a compound is const from then on: nothing on
-    /// the continuous path re-margins one.
+    /// `bullet_utils.cpp:587`, `bullet_utils.cpp:599`, and the three in
+    /// `makeCastCollisionObject` -- and at each of them the shape has exactly
+    /// one owner, so the `Arc` is unique. A shape already handed to a compound
+    /// is const from then on: nothing on the continuous path re-margins one.
     ///
     /// # Panics
     ///

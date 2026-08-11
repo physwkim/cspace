@@ -81,6 +81,10 @@
 //! the hash mask, so admitting rejected pairs reorders
 //! `processAllOverlappingPairs` and hence which contacts a bounded
 //! `max_contacts` keeps.
+//!
+//! Unqualified citations in this file are lines in
+//! `bullet_cast_bvh_manager.cpp`; a citation of any other file names
+//! that file.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;

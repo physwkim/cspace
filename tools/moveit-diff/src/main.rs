@@ -4028,13 +4028,14 @@ mod distance_pair_tests {
 ///    constraint_case`'s `Some(link_name)` arm's radius/offset sampling
 ///    against `VisibilityConstraint::configure`'s `points_` formula
 ///    (`kinematic_constraint.cpp:834-843`); `cone_mesh`'s vertex/triangle
-///    indices against `getVisibilityCone` (`kinematic_constraint.cpp:
-///    922-993`, vertex 0 sensor / 1 target-center / `2..cone_sides+2` rim,
-///    same closing-triangle pair); `decide_cone`'s `World`/`ACM`/
-///    `CollisionRequest` construction against `decide`'s collision-check
-///    section (`kinematic_constraint.cpp:1138-1179` -- `CollisionEnvFCL`
-///    single-arg ctor, default-constructed ACM, `req.contacts=true;
-///    req.max_contacts=1`); `LinkPaddingScale::new()` against
+///    indices against `getVisibilityCone`
+///    (`kinematic_constraint.cpp:922-993`, vertex 0 sensor / 1 target-center
+///    / `2..cone_sides+2` rim, same closing-triangle pair); `decide_cone`'s
+///    `World`/`ACM`/`CollisionRequest` construction against `decide`'s
+///    collision-check section (`kinematic_constraint.cpp:1138-1179` --
+///    `CollisionEnvFCL` single-arg ctor, default-constructed ACM,
+///    `req.contacts=true; req.max_contacts=1`); `LinkPaddingScale::new()`
+///    against
 ///    `CollisionEnvFCL`'s untracked-link default (`env.rs`'s
 ///    `LinkAdjustment::default()`: `padding: 0.0, scale: 1.0`, matching
 ///    upstream) -- every one of these matches upstream exactly. (It also had

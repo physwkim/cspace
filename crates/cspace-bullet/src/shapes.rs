@@ -38,7 +38,7 @@
 //! not only on the constructor argument. Three separate conventions collide,
 //! and MoveIt drives all three at once by calling `setMargin(BULLET_MARGIN)`
 //! -- which is `0.0f` (`bullet_utils.hpp:51`) -- on every shape it builds
-//! (`bullet_utils.cpp:577`, `:587`, `:599`):
+//! (`bullet_utils.cpp:577`, `bullet_utils.cpp:587`, `bullet_utils.cpp:599`):
 //!
 //! - [`BoxShape`] and [`CylinderShapeZ`] subtract the margin from their stored
 //!   dimensions at construction and *re-add it* on every `setMargin`, so
@@ -79,10 +79,10 @@
 //! [`TriangleShapeEx`] is here because that arm *is* requested.
 //! `addAttachedObjects` fills its whole `collision_object_types` vector with
 //! `USE_SHAPE_TYPE` (`collision_env_bullet.cpp:345-346`) rather than choosing
-//! per shape the way `addToManager` (`:257-267`) and `addLinkAsCollisionObject`
-//! (`:418-425`) do, so an attached body whose shape is a mesh reaches
-//! `createShapePrimitive`'s triangle-soup branch and comes back as a compound
-//! of `btTriangleShapeEx`.
+//! per shape the way `addToManager` (`collision_env_bullet.cpp:257-267`) and
+//! `addLinkAsCollisionObject` (`collision_env_bullet.cpp:418-425`) do, so an
+//! attached body whose shape is a mesh reaches `createShapePrimitive`'s
+//! triangle-soup branch and comes back as a compound of `btTriangleShapeEx`.
 
 use std::any::Any;
 use std::borrow::Cow;
@@ -182,8 +182,8 @@ pub trait ConvexShape: Send + Sync + Any {
     /// `btConvexInternalShape`'s plain assignment. It belongs on the trait for
     /// the same reason it is virtual there: `createShapePrimitive` calls it
     /// through the base pointer on whatever shape it has just built
-    /// (`bullet_utils.cpp:577`, `:587`, `:599`), and the shape decides what
-    /// that means.
+    /// (`bullet_utils.cpp:577`, `bullet_utils.cpp:587`,
+    /// `bullet_utils.cpp:599`), and the shape decides what that means.
     fn set_margin(&mut self, margin: Scalar);
 
     /// `btCollisionShape::getAabb` -- the shape's world AABB under `t`.
@@ -549,9 +549,9 @@ impl ConvexShape for CylinderShapeZ {
         self
     }
 
-    /// `btCylinderShape.cpp:27` -- `btCylinderShapeZ`'s
-    /// constructor only sets `m_upAxis` (`:36-40`), so the Z variant reports
-    /// the same type as the base.
+    /// `btCylinderShape.cpp:27` -- `btCylinderShapeZ`'s constructor only sets
+    /// `m_upAxis` (`btCylinderShape.cpp:36-40`), so the Z variant reports the
+    /// same type as the base.
     fn shape_type(&self) -> BroadphaseNativeType {
         BroadphaseNativeType::CYLINDER_SHAPE
     }
@@ -646,8 +646,8 @@ impl ConeShapeZ {
     /// `m_implicitShapeDimensions` is not carried: `setConeUpIndex` fills it
     /// (`btConeShape.cpp:62-64`), and nothing on the continuous-collision path
     /// reads it back -- the cone is absent from both non-virtual switches
-    /// (`btConvexShape.cpp:133-300`, `:376`), and its `getAabb` is the base
-    /// class's support-query one.
+    /// (`btConvexShape.cpp:133-300`, `btConvexShape.cpp:376`), and its
+    /// `getAabb` is the base class's support-query one.
     #[must_use]
     pub fn new(radius: Scalar, height: Scalar) -> Self {
         Self {
@@ -664,9 +664,8 @@ impl ConvexShape for ConeShapeZ {
         self
     }
 
-    /// `btConeShape.cpp:22` -- `btConeShapeZ` only calls
-    /// `setConeUpIndex(2)` (`:28-31`), so the Z variant reports the base's
-    /// type.
+    /// `btConeShape.cpp:22` -- `btConeShapeZ` only calls `setConeUpIndex(2)`
+    /// (`btConeShape.cpp:28-31`), so the Z variant reports the base's type.
     fn shape_type(&self) -> BroadphaseNativeType {
         BroadphaseNativeType::CONE_SHAPE
     }
@@ -860,7 +859,8 @@ impl ConvexShape for ConvexHullShape {
     }
 
     /// `btConvexHullShape::getNumVertices` (`btConvexHullShape.cpp:130-133`)
-    /// and `getVertex` (`:148-151`), which is `getScaledPoint(i)`.
+    /// and `getVertex` (`btConvexHullShape.cpp:148-151`), which is
+    /// `getScaledPoint(i)`.
     ///
     /// No scaling term: `btConvexInternalShape`'s constructor seeds
     /// `m_localScaling` at `(1,1,1)` (`btConvexInternalShape.cpp:19`), and
@@ -877,11 +877,12 @@ impl ConvexShape for ConvexHullShape {
 ///
 /// The subclass, not the base, because the subclass is what
 /// `createShapePrimitive` builds (`bullet_utils.cpp:175`) and it overrides
-/// `getAabb`: `btTriangleShapeEx::getAabb` (`:141-149`) boxes the three
-/// transformed corners, where `btTriangleShape::getAabb` (`btTriangleShape.h:
-/// 60-64`) calls `getAabbSlow` and pays six support queries for it. Everything
-/// else the narrow phase touches -- the support function, the margin, the
-/// shape type, the polyhedral vertices -- is the base's, inherited unchanged.
+/// `getAabb`: `btTriangleShapeEx::getAabb` (`btTriangleShapeEx.h:141-149`)
+/// boxes the three transformed corners, where `btTriangleShape::getAabb`
+/// (`btTriangleShape.h:60-64`) calls `getAabbSlow` and pays six support
+/// queries for it. Everything else the narrow phase touches -- the support
+/// function, the margin, the shape type, the polyhedral vertices -- is the
+/// base's, inherited unchanged.
 ///
 /// The two `getAabb`s agree bit for bit at margin zero, which is the only
 /// margin MoveIt runs: `getAabbSlow`'s support query on a polytope returns the
@@ -978,7 +979,8 @@ impl ConvexShape for TriangleShapeEx {
         (min, max)
     }
 
-    /// `btTriangleShape::getNumVertices` (`:30-33`) and `getVertex` (`:44-47`).
+    /// `btTriangleShape::getNumVertices` (`btTriangleShape.h:30-33`) and
+    /// `getVertex` (`btTriangleShape.h:44-47`).
     ///
     /// A successful `dynamic_cast<const btPolyhedralConvexShape*>`, so
     /// `getAverageSupport` averages the corners that tie on the support value

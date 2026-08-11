@@ -42,6 +42,9 @@
 //! problematic. think hard about the math` (`:491`); this port reproduces it
 //! rather than improving it, because the oracle it is checked against is
 //! upstream.
+//!
+//! Unqualified citations in this file are lines in
+//! `bullet_utils.hpp`; a citation of any other file names that file.
 
 use cspace_bullet::linear_math::Transform;
 use cspace_bullet::manifold::ManifoldPoint;

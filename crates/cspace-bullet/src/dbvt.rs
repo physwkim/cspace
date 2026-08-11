@@ -66,6 +66,10 @@
 //! owned by a broadphase, so it holds its constructed `-1` for the whole life
 //! of every tree this crate builds. `update` therefore reinserts from the
 //! root, which is what `m_lkhd < 0` selects.
+//!
+//! Unqualified citations in this file are lines in
+//! `bullet_cast_bvh_manager.cpp`; a citation of any other file names
+//! that file.
 
 use crate::linear_math::{Scalar, Vec3};
 

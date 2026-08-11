@@ -116,6 +116,9 @@
 //!   `Point32::dot` and `Point32::dot_p64` and `cross` into
 //!   `Point32::cross` and `Point32::cross_p64`; `btConvexHullInternal::Edge`
 //!   becomes `InternalEdge` so the public [`Edge`] keeps upstream's name.
+//!
+//! Unqualified citations in this file are lines in
+//! `btConvexHullComputer.cpp`; a citation of any other file names that file.
 
 use crate::linear_math::{SIMD_INFINITY, Scalar, Vec3};
 use core::cmp::Ordering;

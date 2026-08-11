@@ -1268,9 +1268,9 @@ impl Mesh {
     }
 
     /// Compute each triangle's unit normal from its three vertices, via
-    /// cross product. Upstream `Mesh::computeTriangleNormals` (`shapes.cpp:
-    /// 488-509`): `Eigen::Vector3d normal = s1.cross(s2); normal.normalize();`
-    /// — no explicit guard at the call site.
+    /// cross product. Upstream `Mesh::computeTriangleNormals`
+    /// (`shapes.cpp:488-509`): `Eigen::Vector3d normal = s1.cross(s2);
+    /// normal.normalize();` — no explicit guard at the call site.
     ///
     /// A degenerate triangle (zero-length cross product — two coincident or
     /// colinear vertices) gets the zero vector here, matching upstream: this

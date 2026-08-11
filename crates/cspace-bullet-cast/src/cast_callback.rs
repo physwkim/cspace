@@ -50,6 +50,9 @@
 //! reaches this crate as [`AllowedCollisions`] and `cspace_collision` supplies
 //! the implementation. See [`crate::contact_test_data`] for the same seam and
 //! the licence boundary that cuts it.
+//!
+//! Unqualified citations in this file are lines in
+//! `bullet_utils.hpp`; a citation of any other file names that file.
 
 use cspace_bullet::broadphase_proxy::CollisionFilterGroup;
 use cspace_bullet::collision_object_wrapper::CollisionObjectWrapper as BtObjectWrapper;
@@ -475,7 +478,8 @@ pub fn process_overlap(
 
     let mut state = ManifoldResultState::new(obj0_wrap, obj1_wrap);
     // `contact_point_result.m_closestPointDistanceThreshold =
-    // static_cast<btScalar>(results_callback_.contact_distance_)` (`:529`).
+    // static_cast<btScalar>(results_callback_.contact_distance_)`
+    // (`bullet_utils.cpp:529`).
     state.closest_point_distance_threshold = callback.contact_distance as Scalar;
     let mut result = BridgedManifoldResult {
         state,

@@ -38,8 +38,9 @@
 //!   changed and rebuild those caches. `updateChildTransform` does not bump
 //!   `m_updateRevision` (`btCompoundShape.cpp:86-105`), and MoveIt's
 //!   continuous path performs no other edit after the build
-//!   (`bullet_cast_bvh_manager.cpp:102`, `:115`), so the revision never
-//!   changes and the rebuild never fires.
+//!   (`bullet_cast_bvh_manager.cpp:102`,
+//!   `bullet_cast_bvh_manager.cpp:115`), so the revision never changes and
+//!   the rebuild never fires.
 //!
 //! - **The two trailing "remove non-overlapping child pairs" loops**
 //!   (`btCompoundCollisionAlgorithm.cpp:302-341`,
@@ -47,7 +48,8 @@
 //!   those same caches. With no caches there is nothing to free, and neither
 //!   loop touches `resultOut`.
 //!
-//! - **The two manifold-refresh loops** (`:256-278` and `:311-339`) call
+//! - **The two manifold-refresh loops** (`:256-278` and
+//!   `btCompoundCompoundCollisionAlgorithm.cpp:311-339`) call
 //!   `refreshContactPoints` for every child manifold that has contacts. No
 //!   manifold on this path ever has one; see [`crate::manifold`].
 //!
@@ -94,6 +96,10 @@
 //! against a box resolves to `btBoxBoxCollisionAlgorithm`, which this crate
 //! does not carry and which [`process_collision`] reports as
 //! [`UnportedAlgorithm`] rather than silently routing into GJK.
+//!
+//! Unqualified citations in this file are lines in
+//! `btCompoundCollisionAlgorithm.cpp`; a citation of any other file names
+//! that file.
 
 use crate::broadphase_proxy::BroadphaseNativeType;
 use crate::collision_object_wrapper::CollisionObjectWrapper;
@@ -343,7 +349,8 @@ fn process_child_shape<'a>(
     outcome
 }
 
-/// `btCompoundCompoundCollisionAlgorithm::processCollision` (`:285-407`).
+/// `btCompoundCompoundCollisionAlgorithm::processCollision`
+/// (`btCompoundCompoundCollisionAlgorithm.cpp:285-407`).
 fn compound_compound_process_collision<'a>(
     col0_obj_wrap: &CollisionObjectWrapper<'a>,
     compound_shape0: &'a CompoundShape,
@@ -356,8 +363,9 @@ fn compound_compound_process_collision<'a>(
         compound_shape1.dynamic_aabb_tree(),
     ) else {
         // `if (!tree0 || !tree1) return btCompoundCollisionAlgorithm
-        // ::processCollision(body0Wrap, body1Wrap, ...)` (`:297-300`). The
-        // base's `m_isSwapped` is false for both create-funcs of this
+        // ::processCollision(body0Wrap, body1Wrap, ...)`
+        // (`btCompoundCompoundCollisionAlgorithm.cpp:297-300`). The base's
+        // `m_isSwapped` is false for both create-funcs of this
         // algorithm (`btCompoundCompoundCollisionAlgorithm.h:63-79`), so the
         // *first* operand is treated as the compound and the second as the
         // other object -- which one still has a tree does not enter into it.
@@ -411,13 +419,14 @@ struct CompoundCompoundLeafCallback<'a, 'r> {
 }
 
 impl CompoundCompoundLeafCallback<'_, '_> {
-    /// `Process(leaf0, leaf1)` (`:114-212`), taking the child indices the
-    /// caller has already read out of the two leaves.
+    /// `Process(leaf0, leaf1)` (`btCompoundCompoundCollisionAlgorithm.cpp:114-212`),
+    /// taking the child indices the caller has already read out of the two
+    /// leaves.
     ///
     /// The threshold grows box 0 only. That asymmetry is upstream's and is
     /// kept: `ProcessChildShape` does the same, and the pair-removal loop that
-    /// grows *both* (`:377-391`) is bookkeeping over a cache this port does
-    /// not carry.
+    /// grows *both* (`btCompoundCompoundCollisionAlgorithm.cpp:377-391`) is
+    /// bookkeeping over a cache this port does not carry.
     fn process(
         &mut self,
         child_index0: usize,
@@ -450,9 +459,10 @@ impl CompoundCompoundLeafCallback<'_, '_> {
             .compound1_col_obj_wrap
             .child(child_shape1, new_child_world_trans1);
 
-        // Both wrappers and both identifiers, unconditionally (`:195-199`):
-        // with a compound on each side there is no swap to detect, and each
-        // child names one of them.
+        // Both wrappers and both identifiers, unconditionally
+        // (`btCompoundCompoundCollisionAlgorithm.cpp:195-199`): with a
+        // compound on each side there is no swap to detect, and each child
+        // names one of them.
         let displaced0 = self.result_out.set_body0_wrap(compound_wrap0);
         let displaced1 = self.result_out.set_body1_wrap(compound_wrap1);
         self.result_out.set_shape_identifiers_a(

@@ -69,6 +69,9 @@
 //!   checks, which do filter by group ([`crate::parry`]'s
 //!   `active_group_links`); it is upstream's difference between its two
 //!   backends, not one introduced here.
+//!
+//! Unqualified citations in this file are lines in
+//! `collision_env_bullet.cpp`; a citation of any other file names that file.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -282,8 +285,8 @@ pub fn check_robot_collision_continuous(
 }
 
 /// The `CollisionObjectWrapper` constructor's arguments for one body
-/// (`bullet_utils.cpp:542-605`, plus the `touch_links` overload at `:607-615`),
-/// gathered into one form.
+/// (`bullet_utils.cpp:542-605`, plus the `touch_links` overload at
+/// `bullet_utils.cpp:607-615`), gathered into one form.
 ///
 /// A struct rather than seven parameters so the three call sites below read as
 /// three fillings of the same form: what separates them is which *rule* each

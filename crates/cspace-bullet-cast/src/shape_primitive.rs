@@ -18,7 +18,8 @@
 //! them. `CollisionEnvBullet::addToManager` picks `CONVEX_HULL` for a mesh and
 //! `USE_SHAPE_TYPE` for everything else (`collision_env_bullet.cpp:253-267`);
 //! `addAttachedObjects` picks `USE_SHAPE_TYPE` for every shape of an attached
-//! body, mesh included (`:346`). `SDF` and `MULTI_SPHERE` have no caller.
+//! body, mesh included (`collision_env_bullet.cpp:346`). `SDF` and
+//! `MULTI_SPHERE` have no caller.
 //!
 //! [`CollisionObjectType`] therefore carries the two and not the four: a
 //! variant with no producer is a branch no test can reach and no oracle run can
@@ -299,8 +300,9 @@ mod tests {
     use cspace_core::geometry::shapes::Plane;
 
     /// The `shape->setMargin(BULLET_MARGIN)` every caller of
-    /// `createShapePrimitive` applies (`bullet_utils.cpp:577`, `:599`). Without
-    /// it a box keeps `setSafeMargin`'s margin and every read is inset by it.
+    /// `createShapePrimitive` applies (`bullet_utils.cpp:577`,
+    /// `bullet_utils.cpp:599`). Without it a box keeps `setSafeMargin`'s
+    /// margin and every read is inset by it.
     fn zero_margin(mut shape: BulletShape) -> BulletShape {
         shape.set_margin(BULLET_MARGIN);
         shape

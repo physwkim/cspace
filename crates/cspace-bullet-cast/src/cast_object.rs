@@ -15,17 +15,20 @@
 //!
 //! Upstream reaches a swept child by index, `static_cast`s it back to
 //! `CastHullShape` and writes the new delta into it
-//! (`bullet_cast_bvh_manager.cpp:101`, `:114`). Neither half of that is
-//! available here: `compound::Shape`'s `Convex` arm is a trait object, so
-//! "is this particular implementation" is exactly the question the sum type
-//! removes, and a shape behind a shared `Arc` of a `Send + Sync` trait cannot
-//! be written to at all.
+//! (`bullet_cast_bvh_manager.cpp:101`, `bullet_cast_bvh_manager.cpp:114`).
+//! Neither half of that is available here: `compound::Shape`'s `Convex` arm is
+//! a trait object, so "is this particular implementation" is exactly the
+//! question the sum type removes, and a shape behind a shared `Arc` of a
+//! `Send + Sync` trait cannot be written to at all.
 //!
 //! So [`CastCollisionObject`] keeps, in traversal order, the *inner* shape of
 //! every swept child -- the expensive part, and the immutable one -- and
 //! re-posing builds a fresh `CastHullShape` over it and puts that where the
 //! old child was. The delta then exists in exactly one place, the child the
 //! compound currently holds; there is no second copy to drift.
+//!
+//! Unqualified citations in this file are lines in
+//! `bullet_utils.cpp`; a citation of any other file names that file.
 
 use std::sync::Arc;
 

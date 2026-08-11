@@ -38,6 +38,10 @@
 //! tables can return, [`Algorithm::is_ported`] says which four this crate
 //! implements, and a caller that reaches one of the others gets told rather
 //! than served a plausible wrong result.
+//!
+//! Unqualified citations in this file are lines in
+//! `btDefaultCollisionConfiguration.cpp`; a citation of any other file names
+//! that file.
 
 use crate::broadphase_proxy::BroadphaseNativeType;
 

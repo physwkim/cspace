@@ -38,6 +38,9 @@
 //! the fraction from their two support values, and a query returning an
 //! arbitrary corner would make that fraction depend on the simplex's history
 //! rather than on the motion.
+//!
+//! Unqualified citations in this file are lines in
+//! `bullet_utils.hpp`; a citation of any other file names that file.
 
 use std::sync::Arc;
 
