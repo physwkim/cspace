@@ -56,6 +56,7 @@
 /// Test-only: `probe_shapes` behind the `Arc` this crate's shapes are held by.
 #[cfg(test)]
 mod arc_probe;
+pub mod cast_bvh_manager;
 pub mod cast_callback;
 pub mod cast_contact;
 pub mod cast_hull_shape;
