@@ -25,6 +25,11 @@ use, plus a pillar the arms actually sweep through (see `PILLAR_OBJECT`).
 they are stated as one constant per side rather than shared through a file
 neither language reads.
 
+Every pair is captured twice more with a non-convex mesh attached at the arm's
+tip (see `MESH_VERTICES`): that is the one scene in which `CollisionEnvBullet`
+asks `createShapePrimitive` for `USE_SHAPE_TYPE` on a mesh, and so the only one
+that sweeps a compound of `btTriangleShapeEx` rather than a convex hull.
+
 Run from a clean checkout (the oracle image is content-stamped; see
 `run-oracle.sh`):
 
@@ -82,6 +87,66 @@ PILLAR_OBJECT = {
     "shape": {"type": "box", "size": [0.2, 0.2, 1.5]},
 }
 
+# The link each robot's mesh body is attached to -- the last link of the arm,
+# so the sweep between two sampled states carries the body across the pillar
+# instead of pivoting it near the base.
+ATTACH_LINK = {"panda": "panda_hand", "fanuc": "tool0", "pr2": "r_gripper_palm_link"}
+
+# A four-triangle open V: two 0.16x0.10 panels meeting along the y axis at the
+# origin and rising to z = 0.08 at both ends.
+#
+# Non-convex on purpose. `addAttachedObjects` is the one caller that asks
+# `createShapePrimitive` for `USE_SHAPE_TYPE` on a mesh
+# (`collision_env_bullet.cpp:345-346`), which builds a compound of one
+# `btTriangleShapeEx` per face rather than a convex hull -- and against a
+# convex mesh the two are the same solid, so a port that took the hull branch
+# for an attached body would match this fixture case for case. The V's hull
+# fills the valley the soup leaves open, so the pillar entering it separates
+# them.
+MESH_VERTICES = [
+    [-0.08, -0.05, 0.08],
+    [0.00, -0.05, 0.00],
+    [0.08, -0.05, 0.08],
+    [-0.08, 0.05, 0.08],
+    [0.00, 0.05, 0.00],
+    [0.08, 0.05, 0.08],
+]
+MESH_TRIANGLES = [[0, 1, 4], [0, 4, 3], [1, 2, 5], [1, 5, 4]]
+
+# The two scenes every state pair is captured in: no attached body, and the
+# mesh above attached at the arm's tip with its own frame the link's.
+#
+# Both, not just the second. An attached body is added to the manager *ahead*
+# of every link (`collision_env_bullet.cpp:216-225`), so it does not merely add
+# a pair -- it shifts the whole insertion order the tight budget reads, and the
+# unattached cases are what pins that order without it.
+def attached_scenes(robot):
+    return [
+        [],
+        [
+            {
+                "id": "carried_mesh",
+                "link_name": ATTACH_LINK[robot],
+                "shapes": [
+                    {
+                        "type": "mesh",
+                        "vertices": MESH_VERTICES,
+                        "triangles": MESH_TRIANGLES,
+                    }
+                ],
+                "shape_poses": [
+                    [
+                        1.0, 0.0, 0.0, 0.0,
+                        0.0, 1.0, 0.0, 0.0,
+                        0.0, 0.0, 1.0, 0.0,
+                        0.0, 0.0, 0.0, 1.0,
+                    ]
+                ],
+            }
+        ],
+    ]
+
+
 ROBOTS = ["panda", "fanuc", "pr2"]
 
 # The two contact budgets every state pair is captured at.
@@ -135,12 +200,13 @@ class Oracle:
         self.proc.wait()
 
 
-def ccd_case(oracle, joint_values, joint_values2, budget):
+def ccd_case(oracle, joint_values, joint_values2, budget, attached_bodies):
     result = oracle.ask(
         op="ccd",
         joint_values=joint_values,
         joint_values2=joint_values2,
         objects=[FLOOR_OBJECT, PILLAR_OBJECT],
+        attached_bodies=attached_bodies,
         **budget,
     )
     # `nearest_points` is dropped rather than stored. `addCastSingleResult`
@@ -160,6 +226,7 @@ def ccd_case(oracle, joint_values, joint_values2, budget):
     return {
         "joint_values": joint_values,
         "joint_values2": joint_values2,
+        "attached_bodies": attached_bodies,
         **budget,
         **result,
     }
@@ -176,7 +243,10 @@ def capture(robot):
         pairs += list(zip(states, states[1:]))
         return {
             "cases": [
-                ccd_case(oracle, a, b, budget) for budget in BUDGETS for a, b in pairs
+                ccd_case(oracle, a, b, budget, attached)
+                for attached in attached_scenes(robot)
+                for budget in BUDGETS
+                for a, b in pairs
             ]
         }
     finally:

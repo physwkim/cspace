@@ -70,7 +70,7 @@
 //!   `active_group_links`); it is upstream's difference between its two
 //!   backends, not one introduced here.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use cspace_bullet_cast::cast_bvh_manager::{AddObjectError, BulletCastBvhManager};
 use cspace_bullet_cast::cast_callback::{
@@ -158,12 +158,15 @@ pub fn check_robot_collision_continuous(
         // bounded `max_contacts` keeps a prefix of.
         add(
             &mut manager,
-            link.name(),
-            BodyType::RobotLink,
-            &shapes,
-            &poses,
-            true,
-            None,
+            ObjectSpec {
+                name: link.name(),
+                body_type: BodyType::RobotLink,
+                shapes: &shapes,
+                poses: &poses,
+                object_type: mesh_as_convex_hull,
+                active: true,
+                touch_links: None,
+            },
         )?;
         active.push((
             link.name().to_owned(),
@@ -186,12 +189,15 @@ pub fn check_robot_collision_continuous(
         }
         add(
             &mut manager,
-            id,
-            BodyType::WorldObject,
-            &shapes,
-            &poses,
-            false,
-            None,
+            ObjectSpec {
+                name: id,
+                body_type: BodyType::WorldObject,
+                shapes: &shapes,
+                poses: &poses,
+                object_type: mesh_as_convex_hull,
+                active: false,
+                touch_links: None,
+            },
         )?;
     }
 
@@ -219,12 +225,15 @@ pub fn check_robot_collision_continuous(
             .collect();
         add(
             &mut manager,
-            body.id,
-            BodyType::RobotAttached,
-            &shapes,
-            &poses,
-            true,
-            Some(body),
+            ObjectSpec {
+                name: body.id,
+                body_type: BodyType::RobotAttached,
+                shapes: &shapes,
+                poses: &poses,
+                object_type: always_use_shape_type,
+                active: true,
+                touch_links: Some(body.touch_links),
+            },
         )?;
         let pose_2 = state2.global_link_transform(body.link_name)? * body.shape_poses[0];
         manager.set_cast_collision_objects_transform(
@@ -278,16 +287,49 @@ pub fn check_robot_collision_continuous(
 /// `createShapePrimitive` refuses, where upstream returns a null shape and
 /// dereferences it one line later. Dropping the body instead would make the
 /// query answer "nothing here" about geometry it never looked at.
-fn add(
-    manager: &mut BulletCastBvhManager,
-    name: &str,
+/// The `CollisionObjectWrapper` constructor's arguments for one body
+/// (`bullet_utils.cpp:544-604`), gathered into one form.
+///
+/// A struct rather than seven parameters so the three call sites below read as
+/// three fillings of the same form: what separates them is which *rule* each
+/// states, and an argument list of seven positional values is where a rule
+/// gets silently shared. It was: every site took its object type from the
+/// shape, which is the link and world rule, and the attached-body site's own
+/// -- `USE_SHAPE_TYPE` for every shape including a mesh -- was documented and
+/// not applied.
+struct ObjectSpec<'a> {
+    /// `name` -- the id an ACM lookup and a [`Contact`] body name read.
+    name: &'a str,
+    /// `type_id`.
     body_type: BodyType,
-    shapes: &[Shape],
-    poses: &[Isometry3],
+    /// `shapes`.
+    shapes: &'a [Shape],
+    /// `shape_poses`, in whichever frame the call site's upstream counterpart
+    /// passes them: link-local for a link, global for a world object or an
+    /// attached body.
+    poses: &'a [Isometry3],
+    /// The rule filling `collision_object_types` -- [`mesh_as_convex_hull`] or
+    /// [`always_use_shape_type`], and never derived from `shapes`.
+    object_type: fn(&Shape) -> CollisionObjectType,
+    /// `active` -- `KinematicFilter` and therefore swept, versus
+    /// `StaticFilter`.
     active: bool,
-    attached: Option<&AttachedBodyGeometry<'_>>,
-) -> Result<()> {
-    let types: Vec<CollisionObjectType> = shapes.iter().map(collision_object_type).collect();
+    /// `touch_links`, which only the attached-body overload of the constructor
+    /// takes.
+    touch_links: Option<&'a BTreeSet<String>>,
+}
+
+fn add(manager: &mut BulletCastBvhManager, spec: ObjectSpec<'_>) -> Result<()> {
+    let ObjectSpec {
+        name,
+        body_type,
+        shapes,
+        poses,
+        object_type,
+        active,
+        touch_links,
+    } = spec;
+    let types: Vec<CollisionObjectType> = shapes.iter().map(object_type).collect();
     let mut cow = CollisionObjectWrapper::new(
         name,
         bullet_body_type(body_type),
@@ -302,8 +344,8 @@ fn add(
                      {error:?}"
         ))
     })?;
-    if let Some(attached) = attached {
-        cow.touch_links = attached.touch_links.clone();
+    if let Some(touch_links) = touch_links {
+        cow.touch_links = touch_links.clone();
     }
     manager
         .add_collision_object(cow)
@@ -319,19 +361,32 @@ fn add(
 }
 
 /// `if (shape->type == shapes::MESH) CONVEX_HULL else USE_SHAPE_TYPE`
-/// (`collision_env_bullet.cpp:257-267`, `:389-425`).
+/// (`collision_env_bullet.cpp:257-267`, `:389-425`) -- the rule `addToManager`
+/// and `addLinkAsCollisionObject` each spell for themselves.
 ///
-/// `addAttachedObjects` is the exception and picks `USE_SHAPE_TYPE` for every
-/// shape including a mesh (`:345-346`), which builds a compound of one
-/// `btTriangleShapeEx` per face instead of a hull. Reproduced rather than
-/// smoothed over: choosing the hull there would make a mesh-shaped attached
-/// body sweep a *different* solid than upstream's -- convex where the mesh is
-/// not -- and every contact on a concavity would go the other way.
-fn collision_object_type(shape: &Shape) -> CollisionObjectType {
+/// A parameter of [`add`] rather than something it derives, because the type
+/// is a property of the *call site*, not of the shape:
+/// [`always_use_shape_type`] is the third site's rule and no test on a
+/// `shapes::Shape` can tell the two apart.
+fn mesh_as_convex_hull(shape: &Shape) -> CollisionObjectType {
     match shape {
         Shape::Mesh(_) => CollisionObjectType::ConvexHull,
         _ => CollisionObjectType::UseShapeType,
     }
+}
+
+/// `std::vector<CollisionObjectType> collision_object_types(
+/// attached_body_transform.size(), USE_SHAPE_TYPE)`
+/// (`collision_env_bullet.cpp:345-346`) -- `addAttachedObjects` fills the whole
+/// vector with one value and never looks at a shape.
+///
+/// So a mesh carried by the robot becomes a compound of one
+/// `btTriangleShapeEx` per face where the same mesh in the world becomes a
+/// convex hull. Reproduced rather than smoothed over: the hull fills every
+/// concavity the mesh has, and a swept check against it reports contact where
+/// upstream's triangles pass through.
+fn always_use_shape_type(_shape: &Shape) -> CollisionObjectType {
+    CollisionObjectType::UseShapeType
 }
 
 /// `scaleAndPadd(getLinkScale(name), getLinkPadding(name))` behind upstream's

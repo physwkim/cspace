@@ -43,20 +43,21 @@
 //! fixture built from single states would exercise none of `CastHullShape`'s
 //! support function and none of `addCastSingleResult`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::sync::Arc;
 
 use serde::Deserialize;
 
 use cspace_collision::{
-    AllowedCollisionMatrix, BodyType, CollisionEnv, CollisionRequest, Contact, LinkPaddingScale,
-    ParryCollisionEnv, World,
+    AllowedCollisionMatrix, AttachedBodyGeometry, BodyType, CollisionEnv, CollisionRequest,
+    Contact, LinkPaddingScale, ParryCollisionEnv, World,
 };
-use cspace_core::geometry::{Cuboid, Isometry3, Shape, Vector3};
+use cspace_core::geometry::{Cuboid, Isometry3, Mesh, Shape, Vector3};
 use cspace_core::model::{MeshSearchPaths, RobotModel};
 use cspace_core::srdf::SrdfModel;
 use cspace_core::state::RobotState;
+use cspace_core::test_support::isometry_from_row_major;
 
 /// One captured `ccd` response, flattened alongside the two states that
 /// produced it.
@@ -64,11 +65,98 @@ use cspace_core::state::RobotState;
 struct CcdCase {
     joint_values: BTreeMap<String, f64>,
     joint_values2: BTreeMap<String, f64>,
+    attached_bodies: Vec<AttachedBodySpec>,
     max_contacts: usize,
     max_contacts_per_pair: usize,
     collision: bool,
     contact_count: usize,
     contacts: Vec<OracleContact>,
+}
+
+/// One entry of the `attached_bodies` array `capture-ccd-fixtures.py` sends,
+/// read back rather than restated: a case answered with a body attached and
+/// replayed without it compares two different scenes, and only the fixture
+/// says which was asked.
+#[derive(Deserialize)]
+struct AttachedBodySpec {
+    id: String,
+    link_name: String,
+    shapes: Vec<AttachedShapeSpec>,
+    shape_poses: Vec<[f64; 16]>,
+}
+
+/// The shape types `capture-ccd-fixtures.py` attaches. Only `mesh`: the
+/// primitives already reach the swept path as link geometry, and the mesh is
+/// the one shape whose *attached* form differs from its world form -- upstream
+/// asks for `USE_SHAPE_TYPE` here and `CONVEX_HULL` everywhere else
+/// (`collision_env_bullet.cpp:345-346`).
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum AttachedShapeSpec {
+    Mesh {
+        vertices: Vec<[f64; 3]>,
+        triangles: Vec<[u32; 3]>,
+    },
+}
+
+impl AttachedShapeSpec {
+    fn to_shape(&self) -> Shape {
+        match self {
+            Self::Mesh {
+                vertices,
+                triangles,
+            } => Shape::Mesh(
+                Mesh::new(
+                    vertices
+                        .iter()
+                        .map(|v| Vector3::new(v[0], v[1], v[2]))
+                        .collect(),
+                    triangles.clone(),
+                )
+                .expect("the captured mesh's triangles index its own vertices"),
+            ),
+        }
+    }
+}
+
+/// The owned geometry one [`AttachedBodySpec`] borrows out as an
+/// [`AttachedBodyGeometry`], which holds only references.
+struct AttachedBodyOwned {
+    id: String,
+    link_name: String,
+    shapes: Vec<Arc<Shape>>,
+    shape_poses: Vec<Isometry3>,
+    touch_links: BTreeSet<String>,
+}
+
+impl AttachedBodyOwned {
+    fn from_spec(spec: &AttachedBodySpec) -> Self {
+        Self {
+            id: spec.id.clone(),
+            link_name: spec.link_name.clone(),
+            shapes: spec
+                .shapes
+                .iter()
+                .map(|shape| Arc::new(shape.to_shape()))
+                .collect(),
+            shape_poses: spec
+                .shape_poses
+                .iter()
+                .map(isometry_from_row_major)
+                .collect(),
+            touch_links: BTreeSet::new(),
+        }
+    }
+
+    fn borrow(&self) -> AttachedBodyGeometry<'_> {
+        AttachedBodyGeometry {
+            id: &self.id,
+            link_name: &self.link_name,
+            shapes: &self.shapes,
+            shape_poses: &self.shape_poses,
+            touch_links: &self.touch_links,
+        }
+    }
 }
 
 /// One `ccdContactToJson` object. `nearest_points` and `shape_kinds_*` are
@@ -253,8 +341,16 @@ fn assert_ccd_matches_oracle(fixture_name: &str, urdf_file: &str, srdf_file: &st
         let posed1 = state1.update();
         let posed2 = state2.update();
 
+        let owned: Vec<AttachedBodyOwned> = case
+            .attached_bodies
+            .iter()
+            .map(AttachedBodyOwned::from_spec)
+            .collect();
+        let attached: Vec<AttachedBodyGeometry<'_>> =
+            owned.iter().map(AttachedBodyOwned::borrow).collect();
+
         let result = env
-            .check_robot_collision_continuous(&request, &posed1, &posed2, &[], Some(&acm))
+            .check_robot_collision_continuous(&request, &posed1, &posed2, &attached, Some(&acm))
             .unwrap_or_else(|e| panic!("{fixture_name} case {case_index}: {e}"));
 
         assert_eq!(
@@ -322,6 +418,41 @@ fn the_fixtures_sweep_and_at_least_one_case_collides() {
             fixture.cases.iter().any(|case| case.collision),
             "{name}: no case collides, so every comparison in this file is between two empty \
              contact maps"
+        );
+    }
+}
+
+/// The attached mesh is only evidence about the triangle-soup branch if some
+/// case reports a contact *on the attached body itself*. A file whose attached
+/// cases all resolve link-against-world would pass every assertion above with
+/// `createShapePrimitive`'s `USE_SHAPE_TYPE` arm never reached.
+#[test]
+fn the_fixtures_carry_contacts_on_an_attached_mesh() {
+    for name in ["panda_ccd.json", "fanuc_ccd.json", "pr2_ccd.json"] {
+        let fixture = load_fixture(name);
+        let attached_contacts = fixture
+            .cases
+            .iter()
+            .flat_map(|case| &case.contacts)
+            .filter(|c| c.body_type_1 == "robot_attached" || c.body_type_2 == "robot_attached")
+            .count();
+        assert!(
+            attached_contacts > 0,
+            "{name}: no contact names an attached body, so the mesh attached in half the cases \
+             never met anything and the triangle-soup shapes were built and not used"
+        );
+
+        let meshes = fixture
+            .cases
+            .iter()
+            .flat_map(|case| &case.attached_bodies)
+            .flat_map(|body| &body.shapes)
+            .filter(|shape| matches!(shape, AttachedShapeSpec::Mesh { .. }))
+            .count();
+        assert!(
+            meshes > 0,
+            "{name}: no case attaches a mesh, so nothing here reaches the one branch that asks \
+             for USE_SHAPE_TYPE on one"
         );
     }
 }

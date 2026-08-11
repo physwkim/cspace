@@ -1,6 +1,7 @@
 {
   "cases": [
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 4,
       "contacts": [
@@ -114,6 +115,7 @@
       "max_contacts_per_pair": 4
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -162,6 +164,7 @@
       "max_contacts_per_pair": 4
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 3,
       "contacts": [
@@ -258,6 +261,7 @@
       "max_contacts_per_pair": 4
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -306,6 +310,7 @@
       "max_contacts_per_pair": 4
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -354,6 +359,7 @@
       "max_contacts_per_pair": 4
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 8,
       "contacts": [
@@ -570,6 +576,7 @@
       "max_contacts_per_pair": 4
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 8,
       "contacts": [
@@ -786,6 +793,7 @@
       "max_contacts_per_pair": 4
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -834,6 +842,7 @@
       "max_contacts_per_pair": 4
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -882,6 +891,7 @@
       "max_contacts_per_pair": 4
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -930,6 +940,7 @@
       "max_contacts_per_pair": 4
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -978,6 +989,7 @@
       "max_contacts_per_pair": 4
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -1026,6 +1038,7 @@
       "max_contacts_per_pair": 4
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 3,
       "contacts": [
@@ -1115,6 +1128,7 @@
       "max_contacts_per_pair": 1
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -1163,6 +1177,7 @@
       "max_contacts_per_pair": 1
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 3,
       "contacts": [
@@ -1259,6 +1274,7 @@
       "max_contacts_per_pair": 1
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -1307,6 +1323,7 @@
       "max_contacts_per_pair": 1
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -1355,6 +1372,7 @@
       "max_contacts_per_pair": 1
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 3,
       "contacts": [
@@ -1451,6 +1469,7 @@
       "max_contacts_per_pair": 1
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 3,
       "contacts": [
@@ -1547,6 +1566,7 @@
       "max_contacts_per_pair": 1
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -1595,6 +1615,7 @@
       "max_contacts_per_pair": 1
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -1643,6 +1664,7 @@
       "max_contacts_per_pair": 1
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -1691,6 +1713,7 @@
       "max_contacts_per_pair": 1
     },
     {
+      "attached_bodies": [],
       "collision": true,
       "contact_count": 1,
       "contacts": [
@@ -1739,6 +1762,4265 @@
       "max_contacts_per_pair": 1
     },
     {
+      "attached_bodies": [],
+      "collision": true,
+      "contact_count": 1,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": 1.464819562938064,
+        "joint_2": 1.6482663788367062,
+        "joint_3": 2.1316023814864455,
+        "joint_4": 0.8717706461157646,
+        "joint_5": -1.8858505537267776,
+        "joint_6": -4.308634985070675
+      },
+      "joint_values2": {
+        "joint_1": 1.6888746844790874,
+        "joint_2": 2.071481507187709,
+        "joint_3": -2.5014989376510495,
+        "joint_4": 2.7508619511220602,
+        "joint_5": 2.1539409887604415,
+        "joint_6": 3.122812718339264
+      },
+      "max_contacts": 3,
+      "max_contacts_per_pair": 1
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 6,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.007656129542738199,
+          "normal": [
+            0.43846744298934937,
+            0.8987470865249634,
+            0.0
+          ],
+          "percent_interpolation": 0.3611282408237457,
+          "pos": [
+            0.5966430306434631,
+            0.0931190550327301,
+            1.4162654876708984
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.007656156085431576,
+          "normal": [
+            0.438469797372818,
+            0.8987458944320679,
+            0.0
+          ],
+          "percent_interpolation": 0.3611282408237457,
+          "pos": [
+            0.5966430306434631,
+            0.0931190550327301,
+            1.4162654876708984
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_4",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.20792928338050842,
+          "normal": [
+            -6.249150465009734e-05,
+            1.0,
+            0.0
+          ],
+          "percent_interpolation": 0.0,
+          "pos": [
+            0.5427162647247314,
+            -0.1079292744398117,
+            1.2372686862945557
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_5",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.06651311367750168,
+          "normal": [
+            0.4549717903137207,
+            0.890505850315094,
+            0.0
+          ],
+          "percent_interpolation": 0.2571105659008026,
+          "pos": [
+            0.5697384476661682,
+            0.04076967015862465,
+            1.3357239961624146
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_6",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -2.7049773052567616e-05,
+          "normal": [
+            0.42638060450553894,
+            0.9045438766479492,
+            0.0
+          ],
+          "percent_interpolation": 0.360953688621521,
+          "pos": [
+            0.5999884605407715,
+            0.09997552633285522,
+            1.4101237058639526
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {},
+      "joint_values2": {
+        "joint_1": -1.8828014791198076,
+        "joint_2": -0.5104989976622165,
+        "joint_3": 1.101903479618486,
+        "joint_4": -2.2340643589897082,
+        "joint_5": -0.113753160024062,
+        "joint_6": 4.7871544917859135
+      },
+      "max_contacts": 100,
+      "max_contacts_per_pair": 4
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 1,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": -1.8828014791198076,
+        "joint_2": -0.5104989976622165,
+        "joint_3": 1.101903479618486,
+        "joint_4": -2.2340643589897082,
+        "joint_5": -0.113753160024062,
+        "joint_6": 4.7871544917859135
+      },
+      "joint_values2": {
+        "joint_1": -1.8037357662711293,
+        "joint_2": -0.9140605124738067,
+        "joint_3": -1.1296528213866988,
+        "joint_4": -3.028660100516863,
+        "joint_5": 0.69521980506368,
+        "joint_6": -4.316519949920476
+      },
+      "max_contacts": 100,
+      "max_contacts_per_pair": 4
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 3,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_2",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.043336421251297,
+          "normal": [
+            -0.7461346387863159,
+            -0.6657951474189758,
+            0.0
+          ],
+          "percent_interpolation": 0.6005653142929077,
+          "pos": [
+            0.4323347508907318,
+            -0.07114683091640472,
+            0.5283510684967041
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_3",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.18162411451339722,
+          "normal": [
+            -0.6855908632278442,
+            -0.7279871702194214,
+            0.0
+          ],
+          "percent_interpolation": 0.5711559057235718,
+          "pos": [
+            0.5245198011398315,
+            0.032219961285591125,
+            0.5368232727050781
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": -1.8037357662711293,
+        "joint_2": -0.9140605124738067,
+        "joint_3": -1.1296528213866988,
+        "joint_4": -3.028660100516863,
+        "joint_5": 0.69521980506368,
+        "joint_6": -4.316519949920476
+      },
+      "joint_values2": {
+        "joint_1": -0.40765341616235684,
+        "joint_2": 1.76903421767056,
+        "joint_3": 4.441804769230075,
+        "joint_4": 0.45378945515491065,
+        "joint_5": -2.435105474633165,
+        "joint_6": 4.727874896451831
+      },
+      "max_contacts": 100,
+      "max_contacts_per_pair": 4
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 4,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "floor",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.03376665711402893,
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "percent_interpolation": 1.0,
+          "pos": [
+            0.5864251852035522,
+            -1.1246867179870605,
+            -0.033766716718673706
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "floor",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.03376665711402893,
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "percent_interpolation": 1.0,
+          "pos": [
+            0.5864251852035522,
+            -1.1246867179870605,
+            -0.033766716718673706
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "floor",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.013992726802825928,
+          "normal": [
+            -2.129843778675422e-06,
+            8.519375114701688e-06,
+            1.0
+          ],
+          "percent_interpolation": 1.0,
+          "pos": [
+            0.42817091941833496,
+            -1.137515902519226,
+            -0.013992726802825928
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": -0.40765341616235684,
+        "joint_2": 1.76903421767056,
+        "joint_3": 4.441804769230075,
+        "joint_4": 0.45378945515491065,
+        "joint_5": -2.435105474633165,
+        "joint_6": 4.727874896451831
+      },
+      "joint_values2": {
+        "joint_1": -1.1688612159341574,
+        "joint_2": 1.9623292190954091,
+        "joint_3": 1.4949906175164505,
+        "joint_4": 2.896391302240081,
+        "joint_5": 2.1059806194016706,
+        "joint_6": 4.312046020459383
+      },
+      "max_contacts": 100,
+      "max_contacts_per_pair": 4
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 4,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "floor",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.013992786407470703,
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.0,
+          "pos": [
+            0.4281708598136902,
+            -1.1375157833099365,
+            -0.013992685824632645
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "floor",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.03376676142215729,
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.0,
+          "pos": [
+            0.5864250659942627,
+            -1.1246867179870605,
+            -0.033766720443964005
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "floor",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.033766694366931915,
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.0,
+          "pos": [
+            0.5864250659942627,
+            -1.1246867179870605,
+            -0.033766720443964005
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": -1.1688612159341574,
+        "joint_2": 1.9623292190954091,
+        "joint_3": 1.4949906175164505,
+        "joint_4": 2.896391302240081,
+        "joint_5": 2.1059806194016706,
+        "joint_6": 4.312046020459383
+      },
+      "joint_values2": {
+        "joint_1": 0.3348154373839498,
+        "joint_2": 0.015243530552834228,
+        "joint_3": 3.0428648851369506,
+        "joint_4": 2.5625654482562097,
+        "joint_5": 2.6525752402981744,
+        "joint_6": 1.16366068713367
+      },
+      "max_contacts": 100,
+      "max_contacts_per_pair": 4
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 12,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.10116985440254211,
+          "normal": [
+            -0.13705317676067352,
+            0.9905636310577393,
+            0.0
+          ],
+          "percent_interpolation": 0.7345134615898132,
+          "pos": [
+            0.41386568546295166,
+            -0.0002151578664779663,
+            0.5952491164207458
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.1694462150335312,
+          "normal": [
+            -0.09287908673286438,
+            0.9956773519515991,
+            3.5176142887394235e-07
+          ],
+          "percent_interpolation": 0.6505035758018494,
+          "pos": [
+            0.41573792695999146,
+            -0.06871375441551208,
+            0.6465606689453125
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.16944624483585358,
+          "normal": [
+            -0.09287872165441513,
+            0.9956774711608887,
+            3.517613720305235e-07
+          ],
+          "percent_interpolation": 0.6505036354064941,
+          "pos": [
+            0.41573798656463623,
+            -0.06871375441551208,
+            0.6465606093406677
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.1011698842048645,
+          "normal": [
+            -0.13705313205718994,
+            0.9905636310577393,
+            0.0
+          ],
+          "percent_interpolation": 0.7345134615898132,
+          "pos": [
+            0.41386574506759644,
+            -0.0002151280641555786,
+            0.5952491164207458
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "floor",
+          "body_name_2": "link_2",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.13924062252044678,
+          "normal": [
+            2.1403468508651713e-07,
+            -5.350867127162928e-08,
+            1.0
+          ],
+          "percent_interpolation": 1.0,
+          "pos": [
+            0.459995299577713,
+            -0.03309498727321625,
+            -0.13924062252044678
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "floor",
+          "body_name_2": "link_3",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.13801586627960205,
+          "normal": [
+            -2.1593403687347745e-07,
+            -1.0796701843673873e-07,
+            1.0
+          ],
+          "percent_interpolation": 1.0,
+          "pos": [
+            0.4196305572986603,
+            0.09781806915998459,
+            -0.13801565766334534
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_2",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.11092303693294525,
+          "normal": [
+            -0.9710556864738464,
+            0.00016483252693433315,
+            -0.23885321617126465
+          ],
+          "percent_interpolation": 0.9281539916992188,
+          "pos": [
+            0.5077124834060669,
+            -0.0377461314201355,
+            0.026494324207305908
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_3",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.15619248151779175,
+          "normal": [
+            -0.9525878429412842,
+            0.00036245814408175647,
+            -0.3042631447315216
+          ],
+          "percent_interpolation": 0.9483141303062439,
+          "pos": [
+            0.5487871170043945,
+            0.05021962150931358,
+            0.0475236140191555
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_4",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.09109891206026077,
+          "normal": [
+            -0.23525501787662506,
+            0.9719337224960327,
+            0.0
+          ],
+          "percent_interpolation": 1.0,
+          "pos": [
+            0.42143142223358154,
+            0.011457949876785278,
+            0.2249884009361267
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_5",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.1228148341178894,
+          "normal": [
+            -0.19390426576137543,
+            0.981020450592041,
+            1.6743580999900587e-05
+          ],
+          "percent_interpolation": 0.7442739009857178,
+          "pos": [
+            0.42381441593170166,
+            -0.020483843982219696,
+            0.6298250555992126
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_6",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.10841899365186691,
+          "normal": [
+            -0.16593137383460999,
+            0.9861372709274292,
+            0.0
+          ],
+          "percent_interpolation": 0.7239403128623962,
+          "pos": [
+            0.41799014806747437,
+            -0.006916016340255737,
+            0.6327037811279297
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": 0.3348154373839498,
+        "joint_2": 0.015243530552834228,
+        "joint_3": 3.0428648851369506,
+        "joint_4": 2.5625654482562097,
+        "joint_5": 2.6525752402981744,
+        "joint_6": 1.16366068713367
+      },
+      "joint_values2": {
+        "joint_1": 0.15121928192675105,
+        "joint_2": 2.620170102380216,
+        "joint_3": 3.564770088137593,
+        "joint_4": -2.7691969090094792,
+        "joint_5": 1.6677422699425368,
+        "joint_6": -3.9667835721932354
+      },
+      "max_contacts": 100,
+      "max_contacts_per_pair": 4
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 12,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.1462656557559967,
+          "normal": [
+            0.32763734459877014,
+            -0.9448035359382629,
+            0.0
+          ],
+          "percent_interpolation": 0.2664685845375061,
+          "pos": [
+            0.5520779490470886,
+            0.03819228708744049,
+            0.5438010096549988
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.1545456200838089,
+          "normal": [
+            0.29096031188964844,
+            -0.9567351341247559,
+            0.0
+          ],
+          "percent_interpolation": 0.23385800421237946,
+          "pos": [
+            0.5550333857536316,
+            0.04785922169685364,
+            0.5269854068756104
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.1395648866891861,
+          "normal": [
+            0.42181140184402466,
+            -0.906683623790741,
+            0.0
+          ],
+          "percent_interpolation": 0.3280562162399292,
+          "pos": [
+            0.5411299467086792,
+            0.02654115855693817,
+            0.4553889036178589
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.16049958765506744,
+          "normal": [
+            0.3500668704509735,
+            -0.9367246627807617,
+            9.284236313078509e-08
+          ],
+          "percent_interpolation": 0.3065488040447235,
+          "pos": [
+            0.5438144207000732,
+            0.050343915820121765,
+            0.47526413202285767
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "floor",
+          "body_name_2": "link_2",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.1392405927181244,
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.0,
+          "pos": [
+            0.4599953293800354,
+            -0.03309497982263565,
+            -0.13924050331115723
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "floor",
+          "body_name_2": "link_3",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.13801556825637817,
+          "normal": [
+            -1.0796724581041417e-07,
+            -5.3983622905207085e-08,
+            1.0
+          ],
+          "percent_interpolation": 0.0,
+          "pos": [
+            0.41963058710098267,
+            0.09781808406114578,
+            -0.1380155384540558
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_2",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.08882129192352295,
+          "normal": [
+            -0.8797134160995483,
+            0.00024242135987151414,
+            -0.47550421953201294
+          ],
+          "percent_interpolation": 0.0,
+          "pos": [
+            0.4781372845172882,
+            -0.04292178153991699,
+            0.04223489761352539
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_3",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.14673057198524475,
+          "normal": [
+            -0.9026688933372498,
+            1.0155457630389719e-07,
+            -0.4303357005119324
+          ],
+          "percent_interpolation": 0.2787836194038391,
+          "pos": [
+            0.5324491262435913,
+            -0.094370037317276,
+            0.06314334273338318
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_4",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.20079247653484344,
+          "normal": [
+            -0.72495037317276,
+            0.688801109790802,
+            0.0
+          ],
+          "percent_interpolation": 0.36731579899787903,
+          "pos": [
+            0.5455645322799683,
+            -0.038306064903736115,
+            0.4190005958080292
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_5",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.16889800131320953,
+          "normal": [
+            -0.34825924038887024,
+            0.9373981952667236,
+            0.0
+          ],
+          "percent_interpolation": 0.39465099573135376,
+          "pos": [
+            0.45882028341293335,
+            -0.0583246573805809,
+            0.5411641597747803
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_6",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.15376630425453186,
+          "normal": [
+            0.3382239043712616,
+            -0.9410657286643982,
+            0.0
+          ],
+          "percent_interpolation": 0.24008195102214813,
+          "pos": [
+            0.5479925274848938,
+            0.04470418393611908,
+            0.515987753868103
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": 0.15121928192675105,
+        "joint_2": 2.620170102380216,
+        "joint_3": 3.564770088137593,
+        "joint_4": -2.7691969090094792,
+        "joint_5": 1.6677422699425368,
+        "joint_6": -3.9667835721932354
+      },
+      "joint_values2": {
+        "joint_1": -0.9542677855119108,
+        "joint_2": 2.159608053406701,
+        "joint_3": 4.254239349523559,
+        "joint_4": 1.6136392444372176,
+        "joint_5": -1.6404147789254784,
+        "joint_6": 4.478076626285911
+      },
+      "max_contacts": 100,
+      "max_contacts_per_pair": 4
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 1,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": -0.9542677855119108,
+        "joint_2": 2.159608053406701,
+        "joint_3": 4.254239349523559,
+        "joint_4": 1.6136392444372176,
+        "joint_5": -1.6404147789254784,
+        "joint_6": 4.478076626285911
+      },
+      "joint_values2": {
+        "joint_1": -1.2405434129573405,
+        "joint_2": 1.2703253032919022,
+        "joint_3": 3.8918441180279477,
+        "joint_4": -2.0956618027156217,
+        "joint_5": -0.2558073037350552,
+        "joint_6": -3.3672259798273445
+      },
+      "max_contacts": 100,
+      "max_contacts_per_pair": 4
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 1,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": -1.2405434129573405,
+        "joint_2": 1.2703253032919022,
+        "joint_3": 3.8918441180279477,
+        "joint_4": -2.0956618027156217,
+        "joint_5": -0.2558073037350552,
+        "joint_6": -3.3672259798273445
+      },
+      "joint_values2": {
+        "joint_1": 0.7282884543947876,
+        "joint_2": -1.3670057357195766,
+        "joint_3": 4.463735272714402,
+        "joint_4": -0.9360790349775927,
+        "joint_5": -2.372405229341239,
+        "joint_6": 3.8289992148429155
+      },
+      "max_contacts": 100,
+      "max_contacts_per_pair": 4
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 1,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": 0.7282884543947876,
+        "joint_2": -1.3670057357195766,
+        "joint_3": 4.463735272714402,
+        "joint_4": -0.9360790349775927,
+        "joint_5": -2.372405229341239,
+        "joint_6": 3.8289992148429155
+      },
+      "joint_values2": {
+        "joint_1": 2.0256839237269015,
+        "joint_2": -0.004881179751828224,
+        "joint_3": 0.8060696994210592,
+        "joint_4": -3.02500867029652,
+        "joint_5": -0.36891353763639945,
+        "joint_6": -0.7660285326279697
+      },
+      "max_contacts": 100,
+      "max_contacts_per_pair": 4
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 1,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": 2.0256839237269015,
+        "joint_2": -0.004881179751828224,
+        "joint_3": 0.8060696994210592,
+        "joint_4": -3.02500867029652,
+        "joint_5": -0.36891353763639945,
+        "joint_6": -0.7660285326279697
+      },
+      "joint_values2": {
+        "joint_1": 1.464819562938064,
+        "joint_2": 1.6482663788367062,
+        "joint_3": 2.1316023814864455,
+        "joint_4": 0.8717706461157646,
+        "joint_5": -1.8858505537267776,
+        "joint_6": -4.308634985070675
+      },
+      "max_contacts": 100,
+      "max_contacts_per_pair": 4
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 1,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": 1.464819562938064,
+        "joint_2": 1.6482663788367062,
+        "joint_3": 2.1316023814864455,
+        "joint_4": 0.8717706461157646,
+        "joint_5": -1.8858505537267776,
+        "joint_6": -4.308634985070675
+      },
+      "joint_values2": {
+        "joint_1": 1.6888746844790874,
+        "joint_2": 2.071481507187709,
+        "joint_3": -2.5014989376510495,
+        "joint_4": 2.7508619511220602,
+        "joint_5": 2.1539409887604415,
+        "joint_6": 3.122812718339264
+      },
+      "max_contacts": 100,
+      "max_contacts_per_pair": 4
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 3,
+      "contacts": [
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.007656129542738199,
+          "normal": [
+            0.43846744298934937,
+            0.8987470865249634,
+            0.0
+          ],
+          "percent_interpolation": 0.3611282408237457,
+          "pos": [
+            0.5966430306434631,
+            0.0931190550327301,
+            1.4162654876708984
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_5",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.06651311367750168,
+          "normal": [
+            0.4549717903137207,
+            0.890505850315094,
+            0.0
+          ],
+          "percent_interpolation": 0.2571105659008026,
+          "pos": [
+            0.5697384476661682,
+            0.04076967015862465,
+            1.3357239961624146
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_6",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -2.7049773052567616e-05,
+          "normal": [
+            0.42638060450553894,
+            0.9045438766479492,
+            0.0
+          ],
+          "percent_interpolation": 0.360953688621521,
+          "pos": [
+            0.5999884605407715,
+            0.09997552633285522,
+            1.4101237058639526
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {},
+      "joint_values2": {
+        "joint_1": -1.8828014791198076,
+        "joint_2": -0.5104989976622165,
+        "joint_3": 1.101903479618486,
+        "joint_4": -2.2340643589897082,
+        "joint_5": -0.113753160024062,
+        "joint_6": 4.7871544917859135
+      },
+      "max_contacts": 3,
+      "max_contacts_per_pair": 1
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 1,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": -1.8828014791198076,
+        "joint_2": -0.5104989976622165,
+        "joint_3": 1.101903479618486,
+        "joint_4": -2.2340643589897082,
+        "joint_5": -0.113753160024062,
+        "joint_6": 4.7871544917859135
+      },
+      "joint_values2": {
+        "joint_1": -1.8037357662711293,
+        "joint_2": -0.9140605124738067,
+        "joint_3": -1.1296528213866988,
+        "joint_4": -3.028660100516863,
+        "joint_5": 0.69521980506368,
+        "joint_6": -4.316519949920476
+      },
+      "max_contacts": 3,
+      "max_contacts_per_pair": 1
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 3,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_2",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.043336421251297,
+          "normal": [
+            -0.7461346387863159,
+            -0.6657951474189758,
+            0.0
+          ],
+          "percent_interpolation": 0.6005653142929077,
+          "pos": [
+            0.4323347508907318,
+            -0.07114683091640472,
+            0.5283510684967041
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_3",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.18162411451339722,
+          "normal": [
+            -0.6855908632278442,
+            -0.7279871702194214,
+            0.0
+          ],
+          "percent_interpolation": 0.5711559057235718,
+          "pos": [
+            0.5245198011398315,
+            0.032219961285591125,
+            0.5368232727050781
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": -1.8037357662711293,
+        "joint_2": -0.9140605124738067,
+        "joint_3": -1.1296528213866988,
+        "joint_4": -3.028660100516863,
+        "joint_5": 0.69521980506368,
+        "joint_6": -4.316519949920476
+      },
+      "joint_values2": {
+        "joint_1": -0.40765341616235684,
+        "joint_2": 1.76903421767056,
+        "joint_3": 4.441804769230075,
+        "joint_4": 0.45378945515491065,
+        "joint_5": -2.435105474633165,
+        "joint_6": 4.727874896451831
+      },
+      "max_contacts": 3,
+      "max_contacts_per_pair": 1
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 2,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "floor",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.03376665711402893,
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "percent_interpolation": 1.0,
+          "pos": [
+            0.5864251852035522,
+            -1.1246867179870605,
+            -0.033766716718673706
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": -0.40765341616235684,
+        "joint_2": 1.76903421767056,
+        "joint_3": 4.441804769230075,
+        "joint_4": 0.45378945515491065,
+        "joint_5": -2.435105474633165,
+        "joint_6": 4.727874896451831
+      },
+      "joint_values2": {
+        "joint_1": -1.1688612159341574,
+        "joint_2": 1.9623292190954091,
+        "joint_3": 1.4949906175164505,
+        "joint_4": 2.896391302240081,
+        "joint_5": 2.1059806194016706,
+        "joint_6": 4.312046020459383
+      },
+      "max_contacts": 3,
+      "max_contacts_per_pair": 1
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 2,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "floor",
+          "body_name_2": "carried_mesh",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_attached",
+          "depth": -0.013992786407470703,
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.0,
+          "pos": [
+            0.4281708598136902,
+            -1.1375157833099365,
+            -0.013992685824632645
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": -1.1688612159341574,
+        "joint_2": 1.9623292190954091,
+        "joint_3": 1.4949906175164505,
+        "joint_4": 2.896391302240081,
+        "joint_5": 2.1059806194016706,
+        "joint_6": 4.312046020459383
+      },
+      "joint_values2": {
+        "joint_1": 0.3348154373839498,
+        "joint_2": 0.015243530552834228,
+        "joint_3": 3.0428648851369506,
+        "joint_4": 2.5625654482562097,
+        "joint_5": 2.6525752402981744,
+        "joint_6": 1.16366068713367
+      },
+      "max_contacts": 3,
+      "max_contacts_per_pair": 1
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 3,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "link_3",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.13801586627960205,
+          "normal": [
+            -2.1593403687347745e-07,
+            -1.0796701843673873e-07,
+            1.0
+          ],
+          "percent_interpolation": 1.0,
+          "pos": [
+            0.4196305572986603,
+            0.09781806915998459,
+            -0.13801565766334534
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_5",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.1228148341178894,
+          "normal": [
+            -0.19390426576137543,
+            0.981020450592041,
+            1.6743580999900587e-05
+          ],
+          "percent_interpolation": 0.7442739009857178,
+          "pos": [
+            0.42381441593170166,
+            -0.020483843982219696,
+            0.6298250555992126
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_6",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.10841899365186691,
+          "normal": [
+            -0.16593137383460999,
+            0.9861372709274292,
+            0.0
+          ],
+          "percent_interpolation": 0.7239403128623962,
+          "pos": [
+            0.41799014806747437,
+            -0.006916016340255737,
+            0.6327037811279297
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": 0.3348154373839498,
+        "joint_2": 0.015243530552834228,
+        "joint_3": 3.0428648851369506,
+        "joint_4": 2.5625654482562097,
+        "joint_5": 2.6525752402981744,
+        "joint_6": 1.16366068713367
+      },
+      "joint_values2": {
+        "joint_1": 0.15121928192675105,
+        "joint_2": 2.620170102380216,
+        "joint_3": 3.564770088137593,
+        "joint_4": -2.7691969090094792,
+        "joint_5": 1.6677422699425368,
+        "joint_6": -3.9667835721932354
+      },
+      "max_contacts": 3,
+      "max_contacts_per_pair": 1
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 3,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "link_3",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.13801556825637817,
+          "normal": [
+            -1.0796724581041417e-07,
+            -5.3983622905207085e-08,
+            1.0
+          ],
+          "percent_interpolation": 0.0,
+          "pos": [
+            0.41963058710098267,
+            0.09781808406114578,
+            -0.1380155384540558
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_5",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.16889800131320953,
+          "normal": [
+            -0.34825924038887024,
+            0.9373981952667236,
+            0.0
+          ],
+          "percent_interpolation": 0.39465099573135376,
+          "pos": [
+            0.45882028341293335,
+            -0.0583246573805809,
+            0.5411641597747803
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "pillar",
+          "body_name_2": "link_6",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.15376630425453186,
+          "normal": [
+            0.3382239043712616,
+            -0.9410657286643982,
+            0.0
+          ],
+          "percent_interpolation": 0.24008195102214813,
+          "pos": [
+            0.5479925274848938,
+            0.04470418393611908,
+            0.515987753868103
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": 0.15121928192675105,
+        "joint_2": 2.620170102380216,
+        "joint_3": 3.564770088137593,
+        "joint_4": -2.7691969090094792,
+        "joint_5": 1.6677422699425368,
+        "joint_6": -3.9667835721932354
+      },
+      "joint_values2": {
+        "joint_1": -0.9542677855119108,
+        "joint_2": 2.159608053406701,
+        "joint_3": 4.254239349523559,
+        "joint_4": 1.6136392444372176,
+        "joint_5": -1.6404147789254784,
+        "joint_6": 4.478076626285911
+      },
+      "max_contacts": 3,
+      "max_contacts_per_pair": 1
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 1,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": -0.9542677855119108,
+        "joint_2": 2.159608053406701,
+        "joint_3": 4.254239349523559,
+        "joint_4": 1.6136392444372176,
+        "joint_5": -1.6404147789254784,
+        "joint_6": 4.478076626285911
+      },
+      "joint_values2": {
+        "joint_1": -1.2405434129573405,
+        "joint_2": 1.2703253032919022,
+        "joint_3": 3.8918441180279477,
+        "joint_4": -2.0956618027156217,
+        "joint_5": -0.2558073037350552,
+        "joint_6": -3.3672259798273445
+      },
+      "max_contacts": 3,
+      "max_contacts_per_pair": 1
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 1,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": -1.2405434129573405,
+        "joint_2": 1.2703253032919022,
+        "joint_3": 3.8918441180279477,
+        "joint_4": -2.0956618027156217,
+        "joint_5": -0.2558073037350552,
+        "joint_6": -3.3672259798273445
+      },
+      "joint_values2": {
+        "joint_1": 0.7282884543947876,
+        "joint_2": -1.3670057357195766,
+        "joint_3": 4.463735272714402,
+        "joint_4": -0.9360790349775927,
+        "joint_5": -2.372405229341239,
+        "joint_6": 3.8289992148429155
+      },
+      "max_contacts": 3,
+      "max_contacts_per_pair": 1
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 1,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": 0.7282884543947876,
+        "joint_2": -1.3670057357195766,
+        "joint_3": 4.463735272714402,
+        "joint_4": -0.9360790349775927,
+        "joint_5": -2.372405229341239,
+        "joint_6": 3.8289992148429155
+      },
+      "joint_values2": {
+        "joint_1": 2.0256839237269015,
+        "joint_2": -0.004881179751828224,
+        "joint_3": 0.8060696994210592,
+        "joint_4": -3.02500867029652,
+        "joint_5": -0.36891353763639945,
+        "joint_6": -0.7660285326279697
+      },
+      "max_contacts": 3,
+      "max_contacts_per_pair": 1
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "collision": true,
+      "contact_count": 1,
+      "contacts": [
+        {
+          "body_name_1": "floor",
+          "body_name_2": "base_link",
+          "body_type_1": "world_object",
+          "body_type_2": "robot_link",
+          "depth": -0.0,
+          "normal": [
+            -0.0,
+            -0.0,
+            1.0
+          ],
+          "percent_interpolation": 0.5,
+          "pos": [
+            0.1270596832036972,
+            0.14199212193489075,
+            0.0
+          ],
+          "shape_kinds_1": [
+            "box"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "joint_values": {
+        "joint_1": 2.0256839237269015,
+        "joint_2": -0.004881179751828224,
+        "joint_3": 0.8060696994210592,
+        "joint_4": -3.02500867029652,
+        "joint_5": -0.36891353763639945,
+        "joint_6": -0.7660285326279697
+      },
+      "joint_values2": {
+        "joint_1": 1.464819562938064,
+        "joint_2": 1.6482663788367062,
+        "joint_3": 2.1316023814864455,
+        "joint_4": 0.8717706461157646,
+        "joint_5": -1.8858505537267776,
+        "joint_6": -4.308634985070675
+      },
+      "max_contacts": 3,
+      "max_contacts_per_pair": 1
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "carried_mesh",
+          "link_name": "tool0",
+          "shape_poses": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "shapes": [
+            {
+              "triangles": [
+                [
+                  0,
+                  1,
+                  4
+                ],
+                [
+                  0,
+                  4,
+                  3
+                ],
+                [
+                  1,
+                  2,
+                  5
+                ],
+                [
+                  1,
+                  5,
+                  4
+                ]
+              ],
+              "type": "mesh",
+              "vertices": [
+                [
+                  -0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  -0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  -0.05,
+                  0.08
+                ],
+                [
+                  -0.08,
+                  0.05,
+                  0.08
+                ],
+                [
+                  0.0,
+                  0.05,
+                  0.0
+                ],
+                [
+                  0.08,
+                  0.05,
+                  0.08
+                ]
+              ]
+            }
+          ]
+        }
+      ],
       "collision": true,
       "contact_count": 1,
       "contacts": [
