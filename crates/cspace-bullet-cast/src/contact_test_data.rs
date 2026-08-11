@@ -38,7 +38,7 @@ use std::collections::BTreeMap;
 
 use cspace_bullet::linear_math::{Scalar, Vec3};
 
-/// `collision_detection::BodyType` (`collision_common.hpp:57-68`).
+/// `collision_detection::BodyType` (`collision_common.hpp:56-70`).
 ///
 /// Re-declared here rather than taken from `cspace_collision` for the reason
 /// the module docs give; `cspace_collision` maps this onto its own.
@@ -52,7 +52,7 @@ pub enum BodyType {
     WorldObject,
 }
 
-/// `collision_detection::Contact` (`collision_common.hpp:74-112`), reduced to
+/// `collision_detection::Contact` (`collision_common.hpp:72-106`), reduced to
 /// the fields the continuous path writes and reads.
 ///
 /// This is the stored record, and every field on it is already in its final
