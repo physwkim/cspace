@@ -102,7 +102,7 @@ continuous-collision files in `cspace-collision` -- 500 written-out citations
 plus 127 unqualified ones, out of the workspace's 1733 and 877. What the rest
 would report is measured, not assumed: these same rules over every tracked
 `.rs`, against moveit2 and all eight `third_party/` trees, give 0 RANGE, 0
-START, 0 SPLIT, 0 ambiguous, and 128 RESOLVE.
+START, 0 SPLIT, 0 ambiguous, and 125 RESOLVE.
 
 SUBJECT cannot be measured that way, because outside this scope no module
 declares one: 750 unqualified citations sit in 88 files there, and assigning
@@ -110,9 +110,8 @@ each file a subject is the same per-file audit the 17 modules here took.
 Those 750 are unchecked, by this gate and by anything else. That, not the
 RESOLVE residue, is now the reason the gate stays scoped to the port.
 
-The 128 are one thing and no longer a mixture -- every one names an upstream
-this workspace does not vendor: 108 FCL/libccd, 12 ros-industrial/stomp, 3
-Eigen (read through ITK's vendored copy, whose absolute path they give), 1
+The 125 are one thing and no longer a mixture -- every one names an upstream
+this workspace does not vendor: 108 FCL/libccd, 12 ros-industrial/stomp, 1
 urdfdom_headers, 1 OMPL, plus 3 `upstream.cpp:1` placeholders in
 `test_support`'s own tests for `KnownOracleDeviation`, which are fixture text
 rather than claims about a file. Handing this gate those trees is all that
@@ -120,8 +119,9 @@ stands between it and a repo-wide RESOLVE of zero.
 
 Getting there took 276 citations lengthened to name one file (`planning_scene.
 cpp` alone matched moveit_core's and moveit_py's in 110 places), 28 given the
-`src/` their path skipped (`e0ca35ea`), and 4 whose path or line number had
-wrapped across a line break.
+`src/` their path skipped (`e0ca35ea`), 4 whose path or line number had
+wrapped across a line break, and 3 Eigen spans repointed from a reformatted
+copy outside this tree to the pristine 3.4.0 bullet3 bundles inside it.
 """
 import pathlib
 import re
