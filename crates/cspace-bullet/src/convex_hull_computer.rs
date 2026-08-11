@@ -1,4 +1,6 @@
 // Copyright (c) 2011 Ole Kniemeyer, MAXON, www.maxon.net
+// Bullet Continuous Collision Detection and Physics Library
+// Copyright (c) 2003-2006 Erwin Coumans  https://bulletphysics.org
 // Copyright (c) 2026, cspace contributors
 // SPDX-License-Identifier: Zlib
 //
