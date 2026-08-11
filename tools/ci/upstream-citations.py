@@ -64,18 +64,25 @@ not by anything here.
 
 `crates/cspace-bullet`, `crates/cspace-bullet-cast`, and the two
 continuous-collision files in `cspace-collision` -- 465 of the workspace's
-1695 citations. The other 1230 are NOT checked, and the reason is measured
-rather than assumed: run these same three rules over every tracked `.rs` and
-the rest of the workspace reports 9 RANGE, 9 START, and 484 RESOLVE.
+1695 citations. What the other 1230 would report is measured, not assumed:
+these same three rules over every tracked `.rs`, against moveit2 and all eight
+`third_party/` trees, give 0 RANGE, 0 START, and 446 RESOLVE.
 
-Most of that 484 is not a defect. Those crates port from upstreams these two
-trees do not contain -- fcl, ompl, moveit_msgs -- so RESOLVE cannot see their
-files at all, and widening the gate means either passing it more trees or
-teaching it which citations to excuse. The 18 RANGE and START are defects
-(`kinematic_constraints/utils.cpp:661-664`, in a file with 159 lines, cited
-that way twice), in files this port never touched. Fixing them is someone's next
-commit, not a licence for this one to edit them, and shipping a gate born red
-would leave the whole class unenforced meanwhile.
+RANGE and START are zero because the 17 that were not have since been fixed
+(`b20c3c86`, `74401d9d`). The gate stays scoped to the port because of the
+446, and two things are worth knowing before anyone widens it:
+
+  - 166 of them resolve to nothing, 280 to several files. Both counts are
+    dominated by the two shapes already found defective inside the port: a
+    path that skips a directory (`collision_detection_fcl/
+    collision_common.cpp`, 27 citations, where upstream has `src/` between
+    those two components) and a bare basename several packages share
+    (`planning_scene.cpp`, 110 citations, matching moveit_core's and
+    moveit_py's).
+  - So the 446 is not a clean "cites an upstream we do not vendor" residue.
+    It is a mixture, and separating the two is per-citation work of the same
+    kind that fixed the 17 -- not something this gate can widen into by being
+    handed more trees.
 """
 import pathlib
 import re
