@@ -145,7 +145,7 @@ impl std::error::Error for AddObjectError {}
 /// `addCollisionObject` put it in.
 enum ManagedObject {
     /// An active link or attached body, replaced by its swept twin
-    /// (`bullet_cast_bvh_manager.cpp:152`).
+    /// (`bullet_cast_bvh_manager.cpp:156-157`).
     Cast(CastCollisionObject),
     /// Everything else, held as it arrived (`:161`).
     Static(CollisionObjectWrapper),

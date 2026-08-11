@@ -2822,7 +2822,9 @@ impl ConvexHullComputer {
     }
 
     /// `btConvexHullComputer::compute(coords, stride, count, shrink, shrinkClamp)`
-    /// (`:2653-2760`, declared `btConvexHullComputer.h:90-93`).
+    /// (`btConvexHullComputer.h:90-93`), the public wrapper, which forwards to
+    /// the private `compute(const void*, bool, ...)` this ports
+    /// (`:2653-2760`, declared `btConvexHullComputer.h:27`).
     ///
     /// Returns the distance the hull was actually shrunk by, which is `0` for
     /// the `shrink <= 0` case MoveIt uses, and negative when `shrink` was so
