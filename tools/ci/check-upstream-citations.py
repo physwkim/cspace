@@ -11,12 +11,12 @@ pinned upstream trees and skips loudly when either is absent.
 The continuous-collision port documents itself almost entirely by citing
 upstream: a doc comment names a C++ symbol and gives the file and line span
 its behaviour was read off. Nothing in this workspace resolved those spans
-before this gate, and 44 of the 459 in the port were wrong when it was
+before this gate, and 46 of the 465 in the port were wrong when it was
 written -- a blank line, a neighbouring function, `btSetMax` where the
 sentence said `btSetMin`. They resolve to a real file at a real line, so a
-range check reports them clean; they were found by opening all 459 by hand.
+range check reports them clean; they were found by opening all 465 by hand.
 
-# The two rules, and why only two
+# The three rules, and why only three
 
 Each is decidable from the two texts alone, with no judgment about what a
 sentence meant:
@@ -28,8 +28,8 @@ sentence meant:
            ambiguous. There is no skip category for that reason.
   RANGE    `1 <= lo <= hi <= len(file)`. A span past EOF cites nothing.
   START    the first cited line is not blank. A span that opens on the
-           blank line above its function is off by one, which is how eleven
-           of the port's were wrong; and a blank line cannot be what any
+           blank line above its function is off by one, which is how 26 of
+           the port's were wrong; and a blank line cannot be what any
            sentence is about.
 
 What is deliberately NOT a rule:
@@ -48,7 +48,7 @@ What is deliberately NOT a rule:
     every one read correct, so a rule here would be 42 exemptions and no
     finding.
   - Whether the span *contains* the symbol the sentence names. That is the
-    check that would have caught the other 33, and it cannot be mechanised
+    check that would have caught the other 20, and it cannot be mechanised
     from the citing line: the subject is often a line or two above it, and a
     backtick on the citing line as often belongs to the neighbouring clause.
     Tried as a heuristic while this gate was written -- 53 flags, 24 real, 29
@@ -57,17 +57,25 @@ What is deliberately NOT a rule:
 
 So this gate closes the mechanically-decidable half and says so. The half it
 cannot see was audited by hand once, at the commit that introduced this file;
-a citation written after that is checked by these two rules and by review, not
-by anything here.
+a citation written after that is checked by these three rules and by review,
+not by anything here.
 
-# Scope
+# Scope, and what running wider would report today
 
 `crates/cspace-bullet`, `crates/cspace-bullet-cast`, and the two
-continuous-collision files in `cspace-collision`. The rest of the workspace
-cites upstream the same way and is NOT checked: seven citations outside this
-scope have a blank first line today (see the wrapper's header), and widening
-the scope means either fixing files this port did not touch or shipping a
-gate that is born red.
+continuous-collision files in `cspace-collision` -- 465 of the workspace's
+1695 citations. The other 1230 are NOT checked, and the reason is measured
+rather than assumed: run these same three rules over every tracked `.rs` and
+the rest of the workspace reports 9 RANGE, 9 START, and 484 RESOLVE.
+
+Most of that 484 is not a defect. Those crates port from upstreams these two
+trees do not contain -- fcl, ompl, moveit_msgs -- so RESOLVE cannot see their
+files at all, and widening the gate means either passing it more trees or
+teaching it which citations to excuse. The 18 RANGE and START are defects
+(`kinematic_constraints/utils.cpp:661-664`, in a file with 159 lines, cited
+that way twice), in files this port never touched. Fixing them is someone's next
+commit, not a licence for this one to edit them, and shipping a gate born red
+would leave the whole class unenforced meanwhile.
 """
 import pathlib
 import re
