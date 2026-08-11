@@ -40,7 +40,19 @@ cspace-bullet = { path = "crates/cspace-bullet", version = "0.1.0" }
 cspace-bullet-cast = { path = "crates/cspace-bullet-cast", version = "0.1.0" }
 cspace-collision = { path = "crates/cspace-collision", version = "0.1.0" }
 cspace-core = { path = "crates/cspace-core", version = "0.1.0" }
-cspace-planners = { path = "crates/cspace-planners", version = "0.1.0" }
+# Path and no version, alone among these. Nothing in the workspace depends on
+# cspace-planners except cspace-planning's `[dev-dependencies]`, and that edge
+# closes a cycle: cspace-planners needs cspace-planning for `PlanningRequest`,
+# and cspace-planning needs cspace-planners back so its crate-level doctest can
+# resolve a real planner through the `linkme` registry. Cargo drops a
+# version-less dev-dependency from the manifest it publishes, which is what
+# lets the cycle be published at all -- carrying `version = "0.1.0"` here made
+# `cargo publish` look for a released cspace-planners while it was still
+# packaging the crate that has to be released first. If some crate ever takes a
+# real dependency on this, give it a version then: cargo refuses to publish a
+# normal path-only edge, so that mistake surfaces at publish rather than
+# silently.
+cspace-planners = { path = "crates/cspace-planners" }
 cspace-planning = { path = "crates/cspace-planning", version = "0.1.0" }
 cspace-stomp-core = { path = "crates/cspace-stomp-core", version = "0.1.0" }
 
