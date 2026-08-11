@@ -92,8 +92,13 @@ from collections import defaultdict
 # citations give the include path (`moveit/collision_detection/...`) that tells
 # them apart. Anything shorter is not a worse citation, it is an unresolvable
 # one, and this gate counts it as skipped rather than picking a candidate.
+# The stem takes `-` and `.` as well as word characters, or the leading `\b`
+# lets a longer name match its own tail: `gjk_solver_libccd-inl.h:679` was read
+# as `inl.h:679`, which resolves to nothing today and would resolve to the
+# wrong file the day an `inl.h` is vendored. 95 citations outside this gate's
+# scope are written that way.
 CITE = re.compile(
-    r"\b((?:[A-Za-z_][A-Za-z0-9_.-]*/)*[A-Za-z_][A-Za-z0-9_]*\.(?:cpp|hpp|h))\s*:\s*(\d+)(?:-(\d+))?"
+    r"\b((?:[A-Za-z_][A-Za-z0-9_.-]*/)*[A-Za-z_][A-Za-z0-9_.-]*\.(?:cpp|hpp|h))\s*:\s*(\d+)(?:-(\d+))?"
 )
 
 SUBJECTS = [
