@@ -29,7 +29,7 @@
 //!   a component-wise divide in the last bit.
 //! - [`bt_fsel`] treats `0.0` as the *positive* branch, so a support direction
 //!   with a zero component still selects the `+` face of a box.
-//! - [`SIMD_INFINITY`] is `FLT_MAX`, not an infinity (`btScalar.h:543`). Code
+//! - [`SIMD_INFINITY`] is `FLT_MAX`, not an infinity (`btScalar.h:544`). Code
 //!   that seeds a running maximum with `-SIMD_INFINITY` is seeding it with
 //!   `-f32::MAX`, and the distinction is observable the moment a dot product
 //!   is itself infinite.
@@ -67,7 +67,7 @@
 
 use core::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, Neg, Sub, SubAssign};
 
-/// `btScalar`, in the single-precision configuration (`btScalar.h:293`).
+/// `btScalar`, in the single-precision configuration (`btScalar.h:314`).
 ///
 /// The oracle image's Bullet is built without `BT_USE_DOUBLE_PRECISION`;
 /// `sizeof(btScalar) == 4` there, and every constant below takes its
@@ -247,7 +247,7 @@ impl Vec3 {
     }
 
     /// `btVector3::dot3(v0, v1, v2)` -- the three dot products as a vector
-    /// (`btVector3.h:723`). `btTransform::operator()` and `btTransformAabb`
+    /// (`btVector3.h:720`). `btTransform::operator()` and `btTransformAabb`
     /// are both written in terms of it.
     #[inline]
     #[must_use]

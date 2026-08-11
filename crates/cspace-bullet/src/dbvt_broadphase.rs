@@ -41,7 +41,7 @@
 //! - [`collide_tt_persistent_stack`] (`btDbvt.h:1015-1077`),
 //! - [`update_with_velocity_and_margin`] (`btDbvt.cpp:583-590`),
 //! - [`signed_expand`] (`btDbvt.h:521-534`),
-//! - `DbvtBroadphase::optimize_incremental` (`btDbvt.cpp:511-529`), whose
+//! - `DbvtBroadphase::optimize_incremental` (`btDbvt.cpp:514-532`), whose
 //!   `m_opath` cursor is `DbvtBroadphase::opath` here -- both private, because
 //!   nothing outside this module calls either.
 //!

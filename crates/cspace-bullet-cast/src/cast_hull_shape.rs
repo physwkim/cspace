@@ -205,7 +205,7 @@ impl ConvexShape for CastHullShape {
         let (min1, max1) = self.shape.get_aabb(&(*t * self.shape_transform));
 
         // `btVector3::setMin`/`setMax`, which are `btSetMin`/`btSetMax` per
-        // component (`btMinMax.h:26-38`): `if (b < a) a = b`, not `a.min(b)`.
+        // component (`btMinMax.h:38-54`): `if (b < a) a = b`, not `a.min(b)`.
         for i in 0..3 {
             if min1[i] < aabb_min[i] {
                 aabb_min[i] = min1[i];

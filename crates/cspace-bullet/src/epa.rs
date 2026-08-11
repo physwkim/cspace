@@ -1197,7 +1197,7 @@ pub fn distance(
     }
 }
 
-/// `btGjkEpaSolver2::Penetration` (`btGjkEpa2.cpp:974-1017`).
+/// `btGjkEpaSolver2::Penetration` (`btGjkEpa2.cpp:973-1017`).
 ///
 /// Both GJK and EPA are run on `-guess`, not `guess`: the caller's guess points
 /// from A towards B and the Minkowski difference is `A - B`.

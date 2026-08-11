@@ -16,7 +16,7 @@
 //! `CollisionObjectType` (`basic_types.hpp`) has four values; the continuous
 //! path constructs collision objects at exactly two sites and reaches two of
 //! them. `CollisionEnvBullet::addToManager` picks `CONVEX_HULL` for a mesh and
-//! `USE_SHAPE_TYPE` for everything else (`collision_env_bullet.cpp:253-263`);
+//! `USE_SHAPE_TYPE` for everything else (`collision_env_bullet.cpp:253-267`);
 //! `addAttachedObjects` picks `USE_SHAPE_TYPE` for every shape of an attached
 //! body, mesh included (`:346`). `SDF` and `MULTI_SPHERE` have no caller.
 //!
@@ -67,11 +67,11 @@ pub enum CollisionObjectType {
 /// is the one deliberate deviation here, and it is a deviation from a crash.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShapeError {
-    /// `"The mesh is empty!"` (`bullet_utils.cpp:195`) -- no vertices, or no
+    /// `"The mesh is empty!"` (`bullet_utils.cpp:196`) -- no vertices, or no
     /// triangles.
     EmptyMesh,
     /// `"This geometric shape type (%d) is not supported using BULLET yet"`
-    /// (`bullet_utils.cpp:430`) -- a plane, which `shapes::Shape` has and
+    /// (`bullet_utils.cpp:431`) -- a plane, which `shapes::Shape` has and
     /// Bullet's backend does not accept.
     UnsupportedGeometry {
         /// The `shapes::ShapeType` name upstream prints as an integer.

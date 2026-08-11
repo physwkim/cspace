@@ -72,7 +72,7 @@
 //! # `btAssert` is compiled out
 //!
 //! `tools/bullet-epa-reference/build.sh` compiles without `DEBUG`/`_DEBUG`, so
-//! `btScalar.h:296` expands `btAssert(x)` to nothing and every `btAssert` in
+//! `btScalar.h:295` expands `btAssert(x)` to nothing and every `btAssert` in
 //! the C++ is dead text in the build this port is measured against. They are
 //! carried here as doc comments on the branch they describe rather than as
 //! `assert!`, because a `debug_assert!` that upstream does not evaluate would
@@ -82,7 +82,7 @@
 //!
 //! `HullInternal::shrink` and `HullInternal::shift_face` move every face
 //! inward along its normal. MoveIt never asks for it: `createConvexHull`'s
-//! `shrink`/`shrinkClamp` default to `-1` (`contact_checker_common.hpp:72-73`)
+//! `shrink`/`shrinkClamp` default to `-1` (`contact_checker_common.hpp:73-74`)
 //! and its one caller (`bullet_utils.cpp:144`) passes neither, so
 //! `compute`'s `shrink > 0` gate is false and the whole path -- with it
 //! `Rational128`, `PointR128`, `Face`, and the `point.index < 0` branch of
@@ -893,7 +893,7 @@ struct HullInternal {
     vertex_list: VId,
 }
 
-/// `btSetMin` (`btMinMax.h:47-54`) applied component-wise, which is
+/// `btSetMin` (`btMinMax.h:38-45`) applied component-wise, which is
 /// `btVector3::setMin` in the scalar build (`btVector3.h:626-638`).
 ///
 /// Not in `linear_math` because nothing else in this crate reaches it.

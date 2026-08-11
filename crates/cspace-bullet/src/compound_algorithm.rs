@@ -36,7 +36,7 @@
 //!
 //! - **`m_compoundShapeRevision`** exists to notice a compound whose children
 //!   changed and rebuild those caches. `updateChildTransform` does not bump
-//!   `m_updateRevision` (`btCompoundShape.cpp:145-176`), and MoveIt's
+//!   `m_updateRevision` (`btCompoundShape.cpp:86-105`), and MoveIt's
 //!   continuous path performs no other edit after the build
 //!   (`bullet_cast_bvh_manager.cpp:102`, `:115`), so the revision never
 //!   changes and the rebuild never fires.

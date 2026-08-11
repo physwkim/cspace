@@ -106,7 +106,7 @@ impl ManifoldPoint {
     }
 }
 
-/// `btPersistentManifold` (`btPersistentManifold.h:76-...`), reduced to the
+/// `btPersistentManifold` (`btPersistentManifold.h:63-...`), reduced to the
 /// fields the continuous path reads.
 ///
 /// See the module docs for why the point cache is absent rather than empty:

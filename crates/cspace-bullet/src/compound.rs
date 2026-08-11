@@ -167,7 +167,7 @@ pub struct CompoundShape {
     local_aabb_max: Vec3,
     /// `m_dynamicAabbTree`. MoveIt passes `enableDynamicAabbTree = true` at
     /// every construction site (`BULLET_COMPOUND_USE_DYNAMIC_AABB`,
-    /// `bullet_utils.hpp:57`), so on the continuous path this is always
+    /// `bullet_utils.hpp:56`), so on the continuous path this is always
     /// `Some` -- but the `None` arm is what the traversals' index-order
     /// fallback is for, and it is reachable for any caller that asks.
     dynamic_aabb_tree: Option<Dbvt>,

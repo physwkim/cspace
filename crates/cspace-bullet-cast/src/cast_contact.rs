@@ -105,7 +105,7 @@ pub fn apply_cast_result(
     let tf_world1 = cast_world_transform * cast_shape.shape_transform;
 
     // `normal_world_from_cast * tf_worldN.getBasis()` -- `btVector3 *
-    // btMatrix3x3` is the transpose product (`btMatrix3x3.h:1275-1280`), i.e.
+    // btMatrix3x3` is the transpose product (`btMatrix3x3.h:1225-1262`), i.e.
     // the normal taken *into* each pose's local frame.
     let normal_local0 = tf_world0.basis.transposed_mul_vec(normal_world_from_cast);
     let normal_local1 = tf_world1.basis.transposed_mul_vec(normal_world_from_cast);

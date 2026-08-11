@@ -17,7 +17,7 @@
 //! `btCompoundShape`'s constructor allocates one of these whenever
 //! `enableDynamicAabbTree` is set, and MoveIt sets it at every one of its four
 //! construction sites -- `BULLET_COMPOUND_USE_DYNAMIC_AABB` is `true`
-//! (`bullet_utils.hpp:57`). With a tree present,
+//! (`bullet_utils.hpp:56`). With a tree present,
 //! `btCompoundCollisionAlgorithm::processCollision` takes the
 //! `collideTVNoStackAlloc` branch and visits children in *tree* order, which
 //! depends on the insertion history rather than on the child index. That order
@@ -85,13 +85,13 @@ impl DbvtVolume {
         Self { mi, mx }
     }
 
-    /// `Center` (`btDbvt.h:132`).
+    /// `Center` (`btDbvt.h:134`).
     #[must_use]
     pub fn center(&self) -> Vec3 {
         (self.mi + self.mx) / 2.0
     }
 
-    /// `Lengths` (`btDbvt.h:133`).
+    /// `Lengths` (`btDbvt.h:135`).
     #[must_use]
     pub fn lengths(&self) -> Vec3 {
         self.mx - self.mi
@@ -187,20 +187,20 @@ pub struct Node {
 }
 
 impl Node {
-    /// `isleaf` (`btDbvt.h:179`).
+    /// `isleaf` (`btDbvt.h:184`).
     #[must_use]
     pub fn is_leaf(&self) -> bool {
         self.child[1].is_none()
     }
 
-    /// `isinternal` (`btDbvt.h:180`).
+    /// `isinternal` (`btDbvt.h:185`).
     #[must_use]
     pub fn is_internal(&self) -> bool {
         !self.is_leaf()
     }
 }
 
-/// `btDbvt` (`btDbvt.h:190-...`), reduced to the operations a compound shape
+/// `btDbvt` (`btDbvt.h:228-...`), reduced to the operations a compound shape
 /// and its two collision algorithms reach.
 #[derive(Clone, Debug, Default)]
 pub struct Dbvt {

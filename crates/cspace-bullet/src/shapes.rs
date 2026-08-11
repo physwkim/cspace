@@ -145,7 +145,7 @@ pub const CONVEX_DISTANCE_MARGIN: Scalar = 0.04;
 ///
 /// `addCastSingleResult` recovers the swept shape by
 /// `static_cast<const CastHullShape*>(first_col_obj_wrap->getCollisionShape())`
-/// (`bullet_utils.hpp:471`) -- a downcast to a type that is not in this crate,
+/// (`bullet_utils.hpp:470`) -- a downcast to a type that is not in this crate,
 /// on a pointer whose static type is the base. [`ConvexShape::as_any`] is that
 /// downcast's only possible spelling here, and it is strictly the safer one:
 /// upstream's `static_cast` reinterprets whatever it is given, while this one
@@ -195,7 +195,7 @@ pub trait ConvexShape: Send + Sync + Any {
     ///
     /// One method rather than a cast test plus a count plus an indexed getter,
     /// because upstream's sole caller in this port's scope --
-    /// `getAverageSupport` (`bullet_utils.hpp:351-377`) -- consumes all three
+    /// `getAverageSupport` (`bullet_utils.hpp:344-377`) -- consumes all three
     /// in one loop, and three separately answerable questions can disagree
     /// where one cannot.
     ///
@@ -455,7 +455,7 @@ impl SphereShape {
         Self { radius }
     }
 
-    /// `btSphereShape::getRadius` (`btSphereShape.h:47`).
+    /// `btSphereShape::getRadius` (`btSphereShape.h:48`).
     #[must_use]
     pub const fn radius(&self) -> Scalar {
         self.radius
@@ -630,7 +630,7 @@ pub struct ConeShapeZ {
     /// cone's margin never enters its dimensions.
     radius: Scalar,
     /// `m_height` -- the **full** height. MoveIt passes `geom->length`
-    /// (`bullet_utils.cpp:111-118`), and `coneLocalSupport` halves it itself.
+    /// (`bullet_utils.cpp:112-119`), and `coneLocalSupport` halves it itself.
     height: Scalar,
     collision_margin: Scalar,
 }

@@ -34,7 +34,7 @@
 //! `BroadphaseContactResultCallback` has a `self_` and a `cast_`
 //! (`bullet_utils.hpp:537-540`). `BulletCastBVHManager::contactTest` is the
 //! only constructor on the continuous path and it passes `self = false,
-//! cast = true` (`bullet_cast_bvh_manager.cpp:145`) -- the discrete managers
+//! cast = true` (`bullet_cast_bvh_manager.cpp:146`) -- the discrete managers
 //! supply the other three combinations. So this port carries neither as a
 //! field: [`BroadphaseContactResultCallback::needs_collision`] is upstream's
 //! `cast_` branch and `addSingleResult` reaches `addCastSingleResult`
@@ -196,7 +196,7 @@ impl BroadphaseContactResultCallback<'_> {
     ///
     /// `!isOnlyKinematic` rejects a pair of two *swept* objects: continuous
     /// against continuous is unsupported, which is stated where
-    /// `updateCollisionObjectFilters` is declared (`bullet_utils.hpp:709-712`)
+    /// `updateCollisionObjectFilters` is declared (`bullet_utils.hpp:661-669`)
     /// and enforced here.
     #[must_use]
     pub fn needs_collision(
