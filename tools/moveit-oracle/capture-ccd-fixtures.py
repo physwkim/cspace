@@ -116,10 +116,14 @@ MESH_TRIANGLES = [[0, 1, 4], [0, 4, 3], [1, 2, 5], [1, 5, 4]]
 # The two scenes every state pair is captured in: no attached body, and the
 # mesh above attached at the arm's tip with its own frame the link's.
 #
-# Both, not just the second. An attached body is added to the manager *ahead*
-# of every link (`collision_env_bullet.cpp:216-225`), so it does not merely add
-# a pair -- it shifts the whole insertion order the tight budget reads, and the
-# unattached cases are what pins that order without it.
+# Both, not just the second. An attached body is the *last* object into the
+# manager, not the first: links go in at construction
+# (`collision_env_bullet.cpp:60-63` -> `addLinkAsCollisionObject` -> `:442`) and
+# world objects when the world announces them, while an attached body is added
+# during the query at `:216-225` and removed again at `:237`. So the attached
+# scene is the unattached one plus a proxy appended after everything else, and
+# the pair prefix a tight `max_contacts` keeps is not the prefix the same two
+# states produce without it -- which is what the unattached half pins.
 def attached_scenes(robot):
     return [
         [],

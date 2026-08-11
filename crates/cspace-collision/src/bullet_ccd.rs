@@ -203,9 +203,15 @@ pub fn check_robot_collision_continuous(
 
     // `addAttachedObjects(state1, attached_cows)` then, per body, an
     // `addCollisionObject` immediately followed by its
-    // `setCastCollisionObjectsTransform` (`:216-225`) -- interleaved, and
-    // ahead of the link loop below, because both the insertion order and the
-    // re-posing order reach the pair cache.
+    // `setCastCollisionObjectsTransform` (`:216-225`) -- interleaved, not two
+    // loops.
+    //
+    // Last into the manager, after every link and world object above. Upstream
+    // adds its links at construction (`:60-63`) and its world objects when the
+    // world announces them, both before any query; an attached body is the one
+    // object added *during* the query and removed again at `:237`. The loop
+    // below only re-poses links, so this loop is ahead of that order and behind
+    // the insertion order, not ahead of both.
     //
     // Unlike the FCL backend's, these shapes are *not* scaled or padded by the
     // attached link's entry: the constructor upstream calls here takes them as
