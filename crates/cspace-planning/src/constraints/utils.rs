@@ -302,7 +302,7 @@ pub fn construct_goal_joint_constraints(
 /// comment on why "update" reconstructs).
 ///
 /// Reproduces upstream's membership check literally
-/// (`kinematic_constraints/utils.cpp:172-192`): it compares the constraint's full name (here,
+/// (`kinematic_constraints/src/utils.cpp:172-192`): it compares the constraint's full name (here,
 /// [`JointConstraint::joint_variable_name`], which may carry a
 /// `/local_variable` suffix for one variable of a multi-DOF joint) against
 /// [`cspace_core::model::JointModelGroup::active_joint_names`] (plain joint
@@ -462,7 +462,7 @@ pub fn construct_goal_pose_constraints_box(
 /// [`update_position_constraint`]/[`update_orientation_constraint`] for
 /// `link_name`'s existing constraints. Written with `&&` rather than two
 /// separate `let`s to reproduce upstream's short-circuit
-/// (`kinematic_constraints/utils.cpp:271-272`): if the position update fails, the orientation
+/// (`kinematic_constraints/src/utils.cpp:271-272`): if the position update fails, the orientation
 /// update is never attempted at all, not merely reported as failed.
 ///
 /// # Errors
@@ -497,7 +497,7 @@ pub fn update_pose_constraint(
 /// overload): one [`OrientationConstraint`] targeting `orientation`.
 ///
 /// Unlike [`construct_goal_pose_constraints`], this overload never sets
-/// `ocm.parameterization` (`kinematic_constraints/utils.cpp:275-290`), so it keeps
+/// `ocm.parameterization` (`kinematic_constraints/src/utils.cpp:275-290`), so it keeps
 /// `moveit_msgs::msg::OrientationConstraint`'s field default — `0`,
 /// documented in the message itself as `XYZ_EULER_ANGLES` — rather than
 /// `ROTATION_VECTOR`. This port makes that default explicit with
@@ -818,7 +818,7 @@ where
 ///
 /// [`Error::Other`] if `link_name` resolves to a different `robot_link` and
 /// `tolerance` is [`crate::constraints::OrientationTolerance::XyzEuler`]: upstream logs an
-/// error and refuses in exactly this case (`kinematic_constraints/utils.cpp:661-664`) because
+/// error and refuses in exactly this case (`kinematic_constraints/src/utils.cpp:661-664`) because
 /// Euler-angle tolerances have no composition rule across a frame change,
 /// only rotation-vector ones do. See [`resolve_position_constraint_frame`]
 /// for the other propagated errors.

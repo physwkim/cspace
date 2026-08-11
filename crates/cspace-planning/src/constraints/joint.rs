@@ -268,11 +268,12 @@ impl JointConstraint {
     }
 
     /// Upstream `mergeConstraints`'s per-joint merge arithmetic
-    /// (`kinematic_constraints/utils.cpp:80-100`), factored out here because it needs this type's
-    /// private fields: intersect `self`'s and `other`'s tolerance windows,
-    /// weighted-average the two positions clamped into the intersection, and
-    /// split the remaining slack back into above/below tolerances. `self`
-    /// (upstream's `a`, the "first" constraint) supplies the identity fields
+    /// (`kinematic_constraints/src/utils.cpp:80-100`), factored out here
+    /// because it needs this type's private fields: intersect `self`'s and
+    /// `other`'s tolerance windows, weighted-average the two positions
+    /// clamped into the intersection, and split the remaining slack back into
+    /// above/below tolerances. `self` (upstream's `a`, the "first"
+    /// constraint) supplies the identity fields
     /// (`joint_variable_name`/`local_variable_name`/`variable_index`/
     /// `is_continuous`) that are already known equal between the two callers
     /// only ever merge same-joint constraints together. `None` when the two

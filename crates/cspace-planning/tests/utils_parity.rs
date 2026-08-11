@@ -262,7 +262,7 @@ mod oracle_update_joint_constraints {
     /// A constraint for a joint that is not active in the target group stops
     /// the update and reports `false`, but does not undo constraints already
     /// updated earlier in the same call -- upstream's early-return loop
-    /// (`kinematic_constraints/utils.cpp:172-192`), reproduced here.
+    /// (`kinematic_constraints/src/utils.cpp:172-192`), reproduced here.
     #[test]
     fn stops_at_first_inactive_joint_without_undoing_earlier_updates() {
         let model = panda_model();
@@ -332,7 +332,7 @@ mod oracle_update_pose_constraint {
 
     /// If no position constraint names the link, `update_pose_constraint`
     /// must report `false` *and* never attempt the orientation update --
-    /// upstream's `&&` short-circuit (`kinematic_constraints/utils.cpp:271-272`), reproduced by
+    /// upstream's `&&` short-circuit (`kinematic_constraints/src/utils.cpp:271-272`), reproduced by
     /// this port's own `&&` expression. Checked by giving the (never
     /// updated) orientation constraint a target far from a pose whose
     /// position half cannot be found, and confirming `decide()` still sees
@@ -759,7 +759,7 @@ mod merge_constraints_boundary {
 
     /// `low = max(-0.2, -0.1) = -0.1`, `high = min(0.2, 0.3) = 0.2`,
     /// `position = clamp((0*1 + 0.1*1) / 2, -0.1, 0.2) = 0.05`, matching
-    /// `mergeConstraints`'s formula (`kinematic_constraints/utils.cpp:83-98`) by hand.
+    /// `mergeConstraints`'s formula (`kinematic_constraints/src/utils.cpp:83-98`) by hand.
     #[test]
     fn overlapping_windows_merge_to_the_intersection() {
         let model = panda_model();
@@ -1101,7 +1101,7 @@ mod resolve_constraint_frame_boundary {
     }
 
     /// Upstream refuses to retarget an `XyzEuler` orientation constraint
-    /// across an actual frame change (`kinematic_constraints/utils.cpp:661-664`): Euler-angle
+    /// across an actual frame change (`kinematic_constraints/src/utils.cpp:661-664`): Euler-angle
     /// tolerances have no rotation-composition rule, only rotation vectors
     /// do. This is the one case that is a genuine frame change (attached
     /// subframe, not a same-link no-op), so it must error rather than
