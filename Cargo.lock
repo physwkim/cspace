@@ -85,6 +85,7 @@ name = "cspace-collision"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "cspace-bullet-cast",
  "cspace-core",
  "glamx",
  "nalgebra",

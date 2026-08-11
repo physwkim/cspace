@@ -200,6 +200,10 @@ pub trait CollisionEnv<State> {
     /// backend that cannot do continuous collision checking faithfully
     /// returns `Err` here instead of that silent no-op, so a caller cannot
     /// mistake "not implemented" for "clear."
+    ///
+    /// The same reasoning covers a backend that does implement it but cannot
+    /// build one of the bodies in this particular scene: `Err` again, rather
+    /// than an answer about the geometry it did manage to look at.
     fn check_robot_collision_continuous(
         &self,
         request: &CollisionRequest,

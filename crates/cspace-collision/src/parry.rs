@@ -1149,12 +1149,18 @@
 //!    has no well-defined half-space to build, so [`convert_shape`] excludes
 //!    it from collision geometry rather than construct a `HalfSpace` with a
 //!    zero-length (and therefore un-normalizable) normal.
-//! 10. **`check_robot_collision_continuous` returns [`Error`].** See
-//!     [`crate::CollisionEnv::check_robot_collision_continuous`]'s own doc:
-//!     upstream's FCL backend does not implement this case either, silently
-//!     leaving `res` untouched; this backend has no swept/conservative-
-//!     advancement query wired up, and returns an explicit error rather than
-//!     an approximation that would misreport a real path collision as clear.
+//! 10. **`check_robot_collision_continuous` is not answered by `parry3d-f64`
+//!     at all.** It delegates to `crate::bullet_ccd`, this workspace's port of
+//!     `CollisionEnvBullet::checkRobotCollisionHelperCCD` -- Bullet's cast
+//!     hulls over Bullet's own GJK/EPA, not a parry query. Upstream splits
+//!     the same way: its FCL backend leaves `res` untouched here, and only
+//!     `CollisionEnvBullet` implements the two-state check. So this one
+//!     method's contacts come from a different narrowphase, at `f32`, than
+//!     every other method on this type; nothing about a discrete result
+//!     predicts a continuous one to the last bit. The consequences that are
+//!     upstream's own (no cost sources, no detailed distance, no
+//!     `nearest_points`, no `group_name` filtering) are set out in
+//!     `bullet_ccd`'s module docs.
 //! 11. **[`Shape::OcTree`] converts to a `Cuboid`-per-occupied-leaf
 //!     [`parry3d_f64::shape::Compound`], not a native octree.** `parry3d-f64` has no equivalent of
 //!     FCL's `fcl::OcTreed` (`PORTING-PLAN.md` records no mature Rust octree-
@@ -1208,7 +1214,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
-use cspace_core::error::{Error, Result};
+use cspace_core::error::Result;
 use cspace_core::geometry::{Isometry3, Shape, Vector3, compound_from_octree};
 use cspace_core::model::{LinkModel, RobotModel};
 use cspace_core::state::Posed;
@@ -4148,18 +4154,21 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
 
     fn check_robot_collision_continuous(
         &self,
-        _request: &CollisionRequest,
-        _state1: &Posed<'s, 'm>,
-        _state2: &Posed<'s, 'm>,
-        _attached_bodies: &[AttachedBodyGeometry<'_>],
-        _acm: Option<&AllowedCollisionMatrix>,
+        request: &CollisionRequest,
+        state1: &Posed<'s, 'm>,
+        state2: &Posed<'s, 'm>,
+        attached_bodies: &[AttachedBodyGeometry<'_>],
+        acm: Option<&AllowedCollisionMatrix>,
     ) -> Result<CollisionResult> {
-        Err(Error::other(
-            "continuous robot-collision checking is not implemented by ParryCollisionEnv: no \
-             swept/conservative-advancement query is wired up, and approximating it (e.g. \
-             sampling the path, or only checking the end state) would silently misreport a real \
-             path collision as clear",
-        ))
+        crate::bullet_ccd::check_robot_collision_continuous(
+            &self.world,
+            &self.padding_scale,
+            request,
+            state1,
+            state2,
+            attached_bodies,
+            acm,
+        )
     }
 
     fn distance_self(
@@ -5953,25 +5962,312 @@ mod tests {
         assert_eq!(result.minimum_distance.distance, 1.0);
     }
 
+    /// A world holding one unit cuboid centred at `(x, 0, 0)` -- the obstacle
+    /// the continuous-check tests below sweep a link past.
+    fn world_with_box_at(id: &str, x: f64) -> World {
+        let mut world = World::new();
+        world.add_shape(
+            id,
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::translation(x, 0.0, 0.0),
+        );
+        world
+    }
+
+    // Deviation 10: the continuous check is answered by `crate::bullet_ccd`,
+    // so what the three tests below pin is the wiring -- that the world, the
+    // padding/scale table and both states reach it, and that the answer comes
+    // back in this crate's vocabulary. The cast algorithm itself is tested in
+    // `cspace-bullet-cast`.
+
     #[test]
-    fn check_robot_collision_continuous_returns_an_error_rather_than_approximating() {
+    fn a_sweep_straight_through_an_obstacle_is_a_collision_at_neither_endpoint() {
+        // `p` spans -0.5..0.5 at state 1 and 5.5..6.5 at state 2; the obstacle
+        // spans 2.5..3.5. A discrete check at either state is clear, so only a
+        // swept query can see this -- which is what makes the assertion below
+        // unreachable by sampling the endpoints.
+        let model = build_model(&["p"]);
+        let mut state1 = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let mut state2 =
+            state_with_links_at(&model, &[("p", Isometry3::translation(6.0, 0.0, 0.0))]);
+        let posed1 = state1.update();
+        let posed2 = state2.update();
+        let env = ParryCollisionEnv::new(
+            world_with_box_at("obstacle", 3.0),
+            LinkPaddingScale::default(),
+        );
+
+        assert!(
+            !env.check_robot_collision(&CollisionRequest::default(), &posed1, &[], None)
+                .collision
+        );
+        assert!(
+            !env.check_robot_collision(&CollisionRequest::default(), &posed2, &[], None)
+                .collision
+        );
+
+        let result = env
+            .check_robot_collision_continuous(
+                &CollisionRequest::default(),
+                &posed1,
+                &posed2,
+                &[],
+                None,
+            )
+            .expect("every body here is a box, so nothing can fail to build");
+
+        assert!(result.collision);
+    }
+
+    #[test]
+    fn a_sweep_that_never_reaches_the_obstacle_is_clear() {
+        // Same sweep as above stopped at 1.0, so `p` spans -0.5..1.5 over the
+        // whole path and never reaches the obstacle's 2.5. Without this the
+        // test above would pass on a backend that reported every sweep as a
+        // collision.
         let model = build_model(&["p"]);
         let mut state1 = state_with_links_at(&model, &[("p", Isometry3::identity())]);
         let mut state2 =
             state_with_links_at(&model, &[("p", Isometry3::translation(1.0, 0.0, 0.0))]);
         let posed1 = state1.update();
         let posed2 = state2.update();
-        let env = ParryCollisionEnv::default();
-
-        let result = env.check_robot_collision_continuous(
-            &CollisionRequest::default(),
-            &posed1,
-            &posed2,
-            &[],
-            None,
+        let env = ParryCollisionEnv::new(
+            world_with_box_at("obstacle", 3.0),
+            LinkPaddingScale::default(),
         );
 
-        assert!(result.is_err());
+        let result = env
+            .check_robot_collision_continuous(
+                &CollisionRequest::default(),
+                &posed1,
+                &posed2,
+                &[],
+                None,
+            )
+            .expect("every body here is a box, so nothing can fail to build");
+
+        assert!(!result.collision);
+        assert!(result.contacts.is_none());
+        assert!(result.distance.is_none());
+        assert!(result.cost_sources.is_none());
+    }
+
+    #[test]
+    fn a_requested_contact_carries_the_values_upstream_reports_for_this_sweep() {
+        // Measured, not derived. Every number below is what MoveIt itself
+        // answers for this scene, read from the oracle's `bullet_cast_pair`
+        // op -- a `BulletCastBVHManager` holding a `ROBOT_LINK` 1x1x1 box cast
+        // from the identity to `translation(6, 0, 0)` and a `WORLD_OBJECT`
+        // 1x1x1 box at `translation(3, 0, 0)`, which is exactly the pair this
+        // scene reduces to. Exact equality, not a tolerance: bullet computes
+        // in `f32` and this port reproduces the same `f32` operations, so the
+        // widened `f64`s agree bit for bit or the port has diverged.
+        //
+        // `percent_interpolation` is 0 rather than a fraction because upstream
+        // reads it off the two support values, and this contact's normal has a
+        // -x component of -0.1005 over a 6 m sweep -- 0.6, far past
+        // `BULLET_SUPPORT_FUNC_TOLERANCE` (0.01), so `addCastSingleResult`
+        // takes its first branch and answers "at the start pose". Pinned as
+        // measured because it is upstream's answer, not because it is the
+        // fraction the geometry suggests.
+        let model = build_model(&["p"]);
+        let mut state1 = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let mut state2 =
+            state_with_links_at(&model, &[("p", Isometry3::translation(6.0, 0.0, 0.0))]);
+        let posed1 = state1.update();
+        let posed2 = state2.update();
+        let env = ParryCollisionEnv::new(
+            world_with_box_at("obstacle", 3.0),
+            LinkPaddingScale::default(),
+        );
+        let request = CollisionRequest {
+            contacts: true,
+            max_contacts: 10,
+            max_contacts_per_pair: 10,
+            ..CollisionRequest::default()
+        };
+
+        let result = env
+            .check_robot_collision_continuous(&request, &posed1, &posed2, &[], None)
+            .expect("every body here is a box, so nothing can fail to build");
+
+        let contacts = result.contacts.expect("contacts were requested");
+        let stored = contacts
+            .by_pair
+            .get(&("obstacle".to_owned(), "p".to_owned()))
+            .expect("the only pair in this scene is the link against the obstacle");
+        assert_eq!(stored.len(), 1);
+        let contact = &stored[0];
+        // The non-swept body is reported first: `addCastSingleResult` swaps
+        // the two in place when the cast shape came first out of the
+        // broadphase.
+        assert_eq!(contact.body_name_1, "obstacle");
+        assert_eq!(contact.body_type_1, BodyType::WorldObject);
+        assert_eq!(contact.body_name_2, "p");
+        assert_eq!(contact.body_type_2, BodyType::RobotLink);
+        assert_eq!(contact.depth, -0.402_015_149_593_353_27);
+        assert_eq!(
+            contact.normal,
+            Vector3::new(
+                0.100_503_876_805_305_48,
+                0.703_526_496_887_207,
+                0.703_526_437_282_562_3
+            )
+        );
+        assert_eq!(
+            contact.pos,
+            Vector3::new(
+                3.459_595_918_655_395_5,
+                -0.065_656_542_778_015_14,
+                0.217_171_728_610_992_43
+            )
+        );
+        assert_eq!(contact.percent_interpolation, 0.0);
+        // Module doc, deviation 10: upstream's cast path never assigns these,
+        // so the port writes zeros rather than reproducing stack garbage.
+        assert_eq!(contact.nearest_points, [Vector3::zeros(); 2]);
+    }
+
+    #[test]
+    fn an_attached_body_sweeps_where_its_link_does_not() {
+        // `p` sweeps along y and never comes within 2.0 of the obstacle in x;
+        // only the attached body, offset 3.0 along x from the link, crosses
+        // it. A backend that added the link but dropped the attached body
+        // would answer "clear" here.
+        let model = build_model(&["p"]);
+        let mut state1 = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let mut state2 =
+            state_with_links_at(&model, &[("p", Isometry3::translation(0.0, 6.0, 0.0))]);
+        let posed1 = state1.update();
+        let posed2 = state2.update();
+        let env = ParryCollisionEnv::new(
+            world_with_box_at("obstacle", 3.0),
+            LinkPaddingScale::default(),
+        );
+        let shapes = [Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()))];
+        let shape_poses = [Isometry3::translation(3.0, -3.0, 0.0)];
+        let touch_links = BTreeSet::new();
+        let attached = [AttachedBodyGeometry {
+            id: "held",
+            link_name: "p",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        }];
+        let request = CollisionRequest {
+            contacts: true,
+            max_contacts: 10,
+            max_contacts_per_pair: 10,
+            ..CollisionRequest::default()
+        };
+
+        // Neither endpoint touches: the body is at y = -3 at state 1 and
+        // y = +3 at state 2, and the obstacle spans y in -0.5..0.5.
+        assert!(
+            !env.check_robot_collision(&request, &posed1, &attached, None)
+                .collision
+        );
+        assert!(
+            !env.check_robot_collision(&request, &posed2, &attached, None)
+                .collision
+        );
+
+        let result = env
+            .check_robot_collision_continuous(&request, &posed1, &posed2, &attached, None)
+            .expect("every body here is a box, so nothing can fail to build");
+
+        assert!(result.collision);
+        let contacts = result.contacts.expect("contacts were requested");
+        let stored = contacts
+            .by_pair
+            .get(&("held".to_owned(), "obstacle".to_owned()))
+            .expect("the attached body is what reaches the obstacle, not the link");
+        // `getObjectPairKey` sorts the two names, so "held" leads the key
+        // while the *contact* still reports the non-swept body first.
+        assert_eq!(stored[0].body_name_1, "obstacle");
+        assert_eq!(stored[0].body_type_1, BodyType::WorldObject);
+        assert_eq!(stored[0].body_name_2, "held");
+        assert_eq!(stored[0].body_type_2, BodyType::RobotAttached);
+    }
+
+    #[test]
+    fn an_allowed_pair_is_skipped_by_the_sweep_whether_always_or_conditional() {
+        // `acmCheck` (`bullet_utils.cpp:49-83`) reads the entry's *type* and
+        // never runs a `Conditional`'s predicate: both `Always` and
+        // `Conditional` skip the pair outright, before the contact that would
+        // decide it exists. So the two branches must answer alike here, and a
+        // port that resolved `Conditional` by calling the predicate would
+        // report this sweep as a collision.
+        let model = build_model(&["p"]);
+        let mut state1 = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let mut state2 =
+            state_with_links_at(&model, &[("p", Isometry3::translation(6.0, 0.0, 0.0))]);
+        let posed1 = state1.update();
+        let posed2 = state2.update();
+        let env = ParryCollisionEnv::new(
+            world_with_box_at("obstacle", 3.0),
+            LinkPaddingScale::default(),
+        );
+        let request = CollisionRequest::default();
+
+        let mut always = AllowedCollisionMatrix::new();
+        always.set_entry("p", "obstacle", true);
+        let result = env
+            .check_robot_collision_continuous(&request, &posed1, &posed2, &[], Some(&always))
+            .expect("every body here is a box, so nothing can fail to build");
+        assert!(!result.collision);
+
+        let mut conditional = AllowedCollisionMatrix::new();
+        conditional.set_conditional_entry("p", "obstacle", Arc::new(|_: &mut Contact| false));
+        let result = env
+            .check_robot_collision_continuous(&request, &posed1, &posed2, &[], Some(&conditional))
+            .expect("every body here is a box, so nothing can fail to build");
+        assert!(!result.collision);
+
+        // `Never` is an entry too, and it must not be read as "there is an
+        // entry, so skip": without this the two above pass on a bridge that
+        // skips every pair the matrix mentions.
+        let mut never = AllowedCollisionMatrix::new();
+        never.set_entry("p", "obstacle", false);
+        let result = env
+            .check_robot_collision_continuous(&request, &posed1, &posed2, &[], Some(&never))
+            .expect("every body here is a box, so nothing can fail to build");
+        assert!(result.collision);
+    }
+
+    #[test]
+    fn link_padding_widens_what_the_sweep_covers() {
+        // `p` sweeps from -0.5..0.5 to 0.5..1.5 in x; the obstacle spans
+        // 1.7..2.7. Unpadded the swept hull stops at 1.5 and nothing touches.
+        // At padding 0.3 each half-extent grows to 0.8, the hull reaches 1.8,
+        // and the same sweep collides -- so this fails both if the padding is
+        // never applied and if it is applied when upstream's epsilon guard
+        // says not to.
+        let model = build_model(&["p"]);
+        let mut state1 = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let mut state2 =
+            state_with_links_at(&model, &[("p", Isometry3::translation(1.0, 0.0, 0.0))]);
+        let posed1 = state1.update();
+        let posed2 = state2.update();
+        let request = CollisionRequest::default();
+
+        let unpadded = ParryCollisionEnv::new(
+            world_with_box_at("obstacle", 2.2),
+            LinkPaddingScale::default(),
+        );
+        let result = unpadded
+            .check_robot_collision_continuous(&request, &posed1, &posed2, &[], None)
+            .expect("every body here is a box, so nothing can fail to build");
+        assert!(!result.collision);
+
+        let padded = ParryCollisionEnv::new(
+            world_with_box_at("obstacle", 2.2),
+            LinkPaddingScale::with_links(["p".to_owned()], 0.3, 1.0),
+        );
+        let result = padded
+            .check_robot_collision_continuous(&request, &posed1, &posed2, &[], None)
+            .expect("every body here is a box, so nothing can fail to build");
+        assert!(result.collision);
     }
 
     // Attached-body geometry: module doc, "Attached-body geometry".

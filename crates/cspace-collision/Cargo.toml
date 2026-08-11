@@ -9,6 +9,10 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+# `checkRobotCollisionHelperCCD`'s cast manager and callbacks. They are their
+# own crate because `bullet_integration/` is BSD-2-Clause and this crate is
+# BSD-3-Clause; see `cspace-bullet-cast`'s own module docs.
+cspace-bullet-cast.workspace = true
 cspace-core.workspace = true
 # Not for the octree algorithms -- those stay in `cspace_core::geometry` -- but so
 # `parry.rs`'s `OctreeCache` can name `Weak<cspace_core::octomap::OcTree>`. Keying a

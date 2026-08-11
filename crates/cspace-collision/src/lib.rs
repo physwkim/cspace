@@ -91,6 +91,7 @@
 pub mod distance_field;
 
 mod all_valid;
+mod bullet_ccd;
 mod common;
 mod env;
 mod fcl_tangency_table;
