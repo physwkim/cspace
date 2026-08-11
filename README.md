@@ -131,7 +131,18 @@ Upstream reference: `moveit2` @ `e017c91ee12984393a28ba246075c65f69cde3bf`.
 Every ported file keeps its original copyright header and names the upstream
 path it came from, at the top of the file.
 
-BSD-3-Clause, matching MoveIt 2, with one exception: `cspace-stomp-core` ports
-[ros-industrial/stomp](https://github.com/ros-industrial/stomp) @
-`b1a87c80f7338caae25a5c689b876da15492aa75`, which is Apache-2.0, and that crate
-sets its license explicitly rather than inheriting the workspace's.
+BSD-3-Clause, matching MoveIt 2, except where a crate ports an upstream under
+other terms — each of those sets its license explicitly rather than inheriting
+the workspace's, and carries the text beside its manifest:
+
+| crate | license | upstream |
+| --- | --- | --- |
+| `cspace-core`, `cspace-collision`, `cspace-planning` | BSD-3-Clause | moveit2 |
+| `cspace-planners` | BSD-3-Clause AND Apache-2.0 | moveit2; `pilz_industrial_motion_planner`'s vendored `joint_limits_copy/joint_limits.hpp` is PAL Robotics' and Apache-2.0 |
+| `cspace-bullet` | Zlib | [bullet3](https://github.com/bulletphysics/bullet3) @ `7dee3436e747958e7088dfdcea0e4ae031ce619e` (tag 3.24) |
+| `cspace-bullet-cast` | BSD-2-Clause | moveit2's `collision_detection_bullet/bullet_integration/` |
+| `cspace-stomp-core` | Apache-2.0 | [ros-industrial/stomp](https://github.com/ros-industrial/stomp) @ `b1a87c80f7338caae25a5c689b876da15492aa75` |
+
+`tools/ci/check-license-matches-upstream.sh` derives that table from the tree
+on every CI run and fails if a manifest names fewer terms than its own sources
+impose, so it cannot drift from this file silently.

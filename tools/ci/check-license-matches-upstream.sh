@@ -145,7 +145,29 @@ for manifest in "${manifests[@]}"; do
     echo "  Set 'license = \"$effective\"' explicitly, or fix the source headers" >&2
     echo "  -- whichever matches the upstreams this crate actually ports." >&2
     status=1
+    continue
   fi
+
+  # A crate cargo can publish is a crate whose tarball is a redistribution, and
+  # BSD and Apache both require the licence text to travel with it. The SPDX
+  # field in the manifest is metadata about the terms, not the terms. Naming
+  # the file after the atom is what makes a dual-licensed crate carry both:
+  # one atom is `LICENSE`, several are `LICENSE-<atom>`.
+  if grep -Eq '^publish[[:space:]]*=[[:space:]]*false' "$manifest"; then
+    continue
+  fi
+  for atom in "${atoms[@]}"; do
+    if [ "${#atoms[@]}" -eq 1 ]; then
+      want="$crate_dir/LICENSE"
+    else
+      want="$crate_dir/LICENSE-$atom"
+    fi
+    if [ ! -f "$want" ]; then
+      echo "$crate_dir: publishable and imposes $atom, but $want does not exist" >&2
+      echo "  cargo package would ship the terms' name without their text." >&2
+      status=1
+    fi
+  done
 done
 
 if [ "$status" -ne 0 ]; then
