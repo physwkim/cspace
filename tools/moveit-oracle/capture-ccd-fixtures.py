@@ -84,11 +84,25 @@ PILLAR_OBJECT = {
 
 ROBOTS = ["panda", "fanuc", "pr2"]
 
-# Raised off the op's default of 1 so a pair that bullet's manifold reduction
-# keeps several contacts for is captured whole. A pair whose contact *count*
-# differs is a real disagreement about the manifold, and at 1 it would read as
-# agreement on whichever contact each side happened to keep.
-MAX_CONTACTS_PER_PAIR = 4
+# The two contact budgets every state pair is captured at.
+#
+# The loose one raises `max_contacts_per_pair` off the op's default of 1 so a
+# pair that bullet's manifold reduction keeps several contacts for is captured
+# whole -- at 1, two sides that disagree about the manifold read as agreeing on
+# whichever contact each happened to keep -- and leaves `max_contacts` at a
+# figure no scene here reaches, so every pair found is stored.
+#
+# The tight one is what makes insertion order observable at all. Below the
+# budget, the result is a `std::map` keyed by the sorted name pair and the
+# order the objects entered the manager cannot be read off it; a port that
+# added its links in a different order agrees case for case. Spend the budget
+# and `processResult` keeps whichever contacts arrived first, which is the
+# order `createProxy` announced the overlaps in. 3 rather than 1 so the cut
+# lands inside the traversal rather than on its first step.
+BUDGETS = [
+    {"max_contacts": 100, "max_contacts_per_pair": 4},
+    {"max_contacts": 3, "max_contacts_per_pair": 1},
+]
 
 
 class Oracle:
@@ -121,17 +135,22 @@ class Oracle:
         self.proc.wait()
 
 
-def ccd_case(oracle, joint_values, joint_values2):
+def ccd_case(oracle, joint_values, joint_values2, budget):
     result = oracle.ask(
         op="ccd",
         joint_values=joint_values,
         joint_values2=joint_values2,
         objects=[FLOOR_OBJECT, PILLAR_OBJECT],
-        max_contacts_per_pair=MAX_CONTACTS_PER_PAIR,
+        **budget,
     )
+    # The budget travels with the case rather than being a constant the reader
+    # restates: a case answered at one budget and replayed at another compares
+    # two different questions, and nothing in the response says which was
+    # asked.
     return {
         "joint_values": joint_values,
         "joint_values2": joint_values2,
+        **budget,
         **result,
     }
 
@@ -145,7 +164,11 @@ def capture(robot):
         # Default -> first sampled state, then each consecutive sampled pair.
         pairs = [({}, states[0])]
         pairs += list(zip(states, states[1:]))
-        return {"cases": [ccd_case(oracle, a, b) for a, b in pairs]}
+        return {
+            "cases": [
+                ccd_case(oracle, a, b, budget) for budget in BUDGETS for a, b in pairs
+            ]
+        }
     finally:
         oracle.close()
 
