@@ -175,7 +175,7 @@ impl Vec3 {
 
     /// `btVector3::normalize`, as the scalar build spells it: `*this /=
     /// length()`, and `operator/=` is `*this *= btScalar(1.0) / s`
-    /// (`btVector3.h:209-223`, `:341`).
+    /// (`btVector3.h:209-223`, `:342`).
     ///
     /// Reciprocal-then-multiply, not three divides. The two differ in the last
     /// bit, and this is the version every `getClosestPoints` call in the CCD

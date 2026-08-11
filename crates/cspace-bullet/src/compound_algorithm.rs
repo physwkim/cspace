@@ -222,7 +222,7 @@ fn compound_process_collision<'a>(
     }
 
     let Some(tree) = compound_shape.dynamic_aabb_tree() else {
-        // `else` (`:294-301`): every child, in index order, culled only by
+        // `else` (`:295-304`): every child, in index order, culled only by
         // `TestAabbAgainstAabb2` inside `ProcessChildShape`.
         for index in 0..compound_shape.num_child_shapes() {
             process_child_shape(
@@ -356,7 +356,7 @@ fn compound_compound_process_collision<'a>(
         compound_shape1.dynamic_aabb_tree(),
     ) else {
         // `if (!tree0 || !tree1) return btCompoundCollisionAlgorithm
-        // ::processCollision(body0Wrap, body1Wrap, ...)` (`:296-300`). The
+        // ::processCollision(body0Wrap, body1Wrap, ...)` (`:297-300`). The
         // base's `m_isSwapped` is false for both create-funcs of this
         // algorithm (`btCompoundCompoundCollisionAlgorithm.h:63-79`), so the
         // *first* operand is treated as the compound and the second as the
@@ -416,7 +416,7 @@ impl CompoundCompoundLeafCallback<'_, '_> {
     ///
     /// The threshold grows box 0 only. That asymmetry is upstream's and is
     /// kept: `ProcessChildShape` does the same, and the pair-removal loop that
-    /// grows *both* (`:376-388`) is bookkeeping over a cache this port does
+    /// grows *both* (`:377-391`) is bookkeeping over a cache this port does
     /// not carry.
     fn process(
         &mut self,

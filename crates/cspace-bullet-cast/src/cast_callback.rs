@@ -390,7 +390,7 @@ impl DetectorResult for BridgedManifoldResult<'_, '_, '_, '_> {
         new_pt.position_world_on_a = point_a;
         new_pt.position_world_on_b = point_in_world;
 
-        // "BP mod, store contact triangles" (`:607`).
+        // "BP mod, store contact triangles" (`:609`).
         if is_swapped {
             new_pt.part_id0 = self.state.part_id1;
             new_pt.part_id1 = self.state.part_id0;

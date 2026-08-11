@@ -147,7 +147,7 @@ enum ManagedObject {
     /// An active link or attached body, replaced by its swept twin
     /// (`bullet_cast_bvh_manager.cpp:152`).
     Cast(CastCollisionObject),
-    /// Everything else, held as it arrived (`:156`).
+    /// Everything else, held as it arrived (`:161`).
     Static(CollisionObjectWrapper),
 }
 
