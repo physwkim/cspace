@@ -281,18 +281,6 @@ pub fn check_robot_collision_continuous(
     Ok(convert_result(request, result))
 }
 
-/// One `CollisionObjectWrapper` into the manager, with upstream's `try`/`catch`
-/// replaced by propagation.
-///
-/// `addAttachedObjects` catches and logs "Not adding `<name>` due to bad
-/// arguments" (`:356-359`) and `addLinkAsCollisionObject` does the same
-/// (`:445-449`). Both are catching the constructor's `throw std::exception()`
-/// -- a shape/pose/type count mismatch, which cannot happen from the call
-/// sites above because the three vectors are built together. The errors that
-/// *are* reachable are the ones upstream does not throw for at all: a shape
-/// `createShapePrimitive` refuses, where upstream returns a null shape and
-/// dereferences it one line later. Dropping the body instead would make the
-/// query answer "nothing here" about geometry it never looked at.
 /// The `CollisionObjectWrapper` constructor's arguments for one body
 /// (`bullet_utils.cpp:542-605`, plus the `touch_links` overload at `:607-615`),
 /// gathered into one form.
@@ -326,6 +314,18 @@ struct ObjectSpec<'a> {
     touch_links: Option<&'a BTreeSet<String>>,
 }
 
+/// One `CollisionObjectWrapper` into the manager, with upstream's `try`/`catch`
+/// replaced by propagation.
+///
+/// `addAttachedObjects` catches and logs "Not adding `<name>` due to bad
+/// arguments" (`:356-359`) and `addLinkAsCollisionObject` does the same
+/// (`:445-449`). Both are catching the constructor's `throw std::exception()`
+/// -- a shape/pose/type count mismatch, which cannot happen from the call
+/// sites above because the three vectors are built together. The errors that
+/// *are* reachable are the ones upstream does not throw for at all: a shape
+/// `createShapePrimitive` refuses, where upstream returns a null shape and
+/// dereferences it one line later. Dropping the body instead would make the
+/// query answer "nothing here" about geometry it never looked at.
 fn add(manager: &mut BulletCastBvhManager, spec: ObjectSpec<'_>) -> Result<()> {
     let ObjectSpec {
         name,
