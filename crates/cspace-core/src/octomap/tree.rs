@@ -1252,8 +1252,8 @@ impl OcTree {
             } else if let Some(r) = max_range {
                 // Upstream `point3d direction = (p - origin).normalized ();`
                 // (`OccupancyOcTreeBase.hxx:211`) -- octomath's `normalized()`
-                // (`third_party/octomap/octomap/include/octomap/math/
-                // Vector3.h:270-276`) leaves a zero vector unchanged; plain
+                // (`third_party/octomap/octomap/include/octomap/math/Vector3.h:270-276`)
+                // leaves a zero vector unchanged; plain
                 // `.normalize()` divides `0.0 / 0.0` instead. This branch's
                 // own guard (`within_range` false with `r >= 0.0`) makes
                 // `(p - origin).norm() > r >= 0.0` hold for every finite

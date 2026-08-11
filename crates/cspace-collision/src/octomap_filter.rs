@@ -142,8 +142,9 @@ fn metaball_surface_properties(
         Some((normal, Some(depth)))
     } else {
         let (_, gradient) = sample_cloud(cloud, spacing, r_multiple, contact_point)?;
-        // octomath's `normalize()` (`third_party/octomap/octomap/include/
-        // octomap/math/Vector3.h:270-276`) leaves the vector unchanged when
+        // octomath's `normalize()`
+        // (`third_party/octomap/octomap/include/octomap/math/Vector3.h:270-276`)
+        // leaves the vector unchanged when
         // `len > 0` is false; nalgebra's `.normalize()` divides
         // unconditionally, so a symmetric cloud whose gradient sums to
         // exactly zero produced an all-NaN normal instead of upstream's

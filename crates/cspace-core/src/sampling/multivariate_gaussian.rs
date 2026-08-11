@@ -262,9 +262,9 @@ mod tests {
     fn indefinite_covariance_diverges_from_upstreams_unconditional_nan_sample() {
         let mut deviation = KnownOracleDeviation::new(
             "MultivariateGaussian::new vs upstream's unconditional llt().matrixL()",
-            "moveit_planners/stomp/include/stomp_moveit/math/multivariate_gaussian.hpp:86, \
-             moveit_planners/chomp/chomp_motion_planner/include/chomp_motion_planner/\
-             multivariate_gaussian.hpp:73 (unpivoted Cholesky-Banachiewicz recursion \
+            "stomp_moveit/math/multivariate_gaussian.hpp:86, \
+             chomp_motion_planner/multivariate_gaussian.hpp:73 \
+             (unpivoted Cholesky-Banachiewicz recursion \
              computed unconditionally, `LLT::info()` never checked) \
              (multivariate-gaussian-cholesky-unchecked)",
             "5a1e34ae",

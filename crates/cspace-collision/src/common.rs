@@ -736,8 +736,8 @@ mod tests {
     fn cost_source_nan_diverges_from_upstreams_blind_compare() {
         let mut deviation = KnownOracleDeviation::new(
             "CostSource::cmp vs upstream operator<'s NaN blindness",
-            "moveit_core/collision_detection/include/moveit/collision_detection/\
-             collision_common.hpp:128-141 (bare `<`/`>` tie-break chain) \
+            "moveit/collision_detection/collision_common.hpp:128-141 \
+             (bare `<`/`>` tie-break chain) \
              (cost-source-nan-blind-compare)",
             "4b176b70",
         );
