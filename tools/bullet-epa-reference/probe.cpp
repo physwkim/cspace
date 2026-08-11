@@ -596,6 +596,55 @@ static void hullcase(const char* name, const btVector3* pts, int n, btScalar shr
 		printf("chcf_%s_%d|%d\n", name, i, conv.faces[i]);
 }
 
+// `createShapePrimitive(const shapes::Mesh*, CONVEX_HULL, ...)` end to end
+// (`bullet_utils.cpp:131-155`): `createConvexHull` at its default `shrink` and
+// `shrinkClamp` of `-1`, then a `btConvexHullShape` fed the computed vertices
+// one at a time in emission order, then the caller's `setMargin(BULLET_MARGIN)`
+// (`bullet_utils.cpp:577`).
+//
+// The `chc_*` rows above already pin the computer, so what is left is the glue
+// -- and the glue is where the order matters. `btConvexHullShape::maxDot`
+// breaks a tie toward the lowest `addPoint` index, so a port that fed the
+// vertices in a set order, or reversed, or sorted, would produce the same hull
+// with a different support point in exactly the directions that tie. Hence the
+// support rows, whose directions include the three axes of `cube8`, where four
+// corners are equally extreme.
+//
+// `getAabb` is here because `addPoint` recalculates the cached local AABB with
+// the margin *as it stands at that moment* -- the default 0.04 -- and the
+// `setMargin(0)` afterwards does not recalculate. A port that cleared the
+// margin first would agree on every support point and disagree here.
+//
+// Fields: `meshhull_<name>|nin|nverts|min.xyz|max.xyz`, then
+// `meshhullin_<name>_<i>|x|y|z` for the input the Rust side reads back, and
+// `meshhulls_<name>_<i>|dir.xyz|sup.xyz` per query direction.
+static void meshhull(const char* name, const btVector3* pts, int n, const btVector3* dirs, int nd)
+{
+	btConvexHullComputer conv;
+	conv.compute(&pts[0].getX(), sizeof(btVector3), n, btScalar(-1), btScalar(-1));
+
+	btConvexHullShape hull;
+	for (int i = 0; i < conv.vertices.size(); ++i) hull.addPoint(conv.vertices[i]);
+	hull.setMargin(0.f);
+
+	btVector3 mn, mx;
+	hull.getAabb(btTransform::getIdentity(), mn, mx);
+	printf("meshhull_%s|%d|%d|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g\n", name, n, conv.vertices.size(),
+	       (double)mn[0], (double)mn[1], (double)mn[2], (double)mx[0], (double)mx[1],
+	       (double)mx[2]);
+
+	for (int i = 0; i < n; ++i)
+		printf("meshhullin_%s_%d|%.9g|%.9g|%.9g\n", name, i, (double)pts[i][0], (double)pts[i][1],
+		       (double)pts[i][2]);
+
+	for (int i = 0; i < nd; ++i)
+	{
+		const btVector3 s = hull.localGetSupportingVertexWithoutMargin(dirs[i]);
+		printf("meshhulls_%s_%d|%.9g|%.9g|%.9g|%.9g|%.9g|%.9g\n", name, i, (double)dirs[i][0],
+		       (double)dirs[i][1], (double)dirs[i][2], (double)s[0], (double)s[1], (double)s[2]);
+	}
+}
+
 // A 32-bit LCG, used only to build point sets. `(v - 128) / 128` for a byte `v`
 // is a dyadic rational and so exact in `float`; the generator itself never
 // crosses into the Rust side, which reads the resulting points out of the
@@ -1804,6 +1853,17 @@ int main()
 		// transcribed. `clamped` takes the `shrinkClamp > 0` branch, which
 		// computes the hull's exact integer volume and centroid; `collapse`
 		// asks for more than the hull has and takes the negative return.
+		// `cube8` ties on every axis (four corners equally extreme) and
+		// `shell` is the shape of a triangulated mesh's vertex list -- every
+		// input point on the hull, nothing discarded. The diagonal directions
+		// tie on `cube8` too, three corners at a time.
+		const btVector3 hull_dirs[7] = {
+		    btVector3(1.f, 0.f, 0.f),  btVector3(0.f, 1.f, 0.f),   btVector3(0.f, 0.f, 1.f),
+		    btVector3(-1.f, 0.f, 0.f), btVector3(1.f, 1.f, 1.f),   btVector3(-1.f, 1.f, -1.f),
+		    btVector3(0.3f, -0.7f, 0.25f)};
+		meshhull("cube8", cube8, 8, hull_dirs, 7);
+		meshhull("shell", shell, 26, hull_dirs, 7);
+
 		hullcase("shrunk", cube8, 8, 0.1f, 0.f);
 		hullcase("clamped", cube8, 8, 0.5f, 0.25f);
 		hullcase("collapse", cube8, 8, 2.f, 0.f);
