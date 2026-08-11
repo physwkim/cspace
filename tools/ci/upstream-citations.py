@@ -244,7 +244,8 @@ def main() -> int:
             if p.is_file() and p.suffix in (".cpp", ".hpp", ".h"):
                 add(root, p, prefixes)
     tracked = subprocess.run(
-        ["git", "-C", str(repo), "ls-files", "-z", "*.cpp", "*.hpp", "*.h"],
+        ["git", "-C", str(repo), "ls-files", "--deduplicate", "-z",
+         "*.cpp", "*.hpp", "*.h"],
         capture_output=True, text=True, check=True,
     ).stdout.split("\0")
     for name in tracked:
