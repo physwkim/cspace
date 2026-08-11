@@ -2309,7 +2309,7 @@ fn get_environment_proximity_gradients(
 /// plus (round 22) every such link's attached bodies' points, via
 /// [`attached_body_point_decomposition`] -- upstream's own
 /// `non_group_attached_body_decompositions` loop
-/// (`collision_env_distance_field.cpp:945-950`).
+/// (`collision_env_distance_field.cpp:946-951`).
 ///
 /// # Deviation from upstream
 ///

@@ -1166,7 +1166,7 @@ fn resolve_collision_point_joint_index(
 ///   check and the `!filter_mode_` collision-threshold check) are kept as
 ///   two separate, unconditionally-evaluated `if` blocks, not collapsed
 ///   into `if / else if`.** Both can still fire in the same pass
-///   (`chomp_optimizer.cpp:367-410`, reachable: `iteration % 10 == 0` and
+///   (`chomp_optimizer.cpp:368-419`, reachable: `iteration % 10 == 0` and
 ///   `c_cost < collision_threshold` are independent conditions, both true
 ///   on pass 0 with an empty env field). Upstream writes both
 ///   `num_collision_free_iterations_` unconditionally, so whichever block
@@ -1212,7 +1212,7 @@ fn resolve_collision_point_joint_index(
 /// - **`smoothness_derivative_`/`jacobian_`/`jacobian_pseudo_inverse_`/
 ///   `jacobian_jacobian_tranpose_` are plain locals, not struct fields.**
 ///   Upstream's own header comment calls them "temporary variables for all
-///   functions" (`chomp_optimizer.hpp:170`): every one is fully overwritten
+///   functions" (`chomp_optimizer.hpp:171`): every one is fully overwritten
 ///   before use in every call, so nothing is lost by not persisting them.
 pub struct ChompOptimizer<'m> {
     num_joints: usize,

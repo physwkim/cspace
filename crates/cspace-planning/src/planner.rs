@@ -195,10 +195,10 @@ pub struct PlannerConfigurationSettings {
     pub group: String,
     /// This configuration's own key in a [`PlannerConfigurationMap`] —
     /// [`configuration_name`]'s output. Upstream states the same two forms
-    /// on the field itself (`planning_interface.hpp:60-64`).
+    /// on the field itself (`planning_interface.hpp:61-65`).
     pub name: String,
     /// "Key-value pairs of settings that get passed to the planning
-    /// algorithm" (`planning_interface.hpp:66`). Upstream's own note on the
+    /// algorithm" (`planning_interface.hpp:67`). Upstream's own note on the
     /// struct is that "settings with unknown keys are ignored"
     /// (`planning_interface.hpp:54`), which is why a manager reading one key
     /// out of this map is not obliged to reject the others.
@@ -239,7 +239,7 @@ pub fn configuration_name(group: &str, planner_config: &str) -> String {
 /// `planner_id` is looked up first — verbatim when it already contains the
 /// group name, as `group[planner_id]` otherwise — and a miss falls back to
 /// the entry keyed by the bare group name, which is upstream's "group's
-/// default configuration" form (`planning_interface.hpp:60-64`).
+/// default configuration" form (`planning_interface.hpp:61-65`).
 ///
 /// # Deviation from upstream: a total miss is not fatal here
 ///

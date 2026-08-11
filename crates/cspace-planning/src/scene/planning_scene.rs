@@ -695,7 +695,7 @@ pub struct ObjectType {
 /// non-default [`cspace_collision::LinkPaddingScale`] to a [`PlanningScene`]
 /// method (the two that build one call
 /// [`cspace_collision::CollisionEnv::check_robot_collision`] directly,
-/// mirroring upstream's own `test_collision_common_panda.hpp:215-233`), and
+/// mirroring upstream's own `test_collision_common_panda.hpp:216-233`), and
 /// upstream's one `move_group`-reachable unpadded caller,
 /// `PlanExecution::isRemainingPathValid` (`plan_execution.cpp:268-353`), is
 /// not ported. Both sides of the boundary are pinned in

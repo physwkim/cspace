@@ -466,7 +466,7 @@ mod position {
     /// `ConvexMesh::useDimensions` calls straight into `qh_new_qhull`
     /// regardless of vertex count. The port's *second* `Error::Construct`
     /// site -- `try_convex_hull` itself failing -- is the actual analog of
-    /// upstream's qhull-failure branch (`bodies.cpp:936-943`, which logs a
+    /// upstream's qhull-failure branch (`bodies.cpp:937-944`, which logs a
     /// warning and returns, leaving `mesh_data_` in its
     /// default-constructed empty, always-non-containing state -- a silent
     /// degradation, not a null deref); that site is not what this test
