@@ -142,7 +142,7 @@ pub fn check_robot_collision_continuous(
             poses.push(link_shape.origin_transform);
         }
 
-        // `shape_poses.push_back(urdfPose2Eigen(i->origin))` (`:417`): the
+        // `shape_poses.push_back(urdfPose2Eigen(i->origin))` (`:416`): the
         // link-*local* collision origins, unposed. The link is placed later,
         // by the `setCastCollisionObjectsTransform` loop below.
         //
@@ -288,7 +288,8 @@ pub fn check_robot_collision_continuous(
 /// dereferences it one line later. Dropping the body instead would make the
 /// query answer "nothing here" about geometry it never looked at.
 /// The `CollisionObjectWrapper` constructor's arguments for one body
-/// (`bullet_utils.cpp:544-604`), gathered into one form.
+/// (`bullet_utils.cpp:542-605`, plus the `touch_links` overload at `:607-615`),
+/// gathered into one form.
 ///
 /// A struct rather than seven parameters so the three call sites below read as
 /// three fillings of the same form: what separates them is which *rule* each
