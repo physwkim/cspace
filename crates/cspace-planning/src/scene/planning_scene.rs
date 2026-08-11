@@ -251,12 +251,12 @@ pub struct ObjectType {
 ///   type derives neither, so both are already unavailable without any
 ///   explicit deletion to port.
 /// - `OCTOMAP_NS` — **not D1**: a core, message-free constant
-///   (`planning_scene.cpp:66`, a `static const std::string` member init with
+///   (`planning_scene/src/planning_scene.cpp:66`, a `static const std::string` member init with
 ///   no message type anywhere near it), used by
 ///   [`PlanningScene::remove_all_objects`] with no message involved — see
 ///   [`PlanningScene::OCTOMAP_NS`] and that method's own doc.
 /// - `DEFAULT_SCENE_NAME` — **not D1** either: `initialize()`
-///   (`planning_scene.cpp:190`) sets `name_ = DEFAULT_SCENE_NAME` for every
+///   (`planning_scene/src/planning_scene.cpp:190`) sets `name_ = DEFAULT_SCENE_NAME` for every
 ///   root-scene constructor, unconditionally. Reproduced as the private
 ///   `DEFAULT_SCENE_NAME` constant, used by
 ///   [`PlanningScene::with_world`] and [`PlanningScene::diff`].
@@ -314,7 +314,7 @@ pub struct ObjectType {
 ///   [`PlanningScene::frame_transform`]'s tier split) -- so there is
 ///   nothing for a state refresh to keep fresh.
 ///   `setTransform(const Eigen::Isometry3d&, const std::string&)` (the
-///   message-free overload -- `transforms.hpp:113`) and
+///   message-free overload -- `moveit/transforms/transforms.hpp:113`) and
 ///   `setAllTransforms`/`getAllTransforms` are ported as
 ///   [`cspace_core::geometry::Transforms::set_transform`]/
 ///   [`set_all_transforms`](cspace_core::geometry::Transforms::set_all_transforms)/
@@ -327,14 +327,14 @@ pub struct ObjectType {
 ///   overloads collapse into the self-state form the same way collision
 ///   checking's const/non-const pairs collapse below — upstream's own
 ///   id-only overload already delegates to the explicit-state one against
-///   `getCurrentState()` (`planning_scene.cpp:2019`/`:2036`). Its third
+///   `getCurrentState()` (`planning_scene/src/planning_scene.cpp:2019`/`:2036`). Its third
 ///   tier, `getTransforms().Transforms::getTransform(frame_id)`
 ///   (`:2053`), is now [`PlanningScene::frame_transform`]'s own tier 6 --
 ///   see that method's doc for how the non-recursion upstream's explicit
 ///   `Transforms::` qualifier enforces is reproduced structurally here.
 /// - `knowsFrameTransform` (id-only, and explicit-state) — ported as
 ///   [`PlanningScene::knows_frame_transform`]; same collapse
-///   (`planning_scene.cpp:2056`/`:2061`); see that method's doc for the
+///   (`planning_scene/src/planning_scene.cpp:2056`/`:2061`); see that method's doc for the
 ///   `SceneTransforms::isFixedFrame` override, and
 ///   [`PlanningScene::transforms_with_world_objects`] (no upstream
 ///   equivalent -- an addition, not a port) for the value that reproduces
@@ -347,7 +347,7 @@ pub struct ObjectType {
 ///   (see `allocateCollisionDetector` below). Previously judged from the
 ///   header signature alone; checked against `planning_scene.cpp` this
 ///   round. Its only use in that file *is* a branch condition
-///   (`planning_scene.cpp:291`/`:304`, inside `getCollisionEnv(name)`/
+///   (`planning_scene/src/planning_scene.cpp:291`/`:304`, inside `getCollisionEnv(name)`/
 ///   `getCollisionEnvUnpadded(name)`: `if (collision_detector_name !=
 ///   getCollisionDetectorName())` logs an error and falls back to the
 ///   active env) — but that branch lives entirely inside the
@@ -422,7 +422,7 @@ pub struct ObjectType {
 ///   explicit-ACM overloads not ported, same reasoning as `checkCollision`.
 /// - `distanceToCollisionUnpadded` (4 overloads) — distinct: same
 ///   padded/unpadded machinery as `checkCollisionUnpadded`, D4 obsoletes it
-///   (`planning_scene.hpp:553-609`: each overload only forwards to
+///   (`moveit/planning_scene/planning_scene.hpp:553-609`: each overload only forwards to
 ///   `getCollisionEnvUnpadded()->distanceRobot(...)`, no branch of its own
 ///   beyond the const/non-const `updateCollisionBodyTransforms()` forward
 ///   already reproduced by `PlanningScene::distance_to_collision`'s own
@@ -435,7 +435,7 @@ pub struct ObjectType {
 ///   not deferred**: round 7/8 (§59.4) left this open on "no consumer has
 ///   asked for `.scene` file interop", the same unmet-falsifier shape
 ///   `cspace_core::geometry`'s `shapes::saveAsText`/`constructShapeFromText`
-///   deferral mirrors (`planning_scene.cpp:1062`/`:1152` is this format's
+///   deferral mirrors (`planning_scene/src/planning_scene.cpp:1062`/`:1152` is this format's
 ///   shape payload). A falsifier only two panels can satisfy by each
 ///   waiting on the other's silence never closes on its own, so this round
 ///   answers the real question instead: does this port intend to support
@@ -492,7 +492,7 @@ pub struct ObjectType {
 ///   message-processing path above, without checking that claim. Its own
 ///   signature (`std::shared_ptr<const octomap::OcTree>` +
 ///   `Eigen::Isometry3d`) carries no message type at all, and upstream's
-///   one real caller (`planning_scene_monitor.cpp:1441`, searched with `rg
+///   one real caller (`planning_scene_monitor/src/planning_scene_monitor.cpp:1441`, searched with `rg
 ///   processOctomapPtr` across the whole `moveit2` tree) feeds it straight
 ///   from `OccupancyMapMonitor::getOcTreePtr()` — an octree built from live
 ///   sensor fusion via octomap's own C++ API, with no
@@ -520,10 +520,10 @@ pub struct ObjectType {
 ///   structurally obsoleted: [`cspace_collision::World`] replaced upstream's
 ///   `addObserver`/`ObserverCallbackFn` registration with every mutator
 ///   returning `Option<Notification>` directly, so there is no observer
-///   slot left to wire a callback into. Same check applied: `world.hpp:304`
+///   slot left to wire a callback into. Same check applied: `moveit/collision_detection/world.hpp:304`
 ///   declares `ObserverCallbackFn` as `void(const ObjectConstPtr&, Action)`
 ///   — again `void`-returning, confirmed at its call sites
-///   (`planning_scene.cpp:220`, `:326`, `:650`, `:655`).
+///   (`planning_scene/src/planning_scene.cpp:220`, `:326`, `:650`, `:655`).
 ///
 /// ## Object colors and types
 ///
@@ -531,7 +531,7 @@ pub struct ObjectType {
 ///   `setObjectColor`/`removeObjectColor`/`getKnownObjectColors` —
 ///   **not D1**: `std_msgs::msg::ColorRGBA` is the value type stored, not a
 ///   round-tripped message. Three message-free upstream callers reach this
-///   family: `removeAllCollisionObjects` (`planning_scene.cpp:1471-1472`)
+///   family: `removeAllCollisionObjects` (`planning_scene/src/planning_scene.cpp:1471-1472`)
 ///   and `processCollisionObjectRemove` (`:1946-1947`) both call
 ///   `removeObjectColor` right alongside the world-object removal they are
 ///   already ported natively as; `decoupleParent` (`:1281-1291`)
@@ -580,7 +580,7 @@ pub struct ObjectType {
 /// - `isStateFeasible` (`moveit_msgs::msg::RobotState` and `RobotState`
 ///   overloads) — the `RobotState` overload is not ported as its own
 ///   symbol: with no predicate ever registered, its only reachable branch
-///   is the unconditional `true` (`planning_scene.cpp:2227-2243`), which
+///   is the unconditional `true` (`planning_scene/src/planning_scene.cpp:2227-2243`), which
 ///   [`PlanningScene::is_state_valid`] takes by omitting the step outright
 ///   (see its own "No feasibility step" doc). The message overload — D1
 ///   (`moveit_msgs::msg::RobotState`).
@@ -604,7 +604,7 @@ pub struct ObjectType {
 ///   `isStateValid(RobotState, group, verbose)` (`:810`) — message-free at
 ///   its own signature even though it delegates through a static empty
 ///   `moveit_msgs::msg::Constraints` sentinel to reach a `moveit_msgs`-typed
-///   overload internally (`planning_scene.cpp:2283-2287`). Only the 3
+///   overload internally (`planning_scene/src/planning_scene.cpp:2283-2287`). Only the 3
 ///   remaining overloads carry a `moveit_msgs` type in their own signature
 ///   (`:805`, `:814`, `:819`) — D1.
 /// - `isPathValid` (8 overloads) — ported as [`PlanningScene::is_path_valid`]
@@ -622,8 +622,8 @@ pub struct ObjectType {
 ///
 /// - `getCostSources` (all four overloads) — ported this round as
 ///   [`PlanningScene::cost_sources`] (the `state`-taking pair,
-///   `planning_scene.cpp:2493-2510`) and [`PlanningScene::path_cost_sources`]
-///   (the `trajectory`-taking pair, `planning_scene.cpp:2451-2491`), each
+///   `planning_scene/src/planning_scene.cpp:2493-2510`) and [`PlanningScene::path_cost_sources`]
+///   (the `trajectory`-taking pair, `planning_scene/src/planning_scene.cpp:2451-2491`), each
 ///   collapsing its own group_name-defaulting overload into one method the
 ///   same way [`PlanningScene::is_state_valid`]/[`PlanningScene::is_path_valid`]
 ///   already do (`group_name: Option<&str>`, `None` for upstream's default
@@ -641,7 +641,7 @@ pub struct ObjectType {
 ///   no algorithmic content; everything it prints is already public via
 ///   [`PlanningScene::world`]'s `object_ids` and
 ///   [`PlanningScene::attached_bodies`]. Previously judged from the header
-///   signature alone; its body (`planning_scene.cpp:2512-2533`) is exactly
+///   signature alone; its body (`planning_scene/src/planning_scene.cpp:2512-2533`) is exactly
 ///   that — two loops over `getWorld()->getObjectIds()` and
 ///   `getCurrentState().getAttachedBodies(...)` writing `<<` to `out`, no
 ///   conditional whose outcome differs from what those two accessors
@@ -651,7 +651,7 @@ pub struct ObjectType {
 ///   that dual-env-per-plugin machinery with the caller owning one concrete
 ///   `E`, so this type carries no `collision_detector_` field for it to act
 ///   on. Previously judged from the header signature alone; checked its
-///   body (`planning_scene.cpp:255-286`) this round — the only branch
+///   body (`planning_scene/src/planning_scene.cpp:255-286`) this round — the only branch
 ///   inside it (`if (parent_detector)`, copy-construct vs. build-fresh) is
 ///   the same clone/fresh-construct split
 ///   [`PlanningScene::cloned`]/[`PlanningScene::new`] already reproduce at
@@ -675,7 +675,7 @@ pub struct ObjectType {
 /// both the self- and robot-collision checks alike.
 ///
 /// Those two upstream environments differ in nothing but their padding:
-/// `planning_scene.cpp:275-276` builds both from the same `world_` and the
+/// `planning_scene/src/planning_scene.cpp:275-276` builds both from the same `world_` and the
 /// same `getRobotModel()`, and `cenv_unpadded_` is never handed to
 /// `setPadding`/`setScale`/`copyPadding` afterwards (`:249-252`, `:365-366`,
 /// `:1348-1349`, `:1386-1387` all name `cenv_` alone). "Unpadded" therefore
@@ -686,7 +686,7 @@ pub struct ObjectType {
 ///
 /// **Deviation — which half the padding reaches.** Upstream's two defaults
 /// are asymmetric: `pad_environment_collisions` is `true` and
-/// `pad_self_collisions` is `false` (`collision_detection/collision_common.hpp:154`, `:157`),
+/// `pad_self_collisions` is `false` (`moveit/collision_detection/collision_common.hpp:154`, `:157`),
 /// and nothing in the whole `moveit2` tree ever assigns the second. Its
 /// effective rule is thus "robot-vs-world padded, self never padded", while
 /// [`PlanningScene::check_collision`] has one `E` and pads both halves — so
@@ -790,7 +790,7 @@ pub struct PlanningScene<'m> {
     acm: Layered<AllowedCollisionMatrix>,
     /// The extra-fixed-frame map: this scene's own, or the parent's.
     /// Upstream `scene_transforms_`, a `SceneTransformsPtr` reset in
-    /// `clearDiffs()` (`planning_scene.cpp:331`) exactly like
+    /// `clearDiffs()` (`planning_scene/src/planning_scene.cpp:331`) exactly like
     /// [`PlanningScene::current_state`] and
     /// [`PlanningScene::allowed_collision_matrix`] above, so it gets the
     /// same [`Layered`] treatment.
@@ -834,7 +834,7 @@ pub struct PlanningScene<'m> {
     ///
     /// Upstream has no matching field — attached bodies live on
     /// `RobotState` there, so `pushDiffs`' `robot_state_.has_value()` guard
-    /// (`planning_scene.cpp:344-357`) already answers this for free, as a
+    /// (`planning_scene/src/planning_scene.cpp:344-357`) already answers this for free, as a
     /// side effect of whatever first materialized `robot_state_`. This
     /// port moved attached bodies onto [`PlanningScene`] itself (see
     /// [`AttachedBody`]'s module doc), which decoupled that free ride, so
@@ -873,15 +873,15 @@ enum AttachedBodiesDiff {
 }
 
 /// The default name given to a root scene. Upstream
-/// `PlanningScene::DEFAULT_SCENE_NAME` (`planning_scene.cpp:67`), set by
-/// `initialize()` (`planning_scene.cpp:190`) for every root-scene
+/// `PlanningScene::DEFAULT_SCENE_NAME` (`planning_scene/src/planning_scene.cpp:67`), set by
+/// `initialize()` (`planning_scene/src/planning_scene.cpp:190`) for every root-scene
 /// constructor.
 const DEFAULT_SCENE_NAME: &str = "(noname)";
 
 impl<'m> PlanningScene<'m> {
     /// The reserved world-object id the octomap occupies. Upstream
-    /// `PlanningScene::OCTOMAP_NS` (`planning_scene.hpp:113`,
-    /// `planning_scene.cpp:66`: `static const std::string OCTOMAP_NS =
+    /// `PlanningScene::OCTOMAP_NS` (`moveit/planning_scene/planning_scene.hpp:113`,
+    /// `planning_scene/src/planning_scene.cpp:66`: `static const std::string OCTOMAP_NS =
     /// "<octomap>";`) -- a core, message-free constant despite this crate's
     /// own doc previously filing it under "unused without message
     /// handling": it gates [`PlanningScene::remove_all_objects`] below with
@@ -922,7 +922,7 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// This scene's name. `"(noname)"` by default (upstream
-    /// `DEFAULT_SCENE_NAME`, `planning_scene.cpp:67`). Upstream `getName`.
+    /// `DEFAULT_SCENE_NAME`, `planning_scene/src/planning_scene.cpp:67`). Upstream `getName`.
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -1040,7 +1040,7 @@ impl<'m> PlanningScene<'m> {
     /// the scene's `SceneTransforms` was constructed with -- always the
     /// robot model's frame, because `SceneTransforms`'s own constructor
     /// hardcodes `scene->getRobotModel()->getModelFrame()`
-    /// (`planning_scene.cpp:114`) regardless of which of its 4 call sites
+    /// (`planning_scene/src/planning_scene.cpp:114`) regardless of which of its 4 call sites
     /// (`:192, 686, 1263, 1333`) constructs it.
     pub fn planning_frame(&self) -> &str {
         self.transforms().target_frame()
@@ -1056,7 +1056,7 @@ impl<'m> PlanningScene<'m> {
     ///
     /// # Why a snapshot, not a live view
     ///
-    /// Upstream's `SceneTransforms::isFixedFrame` (`planning_scene.cpp:123`)
+    /// Upstream's `SceneTransforms::isFixedFrame` (`planning_scene/src/planning_scene.cpp:123`)
     /// overrides the base class to also answer `true` for a world object or
     /// object subframe (leading `/` stripped), via
     /// `knowsObjectFrame -> getWorld()->knowsTransform`. That override is
@@ -1090,7 +1090,7 @@ impl<'m> PlanningScene<'m> {
     /// Each object/subframe name is stored bare *and* `/`-prefixed, but the
     /// two are not symmetric: `isFixedFrame` checks the *unstripped* string
     /// against the base map first and only strips **one leading `/`** before
-    /// the object check (`planning_scene.cpp:127-134`), so for a name `N`
+    /// the object check (`planning_scene/src/planning_scene.cpp:127-134`), so for a name `N`
     /// that does not itself start with `/`, `isFixedFrame(N)` and
     /// `isFixedFrame("/" + N)` are both `true`. [`cspace_core::geometry::Transforms::can_transform`]
     /// is one flat map lookup on the literal string it is given -- it cannot
@@ -1116,7 +1116,7 @@ impl<'m> PlanningScene<'m> {
     /// bare/`/`-prefixed insert does not, by itself: `World::knowsTransform`
     /// checks exact object ids *before* it ever considers the
     /// `object_id + "/" + subframe_name` subframe form
-    /// (`world.cpp:145` runs before the subframe loop at `:150`) -- so a
+    /// (`collision_detection/src/world.cpp:145` runs before the subframe loop at `:150`) -- so a
     /// world object literally named e.g. `a/b` always wins over a different
     /// object `a` with a subframe `b`, even though both would otherwise
     /// insert the same composite key `a/b`. This method resolves that the
@@ -1143,7 +1143,7 @@ impl<'m> PlanningScene<'m> {
 
         // Object ids first, unconditionally -- `World::knowsTransform`
         // checks exact object ids before it ever considers a subframe
-        // composite (`world.cpp:145`), so an object's own frame must win
+        // composite (`collision_detection/src/world.cpp:145`), so an object's own frame must win
         // any later collision with another object's subframe composite.
         for (id, object) in self.world.iter() {
             insert_object_frame(&mut snapshot, id, object.pose());
@@ -1210,7 +1210,7 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// Remove a world object entirely. Upstream `processCollisionObjectRemove`
-    /// (`planning_scene.cpp:1931-1949`): removes the object and — unlike
+    /// (`planning_scene/src/planning_scene.cpp:1931-1949`): removes the object and — unlike
     /// attach, which never touches the ACM (see [`PlanningScene::attach`]'s
     /// doc) — prunes its color, its type, and the ACM entry for `id` too,
     /// since this really is the object leaving the scene for good. Returns
@@ -1227,7 +1227,7 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// Remove every world object except [`PlanningScene::OCTOMAP_NS`].
-    /// Upstream `removeAllCollisionObjects` (`planning_scene.cpp:1463-1477`),
+    /// Upstream `removeAllCollisionObjects` (`planning_scene/src/planning_scene.cpp:1463-1477`),
     /// pruning each removed id's color, type, and ACM entry the same way
     /// [`PlanningScene::remove_object`] does.
     ///
@@ -1262,7 +1262,7 @@ impl<'m> PlanningScene<'m> {
 
     /// Insert or update the reserved octomap object directly from an
     /// octree, bypassing any octomap message entirely. Upstream
-    /// `processOctomapPtr` (`planning_scene.cpp:1501-1534`) — see that
+    /// `processOctomapPtr` (`planning_scene/src/planning_scene.cpp:1501-1534`) — see that
     /// method's own doc bullet above ("Message round-tripping") for why
     /// this is message-free despite living next to `processOctomapMsg`.
     ///
@@ -1313,14 +1313,14 @@ impl<'m> PlanningScene<'m> {
     /// Replace the poses of an existing object's shapes, leaving the
     /// object's own pose untouched. Upstream `World::moveShapesInObject`,
     /// called inline from `processCollisionObjectMove`
-    /// (planning_scene.cpp:2004) with no scene-level side effect around it
+    /// (planning_scene/src/planning_scene.cpp:2004) with no scene-level side effect around it
     /// beyond the raw world mutation — unlike [`PlanningScene::remove_object`]
     /// there is no ACM entry to prune here, since the object identity and
     /// its ACM entry are unaffected by moving its shapes.
     ///
     /// `false`, with no mutation, if `id` is unknown or `shape_poses.len()`
     /// does not match the object's current shape count — both collapse to
-    /// the same upstream `false` (world.cpp:262-278), so unlike
+    /// the same upstream `false` (collision_detection/src/world.cpp:262-278), so unlike
     /// [`PlanningScene::move_object`] there is no second, "found but
     /// unchanged" case to distinguish: every failure here really is "no
     /// shapes moved," so a plain `bool` carries the same information a
@@ -1336,7 +1336,7 @@ impl<'m> PlanningScene<'m> {
     /// Replace an object's entire subframe map. Upstream
     /// `World::setSubframesOfObject`, called inline from several composite
     /// functions (`processCollisionObjectAdd`, `detachObject`,
-    /// `decoupleParent`, scene-file loading — planning_scene.cpp:393,
+    /// `decoupleParent`, scene-file loading — planning_scene/src/planning_scene.cpp:393,
     /// 1201, 1743, 1927) with no scene-level side effect of its own at any
     /// of those call sites: none of them touch the ACM, object color, or
     /// object type as a consequence of the subframe assignment itself.
@@ -1344,7 +1344,7 @@ impl<'m> PlanningScene<'m> {
     /// An empty map removes every subframe the object had. Produces no
     /// [`Notification`] — matching `World::set_subframes_of_object`'s own
     /// doc, upstream's `setSubframesOfObject` does not call `notify` at
-    /// all (world.cpp:365-378), a real asymmetry with every other mutator
+    /// all (collision_detection/src/world.cpp:365-378), a real asymmetry with every other mutator
     /// in this section, not an oversight.
     ///
     /// `false`, with no mutation, if `id` is unknown.
@@ -1359,7 +1359,7 @@ impl<'m> PlanningScene<'m> {
     // ---- object colors and types ---------------------------------------------
 
     /// Whether `id` has a color set, on this scene or (recursively) any
-    /// ancestor. Upstream `hasObjectColor` (`planning_scene.cpp:2124-2133`).
+    /// ancestor. Upstream `hasObjectColor` (`planning_scene/src/planning_scene.cpp:2124-2133`).
     pub fn has_object_color(&self, id: &str) -> bool {
         self.object_colors.contains_key(id)
             || self
@@ -1428,7 +1428,7 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// Whether `id` has a type set, on this scene or (recursively) any
-    /// ancestor. Upstream `hasObjectType` (`planning_scene.cpp:2073-2082`).
+    /// ancestor. Upstream `hasObjectType` (`planning_scene/src/planning_scene.cpp:2073-2082`).
     pub fn has_object_type(&self, id: &str) -> bool {
         self.object_types.contains_key(id)
             || self
@@ -1550,7 +1550,7 @@ impl<'m> PlanningScene<'m> {
         // Same one-level composition as `shape_poses` above, for the
         // object's subframes -- upstream carries `obj_in_world->subframe_poses_`
         // (object-relative) into the new `AttachedBody` untouched
-        // (`planning_scene.cpp:1590`) because its own two-level `pose_`
+        // (`planning_scene/src/planning_scene.cpp:1590`) because its own two-level `pose_`
         // absorbs the link offset; this port has no `pose_` to absorb it
         // into (see `AttachedBody`'s module doc), so it is folded in here
         // instead.
@@ -1592,7 +1592,7 @@ impl<'m> PlanningScene<'m> {
     ///
     /// If `id` also names an existing world object, that object is
     /// removed from the world first. Upstream's STEP 2
-    /// (`planning_scene.cpp:1630-1645`) removes any world object sharing
+    /// (`planning_scene/src/planning_scene.cpp:1630-1645`) removes any world object sharing
     /// this id *unconditionally*, regardless of which STEP 1 branch
     /// supplied the geometry -- so a message-supplied attach onto a
     /// colliding id reconciles the two exactly like
@@ -1672,7 +1672,7 @@ impl<'m> PlanningScene<'m> {
         // `link_transform` -- the same "no transform needed" case
         // `add_to_object` above relies on for shapes. Upstream:
         // `world_->setSubframesOfObject` right after `addToObject`
-        // (`planning_scene.cpp:1743`), which produces no notification either
+        // (`planning_scene/src/planning_scene.cpp:1743`), which produces no notification either
         // (`World::set_subframes_of_object`'s own doc).
         let subframes: BTreeMap<String, Isometry3> = body
             .subframe_names()
@@ -1687,7 +1687,7 @@ impl<'m> PlanningScene<'m> {
         self.world.set_subframes_of_object(id, subframes);
         // Try to set the object's color to its original color when first
         // created, so a color changed while attached reverts on detach.
-        // Upstream `planning_scene.cpp:1745-1751`.
+        // Upstream `planning_scene/src/planning_scene.cpp:1745-1751`.
         if let Some(original_color) = self.original_object_color(id) {
             self.set_object_color(id, original_color);
         }
@@ -1717,7 +1717,7 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// `getFrameTransform`: the global transform to `frame_id`, upstream
-    /// `planning_scene.cpp:2036`'s ladder --
+    /// `planning_scene/src/planning_scene.cpp:2036`'s ladder --
     ///
     /// 1. a leading `/` is stripped
     /// 2. the model frame, or a link name -- [`Posed::frame_transform`]
@@ -1736,7 +1736,7 @@ impl<'m> PlanningScene<'m> {
     ///
     /// Tier 6 closes the "no extra-fixed-frame tier" deviation §59.1/§59.2
     /// found: upstream falls through to `Transforms::getTransform`
-    /// (`planning_scene.cpp:2053`, the base class -- not the
+    /// (`planning_scene/src/planning_scene.cpp:2053`, the base class -- not the
     /// `SceneTransforms::getTransform` override tiers 3-4 above delegate to)
     /// as a final resort, and [`cspace_core::geometry::Transforms`] already ported
     /// that exact base class (`crates/cspace-core/src/geometry/transforms.rs`,
@@ -1778,7 +1778,7 @@ impl<'m> PlanningScene<'m> {
     /// `knowsFrameTransform`: whether [`PlanningScene::frame_transform`]
     /// would resolve `frame_id`, without computing a fresh transform (a pure
     /// name lookup — needs no [`PlanningScene::current_state_mut`], unlike
-    /// `frame_transform` itself). Upstream `planning_scene.cpp:2061`, the
+    /// `frame_transform` itself). Upstream `planning_scene/src/planning_scene.cpp:2061`, the
     /// same tiers 1-5, tier 6 (the extra-fixed-frame map) excluded for the
     /// same reason -- see `frame_transform`'s own doc.
     ///
@@ -1787,7 +1787,7 @@ impl<'m> PlanningScene<'m> {
     /// [`cspace_core::state::RobotState::knows_frame_transform`] does not
     /// special-case the model frame (see its own doc) -- confirmed against
     /// upstream `RobotState::knowsFrameTransform`
-    /// (`robot_state.cpp:1386-1405`), which really only checks
+    /// (`robot_state/src/robot_state.cpp:1386-1405`), which really only checks
     /// `hasLinkModel`/attached bodies. Naively porting `PlanningScene::
     /// knowsFrameTransform` as "tier 1's `RobotState`, then attached bodies,
     /// then the world" would therefore report `false` for a model frame that
@@ -1821,7 +1821,7 @@ impl<'m> PlanningScene<'m> {
     /// delegation: not ported, and here is why it still does not fire
     ///
     /// Upstream `SceneTransforms` also overrides `isFixedFrame`
-    /// (`planning_scene.cpp:123-137`) to strip a leading `/` and consult
+    /// (`planning_scene/src/planning_scene.cpp:123-137`) to strip a leading `/` and consult
     /// `knowsObjectFrame` before falling back to the base class. That
     /// override exists so that code holding a bare `moveit::core::
     /// Transforms&` -- not knowing it is actually scene-backed -- still
@@ -1977,7 +1977,7 @@ impl<'m> PlanningScene<'m> {
     /// current state against `env`, keyed the same way
     /// [`cspace_collision::ContactData::by_pair`] is. Upstream
     /// `getCollidingPairs`, its four `group_name`-taking overloads
-    /// (`planning_scene.hpp:492-495`) folded into this one method the way
+    /// (`moveit/planning_scene/planning_scene.hpp:492-495`) folded into this one method the way
     /// [`PlanningScene::cost_sources`]/[`PlanningScene::is_state_valid`]
     /// already collapse their own group_name-defaulting overload pairs —
     /// `group_name: None` is upstream's default-constructed `std::string()`
@@ -2047,7 +2047,7 @@ impl<'m> PlanningScene<'m> {
 
     /// Whether `self`'s current state satisfies `constraints`. Upstream
     /// `isStateConstrained(state, KinematicConstraintSet, verbose)`
-    /// (`planning_scene.cpp:2277`) — upstream's `moveit_msgs::Constraints`
+    /// (`planning_scene/src/planning_scene.cpp:2277`) — upstream's `moveit_msgs::Constraints`
     /// overload (`:2245`, message state, message constraints) delegates to
     /// a native-state/message-constraints overload (`:2253`) that builds a
     /// `KinematicConstraintSet` from the message and calls this exact
@@ -2066,7 +2066,7 @@ impl<'m> PlanningScene<'m> {
 
     /// Whether `self`'s current state, checked against `env`, collides.
     /// Upstream `isStateColliding(state, group, verbose)`
-    /// (`planning_scene.cpp:2217`) — the `moveit_msgs::RobotState` overload
+    /// (`planning_scene/src/planning_scene.cpp:2217`) — the `moveit_msgs::RobotState` overload
     /// (`:2197`) is a construct-then-delegate wrapper and is not ported: D1
     /// has no `moveit_msgs` type to build one from. The current-state
     /// convenience overload (`isStateColliding(group, verbose)`, no
@@ -2077,7 +2077,7 @@ impl<'m> PlanningScene<'m> {
     /// matching how every other method here threads
     /// [`CollisionRequest`] through — upstream's own version takes no
     /// request at all, only a bare `group` string, and always builds its
-    /// own local `CollisionRequest` internally (`planning_scene.cpp:2219`)
+    /// own local `CollisionRequest` internally (`planning_scene/src/planning_scene.cpp:2219`)
     /// to carry it. `verbose` is dropped for the same reason the rest of
     /// this family drops it: `CollisionRequest::verbose` is itself a
     /// stored-but-never-read field in this port (confirmed: no backend
@@ -2092,7 +2092,7 @@ impl<'m> PlanningScene<'m> {
     /// Whether `self`'s current state, checked against `env`, is free of
     /// collision and satisfies `constraints` (`None` means unconstrained).
     /// Upstream `isStateValid(state, KinematicConstraintSet, group,
-    /// verbose)` (`planning_scene.cpp:2313`).
+    /// verbose)` (`planning_scene/src/planning_scene.cpp:2313`).
     ///
     /// # Ordering
     ///
@@ -2116,7 +2116,7 @@ impl<'m> PlanningScene<'m> {
     /// equivalent of `setStateFeasibilityPredicate`, so every caller of
     /// this method already takes upstream's "no predicate registered"
     /// branch, which is unconditionally `true`
-    /// (`planning_scene.cpp:2227-2243`) — exactly the branch this port
+    /// (`planning_scene/src/planning_scene.cpp:2227-2243`) — exactly the branch this port
     /// takes by omitting the step outright. Adding a stored `Arc<dyn
     /// Fn(...)>` field (with diff-scene inheritance semantics to match, see
     /// [`PlanningScene::diff`]'s own doc on what is and is not inherited)
@@ -2147,7 +2147,7 @@ impl<'m> PlanningScene<'m> {
     /// *last* waypoint additionally satisfies at least one of
     /// `goal_constraints` (empty means no goal check). Upstream
     /// `isPathValid(RobotTrajectory, path_constraints, goal_constraints,
-    /// group, verbose, invalid_index)` (`planning_scene.cpp:2365`), driven
+    /// group, verbose, invalid_index)` (`planning_scene/src/planning_scene.cpp:2365`), driven
     /// end to end (not re-derived) by `oracle.cpp`'s `is_state_valid` op,
     /// which is this method's ground truth. The other four `isPathValid`
     /// overloads (`moveit_msgs::RobotState`/`RobotTrajectory` message
@@ -2156,7 +2156,7 @@ impl<'m> PlanningScene<'m> {
     ///
     /// # No interpolation between waypoints
     ///
-    /// Confirmed from upstream's own loop body (`planning_scene.cpp:2376-2422`):
+    /// Confirmed from upstream's own loop body (`planning_scene/src/planning_scene.cpp:2376-2422`):
     /// it only ever reads `trajectory.getWayPoint(i)` for `i` in
     /// `0..getWayPointCount()`. No state between two requested waypoints is
     /// ever constructed or checked, on either side of this port — a
@@ -2230,7 +2230,7 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// Upstream's `getCostSources(state, max_costs, costs)`/`getCostSources(state,
-    /// max_costs, group_name, costs)` (`planning_scene.cpp:2493-2510`),
+    /// max_costs, group_name, costs)` (`planning_scene/src/planning_scene.cpp:2493-2510`),
     /// collapsed into one method the way [`PlanningScene::is_state_valid`]
     /// already collapses its own group_name-defaulting overload pair —
     /// `group_name: None` is upstream's default-constructed `std::string()`,
@@ -2267,7 +2267,7 @@ impl<'m> PlanningScene<'m> {
 
     /// Upstream's `getCostSources(trajectory, max_costs, costs, overlap_fraction)`/
     /// `getCostSources(trajectory, max_costs, group_name, costs, overlap_fraction)`
-    /// (`planning_scene.cpp:2451-2491`), collapsed the same way
+    /// (`planning_scene/src/planning_scene.cpp:2451-2491`), collapsed the same way
     /// [`PlanningScene::cost_sources`] collapses its own pair.
     ///
     /// Ported faithfully from the body, not re-derived:
@@ -2348,7 +2348,7 @@ impl<'m> PlanningScene<'m> {
     ///
     /// Named `self.name() + "+"` if `self` has a non-empty name, else left
     /// empty — upstream's `PlanningScene(parent)` constructor
-    /// (`planning_scene.cpp:203-227`): `if (!parent_->getName().empty())
+    /// (`planning_scene/src/planning_scene.cpp:203-227`): `if (!parent_->getName().empty())
     /// name_ = parent_->getName() + "+";`. The guard matters: a scene
     /// constructed via [`PlanningScene::new`]/[`PlanningScene::with_world`]
     /// always has a non-empty name (`DEFAULT_SCENE_NAME`), but
@@ -2389,13 +2389,13 @@ impl<'m> PlanningScene<'m> {
     /// If this scene has a parent, apply what changed here — the
     /// extra-fixed-frame map, current state, ACM, object colors/types,
     /// attached bodies, and world changes — onto `target`. A no-op if this
-    /// scene has no parent. Upstream `pushDiffs` (`planning_scene.cpp:329-386`).
+    /// scene has no parent. Upstream `pushDiffs` (`planning_scene/src/planning_scene.cpp:329-386`).
     ///
     /// If the private `attached_bodies_diff` is `Touched`, `target`'s entire
     /// attached-body set is overwritten with this scene's — matching
     /// upstream's granularity exactly: attached bodies live inside
     /// `RobotState` there, so pushing `robot_state_`
-    /// (`planning_scene.cpp:348`, only if locally materialized) already
+    /// (`planning_scene/src/planning_scene.cpp:348`, only if locally materialized) already
     /// replaces the whole thing at once, not a per-id merge. If `Untouched`
     /// (or this is a root scene, `None`), `target`'s attached bodies are
     /// left alone — see that field's own doc for why the distinction is
@@ -2433,7 +2433,7 @@ impl<'m> PlanningScene<'m> {
         if let Layered::Own(state) = &self.robot_state {
             target.set_current_state(state.clone());
             // Push colors and types for attached objects
-            // (`planning_scene.cpp:346-358`) -- gated on the same
+            // (`planning_scene/src/planning_scene.cpp:346-358`) -- gated on the same
             // condition upstream's `robot_state_.has_value()` is, since
             // this port's `attach`/`detach` materialize `robot_state`
             // (via `current_state_mut`) exactly when upstream's touch
@@ -2505,7 +2505,7 @@ impl<'m> PlanningScene<'m> {
     /// Materialize every inherited field locally, discard the world diff
     /// (nothing left to diff against), and drop the parent. A no-op if this
     /// scene has no parent. Upstream `decoupleParent`
-    /// (`planning_scene.cpp:1255-1310`): `scene_transforms_` is layered
+    /// (`planning_scene/src/planning_scene.cpp:1255-1310`): `scene_transforms_` is layered
     /// like `robot_state_`/`acm_` and is materialized here alongside them
     /// (`:1260-1264`); `object_colors_`/`object_types_` are merged from the
     /// parent's known colors/types without overwriting any this scene
@@ -2567,7 +2567,7 @@ impl<'m> PlanningScene<'m> {
         self.acm = Layered::Inherited;
         self.attached_bodies = parent.attached_bodies.clone();
         // Upstream resets `object_colors_`/`object_types_` here
-        // (`planning_scene.cpp:334-335`) but not `original_object_colors_`
+        // (`planning_scene/src/planning_scene.cpp:334-335`) but not `original_object_colors_`
         // — see that field's own doc for why it never resets.
         self.object_colors.clear();
         self.object_types.clear();
@@ -2579,7 +2579,7 @@ impl<'m> PlanningScene<'m> {
 /// `cspace_core::kinematics` needs and cannot reach on its own.
 ///
 /// Upstream `RobotState::setFromIK` resolves a target frame through
-/// `getLinkModelIncludingAttachedBodies` (`robot_state.cpp:910-937`), reading
+/// `getLinkModelIncludingAttachedBodies` (`robot_state/src/robot_state.cpp:910-937`), reading
 /// the state's own `attached_body_map_`. In this workspace attached bodies
 /// live here instead (see [`AttachedBody`]'s module doc), and
 /// [`cspace_core::kinematics::AttachedFrames`] is the seam that puts them back
@@ -2742,9 +2742,9 @@ mod tests {
         let scene = PlanningScene::new(&model, &srdf());
 
         // Upstream `initialize()` sets `name_ = DEFAULT_SCENE_NAME`
-        // (`planning_scene.cpp:190`, `DEFAULT_SCENE_NAME = "(noname)"` at
-        // `planning_scene.cpp:67`), called unconditionally by every
-        // root-scene constructor (`planning_scene.cpp:159,179`) -- nothing
+        // (`planning_scene/src/planning_scene.cpp:190`, `DEFAULT_SCENE_NAME = "(noname)"` at
+        // `planning_scene/src/planning_scene.cpp:67`), called unconditionally by every
+        // root-scene constructor (`planning_scene/src/planning_scene.cpp:159,179`) -- nothing
         // to do with message handling.
         assert_eq!(scene.name(), "(noname)");
     }
@@ -2758,7 +2758,7 @@ mod tests {
 
         let child = root.diff();
 
-        // Upstream `PlanningScene(parent)` (`planning_scene.cpp:203-227`):
+        // Upstream `PlanningScene(parent)` (`planning_scene/src/planning_scene.cpp:203-227`):
         // `if (!parent_->getName().empty()) name_ = parent_->getName() +
         // "+";`
         assert_eq!(child.name(), "panda_scene+");
@@ -2852,7 +2852,7 @@ mod tests {
             .unwrap();
 
         // Upstream `processAttachedCollisionObjectMsg`'s STEP 2
-        // (`planning_scene.cpp:1630-1645`) removes any world object
+        // (`planning_scene/src/planning_scene.cpp:1630-1645`) removes any world object
         // sharing this id unconditionally, regardless of which STEP 1
         // branch supplied the geometry -- an id must never simultaneously
         // name both a world object and an attached body, or every
@@ -2895,7 +2895,7 @@ mod tests {
     /// "Try to set the object's color to its original color when first
     /// created. This ensures that the original color is reverted, e.g.,
     /// when an object is attached and then unattached."
-    /// (`planning_scene.cpp:1745-1746`.)
+    /// (`planning_scene/src/planning_scene.cpp:1745-1746`.)
     #[test]
     fn detach_reverts_the_objects_color_to_its_original_on_unattach() {
         let model = build_model();
@@ -2929,7 +2929,7 @@ mod tests {
     }
 
     /// Upstream `removeAllCollisionObjects` skips `OCTOMAP_NS` in its loop
-    /// (`planning_scene.cpp:1463-1477`: `if (object_id != OCTOMAP_NS) { ... }`)
+    /// (`planning_scene/src/planning_scene.cpp:1463-1477`: `if (object_id != OCTOMAP_NS) { ... }`)
     /// -- a bulk "clear the world" must not also discard the map.
     #[test]
     fn remove_all_objects_spares_the_reserved_octomap_object() {
@@ -2946,7 +2946,7 @@ mod tests {
 
         assert!(
             scene.world().has_object(PlanningScene::OCTOMAP_NS),
-            "removeAllCollisionObjects skips OCTOMAP_NS (planning_scene.cpp:1468); \
+            "removeAllCollisionObjects skips OCTOMAP_NS (planning_scene/src/planning_scene.cpp:1468); \
              remove_all_objects must too"
         );
         assert!(!scene.world().has_object("box"));
@@ -3008,12 +3008,12 @@ mod tests {
             scene.original_object_color("box"),
             Some(red()),
             "upstream setObjectColor only records original_object_colors_ \
-             the first time an id gets a color (planning_scene.cpp:2185-2188)"
+             the first time an id gets a color (planning_scene/src/planning_scene.cpp:2185-2188)"
         );
     }
 
     /// Upstream `setObjectColor` opens with `if (object_id.empty()) {
-    /// RCLCPP_ERROR(...); return; }` (`planning_scene.cpp:2175-2179`) —
+    /// RCLCPP_ERROR(...); return; }` (`planning_scene/src/planning_scene.cpp:2175-2179`) —
     /// unlike `setObjectType`, which has no such guard.
     #[test]
     fn set_object_color_with_an_empty_id_sets_nothing() {
@@ -3030,7 +3030,7 @@ mod tests {
 
     /// Upstream `processCollisionObjectRemove` removes 4 things per id: the
     /// world object, its color, its type, and its ACM entry
-    /// (`planning_scene.cpp:1931-1949`).
+    /// (`planning_scene/src/planning_scene.cpp:1931-1949`).
     #[test]
     fn remove_object_also_removes_its_color_and_type() {
         let model = build_model();
@@ -3046,7 +3046,7 @@ mod tests {
     }
 
     /// Upstream `removeAllCollisionObjects` removes 4 things per id too
-    /// (`planning_scene.cpp:1463-1477`), same as `processCollisionObjectRemove`,
+    /// (`planning_scene/src/planning_scene.cpp:1463-1477`), same as `processCollisionObjectRemove`,
     /// and also spares `OCTOMAP_NS`'s color/type the same way it spares the
     /// object itself.
     #[test]
@@ -3070,7 +3070,7 @@ mod tests {
         assert!(
             scene.has_object_color(PlanningScene::OCTOMAP_NS),
             "removeAllCollisionObjects skips OCTOMAP_NS for colors/types too, \
-             same loop as the object itself (planning_scene.cpp:1468)"
+             same loop as the object itself (planning_scene/src/planning_scene.cpp:1468)"
         );
     }
 
@@ -3093,7 +3093,7 @@ mod tests {
         assert!(matches!(entry.shape().as_ref(), Shape::OcTree(_)));
         // Upstream's 3-arg `addToObject(id, shape, shape_pose)` forwards to
         // `addToObject(id, Identity, {shape}, {shape_pose})`
-        // (`world.hpp:209-212`): the octomap object's own pose stays
+        // (`moveit/collision_detection/world.hpp:209-212`): the octomap object's own pose stays
         // identity and `pose` becomes the shape's relative (here, since
         // the object pose is identity, also global) pose -- matching
         // `getOctomapMsg`'s own read of `map->shape_poses_[0]`, not
@@ -3154,7 +3154,7 @@ mod tests {
     }
 
     /// Upstream's `if (o->octree == octree) { if (isApprox(t)) { ... } }`
-    /// (`planning_scene.cpp:1510-1520`) branch is a true no-op when the
+    /// (`planning_scene/src/planning_scene.cpp:1510-1520`) branch is a true no-op when the
     /// pointer and pose both match -- unlike moving to an unchanged pose,
     /// it must not touch the object at all. Distinguishing that from "moved
     /// to the same value" needs an observable that only a real mutation
@@ -3442,7 +3442,7 @@ mod tests {
         // and the target (typically the parent) should end up with it too.
         // Upstream: attached bodies live on `RobotState`, so `pushDiffs`'
         // `scene->getCurrentStateNonConst() = robot_state_.value();`
-        // (`planning_scene.cpp:348`) carries the attach along for free.
+        // (`planning_scene/src/planning_scene.cpp:348`) carries the attach along for free.
         // This port moved attached bodies onto `PlanningScene` itself, so
         // that push no longer touches them.
         let mut target = PlanningScene::cloned(&root);
@@ -3502,7 +3502,7 @@ mod tests {
         // sticky, whole-bundle overwrite (attached bodies live inside
         // RobotState; robot_state_.has_value() stays true once ever
         // materialized and is pushed unconditionally from then on --
-        // planning_scene.cpp:344-357) means this push must still clear
+        // planning_scene/src/planning_scene.cpp:344-357) means this push must still clear
         // it: `child` touched its attached bodies at least once, even
         // though the net effect looks like nothing happened.
         let mut target = PlanningScene::cloned(&root);
@@ -3694,7 +3694,7 @@ mod tests {
 
         // The child's copy was materialized at `decouple_parent` time, so
         // the parent's later mutation of "map" is not observed -- upstream
-        // `planning_scene.cpp:1260-1264`'s `scene_transforms_` copy,
+        // `planning_scene/src/planning_scene.cpp:1260-1264`'s `scene_transforms_` copy,
         // matching `robot_state`/`acm`'s existing decouple treatment above.
         assert_eq!(
             child.frame_transform("map").unwrap(),
@@ -3759,7 +3759,7 @@ mod tests {
         assert!(child.knows_frame_transform("crate"));
     }
 
-    /// Upstream `decoupleParent` (`planning_scene.cpp:1278-1308`) merges
+    /// Upstream `decoupleParent` (`planning_scene/src/planning_scene.cpp:1278-1308`) merges
     /// the parent's known colors/types into the child's own map, without
     /// overwriting anything the child already set for itself.
     #[test]
@@ -3860,7 +3860,7 @@ mod tests {
     }
 
     /// Upstream `clearDiffs` resets `object_colors_`/`object_types_`
-    /// (`planning_scene.cpp:334-335`) but never touches
+    /// (`planning_scene/src/planning_scene.cpp:334-335`) but never touches
     /// `original_object_colors_` — see that field's own doc.
     #[test]
     fn clear_diffs_resets_object_colors_and_types_but_keeps_original_object_colors() {
@@ -4005,7 +4005,7 @@ mod tests {
         // world (tier 5) -- upstream's own order, `RobotState::getFrameInfo`
         // (folded into `state.getFrameTransform`, tier 2 here) runs before
         // `World::getTransform` in `PlanningScene::getFrameTransform`
-        // (`planning_scene.cpp:2036`). A world object and an attached body
+        // (`planning_scene/src/planning_scene.cpp:2036`). A world object and an attached body
         // sharing a name should not be reachable in practice ([`PlanningScene::attach`]
         // removes the world object of the same id first), so this exercises
         // the ladder's ordering directly rather than a realistic scene.
@@ -4094,7 +4094,7 @@ mod tests {
         // strictly before tier 6 (the extra-fixed-frame map) in the ladder,
         // matching upstream's order (`state.getFrameTransform` before
         // `getTransforms().Transforms::getTransform`,
-        // `planning_scene.cpp:2036`/`:2053`).
+        // `planning_scene/src/planning_scene.cpp:2036`/`:2053`).
         let model = build_model();
         let mut scene = PlanningScene::new(&model, &srdf());
         scene
@@ -4223,7 +4223,7 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf());
         // Object "a" with subframe "b" would compose to the same key "a/b"
         // as a distinct top-level object literally named "a/b". Upstream
-        // resolves object ids before subframes (`world.cpp:145`), so the
+        // resolves object ids before subframes (`collision_detection/src/world.cpp:145`), so the
         // top-level object's own pose must win.
         scene.add_shape("a", cuboid_shape(), Isometry3::identity());
         let mut subframes = BTreeMap::new();
@@ -4477,7 +4477,7 @@ mod tests {
     /// later "fix" into a deviation: this is what makes condition 2's "100%
     /// of returned paths pass" mean *no returned path has a colliding
     /// waypoint*, not *no returned path collides at all*. Upstream's own
-    /// loop (`planning_scene.cpp:2376-2378`: `for (i = 0; i < n_wp; ++i) {
+    /// loop (`planning_scene/src/planning_scene.cpp:2376-2378`: `for (i = 0; i < n_wp; ++i) {
     /// const RobotState& st = trajectory.getWayPoint(i); ... }`) never
     /// builds or checks a state between two given waypoints -- case 1 below
     /// asserts *upstream parity*, not desired behaviour. If a future change

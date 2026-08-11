@@ -114,7 +114,7 @@ fn constraints_msg_is_empty(c: &moveit_msgs::Constraints) -> bool {
 /// upstream does -- at apply time, inside
 /// [`cspace_planning::StartState::apply_to`], which is where
 /// `RobotModel::getVariableIndex` throws for upstream
-/// (`robot_state.cpp:395-406`). Resolving them here as well would put the same
+/// (`robot_state/src/robot_state.cpp:395-406`). Resolving them here as well would put the same
 /// rule in two owners and make this conversion reject requests a scene with a
 /// different model would have accepted.
 pub struct StartStateMsg(pub moveit_msgs::RobotState);
@@ -131,7 +131,7 @@ impl TryFrom<StartStateMsg> for StartState {
     /// neither a diff nor names anything, and to `clearAttachedBodies()`
     /// before re-applying `attached_collision_objects`. Positions and
     /// velocities are applied by name regardless of it
-    /// (`robot_state.hpp:1125-1131`). Since this conversion rejects
+    /// (`moveit/robot_state/robot_state.hpp:1125-1131`). Since this conversion rejects
     /// `attached_collision_objects` outright (below), there is nothing left
     /// for the flag to select, and carrying it would put a boolean next to a
     /// value where no combination of the two means anything new -- see
@@ -139,7 +139,7 @@ impl TryFrom<StartStateMsg> for StartState {
     ///
     /// `joint_state.effort` is dropped, matching upstream exactly:
     /// `RobotState::setVariableValues(const sensor_msgs::msg::JointState&)`
-    /// (`robot_state.hpp:1125-1131`) reads `position` and `velocity` and
+    /// (`moveit/robot_state/robot_state.hpp:1125-1131`) reads `position` and `velocity` and
     /// never looks at `effort`, so a start state's effort values have no
     /// effect upstream either. Rejecting them here would make this port
     /// refuse messages upstream accepts.
@@ -402,7 +402,7 @@ impl<'m> TryFrom<PlanningResponseMsg<'m>> for PlanningResponse<'m> {
     /// rejected, since none of them are trajectory content the conversion
     /// could silently corrupt. `group_name` is asymmetric for that reason and
     /// only in this direction: msg->core has nowhere to put it, while core->msg
-    /// derives it from the trajectory the way `planning_response.cpp:48` does
+    /// derives it from the trajectory the way `planning_interface/src/planning_response.cpp:48` does
     /// (see the opposite impl below), so a `group_name` set on the wire is lost
     /// on the way in and re-derived on the way out rather than preserved.
     /// `planning_time` has no [`PlanningResponse`] field to read: every
@@ -460,7 +460,7 @@ impl<'m> TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut {
         // `msg.group_name = trajectory->getGroupName()`. This side can derive
         // it -- [`cspace_core::trajectory::RobotTrajectory::group_name`] is the same
         // accessor with the same empty-group answer as upstream's
-        // `getGroupName` (`robot_trajectory.cpp:88-94`: the group's name, or
+        // `getGroupName` (`robot_trajectory/src/robot_trajectory.cpp:88-94`: the group's name, or
         // `""` when `group_` is null) -- so leaving the wire field empty was
         // dropping a field with a source, unlike `planning_time`/`error_code`,
         // which have no [`PlanningResponse`] field to read at all.
@@ -637,7 +637,7 @@ mod tests {
     /// `MoveGroupInterface` sends `is_diff = true` from its constructor and
     /// `is_diff = false` after `setStartState(const RobotState&)`, and neither
     /// changes what the named positions mean upstream
-    /// (`robot_state.hpp:1125-1131`).
+    /// (`moveit/robot_state/robot_state.hpp:1125-1131`).
     #[test]
     fn is_diff_does_not_change_what_the_named_positions_mean() {
         let model = one_joint_model();
@@ -805,7 +805,7 @@ mod tests {
     #[test]
     fn a_start_state_effort_is_dropped_the_way_upstream_drops_it() {
         // `RobotState::setVariableValues(const sensor_msgs::msg::JointState&)`
-        // (`robot_state.hpp:1125-1131`) reads `position` and `velocity` only,
+        // (`moveit/robot_state/robot_state.hpp:1125-1131`) reads `position` and `velocity` only,
         // so effort on a start state has no effect upstream either --
         // rejecting it here would refuse a message upstream accepts.
         let model = one_joint_model();
@@ -964,7 +964,7 @@ mod tests {
         );
     }
 
-    /// `planning_response.cpp:44-49` writes `group_name` only inside its
+    /// `planning_interface/src/planning_response.cpp:44-49` writes `group_name` only inside its
     /// `if (trajectory && !trajectory->empty())` guard, so both sides of that
     /// guard are checked here: without the empty case a conversion that always
     /// emitted the group name would pass, and that is a message upstream never

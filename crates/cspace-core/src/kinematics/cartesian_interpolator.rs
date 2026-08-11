@@ -57,7 +57,7 @@
 //! validCallback, options, cost_function)` at both IK sites
 //! (`cartesian_interpolator.cpp:260` in the main loop,
 //! `cartesian_interpolator.cpp:94` inside the bisection). `RobotState::
-//! setFromIK` (`robot_state.cpp:1788-2047`) is considerably more than "call
+//! setFromIK` (`robot_state/src/robot_state.cpp:1788-2047`) is considerably more than "call
 //! the solver", and the pieces it adds are handled here as follows.
 //!
 //! *Solver lookup.* Upstream reaches the solver through
@@ -78,7 +78,7 @@
 //! [`IkTarget`] naming [`CartesianInterpolator::link_name`]. What that buys
 //! this module, concretely: the requested link no longer has to *be* the
 //! solver's tip, only rigidly connected to it
-//! (`robot_state.cpp:1922-1945`, ported via
+//! (`robot_state/src/robot_state.cpp:1922-1945`, ported via
 //! `crate::model::RobotModel::rigidly_connected_parent_link`); an attached
 //! body or one of its subframes can be the requested frame, through
 //! [`IkContext::attached`]; and [`IkContext::validity`] is upstream's real
@@ -94,7 +94,7 @@
 //! not reachable from here, and upstream is the same: `computeCartesianPath`
 //! walks *one* link along *one* path, so its `setFromIK` call always carries
 //! exactly one pose and can never take the multi-tip branch that diverts to
-//! subgroup solvers (`robot_state.cpp:1836-1866`).
+//! subgroup solvers (`robot_state/src/robot_state.cpp:1836-1866`).
 //!
 //! *`timeout = 0.0`.* Both upstream IK sites pass `0.0` and the deprecated
 //! overload's comment (`cartesian_interpolator.cpp:453-454`) says this means
@@ -1032,10 +1032,10 @@ fn interpolate_pose(from: &Isometry3, to: &Isometry3, t: f64) -> Isometry3 {
 /// representation.
 ///
 /// `getContinuousJointModels()` is the group's active revolute joints whose
-/// `isContinuous()` holds (`joint_model_group.cpp:170-172`); `enforceBounds`
+/// `isContinuous()` holds (`robot_model/src/joint_model_group.cpp:170-172`); `enforceBounds`
 /// on one joint enforces its position bounds and, when the state carries
 /// velocities, its velocity bounds too
-/// (`robot_state.hpp:1400-1405`).
+/// (`moveit/robot_state/robot_state.hpp:1400-1405`).
 fn enforce_continuous_joint_bounds(state: &mut RobotState<'_>, group: &JointModelGroup) {
     let model: &RobotModel = state.model();
     let expect = "active joint of this state's own robot model";

@@ -48,7 +48,7 @@ use super::collision_object::{
 use super::header_frame_transform;
 
 /// Apply one `AttachedCollisionObject` command. Upstream
-/// `processAttachedCollisionObjectMsg` (`planning_scene.cpp:1536`).
+/// `processAttachedCollisionObjectMsg` (`planning_scene/src/planning_scene.cpp:1536`).
 pub fn apply_attached_collision_object(
     scene: &mut PlanningScene<'_>,
     msg: moveit_msgs::AttachedCollisionObject,
@@ -66,7 +66,7 @@ pub fn apply_attached_collision_object(
             "MOVE is not implemented for attached objects -- upstream itself has not \
              implemented it either: processAttachedCollisionObjectMsg's MOVE branch is\
              \n  RCLCPP_ERROR(getLogger(), \"Move for attached objects not yet implemented\");\
-             \n(planning_scene.cpp:1762-1765)",
+             \n(planning_scene/src/planning_scene.cpp:1762-1765)",
         )),
     }
 }
@@ -167,7 +167,7 @@ type LinkRelativeGeometry = (Vec<Arc<Shape>>, Vec<Isometry3>, BTreeMap<String, I
 /// `header.frame_id` is resolved via [`super::header_frame_transform`], not
 /// [`cspace_planning::scene::PlanningScene::frame_transform`] directly: upstream's
 /// `getFrameTransform(object.object.header.frame_id)` call here
-/// (`planning_scene.cpp:1606`) has no `knowsFrameTransform` guard in front
+/// (`planning_scene/src/planning_scene.cpp:1606`) has no `knowsFrameTransform` guard in front
 /// of it, so an empty `header.frame_id` resolves to identity through
 /// `getFrameTransform`'s own silent fallback rather than being rejected
 /// (PORTING-PLAN.md §183).
@@ -457,7 +457,7 @@ mod tests {
     /// An empty `object.header.frame_id` is accepted as the world frame
     /// (PORTING-PLAN.md §183) -- `processAttachedCollisionObjectMsg`'s
     /// not-in-world branch has no `knowsFrameTransform` guard before
-    /// `getFrameTransform` (`planning_scene.cpp:1606`). Before
+    /// `getFrameTransform` (`planning_scene/src/planning_scene.cpp:1606`). Before
     /// `header_frame_transform` existed, this would have been rejected with
     /// `Err(UnknownName)`.
     #[test]

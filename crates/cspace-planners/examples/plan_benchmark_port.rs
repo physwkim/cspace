@@ -650,7 +650,7 @@ fn main() {
             group_name: group_name.clone(),
             // A concrete-state goal expressed the way upstream expresses one:
             // `constructGoalConstraints(state, jmg, tolerance)`
-            // (`kinematic_constraints/utils.hpp:99`), one JointConstraint per
+            // (`moveit/kinematic_constraints/utils.hpp:99`), one JointConstraint per
             // group variable. `goal_state` itself is kept because `goal_gap`
             // compares the returned path's last waypoint against it.
             goal_constraints: vec![goal_constraints_for(

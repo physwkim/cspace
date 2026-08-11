@@ -220,7 +220,7 @@
 //!
 //! `count-public-declarations.sh` cannot count these: it matches
 //! `class <name>` and `Object` is a `struct`, and it excludes members nested
-//! below depth 1 by design. Enumerated by hand from `world.hpp:78-117`
+//! below depth 1 by design. Enumerated by hand from `moveit/collision_detection/world.hpp:78-117`
 //! instead — a `struct` has no access specifiers to track, so the whole body
 //! is public.
 //!
@@ -242,7 +242,7 @@
 //! That is deliberate and is what deviations 1 and 2 buy: a writable
 //! `shape_poses_` is precisely how the three vectors drift apart upstream.
 //!
-//! `EIGEN_MAKE_ALIGNED_OPERATOR_NEW` (`world.hpp:84`) is not counted as a
+//! `EIGEN_MAKE_ALIGNED_OPERATOR_NEW` (`moveit/collision_detection/world.hpp:84`) is not counted as a
 //! declaration — it is an allocator override for over-aligned Eigen members,
 //! the same case `count-public-declarations.sh` documents skipping. No Rust
 //! counterpart exists or is needed.
@@ -260,7 +260,7 @@
 //!
 //! `world.cpp` adds one file-local declaration to the header's list: an
 //! anonymous-namespace `getLogger()` returning an `rclcpp::Logger`
-//! (`world.cpp:47-50`), excluded by D1 — this crate references no ROS type.
+//! (`collision_detection/src/world.cpp:47-50`), excluded by D1 — this crate references no ROS type.
 //! Every other definition in the file implements a declaration listed above.
 
 use std::collections::BTreeMap;

@@ -77,7 +77,7 @@
 //! cells. `mesh` was not part of that 4x4 sweep, and the sentence that used to
 //! stand here in its place -- "`mesh` is `true` against everything because
 //! MoveIt maps `shapes::MESH` to `fcl::BVHModel`
-//! (`collision_common.cpp:900-923`), a third traversal that is neither
+//! (`collision_detection_fcl/src/collision_common.cpp:900-923`), a third traversal that is neither
 //! specialisation nor libccd MPR" -- was an inference, not a measurement, and
 //! it is wrong: `fcl::BVHModel` is only the broad-phase. Its leaf test against
 //! a candidate triangle still calls `nsolver->shapeTriangleIntersect(shape,

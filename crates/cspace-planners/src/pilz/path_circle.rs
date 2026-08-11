@@ -336,7 +336,7 @@ impl PathCircle {
         // and trip the colinear guard below is not a checked invariant, it
         // is a coincidence of kdl_normalize's own Vector3::zeros()
         // substitution (cross(_, 0) == 0 exactly). Swap that substitution
-        // for KDL's own Vector(1,0,0) fallback (`frames.cpp:147-156`) and
+        // for KDL's own Vector(1,0,0) fallback (`orocos_kdl/src/frames.cpp:147-156`) and
         // the outcome becomes value-dependent on x_axis's direction instead
         // of a guaranteed rejection -- measured: x_axis == (0,1,0) then
         // *succeeds*, building a geometrically arbitrary circle. See
@@ -642,7 +642,7 @@ mod tests {
     /// colinear-plane guard below then caught by coincidence, not by a
     /// check on this input's own degeneracy. Measured directly (temporarily
     /// swapping that substitution for KDL's own `Vector(1,0,0)` fallback,
-    /// `frames.cpp:147-156`): with `x_axis == (0.0, 1.0, 0.0)`, the same
+    /// `orocos_kdl/src/frames.cpp:147-156`): with `x_axis == (0.0, 1.0, 0.0)`, the same
     /// input instead *succeeded*, building a geometrically arbitrary circle
     /// (`radius: 1.0`, `path_length: 1.5707963267948966`) rather than being
     /// rejected. This guard makes the rejection hold by construction

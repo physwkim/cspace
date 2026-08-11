@@ -560,7 +560,7 @@ fn compute<'m>(snapshot: &Arc<PlanningScene<'m>>, request: GetCartesianPath::Req
             Ok(out) => out,
             // Upstream cannot reach this: `getLinkModel(link_name)` returning
             // null makes `getGlobalLinkTransform` *throw* out of the service
-            // callback instead (`robot_state.hpp:1252-1257`).
+            // callback instead (`moveit/robot_state/robot_state.hpp:1252-1257`).
             Err(e) => {
                 return failure(format!(
                     "computing the Cartesian path for link '{link_name}' failed: {e}"
@@ -1326,7 +1326,7 @@ mod tests {
 
     /// `:187` reaches `getLinkModel(link_name)` with no null check and
     /// `getGlobalLinkTransform` throws on the result
-    /// (`robot_state.hpp:1252-1257`), taking the node's executor with it.
+    /// (`moveit/robot_state/robot_state.hpp:1252-1257`), taking the node's executor with it.
     /// This answers instead.
     #[test]
     fn an_unknown_link_name_is_refused_rather_than_crashing() {

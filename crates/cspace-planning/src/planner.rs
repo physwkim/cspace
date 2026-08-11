@@ -283,7 +283,7 @@ pub fn configuration_for<'c>(
 ///
 /// Replaces the `moveit_msgs::msg::MoveItErrorCodes& error_code` out
 /// parameter of `getPlanningContext` (`planning_interface.hpp:183`) and the
-/// `res.error_code` a `solve()` sets (`planning_response.hpp:63`) alike.
+/// `res.error_code` a `solve()` sets (`moveit/planning_interface/planning_response.hpp:63`) alike.
 pub type PlanError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 /// A planning query bound to a scene, ready to run. Ports

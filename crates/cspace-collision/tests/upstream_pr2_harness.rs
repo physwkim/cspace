@@ -31,7 +31,7 @@
 //! The two "unwritten result" sites are an upstream defect, recorded as
 //! `pr2-collision-test-asserts-unwritten-result` in `doc/upstream-bugs.md`:
 //! both read a default-constructed `CollisionResult`, whose `collision` member
-//! is initialised `false` in-class (`collision_detection/collision_common.hpp:353`), so they hold
+//! is initialised `false` in-class (`moveit/collision_detection/collision_common.hpp:353`), so they hold
 //! however the checker behaves. They are the reason the accounting above
 //! cannot be read as "38 assertions this port does not make" -- two of the 41
 //! are assertions upstream does not make either.
@@ -40,10 +40,10 @@
 //!
 //! **`updateStateWithLinkAt` is not ported.** It writes a link's global
 //! transform directly and then re-derives only its descendants
-//! (`robot_state.cpp:850-871`: `global_link_transforms_[link->getLinkIndex()]
+//! (`robot_state/src/robot_state.cpp:850-871`: `global_link_transforms_[link->getLinkIndex()]
 //! = transform`, then `updateLinkTransformsInternal` per child joint), so the
 //! state deliberately stops matching its own joint values -- upstream's
-//! declaration says so (`robot_state.hpp:1213-1220`, "neglecting the joint
+//! declaration says so (`moveit/robot_state/robot_state.hpp:1213-1220`, "neglecting the joint
 //! values of its parent joint ... although they do not match the joint values
 //! anymore"). That is how these tests place two specific links in contact
 //! without solving for a pose. It appears 15 times in the header, in 4 of the

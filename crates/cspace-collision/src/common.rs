@@ -123,7 +123,7 @@ pub struct Contact {
 ///
 /// The tie-break chain intentionally ends at `aabb_min` and never reaches
 /// `aabb_max`, matching upstream's own `operator<`
-/// (`collision_detection/collision_common.hpp:128-141`) — confirmed against the fixture,
+/// (`moveit/collision_detection/collision_common.hpp:128-141`) — confirmed against the fixture,
 /// `PORTING-PLAN.md` §171.6. So two sources with equal `cost * volume`,
 /// equal `cost`, and equal `aabb_min` but different `aabb_max` compare
 /// `Equal`, and inserting both into a [`std::collections::BTreeSet`] keeps
@@ -211,7 +211,7 @@ pub type IsDoneFn = Arc<dyn Fn(&CollisionResult) -> bool + Send + Sync>;
 /// Upstream's `pad_environment_collisions`/`pad_self_collisions` are not
 /// ported. They are not backend fields: no `CollisionEnv` implementation
 /// upstream reads either one, and the only three readers anywhere
-/// (`planning_scene.cpp:442`, `:453`, `:558`) do not pass them down — each
+/// (`planning_scene/src/planning_scene.cpp:442`, `:453`, `:558`) do not pass them down — each
 /// picks one of `PlanningScene`'s two owned environments, padded or
 /// unpadded, and calls it with the request untouched. This port has no such
 /// pair to pick from: D4 gives the caller one `CollisionEnv` it owns, and
@@ -662,7 +662,7 @@ mod tests {
     /// `CostSource::cmp`'s tie-break chain ends at `aabb_min`
     /// (`total_cmp_aabb`) and never looks at `aabb_max` — matching
     /// upstream's own `operator<`, whose last comparison is `aabb_min <
-    /// other.aabb_min` (`collision_detection/collision_common.hpp:128-141`). Two sources with
+    /// other.aabb_min` (`moveit/collision_detection/collision_common.hpp:128-141`). Two sources with
     /// equal `cost * volume`, equal `cost`, and equal `aabb_min` but
     /// different `aabb_max` therefore compare `Equal`, and `BTreeSet`
     /// treats an `Equal` insert as a duplicate: the second value is

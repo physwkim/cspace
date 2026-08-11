@@ -54,7 +54,7 @@
 //! separate, real upstream functions — but grepping geometric_shapes 2.3.3
 //! and moveit2 @ the pinned SHA for callers finds neither one anywhere in the
 //! `RobotModel::constructShape` call chain: `Mesh::mergeVertices`'s only
-//! moveit2 caller is `planning_scene_monitor.cpp:906`, which is octomap/
+//! moveit2 caller is `planning_scene_monitor/src/planning_scene_monitor.cpp:906`, which is octomap/
 //! perception world-mesh handling, not robot link collision geometry.
 //!
 //! Assimp itself is not vendored anywhere reachable — checked both the host
@@ -194,7 +194,7 @@
 //!   module's own doc above records that even the reference source for
 //!   Assimp's behavior had to come from a public header, since no assimp
 //!   source/-dbgsym package exists on this machine either). The one in-scope
-//!   caller of the `(resource, scale)` overload — `robot_model.cpp:1280`,
+//!   caller of the `(resource, scale)` overload — `robot_model/src/robot_model.cpp:1280`,
 //!   `RobotModel::constructShape`'s `MESH` case — is real and ported, but
 //!   narrowed to the STL-only subset this crate's fixtures actually need:
 //!   [`mesh_from_bytes`] is that port, verified against real Assimp output in

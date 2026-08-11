@@ -99,7 +99,7 @@ struct JointNode {
 ///    `child_link` is the URDF root — so this port skips them silently
 ///    rather than adding a `Diagnostic` variant untested by any fixture.
 /// 7. **A missing or ambiguous root link is a hard error here; upstream
-///    degrades and continues.** `buildModel` (`robot_model.cpp:89-133`)
+///    degrades and continues.** `buildModel` (`robot_model/src/robot_model.cpp:89-133`)
 ///    checks `urdf_model.getRoot()`; on null it logs `RCLCPP_WARN("No root
 ///    link found")` and returns, leaving `root_joint_`/`root_link_` null and
 ///    skipping `buildRecursive`/`buildGroups`/`buildGroupStates` entirely —
@@ -387,7 +387,7 @@ impl RobotModel {
     /// `nullptr` does.
     ///
     /// Upstream's third case, an empty `jmg` — its `begin != end` guard, at
-    /// `robot_model.cpp:1386-1388`, makes an empty group contribute no
+    /// `robot_model/src/robot_model.cpp:1386-1388`, makes an empty group contribute no
     /// membership test rather than excluding every joint — has no counterpart
     /// here and needs none: [`RobotModel::from_urdf_and_srdf`] refuses to
     /// construct a group with no joints, recording [`Diagnostic::EmptyGroup`]
@@ -977,10 +977,10 @@ fn construct_shape(
 ///
 /// # Why this returns [`ShapeOrUnsupported`] and not `Result<ShapeOrUnsupported>`
 ///
-/// Verified against `robot_model.cpp:1256-1291`: `constructShape`'s `MESH`
+/// Verified against `robot_model/src/robot_model.cpp:1256-1291`: `constructShape`'s `MESH`
 /// case calls `shapes::createMeshFromResource`, which returns `nullptr` on a
 /// read failure (`mesh_operations.cpp`'s `CONSOLE_BRIDGE_logWarn` +
-/// `return nullptr` paths); the caller (`robot_model.cpp:1189-1191`,
+/// `return nullptr` paths); the caller (`robot_model/src/robot_model.cpp:1189-1191`,
 /// `if (s) { shapes.push_back(s); ... }`) then just skips that one shape —
 /// no error, the link ends up with fewer collision shapes. Every failure
 /// here degrades the same way, with a
@@ -3397,7 +3397,7 @@ mod tests {
     }
 
     /// `joint_roots_` is seeded only from `active_joint_model_vector_`
-    /// (`joint_model_group.cpp:182-187`), which itself only ever holds
+    /// (`robot_model/src/joint_model_group.cpp:182-187`), which itself only ever holds
     /// joints with `getVariableCount() > 0` (`:139-153`) — a fixed joint
     /// (`vc == 0`) always lands in `fixed_joints_` instead (`:176-177`) and
     /// is never a candidate root. A group made entirely of fixed joints

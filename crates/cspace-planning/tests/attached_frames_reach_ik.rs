@@ -6,7 +6,7 @@
 //! this crate owns.
 //!
 //! Upstream needs no seam: `RobotState::setFromIK` resolves its target frame
-//! through `getRigidlyConnectedParentLinkModel` (`robot_state.cpp:1924`,
+//! through `getRigidlyConnectedParentLinkModel` (`robot_state/src/robot_state.cpp:1924`,
 //! `:1931`) and `getFrameTransform` (`:1930`, `:1937`), which reach
 //! `attached_body_map_` through `getLinkModelIncludingAttachedBodies`
 //! (`:910-937`) and `getFrameInfo` (`:1338-1384`) — both members of the

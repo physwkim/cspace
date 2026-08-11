@@ -80,7 +80,7 @@
 //!    `pad_self_collisions`, and both checks read the one padded
 //!    `robot_geoms_` the constructor built. Those two flags are a
 //!    `PlanningScene`-level choice between two whole environments
-//!    (`planning_scene.cpp:442`, `:453`, `:558`) and are not ported here;
+//!    (`planning_scene/src/planning_scene.cpp:442`, `:453`, `:558`) and are not ported here;
 //!    see [`CollisionRequest`]'s own doc.
 //! 4. **At most one [`Contact`] per *part* pair.**
 //!    `parry3d_f64::query::contact` returns a single closest/deepest point
@@ -889,7 +889,7 @@
 //!    originally-reported value are present, simultaneously, in FCL's own
 //!    per-pair contact list for the identical robot state — confirming,
 //!    not just making plausible, that `max_contacts_per_pair = 1`
-//!    (`collision_detection/collision_common.hpp:176`) was reporting whichever one of at least
+//!    (`moveit/collision_detection/collision_common.hpp:176`) was reporting whichever one of at least
 //!    two genuinely-touching triangles FCL's own narrow-phase traversal
 //!    happened to place first, and that triangle was not the one this
 //!    backend's own exhaustive deepest-first search names as deepest. Case
@@ -2130,7 +2130,7 @@ fn world_bodies(
 }
 
 /// `CollisionData::enableGroup`/`DistanceRequest::enableGroup`
-/// (`collision_detection_fcl/src/collision_common.cpp:1012-1022`, `collision_detection/collision_common.hpp:206-216`): the
+/// (`collision_detection_fcl/src/collision_common.cpp:1012-1022`, `moveit/collision_detection/collision_common.hpp:206-216`): the
 /// set of link names a `group_name` resolves to, or `None` for "no active
 /// group" (module doc, deviation 1) — either `group_name` is `None`, or it
 /// names a group the model does not have, matching upstream's
@@ -3936,7 +3936,7 @@ fn accumulate_distance<'a>(
                     let p2 = from_parry_vector(contact.point2);
                     // Same octomath/Eigen-vs-nalgebra zero-vector family as
                     // `octomap_filter.rs`'s `.try_normalize`: upstream's
-                    // `distanceCallback` (`collision_common.cpp:633`) writes
+                    // `distanceCallback` (`collision_detection_fcl/src/collision_common.cpp:633`) writes
                     // `dist_result.normal = (nearest_points[1] -
                     // nearest_points[0]).normalized()` -- the same
                     // subtract-then-normalize formula, just Eigen-guarded.

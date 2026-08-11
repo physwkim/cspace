@@ -121,7 +121,7 @@ pub fn robot_state_to_csv(state: &RobotState<'_>, include_header: bool, separato
 /// [`JointModelGroup::variable_names`](crate::model::JointModelGroup::variable_names),
 /// which is upstream's `copyJointGroupPositions` order — `variable_names_`
 /// and `variable_index_list_` are filled in the same loop
-/// (`joint_model_group.cpp:158`, `:165`).
+/// (`robot_model/src/joint_model_group.cpp:158`, `:165`).
 ///
 /// # Errors
 ///

@@ -16,7 +16,7 @@ use cspace_planning::scene::PlanningScene;
 
 /// Resolves a message `header.frame_id` the way the upstream call sites that
 /// call `getFrameTransform` *without* a preceding `knowsFrameTransform`
-/// guard do (`processOctomapMsg(OctomapWithPose)`: `planning_scene.cpp:1494`;
+/// guard do (`processOctomapMsg(OctomapWithPose)`: `planning_scene/src/planning_scene.cpp:1494`;
 /// `processAttachedCollisionObjectMsg`'s not-in-world branch: `:1606`;
 /// `processCollisionObjectMove`: `:1964`) -- **not** every call site
 /// (`processCollisionObjectAdd`'s `:1905` is guarded by `knowsFrameTransform`
@@ -26,7 +26,7 @@ use cspace_planning::scene::PlanningScene;
 ///
 /// An empty `frame_id` is not an unresolved name -- it is the wire's stated
 /// default of "already in world coordinates", and upstream's own fallback
-/// (`Transforms::getTransform`, `transforms.cpp:110-126`: `if
+/// (`Transforms::getTransform`, `transforms/src/transforms.cpp:110-126`: `if
 /// (!from_frame.empty()) { ...lookup... }` then log-and-return identity)
 /// resolves it to identity *without* going through the unresolved-name path
 /// at all. `frame_transform`'s `Err` on an unresolved name is a deliberate,

@@ -13,7 +13,7 @@
 //! Upstream's `PlanningSceneMonitor` holds `scene_` behind a
 //! `std::shared_mutex scene_update_mutex_`, and every callback that changes
 //! it takes a `std::unique_lock` over exactly the mutation
-//! (`planning_scene_monitor.cpp:748` for a scene message, `:852` for an
+//! (`planning_scene_monitor/src/planning_scene_monitor.cpp:748` for a scene message, `:852` for an
 //! attached object) while readers take `LockedPlanningSceneRO`. Two
 //! properties come out of that: a reader never observes a half-applied
 //! scene, and a reader never mutates the monitored one.
@@ -91,7 +91,7 @@ pub fn snapshot(cell: &MonitoredScene) -> Arc<PlanningScene<'static>> {
 /// observe a scene that a failed conversion stopped halfway through. Upstream
 /// has no equivalent guarantee: `processAttachedCollisionObjectMsg` mutates
 /// `scene_` in place under the lock and returns `false` after the scene has
-/// already changed (`planning_scene_monitor.cpp:853`).
+/// already changed (`planning_scene_monitor/src/planning_scene_monitor.cpp:853`).
 ///
 /// The borrow is released before returning, so a caller may `snapshot` again
 /// immediately; it must not be held across an `.await`.
@@ -107,7 +107,7 @@ pub fn apply(
 }
 
 /// The `planning_scene` topic's callback body. Upstream
-/// `newPlanningSceneCallback` (`planning_scene_monitor.cpp:711`), which hands
+/// `newPlanningSceneCallback` (`planning_scene_monitor/src/planning_scene_monitor.cpp:711`), which hands
 /// the message straight to `newPlanningSceneMessage` (`:739`).
 pub fn apply_planning_scene_msg(
     cell: &MonitoredScene,
@@ -118,7 +118,7 @@ pub fn apply_planning_scene_msg(
 
 /// The `attached_collision_object` topic's callback body. Upstream
 /// `PlanningSceneMonitor::processAttachedCollisionObjectMsg`
-/// (`planning_scene_monitor.cpp:841`), which delegates the whole decision to
+/// (`planning_scene_monitor/src/planning_scene_monitor.cpp:841`), which delegates the whole decision to
 /// `PlanningScene::processAttachedCollisionObjectMsg` (`:853`) -- ported as
 /// [`apply_attached_collision_object`], the same function a `PlanningScene`
 /// diff's `robot_state.attached_collision_objects` reaches. One owner, two
@@ -289,7 +289,7 @@ mod tests {
             ..Default::default()
         };
         // REMOVE inside a non-diff `RobotState` is upstream's rejected case
-        // (`planning_scene.cpp:1238-1245`) -- so a scene diff cannot detach,
+        // (`planning_scene/src/planning_scene.cpp:1238-1245`) -- so a scene diff cannot detach,
         // and this asserts the rejection names that rule rather than
         // silently leaving the body attached.
         diff.robot_state.attached_collision_objects = vec![attached("held", 1)];

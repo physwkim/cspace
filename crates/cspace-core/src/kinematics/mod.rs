@@ -235,7 +235,7 @@
 //!   and nothing else (`kinematics_base.cpp:142-155`), and no plugin under
 //!   `moveit_kinematics/` overrides it; `setFromIK` calls it only to decide
 //!   whether to divert a multi-tip request to `setFromIKSubgroups`
-//!   (`robot_state.cpp:1836-1866`). [`fn@set_from_ik`] makes that decision from
+//!   (`robot_state/src/robot_state.cpp:1836-1866`). [`fn@set_from_ik`] makes that decision from
 //!   [`KinematicsSolver::tip_frames`]`().len()` directly, so the predicate
 //!   has no separate call site left.
 //! - `setSearchDiscretization`/`getSearchDiscretization`/

@@ -28,11 +28,11 @@
 //!
 //! Upstream carries `scene_msg.is_diff` all the way in and re-reads it at
 //! three separate points -- `usePlanningSceneMsg` branches on it
-//! (`planning_scene.cpp:1407`), `setPlanningSceneMsg` re-asserts it is false
+//! (`planning_scene/src/planning_scene.cpp:1407`), `setPlanningSceneMsg` re-asserts it is false
 //! (`:1369`), and `PlanningSceneMonitor::newPlanningSceneMessage` reads
 //! `scene.is_diff` three more times and `scene.robot_state.is_diff` twice to
 //! pick the full/diff arm and to classify the update type
-//! (`planning_scene_monitor.cpp:759,778,795` and `:762,812`). That is a
+//! (`planning_scene_monitor/src/planning_scene_monitor.cpp:759,778,795` and `:762,812`). That is a
 //! boolean travelling
 //! beside the value it qualifies, and every one of those re-reads is a place
 //! the two can disagree.
@@ -132,7 +132,7 @@ impl From<moveit_msgs::PlanningScene> for PlanningSceneUpdate {
     }
 }
 
-/// Upstream `usePlanningSceneMsg` (`planning_scene.cpp:1405`): dispatch on
+/// Upstream `usePlanningSceneMsg` (`planning_scene/src/planning_scene.cpp:1405`): dispatch on
 /// `is_diff` to [`set_planning_scene_diff_msg`] or
 /// [`set_planning_scene_msg`].
 ///
@@ -155,7 +155,7 @@ pub fn use_planning_scene_msg<'m>(
 ///
 /// - `link_padding`/`link_scale`: upstream stores these on the scene's
 ///   *collision environment* (`collision_detector_->cenv_->setPadding`,
-///   `planning_scene.cpp:1348-1349` in the diff arm, `:1386-1387` in the
+///   `planning_scene/src/planning_scene.cpp:1348-1349` in the diff arm, `:1386-1387` in the
 ///   full arm). This port's
 ///   `cspace_planning::scene::PlanningScene` owns no collision environment at all --
 ///   `check_collision` takes one as an argument -- and the padding/scale
@@ -193,7 +193,7 @@ fn reject_unrepresentable_fields(msg: &moveit_msgs::PlanningScene) -> Result<()>
     Ok(())
 }
 
-/// Upstream `Transforms::setTransforms` (`transforms.cpp:172`), which is a
+/// Upstream `Transforms::setTransforms` (`transforms/src/transforms.cpp:172`), which is a
 /// loop over `setTransform(const geometry_msgs::msg::TransformStamped&)`
 /// (`:151`): each entry is keyed by `header.frame_id` and must name
 /// `target_frame_` as its `child_frame_id`.
@@ -235,7 +235,7 @@ fn apply_fixed_frame_transforms(
 pub struct AllowedCollisionMatrixMsg(pub moveit_msgs::AllowedCollisionMatrix);
 
 /// Upstream's `getDefaultEntry(name1, name2, type)` merge rule
-/// (`collision_matrix.cpp:330-364`): `NEVER` if either side says never, else
+/// (`collision_detection/src/collision_matrix.cpp:330-364`): `NEVER` if either side says never, else
 /// `CONDITIONAL` if either side is conditional, else `ALWAYS`; `None` when
 /// neither name has a default.
 ///
@@ -275,7 +275,7 @@ impl TryFrom<AllowedCollisionMatrixMsg> for AllowedCollisionMatrix {
 
     /// Upstream `AllowedCollisionMatrix::AllowedCollisionMatrix(const
     /// moveit_msgs::msg::AllowedCollisionMatrix&)`
-    /// (`collision_matrix.cpp:80`), field for field: defaults first, then
+    /// (`collision_detection/src/collision_matrix.cpp:80`), field for field: defaults first, then
     /// the strict upper triangle of `entry_values`, and only the cells that
     /// *differ* from the combined default are stored explicitly. That last
     /// condition is not an optimization -- it decides which cells a later
@@ -336,7 +336,7 @@ impl TryFrom<AllowedCollisionMatrixMsg> for AllowedCollisionMatrix {
     }
 }
 
-/// Upstream `setCurrentState` (`planning_scene.cpp:1217`), the RobotState
+/// Upstream `setCurrentState` (`planning_scene/src/planning_scene.cpp:1217`), the RobotState
 /// overload -- **the single owner of "a `RobotState` message reaches the
 /// scene"**, and with it of every `AttachedCollisionObject` that arrives
 /// inside a `PlanningScene`.
@@ -389,7 +389,7 @@ fn set_current_state_msg(
             return Err(Error::other(format!(
                 "RobotState.attached_collision_objects['{}'] asks for operation {} on a \
                  RobotState that is not marked is_diff -- upstream ignores the object here \
-                 (planning_scene.cpp:1238-1245); use the attached_collision_object topic \
+                 (planning_scene/src/planning_scene.cpp:1238-1245); use the attached_collision_object topic \
                  for anything but ADD",
                 object.object.id, object.object.operation
             )));
@@ -399,7 +399,7 @@ fn set_current_state_msg(
     Ok(())
 }
 
-/// Upstream `setPlanningSceneMsg` (`planning_scene.cpp:1367`): the message
+/// Upstream `setPlanningSceneMsg` (`planning_scene/src/planning_scene.cpp:1367`): the message
 /// *is* the scene afterwards.
 ///
 /// Field order is upstream's, and the two departures are both places this
@@ -441,7 +441,7 @@ pub fn set_planning_scene_msg<'m>(
     apply_planning_scene_world(scene, msg.world)
 }
 
-/// Upstream `setPlanningSceneDiffMsg` (`planning_scene.cpp:1314`): every
+/// Upstream `setPlanningSceneDiffMsg` (`planning_scene/src/planning_scene.cpp:1314`): every
 /// field is applied only if the message actually states it, so an unstated
 /// field leaves the scene's own value alone.
 ///
@@ -491,7 +491,7 @@ pub fn set_planning_scene_diff_msg<'m>(
 }
 
 /// Upstream's `RCLCPP_WARN` on a `robot_model_name` naming some other model
-/// (`planning_scene.cpp:1322-1326` in the diff arm, `:1373-1377` in the full
+/// (`planning_scene/src/planning_scene.cpp:1322-1326` in the diff arm, `:1373-1377` in the full
 /// arm -- the same three lines twice). A warning, not an error: see
 /// [`robot_model_name_matches`] for why upstream treats a mismatch as
 /// advisory.
@@ -505,7 +505,7 @@ fn warn_on_robot_model_mismatch(scene: &PlanningScene<'_>, robot_model_name: &st
 }
 
 /// `PlanningSceneWorld.collision_objects` + `.octomap`. Upstream
-/// `processPlanningSceneWorldMsg` (`planning_scene.cpp:1396`): every
+/// `processPlanningSceneWorldMsg` (`planning_scene/src/planning_scene.cpp:1396`): every
 /// collision object is applied in array order (first failure does not stop
 /// the rest -- upstream ANDs a `bool` across all of them and keeps going;
 /// this port instead stops at the first `Err`, a deliberate deviation since
@@ -524,7 +524,7 @@ pub fn apply_planning_scene_world(
 }
 
 /// Upstream `processOctomapMsg(const octomap_msgs::msg::OctomapWithPose&)`
-/// (`planning_scene.cpp:1478`).
+/// (`planning_scene/src/planning_scene.cpp:1478`).
 ///
 /// An empty `octomap.data` is a no-op -- upstream's own early return
 /// (`:1483`) once the previous octomap has been cleared. A non-empty
@@ -997,7 +997,7 @@ mod tests {
         );
     }
 
-    /// `if (allowed_entry != allowed_default)` (`collision_matrix.cpp:109`):
+    /// `if (allowed_entry != allowed_default)` (`collision_detection/src/collision_matrix.cpp:109`):
     /// a cell equal to the combined default is *not* stored as an explicit
     /// entry. Asserted through `has_pair_entry`, which sees the explicit
     /// table only -- `allowed_collision` would answer `Always` either way and
@@ -1029,7 +1029,7 @@ mod tests {
     }
 
     /// The other half of the same rule: one `NEVER` default makes the
-    /// combined default `NEVER` (`collision_matrix.cpp:350-353`), so the same
+    /// combined default `NEVER` (`collision_detection/src/collision_matrix.cpp:350-353`), so the same
     /// `ALWAYS` cell now differs and *is* stored.
     #[test]
     fn one_never_default_makes_the_combined_default_never() {

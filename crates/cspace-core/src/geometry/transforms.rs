@@ -36,7 +36,7 @@ use crate::geometry::{Isometry3, Rotation3, UnitQuaternion, Vector3};
 ///    check is a type-level guarantee rather than a runtime assert.
 /// 4. **An empty `from_frame` given to `set_transform` is also an error, not
 ///    silently a no-op.** Upstream's `setTransform(t, from_frame)`
-///    (`transforms.cpp:140-149`) logs `RCLCPP_ERROR` and returns `void` on an
+///    (`transforms/src/transforms.cpp:140-149`) logs `RCLCPP_ERROR` and returns `void` on an
 ///    empty name, leaving `transforms_map_` untouched — the caller has no way
 ///    to observe that the insert never happened. The same log-and-continue
 ///    pattern as item 2's constructor case, applied to a different function;

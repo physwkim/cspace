@@ -99,7 +99,7 @@ use cspace_core::trajectory::RobotTrajectory;
 ///   property getter (`moveit_py/src/moveit/moveit_core/planning_interface/planning_response.cpp:52,92`).
 ///   So there is no real pre-adapter/post-adapter precedent to reproduce;
 ///   this port picks the value consistent with the field's own doc comment
-///   at `planning_response.hpp:64` ("The full starting state used for
+///   at `moveit/planning_interface/planning_response.hpp:64` ("The full starting state used for
 ///   planning"): captured once, after the request-adapter chain runs (an
 ///   adapter can mutate `scene.current_state()`, e.g. a bounds-clamping
 ///   one) and before the first planner call — the state the planner(s)

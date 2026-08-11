@@ -15,7 +15,7 @@
 //! publisher from `TrajectoryExecutionManager::EXECUTION_EVENT_TOPIC`). That
 //! Upstream names the topic once, as
 //! `TrajectoryExecutionManager::EXECUTION_EVENT_TOPIC`
-//! (`trajectory_execution_manager.cpp:50`). This port does **not** mirror
+//! (`trajectory_execution_manager/src/trajectory_execution_manager.cpp:50`). This port does **not** mirror
 //! that as a Rust `const`: `tools/ci/measure-client-endpoint-surface.py`
 //! derives the port's endpoint surface by matching a string literal inside
 //! the r2r factory call (its `PORT_OPENER` regex), so a registration that
@@ -25,7 +25,7 @@
 //! three endpoints are registered too.
 //!
 //! That is the entire wire contract: one topic, one string, and upstream's
-//! `processEvent` (`trajectory_execution_manager.cpp:343`) recognises exactly
+//! `processEvent` (`trajectory_execution_manager/src/trajectory_execution_manager.cpp:343`) recognises exactly
 //! one value and warns by name on anything else.
 //!
 //! # `execution_complete_` is a flag with a second meaning; this is a type
@@ -75,7 +75,7 @@ use cspace_core::error::{Error, Result};
 use r2r::std_msgs::msg as std_msgs;
 
 /// The one event upstream's `processEvent` recognises
-/// (`trajectory_execution_manager.cpp:345`).
+/// (`trajectory_execution_manager/src/trajectory_execution_manager.cpp:345`).
 ///
 /// An enum rather than a `&str` compared at the call site: the wire
 /// vocabulary is closed, and a closed vocabulary decoded once at the boundary
@@ -103,7 +103,7 @@ impl TryFrom<ExecutionEventMsg> for ExecutionEvent {
             "stop" => Ok(Self::Stop),
             other => Err(Error::other(format!(
                 "unknown trajectory_execution_event type: '{other}' \
-                 (upstream recognises only 'stop', trajectory_execution_manager.cpp:345)"
+                 (upstream recognises only 'stop', trajectory_execution_manager/src/trajectory_execution_manager.cpp:345)"
             ))),
         }
     }
@@ -185,7 +185,7 @@ impl TrajectoryExecution {
         self.state = ExecutionState::Executing;
     }
 
-    /// Upstream `stopExecution` (`trajectory_execution_manager.cpp:1209`).
+    /// Upstream `stopExecution` (`trajectory_execution_manager/src/trajectory_execution_manager.cpp:1209`).
     /// **The only transition out of [`ExecutionState::Executing`].**
     ///
     /// Upstream's `auto_clear` argument is not ported: it gates `clear()`,

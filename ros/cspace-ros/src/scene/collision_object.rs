@@ -37,7 +37,7 @@ use super::shapes::{MeshMsg, PlaneMsg};
 use crate::constraints::position::SolidPrimitiveMsg;
 use crate::geometry::Pose;
 
-/// Upstream `PlanningScene::OCTOMAP_NS` (`planning_scene.hpp:113`): a
+/// Upstream `PlanningScene::OCTOMAP_NS` (`moveit/planning_scene/planning_scene.hpp:113`): a
 /// reserved collision-object id. `processCollisionObjectMsg` (`:1758`)
 /// rejects it for every operation (ADD/REMOVE/APPEND/MOVE alike) --
 /// *not* just ADD/APPEND, confirmed by reading the dispatcher, not assumed.
@@ -109,7 +109,7 @@ fn is_empty_pose(pose: &geometry_msgs::Pose) -> bool {
 /// (`primitives`/`primitive_poses`, `meshes`/`mesh_poses`,
 /// `planes`/`plane_poses`), converted and reconciled to a common length.
 /// Upstream `shapesAndPosesFromCollisionObjectMessage`'s `treat_shape_vectors`
-/// lambda (`planning_scene.cpp:1852`).
+/// lambda (`planning_scene/src/planning_scene.cpp:1852`).
 ///
 /// # The asymmetric length rule
 ///
@@ -150,7 +150,7 @@ fn parallel_shapes<T>(
     Ok(out)
 }
 
-/// Upstream `shapesAndPosesFromCollisionObjectMessage` (`planning_scene.cpp:1800`):
+/// Upstream `shapesAndPosesFromCollisionObjectMessage` (`planning_scene/src/planning_scene.cpp:1800`):
 /// converts every geometry array (in primitive/mesh/plane order -- "order
 /// matters", the same order [`apply_move`] concatenates pose arrays in) into
 /// `(object_pose, shapes, shape_poses)`, where `shape_poses` are relative to
@@ -255,11 +255,11 @@ pub(super) fn subframes_from_parallel_arrays(
 ///
 /// `set_subframes_of_object` returns a plain `bool`, not a `MoveObjectOutcome`-style
 /// enum, because p1-fixtures read `World::setSubframesOfObject`'s body
-/// (`world.cpp:365-378`) and found every failure mode collapses to one case --
+/// (`collision_detection/src/world.cpp:365-378`) and found every failure mode collapses to one case --
 /// unlike `moveObject`, there is no "found but unchanged" branch to
 /// distinguish from "not found". And unlike [`PlanningScene::remove_object`],
 /// there is no ACM/color/type bookkeeping to replay here: none of
-/// `setSubframesOfObject`'s five call sites (`planning_scene.cpp:393, 1201,
+/// `setSubframesOfObject`'s five call sites (`planning_scene/src/planning_scene.cpp:393, 1201,
 /// 1743, 1927`, plus scene-file loading) touch those as a *consequence* of
 /// the subframe assignment itself.
 fn set_world_object_subframes(
@@ -279,10 +279,10 @@ fn set_world_object_subframes(
 /// `CollisionObject` MOVE's per-shape repose. Upstream `World::moveShapesInObject`,
 /// reached through [`PlanningScene::move_shapes_in_object`] (`scene.rs:1055`,
 /// landed p1-fixtures round 23, `de8886a`) -- same closed-gap reasoning as
-/// [`set_world_object_subframes`]: `world.cpp:262-278` collapses every
+/// [`set_world_object_subframes`]: `collision_detection/src/world.cpp:262-278` collapses every
 /// failure to one case (unknown id or a shape-count mismatch, both already
 /// caller-checked before this function runs), and `processCollisionObjectMove`
-/// (`planning_scene.cpp:2004`) is the only call site, with no side effect
+/// (`planning_scene/src/planning_scene.cpp:2004`) is the only call site, with no side effect
 /// beyond the raw world mutation.
 fn move_world_object_shapes(
     scene: &mut PlanningScene<'_>,
@@ -300,7 +300,7 @@ fn move_world_object_shapes(
 }
 
 /// Apply one `CollisionObject` command to `scene`'s world. Upstream
-/// `processCollisionObjectMsg` (`planning_scene.cpp:1774`).
+/// `processCollisionObjectMsg` (`planning_scene/src/planning_scene.cpp:1774`).
 pub fn apply_collision_object(
     scene: &mut PlanningScene<'_>,
     msg: moveit_msgs::CollisionObject,
@@ -319,7 +319,7 @@ pub fn apply_collision_object(
 }
 
 /// ADD/APPEND, both funnel through here -- upstream `processCollisionObjectAdd`
-/// (`planning_scene.cpp:1887`) handles both operations in one function,
+/// (`planning_scene/src/planning_scene.cpp:1887`) handles both operations in one function,
 /// differing only in whether an existing object is removed first.
 fn apply_add(
     scene: &mut PlanningScene<'_>,
@@ -420,7 +420,7 @@ fn apply_add(
     Ok(())
 }
 
-/// REMOVE. Upstream `processCollisionObjectRemove` (`planning_scene.cpp:1931`).
+/// REMOVE. Upstream `processCollisionObjectRemove` (`planning_scene/src/planning_scene.cpp:1931`).
 ///
 /// An empty `id` means "remove every object", **not** "remove the object
 /// named the empty string" -- a real landmine if read from the field name
@@ -439,7 +439,7 @@ fn apply_remove(scene: &mut PlanningScene<'_>, id: &str) -> Result<()> {
     }
 }
 
-/// MOVE. Upstream `processCollisionObjectMove` (`planning_scene.cpp:1953`).
+/// MOVE. Upstream `processCollisionObjectMove` (`planning_scene/src/planning_scene.cpp:1953`).
 ///
 /// The object's absolute pose is **always** applied (unconditionally, even
 /// if the shape-repose step below then fails) -- upstream itself has this
@@ -1033,7 +1033,7 @@ mod tests {
                 .subframe_pose("tip")
                 .is_none(),
             "upstream calls setSubframesOfObject unconditionally, even with an empty map \
-             (planning_scene.cpp:1927) -- APPEND without subframe data must clear old ones"
+             (planning_scene/src/planning_scene.cpp:1927) -- APPEND without subframe data must clear old ones"
         );
     }
 

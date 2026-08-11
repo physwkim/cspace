@@ -189,7 +189,7 @@ fn links_in_collision() {
 /// pair set.
 ///
 /// Upstream's `moveObject(id, transform)` composes -- `setObjectPose(id,
-/// transform * pose_)` at `world.cpp:291` -- so its four `z` literals
+/// transform * pose_)` at `collision_detection/src/world.cpp:291` -- so its four `z` literals
 /// `0.3, 0.25, 0.05, 0.25` put the box at `0.3, 0.55, 0.60, 0.85`, not at the
 /// literals. That is transcribed here as the same *relative* moves rather
 /// than as the absolute heights, so the composing semantics

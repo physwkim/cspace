@@ -44,10 +44,10 @@
 //! contacts is not bounded the way the three closed-form single-contact
 //! pairs are, so a defect-free subset cannot be carved out of it the same
 //! way. That is a property of `distanceCallback`'s own workaround
-//! (`collision_common.cpp:636-680`), not of FCL's distance machinery in
+//! (`collision_detection_fcl/src/collision_common.cpp:636-680`), not of FCL's distance machinery in
 //! general: `distanceCallback` builds its FCL request as
 //! `fcl::DistanceRequestd(cdata->req->enable_nearest_points)`
-//! (`collision_common.cpp:603`) -- one positional argument, so FCL's own
+//! (`collision_detection_fcl/src/collision_common.cpp:603`) -- one positional argument, so FCL's own
 //! `DistanceRequest::enable_signed_distance` is left at its default
 //! `false` regardless of MoveIt's separately-scoped
 //! `cdata->req->enable_signed_distance`, and FCL's native signed-distance
@@ -707,7 +707,7 @@ fn measure_box_box(
                 .ok_or("fcl_signed_distance is not a number")?;
 
             // `> 0` and not `>= 0`, matching `penetration_subset.rs`'s own
-            // branch test (`collision_common.cpp:636` is `distance <= 0`).
+            // branch test (`collision_detection_fcl/src/collision_common.cpp:636` is `distance <= 0`).
             if expected > 0.0 {
                 stats.separated += 1;
                 continue;

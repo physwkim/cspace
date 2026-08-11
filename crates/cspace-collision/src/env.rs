@@ -54,7 +54,7 @@
 //! `CollisionEnvPtr` and `getName()` labels the pairing, so
 //! `PlanningScene::allocateCollisionDetector` can key a `collision_detector_`
 //! map by that name and `getCollisionEnv(name)` can look one up
-//! (`planning_scene.cpp:255-311`). This port made that decision once and
+//! (`planning_scene/src/planning_scene.cpp:255-311`). This port made that decision once and
 //! permanently, in the other direction: `cspace_planning::scene::PlanningScene`'s
 //! collision methods are generic over a caller-supplied
 //! `E: CollisionEnv<Posed<'_, 'm>>`, so the backend is named as a *type* at
@@ -272,7 +272,7 @@ pub trait CollisionEnv<State> {
     /// (`collision_detection_fcl/src/collision_common.cpp:285-287`, `:351-353`,
     /// `:388-390`). The difference is what the trim *selects*: `contacts`
     /// stops accumulating once a running count is reached (first-found,
-    /// first-kept — no reordering, `collision_common.cpp:250-254`), so
+    /// first-kept — no reordering, `collision_detection_fcl/src/collision_common.cpp:250-254`), so
     /// rebudgeting the second call's `max_contacts` down by however many the
     /// first call already found reproduces it exactly. `cost_sources` is a
     /// `std::set` insert-and-trim, i.e. a global top-`max_cost_sources`

@@ -409,7 +409,7 @@ mod tests {
     }
 
     /// Boundary: a velocity outside `[min_velocity, max_velocity]` must
-    /// reject, matching `robot_state.hpp:1419`'s
+    /// reject, matching `moveit/robot_state/robot_state.hpp:1419`'s
     /// `satisfiesVelocityBounds` half of `satisfiesBounds` -- the gap this
     /// port had before this round's fix (position-only, velocity never
     /// checked at all).

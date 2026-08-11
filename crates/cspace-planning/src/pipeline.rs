@@ -296,7 +296,7 @@ pub enum PipelineError {
     /// [`cspace_core::model::RobotModel`] does not have. Upstream reaches the same
     /// condition as a `moveit::Exception` thrown out of
     /// `RobotModel::getVariableIndex` inside `setVariablePositions`
-    /// (`robot_state.cpp:395-406`), which `generatePlan`'s own
+    /// (`robot_state/src/robot_state.cpp:395-406`), which `generatePlan`'s own
     /// `catch (std::exception&)` (`planning_pipeline.cpp:353-359`) turns into
     /// a failed `res`. Separate from [`PipelineError::Feedforward`] despite
     /// both wrapping a [`cspace_core::error::Error`]: they are two different steps,

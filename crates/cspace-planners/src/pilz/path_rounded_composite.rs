@@ -330,7 +330,7 @@ impl PathRoundedComposite {
         // Upstream's analogous vector (`V_base_t` in
         // `path_roundedcomposite.cpp`) faces the identical gap and closes it
         // with `Vector::Normalize()`'s documented fallback: substitute the
-        // base-frame unit X axis (`frames.cpp:147-156`). This file is not a
+        // base-frame unit X axis (`orocos_kdl/src/frames.cpp:147-156`). This file is not a
         // transcription of that function (see this module's `# Why this file
         // stays BSD-3-Clause` — corner rounding here is derived from the
         // interior angle directly, reusing only named "interface facts", and

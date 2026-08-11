@@ -60,9 +60,9 @@
 //! -> Result<&mut JointModel>` (`crates/cspace-core/src/model/robot_model.rs`),
 //! mirroring upstream's non-`const` `RobotModel::getJointModel(const
 //! std::string&)` overload (`moveit_core/robot_model/include/moveit/
-//! robot_model/robot_model.hpp:146`) — the same accessor upstream's own
+//! moveit/robot_model/robot_model.hpp:146`) — the same accessor upstream's own
 //! `joint_limits.yaml` loaders use to call `JointModel::setVariableBounds`
-//! post-construction (`joint_model.hpp:356/359`), since URDF and
+//! post-construction (`moveit/robot_model/joint_model.hpp:356/359`), since URDF and
 //! `joint_limits.yaml` are two different bound sources upstream, merged
 //! after model load rather than in one constructor call. Landed in
 //! `cspace_core::model` (out of this crate's ownership); this crate's own change

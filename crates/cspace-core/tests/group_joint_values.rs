@@ -317,9 +317,9 @@ fn accelerations_error_on_unknown_group_rather_than_no_op() {
 }
 
 /// Upstream's `setJointGroupAccelerations` goes through
-/// `markAcceleration()` (`robot_state.cpp:685-687`), which clears
+/// `markAcceleration()` (`robot_state/src/robot_state.cpp:685-687`), which clears
 /// `has_effort_` — the group setter is not exempt from the exclusivity
-/// `robot_state.hpp:320`/`:418` promise callers. The
+/// `moveit/robot_state/robot_state.hpp:320`/`:418` promise callers. The
 /// every-write-site sweep lives in `invariants.rs`; this case keeps the
 /// group path pinned next to the rest of the group API.
 #[test]

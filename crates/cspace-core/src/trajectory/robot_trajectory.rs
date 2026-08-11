@@ -915,8 +915,8 @@ mod display_tests {
     /// The effort half of the same column logic, and the reason it needs
     /// its own waypoint rather than one state carrying both: upstream's
     /// `hasAccelerations()`/`hasEffort()` are mutually exclusive
-    /// (`robot_state.hpp:320`, `:418`), so `operator<<`'s three
-    /// independent `if`s (`robot_trajectory.cpp:671-694`) can never print
+    /// (`moveit/robot_state/robot_state.hpp:320`, `:418`), so `operator<<`'s three
+    /// independent `if`s (`robot_trajectory/src/robot_trajectory.cpp:671-694`) can never print
     /// `acc` and `eff` for one waypoint. An earlier version of this test
     /// set accelerations *and* efforts on one state and asserted all three
     /// columns — a state upstream cannot construct.

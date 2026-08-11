@@ -52,7 +52,7 @@
 //! per-case output), so pair selection is not the source of the finding
 //! below; `Op::Collision` is used anyway because it is the more direct
 //! question ("what does the target link's own contact say") and because
-//! `CollisionRequest::max_contacts_per_pair` (`collision_detection/collision_common.hpp:176`)
+//! `CollisionRequest::max_contacts_per_pair` (`moveit/collision_detection/collision_common.hpp:176`)
 //! defaults to `1` even for `Op::Collision` -- MoveIt caps *which single
 //! triangle's* contact a mesh-vs-shape pair reports, not just how many
 //! pairs are reported, and this program has no way to ask the oracle for

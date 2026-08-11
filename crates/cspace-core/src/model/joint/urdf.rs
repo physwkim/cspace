@@ -38,7 +38,7 @@ use super::model::JointModel;
 /// Verified against `urdfdom_headers/urdf_model/joint.h:173-175`: upstream's
 /// own `urdf::Joint::Type` enum is `UNKNOWN, REVOLUTE, CONTINUOUS,
 /// PRISMATIC, FLOATING, PLANAR, FIXED` — it has no `SPHERICAL` value at all,
-/// so `constructJointModel`'s switch (`robot_model.cpp:942-980`) can never
+/// so `constructJointModel`'s switch (`robot_model/src/robot_model.cpp:942-980`) can never
 /// receive one; its `default:` arm (reached only for `UNKNOWN`) logs
 /// `RCLCPP_ERROR("Unknown joint type: %d")` and leaves `new_joint_model`
 /// `nullptr` rather than raising any typed error. `Spherical` exists here

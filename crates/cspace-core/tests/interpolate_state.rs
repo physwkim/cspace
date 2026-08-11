@@ -14,7 +14,7 @@
 //!   both `NaN` and infinity as `null` — a request carrying one would either
 //!   fail to serialize or arrive as a different number, so the sweep can
 //!   only ever send finite `t`. Upstream's `checkInterpolationParamBounds`
-//!   (`robot_model.hpp:63`) throws on exactly those two values, and only two
+//!   (`moveit/robot_model/robot_model.hpp:63`) throws on exactly those two values, and only two
 //!   of the three overloads call it.
 //! * **Which joints were marked stale.** The oracle op reports variable
 //!   positions; upstream's dirty bookkeeping is internal to `RobotState` and
@@ -125,7 +125,7 @@ fn nan_t_is_refused_by_the_group_form() {
     assert_eq!(out.positions(), before.as_slice());
 }
 
-/// Upstream's single-joint overload (`robot_state.cpp:1159`) is the one that
+/// Upstream's single-joint overload (`robot_state/src/robot_state.cpp:1159`) is the one that
 /// does *not* call `checkInterpolationParamBounds` — it opens with the
 /// zero-variable early return and goes straight to `joint->interpolate`. A
 /// port that "helpfully" added the check to all three would reject a call

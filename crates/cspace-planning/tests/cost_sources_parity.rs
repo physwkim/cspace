@@ -109,7 +109,7 @@
 //! - id 1: `joint_values={}` (the established default self-colliding pose),
 //!   no world object, `group_name` omitted -- upstream's state overload runs
 //!   one `checkCollision(cost=true)` and swaps the result out with **no**
-//!   `removeCostSources`/`removeOverlapping` pass (`planning_scene.cpp:2499-2510`),
+//!   `removeCostSources`/`removeOverlapping` pass (`planning_scene/src/planning_scene.cpp:2499-2510`),
 //!   unlike the trajectory overload below. 75 raw mesh-triangle cost sources
 //!   survive uncollapsed; a port that (wrongly) ran a removal pass here would
 //!   under-count.
@@ -144,7 +144,7 @@
 //! - ids 1-2: two waypoints, one clean (`CLEAN_POSE`) and one self-colliding
 //!   (`{}`), in each order. `cs_start` is captured by `swap` at the *first*
 //!   waypoint only, not a copy of the running union
-//!   (`planning_scene.cpp:2473-2474`) -- id 1 (clean first) keeps 5 survivors
+//!   (`planning_scene/src/planning_scene.cpp:2473-2474`) -- id 1 (clean first) keeps 5 survivors
 //!   after removal, id 2 (colliding first) keeps 0, a distinction only a
 //!   trajectory whose first waypoint collides can show.
 //! - ids 3-5: two arm poses (`CLEAN_POSE`, and `CLEAN_POSE` with

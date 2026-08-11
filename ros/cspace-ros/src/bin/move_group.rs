@@ -32,7 +32,7 @@
 //!   [`cspace_ros::execute_trajectory`].
 //! * `planning_scene` (`moveit_msgs/msg/PlanningScene`, subscription) --
 //!   upstream `PlanningSceneMonitor::startSceneMonitor`
-//!   (`planning_scene_monitor.cpp:1197`). See "The monitored scene" below.
+//!   (`planning_scene_monitor/src/planning_scene_monitor.cpp:1197`). See "The monitored scene" below.
 //! * `/check_state_validity` (`moveit_msgs/srv/GetStateValidity`) -- upstream
 //!   `state_validation_service_capability.cpp`. It is here because a
 //!   subscription with no reader is unobservable: the scene monitor's whole
@@ -78,7 +78,7 @@
 //! Upstream's monitor holds one `planning_scene::PlanningScenePtr scene_`
 //! behind a `std::shared_mutex scene_update_mutex_`: the subscription
 //! callback takes it exclusively (`std::unique_lock`,
-//! `planning_scene_monitor.cpp:748`) and every capability takes it shared
+//! `planning_scene_monitor/src/planning_scene_monitor.cpp:748`) and every capability takes it shared
 //! (`LockedPlanningSceneRO`), which is what lets a capability read a scene it
 //! must not modify.
 //!
@@ -684,7 +684,7 @@ fn main() -> ExitCode {
     };
 
     // Upstream `PlanningSceneMonitor::startSceneMonitor`'s two arguments,
-    // verbatim (`planning_scene_monitor.cpp:1205-1208`):
+    // verbatim (`planning_scene_monitor/src/planning_scene_monitor.cpp:1205-1208`):
     //
     // * the topic is the `scene_topic` parameter's default,
     //   `DEFAULT_PLANNING_SCENE_TOPIC` (`:74`), which is the *unqualified*
@@ -710,7 +710,7 @@ fn main() -> ExitCode {
     };
 
     // `PlanningSceneMonitor::startStateMonitor` opens this one
-    // (`planning_scene_monitor.cpp:1384-1388`) with the same
+    // (`planning_scene_monitor/src/planning_scene_monitor.cpp:1384-1388`) with the same
     // `rclcpp::ServicesQoS()` and the same unqualified default topic name,
     // `DEFAULT_ATTACHED_COLLISION_OBJECT_TOPIC` (`:71`). It is a plain
     // subscription, not a message filter -- upstream's own comment on the
@@ -727,7 +727,7 @@ fn main() -> ExitCode {
     };
 
     // `TrajectoryExecutionManager`'s own subscription
-    // (`trajectory_execution_manager.cpp:204-206`), same QoS again. Upstream
+    // (`trajectory_execution_manager/src/trajectory_execution_manager.cpp:204-206`), same QoS again. Upstream
     // puts it on a dedicated callback group so a `stop` can be processed
     // while another callback is running (`:199-202`); this node is
     // single-threaded and has no long-running callback to preempt, so there
@@ -946,7 +946,7 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    // `newPlanningSceneCallback` (`planning_scene_monitor.cpp:711`) hands the
+    // `newPlanningSceneCallback` (`planning_scene_monitor/src/planning_scene_monitor.cpp:711`) hands the
     // message straight to `newPlanningSceneMessage` (`:739`).
     //
     // Upstream's `newPlanningSceneMessage` has two arms: with a
@@ -978,7 +978,7 @@ fn main() -> ExitCode {
     }
 
     // `PlanningSceneMonitor::processAttachedCollisionObjectMsg`
-    // (`planning_scene_monitor.cpp:841`). Upstream returns `false` on a
+    // (`planning_scene_monitor/src/planning_scene_monitor.cpp:841`). Upstream returns `false` on a
     // rejected object *after* having already mutated the scene under the
     // lock (`:853`); `apply` cannot leave that state behind, so a rejection
     // here is reported and changes nothing.
@@ -1000,7 +1000,7 @@ fn main() -> ExitCode {
     }
 
     // `TrajectoryExecutionManager::receiveEvent`
-    // (`trajectory_execution_manager.cpp:355`), which logs the payload and
+    // (`trajectory_execution_manager/src/trajectory_execution_manager.cpp:355`), which logs the payload and
     // hands it to `processEvent` (`:343`). The state this transitions lives
     // in `cspace_ros::execution`; the task owns the one instance so nothing
     // else can reach the transition.

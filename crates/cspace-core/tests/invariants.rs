@@ -622,11 +622,11 @@ type MarkingSite = (&'static str, Box<dyn Fn(&mut RobotState<'_>)>);
 
 /// One case per acceleration write site, because the exclusivity is a
 /// property of each site, not of one narrative order: upstream marks
-/// acceleration at `robot_state.hpp:350-351` (bulk), `:389-393` (by index,
-/// via `markAcceleration()`), and `robot_state.cpp:685-687` (by group),
+/// acceleration at `moveit/robot_state/robot_state.hpp:350-351` (bulk), `:389-393` (by index,
+/// via `markAcceleration()`), and `robot_state/src/robot_state.cpp:685-687` (by group),
 /// and every one of them clears `has_effort_`. A site that forgot would
 /// leave `hasAccelerations()` and `hasEffort()` both true — a state
-/// upstream's public contract (`robot_state.hpp:320`, `:418`) says cannot
+/// upstream's public contract (`moveit/robot_state/robot_state.hpp:320`, `:418`) says cannot
 /// exist, and one that makes `RobotTrajectory`'s dump and every
 /// `JointTrajectoryPoint` emit an acceleration *and* an effort array.
 #[test]
@@ -687,11 +687,11 @@ fn every_acceleration_write_site_clears_has_effort() {
 
 /// The mirror of `every_acceleration_write_site_clears_has_effort`, one
 /// case per effort write site: upstream marks effort at
-/// `robot_state.hpp:447-448` (bulk) and `:480-484` (by index, via
+/// `moveit/robot_state/robot_state.hpp:447-448` (bulk) and `:480-484` (by index, via
 /// `markEffort()`), both clearing `has_acceleration_`. This port has no
 /// group-level effort setter, matching upstream's `setJointGroupEffort`
 /// absence (upstream's nearest, `setJointEfforts`, refuses outright when
-/// `has_acceleration_` is set — `robot_state.cpp:554-569`).
+/// `has_acceleration_` is set — `robot_state/src/robot_state.cpp:554-569`).
 #[test]
 fn every_effort_write_site_clears_has_accelerations() {
     let model = panda();
@@ -741,7 +741,7 @@ fn every_effort_write_site_clears_has_accelerations() {
 
 /// The one part of the aliasing this port does *not* reproduce: upstream's
 /// `markAcceleration()` zeroes the shared buffer when acceleration was not
-/// already the live quantity (`robot_state.cpp:175-183`), so after an
+/// already the live quantity (`robot_state/src/robot_state.cpp:175-183`), so after an
 /// effort detour upstream reads `0.0` at every variable the next partial
 /// acceleration write does not touch. Separate buffers give this port
 /// nothing stale to erase, so the pre-detour values survive. Pinned here

@@ -972,7 +972,7 @@ struct StateInterpCase {
 const SCOPE_T_GRID: [f64; 4] = [0.0, 0.25, 0.5, 1.0];
 
 /// Compare all three `RobotState::interpolate` overloads
-/// (`robot_state.cpp:1138`, `:1147`, `:1159`) whole-state.
+/// (`robot_state/src/robot_state.cpp:1138`, `:1147`, `:1159`) whole-state.
 ///
 /// Clause 3 compares `JointModel::interpolate` one joint at a time, which is
 /// every type-specific rule but none of the three things the overloads add on

@@ -35,7 +35,7 @@ pub type JointIndex = usize;
 const MAX_JOINT_VARIABLES: usize = 7;
 
 /// `checkInterpolationParamBounds`
-/// (`robot_model.hpp:63`): NaN and infinity throw; a `t` outside `[0, 1]`
+/// (`moveit/robot_model/robot_model.hpp:63`): NaN and infinity throw; a `t` outside `[0, 1]`
 /// only warns, and extrapolates. The warning is dropped rather than routed
 /// somewhere — this port has no logger, and turning upstream's warning into
 /// an error would reject the extrapolation upstream performs.
@@ -79,7 +79,7 @@ fn check_interpolation_param_bounds(t: f64) -> Result<()> {
 /// What is left is exactly one axis: the private `dirty` field, `Option<JointIndex>`
 /// holding the common root of every joint whose transform is stale — mirroring
 /// upstream's actual `dirty_link_transforms_` field type (`const JointModel*`,
-/// not `bool`; see `robot_state.hpp:1682` and `RobotModel::getCommonRoot`).
+/// not `bool`; see `moveit/robot_state/robot_state.hpp:1682` and `RobotModel::getCommonRoot`).
 /// [`RobotState::update`] recomputes only that subtree and returns [`Posed`],
 /// a view that can only be constructed by `update`. Reading a transform
 /// therefore requires holding a `Posed`, and holding one keeps the `&mut
@@ -94,7 +94,7 @@ fn check_interpolation_param_bounds(t: f64) -> Result<()> {
 ///
 /// 1. **Acceleration and effort get independent storage, not upstream's
 ///    aliased buffer.** Upstream stores both in one
-///    `effort_or_acceleration_` vector (`robot_state.hpp:1730`); this port
+///    `effort_or_acceleration_` vector (`moveit/robot_state/robot_state.hpp:1730`); this port
 ///    gives each its own `Vec<f64>`, so a value written to one is not
 ///    overwritten by a later write to the other.
 ///
@@ -102,13 +102,13 @@ fn check_interpolation_param_bounds(t: f64) -> Result<()> {
 ///    reproduced here, by the private `Dynamics` sum type this port
 ///    switches on in place of the two bools. It is a documented public
 ///    guarantee, not a side effect of the memory layout:
-///    `robot_state.hpp:320` and `:418` both state that when one of
+///    `moveit/robot_state/robot_state.hpp:320` and `:418` both state that when one of
 ///    `hasAccelerations()`/`hasEffort()` reports true the other "will
 ///    certainly report false", and name serialization and state copying as
 ///    what relies on it.
 ///
 ///    What remains deviating is the *value* upstream leaves behind on a
-///    transition: `markAcceleration`/`markEffort` (`robot_state.cpp:175`,
+///    transition: `markAcceleration`/`markEffort` (`robot_state/src/robot_state.cpp:175`,
 ///    `:185`) zero the shared buffer when the marked quantity was not
 ///    already the live one, so upstream's acceleration reads back as `0.0`
 ///    at every variable a partial write did not touch. With separate
@@ -177,25 +177,25 @@ pub struct RobotState<'m> {
 ///
 /// Upstream keeps the two bools mutually exclusive by hand:
 /// `markAcceleration()` sets `has_acceleration_` and clears `has_effort_`,
-/// `markEffort()` does the reverse (`robot_state.cpp:175-193`), and the
+/// `markEffort()` does the reverse (`robot_state/src/robot_state.cpp:175-193`), and the
 /// bulk `setVariableAccelerations(const double*)`/`setVariableEffort(const
-/// double*)` overloads write both flags inline (`robot_state.hpp:350-351`,
+/// double*)` overloads write both flags inline (`moveit/robot_state/robot_state.hpp:350-351`,
 /// `:447-448`). Every write site therefore has to remember to clear its
 /// sibling; this port cannot forget, because there is no sibling to clear.
 ///
 /// The exclusivity is load-bearing, not incidental to upstream's aliased
-/// buffer: `robot_state.hpp:320`/`:418` promise callers that if one of
+/// buffer: `moveit/robot_state/robot_state.hpp:320`/`:418` promise callers that if one of
 /// `hasAccelerations()`/`hasEffort()` reports true the other "will
 /// certainly report false", and cite serializing and copying the state as
 /// the reason to care. `RobotTrajectory`'s waypoint dump
-/// (`robot_trajectory.cpp:679,687`) and every `JointTrajectoryPoint` built
+/// (`robot_trajectory/src/robot_trajectory.cpp:679,687`) and every `JointTrajectoryPoint` built
 /// from a state read exactly those two predicates, so a state with both
 /// true emits a message upstream cannot produce.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Dynamics {
     /// Neither has been set — a freshly constructed state, matching
     /// upstream's `has_acceleration_(false), has_effort_(false)`
-    /// (`robot_state.cpp:69-70`).
+    /// (`robot_state/src/robot_state.cpp:69-70`).
     None,
     /// `has_acceleration_ == true`.
     Acceleration,
@@ -369,7 +369,7 @@ impl<'m> RobotState<'m> {
 
     /// `hasAccelerations`
     ///
-    /// Upstream's own contract (`robot_state.hpp:320`): when this reports
+    /// Upstream's own contract (`moveit/robot_state/robot_state.hpp:320`): when this reports
     /// true, [`RobotState::has_effort`] "will certainly report false".
     pub fn has_accelerations(&self) -> bool {
         self.dynamics == Dynamics::Acceleration
@@ -377,7 +377,7 @@ impl<'m> RobotState<'m> {
 
     /// `hasEffort`
     ///
-    /// Upstream's own contract (`robot_state.hpp:418`): when this reports
+    /// Upstream's own contract (`moveit/robot_state/robot_state.hpp:418`): when this reports
     /// true, [`RobotState::has_accelerations`] "will certainly report
     /// false".
     pub fn has_effort(&self) -> bool {
@@ -427,7 +427,7 @@ impl<'m> RobotState<'m> {
     /// std::vector<double>&)`
     ///
     /// Clears [`RobotState::has_effort`], as upstream's own body does
-    /// (`robot_state.hpp:350-351` writes both flags inline rather than
+    /// (`moveit/robot_state/robot_state.hpp:350-351` writes both flags inline rather than
     /// going through `markAcceleration()`).
     ///
     /// # Panics
@@ -446,7 +446,7 @@ impl<'m> RobotState<'m> {
     /// [`RobotState::set_variable_effort`].
     ///
     /// Clears [`RobotState::has_accelerations`], as upstream's own body
-    /// does (`robot_state.hpp:447-448` writes both flags inline rather than
+    /// does (`moveit/robot_state/robot_state.hpp:447-448` writes both flags inline rather than
     /// going through `markEffort()`).
     ///
     /// # Panics
@@ -595,7 +595,7 @@ impl<'m> RobotState<'m> {
     /// `setVariableAcceleration(const std::string&, double)`
     ///
     /// Clears [`RobotState::has_effort`]: upstream reaches this write
-    /// through `markAcceleration()` (`robot_state.hpp:389-393`).
+    /// through `markAcceleration()` (`moveit/robot_state/robot_state.hpp:389-393`).
     ///
     /// # Errors
     ///
@@ -685,7 +685,7 @@ impl<'m> RobotState<'m> {
     /// `setVariableEffort(const std::string&, double)`
     ///
     /// Clears [`RobotState::has_accelerations`]: upstream reaches this
-    /// write through `markEffort()` (`robot_state.hpp:480-484`).
+    /// write through `markEffort()` (`moveit/robot_state/robot_state.hpp:480-484`).
     ///
     /// # Errors
     ///
@@ -989,7 +989,7 @@ impl<'m> RobotState<'m> {
     ///
     /// Upstream writes each active joint through
     /// `setJointPositions(JointModel*, double*)`
-    /// (`robot_state.cpp:600`), which — unlike this family's `Positions`
+    /// (`robot_state/src/robot_state.cpp:600`), which — unlike this family's `Positions`
     /// primitive above — propagates each write to that joint's own mimic
     /// followers immediately (`updateMimicJoint`, global, not
     /// group-scoped) before the trailing group-wide
@@ -1064,7 +1064,7 @@ impl<'m> RobotState<'m> {
     /// joint in `group`, derived from its master's *current* value —
     /// plus the group-dirty half of upstream's private
     /// `markDirtyJointTransforms(const JointModelGroup*)`
-    /// (`robot_state.hpp:1686`), which marks every one of `group`'s
+    /// (`moveit/robot_state/robot_state.hpp:1686`), which marks every one of `group`'s
     /// *active* joints and merges in `group->getCommonRoot()`. This port
     /// caches no per-group common root (see [`JointModelGroup`]'s own doc
     /// comment on why), so the merge is done by folding
@@ -1156,7 +1156,7 @@ impl<'m> RobotState<'m> {
     /// rule as [`RobotState::set_joint_group_velocities`].
     ///
     /// Clears [`RobotState::has_effort`]: upstream reaches this write
-    /// through `markAcceleration()` too (`robot_state.cpp:685-687`).
+    /// through `markAcceleration()` too (`robot_state/src/robot_state.cpp:685-687`).
     ///
     /// Upstream's `markAcceleration()` additionally zeroes the shared
     /// buffer on the transition, so upstream leaves `0.0` at every
@@ -1368,8 +1368,8 @@ impl<'m> RobotState<'m> {
     /// followed by mimic propagation over the whole model.
     ///
     /// Upstream splits this across two files —
-    /// `RobotState::interpolate` (`robot_state.cpp:1138`) forwards to
-    /// `RobotModel::interpolate` (`robot_model.cpp:1518`), which is the loop
+    /// `RobotState::interpolate` (`robot_state/src/robot_state.cpp:1138`) forwards to
+    /// `RobotModel::interpolate` (`robot_model/src/robot_model.cpp:1518`), which is the loop
     /// plus `RobotModel::updateMimicJoints`. It is one function here because
     /// the per-joint variable offsets that loop needs
     /// (`active_joint_model_start_index_`) are this type's bookkeeping in
@@ -1401,7 +1401,7 @@ impl<'m> RobotState<'m> {
     }
 
     /// `RobotState::interpolate(to, t, state, group)`
-    /// (`robot_state.cpp:1147`): the group's active joints, then
+    /// (`robot_state/src/robot_state.cpp:1147`): the group's active joints, then
     /// `RobotState::updateMimicJoints(group)` — which walks
     /// `group->getMimicJointModels()`, **the group's** mimic joints, not the
     /// model's. A mimic whose group does not contain it keeps whatever value
@@ -1432,7 +1432,7 @@ impl<'m> RobotState<'m> {
     }
 
     /// `RobotState::interpolate(to, t, state, joint)`
-    /// (`robot_state.cpp:1159`): one joint, then the joints that mimic it.
+    /// (`robot_state/src/robot_state.cpp:1159`): one joint, then the joints that mimic it.
     ///
     /// This overload alone does **not** call
     /// `checkInterpolationParamBounds`: the other two open with it, this one
@@ -1636,7 +1636,7 @@ impl<'m> RobotState<'m> {
     /// treats `frame_id == model_frame` as always resolvable, to the model
     /// root, with an identity transform. `knowsFrameTransform` does not
     /// carry that special case — only `hasLinkModel`. This is a genuine
-    /// upstream asymmetry (`robot_state.cpp:1338` vs `:1386`), not
+    /// upstream asymmetry (`robot_state/src/robot_state.cpp:1338` vs `:1386`), not
     /// something this port introduces: if the model frame is not itself a
     /// link name, `knows_frame_transform(model_frame)` is `false` while
     /// [`Posed::frame_transform`] on the same name still succeeds.
@@ -1725,7 +1725,7 @@ impl<'m> RobotState<'m> {
     /// group's *own* active joints dirty too, expanding the tracked dirty
     /// region to their common root
     /// (`markDirtyJointTransforms(const JointModelGroup*)`,
-    /// `robot_state.hpp:1686`). This port has no per-joint dirty-transform
+    /// `moveit/robot_state/robot_state.hpp:1686`). This port has no per-joint dirty-transform
     /// array to set — [`RobotState::dirty`] already collapses to a single
     /// common-root marker — so folding every active joint through
     /// [`RobotState::mark_dirty`] is the literal translation of that
@@ -1910,7 +1910,7 @@ impl<'s, 'm> Posed<'s, 'm> {
     /// `getFrameTransform`/`getFrameInfo`, restricted to what this crate
     /// alone can resolve: a leading `/` is stripped, `frame_id == model_frame`
     /// resolves to the identity transform at the root link (upstream:
-    /// `robot_state.cpp:1345`), and otherwise `frame_id` must name a link.
+    /// `robot_state/src/robot_state.cpp:1345`), and otherwise `frame_id` must name a link.
     /// Upstream's further fallback to attached bodies and their subframes
     /// lives one layer up, on the `cspace_planning::scene` crate's
     /// `PlanningScene::frame_transform` — this port keeps attached bodies on

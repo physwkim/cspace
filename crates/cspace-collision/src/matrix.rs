@@ -20,7 +20,7 @@
 //!
 //! `tools/ci/count-public-declarations.sh collision_matrix.hpp
 //! AllowedCollisionMatrix` prints **29**. The 29 bullets below were
-//! enumerated by hand from `collision_matrix.hpp:82-247` and then checked
+//! enumerated by hand from `moveit/collision_detection/collision_matrix.hpp:82-247` and then checked
 //! against that count.
 //!
 //! ## The collapse this audit is easiest to read against
@@ -311,7 +311,7 @@ impl AllowedCollision {
 /// confines to `cspace-ros`'s `TryFrom` layer, not the core crate.
 ///
 /// `print()` is not ported either, but for its own reason and not that one.
-/// It does no logging at all: `collision_matrix.cpp:428-491` writes an ASCII
+/// It does no logging at all: `collision_detection/src/collision_matrix.cpp:428-491` writes an ASCII
 /// table — index header rows, then one row per name with a `01?`/`-`
 /// indicator per pair — to the `std::ostream&` its caller supplies, and
 /// touches nothing else. It has zero callers in the pinned upstream checkout

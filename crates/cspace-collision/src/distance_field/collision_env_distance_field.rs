@@ -496,7 +496,7 @@ pub struct DistanceFieldConfig {
 ///   for each `link_names_[i]` and stores the matching position. Both
 ///   `getUpdatedLinkModels()` and `getUpdatedLinkModelNames()` are built
 ///   from the *same* sorted `updated_link_model_vector_`
-///   (`joint_model_group.cpp:261-278`), so that search always finds
+///   (`robot_model/src/joint_model_group.cpp:261-278`), so that search always finds
 ///   `link_name` at position `i` itself -- there is no input on which the
 ///   search and a direct `i` could disagree. This port computes
 ///   `link_state_indices[i] = i` directly instead of re-deriving an

@@ -58,7 +58,7 @@
 //! landed in round 21), and upstream has no counterpart to the `State`
 //! variant at all: a caller who wants to reach one specific configuration
 //! calls `constructGoalConstraints(state, jmg, tolerance)`
-//! (`kinematic_constraints/utils.hpp:99`), which builds one
+//! (`moveit/kinematic_constraints/utils.hpp:99`), which builds one
 //! `JointConstraint` per group variable at that state's positions. This
 //! port has that function as
 //! [`cspace_planning::constraints::utils::construct_goal_joint_constraints`], and every
@@ -975,7 +975,7 @@ mod tests {
     /// The goal these tests used to write as `Goal::State(value)`, in the
     /// shape upstream expresses a concrete-state goal:
     /// `constructGoalConstraints(state, jmg, tolerance)`
-    /// (`kinematic_constraints/utils.hpp:99`) — one
+    /// (`moveit/kinematic_constraints/utils.hpp:99`) — one
     /// [`cspace_planning::constraints::JointConstraint`] per group variable at that
     /// state's position, ported as
     /// [`cspace_planning::constraints::utils::construct_goal_joint_constraints`].

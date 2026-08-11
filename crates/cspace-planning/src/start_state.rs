@@ -29,7 +29,7 @@
 //!
 //! verbatim at `check_start_state_bounds.cpp:87-88` and
 //! `check_start_state_collision.cpp:74-75`, and through the identical
-//! `PlanningScene::getCurrentStateUpdated` helper (`planning_scene.cpp:636-641`,
+//! `PlanningScene::getCurrentStateUpdated` helper (`planning_scene/src/planning_scene.cpp:636-641`,
 //! which is those same two lines) at `planning_context_manager.cpp:586`
 //! (OMPL), `stomp_moveit_planning_context.cpp:226` (STOMP) and, spelled out
 //! again, `chomp_planner.cpp:77-78` (CHOMP).
@@ -41,9 +41,9 @@
 //! ("Joint values that are not set in this message are assumed to be the same
 //! as the robot's *current* state"), and it is what the code does:
 //! `robotStateMsgToRobotStateHelper` (`conversions.cpp:371-397`) reaches
-//! `setVariableValues` (`robot_state.hpp:1125-1131`), which calls
+//! `setVariableValues` (`moveit/robot_state/robot_state.hpp:1125-1131`), which calls
 //! `setVariablePositions(msg.name, msg.position)` — a loop over the *named*
-//! variables only (`robot_state.cpp:395-406`).
+//! variables only (`robot_state/src/robot_state.cpp:395-406`).
 //!
 //! # Why this is one sum type and not a value plus a flag
 //!
@@ -81,7 +81,7 @@
 //!   `name.size() != position.size()`, which also means a `name` list with an
 //!   empty `position` list applies nothing at all upstream, not "velocities
 //!   only".
-//! - assumed: `setVariableVelocities(names, values)` (`robot_state.cpp:422-429`)
+//! - assumed: `setVariableVelocities(names, values)` (`robot_state/src/robot_state.cpp:422-429`)
 //!   guards the pairing with a bare `assert`, so a shorter `velocity` array
 //!   reads past the end of the vector in any build with `NDEBUG` set.
 //!
@@ -156,7 +156,7 @@ impl StartState {
         )?))
     }
 
-    /// Ports `PlanningScene::getCurrentStateUpdated` (`planning_scene.cpp:636-641`)
+    /// Ports `PlanningScene::getCurrentStateUpdated` (`planning_scene/src/planning_scene.cpp:636-641`)
     /// applied in place: writes this overlay onto `state`, leaving every
     /// variable it does not name alone.
     ///
@@ -169,7 +169,7 @@ impl StartState {
     /// [`cspace_core::error::Error::UnknownName`] if the overlay names a variable
     /// `state`'s model does not have. Upstream reaches the same condition
     /// through `RobotModel::getVariableIndex` throwing inside
-    /// `setVariablePositions` (`robot_state.cpp:395-406`).
+    /// `setVariablePositions` (`robot_state/src/robot_state.cpp:395-406`).
     pub fn apply_to(&self, state: &mut RobotState<'_>) -> Result<()> {
         let Self::Overriding(over) = self else {
             return Ok(());
@@ -244,7 +244,7 @@ impl StartStateOverride {
             return Err(Error::construct(format!(
                 "start_state.joint_state has {} name(s) but {} velocity(ies); the wire's own \
                  convention is \"All arrays in this message should have the same size, or be \
-                 empty\", and upstream's setVariableVelocities (robot_state.cpp:422-429) \
+                 empty\", and upstream's setVariableVelocities (robot_state/src/robot_state.cpp:422-429) \
                  guards the pairing with a bare assert",
                 names.len(),
                 velocities.len()

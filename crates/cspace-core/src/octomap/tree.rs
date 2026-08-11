@@ -506,7 +506,7 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 ///   are shared via `Arc`, never swapped.
 /// - `operator==(const OcTreeBaseImpl&) const` -- distinct, same
 ///   reasoning (the one `octree ==` hit in `moveit_core` outside
-///   tests/`moveit_ros`, `planning_scene.cpp:1510`, is a `shared_ptr`
+///   tests/`moveit_ros`, `planning_scene/src/planning_scene.cpp:1510`, is a `shared_ptr`
 ///   identity comparison, not this operator -- confirmed by reading the
 ///   call site itself, round 16, not assumed from the grep hit alone).
 ///

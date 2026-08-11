@@ -609,9 +609,10 @@ impl<'a> Stomp<'a> {
     /// upstream does not.** [`StompConfiguration`] is a plain `pub`-field
     /// struct here exactly as upstream's is, so there is no construction
     /// point to validate at, and neither upstream's `Stomp::solve`
-    /// (`stomp.cpp:208`) nor its `generateSmoothingMatrix` (`utils.cpp:61`)
-    /// checks `dt` before dividing by it. With `control_cost_weight`
-    /// non-zero, `delta_t == 0.0` returned a fully-`NaN` trajectory
+    /// (`stomp.cpp:208`) nor its `generateSmoothingMatrix`
+    /// (`stomp/src/utils.cpp:61`) checks `dt` before dividing by it. With
+    /// `control_cost_weight` non-zero, `delta_t == 0.0` returned a
+    /// fully-`NaN` trajectory
     /// alongside `true`, and no caller can tell that from a real solution:
     /// `parameters_valid` comes from the task's own cost callbacks, which
     /// screen with ordinary comparisons, and every comparison against `NaN`

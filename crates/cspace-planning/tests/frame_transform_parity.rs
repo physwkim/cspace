@@ -29,7 +29,7 @@
 //! `nothing` is the one query this test does not compare `transform` on:
 //! upstream `PlanningScene::getFrameTransform`'s documented contract is
 //! "return identity when no transform is available, use
-//! `knowsFrameTransform` to tell the two apart" (`planning_scene.hpp:204`).
+//! `knowsFrameTransform` to tell the two apart" (`moveit/planning_scene/planning_scene.hpp:204`).
 //! [`PlanningScene::frame_transform`] instead returns
 //! [`cspace_core::error::Error::UnknownName`] for a name resolving in no tier, the
 //! idiomatic `Result` shape every other lookup in this port already uses
