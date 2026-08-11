@@ -251,7 +251,7 @@ pub fn check_robot_collision_continuous(
 
     // `for (link : active_) setCastCollisionObjectsTransform(link,
     // state1.getCollisionBodyTransform(link, 0),
-    // state2.getCollisionBodyTransform(link, 0))` (`:226-231`).
+    // state2.getCollisionBodyTransform(link, 0))` (`:227-231`).
     for (name, tf1, tf2) in &active {
         manager.set_cast_collision_objects_transform(
             name,

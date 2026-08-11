@@ -80,7 +80,7 @@
 //! `addAttachedObjects` fills its whole `collision_object_types` vector with
 //! `USE_SHAPE_TYPE` (`collision_env_bullet.cpp:345-346`) rather than choosing
 //! per shape the way `addToManager` (`:257-267`) and `addLinkAsCollisionObject`
-//! (`:417-425`) do, so an attached body whose shape is a mesh reaches
+//! (`:418-425`) do, so an attached body whose shape is a mesh reaches
 //! `createShapePrimitive`'s triangle-soup branch and comes back as a compound
 //! of `btTriangleShapeEx`.
 
@@ -877,7 +877,7 @@ impl ConvexShape for ConvexHullShape {
 ///
 /// The subclass, not the base, because the subclass is what
 /// `createShapePrimitive` builds (`bullet_utils.cpp:175`) and it overrides
-/// `getAabb`: `btTriangleShapeEx::getAabb` (`:140-149`) boxes the three
+/// `getAabb`: `btTriangleShapeEx::getAabb` (`:141-149`) boxes the three
 /// transformed corners, where `btTriangleShape::getAabb` (`btTriangleShape.h:
 /// 60-64`) calls `getAabbSlow` and pays six support queries for it. Everything
 /// else the narrow phase touches -- the support function, the margin, the

@@ -201,7 +201,7 @@ fn child_table(result_out: &mut dyn ManifoldResult<'_>) -> DispatchTable {
     }
 }
 
-/// `btCompoundCollisionAlgorithm::processCollision` (`:229-341`).
+/// `btCompoundCollisionAlgorithm::processCollision` (`:230-341`).
 ///
 /// `col_obj_wrap` is upstream's `colObjWrap` -- the compound side, already
 /// resolved through `m_isSwapped` by the caller -- and `compound_shape` is its
@@ -214,9 +214,9 @@ fn compound_process_collision<'a>(
     other_obj_wrap: &CollisionObjectWrapper<'a>,
     result_out: &mut dyn ManifoldResult<'a>,
 ) -> Result<(), UnportedAlgorithm> {
-    // `if (m_childCollisionAlgorithms.size() == 0) return;` (`:248-249`).
+    // `if (m_childCollisionAlgorithms.size() == 0) return;` (`:249-250`).
     // That array is sized to the child count by `preallocateChildAlgorithms`
-    // (`:43-72`) and never resized elsewhere, so the test is on the compound.
+    // (`:44-72`) and never resized elsewhere, so the test is on the compound.
     if compound_shape.num_child_shapes() == 0 {
         return Ok(());
     }
@@ -411,7 +411,7 @@ struct CompoundCompoundLeafCallback<'a, 'r> {
 }
 
 impl CompoundCompoundLeafCallback<'_, '_> {
-    /// `Process(leaf0, leaf1)` (`:113-212`), taking the child indices the
+    /// `Process(leaf0, leaf1)` (`:114-212`), taking the child indices the
     /// caller has already read out of the two leaves.
     ///
     /// The threshold grows box 0 only. That asymmetry is upstream's and is
