@@ -42,6 +42,15 @@
 //! discrete one -- the cast hull collapses onto the shape's own pose -- so a
 //! fixture built from single states would exercise none of `CastHullShape`'s
 //! support function and none of `addCastSingleResult`.
+//!
+//! # Why half the cases carry an attached mesh
+//!
+//! Every pair is captured twice more with a non-convex mesh attached at the
+//! arm's tip. That is the one scene `CollisionEnvBullet` asks
+//! `createShapePrimitive` for `USE_SHAPE_TYPE` on a mesh in, so it is the only
+//! one that sweeps a compound of `btTriangleShapeEx` rather than a hull -- and
+//! it is also the only place these fixtures reach more than one contact per
+//! pair, which is what `max_contacts_per_pair` bounds.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
