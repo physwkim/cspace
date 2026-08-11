@@ -62,7 +62,7 @@
 //!   neither, so [`distance_self`] and [`distance_world`] had no field to
 //!   read. Fixed by `parry.rs`'s `attach_requested_distance`.
 //! - Both per-pair maps were keyed in iteration order rather than by sorted
-//!   name (`collision_detection_fcl/collision_common.cpp:240-242`, `:564-567`), so [`distance_single`]
+//!   name (`collision_detection_fcl/src/collision_common.cpp:240-242`, `:564-567`), so [`distance_single`]
 //!   looked up `("collection", "panda_hand")` in a map that held
 //!   `("panda_hand", "collection")`. Fixed by `parry.rs`'s `pair_key`.
 

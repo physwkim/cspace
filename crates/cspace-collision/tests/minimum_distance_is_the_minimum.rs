@@ -222,7 +222,7 @@ fn the_state_presents_a_tangent_pair_and_a_deep_one() {
 ///
 /// Upstream answers `-9.93013661298909247e-16` here (module doc, row 1) --
 /// the tangent pair -- because the tangent pair is visited first and its
-/// signed value then gates every later pair out at `collision_detection_fcl/collision_common.cpp:608`.
+/// signed value then gates every later pair out at `collision_detection_fcl/src/collision_common.cpp:608`.
 #[test]
 fn the_tangent_pair_does_not_win_over_the_deep_one() {
     let model = build_fanuc();

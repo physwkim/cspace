@@ -269,7 +269,7 @@ pub trait CollisionEnv<State> {
     /// `cost_sources` is deliberately *not* rebudgeted like `max_contacts`
     /// above, even though upstream's `res_->cost_sources` is the same kind
     /// of shared, per-insertion-trimmed container as `res_->contacts`
-    /// (`collision_detection_fcl/collision_common.cpp:285-287`, `:351-353`,
+    /// (`collision_detection_fcl/src/collision_common.cpp:285-287`, `:351-353`,
     /// `:388-390`). The difference is what the trim *selects*: `contacts`
     /// stops accumulating once a running count is reached (first-found,
     /// first-kept — no reordering, `collision_common.cpp:250-254`), so
@@ -801,7 +801,7 @@ mod tests {
     fn check_collision_keeps_the_globally_most_costly_source_not_whichever_phase_found_it_first() {
         // Upstream shares ONE std::set<CostSource> across both phases,
         // trimmed to max_cost_sources on every insertion
-        // (collision_detection_fcl/collision_common.cpp:285-287, :351-353,
+        // (collision_detection_fcl/src/collision_common.cpp:285-287, :351-353,
         // :388-390): the final set is the GLOBAL top-max_cost_sources by
         // `cost * getVolume()` across self- and robot-collision combined,
         // not whichever phase happens to run first. Self-collision here

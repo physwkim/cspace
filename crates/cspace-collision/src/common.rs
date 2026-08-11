@@ -619,7 +619,7 @@ impl CollisionResult {
     /// inserts every phase's cost sources into the *same*
     /// `std::set<CostSource>`, trimmed to `req.max_cost_sources` on every
     /// single insertion across both the self- and robot-collision phases
-    /// (`collision_detection_fcl/collision_common.cpp:285-287`, `:351-353`,
+    /// (`collision_detection_fcl/src/collision_common.cpp:285-287`, `:351-353`,
     /// `:388-390`), so the final set is the global top-`max_cost_sources` by
     /// `cost * getVolume()` over candidates from *both* phases compared
     /// against each other. This port's two phases return independent

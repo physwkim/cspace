@@ -16,7 +16,7 @@
 //!
 //! Upstream fails this invariant, and that -- not numerical disagreement -- is
 //! what the Phase 3 `distance` clause was measuring. `distanceCallback`
-//! (`collision_detection_fcl/collision_common.cpp:648-663` at `e017c91ee`) runs `fcl::collide` with
+//! (`collision_detection_fcl/src/collision_common.cpp:648-663` at `e017c91ee`) runs `fcl::collide` with
 //! `num_max_contacts = 200` and keeps the contact with the **largest**
 //! `penetration_depth`. For a mesh link that is `fcl::collide` per *triangle*,
 //! and a triangle lying entirely inside a large box has no separating axis, so

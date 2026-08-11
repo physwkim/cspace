@@ -466,7 +466,7 @@ fn panda_cost_sources_matches_the_oracle() {
 /// call `cd.enableGroup(getRobotModel())` unconditionally
 /// (`collision_env_fcl.cpp:281,336`), resolving through
 /// `getUpdatedLinkModelsSet()`, and `collisionCallback`/`distanceCallback`
-/// (`collision_detection_fcl/collision_common.cpp:79-94,482-500`) drop a pair only when neither side
+/// (`collision_detection_fcl/src/collision_common.cpp:79-94,482-500`) drop a pair only when neither side
 /// is in the active set. Fixed in `cspace-collision` by `585a79e`. Measured
 /// directly this round with `cargo nextest run -p cspace-planning
 /// --run-ignored all`: passes, 86/86. Isolated by reverting `585a79e`'s
