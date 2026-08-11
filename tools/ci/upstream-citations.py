@@ -35,9 +35,10 @@ sentence meant:
            the file this module declares, and a module that writes one must
            declare it. RANGE and START then apply to it exactly as to a
            written-out citation.
-  SPLIT    no comment line ends at a citation's colon. `btTriangleShape.h:`
+  SPLIT    no line break falls inside a citation. `btTriangleShape.h:`
            wrapped onto `60-64` is a citation none of the rules above can
-           see, so it read as clean while pointing nowhere checkable.
+           see, so it read as clean while pointing nowhere checkable, and
+           no grep finds it either.
 
 # The unqualified form, and why it needed a declaration rather than a reading
 
@@ -101,32 +102,30 @@ continuous-collision files in `cspace-collision` -- 500 written-out citations
 plus 127 unqualified ones, out of the workspace's 1733 and 877. What the rest
 would report is measured, not assumed: these same rules over every tracked
 `.rs`, against moveit2 and all eight `third_party/` trees, give 0 RANGE, 0
-START, 0 SPLIT, and 416 RESOLVE.
+START, 0 SPLIT, 0 ambiguous, and 128 RESOLVE.
 
 SUBJECT cannot be measured that way, because outside this scope no module
 declares one: 750 unqualified citations sit in 88 files there, and assigning
 each file a subject is the same per-file audit the 17 modules here took.
-Those 750 are unchecked, by this gate and by anything else.
+Those 750 are unchecked, by this gate and by anything else. That, not the
+RESOLVE residue, is now the reason the gate stays scoped to the port.
 
-RANGE, START and SPLIT are zero because the sites that were not have since
-been fixed (`b20c3c86`, `74401d9d`, and the SPLIT one in `cspace-core`'s
-`shapes.rs` with the two in `moveit-diff`). The gate stays scoped to the port
-because of the 416, and two things are worth knowing before anyone widens it:
+The 128 are one thing and no longer a mixture -- every one names an upstream
+this workspace does not vendor: 108 FCL/libccd, 12 ros-industrial/stomp, 3
+Eigen (read through ITK's vendored copy, whose absolute path they give), 1
+urdfdom_headers, 1 OMPL, plus 3 `upstream.cpp:1` placeholders in
+`test_support`'s own tests for `KnownOracleDeviation`, which are fixture text
+rather than claims about a file. Handing this gate those trees is all that
+stands between it and a repo-wide RESOLVE of zero.
 
-  - 136 of them resolve to nothing, 280 to several files. Both counts are
-    dominated by the two shapes already found defective inside the port: a
-    path that skips a directory (`collision_detection_fcl/
-    collision_common.cpp`, 27 citations, fixed in `e0ca35ea`, where upstream
-    has `src/` between those two components) and a bare basename several
-    packages share (`planning_scene.cpp`, 110 citations, matching
-    moveit_core's and moveit_py's).
-  - So the 416 is not a clean "cites an upstream we do not vendor" residue.
-    It is a mixture, and separating the two is per-citation work of the same
-    kind that fixed the 28 -- not something this gate can widen into by being
-    handed more trees.
+Getting there took 276 citations lengthened to name one file (`planning_scene.
+cpp` alone matched moveit_core's and moveit_py's in 110 places), 28 given the
+`src/` their path skipped (`e0ca35ea`), and 4 whose path or line number had
+wrapped across a line break.
 """
 import pathlib
 import re
+import subprocess
 import sys
 from collections import defaultdict
 
@@ -161,12 +160,21 @@ BARE = re.compile(r"`:(\d+)(?:-(\d+))?`")
 # inline code span came first.
 DECLARES = re.compile(r"Unqualified citations in this file are lines in\s+`([^`]+)`")
 
-# A citation whose line number wrapped onto the next comment line. CITE cannot
-# match across the break, so the citation is invisible to every rule above and
-# reports as nothing to check -- `shapes.rs` carried one for the life of the
-# port, and three more sit outside this gate's scope.
-SPLIT = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*\.(?:cpp|hpp|h)\s*:\s*$")
-COMMENT = re.compile(r"^\s*(?://|\*)")
+# A citation broken across two source lines. CITE cannot match across the
+# break, so the citation is invisible to every rule above and reports as
+# nothing to check. Two shapes occur, and the test is the same for both: join
+# the line with what continues it and see whether a citation appears that
+# straddles the break.
+#
+#   `btTriangleShape.h:` / `60-64`         a comment wrapped after the colon
+#   `.../collision_detection/` + `\`       a Rust string continuation, mid-path
+#
+# Joining rather than pattern-matching the first half is what keeps this exact:
+# `conversion_coverage.rs` ends a continued line at `set_planning_scene_msg/`,
+# which any "line ends mid-path" rule flags and this one does not, because what
+# follows the break is prose rather than the rest of a citation.
+COMMENT = re.compile(r"^\s*(?://|\*)\s*")
+CONTINUES = re.compile(r"\\\s*$")
 
 SUBJECTS = [
     "crates/cspace-bullet/src",
@@ -194,13 +202,57 @@ def main() -> int:
     # name works wherever it is unique and a longer one is available where it
     # is not. Suffixing rather than substring-matching keeps
     # `detection/collision_common.hpp` from matching `collision_detection/...`.
+    #
+    # Each tree is indexed under its own name as well, so a citation may say
+    # which upstream it means. That is the only readable way to separate
+    # `srdfdom`'s `src/model.cpp` from bullet3's `examples/TinyRenderer/
+    # model.cpp` -- their shortest distinguishing suffixes are `src/model.cpp`
+    # and `TinyRenderer/model.cpp`, neither of which names its project -- and
+    # it is the form the `Ported from` headers already use.
+    #
+    # The repo's own C++ is indexed too, minus `third_party/`, which is where
+    # the upstream trees are and would otherwise be indexed twice, making every
+    # bullet3 citation ambiguous against itself. `tools/moveit-oracle/src/
+    # oracle.cpp` is cited 9 times from Rust and nothing resolved those either.
+    #
+    # Tracked files, not a walk: `.caucus/worktrees/` holds full copies of this
+    # repo, upstream trees included. Walking the working tree indexed 26 more
+    # `oracle.cpp`s and 26 more of every vendored header, and turned 42
+    # citations that had resolved into "names several files".
     index = defaultdict(list)
+    seen: set[pathlib.Path] = set()
+
+    def add(root: pathlib.Path, p: pathlib.Path, prefixes: tuple[str, ...]) -> None:
+        if p in seen:
+            return
+        seen.add(p)
+        parts = p.relative_to(root).parts
+        for i in range(len(parts)):
+            index["/".join(parts[i:])].append(p)
+        for prefix in prefixes:
+            index[f"{prefix}/{'/'.join(parts)}"].append(p)
+
     for root in (moveit2, bullet3):
-        for p in root.rglob("*"):
+        # A tree vendored under `third_party/` is also indexed at the path it
+        # occupies in this repo, which is how the octomap and geometric_shapes
+        # docs already refer to their checkouts. Requiring those citations to
+        # drop the prefix would be rewriting correct paths to suit the index.
+        prefixes = (root.name,)
+        if root.is_relative_to(repo):
+            prefixes += (str(root.relative_to(repo)),)
+        for p in sorted(root.rglob("*")):
             if p.is_file() and p.suffix in (".cpp", ".hpp", ".h"):
-                parts = p.relative_to(root).parts
-                for i in range(len(parts)):
-                    index["/".join(parts[i:])].append(p)
+                add(root, p, prefixes)
+    tracked = subprocess.run(
+        ["git", "-C", str(repo), "ls-files", "-z", "*.cpp", "*.hpp", "*.h"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split("\0")
+    for name in tracked:
+        if not name or name.startswith("third_party/"):
+            continue
+        p = repo / name
+        if p.is_file():
+            add(repo, p, ())
     if not index:
         print("FAIL indexed no upstream sources -- the roots are not the trees this expects.",
               file=sys.stderr)
@@ -220,7 +272,9 @@ def main() -> int:
         # tree root rather than from this machine's filesystem root.
         for root in (moveit2, bullet3):
             if p.is_relative_to(root):
-                return str(p.relative_to(root))
+                return f"{root.name}/{p.relative_to(root)}"
+        if p.is_relative_to(repo):
+            return str(p.relative_to(repo))
         return str(p)
 
     cache: dict[pathlib.Path, list[str]] = {}
@@ -303,11 +357,20 @@ def main() -> int:
                     )
                     continue
                 check(subject, a, b, f"{rel}:{lineno} cites `:{span}`, declared {subject}")
-            if COMMENT.match(line) and SPLIT.search(line.rstrip()):
-                failures.append(
-                    f"SPLIT {rel}:{lineno} ends at a citation's colon -- its line number "
-                    f"wrapped onto the next line, where no rule here can see it"
-                )
+            if lineno < len(src):
+                head = CONTINUES.sub("", line.rstrip())
+                tail = COMMENT.sub("", src[lineno]) if COMMENT.match(src[lineno]) else None
+                if tail is None and CONTINUES.search(line):
+                    tail = src[lineno].lstrip()
+                if tail is not None and any(
+                    m.start() < len(head) < m.end() for m in CITE.finditer(head + tail)
+                ):
+                    failures.append(
+                        f"SPLIT {rel}:{lineno} breaks a citation across the line end -- "
+                        f"joined with the next line it reads "
+                        f"{next(m.group(0) for m in CITE.finditer(head + tail) if m.start() < len(head) < m.end())}, "
+                        f"which no rule here can see and no grep can find"
+                    )
 
     print(f"{checked} citation(s) checked against the pinned upstream trees "
           f"in {len(files)} file(s), {bare} of them written without a filename")
