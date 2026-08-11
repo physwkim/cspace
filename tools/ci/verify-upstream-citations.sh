@@ -1,7 +1,7 @@
 #!/bin/bash
 # Resolves every `<file>.cpp:N-M` citation in the continuous-collision port
 # against the two upstream trees it was ported from, and fails when one does
-# not point at code. `tools/ci/check-upstream-citations.py` holds the rules and
+# not point at code. `tools/ci/upstream-citations.py` holds the rules and
 # the argument for why there are three of them; this script is what finds the
 # trees and refuses to grade against the wrong ones.
 #
@@ -44,7 +44,7 @@ require_caller_tree "$REPO_ROOT"
 # caller's directory instead.
 cd "$REPO_ROOT" || exit 1
 
-CHECKER="tools/ci/check-upstream-citations.py"
+CHECKER="tools/ci/upstream-citations.py"
 MOVEIT2_SRC="${MOVEIT2_SRC:-$HOME/work/moveit2}"
 BULLET3_SRC="${BULLET3_SRC:-$REPO_ROOT/third_party/bullet3}"
 
