@@ -60,9 +60,9 @@
 //!   always [`CollisionDistance::Closest`].
 //! - **`nearest_points`.** `addCastSingleResult` never assigns them and
 //!   `collision_detection::Contact` gives them no initialiser
-//!   (`collision_common.hpp:105`), so upstream's cast contacts carry whatever
-//!   the stack held. There is no value to reproduce and this port writes
-//!   zeros.
+//!   (`moveit/collision_detection/collision_common.hpp:105`), so upstream's
+//!   cast contacts carry whatever the stack held. There is no value to
+//!   reproduce and this port writes zeros.
 //! - **`group_name`.** `checkRobotCollisionHelperCCD` re-poses every link in
 //!   `active_`, which is every link that had geometry to add, and consults no
 //!   group. This is a difference from the same environment's *discrete*

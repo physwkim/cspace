@@ -77,9 +77,9 @@ use crate::contact_test_data::Contact;
 /// - `std::swap(col->nearest_points[0], col->nearest_points[1])` (`:462`) swaps
 ///   two `Eigen::Vector3d`s that nothing on this path ever assigns.
 ///   `collision_detection::Contact::nearest_points` has no default initialiser
-///   (`collision_common.hpp:105`), so on the continuous path its value is
-///   whatever the stack held. This port carries no `nearest_points` for that
-///   reason: there is no value to reproduce.
+///   (`moveit/collision_detection/collision_common.hpp:105`), so on the
+///   continuous path its value is whatever the stack held. This port carries
+///   no `nearest_points` for that reason: there is no value to reproduce.
 ///
 /// `localsup0` and `localsup1` (`:480`, `:484`) are likewise written by
 /// `getAverageSupport` and never read -- `sup0`/`sup1` are recomputed from the

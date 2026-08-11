@@ -38,7 +38,7 @@ use std::collections::BTreeMap;
 
 use cspace_bullet::linear_math::{Scalar, Vec3};
 
-/// `collision_detection::BodyType` (`collision_common.hpp:56-70`).
+/// `collision_detection::BodyType` (`moveit/collision_detection/collision_common.hpp:56-70`).
 ///
 /// Re-declared here rather than taken from `cspace_collision` for the reason
 /// the module docs give; `cspace_collision` maps this onto its own.
@@ -52,8 +52,9 @@ pub enum BodyType {
     WorldObject,
 }
 
-/// `collision_detection::Contact` (`collision_common.hpp:72-106`), reduced to
-/// the fields the continuous path writes and reads.
+/// `collision_detection::Contact`
+/// (`moveit/collision_detection/collision_common.hpp:72-106`), reduced to the
+/// fields the continuous path writes and reads.
 ///
 /// This is the stored record, and every field on it is already in its final
 /// form. In particular the two bodies are the way round the result reports
@@ -65,7 +66,7 @@ pub enum BodyType {
 /// `nearest_points` is absent. `addDiscreteSingleResult` fills it
 /// (`bullet_utils.hpp:405-406`); the cast path never assigns it and
 /// `collision_detection::Contact` gives it no default initialiser
-/// (`collision_common.hpp:105`), so what the swap at `:462` exchanges is
+/// (`moveit/collision_detection/collision_common.hpp:105`), so what the swap at `:462` exchanges is
 /// whatever the stack held. There is no value to reproduce.
 ///
 /// `cost_density`, `subframe_1`/`subframe_2` and the two `nearest_points`
@@ -118,8 +119,8 @@ pub struct CastRequest {
 
 impl Default for CastRequest {
     /// The defaults `collision_detection::CollisionRequest` declares
-    /// (`collision_common.hpp:147-186`): no distance, no contacts, and budgets
-    /// of one.
+    /// (`moveit/collision_detection/collision_common.hpp:147-186`): no
+    /// distance, no contacts, and budgets of one.
     fn default() -> Self {
         Self {
             distance: false,
@@ -163,7 +164,8 @@ pub struct CastResult {
 }
 
 impl Default for CastResult {
-    /// `CollisionResult::clear()` (`collision_common.hpp:339-347`), which is
+    /// `CollisionResult::clear()`
+    /// (`moveit/collision_detection/collision_common.hpp:339-347`), which is
     /// also the state a fresh one is constructed in.
     fn default() -> Self {
         Self {

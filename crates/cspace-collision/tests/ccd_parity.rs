@@ -23,11 +23,12 @@
 //!
 //! `nearest_points` alone. `addCastSingleResult` never assigns them and
 //! `collision_detection::Contact` gives them no initialiser
-//! (`collision_common.hpp:105`), so upstream's swept contacts carry whatever
-//! the stack held -- two runs of `capture-ccd-fixtures.py` over the same
-//! states read values like `2.07e-312` and `-1.60e+268` there and disagree on
-//! every one. There is no value to reproduce; the capture script drops the
-//! field, `bullet_ccd` writes zeros, and nothing below compares it.
+//! (`moveit/collision_detection/collision_common.hpp:105`), so upstream's
+//! swept contacts carry whatever the stack held -- two runs of
+//! `capture-ccd-fixtures.py` over the same states read values like
+//! `2.07e-312` and `-1.60e+268` there and disagree on every one. There is no
+//! value to reproduce; the capture script drops the field, `bullet_ccd`
+//! writes zeros, and nothing below compares it.
 //!
 //! Everything else is compared: the boolean, the contact count, every pair
 //! key, and within each pair every contact's two body names, two body types,
