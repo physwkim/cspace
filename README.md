@@ -111,7 +111,7 @@ QUALIFIED: four of its six conditions are UNMET, because success rate compares a
 trajectory optimizer to a tree-growing sampler (CHOMP 380/500, STOMP 441/500,
 against a 89.64% bar). Each UNMET has its reasoning in that script's header.
 
-`cargo nextest run --workspace` is 2,433 tests.
+`cargo nextest run --workspace` is 2,596 tests, measured on `9cd8eaba`.
 
 ## Building and testing
 
