@@ -21,13 +21,16 @@ implementations the same inputs and compares the answers.
 |---|---|
 | `cspace-core` | `error`, `geometry`, `octomap`, `srdf`, `model`, `state`, `kinematics`, `sampling`, `trajectory`, `smoothing`, `metrics`, `test_support` |
 | `cspace-collision` | `parry`-backed collision environment, allowed-collision matrix, `distance_field` |
+| `cspace-bullet` | Bullet's convex narrow phase: support functions, Voronoi simplex, GJK, EPA, the `dbvt` broadphase, manifold |
+| `cspace-bullet-cast` | MoveIt's Bullet continuous-collision layer: `cast_hull_shape`, the cast broadphase manager, cast contact conversion |
 | `cspace-planning` | planning request/response, pipeline and adapters, `constraints`, `scene`, `planner_registry` |
 | `cspace-planners` | `sbp` (RRT-Connect and state spaces), `chomp`, `pilz`, `stomp` |
 | `cspace-stomp-core` | the ROS-independent STOMP optimizer loop |
 
-Twenty of these were separate packages at one point; the split was a build-time
-boundary rather than a design one, and the module names above are what the
-former crate names became.
+Twenty of those module names were separate packages at one point; the split was
+a build-time boundary rather than a design one, and the module names are what
+the former crate names became. The two Bullet crates are not from that fold —
+they arrived later, and each tracks an upstream of its own.
 
 `ros/cspace-ros` is its own workspace: it needs `r2r` and a local ROS 2 install
 at build time, which neither this repo's CI nor a plain `cargo build --workspace`
