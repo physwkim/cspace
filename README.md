@@ -20,7 +20,7 @@ implementations the same inputs and compares the answers.
 | Crate | Contents |
 |---|---|
 | `cspace-core` | `error`, `geometry`, `octomap`, `srdf`, `model`, `state`, `kinematics`, `sampling`, `trajectory`, `smoothing`, `metrics`, `test_support` |
-| `cspace-collision` | `parry`-backed collision environment, allowed-collision matrix, `distance_field` |
+| `cspace-collision` | collision environment — `parry` for the discrete check, `bullet_ccd` for the two-state continuous one — allowed-collision matrix, `distance_field` |
 | `cspace-bullet` | Bullet's convex narrow phase: support functions, Voronoi simplex, GJK, EPA, the `dbvt` broadphase, manifold |
 | `cspace-bullet-cast` | MoveIt's Bullet continuous-collision layer: `cast_hull_shape`, the cast broadphase manager, cast contact conversion |
 | `cspace-planning` | planning request/response, pipeline and adapters, `constraints`, `scene`, `planner_registry` |
@@ -45,7 +45,10 @@ upstream delegates it to OMPL, which has no Rust equivalent, so `cspace-planners
 
 Not ported: `moveit_ros` (partially covered by `ros/cspace-ros`),
 `moveit_setup_assistant`, `moveit_py`, `moveit_plugins`. FCL is replaced by
-[`parry`](https://github.com/dimforge/parry); the Bullet backend is dropped.
+[`parry`](https://github.com/dimforge/parry) rather than ported;
+`collision_detection_bullet` is the other way round, ported rather than
+replaced, so a discrete check is parry's answer and the two-state continuous
+check is Bullet's own GJK/EPA.
 
 Plugins are resolved at compile time through a `linkme` registry rather than
 `pluginlib`, so a planner is linked in by depending on the crate that declares

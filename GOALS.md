@@ -25,13 +25,13 @@ ROS 2 연동은 `cspace-ros` 하나에만 존재하고, 그 크레이트만 r2r�
 
 ## 범위
 
-**이식 대상:** `moveit_core` (70,215 LOC), `moveit_kinematics` (6,912),
-`moveit_planners` 중 pilz / chomp / stomp, 그리고 신규 순수 Rust SBP 플래너.
+**이식 대상:** `moveit_core` (70,215 LOC, `collision_detection_bullet`의
+연속 충돌 경로 포함), `moveit_kinematics` (6,912), `moveit_planners` 중
+pilz / chomp / stomp, 그리고 신규 순수 Rust SBP 플래너.
 
 **범위 밖:** `moveit_ros` (선택적 `cspace-ros`가 일부만 커버),
 `moveit_setup_assistant` (Qt GUI), `moveit_py` (PyO3), `moveit_plugins`
-(ros2_control 결합), `collision_detection_bullet` (드롭),
-`collision_detection_fcl` (`parry`로 대체).
+(ros2_control 결합), `collision_detection_fcl` (`parry`로 대체).
 
 ## 완료 조건
 
