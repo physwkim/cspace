@@ -1,0 +1,111 @@
+# cspace planning IOC database.
+#
+# Client protocol:
+#   caput -a $(P)Start 7 0 -0.785 0 -2.356 0 1.571 0.785
+#   caput -a $(P)Goal  7 0.5 -0.785 0 -2.356 0 1.571 0.785
+#   caput -c -w 60 $(P)Plan.PROC 1        # completion == plan finished
+#   caget $(P)NPoints $(P)NJoints $(P)Times $(P)Traj
+#
+# $(P)Traj is row-major [point][joint]; $(P)Times is seconds from start.
+# On failure $(P)Plan raises a MAJOR alarm; read the reason from
+# $(P)Plan.VALE. aSub drives its OUTx links only on a 0 return
+# (aSubRecord.c:232-239), so $(P)Message and the other fan-out
+# records keep their last-success values after a failure.
+#
+# Macros: P (prefix), MAXJ (joint capacity, default 32), PTSCAP (waypoint
+# capacity, default 1024), TRAJCAP (flattened trajectory capacity, default
+# 7168 = 1024 points x 7 joints; raise for wider groups).
+
+record(waveform, "$(P)Start") {
+    field(DESC, "Start joint positions")
+    field(FTVL, "DOUBLE")
+    field(NELM, "$(MAXJ=32)")
+}
+
+record(waveform, "$(P)Goal") {
+    field(DESC, "Goal joint positions")
+    field(FTVL, "DOUBLE")
+    field(NELM, "$(MAXJ=32)")
+}
+
+# Scaling factors feed Ruckig time parameterization; values outside (0,1]
+# (including an untouched 0.0) fall back to 1.0.
+record(ao, "$(P)VelScale") {
+    field(DESC, "Max velocity scaling (0,1]")
+    field(VAL,  "1")
+    field(PREC, "3")
+}
+
+record(ao, "$(P)AccScale") {
+    field(DESC, "Max acceleration scaling (0,1]")
+    field(VAL,  "1")
+    field(PREC, "3")
+}
+
+# The planner id is field C (FTC=STRING), written directly
+# (`caput $(P)Plan.C <name>`; empty selects rrt_connect).
+record(aSub, "$(P)Plan") {
+    field(DESC, "start+goal -> joint trajectory")
+    field(SNAM, "cspacePlan")
+    field(BRSV, "MAJOR")
+
+    field(FTA,  "DOUBLE")
+    field(NOA,  "$(MAXJ=32)")
+    field(INPA, "$(P)Start")
+    field(FTB,  "DOUBLE")
+    field(NOB,  "$(MAXJ=32)")
+    field(INPB, "$(P)Goal")
+    field(FTC,  "STRING")
+    field(FTD,  "DOUBLE")
+    field(INPD, "$(P)VelScale")
+    field(FTE,  "DOUBLE")
+    field(INPE, "$(P)AccScale")
+
+    field(FTVA, "DOUBLE")
+    field(NOVA, "$(TRAJCAP=7168)")
+    field(OUTA, "$(P)Traj PP")
+    field(FTVB, "DOUBLE")
+    field(NOVB, "$(PTSCAP=1024)")
+    field(OUTB, "$(P)Times PP")
+    field(FTVC, "LONG")
+    field(OUTC, "$(P)NPoints PP")
+    field(FTVD, "LONG")
+    field(OUTD, "$(P)NJoints PP")
+    field(FTVE, "STRING")
+    field(OUTE, "$(P)Message PP")
+    field(FTVF, "STRING")
+    field(NOVF, "$(MAXJ=32)")
+    field(OUTF, "$(P)JointNames PP")
+}
+
+record(waveform, "$(P)Traj") {
+    field(DESC, "Trajectory, row-major [pt][joint]")
+    field(FTVL, "DOUBLE")
+    field(NELM, "$(TRAJCAP=7168)")
+}
+
+record(waveform, "$(P)Times") {
+    field(DESC, "Seconds from start per point")
+    field(FTVL, "DOUBLE")
+    field(NELM, "$(PTSCAP=1024)")
+}
+
+record(longin, "$(P)NPoints") {
+    field(DESC, "Waypoints in last plan")
+}
+
+record(longin, "$(P)NJoints") {
+    field(DESC, "Joints in the planning group")
+}
+
+# Only updated on success (OUTx gating above): holds "OK" from the
+# last successful plan. Failure reasons live in $(P)Plan.VALE.
+record(stringin, "$(P)Message") {
+    field(DESC, "Last successful plan status")
+}
+
+record(waveform, "$(P)JointNames") {
+    field(DESC, "Joint order of Traj columns")
+    field(FTVL, "STRING")
+    field(NELM, "$(MAXJ=32)")
+}

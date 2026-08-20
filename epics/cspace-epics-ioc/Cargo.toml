@@ -1,0 +1,54 @@
+[package]
+name = "cspace-epics-ioc"
+description = "EPICS soft IOC front-end for cspace: start/goal joint waveforms in, a planned joint trajectory out, over Channel Access"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "BSD-3-Clause"
+repository = "https://github.com/physwkim/cspace"
+authors = ["cspace contributors"]
+publish = false
+
+# This crate is its own workspace root, for the same reasons ros/cspace-ros
+# is (see that manifest's comment): the root workspace's `members =
+# ["crates/*"]` glob must not pull an external-stack front-end into every
+# `cargo build --workspace`, and the crates.io-published members cannot carry
+# it. epics-rs comes from crates.io, so unlike cspace-ros this crate builds
+# with no system prerequisite -- it is still a front-end, not core.
+[workspace]
+
+[dependencies]
+# The whole EPICS stack: epics_rs::base (records, database, iocsh,
+# epics_main) and epics_rs::ca (IocApplication, run_ca_ioc) under the
+# default `ca` feature. Same registry dependency the epics-rs-iocs
+# workspace pins; no local checkout is needed to build this crate.
+epics-rs = "0.26"
+
+# Path deps to the core workspace, not `workspace = true`: this manifest is
+# its own workspace (see above), so there is no `[workspace.dependencies]`
+# table to inherit from.
+cspace-core = { path = "../../crates/cspace-core" }
+cspace-collision = { path = "../../crates/cspace-collision" }
+cspace-planning = { path = "../../crates/cspace-planning" }
+
+# Exists only so `sbp`'s `RrtConnectManager` registration is linked into this
+# crate's binaries and test binaries at all -- a `linkme::distributed_slice`
+# entry lives in an rlib no symbol references, and `src/lib.rs`'s
+# `use cspace_planners as _;` is what keeps the linker from dropping the
+# object file it sits in (same note as ros/cspace-ros/Cargo.toml).
+cspace-planners = { path = "../../crates/cspace-planners" }
+
+# `RobotModel::from_urdf_and_srdf` takes a `urdf_rs::Robot`. Version pinned
+# to match the root workspace's own `urdf-rs = "0.9"` by hand, since this
+# manifest cannot `workspace = true`.
+urdf-rs = "0.9"
+
+thiserror = "2"
+
+[lints.rust]
+unsafe_code = "forbid"
+warnings = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
