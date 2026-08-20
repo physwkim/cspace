@@ -269,11 +269,11 @@ checksum = "61803da095bee82a81bb1a452ecc25d3b2f1416d1897eb86430c6159ef717c17"
 
 [[package]]
 name = "cspace-bullet"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "cspace-bullet-cast"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cspace-bullet",
  "cspace-core",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "cspace-collision"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cspace-bullet-cast",
  "cspace-core",
@@ -292,7 +292,7 @@ dependencies = [
 
 [[package]]
 name = "cspace-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "glamx",
  "linkme",
@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "cspace-planners"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cspace-collision",
  "cspace-core",
@@ -340,7 +340,7 @@ dependencies = [
 
 [[package]]
 name = "cspace-planning"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cspace-collision",
  "cspace-core",
@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "cspace-stomp-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nalgebra",
 ]
