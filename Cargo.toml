@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "tools/moveit-diff"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 license = "BSD-3-Clause"
@@ -36,10 +36,10 @@ authors = ["cspace contributors"]
 # zlib-derived code as BSD-3-Clause.
 
 [workspace.dependencies]
-cspace-bullet = { path = "crates/cspace-bullet", version = "0.1.0" }
-cspace-bullet-cast = { path = "crates/cspace-bullet-cast", version = "0.1.0" }
-cspace-collision = { path = "crates/cspace-collision", version = "0.1.0" }
-cspace-core = { path = "crates/cspace-core", version = "0.1.0" }
+cspace-bullet = { path = "crates/cspace-bullet", version = "0.1.1" }
+cspace-bullet-cast = { path = "crates/cspace-bullet-cast", version = "0.1.1" }
+cspace-collision = { path = "crates/cspace-collision", version = "0.1.1" }
+cspace-core = { path = "crates/cspace-core", version = "0.1.1" }
 # Path and no version, alone among these. Nothing in the workspace depends on
 # cspace-planners except cspace-planning's `[dev-dependencies]`, and that edge
 # closes a cycle: cspace-planners needs cspace-planning for `PlanningRequest`,
@@ -53,8 +53,8 @@ cspace-core = { path = "crates/cspace-core", version = "0.1.0" }
 # normal path-only edge, so that mistake surfaces at publish rather than
 # silently.
 cspace-planners = { path = "crates/cspace-planners" }
-cspace-planning = { path = "crates/cspace-planning", version = "0.1.0" }
-cspace-stomp-core = { path = "crates/cspace-stomp-core", version = "0.1.0" }
+cspace-planning = { path = "crates/cspace-planning", version = "0.1.1" }
+cspace-stomp-core = { path = "crates/cspace-stomp-core", version = "0.1.1" }
 
 nalgebra = { version = "0.35", features = ["serde-serialize"] }
 roxmltree = "0.21"
